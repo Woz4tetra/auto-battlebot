@@ -135,6 +135,23 @@ The dashboard streams all diagnostic data at 10 Hz:
 - Pack voltage and current (`vbat` and `ibat`, the last two CSV columns, sampled every 10 ms and repeated in between; `ibat` is positive while discharging)
 - Current mode (combat / tuning)
 
+### Sensor and I2C panel
+
+Below the live values, the page polls `/status` once a second and shows the health of `Wire1`
+and both sensors. Red rows are the ones to look at.
+
+- **I2C bus**: idle level of SDA and SCL (a line stuck low means a device is holding it), and
+  which addresses answered the last scan. The boot scan runs before either sensor starts.
+  **Rescan bus** queues a new scan, which runs once the robot is disarmed.
+- **BNO055**: whether `begin()` succeeded, the chip ID it read (0xA0) and the I2C result of that
+  read, dropouts after boot, sample count and age. Once running, it also shows the operation
+  mode (IMUPLUS is 0x08), system status (5 is fusion running), system error, self-test bits,
+  and calibration.
+- **INA228**: present, device ID (0x228x), last I2C result, read and failure counts.
+
+A sensor that fails at boot or drops out stops being read, so the robot keeps driving. The
+BNO055 is only retried after a reboot.
+
 ### Recording Data
 
 1. Click **Record** on the dashboard. The stream switches to full loop rate and the browser accumulates every data point.

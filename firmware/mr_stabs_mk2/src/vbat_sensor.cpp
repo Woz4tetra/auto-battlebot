@@ -40,6 +40,8 @@ bool VbatSensor::begin(TwoWire *wire_bus)
 
     uint32_t device_id;
     present = read_register(REG_DEVICE_ID, 2, &device_id) && (device_id >> 4) == INA228_DIE_ID;
+    status.device_id = (uint16_t)device_id;
+    status.present = present;
     if (!present)
         return false;
 
@@ -47,7 +49,9 @@ bool VbatSensor::begin(TwoWire *wire_bus)
     wire->write(REG_ADC_CONFIG);
     wire->write((uint8_t)(ADC_CONFIG_VALUE >> 8));
     wire->write((uint8_t)(ADC_CONFIG_VALUE & 0xFF));
-    present = wire->endTransmission() == 0;
+    status.last_error = wire->endTransmission();
+    present = status.last_error == 0;
+    status.present = present;
     return present;
 }
 
@@ -55,10 +59,14 @@ bool VbatSensor::read_register(uint8_t reg, uint8_t num_bytes, uint32_t *value)
 {
     wire->beginTransmission(INA228_ADDRESS);
     wire->write(reg);
-    if (wire->endTransmission(false) != 0)
+    status.last_error = wire->endTransmission(false);
+    if (status.last_error != 0)
         return false;
     if (wire->requestFrom(INA228_ADDRESS, num_bytes) != num_bytes)
+    {
+        status.last_error = 6;
         return false;
+    }
     uint32_t raw = 0;
     for (uint8_t index = 0; index < num_bytes; index++)
         raw = (raw << 8) | (uint32_t)wire->read();
@@ -87,14 +95,17 @@ void VbatSensor::update()
     sample_timer_us = now;
 
     int32_t bus_reading, shunt_reading;
+    status.reads++;
     if (!read_20_bit(REG_VBUS, &bus_reading))
     {
+        status.read_failures++;
         last_volts = NAN;
         last_amps = NAN;
         next_interval_us = RETRY_INTERVAL_US;
         return;
     }
     last_volts = (float)bus_reading * BUS_VOLTS_PER_LSB;
+    status.last_ok_ms = millis();
     last_amps = read_20_bit(REG_VSHUNT, &shunt_reading) ? (float)shunt_reading * AMPS_PER_LSB
                                                         : NAN;
     next_interval_us = SAMPLE_INTERVAL_US;

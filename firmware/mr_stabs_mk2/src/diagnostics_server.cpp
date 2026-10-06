@@ -6,6 +6,8 @@
 static AsyncWebServer server(80);
 static AsyncEventSource events("/events");
 static bool server_started = false;
+static portMUX_TYPE status_mux = portMUX_INITIALIZER_UNLOCKED;
+static sensor_status_t shared_status = {};
 
 static const char INDEX_HTML[] PROGMEM = R"rawhtml(
 <!DOCTYPE html>
@@ -18,6 +20,8 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:monospace;background:#1a1a2e;color:#e0e0e0;padding:16px}
 h1{color:#0ff;margin-bottom:12px;font-size:1.4em}
+h2{color:#0ff;margin:12px 0 6px;font-size:1.1em}
+td.bad{color:#f55}
 table{border-collapse:collapse;width:100%;max-width:600px;margin-bottom:16px}
 td{padding:4px 10px;border-bottom:1px solid #333}
 td:first-child{color:#888;width:40%}
@@ -75,6 +79,14 @@ font-family:monospace;font-size:1em;cursor:pointer;color:#fff}
 <span id="dzRS" style="margin-left:8px;color:#888"></span>
 </div>
 </div>
+<h2>I2C bus <span id="busPins" style="color:#888;font-size:0.8em"></span></h2>
+<table id="busT"></table>
+<button class="btn" style="background:#555;padding:4px 12px" onclick="rescan()">Rescan bus</button>
+<span id="scanS" style="margin-left:8px;color:#888"></span>
+<h2>BNO055 IMU</h2>
+<table id="imuT"></table>
+<h2>INA228 pack sensor</h2>
+<table id="inaT"></table>
 <button class="btn rec" id="recBtn" onclick="toggleRec()">Record</button>
 <button class="btn dl" onclick="downloadCSV()">Download CSV</button>
 <span id="count"></span>
@@ -119,6 +131,61 @@ function setTune(ep,inputId,statusId){
  });
 }
 function loadTune(ep,inputId){fetch('/tune/'+ep).then(r=>r.text()).then(v=>{document.getElementById(inputId).value=v;});}
+const I2C_ERR={0:'ok',1:'data too long',2:'address NACK: device not answering',3:'data NACK',4:'bus error',5:'timeout: bus stuck?',6:'short read',255:'never tried'};
+const KNOWN={0x28:'BNO055',0x29:'BNO055 (ADR high)',0x41:'INA228 (alt)',0x44:'INA228 (alt)',0x45:'INA228'};
+const SYS_STATUS=['idle','system error','initializing peripherals','system init','running self-test','fusion running','running without fusion'];
+const SYS_ERR=['none','peripheral init error','system init error','self-test failed','register value out of range','register address out of range','register write error','low power mode not available','accel power mode not available','fusion config error','sensor config error'];
+const MODES={0:'CONFIG',8:'IMUPLUS',12:'NDOF'};
+function hex(v,n){return '0x'+v.toString(16).toUpperCase().padStart(n||2,'0');}
+function age(ms){return ms==null?'never':(ms/1000).toFixed(1)+' s ago';}
+function err(c){return [I2C_ERR[c]||('error '+c),c!==0&&c!==255];}
+function fill(id,rows){document.getElementById(id).innerHTML=rows.map(r=>'<tr><td>'+r[0]+'</td><td'+(r[2]?' class="bad"':'')+'>'+r[1]+'</td></tr>').join('');}
+function selfTest(v){const n=['accel','mag','gyro','MCU'];const f=n.filter((_,i)=>!(v>>i&1));return [f.length?'failed: '+f.join(', '):'all passed ('+hex(v)+')',f.length>0];}
+function calib(v){return 'sys '+(v>>6&3)+', gyro '+(v>>4&3)+', accel '+(v>>2&3)+', mag '+(v&3)+' (of 3)';}
+function renderStatus(s){
+ document.getElementById('busPins').textContent='Wire1, SDA '+s.bus.sda_pin+', SCL '+s.bus.scl_pin;
+ const found=s.bus.found.map(a=>hex(a)+(KNOWN[a]?' '+KNOWN[a]:'')).join(', ')||'nothing';
+ fill('busT',[
+  ['SDA idle level',s.bus.sda_high?'high':'LOW: held by a device',!s.bus.sda_high],
+  ['SCL idle level',s.bus.scl_high?'high':'LOW: held by a device',!s.bus.scl_high],
+  ['devices found',s.bus.scanned?found:'not scanned',s.bus.scanned&&!s.bus.found.includes(0x28)],
+  ['last scan',s.bus.scanned?age(s.bus.scan_age_ms):'never'],
+ ]);
+ document.getElementById('scanS').textContent=s.bus.scan_pending?'scan queued (runs while disarmed)':'';
+ const m=s.imu;
+ const imuRows=[
+  ['initialized',m.initialized?'yes':'NO',!m.initialized],
+  ['begin attempts / failures',m.begin_attempts+' / '+m.begin_failures,m.begin_failures>0],
+  ['chip id',m.last_error===255?'not read':hex(m.chip_id)+(m.chip_id===0xA0?' (BNO055)':' (expected 0xA0)'),m.last_error===0&&m.chip_id!==0xA0],
+  ['last chip id read'].concat(err(m.last_error)),
+  ['dropouts after init',m.lost_count,m.lost_count>0],
+  ['samples',m.samples],
+  ['last sample',age(m.sample_age_ms),m.initialized&&(m.sample_age_ms==null||m.sample_age_ms>500)],
+ ];
+ if(m.details_age_ms!=null){
+  if(m.details_error!==0)imuRows.push(['status registers'].concat(err(m.details_error)));
+  else imuRows.push(
+   ['operation mode',(MODES[m.operation_mode]||'mode')+' ('+hex(m.operation_mode)+')',m.operation_mode!==8],
+   ['system status',SYS_STATUS[m.sys_status]||hex(m.sys_status),m.sys_status!==5],
+   ['system error',SYS_ERR[m.sys_error]||hex(m.sys_error),m.sys_error!==0],
+   ['self-test'].concat(selfTest(m.self_test)),
+   ['calibration',calib(m.calibration)],
+   ['status read',age(m.details_age_ms)]);
+ }
+ fill('imuT',imuRows);
+ const n=s.ina;
+ fill('inaT',[
+  ['present',n.present?'yes':'NO',!n.present],
+  ['device id',hex(n.device_id,4)+((n.device_id>>4)===0x228?' (INA228)':' (expected 0x228x)'),(n.device_id>>4)!==0x228],
+  ['last read'].concat(err(n.last_error)),
+  ['reads / failures',n.reads+' / '+n.read_failures,n.read_failures>0],
+  ['last good read',age(n.last_ok_age_ms)],
+ ]);
+}
+function pollStatus(){fetch('/status').then(r=>r.json()).then(renderStatus).catch(()=>{});}
+function rescan(){fetch('/i2c/scan').then(()=>{document.getElementById('scanS').textContent='scan queued';});}
+setInterval(pollStatus,1000);
+pollStatus();
 loadTune('left_esc_dz','dzL');
 loadTune('right_esc_dz','dzR');
 connect();
@@ -134,6 +201,46 @@ static void handle_tunable(AsyncWebServerRequest *request, float *ptr) {
     }
     if (request->hasParam("value")) *ptr = request->getParam("value")->value().toFloat();
     request->send(200, "text/plain", String(*ptr, 1));
+}
+
+// Ages in ms since the given millis() stamp, or JSON null when it never happened.
+static String age_or_null(bool happened, uint32_t stamp_ms) {
+    return happened ? String(millis() - stamp_ms) : String("null");
+}
+
+static String status_json(const sensor_status_t &s, bool scan_pending) {
+    String found = "[";
+    for (uint8_t i = 0; i < s.scan.count; i++) {
+        if (i) found += ",";
+        found += String(s.scan.addresses[i]);
+    }
+    found += "]";
+
+    const updown_sensor::status_t &m = s.imu;
+    const vbat_sensor::status_t &n = s.ina;
+    char buf[900];
+    snprintf(buf, sizeof(buf),
+             "{\"bus\":{\"sda_pin\":%u,\"scl_pin\":%u,\"sda_high\":%s,\"scl_high\":%s,"
+             "\"scanned\":%s,\"scan_age_ms\":%s,\"scan_pending\":%s,\"found\":%s},"
+             "\"imu\":{\"initialized\":%s,\"begin_attempts\":%lu,\"begin_failures\":%lu,"
+             "\"chip_id\":%u,\"last_error\":%u,\"lost_count\":%lu,\"samples\":%lu,"
+             "\"sample_age_ms\":%s,\"details_age_ms\":%s,\"details_error\":%u,"
+             "\"operation_mode\":%u,\"sys_status\":%u,\"self_test\":%u,\"sys_error\":%u,"
+             "\"calibration\":%u},"
+             "\"ina\":{\"present\":%s,\"device_id\":%u,\"last_error\":%u,\"reads\":%lu,"
+             "\"read_failures\":%lu,\"last_ok_age_ms\":%s}}",
+             s.sda_pin, s.scl_pin, s.lines.sda_high ? "true" : "false",
+             s.lines.scl_high ? "true" : "false", s.scan.scanned ? "true" : "false",
+             age_or_null(s.scan.scanned, s.scan.scan_ms).c_str(), scan_pending ? "true" : "false", found.c_str(),
+             m.initialized ? "true" : "false", (unsigned long)m.begin_attempts,
+             (unsigned long)m.begin_failures, m.chip_id, m.last_error,
+             (unsigned long)m.lost_count, (unsigned long)m.samples,
+             age_or_null(m.samples > 0, m.last_sample_ms).c_str(),
+             age_or_null(m.details_ms != 0, m.details_ms).c_str(), m.details_error,
+             m.operation_mode, m.sys_status, m.self_test, m.sys_error, m.calibration,
+             n.present ? "true" : "false", n.device_id, n.last_error, (unsigned long)n.reads,
+             (unsigned long)n.read_failures, age_or_null(n.last_ok_ms != 0, n.last_ok_ms).c_str());
+    return String(buf);
 }
 
 void DiagnosticsServer::begin(tunable_ptrs_t tunables) {
@@ -160,12 +267,33 @@ void DiagnosticsServer::begin(tunable_ptrs_t tunables) {
         handle_tunable(request, _tunables.right_esc_deadzone);
     });
 
+    server.on("/status", HTTP_GET, [this](AsyncWebServerRequest *request) {
+        sensor_status_t s;
+        portENTER_CRITICAL(&status_mux);
+        s = shared_status;
+        portEXIT_CRITICAL(&status_mux);
+        request->send(200, "application/json", status_json(s, _scan_requested));
+    });
+
+    server.on("/i2c/scan", HTTP_GET, [this](AsyncWebServerRequest *request) {
+        _scan_requested = true;
+        request->send(200, "text/plain", "ok");
+    });
+
     events.onConnect(
         [](AsyncEventSourceClient *client) { client->send("connected", NULL, millis(), 1000); });
 
     server.addHandler(&events);
     server.begin();
     server_started = true;
+}
+
+bool DiagnosticsServer::has_clients() { return server_started && events.count() > 0; }
+
+void DiagnosticsServer::set_status(const sensor_status_t &status) {
+    portENTER_CRITICAL(&status_mux);
+    shared_status = status;
+    portEXIT_CRITICAL(&status_mux);
 }
 
 void DiagnosticsServer::update(const diag_data_t *data) {

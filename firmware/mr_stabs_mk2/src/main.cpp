@@ -6,6 +6,7 @@
 #include <crsf_bridge.h>
 #include <diagnostics_server.h>
 #include <esc.h>
+#include <i2c_bus.h>
 #include <pid.h>
 #include <updown_sensor.h>
 #include <vbat_sensor.h>
@@ -25,6 +26,9 @@ esc::Esc *right_esc;
 updown_sensor::UpdownSensor *accel;
 vbat_sensor::VbatSensor vbat_sensor_ina228;
 DiagnosticsServer diag_server;
+i2c_bus::scan_t bus_scan = {};
+uint32_t last_status_ms = 0;
+const uint32_t STATUS_INTERVAL_MS = 1000;  // sensor panel refresh on the diagnostics page
 
 const int NUM_PIXELS = 1;
 Adafruit_NeoPixel pixels(NUM_PIXELS, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800);
@@ -88,6 +92,30 @@ void stop_escs() {
     left_esc->stop();
     right_esc->stop();
     set_led_intensity(0);
+}
+
+// Feeds the diagnostics page's sensor and I2C panel. Does nothing with no browser open. A bus
+// scan blocks for ~15 ms, so a requested scan waits until the robot is disarmed.
+void publish_sensor_status(bool armed) {
+    if (!diag_server.has_clients()) return;
+    if (diag_server.scan_requested() && !armed) {
+        i2c_bus::scan(&Wire1, &bus_scan);
+        diag_server.clear_scan_request();
+        last_status_ms = 0;
+    }
+    uint32_t now = millis();
+    if (last_status_ms != 0 && now - last_status_ms < STATUS_INTERVAL_MS) return;
+    last_status_ms = now;
+
+    accel->refresh_details();
+    sensor_status_t status = {};
+    status.imu = accel->get_status();
+    status.ina = vbat_sensor_ina228.get_status();
+    status.scan = bus_scan;
+    status.lines = i2c_bus::read_lines(SDA1, SCL1);
+    status.sda_pin = SDA1;
+    status.scl_pin = SCL1;
+    diag_server.set_status(status);
 }
 
 void setup_ota() {
@@ -224,6 +252,8 @@ void setup() {
     // Stays at the default 100 kHz. The BNO055 stretches the clock, which can fail at 400 kHz,
     // and every failed read blocks the loop for the 50 ms Wire timeout, starving the ESCs of
     // DShot frames.
+    // Recorded for the diagnostics page: shows which devices answered at boot.
+    i2c_bus::scan(&Wire1, &bus_scan);
     accel = new updown_sensor::UpdownSensor();
     if (!accel->begin()) {
         for (int count = 0; count < 10; count++) pulse_led();
@@ -289,6 +319,7 @@ void loop() {
         .pitch_deg = orientation->z,
     };
     crsf->send_telemetry(&telemetry);
+    publish_sensor_status(radio_ok && radio_data->armed);
 
     // Combat mode
     uint32_t now_ms = millis();

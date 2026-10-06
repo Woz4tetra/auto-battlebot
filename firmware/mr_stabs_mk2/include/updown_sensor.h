@@ -15,6 +15,33 @@ const float RIGHT_SIDE_UP_THRESHOLD = -1.0;
 const float UPSIDE_DOWN_THRESHOLD = 1.0;
 const uint32_t RECONNECT_INTERVAL = 1000;
 const uint8_t BNO055_ADDRESS = 0x28;
+const uint8_t BNO055_CHIP_ID_VALUE = 0xA0;
+// How often refresh_details() rereads the status registers for the diagnostics page.
+const uint32_t DETAILS_INTERVAL = 1000;
+// Error codes in status_t are Wire endTransmission() codes: 0 ok, 1 data too long,
+// 2 address NACK, 3 data NACK, 4 other bus error, 5 timeout. These two are added here.
+const uint8_t I2C_SHORT_READ = 6;
+const uint8_t I2C_NOT_TRIED = 255;
+
+// BNO055 health for the diagnostics page.
+typedef struct {
+    bool initialized;
+    uint32_t begin_attempts;
+    uint32_t begin_failures;
+    uint8_t chip_id;      // last CHIP_ID read: BNO055_CHIP_ID_VALUE when healthy, 0 if unread
+    uint8_t last_error;   // error code of the last CHIP_ID read
+    uint32_t lost_count;  // samples whose CHIP_ID check failed after a good begin()
+    uint32_t samples;
+    uint32_t last_sample_ms;
+    // Status registers, read by refresh_details(). details_ms is 0 until the first read.
+    uint32_t details_ms;
+    uint8_t details_error;
+    uint8_t operation_mode;  // OPR_MODE, 0x08 for IMUPLUS
+    uint8_t sys_status;      // SYS_STATUS, 5 when fusion is running
+    uint8_t self_test;       // ST_RESULT, 0x0F when accel, mag, gyro and MCU all passed
+    uint8_t sys_error;       // SYS_ERR, 0 when there is no error
+    uint8_t calibration;     // CALIB_STAT: sys, gyro, accel, mag, two bits each
+} status_t;
 // The BNO055 fusion output updates at 100 Hz, so reading faster returns repeated values.
 const uint32_t SAMPLE_INTERVAL = 10;
 
@@ -32,9 +59,12 @@ class UpdownSensor {
     uint32_t reconnect_timer = 0;
     uint32_t sample_timer = 0;
     uint32_t sample_us = 0;
+    status_t status = {};
     vector3_t *make_unit_vector(float x, float y, float z);
     bool update_sensor(bool radio_connected);
     vector3_t *init_vector3(float x, float y, float z);
+    uint8_t read_registers(uint8_t reg, uint8_t *buffer, uint8_t length);
+    bool check_chip_id();
 
    public:
     UpdownSensor();
@@ -47,5 +77,9 @@ class UpdownSensor {
     vector3_t *get_gyro() { return gyro_vec; }
     // micros() when the last sample was read, 0 before the first. A change means new data.
     uint32_t get_sample_us() { return sample_us; }
+    // Rereads the status registers if DETAILS_INTERVAL has passed and the sensor is up. Two
+    // short I2C reads; meant for when the diagnostics page is open.
+    void refresh_details();
+    const status_t &get_status() { return status; }
 };
 }  // namespace updown_sensor

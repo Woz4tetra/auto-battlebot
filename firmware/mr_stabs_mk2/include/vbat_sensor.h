@@ -29,6 +29,19 @@ namespace vbat_sensor
     // chip costs one blocked transaction per second rather than one per sample.
     const uint32_t RETRY_INTERVAL_US = 1000000;
 
+    // INA228 health for the diagnostics page. last_error is a Wire endTransmission() code
+    // (0 ok, 2 address NACK, 3 data NACK, 4 bus error, 5 timeout), 6 for a short read, or 255
+    // before the first read.
+    struct status_t
+    {
+        bool present = false;
+        uint16_t device_id = 0;  // DEVICE_ID at boot, 0x228x for an INA228
+        uint8_t last_error = 255;
+        uint32_t reads = 0;
+        uint32_t read_failures = 0;
+        uint32_t last_ok_ms = 0;
+    };
+
     class VbatSensor
     {
     public:
@@ -47,6 +60,8 @@ namespace vbat_sensor
         // last read failed.
         float get_amps() const { return last_amps; }
 
+        const status_t &get_status() const { return status; }
+
     private:
         TwoWire *wire = nullptr;
         bool present = false;
@@ -54,6 +69,7 @@ namespace vbat_sensor
         float last_amps = NAN;
         uint32_t sample_timer_us = 0;
         uint32_t next_interval_us = SAMPLE_INTERVAL_US;
+        status_t status;
 
         bool read_register(uint8_t reg, uint8_t num_bytes, uint32_t *value);
         bool read_20_bit(uint8_t reg, int32_t *reading);

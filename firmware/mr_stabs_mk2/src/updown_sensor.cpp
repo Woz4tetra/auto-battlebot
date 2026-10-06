@@ -11,12 +11,25 @@ UpdownSensor::UpdownSensor()
     min_grav_vec = init_vector3(0.0, 0.0, 0.0);
     orientation = init_vector3(0.0, 0.0, 0.0);
     gyro_vec = init_vector3(0.0, 0.0, 0.0);
+    status.last_error = I2C_NOT_TRIED;
+    status.details_error = I2C_NOT_TRIED;
+}
+
+namespace
+{
+    const uint8_t REG_CHIP_ID = 0x00;
+    const uint8_t REG_CALIB_STAT = 0x35;  // 0x35..0x3A: CALIB_STAT, ST_RESULT, INT_STA,
+                                          // SYS_CLK_STATUS, SYS_STATUS, SYS_ERR
+    const uint8_t REG_OPR_MODE = 0x3D;
 }
 
 bool UpdownSensor::begin()
 {
     if (initialized)
         return true;
+    status.begin_attempts++;
+    // Read before the library's begin(), which hides why it failed.
+    check_chip_id();
     // IMUPLUS fuses accelerometer and gyro only. NDOF (the library default) also fuses the
     // magnetometer, which the drive motor current can bend, moving heading under throttle.
     // Heading is now relative to the orientation at boot.
@@ -24,14 +37,61 @@ bool UpdownSensor::begin()
     {
         delay(1000);
         initialized = true;
+        status.initialized = true;
         sensor->setExtCrystalUse(true);
         return true;
     }
     else
     {
         initialized = false;
+        status.initialized = false;
+        status.begin_failures++;
         return false;
     }
+}
+
+uint8_t UpdownSensor::read_registers(uint8_t reg, uint8_t *buffer, uint8_t length)
+{
+    wire->beginTransmission(BNO055_ADDRESS);
+    wire->write(reg);
+    uint8_t error = wire->endTransmission(false);
+    if (error != 0)
+        return error;
+    if (wire->requestFrom(BNO055_ADDRESS, length) != length)
+        return I2C_SHORT_READ;
+    for (uint8_t index = 0; index < length; index++)
+        buffer[index] = wire->read();
+    return 0;
+}
+
+bool UpdownSensor::check_chip_id()
+{
+    uint8_t chip_id = 0;
+    status.last_error = read_registers(REG_CHIP_ID, &chip_id, 1);
+    status.chip_id = chip_id;
+    return status.last_error == 0 && chip_id == BNO055_CHIP_ID_VALUE;
+}
+
+void UpdownSensor::refresh_details()
+{
+    if (!initialized)
+        return;
+    uint32_t now = millis();
+    if (status.details_ms != 0 && now - status.details_ms < DETAILS_INTERVAL)
+        return;
+    status.details_ms = now;
+    uint8_t block[6] = {};
+    uint8_t mode = 0;
+    status.details_error = read_registers(REG_CALIB_STAT, block, sizeof(block));
+    if (status.details_error == 0)
+        status.details_error = read_registers(REG_OPR_MODE, &mode, 1);
+    if (status.details_error != 0)
+        return;
+    status.calibration = block[0];
+    status.self_test = block[1];
+    status.sys_status = block[4];
+    status.sys_error = block[5];
+    status.operation_mode = mode;
 }
 
 vector3_t *UpdownSensor::make_unit_vector(float x, float y, float z)
@@ -90,12 +150,13 @@ bool UpdownSensor::update_sensor(bool radio_connected)
     }
     sample_timer = now;
 
-    // The Adafruit reads ignore I2C errors and return zeros, so check the sensor still ACKs.
-    // One failed probe costs a single transaction; then reads stop until begin() succeeds.
-    wire->beginTransmission(BNO055_ADDRESS);
-    if (wire->endTransmission() != 0)
+    // The Adafruit reads ignore I2C errors and return zeros, so check the sensor still answers.
+    // One failed check costs a single transaction; then reads stop until begin() succeeds.
+    if (!check_chip_id())
     {
         initialized = false;
+        status.initialized = false;
+        status.lost_count++;
         return false;
     }
     uint32_t start_time = now;
@@ -108,6 +169,8 @@ bool UpdownSensor::update_sensor(bool radio_connected)
     if (end_time - start_time > 250)
     {
         initialized = false;
+        status.initialized = false;
+        status.lost_count++;
         return false;
     }
 
@@ -131,6 +194,8 @@ bool UpdownSensor::update_sensor(bool radio_connected)
     gyro_vec->y = gyro_data.gyro.y;
     gyro_vec->z = gyro_data.gyro.z;
     sample_us = micros();
+    status.samples++;
+    status.last_sample_ms = millis();
 
     return true;
 }
