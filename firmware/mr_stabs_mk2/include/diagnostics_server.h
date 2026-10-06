@@ -25,8 +25,10 @@ typedef struct {
     float orientation_z;
     float pid_setpoint;
     float pid_output;
-    float vbat;  // pack volts from the INA228, NaN when absent
-    float ibat;  // pack amps from the INA228, positive discharging, NaN when absent
+    float vbat;          // pack volts from the INA228, NaN when absent
+    float ibat;          // pack amps from the INA228, positive discharging, NaN when absent
+    float yaw_rate;      // deg/s clockwise from the gyro
+    float yaw_rate_cmd;  // deg/s clockwise the yaw loop asks for, NaN when it is not running
 } diag_data_t;
 
 // Sensor and I2C bus health, served as JSON at /status for the page's sensor panel.
@@ -40,6 +42,9 @@ struct sensor_status_t {
     // millis() when the loop took this snapshot. Ages on the page are measured to this moment,
     // not to when the request arrives, since the snapshot is refreshed only once a second.
     uint32_t snapshot_ms;
+    float yaw_rate;          // deg/s clockwise from the gyro, at snapshot time
+    float heading_rate;      // deg/s clockwise from the heading change, at snapshot time
+    bool gyro_sign_suspect;  // the yaw loop is locked out
 };
 
 struct tunable_ptrs_t {

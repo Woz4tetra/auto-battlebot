@@ -38,6 +38,7 @@ bool UpdownSensor::begin()
         delay(1000);
         initialized = true;
         status.initialized = true;
+        has_prev_heading = false;
         sensor->setExtCrystalUse(true);
         return true;
     }
@@ -62,6 +63,26 @@ uint8_t UpdownSensor::read_registers(uint8_t reg, uint8_t *buffer, uint8_t lengt
     for (uint8_t index = 0; index < length; index++)
         buffer[index] = wire->read();
     return 0;
+}
+
+void UpdownSensor::check_gyro_sign(float heading, uint32_t now_us)
+{
+    if (has_prev_heading && now_us != prev_heading_us)
+    {
+        float change = heading - prev_heading;
+        change -= 360.0f * floorf((change + 180.0f) / 360.0f);
+        heading_rate = change / ((now_us - prev_heading_us) / 1000000.0f);
+        if (fabsf(heading_rate) > SIGN_CHECK_MIN_RATE && fabsf(yaw_rate) > SIGN_CHECK_MIN_RATE)
+        {
+            if ((heading_rate > 0.0f) == (yaw_rate > 0.0f))
+                status.gyro_agree++;
+            else
+                status.gyro_disagree++;
+        }
+    }
+    prev_heading = heading;
+    prev_heading_us = now_us;
+    has_prev_heading = true;
 }
 
 bool UpdownSensor::check_chip_id()
@@ -194,6 +215,8 @@ bool UpdownSensor::update_sensor(bool radio_connected)
     gyro_vec->y = gyro_data.gyro.y;
     gyro_vec->z = gyro_data.gyro.z;
     sample_us = micros();
+    yaw_rate = GYRO_Z_TO_HEADING_SIGN * gyro_vec->z * RAD_TO_DEG;
+    check_gyro_sign(orientation->x, sample_us);
     status.samples++;
     status.last_sample_ms = millis();
 

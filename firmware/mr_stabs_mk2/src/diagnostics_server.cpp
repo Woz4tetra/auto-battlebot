@@ -62,6 +62,8 @@ font-family:monospace;font-size:1em;cursor:pointer;color:#fff}
 <tr><td>pid_output</td><td id="v_po">-</td></tr>
 <tr><td>vbat</td><td id="v_vbat">-</td></tr>
 <tr><td>ibat</td><td id="v_ibat">-</td></tr>
+<tr><td>yaw_rate (deg/s, CW)</td><td id="v_yr">-</td></tr>
+<tr><td>yaw_rate_cmd (deg/s, CW)</td><td id="v_yrc">-</td></tr>
 </table>
 <div style="margin-bottom:16px;padding:10px;border:1px solid #444;border-radius:4px;max-width:600px">
 <div style="margin-bottom:8px">
@@ -91,8 +93,8 @@ font-family:monospace;font-size:1em;cursor:pointer;color:#fff}
 <button class="btn dl" onclick="downloadCSV()">Download CSV</button>
 <span id="count"></span>
 <script>
-const hdr='timestamp_ms,radio_connected,armed,a_percent,b_percent,button_state,flip_switch,left_cmd,right_cmd,accel_x,accel_y,accel_z,is_upside_down,loop_us,wifi_clients,orientation_x,orientation_y,orientation_z,pid_setpoint,pid_output,vbat,ibat';
-const ids=['v_ts','v_radio','v_armed','v_a','v_b','v_btn','v_flip','v_left','v_right','v_ax','v_ay','v_az','v_usd','v_loop','v_wifi','v_ox','v_oy','v_oz','v_sp','v_po','v_vbat','v_ibat'];
+const hdr='timestamp_ms,radio_connected,armed,a_percent,b_percent,button_state,flip_switch,left_cmd,right_cmd,accel_x,accel_y,accel_z,is_upside_down,loop_us,wifi_clients,orientation_x,orientation_y,orientation_z,pid_setpoint,pid_output,vbat,ibat,yaw_rate,yaw_rate_cmd';
+const ids=['v_ts','v_radio','v_armed','v_a','v_b','v_btn','v_flip','v_left','v_right','v_ax','v_ay','v_az','v_usd','v_loop','v_wifi','v_ox','v_oy','v_oz','v_sp','v_po','v_vbat','v_ibat','v_yr','v_yrc'];
 let rows=[];
 let recording=false;
 let es;
@@ -180,6 +182,9 @@ function renderStatus(s){
    ['calibration',calib(m.calibration)],
    ['status read',age(m.details_age_ms)]);
  }
+ imuRows.push(
+  ['yaw rate: gyro / heading change',m.yaw_rate.toFixed(0)+' / '+m.heading_rate.toFixed(0)+' deg/s CW'],
+  ['gyro sign check (spin it)',m.gyro_sign_suspect?'FAILED: yaw loop off, flip GYRO_Z_TO_HEADING_SIGN':(m.gyro_agree+m.gyro_disagree===0?'no votes yet':'agree '+m.gyro_agree+', disagree '+m.gyro_disagree),m.gyro_sign_suspect]);
  fill('imuT',imuRows);
  const n=s.ina;
  fill('inaT',[
@@ -234,7 +239,8 @@ static String status_json(const sensor_status_t &s, bool scan_pending) {
              "\"chip_id\":%u,\"last_error\":%u,\"lost_count\":%lu,\"samples\":%lu,"
              "\"sample_age_ms\":%s,\"details_age_ms\":%s,\"details_error\":%u,"
              "\"operation_mode\":%u,\"sys_status\":%u,\"self_test\":%u,\"sys_error\":%u,"
-             "\"calibration\":%u},"
+             "\"calibration\":%u,\"gyro_agree\":%lu,\"gyro_disagree\":%lu,\"yaw_rate\":%.1f,"
+             "\"heading_rate\":%.1f,\"gyro_sign_suspect\":%s},"
              "\"ina\":{\"present\":%s,\"device_id\":%u,\"last_error\":%u,\"reads\":%lu,"
              "\"read_failures\":%lu,\"last_ok_age_ms\":%s}}",
              (unsigned long)s.snapshot_ms, s.sda_pin, s.scl_pin, s.lines.sda_high ? "true" : "false",
@@ -246,6 +252,8 @@ static String status_json(const sensor_status_t &s, bool scan_pending) {
              age_or_null(m.samples > 0, m.last_sample_ms, s.snapshot_ms).c_str(),
              age_or_null(m.details_ms != 0, m.details_ms, s.snapshot_ms).c_str(), m.details_error,
              m.operation_mode, m.sys_status, m.self_test, m.sys_error, m.calibration,
+             (unsigned long)m.gyro_agree, (unsigned long)m.gyro_disagree, s.yaw_rate,
+             s.heading_rate, s.gyro_sign_suspect ? "true" : "false",
              n.present ? "true" : "false", n.device_id, n.last_error, (unsigned long)n.reads,
              (unsigned long)n.read_failures, age_or_null(n.last_ok_ms != 0, n.last_ok_ms, s.snapshot_ms).c_str());
     return String(buf);
@@ -314,13 +322,13 @@ void DiagnosticsServer::update(const diag_data_t *data) {
     char buf[320];
     snprintf(
         buf, sizeof(buf),
-        "%lu,%d,%d,%.1f,%.1f,%d,%u,%.1f,%.1f,%.1f,%.1f,%.1f,%d,%lu,%u,%.1f,%.1f,%.1f,%.1f,%.2f,%.3f,%.2f",
+        "%lu,%d,%d,%.1f,%.1f,%d,%u,%.1f,%.1f,%.1f,%.1f,%.1f,%d,%lu,%u,%.1f,%.1f,%.1f,%.1f,%.2f,%.3f,%.2f,%.1f,%.1f",
         (unsigned long)data->timestamp_ms, data->radio_connected, data->armed, data->a_percent,
         data->b_percent, data->button_state, data->flip_switch, data->left_cmd, data->right_cmd,
         data->accel_x, data->accel_y, data->accel_z, data->is_upside_down,
         (unsigned long)data->loop_us, data->wifi_clients, data->orientation_x, data->orientation_y,
-        data->orientation_z, data->pid_setpoint, data->pid_output, data->vbat,
-        data->ibat);
+        data->orientation_z, data->pid_setpoint, data->pid_output, data->vbat, data->ibat,
+        data->yaw_rate, data->yaw_rate_cmd);
 
     events.send(buf, NULL, now);
 }

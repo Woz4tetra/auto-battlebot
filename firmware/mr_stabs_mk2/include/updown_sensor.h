@@ -23,6 +23,15 @@ const uint32_t DETAILS_INTERVAL = 1000;
 const uint8_t I2C_SHORT_READ = 6;
 const uint8_t I2C_NOT_TRIED = 255;
 
+// Gyro z is counterclockwise-positive about the chip's z axis; the Euler heading grows
+// clockwise. With the chip mounted level and face up, the heading rate is minus gyro z.
+// check_gyro_sign() verifies this on the robot.
+const float GYRO_Z_TO_HEADING_SIGN = -1.0f;
+// Both rates must exceed this for a sample to vote on whether their signs agree.
+const float SIGN_CHECK_MIN_RATE = 60.0f;
+// Votes against the sign before the yaw-rate loop is locked out.
+const uint32_t SIGN_CHECK_MIN_DISAGREE = 10;
+
 // BNO055 health for the diagnostics page.
 typedef struct {
     bool initialized;
@@ -41,6 +50,9 @@ typedef struct {
     uint8_t self_test;       // ST_RESULT, 0x0F when accel, mag, gyro and MCU all passed
     uint8_t sys_error;       // SYS_ERR, 0 when there is no error
     uint8_t calibration;     // CALIB_STAT: sys, gyro, accel, mag, two bits each
+    // Gyro sign check: samples where the gyro and the heading change agreed or disagreed.
+    uint32_t gyro_agree;
+    uint32_t gyro_disagree;
 } status_t;
 // The BNO055 fusion output updates at 100 Hz, so reading faster returns repeated values.
 const uint32_t SAMPLE_INTERVAL = 10;
@@ -60,11 +72,17 @@ class UpdownSensor {
     uint32_t sample_timer = 0;
     uint32_t sample_us = 0;
     status_t status = {};
+    float yaw_rate = 0.0f;      // deg/s clockwise, from the gyro
+    float heading_rate = 0.0f;  // deg/s clockwise, from consecutive headings
+    float prev_heading = 0.0f;
+    uint32_t prev_heading_us = 0;
+    bool has_prev_heading = false;
     vector3_t *make_unit_vector(float x, float y, float z);
     bool update_sensor(bool radio_connected);
     vector3_t *init_vector3(float x, float y, float z);
     uint8_t read_registers(uint8_t reg, uint8_t *buffer, uint8_t length);
     bool check_chip_id();
+    void check_gyro_sign(float heading, uint32_t now_us);
 
    public:
     UpdownSensor();
@@ -81,5 +99,17 @@ class UpdownSensor {
     // short I2C reads; meant for when the diagnostics page is open.
     void refresh_details();
     const status_t &get_status() { return status; }
+    // Yaw rate in deg/s, clockwise-positive like the heading, from the last sample's gyro.
+    float get_yaw_rate() { return yaw_rate; }
+    // The same rate from the change in heading between the last two samples. Laggier and
+    // coarser than the gyro; kept to check the gyro's sign.
+    float get_heading_rate() { return heading_rate; }
+    // True once the gyro and the heading change have disagreed in sign more often than they
+    // agreed, at least SIGN_CHECK_MIN_DISAGREE times: GYRO_Z_TO_HEADING_SIGN is wrong for this
+    // mounting, and closing a loop on the gyro would spin the robot.
+    bool gyro_sign_suspect() {
+        return status.gyro_disagree >= SIGN_CHECK_MIN_DISAGREE &&
+               status.gyro_disagree > status.gyro_agree;
+    }
 };
 }  // namespace updown_sensor

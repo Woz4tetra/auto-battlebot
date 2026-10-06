@@ -10,6 +10,29 @@ The firmware has two modes, toggled by the `button_state` switch on the transmit
 
 **Tuning mode** -- Motors stop. USB serial passthrough activates so BLHeliSuite32 can configure both ESCs. LED shows a blue breathing pulse. OTA firmware updates also available in this mode.
 
+### Flip switch and steering
+
+| Flip switch | Upside down | Turn stick |
+|---|---|---|
+| UP | forced on | passes straight to the wheels |
+| MIDDLE | off | passes straight to the wheels |
+| DOWN (power-on default) | from the BNO055 | commands a yaw rate, closed on the gyro |
+
+In DOWN, `lib/yaw_control` steers. The turn stick asks for a yaw rate (2000 deg/s at full
+stick); with it centered, heading hold asks for the rate that returns to the held heading. A
+loop on the BNO055 gyro sets the left/right differential to get that rate, and in reverse its
+feedback rises 4x. Mr Stabs' center of mass sits ahead of the axle, so driving tail-first is
+unstable and spins out without it, also in MIDDLE.
+
+The turn stick falls back to passing straight through while the robot is upside down, while
+the IMU is not sampling, and when the gyro sign check fails. That check compares the gyro
+with the change in heading on every fast-turning sample. The sensor panel on the dashboard
+shows it: spin the robot by hand before driving and confirm the "agree" count rises.
+`GYRO_Z_TO_HEADING_SIGN` in `include/updown_sensor.h` flips it.
+
+The gains come from the closed-loop sim in `auto_battlebot/mujoco_sim`, whose
+`firmware.py` mirrors this code. Its plant is not fit to recordings yet, so expect to tune.
+
 ## Hardware
 
 | Component | Connection |
@@ -132,7 +155,8 @@ The dashboard streams all diagnostic data at 10 Hz:
 - Accelerometer (x, y, z)
 - Orientation (upside down detection)
 - Loop timing and WiFi client count
-- Pack voltage and current (`vbat` and `ibat`, the last two CSV columns, sampled every 10 ms and repeated in between; `ibat` is positive while discharging)
+- Pack voltage and current (`vbat` and `ibat`, CSV columns 21 and 22, sampled every 10 ms and repeated in between; `ibat` is positive while discharging)
+- Yaw rate from the gyro and the rate the yaw loop commands (`yaw_rate`, `yaw_rate_cmd`, deg/s clockwise; the command is `nan` when the loop is not running)
 - Current mode (combat / tuning)
 
 ### Sensor and I2C panel

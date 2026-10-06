@@ -7,9 +7,9 @@
 #include <diagnostics_server.h>
 #include <esc.h>
 #include <i2c_bus.h>
-#include <pid.h>
 #include <updown_sensor.h>
 #include <vbat_sensor.h>
+#include <yaw_control.h>
 
 const char *WIFI_SSID = "MR-STABS";
 const char *WIFI_PASSWORD = "havocbots";
@@ -39,28 +39,15 @@ bool is_loading_firmware = false;
 bool prev_button_state = false;
 uint32_t prev_loop_us = 0;
 
-// Heading hold (PID on BNO055 yaw)
-pid::Pid *angle_pid;
-float angle_setpoint = 0.0f;
-float angle_pid_output = 0.0f;
-bool was_turning = false;
-float cooldown_timer = 0.0f;
-bool was_auto_steer_enabled = false;
-const float TURNING_COOLDOWN_TIME = 0.25f;  // coast time after a turn before heading hold engages
-const float ANGULAR_SCALE = 1.0f;           // scales the manual turn command (b stick)
-// Heading hold runs once per BNO055 sample, not once per loop, so its D and I terms see the real
-// time between headings. With no new sample for this long, the IMU has stalled: output zero.
+// Steering in the flip-switch-DOWN mode: lib/yaw_control's cascaded heading and yaw-rate loop
+// on the BNO055, run once per IMU sample. It replaces the heading-hold PID, which was off while
+// the stick turned and so could not stop the tail-first spin. Without a usable IMU (no sample
+// for HEADING_STALE_US, or the gyro failed its sign check) and while inverted, the turn stick
+// passes straight through, as in MIDDLE.
+yaw_control::YawController *yaw_controller;
+float steer_output = 0.0f;  // differential percent: added to the left wheel, taken off the right
+bool yaw_loop_active = false;
 const uint32_t HEADING_STALE_US = 100000;
-// Mr Stabs' center of mass sits 32 mm ahead of the axle (auto_battlebot/mujoco_sim mass
-// properties), which makes driving tail-first directionally unstable: a small yaw grows on its
-// own, faster with speed, and at full reverse the robot spins out even with heading hold off.
-// The forward gains only trim drift. In reverse, heading hold's P and D terms scale up linearly
-// with reverse throttle, to this factor at full reverse: kp 0.08 -> 1.0 %/deg. In the
-// closed-loop sim (auto_battlebot/mujoco_sim, unfit default plant, 2-10% motor mismatch) full
-// reverse then held within 20-31 deg of heading at ~4 m/s; at the forward gains it spun out.
-// This does not cover turning at speed in reverse: heading hold is off while the stick turns,
-// and a turn there builds ~1000 deg/s within 0.2 s in the sim.
-const float REVERSE_GAIN_SCALE = 12.5f;
 uint32_t last_heading_sample_us = 0;
 
 // Command-timeout failsafe
@@ -126,6 +113,9 @@ void publish_sensor_status(bool armed) {
     status.sda_pin = SDA1;
     status.scl_pin = SCL1;
     status.snapshot_ms = millis();
+    status.yaw_rate = accel->get_yaw_rate();
+    status.heading_rate = accel->get_heading_rate();
+    status.gyro_sign_suspect = accel->gyro_sign_suspect();
     diag_server.set_status(status);
 }
 
@@ -142,12 +132,10 @@ void setup_ota() {
     ArduinoOTA.begin();
 }
 
-void reset_angle_pid(float sensed_angle_z) {
-    angle_pid->reset();
-    angle_setpoint = sensed_angle_z;
-    angle_pid_output = 0.0f;
-    was_turning = false;
-    cooldown_timer = 0.0f;
+void reset_steering(float sensed_angle_z) {
+    yaw_controller->reset(sensed_angle_z);
+    steer_output = 0.0f;
+    yaw_loop_active = false;
 }
 
 bool compare_radio_data(const crsf_bridge::radio_data_t *data1,
@@ -167,73 +155,42 @@ void copy_radio_data(const crsf_bridge::radio_data_t *src, crsf_bridge::radio_da
     dest->flip_switch_state = src->flip_switch_state;
 }
 
-// reverse: 0 driving forward or stopped, 1 at full reverse throttle.
-float get_filtered_angular_z(float percent_input, float sensed_angle_z, float dt,
-                             bool fresh_heading, float heading_dt, bool heading_stale,
-                             float reverse) {
-    float angular_v = percent_input * ANGULAR_SCALE;
-    float filtered_angular_v;
-
-    if (fabs(angular_v) > 1.0f) {
-        // Actively turning: pass the turn command through and track the current heading
-        filtered_angular_v = angular_v;
-        angle_setpoint = sensed_angle_z;
-        was_turning = true;
-        // No coast in full reverse: the spin builds within the forward coast time.
-        cooldown_timer = TURNING_COOLDOWN_TIME * (1.0f - reverse);
-    } else {
-        if (was_turning) {
-            // Just stopped turning: coast briefly before engaging heading hold
-            cooldown_timer -= dt;
-            if (cooldown_timer <= 0.0f) reset_angle_pid(sensed_angle_z);
-        }
-
-        if (was_turning) {
-            // Still coasting during cooldown: no angular correction
-            filtered_angular_v = 0.0f;
-        } else if (heading_stale) {
-            filtered_angular_v = 0.0f;
-        } else if (fresh_heading) {
-            // Hold heading
-            float pd_scale = 1.0f + (REVERSE_GAIN_SCALE - 1.0f) * reverse;
-            filtered_angular_v =
-                angle_pid->update(angle_setpoint, sensed_angle_z, heading_dt, pd_scale);
-        } else {
-            // Between samples: repeat the last correction
-            filtered_angular_v = angle_pid_output;
-        }
-    }
-    return filtered_angular_v;
-}
-
 void mix_motor_outputs(crsf_bridge::radio_data_t *radio_data, float sensed_angle_z,
-                       bool auto_steer_enabled, bool is_upside_down, float dt, uint32_t now_us,
+                       bool auto_steer_enabled, bool is_upside_down, uint32_t now_us,
                        float &left_command, float &right_command) {
     float a_percent = radio_data->a_percent;
     float b_percent = radio_data->b_percent;
     // a_percent is the negated throttle channel, so pulling the stick back reads positive.
-    // Inverted, the skid is off the floor and the gyro's yaw flips, so the reverse gains stay
-    // off until that case has been measured.
-    float reverse = is_upside_down ? 0.0f : constrain(a_percent / 100.0f, 0.0f, 1.0f);
+    float reverse = constrain(a_percent / 100.0f, 0.0f, 1.0f);
 
     uint32_t sample_us = accel->get_sample_us();
     bool fresh_heading = sample_us != 0 && sample_us != last_heading_sample_us;
-    // Capped so the first sample after arming, when last_heading_sample_us is old, does not
-    // integrate the whole disarmed stretch.
+    // Capped so the first sample after a gap does not integrate the whole gap.
     float heading_dt = min(sample_us - last_heading_sample_us, HEADING_STALE_US) / 1000000.0f;
     if (fresh_heading) last_heading_sample_us = sample_us;
     bool heading_stale = sample_us == 0 || now_us - sample_us > HEADING_STALE_US;
 
-    if (auto_steer_enabled) {
-        float filtered_angular_v = get_filtered_angular_z(
-            b_percent, sensed_angle_z, dt, fresh_heading, heading_dt, heading_stale, reverse);
-        angle_pid_output = filtered_angular_v;
+    // Inverted, the skid is off the floor and the chip's z axis points down, so neither the
+    // gains nor the gyro sign have been worked out for it yet.
+    bool yaw_usable =
+        auto_steer_enabled && !is_upside_down && !heading_stale && !accel->gyro_sign_suspect();
+    if (!yaw_usable) {
+        steer_output = b_percent;
+        yaw_loop_active = false;
     } else {
-        angle_pid_output = b_percent;
+        if (!yaw_loop_active) {
+            // Engaging (switch moved to DOWN, IMU back, landed right side up): hold this heading.
+            yaw_controller->reset(sensed_angle_z);
+            yaw_loop_active = true;
+        }
+        if (fresh_heading) {
+            steer_output = yaw_controller->update(b_percent, sensed_angle_z, accel->get_yaw_rate(),
+                                                  heading_dt, reverse);
+        }
     }
 
-    left_command = -1 * a_percent + angle_pid_output;
-    right_command = -1 * a_percent - angle_pid_output;
+    left_command = -1 * a_percent + steer_output;
+    right_command = -1 * a_percent - steer_output;
     float max_command = max(abs(left_command), abs(right_command));
     if (max_command > 100.0) {
         left_command = left_command / max_command * 100.0;
@@ -289,17 +246,7 @@ void setup() {
     crsf = new crsf_bridge::CrsfBridge();
     crsf->begin();
 
-    pid::PidConfig config;
-    config.kp = 0.08f;
-    config.ki = 0.01f;
-    // Low because REVERSE_GAIN_SCALE multiplies it: in the sim, 0.01 (0.125 scaled) overdamped
-    // reverse into a 63 deg swing, 0.001-0.005 held 20-31 deg.
-    config.kd = 0.002f;
-    config.kf = 0.0f;
-    config.tolerance = 2.0f;   // hold heading within 2 degrees
-    config.i_max = 20.0f;      // percent of drive command
-    config.continuous = true;  // wrap yaw error across +/-180
-    angle_pid = new pid::Pid(config);
+    yaw_controller = new yaw_control::YawController(yaw_control::Config());
 
     WiFi.softAP(WIFI_SSID, WIFI_PASSWORD);
     setup_ota();
@@ -315,7 +262,6 @@ void loop() {
     uint32_t now_us = micros();
     uint32_t loop_us = now_us - prev_loop_us;
     prev_loop_us = now_us;
-    float dt = loop_us / 1000000.0f;
 
     ArduinoOTA.handle();
     if (is_loading_firmware) {
@@ -353,7 +299,7 @@ void loop() {
 
     if (!radio_ok) {
         stop_escs();
-        reset_angle_pid(accel->get_orientation()->x);
+        reset_steering(accel->get_orientation()->x);
 
         updown_sensor::vector3_t *av = accel->get();
         updown_sensor::vector3_t *ori = accel->get_orientation();
@@ -376,10 +322,12 @@ void loop() {
             .orientation_x = ori ? ori->x : 0,
             .orientation_y = ori ? ori->y : 0,
             .orientation_z = ori ? ori->z : 0,
-            .pid_setpoint = angle_setpoint,
-            .pid_output = angle_pid_output,
+            .pid_setpoint = yaw_controller->setpoint(),
+            .pid_output = steer_output,
             .vbat = vbat,
             .ibat = ibat,
+            .yaw_rate = accel->get_yaw_rate(),
+            .yaw_rate_cmd = yaw_loop_active ? yaw_controller->rate_command() : NAN,
         };
         diag_server.update(&diag);
         return;
@@ -391,7 +339,7 @@ void loop() {
         copy_radio_data(radio_data, prev_radio_data);
     } else if (now_ms - command_timer > COMMAND_TIMEOUT) {
         stop_escs();
-        reset_angle_pid(accel->get_orientation()->x);
+        reset_steering(accel->get_orientation()->x);
 
         updown_sensor::vector3_t *av = accel->get();
         updown_sensor::vector3_t *ori = accel->get_orientation();
@@ -414,10 +362,12 @@ void loop() {
             .orientation_x = ori ? ori->x : 0,
             .orientation_y = ori ? ori->y : 0,
             .orientation_z = ori ? ori->z : 0,
-            .pid_setpoint = angle_setpoint,
-            .pid_output = angle_pid_output,
+            .pid_setpoint = yaw_controller->setpoint(),
+            .pid_output = steer_output,
             .vbat = vbat,
             .ibat = ibat,
+            .yaw_rate = accel->get_yaw_rate(),
+            .yaw_rate_cmd = yaw_loop_active ? yaw_controller->rate_command() : NAN,
         };
         diag_server.update(&diag);
         return;
@@ -425,7 +375,7 @@ void loop() {
 
     if (!radio_data->armed) {
         stop_escs();
-        reset_angle_pid(accel->get_orientation()->x);
+        reset_steering(accel->get_orientation()->x);
 
         updown_sensor::vector3_t *av = accel->get();
         updown_sensor::vector3_t *ori = accel->get_orientation();
@@ -448,10 +398,12 @@ void loop() {
             .orientation_x = ori ? ori->x : 0,
             .orientation_y = ori ? ori->y : 0,
             .orientation_z = ori ? ori->z : 0,
-            .pid_setpoint = angle_setpoint,
-            .pid_output = angle_pid_output,
+            .pid_setpoint = yaw_controller->setpoint(),
+            .pid_output = steer_output,
             .vbat = vbat,
             .ibat = ibat,
+            .yaw_rate = accel->get_yaw_rate(),
+            .yaw_rate_cmd = yaw_loop_active ? yaw_controller->rate_command() : NAN,
         };
         diag_server.update(&diag);
         return;
@@ -480,13 +432,9 @@ void loop() {
     if (is_upside_down) radio_data->a_percent *= -1;
 
     float sensed_angle_z = orientation->x;
-    if (auto_steer_enabled != was_auto_steer_enabled && auto_steer_enabled) {
-        reset_angle_pid(sensed_angle_z);
-    }
-    was_auto_steer_enabled = auto_steer_enabled;
 
     float left_command, right_command;
-    mix_motor_outputs(radio_data, sensed_angle_z, auto_steer_enabled, is_upside_down, dt, micros(),
+    mix_motor_outputs(radio_data, sensed_angle_z, auto_steer_enabled, is_upside_down, micros(),
                       left_command, right_command);
 
     left_esc->write(left_command);
@@ -512,10 +460,12 @@ void loop() {
         .orientation_x = orientation ? orientation->x : 0,
         .orientation_y = orientation ? orientation->y : 0,
         .orientation_z = orientation ? orientation->z : 0,
-        .pid_setpoint = angle_setpoint,
-        .pid_output = angle_pid_output,
+        .pid_setpoint = yaw_controller->setpoint(),
+        .pid_output = steer_output,
         .vbat = vbat,
         .ibat = ibat,
+        .yaw_rate = accel->get_yaw_rate(),
+        .yaw_rate_cmd = yaw_loop_active ? yaw_controller->rate_command() : NAN,
     };
     diag_server.update(&diag);
 }

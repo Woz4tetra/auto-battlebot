@@ -15,6 +15,7 @@ from an earlier capture or from the dashboard's Download CSV button instead.
 
 import argparse
 import csv
+import math
 import time
 import urllib.request
 from dataclasses import dataclass
@@ -44,7 +45,11 @@ COLUMNS = [
     "pid_output",
     "vbat",
     "ibat",
+    "yaw_rate",
+    "yaw_rate_cmd",
 ]
+# Columns added after the first logs were taken; older CSVs read them as NaN.
+OPTIONAL_COLUMNS = {"yaw_rate", "yaw_rate_cmd"}
 
 FLIP_SWITCH_DOWN = 0  # crsf_bridge::DOWN, the auto upside-down and heading-hold position
 UPSIDE_DOWN_BELOW = -1.0  # updown_sensor.h thresholds on the gravity z the diag reports
@@ -87,7 +92,8 @@ def capture(host: str, seconds: float, out: Path) -> None:
                 if not line.startswith("data:"):
                     continue
                 data = line[len("data:") :].strip()
-                if data.count(",") != len(COLUMNS) - 1:
+                # Firmware from before the yaw columns sends the shorter row.
+                if data.count(",") + 1 not in (len(COLUMNS), len(COLUMNS) - len(OPTIONAL_COLUMNS)):
                     continue
                 f.write(data + "\n")
                 rows += 1
@@ -108,7 +114,14 @@ def load(path: Path) -> list[Row]:
     with path.open() as f:
         for record in csv.DictReader(f):
             try:
-                rows.append({key: float(record[key]) for key in COLUMNS})
+                rows.append(
+                    {
+                        key: float(record[key])
+                        if record.get(key) is not None or key not in OPTIONAL_COLUMNS
+                        else math.nan
+                        for key in COLUMNS
+                    }
+                )
             except (KeyError, TypeError, ValueError):
                 continue
     return rows
