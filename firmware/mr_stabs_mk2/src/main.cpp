@@ -115,6 +115,7 @@ void publish_sensor_status(bool armed) {
     status.lines = i2c_bus::read_lines(SDA1, SCL1);
     status.sda_pin = SDA1;
     status.scl_pin = SCL1;
+    status.snapshot_ms = millis();
     diag_server.set_status(status);
 }
 

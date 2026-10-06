@@ -144,9 +144,10 @@ and both sensors. Red rows are the ones to look at.
   which addresses answered the last scan. The boot scan runs before either sensor starts.
   **Rescan bus** queues a new scan, which runs once the robot is disarmed.
 - **BNO055**: whether `begin()` succeeded, the chip ID it read (0xA0) and the I2C result of that
-  read, dropouts after boot, sample count and age. Once running, it also shows the operation
-  mode (IMUPLUS is 0x08), system status (5 is fusion running), system error, self-test bits,
-  and calibration.
+  read, dropouts after boot, sample count and rate (about 100 Hz), and the age of the last
+  sample. Ages are measured to when the loop took the snapshot, once a second, not to when
+  the page asked. Once running, it also shows the operation mode (IMUPLUS is 0x08), system
+  status (5 is fusion running), system error, self-test bits, and calibration.
 - **INA228**: present, device ID (0x228x), last I2C result, read and failure counts.
 
 A sensor that fails at boot or drops out stops being read, so the robot keeps driving. The

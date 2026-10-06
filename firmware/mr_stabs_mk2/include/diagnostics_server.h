@@ -37,6 +37,9 @@ struct sensor_status_t {
     i2c_bus::lines_t lines;
     uint8_t sda_pin;
     uint8_t scl_pin;
+    // millis() when the loop took this snapshot. Ages on the page are measured to this moment,
+    // not to when the request arrives, since the snapshot is refreshed only once a second.
+    uint32_t snapshot_ms;
 };
 
 struct tunable_ptrs_t {

@@ -142,6 +142,12 @@ function err(c){return [I2C_ERR[c]||('error '+c),c!==0&&c!==255];}
 function fill(id,rows){document.getElementById(id).innerHTML=rows.map(r=>'<tr><td>'+r[0]+'</td><td'+(r[2]?' class="bad"':'')+'>'+r[1]+'</td></tr>').join('');}
 function selfTest(v){const n=['accel','mag','gyro','MCU'];const f=n.filter((_,i)=>!(v>>i&1));return [f.length?'failed: '+f.join(', '):'all passed ('+hex(v)+')',f.length>0];}
 function calib(v){return 'sys '+(v>>6&3)+', gyro '+(v>>4&3)+', accel '+(v>>2&3)+', mag '+(v&3)+' (of 3)';}
+let prevImu=null;
+function sampleRate(s){
+ const p=prevImu;prevImu={t:s.snapshot_ms,n:s.imu.samples};
+ if(!p||s.snapshot_ms<=p.t||s.imu.samples<p.n)return '-';
+ return ((s.imu.samples-p.n)*1000/(s.snapshot_ms-p.t)).toFixed(0)+' Hz';
+}
 function renderStatus(s){
  document.getElementById('busPins').textContent='Wire1, SDA '+s.bus.sda_pin+', SCL '+s.bus.scl_pin;
  const found=s.bus.found.map(a=>hex(a)+(KNOWN[a]?' '+KNOWN[a]:'')).join(', ')||'nothing';
@@ -153,6 +159,7 @@ function renderStatus(s){
  ]);
  document.getElementById('scanS').textContent=s.bus.scan_pending?'scan queued (runs while disarmed)':'';
  const m=s.imu;
+ const rate=sampleRate(s);
  const imuRows=[
   ['initialized',m.initialized?'yes':'NO',!m.initialized],
   ['begin attempts / failures',m.begin_attempts+' / '+m.begin_failures,m.begin_failures>0],
@@ -160,7 +167,8 @@ function renderStatus(s){
   ['last chip id read'].concat(err(m.last_error)),
   ['dropouts after init',m.lost_count,m.lost_count>0],
   ['samples',m.samples],
-  ['last sample',age(m.sample_age_ms),m.initialized&&(m.sample_age_ms==null||m.sample_age_ms>500)],
+  ['sample rate (expect ~100 Hz)',rate],
+  ['last sample',m.sample_age_ms==null?'never':m.sample_age_ms+' ms before snapshot',m.initialized&&(m.sample_age_ms==null||m.sample_age_ms>100)],
  ];
  if(m.details_age_ms!=null){
   if(m.details_error!==0)imuRows.push(['status registers'].concat(err(m.details_error)));
@@ -203,9 +211,9 @@ static void handle_tunable(AsyncWebServerRequest *request, float *ptr) {
     request->send(200, "text/plain", String(*ptr, 1));
 }
 
-// Ages in ms since the given millis() stamp, or JSON null when it never happened.
-static String age_or_null(bool happened, uint32_t stamp_ms) {
-    return happened ? String(millis() - stamp_ms) : String("null");
+// Age in ms of a millis() stamp at snapshot time, or JSON null when it never happened.
+static String age_or_null(bool happened, uint32_t stamp_ms, uint32_t snapshot_ms) {
+    return happened ? String(snapshot_ms - stamp_ms) : String("null");
 }
 
 static String status_json(const sensor_status_t &s, bool scan_pending) {
@@ -220,7 +228,7 @@ static String status_json(const sensor_status_t &s, bool scan_pending) {
     const vbat_sensor::status_t &n = s.ina;
     char buf[900];
     snprintf(buf, sizeof(buf),
-             "{\"bus\":{\"sda_pin\":%u,\"scl_pin\":%u,\"sda_high\":%s,\"scl_high\":%s,"
+             "{\"snapshot_ms\":%lu,\"bus\":{\"sda_pin\":%u,\"scl_pin\":%u,\"sda_high\":%s,\"scl_high\":%s,"
              "\"scanned\":%s,\"scan_age_ms\":%s,\"scan_pending\":%s,\"found\":%s},"
              "\"imu\":{\"initialized\":%s,\"begin_attempts\":%lu,\"begin_failures\":%lu,"
              "\"chip_id\":%u,\"last_error\":%u,\"lost_count\":%lu,\"samples\":%lu,"
@@ -229,17 +237,17 @@ static String status_json(const sensor_status_t &s, bool scan_pending) {
              "\"calibration\":%u},"
              "\"ina\":{\"present\":%s,\"device_id\":%u,\"last_error\":%u,\"reads\":%lu,"
              "\"read_failures\":%lu,\"last_ok_age_ms\":%s}}",
-             s.sda_pin, s.scl_pin, s.lines.sda_high ? "true" : "false",
+             (unsigned long)s.snapshot_ms, s.sda_pin, s.scl_pin, s.lines.sda_high ? "true" : "false",
              s.lines.scl_high ? "true" : "false", s.scan.scanned ? "true" : "false",
-             age_or_null(s.scan.scanned, s.scan.scan_ms).c_str(), scan_pending ? "true" : "false", found.c_str(),
+             age_or_null(s.scan.scanned, s.scan.scan_ms, s.snapshot_ms).c_str(), scan_pending ? "true" : "false", found.c_str(),
              m.initialized ? "true" : "false", (unsigned long)m.begin_attempts,
              (unsigned long)m.begin_failures, m.chip_id, m.last_error,
              (unsigned long)m.lost_count, (unsigned long)m.samples,
-             age_or_null(m.samples > 0, m.last_sample_ms).c_str(),
-             age_or_null(m.details_ms != 0, m.details_ms).c_str(), m.details_error,
+             age_or_null(m.samples > 0, m.last_sample_ms, s.snapshot_ms).c_str(),
+             age_or_null(m.details_ms != 0, m.details_ms, s.snapshot_ms).c_str(), m.details_error,
              m.operation_mode, m.sys_status, m.self_test, m.sys_error, m.calibration,
              n.present ? "true" : "false", n.device_id, n.last_error, (unsigned long)n.reads,
-             (unsigned long)n.read_failures, age_or_null(n.last_ok_ms != 0, n.last_ok_ms).c_str());
+             (unsigned long)n.read_failures, age_or_null(n.last_ok_ms != 0, n.last_ok_ms, s.snapshot_ms).c_str());
     return String(buf);
 }
 
