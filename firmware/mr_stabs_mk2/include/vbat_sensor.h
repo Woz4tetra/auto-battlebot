@@ -19,8 +19,8 @@ namespace vbat_sensor
     const float SHUNT_OHMS = 0.0002f;
 
     // A sample is two reads (bus voltage, then shunt voltage), each one register-pointer write
-    // plus a 3-byte read, about 56 SCL clocks. Wire1 runs at 400 kHz, so that is
-    // ~0.3 ms on the wire plus driver overhead, blocking. The control loop has no fixed period
+    // plus a 3-byte read, about 56 SCL clocks. Wire1 runs at the default 100 kHz, so that is
+    // ~1.2 ms on the wire plus driver overhead, blocking. The control loop has no fixed period
     // (it varies with radio state, BNO055 reads, and recording mode), so sampling runs on a time
     // interval instead of every Nth loop. 10 ms still resolves a punch's sag and current spike,
     // which last 100s of ms. Loops in between repeat the last values.

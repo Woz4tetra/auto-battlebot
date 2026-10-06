@@ -221,9 +221,9 @@ void setup() {
     for (int count = 0; count < 2; count++) pulse_led();
 
     Wire1.begin();  // BNO055 IMU lives on the Wire1 I2C bus
-    // Fast mode cuts the three BNO055 reads per sample from ~2.7 ms to ~0.7 ms of blocking.
-    // Both the BNO055 and the INA228 support 400 kHz.
-    Wire1.setClock(400000);
+    // Stays at the default 100 kHz. The BNO055 stretches the clock, which can fail at 400 kHz,
+    // and every failed read blocks the loop for the 50 ms Wire timeout, starving the ESCs of
+    // DShot frames.
     accel = new updown_sensor::UpdownSensor();
     if (!accel->begin()) {
         for (int count = 0; count < 10; count++) pulse_led();
