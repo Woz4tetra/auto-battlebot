@@ -27,7 +27,12 @@ from auto_battlebot.mujoco_sim.checks import (
     simulated_top_speed,
 )
 from auto_battlebot.mujoco_sim.closed_loop import ClosedLoopSim, Disc, load_fit_params
-from auto_battlebot.mujoco_sim.firmware import REVERSE_GAIN_SCALE, FirmwareMixer, PidV1
+from auto_battlebot.mujoco_sim.firmware import (
+    FirmwareMixer,
+    PidV1,
+    YawConfig,
+    YawController,
+)
 from auto_battlebot.mujoco_sim.fit import params_dict, score_candidates
 from auto_battlebot.mujoco_sim.mjcf import CollisionSet
 from auto_battlebot.mujoco_sim.onshape_export import (
@@ -388,9 +393,10 @@ def test_closed_loop_heading_hold_fights_a_gain_mismatch(
     assert drift[True] < 0.5 * drift[False]
 
 
-def _full_reverse_max_yaw_deg(sim: ClosedLoopSim, seconds: float = 2.5) -> float:
+def _reverse_max_yaw_deg(sim: ClosedLoopSim) -> float:
+    """Full reverse for 2.5 s: the largest heading swing after the first 0.2 s."""
     worst = 0.0
-    for k in range(round(seconds / 0.01)):
+    for k in range(250):
         sim.step(-1.0, 0.0, 0.01)
         if k >= 20:
             worst = max(worst, abs(math.degrees(sim.pose()[2])))
@@ -398,31 +404,64 @@ def _full_reverse_max_yaw_deg(sim: ClosedLoopSim, seconds: float = 2.5) -> float
 
 
 @pytest.mark.parametrize("lr_gain_ratio", [1.02, 0.95])
-def test_reverse_gain_scale_stops_the_full_reverse_spin(
+def test_yaw_loop_stops_the_full_reverse_spin(
     mp: mass_properties.MassProperties, collision: CollisionSet, lr_gain_ratio: float
 ) -> None:
-    """COM ahead of the axle: tail-first spins out without heading hold or at forward gains."""
+    """COM ahead of the axle: tail-first spins out with the stick passed straight through."""
     params = PlantParams(lr_gain_ratio=lr_gain_ratio)
     manual = ClosedLoopSim(mp, collision, params, start=(0.0, 0.0, 0.0), auto_steer=False)
-    assert _full_reverse_max_yaw_deg(manual) > 120.0
+    assert _reverse_max_yaw_deg(manual) > 120.0
     held = ClosedLoopSim(mp, collision, params, start=(0.0, 0.0, 0.0))
-    assert _full_reverse_max_yaw_deg(held) < 40.0
+    assert _reverse_max_yaw_deg(held) < 60.0
     assert held.forward_speed < -3.0
 
 
-def test_reverse_gain_scale_needs_reverse_throttle() -> None:
-    forward = FirmwareMixer()
-    reverse = FirmwareMixer()
-    for mixer, a_percent in ((forward, -60.0), (reverse, 60.0)):
-        mixer.step(a_percent, 0.0, 90.0, 0.01)
-        mixer.step(a_percent, 0.0, 80.0, 0.01)
-    assert reverse.pid_output == pytest.approx(
-        forward.pid_output * (1.0 + (REVERSE_GAIN_SCALE - 1.0) * 0.6), rel=0.05
+@pytest.mark.parametrize("stick", [0.2, -0.2])
+def test_yaw_loop_recovers_from_a_reverse_turn(
+    mp: mass_properties.MassProperties, collision: CollisionSet, stick: float
+) -> None:
+    """A 0.3 s turn at full reverse: passed through it spins on; the yaw loop drives out of it."""
+    late_rate = {}
+    for auto_steer in (False, True):
+        sim = ClosedLoopSim(
+            mp,
+            collision,
+            PlantParams(lr_gain_ratio=1.02),
+            start=(0.0, 0.0, 0.0),
+            auto_steer=auto_steer,
+        )
+        late = []
+        for k in range(350):
+            t = k * 0.01
+            sim.step(-1.0, stick if 1.0 <= t < 1.3 else 0.0, 0.01)
+            if t >= 3.0:
+                late.append(abs(math.degrees(sim.yaw_rate)))
+        late_rate[auto_steer] = max(late)
+        if auto_steer:
+            assert sim.forward_speed < -1.0  # back to driving tail-first, still speeding up
+    assert late_rate[False] > 2000.0
+    assert late_rate[True] < 600.0
+
+
+def test_yaw_loop_scales_with_reverse_throttle() -> None:
+    config = YawConfig(ki=0.0)
+    forward, reverse = YawController(config), YawController(config)
+    forward.reset(0.0)
+    reverse.reset(0.0)
+    command = 0.25 * config.max_rate
+    out_fwd = forward.update(25.0, 0.0, 100.0, 0.01, 0.0)
+    out_rev = reverse.update(25.0, 0.0, 100.0, 0.01, 1.0)
+    assert out_fwd == pytest.approx(config.feedforward * command + config.kp * (command - 100.0))
+    assert out_rev == pytest.approx(
+        config.feedforward * config.reverse_ff_scale * command
+        + config.kp * config.reverse_kp_scale * (command - 100.0)
     )
-    inverted = FirmwareMixer()
-    inverted.step(60.0, 0.0, 90.0, 0.01, upside_down=True)
-    inverted.step(60.0, 0.0, 80.0, 0.01, upside_down=True)
-    assert inverted.pid_output == pytest.approx(forward.pid_output)
+
+
+def test_mixer_passes_the_stick_through_when_inverted() -> None:
+    mixer = FirmwareMixer()
+    mixer.step(60.0, 30.0, 0.0, 0.01, upside_down=True, yaw_rate_dps=500.0)
+    assert mixer.pid_output == 30.0 and not mixer.yaw_loop_active
 
 
 def test_load_fit_params_takes_the_lowest_finite_loss(tmp_path: Path) -> None:

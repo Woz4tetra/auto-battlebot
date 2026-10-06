@@ -1,23 +1,24 @@
 """Mr Stabs Mk2 firmware layer between the radio and the ESCs, for closed-loop simulation.
 
-Mirrors `mix_motor_outputs`, `get_filtered_angular_z` (firmware/mr_stabs_mk2/src/main.cpp) and
-`pid::Pid` (firmware/mr_stabs_mk2/lib/pid/) line for line. The fit never uses this: it replays the
-logged per-motor commands, which already come out of the mixer.
+Mirrors `mix_motor_outputs` (firmware/mr_stabs_mk2/src/main.cpp) and
+`yaw_control::YawController` (firmware/mr_stabs_mk2/lib/yaw_control/) line for line. The fit
+never uses this: it replays the logged per-motor commands, which already come out of the mixer.
 
-Two firmware generations are mirrored, because validate.py replays recordings made before the
-2026-10-05 PID rework:
+Two firmware generations are mirrored, because validate.py replays recordings made before
+the yaw-rate loop:
 
-- `legacy=True`: the old firmware. Heading hold ran every control loop with `PidV1`, whose
-  integral accumulates the raw error and multiplies by dt only on output, and whose tolerance
-  check returns before the derivative term updates its previous error.
-- `legacy=False` (default): the current firmware. Heading hold runs once per BNO055 sample
-  (100 Hz) with `Pid`, a dt-correct integral and no tolerance-band kick, and its P and D terms
-  scale up with reverse throttle (`REVERSE_GAIN_SCALE`) because driving tail-first is
-  directionally unstable.
+- `legacy=True`: heading hold with `PidV1` every control loop, quirks included: the integral
+  accumulates the raw error and multiplies by dt only on output, and the tolerance check
+  returns before the derivative term updates its previous error. The stick passes through
+  while turning and for a 0.25 s coast after.
+- `legacy=False` (default): the current firmware. In auto steer, `YawController` runs once
+  per BNO055 sample (100 Hz): the stick commands a yaw rate, heading hold commands the rate
+  back to the held heading, and an inner loop on the gyro sets the differential.
 
 The BNO055 heading (`orientation_x`) is degrees in [0, 360) and grows clockwise seen from above;
-`heading_from_yaw` converts the sim's counterclockwise yaw into it. That sign is an assumption
-until a recording pins it (plan validation check 5).
+`heading_from_yaw` converts the sim's counterclockwise yaw into it, and rates here are
+clockwise-positive to match. That sign is an assumption until a recording pins it (plan
+validation check 5); the firmware checks its own gyro sign at runtime.
 """
 
 from __future__ import annotations
@@ -25,15 +26,21 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
-TURNING_COOLDOWN_TIME = 0.25
-ANGULAR_SCALE = 1.0
+TURNING_COOLDOWN_TIME = 0.25  # legacy only
+ANGULAR_SCALE = 1.0  # legacy only
 TURN_THRESHOLD_PERCENT = 1.0
 SAMPLE_PERIOD_S = 0.01  # updown_sensor::SAMPLE_INTERVAL
-REVERSE_GAIN_SCALE = 12.5
+GYRO_RANGE_DPS = 2000.0  # BNO055 gyro full scale in its fusion modes
 
 
 def heading_from_yaw(yaw_rad: float) -> float:
     return (-math.degrees(yaw_rad)) % 360.0
+
+
+def gyro_from_yaw_rate(yaw_rate_rad_s: float) -> float:
+    """What the firmware's get_yaw_rate() reads: clockwise deg/s, clipped at the gyro range."""
+    rate = -math.degrees(yaw_rate_rad_s)
+    return max(-GYRO_RANGE_DPS, min(GYRO_RANGE_DPS, rate))
 
 
 def _wrap(error: float, min_input: float, max_input: float) -> float:
@@ -43,9 +50,14 @@ def _wrap(error: float, min_input: float, max_input: float) -> float:
     return shifted - math.floor(shifted / span) * span - half
 
 
+def wrap_degrees(angle: float) -> float:
+    """yaw_control::wrap_degrees: [-180, 180)."""
+    return angle - 360.0 * math.floor((angle + 180.0) / 360.0)
+
+
 @dataclass
 class PidV1:
-    """pid::Pid before 2026-10-05, quirks included."""
+    """pid::Pid before 2026-10-05, quirks included, with the gains main.cpp used then."""
 
     kp: float = 0.08
     ki: float = 0.01
@@ -100,116 +112,112 @@ class PidV1:
 
 
 @dataclass
-class Pid:
-    """pid::Pid as of 2026-10-05, with the gains main.cpp configures."""
+class YawConfig:
+    """yaw_control::Config defaults."""
 
-    kp: float = 0.08
-    ki: float = 0.01
-    kd: float = 0.002
-    kf: float = 0.0
-    i_zone: float = -1.0
+    max_rate: float = 2000.0
+    feedforward: float = 1.0 / 27.0
+    kp: float = 0.02
+    ki: float = 0.02
     i_max: float = 20.0
-    tolerance: float = 2.0
-    continuous: bool = True
-    min_input: float = -180.0
-    max_input: float = 180.0
-    i_accum: float = 0.0
-    prev_error: float = 0.0
-    has_prev_error: bool = False
+    k_heading: float = 6.0
+    hold_rate_max: float = 360.0
+    reverse_kp_scale: float = 4.0
+    reverse_ff_scale: float = 0.25
+    turn_threshold: float = TURN_THRESHOLD_PERCENT
+    capture_rate: float = 45.0
+    capture_timeout: float = 0.3
 
-    def reset(self) -> None:
-        self.i_accum = 0.0
-        self.prev_error = 0.0
-        self.has_prev_error = False
 
-    def _wrap(self, error: float) -> float:
-        return _wrap(error, self.min_input, self.max_input)
+@dataclass
+class YawController:
+    """yaw_control::YawController."""
+
+    config: YawConfig = field(default_factory=YawConfig)
+    setpoint: float = 0.0
+    capturing: bool = False
+    capture_time: float = 0.0
+    integral: float = 0.0
+    output: float = 0.0
+    rate_command: float = 0.0
+
+    def reset(self, heading: float) -> None:
+        self.setpoint = heading
+        self.capturing = False
+        self.capture_time = 0.0
+        self.integral = 0.0
+        self.output = 0.0
+        self.rate_command = 0.0
 
     def update(
-        self, setpoint: float, measurement: float, dt: float, pd_scale: float = 1.0
+        self, turn_percent: float, heading: float, rate: float, dt: float, reverse: float
     ) -> float:
-        error = setpoint - measurement
-        if self.continuous:
-            error = self._wrap(error)
-        if dt <= 0.0:
-            return 0.0
-        p = self.kp * error
-        i = 0.0
-        if self.ki != 0.0:
-            if self.i_zone < 0.0 or abs(error) < self.i_zone:
-                self.i_accum += error * dt
-            if self.i_max != 0.0:
-                limit = abs(self.i_max / self.ki)
-                self.i_accum = max(min(self.i_accum, limit), -limit)
-            i = self.ki * self.i_accum
-        d = 0.0
-        if self.kd != 0.0:
-            if not self.has_prev_error:
-                self.prev_error = error
-                self.has_prev_error = True
+        c = self.config
+        if abs(turn_percent) > c.turn_threshold:
+            self.rate_command = turn_percent / 100.0 * c.max_rate
+            self.capturing = True
+            self.capture_time = 0.0
+        else:
+            if self.capturing:
+                self.capture_time += dt
+                if abs(rate) < c.capture_rate or self.capture_time >= c.capture_timeout:
+                    self.capturing = False
+                    self.setpoint = heading
+            if self.capturing:
+                self.rate_command = 0.0
             else:
-                d_err = error - self.prev_error
-                if self.continuous:
-                    d_err = self._wrap(d_err)
-                d = self.kd * d_err / dt
-                self.prev_error = error
-        out = pd_scale * (p + d) + i + self.kf * setpoint
-        if abs(error) < self.tolerance:
-            return 0.0
-        return out
+                command = c.k_heading * wrap_degrees(self.setpoint - heading)
+                self.rate_command = max(-c.hold_rate_max, min(c.hold_rate_max, command))
+        kp = c.kp * (1.0 + (c.reverse_kp_scale - 1.0) * reverse)
+        feedforward = c.feedforward * (1.0 + (c.reverse_ff_scale - 1.0) * reverse)
+        error = self.rate_command - rate
+        unsaturated = feedforward * self.rate_command + kp * error + self.integral
+        if abs(unsaturated) < 100.0 or (unsaturated > 0.0) != (error > 0.0):
+            self.integral = max(-c.i_max, min(c.i_max, self.integral + c.ki * error * dt))
+        out = feedforward * self.rate_command + kp * error + self.integral
+        self.output = max(-100.0, min(100.0, out))
+        return self.output
 
 
 @dataclass
 class FirmwareMixer:
-    """Stick percents and the sensed heading in, per-motor percents out, like the robot.
+    """Stick percents, the sensed heading and gyro rate in, per-motor percents out.
 
-    `step` is one control loop. In the current firmware the heading only changes when a BNO055
-    sample lands, every `sample_period`, and heading hold runs on those samples alone.
+    `step` is one control loop. In the current firmware the heading and gyro only change when a
+    BNO055 sample lands, every `sample_period`, and the yaw loop runs on those samples alone.
+    `pid_output` is the differential the mixer adds to the left wheel and takes off the right.
     """
 
     auto_steer: bool = True
     legacy: bool = False
-    pid: PidV1 | Pid | None = None
+    pid: PidV1 = field(default_factory=PidV1)
+    yaw: YawController = field(default_factory=YawController)
     sample_period: float = SAMPLE_PERIOD_S
-    angle_setpoint: float = 0.0
     pid_output: float = 0.0
+    # legacy heading-hold state
+    angle_setpoint: float = 0.0
     was_turning: bool = False
     cooldown_timer: float = 0.0
     _was_auto_steer: bool = False
-    _held_heading: float | None = field(default=None, repr=False)
+    # current firmware state
+    yaw_loop_active: bool = False
+    _held: tuple[float, float] | None = field(default=None, repr=False)
     _since_sample: float = field(default=0.0, repr=False)
 
-    def __post_init__(self) -> None:
-        if self.pid is None:
-            self.pid = PidV1() if self.legacy else Pid()
-
     def reset_angle_pid(self, heading_deg: float) -> None:
-        assert self.pid is not None
+        """Legacy heading-hold reset."""
         self.pid.reset()
         self.angle_setpoint = heading_deg
         self.pid_output = 0.0
         self.was_turning = False
         self.cooldown_timer = 0.0
 
-    def _sample(self, heading_deg: float, dt: float) -> tuple[float, bool]:
-        """The heading the firmware sees this loop, and whether it is a new sample."""
-        if self.legacy:
-            return heading_deg, True
-        self._since_sample += dt
-        if self._held_heading is None or self._since_sample >= self.sample_period - 1e-9:
-            self._held_heading = heading_deg
-            self._since_sample = 0.0
-            return heading_deg, True
-        return self._held_heading, False
-
-    def _filtered_angular(
-        self, b_percent: float, heading_deg: float, dt: float, fresh: bool, reverse: float
-    ) -> float:
+    def _legacy_angular(self, b_percent: float, heading_deg: float, dt: float) -> float:
         angular = b_percent * ANGULAR_SCALE
         if abs(angular) > TURN_THRESHOLD_PERCENT:
             self.angle_setpoint = heading_deg
             self.was_turning = True
-            self.cooldown_timer = TURNING_COOLDOWN_TIME * (1.0 - reverse)
+            self.cooldown_timer = TURNING_COOLDOWN_TIME
             return angular
         if self.was_turning:
             self.cooldown_timer -= dt
@@ -217,13 +225,48 @@ class FirmwareMixer:
                 self.reset_angle_pid(heading_deg)
         if self.was_turning:
             return 0.0
-        if isinstance(self.pid, PidV1):
-            return self.pid.update(self.angle_setpoint, heading_deg, dt)
-        assert self.pid is not None
-        if not fresh:
-            return self.pid_output
-        pd_scale = 1.0 + (REVERSE_GAIN_SCALE - 1.0) * reverse
-        return self.pid.update(self.angle_setpoint, heading_deg, self.sample_period, pd_scale)
+        return self.pid.update(self.angle_setpoint, heading_deg, dt)
+
+    def _sample(self, heading_deg: float, rate_dps: float, dt: float) -> tuple[float, float, bool]:
+        """The heading and gyro rate the firmware sees this loop, and whether they are new."""
+        self._since_sample += dt
+        if self._held is None or self._since_sample >= self.sample_period - 1e-9:
+            self._held = (heading_deg, rate_dps)
+            self._since_sample = 0.0
+            return heading_deg, rate_dps, True
+        return self._held[0], self._held[1], False
+
+    def _legacy_step(
+        self, a_percent: float, b_percent: float, heading_deg: float, dt: float
+    ) -> None:
+        if self.auto_steer and not self._was_auto_steer:
+            self.reset_angle_pid(heading_deg)
+        self._was_auto_steer = self.auto_steer
+        if self.auto_steer:
+            self.pid_output = self._legacy_angular(b_percent, heading_deg, dt)
+        else:
+            self.pid_output = b_percent
+
+    def _current_step(
+        self,
+        a_percent: float,
+        b_percent: float,
+        heading_deg: float,
+        rate_dps: float,
+        dt: float,
+        upside_down: bool,
+    ) -> None:
+        heading, rate, fresh = self._sample(heading_deg, rate_dps, dt)
+        reverse = min(max(a_percent / 100.0, 0.0), 1.0)
+        if not self.auto_steer or upside_down:
+            self.pid_output = b_percent
+            self.yaw_loop_active = False
+            return
+        if not self.yaw_loop_active:
+            self.yaw.reset(heading)
+            self.yaw_loop_active = True
+        if fresh:
+            self.pid_output = self.yaw.update(b_percent, heading, rate, self.sample_period, reverse)
 
     def step(
         self,
@@ -232,18 +275,13 @@ class FirmwareMixer:
         heading_deg: float,
         dt: float,
         upside_down: bool = False,
+        yaw_rate_dps: float = 0.0,
     ) -> tuple[float, float]:
-        heading_deg, fresh = self._sample(heading_deg, dt)
-        reverse = 0.0
-        if not self.legacy and not upside_down:
-            reverse = min(max(a_percent / 100.0, 0.0), 1.0)
-        if self.auto_steer and not self._was_auto_steer:
-            self.reset_angle_pid(heading_deg)
-        self._was_auto_steer = self.auto_steer
-        if self.auto_steer:
-            self.pid_output = self._filtered_angular(b_percent, heading_deg, dt, fresh, reverse)
+        """One control loop. yaw_rate_dps is the gyro, clockwise; legacy ignores it."""
+        if self.legacy:
+            self._legacy_step(a_percent, b_percent, heading_deg, dt)
         else:
-            self.pid_output = b_percent
+            self._current_step(a_percent, b_percent, heading_deg, yaw_rate_dps, dt, upside_down)
         left = -a_percent + self.pid_output
         right = -a_percent - self.pid_output
         peak = max(abs(left), abs(right))

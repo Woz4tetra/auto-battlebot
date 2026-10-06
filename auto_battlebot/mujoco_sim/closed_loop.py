@@ -31,7 +31,7 @@ from auto_battlebot.mujoco_sim.actuator import (
     shape_command,
     side_gains,
 )
-from auto_battlebot.mujoco_sim.firmware import FirmwareMixer, heading_from_yaw
+from auto_battlebot.mujoco_sim.firmware import FirmwareMixer, gyro_from_yaw_rate, heading_from_yaw
 from auto_battlebot.mujoco_sim.mass_properties import MassProperties
 from auto_battlebot.mujoco_sim.mjcf import (
     FLOOR_CONTYPE,
@@ -236,7 +236,13 @@ class ClosedLoopSim:
         self.block_contact = False
         for _ in range(max(1, round(dt / self._timestep))):
             heading = heading_from_yaw(self.pose()[2])
-            left, right = self._mixer.step(a_percent, b_percent, heading, self._timestep)
+            left, right = self._mixer.step(
+                a_percent,
+                b_percent,
+                heading,
+                self._timestep,
+                yaw_rate_dps=gyro_from_yaw_rate(self.yaw_rate),
+            )
             self._queue.append((left, right))
             self.data.ctrl[:] = self._wheel_volts(*self._queue.popleft())
             mujoco.mj_step(self.model, self.data)
