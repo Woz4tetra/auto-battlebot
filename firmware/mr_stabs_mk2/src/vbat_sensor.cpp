@@ -82,13 +82,20 @@ void VbatSensor::update()
     if (!present)
         return;
     uint32_t now = micros();
-    if (now - sample_timer_us < SAMPLE_INTERVAL_US)
+    if (now - sample_timer_us < next_interval_us)
         return;
     sample_timer_us = now;
 
     int32_t bus_reading, shunt_reading;
-    last_volts = read_20_bit(REG_VBUS, &bus_reading) ? (float)bus_reading * BUS_VOLTS_PER_LSB
-                                                     : NAN;
+    if (!read_20_bit(REG_VBUS, &bus_reading))
+    {
+        last_volts = NAN;
+        last_amps = NAN;
+        next_interval_us = RETRY_INTERVAL_US;
+        return;
+    }
+    last_volts = (float)bus_reading * BUS_VOLTS_PER_LSB;
     last_amps = read_20_bit(REG_VSHUNT, &shunt_reading) ? (float)shunt_reading * AMPS_PER_LSB
                                                         : NAN;
+    next_interval_us = SAMPLE_INTERVAL_US;
 }

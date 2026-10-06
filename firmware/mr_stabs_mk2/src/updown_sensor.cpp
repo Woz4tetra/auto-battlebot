@@ -4,7 +4,8 @@ using namespace updown_sensor;
 
 UpdownSensor::UpdownSensor()
 {
-    sensor = new Adafruit_BNO055(55, 0x28, &Wire1);
+    wire = &Wire1;
+    sensor = new Adafruit_BNO055(55, BNO055_ADDRESS, wire);
     grav_vec = make_unit_vector(0.0, 0.0, -9.81);
     max_grav_vec = init_vector3(0.0, 0.0, 0.0);
     min_grav_vec = init_vector3(0.0, 0.0, 0.0);
@@ -68,9 +69,14 @@ bool UpdownSensor::get_is_upside_down(bool radio_connected)
 
 bool UpdownSensor::update_sensor(bool radio_connected)
 {
-    if (!initialized && !radio_connected)
+    // An absent or unplugged sensor is never read: each failed read blocks the loop for
+    // milliseconds, and at the 10 ms sample interval that starved the ESCs of DShot frames.
+    // begin() blocks for over a second, so it is only retried with the radio disconnected.
+    // main.cpp skips this call with the link down, so in practice a sensor that drops out stays
+    // off, and heading hold with it, until the next reboot.
+    if (!initialized)
     {
-        if (millis() - reconnect_timer > RECONNECT_INTERVAL)
+        if (!radio_connected && millis() - reconnect_timer > RECONNECT_INTERVAL)
         {
             begin();
             reconnect_timer = millis();
@@ -83,6 +89,15 @@ bool UpdownSensor::update_sensor(bool radio_connected)
         return false;
     }
     sample_timer = now;
+
+    // The Adafruit reads ignore I2C errors and return zeros, so check the sensor still ACKs.
+    // One failed probe costs a single transaction; then reads stop until begin() succeeds.
+    wire->beginTransmission(BNO055_ADDRESS);
+    if (wire->endTransmission() != 0)
+    {
+        initialized = false;
+        return false;
+    }
     uint32_t start_time = now;
     sensors_event_t gravity_data, orientation_data, gyro_data;
     sensor->getEvent(&gravity_data, Adafruit_BNO055::VECTOR_GRAVITY);

@@ -25,6 +25,9 @@ namespace vbat_sensor
     // interval instead of every Nth loop. 10 ms still resolves a punch's sag and current spike,
     // which last 100s of ms. Loops in between repeat the last values.
     const uint32_t SAMPLE_INTERVAL_US = 10000;
+    // After a failed read (unplugged cable), wait this long before trying again, so a missing
+    // chip costs one blocked transaction per second rather than one per sample.
+    const uint32_t RETRY_INTERVAL_US = 1000000;
 
     class VbatSensor
     {
@@ -50,6 +53,7 @@ namespace vbat_sensor
         float last_volts = NAN;
         float last_amps = NAN;
         uint32_t sample_timer_us = 0;
+        uint32_t next_interval_us = SAMPLE_INTERVAL_US;
 
         bool read_register(uint8_t reg, uint8_t num_bytes, uint32_t *value);
         bool read_20_bit(uint8_t reg, int32_t *reading);

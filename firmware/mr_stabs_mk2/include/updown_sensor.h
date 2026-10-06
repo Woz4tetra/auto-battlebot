@@ -14,12 +14,14 @@ typedef struct {
 const float RIGHT_SIDE_UP_THRESHOLD = -1.0;
 const float UPSIDE_DOWN_THRESHOLD = 1.0;
 const uint32_t RECONNECT_INTERVAL = 1000;
+const uint8_t BNO055_ADDRESS = 0x28;
 // The BNO055 fusion output updates at 100 Hz, so reading faster returns repeated values.
 const uint32_t SAMPLE_INTERVAL = 10;
 
 class UpdownSensor {
    private:
     Adafruit_BNO055 *sensor;
+    TwoWire *wire;
     bool initialized = false;
     vector3_t *grav_vec;
     vector3_t *max_grav_vec;
