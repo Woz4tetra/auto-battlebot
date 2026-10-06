@@ -53,11 +53,14 @@ class Pid {
      *     setpoint: Desired value.
      *     measurement: Current value.
      *     dt: Seconds since the previous measurement.
+     *     pd_scale: Multiplies the P and D terms only, for gain scheduling. The integral and
+     *               feedforward are left alone, so changing the scale never jumps the output
+     *               by a multiple of the accumulated integral.
      *
      * Returns:
      *     Output value.
      */
-    float update(float setpoint, float measurement, float dt);
+    float update(float setpoint, float measurement, float dt, float pd_scale = 1.0f);
 
     float get_error();
 

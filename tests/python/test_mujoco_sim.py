@@ -27,7 +27,7 @@ from auto_battlebot.mujoco_sim.checks import (
     simulated_top_speed,
 )
 from auto_battlebot.mujoco_sim.closed_loop import ClosedLoopSim, Disc, load_fit_params
-from auto_battlebot.mujoco_sim.firmware import FirmwareMixer, Pid
+from auto_battlebot.mujoco_sim.firmware import REVERSE_GAIN_SCALE, FirmwareMixer, PidV1
 from auto_battlebot.mujoco_sim.fit import params_dict, score_candidates
 from auto_battlebot.mujoco_sim.mjcf import CollisionSet
 from auto_battlebot.mujoco_sim.onshape_export import (
@@ -117,8 +117,8 @@ def test_nose_lift_matches_momentum_analysis(
     assert lift == pytest.approx(analytic_lift_accel(mp, rest), rel=0.05)
 
 
-def test_pid_mirrors_firmware_quirks() -> None:
-    pid = Pid()
+def test_pid_v1_mirrors_old_firmware_quirks() -> None:
+    pid = PidV1()
     assert pid.update(10.0, 9.0, 0.01) == 0.0  # inside the 2 degree tolerance
     out = pid.update(10.0, 0.0, 0.01)  # first call past tolerance: no derivative yet
     assert out == pytest.approx(0.08 * 10 + 0.01 * 10 * 0.01)
@@ -386,6 +386,43 @@ def test_closed_loop_heading_hold_fights_a_gain_mismatch(
         _drive(sim, 0.15, 0.0, 1.0)
         drift[auto_steer] = abs(sim.pose()[2])
     assert drift[True] < 0.5 * drift[False]
+
+
+def _full_reverse_max_yaw_deg(sim: ClosedLoopSim, seconds: float = 2.5) -> float:
+    worst = 0.0
+    for k in range(round(seconds / 0.01)):
+        sim.step(-1.0, 0.0, 0.01)
+        if k >= 20:
+            worst = max(worst, abs(math.degrees(sim.pose()[2])))
+    return worst
+
+
+@pytest.mark.parametrize("lr_gain_ratio", [1.02, 0.95])
+def test_reverse_gain_scale_stops_the_full_reverse_spin(
+    mp: mass_properties.MassProperties, collision: CollisionSet, lr_gain_ratio: float
+) -> None:
+    """COM ahead of the axle: tail-first spins out without heading hold or at forward gains."""
+    params = PlantParams(lr_gain_ratio=lr_gain_ratio)
+    manual = ClosedLoopSim(mp, collision, params, start=(0.0, 0.0, 0.0), auto_steer=False)
+    assert _full_reverse_max_yaw_deg(manual) > 120.0
+    held = ClosedLoopSim(mp, collision, params, start=(0.0, 0.0, 0.0))
+    assert _full_reverse_max_yaw_deg(held) < 40.0
+    assert held.forward_speed < -3.0
+
+
+def test_reverse_gain_scale_needs_reverse_throttle() -> None:
+    forward = FirmwareMixer()
+    reverse = FirmwareMixer()
+    for mixer, a_percent in ((forward, -60.0), (reverse, 60.0)):
+        mixer.step(a_percent, 0.0, 90.0, 0.01)
+        mixer.step(a_percent, 0.0, 80.0, 0.01)
+    assert reverse.pid_output == pytest.approx(
+        forward.pid_output * (1.0 + (REVERSE_GAIN_SCALE - 1.0) * 0.6), rel=0.05
+    )
+    inverted = FirmwareMixer()
+    inverted.step(60.0, 0.0, 90.0, 0.01, upside_down=True)
+    inverted.step(60.0, 0.0, 80.0, 0.01, upside_down=True)
+    assert inverted.pid_output == pytest.approx(forward.pid_output)
 
 
 def test_load_fit_params_takes_the_lowest_finite_loss(tmp_path: Path) -> None:

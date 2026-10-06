@@ -26,7 +26,7 @@ void Pid::reset() {
     has_prev_error = false;
 }
 
-float Pid::update(float setpoint, float measurement, float dt) {
+float Pid::update(float setpoint, float measurement, float dt, float pd_scale) {
     error = setpoint - measurement;
 
     // Handle continuous input (angle wrapping)
@@ -43,9 +43,9 @@ float Pid::update(float setpoint, float measurement, float dt) {
     // Every term runs before the tolerance check, so prev_error and the integral stay current
     // while the output is held at zero inside the band.
     float output = 0.0;
-    output += _calculate_p(error);
+    output += pd_scale * _calculate_p(error);
     output += _calculate_i(error, dt);
-    output += _calculate_d(error, dt);
+    output += pd_scale * _calculate_d(error, dt);
     output += _calculate_f(setpoint);
     if (fabs(error) < tolerance) {
         return 0.0;

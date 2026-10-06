@@ -134,6 +134,20 @@ TEST(Pid, ContinuousDerivativeAcrossWrap) {
     EXPECT_NEAR(pid.update(0.0f, 179.0f, 0.01f), 2.0f / 0.01f, 1e-2f);
 }
 
+TEST(Pid, PdScaleMultipliesOnlyProportionalAndDerivative) {
+    pid::PidConfig config;
+    config.kp = 1.0f;
+    config.ki = 1.0f;
+    config.kd = 0.1f;
+    pid::Pid scaled(config);
+    pid::Pid plain(config);
+    step(scaled, 0.0f, 0.1f);
+    step(plain, 0.0f, 0.1f);
+    // error 2 over 0.1 s: P 2, I 0.2, D 0.1 * 2 / 0.1 = 2
+    EXPECT_NEAR(scaled.update(0.0f, -2.0f, 0.1f, 3.0f), 3.0f * (2.0f + 2.0f) + 0.2f, kTol);
+    EXPECT_NEAR(step(plain, 2.0f, 0.1f), 2.0f + 2.0f + 0.2f, kTol);
+}
+
 int main(int argc, char **argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

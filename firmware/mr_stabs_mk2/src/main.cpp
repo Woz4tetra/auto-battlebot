@@ -51,6 +51,16 @@ const float ANGULAR_SCALE = 1.0f;           // scales the manual turn command (b
 // Heading hold runs once per BNO055 sample, not once per loop, so its D and I terms see the real
 // time between headings. With no new sample for this long, the IMU has stalled: output zero.
 const uint32_t HEADING_STALE_US = 100000;
+// Mr Stabs' center of mass sits 32 mm ahead of the axle (auto_battlebot/mujoco_sim mass
+// properties), which makes driving tail-first directionally unstable: a small yaw grows on its
+// own, faster with speed, and at full reverse the robot spins out even with heading hold off.
+// The forward gains only trim drift. In reverse, heading hold's P and D terms scale up linearly
+// with reverse throttle, to this factor at full reverse: kp 0.08 -> 1.0 %/deg. In the
+// closed-loop sim (auto_battlebot/mujoco_sim, unfit default plant, 2-10% motor mismatch) full
+// reverse then held within 20-31 deg of heading at ~4 m/s; at the forward gains it spun out.
+// This does not cover turning at speed in reverse: heading hold is off while the stick turns,
+// and a turn there builds ~1000 deg/s within 0.2 s in the sim.
+const float REVERSE_GAIN_SCALE = 12.5f;
 uint32_t last_heading_sample_us = 0;
 
 // Command-timeout failsafe
@@ -157,8 +167,10 @@ void copy_radio_data(const crsf_bridge::radio_data_t *src, crsf_bridge::radio_da
     dest->flip_switch_state = src->flip_switch_state;
 }
 
+// reverse: 0 driving forward or stopped, 1 at full reverse throttle.
 float get_filtered_angular_z(float percent_input, float sensed_angle_z, float dt,
-                             bool fresh_heading, float heading_dt, bool heading_stale) {
+                             bool fresh_heading, float heading_dt, bool heading_stale,
+                             float reverse) {
     float angular_v = percent_input * ANGULAR_SCALE;
     float filtered_angular_v;
 
@@ -167,7 +179,8 @@ float get_filtered_angular_z(float percent_input, float sensed_angle_z, float dt
         filtered_angular_v = angular_v;
         angle_setpoint = sensed_angle_z;
         was_turning = true;
-        cooldown_timer = TURNING_COOLDOWN_TIME;
+        // No coast in full reverse: the spin builds within the forward coast time.
+        cooldown_timer = TURNING_COOLDOWN_TIME * (1.0f - reverse);
     } else {
         if (was_turning) {
             // Just stopped turning: coast briefly before engaging heading hold
@@ -182,7 +195,9 @@ float get_filtered_angular_z(float percent_input, float sensed_angle_z, float dt
             filtered_angular_v = 0.0f;
         } else if (fresh_heading) {
             // Hold heading
-            filtered_angular_v = angle_pid->update(angle_setpoint, sensed_angle_z, heading_dt);
+            float pd_scale = 1.0f + (REVERSE_GAIN_SCALE - 1.0f) * reverse;
+            filtered_angular_v =
+                angle_pid->update(angle_setpoint, sensed_angle_z, heading_dt, pd_scale);
         } else {
             // Between samples: repeat the last correction
             filtered_angular_v = angle_pid_output;
@@ -192,10 +207,14 @@ float get_filtered_angular_z(float percent_input, float sensed_angle_z, float dt
 }
 
 void mix_motor_outputs(crsf_bridge::radio_data_t *radio_data, float sensed_angle_z,
-                       bool auto_steer_enabled, float dt, uint32_t now_us, float &left_command,
-                       float &right_command) {
+                       bool auto_steer_enabled, bool is_upside_down, float dt, uint32_t now_us,
+                       float &left_command, float &right_command) {
     float a_percent = radio_data->a_percent;
     float b_percent = radio_data->b_percent;
+    // a_percent is the negated throttle channel, so pulling the stick back reads positive.
+    // Inverted, the skid is off the floor and the gyro's yaw flips, so the reverse gains stay
+    // off until that case has been measured.
+    float reverse = is_upside_down ? 0.0f : constrain(a_percent / 100.0f, 0.0f, 1.0f);
 
     uint32_t sample_us = accel->get_sample_us();
     bool fresh_heading = sample_us != 0 && sample_us != last_heading_sample_us;
@@ -206,8 +225,8 @@ void mix_motor_outputs(crsf_bridge::radio_data_t *radio_data, float sensed_angle
     bool heading_stale = sample_us == 0 || now_us - sample_us > HEADING_STALE_US;
 
     if (auto_steer_enabled) {
-        float filtered_angular_v = get_filtered_angular_z(b_percent, sensed_angle_z, dt,
-                                                          fresh_heading, heading_dt, heading_stale);
+        float filtered_angular_v = get_filtered_angular_z(
+            b_percent, sensed_angle_z, dt, fresh_heading, heading_dt, heading_stale, reverse);
         angle_pid_output = filtered_angular_v;
     } else {
         angle_pid_output = b_percent;
@@ -273,7 +292,9 @@ void setup() {
     pid::PidConfig config;
     config.kp = 0.08f;
     config.ki = 0.01f;
-    config.kd = 0.01f;
+    // Low because REVERSE_GAIN_SCALE multiplies it: in the sim, 0.01 (0.125 scaled) overdamped
+    // reverse into a 63 deg swing, 0.001-0.005 held 20-31 deg.
+    config.kd = 0.002f;
     config.kf = 0.0f;
     config.tolerance = 2.0f;   // hold heading within 2 degrees
     config.i_max = 20.0f;      // percent of drive command
@@ -465,8 +486,8 @@ void loop() {
     was_auto_steer_enabled = auto_steer_enabled;
 
     float left_command, right_command;
-    mix_motor_outputs(radio_data, sensed_angle_z, auto_steer_enabled, dt, micros(), left_command,
-                      right_command);
+    mix_motor_outputs(radio_data, sensed_angle_z, auto_steer_enabled, is_upside_down, dt, micros(),
+                      left_command, right_command);
 
     left_esc->write(left_command);
     right_esc->write(right_command);

@@ -187,7 +187,8 @@ def firmware_closed_loop(
             model, index, batch.take(np.array([i])).state, height, mp.gear_ratio
         )
         data.qpos[:], data.qvel[:] = qpos[0], qvel[0]
-        mixer = FirmwareMixer()
+        # The recordings predate the 2026-10-05 heading hold rework.
+        mixer = FirmwareMixer(legacy=True)
         heading_offset = fw[i, 0, 5] - heading_from_yaw(batch.state.yaw[i])
         queue = [(0.0, 0.0)] * delay_steps
         sim_pid, sim_cmd = [], []
