@@ -58,7 +58,13 @@ Requires [PlatformIO](https://platformio.org/).
 
 # Serial monitor
 ./scripts/monitor
+
+# Host-side unit tests (test/, GoogleTest, no board needed)
+./scripts/test
 ```
+
+Code with unit tests lives in `lib/` so the `native` environment can build it without the
+Arduino core; `pio test` does not compile `src/`. The heading-hold PID is in `lib/pid/`.
 
 ## OTA Updates
 
@@ -136,6 +142,17 @@ The dashboard streams all diagnostic data at 10 Hz:
 3. Click **Download CSV** to save the recorded data as a timestamped CSV file.
 
 Recording happens entirely in the browser -- the ESP32 does not store data, so there is no RAM limit on recording duration (limited only by browser memory).
+
+### Checking for drive twitches
+
+`scripts/log_drive_twitch.py` records the same stream from the command line and checks two causes
+of twitching while driving: the flip-switch-DOWN upside-down detection flipping the throttle by
+mistake, and DShot 3D direction reversals that heading hold causes. Join the MR-STABS WiFi, then:
+
+```bash
+./scripts/log_drive_twitch.py --seconds 60           # capture, then analyze
+./scripts/log_drive_twitch.py --csv mr_stabs_x.csv   # analyze a dashboard CSV
+```
 
 ### Zero Overhead
 

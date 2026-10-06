@@ -1,0 +1,605 @@
+<title>ZED Box Mini Plate Adapter</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column of drawing sheets; the 3D viewer and plan drawings run full column width. */
+:root {
+  --bg: #f3f5f6;
+  --sheet: #ffffff;
+  --ink: #17212b;
+  --ink-2: #4b5966;
+  --rule: #d5dce1;
+  --accent: #0f7f86;
+  --accent-ink: #ffffff;
+  --pla: #1a9aa0;
+  --brass: #c08a1e;
+  --steel: #7f8b97;
+  --zed: #39414c;
+  --plate: #8a9097;
+  --good: #2e7d4f;
+  --warn: #b26a00;
+  --bad: #b3261e;
+  --viewer-bg: #e7ecef;
+  --font-display: "Barlow Semi Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #11161b; --sheet: #182027; --ink: #e3e9ee; --ink-2: #9aa8b4; --rule: #2b3640;
+    --accent: #3cc0c6; --accent-ink: #062226; --pla: #33b5ba; --brass: #d9a440; --steel: #9aa6b2;
+    --zed: #59626e; --plate: #6f767e; --good: #5cc488; --warn: #e3a33b; --bad: #f2786f;
+    --viewer-bg: #0d1216; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #11161b; --sheet: #182027; --ink: #e3e9ee; --ink-2: #9aa8b4; --rule: #2b3640;
+  --accent: #3cc0c6; --accent-ink: #062226; --pla: #33b5ba; --brass: #d9a440; --steel: #9aa6b2;
+  --zed: #59626e; --plate: #6f767e; --good: #5cc488; --warn: #e3a33b; --bad: #f2786f;
+  --viewer-bg: #0d1216; color-scheme: dark;
+}
+body { background: var(--bg); color: var(--ink); font: 15px/1.55 var(--font-body); }
+.wrap { max-width: 1080px; margin: 0 auto; padding-inline: 16px; padding-block: 28px 64px; display: grid; gap: 28px; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; letter-spacing: 0.01em; }
+h1 { font-size: clamp(30px, 5vw, 44px); font-weight: 700; line-height: 1.05; }
+h2 { font-size: 26px; font-weight: 600; }
+h3 { font-size: 18px; font-weight: 600; }
+p { margin: 0; max-width: 68ch; }
+a { color: var(--accent); }
+.mono, code, td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+code { font-size: 0.92em; }
+.label { font: 500 11px/1.2 var(--font-mono); text-transform: uppercase; letter-spacing: 0.09em; color: var(--ink-2); }
+header { display: grid; gap: 10px; }
+.facts { display: flex; flex-wrap: wrap; gap: 8px 18px; color: var(--ink-2); font-size: 14px; }
+.facts b { color: var(--ink); font-weight: 600; }
+.pill { display: inline-flex; align-items: center; gap: 6px; font: 600 12px/1 var(--font-mono); padding: 5px 9px; border-radius: 999px; background: color-mix(in srgb, var(--good) 16%, transparent); color: var(--good); }
+.sheet { background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; padding: 20px; display: grid; gap: 16px; min-width: 0; }
+.sheet > header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 6px 16px; }
+nav.toc { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 14px; }
+nav.toc a { text-decoration: none; border-bottom: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); }
+
+/* Viewer */
+.viewer { position: relative; border-radius: 4px; overflow: hidden; background: var(--viewer-bg); height: clamp(320px, 60vh, 620px); }
+.viewer canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+.viewer .status { position: absolute; left: 12px; bottom: 10px; font: 12px var(--font-mono); color: var(--ink-2); }
+.viewer .axes { position: absolute; right: 12px; bottom: 10px; font: 12px var(--font-mono); color: var(--ink-2); }
+.controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px 22px; }
+.ctl { display: grid; gap: 8px; min-width: 0; }
+.seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 5px; overflow: hidden; width: max-content; max-width: 100%; flex-wrap: wrap; }
+.seg button { font: 500 13px var(--font-body); background: transparent; color: var(--ink); border: 0; padding: 7px 12px; cursor: pointer; border-right: 1px solid var(--rule); }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+input[type="range"] { width: 100%; accent-color: var(--accent); }
+.readout { font: 500 14px var(--font-mono); font-variant-numeric: tabular-nums; }
+.parts { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.parts label, .layers label { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; cursor: pointer; }
+.sw { width: 12px; height: 12px; border-radius: 2px; display: inline-block; flex: none; }
+.btn { font: 500 13px var(--font-body); border: 1px solid var(--rule); background: transparent; color: var(--ink); border-radius: 5px; padding: 6px 11px; cursor: pointer; }
+.btn:hover { border-color: var(--accent); }
+
+/* Drawings */
+.drawing { overflow-x: auto; border: 1px solid var(--rule); border-radius: 4px; background: var(--viewer-bg); }
+.drawing svg { display: block; width: 100%; height: auto; min-width: 560px; }
+.insets { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.inset { border: 1px solid var(--rule); border-radius: 4px; background: var(--viewer-bg); display: grid; }
+.inset svg { width: 100%; height: auto; display: block; }
+.inset .cap { padding: 6px 8px; font: 12px/1.35 var(--font-mono); border-top: 1px solid var(--rule); background: var(--sheet); }
+.layers { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.two > * { min-width: 0; }
+figure { margin: 0; display: grid; gap: 8px; }
+figcaption { font-size: 13px; color: var(--ink-2); }
+
+/* Tables */
+.tbl { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font: 500 11px/1.3 var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-2); }
+td.num { text-align: right; white-space: nowrap; }
+.band-low { color: var(--warn); }
+.band-ok { color: var(--good); }
+.band-high { color: var(--bad); }
+tr.nominal td { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.status-PASS { color: var(--good); font-weight: 600; }
+.status-WARN { color: var(--warn); font-weight: 600; }
+.status-FAIL { color: var(--bad); font-weight: 600; }
+.prose { display: grid; gap: 10px; }
+.prose ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; max-width: 70ch; }
+.flag { border-left: 3px solid var(--warn); padding: 8px 12px; background: color-mix(in srgb, var(--warn) 8%, transparent); max-width: 74ch; }
+details summary { cursor: pointer; font-weight: 600; }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <span class="label">auto-battlebot · hardware/zed_box_mini_mount</span>
+    <h1>ZED Box Mini Plate Adapter</h1>
+    <p>A 12 mm PLA plate between the ZED Box Mini and an INNOREL CP10 cheese plate. Four McMaster M3 heat-set inserts take the ZED's ear screws; four 1/4-20 screws drop through counterbores into the plate's threads.</p>
+    <div class="facts" id="facts"></div>
+    <nav class="toc"><a href="#assembly">Assembly and section</a><a href="#overlap">Hole overlap</a><a href="#plate">Cheese plate model</a><a href="#insert">Insert fit</a><a href="#bom">BOM</a><a href="#checks">CAD checks</a></nav>
+  </header>
+
+  <section class="sheet" id="assembly">
+    <header><h2>Assembly and section</h2><span class="label">real ZED Box Mini STEP · mm</span></header>
+    <div class="viewer" id="viewer"><span class="status" id="status">Loading meshes…</span><span class="axes">X red · Y green · Z blue</span></div>
+    <div class="controls">
+      <div class="ctl">
+        <span class="label">Section plane</span>
+        <div class="seg" id="axisSeg" role="group" aria-label="Section axis">
+          <button type="button" data-axis="none" aria-pressed="false">Off</button>
+          <button type="button" data-axis="X" aria-pressed="true">X (length)</button>
+          <button type="button" data-axis="Y" aria-pressed="false">Y (width)</button>
+          <button type="button" data-axis="Z" aria-pressed="false">Z (height)</button>
+        </div>
+        <input type="range" id="cut" min="-110" max="110" step="0.05" value="24" aria-label="Section position">
+        <div class="row"><span class="readout" id="cutReadout">X = 24.00 mm</span><button class="btn" type="button" id="flip">Flip side</button></div>
+        <div class="row" id="snaps"></div>
+      </div>
+      <div class="ctl">
+        <span class="label">Parts</span>
+        <div class="parts" id="parts"></div>
+        <span class="label">Explode</span>
+        <input type="range" id="explode" min="0" max="1" step="0.01" value="0" aria-label="Explode">
+      </div>
+      <div class="ctl">
+        <span class="label">View</span>
+        <div class="row">
+          <button class="btn" type="button" data-view="iso">Iso</button>
+          <button class="btn" type="button" data-view="front">Front</button>
+          <button class="btn" type="button" data-view="side">Side</button>
+          <button class="btn" type="button" data-view="top">Top</button>
+          <button class="btn" type="button" data-view="plate">Cheese plate only</button>
+          <button class="btn" type="button" data-view="all">Everything</button>
+        </div>
+        <p class="label" style="text-transform:none;letter-spacing:0">Drag to orbit, scroll or pinch to zoom, right-drag to pan. Cut faces show darker.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="sheet" id="overlap">
+    <header><h2>Hole overlap</h2><span class="label">plan view from +Z · sections cut from the CAD</span></header>
+    <p>Each layer is a real horizontal cut through its part: the ZED's 1 mm base sheet from Stereolabs' STEP, the adapter just under its top face and near its bottom, and the cheese plate at mid-thickness. Where every layer is open, you see the background, so a clear hole through the stack is a clear path for the screw.</p>
+    <div class="layers" id="layers"></div>
+    <div class="drawing" id="plan"></div>
+    <div class="insets" id="insets"></div>
+    <div class="tbl"><table id="pairs"></table></div>
+  </section>
+
+  <section class="sheet" id="plate">
+    <header><h2>Cheese plate model</h2><span class="label">INNOREL CP10 · 200 × 100 × 10 mm · 6061-T6</span></header>
+    <p>Modeled from INNOREL's dimensioned drawing (Amazon image 71V4ad30vkL). Printed dimensions are used directly: slot width 6.4, slot counterbore 10.3, slot pitch 24.7 and 74.3, slot rows 42.3, end slots 27. Hole centers without a printed dimension were scaled from the drawing at 6.13 px/mm and made symmetric; after that the counts match the drawing exactly. Threaded holes are drawn at tap drill size.</p>
+    <div class="layers" id="plateLegend"></div>
+    <div class="drawing" id="plateDrawing"></div>
+    <p class="flag">The four highlighted 1/4-20 holes at (±49.5, ±30.85) carry the adapter. X = ±49.5 follows from printed dimensions; Y = ±30.85 is scaled from the image, so measure the 61.7 mm spacing on your plate before printing. The Ø7.0 clearance holes absorb ±0.3 mm.</p>
+  </section>
+
+  <section class="sheet" id="insert">
+    <header><h2>Insert fit</h2><span class="label">McMaster 94180A333 in PLA</span></header>
+    <div class="two">
+      <figure><div class="drawing" id="secInsert"></div><figcaption id="secInsertCap"></figcaption></figure>
+      <figure><div class="drawing" id="secBolt"></div><figcaption id="secBoltCap"></figcaption></figure>
+    </div>
+    <div class="prose" id="insertProse"></div>
+    <div class="tbl"><table id="sens"></table></div>
+  </section>
+
+  <section class="sheet" id="bom">
+    <header><h2>Bill of materials</h2><span class="label">one assembly</span></header>
+    <div class="tbl"><table id="bomTable"></table></div>
+  </section>
+
+  <section class="sheet" id="checks">
+    <header><h2>CAD checks</h2><span class="label">build123d-part check.py on the adapter</span></header>
+    <details><summary id="checkSummary"></summary><div class="tbl"><table id="checkTable"></table></div></details>
+  </section>
+</div>
+
+<script>const DATA=/*DATA*/null;</script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+const P = DATA.params;
+const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const f2 = (v) => (Math.round(v * 100) / 100).toFixed(2);
+const SVGNS = "http://www.w3.org/2000/svg";
+
+const PARTS = [
+  { key: "zed", label: "ZED Box Mini", color: "--zed" },
+  { key: "adapter", label: "Adapter (PLA)", color: "--pla" },
+  { key: "plate", label: "Cheese plate", color: "--plate" },
+  { key: "inserts", label: "M3 inserts", color: "--brass" },
+  { key: "m3_screws", label: "M3 × 8 screws", color: "--steel" },
+  { key: "bolts", label: "1/4-20 screws", color: "--steel" },
+];
+
+document.getElementById("facts").innerHTML = [
+  `<span class="pill">CAD checks ${DATA.checks.filter((c) => c.status === "FAIL").length ? "FAIL" : "PASS"}</span>`,
+  `<span><b>${P.length} × ${P.width} × ${P.thickness}</b> mm</span>`,
+  `<span><b>${DATA.mass_g} g</b> solid PLA (infill makes it lighter)</span>`,
+  `<span>M3 inserts at <b>(±${P.zed_hole_x}, ±${P.zed_hole_y})</b></span>`,
+  `<span>1/4-20 at <b>(±${P.plate_hole_x}, ±${P.plate_hole_y})</b></span>`,
+].join("");
+
+/* ---------- polygon helpers for the drawings ---------- */
+function polyPath(poly, flipV = true) {
+  const ring = (pts) => "M" + pts.map(([u, v]) => `${u.toFixed(2)} ${(flipV ? -v : v).toFixed(2)}`).join("L") + "Z";
+  return ring(poly.outer) + poly.holes.map(ring).join("");
+}
+function svgEl(tag, attrs, parent) {
+  const el = document.createElementNS(SVGNS, tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  if (parent) parent.appendChild(el);
+  return el;
+}
+
+/* ---------- hole overlap plan ---------- */
+const LAYERS = [
+  { key: "plate", label: "Cheese plate (z = −5)", color: "--plate", op: 0.55 },
+  { key: "adapter_bottom", label: "Adapter near bottom (z = 2)", color: "--pla", op: 0.35 },
+  { key: "adapter_top", label: "Adapter near top (z = 11.5)", color: "--pla", op: 0.45 },
+  { key: "zed_sheet", label: "ZED base sheet (z = 12.5)", color: "--zed", op: 0.55 },
+];
+const layerOn = Object.fromEntries(LAYERS.map((l) => [l.key, true]));
+
+function drawPlan(host, win, opts = {}) {
+  host.innerHTML = "";
+  const [x0, x1, y0, y1] = win;
+  const svg = svgEl("svg", { viewBox: `${x0} ${-y1} ${x1 - x0} ${y1 - y0}`, role: "img", "aria-label": opts.label || "Plan view of hole overlap" }, host);
+  for (const l of LAYERS) {
+    if (!layerOn[l.key]) continue;
+    const g = svgEl("g", { fill: css(l.color), "fill-opacity": l.op, "fill-rule": "evenodd", stroke: css(l.color), "stroke-width": opts.stroke || 0.25 }, svg);
+    for (const poly of DATA.plan[l.key]) svgEl("path", { d: polyPath(poly) }, g);
+  }
+  const mark = svgEl("g", { stroke: css("--ink"), "stroke-width": opts.cross || 0.3, fill: "none" }, svg);
+  for (const pr of DATA.pairs) {
+    const [x, y] = pr.adapter;
+    const r = opts.crossR || 2;
+    svgEl("path", { d: `M${x - r} ${-y}H${x + r}M${x} ${-y - r}V${-y + r}` }, mark);
+  }
+  if (opts.zedMarks) {
+    const zm = svgEl("g", { stroke: css("--bad"), "stroke-width": opts.cross || 0.3, fill: "none" }, svg);
+    for (const [x, y] of DATA.zed_holes) svgEl("circle", { cx: x, cy: -y, r: 0.25 }, zm);
+  }
+  return svg;
+}
+
+function renderOverlap() {
+  const lay = document.getElementById("layers");
+  lay.innerHTML = LAYERS.map((l) => `<label><input type="checkbox" id="lay_${l.key}" ${layerOn[l.key] ? "checked" : ""}><span class="sw" style="background:var(${l.color});opacity:${0.4 + l.op / 2}"></span>${l.label}</label>`).join("");
+  for (const l of LAYERS) document.getElementById(`lay_${l.key}`).addEventListener("change", (e) => { layerOn[l.key] = e.target.checked; renderOverlapDrawings(); });
+  renderOverlapDrawings();
+
+  const rows = DATA.pairs.map((p) => {
+    const what = p.kind === "m3" ? "M3 insert hole Ø" + P.insert_hole + " ↔ ZED ear hole Ø3.6 (STEP)" : "1/4-20 clearance Ø" + P.bolt_clear + " ↔ plate 1/4-20 (model)";
+    const off = Math.hypot(p.dx, p.dy);
+    const slack = p.kind === "m3" ? (3.6 - 3.0) / 2 : (P.bolt_clear - 6.35) / 2;
+    return `<tr><td>${what}</td><td class="num">${f2(p.adapter[0])}, ${f2(p.adapter[1])}</td><td class="num">${f2(p.mate[0])}, ${f2(p.mate[1])}</td><td class="num">${off.toFixed(3)}</td><td class="num">${slack.toFixed(2)}</td></tr>`;
+  });
+  document.getElementById("pairs").innerHTML = `<thead><tr><th>Hole pair</th><th>Adapter center</th><th>Mating center</th><th>Offset mm</th><th>Radial slack mm</th></tr></thead><tbody>${rows.join("")}</tbody>`;
+}
+
+function renderOverlapDrawings() {
+  drawPlan(document.getElementById("plan"), [-104, 104, -56, 56], { stroke: 0.2, crossR: 3, zedMarks: true });
+  const insets = document.getElementById("insets");
+  insets.innerHTML = "";
+  for (const p of DATA.pairs) {
+    const [x, y] = p.adapter;
+    const h = p.kind === "m3" ? 5 : 7.5;
+    const box = document.createElement("div");
+    box.className = "inset";
+    const pic = document.createElement("div");
+    box.appendChild(pic);
+    drawPlan(pic, [x - h, x + h, y - h, y + h], { stroke: 0.04, cross: 0.05, crossR: 1.2, zedMarks: true, label: `Detail at ${x}, ${y}` });
+    const cap = document.createElement("div");
+    cap.className = "cap";
+    const off = Math.hypot(p.dx, p.dy);
+    cap.textContent = `${p.kind === "m3" ? "M3 insert" : "1/4-20"} (${f2(x)}, ${f2(y)}) · offset ${off.toFixed(2)}`;
+    box.appendChild(cap);
+    insets.appendChild(box);
+  }
+}
+
+/* ---------- cheese plate drawing ---------- */
+function renderPlate() {
+  const pp = DATA.plate_params;
+  const cls = [
+    { key: "q", label: "1/4-20 (tap Ø5.1)", color: "--accent", d: 5.1 },
+    { key: "t", label: "3/8-16 (tap Ø8.4)", color: "--brass", d: 8.4 },
+    { key: "a", label: "Locating Ø4.0", color: "--ink-2", d: 4.0 },
+  ];
+  document.getElementById("plateLegend").innerHTML = cls.map((c) => `<label><span class="sw" style="background:var(${c.color})"></span>${c.label} · ${DATA.plate_holes[c.key].length}</label>`).join("") + `<label><span class="sw" style="background:transparent;border:2px solid var(--bad)"></span>Used by the adapter</label><label><span class="sw" style="background:transparent;border:1px dashed var(--ink-2)"></span>Adapter outline</label>`;
+  const host = document.getElementById("plateDrawing");
+  host.innerHTML = "";
+  const svg = svgEl("svg", { viewBox: "-108 -62 216 124", role: "img", "aria-label": "Cheese plate hole map" }, host);
+  svgEl("rect", { x: -100, y: -50, width: 200, height: 100, rx: pp.corner_r, fill: css("--plate"), "fill-opacity": 0.25, stroke: css("--ink"), "stroke-width": 0.35 }, svg);
+  const slot = (cx, cy, pitch, w, vertical, attrs) => {
+    const L = pitch + w;
+    svgEl("rect", vertical ? { x: cx - w / 2, y: -cy - L / 2, width: w, height: L, rx: w / 2, ...attrs } : { x: cx - L / 2, y: -cy - w / 2, width: L, height: w, rx: w / 2, ...attrs }, svg);
+  };
+  const slots = [];
+  for (const sx of [-1, 1]) for (const y of [-pp.center_slot_row, 0, pp.center_slot_row]) slots.push([sx * pp.center_slot_x, y, pp.center_slot_pitch, false]);
+  for (const sx of [-1, 1]) for (const sy of [-1, 1]) slots.push([sx * pp.end_slot_x, sy * pp.end_slot_y, pp.end_slot_pitch, true]);
+  for (const [cx, cy, pitch, v] of slots) {
+    slot(cx, cy, pitch, pp.slot_cbore_w, v, { fill: "none", stroke: css("--ink-2"), "stroke-width": 0.25 });
+    slot(cx, cy, pitch, pp.slot_w, v, { fill: css("--viewer-bg"), stroke: css("--ink"), "stroke-width": 0.3 });
+  }
+  for (const c of cls) for (const [x, y] of DATA.plate_holes[c.key]) svgEl("circle", { cx: x, cy: -y, r: c.d / 2, fill: css(c.color), "fill-opacity": 0.85 }, svg);
+  svgEl("rect", { x: -P.length / 2, y: -P.width / 2, width: P.length, height: P.width, rx: P.corner_r, fill: "none", stroke: css("--ink-2"), "stroke-width": 0.35, "stroke-dasharray": "2 1.5" }, svg);
+  for (const sx of [-1, 1]) for (const sy of [-1, 1]) svgEl("circle", { cx: sx * P.plate_hole_x, cy: -sy * P.plate_hole_y, r: 4.4, fill: "none", stroke: css("--bad"), "stroke-width": 0.6 }, svg);
+  const t = (x, y, s, anchor = "middle") => { const e = svgEl("text", { x, y, "font-size": 3.4, "font-family": "IBM Plex Mono, monospace", fill: css("--ink-2"), "text-anchor": anchor }, svg); e.textContent = s; };
+  t(0, 57.5, "200");
+  t(-104, 1.2, "100", "end");
+  t(P.plate_hole_x, -P.plate_hole_y - 6, `(${P.plate_hole_x}, ${P.plate_hole_y})`);
+}
+
+/* ---------- section drawings ---------- */
+const SEC_STYLE = {
+  plate: { color: "--plate", label: "Cheese plate" },
+  adapter: { color: "--pla", label: "Adapter" },
+  zed_sheet: { color: "--zed", label: "ZED sheet" },
+  inserts: { color: "--brass", label: "Insert" },
+  m3_screws: { color: "--steel", label: "M3 screw" },
+  bolts: { color: "--steel", label: "1/4-20 screw" },
+};
+function drawSection(hostId, sec, notes) {
+  const host = document.getElementById(hostId);
+  host.innerHTML = "";
+  const [u0, u1, v0, v1] = sec.window;
+  const pad = 1.5;
+  const svg = svgEl("svg", { viewBox: `${u0 - pad} ${-v1 - pad} ${u1 - u0 + 2 * pad} ${v1 - v0 + 2 * pad}`, role: "img", "aria-label": `Section at ${sec.axis} = ${sec.at}` }, host);
+  svg.style.minWidth = "0";
+  for (const key of ["plate", "adapter", "zed_sheet", "inserts", "bolts", "m3_screws"]) {
+    const g = svgEl("g", { fill: css(SEC_STYLE[key].color), "fill-rule": "evenodd", stroke: css("--ink"), "stroke-width": 0.06 }, svg);
+    for (const poly of sec.parts[key] || []) svgEl("path", { d: polyPath(poly) }, g);
+  }
+  const ink = css("--ink");
+  const dim = svgEl("g", { stroke: ink, "stroke-width": 0.07, fill: "none" }, svg);
+  const txt = (x, y, s, anchor = "start") => { const e = svgEl("text", { x, y, "font-size": 0.95, "font-family": "IBM Plex Mono, monospace", fill: ink, "text-anchor": anchor }, svg); e.textContent = s; };
+  for (const n of notes) {
+    if (n.type === "h") { // horizontal dimension at height v from u_a to u_b
+      svgEl("path", { d: `M${n.a} ${-n.v}H${n.b}M${n.a} ${-n.v - 0.5}v1M${n.b} ${-n.v - 0.5}v1` }, dim);
+      txt((n.a + n.b) / 2, -n.v - 0.45, n.text, "middle");
+    } else if (n.type === "v") {
+      svgEl("path", { d: `M${n.u} ${-n.a}V${-n.b}M${n.u - 0.5} ${-n.a}h1M${n.u - 0.5} ${-n.b}h1` }, dim);
+      txt(n.u + (n.left ? -0.6 : 0.6), -(n.a + n.b) / 2 + 0.3, n.text, n.left ? "end" : "start");
+    } else {
+      txt(n.u, -n.v, n.text, n.anchor || "start");
+    }
+  }
+}
+
+function renderInsert() {
+  const A = DATA.insert;
+  const top = P.thickness, y = P.zed_hole_y, r = P.insert_hole / 2;
+  drawSection("secInsert", DATA.sections.insert, [
+    { type: "h", a: y - r, b: y + r, v: top + 4.2, text: `hole Ø${A.hole}` },
+    { type: "h", a: y + A.od / 2, b: P.width / 2, v: top - 2, text: `${f2(A.edge_to_center - A.od / 2)}` },
+    { type: "v", u: y - 4.2, a: top, b: top - A.len, text: `${A.len}`, left: true },
+    { type: "v", u: y - 4.2, a: top - A.len, b: 0, text: `${f2(A.below_insert)} open`, left: true },
+    { type: "t", u: y + 0.2, v: -2.2, text: "cheese plate", anchor: "middle" },
+  ]);
+  document.getElementById("secInsertCap").textContent = `Section at X = ${P.zed_hole_x} through an M3 insert, looking along −X. Insert drawn at the assumed Ø${A.od} knurl OD; M3 × 8 screw through the 1 mm ZED ear.`;
+  const by = P.plate_hole_y;
+  drawSection("secBolt", DATA.sections.bolt, [
+    { type: "h", a: by - P.cbore_d / 2, b: by + P.cbore_d / 2, v: top + 1.6, text: `cbore Ø${P.cbore_d}` },
+    { type: "v", u: by + 7.5, a: top, b: top - P.cbore_depth, text: `${P.cbore_depth}` },
+    { type: "v", u: by + 7.5, a: top - P.cbore_depth, b: 0, text: `${f2(top - P.cbore_depth)}` },
+    { type: "v", u: by - 7.5, a: 0, b: top - P.cbore_depth - 12.7, text: `${f2(12.7 - (top - P.cbore_depth))} thread`, left: true },
+  ]);
+  document.getElementById("secBoltCap").textContent = `Section at X = ${P.plate_hole_x} through a 1/4-20 × 1/2" screw. Head sits ${f2(P.cbore_depth - 6.35)} mm below the top face; the tip stops ${f2(10 - (12.7 - (top - P.cbore_depth)))} mm above the plate's underside.`;
+
+  const loadN = 0.6 * 9.81 * 50;
+  document.getElementById("insertProse").innerHTML = `
+    <h3>Why a Ø${A.hole} hole</h3>
+    <ul>
+      <li><b>It is the vendor's number for this insert.</b> McMaster lists 94180A333 as M3 × 0.5, ${A.len} mm installed length, hole dimension "A" ${A.hole} mm. I read that from copies of the McMaster listing; mcmaster.com itself would not load here, so confirm it on the product page.</li>
+      <li><b>The generic 4.0 mm M3 hole would be wrong here.</b> That size (in <code>fasteners.md</code>) is for Ruthex-style inserts: a 4.6 mm knurl in a 4.0 mm hole, 0.30 mm of radial interference. McMaster's tapered insert has a bigger body. Put it in a 4.0 mm hole and, at a ${A.od} mm knurl, it displaces ${f2((A.od - 4.0) / 2)} mm radially, four times the plastic per side, next to a ${f2(A.edge_to_center - A.od / 2)} mm outer wall.</li>
+      <li><b>The interference lands near the Ruthex reference.</b> With the knurl at ${A.od} mm, the nominal hole leaves ${f2((A.od - A.hole) / 2)} mm radial interference. FDM holes print 0.1 to 0.2 mm small, which takes it to ${f2((A.od - A.hole + 0.1) / 2)} to ${f2((A.od - A.hole + 0.2) / 2)} mm. The table below covers knurls from 4.9 to 5.6 mm.</li>
+      <li><b>The wall outside the insert is ${f2(A.edge_to_center - A.od / 2)} mm.</b> The hole center sits ${A.edge_to_center} mm from the adapter's side face, since the ZED's ears put the screws at ±${P.zed_hole_y}. That beats the 1.5 mm boss wall in <code>fasteners.md</code> and the 1.2 mm FDM minimum. A 5.6 mm knurl would still leave ${f2(A.edge_to_center - 2.8)} mm.</li>
+      <li><b>The through hole gives melt somewhere to go.</b> The insert fills the top ${A.len} mm; the ${f2(A.below_insert)} mm below stays open, so plastic the knurls push down can pool there instead of jamming against a hole floor. Press each insert until it sits flush with the top face. Nothing below stops it.</li>
+      <li><b>Screw engagement is full.</b> An M3 × 8 through the 1 mm ear leaves 7.0 mm of thread past the sheet: all ${A.len} mm of the insert plus 0.6 mm of tip in the open hole.</li>
+    </ul>
+    <p class="flag"><b>Unverified.</b> I could not find the knurl OD, so ${A.od} mm is an assumption (<code>insert_od</code> in Params). Measure one insert across the knurls. If it is outside 4.9 to 5.6 mm, set the hole to OD − 0.5 to 0.7 mm. Pull-out strength in PLA is also unverified: a 50 g hit on the 600 g ZED is ${Math.round(loadN)} N, or ${Math.round(loadN / 4)} N per insert if all four share it along the screw axis. A pull test on a printed coupon would settle both.</p>
+    <p class="flag"><b>Heat.</b> PLA softens at about 55 to 60 °C. <code>docs/zed_box_mini.md</code> logged 58 to 62 °C on the box at 60 Hz. That is a board reading, not the base sheet, but if the sheet runs close to it the inserts can creep. Measure the sheet after a run, or print in PETG or ASA. The hole sizes carry over.</p>`;
+
+  const band = (rad) => (rad < 0.15 ? ["band-low", "loose"] : rad > 0.4 ? ["band-high", "high"] : ["band-ok", "in range"]);
+  const rows = A.rows.map((r) => {
+    const [cl, word] = band(r.radial);
+    const nominal = Math.abs(r.od - A.od) < 1e-6 && r.shrink === 0;
+    return `<tr class="${nominal ? "nominal" : ""}"><td class="num">${r.od.toFixed(1)}</td><td class="num">${r.shrink.toFixed(1)}</td><td class="num">${r.hole.toFixed(2)}</td><td class="num ${cl}">${r.radial.toFixed(3)} · ${word}</td><td class="num">${r.displaced_mm3.toFixed(1)}</td><td class="num">${r.wall.toFixed(2)}</td></tr>`;
+  });
+  document.getElementById("sens").innerHTML = `<caption class="label" style="text-align:left;padding-bottom:6px">Sensitivity: knurl OD × print shrink. In range is 0.15 to 0.40 mm radial, around the Ruthex 0.30 reference. The highlighted row is the modeled case.</caption><thead><tr><th>Knurl OD</th><th>Hole prints small by</th><th>Printed hole</th><th>Radial interference</th><th>Displaced mm³ (upper bound)</th><th>Outer wall mm</th></tr></thead><tbody>${rows.join("")}</tbody>`;
+}
+
+/* ---------- BOM ---------- */
+function renderBom() {
+  const mc = (pn) => `<a href="https://www.mcmaster.com/${pn}/" target="_blank" rel="noopener">McMaster ${pn}</a>`;
+  const rows = [
+    [1, "Adapter plate, 143 × 103.8 × 12 mm", "Print: PLA, bottom face on the bed", "<code>zed_cheese_plate_adapter.py</code> → STEP / STL in <code>out/</code>", `${DATA.mass_g} g solid`],
+    [1, "INNOREL CP10 cheese plate, 200 × 100 × 10 mm", `<a href="https://www.amazon.com/dp/B0DRYFL595" target="_blank" rel="noopener">Amazon B0DRYFL595</a>`, "Ordered", "6061-T6, 1/4-20 and 3/8-16 threads"],
+    [1, "ZED Box Mini (Orin NX 16GB)", `<a href="https://www.stereolabs.com/en-in/store/products/zed-box-mini" target="_blank" rel="noopener">Stereolabs</a>`, "Have", "Ears: 4 × Ø3.6, 48 × 94.55 mm pattern"],
+    [4, "Heat-set insert, M3 × 0.5, tapered brass, 6.4 mm long", mc("94180A333"), "Ø4.7 through hole", "Knurl OD unverified"],
+    [4, "Socket head screw, M3 × 0.5 × 8 mm, 18-8 stainless", mc("91292A112"), "Sold in packs of 100", "ZED ear → insert"],
+    [4, "Socket head screw, 1/4-20 × 1/2\", 18-8 stainless", mc("92196A537"), "Ø7.0 hole, Ø10.5 × 6.8 counterbore", "7.5 mm into the plate's thread"],
+  ];
+  document.getElementById("bomTable").innerHTML = `<thead><tr><th>Qty</th><th>Item</th><th>Source</th><th>Fit</th><th>Notes</th></tr></thead><tbody>${rows.map((r) => `<tr><td class="num">${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td>${r[3]}</td><td>${r[4]}</td></tr>`).join("")}</tbody>`;
+}
+
+/* ---------- checks ---------- */
+function renderChecks() {
+  const n = DATA.checks.length, fails = DATA.checks.filter((c) => c.status === "FAIL").length, warns = DATA.checks.filter((c) => c.status === "WARN").length;
+  document.getElementById("checkSummary").textContent = `${n} checks · ${fails} fail · ${warns} warn`;
+  document.getElementById("checkTable").innerHTML = `<thead><tr><th>Result</th><th>Check</th><th>Detail</th></tr></thead><tbody>${DATA.checks.map((c) => `<tr><td class="status-${esc(c.status)}">${esc(c.status)}</td><td class="mono">${esc(c.name)}</td><td>${esc(c.detail)}</td></tr>`).join("")}</tbody>`;
+}
+
+function renderAll2D() { renderOverlap(); renderPlate(); renderInsert(); }
+renderAll2D();
+renderBom();
+renderChecks();
+const themeQuery = matchMedia("(prefers-color-scheme: dark)");
+themeQuery.addEventListener("change", () => { renderAll2D(); window.__retheme && window.__retheme(); });
+new MutationObserver(() => { renderAll2D(); window.__retheme && window.__retheme(); }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+</script>
+
+<script>
+(() => {
+const OrbitControls = THREE.OrbitControls;
+
+const host = document.getElementById("viewer");
+const status = document.getElementById("status");
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.localClippingEnabled = true;
+host.prepend(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(35, 1, 1, 5000);
+camera.up.set(0, 0, 1);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.target.set(0, 0, 10);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x445566, 1.6));
+const sun = new THREE.DirectionalLight(0xffffff, 1.8);
+sun.position.set(-150, -220, 300);
+scene.add(sun);
+const fill = new THREE.DirectionalLight(0xffffff, 0.6);
+fill.position.set(200, 150, 80);
+scene.add(fill);
+const axes = new THREE.AxesHelper(30);
+axes.position.set(-118, -64, -10);
+scene.add(axes);
+
+const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const PARTS = [
+  { key: "zed", label: "ZED Box Mini", color: "--zed", explode: 45 },
+  { key: "m3_screws", label: "M3 × 8 screws", color: "--steel", explode: 70 },
+  { key: "inserts", label: "M3 inserts", color: "--brass", explode: 22 },
+  { key: "bolts", label: "1/4-20 screws", color: "--steel", explode: 28 },
+  { key: "adapter", label: "Adapter (PLA)", color: "--pla", explode: 0 },
+  { key: "plate", label: "Cheese plate", color: "--plate", explode: -30 },
+];
+const plane = new THREE.Plane(new THREE.Vector3(-1, 0, 0), 24);
+const groups = {};
+const mats = [];
+let clipOn = true;
+
+function makeMats(colorVar) {
+  const c = new THREE.Color(css(colorVar));
+  const front = new THREE.MeshStandardMaterial({ color: c, metalness: 0.15, roughness: 0.6, clippingPlanes: [plane], side: THREE.FrontSide });
+  const cap = new THREE.MeshBasicMaterial({ color: c.clone().multiplyScalar(0.55), clippingPlanes: [plane], side: THREE.BackSide });
+  mats.push({ colorVar, front, cap });
+  return { front, cap };
+}
+window.__retheme = () => {
+  scene.background = new THREE.Color(css("--viewer-bg"));
+  for (const m of mats) { const c = new THREE.Color(css(m.colorVar)); m.front.color.copy(c); m.cap.color.copy(c.clone().multiplyScalar(0.55)); }
+};
+window.__retheme();
+
+const partsBox = document.getElementById("parts");
+partsBox.innerHTML = PARTS.map((p) => `<label><input type="checkbox" id="part_${p.key}" checked><span class="sw" style="background:var(${p.color})"></span>${p.label}</label>`).join("");
+for (const p of PARTS) document.getElementById(`part_${p.key}`).addEventListener("change", (e) => { if (groups[p.key]) groups[p.key].visible = e.target.checked; });
+
+const b64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0)).buffer;
+let loaded = 0;
+for (const p of PARTS) {
+  fetch(`${p.key}.json`).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); }).then((m) => {
+    const q = new Int16Array(b64(m.pos));
+    const pos = new Float32Array(q.length);
+    for (let i = 0; i < q.length; i++) pos[i] = q[i] * m.unit;
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    geom.setIndex(new THREE.BufferAttribute(new Uint32Array(b64(m.idx)), 1));
+    geom.computeVertexNormals();
+    const { front, cap } = makeMats(p.color);
+    const g = new THREE.Group();
+    g.add(new THREE.Mesh(geom, front));
+    g.add(new THREE.Mesh(geom, cap));
+    g.userData.explode = p.explode;
+    g.visible = document.getElementById(`part_${p.key}`).checked;
+    groups[p.key] = g;
+    scene.add(g);
+    applyExplode();
+    updatePlane();
+    loaded += 1;
+    status.textContent = loaded === PARTS.length ? "" : `Loaded ${loaded} of ${PARTS.length} meshes…`;
+  }).catch(() => { status.textContent = `Could not load ${p.key}.json`; });
+}
+
+// Section plane
+const RANGE = { X: [-104, 104], Y: [-56, 56], Z: [-12, 68] };
+const SNAPS = {
+  X: [["Insert", 24], ["1/4-20", 49.5], ["Center", 0]],
+  Y: [["Insert", 47.3], ["1/4-20", 30.85], ["Center", 0]],
+  Z: [["Plate top", 0], ["Under head", 5.2], ["Adapter top", 12]],
+};
+let axis = "X", flip = false;
+const cut = document.getElementById("cut"), readout = document.getElementById("cutReadout");
+function updatePlane() {
+  const v = parseFloat(cut.value);
+  const n = { X: [1, 0, 0], Y: [0, 1, 0], Z: [0, 0, 1] }[axis] || [1, 0, 0];
+  const s = flip ? 1 : -1;
+  plane.normal.set(s * n[0], s * n[1], s * n[2]);
+  plane.constant = flip ? -v : v;
+  for (const m of mats) { m.front.clippingPlanes = clipOn ? [plane] : []; m.cap.clippingPlanes = clipOn ? [plane] : []; m.front.needsUpdate = true; m.cap.needsUpdate = true; }
+  readout.textContent = clipOn ? `${axis} = ${v.toFixed(2)} mm · keeping ${flip ? "≥" : "≤"}` : "Section off";
+}
+function setAxis(a) {
+  clipOn = a !== "none";
+  if (clipOn) {
+    axis = a;
+    const [lo, hi] = RANGE[a];
+    cut.min = lo; cut.max = hi;
+    cut.value = SNAPS[a][0][1];
+  }
+  cut.disabled = !clipOn;
+  for (const b of document.querySelectorAll("#axisSeg button")) b.setAttribute("aria-pressed", String(b.dataset.axis === a));
+  document.getElementById("snaps").innerHTML = clipOn ? SNAPS[a].map(([l, v]) => `<button class="btn" type="button" data-snap="${v}">${l} ${v}</button>`).join("") : "";
+  updatePlane();
+}
+document.getElementById("axisSeg").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) setAxis(b.dataset.axis); });
+document.getElementById("snaps").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) { cut.value = b.dataset.snap; updatePlane(); } });
+cut.addEventListener("input", updatePlane);
+document.getElementById("flip").addEventListener("click", () => { flip = !flip; updatePlane(); });
+setAxis("X");
+
+// Explode
+const explode = document.getElementById("explode");
+function applyExplode() { const e = parseFloat(explode.value); for (const g of Object.values(groups)) g.position.z = e * g.userData.explode; }
+explode.addEventListener("input", applyExplode);
+
+// Views
+const VIEWS = {
+  iso: [[-210, -260, 190], [0, 0, 12]],
+  front: [[0, -380, 20], [0, 0, 15]],
+  side: [[380, 0, 20], [0, 0, 15]],
+  top: [[0, -0.01, 420], [0, 0, 0]],
+};
+function view(name) {
+  if (name === "plate" || name === "all") {
+    for (const p of PARTS) { const on = name === "all" || p.key === "plate"; document.getElementById(`part_${p.key}`).checked = on; if (groups[p.key]) groups[p.key].visible = on; }
+    if (name === "plate") { setAxis("none"); name = "iso"; }
+    else return;
+  }
+  const [pos, tgt] = VIEWS[name];
+  camera.position.set(...pos);
+  controls.target.set(...tgt);
+  controls.update();
+}
+for (const b of document.querySelectorAll("[data-view]")) b.addEventListener("click", () => view(b.dataset.view));
+view("iso");
+
+function resize() {
+  const w = host.clientWidth, h = host.clientHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+new ResizeObserver(resize).observe(host);
+resize();
+renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
+})();
+</script>

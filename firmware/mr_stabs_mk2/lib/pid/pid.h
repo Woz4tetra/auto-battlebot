@@ -1,5 +1,5 @@
 #pragma once
-#include <Arduino.h>
+#include <cmath>
 
 namespace pid {
 struct PidConfig {
@@ -20,17 +20,21 @@ class Pid {
     /**
      * Implements a PID controller with optional feedforward term and integral zone.
      *
+     * Call update() once per new measurement, with dt the time since the previous measurement.
+     * Calling it again with a repeated measurement makes the D term read zero.
+     *
      * Config arguments:
      * kp: Proportional gain.
-     * ki: Integral gain.
-     * kd: Derivative gain.
+     * ki: Integral gain, per second.
+     * kd: Derivative gain, in seconds.
      * kf: Feedforward gain.
      * i_zone: Integral zone. If the error is within this zone, the integral term is
      *         accumulated. If set to -1, the integral term is always accumulated.
-     * i_max: Maximum value of the integral term. If set to 0, the integral term is not
-     *        limited.
+     * i_max: Maximum magnitude of the integral term's output. If set to 0, the integral term
+     *        is not limited.
      * tolerance: Error tolerance for which the controller is considered to have reached the
-     *           setpoint. Output will be set to zero if the error is within this tolerance.
+     *           setpoint. Output is zero while the error is within this tolerance, but the
+     *           integral and derivative state keep updating so leaving the band does not kick.
      * continuous: Enable continuous input wrapping (for angles)
      * min_input: Minimum input value for continuous mode (typically -180)
      * max_input: Maximum input value for continuous mode (typically 180)
@@ -48,7 +52,7 @@ class Pid {
      * Args:
      *     setpoint: Desired value.
      *     measurement: Current value.
-     *     dt: Time step.
+     *     dt: Seconds since the previous measurement.
      *
      * Returns:
      *     Output value.
@@ -79,7 +83,7 @@ class Pid {
     float max_input;
 
     // State variables
-    float i_accum;
+    float i_accum;  // integral of error over time, error * seconds
     float prev_error;
     bool has_prev_error;
     float error;

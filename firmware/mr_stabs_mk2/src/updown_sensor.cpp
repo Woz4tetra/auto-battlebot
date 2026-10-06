@@ -16,7 +16,10 @@ bool UpdownSensor::begin()
 {
     if (initialized)
         return true;
-    if (sensor->begin())
+    // IMUPLUS fuses accelerometer and gyro only. NDOF (the library default) also fuses the
+    // magnetometer, which the drive motor current can bend, moving heading under throttle.
+    // Heading is now relative to the orientation at boot.
+    if (sensor->begin(OPERATION_MODE_IMUPLUS))
     {
         delay(1000);
         initialized = true;
@@ -112,6 +115,7 @@ bool UpdownSensor::update_sensor(bool radio_connected)
     gyro_vec->x = gyro_data.gyro.x;
     gyro_vec->y = gyro_data.gyro.y;
     gyro_vec->z = gyro_data.gyro.z;
+    sample_us = micros();
 
     return true;
 }
