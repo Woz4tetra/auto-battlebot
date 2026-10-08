@@ -1,0 +1,152 @@
+[
+ {
+  "drop_mV": {
+   "out": -1.2
+  },
+  "copper_loss_W": 0.02,
+  "busiest_via_A": 0.0,
+  "vias_over_1_5A": 0,
+  "peak_A_per_mm": {
+   "F": 3.8
+  },
+  "net": "PACK+",
+  "amps": 20.0
+ },
+ {
+  "drop_mV": {
+   "out": -4.2
+  },
+  "copper_loss_W": 0.26,
+  "busiest_via_A": 0.0,
+  "vias_over_1_5A": 0,
+  "peak_A_per_mm": {
+   "F": 13.2
+  },
+  "net": "PACK+",
+  "amps": 70.0
+ },
+ {
+  "drop_mV": {
+   "out": -3.1
+  },
+  "copper_loss_W": 0.06,
+  "busiest_via_A": 1.53,
+  "vias_over_1_5A": 1,
+  "peak_A_per_mm": {
+   "F": 2.8,
+   "In1": 0.0,
+   "In2": 0.0,
+   "B": 5.4
+  },
+  "net": "BAT_IN",
+  "amps": 20.0
+ },
+ {
+  "drop_mV": {
+   "out": -10.7
+  },
+  "copper_loss_W": 0.69,
+  "busiest_via_A": 5.35,
+  "vias_over_1_5A": 18,
+  "peak_A_per_mm": {
+   "F": 9.9,
+   "In1": 0.0,
+   "In2": 0.0,
+   "B": 19.1
+  },
+  "net": "BAT_IN",
+  "amps": 70.0
+ },
+ {
+  "drop_mV": {
+   "esc_l": -11.8,
+   "esc_r": -12.1
+  },
+  "copper_loss_W": 0.2,
+  "busiest_via_A": 0.0,
+  "vias_over_1_5A": 0,
+  "peak_A_per_mm": {
+   "F": 0.0,
+   "B": 19.1
+  },
+  "net": "VBATT",
+  "amps": 20.0
+ },
+ {
+  "drop_mV": {
+   "esc_l": -41.4,
+   "esc_r": -42.4
+  },
+  "copper_loss_W": 2.48,
+  "busiest_via_A": 0.0,
+  "vias_over_1_5A": 0,
+  "peak_A_per_mm": {
+   "F": 0.0,
+   "B": 66.7
+  },
+  "net": "VBATT",
+  "amps": 70.0
+ },
+ {
+  "drop_mV": {
+   "esc_l": 1.2,
+   "esc_r": 1.4
+  },
+  "copper_loss_W": 0.02,
+  "busiest_via_A": 0.74,
+  "vias_over_1_5A": 0,
+  "peak_A_per_mm": {
+   "F": 1.4,
+   "In1": 0.3,
+   "In2": 0.2,
+   "B": 1.4
+  },
+  "net": "GND",
+  "amps": 20.0
+ },
+ {
+  "drop_mV": {
+   "esc_l": 4.1,
+   "esc_r": 5.0
+  },
+  "copper_loss_W": 0.3,
+  "busiest_via_A": 2.6,
+  "vias_over_1_5A": 19,
+  "peak_A_per_mm": {
+   "F": 5.0,
+   "In1": 0.9,
+   "In2": 0.8,
+   "B": 5.0
+  },
+  "net": "GND",
+  "amps": 70.0
+ },
+ {
+  "drop_mV": {
+   "out": -1.1
+  },
+  "copper_loss_W": 0.02,
+  "busiest_via_A": 0.0,
+  "vias_over_1_5A": 0,
+  "peak_A_per_mm": {
+   "F": 3.6,
+   "B": 0.0
+  },
+  "net": "PACK_MID",
+  "amps": 20.0
+ },
+ {
+  "drop_mV": {
+   "out": -3.8
+  },
+  "copper_loss_W": 0.24,
+  "busiest_via_A": 0.0,
+  "vias_over_1_5A": 0,
+  "peak_A_per_mm": {
+   "F": 12.5,
+   "B": 0.0
+  },
+  "net": "PACK_MID",
+  "amps": 70.0
+ }
+]

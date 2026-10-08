@@ -1,0 +1,12 @@
+(footprint "MountingHole_3.7mm_Washer9mm_Dcut_L"
+	(version 20240108)
+	(generator "pcbnew")
+	(layer "F.Cu")
+	(descr "3.7 mm hole for a #6 flat-head screw driven from the B side through a 9.0 mm printed countersunk washer D-cut at board |x| 13.0 (outboard -x); F courtyard is the hole, B courtyard the washer")
+	(attr exclude_from_pos_files exclude_from_bom)
+	(property "Reference" "REF**" (at 0 -3 0) (layer "F.SilkS") (hide yes) (effects (font (size 0.8 0.8) (thickness 0.12))))
+	(property "Value" "MountingHole" (at 0 3 0) (layer "F.Fab") (effects (font (size 0.8 0.8) (thickness 0.12))))
+	(fp_circle (center 0 0) (end 2.0 0) (stroke (width 0.05) (type solid)) (fill none) (layer "F.CrtYd"))
+	(fp_poly (pts (xy -3.300 3.205) (xy -2.898 3.572) (xy -2.455 3.890) (xy -1.978 4.153) (xy -1.473 4.358) (xy -0.947 4.501) (xy -0.408 4.582) (xy 0.137 4.598) (xy 0.680 4.550) (xy 1.213 4.437) (xy 1.729 4.263) (xy 2.221 4.028) (xy 2.682 3.737) (xy 3.105 3.394) (xy 3.485 3.003) (xy 3.815 2.570) (xy 4.092 2.100) (xy 4.312 1.602) (xy 4.471 1.080) (xy 4.568 0.544) (xy 4.600 0.000) (xy 4.568 -0.544) (xy 4.471 -1.080) (xy 4.312 -1.602) (xy 4.092 -2.100) (xy 3.815 -2.570) (xy 3.485 -3.003) (xy 3.105 -3.394) (xy 2.682 -3.737) (xy 2.221 -4.028) (xy 1.729 -4.263) (xy 1.213 -4.437) (xy 0.680 -4.550) (xy 0.137 -4.598) (xy -0.408 -4.582) (xy -0.947 -4.501) (xy -1.473 -4.358) (xy -1.978 -4.153) (xy -2.455 -3.890) (xy -2.898 -3.572) (xy -3.300 -3.205)) (stroke (width 0.05) (type solid)) (fill none) (layer "B.CrtYd"))
+	(pad "" np_thru_hole circle (at 0 0) (size 3.7 3.7) (drill 3.7) (layers "*.Cu" "*.Mask"))
+)

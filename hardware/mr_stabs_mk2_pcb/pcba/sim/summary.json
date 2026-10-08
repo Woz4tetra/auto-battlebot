@@ -1,0 +1,150 @@
+{
+ "intro": "What simulation can and cannot say about this board. Each model, its inputs and its limits are in sim/; every script re-runs with the command in its docstring. Results are for the routed board in fab/.",
+ "sections": [
+  {
+   "title": "Hot-plug transient (ngspice)",
+   "verdict": "ok with the bulk cap",
+   "text": "A full 4S LiHV pack (17.4 V) closing onto a discharged board through about 0.4 uH of 12 AWG leads rings VBATT to 29.71 V with only the ceramics, 0.3 V under the TPS54202's 30 V absolute maximum. With the 100 uF 35 V Rubycon TZV (ESR taken as its 0.34 ohm impedance spec) the peak is 18.53 V. The ESCs' own input caps are left out, the worst case. Script: sim/hotplug.py.",
+   "image": "sim/hotplug.png"
+  },
+  {
+   "title": "Buck control loop (TPS54202, small-signal estimate)",
+   "verdict": "ok after the fix",
+   "text": "Built from the datasheet's crossover estimate (eq 14), the feed-forward zero and pole, and current mode's sampling double pole at fsw/2; TI does not publish the internal compensation, so phase margins here are optimistic and the crossover frequency is the useful number. With two 22 uF output caps (about 20 uF after DC bias) the 47 pF feed-forward cap put crossover near 100 kHz, fsw/5. The board now has three, about 30 uF effective, which brings crossover to about 33 kHz, under TI's 40 kHz guidance, with the feed-forward zero (34 kHz) at crossover for its phase boost, as TI's equation 16 places it. Confirm with a load step on the bench. Script: sim/buck_loop.py.",
+   "table": [
+    [
+     "Case",
+     "Crossover, kHz",
+     "Model phase margin, deg"
+    ],
+    [
+     "2 x 22 uF (20 eff), 47 pF: previous",
+     102.4,
+     106.0
+    ],
+    [
+     "3 x 22 uF (30 eff), 47 pF: board",
+     32.6,
+     116.0
+    ],
+    [
+     "3 x 22 uF, no C6",
+     23.7,
+     81.0
+    ],
+    [
+     "44 uF, 75 pF: TI table 7-2",
+     24.4,
+     123.0
+    ]
+   ],
+   "image": "sim/buck_loop.png"
+  },
+  {
+   "title": "High-current copper, every layer (finite-volume DC solve)",
+   "verdict": "ok at 20 A; stalls stress the layer changes",
+   "text": "Each power net solved on all four layers at once, joined by its vias, from wire pad to wire pad: 2 oz outer, 0.5 oz inner (JLCPCB's default). Before the fix the ESC current crossed the board on a 0.5 oz inner VBATT plane: 1.14 W at 20 A, 94 mV to the left ESC, 14 W during a 70 A stall, 11.6 A in the busiest via. Now the ESC+ pads sit on the shunt's 2 oz bottom pour (no layer change at all), the ESC- pads sit 4 to 8 mm from the pack's GND pad, both inner layers are GND, and every pad where current changes layers carries a grid of 0.4 mm vias. At 20 A continuous no via carries more than 1.53 A and the whole power path loses about 0.3 W. A 70 A stall still puts 5.4 A through the busiest via of the switch-return crossing into the shunt; by Onderdonk's bare-conductor fusing estimate (pessimistic for a via in a plane) a 0.4 mm via of 20 um plating fuses at about 7.6 A in 1 s and 3.4 A in 5 s, so multi-second stalls at 70 A are the board's remaining electrical limit. This is DC and electrical only: no temperature. Script: sim/copper_ir.py.",
+   "table": [
+    [
+     "Net",
+     "Amps",
+     "Worst drop, mV",
+     "Copper loss, W",
+     "Busiest via, A",
+     "Vias over 1.5 A"
+    ],
+    [
+     "PACK+",
+     20,
+     1.2,
+     0.02,
+     0.0,
+     0
+    ],
+    [
+     "PACK+",
+     70,
+     4.2,
+     0.26,
+     0.0,
+     0
+    ],
+    [
+     "BAT_IN",
+     20,
+     3.1,
+     0.06,
+     1.53,
+     1
+    ],
+    [
+     "BAT_IN",
+     70,
+     10.7,
+     0.69,
+     5.35,
+     18
+    ],
+    [
+     "VBATT",
+     20,
+     12.1,
+     0.2,
+     0.0,
+     0
+    ],
+    [
+     "VBATT",
+     70,
+     42.4,
+     2.48,
+     0.0,
+     0
+    ],
+    [
+     "GND",
+     20,
+     1.4,
+     0.02,
+     0.74,
+     0
+    ],
+    [
+     "GND",
+     70,
+     5.0,
+     0.3,
+     2.6,
+     19
+    ],
+    [
+     "PACK_MID",
+     20,
+     1.1,
+     0.02,
+     0.0,
+     0
+    ],
+    [
+     "PACK_MID",
+     70,
+     3.8,
+     0.24,
+     0.0,
+     0
+    ]
+   ],
+   "image": "sim/copper_ir_BAT_IN.png"
+  },
+  {
+   "title": "Rails and LDO dissipation (hand calculation)",
+   "verdict": "ok",
+   "text": "+5V is about 5.22 V after the B5819W at 0.1 A (5.56 V buck less 0.34 V) and about 5.2 V at 0.5 A, under the AP2112K's 6 V maximum. At 150 mA average on 3V3 the LDO drops 1.9 V and dissipates about 0.29 W, about 53 C over ambient at its 184 C/W rating; 350 mA Wi-Fi bursts are short. The LED draws up to 60 mA from +5V."
+  },
+  {
+   "title": "Not simulated",
+   "verdict": "bench",
+   "text": "Temperature of the copper and parts in the closed chassis, firmware (QEMU and Wokwi model the ESP32-S3 but not the BNO055 or a CRSF receiver), RF and antenna performance, solder-joint and footprint risks. Cover them with the bring-up sequence: resistance checks, current-limited first power-up at 12 V and 100 mA, rail checks, USB flash, I2C scan, a load step on +5V, then a current-limited stall test with a thermocouple or thermal camera on the shunt and the SW_BACK pad."
+  }
+ ]
+}

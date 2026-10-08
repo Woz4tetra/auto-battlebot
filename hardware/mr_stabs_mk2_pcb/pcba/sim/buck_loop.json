@@ -1,0 +1,30 @@
+[
+ {
+  "case": "2 x 22 uF (20 eff), 47 pF: previous",
+  "fo_eq14_kHz": 35.5,
+  "crossover_kHz": 102.4,
+  "phase_margin_deg": 106.0,
+  "fc_over_fsw": 0.205
+ },
+ {
+  "case": "3 x 22 uF (30 eff), 47 pF: board",
+  "fo_eq14_kHz": 23.7,
+  "crossover_kHz": 32.6,
+  "phase_margin_deg": 116.0,
+  "fc_over_fsw": 0.065
+ },
+ {
+  "case": "3 x 22 uF, no C6",
+  "fo_eq14_kHz": 23.7,
+  "crossover_kHz": 23.7,
+  "phase_margin_deg": 81.0,
+  "fc_over_fsw": 0.047
+ },
+ {
+  "case": "44 uF, 75 pF: TI table 7-2",
+  "fo_eq14_kHz": 16.1,
+  "crossover_kHz": 24.4,
+  "phase_margin_deg": 123.0,
+  "fc_over_fsw": 0.049
+ }
+]
