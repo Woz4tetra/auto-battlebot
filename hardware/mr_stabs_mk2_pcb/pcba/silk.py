@@ -1,4 +1,4 @@
-"""Finish the routed board: wire-pad and pin labels, and the Mk2 and BWBots art.
+"""Finish the routed board: wire-pad and pin labels, the Mk2 and BWBots art, USB-C shell paste.
 
     SKILL/scripts/kicad python3 silk.py mk2_routed.kicad_pcb        (in place; or IN OUT)
 
@@ -140,8 +140,6 @@ for value, names, caption in (
         text(names[num], x, ly, "B", h=0.8)
     text(caption, sum(p[0] for p in pins) / len(pins), row_y - 4.3, "B", h=0.8)
 
-usb = P["TYPE-C-31-M-06"]
-text("USB", sum(p[0] for p in usb) / len(usb), max(p[1] for p in usb) + 2.6, "B", bold=True)
 
 # Legend for the roof-face pads, on the left ear's bare wedge-face strip (over the ESC).
 for i, line in enumerate(("XT60 PADS, TOP:", "A-/A+ PACK A", "B-/B+ PACK B", "SW/SW SWITCH")):
@@ -149,7 +147,7 @@ for i, line in enumerate(("XT60 PADS, TOP:", "A-/A+ PACK A", "B-/B+ PACK B", "SW
 
 # Refdes on the B-side connectors sit on top of the labels above; JLCPCB places from the CPL.
 for fp in board.GetFootprints():
-    if fp.GetValue() in ("NANO_RX", "BOOT/RST", "TYPE-C-31-M-06"):
+    if fp.GetValue() in ("NANO_RX", "BOOT/RST", "TYPE-C-31-D-06"):
         fp.Reference().SetVisible(False)
 
 # Hide every refdes: on a board this dense they collide with parts and labels, and JLCPCB
@@ -191,6 +189,16 @@ draw_json("robot_silk.json", 40.9, -14.2)  # seen from below, on the bottom (rig
 draw_json("robot_top_silk.json", -40.7, -14.2, "F")  # seen from above, on the top
 draw_json("logo_silk.json", -5.8, 3.2)  # stem, between the headers' captions, clear of the washer
 text("MR STABS MK2", 4.6, 3.2, "B", h=0.9, bold=True)  # beside the logo
+
+# Paste in the USB-C's shell-leg slots, so reflow solders them (EasyEDA's pads had none). The
+# routed board carries the footprint as kinet2pcb built it, so set it here as well.
+for fp in board.GetFootprints():
+    if fp.GetValue() == "TYPE-C-31-D-06":
+        for pad in fp.Pads():
+            if pad.GetNumber() == "EP":
+                ls = pad.GetLayerSet()
+                ls.AddLayer(pcbnew.B_Paste if fp.IsFlipped() else pcbnew.F_Paste)
+                pad.SetLayerSet(ls)
 
 board.Save(OUT)
 print(f"silk: labels and icon written to {OUT}")

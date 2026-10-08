@@ -11,20 +11,21 @@ Floorplan:
     centre, F       ESP32-S3-MINI-1U at (0, 0): the only spot a 15.4 mm square fits on the roof
                     face (0.47 mm to the front bosses and the rear cross member). USB and CRSF
                     pins face the front, I2C the right, 3V3 / IO0 / DShot the left.
-    front centre, F BNO055 block between the front bosses, I2C pull-ups.
+    front centre, F BNO055 block front-right between the bosses, clear of the USB-C legs; USB
+                    ESD and CC beside the connector.
     ear front edges, F
                     12 AWG lap pads, wires laid flat into the wire bay ahead (40 mm clear at
                     |x| 14 to 26). Left: PACK_A-, PACK_A+, PACK_B-. Right: SW_BACK, SW_OUT,
                     PACK_B+. Each switch lead and pack A stay on one side; pack B splits.
-    right ear, F    INA228 above the shunt, buck block and its three output caps outboard.
-    left ear, F     LDO, EN RC, USB ESD / CC / VBUS diode.
+    right ear, F    INA238 above the shunt, buck block and its three output caps outboard.
+    left ear, F     LDO, EN RC.
     stem rear, F    NeoPixel behind the module, under the TPU roof so it shows through.
-    right ear, B    shunt and its Kelvin resistors, ESC+ lap pads on its VBATT pour, 100 uF bulk.
+    right ear, B    shunt and its Kelvin resistors, ESC+ lap pads on its VBATT pour.
+    stem, B         100 uF bulk and USB-C between the bosses, away from the motors; VBATT strip.
     stem front, B   ESC- lap pads beside PACK_A-, then DShot and signal-ground pads, below the
                     washers.
-    left ear, B     vertical USB-C, plugged with the wedge plate off; ESD and CC on F above it.
+    left ear, B     BOOT/RST 1x3 SMD jumper header.
     stem rear, B    Nano RX 1x4 right-angle SMD header, pins forward; the RX stands on them.
-    stem centre, B  BOOT/RST 1x3 SMD jumper header, in front of the RX's pin tips.
 """
 
 import json
@@ -38,8 +39,8 @@ find, pin_net, nets = b.find, b.pin_net, b.nets
 info = b.parts
 values = {d["ref"]: d["value"] for d in info}
 
-MCU, IMU, INA = find("ESP32-S3-MINI-1U-N4R2"), find("BNO055"), find("INA228")
-USB, LED = find("TYPE-C-31-M-06"), find("XL-2020RGBC-WS2812B")
+MCU, IMU, INA = find("ESP32-S3-MINI-1U-N4R2"), find("BNO055"), find("INA238")
+USB, LED = find("TYPE-C-31-D-06"), find("XL-2020RGBC-WS2812B")
 holes_l = sorted(d["ref"] for d in info if d["value"] == "MountingHole_L")
 holes_r = sorted(d["ref"] for d in info if d["value"] == "MountingHole_R")
 holes = holes_l + holes_r  # (-9.8, -9.8), (-9.8, 9.8), (9.8, -9.8), (9.8, 9.8)
@@ -137,6 +138,9 @@ fixed = {
     holes[1]: (-9.8, 9.8, 0),
     holes[2]: (9.8, -9.8, 0),
     holes[3]: (9.8, 9.8, 0),
+    # GND stitching vias in the stem's sides (design.py).
+    find("GND_STITCH", nth=0): (11.6, -2.6, 0),
+    find("GND_STITCH", nth=1): (-11.6, -2.6, 0),
     find("PACK_A-"): (-14.9, PAD_Y, 0),
     find("PACK_A+"): (-19.5, PAD_Y, 0),
     find("PACK_B-"): (-24.1, PAD_Y, 0),
@@ -145,9 +149,9 @@ fixed = {
     find("PACK_B+"): (24.1, PAD_Y, 0),
     # Shunt along y right above SW_BACK: pad 1 BAT_IN toward the pad, pad 2 VBATT toward the rear.
     # VBUS OR-ing diode, pinned at 0 deg: at 90 deg its stock silk touches its own pad 1.
-    find("B5819W", "VBUS_USB"): (-22.9, -10.4, 0),
 }
 THROUGH = {
+    "GND_STITCH",
     "MountingHole_L",
     "MountingHole_R",
     "SW_BACK",
@@ -169,7 +173,10 @@ LABEL_STRIPS = [
 
 # B side, fixed: USB-C on the right ear's rear strip; the headers on the left ear's.
 B_FIXED = {
-    USB: (-29.0, -9.0, 0),
+    # USB-C and the bulk cap in the stem, away from the motors under the ears: a dislodged motor
+    # can reach the ears, not the stem between the bosses. USB between the front washers (0.15 mm
+    # to each), the cap above it, BOOT/RST out on the left ear where the USB was.
+    USB: (0.0, -11.1, 0),
     # Shunt on the wedge face: BAT_IN end toward SW_BACK, VBATT end toward the B-side ESC bus.
     # The 20 A crosses layers once, in the stitched BAT_IN pour between it and SW_BACK.
     find("0.5m"): (
@@ -178,12 +185,12 @@ B_FIXED = {
         90,
     ),  # courtyard clears the ear-edge ledge (B_low) and the D-cut washer
     # Kelvin resistors on the shunt's side, beside its pads, so each tap leaves from the pad
-    # itself (Vishay's sensing-trace drawing); SENSE_P / SENSE_N then via up to the INA228.
+    # itself (Vishay's sensing-trace drawing); SENSE_P / SENSE_N then via up to the INA238.
     find("10", "SENSE_P"): (18.6, -12.4, 90),
     find("10", "SENSE_N"): (18.6, -10.2, 90),
     # 100 uF bulk on the right ear's wedge face (8 mm tall; 18-21 mm free there), + pad inboard
     # toward the VBATT pour.
-    find("100uF 35V"): (30.6, -10.0, 90),  # pads along y: at 0 deg the GND pad crossed the ear edge
+    find("100uF 35V"): (0.0, -3.95, 180),  # + pad (1) toward +x and the VBATT strip
     # ESC power and DShot lap pads on the stem's front strip, below the washers (y < -14.3).
     # Leads run forward into the wire bay, then out to each ESC's inner end at |x| 14.
     # + outboard so the B-side VBATT pour reaches each one from the bus above the washers.
@@ -204,7 +211,7 @@ B_FIXED = {
     # toward the wedge, where 22 mm is free (cad/, sectioned).
     # 180: KiCad mirrors bottom footprints (its pins would point rearward at 0); see lay.size.
     find("NANO_RX"): (0.0, 12.6, 180),
-    find("BOOT/RST"): (0.0, -3.4, 0),  # clear of the RX header's pin tips at y 0.25
+    find("BOOT/RST"): (-21.0, -9.0, 0),
 }
 for ref, (x, y, rot) in B_FIXED.items():
     # Via-grid wire pads go through the board: they block the roof face above them too.
@@ -218,16 +225,14 @@ legs = []
 for ref, (x, y, rot) in B_FIXED.items():
     d = lay.info[ref]
     for name, x0, x1, y0, y1 in d["pad_boxes"]:
-        if name in ("25", ""):
-            if ref == USB and name == "":
-                continue  # locating pegs are non-plated holes under the body, not legs
+        if name in ("25", "EP", ""):  # shell legs and locating pegs pierce the board
             c = Point((x0 + x1) / 2, -(y0 + y1) / 2)  # footprint-local y down -> y up
             c = affinity.translate(affinity.rotate(c, rot, origin=(0, 0)), x, y)
             legs.append(c.buffer(max(x1 - x0, y1 - y0) / 2 + 0.3))
 lay.keepout = unary_union([lay.keepout, *legs, *LABEL_STRIPS])
 
 wanted = {
-    # INA228 on the shunt's Kelvin lines, VBUS pin toward VBATT.
+    # INA238 on the shunt's Kelvin lines, VBUS pin toward VBATT.
     # The sense taps see a little pour and via resistance besides the shunt: a fixed gain error,
     # calibrated out with a known load.
     # 270: pins 6-10 (GND, VBATT, SENSE) face the shunt; at 90 they faced the ear's rear edge
@@ -252,9 +257,10 @@ wanted = {
     find("10uF", "+5V"): (28.5, -10.0, 90),
     # USB ESD, CC resistors and the VBUS OR-ing diode over the connector, which sits under the
     # left ear's rear strip on B.
-    find("USBLC6-2SC6"): (-29.0, -13.0, 0),
-    find("5.1k", pin_net(USB, "A5")): (-33.0, -12.0, 0),
-    find("5.1k", pin_net(USB, "B5")): (-33.0, -13.4, 0),
+    find("USBLC6-2SC6"): (-6.4, -10.8, 90),
+    # CC resistors between the USB-C's shell legs, right over its CC pads.
+    find("5.1k", pin_net(USB, "A5")): (0.0, -10.6, 0),
+    find("5.1k", pin_net(USB, "B5")): (0.0, -12.0, 0),
     # LDO block and EN RC on the left ear, by the module's 3V3 / EN side.
     find("AP2112K-3.3"): (-17.0, -9.0, 0),
     find("1uF", "+5V"): (-19.6, -9.0, 90),
@@ -274,24 +280,35 @@ wanted = {
     find("100", pin_net(find("NANO_RX"), "3")): (9.0, -6.0, 90),
     find("100", pin_net(find("NANO_RX"), "4")): (-9.0, 6.0, 90),
     # IMU between the front bosses, rotated so every LGA side has room to escape.
-    IMU: (0.0, -13.0, 90),
-    find("32.768kHz"): (-4.0, -13.0, 90),
-    find("22pF", "XIN32"): (-5.4, -15.6, 0),
-    find("22pF", "XOUT32"): (-5.4, -10.4, 0),
-    c100_3v3[2]: (3.0, -10.4, 0),
-    c100_3v3[3]: (3.0, -15.6, 0),
-    r10k_imu[0]: (4.6, -12.0, 90),
-    r10k_imu[1]: (4.6, -14.6, 90),
-    find("4.7k", "SDA1"): (5.0, -18.0, 0),
-    find("4.7k", "SCL1"): (2.6, -18.0, 0),
+    # IMU block front-right of the USB-C's shell legs (they pierce the top at (+-2.4, -8.95) and
+    # (+-2.4, -13.25)), rotated 90 with room on every side: at the front edge 3 nets could not
+    # escape the LGA.
+    IMU: (7.6, -16.4, 90),
+    find("32.768kHz"): (3.6, -16.4, 90),
+    find("22pF", "XOUT32"): (3.6, -14.0, 0),
+    c100_3v3[2]: (11.4, -14.4, 90),
+    c100_3v3[3]: (7.6, -12.6, 0),
+    find("10k", "IMU_RST"): (5.0, -12.6, 0),
+    find("10k", "IMU_BOOTLOAD"): (11.4, -18.0, 90),
+    find("4.7k", "SDA1"): (-1.2, -17.6, 90),
+    find("4.7k", "SCL1"): (1.2, -17.6, 90),
+    find("B5819W", "VBUS_USB"): (-15.0, -12.6, 0),  # VBUS diode, inboard left ear
 }
 # BNO055 CAP pin cap.
 cap_ref = [find("1uF", "IMU_CAP")]
-wanted[cap_ref[0]] = (-2.0, -17.6, 0)
 
-REACH = {find("22uF", nth=2): 12.0}  # the ear tip is full; take the nearest free spot
+REACH = {
+    find("22uF", nth=2): 12.0,
+    find("USBLC6-2SC6"): 8.0,
+}  # the ear tip is full; take the nearest free spot
 for ref, (x, y, rot) in wanted.items():
     lay.want(ref, x, y, rot, reach=REACH.get(ref, 6.0), bottom_ok=False)
+# The CAP pin's cap goes straight under the IMU on the wedge face (the roof face around it is
+# full; 6 mm away on top it would not route): a short reach so it never lands far off on top.
+lay.want(cap_ref[0], 7.6, -17.2, 0, reach=1.5, bottom_ok=True)
+# XIN's load cap on the wedge face under the crystal, between the USB-C and the signal pads: at
+# the front edge on top its GND pad had no room for a via in any of 20 routing tries.
+lay.want(find("22pF", "XIN32"), 3.1, -15.25, 0, reach=1.0, bottom_ok=True)
 solved = lay.solve()
 if "--plot" in sys.argv:
     import debug_plot
@@ -385,7 +402,8 @@ spec = {
                 k(x, y) for x, y in [(13.0, -20.0), (17.4, -20.0), (17.4, -10.3), (13.0, -10.3)]
             ],
         },
-        # Shunt VBATT end and its via field, on B.
+        # Shunt VBATT end on B. The bulk cap's + pad in the stem takes a track (a pour strip there
+        # was cut into islands by other nets' tracks).
         {
             "net": "VBATT",
             "layers": ["B.Cu"],

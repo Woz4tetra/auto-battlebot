@@ -1,0 +1,12 @@
+(footprint "StitchVia_0.6mm"
+	(version 20240108)
+	(generator "pcbnew")
+	(layer "F.Cu")
+	(descr "One 0.3 mm stitching via as a footprint, so a pour fragment the router boxes in always reaches the inner planes")
+	(attr exclude_from_pos_files exclude_from_bom)
+	(property "Reference" "REF**" (at 0 -1 0) (layer "F.SilkS") (hide yes) (effects (font (size 0.8 0.8) (thickness 0.12))))
+	(property "Value" "StitchVia" (at 0 1 0) (layer "F.Fab") (hide yes) (effects (font (size 0.8 0.8) (thickness 0.12))))
+	(fp_circle (center 0 0) (end 0.45 0) (stroke (width 0.05) (type solid)) (fill none) (layer "F.CrtYd"))
+	(fp_circle (center 0 0) (end 0.45 0) (stroke (width 0.05) (type solid)) (fill none) (layer "B.CrtYd"))
+	(pad "1" thru_hole circle (at 0 0) (size 0.6 0.6) (drill 0.3) (layers "*.Cu"))
+)

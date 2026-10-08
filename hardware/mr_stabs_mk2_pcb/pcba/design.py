@@ -1,4 +1,4 @@
-"""Mr Stabs Mk2 main board: ESP32-S3, BNO055, INA228, Crossfire Nano RX and the 4S power path.
+"""Mr Stabs Mk2 main board: ESP32-S3, BNO055, INA238, Crossfire Nano RX and the 4S power path.
 
 Spec (references/spec_template.md, agreed with the user on 2026-10-08):
     Function: one board in the Mk2 chassis electronics bay replacing the QT Py ESP32-S3, the
@@ -7,10 +7,12 @@ Spec (references/spec_template.md, agreed with the user on 2026-10-08):
         Pin map kept:
             IO8  left ESC DShot (A3)        IO9  right ESC DShot (A2)
             IO17 CRSF TX (TXD1)             IO18 CRSF RX (RXD1)
-            IO41 SDA1, IO40 SCL1 (Wire1): BNO055 at 0x28, INA228 at 0x45
+            IO41 SDA1, IO40 SCL1 (Wire1): BNO055 at 0x28, INA238 at 0x45
             IO39 NeoPixel data              IO19 / IO20 USB D- / D+
-        Firmware change: SHUNT_OHMS 0.0002 -> 0.0005 (0.5 mohm 6 W shunt; user allowed firmware
-        changes for substitutions).
+        Firmware changes (user allowed them for substitutions): SHUNT_OHMS 0.0002 -> 0.0005
+        (0.5 mohm 6 W shunt), and the INA238 in place of the INA228 (DEVICE_ID 3Fh die 0x238;
+        16-bit VSHUNT at 1.25 uV/LSB with ADCRANGE 1, +-40.96 mV, which holds the 35 mV of a 70 A
+        peak; VBUS 3.125 mV/LSB: SLYS025B tables 6-8, 6-9, 6-21).
     Power: two 2S packs in series (4S, 12.8 to 16.8 V), each on an XT60 pigtail. A FingerTech
         switch on a third XT60 pigtail loops pack+ out and back. Switched pack+ -> 20 vias in the
         SW_BACK pad -> 0.5 mohm shunt (B side) -> B VBATT pour -> ESC+ pads (B, beside it).
@@ -28,7 +30,8 @@ Spec (references/spec_template.md, agreed with the user on 2026-10-08):
             wedge face at the stem's rear, pins pointing forward (GND, 5V, Ch1 = RX's CRSF TX,
             Ch2 = RX's CRSF RX, per the TBS quickstart). The RX slides onto the pins and stands
             perpendicular to the board, 18 mm deep against 22+ mm free (cad/, sectioned).
-        USB: TYPE-C-31-M-06 vertical receptacle, ESD on D+/D-, mates with the wedge plate off.
+        USB: TYPE-C-31-D-06 vertical 16-pin receptacle, ESD on D+/D-, mates with the wedge plate
+            off.
         BOOT / RESET: 1x3 2.54 mm vertical SMD jumper header IO0 / GND / EN on the wedge face
             (buttons get pressed in impacts).
         Wi-Fi: ESP32-S3-MINI-1U U.FL socket to a Molex 146153-0050 flex dipole (50 mm cable).
@@ -49,9 +52,9 @@ Open questions:
     3. The standing Nano RX (x +-5.8) leaves about 1 mm to a driver on the rear screws at
         x +-9.8, depending on the driver's shank diameter.
     4. Holes are 3.7 mm; the placeholder drew 3.66 mm #6 close clearance.
-    5. Firmware: set SHUNT_OHMS to 0.0005 in vbat_sensor.h when this board replaces the Matek
-        (200 uohm) board. Then calibrate it once against a known load: the sense taps include
-        some pour and via resistance, a fixed gain error.
+    5. Firmware: set SHUNT_OHMS to 0.0005 and read the INA238 (vbat_sensor.cpp rejects its
+        device ID and uses INA228 register scales). Then calibrate it once against a known load:
+        the sense taps include some pour and via resistance, a fixed gain error.
     6. Antenna lead route: the bosses close the stem's front corners and the rear cross member
         sits 0.1 mm above the board, so the only exit on the roof face is forward over the module
         shield and between the front bosses (render_3d.png). A 1.13 mm cable over the 2.55 mm
@@ -142,10 +145,11 @@ for side in ("l", "r"):
     vbatt += pad(f"ESC_{side.upper()}+", PAD_16AWG, f"p_esc_{side}_pos")[1]
     gnd += pad(f"ESC_{side.upper()}-", "mk2:WirePad_Lap_3.0x5.0mm_Vias", f"p_esc_{side}_neg")[1]
 
-# INA228 high-side monitor at 0x45 (A0 = A1 = VS), as the Matek board was. Kelvin sense lines
-# are their own nets so placement can run them from the shunt pads, not the high-current copper.
+# INA238 high-side monitor at 0x45 (A0 = A1 = VS), as the Matek board was: JLCPCB assembly had no
+# INA228, and the INA238 has its pinout at 16 bits. Kelvin sense lines are their own nets so
+# placement can run them from the shunt pads, not the high-current copper.
 ina = part(
-    "Sensor_Energy", "INA228", "Package_SO:VSSOP-10_3x3mm_P0.5mm", lcsc="C2887910", tag="ina"
+    "Sensor_Energy", "INA238", "Package_SO:VSSOP-10_3x3mm_P0.5mm", lcsc="C2868250", tag="ina"
 )
 sense_p, sense_n = Net("SENSE_P"), Net("SENSE_N")
 sense_p += ina["Vin+"]
@@ -330,16 +334,18 @@ mcu["IO17"] & r("100", "C25076", "r_crsf_tx") & j_rx[4]
 
 # --- USB-C, vertical: flashing and BLHeli passthrough with the wedge plate off. 5.1k on each CC
 # makes it a sink; USBLC6 clamps D+/D- because a person plugs this one in.
-usb = part("mk2", "TYPE-C-31-M-06", "mk2:TYPE-C-USB-SMD_TYPE-C-31-M-06", lcsc="C129019", tag="usb")
+# 16-pin USB 2.0 receptacle (JLCPCB stock 2,310; JLCPCB flagged the 24-pin TYPE-C-31-M-06 as hard
+# to source).
+usb = part("mk2", "TYPE-C-31-D-06", "mk2:USB-C-SMD_TYPE-C-31-D-06", lcsc="C2689964", tag="usb")
 dm, dp = Net("USB_DM"), Net("USB_DP")
 vbus_usb += usb["A4"], usb["A9"], usb["B4"], usb["B9"]
-gnd += usb["A1"], usb["A12"], usb["B1"], usb["B12"], usb["EH"]
+gnd += usb["A1"], usb["A12"], usb["B1"], usb["B12"], usb["EP"]
 dp += usb["A6"], usb["B6"], mcu["IO20"]
 dm += usb["A7"], usb["B7"], mcu["IO19"]
 for cc, tag in (("A5", "r_cc1"), ("B5", "r_cc2")):
     usb[cc] & r("5.1k", "C25905", tag) & gnd
-for name in ("A2", "A3", "A8", "A10", "A11", "B2", "B3", "B8", "B10", "B11"):
-    usb[name] += NC  # SuperSpeed and SBU
+for name in ("A8", "B8"):
+    usb[name] += NC  # SBU
 esd = part(
     "Power_Protection", "USBLC6-2SC6", "Package_TO_SOT_SMD:SOT-23-6", lcsc="C2687116", tag="esd"
 )
@@ -354,6 +360,11 @@ for side, io in (("l", "IO8"), ("r", "IO9")):
     mcu[io] & r("100", "C25076", f"r_dshot_{side}") & sig
     sig += pad(f"DSHOT_{side.upper()}", PAD_SIG, f"p_dshot_{side}")[1]
     gnd += pad(f"SIG_GND_{side.upper()}", PAD_SIG, f"p_sig_gnd_{side}")[1]
+
+# GND stitching vias in the stem's sides: the tracks to the stem's USB-C and bulk cap box the
+# bottom GND pour there into fragments the flow's stitching found no via spot in.
+for i in range(2):
+    gnd += pad("GND_STITCH", "mk2:StitchVia_0.6mm", f"v_stitch{i}")[1]
 
 # --- Mounting: four 3.7 mm holes for #6 flat-head plastite screws into the chassis bosses.
 # The washers are D-cut on their outboard side, so each side has its own footprint.

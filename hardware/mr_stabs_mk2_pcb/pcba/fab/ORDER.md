@@ -16,7 +16,7 @@ the rating, datasheet and stock gates pass).
 | Option | Value | Why |
 | --- | --- | --- |
 | Layers | 4 | F signal, In1 GND, In2 GND, B signal |
-| Thickness | 1.6 mm | Shell legs of the USB-C are sized for it |
+| Thickness | 1.6 mm | The USB-C drawing assumes 0.8 mm; its shell legs stop 0.65 mm short of the far side, with paste in the slots |
 | Outer copper | 2 oz | 20 A continuous, 70 A stalls (`../sim/copper_ir.py`) |
 | Inner copper | 0.5 oz (default) | ESC current no longer uses the inner layers |
 | Surface finish | HASL lead-free | |
@@ -24,9 +24,12 @@ the rating, datasheet and stock gates pass).
 
 ## Assembly options
 
-- Standard PCBA, **both sides**: C3, H1, H2, R1, R2, R3 and USB1 are on the bottom.
+- **PCBA Qty: 2.** The BOM is per board; JLCPCB multiplies it by this number, which defaults to
+  the PCB quantity (5).
+- Standard PCBA, **both sides**: C3, C19, C22, H1, H2, R1, R2, R3 and USB1 are on the bottom.
 - Check every part's rotation in JLCPCB's placement preview, bottom side especially.
-- 30 BOM lines, 13 extended parts. Parts about $23.60 per board at the last stock check.
+- 30 BOM lines, 13 extended parts. Parts about $24.60 per board at the last stock check
+  (`../stock_report.json`, JLCPCB assembly stock). The ESP32-S3-MINI-1U had only 142 left.
 
 ## Bought separately
 
