@@ -24,13 +24,16 @@
   "verdict": "pass"
  },
  "H2": {
-  "part": "HX PZ2.54-1x4P TP-YQ SMD pin header (LCSC C41417361)",
-  "datasheet": "https://datasheet.lcsc.com/datasheet/pdf/008bffa3012fd690eb3dff955a642688.pdf (Hanxia drawing HX PZ2.54-1x4P TP-YQ); LCSC page https://www.lcsc.com/product-detail/C41417361.html",
-  "pinout": "Pad 1 GND, 2 +5V, 3 CRSF_RX_TX, 4 CRSF_RX_RX. Header pins are identical; order is set by the board's own silkscreen/wiring to the Nano RX.",
-  "footprint": "Same drawing family, Type A layout: 1.02 x 3.20 pads, 2.54 pitch, 6.40 row extent. Footprint: pads 1.02 x 3.2 at x = -3.81, -1.27, +1.27, +3.81; pads 1,3 at y -3.2..0, pads 2,4 at y 0..3.2. Matches Type A (pin 1 in the top-view top row). A 4-pin Type A part is self-symmetric under 180 deg rotation, so either placement fits.",
-  "ratings": "LCSC: 3 A per pin, 1 kV, -40 to 105 C; 5 V receiver current is far below 3 A.",
-  "config": "Male pin header (LCSC 'Pin Header', 6.0 mm square posts), vertical SMD staggered.",
-  "issues": [],
+  "part": "HX PZ2.54-1x4P WT, 1x4 2.54 mm right-angle SMD male header (C46061677)",
+  "datasheet": "https://datasheet.lcsc.com/datasheet/pdf/73cf424b037309008a72950c3562651a.pdf?productCode=C46061677",
+  "pinout": "4 identical pins; pad 1 GND, 2 +5V, 3 Ch1 (RX CRSF TX), 4 Ch2 (RX CRSF RX), matching the Nano RX's front row order (TBS quickstart p.2).",
+  "footprint": "Recommended layout (top view): pads 1.02 x 3.20 mm at 2.54 mm pitch, one row: matches. EasyEDA's courtyard covered only the insulator (y 3.6-6.1); replaced by one over the feet to the pin tips (y -1.85 to 12.35).",
+  "ratings": "3 A per pin, 1000 V AC withstand, -40 to 105 C, 260 C 5 s soldering (drawing spec block) vs about 0.1 A at 5 V.",
+  "config": "Right angle: 0.64 mm square pins, insulator 2.5 x 2.5 mm, mating length 6.00 mm, tails 4.80 mm (drawing). Pins point forward; the RX slides onto them and stands 18 mm toward the wedge.",
+  "fixed": "Replaces the vertical SMD header, which would have laid the RX flat against the board.",
+  "issues": [
+   "The insulator's offset from the pads is not dimensioned; the courtyard and 3D model take EasyEDA's 3.6 mm."
+  ],
   "verdict": "pass"
  },
  "U4": {

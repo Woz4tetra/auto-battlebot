@@ -24,9 +24,10 @@ Spec (references/spec_template.md, agreed with the user on 2026-10-08):
             the pack's GND entry (PACK_A-). ESC current never crosses the board's
             inner planes (sim/copper_ir.py).
         ESC L/R DShot + GND: lap pads 1.6 x 3.0 mm on the stem's front strip.
-        Crossfire Nano RX: 1x4 2.54 mm vertical SMD male header on the wedge face at the stem's
-            rear centre (GND, 5V, Ch1 = RX's CRSF TX, Ch2 = RX's CRSF RX, per the TBS
-            quickstart). The RX solders onto it standing up: 2.5 + 18 mm against 22+ mm free.
+        Crossfire Nano RX: 1x4 2.54 mm right-angle SMD male header (HX PZ2.54-1x4P WT) on the
+            wedge face at the stem's rear, pins pointing forward (GND, 5V, Ch1 = RX's CRSF TX,
+            Ch2 = RX's CRSF RX, per the TBS quickstart). The RX slides onto the pins and stands
+            perpendicular to the board, 18 mm deep against 22+ mm free (cad/, sectioned).
         USB: TYPE-C-31-M-06 vertical receptacle, ESD on D+/D-, mates with the wedge plate off.
         BOOT / RESET: 1x3 2.54 mm vertical SMD jumper header IO0 / GND / EN on the wedge face
             (buttons get pressed in impacts).
@@ -312,12 +313,14 @@ x_out & c("22pF", "C1555", "c_xout") & gnd
 
 # --- Crossfire Nano RX on a 1x4 male header, its front connector in TBS order: GND (square
 # pad), 5V, Ch1 = CRSF TX (to ESP RX, IO18), Ch2 = CRSF RX (from ESP TX, IO17).
+# Right-angle SMD header: its pins run parallel to the board, so the RX slides on and stands
+# perpendicular to it. A vertical header would stack the RX flat against the board.
 j_rx = part(
     "mk2",
-    "HXPZ2.54-1X4PTP-YQ",
-    "mk2:CONN-SMD_HX-PZ2.54-1X4P-TP-YQ",
+    "HXPZ2.54-1X4PWT",
+    "mk2:CONN-SMD_HX-PZ2.54-1X4P-WT",
     "NANO_RX",
-    "C41417361",
+    "C46061677",
     tag="j_rx",
 )
 j_rx[1] += gnd

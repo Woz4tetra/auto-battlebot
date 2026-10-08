@@ -125,14 +125,18 @@ for sign, refs in (("+", ("ESC_L+", "ESC_R+")), ("-", ("ESC_L-", "ESC_R-"))):
 # Pin labels for the two headers: one label per pin, beside the row on the side away from the
 # pin's staggered pad.
 for value, names, caption in (
-    ("NANO_RX", {"1": "G", "2": "5V", "3": "1", "4": "2"}, "NANO RX: 1=RX TX, 2=RX RX"),
+    ("NANO_RX", {"1": "G", "2": "5V", "3": "C1", "4": "C2"}, "NANO RX"),
     ("BOOT/RST", {"1": "BT", "2": "G", "3": "RS"}, "BT-G BOOT  RS-G RESET"),
 ):
     pins = P[value]
     row_y = sum(p[1] for p in pins) / len(pins)
     for x, y, s, half, num in pins:
-        # Staggered pads sit 1.6 mm off the row; put the label on the row's other side.
-        ly = row_y - 2.6 if y > row_y else row_y + 2.6
+        # Staggered pads sit 1.6 mm off the row: label on the row's other side. The right-angle
+        # RX header's pads are one row along the rear edge: label between them and its body.
+        if value == "NANO_RX":
+            ly = row_y - 2.5
+        else:
+            ly = row_y - 2.6 if y > row_y else row_y + 2.6
         text(names[num], x, ly, "B", h=0.8)
     text(caption, sum(p[0] for p in pins) / len(pins), row_y - 4.3, "B", h=0.8)
 

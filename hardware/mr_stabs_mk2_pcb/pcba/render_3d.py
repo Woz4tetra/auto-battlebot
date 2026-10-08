@@ -5,7 +5,7 @@
 Stock models come from SKILL/scripts/fetch_3dmodels.py; the rest are build123d models in
 art/models/ (checked with the build123d skill's check.py, STEPs copied to lib/mk2.3dshapes/):
     L1   FNR4030S100MT inductor, the footprint KiCad ships without a model
-    H2   the Crossfire Nano RX standing on its header
+    H2   the Crossfire Nano RX on its right-angle header
     ESP1 the U.FL plug and Molex 146153-0050 lead on the module's socket
 Writes render_3d_{top,bottom,iso_top,iso_bottom}.png. The fab board is not modified.
 """
@@ -19,10 +19,11 @@ board = pcbnew.LoadBoard("mk2_routed.kicad_pcb")
 SHAPES = "${KIPRJMOD}/lib/mk2.3dshapes/"
 
 
-def add_model(fp, name, offset=(0, 0, 0)):
+def add_model(fp, name, offset=(0, 0, 0), rotate=(0, 0, 0)):
     m = pcbnew.FP_3DMODEL()
     m.m_Filename = SHAPES + name
     m.m_Offset = pcbnew.VECTOR3D(*offset)
+    m.m_Rotation = pcbnew.VECTOR3D(*rotate)
     fp.Models().push_back(m)
 
 
@@ -32,7 +33,9 @@ for fp in board.GetFootprints():
         fp.Models().clear()
         add_model(fp, "fnr4030_inductor.step")
     elif v == "NANO_RX":
-        add_model(fp, "nano_rx.step")
+        # Slid onto the right-angle pins against the insulator's far face (model y -6.1), its
+        # 11 mm edge resting on the board, standing 18 mm away from it, parts facing forward.
+        add_model(fp, "nano_rx.step", (0, -6.65, -2.45), (0, 0, 180))
     elif v.startswith("ESP32-S3-MINI-1U"):
         # U.FL socket centre, from the module footprint's own model: (-4.6, +5.1) mm, y up.
         add_model(fp, "ufl_plug.step", (-4.6, 5.1, 0))

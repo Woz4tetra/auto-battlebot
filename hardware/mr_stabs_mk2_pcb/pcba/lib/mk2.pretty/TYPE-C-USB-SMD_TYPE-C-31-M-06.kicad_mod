@@ -55,8 +55,8 @@
 	(fp_line (start 4.47 -1.58) (end 4.47 1.58) (layer F.CrtYd) (width 0.05))
 	(fp_line (start 4.47 1.58) (end -4.47 1.58) (layer F.CrtYd) (width 0.05))
 	(fp_line (start -4.47 1.58) (end -4.47 -1.58) (layer F.CrtYd) (width 0.05))
-	(model "${KIPRJMOD}/lib/mk2.3dshapes/TYPE-C-USB-SMD_TYPE-C-31-M-06.wrl"
-		(offset (xyz 0.000 0.000 0.000))
+	(model "${KIPRJMOD}/lib/mk2.3dshapes/TYPE-C-USB-SMD_TYPE-C-31-M-06.step"
+		(offset (xyz 0.0 0.0 2.545))
 		(scale (xyz 1 1 1))
 		(rotate (xyz 0 0 0))
 	)

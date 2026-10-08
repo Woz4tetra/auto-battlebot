@@ -27,8 +27,8 @@
 	(fp_line (start 3.81 -1.25) (end 3.81 1.25) (layer F.CrtYd) (width 0.05))
 	(fp_line (start 3.81 1.25) (end -3.81 1.25) (layer F.CrtYd) (width 0.05))
 	(fp_poly (pts (xy -3.862578 2.032000) (xy -3.249422 2.032000) (xy -3.862578 2.032000)) (stroke (width 0) (type solid)) (fill solid) (layer "F.SilkS"))
-	(model "${KIPRJMOD}/lib/mk2.3dshapes/HDR-SMD_3P-P2.54-V-M_HX-PZ2.54-1X3P-TP-YQ.wrl"
-		(offset (xyz 0.000 0.000 0.000))
+	(model "${KIPRJMOD}/lib/mk2.3dshapes/HDR-SMD_3P-P2.54-V-M_HX-PZ2.54-1X3P-TP-YQ.step"
+		(offset (xyz -2.54 -0.413 0.7))
 		(scale (xyz 1 1 1))
 		(rotate (xyz 0 0 0))
 	)

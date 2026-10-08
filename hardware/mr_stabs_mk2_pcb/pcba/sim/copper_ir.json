@@ -27,62 +27,62 @@
  },
  {
   "drop_mV": {
-   "out": -3.1
+   "out": -4.2
   },
-  "copper_loss_W": 0.06,
-  "busiest_via_A": 1.53,
-  "vias_over_1_5A": 1,
+  "copper_loss_W": 0.08,
+  "busiest_via_A": 1.79,
+  "vias_over_1_5A": 4,
   "peak_A_per_mm": {
-   "F": 2.8,
+   "F": 1.0,
    "In1": 0.0,
    "In2": 0.0,
-   "B": 5.4
+   "B": 6.1
   },
   "net": "BAT_IN",
   "amps": 20.0
  },
  {
   "drop_mV": {
-   "out": -10.7
+   "out": -14.6
   },
-  "copper_loss_W": 0.69,
-  "busiest_via_A": 5.35,
+  "copper_loss_W": 0.94,
+  "busiest_via_A": 6.25,
   "vias_over_1_5A": 18,
   "peak_A_per_mm": {
-   "F": 9.9,
+   "F": 3.5,
    "In1": 0.0,
    "In2": 0.0,
-   "B": 19.1
+   "B": 21.4
   },
   "net": "BAT_IN",
   "amps": 70.0
  },
  {
   "drop_mV": {
-   "esc_l": -11.8,
-   "esc_r": -12.1
+   "esc_l": -10.1,
+   "esc_r": -10.4
   },
-  "copper_loss_W": 0.2,
+  "copper_loss_W": 0.18,
   "busiest_via_A": 0.0,
   "vias_over_1_5A": 0,
   "peak_A_per_mm": {
    "F": 0.0,
-   "B": 19.1
+   "B": 13.7
   },
   "net": "VBATT",
   "amps": 20.0
  },
  {
   "drop_mV": {
-   "esc_l": -41.4,
-   "esc_r": -42.4
+   "esc_l": -35.3,
+   "esc_r": -36.4
   },
-  "copper_loss_W": 2.48,
+  "copper_loss_W": 2.18,
   "busiest_via_A": 0.0,
   "vias_over_1_5A": 0,
   "peak_A_per_mm": {
    "F": 0.0,
-   "B": 66.7
+   "B": 47.8
   },
   "net": "VBATT",
   "amps": 70.0
@@ -97,9 +97,9 @@
   "vias_over_1_5A": 0,
   "peak_A_per_mm": {
    "F": 1.4,
-   "In1": 0.3,
+   "In1": 0.2,
    "In2": 0.2,
-   "B": 1.4
+   "B": 1.5
   },
   "net": "GND",
   "amps": 20.0
@@ -110,13 +110,13 @@
    "esc_r": 5.0
   },
   "copper_loss_W": 0.3,
-  "busiest_via_A": 2.6,
-  "vias_over_1_5A": 19,
+  "busiest_via_A": 2.57,
+  "vias_over_1_5A": 20,
   "peak_A_per_mm": {
    "F": 5.0,
    "In1": 0.9,
    "In2": 0.8,
-   "B": 5.0
+   "B": 5.3
   },
   "net": "GND",
   "amps": 70.0
@@ -129,8 +129,7 @@
   "busiest_via_A": 0.0,
   "vias_over_1_5A": 0,
   "peak_A_per_mm": {
-   "F": 3.6,
-   "B": 0.0
+   "F": 3.6
   },
   "net": "PACK_MID",
   "amps": 20.0
@@ -143,8 +142,7 @@
   "busiest_via_A": 0.0,
   "vias_over_1_5A": 0,
   "peak_A_per_mm": {
-   "F": 12.5,
-   "B": 0.0
+   "F": 12.5
   },
   "net": "PACK_MID",
   "amps": 70.0

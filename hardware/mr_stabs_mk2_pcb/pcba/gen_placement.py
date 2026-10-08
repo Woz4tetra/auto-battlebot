@@ -16,15 +16,15 @@ Floorplan:
                     12 AWG lap pads, wires laid flat into the wire bay ahead (40 mm clear at
                     |x| 14 to 26). Left: PACK_A-, PACK_A+, PACK_B-. Right: SW_BACK, SW_OUT,
                     PACK_B+. Each switch lead and pack A stay on one side; pack B splits.
-    right ear, F    shunt beside SW_BACK, INA228 on its Kelvin lines, buck block outboard.
+    right ear, F    INA228 above the shunt, buck block and its three output caps outboard.
     left ear, F     LDO, EN RC, USB ESD / CC / VBUS diode.
     stem rear, F    NeoPixel behind the module, under the TPU roof so it shows through.
-    right ear, B    ESC+ lap pads on the shunt's VBATT pour.
+    right ear, B    shunt and its Kelvin resistors, ESC+ lap pads on its VBATT pour, 100 uF bulk.
     stem front, B   ESC- lap pads beside PACK_A-, then DShot and signal-ground pads, below the
                     washers.
     left ear, B     vertical USB-C, plugged with the wedge plate off; ESD and CC on F above it.
-    stem rear, B    Nano RX 1x4 SMD header; the RX stands on it toward the wedge (22 mm free).
-    stem centre, B  BOOT/RST 1x3 SMD jumper header, under the module.
+    stem rear, B    Nano RX 1x4 right-angle SMD header, pins forward; the RX stands on them.
+    stem centre, B  BOOT/RST 1x3 SMD jumper header, in front of the RX's pin tips.
 """
 
 import json
@@ -112,7 +112,9 @@ lay.keepout = roof
 # EasyEDA courtyards that miss their own pads (footprint_audit.py).
 lay.size(LED, (-1.25, 1.25), (-1.2, 1.2))
 lay.size(USB, (-4.6, 4.6), (-2.95, 2.95))
-lay.size(find("NANO_RX"), (-5.0, 5.0), (-3.4, 3.4))
+# Feet to pin tips and the RX's 11 mm width. legalize.py does not mirror bottom-side courtyards
+# and KiCad does, so this one is given mirrored (local y -12.35 to 1.85, not -1.85 to 12.35).
+lay.size(find("NANO_RX"), (-5.8, 5.8), (-12.35, 1.85))
 lay.size(find("BOOT/RST"), (-3.81, 3.81), (-3.4, 3.4))
 # The screw head sits on the B side inside the printed washer (in the B keep-out); on the F side
 # the hole only needs its own 3.7 mm plus 0.15 mm.
@@ -198,9 +200,11 @@ B_FIXED = {
     find("SIG_GND_L"): (-1.6, -18.1, 0),
     find("SIG_GND_R"): (1.6, -18.1, 0),
     find("DSHOT_R"): (3.8, -18.1, 0),
-    # The RX stands on this header toward the wedge; 22 mm free there (cad/, sectioned).
-    find("NANO_RX"): (0.0, 10.5, 0),
-    find("BOOT/RST"): (0.0, -2.0, 0),
+    # Right-angle header, pins pointing forward: the RX stands on them at y 4.2-6.6, 18 mm deep
+    # toward the wedge, where 22 mm is free (cad/, sectioned).
+    # 180: KiCad mirrors bottom footprints (its pins would point rearward at 0); see lay.size.
+    find("NANO_RX"): (0.0, 12.6, 180),
+    find("BOOT/RST"): (0.0, -3.4, 0),  # clear of the RX header's pin tips at y 0.25
 }
 for ref, (x, y, rot) in B_FIXED.items():
     # Via-grid wire pads go through the board: they block the roof face above them too.
