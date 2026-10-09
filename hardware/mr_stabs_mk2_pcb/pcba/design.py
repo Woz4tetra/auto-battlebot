@@ -61,6 +61,9 @@ Open questions:
         shield leaves 0.10 mm to the roof; an antenna on 0.81 mm cable leaves 0.42 mm. Pick one.
     7. Current path: 20 vias in SW_BACK, 18 + 2 at the shunt's VBATT end, 15 into each ESC+ pad,
         13 to 15 at each GND pad, about 1.2 A per via. Sized for 20 A continuous; not measured.
+    8. Two GND fanout vias sit in capacitor pads, untented: C14 (10 uF on the LDO, the whole drill
+        inside its GND pad) and C10 (one of three 22 uF buck outputs, half). Solder can wick down
+        them; order filled and capped vias, or accept it (other caps share each job).
 
 Run (from this directory): SKILL/scripts/kicad python3 design.py   -> mk2.net
 """
@@ -157,7 +160,10 @@ sense_n += ina["Vin-"]
 bat_in & r("10", "C25077", "r_sense_p") & sense_p
 vbatt & r("10", "C25077", "r_sense_n") & sense_n
 sense_p & c("100nF", "C1525", "c_sense") & sense_n
-vbatt += ina["VBUS"]
+# VBUS on the pack side of the shunt: the pin sits over the F BAT_IN pour, while VBATT is
+# across the shunt body on B (Freerouting failed that link in 3 of 5 near-clean tries). It reads
+# the shunt's drop high, at most 35 mV at a 70 A stall; VBUS current never passes the 10 ohms.
+bat_in += ina["VBUS"]
 v3v3 += ina["VS"], ina["A0"], ina["A1"]
 gnd += ina["GND"]
 sda += ina["SDA"]

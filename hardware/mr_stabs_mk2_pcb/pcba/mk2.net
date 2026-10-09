@@ -2,7 +2,7 @@
   (version "D")
   (design
     (source "design.py")
-    (date "10/08/2026 11:05 PM")
+    (date "10/09/2026 03:07 AM")
     (tool "SKiDL (2.3.0)")
     (sheet
       (number 1)
@@ -785,7 +785,7 @@
         (field
           (name "SKiDL Tag") "h0")
         (field
-          (name "SKiDL Line") "design.py:372"))
+          (name "SKiDL Line") "design.py:375"))
       (libsource
         (lib "Mechanical")
         (part "MountingHole"))
@@ -809,7 +809,7 @@
         (field
           (name "SKiDL Tag") "h1")
         (field
-          (name "SKiDL Line") "design.py:372"))
+          (name "SKiDL Line") "design.py:375"))
       (libsource
         (lib "Mechanical")
         (part "MountingHole"))
@@ -833,7 +833,7 @@
         (field
           (name "SKiDL Tag") "h2")
         (field
-          (name "SKiDL Line") "design.py:372"))
+          (name "SKiDL Line") "design.py:375"))
       (libsource
         (lib "Mechanical")
         (part "MountingHole"))
@@ -857,7 +857,7 @@
         (field
           (name "SKiDL Tag") "h3")
         (field
-          (name "SKiDL Line") "design.py:372"))
+          (name "SKiDL Line") "design.py:375"))
       (libsource
         (lib "Mechanical")
         (part "MountingHole"))
@@ -2088,7 +2088,11 @@
       (node
         (ref "TP6")
         (pin "1")
-        (pintype "PASSIVE")))
+        (pintype "PASSIVE"))
+      (node
+        (ref "U1")
+        (pin "8")
+        (pintype "INPUT")))
     (net
       (code 4)
       (name "BUCK_BOOT")
@@ -2857,10 +2861,6 @@
         (ref "TP9")
         (pin "1")
         (pintype "PASSIVE"))
-      (node
-        (ref "U1")
-        (pin "8")
-        (pintype "INPUT"))
       (node
         (ref "U2")
         (pin "3")

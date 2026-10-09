@@ -1,0 +1,5 @@
+(version 1)
+(rule "JLCPCB 2 oz outer clearance"
+    (layer outer) (constraint clearance (min 0.2mm)))
+(rule "JLCPCB 2 oz outer track width"
+    (layer outer) (constraint track_width (min 0.16mm)))

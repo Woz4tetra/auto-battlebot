@@ -43,7 +43,7 @@
   {
    "title": "High-current copper, every layer (finite-volume DC solve)",
    "verdict": "ok at 20 A; stalls stress the layer changes",
-   "text": "Each power net solved on all four layers at once, joined by its vias, from wire pad to wire pad: 2 oz outer, 0.5 oz inner (JLCPCB's default). Before the fix the ESC current crossed the board on a 0.5 oz inner VBATT plane: 1.14 W at 20 A, 94 mV to the left ESC, 14 W during a 70 A stall, 11.6 A in the busiest via. Now the ESC+ pads sit on the shunt's 2 oz bottom pour (no layer change at all), the ESC- pads sit 4 to 8 mm from the pack's GND pad, both inner layers are GND, and every pad where current changes layers carries a grid of 0.4 mm vias. At 20 A continuous no via carries more than 1.53 A and the whole power path loses about 0.3 W. A 70 A stall still puts 5.4 A through the busiest via of the switch-return crossing into the shunt; by Onderdonk's bare-conductor fusing estimate (pessimistic for a via in a plane) a 0.4 mm via of 20 um plating fuses at about 7.6 A in 1 s and 3.4 A in 5 s, so multi-second stalls at 70 A are the board's remaining electrical limit. This is DC and electrical only: no temperature. Script: sim/copper_ir.py.",
+   "text": "Each power net solved on all four layers at once, joined by its vias, from wire pad to wire pad: 2 oz outer, 0.5 oz inner (JLCPCB's default). Before the fix the ESC current crossed the board on a 0.5 oz inner VBATT plane: 1.14 W at 20 A, 94 mV to the left ESC, 14 W during a 70 A stall, 11.6 A in the busiest via. Now the ESC+ pads sit on the shunt's 2 oz bottom pour (no layer change at all), the ESC- pads sit 4 to 8 mm from the pack's GND pad, both inner layers are GND, and every pad where current changes layers carries a grid of 0.4 mm vias. At 20 A continuous no via carries more than 1.53 A and the whole power path loses about 0.25 W. The 2 oz re-route moved the bulk cap onto this pour and keeps signal tracks out of its neck by the shunt, which cut the VBATT drop at 70 A from 42.4 to 23.8 mV. A 70 A stall still puts 5.4 A through the busiest via of the switch-return crossing into the shunt; by Onderdonk's bare-conductor fusing estimate (pessimistic for a via in a plane) a 0.4 mm via of 20 um plating fuses at about 7.6 A in 1 s and 3.4 A in 5 s, so multi-second stalls at 70 A are the board's remaining electrical limit. This is DC and electrical only: no temperature. Script: sim/copper_ir.py.",
    "table": [
     [
      "Net",
@@ -72,7 +72,7 @@
     [
      "BAT_IN",
      20,
-     3.1,
+     3.0,
      0.06,
      1.53,
      1
@@ -80,24 +80,24 @@
     [
      "BAT_IN",
      70,
-     10.7,
-     0.69,
-     5.35,
+     10.5,
+     0.68,
+     5.37,
      18
     ],
     [
      "VBATT",
      20,
-     12.1,
-     0.2,
+     6.8,
+     0.12,
      0.0,
      0
     ],
     [
      "VBATT",
      70,
-     42.4,
-     2.48,
+     23.8,
+     1.52,
      0.0,
      0
     ],
@@ -112,9 +112,9 @@
     [
      "GND",
      70,
-     5.0,
-     0.3,
-     2.6,
+     4.8,
+     0.29,
+     2.59,
      19
     ],
     [

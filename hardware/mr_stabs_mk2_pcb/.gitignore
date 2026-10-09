@@ -28,6 +28,7 @@ pcba/ratings_cache.json
 pcba/stock_report.json
 pcba/review.html
 pcba/fab/gerbers/
+pcba/fab/easyeda/
 pcba/sim/copper_*.json
 pcba/sim/*.csv
 pcba/sim/*.cir

@@ -20,8 +20,9 @@ Floorplan:
     right ear, F    INA238 above the shunt, buck block and its three output caps outboard.
     left ear, F     LDO, EN RC.
     stem rear, F    NeoPixel behind the module, under the TPU roof so it shows through.
-    right ear, B    shunt and its Kelvin resistors, ESC+ lap pads on its VBATT pour.
-    stem, B         100 uF bulk and USB-C between the bosses, away from the motors; VBATT strip.
+    right ear, B    shunt and its Kelvin resistors, ESC+ lap pads and the 100 uF bulk on its
+                    VBATT pour.
+    stem, B         USB-C between the bosses, away from the motors.
     stem front, B   ESC- lap pads beside PACK_A-, then DShot and signal-ground pads, below the
                     washers.
     left ear, B     BOOT/RST 1x3 SMD jumper header.
@@ -173,9 +174,9 @@ LABEL_STRIPS = [
 
 # B side, fixed: USB-C on the right ear's rear strip; the headers on the left ear's.
 B_FIXED = {
-    # USB-C and the bulk cap in the stem, away from the motors under the ears: a dislodged motor
-    # can reach the ears, not the stem between the bosses. USB between the front washers (0.15 mm
-    # to each), the cap above it, BOOT/RST out on the left ear where the USB was.
+    # USB-C in the stem, away from the motors under the ears: a dislodged motor can reach the
+    # ears, not the stem between the bosses. USB between the front washers (0.15 mm to each),
+    # BOOT/RST out on the left ear where the USB was.
     USB: (0.0, -11.1, 0),
     # Shunt on the wedge face: BAT_IN end toward SW_BACK, VBATT end toward the B-side ESC bus.
     # The 20 A crosses layers once, in the stitched BAT_IN pour between it and SW_BACK.
@@ -188,9 +189,11 @@ B_FIXED = {
     # itself (Vishay's sensing-trace drawing); SENSE_P / SENSE_N then via up to the INA238.
     find("10", "SENSE_P"): (18.6, -12.4, 90),
     find("10", "SENSE_N"): (18.6, -10.2, 90),
-    # 100 uF bulk on the right ear's wedge face (8 mm tall; 18-21 mm free there), + pad inboard
-    # toward the VBATT pour.
-    find("100uF 35V"): (0.0, -3.95, 180),  # + pad (1) toward +x and the VBATT strip
+    # 100 uF bulk on the right ear's wedge face (8 mm tall; 18-21 mm free there), on the shunt's
+    # VBATT pour beside the ESC+ pads. It sat in the stem for motor-impact protection, but its
+    # feed crossed the USB-C and BNO055 fan-out, and at 2 oz spacing no Freerouting try (26 of
+    # them) routed it; a prewired track there walled off the stem's signals.
+    find("100uF 35V"): (30.6, -10.0, 90),  # pads along y: at 0 deg the GND pad crossed the ear edge
     # ESC power and DShot lap pads on the stem's front strip, below the washers (y < -14.3).
     # Leads run forward into the wire bay, then out to each ESC's inner end at |x| 14.
     # + outboard so the B-side VBATT pour reaches each one from the bus above the washers.
@@ -232,19 +235,23 @@ for ref, (x, y, rot) in B_FIXED.items():
 lay.keepout = unary_union([lay.keepout, *legs, *LABEL_STRIPS])
 
 wanted = {
-    # INA238 on the shunt's Kelvin lines, VBUS pin toward VBATT.
+    # INA238 on the shunt's Kelvin lines, VBUS pin over the F BAT_IN pour.
     # The sense taps see a little pour and via resistance besides the shunt: a fixed gain error,
     # calibrated out with a known load.
     # 270: pins 6-10 (GND, VBATT, SENSE) face the shunt; at 90 they faced the ear's rear edge
     # and pin 7 had no room for its GND via.
-    INA: (15.2, -8.6, 270),
+    # y -9.1: at -8.6 its pins 1-5 sat 0.68 mm from the rear edge and SDA squeezed past SCL's
+    # pad; lower also seats VBUS (pin 8) on the F BAT_IN pour.
+    INA: (15.4, -9.1, 270),
     find("100nF", "SENSE_P", "SENSE_N"): (18.4, -12.2, 90),  # off the BAT_IN pour
     c100_3v3[0]: (15.2, -6.1, 0),
     # Buck on the right ear outboard: VIN from VBATT near ESC_R+, SW into the inductor.
     find("TPS54202DDC"): (30.0, -14.2, 0),
     find("10uF", "VBATT", nth=0): (27.0, -10.0, 90),
     find("10uF", "VBATT", nth=1): (25.0, -10.0, 90),
-    find("100nF", "VBATT"): (28.4, -16.4, 0),
+    # 270: VBATT pad up, against the F VBATT patch; at 90 its GND pad faced the patch and the
+    # GND fanout track cut the VBATT pad off it.
+    find("100nF", "VBATT"): (27.23, -16.15, 270),
     find("100nF", "SW"): (32.5, -15.8, 0),
     find("100k", "V5_BUCK"): (33.0, -12.6, 0),
     find("12k", "FB"): (33.0, -13.8, 0),
@@ -318,6 +325,8 @@ k = lay.to_kicad
 
 spec = {
     "inherit": "jlcpcb_2layer",  # JLCPCB's 2-layer minimums are also safe on its 4-layer process
+    # Signal vias are 0.5 / 0.25 mm (netclasses below); JLCPCB drills 0.2 mm on 4 layers.
+    "rules": {"min_through_hole_diameter": 0.25},
     # Both inner layers are GND (the default fanout covers them). stitch_pitch 1.0 packs the
     # BAT_IN and VBATT pours' F/B overlaps with vias.
     "flow": {
@@ -341,6 +350,8 @@ spec = {
         "power_nets": ["VBATT"],
     },
     "layers": 4,
+    # 2 oz outer for the ESC current: JLCPCB's 2 oz minimums, 0.16 mm track and 0.20 mm space.
+    "outer_copper_oz": 2,
     "plane_layers": ["In1.Cu", "In2.Cu"],
     # Worst-case net voltages for rating_check.py: 4S LiHV is 17.4 V full; SW swings to VIN;
     # BOOT rides about 5.6 V above SW.
@@ -362,12 +373,29 @@ spec = {
     # Convex corners filleted (pcb.py); the notch corners stay sharp for the chassis bay.
     "board": {"outline": [k(x, y) for x, y in outline_b], "corner_radius": 1.0},
     "netclasses": {
+        # Signals at JLCPCB's 2 oz minimum width on 0.5 / 0.25 mm vias: at 0.2 mm clearance, 0.2
+        # then 0.16 mm tracks on 0.6 mm vias left every Freerouting try 4 to 18 errors or unrouted
+        # links in the stem (crystal, SDA, DSHOT_R, the INA238 sense tap). They carry milliamps.
+        "Default": {"track_width": 0.16, "via_diameter": 0.5, "via_drill": 0.25},
+        # Classes below inherit Default's vias; anything carrying current keeps 0.6 / 0.3.
+        # GND's fanout and stitching vias also join the outer pours that return ESC current.
+        "Ground": {"track_width": 0.2, "via_diameter": 0.6, "via_drill": 0.3, "nets": ["GND"]},
         # Tracks only feed pins; the zones carry the current.
-        "Battery": {"track_width": 0.3, "nets": ["BAT_IN", "VBATT", "PACK+", "PACK_MID"]},
-        "Power": {"track_width": 0.3, "nets": ["+5V", "V5_BUCK", "VBUS_USB", "SW"]},
+        "Battery": {
+            "track_width": 0.3,
+            "via_diameter": 0.6,
+            "via_drill": 0.3,
+            "nets": ["BAT_IN", "VBATT", "PACK+", "PACK_MID"],
+        },
+        "Power": {
+            "track_width": 0.3,
+            "via_diameter": 0.6,
+            "via_drill": 0.3,
+            "nets": ["+5V", "V5_BUCK", "VBUS_USB", "SW"],
+        },
         # 0.2 mm: the BNO055's LGA pads are 0.25 mm wide at 0.5 mm pitch. Under 0.4 A.
         "Rail": {"track_width": 0.2, "nets": ["+3V3"]},
-        "USB": {"track_width": 0.2, "clearance": 0.15, "nets": ["USB_DP", "USB_DM"]},
+        "USB": {"track_width": 0.2, "nets": ["USB_DP", "USB_DM"]},
     },
     "accepted": [],
     "parts": lay.kicad_parts(solved),
@@ -413,8 +441,52 @@ spec = {
                 k(x, y) for x, y in [(13.0, -20.0), (17.4, -20.0), (17.4, -10.3), (13.0, -10.3)]
             ],
         },
-        # Shunt VBATT end on B. The bulk cap's + pad in the stem takes a track (a pour strip there
-        # was cut into islands by other nets' tracks).
+        # Keep signals out of the B VBATT pour's neck, shunt VBATT end to ESC_L+: two tries running
+        # cut it with tracks, leaving the ESC current on a track. Clear of the INA238's +3V3 pins
+        # (vias go through B) and of R3's SENSE_N pad, whose track leaves downward.
+        {
+            "keepout": ["tracks", "vias"],
+            "layers": ["B.Cu"],
+            "outline": [
+                k(x, y) for x, y in [(16.6, -5.6), (19.4, -5.6), (19.4, -8.8), (16.6, -8.8)]
+            ],
+        },
+        # Keep signals out of the strip between R3's VBATT pad and ESC_L+, so the pour always
+        # joins the Kelvin tap: SENSE_N and SENSE_P tracks boxed that pad in. Turned to face the
+        # pad, R3 no longer fit between the shunt and ESC_L+.
+        {
+            "keepout": ["tracks", "vias"],
+            "layers": ["B.Cu"],
+            "outline": [
+                k(x, y) for x, y in [(18.75, -10.4), (19.6, -10.4), (19.6, -11.05), (18.75, -11.05)]
+            ],
+        },
+        # Buck input on F: C4, C5 and C6's VBATT pads to U2's VIN, over the B VBATT pour, so
+        # VBATT stitching drops it to B. Routed, that drop failed in some tries. Clear of the
+        # PACK+ pour (x < 26.2) and the +5V pad of C12.
+        {
+            "net": "VBATT",
+            "layers": ["F.Cu"],
+            "priority": 3,
+            "outline": [
+                k(x, y)
+                for x, y in [
+                    (23.9, -10.3),
+                    (28.4, -10.3),
+                    (28.4, -14.75),
+                    (29.6, -14.75),
+                    (29.6, -15.6),
+                    (28.2, -15.6),
+                    (28.2, -17.0),
+                    (26.5, -17.0),
+                    (26.5, -11.6),
+                    (23.9, -11.6),
+                ]
+            ],
+        },
+        # Shunt VBATT end on B, under the ESC+ pads, the bulk cap and the whole F buck patch: other
+        # nets' tracks (+5V, SW) cut that patch, and a keepout there boxed in U2's SW pin, so
+        # each piece instead gets its own VBATT stitching vias down to this pour.
         {
             "net": "VBATT",
             "layers": ["B.Cu"],
@@ -427,6 +499,10 @@ spec = {
                     (24.0, -6.0),
                     (33.0, -6.0),
                     (33.0, -14.6),
+                    (29.7, -14.6),
+                    (29.7, -17.0),
+                    (26.4, -17.0),
+                    (26.4, -14.6),
                     (17.4, -14.6),
                     (17.4, -9.6),
                     (12.9, -9.6),
