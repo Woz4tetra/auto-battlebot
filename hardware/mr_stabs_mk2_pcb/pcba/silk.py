@@ -26,6 +26,7 @@ for item in list(board.GetDrawings()):
     if item.GetLayer() in (pcbnew.F_SilkS, pcbnew.B_SilkS):
         board.Delete(item)
 MM = pcbnew.FromMM
+VERSION = "v1.0"  # bump on every board change sent to fab
 TEXT_H = 1.0  # JLCPCB minimum is 0.8 mm
 LINE_W = 0.15  # JLCPCB minimum silk line width
 
@@ -141,9 +142,10 @@ for value, names, caption in (
     text(caption, sum(p[0] for p in pins) / len(pins), row_y - 4.3, "B", h=0.8)
 
 
-# Legend for the roof-face pads, on the left ear's bare wedge-face strip (over the ESC).
-for i, line in enumerate(("XT60 PADS, TOP:", "A-/A+ PACK A", "B-/B+ PACK B", "SW/SW SWITCH")):
-    text(line, -36.0, -12.9 - 1.15 * i, "B", h=0.8)
+# Name, revision and signature on the left ear's bare wedge-face strip (over the ESC). The
+# roof-face pads carry their own labels, so the strip needs no pad legend.
+text("MR STABS MK2", -36.0, -13.6, "B", h=0.9, bold=True)
+text(f"{VERSION} BEN W 2026", -36.0, -15.1, "B", h=0.8)
 
 # Refdes on the B-side connectors sit on top of the labels above; JLCPCB places from the CPL.
 for fp in board.GetFootprints():
@@ -187,8 +189,7 @@ def draw_json(name, cx, cy, side="B"):
 
 draw_json("robot_silk.json", 40.9, -14.2)  # seen from below, on the bottom (right ear tip)
 draw_json("robot_top_silk.json", -40.7, -14.2, "F")  # seen from above, on the top
-draw_json("logo_silk.json", -5.8, 3.2)  # stem, between the headers' captions, clear of the washer
-text("MR STABS MK2", 4.6, 3.2, "B", h=0.9, bold=True)  # beside the logo
+draw_json("logo_silk.json", -31.67, -8.25)  # the same ear, above the name, clear of BOOT/RST
 
 # Paste in the USB-C's shell-leg slots, so reflow solders them (EasyEDA's pads had none). The
 # routed board carries the footprint as kinet2pcb built it, so set it here as well.

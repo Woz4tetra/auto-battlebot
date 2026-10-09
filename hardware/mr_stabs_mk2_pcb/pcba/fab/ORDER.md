@@ -24,6 +24,7 @@ the rating, datasheet and stock gates pass).
 
 ## Assembly options
 
+- **Gerbers:** `gerbers.zip` must hold 4 copper files (F, In1, In2, B). `fab.sh` stops if it does not.
 - **PCBA Qty: 2.** The BOM is per board; JLCPCB multiplies it by this number, which defaults to
   the PCB quantity (5).
 - Standard PCBA, **both sides**: C3, C19, C22, H1, H2, R1, R2, R3 and USB1 are on the bottom.

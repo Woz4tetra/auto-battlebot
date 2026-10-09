@@ -13,6 +13,39 @@
  "order": {
   "assembled": 2
  },
+ "schematic": {
+  "sheets": [
+   [
+    "Power",
+    [
+     "U2",
+     "U3",
+     "U1"
+    ]
+   ],
+   [
+    "MCU and USB",
+    [
+     "ESP1",
+     "USB1",
+     "U5",
+     "LED1",
+     "H1"
+    ]
+   ],
+   [
+    "IMU and radio",
+    [
+     "U4",
+     "H2"
+    ]
+   ]
+  ],
+  "pads_sheet": "Power",
+  "power_nets": [
+   "VBATT"
+  ]
+ },
  "layers": 4,
  "plane_layers": [
   "In1.Cu",
@@ -146,7 +179,8 @@
     87.3,
     85.3
    ]
-  ]
+  ],
+  "corner_radius": 1.0
  },
  "netclasses": {
   "Battery": {

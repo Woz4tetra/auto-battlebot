@@ -330,6 +330,16 @@ spec = {
     # 4 layers: F signal, In1 and In2 solid GND (the ESC return), B signal. VBATT lives only on
     # the right ear's B pour, shunt to ESC+ pads (sim/copper_ir.py).
     "order": {"assembled": 2},  # 5 PCBs, 2 assembled (intake)
+    # Schematic sheets by function (SKILL/scripts/schematic.py); passives follow their IC.
+    "schematic": {
+        "sheets": [
+            ["Power", ["U2", "U3", "U1"]],
+            ["MCU and USB", ["ESP1", "USB1", "U5", "LED1", "H1"]],
+            ["IMU and radio", ["U4", "H2"]],
+        ],
+        "pads_sheet": "Power",
+        "power_nets": ["VBATT"],
+    },
     "layers": 4,
     "plane_layers": ["In1.Cu", "In2.Cu"],
     # Worst-case net voltages for rating_check.py: 4S LiHV is 17.4 V full; SW swings to VIN;
@@ -349,7 +359,8 @@ spec = {
         "+3V3": [0, 3.6],
     },
     "differential": [["SENSE_P", "SENSE_N", 0.1], ["BUCK_BOOT", "SW", 5.6]],
-    "board": {"outline": [k(x, y) for x, y in outline_b]},
+    # Convex corners filleted (pcb.py); the notch corners stay sharp for the chassis bay.
+    "board": {"outline": [k(x, y) for x, y in outline_b], "corner_radius": 1.0},
     "netclasses": {
         # Tracks only feed pins; the zones carry the current.
         "Battery": {"track_width": 0.3, "nets": ["BAT_IN", "VBATT", "PACK+", "PACK_MID"]},
