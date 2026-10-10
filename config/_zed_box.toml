@@ -19,14 +19,19 @@ camera_resolution = "RES_1920x1200"
 camera_fps = 60
 
 [field_filter]
-# Depends on no segmentation and no assumed mat size. Swap to CalibratedFieldFilter once the cage
-# is measured.
-type = "FiducialFieldFilter"
-corner = "NEG_X_NEG_Y"
-board_offset_x = 0.2
-board_offset_y = 0.2
-field_size_x = 2.35
-field_size_y = 2.35
+type = "HomographyFieldFilter"
+# type = "FiducialFieldFilter"
+# corner = "NEG_X_NEG_Y"
+# board_offset_x = 0.02
+# board_offset_y = 0.02
+
+# aer field
+field_size_x = 1.5
+field_size_y = 1.5
+
+# NHRL field
+# field_size_x = 2.35
+# field_size_y = 2.35
 
 [keypoint_filter.height]
 # No depth to measure relief against. It abstains on its own; this says so out loud.
