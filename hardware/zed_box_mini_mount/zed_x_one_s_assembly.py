@@ -10,12 +10,15 @@ below uses a hole the adapter and ZED Box Mini leave open. Pick one with MOUNT_O
 
 | Option | Hole | Head | Camera |
 | --- | --- | --- | --- |
-| top_end (default) | top face, (88.25, 0) | upright, 15° tilt | upright, looking +X, 15° down |
+| top_end (default) | top face, (-88.25, 0) | upright, 15° tilt | upright, looking -X, 15° down |
 | underside | bottom face, (88.25, 0) | hanging, 30° into the notch | inverted, +X, 30° down |
 | long_edge | long edge, x = 90, tapped 8 mm deep | 80° into the notch | upright, +Y, 10° down |
 | short_edge | short edge, y = 13.95, 8 mm deep | 70° into the notch | upright, +X, 20° down |
 
 The underside option images upside down; set the camera's flip in the ZED SDK.
+
+top_end sits at the -X end: on the +X hole the head's body runs into the ZED Box Mini's
+GMSL jacks, which stick 9.75 mm out of that end (check_assembly catches it by sampling).
 
     MOUNT_OPTION=long_edge scripts/run check_assembly.py zed_x_one_s_assembly.py \
         --out out/assembly_long_edge
@@ -34,6 +37,7 @@ table says; `pan` also keeps the wing knob off the adapter and ZED Box Mini.
 import os
 
 import smallrig_2948_ball_head as ballhead
+import zed_cheese_plate_adapter as adapter
 import zed_x_one_s_bracket as bracket
 from build123d import Align, Cylinder, Location, Pos, Rot
 
@@ -41,7 +45,10 @@ INCH = 25.4
 PLATE_T = 10.0  # innorel_cp10.Params.thickness
 
 OPTIONS = {
-    "top_end": (Pos(88.25, 0, 0), ballhead.Params(pan=180, tilt=15, tilt_dir=180, spin=90)),
+    "top_end": (
+        Pos(-88.25, 0, 0) * Rot(0, 0, 180),
+        ballhead.Params(pan=180, tilt=15, tilt_dir=180, spin=90),
+    ),
     "underside": (
         Pos(88.25, 0, -PLATE_T) * Rot(180, 0, 0),
         ballhead.Params(pan=180, tilt=30, spin=90),
@@ -92,6 +99,8 @@ def components():
         "zed_box_mini": {
             "step": "out/step/zed_box_mini.step",
             "min_volume": 200,
+            # The STEP was exported on the 12 mm adapter; drop it onto the current one.
+            "at": Pos(0, 0, adapter.Params().thickness - 12.0),
             "color": "#3a3f47",
             "description": "Stereolabs ZED Box Mini",
         },

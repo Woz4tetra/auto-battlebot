@@ -9,14 +9,15 @@ Spec
 - ZED Box Mini: the bottom is a 1 mm sheet with two side ears (104 mm across, 60 mm long);
   each ear has 2 x Ø3.6 holes. Measured from Stereolabs' STEP ("ZED Box Mini Wifi with
   fan.step", stereolabs.com/3dmodels): holes at (±24.0, ±47.3), a 48 x 94.55 mm pattern. The
-  product page says "92 x 45 mm", which does not match the CAD. Body 86 x 143 mm.
-- ZED to adapter: 4 x M3 heat-set inserts, McMaster 94180A333 (M3 x 0.5 tapered brass,
-  6.4 mm long, Ø4.7 hole per McMaster dim "A"). Screws: 4 x McMaster 91292A112 (M3 x 8 mm
-  18-8 SHCS) down through the ears: 1 mm ear + 7 mm into the 6.4 mm insert. The insert
-  holes go through the part, pressed in from the top.
-- Adapter to cheese plate: 4 x 1/4-20, McMaster 92196A537 (1/2" 18-8 SHCS), dropped through
-  counterbored clearance holes into the plate's threads. Install them before the ZED: the
-  ZED body covers the heads.
+  product page says "92 x 45 mm", which does not match the CAD. Body 143 x 86 mm.
+- ZED to adapter: 4 x M3 x 6 mm heat-set inserts, Ø5 knurl, from the shop's stock ("M3x6x5").
+  They sit in Ø4.2 through holes, flush with the top. Screws: M3 x 4 to M3 x 6 down through
+  the ears. An M3 x 6 ends 1.7 mm above the bottom face; an M3 x 8 would stick out 0.3 mm
+  and jack the adapter off the cheese plate.
+- Adapter to cheese plate: 4 x 1/4-20 x 1/2" flanged button head (80/20 3342, the screw in
+  McMaster 47065T142 without its T-nut), in counterbores under the ZED body. Install them before the ZED: the ZED's bottom sheet covers the heads.
+  The 2.7 mm floor under the head puts the screw tip flush with the cheese plate's bottom
+  face, so all 10 mm of the plate's thread is engaged.
 - Cheese plate hole positions come from INNOREL's dimensioned Amazon image
   (m.media-amazon.com/images/I/71V4ad30vkL), scaled to the 200 x 100 outline at 6.13 px/mm.
   X = ±49.5 matches the drawing's own slot dimensions (74.3 / 2 + 24.7 / 2); Y = ±30.85 is
@@ -25,11 +26,15 @@ Spec
 Open questions
 - Measure the cheese plate's 1/4-20 Y spacing (61.7 mm here) before printing. The clearance
   holes are Ø7.0 so ±0.3 mm of image error still fits, and `plate_hole_y` is a Param.
-- McMaster's insert hole (4.7 mm) and 6.4 mm length are from secondary listings; check the
-  94180A333 drawing on mcmaster.com and update `insert_hole` and `insert_len` if they differ.
-- 1/4-20 thread engagement in the plate is 7.5 mm (5.9 threads, 1.18 D), under the 1.5 D
-  rule for full screw strength in aluminum. The PLA under the head yields long before that.
+- The flange size is unverified: 80/20's drawing would not load. The counterbore assumes
+  a flange up to Ø0.60" (15.2 mm) and a head up to 0.15" (3.8 mm). Measure one; if it is
+  bigger, raise `cbore_d` / `cbore_depth` and `thickness` together to keep the 2.7 mm floor.
+- Insert hole Ø4.2 is a guess for a generic Ø5 knurl insert. Print a test hole if there is
+  time; go to 4.0 if the insert drops in loose.
+- 1/4-20 engagement is the plate's full 10 mm (1.57 D), over the 1.5 D rule for aluminum.
+  The 2.7 mm of PLA under each flange is the weak link.
 """
+
 
 from dataclasses import dataclass
 
@@ -47,34 +52,34 @@ ZED_BODY_L, ZED_BODY_W, ZED_BODY_H = 143.0, 86.0, 41.5  # ZED Box Mini STEP, mai
 ZED_SHEET_T = 1.0  # bottom sheet and ears, STEP
 ZED_EAR_L, ZED_EAR_W = 60.0, 103.8  # ear span along X, total width across ears, STEP
 ZED_EAR_HOLE = 3.6  # STEP
-SHCS_14_HEAD_D, SHCS_14_HEAD_H = 0.375 * INCH, 0.25 * INCH  # 92196A537, fasteners.md
-SHCS_14_LEN = 0.5 * INCH  # 92196A537
-SHCS_M3_HEAD_D, SHCS_M3_HEAD_H, SHCS_M3_LEN = 5.5, 3.0, 8.0  # 91292A112
+FBHCS_14_HEAD_D, FBHCS_14_HEAD_H = 0.560 * INCH, 0.132 * INCH  # 80/20 3342, unverified
+FBHCS_14_LEN = 0.5 * INCH  # 80/20 3342
+SHCS_M3_HEAD_D, SHCS_M3_HEAD_H, SHCS_M3_LEN = 5.5, 3.0, 6.0  # fasteners.md; longest that fits
 
 
 @dataclass
 class Params:
     length: float = 143.0  # X: matches the ZED body length (STEP)
     width: float = 103.8  # Y: matches the ZED ears (STEP); overhangs the 100 mm plate 1.9/side
-    thickness: float = 12.0  # Z: confirmed with the user
+    thickness: float = 6.7  # Z: counterbore + 2.7 floor; the screw tip lands flush under the plate
     corner_r: float = 5.0  # vertical corners
     bed_chamfer: float = 0.5  # elephant's foot relief, dfm/fdm.md
 
     # ZED Box Mini ear holes, STEP
     zed_hole_x: float = 24.0  # ±, along the ZED's long axis (48 mm pitch)
     zed_hole_y: float = 47.3  # ±, across (94.55 mm pitch in the STEP, rounded)
-    # McMaster 94180A333 M3 heat-set insert
-    insert_hole: float = 4.7  # McMaster dim "A"
-    insert_len: float = 6.4  # McMaster installed length
-    insert_od: float = 5.2  # knurl OD: not published where I could read it, so measure one
+    # Shop-stock M3 x 6 x Ø5 heat-set insert
+    insert_hole: float = 4.2  # generic Ø5 knurl; print a test hole
+    insert_len: float = 6.0
+    insert_od: float = 5.0
 
     # INNOREL CP10 1/4-20 holes used, from the plate drawing
     plate_hole_x: float = 49.5  # ±, drawing: 74.3 / 2 + 24.7 / 2
     plate_hole_y: float = 30.85  # ±, scaled from the drawing image; measure
-    # 1/4-20 SHCS, McMaster 92196A537
+    # 1/4-20 x 1/2 flanged button head, 80/20 3342
     bolt_clear: float = 7.0  # 6.75 free clearance (fasteners.md) + 0.25 FDM undersize
-    cbore_d: float = 10.5  # 9.53 head + 0.5 free clearance + FDM undersize
-    cbore_depth: float = 6.8  # 6.35 head + 0.45 so the head sits below the ZED sheet
+    cbore_d: float = 16.0  # flange up to 15.2 (unverified) + 0.8 clearance and FDM undersize
+    cbore_depth: float = 4.0  # head up to 3.8 (unverified) + 0.2 below the ZED sheet
 
 
 def build(p: Params) -> Part:
@@ -156,35 +161,34 @@ def mates(p: Params) -> dict:
                 )
             )
             inserts = ins if inserts is None else inserts + ins
-            # 1/4-20 x 1/2 SHCS: head seated on the counterbore floor.
-            seat = top - p.cbore_depth
-            b = Pos(sx * p.plate_hole_x, sy * p.plate_hole_y, seat) * (
-                Cylinder(SHCS_14_HEAD_D / 2, SHCS_14_HEAD_H, align=C_MIN)
+            # 1/4-20 x 1/2 flanged button head seated on the counterbore floor.
+            b = Pos(sx * p.plate_hole_x, sy * p.plate_hole_y, top - p.cbore_depth) * (
+                Cylinder(FBHCS_14_HEAD_D / 2, FBHCS_14_HEAD_H, align=C_MIN)
                 + Cylinder(
-                    0.25 * INCH / 2, SHCS_14_LEN, align=(Align.CENTER, Align.CENTER, Align.MAX)
+                    0.25 * INCH / 2, FBHCS_14_LEN, align=(Align.CENTER, Align.CENTER, Align.MAX)
                 )
             )
             bolts = b if bolts is None else bolts + b
     return {
         "cheese_plate": plate,
         "zed_box_mini": zed,
-        "m3_shcs_91292A112": m3,
-        "m3_insert_94180A333": inserts,
-        "shcs_1_4_20_92196A537": bolts,
+        "m3_shcs": m3,
+        "m3_insert": inserts,
+        "fbhcs_1_4_20": bolts,
     }
 
 
 def expect(p: Params) -> dict:
     return {
-        "bbox": (143.0, 103.8, 12.0),
+        "bbox": (143.0, 103.8, 6.7),
         "holes": {p.insert_hole: 4, p.bolt_clear: 4, p.cbore_d: 4},
         "hole_at": {
-            4.7: [{"x": sx * 24.0, "y": sy * 47.3} for sx in (-1, 1) for sy in (-1, 1)],
+            4.2: [{"x": sx * 24.0, "y": sy * 47.3} for sx in (-1, 1) for sy in (-1, 1)],
             7.0: [{"x": sx * 49.5, "y": sy * 30.85} for sx in (-1, 1) for sy in (-1, 1)],
         },
-        "allow_interference": ["m3_insert_94180A333"],
-        "flush": {"shcs_1_4_20_92196A537": "+z"},
-        "gap": {"shcs_1_4_20_92196A537": 0.2},
+        "allow_interference": ["m3_insert"],
+        "flush": {"fbhcs_1_4_20": "+z"},
+        "gap": {"fbhcs_1_4_20": 0.2},
     }
 
 
