@@ -173,8 +173,9 @@ struct FiducialFieldFilterConfiguration : public FieldFilterConfiguration {
     int first_marker_id = 160;
 
     // Where the board sits. `corner` names which field corner it marks; the offsets are the board
-    // origin measured from that corner, in the field frame, because the board cannot physically
-    // sit in the corner itself.
+    // origin measured from that corner, because the board cannot physically sit in the corner
+    // itself. Both are along the printed board's x and y axes, not the published field frame,
+    // which is turned afterwards so +x runs left to right in the camera view.
     FieldCorner corner = FieldCorner::NEG_X_NEG_Y;
     double board_offset_x = 0.0;
     double board_offset_y = 0.0;

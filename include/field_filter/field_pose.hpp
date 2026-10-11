@@ -61,7 +61,18 @@ FieldPoseResult pose_from_three_lines(const std::array<cv::Vec3d, 4> &lines,
                                       double size_x, double size_y,
                                       const Eigen::Matrix3d &intrinsics);
 
-/** Whichever of the two solves the outline supports. */
+/**
+ * @brief Turn the field frame about its own z so +x runs left to right in the camera view.
+ *
+ * A mat outline fits equally well at every quarter turn of a square, or every half turn of a
+ * rectangle, so the corner order alone leaves +x wherever the image winding put it. This picks
+ * the candidate closest to the camera's x axis tipped onto the field plane, the same choice
+ * PointCloudFieldFilter makes. Translation is unchanged: every candidate shares the centre.
+ */
+Eigen::Matrix4d align_field_x_with_camera_x(const Eigen::Matrix4d &tf_camera_from_fieldcenter,
+                                            double size_x, double size_y);
+
+/** Whichever of the two solves the outline supports, with +x aligned to the camera's x. */
 FieldPoseResult pose_from_outline(const FieldOutline &outline, double size_x, double size_y,
                                   const Eigen::Matrix3d &intrinsics);
 

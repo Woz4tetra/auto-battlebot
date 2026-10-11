@@ -11,7 +11,6 @@ max_motor_rpm = 1500                           # RPM
 max_motor_rpm_per_sec = 2000                   # RPM/s; caps linear accel at 8.5 m/s^2, 3247 RPM/s (slip/flip limit). 0 = off
 lifted_deadzone_percent = 0
 zero_deadzone_percent = 2
-reverse_angular_channel = false
 velocity_saturation_limit = 1.0                # 0 = disabled; e.g. 1.0 = |linear| + |angular| <= 1
 
 [plant]

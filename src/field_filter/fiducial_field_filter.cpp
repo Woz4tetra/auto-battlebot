@@ -112,8 +112,8 @@ Eigen::Matrix4d FiducialFieldFilter::tf_fieldcenter_from_board() const {
             : 1.0;
 
     Eigen::Matrix4d transform = Eigen::Matrix4d::Identity();
-    // Field z points away from the camera, into the floor, which is the convention the mask
-    // outline fit produces. A board lying flat therefore shares the field's axes outright, and
+    // This is the board layout frame: the printed board's x and y, with z into the floor. A board
+    // lying flat therefore shares its axes outright, and
     // pitch is negated so that +90 stands the board up with its printed y axis pointing away
     // from the floor rather than into it.
     transform.block<3, 3>(0, 0) = rotation_z(config_.board_yaw_deg * CV_PI / 180.0) *
@@ -237,8 +237,16 @@ std::shared_ptr<FieldDescriptionWithInlierPoints> FiducialFieldFilter::compute_f
     description->header.stamp = camera_data.rgb.header.stamp;
     description->header.frame_id = FrameId::CAMERA_WORLD;
     description->child_frame_id = FrameId::FIELD;
-    description->tf_camera_from_fieldcenter.tf =
+    // The layout frame is mirrored seen from above. A half turn about x points z out of the floor,
+    // and the quarter-turn alignment then runs +x left to right in the camera view, the frame
+    // every other field filter publishes.
+    const Eigen::Matrix4d tf_camera_from_layout =
         tf_camera_from_board * tf_fieldcenter_from_board().inverse();
+    Eigen::Matrix4d tf_layout_from_fieldcenter = Eigen::Matrix4d::Identity();
+    tf_layout_from_fieldcenter.block<3, 3>(0, 0) = rotation_x(CV_PI);
+    description->tf_camera_from_fieldcenter.tf =
+        align_field_x_with_camera_x(tf_camera_from_layout * tf_layout_from_fieldcenter,
+                                    config_.field_size_x, config_.field_size_y);
     description->size.header = camera_data.rgb.header;
     description->size.size = Size{config_.field_size_x, config_.field_size_y, 0.0};
     spdlog::info("FiducialFieldFilter: field locked from {} frames, {:.2f} px reprojection error",

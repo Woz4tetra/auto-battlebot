@@ -45,8 +45,10 @@ class FiducialFieldFilter : public CameraWorldFieldFilter {
     std::shared_ptr<FieldDescriptionWithInlierPoints> compute_field(
         const CameraData &camera_data, const MaskStamped &field_mask) override;
 
-    /** Board origin (the grid's minimum-x, minimum-y printed corner) expressed in the field
-     *  centre frame, composed from the configured corner, offsets and orientation. */
+    /** Board origin (the grid's minimum-x, minimum-y printed corner) in the board layout frame,
+     *  composed from the configured corner, offsets and orientation. The layout frame is centred
+     *  on the field with the printed board's x and y and z into the floor; compute_field turns it
+     *  into the published field frame. */
     Eigen::Matrix4d tf_fieldcenter_from_board() const;
 
    protected:

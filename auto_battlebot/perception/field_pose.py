@@ -493,6 +493,41 @@ def pose_from_corners(
     return tf, reprojection_px
 
 
+def align_field_x_with_camera_x(
+    tf_camera_from_field: np.ndarray, field_size_xy: tuple[float, float]
+) -> np.ndarray:
+    """Port of align_field_x_with_camera_x: turn the field about its z so +x runs left to right.
+
+    The outline fits equally well at every quarter turn of a square mat, or every half turn of
+    a rectangle. Of those, keep the one whose +x is closest to the camera's x axis tipped onto
+    the field plane by `transform_from_plane`, the choice the depth path makes.
+    """
+    rotation = tf_camera_from_field[:3, :3]
+    normal = rotation[:, 2] if rotation[2, 2] >= 0.0 else -rotation[:, 2]
+    plane_x = transform_from_plane(np.zeros(3), normal)[:3, 0]
+    # A quarter turn swaps which edge carries the x size, so only a square can take one.
+    step = 1 if abs(field_size_xy[0] - field_size_xy[1]) < 1e-9 else 2
+    best = rotation
+    best_dot = -math.inf
+    for quarter in range(0, 4, step):
+        angle = quarter * math.pi / 2.0
+        turn = np.array(
+            [
+                [math.cos(angle), -math.sin(angle), 0.0],
+                [math.sin(angle), math.cos(angle), 0.0],
+                [0.0, 0.0, 1.0],
+            ]
+        )
+        candidate = rotation @ turn
+        dot = float(candidate[:, 0] @ plane_x)
+        if dot > best_dot:
+            best_dot = dot
+            best = candidate
+    aligned = np.array(tf_camera_from_field, dtype=float)
+    aligned[:3, :3] = best
+    return aligned
+
+
 def project_field_corners(
     tf_camera_from_field: np.ndarray,
     field_size_xy: tuple[float, float],
@@ -544,6 +579,7 @@ def homography_field(
     if solved is None:
         return FieldResult("homography", None, None, notes="findHomography failed")
     tf, reprojection_px = solved
+    tf = align_field_x_with_camera_x(tf, field_size_xy)
     width, height = field_size_xy
 
     notes = ["size assumed, not measured"]

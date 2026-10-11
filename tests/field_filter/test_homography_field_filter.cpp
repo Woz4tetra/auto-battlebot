@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include <cmath>
+
 #include "field_filter/config.hpp"
 #include "field_filter/field_outline.hpp"
 #include "field_filter/field_pose.hpp"
@@ -32,6 +34,18 @@ MaskStamped make_mask(const cv::Mat &mask) {
     stamped.mask.label = Label::FIELD;
     stamped.mask.mask = mask;
     return stamped;
+}
+
+/**
+ * A synthetic truth pose in the outline fit's convention, turned about field z by `quarters`.
+ *
+ * `camera_pose` points field z into the floor; the fit points it at the camera. A half turn about
+ * field x converts one to the other.
+ */
+Eigen::Matrix3d fit_frame(const Eigen::Matrix4d &tf_camera_from_fieldcenter, int quarters) {
+    return tf_camera_from_fieldcenter.block<3, 3>(0, 0) *
+           Eigen::Vector3d(1.0, -1.0, -1.0).asDiagonal() *
+           Eigen::AngleAxisd(quarters * M_PI / 2.0, Eigen::Vector3d::UnitZ()).matrix();
 }
 
 /** Camera range implied by a recovered pose: the field centre's distance from the camera. */
@@ -184,5 +198,40 @@ TEST_F(HomographyFieldFilterTest, ThreeEdgesAgreeWithFourCornersOnTheSameOutline
                                            four.tf_camera_from_fieldcenter.block<3, 1>(0, 3);
         EXPECT_LT(difference.norm(), 0.010) << "dropping side " << dropped;
     }
+}
+TEST_F(HomographyFieldFilterTest, FieldXRunsLeftToRightAtEveryYaw) {
+    // A square outline fits at every quarter turn, so the corner order alone does not fix yaw.
+    // In the fit's frame the synthetic camera's x axis sits at -yaw from field +x, so the expected
+    // answer is the truth turned by the nearest quarter, whatever the image winding was.
+    for (const double yaw : {12.0, -20.0, 100.0, 170.0, -110.0, -160.0}) {
+        const Eigen::Matrix4d truth = testing_support::camera_pose(3.5, 30.0, yaw);
+        const cv::Mat mask = testing_support::render_field_mask(
+            truth, testing_support::test_intrinsics(), kImageSize, kFieldSize, kFieldSize);
+
+        HomographyFieldFilter filter(make_config());
+        const auto description = filter.compute_field(make_camera_data(), make_mask(mask));
+        ASSERT_EQ(description->header.frame_id, FrameId::CAMERA_WORLD) << "yaw " << yaw;
+
+        const Eigen::Matrix3d recovered =
+            description->tf_camera_from_fieldcenter.tf.block<3, 3>(0, 0);
+        const int quarters = static_cast<int>(std::lround(-yaw / 90.0));
+        EXPECT_LT((recovered - fit_frame(truth, quarters)).norm(), 0.02) << "yaw " << yaw;
+        EXPECT_GT(recovered(0, 0), 0.0) << "field +x points right to left at yaw " << yaw;
+    }
+}
+
+TEST_F(HomographyFieldFilterTest, ThreeEdgeFitKeepsFieldXLeftToRight) {
+    const Eigen::Matrix4d truth = testing_support::camera_pose(1.6, 55.0, 0.0);
+    const FieldOutline outline = extract_field_outline(
+        find_largest_contour_mask(testing_support::render_field_mask(
+            truth, testing_support::test_intrinsics(), kImageSize, kFieldSize, kFieldSize)),
+        FieldOutlineParams{});
+    ASSERT_EQ(outline.supported_sides, 3);
+
+    const FieldPoseResult pose =
+        pose_from_outline(outline, kFieldSize, kFieldSize, testing_support::test_intrinsics());
+    ASSERT_TRUE(pose.ok) << pose.failure;
+    EXPECT_LT((pose.tf_camera_from_fieldcenter.block<3, 3>(0, 0) - fit_frame(truth, 0)).norm(),
+              0.03);
 }
 }  // namespace auto_battlebot

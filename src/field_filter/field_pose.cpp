@@ -290,6 +290,37 @@ FieldPoseResult pose_from_three_lines(const std::array<cv::Vec3d, 4> &lines,
     return result;
 }
 
+Eigen::Matrix4d align_field_x_with_camera_x(const Eigen::Matrix4d &tf_camera_from_fieldcenter,
+                                            double size_x, double size_y) {
+    const Eigen::Matrix3d rotation = tf_camera_from_fieldcenter.block<3, 3>(0, 0);
+    Eigen::Vector3d normal = rotation.col(2);
+    if (normal.z() < 0.0) {
+        normal = -normal;
+    }
+    // The camera's axes tipped onto the field plane by the smallest rotation, as
+    // PointCloudFieldFilter::transform_from_plane builds them.
+    const Eigen::Vector3d plane_x =
+        Eigen::Quaterniond::FromTwoVectors(Eigen::Vector3d(0.0, 0.0, -1.0), normal) *
+        Eigen::Vector3d::UnitX();
+
+    // A quarter turn swaps which edge carries size_x, so only a square mat can take one.
+    const int step = std::abs(size_x - size_y) < 1e-9 ? 1 : 2;
+    Eigen::Matrix3d best = rotation;
+    double best_dot = -std::numeric_limits<double>::max();
+    for (int quarter = 0; quarter < 4; quarter += step) {
+        const Eigen::Matrix3d candidate =
+            rotation * Eigen::AngleAxisd(quarter * M_PI / 2.0, Eigen::Vector3d::UnitZ()).matrix();
+        const double dot = candidate.col(0).dot(plane_x);
+        if (dot > best_dot) {
+            best_dot = dot;
+            best = candidate;
+        }
+    }
+    Eigen::Matrix4d aligned = tf_camera_from_fieldcenter;
+    aligned.block<3, 3>(0, 0) = best;
+    return aligned;
+}
+
 FieldPoseResult pose_from_outline(const FieldOutline &outline, double size_x, double size_y,
                                   const Eigen::Matrix3d &intrinsics) {
     if (!outline.ok) {
@@ -297,10 +328,15 @@ FieldPoseResult pose_from_outline(const FieldOutline &outline, double size_x, do
         result.failure = outline.failure;
         return result;
     }
-    if (outline.supported_sides == 4) {
-        return pose_from_corners(outline.corners, size_x, size_y, intrinsics);
+    FieldPoseResult result =
+        outline.supported_sides == 4
+            ? pose_from_corners(outline.corners, size_x, size_y, intrinsics)
+            : pose_from_three_lines(outline.lines, outline.side_supported, outline.corners, size_x,
+                                    size_y, intrinsics);
+    if (result.ok) {
+        result.tf_camera_from_fieldcenter =
+            align_field_x_with_camera_x(result.tf_camera_from_fieldcenter, size_x, size_y);
     }
-    return pose_from_three_lines(outline.lines, outline.side_supported, outline.corners, size_x,
-                                 size_y, intrinsics);
+    return result;
 }
 }  // namespace auto_battlebot

@@ -14,6 +14,11 @@ CalibratedFieldFilter::CalibratedFieldFilter(const CalibratedFieldFilterConfigur
     : config_(config),
       calibration_(load_cage_calibration(config.calibration_file)),
       diagnostics_logger_(DiagnosticsLogger::get_logger("calibrated_field_filter")) {
+    // The fit tools save whichever yaw the corner order gave. Turn it to the convention the live
+    // outline fit uses, so the seating check compares corners in the same order.
+    calibration_.tf_camera_from_fieldcenter =
+        align_field_x_with_camera_x(calibration_.tf_camera_from_fieldcenter,
+                                    calibration_.field_size_x, calibration_.field_size_y);
     spdlog::info("Loaded cage calibration '{}' ({:.3f} x {:.3f} m) from {}",
                  calibration_.calibration_id, calibration_.field_size_x, calibration_.field_size_y,
                  config.calibration_file);

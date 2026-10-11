@@ -155,6 +155,14 @@ TEST(FiducialFieldFilterTest, RecoversTheFieldPoseFromARenderedBoard) {
     // out under 1 px against the 3 px guard.
     EXPECT_LT((recovered - expected).norm(), 0.04)
         << "recovered " << recovered.transpose() << " against " << expected.transpose();
+
+    // The board shares camera_pose's z-into-floor frame; the filter publishes z up with +x along
+    // the camera's x, which at yaw 0 is a half turn about x and no quarter turn.
+    const Eigen::Matrix3d rotation = description->tf_camera_from_fieldcenter.tf.block<3, 3>(0, 0);
+    const Eigen::Matrix3d expected_rotation =
+        truth.block<3, 3>(0, 0) * Eigen::Vector3d(1.0, -1.0, -1.0).asDiagonal();
+    EXPECT_LT((rotation - expected_rotation).norm(), 0.03);
+    EXPECT_LT(rotation(2, 2), 0.0) << "field z should point back toward the camera";
 }
 
 TEST(FiducialFieldFilterTest, RejectsAFrameWithNoBoard) {

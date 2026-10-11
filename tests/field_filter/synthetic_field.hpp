@@ -32,8 +32,9 @@ inline cv::Mat test_intrinsics_cv() {
 /**
  * @brief Camera looking at the field centre from `range` metres at `tilt_deg` off vertical.
  *
- * Field z points away from the camera, into the floor, which is the convention the outline fit
- * produces, so "up" in the field frame is -z. tilt 0 is straight overhead and 90 would be level
+ * Field z points away from the camera, into the floor, so "up" in the field frame is -z. The
+ * outline fit points z at the camera instead, so compare rotations only after a half turn about
+ * field x. tilt 0 is straight overhead and 90 would be level
  * with the mat.
  */
 inline Eigen::Matrix4d camera_pose(double range, double tilt_deg, double yaw_deg) {
