@@ -17,6 +17,9 @@ type = "ZedOneRgbCamera"
 # Full sensor. RES_960x600 bins it for up to 120 fps if the loop can use the rate.
 camera_resolution = "RES_1920x1200"
 camera_fps = 60
+# The ZED SDK's own SVO H.264 rate at this mode (31 Mbps measured on the box), until a live vs
+# replay tag comparison shows the 15 Mbps default loses nothing. About 13.5 GB per hour.
+video_bitrate_kbps = 30000
 
 [field_filter]
 type = "HomographyFieldFilter"
