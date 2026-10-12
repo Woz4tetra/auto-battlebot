@@ -162,6 +162,54 @@ else
     echo "No local data/models/ directory found, skipping models sync."
 fi
 
+# ── Profile selection check ──────────────────────────────────────────────────
+# The UI persists the selected profile outside the repo (config/profiles.toml,
+# selection_file). If this deploy renamed or removed that profile, the app would
+# silently fall back to config/default_profile, so ask for a replacement now.
+# Available profiles mirror list_available_profiles(): every config/**/*.toml id
+# that fully matches the profiles.toml pattern.
+toml_string() {
+    sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*\"\(.*\)\".*/\1/p" \
+        "$PROJECT_ROOT/config/profiles.toml" | head -n 1
+}
+PROFILE_PATTERN="$(toml_string pattern)"
+SELECTION_FILE="$(toml_string selection_file)"
+SELECTION_FILE="${SELECTION_FILE:-\$HOME/.local/state/auto_battlebot/selected_profile}"
+# Leave $HOME literal so the remote shell expands it to the Jetson user's home.
+SELECTION_FILE="${SELECTION_FILE/#\~/\$HOME}"
+if [ -n "$PROFILE_PATTERN" ]; then
+    mapfile -t AVAILABLE_PROFILES < <(
+        cd "$PROJECT_ROOT/config" && find . -type f -name '*.toml' \
+            | sed -e 's|^\./||' -e 's|\.toml$||' | grep -xE "$PROFILE_PATTERN" | sort -u
+    )
+    SELECTED_PROFILE="$(ssh "${SSH_OPTS[@]}" "$SSH_TARGET" \
+        "head -n 1 \"${SELECTION_FILE}\" 2>/dev/null" | tr -d '[:space:]')"
+    if [ -n "$SELECTED_PROFILE" ] \
+        && ! printf '%s\n' "${AVAILABLE_PROFILES[@]}" | grep -qxF "$SELECTED_PROFILE"; then
+        DEFAULT_PROFILE="$(head -n 1 "$PROJECT_ROOT/config/default_profile" 2>/dev/null)"
+        echo "Selected profile '${SELECTED_PROFILE}' on ${JETSON_HOST} no longer exists."
+        if [ ! -t 0 ]; then
+            echo "Not a terminal: leaving it. The app will fall back to '${DEFAULT_PROFILE}'."
+        elif [ "${#AVAILABLE_PROFILES[@]}" -eq 0 ]; then
+            echo "No profiles match '${PROFILE_PATTERN}'. The app will fall back to '${DEFAULT_PROFILE}'."
+        else
+            echo "Choose a new profile (default_profile is '${DEFAULT_PROFILE}'):"
+            PS3="Profile number: "
+            select NEW_PROFILE in "${AVAILABLE_PROFILES[@]}"; do
+                [ -n "$NEW_PROFILE" ] && break
+                echo "Pick a number from 1 to ${#AVAILABLE_PROFILES[@]}."
+            done
+            if [ -n "${NEW_PROFILE:-}" ]; then
+                ssh "${SSH_OPTS[@]}" "$SSH_TARGET" \
+                    "mkdir -p \"${SELECTION_FILE%/*}\" && printf '%s\n' '${NEW_PROFILE}' > \"${SELECTION_FILE}\""
+                echo "Selected profile set to '${NEW_PROFILE}'."
+            else
+                echo "No profile chosen. The app will fall back to '${DEFAULT_PROFILE}'."
+            fi
+        fi
+    fi
+fi
+
 # ── Remote build/install ──────────────────────────────────────────────────────
 # Run the Jetson-side build/install script only after sync steps complete.
 if [ "$SYNC_ONLY" -eq 1 ]; then
