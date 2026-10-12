@@ -1,0 +1,78 @@
+# Replays a Mr Stabs Mk2 ZED Box MCAP (video in the file) through the sysid AprilTag keypoint model,
+# for drives recorded on a match profile that never ran it. The output MCAP carries
+# /apriltag/robot_tags with the original image_stamp_ns, so its tags join the source recording's
+# stick channels. playground/calibration/replay_sysid_tags.py drives it one recording at a time.
+#
+# The [keypoint_model] tables restate mr_stabs_mk2_sysid_zed_box.toml: that profile's chain ends in
+# _zed_box's aarch64 engines, so it cannot be extended on a desktop. Change both together.
+extends = "playback/_video_playback"
+
+[rgbd_camera]
+# Tags do not depend on control timing, so decode as fast as the machine allows.
+real_time_mode = false
+
+[field_filter]
+# mr_stabs_mk2_aer_zed_box's field, which the 2026-10-10 drives ran.
+type = "HomographyFieldFilter"
+field_size_x = 1.5
+field_size_y = 1.5
+
+[robot_filter.label_mapping]
+"MRS_BUFF_MK3" = ["THEIR_ROBOT_1"]
+"MR_STABS_MK2" = ["OUR_ROBOT_1"]
+
+[keypoint_model]
+type = "AprilTagKeypointModel"
+tag_size_m = 0.064
+robot_tag_ids = [41, 76]
+roi_margin_px = 80
+max_reprojection_error_px = 2.0
+front_keypoint_m = [0.05, 0.0, 0.0]
+back_keypoint_m = [-0.05, 0.0, 0.0]
+axle_height_m = 0.025
+rest_pitch_rad = 0.198025
+
+[[keypoint_model.tags]]
+id = 41
+translation_m = [0.035391, 1.9e-05, -0.012076]
+rotation = [
+  0.0,
+  -0.983904,
+  0.178696,
+  -1.0,
+  -3e-06,
+  -1.6e-05,
+  1.6e-05,
+  -0.178696,
+  -0.983904,
+]
+
+[[keypoint_model.tags]]
+id = 76
+translation_m = [0.035553, -1.1e-05, 0.014164]
+rotation = [
+  0.0,
+  -0.986029,
+  0.166572,
+  1.0,
+  -2e-06,
+  -1.1e-05,
+  1.1e-05,
+  0.166572,
+  0.986029,
+]
+
+[navigation]
+type = "NoopNavigation"
+
+[runner]
+autonomy_enabled_by_default = false
+
+[mcap]
+# _video_playback turns recording off; here the recording is the output. No holding-dir pruning,
+# since the replays land in data/recordings next to the originals until the driver moves them.
+enable = true
+holding_dir_max_size_gb = 0
+
+[ui]
+enable = false

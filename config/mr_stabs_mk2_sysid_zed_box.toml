@@ -1,7 +1,7 @@
 # System identification sessions for Mr Stabs Mk2 (docs/plans/mujoco_warp_mr_stabs_plan.md). The
 # driver drives by hand in the 1.52 m test box under a tripod-mounted ZED X One S; the app records
 # the robot's AprilTag poses and the firmware's diagnostics stream into the MCAP.
-extends = "mr_stabs_mk2_zed_box"
+extends = "mr_stabs_mk2_aer_zed_box"
 
 # The type differs from the base, so the merge replaces this section outright: every radio field
 # from _common and mr_stabs_mk2_zed_box is restated here.
