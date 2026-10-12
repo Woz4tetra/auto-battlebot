@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include <foxglove/schemas.hpp>
+#include <stdexcept>
 #include <utility>
 
 #include "rgbd_camera/camera_calibration.hpp"
@@ -109,7 +110,7 @@ bool ZedOneRgbCamera::start_encoder() {
     encoder_options.height = height_;
     encoder_options.fps = config_.camera_fps;
     encoder_options.bitrate = config_.video_bitrate_kbps * 1000;
-    encoder_options.input_is_uyvy = false;
+    encoder_options.input_format = VideoInputFormat::BGRA;
     if (!encoder_.start(encoder_options, [this](const std::byte *data, size_t len,
                                                 uint64_t log_time_ns, bool /*keyframe*/) {
             foxglove::schemas::CompressedVideo message;
@@ -118,7 +119,6 @@ bool ZedOneRgbCamera::start_encoder() {
             message.data.assign(data, data + len);
             video_channel_->log_message(message, log_time_ns);
         })) {
-        spdlog::error("[ZedOneRgbCamera] Video recording requested but no encoder started");
         video_channel_.reset();
         return false;
     }
@@ -140,8 +140,13 @@ bool ZedOneRgbCamera::initialize() {
         mcap_recorder_->write_metadata(kCameraCalibrationMetadataKey,
                                        camera_calibration_to_toml(calibration_));
     }
-    if (mcap_recorder_ && recording_desired_.load()) {
-        start_encoder();
+    // Fatal: a session recorded without its video cannot be replayed, and nobody finds out until
+    // the morning after. Turning recording off in the config is the explicit way past it.
+    if (mcap_recorder_ && recording_desired_.load() && !start_encoder()) {
+        throw std::runtime_error(
+            "[ZedOneRgbCamera] video_recording is on but no H.264 encoder opened (tried " +
+            VideoEncoder::candidate_names() +
+            "). Fix the encoder or set [rgbd_camera] video_recording = false.");
     }
 
     is_initialized_.store(true);
@@ -185,10 +190,11 @@ bool ZedOneRgbCamera::capture_frame() {
     cv::cvtColor(bgra, bgr, cv::COLOR_BGRA2BGR);
 
     // Read once: set_recording_enabled() can start or stop the encoder from another thread, and
-    // the frame index has to count exactly the frames that were submitted.
+    // the frame index has to count exactly the frames that were submitted. BGRA, not the BGR
+    // copy: the Jetson's nvvidconv takes 4-channel input directly.
     const bool encoding = encoder_.running();
     if (encoding) {
-        encoder_.submit(bgr, wall_time_ns());
+        encoder_.submit(bgra, wall_time_ns());
     }
 
     {
@@ -264,8 +270,13 @@ bool ZedOneRgbCamera::set_recording_enabled(bool enabled) {
     if (encoder_.running()) {
         return true;
     }
-    // A recording started from the remote UI after launch lands here, not in initialize().
-    return mcap_recorder_ && start_encoder();
+    // A recording started from the remote UI after launch lands here, not in initialize(). Not
+    // fatal here: the UI reports the failed toggle, and killing a running match over it is worse.
+    if (!mcap_recorder_ || !start_encoder()) {
+        spdlog::error("[ZedOneRgbCamera] Recording toggled on but no H.264 encoder opened");
+        return false;
+    }
+    return true;
 }
 
 bool ZedOneRgbCamera::is_recording_enabled() const { return encoder_.running(); }

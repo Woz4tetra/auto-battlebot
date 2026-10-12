@@ -110,6 +110,12 @@ rectified frames, and its `camera_calibration` holds the rectified intrinsics wi
 distortion. `log_time` is the capture instant the encoder carried through from the V4L2 buffer, not the
 moment the packet was written.
 
+The encoder is FFmpeg's `h264_nvenc` on the desktop and GStreamer's `nvv4l2h264enc` on the
+Jetsons (`src/rgbd_camera/video_encoder.cpp` lists the order). Stock L4T FFmpeg registers
+`h264_nvenc` but cannot open it without `libnvidia-encode`, which no Jetson has; every ZED Box
+recording before the GStreamer backend has no `/camera/video` for that reason. With
+`video_recording = true` and no encoder that opens, the app now exits at startup instead.
+
 Seek to the last IDR at or before the target and decode forward, discarding until you reach it.
 Seeking into the middle of a GOP returns smeared frames; this is the same failure
 `sl::Camera::setSVOPosition` has, and it applies to any inter-coded stream.

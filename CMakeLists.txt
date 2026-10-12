@@ -176,10 +176,14 @@ find_package(Eigen3 REQUIRED)
 # field filter does.
 find_package(PCL REQUIRED COMPONENTS common sample_consensus)
 
-# H.264 for /camera/video: encode on the RGB camera, decode on playback. One dependency covering
-# h264_nvenc on the desktop, h264_nvv4l2m2m on the Jetson, and libx264 as the fallback.
+# H.264 for /camera/video: encode on the RGB camera, decode on playback. FFmpeg covers h264_nvenc
+# on the desktop, libx264 as the x86 fallback, and the decoder everywhere.
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET libavcodec libavutil libswscale)
+# GStreamer reaches the Jetson's hardware encoder (nvv4l2h264enc), which stock L4T FFmpeg cannot:
+# its h264_nvenc needs libnvidia-encode, which no Jetson has. Optional, so the desktop builds
+# without the dev packages; a Jetson recording video needs it (install/jetson_packages.txt).
+pkg_check_modules(GST IMPORTED_TARGET gstreamer-1.0 gstreamer-app-1.0)
 
 # ZED SDK. The default follows whether the SDK is actually installed: on everywhere it is,
 # because every SVO in data/svo/, the keypoint corpora, and the eval ground truth are tied to
@@ -299,9 +303,18 @@ else()
 endif()
 message(STATUS "NVJPG JPEG encoder: ${HAVE_NVJPG}")
 
+if(NOT GST_FOUND)
+    list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*/rgbd_camera/gst_h264_backend\\.cpp$")
+endif()
+message(STATUS "GStreamer H.264 encoder (nvv4l2h264enc): ${GST_FOUND}")
+
 add_library(auto_battlebot_lib SHARED
     ${AUTO_BATTLEBOT_SOURCES}
 )
+if(GST_FOUND)
+    target_link_libraries(auto_battlebot_lib PUBLIC PkgConfig::GST)
+    target_compile_definitions(auto_battlebot_lib PUBLIC AUTO_BATTLEBOT_HAVE_GSTREAMER)
+endif()
 
 if(HAVE_NVJPG)
     set(JETSON_MMAPI_CLASSES "${JETSON_MMAPI_DIR}/samples/common/classes")

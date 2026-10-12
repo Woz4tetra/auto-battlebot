@@ -5,18 +5,19 @@
 #include <cstdint>
 #include <deque>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <opencv2/opencv.hpp>
 #include <string>
 #include <thread>
 #include <unordered_map>
 
-struct AVCodecContext;
-struct AVFrame;
-struct AVPacket;
-struct SwsContext;
-
 namespace auto_battlebot {
+class H264Backend;
+
+/** Pixel layout of the frames passed to VideoEncoder::submit(). */
+enum class VideoInputFormat { BGR, BGRA, UYVY };
+
 struct VideoEncoderOptions {
     int width = 1920;
     int height = 1200;
@@ -32,16 +33,22 @@ struct VideoEncoderOptions {
     size_t queue_depth = 4;
     /** UYVY straight off the V4L2 buffer, rather than the BGR copy the detectors use. libswscale
      *  goes UYVY to NV12 without the detour, and it means the recording is pre-rectification, so
-     *  a revised calibration can be applied to footage already shot. */
-    bool input_is_uyvy = true;
+     *  a revised calibration can be applied to footage already shot. The ZED X One hands over
+     *  BGRA, which the Jetson's nvvidconv takes directly; it has no 3-channel BGR input. */
+    VideoInputFormat input_format = VideoInputFormat::UYVY;
 };
 
 /**
  * @brief H.264 encoder on its own thread, writing one Annex-B access unit per frame.
  *
- * Encoder selection is h264_nvenc, then h264_nvv4l2m2m on the Jetson, then libx264. B-frames are
- * off: they reorder PTS, and both `start_frame` on playback and reading `log_time` as the capture
- * instant depend on the nth message being the nth captured frame.
+ * Encoder selection is FFmpeg's h264_nvenc (desktop), FFmpeg's h264_nvv4l2m2m, GStreamer's
+ * nvv4l2h264enc (Jetson hardware encoder), then libx264 on x86 only. A candidate counts only if it
+ * opens: the ZED Box's stock FFmpeg registers h264_nvenc, which cannot open without
+ * libnvidia-encode. There is no software fallback on aarch64, where libx264 managed 39-43 fps at
+ * 1920x1200 on all eight Orin cores and would starve perception.
+ *
+ * B-frames are off: they reorder PTS, and both `start_frame` on playback and reading `log_time` as
+ * the capture instant depend on the nth message being the nth captured frame.
  */
 class VideoEncoder {
    public:
@@ -49,11 +56,13 @@ class VideoEncoder {
     using PacketSink =
         std::function<void(const std::byte *data, size_t len, uint64_t log_time_ns, bool keyframe)>;
 
-    VideoEncoder() = default;
+    // Out of line, with the destructor: unique_ptr<H264Backend> needs the complete type.
+    VideoEncoder();
     ~VideoEncoder();
     VideoEncoder(const VideoEncoder &) = delete;
     VideoEncoder &operator=(const VideoEncoder &) = delete;
 
+    /** False when no candidate opened. Callers recording on purpose treat that as fatal. */
     bool start(const VideoEncoderOptions &options, PacketSink sink);
     /** Flushes the encoder, so the last frames submitted still reach the sink. */
     void stop();
@@ -66,9 +75,13 @@ class VideoEncoder {
      *  within one frame instead of waiting for the next scheduled keyframe. */
     void request_keyframe() { keyframe_requested_.store(true); }
 
-    /** True when FFmpeg has h264_nvenc or h264_nvv4l2m2m, so start() would not fall through to
-     *  libx264. It does not prove the encoder opens. */
+    /** True when a hardware candidate is installed (FFmpeg h264_nvenc or h264_nvv4l2m2m, or
+     *  GStreamer nvv4l2h264enc), so start() would not fall through to libx264. It does not prove
+     *  the encoder opens. */
     static bool hardware_encoder_available();
+
+    /** Every candidate start() tries on this build, in order, for error messages. */
+    static std::string candidate_names();
 
     uint64_t encoded_frames() const { return encoded_frames_.load(); }
     uint64_t dropped_frames() const { return dropped_frames_.load(); }
@@ -82,22 +95,19 @@ class VideoEncoder {
     };
 
     void encode_loop();
-    bool encode_one(const QueuedFrame &frame);
-    void drain();
-    void close_codec();
+    /** Backend output. Runs on the encode thread (FFmpeg) or GStreamer's streaming thread. */
+    void deliver(const std::byte *data, size_t len, int64_t pts, bool keyframe);
 
     VideoEncoderOptions options_;
     PacketSink sink_;
     std::string codec_name_;
+    std::unique_ptr<H264Backend> backend_;
 
-    AVCodecContext *context_ = nullptr;
-    AVFrame *scaled_ = nullptr;
-    AVPacket *packet_ = nullptr;
-    SwsContext *scaler_ = nullptr;
     int64_t next_pts_ = 0;
     /** pts is the frame ordinal, so the capture time survives whatever latency the encoder holds
-     *  frames for. */
+     *  frames for. Written on the encode thread, read wherever the backend delivers packets. */
     std::unordered_map<int64_t, uint64_t> log_time_by_pts_;
+    std::mutex pts_mutex_;
 
     std::deque<QueuedFrame> queue_;
     mutable std::mutex mutex_;

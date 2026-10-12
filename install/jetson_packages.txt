@@ -11,3 +11,9 @@ libnvinfer-dev
 python3-libnvinfer
 
 i2c-tools
+
+# GStreamer, for /camera/video: the hardware H.264 encoder (nvv4l2h264enc, from JetPack's
+# nvidia-l4t-gstreamer) is only reachable through it. Without these the build drops the backend
+# and a profile with video_recording on refuses to start.
+libgstreamer1.0-dev
+libgstreamer-plugins-base1.0-dev

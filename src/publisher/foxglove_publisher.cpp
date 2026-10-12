@@ -138,7 +138,7 @@ void FoxglovePublisher::submit_preview_video(const cv::Mat &frame, uint64_t log_
         options.fps = kPreviewVideoFps;
         options.bitrate = static_cast<int64_t>(config_.preview_video_bitrate_kbps) * 1000;
         options.keyframe_interval = kPreviewVideoFps;
-        options.input_is_uyvy = false;
+        options.input_format = VideoInputFormat::BGR;
         OutputChannel *channel = preview_video_.get();
         const bool started = preview_video_encoder_.start(
             options, [channel](const std::byte *data, size_t len, uint64_t log_time_ns, bool) {

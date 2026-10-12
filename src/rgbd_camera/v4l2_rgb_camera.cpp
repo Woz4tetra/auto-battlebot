@@ -11,6 +11,7 @@
 #include <chrono>
 #include <cstring>
 #include <foxglove/schemas.hpp>
+#include <stdexcept>
 #include <utility>
 
 #include "tensorrt_inference/pinned_mat_allocator.hpp"
@@ -286,7 +287,7 @@ bool V4l2RgbCamera::initialize() {
         encoder_options.height = height_;
         encoder_options.fps = config_.camera_fps;
         encoder_options.bitrate = config_.video_bitrate_kbps * 1000;
-        encoder_options.input_is_uyvy = true;
+        encoder_options.input_format = VideoInputFormat::UYVY;
         if (!encoder_.start(encoder_options, [this](const std::byte *data, size_t len,
                                                     uint64_t log_time_ns, bool /*keyframe*/) {
                 foxglove::schemas::CompressedVideo message;
@@ -295,8 +296,14 @@ bool V4l2RgbCamera::initialize() {
                 message.data.assign(data, data + len);
                 video_channel_->log_message(message, log_time_ns);
             })) {
-            spdlog::error("[V4l2RgbCamera] Video recording requested but no encoder started");
+            // Fatal: a session recorded without its video cannot be replayed, and nobody finds
+            // out until the morning after. Turning recording off in the config is the explicit
+            // way past it.
             video_channel_.reset();
+            throw std::runtime_error(
+                "[V4l2RgbCamera] video_recording is on but no H.264 encoder opened (tried " +
+                VideoEncoder::candidate_names() +
+                "). Fix the encoder or set [rgbd_camera] video_recording = false.");
         }
     }
 

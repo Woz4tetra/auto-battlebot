@@ -17,7 +17,7 @@ TEST(VideoEncoderTest, RequestKeyframeMakesTheNextFrameAKeyframe) {
     options.bitrate = 500000;
     options.keyframe_interval = 1000;  // Only the first frame and the requested one are keyframes.
     options.queue_depth = 64;
-    options.input_is_uyvy = false;
+    options.input_format = VideoInputFormat::BGR;
 
     std::mutex mutex;
     std::map<uint64_t, bool> keyframe_by_log_time;

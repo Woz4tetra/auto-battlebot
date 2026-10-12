@@ -9,18 +9,21 @@ Checks, each PASS / WARN / FAIL:
 - file: the MCAP has a summary. A missing one means it was copied while still recording
   (re-download it) or the app died mid-write.
 - camera: frame rate from /camera/frame_meta (60 fps target) and the longest gap.
+- video: /camera/video against /camera/frame_meta. The ZED X One records its footage into the
+  MCAP, not an SVO, so this is the only copy to replay.
 - field: a field -> camera transform exists and stays put. The tripod does not move, so more
   than 5 mm or 0.5 deg of wander means a re-init or a bumped tripod partway through.
 - robot tags: share of camera frames with a robot AprilTag, overall and while the sticks are
   off center, and the tag's pixel size. The smoother's window gate is 70% coverage.
-  Recordings from the match profile carry no tags. They need the SVO replayed through the sysid
-  keypoint model first, so the SVO pairing check matters for them.
+  Recordings from the match profile carry no tags. They need /camera/video replayed through the
+  sysid keypoint model first (config/playback/mr_stabs_mk2_sysid_playback.toml).
 - our-robot track: share of frames with an OUR_ROBOT marker (YOLO path, match profile).
 - ESP32 stream: events against the firmware loop rate, gaps, pack voltage. The fit's command tape
   is the per-motor left_cmd/right_cmd from this stream, so without it there is no command tape.
 - sticks: the maneuver menu, measured from the radio's stick channels. Seconds of straight holds
   per level and direction, creep, spins, arcs, reversals, punches, and hard stops.
-- SVO: an SVO in --svo-dir whose frame stamps overlap this recording, and how many frames it holds.
+- SVO (ZED 2i only, with --svo-dir): an SVO whose frame stamps overlap this recording, and how
+  many frames it holds.
 
     python playground/calibration/check_sysid_recordings.py data/recordings/*2026-10-11*.mcap \\
         --svo-dir data/svo --plots playground/calibration/out/mujoco_sysid/checks
@@ -43,7 +46,12 @@ import pandas as pd
 from mcap.reader import make_reader
 
 from auto_battlebot.recording import diag_io
-from auto_battlebot.recording.mcap_io import FRAME_META_TOPIC, decode_json, iter_messages
+from auto_battlebot.recording.mcap_io import (
+    CAMERA_VIDEO_TOPIC,
+    FRAME_META_TOPIC,
+    decode_json,
+    iter_messages,
+)
 from auto_battlebot.recording.svo2 import read_frame_stamps
 from auto_battlebot.recording.sysid_io import (
     field_transform_constancy,
@@ -64,6 +72,7 @@ GRID_S = 0.01
 CAMERA_FPS_PASS = 55.0
 CAMERA_GAP_WARN_S = 0.1
 CAMERA_GAP_FAIL_S = 1.0  # a stall this long splits the session for the smoother anyway
+VIDEO_COVERAGE_PASS = 0.99  # /camera/video messages per /camera/frame_meta
 FIELD_DRIFT_M = 0.005
 FIELD_DRIFT_DEG = 0.5
 TAG_COVERAGE_PASS = 0.7  # smoother WindowOptions.coverage_min
@@ -151,6 +160,26 @@ def check_file(path: Path, rep: Report) -> dict[str, int] | None:
     return counts
 
 
+def check_video(counts: dict[str, int], rep: Report) -> None:
+    """/camera/video against /camera/frame_meta: is the footage there to replay?"""
+    frames = counts.get(FRAME_META_TOPIC, 0)
+    video = counts.get(CAMERA_VIDEO_TOPIC, 0)
+    if video == 0:
+        rep.add(
+            "video",
+            "FAIL",
+            "no /camera/video: nothing to replay. Builds since the GStreamer encoder refuse to"
+            " start like this; an older build's encoder failed to open",
+        )
+        return
+    share = video / frames if frames else math.nan
+    rep.stats["video_coverage"] = share
+    level = "PASS" if share >= VIDEO_COVERAGE_PASS else "WARN"
+    # Over 100% is normal: the encoder starts at camera open, a second or so before the first
+    # pipeline tick writes frame_meta. Under it means the encoder dropped frames.
+    rep.add("video", level, f"{video} frames for {frames} camera frames ({share:.1%})")
+
+
 def frame_stamps(path: Path) -> np.ndarray:
     stamps = [
         int(decode_json(data)["image_stamp_ns"])
@@ -229,8 +258,8 @@ def check_tags(path: Path, rep: Report, cam_stamps: np.ndarray, sticks: pd.DataF
         rep.add(
             "robot tags",
             "FAIL",
-            "no /apriltag/robot_tags: recorded without the sysid profile. Replay the SVO through"
-            " AprilTagKeypointModel to recover them",
+            "no /apriltag/robot_tags: recorded without the sysid profile. Replay /camera/video"
+            " through config/playback/mr_stabs_mk2_sysid_playback.toml to recover them",
         )
         return False
     seen = np.array([bool(f.detections) for f in frames])
@@ -593,6 +622,7 @@ def check_recording(
         return rep
     stamps = frame_stamps(path)
     check_camera(stamps, rep)
+    check_video(counts, rep)
     check_field(path, rep, counts)
     sticks = load_transmitter_channels(path).dropna(subset=[f"ch{LINEAR_CH}", f"ch{ANGULAR_CH}"])
     has_tags = check_tags(path, rep, stamps, sticks)
