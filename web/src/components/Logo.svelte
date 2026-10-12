@@ -8,7 +8,7 @@
   height={Math.round((width * 290) / 370)}
   viewBox="55 40 370 290"
   role="img"
-  aria-label="BW bots logo"
+  aria-label="BWBots logo"
 >
   <path class="left" d="M202 47 A137 137 0 0 0 202 321 L202 240 A56 56 0 0 1 202 128 Z" />
   <path class="right" d="M277 47 A137 137 0 0 1 277 321 L277 240 A56 56 0 0 0 277 128 Z" />

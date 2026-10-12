@@ -255,7 +255,7 @@ void build_top_bar(lv_obj_t *parent, UIWidgets &w) {
     lv_obj_set_style_bg_color(bar, lv_color_hex(0x111111), 0);
     lv_obj_clear_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* BW-bots logo, far left. Dark-background variant (black half drawn as a white
+    /* BWBots logo, far left. Dark-background variant (black half drawn as a white
      * outline, matching the splash) with a transparent background. */
     lv_obj_t *logo = lv_image_create(bar);
     lv_image_set_src(logo, bwbots_logo_icon());

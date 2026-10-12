@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regenerate the BW-bots splash animation at high resolution from the logo SVG.
+"""Regenerate the BWBots splash animation at high resolution from the logo SVG.
 
 The original 160x128 bwbots_splash.gif was authored at low resolution. This script
 rebuilds the same animation from the vector logo (logo/bwbots_logo.svg) at

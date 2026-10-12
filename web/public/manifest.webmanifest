@@ -1,6 +1,6 @@
 {
-  "name": "BW Bots Dashboard",
-  "short_name": "BW Bots",
+  "name": "BWBots Dashboard",
+  "short_name": "BWBots",
   "description": "Auto-battlebot control and status dashboard",
   "start_url": "/",
   "scope": "/",

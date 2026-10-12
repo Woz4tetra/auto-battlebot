@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render the BW-bots logo as a small transparent PNG for the UI top bar.
+"""Render the BWBots logo as a small transparent PNG for the UI top bar.
 
 Produces the dark-background variant used by the splash animation: the logo's
 black half-disc is drawn as a white outline (it would vanish against the dark

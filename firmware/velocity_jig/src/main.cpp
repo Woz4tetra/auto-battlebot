@@ -19,16 +19,16 @@
 //
 // Wiring and pin map: docs/velocity_jig_wiring.md and include/config.h
 
-#include <Arduino.h>
-#include <SPI.h>
-#include <Wire.h>
-#include <SdFat.h>
 #include <Adafruit_ISM330DHCX.h>
 #include <Adafruit_SH110X.h>
-#include "pico/time.h"
-#include "pico/bootrom.h"
+#include <Arduino.h>
+#include <SPI.h>
+#include <SdFat.h>
+#include <Wire.h>
 
 #include "config.h"
+#include "pico/bootrom.h"
+#include "pico/time.h"
 #include "splash_anim.h"
 
 // --- Debug bring-up instrumentation (set -DVJIG_DEBUG=1 in platformio.ini) ---
@@ -246,12 +246,12 @@ static void drainAll() {
 // OLED
 // ---------------------------------------------------------------------------
 
-// Animated BW Bots splash, then a short hold on the finished logo.
+// Animated BWBots splash, then a short hold on the finished logo.
 static void drawSplash() {
     for (uint8_t i = 0; i < SPLASH_FRAMES; i++) {
         g_display.clearDisplay();
-        g_display.drawBitmap((128 - SPLASH_W) / 2, (64 - SPLASH_H) / 2,
-                             SPLASH_DATA[i], SPLASH_W, SPLASH_H, SH110X_WHITE);
+        g_display.drawBitmap((128 - SPLASH_W) / 2, (64 - SPLASH_H) / 2, SPLASH_DATA[i], SPLASH_W,
+                             SPLASH_H, SH110X_WHITE);
         g_display.display();
         delay(35);
     }
@@ -413,8 +413,7 @@ static void writeHeader() {
     wputStr("# auto-battlebot velocity jig\n");
     wputStr("# columns: t_us,count,gx,gy,gz,ax,ay,az  (raw int16 imu)\n");
     wputStr("# encoder: quadrature x4 (constant column if unplugged)\n");
-    snprintf(line, sizeof(line),
-             "# sample_rate_hz=%lu gyro_dps_per_lsb=%s accel_g_per_lsb=%s\n",
+    snprintf(line, sizeof(line), "# sample_rate_hz=%lu gyro_dps_per_lsb=%s accel_g_per_lsb=%s\n",
              (unsigned long)SAMPLE_RATE_HZ, GYRO_DPS_PER_LSB_STR, ACCEL_G_PER_LSB_STR);
     wputStr(line);
 }
@@ -451,8 +450,8 @@ static void startRecording() {
 
     g_recording = true;
     // Capture on a fixed-rate timer (negative period = strict period from start).
-    add_repeating_timer_us(-(int64_t)(1000000UL / SAMPLE_RATE_HZ), sampleTimerCb,
-                           nullptr, &g_sampleTimer);
+    add_repeating_timer_us(-(int64_t)(1000000UL / SAMPLE_RATE_HZ), sampleTimerCb, nullptr,
+                           &g_sampleTimer);
     drawRecording(name);  // last screen update until STOP
     Serial.print("recording ");
     Serial.println(name);
@@ -603,9 +602,7 @@ static void cmdGet(const char* name) {
     Serial.print("\nEND\n");
 }
 
-static void cmdDel(const char* name) {
-    Serial.println(g_sd.remove(name) ? "OK" : "ERR");
-}
+static void cmdDel(const char* name) { Serial.println(g_sd.remove(name) ? "OK" : "ERR"); }
 
 // Clock probe for aligning the jig's log timestamps with a host clock.
 //
@@ -757,7 +754,7 @@ static void imuInit() {
     g_imu.setAccelDataRate(IMU_ODR);
     g_imu.setGyroDataRate(IMU_ODR);
     g_imu.configInt1(false, false, true);  // route accel data-ready to INT1
-    imuWriteReg(0x12, 0x44);                // CTRL3_C: BDU=1, IF_INC=1
+    imuWriteReg(0x12, 0x44);               // CTRL3_C: BDU=1, IF_INC=1
     pinMode(PIN_IMU_INT1, INPUT);
 }
 
@@ -867,7 +864,7 @@ void setup() {
     g_display.setRotation(1);
     g_display.clearDisplay();
     g_display.display();
-    drawSplash();  // animated BW Bots logo
+    drawSplash();  // animated BWBots logo
 
     imuInit();
     sdInit();
