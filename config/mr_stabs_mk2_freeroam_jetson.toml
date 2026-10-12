@@ -1,8 +1,0 @@
-extends = "mr_stabs_mk2_jetson"
-
-[field_model]
-type = "FreeRoamMaskModel"
-roi_fraction = 1.0
-color_filter = true
-tolerance_l = 60.0
-tolerance_ab = 25.0

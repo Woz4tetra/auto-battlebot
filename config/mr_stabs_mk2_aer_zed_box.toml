@@ -1,5 +1,10 @@
 extends = "_zed_box"
 
+[field_filter]
+type = "HomographyFieldFilter"
+field_size_x = 1.5
+field_size_y = 1.5
+
 [robot_filter.label_mapping]
 "MRS_BUFF_MK3" = ["THEIR_ROBOT_1"]
 "MR_STABS_MK2" = ["OUR_ROBOT_1"]
