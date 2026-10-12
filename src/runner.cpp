@@ -194,8 +194,10 @@ void Runner::set_autonomy(bool enabled) {
 
 void Runner::set_recording(bool enabled) const {
     // Open the MCAP gate before the camera starts its video encoder and close it after the encoder
-    // has flushed, so the first IDR and the last packets both land in the file.
+    // has flushed, so the first IDR and the last packets both land in the file. Off closes the
+    // file, so the publisher's queue is drained into it first.
     const auto set_mcap = [this, enabled] {
+        if (!enabled && mcap_recorder_) publisher_->flush();
         if (mcap_recorder_ && !mcap_recorder_->set_enabled(enabled)) {
             spdlog::warn("Failed to set MCAP recording to {}", enabled ? "enabled" : "disabled");
         }

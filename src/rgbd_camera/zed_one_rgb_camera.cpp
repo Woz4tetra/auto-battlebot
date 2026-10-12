@@ -102,6 +102,8 @@ void ZedOneRgbCamera::read_calibration() {
 }
 
 bool ZedOneRgbCamera::start_encoder() {
+    // A new file numbers its video from zero: playback joins frame_meta on that index.
+    video_frame_index_.store(-1);
     video_channel_ = std::make_unique<OutputChannel>(
         kVideoTopic, "protobuf", VizSchema::from_sdk(foxglove::schemas::CompressedVideo::schema()),
         false, nullptr, mcap_recorder_);

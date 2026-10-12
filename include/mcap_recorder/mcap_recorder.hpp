@@ -50,6 +50,9 @@ class McapRecorder {
         std::lock_guard<std::mutex> lock(mutex_);
         ignored_topics_ = std::unordered_set<std::string>(topics.begin(), topics.end());
     }
+    /** Off closes the current file, which is then complete and safe to download while the app
+     *  runs. On opens a new timestamped file with every channel and the metadata re-declared.
+     *  False when the file cannot be opened, or after close(). */
     bool set_enabled(bool enabled);
     bool is_enabled() const;
     // True when a write() on the topic would actually be recorded. Lets producers skip
@@ -60,7 +63,8 @@ class McapRecorder {
     }
     void close();
 
-    /** Register a topic. Idempotent per topic; returns 0 when the writer is not open. */
+    /** Register a topic. Idempotent per topic. The id stays valid across files: a topic
+     *  registered while recording is off gets its channel when the next file opens. */
     ChannelId open_channel(const std::string& topic, const std::string& message_encoding,
                            const VizSchema& schema);
 
@@ -95,11 +99,17 @@ class McapRecorder {
         return writer_open_ && enabled_ && ignored_topics_.count(topic) == 0;
     }
     static std::filesystem::path make_file_path(const std::string& active_profile, int segment);
+    /** make_file_path() with the current time, suffixed _partNN past any file already there. */
+    std::filesystem::path next_file_path() const;
     ChannelId open_channel_locked(const std::string& topic, const std::string& message_encoding,
                                   const VizSchema& schema);
     bool open_writer(const std::filesystem::path& path);
-    /** Close the current segment and open the next, re-creating every channel against the new
-     *  writer so each segment is independently readable. Caller holds mutex_. */
+    /** Finalize and close the current file; channel ids and specs are kept. Caller holds mutex_. */
+    void close_writer_locked();
+    /** Open the next file and re-create every channel against it, so each file is independently
+     *  readable. Caller holds mutex_. */
+    bool open_next_locked();
+    std::unique_ptr<foxglove::RawChannel> create_channel_locked(const ChannelSpec& spec);
     void roll_over_locked();
     void check_rollover_locked();
 
@@ -116,12 +126,13 @@ class McapRecorder {
     std::unordered_set<std::string> ignored_topics_;
 
     // Rollover. The MCAP has become the large file now that video lives in it, so the size cap,
-    // holding-directory eviction and segment numbering that SvoRecorder owned belong here. One run
-    // writes one file, so this only matters for a run left going for hours.
+    // holding-directory eviction and segment numbering that SvoRecorder owned belong here. A run
+    // writes a new file each time recording is turned back on, and past the size cap.
     uint64_t max_size_bytes_ = 0;
     uint64_t holding_dir_max_size_bytes_ = 0;
     uint64_t writes_since_size_check_ = 0;
-    int segment_ = 0;
+    /** Set by close(): shutdown, after which a late UI toggle must not start a new file. */
+    bool closed_for_good_{false};
     std::vector<std::pair<std::string, std::string>> metadata_;
 
     void enforce_holding_dir_size_locked();

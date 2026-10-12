@@ -277,34 +277,13 @@ bool V4l2RgbCamera::initialize() {
         mcap_recorder_->write_metadata(kCameraCalibrationMetadataKey,
                                        camera_calibration_to_toml(calibration_));
     }
-    if (mcap_recorder_ && recording_desired_.load()) {
-        video_channel_ = std::make_unique<OutputChannel>(
-            kVideoTopic, "protobuf",
-            VizSchema::from_sdk(foxglove::schemas::CompressedVideo::schema()), false, nullptr,
-            mcap_recorder_);
-        VideoEncoderOptions encoder_options;
-        encoder_options.width = width_;
-        encoder_options.height = height_;
-        encoder_options.fps = config_.camera_fps;
-        encoder_options.bitrate = config_.video_bitrate_kbps * 1000;
-        encoder_options.input_format = VideoInputFormat::UYVY;
-        if (!encoder_.start(encoder_options, [this](const std::byte *data, size_t len,
-                                                    uint64_t log_time_ns, bool /*keyframe*/) {
-                foxglove::schemas::CompressedVideo message;
-                message.frame_id = "camera";
-                message.format = "h264";
-                message.data.assign(data, data + len);
-                video_channel_->log_message(message, log_time_ns);
-            })) {
-            // Fatal: a session recorded without its video cannot be replayed, and nobody finds
-            // out until the morning after. Turning recording off in the config is the explicit
-            // way past it.
-            video_channel_.reset();
-            throw std::runtime_error(
-                "[V4l2RgbCamera] video_recording is on but no H.264 encoder opened (tried " +
-                VideoEncoder::candidate_names() +
-                "). Fix the encoder or set [rgbd_camera] video_recording = false.");
-        }
+    // Fatal: a session recorded without its video cannot be replayed, and nobody finds out until
+    // the morning after. Turning recording off in the config is the explicit way past it.
+    if (mcap_recorder_ && recording_desired_.load() && !start_encoder()) {
+        throw std::runtime_error(
+            "[V4l2RgbCamera] video_recording is on but no H.264 encoder opened (tried " +
+            VideoEncoder::candidate_names() +
+            "). Fix the encoder or set [rgbd_camera] video_recording = false.");
     }
 
     is_initialized_.store(true);
@@ -462,6 +441,32 @@ bool V4l2RgbCamera::get(CameraData &data) {
     return true;
 }
 
+bool V4l2RgbCamera::start_encoder() {
+    // A new file numbers its video from zero: playback joins frame_meta on that index.
+    video_frame_index_.store(-1);
+    video_channel_ = std::make_unique<OutputChannel>(
+        kVideoTopic, "protobuf", VizSchema::from_sdk(foxglove::schemas::CompressedVideo::schema()),
+        false, nullptr, mcap_recorder_);
+    VideoEncoderOptions encoder_options;
+    encoder_options.width = width_;
+    encoder_options.height = height_;
+    encoder_options.fps = config_.camera_fps;
+    encoder_options.bitrate = config_.video_bitrate_kbps * 1000;
+    encoder_options.input_format = VideoInputFormat::UYVY;
+    if (!encoder_.start(encoder_options, [this](const std::byte *data, size_t len,
+                                                uint64_t log_time_ns, bool /*keyframe*/) {
+            foxglove::schemas::CompressedVideo message;
+            message.frame_id = "camera";
+            message.format = "h264";
+            message.data.assign(data, data + len);
+            video_channel_->log_message(message, log_time_ns);
+        })) {
+        video_channel_.reset();
+        return false;
+    }
+    return true;
+}
+
 bool V4l2RgbCamera::set_recording_enabled(bool enabled) {
     recording_desired_.store(enabled);
     if (!is_initialized_.load()) {
@@ -471,7 +476,16 @@ bool V4l2RgbCamera::set_recording_enabled(bool enabled) {
         encoder_.stop();
         return true;
     }
-    return encoder_.running();
+    if (encoder_.running()) {
+        return true;
+    }
+    // A recording turned back on from the remote UI lands here and writes into the new file. Not
+    // fatal here: the UI reports the failed toggle, and killing a running match over it is worse.
+    if (!mcap_recorder_ || !start_encoder()) {
+        spdlog::error("[V4l2RgbCamera] Recording toggled on but no H.264 encoder opened");
+        return false;
+    }
+    return true;
 }
 
 bool V4l2RgbCamera::is_recording_enabled() const { return encoder_.running(); }

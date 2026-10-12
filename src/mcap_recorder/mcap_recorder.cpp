@@ -38,9 +38,19 @@ void McapRecorder::reserve_input_path(const std::filesystem::path& path) {
 
 McapRecorder::McapRecorder(const std::string& active_profile) : active_profile_(active_profile) {
     metadata_.emplace_back("active_profile", active_profile_);
-    if (open_writer(make_file_path(active_profile_, 0))) {
+    if (open_writer(next_file_path())) {
         enabled_ = true;
     }
+}
+
+std::filesystem::path McapRecorder::next_file_path() const {
+    // The stamp is one-second granular, so a rollover or a quick off/on toggle inside the same
+    // second would land on the file it just closed.
+    std::filesystem::path path = make_file_path(active_profile_, 0);
+    for (int part = 1; std::filesystem::exists(path); ++part) {
+        path = make_file_path(active_profile_, part);
+    }
+    return path;
 }
 
 bool McapRecorder::open_writer(const std::filesystem::path& path) {
@@ -109,32 +119,37 @@ void McapRecorder::write_metadata(const std::string& key, const std::string& val
     }
 }
 
-void McapRecorder::roll_over_locked() {
+void McapRecorder::close_writer_locked() {
     for (auto& channel : channels_) {
         if (channel.channel) channel.channel->close();
+        channel.channel.reset();
     }
     auto status = writer_->close();
     if (status != foxglove::FoxgloveError::Ok) {
-        spdlog::warn("[McapRecorder] rollover close(): {}", foxglove::strerror(status));
+        spdlog::warn("[McapRecorder] close(): {}", foxglove::strerror(status));
     }
+    writer_.reset();
     writer_open_ = false;
+}
+
+bool McapRecorder::open_next_locked() {
+    enforce_holding_dir_size_locked();
+    if (!open_writer(next_file_path())) {
+        return false;
+    }
+    // Channels are re-created against the new writer in their original order, so the ids every
+    // producer holds stay valid, and each file has its own channel records.
+    for (size_t i = 0; i < channel_specs_.size(); ++i) {
+        channels_[i].channel = create_channel_locked(channel_specs_[i]);
+    }
+    return true;
+}
+
+void McapRecorder::roll_over_locked() {
+    close_writer_locked();
     spdlog::info("[McapRecorder] Rolled over past {} GB: {}", max_size_bytes_ / kBytesPerGb,
                  file_path_.string());
-
-    enforce_holding_dir_size_locked();
-    ++segment_;
-    // Channels have to be re-created against the new writer or the next segment is a file with
-    // messages and no channel records.
-    std::vector<ChannelSpec> specs = channel_specs_;
-    channels_.clear();
-    channel_by_topic_.clear();
-    channel_specs_.clear();
-    if (!open_writer(make_file_path(active_profile_, segment_))) {
-        return;
-    }
-    for (const auto& spec : specs) {
-        open_channel_locked(spec.topic, spec.message_encoding, spec.schema);
-    }
+    open_next_locked();
 }
 
 void McapRecorder::check_rollover_locked() {
@@ -183,25 +198,29 @@ McapRecorder::~McapRecorder() { close(); }
 void McapRecorder::close() {
     std::lock_guard<std::mutex> lock(mutex_);
     if (writer_open_) {
-        for (auto& channel : channels_) {
-            if (channel.channel) channel.channel->close();
-        }
-        auto status = writer_->close();
-        if (status != foxglove::FoxgloveError::Ok) {
-            spdlog::warn("[McapRecorder] close(): {}", foxglove::strerror(status));
-        }
-        writer_open_ = false;
-        enabled_ = false;
+        close_writer_locked();
     }
+    enabled_ = false;
+    closed_for_good_ = true;
 }
 
 bool McapRecorder::set_enabled(bool enabled) {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (enabled && !writer_open_) {
+    if (!enabled) {
+        // Off finishes the file: it gets its summary and index and nothing holds it open, so it
+        // can be downloaded while the app keeps running. On starts the next one.
+        if (writer_open_) {
+            close_writer_locked();
+            spdlog::info("[McapRecorder] Recording off, closed {}", file_path_.string());
+        }
+        enabled_ = false;
+        return true;
+    }
+    if (!writer_open_ && (closed_for_good_ || !open_next_locked())) {
         enabled_ = false;
         return false;
     }
-    enabled_ = enabled;
+    enabled_ = true;
     return true;
 }
 
@@ -220,24 +239,30 @@ McapRecorder::ChannelId McapRecorder::open_channel(const std::string& topic,
 McapRecorder::ChannelId McapRecorder::open_channel_locked(const std::string& topic,
                                                           const std::string& message_encoding,
                                                           const VizSchema& schema) {
-    if (!writer_open_) return 0;
     if (auto it = channel_by_topic_.find(topic); it != channel_by_topic_.end()) {
         return it->second;
     }
-    std::optional<foxglove::Schema> sdk_schema;
-    if (!schema.name.empty()) sdk_schema = schema.to_sdk();
-    auto created = foxglove::RawChannel::create(topic, message_encoding, sdk_schema, context_);
-    if (!created.has_value()) {
-        spdlog::error("[McapRecorder] Failed to open channel {}: {}", topic,
-                      foxglove::strerror(created.error()));
-        return 0;
-    }
-    channels_.push_back(
-        Channel{topic, std::make_unique<foxglove::RawChannel>(std::move(created.value()))});
+    // Registered even while recording is off, so the channel exists in the next file.
     channel_specs_.push_back(ChannelSpec{topic, message_encoding, schema});
+    Channel entry{topic, nullptr};
+    if (writer_open_) entry.channel = create_channel_locked(channel_specs_.back());
+    channels_.push_back(std::move(entry));
     const ChannelId id = static_cast<ChannelId>(channels_.size());
     channel_by_topic_[topic] = id;
     return id;
+}
+
+std::unique_ptr<foxglove::RawChannel> McapRecorder::create_channel_locked(const ChannelSpec& spec) {
+    std::optional<foxglove::Schema> sdk_schema;
+    if (!spec.schema.name.empty()) sdk_schema = spec.schema.to_sdk();
+    auto created =
+        foxglove::RawChannel::create(spec.topic, spec.message_encoding, sdk_schema, context_);
+    if (!created.has_value()) {
+        spdlog::error("[McapRecorder] Failed to open channel {}: {}", spec.topic,
+                      foxglove::strerror(created.error()));
+        return nullptr;
+    }
+    return std::make_unique<foxglove::RawChannel>(std::move(created.value()));
 }
 
 void McapRecorder::write(ChannelId channel, const std::byte* data, size_t len,
@@ -245,7 +270,7 @@ void McapRecorder::write(ChannelId channel, const std::byte* data, size_t len,
     std::lock_guard<std::mutex> lock(mutex_);
     if (channel == 0 || channel > channels_.size()) return;
     const Channel& entry = channels_[channel - 1];
-    if (!records_topic_locked(entry.topic)) return;
+    if (!entry.channel || !records_topic_locked(entry.topic)) return;
     auto status = entry.channel->log(data, len, log_time_ns);
     if (status != foxglove::FoxgloveError::Ok) {
         spdlog::warn("[McapRecorder] write {} failed: {}", entry.topic, foxglove::strerror(status));
