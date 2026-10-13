@@ -177,7 +177,11 @@ int run_application(const auto_battlebot::ClassConfiguration& class_config,
     // blocks or faults would swallow the reboot entirely. The loop is stopped and both
     // recordings are closed by now, so there is nothing left to lose if systemd tears the
     // process down in the middle of those destructors.
-    if (pending_system_action) handle_system_action(*pending_system_action);
+    if (pending_system_action) {
+        // Logging is asynchronous; get the shutdown lines out before the host goes down.
+        spdlog::default_logger()->flush();
+        handle_system_action(*pending_system_action);
+    }
     return result;
 }
 }  // namespace
@@ -243,13 +247,16 @@ int main(int argc, char** argv) {
 
     try {
         ClassConfiguration class_config = load_classes_from_config(config_path);
-        return run_application(class_config, active_profile, available_profiles, profile_selector,
-                               no_ui);
+        const int result = run_application(class_config, active_profile, available_profiles,
+                                           profile_selector, no_ui);
+        shutdown_logging();
+        return result;
     } catch (const std::exception& e) {
         // Startup failures that leave the stack unusable (a bad config, a model whose engine
         // does not load) throw. Catching here exits with a message and a nonzero code instead
         // of terminating on the uncaught exception.
         spdlog::error("Fatal: {}", e.what());
+        shutdown_logging();
         return 1;
     }
 }

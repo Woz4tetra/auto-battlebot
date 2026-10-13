@@ -168,15 +168,38 @@ void Runner::publish_tracks(const RobotDescriptionsStamped &robots, const FieldD
 }
 
 void Runner::stop_recordings_for_shutdown() const {
+    // Let a toggle or rollover already posted finish first, so this off is the last word.
+    recording_worker_->stop();
+    std::lock_guard<std::mutex> lock(recording_mutex_);
     if (!camera_->set_recording_enabled(false)) {
         spdlog::warn("Failed to disable SVO recording during shutdown.");
     }
     if (mcap_recorder_) {
         // Publishing runs on its own thread; let it catch up so the last frames are recorded.
         publisher_->flush();
+        // And the log lines up to here, which reach the recorder through the async logger.
+        spdlog::default_logger()->flush();
         mcap_recorder_->set_enabled(false);
         mcap_recorder_->close();
     }
+}
+
+void Runner::roll_over_recording_if_full() {
+    // A stat() per check; once a second is plenty for a 10 GB cap.
+    constexpr auto kCheckInterval = std::chrono::seconds(1);
+    const auto now = std::chrono::steady_clock::now();
+    if (!mcap_recorder_ || now - last_size_check_ < kCheckInterval) return;
+    last_size_check_ = now;
+    // The file stays past the cap until the worker gets to it; one rollover per crossing.
+    if (rollover_pending_.load() || !mcap_recorder_->past_size_limit()) return;
+    spdlog::info("[Runner] {} reached the size cap; rolling over",
+                 mcap_recorder_->file_path().string());
+    rollover_pending_.store(true);
+    recording_worker_->post([this] {
+        apply_recording(false, true);
+        apply_recording(true, true);
+        rollover_pending_.store(false);
+    });
 }
 
 void Runner::set_opponent_count(int count) {
@@ -193,10 +216,35 @@ void Runner::set_autonomy(bool enabled) {
 }
 
 void Runner::set_recording(bool enabled) const {
+    // Off stops the camera's video encoder, which flushes the pipeline and can take a second or
+    // more on a stalled one. The worker does it so the tick keeps running, in post order, so an
+    // off then on from the UI still cuts a file.
+    recording_worker_->post([this, enabled] { apply_recording(enabled, true); });
+}
+
+void Runner::wait_for_frames_in_flight() const {
+    // The tick keeps running while this thread toggles. A tick that took a frame before the
+    // encoder stopped still holds that frame's video index, and would publish its frame_meta into
+    // the next file, pointing at the wrong packet. Frames captured after the stop carry no index.
+    // Three tick starts: the tick in flight finishes, and so does the one that may have taken
+    // the last frame the camera buffered before the stop. Bounded, for a tick stuck in camera
+    // recovery.
+    constexpr uint64_t kTicks = 3;
+    constexpr auto kTimeout = std::chrono::milliseconds(500);
+    const uint64_t target = ticks_started_.load() + kTicks;
+    const auto deadline = std::chrono::steady_clock::now() + kTimeout;
+    while (ticks_started_.load() < target && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+}
+
+void Runner::apply_recording(bool enabled, bool from_worker) const {
+    std::lock_guard<std::mutex> lock(recording_mutex_);
     // Open the MCAP gate before the camera starts its video encoder and close it after the encoder
     // has flushed, so the first IDR and the last packets both land in the file. Off closes the
-    // file, so the publisher's queue is drained into it first.
-    const auto set_mcap = [this, enabled] {
+    // file, so the frames in flight and the publisher's queue are drained into it first.
+    const auto set_mcap = [this, enabled, from_worker] {
+        if (!enabled && from_worker) wait_for_frames_in_flight();
         if (!enabled && mcap_recorder_) publisher_->flush();
         if (mcap_recorder_ && !mcap_recorder_->set_enabled(enabled)) {
             spdlog::warn("Failed to set MCAP recording to {}", enabled ? "enabled" : "disabled");
@@ -314,7 +362,13 @@ bool Runner::recover_camera_after_failure() {
             camera_->cancel_initialize();
             break;
         }
-        if (camera_->initialize()) break;
+        bool reinitialized = false;
+        {
+            // The camera's encoder or SVO recorder must not be toggled mid-initialize.
+            std::lock_guard<std::mutex> lock(recording_mutex_);
+            reinitialized = camera_->initialize();
+        }
+        if (reinitialized) break;
 
         spdlog::warn("Camera reinitialize attempt failed. Exiting.");
         return false;
@@ -441,6 +495,7 @@ int Runner::run() {
 }
 
 bool Runner::tick() {
+    ticks_started_.fetch_add(1);
     FunctionTimer timer(diagnostics_logger_, "tick");
     diagnostics_logger_->debug({}, "Tick");
 
@@ -465,6 +520,7 @@ bool Runner::tick() {
 
     bool should_reinit_field = false;
     if (!handle_commands(should_reinit_field)) return false;
+    roll_over_recording_if_full();
 
     // Stepped drivers read the transmitter here, on this thread, before the camera grab. Threaded
     // drivers own it and make this a no-op, latching the init-button edge for

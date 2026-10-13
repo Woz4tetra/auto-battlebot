@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <functional>
 #include <iostream>
 #include <memory>
@@ -37,6 +38,7 @@
 #include "robot_descriptions_cache.hpp"
 #include "robot_filter/robot_filter_interface.hpp"
 #include "runner_config.hpp"
+#include "serial_worker.hpp"
 #include "target_selector/target_selector_interface.hpp"
 #include "time/clock_interface.hpp"
 #include "ui/ui_state.hpp"
@@ -94,7 +96,15 @@ class Runner : public Quittable {
     bool handle_commands(bool &should_reinit_field);
     void set_opponent_count(int count);
     void set_autonomy(bool enabled);
+    /** Posts the toggle to recording_worker_ and returns. */
     void set_recording(bool enabled) const;
+    /** The toggle itself. `from_worker` is false only during shutdown, which runs on the tick's
+     *  own thread once the worker has stopped, so there is no tick in flight to wait for. */
+    void apply_recording(bool enabled, bool from_worker) const;
+    void wait_for_frames_in_flight() const;
+    /** Counted at the top of tick(), so the recording worker can tell when frames taken before
+     *  a toggle have been published. */
+    std::atomic<uint64_t> ticks_started_{0};
     std::string select_profile(const std::string &name);
     void run_system_action(SystemAction action);
     void ack(std::string_view topic, bool accepted, std::string message = {});
@@ -151,9 +161,21 @@ class Runner : public Quittable {
     double uptime_s() const;
     std::optional<double> autonomy_on_s() const;
     void stop_recordings_for_shutdown() const;
+    /** Rolls the MCAP over past max_size_gb by turning recording off and on. */
+    void roll_over_recording_if_full();
+    std::chrono::steady_clock::time_point last_size_check_{};
     bool recover_camera_after_failure();
     void set_ui_debug_image_from_camera(const CameraData &camera_data) const;
     bool handle_uninitialized_tick(const CameraData &camera_data, double loop_rate_hz);
     double elapsed_ms();
+
+    /** Held by apply_recording and by camera reinitialization, which both start and stop the
+     *  camera's encoder or SVO recorder. */
+    mutable std::mutex recording_mutex_;
+    /** A rollover is posted and not yet done. */
+    std::atomic<bool> rollover_pending_{false};
+    /** Runs recording toggles and rollovers off the tick. Last member, so it is joined before
+     *  anything its jobs use is destroyed. */
+    std::unique_ptr<SerialWorker> recording_worker_ = std::make_unique<SerialWorker>();
 };
 }  // namespace auto_battlebot

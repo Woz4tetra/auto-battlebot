@@ -1,5 +1,6 @@
 #include "logging/logging.hpp"
 
+#include <spdlog/async.h>
 #include <spdlog/sinks/base_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
@@ -91,6 +92,13 @@ McapLogSink* g_mcap_log_sink = nullptr;
 
 }  // namespace
 
+namespace {
+constexpr const char* kLoggerName = "auto_battlebot";
+constexpr const char* kPattern = "[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] %v";
+/** Queued log lines. At the overrun policy below, a burst past this drops the oldest lines. */
+constexpr size_t kLogQueueSize = 8192;
+}  // namespace
+
 void setup_logging(std::shared_ptr<McapRecorder> recorder) {
     std::vector<spdlog::sink_ptr> sinks;
     sinks.push_back(std::make_shared<spdlog::sinks::stdout_color_sink_mt>());
@@ -98,10 +106,30 @@ void setup_logging(std::shared_ptr<McapRecorder> recorder) {
     g_mcap_log_sink = mcap_sink.get();
     sinks.push_back(std::move(mcap_sink));
 
-    auto logger = std::make_shared<spdlog::logger>("auto_battlebot", sinks.begin(), sinks.end());
+    // Asynchronous: a log call formats the line, queues it and returns, and one spdlog thread
+    // runs the sinks. The caller never waits on stdout, the viz socket or the recorder, so the
+    // control thread can log mid-cycle. A full queue overwrites the oldest line rather than
+    // blocking the caller.
+    if (!spdlog::thread_pool()) spdlog::init_thread_pool(kLogQueueSize, 1);
+    auto logger = std::make_shared<spdlog::async_logger>(
+        kLoggerName, sinks.begin(), sinks.end(), spdlog::thread_pool(),
+        spdlog::async_overflow_policy::overrun_oldest);
     logger->set_level(spdlog::level::debug);
-    logger->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] %v");
+    logger->set_pattern(kPattern);
 
+    spdlog::set_default_logger(logger);
+}
+
+void shutdown_logging() {
+    spdlog::default_logger()->flush();
+    // Back to a synchronous console logger for whatever logs during static destruction. Dropping
+    // the async logger also releases the recorder and viz sink it held, here rather than in an
+    // unordered static teardown.
+    g_mcap_log_sink = nullptr;
+    auto logger = std::make_shared<spdlog::logger>(
+        kLoggerName, std::make_shared<spdlog::sinks::stdout_color_sink_mt>());
+    logger->set_level(spdlog::level::debug);
+    logger->set_pattern(kPattern);
     spdlog::set_default_logger(logger);
 }
 

@@ -89,6 +89,29 @@ TEST_F(AsyncPublisherTest, FullQueueBlocksInsteadOfDropping) {
     EXPECT_EQ(inner->stamps.size(), static_cast<size_t>(kCalls));
 }
 
+// The recording toggle flushes from its own thread while the tick keeps publishing. A flush
+// that waited for an empty queue could wait as long as the tick kept up.
+TEST_F(AsyncPublisherTest, FlushFromAnotherThreadReturnsWhileCallsKeepArriving) {
+    auto inner = std::make_shared<RecordingPublisher>();
+    inner->delay = std::chrono::milliseconds(1);
+    AsyncPublisher publisher(inner);
+
+    std::atomic<bool> stop{false};
+    std::thread producer([&] {
+        CameraData camera;
+        while (!stop.load()) publisher.publish_camera_data(camera);
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    const auto start = std::chrono::steady_clock::now();
+    publisher.flush();
+    const double flush_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    stop.store(true);
+    producer.join();
+    // At most a full queue of 1 ms calls ahead of it.
+    EXPECT_LT(flush_ms, 5.0 * static_cast<double>(AsyncPublisher::kMaxPendingCalls));
+}
+
 TEST_F(AsyncPublisherTest, DestructorDrainsQueue) {
     auto inner = std::make_shared<RecordingPublisher>();
     inner->delay = std::chrono::milliseconds(1);

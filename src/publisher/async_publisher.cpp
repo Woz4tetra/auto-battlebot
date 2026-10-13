@@ -32,13 +32,17 @@ void AsyncPublisher::enqueue(std::function<void()> call) {
         diagnostics_logger_->debug({{"blocked_ms", blocked_ms}});
     }
     pending_.push_back(std::move(call));
+    ++enqueued_;
     lock.unlock();
     work_cv_.notify_one();
 }
 
 void AsyncPublisher::flush() {
     std::unique_lock<std::mutex> lock(mutex_);
-    idle_cv_.wait(lock, [this] { return pending_.empty() && !busy_; });
+    // Waits for the calls queued before this one, not for an empty queue. The recording toggle
+    // flushes from its own thread while the tick keeps publishing, and the queue may never empty.
+    const uint64_t target = enqueued_;
+    idle_cv_.wait(lock, [this, target] { return completed_ >= target; });
 }
 
 void AsyncPublisher::run() {
@@ -49,15 +53,14 @@ void AsyncPublisher::run() {
         if (pending_.empty()) return;
         std::function<void()> call = std::move(pending_.front());
         pending_.pop_front();
-        busy_ = true;
         lock.unlock();
         space_cv_.notify_one();
 
         call();
 
         lock.lock();
-        busy_ = false;
-        if (pending_.empty()) idle_cv_.notify_all();
+        ++completed_;
+        idle_cv_.notify_all();
     }
 }
 

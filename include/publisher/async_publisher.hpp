@@ -2,6 +2,7 @@
 
 #include <condition_variable>
 #include <cstddef>
+#include <cstdint>
 #include <deque>
 #include <functional>
 #include <memory>
@@ -64,7 +65,9 @@ class AsyncPublisher : public PublisherInterface {
     std::condition_variable space_cv_;
     std::condition_variable idle_cv_;
     std::deque<std::function<void()>> pending_;
-    bool busy_ = false;
+    /** Calls queued and calls finished, so flush() can wait for exactly the calls before it. */
+    uint64_t enqueued_ = 0;
+    uint64_t completed_ = 0;
     bool stop_ = false;
     std::thread thread_;
 };
