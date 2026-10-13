@@ -54,6 +54,9 @@ namespace {
 
 std::atomic<bool> g_stop{false};
 constexpr std::chrono::seconds kShutdownDeadline{2};
+/** Bytes queued for an app that is not reading. Subscriber counts and client messages are small,
+ *  so reaching this means the app is stuck; past it whole frames are dropped, never half ones. */
+constexpr size_t kMaxAppOutBytes = 1u << 20;
 void handle_signal(int) { g_stop.store(true); }
 
 struct RelayChannel {
@@ -336,12 +339,16 @@ class Relay {
     void poll_once() {
         pollfd fds[2];
         fds[0] = {listen_fd_, POLLIN, 0};
-        fds[1] = {app_fd_, POLLIN, 0};
+        const bool sending = app_out_sent_ < app_out_.size();
+        fds[1] = {app_fd_, static_cast<short>(POLLIN | (sending ? POLLOUT : 0)), 0};
         const nfds_t count = app_fd_ >= 0 ? 2 : 1;
         int ready = ::poll(fds, count, 20);
         if (ready <= 0) return;
-        if (fds[0].revents & POLLIN) accept_app();
+        // The app first: when a restarted app connects in the same poll as the old one's EOF,
+        // reading frees the slot before the accept, instead of refusing the new app.
         if (count == 2 && (fds[1].revents & (POLLIN | POLLHUP | POLLERR))) read_app();
+        if (count == 2 && app_fd_ >= 0 && (fds[1].revents & POLLOUT)) flush_to_app();
+        if (fds[0].revents & POLLIN) accept_app();
     }
 
     void accept_app() {
@@ -372,6 +379,9 @@ class Relay {
         app_fd_ = -1;
         app_connected_.store(false);
         read_buffer_.clear();
+        app_out_.clear();
+        app_out_sent_ = 0;
+        warned_app_out_full_ = false;
         app_channels_.clear();
         for (auto& [topic, ch] : channels_) ch.app_channel_id = 0;
         spdlog::info("auto_battlebot disconnected; channels stay advertised");
@@ -536,17 +546,39 @@ class Relay {
             auto_battlebot::viz::encode_subscriber_count(ch.app_channel_id, ch.subscribers));
     }
 
+    /** Queues the whole frame and sends what the socket takes now; poll_once() sends the rest.
+     *  A send that stopped partway used to drop the remainder, which tore the frame and left the
+     *  app parsing garbage. */
     void send_to_app(const std::vector<std::byte>& frame) {
-        size_t sent = 0;
-        while (sent < frame.size()) {
-            ssize_t n = ::send(app_fd_, frame.data() + sent, frame.size() - sent, MSG_NOSIGNAL);
+        if (app_out_.size() - app_out_sent_ + frame.size() > kMaxAppOutBytes) {
+            if (!warned_app_out_full_) {
+                spdlog::warn("auto_battlebot is not reading; dropping frames to it");
+                warned_app_out_full_ = true;
+            }
+            return;
+        }
+        if (app_out_sent_ == app_out_.size()) {
+            app_out_.clear();
+            app_out_sent_ = 0;
+        }
+        app_out_.insert(app_out_.end(), frame.begin(), frame.end());
+        flush_to_app();
+    }
+
+    void flush_to_app() {
+        while (app_out_sent_ < app_out_.size()) {
+            ssize_t n = ::send(app_fd_, app_out_.data() + app_out_sent_,
+                               app_out_.size() - app_out_sent_, MSG_NOSIGNAL);
             if (n < 0) {
                 if (errno == EINTR) continue;
-                // The app reads counts opportunistically; a full pipe is not worth a disconnect.
+                // A full pipe waits for POLLOUT; anything else shows up as EOF on the next read.
                 return;
             }
-            sent += static_cast<size_t>(n);
+            app_out_sent_ += static_cast<size_t>(n);
         }
+        app_out_.clear();
+        app_out_sent_ = 0;
+        warned_app_out_full_ = false;
     }
 
     std::string socket_path_;
@@ -564,6 +596,9 @@ class Relay {
     int app_fd_ = -1;
     bool warned_second_connection_ = false;
     std::vector<std::byte> read_buffer_;
+    std::vector<std::byte> app_out_;
+    size_t app_out_sent_ = 0;
+    bool warned_app_out_full_ = false;
 
     std::map<std::string, RelayChannel> channels_;
     std::unordered_map<uint64_t, std::string> channel_by_id_;
