@@ -51,17 +51,22 @@ void UIState::set_debug_image(const cv::Mat &image) {
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - clone_start)
             .count();
 
+    // Declared before the lock, so the previous frame is freed after it is released: the control
+    // thread takes status_mutex_ every cycle.
+    cv::Mat previous;
     const auto lock_start = std::chrono::steady_clock::now();
     std::unique_lock<std::mutex> lock(status_mutex_);
     const double lock_wait_ms =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - lock_start)
             .count();
-    // cv::Mat assignment is a refcount swap; the previous Mat stays alive for any reader still
-    // holding a refcount-shared view from get_debug_image().
+    // A refcount swap; the previous Mat stays alive for any reader still holding a
+    // refcount-shared view from get_debug_image().
+    previous = std::move(debug_image_);
     debug_image_ = std::move(fresh);
     const double total_ms = lock_wait_ms + std::chrono::duration<double, std::milli>(
                                                std::chrono::steady_clock::now() - lock_start)
                                                .count();
+    lock.unlock();
     if (lock_wait_ms > kDebugImageLockWaitWarnMs || total_ms > kDebugImageTotalWarnMs ||
         clone_ms > kDebugImageTotalWarnMs) {
         spdlog::warn(
@@ -82,6 +87,7 @@ cv::Mat UIState::get_debug_image() const {
     const double total_ms = lock_wait_ms + std::chrono::duration<double, std::milli>(
                                                std::chrono::steady_clock::now() - lock_start)
                                                .count();
+    lock.unlock();
     if (lock_wait_ms > kDebugImageLockWaitWarnMs || total_ms > kDebugImageTotalWarnMs) {
         spdlog::warn(
             "validation: ui_state_get_debug_image slow lock_wait_ms={:.2f} total_ms={:.2f} "
