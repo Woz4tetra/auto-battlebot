@@ -15,7 +15,7 @@
 # The dashboard ports (80 and Foxglove's 8765) are cable-only by default: an nftables table accepts
 # them on loopback and the Ethernet port and drops them everywhere else. The app opens them on
 # Wi-Fi when someone turns on "Allow on Wi-Fi" in the System tab, by starting
-# auto-battlebot-dashboard-wifi.service, which a polkit rule lets the app user do for that one
+# dashboard-wifi.service, which a polkit rule lets the app user do for that one
 # unit only.
 #
 # Usage (also sourced by scripts/install_jetson.sh):
@@ -39,16 +39,10 @@ install_dashboard_network() {
     local address="169.254.42.1/16"
     local table="auto_battlebot_dashboard"
     local nft_file="/etc/auto-battlebot/dashboard.nft"
-    local firewall_unit="auto-battlebot-dashboard-firewall.service"
-    local wifi_unit="auto-battlebot-dashboard-wifi.service"
+    local firewall_unit="dashboard-firewall.service"
+    local wifi_unit="dashboard-wifi.service"
     local polkit_rule="/etc/polkit-1/rules.d/50-auto-battlebot-dashboard.rules"
-    local dropin_dir="/etc/systemd/system/viz_relay.service.d"
-    local dropin="$dropin_dir/dashboard.conf"
     local app_user="${SUDO_USER:-$USER}"
-    local app_home
-    app_home=$(getent passwd "$app_user" | cut -d: -f6)
-    local project_root
-    project_root=$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")
 
     local iface=""
     local wifi_iface=""
@@ -142,8 +136,8 @@ install_dashboard_network() {
     else
         sudo mkdir -p "$(dirname "$nft_file")"
         # Declare-then-delete, so loading it again replaces the table instead of failing on the
-        # one that exists. Its own table, so no other ruleset is touched. 8080 is the relay's
-        # default HTTP port, dropped too in case the port 80 drop-in is missing.
+        # one that exists. Its own table, so no other ruleset is touched. service/viz-relay.service
+        # serves the dashboard on 80.
         sudo tee "$nft_file" >/dev/null <<EOF
 table inet $table
 delete table inet $table
@@ -155,7 +149,7 @@ table inet $table {
     chain input {
         type filter hook input priority filter; policy accept;
         iifname @allowed_ifaces accept
-        tcp dport { 80, 8080, 8765 } drop
+        tcp dport { 80, 8765 } drop
     }
 }
 EOF
@@ -205,39 +199,15 @@ EOF
         fi
     fi
 
-    # ---- 6. Port 80 for viz_relay ----
-    # The capability lives in the unit, so rebuilding or reinstalling viz_relay keeps it; setcap
-    # on the binary would not survive `cmake --install`. The relay never runs as root.
-    local relay_bin="$app_home/.local/bin/viz_relay"
-    local help_bin="$relay_bin"
-    [ -x "$help_bin" ] || help_bin="$project_root/build/viz_relay"
-    if [ -x "$help_bin" ] && "$help_bin" --help 2>/dev/null | grep -q -- "--http-port"; then
-        sudo mkdir -p "$dropin_dir"
-        sudo tee "$dropin" >/dev/null <<EOF
-[Service]
-AmbientCapabilities=CAP_NET_BIND_SERVICE
-TimeoutStopSec=10
-ExecStart=
-ExecStart=$relay_bin --http-port 80
-EOF
-    else
-        # An unknown flag would put the relay in a crash loop.
-        echo "viz_relay has no --http-port yet (or is not built). Skipping the port 80 drop-in;"
-        echo "rerun this script after building."
-    fi
-
-    # ---- 7. Enable and restart ----
+    # ---- 6. Enable and restart ----
     sudo systemctl daemon-reload
     if [ "$allow_all" != true ]; then
         sudo systemctl enable "$firewall_unit"
         sudo systemctl restart "$firewall_unit"
     fi
     sudo systemctl restart avahi-daemon
-    if systemctl is-active --quiet viz_relay.service; then
-        sudo systemctl restart viz_relay.service
-    fi
 
-    # ---- 8. Verification ----
+    # ---- 7. Verification ----
     echo ""
     echo "Dashboard network setup complete. Dashboard: http://$hostname.local"
     echo "Verification:"

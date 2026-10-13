@@ -24,7 +24,7 @@
 # with no UVC camera.
 
 install_uvcvideo_rt() {
-    local service_name="auto-battlebot-uvcvideo-rt.service"
+    local service_name="uvcvideo-rt.service"
     local service_file="/etc/systemd/system/${service_name}"
     local keeper="/usr/local/sbin/auto-battlebot-uvcvideo-rt"
 

@@ -1,0 +1,30 @@
+[Unit]
+Description=Web dashboard on the robot computer's own screen
+# After= only: the script waits for the relay itself, so neither unit has to be up first.
+After=viz-relay.service display-manager.service
+
+[Service]
+Type=simple
+# Screen blanking and the GNOME on-screen keyboard off, so the page stays visible and
+# unobstructed. "-": a failure here (dbus not up yet) must not keep the page from showing.
+ExecStartPre=-/home/__USER__/auto-battlebot/service/with_display.sh /home/__USER__/auto-battlebot/service/enable_kiosk.sh
+# with_display.sh waits for the GDM session's X server at boot and leaves DISPLAY unset on a
+# headless box, where the script exits 0 and the unit stays stopped. The system python, not the
+# venv: python3-gi is built for /usr/bin/python3 only, and -I keeps $PYTHONPATH out of it.
+ExecStart=/home/__USER__/auto-battlebot/service/with_display.sh /usr/bin/python3 -I /home/__USER__/auto-battlebot/service/dashboard_kiosk.py
+WorkingDirectory=/home/__USER__/auto-battlebot
+# on-failure, not always: GTK exits nonzero when the X session goes away, and that should retry,
+# but the clean exit on a headless box should not.
+Restart=on-failure
+RestartSec=5
+User=__USER__
+SyslogIdentifier=dashboard_kiosk
+StandardOutput=journal
+StandardError=journal
+Environment="HOME=/home/__USER__"
+# %U resolves to 0 here, not to User=, which pointed dconf at /run/user/0 where this user cannot
+# write, and gsettings in enable_kiosk.sh failed. The installer substitutes the uid.
+Environment="XDG_RUNTIME_DIR=/run/user/__UID__"
+
+[Install]
+WantedBy=multi-user.target

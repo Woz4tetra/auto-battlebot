@@ -1,13 +1,18 @@
 #!/bin/bash
-# Build, install, and restart the auto_battlebot systemd service (if present).
+# Build, install, and restart the auto-battlebot systemd service (if present).
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-SERVICE_NAME="auto_battlebot"
+SERVICE_NAME="auto-battlebot"
 JOURNALD_DIR="/etc/systemd/journald.conf.d"
 JOURNALD_FILE="${JOURNALD_DIR}/99-auto-battlebot-persistent.conf"
+
+# Before anything else: a box still on the old unit names (auto_battlebot.service,
+# auto-battlebot-dashboard-wifi.service, ...) has them renamed in place, so the old and new app
+# units never run side by side.
+"$PROJECT_ROOT/install/rename_legacy_services.sh"
 
 if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
     echo "Stopping $SERVICE_NAME (was running)..."
@@ -22,10 +27,19 @@ REAL_USER="${SUDO_USER:-$USER}"
 # system unit even with User= set, which sent dconf to /run/user/0 and broke the kiosk setup.
 REAL_UID="$(id -u "$REAL_USER")"
 
+# Same test as with_display.sh: a display manager is enabled and the box boots graphical.target.
+boots_a_desktop() {
+    systemctl is-enabled display-manager.service >/dev/null 2>&1 &&
+        [ "$(systemctl get-default 2>/dev/null || true)" = "graphical.target" ]
+}
+
 # Install a unit from service/<name>.service if it isn't present or is out of date,
-# expanding the __USER__ placeholder into the invoking user's name.
+# expanding the __USER__ placeholder into the invoking user's name. --no-enable installs the
+# file without enabling it, and never disables a unit someone enabled by hand.
 install_unit() {
     local name="$1"
+    local enable=true
+    [ "${2:-}" = "--no-enable" ] && enable=false
     local service_file="/etc/systemd/system/${name}.service"
     local source_file="$SCRIPT_DIR/${name}.service"
     local staged_file
@@ -35,16 +49,28 @@ install_unit() {
         echo "Installing $name service (User=${REAL_USER})..."
         sudo cp "$staged_file" "$service_file"
         sudo systemctl daemon-reload
-        sudo systemctl enable "$name"
-        echo "Service installed and enabled."
+        if [ "$enable" = true ]; then
+            sudo systemctl enable "$name"
+            echo "Service installed and enabled."
+        else
+            echo "Service installed, not enabled."
+        fi
     fi
     rm -f "$staged_file"
 }
 
 # The relay owns the Foxglove WebSocket server and restarts on its own; the app unit only
 # orders After= it and never waits on it.
-install_unit viz_relay
+install_unit viz-relay
 install_unit "$SERVICE_NAME"
+# The dashboard on the box's own screen. Enabled only on a box that boots a desktop. A headless
+# box (the ZED Box) gets the unit file but not the enable; after adding a display there, run
+# `sudo systemctl set-default graphical.target` and `sudo systemctl enable --now dashboard-kiosk`.
+if boots_a_desktop; then
+    install_unit dashboard-kiosk
+else
+    install_unit dashboard-kiosk --no-enable
+fi
 
 # Persisted UI state (selected_profile, wifi_access). Created as the service user so it can
 # write there; the directory must exist before first boot to hand-write selected_profile when
@@ -66,7 +92,11 @@ EOF
     sudo systemctl restart systemd-journald
 fi
 
-echo "Restarting viz_relay and $SERVICE_NAME services..."
-sudo systemctl restart viz_relay
+echo "Restarting viz-relay and $SERVICE_NAME services..."
+sudo systemctl restart viz-relay
 sudo systemctl restart "$SERVICE_NAME"
+if systemctl is-enabled --quiet dashboard-kiosk 2>/dev/null; then
+    echo "Restarting dashboard-kiosk..."
+    sudo systemctl restart dashboard-kiosk
+fi
 echo "Services restarted."

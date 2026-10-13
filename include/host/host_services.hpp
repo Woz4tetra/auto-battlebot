@@ -23,7 +23,7 @@ class StatusBus;
  * network addresses the System tab shows.
  *
  * One worker thread. set_wifi_access() queues the request and returns; the worker runs
- * `systemctl start|stop auto-battlebot-dashboard-wifi.service`, which a polkit rule from
+ * `systemctl start|stop dashboard-wifi.service`, which a polkit rule from
  * install/install_dashboard_network.sh lets the app user do for that unit only. The setting
  * persists in `state_file` and is applied again at startup, so a phone reaches the box after a
  * reboot without the iPad. The worker publishes /status/network after each change and every
@@ -36,7 +36,7 @@ class HostServices {
 
     struct Options {
         std::filesystem::path state_file = default_state_file();
-        std::string wifi_unit = "auto-battlebot-dashboard-wifi.service";
+        std::string wifi_unit = "dashboard-wifi.service";
         std::chrono::milliseconds refresh_period{5000};
         SystemctlRunner run_systemctl = run_systemctl_command;
     };

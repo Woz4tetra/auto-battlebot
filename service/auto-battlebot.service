@@ -2,17 +2,13 @@
 Description=Auto BattleBot autonomous robot control
 # After= only, never Requires= or ExecStartPre=: the app must start whether or not the relay is
 # up. It connects to the relay's unix socket on its own and reconnects when the relay restarts.
-After=network.target viz_relay.service
+After=network.target viz-relay.service
 
 [Service]
 Type=simple
 # Binary from 'make install' (default prefix ~/.local). Override with:
-#   systemctl edit auto_battlebot.service  and set ExecStart=
+#   systemctl edit auto-battlebot.service  and set ExecStart=
 # Uses same layout as scripts/build_and_install.sh (default prefix ~/.local)
-# Kiosk setup (screen blanking off, GNOME on-screen keyboard off). "-" prefix:
-# ignore failures on early-boot attempts when X/dbus is not up yet; the main
-# process fails then too and Restart= retries the whole unit.
-ExecStartPre=-/home/__USER__/auto-battlebot/service/with_display.sh /home/__USER__/auto-battlebot/service/enable_kiosk.sh
 # No -c: the active profile is resolved from the UI selection (persisted outside the repo),
 # falling back to config/default_profile. See config/profiles.toml.
 # with_display.sh resolves DISPLAY from the X socket that exists. A hardcoded DISPLAY=:0 here
@@ -31,9 +27,6 @@ StandardError=journal
 # HOME would resolve it relative to WorkingDirectory (inside the repo), where the next deploy
 # wipes it.
 Environment="HOME=/home/__USER__"
-# %U resolves to 0 here, not to User=, so it pointed dconf at /run/user/0 where this user cannot
-# write and gsettings in enable_kiosk.sh failed on every boot. The installer substitutes the uid.
-Environment="XDG_RUNTIME_DIR=/run/user/__UID__"
 
 [Install]
 WantedBy=multi-user.target

@@ -52,13 +52,15 @@ The application uses **Foxglove** for visualization, **MCAP** for replay debuggi
 
 Live viewing goes through `viz_relay`, a small process that owns the Foxglove WebSocket server
 on port 8765 and stays up across app restarts (`scripts/run_viz_relay.sh`, or the
-`viz_relay.service` unit on the Jetson). Recordings use Foxglove protobuf and JSON schemas;
+`viz-relay.service` unit on the Jetson). Recordings use Foxglove protobuf and JSON schemas;
 the layout is documented in `docs/foxglove_recording_format.md`.
 
-The same relay serves a web dashboard (`web/`, Svelte) for boxes with no screen. On the ZED Box
+The same relay serves a web dashboard (`web/`, Svelte). On the ZED Box
 it is `http://<hostname>.local` over an Ethernet cable to an iPad, using the box's existing
 hostname, and `install/install_dashboard_network.sh` sets up mDNS, the link-local address, and
-the firewall. On a dev box it is `http://localhost:8080` after `scripts/build_web.sh`. Status topics
+the firewall. A box with its own screen shows the same page full screen through
+`service/dashboard-kiosk.service`, a WebKitGTK window rather than a browser. On a dev box it is
+`http://localhost:8080` after `scripts/build_web.sh`. Status topics
 and commands are one table in `include/remote/protocol.hpp`; see `docs/plans/web_ui_plan.md`.
 
 [![Foxglove demo](docs/media/foxglove-demo.gif)](https://youtu.be/qqPpfk3PQDA)

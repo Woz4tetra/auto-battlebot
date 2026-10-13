@@ -80,7 +80,8 @@ sudo nvpmodel -m 0                     # MAXN
 ```
 
 State on 2026-09-25 (box clock, UTC): the install and build are done, `auto_battlebot.service`,
-`viz_relay.service` and `zed_x_daemon.service` are running, and the service runs the
+`viz_relay.service` (renamed `auto-battlebot.service` and `viz-relay.service` on 2026-10-13) and
+`zed_x_daemon.service` are running, and the service runs the
 `mr_stabs_mk2_zed_box` profile. The field and `yolo26s-pose_d50000` `aarch64_sm87` engines were
 rebuilt on the box. The deployed tree is a copy with no `.git`.
 
@@ -101,6 +102,23 @@ rebuilt on the box. The deployed tree is a copy with no `.git`.
   **Not done yet:** `apt-mark showhold` is empty and 0 of the 49 installed `nvidia-l4t-*`
   packages are held (open issue 5).
 - `config/_zed_box.toml` runs a ZED X One S on a GMSL2 port (see open issue 3).
+
+## Display
+
+The box runs headless: it boots `multi-user.target`, no X server runs, and HDMI is unplugged.
+`service/build_and_install_service.sh` installs `dashboard-kiosk.service` here but does not
+enable it, because the box does not boot a desktop. To show the web dashboard on a screen:
+
+```bash
+sudo apt install gir1.2-webkit2-4.1      # in install/jetson_r36_packages.txt; the image has only 4.0
+sudo systemctl set-default graphical.target
+sudo systemctl enable dashboard-kiosk
+sudo reboot
+```
+
+GDM is installed, so `graphical.target` brings up an autologin X session, and the kiosk waits up to
+60 s for it. Undo with `sudo systemctl disable dashboard-kiosk` and
+`sudo systemctl set-default multi-user.target`.
 
 ## Open issues
 

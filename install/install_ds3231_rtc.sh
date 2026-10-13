@@ -11,7 +11,7 @@ install_ds3231_rtc() {
     local i2c_address="${2:-0x68}"
     local modules_file="/etc/modules-load.d/auto-battlebot-rtc.conf"
     local init_script="/usr/local/sbin/auto-battlebot-ds3231-init.sh"
-    local service_file="/etc/systemd/system/auto-battlebot-ds3231.service"
+    local service_file="/etc/systemd/system/ds3231.service"
     local i2c_adapter="/sys/class/i2c-adapter/i2c-${i2c_bus}"
     local addr_hex addr_dec device_key device_path
 
@@ -21,7 +21,7 @@ install_ds3231_rtc() {
     device_path="/sys/bus/i2c/devices/${device_key}"
 
     if [ -x "$init_script" ] && [ -f "$service_file" ] && [ -e "$device_path" ] \
-        && systemctl is-enabled --quiet auto-battlebot-ds3231.service; then
+        && systemctl is-enabled --quiet ds3231.service; then
         echo "DS3231 RTC setup already installed and enabled; skipping."
         return
     fi
@@ -100,8 +100,8 @@ WantedBy=sysinit.target
 EOF
 
     sudo systemctl daemon-reload
-    sudo systemctl enable auto-battlebot-ds3231.service
-    sudo systemctl restart auto-battlebot-ds3231.service
+    sudo systemctl enable ds3231.service
+    sudo systemctl restart ds3231.service
 
     echo "Running one-time synchronization..."
     sudo hwclock --hctosys --utc || echo "Warning: hwclock --hctosys failed (clock may be unset)."

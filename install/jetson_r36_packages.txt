@@ -5,3 +5,8 @@
 # matching headers, or scripts/lint fails with "'array' file not found". Same
 # reason ubuntu_22_packages.txt lists it: gcc-12 arrives as a transitive dep.
 libstdc++-12-dev
+
+# WebKitGTK 4.1 and its Python bindings for service/dashboard_kiosk.py. The JetPack 6 image ships
+# only the 4.0 bindings. The ZED Box is headless, so the kiosk unit is installed but not enabled.
+gir1.2-webkit2-4.1
+python3-gi

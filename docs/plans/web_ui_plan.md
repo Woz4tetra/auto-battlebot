@@ -209,10 +209,10 @@ while the app is down.
 with `getifaddrs()` every 5 s rather than spawning `nmcli`. The System tab shows it, and the QR
 code for the phone encodes `http://<wifi_address>` from it.
 
-Battery is not in the first cut. The SOC estimator is polled from LVGL code
-(`src/ui/lvgl_platform_bound/lvgl_ui_battery.cpp`), and the ZED Box may have no Waveshare UPS.
-If it needs one, the estimator moves to a service owned by `main.cpp` and publishes
-`/status/battery` at 1 Hz.
+`/status/battery` comes from `BatteryMonitor` (`src/battery/`), which `main.cpp` creates when
+`[battery] source` is not `NONE`. It reads the Waveshare UPS's INA219 once a second on its own
+thread, logs the `battery_ina219` diagnostics, and the header shows the percent. On a box with no
+source the topic never arrives and the header leaves the cell out.
 
 ### StatusBus
 
@@ -308,7 +308,7 @@ closes them on the Wi-Fi interface, so the phone can reach the box during testin
 
 - `include/host/host_services.hpp`: `HostServices` owns one worker thread. `set_wifi_access`
   queues the request and returns, and the worker runs
-  `systemctl start|stop auto-battlebot-dashboard-wifi.service`. The perception loop never waits
+  `systemctl start|stop dashboard-wifi.service`. The perception loop never waits
   on a subprocess.
 - The app user may start and stop that one unit through a polkit rule the install script writes.
   The app never gets root and never runs `nft` itself.
@@ -473,8 +473,8 @@ Crow runs inside `viz_relay` next to the Foxglove server.
   address instead would fail at boot whenever the cable is unplugged, because the address only
   exists with carrier. On the ZED Box, a firewall table limits the dashboard ports to the
   Ethernet port instead (see "Dashboard URL" below).
-- Port 80 on the ZED Box, set by the install script's `viz_relay.service` drop-in. The dev box
-  keeps the default 8080, which needs no capability.
+- Port 80 on every deployed box, set in `service/viz-relay.service`. The dev box keeps the
+  default 8080, which needs no capability.
 
 Dependencies: Crow v1.2.x and standalone Asio by `FetchContent`, linked to `viz_relay` only.
 The app binary does not get Crow. How Crow's CMake finds Asio is unverified. If it wants
@@ -691,10 +691,10 @@ Steps:
      anything arriving on `@allowed_ifaces` and drops TCP 80 and 8765 from everything else.
    - The file starts with the declare-then-delete idiom, so reloading replaces the table
      instead of failing on one that already exists.
-   - Loaded by the oneshot `auto-battlebot-dashboard-firewall.service`:
+   - Loaded by the oneshot `dashboard-firewall.service`:
      `Before=network-pre.target`, `ExecStart=nft -f ...`, and `ExecStop` deletes the table.
    - This keeps reboot and power off unreachable over Wi-Fi until someone turns Wi-Fi access on.
-   - `auto-battlebot-dashboard-wifi.service`, a oneshot with `RemainAfterExit=yes`,
+   - `dashboard-wifi.service`, a oneshot with `RemainAfterExit=yes`,
      `Requires=` and `After=` the firewall service. `ExecStart` adds the Wi-Fi interface to
      `allowed_ifaces` with `nft add element`, and `ExecStop` removes it. The unit is not enabled:
      the app starts it at boot when the saved setting says so.
@@ -703,10 +703,9 @@ Steps:
      and nothing else. JetPack 7 is Ubuntu 24.04, whose polkit reads JavaScript rules files.
    - With `--allow-all-interfaces`, the script disables both services, removes the polkit rule,
      and deletes the table if an earlier run installed them.
-6. **Port 80 for viz_relay.** The drop-in
-   `/etc/systemd/system/viz_relay.service.d/dashboard.conf` sets
-   `AmbientCapabilities=CAP_NET_BIND_SERVICE` and replaces `ExecStart` with
-   `~/.local/bin/viz_relay --http-port 80`, using the invoking user's home from `SUDO_USER`.
+6. **Port 80 for viz_relay.** `service/viz-relay.service` sets
+   `AmbientCapabilities=CAP_NET_BIND_SERVICE` and runs `~/.local/bin/viz_relay --http-port 80`.
+   This was a drop-in written by the install script until 2026-10-13.
    - The capability lives in the unit, so rebuilding or reinstalling `viz_relay` doesn't drop
      it. `setcap` on the binary would, because `cmake --install` copies a fresh file.
    - The relay never runs as root.
@@ -719,7 +718,7 @@ Steps:
    - `avahi-resolve -4 -n <hostname>.local` prints the box's addresses.
    - `sudo nft list set inet auto_battlebot_dashboard allowed_ifaces` shows `lo`, `tailscale0`, and the
      Ethernet port.
-   - `sudo -u <user> systemctl start auto-battlebot-dashboard-wifi.service` succeeds without a
+   - `sudo -u <user> systemctl start dashboard-wifi.service` succeeds without a
      password prompt, which proves the polkit rule.
    - On the iPad: Settings > Ethernet shows a self-assigned `169.254.x.x` address, and Safari
      opens the URL.

@@ -3,7 +3,7 @@
 # Default prefix: <project>/install (executable -> install/bin/auto_battlebot,
 # config -> install/share/auto_battlebot/config/). No sudo required.
 # Override prefix: PREFIX=/usr/local scripts/build_and_install.sh  (requires sudo for system install)
-# The systemd service (service/auto_battlebot.service) uses /usr/local by default;
+# The systemd service (service/auto-battlebot.service) uses /usr/local by default;
 # point ExecStart at install/bin/auto_battlebot if using the default project install.
 
 set -e

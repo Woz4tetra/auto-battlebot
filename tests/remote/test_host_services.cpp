@@ -68,7 +68,7 @@ TEST_F(HostServicesTest, SetWifiAccessDoesNotWaitForSystemctl) {
     host.set_wifi_access(true);
     EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::milliseconds(50));
     ASSERT_TRUE(wait_for([&] { return host.wifi_access(); }));
-    EXPECT_EQ(fake.calls.front(), "start auto-battlebot-dashboard-wifi.service");
+    EXPECT_EQ(fake.calls.front(), "start dashboard-wifi.service");
 }
 
 TEST_F(HostServicesTest, SettingPersistsAndIsAppliedAtStartup) {
@@ -86,7 +86,7 @@ TEST_F(HostServicesTest, SettingPersistsAndIsAppliedAtStartup) {
     FakeSystemctl fake;
     HostServices host(options(fake), nullptr);
     ASSERT_TRUE(wait_for([&] { return host.wifi_access(); }));
-    EXPECT_EQ(fake.calls.front(), "start auto-battlebot-dashboard-wifi.service");
+    EXPECT_EQ(fake.calls.front(), "start dashboard-wifi.service");
 }
 
 TEST_F(HostServicesTest, FailedSystemctlKeepsTheOldSetting) {

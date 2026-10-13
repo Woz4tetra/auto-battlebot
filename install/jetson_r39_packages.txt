@@ -5,3 +5,8 @@
 # matching headers, or scripts/lint fails with "'array' file not found". Same
 # reason ubuntu_24_packages.txt lists it.
 libstdc++-14-dev
+
+# WebKitGTK and its Python bindings for service/dashboard_kiosk.py, which shows the web dashboard
+# on the box's screen. The Ubuntu desktop already ships both; listed so a minimal image gets them.
+gir1.2-webkit2-4.1
+python3-gi

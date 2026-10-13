@@ -6,7 +6,7 @@
 # clearly attributed to this service.
 
 install_jetson_clocks() {
-    local service_name="auto-battlebot-jetson-clocks.service"
+    local service_name="jetson-clocks.service"
     local service_file="/etc/systemd/system/${service_name}"
     local jetson_clocks_bin="/usr/bin/jetson_clocks"
 
