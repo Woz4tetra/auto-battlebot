@@ -11,10 +11,18 @@ namespace {
 // In preference order. FFmpeg's names are tried before GStreamer's because the desktop's NVENC
 // lives there; on the Jetsons the GStreamer element is the one that opens.
 constexpr const char *kFfmpegHardware[] = {"h264_nvenc", "h264_nvv4l2m2m"};
-#ifndef __aarch64__
-// Software, x86 only. On the Orin it cannot hold 60 fps and takes the cores perception needs.
+// Software. On the Orin it cannot hold a recording's 60 fps and takes the cores perception needs,
+// so there it is only for the preview (VideoEncoderOptions::software_preview).
 constexpr const char *kFfmpegSoftware = "libx264";
+
+bool software_allowed(const VideoEncoderOptions &options) {
+#ifdef __aarch64__
+    return options.software_preview;
+#else
+    (void)options;
+    return true;
 #endif
+}
 }  // namespace
 
 VideoEncoder::VideoEncoder() = default;
@@ -28,8 +36,12 @@ std::string VideoEncoder::candidate_names() {
 #ifdef AUTO_BATTLEBOT_HAVE_GSTREAMER
     names += ", GStreamer nvv4l2h264enc";
 #endif
-#ifndef __aarch64__
     names += std::string(", FFmpeg ") + kFfmpegSoftware;
+#ifdef AUTO_BATTLEBOT_HAVE_GSTREAMER
+    names += ", GStreamer x264enc";
+#endif
+#ifdef __aarch64__
+    names += " (software: preview only)";
 #endif
     return names;
 }
@@ -65,9 +77,13 @@ bool VideoEncoder::start(const VideoEncoderOptions &options, PacketSink sink,
 #ifdef AUTO_BATTLEBOT_HAVE_GSTREAMER
     if (!backend_ && !factory) backend_ = open_gst_nvv4l2_h264(options_, deliver_packet);
 #endif
-#ifndef __aarch64__
-    if (!backend_ && !factory) {
+    if (!backend_ && !factory && software_allowed(options_)) {
         backend_ = open_ffmpeg_h264(kFfmpegSoftware, options_, deliver_packet);
+    }
+#ifdef AUTO_BATTLEBOT_HAVE_GSTREAMER
+    // NVIDIA's FFmpeg on JetPack 7 has no libx264; GStreamer's x264enc stands in.
+    if (!backend_ && !factory && software_allowed(options_)) {
+        backend_ = open_gst_x264(options_, deliver_packet);
     }
 #endif
     if (!backend_) {
@@ -94,6 +110,13 @@ bool VideoEncoder::hardware_encoder_available() {
     if (gst_nvv4l2_h264_installed()) return true;
 #endif
     return false;
+}
+
+bool VideoEncoder::software_encoder_available() {
+#ifdef AUTO_BATTLEBOT_HAVE_GSTREAMER
+    if (gst_x264_installed()) return true;
+#endif
+    return ffmpeg_h264_registered(kFfmpegSoftware);
 }
 
 void VideoEncoder::stop() {

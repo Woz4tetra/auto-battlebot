@@ -10,3 +10,6 @@ libstdc++-14-dev
 # on the box's screen. The Ubuntu desktop already ships both; listed so a minimal image gets them.
 gir1.2-webkit2-4.1
 python3-gi
+# avdec_h264, which the kiosk's WebKit decodes the H.264 camera preview with. See
+# service/dashboard-kiosk.service.
+gstreamer1.0-libav

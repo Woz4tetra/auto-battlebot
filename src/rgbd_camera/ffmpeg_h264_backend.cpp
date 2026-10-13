@@ -47,8 +47,11 @@ class FfmpegH264Backend : public H264Backend {
         context_->gop_size = options_.keyframe_interval;
         context_->max_b_frames = 0;
         if (name_ == "libx264") {
-            av_opt_set(context_->priv_data, "preset", "veryfast", 0);
+            // The preview shares the CPU with perception: the cheapest preset, on one core.
+            av_opt_set(context_->priv_data, "preset",
+                       options_.software_preview ? "ultrafast" : "veryfast", 0);
             av_opt_set(context_->priv_data, "tune", "zerolatency", 0);
+            if (options_.software_preview) context_->thread_count = 1;
         }
         // A forced keyframe is an IDR, not just an I-frame, so a new viewer can decode from it.
         // Encoders without the option ignore it.

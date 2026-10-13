@@ -70,8 +70,8 @@ class FoxglovePublisher : public PublisherInterface {
     OutputChannel keypoint_annotations_;
     /** Downscaled JPEG for the web dashboard. Live only, never recorded. */
     OutputChannel preview_image_;
-    /** H.264 preview from NVENC. Only created when FFmpeg has a hardware H.264 encoder: software
-     *  H.264 on the Orin CPU costs more than the NVJPG JPEG preview it would replace. */
+    /** H.264 preview: NVENC where the box has it, libx264 at ultrafast on one thread where it does
+     *  not (the Orin Nano). Created when either can open. */
     std::unique_ptr<OutputChannel> preview_video_;
 
     FoxglovePublisherConfiguration config_;

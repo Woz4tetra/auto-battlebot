@@ -22,6 +22,10 @@ SyslogIdentifier=dashboard_kiosk
 StandardOutput=journal
 StandardError=journal
 Environment="HOME=/home/__USER__"
+# WebKit's WebCodecs decoder takes the highest-ranked GStreamer H.264 element. nvv4l2decoder
+# (primary + 11) wins and then decodes nothing: the camera tile sat 2 s without a frame and fell
+# back to JPEG. With it out, avdec_h264 (gstreamer1.0-libav) decodes the 640x360 preview.
+Environment="GST_PLUGIN_FEATURE_RANK=nvv4l2decoder:NONE"
 # %U resolves to 0 here, not to User=, which pointed dconf at /run/user/0 where this user cannot
 # write, and gsettings in enable_kiosk.sh failed. The installer substitutes the uid.
 Environment="XDG_RUNTIME_DIR=/run/user/__UID__"

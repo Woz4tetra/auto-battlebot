@@ -43,5 +43,10 @@ bool ffmpeg_h264_registered(const std::string &codec);
 std::unique_ptr<H264Backend> open_gst_nvv4l2_h264(const VideoEncoderOptions &options,
                                                   H264Backend::PacketSink sink);
 bool gst_nvv4l2_h264_installed();
+/** x264enc through GStreamer: the preview's software encoder where FFmpeg has no libx264, which is
+ *  NVIDIA's FFmpeg build on JetPack 7. */
+std::unique_ptr<H264Backend> open_gst_x264(const VideoEncoderOptions &options,
+                                           H264Backend::PacketSink sink);
+bool gst_x264_installed();
 #endif
 }  // namespace auto_battlebot

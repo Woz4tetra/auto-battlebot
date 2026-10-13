@@ -111,7 +111,9 @@ FoxglovePublisher::FoxglovePublisher(std::shared_ptr<VizSink> sink,
       image_worker_(make_jpeg_worker("camera_image", rgb_image_, kFullImageJpegQuality)),
       preview_worker_(
           make_jpeg_worker("camera_preview", preview_image_, config_.preview_jpeg_quality)) {
-    if (sink_ && config_.preview_width > 0 && VideoEncoder::hardware_encoder_available()) {
+    if (sink_ && config_.preview_width > 0 &&
+        (VideoEncoder::hardware_encoder_available() ||
+         VideoEncoder::software_encoder_available())) {
         preview_video_ = std::make_unique<OutputChannel>("/camera/preview_video", "protobuf",
                                                          sdk_schema<CompressedVideo>(), kUnlatched,
                                                          sink_, nullptr);
@@ -139,6 +141,7 @@ void FoxglovePublisher::submit_preview_video(const cv::Mat &frame, uint64_t log_
         options.bitrate = static_cast<int64_t>(config_.preview_video_bitrate_kbps) * 1000;
         options.keyframe_interval = kPreviewVideoFps;
         options.input_format = VideoInputFormat::BGR;
+        options.software_preview = true;
         OutputChannel *channel = preview_video_.get();
         const bool started = preview_video_encoder_.start(
             options, [channel](const std::byte *data, size_t len, uint64_t log_time_ns, bool) {
@@ -150,13 +153,12 @@ void FoxglovePublisher::submit_preview_video(const cv::Mat &frame, uint64_t log_
                 message.data.assign(data, data + len);
                 channel->log_message(message, log_time_ns);
             });
-        if (!started || preview_video_encoder_.codec_name() == "libx264") {
-            spdlog::warn("Preview video off: no hardware H.264 encoder opened ({})",
-                         preview_video_encoder_.codec_name());
-            preview_video_encoder_.stop();
+        if (!started) {
+            spdlog::warn("Preview video off: no H.264 encoder opened");
             preview_video_failed_ = true;
             return;
         }
+        spdlog::info("Preview video: {}", preview_video_encoder_.codec_name());
     }
     preview_video_encoder_.submit(frame, log_time);
 }

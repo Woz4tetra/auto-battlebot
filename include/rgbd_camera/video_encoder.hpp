@@ -36,16 +36,20 @@ struct VideoEncoderOptions {
      *  a revised calibration can be applied to footage already shot. The ZED X One hands over
      *  BGRA, which the Jetson's nvvidconv takes directly; it has no 3-channel BGR input. */
     VideoInputFormat input_format = VideoInputFormat::UYVY;
+    /** The 640-wide dashboard preview, not a recording. It may fall back to libx264 on aarch64
+     *  too, at the ultrafast preset on one thread: the Orin Nano has no NVENC, and there libx264
+     *  costs about 9% of one core at 640x360 30 fps. */
+    bool software_preview = false;
 };
 
 /**
  * @brief H.264 encoder on its own thread, writing one Annex-B access unit per frame.
  *
  * Encoder selection is FFmpeg's h264_nvenc (desktop), FFmpeg's h264_nvv4l2m2m, GStreamer's
- * nvv4l2h264enc (Jetson hardware encoder), then libx264 on x86 only. A candidate counts only if it
- * opens: the ZED Box's stock FFmpeg registers h264_nvenc, which cannot open without
- * libnvidia-encode. There is no software fallback on aarch64, where libx264 managed 39-43 fps at
- * 1920x1200 on all eight Orin cores and would starve perception.
+ * nvv4l2h264enc (Jetson hardware encoder), then libx264 (FFmpeg, else GStreamer x264enc). A
+ * candidate counts only if it opens: the ZED Box's stock FFmpeg registers h264_nvenc, which cannot
+ * open without libnvidia-encode. On aarch64 libx264 is only for `software_preview`: at 1920x1200 it
+ * managed 39-43 fps on all eight Orin cores and would starve perception.
  *
  * B-frames are off: they reorder PTS, and both `start_frame` on playback and reading `log_time` as
  * the capture instant depend on the nth message being the nth captured frame.
@@ -91,6 +95,10 @@ class VideoEncoder {
      *  GStreamer nvv4l2h264enc), so start() would not fall through to libx264. It does not prove
      *  the encoder opens. */
     static bool hardware_encoder_available();
+
+    /** True when FFmpeg's libx264 or GStreamer's x264enc is installed: the fallback a
+     *  `software_preview` encoder can use. */
+    static bool software_encoder_available();
 
     /** Every candidate start() tries on this build, in order, for error messages. */
     static std::string candidate_names();
