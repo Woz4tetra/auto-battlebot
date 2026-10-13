@@ -63,6 +63,20 @@ VizSchema empty_json_schema() {
     return schema;
 }
 
+}  // namespace
+
+struct McapRecorderTestAccess {
+    static void hold_writer(McapRecorder &recorder, bool hold) {
+        {
+            std::lock_guard<std::mutex> lock(recorder.mutex_);
+            recorder.writer_held_ = hold;
+        }
+        recorder.work_cv_.notify_all();
+    }
+};
+
+namespace {
+
 class McapRecorderToggleTest : public ::testing::Test {
    protected:
     void TearDown() override {
@@ -255,6 +269,42 @@ TEST_F(McapRecorderToggleTest, CloseIsFinal) {
     recorder.close();
     EXPECT_FALSE(recorder.set_enabled(true));
     EXPECT_EQ(recorder.file_path(), paths_.front());
+}
+
+// A disk that falls behind fills the queue. Video (over kLargeMessageBytes) stops at its lower cap
+// and is dropped; status and log messages still fit under the higher one and all arrive.
+TEST_F(McapRecorderToggleTest, FullQueueDropsVideoAndKeepsStatus) {
+    McapRecorder recorder("toggle_cap_test");
+    const auto video = recorder.open_channel("/camera/video", "json", empty_json_schema());
+    const auto status = recorder.open_channel("/status/system", "json", empty_json_schema());
+    const std::filesystem::path path = recorder.file_path();
+    paths_.push_back(path);
+    recorder.flush();  // The file is open before the writer is held.
+
+    McapRecorderTestAccess::hold_writer(recorder, true);
+    const std::vector<std::byte> frame(1 << 20, std::byte{0x11});
+    const std::string small = "{}";
+    constexpr int kFrames = 200;
+    constexpr int kStatusPerFrame = 5;
+    for (int i = 0; i < kFrames; ++i) {
+        recorder.write(video, frame.data(), frame.size(), 1 + i);
+        for (int j = 0; j < kStatusPerFrame; ++j) {
+            recorder.write(status, reinterpret_cast<const std::byte *>(small.data()), small.size(),
+                           1 + i);
+        }
+    }
+    // The cap counts every queued byte, the status messages too, so one frame fewer than
+    // kMaxQueuedLargeBytes / 1 MiB fits.
+    const uint64_t frames_that_fit = McapRecorder::kMaxQueuedLargeBytes / frame.size() - 1;
+    EXPECT_EQ(recorder.dropped_messages(), kFrames - frames_that_fit);
+
+    McapRecorderTestAccess::hold_writer(recorder, false);
+    recorder.set_enabled(false);
+    recorder.flush();
+    FileContents contents = read_file(path);
+    EXPECT_EQ(contents.count_by_topic["/camera/video"], static_cast<int>(frames_that_fit));
+    EXPECT_EQ(contents.count_by_topic["/status/system"], kFrames * kStatusPerFrame);
+    recorder.close();
 }
 
 }  // namespace

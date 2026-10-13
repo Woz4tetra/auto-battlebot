@@ -97,7 +97,12 @@ class McapRecorder {
      *  before the writer thread has created it. */
     std::filesystem::path file_path() const;
 
+    /** Messages write() refused because the queue was at its cap. */
+    uint64_t dropped_messages() const;
+
    private:
+    friend struct McapRecorderTestAccess;
+
     struct OpenOp {
         std::filesystem::path path;
         /** Snapshot at the toggle, so a key added after it arrives once, as its own MetadataOp. */
@@ -160,6 +165,8 @@ class McapRecorder {
     std::atomic<bool> enabled_hint_{false};
     /** Set by close(): shutdown, after which a late UI toggle must not start a new file. */
     bool closed_for_good_ = false;
+    /** Tests only: the writer thread takes no batch while set, like a disk that stopped. */
+    bool writer_held_ = false;
     std::filesystem::path file_path_;
     std::unordered_set<std::string> issued_paths_;
     std::vector<ChannelSpec> channel_specs_;

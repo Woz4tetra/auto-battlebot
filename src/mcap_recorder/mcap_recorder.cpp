@@ -218,6 +218,11 @@ void McapRecorder::write(ChannelId channel, const std::byte* data, size_t len,
     work_cv_.notify_one();
 }
 
+uint64_t McapRecorder::dropped_messages() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return dropped_messages_;
+}
+
 void McapRecorder::write_metadata(const std::string& key, const std::string& value) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -242,7 +247,7 @@ void McapRecorder::writer_loop() {
         uint64_t batch_seq = 0;
         {
             std::unique_lock<std::mutex> lock(mutex_);
-            work_cv_.wait(lock, [this] { return stop_ || !queue_.empty(); });
+            work_cv_.wait(lock, [this] { return stop_ || (!queue_.empty() && !writer_held_); });
             if (queue_.empty()) break;
             batch.swap(queue_);
             // queued_bytes_ keeps counting the batch until it is written, so the cap bounds
