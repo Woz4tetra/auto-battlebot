@@ -28,6 +28,16 @@ void SvoRecorder::set_desired(bool enabled) { desired_.store(enabled); }
 bool SvoRecorder::desired() const { return desired_.load(); }
 
 bool SvoRecorder::start() {
+    std::lock_guard<std::mutex> lifecycle(lifecycle_mutex_);
+    return start_locked();
+}
+
+void SvoRecorder::stop() {
+    std::lock_guard<std::mutex> lifecycle(lifecycle_mutex_);
+    stop_locked();
+}
+
+bool SvoRecorder::start_locked() {
     std::filesystem::create_directories(holding_dir_);
     enforce_holding_dir_size();
 
@@ -47,12 +57,11 @@ bool SvoRecorder::start() {
         frame_index_ = -1;
     }
     desired_.store(true);
-    frames_since_size_check_ = 0;
     spdlog::info("SVO recording started: {}", path);
     return true;
 }
 
-void SvoRecorder::stop() {
+void SvoRecorder::stop_locked() {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (current_path_.empty()) {
@@ -102,10 +111,16 @@ SvoRecorder::FrameRef SvoRecorder::on_frame_grabbed() {
 
     std::error_code ec;
     auto file_size = std::filesystem::file_size(active_path, ec);
-    if (!ec && file_size >= max_size_bytes_) {
-        stop();
-        start();
-    }
+    if (ec || file_size < max_size_bytes_) return frame;
+
+    // A toggle in progress owns the file; check again at the next interval rather than block
+    // the capture thread on it.
+    std::unique_lock<std::mutex> lifecycle(lifecycle_mutex_, std::try_to_lock);
+    if (!lifecycle.owns_lock()) return frame;
+    // Turned off, or already cut, since the size check: rolling over would restart it.
+    if (!desired_.load() || current_path() != active_path.string()) return frame;
+    stop_locked();
+    start_locked();
     return frame;
 }
 

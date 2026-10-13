@@ -17,8 +17,9 @@ namespace auto_battlebot {
  * large, and rolling the active file over once it exceeds the size cap.
  *
  * Threading: set_desired()/start()/stop() are driven from the runner thread;
- * on_frame_grabbed() runs on the capture thread. Both may call into the same
- * sl::Camera handle, matching the pre-existing usage pattern.
+ * on_frame_grabbed() runs on the capture thread. Both call into the same sl::Camera
+ * handle. lifecycle_mutex_ serializes start, stop and the size rollover, so a toggle
+ * cannot land between the rollover's stop and its start.
  */
 class SvoRecorder {
    public:
@@ -66,6 +67,9 @@ class SvoRecorder {
    private:
     std::string generate_filename() const;
     void enforce_holding_dir_size();
+    /** Caller holds lifecycle_mutex_. */
+    bool start_locked();
+    void stop_locked();
 
     sl::Camera &camera_;
     std::filesystem::path holding_dir_;
@@ -73,8 +77,12 @@ class SvoRecorder {
     uint64_t holding_dir_max_size_bytes_;
 
     std::atomic<bool> desired_{false};
+    /** Held across the SDK calls in start, stop and rollover. Never taken per frame. */
+    std::mutex lifecycle_mutex_;
+    /** Guards current_path_ and frame_index_; held briefly, never across an SDK call. */
     mutable std::mutex mutex_;
     std::filesystem::path current_path_;
+    /** Capture thread only. */
     uint64_t frames_since_size_check_ = 0;
     /// Index of the last frame written to current_path_; -1 before the first frame of a file.
     int64_t frame_index_ = -1;
