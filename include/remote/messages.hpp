@@ -34,10 +34,13 @@ struct SystemStatusMessage {
     std::optional<bool> autonomy_switch_on;
     /** Seconds since that switch last went on; absent while it is off. */
     std::optional<double> autonomy_on_s;
+    /** Seconds since the current MCAP file started; absent while MCAP recording is off. */
+    std::optional<double> mcap_file_s;
     AB_JSON_MESSAGE(SystemStatusMessage, "auto_battlebot.status.System", camera_ok,
                     transmitter_connected, transmitter_receiving, loop_rate_hz, initialized,
                     selected_opponent_count, autonomy_enabled, svo_recording, mcap_recording,
-                    jetson_temperature_c, compute_mode, uptime_s, autonomy_switch_on, autonomy_on_s)
+                    jetson_temperature_c, compute_mode, uptime_s, autonomy_switch_on, autonomy_on_s,
+                    mcap_file_s)
 };
 
 /** A model label and the color it is drawn in, from [ui.label_colors]. */

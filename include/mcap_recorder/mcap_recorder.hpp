@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
@@ -100,6 +101,10 @@ class McapRecorder {
     /** Messages write() refused because the queue was at its cap. */
     uint64_t dropped_messages() const;
 
+    /** Seconds since the current file started, or empty while recording is off. A rollover
+     *  starts a new file, so this restarts from 0. */
+    std::optional<double> file_age_s() const;
+
    private:
     friend struct McapRecorderTestAccess;
 
@@ -168,6 +173,7 @@ class McapRecorder {
     /** Tests only: the writer thread takes no batch while set, like a disk that stopped. */
     bool writer_held_ = false;
     std::filesystem::path file_path_;
+    std::chrono::steady_clock::time_point file_started_{};
     std::unordered_set<std::string> issued_paths_;
     std::vector<ChannelSpec> channel_specs_;
     std::unordered_map<std::string, ChannelId> channel_by_topic_;

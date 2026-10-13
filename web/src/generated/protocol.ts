@@ -10,6 +10,7 @@ export interface SystemStatus {
   initialized: boolean;
   jetson_temperature_c?: number;
   loop_rate_hz: number;
+  mcap_file_s?: number;
   mcap_recording: boolean;
   selected_opponent_count: number;
   svo_recording: boolean;

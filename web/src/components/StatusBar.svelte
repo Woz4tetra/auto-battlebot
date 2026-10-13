@@ -10,9 +10,11 @@
       ? Math.round(status.system.jetson_temperature_c).toString()
       : "--",
   );
+  // The current MCAP file's length, so it restarts at a rollover and survives a page reload.
   const recTime = $derived.by(() => {
-    if (!status.recording || status.recordingSince === null) return "OFF";
-    const s = Math.max(0, Math.floor((status.now - status.recordingSince) / 1000));
+    const since = status.mcapFileSince ?? status.recordingSince;
+    if (!status.recording || since === null) return "OFF";
+    const s = Math.max(0, Math.floor((status.now - since) / 1000));
     const mm = Math.floor(s / 60);
     return `${String(mm).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
   });

@@ -92,6 +92,7 @@ bool McapRecorder::start_file_locked(std::filesystem::path& refused) {
         return false;
     }
     file_path_ = path;
+    file_started_ = std::chrono::steady_clock::now();
     push_locked(OpenOp{std::move(path), metadata_}, 0);
     enabled_ = true;
     enabled_hint_.store(true);
@@ -137,6 +138,12 @@ bool McapRecorder::is_enabled() const {
 bool McapRecorder::records_topic(const std::string& topic) const {
     std::lock_guard<std::mutex> lock(mutex_);
     return enabled_ && ignored_topics_.count(topic) == 0;
+}
+
+std::optional<double> McapRecorder::file_age_s() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!enabled_) return std::nullopt;
+    return std::chrono::duration<double>(std::chrono::steady_clock::now() - file_started_).count();
 }
 
 std::filesystem::path McapRecorder::file_path() const {

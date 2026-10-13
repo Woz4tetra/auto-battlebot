@@ -263,6 +263,23 @@ TEST_F(McapRecorderToggleTest, FlushWaitsForQueuedWrites) {
     recorder.close();
 }
 
+// The web page's recording timer shows this, so it counts from the current file's start.
+TEST_F(McapRecorderToggleTest, FileAgeRestartsWithEachFile) {
+    McapRecorder recorder("toggle_test");
+    paths_.push_back(recorder.file_path());
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    ASSERT_TRUE(recorder.file_age_s().has_value());
+    EXPECT_GE(*recorder.file_age_s(), 0.2);
+
+    ASSERT_TRUE(recorder.set_enabled(false));
+    EXPECT_FALSE(recorder.file_age_s().has_value());
+    ASSERT_TRUE(recorder.set_enabled(true));
+    paths_.push_back(recorder.file_path());
+    ASSERT_TRUE(recorder.file_age_s().has_value());
+    EXPECT_LT(*recorder.file_age_s(), 0.2);
+    recorder.close();
+}
+
 TEST_F(McapRecorderToggleTest, CloseIsFinal) {
     McapRecorder recorder("toggle_test");
     paths_.push_back(recorder.file_path());

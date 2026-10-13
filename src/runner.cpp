@@ -113,6 +113,7 @@ void Runner::publish_system_status(bool camera_ok, double loop_rate_hz) const {
         message.autonomy_switch_on = status.transmitter.autonomy_switch_on;
     }
     message.autonomy_on_s = autonomy_on_s();
+    if (mcap_recorder_) message.mcap_file_s = mcap_recorder_->file_age_s();
     remote_.status->publish(message);
     remote_.status->publish(remote_.app_info);
 }
