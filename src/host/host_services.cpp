@@ -9,8 +9,12 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <cerrno>
+#include <chrono>
+#include <csignal>
 #include <cstdlib>
 #include <fstream>
+#include <thread>
 
 #include "remote/status_bus.hpp"
 
@@ -58,13 +62,32 @@ std::filesystem::path HostServices::default_state_file() {
 
 int HostServices::run_systemctl_command(const std::string& verb, const std::string& unit) {
     // posix_spawn rather than std::system: no shell, and no fork of a process holding CUDA and
-    // camera threads.
-    std::string arg0 = "systemctl", arg1 = "--no-ask-password", arg2 = verb, arg3 = unit;
-    char* argv[] = {arg0.data(), arg1.data(), arg2.data(), arg3.data(), nullptr};
+    // camera threads. --no-block queues the job and returns: a plain start waits for the unit to
+    // finish starting, and the destructor joins this thread, so a slow unit held up app exit
+    // for up to systemd's 90 s. Errors that matter here (no such unit, polkit refusal) still
+    // come back as a nonzero exit.
+    std::string arg0 = "systemctl", arg1 = "--no-ask-password", arg2 = "--no-block", arg3 = verb,
+                arg4 = unit;
+    char* argv[] = {arg0.data(), arg1.data(), arg2.data(), arg3.data(), arg4.data(), nullptr};
     pid_t pid = 0;
     if (::posix_spawnp(&pid, "systemctl", nullptr, nullptr, argv, environ) != 0) return -1;
+    // Backstop for a systemctl that hangs on D-Bus.
+    constexpr auto kTimeout = std::chrono::seconds(10);
+    const auto deadline = std::chrono::steady_clock::now() + kTimeout;
     int status = 0;
-    if (::waitpid(pid, &status, 0) < 0) return -1;
+    while (true) {
+        const pid_t done = ::waitpid(pid, &status, WNOHANG);
+        if (done == pid) break;
+        if (done < 0 && errno != EINTR) return -1;
+        if (std::chrono::steady_clock::now() >= deadline) {
+            spdlog::warn("systemctl {} {} did not return in {} s; killing it", verb, unit,
+                         kTimeout.count());
+            ::kill(pid, SIGKILL);
+            ::waitpid(pid, &status, 0);
+            return -1;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
     return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 }
 
