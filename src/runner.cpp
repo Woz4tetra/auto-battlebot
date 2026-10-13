@@ -508,10 +508,19 @@ int Runner::run() {
         }
         if (!control_loop_->is_healthy()) {
             // A stalled control loop leaves the robot executing its last command. Cut autonomy
-            // rather than trusting a loop that has missed its deadline.
-            spdlog::error("Control loop missed its watchdog deadline; disabling autonomy.");
+            // rather than trusting a loop that has missed its deadline. Logged on the change
+            // only: once per tick put 60 errors a second into the MCAP's /log.
+            if (!control_loop_stalled_) {
+                spdlog::error("Control loop missed its watchdog deadline; disabling autonomy.");
+                control_loop_stalled_ = true;
+                control_loop_stalled_since_ = tick_start;
+            }
             autonomy_enabled_ = false;
             control_loop_->set_autonomy_enabled(false);
+        } else if (control_loop_stalled_) {
+            spdlog::warn("Control loop is cycling again after {:.0f} ms; autonomy stays off.",
+                         ms_since(control_loop_stalled_since_));
+            control_loop_stalled_ = false;
         }
         health_logger_->record_tick(ms_since(tick_start));
         health_logger_->maybe_log();

@@ -176,6 +176,9 @@ class Runner : public Quittable {
     mutable std::mutex recording_mutex_;
     /** A rollover is posted and not yet done. */
     std::atomic<bool> rollover_pending_{false};
+    /** The control loop has missed its watchdog, and since when. Loop thread only. */
+    bool control_loop_stalled_ = false;
+    std::chrono::steady_clock::time_point control_loop_stalled_since_{};
     /** Runs recording toggles and rollovers off the tick. Last member, so it is joined before
      *  anything its jobs use is destroyed. */
     std::unique_ptr<SerialWorker> recording_worker_ = std::make_unique<SerialWorker>();
