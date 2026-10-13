@@ -3,6 +3,7 @@
 #include <spdlog/spdlog.h>
 
 #include <chrono>
+#include <exception>
 #include <utility>
 
 namespace auto_battlebot {
@@ -12,6 +13,8 @@ namespace {
 // latency reports; hitting it means a model is wedged, not slow.
 constexpr std::chrono::milliseconds kUpdateWaitTimeout(1000);
 constexpr std::chrono::seconds kJoinHardTimeout(2);
+// A model that throws every frame would log 60 lines a second.
+constexpr std::chrono::seconds kExceptionLogInterval(5);
 
 // Same pattern as ZedRgbdCamera: poll a done flag the worker sets on exit so shutdown can
 // give up on a thread wedged inside a model update instead of blocking forever in join().
@@ -71,6 +74,8 @@ void ParallelModelBatch::worker_loop(const RunModel &run_model, uint64_t &done_i
                                      ModelResultStamped &result_slot, double &elapsed_slot,
                                      std::atomic<bool> &exited_flag) {
     uint64_t last_seen_id = 0;
+    uint64_t exceptions = 0;
+    std::chrono::steady_clock::time_point last_exception_log{};
     while (true) {
         RgbImage image;
         CameraInfo camera_info;
@@ -85,7 +90,26 @@ void ParallelModelBatch::worker_loop(const RunModel &run_model, uint64_t &done_i
             camera_info = shared_camera_info_;
         }
         const auto start = std::chrono::steady_clock::now();
-        ModelResultStamped output = run_model(image, camera_info);
+        // An exception out of a worker thread calls std::terminate and kills the app, autonomy
+        // and recording with it. Losing one model's detections for the frame is the smaller loss.
+        ModelResultStamped output;
+        try {
+            output = run_model(image, camera_info);
+        } catch (const std::exception &e) {
+            ++exceptions;
+            if (start - last_exception_log >= kExceptionLogInterval) {
+                spdlog::error("ParallelModelBatch: a model threw ({} so far); empty result: {}",
+                              exceptions, e.what());
+                last_exception_log = start;
+            }
+        } catch (...) {
+            ++exceptions;
+            if (start - last_exception_log >= kExceptionLogInterval) {
+                spdlog::error("ParallelModelBatch: a model threw a non-exception ({} so far)",
+                              exceptions);
+                last_exception_log = start;
+            }
+        }
         const double elapsed_ms =
             std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start)
                 .count();

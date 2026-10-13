@@ -4,6 +4,7 @@
 #include <chrono>
 #include <functional>
 #include <memory>
+#include <stdexcept>
 #include <thread>
 
 #include "perception_batch/parallel_model_batch.hpp"
@@ -147,6 +148,25 @@ TEST_F(ParallelModelBatchTest, TimedOutModelYieldsEmptyResultThenRecovers) {
     BatchResult recovered = batch.update(image_, camera_info_);
     EXPECT_EQ(recovered.keypoints.keypoints.size(), 1u);
     EXPECT_EQ(recovered.robot_blob_keypoints.keypoints.size(), 1u);
+}
+
+// An exception from a model used to escape the worker thread and std::terminate the app.
+TEST_F(ParallelModelBatchTest, ThrowingModelYieldsEmptyResultWithoutWaitingOrDying) {
+    std::atomic<bool> throw_once{true};
+    keypoint_model_->on_update = [&throw_once] {
+        if (throw_once.exchange(false)) throw std::runtime_error("CUDA error");
+    };
+    ParallelModelBatch batch = make_batch();
+
+    const auto start = std::chrono::steady_clock::now();
+    BatchResult threw = batch.update(image_, camera_info_);
+    // The worker still reports the frame done, so update() does not wait out its timeout.
+    EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::milliseconds(500));
+    EXPECT_TRUE(threw.keypoints.keypoints.empty());
+    EXPECT_EQ(threw.robot_blob_keypoints.keypoints.size(), 1u);
+
+    BatchResult recovered = batch.update(image_, camera_info_);
+    EXPECT_EQ(recovered.keypoints.keypoints.size(), 1u);
 }
 
 }  // namespace
