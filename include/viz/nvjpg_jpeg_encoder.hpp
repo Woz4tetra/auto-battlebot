@@ -2,11 +2,10 @@
 
 #include <memory>
 #include <opencv2/core.hpp>
+#include <vector>
 
 #include "viz/jpeg_encoder.hpp"
-
-class NvBuffer;
-class NvJPEGEncoder;
+#include "viz/nvjpg_plugin.h"
 
 namespace auto_battlebot {
 
@@ -16,12 +15,19 @@ namespace auto_battlebot {
  * (AUTO_BATTLEBOT_HAVE_NVJPG). That libnvjpeg is NVIDIA's libjpeg-compatible library with the
  * NVJPG extensions, not the CUDA toolkit's GPU nvJPEG: the GPU belongs to the detectors.
  *
- * NVJPG takes YUV 4:2:0, so each frame is converted from BGR on the CPU first (about 0.3 ms at
- * 640x360). Odd widths and heights lose their last column or row, since I420 needs even ones.
+ * libnvjpeg exports the whole libjpeg API without symbol versions, so once it is in the global
+ * symbol scope it also answers OpenCV's, libtiff's and gdk-pixbuf's jpeg_* calls with its own,
+ * larger structs, and every cv::imencode(".jpg") and cv::imdecode crashes. NvJPEGEncoder and
+ * libnvjpeg therefore live in a plugin, libauto_battlebot_nvjpg.so next to this library, loaded
+ * with RTLD_LOCAL so its symbols stay out of the global scope and RTLD_DEEPBIND so its own
+ * jpeg_* calls reach libnvjpeg rather than OpenCV's libjpeg.
+ *
+ * NVJPG takes YCbCr 4:2:0, so each frame is converted from BGR on the CPU first. Odd widths and
+ * heights lose their last column or row, since I420 needs even ones.
  */
 class NvjpgJpegEncoder : public JpegEncoderInterface {
    public:
-    /** nullptr when the engine does not open. */
+    /** nullptr when the plugin does not load or the engine does not open. */
     static std::unique_ptr<NvjpgJpegEncoder> create();
     ~NvjpgJpegEncoder() override;
 
@@ -29,15 +35,21 @@ class NvjpgJpegEncoder : public JpegEncoderInterface {
     std::string_view name() const override { return "nvjpg"; }
 
    private:
-    NvjpgJpegEncoder() = default;
-    bool ensure_buffer(int width, int height);
+    struct Plugin {
+        AutoBattlebotNvjpgCreate create = nullptr;
+        AutoBattlebotNvjpgDestroy destroy = nullptr;
+        AutoBattlebotNvjpgEncode encode = nullptr;
+    };
+    /** Loads the plugin on first use and keeps it for the life of the process. */
+    static const Plugin *plugin();
 
-    NvJPEGEncoder *encoder_ = nullptr;
-    std::unique_ptr<NvBuffer> buffer_;
-    int width_ = 0;
-    int height_ = 0;
+    NvjpgJpegEncoder(const Plugin &plugin, void *encoder) : plugin_(plugin), encoder_(encoder) {}
+
+    const Plugin &plugin_;
+    void *encoder_;
+    cv::Mat ycrcb_;
+    std::vector<cv::Mat> planes_;
     cv::Mat i420_;
-    std::vector<unsigned char> out_;
 };
 
 }  // namespace auto_battlebot

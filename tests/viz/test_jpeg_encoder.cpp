@@ -37,6 +37,22 @@ TEST(JpegEncoderTest, RoundTripsAtInputSizeWithLowError) {
     EXPECT_LT((mean[0] + mean[1] + mean[2]) / 3.0, 3.0) << encoder->name();
 }
 
+// On the Jetson, libnvjpeg used to sit in the global symbol scope and answer OpenCV's libjpeg
+// calls, so any cv::imencode(".jpg") after linking it crashed. Both must work side by side.
+TEST(JpegEncoderTest, OpenCvJpegStillWorksAlongsideTheChosenEncoder) {
+    auto encoder = make_jpeg_encoder();
+    const cv::Mat input = gradient(64, 48);
+    std::vector<std::byte> jpeg;
+    ASSERT_TRUE(encoder->encode(input, 90, jpeg)) << encoder->name();
+
+    std::vector<uint8_t> opencv_jpeg;
+    ASSERT_TRUE(cv::imencode(".jpg", input, opencv_jpeg));
+    EXPECT_EQ(cv::imdecode(opencv_jpeg, cv::IMREAD_COLOR).size(), input.size());
+#ifdef AUTO_BATTLEBOT_HAVE_NVJPG
+    EXPECT_EQ(encoder->name(), "nvjpg");
+#endif
+}
+
 TEST(JpegEncoderTest, EmptyImageFails) {
     auto encoder = make_jpeg_encoder();
     std::vector<std::byte> jpeg;

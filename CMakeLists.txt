@@ -295,6 +295,8 @@ find_library(L4T_NVJPEG_LIBRARY nvjpeg
     PATHS /usr/lib/aarch64-linux-gnu/nvidia /usr/lib/aarch64-linux-gnu/tegra NO_DEFAULT_PATH)
 find_library(L4T_NVBUFSURFACE_LIBRARY nvbufsurface
     PATHS /usr/lib/aarch64-linux-gnu/nvidia /usr/lib/aarch64-linux-gnu/tegra NO_DEFAULT_PATH)
+# The plugin is its own library, built below when HAVE_NVJPG.
+list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*/viz/nvjpg_plugin/.*")
 if(JETSON_MMAPI_INCLUDE_DIR AND L4T_NVJPEG_LIBRARY)
     set(HAVE_NVJPG ON)
 else()
@@ -317,25 +319,39 @@ if(GST_FOUND)
 endif()
 
 if(HAVE_NVJPG)
+    # libnvjpeg exports libjpeg's API unversioned, and anything that links it puts those symbols
+    # in the global scope, where they take over OpenCV's libjpeg calls. So NvJPEGEncoder and
+    # libnvjpeg live in a plugin that only NvjpgJpegEncoder loads (see its header), and
+    # auto_battlebot_lib never links libnvjpeg.
     set(JETSON_MMAPI_CLASSES "${JETSON_MMAPI_DIR}/samples/common/classes")
-    add_library(jetson_mmapi_jpeg STATIC
+    add_library(auto_battlebot_nvjpg MODULE
+        src/viz/nvjpg_plugin/nvjpg_plugin.cpp
         "${JETSON_MMAPI_CLASSES}/NvJpegEncoder.cpp"
         "${JETSON_MMAPI_CLASSES}/NvBuffer.cpp"
         "${JETSON_MMAPI_CLASSES}/NvElement.cpp"
         "${JETSON_MMAPI_CLASSES}/NvElementProfiler.cpp"
         "${JETSON_MMAPI_CLASSES}/NvLogging.cpp"
     )
-    set_target_properties(jetson_mmapi_jpeg PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    set_target_properties(auto_battlebot_nvjpg PROPERTIES
+        CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
+    target_include_directories(auto_battlebot_nvjpg PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
     # NVIDIA's sample classes, not ours: system headers and no warnings.
-    target_include_directories(jetson_mmapi_jpeg SYSTEM PUBLIC
+    target_include_directories(auto_battlebot_nvjpg SYSTEM PRIVATE
         "${JETSON_MMAPI_INCLUDE_DIR}" "${JETSON_MMAPI_INCLUDE_DIR}/libjpeg-8b")
-    target_compile_options(jetson_mmapi_jpeg PRIVATE -w)
-    target_link_libraries(jetson_mmapi_jpeg PUBLIC "${L4T_NVJPEG_LIBRARY}" Threads::Threads)
+    set_source_files_properties(
+        "${JETSON_MMAPI_CLASSES}/NvJpegEncoder.cpp"
+        "${JETSON_MMAPI_CLASSES}/NvBuffer.cpp"
+        "${JETSON_MMAPI_CLASSES}/NvElement.cpp"
+        "${JETSON_MMAPI_CLASSES}/NvElementProfiler.cpp"
+        "${JETSON_MMAPI_CLASSES}/NvLogging.cpp"
+        PROPERTIES COMPILE_OPTIONS "-w")
+    target_link_libraries(auto_battlebot_nvjpg PRIVATE "${L4T_NVJPEG_LIBRARY}" Threads::Threads)
     if(L4T_NVBUFSURFACE_LIBRARY)
-        target_link_libraries(jetson_mmapi_jpeg PUBLIC "${L4T_NVBUFSURFACE_LIBRARY}")
+        target_link_libraries(auto_battlebot_nvjpg PRIVATE "${L4T_NVBUFSURFACE_LIBRARY}")
     endif()
-    target_link_libraries(auto_battlebot_lib PUBLIC jetson_mmapi_jpeg)
-    target_compile_definitions(auto_battlebot_lib PUBLIC AUTO_BATTLEBOT_HAVE_NVJPG)
+    add_dependencies(auto_battlebot_lib auto_battlebot_nvjpg)
+    target_compile_definitions(auto_battlebot_lib PUBLIC AUTO_BATTLEBOT_HAVE_NVJPG
+        AUTO_BATTLEBOT_NVJPG_PLUGIN="$<TARGET_FILE_NAME:auto_battlebot_nvjpg>")
 endif()
 
 # UI sources are built as a dedicated static library.
@@ -585,6 +601,10 @@ install(TARGETS auto_battlebot auto_battlebot_lib viz_relay
     RUNTIME DESTINATION bin
     LIBRARY DESTINATION lib
 )
+# NvjpgJpegEncoder loads the plugin from the directory auto_battlebot_lib is in.
+if(HAVE_NVJPG)
+    install(TARGETS auto_battlebot_nvjpg LIBRARY DESTINATION lib)
+endif()
 # The binary reads this at startup from its own directory (see read_build_version
 # in src/ui/lvgl_ui.cpp), so it must land next to the installed executable.
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/git_version.txt DESTINATION bin)
