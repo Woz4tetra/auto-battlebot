@@ -1,10 +1,11 @@
 #include "diagnostics_logger/diagnostics_module_logger.hpp"
 
 #include <algorithm>
+#include <utility>
 
 namespace auto_battlebot {
-DiagnosticsModuleLogger::DiagnosticsModuleLogger(const std::string &logger_name)
-    : logger_name_(logger_name), level_(DiagnosticLevel::OK) {}
+DiagnosticsModuleLogger::DiagnosticsModuleLogger(const std::string &logger_name, TimeSource now)
+    : logger_name_(logger_name), now_(std::move(now)) {}
 
 void DiagnosticsModuleLogger::log(int8_t level, const std::string &subsection_name,
                                   const DiagnosticsData &data) {
@@ -22,28 +23,18 @@ void DiagnosticsModuleLogger::log(int8_t level, const std::string &message) {
 }
 void DiagnosticsModuleLogger::log(int8_t level, const std::string &subsection_name,
                                   const DiagnosticsData &data, const std::string &message) {
+    const auto now = now_();
     std::lock_guard<std::mutex> lock(mutex_);
-    // Update level to the highest severity
-    level_ = std::max(level, level_);
-
-    // Add message if not empty
-    if (!message.empty()) {
-        // Get or create subsection message list
-        if (messages_.find(subsection_name) == messages_.end()) {
-            messages_[subsection_name] = std::vector<std::string>();
-        }
-        messages_[subsection_name].push_back(message);
+    Section &section = sections_[subsection_name];
+    // The first log of a window replaces whatever the section held from an earlier one.
+    if (!section.fresh) {
+        section = Section{};
+        section.fresh = true;
     }
-
-    // Get or create subsection data map
-    if (data_.find(subsection_name) == data_.end()) {
-        data_[subsection_name] = DiagnosticsData{};
-    }
-
-    // Combine diagnostic data with existing data in the subsection
-    for (const auto &[key, value] : data) {
-        data_[subsection_name][key] = value;
-    }
+    section.level = std::max(level, section.level);
+    section.last_logged = now;
+    if (!message.empty()) section.messages.push_back(message);
+    for (const auto &[key, value] : data) section.data[key] = value;
 }
 
 void DiagnosticsModuleLogger::debug(const DiagnosticsData &data) { debug("", data, ""); }
@@ -106,35 +97,44 @@ void DiagnosticsModuleLogger::error(const std::string &subsection_name, const Di
 }
 
 void DiagnosticsModuleLogger::clear() {
+    const auto now = now_();
     std::lock_guard<std::mutex> lock(mutex_);
-    level_ = DiagnosticLevel::OK;
-    messages_.clear();
-    data_.clear();
+    for (auto it = sections_.begin(); it != sections_.end();) {
+        if (now - it->second.last_logged >= SECTION_EXPIRY) {
+            it = sections_.erase(it);
+        } else {
+            it->second.fresh = false;
+            ++it;
+        }
+    }
 }
 
 bool DiagnosticsModuleLogger::has_status() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    return !messages_.empty() || !data_.empty();
+    return std::any_of(sections_.begin(), sections_.end(),
+                       [](const auto &entry) { return entry.second.fresh; });
 }
 
 std::vector<DiagnosticStatusSnapshot> DiagnosticsModuleLogger::get_snapshots() const {
+    const auto now = now_();
     std::lock_guard<std::mutex> lock(mutex_);
     std::vector<DiagnosticStatusSnapshot> snapshots;
-    for (const auto &[subsection_name, data_map] : data_) {
+    for (const auto &[subsection_name, section] : sections_) {
+        const auto age = now - section.last_logged;
+        if (!section.fresh && age >= SECTION_EXPIRY) continue;
         std::string combined_message;
-        auto messages_it = messages_.find(subsection_name);
-        if (messages_it != messages_.end()) {
-            for (size_t i = 0; i < messages_it->second.size(); ++i) {
-                if (i > 0) combined_message += " | ";
-                combined_message += messages_it->second[i];
-            }
+        for (size_t i = 0; i < section.messages.size(); ++i) {
+            if (i > 0) combined_message += " | ";
+            combined_message += section.messages[i];
         }
         DiagnosticStatusSnapshot snap;
         snap.name = logger_name_;
         snap.subsection = subsection_name;
-        snap.level = level_;
-        snap.values = flatten_diagnostics_data(data_map);
+        snap.level = section.level;
+        snap.values = flatten_diagnostics_data(section.data);
         snap.message = combined_message;
+        snap.age_ms = std::chrono::duration<double, std::milli>(age).count();
+        snap.held = !section.fresh;
         snapshots.push_back(std::move(snap));
     }
     return snapshots;

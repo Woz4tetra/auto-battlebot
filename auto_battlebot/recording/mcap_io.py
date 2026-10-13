@@ -248,7 +248,8 @@ def decode_diagnostic_array(data: bytes) -> list[dict]:
     """One dict per diagnostic status: ``{level, name, message, hardware_id, values}``.
 
     For a ``/diagnostics/<module>`` JSON message ``hardware_id`` is the module (from the topic),
-    ``name`` is the section key and ``values`` are typed.
+    ``name`` is the section key and ``values`` are typed. Held sections, which repeat values
+    logged before this message, are skipped, so each logged value is read once.
     """
     topic = topic_of(data)
     module = (
@@ -264,6 +265,7 @@ def decode_diagnostic_array(data: bytes) -> list[dict]:
             "values": dict(section.get("values", {})),
         }
         for name, section in payload.items()
+        if not section.get("held", False)
     ]
 
 

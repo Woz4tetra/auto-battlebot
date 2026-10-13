@@ -1,5 +1,8 @@
 #include <gtest/gtest.h>
 
+#include <chrono>
+#include <map>
+
 #include "diagnostics_logger/diagnostics_module_logger.hpp"
 
 namespace auto_battlebot {
@@ -241,6 +244,94 @@ TEST_F(DiagnosticsModuleLoggerTest, MultipleSubsections) {
             EXPECT_EQ(status.values.size(), 1);
         }
     }
+}
+
+class StickyDiagnosticsModuleLoggerTest : public ::testing::Test {
+   protected:
+    std::chrono::steady_clock::time_point now{};
+    DiagnosticsModuleLogger logger{"test_module", [this] { return now; }};
+
+    void advance_ms(int ms) { now += std::chrono::milliseconds(ms); }
+    std::map<std::string, DiagnosticStatusSnapshot> by_subsection() const {
+        std::map<std::string, DiagnosticStatusSnapshot> out;
+        for (auto &snap : logger.get_snapshots()) out[snap.subsection] = snap;
+        return out;
+    }
+};
+
+// A subsection logged only on change stays in the snapshots between changes, marked held.
+TEST_F(StickyDiagnosticsModuleLoggerTest, UnloggedSubsectionIsHeldWithItsAge) {
+    logger.debug("channels", {{"ch0", 992}});
+    logger.debug("process", {{"linear", 0.5}});
+    auto snaps = by_subsection();
+    EXPECT_FALSE(snaps["channels"].held);
+    EXPECT_DOUBLE_EQ(snaps["channels"].age_ms, 0.0);
+
+    logger.clear();
+    advance_ms(17);
+    logger.debug("process", {{"linear", 0.25}});
+    advance_ms(3);
+
+    EXPECT_TRUE(logger.has_status());
+    snaps = by_subsection();
+    ASSERT_EQ(snaps.size(), 2U);
+    EXPECT_TRUE(snaps["channels"].held);
+    EXPECT_DOUBLE_EQ(snaps["channels"].age_ms, 20.0);
+    EXPECT_EQ(std::get<int>(snaps["channels"].values.at("ch0")), 992);
+    EXPECT_FALSE(snaps["process"].held);
+    EXPECT_DOUBLE_EQ(snaps["process"].age_ms, 3.0);
+    EXPECT_DOUBLE_EQ(std::get<double>(snaps["process"].values.at("linear")), 0.25);
+}
+
+// The first log of a new window replaces the held subsection instead of merging into it.
+TEST_F(StickyDiagnosticsModuleLoggerTest, NewWindowReplacesHeldValuesMessageAndLevel) {
+    logger.warning("link", {{"old_key", 1}}, "dongle not open");
+    logger.clear();
+    logger.info("link", {{"new_key", 2}});
+
+    const auto snaps = by_subsection();
+    const auto &link = snaps.at("link");
+    EXPECT_EQ(link.level, DiagnosticLevel::OK);
+    EXPECT_EQ(link.message, "");
+    EXPECT_EQ(link.values.count("old_key"), 0U);
+    EXPECT_EQ(link.values.count("new_key"), 1U);
+}
+
+// Each subsection keeps its own level, so a held warning does not raise a fresh subsection.
+TEST_F(StickyDiagnosticsModuleLoggerTest, LevelIsPerSubsection) {
+    logger.warning("link", {}, "dongle has not heard robot");
+    logger.debug("process", {{"linear", 0.0}});
+
+    auto snaps = by_subsection();
+    EXPECT_EQ(snaps["link"].level, DiagnosticLevel::WARN);
+    EXPECT_EQ(snaps["process"].level, DiagnosticLevel::OK);
+}
+
+// Only held subsections means nothing new to publish.
+TEST_F(StickyDiagnosticsModuleLoggerTest, HeldOnlyHasNoStatus) {
+    logger.debug("channels", {{"ch0", 992}});
+    logger.clear();
+    EXPECT_FALSE(logger.has_status());
+    EXPECT_EQ(logger.get_snapshots().size(), 1U);
+}
+
+TEST_F(StickyDiagnosticsModuleLoggerTest, HeldSubsectionExpires) {
+    logger.debug("initialized", {{"ok", 1}});
+    logger.clear();
+    advance_ms(9999);
+    logger.debug("process", {{"linear", 0.0}});
+    EXPECT_EQ(by_subsection().count("initialized"), 1U);
+
+    logger.clear();
+    advance_ms(1);
+    logger.debug("process", {{"linear", 0.0}});
+    EXPECT_EQ(by_subsection().count("initialized"), 0U);
+
+    // Expired subsections are dropped at clear(), not only hidden.
+    logger.clear();
+    advance_ms(DiagnosticsModuleLogger::SECTION_EXPIRY.count() * 1000);
+    logger.clear();
+    EXPECT_TRUE(logger.get_snapshots().empty());
 }
 
 }  // namespace auto_battlebot

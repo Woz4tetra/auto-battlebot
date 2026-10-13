@@ -29,6 +29,10 @@ struct DiagnosticStatusSnapshot {
     int8_t level = DiagnosticLevel::OK;
     std::map<std::string, DiagnosticScalar> values;
     std::string message;
+    /** Milliseconds since the subsection was last logged. */
+    double age_ms = 0.0;
+    /** Not logged in this publish window: the values repeat an earlier message. */
+    bool held = false;
 };
 
 /** Interface for diagnostics backends (e.g. UI, Foxglove). */

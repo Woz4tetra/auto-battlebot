@@ -50,7 +50,9 @@ std::string diagnostics_module_json(
         first_section = false;
         const std::string &section = snap->subsection.empty() ? module : snap->subsection;
         json += '"' + json_escape(section) + "\":{\"level\":" + std::to_string(snap->level) +
-                ",\"message\":\"" + json_escape(snap->message) + "\",\"values\":{";
+                ",\"message\":\"" + json_escape(snap->message) +
+                "\",\"age_ms\":" + json_number(snap->age_ms) +
+                ",\"held\":" + (snap->held ? "true" : "false") + ",\"values\":{";
         bool first_value = true;
         for (const auto &[key, value] : snap->values) {
             if (!first_value) json += ',';

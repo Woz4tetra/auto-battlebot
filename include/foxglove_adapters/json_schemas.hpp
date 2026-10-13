@@ -16,7 +16,7 @@ constexpr const char *kDetectionsSchema =
 
 constexpr const char *kDiagnosticsSchemaName = "auto_battlebot.Diagnostics";
 constexpr const char *kDiagnosticsSchema =
-    R"({"type":"object","title":"auto_battlebot.Diagnostics","description":"One key per subsection of a diagnostics module; the empty subsection is keyed by the module name","additionalProperties":{"type":"object","properties":{"level":{"type":"integer","description":"0 OK, 1 WARN, 2 ERROR, 3 STALE"},"message":{"type":"string"},"values":{"type":"object","additionalProperties":{"type":["number","string","null"]}}},"required":["level","message","values"]}})";
+    R"({"type":"object","title":"auto_battlebot.Diagnostics","description":"One key per subsection of a diagnostics module; the empty subsection is keyed by the module name","additionalProperties":{"type":"object","properties":{"level":{"type":"integer","description":"0 OK, 1 WARN, 2 ERROR, 3 STALE"},"message":{"type":"string"},"age_ms":{"type":"number","description":"Milliseconds since the subsection was last logged"},"held":{"type":"boolean","description":"Not logged since the previous message for this module; the values repeat it"},"values":{"type":"object","additionalProperties":{"type":["number","string","null"]}}},"required":["level","message","values"]}})";
 
 constexpr const char *kEspNowTelemetrySchemaName = "auto_battlebot.EspNowTelemetry";
 constexpr const char *kEspNowTelemetrySchema =

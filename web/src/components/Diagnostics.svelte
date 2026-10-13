@@ -113,13 +113,16 @@
           <button
             class="leader value"
             class:plotted={v.key === plotKey}
+            class:held={v.heldMs !== null}
             disabled={!numeric}
             title={numeric ? "Plot this value" : undefined}
             onclick={() => (plotKeys = { ...plotKeys, [selected.id]: v.key })}
           >
-            <span class="k mono">{v.key}</span><span class="dots"></span><span class="v"
-              >{show(v.value)}</span
-            >
+            <span class="k mono">{v.key}</span><span class="dots"
+            ></span>{#if v.heldMs !== null}<span
+                class="age mono"
+                title="Not logged since the last message">{(v.heldMs / 1000).toFixed(1)} s</span
+              >{/if}<span class="v">{show(v.value)}</span>
           </button>
         {/each}
       </div>
@@ -307,6 +310,14 @@
   }
   .wide .value .k {
     font-size: 14px;
+  }
+  .value.held .k,
+  .value.held .v {
+    color: var(--muted);
+  }
+  .value .age {
+    font-size: 12px;
+    color: var(--muted);
   }
   .value.plotted .k {
     text-decoration: underline;

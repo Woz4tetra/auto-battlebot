@@ -19,13 +19,15 @@ TEST(FoxgloveDiagnosticsBackendTest, ModuleJsonKeepsTypesAndKeysBySubsection) {
     tick.level = DiagnosticLevel::WARN;
     tick.message = "slow \"tick\"";
     tick.values = {{"elapsed_ms", 12.5}, {"nan_value", std::nan("")}};
+    tick.age_ms = 40.5;
+    tick.held = true;
 
     const auto json = diagnostics_module_json("runner", {&top, &tick});
     EXPECT_EQ(json,
-              "{\"runner\":{\"level\":0,\"message\":\"\",\"values\":{\"count\":3,\"mode\":\"auto\","
-              "\"rate\":59.7}},"
-              "\"tick\":{\"level\":1,\"message\":\"slow \\\"tick\\\"\",\"values\":{\"elapsed_ms\":"
-              "12.5,\"nan_value\":null}}}");
+              "{\"runner\":{\"level\":0,\"message\":\"\",\"age_ms\":0,\"held\":false,"
+              "\"values\":{\"count\":3,\"mode\":\"auto\",\"rate\":59.7}},"
+              "\"tick\":{\"level\":1,\"message\":\"slow \\\"tick\\\"\",\"age_ms\":40.5,"
+              "\"held\":true,\"values\":{\"elapsed_ms\":12.5,\"nan_value\":null}}}");
 }
 
 TEST(FoxgloveDiagnosticsBackendTest, NoSinksIsANoop) {

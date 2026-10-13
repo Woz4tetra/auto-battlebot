@@ -161,10 +161,20 @@ One channel per `DiagnosticsModuleLogger` name (`runner`, `pursuit_nav`,
 `DiagnosticsLogger::publish()` tick that had data for that module. Payload:
 
 ```json
-{"runner":     {"level": 0, "message": "", "values": {"rate": 59.7}},
- "navigation": {"level": 0, "message": "", "values": {"using_previous_robots": 1}},
- "tick":       {"level": 0, "message": "", "values": {"elapsed_ms": 12.3}}}
+{"runner":     {"level": 0, "message": "", "age_ms": 3.1, "held": false, "values": {"rate": 59.7}},
+ "navigation": {"level": 0, "message": "", "age_ms": 2.8, "held": false,
+                "values": {"using_previous_robots": 1}},
+ "tick":       {"level": 0, "message": "", "age_ms": 41.0, "held": true,
+                "values": {"elapsed_ms": 12.3}}}
 ```
+
+Subsections are sticky. Every message carries every subsection the module logged in the last
+10 s, so a subsection logged only on change does not drop out of the messages between changes.
+`held` is true when the subsection was not logged since the module's previous message: its
+values, level, and message repeat an earlier one. `age_ms` is the time since it was last
+logged. Readers that treat messages as samples must skip held subsections, as
+`decode_diagnostic_array` does. Recordings from before 2026-10-13 have neither field and
+contain only the subsections logged in that tick.
 
 Top-level keys are the subsection names. The empty subsection (data logged straight on the
 module logger) is keyed by the module name itself, which is what the old

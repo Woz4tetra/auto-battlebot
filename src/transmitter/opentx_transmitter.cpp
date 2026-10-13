@@ -280,16 +280,12 @@ void OpenTxTransmitter::process_channel_updates(const std::vector<uint8_t>& byte
     auto channel_updates = channels_parser_.process(bytes);
     if (channel_updates.empty()) return;
 
-    const auto& newest_channels = channel_updates.back();
-    const bool channels_changed =
-        !latest_channels_.has_value() || newest_channels != latest_channels_.value();
-    latest_channels_ = newest_channels;
+    latest_channels_ = channel_updates.back();
     last_channel_time_ = std::chrono::steady_clock::now();
 
-    if (channels_changed) {
-        std::vector<int> channel_values(latest_channels_->begin(), latest_channels_->end());
-        logger_->debug("channels", {{"values", channel_values}});
-    }
+    // Every frame, not only on change, so the section's age is the age of the last frame read.
+    std::vector<int> channel_values(latest_channels_->begin(), latest_channels_->end());
+    logger_->debug("channels", {{"values", channel_values}});
 }
 
 bool OpenTxTransmitter::channels_fresh() const {

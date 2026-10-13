@@ -119,7 +119,10 @@ void ControlLoop::run_cycle() {
         field_description_ = measurement->field_description;
     }
     // Nothing to steer by until the first measurement has defined the field.
-    if (!field_description_) return;
+    if (!field_description_) {
+        diagnostics_logger_->debug("navigation", "waiting for the field; no commands sent");
+        return;
+    }
 
     RobotDescriptionsStamped robots;
     {

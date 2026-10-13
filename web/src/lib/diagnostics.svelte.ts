@@ -13,6 +13,10 @@ type Value = number | string | null;
 interface Subsection {
   level: number;
   message: string;
+  /** Milliseconds since the subsection was last logged. */
+  age_ms?: number;
+  /** Not logged since the last message: the values are repeated. */
+  held?: boolean;
   values: Record<string, Value>;
 }
 type Payload = Record<string, Subsection>;
@@ -21,6 +25,8 @@ export interface DiagValue {
   /** `subsection/key`, or just `key` for the module's own subsection. */
   key: string;
   value: Value;
+  /** Age in ms when the module repeated this value without logging it again, else null. */
+  heldMs: number | null;
 }
 
 export interface DiagModule {
@@ -54,8 +60,9 @@ function flatten(id: string, payload: Payload): Omit<DiagModule, "updatedAt"> {
       message = sub.message;
     }
     const prefix = name === id ? "" : `${name}/`;
+    const heldMs = sub.held ? (sub.age_ms ?? 0) : null;
     for (const [key, value] of Object.entries(sub.values ?? {})) {
-      values.push({ key: prefix + key, value });
+      values.push({ key: prefix + key, value, heldMs });
     }
   }
   return { id, level, message, values };
@@ -123,7 +130,9 @@ class DiagnosticsStore {
       perKey = new Map();
       this.#history.set(id, perKey);
     }
-    for (const { key, value } of module.values) {
+    for (const { key, value, heldMs } of module.values) {
+      // A held value is a repeat, not a new sample.
+      if (heldMs !== null) continue;
       if (typeof value !== "number" || !Number.isFinite(value)) continue;
       let series = perKey.get(key);
       if (!series) {

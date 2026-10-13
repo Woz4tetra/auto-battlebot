@@ -1,5 +1,7 @@
 #pragma once
 
+#include <chrono>
+#include <functional>
 #include <map>
 #include <mutex>
 #include <string>
@@ -14,6 +16,12 @@ namespace auto_battlebot {
  *
  * This class should not be used directly; instead, use DiagnosticsLogger
  * to manage multiple module loggers.
+ *
+ * Subsections are sticky. Each publish window (the span between two clear() calls) starts a
+ * subsection over on its first log, then merges later logs into it. A subsection not logged in
+ * the current window keeps its last values and is reported as held, with its age, until
+ * SECTION_EXPIRY passes without a log. So a module that logs one subsection per send and another
+ * only on change publishes both in every message instead of alternating between them.
  */
 class DiagnosticsModuleLogger {
    public:
@@ -22,7 +30,14 @@ class DiagnosticsModuleLogger {
      *
      * @param logger_name Name of this specific logger module
      */
-    explicit DiagnosticsModuleLogger(const std::string &logger_name);
+    using TimeSource = std::function<std::chrono::steady_clock::time_point()>;
+
+    /** A held subsection drops out of the snapshots once it goes this long without a log. */
+    static constexpr std::chrono::seconds SECTION_EXPIRY{10};
+
+    /** The time source is for tests; ages run on the steady clock. */
+    explicit DiagnosticsModuleLogger(const std::string &logger_name,
+                                     TimeSource now = std::chrono::steady_clock::now);
 
     /**
      * @brief Log diagnostic information with a specific level
@@ -80,12 +95,12 @@ class DiagnosticsModuleLogger {
     void error(const std::string &subsection_name, const std::string &message);
 
     /**
-     * @brief Clear all accumulated diagnostic information
+     * @brief End the publish window: every subsection becomes held, and expired ones are dropped
      */
     void clear();
 
     /**
-     * @brief Check if this logger has any status to report
+     * @brief Check if anything was logged in the current publish window
      */
     bool has_status() const;
 
@@ -97,18 +112,26 @@ class DiagnosticsModuleLogger {
     std::string get_name() const;
 
     /**
-     * @brief Get the accumulated status, one snapshot per subsection, with typed values
+     * @brief Get one snapshot per unexpired subsection, held ones included, with typed values
      */
     std::vector<DiagnosticStatusSnapshot> get_snapshots() const;
 
    private:
+    struct Section {
+        DiagnosticsData data;
+        std::vector<std::string> messages;
+        int8_t level = DiagnosticLevel::OK;
+        std::chrono::steady_clock::time_point last_logged;
+        /** Logged in the current publish window. */
+        bool fresh = false;
+    };
+
     std::string logger_name_;
-    // Guards data_, messages_, and level_. A module logger has two writers: the control thread
-    // logging, and the Runner thread clearing during DiagnosticsLogger::publish().
+    TimeSource now_;
+    // Guards sections_. A module logger has two writers: the control thread logging, and the
+    // Runner thread clearing during DiagnosticsLogger::publish().
     mutable std::mutex mutex_;
-    std::map<std::string, DiagnosticsData> data_;
-    int8_t level_;
-    std::map<std::string, std::vector<std::string>> messages_;  // Messages per subsection
+    std::map<std::string, Section> sections_;
 };
 
 }  // namespace auto_battlebot

@@ -10,7 +10,8 @@ Contracts (written by the C++ app, see ``docs/plans/mujoco_warp_mr_stabs_plan.md
 - ``/robot/esp32_diagnostics`` (JSON): one flat object per firmware loop. ``host_receive_ns`` is
   the app clock at receipt (also the MCAP log_time); ``timestamp_ms`` is the robot clock.
 - ``/diagnostics/opentx_transmitter``, subsection ``channels``: the 16 stick channels the radio
-  echoes over USB, logged only when they change, as ``values/0`` .. ``values/15``.
+  echoes over USB, as ``values/0`` .. ``values/15``. Logged on every channels frame since
+  2026-10-13, only when they changed before that.
 - ``/tf`` and ``/tf_static``: ``field -> camera_world`` and ``camera_world -> camera``. The app
   republishes both on ``/tf`` every cycle; older recordings put the first on ``/tf_static``.
   ``diag_io.load_camera_in_field`` reads only ``/tf_static`` for it and returns an empty frame on
@@ -245,11 +246,12 @@ def load_esp32_diagnostics(path: Path | str) -> pd.DataFrame:
 
 
 def load_transmitter_channels(path: Path | str) -> pd.DataFrame:
-    """Stick channels as the radio reported them: one row per change, columns
-    ``stamp_ns, ch0 .. ch15`` (raw CRSF units, 172..1811, center 992).
+    """Stick channels as the radio reported them: one row per diagnostics publish tick that read
+    a channels frame, columns ``stamp_ns, ch0 .. ch15`` (raw CRSF units, 172..1811, center 992).
 
-    The app logs channels only when they change, so hold each row until the next one. The stamp
-    is the diagnostics publish tick, which trails the serial read by up to one tick.
+    Recordings before 2026-10-13 log channels only when they change, so hold each row until the
+    next one. The stamp is the diagnostics publish tick, which trails the serial read by up to one
+    tick.
     """
     rows = []
     for log_time_ns, status in iter_diagnostic_statuses(path):
