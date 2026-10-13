@@ -13,11 +13,15 @@
 #include <sstream>
 
 #include "diagnostics_logger/diagnostics_logger.hpp"
+#include "directories.hpp"
 #include "spdlog/spdlog.h"
 
 namespace auto_battlebot {
 namespace {
 constexpr double kTegrastatsCollectWarnMs = 200.0;
+// MCAPs and SVOs both stop opening new files once the disk is full, so warn well before that.
+constexpr double kDiskUsedWarnPercent = 90.0;
+constexpr double kBytesPerGb = 1024.0 * 1024.0 * 1024.0;
 
 bool is_regular_executable(const std::filesystem::path& path) {
     return std::filesystem::exists(path) && std::filesystem::is_regular_file(path) &&
@@ -107,6 +111,7 @@ void HealthLogger::perform_sampling() {
 
     // Self-detects availability (Jetson-only hwmon nodes); no-op on x86.
     any_logged = collect_jetson_power() || any_logged;
+    any_logged = collect_disk_usage() || any_logged;
 
     DiagnosticsData status;
     status["enable"] = config_.enable ? 1 : 0;
@@ -740,6 +745,37 @@ bool HealthLogger::collect_cpu_temp_sysfs_or_sensors() {
     data["min_temp_c"] = min_temp;
     data["avg_temp_c"] = sum / static_cast<double>(temps.size());
     logger_->debug("x86_cpu_temp", data);
+    return true;
+}
+
+bool HealthLogger::collect_disk_usage() {
+    // The filesystem that data/recordings and data/temp_svo write to.
+    const std::filesystem::path path = get_project_path("data");
+    std::error_code ec;
+    const std::filesystem::space_info space = std::filesystem::space(path, ec);
+    DiagnosticsData data;
+    data["path"] = path.string();
+    if (ec || space.capacity == 0) {
+        data["available"] = 0;
+        logger_->warning("disk", data, "disk usage unavailable: " + ec.message());
+        return false;
+    }
+
+    // `available` is what this process may write; `free` also counts root-reserved blocks.
+    const double total_gb = static_cast<double>(space.capacity) / kBytesPerGb;
+    const double free_gb = static_cast<double>(space.available) / kBytesPerGb;
+    const double used_gb = static_cast<double>(space.capacity - space.free) / kBytesPerGb;
+    const double used_percent = 100.0 * used_gb / (used_gb + free_gb);
+    data["available"] = 1;
+    data["total_gb"] = total_gb;
+    data["used_gb"] = used_gb;
+    data["free_gb"] = free_gb;
+    data["used_percent"] = used_percent;
+    if (used_percent >= kDiskUsedWarnPercent) {
+        logger_->warning("disk", data, fmt::format("disk {:.0f}% full", used_percent));
+    } else {
+        logger_->debug("disk", data);
+    }
     return true;
 }
 

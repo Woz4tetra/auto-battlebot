@@ -72,6 +72,7 @@ class HealthLogger {
     bool collect_x86_health();
     bool collect_nvidia_smi();
     bool collect_cpu_temp_sysfs_or_sensors();
+    bool collect_disk_usage();
 };
 
 }  // namespace auto_battlebot
