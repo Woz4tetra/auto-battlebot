@@ -6,7 +6,7 @@
   // Source choice: H.264 from /camera/preview_video when WebCodecs exists and the channel is
   // advertised, otherwise JPEG from /camera/preview. The video channel can be advertised and still
   // never send (the encoder failed to open), so no decoded frame within 2 s of subscribing drops
-  // back to JPEG until the channel is advertised again.
+  // back to JPEG until the channel is advertised again or the app comes up again.
   import { onDestroy, untrack } from "svelte";
   import { connection } from "../lib/connection";
   import { decodeCompressed, decodeImage } from "../lib/image";
@@ -67,6 +67,16 @@
 
   const unsubChannels = connection.onChannels((channels) => {
     videoChannelId = channels.get(VIDEO_TOPIC)?.id ?? null;
+  });
+
+  // The relay keeps the channel, and its id, across app restarts. A page that loaded while the app
+  // was still starting (the kiosk at boot or after a deploy) gave up on a channel with nothing to
+  // send yet, so each time the app comes up the video path gets another try.
+  let appWasUp = false;
+  $effect(() => {
+    const up = status.appUp;
+    if (up && !appWasUp) videoFailedFor = null;
+    appWasUp = up;
   });
   const clock = setInterval(() => (now = Date.now()), 500);
   const unsubDets = connection.subscribeJson<Detections>(DET_TOPIC, (m) => {
