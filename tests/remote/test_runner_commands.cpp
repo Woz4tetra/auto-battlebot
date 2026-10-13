@@ -46,6 +46,7 @@ class RecordingCamera : public NoopRgbdCamera {
     bool get(CameraData &data) override { return !lost_.load() && NoopRgbdCamera::get(data); }
     bool initialize() override {
         if (!lost_.load()) return true;
+        if (open_fails_.load()) return false;
         cancel_.store(false);
         opening.store(true);
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
@@ -57,6 +58,7 @@ class RecordingCamera : public NoopRgbdCamera {
     }
     void cancel_initialize() override { cancel_.store(true); }
     std::atomic<bool> lost_{false};
+    std::atomic<bool> open_fails_{false};
     std::atomic<bool> opening{false};
     std::atomic<bool> cancel_{false};
 
@@ -226,6 +228,16 @@ TEST_F(RunnerCommandsTest, RebootCancelsACameraReopenAndStillRuns) {
     EXPECT_LT(tick.join(), 500.0);
     EXPECT_FALSE(tick.result());
     EXPECT_EQ(system_action_, SystemAction::REBOOT_HOST);
+    EXPECT_FALSE(camera_->recording);
+}
+
+// A camera that cannot be re-opened ends the run. The recordings must be closed by then, since
+// the camera's destructor may have to exit the process.
+TEST_F(RunnerCommandsTest, CameraFailureExitClosesRecordings) {
+    camera_->recording = true;
+    camera_->lost_ = true;
+    camera_->open_fails_ = true;
+    EXPECT_EQ(runner_->run(), 0);
     EXPECT_FALSE(camera_->recording);
 }
 

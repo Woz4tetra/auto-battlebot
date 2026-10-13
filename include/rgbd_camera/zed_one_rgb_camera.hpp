@@ -70,6 +70,8 @@ class ZedOneRgbCamera : public RgbdCameraInterface {
     std::atomic<bool> is_initialized_{false};
     std::atomic<bool> should_close_{false};
     std::atomic<bool> stop_thread_{false};
+    /** Set by the capture thread as it exits, so the destructor can bound its wait. */
+    std::atomic<bool> capture_thread_done_{false};
     std::atomic<uint64_t> frame_counter_{0};
     mutable uint64_t last_returned_frame_counter_ = 0;
 

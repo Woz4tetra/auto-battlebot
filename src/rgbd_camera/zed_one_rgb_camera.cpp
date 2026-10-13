@@ -3,6 +3,7 @@
 #include <spdlog/spdlog.h>
 
 #include <chrono>
+#include <cstdlib>
 #include <foxglove/schemas.hpp>
 #include <stdexcept>
 #include <utility>
@@ -16,6 +17,8 @@ namespace {
 constexpr auto kGrabErrorWindow = std::chrono::seconds(10);
 constexpr double kGrabErrorExitThreshold = 0.70;
 constexpr auto kGetWaitTimeout = std::chrono::milliseconds(100);
+/** grab() returns within a frame period on a working camera. */
+constexpr auto kJoinTimeout = std::chrono::seconds(3);
 constexpr const char *kVideoTopic = "/camera/video";
 }  // namespace
 
@@ -32,6 +35,21 @@ ZedOneRgbCamera::~ZedOneRgbCamera() {
     stop_thread_.store(true);
     data_cv_.notify_all();
     if (capture_thread_.joinable()) {
+        const auto deadline = std::chrono::steady_clock::now() + kJoinTimeout;
+        while (!capture_thread_done_.load() && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        if (!capture_thread_done_.load()) {
+            // Joining would hang until systemd kills the process 90 s later. Detaching would
+            // leave the thread inside grab() on a camera this destructor is about to free.
+            // Runner::run() closed the recordings before any destructor ran, so exit now.
+            spdlog::critical(
+                "[ZedOneRgbCamera] Capture thread stuck in grab() for {} s at "
+                "shutdown; exiting",
+                kJoinTimeout.count());
+            spdlog::default_logger()->flush();
+            std::_Exit(EXIT_FAILURE);
+        }
         capture_thread_.join();
     }
     encoder_.stop();
@@ -223,6 +241,7 @@ void ZedOneRgbCamera::capture_thread_loop() {
             break;
         }
     }
+    capture_thread_done_.store(true);
 }
 
 bool ZedOneRgbCamera::get(CameraData &data) {

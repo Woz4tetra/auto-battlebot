@@ -498,6 +498,9 @@ int Runner::run() {
         if (!tick()) {
             spdlog::warn("Runner::tick requested shutdown; runner loop exiting.");
             control_loop_->stop();
+            // Quit and reboot already closed them; a camera failure had not. Every component
+            // destructor after this may run on a dying camera, so the files are finished first.
+            stop_recordings_for_shutdown();
             return 0;
         }
         if (!control_loop_->is_healthy()) {
