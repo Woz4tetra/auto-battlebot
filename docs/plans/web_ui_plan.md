@@ -192,7 +192,7 @@ Fields come from what LVGL shows today. Rows in this table become rows in
 
 | Topic | Type | Rate | Fields |
 | --- | --- | --- | --- |
-| `/status/system` | `SystemStatusMessage` | 10 Hz | `camera_ok`, `transmitter_connected`, `transmitter_receiving`, `loop_rate_hz`, `initialized`, `selected_opponent_count`, `autonomy_enabled`, `svo_recording`, `mcap_recording`, `jetson_temperature_c` (optional), `compute_mode` |
+| `/status/system` | `SystemStatusMessage` | 10 Hz | `camera_ok`, `transmitter_connected`, `transmitter_receiving`, `loop_rate_hz`, `initialized`, `selected_opponent_count`, `autonomy_enabled`, `camera_recording`, `mcap_recording`, `jetson_temperature_c` (optional), `compute_mode` |
 | `/status/app` | `AppInfoMessage` | latched, on change | `available_profiles`, `current_profile`, `max_loop_rate_hz`, `rate_fail_threshold`, `rate_fail_duration_sec` |
 | `/status/sticks` | `SticksMessage` | 20 Hz | `linear`, `angular` for our robot, normalized [-1, 1] |
 | `/status/tracks` | `TracksMessage` | 20 Hz | `our_robot_seen`, `opponents_seen`, and per robot `label`, `x`, `y`, `yaw` in the field frame |

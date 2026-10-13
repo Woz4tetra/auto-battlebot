@@ -103,11 +103,11 @@ class RunnerCommandsTest : public ::testing::Test {
     }
 
     /** Recording toggles run on a worker; tick until the status shows `enabled` or 2 s pass. */
-    bool svo_recording_reaches(bool enabled) {
+    bool camera_recording_reaches(bool enabled) {
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
         while (std::chrono::steady_clock::now() < deadline) {
             EXPECT_TRUE(runner_->tick());
-            if (runner_->system_status().svo_recording == enabled) return true;
+            if (runner_->system_status().camera_recording == enabled) return true;
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
         }
         return false;
@@ -135,11 +135,11 @@ TEST_F(RunnerCommandsTest, SetAutonomyIsAnExplicitSet) {
 
 TEST_F(RunnerCommandsTest, SetRecording) {
     commands_->post(remote::SetRecordingCommand{.enabled = true});
-    EXPECT_TRUE(svo_recording_reaches(true));
+    EXPECT_TRUE(camera_recording_reaches(true));
     commands_->post(remote::SetRecordingCommand{.enabled = true});
-    EXPECT_TRUE(svo_recording_reaches(true));
+    EXPECT_TRUE(camera_recording_reaches(true));
     commands_->post(remote::SetRecordingCommand{.enabled = false});
-    EXPECT_TRUE(svo_recording_reaches(false));
+    EXPECT_TRUE(camera_recording_reaches(false));
 }
 
 // Stopping a camera's encoder can take seconds on a stalled pipeline. The tick must not wait.
@@ -151,7 +151,7 @@ TEST_F(RunnerCommandsTest, SlowRecordingToggleDoesNotBlockTheTick) {
     const double tick_ms =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
     EXPECT_LT(tick_ms, 250.0);
-    EXPECT_TRUE(svo_recording_reaches(true));
+    EXPECT_TRUE(camera_recording_reaches(true));
 }
 
 // An off then on from the UI is how a file gets cut; both must apply, in order.

@@ -31,8 +31,9 @@
 
     const rec = !sys
       ? NONE
-      : [sys.svo_recording && "SVO", sys.mcap_recording && "MCAP"].filter(Boolean).join(" + ") ||
-        "OFF";
+      : [sys.camera_recording && "VIDEO", sys.mcap_recording && "MCAP"]
+          .filter(Boolean)
+          .join(" + ") || "OFF";
 
     // Time since the radio's autonomy switch went on; OFF while it is off, NONE without one.
     const radioAutonomy = !sys

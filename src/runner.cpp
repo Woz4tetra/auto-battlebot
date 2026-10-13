@@ -78,7 +78,7 @@ void Runner::publish_system_status(bool camera_ok, double loop_rate_hz) {
     message.initialized = initialized_;
     message.selected_opponent_count = runtime_opponent_count_;
     message.autonomy_enabled = autonomy_enabled_;
-    message.svo_recording = camera_->is_recording_enabled();
+    message.camera_recording = camera_->is_recording_enabled();
     message.mcap_recording = mcap_recorder_ ? mcap_recorder_->is_enabled() : true;
     if (health_logger_) {
         // 0 means the health logger has no reading on this platform.

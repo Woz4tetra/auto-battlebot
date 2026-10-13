@@ -39,13 +39,15 @@ class StatusStore {
   systemAt = $state(0);
   /** Wall clock in ms, ticking twice a second, for "time since" displays. */
   now = $state(Date.now());
-  /** When recording was first seen on: the header timer's fallback while only the SVO records. */
+  /** When recording was first seen on: the header timer's fallback while only the camera records. */
   recordingSince = $state<number | null>(null);
   /** Local time the current MCAP file started, from the app's mcap_file_s. */
   mcapFileSince = $state<number | null>(null);
 
   appUp = $derived(this.connection === "open" && this.now - this.systemAt < APP_TIMEOUT_MS);
-  recording = $derived(!!this.system && (this.system.svo_recording || this.system.mcap_recording));
+  recording = $derived(
+    !!this.system && (this.system.camera_recording || this.system.mcap_recording),
+  );
 
   #started = false;
 
@@ -57,7 +59,7 @@ class StatusStore {
       this.connection = s;
     });
     connection.subscribe("/status/system", (m) => {
-      const recording = m.svo_recording || m.mcap_recording;
+      const recording = m.camera_recording || m.mcap_recording;
       if (recording && this.recordingSince === null) this.recordingSince = Date.now();
       if (!recording) this.recordingSince = null;
       // Latency jitter moves this by a few ms each message; only a new file moves it by more.

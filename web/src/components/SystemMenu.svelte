@@ -22,7 +22,7 @@
   <span class="intro">
     <span class="label red">POWER</span>
     <span class="muted text"
-      >Stops the robot and closes the SVO and MCAP recordings first. Hold 0.8 s to confirm.</span
+      >Stops the robot and closes the video and MCAP recordings first. Hold 0.8 s to confirm.</span
     >
   </span>
   <div class="buttons">

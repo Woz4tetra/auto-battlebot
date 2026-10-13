@@ -6,6 +6,7 @@ export interface SystemStatus {
   autonomy_on_s?: number;
   autonomy_switch_on?: boolean;
   camera_ok: boolean;
+  camera_recording: boolean;
   compute_mode: string;
   initialized: boolean;
   jetson_temperature_c?: number;
@@ -13,7 +14,6 @@ export interface SystemStatus {
   mcap_file_s?: number;
   mcap_recording: boolean;
   selected_opponent_count: number;
-  svo_recording: boolean;
   transmitter_connected: boolean;
   transmitter_receiving: boolean;
   uptime_s: number;

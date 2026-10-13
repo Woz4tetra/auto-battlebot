@@ -24,7 +24,7 @@ struct SystemStatusMessage {
     bool initialized = false;
     int selected_opponent_count = 1;
     bool autonomy_enabled = true;
-    bool svo_recording = false;
+    bool camera_recording = false;
     bool mcap_recording = false;
     std::optional<double> jetson_temperature_c;
     std::string compute_mode;
@@ -38,7 +38,7 @@ struct SystemStatusMessage {
     std::optional<double> mcap_file_s;
     AB_JSON_MESSAGE(SystemStatusMessage, "auto_battlebot.status.System", camera_ok,
                     transmitter_connected, transmitter_receiving, loop_rate_hz, initialized,
-                    selected_opponent_count, autonomy_enabled, svo_recording, mcap_recording,
+                    selected_opponent_count, autonomy_enabled, camera_recording, mcap_recording,
                     jetson_temperature_c, compute_mode, uptime_s, autonomy_switch_on, autonomy_on_s,
                     mcap_file_s)
 };
@@ -178,7 +178,7 @@ struct SetAutonomyCommand {
     AB_JSON_MESSAGE(SetAutonomyCommand, "auto_battlebot.command.SetAutonomy", enabled)
 };
 
-/** Turns SVO and MCAP recording on or off together. */
+/** Turns camera (SVO or H.264) and MCAP recording on or off together. */
 struct SetRecordingCommand {
     bool enabled = false;
     AB_JSON_MESSAGE(SetRecordingCommand, "auto_battlebot.command.SetRecording", enabled)
