@@ -62,6 +62,9 @@ Runner::Runner(const RunnerConfiguration &runner_config,
 
 Runner::~Runner() { remote_.commands->set_on_system_action(nullptr); }
 
+static_assert(std::atomic<bool>::is_always_lock_free,
+              "request_quit() runs in a signal handler and needs a lock-free store");
+
 void Runner::request_quit() {
     quit_requested_.store(true);
     // A camera re-open can take 30 s. cancel_initialize() only stores an atomic, so this is

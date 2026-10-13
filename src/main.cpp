@@ -138,12 +138,12 @@ int run_application(const auto_battlebot::ClassConfiguration& class_config,
 
     runner.initialize();
 
-    // The runner is registered unconditionally. Registering only the UI manager left
-    // ui.enable = false with no quittables at all, so SIGINT and SIGTERM did nothing and
-    // the process could only be stopped with SIGKILL.
+    // Only the runner. Registering only the UI manager once left ui.enable = false with no
+    // quittables, so SIGINT and SIGTERM did nothing. The UI manager is not registered either:
+    // its request_quit() is jthread::request_stop, which runs stop callbacks and is not safe in
+    // a signal handler. Runner::request_quit() only stores atomics, and once the runner returns
+    // ui_manager.reset() below stops the UI.
     g_quittables[g_quittables_count++] = &runner;
-    // TODO: bound size and fail with a log instead of segfault
-    if (ui_manager) g_quittables[g_quittables_count++] = ui_manager.get();
 
     std::signal(SIGINT, signal_quit);
     std::signal(SIGTERM, signal_quit);
