@@ -4,6 +4,7 @@
 #include <chrono>
 #include <thread>
 
+#include "../slow_free_allocator.hpp"
 #include "viz/image_encoder_worker.hpp"
 
 namespace auto_battlebot {
@@ -15,6 +16,21 @@ bool wait_for(const std::function<bool()> &done) {
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
     return false;
+}
+
+// The worker frees each job's frame after encoding it. A pinned frame's free can be slow, and the
+// tick's next submit must not wait behind it.
+TEST(ImageEncoderWorkerTest, SubmitDoesNotWaitForAFrameBeingFreed) {
+    SlowFreeAllocator allocator(std::chrono::milliseconds(300));
+    std::atomic<int> processed{0};
+    ImageEncoderWorker worker("free", [&](const ImageEncoderWorker::Job &) { ++processed; });
+    worker.submit({slow_free_mat(allocator), {}, 1});
+    ASSERT_TRUE(wait_for([&] { return allocator.freeing.load(); }));
+
+    const auto start = std::chrono::steady_clock::now();
+    worker.submit({cv::Mat(4, 4, CV_8UC3), {}, 2});
+    EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::milliseconds(100));
+    EXPECT_TRUE(wait_for([&] { return processed.load() == 2; }));
 }
 
 TEST(ImageEncoderWorkerTest, SubmitDoesNotWaitForASlowEncoder) {

@@ -57,6 +57,9 @@ void AsyncPublisher::run() {
         space_cv_.notify_one();
 
         call();
+        // Destroyed before relocking: the call holds frames, and the last reference to a pinned
+        // frame frees it, which can be slow. Under the lock, enqueue() on the tick waited for it.
+        call = nullptr;
 
         lock.lock();
         ++completed_;

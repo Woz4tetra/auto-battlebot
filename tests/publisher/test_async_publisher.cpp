@@ -7,6 +7,7 @@
 #include <thread>
 #include <vector>
 
+#include "../slow_free_allocator.hpp"
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "publisher/async_publisher.hpp"
 
@@ -48,6 +49,29 @@ class AsyncPublisherTest : public ::testing::Test {
         if (!DiagnosticsLogger::is_initialized()) DiagnosticsLogger::initialize({});
     }
 };
+
+// The worker frees each call's frame when it is done with it. A pinned frame's free can be slow,
+// and the tick's next enqueue must not wait behind it.
+TEST_F(AsyncPublisherTest, EnqueueDoesNotWaitForAFrameBeingFreed) {
+    SlowFreeAllocator allocator(std::chrono::milliseconds(300));
+    auto inner = std::make_shared<RecordingPublisher>();
+    AsyncPublisher publisher(inner);
+    {
+        CameraData camera;
+        camera.rgb.image = slow_free_mat(allocator);
+        publisher.publish_camera_data(camera);
+    }  // The queued call now holds the frame's only reference.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (!allocator.freeing.load() && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_TRUE(allocator.freeing.load());
+
+    const auto start = std::chrono::steady_clock::now();
+    publisher.publish_robots(RobotDescriptionsStamped{});
+    EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::milliseconds(100));
+    publisher.flush();
+}
 
 TEST_F(AsyncPublisherTest, RunsCallsInOrderOnAnotherThread) {
     auto inner = std::make_shared<RecordingPublisher>();
