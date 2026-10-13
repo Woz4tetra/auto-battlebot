@@ -49,14 +49,6 @@ FetchContent_Declare(
     UPDATE_DISCONNECTED TRUE # Don't try to update if already fetched
 )
 
-FetchContent_Declare(
-    lvgl
-    GIT_REPOSITORY https://github.com/lvgl/lvgl.git
-    GIT_TAG v9.3.0
-    GIT_SHALLOW TRUE
-    UPDATE_DISCONNECTED TRUE
-)
-
 # HTTP server for the web dashboard, linked to viz_relay only. Both are header-only; populating
 # them without their own CMake (SOURCE_SUBDIR has no CMakeLists.txt) avoids Crow's find_package
 # for Asio, and the viz_relay target below wires the include paths itself.
@@ -110,12 +102,6 @@ FetchContent_Declare(
 )
 set(SPDLOG_BUILD_PIC ON CACHE BOOL "" FORCE)
 
-# LVGL config path (must be set before MakeAvailable)
-set(LV_BUILD_CONF_PATH "${CMAKE_CURRENT_SOURCE_DIR}/include/ui/lv_conf.h" CACHE PATH "")
-# Disable demos and examples to speed up build
-set(CONFIG_LV_BUILD_DEMOS OFF CACHE BOOL "")
-set(CONFIG_LV_BUILD_EXAMPLES OFF CACHE BOOL "")
-
 # Fetch googletest only if testing is enabled
 if(BUILD_TESTING)
     FetchContent_Declare(
@@ -129,9 +115,9 @@ if(BUILD_TESTING)
     # For Windows: Prevent overriding the parent project's compiler/linker settings
     set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 
-    FetchContent_MakeAvailable(tomlplusplus cli11 magic_enum lvgl spdlog nlohmann_json googletest)
+    FetchContent_MakeAvailable(tomlplusplus cli11 magic_enum spdlog nlohmann_json googletest)
 else()
-    FetchContent_MakeAvailable(tomlplusplus cli11 magic_enum lvgl spdlog nlohmann_json)
+    FetchContent_MakeAvailable(tomlplusplus cli11 magic_enum spdlog nlohmann_json)
 endif()
 
 # mcap ships no CMake target, just headers plus a single-TU implementation define.
@@ -149,20 +135,6 @@ target_link_libraries(mcap_reader PUBLIC PkgConfig::LZ4 PkgConfig::ZSTD)
 # Find required packages
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 find_package(Threads REQUIRED)
-# SDL2: try config first, then pkg-config
-find_package(SDL2 QUIET)
-if(NOT SDL2_FOUND)
-    find_package(PkgConfig QUIET)
-    if(PkgConfig_FOUND)
-        pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
-        set(SDL2_TARGET PkgConfig::SDL2)
-    else()
-        find_package(SDL2 REQUIRED)
-        set(SDL2_TARGET SDL2::SDL2)
-    endif()
-else()
-    set(SDL2_TARGET SDL2::SDL2)
-endif()
 # 4.10 asserted, not preferred: cv::aruco moved from contrib into core opencv_objdetect at 4.7
 # and the API changed with it, so FiducialFieldFilter needs 4.7+ everywhere or it needs version
 # guards it would never shed. apt ships 4.5.4 on jammy and 4.6.0 on noble, both too old;
@@ -272,8 +244,6 @@ file(GLOB_RECURSE AUTO_BATTLEBOT_SOURCES CONFIGURE_DEPENDS
     "src/**/*.cu"
 )
 list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*main\\.cpp$")
-# Keep LVGL/SDL UI units out of the shared library.
-list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*lvgl_ui.*\\.cpp$")
 list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*/rgbd_camera/mcap_impl\\.cpp$")
 # The glob is recursive, so dropping the ZED backends means filtering them out here rather than
 # wrapping an explicit list. PointCloudFieldFilter goes with them: it needs a depth image, and
@@ -354,46 +324,9 @@ if(HAVE_NVJPG)
         AUTO_BATTLEBOT_NVJPG_PLUGIN="$<TARGET_FILE_NAME:auto_battlebot_nvjpg>")
 endif()
 
-# UI sources are built as a dedicated static library.
-# These sources are isolated under lvgl_platform_bound because they are tightly
-# coupled to LVGL/SDL runtime and desktop/UI-thread behavior.
-file(GLOB AUTO_BATTLEBOT_UI_SOURCES CONFIGURE_DEPENDS
-    "src/ui/lvgl_platform_bound/*.cpp"
-)
-
-add_library(auto_battlebot_ui STATIC
-    ${AUTO_BATTLEBOT_UI_SOURCES}
-)
-
-# Brand assets (splash animation, top-bar logo) are embedded as C arrays at build
-# time so the binary has no runtime file dependencies. Symbols are declared in
-# src/ui/lvgl_platform_bound/lvgl_ui_branding.cpp.
-function(embed_brand_asset symbol input)
-    set(generated ${CMAKE_CURRENT_BINARY_DIR}/generated/brand_assets/${symbol}.cpp)
-    add_custom_command(
-        OUTPUT ${generated}
-        COMMAND ${CMAKE_COMMAND}
-            -DINPUT=${input} -DOUTPUT=${generated} -DSYMBOL=${symbol}
-            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/bin2c.cmake
-        DEPENDS ${input} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/bin2c.cmake
-        COMMENT "Embedding brand asset ${symbol}"
-    )
-    target_sources(auto_battlebot_ui PRIVATE ${generated})
-endfunction()
-
-embed_brand_asset(bwbots_splash_gif
-    ${CMAKE_CURRENT_SOURCE_DIR}/logo/bwbots_splash_1024x600.gif)
-embed_brand_asset(bwbots_logo_png
-    ${CMAKE_CURRENT_SOURCE_DIR}/logo/bwbots_logo_dark_h24.png)
-
-target_include_directories(auto_battlebot_ui PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/ui
-)
-
 # Git version stamp, regenerated every build so the -dirty flag stays accurate.
-# Written next to the binary and read at startup by the System tab in
-# src/ui/lvgl_ui.cpp, so a new commit never recompiles or relinks anything.
+# Written next to the binary and read at startup (read_build_version in src/main.cpp), which
+# puts it on /status/app for the web System tab. A new commit never recompiles or relinks.
 add_custom_target(generate_git_version
     COMMAND ${CMAKE_COMMAND}
         -DGIT_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
@@ -402,17 +335,6 @@ add_custom_target(generate_git_version
     BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/git_version.txt
     COMMENT "Generating git version stamp"
 )
-add_dependencies(auto_battlebot_ui generate_git_version)
-
-target_link_libraries(auto_battlebot_ui PUBLIC
-    lvgl::lvgl
-    ${SDL2_TARGET}
-    spdlog::spdlog
-    magic_enum::magic_enum
-    tomlplusplus::tomlplusplus
-    nlohmann_json::nlohmann_json
-)
-
 # Set library properties
 set_target_properties(auto_battlebot_lib PROPERTIES
     OUTPUT_NAME auto_battlebot
@@ -506,11 +428,9 @@ add_executable(auto_battlebot
 
 target_link_libraries(auto_battlebot
     auto_battlebot_lib
-    auto_battlebot_ui
     CLI11::CLI11
-    lvgl::lvgl
-    ${SDL2_TARGET}
 )
+add_dependencies(auto_battlebot generate_git_version)
 
 # Foxglove relay: owns the WebSocket server so Foxglove stays connected across app restarts.
 # Links only the SDK and CLI11, never auto_battlebot_lib, so it starts without the ZED SDK.
@@ -540,10 +460,6 @@ target_compile_options(remote_protocol_dump PRIVATE ${COMMON_COMPILE_FLAGS})
 
 # Compiler flags for executable
 if(BUILD_DEBUG)
-    target_compile_options(auto_battlebot_ui PRIVATE
-        ${COMMON_COMPILE_FLAGS}
-        ${DEBUG_COMPILE_FLAGS}
-    )
     target_compile_options(auto_battlebot PRIVATE
         ${COMMON_COMPILE_FLAGS}
         ${DEBUG_COMPILE_FLAGS}
@@ -553,10 +469,6 @@ if(BUILD_DEBUG)
         ${DEBUG_COMPILE_FLAGS}
     )
 else()
-    target_compile_options(auto_battlebot_ui PRIVATE
-        ${COMMON_COMPILE_FLAGS}
-        ${RELEASE_COMPILE_FLAGS}
-    )
     target_compile_options(auto_battlebot PRIVATE
         ${COMMON_COMPILE_FLAGS}
         ${RELEASE_COMPILE_FLAGS}
@@ -606,7 +518,7 @@ if(HAVE_NVJPG)
     install(TARGETS auto_battlebot_nvjpg LIBRARY DESTINATION lib)
 endif()
 # The binary reads this at startup from its own directory (see read_build_version
-# in src/ui/lvgl_ui.cpp), so it must land next to the installed executable.
+# in src/main.cpp), so it must land next to the installed executable.
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/git_version.txt DESTINATION bin)
 # Install config (used when running from system-wide install)
 install(DIRECTORY config/ DESTINATION share/auto_battlebot/config
@@ -635,7 +547,6 @@ if(BUILD_TESTING)
     target_link_libraries(auto_battlebot_test
         GTest::gtest_main
         auto_battlebot_lib
-        auto_battlebot_ui
     )
 
     # So shared test helpers can be included by module path, e.g.

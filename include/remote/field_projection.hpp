@@ -11,10 +11,9 @@ namespace auto_battlebot::remote {
 
 /**
  * The field border projected into the camera image, as fractions of the image size, for the
- * dashboard to draw over any preview size. Pinhole on the rectified image, the same projection
- * the LVGL overlay uses. Each side is sampled so a border that passes behind the camera is cut
- * where it does instead of dropped whole; every returned polyline has at least two points.
- * Empty when the field or the intrinsics are missing.
+ * dashboard to draw over any preview size. Pinhole on the rectified image. Each side is sampled so
+ * a border that passes behind the camera is cut where it does instead of dropped whole; every
+ * returned polyline has at least two points. Empty when the field or the intrinsics are missing.
  */
 /** One field-frame point on the floor (z = 0) in the camera image, as fractions of its size;
  *  nullopt when it is behind the camera or the field or intrinsics are missing. */

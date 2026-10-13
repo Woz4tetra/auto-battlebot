@@ -14,7 +14,7 @@
   // The current MCAP file's length, so it restarts at a rollover and survives a page reload.
   const battery = $derived(status.battery);
   const batteryText = $derived(battery?.valid ? Math.round(battery.percent).toString() : "--");
-  // Same thresholds as the old LVGL top bar.
+  // Red below 20%, amber below 50%.
   const batteryLow = $derived(!!battery?.valid && battery.percent < 20);
   const batteryMid = $derived(!!battery?.valid && battery.percent >= 20 && battery.percent < 50);
   const recTime = $derived.by(() => {

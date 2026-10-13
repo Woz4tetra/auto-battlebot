@@ -2,17 +2,13 @@
 # Run a command with DISPLAY pointing at the X server of the logged-in session, on the boxes
 # that have one. Headless boxes run the command straight away.
 #
-# Two things went wrong before this existed, and both looked like a crashed UI:
+# dashboard-kiosk.service runs through it, for two reasons:
 #
-# 1. The unit hardcoded DISPLAY=:0. GDM hands the session whichever display number is free, so
-#    after a manual login it is :1 and the app was aimed at a server that is not there.
+# 1. The display number moves. GDM hands the session whichever number is free: :1 on the handheld
+#    on 2026-09-22 and :0 on 2026-10-13. A hardcoded DISPLAY aims at a server that is not there.
 # 2. At boot the service starts before GDM's autologin session exists. Measured on the handheld:
-#    the service starts at t=11.8s and the session's Xorg at t=13.6s.
-#
-# SDL answers a missing display by falling back to its "offscreen" video driver instead of
-# failing: every call succeeds, and the window silently never appears. Nothing crashes, so
-# Restart= never retries and the app stays headless for the rest of the session. Hence the wait
-# below rather than a start-and-hope.
+#    a service starts at t=11.8s and the session's Xorg at t=13.6s. The kiosk treats no display
+#    as a headless box and exits for good, so it has to wait rather than start and hope.
 #
 # The wait is gated on the machine booting a desktop at all, so a headless deploy never sits
 # waiting for a session that is never coming. Both conditions have to hold: a display manager

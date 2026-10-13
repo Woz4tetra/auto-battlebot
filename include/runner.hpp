@@ -41,7 +41,6 @@
 #include "serial_worker.hpp"
 #include "target_selector/target_selector_interface.hpp"
 #include "time/clock_interface.hpp"
-#include "ui/ui_state.hpp"
 
 namespace auto_battlebot {
 
@@ -75,7 +74,6 @@ class Runner : public Quittable {
            std::shared_ptr<PublisherInterface> publisher,
            SystemActionCallback system_action_callback,
            ProfileSelectCallback profile_select_callback = nullptr,
-           std::shared_ptr<UIState> ui_state = nullptr,
            std::shared_ptr<McapRecorder> mcap_recorder = nullptr,
            std::shared_ptr<ClockInterface> clock = nullptr, RunnerRemote remote = {});
 
@@ -83,6 +81,8 @@ class Runner : public Quittable {
     void initialize_field(const CameraData &camera_data);
     int run();
     bool tick();
+    /** The /status/system message the last tick built, whether or not a status bus exists. */
+    const remote::SystemStatusMessage &system_status() const { return last_status_; }
 
     // Called from the SIGINT/SIGTERM handler, so it only sets a flag the loop polls.
     ~Runner() override;
@@ -90,7 +90,6 @@ class Runner : public Quittable {
     void request_quit() override;
 
    private:
-    // Independent of ui_state_, which is null whenever the UI is disabled.
     std::atomic<bool> quit_requested_{false};
 
     /** Drains the command queue and runs each command. Sets `should_reinit_field` when one asked
@@ -127,7 +126,6 @@ class Runner : public Quittable {
      *  it once running, since a threaded driver owns it on another thread. */
     std::shared_ptr<ControlLoopInterface> control_loop_;
     std::shared_ptr<PublisherInterface> publisher_;
-    std::shared_ptr<UIState> ui_state_;
     std::shared_ptr<McapRecorder> mcap_recorder_;
     std::shared_ptr<ClockInterface> clock_;
     SystemActionCallback system_action_callback_;
@@ -155,7 +153,9 @@ class Runner : public Quittable {
     /** When the transmitter's autonomy switch last went on; empty while it is off. */
     std::optional<std::chrono::steady_clock::time_point> autonomy_switch_since_;
 
-    void publish_system_status(bool camera_ok, double loop_rate_hz) const;
+    /** Builds /status/system, keeps it for system_status(), and publishes it. */
+    void publish_system_status(bool camera_ok, double loop_rate_hz);
+    remote::SystemStatusMessage last_status_;
     void publish_tracks(const RobotDescriptionsStamped &robots, const FieldDescription &field,
                         const CameraInfo &camera_info, const TargetSelection &target) const;
     /** Starts or clears the autonomy-switch timer from the transmitter, and logs both timers. */
@@ -168,7 +168,6 @@ class Runner : public Quittable {
     void roll_over_recording_if_full();
     std::chrono::steady_clock::time_point last_size_check_{};
     bool recover_camera_after_failure();
-    void set_ui_debug_image_from_camera(const CameraData &camera_data) const;
     bool handle_uninitialized_tick(const CameraData &camera_data, double loop_rate_hz);
     double elapsed_ms();
 

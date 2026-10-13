@@ -20,13 +20,13 @@ services:
         # container_entrypoint.sh) with no port mapping, and avoids docker-in-docker.
         network_mode: "host"
 
-        # Shared IPC covers two things: X shared memory for the LVGL window, and the
-        # host /dev/shm size, which the default 64 MB would not satisfy.
+        # Shared IPC covers two things: X shared memory for GUI tools run from shell.sh, and
+        # the host /dev/shm size, which the default 64 MB would not satisfy.
         ipc: "host"
 
         # Run as the invoking user so artifacts written into the bind-mounted
         # build-docker/ are owned by them, not root. The passwd and group mounts give
-        # that UID a name inside the container, which SDL and the ZED SDK expect.
+        # that UID a name inside the container, which the ZED SDK expects.
         user: "${HOST_UID}:${HOST_GID}"
         working_dir: "${REPO}"
 

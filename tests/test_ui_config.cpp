@@ -19,7 +19,6 @@ MR_STABS_MK2 = "#ea2e2e"
 opponent = "#22C55E"
 )");
     ASSERT_TRUE(config);
-    EXPECT_FALSE(config->enable);
     ASSERT_EQ(config->label_colors.size(), 2u);
     std::map<std::string, std::string> colors(config->label_colors.begin(),
                                               config->label_colors.end());

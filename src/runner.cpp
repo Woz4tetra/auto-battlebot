@@ -12,22 +12,19 @@
 #include "time_utils.hpp"
 
 namespace auto_battlebot {
-Runner::Runner(const RunnerConfiguration &runner_config,
-               std::shared_ptr<RgbdCameraInterface> camera,
-               std::shared_ptr<HealthLogger> health_logger,
-               std::shared_ptr<MaskModelInterface> field_model,
-               std::shared_ptr<RobotBlobModelInterface> robot_mask_model,
-               std::shared_ptr<FieldFilterInterface> field_filter,
-               std::shared_ptr<KeypointModelInterface> keypoint_model,
-               std::shared_ptr<KeypointHeightGate> height_gate,
-               std::shared_ptr<StaticDetectionGate> static_gate,
-               std::shared_ptr<ParallelModelBatch> perception_batch,
-               std::shared_ptr<ControlLoopInterface> control_loop,
-               std::shared_ptr<PublisherInterface> publisher,
-               SystemActionCallback system_action_callback,
-               ProfileSelectCallback profile_select_callback, std::shared_ptr<UIState> ui_state,
-               std::shared_ptr<McapRecorder> mcap_recorder, std::shared_ptr<ClockInterface> clock,
-               RunnerRemote remote)
+Runner::Runner(
+    const RunnerConfiguration &runner_config, std::shared_ptr<RgbdCameraInterface> camera,
+    std::shared_ptr<HealthLogger> health_logger, std::shared_ptr<MaskModelInterface> field_model,
+    std::shared_ptr<RobotBlobModelInterface> robot_mask_model,
+    std::shared_ptr<FieldFilterInterface> field_filter,
+    std::shared_ptr<KeypointModelInterface> keypoint_model,
+    std::shared_ptr<KeypointHeightGate> height_gate,
+    std::shared_ptr<StaticDetectionGate> static_gate,
+    std::shared_ptr<ParallelModelBatch> perception_batch,
+    std::shared_ptr<ControlLoopInterface> control_loop,
+    std::shared_ptr<PublisherInterface> publisher, SystemActionCallback system_action_callback,
+    ProfileSelectCallback profile_select_callback, std::shared_ptr<McapRecorder> mcap_recorder,
+    std::shared_ptr<ClockInterface> clock, RunnerRemote remote)
     : runner_config_(runner_config),
       camera_(camera),
       field_model_(field_model),
@@ -39,7 +36,6 @@ Runner::Runner(const RunnerConfiguration &runner_config,
       perception_batch_(std::move(perception_batch)),
       control_loop_(std::move(control_loop)),
       publisher_(publisher),
-      ui_state_(std::move(ui_state)),
       mcap_recorder_(std::move(mcap_recorder)),
       clock_(std::move(clock)),
       system_action_callback_(std::move(system_action_callback)),
@@ -72,48 +68,31 @@ void Runner::request_quit() {
     camera_->cancel_initialize();
 }
 
-void Runner::publish_system_status(bool camera_ok, double loop_rate_hz) const {
-    if (!ui_state_ && !remote_.status) return;
-    const bool svo_recording_enabled = camera_->is_recording_enabled();
-    const bool mcap_recording_enabled = mcap_recorder_ ? mcap_recorder_->is_enabled() : true;
-    SystemStatus status;
-    status.camera_ok = camera_ok;
-    status.transmitter = control_loop_->transmitter_status();
-    status.loop_rate_hz = loop_rate_hz;
-    status.initialized = initialized_;
-    status.selected_opponent_count = runtime_opponent_count_;
-    status.autonomy_enabled = autonomy_enabled_;
-    status.svo_recording_enabled = svo_recording_enabled;
-    status.mcap_recording_enabled = mcap_recording_enabled;
-    status.recording_enabled = svo_recording_enabled && mcap_recording_enabled;
-    if (health_logger_) {
-        status.jetson_temperature_c = health_logger_->get_last_temp_c();
-        status.jetson_compute_mode = health_logger_->get_last_compute_mode();
-    }
-    if (ui_state_) ui_state_->set_system_status(status);
-    if (!remote_.status) return;
-
+void Runner::publish_system_status(bool camera_ok, double loop_rate_hz) {
+    const TransmitterStatus transmitter = control_loop_->transmitter_status();
     remote::SystemStatusMessage message;
-    message.camera_ok = status.camera_ok;
-    message.transmitter_connected = status.transmitter.connected;
-    message.transmitter_receiving = status.transmitter.receiving_channels;
-    message.loop_rate_hz = status.loop_rate_hz;
-    message.initialized = status.initialized;
-    message.selected_opponent_count = status.selected_opponent_count;
-    message.autonomy_enabled = status.autonomy_enabled;
-    message.svo_recording = status.svo_recording_enabled;
-    message.mcap_recording = status.mcap_recording_enabled;
-    // 0 means the health logger has no reading on this platform.
-    if (status.jetson_temperature_c != 0.0) {
-        message.jetson_temperature_c = status.jetson_temperature_c;
+    message.camera_ok = camera_ok;
+    message.transmitter_connected = transmitter.connected;
+    message.transmitter_receiving = transmitter.receiving_channels;
+    message.loop_rate_hz = loop_rate_hz;
+    message.initialized = initialized_;
+    message.selected_opponent_count = runtime_opponent_count_;
+    message.autonomy_enabled = autonomy_enabled_;
+    message.svo_recording = camera_->is_recording_enabled();
+    message.mcap_recording = mcap_recorder_ ? mcap_recorder_->is_enabled() : true;
+    if (health_logger_) {
+        // 0 means the health logger has no reading on this platform.
+        const double temperature_c = health_logger_->get_last_temp_c();
+        if (temperature_c != 0.0) message.jetson_temperature_c = temperature_c;
+        message.compute_mode = health_logger_->get_last_compute_mode();
     }
-    message.compute_mode = status.jetson_compute_mode;
     message.uptime_s = uptime_s();
-    if (status.transmitter.has_autonomy_switch) {
-        message.autonomy_switch_on = status.transmitter.autonomy_switch_on;
-    }
+    if (transmitter.has_autonomy_switch)
+        message.autonomy_switch_on = transmitter.autonomy_switch_on;
     message.autonomy_on_s = autonomy_on_s();
     if (mcap_recorder_) message.mcap_file_s = mcap_recorder_->file_age_s();
+    last_status_ = message;
+    if (!remote_.status) return;
     remote_.status->publish(message);
     remote_.status->publish(remote_.app_info);
 }
@@ -166,7 +145,7 @@ void Runner::publish_tracks(const RobotDescriptionsStamped &robots, const FieldD
         tracked.image = remote::project_field_point(field, camera_info, tracked.x, tracked.y);
         message.robots.push_back(std::move(tracked));
     }
-    // The segment navigation steered along this cycle, the same one the LVGL overlay draws.
+    // The segment navigation steered along this cycle.
     const NavigationVisualization visualization = control_loop_->last_visualization();
     if (const auto &path = visualization.path) {
         remote::TargetMessage out;
@@ -288,7 +267,6 @@ std::string Runner::select_profile(const std::string &name) {
     if (profile_select_callback_) profile_select_callback_(name);
     // The new profile only takes effect on the next launch; tell the user to reboot.
     std::string notice = "Selected " + name + ". Reboot to apply.";
-    if (ui_state_) ui_state_->set_profile_notice(notice);
     return notice;
 }
 
@@ -357,14 +335,6 @@ bool Runner::handle_commands(bool &should_reinit_field) {
     return keep_running;
 }
 
-void Runner::set_ui_debug_image_from_camera(const CameraData &camera_data) const {
-    if (!ui_state_) return;
-    if (!camera_data.rgb.image.data || camera_data.rgb.image.empty()) return;
-
-    // UIState clones internally to detach from the camera SDK's reusable buffer.
-    ui_state_->set_debug_image(camera_data.rgb.image);
-}
-
 bool Runner::recover_camera_after_failure() {
     if (camera_->should_close()) {
         spdlog::error("Camera signalled to close the application");
@@ -374,7 +344,6 @@ bool Runner::recover_camera_after_failure() {
     spdlog::error("Failed to get camera data. Reinitializing.");
     auto is_running = [this]() {
         if (quit_requested_.load()) return false;
-        if (ui_state_ && ui_state_->quit_requested.load()) return false;
         return true;
     };
     while (is_running()) {
@@ -414,11 +383,6 @@ bool Runner::recover_camera_after_failure() {
 
 bool Runner::handle_uninitialized_tick(const CameraData &camera_data, double loop_rate_hz) {
     publisher_->publish_camera_data(camera_data);
-    if (ui_state_) {
-        ui_state_->set_camera_info(camera_data.camera_info);
-        ui_state_->set_field_description(std::nullopt);
-        set_ui_debug_image_from_camera(camera_data);
-    }
     publish_system_status(true, loop_rate_hz);
     return true;
 }
@@ -556,12 +520,6 @@ bool Runner::tick() {
         return false;
     }
 
-    if (ui_state_ && ui_state_->quit_requested.load()) {
-        spdlog::warn("UI requested quit via UIState::quit_requested.");
-        stop_recordings_for_shutdown();
-        return false;
-    }
-
     bool should_reinit_field = false;
     if (!handle_commands(should_reinit_field)) return false;
     roll_over_recording_if_full();
@@ -582,9 +540,6 @@ bool Runner::tick() {
 
     if (!is_camera_ok) {
         publish_system_status(false, loop_rate_hz);
-        if (ui_state_) {
-            ui_state_->set_field_description(std::nullopt);
-        }
         return recover_camera_after_failure();
     }
 
@@ -725,15 +680,6 @@ bool Runner::tick() {
     }
 
     publish_system_status(true, loop_rate_hz);
-    if (ui_state_) {
-        ui_state_->set_camera_info(camera_data.camera_info);
-        ui_state_->set_field_description(hazard_view);
-        ui_state_->set_robots(robots);
-        ui_state_->set_keypoints(keypoints);
-        ui_state_->set_navigation_path(control_loop_->last_visualization().path);
-        ui_state_->set_command_feedback(control_output.command_feedback);
-        set_ui_debug_image_from_camera(camera_data);
-    }
     publish_tracks(robots, field_description, camera_data.camera_info, control_output.target);
     if (remote_.status) {
         const auto &sticks = control_output.command_feedback.stick_commands;

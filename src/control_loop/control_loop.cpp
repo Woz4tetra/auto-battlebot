@@ -15,14 +15,13 @@ ControlLoop::ControlLoop(std::shared_ptr<RobotFilterInterface> robot_filter,
                          std::shared_ptr<TargetSelectorInterface> target_selector,
                          std::shared_ptr<NavigationInterface> navigation,
                          std::shared_ptr<TransmitterInterface> transmitter,
-                         std::shared_ptr<ClockInterface> clock, std::shared_ptr<UIState> ui_state,
+                         std::shared_ptr<ClockInterface> clock,
                          std::shared_ptr<HazardAssembler> hazard_assembler)
     : robot_filter_(std::move(robot_filter)),
       target_selector_(std::move(target_selector)),
       navigation_(std::move(navigation)),
       transmitter_(std::move(transmitter)),
       clock_(std::move(clock)),
-      ui_state_(std::move(ui_state)),
       hazard_assembler_(std::move(hazard_assembler)),
       diagnostics_logger_(DiagnosticsLogger::get_logger("runner")) {}
 
@@ -73,16 +72,9 @@ std::chrono::steady_clock::time_point ControlLoop::last_cycle_time() const {
 TargetSelection ControlLoop::resolve_target(const RobotDescriptionsStamped &robots,
                                             const FieldDescription &field_description,
                                             BehaviorMode mode) {
-    // Stamp the mode on the way out rather than letting the selectors set it. A selector that
-    // found nothing leaves the previous target in place, and a manual target from the UI never saw
-    // a mode at all; both still have to carry the switch position navigation is steering under
-    // right now.
-    if (ui_state_) {
-        if (auto manual_target = ui_state_->get_manual_target()) {
-            manual_target->mode = mode;
-            return *manual_target;
-        }
-    }
+    // Stamp the mode on the way out rather than letting the selector set it. A selector that found
+    // nothing leaves the previous target in place, which still has to carry the switch position
+    // navigation is steering under right now.
     if (target_selector_) {
         if (auto selected = target_selector_->get_target(robots, field_description, mode)) {
             previous_selected_target_ = *selected;

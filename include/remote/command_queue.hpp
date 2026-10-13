@@ -10,8 +10,8 @@
 
 namespace auto_battlebot::remote {
 
-/** Every command source (the viz sink, the LVGL UI) posts here from its own thread; the Runner
- *  drains it at the start of each tick, so every command runs on the loop thread. */
+/** The viz sink posts commands here from its own thread; the Runner drains it at the start of each
+ *  tick, so every command runs on the loop thread. */
 class CommandQueue {
    public:
     void post(RemoteCommand command) {

@@ -54,8 +54,8 @@ else
 
     # A terminal can easily end up without DISPLAY even while a perfectly good X server
     # is running: tmux and screen sessions outliving a login, or a shell started outside
-    # the graphical session. Rather than silently drop the UI, adopt the local display
-    # when there is exactly one and it is unambiguous.
+    # the graphical session. GUI tools run from shell.sh need one, so adopt the local
+    # display when there is exactly one and it is unambiguous.
     if [ -z "${DISPLAY}" ]; then
         x_sockets=()
         for socket in /tmp/.X11-unix/X*; do
@@ -71,11 +71,10 @@ else
             echo "note: DISPLAY is unset and several X displays exist (${x_sockets[*]})." >&2
             echo "      Export the one you want, or pass --no-display to run headless." >&2
         else
-            # Nothing to connect to. Not fatal: SDL_Init fails, the UI thread returns,
-            # and playback, Foxglove, and mcap recording all carry on.
-            echo "note: DISPLAY is unset and no local X display was found, so no window" >&2
-            echo "      will open. Playback, Foxglove, and mcap recording are unaffected." >&2
-            echo "      Pass --no-display to skip the UI and silence the SDL error." >&2
+            # Nothing to connect to. Not fatal: only GUI tools in the container need it.
+            echo "note: DISPLAY is unset and no local X display was found, so GUI tools in" >&2
+            echo "      the container cannot open windows. Playback, Foxglove, and mcap" >&2
+            echo "      recording are unaffected. Pass --no-display to silence this." >&2
         fi
     fi
 fi

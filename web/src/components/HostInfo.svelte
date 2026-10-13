@@ -36,6 +36,7 @@
             label: "Loop target",
             value: status.app ? `${status.app.max_loop_rate_hz.toFixed(0)} Hz` : "--",
           },
+          { label: "Build", value: status.app?.version || "--" },
         ]
       : [
           { label: "Connected over", value: link },
@@ -43,6 +44,7 @@
           { label: "URL", value: net ? `${net.hostname}.local` : "--" },
           { label: "Relay", value: relay },
           { label: "App", value: status.appUp ? "RUNNING" : "DOWN" },
+          { label: "Build", value: status.app?.version || "--" },
         ],
   );
 </script>

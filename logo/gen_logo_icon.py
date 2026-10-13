@@ -1,13 +1,10 @@
 #!/usr/bin/env python3
-"""Render the BWBots logo as a small transparent PNG for the UI top bar.
+"""Render the BWBots logo as a small transparent PNG for a dark top bar.
 
 Produces the dark-background variant used by the splash animation: the logo's
 black half-disc is drawn as a white outline (it would vanish against the dark
 bar), the white half is plain fill, and the BW pill comes from the SVG. The
 background is transparent so the icon sits directly on the bar.
-
-The PNG is embedded into the app at build time (cmake/bin2c.cmake) and decoded
-by LVGL's lodepng decoder.
 
 Requires: inkscape on PATH. Run inside the project venv (numpy, Pillow).
 

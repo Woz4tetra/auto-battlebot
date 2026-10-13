@@ -16,7 +16,6 @@
 #include "target_selector/target_selector_interface.hpp"
 #include "time/clock_interface.hpp"
 #include "transmitter/transmitter_interface.hpp"
-#include "ui/ui_state.hpp"
 
 namespace auto_battlebot {
 
@@ -63,7 +62,7 @@ class ControlLoop {
                 std::shared_ptr<TargetSelectorInterface> target_selector,
                 std::shared_ptr<NavigationInterface> navigation,
                 std::shared_ptr<TransmitterInterface> transmitter,
-                std::shared_ptr<ClockInterface> clock, std::shared_ptr<UIState> ui_state,
+                std::shared_ptr<ClockInterface> clock,
                 std::shared_ptr<HazardAssembler> hazard_assembler);
 
     /**
@@ -111,7 +110,6 @@ class ControlLoop {
     std::shared_ptr<NavigationInterface> navigation_;
     std::shared_ptr<TransmitterInterface> transmitter_;
     std::shared_ptr<ClockInterface> clock_;
-    std::shared_ptr<UIState> ui_state_;
     std::shared_ptr<HazardAssembler> hazard_assembler_;
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
 

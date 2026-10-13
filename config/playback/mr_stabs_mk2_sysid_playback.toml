@@ -73,6 +73,3 @@ autonomy_enabled_by_default = false
 # since the replays land in data/recordings next to the originals until the driver moves them.
 enable = true
 holding_dir_max_size_gb = 0
-
-[ui]
-enable = false

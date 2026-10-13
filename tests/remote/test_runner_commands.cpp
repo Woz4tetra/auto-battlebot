@@ -76,13 +76,12 @@ class RunnerCommandsTest : public ::testing::Test {
    protected:
     void SetUp() override {
         camera_ = std::make_shared<RecordingCamera>();
-        ui_state_ = std::make_shared<UIState>();
         auto keypoint_model = std::make_shared<NoopKeypointModel>();
         auto blob_model = std::make_shared<NoopRobotBlobModel>();
         auto loop = std::make_shared<ControlLoop>(
             std::make_shared<NoopRobotFilter>(), std::make_shared<NoopTarget>(),
             std::make_shared<NoopNavigation>(), std::make_shared<NoopTransmitter>(), nullptr,
-            nullptr, nullptr);
+            nullptr);
         RunnerRemote remote;
         commands_ = remote.commands;
         runner_ = std::make_unique<Runner>(
@@ -93,16 +92,14 @@ class RunnerCommandsTest : public ::testing::Test {
             std::make_shared<ParallelModelBatch>(keypoint_model, blob_model),
             std::make_shared<SteppedControlLoop>(loop, 0.0), std::make_shared<NoopPublisher>(),
             [this](SystemAction action) { system_action_ = action; },
-            [this](const std::string &name) { profile_ = name; }, ui_state_, nullptr, nullptr,
+            [this](const std::string &name) { profile_ = name; }, nullptr, nullptr,
             std::move(remote));
     }
 
-    SystemStatus status_after(remote::RemoteCommand command) {
+    remote::SystemStatusMessage status_after(remote::RemoteCommand command) {
         commands_->post(std::move(command));
         EXPECT_TRUE(runner_->tick());
-        SystemStatus status;
-        ui_state_->get_system_status(status);
-        return status;
+        return runner_->system_status();
     }
 
     /** Recording toggles run on a worker; tick until the status shows `enabled` or 2 s pass. */
@@ -110,16 +107,13 @@ class RunnerCommandsTest : public ::testing::Test {
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
         while (std::chrono::steady_clock::now() < deadline) {
             EXPECT_TRUE(runner_->tick());
-            SystemStatus status;
-            ui_state_->get_system_status(status);
-            if (status.svo_recording_enabled == enabled) return true;
+            if (runner_->system_status().svo_recording == enabled) return true;
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
         }
         return false;
     }
 
     std::shared_ptr<RecordingCamera> camera_;
-    std::shared_ptr<UIState> ui_state_;
     std::shared_ptr<remote::CommandQueue> commands_;
     std::unique_ptr<Runner> runner_;
     std::optional<SystemAction> system_action_;
@@ -187,10 +181,9 @@ TEST_F(RunnerCommandsTest, StoppedEncoderRestartsTheRecording) {
     EXPECT_FALSE(camera_->needs_restart);
 }
 
-TEST_F(RunnerCommandsTest, SelectProfilePersistsAndSetsTheNotice) {
+TEST_F(RunnerCommandsTest, SelectProfilePersists) {
     status_after(remote::SelectProfileCommand{.name = "mrs_buff_mk3"});
     EXPECT_EQ(profile_, "mrs_buff_mk3");
-    EXPECT_EQ(ui_state_->get_profile_notice(), "Selected mrs_buff_mk3. Reboot to apply.");
 }
 
 TEST_F(RunnerCommandsTest, SystemActionStopsTheLoop) {

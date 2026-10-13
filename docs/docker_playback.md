@@ -29,7 +29,7 @@ Rebuild the image only when one of these changes:
 - `.llvm-version`
 - the `TENSORRT_VERSION` pin or base image in `docker/playback.Dockerfile`
 
-The `FetchContent` dependency tree (tomlplusplus, CLI11, magic_enum, lvgl, spdlog) lands
+The `FetchContent` dependency tree (tomlplusplus, CLI11, magic_enum, spdlog) lands
 in `build-docker/_deps` on the host, so it survives image rebuilds. The Foxglove SDK is
 unpacked into `third_party/foxglove` on the host by `install/install_foxglove_sdk.sh` and
 reaches the container through the repo bind mount.
@@ -162,10 +162,6 @@ The container runs as the invoking user via `--user "$(id -u):$(id -g)"`, with
 written into `build-docker/` are owned by you, not root.
 
 ## Troubleshooting
-
-**No window appears.** The UI is SDL2, so it needs X11. Check `DISPLAY` is set and
-`$XAUTHORITY` exists. Under Wayland this goes through XWayland. To skip the UI, set
-`ui.enable = false` in the config and use Foxglove instead.
 
 **`could not select device driver "" with capabilities: [[gpu]]`.** The NVIDIA Container
 Toolkit is missing or Docker was not restarted after `nvidia-ctk runtime configure`.

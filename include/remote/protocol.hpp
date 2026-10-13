@@ -10,8 +10,8 @@
 
 #include "remote/messages.hpp"
 
-// The one place remote topics map to types. Every status topic and command a browser, a Foxglove
-// panel, or the LVGL UI can use is a row here. The rows drive JSON encoding, the JSON Schema each
+// The one place remote topics map to types. Every status topic and command a browser or a
+// Foxglove panel can use is a row here. The rows drive JSON encoding, the JSON Schema each
 // channel advertises, MCAP recording, command dispatch, and web/src/generated/protocol.ts.
 //
 // Adding a command: a payload struct in messages.hpp, one CommandTopic row, then a handler in

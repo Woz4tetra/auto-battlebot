@@ -9,8 +9,8 @@
 #   scripts/docker/run_playback.sh -c config/playback/mr_stabs_mk2_playback.toml
 #   scripts/docker/run_playback.sh --no-display
 #
-# --no-display drops X11 forwarding and passes --no-ui to the binary, so the UI is
-# skipped whatever the config says. For headless machines and SSH sessions.
+# --no-display drops X11 forwarding. Playback opens no window either way; it only silences the
+# DISPLAY notes on headless machines and SSH sessions.
 
 set -e
 
@@ -30,10 +30,6 @@ done
 source "${SCRIPT_DIR}/docker_common.sh"
 
 warn_first_run
-
-if [ -n "${AUTO_BATTLEBOT_NO_DISPLAY:-}" ]; then
-    BINARY_ARGS+=("--no-ui")
-fi
 
 # Overriding the command drops the compose file's default -c, so re-supply it unless the
 # caller named a config themselves.

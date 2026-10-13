@@ -58,9 +58,11 @@ struct AppInfoMessage {
     double rate_fail_threshold = 0.0;
     double rate_fail_duration_sec = 0.0;
     std::vector<LabelColor> label_colors;
+    /** Short git hash of the build, "-dirty" for uncommitted changes; "unknown" without a stamp. */
+    std::string version;
     AB_JSON_MESSAGE(AppInfoMessage, "auto_battlebot.status.App", available_profiles,
                     current_profile, max_loop_rate_hz, rate_fail_threshold, rate_fail_duration_sec,
-                    label_colors)
+                    label_colors, version)
 };
 
 /** Our robot's sticks as the transmitter read them back, normalized [-1, 1]. */

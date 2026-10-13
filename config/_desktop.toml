@@ -30,9 +30,5 @@ candidates = [
   "data/models/yolo26l-pose_all_keypoints_2026-09-25_rect416x640_x86_64_sm86.engine",
 ]
 
-[ui]
-enable = true
-fullscreen = false
-
 [mcap]
 enable = true

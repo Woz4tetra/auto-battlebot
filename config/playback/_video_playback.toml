@@ -35,6 +35,3 @@ zero_deadzone_percent = 2
 # Off. A replay reads one file and would record another; McapRecorder refuses to open the file the
 # camera reserved, but there is no reason to write a second one during replay iteration anyway.
 enable = false
-
-[ui]
-splash = false

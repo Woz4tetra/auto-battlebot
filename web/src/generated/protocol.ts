@@ -26,6 +26,7 @@ export interface AppStatus {
   max_loop_rate_hz: number;
   rate_fail_duration_sec: number;
   rate_fail_threshold: number;
+  version: string;
 }
 
 export interface LabelColor {

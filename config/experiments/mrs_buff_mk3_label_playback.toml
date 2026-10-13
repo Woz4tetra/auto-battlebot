@@ -9,9 +9,6 @@ extends = "playback/mrs_buff_mk3_playback"
 [rgbd_camera]
 svo_real_time_mode = false
 
-[ui]
-enable = false
-
 [mcap]
 enable = true
 ignored_topics = []

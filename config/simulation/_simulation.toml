@@ -21,10 +21,5 @@ type = "SimTransmitter"
 command_delay_ms = 0.0
 # behavior_mode = "RUN_AWAY"
 
-
 [mcap]
 enable = false
-
-[ui]
-# Skip the startup splash animation during replay iteration.
-splash = false

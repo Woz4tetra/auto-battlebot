@@ -14,18 +14,11 @@
 #include "rgbd_camera/rgbd_camera_interface.hpp"
 
 namespace auto_battlebot {
+/** [ui]: settings the web dashboard reads from /status/app. */
 struct UiConfiguration {
     ~UiConfiguration() = default;
     UiConfiguration() = default;
 
-    bool enable = false;
-    bool fullscreen = true;
-    /** Play the BWBots splash animation when the UI starts. */
-    bool splash = true;
-    int width = 1024;
-    int height = 600;
-    /** Number of samples for rolling average of loop_rate_hz (1 = no averaging). */
-    int rate_avg_window = 10;
     /** Fraction of max_loop_rate below which rate is considered "not met" (e.g. 0.99). */
     double rate_fail_threshold = 0.5;
     /** Seconds the rate must be below threshold before showing error (prevents strobing). */
