@@ -129,9 +129,18 @@ std::string SvoRecorder::generate_filename() const {
     std::time_t t = std::chrono::system_clock::to_time_t(now);
     std::tm tm{};
     localtime_r(&t, &tm);
-    std::ostringstream oss;
-    oss << std::put_time(&tm, "%Y-%m-%dT%H-%M-%S") << ".svo2";
-    return (holding_dir_ / oss.str()).string();
+    std::ostringstream stamp;
+    stamp << std::put_time(&tm, "%Y-%m-%dT%H-%M-%S");
+    // Second resolution, so an off and on within one second named the new file after the old
+    // one, and the SDK overwrote it. A suffix keeps both, as McapRecorder does.
+    std::filesystem::path path = holding_dir_ / (stamp.str() + ".svo2");
+    std::error_code ec;
+    for (int part = 1; std::filesystem::exists(path, ec); ++part) {
+        std::ostringstream name;
+        name << stamp.str() << "_part" << std::setfill('0') << std::setw(2) << part << ".svo2";
+        path = holding_dir_ / name.str();
+    }
+    return path.string();
 }
 
 void SvoRecorder::enforce_holding_dir_size() {
