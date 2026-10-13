@@ -18,6 +18,11 @@ constexpr uint64_t kBytesPerGb = 1024ULL * 1024ULL * 1024ULL;
 constexpr auto kGrabErrorWindow = std::chrono::seconds(10);
 constexpr double kGrabErrorExitThreshold = 0.70;
 constexpr auto kGetWaitTimeout = std::chrono::milliseconds(100);
+// get() gives up past this with no frame, so the runner gets its tick back to read quit and
+// reboot commands and to reinitialize the camera. A healthy ZED never goes this long.
+constexpr auto kGetDeadline = std::chrono::seconds(2);
+// Between grabs that return a transient error, so a streak of them does not spin a core.
+constexpr auto kTransientErrorBackoff = std::chrono::milliseconds(5);
 constexpr double kOpenWaitWarnMs = 2000.0;
 constexpr double kJoinWaitWarnMs = 1000.0;
 constexpr double kCaptureLockWarnMs = 150.0;
@@ -215,7 +220,9 @@ bool ZedRgbdCamera::capture_frame() {
     const ZedDevice::GrabStatus grab_status = device_.grab();
 
     if (grab_status == ZedDevice::GrabStatus::TransientError) {
-        // Treat transient frame grab issues as recoverable: wait for the next good frame.
+        // Recoverable: wait for the next good frame. A streak that outlasts kGetDeadline makes
+        // get() fail and the runner reinitialize the camera.
+        std::this_thread::sleep_for(kTransientErrorBackoff);
         return false;
     }
 
@@ -329,11 +336,16 @@ bool ZedRgbdCamera::get(CameraData &data) {
 
 bool ZedRgbdCamera::wait_for_new_frame(std::unique_lock<std::mutex> &lock, int &wait_loops,
                                        const std::function<bool()> &frame_ready) {
+    const auto deadline = std::chrono::steady_clock::now() + kGetDeadline;
     while (!data_cv_.wait_for(lock, kGetWaitTimeout, [&]() {
         return frame_ready() || should_close_ || stop_thread_ || !camera_connected_.load();
     })) {
         wait_loops++;
         if (!camera_connected_.load()) return false;
+        if (std::chrono::steady_clock::now() >= deadline) {
+            spdlog::error("[ZedRgbdCamera] No frame in {} s", kGetDeadline.count());
+            return false;
+        }
     }
     return true;
 }
