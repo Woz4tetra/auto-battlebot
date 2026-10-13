@@ -53,7 +53,21 @@ Runner::Runner(const RunnerConfiguration &runner_config,
       diagnostics_logger_(DiagnosticsLogger::get_logger("runner")),
       health_logger_(std::move(health_logger)),
       last_tick_time_(std::chrono::steady_clock::now()),
-      app_start_time_(last_tick_time_) {}
+      app_start_time_(last_tick_time_) {
+    // Weak: the queue is shared with main and the UI, and may outlive the camera.
+    remote_.commands->set_on_system_action([camera = std::weak_ptr<RgbdCameraInterface>(camera_)] {
+        if (auto locked = camera.lock()) locked->cancel_initialize();
+    });
+}
+
+Runner::~Runner() { remote_.commands->set_on_system_action(nullptr); }
+
+void Runner::request_quit() {
+    quit_requested_.store(true);
+    // A camera re-open can take 30 s. cancel_initialize() only stores an atomic, so this is
+    // still safe from the signal handler.
+    camera_->cancel_initialize();
+}
 
 void Runner::publish_system_status(bool camera_ok, double loop_rate_hz) const {
     if (!ui_state_ && !remote_.status) return;
@@ -352,12 +366,15 @@ bool Runner::recover_camera_after_failure() {
         return true;
     };
     while (is_running()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        // Commands and the quit check come after the sleep, right before the open: initialize()
+        // clears the cancel flag, so a reboot posted during the sleep would otherwise be lost
+        // and wait out the whole open.
         bool unused_reinit = false;
         if (!handle_commands(unused_reinit)) {
             camera_->cancel_initialize();
             return false;
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
         if (!is_running()) {
             camera_->cancel_initialize();
             break;
@@ -370,6 +387,9 @@ bool Runner::recover_camera_after_failure() {
         }
         if (reinitialized) break;
 
+        // A reboot or power-off that cancelled the open is still in the queue. Run it, or the
+        // process exits and the host never reboots.
+        handle_commands(unused_reinit);
         spdlog::warn("Camera reinitialize attempt failed. Exiting.");
         return false;
     }

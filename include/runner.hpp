@@ -85,7 +85,9 @@ class Runner : public Quittable {
     bool tick();
 
     // Called from the SIGINT/SIGTERM handler, so it only sets a flag the loop polls.
-    void request_quit() override { quit_requested_.store(true); }
+    ~Runner() override;
+    /** Also cancels a camera re-open in progress. Called from the signal handler. */
+    void request_quit() override;
 
    private:
     // Independent of ui_state_, which is null whenever the UI is disabled.

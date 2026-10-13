@@ -40,6 +40,26 @@ class RecordingCamera : public NoopRgbdCamera {
         return history;
     }
     bool is_recording_enabled() const override { return recording; }
+
+    // With lost_ set, get() fails and a re-open blocks like a ZED that is not there, until
+    // cancel_initialize() or 10 s.
+    bool get(CameraData &data) override { return !lost_.load() && NoopRgbdCamera::get(data); }
+    bool initialize() override {
+        if (!lost_.load()) return true;
+        cancel_.store(false);
+        opening.store(true);
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        while (!cancel_.load() && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        opening.store(false);
+        return false;
+    }
+    void cancel_initialize() override { cancel_.store(true); }
+    std::atomic<bool> lost_{false};
+    std::atomic<bool> opening{false};
+    std::atomic<bool> cancel_{false};
+
     std::atomic<bool> recording{false};
     std::atomic<int> toggle_delay_ms{0};
     std::mutex mutex;
@@ -160,6 +180,52 @@ TEST_F(RunnerCommandsTest, SystemActionStopsTheLoop) {
     EXPECT_FALSE(runner_->tick());
     EXPECT_EQ(system_action_, SystemAction::POWEROFF_HOST);
     // Recordings close before the host goes down.
+    EXPECT_FALSE(camera_->recording);
+}
+
+/** Runs one tick on a thread with the camera lost, and waits until it is stuck re-opening. */
+class LostCameraTick {
+   public:
+    LostCameraTick(Runner &runner, RecordingCamera &camera) {
+        camera.lost_ = true;
+        thread_ = std::thread([&] { result_ = runner.tick(); });
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (!camera.opening.load() && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        EXPECT_TRUE(camera.opening.load()) << "the tick never started re-opening the camera";
+        start_ = std::chrono::steady_clock::now();
+    }
+    /** Milliseconds from the re-open starting to the tick returning. */
+    double join() {
+        thread_.join();
+        return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start_)
+            .count();
+    }
+    bool result() const { return result_; }
+
+   private:
+    std::thread thread_;
+    std::atomic<bool> result_{true};
+    std::chrono::steady_clock::time_point start_;
+};
+
+// A re-open of a missing camera can take 30 s, and SIGTERM must not wait for it.
+TEST_F(RunnerCommandsTest, QuitCancelsACameraReopen) {
+    LostCameraTick tick(*runner_, *camera_);
+    runner_->request_quit();
+    EXPECT_LT(tick.join(), 500.0);
+    EXPECT_FALSE(tick.result());
+}
+
+// A reboot from the web page during a re-open cancels it, and still reboots.
+TEST_F(RunnerCommandsTest, RebootCancelsACameraReopenAndStillRuns) {
+    camera_->recording = true;
+    LostCameraTick tick(*runner_, *camera_);
+    commands_->post(remote::SystemActionCommand{.action = SystemAction::REBOOT_HOST});
+    EXPECT_LT(tick.join(), 500.0);
+    EXPECT_FALSE(tick.result());
+    EXPECT_EQ(system_action_, SystemAction::REBOOT_HOST);
     EXPECT_FALSE(camera_->recording);
 }
 
