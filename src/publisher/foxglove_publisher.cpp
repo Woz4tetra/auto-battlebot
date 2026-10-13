@@ -107,6 +107,8 @@ FoxglovePublisher::FoxglovePublisher(std::shared_ptr<VizSink> sink,
                      sink_, nullptr),
       config_(config),
       field_mask_encoder_(make_jpeg_encoder()),
+      preview_gate_(config.preview_rate_hz),
+      preview_video_gate_(kPreviewVideoFps),
       diagnostics_logger_(DiagnosticsLogger::get_logger("foxglove_publisher")),
       image_worker_(make_jpeg_worker("camera_image", rgb_image_, kFullImageJpegQuality)),
       preview_worker_(
@@ -166,10 +168,7 @@ void FoxglovePublisher::submit_preview_video(const cv::Mat &frame, uint64_t log_
 void FoxglovePublisher::submit_previews(const RgbImage &rgb, uint64_t log_time) {
     if (rgb.image.empty() || config_.preview_width <= 0) return;
     const auto now = std::chrono::steady_clock::now();
-    const bool want_jpeg =
-        preview_image_.has_consumers() &&
-        (config_.preview_rate_hz <= 0.0 ||
-         now - last_preview_ >= std::chrono::duration<double>(1.0 / config_.preview_rate_hz));
+    const bool want_jpeg = preview_image_.has_consumers() && preview_gate_.admit(now);
 
     bool want_video = false;
     if (preview_video_ && !preview_video_failed_) {
@@ -177,18 +176,15 @@ void FoxglovePublisher::submit_previews(const RgbImage &rgb, uint64_t log_time) 
         // A viewer that just subscribed cannot decode until the next IDR; ask for one now.
         if (subscribers > preview_video_subscribers_) preview_video_encoder_.request_keyframe();
         preview_video_subscribers_ = subscribers;
-        want_video = subscribers > 0 && now - last_preview_video_ >=
-                                            std::chrono::duration<double>(1.0 / kPreviewVideoFps);
+        want_video = subscribers > 0 && preview_video_gate_.admit(now);
     }
     if (!want_jpeg && !want_video) return;
 
     cv::Mat small = resize_for_preview(rgb.image);
     if (want_video) {
-        last_preview_video_ = now;
         submit_preview_video(small, log_time);
     }
     if (want_jpeg) {
-        last_preview_ = now;
         preview_worker_->submit({std::move(small), rgb.header, log_time});
     }
 }

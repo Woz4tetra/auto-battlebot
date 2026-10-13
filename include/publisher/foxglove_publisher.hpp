@@ -7,6 +7,7 @@
 #include "diagnostics_logger/diagnostics_module_logger.hpp"
 #include "mcap_recorder/mcap_recorder.hpp"
 #include "publisher/config.hpp"
+#include "publisher/frame_rate_gate.hpp"
 #include "publisher/output_channel.hpp"
 #include "publisher/publisher_interface.hpp"
 #include "rgbd_camera/video_encoder.hpp"
@@ -76,8 +77,8 @@ class FoxglovePublisher : public PublisherInterface {
 
     FoxglovePublisherConfiguration config_;
     std::unique_ptr<JpegEncoderInterface> field_mask_encoder_;
-    std::chrono::steady_clock::time_point last_preview_{};
-    std::chrono::steady_clock::time_point last_preview_video_{};
+    FrameRateGate preview_gate_;
+    FrameRateGate preview_video_gate_;
     uint32_t preview_video_subscribers_ = 0;
     bool preview_video_failed_ = false;
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
