@@ -102,15 +102,16 @@ Arduino core; `pio test` does not compile `src/`. The heading-hold PID is in `li
 Firmware updates go over ESP-NOW through the dongle (`firmware/espnow_dongle`,
 `docs/plans/espnow_link_plan.md`). `./scripts/ota` builds the image, copies it to the ZED Box, and
 runs `scripts/espnow_ota.py` there, which stops `auto-battlebot` to take the dongle and starts it
-again afterward. A transfer takes ~10 s.
+again afterward. A transfer takes about 20 s for an 887 KB image.
 
 - The robot refuses a transfer while armed, and arming mid-transfer aborts it. Any abort, or 5 s
   without a frame, leaves the old firmware running.
-- **Rollback.** A new image boots as pending and marks itself valid only after it has run 10 s
-  and heard a dongle. If it crashes, hangs, or never hears a dongle, the next reset or power cycle
-  boots the previous image. This applies to every OTA path, `./scripts/ota_wifi` included: an
-  image flashed with no dongle powered reverts on its next power cycle.
-- USB flashing (`./scripts/upload`) is unaffected and is the recovery path.
+- **No rollback.** The Arduino bootloader is built without it, so a bad image stays installed.
+  After a transfer the flasher waits for the new image to report that it has run 10 s and heard a
+  dongle, and checks its MD5. If that never comes, recover over USB.
+- USB flashing (`./scripts/upload`) is the recovery path, and needs no button: the firmware runs
+  `Serial` on the chip's USB-Serial/JTAG port (`ARDUINO_USB_MODE=1`), which stays up when the
+  firmware hangs, and esptool resets the chip into its ROM bootloader through it.
 
 ### WiFi fallback
 

@@ -209,8 +209,9 @@ def finish_transfer(port: serial.Serial, reader: FrameReader, md5: bytes) -> Non
     status = wait_for_status(reader, VALIDATE_TIMEOUT_S, {OTA_VALIDATED})
     if status is None:
         raise OtaError(
-            f"no validation within {VALIDATE_TIMEOUT_S:.0f} s. The new image is pending: the robot "
-            "boots the previous one on its next reset unless it validates first."
+            f"no validation within {VALIDATE_TIMEOUT_S:.0f} s: the new image is installed but did "
+            "not report running for 10 s with the dongle in range. There is no rollback; if the "
+            "robot is not driving, recover over USB with scripts/upload."
         )
     if status.running_md5 != md5:
         raise OtaError(f"robot validated an image with md5 {status.running_md5.hex()}, not ours")
@@ -251,7 +252,15 @@ def main() -> int:
             print(f"stopping {SERVICE}")
             systemctl("stop")
             stopped = True
-        with serial.Serial(args.port, 921600, timeout=0.01, exclusive=True) as port:
+        # DTR and RTS stay high, as Linux raises them on open. Setting them low one at a time
+        # passes through DTR low with RTS high, which resets an ESP32-S3 USB-Serial/JTAG port,
+        # and two resets within ~500 ms drop an Adafruit board into its TinyUF2 bootloader.
+        port = serial.Serial(timeout=0.01, exclusive=True)
+        port.port = args.port
+        port.baudrate = 921600
+        port.dtr = True
+        port.rts = True
+        with port:  # opens it
             flash(port, image)
     except OtaError as error:
         print(f"OTA failed: {error}", file=sys.stderr)

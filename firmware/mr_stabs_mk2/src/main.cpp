@@ -75,11 +75,6 @@ float limit_a_percent(float requested, float dt) {
     return limited_a_percent;
 }
 
-// The Arduino core marks every new OTA image valid at boot unless this returns true. Returning
-// true leaves validation to EspNowLink, which marks the image valid only after it has run 10 s and
-// heard a dongle. Until then the bootloader rolls back to the previous slot on the next reset.
-extern "C" bool verifyRollbackLater() { return true; }
-
 // Command-timeout failsafe
 crsf_bridge::radio_data_t *prev_radio_data;
 uint32_t command_timer = 0;

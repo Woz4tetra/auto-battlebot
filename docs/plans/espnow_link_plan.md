@@ -626,27 +626,20 @@ typicals that partly overlap with the air time. Budget 10 s and measure it in Ph
 
 ### Rollback
 
-The Arduino core's prebuilt bootloader has `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=1` for every
-ESP32-S3 memory type in `espressif32@6.13.0`. Today the core marks every new image valid at boot
-(`initArduino()`, `esp32-hal-misc.c:225`), so rollback never fires. Override the weak
-`verifyRollbackLater()` to return `true`, and call `esp_ota_mark_app_valid_cancel_rollback()` only
-once the new image has:
+None. The plan assumed the Arduino core's prebuilt bootloader had
+`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=1`. It does not: on 2026-10-13 a new image's `otadata` entry
+stayed in state 0 (new) across several boots, where a rollback bootloader moves it to pending
+verify, then aborted. The `verifyRollbackLater()` override did nothing and is deleted. Building and
+flashing a rollback bootloader was rejected: the bootloader cannot be updated over OTA, and a bad
+one costs a USB rescue on every board.
 
-1. Run `loop()` for 10 s, and
-2. Received a valid frame from the dongle over ESP-NOW.
+USB is the recovery path instead, and needs no button. The firmware builds with
+`ARDUINO_USB_MODE=1`, so `Serial` is the chip's USB-Serial/JTAG port. That port is hardware: it
+stays up with the firmware hung, and esptool's `usb_reset` puts the chip in its ROM bootloader
+through it (`scripts/upload`). The robot's BOOT and RESET buttons are glued, so this matters.
 
-An image that crashes, hangs, or cannot hear the dongle stays in `ESP_OTA_IMG_PENDING_VERIFY`. The
-next reset, whether a crash or a power cycle, boots the previous slot. That is what makes deleting
-the SoftAP safe: a firmware bug that breaks ESP-NOW reverts itself instead of needing USB. Condition
-2 also means a bench image flashed with no dongle in range never validates and reverts on its next
-power cycle, which is the intended behavior.
-
-The dongle's keepalive (`0x05`) is what satisfies condition 2 when nothing is commanding: during a
-flash the app is stopped, and in normal running autonomy is often off. Any valid frame from an
-allowlisted dongle counts.
-
-Prove the bootloader honors this before relying on it. Flash an image that never marks itself
-valid, power cycle, and confirm the old `running_md5` comes back.
+The flasher still waits for proof the new image runs: every boot sends `OTA_VALIDATED` with its MD5
+once it has run 10 s and heard a dongle, and the flasher checks the MD5.
 
 ### Host side
 
@@ -836,7 +829,7 @@ and set `espnow_protocol::CHANNEL_OVERRIDE = 0` to turn on the scan and the swee
 `Esp32WifiDiagnostics`, `wifi_clients`, and the sysid loaders move to `/robot/espnow_telemetry`.
 Then rewrite the OTA and Wi-Fi sections of
 `firmware/mr_stabs_mk2/README.md` around `scripts/ota`. Gated on ESP-NOW OTA passing every Phase 1
-OTA test, rollback included, because after this the only other way onto the robot is USB.
+OTA test, because after this the only other way onto the robot is USB.
 
 ## Jetson changes
 
@@ -1091,7 +1084,7 @@ Done, 2026-10-13:
   off until Phase 2.
 - `CompositeTransmitter`, `EspNowTransmitter`, the config check, and the three ZED Box profiles.
 - `autonomy_enabled` from ch5 in `CrsfBridge`, reported in `TelemetryPayload`.
-- ESP-NOW OTA: robot handler, rollback override, `scripts/espnow_ota.py`, `scripts/ota`.
+- ESP-NOW OTA: robot handler, boot validation report, `scripts/espnow_ota.py`, `scripts/ota`.
 
 Remaining, in order:
 
@@ -1103,9 +1096,7 @@ Remaining, in order:
 4. Flash the robot over USB once (`firmware/mr_stabs_mk2/scripts/upload`). Confirm the dongle's link
    stats show `robot_known = 1` and `/robot/espnow_telemetry` records at ~100 Hz. A missing
    `robot_known` with a live robot most likely means `esp_now_add_peer` failed on `WIFI_IF_AP`.
-5. Prove bootloader rollback before trusting ESP-NOW OTA: flash an image that never calls
-   `esp_ota_mark_app_valid_cancel_rollback()` (comment it out in `service_validation()`), power
-   cycle, and confirm `running_md5` returns to the previous image. If it does not, ESP-NOW OTA can
-   still ship, but Phase 2 cannot delete the SoftAP.
+5. Done 2026-10-13: there is no rollback (see Rollback). USB rescue without a button press is
+   proven instead.
 6. Run the Phase 1 OTA tests and the latency, loss, ACK-rate, and path-agreement measurements. Get
    all of them before writing any of Phase 2.

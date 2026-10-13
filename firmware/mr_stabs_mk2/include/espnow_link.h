@@ -31,8 +31,8 @@ const uint32_t TELEMETRY_PERIOD_MS = 10;
 // until Update.end() switches the boot slot, so an abort always leaves the old firmware running.
 const uint32_t OTA_SILENCE_MS = 5000;
 
-// A new image marks itself valid only after running this long and hearing a dongle. Until then
-// it stays ESP_OTA_IMG_PENDING_VERIFY and the next reset boots the previous slot.
+// Every boot reports OTA_VALIDATED, with its MD5, once it has run this long and heard a dongle.
+// The flasher waits for it as proof the new image runs.
 const uint32_t VALIDATE_AFTER_MS = 10000;
 
 class EspNowLink {
@@ -41,7 +41,7 @@ class EspNowLink {
      *  exists and WIFI_IF_STA without it. channel is the pinned channel, or 0 to sweep. */
     bool begin(wifi_interface_t ifidx, uint8_t channel, const tunable_ptrs_t &tunables);
 
-    /** Drains received frames and runs the OTA, sweep, and rollback state machines. Call once per
+    /** Drains received frames and runs the OTA, sweep, and validation state machines. Call once per
      *  loop(), after crsf->update() so armed is current. Arming aborts an OTA transfer. */
     void update(uint32_t now_ms, bool armed);
 
@@ -60,7 +60,8 @@ class EspNowLink {
 
     void handle_frame(const uint8_t *mac, uint8_t type, const uint8_t *payload, size_t length,
                       uint32_t now_ms, bool armed);
-    void ota_begin(const uint8_t *mac, const uint8_t *payload, size_t length, bool armed);
+    void ota_begin(const uint8_t *mac, const uint8_t *payload, size_t length, uint32_t now_ms,
+                   bool armed);
     void ota_chunk(const uint8_t *payload, size_t length, uint32_t now_ms);
     void ota_end();
     void ota_abort(uint8_t error);
@@ -93,7 +94,6 @@ class EspNowLink {
     uint32_t last_drop_status_ms_ = 0;
     uint8_t running_md5_[16] = {0};
 
-    bool pending_verify_ = false;
     bool validated_ = false;
     uint8_t validated_reports_left_ = 0;
     uint32_t last_validated_report_ms_ = 0;

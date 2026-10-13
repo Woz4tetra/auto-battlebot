@@ -258,6 +258,9 @@ void service_link_stats() {
 }  // namespace
 
 void setup() {
+    // The default 256-byte RX buffer overflows on the OTA host's 16-chunk (~4 KB) window and the
+    // HWCDC ISR drops the excess, so every chunk after the first fails its CRC. Two windows.
+    Serial.setRxBufferSize(8192);
     Serial.begin(921600);
     Serial.setTxTimeoutMs(0);
 

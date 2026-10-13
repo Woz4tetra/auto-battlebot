@@ -18,6 +18,9 @@ SerialPort::~SerialPort() { close(); }
 bool SerialPort::open(const std::string& path, int baud_rate) {
     close();
 
+    // Linux raises DTR and RTS together on open, and this never touches them. Changing them can
+    // reset an ESP32-S3 USB-Serial/JTAG device (the ESP-NOW dongle): DTR low with RTS high holds it
+    // in reset.
     fd_ = ::open(path.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
     if (fd_ < 0) return false;
 

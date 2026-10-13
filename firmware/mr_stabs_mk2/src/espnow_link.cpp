@@ -1,7 +1,6 @@
 #include <Preferences.h>
 #include <Update.h>
 #include <esp_now.h>
-#include <esp_ota_ops.h>
 #include <espnow_link.h>
 
 using namespace espnow_protocol;
@@ -58,10 +57,6 @@ bool EspNowLink::begin(wifi_interface_t ifidx, uint8_t channel, const tunable_pt
     rx_queue = xQueueCreate(RX_QUEUE_DEPTH, sizeof(RxFrame));
 
     hex_to_md5(ESP.getSketchMD5(), running_md5_);
-    esp_ota_img_states_t state;
-    pending_verify_ =
-        esp_ota_get_state_partition(esp_ota_get_running_partition(), &state) == ESP_OK &&
-        state == ESP_OTA_IMG_PENDING_VERIFY;
 
     if (esp_now_init() != ESP_OK) return false;
     esp_now_register_recv_cb(on_recv);
@@ -155,7 +150,7 @@ void EspNowLink::handle_frame(const uint8_t *mac, uint8_t type, const uint8_t *p
             break;
         }
         case MSG_OTA_BEGIN:
-            ota_begin(mac, payload, length, armed);
+            ota_begin(mac, payload, length, now_ms, armed);
             break;
         case MSG_OTA_CHUNK:
             ota_chunk(payload, length, now_ms);
@@ -174,7 +169,8 @@ void EspNowLink::handle_frame(const uint8_t *mac, uint8_t type, const uint8_t *p
     }
 }
 
-void EspNowLink::ota_begin(const uint8_t *mac, const uint8_t *payload, size_t length, bool armed) {
+void EspNowLink::ota_begin(const uint8_t *mac, const uint8_t *payload, size_t length,
+                           uint32_t now_ms, bool armed) {
     if (length != sizeof(OtaBeginPayload)) return;
     memcpy(ota_mac_, mac, 6);
     if (armed) {
@@ -197,7 +193,9 @@ void EspNowLink::ota_begin(const uint8_t *mac, const uint8_t *payload, size_t le
     }
     Update.setMD5(md5_hex);
     ota_.begin(begin.size);
-    last_ota_frame_ms_ = millis();
+    // The loop's timestamp, not millis(): update() compares against now_ms, and a later
+    // millis() makes now_ms - last_ota_frame_ms_ wrap and trips the silence abort at once.
+    last_ota_frame_ms_ = now_ms;
     send_ota_status(OTA_RECEIVING, OTA_OK);
 }
 
@@ -268,12 +266,11 @@ void EspNowLink::send_ota_status(uint8_t state, uint8_t error) {
 }
 
 void EspNowLink::service_validation(uint32_t now_ms) {
-    if (!pending_verify_) return;
     if (!validated_) {
-        // Both conditions: an image that crashes within 10 s, or cannot hear the dongle, stays
-        // pending and the next reset boots the previous slot.
+        // The Arduino bootloader is built without rollback, so nothing here reverts a bad image:
+        // this is the flasher's proof that the new image runs, for 10 s, with the radio working.
+        // A bad image is rescued over USB (scripts/upload).
         if (now_ms < VALIDATE_AFTER_MS || !heard_dongle_) return;
-        esp_ota_mark_app_valid_cancel_rollback();
         validated_ = true;
         validated_reports_left_ = 10;
         memcpy(ota_mac_, reply_mac_, 6);
