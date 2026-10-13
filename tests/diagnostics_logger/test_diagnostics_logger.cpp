@@ -2,6 +2,10 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <string>
+#include <thread>
+
 namespace auto_battlebot {
 class DiagnosticsLoggerTest : public ::testing::Test {
    protected:
@@ -254,6 +258,30 @@ TEST_F(DiagnosticsLoggerTest, MultipleSequentialPublishes) {
         EXPECT_NO_THROW(DiagnosticsLogger::publish());
         EXPECT_FALSE(logger->has_status());
     }
+}
+
+// The UI thread creates the battery logger on its first read while the loop thread publishes.
+TEST_F(DiagnosticsLoggerTest, GetLoggerWhilePublishingIsSafe) {
+    DiagnosticsLogger::initialize({backend_});
+    for (int i = 0; i < 20; ++i) {
+        DiagnosticsLogger::get_logger("existing_" + std::to_string(i))->info("", {{"i", i}}, "x");
+    }
+    std::atomic<bool> done{false};
+    std::thread creator([&] {
+        for (int i = 0; i < 20000; ++i) {
+            DiagnosticsLogger::get_logger("new_" + std::to_string(i))->info("", {{"i", i}}, "x");
+        }
+        done.store(true);
+    });
+    int publishes = 0;
+    while (!done.load()) {
+        DiagnosticsLogger::publish();
+        ++publishes;
+    }
+    creator.join();
+    DiagnosticsLogger::publish();
+    EXPECT_GT(publishes, 0);
+    EXPECT_NE(DiagnosticsLogger::get_logger("new_19999"), nullptr);
 }
 
 }  // namespace auto_battlebot

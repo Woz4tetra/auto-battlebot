@@ -1,6 +1,7 @@
 #include "diagnostics_logger/diagnostics_logger.hpp"
 
 namespace auto_battlebot {
+std::mutex DiagnosticsLogger::loggers_mutex_;
 std::map<std::string, std::shared_ptr<DiagnosticsModuleLogger>> DiagnosticsLogger::loggers_;
 std::vector<std::shared_ptr<DiagnosticsBackend>> DiagnosticsLogger::backends_;
 bool DiagnosticsLogger::initialized_ = false;
@@ -17,6 +18,7 @@ void DiagnosticsLogger::initialize(std::vector<std::shared_ptr<DiagnosticsBacken
 bool DiagnosticsLogger::is_initialized() { return initialized_; }
 
 std::shared_ptr<DiagnosticsModuleLogger> DiagnosticsLogger::get_logger(const std::string &name) {
+    std::lock_guard<std::mutex> lock(loggers_mutex_);
     auto it = loggers_.find(name);
     if (it != loggers_.end()) {
         return it->second;
@@ -27,6 +29,7 @@ std::shared_ptr<DiagnosticsModuleLogger> DiagnosticsLogger::get_logger(const std
 }
 
 void DiagnosticsLogger::remove_logger(const std::string &name) {
+    std::lock_guard<std::mutex> lock(loggers_mutex_);
     auto it = loggers_.find(name);
     if (it != loggers_.end()) {
         it->second->clear();
@@ -39,8 +42,16 @@ void DiagnosticsLogger::publish() {
         throw std::runtime_error("DiagnosticsLogger not initialized");
     }
 
+    // Copied out so the backends, and each logger's own lock, run without loggers_mutex_.
+    std::vector<std::shared_ptr<DiagnosticsModuleLogger>> loggers;
+    {
+        std::lock_guard<std::mutex> lock(loggers_mutex_);
+        loggers.reserve(loggers_.size());
+        for (const auto &[name, logger] : loggers_) loggers.push_back(logger);
+    }
+
     std::vector<DiagnosticStatusSnapshot> all_snapshots;
-    for (auto &[name, logger] : loggers_) {
+    for (const auto &logger : loggers) {
         if (!logger->has_status()) {
             continue;
         }
