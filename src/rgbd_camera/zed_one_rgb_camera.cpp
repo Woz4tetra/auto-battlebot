@@ -102,8 +102,6 @@ void ZedOneRgbCamera::read_calibration() {
 }
 
 bool ZedOneRgbCamera::start_encoder() {
-    // A new file numbers its video from zero: playback joins frame_meta on that index.
-    video_frame_index_.store(-1);
     video_channel_ = std::make_unique<OutputChannel>(
         kVideoTopic, "protobuf", VizSchema::from_sdk(foxglove::schemas::CompressedVideo::schema()),
         false, nullptr, mcap_recorder_);
@@ -191,13 +189,10 @@ bool ZedOneRgbCamera::capture_frame() {
     bgr.allocator = PinnedMatAllocator::instance();
     cv::cvtColor(bgra, bgr, cv::COLOR_BGRA2BGR);
 
-    // Read once: set_recording_enabled() can start or stop the encoder from another thread, and
-    // the frame index has to count exactly the frames that were submitted. BGRA, not the BGR
+    // The encoder numbers the frames it takes; frame_meta carries that number, so it matches the
+    // video packet in whichever file the frame lands in. -1 when it took none. BGRA, not the BGR
     // copy: the Jetson's nvvidconv takes 4-channel input directly.
-    const bool encoding = encoder_.running();
-    if (encoding) {
-        encoder_.submit(bgra, wall_time_ns());
-    }
+    const int64_t video_frame_index = encoder_.submit(bgra, wall_time_ns());
 
     {
         std::lock_guard<std::mutex> lock(data_mutex_);
@@ -214,7 +209,7 @@ bool ZedOneRgbCamera::capture_frame() {
         latest_data_.tf_visodom_from_camera.child_frame_id = FrameId::CAMERA;
         latest_data_.tf_visodom_from_camera.transform.tf = Eigen::Matrix4d::Identity();
         latest_data_.frame_identity.image_stamp_ns = capture_time_ns;
-        latest_data_.frame_identity.video_frame_index = encoding ? ++video_frame_index_ : -1;
+        latest_data_.frame_identity.video_frame_index = video_frame_index;
         frame_counter_++;
     }
     return true;

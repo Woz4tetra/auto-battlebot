@@ -69,7 +69,11 @@ class VideoEncoder {
     bool running() const { return running_.load(); }
 
     /** Non-blocking. Copies the frame into the queue and returns; drops when the queue is full. */
-    void submit(const cv::Mat &frame, uint64_t log_time_ns);
+    /** The frame's index in this encode session, which is the nth /camera/video message of the
+     *  recording it lands in; -1 when the frame was not taken (stopped, or the queue is full).
+     *  Cameras write this into frame_meta: the encoder alone decides which frames become
+     *  packets, so a count kept anywhere else drifts the first time one is dropped. */
+    int64_t submit(const cv::Mat &frame, uint64_t log_time_ns);
 
     /** Makes the next submitted frame an IDR, so a viewer that just subscribed can start decoding
      *  within one frame instead of waiting for the next scheduled keyframe. */
@@ -104,6 +108,8 @@ class VideoEncoder {
     std::unique_ptr<H264Backend> backend_;
 
     int64_t next_pts_ = 0;
+    /** Guarded by mutex_. Equals next_pts_ once the queue drains. */
+    int64_t next_submit_index_ = 0;
     /** pts is the frame ordinal, so the capture time survives whatever latency the encoder holds
      *  frames for. Written on the encode thread, read wherever the backend delivers packets. */
     std::unordered_map<int64_t, uint64_t> log_time_by_pts_;

@@ -42,6 +42,12 @@ bool VideoEncoder::start(const VideoEncoderOptions &options, PacketSink sink) {
     sink_ = std::move(sink);
     next_pts_ = 0;
     {
+        std::lock_guard<std::mutex> lock(mutex_);
+        queue_.clear();
+        next_submit_index_ = 0;
+        keyframe_requested_.store(false);
+    }
+    {
         std::lock_guard<std::mutex> lock(pts_mutex_);
         log_time_by_pts_.clear();
     }
@@ -87,34 +93,48 @@ bool VideoEncoder::hardware_encoder_available() {
 
 void VideoEncoder::stop() {
     if (running_.load()) {
-        stopping_.store(true);
+        {
+            // Under the lock, so submit() sees it before the encode thread can drain and exit.
+            // Set outside it, a frame submitted in between sat in the queue and opened the next
+            // recording as its first packet, two seconds stale, with every index after it shifted.
+            std::lock_guard<std::mutex> lock(mutex_);
+            stopping_.store(true);
+        }
         queue_cv_.notify_all();
         if (thread_.joinable()) {
             thread_.join();
         }
         running_.store(false);
+        std::lock_guard<std::mutex> lock(mutex_);
+        queue_.clear();
     }
     backend_.reset();
 }
 
-void VideoEncoder::submit(const cv::Mat &frame, uint64_t log_time_ns) {
+int64_t VideoEncoder::submit(const cv::Mat &frame, uint64_t log_time_ns) {
     if (!running_.load()) {
-        return;
+        return -1;
     }
+    int64_t index = -1;
     {
         std::lock_guard<std::mutex> lock(mutex_);
+        if (stopping_.load()) {
+            return -1;
+        }
         if (queue_.size() >= options_.queue_depth) {
             // Counted, not silent. Frame loss discovered months later against ground truth is
             // exactly the failure this counter exists to prevent.
             dropped_frames_.fetch_add(1);
-            return;
+            return -1;
         }
         // The request rides with the frame: the encoder thread may still be working through
         // older frames when it arrives.
         queue_.push_back(
             QueuedFrame{frame.clone(), log_time_ns, keyframe_requested_.exchange(false)});
+        index = next_submit_index_++;
     }
     queue_cv_.notify_one();
+    return index;
 }
 
 void VideoEncoder::encode_loop() {
@@ -135,6 +155,10 @@ void VideoEncoder::encode_loop() {
             log_time_by_pts_[pts] = frame.log_time_ns;
         }
         if (!backend_->encode(std::move(frame.image), pts, frame.force_keyframe)) {
+            // The frame was already numbered in submit(), so every frame_meta index after this
+            // points one packet late. Only a stalled pipeline gets here.
+            spdlog::error("[VideoEncoder] {} refused frame {}; later frame_meta indices are off",
+                          codec_name_, pts);
             std::lock_guard<std::mutex> lock(pts_mutex_);
             log_time_by_pts_.erase(pts);
             dropped_frames_.fetch_add(1);

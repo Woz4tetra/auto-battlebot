@@ -88,7 +88,6 @@ class V4l2RgbCamera : public RgbdCameraInterface {
     std::atomic<bool> stop_thread_{false};
     std::atomic<uint64_t> frame_counter_{0};
     mutable uint64_t last_returned_frame_counter_ = 0;
-    std::atomic<int64_t> video_frame_index_{-1};
 
     GrabHealthMonitor grab_health_;
 

@@ -34,6 +34,7 @@ TEST_P(GstH264BackendTest, EncodesEveryFrameWithItsPtsAndForcedKeyframe) {
     std::mutex mutex;
     std::map<int64_t, Packet> by_pts;
     std::map<int64_t, bool> has_sps;
+    const auto open_start = std::chrono::steady_clock::now();
     auto backend = open_gst_nvv4l2_h264(options, [&](const std::byte *data, size_t len, int64_t pts,
                                                      bool keyframe) {
         std::lock_guard<std::mutex> lock(mutex);
@@ -50,6 +51,9 @@ TEST_P(GstH264BackendTest, EncodesEveryFrameWithItsPtsAndForcedKeyframe) {
         has_sps[pts] = sps;
     });
     ASSERT_NE(backend, nullptr) << "nvv4l2h264enc is installed but the pipeline did not open";
+    // open() runs on the runner thread (recording toggle) and the publisher thread (preview
+    // subscribe). It once waited out a 2 s preroll timeout there every time.
+    EXPECT_LT(std::chrono::steady_clock::now() - open_start, std::chrono::milliseconds(500));
 
     const int type = GetParam() == VideoInputFormat::BGR    ? CV_8UC3
                      : GetParam() == VideoInputFormat::BGRA ? CV_8UC4

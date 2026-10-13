@@ -21,7 +21,7 @@ constexpr const char *kEncoderFactory = "nvv4l2h264enc";
  *  drops: VideoEncoder's own queue absorbs bursts, and a push into a stalled pipeline must not
  *  hang stop(). The pipeline holds 1920x1200 at 60 fps on the ZED Box, so this is a stall guard. */
 constexpr guint64 kMaxQueuedFrames = 2;
-constexpr auto kStallTimeout = std::chrono::milliseconds(200);
+constexpr auto kStallTimeout = std::chrono::milliseconds(1000);
 constexpr GstClockTime kFinishTimeout = 2 * GST_SECOND;
 
 bool ensure_gst_initialized() {
@@ -127,11 +127,12 @@ class GstH264Backend : public H264Backend {
         gst_bus_set_sync_handler(bus, &GstH264Backend::on_bus_message, nullptr, nullptr);
         gst_object_unref(bus);
 
-        // nvv4l2h264enc opens /dev/v4l2-nvenc on the way to PLAYING, so a box without the encoder
-        // block fails here, before the first frame.
-        if (gst_element_set_state(pipeline_, GST_STATE_PLAYING) == GST_STATE_CHANGE_FAILURE ||
-            gst_element_get_state(pipeline_, nullptr, nullptr, kFinishTimeout) ==
-                GST_STATE_CHANGE_FAILURE) {
+        // nvv4l2h264enc opens /dev/v4l2-nvenc on the way to READY, so a box without the encoder
+        // block fails here, before the first frame. Never wait on get_state: a live appsrc with
+        // no frames yet does not preroll, so the wait always ran to its timeout, and that blocked
+        // the runner (recording toggle) or the publisher (preview subscribe) for 2 s each time.
+        if (gst_element_set_state(pipeline_, GST_STATE_READY) == GST_STATE_CHANGE_FAILURE ||
+            gst_element_set_state(pipeline_, GST_STATE_PLAYING) == GST_STATE_CHANGE_FAILURE) {
             spdlog::warn("[VideoEncoder] The {} pipeline did not start", kEncoderFactory);
             return false;
         }

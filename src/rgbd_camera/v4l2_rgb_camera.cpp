@@ -356,9 +356,9 @@ bool V4l2RgbCamera::capture_frame() {
 
     // The recording is pre-rectification on purpose: a calibration can be revised later and
     // re-applied to footage already shot.
-    if (encoder_.running()) {
-        encoder_.submit(uyvy, wall_time_ns());
-    }
+    // The encoder numbers the frames it takes; frame_meta carries that number, so it matches the
+    // video packet in whichever file the frame lands in. -1 when it took none.
+    const int64_t video_frame_index = encoder_.submit(uyvy, wall_time_ns());
 
     // Pinned, so the keypoint model's GPU preprocess reads the frame in place. Both Mats take the
     // allocator because an uncalibrated rectifier hands `bgr` through unchanged.
@@ -386,8 +386,7 @@ bool V4l2RgbCamera::capture_frame() {
         latest_data_.tf_visodom_from_camera.child_frame_id = FrameId::CAMERA;
         latest_data_.tf_visodom_from_camera.transform.tf = Eigen::Matrix4d::Identity();
         latest_data_.frame_identity.image_stamp_ns = capture_time_ns;
-        latest_data_.frame_identity.video_frame_index =
-            encoder_.running() ? ++video_frame_index_ : -1;
+        latest_data_.frame_identity.video_frame_index = video_frame_index;
         frame_counter_++;
     }
 
@@ -442,8 +441,6 @@ bool V4l2RgbCamera::get(CameraData &data) {
 }
 
 bool V4l2RgbCamera::start_encoder() {
-    // A new file numbers its video from zero: playback joins frame_meta on that index.
-    video_frame_index_.store(-1);
     video_channel_ = std::make_unique<OutputChannel>(
         kVideoTopic, "protobuf", VizSchema::from_sdk(foxglove::schemas::CompressedVideo::schema()),
         false, nullptr, mcap_recorder_);
