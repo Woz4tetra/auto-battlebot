@@ -9,6 +9,13 @@ type = "SimRgbdCamera"
 sim_host = "127.0.0.1"
 sim_port = 14882
 
+# Type change -> replaces common's [control_loop]. SimConnection, ManualClock and the ground-truth
+# poses are not thread safe, and stepping also makes a run reproducible. 250 Hz keeps the cycle
+# rate the threaded loop ran at, now in sim time.
+[control_loop]
+type = "SteppedControlLoop"
+rate_hz = 250.0
+
 [transmitter]
 type = "SimTransmitter"
 command_delay_ms = 0.0
