@@ -1,4 +1,6 @@
 #include <gtest/gtest.h>
+#include <spdlog/sinks/ringbuffer_sink.h>
+#include <spdlog/spdlog.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
@@ -9,6 +11,7 @@
 #include <cstring>
 #include <functional>
 #include <memory>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -301,6 +304,36 @@ TEST(VizSinkTest, StatusIsSentAheadOfQueuedImages) {
     ASSERT_NE(it, message_channels.end());
     // Only a frame already on its way out can go first.
     EXPECT_LE(it - message_channels.begin(), 1);
+}
+
+// A frozen relay's listen backlog still completes connect(), and the socket buffers the first
+// sends. That is not a relay, so the sink must not log that it connected until one reads.
+TEST(VizSinkTest, ConnectedIsLoggedOnlyOnceTheRelayReads) {
+    const auto previous_logger = spdlog::default_logger();
+    auto ring = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(64);
+    spdlog::set_default_logger(std::make_shared<spdlog::logger>("viz_sink_test", ring));
+    const auto logged_connected = [&] {
+        for (const auto& line : ring->last_formatted()) {
+            if (line.find("Connected to viz_relay") != std::string::npos) return true;
+        }
+        return false;
+    };
+
+    const auto path = test_socket_path();
+    FakeRelay relay(path);
+    {
+        VizSink sink(path);
+        sink.advertise("/status/system", "json", kStatusSchema, false);
+        ASSERT_TRUE(wait_until([&] { return sink.connected(); }, std::chrono::seconds(2)));
+        std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+        EXPECT_FALSE(logged_connected()) << "logged a connection no relay had read from";
+
+        ASSERT_TRUE(relay.accept_client(std::chrono::seconds(1)));
+        std::vector<std::byte> body;
+        ASSERT_TRUE(relay.read_frame(body, std::chrono::seconds(1)));
+        EXPECT_TRUE(wait_until(logged_connected, std::chrono::milliseconds(500)));
+    }
+    spdlog::set_default_logger(previous_logger);
 }
 
 // A relay that accepts and at once closes (another app holds it) is retried once a second, not

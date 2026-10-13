@@ -68,8 +68,13 @@ class VizSink {
    private:
     void run();
     bool try_connect();
-    /** Ends the connection; the next attempt waits kReconnectInterval. */
-    void lose_connection(const char* reason);
+    /** Ends the connection; the next attempt waits kReconnectInterval. `closed_by_relay` is
+     *  true when the relay hung up, rather than this side giving up on it. */
+    void lose_connection(const char* reason, bool closed_by_relay = false);
+    /** The relay has read some of what this connection sent. A frozen relay's listen backlog
+     *  still completes connect() and buffers the first sends, so a connection alone proves
+     *  nothing. */
+    bool relay_has_read() const;
     void disconnect();
     /** Waits up to `timeout` for a wake() or for stop. */
     void wait_for_wake(int timeout_ms);
@@ -109,7 +114,10 @@ class VizSink {
     std::chrono::steady_clock::time_point last_send_progress_{};
     std::chrono::steady_clock::time_point connected_at_{};
     std::chrono::steady_clock::time_point retry_at_{};
-    /** The connection has lasted long enough to count as attached, not refused. */
+    /** Bytes written to this connection. */
+    size_t bytes_sent_ = 0;
+    /** The connection has lasted long enough, and the relay has read from it, so it counts as
+     *  attached rather than refused or frozen. */
     bool settled_ = false;
     bool lost_warned_ = false;
     bool unreachable_warned_ = false;
