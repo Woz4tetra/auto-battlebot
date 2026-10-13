@@ -3,10 +3,14 @@
 # the robot's AprilTag poses and the firmware's diagnostics stream into the MCAP.
 extends = "mr_stabs_mk2_aer_zed_box"
 
-# The type differs from the base, so the merge replaces this section outright: every radio field
-# from _common and mr_stabs_mk2_zed_box is restated here.
+# Same composite as mr_stabs_mk2_aer_zed_box. The merge replaces the children array outright, so
+# every radio field is restated here. The primary also records the firmware's WiFi diagnostics.
 [transmitter]
+type = "CompositeTransmitter"
+
+[[transmitter.children]]
 type = "Esp32DiagnosticsOpenTxTransmitter"
+transmit_rate_hz = 150                         # Crossfire's frame rate; see mr_stabs_mk2_aer_zed_box
 drive_processor = "DifferentialDriveProcessor"
 linear_channel = 0                             # radio CH1
 angular_channel = 1                            # radio CH2
@@ -24,6 +28,17 @@ esp32_host = "192.168.4.1"
 esp32_port = 80
 record_mode = true         # firmware sends every control loop, not 10 Hz
 reconnect_period_s = 1.0
+
+# Telemetry only here: navigation is NoopNavigation and autonomy starts disabled, so nothing is
+# sent. It records /robot/espnow_telemetry next to the WiFi stream.
+[[transmitter.children]]
+type = "EspNowTransmitter"
+dongle_serial_path = "/dev/espnow_dongle"
+drive_processor = "DifferentialDriveProcessor"
+lifted_deadzone_percent = 0
+zero_deadzone_percent = 2
+reverse_angular_channel = true
+velocity_saturation_limit = 1.0
 
 [keypoint_model]
 type = "AprilTagKeypointModel"

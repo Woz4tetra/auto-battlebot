@@ -79,8 +79,13 @@ Requires [PlatformIO](https://platformio.org/).
 # Upload via USB
 ./scripts/upload
 
-# Upload via OTA (connect to MR-STABS WiFi first)
+# Upload over ESP-NOW through the dongle on the ZED Box (robot disarmed)
 ./scripts/ota
+# ...or through a dongle plugged into this machine
+./scripts/ota --local /dev/ttyACM0
+
+# Upload over the SoftAP with ArduinoOTA (connect to MR-STABS WiFi first)
+./scripts/ota_wifi
 
 # Serial monitor
 ./scripts/monitor
@@ -94,12 +99,29 @@ Arduino core; `pio test` does not compile `src/`. The heading-hold PID is in `li
 
 ## OTA Updates
 
-The ESP32 creates a WiFi access point on boot:
+Firmware updates go over ESP-NOW through the dongle (`firmware/espnow_dongle`,
+`docs/plans/espnow_link_plan.md`). `./scripts/ota` builds the image, copies it to the ZED Box, and
+runs `scripts/espnow_ota.py` there, which stops `auto-battlebot` to take the dongle and starts it
+again afterward. A transfer takes ~10 s.
+
+- The robot refuses a transfer while armed, and arming mid-transfer aborts it. Any abort, or 5 s
+  without a frame, leaves the old firmware running.
+- **Rollback.** A new image boots as pending and marks itself valid only after it has run 10 s
+  and heard a dongle. If it crashes, hangs, or never hears a dongle, the next reset or power cycle
+  boots the previous image. This applies to every OTA path, `./scripts/ota_wifi` included: an
+  image flashed with no dongle powered reverts on its next power cycle.
+- USB flashing (`./scripts/upload`) is unaffected and is the recovery path.
+
+### WiFi fallback
+
+Until Phase 2 of the plan deletes it, the ESP32 also creates a WiFi access point on boot:
 
 - **SSID:** `MR-STABS`
 - **Password:** `havocbots`
+- **Channel:** `espnow_protocol::CHANNEL_OVERRIDE` (1), the channel ESP-NOW shares
 
-Connect your computer to this network, then run `./scripts/ota`. The OTA endpoint is at `192.168.4.1`. OTA is handled in both combat and tuning modes.
+Connect your computer to this network, then run `./scripts/ota_wifi`. The OTA endpoint is at
+`192.168.4.1`.
 
 ## Configuring ESCs via USB Passthrough
 

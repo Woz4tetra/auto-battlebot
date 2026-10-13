@@ -45,6 +45,7 @@ all written against this document. Change it here first.
 | `/keypoint_detections/annotations` | `protobuf` | `foxglove.ImageAnnotations` | `protobuf` | no, live only |
 | `/diagnostics/<module>` | `json` | `auto_battlebot.Diagnostics` | `jsonschema` | yes |
 | `/robot/esp32_diagnostics` | `json` | `auto_battlebot.Esp32Diagnostics` | `jsonschema` | yes |
+| `/robot/espnow_telemetry` | `json` | `auto_battlebot.EspNowTelemetry` | `jsonschema` | yes |
 | `/apriltag/robot_tags` | `json` | `auto_battlebot.AprilTagRobotTags` | `jsonschema` | yes |
 | `/log` | `protobuf` | `foxglove.Log` | `protobuf` | yes |
 | `/status/system` | `json` | `auto_battlebot.status.System` | `jsonschema` | yes |
@@ -206,6 +207,44 @@ per-cycle summary: in record mode that is every firmware control loop. `log_time
 
 Stream health (connected, events per second, parse errors, reconnects, largest robot-clock gap,
 clock offset) goes to `/diagnostics/esp32_diagnostics` once a second.
+
+## `/robot/espnow_telemetry` (JSON)
+
+Written by `EspNowTransmitter` (the Mr Stabs Mk2 ZED Box profiles). One message per telemetry frame
+the robot sends over ESP-NOW (`publish_diag` in `firmware/mr_stabs_mk2/src/main.cpp`), at most
+100 Hz. The binary layout is `TelemetryPayload` in
+`firmware/shared/espnow_protocol/src/espnow_protocol.h`. `log_time` is `host_receive_ns`. See
+`docs/plans/espnow_link_plan.md`.
+
+```json
+{"host_receive_ns": 1788011445339499712, "timestamp_ms": 123457, "loop_us": 905,
+ "a_percent": 50.0, "b_percent": 0.0, "left_cmd": 48.0, "right_cmd": 52.0,
+ "accel_x": 1.1, "accel_y": 0.0, "accel_z": 9.7, "orientation_x": 10.0,
+ "orientation_y": 0.5, "orientation_z": -0.5, "pid_setpoint": 0.0, "pid_output": 0.0,
+ "vbat": 15.842, "ibat": 3.12, "yaw_rate": 0.4, "yaw_rate_cmd": null,
+ "radio_connected": true, "armed": true, "autonomy_enabled": true, "button_state": false,
+ "flip_switch": 0, "is_upside_down": false, "espnow_active": false, "espnow_channel": 1,
+ "espnow_age_ms": 3, "espnow_seq": 4211, "jetson_tx_us": 912034511, "espnow_lq": 100,
+ "round_trip_us": 6120}
+```
+
+- The fields shared with `/robot/esp32_diagnostics` mean the same thing. Every float is `null`
+  when the firmware sends NaN.
+- `autonomy_enabled`: ch5 (SA) as the robot decoded it. ESP-NOW substitutes the drive command
+  only while this is true.
+- `espnow_active`: ESP-NOW supplied this tick's `a_percent`/`b_percent`. Always false in Phase 1
+  (shadow mode).
+- `espnow_channel`: the channel the robot listens on, 0 while it sweeps.
+- `espnow_age_ms`: since the robot last accepted a command frame, a dongle repeat included;
+  `null` before the first.
+- `espnow_seq`, `jetson_tx_us`: the last accepted command, echoed.
+- `espnow_lq`: robot telemetry send ACK success over its last 32 frames, percent.
+- `round_trip_us`: host monotonic arrival minus `jetson_tx_us`. Each sample also holds the robot's
+  wait for its next 10 ms telemetry slot and the age of a repeated command, so the per-second
+  minimum is the transport estimate.
+
+Link health (dongle open, dongle channel, ACK percent, telemetry per second, minimum round trip,
+CRC errors) goes to `/diagnostics/espnow_transmitter` once a second.
 
 ## `/apriltag/robot_tags` (JSON)
 

@@ -26,6 +26,7 @@ def _cpp_constant(name: str) -> str:
         ("DETECTIONS_JSON_SCHEMA", "kDetectionsSchema"),
         ("DIAGNOSTICS_JSON_SCHEMA", "kDiagnosticsSchema"),
         ("ESP32_DIAGNOSTICS_JSON_SCHEMA", "kEsp32DiagnosticsSchema"),
+        ("ESPNOW_TELEMETRY_JSON_SCHEMA", "kEspNowTelemetrySchema"),
         ("APRILTAG_ROBOT_TAGS_JSON_SCHEMA", "kAprilTagRobotTagsSchema"),
     ],
 )
@@ -40,6 +41,7 @@ def test_schema_text_matches_header(python_name: str, cpp_name: str) -> None:
         ("DETECTIONS_SCHEMA_NAME", "kDetectionsSchemaName"),
         ("DIAGNOSTICS_SCHEMA_NAME", "kDiagnosticsSchemaName"),
         ("ESP32_DIAGNOSTICS_SCHEMA_NAME", "kEsp32DiagnosticsSchemaName"),
+        ("ESPNOW_TELEMETRY_SCHEMA_NAME", "kEspNowTelemetrySchemaName"),
         ("APRILTAG_ROBOT_TAGS_SCHEMA_NAME", "kAprilTagRobotTagsSchemaName"),
     ],
 )

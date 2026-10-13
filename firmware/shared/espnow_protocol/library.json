@@ -1,0 +1,7 @@
+{
+  "name": "espnow_protocol",
+  "version": "1.0.0",
+  "description": "Wire format shared by mr_stabs_mk2, the ESP-NOW dongle, and the Jetson app",
+  "frameworks": "*",
+  "platforms": "*"
+}

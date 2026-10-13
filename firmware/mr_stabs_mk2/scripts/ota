@@ -1,4 +1,46 @@
 #!/bin/bash
-BASE_DIR=$(realpath "$(dirname $0)")
-cd ${BASE_DIR}/..
-platformio run --target upload -e ota --upload-port 192.168.4.1
+# Build mr_stabs_mk2 and flash it over ESP-NOW (docs/plans/espnow_link_plan.md). The robot must be
+# disarmed. The new image rolls back on its next reset unless it validates, which takes ~10 s
+# after boot with a dongle in range.
+#
+# Usage:
+#   scripts/ota                # through the dongle on the ZED Box, over ssh
+#   scripts/ota --local [PORT] # through a dongle on this machine (default /dev/espnow_dongle)
+#
+# Env, same as scripts/deploy_to_jetson.sh:
+#   JETSON_HOST  ZED Box hostname or IP (default: jetson)
+#   JETSON_USER  SSH user (default: what ~/.ssh/config resolves)
+#   JETSON_KEY   SSH private key (default: ~/.ssh/<host> if it exists)
+#   JETSON_PATH  repo on the box (default: ~/auto-battlebot)
+set -euo pipefail
+
+BASE_DIR=$(realpath "$(dirname "$0")")
+REPO_DIR=$(realpath "${BASE_DIR}/../../..")
+cd "${BASE_DIR}/.."
+
+platformio run -e local
+IMAGE=.pio/build/local/firmware.bin
+
+if [ "${1:-}" = "--local" ]; then
+    exec "${REPO_DIR}/venv/bin/python" scripts/espnow_ota.py "$IMAGE" \
+        --port "${2:-/dev/espnow_dongle}"
+fi
+
+JETSON_HOST="${JETSON_HOST:-jetson}"
+JETSON_PATH="${JETSON_PATH:-~/auto-battlebot}"
+if [ -z "${JETSON_KEY:-}" ] && [ -f "$HOME/.ssh/${JETSON_HOST%%.*}" ]; then
+    JETSON_KEY="$HOME/.ssh/${JETSON_HOST%%.*}"
+fi
+SSH_OPTS=()
+if [ -n "${JETSON_KEY:-}" ]; then
+    # Only this key: the agent's full set exhausts sshd's MaxAuthTries.
+    SSH_OPTS+=(-i "$JETSON_KEY" -o IdentitiesOnly=yes)
+fi
+TARGET="${JETSON_USER:+${JETSON_USER}@}${JETSON_HOST}"
+REMOTE_IMAGE=/tmp/mr_stabs_mk2_firmware.bin
+
+scp "${SSH_OPTS[@]}" "$IMAGE" "${TARGET}:${REMOTE_IMAGE}"
+# -t so sudo can prompt for the service stop and start.
+ssh -t "${SSH_OPTS[@]}" "$TARGET" \
+    "cd ${JETSON_PATH} && venv/bin/python firmware/mr_stabs_mk2/scripts/espnow_ota.py \
+    ${REMOTE_IMAGE} --manage-service"

@@ -6,6 +6,7 @@
 #include <crsf_bridge.h>
 #include <diagnostics_server.h>
 #include <esc.h>
+#include <espnow_link.h>
 #include <i2c_bus.h>
 #include <updown_sensor.h>
 #include <vbat_sensor.h>
@@ -52,6 +53,33 @@ const float TURN_DEADBAND_PERCENT = 1.0f;  // passthrough steering, same as the 
 const uint32_t HEADING_STALE_US = 100000;
 uint32_t last_heading_sample_us = 0;
 
+// ESP-NOW link to the Jetson's dongle (docs/plans/espnow_link_plan.md).
+espnow_link::EspNowLink espnow;
+
+// Phase 1 of the plan is shadow mode: the robot receives and reports ESP-NOW commands but keeps
+// driving from the trainer channels. Phase 3 sets this true, which turns on both the command
+// substitution and the slew limiter on the arbitrated output.
+const bool ESPNOW_COMMAND_SUBSTITUTION = false;
+
+// Slew-limit the arbitrated linear command so a source switch, an ESP-NOW dropout, or an
+// orientation flip cannot step the wheels past the slip threshold. Same rate the Jetson applies
+// (include/transmitter/config.hpp: max_motor_rpm_per_sec / max_motor_rpm = 3247 / 1500), so it is
+// a no-op while the trainer path drives.
+const float MAX_A_PERCENT_PER_SEC = 216.5f;
+float limited_a_percent = 0.0f;
+
+float limit_a_percent(float requested, float dt) {
+    const float max_delta = MAX_A_PERCENT_PER_SEC * dt;
+    limited_a_percent =
+        constrain(requested, limited_a_percent - max_delta, limited_a_percent + max_delta);
+    return limited_a_percent;
+}
+
+// The Arduino core marks every new OTA image valid at boot unless this returns true. Returning
+// true leaves validation to EspNowLink, which marks the image valid only after it has run 10 s and
+// heard a dongle. Until then the bootloader rolls back to the previous slot on the next reset.
+extern "C" bool verifyRollbackLater() { return true; }
+
 // Command-timeout failsafe
 crsf_bridge::radio_data_t *prev_radio_data;
 uint32_t command_timer = 0;
@@ -91,6 +119,40 @@ void stop_escs() {
     left_esc->stop();
     right_esc->stop();
     set_led_intensity(0);
+    // Re-arming always ramps from standstill.
+    limited_a_percent = 0.0f;
+}
+
+// Publishes one tick of diagnostics to the WiFi dashboard and, at 100 Hz, over ESP-NOW.
+void publish_diag(diag_data_t &diag, bool autonomy_enabled, bool espnow_active, uint32_t now_ms) {
+    diag_server.update(&diag);
+    espnow_protocol::TelemetryPayload telemetry = {};
+    telemetry.timestamp_ms = diag.timestamp_ms;
+    telemetry.loop_us = diag.loop_us;
+    telemetry.a_percent = diag.a_percent;
+    telemetry.b_percent = diag.b_percent;
+    telemetry.left_cmd = diag.left_cmd;
+    telemetry.right_cmd = diag.right_cmd;
+    telemetry.accel_x = diag.accel_x;
+    telemetry.accel_y = diag.accel_y;
+    telemetry.accel_z = diag.accel_z;
+    telemetry.orientation_x = diag.orientation_x;
+    telemetry.orientation_y = diag.orientation_y;
+    telemetry.orientation_z = diag.orientation_z;
+    telemetry.pid_setpoint = diag.pid_setpoint;
+    telemetry.pid_output = diag.pid_output;
+    telemetry.vbat = diag.vbat;
+    telemetry.ibat = diag.ibat;
+    telemetry.yaw_rate = diag.yaw_rate;
+    telemetry.yaw_rate_cmd = diag.yaw_rate_cmd;
+    telemetry.radio_connected = diag.radio_connected;
+    telemetry.armed = diag.armed;
+    telemetry.autonomy_enabled = autonomy_enabled;
+    telemetry.button_state = diag.button_state;
+    telemetry.flip_switch = diag.flip_switch;
+    telemetry.is_upside_down = diag.is_upside_down;
+    telemetry.espnow_active = espnow_active;
+    espnow.send_telemetry(telemetry, now_ms);
 }
 
 // Feeds the diagnostics page's sensor and I2C panel. Does nothing with no browser open. A bus
@@ -145,6 +207,7 @@ bool compare_radio_data(const crsf_bridge::radio_data_t *data1,
     return (data1->a_percent == data2->a_percent) && (data1->b_percent == data2->b_percent) &&
            (data1->armed == data2->armed) && (data1->connected == data2->connected) &&
            (data1->button_state == data2->button_state) &&
+           (data1->autonomy_enabled == data2->autonomy_enabled) &&
            (data1->flip_switch_state == data2->flip_switch_state);
 }
 
@@ -154,6 +217,7 @@ void copy_radio_data(const crsf_bridge::radio_data_t *src, crsf_bridge::radio_da
     dest->armed = src->armed;
     dest->connected = src->connected;
     dest->button_state = src->button_state;
+    dest->autonomy_enabled = src->autonomy_enabled;
     dest->flip_switch_state = src->flip_switch_state;
 }
 
@@ -254,12 +318,15 @@ void setup() {
 
     yaw_controller = new yaw_control::YawController(yaw_control::Config());
 
-    WiFi.softAP(WIFI_SSID, WIFI_PASSWORD);
+    // Phase 1: the SoftAP stays up as the fallback while ESP-NOW OTA proves itself, so ESP-NOW
+    // runs on the AP interface and the pinned channel the AP is on.
+    WiFi.softAP(WIFI_SSID, WIFI_PASSWORD, espnow_protocol::CHANNEL_OVERRIDE);
     setup_ota();
     tunable_ptrs_t tunables;
     tunables.left_esc_deadzone = &left_esc->stop_threshold;
     tunables.right_esc_deadzone = &right_esc->stop_threshold;
     diag_server.begin(tunables);
+    espnow.begin(WIFI_IF_AP, espnow_protocol::CHANNEL_OVERRIDE, tunables);
 
     prev_loop_us = micros();
 }
@@ -275,6 +342,15 @@ void loop() {
     }
 
     bool radio_ok = crsf->update(radio_data);
+    uint32_t now_ms = millis();
+
+    // An ESP-NOW firmware transfer owns the loop: motors stopped, no control, same as ArduinoOTA.
+    // It only starts disarmed, and arming aborts it inside update().
+    espnow.update(now_ms, radio_ok && radio_data->armed);
+    if (espnow.ota_in_progress()) {
+        stop_escs();
+        return;
+    }
     vbat_sensor_ina228.update();
     float vbat = vbat_sensor_ina228.get_volts();
     float ibat = vbat_sensor_ina228.get_amps();
@@ -296,7 +372,6 @@ void loop() {
     publish_sensor_status(radio_ok && radio_data->armed);
 
     // Combat mode
-    uint32_t now_ms = millis();
     if (now_ms - last_led_ms >= 20) {
         last_led_ms = now_ms;
         cycle_rainbow_led(rainbow_tick, led_intensity);
@@ -335,7 +410,7 @@ void loop() {
             .yaw_rate = accel->get_yaw_rate(),
             .yaw_rate_cmd = yaw_loop_active ? yaw_controller->rate_command() : NAN,
         };
-        diag_server.update(&diag);
+        publish_diag(diag, radio_data->autonomy_enabled, false, now_ms);
         return;
     }
 
@@ -375,7 +450,7 @@ void loop() {
             .yaw_rate = accel->get_yaw_rate(),
             .yaw_rate_cmd = yaw_loop_active ? yaw_controller->rate_command() : NAN,
         };
-        diag_server.update(&diag);
+        publish_diag(diag, radio_data->autonomy_enabled, false, now_ms);
         return;
     }
 
@@ -411,8 +486,21 @@ void loop() {
             .yaw_rate = accel->get_yaw_rate(),
             .yaw_rate_cmd = yaw_loop_active ? yaw_controller->rate_command() : NAN,
         };
-        diag_server.update(&diag);
+        publish_diag(diag, radio_data->autonomy_enabled, false, now_ms);
         return;
+    }
+
+    // ESP-NOW command substitution. Runs only after every CRSF gate has passed, so ESP-NOW can
+    // never arm the robot or extend its armed window. SA (ch5) down is the pilot's "accept
+    // autonomous commands" position; SA up forces the stick values on ch0/ch1.
+    bool espnow_active = false;
+    if (ESPNOW_COMMAND_SUBSTITUTION && radio_data->autonomy_enabled && espnow.fresh(now_ms)) {
+        const espnow_protocol::CommandPayload &cmd = espnow.latest();
+        // Same place the trainer path lands: the Jetson's two channel values go into ch0/ch1 at
+        // full scale, and crsf_bridge negates ch0 into a_percent.
+        radio_data->a_percent = -100.0f * cmd.channel_a;
+        radio_data->b_percent = 100.0f * cmd.channel_b;
+        espnow_active = true;
     }
 
     set_led_intensity((abs(radio_data->a_percent) + abs(radio_data->b_percent)) / 2.0);
@@ -436,6 +524,11 @@ void loop() {
     }
 
     if (is_upside_down) radio_data->a_percent *= -1;
+    // After the inversion, so a genuine flip ramps instead of reversing full scale in one tick.
+    // Manual mode keeps unlimited stick authority, matching the Jetson-side limiter's gate.
+    if (ESPNOW_COMMAND_SUBSTITUTION && radio_data->autonomy_enabled) {
+        radio_data->a_percent = limit_a_percent(radio_data->a_percent, loop_us / 1000000.0f);
+    }
 
     float sensed_angle_z = orientation->x;
 
@@ -473,5 +566,5 @@ void loop() {
         .yaw_rate = accel->get_yaw_rate(),
         .yaw_rate_cmd = yaw_loop_active ? yaw_controller->rate_command() : NAN,
     };
-    diag_server.update(&diag);
+    publish_diag(diag, radio_data->autonomy_enabled, espnow_active, now_ms);
 }

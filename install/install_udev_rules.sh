@@ -2,6 +2,7 @@
 
 # Install udev rules for USB serial devices used by auto-battlebot.
 # - OpenTX / EdgeTX transmitter (VID=0483, PID=5740): creates /dev/opentx symlink
+# - ESP-NOW dongle (docs/plans/espnow_link_plan.md): creates /dev/espnow_dongle symlink
 # - Adds the current user to the dialout group
 # - Disables ModemManager probing of the transmitter (prevents CRSF frame corruption)
 # - Ensures the cdc_acm kernel module loads on boot
@@ -39,6 +40,15 @@ SUBSYSTEM=="tty", ATTRS{idVendor}=="0483", ATTRS{idProduct}=="5740", \
 # Without this, MM sends AT commands that corrupt CRSF framing for ~10 s.
 SUBSYSTEM=="tty", ATTRS{idVendor}=="0483", ATTRS{idProduct}=="5740", \
     ENV{ID_MM_DEVICE_IGNORE}="1"
+
+# ESP-NOW dongle (firmware/espnow_dongle). ESP32-S3 USB-Serial/JTAG reports 303a:1001 and its MAC as
+# the serial number. Matched by serial because mr_stabs_mk2 is the same chip and shows the same
+# VID/PID when it is plugged in for a USB flash. One line per dongle: add the bench and match
+# dongles here as they are built (the dongle prints its MAC at boot).
+SUBSYSTEM=="tty", ATTRS{idVendor}=="303a", ATTRS{idProduct}=="1001", \
+    ATTRS{serial}=="D8:3B:DA:8E:ED:2C", \
+    SYMLINK+="espnow_dongle", ENV{ID_MM_DEVICE_IGNORE}="1", \
+    GROUP="dialout", MODE="0660"
 
 # Generic fallback: ensure all ttyACM/ttyUSB nodes are group-accessible
 SUBSYSTEM=="tty", KERNEL=="ttyACM[0-9]*", GROUP="dialout", MODE="0660"
@@ -79,6 +89,12 @@ EOF
         echo "/dev/opentx -> $(readlink /dev/opentx)  (transmitter detected)"
     else
         echo "/dev/opentx not present (plug in the transmitter to verify)"
+    fi
+
+    if [ -e /dev/espnow_dongle ]; then
+        echo "/dev/espnow_dongle -> $(readlink /dev/espnow_dongle)  (dongle detected)"
+    else
+        echo "/dev/espnow_dongle not present (plug in the dongle to verify)"
     fi
 
     echo ""

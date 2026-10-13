@@ -13,13 +13,39 @@ field_size_y = 1.5
 "MR_STABS_MK2" = ["OUR_ROBOT_1"]
 
 [transmitter]
+# Phase 1 of docs/plans/espnow_link_plan.md: every command goes over the trainer link (primary,
+# owns status and feedback) and over the ESP-NOW dongle. The firmware runs ESP-NOW in shadow mode
+# until Phase 3. The type differs from _common, so every OpenTX field is restated here.
+type = "CompositeTransmitter"
+
+[[transmitter.children]]
+type = "OpenTxTransmitter"
+# The control loop sends at 250 Hz. Crossfire runs at 150 Hz, so more trainer writes are wasted
+# serial traffic. ESP-NOW below takes every cycle.
+transmit_rate_hz = 150
 # The radio model mixes linear/angular into the motor outputs, so send body axes.
 drive_processor = "DifferentialDriveProcessor"
+linear_channel = 0                             # radio CH1
+angular_channel = 1                            # radio CH2
+trainer_enable_channel = 5                     # radio CH6, SA
+behavior_mode_channel = 30                     # disabled
+init_button_channel = 31                       # disabled
 max_motor_rpm = 1500                           # RPM
 max_motor_rpm_per_sec = 2000                   # RPM/s; caps linear accel at 8.5 m/s^2, 3247 RPM/s (slip/flip limit). 0 = off
 lifted_deadzone_percent = 0
 zero_deadzone_percent = 2
+reverse_angular_channel = true
 velocity_saturation_limit = 1.0                # 0 = disabled; e.g. 1.0 = |linear| + |angular| <= 1
+
+[[transmitter.children]]
+type = "EspNowTransmitter"
+dongle_serial_path = "/dev/espnow_dongle"
+drive_processor = "DifferentialDriveProcessor"
+# Must match the OpenTX child; the config loader refuses a mismatch.
+lifted_deadzone_percent = 0
+zero_deadzone_percent = 2
+reverse_angular_channel = true
+velocity_saturation_limit = 1.0
 
 [plant]
 dz_lin_fwd = 0.0

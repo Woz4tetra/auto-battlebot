@@ -1796,9 +1796,15 @@ TEST(SysidProfileTest, MrStabsMk2SysidProfileParsesAndIsSelectable) {
     const auto config_dir = get_config_dir();
     auto config =
         load_classes_from_config((config_dir / "mr_stabs_mk2_sysid_zed_box.toml").string());
-    ASSERT_NE(
-        dynamic_cast<Esp32DiagnosticsOpenTxTransmitterConfiguration *>(config.transmitter.get()),
-        nullptr);
+    // The WiFi diagnostics transmitter is the primary of the ESP-NOW composite.
+    auto *composite = dynamic_cast<CompositeTransmitterConfiguration *>(config.transmitter.get());
+    ASSERT_NE(composite, nullptr);
+    ASSERT_EQ(composite->children.size(), 2u);
+    EXPECT_NE(dynamic_cast<Esp32DiagnosticsOpenTxTransmitterConfiguration *>(
+                  composite->children[0].get()),
+              nullptr);
+    EXPECT_NE(dynamic_cast<EspNowTransmitterConfiguration *>(composite->children[1].get()),
+              nullptr);
     auto *model = dynamic_cast<AprilTagKeypointModelConfiguration *>(config.keypoint_model.get());
     ASSERT_NE(model, nullptr);
     EXPECT_EQ(model->tags.size(), 2u);
@@ -1808,6 +1814,22 @@ TEST(SysidProfileTest, MrStabsMk2SysidProfileParsesAndIsSelectable) {
     const auto profiles = list_available_profiles(config_dir, selector.pattern);
     EXPECT_NE(std::find(profiles.begin(), profiles.end(), "mr_stabs_mk2_sysid_zed_box"),
               profiles.end());
+}
+
+// Phase 1 of docs/plans/espnow_link_plan.md: both Mr Stabs ZED Box profiles send over the trainer
+// link (primary) and the ESP-NOW dongle.
+TEST(EspNowProfileTest, MrStabsMk2ZedBoxProfilesUseTheComposite) {
+    const auto config_dir = get_config_dir();
+    for (const char *name :
+         {"mr_stabs_mk2_aer_zed_box.toml", "mr_stabs_mk2_fid_aer_zed_box.toml"}) {
+        auto config = load_classes_from_config((config_dir / name).string());
+        auto *composite =
+            dynamic_cast<CompositeTransmitterConfiguration *>(config.transmitter.get());
+        ASSERT_NE(composite, nullptr) << name;
+        ASSERT_EQ(composite->children.size(), 2u) << name;
+        EXPECT_EQ(composite->children[0]->type, "OpenTxTransmitter") << name;
+        EXPECT_EQ(composite->children[1]->type, "EspNowTransmitter") << name;
+    }
 }
 #endif
 

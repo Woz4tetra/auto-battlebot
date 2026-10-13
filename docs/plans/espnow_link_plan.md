@@ -7,9 +7,28 @@ Add a direct ESP-NOW link between the Jetson and the mr_stabs_mk2 firmware that:
 1. Delivers autonomous velocity commands with roughly 5 ms less transport delay.
 2. Streams the firmware diagnostics struct back to the Jetson at loop rate.
 3. Lets the on-robot web dashboard be deleted, freeing RAM and flash for the camera port.
+4. Carries firmware updates, so the SoftAP and `ArduinoOTA` can be deleted too. The robot radio
+   then runs ESP-NOW only, with no access point and no combat/tuning radio mode switch.
 
 The Crossfire link keeps full authority. ESP-NOW is a transport shortcut layered on top of the
 existing path, never a replacement for it.
+
+### Status (2026-10-13)
+
+Phase 1 code is built and unit tested. Nothing has run against the robot yet.
+
+| Piece | Where | State |
+|---|---|---|
+| Wire format, sequence rules, OTA ordering | `firmware/shared/espnow_protocol/` | Built. 17 host tests in `firmware/mr_stabs_mk2/test/test_espnow_protocol/` |
+| Dongle firmware | `firmware/espnow_dongle/` | Flashed to the development QT Py (`d8:3b:da:8e:ed:2c`). Forwarding, 250 Hz repeat, silence cutoff, keepalive, and link stats checked over USB with no robot |
+| Robot firmware | `firmware/mr_stabs_mk2/src/espnow_link.cpp`, `main.cpp` | Builds. Shadow mode (`ESPNOW_COMMAND_SUBSTITUTION = false`), ESP-NOW OTA, rollback, sweep. Not flashed |
+| `EspNowTransmitter`, `CompositeTransmitter` | `src/transmitter/` | Built. Tests in `tests/test_espnow_transmitter.cpp` |
+| Flasher | `firmware/mr_stabs_mk2/scripts/espnow_ota.py`, `scripts/ota` | Tested against a simulated robot dropping 5% of chunks |
+| ZED Box profiles | `config/mr_stabs_mk2_*_zed_box.toml` | Switched to the composite |
+| udev rule | `install/install_udev_rules.sh` | Written and checked with `udevadm verify`. Not installed on the box |
+
+Remaining, all needing hardware or the event: next steps 1, 3, and 7, the Phase 1 measurements and
+OTA tests, then Phases 2 and 3.
 
 ### Standing decision: latency wins every tradeoff
 
@@ -18,12 +37,12 @@ Applied throughout, that resolves to:
 
 | Choice | Decision | Cost accepted |
 |---|---|---|
-| ESP-NOW PHY rate | 6 Mbps OFDM via `esp_now_set_peer_rate_config()` | No `WIFI_PROTOCOL_LR`, so ~10 dB less link budget |
+| ESP-NOW PHY rate | 6 Mbps OFDM via `esp_wifi_config_espnow_rate()` | No `WIFI_PROTOCOL_LR`, so ~10 dB less link budget |
 | Channel | Dongle scans and picks at boot, robot sweeps to find it | Each match runs on an untested channel |
 | Dongle repeat rate | 250 Hz, forwarding on arrival | ~6% channel duty cycle |
 | `FRESH_STREAK_REQUIRED` | 3, not 5 | Slightly more source-switch flapping at range |
 | CRSF serial baud | 921600, not the 400000 default | None, it is free |
-| Combat-mode SoftAP | Off | No dashboard during a match |
+| SoftAP | Deleted, OTA moves to ESP-NOW | No laptop Wi-Fi to the robot; every flash goes through a dongle |
 
 Each is justified in the section that raises it. The range cost of dropping LR is the one that
 carries real risk, and it is mitigated by the fact that losing ESP-NOW costs latency, not control.
@@ -157,8 +176,8 @@ it self-heals the dongle restarting on a different channel.
   loses the packets which would have recovered it. `REACQUIRE_SILENCE_MS` sits well above
   `COMMAND_STALE_MS` for exactly this reason.
 - **No rescan mid-run.** A dongle that periodically rescans to stay adaptive drops the link on
-  every rescan while the robot re-acquires. Scan once at boot. The only other scan trigger is the
-  explicit combat to tuning transition.
+  every rescan while the robot re-acquires. Scan once at boot. There is no other scan trigger: with
+  the SoftAP gone there is no radio mode transition to rescan on.
 
 What makes this an acceptable trade is that ESP-NOW holds no authority. A bad pick costs ~5 ms of
 latency, not control, because the trainer path carries every command. If ESP-NOW were the control
@@ -257,8 +276,21 @@ typedef struct radio_data {
 ```
 
 ESP-NOW may substitute `a_percent` and `b_percent`. It may never touch `armed`, `connected`,
-`button_state`, or `flip_switch_state`. Those stay on Crossfire so a switch throw on the handset
+`button_state`, `flip_switch_state`, or the new `autonomy_enabled` below. Those stay on Crossfire so a switch throw on the handset
 always stops the robot, including when the ESP-NOW link is the thing misbehaving.
+
+The gate that decides whether ESP-NOW may substitute at all is a new authority field,
+`autonomy_enabled`, read from ch5 (SA, `AutoEn` in `firmware/config/CHANNEL_CONVENTION.md`). SA is
+the switch that already mixes the trainer inputs into ch0/ch1 on the handset, and the Jetson reads
+the same channel back as `trainer_enable_channel = 5`. The firmware ignores ch5 today, so
+`CrsfBridge::update()` gains one line:
+
+```c
+radio_data->autonomy_enabled = channels->ch5 > MID_CYCLE;   // SA down: autonomy on
+```
+
+and the link-down branch sets it false alongside `armed`. Do not gate on `flip_switch_state`: ch7
+(SB) is the flip direction override, and its UP position forces the robot upside-down.
 
 ### Both paths carry every command
 
@@ -268,9 +300,9 @@ degradation:
 - ESP-NOW fresh: the firmware uses it, and the command arrives roughly 5 ms sooner.
 - ESP-NOW stale or dead: the firmware falls back to the trainer channels, which carry the same
   autonomous command. Behavior degrades to exactly what `OpenTxTransmitter` does today.
-- Trainer gate disengaged: the trainer channels carry the pilot's sticks, and the firmware's
-  `flip_switch_state` gate blocks ESP-NOW substitution. Manual control is one switch throw with no
-  code path involved.
+- SA up (autonomy off): the handset stops mixing in the trainer inputs, so ch0/ch1 carry only the
+  pilot's sticks, and the firmware's `autonomy_enabled` gate blocks ESP-NOW substitution. One
+  switch takes both paths away from the Jetson.
 
 ### Bumpless transfer belongs in the firmware, not the Jetson
 
@@ -322,7 +354,9 @@ Do not copy the 5000 ms figure for the ESP-NOW staleness window.
 `diag_data_t` (`firmware/mr_stabs_mk2/include/diagnostics_server.h:4`) packs to 72 bytes with
 padding, well inside the 250-byte ESP-NOW payload.
 
-Current `firmware.bin` is 866 KB.
+Current `firmware.bin` is 879 KB (899,808 bytes, `.pio/build/ota`, 2026-10-10). The board's
+`tinyuf2-partitions-4MB.csv` has two 1408 KB app slots (`ota_0`, `ota_1`), so an image can grow by
+about 60% before OTA of any kind stops fitting.
 
 ### Jetson transmitter
 
@@ -378,6 +412,35 @@ Two hops with different framing. The Jetson never speaks ESP-NOW directly.
 Jetson <--framed serial--> ESP32 dongle <--ESP-NOW unicast--> mr_stabs_mk2
 ```
 
+### Dongle hardware
+
+Development uses an Adafruit QT Py ESP32-S3, the same chip as the robot. The development unit is
+the 8 MB no-PSRAM variant (`adafruit_qtpy_esp32s3_nopsram`); the robot is the N4R2. It plugs into the ZED Box Mini's one USB-A port through a USB 2.0 hub shared with the
+handset, on a short extension away from the box. The dongle firmware is a new PlatformIO project,
+`firmware/espnow_dongle/`, pinned to `espressif32@6.13.0` like the robot. Sharing the board and
+platform lets the dongle and robot share the framing, session magic, and peer setup code.
+
+Identical boards bring two hazards:
+
+- **They look alike on USB.** The dongle builds with the hardware USB-Serial/JTAG CDC
+  (`ARDUINO_USB_MODE=1`), which enumerates as Espressif `303a:1001` with the chip MAC as its USB
+  serial number. The robot shows the same VID/PID in its bootloader, so the udev rule below matches
+  on the serial number.
+- **They are easy to swap by hand.** Label both, and have the dongle firmware print its role and
+  MAC address at boot. A dongle running the robot firmware tries to drive ESCs that are not there,
+  and a robot running the dongle firmware does nothing.
+
+The QT Py has only a PCB antenna. The match dongle should be an ESP32-S3 with an external antenna.
+Pick a board where the antenna is fixed in hardware, such as an ESP32-S3-WROOM-1U module, which has
+only a u.FL connector. Boards with both a PCB antenna and a u.FL connector can need a resistor moved
+to switch over. Swapping boards changes three things: the `board =` line in
+`firmware/espnow_dongle/platformio.ini`, the MAC in the robot's `DONGLE_MACS[]`, and the serial
+number in the udev rule. The protocol and code do not change.
+
+An ESP8266 cannot stand in, even for development. It has no `esp_wifi_config_espnow_rate()`, so it
+is likely stuck at 1 Mbps, and it reaches USB through a CP2104 UART bridge. Both distort the Phase 1
+latency numbers this plan is decided on.
+
 ### Serial framing (Jetson to dongle)
 
 ```
@@ -395,15 +458,33 @@ already handles partial reads from `SerialPort::read_available()`.
 
 | Type | Direction | Payload |
 |---|---|---|
-| `0x01` command | Jetson to robot | `seq:u32, jetson_tx_us:u32, linear:f32, angular:f32` |
-| `0x02` telemetry | robot to Jetson | `diag_data_t` plus `seq:u32, jetson_tx_us:u32` echo |
+| `0x01` command | Jetson to robot | `seq:u32, jetson_tx_us:u32, channel_a:f32, channel_b:f32` |
+| `0x02` telemetry | robot to Jetson | `TelemetryPayload`: the `diag_data_t` fields plus `autonomy_enabled` and the link fields, `seq` and `jetson_tx_us` echoed |
 | `0x03` tunable set | Jetson to robot | `id:u8, value:f32` |
-| `0x04` link stats | dongle to Jetson | `sent:u32, acked:u32, failed:u32, last_rtt_us:u32, channel:u8` |
+| `0x04` link stats | dongle to Jetson | `sent:u32, acked:u32, failed:u32, last_rtt_us:u32, channel:u8, robot_known:u8` |
+| `0x05` ping | dongle to robot | none |
+| `0x10` OTA begin | host to robot | `size:u32, md5:u8[16]` |
+| `0x11` OTA chunk | host to robot | `offset:u32, data:u8[n]`, `n <= 240` |
+| `0x12` OTA end | host to robot | none |
+| `0x13` OTA abort | host to robot | none |
+| `0x14` OTA status | robot to host | `state:u8, next_offset:u32, error:u8, running_md5:u8[16]` |
+
+The binary layouts live in one header, `firmware/shared/espnow_protocol/src/espnow_protocol.h`,
+which the dongle, the robot, and the Jetson app all compile. `channel_a` and `channel_b` are the
+two values the Jetson's drive processor would write to the trainer channels. The firmware puts
+them where ch0 and ch1 land, so the mixing matches the trainer path whichever processor is
+configured (`drive_processor`, `DifferentialDriveProcessor` by default).
 
 `0x04` originates on the dongle from `esp_now_register_send_cb`, not from the robot. It is the only
 link-quality signal available, since ESP-NOW has no equivalent to Crossfire's LQ and RSSI.
 
-Echoing `jetson_tx_us` in telemetry gives round-trip time directly. One-way is approximately half.
+`0x05` is the dongle's keepalive, sent whenever its radio has been idle 10 ms. Without it the
+dongle is silent unless the Jetson is commanding, and the robot then cannot sweep onto its
+channel, has nowhere to send telemetry, and cannot validate a freshly flashed image.
+
+Echoing `jetson_tx_us` in telemetry gives round-trip time. Each sample also holds the robot's
+wait for its next telemetry slot (100 Hz, below) and the age of a repeated command, so the
+per-second minimum is the transport estimate. One-way is approximately half of that.
 
 ### Over-the-air frame (dongle to robot)
 
@@ -416,25 +497,30 @@ Peer setup, with the gotchas that cause silent failures:
 ```c
 esp_now_peer_info_t peer = {};
 memcpy(peer.peer_addr, PEER_MAC, 6);
-peer.ifidx   = WIFI_IF_AP;   // AP-only build: WIFI_IF_STA fails with ESP_ERR_ESPNOW_IF
-peer.channel = 1;            // must match the SoftAP channel
+peer.ifidx   = ESPNOW_IF;        // must name an interface that is up, see below
+peer.channel = resolved_channel; // the sweep result, see channel selection
 peer.encrypt = false;
 esp_now_add_peer(&peer);
 ```
 
-Unicast to a hardcoded MAC gets MAC-layer ACK and retries. Broadcast gets neither.
+`ESPNOW_IF` is `WIFI_IF_AP` on the robot while the SoftAP still exists (Phase 1); `WIFI_IF_STA`
+fails there with `ESP_ERR_ESPNOW_IF`. Phase 2 deletes the SoftAP and puts the robot in
+`WIFI_MODE_STA`, and from then on it is `WIFI_IF_STA`. The dongle is always STA.
 
-Set the PHY rate explicitly. The 1 Mbps default costs ~1.2 ms per packet against 6 Mbps OFDM:
+Unicast gets MAC-layer ACK and retries. Broadcast gets neither. The robot knows its dongles from
+the `DONGLE_MACS[]` allowlist and replies to whichever one last sent a valid frame. The dongle
+broadcasts until the robot's first telemetry or OTA status names it, then unicasts to that MAC.
+
+Set the PHY rate explicitly. The 1 Mbps default costs ~1.2 ms per packet against 6 Mbps OFDM.
+The pinned `espressif32@6.13.0` is IDF 4.4, which has no per-peer `esp_now_set_peer_rate_config()`
+(IDF 5.x). Its rate setting is per interface, which is equivalent here since each end has one peer
+interface:
 
 ```c
-esp_now_rate_config_t rate = {
-    .phymode  = WIFI_PHY_MODE_11G,
-    .rate     = WIFI_PHY_RATE_6M,
-    .ersu     = false,
-    .dcm      = false,
-};
-esp_now_set_peer_rate_config(PEER_MAC, &rate);
+esp_wifi_config_espnow_rate(ESPNOW_IF, WIFI_PHY_RATE_6M);
 ```
+
+Call it after `esp_wifi_start()` and again after every channel or mode change.
 
 Do not enable `WIFI_PROTOCOL_LR` alongside this. The two are mutually exclusive and LR costs about
 half the latency saving. See the standing decision in Goal.
@@ -452,60 +538,166 @@ Without the repeat, a 30 Hz command stream means one lost packet leaves a 33.3 m
 consecutive losses trip `COMMAND_STALE_MS`. 250 Hz is chosen over 150 Hz to shorten post-loss
 recovery; at ~80 bytes and 6 Mbps that is roughly 6% channel duty, which is affordable.
 
-Reset the repeat only when a newer `seq` arrives. Never let the dongle invent or extrapolate a
-command.
+Repeats are byte-identical copies of the last command, `seq` included. The dongle never assigns,
+increments, or rewrites `seq`, and never invents or extrapolates a command. The robot tells a repeat
+from a new command by `seq` alone (rules under `espnow_link` below).
+
+Two more repeat rules, both needed once OTA shares the link:
+
+- **Repeat `0x01` commands only.** Every other type is forwarded once on arrival. Retrying OTA
+  chunks is the host's job, and a repeated chunk would only be dropped by the robot as out of order.
+- **Stop repeating after 100 ms of serial silence.** When the app exits, the dongle would otherwise
+  re-send its last command indefinitely, holding the channel during a flash and handing the robot a
+  command no live process stands behind.
+
+## OTA over ESP-NOW
+
+Firmware updates ride the same dongle and the same link as commands. `Update.h` does not care where
+the bytes come from, and the ESP-IDF bootloader verifies and rolls back the image the same way it
+does for `ArduinoOTA` today. Moving OTA here is what lets Phase 2 delete the SoftAP, `ArduinoOTA`,
+and the dashboard together, so the robot radio never has an access point to tear down and the
+combat/tuning radio mode switch never has to be built.
+
+### Flow
+
+```
+dev box: pio run -e local -> scp firmware.bin -> ssh: espnow_ota.py firmware.bin
+ZED Box: stop auto-battlebot -> open /dev/espnow_dongle -> transfer -> wait for reboot
+         -> confirm running_md5 matches -> start auto-battlebot
+```
+
+The app owns `/dev/espnow_dongle` while it runs, so the flasher stops the `auto-battlebot` service
+for the duration and restarts it afterward, including on failure. The robot is disarmed for any
+flash (below), so losing the app and the trainer link for ~20 s costs nothing. The same flasher
+runs on the dev box against a bench dongle with `--port`, for flashing without the ZED Box.
+
+### Transfer protocol
+
+Go-back-N over the `0x10`-`0x14` messages:
+
+1. Host sends `0x10` begin with the image size and MD5. The robot refuses unless it is disarmed,
+   calls `Update.begin(size)` and `Update.setMD5()`, and answers `0x14` with `state = RECEIVING`,
+   `next_offset = 0`.
+2. Host streams `0x11` chunks of 240 bytes, keeping at most 16 chunks (3,840 bytes) past the last
+   acknowledged `next_offset`. 240 data bytes plus the 4-byte offset, 1-byte type, and 4-byte
+   session magic is 249, inside the 250-byte ESP-NOW limit.
+3. The robot accepts only the chunk at exactly `next_offset` and drops everything else. It sends
+   `0x14` after every 8 accepted chunks, and when it drops one (at most every 20 ms, since a lost
+   chunk drops the rest of the window), so a loss costs one round trip and not a timeout.
+4. Host resends from the robot's `next_offset` if 500 ms pass without progress. That sits above a
+   typical 64 KB block erase (below), which stalls acknowledgements while it runs. It gives up
+   after 10 consecutive timeouts and sends `0x13` abort.
+5. At `next_offset == size` the host sends `0x12` end. The robot calls `Update.end(true)`, which
+   checks the MD5 and the ESP-IDF image header and SHA-256, sets the boot slot, answers `0x14`
+   with `state = DONE`, and reboots 200 ms later.
+6. After reboot, the robot sends `0x14` with `state = VALIDATED` and `running_md5 =
+   ESP.getSketchMD5()` once the new image marks itself valid (rollback, below). The host waits up
+   to 30 s for it and fails loudly on a mismatch or silence.
+
+The dongle forwards these frames like any other. Its own send path waits on
+`esp_now_register_send_cb` before the next `esp_now_send`, so a 16-chunk burst paces itself at air
+rate rather than overflowing the ESP-NOW queue.
+
+Expected time for the 899,808-byte image is 3,750 chunks. At 6 Mbps a 249-byte frame plus preamble
+and MAC ACK is roughly 0.6 ms, so about 2.3 s of air time. `Update::_writeBuffer()` erases a whole
+64 KB block when it reaches an aligned one (`Updater.cpp:213`), so the image costs 14 block erases,
+roughly 2 s at a typical 150 ms each, plus about 2.5 s of page programming. These are datasheet
+typicals that partly overlap with the air time. Budget 10 s and measure it in Phase 1.
+
+### Robot side
+
+- **The recv callback only copies.** It runs in the WiFi task on core 0, the same rule as commands.
+  OTA frames go into a ring buffer sized for the 16-chunk window plus slack (8 KB). `loop()` on
+  core 1 drains it into `Update.write()`. A block erase blocks for ~150 ms, and it must never
+  block the WiFi task.
+- **Disarmed only.** `0x10` is refused with `error = ARMED` while `radio_data->armed` is set. With
+  the Crossfire link down `armed` is already false, so bench flashing without the handset works.
+- **Arming aborts.** If `armed` goes true mid-transfer, the robot calls `Update.abort()` and goes
+  back to normal control. A flash never holds the pilot off the robot. Crossfire keeps authority
+  here as everywhere else.
+- **Silence aborts.** 5 s without a valid OTA frame aborts the transfer. The running image is
+  untouched until `Update.end()` switches the boot slot, so every abort leaves the old firmware
+  running.
+- **ESCs stop for the duration.** The same `stop_escs()` and early return in `loop()` that
+  `ArduinoOTA`'s `onStart` uses today (`main.cpp:126`), entered on an accepted `0x10`.
+- **Accept OTA only from known dongles.** The robot keeps a `DONGLE_MACS[]` allowlist (the ZED Box
+  dongle and a bench dongle), drops frames from other MACs, and replies to the MAC that sent the
+  `0x10`.
+
+### Rollback
+
+The Arduino core's prebuilt bootloader has `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=1` for every
+ESP32-S3 memory type in `espressif32@6.13.0`. Today the core marks every new image valid at boot
+(`initArduino()`, `esp32-hal-misc.c:225`), so rollback never fires. Override the weak
+`verifyRollbackLater()` to return `true`, and call `esp_ota_mark_app_valid_cancel_rollback()` only
+once the new image has:
+
+1. Run `loop()` for 10 s, and
+2. Received a valid frame from the dongle over ESP-NOW.
+
+An image that crashes, hangs, or cannot hear the dongle stays in `ESP_OTA_IMG_PENDING_VERIFY`. The
+next reset, whether a crash or a power cycle, boots the previous slot. That is what makes deleting
+the SoftAP safe: a firmware bug that breaks ESP-NOW reverts itself instead of needing USB. Condition
+2 also means a bench image flashed with no dongle in range never validates and reverts on its next
+power cycle, which is the intended behavior.
+
+The dongle's keepalive (`0x05`) is what satisfies condition 2 when nothing is commanding: during a
+flash the app is stopped, and in normal running autonomy is often off. Any valid frame from an
+allowlisted dongle counts.
+
+Prove the bootloader honors this before relying on it. Flash an image that never marks itself
+valid, power cycle, and confirm the old `running_md5` comes back.
+
+### Host side
+
+New `firmware/mr_stabs_mk2/scripts/espnow_ota.py`, next to the existing helpers. It has one caller,
+so it stays a standalone script and implements the serial framing itself with `pyserial`. `--port`
+defaults to `/dev/espnow_dongle`, and `--manage-service` does the service stop and start.
+
+`firmware/mr_stabs_mk2/scripts/ota` becomes: build with `pio run -e local`, `scp` the image to the
+ZED Box, and run `espnow_ota.py --manage-service` there over `ssh`, using the `JETSON_HOST`,
+`JETSON_USER`, and `JETSON_KEY` conventions from `scripts/deploy_to_jetson.sh`. Phase 2 deletes
+`[env:ota]` from `platformio.ini`.
 
 ## Firmware changes
 
 ### New: `firmware/mr_stabs_mk2/include/espnow_link.h` and `src/espnow_link.cpp`
 
-```c
-namespace espnow_link {
+`EspNowLink` is the hardware glue. The rules that can be tested off the board live in
+`firmware/shared/espnow_protocol/src/command_tracker.{h,cpp}`: `CommandTracker` applies the
+sequence rules and the freshness streak, and `OtaSequencer` is the receive side of the go-back-N
+transfer. Their constants are `COMMAND_STALE_MS = 60`, `FRESH_STREAK_REQUIRED = 3`, and
+`REACQUIRE_SILENCE_MS = 500`.
 
-struct command_t {
-    uint32_t seq;
-    uint32_t jetson_tx_us;
-    float a_percent;
-    float b_percent;
-};
-
-class EspNowLink {
-   public:
-    bool begin(uint8_t channel, const uint8_t peer_mac[6]);
-    void end();                                  // for the combat/tuning mode transition
-
-    /** True if a command newer than the last one arrived within COMMAND_STALE_MS. */
-    bool fresh(uint32_t now_ms) const;
-    const command_t &latest() const;
-
-    void send_telemetry(const diag_data_t *diag);
-
-   private:
-    static void on_recv(const esp_now_recv_info_t *info, const uint8_t *data, int len);
-};
-
-// 15 missed packets at the dongle's 250 Hz repeat rate. Kept generous on purpose: falling back to
-// the trainer path costs ~5 ms, so a window that drops out on transient loss works against the
-// latency goal. Tighten only if stale commands prove to be a real hazard.
-const uint32_t COMMAND_STALE_MS = 60;
-
-// 3, not 5: at 250 Hz that is a 12 ms recovery instead of 20 ms. Re-enter the fast path sooner and
-// accept slightly more switching at the edge of range, which the firmware slew limiter absorbs.
-const uint8_t  FRESH_STREAK_REQUIRED = 3;
-
-}  // namespace espnow_link
-```
+`EspNowLink::update()` runs once per `loop()`, after `crsf->update()` so `armed` is current. It
+drains received frames, runs the OTA, sweep, and rollback state machines, and aborts a transfer
+on arming or 5 s of silence. `send_telemetry()` sends at most every 10 ms (100 Hz). The control loop
+runs at ~1 kHz, and telemetry at that rate would hold the channel ~35% of the time at 6 Mbps.
 
 Rules the implementation must follow:
 
-- **The recv callback runs in WiFi task context on core 0.** Copy into a volatile struct with a
-  timestamp and return. Never touch ESCs, never block. Arduino runs `loop()` on core 1 and the WiFi
-  stack on core 0, so the separation is already correct by default.
-- **Drop stale sequence numbers.** ESP-NOW retries can deliver out of order. Reject any `seq` not
-  strictly greater than the last accepted one.
+- **The recv callback runs in WiFi task context on core 0.** It filters on the session magic and
+  the `DONGLE_MACS[]` allowlist, copies into a FreeRTOS queue (40 deep, enough for the 16-chunk
+  OTA window during a block erase), and returns. Never touch ESCs or flash there.
+- **Sequence numbers: accept equal, drop older.** Compare each frame's `seq` to the last accepted
+  one:
+  - `seq > last`: a new command. Replace the values and refresh the arrival time.
+  - `seq == last`: a dongle repeat. Refresh the arrival time only. The values are identical, so
+    nothing else changes.
+  - `seq < last`: a late frame from before the current command. Drop it.
+
+  Requiring `seq` strictly greater, as an earlier draft did, rejects every repeat and makes the
+  250 Hz repeat useless for freshness. Accepting equal is safe because the dongle only repeats a
+  command the Jetson sent within the last 100 ms (the serial-silence rule above). A held command is
+  therefore never older than 100 ms plus `COMMAND_STALE_MS`.
+- **Re-baseline after silence.** When the app restarts, `seq` starts again from 0 and every frame
+  would fall under `seq < last`. After `REACQUIRE_SILENCE_MS` (500 ms) with no accepted frame, the
+  next frame's `seq` becomes the new baseline whatever its value. The app takes seconds to restart
+  and the dongle stops repeating 100 ms after the old process goes quiet, so no frame from the old
+  run can arrive after the reset.
 - **Asymmetric hysteresis.** Leave the ESP-NOW source immediately on staleness. Require
-  `FRESH_STREAK_REQUIRED` consecutive good packets to re-enter it. Symmetric thresholds flap at the
-  edge of range and the robot oscillates between sources.
+  `FRESH_STREAK_REQUIRED` consecutive accepted frames, new or repeated, to re-enter it. Symmetric
+  thresholds flap at the edge of range and the robot oscillates between sources.
 
 ### New: linear slew limiter on the arbitrated output
 
@@ -531,53 +723,65 @@ Reset `prev` to zero on every `stop_escs()` path so re-arming always ramps from 
 
 ### Edit: `firmware/mr_stabs_mk2/src/main.cpp`
 
-Insert the substitution after the armed gate at line 323:
+The substitution goes after the armed gate. `ESPNOW_COMMAND_SUBSTITUTION` is `false` for Phase 1
+(shadow mode) and Phase 3 sets it `true`; it gates both the substitution and the slew limiter:
 
 ```c
 // ESP-NOW command substitution. Runs only after every CRSF gate has passed, so ESP-NOW can
-// never arm the robot or extend its armed window. flip_switch_state UP is the pilot's
-// "accept autonomous commands" position; anything else forces the trainer channel values.
+// never arm the robot or extend its armed window. SA (ch5) down is the pilot's "accept
+// autonomous commands" position; SA up forces the stick values on ch0/ch1.
 bool espnow_active = false;
-if (radio_data->flip_switch_state == crsf_bridge::UP && espnow.fresh(now_ms)) {
-    const auto &cmd = espnow.latest();
-    radio_data->a_percent = cmd.a_percent;
-    radio_data->b_percent = cmd.b_percent;
+if (ESPNOW_COMMAND_SUBSTITUTION && radio_data->autonomy_enabled && espnow.fresh(now_ms)) {
+    const espnow_protocol::CommandPayload &cmd = espnow.latest();
+    // Same place the trainer path lands: the Jetson's two channel values go into ch0/ch1 at
+    // full scale, and crsf_bridge negates ch0 into a_percent.
+    radio_data->a_percent = -100.0f * cmd.channel_a;
+    radio_data->b_percent = 100.0f * cmd.channel_b;
     espnow_active = true;
 }
 ```
 
+The `-100` and `100` scaling assumes the handset mixes the trainer inputs into ch0/ch1 at 100%.
+Phase 1 measurement 5 (path agreement) is what confirms it.
+
+An ESP-NOW OTA transfer owns the loop the same way `ArduinoOTA` does: right after
+`espnow.update()`, `if (espnow.ota_in_progress()) { stop_escs(); return; }`.
+
 Then apply the limiter after the inversion at line 377, before `mix_motor_outputs` at line 387.
-Gate it on `flip_switch_state == UP` so the pilot keeps unlimited stick authority in manual mode,
-matching how the Jetson-side limiter gates on the trainer enable channel today:
+Gate it on `autonomy_enabled` so the pilot keeps unlimited stick authority in manual mode,
+matching how the Jetson-side limiter gates on the same channel (`trainer_enable_channel`) today:
 
 ```c
      if (is_upside_down) radio_data->a_percent *= -1;
-+    if (radio_data->flip_switch_state == crsf_bridge::UP) {
-+        radio_data->a_percent = limit_a_percent(radio_data->a_percent, dt);
++    if (ESPNOW_COMMAND_SUBSTITUTION && radio_data->autonomy_enabled) {
++        radio_data->a_percent = limit_a_percent(radio_data->a_percent, loop_us / 1000000.0f);
 +    }
 ```
 
-Mode-gate the radio setup. Combat mode drops the AP entirely so its periodic management frames and
-the dashboard's TX bursts stop adding contention and jitter to the command path:
+Radio setup happens once, at boot. There is no combat/tuning radio mode switch, because once OTA
+rides ESP-NOW nothing needs an access point:
 
 ```
-tuning -> combat:  diag_server.end() -> WiFi.softAPdisconnect(true) -> WiFi.mode(WIFI_STA)
-                   -> sweep_for_dongle()   // sets the channel, see channel selection above
-                   -> espnow.begin(...) -> esp_now_set_peer_rate_config(PEER_MAC, 6 Mbps OFDM)
+Phase 1:   WiFi.softAP(ssid, pass, ESPNOW_CHANNEL_OVERRIDE) -> setup_ota() -> diag_server.begin()
+           -> espnow.begin(ESPNOW_CHANNEL_OVERRIDE, ...) -> esp_wifi_config_espnow_rate(6 Mbps OFDM)
 
-combat -> tuning:  espnow.end() -> WiFi.softAP(ssid, pass, resolved_channel)
-                   -> setup_ota() -> diag_server.begin(tunables)
+Phase 2+:  WiFi.mode(WIFI_STA) -> sweep_for_dongle()   // sets the channel, see channel selection
+           -> espnow.begin(resolved_channel, ...) -> esp_wifi_config_espnow_rate(6 Mbps OFDM)
 ```
 
-No `WIFI_PROTOCOL_LR` in either direction, per the standing decision. That also simplifies the
-transition, since there is no protocol mode to clear before the AP comes up.
+Phase 1 keeps today's SoftAP, `ArduinoOTA`, and dashboard as the fallback while ESP-NOW OTA proves
+itself, and runs on a pinned channel. Sweeping would drag the SoftAP across channels and drop any
+laptop on it. Phase 2 deletes all three and turns the sweep on. From then on no AP management
+frames or dashboard TX bursts compete with the command path in any mode.
 
-Peers need re-registering after any mode or channel change, so treat the transition as an explicit
-sequence rather than assuming the peer survives. The transition costs 100-300 ms, which is free
-because the mode toggle already stops the motors.
+No `WIFI_PROTOCOL_LR`, per the standing decision.
 
-Replace the hardcoded channel at `main.cpp:224` with a resolved channel used by both the SoftAP and
-ESP-NOW. The firmware does not choose it. It is whatever the sweep locked onto, or the override:
+The sweep and re-acquisition still change channels at runtime. Peers need re-registering and the
+rate re-applying after every channel change, so treat that as an explicit sequence rather than
+assuming the peer survives.
+
+Replace the default channel 1 from `WiFi.softAP()` at `main.cpp:257` with a resolved channel. The
+firmware does not choose it. It is whatever the sweep locked onto, or the override:
 
 ```c
 // 0 selects the sweep. Set a real channel to pin both ends, which is what bench runs should do so
@@ -593,581 +797,131 @@ const uint32_t CHANNEL_DWELL_MS = 25;   // ~6 dongle repeats at 250 Hz, plus swi
 const uint32_t REACQUIRE_SILENCE_MS = 500;
 ```
 
-Two consequences for the mode transition above. The tuning-mode SoftAP comes up on the resolved
-channel rather than a fixed one, so a laptop reconnecting to the same SSID may land on a different
-channel between boots. And combat mode has no AP, so the sweep is the only re-acquisition path
-during a match. It has to work without one.
+From Phase 2 there is no AP, so the sweep is the only re-acquisition path, in the pit and during a
+match. It has to work without one.
 
-### Edit: `firmware/mr_stabs_mk2/include/diagnostics_server.h`
+### Telemetry fields: `TelemetryPayload`, not `diag_data_t`
 
-`wifi_clients` becomes meaningless once the AP is gone. Replace it and add the fields the Jetson
-needs to evaluate the link:
+The link fields travel in the ESP-NOW telemetry message, `TelemetryPayload` in
+`espnow_protocol.h`, and the Jetson records it on `/robot/espnow_telemetry`
+(`docs/foxglove_recording_format.md`):
 
 ```c
--    uint8_t wifi_clients;
-+    uint8_t  espnow_lq;        // ACK success percent over a sliding window
-+    bool     espnow_active;    // ESP-NOW supplied this tick's a/b percent
-+    uint32_t espnow_age_ms;    // time since last accepted ESP-NOW command
-+    uint32_t espnow_seq;       // last accepted sequence number
-+    uint32_t jetson_tx_us;     // echoed for round-trip measurement
-+    uint8_t  espnow_channel;   // channel the sweep locked onto, 0 while sweeping
+uint8_t  autonomy_enabled; // ch5 (SA) as the robot saw it; gates espnow_active
+uint8_t  espnow_active;    // ESP-NOW supplied this tick's a/b percent
+uint8_t  espnow_channel;   // channel the robot listens on, 0 while sweeping
+uint32_t espnow_age_ms;    // since the last accepted ESP-NOW command frame
+uint32_t espnow_seq;       // last accepted sequence number
+uint32_t jetson_tx_us;     // echoed for round-trip measurement
+uint8_t  espnow_lq;        // telemetry send ACK success percent, last 32 frames
 ```
 
 `espnow_channel` is what makes a bad auto pick diagnosable after the fact. Without it in the MCAP,
 a match with poor LQ has no attributable cause.
 
-Four call sites reference `wifi_clients`: `main.cpp:276`, `:312`, `:344`, `:409`.
+`diag_data_t` keeps `wifi_clients` through Phase 1. It feeds the WiFi dashboard, the
+`/robot/esp32_diagnostics` recording, its JSON schema, and the Python sysid loaders, and all of
+them stay correct while the SoftAP exists. Phase 2 removes it along with the dashboard.
 
-### Delete (Phase 3): `DiagnosticsServer`
+### Delete (Phase 2): `DiagnosticsServer`, the SoftAP, and `ArduinoOTA`
 
 Remove `diagnostics_server.cpp/.h`, and drop `me-no-dev/ESPAsyncWebServer` and `me-no-dev/AsyncTCP`
 from `firmware/mr_stabs_mk2/platformio.ini`. AsyncTCP runs its own task and has a long history of
 stack-overflow crashes under load. A firmware crash mid-match costs the match.
 
-`ArduinoOTA` stays, gated to tuning mode. OTA over ESP-NOW is buildable (`Update.h` is
-transport-agnostic, and 866 KB at 240 usable bytes per packet is about 3,600 packets, so 10-15
-seconds stop-and-wait) but there is no reason to write it while the pit AP works.
+Also delete `WiFi.softAP()`, `setup_ota()`, `ArduinoOTA.handle()`, `WIFI_SSID`/`WIFI_PASSWORD`,
+`scripts/ota_wifi`, and `[env:ota]` in `platformio.ini`; switch `espnow.begin()` to `WIFI_IF_STA`
+and set `espnow_protocol::CHANNEL_OVERRIDE = 0` to turn on the scan and the sweep. The
+`/robot/esp32_diagnostics` stream ends with the dashboard, so `Esp32DiagnosticsOpenTxTransmitter`,
+`Esp32WifiDiagnostics`, `wifi_clients`, and the sysid loaders move to `/robot/espnow_telemetry`.
+Then rewrite the OTA and Wi-Fi sections of
+`firmware/mr_stabs_mk2/README.md` around `scripts/ota`. Gated on ESP-NOW OTA passing every Phase 1
+OTA test, rollback included, because after this the only other way onto the robot is USB.
 
 ## Jetson changes
 
-`OpenTxTransmitter` and its header are untouched.
-
-### New: `include/transmitter/espnow_transmitter.hpp`
-
-```cpp
-#pragma once
-
-#include <chrono>
-#include <cstdint>
-#include <memory>
-#include <string>
-#include <vector>
-
-#include "diagnostics_logger/diagnostics_logger.hpp"
-#include "serial/serial_port.hpp"
-#include "time/clock_interface.hpp"
-#include "transmitter/config.hpp"
-#include "transmitter/differential_drive_processor.hpp"
-#include "transmitter/transmitter_interface.hpp"
-
-namespace auto_battlebot {
-
-#pragma pack(push, 1)
-struct EspNowWireHeader {
-    uint16_t magic;
-    uint8_t type;
-    uint8_t length;
-};
-
-struct EspNowCommandPayload {
-    uint32_t seq;
-    uint32_t jetson_tx_us;
-    float linear;
-    float angular;
-};
-
-struct EspNowLinkStatsPayload {
-    uint32_t sent;
-    uint32_t acked;
-    uint32_t failed;
-    uint32_t last_rtt_us;
-};
-#pragma pack(pop)
-
-/**
- * Sends autonomous velocity commands to mr_stabs_mk2 over an ESP-NOW USB dongle, cutting the
- * handset mixer and the Crossfire frame period out of the command path.
- *
- * Send-only by design. This transmitter has no handset channel input, so it reports no command
- * feedback and no init button press; those stay with OpenTxTransmitter. It also applies no linear
- * slew limit: the limiter depends on the trainer enable channel, which is not observable here, so
- * rate limiting happens in firmware on the arbitrated output instead.
- *
- * ESP-NOW carries no arm authority. The firmware substitutes these linear/angular values only
- * after every CRSF gate has passed, and falls back to the trainer channels when they go stale.
- *
- * Usable standalone for bench work without a handset, or under CompositeTransmitter alongside
- * OpenTxTransmitter for normal operation.
- */
-class EspNowTransmitter : public TransmitterInterface {
-   public:
-    EspNowTransmitter(const EspNowTransmitterConfiguration &config,
-                      std::shared_ptr<ClockInterface> clock);
-
-    bool initialize() override;
-    /** Drains dongle telemetry and link stats. Always returns an empty feedback map. */
-    CommandFeedback update() override;
-    void send(VelocityCommand command) override;
-    /** No handset channels on this transport. Always false. */
-    bool did_init_button_press() override { return false; }
-    bool is_connected() const override { return dongle_.is_open(); }
-    void enable() override { enabled_ = true; }
-    void disable() override { enabled_ = false; }
-
-   private:
-    EspNowTransmitterConfiguration config_;
-    std::shared_ptr<DiagnosticsModuleLogger> logger_;
-    std::shared_ptr<ClockInterface> clock_;
-    DifferentialDriveProcessor processor_;
-
-    SerialPort dongle_;
-    std::vector<uint8_t> rx_buffer_;
-    uint32_t seq_ = 0;
-    bool enabled_ = false;
-    std::chrono::steady_clock::time_point next_reconnect_attempt_ =
-        std::chrono::steady_clock::now();
-
-    bool reconnect_if_needed();
-    void drain_dongle();
-    void handle_frame(uint8_t type, const uint8_t *payload, uint8_t length);
-    bool write_frame(uint8_t type, const void *payload, uint8_t length);
-    static uint16_t crc16_ccitt(const uint8_t *data, size_t length);
-};
-
-}  // namespace auto_battlebot
-```
-
-### New: `src/transmitter/espnow_transmitter.cpp`
-
-```cpp
-#include "transmitter/espnow_transmitter.hpp"
-
-#include <cstddef>
-#include <cstring>
-
-namespace auto_battlebot {
-namespace {
-constexpr auto kReconnectInterval = std::chrono::seconds(1);
-constexpr uint16_t kWireMagic = 0xB07B;
-constexpr uint8_t kMsgCommand = 0x01;
-constexpr uint8_t kMsgTelemetry = 0x02;
-constexpr uint8_t kMsgLinkStats = 0x04;
-constexpr size_t kMaxFrameSize = 512;
-
-uint32_t monotonic_us() {
-    const auto now = std::chrono::steady_clock::now().time_since_epoch();
-    return static_cast<uint32_t>(
-        std::chrono::duration_cast<std::chrono::microseconds>(now).count());
-}
-}  // namespace
-
-EspNowTransmitter::EspNowTransmitter(const EspNowTransmitterConfiguration &config,
-                                     std::shared_ptr<ClockInterface> clock)
-    : config_(config),
-      logger_(DiagnosticsLogger::get_logger("espnow_transmitter")),
-      clock_(std::move(clock)),
-      processor_(
-          {
-              .velocity_saturation_limit = config.velocity_saturation_limit,
-              .zero_deadzone_percent = config.zero_deadzone_percent,
-              .lifted_deadzone_percent = config.lifted_deadzone_percent,
-              .reverse_linear = config.reverse_linear_channel,
-              .reverse_angular = config.reverse_angular_channel,
-          },
-          logger_) {}
-
-bool EspNowTransmitter::initialize() { return reconnect_if_needed(); }
-
-CommandFeedback EspNowTransmitter::update() {
-    drain_dongle();
-    // Feedback comes from handset channels, which this transport does not carry. Returning empty
-    // keeps CompositeTransmitter's merge unambiguous.
-    return {};
-}
-
-void EspNowTransmitter::send(VelocityCommand command) {
-    reconnect_if_needed();
-    if (!dongle_.is_open() || !enabled_) return;
-
-    // No slew limit here. The firmware rate-limits the arbitrated output, which is the only place
-    // that sees which source actually won.
-    const auto processed = processor_.process(command);
-
-    const EspNowCommandPayload payload{
-        .seq = ++seq_,
-        .jetson_tx_us = monotonic_us(),
-        .linear = static_cast<float>(processed.linear),
-        .angular = static_cast<float>(processed.angular),
-    };
-
-    if (!write_frame(kMsgCommand, &payload, sizeof(payload))) {
-        logger_->warning("dongle_write_failed", {{"seq", static_cast<int>(payload.seq)}});
-        dongle_.close();
-        next_reconnect_attempt_ = std::chrono::steady_clock::now();
-        return;
-    }
-
-    logger_->debug("espnow_send", {{"seq", static_cast<int>(payload.seq)},
-                                   {"linear", processed.linear},
-                                   {"angular", processed.angular}});
-}
-
-bool EspNowTransmitter::write_frame(uint8_t type, const void *payload, uint8_t length) {
-    std::vector<uint8_t> frame(sizeof(EspNowWireHeader) + length + sizeof(uint16_t));
-    const EspNowWireHeader header{kWireMagic, type, length};
-    std::memcpy(frame.data(), &header, sizeof(header));
-    std::memcpy(frame.data() + sizeof(header), payload, length);
-
-    const size_t crc_offset = offsetof(EspNowWireHeader, type);
-    const uint16_t crc = crc16_ccitt(frame.data() + crc_offset, 2 + length);
-    std::memcpy(frame.data() + sizeof(header) + length, &crc, sizeof(crc));
-    return dongle_.write(frame.data(), frame.size());
-}
-
-void EspNowTransmitter::drain_dongle() {
-    if (!dongle_.is_open()) return;
-
-    auto bytes = dongle_.read_available();
-    if (bytes.empty()) return;
-    rx_buffer_.insert(rx_buffer_.end(), bytes.begin(), bytes.end());
-
-    // Scan for magic, consume complete frames, discard leading garbage.
-    size_t consumed = 0;
-    while (rx_buffer_.size() - consumed >= sizeof(EspNowWireHeader)) {
-        const uint8_t *base = rx_buffer_.data() + consumed;
-        uint16_t magic;
-        std::memcpy(&magic, base, sizeof(magic));
-        if (magic != kWireMagic) {
-            consumed++;
-            continue;
-        }
-
-        const uint8_t length = base[3];
-        const size_t frame_size = sizeof(EspNowWireHeader) + length + sizeof(uint16_t);
-        if (rx_buffer_.size() - consumed < frame_size) break;  // wait for the rest
-
-        uint16_t crc;
-        std::memcpy(&crc, base + sizeof(EspNowWireHeader) + length, sizeof(crc));
-        if (crc == crc16_ccitt(base + offsetof(EspNowWireHeader, type), 2 + length)) {
-            handle_frame(base[2], base + sizeof(EspNowWireHeader), length);
-        } else {
-            logger_->debug("crc_mismatch", {{"type", static_cast<int>(base[2])}});
-        }
-        consumed += frame_size;
-    }
-
-    rx_buffer_.erase(rx_buffer_.begin(), rx_buffer_.begin() + consumed);
-    if (rx_buffer_.size() > kMaxFrameSize) rx_buffer_.clear();  // desynced, resynchronize
-}
-
-void EspNowTransmitter::handle_frame(uint8_t type, const uint8_t *payload, uint8_t length) {
-    switch (type) {
-        case kMsgLinkStats: {
-            if (length != sizeof(EspNowLinkStatsPayload)) return;
-            EspNowLinkStatsPayload stats;
-            std::memcpy(&stats, payload, sizeof(stats));
-            const double lq =
-                stats.sent > 0 ? 100.0 * stats.acked / static_cast<double>(stats.sent) : 0.0;
-            logger_->debug("link_stats", {{"sent", static_cast<int>(stats.sent)},
-                                          {"acked", static_cast<int>(stats.acked)},
-                                          {"failed", static_cast<int>(stats.failed)},
-                                          {"lq_percent", lq},
-                                          {"last_rtt_us", static_cast<int>(stats.last_rtt_us)}});
-            break;
-        }
-        case kMsgTelemetry:
-            // Phase 1 logs the raw struct. Phase 3 forwards it to the diagnostics dashboard.
-            logger_->debug("telemetry", {{"bytes", static_cast<int>(length)}});
-            break;
-        default:
-            break;
-    }
-}
-
-bool EspNowTransmitter::reconnect_if_needed() {
-    if (dongle_.is_open()) return true;
-
-    const auto now = std::chrono::steady_clock::now();
-    if (now < next_reconnect_attempt_) return false;
-    next_reconnect_attempt_ = now + kReconnectInterval;
-
-    if (!dongle_.open(config_.dongle_serial_path, config_.dongle_baud_rate)) {
-        logger_->debug("dongle_not_found", {{"path", config_.dongle_serial_path}});
-        return false;
-    }
-    logger_->info("dongle_opened", {{"path", config_.dongle_serial_path}});
-    rx_buffer_.clear();
-    return true;
-}
-
-uint16_t EspNowTransmitter::crc16_ccitt(const uint8_t *data, size_t length) {
-    uint16_t crc = 0xFFFF;
-    for (size_t i = 0; i < length; i++) {
-        crc ^= static_cast<uint16_t>(data[i]) << 8;
-        for (int bit = 0; bit < 8; bit++) {
-            crc = (crc & 0x8000) ? static_cast<uint16_t>((crc << 1) ^ 0x1021)
-                                 : static_cast<uint16_t>(crc << 1);
-        }
-    }
-    return crc;
-}
-
-}  // namespace auto_battlebot
-```
-
-### New: `include/transmitter/composite_transmitter.hpp`
-
-```cpp
-#pragma once
-
-#include <memory>
-#include <vector>
-
-#include "diagnostics_logger/diagnostics_logger.hpp"
-#include "transmitter/transmitter_interface.hpp"
-
-namespace auto_battlebot {
-
-/**
- * Drives several transmitters from one command stream.
- *
- * send(), enable(), and disable() fan out to every child. The first child in config order is
- * primary and owns everything read-side: connection state, init button edges, and command
- * feedback on key collision. Non-primary children are accelerators, so their initialize()
- * failures are logged and ignored.
- *
- * The composite does no command preprocessing. Children are responsible for their own scaling,
- * and any rate limiting needed to make two transports agree belongs downstream of the arbitration
- * that picks between them.
- */
-class CompositeTransmitter : public TransmitterInterface {
-   public:
-    explicit CompositeTransmitter(std::vector<std::shared_ptr<TransmitterInterface>> children);
-
-    bool initialize() override;
-    CommandFeedback update() override;
-    void send(VelocityCommand command) override;
-    bool did_init_button_press() override;
-    bool is_connected() const override { return children_.front()->is_connected(); }
-    void enable() override;
-    void disable() override;
-
-   private:
-    std::vector<std::shared_ptr<TransmitterInterface>> children_;
-    std::shared_ptr<DiagnosticsModuleLogger> logger_;
-};
-
-}  // namespace auto_battlebot
-```
-
-### New: `src/transmitter/composite_transmitter.cpp`
-
-```cpp
-#include "transmitter/composite_transmitter.hpp"
-
-#include <stdexcept>
-
-namespace auto_battlebot {
-
-CompositeTransmitter::CompositeTransmitter(
-    std::vector<std::shared_ptr<TransmitterInterface>> children)
-    : children_(std::move(children)),
-      logger_(DiagnosticsLogger::get_logger("composite_transmitter")) {
-    if (children_.empty()) {
-        throw std::invalid_argument("CompositeTransmitter requires at least one child");
-    }
-}
-
-bool CompositeTransmitter::initialize() {
-    bool primary_ok = false;
-    for (size_t i = 0; i < children_.size(); i++) {
-        const bool ok = children_[i]->initialize();
-        if (i == 0) {
-            primary_ok = ok;
-        } else if (!ok) {
-            // Non-primary children are accelerators. A failure costs latency, not control.
-            logger_->warning("child_initialize_failed", {{"index", static_cast<int>(i)}});
-        }
-    }
-    return primary_ok;
-}
-
-CommandFeedback CompositeTransmitter::update() {
-    CommandFeedback merged;
-    // Reverse order so the primary is applied last and wins on key collision. Every child is
-    // still polled, which is what drains their receive paths.
-    for (auto it = children_.rbegin(); it != children_.rend(); ++it) {
-        for (const auto &[frame_id, command] : (*it)->update().stick_commands) {
-            merged.stick_commands[frame_id] = command;
-        }
-    }
-    return merged;
-}
-
-void CompositeTransmitter::send(VelocityCommand command) {
-    for (const auto &child : children_) child->send(command);
-}
-
-bool CompositeTransmitter::did_init_button_press() {
-    // No short-circuit: every child must be polled so its edge latch clears.
-    bool pressed = false;
-    for (const auto &child : children_) {
-        if (child->did_init_button_press()) pressed = true;
-    }
-    return pressed;
-}
-
-void CompositeTransmitter::enable() {
-    for (const auto &child : children_) child->enable();
-}
-
-void CompositeTransmitter::disable() {
-    for (const auto &child : children_) child->disable();
-}
-
-}  // namespace auto_battlebot
-```
-
-### Edit: `include/transmitter/config.hpp`
-
-`EspNowTransmitterConfiguration` carries only what it uses. It has no drivetrain geometry fields
-(no feedback to scale) and no `max_motor_rpm_per_sec` (no slew limiter).
-
-```cpp
-struct EspNowTransmitterConfiguration : public TransmitterConfiguration {
-    /** Serial device for the ESP-NOW USB dongle. Use a udev symlink, not a raw ttyACM path:
-     *  the handset also enumerates as ttyACM and enumeration order is not stable. */
-    std::string dongle_serial_path = "/dev/espnow_dongle";
-    int dongle_baud_rate = 921600;
-
-    /** These five must match the OpenTxTransmitter section exactly, or the two transports will
-     *  disagree by a fixed offset that the firmware slew limiter cannot correct. */
-    double velocity_saturation_limit = 1.0;
-    double zero_deadzone_percent = 0.0;
-    double lifted_deadzone_percent = 0.0;
-    bool reverse_linear_channel = false;
-    bool reverse_angular_channel = false;
-
-    EspNowTransmitterConfiguration() { type = "EspNowTransmitter"; }
-
-    // No PARSE_FIELD_INT macro exists (config_factory.hpp:102-118 defines STRING, DOUBLE, and
-    // BOOL only), so int fields need an explicit override. Same reason
-    // OpenTxTransmitterConfiguration hand-writes its parse_fields at config.hpp:77.
-    void parse_fields(ConfigParser &parser) override {
-        dongle_serial_path = parser.get_optional_string("dongle_serial_path", dongle_serial_path);
-        dongle_baud_rate =
-            static_cast<int>(parser.get_optional_int("dongle_baud_rate", dongle_baud_rate));
-        velocity_saturation_limit =
-            parser.get_optional_double("velocity_saturation_limit", velocity_saturation_limit);
-        zero_deadzone_percent =
-            parser.get_optional_double("zero_deadzone_percent", zero_deadzone_percent);
-        lifted_deadzone_percent =
-            parser.get_optional_double("lifted_deadzone_percent", lifted_deadzone_percent);
-        reverse_linear_channel =
-            parser.get_optional_bool("reverse_linear_channel", reverse_linear_channel);
-        reverse_angular_channel =
-            parser.get_optional_bool("reverse_angular_channel", reverse_angular_channel);
-    }
-};
-
-struct CompositeTransmitterConfiguration : public TransmitterConfiguration {
-    /** Child transmitters in priority order. The first is primary and owns all read-side
-     *  behavior. Defined as an array of tables so ordering is guaranteed, matching the
-     *  LabelToKeypointMapConfiguration pattern in config/enum_map_config.hpp. */
-    std::vector<std::unique_ptr<TransmitterConfiguration>> children;
-
-    CompositeTransmitterConfiguration() { type = "CompositeTransmitter"; }
-
-    /** Defined in config.cpp: recurses through parse_transmitter_config. */
-    void parse_fields(ConfigParser &parser) override;
-};
-```
-
-### Edit: `src/transmitter/config.cpp`
-
-```cpp
-REGISTER_CONFIG(TransmitterConfiguration, EspNowTransmitterConfiguration, "EspNowTransmitter")
-REGISTER_CONFIG(TransmitterConfiguration, CompositeTransmitterConfiguration, "CompositeTransmitter")
-
-void CompositeTransmitterConfiguration::parse_fields(ConfigParser &parser) {
-    const toml::array *array_ptr = parser.get_array("children");
-    if (!array_ptr) {
-        throw ConfigValidationError(
-            "Missing required field 'children' in [transmitter] (expected array of tables)");
-    }
-    for (const auto &item : *array_ptr) {
-        const toml::table *entry = item.as_table();
-        if (!entry) {
-            throw ConfigValidationError("Each entry in 'children' must be a table");
-        }
-        ConfigParser child_parser(*entry, "transmitter.children");
-        auto child = parse_transmitter_config(child_parser);
-        if (child->type == "CompositeTransmitter") {
-            throw ConfigValidationError("CompositeTransmitter cannot nest inside itself");
-        }
-        children.push_back(std::move(child));
-    }
-    if (children.empty()) {
-        throw ConfigValidationError("'children' must contain at least one transmitter");
-    }
-}
-```
-
-And in `make_transmitter` (`src/transmitter/config.cpp:36`):
-
-```cpp
-} else if (config.type == "EspNowTransmitter") {
-    return std::make_shared<EspNowTransmitter>(
-        config_cast<EspNowTransmitterConfiguration>(config), std::move(clock));
-} else if (config.type == "CompositeTransmitter") {
-    const auto &composite = config_cast<CompositeTransmitterConfiguration>(config);
-    std::vector<std::shared_ptr<TransmitterInterface>> children;
-    children.reserve(composite.children.size());
-    for (const auto &child_config : composite.children) {
-        children.push_back(make_transmitter(*child_config, clock));  // copy, do not move: reused
-    }
-    return std::make_shared<CompositeTransmitter>(std::move(children));
-}
-```
-
-`CompositeTransmitterConfiguration` holds `unique_ptr`s and is therefore move-only. Nothing in the
-current config path copies a `TransmitterConfiguration`, so this is fine, but a future
-`config_cast` by value would break it.
+`OpenTxTransmitter` and its header are untouched. The interface has moved on since the first draft
+(`is_connected()` became `get_status()`, and `behavior_mode()` was added), and the composite
+delegates both to its primary.
+
+### New: `EspNowTransmitter` (`include/transmitter/espnow_transmitter.hpp`, `src/transmitter/espnow_transmitter.cpp`)
+
+- `send()`: runs the configured drive processor (`drive_processor`, default
+  `DifferentialDriveProcessor`), increments `seq`, stamps `jetson_tx_us` from the monotonic clock,
+  and writes a `0x01` frame. Nothing goes out while disabled, so the dongle stops repeating 100 ms
+  after autonomy turns off. No slew limit: the firmware limits the arbitrated output.
+- `update()`: reopens the dongle at most once a second, feeds the shared `SerialFrameParser`, and
+  records each `0x02` frame on `/robot/espnow_telemetry`. Health goes to
+  `/diagnostics/espnow_transmitter` once a second: dongle open, channel, `robot_known`, ACK percent
+  over the period, telemetry rate, minimum round trip, CRC errors.
+- Read side: no feedback, no init button, default status. Those come from the OpenTX primary.
+
+### New: `CompositeTransmitter` (`include/transmitter/composite_transmitter.hpp`, `src/transmitter/composite_transmitter.cpp`)
+
+Implements the policy table above, with `get_status()` and `behavior_mode()` from the primary.
+
+### Edit: `include/transmitter/config.hpp`, `src/transmitter/config.cpp`
+
+`EspNowTransmitterConfiguration` carries `dongle_serial_path`, `drive_processor`, and the five
+processor fields. `CompositeTransmitterConfiguration` parses `[[transmitter.children]]` through
+`parse_transmitter_config`, refuses nesting and an empty list, and refuses an ESP-NOW child whose
+`drive_processor` or processor fields differ from the OpenTX child's. That is the construction-time
+equality check the duplicated-config risk below asked for: a mismatch would leave the transports
+disagreeing by a fixed offset that the firmware slew limiter cannot correct. `make_transmitter`
+builds the children recursively and passes them the same clock, viz sink, and recorder.
+
+The wire format comes from the shared header: `CMakeLists.txt` adds
+`firmware/shared/espnow_protocol/src` to the include path and compiles `espnow_protocol.cpp` into
+`auto_battlebot_lib`.
 
 ### Config
+
+The three Mr Stabs ZED Box profiles (`mr_stabs_mk2_aer_zed_box`, `mr_stabs_mk2_fid_aer_zed_box`,
+`mr_stabs_mk2_sysid_zed_box`) use the composite. The type differs from `_common`, and the merge
+replaces arrays outright, so each file restates every child in full rather than inheriting:
 
 ```toml
 [transmitter]
 type = "CompositeTransmitter"
 
 [[transmitter.children]]
-type = "OpenTxTransmitter"
+type = "OpenTxTransmitter"     # Esp32DiagnosticsOpenTxTransmitter in the sysid profile
+drive_processor = "DifferentialDriveProcessor"
 linear_channel = 0
 angular_channel = 1
-trainer_enable_channel = 7
-velocity_saturation_limit = 1.0
-zero_deadzone_percent = 0.0
-lifted_deadzone_percent = 0.0
-reverse_linear_channel = false
-reverse_angular_channel = false
-max_motor_rpm = 1500.0
-max_motor_rpm_per_sec = 3247.0
+trainer_enable_channel = 5      # radio CH6, SA
+# ... the rest of the radio fields
 
 [[transmitter.children]]
 type = "EspNowTransmitter"
 dongle_serial_path = "/dev/espnow_dongle"
-# These five must match the OpenTxTransmitter child above.
+drive_processor = "DifferentialDriveProcessor"
+# Must match the OpenTX child; the config loader refuses a mismatch.
+lifted_deadzone_percent = 0
+zero_deadzone_percent = 2
+reverse_angular_channel = true
 velocity_saturation_limit = 1.0
-zero_deadzone_percent = 0.0
-lifted_deadzone_percent = 0.0
-reverse_linear_channel = false
-reverse_angular_channel = false
 ```
-
-Because `config/` is an extends chain, put the shared five in the base file and let both children
-inherit rather than repeating them per platform.
 
 ### udev rule
 
 The handset (VID 0x0483, PID 0x5740) and the dongle both enumerate as `ttyACM`, and enumeration
-order is not stable across boots. `find_opentx_device()` already handles the handset by VID/PID;
-give the dongle a stable symlink. `/etc/udev/rules.d/99-espnow-dongle.rules`:
+order is not stable across boots. `find_opentx_device()` already handles the handset by VID/PID.
+The dongle gets a stable symlink from `install/install_udev_rules.sh`, which
+`scripts/install_zed_box.sh` and `scripts/install_jetson.sh` already run:
 
 ```
-SUBSYSTEM=="tty", ATTRS{idVendor}=="303a", ATTRS{idProduct}=="1001", SYMLINK+="espnow_dongle"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="303a", ATTRS{idProduct}=="1001", \
+    ATTRS{serial}=="D8:3B:DA:8E:ED:2C", \
+    SYMLINK+="espnow_dongle", ENV{ID_MM_DEVICE_IGNORE}="1", \
+    GROUP="dialout", MODE="0660"
 ```
 
-Confirm the product ID with `lsusb` after flashing, since it varies by Arduino core USB mode.
+The serial number is the dongle's MAC. Add one rule per dongle. Read it with:
+
+```bash
+udevadm info -a /dev/ttyACM0 | grep -m1 'ATTRS{serial}'
+```
 
 ## Phases
 
@@ -1178,9 +932,14 @@ trainer channels. `espnow_active` is recorded but never acted on.
 
 Build only:
 
-- `espnow_link` receive path plus telemetry send
+- `espnow_link` receive path plus telemetry send, on a pinned channel
 - `EspNowTransmitter` and `CompositeTransmitter`, with the firmware substitution disabled
-- Extra `diag_data_t` fields
+  (`ESPNOW_COMMAND_SUBSTITUTION = false`)
+- The link fields in `TelemetryPayload`
+- ESP-NOW OTA end to end: robot handler, rollback override, `espnow_ota.py`, the new `scripts/ota`.
+  The SoftAP and `ArduinoOTA` stay up as the fallback (`scripts/ota_wifi`)
+
+All built; see Status.
 
 Measurements to collect, in the arena and not on the bench:
 
@@ -1202,24 +961,48 @@ Measurements to collect, in the arena and not on the bench:
 The Tradeoffs section predicts ~5.5 ms at 6 Mbps. Measurement 2 either confirms that or points at
 the 33.3 ms command interval as the better target.
 
-### Phase 2: promote to command source
+OTA tests, on the bench. Each must leave the robot running a known image, checked by `running_md5`:
+
+1. **Repeat.** 20 consecutive flashes alternating two builds, all succeed. Record the transfer time
+   against the 10 s budget.
+2. **Rollback.** Flash an image that never marks itself valid and power cycle it. The previous
+   image must come back.
+3. **Bad image.** Flash a truncated or corrupted `firmware.bin`. `Update.end()` must reject it and
+   the old image keep running without a reboot.
+4. **Dongle pulled mid-transfer.** The robot aborts after 5 s of silence and keeps the old image.
+5. **Armed mid-transfer.** Arm on the handset partway through. The transfer aborts, and control
+   comes back without a reboot.
+6. **Armed at start.** `0x10` with the robot armed is refused with `error = ARMED`.
+7. **Service restore.** After a success and after a forced failure, `auto-battlebot` is running
+   again on the ZED Box.
+
+### Phase 2: delete the SoftAP, `ArduinoOTA`, and the dashboard
+
+Move telemetry rendering to the Jetson web tool from `004342f`. Delete `DiagnosticsServer`, the
+SoftAP, and `ArduinoOTA` per the delete section above, put the robot in `WIFI_MODE_STA`, and turn
+the channel sweep on. Record the new `firmware.bin` size and free heap against the 879 KB baseline.
+That number sets the headroom available for the camera port.
+
+Re-run OTA tests 1 and 2 on the STA-only build, since `ESPNOW_IF` changes, then test the sweep per
+the auto channel selection risk.
+
+### Phase 3: promote to command source
 
 Enable the substitution and the firmware slew limiter. Verify in this order:
 
-1. On the bench, ESP-NOW commanding full forward, flip SF off. Motors must stop. This single test
-   validates the entire authority split.
-2. Flip `flip_switch_state` out of UP mid-command. Output must fall back to trainer channels and
-   ramp rather than step.
-3. Pull dongle power mid-command. Output must fall back within `COMMAND_STALE_MS`.
-4. Confirm the firmware limiter is a no-op when the trainer path is driving, by comparing logged
+1. On the bench, ESP-NOW commanding full forward, release SH (ch4 arm). Motors must stop. This
+   single test validates the entire authority split.
+2. Flip SA up mid-command. Output must drop to the pilot's sticks and ramp rather than step, and
+   `espnow_active` must go false on the same tick.
+3. Move SB through all three positions with ESP-NOW commanding. `espnow_active` must not change:
+   the flip override is not an autonomy gate.
+4. Pull dongle power mid-command. Output must fall back within `COMMAND_STALE_MS`.
+5. Confirm the firmware limiter is a no-op when the trainer path is driving, by comparing logged
    `a_percent` against the Jetson's commanded value.
-5. Only then, in the box.
+6. Only then, in the box.
 
-### Phase 3: delete the on-robot dashboard
-
-Move telemetry rendering to the Jetson web tool from `004342f`. Delete `DiagnosticsServer`, drop
-`ESPAsyncWebServer` and `AsyncTCP` from `platformio.ini`, and record the new `firmware.bin` size and
-free heap against the 866 KB baseline. That number sets the headroom available for the camera port.
+Running this after Phase 2 means the command path is measured and promoted without SoftAP
+traffic on the channel.
 
 ## Risks
 
@@ -1235,8 +1018,8 @@ cost in this plan with real failure potential. Phase 1 measures it as ACK rate, 
 is antenna and placement work rather than reverting to LR.
 
 **NHRL rules.** Moving primary command onto a custom link is a stricter rules question than
-telemetry. Confirm with the event before building Phase 2. This can invalidate the plan, so ask
-first.
+telemetry. Confirm with the event before building Phase 3. This can invalidate the plan, so ask
+first. Ask about firmware updates over the link too, though the robot only accepts them disarmed.
 
 **Command repeat rate.** Without the dongle-side 250 Hz repeat, ESP-NOW's dropout tail is worse
 than Crossfire's despite its better median. This is a correctness requirement, not an
@@ -1244,14 +1027,14 @@ optimization.
 
 **Faster source switching.** `FRESH_STREAK_REQUIRED = 3` re-enters the fast path 8 ms sooner than 5
 would, at the cost of more switching at the edge of range. The firmware slew limiter absorbs the
-resulting steps, but Phase 1 measurement 4 should confirm the switch rate stays sane before
-Phase 2.
+resulting steps, but Phase 1 measurement 7 should confirm the switch rate stays sane before
+Phase 3.
 
-**Duplicated `DifferentialDriveProcessor` config.** The two children each hold their own copy of the
-five processor fields. If they drift, the transports disagree by a fixed offset, and the firmware
-slew limiter cannot correct an offset (it limits rate, not value). Phase 1 measurement 5 catches
-this. A construction-time equality check across children would catch it earlier and is worth adding
-if the config proves easy to get wrong.
+**Duplicated drive processor config.** The two children each hold their own copy of
+`drive_processor` and the five processor fields. If they drift, the transports disagree by a fixed
+offset, and the firmware slew limiter cannot correct an offset (it limits rate, not value). The
+config loader refuses a mismatch at parse time. Phase 1 measurement 5 still catches what the check
+cannot: a handset mix that is not 100%, which breaks the firmware's `-100 * channel_a` scaling.
 
 **No frequency hopping.** ESP-NOW stays on one channel for the run. A channel that goes bad
 mid-match takes the link out with nothing to hop to, and the sweep will not help because the dongle
@@ -1265,34 +1048,64 @@ today's behavior. Test the sweep with the dongle deliberately parked on each of 
 with the dongle off entirely, and confirm the robot settles into trainer-only rather than sweeping
 forever and stalling `loop()`. Full reasoning in the channel selection section.
 
-**Mode transition.** Tearing WiFi down and back up is the most likely thing to break, since peers
-need re-registering and the peer rate config must be reapplied after any channel change. The sweep
-changes channels at runtime, so it hits this path too, not only the mode toggle. Test combat to
-tuning to combat repeatedly, and confirm OTA still works after a round trip.
+**Channel changes.** Peers need re-registering and the ESP-NOW rate re-applying after every
+channel change, and the sweep changes channels at runtime. Deleting the SoftAP removes the mode
+transition that used to be the other path through this code. Test re-acquisition repeatedly by
+restarting the dongle on a different channel.
+
+**No Wi-Fi fallback after Phase 2.** A dead dongle, a USB problem on the ZED Box, or an ESP-NOW bug
+that rollback does not catch leaves USB as the only way onto the robot. Keep a flashed bench dongle
+in the pit kit, and a USB-C cable that reaches the QT Py without opening more of the robot than a
+battery swap does. Rollback covers images that crash or go deaf. It does not cover an image that
+validates and then misbehaves later, since it hears the dongle and runs 10 s cleanly.
+
+**Flashing stops the app.** `espnow_ota.py` stops `auto-battlebot` to take the dongle, so a flash
+also drops the trainer link and the recording. The robot is disarmed by then, so this costs only
+the ~20 s it takes. A crash in the flasher between stop and start must still restart the service;
+OTA test 7 checks it.
+
+**OTA authentication.** The 4-byte session magic and the dongle MAC allowlist stop accidental
+cross-talk, not someone deliberately spoofing a dongle MAC. The disarmed gate means a spoofed flash
+can only land between matches. If that is not enough, sign the image with an HMAC-SHA256 key kept
+out of the repo, verified before `Update.end()`.
 
 **USB3 noise.** The ZED 2i emits broadband noise near 2.4 GHz. Keep the dongle on a short extension
 away from the camera cable and ferrite the ZED cable. This looks like arena interference and is
 easy to misattribute.
 
-**ESP-NOW v2.** The 1490-byte payload would cut OTA packet count sixfold, but it needs IDF 5.4.
-Check what the pinned `espressif32` platform actually provides before designing around it.
+**ESP-NOW v2 is not available.** The 1490-byte payload needs IDF 5.4, and the pinned
+`espressif32@6.13.0` is IDF 4.4 (`ESP_NOW_MAX_DATA_LEN 250`). The OTA design assumes 250 bytes. v2
+would cut packet count sixfold but not erase and program time, so it would save at most ~2 s per
+flash.
 
 ## Next steps
 
+Done, 2026-10-13:
+
+- [`control_loop_thread_plan.md`](control_loop_thread_plan.md) landed first, as planned
+  (`ThreadedControlLoop` at 250 Hz). Its per-child transmit cap is `transmit_rate_hz` in each
+  `[[transmitter.children]]` entry; the Mr Stabs profiles cap the trainer child at 150 Hz.
+- Dongle firmware, built and flashed to the development QT Py (MAC `d8:3b:da:8e:ed:2c`, in
+  `DONGLE_MACS[]` and the udev rule). The channel is pinned with
+  `espnow_protocol::CHANNEL_OVERRIDE = 1`; the boot scan and the robot sweep are written but stay
+  off until Phase 2.
+- `CompositeTransmitter`, `EspNowTransmitter`, the config check, and the three ZED Box profiles.
+- `autonomy_enabled` from ch5 in `CrsfBridge`, reported in `TelemetryPayload`.
+- ESP-NOW OTA: robot handler, rollback override, `scripts/espnow_ota.py`, `scripts/ota`.
+
+Remaining, in order:
+
 1. Raise the model's CRSF baud to 921600 in Model Setup. Roughly 1 ms off the trainer path, which
    is also the ESP-NOW fallback path, for the cost of one menu change. Free latency, no code.
-2. Land [`control_loop_thread_plan.md`](control_loop_thread_plan.md) before this plan's command
-   path. It is worth ~15 ms against this plan's ~5 ms, needs no new hardware, and it changes the
-   requirements here (send rate, per-child transmit caps).
-3. Confirm the NHRL rules question. Only gates the command path.
-4. Build the dongle firmware. Confirm `esp_now_add_peer` succeeds with `ifidx = WIFI_IF_AP` (the
-   most common silent failure), set the 6 Mbps rate config, and implement forward-on-arrival plus
-   the 250 Hz repeat. Pin the channel with `ESPNOW_CHANNEL_OVERRIDE` for this step. Bring up the
-   boot scan and the robot sweep only after a pinned link measures clean, so a sweep bug and a
-   radio bug cannot be confused for each other.
-5. Land `CompositeTransmitter` first, with `OpenTxTransmitter` as its only child. It should be a
-   behavioral no-op against the current config, which makes it cheap to verify and de-risks the
-   fan-out before any radio work.
-6. Add the `diag_data_t` field swap. Independent of everything else.
-7. Run Phase 1 and get the latency, loss, ACK-rate, and path-agreement numbers before writing any
-   of Phase 2.
+2. Confirm the NHRL rules question. Only gates the command path (Phase 3).
+3. On the ZED Box: deploy, run `install/install_udev_rules.sh` (or `scripts/install_zed_box.sh`),
+   plug the dongle in through a USB 2.0 hub with the handset, and check `/dev/espnow_dongle`.
+4. Flash the robot over USB once (`firmware/mr_stabs_mk2/scripts/upload`). Confirm the dongle's link
+   stats show `robot_known = 1` and `/robot/espnow_telemetry` records at ~100 Hz. A missing
+   `robot_known` with a live robot most likely means `esp_now_add_peer` failed on `WIFI_IF_AP`.
+5. Prove bootloader rollback before trusting ESP-NOW OTA: flash an image that never calls
+   `esp_ota_mark_app_valid_cancel_rollback()` (comment it out in `service_validation()`), power
+   cycle, and confirm `running_md5` returns to the previous image. If it does not, ESP-NOW OTA can
+   still ship, but Phase 2 cannot delete the SoftAP.
+6. Run the Phase 1 OTA tests and the latency, loss, ACK-rate, and path-agreement measurements. Get
+   all of them before writing any of Phase 2.
