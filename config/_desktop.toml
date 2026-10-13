@@ -33,7 +33,6 @@ candidates = [
 [ui]
 enable = true
 fullscreen = false
-battery_source = "None"
 
 [mcap]
 enable = true

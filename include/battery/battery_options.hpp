@@ -7,6 +7,7 @@ namespace auto_battlebot {
 struct BatteryOptions {
     int i2c_bus = 7;
     int i2c_address = 0x41;
+    /** Empty: data/battery_ocv_table.toml. */
     std::string ocv_table_file_path;
     double battery_capacity_ah = 5.0;
     double rest_current_threshold_a = 3.0;
@@ -17,6 +18,8 @@ struct BatteryOptions {
     bool discharge_current_positive = true;
     double persist_interval_sec = 30.0;
     int invalid_read_grace = 3;
+    /** Empty: $HOME/.local/state/auto_battlebot/battery_soc_state.txt. Under $HOME, not data/,
+     *  because a deploy overwrites the repo tree. */
     std::string state_file_path;
 };
 

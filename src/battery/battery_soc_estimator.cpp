@@ -1,10 +1,11 @@
-#include "battery_soc_estimator.hpp"
+#include "battery/battery_soc_estimator.hpp"
 
 #include <toml++/toml.h>
 
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -13,7 +14,7 @@
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "directories.hpp"
 
-namespace auto_battlebot::ui_internal {
+namespace auto_battlebot {
 namespace {
 
 constexpr int kStateVersion = 1;
@@ -66,12 +67,8 @@ int parse_int_or(const std::unordered_map<std::string, std::string> &kv, const s
     }
 }
 
-std::string default_state_path() {
-    return auto_battlebot::get_project_path("data/battery_soc_state.txt").string();
-}
-
 std::string default_ocv_table_path() {
-    return auto_battlebot::get_project_path("data/battery_ocv_table.toml").string();
+    return get_project_path("data/battery_ocv_table.toml").string();
 }
 
 bool parse_ocv_section(const toml::table &root, const std::string &section_name,
@@ -126,6 +123,12 @@ BatterySocEstimator::BatterySocEstimator(const BatteryOptions &options) : option
     table_loaded_from_file_ = load_static_ocv_table();
     if (options_.state_file_path.empty()) options_.state_file_path = default_state_path();
     (void)load_state();
+}
+
+std::string BatterySocEstimator::default_state_path() {
+    const char *home = std::getenv("HOME");
+    const std::filesystem::path base = home ? home : "/tmp";
+    return (base / ".local" / "state" / "auto_battlebot" / "battery_soc_state.txt").string();
 }
 
 bool BatterySocEstimator::load_static_ocv_table() {
@@ -253,9 +256,9 @@ void BatterySocEstimator::log_diagnostics(const BatterySample &sample,
                                           const BatteryReading &reading,
                                           const BatteryOptions &source_options,
                                           bool read_ok) const {
-    if (!auto_battlebot::DiagnosticsLogger::is_initialized()) return;
-    static std::shared_ptr<auto_battlebot::DiagnosticsModuleLogger> logger =
-        auto_battlebot::DiagnosticsLogger::get_logger("battery_ina219");
+    if (!DiagnosticsLogger::is_initialized()) return;
+    static std::shared_ptr<DiagnosticsModuleLogger> logger =
+        DiagnosticsLogger::get_logger("battery_ina219");
     if (!logger) return;
 
     DiagnosticsData measurement_data;
@@ -367,4 +370,4 @@ bool BatterySocEstimator::save_state() const {
     return true;
 }
 
-}  // namespace auto_battlebot::ui_internal
+}  // namespace auto_battlebot

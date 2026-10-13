@@ -23,10 +23,13 @@ candidates = [
   "data/models/yolo26l-pose_all_keypoints_2026-09-25_rect416x640_aarch64_sm87.engine",
 ]
 
+# The screen shows the web dashboard (service/dashboard-kiosk.service), not the LVGL window.
 [ui]
-enable = true
+enable = false
 fullscreen = true
-battery_source = "Waveshare UPS"
+
+[battery]
+source = "WAVESHARE_UPS"
 
 [mcap]
 enable = true

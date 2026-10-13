@@ -28,17 +28,6 @@ constexpr int CAMERA_PANEL_WIDTH_PCT = 66;
  * to read at a glance from across the pit, narrow enough to leave the label room. */
 constexpr int STICK_BAR_THICKNESS = 14;
 
-constexpr int BATTERY_ICON_CANVAS_WIDTH = 60;
-constexpr int BATTERY_ICON_CANVAS_HEIGHT = 24;
-constexpr int BATTERY_ICON_SHELL_X = 3;
-constexpr int BATTERY_ICON_SHELL_Y = 2;
-constexpr int BATTERY_ICON_SHELL_WIDTH = 44;
-constexpr int BATTERY_ICON_SHELL_HEIGHT = 20;
-constexpr int BATTERY_ICON_FILL_MAX_WIDTH = 34;
-constexpr int BATTERY_ICON_FILL_HEIGHT = 12;
-constexpr int BATTERY_ICON_CAP_WIDTH = 6;
-constexpr int BATTERY_ICON_CAP_HEIGHT = 10;
-
 struct UIWidgets;
 
 struct OpponentTileData {
@@ -66,18 +55,7 @@ struct UIWidgets {
     std::shared_ptr<UiController> controller;
     lv_obj_t *top_bar = nullptr;
     lv_obj_t *clock_label = nullptr;
-    lv_obj_t *battery_percent_label = nullptr;
-    lv_obj_t *battery_icon_canvas = nullptr;
-    std::array<uint8_t, LV_CANVAS_BUF_SIZE(BATTERY_ICON_CANVAS_WIDTH, BATTERY_ICON_CANVAS_HEIGHT,
-                                           LV_COLOR_FORMAT_GET_BPP(LV_COLOR_FORMAT_RGB565),
-                                           LV_DRAW_BUF_STRIDE_ALIGN)>
-        battery_icon_canvas_buf = {};
     std::time_t last_clock_second = -1;
-    std::chrono::steady_clock::time_point last_battery_update =
-        std::chrono::steady_clock::time_point::min();
-    double dummy_battery_percent = 75.0;
-    bool dummy_battery_descending = false;
-    std::string battery_source = "waveshare ups";
 
     lv_obj_t *status_tile = nullptr; /* whole tile colored by status */
     lv_obj_t *status_label = nullptr;

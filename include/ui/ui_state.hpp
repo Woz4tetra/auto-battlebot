@@ -18,7 +18,6 @@
 #include "diagnostics_logger/diagnostics_backend_interface.hpp"
 #include "navigation/navigation_interface.hpp"
 #include "remote/command_queue.hpp"
-#include "ui/battery_options.hpp"
 
 namespace auto_battlebot {
 /** System status written by Runner, read by UI. UI derives our_robot_seen/opponent_count_seen from
@@ -110,10 +109,6 @@ class UIState {
     /** Play the splash animation on UI startup. Set before starting UI thread. */
     void set_splash(bool splash);
     bool get_splash() const;
-    void set_battery_source(const std::string &battery_source);
-    std::string get_battery_source() const;
-    void set_battery_options(const BatteryOptions &options);
-    BatteryOptions get_battery_options() const;
 
     /** Profiles the UI switcher offers and the currently active one. Set before starting UI
      * thread. */
@@ -162,8 +157,6 @@ class UIState {
     int window_height_ = 600;
     bool fullscreen_ = true;
     bool splash_ = true;
-    std::string battery_source_ = "Waveshare UPS";
-    BatteryOptions battery_options_;
     int rate_avg_window_ = 10;
     double max_loop_rate_hz_ = 300.0;
     double rate_fail_threshold_ = 0.5;

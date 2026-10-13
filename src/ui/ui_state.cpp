@@ -193,26 +193,6 @@ bool UIState::get_splash() const {
     return splash_;
 }
 
-void UIState::set_battery_source(const std::string &battery_source) {
-    std::lock_guard<std::mutex> lock(status_mutex_);
-    battery_source_ = battery_source;
-}
-
-std::string UIState::get_battery_source() const {
-    std::lock_guard<std::mutex> lock(status_mutex_);
-    return battery_source_;
-}
-
-void UIState::set_battery_options(const BatteryOptions &options) {
-    std::lock_guard<std::mutex> lock(status_mutex_);
-    battery_options_ = options;
-}
-
-BatteryOptions UIState::get_battery_options() const {
-    std::lock_guard<std::mutex> lock(status_mutex_);
-    return battery_options_;
-}
-
 void UIState::get_window_size(int &width, int &height) const {
     std::lock_guard<std::mutex> lock(status_mutex_);
     width = window_width_;

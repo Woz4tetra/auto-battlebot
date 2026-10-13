@@ -22,7 +22,6 @@ struct UiFrameState {
 };
 
 struct UiServices {
-    std::unique_ptr<IBatterySource> battery_source;
     std::unique_ptr<IDebugOverlayRenderer> debug_overlay_renderer;
 };
 

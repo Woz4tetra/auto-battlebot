@@ -260,7 +260,7 @@ TEST_F(DiagnosticsLoggerTest, MultipleSequentialPublishes) {
     }
 }
 
-// The UI thread creates the battery logger on its first read while the loop thread publishes.
+// BatteryMonitor creates the battery logger on its own thread while the loop thread publishes.
 TEST_F(DiagnosticsLoggerTest, GetLoggerWhilePublishingIsSafe) {
     DiagnosticsLogger::initialize({backend_});
     for (int i = 0; i < 20; ++i) {

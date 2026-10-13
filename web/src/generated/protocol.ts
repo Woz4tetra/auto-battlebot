@@ -90,6 +90,14 @@ export interface NetworkStatus {
   wifi_interface: string;
 }
 
+export interface BatteryStatus {
+  bus_voltage_v?: number;
+  charging: boolean;
+  current_a?: number;
+  percent: number;
+  valid: boolean;
+}
+
 export interface ReinitFieldCommand {}
 
 export interface SetOpponentCountCommand {
@@ -123,6 +131,7 @@ export type StatusMessages = {
   "/status/tracks": TracksStatus;
   "/status/command_ack": CommandAckStatus;
   "/status/network": NetworkStatus;
+  "/status/battery": BatteryStatus;
 };
 
 export type CommandPayloads = {
@@ -146,6 +155,7 @@ export const STATUS_SCHEMAS = {
   "/status/tracks": "auto_battlebot.status.Tracks",
   "/status/command_ack": "auto_battlebot.status.CommandAck",
   "/status/network": "auto_battlebot.status.Network",
+  "/status/battery": "auto_battlebot.status.Battery",
 } as const satisfies Record<StatusTopic, string>;
 
 /** Status topic -> whether the relay latches it for late subscribers. */
@@ -156,6 +166,7 @@ export const STATUS_LATCHED = {
   "/status/tracks": false,
   "/status/command_ack": false,
   "/status/network": true,
+  "/status/battery": true,
 } as const satisfies Record<StatusTopic, boolean>;
 
 /** Command topic -> schema name. */

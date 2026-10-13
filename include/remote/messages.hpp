@@ -145,6 +145,21 @@ struct NetworkMessage {
                     wifi_interface, wifi_address, wifi_access)
 };
 
+/** The robot computer's own battery, from [battery]. Never published when the source is NONE. */
+struct BatteryMessage {
+    /** False until the first good read, and again after `invalid_read_grace` failed reads. */
+    bool valid = false;
+    /** Estimated state of charge, 0 to 100. */
+    double percent = 0.0;
+    /** The last read's measurements; absent when that read failed. */
+    std::optional<double> bus_voltage_v;
+    std::optional<double> current_a;
+    /** Current is flowing into the battery. */
+    bool charging = false;
+    AB_JSON_MESSAGE(BatteryMessage, "auto_battlebot.status.Battery", valid, percent, bus_voltage_v,
+                    current_a, charging)
+};
+
 // ---- Commands: clients -> app ----
 
 struct ReinitFieldCommand {

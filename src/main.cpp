@@ -10,6 +10,7 @@
 #include <stdexcept>
 #include <vector>
 
+#include "battery/battery_monitor.hpp"
 #include "config/config.hpp"
 #include "config/profile_selection.hpp"
 #include "control_loop/config.hpp"
@@ -115,6 +116,9 @@ int run_application(const auto_battlebot::ClassConfiguration& class_config,
         remote.status = std::make_shared<remote::StatusBus>(viz_sink, mcap_recorder);
     }
     remote.host = std::make_shared<HostServices>(HostServices::Options{}, remote.status);
+    // Created after DiagnosticsLogger::initialize, so its battery_ina219 diagnostics have a
+    // backend.
+    auto battery_monitor = make_battery_monitor(class_config.battery, remote.status);
     remote.app_info.available_profiles = available_profiles;
     remote.app_info.current_profile = active_profile;
     remote.app_info.max_loop_rate_hz = class_config.runner.max_loop_rate;

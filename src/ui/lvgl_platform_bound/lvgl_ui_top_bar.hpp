@@ -2,15 +2,12 @@
 
 #include <lvgl.h>
 
-#include <string>
-
-#include "lvgl_ui_services.hpp"
 #include "lvgl_ui_widgets.hpp"
 
 namespace auto_battlebot::ui_internal {
 
-std::string normalize_battery_source(std::string source);
+/** Logo, active profile, and clock along the top of the screen. */
 void build_top_bar(lv_obj_t *parent, UIWidgets &w);
-void update_top_bar(UIWidgets &w, IBatterySource &battery_source);
+void update_top_bar(UIWidgets &w);
 
 }  // namespace auto_battlebot::ui_internal

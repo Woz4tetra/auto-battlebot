@@ -5,9 +5,9 @@
 #include <fstream>
 #include <string>
 
-#include "battery_soc_estimator.hpp"
+#include "battery/battery_soc_estimator.hpp"
 
-namespace auto_battlebot::ui_internal {
+namespace auto_battlebot {
 namespace {
 
 BatterySample make_sample(std::chrono::steady_clock::time_point ts, double voltage_v,
@@ -194,4 +194,4 @@ TEST(BatterySocEstimatorTest, LegacyStateKeysInvalidateStateLoad) {
 }
 
 }  // namespace
-}  // namespace auto_battlebot::ui_internal
+}  // namespace auto_battlebot

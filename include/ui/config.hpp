@@ -12,7 +12,6 @@
 #include "data_structures.hpp"
 #include "enums.hpp"
 #include "rgbd_camera/rgbd_camera_interface.hpp"
-#include "ui/battery_options.hpp"
 
 namespace auto_battlebot {
 struct UiConfiguration {
@@ -31,10 +30,6 @@ struct UiConfiguration {
     double rate_fail_threshold = 0.5;
     /** Seconds the rate must be below threshold before showing error (prevents strobing). */
     double rate_fail_duration_sec = 2.0;
-    /** Battery source for top bar status ("Waveshare UPS" or "None"). */
-    std::string battery_source = "Waveshare UPS";
-    /** Battery estimator settings under [ui.battery]. */
-    BatteryOptions battery;
     /** [ui.label_colors]: lowercase model label -> "#rrggbb", the colors training draws each
      *  class in. The web dashboard uses them for boxes and tracks; labels not listed get a
      *  generated color. */

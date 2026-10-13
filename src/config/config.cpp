@@ -162,6 +162,7 @@ ClassConfiguration load_classes_from_config(const std::filesystem::path &path,
         config.ui = load_ui_from_toml(toml_data, parsed_sections);
         load_runner_from_toml(toml_data, parsed_sections, config.runner);
         config.health = load_health_from_toml(toml_data, parsed_sections);
+        config.battery = load_battery_from_toml(toml_data, parsed_sections);
         config.mcap_recorder = load_mcap_config_from_toml(toml_data, parsed_sections);
         config.clock = load_clock_from_toml(toml_data, parsed_sections);
 

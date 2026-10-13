@@ -5,9 +5,9 @@
 #include <string>
 #include <vector>
 
-#include "lvgl_platform_bound/lvgl_ui_services.hpp"
+#include "battery/battery_options.hpp"
 
-namespace auto_battlebot::ui_internal {
+namespace auto_battlebot {
 
 enum class BatteryFlowDirection { Discharge, Charge };
 
@@ -19,6 +19,11 @@ struct BatterySample {
     double bus_voltage_v = 0.0;
     double current_a = 0.0;
     double power_w = 0.0;
+    bool valid = false;
+};
+
+struct BatteryReading {
+    double percent = 0.0;
     bool valid = false;
 };
 
@@ -36,6 +41,9 @@ class BatterySocEstimator {
                          const BatteryOptions &source_options, bool read_ok) const;
     double debug_soc_percent() const;
     double debug_table_soc(size_t idx, BatteryFlowDirection direction) const;
+
+    /** $HOME/.local/state/auto_battlebot/battery_soc_state.txt. */
+    static std::string default_state_path();
 
    private:
     bool load_static_ocv_table();
@@ -61,4 +69,4 @@ class BatterySocEstimator {
         std::chrono::steady_clock::time_point::min();
 };
 
-}  // namespace auto_battlebot::ui_internal
+}  // namespace auto_battlebot

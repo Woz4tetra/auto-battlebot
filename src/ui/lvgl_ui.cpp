@@ -15,9 +15,9 @@
 #include <vector>
 
 #include "data_structures/target_selection.hpp"
-#include "lvgl_platform_bound/lvgl_ui_battery.hpp"
 #include "lvgl_platform_bound/lvgl_ui_composition.hpp"
 #include "lvgl_platform_bound/lvgl_ui_presenter.hpp"
+#include "lvgl_platform_bound/lvgl_ui_top_bar.hpp"
 #include "lvgl_platform_bound/lvgl_ui_widgets.hpp"
 #include "transform_utils.hpp"
 #include "ui/ui_runner.hpp"
@@ -1170,7 +1170,7 @@ void build_ui_content(lv_obj_t *root, UIWidgets &widgets, std::shared_ptr<UIStat
 void update_ui_content(UIWidgets &widgets, std::shared_ptr<UIState> ui_state,
                        UiFrameState &frame_state, UiServices &services) {
     uint32_t active_tab = lv_tabview_get_tab_active(frame_state.tabview);
-    if (services.battery_source) update_top_bar(widgets, *services.battery_source);
+    update_top_bar(widgets);
 
     update_home(widgets, ui_state);
     update_system(widgets, ui_state);

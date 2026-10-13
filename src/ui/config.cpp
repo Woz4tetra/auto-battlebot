@@ -16,36 +16,6 @@ void UiConfiguration::parse_fields(ConfigParser &parser) {
     rate_fail_threshold = parser.get_optional_double("rate_fail_threshold", rate_fail_threshold);
     rate_fail_duration_sec =
         parser.get_optional_double("rate_fail_duration_sec", rate_fail_duration_sec);
-    battery_source = parser.get_optional_string("battery_source", battery_source);
-
-    if (const toml::table *battery_table = parser.get_table("battery")) {
-        ConfigParser battery_parser(*battery_table, "ui.battery");
-        battery.i2c_bus = battery_parser.get_optional_int("i2c_bus", battery.i2c_bus);
-        battery.i2c_address = battery_parser.get_optional_int("i2c_address", battery.i2c_address);
-        battery.ocv_table_file_path =
-            battery_parser.get_optional_string("ocv_table_file_path", battery.ocv_table_file_path);
-        battery.battery_capacity_ah =
-            battery_parser.get_optional_double("battery_capacity_ah", battery.battery_capacity_ah);
-        battery.rest_current_threshold_a = battery_parser.get_optional_double(
-            "rest_current_threshold_a", battery.rest_current_threshold_a);
-        battery.rest_stability_delta_v = battery_parser.get_optional_double(
-            "rest_stability_delta_v", battery.rest_stability_delta_v);
-        battery.rest_window_sec =
-            battery_parser.get_optional_double("rest_window_sec", battery.rest_window_sec);
-        battery.ocv_correction_gain =
-            battery_parser.get_optional_double("ocv_correction_gain", battery.ocv_correction_gain);
-        battery.display_slew_pct_per_sec = battery_parser.get_optional_double(
-            "display_slew_pct_per_sec", battery.display_slew_pct_per_sec);
-        battery.discharge_current_positive = battery_parser.get_optional_bool(
-            "discharge_current_positive", battery.discharge_current_positive);
-        battery.persist_interval_sec = battery_parser.get_optional_double(
-            "persist_interval_sec", battery.persist_interval_sec);
-        battery.invalid_read_grace =
-            battery_parser.get_optional_int("invalid_read_grace", battery.invalid_read_grace);
-        battery.state_file_path =
-            battery_parser.get_optional_string("state_file_path", battery.state_file_path);
-        battery_parser.validate_no_extra_fields();
-    }
     if (const toml::table *colors = parser.get_table("label_colors")) {
         label_colors.clear();
         for (const auto &[key, value] : *colors) {

@@ -1,5 +1,6 @@
 <script lang="ts">
-  // Header metrics: loop rate, Jetson temperature, and recording time.
+  // Header metrics: loop rate, Jetson temperature, battery (where the box has one), and recording
+  // time.
   import { status } from "../lib/status.svelte";
 
   let { strip = false }: { strip?: boolean } = $props();
@@ -11,6 +12,11 @@
       : "--",
   );
   // The current MCAP file's length, so it restarts at a rollover and survives a page reload.
+  const battery = $derived(status.battery);
+  const batteryText = $derived(battery?.valid ? Math.round(battery.percent).toString() : "--");
+  // Same thresholds as the old LVGL top bar.
+  const batteryLow = $derived(!!battery?.valid && battery.percent < 20);
+  const batteryMid = $derived(!!battery?.valid && battery.percent >= 20 && battery.percent < 50);
   const recTime = $derived.by(() => {
     const since = status.mcapFileSince ?? status.recordingSince;
     if (!status.recording || since === null) return "OFF";
@@ -29,6 +35,12 @@
     <span class="k">TEMP °C</span>
     <span class="v">{temp}</span>
   </div>
+  {#if battery}
+    <div class="cell">
+      <span class="k">{battery.charging ? "BATT % CHG" : "BATT %"}</span>
+      <span class="v" class:low={batteryLow} class:mid={batteryMid}>{batteryText}</span>
+    </div>
+  {/if}
   <div class="cell">
     <span class="k rec">{status.recording ? "● REC" : "REC"}</span>
     <span class="v">{recTime}</span>
@@ -66,10 +78,17 @@
     line-height: 1;
     font-variant-numeric: tabular-nums;
   }
+  .v.low {
+    color: var(--red);
+  }
+  .v.mid {
+    color: var(--amber);
+  }
 
   .strip {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
     height: auto;
     border-bottom: 1px solid var(--ink);
   }
