@@ -62,8 +62,16 @@ class VideoEncoder {
     VideoEncoder(const VideoEncoder &) = delete;
     VideoEncoder &operator=(const VideoEncoder &) = delete;
 
+    /** Backend output: one access unit, its frame ordinal, and whether it is an IDR. */
+    using BackendSink =
+        std::function<void(const std::byte *data, size_t len, int64_t pts, bool keyframe)>;
+    /** Opens a backend in place of the candidate list. For tests. */
+    using BackendFactory = std::function<std::unique_ptr<H264Backend>(
+        const VideoEncoderOptions &options, BackendSink sink)>;
+
     /** False when no candidate opened. Callers recording on purpose treat that as fatal. */
-    bool start(const VideoEncoderOptions &options, PacketSink sink);
+    bool start(const VideoEncoderOptions &options, PacketSink sink,
+               const BackendFactory &factory = nullptr);
     /** Flushes the encoder, so the last frames submitted still reach the sink. */
     void stop();
     bool running() const { return running_.load(); }
@@ -86,6 +94,11 @@ class VideoEncoder {
 
     /** Every candidate start() tries on this build, in order, for error messages. */
     static std::string candidate_names();
+
+    /** The backend refused a frame that was already numbered. From then on submit() takes
+     *  nothing, so every index already handed out either has its packet or points past the
+     *  last one. Only a stop() and start() clears it: the caller restarts the recording. */
+    bool broken() const { return broken_.load(); }
 
     uint64_t encoded_frames() const { return encoded_frames_.load(); }
     uint64_t dropped_frames() const { return dropped_frames_.load(); }
@@ -122,6 +135,7 @@ class VideoEncoder {
     std::atomic<bool> running_{false};
     std::atomic<bool> stopping_{false};
     std::atomic<bool> keyframe_requested_{false};
+    std::atomic<bool> broken_{false};
     std::atomic<uint64_t> encoded_frames_{0};
     std::atomic<uint64_t> dropped_frames_{0};
 };

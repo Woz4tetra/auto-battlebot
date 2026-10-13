@@ -31,6 +31,8 @@ class RecordingCamera : public NoopRgbdCamera {
     bool set_recording_enabled(bool enabled) override {
         std::this_thread::sleep_for(std::chrono::milliseconds(toggle_delay_ms.load()));
         recording = enabled;
+        // Like VideoEncoder: a restart clears a stopped encoder.
+        if (enabled) needs_restart = false;
         std::lock_guard<std::mutex> lock(mutex);
         history.push_back(enabled);
         return true;
@@ -40,6 +42,8 @@ class RecordingCamera : public NoopRgbdCamera {
         return history;
     }
     bool is_recording_enabled() const override { return recording; }
+    bool recording_needs_restart() const override { return needs_restart; }
+    std::atomic<bool> needs_restart{false};
 
     // With lost_ set, get() fails and a re-open blocks like a ZED that is not there, until
     // cancel_initialize() or 10 s.
@@ -168,6 +172,19 @@ TEST_F(RunnerCommandsTest, OffThenOnBothApply) {
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
     EXPECT_EQ(camera_->toggles(), (std::vector<bool>{false, true}));
+}
+
+// A camera whose encoder stopped taking frames gets its recording turned off and on.
+TEST_F(RunnerCommandsTest, StoppedEncoderRestartsTheRecording) {
+    camera_->recording = true;
+    camera_->needs_restart = true;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    while (camera_->toggles().size() < 2 && std::chrono::steady_clock::now() < deadline) {
+        EXPECT_TRUE(runner_->tick());
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    EXPECT_EQ(camera_->toggles(), (std::vector<bool>{false, true}));
+    EXPECT_FALSE(camera_->needs_restart);
 }
 
 TEST_F(RunnerCommandsTest, SelectProfilePersistsAndSetsTheNotice) {

@@ -34,7 +34,8 @@ std::string VideoEncoder::candidate_names() {
     return names;
 }
 
-bool VideoEncoder::start(const VideoEncoderOptions &options, PacketSink sink) {
+bool VideoEncoder::start(const VideoEncoderOptions &options, PacketSink sink,
+                         const BackendFactory &factory) {
     if (running_.load()) {
         return true;
     }
@@ -46,6 +47,7 @@ bool VideoEncoder::start(const VideoEncoderOptions &options, PacketSink sink) {
         queue_.clear();
         next_submit_index_ = 0;
         keyframe_requested_.store(false);
+        broken_.store(false);
     }
     {
         std::lock_guard<std::mutex> lock(pts_mutex_);
@@ -56,14 +58,17 @@ bool VideoEncoder::start(const VideoEncoderOptions &options, PacketSink sink) {
                                                           int64_t pts, bool keyframe) {
         deliver(data, len, pts, keyframe);
     };
+    if (factory) backend_ = factory(options_, deliver_packet);
     for (const char *name : kFfmpegHardware) {
-        if (!backend_) backend_ = open_ffmpeg_h264(name, options_, deliver_packet);
+        if (!backend_ && !factory) backend_ = open_ffmpeg_h264(name, options_, deliver_packet);
     }
 #ifdef AUTO_BATTLEBOT_HAVE_GSTREAMER
-    if (!backend_) backend_ = open_gst_nvv4l2_h264(options_, deliver_packet);
+    if (!backend_ && !factory) backend_ = open_gst_nvv4l2_h264(options_, deliver_packet);
 #endif
 #ifndef __aarch64__
-    if (!backend_) backend_ = open_ffmpeg_h264(kFfmpegSoftware, options_, deliver_packet);
+    if (!backend_ && !factory) {
+        backend_ = open_ffmpeg_h264(kFfmpegSoftware, options_, deliver_packet);
+    }
 #endif
     if (!backend_) {
         spdlog::error("[VideoEncoder] No H.264 encoder opened at {}x{} {} fps (tried {})",
@@ -121,6 +126,10 @@ int64_t VideoEncoder::submit(const cv::Mat &frame, uint64_t log_time_ns) {
         if (stopping_.load()) {
             return -1;
         }
+        if (broken_.load()) {
+            dropped_frames_.fetch_add(1);
+            return -1;
+        }
         if (queue_.size() >= options_.queue_depth) {
             // Counted, not silent. Frame loss discovered months later against ground truth is
             // exactly the failure this counter exists to prevent.
@@ -155,13 +164,26 @@ void VideoEncoder::encode_loop() {
             log_time_by_pts_[pts] = frame.log_time_ns;
         }
         if (!backend_->encode(std::move(frame.image), pts, frame.force_keyframe)) {
-            // The frame was already numbered in submit(), so every frame_meta index after this
-            // points one packet late. Only a stalled pipeline gets here.
-            spdlog::error("[VideoEncoder] {} refused frame {}; later frame_meta indices are off",
-                          codec_name_, pts);
-            std::lock_guard<std::mutex> lock(pts_mutex_);
-            log_time_by_pts_.erase(pts);
-            dropped_frames_.fetch_add(1);
+            {
+                std::lock_guard<std::mutex> lock(pts_mutex_);
+                log_time_by_pts_.erase(pts);
+            }
+            // This frame already has its index in frame_meta, and encoding the frames behind it
+            // would put each one packet before its index. Take nothing more, so every index
+            // handed out has its packet or points past the end of the file, and let the runner
+            // restart the recording. Only a pipeline stalled for kStallTimeout gets here.
+            size_t discarded = 0;
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                broken_.store(true);
+                discarded = queue_.size();
+                queue_.clear();
+            }
+            dropped_frames_.fetch_add(1 + discarded);
+            spdlog::error(
+                "[VideoEncoder] {} refused frame {}; video stops here ({} queued frames "
+                "discarded) until the recording restarts",
+                codec_name_, pts, discarded);
         }
     }
     // Flush, so the frames the encoder was still holding reach the recording.

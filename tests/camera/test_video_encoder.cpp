@@ -1,13 +1,38 @@
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <map>
 #include <mutex>
+#include <thread>
 #include <vector>
 
+#include "rgbd_camera/h264_backend.hpp"
 #include "rgbd_camera/video_encoder.hpp"
 
 namespace auto_battlebot {
 namespace {
+
+// Emits one byte per frame, and refuses the frame with pts `refuse_pts`.
+class RefusingBackend : public H264Backend {
+   public:
+    RefusingBackend(VideoEncoder::BackendSink sink, int64_t refuse_pts)
+        : sink_(std::move(sink)), refuse_pts_(refuse_pts) {}
+    bool encode(cv::Mat, int64_t pts, bool) override {
+        // Slow enough that frames queue up behind the refused one.
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        if (pts == refuse_pts_) return false;
+        const std::byte byte{0};
+        sink_(&byte, 1, pts, pts == 0);
+        return true;
+    }
+    void finish() override {}
+    const std::string &name() const override { return name_; }
+
+   private:
+    VideoEncoder::BackendSink sink_;
+    int64_t refuse_pts_;
+    std::string name_ = "refusing";
+};
 
 TEST(VideoEncoderTest, RequestKeyframeMakesTheNextFrameAKeyframe) {
     VideoEncoder encoder;
@@ -98,6 +123,60 @@ TEST(VideoEncoderTest, SubmitIndexIsThePacketPositionInEachSession) {
                 << "session " << session << ": packet " << i << " is not the frame numbered " << i;
         }
     }
+}
+
+// After the backend refuses a numbered frame, no index may point at the wrong packet: every index
+// handed out is either its packet's position or past the last packet.
+TEST(VideoEncoderTest, RefusedFrameStopsTheSessionInsteadOfShiftingIndices) {
+    VideoEncoderOptions options;
+    options.width = 32;
+    options.height = 24;
+    options.queue_depth = 64;
+    std::mutex mutex;
+    std::vector<uint64_t> packet_times;
+    const auto sink = [&](const std::byte *, size_t, uint64_t log_time_ns, bool) {
+        std::lock_guard<std::mutex> lock(mutex);
+        packet_times.push_back(log_time_ns);
+    };
+    const auto refuse_at = [](int64_t pts) {
+        return [pts](const VideoEncoderOptions &, VideoEncoder::BackendSink backend_sink) {
+            return std::make_unique<RefusingBackend>(std::move(backend_sink), pts);
+        };
+    };
+
+    VideoEncoder encoder;
+    ASSERT_TRUE(encoder.start(options, sink, refuse_at(3)));
+    std::vector<int64_t> indices;
+    for (uint64_t t = 1; t <= 20; ++t) {
+        indices.push_back(encoder.submit(cv::Mat(24, 32, CV_8UC3, cv::Scalar::all(0)), t));
+    }
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (!encoder.broken() && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_TRUE(encoder.broken());
+    EXPECT_EQ(encoder.submit(cv::Mat(24, 32, CV_8UC3, cv::Scalar::all(0)), 99), -1);
+    encoder.stop();
+
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        ASSERT_EQ(packet_times, (std::vector<uint64_t>{1, 2, 3}));
+        for (size_t i = 0; i < indices.size(); ++i) {
+            const int64_t index = indices[i];
+            if (index < 0 || index >= static_cast<int64_t>(packet_times.size())) continue;
+            EXPECT_EQ(packet_times[static_cast<size_t>(index)], i + 1)
+                << "frame " << i + 1 << " was given index " << index << ", another frame's packet";
+        }
+        packet_times.clear();
+    }
+
+    // A restart clears it, and numbering starts over.
+    ASSERT_TRUE(encoder.start(options, sink, refuse_at(-1)));
+    EXPECT_FALSE(encoder.broken());
+    EXPECT_EQ(encoder.submit(cv::Mat(24, 32, CV_8UC3, cv::Scalar::all(0)), 100), 0);
+    encoder.stop();
+    std::lock_guard<std::mutex> lock(mutex);
+    EXPECT_EQ(packet_times, (std::vector<uint64_t>{100}));
 }
 
 }  // namespace

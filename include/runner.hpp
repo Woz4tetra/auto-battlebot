@@ -163,7 +163,8 @@ class Runner : public Quittable {
     double uptime_s() const;
     std::optional<double> autonomy_on_s() const;
     void stop_recordings_for_shutdown() const;
-    /** Rolls the MCAP over past max_size_gb by turning recording off and on. */
+    /** Turns recording off and on when the MCAP passes max_size_gb, or when the camera's
+     *  encoder stopped taking frames. */
     void roll_over_recording_if_full();
     std::chrono::steady_clock::time_point last_size_check_{};
     bool recover_camera_after_failure();

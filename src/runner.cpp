@@ -205,12 +205,20 @@ void Runner::roll_over_recording_if_full() {
     // A stat() per check; once a second is plenty for a 10 GB cap.
     constexpr auto kCheckInterval = std::chrono::seconds(1);
     const auto now = std::chrono::steady_clock::now();
-    if (!mcap_recorder_ || now - last_size_check_ < kCheckInterval) return;
+    if (now - last_size_check_ < kCheckInterval) return;
     last_size_check_ = now;
     // The file stays past the cap until the worker gets to it; one rollover per crossing.
-    if (rollover_pending_.load() || !mcap_recorder_->past_size_limit()) return;
-    spdlog::info("[Runner] {} reached the size cap; rolling over",
-                 mcap_recorder_->file_path().string());
+    if (rollover_pending_.load()) return;
+    if (mcap_recorder_ && mcap_recorder_->past_size_limit()) {
+        spdlog::info("[Runner] {} reached the size cap; rolling over",
+                     mcap_recorder_->file_path().string());
+    } else if (camera_->recording_needs_restart()) {
+        // The new file restarts the encoder and its indices from zero, so video resumes after
+        // about a second instead of staying off for the rest of the file.
+        spdlog::error("[Runner] The camera's video encoder stopped; restarting the recording");
+    } else {
+        return;
+    }
     rollover_pending_.store(true);
     recording_worker_->post([this] {
         apply_recording(false, true);

@@ -44,6 +44,7 @@ class ZedOneRgbCamera : public RgbdCameraInterface {
     bool should_close() override { return should_close_.load(); }
     bool set_recording_enabled(bool enabled) override;
     bool is_recording_enabled() const override;
+    bool recording_needs_restart() const override { return encoder_.broken(); }
 
    private:
     bool open_camera();
