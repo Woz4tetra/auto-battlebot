@@ -257,3 +257,65 @@ def test_subscriber_only_subscribes() -> None:
     assert received[0]["op"] == "subscribe"
     assert [s["channelId"] for s in received[0]["subscriptions"]] == [4]
     assert len(received) == 1
+
+
+def _ring_delivery(
+    rows: list[dict[str, Any]], poll_s: float, outage_s: tuple[float, float]
+) -> list[dict[str, Any]]:
+    """Synthetic telemetry as the Jetson's ring poller publishes it on /robot/esp32_diagnostics.
+
+    Each row lands at the first poll after it was produced, all rows of one poll stamped with that
+    poll's arrival, and every row but a caught-up poll's newest marked backfill. No poll gets
+    through during ``outage_s`` (session seconds), so that stretch arrives in one burst after it.
+    """
+    t0 = rows[0]["host_receive_ns"]
+    poll_ns = int(poll_s * 1e9)
+    lo, hi = (t0 + int(s * 1e9) for s in outage_s)
+    batches: dict[int, list[dict[str, Any]]] = {}
+    for r in rows:
+        k = -(-(r["host_receive_ns"] - t0) // poll_ns)
+        at = t0 + k * poll_ns
+        if lo <= at < hi:
+            at = t0 + -(-(hi - t0) // poll_ns) * poll_ns
+        d = {
+            key: v for key, v in r.items() if not key.startswith("espnow") and key != "jetson_tx_us"
+        }
+        d["seq"] = d.pop("telemetry_seq")
+        d["wifi_clients"] = 0
+        batches.setdefault(at, []).append(d)
+    out = []
+    for at in sorted(batches):
+        batch = batches[at]
+        for i, d in enumerate(batch):
+            d["host_receive_ns"] = at + 3_000_000
+            d["backfill"] = i + 1 < len(batch)
+            out.append(telemetry.from_diagnostics(d))
+    return out
+
+
+def test_ring_backfill_matches_live_delivery(profile: Any) -> None:
+    sim = synthetic.simulate_session(profile, seconds=60.0, seed=3, loop_on_from_s=30.0)
+    direct = CoverageSession(profile, InlineEngine())
+    _feed(direct, sim)
+
+    sim.telemetry = _ring_delivery(sim.telemetry, poll_s=0.1, outage_s=(20.0, 23.0))
+    assert sum(r["backfill"] for r in sim.telemetry) > 0.8 * len(sim.telemetry)
+    ring = CoverageSession(profile, InlineEngine())
+    _feed(ring, sim)
+
+    a, b = direct.snapshot(), ring.snapshot()
+    # The 3 s outage loses nothing: same frame drops, same link gaps, same windows used.
+    assert ring.seq_drops == direct.seq_drops
+    assert b["windows"]["link"] == a["windows"]["link"]
+    assert abs(b["windows"]["used"] - a["windows"]["used"]) <= 1, (a["windows"], b["windows"])
+    # Only the newest row of each poll reaches the clock, so its fit stays at radio latency
+    # instead of the 100 ms a poll's oldest row waits.
+    assert ring.clock.status is not None
+    assert ring.clock.status.residual_p50_ms < 15.0, ring.clock.status
+
+
+def test_from_diagnostics_renames_seq() -> None:
+    assert telemetry.from_diagnostics({"seq": 7, "timestamp_ms": 1})["telemetry_seq"] == 7
+    assert "telemetry_seq" not in telemetry.from_diagnostics({"seq": None, "timestamp_ms": 1})
+    row = {"telemetry_seq": 3, "seq": 9}
+    assert telemetry.from_diagnostics(row) is row

@@ -19,11 +19,12 @@ lifted_deadzone_percent = 0
 zero_deadzone_percent = 2
 reverse_angular_channel = true
 velocity_saturation_limit = 1.0
-# The robot's access point. The box joins MR-STABS on its second WiFi dongle.
+# Polls the robot's telemetry ring (GET /telemetry, 100 Hz records, two minutes deep). This is
+# its access point, which the box joins on its second WiFi dongle. With the robot in client mode
+# on the box's router, set this to the address the router reserves for it.
 esp32_host = "192.168.4.1"
 esp32_port = 80
-record_mode = true         # firmware sends every control loop, not 10 Hz
-reconnect_period_s = 1.0
+reconnect_period_s = 1.0   # wait after a failed poll
 
 [keypoint_model]
 type = "AprilTagKeypointModel"

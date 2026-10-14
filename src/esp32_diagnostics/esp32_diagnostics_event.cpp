@@ -219,6 +219,12 @@ std::string to_esp32_diagnostics_json(const Esp32DiagnosticsEvent &event) {
     } else {
         json += "\"seq\":null";
     }
+    json += ',';
+    if (event.backfill) {
+        append_bool(json, "backfill", *event.backfill);
+    } else {
+        json += "\"backfill\":null";
+    }
     json += '}';
     return json;
 }

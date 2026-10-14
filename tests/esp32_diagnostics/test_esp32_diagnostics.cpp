@@ -1,20 +1,9 @@
-#include <arpa/inet.h>
 #include <gtest/gtest.h>
-#include <netinet/in.h>
-#include <poll.h>
-#include <sys/socket.h>
-#include <unistd.h>
 
-#include <atomic>
-#include <chrono>
 #include <cmath>
-#include <mutex>
 #include <string>
-#include <thread>
-#include <vector>
 
 #include "esp32_diagnostics/esp32_diagnostics_event.hpp"
-#include "esp32_diagnostics/esp32_wifi_diagnostics.hpp"
 
 namespace auto_battlebot {
 namespace {
@@ -90,7 +79,7 @@ TEST(Esp32DiagnosticsParseTest, ParsesTwentyFiveFieldsWithYawRateAndSeq) {
     const std::string json = to_esp32_diagnostics_json(*event);
     EXPECT_NE(json.find("\"yaw_rate\":12.5"), std::string::npos) << json;
     EXPECT_NE(json.find("\"yaw_rate_cmd\":null"), std::string::npos) << json;
-    EXPECT_NE(json.find("\"seq\":4294967295}"), std::string::npos) << json;
+    EXPECT_NE(json.find("\"seq\":4294967295,\"backfill\":null}"), std::string::npos) << json;
 }
 
 TEST(Esp32DiagnosticsParseTest, ParsesTwentyFourFieldsWithoutSeq) {
@@ -188,194 +177,6 @@ TEST(Esp32DiagnosticsParseTest, JsonCarriesEveryFieldWithItsType) {
                                  "\"vbat\":15.842"}) {
         EXPECT_NE(json.find(expected), std::string::npos) << expected << " missing in " << json;
     }
-}
-
-/**
- * A stand-in for the firmware's ESPAsyncWebServer: `/record/start` and `/record/stop` answer
- * "ok", and `/events` streams SSE the way AsyncEventSource frames it. The first stream sends the
- * connect hello, three good rows, one malformed row, then drops; later streams send one row each
- * and stay open.
- */
-class FakeEsp32Server {
-   public:
-    FakeEsp32Server() {
-        listen_fd_ = ::socket(AF_INET, SOCK_STREAM, 0);
-        int reuse = 1;
-        ::setsockopt(listen_fd_, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
-        sockaddr_in addr{};
-        addr.sin_family = AF_INET;
-        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-        addr.sin_port = 0;
-        ::bind(listen_fd_, reinterpret_cast<sockaddr *>(&addr), sizeof(addr));
-        socklen_t length = sizeof(addr);
-        ::getsockname(listen_fd_, reinterpret_cast<sockaddr *>(&addr), &length);
-        port_ = ntohs(addr.sin_port);
-        ::listen(listen_fd_, 8);
-        thread_ = std::thread([this] { serve(); });
-    }
-
-    ~FakeEsp32Server() {
-        stop_.store(true);
-        if (thread_.joinable()) thread_.join();
-        for (int fd : open_streams_) ::close(fd);
-        ::close(listen_fd_);
-    }
-
-    int port() const { return port_; }
-    int record_starts() const { return record_starts_.load(); }
-    int record_stops() const { return record_stops_.load(); }
-    int streams() const { return streams_.load(); }
-
-   private:
-    static void send_text(int fd, const std::string &text) {
-        ::send(fd, text.data(), text.size(), MSG_NOSIGNAL);
-    }
-
-    void serve() {
-        while (!stop_.load()) {
-            pollfd pfd{listen_fd_, POLLIN, 0};
-            if (::poll(&pfd, 1, 50) <= 0) continue;
-            const int fd = ::accept(listen_fd_, nullptr, nullptr);
-            if (fd < 0) continue;
-            std::string request;
-            char buffer[1024];
-            while (request.find("\r\n\r\n") == std::string::npos) {
-                const ssize_t n = ::recv(fd, buffer, sizeof(buffer), 0);
-                if (n <= 0) break;
-                request.append(buffer, static_cast<size_t>(n));
-            }
-            if (request.rfind("GET /record/start ", 0) == 0) {
-                record_starts_++;
-                send_text(fd, "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok");
-                ::close(fd);
-            } else if (request.rfind("GET /record/stop ", 0) == 0) {
-                record_stops_++;
-                send_text(fd, "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok");
-                ::close(fd);
-            } else if (request.rfind("GET /events ", 0) == 0) {
-                const int stream = ++streams_;
-                send_text(fd,
-                          "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n"
-                          "Cache-Control: no-cache\r\nConnection: keep-alive\r\n\r\n");
-                send_text(fd, "retry: 1000\nid: 5\ndata: connected\n\n");
-                if (stream == 1) {
-                    send_text(fd, std::string("id: 6\ndata: ") + kLine20 + "\n\n");
-                    // A row split across two writes still reassembles.
-                    send_text(fd, std::string("id: 7\ndata: ") + std::string(kLine21, 10));
-                    std::this_thread::sleep_for(std::chrono::milliseconds(20));
-                    send_text(fd, std::string(kLine21 + 10) + "\n\n");
-                    send_text(fd, std::string("id: 8\ndata: ") + kLine21Nan + "\r\n\r\n");
-                    send_text(fd, "id: 9\ndata: 1,2,3\n\n");
-                    ::close(fd);  // the robot drops off mid-stream
-                } else {
-                    send_text(fd, std::string("id: 10\ndata: ") + kLine21 + "\n\n");
-                    open_streams_.push_back(fd);
-                }
-            } else {
-                send_text(fd, "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
-                ::close(fd);
-            }
-        }
-    }
-
-    int listen_fd_ = -1;
-    int port_ = 0;
-    std::atomic<bool> stop_{false};
-    std::atomic<int> record_starts_{0};
-    std::atomic<int> record_stops_{0};
-    std::atomic<int> streams_{0};
-    std::vector<int> open_streams_;
-    std::thread thread_;
-};
-
-template <typename Predicate>
-bool wait_until(Predicate predicate, std::chrono::milliseconds timeout) {
-    const auto deadline = std::chrono::steady_clock::now() + timeout;
-    while (std::chrono::steady_clock::now() < deadline) {
-        if (predicate()) return true;
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-    return predicate();
-}
-
-TEST(Esp32WifiDiagnosticsTest, StreamsReconnectsAndStopsRecording) {
-    FakeEsp32Server server;
-    Esp32WifiDiagnosticsOptions options;
-    options.host = "127.0.0.1";
-    options.port = server.port();
-    options.record_mode = true;
-    options.reconnect_period = std::chrono::milliseconds(50);
-
-    std::atomic<uint64_t> fake_clock{1000};
-    Esp32WifiDiagnostics diagnostics(options, [&fake_clock] { return fake_clock.fetch_add(1); });
-    diagnostics.start();
-
-    std::vector<Esp32DiagnosticsEvent> events;
-    ASSERT_TRUE(wait_until(
-        [&] {
-            for (auto &event : diagnostics.drain()) events.push_back(event);
-            return events.size() >= 4;
-        },
-        std::chrono::seconds(5)));
-
-    ASSERT_GE(events.size(), 4u);
-    EXPECT_EQ(events[0].timestamp_ms, 123456u);
-    EXPECT_FALSE(events[0].vbat.has_value());
-    EXPECT_EQ(events[1].timestamp_ms, 123457u);
-    ASSERT_TRUE(events[1].vbat.has_value());
-    EXPECT_DOUBLE_EQ(*events[1].vbat, 15.842);
-    EXPECT_EQ(events[2].timestamp_ms, 123458u);
-    EXPECT_FALSE(events[2].vbat.has_value());
-    EXPECT_EQ(events[3].timestamp_ms, 123457u);  // first row of the second stream
-    EXPECT_LT(events[0].host_receive_ns, events[3].host_receive_ns);
-
-    const Esp32WifiDiagnosticsStats stats = diagnostics.stats();
-    EXPECT_TRUE(stats.connected);
-    EXPECT_EQ(stats.events, 4u);
-    // The malformed row counts; the "connected" hellos on both streams do not.
-    EXPECT_EQ(stats.parse_errors, 1u);
-    EXPECT_EQ(stats.reconnects, 1u);
-    EXPECT_EQ(server.streams(), 2);
-    // Record mode is re-requested on every connection, since a rebooted robot comes back at 10 Hz.
-    EXPECT_EQ(server.record_starts(), 2);
-
-    diagnostics.stop();
-    EXPECT_EQ(server.record_stops(), 1);
-}
-
-TEST(Esp32WifiDiagnosticsTest, NoRecordRequestsOutsideRecordMode) {
-    FakeEsp32Server server;
-    Esp32WifiDiagnosticsOptions options;
-    options.host = "127.0.0.1";
-    options.port = server.port();
-    options.record_mode = false;
-    options.reconnect_period = std::chrono::milliseconds(50);
-
-    Esp32WifiDiagnostics diagnostics(options);
-    diagnostics.start();
-    ASSERT_TRUE(
-        wait_until([&] { return diagnostics.stats().events >= 4; }, std::chrono::seconds(5)));
-    diagnostics.stop();
-    EXPECT_EQ(server.record_starts(), 0);
-    EXPECT_EQ(server.record_stops(), 0);
-}
-
-TEST(Esp32WifiDiagnosticsTest, UnreachableRobotNeitherBlocksNorCrashes) {
-    // Nothing listens on the discard port of loopback, so every connect is refused.
-    Esp32WifiDiagnosticsOptions options;
-    options.host = "127.0.0.1";
-    options.port = 9;
-    options.reconnect_period = std::chrono::milliseconds(20);
-    Esp32WifiDiagnostics diagnostics(options);
-    diagnostics.start();
-    ASSERT_TRUE(wait_until([&] { return diagnostics.stats().connect_failures >= 2; },
-                           std::chrono::seconds(5)));
-    EXPECT_FALSE(diagnostics.stats().connected);
-    EXPECT_TRUE(diagnostics.drain().empty());
-
-    const auto start = std::chrono::steady_clock::now();
-    diagnostics.stop();
-    EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::seconds(2));
 }
 
 }  // namespace

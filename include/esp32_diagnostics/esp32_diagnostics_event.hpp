@@ -51,6 +51,11 @@ struct Esp32DiagnosticsEvent {
     /** Firmware row counter, +1 per row sent. A gap means rows were dropped between the robot and
      *  the host. Empty on firmware that predates the field. */
     std::optional<uint32_t> seq;
+    /** Set on rows read from the firmware's telemetry ring (`GET /telemetry`): true when the row
+     *  arrived later than it would have live, because it waited in the ring for the poll or for
+     *  the link to come back. Its `host_receive_ns` then overstates the delivery delay, so clock
+     *  fits skip it. Empty on rows from the event stream. */
+    std::optional<bool> backfill;
 };
 
 /** Field count before the firmware added `vbat`. */

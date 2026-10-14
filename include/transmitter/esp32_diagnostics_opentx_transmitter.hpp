@@ -6,7 +6,7 @@
 #include <optional>
 
 #include "diagnostics_logger/diagnostics_module_logger.hpp"
-#include "esp32_diagnostics/esp32_wifi_diagnostics.hpp"
+#include "esp32_diagnostics/esp32_wifi_telemetry.hpp"
 #include "mcap_recorder/mcap_recorder.hpp"
 #include "publisher/output_channel.hpp"
 #include "transmitter/config.hpp"
@@ -18,10 +18,10 @@ namespace auto_battlebot {
 /**
  * OpenTxTransmitter that also records the robot firmware's diagnostics stream.
  *
- * The radio side is the base class, untouched. On top of it an Esp32WifiDiagnostics worker holds
- * the ESP32's event stream open, and update() drains what arrived since the last tick into one
- * `/robot/esp32_diagnostics` JSON message per firmware event, logged at the host arrival time.
- * Stream health goes to the `esp32_diagnostics` diagnostics module once a second.
+ * The radio side is the base class, untouched. On top of it an Esp32WifiTelemetry worker polls
+ * the firmware's telemetry ring, and update() drains what arrived since the last tick into one
+ * `/robot/esp32_diagnostics` JSON message per 100 Hz record, logged at the host arrival time.
+ * Link health goes to the `esp32_diagnostics` diagnostics module once a second.
  */
 class Esp32DiagnosticsOpenTxTransmitter : public OpenTxTransmitter {
    public:
@@ -41,7 +41,7 @@ class Esp32DiagnosticsOpenTxTransmitter : public OpenTxTransmitter {
     void publish_events();
     void log_health();
 
-    std::unique_ptr<Esp32WifiDiagnostics> diagnostics_;
+    std::unique_ptr<Esp32WifiTelemetry> diagnostics_;
     OutputChannel channel_;
     std::shared_ptr<DiagnosticsModuleLogger> health_logger_;
 

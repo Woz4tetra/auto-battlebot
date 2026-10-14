@@ -6,14 +6,20 @@
 #include <crsf_bridge.h>
 #include <diagnostics_server.h>
 #include <esc.h>
+#include <esp_random.h>
 #include <espnow_link.h>
 #include <i2c_bus.h>
+#include <telemetry_ring.h>
 #include <updown_sensor.h>
 #include <vbat_sensor.h>
+#include <wifi_manager.h>
 #include <yaw_control.h>
 
 const char *WIFI_SSID = "MR-STABS";
 const char *WIFI_PASSWORD = "havocbots";
+// DHCP and mDNS name in client mode: http://mr-stabs.local
+const char *HOSTNAME = "mr-stabs";
+wifi_manager::WifiManager wifi;
 
 crsf_bridge::CrsfBridge *crsf;
 crsf_bridge::radio_data_t *radio_data;
@@ -27,6 +33,14 @@ esc::Esc *right_esc;
 updown_sensor::UpdownSensor *accel;
 vbat_sensor::VbatSensor vbat_sensor_ina228;
 DiagnosticsServer diag_server;
+
+// Every 100 Hz telemetry frame, kept in PSRAM for GET /telemetry, so a WiFi client that drops
+// out catches up instead of losing the gap. 12000 records of 118 B is 1.4 MB, two minutes.
+// Without PSRAM it falls back to a few seconds in internal RAM.
+const uint32_t TELEMETRY_RING_PSRAM_RECORDS = 12000;
+const uint32_t TELEMETRY_RING_HEAP_RECORDS = 500;
+telemetry_ring::TelemetryRing<espnow_protocol::TelemetryPayload> telemetry_ring_buffer;
+uint32_t last_ring_push_ms = 0;
 i2c_bus::scan_t bus_scan = {};
 uint32_t last_status_ms = 0;
 const uint32_t STATUS_INTERVAL_MS = 1000;  // sensor panel refresh on the diagnostics page
@@ -124,10 +138,12 @@ void stop_escs() {
     limited_a_percent = 0.0f;
 }
 
-// Publishes one tick of diagnostics to the WiFi dashboard and, at 100 Hz, over ESP-NOW.
+// Publishes one tick of diagnostics to the WiFi dashboard and, at 100 Hz, to the telemetry ring
+// and over ESP-NOW.
 void publish_diag(diag_data_t &diag, bool autonomy_enabled, bool espnow_active, uint32_t now_ms) {
     diag_server.update(&diag);
-    if (!ESPNOW_ENABLED) return;
+    const bool ring_due = now_ms - last_ring_push_ms >= espnow_link::TELEMETRY_PERIOD_MS;
+    if (!ring_due && !ESPNOW_ENABLED) return;
     espnow_protocol::TelemetryPayload telemetry = {};
     telemetry.timestamp_ms = diag.timestamp_ms;
     telemetry.loop_us = diag.loop_us;
@@ -162,7 +178,30 @@ void publish_diag(diag_data_t &diag, bool autonomy_enabled, bool espnow_active, 
     telemetry.flip_switch = diag.flip_switch;
     telemetry.is_upside_down = diag.is_upside_down;
     telemetry.espnow_active = espnow_active;
-    espnow.send_telemetry(telemetry, now_ms);
+    if (ring_due) {
+        // Step the schedule by exactly one period so the ring averages 100 Hz however the loop
+        // ticks land. After a stall longer than a period, restart from now instead of bursting.
+        last_ring_push_ms += espnow_link::TELEMETRY_PERIOD_MS;
+        if (now_ms - last_ring_push_ms >= espnow_link::TELEMETRY_PERIOD_MS) {
+            last_ring_push_ms = now_ms;
+        }
+        telemetry_ring_buffer.push(telemetry);
+    }
+    if (ESPNOW_ENABLED) espnow.send_telemetry(telemetry, now_ms);
+}
+
+void setup_telemetry_ring() {
+    uint32_t capacity = TELEMETRY_RING_PSRAM_RECORDS;
+    void *storage =
+        psramFound() ? ps_malloc(capacity * sizeof(espnow_protocol::TelemetryPayload)) : nullptr;
+    if (!storage) {
+        capacity = TELEMETRY_RING_HEAP_RECORDS;
+        storage = malloc(capacity * sizeof(espnow_protocol::TelemetryPayload));
+    }
+    if (!storage) capacity = 0;
+    telemetry_ring_buffer.init(static_cast<espnow_protocol::TelemetryPayload *>(storage), capacity);
+    Serial.printf("telemetry ring: %lu records (%s)\n", (unsigned long)capacity,
+                  capacity == TELEMETRY_RING_PSRAM_RECORDS ? "PSRAM" : "internal RAM");
 }
 
 // Feeds the diagnostics page's sensor and I2C panel. Does nothing with no browser open. A bus
@@ -194,6 +233,7 @@ void publish_sensor_status(bool armed) {
 }
 
 void setup_ota() {
+    ArduinoOTA.setHostname(HOSTNAME);
     ArduinoOTA
         .onStart([]() {
             is_loading_firmware = true;
@@ -328,14 +368,16 @@ void setup() {
 
     yaw_controller = new yaw_control::YawController(yaw_control::Config());
 
-    // Phase 1: the SoftAP stays up as the fallback while ESP-NOW OTA proves itself, so ESP-NOW
-    // runs on the AP interface and the pinned channel the AP is on.
-    WiFi.softAP(WIFI_SSID, WIFI_PASSWORD, espnow_protocol::CHANNEL_OVERRIDE);
+    // Access point or router, as saved from the diagnostics page. With ESP-NOW on, the access
+    // point stays up on the pinned channel ESP-NOW shares, whatever is saved.
+    wifi.begin(HOSTNAME, WIFI_SSID, WIFI_PASSWORD, espnow_protocol::CHANNEL_OVERRIDE,
+               ESPNOW_ENABLED);
     setup_ota();
     tunable_ptrs_t tunables;
     tunables.left_esc_deadzone = &left_esc->stop_threshold;
     tunables.right_esc_deadzone = &right_esc->stop_threshold;
-    diag_server.begin(tunables);
+    setup_telemetry_ring();
+    diag_server.begin(&wifi, &telemetry_ring_buffer, esp_random(), tunables);
     if (ESPNOW_ENABLED) espnow.begin(WIFI_IF_AP, espnow_protocol::CHANNEL_OVERRIDE, tunables);
 
     prev_loop_us = micros();
@@ -411,7 +453,7 @@ void loop() {
             .accel_z = av ? av->z : 0,
             .is_upside_down = false,
             .loop_us = loop_us,
-            .wifi_clients = WiFi.softAPgetStationNum(),
+            .wifi_clients = wifi.station_count(),
             .orientation_x = ori ? ori->x : 0,
             .orientation_y = ori ? ori->y : 0,
             .orientation_z = ori ? ori->z : 0,
@@ -451,7 +493,7 @@ void loop() {
             .accel_z = av ? av->z : 0,
             .is_upside_down = false,
             .loop_us = loop_us,
-            .wifi_clients = WiFi.softAPgetStationNum(),
+            .wifi_clients = wifi.station_count(),
             .orientation_x = ori ? ori->x : 0,
             .orientation_y = ori ? ori->y : 0,
             .orientation_z = ori ? ori->z : 0,
@@ -487,7 +529,7 @@ void loop() {
             .accel_z = av ? av->z : 0,
             .is_upside_down = false,
             .loop_us = loop_us,
-            .wifi_clients = WiFi.softAPgetStationNum(),
+            .wifi_clients = wifi.station_count(),
             .orientation_x = ori ? ori->x : 0,
             .orientation_y = ori ? ori->y : 0,
             .orientation_z = ori ? ori->z : 0,
@@ -568,7 +610,7 @@ void loop() {
         .accel_z = av ? av->z : 0,
         .is_upside_down = is_upside_down,
         .loop_us = loop_us,
-        .wifi_clients = WiFi.softAPgetStationNum(),
+        .wifi_clients = wifi.station_count(),
         .orientation_x = orientation ? orientation->x : 0,
         .orientation_y = orientation ? orientation->y : 0,
         .orientation_z = orientation ? orientation->z : 0,

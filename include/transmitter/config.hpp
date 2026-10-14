@@ -130,15 +130,15 @@ struct OpenTxTransmitterConfiguration : public TransmitterConfiguration {
     }
 };
 
-/** OpenTxTransmitter plus the Mr Stabs Mk2 firmware's diagnostics stream over the robot's WiFi,
+/** OpenTxTransmitter plus the Mr Stabs Mk2 firmware's telemetry ring, polled over WiFi and
  *  recorded on /robot/esp32_diagnostics. The radio half is unchanged. */
 struct Esp32DiagnosticsOpenTxTransmitterConfiguration : public OpenTxTransmitterConfiguration {
-    /** The robot's access point address, an IP literal. 192.168.4.1 is the ESP32 AP default. */
+    /** The robot's address, an IP literal. 192.168.4.1 is its access point; in client mode use
+     *  the address the router reserves for it. */
     std::string esp32_host = "192.168.4.1";
     int esp32_port = 80;
-    /** Ask the firmware to send every control loop instead of at 10 Hz. */
-    bool record_mode = true;
-    /** First reconnect delay after the stream drops; doubles per failure up to 10 s. */
+    /** Wait after a failed poll before trying again. The ring holds two minutes of records, so
+     *  a poll that comes back within that loses nothing. */
     double reconnect_period_s = 1.0;
 
     Esp32DiagnosticsOpenTxTransmitterConfiguration() { type = "Esp32DiagnosticsOpenTxTransmitter"; }
@@ -147,7 +147,6 @@ struct Esp32DiagnosticsOpenTxTransmitterConfiguration : public OpenTxTransmitter
         OpenTxTransmitterConfiguration::parse_fields(parser);
         esp32_host = parser.get_optional_string("esp32_host", esp32_host);
         esp32_port = static_cast<int>(parser.get_optional_int("esp32_port", esp32_port));
-        record_mode = parser.get_optional_bool("record_mode", record_mode);
         reconnect_period_s = parser.get_optional_double("reconnect_period_s", reconnect_period_s);
         if (esp32_port <= 0 || esp32_port > 65535) {
             throw ConfigValidationError("esp32_port must be in 1..65535 in section [transmitter]");

@@ -1,7 +1,7 @@
 #!/bin/bash
-# Flash over the robot's SoftAP with ArduinoOTA. Connect to the MR-STABS network first. Phase 1
-# fallback while ESP-NOW OTA (scripts/ota) proves itself; Phase 2 of
-# docs/plans/espnow_link_plan.md deletes the SoftAP and this script with it.
+# Flash over WiFi with ArduinoOTA. With no argument it targets the robot's own access point
+# (join MR-STABS first). In client mode pass the address the router gave it, or mr-stabs.local:
+#   ./scripts/ota_wifi 192.168.50.40
 BASE_DIR=$(realpath "$(dirname $0)")
 cd ${BASE_DIR}/..
-platformio run --target upload -e ota --upload-port 192.168.4.1
+platformio run --target upload -e ota --upload-port "${1:-192.168.4.1}"

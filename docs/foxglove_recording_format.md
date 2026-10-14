@@ -188,10 +188,12 @@ Foxglove plot path example: `/diagnostics/pursuit_nav.pursuit_nav.values.heading
 ## `/robot/esp32_diagnostics` (JSON)
 
 Written by `Esp32DiagnosticsOpenTxTransmitter` (the `mr_stabs_mk2_sysid_zed_box` profile). One
-message per line of the Mr Stabs Mk2 firmware's diagnostics event stream
-(`DiagnosticsServer::update` in `firmware/mr_stabs_mk2/src/diagnostics_server.cpp`), not a
-per-cycle summary: in record mode that is every firmware control loop. `log_time` is
-`host_receive_ns`.
+message per 100 Hz record of the Mr Stabs Mk2 firmware's telemetry ring, which the app polls over
+WiFi with `GET /telemetry` (`Esp32WifiTelemetry`). The ring holds two minutes, so a link outage
+shorter than that delays rows but loses none. `log_time` is `host_receive_ns`.
+
+Recordings made before the ring (2026-10-13) hold one message per line of the firmware's event
+stream instead, every control loop in record mode, with `backfill` absent.
 
 ```json
 {"host_receive_ns": 1788011445339499712, "timestamp_ms": 123457,
@@ -200,10 +202,11 @@ per-cycle summary: in record mode that is every firmware control loop. `log_time
  "accel_x": 1.1, "accel_y": 0.0, "accel_z": 9.7, "is_upside_down": false,
  "loop_us": 905, "wifi_clients": 1, "orientation_x": 10.0, "orientation_y": 0.5,
  "orientation_z": -0.5, "pid_setpoint": 0.0, "pid_output": 0.0, "vbat": 15.842,
- "ibat": 3.12, "yaw_rate": 0.4, "yaw_rate_cmd": null, "seq": 88412}
+ "ibat": 3.12, "yaw_rate": 0.4, "yaw_rate_cmd": null, "seq": 88412, "backfill": true}
 ```
 
-- `host_receive_ns`: app wall clock when the line arrived, integer nanoseconds. A JSON integer
+- `host_receive_ns`: app wall clock when the poll reply (or event-stream line) arrived, integer
+  nanoseconds. Every row of one poll shares it. A JSON integer
   above 2^53, so a JavaScript consumer rounds it; Python reads it exactly.
 - `timestamp_ms`: the robot's `millis()`. The difference to `host_receive_ns` drifts with the two
   clocks and jumps with WiFi latency; `esp32_diagnostics` diagnostics log it as `clock_offset_ms`.
@@ -216,12 +219,17 @@ per-cycle summary: in record mode that is every firmware control loop. `log_time
   conditions as `vbat`.
 - `yaw_rate`, `yaw_rate_cmd`: gyro yaw rate and the rate the yaw loop commands, deg/s clockwise.
   `yaw_rate_cmd` is `null` when the loop is not running; both are `null` on older firmware.
-- `seq`: +1 per line the firmware sends, starting at 0 on boot. A gap is lines lost between the
-  robot and the host. Outside record mode the firmware sends at most 10 Hz but still counts only
-  sent lines, so gaps mean loss there too. `null` on older firmware.
+- `seq`: the ring's record number, +1 per 100 Hz record, starting at 0 on boot. A gap is records
+  the ring overwrote before a poll reached them. On event-stream recordings it counts sent lines
+  instead. `null` on older firmware.
+- `backfill`: true when the row waited in the ring, either for the next poll or for the link to
+  come back; only the newest row of a poll that caught up is false. A backfilled row's
+  `host_receive_ns` is late by that wait, so clock fits skip it. `null` on event-stream rows.
+- `wifi_clients` is not in the ring and reads 0.
 
-Stream health (connected, events per second, parse errors, reconnects, largest robot-clock gap,
-clock offset) goes to `/diagnostics/esp32_diagnostics` once a second.
+Link health (connected, rows per second, polls and failed polls, parse errors, backfilled and
+lost records, records still waiting in the ring, ring capacity, robot reboots, largest robot-clock
+gap, clock offset) goes to `/diagnostics/esp32_diagnostics` once a second.
 
 ## `/robot/espnow_telemetry` (JSON)
 

@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>Mr Stabs Diagnostics</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script>
+      // Apply the saved theme before first paint so the page does not flash. Same key as the
+      // main dashboard.
+      try {
+        var t = localStorage.getItem("theme");
+        var dark = t
+          ? t === "dark"
+          : matchMedia("(prefers-color-scheme: dark)").matches;
+        document.documentElement.dataset.theme = dark ? "dark" : "light";
+      } catch (e) {}
+    </script>
+  </head>
+  <body>
+    <header>
+      <svg
+        class="logo"
+        width="46"
+        height="36"
+        viewBox="55 40 370 290"
+        role="img"
+        aria-label="BWBots logo"
+      >
+        <path
+          class="left"
+          d="M202 47 A137 137 0 0 0 202 321 L202 240 A56 56 0 0 1 202 128 Z"
+        />
+        <path
+          class="right"
+          d="M277 47 A137 137 0 0 1 277 321 L277 240 A56 56 0 0 0 277 128 Z"
+        />
+        <rect
+          class="pill-shape"
+          x="130"
+          y="118"
+          width="217"
+          height="132"
+          rx="66"
+        />
+        <text x="238.5" y="222" text-anchor="middle">BW</text>
+      </svg>
+      <div class="title">
+        <div class="name">MR STABS MK2</div>
+        <div class="sub mono">diagnostics</div>
+      </div>
+      <div class="grow"></div>
+      <span class="pill" id="wifiPill" title="WiFi mode"
+        ><span class="dot"></span><span>--</span></span
+      >
+      <span class="pill" id="linkPill" title="Live data stream"
+        ><span class="dot"></span><span>OFFLINE</span></span
+      >
+      <button
+        class="icon"
+        id="darkBtn"
+        aria-label="Dark mode"
+        aria-pressed="false"
+      ></button>
+    </header>
+
+    <main>
+      <section>
+        <h2 class="label section-head">DRIVE</h2>
+        <div id="driveRows"></div>
+      </section>
+
+      <section>
+        <h2 class="label section-head">IMU AND YAW LOOP</h2>
+        <div id="imuLiveRows"></div>
+      </section>
+
+      <section>
+        <h2 class="label section-head">POWER AND LOOP</h2>
+        <div id="powerRows"></div>
+      </section>
+
+      <section>
+        <h2 class="label section-head">RECORD</h2>
+        <p class="note muted">
+          Records every loop tick the page receives while it runs. Download
+          saves the CSV that
+          <span class="mono">scripts/log_drive_twitch.py --csv</span> reads.
+        </p>
+        <div class="row">
+          <button class="btn" id="recBtn" aria-pressed="false">RECORD</button>
+          <button class="btn" id="dlBtn">DOWNLOAD CSV</button>
+          <span class="mono muted" id="recCount"></span>
+        </div>
+      </section>
+
+      <section class="wide">
+        <h2 class="label section-head">WIFI</h2>
+        <div class="wifi-grid">
+          <div>
+            <div class="field">
+              <span class="label">MODE ON BOOT</span>
+              <div class="seg" id="modeSeg" role="group" aria-label="WiFi mode">
+                <button data-mode="ap" aria-pressed="false">
+                  ACCESS POINT
+                </button>
+                <button data-mode="client" aria-pressed="false">CLIENT</button>
+              </div>
+            </div>
+            <div class="field" id="selectField">
+              <label class="label" for="netSelect">CONNECT TO</label>
+              <select id="netSelect"></select>
+            </div>
+            <p class="note muted" id="modeNote"></p>
+            <div class="row">
+              <button class="btn" id="applyBtn">SAVE AND APPLY</button>
+              <span class="mono muted" id="applyStatus"></span>
+            </div>
+            <div id="wifiRows"></div>
+          </div>
+          <div>
+            <span class="label">SAVED NETWORKS</span>
+            <ul class="nets" id="netList"></ul>
+            <form id="addForm" class="add" autocomplete="off">
+              <div class="field">
+                <label class="label" for="addSsid">SSID</label>
+                <input id="addSsid" maxlength="32" required />
+              </div>
+              <div class="field">
+                <label class="label" for="addPass">PASSWORD</label>
+                <input id="addPass" type="password" maxlength="63" />
+              </div>
+              <div class="row">
+                <button class="btn" type="submit">SAVE NETWORK</button>
+                <span class="mono muted" id="addStatus"></span>
+              </div>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2 class="label section-head">ESC DEADZONE</h2>
+        <div class="tune">
+          <label class="label" for="dzL">LEFT %</label>
+          <input id="dzL" type="number" min="0" max="50" step="0.5" />
+          <button class="btn" data-tune="left_esc_dz" data-input="dzL">
+            APPLY
+          </button>
+          <span class="mono muted" id="dzLS"></span>
+        </div>
+        <div class="tune">
+          <label class="label" for="dzR">RIGHT %</label>
+          <input id="dzR" type="number" min="0" max="50" step="0.5" />
+          <button class="btn" data-tune="right_esc_dz" data-input="dzR">
+            APPLY
+          </button>
+          <span class="mono muted" id="dzRS"></span>
+        </div>
+      </section>
+
+      <section>
+        <h2 class="label section-head">
+          I2C BUS <span class="mono muted" id="busPins"></span>
+        </h2>
+        <div id="busRows"></div>
+        <div class="row">
+          <button class="btn" id="scanBtn">RESCAN BUS</button>
+          <span class="mono muted" id="scanStatus"></span>
+        </div>
+      </section>
+
+      <section>
+        <h2 class="label section-head">BNO055 IMU</h2>
+        <div id="imuRows"></div>
+      </section>
+
+      <section>
+        <h2 class="label section-head">INA228 PACK SENSOR</h2>
+        <div id="inaRows"></div>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

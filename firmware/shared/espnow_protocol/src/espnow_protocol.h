@@ -124,7 +124,28 @@ struct OtaStatusPayload {
     uint8_t error;  // OtaError
     uint8_t running_md5[16];
 };
+// Body of the robot's `GET /telemetry?from=<seq>&max=<n>` over WiFi: this header, then `count`
+// TelemetryPayload records, oldest first. The firmware fills a ring of them at the ESP-NOW
+// telemetry rate whether or not anyone reads it, so a client that loses the link catches up on
+// everything still in the ring once it is back. telemetry_seq in each record is the ring's seq.
+struct TelemetryBatchHeader {
+    uint32_t magic;        // TELEMETRY_BATCH_MAGIC
+    uint16_t version;      // TELEMETRY_BATCH_VERSION
+    uint16_t record_size;  // sizeof(TelemetryPayload); a mismatch means mismatched builds
+    uint32_t boot_id;      // random per boot: a change means seqs restarted at 0
+    uint32_t capacity;     // records the ring holds
+    uint32_t head;         // seq the next record gets; head - 1 is the newest
+    uint32_t oldest;       // oldest seq still in the ring
+    uint32_t first_seq;    // seq of the first record in this body
+    uint32_t count;
+};
+
 #pragma pack(pop)
+
+const uint32_t TELEMETRY_BATCH_MAGIC = 0x4D525442;  // "BTRM" little-endian
+const uint16_t TELEMETRY_BATCH_VERSION = 1;
+// Records per response at most. The client asks again at once when a response comes back full.
+const uint32_t TELEMETRY_BATCH_MAX = 256;
 
 const size_t OTA_CHUNK_DATA = 240;
 
@@ -156,6 +177,7 @@ static_assert(sizeof(CommandPayload) == 16, "CommandPayload layout");
 static_assert(sizeof(LinkStatsPayload) == 18, "LinkStatsPayload layout");
 static_assert(sizeof(OtaStatusPayload) == 22, "OtaStatusPayload layout");
 static_assert(sizeof(TelemetryPayload) == 118, "TelemetryPayload layout");
+static_assert(sizeof(TelemetryBatchHeader) == 32, "TelemetryBatchHeader layout");
 static_assert(sizeof(TelemetryPayload) <= AIR_MAX_PAYLOAD, "telemetry must fit one air frame");
 static_assert(sizeof(OtaChunkHeader) + OTA_CHUNK_DATA <= AIR_MAX_PAYLOAD,
               "OTA chunk must fit one air frame");

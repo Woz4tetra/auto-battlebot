@@ -11,12 +11,11 @@ namespace {
 constexpr const char *kTopic = "/robot/esp32_diagnostics";
 constexpr auto kHealthPeriod = std::chrono::seconds(1);
 
-Esp32WifiDiagnosticsOptions to_options(const Esp32DiagnosticsOpenTxTransmitterConfiguration &c) {
-    Esp32WifiDiagnosticsOptions options;
+Esp32WifiTelemetryOptions to_options(const Esp32DiagnosticsOpenTxTransmitterConfiguration &c) {
+    Esp32WifiTelemetryOptions options;
     options.host = c.esp32_host;
     options.port = c.esp32_port;
-    options.record_mode = c.record_mode;
-    options.reconnect_period =
+    options.retry_period =
         std::chrono::milliseconds(static_cast<int64_t>(std::llround(c.reconnect_period_s * 1e3)));
     return options;
 }
@@ -27,7 +26,7 @@ Esp32DiagnosticsOpenTxTransmitter::Esp32DiagnosticsOpenTxTransmitter(
     std::shared_ptr<ClockInterface> clock, std::shared_ptr<VizSink> sink,
     std::shared_ptr<McapRecorder> mcap_recorder)
     : OpenTxTransmitter(config, std::move(clock)),
-      diagnostics_(std::make_unique<Esp32WifiDiagnostics>(to_options(config))),
+      diagnostics_(std::make_unique<Esp32WifiTelemetry>(to_options(config))),
       channel_(kTopic, "json",
                VizSchema::jsonschema(foxglove_adapters::kEsp32DiagnosticsSchemaName,
                                      foxglove_adapters::kEsp32DiagnosticsSchema),
@@ -35,7 +34,7 @@ Esp32DiagnosticsOpenTxTransmitter::Esp32DiagnosticsOpenTxTransmitter(
       health_logger_(DiagnosticsLogger::get_logger("esp32_diagnostics")) {}
 
 Esp32DiagnosticsOpenTxTransmitter::~Esp32DiagnosticsOpenTxTransmitter() {
-    // Stop first: the worker sends /record/stop, and the channel it no longer feeds can then go.
+    // Stop first, so the worker is gone before the channel it feeds.
     diagnostics_->stop();
 }
 
@@ -72,7 +71,7 @@ void Esp32DiagnosticsOpenTxTransmitter::log_health() {
                                  : std::chrono::duration<double>(now - last_health_log_).count();
     last_health_log_ = now;
 
-    const Esp32WifiDiagnosticsStats stats = diagnostics_->stats();
+    const Esp32WifiTelemetryStats stats = diagnostics_->stats();
     const uint64_t new_events = stats.events - events_at_last_health_log_;
     events_at_last_health_log_ = stats.events;
 
@@ -80,9 +79,14 @@ void Esp32DiagnosticsOpenTxTransmitter::log_health() {
     data["connected"] = static_cast<int>(stats.connected);
     data["events_per_second"] = elapsed_s > 0.0 ? static_cast<double>(new_events) / elapsed_s : 0.0;
     data["events"] = static_cast<int>(stats.events);
+    data["polls"] = static_cast<int>(stats.polls);
+    data["poll_failures"] = static_cast<int>(stats.poll_failures);
     data["parse_errors"] = static_cast<int>(stats.parse_errors);
-    data["reconnects"] = static_cast<int>(stats.reconnects);
-    data["connect_failures"] = static_cast<int>(stats.connect_failures);
+    data["backfilled"] = static_cast<int>(stats.backfilled);
+    data["lost_records"] = static_cast<int>(stats.lost_records);
+    data["lag_records"] = static_cast<int>(stats.lag_records);
+    data["ring_capacity"] = static_cast<int>(stats.ring_capacity);
+    data["reboots"] = static_cast<int>(stats.reboots);
     data["dropped_events"] = static_cast<int>(stats.dropped_events);
     data["max_robot_gap_ms"] = static_cast<int>(max_robot_gap_ms_);
     if (clock_offset_ms_) data["clock_offset_ms"] = *clock_offset_ms_;
@@ -91,7 +95,7 @@ void Esp32DiagnosticsOpenTxTransmitter::log_health() {
     if (stats.connected) {
         health_logger_->info("stream", data);
     } else {
-        health_logger_->warning("stream", data, "not connected to the robot's diagnostics server");
+        health_logger_->warning("stream", data, "not reaching the robot's telemetry ring");
     }
 }
 

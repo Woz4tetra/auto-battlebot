@@ -1,8 +1,11 @@
 #pragma once
 #include <Arduino.h>
+#include <espnow_protocol.h>
 #include <i2c_bus.h>
+#include <telemetry_ring.h>
 #include <updown_sensor.h>
 #include <vbat_sensor.h>
+#include <wifi_manager.h>
 
 typedef struct {
     uint32_t timestamp_ms;
@@ -52,9 +55,15 @@ struct tunable_ptrs_t {
     float *right_esc_deadzone = nullptr;
 };
 
+using telemetry_ring_t = telemetry_ring::TelemetryRing<espnow_protocol::TelemetryPayload>;
+
 class DiagnosticsServer {
    public:
-    void begin(tunable_ptrs_t tunables = {});
+    // Serves the page from web/ (embedded at build time by scripts/embed_web.py), the WiFi
+    // settings endpoints, which edit wifi's saved networks, and GET /telemetry, which reads ring.
+    // boot_id goes out with every /telemetry reply so a client can tell a reboot restarted seqs.
+    void begin(wifi_manager::WifiManager *wifi, const telemetry_ring_t *ring, uint32_t boot_id,
+               tunable_ptrs_t tunables = {});
     void update(const diag_data_t *data);
     // True while a browser has the page open. Gate optional diagnostic work on this.
     bool has_clients();
@@ -70,4 +79,10 @@ class DiagnosticsServer {
     uint32_t _seq = 0;  // +1 per row sent, so a gap in a recording shows dropped rows
     tunable_ptrs_t _tunables;
     volatile bool _scan_requested = false;
+    // From the latest update(). WiFi settings writes go to flash, which stalls the loop, so
+    // the page can only change them disarmed.
+    volatile bool _armed = false;
+    wifi_manager::WifiManager *_wifi = nullptr;
+    const telemetry_ring_t *_ring = nullptr;
+    uint32_t _boot_id = 0;
 };

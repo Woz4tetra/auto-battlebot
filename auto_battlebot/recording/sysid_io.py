@@ -47,7 +47,8 @@ NUM_TRANSMITTER_CHANNELS = 16
 # Field order of one /robot/esp32_diagnostics event, with the pandas dtype each column gets.
 # Booleans stay bool; vbat and ibat are float with NaN where the firmware had no INA228 reading
 # (null, or a recording older than the field). yaw_rate and yaw_rate_cmd are NaN when absent, and
-# seq is a nullable integer, <NA> in recordings older than the field.
+# seq is a nullable integer, <NA> in recordings older than the field. backfill is False on
+# event-stream rows and in recordings older than the telemetry ring.
 ESP32_FIELDS: tuple[tuple[str, str], ...] = (
     ("host_receive_ns", "int64"),
     ("timestamp_ms", "int64"),
@@ -75,6 +76,7 @@ ESP32_FIELDS: tuple[tuple[str, str], ...] = (
     ("yaw_rate", "float64"),
     ("yaw_rate_cmd", "float64"),
     ("seq", "Int64"),
+    ("backfill", "bool"),
 )
 
 

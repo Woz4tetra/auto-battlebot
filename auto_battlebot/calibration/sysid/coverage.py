@@ -194,7 +194,11 @@ class CoverageSession:
                 self._seq_gaps.append((prev, robot_ms))
         if seq is not None:
             self._last_seq = int(seq)
-        self.clock.push(robot_ms, host_ns)
+        # A backfilled row waited in the robot's ring for a poll, so its arrival time says when
+        # the poll ran. The newest row of each poll still feeds the clock's lower envelope. The
+        # clock still takes one when it has nothing to map with, or to see a reboot.
+        if not row.get("backfill") or self.clock.empty or self.clock.rebooted(robot_ms):
+            self.clock.push(robot_ms, host_ns)
         self._tele.append(_Telemetry(robot_ms, host_ns, row))
         self._tele_seen += 1
 

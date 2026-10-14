@@ -16,6 +16,7 @@ from auto_battlebot.calibration.sysid.coverage import CoverageSession
 from auto_battlebot.calibration.sysid.telemetry import (
     ESP32_DIAGNOSTICS_TOPIC,
     ESPNOW_TELEMETRY_TOPIC,
+    from_diagnostics,
     telemetry_topic,
 )
 from auto_battlebot.recording.foxglove_ws import FoxgloveSubscriber
@@ -35,7 +36,13 @@ from auto_battlebot.recording.sysid_io import (
     parse_robot_tags,
 )
 
-LIVE_TOPICS = [ESPNOW_TELEMETRY_TOPIC, ROBOT_TAGS_TOPIC, TF_TOPIC, TF_STATIC_TOPIC]
+LIVE_TOPICS = [
+    ESPNOW_TELEMETRY_TOPIC,
+    ESP32_DIAGNOSTICS_TOPIC,
+    ROBOT_TAGS_TOPIC,
+    TF_TOPIC,
+    TF_STATIC_TOPIC,
+]
 
 Message = tuple[str, int, MessageBytes]
 
@@ -70,8 +77,10 @@ class Dispatcher:
         self._world_from_camera: np.ndarray | None = None
 
     def __call__(self, topic: str, log_time_ns: int, data: MessageBytes) -> None:
-        if topic in (ESPNOW_TELEMETRY_TOPIC, ESP32_DIAGNOSTICS_TOPIC):
+        if topic == ESPNOW_TELEMETRY_TOPIC:
             self.session.feed_telemetry(decode_json(data), log_time_ns)
+        elif topic == ESP32_DIAGNOSTICS_TOPIC:
+            self.session.feed_telemetry(from_diagnostics(decode_json(data)), log_time_ns)
         elif topic == ROBOT_TAGS_TOPIC:
             self.session.feed_tags(parse_robot_tags(decode_json(data), log_time_ns))
         elif topic in (TF_TOPIC, TF_STATIC_TOPIC):

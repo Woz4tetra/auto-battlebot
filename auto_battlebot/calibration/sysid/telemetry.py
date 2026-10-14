@@ -6,9 +6,11 @@ here with no edit and a renamed one fails loudly where it is used instead of rea
 Integers load as nullable ``Int64`` (``telemetry_seq`` is <NA> in recordings older than it),
 numbers as float with NaN for null, booleans as bool.
 
-Recordings without ESP-NOW telemetry fall back to ``/robot/esp32_diagnostics``, the WiFi stream
-with the same drive fields. The columns it lacks (``espnow_active``, ``autonomy_enabled``,
-``telemetry_seq``) read as False or <NA>.
+Without ESP-NOW telemetry the source is ``/robot/esp32_diagnostics``, the robot's telemetry
+ring polled over WiFi (older recordings: its event stream), with the same drive fields.
+``from_diagnostics`` renames its ``seq`` to ``telemetry_seq`` so drops count the same way; the
+columns it lacks (``espnow_active``, ``autonomy_enabled``) read as False. Its ``backfill`` rows
+waited in the ring, so their ``host_receive_ns`` is late and the live clock skips them.
 
 Plant inputs:
 
@@ -70,6 +72,13 @@ def _value(value: Any, dtype: str) -> Any:
     return None if value is None else int(value)
 
 
+def from_diagnostics(row: dict[str, Any]) -> dict[str, Any]:
+    """A ``/robot/esp32_diagnostics`` row with ``seq`` as ``telemetry_seq``, the ESP-NOW name."""
+    if "telemetry_seq" in row or row.get("seq") is None:
+        return row
+    return {**row, "telemetry_seq": row["seq"]}
+
+
 def telemetry_frame(events: Iterable[dict[str, Any]]) -> pd.DataFrame:
     """Typed DataFrame from decoded telemetry dicts, one row each, in schema order."""
     columns: dict[str, list[Any]] = {name: [] for name, _ in TELEMETRY_COLUMNS}
@@ -97,7 +106,8 @@ def load_telemetry(path: Path | str) -> pd.DataFrame:
     log_times: list[int] = []
     if topic is not None:
         for _topic, log_time_ns, data in iter_messages(path, [topic]):
-            events.append(decode_json(data))
+            row = decode_json(data)
+            events.append(from_diagnostics(row) if topic == ESP32_DIAGNOSTICS_TOPIC else row)
             log_times.append(log_time_ns)
     df = telemetry_frame(events)
     df.insert(0, "log_time_ns", pd.Series(log_times, dtype="int64"))
@@ -144,8 +154,17 @@ class LiveClock:
         self._min_gap_ns: int | None = None
         self.status: ClockStatus | None = None
 
+    @property
+    def empty(self) -> bool:
+        """No frame pushed since start or the last reboot, so ``to_host_ns`` cannot map yet."""
+        return self._min_gap_ns is None
+
+    def rebooted(self, robot_ms: int) -> bool:
+        """``robot_ms`` steps back from the newest pushed frame, as after a robot reboot."""
+        return bool(self._robot) and robot_ms < self._robot[-1] - 1000
+
     def push(self, robot_ms: int, host_ns: int) -> None:
-        if self._robot and robot_ms < self._robot[-1] - 1000:
+        if self.rebooted(robot_ms):
             self._robot.clear()
             self._host.clear()
             self._segment = None

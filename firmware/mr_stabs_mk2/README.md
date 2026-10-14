@@ -118,16 +118,18 @@ again afterward. A transfer takes about 20 s for an 887 KB image.
   `Serial` on the chip's USB-Serial/JTAG port (`ARDUINO_USB_MODE=1`), which stays up when the
   firmware hangs, and esptool resets the chip into its ROM bootloader through it.
 
-### WiFi fallback
+### WiFi
 
-Until Phase 2 of the plan deletes it, the ESP32 also creates a WiFi access point on boot:
+The robot either runs its own access point or joins a router, chosen on the diagnostics page
+(see [WiFi settings](#wifi-settings)). Out of the box it is an access point:
 
 - **SSID:** `MR-STABS`
 - **Password:** `havocbots`
+- **Address:** `192.168.4.1`
 - **Channel:** `espnow_protocol::CHANNEL_OVERRIDE` (1), the channel ESP-NOW shares
 
-Connect your computer to this network, then run `./scripts/ota_wifi`. The OTA endpoint is at
-`192.168.4.1`.
+Run `./scripts/ota_wifi` on that network. In client mode, pass the robot's router address or
+`mr-stabs.local`: `./scripts/ota_wifi 192.168.50.40`.
 
 ## Configuring ESCs via USB Passthrough
 
@@ -174,10 +176,20 @@ Toggle the `button_state` switch again. DShot reinitializes, the LED returns to 
 
 ## Diagnostics Dashboard
 
-A live diagnostics web page is available over the WiFi access point. No extra software needed -- just a browser.
+A live diagnostics web page, styled after the main web dashboard. It needs only a browser.
 
-1. Connect your computer to the **MR-STABS** WiFi network.
-2. Open `http://192.168.4.1` in a browser.
+1. Join the robot's network: **MR-STABS** in access point mode, or the same router in client mode.
+2. Open `http://192.168.4.1` (access point) or `http://mr-stabs.local` (client mode).
+
+The page lives in `web/` as plain HTML, CSS, and JS with no build step of its own.
+`scripts/embed_web.py` runs before every PlatformIO build, gzips `web/` into
+`.pio/build/<env>/web_assets/web_assets.h`, and the firmware serves it from flash. Edit the files
+in `web/` and rebuild; nothing generated is checked in. `web/fonts/` holds the dashboard's
+Archivo and IBM Plex Mono, embedded because the access point has no internet. The whole page
+costs about 130 KB of flash, nearly all of it fonts.
+
+To check layout changes without flashing, serve `web/` from any static server; the live panels
+stay empty without the robot's endpoints.
 
 The dashboard streams all diagnostic data at 10 Hz:
 
@@ -208,6 +220,44 @@ and both sensors. Red rows are the ones to look at.
 
 A sensor that fails at boot or drops out stops being read, so the robot keeps driving. The
 BNO055 is only retried after a reboot.
+
+### WiFi settings
+
+The WiFi panel saves up to 8 networks (SSID and password) to NVS, where they survive reboots and
+reflashing. Passwords never come back to the page.
+
+- **Access point**: boots as `MR-STABS` and never looks for a router.
+- **Client**: boots joining the network picked in **Connect to**. With no connection after 30 s
+  it gives up and brings up the `MR-STABS` access point instead, until the next boot or apply. A
+  connection that drops after joining retries on its own and does not fall back.
+
+**Save and apply** stores the choice and restarts WiFi with it straight away, no reboot. The page
+loses its connection when the network changes. The header pill shows AP or CLIENT; red means
+the robot fell back to its access point.
+
+Settings only change while the robot is disarmed: an NVS write stalls both cores for a few ms.
+Everything else runs in a task on core 0, so connecting, the 30 s timeout, and the fallback never
+block the control loop, and the robot drives normally in either mode.
+
+With `ESPNOW_ENABLED` on, the robot stays an access point on the ESP-NOW channel whatever is
+saved, since joining a router would move the channel.
+
+The Jetson reads the robot at `esp32_host`, an IP literal. In client mode, give the robot a DHCP
+reservation on the router and set `esp32_host` to it.
+
+### Telemetry ring
+
+Every 10 ms the loop stores one `espnow_protocol::TelemetryPayload` (118 B, the ESP-NOW telemetry
+frame) in a ring in PSRAM: 12000 records, two minutes. Without PSRAM it falls back to 500 records
+(5 s) in internal RAM; the boot log over USB says which. Writing never waits on a reader; a reader
+drops any record the loop overwrote mid-copy (`lib/telemetry_ring`, tested in
+`test/test_telemetry_ring`).
+
+`GET /telemetry?from=<seq>&max=<n>` returns a `TelemetryBatchHeader` (in
+`firmware/shared/espnow_protocol`) and then up to 256 records from `from` on, oldest first. With
+no `from` it returns the header alone, which tells a new client where the head is. The header's
+`boot_id` changes on every boot, when seqs restart at 0. The Jetson's `Esp32WifiTelemetry` polls
+it every 100 ms for the sysid profile, so a WiFi dropout shorter than two minutes costs no rows.
 
 ### Recording Data
 

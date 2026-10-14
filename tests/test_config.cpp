@@ -1654,7 +1654,6 @@ drive_processor = "DifferentialDriveProcessor"
 reverse_angular_channel = true
 esp32_host = "192.168.4.2"
 esp32_port = 8080
-record_mode = false
 reconnect_period_s = 0.5
 )"));
 
@@ -1664,7 +1663,6 @@ reconnect_period_s = 0.5
     ASSERT_NE(transmitter_config, nullptr);
     EXPECT_EQ(transmitter_config->esp32_host, "192.168.4.2");
     EXPECT_EQ(transmitter_config->esp32_port, 8080);
-    EXPECT_FALSE(transmitter_config->record_mode);
     EXPECT_DOUBLE_EQ(transmitter_config->reconnect_period_s, 0.5);
     EXPECT_EQ(transmitter_config->drive_processor, "DifferentialDriveProcessor");
     EXPECT_TRUE(transmitter_config->reverse_angular_channel);
@@ -1682,7 +1680,7 @@ type = "Esp32DiagnosticsOpenTxTransmitter"
     ASSERT_NE(transmitter_config, nullptr);
     EXPECT_EQ(transmitter_config->esp32_host, "192.168.4.1");
     EXPECT_EQ(transmitter_config->esp32_port, 80);
-    EXPECT_TRUE(transmitter_config->record_mode);
+    EXPECT_DOUBLE_EQ(transmitter_config->reconnect_period_s, 1.0);
 }
 
 TEST_F(ConfigTest, Esp32DiagnosticsTransmitterRejectsUnknownField) {
