@@ -22,9 +22,9 @@ velocity_saturation_limit = 1.0
 # Polls the robot's telemetry ring (GET /telemetry, 100 Hz records, two minutes deep). This is
 # its access point, which the box joins on its second WiFi dongle. With the robot in client mode
 # on the box's router, set this to the address the router reserves for it.
-esp32_host = "192.168.4.1"
+esp32_host = "mr-stabs.local"
 esp32_port = 80
-reconnect_period_s = 1.0   # wait after a failed poll
+reconnect_period_s = 1.0      # wait after a failed poll
 
 [keypoint_model]
 type = "AprilTagKeypointModel"

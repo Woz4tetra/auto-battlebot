@@ -295,6 +295,13 @@ elif [ ! -f "$BUILD_DIR/compile_commands.json" ]; then
     echo -e "${RED}    ✗ clang-tidy (no build/compile_commands.json — run scripts/build.sh)${NC}"
     FAILED+=("clang-tidy")
 else
+    # The source list comes from CONFIGURE_DEPENDS globs, which only re-run on a
+    # build, so a renamed .cpp leaves compile_commands.json pointing at a file
+    # that no longer exists and clang-tidy fails on it. Reconfiguring takes
+    # ~0.6s, keeps the cached options, and rebuilds nothing.
+    if ! cmake -S "$PROJECT_ROOT" -B "$BUILD_DIR" >/dev/null; then
+        echo -e "${RED}    ✗ cmake reconfigure of build/ failed${NC}"
+    fi
     # clang-tidy exits 0 when it only reports warnings, so without
     # -warnings-as-errors the step prints diagnostics and still scores a pass.
     # Promoting every check to an error makes run-clang-tidy exit non-zero on
