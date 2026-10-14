@@ -27,6 +27,9 @@
 /third_party/
 
 # The root .gitignore excludes every lib/ directory, and git re-includes the dashboard's
-# web/src/lib/ with "!/web/src/lib/". rsync's .gitignore merge reads that line as a plain
-# exclude, so the re-include has to live here or the web build fails on the Jetson.
+# web/src/lib/ and every firmware project's lib/ (firmware/.gitignore) with "!" lines. rsync's
+# .gitignore merge reads those as plain excludes, so the re-includes have to live here too or
+# the web build and the firmware builds (mr_stabs_mk2's scripts/ota builds on the box) fail on
+# the Jetson.
 !/web/src/lib/
+!/firmware/*/lib/
