@@ -6,6 +6,7 @@
 #include <esp_now.h>
 #include <esp_wifi.h>
 #include <espnow_protocol.h>
+#include <hal/usb_serial_jtag_ll.h>
 
 using namespace espnow_protocol;
 
@@ -21,6 +22,12 @@ const uint32_t LINK_STATS_PERIOD_MS = 100;
 // a few ms; this only covers a driver hiccup.
 const uint32_t SEND_CALLBACK_TIMEOUT_MS = 50;
 const uint32_t SCAN_DWELL_MS = 150;
+
+// ESP-NOW transmit rate. 1 Mbps until the new PCBA: the current robot board hears the dongle at
+// -85 dBm from 30 cm, and 1 Mbps buys ~5 dB of receive sensitivity over 6 Mbps for ~1 ms more
+// airtime a frame. Set back to WIFI_PHY_RATE_6M, here and in mr_stabs_mk2's espnow_link.h, once the
+// new board measures ~-40 dBm. See "Robot radio" in docs/plans/espnow_link_plan.md.
+const wifi_phy_rate_t ESPNOW_PHY_RATE = WIFI_PHY_RATE_1M_L;
 
 const uint8_t BROADCAST_MAC[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
@@ -147,7 +154,16 @@ void write_serial_frame(uint8_t type, const uint8_t *payload, uint8_t length) {
     uint8_t out[SERIAL_MAX_FRAME];
     const size_t size = encode_serial_frame(type, payload, length, out);
     // Never block on the host. With no reader the frame is dropped, which is what we want.
-    if (Serial.availableForWrite() >= static_cast<int>(size)) Serial.write(out, size);
+    if (Serial.availableForWrite() >= static_cast<int>(size)) {
+        Serial.write(out, size);
+        return;
+    }
+    // HWCDC's ISR disables the IN_EMPTY interrupt each time it fires and only Serial.write()
+    // turns it back on. Skipping write() while the buffer is full leaves it off for good once
+    // the host stops reading, and after a USB reset nothing drains the buffer again: the dongle
+    // goes silent until it is power cycled. Re-arm it the way write() does.
+    usb_serial_jtag_ll_txfifo_flush();
+    usb_serial_jtag_ll_ena_intr_mask(USB_SERIAL_JTAG_INTR_SERIAL_IN_EMPTY);
 }
 
 void queue_frame(uint8_t type, const uint8_t *payload, uint8_t length) {
@@ -238,7 +254,7 @@ void service_receive() {
             (!robot_known || memcmp(frame.mac, robot_mac, 6) != 0)) {
             memcpy(robot_mac, frame.mac, 6);
             add_peer(robot_mac);
-            esp_wifi_config_espnow_rate(WIFI_IF_STA, WIFI_PHY_RATE_6M);
+            esp_wifi_config_espnow_rate(WIFI_IF_STA, ESPNOW_PHY_RATE);
             robot_known = true;
         }
         write_serial_frame(type, frame.data + AIR_HEADER_SIZE,
@@ -277,8 +293,8 @@ void setup() {
     esp_now_register_send_cb(on_sent);
     esp_now_register_recv_cb(on_recv);
     add_peer(BROADCAST_MAC);
-    // After esp_wifi_start(), which WiFi.mode() ran. The 1 Mbps default costs ~1.2 ms a frame.
-    esp_wifi_config_espnow_rate(WIFI_IF_STA, WIFI_PHY_RATE_6M);
+    // After esp_wifi_start(), which WiFi.mode() ran.
+    esp_wifi_config_espnow_rate(WIFI_IF_STA, ESPNOW_PHY_RATE);
 
     // Plain text, once. The Jetson's parser skips anything that is not a framed message.
     Serial.printf("\nespnow_dongle mac=%s channel=%u\n", WiFi.macAddress().c_str(), channel);

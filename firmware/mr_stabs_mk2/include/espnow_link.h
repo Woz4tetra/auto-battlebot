@@ -23,6 +23,12 @@ const uint8_t DONGLE_MACS[][6] = {
 const uint8_t CHANNEL_CANDIDATES[] = {1, 6, 11};
 const uint32_t CHANNEL_DWELL_MS = 25;  // ~6 dongle repeats at 250 Hz, plus switch settling
 
+// ESP-NOW transmit rate. 1 Mbps until the new PCBA: the current robot board hears the dongle at
+// -85 dBm from 30 cm, and 1 Mbps buys ~5 dB of receive sensitivity over 6 Mbps for ~1 ms more
+// airtime a frame. Set back to WIFI_PHY_RATE_6M, here and in the dongle, once the new board
+// measures ~-40 dBm. See "Robot radio" in docs/plans/espnow_link_plan.md.
+const wifi_phy_rate_t ESPNOW_PHY_RATE = WIFI_PHY_RATE_1M_L;
+
 // The control loop runs at ~1 kHz. Telemetry at that rate would hold the channel ~35% of the
 // time at 6 Mbps, so it is sent at 100 Hz, which still resolves every 10 ms control tick.
 const uint32_t TELEMETRY_PERIOD_MS = 10;

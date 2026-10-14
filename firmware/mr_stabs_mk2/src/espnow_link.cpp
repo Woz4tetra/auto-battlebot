@@ -84,7 +84,7 @@ void EspNowLink::set_channel(uint8_t channel) {
     channel_ = channel;
     // Peers and the rate do not survive a channel change, so redo both every time.
     for (const auto &dongle : DONGLE_MACS) add_or_update_peer(dongle, ifidx_, channel);
-    esp_wifi_config_espnow_rate(ifidx_, WIFI_PHY_RATE_6M);
+    esp_wifi_config_espnow_rate(ifidx_, ESPNOW_PHY_RATE);
 }
 
 void EspNowLink::on_recv(const uint8_t *mac, const uint8_t *data, int length) {

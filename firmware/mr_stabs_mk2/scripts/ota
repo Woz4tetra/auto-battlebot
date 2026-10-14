@@ -1,7 +1,7 @@
 #!/bin/bash
 # Build mr_stabs_mk2 and flash it over ESP-NOW (docs/plans/espnow_link_plan.md). The robot must be
-# disarmed. The new image rolls back on its next reset unless it validates, which takes ~10 s
-# after boot with a dongle in range.
+# disarmed. The flasher then waits for the new image to report running, ~10 s after boot with a
+# dongle in range. There is no rollback: a bad image is rescued over USB with scripts/upload.
 #
 # Usage:
 #   scripts/ota                # through the dongle on the ZED Box, over ssh

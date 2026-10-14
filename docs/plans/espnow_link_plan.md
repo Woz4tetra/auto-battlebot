@@ -15,20 +15,51 @@ existing path, never a replacement for it.
 
 ### Status (2026-10-13)
 
-Phase 1 code is built and unit tested. Nothing has run against the robot yet.
+Phase 1 code is built, unit tested, and running on the robot and the development dongle. ESP-NOW
+OTA works end to end on the bench (887 KB in 18.3 s, validated). The robot's radio is ~19 dB short
+of the dongle's on receive (see Robot radio below), so the arena measurements wait for the new PCBA.
 
 | Piece | Where | State |
 |---|---|---|
 | Wire format, sequence rules, OTA ordering | `firmware/shared/espnow_protocol/` | Built. 17 host tests in `firmware/mr_stabs_mk2/test/test_espnow_protocol/` |
-| Dongle firmware | `firmware/espnow_dongle/` | Flashed to the development QT Py (`d8:3b:da:8e:ed:2c`). Forwarding, 250 Hz repeat, silence cutoff, keepalive, and link stats checked over USB with no robot |
-| Robot firmware | `firmware/mr_stabs_mk2/src/espnow_link.cpp`, `main.cpp` | Builds. Shadow mode (`ESPNOW_COMMAND_SUBSTITUTION = false`), ESP-NOW OTA, rollback, sweep. Not flashed |
+| Dongle firmware | `firmware/espnow_dongle/` | Flashed to the development QT Py (`d8:3b:da:8e:ed:2c`). Talks to the robot on the bench |
+| Robot firmware | `firmware/mr_stabs_mk2/src/espnow_link.cpp`, `main.cpp` | Flashed. Shadow mode (`ESPNOW_COMMAND_SUBSTITUTION = false`), ESP-NOW OTA, sweep. USB rescue needs no BOOT press |
 | `EspNowTransmitter`, `CompositeTransmitter` | `src/transmitter/` | Built. Tests in `tests/test_espnow_transmitter.cpp` |
-| Flasher | `firmware/mr_stabs_mk2/scripts/espnow_ota.py`, `scripts/ota` | Tested against a simulated robot dropping 5% of chunks |
+| Flasher | `firmware/mr_stabs_mk2/scripts/espnow_ota.py`, `scripts/ota` | Tested against a simulated robot dropping 5% of chunks, then against the robot |
 | ZED Box profiles | `config/mr_stabs_mk2_*_zed_box.toml` | Switched to the composite |
 | udev rule | `install/install_udev_rules.sh` | Written and checked with `udevadm verify`. Not installed on the box |
 
-Remaining, all needing hardware or the event: next steps 1, 3, and 7, the Phase 1 measurements and
-OTA tests, then Phases 2 and 3.
+Remaining: next steps 1 to 3 and 6 (CRSF baud, NHRL rules, ZED Box setup, the Phase 1 OTA tests and
+measurements), then Phases 2 and 3.
+
+### Robot radio (2026-10-13)
+
+The robot's QT Py is the weak end of the link. Measured with both boards ~30 cm apart, chassis
+open, both at 20 dBm TX power, by a promiscuous sniffer on each board:
+
+| Receiver | Hears | RSSI |
+|---|---|---|
+| Robot | Dongle | -85 dBm |
+| Dongle | Robot | -66 dBm |
+| Laptop Wi-Fi | Dongle softAP | 95-100% |
+| Laptop Wi-Fi | Robot softAP | 57-74% |
+
+The dongle transmits strongly (the laptop agrees), yet the robot hears it 19 dB worse than the
+dongle hears the robot. The robot's RF path is bad, worse on receive than transmit. Crossfire
+(868/915 MHz) is not the cause: low RSSI is missing signal, not added noise. The fix is the new
+PCBA, not a new dongle. Re-run the sniffer on it before any arena measurement; ~-40 dBm at 30 cm
+is the target.
+
+The robot sends ESP-NOW from its softAP MAC (`f6:12:fa:59:5c:b4`), not its STA MAC (`f4:...`).
+
+**Temporary: ESP-NOW runs at 1 Mbps until the new PCBA.** At the robot's usual distance from the
+ZED Box the 6 Mbps link delivered nothing: 0% ACK and no telemetry, both directions. 1 Mbps
+(`WIFI_PHY_RATE_1M_L`) buys ~5 dB of receive sensitivity (about -98 vs -93 dBm, typical ESP32-S3
+figures) for ~1 ms more airtime a frame, which overrides the standing 6 Mbps decision for now. Each
+side sets only its own transmit rate and receives any rate, so the robot and dongle can be flashed
+separately. When the new board measures ~-40 dBm at 30 cm, set `ESPNOW_PHY_RATE` back to
+`WIFI_PHY_RATE_6M` in both `firmware/espnow_dongle/src/main.cpp` and
+`firmware/mr_stabs_mk2/include/espnow_link.h`.
 
 ### Standing decision: latency wins every tradeoff
 
@@ -37,7 +68,7 @@ Applied throughout, that resolves to:
 
 | Choice | Decision | Cost accepted |
 |---|---|---|
-| ESP-NOW PHY rate | 6 Mbps OFDM via `esp_wifi_config_espnow_rate()` | No `WIFI_PROTOCOL_LR`, so ~10 dB less link budget |
+| ESP-NOW PHY rate | 6 Mbps OFDM via `esp_wifi_config_espnow_rate()`. 1 Mbps until the new PCBA (see Robot radio) | No `WIFI_PROTOCOL_LR`, so ~10 dB less link budget |
 | Channel | Dongle scans and picks at boot, robot sweeps to find it | Each match runs on an untested channel |
 | Dongle repeat rate | 250 Hz, forwarding on arrival | ~6% channel duty cycle |
 | `FRESH_STREAK_REQUIRED` | 3, not 5 | Slightly more source-switch flapping at range |
@@ -553,8 +584,8 @@ Two more repeat rules, both needed once OTA shares the link:
 ## OTA over ESP-NOW
 
 Firmware updates ride the same dongle and the same link as commands. `Update.h` does not care where
-the bytes come from, and the ESP-IDF bootloader verifies and rolls back the image the same way it
-does for `ArduinoOTA` today. Moving OTA here is what lets Phase 2 delete the SoftAP, `ArduinoOTA`,
+the bytes come from, and the bootloader verifies the image the same way it does for `ArduinoOTA`
+today. It does not roll back (see Rollback). Moving OTA here is what lets Phase 2 delete the SoftAP, `ArduinoOTA`,
 and the dashboard together, so the robot radio never has an access point to tear down and the
 combat/tuning radio mode switch never has to be built.
 
@@ -591,7 +622,7 @@ Go-back-N over the `0x10`-`0x14` messages:
    checks the MD5 and the ESP-IDF image header and SHA-256, sets the boot slot, answers `0x14`
    with `state = DONE`, and reboots 200 ms later.
 6. After reboot, the robot sends `0x14` with `state = VALIDATED` and `running_md5 =
-   ESP.getSketchMD5()` once the new image marks itself valid (rollback, below). The host waits up
+   ESP.getSketchMD5()` once it has run 10 s and heard the dongle. The host waits up
    to 30 s for it and fails loudly on a mismatch or silence.
 
 The dongle forwards these frames like any other. Its own send path waits on
@@ -663,7 +694,7 @@ transfer. Their constants are `COMMAND_STALE_MS = 60`, `FRESH_STREAK_REQUIRED = 
 `REACQUIRE_SILENCE_MS = 500`.
 
 `EspNowLink::update()` runs once per `loop()`, after `crsf->update()` so `armed` is current. It
-drains received frames, runs the OTA, sweep, and rollback state machines, and aborts a transfer
+drains received frames, runs the OTA, sweep, and boot validation state machines, and aborts a transfer
 on arming or 5 s of silence. `send_telemetry()` sends at most every 10 ms (100 Hz). The control loop
 runs at ~1 kHz, and telemetry at that rate would hold the channel ~35% of the time at 6 Mbps.
 
@@ -929,7 +960,7 @@ Build only:
 - `EspNowTransmitter` and `CompositeTransmitter`, with the firmware substitution disabled
   (`ESPNOW_COMMAND_SUBSTITUTION = false`)
 - The link fields in `TelemetryPayload`
-- ESP-NOW OTA end to end: robot handler, rollback override, `espnow_ota.py`, the new `scripts/ota`.
+- ESP-NOW OTA end to end: robot handler, boot validation report, `espnow_ota.py`, the new `scripts/ota`.
   The SoftAP and `ArduinoOTA` stay up as the fallback (`scripts/ota_wifi`)
 
 All built; see Status.
@@ -958,8 +989,8 @@ OTA tests, on the bench. Each must leave the robot running a known image, checke
 
 1. **Repeat.** 20 consecutive flashes alternating two builds, all succeed. Record the transfer time
    against the 10 s budget.
-2. **Rollback.** Flash an image that never marks itself valid and power cycle it. The previous
-   image must come back.
+2. **Rollback.** Dropped: the bootloader has no rollback (see Rollback). USB rescue replaces it, and
+   was tested 2026-10-13.
 3. **Bad image.** Flash a truncated or corrupted `firmware.bin`. `Update.end()` must reject it and
    the old image keep running without a reboot.
 4. **Dongle pulled mid-transfer.** The robot aborts after 5 s of silence and keeps the old image.
@@ -1047,10 +1078,10 @@ transition that used to be the other path through this code. Test re-acquisition
 restarting the dongle on a different channel.
 
 **No Wi-Fi fallback after Phase 2.** A dead dongle, a USB problem on the ZED Box, or an ESP-NOW bug
-that rollback does not catch leaves USB as the only way onto the robot. Keep a flashed bench dongle
+leaves USB as the only way onto the robot. Keep a flashed bench dongle
 in the pit kit, and a USB-C cable that reaches the QT Py without opening more of the robot than a
-battery swap does. Rollback covers images that crash or go deaf. It does not cover an image that
-validates and then misbehaves later, since it hears the dongle and runs 10 s cleanly.
+battery swap does. There is no rollback, so every bad image, including one that crashes or goes
+deaf, is a USB rescue (`scripts/upload`, no BOOT press).
 
 **Flashing stops the app.** `espnow_ota.py` stops `auto-battlebot` to take the dongle, so a flash
 also drops the trainer link and the recording. The robot is disarmed by then, so this costs only
@@ -1093,10 +1124,9 @@ Remaining, in order:
 2. Confirm the NHRL rules question. Only gates the command path (Phase 3).
 3. On the ZED Box: deploy, run `install/install_udev_rules.sh` (or `scripts/install_zed_box.sh`),
    plug the dongle in through a USB 2.0 hub with the handset, and check `/dev/espnow_dongle`.
-4. Flash the robot over USB once (`firmware/mr_stabs_mk2/scripts/upload`). Confirm the dongle's link
-   stats show `robot_known = 1` and `/robot/espnow_telemetry` records at ~100 Hz. A missing
-   `robot_known` with a live robot most likely means `esp_now_add_peer` failed on `WIFI_IF_AP`.
+4. Done 2026-10-13: the robot is flashed and the dongle's link stats show `robot_known = 1` on the
+   bench. Still to check on the ZED Box: `/robot/espnow_telemetry` records at ~100 Hz.
 5. Done 2026-10-13: there is no rollback (see Rollback). USB rescue without a button press is
    proven instead.
-6. Run the Phase 1 OTA tests and the latency, loss, ACK-rate, and path-agreement measurements. Get
-   all of them before writing any of Phase 2.
+6. Run the Phase 1 OTA tests and, once the new PCBA is in, the latency, loss, ACK-rate, and
+   path-agreement measurements. Get all of them before writing any of Phase 2.

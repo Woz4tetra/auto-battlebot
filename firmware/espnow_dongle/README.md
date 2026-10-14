@@ -40,6 +40,10 @@ cd firmware/espnow_dongle
 ~/.platformio/penv/bin/platformio run -t upload --upload-port /dev/ttyACM0
 ```
 
+No button press needed: esptool resets the chip into its ROM bootloader over the USB-Serial/JTAG
+port (`board_upload.before_reset = usb_reset`). Use the port's `/dev/serial/by-id/` name if more
+than one ESP32-S3 is plugged in, since the robot shows up with the same VID/PID.
+
 If the board was put into the bootloader by hand (BOOT held through reset), esptool's reset after
 the upload can leave it in the bootloader. Press RESET, or:
 
