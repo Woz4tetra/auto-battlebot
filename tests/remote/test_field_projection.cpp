@@ -56,6 +56,19 @@ TEST(FieldProjectionTest, ProjectsASinglePoint) {
     EXPECT_FALSE(project_field_point(make_field(-1.0), make_camera(), 0.0, 0.0).has_value());
 }
 
+TEST(FieldProjectionTest, CameraMarkerMatchesTheTopDownTriangle) {
+    // Longest side 2 m over the 192 px box: tip at y = -116 px * 2 / 192 m, base 8 px either side.
+    const auto marker = project_camera_marker(make_field(4.0), make_camera());
+    ASSERT_EQ(marker.size(), 3u);
+    const double m_per_px = 2.0 / 192.0;
+    EXPECT_NEAR(marker[0].u, 0.5, 1e-9);
+    EXPECT_NEAR(marker[0].v, (500.0 * -116.0 * m_per_px / 4.0 + 240.0) / 480.0, 1e-9);
+    EXPECT_NEAR(marker[1].u, (500.0 * -8.0 * m_per_px / 4.0 + 320.0) / 640.0, 1e-9);
+    EXPECT_NEAR(marker[2].u, 1.0 - marker[1].u, 1e-9);
+    EXPECT_NEAR(marker[1].v, marker[2].v, 1e-9);
+    EXPECT_TRUE(project_camera_marker(make_field(-1.0), make_camera()).empty());
+}
+
 TEST(FieldProjectionTest, MissingInputsGiveNoOutline) {
     EXPECT_TRUE(project_field_outline(make_field(4.0), CameraInfo{}).empty());
     FieldDescription empty;

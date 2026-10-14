@@ -40,6 +40,7 @@ export interface SticksStatus {
 }
 
 export interface TracksStatus {
+  camera_marker: ImagePoint[];
   field_outline: ImagePoint[][];
   field_x: number;
   field_y: number;

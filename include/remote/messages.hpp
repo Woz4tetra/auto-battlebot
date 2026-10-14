@@ -121,10 +121,13 @@ struct TracksMessage {
     /** The field border projected into the camera image: polylines of ImagePoint, split where
      *  the border passes behind the camera. Empty before init. */
     std::vector<std::vector<ImagePoint>> field_outline;
+    /** The top-down view's camera triangle projected into the image: tip, then base corners.
+     *  Empty when any corner is behind the camera or before init. */
+    std::vector<ImagePoint> camera_marker;
     /** Absent before navigation has a target. */
     std::optional<TargetMessage> target;
     AB_JSON_MESSAGE(TracksMessage, "auto_battlebot.status.Tracks", our_robot_seen, opponents_seen,
-                    field_x, field_y, robots, field_outline, target)
+                    field_x, field_y, robots, field_outline, camera_marker, target)
 };
 
 struct CommandAckMessage {

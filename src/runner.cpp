@@ -127,6 +127,7 @@ void Runner::publish_tracks(const RobotDescriptionsStamped &robots, const FieldD
     message.field_x = field.size.size.x;
     message.field_y = field.size.size.y;
     message.field_outline = remote::project_field_outline(field, camera_info);
+    message.camera_marker = remote::project_camera_marker(field, camera_info);
     for (const auto &robot : robots.descriptions) {
         if (!robot.is_stale) {
             if (robot.group == Group::OURS) message.our_robot_seen = true;

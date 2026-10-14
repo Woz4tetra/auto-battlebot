@@ -82,6 +82,7 @@
       </g>
     {/if}
 
+    <!-- Kept in step with project_camera_marker in src/remote/field_projection.cpp. -->
     <path class="cam" d="M 120 236 L 112 228 L 128 228 Z" />
   </svg>
   {#if showLabel}<span class="tag">TOP DOWN</span>{/if}

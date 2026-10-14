@@ -1,5 +1,6 @@
 #include "remote/field_projection.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <optional>
@@ -79,6 +80,25 @@ std::vector<std::vector<ImagePoint>> project_field_outline(const FieldDescriptio
         auto &tail = out.back();
         tail.insert(tail.end(), out.front().begin() + 1, out.front().end());
         out.erase(out.begin());
+    }
+    return out;
+}
+
+std::vector<ImagePoint> project_camera_marker(const FieldDescription &field,
+                                              const CameraInfo &camera_info) {
+    std::vector<ImagePoint> out;
+    if (!inputs_ok(field, camera_info)) return out;
+    const double longest = std::max(field.size.size.x, field.size.size.y);
+    if (longest <= 0.0) return out;
+    // TopDown.svelte fits the longest side into a 192 px box centered on the field and draws the
+    // triangle in px from the box center: tip 116 below, base 108 below and 8 to either side.
+    const double m_per_px = longest / 192.0;
+    const std::array<std::array<double, 2>, 3> corners = {
+        {{0.0, -116.0}, {-8.0, -108.0}, {8.0, -108.0}}};
+    for (const auto &c : corners) {
+        auto p = project(field, camera_info, c[0] * m_per_px, c[1] * m_per_px);
+        if (!p) return {};
+        out.push_back(*p);
     }
     return out;
 }

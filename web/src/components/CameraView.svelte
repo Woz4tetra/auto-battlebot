@@ -225,6 +225,16 @@
       line.forEach((p, i) => (i ? ctx.lineTo(p.u * w, p.v * h) : ctx.moveTo(p.u * w, p.v * h)));
       ctx.stroke();
     }
+    // The top-down view's camera triangle, at the same spot on the floor.
+    const marker = status.appUp ? status.tracks?.camera_marker : undefined;
+    if (marker?.length === 3) {
+      ctx.setLineDash([]);
+      ctx.fillStyle = OUTLINE_COLOR;
+      ctx.beginPath();
+      marker.forEach((p, i) => (i ? ctx.lineTo(p.u * w, p.v * h) : ctx.moveTo(p.u * w, p.v * h)));
+      ctx.closePath();
+      ctx.fill();
+    }
     ctx.restore();
   }
 
