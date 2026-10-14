@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "config/config_parser.hpp"
+#include "diagnostics_logger/diagnostics_logger.hpp"
 #include "transmitter/composite_transmitter.hpp"
 #include "transmitter/config.hpp"
 #include "transmitter/espnow_transmitter.hpp"
@@ -305,6 +306,42 @@ TEST_F(EspNowTransmitterPtyTest, SendsProcessedCommandsWithIncreasingSeqOnlyWhil
     EXPECT_FLOAT_EQ(first.channel_a, 0.5f);
     EXPECT_FLOAT_EQ(first.channel_b, -0.25f);  // reversed, same as the OpenTX child would
     EXPECT_FLOAT_EQ(second.channel_a, 0.25f);
+}
+
+bool logged_silent_reconnect() {
+    for (const auto &snapshot :
+         DiagnosticsLogger::get_logger("espnow_transmitter")->get_snapshots()) {
+        if (snapshot.subsection == "dongle_silent_reconnecting" && !snapshot.held) return true;
+    }
+    return false;
+}
+
+// A dongle that re-enumerates leaves the old fd open and reading empty forever. Silence past one
+// reconnect interval must drop and reopen the port; link stats arriving must not.
+TEST_F(EspNowTransmitterPtyTest, ReopensTheDongleOnlyAfterItGoesSilent) {
+    EspNowTransmitterConfiguration config;
+    config.dongle_serial_path = path_;
+    EspNowTransmitter transmitter(config, nullptr, nullptr);
+    auto logger = DiagnosticsLogger::get_logger("espnow_transmitter");
+    ASSERT_TRUE(transmitter.initialize());
+    logger->clear();
+
+    const espnow_protocol::LinkStatsPayload stats = {};
+    uint8_t frame[espnow_protocol::SERIAL_MAX_FRAME];
+    const size_t n = espnow_protocol::encode_serial_frame(espnow_protocol::MSG_LINK_STATS,
+                                                          reinterpret_cast<const uint8_t *>(&stats),
+                                                          sizeof(stats), frame);
+    const auto start = std::chrono::steady_clock::now();
+    while (std::chrono::steady_clock::now() - start < std::chrono::milliseconds(1200)) {
+        ASSERT_EQ(write(master_, frame, n), static_cast<ssize_t>(n));
+        usleep(100000);
+        transmitter.update();
+    }
+    EXPECT_FALSE(logged_silent_reconnect());
+
+    usleep(1100000);
+    transmitter.update();
+    EXPECT_TRUE(logged_silent_reconnect());
 }
 
 TEST_F(EspNowTransmitterPtyTest, DrainsTelemetryAndLinkStatsWithoutFeedback) {

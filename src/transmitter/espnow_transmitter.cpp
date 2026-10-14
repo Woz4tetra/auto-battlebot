@@ -11,6 +11,9 @@
 namespace auto_battlebot {
 namespace {
 constexpr auto kReconnectInterval = std::chrono::seconds(1);
+// The dongle sends link stats every 100 ms, so this much silence means the port is dead: the
+// dongle re-enumerated under an fd we still hold, or its firmware stopped writing.
+constexpr auto kDongleSilence = std::chrono::milliseconds(500);
 constexpr auto kHealthPeriod = std::chrono::seconds(1);
 constexpr const char *kTopic = "/robot/espnow_telemetry";
 
@@ -161,6 +164,7 @@ void EspNowTransmitter::on_frame(void *context, uint8_t type, const uint8_t *pay
 }
 
 void EspNowTransmitter::handle_frame(uint8_t type, const uint8_t *payload, uint8_t length) {
+    last_frame_time_ = std::chrono::steady_clock::now();
     switch (type) {
         case espnow_protocol::MSG_LINK_STATS: {
             if (length != sizeof(espnow_protocol::LinkStatsPayload)) return;
@@ -240,9 +244,20 @@ void EspNowTransmitter::log_health() {
 }
 
 bool EspNowTransmitter::reconnect_if_needed() {
-    if (dongle_.is_open()) return true;
-
     const auto now = std::chrono::steady_clock::now();
+
+    if (dongle_.is_open()) {
+        if (now - last_frame_time_ < kDongleSilence) return true;
+        // Open but quiet. A port whose device went away reads empty forever, so only a fresh open
+        // recovers it. Rate-limited like the open itself so an absent dongle is not thrashed.
+        if (now < next_reconnect_attempt_) return true;
+        const auto silent_ms =
+            std::chrono::duration_cast<std::chrono::milliseconds>(now - last_frame_time_).count();
+        logger_->warning("dongle_silent_reconnecting",
+                         {{"silent_ms", static_cast<int>(silent_ms)}});
+        dongle_.close();
+    }
+
     if (now < next_reconnect_attempt_) return false;
     next_reconnect_attempt_ = now + kReconnectInterval;
 
@@ -251,6 +266,8 @@ bool EspNowTransmitter::reconnect_if_needed() {
         return false;
     }
     logger_->info("dongle_opened", {{"path", config_.dongle_serial_path}});
+    // One silence window of grace for the first link stats frame.
+    last_frame_time_ = now;
     parser_ = espnow_protocol::SerialFrameParser();
     link_stats_.reset();
     link_stats_at_last_log_.reset();

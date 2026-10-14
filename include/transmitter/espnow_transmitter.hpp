@@ -67,6 +67,7 @@ class EspNowTransmitter : public TransmitterInterface {
         std::chrono::steady_clock::now();
 
     std::optional<espnow_protocol::LinkStatsPayload> link_stats_;
+    std::chrono::steady_clock::time_point last_frame_time_{};  // any frame from the dongle
     std::optional<espnow_protocol::LinkStatsPayload> link_stats_at_last_log_;
     uint64_t telemetry_frames_ = 0;
     uint64_t telemetry_frames_at_last_log_ = 0;
