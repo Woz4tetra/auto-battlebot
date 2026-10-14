@@ -70,6 +70,11 @@ struct TelemetryPayload {
     float ibat;          // pack amps, positive discharging, NaN when absent
     float yaw_rate;      // deg/s clockwise
     float yaw_rate_cmd;  // deg/s clockwise, NaN when the yaw loop is not running
+    // BNO055 fused linear acceleration, gravity removed, m/s^2 in the chip frame. accel_x..z
+    // above are the fused gravity vector.
+    float linear_accel_x, linear_accel_y, linear_accel_z;
+    float gyro_x, gyro_y;     // deg/s about the chip's x and y axes, right-handed
+    uint8_t imu_calibration;  // BNO055 CALIB_STAT: sys, gyro, accel, mag, two bits each, 0-3
     uint8_t radio_connected;
     uint8_t armed;
     uint8_t autonomy_enabled;  // ch5 (SA) as the robot saw it; gates espnow_active
@@ -82,6 +87,7 @@ struct TelemetryPayload {
     uint32_t espnow_seq;     // last accepted sequence number
     uint32_t jetson_tx_us;   // echoed from that command, for round-trip measurement
     uint8_t espnow_lq;       // telemetry send ACK success percent over a sliding window
+    uint32_t telemetry_seq;  // +1 per telemetry frame sent, so the host can count drops
 };
 
 struct TunableSetPayload {
@@ -149,6 +155,7 @@ enum OtaError : uint8_t {
 static_assert(sizeof(CommandPayload) == 16, "CommandPayload layout");
 static_assert(sizeof(LinkStatsPayload) == 18, "LinkStatsPayload layout");
 static_assert(sizeof(OtaStatusPayload) == 22, "OtaStatusPayload layout");
+static_assert(sizeof(TelemetryPayload) == 118, "TelemetryPayload layout");
 static_assert(sizeof(TelemetryPayload) <= AIR_MAX_PAYLOAD, "telemetry must fit one air frame");
 static_assert(sizeof(OtaChunkHeader) + OTA_CHUNK_DATA <= AIR_MAX_PAYLOAD,
               "OTA chunk must fit one air frame");

@@ -47,9 +47,10 @@ COLUMNS = [
     "ibat",
     "yaw_rate",
     "yaw_rate_cmd",
+    "seq",
 ]
 # Columns added after the first logs were taken; older CSVs read them as NaN.
-OPTIONAL_COLUMNS = {"yaw_rate", "yaw_rate_cmd"}
+OPTIONAL_COLUMNS = {"yaw_rate", "yaw_rate_cmd", "seq"}
 
 FLIP_SWITCH_DOWN = 0  # crsf_bridge::DOWN, the auto upside-down and heading-hold position
 UPSIDE_DOWN_BELOW = -1.0  # updown_sensor.h thresholds on the gravity z the diag reports
@@ -92,10 +93,12 @@ def capture(host: str, seconds: float, out: Path) -> None:
                 if not line.startswith("data:"):
                     continue
                 data = line[len("data:") :].strip()
-                # Firmware from before the yaw columns sends the shorter row.
-                if data.count(",") + 1 not in (len(COLUMNS), len(COLUMNS) - len(OPTIONAL_COLUMNS)):
+                # Older firmware sends a shorter row without the yaw or seq columns; pad it so
+                # every row matches the header.
+                fields = data.count(",") + 1
+                if not len(COLUMNS) - len(OPTIONAL_COLUMNS) <= fields <= len(COLUMNS):
                     continue
-                f.write(data + "\n")
+                f.write(data + ",nan" * (len(COLUMNS) - fields) + "\n")
                 rows += 1
                 if rows % 500 == 0:
                     print(f"\r{rows} rows", end="", flush=True)

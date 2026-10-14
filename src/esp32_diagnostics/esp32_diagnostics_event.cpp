@@ -81,7 +81,7 @@ std::optional<Esp32DiagnosticsEvent> parse_esp32_diagnostics_csv(std::string_vie
                                                                  uint64_t host_receive_ns) {
     line = trim(line);
     std::vector<std::string_view> fields;
-    fields.reserve(kEsp32DiagnosticsFieldsWithIbat);
+    fields.reserve(kEsp32DiagnosticsFieldsWithSeq);
     size_t start = 0;
     while (true) {
         const size_t comma = line.find(',', start);
@@ -94,7 +94,8 @@ std::optional<Esp32DiagnosticsEvent> parse_esp32_diagnostics_csv(std::string_vie
     }
     const int count = static_cast<int>(fields.size());
     if (count != kEsp32DiagnosticsFieldsWithoutVbat && count != kEsp32DiagnosticsFieldsWithVbat &&
-        count != kEsp32DiagnosticsFieldsWithIbat) {
+        count != kEsp32DiagnosticsFieldsWithIbat && count != kEsp32DiagnosticsFieldsWithYawRate &&
+        count != kEsp32DiagnosticsFieldsWithSeq) {
         return std::nullopt;
     }
 
@@ -125,6 +126,20 @@ std::optional<Esp32DiagnosticsEvent> parse_esp32_diagnostics_csv(std::string_vie
         double ibat = 0.0;
         if (!parse_number(fields[21], ibat)) return std::nullopt;
         if (std::isfinite(ibat)) event.ibat = ibat;
+    }
+    if (count >= kEsp32DiagnosticsFieldsWithYawRate) {
+        double yaw_rate = 0.0;
+        double yaw_rate_cmd = 0.0;
+        if (!parse_number(fields[22], yaw_rate) || !parse_number(fields[23], yaw_rate_cmd)) {
+            return std::nullopt;
+        }
+        if (std::isfinite(yaw_rate)) event.yaw_rate = yaw_rate;
+        if (std::isfinite(yaw_rate_cmd)) event.yaw_rate_cmd = yaw_rate_cmd;
+    }
+    if (count >= kEsp32DiagnosticsFieldsWithSeq) {
+        uint32_t seq = 0;
+        if (!parse_number(fields[24], seq)) return std::nullopt;
+        event.seq = seq;
     }
     return event;
 }
@@ -185,6 +200,24 @@ std::string to_esp32_diagnostics_json(const Esp32DiagnosticsEvent &event) {
         append_double(json, "ibat", *event.ibat);
     } else {
         json += "\"ibat\":null";
+    }
+    json += ',';
+    if (event.yaw_rate) {
+        append_double(json, "yaw_rate", *event.yaw_rate);
+    } else {
+        json += "\"yaw_rate\":null";
+    }
+    json += ',';
+    if (event.yaw_rate_cmd) {
+        append_double(json, "yaw_rate_cmd", *event.yaw_rate_cmd);
+    } else {
+        json += "\"yaw_rate_cmd\":null";
+    }
+    json += ',';
+    if (event.seq) {
+        append_uint(json, "seq", *event.seq);
+    } else {
+        json += "\"seq\":null";
     }
     json += '}';
     return json;

@@ -330,6 +330,7 @@ void EspNowLink::send_telemetry(TelemetryPayload &telemetry, uint32_t now_ms) {
     telemetry.espnow_lq =
         count == 0 ? 0
                    : static_cast<uint8_t>(100 * __builtin_popcount(send_history & mask) / count);
+    telemetry.telemetry_seq = telemetry_seq_++;
     send_frame(reply_mac_, MSG_TELEMETRY, &telemetry, sizeof(telemetry));
 }
 

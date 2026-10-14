@@ -200,7 +200,7 @@ per-cycle summary: in record mode that is every firmware control loop. `log_time
  "accel_x": 1.1, "accel_y": 0.0, "accel_z": 9.7, "is_upside_down": false,
  "loop_us": 905, "wifi_clients": 1, "orientation_x": 10.0, "orientation_y": 0.5,
  "orientation_z": -0.5, "pid_setpoint": 0.0, "pid_output": 0.0, "vbat": 15.842,
- "ibat": 3.12}
+ "ibat": 3.12, "yaw_rate": 0.4, "yaw_rate_cmd": null, "seq": 88412}
 ```
 
 - `host_receive_ns`: app wall clock when the line arrived, integer nanoseconds. A JSON integer
@@ -214,6 +214,11 @@ per-cycle summary: in record mode that is every firmware control loop. `log_time
   prints `nan` (no INA228, or a failed read).
 - `ibat`: pack current from the INA228 in amps, positive while discharging, `null` under the same
   conditions as `vbat`.
+- `yaw_rate`, `yaw_rate_cmd`: gyro yaw rate and the rate the yaw loop commands, deg/s clockwise.
+  `yaw_rate_cmd` is `null` when the loop is not running; both are `null` on older firmware.
+- `seq`: +1 per line the firmware sends, starting at 0 on boot. A gap is lines lost between the
+  robot and the host. Outside record mode the firmware sends at most 10 Hz but still counts only
+  sent lines, so gaps mean loss there too. `null` on older firmware.
 
 Stream health (connected, events per second, parse errors, reconnects, largest robot-clock gap,
 clock offset) goes to `/diagnostics/esp32_diagnostics` once a second.
@@ -232,14 +237,24 @@ the robot sends over ESP-NOW (`publish_diag` in `firmware/mr_stabs_mk2/src/main.
  "accel_x": 1.1, "accel_y": 0.0, "accel_z": 9.7, "orientation_x": 10.0,
  "orientation_y": 0.5, "orientation_z": -0.5, "pid_setpoint": 0.0, "pid_output": 0.0,
  "vbat": 15.842, "ibat": 3.12, "yaw_rate": 0.4, "yaw_rate_cmd": null,
+ "linear_accel_x": 0.42, "linear_accel_y": -0.05, "linear_accel_z": 0.11, "gyro_x": 1.2,
+ "gyro_y": -0.8, "imu_calib_sys": 3, "imu_calib_gyro": 3, "imu_calib_accel": 1, "imu_calib_mag": 0,
  "radio_connected": true, "armed": true, "autonomy_enabled": true, "button_state": false,
  "flip_switch": 0, "is_upside_down": false, "espnow_active": false, "espnow_channel": 1,
  "espnow_age_ms": 3, "espnow_seq": 4211, "jetson_tx_us": 912034511, "espnow_lq": 100,
- "round_trip_us": 6120}
+ "telemetry_seq": 30517, "round_trip_us": 6120}
 ```
 
 - The fields shared with `/robot/esp32_diagnostics` mean the same thing. Every float is `null`
   when the firmware sends NaN.
+- `accel_x`..`accel_z` are the BNO055's fused gravity vector, not total acceleration.
+  `linear_accel_x`..`linear_accel_z` are the fused acceleration with gravity removed, m/s^2. Both
+  are in the chip frame, as are `gyro_x` and `gyro_y`: the gyro rates about the chip's x and y
+  axes, deg/s, right-handed. `yaw_rate` is the third axis, projected onto up.
+- `imu_calib_sys`, `imu_calib_gyro`, `imu_calib_accel`, `imu_calib_mag`: the BNO055 CALIB_STAT
+  levels, 0 uncalibrated to 3 fully calibrated. The robot rereads the register once a second.
+  The firmware runs IMUPLUS, which leaves the magnetometer out, so `imu_calib_mag` stays 0. All
+  four are 0 until the sensor first comes up.
 - `autonomy_enabled`: ch5 (SA) as the robot decoded it. ESP-NOW substitutes the drive command
   only while this is true.
 - `espnow_active`: ESP-NOW supplied this tick's `a_percent`/`b_percent`. Always false in Phase 1
@@ -249,6 +264,8 @@ the robot sends over ESP-NOW (`publish_diag` in `firmware/mr_stabs_mk2/src/main.
   `null` before the first.
 - `espnow_seq`, `jetson_tx_us`: the last accepted command, echoed.
 - `espnow_lq`: robot telemetry send ACK success over its last 32 frames, percent.
+- `telemetry_seq`: +1 per telemetry frame the robot sends, starting at 0 on boot. A gap is frames
+  lost between the robot and the host; a drop back toward 0 is a reboot.
 - `round_trip_us`: host monotonic arrival minus `jetson_tx_us`. Each sample also holds the robot's
   wait for its next 10 ms telemetry slot and the age of a repeated command, so the per-second
   minimum is the transport estimate.

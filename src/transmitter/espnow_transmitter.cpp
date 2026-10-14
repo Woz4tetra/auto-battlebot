@@ -81,6 +81,16 @@ std::string to_espnow_telemetry_json(const espnow_protocol::TelemetryPayload &t,
     append_number(json, "ibat", t.ibat);
     append_number(json, "yaw_rate", t.yaw_rate);
     append_number(json, "yaw_rate_cmd", t.yaw_rate_cmd);
+    append_number(json, "linear_accel_x", t.linear_accel_x);
+    append_number(json, "linear_accel_y", t.linear_accel_y);
+    append_number(json, "linear_accel_z", t.linear_accel_z);
+    append_number(json, "gyro_x", t.gyro_x);
+    append_number(json, "gyro_y", t.gyro_y);
+    // CALIB_STAT packs four 0-3 levels: sys in bits 7-6, then gyro, accel, mag.
+    append_integer(json, "imu_calib_sys", (t.imu_calibration >> 6) & 0x03);
+    append_integer(json, "imu_calib_gyro", (t.imu_calibration >> 4) & 0x03);
+    append_integer(json, "imu_calib_accel", (t.imu_calibration >> 2) & 0x03);
+    append_integer(json, "imu_calib_mag", t.imu_calibration & 0x03);
     append_bool(json, "radio_connected", t.radio_connected != 0);
     append_bool(json, "armed", t.armed != 0);
     append_bool(json, "autonomy_enabled", t.autonomy_enabled != 0);
@@ -97,6 +107,7 @@ std::string to_espnow_telemetry_json(const espnow_protocol::TelemetryPayload &t,
     append_integer(json, "espnow_seq", t.espnow_seq);
     append_integer(json, "jetson_tx_us", t.jetson_tx_us);
     append_integer(json, "espnow_lq", t.espnow_lq);
+    append_integer(json, "telemetry_seq", t.telemetry_seq);
     if (round_trip_us) {
         append_integer(json, "round_trip_us", *round_trip_us);
     } else {

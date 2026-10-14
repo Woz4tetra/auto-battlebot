@@ -67,6 +67,7 @@ class DiagnosticsServer {
    private:
     bool _recording = false;
     uint32_t _last_send_ms = 0;
+    uint32_t _seq = 0;  // +1 per row sent, so a gap in a recording shows dropped rows
     tunable_ptrs_t _tunables;
     volatile bool _scan_requested = false;
 };

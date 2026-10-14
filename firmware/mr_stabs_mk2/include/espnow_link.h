@@ -80,6 +80,7 @@ class EspNowLink {
     bool heard_dongle_ = false;
     uint32_t last_valid_frame_ms_ = 0;
     uint32_t last_telemetry_ms_ = 0;
+    uint32_t telemetry_seq_ = 0;
 
     // Channel: pinned, or swept until a dongle frame arrives.
     bool sweeping_ = false;

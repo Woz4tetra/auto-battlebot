@@ -43,6 +43,14 @@ struct Esp32DiagnosticsEvent {
     /** Pack current from the INA228, amps, positive while discharging. Empty under the same
      *  conditions as `vbat`. */
     std::optional<double> ibat;
+    /** Gyro yaw rate, deg/s clockwise. Empty on firmware that predates the field. */
+    std::optional<double> yaw_rate;
+    /** Rate the yaw loop commands, deg/s clockwise. Empty when the loop is not running (the
+     *  firmware prints `nan`) and on firmware that predates the field. */
+    std::optional<double> yaw_rate_cmd;
+    /** Firmware row counter, +1 per row sent. A gap means rows were dropped between the robot and
+     *  the host. Empty on firmware that predates the field. */
+    std::optional<uint32_t> seq;
 };
 
 /** Field count before the firmware added `vbat`. */
@@ -51,10 +59,15 @@ constexpr int kEsp32DiagnosticsFieldsWithoutVbat = 20;
 constexpr int kEsp32DiagnosticsFieldsWithVbat = 21;
 /** Field count with `ibat` appended after `vbat`. */
 constexpr int kEsp32DiagnosticsFieldsWithIbat = 22;
+/** Field count with `yaw_rate` and `yaw_rate_cmd` appended after `ibat`. */
+constexpr int kEsp32DiagnosticsFieldsWithYawRate = 24;
+/** Field count with `seq` appended after `yaw_rate_cmd`. */
+constexpr int kEsp32DiagnosticsFieldsWithSeq = 25;
 
 /**
- * Parse one CSV event line. Accepts 20 fields (no `vbat`), 21 (no `ibat`), or 22. Returns empty for
- * any other field count or for a field that does not parse as its type.
+ * Parse one CSV event line. Accepts 20 fields (no `vbat`), 21 (no `ibat`), 22 (no yaw rates), 24
+ * (no `seq`), or 25. Returns empty for any other field count or for a field that does not parse as
+ * its type.
  */
 std::optional<Esp32DiagnosticsEvent> parse_esp32_diagnostics_csv(std::string_view line,
                                                                  uint64_t host_receive_ns);

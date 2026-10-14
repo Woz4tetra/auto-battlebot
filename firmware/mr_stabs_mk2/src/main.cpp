@@ -147,6 +147,14 @@ void publish_diag(diag_data_t &diag, bool autonomy_enabled, bool espnow_active, 
     telemetry.ibat = diag.ibat;
     telemetry.yaw_rate = diag.yaw_rate;
     telemetry.yaw_rate_cmd = diag.yaw_rate_cmd;
+    updown_sensor::vector3_t *linear_accel = accel->get_linear_accel();
+    telemetry.linear_accel_x = linear_accel->x;
+    telemetry.linear_accel_y = linear_accel->y;
+    telemetry.linear_accel_z = linear_accel->z;
+    updown_sensor::vector3_t *gyro = accel->get_gyro();
+    telemetry.gyro_x = gyro->x * RAD_TO_DEG;
+    telemetry.gyro_y = gyro->y * RAD_TO_DEG;
+    telemetry.imu_calibration = accel->get_status().calibration;
     telemetry.radio_connected = diag.radio_connected;
     telemetry.armed = diag.armed;
     telemetry.autonomy_enabled = autonomy_enabled;

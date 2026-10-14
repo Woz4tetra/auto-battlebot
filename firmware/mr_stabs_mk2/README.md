@@ -188,6 +188,7 @@ The dashboard streams all diagnostic data at 10 Hz:
 - Loop timing and WiFi client count
 - Pack voltage and current (`vbat` and `ibat`, CSV columns 21 and 22, sampled every 10 ms and repeated in between; `ibat` is positive while discharging)
 - Yaw rate from the gyro and the rate the yaw loop commands (`yaw_rate`, `yaw_rate_cmd`, deg/s clockwise; the command is `nan` when the loop is not running)
+- Row sequence number (`seq`, last CSV column, +1 per row sent; a gap in a recording means the browser dropped rows)
 - Current mode (combat / tuning)
 
 ### Sensor and I2C panel

@@ -64,6 +64,7 @@ font-family:monospace;font-size:1em;cursor:pointer;color:#fff}
 <tr><td>ibat</td><td id="v_ibat">-</td></tr>
 <tr><td>yaw_rate (deg/s, CW)</td><td id="v_yr">-</td></tr>
 <tr><td>yaw_rate_cmd (deg/s, CW)</td><td id="v_yrc">-</td></tr>
+<tr><td>seq</td><td id="v_seq">-</td></tr>
 </table>
 <div style="margin-bottom:16px;padding:10px;border:1px solid #444;border-radius:4px;max-width:600px">
 <div style="margin-bottom:8px">
@@ -93,8 +94,8 @@ font-family:monospace;font-size:1em;cursor:pointer;color:#fff}
 <button class="btn dl" onclick="downloadCSV()">Download CSV</button>
 <span id="count"></span>
 <script>
-const hdr='timestamp_ms,radio_connected,armed,a_percent,b_percent,button_state,flip_switch,left_cmd,right_cmd,accel_x,accel_y,accel_z,is_upside_down,loop_us,wifi_clients,orientation_x,orientation_y,orientation_z,pid_setpoint,pid_output,vbat,ibat,yaw_rate,yaw_rate_cmd';
-const ids=['v_ts','v_radio','v_armed','v_a','v_b','v_btn','v_flip','v_left','v_right','v_ax','v_ay','v_az','v_usd','v_loop','v_wifi','v_ox','v_oy','v_oz','v_sp','v_po','v_vbat','v_ibat','v_yr','v_yrc'];
+const hdr='timestamp_ms,radio_connected,armed,a_percent,b_percent,button_state,flip_switch,left_cmd,right_cmd,accel_x,accel_y,accel_z,is_upside_down,loop_us,wifi_clients,orientation_x,orientation_y,orientation_z,pid_setpoint,pid_output,vbat,ibat,yaw_rate,yaw_rate_cmd,seq';
+const ids=['v_ts','v_radio','v_armed','v_a','v_b','v_btn','v_flip','v_left','v_right','v_ax','v_ay','v_az','v_usd','v_loop','v_wifi','v_ox','v_oy','v_oz','v_sp','v_po','v_vbat','v_ibat','v_yr','v_yrc','v_seq'];
 let rows=[];
 let recording=false;
 let es;
@@ -322,13 +323,13 @@ void DiagnosticsServer::update(const diag_data_t *data) {
     char buf[320];
     snprintf(
         buf, sizeof(buf),
-        "%lu,%d,%d,%.1f,%.1f,%d,%u,%.1f,%.1f,%.1f,%.1f,%.1f,%d,%lu,%u,%.1f,%.1f,%.1f,%.1f,%.2f,%.3f,%.2f,%.1f,%.1f",
+        "%lu,%d,%d,%.1f,%.1f,%d,%u,%.1f,%.1f,%.1f,%.1f,%.1f,%d,%lu,%u,%.1f,%.1f,%.1f,%.1f,%.2f,%.3f,%.2f,%.1f,%.1f,%lu",
         (unsigned long)data->timestamp_ms, data->radio_connected, data->armed, data->a_percent,
         data->b_percent, data->button_state, data->flip_switch, data->left_cmd, data->right_cmd,
         data->accel_x, data->accel_y, data->accel_z, data->is_upside_down,
         (unsigned long)data->loop_us, data->wifi_clients, data->orientation_x, data->orientation_y,
         data->orientation_z, data->pid_setpoint, data->pid_output, data->vbat, data->ibat,
-        data->yaw_rate, data->yaw_rate_cmd);
+        data->yaw_rate, data->yaw_rate_cmd, (unsigned long)_seq++);
 
     events.send(buf, NULL, now);
 }

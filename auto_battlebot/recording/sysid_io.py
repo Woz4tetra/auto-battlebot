@@ -46,7 +46,8 @@ NUM_TRANSMITTER_CHANNELS = 16
 
 # Field order of one /robot/esp32_diagnostics event, with the pandas dtype each column gets.
 # Booleans stay bool; vbat and ibat are float with NaN where the firmware had no INA228 reading
-# (null, or a recording older than the field).
+# (null, or a recording older than the field). yaw_rate and yaw_rate_cmd are NaN when absent, and
+# seq is a nullable integer, <NA> in recordings older than the field.
 ESP32_FIELDS: tuple[tuple[str, str], ...] = (
     ("host_receive_ns", "int64"),
     ("timestamp_ms", "int64"),
@@ -71,6 +72,9 @@ ESP32_FIELDS: tuple[tuple[str, str], ...] = (
     ("pid_output", "float64"),
     ("vbat", "float64"),
     ("ibat", "float64"),
+    ("yaw_rate", "float64"),
+    ("yaw_rate_cmd", "float64"),
+    ("seq", "Int64"),
 )
 
 
@@ -211,6 +215,8 @@ def _esp32_value(value: Any, dtype: str) -> Any:
         return math.nan if value is None else float(value)
     if dtype == "bool":
         return bool(value) if value is not None else False
+    if dtype == "Int64":
+        return None if value is None else int(value)
     return int(value) if value is not None else 0
 
 

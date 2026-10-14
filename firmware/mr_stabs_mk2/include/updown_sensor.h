@@ -71,6 +71,7 @@ class UpdownSensor {
     vector3_t *min_grav_vec;
     vector3_t *orientation;
     vector3_t *gyro_vec;
+    vector3_t *linear_accel;
     bool is_upside_down = false;
     uint32_t reconnect_timer = 0;
     uint32_t sample_timer = 0;
@@ -97,11 +98,14 @@ class UpdownSensor {
     vector3_t *get_max() { return max_grav_vec; }
     vector3_t *get_min() { return min_grav_vec; }
     vector3_t *get_orientation() { return orientation; }
-    vector3_t *get_gyro() { return gyro_vec; }
+    vector3_t *get_gyro() { return gyro_vec; }  // rad/s, chip frame
+    // Fused acceleration with gravity removed, m/s^2, chip frame.
+    vector3_t *get_linear_accel() { return linear_accel; }
     // micros() when the last sample was read, 0 before the first. A change means new data.
     uint32_t get_sample_us() { return sample_us; }
     // Rereads the status registers if DETAILS_INTERVAL has passed and the sensor is up. Two
-    // short I2C reads; meant for when the diagnostics page is open.
+    // short I2C reads. Every sample calls it, so CALIB_STAT stays fresh for telemetry; the
+    // diagnostics page also calls it, for while the link is down and samples stop.
     void refresh_details();
     const status_t &get_status() { return status; }
     // Yaw rate in deg/s, clockwise-positive like the heading, from the last sample's gyro.

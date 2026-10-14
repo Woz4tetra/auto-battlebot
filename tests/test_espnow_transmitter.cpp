@@ -222,6 +222,9 @@ TEST(EspNowTelemetryJsonTest, NonFiniteFloatsAndMissingCommandBecomeNull) {
     telemetry.vbat = NAN;
     telemetry.armed = 1;
     telemetry.espnow_age_ms = UINT32_MAX;
+    telemetry.telemetry_seq = 30517;
+    telemetry.gyro_y = -2.5f;
+    telemetry.imu_calibration = 0b11100100;  // sys 3, gyro 2, accel 1, mag 0
     const std::string json = to_espnow_telemetry_json(telemetry, 99, std::nullopt);
     EXPECT_NE(json.find("\"host_receive_ns\":99"), std::string::npos);
     EXPECT_NE(json.find("\"a_percent\":12.5"), std::string::npos);
@@ -229,6 +232,12 @@ TEST(EspNowTelemetryJsonTest, NonFiniteFloatsAndMissingCommandBecomeNull) {
     EXPECT_NE(json.find("\"armed\":true"), std::string::npos);
     EXPECT_NE(json.find("\"espnow_age_ms\":null"), std::string::npos);
     EXPECT_NE(json.find("\"round_trip_us\":null"), std::string::npos);
+    EXPECT_NE(json.find("\"telemetry_seq\":30517"), std::string::npos);
+    EXPECT_NE(json.find("\"gyro_y\":-2.5"), std::string::npos);
+    EXPECT_NE(json.find("\"imu_calib_sys\":3"), std::string::npos);
+    EXPECT_NE(json.find("\"imu_calib_gyro\":2"), std::string::npos);
+    EXPECT_NE(json.find("\"imu_calib_accel\":1"), std::string::npos);
+    EXPECT_NE(json.find("\"imu_calib_mag\":0"), std::string::npos);
     EXPECT_EQ(json.front(), '{');
     EXPECT_EQ(json.back(), '}');
 }

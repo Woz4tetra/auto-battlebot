@@ -845,6 +845,7 @@ uint32_t espnow_age_ms;    // since the last accepted ESP-NOW command frame
 uint32_t espnow_seq;       // last accepted sequence number
 uint32_t jetson_tx_us;     // echoed for round-trip measurement
 uint8_t  espnow_lq;        // telemetry send ACK success percent, last 32 frames
+uint32_t telemetry_seq;    // +1 per telemetry frame sent, for drop counting
 ```
 
 `espnow_channel` is what makes a bad auto pick diagnosable after the fact. Without it in the MCAP,

@@ -11,6 +11,7 @@ UpdownSensor::UpdownSensor()
     min_grav_vec = init_vector3(0.0, 0.0, 0.0);
     orientation = init_vector3(0.0, 0.0, 0.0);
     gyro_vec = init_vector3(0.0, 0.0, 0.0);
+    linear_accel = init_vector3(0.0, 0.0, 0.0);
     status.last_error = I2C_NOT_TRIED;
     status.details_error = I2C_NOT_TRIED;
 }
@@ -181,10 +182,11 @@ bool UpdownSensor::update_sensor(bool radio_connected)
         return false;
     }
     uint32_t start_time = now;
-    sensors_event_t gravity_data, orientation_data, gyro_data;
+    sensors_event_t gravity_data, orientation_data, gyro_data, linear_data;
     sensor->getEvent(&gravity_data, Adafruit_BNO055::VECTOR_GRAVITY);
     sensor->getEvent(&orientation_data, Adafruit_BNO055::VECTOR_EULER);
     sensor->getEvent(&gyro_data, Adafruit_BNO055::VECTOR_GYROSCOPE);
+    sensor->getEvent(&linear_data, Adafruit_BNO055::VECTOR_LINEARACCEL);
     uint32_t end_time = millis();
 
     if (end_time - start_time > 250)
@@ -214,6 +216,10 @@ bool UpdownSensor::update_sensor(bool radio_connected)
     gyro_vec->x = gyro_data.gyro.x;
     gyro_vec->y = gyro_data.gyro.y;
     gyro_vec->z = gyro_data.gyro.z;
+
+    linear_accel->x = linear_data.acceleration.x;
+    linear_accel->y = linear_data.acceleration.y;
+    linear_accel->z = linear_data.acceleration.z;
     sample_us = micros();
     float gravity = sqrtf(grav_vec->x * grav_vec->x + grav_vec->y * grav_vec->y +
                           grav_vec->z * grav_vec->z);
@@ -233,6 +239,7 @@ bool UpdownSensor::update_sensor(bool radio_connected)
     check_gyro_sign(orientation->x, sample_us);
     status.samples++;
     status.last_sample_ms = millis();
+    refresh_details();
 
     return true;
 }

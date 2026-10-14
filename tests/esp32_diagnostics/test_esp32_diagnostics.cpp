@@ -27,6 +27,9 @@ constexpr const char *kLine21 =
 constexpr const char *kLine22 =
     "123459,1,1,80.0,0.0,0,0,78.0,82.0,0.5,0.0,9.8,0,910,1,12.0,0.5,-0.5,0.0,0.00,15.201,"
     "-42.37";
+constexpr const char *kLine25 =
+    "123460,1,1,80.0,0.0,0,0,78.0,82.0,0.5,0.0,9.8,0,910,1,12.0,0.5,-0.5,0.0,0.00,15.201,"
+    "-42.37,12.5,nan,4294967295";
 constexpr const char *kLine21Nan =
     "123458,0,0,0.0,0.0,0,0,0.0,0.0,0.0,0.0,9.8,0,800,1,0.0,0.0,0.0,0.0,0.00,nan";
 
@@ -76,6 +79,29 @@ TEST(Esp32DiagnosticsParseTest, ParsesTwentyTwoFieldsWithIbat) {
     EXPECT_NE(to_esp32_diagnostics_json(*event).find("\"ibat\":-42.37"), std::string::npos);
 }
 
+TEST(Esp32DiagnosticsParseTest, ParsesTwentyFiveFieldsWithYawRateAndSeq) {
+    auto event = parse_esp32_diagnostics_csv(kLine25, 0);
+    ASSERT_TRUE(event.has_value());
+    ASSERT_TRUE(event->yaw_rate.has_value());
+    EXPECT_DOUBLE_EQ(*event->yaw_rate, 12.5);
+    EXPECT_FALSE(event->yaw_rate_cmd.has_value());
+    ASSERT_TRUE(event->seq.has_value());
+    EXPECT_EQ(*event->seq, 4294967295u);
+    const std::string json = to_esp32_diagnostics_json(*event);
+    EXPECT_NE(json.find("\"yaw_rate\":12.5"), std::string::npos) << json;
+    EXPECT_NE(json.find("\"yaw_rate_cmd\":null"), std::string::npos) << json;
+    EXPECT_NE(json.find("\"seq\":4294967295}"), std::string::npos) << json;
+}
+
+TEST(Esp32DiagnosticsParseTest, ParsesTwentyFourFieldsWithoutSeq) {
+    const std::string line(kLine25);
+    auto event = parse_esp32_diagnostics_csv(line.substr(0, line.rfind(',')), 0);
+    ASSERT_TRUE(event.has_value());
+    EXPECT_TRUE(event->yaw_rate.has_value());
+    EXPECT_FALSE(event->seq.has_value());
+    EXPECT_NE(to_esp32_diagnostics_json(*event).find("\"seq\":null"), std::string::npos);
+}
+
 TEST(Esp32DiagnosticsParseTest, OlderLinesHaveNoIbat) {
     auto event = parse_esp32_diagnostics_csv(kLine21, 0);
     ASSERT_TRUE(event.has_value());
@@ -111,6 +137,13 @@ TEST(Esp32DiagnosticsParseTest, RejectsMalformedLines) {
                      .has_value());
     // 23 fields
     EXPECT_FALSE(parse_esp32_diagnostics_csv(std::string(kLine22) + ",1.0", 0).has_value());
+    // 26 fields
+    EXPECT_FALSE(parse_esp32_diagnostics_csv(std::string(kLine25) + ",1", 0).has_value());
+    // A negative or fractional seq
+    const std::string line25(kLine25);
+    const std::string prefix = line25.substr(0, line25.rfind(',') + 1);
+    EXPECT_FALSE(parse_esp32_diagnostics_csv(prefix + "-1", 0).has_value());
+    EXPECT_FALSE(parse_esp32_diagnostics_csv(prefix + "1.5", 0).has_value());
     // A non-number in a numeric field
     EXPECT_FALSE(parse_esp32_diagnostics_csv(
                      "1,1,x,0.0,0.0,0,1,0.0,0.0,0.0,0.0,9.8,0,800,1,0.0,0.0,0.0,0.0,0.00", 0)
