@@ -45,6 +45,7 @@ import numpy as np
 import pandas as pd
 from mcap.reader import make_reader
 
+from auto_battlebot.calibration.sysid.maneuvers import MOVING, menu_from_grid
 from auto_battlebot.recording import diag_io
 from auto_battlebot.recording.mcap_io import (
     CAMERA_VIDEO_TOPIC,
@@ -81,16 +82,6 @@ TAG_MIN_PX = 40.0  # plan: at least ~40 px on the far side
 ESP32_RATE_PASS = 0.95
 ESP32_GAP_S = 0.05
 VBAT_MIN_V = 9.0  # anything below this on a 4S pack is a bad reading, not a flat pack
-MOVING = 0.05  # |stick| above this counts as driving
-
-# Maneuver detection, stick fractions and seconds.
-HOLD_TOL = 0.03
-HOLD_MIN_S = 0.5
-CREEP_MAX = 0.08
-PUNCH_RISE_S = 0.15
-PUNCH_LEVEL = 0.5
-STOP_FROM = 0.2
-LEVEL_BINS = (0.05, 0.15, 0.3, 0.5, 0.75, 1.01)
 
 # Session totals worth aiming for before calling a recording day enough. Rough: enough repeats
 # per stage of the staged fit to hold a session out and still fit on the rest.
@@ -388,88 +379,11 @@ def stick_at(sticks: pd.DataFrame, stamps_ns: np.ndarray) -> tuple[np.ndarray, n
     return np.where(before, 0.0, lin), np.where(before, 0.0, ang)
 
 
-def _runs(mask: np.ndarray) -> list[tuple[int, int]]:
-    if not mask.any():
-        return []
-    edges = np.diff(np.concatenate([[0], mask.astype(int), [0]]))
-    return list(zip(np.flatnonzero(edges == 1), np.flatnonzero(edges == -1)))
-
-
-def held_segments(u: np.ndarray, gate: np.ndarray) -> list[tuple[int, int, float]]:
-    """(start, stop, mean level) for stretches where u stays within HOLD_TOL of its start."""
-    out = []
-    for a, b in _runs(gate):
-        i = a
-        while i < b:
-            j = i + 1
-            while j < b and abs(u[j] - u[i]) <= HOLD_TOL:
-                j += 1
-            if (j - i) * GRID_S >= HOLD_MIN_S:
-                out.append((i, j, float(np.mean(u[i:j]))))
-            i = j
-    return out
-
-
 def maneuver_menu(sticks: pd.DataFrame) -> dict[str, Any]:
     t0, t1 = int(sticks["stamp_ns"].iloc[0]), int(sticks["stamp_ns"].iloc[-1])
     grid = np.arange(t0, t1, int(GRID_S * 1e9), dtype=np.int64)
     lin, ang = stick_at(sticks, grid)
-    alin, aang = np.abs(lin), np.abs(ang)
-    straight = (alin > MOVING) & (aang < HOLD_TOL)
-    spin = (aang > MOVING) & (alin < HOLD_TOL)
-    arc = (alin > MOVING) & (aang > MOVING)
-
-    holds = held_segments(lin, straight)
-    levels: dict[str, float] = {}
-    for a, b, level in holds:
-        k = int(np.searchsorted(LEVEL_BINS, abs(level), side="right")) - 1
-        k = min(max(k, 0), len(LEVEL_BINS) - 2)
-        key = f"{'+' if level > 0 else '-'}{LEVEL_BINS[k]:.2f}"
-        levels[key] = levels.get(key, 0.0) + (b - a) * GRID_S
-    spins = held_segments(ang, spin)
-
-    rise = int(round(PUNCH_RISE_S / GRID_S))
-    punches = int(
-        np.sum(
-            (alin[rise:] > PUNCH_LEVEL)
-            & (alin[:-rise] < MOVING)
-            & (alin[rise - 1 : -1] <= PUNCH_LEVEL)
-        )
-    )
-    stops = int(
-        np.sum(
-            (alin[rise:] < HOLD_TOL)
-            & (alin[:-rise] > STOP_FROM)
-            & (alin[rise - 1 : -1] >= HOLD_TOL)
-        )
-    )
-    sign = np.sign(np.where(alin > 0.15, lin, 0.0))
-    nz = np.flatnonzero(sign != 0)
-    reversals = (
-        int(np.sum((np.diff(sign[nz]) != 0) & (np.diff(nz) * GRID_S <= 0.3))) if len(nz) > 1 else 0
-    )
-    creep = float(np.sum((alin > 0.01) & (alin < CREEP_MAX) & (aang < HOLD_TOL)) * GRID_S)
-    near_center = float(np.sum((alin > 0.005) & (alin < 0.02)) * GRID_S)
-
-    return {
-        "driving_s": float(np.sum((alin > MOVING) | (aang > MOVING)) * GRID_S),
-        "total_s": len(grid) * GRID_S,
-        "hold_s_fwd": float(sum((b - a) * GRID_S for a, b, v in holds if v > 0)),
-        "hold_s_rev": float(sum((b - a) * GRID_S for a, b, v in holds if v < 0)),
-        "holds_1s": int(sum((b - a) * GRID_S >= 1.0 for a, b, _ in holds)),
-        "hold_levels_s": dict(sorted(levels.items())),
-        "creep_s": creep,
-        "jitter_near_center_s": near_center,
-        "spin_s_left": float(sum((b - a) * GRID_S for a, b, v in spins if v > 0)),
-        "spin_s_right": float(sum((b - a) * GRID_S for a, b, v in spins if v < 0)),
-        "spin_levels": sorted({round(abs(v), 1) for _a, _b, v in spins}),
-        "arc_s": float(np.sum(arc) * GRID_S),
-        "reversals": reversals,
-        "punches": punches,
-        "hard_stops": stops,
-        "max_linear": float(alin.max()),
-        "max_angular": float(aang.max()),
-    }
+    return menu_from_grid(lin, ang, GRID_S)
 
 
 def check_sticks(sticks: pd.DataFrame, rep: Report) -> None:

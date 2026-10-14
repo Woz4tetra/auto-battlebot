@@ -1,0 +1,838 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plant Coverage Monitor</title>
+<link rel="icon" href="data:,">
+<!-- Fonts load when the laptop has internet; the stacks below fall back to system fonts. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Semi+Condensed:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: bench instrument. Sticky control strip, then a two-column panel grid; the
+   Face ID ring and the next-motion card share the first row because they are the loop
+   the driver works in. Everything else is diagnosis. */
+:root {
+  --bg: #f3f5f4;
+  --panel: #fcfdfc;
+  --ink: #111614;
+  --ink-2: #4b5551;
+  --ink-3: #7c8783;
+  --rule: #dde3e0;
+  --track: #e2e7e5;
+  --accent: #2a78d6;
+  --accent-ink: #1c5cab;
+  --series-2: #eb6834;
+  --good: #0ca30c;
+  --warn: #c98500;
+  --seq-lo: #dbe9fb;
+  --seq-hi: #1c5cab;
+  --div-neg: #2a78d6;
+  --div-pos: #e34948;
+  --div-mid: #f0efec;
+  --cell-empty: #eef1f0;
+  --font-display: "Barlow Semi Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --radius: 6px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1312; --panel: #171c1a; --ink: #eef2f0; --ink-2: #b4beba; --ink-3: #7f8a86;
+    --rule: #2a312e; --track: #262d2a; --accent: #3987e5; --accent-ink: #86b6ef; --series-2: #d95926;
+    --good: #2bbf2b; --warn: #fab219; --seq-lo: #1b2a3c; --seq-hi: #86b6ef;
+    --div-neg: #3987e5; --div-pos: #e66767; --div-mid: #383835; --cell-empty: #1e2422;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1312; --panel: #171c1a; --ink: #eef2f0; --ink-2: #b4beba; --ink-3: #7f8a86;
+  --rule: #2a312e; --track: #262d2a; --accent: #3987e5; --accent-ink: #86b6ef; --series-2: #d95926;
+  --good: #2bbf2b; --warn: #fab219; --seq-lo: #1b2a3c; --seq-hi: #86b6ef;
+  --div-neg: #3987e5; --div-pos: #e66767; --div-mid: #383835; --cell-empty: #1e2422;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.45; margin: 0; padding-inline: 16px; }
+.wrap { max-width: 1240px; margin: 0 auto; padding-block: 20px 48px; display: flex; flex-direction: column; gap: 16px; }
+h1, h2, h3 { font-family: var(--font-display); margin: 0; text-wrap: balance; letter-spacing: 0.01em; }
+h1 { font-size: 30px; font-weight: 700; }
+h2 { font-size: 19px; font-weight: 600; }
+p { margin: 0; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.muted { color: var(--ink-2); }
+.small { font-size: 13px; }
+.eyebrow { font-family: var(--font-display); font-weight: 600; text-transform: uppercase; letter-spacing: 0.09em; font-size: 12px; color: var(--ink-3); }
+
+header.top { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px 24px; }
+header.top .lede { max-width: 68ch; color: var(--ink-2); margin-top: 6px; }
+
+.controls { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); padding-block: 10px; border-bottom: 1px solid var(--rule); display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+.controls .group { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.controls .stat { display: flex; gap: 18px; flex-wrap: wrap; margin-left: auto; }
+.controls .stat div { display: flex; flex-direction: column; }
+.controls .stat b { font-family: var(--font-mono); font-weight: 500; font-size: 16px; font-variant-numeric: tabular-nums; }
+button, select { font: inherit; font-size: 14px; border-radius: var(--radius); border: 1px solid var(--rule); background: var(--panel); color: var(--ink); padding: 7px 12px; cursor: pointer; }
+button:hover:not(:disabled) { border-color: var(--ink-3); }
+button:focus-visible, select:focus-visible, .prow:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+button:disabled { opacity: 0.5; cursor: progress; }
+select { max-width: 100%; }
+
+.grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 16px; }
+.panel { background: var(--panel); border: 1px solid var(--rule); border-radius: var(--radius); padding: 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.panel header { display: flex; flex-direction: column; gap: 3px; }
+.panel header p { color: var(--ink-2); font-size: 13.5px; max-width: 70ch; }
+.span-5 { grid-column: span 5; } .span-7 { grid-column: span 7; } .span-6 { grid-column: span 6; } .span-12 { grid-column: span 12; }
+@media (max-width: 980px) { .span-5, .span-7, .span-6 { grid-column: span 12; } }
+
+canvas { display: block; width: 100%; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: var(--ink-2); align-items: center; }
+.legend i { display: inline-block; width: 14px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+.legend .ramp { width: 72px; height: 10px; border-radius: 2px; background: linear-gradient(90deg, var(--seq-lo), var(--seq-hi)); }
+
+/* ring */
+.ringbox { display: grid; grid-template-columns: minmax(200px, 250px) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 560px) { .ringbox { grid-template-columns: minmax(0, 1fr); } .ringbox svg { max-width: 260px; margin: 0 auto; } }
+.ringbox svg { width: 100%; height: auto; display: block; }
+.plist { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.pgroup { font-family: var(--font-display); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-3); padding-top: 8px; }
+.prow { display: grid; grid-template-columns: minmax(0, 9.5em) minmax(40px, 1fr) minmax(0, 11em); gap: 10px; align-items: center; padding: 3px 6px; border-radius: 4px; cursor: pointer; font-size: 13.5px; }
+.prow:hover, .prow.sel { background: var(--cell-empty); }
+.prow .bar { height: 6px; background: var(--track); border-radius: 3px; overflow: hidden; }
+.prow .bar span { display: block; height: 100%; border-radius: 3px; background: var(--accent); transition: width 0.4s; }
+.prow.done .bar span { background: var(--good); }
+.prow .val { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2); text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.prow .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* next motion */
+.cands { display: flex; flex-direction: column; gap: 10px; }
+.cand { border: 1px solid var(--rule); border-radius: var(--radius); padding: 12px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px 14px; align-items: start; }
+.cand.first { border-color: var(--accent); }
+.cand h3 { font-size: 17px; font-weight: 600; }
+.cand .how { color: var(--ink-2); font-size: 14px; margin-top: 2px; }
+.cand canvas { grid-column: 1 / -1; height: 92px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; grid-column: 1 / -1; }
+.chip { font-size: 12px; border: 1px solid var(--rule); border-radius: 999px; padding: 1px 8px; color: var(--ink-2); }
+.chip b { color: var(--ink); font-weight: 600; font-family: var(--font-mono); font-size: 11.5px; }
+.rate { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2); text-align: right; }
+
+/* transitions */
+.tx { overflow-x: auto; }
+.tx table { border-collapse: separate; border-spacing: 3px; font-size: 13px; }
+.tx th { font-weight: 500; color: var(--ink-2); text-align: left; padding: 0 6px 0 0; white-space: nowrap; }
+.tx thead th { text-align: center; font-family: var(--font-mono); font-size: 11.5px; font-weight: 400; }
+.tx thead tr:first-child th { font-family: var(--font-display); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-3); }
+.tx td { width: 46px; height: 34px; border-radius: 4px; text-align: center; font-family: var(--font-mono); font-size: 12px; background: var(--cell-empty); color: var(--ink-3); border: 1px dashed var(--rule); }
+.tx td.has { border-style: solid; border-color: transparent; color: var(--ink); }
+.tx td.ok { color: #fff; }
+.tx td.gap-l { border-left-width: 1px; }
+
+.corr-notes { display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; }
+.corr-notes div { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; padding: 6px 8px; border-radius: 4px; background: var(--cell-empty); }
+.corr-notes .r { font-family: var(--font-mono); font-size: 12.5px; }
+.corr-notes .h { grid-column: 2; color: var(--ink-2); font-size: 13px; }
+
+.statrow { display: flex; flex-wrap: wrap; gap: 10px 28px; }
+.statrow div { display: flex; flex-direction: column; }
+.statrow b { font-family: var(--font-mono); font-weight: 500; font-size: 18px; font-variant-numeric: tabular-nums; }
+.subcharts { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+@media (max-width: 700px) { .subcharts { grid-template-columns: minmax(0, 1fr); } }
+.ladder { display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; }
+.ladder .lr { display: grid; grid-template-columns: minmax(0, 12em) minmax(40px, 1fr) 5.5em; gap: 10px; align-items: center; }
+.ladder .lr .bar { height: 12px; background: var(--track); border-radius: 0 3px 3px 0; overflow: hidden; }
+.ladder .lr .bar span { display: block; height: 100%; background: var(--ink-3); border-radius: 0 3px 3px 0; transition: width 0.4s; }
+.ladder .lr.best .bar span { background: var(--accent); }
+.ladder .lr .v { font-family: var(--font-mono); font-size: 12.5px; text-align: right; }
+.ladder .lr .tag { font-size: 11px; color: var(--accent-ink); font-weight: 600; margin-left: 6px; }
+
+
+
+#radio { aspect-ratio: 1.55 / 1; touch-action: none; cursor: grab; border-radius: var(--radius); }
+#radio:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.radio-col { display: flex; flex-direction: column; gap: 8px; }
+.radio-opts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.prompt-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+#tape { height: 168px; }
+
+#tip { position: fixed; pointer-events: none; z-index: 20; background: var(--panel); color: var(--ink); border: 1px solid var(--rule); border-radius: 5px; padding: 6px 9px; font-size: 12.5px; box-shadow: 0 4px 16px rgba(0,0,0,0.12); max-width: 280px; }
+#tip b { font-weight: 600; }
+#tip .mono { font-size: 12px; }
+footer { color: var(--ink-3); font-size: 12.5px; max-width: 90ch; }
+@media (prefers-reduced-motion: reduce) { .prow .bar span, .ladder .lr .bar span { transition: none; } }
+.live { display: grid; grid-template-columns: minmax(0, 340px) minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 860px) { .live { grid-template-columns: minmax(0, 1fr); } }
+.hint { border: 1px solid var(--rule); border-radius: var(--radius); padding: 10px 14px; display: flex; flex-direction: column; gap: 2px; }
+.hint .eyebrow { color: var(--accent-ink); }
+.hint b { font-family: var(--font-display); font-size: 21px; font-weight: 700; }
+.hint span.muted { font-size: 14px; }
+.ticker { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; font-size: 14px; }
+.ticker li { display: grid; grid-template-columns: 4.2em 1.4em minmax(0, 1fr); gap: 6px; align-items: baseline; padding: 4px 8px; border-radius: 4px; background: var(--cell-empty); }
+.ticker li .ts { font-family: var(--font-mono); font-size: 12px; color: var(--ink-3); }
+.ticker li .ic { font-weight: 700; text-align: center; }
+.ticker li.ok .ic { color: var(--good); } .ticker li.warn .ic { color: var(--warn); } .ticker li.bad .ic { color: var(--div-pos); }
+.ticker li .chips { display: inline-flex; gap: 4px; flex-wrap: wrap; margin-left: 6px; vertical-align: 1px; }
+.ticker li .chip { font-size: 11px; padding: 0 6px; }
+.ticker li.fresh { animation: fresh 1.2s ease-out; }
+@keyframes fresh { from { background: color-mix(in srgb, var(--accent) 28%, var(--cell-empty)); } to { background: var(--cell-empty); } }
+.driverline { font-size: 13px; color: var(--ink-2); }
+.driverline b { font-weight: 600; color: var(--ink); }
+.tx td.pulse { animation: pulse 1.4s ease-in-out infinite; border: 2px solid var(--accent); }
+@keyframes pulse { 50% { border-color: transparent; } }
+.floorwarn { font-size: 13.5px; color: var(--ink-2); border-left: 3px solid var(--warn); padding: 4px 10px; }
+.prow .lim { font-size: 11px; color: var(--warn); font-weight: 600; margin-left: 6px; }
+@media (prefers-reduced-motion: reduce) { .tx td.pulse, .ticker li.fresh { animation: none; } }
+.srcnote { font-size: 12.5px; color: var(--ink-2); border: 1px dashed var(--rule); border-radius: var(--radius); padding: 6px 10px; max-width: 44ch; }
+.banner { border: 1px solid var(--div-pos); border-left-width: 4px; border-radius: var(--radius); padding: 8px 12px; background: var(--panel); font-weight: 500; }
+#radio { aspect-ratio: 1.55 / 1; border-radius: var(--radius); }
+.radio-col { display: flex; flex-direction: column; gap: 8px; }
+.radio-opts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.prompt-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+#tape { height: 168px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <div class="eyebrow">Mr Stabs Mk2 · grey-box drivetrain plant · <span id="profile"></span></div>
+      <h1>Plant Coverage Monitor</h1>
+      <p class="lede">Drive however you like. The tool reads the sticks, the ESP-NOW telemetry and the tag, labels each thing you do, drops anything that touched a wall, and refits as you go. It never sends a command and never asks you to start anything.</p>
+    </div>
+    <p class="srcnote" id="srcnote">Connecting…</p>
+  </header>
+
+  <div class="banner" id="banner" hidden></div>
+
+  <div class="controls" role="status" aria-label="Session summary">
+    <div class="stat">
+      <div><span class="eyebrow">Characterized</span><b id="sOverall">0%</b></div>
+      <div><span class="eyebrow">Driving</span><b id="sTime">0 s</b></div>
+      <div><span class="eyebrow">Windows used</span><b id="sUsed">0</b></div>
+      <div><span class="eyebrow">Dropped, wall</span><b id="sWall">0</b></div>
+      <div><span class="eyebrow">Dropped, other</span><b id="sOther">0</b></div>
+      <div><span class="eyebrow">Refits</span><b id="sRefits">0</b></div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <section class="panel span-12" aria-labelledby="h-live">
+      <header>
+        <div class="eyebrow">What the tool heard</div>
+        <h2 id="h-live">Live stream</h2>
+        <p>Every 1.5 s of driving becomes a fit window. Holds, snaps, arcs, spins and creeps are labeled as they finish, with the parameters they inform, and marked once their window is used or dropped. The hint is a suggestion; ignore it and keep driving.</p>
+      </header>
+      <div class="live">
+        <div class="radio-col">
+          <canvas id="radio" aria-label="Transmitter sticks from telemetry"></canvas>
+          <div class="radio-opts">
+            <label for="layout" class="small muted">Stick layout</label>
+            <select id="layout">
+              <option value="split">Split: left throttle, right steer</option>
+              <option value="right">Right stick only</option>
+            </select>
+          </div>
+        </div>
+        <div class="prompt-col">
+          <div class="hint" id="hint"></div>
+          <canvas id="tape" aria-label="Last 8 seconds of stick input with fit windows"></canvas>
+          <div class="legend"><span><i style="background:var(--accent);height:3px"></i>throttle</span><span><i style="background:var(--series-2);height:3px"></i>steer</span><span><i style="background:var(--div-pos);opacity:.25"></i>window dropped, wall</span><span><i style="background:var(--warn);opacity:.25"></i>window dropped, other</span><span><i style="background:var(--ink-3);opacity:.15"></i>window filling</span></div>
+          <ul class="ticker" id="ticker" aria-live="polite"></ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel span-7" aria-labelledby="h-ring">
+      <header>
+        <div class="eyebrow">How much is characterized</div>
+        <h2 id="h-ring">Parameter confidence ring</h2>
+        <p>One sector per plant parameter, five ticks each. A tick lights for every fifth of the way the parameter's uncertainty has come down to its target. Uncertainty is the Cramér-Rao bound from the Fisher information, widened by the fit residual when the model cannot reach the tag noise. Amber ticks mark a parameter this floor is too small to finish.</p>
+      </header>
+      <div class="ringbox">
+        <svg id="ring" viewBox="0 0 240 240" role="img" aria-label="Parameter confidence ring"></svg>
+        <div class="plist" id="plist"></div>
+      </div>
+    </section>
+
+    <section class="panel span-5" aria-labelledby="h-next">
+      <header>
+        <div class="eyebrow">If you want to speed it up</div>
+        <h2 id="h-next">What would help most</h2>
+        <p>Each motion is simulated at the current estimate, through the firmware mixer with the flip switch where it is now, and ranked by ring filled per second. Only motions that fit the floor are listed. Nothing here needs starting.</p>
+      </header>
+      <div class="floorwarn" id="floorwarn" hidden></div>
+      <div class="cands" id="cands"></div>
+    </section>
+
+    <section class="panel span-6" aria-labelledby="h-cov">
+      <header>
+        <div class="eyebrow">Where you have driven</div>
+        <h2 id="h-cov">Command coverage map</h2>
+        <p>Throttle against steer, like a wand painting a capture volume. Shade is tag-tracked samples per cell; a ring marks a cell held 0.5 s or longer. The pulsing outline marks where the current hint would land. Samples from dropped windows are left out.</p>
+      </header>
+      <canvas id="cov" style="aspect-ratio: 1 / 0.92" aria-label="Command coverage heatmap"></canvas>
+      <div class="legend"><span><span class="ramp" style="display:inline-block;vertical-align:-1px;margin-right:6px"></span>samples per cell</span><span><i style="background:none;border:2px solid var(--ink);width:12px;height:12px;border-radius:50%"></i>held ≥ 0.5 s</span><span><i style="background:none;border:2px solid var(--accent)"></i>hint</span></div>
+    </section>
+
+    <section class="panel span-6" aria-labelledby="h-tx">
+      <header>
+        <div class="eyebrow">Which edges you have</div>
+        <h2 id="h-tx">Transition coverage</h2>
+        <p>Delay and the four lag constants come from command edges. An edge counts when it leaves rest or a 0.5 s plateau, lands in a 0.5 s hold, takes under 80 ms, and its window is used. The yaw loop rows are steer edges with the flip switch down, where the firmware loop answers.</p>
+      </header>
+      <div class="tx"><table id="tx"></table></div>
+      <div class="legend"><span><i style="background:var(--seq-lo)"></i>1 edge</span><span><i style="background:var(--seq-hi)"></i>3 or more</span><span><i style="background:var(--cell-empty);border:1px dashed var(--ink-3)"></i>missing</span></div>
+    </section>
+
+    <section class="panel span-6" aria-labelledby="h-corr">
+      <header>
+        <div class="eyebrow">Why a sector is stuck</div>
+        <h2 id="h-corr">Parameter correlation</h2>
+        <p>Correlation from the inverse Fisher information. A dark cell off the diagonal means the data so far cannot tell those two apart. The list names the worst unfinished pairs and what splits them.</p>
+      </header>
+      <canvas id="corr" style="aspect-ratio: 1 / 1" aria-label="Parameter correlation matrix"></canvas>
+      <div class="legend"><span><i style="background:var(--div-neg)"></i>−1</span><span><i style="background:var(--div-mid);border:1px solid var(--rule)"></i>0</span><span><i style="background:var(--div-pos)"></i>+1</span></div>
+      <div class="corr-notes" id="corrNotes"></div>
+    </section>
+
+    <section class="panel span-6" aria-labelledby="h-ghost">
+      <header>
+        <div class="eyebrow">Does the model predict</div>
+        <h2 id="h-ghost">The floor, live</h2>
+        <p>The field from above. Grey dots are the last 6 s of tag fixes. Every 240 ms the current fit starts from the tag state and predicts 500 ms from the recorded sticks, through the firmware mixer (blue). A good fit keeps each ghost on the dots. The dashed line is the wall gate.</p>
+      </header>
+      <canvas id="arena" style="aspect-ratio: 1 / 1" aria-label="Live floor view with predicted trajectories"></canvas>
+      <div class="legend"><span><i style="background:var(--ink-3);border-radius:50%;width:8px;height:8px"></i>tag fix</span><span><i style="background:var(--accent);height:3px"></i>500 ms prediction</span><span><i style="background:var(--series-2);border-radius:50%;width:8px;height:8px"></i>prediction end</span><span><i style="background:none;border:1px dashed var(--div-pos)"></i>wall gate</span></div>
+    </section>
+
+    <section class="panel span-12" aria-labelledby="h-conv">
+      <header>
+        <div class="eyebrow">Is it done</div>
+        <h2 id="h-conv">Convergence and calibration quality</h2>
+        <p>The OptiTrack wand-error view. Holdout error is the 500 ms closed-loop position error, from the sticks through the firmware mixer, on every fifth usable window, which the fit never sees. When it flattens and the estimate trace stops moving inside its band, more driving stops paying.</p>
+      </header>
+      <div class="statrow" id="stats"></div>
+      <div class="subcharts">
+        <div>
+          <div class="eyebrow" style="margin-bottom:6px">Holdout error, 500 ms horizon</div>
+          <canvas id="hold" style="aspect-ratio: 1.8 / 1" aria-label="Holdout error over driving time"></canvas>
+        </div>
+        <div>
+          <div class="eyebrow" style="margin-bottom:6px">Estimate trace: <span id="traceName"></span> <span class="muted" style="text-transform:none;letter-spacing:0">(click a parameter in the ring list)</span></div>
+          <canvas id="trace" style="aspect-ratio: 1.8 / 1" aria-label="Parameter estimate trace"></canvas>
+        </div>
+      </div>
+      <div>
+        <div class="eyebrow" style="margin-bottom:8px">Model ladder, holdout error at 500 ms</div>
+        <div class="ladder" id="ladder"></div>
+        <p class="small muted" style="margin-top:8px">Each rung refits the same windows with more terms freed. M5 and M6 are the two drift hypotheses; the holdout picks one instead of assuming it.</p>
+      </div>
+    </section>
+
+    <section class="panel span-12" aria-labelledby="h-link">
+      <header>
+        <div class="eyebrow">Is the data good</div>
+        <h2 id="h-link">Link and gates</h2>
+      </header>
+      <div class="statrow" id="link"></div>
+      <div class="statrow" id="gates"></div>
+    </section>
+  </div>
+  <footer>Plant structure and priors follow <span class="mono">auto_battlebot/control/plant.py</span>; the fit input is the motor command the ESCs got, and every prediction runs the sticks through the mirror of the firmware mixer and yaw loop (<span class="mono">auto_battlebot/control/firmware_mixer.py</span>). This page only listens. The final calibration is the offline fit on the session's MCAP.</footer>
+</div>
+<div id="tip" hidden></div>
+<script>
+'use strict';
+// Plant coverage monitor page. Everything comes from the Python session over a local websocket:
+// a "hello" with the parameter list, then a snapshot about four times a second. Drawing code is
+// the prototype's, reading the snapshot instead of an in-page simulator.
+const $ = (id) => document.getElementById(id);
+const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+let P = [], NP = 0, S = null, selParam = 11, hint = null, lastEvents = new Set();
+const AMPS = [0.25, 0.5, 0.75, 1];
+const WINDOW_S = 1.5;
+
+function hex2rgb(h) { h = h.replace('#', ''); if (h.length === 3) h = h.split('').map((c) => c + c).join(''); const n = parseInt(h, 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
+function mix(a, b, t) { const A = hex2rgb(a), B = hex2rgb(b); return `rgb(${A.map((v, i) => Math.round(v + (B[i] - v) * t)).join(',')})`; }
+function setup(cv) {
+  const r = cv.getBoundingClientRect(), d = window.devicePixelRatio || 1;
+  const W = Math.max(1, Math.round(r.width * d)), H = Math.max(1, Math.round(r.height * d));
+  if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+  const g = cv.getContext('2d'); g.setTransform(d, 0, 0, d, 0, 0); g.clearRect(0, 0, r.width, r.height);
+  return { g, w: r.width, h: r.height };
+}
+const tip = $('tip');
+function showTip(e, html) { tip.innerHTML = html; tip.hidden = false; const x = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8); const y = e.clientY + 16 + tip.offsetHeight > innerHeight ? e.clientY - tip.offsetHeight - 10 : e.clientY + 16; tip.style.left = x + 'px'; tip.style.top = y + 'px'; }
+function hideTip() { tip.hidden = true; }
+const fmt = (v, i) => (P[i].unit === 's' ? (v * 1000).toFixed(1) : v.toFixed(P[i].dp));
+const unitOf = (i) => (P[i].unit === 's' ? 'ms' : P[i].unit);
+const num = (v, d = 1, suffix = '') => (v === null || v === undefined || Number.isNaN(v) ? '·' : `${(+v).toFixed(d)}${suffix}`);
+
+// ---------- ring ----------
+function groups() { return [...new Set(P.map((p) => p.group))]; }
+function drawRing() {
+  const svg = $('ring'), lim = S.floor_limited, G = groups();
+  const cx = 120, cy = 120, r1 = 84, r2 = 104, gapDeg = 7, ticks = 5;
+  const per = (360 - gapDeg * G.length) / NP;
+  let a = -90 + gapDeg / 2, out = '', lastG = P[0].group;
+  const track = css('--track'), acc = css('--accent'), good = css('--good'), warn = css('--warn');
+  P.forEach((p, i) => {
+    if (p.group !== lastG) { a += gapDeg; lastG = p.group; }
+    const lit = Math.floor(S.fills[i] * ticks + 1e-6), done = S.fills[i] >= 0.999;
+    for (let t = 0; t < ticks; t++) {
+      const ang = ((a + (t + 0.5) * (per / ticks)) * Math.PI) / 180;
+      const col = t < lit ? (done ? good : acc) : lim[i] ? warn : track;
+      out += `<line x1="${(cx + r1 * Math.cos(ang)).toFixed(1)}" y1="${(cy + r1 * Math.sin(ang)).toFixed(1)}" x2="${(cx + r2 * Math.cos(ang)).toFixed(1)}" y2="${(cy + r2 * Math.sin(ang)).toFixed(1)}" stroke="${col}" stroke-opacity="${t >= lit && lim[i] ? 0.45 : 1}" stroke-width="3.2" stroke-linecap="round"/>`;
+    }
+    const A0 = (a * Math.PI) / 180, A1 = ((a + per) * Math.PI) / 180, mid = ((a + per / 2) * Math.PI) / 180;
+    out += `<path data-i="${i}" d="M${cx + 70 * Math.cos(A0)},${cy + 70 * Math.sin(A0)} L${cx + 118 * Math.cos(A0)},${cy + 118 * Math.sin(A0)} A118,118 0 0 1 ${cx + 118 * Math.cos(A1)},${cy + 118 * Math.sin(A1)} L${cx + 70 * Math.cos(A1)},${cy + 70 * Math.sin(A1)} Z" fill="transparent" style="cursor:pointer"/>`;
+    if (i === selParam) out += `<circle cx="${cx + 112 * Math.cos(mid)}" cy="${cy + 112 * Math.sin(mid)}" r="2.6" fill="${css('--ink')}"/>`;
+    a += per;
+  });
+  const nDone = S.fills.filter((f) => f >= 0.999).length;
+  out += `<text x="${cx}" y="${cy + 4}" text-anchor="middle" font-family="${css('--font-display')}" font-weight="700" font-size="44" fill="${css('--ink')}">${Math.round(S.overall * 100)}%</text>`;
+  out += `<text x="${cx}" y="${cy + 26}" text-anchor="middle" font-family="${css('--font-body')}" font-size="11.5" fill="${css('--ink-2')}">${nDone} of ${NP} parameters done</text>`;
+  svg.innerHTML = out;
+  svg.querySelectorAll('path[data-i]').forEach((el) => {
+    const i = +el.dataset.i;
+    el.addEventListener('mousemove', (e) => showTip(e, paramTip(i)));
+    el.addEventListener('mouseleave', hideTip);
+    el.addEventListener('click', () => selectParam(i));
+  });
+}
+function paramTip(i) {
+  return `<b>${P[i].label}</b> <span class="mono">${P[i].key}</span><br>estimate <span class="mono">${fmt(S.theta[i], i)} ± ${fmt(S.std[i], i)} ${unitOf(i)}</span><br>target σ <span class="mono">${fmt(P[i].target, i)} ${unitOf(i)}</span> · ${Math.round(S.fills[i] * 100)}% filled${S.floor_limited[i] ? `<br>Needs more floor: the motions that would finish it travel further than this field allows (${S.floor_run_m.toFixed(1)} m of run).` : ''}`;
+}
+function drawList() {
+  let html = '', g = null;
+  P.forEach((p, i) => {
+    if (p.group !== g) { g = p.group; html += `<div class="pgroup">${g}</div>`; }
+    const done = S.fills[i] >= 0.999;
+    html += `<div class="prow${done ? ' done' : ''}${i === selParam ? ' sel' : ''}" data-i="${i}" tabindex="0" role="button" aria-label="${p.label}, ${Math.round(S.fills[i] * 100)} percent">
+      <span class="nm">${p.label}${S.floor_limited[i] ? '<span class="lim">floor</span>' : ''}</span><span class="bar"><span style="width:${(S.fills[i] * 100).toFixed(1)}%"></span></span>
+      <span class="val">${fmt(S.theta[i], i)} ± ${fmt(S.std[i], i)}${unitOf(i) ? ' ' + unitOf(i) : ''}</span></div>`;
+  });
+  $('plist').innerHTML = html;
+  $('plist').querySelectorAll('.prow').forEach((el) => {
+    const i = +el.dataset.i;
+    el.addEventListener('click', () => selectParam(i));
+    el.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectParam(i); } });
+    el.addEventListener('mousemove', (e) => showTip(e, paramTip(i)));
+    el.addEventListener('mouseleave', hideTip);
+  });
+}
+function selectParam(i) { selParam = i; drawRing(); drawList(); drawTrace(); }
+
+// ---------- hint ----------
+function computeHint() {
+  const best = (S.candidates || []).find((c) => c.fits);
+  if (!best || best.score < 0.02) { hint = null; return; }
+  const nb = S.coverage.bins.length;
+  hint = { cand: best, cells: new Set(best.cells.map(([li, ai]) => li * nb + ai)), edges: new Set(best.edge_cells.map(([r, c]) => `${r}-${c}`)) };
+}
+function drawHint() {
+  const el = $('hint');
+  if (S.overall >= 0.99) { el.innerHTML = '<span class="eyebrow">Status</span><b>Characterized.</b><span class="muted">More driving adds little. The ring is full and the holdout error has flattened.</span>'; return; }
+  if (!S.refits) { el.innerHTML = '<span class="eyebrow">Getting started</span><b>Drive.</b><span class="muted">The first refit lands a few seconds after the first clean window.</span>'; return; }
+  if (!hint) { el.innerHTML = '<span class="eyebrow">Would help most</span><b>Keep driving.</b><span class="muted">Everything left needs more floor than this field has.</span>'; return; }
+  const c = hint.cand;
+  const names = c.gains.map((gn, i) => ({ gn, i })).filter((x) => x.gn > 0.01).sort((a, b) => b.gn - a.gn).slice(0, 3).map((x) => P[x.i].label.toLowerCase());
+  el.innerHTML = `<span class="eyebrow">Would help most · optional</span><b>${c.name}</b><span class="muted">${c.how}${names.length ? ` Fills ${names.join(', ')}.` : ''}</span>`;
+}
+
+// ---------- coverage ----------
+function drawCoverage(now = 0) {
+  const cv = $('cov'), { g, w, h } = setup(cv), BINS = S.coverage.bins, nb = BINS.length;
+  const edgesB = BINS.map((b, i) => (i === 0 ? -1.06 : (BINS[i - 1] + b) / 2)).concat([1.06]);
+  const padL = 44, padB = 34, padT = 8, padR = 8;
+  const W = w - padL - padR, H = h - padT - padB;
+  const disp = (u) => Math.sign(u) * Math.pow(Math.abs(u), 0.62);
+  const X = (a) => padL + ((disp(-a) + disp(1.06)) / (2 * disp(1.06))) * W;
+  const Y = (l) => padT + (1 - (disp(l) + disp(1.06)) / (2 * disp(1.06))) * H;
+  const count = S.coverage.count, held = S.coverage.held;
+  let max = 1; for (const c of count) max = Math.max(max, c);
+  const lo = css('--seq-lo'), hi = css('--seq-hi'), empty = css('--cell-empty'), ink3 = css('--ink-3'), ink = css('--ink'), ink2 = css('--ink-2'), surf = css('--panel'), acc = css('--accent');
+  const pulse = reduced ? 1 : 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(now / 220));
+  cv._cells = [];
+  for (let ai = 0; ai < nb; ai++) for (let li = 0; li < nb; li++) {
+    const x0 = X(edgesB[ai + 1]), x1 = X(edgesB[ai]), y0 = Y(edgesB[li + 1]), y1 = Y(edgesB[li]);
+    const idx = li * nb + ai, c = count[idx], hd = held[idx];
+    const rx = x0 + 1, ry = y0 + 1, rw = x1 - x0 - 2, rh = y1 - y0 - 2;
+    const shade = Math.min(1, Math.log1p(c) / Math.log1p(Math.max(max, 60)));
+    if (c > 0) { g.fillStyle = mix(lo, hi, shade); g.fillRect(rx, ry, rw, rh); }
+    else { g.fillStyle = empty; g.fillRect(rx, ry, rw, rh); g.strokeStyle = ink3; g.globalAlpha = 0.35; g.setLineDash([2, 2]); g.strokeRect(rx + 0.5, ry + 0.5, rw - 1, rh - 1); g.setLineDash([]); g.globalAlpha = 1; }
+    if (hd > 0) { const r = Math.max(2.5, Math.min(rw, rh) / 2 - 3); g.beginPath(); g.arc(rx + rw / 2, ry + rh / 2, r, 0, 7); g.lineWidth = 2; g.strokeStyle = shade > 0.55 ? surf : ink; g.stroke(); }
+    if (hint && hint.cells.has(idx)) { g.globalAlpha = pulse; g.strokeStyle = acc; g.lineWidth = 2.5; g.strokeRect(rx - 0.5, ry - 0.5, rw + 1, rh + 1); g.globalAlpha = 1; }
+    cv._cells.push({ x0: rx, y0: ry, x1: rx + rw, y1: ry + rh, a: BINS[ai], l: BINS[li], c, hd });
+  }
+  g.strokeStyle = css('--series-2'); g.lineWidth = 1.5; g.setLineDash([4, 3]);
+  g.strokeRect(X(0.125), Y(1.06), X(-0.125) - X(0.125), H);
+  g.strokeRect(padL, Y(0.125), W, Y(-0.125) - Y(0.125));
+  g.setLineDash([]);
+  g.fillStyle = ink2; g.font = `12px ${css('--font-body')}`; g.textAlign = 'center';
+  for (const t of [-1, -0.5, -0.1, 0, 0.1, 0.5, 1]) g.fillText(`${Math.round(Math.abs(t) * 100)}`, X(t), h - padB + 15);
+  g.textAlign = 'right';
+  for (const t of [-1, -0.5, -0.1, 0, 0.1, 0.5, 1]) g.fillText(`${t > 0 ? '+' : t < 0 ? '−' : ''}${Math.round(Math.abs(t) * 100)}`, padL - 6, Y(t) + 4);
+  g.textAlign = 'center'; g.fillStyle = ink3;
+  g.fillText('◂ steer left    steer % (deadzone band dashed)    steer right ▸', padL + W / 2, h - 3);
+  g.save(); g.translate(11, padT + H / 2); g.rotate(-Math.PI / 2); g.fillText('reverse ◂  throttle %  ▸ forward', 0, 0); g.restore();
+}
+$('cov').addEventListener('mousemove', (e) => {
+  const cv = $('cov'), r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+  const c = (cv._cells || []).find((k) => x >= k.x0 && x <= k.x1 && y >= k.y0 && y <= k.y1);
+  if (!c) return hideTip();
+  const s = (v, pos, neg) => (v === 0 ? 'none' : `${Math.round(Math.abs(v) * 100)}% ${v > 0 ? pos : neg}`);
+  showTip(e, `<b>Throttle ${s(c.l, 'fwd', 'rev')} · steer ${s(c.a, 'left', 'right')}</b><br><span class="mono">${c.c}</span> tracked samples (${(c.c * 0.01).toFixed(2)} s)<br>${c.hd > 0 ? `held <span class="mono">${c.hd.toFixed(1)} s</span> in ≥0.5 s plateaus` : 'never held long enough for a plateau'}`);
+});
+$('cov').addEventListener('mouseleave', hideTip);
+
+// ---------- transitions ----------
+function drawTransitions() {
+  const E = S.edges, rows = S.edge_rows, lo = css('--seq-lo'), hi = css('--seq-hi');
+  const fills = ['delay, linear accel lag, forward gain', 'delay, linear accel lag, reverse gain', 'delay, yaw accel lag, yaw gain', 'delay, yaw accel lag, yaw gain', 'delay and yaw lags through the loop', 'delay and yaw lags through the loop, reversing'];
+  const dfills = ['linear decel lag', 'linear decel lag', 'yaw decel lag', 'yaw decel lag', 'yaw decel lag, loop capture', 'yaw decel lag, loop capture'];
+  let html = '<thead><tr><th></th><th colspan="4">Accel edge</th><th colspan="4">Decel edge</th></tr><tr><th>amplitude</th>' +
+    AMPS.map((a) => `<th>${a * 100}%</th>`).join('') + AMPS.map((a) => `<th>${a * 100}%</th>`).join('') + '</tr></thead><tbody>';
+  rows.forEach((name, r) => {
+    html += `<tr><th>${name}</th>`;
+    for (let c = 0; c < 8; c++) {
+      const n = E[r][c];
+      const style = n ? `background:${mix(lo, hi, Math.min(1, (n - 1) / 2))}` : '';
+      const cls = [n ? (n >= 2 ? 'has ok' : 'has') : '', hint && hint.edges.has(`${r}-${c}`) ? 'pulse' : ''].join(' ');
+      html += `<td class="${cls}" style="${style}" data-t="${name} ${c < 4 ? 'accel' : 'decel'} at ${AMPS[c % 4] * 100}%: ${n} clean edge${n === 1 ? '' : 's'}. Informs ${c < 4 ? fills[r] : dfills[r]}.">${n || '·'}</td>`;
+    }
+    html += '</tr>';
+  });
+  if ($('tx')._key === html) return;
+  $('tx')._key = html;
+  $('tx').innerHTML = html + '</tbody>';
+  $('tx').querySelectorAll('td').forEach((td) => { td.addEventListener('mousemove', (e) => showTip(e, td.dataset.t)); td.addEventListener('mouseleave', hideTip); });
+}
+
+// ---------- correlation ----------
+function pairHint(i, j) {
+  const k = [P[i].key, P[j].key];
+  const has = (a) => k.some((x) => x.startsWith(a));
+  if (k.every((x) => x.startsWith('c_drift'))) return 'Hands-off straight runs at several throttle levels: gain-mismatch drift scales with throttle, drag-bias drift stays constant.';
+  if (has('delay') || k.every((x) => x.startsWith('tau'))) return 'Snap the stick from rest and hold. A delay shifts the whole response; a lag bends it.';
+  if (has('dz') && has('k_')) return 'Slow creeps out of zero for the deadzone, plus long holds for the gain.';
+  if (has('c_sb') || has('c_ad')) return 'Arcs, plus pure straight and pure spin moves at the same stick amounts.';
+  if (has('tau') && has('k_')) return 'Hold longer: a short step never reaches the plateau, so gain and lag trade off.';
+  if (has('c_drift')) return 'Long straight holds with hands off the steering.';
+  return 'Any motion that moves one of these without the other.';
+}
+function drawCorr() {
+  const cv = $('corr'), { g, w, h } = setup(cv);
+  const C = S.corr;
+  const pad = 62, n = NP, cs = Math.min((w - pad - 4) / n, (h - pad - 4) / n);
+  const neg = css('--div-neg'), pos = css('--div-pos'), mid = css('--div-mid'), ink2 = css('--ink-2');
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+    const r = C[i * n + j];
+    g.fillStyle = i === j ? css('--track') : r >= 0 ? mix(mid, pos, Math.min(1, r)) : mix(mid, neg, Math.min(1, -r));
+    g.fillRect(pad + j * cs + 0.5, pad + i * cs + 0.5, cs - 1, cs - 1);
+  }
+  g.fillStyle = ink2; g.font = `10.5px ${css('--font-mono')}`; g.textAlign = 'right';
+  for (let i = 0; i < n; i++) g.fillText(P[i].short, pad - 4, pad + i * cs + cs / 2 + 3.5);
+  for (let j = 0; j < n; j++) { g.save(); g.translate(pad + j * cs + cs / 2 + 3.5, pad - 4); g.rotate(-Math.PI / 2); g.textAlign = 'left'; g.fillText(P[j].short, 0, 0); g.restore(); }
+  cv._geom = { pad, cs, C };
+  const pairs = [];
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) pairs.push({ i, j, r: C[i * n + j] });
+  pairs.sort((a, b) => Math.abs(b.r) - Math.abs(a.r));
+  const top = pairs.filter((p) => Math.abs(p.r) > 0.4 && (S.fills[p.i] < 0.999 || S.fills[p.j] < 0.999)).slice(0, 3);
+  $('corrNotes').innerHTML = top.length
+    ? top.map((p) => `<div><span class="r">r ${p.r >= 0 ? '+' : '−'}${Math.abs(p.r).toFixed(2)}</span><span>${P[p.i].label} ↔ ${P[p.j].label}</span><span class="h">${pairHint(p.i, p.j)}</span></div>`).join('')
+    : `<div><span class="r">ok</span><span>No unfinished parameter is correlated above 0.4.</span></div>`;
+}
+$('corr').addEventListener('mousemove', (e) => {
+  const cv = $('corr'), G = cv._geom; if (!G) return;
+  const r = cv.getBoundingClientRect(), i = Math.floor((e.clientY - r.top - G.pad) / G.cs), j = Math.floor((e.clientX - r.left - G.pad) / G.cs);
+  if (i < 0 || j < 0 || i >= NP || j >= NP || i === j) return hideTip();
+  const v = G.C[i * NP + j];
+  showTip(e, `<b>${P[i].label} ↔ ${P[j].label}</b><br>r = <span class="mono">${v.toFixed(2)}</span>${Math.abs(v) > 0.4 ? '<br>' + pairHint(i, j) : ''}`);
+});
+$('corr').addEventListener('mouseleave', hideTip);
+
+// ---------- suggestions ----------
+function drawCands() {
+  const all = S.candidates || [];
+  const top = all.filter((c) => c.fits).slice(0, 3);
+  const blocked = all.slice(0, 3).filter((c) => !c.fits);
+  const fw = $('floorwarn');
+  if (blocked.length && S.overall < 0.99) {
+    fw.hidden = false;
+    fw.textContent = `${blocked.map((c) => c.name).join(' and ')} would help more, but ${blocked.length > 1 ? 'they travel' : 'it travels'} ${blocked.map((c) => c.travel.toFixed(1)).join(' and ')} m. This field gives about ${S.floor_run_m.toFixed(1)} m of run, so those sectors stay amber here.`;
+  } else fw.hidden = true;
+  const key = top.map((c) => c.id + c.score.toFixed(3)).join();
+  if ($('cands')._key === key) return;
+  $('cands')._key = key;
+  $('cands').innerHTML = top.map((c, k) => {
+    const chips = c.gains.map((gn, i) => ({ gn, i })).filter((x) => x.gn > 0.01).sort((a, b) => b.gn - a.gn).slice(0, 4)
+      .map((x) => `<span class="chip">${P[x.i].label} <b>+${Math.round(x.gn * 100)}</b></span>`).join('');
+    return `<div class="cand${k === 0 ? ' first' : ''}">
+      <div><h3>${c.name}</h3><p class="how">${c.how}</p></div>
+      <div class="rate">+${(c.score * 100 / NP).toFixed(1)}% ring<br>${c.seconds.toFixed(1)} s · travels ${c.travel.toFixed(1)} m</div>
+      <canvas data-k="${k}" aria-label="Stick trace for ${c.name}"></canvas>
+      <div class="chips">${chips || '<span class="chip">little left to gain</span>'}</div></div>`;
+  }).join('') || '<p class="muted">Nothing that fits this field would add much more.</p>';
+  $('cands').querySelectorAll('canvas').forEach((cv) => (cv._spec = top[+cv.dataset.k]));
+}
+function drawStick(cv, t) {
+  const { g, w, h } = setup(cv), sp = cv._spec, n = sp.thr.length;
+  const sq = h - 8, sx = 4, sy = 4;
+  const ink3 = css('--ink-3'), track = css('--track'), b = css('--accent'), o = css('--series-2'), ink = css('--ink');
+  g.strokeStyle = track; g.lineWidth = 1; g.strokeRect(sx + 0.5, sy + 0.5, sq, sq);
+  g.beginPath(); g.moveTo(sx + sq / 2, sy); g.lineTo(sx + sq / 2, sy + sq); g.moveTo(sx, sy + sq / 2); g.lineTo(sx + sq, sy + sq / 2); g.stroke();
+  const k = Math.min(n - 1, Math.floor(t * n));
+  const px = (i) => sx + sq / 2 - sp.steer[i] * (sq / 2 - 4), py = (i) => sy + sq / 2 - sp.thr[i] * (sq / 2 - 4);
+  g.strokeStyle = ink3; g.globalAlpha = 0.5; g.beginPath(); for (let i = 0; i < n; i++) (i ? g.lineTo(px(i), py(i)) : g.moveTo(px(i), py(i))); g.stroke(); g.globalAlpha = 1;
+  g.fillStyle = ink; g.beginPath(); g.arc(px(k), py(k), 4.5, 0, 7); g.fill();
+  const x0 = sx + sq + 14, W = w - x0 - 4, mid = sy + sq / 2, A = sq / 2 - 4;
+  g.strokeStyle = track; g.beginPath(); g.moveTo(x0, mid); g.lineTo(x0 + W, mid); g.stroke();
+  for (const [arr, col] of [[sp.thr, b], [sp.steer, o]]) {
+    g.strokeStyle = col; g.lineWidth = 2; g.beginPath();
+    for (let i = 0; i < n; i++) { const x = x0 + (i / (n - 1)) * W, y = mid - arr[i] * A; i ? g.lineTo(x, y) : g.moveTo(x, y); }
+    g.stroke();
+  }
+  g.strokeStyle = ink; g.lineWidth = 1; g.beginPath(); const cx = x0 + (k / (n - 1)) * W; g.moveTo(cx, sy); g.lineTo(cx, sy + sq); g.stroke();
+}
+
+// ---------- live floor ----------
+function drawArena() {
+  const cv = $('arena'), { g, w, h } = setup(cv), A = S.arena;
+  const [fx, fy] = A.size, span = Math.max(fx, fy);
+  const ink3 = css('--ink-3'), track = css('--track'), acc = css('--accent'), o = css('--series-2'), red = css('--div-pos'), ink = css('--ink');
+  const sc = (Math.min(w, h) - 24) / span, X = (x) => w / 2 + x * sc, Y = (y) => h / 2 - y * sc;
+  g.strokeStyle = track; g.lineWidth = 1;
+  const step = span > 2.5 ? 0.6 : 0.25;
+  for (let v = 0; v <= fx / 2 + 1e-9; v += step) for (const s of v ? [-1, 1] : [1]) { g.beginPath(); g.moveTo(X(s * v), Y(-fy / 2)); g.lineTo(X(s * v), Y(fy / 2)); g.stroke(); }
+  for (let v = 0; v <= fy / 2 + 1e-9; v += step) for (const s of v ? [-1, 1] : [1]) { g.beginPath(); g.moveTo(X(-fx / 2), Y(s * v)); g.lineTo(X(fx / 2), Y(s * v)); g.stroke(); }
+  g.strokeStyle = css('--ink-2'); g.lineWidth = 3; g.strokeRect(X(-fx / 2), Y(fy / 2), fx * sc, fy * sc);
+  g.strokeStyle = red; g.lineWidth = 1; g.setLineDash([5, 4]); g.strokeRect(X(-A.limit), Y(A.limit), 2 * A.limit * sc, 2 * A.limit * sc); g.setLineDash([]);
+  g.fillStyle = css('--ink-2'); g.font = `11px ${css('--font-mono')}`; g.textAlign = 'left'; g.fillText(`${fx.toFixed(2)} × ${fy.toFixed(2)} m field · grid ${step} m`, X(-fx / 2) + 4, Y(-fy / 2) - 6);
+  const n = A.dots.length;
+  A.dots.forEach(([x, y], k) => { g.fillStyle = ink3; g.globalAlpha = 0.35 + 0.65 * (k / Math.max(1, n)); g.beginPath(); g.arc(X(x), Y(y), 1.8, 0, 7); g.fill(); });
+  g.globalAlpha = 1;
+  for (const gh of A.ghosts) {
+    g.strokeStyle = acc; g.lineWidth = 2; g.globalAlpha = 0.85; g.beginPath();
+    for (let k = 0; k < gh.x.length; k++) k ? g.lineTo(X(gh.x[k]), Y(gh.y[k])) : g.moveTo(X(gh.x[k]), Y(gh.y[k]));
+    g.stroke(); g.globalAlpha = 1;
+    const e = gh.x.length - 1;
+    g.fillStyle = o; g.strokeStyle = css('--panel'); g.lineWidth = 2; g.beginPath(); g.arc(X(gh.x[e]), Y(gh.y[e]), 3.4, 0, 7); g.stroke(); g.fill();
+  }
+  if (A.pose) {
+    const [x, y, yaw] = A.pose;
+    g.save(); g.translate(X(x), Y(y)); g.rotate(-yaw); g.fillStyle = ink; g.beginPath(); g.moveTo(12, 0); g.lineTo(-8, 8); g.lineTo(-4, 0); g.lineTo(-8, -8); g.closePath(); g.fill(); g.restore();
+  }
+}
+
+// ---------- convergence ----------
+function axes(g, w, h, pad, xmax, ymin, ymax, ylab, xlab) {
+  const ink2 = css('--ink-2'), rule = css('--rule');
+  g.font = `11px ${css('--font-mono')}`; g.fillStyle = ink2; g.strokeStyle = rule; g.lineWidth = 1;
+  const X = (x) => pad.l + (x / Math.max(1, xmax)) * (w - pad.l - pad.r), Y = (y) => pad.t + (1 - (y - ymin) / (ymax - ymin)) * (h - pad.t - pad.b);
+  g.textAlign = 'right';
+  for (let i = 0; i <= 4; i++) { const v = ymin + ((ymax - ymin) * i) / 4; g.beginPath(); g.moveTo(pad.l, Y(v)); g.lineTo(w - pad.r, Y(v)); g.stroke(); g.fillText(ylab(v), pad.l - 5, Y(v) + 3.5); }
+  g.textAlign = 'center';
+  const steps = [5, 10, 15, 30, 60, 120, 300, 600];
+  const xs = steps.find((s) => xmax / s <= 6) || 1200;
+  for (let x = 0; x <= xmax; x += xs) g.fillText(String(x), X(x), h - pad.b + 14);
+  g.fillText(xlab, pad.l + (w - pad.l - pad.r) / 2, h - 2);
+  return { X, Y };
+}
+function drawHold() {
+  const cv = $('hold'), { g, w, h } = setup(cv), H = S.history.filter((p) => p.hold !== null);
+  const pad = { l: 46, r: 12, t: 8, b: 30 };
+  if (!H.length) { g.fillStyle = css('--ink-3'); g.font = `13px ${css('--font-body')}`; g.textAlign = 'center'; g.fillText('No holdout windows yet', w / 2, h / 2); cv._pts = []; return; }
+  const ys = H.map((p) => p.hold * 100), ts = H.map((p) => p.t);
+  const ymax = Math.max(2, Math.ceil(Math.max(...ys) / 2) * 2), xmax = Math.max(ts[ts.length - 1], 20);
+  const { X, Y } = axes(g, w, h, pad, xmax, 0, ymax, (v) => `${v.toFixed(1)} cm`, 'driving time, s');
+  const acc = css('--accent');
+  g.strokeStyle = acc; g.lineWidth = 2; g.beginPath(); ys.forEach((y, i) => (i ? g.lineTo(X(ts[i]), Y(y)) : g.moveTo(X(ts[i]), Y(y)))); g.stroke();
+  const L = ys.length - 1; g.fillStyle = acc; g.strokeStyle = css('--panel'); g.lineWidth = 2; g.beginPath(); g.arc(X(ts[L]), Y(ys[L]), 4.5, 0, 7); g.stroke(); g.fill();
+  const right = X(ts[L]) > w - 80;
+  g.fillStyle = css('--ink'); g.textAlign = right ? 'right' : 'left'; g.font = `12px ${css('--font-mono')}`; g.fillText(`${ys[L].toFixed(2)} cm`, X(ts[L]) + (right ? -8 : 8), Y(ys[L]) - 8);
+  cv._pts = ys.map((y, i) => ({ x: X(ts[i]), v: y, t: ts[i] }));
+}
+function drawTrace() {
+  const i = selParam, cv = $('trace'), { g, w, h } = setup(cv), H = S.history;
+  $('traceName').textContent = P[i].label;
+  const pad = { l: 56, r: 12, t: 8, b: 30 }, sc = P[i].unit === 's' ? 1000 : 1;
+  const est = H.map((p) => p.theta[i] * sc), sd = H.map((p) => p.std[i] * sc), ts = H.map((p) => p.t), pr = P[i].prior * sc;
+  let lo = Math.min(pr, ...est.map((e, k) => e - Math.min(sd[k], Math.abs(e) + 3 * sd[sd.length - 1]))), hi = Math.max(pr, ...est.map((e, k) => e + Math.min(sd[k], Math.abs(e) + 3 * sd[sd.length - 1])));
+  const pv = (hi - lo) * 0.08 || 1; lo -= pv; hi += pv;
+  const xmax = Math.max(ts[ts.length - 1], 20);
+  const dp = Math.max(0, P[i].dp - (sc > 1 ? 2 : 0));
+  const { X, Y } = axes(g, w, h, pad, xmax, lo, hi, (v) => v.toFixed(dp) + (unitOf(i) && unitOf(i).length < 4 ? ` ${unitOf(i)}` : ''), 'driving time, s');
+  const acc = css('--accent'), clamp = (v) => Math.max(lo, Math.min(hi, v));
+  g.fillStyle = mix(css('--panel'), acc, 0.22);
+  g.beginPath(); est.forEach((e, k) => (k ? g.lineTo(X(ts[k]), Y(clamp(e + sd[k]))) : g.moveTo(X(ts[k]), Y(clamp(e + sd[k])))));
+  for (let k = est.length - 1; k >= 0; k--) g.lineTo(X(ts[k]), Y(clamp(est[k] - sd[k]))); g.closePath(); g.fill();
+  g.strokeStyle = css('--ink-3'); g.setLineDash([4, 4]); g.lineWidth = 1.2; g.beginPath(); g.moveTo(pad.l, Y(pr)); g.lineTo(w - pad.r, Y(pr)); g.stroke(); g.setLineDash([]);
+  g.fillStyle = css('--ink-2'); g.textAlign = 'right'; g.font = `11px ${css('--font-body')}`; g.fillText('stage 2 prior', w - pad.r - 2, Y(pr) - 5);
+  g.strokeStyle = acc; g.lineWidth = 2; g.beginPath(); est.forEach((e, k) => (k ? g.lineTo(X(ts[k]), Y(e)) : g.moveTo(X(ts[k]), Y(e)))); g.stroke();
+  const L = est.length - 1; g.fillStyle = acc; g.strokeStyle = css('--panel'); g.lineWidth = 2; g.beginPath(); g.arc(X(ts[L]), Y(est[L]), 4.5, 0, 7); g.stroke(); g.fill();
+  cv._pts = est.map((e, k) => ({ x: X(ts[k]), v: e, s: sd[k], t: ts[k] }));
+}
+for (const id of ['hold', 'trace']) {
+  $(id).addEventListener('mousemove', (e) => {
+    const cv = $(id), r = cv.getBoundingClientRect(), x = e.clientX - r.left, pts = cv._pts || [];
+    if (!pts.length) return;
+    const p = pts.reduce((a, b) => (Math.abs(b.x - x) < Math.abs(a.x - x) ? b : a));
+    const label = p.t === 0 ? 'prior only' : `after ${p.t.toFixed(0)} s of driving`;
+    if (id === 'hold') showTip(e, `<b>${label}</b><br>holdout error <span class="mono">${p.v.toFixed(2)} cm</span>`);
+    else { const d = P[selParam].unit === 's' ? 1 : P[selParam].dp; showTip(e, `<b>${label}</b><br>${P[selParam].label} <span class="mono">${p.v.toFixed(d)} ± ${p.s.toFixed(d)} ${unitOf(selParam)}</span>`); }
+  });
+  $(id).addEventListener('mouseleave', hideTip);
+}
+const RUNG_NAMES = { M0: 'M0 static map', M1: 'M1 + delay', M2: 'M2 + lag', M3: 'M3 lag asymmetry', M4: 'M4 + coupling', M5: 'M5 + gain-mismatch drift', M6: 'M6 + drag-bias drift' };
+function drawLadder() {
+  const L = S.ladder || {}, keys = Object.keys(L);
+  if (!keys.length) { $('ladder').innerHTML = '<p class="small muted">The ladder refits every third refit, once there are holdout windows.</p>'; return; }
+  const vals = keys.map((k) => ({ k, v: L[k] * 100 }));
+  const max = Math.max(...vals.map((x) => x.v)), best = vals.reduce((a, b) => (b.v < a.v ? b : a));
+  $('ladder').innerHTML = vals.map((x) => `<div class="lr${x === best ? ' best' : ''}"><span>${RUNG_NAMES[x.k] || x.k}${x === best ? '<span class="tag">best</span>' : ''}</span><span class="bar"><span style="width:${((x.v / max) * 100).toFixed(1)}%"></span></span><span class="v">${x.v.toFixed(2)} cm</span></div>`).join('');
+}
+function drawStats() {
+  const H = S.history.filter((p) => p.hold !== null), last = H[H.length - 1], prev = H[H.length - 2];
+  const delta = last && prev ? ` <span class="small muted">(${last.hold - prev.hold <= 0 ? '−' : '+'}${Math.abs((last.hold - prev.hold) * 100).toFixed(2)})</span>` : '';
+  const cov = S.link.tag_coverage;
+  $('stats').innerHTML = `
+    <div><span class="eyebrow">Holdout error</span><b>${last ? (last.hold * 100).toFixed(2) + ' cm' : '·'}${delta}</b></div>
+    <div><span class="eyebrow">Fit residual</span><b>${num(S.residual, 2, ' σ')}</b><span class="small muted">1.00 means down to the noise floor</span></div>
+    <div><span class="eyebrow">Tag fixes, last 2 s</span><b>${cov === null ? '·' : Math.round(cov * 100) + '%'}</b><span class="small muted">fast spins blur the tag</span></div>
+    <div><span class="eyebrow">Parameters done</span><b>${S.fills.filter((f) => f >= 0.999).length} / ${NP}</b></div>`;
+}
+function drawLink() {
+  const L = S.link, W = S.windows;
+  $('link').innerHTML = `
+    <div><span class="eyebrow">Telemetry</span><b>${num(L.telemetry_hz, 0, ' Hz')}</b><span class="small muted">${L.seq_drops} frames lost</span></div>
+    <div><span class="eyebrow">Camera</span><b>${num(L.frames_hz, 0, ' Hz')}</b><span class="small muted">${L.field ? 'field pose known' : 'no field pose yet'}</span></div>
+    <div><span class="eyebrow">Clock fit</span><b>${num(L.clock_p50_ms, 1, ' ms')}</b><span class="small muted">median receive delay over the envelope, p95 ${num(L.clock_p95_ms, 1, ' ms')}</span></div>
+    <div><span class="eyebrow">Clock drift</span><b>${num(L.clock_drift_ppm, 0, ' ppm')}</b></div>
+    <div><span class="eyebrow">Battery</span><b>${num(L.vbat, 2, ' V')}</b></div>`;
+  const names = { used: 'used', holdout: 'held out', idle: 'idle', wall: 'wall', flip: 'flip or lift', tags: 'tag coverage', link: 'telemetry gap', jetson: 'Jetson could command', disarmed: 'disarmed' };
+  $('gates').innerHTML = Object.keys(names).map((k) => `<div><span class="eyebrow">${names[k]}</span><b>${W[k] || 0}</b></div>`).join('');
+}
+function drawHeader() {
+  const W = S.windows;
+  const other = ['tags', 'link', 'flip', 'jetson'].reduce((a, k) => a + (W[k] || 0), 0);
+  $('sOverall').textContent = `${Math.round(S.overall * 100)}%`;
+  $('sTime').textContent = `${S.driving_s.toFixed(0)} s`;
+  $('sUsed').textContent = W.used || 0;
+  $('sWall').textContent = W.wall || 0;
+  $('sOther').textContent = other;
+  $('sRefits').textContent = S.refits;
+  const b = $('banner');
+  if (S.link.jetson_seen) { b.hidden = false; b.textContent = 'The robot reported espnow_active or autonomy_enabled. Those windows are dropped. The sysid profile never commands, so check the trainer switch and the profile.'; }
+  else if (!S.link.field) { b.hidden = false; b.textContent = 'No field pose yet: run field init on the box. Tags cannot be placed on the floor until then.'; }
+  else b.hidden = true;
+}
+
+// ---------- ticker ----------
+function drawTicker() {
+  const show = (S.events || []).slice(-9).reverse();
+  $('ticker').innerHTML = show.length ? show.map((e) => {
+    const fresh = !lastEvents.has(e.id) && !reduced;
+    return `<li class="${e.status}${fresh ? ' fresh' : ''}"><span class="ts">${e.t1.toFixed(1)} s</span><span class="ic">${{ ok: '✓', warn: '!', bad: '✕' }[e.status]}</span><span>${e.text}${e.informs.length ? `<span class="chips">${e.informs.map((x) => `<span class="chip">${x}</span>`).join('')}</span>` : ''}</span></li>`;
+  }).join('') : '<li class="ok"><span class="ts">·</span><span class="ic">·</span><span>Waiting for the first finished hold or edge.</span></li>';
+  lastEvents = new Set(show.map((e) => e.id));
+}
+
+// ---------- sticks and tape ----------
+function drawRadio() {
+  const cv = $('radio'), { g, w, h } = setup(cv), st = S ? S.stick : { thr: 0, steer: 0, armed: false, loop: false };
+  const ink = css('--ink'), ink2 = css('--ink-2'), ink3 = css('--ink-3'), track = css('--track'), rule = css('--rule'), acc = css('--accent'), o = css('--series-2'), panel = css('--panel');
+  const layout = $('layout').value;
+  g.fillStyle = css('--cell-empty'); g.strokeStyle = rule; g.lineWidth = 1;
+  g.beginPath(); g.roundRect ? g.roundRect(1, 1, w - 2, h - 2, 22) : g.rect(1, 1, w - 2, h - 2); g.fill(); g.stroke();
+  const size = Math.min(w * 0.38, h * 0.62), cy = h * 0.5;
+  for (const gb of [{ side: 'left', cx: w * 0.27 }, { side: 'right', cx: w * 0.73 }]) {
+    const { cx } = gb, r = size / 2;
+    const usedX = gb.side === 'right', usedY = layout === 'right' ? gb.side === 'right' : gb.side === 'left', used = usedX || usedY;
+    g.fillStyle = panel; g.strokeStyle = rule; g.lineWidth = 1.5; g.beginPath(); g.arc(cx, cy, r, 0, 7); g.fill(); g.stroke();
+    g.strokeStyle = track; g.lineWidth = 1; g.beginPath(); g.moveTo(cx - r, cy); g.lineTo(cx + r, cy); g.moveTo(cx, cy - r); g.lineTo(cx, cy + r); g.stroke();
+    g.lineCap = 'round'; g.lineWidth = 6; g.globalAlpha = 0.35;
+    if (usedY) { g.strokeStyle = acc; g.beginPath(); g.moveTo(cx, cy - r + 8); g.lineTo(cx, cy + r - 8); g.stroke(); }
+    if (usedX) { g.strokeStyle = o; g.beginPath(); g.moveTo(cx - r + 8, cy); g.lineTo(cx + r - 8, cy); g.stroke(); }
+    g.globalAlpha = 1; g.lineCap = 'butt';
+    const sx = cx - (usedX ? st.steer : 0) * (r - 10), sy = cy - (usedY ? st.thr : 0) * (r - 10);
+    g.strokeStyle = ink2; g.lineWidth = 3; g.beginPath(); g.moveTo(cx, cy); g.lineTo(sx, sy); g.stroke();
+    g.fillStyle = used ? ink : ink3; g.beginPath(); g.arc(sx, sy, 8, 0, 7); g.fill();
+    g.fillStyle = ink2; g.font = `600 12px ${css('--font-display')}`; g.textAlign = 'center';
+    g.fillText(!used ? 'NOT USED' : usedX && usedY ? 'THROTTLE + STEER' : usedY ? 'THROTTLE' : 'STEER', cx, cy + r + 18);
+    if (used) {
+      g.font = `12px ${css('--font-mono')}`; g.fillStyle = ink;
+      const ty = usedY ? `${st.thr >= 0 ? '+' : '−'}${Math.round(Math.abs(st.thr) * 100)}` : null;
+      const tx = usedX ? (Math.abs(st.steer) < 0.005 ? '0' : `${st.steer > 0 ? 'L' : 'R'}${Math.round(Math.abs(st.steer) * 100)}`) : null;
+      g.fillText([ty, tx].filter(Boolean).join('  '), cx, cy + r + 34);
+    }
+  }
+  g.fillStyle = st.armed ? css('--accent-ink') : ink3; g.font = `600 12px ${css('--font-display')}`; g.textAlign = 'center';
+  g.fillText(!S ? 'NO DATA' : st.armed ? (st.loop ? 'ARMED · YAW LOOP ON' : 'ARMED · YAW LOOP OFF') : 'DISARMED', w / 2, 20);
+}
+function drawTape() {
+  const cv = $('tape'), { g, w, h } = setup(cv), T = S.tape, now = S.t, span = 8;
+  const ink3 = css('--ink-3'), track = css('--track'), acc = css('--accent'), o = css('--series-2'), red = css('--div-pos'), warn = css('--warn');
+  const padL = 64, padR = 8, X = (t) => padL + ((t - (now - span)) / span) * (w - padL - padR);
+  const top = 6, bot = h - 18;
+  const shade = (a, b, col, alpha) => { const x0 = X(Math.max(a, now - span)), x1 = X(Math.min(b, now)); if (x1 > x0) { g.fillStyle = col; g.globalAlpha = alpha; g.fillRect(x0, top, x1 - x0, bot - top); g.globalAlpha = 1; } };
+  let lastEnd = now - span;
+  for (const s of S.window_spans) {
+    if (s.status === 'wall') shade(s.t0, s.t1, red, 0.18);
+    else if (!['used', 'holdout', 'idle', 'disarmed'].includes(s.status)) shade(s.t0, s.t1, warn, 0.16);
+    if (s.t0 >= now - span) { g.strokeStyle = track; g.lineWidth = 1; g.beginPath(); g.moveTo(X(s.t0), top); g.lineTo(X(s.t0), bot); g.stroke(); }
+    lastEnd = Math.max(lastEnd, s.t1);
+  }
+  shade(lastEnd, lastEnd + WINDOW_S, ink3, 0.12);
+  const lanes = [{ key: 'thr', y0: top, y1: (top + bot) / 2 - 6, col: acc, name: 'THROTTLE', p: 'fwd', n: 'rev' }, { key: 'steer', y0: (top + bot) / 2 + 6, y1: bot, col: o, name: 'STEER', p: 'left', n: 'right' }];
+  for (const L of lanes) {
+    const Y = (v) => L.y0 + (1 - (v + 1) / 2) * (L.y1 - L.y0);
+    g.strokeStyle = track; g.lineWidth = 1;
+    for (const v of [-1, 0, 1]) { g.beginPath(); g.moveTo(padL, Y(v)); g.lineTo(w - padR, Y(v)); g.stroke(); }
+    g.fillStyle = css('--ink-2'); g.font = `600 12px ${css('--font-display')}`; g.textAlign = 'left'; g.fillText(L.name, 4, (L.y0 + L.y1) / 2 + 4);
+    g.font = `10px ${css('--font-mono')}`; g.fillStyle = ink3; g.textAlign = 'right'; g.fillText(L.p, padL - 4, Y(1) + 8); g.fillText(L.n, padL - 4, Y(-1) - 2);
+    g.strokeStyle = L.col; g.lineWidth = 2; g.beginPath();
+    T.t.forEach((t, k) => { const x = X(t), y = Y(T[L.key][k]); k ? g.lineTo(x, y) : g.moveTo(x, y); });
+    g.stroke();
+  }
+  g.fillStyle = ink3; g.font = `10.5px ${css('--font-mono')}`; g.textAlign = 'center';
+  for (let s = -8; s <= 0; s += 2) g.fillText(s === 0 ? 'now' : `${s} s`, X(now + s), h - 3);
+}
+
+// ---------- feed ----------
+let lastRefits = -1, lastHistory = -1;
+function onSnapshot(snap) {
+  S = snap;
+  if (S.refits !== lastRefits || S.history.length !== lastHistory) {
+    lastRefits = S.refits; lastHistory = S.history.length;
+    computeHint(); drawHint(); drawCands(); drawCorr(); drawHold(); drawTrace(); drawLadder(); drawRing(); drawList();
+  }
+  drawStats(); drawLink(); drawHeader(); drawTransitions(); drawTicker(); drawTape(); drawArena();
+}
+function drawAll() {
+  if (!S) { drawRadio(); return; }
+  lastRefits = -1; $('tx')._key = null; $('cands')._key = null; onSnapshot(S); drawRadio(); drawCoverage();
+}
+function connect() {
+  const ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onmessage = (e) => {
+    const m = JSON.parse(e.data);
+    if (m.type === 'hello') { P = m.params; NP = P.length; $('profile').textContent = m.profile; $('srcnote').textContent = m.source; selParam = Math.min(selParam, NP - 1); }
+    else if (m.type === 'snapshot') onSnapshot(m.snapshot);
+  };
+  ws.onclose = () => { $('srcnote').textContent = 'Disconnected from the monitor; retrying…'; setTimeout(connect, 1000); };
+}
+function frame(now) {
+  if (S) { drawRadio(); drawCoverage(now); document.querySelectorAll('#cands canvas').forEach((cv) => cv._spec && drawStick(cv, reduced ? 1 : (now % 4000) / 4000)); }
+  requestAnimationFrame(frame);
+}
+$('layout').addEventListener('change', drawRadio);
+let rz; addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(drawAll, 120); });
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', drawAll);
+if (document.fonts) document.fonts.ready.then(drawAll);
+drawRadio();
+connect();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
