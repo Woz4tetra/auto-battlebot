@@ -79,13 +79,14 @@ Requires [PlatformIO](https://platformio.org/).
 # Upload via USB
 ./scripts/upload
 
-# Upload over ESP-NOW through the dongle on the ZED Box (robot disarmed)
+# Upload over the SoftAP with ArduinoOTA (connect to MR-STABS WiFi first)
+./scripts/ota_wifi
+
+# Upload over ESP-NOW through the dongle on the ZED Box (robot disarmed). Needs
+# ESPNOW_ENABLED, which is off until the new PCBA; see OTA Updates.
 ./scripts/ota
 # ...or through a dongle plugged into this machine
 ./scripts/ota --local /dev/ttyACM0
-
-# Upload over the SoftAP with ArduinoOTA (connect to MR-STABS WiFi first)
-./scripts/ota_wifi
 
 # Serial monitor
 ./scripts/monitor
@@ -98,6 +99,10 @@ Code with unit tests lives in `lib/` so the `native` environment can build it wi
 Arduino core; `pio test` does not compile `src/`. The heading-hold PID is in `lib/pid/`.
 
 ## OTA Updates
+
+**ESP-NOW is off** (`ESPNOW_ENABLED = false` in `src/main.cpp`) until the new PCBA. This board's
+radio hears the dongle at -85 dBm from 30 cm, so the link only works at arm's length. Until then,
+update over the WiFi fallback below or USB. The rest of this section applies once it is back on.
 
 Firmware updates go over ESP-NOW through the dongle (`firmware/espnow_dongle`,
 `docs/plans/espnow_link_plan.md`). `./scripts/ota` builds the image, copies it to the ZED Box, and

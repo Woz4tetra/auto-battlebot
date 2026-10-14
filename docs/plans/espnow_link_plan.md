@@ -13,11 +13,12 @@ Add a direct ESP-NOW link between the Jetson and the mr_stabs_mk2 firmware that:
 The Crossfire link keeps full authority. ESP-NOW is a transport shortcut layered on top of the
 existing path, never a replacement for it.
 
-### Status (2026-10-13)
+### Status (2026-10-14)
 
-Phase 1 code is built, unit tested, and running on the robot and the development dongle. ESP-NOW
-OTA works end to end on the bench (887 KB in 18.3 s, validated). The robot's radio is ~19 dB short
-of the dongle's on receive (see Robot radio below), so the arena measurements wait for the new PCBA.
+Phase 1 code is built and unit tested, and ran on the robot and the development dongle on the
+bench: ESP-NOW OTA worked end to end (887 KB in 18.3 s, validated). The robot's radio is ~19 dB
+short of the dongle's on receive, so **ESP-NOW is switched off until the new PCBA** (see Robot
+radio) and the arena measurements wait for it.
 
 | Piece | Where | State |
 |---|---|---|
@@ -26,7 +27,7 @@ of the dongle's on receive (see Robot radio below), so the arena measurements wa
 | Robot firmware | `firmware/mr_stabs_mk2/src/espnow_link.cpp`, `main.cpp` | Flashed. Shadow mode (`ESPNOW_COMMAND_SUBSTITUTION = false`), ESP-NOW OTA, sweep. USB rescue needs no BOOT press |
 | `EspNowTransmitter`, `CompositeTransmitter` | `src/transmitter/` | Built. Tests in `tests/test_espnow_transmitter.cpp` |
 | Flasher | `firmware/mr_stabs_mk2/scripts/espnow_ota.py`, `scripts/ota` | Tested against a simulated robot dropping 5% of chunks, then against the robot |
-| ZED Box profiles | `config/mr_stabs_mk2_*_zed_box.toml` | Switched to the composite |
+| ZED Box profiles | `config/mr_stabs_mk2_*_zed_box.toml` | Back on OpenTX alone until the new PCBA; the composite sections are in `d8c74c0f` |
 | udev rule | `install/install_udev_rules.sh` | Written and checked with `udevadm verify`. Not installed on the box |
 
 Remaining: next steps 1 to 3 and 6 (CRSF baud, NHRL rules, ZED Box setup, the Phase 1 OTA tests and
@@ -52,14 +53,20 @@ is the target.
 
 The robot sends ESP-NOW from its softAP MAC (`f6:12:fa:59:5c:b4`), not its STA MAC (`f4:...`).
 
-**Temporary: ESP-NOW runs at 1 Mbps until the new PCBA.** At the robot's usual distance from the
-ZED Box the 6 Mbps link delivered nothing: 0% ACK and no telemetry, both directions. 1 Mbps
-(`WIFI_PHY_RATE_1M_L`) buys ~5 dB of receive sensitivity (about -98 vs -93 dBm, typical ESP32-S3
-figures) for ~1 ms more airtime a frame, which overrides the standing 6 Mbps decision for now. Each
-side sets only its own transmit rate and receives any rate, so the robot and dongle can be flashed
-separately. When the new board measures ~-40 dBm at 30 cm, set `ESPNOW_PHY_RATE` back to
-`WIFI_PHY_RATE_6M` in both `firmware/espnow_dongle/src/main.cpp` and
-`firmware/mr_stabs_mk2/include/espnow_link.h`.
+**ESP-NOW is off until the new PCBA (2026-10-14).** At the robot's usual distance from the ZED Box
+the 6 Mbps link delivered nothing: 0% ACK and no telemetry, both directions. 1 Mbps
+(`WIFI_PHY_RATE_1M_L`, ~5 dB more receive sensitivity) ran at 96 telemetry frames/s and 100% ACK
+with the robot near the dongle, then fell to 0% within minutes at normal range, so it was reverted
+to 6 Mbps. Instead:
+
+- Robot: `ESPNOW_ENABLED = false` in `firmware/mr_stabs_mk2/src/main.cpp` skips ESP-NOW init,
+  telemetry, OTA, and command substitution. The SoftAP dashboard and `scripts/ota_wifi` are the
+  ways in.
+- ZED Box: the three `mr_stabs_mk2_*_zed_box` profiles are back on the OpenTX transmitter alone
+  (`Esp32DiagnosticsOpenTxTransmitter` for sysid). No `CompositeTransmitter`, no dongle.
+
+To turn it back on with the new board: re-run the RSSI test (~-40 dBm at 30 cm), set
+`ESPNOW_ENABLED = true`, and restore the profiles' composite sections from `d8c74c0f`.
 
 ### Standing decision: latency wins every tradeoff
 
@@ -68,7 +75,7 @@ Applied throughout, that resolves to:
 
 | Choice | Decision | Cost accepted |
 |---|---|---|
-| ESP-NOW PHY rate | 6 Mbps OFDM via `esp_wifi_config_espnow_rate()`. 1 Mbps until the new PCBA (see Robot radio) | No `WIFI_PROTOCOL_LR`, so ~10 dB less link budget |
+| ESP-NOW PHY rate | 6 Mbps OFDM via `esp_wifi_config_espnow_rate()` | No `WIFI_PROTOCOL_LR`, so ~10 dB less link budget |
 | Channel | Dongle scans and picks at boot, robot sweeps to find it | Each match runs on an untested channel |
 | Dongle repeat rate | 250 Hz, forwarding on arrival | ~6% channel duty cycle |
 | `FRESH_STREAK_REQUIRED` | 3, not 5 | Slightly more source-switch flapping at range |

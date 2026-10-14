@@ -56,6 +56,12 @@ uint32_t last_heading_sample_us = 0;
 // ESP-NOW link to the Jetson's dongle (docs/plans/espnow_link_plan.md).
 espnow_link::EspNowLink espnow;
 
+// Off until the new PCBA: this board's radio hears the dongle at -85 dBm from 30 cm, so the link
+// only works at arm's length. Off means no ESP-NOW init, telemetry, or OTA; the SoftAP dashboard
+// and scripts/ota_wifi are the paths in. Turning it on again also needs the ZED Box profiles back
+// on the CompositeTransmitter. See "Robot radio" in the plan.
+const bool ESPNOW_ENABLED = false;
+
 // Phase 1 of the plan is shadow mode: the robot receives and reports ESP-NOW commands but keeps
 // driving from the trainer channels. Phase 3 sets this true, which turns on both the command
 // substitution and the slew limiter on the arbitrated output.
@@ -121,6 +127,7 @@ void stop_escs() {
 // Publishes one tick of diagnostics to the WiFi dashboard and, at 100 Hz, over ESP-NOW.
 void publish_diag(diag_data_t &diag, bool autonomy_enabled, bool espnow_active, uint32_t now_ms) {
     diag_server.update(&diag);
+    if (!ESPNOW_ENABLED) return;
     espnow_protocol::TelemetryPayload telemetry = {};
     telemetry.timestamp_ms = diag.timestamp_ms;
     telemetry.loop_us = diag.loop_us;
@@ -321,7 +328,7 @@ void setup() {
     tunables.left_esc_deadzone = &left_esc->stop_threshold;
     tunables.right_esc_deadzone = &right_esc->stop_threshold;
     diag_server.begin(tunables);
-    espnow.begin(WIFI_IF_AP, espnow_protocol::CHANNEL_OVERRIDE, tunables);
+    if (ESPNOW_ENABLED) espnow.begin(WIFI_IF_AP, espnow_protocol::CHANNEL_OVERRIDE, tunables);
 
     prev_loop_us = micros();
 }
@@ -341,10 +348,12 @@ void loop() {
 
     // An ESP-NOW firmware transfer owns the loop: motors stopped, no control, same as ArduinoOTA.
     // It only starts disarmed, and arming aborts it inside update().
-    espnow.update(now_ms, radio_ok && radio_data->armed);
-    if (espnow.ota_in_progress()) {
-        stop_escs();
-        return;
+    if (ESPNOW_ENABLED) {
+        espnow.update(now_ms, radio_ok && radio_data->armed);
+        if (espnow.ota_in_progress()) {
+            stop_escs();
+            return;
+        }
     }
     vbat_sensor_ina228.update();
     float vbat = vbat_sensor_ina228.get_volts();
@@ -489,7 +498,8 @@ void loop() {
     // never arm the robot or extend its armed window. SA (ch5) down is the pilot's "accept
     // autonomous commands" position; SA up forces the stick values on ch0/ch1.
     bool espnow_active = false;
-    if (ESPNOW_COMMAND_SUBSTITUTION && radio_data->autonomy_enabled && espnow.fresh(now_ms)) {
+    if (ESPNOW_ENABLED && ESPNOW_COMMAND_SUBSTITUTION && radio_data->autonomy_enabled &&
+        espnow.fresh(now_ms)) {
         const espnow_protocol::CommandPayload &cmd = espnow.latest();
         // Same place the trainer path lands: the Jetson's two channel values go into ch0/ch1 at
         // full scale, and crsf_bridge negates ch0 into a_percent.
@@ -521,7 +531,7 @@ void loop() {
     if (is_upside_down) radio_data->a_percent *= -1;
     // After the inversion, so a genuine flip ramps instead of reversing full scale in one tick.
     // Manual mode keeps unlimited stick authority, matching the Jetson-side limiter's gate.
-    if (ESPNOW_COMMAND_SUBSTITUTION && radio_data->autonomy_enabled) {
+    if (ESPNOW_ENABLED && ESPNOW_COMMAND_SUBSTITUTION && radio_data->autonomy_enabled) {
         radio_data->a_percent = limit_a_percent(radio_data->a_percent, loop_us / 1000000.0f);
     }
 

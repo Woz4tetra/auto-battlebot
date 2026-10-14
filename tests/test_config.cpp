@@ -1796,15 +1796,10 @@ TEST(SysidProfileTest, MrStabsMk2SysidProfileParsesAndIsSelectable) {
     const auto config_dir = get_config_dir();
     auto config =
         load_classes_from_config((config_dir / "mr_stabs_mk2_sysid_zed_box.toml").string());
-    // The WiFi diagnostics transmitter is the primary of the ESP-NOW composite.
-    auto *composite = dynamic_cast<CompositeTransmitterConfiguration *>(config.transmitter.get());
-    ASSERT_NE(composite, nullptr);
-    ASSERT_EQ(composite->children.size(), 2u);
-    EXPECT_NE(dynamic_cast<Esp32DiagnosticsOpenTxTransmitterConfiguration *>(
-                  composite->children[0].get()),
-              nullptr);
-    EXPECT_NE(dynamic_cast<EspNowTransmitterConfiguration *>(composite->children[1].get()),
-              nullptr);
+    // ESP-NOW is off until the new PCBA, so the WiFi diagnostics transmitter stands alone.
+    EXPECT_NE(
+        dynamic_cast<Esp32DiagnosticsOpenTxTransmitterConfiguration *>(config.transmitter.get()),
+        nullptr);
     auto *model = dynamic_cast<AprilTagKeypointModelConfiguration *>(config.keypoint_model.get());
     ASSERT_NE(model, nullptr);
     EXPECT_EQ(model->tags.size(), 2u);
@@ -1816,19 +1811,14 @@ TEST(SysidProfileTest, MrStabsMk2SysidProfileParsesAndIsSelectable) {
               profiles.end());
 }
 
-// Phase 1 of docs/plans/espnow_link_plan.md: both Mr Stabs ZED Box profiles send over the trainer
-// link (primary) and the ESP-NOW dongle.
-TEST(EspNowProfileTest, MrStabsMk2ZedBoxProfilesUseTheComposite) {
+// ESP-NOW is off until the new PCBA (docs/plans/espnow_link_plan.md, Robot radio), so both Mr
+// Stabs ZED Box profiles send over the trainer link alone.
+TEST(EspNowProfileTest, MrStabsMk2ZedBoxProfilesUseOpenTxAlone) {
     const auto config_dir = get_config_dir();
     for (const char *name :
          {"mr_stabs_mk2_aer_zed_box.toml", "mr_stabs_mk2_fid_aer_zed_box.toml"}) {
         auto config = load_classes_from_config((config_dir / name).string());
-        auto *composite =
-            dynamic_cast<CompositeTransmitterConfiguration *>(config.transmitter.get());
-        ASSERT_NE(composite, nullptr) << name;
-        ASSERT_EQ(composite->children.size(), 2u) << name;
-        EXPECT_EQ(composite->children[0]->type, "OpenTxTransmitter") << name;
-        EXPECT_EQ(composite->children[1]->type, "EspNowTransmitter") << name;
+        EXPECT_EQ(config.transmitter->type, "OpenTxTransmitter") << name;
     }
 }
 #endif

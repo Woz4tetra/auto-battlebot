@@ -23,12 +23,6 @@ const uint32_t LINK_STATS_PERIOD_MS = 100;
 const uint32_t SEND_CALLBACK_TIMEOUT_MS = 50;
 const uint32_t SCAN_DWELL_MS = 150;
 
-// ESP-NOW transmit rate. 1 Mbps until the new PCBA: the current robot board hears the dongle at
-// -85 dBm from 30 cm, and 1 Mbps buys ~5 dB of receive sensitivity over 6 Mbps for ~1 ms more
-// airtime a frame. Set back to WIFI_PHY_RATE_6M, here and in mr_stabs_mk2's espnow_link.h, once the
-// new board measures ~-40 dBm. See "Robot radio" in docs/plans/espnow_link_plan.md.
-const wifi_phy_rate_t ESPNOW_PHY_RATE = WIFI_PHY_RATE_1M_L;
-
 const uint8_t BROADCAST_MAC[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
 struct AirFrame {
@@ -254,7 +248,7 @@ void service_receive() {
             (!robot_known || memcmp(frame.mac, robot_mac, 6) != 0)) {
             memcpy(robot_mac, frame.mac, 6);
             add_peer(robot_mac);
-            esp_wifi_config_espnow_rate(WIFI_IF_STA, ESPNOW_PHY_RATE);
+            esp_wifi_config_espnow_rate(WIFI_IF_STA, WIFI_PHY_RATE_6M);
             robot_known = true;
         }
         write_serial_frame(type, frame.data + AIR_HEADER_SIZE,
@@ -293,8 +287,8 @@ void setup() {
     esp_now_register_send_cb(on_sent);
     esp_now_register_recv_cb(on_recv);
     add_peer(BROADCAST_MAC);
-    // After esp_wifi_start(), which WiFi.mode() ran.
-    esp_wifi_config_espnow_rate(WIFI_IF_STA, ESPNOW_PHY_RATE);
+    // After esp_wifi_start(), which WiFi.mode() ran. The 1 Mbps default costs ~1.2 ms a frame.
+    esp_wifi_config_espnow_rate(WIFI_IF_STA, WIFI_PHY_RATE_6M);
 
     // Plain text, once. The Jetson's parser skips anything that is not a framed message.
     Serial.printf("\nespnow_dongle mac=%s channel=%u\n", WiFi.macAddress().c_str(), channel);
