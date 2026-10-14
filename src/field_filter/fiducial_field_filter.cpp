@@ -31,6 +31,18 @@ cv::aruco::DetectorParameters small_apriltag_detector_parameters() {
 }
 
 namespace {
+/** The board is close and bright, and its white bleeds into each marker's black border. SUBPIX
+ *  then lands every corner about 1.9 px inside the true square (markers detect 3.6% small), and
+ *  the 65 mm board at 0.9 m reprojects at 2.5 px mean, 8 px max, against the 3 px gate. The
+ *  AprilTag edge fit takes it to 0.55 px mean, 1.2 px max. OpenCV swaps in AprilTag's whole
+ *  quad search for it, about 530 ms per 1920x1200 frame on the ZED Box against 56 ms, so it
+ *  suits a detector that runs only for a field lock, not one that runs every frame. */
+cv::aruco::DetectorParameters board_detector_parameters() {
+    cv::aruco::DetectorParameters parameters = small_apriltag_detector_parameters();
+    parameters.cornerRefinementMethod = cv::aruco::CORNER_REFINE_APRILTAG;
+    return parameters;
+}
+
 Eigen::Matrix3d rotation_z(double radians) {
     Eigen::Matrix3d rotation = Eigen::Matrix3d::Identity();
     rotation(0, 0) = std::cos(radians);
@@ -92,7 +104,7 @@ FiducialFieldFilter::FiducialFieldFilter(const FiducialFieldFilterConfiguration 
              static_cast<float>(config.marker_separation), dictionary_,
              cv::Mat(floor_board_ids(config.board_cols, config.board_rows, config.first_marker_id),
                      true)),
-      detector_(dictionary_, small_apriltag_detector_parameters()),
+      detector_(dictionary_, board_detector_parameters()),
       board_ids_(floor_board_ids(config.board_cols, config.board_rows, config.first_marker_id)),
       diagnostics_logger_(DiagnosticsLogger::get_logger("fiducial_field_filter")) {
     spdlog::info("FiducialFieldFilter: {}x{} board, ids {}..{}, {:.0f} mm markers",

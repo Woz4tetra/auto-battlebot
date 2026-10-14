@@ -1,7 +1,7 @@
 # System identification sessions for Mr Stabs Mk2 (docs/plans/mujoco_warp_mr_stabs_plan.md). The
 # driver drives by hand in the 1.52 m test box under a tripod-mounted ZED X One S; the app records
 # the robot's AprilTag poses and the firmware's diagnostics stream into the MCAP.
-extends = "mr_stabs_mk2_aer_zed_box"
+extends = "mr_stabs_mk2_fid_aer_zed_box"
 
 # The type differs from the base, so the merge replaces this section outright: every radio field
 # from _common and mr_stabs_mk2_zed_box is restated here.
@@ -22,7 +22,7 @@ velocity_saturation_limit = 1.0
 # Polls the robot's telemetry ring (GET /telemetry, 100 Hz records, two minutes deep). This is
 # its access point, which the box joins on its second WiFi dongle. With the robot in client mode
 # on the box's router, set this to the address the router reserves for it.
-esp32_host = "mr-stabs.local"
+esp32_host = "192.168.50.243"
 esp32_port = 80
 reconnect_period_s = 1.0      # wait after a failed poll
 

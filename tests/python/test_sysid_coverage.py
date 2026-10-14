@@ -12,8 +12,9 @@ import pytest
 from websockets.sync.server import serve
 
 from auto_battlebot.calibration.sysid import model, synthetic, telemetry
-from auto_battlebot.calibration.sysid.coverage import CoverageSession
+from auto_battlebot.calibration.sysid.coverage import CoverageSession, _pitched
 from auto_battlebot.calibration.sysid.maneuvers import ManeuverSegmenter
+from auto_battlebot.calibration.sysid.pose_stream import TagPose
 from auto_battlebot.calibration.sysid.profile import load_profile, load_profile_toml
 from auto_battlebot.calibration.sysid.sources import Dispatcher, replay
 from auto_battlebot.calibration.sysid.worker import InlineEngine
@@ -176,6 +177,33 @@ def test_session_gates_and_converges(profile: Any) -> None:
     assert any("yaw loop" in r for r in snap["edge_rows"])
     assert snap["history"][-1]["hold"] < 0.03  # metres at 500 ms, closed loop
     json.dumps(snap, allow_nan=False)
+
+
+def _poses(pitch_deg: np.ndarray) -> list[TagPose]:
+    return [
+        TagPose(
+            stamp_ns=i * 16_666_667,
+            x=0.0,
+            y=0.0,
+            yaw=0.0,
+            pitch=float(np.radians(p)),
+            sigma_along=0.01,
+            sigma_across=0.01,
+            sigma_yaw=0.01,
+            upside_down=False,
+        )
+        for i, p in enumerate(pitch_deg)
+    ]
+
+
+def test_pitch_gate_ignores_single_frame_spikes() -> None:
+    # The 2026-10-14 23-11-27 flat spin: 1.7 deg frame noise with lone spikes up to 7.8 deg.
+    pitch = np.random.default_rng(0).normal(0.0, 1.5, 90)
+    pitch[[20, 50, 51, 70]] = [-5.1, 7.8, 4.8, -5.8]
+    assert not _pitched(_poses(pitch))
+    pitch[30:45] = 6.0  # a quarter-second nose lift
+    assert _pitched(_poses(pitch))
+    assert not _pitched([])
 
 
 def test_jetson_command_flag_drops_windows(profile: Any) -> None:

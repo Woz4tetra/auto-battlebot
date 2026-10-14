@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <utility>
 
+#include "foxglove_adapters/common.hpp"
 #include "rgbd_camera/camera_calibration.hpp"
 #include "rgbd_camera/zed_device.hpp"
 #include "tensorrt_inference/pinned_mat_allocator.hpp"
@@ -132,6 +133,9 @@ bool ZedOneRgbCamera::start_encoder() {
     if (!encoder_.start(encoder_options, [this](const std::byte *data, size_t len,
                                                 uint64_t log_time_ns, bool /*keyframe*/) {
             foxglove::schemas::CompressedVideo message;
+            // Foxglove's decoder rejects a frame whose timestamp is not after the previous one.
+            message.timestamp =
+                foxglove_adapters::to_timestamp(static_cast<double>(log_time_ns) * 1e-9);
             message.frame_id = "camera";
             message.format = "h264";
             message.data.assign(data, data + len);

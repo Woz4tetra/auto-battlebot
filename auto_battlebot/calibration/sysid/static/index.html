@@ -52,120 +52,69 @@
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
-body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.45; margin: 0; padding-inline: 16px; }
-.wrap { max-width: 1240px; margin: 0 auto; padding-block: 20px 48px; display: flex; flex-direction: column; gap: 16px; }
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.45; margin: 0; padding-inline: 16px; display: flex; flex-direction: column; overflow: hidden; }
 h1, h2, h3 { font-family: var(--font-display); margin: 0; text-wrap: balance; letter-spacing: 0.01em; }
-h1 { font-size: 30px; font-weight: 700; }
-h2 { font-size: 19px; font-weight: 600; }
+h1 { font-size: 22px; font-weight: 700; line-height: 1.1; }
+h2 { font-size: 16px; font-weight: 600; line-height: 1.2; }
 p { margin: 0; }
 .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .muted { color: var(--ink-2); }
 .small { font-size: 13px; }
 .eyebrow { font-family: var(--font-display); font-weight: 600; text-transform: uppercase; letter-spacing: 0.09em; font-size: 12px; color: var(--ink-3); }
 
-header.top { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px 24px; }
-header.top .lede { max-width: 68ch; color: var(--ink-2); margin-top: 6px; }
-
-.controls { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); padding-block: 10px; border-bottom: 1px solid var(--rule); display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
-.controls .group { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.controls .stat { display: flex; gap: 18px; flex-wrap: wrap; margin-left: auto; }
-.controls .stat div { display: flex; flex-direction: column; }
-.controls .stat b { font-family: var(--font-mono); font-weight: 500; font-size: 16px; font-variant-numeric: tabular-nums; }
+/* Overview: every panel on one screen, no page scroll. A number key opens one panel full size. */
+header.top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 24px; padding-block: 10px 8px; border-bottom: 1px solid var(--rule); }
+header.top .title { display: flex; flex-direction: column; gap: 2px; }
+header.top .stat { display: flex; gap: 20px; flex-wrap: wrap; margin-left: auto; }
+header.top .stat div { display: flex; flex-direction: column; }
+header.top .stat b { font-family: var(--font-mono); font-weight: 500; font-size: 17px; font-variant-numeric: tabular-nums; }
 button, select { font: inherit; font-size: 14px; border-radius: var(--radius); border: 1px solid var(--rule); background: var(--panel); color: var(--ink); padding: 7px 12px; cursor: pointer; }
 button:hover:not(:disabled) { border-color: var(--ink-3); }
 button:focus-visible, select:focus-visible, .prow:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
-button:disabled { opacity: 0.5; cursor: progress; }
 select { max-width: 100%; }
 
-.grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 16px; }
-.panel { background: var(--panel); border: 1px solid var(--rule); border-radius: var(--radius); padding: 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
-.panel header { display: flex; flex-direction: column; gap: 3px; }
-.panel header p { color: var(--ink-2); font-size: 13.5px; max-width: 70ch; }
-.span-5 { grid-column: span 5; } .span-7 { grid-column: span 7; } .span-6 { grid-column: span 6; } .span-12 { grid-column: span 12; }
-@media (max-width: 980px) { .span-5, .span-7, .span-6 { grid-column: span 12; } }
+.grid { flex: 1; min-height: 0; margin-block: 10px; display: grid; gap: 10px; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-template-rows: minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-areas: "live live ring next" "cov tx corr arena" "conv conv conv link"; }
+#p-live { grid-area: live; } #p-ring { grid-area: ring; } #p-next { grid-area: next; } #p-cov { grid-area: cov; } #p-tx { grid-area: tx; }
+#p-corr { grid-area: corr; } #p-arena { grid-area: arena; } #p-conv { grid-area: conv; } #p-link { grid-area: link; }
+#grid.focus > .panel:not(.open) { display: none; }
+#grid.focus > .panel.open { grid-area: 1 / 1 / -1 / -1; }
+.panel { background: var(--panel); border: 1px solid var(--rule); border-radius: var(--radius); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; overflow: hidden; cursor: pointer; }
+.panel:hover:not(.open) { border-color: var(--ink-3); }
+.panel.cur:not(.open) { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.panel.open { cursor: auto; padding: 16px 20px; gap: 12px; overflow: auto; }
+.panel header { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 10px; align-items: center; }
+.panel.open h2 { font-size: 22px; }
+.k { font-family: var(--font-mono); font-weight: 600; font-size: 13px; min-width: 24px; height: 24px; padding-inline: 4px; border-radius: 5px; border: 1px solid var(--rule); display: grid; place-items: center; color: var(--ink-2); }
+.panel.cur .k, .panel.open .k { background: var(--accent); border-color: var(--accent); color: #fff; }
+.panel.open .k { min-width: 32px; height: 32px; font-size: 16px; }
+.panel .back { font-size: 13px; padding: 5px 10px; color: var(--ink-2); }
+.panel .desc { grid-column: 1 / -1; color: var(--ink-2); font-size: 13.5px; max-width: 95ch; }
+.panel:not(.open) .detail { display: none !important; }
+.panel.open .brief { display: none !important; }
+.pb { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.cvbox { position: relative; flex: 1 1 0; min-height: 60px; }
+.cvbox canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 
 canvas { display: block; width: 100%; }
 .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: var(--ink-2); align-items: center; }
 .legend i { display: inline-block; width: 14px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
 .legend .ramp { width: 72px; height: 10px; border-radius: 2px; background: linear-gradient(90deg, var(--seq-lo), var(--seq-hi)); }
 
-/* ring */
-.ringbox { display: grid; grid-template-columns: minmax(200px, 250px) minmax(0, 1fr); gap: 16px; align-items: start; }
-@media (max-width: 560px) { .ringbox { grid-template-columns: minmax(0, 1fr); } .ringbox svg { max-width: 260px; margin: 0 auto; } }
-.ringbox svg { width: 100%; height: auto; display: block; }
-.plist { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.pgroup { font-family: var(--font-display); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-3); padding-top: 8px; }
-.prow { display: grid; grid-template-columns: minmax(0, 9.5em) minmax(40px, 1fr) minmax(0, 11em); gap: 10px; align-items: center; padding: 3px 6px; border-radius: 4px; cursor: pointer; font-size: 13.5px; }
-.prow:hover, .prow.sel { background: var(--cell-empty); }
-.prow .bar { height: 6px; background: var(--track); border-radius: 3px; overflow: hidden; }
-.prow .bar span { display: block; height: 100%; border-radius: 3px; background: var(--accent); transition: width 0.4s; }
-.prow.done .bar span { background: var(--good); }
-.prow .val { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2); text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.prow .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-/* next motion */
-.cands { display: flex; flex-direction: column; gap: 10px; }
-.cand { border: 1px solid var(--rule); border-radius: var(--radius); padding: 12px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px 14px; align-items: start; }
-.cand.first { border-color: var(--accent); }
-.cand h3 { font-size: 17px; font-weight: 600; }
-.cand .how { color: var(--ink-2); font-size: 14px; margin-top: 2px; }
-.cand canvas { grid-column: 1 / -1; height: 92px; }
-.chips { display: flex; flex-wrap: wrap; gap: 6px; grid-column: 1 / -1; }
-.chip { font-size: 12px; border: 1px solid var(--rule); border-radius: 999px; padding: 1px 8px; color: var(--ink-2); }
-.chip b { color: var(--ink); font-weight: 600; font-family: var(--font-mono); font-size: 11.5px; }
-.rate { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2); text-align: right; }
-
-/* transitions */
-.tx { overflow-x: auto; }
-.tx table { border-collapse: separate; border-spacing: 3px; font-size: 13px; }
-.tx th { font-weight: 500; color: var(--ink-2); text-align: left; padding: 0 6px 0 0; white-space: nowrap; }
-.tx thead th { text-align: center; font-family: var(--font-mono); font-size: 11.5px; font-weight: 400; }
-.tx thead tr:first-child th { font-family: var(--font-display); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-3); }
-.tx td { width: 46px; height: 34px; border-radius: 4px; text-align: center; font-family: var(--font-mono); font-size: 12px; background: var(--cell-empty); color: var(--ink-3); border: 1px dashed var(--rule); }
-.tx td.has { border-style: solid; border-color: transparent; color: var(--ink); }
-.tx td.ok { color: #fff; }
-.tx td.gap-l { border-left-width: 1px; }
-
-.corr-notes { display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; }
-.corr-notes div { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; padding: 6px 8px; border-radius: 4px; background: var(--cell-empty); }
-.corr-notes .r { font-family: var(--font-mono); font-size: 12.5px; }
-.corr-notes .h { grid-column: 2; color: var(--ink-2); font-size: 13px; }
-
-.statrow { display: flex; flex-wrap: wrap; gap: 10px 28px; }
-.statrow div { display: flex; flex-direction: column; }
-.statrow b { font-family: var(--font-mono); font-weight: 500; font-size: 18px; font-variant-numeric: tabular-nums; }
-.subcharts { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
-@media (max-width: 700px) { .subcharts { grid-template-columns: minmax(0, 1fr); } }
-.ladder { display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; }
-.ladder .lr { display: grid; grid-template-columns: minmax(0, 12em) minmax(40px, 1fr) 5.5em; gap: 10px; align-items: center; }
-.ladder .lr .bar { height: 12px; background: var(--track); border-radius: 0 3px 3px 0; overflow: hidden; }
-.ladder .lr .bar span { display: block; height: 100%; background: var(--ink-3); border-radius: 0 3px 3px 0; transition: width 0.4s; }
-.ladder .lr.best .bar span { background: var(--accent); }
-.ladder .lr .v { font-family: var(--font-mono); font-size: 12.5px; text-align: right; }
-.ladder .lr .tag { font-size: 11px; color: var(--accent-ink); font-weight: 600; margin-left: 6px; }
-
-
-
-#radio { aspect-ratio: 1.55 / 1; touch-action: none; cursor: grab; border-radius: var(--radius); }
-#radio:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.radio-col { display: flex; flex-direction: column; gap: 8px; }
+/* live */
+.pb.live { display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr); gap: 14px; }
+.panel.open .pb.live { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.radio-col { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
 .radio-opts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.prompt-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-#tape { height: 168px; }
-
-#tip { position: fixed; pointer-events: none; z-index: 20; background: var(--panel); color: var(--ink); border: 1px solid var(--rule); border-radius: 5px; padding: 6px 9px; font-size: 12.5px; box-shadow: 0 4px 16px rgba(0,0,0,0.12); max-width: 280px; }
-#tip b { font-weight: 600; }
-#tip .mono { font-size: 12px; }
-footer { color: var(--ink-3); font-size: 12.5px; max-width: 90ch; }
-@media (prefers-reduced-motion: reduce) { .prow .bar span, .ladder .lr .bar span { transition: none; } }
-.live { display: grid; grid-template-columns: minmax(0, 340px) minmax(0, 1fr); gap: 20px; align-items: start; }
-@media (max-width: 860px) { .live { grid-template-columns: minmax(0, 1fr); } }
-.hint { border: 1px solid var(--rule); border-radius: var(--radius); padding: 10px 14px; display: flex; flex-direction: column; gap: 2px; }
+.prompt-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; }
+.tapebox { position: relative; flex: 0 0 110px; }
+.panel.open .tapebox { flex-basis: 220px; }
+.hint { border: 1px solid var(--rule); border-radius: var(--radius); padding: 8px 12px; display: flex; flex-direction: column; gap: 2px; }
 .hint .eyebrow { color: var(--accent-ink); }
-.hint b { font-family: var(--font-display); font-size: 21px; font-weight: 700; }
+.hint b { font-family: var(--font-display); font-size: 20px; font-weight: 700; line-height: 1.15; }
 .hint span.muted { font-size: 14px; }
-.ticker { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; font-size: 14px; }
+.ticker { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; font-size: 14px; flex: 1; min-height: 0; overflow: hidden; }
 .ticker li { display: grid; grid-template-columns: 4.2em 1.4em minmax(0, 1fr); gap: 6px; align-items: baseline; padding: 4px 8px; border-radius: 4px; background: var(--cell-empty); }
 .ticker li .ts { font-family: var(--font-mono); font-size: 12px; color: var(--ink-3); }
 .ticker li .ic { font-weight: 700; text-align: center; }
@@ -174,170 +123,299 @@ footer { color: var(--ink-3); font-size: 12.5px; max-width: 90ch; }
 .ticker li .chip { font-size: 11px; padding: 0 6px; }
 .ticker li.fresh { animation: fresh 1.2s ease-out; }
 @keyframes fresh { from { background: color-mix(in srgb, var(--accent) 28%, var(--cell-empty)); } to { background: var(--cell-empty); } }
-.driverline { font-size: 13px; color: var(--ink-2); }
-.driverline b { font-weight: 600; color: var(--ink); }
+
+/* ring */
+.pb.ringbox { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+.panel.open .pb.ringbox { grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); grid-template-rows: minmax(0, 1fr) auto 160px; gap: 8px 24px; }
+.panel.open .pb.ringbox svg { grid-area: 1 / 1; }
+.panel.open .pb.ringbox .ring-side { grid-area: 1 / 2 / 4 / 3; overflow: auto; }
+.ringbox svg { width: 100%; height: 100%; min-height: 0; display: block; }
+.ring-side { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+.plist { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.pgroup { font-family: var(--font-display); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-3); padding-top: 8px; }
+.prow { display: grid; grid-template-columns: minmax(0, 9.5em) minmax(40px, 1fr) minmax(0, 11em); gap: 10px; align-items: center; padding: 3px 6px; border-radius: 4px; cursor: pointer; font-size: 13.5px; }
+.prow:hover, .prow.sel { background: var(--cell-empty); }
+.prow.sel { box-shadow: inset 3px 0 0 var(--accent); }
+.prow .bar { height: 6px; background: var(--track); border-radius: 3px; overflow: hidden; }
+.prow .bar span { display: block; height: 100%; border-radius: 3px; background: var(--accent); transition: width 0.4s; }
+.prow.done .bar span { background: var(--good); }
+.prow .val { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2); text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.prow .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.prow .lim { font-size: 11px; color: var(--warn); font-weight: 600; margin-left: 6px; }
+
+/* next motion */
+.cands { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.panel:not(.open) .cand:not(.first) { display: none; }
+.cand { border: 1px solid var(--rule); border-radius: var(--radius); padding: 10px 12px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 14px; align-items: start; }
+.cand.first { border-color: var(--accent); }
+.cand h3 { font-size: 17px; font-weight: 600; }
+.cand .how { color: var(--ink-2); font-size: 14px; margin-top: 2px; }
+.cand canvas { grid-column: 1 / -1; height: 72px; }
+.panel.open .cand canvas { height: 110px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; grid-column: 1 / -1; }
+.chip { font-size: 12px; border: 1px solid var(--rule); border-radius: 999px; padding: 1px 8px; color: var(--ink-2); }
+.chip b { color: var(--ink); font-weight: 600; font-family: var(--font-mono); font-size: 11.5px; }
+.rate { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2); text-align: right; }
+.floorwarn { font-size: 13.5px; color: var(--ink-2); border-left: 3px solid var(--warn); padding: 4px 10px; }
+
+/* transitions */
+.tx { overflow: hidden; }
+.panel.open .tx { overflow-x: auto; }
+.tx table { border-collapse: separate; border-spacing: 3px; font-size: 13px; }
+.panel:not(.open) .tx table { width: 100%; border-spacing: 2px; }
+.tx th { font-weight: 500; color: var(--ink-2); text-align: left; padding: 0 6px 0 0; white-space: nowrap; }
+.tx thead th { text-align: center; font-family: var(--font-mono); font-size: 11.5px; font-weight: 400; }
+.tx thead tr:first-child th { font-family: var(--font-display); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-3); }
+.tx td { width: 46px; height: 34px; border-radius: 4px; text-align: center; font-family: var(--font-mono); font-size: 12px; background: var(--cell-empty); color: var(--ink-3); border: 1px dashed var(--rule); }
+.panel.open .tx td { width: 84px; height: 52px; font-size: 15px; }
+.panel.open .tx th { font-size: 15px; }
+.panel:not(.open) .tx td { width: auto; height: 19px; font-size: 11px; padding: 0; }
+.panel:not(.open) .tx thead th { font-size: 10.5px; line-height: 1.2; }
+.panel:not(.open) .tx .lg, .panel.open .tx .sh { display: none; }
+.tx td.has { border-style: solid; border-color: transparent; color: var(--ink); }
+.tx td.ok { color: #fff; }
 .tx td.pulse { animation: pulse 1.4s ease-in-out infinite; border: 2px solid var(--accent); }
 @keyframes pulse { 50% { border-color: transparent; } }
-.floorwarn { font-size: 13.5px; color: var(--ink-2); border-left: 3px solid var(--warn); padding: 4px 10px; }
-.prow .lim { font-size: 11px; color: var(--warn); font-weight: 600; margin-left: 6px; }
-@media (prefers-reduced-motion: reduce) { .tx td.pulse, .ticker li.fresh { animation: none; } }
-.srcnote { font-size: 12.5px; color: var(--ink-2); border: 1px dashed var(--rule); border-radius: var(--radius); padding: 6px 10px; max-width: 44ch; }
-.banner { border: 1px solid var(--div-pos); border-left-width: 4px; border-radius: var(--radius); padding: 8px 12px; background: var(--panel); font-weight: 500; }
-#radio { aspect-ratio: 1.55 / 1; border-radius: var(--radius); }
-.radio-col { display: flex; flex-direction: column; gap: 8px; }
-.radio-opts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.prompt-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-#tape { height: 168px; }
+
+/* correlation */
+.panel.open .pb.corrbox { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 24px; }
+.corr-side { display: flex; flex-direction: column; gap: 12px; }
+.corr-notes { display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; }
+.corr-notes div { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; padding: 6px 8px; border-radius: 4px; background: var(--cell-empty); }
+.corr-notes .r { font-family: var(--font-mono); font-size: 12.5px; }
+.corr-notes .h { grid-column: 2; color: var(--ink-2); font-size: 13px; }
+
+/* convergence and link */
+.statrow { display: flex; flex-wrap: wrap; gap: 6px 24px; }
+.statrow div { display: flex; flex-direction: column; }
+.statrow b { font-family: var(--font-mono); font-weight: 500; font-size: 16px; font-variant-numeric: tabular-nums; }
+.panel.open .statrow b { font-size: 20px; }
+.panel:not(.open) .statrow .small { display: none; }
+.subcharts { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 0.9fr); gap: 16px; }
+.subcharts > div { display: flex; flex-direction: column; gap: 6px; min-height: 0; overflow: hidden; }
+.ladder { display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; }
+.ladder .lr { display: grid; grid-template-columns: minmax(0, 12em) minmax(40px, 1fr) 5.5em; gap: 10px; align-items: center; }
+.ladder .lr .bar { height: 12px; background: var(--track); border-radius: 0 3px 3px 0; overflow: hidden; }
+.ladder .lr .bar span { display: block; height: 100%; background: var(--ink-3); border-radius: 0 3px 3px 0; transition: width 0.4s; }
+.ladder .lr.best .bar span { background: var(--accent); }
+.ladder .lr .v { font-family: var(--font-mono); font-size: 12.5px; text-align: right; }
+.ladder .lr .tag { font-size: 11px; color: var(--accent-ink); font-weight: 600; margin-left: 6px; }
+.pb.linkbox { gap: 12px; }
+
+/* key strip and help */
+footer.keys { display: flex; flex-wrap: wrap; gap: 4px 18px; align-items: center; padding-block: 0 10px; font-size: 14px; color: var(--ink-2); }
+footer.keys b { color: var(--ink); font-family: var(--font-display); font-weight: 600; font-size: 15px; }
+kbd { font-family: var(--font-mono); font-size: 12.5px; min-width: 1.9em; display: inline-block; text-align: center; padding: 1px 6px; border: 1px solid var(--rule); border-bottom-width: 2px; border-radius: 4px; background: var(--panel); color: var(--ink); }
+#help { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; background: color-mix(in srgb, var(--bg) 70%, transparent); padding: 16px; }
+#help[hidden] { display: none; }
+#help .box { background: var(--panel); border: 1px solid var(--rule); border-radius: var(--radius); padding: 20px 24px; max-width: 760px; width: 100%; max-height: 100%; overflow: auto; display: flex; flex-direction: column; gap: 14px; box-shadow: 0 8px 32px rgba(0,0,0,0.18); }
+#help table { border-collapse: collapse; font-size: 14px; }
+#help td { padding: 4px 16px 4px 0; vertical-align: top; }
+#help .cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; }
+
+#tip { position: fixed; pointer-events: none; z-index: 20; background: var(--panel); color: var(--ink); border: 1px solid var(--rule); border-radius: 5px; padding: 6px 9px; font-size: 12.5px; box-shadow: 0 4px 16px rgba(0,0,0,0.12); max-width: 280px; }
+#tip b { font-weight: 600; }
+#tip .mono { font-size: 12px; }
+.srcnote { font-size: 12.5px; color: var(--ink-2); border: 1px dashed var(--rule); border-radius: var(--radius); padding: 4px 10px; max-width: 44ch; }
+.banner { margin-top: 8px; border: 1px solid var(--div-pos); border-left-width: 4px; border-radius: var(--radius); padding: 8px 12px; background: var(--panel); font-weight: 500; }
+@media (prefers-reduced-motion: reduce) { .prow .bar span, .ladder .lr .bar span { transition: none; } .tx td.pulse, .ticker li.fresh { animation: none; } }
+
+/* A window too small for the overview falls back to stacked, scrolling panels. */
+@media (max-width: 900px), (max-height: 560px) {
+  body { overflow: auto; }
+  .grid { flex: none; grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-template-areas: none; grid-auto-rows: 380px; }
+  .grid > .panel { grid-area: auto !important; }
+  #grid.focus { grid-auto-rows: auto; }
+  #grid.focus > .panel.open { min-height: calc(100vh - 140px); }
+  .pb.live, .panel.open .pb.live, .panel.open .pb.ringbox, .panel.open .pb.corrbox, .subcharts { grid-template-columns: minmax(0, 1fr); }
+  #help .cols { grid-template-columns: minmax(0, 1fr); }
+}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <header class="top">
-    <div>
-      <div class="eyebrow">Mr Stabs Mk2 · grey-box drivetrain plant · <span id="profile"></span></div>
-      <h1>Plant Coverage Monitor</h1>
-      <p class="lede">Drive however you like. The tool reads the sticks, the ESP-NOW telemetry and the tag, labels each thing you do, drops anything that touched a wall, and refits as you go. It never sends a command and never asks you to start anything.</p>
-    </div>
-    <p class="srcnote" id="srcnote">Connecting…</p>
-  </header>
-
-  <div class="banner" id="banner" hidden></div>
-
-  <div class="controls" role="status" aria-label="Session summary">
-    <div class="stat">
-      <div><span class="eyebrow">Characterized</span><b id="sOverall">0%</b></div>
-      <div><span class="eyebrow">Driving</span><b id="sTime">0 s</b></div>
-      <div><span class="eyebrow">Windows used</span><b id="sUsed">0</b></div>
-      <div><span class="eyebrow">Dropped, wall</span><b id="sWall">0</b></div>
-      <div><span class="eyebrow">Dropped, other</span><b id="sOther">0</b></div>
-      <div><span class="eyebrow">Refits</span><b id="sRefits">0</b></div>
-    </div>
+<header class="top">
+  <div class="title">
+    <div class="eyebrow">Mr Stabs Mk2 · grey-box drivetrain plant · <span id="profile"></span></div>
+    <h1>Plant Coverage Monitor</h1>
   </div>
+  <div class="stat" role="status" aria-label="Session summary">
+    <div><span class="eyebrow">Characterized</span><b id="sOverall">0%</b></div>
+    <div><span class="eyebrow">Driving</span><b id="sTime">0 s</b></div>
+    <div><span class="eyebrow">Windows used</span><b id="sUsed">0</b></div>
+    <div><span class="eyebrow">Dropped, wall</span><b id="sWall">0</b></div>
+    <div><span class="eyebrow">Dropped, other</span><b id="sOther">0</b></div>
+    <div><span class="eyebrow">Refits</span><b id="sRefits">0</b></div>
+  </div>
+  <p class="srcnote" id="srcnote">Connecting…</p>
+</header>
 
-  <div class="grid">
-    <section class="panel span-12" aria-labelledby="h-live">
-      <header>
-        <div class="eyebrow">What the tool heard</div>
-        <h2 id="h-live">Live stream</h2>
-        <p>Every 1.5 s of driving becomes a fit window. Holds, snaps, arcs, spins and creeps are labeled as they finish, with the parameters they inform, and marked once their window is used or dropped. The hint is a suggestion; ignore it and keep driving.</p>
-      </header>
-      <div class="live">
-        <div class="radio-col">
-          <canvas id="radio" aria-label="Transmitter sticks from telemetry"></canvas>
-          <div class="radio-opts">
-            <label for="layout" class="small muted">Stick layout</label>
-            <select id="layout">
-              <option value="split">Split: left throttle, right steer</option>
-              <option value="right">Right stick only</option>
-            </select>
-          </div>
-        </div>
-        <div class="prompt-col">
-          <div class="hint" id="hint"></div>
-          <canvas id="tape" aria-label="Last 8 seconds of stick input with fit windows"></canvas>
-          <div class="legend"><span><i style="background:var(--accent);height:3px"></i>throttle</span><span><i style="background:var(--series-2);height:3px"></i>steer</span><span><i style="background:var(--div-pos);opacity:.25"></i>window dropped, wall</span><span><i style="background:var(--warn);opacity:.25"></i>window dropped, other</span><span><i style="background:var(--ink-3);opacity:.15"></i>window filling</span></div>
-          <ul class="ticker" id="ticker" aria-live="polite"></ul>
+<div class="banner" id="banner" hidden></div>
+
+<main class="grid" id="grid">
+  <section class="panel" id="p-live" data-k="1" aria-labelledby="h-live">
+    <header>
+      <span class="k">1</span>
+      <div><div class="eyebrow detail">What the tool heard</div><h2 id="h-live">Live stream</h2></div>
+      <button class="back detail" type="button">Esc · overview</button>
+      <p class="desc detail">Every 1.5 s of driving becomes a fit window. Holds, snaps, arcs, spins and creeps are labeled as they finish, with the parameters they inform, and marked once their window is used or dropped. The hint is a suggestion; ignore it and keep driving.</p>
+    </header>
+    <div class="pb live">
+      <div class="radio-col">
+        <div class="cvbox"><canvas id="radio" aria-label="Transmitter sticks from telemetry"></canvas></div>
+        <div class="radio-opts detail">
+          <label for="layout" class="small muted">Stick layout <kbd>L</kbd></label>
+          <select id="layout">
+            <option value="split">Split: left throttle, right steer</option>
+            <option value="right">Right stick only</option>
+          </select>
         </div>
       </div>
-    </section>
-
-    <section class="panel span-7" aria-labelledby="h-ring">
-      <header>
-        <div class="eyebrow">How much is characterized</div>
-        <h2 id="h-ring">Parameter confidence ring</h2>
-        <p>One sector per plant parameter, five ticks each. A tick lights for every fifth of the way the parameter's uncertainty has come down to its target. Uncertainty is the Cramér-Rao bound from the Fisher information, widened by the fit residual when the model cannot reach the tag noise. Amber ticks mark a parameter this floor is too small to finish.</p>
-      </header>
-      <div class="ringbox">
-        <svg id="ring" viewBox="0 0 240 240" role="img" aria-label="Parameter confidence ring"></svg>
-        <div class="plist" id="plist"></div>
+      <div class="prompt-col">
+        <div class="hint" id="hint"></div>
+        <div class="tapebox"><div class="cvbox" style="position:absolute;inset:0"><canvas id="tape" aria-label="Last 8 seconds of stick input with fit windows"></canvas></div></div>
+        <div class="legend detail"><span><i style="background:var(--accent);height:3px"></i>throttle</span><span><i style="background:var(--series-2);height:3px"></i>steer</span><span><i style="background:var(--div-pos);opacity:.25"></i>window dropped, wall</span><span><i style="background:var(--warn);opacity:.25"></i>window dropped, other</span><span><i style="background:var(--ink-3);opacity:.15"></i>window filling</span></div>
+        <ul class="ticker" id="ticker" aria-live="polite"></ul>
       </div>
-    </section>
+    </div>
+  </section>
 
-    <section class="panel span-5" aria-labelledby="h-next">
-      <header>
-        <div class="eyebrow">If you want to speed it up</div>
-        <h2 id="h-next">What would help most</h2>
-        <p>Each motion is simulated at the current estimate, through the firmware mixer with the flip switch where it is now, and ranked by ring filled per second. Only motions that fit the floor are listed. Nothing here needs starting.</p>
-      </header>
-      <div class="floorwarn" id="floorwarn" hidden></div>
+  <section class="panel" id="p-ring" data-k="2" aria-labelledby="h-ring">
+    <header>
+      <span class="k">2</span>
+      <div><div class="eyebrow detail">How much is characterized</div><h2 id="h-ring">Parameter confidence ring</h2></div>
+      <button class="back detail" type="button">Esc · overview</button>
+      <p class="desc detail">One sector per plant parameter, five ticks each. A tick lights for every fifth of the way the parameter's uncertainty has come down to its target. Uncertainty is the Cramér-Rao bound from the Fisher information, widened by the fit residual when the model cannot reach the tag noise. Amber ticks mark a parameter this floor is too small to finish. <kbd>↑</kbd> <kbd>↓</kbd> pick a parameter.</p>
+    </header>
+    <div class="pb ringbox">
+      <svg id="ring" viewBox="0 0 240 240" role="img" aria-label="Parameter confidence ring"></svg>
+      <div class="ring-side detail"><div class="plist" id="plist"></div></div>
+      <div class="eyebrow detail">Estimate trace: <span class="traceName"></span></div>
+      <div class="cvbox detail"><canvas id="trace2" aria-label="Parameter estimate trace"></canvas></div>
+    </div>
+  </section>
+
+  <section class="panel" id="p-next" data-k="3" aria-labelledby="h-next">
+    <header>
+      <span class="k">3</span>
+      <div><div class="eyebrow detail">If you want to speed it up</div><h2 id="h-next">What would help most</h2></div>
+      <button class="back detail" type="button">Esc · overview</button>
+      <p class="desc detail">Each motion is simulated at the current estimate, through the firmware mixer with the flip switch where it is now, and ranked by ring filled per second. Only motions that fit the floor are listed. Nothing here needs starting.</p>
+    </header>
+    <div class="pb">
+      <div class="floorwarn detail" id="floorwarn" hidden></div>
       <div class="cands" id="cands"></div>
-    </section>
+    </div>
+  </section>
 
-    <section class="panel span-6" aria-labelledby="h-cov">
-      <header>
-        <div class="eyebrow">Where you have driven</div>
-        <h2 id="h-cov">Command coverage map</h2>
-        <p>Throttle against steer, like a wand painting a capture volume. Shade is tag-tracked samples per cell; a ring marks a cell held 0.5 s or longer. The pulsing outline marks where the current hint would land. Samples from dropped windows are left out.</p>
-      </header>
-      <canvas id="cov" style="aspect-ratio: 1 / 0.92" aria-label="Command coverage heatmap"></canvas>
-      <div class="legend"><span><span class="ramp" style="display:inline-block;vertical-align:-1px;margin-right:6px"></span>samples per cell</span><span><i style="background:none;border:2px solid var(--ink);width:12px;height:12px;border-radius:50%"></i>held ≥ 0.5 s</span><span><i style="background:none;border:2px solid var(--accent)"></i>hint</span></div>
-    </section>
+  <section class="panel" id="p-cov" data-k="4" aria-labelledby="h-cov">
+    <header>
+      <span class="k">4</span>
+      <div><div class="eyebrow detail">Where you have driven</div><h2 id="h-cov">Command coverage map</h2></div>
+      <button class="back detail" type="button">Esc · overview</button>
+      <p class="desc detail">Throttle against steer, like a wand painting a capture volume. Shade is tag-tracked samples per cell; a ring marks a cell held 0.5 s or longer. The pulsing outline marks where the current hint would land. Samples from dropped windows are left out.</p>
+    </header>
+    <div class="pb">
+      <div class="cvbox"><canvas id="cov" aria-label="Command coverage heatmap"></canvas></div>
+      <div class="legend detail"><span><span class="ramp" style="display:inline-block;vertical-align:-1px;margin-right:6px"></span>samples per cell</span><span><i style="background:none;border:2px solid var(--ink);width:12px;height:12px;border-radius:50%"></i>held ≥ 0.5 s</span><span><i style="background:none;border:2px solid var(--accent)"></i>hint</span></div>
+    </div>
+  </section>
 
-    <section class="panel span-6" aria-labelledby="h-tx">
-      <header>
-        <div class="eyebrow">Which edges you have</div>
-        <h2 id="h-tx">Transition coverage</h2>
-        <p>Delay and the four lag constants come from command edges. An edge counts when it leaves rest or a 0.5 s plateau, lands in a 0.5 s hold, takes under 80 ms, and its window is used. The yaw loop rows are steer edges with the flip switch down, where the firmware loop answers.</p>
-      </header>
+  <section class="panel" id="p-tx" data-k="5" aria-labelledby="h-tx">
+    <header>
+      <span class="k">5</span>
+      <div><div class="eyebrow detail">Which edges you have</div><h2 id="h-tx">Transition coverage</h2></div>
+      <button class="back detail" type="button">Esc · overview</button>
+      <p class="desc detail">Delay and the four lag constants come from command edges. An edge counts when it leaves rest or a 0.5 s plateau, lands in a 0.5 s hold, takes under 80 ms, and its window is used. The yaw loop rows are steer edges with the flip switch down, where the firmware loop answers.</p>
+    </header>
+    <div class="pb">
       <div class="tx"><table id="tx"></table></div>
-      <div class="legend"><span><i style="background:var(--seq-lo)"></i>1 edge</span><span><i style="background:var(--seq-hi)"></i>3 or more</span><span><i style="background:var(--cell-empty);border:1px dashed var(--ink-3)"></i>missing</span></div>
-    </section>
+      <div class="legend detail"><span><i style="background:var(--seq-lo)"></i>1 edge</span><span><i style="background:var(--seq-hi)"></i>3 or more</span><span><i style="background:var(--cell-empty);border:1px dashed var(--ink-3)"></i>missing</span></div>
+    </div>
+  </section>
 
-    <section class="panel span-6" aria-labelledby="h-corr">
-      <header>
-        <div class="eyebrow">Why a sector is stuck</div>
-        <h2 id="h-corr">Parameter correlation</h2>
-        <p>Correlation from the inverse Fisher information. A dark cell off the diagonal means the data so far cannot tell those two apart. The list names the worst unfinished pairs and what splits them.</p>
-      </header>
-      <canvas id="corr" style="aspect-ratio: 1 / 1" aria-label="Parameter correlation matrix"></canvas>
-      <div class="legend"><span><i style="background:var(--div-neg)"></i>−1</span><span><i style="background:var(--div-mid);border:1px solid var(--rule)"></i>0</span><span><i style="background:var(--div-pos)"></i>+1</span></div>
-      <div class="corr-notes" id="corrNotes"></div>
-    </section>
+  <section class="panel" id="p-corr" data-k="6" aria-labelledby="h-corr">
+    <header>
+      <span class="k">6</span>
+      <div><div class="eyebrow detail">Why a sector is stuck</div><h2 id="h-corr">Parameter correlation</h2></div>
+      <button class="back detail" type="button">Esc · overview</button>
+      <p class="desc detail">Correlation from the inverse Fisher information. A dark cell off the diagonal means the data so far cannot tell those two apart. The list names the worst unfinished pairs and what splits them.</p>
+    </header>
+    <div class="pb corrbox">
+      <div class="cvbox"><canvas id="corr" aria-label="Parameter correlation matrix"></canvas></div>
+      <div class="corr-side detail">
+        <div class="legend"><span><i style="background:var(--div-neg)"></i>−1</span><span><i style="background:var(--div-mid);border:1px solid var(--rule)"></i>0</span><span><i style="background:var(--div-pos)"></i>+1</span></div>
+        <div class="corr-notes" id="corrNotes"></div>
+      </div>
+    </div>
+  </section>
 
-    <section class="panel span-6" aria-labelledby="h-ghost">
-      <header>
-        <div class="eyebrow">Does the model predict</div>
-        <h2 id="h-ghost">The floor, live</h2>
-        <p>The field from above. Grey dots are the last 6 s of tag fixes. Every 240 ms the current fit starts from the tag state and predicts 500 ms from the recorded sticks, through the firmware mixer (blue). A good fit keeps each ghost on the dots. The dashed line is the wall gate.</p>
-      </header>
-      <canvas id="arena" style="aspect-ratio: 1 / 1" aria-label="Live floor view with predicted trajectories"></canvas>
-      <div class="legend"><span><i style="background:var(--ink-3);border-radius:50%;width:8px;height:8px"></i>tag fix</span><span><i style="background:var(--accent);height:3px"></i>500 ms prediction</span><span><i style="background:var(--series-2);border-radius:50%;width:8px;height:8px"></i>prediction end</span><span><i style="background:none;border:1px dashed var(--div-pos)"></i>wall gate</span></div>
-    </section>
+  <section class="panel" id="p-arena" data-k="7" aria-labelledby="h-ghost">
+    <header>
+      <span class="k">7</span>
+      <div><div class="eyebrow detail">Does the model predict</div><h2 id="h-ghost">The floor, live</h2></div>
+      <button class="back detail" type="button">Esc · overview</button>
+      <p class="desc detail">The field from above. Grey dots are the last 6 s of tag fixes. Every 240 ms the current fit starts from the tag state and predicts 500 ms from the recorded sticks, through the firmware mixer (blue). A good fit keeps each ghost on the dots. The dashed line is the wall gate.</p>
+    </header>
+    <div class="pb">
+      <div class="cvbox"><canvas id="arena" aria-label="Live floor view with predicted trajectories"></canvas></div>
+      <div class="legend detail"><span><i style="background:var(--ink-3);border-radius:50%;width:8px;height:8px"></i>tag fix</span><span><i style="background:var(--accent);height:3px"></i>500 ms prediction</span><span><i style="background:var(--series-2);border-radius:50%;width:8px;height:8px"></i>prediction end</span><span><i style="background:none;border:1px dashed var(--div-pos)"></i>wall gate</span></div>
+    </div>
+  </section>
 
-    <section class="panel span-12" aria-labelledby="h-conv">
-      <header>
-        <div class="eyebrow">Is it done</div>
-        <h2 id="h-conv">Convergence and calibration quality</h2>
-        <p>The OptiTrack wand-error view. Holdout error is the 500 ms closed-loop position error, from the sticks through the firmware mixer, on every fifth usable window, which the fit never sees. When it flattens and the estimate trace stops moving inside its band, more driving stops paying.</p>
-      </header>
+  <section class="panel" id="p-conv" data-k="8" aria-labelledby="h-conv">
+    <header>
+      <span class="k">8</span>
+      <div><div class="eyebrow detail">Is it done</div><h2 id="h-conv">Convergence and calibration quality</h2></div>
+      <button class="back detail" type="button">Esc · overview</button>
+      <p class="desc detail">The OptiTrack wand-error view. Holdout error is the 500 ms closed-loop position error, from the sticks through the firmware mixer, on every fifth usable window, which the fit never sees. When it flattens and the estimate trace stops moving inside its band, more driving stops paying. <kbd>↑</kbd> <kbd>↓</kbd> pick the traced parameter.</p>
+    </header>
+    <div class="pb">
       <div class="statrow" id="stats"></div>
       <div class="subcharts">
         <div>
-          <div class="eyebrow" style="margin-bottom:6px">Holdout error, 500 ms horizon</div>
-          <canvas id="hold" style="aspect-ratio: 1.8 / 1" aria-label="Holdout error over driving time"></canvas>
+          <div class="eyebrow">Holdout error, 500 ms horizon</div>
+          <div class="cvbox"><canvas id="hold" aria-label="Holdout error over driving time"></canvas></div>
         </div>
         <div>
-          <div class="eyebrow" style="margin-bottom:6px">Estimate trace: <span id="traceName"></span> <span class="muted" style="text-transform:none;letter-spacing:0">(click a parameter in the ring list)</span></div>
-          <canvas id="trace" style="aspect-ratio: 1.8 / 1" aria-label="Parameter estimate trace"></canvas>
+          <div class="eyebrow">Estimate trace: <span class="traceName"></span></div>
+          <div class="cvbox"><canvas id="trace" aria-label="Parameter estimate trace"></canvas></div>
+        </div>
+        <div>
+          <div class="eyebrow">Model ladder, holdout error at 500 ms</div>
+          <div class="ladder" id="ladder"></div>
+          <p class="small muted detail">Each rung refits the same windows with more terms freed. M5 and M6 are the two drift hypotheses; the holdout picks one instead of assuming it.</p>
         </div>
       </div>
-      <div>
-        <div class="eyebrow" style="margin-bottom:8px">Model ladder, holdout error at 500 ms</div>
-        <div class="ladder" id="ladder"></div>
-        <p class="small muted" style="margin-top:8px">Each rung refits the same windows with more terms freed. M5 and M6 are the two drift hypotheses; the holdout picks one instead of assuming it.</p>
-      </div>
-    </section>
+    </div>
+  </section>
 
-    <section class="panel span-12" aria-labelledby="h-link">
-      <header>
-        <div class="eyebrow">Is the data good</div>
-        <h2 id="h-link">Link and gates</h2>
-      </header>
+  <section class="panel" id="p-link" data-k="9" aria-labelledby="h-link">
+    <header>
+      <span class="k">9</span>
+      <div><div class="eyebrow detail">Is the data good</div><h2 id="h-link">Link and gates</h2></div>
+      <button class="back detail" type="button">Esc · overview</button>
+    </header>
+    <div class="pb linkbox">
       <div class="statrow" id="link"></div>
+      <div class="eyebrow detail">Windows by outcome</div>
       <div class="statrow" id="gates"></div>
-    </section>
+    </div>
+  </section>
+</main>
+
+<footer class="keys" id="keys" aria-label="Keyboard controls"></footer>
+
+<div id="help" hidden role="dialog" aria-modal="true" aria-labelledby="h-help">
+  <div class="box">
+    <h2 id="h-help" style="font-size:22px">Plant Coverage Monitor</h2>
+    <p class="muted">Drive however you like. The tool reads the sticks, the ESP-NOW telemetry and the tag, labels each thing you do, drops anything that touched a wall, and refits as you go. It never sends a command and never asks you to start anything.</p>
+    <div class="cols">
+      <table id="helpKeys"></table>
+      <table id="helpPanels"></table>
+    </div>
+    <p class="small muted">Plant structure and priors follow <span class="mono">auto_battlebot/control/plant.py</span>; the fit input is the motor command the ESCs got, and every prediction runs the sticks through the mirror of the firmware mixer and yaw loop (<span class="mono">auto_battlebot/control/firmware_mixer.py</span>). This page only listens. The final calibration is the offline fit on the session's MCAP.</p>
+    <p class="small muted"><kbd>Esc</kbd> or <kbd>?</kbd> closes this.</p>
   </div>
-  <footer>Plant structure and priors follow <span class="mono">auto_battlebot/control/plant.py</span>; the fit input is the motor command the ESCs got, and every prediction runs the sticks through the mirror of the firmware mixer and yaw loop (<span class="mono">auto_battlebot/control/firmware_mixer.py</span>). This page only listens. The final calibration is the offline fit on the session's MCAP.</footer>
 </div>
 <div id="tip" hidden></div>
 <script>
@@ -487,14 +565,15 @@ $('cov').addEventListener('mousemove', (e) => {
 $('cov').addEventListener('mouseleave', hideTip);
 
 // ---------- transitions ----------
+const EDGE_SHORT = ['Fwd', 'Rev', 'Spin L', 'Spin R', 'Loop', 'Loop rev'];
 function drawTransitions() {
   const E = S.edges, rows = S.edge_rows, lo = css('--seq-lo'), hi = css('--seq-hi');
   const fills = ['delay, linear accel lag, forward gain', 'delay, linear accel lag, reverse gain', 'delay, yaw accel lag, yaw gain', 'delay, yaw accel lag, yaw gain', 'delay and yaw lags through the loop', 'delay and yaw lags through the loop, reversing'];
   const dfills = ['linear decel lag', 'linear decel lag', 'yaw decel lag', 'yaw decel lag', 'yaw decel lag, loop capture', 'yaw decel lag, loop capture'];
-  let html = '<thead><tr><th></th><th colspan="4">Accel edge</th><th colspan="4">Decel edge</th></tr><tr><th>amplitude</th>' +
+  let html = '<thead><tr><th></th><th colspan="4">Accel edge</th><th colspan="4">Decel edge</th></tr><tr><th><span class="lg">amplitude</span></th>' +
     AMPS.map((a) => `<th>${a * 100}%</th>`).join('') + AMPS.map((a) => `<th>${a * 100}%</th>`).join('') + '</tr></thead><tbody>';
   rows.forEach((name, r) => {
-    html += `<tr><th>${name}</th>`;
+    html += `<tr><th><span class="lg">${name}</span><span class="sh">${EDGE_SHORT[r] || name}</span></th>`;
     for (let c = 0; c < 8; c++) {
       const n = E[r][c];
       const style = n ? `background:${mix(lo, hi, Math.min(1, (n - 1) / 2))}` : '';
@@ -654,8 +733,12 @@ function drawHold() {
   cv._pts = ys.map((y, i) => ({ x: X(ts[i]), v: y, t: ts[i] }));
 }
 function drawTrace() {
-  const i = selParam, cv = $('trace'), { g, w, h } = setup(cv), H = S.history;
-  $('traceName').textContent = P[i].label;
+  document.querySelectorAll('.traceName').forEach((el) => (el.textContent = P[selParam].label));
+  drawTraceOn($('trace'));
+  drawTraceOn($('trace2'));
+}
+function drawTraceOn(cv) {
+  const i = selParam, { g, w, h } = setup(cv), H = S.history;
   const pad = { l: 56, r: 12, t: 8, b: 30 }, sc = P[i].unit === 's' ? 1000 : 1;
   const est = H.map((p) => p.theta[i] * sc), sd = H.map((p) => p.std[i] * sc), ts = H.map((p) => p.t), pr = P[i].prior * sc;
   let lo = Math.min(pr, ...est.map((e, k) => e - Math.min(sd[k], Math.abs(e) + 3 * sd[sd.length - 1]))), hi = Math.max(pr, ...est.map((e, k) => e + Math.min(sd[k], Math.abs(e) + 3 * sd[sd.length - 1])));
@@ -673,7 +756,7 @@ function drawTrace() {
   const L = est.length - 1; g.fillStyle = acc; g.strokeStyle = css('--panel'); g.lineWidth = 2; g.beginPath(); g.arc(X(ts[L]), Y(est[L]), 4.5, 0, 7); g.stroke(); g.fill();
   cv._pts = est.map((e, k) => ({ x: X(ts[k]), v: e, s: sd[k], t: ts[k] }));
 }
-for (const id of ['hold', 'trace']) {
+for (const id of ['hold', 'trace', 'trace2']) {
   $(id).addEventListener('mousemove', (e) => {
     const cv = $(id), r = cv.getBoundingClientRect(), x = e.clientX - r.left, pts = cv._pts || [];
     if (!pts.length) return;
@@ -827,7 +910,93 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 $('layout').addEventListener('change', drawRadio);
-let rz; addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(drawAll, 120); });
+
+// ---------- overview, panels and keys ----------
+// The overview shows every panel on one screen. A number key (or a click) opens that panel full
+// size with its description and detail; Esc returns. Single keys, so a thumb can leave the sticks
+// for a moment and come back.
+const PANELS = [...document.querySelectorAll('#grid > .panel')];
+const PARAM_PANELS = new Set(['ring', 'conv']);
+const nameOf = (p) => p.id.slice(2);
+const titleOf = (p) => p.querySelector('h2').textContent;
+let openK = 0, curK = 1;
+function setMode(k) {
+  openK = k;
+  if (k) curK = k;
+  PANELS.forEach((p) => { const pk = +p.dataset.k; p.classList.toggle('open', pk === openK); p.classList.toggle('cur', pk === curK); });
+  $('grid').classList.toggle('focus', !!openK);
+  history.replaceState(null, '', openK ? `#${nameOf(PANELS[openK - 1])}` : location.pathname + location.search);
+  if (openK) PANELS[openK - 1].scrollTop = 0;
+  hideTip(); drawKeys();
+  requestAnimationFrame(drawAll);
+}
+function moveCur(dx, dy) {
+  // Nearest panel centre in the arrow's direction, penalising sideways offset.
+  const centre = (p) => { const r = p.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; };
+  const [x0, y0] = centre(PANELS[curK - 1]);
+  let best = null, bd = Infinity;
+  for (const p of PANELS) {
+    const [x, y] = centre(p), ax = (x - x0) * dx + (y - y0) * dy;
+    if (ax <= 1) continue;
+    const d = ax + 2 * Math.abs((x - x0) * dy + (y - y0) * dx);
+    if (d < bd) { bd = d; best = p; }
+  }
+  if (!best) return;
+  curK = +best.dataset.k;
+  PANELS.forEach((p) => p.classList.toggle('cur', +p.dataset.k === curK));
+  best.scrollIntoView({ block: 'nearest' });
+  drawKeys();
+}
+const kb = (...ks) => ks.map((k) => `<kbd>${k}</kbd>`).join(' ');
+function drawKeys() {
+  const n = PANELS.length;
+  if (!openK) {
+    $('keys').innerHTML = `<span>${kb('1')}–${kb(n)} open a panel</span><span>${kb('←', '→', '↑', '↓')} move</span><span>${kb('Enter')} open <b>${titleOf(PANELS[curK - 1])}</b></span><span>${kb('L')} stick layout</span><span>${kb('?')} help</span>`;
+    return;
+  }
+  const p = PANELS[openK - 1];
+  $('keys').innerHTML = `<b>${openK} · ${titleOf(p)}</b><span>${kb('Esc')} overview</span><span>${kb('←', '→')} previous / next panel</span>${PARAM_PANELS.has(nameOf(p)) ? `<span>${kb('↑', '↓')} parameter</span>` : ''}<span>${kb('1')}–${kb(n)} jump</span><span>${kb('?')} help</span>`;
+}
+function toggleHelp(show) {
+  if (show) {
+    const rows = [[kb('1') + '–' + kb(PANELS.length), 'Open that panel; the same key again closes it'], [kb('Esc') + ' ' + kb('0'), 'Back to the overview'], [kb('←', '→', '↑', '↓'), 'Overview: move the highlight'], [kb('Enter'), 'Open the highlighted panel, or close the open one'], [kb('←', '→'), 'In a panel: previous or next panel'], [kb('↑', '↓'), 'In panels 2 and 8: pick the parameter'], [kb('L'), 'Switch stick layout'], [kb('?'), 'This help']];
+    $('helpKeys').innerHTML = rows.map(([k, t]) => `<tr><td style="white-space:nowrap">${k}</td><td>${t}</td></tr>`).join('');
+    $('helpPanels').innerHTML = PANELS.map((p) => `<tr><td>${kb(p.dataset.k)}</td><td>${titleOf(p)}</td></tr>`).join('');
+  }
+  $('help').hidden = !show;
+}
+PANELS.forEach((p) => {
+  p.addEventListener('click', () => { if (!openK) setMode(+p.dataset.k); });
+  p.querySelector('.back').addEventListener('click', (e) => { e.stopPropagation(); setMode(0); });
+});
+$('help').addEventListener('click', (e) => { if (e.target === $('help')) toggleHelp(false); });
+addEventListener('keydown', (e) => {
+  if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (['SELECT', 'INPUT', 'TEXTAREA'].includes(e.target.tagName)) return;
+  const k = e.key;
+  if (!$('help').hidden) {
+    if (k === 'Escape' || k === '?') { toggleHelp(false); e.preventDefault(); }
+    return;
+  }
+  if (/^[1-9]$/.test(k) && +k <= PANELS.length) setMode(openK === +k ? 0 : +k);
+  else if (k === 'Escape' || k === 'Backspace' || k === '0') setMode(0);
+  else if (k === 'Enter' || k === ' ') setMode(openK ? 0 : curK);
+  else if (k === '?') toggleHelp(true);
+  else if (k === 'l' || k === 'L') { $('layout').value = $('layout').value === 'split' ? 'right' : 'split'; drawRadio(); }
+  else if (k.startsWith('Arrow')) {
+    const dx = k === 'ArrowLeft' ? -1 : k === 'ArrowRight' ? 1 : 0, dy = k === 'ArrowUp' ? -1 : k === 'ArrowDown' ? 1 : 0;
+    if (!openK) moveCur(dx, dy);
+    else if (dx) setMode(((openK - 1 + dx + PANELS.length) % PANELS.length) + 1);
+    else if (NP && PARAM_PANELS.has(nameOf(PANELS[openK - 1]))) { selectParam((selParam + dy + NP) % NP); document.querySelector('.prow.sel')?.scrollIntoView({ block: 'nearest' }); }
+    else return;
+  } else return;
+  e.preventDefault();
+});
+{
+  const start = PANELS.find((p) => `#${nameOf(p)}` === location.hash);
+  setMode(start ? +start.dataset.k : 0);
+}
+let rz; new ResizeObserver(() => { clearTimeout(rz); rz = setTimeout(drawAll, 120); }).observe($('grid'));
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', drawAll);
 if (document.fonts) document.fonts.ready.then(drawAll);
 drawRadio();

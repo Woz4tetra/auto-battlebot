@@ -23,7 +23,8 @@ Gates, first match wins:
 - link: telemetry missing for over ``GAP_S``, counted from ``telemetry_seq`` (frames lost) or
   from ``timestamp_ms`` (frames late). A frame or two lost is held over and costs nothing.
 - tags: accepted tag fixes cover under ``TAG_COVERAGE_MIN`` of the camera frames.
-- flip: the robot is upside down, or pitched more than ``PITCH_LIMIT_DEG`` off its rest pose.
+- flip: the robot is upside down, or the running median of ``PITCH_MEDIAN_N`` tag poses is
+  pitched more than ``PITCH_LIMIT_DEG`` off the rest pose.
 - wall: the axle center within ``ROBOT_LENGTH_M`` of a rail (``sysid_windows.near_rail``), or,
   once the fit has settled, a tag residual over ``CONTACT_SIGMA`` (marked by the refit).
 - disarmed: ``armed`` false.
@@ -65,6 +66,9 @@ LAG_S = 0.5
 GAP_S = 0.05
 TAG_COVERAGE_MIN = 0.7
 PITCH_LIMIT_DEG = 4.0
+# Poses in the running median the pitch gate tests. Single-frame tag pitch spikes reach 8 deg on
+# a flat spin (frame-to-frame sd 1.7 deg); a real nose lift lasts far longer than 7 frames.
+PITCH_MEDIAN_N = 7
 ROBOT_LENGTH_M = 0.15
 IDLE_CMD = 0.02
 CONTACT_SIGMA = 4.0
@@ -115,6 +119,17 @@ class _Telemetry:
 
 def _f(value: Any) -> float:
     return math.nan if value is None else float(value)
+
+
+def _pitched(poses: list[TagPose]) -> bool:
+    """Whether the running median of pitch leaves ``PITCH_LIMIT_DEG`` anywhere in ``poses``."""
+    pitch = np.abs([p.pitch for p in poses])
+    if len(pitch) == 0:
+        return False
+    if len(pitch) < PITCH_MEDIAN_N:
+        return bool(np.median(pitch) > math.radians(PITCH_LIMIT_DEG))
+    runs = np.lib.stride_tricks.sliding_window_view(pitch, PITCH_MEDIAN_N)
+    return bool(np.median(runs, axis=1).max() > math.radians(PITCH_LIMIT_DEG))
 
 
 class CoverageSession:
@@ -325,10 +340,7 @@ class CoverageSession:
         frames = sum(1 for s in self.poses.frame_stamps if t0_ns <= s < t1_ns)
         if frames == 0 or len(poses) / frames < TAG_COVERAGE_MIN:
             return "tags"
-        rest_limit = math.radians(PITCH_LIMIT_DEG)
-        if any(r.upside_down for r in rows) or any(
-            p.upside_down or abs(p.pitch) > rest_limit for p in poses
-        ):
+        if any(r.upside_down for r in rows) or any(p.upside_down for p in poses) or _pitched(poses):
             return "flip"
         limit = self.half_extent - ROBOT_LENGTH_M
         if any(max(abs(p.x), abs(p.y)) > limit for p in poses):

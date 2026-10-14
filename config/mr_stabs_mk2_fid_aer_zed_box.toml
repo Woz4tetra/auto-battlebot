@@ -7,6 +7,9 @@ board_offset_x = 0.02
 board_offset_y = 0.02
 field_size_x = 1.5
 field_size_y = 1.5
+# The AprilTag corner fit lands at 0.55 px from one frame, and its error is bias, so stacking
+# frames buys nothing. One frame stalls the loop ~530 ms on the ZED Box, once per lock.
+accumulate_frames = 1
 
 [robot_filter.label_mapping]
 "MRS_BUFF_MK3" = ["THEIR_ROBOT_1"]
