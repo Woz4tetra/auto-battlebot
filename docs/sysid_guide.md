@@ -63,7 +63,7 @@ box has are marked floor-limited; skip those.
 When done:
 
 1. Stop the recording from the dashboard.
-2. Ctrl-C the monitor. It writes the session to `~/sysid_sessions/<stamp>/`:
+2. Ctrl-C the monitor. It writes the session to `data/sysid_sessions/<stamp>/`:
    - `plant.toml`: the live plant estimate
    - `coverage.json`: the last snapshot
    - `events.json`: the event log
