@@ -1,0 +1,6 @@
+#!/bin/bash
+# Run the host-side unit tests in test/. Extra arguments go to `platformio test`,
+# e.g. ./scripts/test -f test_pid -v
+BASE_DIR=$(realpath "$(dirname $0)")
+cd ${BASE_DIR}/..
+platformio test -e native "$@"

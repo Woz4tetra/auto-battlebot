@@ -1,0 +1,13 @@
+#!/bin/bash
+# Flash over USB. No button needed: esptool resets the chip into its ROM bootloader through the
+# USB-Serial/JTAG port, even with the firmware hung. Uses /dev/mr_stabs (install_udev_rules.sh)
+# when present, since the ESP-NOW dongle shows the same 303a:1001 and auto-detect can pick it.
+#
+# Usage: scripts/upload [PORT]
+BASE_DIR=$(realpath $(dirname $0))
+cd ${BASE_DIR}/..
+PORT="${1:-}"
+if [ -z "$PORT" ] && [ -e /dev/mr_stabs ]; then
+    PORT=/dev/mr_stabs
+fi
+platformio run --target upload ${PORT:+--upload-port "$PORT"}
