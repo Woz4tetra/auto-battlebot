@@ -6,6 +6,7 @@
 #include <future>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <sl/CameraOne.hpp>
 #include <string>
 #include <thread>
@@ -45,9 +46,18 @@ class ZedOneRgbCamera : public RgbdCameraInterface {
     bool set_recording_enabled(bool enabled) override;
     bool is_recording_enabled() const override;
     bool recording_needs_restart() const override { return encoder_.broken(); }
+    bool supports_camera_settings() const override { return true; }
+    void request_camera_settings(std::optional<CameraSettings> settings) override;
+    std::optional<CameraSettingsState> camera_settings() const override;
 
    private:
     bool open_camera();
+    /** Current values of every control, read from the open camera. */
+    CameraSettings read_settings();
+    CameraSettingLimits read_limits();
+    void apply_settings(const CameraSettings &settings);
+    /** Capture thread, between grabs: apply a queued request, and refresh the read-back. */
+    void service_settings();
     /** Reads the rectified intrinsics into camera_info and calibration_. */
     void read_calibration();
     bool start_encoder();
@@ -83,6 +93,15 @@ class ZedOneRgbCamera : public RgbdCameraInterface {
     VideoEncoder encoder_;
     std::atomic<bool> recording_desired_{true};
     uint64_t reported_drops_ = 0;
+
+    /** What the camera opened with: the settings DEFAULT restores. Set once, before the capture
+     *  thread starts. */
+    CameraSettings opened_settings_;
+    mutable std::mutex settings_mutex_;
+    /** Outer optional: a request is waiting. Inner nullopt: restore opened_settings_. */
+    std::optional<std::optional<CameraSettings>> pending_settings_;
+    std::optional<CameraSettingsState> settings_state_;
+    int frames_since_settings_read_ = 0;
 
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
 };

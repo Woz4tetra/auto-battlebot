@@ -11,6 +11,7 @@
 #include <thread>
 #include <vector>
 
+#include "config/camera_profile_store.hpp"
 #include "control_loop/control_loop_interface.hpp"
 #include "data_structures.hpp"
 #include "data_structures/command_feedback.hpp"
@@ -49,6 +50,8 @@ struct RunnerRemote {
     std::shared_ptr<remote::CommandQueue> commands = std::make_shared<remote::CommandQueue>();
     std::shared_ptr<remote::StatusBus> status;
     std::shared_ptr<HostServices> host;
+    /** Saved camera profiles. Null: only DEFAULT is offered. */
+    std::shared_ptr<CameraProfileStore> camera_profiles;
     /** Republished on /status/app; the Runner fills in nothing, main.cpp builds it. */
     remote::AppInfoMessage app_info;
 };
@@ -83,6 +86,8 @@ class Runner : public Quittable {
     bool tick();
     /** The /status/system message the last tick built, whether or not a status bus exists. */
     const remote::SystemStatusMessage &system_status() const { return last_status_; }
+    /** /status/camera_settings as it would publish now. */
+    remote::CameraSettingsMessage camera_settings_status() const;
 
     // Called from the SIGINT/SIGTERM handler, so it only sets a flag the loop polls.
     ~Runner() override;
@@ -108,6 +113,20 @@ class Runner : public Quittable {
     std::atomic<uint64_t> ticks_started_{0};
     std::string select_profile(const std::string &name);
     void run_system_action(SystemAction action);
+    /** Each returns the ack message and sets `accepted` false on a refusal. */
+    std::string set_camera_settings(const CameraSettings &settings, bool &accepted);
+    std::string run_camera_profile(CameraProfileAction action, const std::string &name,
+                                   bool &accepted);
+    /** /status/camera_settings: right after a camera command, otherwise twice a second so the
+     *  auto-exposure read-back stays current. */
+    void publish_camera_settings(bool now);
+    /** The app always starts on DEFAULT; nothing remembers the last profile across restarts. */
+    std::string active_camera_profile_ = CameraProfileStore::kDefaultName;
+    /** What the dashboard last asked the camera for; nullopt while on DEFAULT. SAVE stores this
+     *  rather than the read-back, which can trail a request by a frame. */
+    std::optional<CameraSettings> requested_camera_settings_;
+    bool camera_settings_modified_ = false;
+    std::chrono::steady_clock::time_point last_camera_settings_publish_{};
     void ack(std::string_view topic, bool accepted, std::string message = {});
 
     RunnerConfiguration runner_config_;

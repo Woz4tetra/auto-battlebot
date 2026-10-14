@@ -2,9 +2,11 @@
 
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <foxglove/schemas.hpp>
+#include <magic_enum.hpp>
 #include <stdexcept>
 #include <utility>
 
@@ -155,6 +157,10 @@ bool ZedOneRgbCamera::initialize() {
         return false;
     }
     read_calibration();
+    // Nothing is set on the camera at startup: DEFAULT is whatever it opened with, kept so a
+    // dashboard switch back to DEFAULT can restore it.
+    opened_settings_ = read_settings();
+    settings_state_ = CameraSettingsState{opened_settings_, read_limits()};
     latest_data_.tracking_ok = true;
 
     if (mcap_recorder_) {
@@ -239,6 +245,7 @@ bool ZedOneRgbCamera::capture_frame() {
 
 void ZedOneRgbCamera::capture_thread_loop() {
     while (!stop_thread_.load()) {
+        service_settings();
         if (capture_frame()) {
             data_cv_.notify_all();
         } else if (should_close_.load()) {
@@ -300,4 +307,115 @@ bool ZedOneRgbCamera::set_recording_enabled(bool enabled) {
 }
 
 bool ZedOneRgbCamera::is_recording_enabled() const { return encoder_.running(); }
+void ZedOneRgbCamera::request_camera_settings(std::optional<CameraSettings> settings) {
+    std::lock_guard<std::mutex> lock(settings_mutex_);
+    pending_settings_ = std::move(settings);
+}
+
+std::optional<CameraSettingsState> ZedOneRgbCamera::camera_settings() const {
+    std::lock_guard<std::mutex> lock(settings_mutex_);
+    return settings_state_;
+}
+
+CameraSettings ZedOneRgbCamera::read_settings() {
+    auto get = [this](sl::VIDEO_SETTINGS setting, int fallback) {
+        int value = fallback;
+        if (!zed_.isCameraSettingSupported(setting) ||
+            zed_.getCameraSettings(setting, value) != sl::ERROR_CODE::SUCCESS) {
+            return fallback;
+        }
+        return value;
+    };
+    CameraSettings s;
+    s.auto_exposure = get(sl::VIDEO_SETTINGS::AEC_AGC, 1) != 0;
+    s.exposure_us = get(sl::VIDEO_SETTINGS::EXPOSURE_TIME, s.exposure_us);
+    s.analog_gain_mdb = get(sl::VIDEO_SETTINGS::ANALOG_GAIN, s.analog_gain_mdb);
+    s.digital_gain = get(sl::VIDEO_SETTINGS::DIGITAL_GAIN, s.digital_gain);
+    s.auto_white_balance = get(sl::VIDEO_SETTINGS::WHITEBALANCE_AUTO, 1) != 0;
+    s.white_balance_k = get(sl::VIDEO_SETTINGS::WHITEBALANCE_TEMPERATURE, s.white_balance_k);
+    s.saturation = get(sl::VIDEO_SETTINGS::SATURATION, s.saturation);
+    s.gamma = get(sl::VIDEO_SETTINGS::GAMMA, s.gamma);
+    s.sharpness = get(sl::VIDEO_SETTINGS::SHARPNESS, s.sharpness);
+    s.anti_banding = magic_enum::enum_cast<AntiBanding>(get(sl::VIDEO_SETTINGS::AE_ANTIBANDING, 0))
+                         .value_or(AntiBanding::OFF);
+    return s;
+}
+
+CameraSettingLimits ZedOneRgbCamera::read_limits() {
+    auto range = [this](sl::VIDEO_SETTINGS setting) {
+        CameraSettingRange r;
+        r.supported = zed_.isCameraSettingSupported(setting) &&
+                      zed_.getCameraSettingsRange(setting, r.min, r.max) == sl::ERROR_CODE::SUCCESS;
+        return r;
+    };
+    CameraSettingLimits limits;
+    limits.exposure_us = range(sl::VIDEO_SETTINGS::EXPOSURE_TIME);
+    // The sensor cannot expose longer than one frame at the rate it opened with.
+    limits.exposure_us.max = std::min(limits.exposure_us.max, 1'000'000 / config_.camera_fps);
+    limits.analog_gain_mdb = range(sl::VIDEO_SETTINGS::ANALOG_GAIN);
+    limits.digital_gain = range(sl::VIDEO_SETTINGS::DIGITAL_GAIN);
+    limits.white_balance_k = range(sl::VIDEO_SETTINGS::WHITEBALANCE_TEMPERATURE);
+    limits.saturation = range(sl::VIDEO_SETTINGS::SATURATION);
+    limits.gamma = range(sl::VIDEO_SETTINGS::GAMMA);
+    limits.sharpness = range(sl::VIDEO_SETTINGS::SHARPNESS);
+    limits.anti_banding = range(sl::VIDEO_SETTINGS::AE_ANTIBANDING);
+    return limits;
+}
+
+void ZedOneRgbCamera::apply_settings(const CameraSettings &settings) {
+    CameraSettingLimits limits;
+    {
+        std::lock_guard<std::mutex> lock(settings_mutex_);
+        limits = settings_state_->limits;
+    }
+    auto set = [this](sl::VIDEO_SETTINGS setting, int value, const CameraSettingRange &range) {
+        if (!range.supported) return;
+        const int clamped = std::clamp(value, range.min, range.max);
+        const sl::ERROR_CODE result = zed_.setCameraSettings(setting, clamped);
+        if (result != sl::ERROR_CODE::SUCCESS) {
+            spdlog::warn("[ZedOneRgbCamera] setCameraSettings({}, {}) failed: {}",
+                         sl::toString(setting).c_str(), clamped, sl::toString(result).c_str());
+        }
+    };
+    const CameraSettingRange on_off{true, 0, 1};
+    if (settings.auto_exposure) {
+        set(sl::VIDEO_SETTINGS::AEC_AGC, 1, on_off);
+    } else {
+        set(sl::VIDEO_SETTINGS::AEC_AGC, 0, on_off);
+        set(sl::VIDEO_SETTINGS::EXPOSURE_TIME, settings.exposure_us, limits.exposure_us);
+        set(sl::VIDEO_SETTINGS::ANALOG_GAIN, settings.analog_gain_mdb, limits.analog_gain_mdb);
+        set(sl::VIDEO_SETTINGS::DIGITAL_GAIN, settings.digital_gain, limits.digital_gain);
+    }
+    if (settings.auto_white_balance) {
+        set(sl::VIDEO_SETTINGS::WHITEBALANCE_AUTO, 1, on_off);
+    } else {
+        set(sl::VIDEO_SETTINGS::WHITEBALANCE_TEMPERATURE, settings.white_balance_k,
+            limits.white_balance_k);
+    }
+    set(sl::VIDEO_SETTINGS::SATURATION, settings.saturation, limits.saturation);
+    set(sl::VIDEO_SETTINGS::GAMMA, settings.gamma, limits.gamma);
+    set(sl::VIDEO_SETTINGS::SHARPNESS, settings.sharpness, limits.sharpness);
+    set(sl::VIDEO_SETTINGS::AE_ANTIBANDING, static_cast<int>(settings.anti_banding),
+        limits.anti_banding);
+}
+
+void ZedOneRgbCamera::service_settings() {
+    std::optional<std::optional<CameraSettings>> request;
+    {
+        std::lock_guard<std::mutex> lock(settings_mutex_);
+        request.swap(pending_settings_);
+    }
+    if (request) {
+        apply_settings(request->value_or(opened_settings_));
+    }
+    // Auto exposure and white balance move on their own; read them back about twice a second
+    // and right after a change.
+    constexpr int kReadbackPeriodFrames = 30;
+    if (!request && ++frames_since_settings_read_ < kReadbackPeriodFrames) return;
+    frames_since_settings_read_ = 0;
+    const CameraSettings current = read_settings();
+    std::lock_guard<std::mutex> lock(settings_mutex_);
+    settings_state_->settings = current;
+}
+
 }  // namespace auto_battlebot

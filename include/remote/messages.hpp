@@ -6,8 +6,10 @@
 #include <vector>
 
 #include "enums/behavior_mode.hpp"
+#include "enums/camera_profile_action.hpp"
 #include "enums/system_action.hpp"
 #include "remote/json_message.hpp"
+#include "rgbd_camera/camera_settings.hpp"
 
 // Payloads of every remote status topic and command. Topics map to these in
 // include/remote/protocol.hpp; field names are the JSON keys and the TypeScript field names in
@@ -165,6 +167,21 @@ struct BatteryMessage {
                     current_a, charging)
 };
 
+/** Camera profiles and the camera's live image controls. Published when anything changes and
+ *  every few seconds; `supported` is false on cameras without live controls. */
+struct CameraSettingsMessage {
+    bool supported = false;
+    /** DEFAULT first, then the saved profiles. */
+    std::vector<std::string> profiles;
+    std::string active_profile;
+    /** Live values were changed since the active profile was applied or saved. */
+    bool modified = false;
+    CameraSettings settings;
+    CameraSettingLimits limits;
+    AB_JSON_MESSAGE(CameraSettingsMessage, "auto_battlebot.status.CameraSettings", supported,
+                    profiles, active_profile, modified, settings, limits)
+};
+
 // ---- Commands: clients -> app ----
 
 struct ReinitFieldCommand {
@@ -202,6 +219,19 @@ struct SystemActionCommand {
 struct SetWifiAccessCommand {
     bool enabled = false;
     AB_JSON_MESSAGE(SetWifiAccessCommand, "auto_battlebot.command.SetWifiAccess", enabled)
+};
+
+/** Changes the camera's live controls. The saved profile is untouched until a SAVE. */
+struct SetCameraSettingsCommand {
+    CameraSettings settings;
+    AB_JSON_MESSAGE(SetCameraSettingsCommand, "auto_battlebot.command.SetCameraSettings", settings)
+};
+
+/** APPLY a saved profile or DEFAULT, SAVE the live values under `name`, or DELETE `name`. */
+struct CameraProfileCommand {
+    CameraProfileAction action = CameraProfileAction::APPLY;
+    std::string name;
+    AB_JSON_MESSAGE(CameraProfileCommand, "auto_battlebot.command.CameraProfile", action, name)
 };
 
 }  // namespace auto_battlebot::remote

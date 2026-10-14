@@ -100,6 +100,45 @@ export interface BatteryStatus {
   valid: boolean;
 }
 
+export interface CameraSettingsStatus {
+  active_profile: string;
+  limits: CameraSettingLimits;
+  modified: boolean;
+  profiles: string[];
+  settings: CameraSettings;
+  supported: boolean;
+}
+
+export interface CameraSettingLimits {
+  analog_gain_mdb: CameraSettingRange;
+  anti_banding: CameraSettingRange;
+  digital_gain: CameraSettingRange;
+  exposure_us: CameraSettingRange;
+  gamma: CameraSettingRange;
+  saturation: CameraSettingRange;
+  sharpness: CameraSettingRange;
+  white_balance_k: CameraSettingRange;
+}
+
+export interface CameraSettingRange {
+  max: number;
+  min: number;
+  supported: boolean;
+}
+
+export interface CameraSettings {
+  analog_gain_mdb: number;
+  anti_banding: "off" | "auto" | "hz_50" | "hz_60";
+  auto_exposure: boolean;
+  auto_white_balance: boolean;
+  digital_gain: number;
+  exposure_us: number;
+  gamma: number;
+  saturation: number;
+  sharpness: number;
+  white_balance_k: number;
+}
+
 export interface ReinitFieldCommand {}
 
 export interface SetOpponentCountCommand {
@@ -126,6 +165,15 @@ export interface SetWifiAccessCommand {
   enabled: boolean;
 }
 
+export interface SetCameraSettingsCommand {
+  settings: CameraSettings;
+}
+
+export interface CameraProfileCommand {
+  action: "apply" | "save" | "delete";
+  name: string;
+}
+
 export type StatusMessages = {
   "/status/system": SystemStatus;
   "/status/app": AppStatus;
@@ -134,6 +182,7 @@ export type StatusMessages = {
   "/status/command_ack": CommandAckStatus;
   "/status/network": NetworkStatus;
   "/status/battery": BatteryStatus;
+  "/status/camera_settings": CameraSettingsStatus;
 };
 
 export type CommandPayloads = {
@@ -144,6 +193,8 @@ export type CommandPayloads = {
   "/command/select_profile": SelectProfileCommand;
   "/command/system_action": SystemActionCommand;
   "/command/set_wifi_access": SetWifiAccessCommand;
+  "/command/set_camera_settings": SetCameraSettingsCommand;
+  "/command/camera_profile": CameraProfileCommand;
 };
 
 export type StatusTopic = keyof StatusMessages;
@@ -158,6 +209,7 @@ export const STATUS_SCHEMAS = {
   "/status/command_ack": "auto_battlebot.status.CommandAck",
   "/status/network": "auto_battlebot.status.Network",
   "/status/battery": "auto_battlebot.status.Battery",
+  "/status/camera_settings": "auto_battlebot.status.CameraSettings",
 } as const satisfies Record<StatusTopic, string>;
 
 /** Status topic -> whether the relay latches it for late subscribers. */
@@ -169,6 +221,7 @@ export const STATUS_LATCHED = {
   "/status/command_ack": false,
   "/status/network": true,
   "/status/battery": true,
+  "/status/camera_settings": true,
 } as const satisfies Record<StatusTopic, boolean>;
 
 /** Command topic -> schema name. */
@@ -180,4 +233,6 @@ export const COMMAND_SCHEMAS = {
   "/command/select_profile": "auto_battlebot.command.SelectProfile",
   "/command/system_action": "auto_battlebot.command.SystemAction",
   "/command/set_wifi_access": "auto_battlebot.command.SetWifiAccess",
+  "/command/set_camera_settings": "auto_battlebot.command.SetCameraSettings",
+  "/command/camera_profile": "auto_battlebot.command.CameraProfile",
 } as const satisfies Record<CommandTopic, string>;

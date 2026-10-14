@@ -3,7 +3,7 @@
 const THEME_KEY = "theme";
 const WIDE_QUERY = "(min-width: 1000px)";
 
-export type Tab = "main" | "diagnostics" | "system";
+export type Tab = "main" | "diagnostics" | "camera" | "system";
 
 function readSavedTheme(): "light" | "dark" | null {
   try {

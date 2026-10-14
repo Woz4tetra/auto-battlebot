@@ -210,6 +210,50 @@ if [ -n "$PROFILE_PATTERN" ]; then
     fi
 fi
 
+# ── Camera profile backup ────────────────────────────────────────────────────
+# The dashboard saves camera profiles on the box, outside the repo
+# (CameraProfileStore::kDefaultPath). Each deploy copies them back to
+# data/camera_profiles/<hostname>.toml so they live in git; data/ is gitignored, so
+# a new backup is force-added (staged, not committed). A box with no profiles yet
+# is offered one of the existing backups.
+CAMERA_PROFILES_REMOTE='$HOME/.local/state/auto_battlebot/camera_profiles.toml'
+CAMERA_BACKUP_DIR="$PROJECT_ROOT/data/camera_profiles"
+REMOTE_HOSTNAME="$(ssh "${SSH_OPTS[@]}" "$SSH_TARGET" hostname 2>/dev/null | tr -d '[:space:]')"
+REMOTE_HOSTNAME="${REMOTE_HOSTNAME:-${JETSON_HOST%%.*}}"
+CAMERA_BACKUP="$CAMERA_BACKUP_DIR/${REMOTE_HOSTNAME}.toml"
+mkdir -p "$CAMERA_BACKUP_DIR"
+CAMERA_TMP="$(mktemp)"
+if ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "cat \"${CAMERA_PROFILES_REMOTE}\" 2>/dev/null" > "$CAMERA_TMP" \
+    && [ -s "$CAMERA_TMP" ]; then
+    if cmp -s "$CAMERA_TMP" "$CAMERA_BACKUP"; then
+        echo "Camera profiles on ${REMOTE_HOSTNAME} match ${CAMERA_BACKUP#$PROJECT_ROOT/}."
+    else
+        mv "$CAMERA_TMP" "$CAMERA_BACKUP"
+        CAMERA_TMP=""
+        echo "Backed up camera profiles from ${REMOTE_HOSTNAME} to ${CAMERA_BACKUP#$PROJECT_ROOT/}."
+        git -C "$PROJECT_ROOT" add -f "${CAMERA_BACKUP#$PROJECT_ROOT/}" \
+            && echo "Staged it; commit it to keep the backup." \
+            || echo "Could not stage it; run: git add -f ${CAMERA_BACKUP#$PROJECT_ROOT/}"
+    fi
+else
+    mapfile -t CAMERA_BACKUPS < <(cd "$CAMERA_BACKUP_DIR" && ls -1 -- *.toml 2>/dev/null)
+    if [ "${#CAMERA_BACKUPS[@]}" -gt 0 ] && [ -t 0 ]; then
+        echo "No camera profiles on ${REMOTE_HOSTNAME}. Install a backup? (it starts on DEFAULT either way)"
+        PS3="Backup number: "
+        select CAMERA_CHOICE in "${CAMERA_BACKUPS[@]}" "skip"; do
+            [ -n "$CAMERA_CHOICE" ] && break
+            echo "Pick a number from 1 to $(( ${#CAMERA_BACKUPS[@]} + 1 ))."
+        done
+        if [ -n "${CAMERA_CHOICE:-}" ] && [ "$CAMERA_CHOICE" != "skip" ]; then
+            ssh "${SSH_OPTS[@]}" "$SSH_TARGET" \
+                "mkdir -p \"\$(dirname ${CAMERA_PROFILES_REMOTE})\" && cat > \"${CAMERA_PROFILES_REMOTE}\"" \
+                < "$CAMERA_BACKUP_DIR/$CAMERA_CHOICE"
+            echo "Installed ${CAMERA_CHOICE} on ${REMOTE_HOSTNAME}. It loads when the app restarts."
+        fi
+    fi
+fi
+[ -n "$CAMERA_TMP" ] && rm -f "$CAMERA_TMP"
+
 # ── Remote build/install ──────────────────────────────────────────────────────
 # Run the Jetson-side build/install script only after sync steps complete.
 if [ "$SYNC_ONLY" -eq 1 ]; then

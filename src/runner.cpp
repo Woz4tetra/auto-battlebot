@@ -95,6 +95,7 @@ void Runner::publish_system_status(bool camera_ok, double loop_rate_hz) {
     if (!remote_.status) return;
     remote_.status->publish(message);
     remote_.status->publish(remote_.app_info);
+    publish_camera_settings(false);
 }
 
 double Runner::uptime_s() const {
@@ -280,6 +281,108 @@ void Runner::run_system_action(SystemAction action) {
     if (system_action_callback_) system_action_callback_(action);
 }
 
+std::string Runner::set_camera_settings(const CameraSettings &settings, bool &accepted) {
+    if (!camera_->supports_camera_settings()) {
+        accepted = false;
+        return "This camera has no live controls";
+    }
+    camera_->request_camera_settings(settings);
+    requested_camera_settings_ = settings;
+    camera_settings_modified_ = true;
+    publish_camera_settings(true);
+    return "";
+}
+
+std::string Runner::run_camera_profile(CameraProfileAction action, const std::string &name,
+                                       bool &accepted) {
+    if (!camera_->supports_camera_settings()) {
+        accepted = false;
+        return "This camera has no live controls";
+    }
+    const bool is_default = name == CameraProfileStore::kDefaultName;
+    std::string message;
+    try {
+        switch (action) {
+            case CameraProfileAction::APPLY: {
+                std::optional<CameraSettings> settings;
+                if (!is_default) {
+                    settings = remote_.camera_profiles ? remote_.camera_profiles->settings(name)
+                                                       : std::nullopt;
+                    if (!settings) throw std::runtime_error("No camera profile named " + name);
+                }
+                // nullopt puts back what the camera opened with.
+                camera_->request_camera_settings(settings);
+                requested_camera_settings_ = settings;
+                active_camera_profile_ = name;
+                camera_settings_modified_ = false;
+                spdlog::info("Camera profile {} applied", name);
+                break;
+            }
+            case CameraProfileAction::SAVE: {
+                if (!remote_.camera_profiles) throw std::runtime_error("No profile store");
+                // Saving DEFAULT's untouched values under a new name stores the read-back.
+                CameraSettings settings;
+                if (requested_camera_settings_) {
+                    settings = *requested_camera_settings_;
+                } else if (auto state = camera_->camera_settings()) {
+                    settings = state->settings;
+                } else {
+                    throw std::runtime_error("Camera has not opened yet");
+                }
+                remote_.camera_profiles->save(name, settings);
+                requested_camera_settings_ = settings;
+                active_camera_profile_ = name;
+                camera_settings_modified_ = false;
+                message = "Saved " + name;
+                spdlog::info("Camera profile {} saved to {}", name,
+                             remote_.camera_profiles->path().string());
+                break;
+            }
+            case CameraProfileAction::DELETE: {
+                if (!remote_.camera_profiles) throw std::runtime_error("No profile store");
+                remote_.camera_profiles->remove(name);
+                message = "Deleted " + name;
+                // The camera keeps what it has; only the label changes.
+                if (active_camera_profile_ == name) {
+                    active_camera_profile_ = CameraProfileStore::kDefaultName;
+                    camera_settings_modified_ = requested_camera_settings_.has_value();
+                }
+                break;
+            }
+        }
+    } catch (const std::runtime_error &e) {
+        accepted = false;
+        message = e.what();
+    }
+    publish_camera_settings(true);
+    return message;
+}
+
+void Runner::publish_camera_settings(bool now) {
+    if (!remote_.status) return;
+    const auto clock_now = std::chrono::steady_clock::now();
+    if (!now && clock_now - last_camera_settings_publish_ < std::chrono::milliseconds(500)) return;
+    last_camera_settings_publish_ = clock_now;
+    remote_.status->publish(camera_settings_status());
+}
+
+remote::CameraSettingsMessage Runner::camera_settings_status() const {
+    remote::CameraSettingsMessage message;
+    message.supported = camera_->supports_camera_settings();
+    message.profiles = remote_.camera_profiles
+                           ? remote_.camera_profiles->names()
+                           : std::vector<std::string>{CameraProfileStore::kDefaultName};
+    message.active_profile = active_camera_profile_;
+    message.modified = camera_settings_modified_;
+    if (auto state = camera_->camera_settings()) {
+        message.settings = state->settings;
+        message.limits = state->limits;
+    } else {
+        message.supported = false;
+    }
+    return message;
+}
+
 void Runner::ack(std::string_view topic, bool accepted, std::string message) {
     if (!remote_.status) return;
     remote::CommandAckMessage out;
@@ -327,6 +430,12 @@ bool Runner::handle_commands(bool &should_reinit_field) {
                         return;
                     }
                     remote_.host->set_wifi_access(c.enabled);
+                },
+                [&](const remote::SetCameraSettingsCommand &c) {
+                    message = set_camera_settings(c.settings, accepted);
+                },
+                [&](const remote::CameraProfileCommand &c) {
+                    message = run_camera_profile(c.action, c.name, accepted);
                 },
             },
             command);

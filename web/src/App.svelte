@@ -1,5 +1,6 @@
 <script lang="ts">
   import Appearance from "./components/Appearance.svelte";
+  import CameraSettings from "./components/CameraSettings.svelte";
   import CameraView from "./components/CameraView.svelte";
   import ConnectionBanner from "./components/ConnectionBanner.svelte";
   import ControlTiles from "./components/ControlTiles.svelte";
@@ -38,6 +39,14 @@
       </div>
     {:else if ui.tab === "diagnostics"}
       <Diagnostics wide />
+    {:else if ui.tab === "camera"}
+      <div class="split">
+        <main class="main">
+          <CameraView />
+          <StatusList columns={2} />
+        </main>
+        <aside class="controls camera-controls"><CameraSettings wide /></aside>
+      </div>
     {:else}
       <div class="split">
         <aside class="controls"><ProfilePicker wide /></aside>
@@ -64,6 +73,9 @@
       <div class="pad"><WarningStrip compact /></div>
     {:else if ui.tab === "diagnostics"}
       <Diagnostics wide={false} />
+    {:else if ui.tab === "camera"}
+      <CameraView />
+      <div class="system-narrow"><CameraSettings wide={false} /></div>
     {:else}
       <div class="system-narrow">
         <HostInfo wide={false} />
@@ -102,6 +114,11 @@
     flex-direction: column;
     border-right: 2px solid var(--ink);
     overflow-y: auto;
+  }
+  .camera-controls {
+    width: 440px;
+    border-right: none;
+    border-left: 2px solid var(--ink);
   }
   .main {
     flex-grow: 1;

@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "battery/battery_monitor.hpp"
+#include "config/camera_profile_store.hpp"
 #include "config/config.hpp"
 #include "config/profile_selection.hpp"
 #include "control_loop/config.hpp"
@@ -115,6 +116,9 @@ int run_application(const auto_battlebot::ClassConfiguration& class_config,
         remote.status = std::make_shared<remote::StatusBus>(viz_sink, mcap_recorder);
     }
     remote.host = std::make_shared<HostServices>(HostServices::Options{}, remote.status);
+    remote.camera_profiles =
+        std::make_shared<CameraProfileStore>(expand_home(CameraProfileStore::kDefaultPath));
+    remote.camera_profiles->load();
     // Created after DiagnosticsLogger::initialize, so its battery_ina219 diagnostics have a
     // backend.
     auto battery_monitor = make_battery_monitor(class_config.battery, remote.status);

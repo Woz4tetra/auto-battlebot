@@ -33,10 +33,8 @@ std::filesystem::path resolve_home() {
     return {};
 }
 
-// Expand a leading "$HOME" or "~" against the current user's home directory. Leaves other paths
-// as-is. Throws if a home-relative path cannot be resolved, rather than silently returning the
-// unexpanded literal as a relative path: under systemd with a stripped environment that literal
-// would be written under the working directory (inside the repo) and wiped by the next deploy.
+}  // namespace
+
 std::filesystem::path expand_home(const std::string &raw) {
     const bool tilde = !raw.empty() && raw.front() == '~';
     const bool home_var = raw.rfind("$HOME", 0) == 0;
@@ -52,6 +50,8 @@ std::filesystem::path expand_home(const std::string &raw) {
     if (!suffix.empty() && suffix.front() == '/') suffix.erase(0, 1);
     return home / suffix;
 }
+
+namespace {
 
 std::string trim(const std::string &s) {
     const auto begin = s.find_first_not_of(" \t\r\n");

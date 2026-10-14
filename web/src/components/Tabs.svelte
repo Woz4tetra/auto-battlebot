@@ -8,6 +8,7 @@
   const tabs: { id: Tab; wide: string; narrow: string }[] = [
     { id: "main", wide: "MAIN", narrow: "MAIN" },
     { id: "diagnostics", wide: "DIAGNOSTICS", narrow: "DIAG" },
+    { id: "camera", wide: "CAMERA", narrow: "CAM" },
     { id: "system", wide: "SYSTEM", narrow: "SYSTEM" },
   ];
 </script>
@@ -26,7 +27,7 @@
 <style>
   nav {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 6px;
     padding: 12px 16px;
   }

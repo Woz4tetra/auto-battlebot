@@ -49,6 +49,7 @@ struct RemoteTopics {
         StatusTopic<CommandAckMessage>{"/status/command_ack", Latch::NO, 0.0},
         StatusTopic<NetworkMessage>{"/status/network", Latch::YES, 0.0},
         StatusTopic<BatteryMessage>{"/status/battery", Latch::YES, 0.0},
+        StatusTopic<CameraSettingsMessage>{"/status/camera_settings", Latch::YES, 0.0},
     };
     static constexpr auto commands = std::tuple{
         CommandTopic<ReinitFieldCommand>{"/command/reinit_field"},
@@ -58,6 +59,8 @@ struct RemoteTopics {
         CommandTopic<SelectProfileCommand>{"/command/select_profile"},
         CommandTopic<SystemActionCommand>{"/command/system_action"},
         CommandTopic<SetWifiAccessCommand>{"/command/set_wifi_access"},
+        CommandTopic<SetCameraSettingsCommand>{"/command/set_camera_settings"},
+        CommandTopic<CameraProfileCommand>{"/command/camera_profile"},
     };
 };
 

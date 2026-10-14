@@ -45,6 +45,14 @@ std::string read_default_profile(const std::filesystem::path &config_dir);
 std::string resolve_active_profile(const std::filesystem::path &config_dir,
                                    const ProfileSelectorConfig &selector);
 
+/**
+ * Expand a leading "$HOME" or "~" against the current user's home directory. Leaves other paths
+ * as-is. Throws if a home-relative path cannot be resolved, rather than silently returning the
+ * unexpanded literal as a relative path: under systemd with a stripped environment that literal
+ * would be written under the working directory (inside the repo) and wiped by the next deploy.
+ */
+std::filesystem::path expand_home(const std::string &raw);
+
 /** Persist `profile_name` to the selection file, creating parent directories as needed. */
 void write_selection_file(const ProfileSelectorConfig &selector, const std::string &profile_name);
 

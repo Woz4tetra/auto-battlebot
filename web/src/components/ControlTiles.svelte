@@ -1,8 +1,9 @@
 <script lang="ts">
-  // Control rows 01 to 06: autonomy, opponent count, recording, field, radio mode, sticks.
+  // Control rows 01 to 06: autonomy, opponent count, recording, field, camera, radio mode, sticks.
   import { diagnostics } from "../lib/diagnostics.svelte";
   import { status } from "../lib/status.svelte";
   import { formatDuration } from "../lib/time";
+  import CameraTile from "./CameraTile.svelte";
   import Toggle from "./Toggle.svelte";
 
   let { compact = false }: { compact?: boolean } = $props();
@@ -118,8 +119,10 @@
     >
   </div>
 
+  <CameraTile {compact} />
+
   <div class="row">
-    <span class="rownum">05</span>
+    <span class="rownum">06</span>
     <span class="body">
       <span class="label">RADIO MODE</span>
       <span class="state">{radioMode}</span>
@@ -129,7 +132,7 @@
 
   <div class="sticks">
     <span class="sticks-head">
-      <span class="rownum">06</span>
+      <span class="rownum">07</span>
       <span class="label">STICKS · OUR ROBOT</span>
     </span>
     {#each [["LIN", lin], ["ANG", ang]] as const as [name, b] (name)}

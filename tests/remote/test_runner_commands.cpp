@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <filesystem>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -70,6 +71,23 @@ class RecordingCamera : public NoopRgbdCamera {
     std::atomic<int> toggle_delay_ms{0};
     std::mutex mutex;
     std::vector<bool> history;
+};
+
+// Records what the runner queues, and echoes it back as the read-back the way the capture thread
+// does a frame later. DEFAULT (nullopt) restores `opened`.
+class SettingsCamera : public NoopRgbdCamera {
+   public:
+    bool supports_camera_settings() const override { return true; }
+    void request_camera_settings(std::optional<CameraSettings> settings) override {
+        requests.push_back(settings);
+        current = settings.value_or(opened);
+    }
+    std::optional<CameraSettingsState> camera_settings() const override {
+        return CameraSettingsState{current, {}};
+    }
+    CameraSettings opened;
+    CameraSettings current;
+    std::vector<std::optional<CameraSettings>> requests;
 };
 
 class RunnerCommandsTest : public ::testing::Test {
@@ -254,6 +272,123 @@ TEST_F(RunnerCommandsTest, CameraFailureExitClosesRecordings) {
 TEST_F(RunnerCommandsTest, WifiAccessWithoutHostServicesIsHarmless) {
     status_after(remote::SetWifiAccessCommand{.enabled = true});
     EXPECT_TRUE(runner_->tick());
+}
+
+TEST_F(RunnerCommandsTest, CameraWithoutLiveControlsRefusesSettings) {
+    commands_->post(remote::SetCameraSettingsCommand{});
+    EXPECT_TRUE(runner_->tick());
+    EXPECT_FALSE(runner_->camera_settings_status().supported);
+    EXPECT_EQ(runner_->camera_settings_status().profiles, std::vector<std::string>{"DEFAULT"});
+}
+
+class CameraSettingsCommandsTest : public ::testing::Test {
+   protected:
+    void SetUp() override {
+        dir_ = std::filesystem::temp_directory_path() / "auto_battlebot_runner_camera_test";
+        std::filesystem::remove_all(dir_);
+        camera_ = std::make_shared<SettingsCamera>();
+        camera_->opened.exposure_us = 8000;
+        camera_->current = camera_->opened;
+        auto keypoint_model = std::make_shared<NoopKeypointModel>();
+        auto blob_model = std::make_shared<NoopRobotBlobModel>();
+        auto loop = std::make_shared<ControlLoop>(
+            std::make_shared<NoopRobotFilter>(), std::make_shared<NoopTarget>(),
+            std::make_shared<NoopNavigation>(), std::make_shared<NoopTransmitter>(), nullptr,
+            nullptr);
+        RunnerRemote remote;
+        commands_ = remote.commands;
+        store_ = std::make_shared<CameraProfileStore>(dir_ / "camera_profiles.toml");
+        store_->load();
+        remote.camera_profiles = store_;
+        runner_ = std::make_unique<Runner>(
+            RunnerConfiguration{}, camera_, std::make_shared<HealthLogger>(HealthConfiguration{}),
+            std::make_shared<NoopMaskModel>(), blob_model, std::make_shared<NoopFieldFilter>(),
+            keypoint_model, std::make_shared<KeypointHeightGate>(KeypointHeightGateConfiguration{}),
+            std::make_shared<StaticDetectionGate>(StaticDetectionGateConfiguration{}),
+            std::make_shared<ParallelModelBatch>(keypoint_model, blob_model),
+            std::make_shared<SteppedControlLoop>(loop, 0.0), std::make_shared<NoopPublisher>(),
+            [](SystemAction) {}, [](const std::string &) {}, nullptr, nullptr, std::move(remote));
+    }
+    void TearDown() override { std::filesystem::remove_all(dir_); }
+
+    remote::CameraSettingsMessage after(remote::RemoteCommand command) {
+        commands_->post(std::move(command));
+        EXPECT_TRUE(runner_->tick());
+        return runner_->camera_settings_status();
+    }
+
+    static CameraSettings manual(int exposure_us) {
+        CameraSettings s;
+        s.auto_exposure = false;
+        s.exposure_us = exposure_us;
+        return s;
+    }
+
+    std::filesystem::path dir_;
+    std::shared_ptr<SettingsCamera> camera_;
+    std::shared_ptr<CameraProfileStore> store_;
+    std::shared_ptr<remote::CommandQueue> commands_;
+    std::unique_ptr<Runner> runner_;
+};
+
+TEST_F(CameraSettingsCommandsTest, StartsOnDefaultWithoutTouchingTheCamera) {
+    store_->save("cage", manual(3000));
+    const auto status = runner_->camera_settings_status();
+    EXPECT_TRUE(status.supported);
+    EXPECT_EQ(status.active_profile, "DEFAULT");
+    EXPECT_FALSE(status.modified);
+    EXPECT_EQ(status.profiles.front(), "DEFAULT");
+    EXPECT_TRUE(camera_->requests.empty());
+}
+
+TEST_F(CameraSettingsCommandsTest, LiveEditMarksModifiedAndSaveStoresIt) {
+    auto status = after(remote::SetCameraSettingsCommand{.settings = manual(2500)});
+    EXPECT_TRUE(status.modified);
+    EXPECT_EQ(status.active_profile, "DEFAULT");
+    EXPECT_EQ(status.settings.exposure_us, 2500);
+
+    status =
+        after(remote::CameraProfileCommand{.action = CameraProfileAction::SAVE, .name = "cage"});
+    EXPECT_FALSE(status.modified);
+    EXPECT_EQ(status.active_profile, "cage");
+    EXPECT_EQ(status.profiles, (std::vector<std::string>{"DEFAULT", "cage"}));
+    EXPECT_EQ(store_->settings("cage")->exposure_us, 2500);
+}
+
+TEST_F(CameraSettingsCommandsTest, ApplyDefaultRestoresWhatTheCameraOpenedWith) {
+    store_->save("cage", manual(3000));
+    auto status =
+        after(remote::CameraProfileCommand{.action = CameraProfileAction::APPLY, .name = "cage"});
+    EXPECT_EQ(status.settings.exposure_us, 3000);
+    EXPECT_EQ(status.active_profile, "cage");
+
+    status = after(
+        remote::CameraProfileCommand{.action = CameraProfileAction::APPLY, .name = "DEFAULT"});
+    EXPECT_EQ(status.active_profile, "DEFAULT");
+    ASSERT_FALSE(camera_->requests.empty());
+    EXPECT_FALSE(camera_->requests.back().has_value());
+    EXPECT_EQ(status.settings, camera_->opened);
+}
+
+TEST_F(CameraSettingsCommandsTest, RefusalsLeaveTheActiveProfile) {
+    auto status = after(
+        remote::CameraProfileCommand{.action = CameraProfileAction::APPLY, .name = "missing"});
+    EXPECT_EQ(status.active_profile, "DEFAULT");
+    status =
+        after(remote::CameraProfileCommand{.action = CameraProfileAction::SAVE, .name = "DEFAULT"});
+    EXPECT_EQ(status.profiles, std::vector<std::string>{"DEFAULT"});
+    EXPECT_TRUE(camera_->requests.empty());
+}
+
+TEST_F(CameraSettingsCommandsTest, DeletingTheActiveProfileFallsBackToDefaultLabel) {
+    store_->save("cage", manual(3000));
+    after(remote::CameraProfileCommand{.action = CameraProfileAction::APPLY, .name = "cage"});
+    const auto status =
+        after(remote::CameraProfileCommand{.action = CameraProfileAction::DELETE, .name = "cage"});
+    EXPECT_EQ(status.active_profile, "DEFAULT");
+    // The camera still runs cage's values, which differ from DEFAULT's.
+    EXPECT_TRUE(status.modified);
+    EXPECT_EQ(status.profiles, std::vector<std::string>{"DEFAULT"});
 }
 
 }  // namespace

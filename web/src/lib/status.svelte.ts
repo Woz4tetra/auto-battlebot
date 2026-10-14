@@ -4,6 +4,7 @@ import { connection, type CommandAck, type ConnectionState } from "./connection"
 import type {
   AppStatus,
   BatteryStatus,
+  CameraSettingsStatus,
   CommandPayloads,
   CommandTopic,
   NetworkStatus,
@@ -32,6 +33,7 @@ class StatusStore {
   network = $state.raw<NetworkStatus | null>(null);
   /** Null on a box with no [battery] source: the app never publishes it there. */
   battery = $state.raw<BatteryStatus | null>(null);
+  camera = $state.raw<CameraSettingsStatus | null>(null);
   health = $state.raw<Health | null>(null);
   /** Last ack that carried a message, shown as a notice. */
   notice = $state.raw<{ text: string; ok: boolean; at: number } | null>(null);
@@ -79,6 +81,7 @@ class StatusStore {
     connection.subscribe("/status/tracks", (m) => (this.tracks = m));
     connection.subscribe("/status/network", (m) => (this.network = m));
     connection.subscribe("/status/battery", (m) => (this.battery = m));
+    connection.subscribe("/status/camera_settings", (m) => (this.camera = m));
     connection.start();
 
     setInterval(() => (this.now = Date.now()), 500);
