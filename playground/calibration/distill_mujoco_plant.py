@@ -422,7 +422,7 @@ def plot_plant_steps(tables: dict[str, plant.PlantParams], out: Path) -> None:
     colors = ("#2a78d6", "#1baf7a", "#eda100", "#eb6834")
     fig, ax = plt.subplots(2, 2, figsize=(12, 7.5), constrained_layout=True)
     for name, p in tables.items():
-        lag = int(round(p.delay_s / dt))
+        lag = max(0, int(round(p.delay_s / dt)))  # a negative delay plots as none
         for level, color in zip(levels, colors):
             u = np.where((t >= on) & (t < off), level, 0.0)
             u_delayed = np.r_[np.zeros(lag), u][: t.size]
@@ -491,6 +491,15 @@ def main() -> None:
         radio = session_stat(sessions, "radio")
         if radio is None:
             raise SystemExit("no session has a radio delay; pass --radio-delay-ms")
+        if radio < 0.0:
+            # A stick move cannot reach the ESP32 before it is sent: a negative lag is a clock
+            # fit or stamping error (2026-10-15 measured -9.5 ms), and added to the drivetrain
+            # delay it would write a negative delay_s.
+            print(
+                f"radio delay {radio * 1e3:.1f} ms is negative; using 0. Check the clock fit, "
+                "or pass --radio-delay-ms"
+            )
+            radio = 0.0
     pack = args.pack_voltage or session_stat(sessions, "vbat") or NOMINAL_PACK_V
     print(f"radio delay {radio * 1e3:.1f} ms, pack {pack:.2f} V")
 

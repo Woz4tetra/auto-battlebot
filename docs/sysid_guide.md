@@ -315,6 +315,30 @@ With `--holdout` the fit validates at the end. `fit_2026-10-15_yolo/` then holds
 | `check5_firmware` | `pid_output_rms_percent` and `motor_command_rms_percent` small: the simulated firmware reproduces the logged commands |
 | `check6_identification` | restart `losses` close together; `tradeoff_pairs` lists parameters that trade against each other |
 
+The fit keeps the restart with the lowest training loss, even when the brake and coast restarts
+tie. Look at both. On 2026-10-15 the tag + YOLO fit's best coast restart (54.30) beat its best
+brake restart (54.39) by 0.09, and it was the worse model: a 0.80 s coast time constant against
+the measured 0.078 s, and it lost to the grey-box on held-out position. To score one zero mode on
+its own, copy `fit.json` into a new directory keeping only that mode's `runs` and run step 6 on
+it.
+
+2026-10-15 reference (trained on `00-29-00`, 64 windows, scored on `00-20-58`). Median position
+error on held-out windows; heading in brackets:
+
+| Model | Flat 0.4 s | Flat 1.0 s | Nose-lift 0.4 s | Nose-lift 1.0 s |
+| --- | --- | --- | --- | --- |
+| grey-box | 17.1 mm (2.8 deg) | 24.9 mm (5.2 deg) | | |
+| MuJoCo, tag-only bundle, brake | 11.8 mm (3.0 deg) | 23.3 mm (6.6 deg) | 36.1 mm | 116 mm |
+| MuJoCo, tag + YOLO bundle, coast (picked) | 18.3 mm (3.8 deg) | 36.1 mm (2.9 deg) | 45.0 mm | 85 mm |
+| MuJoCo, tag + YOLO bundle, brake | 13.0 mm (2.4 deg) | 15.6 mm (9.6 deg) | 25.4 mm | 83 mm |
+
+Scored on the tag-only holdout bundle, 16 to 28 flat windows per horizon and 8 to 10 nose-lift,
+so differences of a few millimetres are noise. With the zero mode held to brake, the YOLO-filled
+training session gives the better plant at 1 s and on nose lifts, and it is the only fit with
+every parameter in its plausible range. All fits leave `delay_s` near zero and several
+parameters on a bound (`params.png`), and the joint stage is still improving at generation 25:
+more generations and a second training session are the next things to try.
+
 ### 6. Score the fit on other sessions
 
 ```bash
@@ -355,6 +379,30 @@ table misses any of 15 mm at 100 ms, 80 mm at 400 ms or 8 deg heading at 400 ms 
 Before 2026-10-15 the Mr Stabs profiles carried a placeholder table: zero deadzones, zero time
 constants, zero delay. It draws as square steps. A distilled table should show a real delay, a
 rise over tens of milliseconds, and a deadzone.
+
+Also read the `pitch-gated tapes` list it prints: the share of each stick tape dropped because
+the MuJoCo robot pitched up. A tape that loses most of its samples teaches the table nothing about
+that command, and the table only covers what survives.
+
+Distill clamps a negative radio delay to zero and says so. A stick move cannot reach the ESP32
+before it is sent, so a negative `radio_delay` in `session.json` is a clock-fit error; on
+2026-10-15 it was -9.5 ms.
+
+2026-10-15 reference, both tables distilled with a 0 ms radio delay:
+
+| | tag-only fit | tag + YOLO fit, brake |
+| --- | --- | --- |
+| sim holdout, pos at 100 ms (limit 15 mm) | 19.6 mm | 28.5 mm |
+| sim holdout, pos at 400 ms (limit 80 mm) | 69.6 mm | 114 mm |
+| sim holdout, heading at 400 ms (limit 8 deg) | 24.6 deg | 25.0 deg |
+| held-out session, pos RMS at 1.0 s, distilled | 86.8 mm | 86.9 mm |
+| held-out session, pos RMS at 1.0 s, current config | 99.6 mm | 114 mm |
+| forward step tapes dropped as wheelies | 80 to 81% | 76 to 79% |
+| `k_fwd`, `tau_lin_a`, `tau_lin_d`, `delay_s` | 5.60, 0.172 s, 0.061 s, 0 | 5.73, 0.183 s, 0.068 s, 0.016 s |
+
+Both tables beat the placeholder on the held-out session and both miss the sim-holdout limits:
+the grey-box form does not reproduce the MuJoCo model within them, mostly because the forward
+steps the table would learn from are wheelies. Do not install a table that misses the limits.
 
 ### 8. Install the table
 
