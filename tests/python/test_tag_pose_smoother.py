@@ -573,7 +573,9 @@ def test_rts_recovers_trajectory_better_than_raw(
     assert rms(raw_pos) < 0.01  # body pose is right to begin with
     assert rms(smooth_pos) < 0.75 * rms(raw_pos)
     assert rms(smooth_yaw) < 0.75 * rms(raw_yaw)
-    assert int(meas["rejected"].sum()) <= 2
+    # The fused IMU's sigma is its spin residual (about 0.26 rad/s here), so a few clean fixes at
+    # the blackout edge and mid-spin sit right at the gate.
+    assert int(meas["rejected"].sum()) <= 3
 
     grid = smoothed.grid
     gt = session.truth.at((grid["stamp_ns"].to_numpy() - T0_NS) / 1e9)

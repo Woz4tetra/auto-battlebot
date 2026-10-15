@@ -62,8 +62,8 @@ def predict(batch: WindowBatch, p: plant.PlantParams) -> tuple[np.ndarray, float
 def _residuals(batch: WindowBatch, p: plant.PlantParams) -> np.ndarray:
     qpos, record_dt = predict(batch, p)
     err = window_errors(batch, qpos, record_dt)
-    pos = err.position / batch.noise_xy[:, None]
-    yaw = err.heading / batch.noise_yaw[:, None]
+    pos = err.position / err.position_sigma
+    yaw = err.heading / err.heading_sigma
     out = np.concatenate([pos.ravel(), yaw.ravel()])
     return np.asarray(np.nan_to_num(out, nan=0.0))
 

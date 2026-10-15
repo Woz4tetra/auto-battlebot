@@ -130,6 +130,9 @@ class WindowErrors:
     heading: np.ndarray  # (N, H) radians
     pitch_rms: np.ndarray  # (N,) radians over the whole window, NaN for flat windows
     loss: np.ndarray  # (N,)
+    # The sigma each error was scored against (N, H): the measurement's own, or the window's.
+    position_sigma: np.ndarray
+    heading_sigma: np.ndarray
 
 
 def window_errors(batch: WindowBatch, qpos: np.ndarray, record_dt: float) -> WindowErrors:
@@ -142,6 +145,8 @@ def window_errors(batch: WindowBatch, qpos: np.ndarray, record_dt: float) -> Win
     yaw_err = np.full((n, h), np.nan)
     pitch_rms = np.full(n, np.nan)
     loss = np.zeros(n)
+    pos_sigma = np.full((n, h), np.nan)
+    yaw_sigma = np.full((n, h), np.nan)
     for i in range(n):
         mt = batch.meas_t[i]
         if len(mt) == 0:
@@ -154,19 +159,32 @@ def window_errors(batch: WindowBatch, qpos: np.ndarray, record_dt: float) -> Win
             k = int(np.argmin(np.abs(mt - horizon)))
             if abs(mt[k] - horizon) > HORIZON_TOLERANCE_S:
                 continue
+            own = bool(batch.meas_sigma_xy)
+            pos_sigma[i, j] = batch.meas_sigma_xy[i][k] if own else batch.noise_xy[i]
+            yaw_sigma[i, j] = batch.meas_sigma_yaw[i][k] if own else batch.noise_yaw[i]
             pos_err[i, j] = float(np.hypot(px[k] - batch.meas_x[i][k], py[k] - batch.meas_y[i][k]))
-            yaw_err[i, j] = float(_wrap(np.asarray(pyaw[k] - batch.meas_yaw[i][k])))
-            terms.append(float(_huber(np.asarray(pos_err[i, j] / batch.noise_xy[i]))))
-            terms.append(float(_huber(np.asarray(yaw_err[i, j] / batch.noise_yaw[i]))))
-        if batch.kind[i] == "nose_lift":
-            pp = np.interp(mt, sample_t, pose["pitch"][i])
+            terms.append(float(_huber(np.asarray(pos_err[i, j] / pos_sigma[i, j]))))
+            # A source without heading (NaN yaw) scores position only.
+            if np.isfinite(batch.meas_yaw[i][k]) and np.isfinite(yaw_sigma[i, j]):
+                yaw_err[i, j] = float(_wrap(np.asarray(pyaw[k] - batch.meas_yaw[i][k])))
+                terms.append(float(_huber(np.asarray(yaw_err[i, j] / yaw_sigma[i, j]))))
+        has_pitch = np.isfinite(batch.meas_pitch[i])
+        if batch.kind[i] == "nose_lift" and has_pitch.any():
+            pp = np.interp(mt[has_pitch], sample_t, pose["pitch"][i])
             # Both are the rotation about body +y (FLU), so nose-down is positive in each.
-            diff = pp - batch.meas_pitch[i]
+            diff = pp - batch.meas_pitch[i][has_pitch]
             pitch_rms[i] = float(np.sqrt(np.mean(diff**2)))
             resid = diff / batch.noise_pitch[i]
             terms.append(float(np.mean(_huber(resid))))
         loss[i] = float(np.mean(terms)) if terms else 0.0
-    return WindowErrors(position=pos_err, heading=yaw_err, pitch_rms=pitch_rms, loss=loss)
+    return WindowErrors(
+        position=pos_err,
+        heading=yaw_err,
+        pitch_rms=pitch_rms,
+        loss=loss,
+        position_sigma=pos_sigma,
+        heading_sigma=yaw_sigma,
+    )
 
 
 # A simulator takes a window batch and one parameter set per world (len == len(batch)) and

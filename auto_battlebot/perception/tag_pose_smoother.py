@@ -23,7 +23,7 @@ Dependencies: numpy, pandas, scipy
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -32,6 +32,7 @@ import pandas as pd
 from scipy.stats import chi2
 
 from auto_battlebot.compat import tomllib
+from auto_battlebot.perception import yolo_field_fixes
 from auto_battlebot.recording.esp32_clock import cross_correlation_delay, resample_linear
 from auto_battlebot.recording.sysid_io import FieldFromCamera, RobotTagsFrame, rotation_angle
 
@@ -1073,6 +1074,9 @@ class SessionSmoothing:
     residual_acf: np.ndarray
     innovation_acf: np.ndarray
     still_segments: list[tuple[int, int]]  # detection index ranges the noise model came from
+    # YOLO position fixes on frames the tag missed (stamp, x, y, yaw, sigmas, rejected), or None.
+    yolo_fixes: pd.DataFrame | None = None
+    yolo_calibration: yolo_field_fixes.YoloCalibration | None = None
 
 
 @dataclass
@@ -1080,7 +1084,7 @@ class _AxisFit:
     """One smoother's knots, run and chosen process noise."""
 
     knots: Knots
-    src: np.ndarray  # per knot: detection index, -1 for an IMU knot
+    src: np.ndarray  # per knot: detection index, IMU_SRC or EXTRA_SRC
     run: SmootherRun
     q: np.ndarray  # (1, A)
     exempt: np.ndarray  # knots let through the gate by the smoothed re-check
@@ -1090,6 +1094,11 @@ class _AxisFit:
         out[self.src[self.src >= 0]] = np.flatnonzero(self.src >= 0)
         return out
 
+
+IMU_SRC = -1
+EXTRA_SRC = -2
+IMU_GAIN_MAX_RATE = 25.0  # rad/s: fit the BNO055 gain below its clipping
+IMU_MAX_RATE = 30.0  # rad/s: no IMU knot above this
 
 _PLANAR_OPTIONS = {
     "angular": (False, False, True),
@@ -1114,11 +1123,14 @@ def _planar_knots(
     t0_ns: int,
     imu: ImuYawRate | None = None,
     imu_sigma: float = 0.1,
+    extra: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None,
 ) -> tuple[Knots, np.ndarray]:
     """Knots for (along, across, yaw), detections plus optional IMU yaw-rate knots.
 
-    ``z`` and ``sigma`` are (N, 3). Returns the knots with, per knot, the detection index (-1
-    for IMU).
+    ``z`` and ``sigma`` are (N, 3). ``extra`` is (stamps, z, sigma) of position fixes from a
+    second source; a NaN in its ``z`` leaves that axis unmeasured at that knot. Returns the
+    knots with, per knot, the detection index (``IMU_SRC`` for IMU, ``EXTRA_SRC`` for an extra
+    fix).
     """
     n = stamp_ns.shape[0]
     stamps = stamp_ns
@@ -1134,10 +1146,18 @@ def _planar_knots(
         ir = np.ones((it.size, 3))
         ir[:, 2] = imu_sigma**2
         stamps = np.concatenate([stamps, it])
-        src = np.concatenate([src, np.full(it.size, -1)])
+        src = np.concatenate([src, np.full(it.size, IMU_SRC)])
         kind = np.concatenate([kind, ik])
         z = np.concatenate([z, iz])
         r = np.concatenate([r, ir])
+    if extra is not None and len(extra[0]):
+        es, ez, esig = extra
+        measured = np.isfinite(ez)
+        stamps = np.concatenate([stamps, np.asarray(es, dtype=np.int64)])
+        src = np.concatenate([src, np.full(len(es), EXTRA_SRC)])
+        kind = np.concatenate([kind, np.where(measured, KIND_POSITION, KIND_NONE).astype(np.int8)])
+        z = np.concatenate([z, np.where(measured, ez, 0.0)])
+        r = np.concatenate([r, np.where(measured, np.asarray(esig) ** 2, 1.0)])
     order = np.argsort(stamps, kind="stable")
     knots = Knots(
         t_s=(stamps[order] - t0_ns).astype(np.float64) / _NS,
@@ -1202,6 +1222,7 @@ def smooth_session(
     mounts: dict[int, TagMount],
     options: SmootherOptions | None = None,
     esp32: pd.DataFrame | None = None,
+    yolo: pd.DataFrame | None = None,
 ) -> SessionSmoothing:
     """The whole "Robot pose recording" pass for one session.
 
@@ -1292,9 +1313,47 @@ def smooth_session(
             planar = fused
             grid = _grid_frame(planar, tilt, grid_ns, azimuth)
 
+    yolo_fixes: pd.DataFrame | None = None
+    yolo_cal: yolo_field_fixes.YoloCalibration | None = None
+    if yolo is not None and len(yolo):
+        with_yolo = _fuse_yolo(
+            yolo,
+            frames,
+            field_from_camera,
+            t_up_field,
+            azimuth,
+            raw,
+            planar_z,
+            planar_sigma,
+            t0_ns,
+            planar,
+            planar_opts,
+            imu,
+            esp32,
+            checks,
+            opts,
+        )
+        if with_yolo is not None:
+            planar, yolo_fixes, yolo_cal = with_yolo
+            if esp32 is not None and len(esp32):
+                tilt = _fuse_imu_tilt(
+                    esp32,
+                    yolo_fixes["stamp_ns"].to_numpy(np.int64),
+                    raw,
+                    cands.upside_down,
+                    tilt,
+                    tilt_knots,
+                    _filter_options(_TILT_OPTIONS, opts),
+                    checks,
+                )
+            grid = _grid_frame(planar, tilt, grid_ns, azimuth)
+
     meas = _measurement_table(raw, cands, ippe, reproj, sig, planar, tilt, azimuth)
     rejected = meas["rejected"].to_numpy()
     accepted_stamps = raw.stamp_ns[~rejected]
+    if yolo_fixes is not None:
+        yolo_ok = yolo_fixes["stamp_ns"].to_numpy(np.int64)[~yolo_fixes["rejected"].to_numpy()]
+        accepted_stamps = np.sort(np.concatenate([accepted_stamps, yolo_ok]))
     half = step // 2
     pos = np.searchsorted(accepted_stamps, grid_ns - half, side="left")
     grid["has_measurement"] = (pos < accepted_stamps.size) & (
@@ -1321,6 +1380,8 @@ def smooth_session(
         residual_acf=residual_acf,
         innovation_acf=innovation_acf,
         still_segments=segments,
+        yolo_fixes=yolo_fixes,
+        yolo_calibration=yolo_cal,
     )
 
 
@@ -1340,22 +1401,198 @@ def _fuse_imu(
     The IMU is shifted by its measured lag and multiplied by its measured sign first, and only
     used when it correlates with tag yaw rate at ``imu_min_correlation`` or better.
     """
+    fused = _imu_knot_input(imu, checks, opts)
+    if fused is None:
+        checks["imu_fused"] = False
+        return None
+    shifted, imu_sigma = fused
+    knots, src = _planar_knots(raw.stamp_ns, planar_z, planar_sigma, t0_ns, shifted, imu_sigma)
+    run, exempt = smooth_with_recheck(knots, planar.q, _with_rate(planar_opts))
+    agreement = checks["imu_yaw_rate"]
+    checks["imu_fused"] = {
+        "sign": float(agreement["measured_sign"]),
+        "lag_s": float(agreement["lag_s"]),
+        "sigma": imu_sigma,
+    }
+    return _AxisFit(knots, src, run, planar.q, exempt)
+
+
+def _fuse_imu_tilt(
+    esp32: pd.DataFrame,
+    stamps_ns: np.ndarray,
+    raw: RawPoses,
+    upside_down: np.ndarray,
+    tilt: _AxisFit,
+    tilt_knots: Knots,
+    tilt_opts: FilterOptions,
+    checks: dict[str, Any],
+) -> _AxisFit:
+    """Rerun the tilt smoother with the robot IMU's pitch and roll at ``stamps_ns``.
+
+    YOLO fixes carry no tilt, and across a long dropout the tilt state wanders far enough to mark
+    a robot sitting flat as lifting its nose. The BNO055 pitch and roll are mapped onto tag pitch
+    and roll by a straight line fitted on upright tag detections; its residual (about 2 degrees,
+    mostly tag noise) is the sigma. The IMU lag is the one the yaw-rate check measured.
+    """
+    lag_ns = int(round(float((checks.get("imu_yaw_rate") or {}).get("lag_s") or 0.0) * _NS))
+    e = esp32.sort_values("stamp_ns")
+    et = e["stamp_ns"].to_numpy(np.int64)
+
+    def imu_at(stamps: np.ndarray, col: str) -> np.ndarray:
+        at = np.clip(np.searchsorted(et, stamps + lag_ns, side="right") - 1, 0, len(et) - 1)
+        return np.asarray(e[col].to_numpy(float)[at])
+
+    up = ~np.asarray(upside_down, dtype=bool)
+    z = np.zeros((len(stamps_ns), 2))
+    sigma = np.zeros(2)
+    report: dict[str, Any] = {}
+    for a, (col, tag) in enumerate((("orientation_y", raw.pitch), ("orientation_z", raw.roll))):
+        x = imu_at(raw.stamp_ns[up], col)
+        coef = np.polyfit(x, tag[up], 1)
+        resid = tag[up] - np.polyval(coef, x)
+        sigma[a] = 1.4826 * float(np.median(np.abs(resid - np.median(resid))))
+        z[:, a] = np.polyval(coef, imu_at(stamps_ns, col))
+        report[col] = {"gain": float(coef[0]), "offset": float(coef[1]), "sigma": sigma[a]}
+    n = tilt_knots.t_s.shape[0]
+    stamps = np.concatenate([raw.stamp_ns, stamps_ns])
+    order = np.argsort(stamps, kind="stable")
+    knots = Knots(
+        t_s=(stamps[order] - tilt_knots.t0_ns).astype(np.float64) / _NS,
+        t0_ns=tilt_knots.t0_ns,
+        kind=np.full((len(stamps), 2), KIND_POSITION, dtype=np.int8),
+        z=np.concatenate([tilt_knots.z, z])[order],
+        r=np.concatenate([tilt_knots.r, np.tile(sigma**2, (len(stamps_ns), 1))])[order],
+    )
+    src = np.concatenate([np.arange(n), np.full(len(stamps_ns), EXTRA_SRC)])[order]
+    run, exempt = smooth_with_recheck(knots, tilt.q, tilt_opts)
+    checks["imu_tilt"] = {"fixes": len(stamps_ns), "lag_s": lag_ns / _NS, **report}
+    return _AxisFit(knots, src, run, tilt.q, exempt)
+
+
+def _with_rate(options: FilterOptions) -> FilterOptions:
+    """Options for a run with IMU rate knots: unwrap yaw onto the prediction's branch always.
+
+    Without a rate measurement a dropout leaves only the last fix's rate to carry the angle
+    forward, which is what ``branch_gap_s`` falls back to. With the IMU the prediction is the
+    better reference: carrying a 3 rad/s rate from the last fix across a 1 s gap lands more than
+    half a turn off and picks the wrong branch. Across 40 withheld 1 s tag spans the carried
+    reference flipped the heading by half a turn in 9 of them; the prediction flipped none.
+    """
+    return replace(options, branch_gap_s=math.inf)
+
+
+def _imu_knot_input(
+    imu: ImuYawRate, checks: dict[str, Any], opts: SmootherOptions
+) -> tuple[ImuYawRate, float] | None:
+    """The IMU shifted by its lag and sign, and its sigma; None when it is not to be fused."""
     agreement = checks.get("imu_yaw_rate", {})
     corr = agreement.get("correlation")
     if not opts.fuse_imu or corr is None or abs(float(corr)) < opts.imu_min_correlation:
-        checks["imu_fused"] = False
         return None
     sign = float(agreement["measured_sign"])
     lag_s = float(agreement["lag_s"])
-    shifted = ImuYawRate(imu.stamp_ns - int(round(lag_s * _NS)), imu.rate * sign, imu.valid)
+    gain = float(agreement.get("linear_gain") or 1.0)
+    if not 0.5 < gain < 1.5:
+        gain = 1.0
+    rate = imu.rate * sign / gain
+    # Near the gyro's range the rate clips; a clipped knot would drag a fast spin's rate down.
+    valid = imu.valid & (np.abs(rate) < IMU_MAX_RATE)
+    shifted = ImuYawRate(imu.stamp_ns - int(round(lag_s * _NS)), rate, valid)
     # Still-period noise alone understates the IMU's error mid-spin, where a too-tight sigma gates
-    # out good tag fixes; the spin disagreement (which includes some tag-rate noise) covers it.
-    sigmas = [agreement.get("still_rate_std"), agreement.get("spin_rms_rad_s"), 0.05]
-    imu_sigma = max(float(v) for v in sigmas if v is not None)
-    knots, src = _planar_knots(raw.stamp_ns, planar_z, planar_sigma, t0_ns, shifted, imu_sigma)
-    run, exempt = smooth_with_recheck(knots, planar.q, planar_opts)
-    checks["imu_fused"] = {"sign": sign, "lag_s": lag_s, "sigma": imu_sigma}
-    return _AxisFit(knots, src, run, planar.q, exempt)
+    # out good tag fixes; the spin residual after the gain correction (which includes some
+    # tag-rate noise) covers it. Before the correction, the 0.84 gain of clipped spins inflated
+    # it to about 3 rad/s, loose enough that a dropout could hide a whole extra turn.
+    spin = agreement.get("linear_rms_rad_s", agreement.get("spin_rms_rad_s"))
+    sigmas = [agreement.get("still_rate_std"), spin, 0.05]
+    return shifted, max(float(v) for v in sigmas if v is not None)
+
+
+def _fuse_yolo(
+    yolo: pd.DataFrame,
+    frames: Sequence[RobotTagsFrame],
+    field_from_camera: FieldFromCamera,
+    t_up_field: np.ndarray,
+    azimuth: float,
+    raw: RawPoses,
+    planar_z: np.ndarray,
+    planar_sigma: np.ndarray,
+    t0_ns: int,
+    planar: _AxisFit,
+    planar_opts: FilterOptions,
+    imu: ImuYawRate | None,
+    esp32: pd.DataFrame | None,
+    checks: dict[str, Any],
+    opts: SmootherOptions,
+) -> tuple[_AxisFit, pd.DataFrame, yolo_field_fixes.YoloCalibration] | None:
+    """Rerun the planar smoother with YOLO position fixes on the frames the tag missed.
+
+    See ``yolo_field_fixes`` for the projection, its calibration against the tag, and the gates.
+    """
+
+    def up_from_camera_at(stamps_ns: np.ndarray) -> np.ndarray:
+        return np.asarray(t_up_field @ field_from_camera.at(np.asarray(stamps_ns, np.int64)))
+
+    camera_matrix = frames[0].camera.matrix
+    n = len(raw.stamp_ns)
+    good = planar.run.outcome[0, planar.det_knot(n)] != OUTCOME_REJECTED
+    tag_t, first = np.unique(raw.stamp_ns[good], return_index=True)
+    try:
+        cal = yolo_field_fixes.calibrate(
+            yolo,
+            tag_t,
+            raw.x[good][first],
+            raw.y[good][first],
+            np.unwrap(raw.yaw[good][first]),
+            camera_matrix,
+            up_from_camera_at,
+            azimuth,
+        )
+    except ValueError as exc:
+        checks["yolo"] = {"fused": False, "reason": str(exc)}
+        return None
+    fixes, report = yolo_field_fixes.select_fixes(
+        yolo,
+        cal,
+        camera_matrix,
+        up_from_camera_at,
+        raw.stamp_ns,
+        esp32,
+    )
+    checks["yolo"] = {"fused": False, "calibration": cal.as_dict(), **report}
+    if fixes.empty:
+        return None
+    along, across = to_view(fixes["x"].to_numpy(), fixes["y"].to_numpy(), azimuth)
+    # Position only. Across 40 withheld 1 s tag spans the keypoint heading was worse (4.1 deg
+    # median) than the heading the IMU yaw rate carries through the gap (1.8 deg), so it is out.
+    ez = np.stack([along, across, np.full(len(fixes), np.nan)], axis=1)
+    esig = np.tile([cal.sigma_along_m, cal.sigma_across_m, 1.0], (len(fixes), 1))
+    fused = _imu_knot_input(imu, checks, opts) if imu is not None else None
+    shifted, imu_sigma = fused if fused is not None else (None, 0.1)
+    knots, src = _planar_knots(
+        raw.stamp_ns,
+        planar_z,
+        planar_sigma,
+        t0_ns,
+        shifted,
+        imu_sigma,
+        extra=(fixes["stamp_ns"].to_numpy(np.int64), ez, esig),
+    )
+    run, exempt = smooth_with_recheck(
+        knots, planar.q, _with_rate(planar_opts) if shifted is not None else planar_opts
+    )
+    at = np.flatnonzero(src == EXTRA_SRC)  # the fixes are sorted by stamp, and so are these
+    outcome = run.outcome[0, at]
+    table = fixes.assign(
+        yaw=np.nan,
+        sigma_xy=math.sqrt(0.5 * (cal.sigma_along_m**2 + cal.sigma_across_m**2)),
+        sigma_yaw=np.nan,
+        rejected=outcome == OUTCOME_REJECTED,
+        nis=run.nis[0, at],
+    )
+    checks["yolo"].update(
+        fused=True, accepted=int((~table["rejected"]).sum()), rejected=int(table["rejected"].sum())
+    )
+    return _AxisFit(knots, src, run, planar.q, exempt), table, cal
 
 
 def _measurement_table(
@@ -1370,6 +1607,7 @@ def _measurement_table(
 ) -> pd.DataFrame:
     n = len(cands)
     det_knot = planar.det_knot(n)
+    tilt_knot = tilt.det_knot(n)
     outcome = planar.run.outcome[0, det_knot]
     m_s = planar.run.m_smooth[0, det_knot]
     smoothed_x, smoothed_y = from_view(m_s[:, 0, 0], m_s[:, 1, 0], azimuth)
@@ -1396,7 +1634,7 @@ def _measurement_table(
             "sigma_tilt": sig["tilt"],
             "reset": outcome == OUTCOME_RESET,
             "recheck_accepted": planar.exempt[det_knot],
-            "tilt_rejected": tilt.run.outcome[0] == OUTCOME_REJECTED,
+            "tilt_rejected": tilt.run.outcome[0, tilt_knot] == OUTCOME_REJECTED,
             "upside_down": cands.upside_down,
             "nis": planar.run.nis[0, det_knot],
             "innovation_along": planar.run.innovation[0, det_knot, 0],
@@ -1408,8 +1646,8 @@ def _measurement_table(
             "smoothed_along": m_s[:, 0, 0],
             "smoothed_across": m_s[:, 1, 0],
             "smoothed_yaw": smoothed_yaw,
-            "smoothed_pitch": tilt.run.m_smooth[0, :, 0, 0],
-            "smoothed_roll": tilt.run.m_smooth[0, :, 1, 0],
+            "smoothed_pitch": tilt.run.m_smooth[0, tilt_knot, 0, 0],
+            "smoothed_roll": tilt.run.m_smooth[0, tilt_knot, 1, 0],
         }
     )
 
@@ -1580,4 +1818,15 @@ def _imu_agreement(
         agreement["spin_gain"] = float(
             np.dot(aligned[ok], tag_rate[ok]) / max(np.dot(tag_rate[ok], tag_rate[ok]), 1e-9)
         )
+        # Scale and residual below the gyro's range only: the BNO055 clips near 35 rad/s
+        # (2000 deg/s), which drags a gain fitted over full-stick spins down.
+        lin = ok & (np.abs(tag_rate) < IMU_GAIN_MAX_RATE)
+        if lin.sum() >= 10:
+            gain = float(
+                np.dot(aligned[lin], tag_rate[lin])
+                / max(np.dot(tag_rate[lin], tag_rate[lin]), 1e-9)
+            )
+            agreement["linear_gain"] = gain
+            corrected = aligned[lin] / gain - tag_rate[lin]
+            agreement["linear_rms_rad_s"] = float(np.sqrt(np.mean(corrected**2)))
     return lag_dict, agreement

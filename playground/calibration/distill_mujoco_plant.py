@@ -26,8 +26,10 @@ the MuJoCo data pins.
         playground/calibration/out/mujoco_sysid/fit_<ts> \\
         --holdout playground/calibration/out/mujoco_sysid/s04
 
-Writes <fit_dir>/distilled/plant.toml (the best run's [plant] table, radio delay included) and
-distill.json (every run's table, sim and session scores, spread, masked tapes).
+Writes <fit_dir>/distilled/plant.toml (the best run's [plant] table, radio delay included),
+distill.json (every run's table, sim and session scores, spread, masked tapes) and
+plant_steps.png (step-and-release responses and steady-state speed against stick, the distilled
+table against the one the profiles carry now).
 """
 
 from __future__ import annotations
@@ -64,7 +66,7 @@ from auto_battlebot.mujoco_sim.session import build_batch, load_session
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 # The table the app runs today, scored alongside so the report shows what the swap buys.
-CURRENT_TABLE = REPO_ROOT / "config" / "mr_stabs_mk2_zed_box.toml"
+CURRENT_TABLE = REPO_ROOT / "config" / "mr_stabs_mk2_aer_zed_box.toml"
 
 RECORD_DT = 0.005  # stick and state grid, the jig fit's 200 Hz
 REST_S = 0.3
@@ -355,8 +357,8 @@ def score_sessions(
     for name, table in tables.items():
         qpos, record_dt = greybox.predict(flat, table)
         err = window_errors(flat, qpos, record_dt)
-        pos = err.position / flat.noise_xy[:, None]
-        yaw = err.heading / flat.noise_yaw[:, None]
+        pos = err.position / err.position_sigma
+        yaw = err.heading / err.heading_sigma
         out[name] = {
             "pos_rms_x_noise": np.sqrt(np.nanmean(pos**2, axis=0)).tolist(),
             "head_rms_x_noise": np.sqrt(np.nanmean(yaw**2, axis=0)).tolist(),
@@ -404,6 +406,62 @@ def _print_scores(title: str, rows: dict[str, dict[str, Any]]) -> None:
             f"  {name:22}{s['C1_pos_100ms_mm']:9.1f}mm{s['C2_pos_400ms_mm']:9.1f}mm"
             f"{s['C3_head_400ms_deg']:9.2f}deg"
         )
+
+
+def plot_plant_steps(tables: dict[str, plant.PlantParams], out: Path) -> None:
+    """Step-and-release responses and the steady-state map of each grey-box table."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    dt, on, off, end = 0.002, 0.1, 0.9, 1.6
+    t = np.arange(0.0, end, dt)
+    levels = (0.1, 0.25, 0.5, 1.0)
+    styles = {name: ls for name, ls in zip(tables, ("-", "--", ":"))}
+    colors = ("#2a78d6", "#1baf7a", "#eda100", "#eb6834")
+    fig, ax = plt.subplots(2, 2, figsize=(12, 7.5), constrained_layout=True)
+    for name, p in tables.items():
+        lag = int(round(p.delay_s / dt))
+        for level, color in zip(levels, colors):
+            u = np.where((t >= on) & (t < off), level, 0.0)
+            u_delayed = np.r_[np.zeros(lag), u][: t.size]
+            zero = np.zeros_like(t)
+            _, lin = plant.simulate(u_delayed, zero, dt, p)
+            _, ang = plant.simulate(zero, u_delayed, dt, p)
+            label = f"{name}, stick {level:g}" if name == next(iter(tables)) else None
+            ax[0, 0].plot(t, lin["v"], color=color, ls=styles[name], lw=1.3, label=label)
+            ax[0, 1].plot(t, ang["w"], color=color, ls=styles[name], lw=1.3)
+        sticks = np.linspace(-1.0, 1.0, 201)
+        v_ss, _ = plant.steady_state(sticks, np.zeros_like(sticks), p)
+        _, w_ss = plant.steady_state(np.zeros_like(sticks), sticks, p)
+        ax[1, 0].plot(sticks, v_ss, color="#2a78d6", ls=styles[name], lw=1.5, label=name)
+        ax[1, 1].plot(sticks, w_ss, color="#eb6834", ls=styles[name], lw=1.5, label=name)
+    for a in ax[0]:
+        a.axvspan(on, off, color="#e6e5e1", zorder=0)
+        a.set_xlabel("time, s (grey: stick held)")
+    ax[0, 0].set_ylabel("forward speed, m/s")
+    ax[0, 0].set_title(
+        "Linear step: delay, rise (accel tau), top speed, stop (decel tau)", loc="left", fontsize=9
+    )
+    ax[0, 0].legend(frameon=False, fontsize=7, ncol=2)
+    ax[0, 1].set_ylabel("yaw rate, rad/s")
+    ax[0, 1].set_title("Angular stick step and release", loc="left", fontsize=9)
+    ax[1, 0].set_xlabel("linear stick")
+    ax[1, 0].set_ylabel("steady forward speed, m/s")
+    ax[1, 0].set_title(
+        "Steady state: flat middle = deadzone, ends = top speed", loc="left", fontsize=9
+    )
+    ax[1, 1].set_xlabel("angular stick")
+    ax[1, 1].set_ylabel("steady yaw rate, rad/s")
+    ax[1, 1].set_title("Steady state, angular", loc="left", fontsize=9)
+    for a in ax[1]:
+        a.legend(frameon=False, fontsize=7)
+    for a in ax.flat:
+        a.grid(True, color="#e6e5e1", lw=0.5)
+    fig.suptitle("Grey-box plant tables (solid: " + ", dashed: ".join(tables) + ")", fontsize=10)
+    fig.savefig(out, dpi=120)
+    plt.close(fig)
 
 
 def main() -> None:
@@ -537,8 +595,13 @@ def main() -> None:
     )
     (out / "plant.toml").write_text(header + final.to_toml("plant"))
     (out / "distill.json").write_text(json.dumps(report, indent=2, default=float))
+    plot_plant_steps(
+        {"distilled": final, "current config": plant.PlantParams.from_toml(CURRENT_TABLE)},
+        out / "plant_steps.png",
+    )
     print(f"\nwrote {out / 'plant.toml'}")
     print(f"wrote {out / 'distill.json'}")
+    print(f"wrote {out / 'plant_steps.png'}")
     bad = [k for k, lim in ACCEPT.items() if best["sim_holdout"].get(k, math.inf) > lim]
     if bad:
         print(f"sim holdout misses {', '.join(bad)}: the M4 form is not absorbing the MuJoCo model")

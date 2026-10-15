@@ -99,6 +99,7 @@ MEASUREMENT_COLUMNS = [
     "sigma_yaw",
     "ippe_close_call",
     "rejected",
+    "source",
 ]
 COMMAND_COLUMNS = [
     "stamp_ns",
@@ -149,6 +150,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--pitch-limit-deg", type=float, default=4.0)
     parser.add_argument("--esp32-max-gap-s", type=float, default=0.05)
     parser.add_argument("--plots", action="store_true", help="write diagnostic PNGs")
+    parser.add_argument(
+        "--yolo",
+        type=Path,
+        default=None,
+        help="detect_robot_yolo.py CSV: fill tag dropouts with YOLO fixes while the robot is flat",
+    )
     return parser.parse_args(argv)
 
 
@@ -234,6 +241,8 @@ def build_session_json(
         "radio_delay": radio,
         "imu_yaw_rate": result.checks.get("imu_yaw_rate"),
         "imu_fused": result.checks.get("imu_fused"),
+        "yolo": result.checks.get("yolo"),
+        "imu_tilt": result.checks.get("imu_tilt"),
         "residual_whiteness": result.checks.get("residual_whiteness"),
         "ippe": result.checks.get("ippe"),
         "gating": result.checks.get("gating"),
@@ -270,6 +279,41 @@ def write_plots(out_dir: Path, result: SessionSmoothing) -> list[str]:
     import matplotlib.pyplot as plt
 
     written = []
+    cal = result.yolo_calibration
+    if cal is not None and cal.samples:
+        # YOLO projection: what the size gates keep, and how far YOLO sits from the tag.
+        fig, axes = plt.subplots(1, 3, figsize=(14, 4), constrained_layout=True)
+        for ax, key, gate, unit in (
+            (axes[0], "box_diag_px", cal.box_diag_px, "box diagonal, px"),
+            (axes[1], "keypoint_sep_m", cal.keypoint_sep_m, "front-back keypoint spacing, m"),
+        ):
+            v = cal.samples[key]
+            ax.hist(v, bins=120, color="#2a78d6")
+            for g in gate:
+                ax.axvline(g, color="#eb6834", ls="--", lw=1)
+            ax.set_yscale("log")
+            ax.set_xlabel(unit)
+            out = int(((v < gate[0]) | (v > gate[1])).sum())
+            ax.set_title(
+                f"{out} of {len(v)} detections outside the gates (dashed)\n"
+                "a cluster far right is the marker board",
+                loc="left",
+                fontsize=8,
+            )
+        err = 1e3 * cal.samples["pair_error_m"]
+        axes[2].hist(err[err < 80], bins=80, color="#1baf7a")
+        axes[2].set_xlabel("YOLO minus tag, mm (co-visible frames)")
+        axes[2].set_title(
+            f"offset {cal.offset_ns / 1e6:.1f} ms, plane {cal.plane_height_m * 1e3:.0f} mm, "
+            f"axle {cal.axle_offset_m * 1e3:.0f} mm\nsigma along {cal.sigma_along_m * 1e3:.1f}, "
+            f"across {cal.sigma_across_m * 1e3:.1f} mm; median {np.median(err):.1f} mm",
+            loc="left",
+            fontsize=8,
+        )
+        path = out_dir / "yolo_calibration.png"
+        fig.savefig(path, dpi=120)
+        plt.close(fig)
+        written.append(path.name)
     meas = result.measurements
     grid = result.grid
 
@@ -360,7 +404,15 @@ def main(argv: list[str] | None = None) -> Path:
         esp32["stamp_ns"] = pd.Series(dtype="int64")
 
     options = SmootherOptions(rest_pitch_rad=rest_pitch, fuse_imu=args.fuse_imu)
-    result = smooth_session(frames, field, mounts, options, esp32 if not esp32.empty else None)
+    yolo = pd.read_csv(args.yolo) if args.yolo is not None else None
+    result = smooth_session(
+        frames, field, mounts, options, esp32 if not esp32.empty else None, yolo=yolo
+    )
+    if yolo is not None:
+        report = result.checks.get("yolo", {})
+        print(
+            "  yolo: " + ", ".join(f"{k} {v}" for k, v in report.items() if not isinstance(v, dict))
+        )
 
     window_opts = WindowOptions(
         window_s=args.window_s,
@@ -372,11 +424,30 @@ def main(argv: list[str] | None = None) -> Path:
         pitch_limit_deg=args.pitch_limit_deg,
         esp32_max_gap_s=args.esp32_max_gap_s,
     )
-    meas = result.measurements
+    meas = result.measurements.assign(source="tag")
+    if result.yolo_fixes is not None:
+        # Position and heading only; the 2D keypoints carry no height or tilt.
+        fixes = result.yolo_fixes.assign(
+            tag_id=-1,
+            z=np.nan,
+            pitch=np.nan,
+            roll=np.nan,
+            reprojection_error_px=np.nan,
+            tag_size_px=np.nan,
+            ippe_close_call=False,
+            source="yolo",
+        )
+        meas = pd.concat([meas, fixes[MEASUREMENT_COLUMNS]], ignore_index=True)
+        meas = meas.sort_values("stamp_ns", kind="stable").reset_index(drop=True)
+    # The video frames YOLO filled in count as camera frames for window coverage, so a dropout the
+    # fixes cover reads as covered and a rejected fix still counts against it.
+    frame_stamps = result.frame_stamps_ns
+    if result.yolo_fixes is not None:
+        frame_stamps = np.union1d(frame_stamps, result.yolo_fixes["stamp_ns"].to_numpy(np.int64))
     windows, window_report = make_windows(
         result.grid,
-        result.frame_stamps_ns,
-        meas.loc[~meas["rejected"], "stamp_ns"].to_numpy(),
+        frame_stamps,
+        meas.loc[~meas["rejected"].astype(bool), "stamp_ns"].to_numpy(),
         esp32["stamp_ns"].to_numpy(),
         geometry,
         window_opts,
