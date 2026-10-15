@@ -38,7 +38,8 @@ Open questions
 
 from dataclasses import dataclass
 
-from build123d import Align, Axis, Box, Cylinder, Part, Pos, chamfer, fillet
+import recipe  # build123d-part/scripts, on the path when run through scripts/run
+from build123d import Align, Box, Cylinder, Part, Pos
 
 PROCESS = "fdm"
 MATERIAL = "pla"
@@ -82,41 +83,42 @@ class Params:
     cbore_depth: float = 4.0  # head up to 3.8 (unverified) + 0.2 below the ZED sheet
 
 
+def features(p: Params) -> list[dict]:
+    """The part as 4 CAD features (recipe.py), replayed by build() and by the onshape skill.
+
+    One sketch holds every profile. The plate is the outline region extruded full height,
+    which leaves the insert holes and Ø16 counterbores through. The counterbore floors are
+    the Ø7-Ø16 rings added back up to 2.7 mm, so no feature needs a sketch on the top face.
+    """
+    holes = [(sx * p.zed_hole_x, sy * p.zed_hole_y) for sx in (-1, 1) for sy in (-1, 1)]
+    bolts = [(sx * p.plate_hole_x, sy * p.plate_hole_y) for sx in (-1, 1) for sy in (-1, 1)]
+    ring = (p.bolt_clear + p.cbore_d) / 4  # radius halfway across the counterbore floor
+    return [
+        {
+            "op": "sketch",
+            "name": "outline",
+            "profiles": [{"rect": (0, 0, p.length, p.width), "r": p.corner_r}]
+            # M3 heat-set insert holes for the ZED ears, through so the screw length is free.
+            + [{"circle": (x, y, p.insert_hole)} for x, y in holes]
+            # 1/4-20 clearance holes inside their counterbores.
+            + [{"circle": (x, y, p.bolt_clear)} for x, y in bolts]
+            + [{"circle": (x, y, p.cbore_d)} for x, y in bolts],
+        },
+        {"op": "extrude", "sketch": "outline", "regions": [(0, 0)], "depth": p.thickness},
+        {
+            "op": "extrude",
+            "sketch": "outline",
+            "regions": [(x + ring, y) for x, y in bolts],
+            "depth": p.thickness - p.cbore_depth,
+            "mode": "add",
+        },
+        # Elephant's foot relief: one bed edge, tangent propagation takes the whole outline.
+        {"op": "chamfer", "edges": [(0, -p.width / 2, 0)], "size": p.bed_chamfer},
+    ]
+
+
 def build(p: Params) -> Part:
-    part = Box(p.length, p.width, p.thickness, align=C_MIN)
-
-    corners = part.edges().filter_by(Axis.Z)
-    assert len(corners) == 4, f"expected 4 vertical corners, got {len(corners)}"
-    part = fillet(corners, p.corner_r)
-
-    # Elephant's foot relief on the bed outline, before the holes so it touches only the outline.
-    bed = (
-        part.edges()
-        .filter_by(lambda e: e.center().Z < 1e-6)
-        .filter_by(lambda e: abs(e.start_point().Z) < 1e-6)
-    )
-    assert len(bed) == 8, f"expected 4 sides + 4 corner arcs on the bed, got {len(bed)}"
-    part = chamfer(bed, p.bed_chamfer)
-
-    top = p.thickness
-    for sx in (-1, 1):
-        for sy in (-1, 1):
-            # M3 heat-set insert holes for the ZED ears, through so the screw length is free;
-            # the insert goes in from the top.
-            part -= Pos(sx * p.zed_hole_x, sy * p.zed_hole_y, 0) * Cylinder(
-                p.insert_hole / 2, p.thickness, align=C_MIN
-            )
-            # 1/4-20 clearance through hole with a counterbore from the top.
-            xy = Pos(sx * p.plate_hole_x, sy * p.plate_hole_y, 0)
-            part -= xy * Cylinder(p.bolt_clear / 2, p.thickness, align=C_MIN)
-            part -= (
-                xy
-                * Pos(0, 0, top)
-                * Cylinder(
-                    p.cbore_d / 2, p.cbore_depth, align=(Align.CENTER, Align.CENTER, Align.MAX)
-                )
-            )
-    return part
+    return recipe.build(features(p))
 
 
 def sections(p: Params) -> list[str]:

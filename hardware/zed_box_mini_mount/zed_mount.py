@@ -12,6 +12,8 @@ from build123d import Align, Cylinder, Pos
 
 from zed_cheese_plate_adapter import Params
 
+TITLE = "ZED BOX MINI MOUNT"  # Onshape document and assembly name
+
 P = Params()
 T = P.thickness
 C_MAX = (Align.CENTER, Align.CENTER, Align.MAX)
@@ -26,17 +28,21 @@ def components():
         ins -= Pos(x, y, T) * Cylinder(2.5 / 2, P.insert_len, align=C_MAX)  # M3 minor dia
         inserts = ins if inserts is None else inserts + ins
     return {
-        "plate": {"part": "innorel_cp10.py", "description": "INNOREL CP10 cheese plate"},
-        "adapter": {"part": "zed_cheese_plate_adapter.py", "description": "Printed PLA, 6 mm"},
+        "plate": {"part": "innorel_cp10.py", "title": "INNOREL CP10 CHEESE PLATE", "description": "INNOREL CP10 cheese plate"},
+        "adapter": {"part": "zed_cheese_plate_adapter.py", "title": "ZED BOX MINI ADAPTER PLATE", "description": "Printed PLA, 6 mm"},
         "zed": {
             "step": "out/step/zed_box_mini.step",
             "min_volume": 200,
             "at": Pos(0, 0, T - 12.0),
+            "title": "ZED BOX MINI",
+            "mate_to": "adapter",
             "description": "Stereolabs ZED Box Mini",
         },
         "inserts": {
             "shape": inserts,
             "qty": 4,
+            "title": "M3 X 6 HEAT-SET INSERT",
+            "mate_to": "adapter",
             "material": "brass",
             "description": "M3 x 6 x Ø5 heat-set insert, shop stock",
         },
@@ -58,6 +64,7 @@ def fasteners():
         },
         {
             "name": "bolt_plate",
+            "title": "1/4-20 X 1/2 FLANGED BUTTON HEAD SCREW",
             "size": "1/4-20",
             "length": 12.7,
             "head": "button",
