@@ -307,7 +307,7 @@ websocket that pushes a JSON snapshot at 4 Hz. It lives outside `web/` on purpos
 ### 8. Session output
 
 On exit the tool writes these to a session directory outside `runs/` (default
-`~/sysid_sessions/<stamp>/`):
+`data/sysid_sessions/<stamp>/`):
 
 - the live estimate as `[plant]` TOML via `PlantParams.to_toml`
 - the final coverage snapshot as JSON
