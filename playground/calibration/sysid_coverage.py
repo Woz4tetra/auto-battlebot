@@ -16,7 +16,7 @@ listens: it subscribes to the relay and never sends anything back.
     venv/bin/python playground/calibration/sysid_coverage.py --synthetic /tmp/sysid_sim.mcap
 
 On exit the live estimate, the last snapshot and the event log go to
-``~/sysid_sessions/<stamp>/``. The final calibration stays the offline fit on the MCAP.
+``data/sysid_sessions/<stamp>/``. The final calibration stays the offline fit on the MCAP.
 """
 
 from __future__ import annotations
@@ -37,6 +37,7 @@ from auto_battlebot.calibration.sysid.sources import Dispatcher, live, replay
 from auto_battlebot.calibration.sysid.worker import InlineEngine, ProcessEngine, RefitEngine
 from auto_battlebot.recording.mcap_io import read_active_profile
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
 ADVANCE_S = 0.1
 PUBLISH_S = 0.25
 
@@ -133,7 +134,7 @@ def main() -> None:
     ap.add_argument("--host", default="127.0.0.1", help="page bind address")
     ap.add_argument("--no-serve", action="store_true", help="replay without the page")
     ap.add_argument(
-        "--out", type=Path, default=Path.home() / "sysid_sessions", help="session output root"
+        "--out", type=Path, default=REPO_ROOT / "data/sysid_sessions", help="session output root"
     )
     ap.add_argument("--seconds", type=float, default=300.0, help="--synthetic: session length")
     ap.add_argument(
