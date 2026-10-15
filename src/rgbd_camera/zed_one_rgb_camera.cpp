@@ -391,9 +391,17 @@ void ZedOneRgbCamera::apply_settings(const CameraSettings &settings) {
         std::lock_guard<std::mutex> lock(settings_mutex_);
         limits = settings_state_->limits;
     }
-    auto set = [this](sl::VIDEO_SETTINGS setting, int value, const CameraSettingRange &range) {
+    // SDK 5.2 skips a value equal to the last one set, even after auto exposure or auto white
+    // balance moved the sensor, so reapplying a profile after DEFAULT left the auto exposure
+    // running. Setting a neighbouring value first makes every apply a change (measured on the
+    // ZED Box: a repeated 1 ms stayed at auto brightness 86, a nudged one dropped to 8).
+    auto set = [this](sl::VIDEO_SETTINGS setting, int value, const CameraSettingRange &range,
+                      bool nudge = true) {
         if (!range.supported) return;
         const int clamped = std::clamp(value, range.min, range.max);
+        if (nudge && range.max > range.min) {
+            zed_.setCameraSettings(setting, clamped == range.max ? clamped - 1 : clamped + 1);
+        }
         const sl::ERROR_CODE result = zed_.setCameraSettings(setting, clamped);
         if (result != sl::ERROR_CODE::SUCCESS) {
             spdlog::warn("[ZedOneRgbCamera] setCameraSettings({}, {}) failed: {}",
@@ -402,15 +410,15 @@ void ZedOneRgbCamera::apply_settings(const CameraSettings &settings) {
     };
     const CameraSettingRange on_off{true, 0, 1};
     if (settings.auto_exposure) {
-        set(sl::VIDEO_SETTINGS::AEC_AGC, 1, on_off);
+        set(sl::VIDEO_SETTINGS::AEC_AGC, 1, on_off, false);
     } else {
-        set(sl::VIDEO_SETTINGS::AEC_AGC, 0, on_off);
+        set(sl::VIDEO_SETTINGS::AEC_AGC, 0, on_off, false);
         set(sl::VIDEO_SETTINGS::EXPOSURE_TIME, settings.exposure_us, limits.exposure_us);
         set(sl::VIDEO_SETTINGS::ANALOG_GAIN, settings.analog_gain_mdb, limits.analog_gain_mdb);
         set(sl::VIDEO_SETTINGS::DIGITAL_GAIN, settings.digital_gain, limits.digital_gain);
     }
     if (settings.auto_white_balance) {
-        set(sl::VIDEO_SETTINGS::WHITEBALANCE_AUTO, 1, on_off);
+        set(sl::VIDEO_SETTINGS::WHITEBALANCE_AUTO, 1, on_off, false);
     } else {
         set(sl::VIDEO_SETTINGS::WHITEBALANCE_TEMPERATURE, settings.white_balance_k,
             limits.white_balance_k);
