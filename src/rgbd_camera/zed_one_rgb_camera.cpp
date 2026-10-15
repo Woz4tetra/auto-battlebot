@@ -25,6 +25,11 @@ constexpr auto kJoinTimeout = std::chrono::seconds(3);
 constexpr const char *kVideoTopic = "/camera/video";
 }  // namespace
 
+// AE_ANTIBANDING is in SDK 5.5 (dev machines) but not 5.2 (the ZED Box). Without it the control
+// reports unsupported and the dashboard hides it; a profile's anti_banding is kept but not sent.
+#define AB_ZED_HAS_ANTIBANDING \
+    (ZED_SDK_MAJOR_VERSION > 5 || (ZED_SDK_MAJOR_VERSION == 5 && ZED_SDK_MINOR_VERSION >= 5))
+
 ZedOneRgbCamera::ZedOneRgbCamera(const ZedOneRgbCameraConfiguration &config,
                                  std::shared_ptr<McapRecorder> mcap_recorder)
     : config_(config),
@@ -336,8 +341,10 @@ CameraSettings ZedOneRgbCamera::read_settings() {
     s.saturation = get(sl::VIDEO_SETTINGS::SATURATION, s.saturation);
     s.gamma = get(sl::VIDEO_SETTINGS::GAMMA, s.gamma);
     s.sharpness = get(sl::VIDEO_SETTINGS::SHARPNESS, s.sharpness);
+#if AB_ZED_HAS_ANTIBANDING
     s.anti_banding = magic_enum::enum_cast<AntiBanding>(get(sl::VIDEO_SETTINGS::AE_ANTIBANDING, 0))
                          .value_or(AntiBanding::OFF);
+#endif
     return s;
 }
 
@@ -358,7 +365,9 @@ CameraSettingLimits ZedOneRgbCamera::read_limits() {
     limits.saturation = range(sl::VIDEO_SETTINGS::SATURATION);
     limits.gamma = range(sl::VIDEO_SETTINGS::GAMMA);
     limits.sharpness = range(sl::VIDEO_SETTINGS::SHARPNESS);
+#if AB_ZED_HAS_ANTIBANDING
     limits.anti_banding = range(sl::VIDEO_SETTINGS::AE_ANTIBANDING);
+#endif
     return limits;
 }
 
@@ -395,8 +404,10 @@ void ZedOneRgbCamera::apply_settings(const CameraSettings &settings) {
     set(sl::VIDEO_SETTINGS::SATURATION, settings.saturation, limits.saturation);
     set(sl::VIDEO_SETTINGS::GAMMA, settings.gamma, limits.gamma);
     set(sl::VIDEO_SETTINGS::SHARPNESS, settings.sharpness, limits.sharpness);
+#if AB_ZED_HAS_ANTIBANDING
     set(sl::VIDEO_SETTINGS::AE_ANTIBANDING, static_cast<int>(settings.anti_banding),
         limits.anti_banding);
+#endif
 }
 
 void ZedOneRgbCamera::service_settings() {
