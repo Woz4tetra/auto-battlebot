@@ -12,6 +12,11 @@ Inputs are session bundles from smooth_tag_poses.py (playground/calibration/out/
     python playground/calibration/fit_mujoco_plant.py validate out/mujoco_sysid/fit_<ts> \\
         out/mujoco_sysid/s04
 
+Validation writes ``validation.json`` and, under ``plots/``, the loss curves, the restarts'
+parameters, held-out rollouts against the measured robot, and the error per horizon (see
+``auto_battlebot/mujoco_sim/plots.py``). ``validate --name X`` writes ``validation_X.json`` and
+``plots_X/`` instead, so one fit can be scored on several holdouts side by side.
+
 Runs go through the GPU queue like training. The first submission has no history:
 
     venv/bin/python training/gpu_queue.py submit --name mujoco_fit --by <agent> \\
@@ -35,7 +40,7 @@ from typing import Any
 import numpy as np
 
 from auto_battlebot.control import plant
-from auto_battlebot.mujoco_sim import greybox, mass_properties, validate
+from auto_battlebot.mujoco_sim import greybox, mass_properties, plots, validate
 from auto_battlebot.mujoco_sim.actuator import PlantParams
 from auto_battlebot.mujoco_sim.fit import (
     PARAM_SPECS,
@@ -45,6 +50,7 @@ from auto_battlebot.mujoco_sim.fit import (
     fit,
     params_dict,
     warp_simulator,
+    window_errors,
     with_values,
 )
 from auto_battlebot.mujoco_sim.mjcf import CollisionSet
@@ -68,14 +74,22 @@ def _batch(
 
 
 def _subsample(batch: WindowBatch, limit: int, seed: int) -> WindowBatch:
-    """Keep every nose-lift window (they are rare) and an even random draw of flat ones."""
+    """At most half the batch nose-lift windows, the rest flat, each an even random draw.
+
+    Nose lifts were expected to be rare and were all kept, but the 2026-10-15 session has 150 of
+    them to 209 flat; keeping all would have left a 64-window batch with no flat window at all.
+    """
     if len(batch) <= limit:
         return batch
     rng = np.random.default_rng(seed)
     lift = np.nonzero(batch.kind == "nose_lift")[0]
     flat = np.nonzero(batch.kind != "nose_lift")[0]
-    keep_flat = rng.choice(flat, size=max(0, limit - len(lift)), replace=False)
-    return batch.take(np.sort(np.concatenate([lift, keep_flat])))
+    n_lift = min(len(lift), max(limit // 2, limit - len(flat)))
+    n_flat = min(len(flat), limit - n_lift)
+    keep = np.concatenate(
+        [rng.choice(lift, size=n_lift, replace=False), rng.choice(flat, size=n_flat, replace=False)]
+    )
+    return batch.take(np.sort(keep))
 
 
 def _simulator(mp: mass_properties.MassProperties, collision: CollisionSet, dt: float) -> Any:
@@ -169,7 +183,9 @@ def _fit_doc(
     }
 
 
-def _validate(fit_dir: Path, holdout: list[Path], dt: float, horizon: float) -> None:
+def _validate(
+    fit_dir: Path, holdout: list[Path], dt: float, horizon: float, name: str | None = None
+) -> None:
     doc = json.loads((fit_dir / "fit.json").read_text())
     mp = mass_properties.load()
     collision = CollisionSet.load()
@@ -193,13 +209,25 @@ def _validate(fit_dir: Path, holdout: list[Path], dt: float, horizon: float) -> 
         mp, collision, best, batch, rest_height(mp, collision, dt)
     )
     report["check6_identification"] = validate.identification(results)
-    (fit_dir / "validation.json").write_text(json.dumps(report, indent=2, default=float))
+    out_json = fit_dir / (f"validation_{name}.json" if name else "validation.json")
+    out_json.write_text(json.dumps(report, indent=2, default=float))
     print(json.dumps(report, indent=2, default=float))
-    print(f"wrote {fit_dir / 'validation.json'}")
+    print(f"wrote {out_json}")
+
+    plot_dir = fit_dir / (f"plots_{name}" if name else "plots")
+    plot_dir.mkdir(exist_ok=True)
+    mj_err = window_errors(batch, qpos, record_dt)
+    gq, gdt = greybox.predict(batch, grey)
+    gb_err = window_errors(batch, gq, gdt)
+    plots.plot_loss(doc, plot_dir / "loss.png")
+    plots.plot_params(doc, plot_dir / "params.png")
+    plots.plot_rollouts(batch, qpos, record_dt, gq, gdt, mj_err, plot_dir / "rollouts.png")
+    plots.plot_errors(batch, mj_err, gb_err, plot_dir / "errors.png")
+    print(f"wrote {plot_dir}/loss.png, params.png, rollouts.png, errors.png")
 
 
 def cmd_validate(args: argparse.Namespace) -> None:
-    _validate(args.fit_dir, args.holdout, args.dt, args.horizon)
+    _validate(args.fit_dir, args.holdout, args.dt, args.horizon, args.name)
 
 
 def main() -> None:
@@ -218,6 +246,9 @@ def main() -> None:
     p_val = sub.add_parser("validate", help="validate an existing fit on held-out sessions")
     p_val.add_argument("fit_dir", type=Path)
     p_val.add_argument("holdout", type=Path, nargs="+")
+    p_val.add_argument(
+        "--name", default=None, help="write validation_<name>.json and plots_<name>/ instead"
+    )
     for p in (p_fit, p_val):
         p.add_argument("--dt", type=float, default=1e-3, help="MuJoCo timestep")
         p.add_argument("--horizon", type=float, default=1.0, help="window length scored, s")

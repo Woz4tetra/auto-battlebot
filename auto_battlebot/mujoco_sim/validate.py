@@ -60,15 +60,16 @@ def _horizon_table(err: WindowErrors, batch: WindowBatch, mask: np.ndarray) -> d
         ok = np.isfinite(pos)
         if not ok.any():
             continue
-        pos_floor = pos[ok] / batch.noise_xy[mask][ok]
-        yaw_floor = np.abs(yaw[ok]) / batch.noise_yaw[mask][ok]
+        yaw_ok = np.isfinite(yaw)
+        pos_floor = pos[ok] / err.position_sigma[mask, j][ok]
+        yaw_floor = np.abs(yaw[yaw_ok]) / err.heading_sigma[mask, j][yaw_ok]
         out[f"{h:.1f}s"] = {
             "windows": int(ok.sum()),
             "position_median_m": float(np.median(pos[ok])),
             "position_p90_m": float(np.percentile(pos[ok], 90)),
-            "heading_median_rad": float(np.median(np.abs(yaw[ok]))),
+            "heading_median_rad": float(np.median(np.abs(yaw[yaw_ok]))) if yaw_ok.any() else None,
             "position_median_x_noise": float(np.median(pos_floor)),
-            "heading_median_x_noise": float(np.median(yaw_floor)),
+            "heading_median_x_noise": float(np.median(yaw_floor)) if yaw_ok.any() else None,
         }
     return out
 

@@ -22,7 +22,7 @@ trace, which is ground truth:
 
     python playground/calibration/sim_stop_test.py \\
         --fit-file playground/calibration/out/mujoco_sysid/fit_<ts>/fit.json \\
-        --arm current=config/mr_stabs_mk2_zed_box.toml \\
+        --arm current=config/mr_stabs_mk2_aer_zed_box.toml \\
         --arm distilled=playground/calibration/out/mujoco_sysid/fit_<ts>/distilled/plant.toml
 
 Build first (scripts/build.sh). Runs are sequential: the C++ side has the sim port hard-coded.

@@ -129,6 +129,10 @@ class WindowBatch:
     noise_xy: np.ndarray = field(default_factory=lambda: np.zeros(0))  # (N,)
     noise_yaw: np.ndarray = field(default_factory=lambda: np.zeros(0))
     noise_pitch: np.ndarray = field(default_factory=lambda: np.zeros(0))
+    # Per window, one sigma per measurement. Tag fixes carry the session noise floor; a YOLO fix
+    # carries its own, larger one. Empty means every measurement uses the window's noise.
+    meas_sigma_xy: list[np.ndarray] = field(default_factory=list)
+    meas_sigma_yaw: list[np.ndarray] = field(default_factory=list)
     sessions: list[str] = field(default_factory=list)
 
     def __len__(self) -> int:
@@ -156,6 +160,8 @@ class WindowBatch:
             meas_y=pick(self.meas_y),
             meas_yaw=pick(self.meas_yaw),
             meas_pitch=pick(self.meas_pitch),
+            meas_sigma_xy=pick(self.meas_sigma_xy) if self.meas_sigma_xy else [],
+            meas_sigma_yaw=pick(self.meas_sigma_yaw) if self.meas_sigma_yaw else [],
             noise_xy=self.noise_xy[idx],
             noise_yaw=self.noise_yaw[idx],
             noise_pitch=self.noise_pitch[idx],
@@ -201,7 +207,9 @@ def build_batch(
         k: [] for k in ("session", "wid", "kind", "start", "u", "vbat", "firmware", "polarity")
     }
     state_cols: dict[str, list[float]] = {k: [] for k in InitialState.__dataclass_fields__}
-    meas: dict[str, list[np.ndarray]] = {k: [] for k in ("t", "x", "y", "yaw", "pitch")}
+    meas: dict[str, list[np.ndarray]] = {
+        k: [] for k in ("t", "x", "y", "yaw", "pitch", "sigma_xy", "sigma_yaw")
+    }
     noise: dict[str, list[float]] = {"xy": [], "yaw": [], "pitch": []}
     for si, session in enumerate(sessions):
         polarity = motor_polarity(session)
@@ -220,6 +228,16 @@ def build_batch(
         if "rejected" in meas_df:
             meas_df = meas_df[~meas_df["rejected"].astype(bool)]
         m_t = meas_df["stamp_ns"].to_numpy(np.int64)
+        # Rows from a second source (source != "tag") keep their own sigma; tag rows use the floor.
+        tag_row = (
+            (meas_df["source"] == "tag").to_numpy()
+            if "source" in meas_df
+            else np.ones(len(meas_df), dtype=bool)
+        )
+        own_xy = meas_df["sigma_xy"].to_numpy(float) if "sigma_xy" in meas_df else np.nan
+        own_yaw = meas_df["sigma_yaw"].to_numpy(float) if "sigma_yaw" in meas_df else np.nan
+        row_sigma_xy = np.where(tag_row, session.noise_xy, own_xy)
+        row_sigma_yaw = np.where(tag_row, session.noise_yaw, own_yaw)
         for _, win in session.windows.iterrows():
             if str(win["kind"]) not in kinds:
                 continue
@@ -262,6 +280,8 @@ def build_batch(
             meas["y"].append(chunk["y"].to_numpy(float))
             meas["yaw"].append(chunk["yaw"].to_numpy(float))
             meas["pitch"].append(chunk["pitch"].to_numpy(float))
+            meas["sigma_xy"].append(row_sigma_xy[lo:hi])
+            meas["sigma_yaw"].append(row_sigma_yaw[lo:hi])
             noise["xy"].append(session.noise_xy)
             noise["yaw"].append(session.noise_yaw)
             noise["pitch"].append(session.noise_pitch)
@@ -289,5 +309,7 @@ def build_batch(
         noise_xy=np.array(noise["xy"]),
         noise_yaw=np.array(noise["yaw"]),
         noise_pitch=np.array(noise["pitch"]),
+        meas_sigma_xy=meas["sigma_xy"],
+        meas_sigma_yaw=meas["sigma_yaw"],
         sessions=[s.name for s in sessions],
     )
