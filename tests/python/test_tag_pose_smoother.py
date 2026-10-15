@@ -640,6 +640,35 @@ def test_imu_fusion_runs(session: Session) -> None:
     assert float(np.max(err)) < 0.6
 
 
+def test_imu_rate_pulls_an_aliased_yaw_rate_back() -> None:
+    """Fixes at 60 Hz cannot tell 0 rad/s from a whole turn per frame; the IMU must decide.
+
+    A bad rate seeds the alias for 0.5 s, then the IMU reports the truth (still). Gating the
+    rate knots against the aliased state rejected all of them, and the session at
+    data/recordings/auto_battlebot_mr_stabs_mk2_sysid_zed_box_2026-10-15_00-29-00.mcap span
+    hundreds of rad/s for most of its length.
+    """
+    alias = 2.0 * math.pi * 60.0
+    tf = np.arange(180) / 60.0
+    ti = np.arange(0.005, 3.0, 0.01)
+    t = np.r_[tf, ti]
+    order = np.argsort(t, kind="stable")
+    kind = np.r_[np.full(tf.size, tps.KIND_POSITION), np.full(ti.size, tps.KIND_RATE)]
+    z = np.r_[np.full(tf.size, 1.0), np.where(ti < 0.5, alias, 0.0)]
+    r = np.r_[np.full(tf.size, 0.01**2), np.full(ti.size, 0.3**2)]
+    knots = tps.Knots(
+        t_s=t[order],
+        t0_ns=0,
+        kind=kind.astype(np.int8)[order, None],
+        z=z[order, None],
+        r=r[order, None],
+    )
+    opts = tps.FilterOptions(angular=(True,), prior_std=((math.pi, 1000.0, 1000.0),))
+    run = tps.run_smoother(knots, np.array([[1e3]]), opts)
+    assert run.m_filt[0, np.searchsorted(knots.t_s, 0.45), 0, 1] == pytest.approx(alias, rel=0.01)
+    assert np.max(np.abs(run.m_smooth[0, knots.t_s > 2.0, 0, 1])) < 0.1
+
+
 def test_gating_rejects_injected_outliers() -> None:
     session = make_session(seed=11, outliers=12)
     result = tps.smooth_session(parsed_frames(session), field_series(session), mounts())

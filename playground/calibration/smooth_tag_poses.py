@@ -136,7 +136,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="resting pitch, nose-down positive; default: rest_pitch_rad in collision.toml",
     )
-    parser.add_argument("--fuse-imu", action="store_true", help="fuse BNO055 yaw rate")
+    parser.add_argument(
+        "--no-fuse-imu", dest="fuse_imu", action="store_false", help="skip BNO055 yaw rate"
+    )
     parser.add_argument("--linear-channel", type=int, default=0, help="stick channel of a_percent")
     parser.add_argument("--angular-channel", type=int, default=1, help="stick channel of b_percent")
     parser.add_argument("--window-s", type=float, default=1.0)

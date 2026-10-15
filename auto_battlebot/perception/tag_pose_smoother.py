@@ -763,9 +763,13 @@ class _ForwardState:
         dof = u.sum(axis=1)
         measured = dof > 0
         passed = (nis <= self.thresholds[dof]) if self.options.gate else measured.copy()
-        if self.exempt[k]:
-            passed = measured.copy()
         is_position = bool(np.any(kind_k == KIND_POSITION))
+        # Rate knots (the IMU) skip the gate. A wrapped angle fix cannot tell a rate from that
+        # rate plus a whole turn per frame, so a jolt across a dropout can leave the rate aliased
+        # while every fix still passes. Gating the IMU against that state would reject the one
+        # measurement that can pull it back.
+        if self.exempt[k] or not is_position:
+            passed = measured.copy()
         reset = np.zeros_like(measured)
         if is_position:
             lost = (t - self.last_fix > self.options.reacquire_s) | (
@@ -1045,7 +1049,7 @@ class SmootherOptions:
     q_xy: np.ndarray = field(default_factory=lambda: np.logspace(0.0, 6.0, 13))
     q_yaw: np.ndarray = field(default_factory=lambda: np.logspace(1.0, 7.0, 13))
     q_tilt: np.ndarray = field(default_factory=lambda: np.logspace(0.0, 6.0, 13))
-    fuse_imu: bool = False
+    fuse_imu: bool = True
     imu_min_correlation: float = 0.7
     still_yaw_rate: float = 0.15  # rad/s: "not turning" for the IMU rate noise
     spin_rate: float = 3.0  # rad/s: "a spin" for the IMU agreement check
@@ -1279,7 +1283,8 @@ def smooth_session(
             esp32["orientation_x"].to_numpy(),
             esp32["is_upside_down"].to_numpy(),
         )
-        imu_lag, checks["imu_yaw_rate"] = _imu_agreement(grid, imu, opts)
+        tag_rate = _raw_tag_yaw_rate(raw.stamp_ns, raw.yaw, grid_ns)
+        imu_lag, checks["imu_yaw_rate"] = _imu_agreement(grid_ns, tag_rate, imu, opts)
         fused = _fuse_imu(
             raw, planar_z, planar_sigma, t0_ns, planar, planar_opts, imu, checks, opts
         )
@@ -1343,8 +1348,10 @@ def _fuse_imu(
     sign = float(agreement["measured_sign"])
     lag_s = float(agreement["lag_s"])
     shifted = ImuYawRate(imu.stamp_ns - int(round(lag_s * _NS)), imu.rate * sign, imu.valid)
-    still_std = agreement.get("still_rate_std")
-    imu_sigma = max(float(still_std) if still_std is not None else 0.05, 0.05)
+    # Still-period noise alone understates the IMU's error mid-spin, where a too-tight sigma gates
+    # out good tag fixes; the spin disagreement (which includes some tag-rate noise) covers it.
+    sigmas = [agreement.get("still_rate_std"), agreement.get("spin_rms_rad_s"), 0.05]
+    imu_sigma = max(float(v) for v in sigmas if v is not None)
     knots, src = _planar_knots(raw.stamp_ns, planar_z, planar_sigma, t0_ns, shifted, imu_sigma)
     run, exempt = smooth_with_recheck(knots, planar.q, planar_opts)
     checks["imu_fused"] = {"sign": sign, "lag_s": lag_s, "sigma": imu_sigma}
@@ -1477,8 +1484,9 @@ def _grid_frame(
             "yaw_rate": m[:, 2, 1],
             "ax": ax,
             "ay": ay,
-            "pitch": tm[:, 0, 0],
-            "roll": tm[:, 1, 0],
+            # The tilt filter wraps its innovations, so its state can sit a whole turn off.
+            "pitch": wrap_angle(tm[:, 0, 0]),
+            "roll": wrap_angle(tm[:, 1, 0]),
             "sigma_x": np.sqrt(c2 * var_along + s2 * var_across),
             "sigma_y": np.sqrt(s2 * var_along + c2 * var_across),
             "sigma_yaw": np.sqrt(np.maximum(cov[:, 2, 0, 0], 0.0)),
@@ -1515,14 +1523,34 @@ def _noise_floor(meas: pd.DataFrame, still: np.ndarray) -> dict[str, Any]:
     return out
 
 
+def _raw_tag_yaw_rate(
+    stamp_ns: np.ndarray, yaw: np.ndarray, grid_ns: np.ndarray, span_s: float = 0.1
+) -> np.ndarray:
+    """Yaw rate from the raw tag detections on ``grid_ns``, NaN across detection gaps.
+
+    A central difference over ``span_s`` of the resampled raw yaw. It stays independent of the
+    smoother, so it can vet the IMU even when the smoothed yaw rate has aliased.
+    """
+    order = np.argsort(stamp_ns, kind="stable")
+    yaw_on_grid = resample_linear(
+        stamp_ns[order], np.unwrap(np.asarray(yaw)[order]), grid_ns, max_gap_s=0.05
+    )
+    rate = np.full(grid_ns.shape, np.nan)
+    if grid_ns.size < 3:
+        return rate
+    dt = (grid_ns[1] - grid_ns[0]) / _NS
+    half = max(1, int(round(span_s / (2.0 * dt))))
+    if grid_ns.size > 2 * half:
+        rate[half:-half] = (yaw_on_grid[2 * half :] - yaw_on_grid[: -2 * half]) / (2 * half * dt)
+    return rate
+
+
 def _imu_agreement(
-    grid: pd.DataFrame, imu: ImuYawRate, opts: SmootherOptions
+    grid_ns: np.ndarray, tag_rate: np.ndarray, imu: ImuYawRate, opts: SmootherOptions
 ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
-    """Lag, sign and fit of BNO055 yaw rate against smoothed tag yaw rate."""
-    grid_ns = grid["stamp_ns"].to_numpy()
+    """Lag, sign and fit of BNO055 yaw rate against the raw tag yaw rate on ``grid_ns``."""
     imu_rate = np.where(imu.valid, imu.rate, np.nan)
     imu_on_grid = resample_linear(imu.stamp_ns, imu_rate, grid_ns, max_gap_s=0.05)
-    tag_rate = grid["yaw_rate"].to_numpy()
     if np.isfinite(imu_on_grid).sum() < 50:
         return None, {"samples": int(np.isfinite(imu_on_grid).sum())}
     lag = cross_correlation_delay(opts.grid_dt_s, tag_rate, imu_on_grid, max_lag_s=0.2)
