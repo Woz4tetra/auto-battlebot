@@ -164,8 +164,9 @@ bool ZedOneRgbCamera::initialize() {
     read_calibration();
     // Nothing is set on the camera at startup: DEFAULT is whatever it opened with, kept so a
     // dashboard switch back to DEFAULT can restore it.
-    opened_settings_ = read_settings();
-    settings_state_ = CameraSettingsState{opened_settings_, read_limits()};
+    const CameraSettingLimits limits = read_limits();
+    opened_settings_ = read_settings(limits);
+    settings_state_ = CameraSettingsState{opened_settings_, limits};
     latest_data_.tracking_ok = true;
 
     if (mcap_recorder_) {
@@ -322,7 +323,7 @@ std::optional<CameraSettingsState> ZedOneRgbCamera::camera_settings() const {
     return settings_state_;
 }
 
-CameraSettings ZedOneRgbCamera::read_settings() {
+CameraSettings ZedOneRgbCamera::read_settings(const CameraSettingLimits &limits) {
     auto get = [this](sl::VIDEO_SETTINGS setting, int fallback) {
         int value = fallback;
         if (!zed_.isCameraSettingSupported(setting) ||
@@ -331,11 +332,18 @@ CameraSettings ZedOneRgbCamera::read_settings() {
         }
         return value;
     };
+    // Under auto exposure SDK 5.2 reports exposure and both gains as -1, not what AEC chose.
+    // Turning auto off sends these values back, and -1 clamps to a 28 us exposure (a black
+    // frame), so an unknown value becomes a usable manual start: half a frame at the lowest gain.
+    auto get_or = [&](sl::VIDEO_SETTINGS setting, int when_unknown) {
+        const int value = get(setting, -1);
+        return value < 0 ? when_unknown : value;
+    };
     CameraSettings s;
     s.auto_exposure = get(sl::VIDEO_SETTINGS::AEC_AGC, 1) != 0;
-    s.exposure_us = get(sl::VIDEO_SETTINGS::EXPOSURE_TIME, s.exposure_us);
-    s.analog_gain_mdb = get(sl::VIDEO_SETTINGS::ANALOG_GAIN, s.analog_gain_mdb);
-    s.digital_gain = get(sl::VIDEO_SETTINGS::DIGITAL_GAIN, s.digital_gain);
+    s.exposure_us = get_or(sl::VIDEO_SETTINGS::EXPOSURE_TIME, limits.exposure_us.max / 2);
+    s.analog_gain_mdb = get_or(sl::VIDEO_SETTINGS::ANALOG_GAIN, limits.analog_gain_mdb.min);
+    s.digital_gain = get_or(sl::VIDEO_SETTINGS::DIGITAL_GAIN, std::max(1, limits.digital_gain.min));
     s.auto_white_balance = get(sl::VIDEO_SETTINGS::WHITEBALANCE_AUTO, 1) != 0;
     s.white_balance_k = get(sl::VIDEO_SETTINGS::WHITEBALANCE_TEMPERATURE, s.white_balance_k);
     s.saturation = get(sl::VIDEO_SETTINGS::SATURATION, s.saturation);
@@ -424,7 +432,8 @@ void ZedOneRgbCamera::service_settings() {
     constexpr int kReadbackPeriodFrames = 30;
     if (!request && ++frames_since_settings_read_ < kReadbackPeriodFrames) return;
     frames_since_settings_read_ = 0;
-    const CameraSettings current = read_settings();
+    // limits never change after open, so reading them unlocked here on the capture thread is safe.
+    const CameraSettings current = read_settings(settings_state_->limits);
     std::lock_guard<std::mutex> lock(settings_mutex_);
     settings_state_->settings = current;
 }

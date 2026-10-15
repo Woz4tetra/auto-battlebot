@@ -53,7 +53,7 @@ class ZedOneRgbCamera : public RgbdCameraInterface {
    private:
     bool open_camera();
     /** Current values of every control, read from the open camera. */
-    CameraSettings read_settings();
+    CameraSettings read_settings(const CameraSettingLimits &limits);
     CameraSettingLimits read_limits();
     void apply_settings(const CameraSettings &settings);
     /** Capture thread, between grabs: apply a queued request, and refresh the read-back. */
