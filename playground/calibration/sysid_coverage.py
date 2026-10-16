@@ -134,9 +134,7 @@ def main() -> None:
     ap.add_argument("--port", type=int, default=8790, help="page port on this machine")
     ap.add_argument("--host", default="127.0.0.1", help="page bind address")
     ap.add_argument("--no-serve", action="store_true", help="replay without the page")
-    ap.add_argument(
-        "--out", type=Path, default=SESSIONS_DIR, help="session output root"
-    )
+    ap.add_argument("--out", type=Path, default=SESSIONS_DIR, help="session output root")
     ap.add_argument("--seconds", type=float, default=300.0, help="--synthetic: session length")
     ap.add_argument(
         "--loop-on-from",

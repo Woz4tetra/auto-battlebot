@@ -17,13 +17,8 @@ parameters, held-out rollouts against the measured robot, and the error per hori
 ``auto_battlebot/mujoco_sim/plots.py``). ``validate --name X`` writes ``validation_X.json`` and
 ``plots_X/`` instead, so one fit can be scored on several holdouts side by side.
 
-Runs go through the GPU queue like training. The first submission has no history:
-
-    venv/bin/python training/gpu_queue.py submit --name mujoco_fit --by <agent> \\
-        --profile mujoco-fit --eta 2h -- \\
-        venv/bin/python playground/calibration/fit_mujoco_plant.py fit ...
-
-`fit` prints its total rollout-steps up front; later submissions pass that as --work.
+`fit` prints its total rollout-steps up front. 1.64e9 steps take about 27 minutes on the
+RTX 4080 laptop.
 """
 
 from __future__ import annotations
@@ -55,7 +50,13 @@ from auto_battlebot.mujoco_sim.fit import (
 )
 from auto_battlebot.mujoco_sim.mjcf import CollisionSet
 from auto_battlebot.mujoco_sim.rollout import WarpRollout, rest_height
-from auto_battlebot.mujoco_sim.session import WindowBatch, build_batch, load_session
+from auto_battlebot.mujoco_sim.session import (
+    MANEUVERS,
+    WindowBatch,
+    build_batch,
+    load_session,
+    maneuvers,
+)
 
 OUT = Path(__file__).resolve().parent / "out/mujoco_sysid"
 
@@ -74,21 +75,33 @@ def _batch(
 
 
 def _subsample(batch: WindowBatch, limit: int, seed: int) -> WindowBatch:
-    """At most half the batch nose-lift windows, the rest flat, each an even random draw.
+    """An even random draw from every maneuver and window kind, as far as each one has windows.
 
-    Nose lifts were expected to be rare and were all kept, but the 2026-10-15 session has 150 of
-    them to 209 flat; keeping all would have left a 64-window batch with no flat window at all.
+    Strata are drive direction (forward, reverse, spin, other) crossed with flat and nose-lift.
+    Each gets an equal share of the limit; a stratum with fewer windows than its share gives the
+    rest to the others. A plain random draw followed the session's mix, which is mostly forward:
+    the 2026-10-15 fit got 5 reverse windows out of 64, one of them a reversing turn, and its
+    MuJoCo model turned 24 deg too far in median over 0.4 s on reverse windows against 4 deg
+    forward.
     """
     if len(batch) <= limit:
         return batch
     rng = np.random.default_rng(seed)
-    lift = np.nonzero(batch.kind == "nose_lift")[0]
-    flat = np.nonzero(batch.kind != "nose_lift")[0]
-    n_lift = min(len(lift), max(limit // 2, limit - len(flat)))
-    n_flat = min(len(flat), limit - n_lift)
-    keep = np.concatenate(
-        [rng.choice(lift, size=n_lift, replace=False), rng.choice(flat, size=n_flat, replace=False)]
-    )
+    maneuver = maneuvers(batch)
+    strata = [
+        np.flatnonzero((maneuver == m) & (batch.kind == k))
+        for m in MANEUVERS
+        for k in ("flat", "nose_lift")
+    ]
+    strata = [rng.permutation(idx) for idx in strata if idx.size]
+    take = [0] * len(strata)
+    left = limit
+    while left > 0:
+        open_ = [j for j, idx in enumerate(strata) if take[j] < idx.size]
+        for j in open_[:left]:
+            take[j] += 1
+        left -= min(len(open_), left)
+    keep = np.concatenate([idx[:n] for idx, n in zip(strata, take)])
     return batch.take(np.sort(keep))
 
 
@@ -131,7 +144,7 @@ def cmd_fit(args: argparse.Namespace) -> None:
     print(
         f"{len(batch)} windows ({n_lift} nose-lift) from {len(args.sessions)} sessions; "
         f"{len(batch) * args.popsize} worlds per generation; "
-        f"up to {total:.3g} rollout-steps (pass as --work to gpu_queue.py)"
+        f"up to {total:.3g} rollout-steps"
     )
     simulate = _simulator(mp, collision, args.dt)
     out_dir = args.out or OUT / time.strftime("fit_%Y%m%d_%H%M%S")
@@ -209,6 +222,15 @@ def _validate(
         mp, collision, best, batch, rest_height(mp, collision, dt)
     )
     report["check6_identification"] = validate.identification(results)
+    report["check7_closed_loop"] = validate.maneuver_errors(
+        batch,
+        {
+            "open_loop": (qpos, record_dt),
+            "closed_loop": validate.closed_loop_replay(
+                mp, collision, best, batch, rest_height(mp, collision, dt)
+            ),
+        },
+    )
     out_json = fit_dir / (f"validation_{name}.json" if name else "validation.json")
     out_json.write_text(json.dumps(report, indent=2, default=float))
     print(json.dumps(report, indent=2, default=float))

@@ -255,17 +255,13 @@ smoother gets back to it. Across 40 hidden 1 s spans on `00-29-00`:
 
 ### 5. Fit the MuJoCo plant
 
-The fit runs MuJoCo Warp on the GPU, so it goes through the GPU queue. Check `status` first.
+The fit runs MuJoCo Warp on the laptop's GPU. Run it directly.
 
 ```bash
-venv/bin/python training/gpu_queue.py status
-venv/bin/python training/gpu_queue.py submit --name mujoco_fit --by <you> --profile mujoco-fit \
-    --work 1638400000 -- \
-    venv/bin/python playground/calibration/fit_mujoco_plant.py fit $OUT/2026-10-15_00-29-00_yolo \
+python playground/calibration/fit_mujoco_plant.py fit $OUT/2026-10-15_00-29-00_yolo \
     --holdout $OUT/2026-10-15_00-20-58_yolo \
     --max-windows 64 --popsize 64 --generations 25 --restarts 2 --zero-mode both \
     --out $OUT/fit_2026-10-15_yolo
-venv/bin/python training/gpu_queue.py logs -f
 ```
 
 The first line it prints is the batch and its cost:
@@ -274,7 +270,7 @@ The first line it prints is the batch and its cost:
 64 windows (32 nose-lift) from 1 sessions; 4096 worlds per generation; up to 1.64e+09 rollout-steps
 ```
 
-At most half the batch is nose-lift windows. `--work` is that rollout-step count. These settings
+At most half the batch is nose-lift windows. These settings
 take about 27 minutes on the RTX 4080 laptop; the defaults (popsize 128, 40 generations,
 3 restarts) are about five times that.
 
@@ -314,6 +310,16 @@ With `--holdout` the fit validates at the end. `fit_2026-10-15_yolo/` then holds
 | `check4_nose_lift` | `both_lift` and `neither` dominate; `real_only` and `sim_only` small |
 | `check5_firmware` | `pid_output_rms_percent` and `motor_command_rms_percent` small: the simulated firmware reproduces the logged commands |
 | `check6_identification` | restart `losses` close together; `tradeoff_pairs` lists parameters that trade against each other |
+| `check7_closed_loop` | read it: errors per drive direction (forward, reverse, spin, other), open loop and with the firmware yaw loop run around the sim from the logged sticks |
+
+Score reverse driving on `check7_closed_loop.closed_loop`, not on the open-loop numbers. When
+the stick is centred, the yaw loop holds heading against a reverse veer the plant does not have.
+On 2026-10-15 it backed up straight with 1.12 to 1.6 times more left than right command, growing
+with throttle. Open-loop replay feeds that correction to a sim that has no veer, so the sim turns
+and the real robot didn't: 12.8 deg median heading error at 0.4 s on the `00-20-58` holdout.
+With the loop closed it is 5.3 deg. Fitting per-motor reverse gains to chase the open-loop error
+improved the training session and doubled the holdout's reverse position error, because the veer
+changes between sessions.
 
 The fit keeps the restart with the lowest training loss, even when the brake and coast restarts
 tie. Look at both. On 2026-10-15 the tag + YOLO fit's best coast restart (54.30) beat its best
@@ -433,7 +439,9 @@ stopped along the approach (`stop_along`, negative is short), how far past it go
 when it arrived, and how often it left the stop circle again. The per-arm summary counts stops
 within `--stop-distance` (0.15 m). The distilled arm should stop on target more often and with a
 smaller mean miss than the current one. `FLIPPED` means the punch flipped the robot; lower
-`--max-linear-command` rather than blaming the table.
+`--max-linear-command` rather than blaming the table. On the 2026-10-15 fit every arm flips at
+the default 0.8, every arm stops within 2 cm at 0.3, and 0.5 separates them: 2/6 on target for
+the placeholder table, 5/6 for the distilled one.
 
 ### 10. On the robot
 

@@ -458,6 +458,33 @@ def test_yaw_loop_scales_with_reverse_throttle() -> None:
     )
 
 
+def test_mixer_resume_reproduces_the_logged_output() -> None:
+    """A window starting mid-turn picks the yaw loop up where the robot had it: the next sample
+    with the same stick and gyro gives back the logged output, feedforward counted once."""
+    for throttle, turn, rate, logged in ((-40.0, 20.0, 380.0, 16.0), (30.0, 0.0, -5.0, -8.0)):
+        mixer = FirmwareMixer()
+        mixer.resume(throttle, turn, 90.0, rate, logged)
+        mixer.step(throttle, turn, 90.0, 0.01, yaw_rate_dps=rate)
+        assert abs(mixer.pid_output - logged) < 0.5
+
+
+def test_closed_loop_replay_falls_back_to_open_loop_before_the_yaw_loop(
+    tmp_path: Path, mp: mass_properties.MassProperties, collision: CollisionSet
+) -> None:
+    """The synthetic bundle is stamped in 1970, before the yaw loop: the replay must drive the
+    logged motor commands exactly as the open-loop rollout does."""
+    from auto_battlebot.mujoco_sim import validate
+
+    truth = PlantParams(delay_s=0.02)
+    bundle = _synthetic_bundle(tmp_path, mp, collision, truth)
+    batch = build_batch([load_session(bundle)], horizon_s=0.4, dt=DT, horizons=(0.2, 0.4))
+    height = rest_height(mp, collision, DT)
+    closed, closed_dt = validate.closed_loop_replay(mp, collision, truth, batch, height)
+    open_, open_dt = _cpu_simulator(mp, collision)(batch, [truth] * len(batch))
+    assert closed_dt == open_dt
+    np.testing.assert_allclose(closed[..., :3], open_[..., :3], atol=2e-3)
+
+
 def test_yaw_loop_idles_standing_still() -> None:
     """The 2026-10-06 run shook at 6 Hz holding heading at a standstill; now it idles."""
     mixer = FirmwareMixer()

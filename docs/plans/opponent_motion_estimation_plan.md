@@ -1,9 +1,14 @@
 # Opponent motion estimation plan
 
 Goal: estimate each opponent's pose (position and heading) and velocity (linear and yaw rate)
-with uncertainties, and predict them forward over the planning horizon, so
-`PlantRolloutNavigation` can place the opponent's weapon arc where it will be, not where it was
-(`docs/plans/plant_rollout_navigation_plan.md`, sections 1 and 2).
+with uncertainties, so `RlPolicyNavigation` (`docs/plans/rl_policy_navigation_plan.md`) sees
+where the opponent is, which way its weapon faces, how it is moving, and how sure the filter is
+of each. The same filter runs, batched, inside the policy's training environment, so the policy
+trains on the filter output it will see on the robot.
+
+This plan used to serve `PlantRolloutNavigation`, which the RL plan replaces. The forward
+prediction helper that planner needed (old section 4) is dropped: the policy predicts the
+opponent itself from its observation history.
 
 The heading measurement comes from the learned NHRL keypoint model, trained on synthetic data,
 which gives front and back keypoints for arbitrary robots. This plan does not change perception.
@@ -44,8 +49,8 @@ off per frame:
   translation block is today's constant-velocity model. The heading block is a separate
   constant-yaw-rate model with its own process noise. Linear, so the existing `ekf_update`,
   snapshot and rewind code carry over with a larger `N` and `theta` marked as an angle state.
-- **Prediction:** a pure function (section 4) that advances along an arc using `omega` when the
-  velocity direction agrees with the heading, and in a straight line otherwise.
+- **Prediction:** none beyond the filter's own coast to the render time. The policy reads
+  `omega`, velocity and the sigmas and learns how the opponent moves next.
 - **Phase 2, only if phase 1 falls short:** a body-frame model `[x, y, theta, u, s, omega]`
   with forward speed `u` and lateral speed `s`. Lateral speed gets small process noise for
   two-wheel robots and large noise for spinners, configured per label. Adopt it only if it beats
@@ -114,56 +119,95 @@ Add the per-track sigmas and the flip count to the `kalman_motion_estimator` dia
 the new fields to the Foxglove adapter that publishes robot descriptions, with
 `docs/foxglove_recording_format.md` updated to match.
 
-### 4. Prediction helper
+### 4. Wall stop in the renderer
 
-A pure function shared by navigation and the offline evaluation:
-
-```cpp
-/** Advance a rendered opponent estimate by dt seconds (dt >= 0). Arc motion when the
- * velocity direction is within `arc_alignment_rad` of the heading or its reverse and the
- * heading is known; straight-line otherwise. Position stops at the field walls minus
- * `wall_margin_m`. Sigmas grow with the filter's own process noise over dt. */
-OpponentPrediction predict_opponent(const RobotDescription &opponent, double dt,
-                                    const OpponentPredictionSettings &settings,
-                                    const FieldDescription &field);
-```
-
-`OpponentPrediction` holds center, heading, speed, yaw rate and the three sigmas. It lives in
-`include/robot_filter/opponent_prediction.hpp` so the estimator, navigation and tests share it.
-`PlantRolloutNavigation` calls it once per rollout step per replan, and builds the weapon arc
-from the predicted heading and `heading_sigma_rad`.
-
-Wall stop: a constant-velocity prediction of an opponent pinned on a wall drives through the
-wall. The helper zeroes the velocity component into any wall the predicted center reaches. The
-renderer does the same within `max_coast_s`, which also stops the clip in
-`clip_to_field_bounds` from fighting a velocity that points out of the field.
+A constant-velocity coast of an opponent pinned on a wall drives through the wall. Within
+`max_coast_s`, `coast()` zeroes the velocity component into any wall the rendered center
+reaches, which also stops the clip in `clip_to_field_bounds` from fighting a velocity that
+points out of the field. The rendered velocity is what the policy sees, so an opponent against a
+wall must read as stopped, not as still driving into it.
 
 ### 5. Turning it on
 
 Set `opponent_mode = "KALMAN"` in `config/_common.toml` once step 4 below passes. Playback and
 sim profiles inherit it. `HOLD` stays available as a fallback.
 
+### 6. What RlPolicyNavigation reads
+
+The contract between this filter and the policy's observation builder
+(`rl_policy_navigation_plan.md`, section 3). Every field is from the rendered estimate, at now
+plus `render_lead_s()`.
+
+| `RobotDescription` field | Meaning | Policy observation |
+| --- | --- | --- |
+| `pose` position | filtered center | position, distance, bearing in our body frame |
+| `pose.rotation` | filtered heading `theta` | heading relative to ours, sin and cos |
+| `velocity.vx`, `vy` | filtered velocity, wall-stopped | velocity in our body frame |
+| `velocity.omega` | filtered yaw rate | yaw rate [15 rad/s] |
+| `uncertainty.position_sigma_m` | section 3 | [0.1 m], capped at 1 |
+| `uncertainty.heading_sigma_rad` | section 3; at the cap for heading-blind labels and blob-born tracks | [pi], capped at 1 |
+| `uncertainty.yaw_rate_sigma_rad_s` | section 3 | [15 rad/s], capped at 1 |
+| `is_stale` | past `max_coast_s` | stale flag |
+
+Rules the builder relies on:
+
+- An infinite sigma is written as the cap (1.0 after scaling), never as infinity or NaN.
+- A heading-blind label reports `heading_sigma_rad` at the cap and its weapon is `FULL_CIRCLE`
+  in the observation, whatever `[navigation.opponent_weapons]` says. The heading-blind list is
+  the one source for "cannot be oriented".
+- A heading flip that the filter rejected leaves `pose.rotation` on the filtered value. The
+  policy never sees the raw flipped measurement, only the filter's response to it.
+
+### 7. Batched mirror for training
+
+The Python mirror (Evaluation, below) is written once, vectorized over tracks in torch, so the
+same code serves three callers:
+
+1. the grid search over logged measurements on the CPU
+2. the parity test against the C++ golden fixture
+3. the RL training environment on the GPU, one filter per world, fed simulated keypoint
+   measurements
+
+In the training environment, the opponent's true pose becomes a measurement through the fitted
+measurement model (position and heading noise, dropout gaps, 180 degree flips, latency; RL plan
+section 4), goes through the mirrored filter, and is rendered at the same lead the C++ uses. The
+policy then trains on exactly the estimator it runs against, including its lag, its coast
+behaviour and its response to flips, instead of on a fitted approximation of the filter's error.
+The filter is linear with 6 states, so 8,192 copies cost little next to the physics step.
+
 ## Evaluation
 
-The question is prediction accuracy at the horizons the planner uses, against later
-measurements, on real recordings with the learned keypoint model.
+The question is how close the rendered estimate, which is what the policy sees, sits to the
+opponent's true pose: on fresh frames, and while coasting through the dropouts the policy has to
+drive through (p90 gap 340 ms).
 
-- **Data:** NHRL May and MassD recordings, replayed in playback mode with the learned keypoint
-  model, recording the new diagnostics. Hold out whole recordings.
-- **Metric:** from each accepted correction at time t, predict to t + h for h in 0.1, 0.2, 0.3,
-  0.5 s with `predict_opponent`, and compare against the next accepted measurement within a
-  frame of t + h. Report position error (median and p90) and heading error, split by opponent
-  label and by motion class (still, straight, arcing, spinning).
-- **Baselines:** today's `HOLD` (prediction = last pose) and today's 4-state `KALMAN` with
-  velocity-direction heading. Phase 1 has to beat both at 0.2 and 0.5 s.
+- **Ground truth:** the apartment-floor recordings from `rl_policy_navigation_plan.md`
+  section 9, with an AprilTag on Mrs Buff Mk3 detected offline from the video. This is the only
+  data with an independent opponent pose, so it scores the filter directly.
+- **Volume and opponent variety:** NHRL May and MassD recordings, replayed in playback mode with
+  the learned keypoint model, recording the new diagnostics. No ground truth there, so they are
+  scored against later measurements, as below. Hold out whole recordings.
+- **Metric, against ground truth:** rendered position, heading and yaw-rate error at each tick,
+  split by time since the last accepted measurement (0, 0.1, 0.2, 0.35 s) and by motion class
+  (still, straight, arcing, spinning). Also the fraction of ticks where the truth falls inside
+  2 sigma, per field; the policy reads the sigmas, so they have to mean what they say.
+- **Metric, against later measurements:** from each accepted correction at time t, coast the
+  filter to t + h for h in 0.1, 0.2, 0.35 s and compare against the next accepted measurement
+  within a frame of t + h. Position error (median and p90) and heading error, by opponent label.
+- **Baselines:** today's `HOLD` (estimate = last pose) and today's 4-state `KALMAN` with
+  velocity-direction heading. Phase 1 has to beat both at 0.1 and 0.35 s.
 - **Consistency:** normalized innovation squared (NIS) on accepted updates should average about
   the measurement dimension (2 or 3). Too high means process noise is too low, and the gate is
   rejecting good data.
-- **Tuning:** `opponent_accel_psd`, `opponent_yaw_accel_psd`, `keypoint_heading_sigma_rad` for
-  opponents, and `arc_alignment_rad`, chosen by grid search on the training recordings against
-  the 0.2 and 0.5 s errors plus the NIS check. The filter is linear and small, so a Python
-  mirror in `auto_battlebot/perception/` runs the search over logged measurements without the
-  C++ binary. A parity test against a C++ golden fixture keeps the two identical.
+- **Tuning:** `opponent_accel_psd`, `opponent_yaw_accel_psd` and `keypoint_heading_sigma_rad`
+  for opponents, chosen by grid search on the training recordings against the ground-truth
+  errors at 0 and 0.35 s, the 2-sigma coverage, and the NIS check. The filter is linear and
+  small, so a Python mirror in `auto_battlebot/perception/opponent_filter.py` runs the search over
+  logged measurements without the C++ binary. A parity test against a C++ golden fixture keeps
+  the two identical. Section 7 reuses the same mirror in training.
+- **Measurement model:** the same ground-truth recordings give the keypoint measurement errors
+  the training environment injects: position and heading noise by speed, flip rate by speed and
+  label, dropout gap lengths, latency. Written to the RL plan's `sensing_model.toml`.
 - **Script:** `playground/opponent_prediction/evaluate_opponent_prediction.py`, one CLI. Output
   goes under `playground/opponent_prediction/out/`, not `runs/`.
 
@@ -179,19 +223,36 @@ measurements, on real recordings with the learned keypoint model.
    - late-measurement rewind still restores all six states
    - past `max_coast_s`, position, heading and yaw rate all hold
    - existing CV tests still pass with heading rows absent
-2. **Uncertainty output.** Section 3: `PoseUncertainty`, render changes, diagnostics, Foxglove
-   adapter and format doc. Test that sigmas shrink with measurements and grow while coasting.
-3. **Prediction helper.** Section 4, with tests for arc versus straight selection, the wall
-   stop, sigma growth, and `dt = 0` returning the input.
+2. **Uncertainty output and wall stop.** Sections 3 and 4: `PoseUncertainty`, render changes,
+   the renderer wall stop, diagnostics, Foxglove adapter and format doc. Tests: sigmas shrink
+   with measurements and grow while coasting; a heading-blind track reports the capped heading
+   sigma; an opponent coasting into a wall renders with zero velocity into it.
+3. **Python mirror and parity.** Section 7: `auto_battlebot/perception/opponent_filter.py`,
+   vectorized over tracks in torch, plus the C++ golden fixture and a parity test to 1e-6 on
+   state, covariance and rendered output, including a rewind and a flip re-initialization.
 4. **Playback regression.** Replay the eval recordings with `KALMAN` on. Compare `num_gated`,
    `num_reinit`, flip counts and track identity swaps against `HOLD`. Nothing downstream
    (target selection, current navigations) should get worse.
-5. **Prediction evaluation and noise fit.** The evaluation above, the Python mirror and its
-   parity test, the grid search, and a write-up in `docs/experiments/kalman_filter/`.
+5. **Evaluation and noise fit.** Needs the apartment-floor recordings with the Mrs Buff Mk3
+   tag. The evaluation above, the grid search, the measurement model for the RL sensing model,
+   and a write-up in `docs/experiments/kalman_filter/`.
 6. **Enable.** `opponent_mode = "KALMAN"` in `config/_common.toml`.
-7. **Phase 2, conditional.** Only if step 5 shows arc or lateral motion errors that the
-   prediction helper cannot fix: the body-frame `[x, y, theta, u, s, omega]` EKF, evaluated the
-   same way, adopted only if it wins on held-out recordings.
+7. **Phase 2, conditional.** Only if step 5 shows arc or lateral motion errors at 0.35 s that
+   phase 1 cannot fix: the body-frame `[x, y, theta, u, s, omega]` EKF, evaluated the same way,
+   adopted only if it wins on held-out recordings. A phase 2 filter also needs its own mirror,
+   and a policy retrain.
+
+Order against `rl_policy_navigation_plan.md`:
+
+| This plan | Must finish before RL step | Why |
+| --- | --- | --- |
+| 1, 2 | 2 (observation spec and parity) | the spec reads `omega` and the sigmas |
+| 3 | 4 (environment) | the environment runs the mirror |
+| 5 | 7 (training stages C and D) | the measurement model and tuned noise feed the sim |
+| 6 | 5 (closed-loop gate G2) and 9 (real runs) | the C++ binary must run the filter the policy trained on |
+
+The apartment-floor recordings (RL step 0) can happen before any of this. They log the raw
+`/keypoint_detections`, so the filter can be replayed over them offline with the mirror.
 
 ## Risks and open questions
 
@@ -204,7 +265,10 @@ measurements, on real recordings with the learned keypoint model.
   shows it is needed.
 - **Identity swaps.** Association uses position only. Two opponents crossing can swap identities
   and carry the wrong heading. Heading could join the association cost later; out of scope here.
-- **Field clipping.** The wall stop in prediction and the existing render clip must agree on the
-  margin, or the predicted center jumps when the track coasts.
+- **Field clipping.** The renderer wall stop and the existing render clip must agree on the
+  margin, or the rendered center jumps when the track coasts.
+- **Mirror drift.** Any change to the C++ filter must land in the Python mirror in the same
+  commit, or the policy trains against a different estimator than it runs with. The parity test
+  is the guard; a filter change after training also means a retrain.
 - **Our-robot uncertainty.** Navigation would also benefit from our own sigmas. Same struct,
   separate change.

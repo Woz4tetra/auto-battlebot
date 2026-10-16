@@ -7,6 +7,7 @@
 5. The firmware layer in closed loop tracks the logged pid_output and per-motor commands on
    straight holds.
 6. Restart agreement and the parameter pairs that trade off.
+7. Errors per drive direction, open loop and with the firmware yaw loop closed around the sim.
 
 Every function returns plain dicts so the CLI can dump them to JSON.
 """
@@ -27,7 +28,7 @@ from auto_battlebot.mujoco_sim.actuator import (
     side_gains,
 )
 from auto_battlebot.mujoco_sim.checks import make, simulated_decel_tau
-from auto_battlebot.mujoco_sim.firmware import FirmwareMixer, heading_from_yaw
+from auto_battlebot.mujoco_sim.firmware import FirmwareMixer, gyro_from_yaw_rate, heading_from_yaw
 from auto_battlebot.mujoco_sim.fit import (
     FitResult,
     Simulator,
@@ -39,7 +40,7 @@ from auto_battlebot.mujoco_sim.fit import (
 from auto_battlebot.mujoco_sim.mass_properties import MassProperties
 from auto_battlebot.mujoco_sim.mjcf import CollisionSet, build_mjcf
 from auto_battlebot.mujoco_sim.rollout import ModelIndex, initial_qpos_qvel, pose_from_qpos
-from auto_battlebot.mujoco_sim.session import WindowBatch
+from auto_battlebot.mujoco_sim.session import MANEUVERS, WindowBatch, maneuvers
 
 MEASURED_COAST_TAU_S = 0.078
 LIFT_DEG = 3.0
@@ -233,3 +234,97 @@ def identification(results: list[FitResult]) -> dict[str, Any]:
         "spread": restart_spread(results),
         "tradeoff_pairs": [{"a": a, "b": b, "corr": c} for a, b, c in tradeoff_pairs(results)],
     }
+
+
+# The yaw-rate loop replaced heading hold on this date (2026-10-05 00:00 UTC).
+YAW_LOOP_SINCE_NS = 1_791_158_400_000_000_000
+
+
+def closed_loop_replay(
+    mp: MassProperties,
+    collision: CollisionSet | None,
+    params: PlantParams,
+    batch: WindowBatch,
+    height: float,
+    record_every: int = 5,
+) -> tuple[np.ndarray, float]:
+    """Check 7, on CPU MuJoCo: replay each window from the logged sticks through the current
+    firmware mixer, with the yaw loop fed the sim's heading and gyro.
+
+    Open-loop replay drives the plant with the logged per-motor commands, which the yaw loop
+    computed against the real robot. Where the loop was holding a heading against a disturbance
+    the plant does not have, the replayed correction turns the sim instead: on 2026-10-15 the
+    heading hold backed up straight with 1.12 to 1.6x more left than right command, and the
+    sim spun up to 400 deg. Here the loop corrects the sim's own heading, as it did the robot's.
+
+    Windows recorded before the yaw loop, or without firmware columns, replay open loop.
+    Returns (N, S, 7) chassis qpos sampled every `record_every` steps and the sample interval.
+    """
+    model = mujoco.MjModel.from_xml_string(build_mjcf(mp, params, collision, batch.dt))
+    data = mujoco.MjData(model)
+    index = ModelIndex.of(model)
+    motor = MotorConstants(gear_ratio=mp.gear_ratio, kt=mp.motor_kt)
+    gains = np.array(side_gains(params.lr_gain_ratio), dtype=float)
+    deadzone = np.array([params.deadzone_left, params.deadzone_right])
+    delay = int(round(params.delay_s / batch.dt))
+    samples = (batch.steps + record_every - 1) // record_every
+    out = np.zeros((len(batch), samples, 7))
+    fw_all = batch.firmware[:, batch.pad :] if batch.firmware.size else None
+    for i in range(len(batch)):
+        mujoco.mj_resetData(model, data)
+        qpos, qvel = initial_qpos_qvel(
+            model, index, batch.take(np.array([i])).state, height, mp.gear_ratio
+        )
+        data.qpos[:], data.qvel[:] = qpos[0], qvel[0]
+        mujoco.mj_forward(model, data)
+        fw = fw_all[i] if fw_all is not None else None
+        closed = (
+            fw is not None
+            and batch.start_ns[i] >= YAW_LOOP_SINCE_NS
+            and bool(np.isfinite(fw[0, [0, 1, 2, 5]]).all())
+        )
+        mixer = FirmwareMixer()
+        offset = 0.0
+        if closed:
+            assert fw is not None
+            offset = fw[0, 5] - heading_from_yaw(float(batch.state.yaw[i]))
+            rate = gyro_from_yaw_rate(float(batch.state.yaw_rate[i]))
+            mixer.resume(fw[0, 0], fw[0, 1], fw[0, 5], rate, fw[0, 2])
+        # Commands already in flight at the window start are the logged ones.
+        queue = [tuple(batch.u_raw[i, batch.pad - delay + k]) for k in range(delay)]
+        for t in range(batch.steps):
+            if t % record_every == 0:
+                out[i, t // record_every] = data.qpos[:7]
+            if closed and fw is not None and np.isfinite(fw[t, :2]).all():
+                yaw = float(pose_from_qpos(data.qpos[:7])["yaw"])
+                heading = (heading_from_yaw(yaw) + offset) % 360.0
+                yaw_rate = float((data.xmat[1].reshape(3, 3) @ data.qvel[3:6])[2])
+                left, right = mixer.step(
+                    fw[t, 0], fw[t, 1], heading, batch.dt, yaw_rate_dps=gyro_from_yaw_rate(yaw_rate)
+                )
+                queue.append((batch.polarity[i] * left / 100.0, batch.polarity[i] * right / 100.0))
+            else:
+                queue.append(tuple(batch.u_raw[i, batch.pad + t]))
+            shaped = shape_command(np.array(queue.pop(0)), deadzone, params.curve)
+            ctrl = shaped * batch.vbat[i, batch.pad + t] * gains
+            if not params.brake_on_zero:
+                emf = motor.back_emf_volts(data.qvel[index.wheel_dofs])
+                ctrl = np.where(shaped == 0.0, emf, ctrl)
+            data.ctrl[:] = ctrl
+            mujoco.mj_step(model, data)
+    return out, batch.dt * record_every
+
+
+def maneuver_errors(
+    batch: WindowBatch, runs: dict[str, tuple[np.ndarray, float]]
+) -> dict[str, Any]:
+    """Errors per drive direction for each named rollout (open and closed loop, say)."""
+    kinds = maneuvers(batch)
+    out: dict[str, Any] = {}
+    for name, (qpos, record_dt) in runs.items():
+        err = window_errors(batch, qpos, record_dt)
+        out[name] = {
+            m: _horizon_table(err, batch, kinds == m) for m in MANEUVERS if (kinds == m).any()
+        }
+        out[name]["all"] = _horizon_table(err, batch, np.ones(len(batch), dtype=bool))
+    return out

@@ -19,19 +19,19 @@ zero_deadzone_percent = 2
 velocity_saturation_limit = 1.0                # 0 = disabled; e.g. 1.0 = |linear| + |angular| <= 1
 
 [plant]
-dz_lin_fwd = 0.0
+dz_lin_fwd = 0.00938353
 dz_lin_rev = 0.0
 dz_ang_l = 0.0
 dz_ang_r = 0.0
-k_fwd = 3.92699
-k_rev = 3.92699
-k_ang = 59.9541
-tau_lin_a = 0.0
-tau_lin_d = 0.0
-tau_ang_a = 0.0
-tau_ang_d = 0.0
-delay_s = 0.0
-c_sb = 0.0
-c_ad = 0.0
+k_fwd = 5.7302
+k_rev = 3.75736
+k_ang = 38.9057
+tau_lin_a = 0.182874
+tau_lin_d = 0.0684365
+tau_ang_a = 0.0588077
+tau_ang_d = 0.0610599
+delay_s = 0.016
+c_sb = 1.36475
+c_ad = 0.195197
 c_drift = 0.0
 c_drift_bias = 0.0

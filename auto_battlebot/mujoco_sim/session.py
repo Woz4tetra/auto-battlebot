@@ -192,6 +192,20 @@ class WindowBatch:
         return volts, zero
 
 
+MANEUVERS = ("forward", "reverse", "spin", "other")
+
+
+def maneuvers(batch: WindowBatch, deadband: float = 0.05) -> np.ndarray:
+    """Each window's drive direction, from its mean per-motor command over the rollout."""
+    u = batch.u_raw[:, batch.pad :].mean(axis=1)
+    left, right = u[:, 0], u[:, 1]
+    out = np.full(len(batch), "other", dtype=object)
+    out[(left > deadband) & (right > deadband)] = "forward"
+    out[(left < -deadband) & (right < -deadband)] = "reverse"
+    out[(left * right < 0) & (np.abs(left) > deadband) & (np.abs(right) > deadband)] = "spin"
+    return out
+
+
 def build_batch(
     sessions: list[Session],
     horizon_s: float = max(DEFAULT_HORIZONS),

@@ -286,6 +286,32 @@ class FirmwareMixer:
             )
         self._was_upside_down = upside_down
 
+    def resume(
+        self,
+        a_percent: float,
+        b_percent: float,
+        heading_deg: float,
+        yaw_rate_dps: float,
+        pid_output: float,
+    ) -> None:
+        """Start the current firmware's yaw loop mid-recording, holding `heading_deg`, with the
+        integral that reproduces the logged `pid_output` (the output minus its feedforward and
+        proportional terms). Seeding the integral with the whole output double-counts the
+        feedforward in a turn: a 2026-10-15 spin then ran 40% faster than the robot did."""
+        c = self.yaw.config
+        self.yaw.reset(heading_deg)
+        self.yaw_loop_active = True
+        turning = abs(b_percent) > c.turn_threshold
+        rate_command = b_percent / 100.0 * c.max_rate if turning else 0.0
+        reverse = min(max(a_percent / 100.0, 0.0), 1.0)
+        kp = c.kp * (1.0 + (c.reverse_kp_scale - 1.0) * reverse)
+        feedforward = c.feedforward * (1.0 + (c.reverse_ff_scale - 1.0) * reverse)
+        integral = pid_output - feedforward * rate_command - kp * (rate_command - yaw_rate_dps)
+        self.yaw.integral = max(-c.i_max, min(c.i_max, integral))
+        self.yaw.capturing = turning
+        self.yaw.rate_command = rate_command
+        self.pid_output = pid_output
+
     def step(
         self,
         a_percent: float,

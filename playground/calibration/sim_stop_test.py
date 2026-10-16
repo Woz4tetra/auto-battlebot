@@ -127,7 +127,6 @@ def write_cpp_overlay(table: PlantParams, max_linear: float | None, path: Path) 
         "extends": CPP_BASE,
         "navigation": nav,
         "plant": table.to_dict(),
-        "ui": {"enable": False},
         "mcap": {"enable": False},
     }
     with open(path, "wb") as handle:
