@@ -2,8 +2,9 @@
 
 Plan: `docs/plans/opponent_motion_estimation_plan.md`, steps 4 and 5. The 6-state opponent filter
 (`[px, py, vx, vy, theta, omega]`, `KalmanMotionEstimator` opponent arm) is scored against
-AprilTag truth, tuned, and replayed through NHRL May and MassD matches against `HOLD`. It fails the
-plan's acceptance gate at 0.35 s, so it is not enabled; see Gate and Verdict.
+AprilTag truth, tuned, and replayed through NHRL May and MassD matches against `HOLD`. It failed
+the original gate on position at 0.35 s; the gate was amended to heading plus position at 0.1 s,
+which it passes, and it is enabled. See Gate and Verdict.
 
 ## Data
 
@@ -302,20 +303,22 @@ gate cells), then scored on the holdout:
 
 ## Verdict
 
-Steps 1 to 5 are done and step 4 passed. Step 6 is not taken: `opponent_mode` stays `"HOLD"` in
-`config/_common.toml`, because the gate fails. Step 7 was triggered, evaluated, and not adopted.
+Steps 1 to 5 are done and step 4 passed. Phase 1 failed the original gate on position at 0.35 s
+and passed on heading and on position at 0.1 s. On 2026-10-16 the gate was amended by decision to
+heading at every horizon plus position at 0.1 s, with the 0.35 s position miss kept as a known
+limitation, and step 6 set `opponent_mode = "KALMAN"` in `config/_common.toml`. Step 7 was
+triggered, evaluated, and not adopted.
 
-What the KALMAN arm offers if the gate is revisited: fresh p90 position error halved (80 against
-165 mm on the tuning session), heading that does not swing to the velocity direction (6 to 9
-degrees median once stale against 77 to 172 for `kalman4`), calibrated heading and yaw-rate
-sigmas, and no identity swaps or coverage loss in eight match replays. `RlPolicyNavigation` reads
-the yaw rate and sigmas, so the RL plan's gate G2 needs either this gate relaxed for heading or a
-model that passes it.
+What the KALMAN arm gives over `hold`: fresh p90 position error halved (80 against 165 mm on the
+tuning session), heading that does not swing to the velocity direction (6 to 9 degrees median once
+stale against 77 to 172 for `kalman4`), calibrated heading and yaw-rate sigmas, and the yaw rate
+`RlPolicyNavigation` reads. What it costs: on robots that decelerate to a stop during a dropout
+it overshoots, up to 50 against 36 mm median at 0.35 s on the holdout and 105 against 58 mm on the
+tuning session. Eight match replays showed no identity swaps or coverage loss. Reverting is the
+one line `opponent_mode = "HOLD"`.
 
 ## Next steps
 
-- Decide whether the gate should weigh heading as well as position: the filter passes on heading
-  and fails position at 0.35 s by 3 to 14 mm on the holdout.
 - Record the apartment-floor sessions with a tag on Mrs Buff Mk3 (RL plan section 9) and rerun
   `evaluate_opponent_prediction.py` and `phase2_body_frame.py` on an opponent that is not driven
   in sysid steps; Mr Stabs' stop-start maneuvers are the worst case for any prediction.

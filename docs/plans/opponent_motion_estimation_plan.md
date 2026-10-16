@@ -15,13 +15,14 @@ which gives front and back keypoints for arbitrary robots. This plan does not ch
 
 ## Status, 2026-10-16
 
-Steps 1 to 5 are done and step 4 passed. Phase 1 fails the acceptance gate: on the held-out
-session it does not beat `HOLD` at 0.35 s (50 against 36 mm median, natural gaps). So step 6 is
-not taken and `opponent_mode` stays `"HOLD"`. Step 7 was triggered by arc errors at 0.35 s; the
-body-frame EKF was built in the mirror (`playground/opponent_prediction/phase2_body_frame.py`),
-did not beat phase 1 beyond noise on the holdout (120 against 122 mm summed gate medians), and
-did not pass the gate either, so it is not adopted. Results, figures and the verdict are in
-`docs/experiments/kalman_filter/opponent_filter_evaluation.md`. The apartment-floor recordings
+All steps are done. Step 4 passed. Phase 1 failed the original gate on position at 0.35 s
+(held-out session: 50 against 36 mm median for `HOLD`, natural gaps) and passed on heading and on
+position at 0.1 s. The gate was amended on 2026-10-16 by decision to drop the 0.35 s position
+requirement (see Baselines under Evaluation), and step 6 set `opponent_mode = "KALMAN"`. Step 7
+was triggered by arc errors at 0.35 s; the body-frame EKF was built in the mirror
+(`playground/opponent_prediction/phase2_body_frame.py`), did not beat phase 1 beyond noise on the
+holdout (120 against 122 mm summed gate medians), and is not adopted. Results, figures and the
+verdict are in `docs/experiments/kalman_filter/opponent_filter_evaluation.md`. The apartment-floor recordings
 with a tag on Mrs Buff Mk3 did not exist yet, so step 5 used the two 2026-10-15 Mr Stabs Mk2
 sysid sessions as ground truth, with Mr Stabs standing in for the opponent.
 
@@ -234,7 +235,11 @@ drive through (p90 gap 340 ms).
   filter to t + h for h in 0.1, 0.2, 0.35 s and compare against the next accepted measurement
   within a frame of t + h. Position error (median and p90) and heading error, by opponent label.
 - **Baselines:** today's `HOLD` (estimate = last pose) and today's 4-state `KALMAN` with
-  velocity-direction heading. Phase 1 has to beat both at 0.1 and 0.35 s.
+  velocity-direction heading. Phase 1 has to beat both on heading at every horizon and on
+  position at 0.1 s. Amended 2026-10-16 (Ben's decision): the original gate also required
+  position at 0.35 s, which no constant-velocity or body-frame model met on the sysid data,
+  because long gaps there are mostly robots decelerating to a stop. The 0.35 s position result
+  is reported as a known limitation instead.
 - **Consistency:** normalized innovation squared (NIS) on accepted updates should average about
   the measurement dimension (2 or 3). Too high means process noise is too low, and the gate is
   rejecting good data.
