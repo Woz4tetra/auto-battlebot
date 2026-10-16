@@ -1,0 +1,82 @@
+# Mr Stabs Mk2 against the lockstep sim with simulated perception: the sim's sensing model
+# (docs/plans/sensing_model_plan.md) delivers keypoint measurements with latency, dropouts, noise
+# and heading flips, and the real RobotFrontBackFilter and KalmanMotionEstimator run on them.
+# Pair with simulation/sim_mr_stabs_mk2.toml with [perception] sensing_model set:
+#
+#   ./scripts/run_simulation.sh simulation/sim_mr_stabs_mk2.toml \
+#       config/simulation/mr_stabs_mk2_kinematic_sim_sensing.toml
+#
+# Extends simulation/_simulation, not kinematic_sim: kinematic_sim swaps the robot filter for
+# GroundTruthRobotFilter, and the merge drops a section wholesale when its type changes, so
+# extending it would mean restating all of [robot_filter]. This file inherits _common's filter
+# unchanged instead and restates the sim parts of kinematic_sim.toml and the Mr Stabs parts of
+# mr_stabs_mk2_kinematic_sim.toml. Keep those in step.
+extends = "simulation/_simulation"
+
+[field_model]
+type = "FixedMaskModel"
+
+[robot_mask_model]
+type = "NoopRobotBlobModel"
+
+# Keep size_x/size_y in sync with the sim's [arena].
+[field_filter]
+type = "FixedFieldFilter"
+size_x = 2.4
+size_y = 2.4
+
+# One label per sim ground-truth slot: our robot, then [[opponents]] in order.
+[keypoint_model]
+type = "SimKeypointModel"
+labels = ["MR_STABS_MK2", "OPPONENT"]
+
+[robot_filter.label_mapping]
+"MR_STABS_MK2" = ["OUR_ROBOT_1"]
+"OPPONENT" = ["THEIR_ROBOT_1", "THEIR_ROBOT_2", "THEIR_ROBOT_3"]
+
+# Same tuning as mr_stabs_mk2_kinematic_sim.toml.
+[navigation]
+type = "PursuitNavigation"
+angular_kp = 0.06
+angular_kd = 0.005
+max_linear_command = 0.25
+angle_threshold = 1.7
+velocity_ramp_far_distance = 1.5
+velocity_ramp_near_distance = 1.0
+velocity_ramp_min_scale = 0.35
+stop_distance = 0.0
+wall_reverse_distance = 0.25
+wall_heading_threshold = 1.047
+max_angular_command = 0.0
+
+# Same as mr_stabs_mk2_kinematic_sim.toml: geometry placeholders the our-robot EKF reads.
+[plant]
+dz_lin_fwd = 0.00938353
+dz_lin_rev = 0.0
+dz_ang_l = 0.0
+dz_ang_r = 0.0
+k_fwd = 5.7302
+k_rev = 3.75736
+k_ang = 38.9057
+tau_lin_a = 0.182874
+tau_lin_d = 0.0684365
+tau_ang_a = 0.0588077
+tau_ang_d = 0.0610599
+delay_s = 0.016
+c_sb = 1.36475
+c_ad = 0.195197
+c_drift = 0.0
+c_drift_bias = 0.0
+
+# Actuation latency is modelled in sim ticks by the server.
+[transmitter]
+init_delay_seconds = 0.0
+
+[runner]
+max_loop_rate = 0.0
+
+[mcap]
+enable = false
+
+[clock]
+type = "ManualClock"

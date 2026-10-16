@@ -3,7 +3,9 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "config/config_cast.hpp"
@@ -64,6 +66,53 @@ struct YoloKeypointModelConfiguration : public KeypointModelConfiguration {
             label_indices.push_back(enum_val.value());
         }
 
+        parser.validate_no_extra_fields();
+    }
+};
+
+/** The lockstep sim's keypoint model (`SimKeypointModel`). */
+struct SimKeypointModelConfiguration : public KeypointModelConfiguration {
+    /** Label of each ground-truth slot in sim order: our robot, then the sim's [[opponents]]. Each
+     *  label needs `<LABEL>_FRONT` and `<LABEL>_BACK` keypoint labels. */
+    std::vector<Label> labels;
+    /** Front and back keypoint distance from the robot centre along its heading, in metres. The
+     *  filter only reads the pose the pair implies, so this sets their image spacing, nothing
+     *  else. */
+    double keypoint_offset_m = 0.05;
+
+    SimKeypointModelConfiguration() { type = "SimKeypointModel"; }
+
+    /** The front and back keypoint labels of a robot label, or nullopt when it has none. */
+    static std::optional<std::pair<KeypointLabel, KeypointLabel>> front_back_labels(Label label) {
+        const std::string name{magic_enum::enum_name(label)};
+        const auto front = magic_enum::enum_cast<KeypointLabel>(name + "_FRONT");
+        const auto back = magic_enum::enum_cast<KeypointLabel>(name + "_BACK");
+        if (!front || !back) return std::nullopt;
+        return std::make_pair(*front, *back);
+    }
+
+    void parse_fields(ConfigParser &parser) override {
+        for (const std::string &label_str : parser.get_required_vector<std::string>("labels")) {
+            const auto label = magic_enum::enum_cast<Label>(label_str);
+            if (!label || !front_back_labels(*label)) {
+                std::string valid;
+                for (const Label candidate : magic_enum::enum_values<Label>()) {
+                    if (!front_back_labels(candidate)) continue;
+                    valid +=
+                        (valid.empty() ? "" : ", ") + std::string(magic_enum::enum_name(candidate));
+                }
+                throw std::invalid_argument("Invalid value: '" + label_str +
+                                            "' for field 'labels'; valid: " + valid);
+            }
+            labels.push_back(*label);
+        }
+        if (labels.empty()) {
+            throw std::invalid_argument("SimKeypointModel needs at least one entry in 'labels'");
+        }
+        keypoint_offset_m = parser.get_optional_double("keypoint_offset_m", keypoint_offset_m);
+        if (!(keypoint_offset_m > 0.0)) {
+            throw std::invalid_argument("SimKeypointModel keypoint_offset_m must be positive");
+        }
         parser.validate_no_extra_fields();
     }
 };

@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <limits>
 #include <optional>
 
 #include "transform_utils.hpp"
@@ -45,7 +46,16 @@ void GroundTruthRobotFilter::correct([[maybe_unused]] ModelResultStamped keypoin
     result.header.frame_id = FrameId::FIELD;
     result.header.stamp = clock_->now();
 
-    const auto &gt = connection_->last_ground_truth_poses();
+    // What the sim's perception delivered, not its ground truth. A robot perception missed, or a
+    // tick that carried no frame, becomes a NaN slot, which describe() turns into a held, stale
+    // pose. With no sensing model on the sim side every slot is measured every tick.
+    const SimMeasurementFrame &frame = connection_->last_measurements();
+    constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
+    std::vector<Pose2D> gt;
+    gt.reserve(frame.robots.size());
+    for (const SimRobotMeasurement &robot : frame.robots) {
+        gt.push_back(frame.delivered && robot.measured ? robot.pose : Pose2D{kNaN, kNaN, kNaN});
+    }
     if (gt.empty()) {
         state_ = result;
         return;

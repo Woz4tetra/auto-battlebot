@@ -22,6 +22,14 @@ GT_POSE_SIZE: int = struct.calcsize(GT_POSE_FMT)
 GT_COUNT_FMT: str = "<I"  # uint32 num_robots
 GT_COUNT_SIZE: int = struct.calcsize(GT_COUNT_FMT)
 
+# After the ground truth: what perception delivered this tick, from the sensing model
+# (auto_battlebot/perception/sensing_model.py). One header, then one pose per ground-truth slot in
+# the same order. Flags travel as 0.0 / 1.0 so the block stays all float64 like the rest.
+MEAS_HEADER_FMT: str = "<dd"  # delivered, capture_time (sim seconds)
+MEAS_HEADER_SIZE: int = struct.calcsize(MEAS_HEADER_FMT)
+MEAS_POSE_FMT: str = "<dddd"  # measured, x, y, yaw
+MEAS_POSE_SIZE: int = struct.calcsize(MEAS_POSE_FMT)
+
 _SOCK_BUF_SIZE: int = 4 * 1024 * 1024  # 4 MiB
 
 

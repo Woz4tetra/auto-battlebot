@@ -19,7 +19,6 @@ height = 2.4
 # whole sim ticks, so at dt = 0.0333 it is applied as 2 ticks (66.6 ms).
 [latency]
 command_ms = 52.2094
-observation_ms = 0.0
 
 [camera]
 res_width = 640
@@ -61,10 +60,14 @@ deadzone_linear_rev = 0.0253396
 deadzone_angular = 0.016061
 deadzone_angular_right = 0.0240734
 
+# Perception latency, dropouts and noise come from a sensing model
+# (docs/plans/sensing_model_plan.md). Empty sends the true poses every tick. Pair a model with
+# config/simulation/kinematic_sim_sensing.toml on the C++ side, so the real keypoint filter and
+# motion estimator see the measurements.
 [perception]
-pos_noise_std = 0.0
-yaw_noise_std = 0.0
-dropout_prob = 0.0
+sensing_model = ""
+# sensing_model = "simulation/sensing_models/provisional.toml"
+randomize = false
 
 [perception.projection_bias]
 enabled = false

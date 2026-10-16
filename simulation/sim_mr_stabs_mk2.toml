@@ -20,7 +20,6 @@ height = 2.4
 # 30 ms unfit), so this is the radio part only. Set it back to 60 for plant = "kinematic".
 [latency]
 command_ms = 30.0
-observation_ms = 0.0
 
 [camera]
 res_width = 640
@@ -62,10 +61,14 @@ timestep = 0.001
 pack_voltage = 15.2
 auto_steer = true
 
+# Perception latency, dropouts and noise come from a sensing model
+# (docs/plans/sensing_model_plan.md). Empty sends the true poses every tick. Pair a model with
+# config/simulation/kinematic_sim_sensing.toml on the C++ side, so the real keypoint filter and
+# motion estimator see the measurements.
 [perception]
-pos_noise_std = 0.0
-yaw_noise_std = 0.0
-dropout_prob = 0.0
+sensing_model = ""
+# sensing_model = "simulation/sensing_models/provisional.toml"
+randomize = false
 
 [perception.projection_bias]
 enabled = false

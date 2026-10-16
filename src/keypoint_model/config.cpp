@@ -7,6 +7,7 @@
 #include "config/config_parser.hpp"
 #include "keypoint_model/apriltag_keypoint_model.hpp"
 #include "keypoint_model/noop_keypoint_model.hpp"
+#include "keypoint_model/sim_keypoint_model.hpp"
 #include "keypoint_model/yolo_keypoint_model.hpp"
 
 namespace auto_battlebot {
@@ -15,6 +16,7 @@ REGISTER_CONFIG(KeypointModelConfiguration, NoopKeypointModelConfiguration, "Noo
 REGISTER_CONFIG(KeypointModelConfiguration, YoloKeypointModelConfiguration, "YoloKeypointModel")
 REGISTER_CONFIG(KeypointModelConfiguration, AprilTagKeypointModelConfiguration,
                 "AprilTagKeypointModel")
+REGISTER_CONFIG(KeypointModelConfiguration, SimKeypointModelConfiguration, "SimKeypointModel")
 
 std::unique_ptr<KeypointModelConfiguration> parse_keypoint_model_config(ConfigParser &parser) {
     return ConfigFactory<KeypointModelConfiguration>::instance().create_and_parse(parser);
@@ -43,6 +45,9 @@ std::shared_ptr<KeypointModelInterface> make_keypoint_model(
         return std::make_shared<YoloKeypointModel>(
             model_config,
             std::make_shared<EngineSelector>(model_config.engine, "YoloKeypointModel"));
+    } else if (config.type == "SimKeypointModel") {
+        return std::make_shared<SimKeypointModel>(
+            config_cast<SimKeypointModelConfiguration>(config));
     } else if (config.type == "AprilTagKeypointModel") {
         return std::make_shared<AprilTagKeypointModel>(
             config_cast<AprilTagKeypointModelConfiguration>(config), std::move(sink),

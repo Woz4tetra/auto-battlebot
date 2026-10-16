@@ -191,6 +191,34 @@ bool SimConnection::step_and_receive(CameraData& data) {
     }
     last_gt_poses_ = data.ground_truth_poses;
 
+    // What the sim's sensing model delivered: a header, then one slot per ground-truth pose.
+    // Flags travel as 0.0 / 1.0 doubles (simulation/protocol.py MEAS_*_FMT).
+    struct {
+        double delivered, capture_time;
+    } meas_header{};
+    if (!recv_all(&meas_header, sizeof(meas_header))) {
+        spdlog::error("SimConnection: failed to receive measurement header");
+        disconnect();
+        return false;
+    }
+    SimMeasurementFrame& measurements = data.sim_measurements;
+    measurements.delivered = meas_header.delivered != 0.0;
+    measurements.capture_stamp = meas_header.capture_time;
+    measurements.robots.resize(gt_count);
+    for (uint32_t i = 0; i < gt_count; ++i) {
+        struct {
+            double measured, x, y, yaw;
+        } meas{};
+        if (!recv_all(&meas, sizeof(meas))) {
+            spdlog::error("SimConnection: failed to receive measurement {}", i);
+            disconnect();
+            return false;
+        }
+        measurements.robots[i] =
+            SimRobotMeasurement{meas.measured != 0.0, Pose2D{meas.x, meas.y, meas.yaw}};
+    }
+    last_measurements_ = measurements;
+
     // Stamp the frame with the sim's logical time (single dt source), not wall-clock, so the
     // control loop's clock follows sim time and accelerated runs stay correct and deterministic.
     Header stamp{hdr.sim_time, FrameId::CAMERA};
@@ -215,6 +243,7 @@ bool SimConnection::step_and_receive(CameraData& data) {
     data.tf_visodom_from_camera.header = {hdr.sim_time, FrameId::VISUAL_ODOMETRY};
     data.tf_visodom_from_camera.child_frame_id = FrameId::CAMERA;
     data.tf_visodom_from_camera.transform.tf = tf;
+    last_camera_from_field_ = tf;
     data.tracking_ok = true;
 
     return true;

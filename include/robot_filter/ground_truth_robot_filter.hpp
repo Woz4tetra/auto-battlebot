@@ -12,8 +12,8 @@
 namespace auto_battlebot {
 
 /**
- * Robot filter that bypasses all perception and uses ground truth poses
- * from the simulation. Reads the latest GT poses cached in SimConnection.
+ * Robot filter that bypasses the perception pipeline and uses the poses the simulation's
+ * perception delivered, in ground-truth slot order. Reads them from SimConnection.
  */
 class GroundTruthRobotFilter : public RobotFilterInterface {
    public:
@@ -24,7 +24,7 @@ class GroundTruthRobotFilter : public RobotFilterInterface {
 
     bool initialize(int opponent_count) override;
 
-    /** Reads the latest ground-truth poses from SimConnection. Perception inputs are ignored. */
+    /** Reads the latest delivered poses from SimConnection. Perception inputs are ignored. */
     void correct(ModelResultStamped keypoints, FieldDescription field, CameraInfo camera_info,
                  ModelResultStamped robot_blob_keypoints) override;
 

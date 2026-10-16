@@ -35,6 +35,23 @@ struct FrameIdentity {
     int64_t video_frame_index = -1;
 };
 
+/** One robot slot of a simulated perception frame, in ground-truth order. */
+struct SimRobotMeasurement {
+    /** False when perception missed this robot in the frame. */
+    bool measured = false;
+    Pose2D pose;
+};
+
+/**
+ * What the lockstep sim's sensing model delivered on one tick: one frame captured at
+ * `capture_stamp`, arriving now. `delivered` is false on a tick that carried no frame.
+ */
+struct SimMeasurementFrame {
+    bool delivered = false;
+    double capture_stamp = 0.0;
+    std::vector<SimRobotMeasurement> robots;
+};
+
 struct CameraData {
     TransformStamped tf_visodom_from_camera;
     FrameIdentity frame_identity;
@@ -46,6 +63,8 @@ struct CameraData {
     /** Ground truth poses from simulation (index 0 = our robot, rest = opponents). Empty outside
      * sim. */
     std::vector<Pose2D> ground_truth_poses;
+    /** What simulated perception delivered this tick, same slot order. Empty outside sim. */
+    SimMeasurementFrame sim_measurements;
 };
 
 }  // namespace auto_battlebot

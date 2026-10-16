@@ -14,7 +14,8 @@ Models the effects that actually drive overshoot:
   - our robot's drivetrain, from the plant [our_robot] plant selects (simulation/plants/): the
     first-order kinematic lag model, or the Mr Stabs Mk2 MuJoCo rigid body
   - actuation latency (command ring buffer, in sim ticks)
-  - perception latency, position noise, dropout, and the flat-plane projection bias
+  - perception: the sensing model's latency, dropouts, noise and heading flips
+    (auto_battlebot/perception/sensing_model.py), plus the flat-plane projection bias
   - square arena with walls
 
 Usage:
@@ -30,11 +31,13 @@ import math
 import socket
 import struct
 from collections import deque
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import cv2
 import numpy as np
+import torch
 from camera_utils import (
     camera_view_matrix,
     fov_to_intrinsics,
@@ -42,17 +45,17 @@ from camera_utils import (
     ground_plane_homography,
 )
 from config.kinematic import (
-    CameraConfig,
     KinematicSimConfig,
     ObstacleConfig,
     OpponentConfig,
-    PerceptionConfig,
 )
 from config.loader import load_config
 from plants import PlantInterface, Pose, make_plant
 from protocol import (
     GT_COUNT_FMT,
     GT_POSE_FMT,
+    MEAS_HEADER_FMT,
+    MEAS_POSE_FMT,
     REQUEST_FMT,
     REQUEST_SIZE,
     RESPONSE_HEADER_FMT,
@@ -62,7 +65,18 @@ from protocol import (
 )
 from viewer import Viewer
 
+from auto_battlebot.perception.sensing_model import (
+    Context,
+    MeasurementModel,
+    SensingModelFile,
+    TruePoses,
+)
 from hazards import load_hazards
+
+# Footprint radius for an opponent with no hazard_radius: the half-diagonal of the 0.15 x 0.15 m
+# box GroundTruthRobotFilter reports for every robot. Feeds the sensing model's robot-distance
+# context only.
+DEFAULT_OPPONENT_RADIUS_M = 0.106
 
 # [sim] trace_csv columns. Poses are ground truth, not what perception reported; goal is the first
 # opponent, which a go-to-point mission drives to. Pitch is 0 on the kinematic plant.
@@ -209,55 +223,84 @@ def _load_replay_csv(path: Path) -> list[Pose]:
 # ---------------------------------------------------------------------------
 
 
+@dataclass
+class Frame:
+    """What perception delivered on one tick, one entry per ground-truth slot."""
+
+    delivered: bool
+    capture_time: float
+    measured: list[bool]
+    poses: list[Pose]
+
+
 class Perception:
-    """Degrades true poses into observed ones: latency, noise, dropout, flat-plane bias."""
+    """Degrades true poses into what perception delivers: the sensing model's measurement stream
+    plus the flat-plane projection bias, or the true poses every tick when no model is set.
 
-    def __init__(
-        self,
-        cfg: PerceptionConfig,
-        cam: CameraConfig,
-        dt: float,
-        obs_latency_ms: float,
-        rng: np.random.Generator,
-    ) -> None:
-        self._cfg = cfg
-        self._cam_x, self._cam_y, self._cam_z = cam.pos
-        self._rng = rng
-        delay_ticks = max(0, round((obs_latency_ms / 1000.0) / dt))
-        # Buffer of (our, [opp...]) true poses; observe the entry delay_ticks ago.
-        self._buf: deque[tuple[Pose, list[Pose]]] = deque(maxlen=delay_ticks + 1)
+    The sim captures one perception frame per tick, so the model's frame rate is the tick rate.
+    """
 
-    def _project_bias(self, x: float, y: float) -> tuple[float, float]:
+    def __init__(self, cfg: KinematicSimConfig) -> None:
+        self._cfg = cfg.perception
+        self._dt = cfg.sim.dt
+        self._cam_x, self._cam_y, self._cam_z = cfg.camera.pos
+        radius = [cfg.our_robot.radius] + [
+            o.hazard_radius if o.hazard_radius > 0.0 else DEFAULT_OPPONENT_RADIUS_M
+            for o in cfg.opponents
+        ]
+        self._radius = torch.tensor([radius], dtype=torch.float64)
+        self._half = torch.tensor([cfg.arena.width / 2.0, cfg.arena.height / 2.0])
+        self._previous: np.ndarray | None = None
+        self._model: MeasurementModel | None = None
+        if self._cfg.sensing_model:
+            self._model = MeasurementModel(
+                SensingModelFile.load(Path(self._cfg.sensing_model)),
+                ["ours"] + ["opponent"] * len(cfg.opponents),
+                worlds=1,
+                seed=cfg.sim.seed,
+                randomize=self._cfg.randomize,
+                frame_rate_hz=1.0 / cfg.sim.dt,
+            )
+            self._model.reset(torch.ones(1, dtype=torch.bool), 0.0)
+
+    def _project_bias(self, pose: Pose) -> Pose:
+        x, y, yaw = pose
         bias = self._cfg.projection_bias
         if not bias.enabled or self._cam_z <= 1e-6:
-            return x, y
+            return pose
         dx, dy = x - self._cam_x, y - self._cam_y
         scale = bias.keypoint_height / self._cam_z
-        return x + scale * dx, y + scale * dy
+        return (x + scale * dx, y + scale * dy, yaw)
 
-    def _noisy(self, pose: Pose) -> Pose:
-        x, y, yaw = pose
-        x, y = self._project_bias(x, y)
-        x += self._rng.normal(0.0, self._cfg.pos_noise_std)
-        y += self._rng.normal(0.0, self._cfg.pos_noise_std)
-        yaw += self._rng.normal(0.0, self._cfg.yaw_noise_std)
-        return (x, y, yaw)
+    def observe(self, now: float, poses: list[Pose]) -> Frame:
+        if self._model is None:
+            return Frame(True, now, [True] * len(poses), [self._project_bias(p) for p in poses])
 
-    def observe(self, our: Pose, opps: list[Pose]) -> tuple[Pose, list[Pose]]:
-        self._buf.append((our, opps))
-        obs_our, obs_opps = self._buf[0]  # oldest within the delay window
-        # Our robot keeps its slot in the ground-truth list whatever happens, because the C++ side
-        # maps ground truth to frame ids by position. A dropped self-observation is signalled by
-        # NaN in the slot rather than by removing it, which the filter reads as "no measurement
-        # this frame" and answers with a held, stale pose.
-        if self._cfg.our_dropout_prob > 0.0 and self._rng.random() < self._cfg.our_dropout_prob:
-            out_our: Pose = (math.nan, math.nan, math.nan)
-        else:
-            out_our = self._noisy(obs_our)
-        out_opps = [
-            self._noisy(p) for p in obs_opps if self._rng.random() >= self._cfg.dropout_prob
-        ]
-        return out_our, out_opps
+        current = np.array(poses, dtype=np.float64)
+        previous = current if self._previous is None else self._previous
+        self._previous = current
+        velocity = (current[:, :2] - previous[:, :2]) / self._dt
+        yaw_rate = np.angle(np.exp(1j * (current[:, 2] - previous[:, 2]))) / self._dt
+        truth = TruePoses(
+            xy=torch.from_numpy(current[None, :, :2].copy()),
+            yaw=torch.from_numpy(current[None, :, 2].copy()),
+            velocity=torch.from_numpy(velocity[None]),
+            yaw_rate=torch.from_numpy(yaw_rate[None]),
+        )
+        out = self._model.step(
+            now, truth, Context.from_rect_arena(truth.xy, self._radius, self._half)
+        )
+        xy = out.xy[0].numpy()
+        yaw = out.yaw[0].numpy()
+        return Frame(
+            delivered=bool(out.delivered[0]),
+            capture_time=float(out.stamp[0]),
+            measured=[bool(m) for m in out.measured[0]],
+            poses=[
+                self._project_bias((float(xy[r, 0]), float(xy[r, 1]), float(yaw[r])))
+                for r in range(len(poses))
+            ],
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -311,9 +354,7 @@ class KinematicServer:
             Opponent(o, cfg.arena.width, cfg.arena.height, rng, self._obstacles)
             for o in cfg.opponents
         ]
-        self._perception = Perception(
-            cfg.perception, cfg.camera, cfg.sim.dt, cfg.latency.observation_ms, rng
-        )
+        self._perception = Perception(cfg)
         self._cmd_buf: deque[tuple[float, float]] = self._empty_command_buffer()
         self._tick = 0
         self._sim_time = 0.0
@@ -379,17 +420,20 @@ class KinematicServer:
         self._respawn()
         return False
 
-    def _send_frame(self, conn: socket.socket, our: Pose, opps: list[Pose]) -> None:
+    def _send_frame(self, conn: socket.socket, truth: list[Pose], frame: Frame) -> None:
         self._render_camera()
         header = struct.pack(RESPONSE_HEADER_FMT, *self._header_const, self._sim_time)
-        gt = struct.pack(GT_COUNT_FMT, 1 + len(opps))
-        gt += struct.pack(GT_POSE_FMT, *our)
-        for pose in opps:
+        gt = struct.pack(GT_COUNT_FMT, len(truth))
+        for pose in truth:
             gt += struct.pack(GT_POSE_FMT, *pose)
+        meas = struct.pack(MEAS_HEADER_FMT, float(frame.delivered), frame.capture_time)
+        for measured, pose in zip(frame.measured, frame.poses):
+            meas += struct.pack(MEAS_POSE_FMT, float(measured), *pose)
         send_all(conn, header)
         send_all(conn, self._rgb.data)
         send_all(conn, self._depth.data)
         send_all(conn, gt)
+        send_all(conn, meas)
 
     def handle_client(self, conn: socket.socket) -> None:
         if not self._cfg.sim.trace_csv:
@@ -436,10 +480,8 @@ class KinematicServer:
                     ]
                 )
 
-            obs_our, obs_opps = self._perception.observe(
-                self._plant.pose(), [o.pose() for o in self._opponents]
-            )
-            self._send_frame(conn, obs_our, obs_opps)
+            truth = [self._plant.pose()] + [o.pose() for o in self._opponents]
+            self._send_frame(conn, truth, self._perception.observe(self._sim_time, truth))
             if self._viewer is not None:
                 self._viewer.render(
                     self._plant, self._opponents, self._tick, self._sim_time, applied

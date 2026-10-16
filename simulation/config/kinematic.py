@@ -47,7 +47,6 @@ class ArenaConfig:
 @dataclass
 class LatencyConfig:
     command_ms: float = 0.0  # actuation latency, converted to sim ticks
-    observation_ms: float = 0.0  # perception latency, converted to sim ticks
 
 
 @dataclass
@@ -130,14 +129,13 @@ class ProjectionBiasConfig:
 
 @dataclass
 class PerceptionConfig:
-    pos_noise_std: float = 0.0  # m
-    yaw_noise_std: float = 0.0  # rad
-    dropout_prob: float = 0.0  # per-opponent per-tick probability of omission
-    # Per-tick probability that our own robot is not observed. Separate from dropout_prob because
-    # the two have different consequences: a missed opponent costs a target update, a missed self
-    # pose puts the controller on dead reckoning. Measured p90 gap on real recordings is 340 ms,
-    # about 10 ticks at 30 Hz.
-    our_dropout_prob: float = 0.0
+    # Sensing model TOML, repo-relative (docs/plans/sensing_model_plan.md): perception latency,
+    # dropouts, position and heading noise, flips. Empty delivers the true poses every tick with
+    # no latency.
+    sensing_model: str = ""
+    # Draw the model's per-episode randomization (latency, noise scale, flip rate, ...) from
+    # [sim] seed. False runs its nominal values. The frame rate is always the tick rate.
+    randomize: bool = False
     projection_bias: ProjectionBiasConfig = field(default_factory=ProjectionBiasConfig)
 
 
