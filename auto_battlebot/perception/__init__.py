@@ -8,4 +8,5 @@ field_pose          camera-from-field fits: depth-plane port and the RGB corner 
 cage_calibration    config/cages/<id>.toml format and the field / world / Blender frame chain
 tag_pose_smoother   robot AprilTag poses to a smoothed axle pose: IPPE choice, gating, RTS
 sysid_windows       gated rollout windows and their initial states for the MuJoCo fit
+opponent_filter     batched torch mirror of the KalmanMotionEstimator opponent arm
 """

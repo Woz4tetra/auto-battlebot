@@ -5,6 +5,7 @@
 #include "plant/mrs_buff_mk3_params.hpp"
 #include "robot_filter/dead_reckoning_motion_estimator.hpp"
 #include "robot_filter/kalman_motion_estimator.hpp"
+#include "robot_filter/opponent_filter_golden_data.hpp"
 #include "transform_utils.hpp"
 
 namespace auto_battlebot {
@@ -71,6 +72,8 @@ KalmanMotionEstimatorConfiguration kalman_opponents_config() {
     KalmanMotionEstimatorConfiguration config;
     config.opponent_mode = OpponentMode::KALMAN;
     config.plant = mrs_buff_mk3_plant();
+    // Long enough that coast expectations below are about the model, not the tuned horizon.
+    config.opponent_max_coast_s = 0.4;
     return config;
 }
 
@@ -150,7 +153,7 @@ TEST(KalmanMotionEstimatorTest, CoastLeadsTheMeasurementByTheTransportDelay) {
 
 TEST(KalmanMotionEstimatorTest, CoastHoldsPositionPastMaxCoast) {
     KalmanMotionEstimatorConfiguration config = kalman_opponents_config();
-    config.max_coast_s = 0.4;
+    config.opponent_max_coast_s = 0.4;
     KalmanMotionEstimator estimator{config};
     FrameIdAssigner assigner(10.0, 5);
     const FieldDescription field = make_field();
@@ -544,6 +547,405 @@ TEST(KalmanMotionEstimatorTest, HoldModePinsOpponentAtLastMeasurement) {
     ASSERT_EQ(coasted->size(), 1u);
     EXPECT_DOUBLE_EQ((*coasted)[0].pose.position.x, x);
     EXPECT_TRUE((*coasted)[0].is_stale);
+}
+
+/** A keypoint opponent pose: non-empty keypoints mark the heading as measured. */
+RobotDescription make_opponent_pose_measurement(double x, double y, double yaw,
+                                                Label label = Label::OPPONENT) {
+    RobotDescription description = make_opponent_measurement(x, y);
+    description.label = label;
+    description.pose = pose2d_to_pose(Pose2D{x, y, yaw});
+    description.pose.position.z = 0.05;
+    description.keypoints.push_back(Position{x, y, 0.05});
+    return description;
+}
+
+double yaw_of(const RobotDescription &description) { return pose_to_pose2d(description.pose).yaw; }
+
+double angle_error(double a, double b) { return std::remainder(a - b, 2.0 * M_PI); }
+
+/** Truth for the heading tests: straight-line translation and an independent constant yaw rate,
+ * which is exactly the filter's model. */
+struct TurningTruth {
+    double x = 1.0;
+    double y = 2.0;
+    double yaw = 0.3;
+    double vx = 0.8;
+    double vy = -0.4;
+    double omega = 2.0;
+    void step(double dt) {
+        x += vx * dt;
+        y += vy * dt;
+        yaw = std::remainder(yaw + omega * dt, 2.0 * M_PI);
+    }
+};
+
+/** Runs `steps` measured keypoint frames at 30 Hz. Returns the last measurement time; `truth`
+ * ends at the last measured state. */
+double run_turning(KalmanMotionEstimator &estimator, FrameIdAssigner &assigner,
+                   const FieldDescription &field, const MotionEstimatorContext &context, int steps,
+                   TurningTruth &truth, Label label = Label::OPPONENT) {
+    double t = kStartTime;
+    for (int i = 0; i < steps; ++i) {
+        estimator.predict(t, CommandFeedback{});
+        estimator.update({make_opponent_pose_measurement(truth.x, truth.y, truth.yaw, label)}, t,
+                         assigner, field, context);
+        if (i + 1 < steps) {
+            t += kDt;
+            truth.step(kDt);
+        }
+    }
+    return t;
+}
+
+TEST(KalmanMotionEstimatorTest, OpponentHeadingAndYawRateConvergeOnConstantTurn) {
+    KalmanMotionEstimator estimator{kalman_opponents_config()};
+    FrameIdAssigner assigner(10.0, 5);
+    const FieldDescription field = make_field();
+    const MotionEstimatorContext context;
+
+    TurningTruth truth;
+    const double last_t = run_turning(estimator, assigner, field, context, 60, truth);
+
+    auto coasted = estimator.coast(last_t);
+    ASSERT_TRUE(coasted.has_value());
+    ASSERT_EQ(coasted->size(), 1u);
+    const RobotDescription &out = (*coasted)[0];
+    EXPECT_NEAR(out.velocity.omega, truth.omega, 0.1);
+    EXPECT_NEAR(angle_error(yaw_of(out), truth.yaw + truth.omega * kLead), 0.0, 0.03);
+    const KalmanMotionEstimatorConfiguration config = kalman_opponents_config();
+    EXPECT_TRUE(std::isfinite(out.uncertainty.heading_sigma_rad));
+    EXPECT_LT(out.uncertainty.heading_sigma_rad, 2.0 * config.opponent_heading_sigma_rad);
+    EXPECT_LT(out.uncertainty.yaw_rate_sigma_rad_s, 0.25 * config.initial_yaw_rate_sigma);
+}
+
+TEST(KalmanMotionEstimatorTest, OpponentSingleHeadingFlipCorrectsPositionOnly) {
+    KalmanMotionEstimator estimator{kalman_opponents_config()};
+    FrameIdAssigner assigner(10.0, 5);
+    const FieldDescription field = make_field();
+    const MotionEstimatorContext context;
+
+    TurningTruth truth;
+    truth.omega = 0.0;
+    double t = run_turning(estimator, assigner, field, context, 40, truth);
+
+    // The keypoint model swaps front and back for one frame, with the position off by 5 cm.
+    t += kDt;
+    truth.step(kDt);
+    estimator.predict(t, CommandFeedback{});
+    auto outputs = estimator.update(
+        {make_opponent_pose_measurement(truth.x + 0.05, truth.y, truth.yaw + M_PI)}, t, assigner,
+        field, context);
+    ASSERT_EQ(outputs.size(), 1u);
+    EXPECT_FALSE(outputs[0].is_stale);
+    EXPECT_NEAR(angle_error(yaw_of(outputs[0]), truth.yaw), 0.0, 0.02)
+        << "the flipped heading must not move the estimate";
+    EXPECT_GT(outputs[0].pose.position.x, truth.x + 0.01) << "position still corrected";
+
+    // A correct heading next frame resets the flip run.
+    t += kDt;
+    truth.step(kDt);
+    estimator.predict(t, CommandFeedback{});
+    outputs = estimator.update({make_opponent_pose_measurement(truth.x, truth.y, truth.yaw)}, t,
+                               assigner, field, context);
+    EXPECT_NEAR(angle_error(yaw_of(outputs[0]), truth.yaw), 0.0, 0.02);
+}
+
+TEST(KalmanMotionEstimatorTest, OpponentConsecutiveFlipsReinitializeHeadingOnly) {
+    KalmanMotionEstimatorConfiguration config = kalman_opponents_config();
+    config.heading_flip_reinit_count = 3;
+    KalmanMotionEstimator estimator{config};
+    FrameIdAssigner assigner(10.0, 5);
+    const FieldDescription field = make_field();
+    const MotionEstimatorContext context;
+
+    TurningTruth truth;
+    truth.omega = 0.0;
+    double t = run_turning(estimator, assigner, field, context, 40, truth);
+
+    // The track had the front wrong: from here on every measurement says the other way.
+    std::vector<RobotDescription> outputs;
+    for (int flip = 1; flip <= 3; ++flip) {
+        t += kDt;
+        truth.step(kDt);
+        estimator.predict(t, CommandFeedback{});
+        outputs =
+            estimator.update({make_opponent_pose_measurement(truth.x, truth.y, truth.yaw + M_PI)},
+                             t, assigner, field, context);
+        ASSERT_EQ(outputs.size(), 1u);
+        EXPECT_NEAR(outputs[0].pose.position.x, truth.x, 0.01) << "flip " << flip;
+        EXPECT_NEAR(outputs[0].pose.position.y, truth.y, 0.01) << "flip " << flip;
+        if (flip < 3) {
+            EXPECT_NEAR(angle_error(yaw_of(outputs[0]), truth.yaw), 0.0, 0.02) << "flip " << flip;
+        }
+    }
+    EXPECT_NEAR(angle_error(yaw_of(outputs[0]), truth.yaw + M_PI), 0.0, 1e-9);
+    EXPECT_NEAR(outputs[0].velocity.omega, 0.0, 1e-9);
+    EXPECT_NEAR(outputs[0].uncertainty.heading_sigma_rad, config.opponent_heading_sigma_rad, 1e-9);
+    // Translation velocity survives the heading reinit.
+    EXPECT_NEAR(outputs[0].velocity.vx, truth.vx, 0.2);
+}
+
+TEST(KalmanMotionEstimatorTest, OpponentHeadingAfterLongDropoutIsNotCalledAFlip) {
+    KalmanMotionEstimator estimator{kalman_opponents_config()};
+    FrameIdAssigner assigner(10.0, 5);
+    const FieldDescription field = make_field();
+    const MotionEstimatorContext context;
+
+    TurningTruth truth;
+    truth.omega = 0.0;
+    double t = run_turning(estimator, assigner, field, context, 40, truth);
+
+    // A second unseen: the heading prior is wider than the flip test, so a measurement 120
+    // degrees off is a turn the track missed, and the very first one is taken.
+    for (double offset = 0.004; offset <= 1.0; offset += 0.004) estimator.coast(t + offset);
+    t += 1.0;
+    truth.step(1.0);
+    const double turned = truth.yaw + 2.0 * M_PI / 3.0;
+    estimator.predict(t, CommandFeedback{});
+    auto outputs = estimator.update({make_opponent_pose_measurement(truth.x, truth.y, turned)}, t,
+                                    assigner, field, context);
+    ASSERT_EQ(outputs.size(), 1u);
+    EXPECT_NEAR(angle_error(yaw_of(outputs[0]), turned), 0.0, 0.05);
+}
+
+TEST(KalmanMotionEstimatorTest, OpponentBlobBornTrackHasUnknownHeadingUntilKeypoint) {
+    KalmanMotionEstimator estimator{kalman_opponents_config()};
+    FrameIdAssigner assigner(10.0, 5);
+    const FieldDescription field = make_field();
+    const MotionEstimatorContext context;
+
+    double x = 1.0;
+    double y = 2.0;
+    double t = run_constant_velocity(estimator, assigner, field, context, 10, x, y, 0.5, 0.0);
+    auto coasted = estimator.coast(t);
+    ASSERT_TRUE(coasted.has_value());
+    ASSERT_EQ(coasted->size(), 1u);
+    EXPECT_TRUE(std::isinf((*coasted)[0].uncertainty.heading_sigma_rad));
+    EXPECT_TRUE(std::isinf((*coasted)[0].uncertainty.yaw_rate_sigma_rad_s));
+    EXPECT_EQ((*coasted)[0].velocity.omega, 0.0);
+    EXPECT_TRUE(std::isfinite((*coasted)[0].uncertainty.position_sigma_m));
+
+    // The first keypoint heading initializes the block whatever its value: there is no prior to
+    // call it a flip against.
+    t += kDt;
+    x += 0.5 * kDt;
+    estimator.predict(t, CommandFeedback{});
+    auto outputs =
+        estimator.update({make_opponent_pose_measurement(x, y, 2.5)}, t, assigner, field, context);
+    ASSERT_EQ(outputs.size(), 1u);
+    EXPECT_NEAR(angle_error(yaw_of(outputs[0]), 2.5), 0.0, 1e-9);
+    EXPECT_TRUE(std::isfinite(outputs[0].uncertainty.heading_sigma_rad));
+}
+
+TEST(KalmanMotionEstimatorTest, OpponentHeadingBlindLabelNeverCorrectsHeading) {
+    KalmanMotionEstimatorConfiguration config = kalman_opponents_config();
+    config.heading_blind_labels = {Label::OPPONENT};
+    KalmanMotionEstimator estimator{config};
+    FrameIdAssigner assigner(10.0, 5);
+    const FieldDescription field = make_field();
+    const MotionEstimatorContext context;
+
+    TurningTruth truth;
+    const double t = run_turning(estimator, assigner, field, context, 40, truth);
+    auto coasted = estimator.coast(t);
+    ASSERT_TRUE(coasted.has_value());
+    ASSERT_EQ(coasted->size(), 1u);
+    EXPECT_TRUE(std::isinf((*coasted)[0].uncertainty.heading_sigma_rad));
+    EXPECT_TRUE(std::isinf((*coasted)[0].uncertainty.yaw_rate_sigma_rad_s));
+    EXPECT_EQ((*coasted)[0].velocity.omega, 0.0);
+    // Position still tracks.
+    EXPECT_NEAR((*coasted)[0].pose.position.x, truth.x + truth.vx * kLead, 0.05);
+}
+
+TEST(KalmanMotionEstimatorTest, OpponentLateMeasurementRewindRestoresHeading) {
+    KalmanMotionEstimator estimator{kalman_opponents_config()};
+    FrameIdAssigner assigner(10.0, 5);
+    const FieldDescription field = make_field();
+    const MotionEstimatorContext context;
+
+    TurningTruth truth;
+    const double last_t = run_turning(estimator, assigner, field, context, 60, truth);
+
+    // Coast 50 ms ahead, then a measurement stamped 33 ms after the last one arrives.
+    estimator.predict(last_t + 0.05, CommandFeedback{});
+    estimator.coast(last_t + 0.05);
+    TurningTruth late = truth;
+    late.step(kDt);
+    auto outputs = estimator.update({make_opponent_pose_measurement(late.x, late.y, late.yaw)},
+                                    last_t + kDt, assigner, field, context);
+    ASSERT_EQ(outputs.size(), 1u);
+    EXPECT_NEAR(angle_error(yaw_of(outputs[0]), late.yaw), 0.0, 0.03);
+    EXPECT_NEAR(outputs[0].velocity.omega, truth.omega, 0.1);
+    EXPECT_NEAR(outputs[0].pose.position.x, late.x, 0.02);
+
+    auto coasted = estimator.coast(last_t + 0.1);
+    ASSERT_TRUE(coasted.has_value());
+    EXPECT_NEAR(angle_error(yaw_of((*coasted)[0]), truth.yaw + truth.omega * (0.1 + kLead)), 0.0,
+                0.05);
+}
+
+TEST(KalmanMotionEstimatorTest, OpponentPastMaxCoastHoldsPositionHeadingAndYawRate) {
+    KalmanMotionEstimatorConfiguration config = kalman_opponents_config();
+    config.opponent_max_coast_s = 0.2;
+    KalmanMotionEstimator estimator{config};
+    FrameIdAssigner assigner(10.0, 5);
+    const FieldDescription field = make_field();
+    const MotionEstimatorContext context;
+
+    TurningTruth truth;
+    const double last_t = run_turning(estimator, assigner, field, context, 60, truth);
+
+    RobotDescription at_one_second;
+    RobotDescription at_two_seconds;
+    for (double offset = 0.004; offset <= 2.0 + 1e-9; offset += 0.004) {
+        auto coasted = estimator.coast(last_t + offset);
+        ASSERT_TRUE(coasted.has_value());
+        if (std::abs(offset - 1.0) < 2e-3) at_one_second = (*coasted)[0];
+        at_two_seconds = (*coasted)[0];
+    }
+    EXPECT_NEAR(at_two_seconds.pose.position.x, at_one_second.pose.position.x, 1e-9);
+    EXPECT_NEAR(at_two_seconds.pose.position.y, at_one_second.pose.position.y, 1e-9);
+    EXPECT_NEAR(angle_error(yaw_of(at_two_seconds), yaw_of(at_one_second)), 0.0, 1e-9);
+    // Rotation advanced by about omega * opponent_max_coast_s before freezing.
+    EXPECT_NEAR(angle_error(yaw_of(at_two_seconds), truth.yaw + truth.omega * 0.2), 0.0, 0.1);
+}
+
+TEST(KalmanMotionEstimatorTest, OpponentSigmasShrinkWhenMeasuredAndGrowWhileCoasting) {
+    KalmanMotionEstimator estimator{kalman_opponents_config()};
+    FrameIdAssigner assigner(10.0, 5);
+    const FieldDescription field = make_field();
+    const MotionEstimatorContext context;
+
+    TurningTruth truth;
+    double t = run_turning(estimator, assigner, field, context, 2, truth);
+    const PoseUncertainty early = (*estimator.coast(t))[0].uncertainty;
+    TurningTruth rest = truth;
+    for (int i = 0; i < 40; ++i) {
+        t += kDt;
+        rest.step(kDt);
+        estimator.predict(t, CommandFeedback{});
+        estimator.update({make_opponent_pose_measurement(rest.x, rest.y, rest.yaw)}, t, assigner,
+                         field, context);
+    }
+    const PoseUncertainty converged = (*estimator.coast(t))[0].uncertainty;
+    EXPECT_LT(converged.position_sigma_m, early.position_sigma_m);
+    EXPECT_LT(converged.heading_sigma_rad, early.heading_sigma_rad);
+    EXPECT_LT(converged.yaw_rate_sigma_rad_s, early.yaw_rate_sigma_rad_s);
+
+    const PoseUncertainty coasting = (*estimator.coast(t + 0.15))[0].uncertainty;
+    EXPECT_GT(coasting.position_sigma_m, converged.position_sigma_m);
+    EXPECT_GT(coasting.heading_sigma_rad, converged.heading_sigma_rad);
+    EXPECT_GT(coasting.yaw_rate_sigma_rad_s, converged.yaw_rate_sigma_rad_s);
+}
+
+TEST(KalmanMotionEstimatorTest, OpponentCoastingIntoWallRendersStopped) {
+    KalmanMotionEstimator estimator{kalman_opponents_config()};
+    FrameIdAssigner assigner(10.0, 5);
+    FieldDescription field = make_field();
+    field.size.size.x = 2.0;
+    field.size.size.y = 2.0;
+    const MotionEstimatorContext context;
+
+    // Driving at the +x wall (x = 1.0) at 1.5 m/s and still sliding along y.
+    double x = 0.2;
+    double y = 0.0;
+    const double last_t =
+        run_constant_velocity(estimator, assigner, field, context, 15, x, y, 1.5, 0.3);
+    auto coasted = estimator.coast(last_t + 0.15);
+    ASSERT_TRUE(coasted.has_value());
+    ASSERT_EQ(coasted->size(), 1u);
+    EXPECT_DOUBLE_EQ((*coasted)[0].pose.position.x, 1.0);
+    EXPECT_EQ((*coasted)[0].velocity.vx, 0.0) << "no velocity into the wall";
+    EXPECT_NEAR((*coasted)[0].velocity.vy, 0.3, 0.1) << "velocity along the wall survives";
+}
+
+/** Replays the scripted opponent from make_opponent_filter_golden_fixture.py and holds the C++
+ * arm to the Python mirror (auto_battlebot/perception/opponent_filter.py) that produced it. */
+TEST(KalmanMotionEstimatorTest, OpponentArmMatchesPythonMirrorGoldenFixture) {
+    namespace golden = opponent_filter_golden;
+    constexpr double kTol = 1e-6;
+    KalmanMotionEstimatorConfiguration config = kalman_opponents_config();
+    config.opponent_max_coast_s = golden::kMaxCoastS;
+    KalmanMotionEstimator estimator{config};
+    ASSERT_NEAR(estimator.render_lead_s(), golden::kRenderLeadS, 1e-12);
+    FrameIdAssigner assigner(10.0, 5);
+    FieldDescription field = make_field();
+    field.size.size.x = golden::kFieldSize;
+    field.size.size.y = golden::kFieldSize;
+    MotionEstimatorContext context;
+    context.field_bounds_margin_meters = golden::kMargin;
+
+    const auto expect_value = [&](double actual, double expected, const std::string &what) {
+        if (std::isinf(expected)) {
+            EXPECT_TRUE(std::isinf(actual)) << what;
+        } else {
+            EXPECT_NEAR(actual, expected, kTol) << what;
+        }
+    };
+
+    int record = 0;
+    int state_record = 0;
+    for (int i = 0; i < golden::kNumEvents; ++i) {
+        const int kind = golden::kEventKind[i];
+        const double time = golden::kEventTime[i];
+        std::vector<RobotDescription> outputs;
+        if (kind == golden::kKindCoast) {
+            outputs = *estimator.coast(time);
+        } else {
+            std::vector<RobotDescription> measurements;
+            if (kind == golden::kKindMeasured) {
+                measurements.push_back(
+                    golden::kMeasKeypoint[i]
+                        ? make_opponent_pose_measurement(golden::kMeasX[i], golden::kMeasY[i],
+                                                         golden::kMeasYaw[i])
+                        : make_opponent_measurement(golden::kMeasX[i], golden::kMeasY[i]));
+            }
+            outputs = estimator.update(measurements, time, assigner, field, context);
+        }
+        if (!golden::kRecorded[i]) continue;
+        ASSERT_EQ(outputs.size(), 1u) << "event " << i;
+        ASSERT_LT(record, golden::kNumRecorded);
+        const RobotDescription &out = outputs[0];
+        const double *row = &golden::kRender[record * golden::kRenderWidth];
+        const std::string at = "event " + std::to_string(i) + " field ";
+        expect_value(out.pose.position.x, row[0], at + "x");
+        expect_value(out.pose.position.y, row[1], at + "y");
+        EXPECT_NEAR(angle_error(yaw_of(out), row[2]), 0.0, kTol) << at << "yaw";
+        expect_value(out.velocity.vx, row[3], at + "vx");
+        expect_value(out.velocity.vy, row[4], at + "vy");
+        expect_value(out.velocity.omega, row[5], at + "omega");
+        expect_value(out.uncertainty.position_sigma_m, row[6], at + "position_sigma_m");
+        expect_value(out.uncertainty.heading_sigma_rad, row[7], at + "heading_sigma_rad");
+        expect_value(out.uncertainty.yaw_rate_sigma_rad_s, row[8], at + "yaw_rate_sigma_rad_s");
+        EXPECT_EQ(out.is_stale ? 1.0 : 0.0, row[9]) << at << "is_stale";
+        ++record;
+
+        if (kind == golden::kKindCoast) continue;
+        const auto state = estimator.opponent_filter_state(FrameId::THEIR_ROBOT_1);
+        ASSERT_TRUE(state.has_value());
+        const double *expected = &golden::kState[state_record * golden::kStateWidth];
+        for (int k = 0; k < 6; ++k) {
+            if (k == 4) {
+                EXPECT_NEAR(angle_error(state->state(k), expected[k]), 0.0, kTol)
+                    << "event " << i << " theta";
+            } else {
+                EXPECT_NEAR(state->state(k), expected[k], kTol) << "event " << i << " state " << k;
+            }
+        }
+        int column = 6;
+        for (int r = 0; r < 6; ++r) {
+            for (int c = r; c < 6; ++c) {
+                EXPECT_NEAR(state->covariance(r, c), expected[column++], kTol)
+                    << "event " << i << " P(" << r << "," << c << ")";
+            }
+        }
+        EXPECT_NEAR(state->stamp, expected[column++], 1e-9) << "event " << i << " stamp";
+        EXPECT_EQ(state->heading_initialized ? 1.0 : 0.0, expected[column]) << "event " << i;
+        ++state_record;
+    }
+    EXPECT_EQ(record, golden::kNumRecorded);
+    EXPECT_EQ(state_record, golden::kNumStateRecords);
 }
 
 TEST(KalmanMotionEstimatorTest, ResetClearsTracks) {

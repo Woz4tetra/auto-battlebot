@@ -243,7 +243,29 @@ fg::SceneUpdate to_robot_scene(const RobotDescriptionsStamped &robots) {
             text.color = solid_color;
             text.text = enum_to_string_lower(robot.frame_id) + " (" +
                         enum_to_string_lower(robot.label) + ")";
+            if (std::isfinite(robot.uncertainty.heading_sigma_rad)) {
+                const long degrees =
+                    std::lround(robot.uncertainty.heading_sigma_rad * 180.0 / M_PI);
+                text.text += " ±" + std::to_string(degrees) + "°";
+            }
             entity.texts.push_back(std::move(text));
+            update.entities.push_back(std::move(entity));
+        }
+
+        // Two-sigma position ring, only where the estimator reports one.
+        if (std::isfinite(robot.uncertainty.position_sigma_m)) {
+            constexpr int kRingSegments = 32;
+            const double radius = 2.0 * robot.uncertainty.position_sigma_m;
+            fg::SceneEntity entity = make_entity(robots.header, "robot_uncertainty", robot_id);
+            fg::LinePrimitive ring =
+                make_line(fg::LinePrimitive::LineType::LINE_STRIP, 0.006, solid_color);
+            for (int step = 0; step <= kRingSegments; ++step) {
+                const double angle = 2.0 * M_PI * step / kRingSegments;
+                ring.points.push_back(to_point3(robot.pose.position.x + radius * std::cos(angle),
+                                                robot.pose.position.y + radius * std::sin(angle),
+                                                robot.pose.position.z));
+            }
+            entity.lines.push_back(std::move(ring));
             update.entities.push_back(std::move(entity));
         }
 

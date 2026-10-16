@@ -125,7 +125,8 @@ std::vector<RobotKeypointDetection> RobotKeypointTracker::to_detections_with_con
                                      Size{candidate.size_meters, candidate.size_meters, 0.1},
                                      {},
                                      Velocity2D{},
-                                     false};
+                                     false,
+                                     PoseUncertainty{}};
         detections.push_back({std::move(description), candidate.confidence});
     }
     return detections;

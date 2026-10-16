@@ -136,13 +136,23 @@ keypoint_height_meters = 0.03
 
 # Propagation strategy between perception frames. Absent means DeadReckoningMotionEstimator
 # (last commanded velocity applied directly, opponents held at their last pose). The Kalman
-# arm runs opponents through a constant-velocity filter with innovation gating and coasts the
-# output at control rate; our robot still dead-reckons until the plant fit passes acceptance.
+# arm runs opponents through a 6-state filter (constant velocity plus an independent heading and
+# yaw rate) with innovation gating, and coasts the output at control rate.
 # The jig-fitted plant parameters ride in the shared top-level [plant] table below.
 [robot_filter.motion_estimator]
 type = "KalmanMotionEstimator"
 our_robot_mode = "EKF"
+opponent_mode = "KALMAN"
 max_coast_s = 0.2
+# Opponent heading block, grid-searched on the 2026-10-15 Mr Stabs Mk2 sysid sessions against
+# AprilTag truth (docs/experiments/kalman_filter/opponent_filter_evaluation.md). The heading values
+# are interior optima; opponent_accel_psd was flat across 3 to 1000 and keeps its default. The
+# coast horizon is the best trade between fresh error and overshoot at 0.35 s. The position sigma
+# is from the same sweep (8 to 12 mm tie); NHRL replays gate identically at 12 and 30 mm.
+opponent_yaw_accel_psd = 30.0
+opponent_heading_sigma_rad = 0.15
+opponent_max_coast_s = 0.1
+opponent_position_sigma_m = 0.012
 
 # Known footprint per label, in metres, as [x, y, z]. Measured off the CAD models with
 # training/synthetic/render_sprites.py's upright pose; the x/y values match the footprints in

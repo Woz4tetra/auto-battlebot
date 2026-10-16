@@ -365,6 +365,10 @@ Entity ids the readers rely on:
   order and the first repeated). `diag_io.load_field_size` reads the first four.
 - `/robot_markers`: `robot_bounds/<n>` where `<n>` is the `FrameId` enum index of the robot.
   `robot_poses/<n>`, `robot_labels/<n>`, `robot_keypoint_lines/<n>` share that index.
+  `robot_uncertainty/<n>` is a `LINE_STRIP` ring of radius 2 x `position_sigma_m` around the
+  robot, present only when the estimator reports a finite sigma (Kalman opponents today). When
+  the heading sigma is finite, `robot_labels/<n>` text ends in ` ±<deg>°`, one sigma rounded to a
+  degree.
   `robot_keypoints/<k>` counts keypoints across all robots in the message.
 - `/hazard_markers`: `hazards/<i>` per keep-out disc, in `FieldDescription::hazards` order. Every
   live update starts with a deletion of type `ALL` so rings from the previous cycle clear.

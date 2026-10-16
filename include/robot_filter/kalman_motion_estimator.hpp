@@ -20,12 +20,18 @@ namespace auto_battlebot {
 /**
  * Kalman-filter propagation behind the motion estimator seam.
  *
- * Non-OURS tracks run a 4-state linear Kalman filter [px, py, vx, vy] with a constant-velocity
- * model and continuous white-noise acceleration, position-only measurements, chi-square
- * innovation gating, and reinitialization after repeated rejects. Unmeasured tracks predict
- * forward with growing covariance up to max_coast_s of track age, then hold position.
- * Measurements older than the track state (perception latency) are handled by rewinding to a
- * stored snapshot, correcting at the measurement's own stamp, and re-propagating.
+ * Non-OURS tracks run a 6-state linear Kalman filter [px, py, vx, vy, theta, omega]: a
+ * constant-velocity translation block and an independent constant-yaw-rate heading block, each
+ * driven by its own continuous white-noise acceleration. Keypoint measurements correct position
+ * and heading, blob centroids position only. Position is chi-square gated, with
+ * reinitialization after repeated rejects; a heading more than pi/2 off the track is a front/back
+ * flip and corrects nothing, and a run of flips re-initializes the heading block. Unmeasured
+ * tracks predict forward with growing covariance up to max_coast_s of track age, then hold
+ * position and heading. Measurements older than the track state (perception latency) are handled
+ * by rewinding to a stored snapshot, correcting at the measurement's own stamp, and
+ * re-propagating. The opponent coast horizon is opponent_max_coast_s. The Python mirror in
+ * auto_battlebot/perception/opponent_filter.py must change with this arm;
+ * tests/test_kalman_motion_estimator.cpp holds the two to a golden fixture.
  *
  * The our-robot track has two modes. DEAD_RECKONING applies the last commanded velocity
  * directly, matching DeadReckoningMotionEstimator for that track. EKF runs a 5-state EKF
@@ -61,6 +67,17 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
      */
     double render_lead_s() const override { return config_.plant->delay_s; }
 
+    /** Committed state of one Kalman opponent track, for the parity test against the Python
+     * mirror. */
+    struct OpponentFilterState {
+        ekf::Vec<6> state;
+        ekf::Mat<6, 6> covariance;
+        double stamp = 0.0;
+        bool heading_initialized = false;
+    };
+    /** nullopt when the frame id has no Kalman opponent track. */
+    std::optional<OpponentFilterState> opponent_filter_state(FrameId frame_id) const;
+
    private:
     /**
      * At the 250 Hz control rate this is roughly 240 ms of rewind history: coast() commits an
@@ -81,16 +98,26 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
     /** Throttle on the clock-gap warning: it fires every tick once tripped. */
     static constexpr double kClockGapWarnPeriodS = 5.0;
 
+    static constexpr int kOpponentStates = 6;
+    using OpponentVec = ekf::Vec<kOpponentStates>;
+    using OpponentMat = ekf::Mat<kOpponentStates, kOpponentStates>;
+
     struct Snapshot {
         double stamp = 0.0;
-        ekf::Vec<4> state = ekf::Vec<4>::Zero();
-        ekf::Mat<4, 4> covariance = ekf::Mat<4, 4>::Zero();
+        OpponentVec state = OpponentVec::Zero();
+        OpponentMat covariance = OpponentMat::Zero();
+        bool heading_initialized = false;
     };
 
-    /** One non-OURS robot: state [px, py, vx, vy] in the field frame. */
+    /** One non-OURS robot: state [px, py, vx, vy, theta, omega] in the field frame. */
     struct OpponentTrack {
-        ekf::Vec<4> state = ekf::Vec<4>::Zero();
-        ekf::Mat<4, 4> covariance = ekf::Mat<4, 4>::Zero();
+        OpponentVec state = OpponentVec::Zero();
+        OpponentMat covariance = OpponentMat::Zero();
+        /** False until a keypoint heading has been folded in: a blob-born track, or a
+         * heading-blind label. The heading block is then meaningless and renders as unknown. */
+        bool heading_initialized = false;
+        /** Consecutive keypoint headings rejected as flips. */
+        int consecutive_flips = 0;
         /** Time the state refers to. */
         double stamp = 0.0;
         double last_measured_stamp = 0.0;
@@ -160,8 +187,12 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
     /** Resets the track to this measurement with a fresh large covariance. */
     void init_opponent(OpponentTrack &track, const RobotDescription &measurement, double stamp,
                        double position_variance);
-    /** Isotropic position noise: base sigma by measurement type (blob vs keypoint) plus the
-     * configured growth per meter of camera range. */
+    /** Resets theta to `yaw` and omega to zero with fresh variances, decoupled from translation. */
+    void init_opponent_heading(OpponentTrack &track, double yaw) const;
+    /** True for a keypoint pose whose label is not heading-blind. */
+    bool measures_heading(const RobotDescription &measurement) const;
+    /** Isotropic position noise: base sigma by measurement type (blob, our keypoint pose,
+     * opponent keypoint pose) plus the configured growth per meter of camera range. */
     ekf::Mat<2, 2> measurement_noise_for(const RobotDescription &measurement,
                                          const MotionEstimatorContext &context) const;
     /** Builds the output description from the track's current state. */

@@ -13,6 +13,40 @@ opponent itself from its observation history.
 The heading measurement comes from the learned NHRL keypoint model, trained on synthetic data,
 which gives front and back keypoints for arbitrary robots. This plan does not change perception.
 
+## Status, 2026-10-16
+
+Steps 1 to 6 are done and step 7 is not triggered. Results, figures and the gate verdict are in
+`docs/experiments/kalman_filter/opponent_filter_evaluation.md`. The apartment-floor recordings
+with a tag on Mrs Buff Mk3 did not exist yet, so step 5 used the two 2026-10-15 Mr Stabs Mk2
+sysid sessions as ground truth, with Mr Stabs standing in for the opponent.
+
+Changes from the design below, each found while building or scoring it:
+
+- **Heading row applied after position.** The translation and heading blocks never correlate, so
+  correcting position and then heading equals the 3-row update. Doing it in sequence keeps the
+  chi-square gate on position alone: a heading 60 degrees off must not cost the track its
+  position fix. The flip test is the heading's gate.
+- **Flip test only while the heading is known.** Past a heading sigma of pi/4 a measurement more
+  than pi/2 away is as likely an unseen turn as a flip, and is taken. Without this, the first
+  headings after a 1 s gap were called flips until three of them forced a re-initialization.
+- **Covariance keeps propagating past the horizon.** Position and heading hold, but P propagates
+  through the full transition. With an identity transition the position sigma stayed at
+  centimetres through a 0.5 s gap and the gate rejected the reacquisition.
+- **Variance caps.** Velocity and yaw-rate variance are capped at their initialization priors, so
+  a track unseen for minutes does not grow its position variance with t^3.
+- **Coast horizon split within a step, and opponent-only.** A step that crosses the horizon
+  integrates only its part before it; the first coast after a measurement spans 115 ms of latency
+  and lead, so a per-step decision overshot any horizon shorter than that.
+  `opponent_max_coast_s = 0.1`, separate from the our-robot `max_coast_s = 0.2`: longer
+  horizons overshoot robots that stop or reverse.
+- **Opponent measurement sigmas separate from the our-robot ones:** `opponent_heading_sigma_rad`
+  and `opponent_position_sigma_m`, since `keypoint_heading_sigma_rad` and
+  `keypoint_position_sigma_m` also tune the our-robot EKF.
+- **`opponent_measurement_<id>` diagnostic.** Every opponent measurement the estimator receives, in
+  either mode, so a recording replays through the mirror offline.
+- **Measurement model file.** `playground/opponent_prediction/sensing_model_opponent.toml`, the
+  opponent section the RL plan's `fit_sensing_model.py` will merge into `sensing_model.toml`.
+
 ## What exists
 
 All in `src/robot_filter/kalman_motion_estimator.cpp` and its header unless noted.

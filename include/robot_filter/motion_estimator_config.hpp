@@ -3,6 +3,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "config/config_factory.hpp"
 #include "config/config_parser.hpp"
@@ -59,10 +60,10 @@ struct DeadReckoningMotionEstimatorConfiguration : public MotionEstimatorConfigu
 enum class OurRobotMode { DEAD_RECKONING, EKF };
 
 /**
- * How opponent tracks are propagated. KALMAN runs the constant-velocity filter with
- * innovation gating and coasts through dropout gaps. HOLD pins each opponent at its last
- * measured pose with no prediction of any kind, matching DeadReckoningMotionEstimator's
- * opponent behavior.
+ * How opponent tracks are propagated. KALMAN runs the 6-state filter (constant velocity plus an
+ * independent constant-yaw-rate heading) with innovation gating and coasts through dropout gaps.
+ * HOLD pins each opponent at its last measured pose with no prediction of any kind, matching
+ * DeadReckoningMotionEstimator's opponent behavior.
  */
 enum class OpponentMode { KALMAN, HOLD };
 
@@ -72,7 +73,6 @@ struct KalmanMotionEstimatorConfiguration : public MotionEstimatorConfiguration 
      * opt in through the extends chain. */
     OurRobotMode our_robot_mode = OurRobotMode::DEAD_RECKONING;
 
-    /** Opponent prediction is disabled for now; flip to KALMAN to re-enable. */
     OpponentMode opponent_mode = OpponentMode::HOLD;
 
     /**
@@ -81,6 +81,26 @@ struct KalmanMotionEstimatorConfiguration : public MotionEstimatorConfiguration 
      * accelerations sustained over ~0.3 s maneuvers.
      */
     double opponent_accel_psd = 30.0;
+    /** Continuous white-noise yaw acceleration PSD (rad^2/s^3) for the opponent heading block,
+     * which runs a constant-yaw-rate model independent of the translation block. */
+    double opponent_yaw_accel_psd = 100.0;
+    /** Sigma (rad/s) on the opponent yaw rate when the heading block initializes. */
+    double initial_yaw_rate_sigma = 20.0;
+    /** Heading measurement sigma (radians) for opponent keypoint poses. Separate from
+     * keypoint_heading_sigma_rad because that one also tunes the our-robot EKF. */
+    double opponent_heading_sigma_rad = 0.15;
+    /** Position measurement sigma (meters) for opponent keypoint poses, before the per-meter
+     * range term. Separate from keypoint_position_sigma_m, which also tunes the our-robot EKF.
+     * Blob centroids keep blob_position_sigma_m. */
+    double opponent_position_sigma_m = 0.03;
+    /** Consecutive opponent heading measurements past pi/2 of the track (flips) after which the
+     * heading block re-initializes at the measured heading: a run of consistent flips means the
+     * track had the front wrong, not the keypoint model. */
+    int heading_flip_reinit_count = 3;
+    /** Labels whose heading is never measured: full-body spinners and robots the keypoint model
+     * cannot orient. Their heading sigma renders as infinite, which navigation reads as a
+     * full-circle weapon. */
+    std::vector<Label> heading_blind_labels;
 
     /** Position measurement sigma (meters) for keypoint-derived poses. Placeholder until the
      * joint jig and camera session measures R. */
@@ -111,10 +131,15 @@ struct KalmanMotionEstimatorConfiguration : public MotionEstimatorConfiguration 
      * gaps; predicting multi-second gaps with a short-horizon model is fiction.
      */
     double max_coast_s = 0.4;
-
-    /** Body speed (m/s) below which an opponent's velocity-derived heading is not trusted and
-     * the last measured heading is kept. */
-    double min_heading_speed = 0.3;
+    /**
+     * Coast horizon (seconds) for opponent tracks: past this age since the last accepted
+     * measurement position and heading hold. Separate from max_coast_s because the our-robot
+     * EKF predicts from the commands it issued and an opponent track has none. 0.1 is the best
+     * trade on the 2026-10-15 sysid evaluation: longer horizons overshoot robots that stop or
+     * reverse (median error at 0.35 s 98 mm at 0.1 against 244 mm at 0.2), shorter ones lose the
+     * fresh-estimate gain (p90 87 mm at 0.1 against 176 mm with none).
+     */
+    double opponent_max_coast_s = 0.1;
 
     /**
      * Baseline (seconds) for the our-robot forward-speed observation, differenced between two
@@ -165,6 +190,21 @@ struct KalmanMotionEstimatorConfiguration : public MotionEstimatorConfiguration 
         PARSE_ENUM(our_robot_mode, OurRobotMode)
         PARSE_ENUM(opponent_mode, OpponentMode)
         PARSE_FIELD_DOUBLE(opponent_accel_psd)
+        PARSE_FIELD_DOUBLE(opponent_yaw_accel_psd)
+        PARSE_FIELD_DOUBLE(initial_yaw_rate_sigma)
+        PARSE_FIELD_DOUBLE(opponent_heading_sigma_rad)
+        PARSE_FIELD_DOUBLE(opponent_position_sigma_m)
+        heading_flip_reinit_count = static_cast<int>(
+            parser.get_optional_int("heading_flip_reinit_count", heading_flip_reinit_count));
+        for (const std::string &name :
+             parser.get_optional_vector<std::string>("heading_blind_labels")) {
+            const auto label = magic_enum::enum_cast<Label>(name);
+            if (!label.has_value()) {
+                throw std::invalid_argument("Invalid Label value: '" + name +
+                                            "' for field 'heading_blind_labels'");
+            }
+            heading_blind_labels.push_back(*label);
+        }
         PARSE_FIELD_DOUBLE(keypoint_position_sigma_m)
         PARSE_FIELD_DOUBLE(blob_position_sigma_m)
         PARSE_FIELD_DOUBLE(keypoint_heading_sigma_rad)
@@ -175,7 +215,7 @@ struct KalmanMotionEstimatorConfiguration : public MotionEstimatorConfiguration 
         PARSE_FIELD_DOUBLE(initial_velocity_sigma)
         PARSE_FIELD_DOUBLE(covariance_floor)
         PARSE_FIELD_DOUBLE(max_coast_s)
-        PARSE_FIELD_DOUBLE(min_heading_speed)
+        PARSE_FIELD_DOUBLE(opponent_max_coast_s)
         PARSE_FIELD_DOUBLE(speed_measurement_min_dt_s)
         PARSE_FIELD_DOUBLE(speed_measurement_max_dt_s)
         PARSE_FIELD_DOUBLE(speed_position_sigma_m)
