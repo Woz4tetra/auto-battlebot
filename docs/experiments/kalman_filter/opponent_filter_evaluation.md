@@ -2,7 +2,8 @@
 
 Plan: `docs/plans/opponent_motion_estimation_plan.md`, steps 4 and 5. The 6-state opponent filter
 (`[px, py, vx, vy, theta, omega]`, `KalmanMotionEstimator` opponent arm) is scored against
-AprilTag truth, tuned, and replayed through NHRL May and MassD matches against `HOLD`.
+AprilTag truth, tuned, and replayed through NHRL May and MassD matches against `HOLD`. It fails the
+plan's acceptance gate at 0.35 s, so it is not enabled; see Gate and Verdict.
 
 ## Data
 
@@ -257,38 +258,71 @@ dropout runs and gaps from the sysid sessions and from the match replays, and th
 latency. It is fitted on Mr Stabs; Mrs Buff Mk3 and unseen opponents will have their own heading
 error and flip rate.
 
+## Gate
+
+The plan's acceptance gate: phase 1 beats `hold` and `kalman4` at 0.1 and 0.35 s. Scored as
+median rendered position error, fixed before the phase 2 runs, on the held-out session in both
+the natural and the 1 s-gap scenarios (the plan holds out whole recordings):
+
+| Arm | nat 0.1 s | nat 0.35 s | 1 s gaps 0.1 s | 1 s gaps 0.35 s |
+| --- | --- | --- | --- | --- |
+| hold | 35 | 36 | 29 | 27 |
+| kalman4 | 34 | 51 | 28 | 28 |
+| phase1, 0.1 s horizon | 32 | 50 | 26 | 26 |
+
+Phase 1 fails at the natural 0.35 s cell (50 against 36 mm, 205 samples), and on the tuning
+session it also loses to `hold` at 0.35 s (105 against 58 mm). Heading passes or ties everywhere.
+
+## Phase 2 (plan step 7)
+
+Step 7 is for arc or lateral errors at 0.35 s that phase 1 cannot fix. On the tuning session the
+0.35 s natural bin has them: arcing samples sit at 89 mm for phase 1 against 27 mm for `hold`. So
+the body-frame EKF (`[x, y, u, s, theta, omega]`, forward and lateral body speed, path bending with
+the yaw rate) was built in the mirror (`playground/opponent_prediction/phase2_body_frame.py`) and
+scored the same way, with optional velocity decay and three lateral process-noise levels.
+
+Each model's coast horizon was chosen on the tuning session (lowest summed median over the four
+gate cells), then scored on the holdout:
+
+| Model, horizon from tuning | nat 0.1 s | nat 0.35 s | 1 s gaps 0.1 s | 1 s gaps 0.35 s | Sum |
+| --- | --- | --- | --- | --- | --- |
+| best of hold and kalman4 per cell | 34 | 36 | 28 | 27 | |
+| phase1, 0.035 s | 33 | 39 | 27 | 23 | 122 |
+| phase2, 0.035 s | 33 | 37 | 26 | 24 | 120 |
+
+- Phase 2 does not beat phase 1 beyond noise (120 against 122 mm summed), so by the plan's rule
+  it is not adopted. Lateral process noise from 0.3 to 30 made no difference.
+- Neither model passes the gate. Both lose the natural 0.35 s cell to `hold` by 1 to 3 mm, and on
+  the tuning session both lose the 0.1 s cells to `kalman4` by 1 to 7 mm. One phase 2 setting
+  (0.035 s horizon, 0.3 s velocity decay) cleared the holdout natural 0.35 s cell by less than
+  1 mm, found by sweeping on the holdout itself; that is not a pass.
+- The trade is structural. Beating `kalman4` at 0.1 s needs about 0.2 s of extrapolation, and
+  beating `hold` at 0.35 s needs almost none, because the long natural gaps are mostly robots
+  that stopped. No kinematic model predicts the stop.
+
 ## Verdict
 
-The plan's gate: phase 1 beats `hold` and `kalman4` at 0.1 and 0.35 s.
+Steps 1 to 5 are done and step 4 passed. Step 6 is not taken: `opponent_mode` stays `"HOLD"` in
+`config/_common.toml`, because the gate fails. Step 7 was triggered, evaluated, and not adopted.
 
-- Against `kalman4`: passes. Position ties at 0.1 s (50 / 178 against 44 / 192 mm) and wins at
-  0.35 s (105 against 246 mm); heading wins at every horizon past fresh, by up to 165 degrees.
-- Against `hold`, heading: passes or ties. Fresh p90 38 to 29 degrees, spins 52.5 to 31.8 degrees.
-- Against `hold`, position at 0.1 s: passes on p90 (178 against 272 mm), ties on the median.
-- Against `hold`, position at 0.35 s: fails on the tuning session (105 against 59 mm median),
-  ties on the holdout (50 against 37 mm natural, 27 against 27 mm with 1 s gaps). The misses are
-  straight-line overshoot and robots that had stopped, not arcs.
-
-Step 4 passed: no identity swaps and no downstream loss in any replay.
-
-Decision: `opponent_mode = "KALMAN"` in `config/_common.toml` (step 6). The 0.35 s position miss
-is limited by the 0.1 s coast horizon, every other comparison is a win or a tie, and
-`RlPolicyNavigation` needs the yaw rate and sigmas that `HOLD` cannot give. Reverting is that one
-line.
-
-Phase 2 (step 7) is not triggered. It is for arc and lateral errors at 0.35 s; the arcing class
-is where the filter already does best (36 against 76 mm median), and the 0.35 s misses would not
-change under a body-frame model, which extrapolates a stopping robot just as far.
+What the KALMAN arm offers if the gate is revisited: fresh p90 position error halved (80 against
+165 mm on the tuning session), heading that does not swing to the velocity direction (6 to 9
+degrees median once stale against 77 to 172 for `kalman4`), calibrated heading and yaw-rate
+sigmas, and no identity swaps or coverage loss in eight match replays. `RlPolicyNavigation` reads
+the yaw rate and sigmas, so the RL plan's gate G2 needs either this gate relaxed for heading or a
+model that passes it.
 
 ## Next steps
 
+- Decide whether the gate should weigh heading as well as position: the filter passes on heading
+  and fails position at 0.35 s by 3 to 14 mm on the holdout.
 - Record the apartment-floor sessions with a tag on Mrs Buff Mk3 (RL plan section 9) and rerun
-  `evaluate_opponent_prediction.py` with that opponent, to replace the Mr Stabs stand-in and get a
-  per-label flip rate.
+  `evaluate_opponent_prediction.py` and `phase2_body_frame.py` on an opponent that is not driven
+  in sysid steps; Mr Stabs' stop-start maneuvers are the worst case for any prediction.
 - Add MassD `11-17-26`'s opponent to `heading_blind_labels` if it gets its own label: an 8.5% flip
   rate is mostly noise.
 - A position bias state, or rendering at a shorter lead, would bring the position sigma's
-  coverage down from 1.00 toward 0.95; the policy reads a capped position sigma until then.
+  coverage down from 1.00 toward 0.95.
 
 ## Limitations
 
