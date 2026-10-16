@@ -62,7 +62,7 @@ from anywhere. `training/`, `scripts/`, `simulation/`, and `logo/` are not packa
   | Subpackage | Holds |
   | --- | --- |
   | `recording/` | Foxglove MCAP read and write, ZED SVO, diagnostics loaders |
-  | `perception/` | Python mirrors of the C++ detector path (`trt_yolo`, `camera_geometry`), camera and cage calibration loaders, field pose fits (`field_pose`), the sysid tag pose smoother |
+  | `perception/` | Python mirrors of the C++ detector path (`trt_yolo`, `camera_geometry`), camera and cage calibration loaders, field pose fits (`field_pose`), the sysid tag pose smoother, the batched opponent filter mirror (`opponent_filter`) |
   | `segmentation/` | DeepLab field-mask builder, checkpoint metadata, label parsing, fixed-camera floor hull (`field_hull`) |
   | `control/` | The grey-box drivetrain plant the C++ filter mirrors |
   | `mujoco_sim/` | Mr Stabs Mk2 rigid-body model: Onshape lumping, MJCF, MuJoCo Warp rollouts, the CMA-ES plant fit |

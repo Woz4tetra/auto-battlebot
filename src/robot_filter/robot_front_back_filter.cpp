@@ -517,7 +517,8 @@ std::vector<MeasurementWithConfidence> RobotFrontBackFilter::build_valid_measure
                               {vector_to_position(front_keypoint_in_field),
                                vector_to_position(back_keypoint_in_field)},
                               Velocity2D{},
-                              false};
+                              false,
+                              PoseUncertainty{}};
         valid_measurements.push_back({confidence, std::move(desc)});
     }
     return valid_measurements;
