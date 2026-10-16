@@ -1,6 +1,6 @@
 # Opponent filter evaluation, 2026-10-15
 
-Plan: `docs/plans/opponent_motion_estimation_plan.md`, steps 4 and 5. The 6-state opponent filter
+Summary and design: `opponent_motion_estimation_report.md` (the plan it implemented is deleted). The 6-state opponent filter
 (`[px, py, vx, vy, theta, omega]`, `KalmanMotionEstimator` opponent arm) is scored against
 AprilTag truth, tuned, and replayed through NHRL May and MassD matches against `HOLD`. It failed
 the original gate on position at 0.35 s; the gate was amended to heading plus position at 0.1 s,

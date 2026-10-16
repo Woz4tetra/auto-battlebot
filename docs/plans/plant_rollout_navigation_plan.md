@@ -60,7 +60,7 @@ The opponent predictor and the goal are computed once per replan. Every candidat
 
 ### 1. Opponent track with heading
 
-Specified in `docs/plans/opponent_motion_estimation_plan.md`. What this plan relies on:
+Specified in `docs/experiments/kalman_filter/opponent_motion_estimation_report.md`. What this plan relies on:
 
 - `OpponentTrack` becomes `[px, py, vx, vy, theta, omega]`, with heading from the learned
   front and back keypoints and the same pi/2 flip gate the our-robot track uses.
@@ -263,7 +263,7 @@ scored with the same metric code.
 0. **Prerequisites** (on the checklist): the MuJoCo plant fit passes validation on the
    apartment-floor sessions, and PursuitNavigation in sim matches it on the real robot.
 1. **Opponent heading in the estimator.** Steps 1 to 6 of
-   `docs/plans/opponent_motion_estimation_plan.md`: the 6-state filter, uncertainty output,
+   `docs/experiments/kalman_filter/opponent_motion_estimation_report.md`: the 6-state filter, uncertainty output,
    `predict_opponent()`, the playback regression, the prediction evaluation, and enabling
    `KALMAN`.
 2. **Rollout stepper and compute benchmark.** Section 3 with the parity fixture. Then the

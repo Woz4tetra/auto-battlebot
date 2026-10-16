@@ -16,7 +16,7 @@ Background:
 - `docs/sysid_guide.md`: how the 2026-10-15 plant was fitted and scored.
 - `docs/plans/learned_sim_environment_plan.md`: sensing model, scorer and sim-to-real gates. This
   plan reuses its layers 2, 4 and 5.
-- `docs/plans/opponent_motion_estimation_plan.md`: the 6-state opponent filter with heading, yaw
+- `docs/experiments/kalman_filter/opponent_motion_estimation_report.md`: the 6-state opponent filter with heading, yaw
   rate and uncertainty, and its batched Python mirror for training. A hard dependency: section 3
   reads its output and section 4 runs its mirror.
 
@@ -115,7 +115,7 @@ lets the policy infer the day's plant: a reverse veer, a sagging battery, a slic
 Kumar et al. 2021).
 
 **Target opponent (19):** the robot that `TargetSelection` picked, as rendered by the 6-state
-opponent filter (`opponent_motion_estimation_plan.md`, section 6 holds the field contract).
+opponent filter (`docs/experiments/kalman_filter/opponent_motion_estimation_report.md`, "Contract for RlPolicyNavigation").
 
 | Field | Count | Notes |
 | --- | --- | --- |
@@ -173,7 +173,7 @@ poses. Training feeds it the same thing. The two robots are handled differently:
 
 **Opponent: measurement model plus the real filter.** True opponent pose becomes a simulated
 keypoint measurement, which goes through the batched Python mirror of the 6-state opponent filter
-(`opponent_motion_estimation_plan.md`, section 7). The mirror is parity-tested against the C++,
+(`docs/experiments/kalman_filter/opponent_motion_estimation_report.md`, "The mirror"). The mirror is parity-tested against the C++,
 so the policy trains against the estimator it runs with: its lag, its coast, its sigmas and its
 response to flips. Only the measurement needs a fitted model.
 
@@ -194,7 +194,8 @@ against the AprilTag ground truth:
 - frame rate: a new measurement every 1/30 to 1/60 s, sampled per episode
 
 Output is `sensing_model.toml`, written by `playground/rl/fit_sensing_model.py` together with the
-opponent filter's evaluation (its step 5), loaded by the training environment. This is layer 2
+opponent filter's evaluation (`playground/opponent_prediction/fit_opponent_sensing_model.py`),
+loaded by the training environment. This is layer 2
 of `learned_sim_environment_plan.md`, fitted on the new recordings rather than MassD.
 
 ### 5. Training environment
@@ -443,10 +444,11 @@ hazard edge distance, whether the target opponent is stale, policy run id.
 1. **Ground truth and sensing model.** Offline tag detection on the new videos for both robots,
    bundles through `smooth_tag_poses.py`, then `fit_sensing_model.py`. Gate G1.
 
-   **Opponent filter, in parallel:** `opponent_motion_estimation_plan.md` steps 1 to 6. Its
-   step 3 (Python mirror) must finish before step 4 here, its step 5 (evaluation and noise fit,
-   which uses these same recordings) before step 7, and its step 6 (enable `KALMAN`) before
-   steps 5 and 9. That plan's step order table has the details.
+   **Opponent filter:** done 2026-10-16
+   (`docs/experiments/kalman_filter/opponent_motion_estimation_report.md`). The mirror step 4
+   needs and the `KALMAN` enable steps 5 and 9 need are in place. Its evaluation used the Mr Stabs
+   sysid sessions; rerun `evaluate_opponent_prediction.py` on these recordings before step 7 so
+   the tuned noise and `sensing_model_opponent.toml` come from a real opponent.
 2. **Observation spec and parity.** `obs_spec.py`, the torch builder, the C++ builder, the golden
    fixture. Gate G3 for the builder. This comes early because every later step trains against
    the spec.
@@ -491,11 +493,11 @@ hazard edge distance, whether the target opponent is stale, policy run id.
   breaks the loader until the policy is retrained. That is intended.
 - **NHRL floor.** All recordings are from the apartment floor. The friction ranges in section 8
   are a guess for the arena; the first NHRL outing should record a session for G2 on that floor.
-- **The opponent filter is a hard dependency.** Today `opponent_mode = HOLD` gives no velocity,
-  yaw rate or sigmas. The policy is trained against the 6-state filter through its mirror, so a
+- **The opponent filter is a hard dependency.** `opponent_mode = HOLD` gives no velocity, yaw
+  rate or sigmas; production runs `KALMAN` since 2026-10-16. The policy is trained against the 6-state filter through its mirror, so a
   policy must never run with `HOLD`: `RlPolicyNavigation` refuses to initialize unless
-  `opponent_mode = "KALMAN"`. Any later change to the filter, including phase 2, means a
-  retrain.
+  `opponent_mode = "KALMAN"`. Any later change to the filter, including the body-frame model
+  prototyped in `phase2_body_frame.py`, means a retrain.
 
 ## Next steps
 
