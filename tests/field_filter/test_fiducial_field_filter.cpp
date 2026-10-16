@@ -37,13 +37,17 @@ cv::Mat render_board(const Eigen::Matrix4d &tf_camera_from_fieldcenter,
                                      cv::Mat(ids, true));
 
     // A board image at a known metres-per-pixel, so its four corners have known board coordinates.
+    // The printed board has a white paper margin. Without one the perimeter markers' black
+    // borders sit straight on the grey floor, and the AprilTag quad search finds only the three
+    // interior markers.
     constexpr double kPixelsPerMetre = 4000.0;
+    constexpr double kMargin = 0.02;
     const double board_width = kCols * kMarkerSize + (kCols - 1) * kMarkerSeparation;
     const double board_height = kRows * kMarkerSize + (kRows - 1) * kMarkerSeparation;
-    const cv::Size board_pixels(static_cast<int>(board_width * kPixelsPerMetre),
-                                static_cast<int>(board_height * kPixelsPerMetre));
+    const cv::Size board_pixels(static_cast<int>((board_width + 2.0 * kMargin) * kPixelsPerMetre),
+                                static_cast<int>((board_height + 2.0 * kMargin) * kPixelsPerMetre));
     cv::Mat board_image;
-    board.generateImage(board_pixels, board_image, 0, 1);
+    board.generateImage(board_pixels, board_image, static_cast<int>(kMargin * kPixelsPerMetre), 1);
     cv::cvtColor(board_image, board_image, cv::COLOR_GRAY2BGR);
 
     const std::vector<cv::Point2f> source = {
@@ -51,10 +55,11 @@ cv::Mat render_board(const Eigen::Matrix4d &tf_camera_from_fieldcenter,
         {static_cast<float>(board_pixels.width), 0.0F},
         {static_cast<float>(board_pixels.width), static_cast<float>(board_pixels.height)},
         {0.0F, static_cast<float>(board_pixels.height)}};
-    const std::vector<Eigen::Vector3d> board_corners = {{0.0, 0.0, 0.0},
-                                                        {board_width, 0.0, 0.0},
-                                                        {board_width, board_height, 0.0},
-                                                        {0.0, board_height, 0.0}};
+    const std::vector<Eigen::Vector3d> board_corners = {
+        {-kMargin, -kMargin, 0.0},
+        {board_width + kMargin, -kMargin, 0.0},
+        {board_width + kMargin, board_height + kMargin, 0.0},
+        {-kMargin, board_height + kMargin, 0.0}};
     std::vector<Eigen::Vector3d> in_field;
     for (const auto &corner : board_corners) {
         in_field.push_back(tf_fieldcenter_from_board.block<3, 3>(0, 0) * corner +

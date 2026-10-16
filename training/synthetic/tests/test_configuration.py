@@ -90,7 +90,7 @@ class TestRealConfig:
         assert cfg.camera.max_distance == pytest.approx(6.0)
         assert cfg.camera.max_frame_fraction == pytest.approx(0.85)
         assert cfg.scene.max_robots_per_scene == 10
-        assert cfg.randomization.air_probability == pytest.approx(0.3)
+        assert cfg.randomization.air_probability == pytest.approx(0.1)
         assert cfg.randomization.motion_blur_strength_range == (5, 15)
 
         assert [cage.name for cage in cfg.cages] == [

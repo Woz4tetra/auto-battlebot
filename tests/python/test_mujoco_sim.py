@@ -318,7 +318,9 @@ def test_warp_rollout_matches_cpu_on_a_straight_drive(
 
     steps = 600
     rollout = WarpRollout(mp, collision, 4, steps)
-    params = [PlantParams(resistance_ohm=r) for r in (0.15, 0.3, 0.5, 0.8)]
+    # Below about 0.2 ohm the launch hops the chassis on its skid, and that contact chatter makes
+    # the float32 GPU rollout differ run to run: 0.15 ohm landed anywhere in -45..+24 mm of the CPU.
+    params = [PlantParams(resistance_ohm=r) for r in (0.2, 0.3, 0.5, 0.8)]
     rollout.set_params(params)
     volts = np.zeros((4, steps, 2))
     volts[:, :400] = 4.0

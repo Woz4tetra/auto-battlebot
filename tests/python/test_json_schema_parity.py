@@ -14,7 +14,7 @@ HEADER = Path(__file__).resolve().parents[2] / "include" / "foxglove_adapters" /
 
 def _cpp_constant(name: str) -> str:
     text = HEADER.read_text(encoding="utf-8")
-    match = re.search(r"constexpr const char \*" + name + r' =\s*R"\((.*?)\)";', text, re.S)
+    match = re.search(r"constexpr const char\s*\*\s*" + name + r' =\s*R"\((.*?)\)";', text, re.S)
     assert match is not None, f"{name} not found in {HEADER}"
     return match.group(1)
 
@@ -47,6 +47,6 @@ def test_schema_text_matches_header(python_name: str, cpp_name: str) -> None:
 )
 def test_schema_name_matches_header(python_name: str, cpp_name: str) -> None:
     text = HEADER.read_text(encoding="utf-8")
-    match = re.search(r"constexpr const char \*" + cpp_name + r' =\s*"([^"]*)";', text)
+    match = re.search(r"constexpr const char\s*\*\s*" + cpp_name + r' =\s*"([^"]*)";', text)
     assert match is not None, cpp_name
     assert getattr(mcap_write, python_name) == match.group(1)
