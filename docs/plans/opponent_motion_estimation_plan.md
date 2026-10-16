@@ -15,7 +15,12 @@ which gives front and back keypoints for arbitrary robots. This plan does not ch
 
 ## Status, 2026-10-16
 
-Steps 1 to 6 are done and step 7 is not triggered. Results, figures and the gate verdict are in
+Steps 1 to 5 are done and step 4 passed. Phase 1 fails the acceptance gate: on the held-out
+session it does not beat `HOLD` at 0.35 s (50 against 36 mm median, natural gaps). So step 6 is
+not taken and `opponent_mode` stays `"HOLD"`. Step 7 was triggered by arc errors at 0.35 s; the
+body-frame EKF was built in the mirror (`playground/opponent_prediction/phase2_body_frame.py`),
+did not beat phase 1 beyond noise on the holdout (120 against 122 mm summed gate medians), and
+did not pass the gate either, so it is not adopted. Results, figures and the verdict are in
 `docs/experiments/kalman_filter/opponent_filter_evaluation.md`. The apartment-floor recordings
 with a tag on Mrs Buff Mk3 did not exist yet, so step 5 used the two 2026-10-15 Mr Stabs Mk2
 sysid sessions as ground truth, with Mr Stabs standing in for the opponent.
