@@ -197,21 +197,13 @@ int OpenTxTransmitter::get_channel_value(int channel_idx) const {
                       kChannelMax);
 }
 
-BehaviorMode OpenTxTransmitter::behavior_mode() const {
-    return get_channel_value(config_.behavior_mode_channel) > config_.behavior_mode_threshold
-               ? BehaviorMode::RUN_AWAY
-               : BehaviorMode::ATTACK;
-}
-
 void OpenTxTransmitter::log_switch_states() {
     if (!latest_channels_) {
         logger_->info("switch_states", {{"has_switch_states", false}});
         return;
     }
-    const int mode_raw = get_channel_value(config_.behavior_mode_channel);
     const int trainer_raw = get_channel_value(config_.trainer_enable_channel);
     const int init_raw = get_channel_value(config_.init_button_channel);
-    const bool run_away = mode_raw > config_.behavior_mode_threshold;
     // SA drives this channel high when it is down, which is the position that mixes the trainer
     // inputs into ch0/ch1 (firmware/config/CHANNEL_CONVENTION.md). Negative therefore means the
     // sticks alone reach the robot and nothing we send is applied. The comparison in
@@ -219,15 +211,13 @@ void OpenTxTransmitter::log_switch_states() {
     // we are not driving.
     const bool autonomy_enabled = trainer_raw >= 0;
     const bool init_pressed = init_raw > config_.init_button_threshold;
-    const auto states = std::make_tuple(run_away, autonomy_enabled, init_pressed);
+    const auto states = std::make_tuple(autonomy_enabled, init_pressed);
     if (last_logged_switch_states_ == states) return;
     last_logged_switch_states_ = states;
     // The raw value next to each flag separates "switch on the wrong channel" from "threshold
-    // set wrong": both look like a flag that never changes. These three flags decide whether
+    // set wrong": both look like a flag that never changes. These two flags decide whether
     // the robot moves at all, so they log at info and survive the default log level.
     logger_->info("switch_states", {{"has_switch_states", true},
-                                    {"behavior_mode", run_away ? "run_away" : "attack"},
-                                    {"behavior_mode_raw", mode_raw},
                                     {"autonomy_enabled", static_cast<int>(autonomy_enabled)},
                                     {"autonomy_raw", trainer_raw},
                                     {"init_button", static_cast<int>(init_pressed)},

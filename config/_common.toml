@@ -119,7 +119,7 @@ robot_blob_min_confidence = 0.4
 robot_blob_max_candidates = 8
 blob_overwrite_min_distance_meters = 0.20
 blob_overwrite_size_scale = 0.5
-field_bounds_margin_meters = 0.5
+field_bounds_margin_meters = 0.2
 # Drop a stale (unmeasured) our-robot track after this long without a keypoint confirmation,
 # instead of predicting it forward indefinitely. Set <= 0 to hold forever (legacy behavior).
 our_robot_hold_window_s = 0.5
@@ -187,7 +187,6 @@ drive_processor = "TankDriveProcessor"
 linear_channel = 0              # radio CH1
 angular_channel = 1             # radio CH2
 trainer_enable_channel = 5      # radio CH6
-behavior_mode_channel = 30      # disabled. default 6 radio CH7, attack vs run away
 init_button_channel = 31        # disabled; no transmitter maps a button, reinit is a touchscreen action
 max_motor_rpm = 1500            # RPM
 max_motor_rpm_per_sec = 3000    # RPM/s
@@ -287,6 +286,8 @@ object = "#a855f7"
 max_loop_rate = 60.0               # set to double of camera FPS
 default_opponent_count = 1
 autonomy_enabled_by_default = true
+default_behavior_mode = "ATTACK"   # ATTACK or RUN_AWAY at startup; the dashboard switches it live
+auto_tracking_by_default = true    # false starts with the target held at the field center
 # Run the keypoint and robot blob models on parallel worker threads. false = sequential.
 parallel_models = true
 

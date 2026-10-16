@@ -23,7 +23,6 @@ class SimTransmitter : public TransmitterInterface {
     void send(VelocityCommand command) override;
     bool did_init_button_press() override;
     TransmitterStatus get_status() const override;
-    BehaviorMode behavior_mode() const override;
     void enable() override;
     void disable() override;
 
@@ -31,7 +30,6 @@ class SimTransmitter : public TransmitterInterface {
     double init_delay_seconds_;
     double command_delay_ms_;
     double velocity_saturation_limit_;
-    BehaviorMode behavior_mode_;
     double start_time_ = 0.0;  // logical seconds
     bool init_button_pressed_ = false;
     bool init_button_done_ = false;

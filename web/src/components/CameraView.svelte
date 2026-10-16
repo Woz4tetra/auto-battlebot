@@ -13,6 +13,7 @@
   import { H264Decoder, videoDecodeSupported } from "../lib/video";
   import { displayLabel, robotColor } from "../lib/robots";
   import { status } from "../lib/status.svelte";
+  import { aimDrag } from "../lib/aim";
 
   let { showLabel = true }: { showLabel?: boolean } = $props();
 
@@ -23,6 +24,8 @@
   const STALE_MS = 2000;
   // Off-white, so it never matches a robot color from [ui.label_colors].
   const OUTLINE_COLOR = "rgba(242, 241, 236, 0.75)";
+  // The held target. Amber on video in both themes, like --amber in dark mode.
+  const HELD_COLOR = "#f5b83d";
 
   interface Rect {
     x: number;
@@ -240,16 +243,26 @@
 
   // Navigation's target, as in the top-down view: a white crosshair and a dashed line from where
   // navigation placed our robot. Both come projected into the image in /status/tracks. A dark
-  // outline under each stroke keeps it visible on the white mat.
+  // outline under each stroke keeps it visible on the white mat. A held target (auto tracking
+  // off) draws in amber with a diamond instead of a circle.
   function drawTarget(ctx: CanvasRenderingContext2D, w: number, h: number, px: number) {
     const target = status.appUp ? status.tracks?.target : undefined;
     if (!target?.image) return;
     const tx = target.image.u * w;
     const ty = target.image.v * h;
     const r = 12 * px;
+    const ink = target.manual ? HELD_COLOR : "#f2f1ec";
     const crosshair = () => {
       ctx.beginPath();
-      ctx.arc(tx, ty, r, 0, Math.PI * 2);
+      if (target.manual) {
+        ctx.moveTo(tx, ty - r);
+        ctx.lineTo(tx + r, ty);
+        ctx.lineTo(tx, ty + r);
+        ctx.lineTo(tx - r, ty);
+        ctx.closePath();
+      } else {
+        ctx.arc(tx, ty, r, 0, Math.PI * 2);
+      }
       for (const [dx, dy] of [
         [1, 0],
         [-1, 0],
@@ -266,7 +279,7 @@
       ctx.setLineDash([6 * px, 5 * px]);
       for (const [color, width] of [
         ["rgba(10, 10, 10, 0.7)", 4],
-        ["#f2f1ec", 2],
+        [ink, 2],
       ] as const) {
         ctx.strokeStyle = color;
         ctx.lineWidth = width * px;
@@ -279,7 +292,7 @@
     }
     for (const [color, width] of [
       ["rgba(10, 10, 10, 0.7)", 5],
-      ["#f2f1ec", 2.5],
+      [ink, 2.5],
     ] as const) {
       ctx.strokeStyle = color;
       ctx.lineWidth = width * px;
@@ -358,10 +371,31 @@
   });
 
   const stale = $derived(now - lastFrameAt > STALE_MS);
+
+  // A tap or drag places the held target while auto tracking is off. The canvas draws the frame
+  // with object-fit: contain, so the touch is mapped through the letterbox to a frame fraction.
+  const aiming = $derived(status.appUp && status.system?.auto_tracking === false);
+  function toImage(e: PointerEvent) {
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    const [fw, fh] = frameSize;
+    const scale = Math.min(rect.width / fw, rect.height / fh);
+    const dw = fw * scale;
+    const dh = fh * scale;
+    const u = (e.clientX - rect.left - (rect.width - dw) / 2) / dw;
+    const v = (e.clientY - rect.top - (rect.height - dh) / 2) / dh;
+    if (u < 0 || u > 1 || v < 0 || v > 1) return null;
+    return { image: { u, v } };
+  }
 </script>
 
 <div class="camera">
-  <canvas bind:this={canvas} aria-label="Camera preview with detections"></canvas>
+  <canvas
+    bind:this={canvas}
+    class:aiming
+    aria-label="Camera preview with detections"
+    use:aimDrag={{ enabled: aiming, point: toImage }}
+  ></canvas>
   {#if showLabel}<span class="tag">CAMERA</span>{/if}
   {#if stale}
     <span class="nosignal mono">NO PREVIEW</span>
@@ -383,6 +417,10 @@
     width: 100%;
     height: 100%;
     object-fit: contain;
+  }
+  canvas.aiming {
+    cursor: crosshair;
+    touch-action: none;
   }
   .tag {
     position: absolute;

@@ -14,6 +14,13 @@ namespace auto_battlebot::remote {
 std::optional<ImagePoint> project_field_point(const FieldDescription &field,
                                               const CameraInfo &camera_info, double x, double y);
 
+/** A point in the camera image, as fractions of its size, cast onto the field floor (z = 0);
+ *  nullopt when its ray points at or above the horizon or the field or intrinsics are missing.
+ *  The inverse of project_field_point. The result can land outside the field. */
+std::optional<FieldPoint> unproject_image_point(const FieldDescription &field,
+                                                const CameraInfo &camera_info,
+                                                const ImagePoint &point);
+
 /**
  * The field border projected into the camera image, as fractions of the image size, for the
  * dashboard to draw over any preview size. Pinhole on the rectified image. Each side is sampled so

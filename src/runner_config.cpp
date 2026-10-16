@@ -2,6 +2,9 @@
 
 #include <toml++/toml.h>
 
+#include <magic_enum.hpp>
+
+#include "config/config_factory.hpp"
 #include "config/config_parser.hpp"
 
 namespace auto_battlebot {
@@ -20,6 +23,11 @@ void load_runner_from_toml(toml::table const &toml_data, std::vector<std::string
     }
     out.autonomy_enabled_by_default =
         parser.get_optional_bool("autonomy_enabled_by_default", out.autonomy_enabled_by_default);
+    BehaviorMode default_behavior_mode = out.default_behavior_mode;
+    PARSE_ENUM(default_behavior_mode, BehaviorMode)
+    out.default_behavior_mode = default_behavior_mode;
+    out.auto_tracking_by_default =
+        parser.get_optional_bool("auto_tracking_by_default", out.auto_tracking_by_default);
     out.parallel_models = parser.get_optional_bool("parallel_models", out.parallel_models);
     parser.validate_no_extra_fields();
     parsed_sections.push_back("runner");

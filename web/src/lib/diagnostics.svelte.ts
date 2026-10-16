@@ -111,16 +111,6 @@ class DiagnosticsStore {
     return this.#history.get(id)?.get(key);
   }
 
-  /** Finds a value by key suffix in any module, e.g. the radio's behavior_mode. */
-  findValue(key: string): Value | undefined {
-    for (const m of this.modules) {
-      for (const v of m.values) {
-        if (v.key === key || v.key.endsWith(`/${key}`)) return v.value;
-      }
-    }
-    return undefined;
-  }
-
   #onMessage(id: string, payload: Payload): void {
     const now = Date.now();
     const module = { ...flatten(id, payload), updatedAt: now };

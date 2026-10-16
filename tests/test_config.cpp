@@ -1609,41 +1609,69 @@ type = "NoopPublisher"
 }
 }  // namespace
 
-TEST_F(ConfigTest, PlaybackTransmitterBehaviorModeDefaultsToAttack) {
+TEST_F(ConfigTest, RunnerBehaviorModeDefaultsToAttack) {
     write_config_file(config_with_transmitter(R"(
 [transmitter]
 type = "PlaybackTransmitter"
 )"));
 
     auto config = load_classes_from_config(temp_config_file.string());
-    auto *transmitter_config =
-        dynamic_cast<PlaybackTransmitterConfiguration *>(config.transmitter.get());
-    ASSERT_NE(transmitter_config, nullptr);
-    EXPECT_EQ(transmitter_config->behavior_mode, BehaviorMode::ATTACK);
+    EXPECT_EQ(config.runner.default_behavior_mode, BehaviorMode::ATTACK);
 }
 
-TEST_F(ConfigTest, PlaybackTransmitterBehaviorModeParsesRunAway) {
+TEST_F(ConfigTest, RunnerBehaviorModeParsesRunAway) {
+    write_config_file(config_with_transmitter(R"(
+[transmitter]
+type = "PlaybackTransmitter"
+
+[runner]
+default_behavior_mode = "RUN_AWAY"
+)"));
+
+    auto config = load_classes_from_config(temp_config_file.string());
+    EXPECT_EQ(config.runner.default_behavior_mode, BehaviorMode::RUN_AWAY);
+}
+
+TEST_F(ConfigTest, RunnerAutoTrackingDefaultsOn) {
+    write_config_file(config_with_transmitter(R"(
+[transmitter]
+type = "PlaybackTransmitter"
+)"));
+    EXPECT_TRUE(
+        load_classes_from_config(temp_config_file.string()).runner.auto_tracking_by_default);
+
+    write_config_file(config_with_transmitter(R"(
+[transmitter]
+type = "PlaybackTransmitter"
+
+[runner]
+auto_tracking_by_default = false
+)"));
+    EXPECT_FALSE(
+        load_classes_from_config(temp_config_file.string()).runner.auto_tracking_by_default);
+}
+
+TEST_F(ConfigTest, RunnerUnknownBehaviorModeThrows) {
+    write_config_file(config_with_transmitter(R"(
+[transmitter]
+type = "PlaybackTransmitter"
+
+[runner]
+default_behavior_mode = "FLEE"
+)"));
+
+    EXPECT_THROW(load_classes_from_config(temp_config_file.string()), std::invalid_argument);
+}
+
+TEST_F(ConfigTest, TransmitterBehaviorModeKeyIsRejected) {
+    // The dashboard sets the mode now; a leftover key must fail rather than silently do nothing.
     write_config_file(config_with_transmitter(R"(
 [transmitter]
 type = "PlaybackTransmitter"
 behavior_mode = "RUN_AWAY"
 )"));
 
-    auto config = load_classes_from_config(temp_config_file.string());
-    auto *transmitter_config =
-        dynamic_cast<PlaybackTransmitterConfiguration *>(config.transmitter.get());
-    ASSERT_NE(transmitter_config, nullptr);
-    EXPECT_EQ(transmitter_config->behavior_mode, BehaviorMode::RUN_AWAY);
-}
-
-TEST_F(ConfigTest, PlaybackTransmitterUnknownBehaviorModeThrows) {
-    write_config_file(config_with_transmitter(R"(
-[transmitter]
-type = "PlaybackTransmitter"
-behavior_mode = "FLEE"
-)"));
-
-    EXPECT_THROW(load_classes_from_config(temp_config_file.string()), std::invalid_argument);
+    EXPECT_ANY_THROW(load_classes_from_config(temp_config_file.string()));
 }
 
 TEST_F(ConfigTest, Esp32DiagnosticsTransmitterParsesItsFieldsAndTheRadioOnes) {

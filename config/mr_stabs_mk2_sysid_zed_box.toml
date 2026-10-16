@@ -11,7 +11,6 @@ drive_processor = "DifferentialDriveProcessor"
 linear_channel = 0                             # radio CH1
 angular_channel = 1                            # radio CH2
 trainer_enable_channel = 5                     # radio CH6
-behavior_mode_channel = 30                     # disabled
 init_button_channel = 31                       # disabled
 max_motor_rpm = 1500                           # RPM
 max_motor_rpm_per_sec = 2000                   # RPM/s

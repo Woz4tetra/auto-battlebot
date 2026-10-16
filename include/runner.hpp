@@ -102,6 +102,10 @@ class Runner : public Quittable {
     bool handle_commands(bool &should_reinit_field);
     void set_opponent_count(int count);
     void set_autonomy(bool enabled);
+    void set_behavior_mode(BehaviorMode mode);
+    void set_auto_tracking(bool enabled);
+    /** Returns the ack message and sets `accepted` false on a refusal. */
+    std::string set_manual_target(const remote::SetManualTargetCommand &command, bool &accepted);
     /** Posts the toggle to recording_worker_ and returns. */
     void set_recording(bool enabled) const;
     /** The toggle itself. `from_worker` is false only during shutdown, which runs on the tick's
@@ -162,6 +166,12 @@ class Runner : public Quittable {
      *  request with no board in frame stops running the mask model. */
     static constexpr int kFieldInitAttempts = 60;
     bool autonomy_enabled_;
+    BehaviorMode behavior_mode_;
+    bool auto_tracking_;
+    /** The last tick's field and camera, for projecting a camera-view tap onto the floor. Empty
+     *  until the field is initialized. */
+    std::optional<FieldDescription> projection_field_;
+    CameraInfo projection_camera_info_;
     std::shared_ptr<FieldDescriptionWithInlierPoints> initial_field_description_;
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
     std::shared_ptr<HealthLogger> health_logger_;
@@ -176,7 +186,8 @@ class Runner : public Quittable {
     void publish_system_status(bool camera_ok, double loop_rate_hz);
     remote::SystemStatusMessage last_status_;
     void publish_tracks(const RobotDescriptionsStamped &robots, const FieldDescription &field,
-                        const CameraInfo &camera_info, const TargetSelection &target) const;
+                        const CameraInfo &camera_info, const TargetSelection &target,
+                        bool manual_target) const;
     /** Starts or clears the autonomy-switch timer from the transmitter, and logs both timers. */
     void update_timers();
     double uptime_s() const;

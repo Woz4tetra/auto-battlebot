@@ -45,6 +45,8 @@ Runner::Runner(
       runtime_opponent_count_(runner_config_.default_opponent_count),
       initialized_(false),
       autonomy_enabled_(runner_config_.autonomy_enabled_by_default),
+      behavior_mode_(runner_config_.default_behavior_mode),
+      auto_tracking_(runner_config_.auto_tracking_by_default),
       initial_field_description_(),
       diagnostics_logger_(DiagnosticsLogger::get_logger("runner")),
       health_logger_(std::move(health_logger)),
@@ -91,6 +93,8 @@ void Runner::publish_system_status(bool camera_ok, double loop_rate_hz) {
         message.autonomy_switch_on = transmitter.autonomy_switch_on;
     message.autonomy_on_s = autonomy_on_s();
     if (mcap_recorder_) message.mcap_file_s = mcap_recorder_->file_age_s();
+    message.behavior_mode = behavior_mode_;
+    message.auto_tracking = auto_tracking_;
     last_status_ = message;
     if (!remote_.status) return;
     remote_.status->publish(message);
@@ -122,7 +126,8 @@ void Runner::update_timers() {
 }
 
 void Runner::publish_tracks(const RobotDescriptionsStamped &robots, const FieldDescription &field,
-                            const CameraInfo &camera_info, const TargetSelection &target) const {
+                            const CameraInfo &camera_info, const TargetSelection &target,
+                            bool manual_target) const {
     if (!remote_.status) return;
     remote::TracksMessage message;
     message.field_x = field.size.size.x;
@@ -161,6 +166,7 @@ void Runner::publish_tracks(const RobotDescriptionsStamped &robots, const FieldD
         }
         out.mode = target.mode;
         out.image = remote::project_field_point(field, camera_info, out.x, out.y);
+        out.manual = manual_target;
         message.target = std::move(out);
     }
     remote_.status->publish(message);
@@ -220,6 +226,50 @@ void Runner::set_autonomy(bool enabled) {
     if (autonomy_enabled_ == enabled) return;
     autonomy_enabled_ = enabled;
     control_loop_->set_autonomy_enabled(enabled);
+}
+
+void Runner::set_behavior_mode(BehaviorMode mode) {
+    behavior_mode_ = mode;
+    control_loop_->set_behavior_mode(mode);
+}
+
+void Runner::set_auto_tracking(bool enabled) {
+    if (auto_tracking_ == enabled) return;
+    auto_tracking_ = enabled;
+    // Off parks the target at the field center until the dashboard places it.
+    control_loop_->set_target_override(enabled ? std::nullopt : std::optional<Pose2D>(Pose2D{}));
+}
+
+std::string Runner::set_manual_target(const remote::SetManualTargetCommand &command,
+                                      bool &accepted) {
+    accepted = false;
+    if (auto_tracking_) return "Turn auto tracking off to place the target";
+    if (command.field.has_value() == command.image.has_value()) {
+        return "Set exactly one of field or image";
+    }
+    remote::FieldPoint point;
+    if (command.field) {
+        point = *command.field;
+    } else {
+        if (!projection_field_) return "The field is not initialized";
+        const auto hit = remote::unproject_image_point(*projection_field_, projection_camera_info_,
+                                                       *command.image);
+        if (!hit) return "That point is above the floor";
+        point = *hit;
+    }
+    if (!std::isfinite(point.x) || !std::isfinite(point.y)) return "Target is not finite";
+    // A tap past the field edge, or on the far wall, holds the nearest point on the field.
+    if (projection_field_) {
+        const double hx = projection_field_->size.size.x / 2.0;
+        const double hy = projection_field_->size.size.y / 2.0;
+        if (hx > 0.0 && hy > 0.0) {
+            point.x = std::clamp(point.x, -hx, hx);
+            point.y = std::clamp(point.y, -hy, hy);
+        }
+    }
+    accepted = true;
+    control_loop_->set_target_override(Pose2D{.x = point.x, .y = point.y, .yaw = 0.0});
+    return "";
 }
 
 void Runner::set_recording(bool enabled) const {
@@ -397,7 +447,12 @@ bool Runner::handle_commands(bool &should_reinit_field) {
     bool keep_running = true;
     for (auto &command : remote_.commands->drain()) {
         const std::string_view topic = remote::command_topic_of(command);
-        spdlog::info("Command: {}", topic);
+        // A drag on a view sends a manual target ~10 times a second.
+        if (std::holds_alternative<remote::SetManualTargetCommand>(command)) {
+            spdlog::debug("Command: {}", topic);
+        } else {
+            spdlog::info("Command: {}", topic);
+        }
         command_log_.record(command);
         bool accepted = true;
         std::string message;
@@ -413,6 +468,11 @@ bool Runner::handle_commands(bool &should_reinit_field) {
                     set_opponent_count(c.count);
                 },
                 [&](const remote::SetAutonomyCommand &c) { set_autonomy(c.enabled); },
+                [&](const remote::SetBehaviorModeCommand &c) { set_behavior_mode(c.mode); },
+                [&](const remote::SetAutoTrackingCommand &c) { set_auto_tracking(c.enabled); },
+                [&](const remote::SetManualTargetCommand &c) {
+                    message = set_manual_target(c, accepted);
+                },
                 [&](const remote::SetRecordingCommand &c) { set_recording(c.enabled); },
                 [&](const remote::SelectProfileCommand &c) { message = select_profile(c.name); },
                 [&](const remote::SystemActionCommand &c) {
@@ -516,6 +576,8 @@ void Runner::initialize() {
         throw std::runtime_error("Failed to initialize keypoint model");
     }
     control_loop_->set_autonomy_enabled(autonomy_enabled_);
+    control_loop_->set_behavior_mode(behavior_mode_);
+    if (!auto_tracking_) control_loop_->set_target_override(Pose2D{});
     // Brings up the transmitter, then starts the thread for threaded drivers (a no-op for stepped
     // ones). Everything the control loop touches must be constructed by now, since it may begin
     // cycling immediately.
@@ -790,7 +852,10 @@ bool Runner::tick() {
     }
 
     publish_system_status(true, loop_rate_hz);
-    publish_tracks(robots, field_description, camera_data.camera_info, control_output.target);
+    projection_field_ = field_description;
+    projection_camera_info_ = camera_data.camera_info;
+    publish_tracks(robots, field_description, camera_data.camera_info, control_output.target,
+                   control_output.manual_target);
     if (remote_.status) {
         const auto &sticks = control_output.command_feedback.stick_commands;
         if (auto it = sticks.find(FrameId::OUR_ROBOT_1); it != sticks.end()) {

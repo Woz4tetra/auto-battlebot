@@ -151,6 +151,31 @@ TEST_F(RunnerCommandsTest, SetAutonomyIsAnExplicitSet) {
     EXPECT_TRUE(status_after(remote::SetAutonomyCommand{.enabled = true}).autonomy_enabled);
 }
 
+TEST_F(RunnerCommandsTest, SetBehaviorMode) {
+    EXPECT_EQ(runner_->system_status().behavior_mode, BehaviorMode::ATTACK);
+    EXPECT_EQ(
+        status_after(remote::SetBehaviorModeCommand{.mode = BehaviorMode::RUN_AWAY}).behavior_mode,
+        BehaviorMode::RUN_AWAY);
+    EXPECT_EQ(
+        status_after(remote::SetBehaviorModeCommand{.mode = BehaviorMode::ATTACK}).behavior_mode,
+        BehaviorMode::ATTACK);
+}
+
+TEST_F(RunnerCommandsTest, SetAutoTracking) {
+    EXPECT_TRUE(status_after(remote::SetAutoTrackingCommand{.enabled = true}).auto_tracking);
+    EXPECT_FALSE(status_after(remote::SetAutoTrackingCommand{.enabled = false}).auto_tracking);
+    EXPECT_TRUE(status_after(remote::SetAutoTrackingCommand{.enabled = true}).auto_tracking);
+}
+
+TEST_F(RunnerCommandsTest, ManualTargetNeverChangesAutoTracking) {
+    // Only the switch does. A tap while auto tracking is on is refused, not a takeover.
+    remote::SetManualTargetCommand command;
+    command.field = remote::FieldPoint{.x = 0.5, .y = -0.25};
+    EXPECT_TRUE(status_after(command).auto_tracking);
+    EXPECT_FALSE(status_after(remote::SetAutoTrackingCommand{.enabled = false}).auto_tracking);
+    EXPECT_FALSE(status_after(command).auto_tracking);
+}
+
 TEST_F(RunnerCommandsTest, SetRecording) {
     commands_->post(remote::SetRecordingCommand{.enabled = true});
     EXPECT_TRUE(camera_recording_reaches(true));

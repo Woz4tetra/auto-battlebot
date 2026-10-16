@@ -22,11 +22,9 @@ class PlaybackTransmitter : public TransmitterInterface {
     TransmitterStatus get_status() const override {
         return {.connected = true, .receiving_channels = true};
     }
-    BehaviorMode behavior_mode() const override { return behavior_mode_; }
 
    private:
     double init_delay_seconds_;
-    BehaviorMode behavior_mode_;
     bool initialized_;
     std::shared_ptr<ClockInterface> clock_;
     /** Logical time of the first update(), so the init button fires on a fixed frame rather than

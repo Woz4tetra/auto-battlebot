@@ -39,7 +39,6 @@ void ControlLoop::pump_input() {
         init_button_latched_.store(true);
     }
     transmitter_status_.store(transmitter_->get_status());
-    behavior_mode_.store(static_cast<int>(transmitter_->behavior_mode()));
 }
 
 bool ControlLoop::take_init_button_press() { return init_button_latched_.exchange(false); }
@@ -54,6 +53,13 @@ void ControlLoop::request_filter_reinit(int opponent_count) {
 }
 
 void ControlLoop::set_autonomy_enabled(bool enabled) { autonomy_enabled_.store(enabled); }
+
+void ControlLoop::set_behavior_mode(BehaviorMode mode) { behavior_mode_.store(mode); }
+
+void ControlLoop::set_target_override(std::optional<Pose2D> target) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    target_override_ = target;
+}
 
 ControlOutput ControlLoop::latest_output() const {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -71,10 +77,15 @@ std::chrono::steady_clock::time_point ControlLoop::last_cycle_time() const {
 
 TargetSelection ControlLoop::resolve_target(const RobotDescriptionsStamped &robots,
                                             const FieldDescription &field_description,
-                                            BehaviorMode mode) {
+                                            BehaviorMode mode,
+                                            const std::optional<Pose2D> &target_override) {
+    // The selector's held target is left alone, so handing targeting back resumes from it.
+    if (target_override) {
+        return TargetSelection{.pose = *target_override, .label = Label::EMPTY, .mode = mode};
+    }
     // Stamp the mode on the way out rather than letting the selector set it. A selector that found
-    // nothing leaves the previous target in place, which still has to carry the switch position
-    // navigation is steering under right now.
+    // nothing leaves the previous target in place, which still has to carry the mode navigation is
+    // steering under right now.
     if (target_selector_) {
         if (auto selected = target_selector_->get_target(robots, field_description, mode)) {
             previous_selected_target_ = *selected;
@@ -111,9 +122,11 @@ void ControlLoop::run_cycle() {
     }
 
     std::optional<ControlMeasurement> measurement;
+    std::optional<Pose2D> target_override;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         measurement.swap(pending_measurement_);
+        target_override = target_override_;
     }
     if (measurement) {
         field_description_ = measurement->field_description;
@@ -166,7 +179,7 @@ void ControlLoop::run_cycle() {
     // Resolve once so target selection and navigation operate on the same robot set within a
     // cycle. Substitutes the previous critical snapshot when a frame is missing OUR or THEIRS.
     auto cached_robots = robot_descriptions_cache_.resolve(robots);
-    const auto behavior_mode = static_cast<BehaviorMode>(behavior_mode_.load());
+    const BehaviorMode behavior_mode = behavior_mode_.load();
     // The mode that actually drove this cycle's target selection, whatever the transmitter is.
     // OpenTxTransmitter logs the raw switch channel separately; this is the resolved value.
     diagnostics_logger_->debug(
@@ -180,7 +193,7 @@ void ControlLoop::run_cycle() {
     }
 
     TargetSelection resolved_target =
-        resolve_target(cached_robots.robots, *field_description_, behavior_mode);
+        resolve_target(cached_robots.robots, *field_description_, behavior_mode, target_override);
     VelocityCommand command =
         navigation_->update(cached_robots.robots, *field_description_, resolved_target);
     transmitter_->send(command);
@@ -195,6 +208,7 @@ void ControlLoop::run_cycle() {
         output_.command = command;
         output_.command_feedback = command_feedback_;
         output_.behavior_mode = behavior_mode;
+        output_.manual_target = target_override.has_value();
         output_.hazards = field_description_->hazards;
         output_.our_blob_present_no_keypoint = robot_filter_->last_our_blob_present_no_keypoint();
         visualization_ = navigation_->get_last_visualization();

@@ -1,5 +1,6 @@
 #include "remote/field_projection.hpp"
 
+#include <Eigen/Dense>
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -39,6 +40,27 @@ std::optional<ImagePoint> project_field_point(const FieldDescription &field,
                                               const CameraInfo &camera_info, double x, double y) {
     if (!inputs_ok(field, camera_info)) return std::nullopt;
     return project(field, camera_info, x, y);
+}
+
+std::optional<FieldPoint> unproject_image_point(const FieldDescription &field,
+                                                const CameraInfo &camera_info,
+                                                const ImagePoint &point) {
+    if (!inputs_ok(field, camera_info)) return std::nullopt;
+    const Eigen::Matrix4d tf = field.tf_camera_from_fieldcenter.tf.topLeftCorner<4, 4>();
+    const Eigen::Matrix3d rotation_t = tf.topLeftCorner<3, 3>().transpose();
+    const cv::Mat &k = camera_info.intrinsics;
+    const Eigen::Vector3d ray_camera(
+        (point.u * camera_info.width - k.at<double>(0, 2)) / k.at<double>(0, 0),
+        (point.v * camera_info.height - k.at<double>(1, 2)) / k.at<double>(1, 1), 1.0);
+    // Camera center and ray direction in the field frame, then the ray's z = 0 crossing.
+    const Eigen::Vector3d origin = -rotation_t * tf.topRightCorner<3, 1>();
+    const Eigen::Vector3d direction = rotation_t * ray_camera;
+    if (std::abs(direction.z()) < 1e-9) return std::nullopt;
+    const double s = -origin.z() / direction.z();
+    if (!(s > 0.0)) return std::nullopt;
+    const Eigen::Vector3d hit = origin + s * direction;
+    if (!std::isfinite(hit.x()) || !std::isfinite(hit.y())) return std::nullopt;
+    return FieldPoint{.x = hit.x(), .y = hit.y()};
 }
 
 std::vector<std::vector<ImagePoint>> project_field_outline(const FieldDescription &field,

@@ -1,5 +1,8 @@
 #include <gtest/gtest.h>
 
+#include <cmath>
+#include <utility>
+
 #include "remote/field_projection.hpp"
 
 namespace auto_battlebot::remote {
@@ -54,6 +57,38 @@ TEST(FieldProjectionTest, ProjectsASinglePoint) {
     EXPECT_NEAR(center->u, 0.5, 1e-9);
     EXPECT_NEAR(center->v, 0.5, 1e-9);
     EXPECT_FALSE(project_field_point(make_field(-1.0), make_camera(), 0.0, 0.0).has_value());
+}
+
+TEST(FieldProjectionTest, UnprojectInvertsProject) {
+    // A camera 1.2 m up, pitched 35 degrees down at the floor, shifted off center.
+    FieldDescription field = make_field(0.0);
+    Eigen::Matrix4d camera_from_field = Eigen::Matrix4d::Identity();
+    // Rotation about field x that turns the camera's +z (forward) to +y, then 35 degrees down.
+    const double pitch = -(90.0 + 35.0) * M_PI / 180.0;
+    camera_from_field.topLeftCorner<3, 3>() =
+        Eigen::AngleAxisd(pitch, Eigen::Vector3d::UnitX()).toRotationMatrix().transpose();
+    const Eigen::Vector3d camera_in_field(0.3, -2.0, 1.2);
+    camera_from_field.topRightCorner<3, 1>() =
+        -camera_from_field.topLeftCorner<3, 3>() * camera_in_field;
+    field.tf_camera_from_fieldcenter.tf = camera_from_field;
+
+    for (const auto &[x, y] : {std::pair{0.0, 0.0}, {0.8, 0.4}, {-0.9, -0.45}}) {
+        const auto image = project_field_point(field, make_camera(), x, y);
+        ASSERT_TRUE(image.has_value());
+        const auto back = unproject_image_point(field, make_camera(), *image);
+        ASSERT_TRUE(back.has_value());
+        EXPECT_NEAR(back->x, x, 1e-9);
+        EXPECT_NEAR(back->y, y, 1e-9);
+    }
+}
+
+TEST(FieldProjectionTest, UnprojectRefusesAFloorBehindTheCamera) {
+    const ImagePoint center{.u = 0.5, .v = 0.5};
+    const auto ahead = unproject_image_point(make_field(4.0), make_camera(), center);
+    ASSERT_TRUE(ahead.has_value());
+    EXPECT_NEAR(ahead->x, 0.0, 1e-9);
+    EXPECT_NEAR(ahead->y, 0.0, 1e-9);
+    EXPECT_FALSE(unproject_image_point(make_field(-1.0), make_camera(), center).has_value());
 }
 
 TEST(FieldProjectionTest, CameraMarkerMatchesTheTopDownTriangle) {

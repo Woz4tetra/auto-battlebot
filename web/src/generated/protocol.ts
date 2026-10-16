@@ -2,9 +2,11 @@
 // Source of truth: include/remote/protocol.hpp and include/remote/messages.hpp.
 
 export interface SystemStatus {
+  auto_tracking: boolean;
   autonomy_enabled: boolean;
   autonomy_on_s?: number;
   autonomy_switch_on?: boolean;
+  behavior_mode: "attack" | "run_away";
   camera_ok: boolean;
   camera_recording: boolean;
   compute_mode: string;
@@ -72,6 +74,7 @@ export interface Target {
   from_y: number;
   image?: ImagePoint;
   label: string;
+  manual: boolean;
   mode: "attack" | "run_away";
   x: number;
   y: number;
@@ -149,6 +152,24 @@ export interface SetAutonomyCommand {
   enabled: boolean;
 }
 
+export interface SetBehaviorModeCommand {
+  mode: "attack" | "run_away";
+}
+
+export interface SetAutoTrackingCommand {
+  enabled: boolean;
+}
+
+export interface SetManualTargetCommand {
+  field?: FieldPoint;
+  image?: ImagePoint;
+}
+
+export interface FieldPoint {
+  x: number;
+  y: number;
+}
+
 export interface SetRecordingCommand {
   enabled: boolean;
 }
@@ -189,6 +210,9 @@ export type CommandPayloads = {
   "/command/reinit_field": ReinitFieldCommand;
   "/command/set_opponent_count": SetOpponentCountCommand;
   "/command/set_autonomy": SetAutonomyCommand;
+  "/command/set_behavior_mode": SetBehaviorModeCommand;
+  "/command/set_auto_tracking": SetAutoTrackingCommand;
+  "/command/set_manual_target": SetManualTargetCommand;
   "/command/set_recording": SetRecordingCommand;
   "/command/select_profile": SelectProfileCommand;
   "/command/system_action": SystemActionCommand;
@@ -229,6 +253,9 @@ export const COMMAND_SCHEMAS = {
   "/command/reinit_field": "auto_battlebot.command.ReinitField",
   "/command/set_opponent_count": "auto_battlebot.command.SetOpponentCount",
   "/command/set_autonomy": "auto_battlebot.command.SetAutonomy",
+  "/command/set_behavior_mode": "auto_battlebot.command.SetBehaviorMode",
+  "/command/set_auto_tracking": "auto_battlebot.command.SetAutoTracking",
+  "/command/set_manual_target": "auto_battlebot.command.SetManualTarget",
   "/command/set_recording": "auto_battlebot.command.SetRecording",
   "/command/select_profile": "auto_battlebot.command.SelectProfile",
   "/command/system_action": "auto_battlebot.command.SystemAction",

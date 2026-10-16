@@ -43,7 +43,6 @@ class CompositeTransmitter : public TransmitterInterface {
     void send(VelocityCommand command) override;
     bool did_init_button_press() override;
     TransmitterStatus get_status() const override { return children_.front()->get_status(); }
-    BehaviorMode behavior_mode() const override { return children_.front()->behavior_mode(); }
     void enable() override;
     void disable() override;
 

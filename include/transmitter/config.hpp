@@ -6,7 +6,6 @@
 
 #include "config/config_factory.hpp"
 #include "config/config_parser.hpp"
-#include "enums/behavior_mode.hpp"
 #include "mcap_recorder/mcap_recorder.hpp"
 #include "time/clock_interface.hpp"
 #include "transmitter/transmitter_interface.hpp"
@@ -34,9 +33,6 @@ struct PlaybackTransmitterConfiguration : public TransmitterConfiguration {
     double lifted_deadzone_percent = 0.0;
     bool reverse_linear_channel = false;
     bool reverse_angular_channel = false;
-    /** Behavior mode for the run. Playback has no radio, so this stands in for the
-     *  physical switch OpenTxTransmitter reads on behavior_mode_channel. */
-    BehaviorMode behavior_mode = BehaviorMode::ATTACK;
 
     PlaybackTransmitterConfiguration() { type = "PlaybackTransmitter"; }
 
@@ -48,7 +44,6 @@ struct PlaybackTransmitterConfiguration : public TransmitterConfiguration {
         PARSE_FIELD_DOUBLE(lifted_deadzone_percent)
         PARSE_FIELD_BOOL(reverse_linear_channel)
         PARSE_FIELD_BOOL(reverse_angular_channel)
-        PARSE_ENUM(behavior_mode, BehaviorMode)
     )
     // clang-format on
 };
@@ -74,10 +69,6 @@ struct OpenTxTransmitterConfiguration : public TransmitterConfiguration {
      *  acceleration limiter is held at standstill until then. Requires SG to be mapped to this
      *  output channel (radio CH6) in the OpenTX model. */
     int trainer_enable_channel = 5;
-    /** RC channel carrying the behavior mode switch (radio CH7). Reads above
-     *  behavior_mode_threshold to select RUN_AWAY, otherwise ATTACK. */
-    int behavior_mode_channel = 6;
-    int behavior_mode_threshold = 500;
     bool reverse_linear_channel = false;
     bool reverse_angular_channel = false;
     /** Minimum non-zero output magnitude (%) after zero deadzone is exceeded. */
@@ -110,10 +101,6 @@ struct OpenTxTransmitterConfiguration : public TransmitterConfiguration {
             static_cast<int>(parser.get_optional_int("angular_channel", angular_channel));
         trainer_enable_channel = static_cast<int>(
             parser.get_optional_int("trainer_enable_channel", trainer_enable_channel));
-        behavior_mode_channel = static_cast<int>(
-            parser.get_optional_int("behavior_mode_channel", behavior_mode_channel));
-        behavior_mode_threshold = static_cast<int>(
-            parser.get_optional_int("behavior_mode_threshold", behavior_mode_threshold));
         reverse_linear_channel =
             parser.get_optional_bool("reverse_linear_channel", reverse_linear_channel);
         reverse_angular_channel =
@@ -221,9 +208,6 @@ struct SimTransmitterConfiguration : public TransmitterConfiguration {
      * keeps forward authority during a turn that the real one has already lost in the mixer.
      * 0 = disabled. */
     double velocity_saturation_limit = 1.0;
-    /** Behavior mode the simulated driver holds for the whole run. The real transmitter reads
-     * this off a switch; the sim has no switch, so a sweep picks the mission here. */
-    BehaviorMode behavior_mode = BehaviorMode::ATTACK;
 
     SimTransmitterConfiguration() { type = "SimTransmitter"; }
 
@@ -232,7 +216,6 @@ struct SimTransmitterConfiguration : public TransmitterConfiguration {
         PARSE_FIELD_DOUBLE(init_delay_seconds)
         PARSE_FIELD_DOUBLE(command_delay_ms)
         PARSE_FIELD_DOUBLE(velocity_saturation_limit)
-        PARSE_ENUM(behavior_mode, BehaviorMode)
     )
     // clang-format on
 };

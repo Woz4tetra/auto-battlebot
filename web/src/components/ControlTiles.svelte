@@ -1,6 +1,6 @@
 <script lang="ts">
-  // Control rows 01 to 06: autonomy, opponent count, recording, field, camera, radio mode, sticks.
-  import { diagnostics } from "../lib/diagnostics.svelte";
+  // Control rows 01 to 08: autonomy, opponent count, recording, field, camera, behavior mode, auto
+  // tracking, sticks.
   import { status } from "../lib/status.svelte";
   import { formatDuration } from "../lib/time";
   import CameraTile from "./CameraTile.svelte";
@@ -34,9 +34,23 @@
       : { text: "RADIO SWITCH OFF", on: false };
   });
 
-  const radioMode = $derived.by(() => {
-    const v = diagnostics.findValue("behavior_mode");
-    return typeof v === "string" && v ? v.replace(/_/g, " ").toUpperCase() : "--";
+  const MODES = [
+    ["attack", "ATTACK"],
+    ["run_away", "RUN AWAY"],
+  ] as const;
+
+  // What picks the target. Off, the target is held where the last tap on a view put it.
+  const tracking = $derived.by(() => {
+    if (!live || !sys) return { text: "--", on: false };
+    if (sys.auto_tracking) {
+      return {
+        text: sys.behavior_mode === "run_away" ? "SAFEST POINT" : "NEAREST OPPONENT",
+        on: true,
+      };
+    }
+    const t = status.tracks?.target;
+    const held = t?.manual ? `HELD AT ${fmt(t.x)}, ${fmt(t.y)} M` : "HELD";
+    return { text: `${held} · TAP A VIEW`, on: false };
   });
 
   function bar(v: number | undefined) {
@@ -124,15 +138,42 @@
   <div class="row">
     <span class="rownum">06</span>
     <span class="body">
-      <span class="label">RADIO MODE</span>
-      <span class="state">{radioMode}</span>
+      <span class="label">BEHAVIOR MODE</span>
+      <div class="seg wide" role="group" aria-label="Behavior mode">
+        {#each MODES as [mode, text] (mode)}
+          <button
+            aria-pressed={sys?.behavior_mode === mode}
+            disabled={!live || busy !== null}
+            onclick={() =>
+              run("behavior_mode", () => status.command("/command/set_behavior_mode", { mode }))}
+            >{text}</button
+          >
+        {/each}
+      </div>
     </span>
-    <span class="label muted">SET ON RADIO</span>
+  </div>
+
+  <div class="row">
+    <span class="rownum">07</span>
+    <span class="body">
+      <span class="label">AUTO TRACKING</span>
+      <span class="state">{sys ? (sys.auto_tracking ? "ON" : "OFF") : "--"}</span>
+      <span class="sub mono" class:on={tracking.on} class:manual={live && !tracking.on}>
+        <span class="subdot"></span>{tracking.text}
+      </span>
+    </span>
+    <Toggle
+      label="Auto tracking"
+      on={sys?.auto_tracking ?? true}
+      disabled={!live || busy !== null}
+      onchange={(enabled) =>
+        run("auto_tracking", () => status.command("/command/set_auto_tracking", { enabled }))}
+    />
   </div>
 
   <div class="sticks">
     <span class="sticks-head">
-      <span class="rownum">07</span>
+      <span class="rownum">08</span>
       <span class="label">STICKS · OUR ROBOT</span>
     </span>
     {#each [["LIN", lin], ["ANG", ang]] as const as [name, b] (name)}
@@ -204,6 +245,23 @@
     background: var(--green);
     border-color: var(--green);
   }
+  .sub.manual {
+    color: var(--amber);
+  }
+  .sub.manual .subdot {
+    background: var(--amber);
+    border-color: var(--amber);
+  }
+  .sub {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .seg.wide {
+    width: 100%;
+  }
+  .seg.wide > button {
+    flex: 1;
+  }
   .state {
     white-space: nowrap;
     overflow: hidden;
@@ -227,9 +285,6 @@
   }
   .compact .opp {
     width: 44px;
-  }
-  .row > .label.muted {
-    flex-shrink: 0;
   }
 
   .sticks {

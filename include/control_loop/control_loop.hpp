@@ -43,6 +43,8 @@ struct ControlOutput {
     /** Behavior mode that produced `target`, so UI and MCAP recordings can tell a run-away
      *  target from an attack selector gone haywire. */
     BehaviorMode behavior_mode = BehaviorMode::ATTACK;
+    /** `target` is the dashboard's held point rather than the selector's pick. */
+    bool manual_target = false;
     /** Keep-out discs the control loop assembled for this cycle, already inflated. The runner
      * publishes these; it cannot rebuild them, because the assembler holds stale-track state. */
     std::vector<FieldHazard> hazards;
@@ -97,6 +99,10 @@ class ControlLoop {
     /** Requests applied at the top of the next cycle, so the components stay single-threaded. */
     void request_filter_reinit(int opponent_count);
     void set_autonomy_enabled(bool enabled);
+    void set_behavior_mode(BehaviorMode mode);
+    /** A field point navigation steers to in place of the target selector's pick; nullopt hands
+     *  targeting back to the selector. */
+    void set_target_override(std::optional<Pose2D> target);
 
     TransmitterStatus transmitter_status() const { return transmitter_status_.load(); }
     NavigationVisualization last_visualization() const;
@@ -129,12 +135,14 @@ class ControlLoop {
     /** -1 until the first cycle applies it, so the initial state always reaches the transmitter. */
     std::atomic<int> autonomy_applied_{-1};
     std::atomic<TransmitterStatus> transmitter_status_{};
-    /** Stored as int to match how autonomy_applied_ is handled. */
-    std::atomic<int> behavior_mode_{static_cast<int>(BehaviorMode::ATTACK)};
+    std::atomic<BehaviorMode> behavior_mode_{BehaviorMode::ATTACK};
+    /** Guarded by mutex_. */
+    std::optional<Pose2D> target_override_;
     std::atomic<int64_t> last_cycle_us_{0};
 
     TargetSelection resolve_target(const RobotDescriptionsStamped &robots,
-                                   const FieldDescription &field_description, BehaviorMode mode);
+                                   const FieldDescription &field_description, BehaviorMode mode,
+                                   const std::optional<Pose2D> &target_override);
 };
 
 }  // namespace auto_battlebot

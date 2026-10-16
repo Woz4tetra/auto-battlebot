@@ -3,7 +3,6 @@
 #include "data_structures.hpp"
 #include "data_structures/command_feedback.hpp"
 #include "data_structures/transmitter_status.hpp"
-#include "enums/behavior_mode.hpp"
 
 namespace auto_battlebot {
 class TransmitterInterface {
@@ -15,9 +14,6 @@ class TransmitterInterface {
     virtual bool did_init_button_press() = 0;
     /** Transport and stream health. Defaults to fully disconnected. */
     virtual TransmitterStatus get_status() const { return {}; }
-    /** Behavior mode selected by the driver. Defaults to ATTACK for transmitters with
-     *  no mode input. */
-    virtual BehaviorMode behavior_mode() const { return BehaviorMode::ATTACK; }
     /** Enable autonomy: start sending commands to hardware/sim. */
     virtual void enable() {}
     /** Disable autonomy: stop sending commands to hardware/sim. */

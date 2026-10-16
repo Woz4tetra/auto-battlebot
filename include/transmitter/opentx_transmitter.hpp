@@ -39,11 +39,6 @@ class OpenTxTransmitter : public TransmitterInterface {
 
     TransmitterStatus get_status() const override;
 
-    /** Level-triggered behavior mode switch: RUN_AWAY while the configured channel reads
-     *  above behavior_mode_threshold, ATTACK otherwise (including before any channel frame
-     *  has arrived, so a disconnected radio reports ATTACK). */
-    BehaviorMode behavior_mode() const override;
-
     void enable() override;
     void disable() override;
 
@@ -65,9 +60,9 @@ class OpenTxTransmitter : public TransmitterInterface {
 
     std::optional<std::array<int16_t, kMaxChannels>> latest_channels_;
     bool init_button_was_pressed_ = false;
-    /** Decoded (behavior_mode, autonomy_enabled, init_button) flags as last written to the
+    /** Decoded (autonomy_enabled, init_button) flags as last written to the
      *  switch_states log entry; empty until the first channel frame is logged. */
-    std::optional<std::tuple<bool, bool, bool>> last_logged_switch_states_;
+    std::optional<std::tuple<bool, bool>> last_logged_switch_states_;
     bool enabled_ = false;
     std::chrono::steady_clock::time_point next_reconnect_attempt_ =
         std::chrono::steady_clock::now();
@@ -85,8 +80,7 @@ class OpenTxTransmitter : public TransmitterInterface {
 
     /** Log decoded switch flags (with the raw channel value next to each) once on the first
      *  channel frame and then on every change, so recordings show what the transmitter
-     *  believed even when the driver never touched a switch. Kept out of behavior_mode() so
-     *  that stays side-effect free. */
+     *  believed even when the driver never touched a switch. */
     void log_switch_states();
     void write_trainer_channels(int channel_a_value, int channel_b_value);
 

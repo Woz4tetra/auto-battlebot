@@ -65,7 +65,7 @@ From `config/_common.toml` (`[transmitter]`):
   as EdgeTX trainer inputs over the CLI (`trainer <n> <value>`). They only reach
   ch0/ch1 while SA down enables the trainer mixes.
 - `trainer_enable_channel = 5`: reads SA back; below 0 means autonomy off.
-- `behavior_mode_channel = 6`: reads SF back, attack vs run away.
+- SF (ch6) is no longer read. Attack vs run away is set on the dashboard.
 - `init_button_channel = 31`: disabled; no transmitter maps a button. Reinit is
   a touchscreen action. ch9 stays reserved for this.
 

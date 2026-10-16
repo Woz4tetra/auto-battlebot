@@ -83,11 +83,6 @@ class RecordingTransmitter : public TransmitterInterface {
     int update_calls = 0;
 };
 
-class RunAwayTransmitter : public RecordingTransmitter {
-   public:
-    BehaviorMode behavior_mode() const override { return BehaviorMode::RUN_AWAY; }
-};
-
 /** Records the mode each get_target() call received; selects nothing. */
 class RecordingTargetSelector : public TargetSelectorInterface {
    public:
@@ -360,11 +355,12 @@ TEST(ControlLoopTest, BehaviorModeReachesSelectorAndOutput) {
     auto filter = std::make_shared<RobotFrontBackFilter>(config);
     ASSERT_TRUE(filter->initialize(1));
     auto navigation = std::make_shared<RecordingNavigation>();
-    auto transmitter = std::make_shared<RunAwayTransmitter>();
+    auto transmitter = std::make_shared<RecordingTransmitter>();
     auto selector = std::make_shared<RecordingTargetSelector>();
     auto clock = std::make_shared<ManualClock>();
     auto loop =
         std::make_shared<ControlLoop>(filter, selector, navigation, transmitter, clock, nullptr);
+    loop->set_behavior_mode(BehaviorMode::RUN_AWAY);
     SteppedControlLoop driver(loop, 0.0);
     driver.start();
 
@@ -391,12 +387,13 @@ TEST(ControlLoopTest, BehaviorModeIsLoggedEveryCycle) {
     auto filter = std::make_shared<RobotFrontBackFilter>(config);
     ASSERT_TRUE(filter->initialize(1));
     auto navigation = std::make_shared<RecordingNavigation>();
-    auto transmitter = std::make_shared<RunAwayTransmitter>();
+    auto transmitter = std::make_shared<RecordingTransmitter>();
     auto selector = std::make_shared<RecordingTargetSelector>();
     auto clock = std::make_shared<ManualClock>();
     auto loop =
         std::make_shared<ControlLoop>(filter, selector, navigation, transmitter, clock, nullptr);
 
+    loop->set_behavior_mode(BehaviorMode::RUN_AWAY);
     SteppedControlLoop driver(loop, 0.0);
     driver.start();
 
@@ -418,6 +415,45 @@ TEST(ControlLoopTest, BehaviorModeIsLoggedEveryCycle) {
     }
     EXPECT_TRUE(found) << "no behavior_mode value in the runner/navigation diagnostics";
     runner_logger->clear();
+}
+
+TEST(ControlLoopTest, TargetOverrideBypassesSelectorUntilCleared) {
+    auto config = make_filter_config();
+    auto filter = std::make_shared<RobotFrontBackFilter>(config);
+    ASSERT_TRUE(filter->initialize(1));
+    auto navigation = std::make_shared<RecordingNavigation>();
+    auto transmitter = std::make_shared<RecordingTransmitter>();
+    auto selector = std::make_shared<RecordingTargetSelector>();
+    auto clock = std::make_shared<ManualClock>();
+    auto loop =
+        std::make_shared<ControlLoop>(filter, selector, navigation, transmitter, clock, nullptr);
+    loop->set_behavior_mode(BehaviorMode::RUN_AWAY);
+    loop->set_target_override(Pose2D{.x = 0.4, .y = -0.3, .yaw = 0.0});
+    SteppedControlLoop driver(loop, 0.0);
+    driver.start();
+
+    const auto measurements = make_measurements(2);
+    auto step = [&](const ControlMeasurement &m) {
+        driver.pump_input();
+        clock->set(m.keypoints.header.stamp);
+        loop->submit_measurement(m);
+        driver.advance_to(m.keypoints.header.stamp);
+    };
+
+    step(measurements[0]);
+    EXPECT_TRUE(selector->seen_modes.empty());
+    const ControlOutput held = loop->latest_output();
+    EXPECT_TRUE(held.manual_target);
+    EXPECT_DOUBLE_EQ(held.target.pose.x, 0.4);
+    EXPECT_DOUBLE_EQ(held.target.pose.y, -0.3);
+    EXPECT_EQ(held.target.label, Label::EMPTY);
+    // The held point still carries the mode navigation steers under.
+    EXPECT_EQ(held.target.mode, BehaviorMode::RUN_AWAY);
+
+    loop->set_target_override(std::nullopt);
+    step(measurements[1]);
+    EXPECT_FALSE(selector->seen_modes.empty());
+    EXPECT_FALSE(loop->latest_output().manual_target);
 }
 
 }  // namespace auto_battlebot

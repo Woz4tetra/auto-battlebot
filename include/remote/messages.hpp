@@ -38,11 +38,15 @@ struct SystemStatusMessage {
     std::optional<double> autonomy_on_s;
     /** Seconds since the current MCAP file started; absent while MCAP recording is off. */
     std::optional<double> mcap_file_s;
+    BehaviorMode behavior_mode = BehaviorMode::ATTACK;
+    /** The target selector picks the target. Off, navigation steers to the dashboard's held
+     *  point, which /status/tracks reports as a manual target. */
+    bool auto_tracking = true;
     AB_JSON_MESSAGE(SystemStatusMessage, "auto_battlebot.status.System", camera_ok,
                     transmitter_connected, transmitter_receiving, loop_rate_hz, initialized,
                     selected_opponent_count, autonomy_enabled, camera_recording, mcap_recording,
                     jetson_temperature_c, compute_mode, uptime_s, autonomy_switch_on, autonomy_on_s,
-                    mcap_file_s)
+                    mcap_file_s, behavior_mode, auto_tracking)
 };
 
 /** A model label and the color it is drawn in, from [ui.label_colors]. */
@@ -81,6 +85,13 @@ struct ImagePoint {
     AB_JSON_MESSAGE(ImagePoint, "auto_battlebot.status.ImagePoint", u, v)
 };
 
+/** A point on the field floor in the field frame, meters, origin at the field center. */
+struct FieldPoint {
+    double x = 0.0;
+    double y = 0.0;
+    AB_JSON_MESSAGE(FieldPoint, "auto_battlebot.status.FieldPoint", x, y)
+};
+
 /** One tracked robot in the field frame (meters, radians). */
 struct TrackedRobot {
     /** Track slot, e.g. `their_robot_2`. Unique per robot even when two share a label. */
@@ -97,8 +108,9 @@ struct TrackedRobot {
                     y, yaw, image)
 };
 
-/** Where navigation is steering this cycle: an opponent in ATTACK, a safe point in RUN_AWAY. The
- *  segment runs from where navigation placed our robot, which may be a held stale track. */
+/** Where navigation is steering this cycle: an opponent in ATTACK, a safe point in RUN_AWAY, or
+ *  the dashboard's held point while auto tracking is off. The segment runs from where navigation
+ *  placed our robot, which may be a held stale track. */
 struct TargetMessage {
     double from_x = 0.0;
     double from_y = 0.0;
@@ -109,8 +121,10 @@ struct TargetMessage {
     std::string label;
     BehaviorMode mode = BehaviorMode::ATTACK;
     std::optional<ImagePoint> image;
+    /** The dashboard placed this point; the target selector did not pick it. */
+    bool manual = false;
     AB_JSON_MESSAGE(TargetMessage, "auto_battlebot.status.Target", from_x, from_y, from_image, x, y,
-                    label, mode, image)
+                    label, mode, image, manual)
 };
 
 struct TracksMessage {
@@ -196,6 +210,27 @@ struct SetOpponentCountCommand {
 struct SetAutonomyCommand {
     bool enabled = false;
     AB_JSON_MESSAGE(SetAutonomyCommand, "auto_battlebot.command.SetAutonomy", enabled)
+};
+
+struct SetBehaviorModeCommand {
+    BehaviorMode mode = BehaviorMode::ATTACK;
+    AB_JSON_MESSAGE(SetBehaviorModeCommand, "auto_battlebot.command.SetBehaviorMode", mode)
+};
+
+/** On hands targeting back to the target selector. Off holds the target at the field center
+ *  until a SetManualTarget moves it. */
+struct SetAutoTrackingCommand {
+    bool enabled = true;
+    AB_JSON_MESSAGE(SetAutoTrackingCommand, "auto_battlebot.command.SetAutoTracking", enabled)
+};
+
+/** Moves the held target while auto tracking is off; refused while it is on, so a stray touch on
+ *  a view never takes targeting away from the selector. Exactly one of `field` (a tap on the
+ *  top-down view) or `image` (a tap on the camera view, projected onto the floor) is set. */
+struct SetManualTargetCommand {
+    std::optional<FieldPoint> field;
+    std::optional<ImagePoint> image;
+    AB_JSON_MESSAGE(SetManualTargetCommand, "auto_battlebot.command.SetManualTarget", field, image)
 };
 
 /** Turns camera (SVO or H.264) and MCAP recording on or off together. */

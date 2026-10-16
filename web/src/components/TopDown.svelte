@@ -3,6 +3,7 @@
   // things the camera view overlays, without the text labels. Field frame: origin at the field
   // center, meters.
   // Drawn with +x to the right and +y up (away from the camera marker at the bottom).
+  import { aimDrag } from "../lib/aim";
   import { trackColor } from "../lib/robots";
   import { status } from "../lib/status.svelte";
 
@@ -29,6 +30,22 @@
   // Same color per robot as the camera view.
   const target = $derived(tracks?.target ?? null);
 
+  // A tap or drag places the held target while auto tracking is off. The SVG fills a square box,
+  // so a touch maps straight to view units and then to field meters.
+  const aiming = $derived(hasField && status.system?.auto_tracking === false);
+  let svg: SVGSVGElement | undefined = $state();
+  function toField(e: PointerEvent) {
+    if (!svg || !tracks) return null;
+    const rect = svg.getBoundingClientRect();
+    const vx = ((e.clientX - rect.left) / rect.width) * VIEW;
+    const vy = ((e.clientY - rect.top) / rect.height) * VIEW;
+    const hx = tracks.field_x / 2;
+    const hy = tracks.field_y / 2;
+    const x = Math.max(-hx, Math.min(hx, (vx - VIEW / 2) / scale));
+    const y = Math.max(-hy, Math.min(hy, (MARGIN + BOX / 2 - vy) / scale));
+    return { field: { x, y } };
+  }
+
   const robots = $derived(
     (tracks?.robots ?? []).map((r, _i, all) => ({
       ...r,
@@ -38,7 +55,14 @@
 </script>
 
 <div class="topdown">
-  <svg viewBox="0 0 {VIEW} {VIEW}" role="img" aria-label="Top-down field view with robot tracks">
+  <svg
+    bind:this={svg}
+    class:aiming
+    viewBox="0 0 {VIEW} {VIEW}"
+    role="img"
+    aria-label="Top-down field view with robot tracks"
+    use:aimDrag={{ enabled: aiming, point: toField }}
+  >
     <rect class="field" x={left} y={top} width={fieldW} height={fieldH} />
     {#each quarters as q (q)}
       <line class="grid" x1={left + fieldW * q} y1={top} x2={left + fieldW * q} y2={top + fieldH} />
@@ -67,14 +91,24 @@
     {#if target}
       <line
         class="path"
+        class:held={target.manual}
         x1={toX(target.from_x)}
         y1={toY(target.from_y)}
         x2={toX(target.x)}
         y2={toY(target.y)}
       />
-      <!-- White (ink) in both views, so it never reads as one of the robot colors. -->
-      <g class="target" transform="translate({toX(target.x)} {toY(target.y)})">
-        <circle r="16" />
+      <!-- White (ink) in both views, so it never reads as one of the robot colors. A held target
+           is amber with a diamond. -->
+      <g
+        class="target"
+        class:held={target.manual}
+        transform="translate({toX(target.x)} {toY(target.y)})"
+      >
+        {#if target.manual}
+          <path d="M 0 -16 L 16 0 L 0 16 L -16 0 Z" />
+        {:else}
+          <circle r="16" />
+        {/if}
         <line x1="-22" y1="0" x2="-10" y2="0" />
         <line x1="10" y1="0" x2="22" y2="0" />
         <line x1="0" y1="-22" x2="0" y2="-10" />
@@ -136,10 +170,20 @@
     stroke-dasharray: 4 3;
   }
   .target circle,
-  .target line {
+  .target line,
+  .target path {
     fill: none;
     stroke: var(--ink);
     stroke-width: 2.5;
+  }
+  .target.held path,
+  .target.held line,
+  .path.held {
+    stroke: var(--amber);
+  }
+  svg.aiming {
+    cursor: crosshair;
+    touch-action: none;
   }
   .stale {
     opacity: 0.35;
