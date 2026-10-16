@@ -29,8 +29,8 @@ import numpy as np
 import pandas as pd
 import tomli_w
 
+from auto_battlebot.perception.sysid_sessions import OUT, SESSIONS, load_session
 from auto_battlebot.recording.mcap_io import decode_json, iter_messages
-from playground.opponent_prediction.sysid_data import OUT, SESSIONS, load_session
 
 HERE = Path(__file__).resolve().parent
 OUTPUT = HERE / "sensing_model_opponent.toml"

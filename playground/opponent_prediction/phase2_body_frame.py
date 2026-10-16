@@ -35,8 +35,8 @@ from auto_battlebot.perception.opponent_filter import (
     RenderedEstimate,
     wrap_angle,
 )
+from auto_battlebot.perception.sysid_sessions import OUT, load_session
 from playground.opponent_prediction import evaluate_opponent_prediction as ev
-from playground.opponent_prediction.sysid_data import OUT, load_session
 
 U, S = 2, 3
 SUBSTEP_S = 0.01

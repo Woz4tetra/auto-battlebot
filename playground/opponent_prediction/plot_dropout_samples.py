@@ -2,7 +2,8 @@
 
 Two sources:
 
-- `sysid`: the Mr Stabs Mk2 sysid sessions, scored against AprilTag truth (`sysid_data.py`).
+- `sysid`: the Mr Stabs Mk2 sysid sessions, scored against AprilTag truth
+  (`auto_battlebot/perception/sysid_sessions.py`).
 - `replay`: an MCAP from a playback replay, which logs every opponent measurement the C++
   estimator received (`kalman_motion_estimator` diagnostics, `opponent_measurement_<id>`). There is
   no truth there, so the withheld measurements stand in for it: the dropout is scored against what
@@ -35,9 +36,9 @@ import matplotlib.pyplot as plt  # noqa: E402  (backend must be chosen first)
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
+from auto_battlebot.perception.sysid_sessions import OUT, SessionData, load_session  # noqa: E402
 from auto_battlebot.recording.mcap_io import decode_json, iter_messages  # noqa: E402
 from playground.opponent_prediction import evaluate_opponent_prediction as ev  # noqa: E402
-from playground.opponent_prediction.sysid_data import OUT, SessionData, load_session  # noqa: E402
 
 GAPS_S = (0.2, 1.0, 3.0)
 SAMPLES_PER_GAP = 3

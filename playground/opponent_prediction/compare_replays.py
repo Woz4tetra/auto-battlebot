@@ -31,10 +31,10 @@ import numpy as np
 import pandas as pd
 import torch
 
+from auto_battlebot.perception.sysid_sessions import OUT
 from auto_battlebot.recording.mcap_io import decode_json, iter_messages
 from playground.opponent_prediction import evaluate_opponent_prediction as ev
 from playground.opponent_prediction.plot_dropout_samples import replay_session
-from playground.opponent_prediction.sysid_data import OUT
 
 REPLAYS = OUT / "replays"
 SIGMAS_M = [0.01, 0.02, 0.03, 0.05, 0.08, 0.12]

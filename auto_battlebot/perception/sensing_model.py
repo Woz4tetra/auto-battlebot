@@ -37,6 +37,7 @@ EKF_COMPONENTS = ("along", "cross", "theta", "v", "omega")
 # A gap in our robot's measurements starts once the last one is this many frame periods old;
 # shorter waits are the normal spacing between frames and are part of the fitted EKF error.
 GAP_MIN_FRAMES = 2.5
+CLOCK_EPS_S = 1e-6
 
 
 class FlipModel(Enum):
@@ -139,6 +140,7 @@ class RobotSpec:
     sigma_along_m: np.ndarray
     sigma_cross_m: np.ndarray
     bias_along_m: np.ndarray
+    bias_along_reverse_m: np.ndarray
     bias_cross_m: np.ndarray
     heading_sigma_rad: np.ndarray
     flip_model: FlipModel
@@ -260,7 +262,13 @@ def _parse_robot(d: Mapping[str, Any], where: str) -> RobotSpec:
         ekf = EkfErrorSpec(sigma=sigma, tau_s=tau)
     sigmas = [
         _array(pos[k], f"{where}.position.{k}", n)
-        for k in ("sigma_along_m", "sigma_cross_m", "bias_along_m", "bias_cross_m")
+        for k in (
+            "sigma_along_m",
+            "sigma_cross_m",
+            "bias_along_m",
+            "bias_along_reverse_m",
+            "bias_cross_m",
+        )
     ]
     heading_sigma = _array(head["sigma_rad"], f"{where}.heading.sigma_rad", n)
     if np.any(sigmas[0] < 0.0) or np.any(sigmas[1] < 0.0) or np.any(heading_sigma < 0.0):
@@ -270,7 +278,8 @@ def _parse_robot(d: Mapping[str, Any], where: str) -> RobotSpec:
         sigma_along_m=sigmas[0],
         sigma_cross_m=sigmas[1],
         bias_along_m=sigmas[2],
-        bias_cross_m=sigmas[3],
+        bias_along_reverse_m=sigmas[3],
+        bias_cross_m=sigmas[4],
         heading_sigma_rad=heading_sigma,
         flip_model=flip_model,
         flip_rate=flip_rate,
@@ -419,6 +428,7 @@ class _RobotSampler:
         self.sigma_along = t(spec.sigma_along_m)
         self.sigma_cross = t(spec.sigma_cross_m)
         self.bias_along = t(spec.bias_along_m)
+        self.bias_along_reverse = t(spec.bias_along_reverse_m)
         self.bias_cross = t(spec.bias_cross_m)
         self.heading_sigma = t(spec.heading_sigma_rad)
         self.flip_rate = t(spec.flip_rate) if spec.flip_rate is not None else None
@@ -445,6 +455,10 @@ class MeasurementModel:
     time (truth is known only at step times), and delivered on the first step at least `latency`
     later. Step intervals must not exceed the shortest frame period, so at most one frame is
     captured and one delivered per step.
+
+    `frame_rate_hz` fixes the frame rate, overriding the file's nominal value and its
+    randomization range. The lockstep sim passes its tick rate, since it captures one frame per
+    tick.
     """
 
     def __init__(
@@ -457,6 +471,7 @@ class MeasurementModel:
         seed: int = 0,
         randomize: bool = True,
         enabled: bool = True,
+        frame_rate_hz: float | None = None,
     ) -> None:
         missing = [r for r in roles if r not in spec.robots]
         if missing:
@@ -469,6 +484,7 @@ class MeasurementModel:
         self.dtype = dtype
         self.randomize = randomize
         self.enabled = enabled
+        self.fixed_frame_rate_hz = frame_rate_hz
         self.generator = torch.Generator(device=self.device)
         self.generator.manual_seed(seed)
         self._samplers = [_RobotSampler(spec.robots[r], self.device, dtype) for r in roles]
@@ -476,12 +492,14 @@ class MeasurementModel:
         rnd = spec.randomization
         max_latency = rnd.latency_s[1] if randomize else spec.latency_s
         max_rate = rnd.frame_rate_hz[1] if randomize else spec.frame_rate_hz
+        if frame_rate_hz is not None:
+            max_rate = frame_rate_hz
         self.capacity = math.ceil(max_latency * max_rate) + 2
 
         w, r, q = worlds, self.robots, self.capacity
         z = self._zeros
         self.params = SensingParams(
-            frame_period_s=z(w) + 1.0 / spec.frame_rate_hz,
+            frame_period_s=z(w) + 1.0 / (frame_rate_hz or spec.frame_rate_hz),
             latency_s=z(w) + spec.latency_s,
             frame_drop_prob=z(w) + spec.frame_drop_prob,
             error_scale=z(w) + 1.0,
@@ -548,7 +566,8 @@ class MeasurementModel:
                 "flip": self._uniform(rnd.flip_scale, w),
                 "stretch": self._uniform(rnd.dropout_stretch, w),
             }
-            p.frame_period_s = torch.where(mask, draws["period"], p.frame_period_s)
+            if self.fixed_frame_rate_hz is None:
+                p.frame_period_s = torch.where(mask, draws["period"], p.frame_period_s)
             p.latency_s = torch.where(mask, draws["latency"], p.latency_s)
             p.frame_drop_prob = torch.where(mask, draws["drop"].clamp(0.0, 1.0), p.frame_drop_prob)
             p.error_scale = torch.where(mask, draws["error"], p.error_scale)
@@ -583,7 +602,8 @@ class MeasurementModel:
             self.last_measured_stamp = t[:, None].expand(-1, self.robots).clone()
             return Deliveries(delivered, t.clone(), measured, truth.xy.clone(), truth.yaw.clone())
 
-        capture = t >= self.next_capture
+        # The tolerance keeps a tick that lands on the frame time from missing it to rounding.
+        capture = t >= self.next_capture - CLOCK_EPS_S
         period = self.params.frame_period_s
         upcoming = self.next_capture + period
         self.next_capture = torch.where(
@@ -611,7 +631,8 @@ class MeasurementModel:
 
         head = self._read % self.capacity
         head_stamp = self._q_stamp[self._rows, head]
-        due = self._q_filled[self._rows, head] & (head_stamp + self.params.latency_s <= t)
+        ready = head_stamp + self.params.latency_s <= t + CLOCK_EPS_S
+        due = self._q_filled[self._rows, head] & ready
         out = Deliveries(
             delivered=due,
             stamp=head_stamp,
@@ -686,9 +707,14 @@ class MeasurementModel:
         b = _bin(speed, sampler.speed_edges)
         scale = self.params.error_scale
         n = self._randn(self.worlds, 3)
-        along = sampler.bias_along[b] + scale * sampler.sigma_along[b] * n[:, 0]
-        cross = sampler.bias_cross[b] + scale * sampler.sigma_cross[b] * n[:, 1]
         c, s = torch.cos(theta), torch.sin(theta)
+        # The along-track bias differs by direction of travel: on the 2026-10-15 sysid sessions
+        # it is +4 mm forward and +13 mm in reverse above 1.5 m/s.
+        velocity = truth.velocity[:, r].to(self.dtype)
+        reversing = velocity[:, 0] * c + velocity[:, 1] * s < 0.0
+        bias_along = torch.where(reversing, sampler.bias_along_reverse[b], sampler.bias_along[b])
+        along = bias_along + scale * sampler.sigma_along[b] * n[:, 0]
+        cross = sampler.bias_cross[b] + scale * sampler.sigma_cross[b] * n[:, 1]
         xy = truth.xy[:, r].to(self.dtype) + self.params.offset_m
         xy = xy + torch.stack([c * along - s * cross, s * along + c * cross], dim=-1)
         heading = theta + scale * sampler.heading_sigma[b] * n[:, 2] + math.pi * flipped

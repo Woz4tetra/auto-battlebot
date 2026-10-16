@@ -32,6 +32,7 @@ def _robot(**overrides: Any) -> dict[str, Any]:
             "sigma_along_m": [0.004, 0.008],
             "sigma_cross_m": [0.006, 0.010],
             "bias_along_m": [0.0, 0.0],
+            "bias_along_reverse_m": [0.0, 0.0],
             "bias_cross_m": [0.0, 0.0],
         },
         "heading": {
@@ -210,6 +211,22 @@ def test_position_noise_is_body_frame() -> None:
     # Heading +y: along-track noise lands on y, the cross bias on -x.
     assert float(err[:, 1].std()) == pytest.approx(0.05, rel=0.05)
     torch.testing.assert_close(err[:, 0], torch.full((2000,), -0.01, dtype=torch.float64))
+
+
+def test_reverse_uses_its_own_along_bias() -> None:
+    d = _spec_dict()
+    pos = d["robots"]["opponent"]["position"]
+    pos["sigma_along_m"] = [0.0, 0.0]
+    pos["sigma_cross_m"] = [0.0, 0.0]
+    pos["bias_along_m"] = [0.0, 0.004]
+    pos["bias_along_reverse_m"] = [0.0, 0.013]
+    model = MeasurementModel(_spec(d), ["opponent"], worlds=2, randomize=False)
+    truth = _truth(2, 1, speed=1.0)
+    truth.velocity[1] *= -1.0  # world 1 drives backwards along its heading
+    xy = model._noisy_pose(model._samplers[0], truth, 0, torch.zeros(2, dtype=torch.bool))[0]
+    torch.testing.assert_close(
+        xy[:, 0] - truth.xy[:, 0, 0], torch.tensor([0.004, 0.013], dtype=torch.float64)
+    )
 
 
 def test_ekf_error_is_ar1() -> None:

@@ -40,6 +40,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from auto_battlebot.perception.sysid_sessions import BUNDLES, OUT, REPO_ROOT, load_session
 from auto_battlebot.perception.tag_pose_smoother import up_from_field
 from auto_battlebot.recording import svo2
 from auto_battlebot.recording.mcap_io import (
@@ -52,7 +53,6 @@ from auto_battlebot.recording.sysid_io import load_field_from_camera, load_robot
 from playground.calibration.render_match_prediction_camera import load_camera_track
 from playground.opponent_prediction import evaluate_opponent_prediction as ev
 from playground.opponent_prediction.plot_dropout_samples import pick_samples, replay_session
-from playground.opponent_prediction.sysid_data import BUNDLES, OUT, REPO_ROOT, load_session
 
 GAPS_S = (0.2, 1.0, 3.0)
 PRE_S = 1.5

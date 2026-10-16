@@ -4,7 +4,7 @@ The filter is `auto_battlebot.perception.opponent_filter`, the parity-tested mir
 opponent arm. Each session replays the way the app runs: a measurement arrives `LATENCY_S` after
 its shutter, coast() runs every `TICK_S` on the control clock, and the estimate is rendered at
 now + `LEAD_S`. Every rendered estimate is scored against the tag truth at its render time. See
-`sysid_data.py` for where the measurements and the truth come from.
+`auto_battlebot/perception/sysid_sessions.py` for where the measurements and the truth come from.
 
 Arms:
 - `hold`: the estimate is the last measurement (today's production `opponent_mode = HOLD`).
@@ -50,7 +50,7 @@ from auto_battlebot.perception.opponent_filter import (
     OpponentFilterConfig,
     RenderedEstimate,
 )
-from playground.opponent_prediction.sysid_data import OUT, REPO_ROOT, SessionData, load_session
+from auto_battlebot.perception.sysid_sessions import OUT, REPO_ROOT, SessionData, load_session
 
 LATENCY_S = 0.063  # measured perception latency (kalman_motion_estimator.hpp)
 TICK_S = 0.01

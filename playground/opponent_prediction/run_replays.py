@@ -20,7 +20,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from playground.opponent_prediction.sysid_data import OUT, REPO_ROOT
+from auto_battlebot.perception.sysid_sessions import OUT, REPO_ROOT
 
 BINARY = REPO_ROOT / "build/auto_battlebot"
 RECORDINGS_DIR = REPO_ROOT / "data/recordings"
