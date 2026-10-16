@@ -136,16 +136,16 @@ keypoint_height_meters = 0.03
 
 # Propagation strategy between perception frames. Absent means DeadReckoningMotionEstimator
 # (last commanded velocity applied directly, opponents held at their last pose). The Kalman
-# arm can run opponents through a 6-state filter (constant velocity plus an independent heading and
-# yaw rate) with innovation gating, coasting the output at control rate.
+# arm runs opponents through a 6-state filter (constant velocity plus an independent heading and
+# yaw rate) with innovation gating, and coasts the output at control rate.
 # The jig-fitted plant parameters ride in the shared top-level [plant] table below.
 [robot_filter.motion_estimator]
 type = "KalmanMotionEstimator"
 our_robot_mode = "EKF"
-# The 6-state opponent filter fails the plan's acceptance gate: it does not beat HOLD at 0.35 s on
-# the held-out sysid session (docs/experiments/kalman_filter/opponent_filter_evaluation.md).
-# Opponents stay held until it does; the opponent_* values below tune the KALMAN arm.
-opponent_mode = "HOLD"
+# 6-state opponent filter (heading, yaw rate, sigmas). It beats HOLD on heading and on position
+# up to 0.1 s; past that it overshoots robots that stop during a dropout (0.35 s median 50 against
+# 36 mm on the held-out sysid session). docs/experiments/kalman_filter/opponent_filter_evaluation.md
+opponent_mode = "KALMAN"
 max_coast_s = 0.2
 # Opponent heading block, grid-searched on the 2026-10-15 Mr Stabs Mk2 sysid sessions against
 # AprilTag truth (docs/experiments/kalman_filter/opponent_filter_evaluation.md). The heading values
