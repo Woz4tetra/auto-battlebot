@@ -9,6 +9,7 @@ Usage:
     source scripts/activate_python.sh
     python playground/opponent_prediction/run_replays.py            # all recordings
     python playground/opponent_prediction/run_replays.py --only 14-12-27
+    python playground/opponent_prediction/run_replays.py --mode KALMAN
 """
 
 from __future__ import annotations
@@ -98,13 +99,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--only", help="substring of the recordings to run")
     parser.add_argument("--rerun-hold", action="store_true", help="redo HOLD runs that exist")
+    parser.add_argument("--mode", choices=MODES, help="run only this opponent_mode")
     args = parser.parse_args()
     if not BINARY.exists():
         raise SystemExit(f"{BINARY} not built; run scripts/build.sh")
     for svo, start in RECORDINGS:
         if args.only and args.only not in svo:
             continue
-        for mode in MODES:
+        for mode in (args.mode,) if args.mode else MODES:
             # HOLD runs do not exercise the opponent filter, so a filter change keeps them.
             done = OUT / "replays" / f"{Path(svo).stem}_{mode}.mcap"
             if mode == "HOLD" and done.exists() and not args.rerun_hold:
