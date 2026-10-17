@@ -1,14 +1,25 @@
 # Headless sim config for MR STABS MK2 (simulation/kinematic_sim_server.py), on the MuJoCo
 # rigid-body plant (auto_battlebot/mujoco_sim, docs/plans/mujoco_warp_mr_stabs_plan.md).
 # Set [our_robot] plant = "kinematic" for the run-175805 kinematic fit further down.
-# Keep [arena] in sync with config/simulation/headless_sim.toml [field_filter].
+#
+# Matches the world the RL policy trains in (auto_battlebot/rl/envs/warp_nav.py,
+# docs/plans/rl_policy_navigation_plan.md): the 2026-10-15 plant fit at 2 ms, 50 Hz ticks, 60 ms
+# actuation latency, the provisional_rl sensing model, a moving opponent our robot can hit, and
+# the house bot. No static hazards: the training mix draws 0 to 3, and this is the 0 case. To run
+# the policy:
+#
+#   ./scripts/run_simulation.sh simulation/sim_mr_stabs_mk2.toml \
+#       config/simulation/mr_stabs_mk2_rl_sim.toml
+#
+# Keep [arena] in sync with the C++ pairs' [field_filter] size_x/size_y.
+
 
 [server]
 host = "127.0.0.1"
 port = 14882
 
 [sim]
-dt = 0.0333 # ~30 Hz sim time (matches the real controller rate)
+dt = 0.02 # 50 Hz: the RL policy steps every 20 ms, and the lockstep eval ticks at this rate
 seed = 0
 
 [arena]
@@ -16,10 +27,11 @@ width = 2.4
 height = 2.4
 
 # Actuation latency, in ms of sim time. The measured total is 60 ms (Crossfire + ESC +
-# mechanical). The MuJoCo plant holds the firmware-to-motion part itself (PlantParams.delay_s,
-# 30 ms unfit), so this is the radio part only. Set it back to 60 for plant = "kinematic".
+# mechanical), the RL environment's nominal value. The MuJoCo plant holds the firmware-to-motion
+# part itself (the fit's delay_s, 0.65 ms), so this is the radio part only. Set it back to 60 for
+# plant = "kinematic".
 [latency]
-command_ms = 30.0
+command_ms = 59.3
 
 [camera]
 res_width = 640
@@ -53,11 +65,9 @@ tau_linear_decel = 0.078    # coast: the term that drives stopping overrun
 tau_angular_accel = 0.066
 
 [our_robot.mujoco]
-# No sysid recordings yet, so no fit.json: the plant runs PlantParams defaults (4.0 m/s top
-# speed on 15.2 V against the kinematic fit's 5.6). Point this at
-# playground/calibration/out/mujoco_sysid/fit_<ts>/fit.json once fit_mujoco_plant.py has run.
-fit_file = ""
-timestep = 0.001
+# The 2026-10-15 sysid fit the RL environment trains on (warp_nav.DEFAULT_FIT).
+fit_file = "playground/calibration/out/mujoco_sysid/fit_2026-10-15_yolo_brake/fit.json"
+timestep = 0.002                                                                        # the RL environment's step; position error against 1 ms is 0.3 mm at 0.4 s
 pack_voltage = 15.2
 auto_steer = true
 
@@ -67,20 +77,35 @@ auto_steer = true
 # motion estimator see the measurements.
 [perception]
 # sensing_model = ""
-sensing_model = "simulation/sensing_models/provisional.toml"
+# provisional.toml with the our-robot EKF error fitted from lockstep and the measured dropout gaps
+# (playground/rl/fit_provisional_ekf_error.py), as the RL environment reads it.
+sensing_model = "simulation/sensing_models/provisional_rl.toml"
 randomize = false
 
 [perception.projection_bias]
 enabled = false
 keypoint_height = 0.06
 
-# For a "go to X and stop" mission this static opponent IS the goal point; the controller drives to it
-# and (with navigation.stop_distance > 0 in the C++ overlay) stops on it.
+# A random-walking Mrs Buff Mk3 at the middle of the training range (0.2 to 1.2 m/s). The
+# hazard_radius makes it a moving cylinder in the MuJoCo plant, so our robot hits it instead of
+# driving through: 0.168 m is its footprint's half-diagonal (0.2225 x 0.2535 m), the size the RL
+# environment's box opponent has. For a "go to X and stop" mission, set behavior = "static",
+# hazard_radius = 0 and start_pos to the goal (sim_stop_test.py does this).
 [[opponents]]
-behavior = "static"
-start_pos = [0.0, 0.0]
-speed = 1.0
+behavior = "random_walk"
+start_pos = [0.3, 0.1]
+speed = 0.7
 heading_deg = 180.0
 sprite = "mrs_buff_mk3"
 radius = 0.5
 replay_csv = ""
+hazard_radius = 0.168
+
+# The house bot, parked as in half the RL environment's worlds, at its 0.2083 m radius
+# (HOUSE_RADIUS_M). The C++ pairs expect it as the third ground-truth slot (NEUTRAL_ROBOT_1).
+[[opponents]]
+behavior = "static"
+start_pos = [0.85, 0.75]
+heading_deg = 0.0
+sprite = "house_bot"
+hazard_radius = 0.2083

@@ -960,5 +960,26 @@ TEST(KalmanMotionEstimatorTest, ResetClearsTracks) {
     EXPECT_TRUE(outputs.empty());
 }
 
+TEST(KalmanMotionEstimatorTest, RendersSecondsSinceTheLastMeasurement) {
+    // RlPolicyNavigation reads this as the observation's measurement age: 0 on a fresh frame,
+    // then growing on the wall clock between frames, for our track and opponent tracks alike.
+    KalmanMotionEstimator estimator{kalman_opponents_config()};
+    FrameIdAssigner assigner(10.0, 5);
+    const FieldDescription field = make_field();
+    const MotionEstimatorContext context;
+
+    estimator.predict(kStartTime, CommandFeedback{});
+    const auto measured =
+        estimator.update({make_our_measurement(-1.0, 0.0), make_opponent_measurement(1.0, 0.0)},
+                         kStartTime, assigner, field, context);
+    ASSERT_EQ(measured.size(), 2u);
+    for (const auto &robot : measured) EXPECT_DOUBLE_EQ(robot.measurement_age_s, 0.0);
+
+    const auto coasted = estimator.coast(kStartTime + 0.25);
+    ASSERT_TRUE(coasted.has_value());
+    ASSERT_EQ(coasted->size(), 2u);
+    for (const auto &robot : *coasted) EXPECT_NEAR(robot.measurement_age_s, 0.25, 1e-12);
+}
+
 }  // namespace
 }  // namespace auto_battlebot

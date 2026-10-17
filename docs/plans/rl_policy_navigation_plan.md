@@ -10,6 +10,35 @@ This plan replaces `docs/plans/plant_rollout_navigation_plan.md`. The rollout pl
 accurate plant online and a hand-built mode layer (STAGE, COMMIT, EXIT, CONTAIN) with tuned cost
 weights. A policy needs the plant only during training and learns the mode behaviour from a reward.
 
+## Status (2026-10-17)
+
+Steps 1 to 5 are built; steps 6 to 8 are training and being scored. Results and every number are
+in `docs/experiments/control_improvement/rl_navigation_report.md`. Departures from this plan, each
+from an evaluation result:
+
+- **Sensing file:** training reads `simulation/sensing_models/provisional_rl.toml`, written by
+  `playground/rl/fit_provisional_ekf_error.py`: `provisional.toml` plus a provisional our-robot EKF
+  error table, with the dropout gap tables replaced by the measured NHRL May gap quantiles
+  (`provisional.toml`'s gaps reach p90 2.15 s against 0.34 s measured).
+- **EKF error table from lockstep, not sysid:** the sysid table missed the error of propagating
+  to control time; the C++ filter in lockstep is several times worse (heading sigma 0.22 to 0.31
+  rad against 0.02 to 0.24). The table now comes from `--lockstep` recordings, and stage D was
+  fine-tuned on it.
+- **Lockstep opponent size:** the sim keypoint model sends no box, so `lockstep_eval.py` passes the
+  opponent's footprint as a size override; without it the policy read a 0.07 m half-diagonal.
+- **Broadphase bounds follow the resized scene:** the Warp environment resized walls, blocks and
+  the opponent per world but left MuJoCo Warp's `geom_rbound`/`geom_aabb` at the MJCF
+  placeholders, so the outer part of larger blocks, arena corners and larger opponents were
+  passable in training. Fixed 2026-10-17; stage D was fine-tuned again on the fixed environment.
+- **Opponents cannot push through us:** a mocap opponent driving into the wedge pried our chassis
+  over; within contact range it now loses its closing velocity.
+- **Command change weight -0.05**, not -0.01: the stage C policy chattered and flipped.
+- **`EVAL` stage:** stage D's mix on the nominal plant with the held-out opponents, which both the
+  Python evaluation and the lockstep sim (`simulation/rl_eval_server.py`) play.
+- **No slew limit means flips:** from rest the fitted robot wheelies over at a forward step of 0.8,
+  and the lift at 0.6 depends on the armature the sysid could not pin (72 against 10 degrees).
+  See the report.
+
 Background:
 
 - `docs/plans/mujoco_warp_mr_stabs_plan.md`: the rigid-body model and the CMA-ES fit.
@@ -53,7 +82,7 @@ Background:
 | Navigation seam | `update(RobotDescriptionsStamped, FieldDescription, const TargetSelection&) -> VelocityCommand`, registered with `REGISTER_CONFIG` | `include/navigation/navigation_interface.hpp`, `src/navigation/config.cpp` |
 | Hazards as data | `FieldDescription::hazards`: discs with `center`, `object_radius` (raw), `inflated_radius`, `hard_radius`, `source` (`STATIC` or `TRACKED`) and velocity, assembled from `[field_filter].hazards_file` plus the tracked house bot | `include/data_structures/field.hpp`, `include/hazards/` |
 | Hazard layers | `HazardAvoidance::steer_around`, `limit_command`, `apply_reverse`. Not injected: `MotionProfileNavigation` and `PursuitNavigation` each own one as a `hazards_` member built from their own config; `NoopNavigation` and `FixedVelocityNavigation` have none | `include/navigation/hazard_avoidance.hpp` |
-| Command path | `VelocityCommand` (normalized linear and angular) -> `DifferentialDriveProcessor` saturation -> OpenTX slew limit (`max_motor_rpm_per_sec`) -> CRSF -> firmware mixer with yaw-rate loop | `src/transmitter/` |
+| Command path | `VelocityCommand` (normalized linear and angular) -> `DifferentialDriveProcessor` saturation -> CRSF trainer path or ESP-NOW -> firmware mixer with yaw-rate loop. No slew limit on either side since 2026-10-17 | `src/transmitter/` |
 | Firmware mirror | `FirmwareMixer` with `YawController`, heading hold, reverse gain scaling; scalar Python | `auto_battlebot/mujoco_sim/firmware.py` |
 | Grey-box plant | first-order lag drivetrain model in numpy; fitted parameters in each profile's `[plant]` | `auto_battlebot/control/plant.py` |
 | Batched sim | `WarpRollout`: N worlds on the GPU, captured step graph, tape-driven (open loop only) | `auto_battlebot/mujoco_sim/rollout.py`, `warp_kernels.py` |
@@ -67,7 +96,8 @@ Background:
 Gaps this plan fills:
 
 1. `WarpRollout` replays fixed tapes. RL needs the command chosen each step from the world's own
-   state, so the firmware mixer, the transmitter slew and the delay must run inside the GPU step.
+   state, so the firmware mixer, the transmitter saturation and the delay must run inside the GPU
+   step.
 2. No opponent body, front-arc zone or contact classification in the batched sim.
 3. The sensing model is provisional: Mr Stabs noise comes from offline YOLO on one sysid session,
    and Mr Stabs stands in for the opponent. Sessions with live detections refit it (section 9).
@@ -86,7 +116,7 @@ true world state ──> sensing model ──> observation builder        robots
         ^                                     │                          │
         │                             policy (50 Hz)                ObservationBuilderV1 (same spec)
         │                                     │                          │
-MuJoCo Warp step <── firmware mixer <── slew + delay <── action     NetworkPolicy -> RtNeuralRuntime
+MuJoCo Warp step <── firmware mixer <── sat. + delay <── action     NetworkPolicy -> RtNeuralRuntime
                                               │                          │   (same weights, mean action)
                                      export: model bundle ─────────>  SquashedDecoder
                                                                          │
@@ -104,9 +134,9 @@ training and in C++ for deployment. A golden fixture keeps them equal. The model
 - **Policy rate:** 50 Hz (every fifth tick of the 250 Hz loop). The loop repeats the last action
   between policy steps. 50 Hz is above the 30 to 60 Hz perception rate, so every new frame is
   seen within 20 ms, and it keeps the history buffers short.
-- **What runs after the action:** on the robot, `DifferentialDriveProcessor` saturation, the
-  OpenTX slew limiter and the firmware. In sim, the same three, ported to Warp kernels (section 5).
-  Nothing in navigation edits the action.
+- **What runs after the action:** on the robot, `DifferentialDriveProcessor` saturation and the
+  firmware. In sim, the same two, ported to Warp kernels (section 5). Nothing in navigation edits
+  the action, and nothing downstream rate-limits it.
 
 ### 3. Observation
 
@@ -212,7 +242,7 @@ it unchanged.
 **Per-step chain, all in Warp kernels inside one captured graph:**
 
 1. Action buffer (written by the policy every 10 physics steps at the 2 ms step, 50 Hz).
-2. Saturation and the OpenTX slew limit, ported from `opentx_transmitter.cpp`.
+2. Saturation, ported from `differential_drive_processor.cpp`. No slew limit: the robot has none.
 3. Command latency ring buffer, length drawn per world.
 4. Firmware mixer and yaw loop, ported from `firmware.py` to a Warp kernel. Same gains, same
    reverse scaling, same idle threshold. The gyro input is the sim's yaw rate.
@@ -268,7 +298,7 @@ Per policy step (20 ms):
 | Wall contact | `-0.2` per event, waived while the wedge is on the opponent | pinning the opponent against a wall is a win, not a wall hit |
 | Flip | `-20`, episode ends | upside down or pitch past 80 degrees for 0.5 s |
 | Nose lift | `-0.5 per s` | pitch past 30 degrees nose down |
-| Command change | `-0.01 * |a_t - a_{t-1}|` | smooths chatter |
+| Command change | `-0.05 * |a_t - a_{t-1}|` | smooths chatter; -0.01 left a stage C policy chattering into flips (see Status) |
 
 RUN_AWAY episodes (20% of episodes, mode flag set): strike terms off, `Phi` uses the distance
 to the opponent's arc instead (larger is better), every hazard and flip term stays.
@@ -652,6 +682,131 @@ file changes beyond the RTNeural block.
   if it is an optional library, a `BUILD_WITH_*` option that follows the `BUILD_WITH_ZED` pattern.
 - Nothing in `rl_policy/` includes `navigation/`.
 
+### 13. Scoring tool and training guide
+
+Runs are compared today with two scripts and hand-built tables: `playground/rl/evaluate_nav_policy.py`
+(Warp rollouts and the `report` table) and `playground/rl/lockstep_eval.py` (the C++ binary in the
+lockstep sim). Every comparison on 2026-10-17 needed scratch scripts on top: repeat runs to get
+the Warp spread, danger as a share of time alive, per-behaviour splits, observation-feature and
+estimate-error checks. That does not scale past one person and one afternoon. This section
+replaces it with one scorer built like `training/model_eval/score.py`, and a guide.
+
+#### Scorer: `training/rl/score_policies.py`
+
+Same shape as `score.py`: named candidates, one fixed held-out suite, a paired bootstrap against a
+baseline, a summary table and plots. The logic lives in `auto_battlebot/rl/scoring/` (CLI only in
+`training/`), next to `metrics.py`, so `train_nav_policy.py` logs the same numbers at every
+checkpoint.
+
+```bash
+python training/rl/score_policies.py \
+    --suite simulation/rl_eval/suite_v1.json \
+    --candidate baseline=motion_profile \
+    --candidate pursuit=pursuit \
+    --candidate d_fix=runs/rl_nav/<run>/checkpoint.pt \
+    --source warp --source lockstep --repeats 3 \
+    [--baseline baseline] [--bootstrap 1000] [--alpha 0.05] [--output <dir>]
+```
+
+- **Candidates.** A checkpoint (scored in Warp, and in lockstep after an automatic export), a
+  bundle directory (lockstep only), or a scripted navigation by name (`motion_profile`,
+  `pursuit`). The baseline defaults to `motion_profile`.
+- **Suite.** A versioned, checked-in scenario file under `simulation/rl_eval/`, exported by the
+  `EVAL` stage at a fixed seed: held-out opponents and arenas, attack and run-away episodes. The
+  file records the environment fingerprint it was exported from: obs spec version, fit file,
+  sensing file hash and git hash. The scorer refuses to compare results from different suite
+  versions, and warns when the current environment's fingerprint differs from the suite's. Grow it
+  from 128 to 512 episodes so per-behaviour cells have about 70 episodes each, not 12 to 20.
+- **Sources.** `warp` runs the Python environment; `lockstep` runs the release binary through
+  `simulation/rl_eval_server.py`. Warp episodes are not bit-reproducible (GPU contact atomics:
+  one checkpoint scored 3.0 to 5.2 hits per hit taken across four runs), so `--repeats` (default
+  3) reruns each Warp candidate and the table reports the mean and the range.
+- **Statistics.** Every candidate plays the same scenarios, so the bootstrap resamples scenarios
+  paired, as `score.py` resamples frames. Ratios (hits per hit taken, danger share) are pooled
+  totals over the resample, never a mean of per-episode ratios.
+- **Outputs.** `summary.csv` (one row per candidate and source), per-episode JSONL, a markdown
+  report ready to paste into a write-up, headline plots with confidence intervals, and top-down
+  videos of the worst five episodes per candidate (most hits taken, every flip, every hole).
+  Output defaults to `playground/rl/out/scores/<timestamp>/`, not `runs/`.
+- **Previous results.** `--previous <dir>` loads an earlier output directory as extra candidates
+  without rerunning it, when the suite version matches.
+- **Hygiene the scripts learned the hard way.** One thread per lockstep server
+  (`OMP_NUM_THREADS=1`; otherwise about 7 cores each and a load average of 80), a port base per
+  concurrent run, and a fresh results file per run (the server appends).
+
+#### Metrics
+
+Headline, reported for attack episodes, with G5's verdict against the baseline:
+
+| Metric | Definition | Why |
+| --- | --- | --- |
+| Hits per hit taken | pooled strikes over pooled hits taken | G5's first half; the match-winning ratio |
+| Danger share | danger seconds over seconds alive | G5's second half. Danger seconds per episode, the literal gate, favours navigations that end episodes early: `MotionProfileNavigation` flips in 94% of episodes and lives 4.1 s of 20, so it scores 0.57 s of danger against the policy's 2.7 s. Report both, gate on the share |
+| Success, clean success | at least one strike; first strike before any hit taken | readable summary |
+| Flips, holes per episode | terminal events | reported, and flips gate a robot run (section 2, flip risk) |
+
+Secondary: strikes and rear strikes per episode, median time to first strike and first hit,
+seconds alive, wall events, wall-block contacts, nose-lift seconds, sim failures. Every metric is
+also split by opponent behaviour, by held-out against in-distribution, and for run-away episodes
+(hits taken, holes, flips).
+
+Parity metrics, so G4 is one command instead of an investigation:
+
+| Check | Compares | Caught on 2026-10-17 |
+| --- | --- | --- |
+| Lockstep against Warp | each headline metric, lockstep minus the Warp mean, flagged when outside both 10% and the Warp range | the G4 gap |
+| Our-robot estimate error | heading and position error of the observation's own state against truth, Warp's `OurEkfErrorModel` against the C++ filter in lockstep (`--record` episodes) | the EKF error table was 3 to 14 times too optimistic |
+| Observation features | percentiles of each of the 138 features, Warp against lockstep (needs a debug dump of the C++ observation) | the 0.07 m against 0.17 m opponent half-diagonal |
+| Physics | tip-over rate under fixed constant commands on the same exported worlds, Warp against CPU MuJoCo | the ghost walls (unsynced broadphase bounds) |
+
+The observation-feature check needs the C++ side to log its observation vector: 138 floats every
+20 ms. Add a `log_observation` option to `[navigation.policy]`, set only by the lockstep overlay,
+so the robot never pays the bandwidth.
+
+Reference numbers on the current 128-episode suite (lockstep, attack episodes), to compare new
+runs against until suite v1 replaces it:
+
+| Navigation | Hits per hit taken | Danger share | Success | Flips per episode |
+| --- | --- | --- | --- | --- |
+| `MotionProfileNavigation` | 0.146 | 0.140 | 0.28 | 0.94 |
+| `PursuitNavigation` | 0.089 | 0.106 | 0.44 | 0.28 |
+| RL, stage D fine-tune at 616M steps | 4.84 | 0.164 | 0.60 | 0.24 |
+
+#### Guide: `docs/rl_training_guide.md`
+
+A reference doc in the style of `docs/sysid_guide.md`, written once the scorer exists so its
+commands are the real ones:
+
+1. **Before training:** which fit file and sensing file the environment reads, how to refit the
+   our-robot EKF table from lockstep recordings (`fit_provisional_ekf_error.py --lockstep`), and
+   when to export a new suite version.
+2. **Training:** the curriculum stages and their advance rule, the fallback advance, resuming
+   and fine-tuning (`--resume`, `--force-stage`), where runs land, and the GPU queue on megamind.
+3. **Watching a run:** what `metrics.jsonl` and the log fields mean and what healthy looks like:
+   success climbing per stage, flips under 0.4 per episode in stage D, KL near 0.01, policy std
+   (it fell from 0.08 to 0.05 in two hours of fine-tuning; below that, exploration is gone).
+4. **Scoring and gates:** export, then `score_policies.py` for G3 (the bundle self-test), G4 and
+   G5, and how to read the parity tables when G4 fails.
+5. **Learnings,** each as problem and fix:
+   - Batched `geom_size` in MuJoCo Warp does not move the broadphase bounds; batch and resync
+     `geom_rbound` and `geom_aabb`, or larger geoms are partly passable.
+   - The EKF error model must be fitted on the output at control time, not the corrected state
+     at the measurement stamp; latency compensation is most of the error when the robot spins.
+   - `OurEkfErrorModel` takes the delivery time (stamp plus latency); the capture stamp kept it
+     in a permanent gap.
+   - Dropout gap tables fitted over whole match recordings include robots off the field; use the
+     measured any-detection gaps.
+   - The sim keypoint model sends no box; the lockstep overlay must pass the opponent's size.
+   - A kinematic opponent pried an idle robot over; it loses its closing velocity on contact.
+   - A small command-change weight let the policy chatter and flip; -0.05 stopped it.
+   - Episodes started together finish together; desynchronize at the start of training.
+   - Curriculum counters must count only episodes started in the current stage.
+   - FastTD3 never found the sparse strike reward; PPO did in 2 minutes.
+   - The toy policy farms strikes by backing off past the 0.5 s engagement gap.
+   - Warp evaluation is not reproducible; repeat it before comparing.
+   - Danger seconds per episode reward dying early; use the share.
+6. **Troubleshooting:** a table from symptom to the parity check that finds it.
+
 ## Steps
 
 0. **Record when the hardware is free** (section 9). Test-box sensing sessions once the box is
@@ -668,8 +823,8 @@ file changes beyond the RTNeural block.
 2. **Observation spec and parity.** `obs_spec.py`, the torch builder, `ObservationBuilderV1`, the
    golden fixture. Gate G3 for the builder. This comes before the environment because every later
    step trains against the spec.
-3. **Firmware and transmitter on the GPU.** Warp kernels for the slew, delay, mixer and yaw
-   loop. Test against the scalar `FirmwareMixer` on the logged sticks of the 2026-10-15 sessions:
+3. **Firmware and transmitter on the GPU.** Warp kernels for the saturation, delay, mixer and
+   yaw loop. Test against the scalar `FirmwareMixer` on the logged sticks of the 2026-10-15 sessions:
    per-motor command RMS difference under 0.5%. Benchmark 1 ms against 2 ms physics.
 4. **Environment.** Walls, hazards, opponents, the opponent filter mirror fed by the measurement
    model, contact classification, rewards, randomization, resets. Measure policy steps per second
@@ -701,6 +856,12 @@ file changes beyond the RTNeural block.
 11. **Retrain on real data.** Add the G6 recordings to the sensing model and the `replay`
     opponents, refit the randomization ranges from any metric that fell outside the sim band,
     retrain from the last checkpoint.
+12. **Scorer** (section 13). `auto_battlebot/rl/scoring/` and `training/rl/score_policies.py`,
+    replacing `evaluate_nav_policy.py` and `lockstep_eval.py`. Export suite v1 (512 episodes) to
+    `simulation/rl_eval/`. Done when one command reproduces the 2026-10-17 G4 and G5 tables
+    from the stage D checkpoint, parity checks included. Needs nothing from steps 9 to 11.
+13. **Training guide** (section 13), `docs/rl_training_guide.md`, written against the scorer's
+    real commands. Done when someone new can train, score and gate a policy from it alone.
 
 ## Risks and open questions
 
@@ -743,7 +904,7 @@ file changes beyond the RTNeural block.
 
 ## Next steps
 
-1. Step 1: build the toy and answer question 1.
-2. Read the wedge's leading edge and half-width off the collision hulls for `our_strike_x_m`.
+1. Step 12: build the scorer and export suite v1, then rescore the final stage D policy with it.
+2. Step 13: write the training guide.
 3. Before the test box is free: write `config/mr_stabs_mk2_sensing_zed_box.toml`, measure the
    printed tag, and plan the camera remount to 0.75 m straight down.

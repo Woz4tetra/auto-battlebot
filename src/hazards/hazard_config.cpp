@@ -3,6 +3,7 @@
 #include <toml++/toml.h>
 
 #include <filesystem>
+#include <magic_enum.hpp>
 
 #include "directories.hpp"
 
@@ -16,6 +17,16 @@ std::filesystem::path resolve(const std::string &value) {
     std::filesystem::path path(value);
     if (path.is_absolute()) return path;
     return get_project_root() / path;
+}
+
+// The file spells kinds in lowercase because simulation/hazards.py reads the same file and
+// checks the same words. ROBOT is not a file kind: it marks live tracked robots.
+HazardKind parse_kind(const std::string &text, const std::string &where) {
+    const auto kind = magic_enum::enum_cast<HazardKind>(text, magic_enum::case_insensitive);
+    if (!kind.has_value() || *kind == HazardKind::ROBOT) {
+        throw ConfigValidationError(where + " is '" + text + "'; valid values: hole, wall_block");
+    }
+    return *kind;
 }
 }  // namespace
 
@@ -45,12 +56,8 @@ std::vector<StaticHazardConfig> load_static_hazards(const std::string &path) {
                                         resolved.string() + " is not a table");
         }
         StaticHazardConfig hazard;
-        hazard.kind = (*entry)["kind"].value_or(std::string("hole"));
-        if (hazard.kind != "hole" && hazard.kind != "wall_block") {
-            throw ConfigValidationError("hazards[" + std::to_string(i) + "].kind '" + hazard.kind +
-                                        "' in " + resolved.string() +
-                                        " must be 'hole' or 'wall_block'");
-        }
+        hazard.kind = parse_kind((*entry)["kind"].value_or(std::string("hole")),
+                                 "hazards[" + std::to_string(i) + "].kind in " + resolved.string());
         const toml::array *center = (*entry)["center"].as_array();
         if (center == nullptr || center->size() != 2) {
             throw ConfigValidationError("hazards[" + std::to_string(i) + "].center in " +

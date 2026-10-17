@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <magic_enum.hpp>
 #include <utility>
 
 #include "enums/frame_id.hpp"
@@ -45,6 +46,7 @@ void HazardAssembler::assemble(const RobotDescriptionsStamped &robots, FieldDesc
         hazard.inflated_radius = config.radius + ours + config_.static_margin_m;
         hazard.hard_radius = config.radius + ours + config_.hard_margin_m;
         hazard.source = HazardSource::STATIC;
+        hazard.kind = config.kind;
         hazards.push_back(hazard);
     }
 
@@ -61,6 +63,7 @@ void HazardAssembler::assemble(const RobotDescriptionsStamped &robots, FieldDesc
         track.hazard.hard_radius = track.hazard.object_radius + ours + config_.hard_margin_m;
         track.hazard.velocity = robot.velocity;
         track.hazard.source = HazardSource::TRACKED;
+        track.hazard.kind = HazardKind::ROBOT;
         track.last_live_s = now_s;
         refreshed.push_back(track);
     }
@@ -104,6 +107,7 @@ void HazardAssembler::assemble(const RobotDescriptionsStamped &robots, FieldDesc
         values[prefix + "object_radius"] = hazards[i].object_radius;
         values[prefix + "source"] =
             std::string(hazards[i].source == HazardSource::STATIC ? "STATIC" : "TRACKED");
+        values[prefix + "kind"] = std::string(magic_enum::enum_name(hazards[i].kind));
     }
     logger_->debug("hazards", values);
 

@@ -187,10 +187,16 @@ class Opponent:
                 self.yaw = math.atan2(math.sin(self.yaw + math.pi), math.cos(self.yaw + math.pi))
             self._clamp()
             return
+        # A drive robot faces the way it moves, so circle and random_walk point their heading
+        # along their velocity. The RL environment's opponents are unicycles; a heading that never
+        # turned kept the weapon side facing one way while the robot slid around.
         if behavior == "circle":
             self._angle += (self._cfg.speed / max(self._cfg.radius, 0.01)) * dt
             self.x = self._cfg.radius * math.cos(self._angle)
             self.y = self._cfg.radius * math.sin(self._angle)
+            self.yaw = math.atan2(
+                math.sin(self._angle + math.pi / 2), math.cos(self._angle + math.pi / 2)
+            )
             self._clamp()
             return
         if behavior == "random_walk":
@@ -201,6 +207,7 @@ class Opponent:
                 return
             self.x += self._cfg.speed * dx / dist * dt
             self.y += self._cfg.speed * dy / dist * dt
+            self.yaw = math.atan2(dy, dx)
             self._clamp()
             return
 

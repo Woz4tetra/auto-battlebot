@@ -82,7 +82,7 @@ TEST(HazardAssemblerTest, OurSizeFallsBackRatherThanShrinkingOnADropout) {
     // Without a fallback, a frame with no our-robot track would briefly shrink every keep-out
     // disc, which is the wrong direction to be wrong in.
     Fixture fixture;
-    HazardAssembler assembler(fixture.config, {StaticHazardConfig{"hole", 0.0, 0.0, 0.2}},
+    HazardAssembler assembler(fixture.config, {StaticHazardConfig{HazardKind::HOLE, 0.0, 0.0, 0.2}},
                               fixture.clock);
 
     FieldDescription seen;
@@ -158,7 +158,7 @@ TEST(HazardAssemblerTest, ADetectorOutageDoesNotDeleteTheStaticHole) {
     // the asymmetry between the two sources, stated as a test.
     Fixture fixture;
     fixture.config.tracked_hold_s = 0.1;
-    HazardAssembler assembler(fixture.config, {StaticHazardConfig{"hole", 0.0, 0.0, 0.2}},
+    HazardAssembler assembler(fixture.config, {StaticHazardConfig{HazardKind::HOLE, 0.0, 0.0, 0.2}},
                               fixture.clock);
 
     fixture.clock->set(1.0);
@@ -199,10 +199,10 @@ radius = 0.18
                                                 "hazards_ok");
     const auto hazards = load_static_hazards(path);
     ASSERT_EQ(hazards.size(), 2u);
-    EXPECT_EQ(hazards[0].kind, "hole");
+    EXPECT_EQ(hazards[0].kind, HazardKind::HOLE);
     EXPECT_NEAR(hazards[0].center_x, 0.3, 1e-9);
     EXPECT_NEAR(hazards[0].radius, 0.25, 1e-9);
-    EXPECT_EQ(hazards[1].kind, "wall_block");
+    EXPECT_EQ(hazards[1].kind, HazardKind::WALL_BLOCK);
     EXPECT_NEAR(hazards[1].center_y, 0.1, 1e-9);
 }
 
@@ -215,6 +215,26 @@ TEST(HazardConfigTest, AMissingFileIsAnErrorNotAnEmptyList) {
 TEST(HazardConfigTest, RejectsAnUnknownKind) {
     const std::string path = write_temp_hazards(
         "[[hazards]]\nkind = \"lava\"\ncenter = [0, 0]\nradius = 0.2\n", "hazards_bad_kind");
+    EXPECT_THROW(load_static_hazards(path), ConfigValidationError);
+}
+
+TEST(HazardConfigTest, AnUnknownKindNamesTheValidValues) {
+    const std::string path = write_temp_hazards(
+        "[[hazards]]\nkind = \"lava\"\ncenter = [0, 0]\nradius = 0.2\n", "hazards_bad_kind_msg");
+    try {
+        load_static_hazards(path);
+        FAIL() << "expected ConfigValidationError";
+    } catch (const ConfigValidationError &e) {
+        const std::string message = e.what();
+        EXPECT_NE(message.find("'lava'"), std::string::npos) << message;
+        EXPECT_NE(message.find("hole, wall_block"), std::string::npos) << message;
+    }
+}
+
+TEST(HazardConfigTest, RobotIsNotAFileKind) {
+    // ROBOT marks live tracks; a file that claims one is a typo or a misunderstanding.
+    const std::string path = write_temp_hazards(
+        "[[hazards]]\nkind = \"robot\"\ncenter = [0, 0]\nradius = 0.2\n", "hazards_robot_kind");
     EXPECT_THROW(load_static_hazards(path), ConfigValidationError);
 }
 
@@ -239,7 +259,7 @@ TEST(HazardAssemblerTest, CarriesTheGeometryAlongsideTheKeepOut) {
     fixture.config.tracked_margin_m = 0.05;
 
     StaticHazardConfig hole;
-    hole.kind = "hole";
+    hole.kind = HazardKind::HOLE;
     hole.center_x = 0.2;
     hole.center_y = -0.1;
     hole.radius = 0.2828;
@@ -264,6 +284,22 @@ TEST(HazardAssemblerTest, CarriesTheGeometryAlongsideTheKeepOut) {
         // both.
         EXPECT_GT(hazard.inflated_radius, hazard.object_radius);
     }
+}
+
+TEST(HazardAssemblerTest, CarriesTheKindOfEachHazard) {
+    Fixture fixture;
+    StaticHazardConfig hole{HazardKind::HOLE, 0.5, 0.0, 0.2};
+    StaticHazardConfig block{HazardKind::WALL_BLOCK, -0.5, 0.0, 0.2};
+    HazardAssembler assembler(fixture.config, {hole, block}, fixture.clock);
+
+    FieldDescription field;
+    field.size.size = Size{2.4, 2.4, 0.0};
+    assembler.assemble(robots_with({our_robot(), house_bot(0.6, 0.6)}), field);
+    ASSERT_EQ(field.hazards.size(), 3u);
+    EXPECT_EQ(field.hazards[0].kind, HazardKind::HOLE);
+    EXPECT_EQ(field.hazards[1].kind, HazardKind::WALL_BLOCK);
+    EXPECT_EQ(field.hazards[2].source, HazardSource::TRACKED);
+    EXPECT_EQ(field.hazards[2].kind, HazardKind::ROBOT);
 }
 
 }  // namespace auto_battlebot

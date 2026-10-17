@@ -4,14 +4,16 @@
 #include <vector>
 
 #include "config/config_parser.hpp"
+#include "enums/hazard_kind.hpp"
 
 namespace auto_battlebot {
 
 /** One hazard as it appears in a shared geometry file, before inflation. */
 struct StaticHazardConfig {
-    /** "hole" or "wall_block". Kept as the file's own word so a diagnostic reads the same as the
-     * arena description; the control stack treats both the same way. */
-    std::string kind = "hole";
+    /** HOLE or WALL_BLOCK, written "hole" or "wall_block" in the file. HazardAvoidance treats
+     * both the same way; RlPolicyNavigation's observation tells them apart. ROBOT is never read
+     * from a file: it marks live tracked robots. */
+    HazardKind kind = HazardKind::HOLE;
     double center_x = 0.0;
     double center_y = 0.0;
     /** Raw hazard radius (m) in the field frame. Inflation happens at assembly. */

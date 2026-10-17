@@ -1,0 +1,22 @@
+# Question 3: PPO with the sensing model on (MeasurementModel, OurEkfErrorModel and the opponent
+# filter mirror on simulation/sensing_models/provisional_rl.toml).
+name = "ppo_static_sensing"
+
+[source]
+type = "toy"
+worlds = 4096
+sensing = true
+
+[policy]
+type = "mlp_gaussian"
+
+[learner]
+type = "ppo"
+
+[budget]
+wall_clock_s = 2400.0
+eval_every_s = 300.0
+
+[eval]
+episodes = 2048
+seed = 12345

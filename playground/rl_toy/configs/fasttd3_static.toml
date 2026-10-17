@@ -1,0 +1,20 @@
+# Question 4: FastTD3 on true state against a static opponent, same scenarios and budget as PPO.
+name = "fasttd3_static"
+
+[source]
+type = "toy"
+worlds = 4096
+
+[policy]
+type = "mlp_gaussian"
+
+[learner]
+type = "fasttd3"
+
+[budget]
+wall_clock_s = 1200.0
+eval_every_s = 120.0
+
+[eval]
+episodes = 2048
+seed = 12345

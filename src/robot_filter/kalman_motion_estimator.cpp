@@ -51,6 +51,11 @@ constexpr double kMaxHeadingVariance = M_PI * M_PI;
 /** The flip test only means something while the heading's own 2-sigma is inside its pi/2: past
  * that, a measurement more than pi/2 away is as likely a turn the track did not see as a flip. */
 constexpr double kFlipTestMaxVariance = (M_PI / 4.0) * (M_PI / 4.0);
+
+/** Seconds from a track's last accepted measurement to the time it is rendered at. */
+double measurement_age(double render_time, double last_measured_stamp) {
+    return std::max(0.0, render_time - last_measured_stamp);
+}
 }  // namespace
 
 namespace auto_battlebot {
@@ -742,13 +747,16 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
     for (const auto &[frame_id, track] : our_tracks_) {
         RobotDescription output = track.description;
         output.is_stale = track.output_stale;
+        output.measurement_age_s = measurement_age(timestamp, track.last_measured_stamp);
         outputs.push_back(std::move(output));
     }
     for (const auto &[frame_id, track] : our_ekf_tracks_) {
         outputs.push_back(render_our_ekf(track, track.state, track.output_stale));
+        outputs.back().measurement_age_s = measurement_age(timestamp, track.last_measured_stamp);
     }
     for (const auto &[frame_id, track] : opponent_tracks_) {
         outputs.push_back(render_opponent(track, field, track.output_stale));
+        outputs.back().measurement_age_s = measurement_age(timestamp, track.last_measured_stamp);
         const PoseUncertainty &uncertainty = outputs.back().uncertainty;
         // Infinite sigmas (heading never measured, heading-blind label) are left out rather
         // than written as a non-finite number.
@@ -764,6 +772,7 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
     for (const auto &[frame_id, track] : held_opponent_tracks_) {
         RobotDescription output = track.description;
         output.is_stale = track.output_stale;
+        output.measurement_age_s = measurement_age(timestamp, track.last_measured_stamp);
         outputs.push_back(std::move(output));
     }
 
@@ -835,6 +844,7 @@ std::optional<std::vector<RobotDescription>> KalmanMotionEstimator::coast(double
         }
         const bool stale = track.output_stale || is_stale(track.last_measured_stamp);
         outputs.push_back(render_our_ekf(track, state, stale));
+        outputs.back().measurement_age_s = measurement_age(now, track.last_measured_stamp);
     }
 
     for (const auto &[frame_id, track] : our_tracks_) {
@@ -856,6 +866,7 @@ std::optional<std::vector<RobotDescription>> KalmanMotionEstimator::coast(double
             clip_to_field_bounds(output.pose.position, last_field_, last_field_margin_);
         }
         output.is_stale = track.output_stale || is_stale(track.last_measured_stamp);
+        output.measurement_age_s = measurement_age(now, track.last_measured_stamp);
         outputs.push_back(std::move(output));
     }
 
@@ -864,11 +875,13 @@ std::optional<std::vector<RobotDescription>> KalmanMotionEstimator::coast(double
         advance_opponent(track, target);
         const bool stale = track.output_stale || is_stale(track.last_measured_stamp);
         outputs.push_back(render_opponent(track, last_field_, stale));
+        outputs.back().measurement_age_s = measurement_age(now, track.last_measured_stamp);
     }
 
     for (const auto &[frame_id, track] : held_opponent_tracks_) {
         RobotDescription output = track.description;
         output.is_stale = track.output_stale || is_stale(track.last_measured_stamp);
+        output.measurement_age_s = measurement_age(now, track.last_measured_stamp);
         outputs.push_back(std::move(output));
     }
 

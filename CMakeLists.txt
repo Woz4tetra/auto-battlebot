@@ -143,6 +143,30 @@ find_package(Threads REQUIRED)
 # OpenCV_DIR: run ./scripts/clean_build.sh.
 find_package(OpenCV 4.10 REQUIRED COMPONENTS core imgproc highgui dnn objdetect calib3d)
 find_package(Eigen3 REQUIRED)
+
+# RTNeural runs RlPolicyNavigation's network. Only src/rl_policy/runtimes/rtneural_runtime.cpp
+# includes it. Used header-only with the Eigen backend against the system Eigen 3, so its own
+# CMakeLists is never added: that one puts its bundled Eigen copy on the include path.
+# SOURCE_SUBDIR names a directory with no CMakeLists.txt, which makes MakeAvailable populate
+# without add_subdirectory. No submodules: xsimd is for the backend this build does not use.
+# SYSTEM keeps its headers out of -Werror.
+FetchContent_Declare(
+    rtneural
+    GIT_REPOSITORY https://github.com/jatinchowdhury18/RTNeural.git
+    GIT_TAG 95c3c0f987a6fe903e7eec71e797405dbed7caf7
+    GIT_SUBMODULES ""
+    SOURCE_SUBDIR populate-only
+    UPDATE_DISCONNECTED TRUE
+)
+FetchContent_MakeAvailable(rtneural)
+add_library(rtneural INTERFACE)
+target_include_directories(rtneural SYSTEM INTERFACE "${rtneural_SOURCE_DIR}")
+target_compile_definitions(rtneural INTERFACE
+    RTNEURAL_USE_EIGEN=1
+    RTNEURAL_DEFAULT_ALIGNMENT=16
+    RTNEURAL_NAMESPACE=RTNeural
+)
+target_link_libraries(rtneural INTERFACE Eigen3::Eigen)
 # PCL is only reachable from PointCloudFieldFilter and data_structures/point_cloud.hpp. It stays
 # unconditional while FieldDescriptionWithInlierPoints carries a cloud; it goes when the depth
 # field filter does.
@@ -369,6 +393,7 @@ target_link_libraries(auto_battlebot_lib PUBLIC
     spdlog::spdlog
     nlohmann_json::nlohmann_json
 )
+target_link_libraries(auto_battlebot_lib PRIVATE rtneural)
 
 # Common compiler flags
 set(COMMON_COMPILE_FLAGS

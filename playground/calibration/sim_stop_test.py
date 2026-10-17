@@ -108,6 +108,8 @@ def write_sim_config(
     robot["start_pos"] = [case.start[0], case.start[1]]
     robot["start_yaw_deg"] = case.start[2]
     robot["mujoco"]["fit_file"] = str(fit_file.resolve())
+    # The base config runs the RL environment's 2 ms step; the fit and its checks run at 1 ms.
+    robot["mujoco"]["timestep"] = 1e-3
     opp = cfg["opponents"][0]
     opp.update(behavior="static", start_pos=list(case.goal), hazard_radius=0.0)
     cfg["opponents"] = [opp]

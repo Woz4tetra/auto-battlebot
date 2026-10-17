@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "enums/hazard_kind.hpp"
 #include "enums/label.hpp"
 #include "header.hpp"
 #include "point_cloud.hpp"
@@ -67,6 +68,8 @@ struct FieldHazard {
     double hard_radius = 0.0;
     Velocity2D velocity;
     HazardSource source = HazardSource::STATIC;
+    /** What the disc is: a hole or wall block from the geometry file, or a tracked robot. */
+    HazardKind kind = HazardKind::HOLE;
 };
 
 struct FieldDescription {

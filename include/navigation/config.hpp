@@ -5,9 +5,13 @@
 #include "data_structures.hpp"
 #include "navigation/navigation_interface.hpp"
 #include "plant/config.hpp"
+#include "rl_policy/config.hpp"
+#include "robot_filter/motion_estimator_config.hpp"
 #include "time/clock_interface.hpp"
 
 namespace auto_battlebot {
+struct RobotFilterConfiguration;
+
 struct NavigationConfiguration {
     std::string type;
     virtual ~NavigationConfiguration() = default;
@@ -19,6 +23,14 @@ struct NavigationConfiguration {
      * not model the plant (pursuit, fixed velocity) keep the no-op.
      */
     virtual void apply_plant([[maybe_unused]] const PlantConfiguration &plant) {}
+
+    /**
+     * Hand over the parsed [robot_filter] config, after parse_fields, for a navigation that
+     * depends on how the filter renders robots. Only RlPolicyNavigation does; the rest keep the
+     * no-op.
+     */
+    virtual void apply_robot_filter([[maybe_unused]] const RobotFilterConfiguration &robot_filter) {
+    }
 };
 
 struct NoopNavigationConfiguration : public NavigationConfiguration {
@@ -397,10 +409,40 @@ struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
     // clang-format on
 };
 
+struct RlPolicyNavigationConfiguration : public NavigationConfiguration {
+    /** The [navigation.policy] table: which model bundle to run. */
+    rl_policy::RlPolicyConfiguration policy;
+
+    /**
+     * The configured [robot_filter.motion_estimator] opponent_mode, stamped in by
+     * apply_robot_filter. Absent when the robot filter has no KalmanMotionEstimator. The policy is
+     * trained against the 6-state opponent filter, so RlPolicyNavigation refuses to start unless
+     * this is KALMAN.
+     */
+    std::optional<OpponentMode> opponent_mode;
+    /** What apply_robot_filter found, for the refusal message: the filter or estimator type. */
+    std::string opponent_mode_source = "no [robot_filter] config was applied";
+
+    RlPolicyNavigationConfiguration() { type = "RlPolicyNavigation"; }
+
+    void parse_fields(ConfigParser &parser) override {
+        const toml::table *table = parser.get_table("policy");
+        if (table == nullptr) {
+            throw ConfigValidationError(
+                "navigation type = 'RlPolicyNavigation' requires a [navigation.policy] table "
+                "naming the model bundle");
+        }
+        ConfigParser policy_parser(*table, "navigation.policy");
+        policy.parse(policy_parser);
+    }
+
+    void apply_robot_filter(const RobotFilterConfiguration &robot_filter) override;
+};
+
 std::shared_ptr<NavigationInterface> make_navigation(const NavigationConfiguration &config,
                                                      std::shared_ptr<ClockInterface> clock);
 std::unique_ptr<NavigationConfiguration> parse_navigation_config(ConfigParser &parser);
 std::unique_ptr<NavigationConfiguration> load_navigation_from_toml(
     toml::table const &toml_data, std::vector<std::string> &parsed_sections,
-    const PlantConfiguration &plant);
+    const PlantConfiguration &plant, const RobotFilterConfiguration &robot_filter);
 }  // namespace auto_battlebot

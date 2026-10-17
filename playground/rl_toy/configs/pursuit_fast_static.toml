@@ -1,0 +1,13 @@
+# Scripted baseline at full speed: the same law with max_linear_command 1.0.
+name = "pursuit_fast_static"
+
+[source]
+type = "toy"
+
+[policy]
+type = "pursuit"
+max_linear_command = 1.0
+
+[eval]
+episodes = 2048
+seed = 12345

@@ -5,6 +5,12 @@
 # filter, ManualClock, sim transmitter. Only the two things that describe *this* robot live here.
 extends = "simulation/kinematic_sim"
 
+# The sim's second [[opponents]] entry is the house bot: report it as NEUTRAL_ROBOT_1 so the
+# hazard assembler turns it into a keep-out instead of a target.
+[robot_filter]
+type = "GroundTruthRobotFilter"
+neutral_count = 1
+
 # Same tuning as config/mr_stabs_mk2_desktop.toml. `type` matches the base, so this merges
 # key-by-key and the base's wall-reversal settings carry through.
 [navigation]

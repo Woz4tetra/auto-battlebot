@@ -1,0 +1,22 @@
+format_version = 1
+run_id = "tiny_mlp"
+git_hash = "71020fa9"
+policy_kind = "NETWORK"
+obs_spec_version = 0
+execution = "INLINE"
+policy_period_ticks = 5
+
+[decoder]
+kind = "SQUASHED"
+scale = [1, 1]
+
+[[networks]]
+name = "actor"
+runtime = "RTNEURAL"
+file = "actor.rtneural.json"
+inputs = [{ name = "obs.vector", shape = [4] }]
+outputs = [{ name = "action", shape = [2] }]
+
+[selftest]
+file = "selftest.bin"
+tolerance = 0.0001

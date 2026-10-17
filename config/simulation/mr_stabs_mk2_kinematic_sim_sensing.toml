@@ -25,10 +25,18 @@ type = "FixedFieldFilter"
 size_x = 2.4
 size_y = 2.4
 
-# One label per sim ground-truth slot: our robot, then [[opponents]] in order.
+# One label per sim ground-truth slot: our robot, then [[opponents]] in order. HOUSE_BOT maps to
+# NEUTRAL_ROBOT_1 through _common's label_mapping.
 [keypoint_model]
 type = "SimKeypointModel"
-labels = ["MR_STABS_MK2", "OPPONENT"]
+labels = ["MR_STABS_MK2", "OPPONENT", "HOUSE_BOT"]
+
+# The sim sends front and back keypoints and no box, so without an override the filter sizes the
+# opponent from the keypoint spacing (about 0.1 m). This is the sim opponent's footprint, which a
+# detector box would report. Keep it in step with the sim's opponent (hazard_radius is its
+# half-diagonal).
+[robot_filter.robot_size_meters_per_label]
+OPPONENT = [0.2225, 0.2535, 0.0861]
 
 [robot_filter.label_mapping]
 "MR_STABS_MK2" = ["OUR_ROBOT_1"]

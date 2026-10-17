@@ -76,6 +76,9 @@ own stamp, and re-propagate.
 
 The observation builder reads the rendered estimate, at now plus `render_lead_s()`:
 
+Scales and caps are set by `auto_battlebot/rl/obs_spec.py`, which both builders implement; this
+table follows it.
+
 | `RobotDescription` field | Meaning | Policy observation |
 | --- | --- | --- |
 | `pose` position | filtered center | position, distance, bearing in our body frame |
@@ -83,7 +86,7 @@ The observation builder reads the rendered estimate, at now plus `render_lead_s(
 | `velocity.vx`, `vy` | filtered velocity, wall-stopped | velocity in our body frame |
 | `velocity.omega` | filtered yaw rate; 0 when the heading is unknown | yaw rate [15 rad/s] |
 | `uncertainty.position_sigma_m` | sqrt of the larger eigenvalue of the position covariance | [0.1 m], capped at 1 |
-| `uncertainty.heading_sigma_rad` | infinite for heading-blind labels and tracks with no keypoint yet | [pi], capped at 1 |
+| `uncertainty.heading_sigma_rad` | infinite for heading-blind labels and tracks with no keypoint yet | [pi/2], capped at 1 |
 | `uncertainty.yaw_rate_sigma_rad_s` | infinite in the same cases | [15 rad/s], capped at 1 |
 | `is_stale` | no accepted measurement for 0.1 s, or this frame's was gated out | stale flag |
 
