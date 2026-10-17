@@ -11,7 +11,8 @@ section 4 and `learned_sim_environment_plan.md` layer 2; both keep a pointer her
 
 ## Status, 2026-10-16
 
-Steps 1 to 4 are done. Steps 5 to 7 wait for the apartment-floor sessions. The model in use is
+Steps 1 to 4 are done. Step 5 waits for the test-box sessions (`rl_policy_navigation_plan.md`
+section 9); steps 6 and 7 need no recordings. The model in use is
 `simulation/sensing_models/provisional.toml`: noise from the Mr Stabs Mk2 sysid training session
 for both roles, dropouts and flip onsets from the eight NHRL May and MassD KALMAN replays,
 latency nominal, frame drops unmeasured.
@@ -30,7 +31,7 @@ What the fit found (`playground/sensing_model/out/fit_report.json`):
   runs are one frame at the median and two at p75, from 17 replay runs and 8 sysid runs.
 - **Noise level differs between sessions.** Low-speed along-track sigma is 4.6 mm on the training
   session and 1.8 mm on the holdout, 2.5x, wider than the 0.7x to 1.5x error-scale range. Gate S1
-  on the apartment sessions decides whether the range or the fit moves.
+  on the test-box sessions decides whether the range or the fit moves.
 
 The lockstep smoke test passes: Mr Stabs Mk2 on the MuJoCo plant, pursuit against a static
 opponent, `mr_stabs_mk2_kinematic_sim_sensing.toml`, 450 ticks. It closes from 1.27 m to 14 mm
@@ -175,7 +176,7 @@ n ~ N(0, diag(σ_a(v)², σ_c(v)²))
 - `o` is a per-episode constant field-frame offset, `N(0, offset_sigma_m²)` per axis: the
   field-lock and calibration error that shifts every measurement the same way. Both sysid
   sessions share one calibration day (median field residual 2.2 to 2.4 mm in x), so its spread is
-  unmeasured and `offset_sigma_m` is 0 until the apartment sessions give one per session
+  unmeasured and `offset_sigma_m` is 0 until the test-box sessions give one per session
 
 **Heading noise and flips.**
 
@@ -308,7 +309,7 @@ figures), `sample_sensing_model.py` (draws a few episodes and plots measured vs 
 checks). The sysid session loader it shares with `playground/opponent_prediction/` moved to
 `auto_battlebot/perception/sysid_sessions.py`.
 
-**Fitted files: `simulation/sensing_models/<venue>.toml`**, one per venue (`apartment_floor`
+**Fitted files: `simulation/sensing_models/<venue>.toml`**, one per venue (`test_box`
 first; `provisional.toml` until then). Not under `config/`: the app never reads them. The fit
 validates its output through the loader before writing it. Schema, as built:
 
@@ -427,14 +428,15 @@ recordings with tag truth use the tag bundle directly.
 
 | Source | Truth | Gives |
 | --- | --- | --- |
-| apartment-floor sessions (`rl_policy_navigation_plan.md` section 9), live YOLO and EKF on the ZED Box, tags on both robots | AprilTag bundles, offline | everything: both robots' noise, flips, conditioned dropouts, latency, frame drops, our-robot EKF error |
+| test-box sessions (`rl_policy_navigation_plan.md` section 9): Mr Stabs Mk2 alone, live YOLO and EKF on the ZED Box, tag 76 | AprilTag bundle, offline | Mr Stabs noise and flips from live detections, our-robot dropouts against walls, latency, frame drops, our-robot EKF error, a second field lock |
+| opponent sessions (same section), once a second robot exists | AprilTag bundles on both robots | opponent noise, flips and conditioned dropouts from a real opponent |
 | 2026-10-15 sysid sessions | AprilTag bundle (Mr Stabs only) | position and heading noise and flip runs for Mr Stabs; usable now |
 | NHRL May and MassD KALMAN replays | none | dropout runs and gaps conditioned on distance (both robots' tracks known), flip rate by label |
 
 Rules that apply to every fit:
 
 - Live detections only for the measurement model. The sysid YOLO detections were run offline on
-  the recorded video; the apartment sessions record the live detections, which include the
+  the recorded video; the test-box sessions record the live detections, which include the
   Jetson's frame drops and timing. Laptop replays of SVOs are never used for noise: their frames
   are affine-warped 2 to 3% against live frames.
 - Join measurements to truth on frame interval, never nearest timestamp. SVO image stamps sit
@@ -448,7 +450,7 @@ Rules that apply to every fit:
   Fit coast error separately, by gap age.
 - Latency: `frame_meta.image_stamp_ns` to the stamp at which the filter consumed the frame, both
   logged live.
-- Hold out one apartment session whole. It is never fitted on; the gates score against it.
+- Hold out one test-box session whole. It is never fitted on; the gates score against it.
 
 ### 9. Gates
 
@@ -487,12 +489,14 @@ Steps 1 to 4 need no new recordings.
    tables, record borrowed cells.
 4. **Lockstep integration.** Done 2026-10-16. `SimKeypointModel`, the protocol changes, the new sim config, the
    replacement of `Perception`. Lockstep smoke test.
-5. **Fit on the apartment-floor sessions** once they exist: both robots, latency, frame drops,
-   our-robot EKF error. Gates S1, S2 and S4 on the held-out session.
+5. **Fit on the test-box sessions** once they exist: Mr Stabs noise and flips from live
+   detections, standing in for both roles; latency; frame drops; our-robot EKF error; the field
+   offset between sessions. Gates S1, S2 and S4 on the held-out session. Opponent-specific noise
+   waits for the opponent sessions.
 6. **Replay opponent smoothing** (section 7), for RL stage D and the lockstep `replay` opponent.
-7. **Pointers.** Replace the sensing detail in `rl_policy_navigation_plan.md` section 4 and
-   `learned_sim_environment_plan.md` layer 2 with a link here, and point the RL plan's
-   `fit_sensing_model.py` path at `playground/sensing_model/`.
+7. **Pointers.** The RL plan half is done 2026-10-16: `rl_policy_navigation_plan.md` section 4
+   links here and no longer names a fit script. Still to do: `learned_sim_environment_plan.md`
+   layer 2.
 
 ## Not modelled
 
@@ -503,27 +507,25 @@ Steps 1 to 4 need no new recordings.
 - **Identity swaps.** Association is position-only, so two crossing opponents can swap. The RL
   plan uses one opponent, so this is out of scope until multi-opponent training.
 - **Blob fallbacks.** Measurements without keypoints (no heading, blob sigma) are not emitted. Add
-  them if the apartment sessions show a meaningful blob share.
+  them if the test-box sessions show a meaningful blob share.
 - **Spinners above about 90 rad/s.** Heading aliases at 30 Hz. Covered by the heading-blind list,
   not by the noise model.
 
 ## Risks
 
-- **Mr Stabs as the opponent.** Until the apartment sessions exist, every opponent noise and flip
+- **Mr Stabs as the opponent.** Until the opponent sessions exist, every opponent noise and flip
   number comes from Mr Stabs. Mrs Buff Mk3 and real opponents will differ, and the 0.5x to 5x
   flip range is the only cover.
 - **Sparse context cells.** Merged-robot and against-the-wall cells are the ones that matter and
   the ones with the least data. The borrowing rule keeps the sampler defined but can hide the
   effect the conditioning exists for. Report sample counts per cell in the fit output.
-- **One venue.** The apartment floor and ZED Box camera geometry are not NHRL's. The first NHRL
+- **One venue.** The test box and ZED Box camera geometry are not NHRL's. The first NHRL
   outing should record a tagged session and fit `nhrl_cage_1.toml`.
 - **Filter changes.** Gate S2 runs through the current filter. Any change to the opponent filter
   re-runs S2, and any change to the model's spec version means an RL retrain.
 
 ## Next steps
 
-1. Step 1: write `auto_battlebot/perception/sensing_model.py` and its tests against the
-   converted provisional file.
-2. Step 2: refit the sysid residuals in the body frame and check flip run lengths.
-3. Record the apartment-floor sessions (`rl_policy_navigation_plan.md` step 0), which steps 5 and
-   the gates need.
+1. Steps 6 and 7, which need no recordings.
+2. Record the test-box sessions (`rl_policy_navigation_plan.md` step 0) once the box is free,
+   for step 5 and the gates.

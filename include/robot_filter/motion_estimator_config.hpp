@@ -98,8 +98,8 @@ struct KalmanMotionEstimatorConfiguration : public MotionEstimatorConfiguration 
      * track had the front wrong, not the keypoint model. */
     int heading_flip_reinit_count = 3;
     /** Labels whose heading is never measured: full-body spinners and robots the keypoint model
-     * cannot orient. Their heading sigma renders as infinite, which navigation reads as a
-     * full-circle weapon. */
+     * cannot orient. Their heading sigma renders as infinite, which tells navigation the front is
+     * unknown. */
     std::vector<Label> heading_blind_labels;
 
     /** Position measurement sigma (meters) for keypoint-derived poses. Placeholder until the

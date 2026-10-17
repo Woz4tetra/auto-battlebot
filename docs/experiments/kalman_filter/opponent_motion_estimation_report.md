@@ -90,8 +90,7 @@ The observation builder reads the rendered estimate, at now plus `render_lead_s(
 Rules the builder relies on:
 
 - An infinite sigma is written as the cap (1.0 after scaling), never as infinity or NaN.
-- A heading-blind label reports `heading_sigma_rad` at the cap and its weapon is `FULL_CIRCLE` in
-  the observation, whatever `[navigation.opponent_weapons]` says.
+- A heading-blind label reports `heading_sigma_rad` at the cap.
 - A rejected flip leaves `pose.rotation` on the filtered value; the policy never sees the raw
   flipped measurement.
 - The position sigma is conservative (2σ coverage about 1.00 on the sysid data), so the policy
