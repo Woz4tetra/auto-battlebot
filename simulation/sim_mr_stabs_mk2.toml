@@ -8,7 +8,7 @@ host = "127.0.0.1"
 port = 14882
 
 [sim]
-dt = 0.0333     # ~30 Hz sim time (matches the real controller rate)
+dt = 0.0333 # ~30 Hz sim time (matches the real controller rate)
 seed = 0
 
 [arena]
@@ -66,8 +66,8 @@ auto_steer = true
 # config/simulation/kinematic_sim_sensing.toml on the C++ side, so the real keypoint filter and
 # motion estimator see the measurements.
 [perception]
-sensing_model = ""
-# sensing_model = "simulation/sensing_models/provisional.toml"
+# sensing_model = ""
+sensing_model = "simulation/sensing_models/provisional.toml"
 randomize = false
 
 [perception.projection_bias]
