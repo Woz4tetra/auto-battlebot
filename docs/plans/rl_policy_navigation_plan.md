@@ -12,8 +12,10 @@ weights. A policy needs the plant only during training and learns the mode behav
 
 ## Status (2026-10-17)
 
-Steps 1 to 5 are built; steps 6 to 8 are training and being scored. Results and every number are
-in `docs/experiments/control_improvement/rl_navigation_report.md`. Departures from this plan, each
+Steps 1 to 8 are done. The stage D policy (`data/models/nav_policies/rl_nav_d_fix`, 1.0B steps)
+passes G3 and G4. G5 is split: 3.3 hits landed per hit taken against `MotionProfileNavigation`'s
+0.146, but a 0.223 share of time in danger against 0.140. Results and every number are in
+`docs/experiments/control_improvement/rl_navigation_report.md`. Departures from this plan, each
 from an evaluation result:
 
 - **Sensing file:** training reads `simulation/sensing_models/provisional_rl.toml`, written by
@@ -771,6 +773,7 @@ runs against until suite v1 replaces it:
 | `MotionProfileNavigation` | 0.146 | 0.140 | 0.28 | 0.94 |
 | `PursuitNavigation` | 0.089 | 0.106 | 0.44 | 0.28 |
 | RL, stage D fine-tune at 616M steps | 4.84 | 0.164 | 0.60 | 0.24 |
+| RL, `rl_nav_d_fix` at 1.00B steps | 3.32 | 0.223 | 0.62 | 0.13 |
 
 #### Guide: `docs/rl_training_guide.md`
 

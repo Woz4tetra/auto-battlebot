@@ -13,10 +13,10 @@ runs wait on the test box and a second robot.
 | 1 toy viability | done: yes to all four questions, PPO goes on | |
 | 2 observation spec | done: `auto_battlebot/rl/obs_spec.py`, C++ `ObservationBuilderV1` | G3 builder: 24 golden cases equal to 1e-5 |
 | 3 firmware on the GPU | done | per-motor RMS 9e-6% (gate 0.5%); 2 ms physics allowed (0.3 mm change, gate 2 mm) |
-| 4 environment | done: `auto_battlebot/rl/envs/warp_nav.py` | |
+| 4 environment | done: `auto_battlebot/rl/envs/warp_nav.py` | 40,000 to 91,000 policy steps/s with sensing (2,048 to 8,192 worlds) |
 | 5 C++ skeleton | done: `rl_policy/`, `RlPolicyNavigation` | constant bundle drives in the lockstep sim |
-| 6, 7 training | see Training | G5 |
-| 8 export and parity | see Export | G3 policy, G4 |
+| 6, 7 training | done: 1.0B steps through stage D, `data/models/nav_policies/rl_nav_d_fix` | G5 split: 23x the hits per hit taken, higher danger share |
+| 8 export and parity | done | G3 passes; G4 within 10% on success, strikes and danger |
 
 ## Step 1: toy viability test
 
@@ -87,8 +87,16 @@ here. `test_toy_sensing_ekf_leaves_gaps` guards it.
   Opponents: static, straight, circle, random walk, pursuit (the fastest, shortest-delay corner held
   out), corner, and replay of eight human tracks from the NHRL May and MassD replays (two
   recordings held out).
-- **Throughput** with 4,096 worlds, sharing the GPU: about 110,000 policy steps/s without sensing
-  and 41,000 with it. Resets and the sensing model cost as much as the physics.
+- **Throughput** on the idle laptop RTX 4080 (`playground/rl/bench_warp_env.py`, random actions):
+
+  | Worlds | Stage A (no sensing, no hazards) | Stage D (sensing, full scene) |
+  | --- | --- | --- |
+  | 2,048 | 77,000 policy steps/s | 40,000 |
+  | 4,096 | 101,000 | 66,000 |
+  | 8,192 | 131,000 | 91,000 |
+
+  Training ran 4,096 worlds while sharing the GPU with evaluations, at about 110,000 steps/s in
+  stage A and 41,000 in stage D. Resets and the sensing model cost as much as the physics.
 
 ## Step 5: RlPolicyNavigation in C++
 
@@ -112,22 +120,71 @@ environment (stage `EVAL`: stage D's mix on the nominal plant, held-out pursuit 
 tracks); `run` plays each in the lockstep sim (`simulation/rl_eval_server.py`, the same arena,
 opponents, command chain and scoring on CPU MuJoCo) against the real release binary.
 
-| Lockstep, 99 attack episodes | Hits landed per hit taken | Strikes per episode | Hits taken per episode | Success | Flips per episode |
-| --- | --- | --- | --- | --- | --- |
-| `MotionProfileNavigation` | 0.072 | 0.21 | 2.96 | 17% | 0.84 |
-| `PursuitNavigation` (desktop profile) | 0.154 | 0.73 | 4.72 | 44% | 0.36 |
+| Lockstep, 109 attack episodes | Hits landed per hit taken | Strikes per episode | Hits taken per episode | Success | Danger share | Flips per episode |
+| --- | --- | --- | --- | --- | --- | --- |
+| `MotionProfileNavigation` | 0.146 | 0.35 | 2.39 | 28% | 0.140 | 0.94 |
+| `PursuitNavigation` (desktop profile) | 0.089 | 1.02 | 11.4 | 44% | 0.106 | 0.28 |
 
-Both baselines fail against the held-out pursuit opponents (0.00 and 0.02 hits per hit taken).
+Danger share is danger seconds over seconds alive. Both baselines land nothing on the held-out
+pursuit opponents.
 `MotionProfileNavigation` flips the robot in most episodes: it commands full speed into the
 opponent, and the lockstep sim, like the robot since 2026-10-17, has no slew limit.
 
-## G3 and G4 on the stage D policy
+## Training
+
+`training/rl/train_nav_policy.py`, PPO, 4,096 worlds, one seed, on the laptop RTX 4080. The
+curriculum advances at 70% success over the current stage's episodes, or after 250M steps in a
+stage (the fallback).
+
+| Run | Steps | What changed | End of run, rolling |
+| --- | --- | --- | --- |
+| `rl_nav_ppo` | 0 to 12.7M | stage A to B at 5.7M, B to C at 12.7M | |
+| `rl_nav_ppo_c3` | 12.7M to 263M | stage C plateaued at 41 to 44% success | fallback advance to D at 0.431 |
+| `rl_nav_ppo_cd` | 263M to 421M | stage D | 49 to 52% success, 0.4 flips per episode |
+| `rl_nav_ppo_d_ekf` | 421M to 513M | the lockstep-fitted EKF error table | 52% success |
+| `rl_nav_ppo_d_fix` | 513M to 1.00B | the broadphase-bounds fix (solid blocks, corners and opponent edges) | 62% success, 0.13 to 0.23 flips, policy std 0.029 |
+
+Every run before `d_fix` trained with the ghost walls described below. With solid walls the first
+iterations of `d_fix` flipped 0.76 times per episode and succeeded 28% of the time; it recovered
+within 30 minutes. Policy std fell from 0.08 to 0.029 across the two fine-tunes, so the policy has
+almost stopped exploring: further training from this checkpoint needs its log-std reset or an
+entropy bonus.
+
+## Final policy: G3, G4 and G5
+
+`rl_nav_d_fix` at 1.00B steps, exported to `data/models/nav_policies/rl_nav_d_fix`. Same 128
+held-out scenarios; Warp evaluated three times because one run is not reproducible (see below).
+
+| Attack episodes (109) | Hits per hit taken | Strikes | Hits taken | Success | Danger share | Danger s | Flips |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Warp, 3 runs | 3.3 to 5.3 | 4.56 to 5.30 | 0.91 to 1.39 | 61.5 to 62.4% | 0.214 to 0.234 | 3.6 to 4.1 | 0.15 to 0.17 |
+| Lockstep C++ | 3.3 | 4.53 | 1.37 | 61.5% | 0.223 | 4.09 | 0.13 |
+| `MotionProfileNavigation` | 0.146 | 0.35 | 2.39 | 28% | 0.140 | 0.57 | 0.94 |
+| `PursuitNavigation` | 0.089 | 1.02 | 11.4 | 44% | 0.106 | 1.77 | 0.28 |
+
+- **G3 passes:** the self-test's worst error is 6.3e-7 (tolerance 1e-4).
+- **G4 passes on what it was built to catch.** Against the Warp mean, lockstep success is -0.5%,
+  danger share +1%, danger seconds +6% and strikes -8%. Hits taken (+20%) and hits per hit taken
+  (-25%) are outside 10% but inside the three Warp runs' own range, and flips (-19%) favour the
+  C++ side. Run-away episodes agree too: 0.26 flips per episode in lockstep against 0.21 to 0.37.
+- **G5 is split.** Hits per hit taken beats `MotionProfileNavigation` 23 times over (3.3 against
+  0.146), with 62% success against 28% and a seventh of the flips. Danger fails: a 0.223 share of
+  time alive against 0.140, and 4.1 s per episode against 0.57 s. Part of the per-episode gap is
+  that `MotionProfileNavigation` flips in 94% of episodes and lives 4.1 s of 20; the share removes
+  that and still fails, because the policy engages instead of keeping away. Against the held-out
+  pursuit opponents nobody lands a hit; the policy takes 0.21 hits per episode there against
+  `MotionProfileNavigation`'s 4.6.
+- Fine-tuning on solid walls traded aggression for safety against the 616M-step checkpoint:
+  flips 0.24 to 0.13, danger share 0.164 to 0.223, strikes about the same.
+
+## How G4 was closed (interim policy)
 
 Policy: the stage D checkpoint at 310M steps (`rl_nav_ppo_cd`, 2026-10-17 06:20), exported with
-`playground/rl/export_checkpoint.py` to `data/models/nav_policies/rl_nav_interim`.
+`playground/rl/export_checkpoint.py` to `data/models/nav_policies/rl_nav_interim`. The numbers in
+this section are for that policy, before the fixes below.
 
-- **G3 passes.** The binary's startup self-test runs the 16 exported observation/action pairs:
-  worst error 9.0e-7 (tolerance 1e-4). The builder's 24 golden cases pass in the C++ tests.
+- **G3 passed here too.** The binary's startup self-test runs the 16 exported observation/action
+  pairs: worst error 9.0e-7 (tolerance 1e-4). The builder's 24 golden cases pass in the C++ tests.
 - **The Warp evaluation is not reproducible run to run.** The same checkpoint on the same 128
   seeded scenarios gave 3.0, 5.2, 4.2 and 3.8 hits landed per hit taken, and 2.8 to 4.3 strikes
   per episode. GPU contact solving is not bit-deterministic and the episodes are chaotic, so one
@@ -140,7 +197,7 @@ Policy: the stage D checkpoint at 310M steps (`rl_nav_ppo_cd`, 2026-10-17 06:20)
 
 Danger share is danger seconds over seconds alive. Strikes, success and hits taken land inside or
 near the Warp spread. Danger share doubles and flips rise by a third; in run-away episodes the C++
-policy flips in 17 of 19 against 5 to 8 in Warp, after 8 to 17 wall contacts each. **G4 fails.**
+policy flips in 17 of 19 against 5 to 8 in Warp, after 8 to 17 wall contacts each. G4 failed.
 
 The cause is our robot's state estimate. Warp renders it with `OurEkfErrorModel`, whose table
 (`playground/rl/fit_provisional_ekf_error.py`) compared the sysid EKF's corrected state at each
