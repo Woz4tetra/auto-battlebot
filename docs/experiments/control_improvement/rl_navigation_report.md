@@ -301,6 +301,75 @@ hand-built scenarios), which reproduces the training environment, and the intera
 the same way. The held-out suite averages it out (60% success). Score the policy per hazard count once the scorer
 exists (plan section 13); if the dense cells stay near zero, weight dense worlds up in stage D.
 
+## Standoff in the opponent's front arc
+
+In the interactive sim, Mr Stabs stopped when a far-away opponent faced it and only moved once the
+opponent turned. Lockstep, `rl_nav_d_fix`, a static opponent, 3 episodes per case:
+
+| Static opponent at 0.6 to 2.0 m | Moved in the first 3 s | Strikes in 20 s |
+| --- | --- | --- |
+| Facing Mr Stabs | 0.01 to 0.07 m | 0 in all 12 episodes |
+| Facing away | 1.6 to 3.6 m | 7 to 25, first at 0.5 to 4.4 s |
+
+At 1.5 m, turning the opponent 5, 15 or 30 degrees away, or offsetting it sideways by 0.1 or
+0.3 m, changed nothing; at 60 degrees, the edge of its 60 degree front arc, the policy struck
+within 1.9 s. So the policy parks whenever it is inside the opponent's front arc and outside the
+danger zone (0.37 m). Closer in, the danger term (-1 per s) moves it, which is why it backs off and
+goes around at short range.
+
+Training made parking free and usually right. Nothing charged for time, the danger zone ends at
+0.37 m, and six of the seven opponent behaviours move, so waiting for one to turn its side
+usually paid; a static opponent facing us is about 5% of episodes. Circling a facing opponent at
+1 to 2 m takes about 2 s, the discount's horizon (0.99 per 20 ms), so the strike at the end was
+mostly discounted away. With the policy's action std at 0.029 it no longer explores the detour.
+
+A standing-still penalty (-0.5 per s under 0.2 m/s, out of contact) is now in both the Warp
+environment and `LockstepWorld`, not yet trained with. On the cases above, parking now scores
+19.8 to 20.0 s still; striking runs score 1.7 to 4.1 s. The logged episode reward of a parked
+robot is still positive (+12.4 at 2.0 m): with gamma under 1 the approach shaping pays
+`(1 - gamma) * distance` per step for standing still far away. That cancels in the discounted
+return (Ng et al. 1999), so learning is unaffected, but it makes the summed episode reward a poor
+metric. Acceptance after retraining: a head-on static opponent at 1 to 2 m gets struck within 5 s.
+
+## Pursuit: a chattering opponent and a free standoff
+
+Two defects showed in the interactive sim's trained pursuit opponent. Both were in training too.
+
+- **The pursuer's yaw chattered.** `opponents.py` turned it at `clamp(err / dt, -1, 1) *
+  turn_rate`, which saturates past 1 degree of heading error at a 20 ms step, so it turned at a
+  full 4 to 10 rad/s every step and reversed direction on 90% of steps. It now turns at
+  `clamp(err / dt, -turn_rate, turn_rate)`: on the 19 held-out attacking pursuit episodes its
+  median yaw rate fell from 5.1 to 0.3 rad/s.
+- **Freezing in front of a pursuer cost almost nothing.** `rl_nav_d_fix` against those 19
+  episodes: the pursuer arrives within 0.1 to 0.9 s, then sits at 0.31 m for the rest of the
+  episode; Mr Stabs stands still for 19.3 s of 20, lands nothing and takes 4 hits in total. A hit
+  only counted on first arc contact, and moving away let the pursuer touch again at -10 each.
+
+Changes, not yet trained with: continued arc contact charges another hit every 0.5 s
+(`arc_rehit_s`), and the standing-still penalty now exempts only wedge pushing from outside the
+opponent's arc. Tests cover both.
+
+The re-hit did not fire against pursuit at first: the no-push rule stopped an opponent's closing
+motion at 0.33 m between centres (both footprint half-diagonals plus 6 cm), short of the 0.18 m
+at which the two touch nose to nose, so the pursuer hovered 15 cm off our nose. The rule now
+stops it at contact: the two footprint boxes' extents along the line between centres, with our
+heading added to what the opponent tracks. Its closing speed is capped to reach that distance and
+no further.
+
+| `rl_nav_d_fix` against the 19 held-out pursuit episodes (lockstep) | Before | After |
+| --- | --- | --- |
+| Hits taken, total | 4 | 546 |
+| Danger s per episode, median | 19.4 | 1.5 |
+| Seconds standing still, median | 19.3 | 14.5 |
+| Flips, total | 0 | 5 |
+
+The frozen policy now pays for being pinned. The cost is flips: an idle robot against pursuit
+(stage C, 2,000 steps x 1,024 worlds) flips 0.06 times per episode and takes 7 hits. The boxes'
+corners meet before their centre-line extents do, so an off-axis pursuer still overlaps our
+footprint and pries it; stopping 5 mm short instead (0.069 flips) or pressing 5 mm in (0.093)
+barely changes that. Fixing it needs the true box-to-box distance (separating axes) instead of
+the centre-line extents.
+
 ## Flip risk without the slew limit
 
 From a standstill in open floor, the fitted sim robot wheelies over backwards on a held forward

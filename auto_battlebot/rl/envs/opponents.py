@@ -36,7 +36,21 @@ PURSUIT_HOLDOUT_SPEED = 2.3
 PURSUIT_HOLDOUT_DELAY = 0.07
 DELAY_SLOTS = 16  # pursuit reaction-delay ring, in policy steps (16 x 20 ms > 250 ms)
 OUR_HALF_DIAGONAL_M = 0.106  # Mr Stabs Mk2 footprint, 0.137 x 0.16 m
-CONTACT_MARGIN_M = 0.06  # one policy step of travel at 2.5 m/s, plus slack
+OUR_HALF_EXTENT_M = (0.0685, 0.08)  # the same footprint as half length and half width
+# How far an opponent may press into our footprint along the line between centres. 0: it stops
+# at contact. Against an idle robot, pursuit still registers 7 hits per episode at 0 (the boxes'
+# corners meet before their centre-line extents do) and flips it 0.06 times per episode, against
+# 0.09 at 5 mm; the corner overlap, not this depth, is what pries it.
+CONTACT_PRESS_M = 0.0
+
+
+def box_support(n: torch.Tensor, yaw: torch.Tensor, half: torch.Tensor) -> torch.Tensor:
+    """Extent along unit direction `n` [W, 2] of a box with half sizes `half` [W, 2] (length
+    along its heading, width across) turned by `yaw` [W]."""
+    c, s = torch.cos(yaw), torch.sin(yaw)
+    along = (n[:, 0] * c + n[:, 1] * s).abs()
+    across = (-n[:, 0] * s + n[:, 1] * c).abs()
+    return along * half[:, 0] + across * half[:, 1]
 
 
 def wrap(a: torch.Tensor) -> torch.Tensor:
@@ -82,8 +96,8 @@ class Opponents:
         self.turn = z.clone()  # random-walk yaw rate state
         self.forward = z.clone()  # commanded forward speed this step
         self.history = torch.zeros(
-            worlds, DELAY_SLOTS, 4, device=device, dtype=dtype
-        )  # our x, y, vx, vy
+            worlds, DELAY_SLOTS, 5, device=device, dtype=dtype
+        )  # our x, y, vx, vy, yaw
         self.head = 0
         self.replay: ReplayTracks | None = None  # set when the environment loads replay tracks
         self.replay_index = zl.clone()
@@ -142,10 +156,13 @@ class Opponents:
             self.replay_index = torch.where(mask, pick, self.replay_index)
             self.replay_t = torch.where(mask, start, self.replay_t)
 
-    def record_us(self, our_xy: torch.Tensor, our_v: torch.Tensor) -> None:
+    def record_us(
+        self, our_xy: torch.Tensor, our_v: torch.Tensor, our_yaw: torch.Tensor | None = None
+    ) -> None:
         self.head = (self.head + 1) % DELAY_SLOTS
         self.history[:, self.head, :2] = our_xy
-        self.history[:, self.head, 2:] = our_v
+        self.history[:, self.head, 2:4] = our_v
+        self.history[:, self.head, 4] = 0.0 if our_yaw is None else our_yaw
 
     def command(
         self,
@@ -154,8 +171,13 @@ class Opponents:
         arena_half: torch.Tensor,
         footprint: torch.Tensor,
         dt: float,
+        opp_half: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """World-frame (vx, vy, yaw rate) for every world's opponent this step, [W, 3]."""
+        """World-frame (vx, vy, yaw rate) for every world's opponent this step, [W, 3].
+
+        `footprint` is the opponent's half-diagonal, which keeps it off the walls; `opp_half`
+        [W, 2] is its half length and half width, which stops it at contact with us. Without it
+        the opponent is taken as a square with that half-diagonal."""
         p = self.p
         b = p.behaviour
         forward = torch.zeros_like(yaw)
@@ -192,9 +214,13 @@ class Opponents:
         pursuit = b == PURSUIT
         slot = (self.head - p.delay_steps) % DELAY_SLOTS
         seen = self.history[torch.arange(self.w, device=self.device), slot]
-        aim = seen[:, :2] + seen[:, 2:] * p.lead[:, None]
+        aim = seen[:, :2] + seen[:, 2:4] * p.lead[:, None]
         err = wrap(torch.atan2(aim[:, 1] - xy[:, 1], aim[:, 0] - xy[:, 0]) - yaw)
-        omega = torch.where(pursuit, (err / dt).clamp(-1, 1) * p.turn_rate, omega)
+        # Proportional: the rate that closes the error in one step, capped at turn_rate. The old
+        # clamp(err / dt, -1, 1) * turn_rate saturated past 1 degree of error and turned
+        # bang-bang, overshooting and reversing every 20 ms step.
+        cap = p.turn_rate
+        omega = torch.where(pursuit, torch.maximum(torch.minimum(err / dt, cap), -cap), omega)
         forward = torch.where(pursuit, p.speed * torch.cos(err).clamp(min=0.0), forward)
 
         corner = b == CORNER
@@ -242,14 +268,24 @@ class Opponents:
         v[:, 1] = torch.where(stop_y, 0.0, v[:, 1])
         # No pushing through us. The opponent is a mocap body with infinite mass: driven into our
         # wedge it cannot ride up it the way a real robot would, so it pries our chassis over
-        # instead (an idle robot flipped in 66 of 80 early-ending stage C episodes). Within
-        # contact range it loses the velocity component that closes on us; it still turns and
-        # slides along us.
+        # instead (an idle robot flipped in 66 of 80 early-ending stage C episodes). Its closing
+        # speed is capped so it arrives at contact (CONTACT_PRESS_M) and goes no further; it
+        # still turns and slides along us. Contact is the two footprint boxes' extents along the
+        # line between centres, so a pursuer reaches our nose and its arc touches. The earlier
+        # two-circle rule stopped it 15 cm off a nose-on robot, out of contact for good.
+        if opp_half is None:
+            opp_half = (footprint / math.sqrt(2.0))[:, None].expand(-1, 2)
         ours = self.history[:, self.head, :2]
+        our_yaw = self.history[:, self.head, 4]
         away = ours - xy
         dist = away.norm(dim=1).clamp(min=1e-6)
         normal = away / dist[:, None]
+        us_half = torch.tensor(OUR_HALF_EXTENT_M, device=self.device, dtype=self.dtype).expand(
+            self.w, 2
+        )
+        reach = box_support(normal, yaw, opp_half) + box_support(normal, our_yaw, us_half)
+        allowed = ((dist - reach + CONTACT_PRESS_M) / dt).clamp(min=0.0)
         closing = (v[:, :2] * normal).sum(1)
-        touching = (dist < footprint + OUR_HALF_DIAGONAL_M + CONTACT_MARGIN_M) & (closing > 0)
-        v[:, :2] = torch.where(touching[:, None], v[:, :2] - closing[:, None] * normal, v[:, :2])
+        excess = (closing - allowed).clamp(min=0.0)
+        v[:, :2] = v[:, :2] - excess[:, None] * normal
         return v

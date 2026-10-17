@@ -27,12 +27,56 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from enum import Enum
 
 TURNING_COOLDOWN_TIME = 0.25  # legacy only
 ANGULAR_SCALE = 1.0  # legacy only
 TURN_THRESHOLD_PERCENT = 1.0
 SAMPLE_PERIOD_S = 0.01  # updown_sensor::SAMPLE_INTERVAL
 GYRO_RANGE_DPS = 2000.0  # BNO055 gyro full scale in its fusion modes
+STANDARD_GRAVITY = 9.80665  # m/s^2
+# updown_sensor.h RIGHT_SIDE_UP_THRESHOLD / UPSIDE_DOWN_THRESHOLD: the sensed gravity z, in m/s^2,
+# must pass -1.0 to read right side up and +1.0 to read upside down; in between it holds. As a
+# chassis up-axis z component that is a +-0.102 band.
+UPDOWN_THRESHOLD_UP_Z = 1.0 / STANDARD_GRAVITY
+
+
+class FlipSwitch(str, Enum):
+    """The transmitter's flip switch (CRSF ch7), as `loop()` in
+    firmware/mr_stabs_mk2/src/main.cpp reads it. Inverted means the throttle is negated before the
+    mixer, so the stick drives wedge-first whichever side is up."""
+
+    DOWN = "down"  # power-on default: heading hold on, inverted while the IMU reads upside down
+    MIDDLE = "middle"  # heading hold off, never inverted
+    UP = "up"  # heading hold off, always inverted
+
+    @classmethod
+    def _missing_(cls, value: object) -> FlipSwitch:
+        raise ValueError(f"unknown flip switch {value!r}; valid: {', '.join(m.value for m in cls)}")
+
+
+@dataclass
+class UpdownSensor:
+    """`UpdownSensor::get_is_upside_down`: the chassis up axis's z component in, with the
+    firmware's hysteresis, so a robot balanced on its edge keeps its last reading."""
+
+    upside_down: bool = False
+
+    def update(self, up_z: float) -> bool:
+        if up_z > UPDOWN_THRESHOLD_UP_Z:
+            self.upside_down = False
+        elif up_z < -UPDOWN_THRESHOLD_UP_Z:
+            self.upside_down = True
+        return self.upside_down
+
+
+def drive_inverted(switch: FlipSwitch, sensed_upside_down: bool) -> bool:
+    """`loop()`'s is_upside_down for a switch position and the IMU's reading."""
+    if switch == FlipSwitch.UP:
+        return True
+    if switch == FlipSwitch.DOWN:
+        return sensed_upside_down
+    return False
 
 
 def heading_from_yaw(yaw_rad: float) -> float:

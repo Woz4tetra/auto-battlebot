@@ -263,24 +263,30 @@ def test_toy_sensing_ekf_leaves_gaps() -> None:
 
 
 def test_opponent_does_not_push_through_us() -> None:
-    """A kinematic opponent driving straight at us within contact range loses the closing part of
-    its velocity (it would otherwise pry our chassis over), and keeps it when far away."""
-    from auto_battlebot.rl.envs.opponents import STRAIGHT, Opponents
+    """A kinematic opponent driving straight at us may close only as far as contact (it would
+    otherwise pry our chassis over), and keeps its speed when far away. Contact is the two
+    footprint boxes along the line between centres."""
+    from auto_battlebot.rl.envs.opponents import CONTACT_PRESS_M, STRAIGHT, Opponents
 
     opp = Opponents(2, torch.device("cpu"), torch.float64, torch.Generator().manual_seed(0))
     opp.p.behaviour = torch.full((2,), STRAIGHT, dtype=torch.long)
     opp.p.speed = torch.full((2,), 1.0, dtype=torch.float64)
-    # Us at the origin; opponents at 0.3 m and 1.0 m on -x, both heading +x (towards us).
-    opp.record_us(torch.zeros(2, 2, dtype=torch.float64), torch.zeros(2, 2, dtype=torch.float64))
-    xy = torch.tensor([[-0.3, 0.0], [-1.0, 0.0]], dtype=torch.float64)
+    # Us at the origin facing +x; opponents 0.19 m and 1.0 m away on -x, heading +x. Our tail is
+    # 0.0685 m behind our centre and the opponent's nose 0.111 m ahead of its centre.
+    zero2 = torch.zeros(2, 2, dtype=torch.float64)
+    opp.record_us(zero2, zero2, torch.zeros(2, dtype=torch.float64))
+    xy = torch.tensor([[-0.19, 0.0], [-1.0, 0.0]], dtype=torch.float64)
+    half = torch.tensor([[0.111, 0.127]], dtype=torch.float64).expand(2, 2)
     v = opp.command(
         xy,
         torch.zeros(2, dtype=torch.float64),
         torch.full((2, 2), 2.0, dtype=torch.float64),
-        torch.full((2,), 0.17, dtype=torch.float64),
+        half.norm(dim=1),
         0.02,
+        opp_half=half,
     )
-    assert v[0, 0] == pytest.approx(0.0, abs=1e-9)
+    gap = 0.19 - 0.111 - 0.0685
+    assert v[0, 0] == pytest.approx((gap + CONTACT_PRESS_M) / 0.02, abs=1e-9)
     assert v[1, 0] == pytest.approx(1.0, abs=1e-9)
 
 
@@ -309,3 +315,150 @@ def test_warp_env_broadphase_bounds_follow_resized_geoms() -> None:
             model = spec.compile()
             assert rbound[world, g] == pytest.approx(model.geom_rbound[0], rel=1e-5)
             np.testing.assert_allclose(aabb[world, g].ravel(), model.geom_aabb[0], atol=1e-6)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="WarpNavEnv runs on CUDA")
+def test_standing_still_costs_reward_and_driving_does_not() -> None:
+    """A parked robot pays still_per_s every second it is out of contact; a driving one does not."""
+    from auto_battlebot.rl.envs.warp_nav import WarpNavConfig, WarpNavEnv
+
+    worlds = 32
+    env = WarpNavEnv(WarpNavConfig(worlds=worlds, stage="A"), "cuda", seed=4)
+    env.reset(4)
+    parked = torch.zeros(worlds, 2, device="cuda")
+    for _ in range(50):
+        env.step(parked)
+    still_parked = env.stats["still_s"].clone()
+    assert float(still_parked.median()) > 0.9  # about 1 s of the first 1 s
+
+    env.reset(4)
+    spin_and_drive = torch.tensor([[0.4, 0.3]], device="cuda").expand(worlds, 2).contiguous()
+    for _ in range(50):
+        env.step(spin_and_drive)
+    # The first 0.2 s or so is spent getting up to speed from rest.
+    assert float(env.stats["still_s"].median()) < 0.5 * float(still_parked.median())
+
+
+def test_trained_opponent_draws_and_drives_each_behaviour() -> None:
+    """Every training behaviour runs as a single sim opponent, inside the arena; pursuit closes
+    on us and replay starts on its track."""
+    from auto_battlebot.rl.envs.trained_opponent import TRAINED_BEHAVIOURS, TrainedOpponent
+
+    with pytest.raises(ValueError, match="valid"):
+        TrainedOpponent("sideways", False, 2.4, 2.4, (0.111, 0.127), 0)
+    for name in TRAINED_BEHAVIOURS:
+        opp = TrainedOpponent(name, False, 2.4, 2.4, (0.111, 0.127), seed=3)
+        start = opp.reset((-0.9, -0.9))
+        if name != "any":
+            assert opp.behaviour == name
+        assert (start is not None) == (opp.behaviour == "replay")
+        pose = start or (0.6, 0.6, math.pi)
+        opp.observe_us((-0.9, -0.9), (0.0, 0.0), 0.0)
+        d0 = math.hypot(pose[0] + 0.9, pose[1] + 0.9)
+        for _ in range(100):
+            pose = opp.step(pose, 0.02)
+            assert abs(pose[0]) <= 1.2 - 0.168 + 1e-9 and abs(pose[1]) <= 1.2 - 0.168 + 1e-9
+        if name == "pursuit":
+            assert math.hypot(pose[0] + 0.9, pose[1] + 0.9) < d0 - 0.3
+        if name == "static":
+            assert pose == (0.6, 0.6, math.pi)
+
+
+def test_trained_opponent_replay_starts_clear_of_us() -> None:
+    from auto_battlebot.rl.envs.trained_opponent import TrainedOpponent
+
+    for seed in range(20):
+        opp = TrainedOpponent("replay", False, 2.4, 2.4, (0.111, 0.127), seed=seed)
+        start = opp.reset((-0.9, -0.9))
+        assert start is not None
+        assert math.hypot(start[0] + 0.9, start[1] + 0.9) > 0.168 + 0.106 + 0.3
+
+
+def test_trained_opponent_does_not_push_through_us() -> None:
+    from auto_battlebot.rl.envs.trained_opponent import TrainedOpponent
+
+    opp = TrainedOpponent("pursuit", False, 2.4, 2.4, (0.111, 0.127), seed=1)
+    opp.reset((0.0, 0.0))
+    opp.observe_us((0.0, 0.0), (0.0, 0.0), 0.0)
+    pose = (0.6, 0.0, math.pi)
+    for _ in range(200):
+        pose = opp.step(pose, 0.02)
+    # Nose to nose: its half-length plus our nose distance. The old two-circle rule stopped it
+    # at 0.33 m, out of contact.
+    assert math.hypot(pose[0], pose[1]) == pytest.approx(0.111 + 0.0685, abs=0.01)
+
+
+def test_pursuit_turns_proportionally_without_chatter() -> None:
+    """The pursuer settles on its target instead of reversing its yaw rate every step."""
+    from auto_battlebot.rl.envs.trained_opponent import TrainedOpponent
+
+    opp = TrainedOpponent("pursuit", False, 2.4, 2.4, (0.111, 0.127), seed=2)
+    opp.reset((0.8, 0.8))
+    opp.observe_us((0.8, 0.8), (0.0, 0.0), 0.0)
+    pose = (-0.8, -0.8, 0.0)
+    yaws = []
+    for _ in range(40):
+        pose = opp.step(pose, 0.02)
+        yaws.append(pose[2])
+    rates = np.diff(np.unwrap(yaws[10:]))
+    assert np.mean(np.sign(rates[1:]) != np.sign(rates[:-1])) < 0.2
+    assert abs(math.atan2(0.8 - pose[1], 0.8 - pose[0]) - pose[2]) < 0.1
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="WarpNavEnv runs on CUDA")
+def test_pinned_in_the_arc_keeps_costing_hits() -> None:
+    """A static opponent parked nose-on against a robot that does nothing charges a hit about
+    every arc_rehit_s, and the parked robot also pays the standing-still rate."""
+    from auto_battlebot.rl.envs.warp_nav import OPP_MOCAP, WarpNavConfig, WarpNavEnv
+
+    worlds = 16
+    env = WarpNavEnv(WarpNavConfig(worlds=worlds, stage="A"), "cuda", seed=6)
+    env.reset(6)
+
+    def park_on_nose() -> None:
+        # Glued against our nose and facing us, as a pursuer holds contact: its half-length plus
+        # our nose (0.069 m from centre) less 1 cm.
+        tr = env.truth()
+        heading = torch.stack([torch.cos(tr["yaw"]), torch.sin(tr["yaw"])], 1)
+        gap = env.opp_half[:, 0] + 0.059
+        env.mocap_pos[:, OPP_MOCAP, :2] = tr["xy"] + heading * gap[:, None]
+        yaw = tr["yaw"] + math.pi
+        zero = torch.zeros_like(yaw)
+        env.mocap_quat[:, OPP_MOCAP] = torch.stack(
+            [torch.cos(yaw / 2), zero, zero, torch.sin(yaw / 2)], 1
+        )
+
+    for _ in range(100):  # 2 s
+        park_on_nose()
+        env.step(torch.zeros(worlds, 2, device="cuda"))
+    touching = env.stats["hits_taken"] > 0
+    assert int(touching.sum()) >= worlds // 2
+    # 2 s pinned at one hit per 0.5 s; the first touch lands a step or two in.
+    assert float(env.stats["hits_taken"][touching].median()) >= 3
+
+
+def test_still_penalty_exempts_only_wedge_pushing() -> None:
+    """Standing still is free only while our wedge is on the opponent from outside its arc;
+    pinned inside its arc it costs both a hit every arc_rehit_s and the standing-still rate."""
+    import json
+
+    from auto_battlebot.rl.lockstep_world import LockstepWorld
+
+    scenario = json.loads((REPO / "tests/python/data/rl_scenario_static.json").read_text())
+    dt = 0.02
+    cases = {
+        "pushing": np.array([1, 0, 1, 2.5, 0, 0, 0], dtype=float),  # wedge on it, behind
+        "pinned": np.array([1, 1, 0, 0.1, 0, 0, 0], dtype=float),  # in its arc
+        "apart": np.zeros(7),
+    }
+    out = {}
+    for name, flags in cases.items():
+        world = LockstepWorld(scenario, timestep=2e-3)
+        for _ in range(50):  # 1 s
+            world._score_contacts(flags, dt)
+            world.t += dt
+        out[name] = (world.score.still_s, world.score.hits_taken)
+    assert out["pushing"][0] == 0.0
+    assert out["pinned"][0] == pytest.approx(1.0, abs=0.03)
+    assert out["pinned"][1] == 2  # the first touch, then 0.5 s later
+    assert out["apart"][0] == pytest.approx(1.0, abs=0.03)

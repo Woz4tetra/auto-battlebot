@@ -30,14 +30,15 @@ from auto_battlebot.rl.envs.opponents import BEHAVIOURS
 from auto_battlebot.rl.metrics import summarize
 
 REPO = Path(__file__).resolve().parents[2]
-EPISODE_S = 20.0
+EPISODE_S = 20.0  # for result files written before rows recorded their episode_s
 
 
-def warp(checkpoint: Path, count: int, seed: int, out: Path) -> None:
+def warp(checkpoint: Path, count: int, seed: int, out: Path, episode_s: float) -> None:
     from auto_battlebot.rl.envs.warp_nav import WarpNavConfig, WarpNavEnv
     from auto_battlebot.rl.policies.mlp import MlpGaussianPolicy
 
-    env = WarpNavEnv(WarpNavConfig(worlds=count, stage="EVAL", holdout=True), "cuda", seed=seed)
+    cfg = WarpNavConfig(worlds=count, stage="EVAL", holdout=True, episode_s=episode_s)
+    env = WarpNavEnv(cfg, "cuda", seed=seed)
     policy = MlpGaussianPolicy(env.spec).cuda()
     state = torch.load(checkpoint, map_location="cuda")
     policy.load_state_dict(state["learner"]["policy"])
@@ -57,7 +58,8 @@ def warp(checkpoint: Path, count: int, seed: int, out: Path) -> None:
         if bool(finished.all()):
             break
     episodes = [
-        {k: float(v[i]) for k, v in rows.items()} | {"index": i, "label": "warp_rl"}
+        {k: float(v[i]) for k, v in rows.items()}
+        | {"index": i, "label": "warp_rl", "episode_s": episode_s}
         for i in range(count)
     ]
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -91,12 +93,14 @@ def table(rows: list[dict[str, Any]]) -> dict[str, float]:
         "holes",
         "flips",
         "block_contacts",
+        "still_s",
     )
     episode = {k: torch.tensor([float(r.get(k, 0.0)) for r in rows]) for k in keys}
-    result = summarize(episode, EPISODE_S).as_dict()
+    episode_s = max(float(r.get("episode_s", EPISODE_S)) for r in rows)
+    result = summarize(episode, episode_s).as_dict()
     # A flip or a hole ends the episode early, so danger seconds per episode reward dying fast.
     # The share of time alive spent in danger compares policies that survive for different times.
-    alive = sum(float(r.get("seconds", EPISODE_S)) for r in rows)
+    alive = sum(float(r.get("seconds", episode_s)) for r in rows)
     result["danger_share"] = sum(float(r["danger_s"]) for r in rows) / max(alive, 1e-9)
     result["seconds_per_episode"] = alive / len(rows)
     return result
@@ -129,6 +133,7 @@ def report(paths: list[Path]) -> None:
         "seconds_per_episode",
         "holes_per_episode",
         "flips_per_episode",
+        "still_s_per_episode",
     )
     print(f"{'source':34s} " + " ".join(f"{c[:14]:>14s}" for c in cols))
     for name, res in out.items():
@@ -163,12 +168,13 @@ def main() -> None:
     w.add_argument("checkpoint", type=Path)
     w.add_argument("--count", type=int, default=128)
     w.add_argument("--seed", type=int, default=2026)
+    w.add_argument("--episode-s", type=float, default=20.0, help="match the scenarios' length")
     w.add_argument("--out", type=Path, default=REPO / "playground/rl/out/warp_rl.json")
     r = sub.add_parser("report")
     r.add_argument("paths", type=Path, nargs="+")
     args = ap.parse_args()
     if args.cmd == "warp":
-        warp(args.checkpoint, args.count, args.seed, args.out)
+        warp(args.checkpoint, args.count, args.seed, args.out, args.episode_s)
     else:
         report(args.paths)
 

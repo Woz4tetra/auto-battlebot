@@ -67,9 +67,12 @@ tau_angular_accel = 0.066
 [our_robot.mujoco]
 # The 2026-10-15 sysid fit the RL environment trains on (warp_nav.DEFAULT_FIT).
 fit_file = "playground/calibration/out/mujoco_sysid/fit_2026-10-15_yolo_brake/fit.json"
-timestep = 0.002                                                                        # the RL environment's step; position error against 1 ms is 0.3 mm at 0.4 s
+# The RL environment's step; position error against 1 ms is 0.3 mm at 0.4 s.
+timestep = 0.002
 pack_voltage = 15.2
-auto_steer = true
+# Transmitter flip switch: "down" (power-on) holds heading and reverses the throttle while the IMU
+# reads upside down; "middle" does neither; "up" always reverses.
+flip_switch = "down"
 
 # Perception latency, dropouts and noise come from a sensing model
 # (docs/plans/sensing_model_plan.md). Empty sends the true poses every tick. Pair a model with
@@ -86,14 +89,20 @@ randomize = false
 enabled = false
 keypoint_height = 0.06
 
-# A random-walking Mrs Buff Mk3 at the middle of the training range (0.2 to 1.2 m/s). The
-# hazard_radius makes it an obstacle our robot hits instead of driving through. In the MuJoCo
+# A Mrs Buff Mk3 driven by the RL training opponents (behavior = "trained"): trained_behaviour
+# picks static, straight, circle, random_walk, pursuit, corner or replay, or "any" to draw one per
+# client connection as stage D does; speeds, radii, pursuit lead and delay and replay tracks are
+# drawn as in training (speed and radius below are unused). trained_holdout = true draws the
+# evaluation's held-out pursuit corner and replay tracks instead. The server prints the draw.
+# The hazard_radius makes it an obstacle our robot hits instead of driving through. In the MuJoCo
 # plant it is a box turned with the opponent's yaw, the RL environment's opponent
 # (warp_nav.OPP_SIZE_M, the Mk3's CAD footprint). The kinematic plant and the clearance score
 # use the 0.168 m disc, the footprint's half-diagonal. For a "go to X and stop" mission, set
 # behavior = "static", hazard_radius = 0 and start_pos to the goal (sim_stop_test.py does this).
 [[opponents]]
-behavior = "random_walk"
+behavior = "trained"
+trained_behaviour = "pursuit"
+trained_holdout = false
 start_pos = [0.3, 0.1]
 speed = 0.7
 heading_deg = 180.0

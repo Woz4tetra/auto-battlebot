@@ -83,6 +83,7 @@ class EpisodeScore:
     holes: float = 0.0
     flips: float = 0.0
     nose_lift_s: float = 0.0
+    still_s: float = 0.0
     sim_failures: float = 0.0
     reward: float = 0.0
     first_strike_s: float = math.inf
@@ -90,6 +91,7 @@ class EpisodeScore:
     run_away: float = 0.0
     behaviour: float = 0.0
     seconds: float = 0.0
+    episode_s: float = 20.0  # the time limit, so a scorer can fill "never struck" with it
     outcome: str = "TIMEOUT"
     extra: dict[str, Any] = field(default_factory=dict)
 
@@ -98,7 +100,8 @@ class LockstepWorld:
     def __init__(
         self, scenario: dict[str, Any], cfg: WarpNavConfig | None = None, timestep: float = 1e-3
     ) -> None:
-        self.cfg = cfg or WarpNavConfig()
+        # Scenarios record the episode length they were exported with; older ones ran 20 s.
+        self.cfg = cfg or WarpNavConfig(episode_s=float(scenario.get("episode_s", 20.0)))
         self.sc = scenario
         self.timestep = timestep
         mp = mass_properties.load()
@@ -121,11 +124,14 @@ class LockstepWorld:
         self._init_opponent(scenario)
         p = scenario["opp_params"]
         self.score = EpisodeScore(
-            run_away=float(scenario.get("run_away", 0.0)), behaviour=float(p["behaviour"])
+            run_away=float(scenario.get("run_away", 0.0)),
+            behaviour=float(p["behaviour"]),
+            episode_s=self.cfg.episode_s,
         )
         self.t = 0.0
         self.engaged = self.struck = self.prev_arc = self.prev_wall = self.prev_block = False
         self.apart_s = 0.0
+        self.arc_s = 0.0
         self.flip_s = 0.0
         self.done = False
         self.arc = math.radians(self.cfg.arc_half_angle_deg)
@@ -209,7 +215,10 @@ class LockstepWorld:
         )
         if p["behaviour"] == 6:
             self.opponents.replay = ReplayTracks(
-                bool(scenario.get("holdout", True)), torch.device("cpu"), torch.float64
+                bool(scenario.get("holdout", True)),
+                torch.device("cpu"),
+                torch.float64,
+                episode_s=self.cfg.episode_s,
             )
             self.opponents.replay_index = torch.tensor([int(scenario["replay_index"])])
             self.opponents.replay_t = torch.tensor([float(scenario["replay_t"])])
@@ -305,7 +314,9 @@ class LockstepWorld:
         ox, oy, oyaw = self.opponent_pose()
         phi0 = self._potential((x0, y0), (ox, oy, oyaw))
         self.opponents.record_us(
-            torch.tensor([[x0, y0]], dtype=torch.float64), torch.from_numpy(v0[None].copy())
+            torch.tensor([[x0, y0]], dtype=torch.float64),
+            torch.from_numpy(v0[None].copy()),
+            torch.tensor([yaw0], dtype=torch.float64),
         )
         foot = torch.tensor([float(np.linalg.norm(self.opp_half))], dtype=torch.float64)
         half = torch.tensor([self.half], dtype=torch.float64)
@@ -315,6 +326,7 @@ class LockstepWorld:
             half,
             foot,
             dt,
+            opp_half=torch.as_tensor(np.asarray(self.opp_half)[None], dtype=torch.float64),
         )
         self.opp_vel = cmd[0].numpy()
         self._house_command()
@@ -408,7 +420,9 @@ class LockstepWorld:
             s.strikes += 1
             s.rear_strikes += float(f[3] > 2 * math.pi / 3)
             s.first_strike_s = min(s.first_strike_s, self.t)
-        if arc and not self.prev_arc:
+        self.arc_s = self.arc_s + dt if arc else 0.0
+        if arc and (not self.prev_arc or self.arc_s >= cfg.arc_rehit_s):
+            self.arc_s = 0.0
             r += rw["hit_taken"]
             s.hits_taken += 1
             s.first_hit_s = min(s.first_hit_s, self.t)
@@ -428,6 +442,10 @@ class LockstepWorld:
         if not contact and abs(phi_us) < self.arc and np.linalg.norm(rel) < reach:
             r += rw["danger_per_s"] * dt
             s.danger_s += dt
+        speed = float(np.hypot(self.data.qvel[0], self.data.qvel[1]))
+        if not (wedge and not arc) and speed < cfg.still_speed_mps:
+            r += rw["still_per_s"] * dt
+            s.still_s += dt
         return r
 
     def _score_obstacles(self, f: np.ndarray) -> float:

@@ -35,6 +35,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     ap.add_argument("--name", default="rl_nav_ppo")
     ap.add_argument("--worlds", type=int, default=4096)
+    ap.add_argument("--episode-s", type=float, default=20.0, help="time limit per episode")
     ap.add_argument("--stage", default="A", choices=CHOICES)
     ap.add_argument("--final-stage", default="D", choices=CHOICES)
     ap.add_argument("--hours", type=float, default=3.0)
@@ -51,6 +52,13 @@ def main() -> None:
     )
     ap.add_argument("--resume", type=Path, default=None)
     ap.add_argument("--force-stage", action="store_true", help="use --stage, not the resumed one")
+    ap.add_argument(
+        "--reset-log-std",
+        type=float,
+        default=None,
+        help="after --resume, set the policy's action log-std (exploration) to this; a long run "
+        "shrinks it to almost nothing, and fine-tuning on a changed reward needs it back",
+    )
     ap.add_argument("--checkpoint-every-s", type=float, default=600.0)
     ap.add_argument("--out", type=Path, default=REPO / "runs" / "rl_nav")
     args = ap.parse_args()
@@ -63,11 +71,18 @@ def main() -> None:
     resume = torch.load(args.resume, map_location="cuda") if args.resume else None
     if resume is not None and not args.force_stage:
         stage = resume.get("stage", stage)
-    env = WarpNavEnv(WarpNavConfig(worlds=args.worlds, stage=stage), "cuda", seed=args.seed)
+    env = WarpNavEnv(
+        WarpNavConfig(worlds=args.worlds, stage=stage, episode_s=args.episode_s),
+        "cuda",
+        seed=args.seed,
+    )
     policy = MlpGaussianPolicy(env.spec)
     learner = Ppo(policy, env, PpoConfig(), seed=args.seed)
     if resume is not None:
         learner.load_state_dict(resume["learner"])
+        if args.reset_log_std is not None:
+            with torch.no_grad():
+                policy.log_std.fill_(args.reset_log_std)
     (out / "config.json").write_text(
         json.dumps(
             {**vars(args), "resume": str(args.resume), "stage": stage}, default=str, indent=2

@@ -10,6 +10,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 
+from auto_battlebot.mujoco_sim.firmware import FlipSwitch
+from auto_battlebot.rl.envs.trained_opponent import TRAINED_BEHAVIOURS
+
 
 @dataclass
 class KinematicServerConfig:
@@ -80,7 +83,10 @@ class MujocoPlantConfig:
     fit_file: str = ""
     timestep: float = 1e-3  # s; the fit and its checks run at 1 ms
     pack_voltage: float = 15.2  # V, nominal 4S; the fit's logged vbat is not replayed here
-    auto_steer: bool = True  # firmware heading hold, on at power-up and in competition
+    # The transmitter's flip switch. "down" (power-on, competition) runs the heading hold and
+    # reverses the throttle while the IMU reads upside down, so a flipped robot keeps driving
+    # wedge-first; "middle" turns both off; "up" always reverses. See FlipSwitch.
+    flip_switch: FlipSwitch = FlipSwitch.DOWN
 
 
 @dataclass
@@ -141,7 +147,7 @@ class PerceptionConfig:
 
 @dataclass
 class OpponentConfig:
-    behavior: str = "static"  # static | straight | circle | random_walk | replay
+    behavior: str = "static"  # static | straight | circle | random_walk | replay | trained
     start_pos: list[float] = field(default_factory=lambda: [0.5, 0.5])
     speed: float = 1.0
     heading_deg: float = 180.0
@@ -163,6 +169,19 @@ class OpponentConfig:
     # hazard_radius. Read only when hazard_radius > 0, and only by plant = "mujoco": the kinematic
     # plant and the clearance score always use the hazard_radius disc.
     collision_box: list[float] = field(default_factory=list)
+    # behavior = "trained" only: the RL training opponents (rl.envs.trained_opponent).
+    # trained_behaviour is one of auto_battlebot.rl.envs.opponents.BEHAVIOURS, or "any" to draw
+    # one per reset as stage D does; parameters are drawn as in training. trained_holdout draws
+    # the evaluation's held-out pursuit corner and replay tracks instead of the training ones.
+    trained_behaviour: str = "any"
+    trained_holdout: bool = False
+
+    def __post_init__(self) -> None:
+        if self.trained_behaviour not in TRAINED_BEHAVIOURS:
+            raise ValueError(
+                f"unknown trained_behaviour {self.trained_behaviour!r}; "
+                f"valid: {', '.join(TRAINED_BEHAVIOURS)}"
+            )
 
 
 @dataclass

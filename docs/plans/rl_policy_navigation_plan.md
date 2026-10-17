@@ -292,21 +292,75 @@ Per policy step (20 ms):
 | --- | --- | --- |
 | Wedge strike, outside the arc | `+(3 + 7 * smoothstep(u))` | contact on our wedge only. `u = (|phi| - half_angle) / (pi - half_angle)`: 3 for a side hit, 10 for dead rear. First contact per engagement only; an engagement ends after 0.5 s apart |
 | Wedge push | `+1 per s` | wedge in contact with the opponent outside its arc, after the strike: keeps pushing instead of backing off |
-| Hit taken | `-10` | any contact inside the opponent's arc, whichever part of us touched |
+| Hit taken | `-10` | any contact inside the opponent's arc, whichever part of us touched, and again every 0.5 s (`arc_rehit_s`) the contact lasts: a weapon keeps hitting a pinned robot. Not yet trained with |
 | Time in the danger zone | `-1 per s` | inside reach of the opponent's arc without touching |
 | Approach shaping | `gamma * Phi(s') - Phi(s)` with `Phi = -dist(us, stage point) / 1 m` | stage point 0.25 m behind the opponent along its heading. Potential-based, so it speeds learning without changing what the best policy is (Ng et al. 1999) |
 | Hole | `-10`, episode ends | one rear hit pays for one fall, so the policy takes the risk when a hit is likely and not otherwise |
 | Wall block, house bot contact | `-0.5` per contact event | |
 | Wall contact | `-0.2` per event, waived while the wedge is on the opponent | pinning the opponent against a wall is a win, not a wall hit |
-| Flip | `-20`, episode ends | upside down or pitch past 80 degrees for 0.5 s |
+| Flip | `-20`, episode ends | upside down or pitch past 80 degrees for 0.5 s. Section 7a replaces this with a non-terminal penalty and an immobilized ending |
 | Nose lift | `-0.5 per s` | pitch past 30 degrees nose down |
+| Standing still | `-0.5 per s` | body speed under 0.2 m/s (`still_speed_mps`), in both modes, unless our wedge is on the opponent from outside its arc (pushing it); pinned in its arc is not exempt. A moving target beats a parked one even when moving leads nowhere; added 2026-10-17 after the policy parked in a facing opponent's front arc for whole episodes. Spinning in place counts as still. Not yet trained with |
 | Command change | `-0.05 * |a_t - a_{t-1}|` | smooths chatter; -0.01 left a stage C policy chattering into flips (see Status) |
 
 RUN_AWAY episodes (20% of episodes, mode flag set): strike terms off, `Phi` uses the distance
 to the opponent's arc instead (larger is better), every hazard and flip term stays.
 
-Episodes last 20 s and truncate with bootstrapping. Weights above are starting values; change
-them only from evaluation results (section 10), never from training curves alone.
+Episodes last 20 s and truncate with bootstrapping. The length is `WarpNavConfig.episode_s`
+(`train_nav_policy.py --episode-s`); exported scenarios record it, and the lockstep world, the
+replay-track start window and the evaluation report read it from there. Weights above are
+starting values; change them only from evaluation results (section 10), never from training
+curves alone.
+
+### 7a. Fighting on after a flip
+
+Mr Stabs drives inverted: the firmware negates the throttle while the IMU reads upside down
+(flip switch DOWN), and the Warp kernel, `LockstepWorld` and the kinematic sim's
+`[our_robot.mujoco] flip_switch` all model it. A flip ends a training episode today, so the
+policy has never driven upside down and treats a flip as a lost match. In a real match a flipped
+Mr Stabs keeps fighting. Two changes teach that.
+
+**Non-terminal flips.** A flip no longer ends the episode.
+
+| Event | Rule | Reward | Episode |
+| --- | --- | --- | --- |
+| Flip | the up axis crosses below horizontal | `-5` once per flip | continues |
+| Time inverted | upside down | none: the hit and danger terms already price driving badly | continues |
+| Immobilized | no controlled motion for `immobilized_s` (body speed under 0.05 m/s and yaw rate under 0.5 rad/s while the commanded wheel speed is over 30%), or on its side (up axis within 30 degrees of horizontal) for the same time | `-20`, as the old flip | ends |
+
+`immobilized_s` follows the competition's count-out (SPARC rules use 10 s; confirm NHRL's) and
+is a config value. The flip penalty drops from -20 to -5 because a flip is now a setback, not a
+loss: an inverted robot with a working wedge keeps scoring. If G5 shows the policy driving into
+flips because they are cheap, raise it.
+
+The observation needs no new input: heading comes from the front and back keypoints, which work
+either side up, and the firmware hides the inversion from the action. Add `our_inverted` to the
+observation only if inverted driving stays clumsy, since that bumps the obs spec version.
+
+**Mid-match starts.** A share of resets start from the states a match reaches after the opening
+rush, so the policy sees them without long episodes:
+
+| Start | Share | How |
+| --- | --- | --- |
+| Inverted | 10% | the chassis rolled 180 degrees about its front axis, settled for 0.5 s before the policy acts |
+| Against a wall | 10% | within 0.1 m of an arena wall or wall block, heading into it within 45 degrees |
+| Opponent alongside | 10% | opponent within 0.4 m and moving; half with us in its arc (we must escape), half with it in ours |
+| Moving | 10% | a random body velocity up to 1.5 m/s and yaw rate up to 10 rad/s instead of rest |
+| Opening | 60% | today's start |
+
+Shares are per stage: stage A keeps 100% opening starts, B adds moving starts, C and D use the
+table. Each start type is a reset function next to `_reset_our_start`, chosen per world. The
+inverted start needs the opponent filter mirror and the sensing model reset as on any start.
+
+**Episode length.** Stays at 20 s: the discount (0.99 at 20 ms) already limits the value horizon
+to about 2 s, so longer episodes cost three times fewer resets (arenas, opponents, plant draws)
+per training step and buy little. Mid-match starts cover the late-match states instead. If
+recovery after a flip needs longer than about 10 s to show up in the returns, try 40 s with 8,192
+worlds; the replay tracks then need the 18.7 s held-out track dropped or looped.
+
+**Metrics.** Add flips per episode that the policy recovered from (drove at least 1 m inverted
+afterwards), immobilizations per episode, and seconds inverted. Report hits per hit taken
+separately for inverted time.
 
 ### 8. Domain randomization
 
@@ -865,6 +919,11 @@ commands are the real ones:
     from the stage D checkpoint, parity checks included. Needs nothing from steps 9 to 11.
 13. **Training guide** (section 13), `docs/rl_training_guide.md`, written against the scorer's
     real commands. Done when someone new can train, score and gate a policy from it alone.
+14. **Fight on after a flip** (section 7a). Non-terminal flips with the immobilized ending, the
+    mid-match start types, and the new metrics, in `WarpNavEnv` and `LockstepWorld` together so
+    G4 still compares like with like. Fine-tune from `rl_nav_d_fix` with the policy's log-std
+    reset (it ended at 0.029). Done when, on the held-out suite, the policy recovers from at least
+    half its flips, G4 still holds, and hits per hit taken does not fall more than 10%.
 
 ## Risks and open questions
 
@@ -909,5 +968,6 @@ commands are the real ones:
 
 1. Step 12: build the scorer and export suite v1, then rescore the final stage D policy with it.
 2. Step 13: write the training guide.
-3. Before the test box is free: write `config/mr_stabs_mk2_sensing_zed_box.toml`, measure the
+3. Step 14: non-terminal flips and mid-match starts, scored with the step 12 scorer.
+4. Before the test box is free: write `config/mr_stabs_mk2_sensing_zed_box.toml`, measure the
    printed tag, and plan the camera remount to 0.75 m straight down.

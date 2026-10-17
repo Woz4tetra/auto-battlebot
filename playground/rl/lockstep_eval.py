@@ -49,10 +49,11 @@ max_angular_command = 1.0
 """
 
 
-def export(count: int, seed: int, out: Path) -> None:
+def export(count: int, seed: int, out: Path, episode_s: float) -> None:
     from auto_battlebot.rl.envs.warp_nav import WarpNavConfig, WarpNavEnv
 
-    env = WarpNavEnv(WarpNavConfig(worlds=count, stage="EVAL", holdout=True), "cuda", seed=seed)
+    cfg = WarpNavConfig(worlds=count, stage="EVAL", holdout=True, episode_s=episode_s)
+    env = WarpNavEnv(cfg, "cuda", seed=seed)
     env.reset(seed)
     scenarios = env.export_scenarios()
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -228,6 +229,7 @@ def main() -> None:
     e.add_argument("--count", type=int, default=128)
     e.add_argument("--seed", type=int, default=2026)
     e.add_argument("--out", type=Path, default=REPO / "playground/rl/out/scenarios.json")
+    e.add_argument("--episode-s", type=float, default=20.0, help="time limit per episode")
     r = sub.add_parser("run")
     r.add_argument("scenarios", type=Path)
     r.add_argument("--nav", choices=["motion_profile", "rl", "pursuit"], required=True)
@@ -241,7 +243,7 @@ def main() -> None:
     )
     args = ap.parse_args()
     if args.cmd == "export":
-        export(args.count, args.seed, args.out)
+        export(args.count, args.seed, args.out, args.episode_s)
     else:
         out = args.out or args.scenarios.parent / f"lockstep_{args.nav}.jsonl"
         run(

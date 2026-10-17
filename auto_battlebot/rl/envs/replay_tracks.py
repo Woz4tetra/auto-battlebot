@@ -19,8 +19,14 @@ DEFAULT_PATH = REPO / "simulation/opponent_tracks/replay_tracks.npz"
 
 class ReplayTracks:
     def __init__(
-        self, holdout: bool, device: torch.device, dtype: torch.dtype, path: Path = DEFAULT_PATH
+        self,
+        holdout: bool,
+        device: torch.device,
+        dtype: torch.dtype,
+        path: Path = DEFAULT_PATH,
+        episode_s: float = 20.0,
     ) -> None:
+        self.episode_s = episode_s
         data = np.load(path)
         keep = data["holdout"] == holdout
         self.tracks = torch.as_tensor(data["tracks"][keep], device=device, dtype=dtype)
@@ -31,9 +37,9 @@ class ReplayTracks:
             raise ValueError(f"{path}: no {'holdout' if holdout else 'training'} tracks")
 
     def start_span(self, pick: torch.Tensor) -> torch.Tensor:
-        """Seconds a world may skip into its track and still leave 20 s to play."""
+        """Seconds a world may skip into its track and still leave a whole episode to play."""
         seconds = self.lengths[pick].to(self.tracks.dtype) / self.rate
-        return (seconds - 20.0).clamp(min=0.0)
+        return (seconds - self.episode_s).clamp(min=0.0)
 
     def sample(
         self, pick: torch.Tensor, t: torch.Tensor, half: torch.Tensor

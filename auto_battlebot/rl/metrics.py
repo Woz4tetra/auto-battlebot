@@ -27,6 +27,7 @@ class EpisodeMetrics:
     holes_per_episode: float = 0.0
     flips_per_episode: float = 0.0
     block_contacts_per_episode: float = 0.0
+    still_s_per_episode: float = 0.0  # seconds out of contact under WarpNavConfig.still_speed_mps
 
     def as_dict(self) -> dict[str, float]:
         return {k: float(v) for k, v in asdict(self).items()}
@@ -62,4 +63,5 @@ def summarize(episode: dict[str, torch.Tensor], episode_s: float) -> EpisodeMetr
         holes_per_episode=mean("holes"),
         flips_per_episode=mean("flips"),
         block_contacts_per_episode=mean("block_contacts"),
+        still_s_per_episode=mean("still_s"),
     )

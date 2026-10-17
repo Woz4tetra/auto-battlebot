@@ -72,6 +72,7 @@ from auto_battlebot.perception.sensing_model import (
     SensingModelFile,
     TruePoses,
 )
+from auto_battlebot.rl.envs.trained_opponent import TrainedOpponent
 from hazards import load_hazards
 
 if TYPE_CHECKING:
@@ -112,6 +113,7 @@ class Opponent:
         arena_h: float,
         rng: np.random.Generator,
         obstacles: list[ObstacleConfig] | None = None,
+        us_start: tuple[float, float] = (0.0, 0.0),
     ) -> None:
         self._cfg = cfg
         self.x, self.y = cfg.start_pos
@@ -132,6 +134,25 @@ class Opponent:
         self._replay_idx = 0
         if cfg.behavior == "replay" and cfg.replay_csv:
             self._replay = _load_replay_csv(Path(cfg.replay_csv))
+        self._trained: TrainedOpponent | None = None
+        if cfg.behavior == "trained":
+            self._trained = TrainedOpponent(
+                cfg.trained_behaviour,
+                cfg.trained_holdout,
+                arena_w,
+                arena_h,
+                _footprint_half_extent(cfg),
+                int(rng.integers(2**31)),
+            )
+            start = self._trained.reset(us_start)
+            if start is not None:
+                self.x, self.y, self.yaw = start
+            print(f"sim: trained opponent drew {self._trained.behaviour}")
+
+    def observe_us(self, pose: Pose, velocity: tuple[float, float]) -> None:
+        """Our robot's state this tick; only the trained behaviours react to it."""
+        if self._trained is not None:
+            self._trained.observe_us(pose[:2], velocity, pose[2])
 
     def _in_hazard(self, x: float, y: float) -> bool:
         return any(math.hypot(x - hx, y - hy) < hr for hx, hy, hr in self._keep_out)
@@ -178,11 +199,11 @@ class Opponent:
         behavior = self._cfg.behavior
         if behavior == "static":
             return
+        if self._trained is not None:
+            self.x, self.y, self.yaw = self._trained.step((self.x, self.y, self.yaw), dt)
+            return
         if behavior == "replay":
-            if self._replay:
-                idx = min(self._replay_idx, len(self._replay) - 1)
-                self.x, self.y, self.yaw = self._replay[idx]
-                self._replay_idx += 1
+            self._step_replay()
             return
         if behavior == "straight":
             self.x += self._cfg.speed * math.cos(self.yaw) * dt
@@ -215,8 +236,26 @@ class Opponent:
             self._clamp()
             return
 
+    def _step_replay(self) -> None:
+        if self._replay:
+            idx = min(self._replay_idx, len(self._replay) - 1)
+            self.x, self.y, self.yaw = self._replay[idx]
+            self._replay_idx += 1
+
     def pose(self) -> Pose:
         return self.x, self.y, self.yaw
+
+
+def _footprint_half_extent(cfg: OpponentConfig) -> tuple[float, float]:
+    """The opponent's footprint as half length and half width, which the trained behaviours keep
+    off the walls and stop at contact with our robot: the collision box when set, else a square
+    with the hazard radius as half-diagonal, else the Mrs Buff Mk3 footprint."""
+    if len(cfg.collision_box) >= 2:
+        return 0.5 * cfg.collision_box[0], 0.5 * cfg.collision_box[1]
+    if cfg.hazard_radius > 0.0:
+        side = cfg.hazard_radius / math.sqrt(2.0)
+        return side, side
+    return 0.111, 0.127
 
 
 def _load_replay_csv(path: Path) -> list[Pose]:
@@ -370,8 +409,9 @@ class KinematicServer:
         cfg = self._cfg
         rng = np.random.default_rng(cfg.sim.seed)
         self._plant = self._make_plant()
+        x0, y0, _ = self._plant.pose()
         self._opponents = [
-            Opponent(o, cfg.arena.width, cfg.arena.height, rng, self._obstacles)
+            Opponent(o, cfg.arena.width, cfg.arena.height, rng, self._obstacles, (x0, y0))
             for o in cfg.opponents
         ]
         self._perception = Perception(cfg)
@@ -482,7 +522,10 @@ class KinematicServer:
                 ]
             )
             self._plant.step(applied[0], applied[1], cfg.sim.dt)
+            x, y, yaw = self._plant.pose()
+            us_v = (self._plant.v * math.cos(yaw), self._plant.v * math.sin(yaw))
             for opponent in self._opponents:
+                opponent.observe_us((x, y, yaw), us_v)
                 opponent.step(cfg.sim.dt)
             if trace is not None:
                 x, y, yaw = self._plant.pose()

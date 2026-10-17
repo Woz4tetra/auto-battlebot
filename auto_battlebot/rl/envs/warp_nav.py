@@ -154,8 +154,16 @@ class WarpNavConfig:
     strike_x_m: float = 0.06
     strike_half_width_m: float = 0.081
     danger_margin_m: float = 0.10
+    # Under this body speed, unless our wedge is on the opponent from outside its arc, the robot
+    # counts as standing still and pays reward["still_per_s"]. Spinning in place still counts: a
+    # robot turning on the spot is as easy to hit as a parked one.
+    still_speed_mps: float = 0.2
     stage_offset_m: float = 0.25
     engagement_gap_s: float = 0.5
+    # Continued contact inside the opponent's arc is charged as another hit taken every this many
+    # seconds: a weapon keeps hitting a robot pinned against it. Before, only the first touch
+    # counted, so freezing nose-to-nose with a pursuer cost one hit for a whole episode.
+    arc_rehit_s: float = 0.5
     latency_s: tuple[float, float] = (0.04, 0.08)
     pack_volts: tuple[float, float] = (14.0, 16.4)
     flip_hold_s: float = 0.5
@@ -175,6 +183,11 @@ class WarpNavConfig:
             "wall_event": -0.2,
             "flip": -20.0,
             "nose_lift_per_s": -0.5,
+            # A moving target beats a parked one even when moving does not lead to a strike. The
+            # 2026-10-17 policy parked for whole episodes in a facing opponent's front arc,
+            # waiting for it to turn (rl_navigation_report.md); waiting cost nothing. 20 s parked
+            # now costs as much as one hit taken. Applies in both modes.
+            "still_per_s": -0.5,
             # 5x the plan's -0.01: a stage C evaluation (2026-10-17) found the deterministic policy
             # moving its linear command 0.11 per 20 ms step, 0.18 before a tip, and flipping in
             # 40% of episodes; chatter spins the rotors up and down and their reaction lifts the
@@ -425,6 +438,7 @@ class WarpNavEnv:
         self.engaged = zb.clone()
         self.struck = zb.clone()
         self.apart_s = z.clone()
+        self.arc_s = z.clone()  # seconds of arc contact since the last hit charged
         self.prev_arc = zb.clone()
         self.prev_wall = zb.clone()
         self.prev_block = zb.clone()
@@ -447,6 +461,7 @@ class WarpNavEnv:
             "holes",
             "flips",
             "nose_lift_s",
+            "still_s",
             "sim_failures",
             "reward",
         )
@@ -454,7 +469,7 @@ class WarpNavEnv:
         self.first_strike_s = torch.full((w,), math.inf, device=dev, dtype=dt)
         self.first_hit_s = torch.full((w,), math.inf, device=dev, dtype=dt)
         self.opponents = Opponents(w, dev, dt, self.gen)
-        self.opponents.replay = ReplayTracks(cfg.holdout, dev, dt)
+        self.opponents.replay = ReplayTracks(cfg.holdout, dev, dt, episode_s=cfg.episode_s)
         self.success_window: list[float] = []
         self.episode_stage = torch.full((w,), -1, dtype=torch.long, device=dev)
 
@@ -731,7 +746,7 @@ class WarpNavEnv:
         for name in ("engaged", "struck", "prev_arc", "prev_wall", "prev_block"):
             setattr(self, name, torch.where(mask, false, getattr(self, name)))
         zero = torch.zeros_like(self.t)
-        for name in ("t", "apart_s", "flip_s", "last_speed", "last_rate"):
+        for name in ("t", "apart_s", "arc_s", "flip_s", "last_speed", "last_rate"):
             setattr(self, name, torch.where(mask, zero, getattr(self, name)))
         self.steps = torch.where(mask, torch.zeros_like(self.steps), self.steps)
         self.prev_action = torch.where(m1, torch.zeros_like(self.prev_action), self.prev_action)
@@ -923,6 +938,7 @@ class WarpNavEnv:
                     },
                     "run_away": float(self.run_away[i]),
                     "latency": float(self.latency[i]),
+                    "episode_s": self.cfg.episode_s,
                 }
             )
         return out
@@ -1051,9 +1067,14 @@ class WarpNavEnv:
 
         tr0 = self.truth()
         phi0 = self._potential(tr0)
-        self.opponents.record_us(tr0["xy"], tr0["velocity"])
+        self.opponents.record_us(tr0["xy"], tr0["velocity"], tr0["yaw"])
         self.mover_vel_t[:, 0] = self.opponents.command(
-            tr0["opp_xy"], tr0["opp_yaw"], self.arena_half, self.opp_half.norm(dim=1), dt
+            tr0["opp_xy"],
+            tr0["opp_yaw"],
+            self.arena_half,
+            self.opp_half.norm(dim=1),
+            dt,
+            opp_half=self.opp_half,
         )
         self._house_command()
         self.flags.zero_()
@@ -1075,7 +1096,9 @@ class WarpNavEnv:
         strike = starting & wedge & ~arc & attack
         u = (f[:, 3] - self.arc) / (math.pi - self.arc)
         reward += torch.where(strike, rw["strike_base"] + rw["strike_rear"] * smoothstep(u), 0.0)
-        hit = arc & ~self.prev_arc
+        self.arc_s = torch.where(arc, self.arc_s + dt, torch.zeros_like(self.arc_s))
+        hit = arc & (~self.prev_arc | (self.arc_s >= cfg.arc_rehit_s))
+        self.arc_s = torch.where(hit, torch.zeros_like(self.arc_s), self.arc_s)
         reward += torch.where(hit, rw["hit_taken"], 0.0)
         self.prev_arc = arc
         self.stats["strikes"] += strike.float()
@@ -1102,6 +1125,13 @@ class WarpNavEnv:
         danger = ~contact & (phi_us.abs() < self.arc) & (rel.norm(dim=1) < reach)
         reward += torch.where(danger, rw["danger_per_s"] * dt, 0.0)
         self.stats["danger_s"] += danger.float() * dt
+
+        # Pushing or pinning the opponent with our wedge from outside its arc is slow on purpose
+        # and exempt. Any other contact is not: pinned in its arc is the worst place to sit.
+        pushing_wedge = wedge & ~arc
+        still = ~pushing_wedge & (tr["velocity"].norm(dim=1) < cfg.still_speed_mps)
+        reward += torch.where(still, rw["still_per_s"] * dt, 0.0)
+        self.stats["still_s"] += still.float() * dt
 
         wall = f[:, 4] > 0.5
         wall_event = wall & ~self.prev_wall & ~(wedge & contact)
