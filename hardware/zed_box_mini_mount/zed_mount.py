@@ -9,7 +9,6 @@
 """
 
 from build123d import Align, Cylinder, Pos
-
 from zed_cheese_plate_adapter import Params
 
 TITLE = "ZED BOX MINI MOUNT"  # Onshape document and assembly name

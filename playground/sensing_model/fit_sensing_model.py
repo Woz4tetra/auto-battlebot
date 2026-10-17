@@ -1,15 +1,20 @@
 """Fit the sensing model the RL environment and the lockstep sim sample from.
 
-`docs/plans/sensing_model_plan.md` section 8. Until the apartment-floor sessions exist the model
-is provisional and mixes two sources:
+`docs/plans/sensing_model_plan.md` section 8. Until the test-box sessions exist the model is
+provisional and fitted from the NHRL May and MassD KALMAN replays alone
+(`playground/opponent_prediction/run_replays.py --mode KALMAN`):
 
-- Position and heading noise, and flipped-run lengths with truth: the 2026-10-15 Mr Stabs Mk2
-  sysid training session against AprilTag truth (`auto_battlebot.perception.sysid_sessions`).
-  The holdout session is reported, never fitted. Both roles get these numbers, so Mr Stabs stands
-  in for the opponent.
-- Dropouts conditioned on the distance to the nearest robot and wall, and flip onsets: the NHRL
-  May and MassD KALMAN replays (`playground/opponent_prediction/run_replays.py --mode KALMAN`).
-  Replays are laptop SVO playback, so they are never used for position noise.
+- Dropouts conditioned on the distance to the nearest robot and wall, flip onsets and flipped-run
+  lengths.
+- Position and heading noise by speed bin, from the opponent measurements with no truth: each
+  measurement against a quadratic fit through its neighbours. That sees frame-to-frame jitter
+  only. Bias and slow errors (plane height, field lock, the laptop playback warp) are invisible
+  to it, so the bias tables are zero. Both roles get these numbers, so the opponents stand in for
+  Mr Stabs.
+
+The 2026-10-15 sysid sessions have tag truth but were shot on the apartment floor, which the
+detector never trained on (its synthetic scenes are NHRL, MassD and the AER test box), so they
+are not used.
 
 Output: `simulation/sensing_models/provisional.toml`, and `playground/sensing_model/out/
 fit_report.json` with the per-cell sample counts, the holdout session's noise and the flip
@@ -33,15 +38,17 @@ import tomli_w
 
 from auto_battlebot.perception.sensing_model import SPEC_VERSION, SensingModelFile
 from auto_battlebot.perception.sysid_sessions import OUT as OPPONENT_OUT
-from auto_battlebot.perception.sysid_sessions import REPO_ROOT, SESSIONS, load_session
+from auto_battlebot.perception.sysid_sessions import REPO_ROOT
 from auto_battlebot.recording.mcap_io import decode_json, iter_messages
 
 OUTPUT = REPO_ROOT / "simulation/sensing_models/provisional.toml"
 REPORT = Path(__file__).resolve().parent / "out/fit_report.json"
 REPLAYS = OPPONENT_OUT / "replays"
 
+# The replays measure at 30 Hz. The lockstep sim runs the model at the ZED Box camera rate.
 FRAME_HZ = 30.0
 FRAME_S = 1.0 / FRAME_HZ
+SIM_FRAME_HZ = 60.0
 LATENCY_S = 0.063
 SPEED_BINS = [0.0, 0.25, 0.5, 1.0, 1.5]
 ROBOT_DISTANCE_BINS = [0.0, 0.05, 0.2, 0.5]
@@ -55,9 +62,8 @@ MAX_SPAN_S = 20.0
 # A gap is a step longer than this many frames. Single missing frames are left out: laptop
 # playback drops about one frame per 0.5 s for pacing, which is not the robot going unseen.
 GAP_MIN_FRAMES = 2.5
-# Below this forward speed the direction of travel is too weak to pick the along-track bias.
-DIRECTION_MIN_MPS = 0.1
-MIN_DIRECTION_SAMPLES = 20
+# Jitter fit: this many contiguous neighbours on each side of a measurement, 0.1 s at 30 Hz.
+JITTER_HALF = 3
 FLIP_RAD = math.radians(150.0)
 # A heading jump and its reversal within this long bound one flipped run.
 MAX_FLIPPED_RUN_S = 1.0
@@ -94,90 +100,109 @@ def _r(x: float, digits: int = 5) -> float:
 
 
 # ---------------------------------------------------------------------------
-# Sysid noise
+# Jitter noise
 # ---------------------------------------------------------------------------
 
 
-def sysid_noise(name: str) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Body-frame position noise and bias, heading noise and flipped runs for one session.
+def _windows(t: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Measurements with JITTER_HALF contiguous neighbours on each side, and those neighbours'
+    indices, one row per centre."""
+    k = JITTER_HALF
+    offsets = np.concatenate([np.arange(-k, 0), np.arange(1, k + 1)])
+    if t.size < 2 * k + 1:
+        return np.zeros(0, int), np.zeros((0, 2 * k), int)
+    run = np.concatenate([[0], np.cumsum(np.diff(t) >= 1.5 * FRAME_S)])
+    centres = np.arange(k, t.size - k)
+    centres = centres[run[centres - k] == run[centres + k]]
+    return centres, centres[:, None] + offsets[None, :]
 
-    Returns the position/heading tables and a report block.
+
+def _fit(
+    t: np.ndarray, centres: np.ndarray, idx: np.ndarray, values: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Least-squares quadratic through each centre's neighbours (`values`, one row per centre).
+
+    Returns the fit's value and slope at the centre, and the variance factor h: with white noise
+    of sigma, measurement minus fit has variance sigma^2 (1 + h).
     """
-    s = load_session(name)
-    tr = s.truth_at(s.meas_stamp_ns)
-    v = tr["valid"]
-    ex = (s.meas_x - tr["x"])[v]
-    ey = (s.meas_y - tr["y"])[v]
-    yaw = tr["yaw"][v]
-    c, sn = np.cos(yaw), np.sin(yaw)
-    along = c * ex + sn * ey
-    cross = -sn * ex + c * ey
-    forward = tr["vx"][v] * c + tr["vy"][v] * sn
-    speed = np.hypot(tr["vx"], tr["vy"])[v]
-    herr = _wrap(s.meas_yaw - tr["yaw"])[v]
-    flipped = np.abs(herr) > math.pi / 2
+    dt = t[idx] - t[centres][:, None]
+    design = np.stack([np.ones_like(dt), dt, dt * dt], axis=-1)
+    gram_inv = np.linalg.inv(np.einsum("cni,cnj->cij", design, design))
+    coef = np.einsum("cij,cnj,cn->ci", gram_inv, design, values)
+    return coef[:, 0], coef[:, 1], gram_inv[:, 0, 0]
+
+
+def jitter_noise(tracks: list[Track]) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Body-frame position and heading jitter by speed bin, from the opponent measurements.
+
+    A residual is a measurement minus the quadratic through its neighbours, scaled by
+    1 / sqrt(1 + h) to undo the fit's own noise. Speed is the fit's slope. A heading residual past
+    pi / 2 is a flip and is left out, and so is a window that holds a heading jump past FLIP_RAD.
+    """
+    along_all, cross_all, herr_all, speed_all, hspeed_all = [], [], [], [], []
+    for tr in tracks:
+        if tr.role != "opponent":
+            continue
+        centres, idx = _windows(tr.stamps)
+        if centres.size == 0:
+            continue
+        x_fit, vx, h = _fit(tr.stamps, centres, idx, tr.x[idx])
+        y_fit, vy, _ = _fit(tr.stamps, centres, idx, tr.y[idx])
+        scale = 1.0 / np.sqrt(1.0 + h)
+        ex = (tr.x[centres] - x_fit) * scale
+        ey = (tr.y[centres] - y_fit) * scale
+        yaw = tr.yaw[centres]
+        c, sn = np.cos(yaw), np.sin(yaw)
+        along_all.append(c * ex + sn * ey)
+        cross_all.append(-sn * ex + c * ey)
+        speed = np.hypot(vx, vy)
+        speed_all.append(speed)
+
+        # Heading: neighbours taken relative to the centre, so the fit sees no 2 pi steps.
+        yaw_fit, _, _ = _fit(tr.stamps, centres, idx, _wrap(tr.yaw[idx] - yaw[:, None]))
+        herr = _wrap(-yaw_fit) * scale
+        window = centres[:, None] + np.arange(-JITTER_HALF, JITTER_HALF)[None, :]
+        jumps = (np.abs(_wrap(np.diff(tr.yaw)))[window] > FLIP_RAD).any(axis=1)
+        keep = ~jumps & (np.abs(herr) < math.pi / 2)
+        herr_all.append(herr[keep])
+        hspeed_all.append(speed[keep])
+
+    along = np.concatenate(along_all)
+    cross = np.concatenate(cross_all)
+    speed = np.concatenate(speed_all)
+    herr = np.concatenate(herr_all)
+    hspeed = np.concatenate(hspeed_all)
 
     edges = SPEED_BINS + [math.inf]
-    cols: dict[str, list[float]] = {
-        k: []
-        for k in (
-            "sigma_along_m",
-            "sigma_cross_m",
-            "bias_along_m",
-            "bias_along_reverse_m",
-            "bias_cross_m",
-            "sigma_rad",
-        )
-    }
-    samples = []
+    zeros = [0.0] * len(SPEED_BINS)
+    sigma_along, sigma_cross, sigma_rad, samples, heading_samples = [], [], [], [], []
     for lo, hi in zip(edges[:-1], edges[1:]):
-        m = (speed >= lo) & (speed < hi) & ~flipped
-        fwd = m & (forward >= DIRECTION_MIN_MPS)
-        rev = m & (forward <= -DIRECTION_MIN_MPS)
-        pooled = float(np.median(along[m]))
-        b_fwd = float(np.median(along[fwd])) if fwd.sum() >= MIN_DIRECTION_SAMPLES else pooled
-        b_rev = float(np.median(along[rev])) if rev.sum() >= MIN_DIRECTION_SAMPLES else pooled
-        resid = along - np.where(forward < 0.0, b_rev, b_fwd)
-        cols["bias_along_m"].append(_r(b_fwd))
-        cols["bias_along_reverse_m"].append(_r(b_rev))
-        cols["sigma_along_m"].append(_r(_robust(resid[m])))
-        cols["bias_cross_m"].append(_r(np.median(cross[m])))
-        cols["sigma_cross_m"].append(_r(_robust(cross[m])))
-        cols["sigma_rad"].append(_r(_robust(herr[m])))
-        samples.append(int(m.sum()))
-
-    stamps = s.meas_stamp_ns[v] / 1e9
-    runs = _flipped_runs_frames(stamps, flipped)
-    position = {k: cols[k] for k in cols if k != "sigma_rad"}
-    report = {
-        "samples_by_speed_bin": samples,
-        "position": position,
-        "heading_sigma_rad": cols["sigma_rad"],
-        "flipped_fraction": _r(flipped.mean()),
-        "flipped_runs_frames": runs,
-        "field_median_residual_m": [_r(np.median(ex)), _r(np.median(ey))],
-        "measured_s": _r(len(stamps) * FRAME_S, 1),
+        m = (speed >= lo) & (speed < hi)
+        mh = (hspeed >= lo) & (hspeed < hi)
+        if m.sum() < MIN_CELL_SAMPLES:
+            m = np.ones_like(m)
+        if mh.sum() < MIN_CELL_SAMPLES:
+            mh = np.ones_like(mh)
+        sigma_along.append(_r(_robust(along[m])))
+        sigma_cross.append(_r(_robust(cross[m])))
+        sigma_rad.append(_r(_robust(herr[mh])))
+        samples.append(int(((speed >= lo) & (speed < hi)).sum()))
+        heading_samples.append(int(((hspeed >= lo) & (hspeed < hi)).sum()))
+    position = {
+        "sigma_along_m": sigma_along,
+        "sigma_cross_m": sigma_cross,
+        "bias_along_m": zeros,
+        "bias_along_reverse_m": zeros,
+        "bias_cross_m": zeros,
     }
-    return {"position": position, "heading_sigma_rad": cols["sigma_rad"]}, report
-
-
-def _flipped_runs_frames(stamps_s: np.ndarray, flipped: np.ndarray) -> list[int]:
-    """Lengths, in measurements, of consecutive flipped measurements on contiguous frames."""
-    runs: list[int] = []
-    current = 0
-    previous = -math.inf
-    for t, f in zip(stamps_s, flipped):
-        contiguous = t - previous < 1.5 * FRAME_S
-        previous = t
-        if f and contiguous and current:
-            current += 1
-            continue
-        if current:
-            runs.append(current)
-        current = 1 if f else 0
-    if current:
-        runs.append(current)
-    return runs
+    report = {
+        "position_samples_by_speed_bin": samples,
+        "heading_samples_by_speed_bin": heading_samples,
+        "position": position,
+        "heading_sigma_rad": sigma_rad,
+        "speed_quantiles_mps": [_r(q, 3) for q in np.quantile(speed, [0.5, 0.9, 0.99])],
+    }
+    return {"position": position, "heading_sigma_rad": sigma_rad}, report
 
 
 # ---------------------------------------------------------------------------
@@ -194,6 +219,9 @@ class Track:
     track_id: str  # id in /status/tracks
     stamps: np.ndarray
     yaw: np.ndarray
+    # Field-frame position, NaN for our robot: its heading is the only measurement logged.
+    x: np.ndarray
+    y: np.ndarray
 
 
 @dataclass
@@ -226,15 +254,16 @@ class Scene:
 
 def load_replay(mcap: Path) -> tuple[list[Track], Scene]:
     run = mcap.stem
-    opp: dict[str, list[tuple[float, float]]] = {}
-    ours: list[tuple[float, float]] = []
+    opp: dict[str, list[tuple[float, ...]]] = {}
+    ours: list[tuple[float, ...]] = []
     for _topic, log_ns, data in iter_messages(mcap, ["/diagnostics/kalman_motion_estimator"]):
         msg = decode_json(data)
         heading = msg.get("our_heading")
         if heading and not heading["held"]:
             values = heading["values"]
             stamp = log_ns / 1e9 - float(values["stamp_age_s"])
-            ours.append((stamp, math.radians(float(values["measured_yaw_deg"]))))
+            yaw = math.radians(float(values["measured_yaw_deg"]))
+            ours.append((stamp, yaw, math.nan, math.nan))
         for key, entry in msg.items():
             if not key.startswith("opponent_measurement_THEIR_ROBOT") or entry["held"]:
                 continue
@@ -242,7 +271,7 @@ def load_replay(mcap: Path) -> tuple[list[Track], Scene]:
             if int(values["keypoint"]) != 1:
                 continue
             opp.setdefault(key[len("opponent_measurement_") :], []).append(
-                (float(values["stamp"]), float(values["yaw"]))
+                tuple(float(values[k]) for k in ("stamp", "yaw", "x", "y"))
             )
     tracks = [_track(run, "ours", "our_robot_1", ours)]
     tracks += [_track(run, "opponent", fid.lower(), rows) for fid, rows in sorted(opp.items())]
@@ -265,13 +294,13 @@ def load_replay(mcap: Path) -> tuple[list[Track], Scene]:
     return [t for t in tracks if t.track_id in ids and t.stamps.size > 1], scene
 
 
-def _track(run: str, role: str, track_id: str, rows: list[tuple[float, float]]) -> Track:
+def _track(run: str, role: str, track_id: str, rows: list[tuple[float, ...]]) -> Track:
     if not rows:
-        return Track(run, role, track_id, np.zeros(0), np.zeros(0))
+        return Track(run, role, track_id, *np.zeros((4, 0)))
     a = np.array(sorted(rows))
     # The same measurement can be logged on two consecutive diagnostics messages.
-    keep = np.concatenate([[True], np.diff(a[:, 0]) > 0.010])
-    return Track(run, role, track_id, a[keep, 0], a[keep, 1])
+    a = a[np.concatenate([[True], np.diff(a[:, 0]) > 0.010])]
+    return Track(run, role, track_id, a[:, 0], a[:, 1], a[:, 2], a[:, 3])
 
 
 @dataclass
@@ -391,11 +420,6 @@ def flip_runs_table(flipped_s: list[float], onset_per_s: float) -> dict[str, Any
 
 
 def main() -> None:
-    train = [n for n, role in SESSIONS.items() if role == "train"]
-    holdout = [n for n, role in SESSIONS.items() if role == "holdout"]
-    noise, train_report = sysid_noise(train[0])
-    _, holdout_report = sysid_noise(holdout[0])
-
     mcaps = sorted(REPLAYS.glob("*_KALMAN.mcap"))
     if not mcaps:
         raise SystemExit(f"no KALMAN replays under {REPLAYS}; run run_replays.py --mode KALMAN")
@@ -405,22 +429,20 @@ def main() -> None:
         tr, scene = load_replay(mcap)
         tracks += tr
         scenes[mcap.stem] = scene
+    noise, noise_report = jitter_noise(tracks)
 
     report: dict[str, Any] = {
         "replays": [m.stem for m in mcaps],
-        "sysid_train": {train[0]: train_report},
-        "sysid_holdout": {holdout[0]: holdout_report},
+        "noise": noise_report,
         "roles": {},
     }
-    # Flipped-run lengths pool both roles and the sysid truth runs: each source alone has too few.
-    sysid_flipped_s = [n * FRAME_S for n in train_report["flipped_runs_frames"]]
+    # Flipped-run lengths pool both roles: each alone has too few.
     all_flips = replay_flips(tracks)
-    flipped_s = all_flips["flipped_s"] + sysid_flipped_s
+    flipped_s = all_flips["flipped_s"]
     pooled_onset = 0.5 * all_flips["jumps"] / all_flips["measured_s"]
     report["flips"] = {
         "replay_jumps": all_flips["jumps"],
-        "replay_flipped_runs": len(all_flips["flipped_s"]),
-        "sysid_flipped_runs": len(sysid_flipped_s),
+        "replay_flipped_runs": len(flipped_s),
         "flipped_run_quantiles_s": [_r(q, 4) for q in np.quantile(flipped_s, QUANTILES)],
         "pooled_onsets_per_s": _r(pooled_onset),
     }
@@ -471,14 +493,15 @@ def main() -> None:
         "spec_version": SPEC_VERSION,
         "venue": "provisional",
         "note": (
-            "Provisional until the apartment-floor sessions: noise from the 2026-10-15 Mr Stabs "
-            "Mk2 sysid training session for both roles, dropouts and flip onsets from the NHRL "
-            "May and MassD KALMAN replays, latency nominal (not measured), frame drops not "
-            "measured, randomization ranges from the plan. Generated by "
+            "Provisional until the test-box sessions: everything from the NHRL May and MassD "
+            "KALMAN replays. Noise is opponent frame-to-frame jitter with no truth, used for both "
+            "roles; bias not measured (zero). Dropouts, flip onsets and flipped runs from the "
+            "same replays. Latency nominal (not measured), frame drops not measured, "
+            "randomization ranges from the plan. Generated by "
             "playground/sensing_model/fit_sensing_model.py."
         ),
-        "fitted_from": [train[0], *report["replays"]],
-        "frame_rate_hz": FRAME_HZ,
+        "fitted_from": report["replays"],
+        "frame_rate_hz": SIM_FRAME_HZ,
         "latency_s": LATENCY_S,
         "frame_drop_prob": 0.0,
         "robots": robots,
@@ -502,8 +525,7 @@ def _summary(report: dict[str, Any]) -> dict[str, Any]:
         "replays": len(report["replays"]),
         "roles": roles,
         "flips": report["flips"],
-        "train": {k: v for k, v in next(iter(report["sysid_train"].values())).items()},
-        "holdout": {k: v for k, v in next(iter(report["sysid_holdout"].values())).items()},
+        "noise": report["noise"],
     }
 
 
