@@ -52,7 +52,7 @@ class MujocoPlant:
             ],
             moving_block_radii=moving_block_radii or [],
             pack_voltage=mcfg.pack_voltage,
-            auto_steer=mcfg.auto_steer,
+            flip_switch=mcfg.flip_switch,
             timestep=mcfg.timestep,
         )
         self._hazards = HazardMonitor(obstacles, cfg.radius)
@@ -71,6 +71,10 @@ class MujocoPlant:
     def pitch(self) -> float:
         """Chassis pitch, rad. At rest it sits on the skid, about 11 deg nose-down."""
         return self._sim.pitch
+
+    @property
+    def upside_down(self) -> bool:
+        return self._sim.upside_down
 
     @property
     def fell_in(self) -> bool:

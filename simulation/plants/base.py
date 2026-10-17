@@ -24,6 +24,9 @@ class PlantInterface(Protocol):
     def fell_in(self) -> bool: ...
 
     @property
+    def upside_down(self) -> bool: ...  # chassis top faces the floor; the viewer draws the belly
+
+    @property
     def wall_hits(self) -> int: ...
 
     @property

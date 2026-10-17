@@ -8,6 +8,11 @@ turn those into per-motor percents, the drivetrain delay holds them, and the com
 polarity is +1: the sim has no ESC wiring to undo, so a positive per-motor command drives
 forward.
 
+The flip switch decides when the firmware treats the robot as inverted and negates the throttle
+before the mixer (`FlipSwitch`). In the power-on DOWN position that follows the IMU's upside-down
+reading, with its hysteresis, so a flipped robot keeps driving wedge-first and the heading hold
+restarts on the flip.
+
 Arena walls and wall blocks are static geoms, and hazards that move (the house bot) are mocap
 cylinders, so wall contact is rigid-body contact rather than a position clamp.
 """
@@ -31,7 +36,14 @@ from auto_battlebot.mujoco_sim.actuator import (
     shape_command,
     side_gains,
 )
-from auto_battlebot.mujoco_sim.firmware import FirmwareMixer, gyro_from_yaw_rate, heading_from_yaw
+from auto_battlebot.mujoco_sim.firmware import (
+    FirmwareMixer,
+    FlipSwitch,
+    UpdownSensor,
+    drive_inverted,
+    gyro_from_yaw_rate,
+    heading_from_yaw,
+)
 from auto_battlebot.mujoco_sim.mass_properties import MassProperties
 from auto_battlebot.mujoco_sim.mjcf import (
     FLOOR_CONTYPE,
@@ -135,7 +147,7 @@ class ClosedLoopSim:
         blocks: Sequence[Disc] = (),
         moving_block_radii: Sequence[float] = (),
         pack_voltage: float = NOMINAL_PACK_V,
-        auto_steer: bool = True,
+        flip_switch: FlipSwitch = FlipSwitch.DOWN,
         timestep: float = 1e-3,
     ) -> None:
         self._params = params
@@ -150,7 +162,10 @@ class ClosedLoopSim:
         gain_l, gain_r = side_gains(params.lr_gain_ratio)
         self._side_gain = np.array([float(gain_l), float(gain_r)])
         self._deadzone = np.array([params.deadzone_left, params.deadzone_right])
-        self._mixer = FirmwareMixer(auto_steer=auto_steer)
+        self._flip_switch = flip_switch
+        self._updown = UpdownSensor()
+        self._mixer = FirmwareMixer(auto_steer=flip_switch == FlipSwitch.DOWN)
+        self.inverted = False  # the firmware's is_upside_down: the throttle is being negated
         delay_steps = max(0, round(params.delay_s / timestep))
         self._queue: deque[tuple[float, float]] = deque([(0.0, 0.0)] * delay_steps)
 
@@ -236,11 +251,13 @@ class ClosedLoopSim:
         self.block_contact = False
         for _ in range(max(1, round(dt / self._timestep))):
             heading = heading_from_yaw(self.pose()[2])
+            self.inverted = drive_inverted(self._flip_switch, self._updown.update(self.up_z))
             left, right = self._mixer.step(
-                a_percent,
+                -a_percent if self.inverted else a_percent,
                 b_percent,
                 heading,
                 self._timestep,
+                upside_down=self.inverted,
                 yaw_rate_dps=gyro_from_yaw_rate(self.yaw_rate),
             )
             self._queue.append((left, right))
@@ -257,6 +274,18 @@ class ClosedLoopSim:
     @property
     def pitch(self) -> float:
         return float(pose_from_qpos(self.data.qpos[:7])["pitch"])
+
+    @property
+    def up_z(self) -> float:
+        """The z component of the chassis +Z axis in the field frame, 1 - 2(x^2 + y^2) for a wxyz
+        quaternion, read straight off the free joint: 1 upright, -1 on its back."""
+        _, qx, qy, _ = self.data.qpos[3:7]
+        return float(1.0 - 2.0 * (qx * qx + qy * qy))
+
+    @property
+    def upside_down(self) -> bool:
+        """Chassis +Z points below the horizon: the robot has gone past 90 deg of roll or pitch."""
+        return self.up_z < 0.0
 
     @property
     def forward_speed(self) -> float:

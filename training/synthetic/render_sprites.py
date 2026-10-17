@@ -20,6 +20,11 @@ Two conventions the runtime depends on, both recorded in sprites.json beside the
   - the robot front points +X in the render, so runtime rotation is a plain rotation by yaw with
     no per-asset offset.
 
+Every sprite also gets a ``<name>_flipped`` entry: the robot lying on its back, posed the way the
+scene pipeline poses an inverted robot, and shot with the same camera and sky. The viewer draws it
+when the plant reports the robot upside down. Its front is turned onto +X as well, so the same yaw
+rotation applies.
+
 The front direction is not hand-measured. It comes from the ``[robots.keypoints]`` front/back
 pair the keypoint detector is trained against, so the sprite and the detector agree on which end
 is the front by construction.
@@ -127,15 +132,18 @@ def upright_yaw(front_local: np.ndarray, upright: mathutils.Matrix) -> float:
     return -math.atan2(world_front.y, world_front.x)
 
 
-def upright_matrix(robot_config: RobotConfig) -> mathutils.Matrix:
+def upright_matrix(robot_config: RobotConfig, inverted: bool = False) -> mathutils.Matrix:
     """Stand a CAD-exported robot on its wheels, the way the scene pipeline poses it.
 
     ``pose_single_robot`` uses a -90 degree pitch for upright and a per-model roll that takes out
     the tilt left by where the CAD origin sits. Reproducing both here is what keeps the sprite's
-    footprint equal to the robot's real footprint on the floor.
+    footprint equal to the robot's real footprint on the floor. *inverted* takes the pipeline's
+    other grounded pose: +90 degrees of pitch and the inverted roll, lying on its back.
     """
-    pitch = mathutils.Matrix.Rotation(-math.pi / 2.0, 4, "X")
-    roll = mathutils.Matrix.Rotation(math.radians(robot_config.ground_roll_upright), 4, "Y")
+    pitch_rad = math.pi / 2.0 if inverted else -math.pi / 2.0
+    roll_deg = robot_config.ground_roll_inverted if inverted else robot_config.ground_roll_upright
+    pitch = mathutils.Matrix.Rotation(pitch_rad, 4, "X")
+    roll = mathutils.Matrix.Rotation(math.radians(roll_deg), 4, "Y")
     return pitch @ roll
 
 
@@ -187,8 +195,12 @@ def render_sprite(
     cc_materials: dict[str, bproc.types.Material],
     out_dir: Path,
     args: argparse.Namespace,
+    flipped: bool = False,
 ) -> dict[str, object]:
-    """Import one model, texture it, shoot it from straight above, write the PNG."""
+    """Import one model, texture it, shoot it from straight above, write the PNG.
+
+    *flipped* lays it on its back first, so the camera sees the underside.
+    """
     clear_scene()
 
     model_path = spec.model_path if spec.model_path is not None else robot_config.model_path
@@ -204,7 +216,7 @@ def render_sprite(
         if spec.front_model is not None
         else robot_config.keypoints.front - robot_config.keypoints.back
     )
-    upright = upright_matrix(robot_config)
+    upright = upright_matrix(robot_config, inverted=flipped)
     yaw_rad = upright_yaw(front_local, upright)
     front_rounded = tuple(round(float(v), 4) for v in front_local)
     print(f"  front {front_rounded} -> yaw {math.degrees(yaw_rad):+.1f} deg")
@@ -244,7 +256,7 @@ def render_sprite(
     scene.render.image_settings.file_format = "PNG"
     scene.render.image_settings.color_mode = "RGBA"
 
-    out_path = out_dir / f"{spec.name}.png"
+    out_path = out_dir / f"{sprite_name(spec, flipped)}.png"
     scene.render.filepath = str(out_path)
     bpy.ops.render.render(write_still=True)
 
@@ -258,6 +270,11 @@ def render_sprite(
         # Repo-relative, so the manifest names the same file whatever directory it ran from.
         "source": str(resolved_model.relative_to(REPO_ROOT)),
     }
+
+
+def sprite_name(spec: SpriteSpec, flipped: bool) -> str:
+    """Manifest key and PNG stem. The viewer builds the same ``_flipped`` name to look it up."""
+    return f"{spec.name}_flipped" if flipped else spec.name
 
 
 def parse_args() -> argparse.Namespace:
@@ -308,10 +325,12 @@ def main() -> None:
             continue
         if spec.robot not in robots:
             raise KeyError(f"{spec.name}: no [[robots]] entry named {spec.robot!r} in the config")
-        print(f"rendering {spec.name} from {spec.model_path or robots[spec.robot].model_path}")
-        manifest["sprites"][spec.name] = render_sprite(
-            spec, robots[spec.robot], render_config, cc_materials, out_dir, args
-        )
+        for flipped in (False, True):
+            name = sprite_name(spec, flipped)
+            print(f"rendering {name} from {spec.model_path or robots[spec.robot].model_path}")
+            manifest["sprites"][name] = render_sprite(
+                spec, robots[spec.robot], render_config, cc_materials, out_dir, args, flipped
+            )
 
     manifest["front_axis"] = "+X"
     manifest["note"] = (

@@ -53,6 +53,11 @@ class KinematicPlant:
     def min_hazard_clearance(self) -> float:
         return self._hazards.min_clearance
 
+    @property
+    def upside_down(self) -> bool:
+        # Planar model: it has no roll or pitch to flip over with.
+        return False
+
     def set_moving_blocks(self, blocks: list[tuple[float, float, float]]) -> None:
         # Same treatment as a static block: the chassis is pushed out and the clearance is scored.
         self._hazards.set_moving_blocks(blocks)

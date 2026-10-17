@@ -7,6 +7,7 @@ time and changes nothing the controller sees. Keep that property when extending 
 
 Layers, cheapest first: pre-scaled arena background, hazard discs (raw geometry plus the inflated
 keep-out ring the controller actually steers on), robot sprites rotated by yaw, then overlays.
+A plant that reports ``upside_down`` is drawn with its ``<sprite>_flipped`` underside render.
 
 Mouse: press inside an opponent to drag it, release to resume its configured behaviour from the
 drop point. Our own robot is deliberately not draggable -- its pose is the plant's integrated
@@ -33,6 +34,11 @@ KEEPOUT_BGR = (60, 170, 240)
 OUR_BGR = (120, 220, 120)
 OPP_BGR = (90, 90, 235)
 TEXT_BGR = (240, 240, 240)
+FLIPPED_BGR = (60, 200, 255)
+
+# Manifest suffix for the underside render: the robot rolled 180 deg about its front axis, so the
+# front still points +X and it rotates by yaw like the top view.
+FLIPPED_SUFFIX = "_flipped"
 
 
 def _resolve(path: str) -> Path:
@@ -134,11 +140,16 @@ class Viewer:
         sprite: str,
         color: tuple,
         r: float,
+        upside_down: bool = False,
     ) -> None:
-        entry = self._sprites.get(sprite)
+        entry = self._sprites.get(sprite + FLIPPED_SUFFIX if upside_down else sprite)
         if entry is None:
             center = self._to_px(x, y)
             cv2.circle(canvas, center, int(round(r * self._px_per_m)), color, -1, cv2.LINE_AA)
+            if upside_down:
+                # No underside render to show it, so ring the disc instead.
+                radius_px = int(round(r * self._px_per_m))
+                cv2.circle(canvas, center, radius_px, FLIPPED_BGR, 3, cv2.LINE_AA)
             nose = self._to_px(x + r * math.cos(yaw), y + r * math.sin(yaw))
             cv2.line(canvas, center, nose, (20, 20, 20), 2, cv2.LINE_AA)
             return
@@ -197,6 +208,8 @@ class Viewer:
         if self._obstacles:
             gap = "n/a" if clearance == float("inf") else f"{clearance:+.3f} m"
             lines.append(f"min hazard clearance {gap}")
+        if plant.upside_down:
+            lines.append("UPSIDE DOWN")
         for i, text in enumerate(lines):
             cv2.putText(
                 canvas,
@@ -266,7 +279,14 @@ class Viewer:
             self._draw_robot(canvas, ox, oy, oyaw, self._opponent_sprite(index), OPP_BGR, 0.11)
         x, y, yaw = plant.pose()
         self._draw_robot(
-            canvas, x, y, yaw, self._cfg.our_robot.sprite, OUR_BGR, self._cfg.our_robot.radius
+            canvas,
+            x,
+            y,
+            yaw,
+            self._cfg.our_robot.sprite,
+            OUR_BGR,
+            self._cfg.our_robot.radius,
+            upside_down=plant.upside_down,
         )
         return canvas
 

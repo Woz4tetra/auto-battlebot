@@ -39,6 +39,16 @@
       ],
       "front_axis": "+X",
       "source": "simulation/assets/robots/mrs_buff_mk2.glb"
+    },
+    "mr_stabs_mk2_flipped": {
+      "file": "mr_stabs_mk2_flipped.png",
+      "pixels_per_meter": 601.8516,
+      "footprint_m": [
+        0.137,
+        0.16
+      ],
+      "front_axis": "+X",
+      "source": "training/data/models/MR STABS MK2.gltf"
     }
   },
   "front_axis": "+X",

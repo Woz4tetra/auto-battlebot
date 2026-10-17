@@ -11,6 +11,7 @@ import json
 import math
 from pathlib import Path
 
+import mujoco
 import numpy as np
 import pandas as pd
 import pytest
@@ -29,7 +30,9 @@ from auto_battlebot.mujoco_sim.checks import (
 from auto_battlebot.mujoco_sim.closed_loop import ClosedLoopSim, Disc, load_fit_params
 from auto_battlebot.mujoco_sim.firmware import (
     FirmwareMixer,
+    FlipSwitch,
     PidV1,
+    UpdownSensor,
     YawConfig,
     YawController,
 )
@@ -382,17 +385,77 @@ def test_closed_loop_walls_and_blocks_stop_the_robot(mp: mass_properties.MassPro
     assert sim.pose()[0] < 0.3 and sim.block_contact
 
 
+def test_closed_loop_reports_upside_down(mp: mass_properties.MassProperties) -> None:
+    """Rolled 180 deg about its front axis, the chassis reads upside down and keeps its yaw."""
+    sim = ClosedLoopSim(mp, None, PlantParams(), start=(0.0, 0.0, 0.7))
+    _drive(sim, 0.0, 0.0, 0.3)
+    assert not sim.upside_down
+    _roll_over(sim)
+    assert sim.upside_down
+    assert sim.pose()[2] == pytest.approx(0.7, abs=0.05)
+
+
+def _roll_over(sim: ClosedLoopSim) -> None:
+    """Roll the robot 180 deg about its front axis and let it settle on its back."""
+    rolled = np.empty(4)
+    mujoco.mju_mulQuat(rolled, sim.data.qpos[3:7].copy(), np.array([0.0, 1.0, 0.0, 0.0]))
+    sim.data.qpos[3:7] = rolled
+    sim.data.qpos[2] += 0.08
+    mujoco.mj_forward(sim.model, sim.data)
+    _drive(sim, 0.0, 0.0, 1.0)
+
+
+def _wedge_first_travel(sim: ClosedLoopSim, linear: float, seconds: float) -> float:
+    """Distance driven along the chassis +x axis (the wedge's direction) under a held stick."""
+    forward = np.empty(3)
+    mujoco.mju_rotVecQuat(forward, np.array([1.0, 0.0, 0.0]), sim.data.qpos[3:7].copy())
+    x0, y0, _ = sim.pose()
+    _drive(sim, linear, 0.0, seconds)
+    x1, y1, _ = sim.pose()
+    return float((x1 - x0) * forward[0] + (y1 - y0) * forward[1])
+
+
+def test_updown_sensor_holds_inside_the_firmware_band() -> None:
+    sensor = UpdownSensor()
+    readings = [sensor.update(z) for z in (1.0, 0.05, -0.05, -0.2, -0.05, 0.05, 0.2)]
+    assert readings == [False, False, False, True, True, True, False]
+
+
+def test_flip_switch_down_keeps_a_flipped_robot_driving_wedge_first(
+    mp: mass_properties.MassProperties,
+) -> None:
+    """The firmware negates the throttle while the IMU reads upside down, so the stick drives
+    wedge-first either side up; in MIDDLE nothing changes and a flipped robot drives tail-first."""
+    travel = {}
+    for switch in (FlipSwitch.DOWN, FlipSwitch.MIDDLE):
+        sim = ClosedLoopSim(mp, None, PlantParams(), start=(0.0, 0.0, 0.0), flip_switch=switch)
+        _drive(sim, 0.0, 0.0, 0.3)
+        _roll_over(sim)
+        assert sim.upside_down
+        travel[switch] = _wedge_first_travel(sim, 0.3, 0.5)
+        assert sim.inverted == (switch == FlipSwitch.DOWN)
+    assert travel[FlipSwitch.DOWN] > 0.1
+    assert travel[FlipSwitch.MIDDLE] < -0.1
+
+
+def test_flip_switch_up_inverts_an_upright_robot(mp: mass_properties.MassProperties) -> None:
+    sim = ClosedLoopSim(mp, None, PlantParams(), start=(0.0, 0.0, 0.0), flip_switch=FlipSwitch.UP)
+    _drive(sim, 0.0, 0.0, 0.3)
+    assert _wedge_first_travel(sim, 0.3, 0.5) < -0.1
+    assert sim.inverted and not sim.upside_down
+
+
 def test_closed_loop_heading_hold_fights_a_gain_mismatch(
     mp: mass_properties.MassProperties,
 ) -> None:
     drift = {}
-    for auto_steer in (False, True):
+    for switch in (FlipSwitch.MIDDLE, FlipSwitch.DOWN):
         sim = ClosedLoopSim(
-            mp, None, PlantParams(lr_gain_ratio=1.15), start=(0.0, 0.0, 0.0), auto_steer=auto_steer
+            mp, None, PlantParams(lr_gain_ratio=1.15), start=(0.0, 0.0, 0.0), flip_switch=switch
         )
         _drive(sim, 0.15, 0.0, 1.0)
-        drift[auto_steer] = abs(sim.pose()[2])
-    assert drift[True] < 0.5 * drift[False]
+        drift[switch] = abs(sim.pose()[2])
+    assert drift[FlipSwitch.DOWN] < 0.5 * drift[FlipSwitch.MIDDLE]
 
 
 def _reverse_max_yaw_deg(sim: ClosedLoopSim) -> float:
@@ -411,7 +474,9 @@ def test_yaw_loop_stops_the_full_reverse_spin(
 ) -> None:
     """COM ahead of the axle: tail-first spins out with the stick passed straight through."""
     params = PlantParams(lr_gain_ratio=lr_gain_ratio)
-    manual = ClosedLoopSim(mp, collision, params, start=(0.0, 0.0, 0.0), auto_steer=False)
+    manual = ClosedLoopSim(
+        mp, collision, params, start=(0.0, 0.0, 0.0), flip_switch=FlipSwitch.MIDDLE
+    )
     assert _reverse_max_yaw_deg(manual) > 120.0
     held = ClosedLoopSim(mp, collision, params, start=(0.0, 0.0, 0.0))
     assert _reverse_max_yaw_deg(held) < 60.0
@@ -430,7 +495,7 @@ def test_yaw_loop_recovers_from_a_reverse_turn(
             collision,
             PlantParams(lr_gain_ratio=1.02),
             start=(0.0, 0.0, 0.0),
-            auto_steer=auto_steer,
+            flip_switch=FlipSwitch.DOWN if auto_steer else FlipSwitch.MIDDLE,
         )
         late = []
         for k in range(350):
