@@ -80,4 +80,38 @@ TEST_F(FrontBackKeypointConverterTest, UsesFirstKeypointConfidenceForAssignment)
     ASSERT_EQ(it->second.size(), 1u);
     EXPECT_DOUBLE_EQ(it->second[0].second, 0.2);
 }
+
+TEST_F(FrontBackKeypointConverterTest, PoseSitsAtReferenceOffsetAlongHeading) {
+    FrontBackKeypointConverter converter(config_);
+    Transform tf;
+
+    // Facing +X, keypoints at 0 and 1: the axle 0.3 m behind the midpoint lands at 0.2.
+    ASSERT_TRUE(converter.get_pose_from_points(Eigen::Vector3d(1.0, 0.0, 0.0),
+                                               Eigen::Vector3d::Zero(), -0.3, tf));
+    EXPECT_NEAR(tf.tf(0, 3), 0.2, 1e-12);
+    EXPECT_NEAR(tf.tf(1, 3), 0.0, 1e-12);
+
+    // Facing +Y the shift follows the heading, not the field axes.
+    ASSERT_TRUE(converter.get_pose_from_points(Eigen::Vector3d(0.0, 1.0, 0.0),
+                                               Eigen::Vector3d::Zero(), 0.25, tf));
+    EXPECT_NEAR(tf.tf(0, 3), 0.0, 1e-12);
+    EXPECT_NEAR(tf.tf(1, 3), 0.75, 1e-12);
+}
+
+TEST_F(FrontBackKeypointConverterTest, AssignmentCarriesKeypointReferenceOffset) {
+    FrontBackKeypointConverter converter(config_);
+    ModelResultStamped keypoints;
+    keypoints.header.frame_id = FrameId::CAMERA;
+    for (Keypoint keypoint : {make_keypoint(KeypointLabel::OPPONENT_FRONT, 1, 0.9, 300.0, 220.0),
+                              make_keypoint(KeypointLabel::OPPONENT_BACK, 1, 0.9, 340.0, 220.0)}) {
+        keypoint.reference_offset_m = -0.0455;
+        keypoints.keypoints.push_back(keypoint);
+    }
+
+    const auto mapping = converter.convert(keypoints, field_, camera_info_);
+    const auto it = mapping.find(Label::OPPONENT);
+    ASSERT_NE(it, mapping.end());
+    ASSERT_EQ(it->second.size(), 1u);
+    EXPECT_DOUBLE_EQ(it->second[0].first.reference_offset_m, -0.0455);
+}
 }  // namespace auto_battlebot

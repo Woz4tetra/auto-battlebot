@@ -54,6 +54,7 @@ FrontBackKeypointConverter::convert(const ModelResultStamped &model_results,
         GroupKey key(keypoint.label, keypoint.detection_index);
         if (group_assignments.find(key) == group_assignments.end())
             group_assignments[key] = FrontBackAssignment{};
+        group_assignments[key].reference_offset_m = keypoint.reference_offset_m;
         if (group_confidence.find(key) == group_confidence.end())
             group_confidence[key] = keypoint.confidence;
 
@@ -93,6 +94,7 @@ FrontBackKeypointConverter::convert(const ModelResultStamped &model_results,
 
 bool FrontBackKeypointConverter::get_pose_from_points(const Eigen::Vector3d &front_point,
                                                       const Eigen::Vector3d &back_point,
+                                                      double reference_offset_m,
                                                       Transform &out_transform) {
     constexpr double EPSILON = 1e-6;
     Eigen::Vector3d origin_vec(1.0, 0.0, 0.0);
@@ -103,8 +105,8 @@ bool FrontBackKeypointConverter::get_pose_from_points(const Eigen::Vector3d &fro
         return false;
     }
     Eigen::Vector3d direction = offset_vector / magnitude;
-    // Center point between front and back
-    Eigen::Vector3d center = 0.5 * (front_point + back_point);
+    // The reference point, shifted from the midpoint along the heading
+    Eigen::Vector3d center = 0.5 * (front_point + back_point) + reference_offset_m * direction;
     // Compute rotation matrix that aligns origin_vec to direction
 #ifndef __clang__
 #pragma GCC diagnostic push

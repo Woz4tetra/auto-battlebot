@@ -194,6 +194,9 @@ class MotionProfileNavigation : public NavigationInterface {
     double speed_integral_ = 0.0;
     double prev_speed_timestamp_ = 0.0;
     std::optional<Pose2D> last_known_our_pose_;
+    /** Our footprint centre relative to that pose, held with it. Hazard and wall checks measure
+     *  from the footprint centre; the pursuit itself steers the pose. */
+    Position2D our_footprint_offset_;
     /** Last speed that came from a measurement, held through stale stretches so the latency lead
      * keeps working while the speed feedback is off. */
     double last_measured_speed_ = 0.0;

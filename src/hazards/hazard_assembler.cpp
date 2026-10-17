@@ -57,7 +57,7 @@ void HazardAssembler::assemble(const RobotDescriptionsStamped &robots, FieldDesc
         if (robot.group != Group::NEUTRAL) continue;
         if (robot.is_stale) continue;
         HeldTrack track;
-        track.hazard.center = pose_to_pose2d(robot.pose);
+        track.hazard.center = footprint_center(robot);
         track.hazard.object_radius = half_diagonal(robot.size);
         track.hazard.inflated_radius = track.hazard.object_radius + ours + config_.tracked_margin_m;
         track.hazard.hard_radius = track.hazard.object_radius + ours + config_.hard_margin_m;

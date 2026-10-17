@@ -75,6 +75,19 @@ class Disc:
     radius: float
 
 
+@dataclass(frozen=True)
+class MovingBlock:
+    """A robot ours can hit, placed every tick by `ClosedLoopSim.set_moving_blocks`.
+
+    A cylinder of `radius`, or with `box` set, a box of full size (length, width, height) in m with
+    its length along the robot's heading: the shape the RL environment gives the opponent
+    (warp_nav.OPP_SIZE_M).
+    """
+
+    radius: float
+    box: tuple[float, float, float] | None = None
+
+
 def load_fit_params(path: Path) -> PlantParams:
     """Best run of a fit_mujoco_plant.py fit.json: the lowest-loss restart across zero modes."""
     doc = json.loads(Path(path).read_text())
@@ -88,7 +101,7 @@ def _add_static_geoms(
     spec: mujoco.MjSpec,
     arena: tuple[float, float] | None,
     blocks: Sequence[Disc],
-    moving_block_radii: Sequence[float],
+    moving_blocks: Sequence[MovingBlock],
 ) -> None:
     # Zero friction, like the floor: MuJoCo takes the max of the pair, so the robot's own geom
     # friction governs every wall contact.
@@ -120,18 +133,19 @@ def _add_static_geoms(
             size=[b.radius, BLOCK_HEIGHT_M / 2.0, 0.0],
             **common,
         )
-    for i, r in enumerate(moving_block_radii):
+    for i, block in enumerate(moving_blocks):
+        # Resting on the floor: set_moving_blocks moves x, y and yaw, never the height.
+        height = BLOCK_HEIGHT_M if block.box is None else block.box[2]
         body = spec.worldbody.add_body(
             name=f"{MOVING_BLOCK_PREFIX}{i}",
             mocap=True,
-            pos=[*PARKED_XY, BLOCK_HEIGHT_M / 2.0],
+            pos=[*PARKED_XY, height / 2.0],
         )
-        body.add_geom(
-            name=f"{MOVING_BLOCK_PREFIX}{i}",
-            type=mujoco.mjtGeom.mjGEOM_CYLINDER,
-            size=[r, BLOCK_HEIGHT_M / 2.0, 0.0],
-            **common,
-        )
+        if block.box is None:
+            shape, size = mujoco.mjtGeom.mjGEOM_CYLINDER, [block.radius, height / 2.0, 0.0]
+        else:
+            shape, size = mujoco.mjtGeom.mjGEOM_BOX, [v / 2.0 for v in block.box]
+        body.add_geom(name=f"{MOVING_BLOCK_PREFIX}{i}", type=shape, size=size, **common)
 
 
 class ClosedLoopSim:
@@ -145,7 +159,7 @@ class ClosedLoopSim:
         start: tuple[float, float, float],
         arena: tuple[float, float] | None = None,
         blocks: Sequence[Disc] = (),
-        moving_block_radii: Sequence[float] = (),
+        moving_blocks: Sequence[MovingBlock] = (),
         pack_voltage: float = NOMINAL_PACK_V,
         flip_switch: FlipSwitch = FlipSwitch.DOWN,
         timestep: float = 1e-3,
@@ -154,7 +168,7 @@ class ClosedLoopSim:
         self._timestep = timestep
         self._pack_voltage = pack_voltage
         spec = mujoco.MjSpec.from_string(build_mjcf(mp, params, collision, timestep))
-        _add_static_geoms(spec, arena, blocks, moving_block_radii)
+        _add_static_geoms(spec, arena, blocks, moving_blocks)
         self.model = spec.compile()
         self.data = mujoco.MjData(self.model)
         self._index = ModelIndex.of(self.model)
@@ -181,7 +195,7 @@ class ClosedLoopSim:
         }
         self._mocap_ids = [
             int(self.model.body(f"{MOVING_BLOCK_PREFIX}{i}").mocapid[0])
-            for i in range(len(moving_block_radii))
+            for i in range(len(moving_blocks))
         ]
         self.wall_contact = False
         self.block_contact = False
@@ -211,11 +225,13 @@ class ClosedLoopSim:
         self.data.qvel[:] = qvel[0]
         mujoco.mj_forward(self.model, self.data)
 
-    def set_moving_blocks(self, xy: Sequence[tuple[float, float]]) -> None:
-        if len(xy) != len(self._mocap_ids):
-            raise ValueError(f"{len(xy)} moving blocks, model has {len(self._mocap_ids)}")
-        for mocap, (x, y) in zip(self._mocap_ids, xy):
+    def set_moving_blocks(self, poses: Sequence[tuple[float, float, float]]) -> None:
+        """(x, y, yaw) of each moving block, in the order they were given to the constructor."""
+        if len(poses) != len(self._mocap_ids):
+            raise ValueError(f"{len(poses)} moving blocks, model has {len(self._mocap_ids)}")
+        for mocap, (x, y, yaw) in zip(self._mocap_ids, poses):
             self.data.mocap_pos[mocap, :2] = (x, y)
+            self.data.mocap_quat[mocap] = (math.cos(yaw / 2.0), 0.0, 0.0, math.sin(yaw / 2.0))
 
     def _wheel_volts(self, left_percent: float, right_percent: float) -> np.ndarray:
         u = np.array([left_percent, right_percent]) / 100.0

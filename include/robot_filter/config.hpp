@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cmath>
 #include <map>
 
 #include "config/config_factory.hpp"
@@ -133,6 +134,7 @@ struct RobotFrontBackFilterConfiguration : public RobotFilterConfiguration {
             robot_keypoint_tracker_config.keypoint_heights.default_meters);
         parse_keypoint_heights_per_label(parser, "keypoint_height_meters_per_label");
         parse_robot_sizes_per_label(parser, "robot_size_meters_per_label");
+        parse_footprint_center_offsets(parser, "footprint_center_offset_per_label");
         robot_keypoint_tracker_config.max_candidates = static_cast<int>(parser.get_optional_int(
             "robot_blob_max_candidates", robot_keypoint_tracker_config.max_candidates));
     }
@@ -172,6 +174,37 @@ struct RobotFrontBackFilterConfiguration : public RobotFilterConfiguration {
                 *fields[i] = *component;
             }
             robot_size_meters_per_label[label_opt.value()] = size;
+        }
+    }
+
+    /** RobotDescription::footprint_center_offset per label, as [x, y] in metres in the body frame.
+     *  Labels absent here have their footprint centred on the pose. */
+    std::map<Label, Position2D> footprint_center_offset_per_label;
+
+    void parse_footprint_center_offsets(ConfigParser &parser, const std::string &field_name) {
+        const toml::table *table_ptr = parser.get_table(field_name);
+        if (!table_ptr) {
+            return;  // Optional; every footprint is centred on its pose.
+        }
+        for (const auto &[key, value] : *table_ptr) {
+            const std::string label_str(key.str());
+            auto label_opt = magic_enum::enum_cast<Label>(label_str);
+            if (!label_opt.has_value()) {
+                throw ConfigValidationError("Invalid Label: " + label_str);
+            }
+            const std::string error = field_name + "['" + label_str + "'] must be [x, y] in metres";
+            const toml::array *xy = value.as_array();
+            if (xy == nullptr || xy->size() != 2) throw ConfigValidationError(error);
+            Position2D offset;
+            double *fields[2] = {&offset.x, &offset.y};
+            for (size_t i = 0; i < 2; ++i) {
+                const auto component = (*xy)[i].value<double>();
+                if (!component.has_value() || !std::isfinite(*component)) {
+                    throw ConfigValidationError(error);
+                }
+                *fields[i] = *component;
+            }
+            footprint_center_offset_per_label[label_opt.value()] = offset;
         }
     }
 

@@ -33,7 +33,7 @@ import struct
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import cv2
 import numpy as np
@@ -48,6 +48,7 @@ from config.kinematic import (
     KinematicSimConfig,
     ObstacleConfig,
     OpponentConfig,
+    PlantType,
 )
 from config.loader import load_config
 from plants import PlantInterface, Pose, make_plant
@@ -72,6 +73,9 @@ from auto_battlebot.perception.sensing_model import (
     TruePoses,
 )
 from hazards import load_hazards
+
+if TYPE_CHECKING:
+    from mujoco_window import MujocoWindow
 
 # Footprint radius for an opponent with no hazard_radius: the half-diagonal of the 0.15 x 0.15 m
 # box GroundTruthRobotFilter reports for every robot. Feeds the sensing model's robot-distance
@@ -346,6 +350,15 @@ class KinematicServer:
         # and needs no second renderer.
         self._world = Viewer(cfg, self._obstacles)
         self._viewer = self._world if cfg.viewer.enable else None
+        self._mujoco_window: MujocoWindow | None = None
+        if cfg.viewer.enable and cfg.viewer.mujoco:
+            if cfg.our_robot.plant == PlantType.MUJOCO:
+                # Imported here: MuJoCo is an x86-only dependency, like the plant itself.
+                from mujoco_window import MujocoWindow
+
+                self._mujoco_window = MujocoWindow(cfg.arena.width, cfg.arena.height)
+            else:
+                print('sim: [viewer] mujoco needs [our_robot] plant = "mujoco"; not opening it.')
         self._homography = ground_plane_homography(
             tf_matrix, (fx, fy, cx, cy), self._world.metres_per_pixel(), cfg.viewer.window_px
         )
@@ -374,7 +387,7 @@ class KinematicServer:
             cfg.arena.height,
             self._obstacles,
             # Same filter and order as the set_moving_blocks call in handle_client.
-            [o.hazard_radius for o in cfg.opponents if o.hazard_radius > 0.0],
+            [o for o in cfg.opponents if o.hazard_radius > 0.0],
         )
 
     def _render_camera(self) -> None:
@@ -462,7 +475,11 @@ class KinematicServer:
             self._cmd_buf.append((linear_x, angular_z))
             applied = self._cmd_buf[0]
             self._plant.set_moving_blocks(
-                [(o.x, o.y, o.hazard_radius) for o in self._opponents if o.hazard_radius > 0.0]
+                [
+                    (o.x, o.y, o.yaw, o.hazard_radius)
+                    for o in self._opponents
+                    if o.hazard_radius > 0.0
+                ]
             )
             self._plant.step(applied[0], applied[1], cfg.sim.dt)
             for opponent in self._opponents:
@@ -493,6 +510,8 @@ class KinematicServer:
                 self._viewer.render(
                     self._plant, self._opponents, self._tick, self._sim_time, applied
                 )
+            if self._mujoco_window is not None:
+                self._mujoco_window.sync(self._plant)
             self._tick += 1
             self._sim_time += cfg.sim.dt
             if self._plant.fell_in and self._finish_episode("FELL_IN"):

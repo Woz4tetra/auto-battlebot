@@ -6,7 +6,9 @@ header, which the C++ side adopts through ManualClock. A slow render makes the s
 time and changes nothing the controller sees. Keep that property when extending this file.
 
 Layers, cheapest first: pre-scaled arena background, hazard discs (raw geometry plus the inflated
-keep-out ring the controller actually steers on), robot sprites rotated by yaw, then overlays.
+keep-out ring the controller actually steers on), robot sprites rotated by yaw, the plant's
+collision outlines, then overlays. The outlines are window-only, like the overlays: the camera
+frame is built from `compose_world` and the detector must not see them.
 A plant that reports ``upside_down`` is drawn with its ``<sprite>_flipped`` underside render.
 
 Mouse: press inside an opponent to drag it, release to resume its configured behaviour from the
@@ -24,6 +26,7 @@ from typing import Any
 
 import cv2
 import numpy as np
+from plants.base import footprint_center
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -35,6 +38,7 @@ OUR_BGR = (120, 220, 120)
 OPP_BGR = (90, 90, 235)
 TEXT_BGR = (240, 240, 240)
 FLIPPED_BGR = (60, 200, 255)
+COLLISION_BGR = (255, 60, 255)
 
 # Manifest suffix for the underside render: the robot rolled 180 deg about its front axis, so the
 # front still points +X and it rotates by yaw like the top view.
@@ -184,6 +188,22 @@ class Viewer:
             patch[:, :, :3].astype(np.float32) * alpha + region * (1.0 - alpha)
         ).astype(np.uint8)
 
+    def _draw_collision(self, canvas: np.ndarray, plant: Any) -> None:
+        """What the plant actually collides with, over the sprites: the two differ, and a scrape
+        or a hit that the sprites do not explain shows up here."""
+        polygons = [
+            np.column_stack(
+                [
+                    self._size / 2 + outline[:, 0] * self._px_per_m,
+                    self._size / 2 - outline[:, 1] * self._px_per_m,
+                ]
+            )
+            .round()
+            .astype(np.int32)
+            for outline in plant.collision_outlines()
+        ]
+        cv2.polylines(canvas, polygons, True, COLLISION_BGR, 1, cv2.LINE_AA)
+
     def _draw_overlays(
         self, canvas: np.ndarray, plant: Any, tick: int, sim_time: float, command: tuple
     ) -> None:
@@ -278,10 +298,13 @@ class Viewer:
             ox, oy, oyaw = opponent.pose()
             self._draw_robot(canvas, ox, oy, oyaw, self._opponent_sprite(index), OPP_BGR, 0.11)
         x, y, yaw = plant.pose()
+        # The sprite is centred on the footprint, which need not be the pose: the MuJoCo plant's
+        # pose is the axle.
+        cx, cy = footprint_center((x, y, yaw), plant.footprint_center_offset)
         self._draw_robot(
             canvas,
-            x,
-            y,
+            cx,
+            cy,
             yaw,
             self._cfg.our_robot.sprite,
             OUR_BGR,
@@ -299,6 +322,7 @@ class Viewer:
     ) -> np.ndarray:
         """Build one frame. Pure: no window, no waiting, so it can be unit-tested headless."""
         canvas = self.compose_world(plant, opponents)
+        self._draw_collision(canvas, plant)
         self._draw_overlays(canvas, plant, tick, sim_time, command)
         return canvas
 

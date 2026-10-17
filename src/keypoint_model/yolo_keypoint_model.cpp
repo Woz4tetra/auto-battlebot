@@ -15,6 +15,7 @@ YoloKeypointModel::YoloKeypointModel(YoloKeypointModelConfiguration &config,
       debug_visualization_(config.debug_visualization),
       label_map_(config.label_map),
       label_indices_(config.label_indices),
+      reference_offset_m_per_label_(config.reference_offset_m_per_label),
       engine_selector_(std::move(engine_selector)),
       initialized_(false),
       diagnostics_logger_(DiagnosticsLogger::get_logger("yolo_keypoint_model")) {}
@@ -385,6 +386,9 @@ int YoloKeypointModel::extract_keypoints_from_detections(const std::vector<Detec
         const std::vector<KeypointLabel> &keypoint_labels =
             label_map_.get_keypoint_labels(object_label);
         const int n_kp = static_cast<int>(keypoint_labels.size());
+        const auto offset_it = reference_offset_m_per_label_.find(object_label);
+        const double reference_offset_m =
+            offset_it == reference_offset_m_per_label_.end() ? 0.0 : offset_it->second;
 
         for (int k = 0; k < n_kp; k++) {
             const int kp_idx = keypoint_start_idx + k * 3;
@@ -399,6 +403,7 @@ int YoloKeypointModel::extract_keypoints_from_detections(const std::vector<Detec
             keypoint.label = object_label;
             keypoint.confidence = static_cast<double>(confidence);
             keypoint.detection_index = i;
+            keypoint.reference_offset_m = reference_offset_m;
             result.keypoints.push_back(keypoint);
         }
     }

@@ -8,6 +8,7 @@
 #include <string>
 
 #include "foxglove_adapters/common.hpp"
+#include "hazards/hazard_geometry.hpp"
 #include "transform_utils.hpp"
 
 namespace auto_battlebot {
@@ -216,7 +217,12 @@ fg::SceneUpdate to_robot_scene(const RobotDescriptionsStamped &robots) {
         {
             fg::SceneEntity entity = make_entity(robots.header, "robot_bounds", robot_id);
             fg::CubePrimitive cube;
-            cube.pose = to_pose(robot.pose);
+            // The box is the body, centred on the footprint rather than on the pose.
+            Pose body = robot.pose;
+            const Pose2D center = footprint_center(robot);
+            body.position.x = center.x;
+            body.position.y = center.y;
+            cube.pose = to_pose(body);
             cube.size = to_vector3(robot.size.x, robot.size.y, robot.size.z);
             cube.color = robot_color;
             entity.cubes.push_back(std::move(cube));

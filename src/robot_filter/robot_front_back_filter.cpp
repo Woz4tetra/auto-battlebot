@@ -81,6 +81,7 @@ RobotFrontBackFilter::RobotFrontBackFilter(RobotFrontBackFilterConfiguration &co
       blob_overwrite_min_distance_meters_(config.blob_overwrite_min_distance_meters),
       blob_overwrite_size_scale_(config.blob_overwrite_size_scale),
       size_overrides_(config.robot_size_meters_per_label),
+      footprint_center_offsets_(config.footprint_center_offset_per_label),
       field_bounds_margin_meters_(config.field_bounds_margin_meters),
       our_robot_hold_window_s_(config.our_robot_hold_window_s),
       our_keypoint_dropout_blob_radius_meters_(config.our_keypoint_dropout_blob_radius_meters),
@@ -133,7 +134,7 @@ void RobotFrontBackFilter::predict(double now, CommandFeedback command_feedback)
         // transport delay to anything that reasons about these stamps.
         state_.header.stamp = now + motion_estimator_->render_lead_s();
         state_.descriptions = std::move(*coasted);
-        apply_size_overrides(state_.descriptions);
+        apply_known_geometry(state_.descriptions);
     }
 }
 
@@ -182,10 +183,19 @@ void RobotFrontBackFilter::correct(ModelResultStamped keypoints, FieldDescriptio
          {"num_measurements_after_temporal", static_cast<int>(result.descriptions.size())}});
 
     state_ = std::move(result);
-    apply_size_overrides(state_.descriptions);
+    apply_known_geometry(state_.descriptions);
 }
 
-void RobotFrontBackFilter::apply_size_overrides(std::vector<RobotDescription> &descriptions) const {
+void RobotFrontBackFilter::apply_known_geometry(std::vector<RobotDescription> &descriptions) const {
+    // Where each footprint sits relative to its pose. The pose is the reference point control
+    // tracks (our robot's axle); hazards are measured from the footprint centre.
+    for (auto &description : descriptions) {
+        const auto offset = footprint_center_offsets_.find(description.label);
+        if (offset != footprint_center_offsets_.end()) {
+            description.footprint_center_offset = offset->second;
+        }
+    }
+
     // Replace the detector's box with the robot's known dimensions, once, here: every consumer
     // downstream reads `size`, so overriding it is what keeps the keep-out, the drawn circle and
     // the marker cube from disagreeing about how big a robot is.
@@ -503,7 +513,8 @@ std::vector<MeasurementWithConfidence> RobotFrontBackFilter::build_valid_measure
 
         Transform tf_field_from_robot;
         bool pose_found = keypoint_converter_->get_pose_from_points(
-            front_keypoint_in_field, back_keypoint_in_field, tf_field_from_robot);
+            front_keypoint_in_field, back_keypoint_in_field, assignment.reference_offset_m,
+            tf_field_from_robot);
         diagnostics_logger_->debug(label_str, {{"pose_found", pose_found ? "true" : "false"}});
 
         if (!pose_found) continue;

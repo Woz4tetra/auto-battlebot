@@ -7,6 +7,7 @@
 #include "data_structures/field.hpp"
 #include "data_structures/pose.hpp"
 #include "data_structures/robot.hpp"
+#include "transform_utils.hpp"
 
 namespace auto_battlebot {
 
@@ -24,6 +25,19 @@ namespace auto_battlebot {
  */
 inline double half_diagonal(const Size &size) {
     return 0.5 * std::sqrt(size.x * size.x + size.y * size.y);
+}
+
+/** Where a robot at `pose` has its footprint centre, `offset` metres away in its body frame. The
+ *  yaw is the pose's. Hazard and clearance checks measure from here; control tracks the pose. */
+inline Pose2D footprint_center(const Pose2D &pose, const Position2D &offset) {
+    const double c = std::cos(pose.yaw);
+    const double s = std::sin(pose.yaw);
+    return Pose2D{pose.x + c * offset.x - s * offset.y, pose.y + s * offset.x + c * offset.y,
+                  pose.yaw};
+}
+
+inline Pose2D footprint_center(const RobotDescription &robot) {
+    return footprint_center(pose_to_pose2d(robot.pose), robot.footprint_center_offset);
 }
 
 /** Move `pose` to the nearest point outside every hazard, then back inside the field rectangle.

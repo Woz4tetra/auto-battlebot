@@ -16,6 +16,8 @@ namespace auto_battlebot {
 struct FrontBackAssignment {
     Eigen::Vector3d front = Eigen::Vector3d::Zero();
     Eigen::Vector3d back = Eigen::Vector3d::Zero();
+    /** The keypoints' Keypoint::reference_offset_m. */
+    double reference_offset_m = 0.0;
 };
 
 struct FrontBackKeypointConverterConfig {
@@ -46,11 +48,13 @@ class FrontBackKeypointConverter {
      * @brief Compute pose from front and back 3D points
      * @param front_point Front keypoint position
      * @param back_point Back keypoint position
+     * @param reference_offset_m The robot's reference point, this far ahead of the keypoints'
+     *        midpoint along the back-to-front direction (Keypoint::reference_offset_m)
      * @param out_transform Output transform (pose)
      * @return True if pose was successfully computed
      */
     bool get_pose_from_points(const Eigen::Vector3d &front_point, const Eigen::Vector3d &back_point,
-                              Transform &out_transform);
+                              double reference_offset_m, Transform &out_transform);
 
    private:
     FrontBackKeypointConverterConfig config_;

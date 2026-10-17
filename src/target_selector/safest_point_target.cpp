@@ -1,6 +1,7 @@
 #include "target_selector/safest_point_target.hpp"
 
 #include "enums/frame_id.hpp"
+#include "hazards/hazard_geometry.hpp"
 #include "target_selector/empty_circle_solver.hpp"
 #include "transform_utils.hpp"
 
@@ -28,7 +29,8 @@ std::optional<TargetSelection> SafestPointTarget::get_target(const RobotDescript
     std::optional<Pose2D> our_pose;
     for (const auto &robot : robots.descriptions) {
         if (robot.group == Group::THEIRS) {
-            opponents.push_back(pose_to_pose2d(robot.pose));
+            // Clearance from their body, not the point their pose tracks.
+            opponents.push_back(footprint_center(robot));
         } else if (robot.frame_id == FrameId::OUR_ROBOT_1) {
             our_pose = pose_to_pose2d(robot.pose);
         }

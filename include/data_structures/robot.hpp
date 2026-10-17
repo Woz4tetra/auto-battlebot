@@ -39,6 +39,11 @@ struct RobotDescription {
     /** Seconds from the track's last accepted measurement to the time this estimate was rendered.
      * 0 on a fresh frame. Filters that do not track it leave 0. */
     double measurement_age_s = 0.0;
+    /** Centre of the robot's footprint in its body frame (x forward, y left), in metres from
+     *  `pose`. `pose` is the point control tracks, our robot's axle; hazard and clearance checks
+     *  measure from the footprint centre instead, through footprint_center(). Set per label from
+     *  [robot_filter.footprint_center_offset_per_label]; zero where the pose is the centre. */
+    Position2D footprint_center_offset{};
 };
 
 struct RobotDescriptionsStamped {

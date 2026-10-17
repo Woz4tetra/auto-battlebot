@@ -158,6 +158,11 @@ class OpponentConfig:
     # reports every robot as 0.15 x 0.15 m, which is 0.106. Setting it larger models a house bot
     # the controller cannot see the true size of, and the sweep will report the scrapes.
     hazard_radius: float = 0.0
+    # The MuJoCo plant's contact shape for this obstacle: a box of [length, width, height] in m,
+    # length along the opponent's heading, turned with its yaw. Empty is a cylinder of
+    # hazard_radius. Read only when hazard_radius > 0, and only by plant = "mujoco": the kinematic
+    # plant and the clearance score always use the hazard_radius disc.
+    collision_box: list[float] = field(default_factory=list)
 
 
 @dataclass
@@ -192,6 +197,9 @@ class ViewerConfig:
     realtime: bool = True  # pace sim.dt to a human; False = free-run
     sprites_dir: str = "simulation/assets/sprites"
     background: str = "simulation/assets/cage/nhrl_cage_floor.png"
+    # Also open MuJoCo's 3D viewer on the plant's contact geometry (simulation/mujoco_window.py).
+    # Needs enable = true and [our_robot] plant = "mujoco"; ignored otherwise.
+    mujoco: bool = False
 
 
 @dataclass

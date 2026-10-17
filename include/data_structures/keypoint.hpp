@@ -23,6 +23,12 @@ struct Keypoint {
      *  constant. Projecting with the measured value removes the assumption that every robot
      *  stands exactly `keypoint_height_meters` tall. */
     double height_above_plane = std::numeric_limits<double>::quiet_NaN();
+    /** How far the robot's reference point sits ahead of its front/back keypoint midpoint, in
+     *  metres along its heading. The reference point is our robot's axle, the body origin the
+     *  MuJoCo plant and the RL policy use, and an opponent's footprint centre. Set by the model
+     *  that knows where its keypoints sit on the robot; 0 for models that place them symmetrically
+     *  about the reference point. */
+    double reference_offset_m = 0.0;
 };
 
 /** Detection box in original-image pixels. */

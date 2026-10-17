@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from typing import Protocol
 
+import numpy as np
 from config.kinematic import ObstacleConfig
 
 Pose = tuple[float, float, float]  # x, y, yaw in the field frame
@@ -27,6 +28,13 @@ class PlantInterface(Protocol):
     def upside_down(self) -> bool: ...  # chassis top faces the floor; the viewer draws the belly
 
     @property
+    def footprint_center_offset(self) -> tuple[float, float]:
+        """Centre of the robot's footprint in its body frame (x forward, y left), in metres from
+        the pose. Hazard clearance is scored from there, as the C++ side measures it
+        (RobotDescription::footprint_center_offset), and the viewer centres the sprite there."""
+        ...
+
+    @property
     def wall_hits(self) -> int: ...
 
     @property
@@ -35,12 +43,30 @@ class PlantInterface(Protocol):
     @property
     def min_hazard_clearance(self) -> float: ...
 
-    def set_moving_blocks(self, blocks: list[tuple[float, float, float]]) -> None:
-        """(x, y, radius) of each opponent that is also an obstacle, refreshed every tick."""
+    def set_moving_blocks(self, blocks: list[tuple[float, float, float, float]]) -> None:
+        """(x, y, yaw, radius) of each opponent that is also an obstacle, refreshed every tick."""
 
     def step(self, linear_cmd: float, angular_cmd: float, dt: float) -> None: ...
 
     def pose(self) -> Pose: ...
+
+    def collision_outlines(self) -> list[np.ndarray]:
+        """Top-down outline of each shape our robot collides with the moving blocks through, as
+        (N, 2) field-frame polygons for the viewer. Static blocks and arena walls are left out:
+        the viewer already draws those at their contact size."""
+        ...
+
+
+def footprint_center(pose: Pose, offset: tuple[float, float]) -> tuple[float, float]:
+    """Field-frame footprint centre of a robot at `pose`. Mirrors hazard_geometry.hpp."""
+    x, y, yaw = pose
+    c, s = math.cos(yaw), math.sin(yaw)
+    return x + c * offset[0] - s * offset[1], y + s * offset[0] + c * offset[1]
+
+
+def disc_outline(x: float, y: float, radius: float, points: int = 48) -> np.ndarray:
+    theta = np.linspace(0.0, 2.0 * math.pi, points, endpoint=False)
+    return np.stack([x + radius * np.cos(theta), y + radius * np.sin(theta)], axis=1)
 
 
 class HazardMonitor:
@@ -62,8 +88,10 @@ class HazardMonitor:
         self.fell_in = False
         self.min_clearance = float("inf")
 
-    def set_moving_blocks(self, blocks: list[tuple[float, float, float]]) -> None:
-        self._moving_blocks = [(x, y, r + self._robot_radius) for x, y, r in blocks]
+    def set_moving_blocks(self, blocks: list[tuple[float, float, float, float]]) -> None:
+        # Discs of hazard_radius whatever shape the plant collides with: clearance is scored
+        # against the keep-out disc the controller plans around.
+        self._moving_blocks = [(x, y, r + self._robot_radius) for x, y, _, r in blocks]
 
     def blocks(self) -> list[tuple[float, float, float]]:
         """Static and moving blocks, grown by the robot radius."""

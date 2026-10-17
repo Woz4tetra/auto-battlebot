@@ -1274,6 +1274,9 @@ keypoint_height_meters = 0.05
 [robot_filter.keypoint_height_meters_per_label]
 OPPONENT = 0.09
 
+[robot_filter.footprint_center_offset_per_label]
+MR_STABS_MK2 = [0.043, -0.01]
+
 [robot_filter.label_mapping]
 "OPPONENT" = ["THEIR_ROBOT_1"]
 
@@ -1300,6 +1303,11 @@ type = "NoopPublisher"
     EXPECT_DOUBLE_EQ(heights.height_for(Label::OPPONENT), 0.09);
     // Labels without a per-label entry fall back to the default.
     EXPECT_DOUBLE_EQ(heights.height_for(Label::HOUSE_BOT), 0.05);
+
+    const auto &offsets = filter_config->footprint_center_offset_per_label;
+    ASSERT_EQ(offsets.size(), 1u);
+    EXPECT_DOUBLE_EQ(offsets.at(Label::MR_STABS_MK2).x, 0.043);
+    EXPECT_DOUBLE_EQ(offsets.at(Label::MR_STABS_MK2).y, -0.01);
 }
 
 namespace {

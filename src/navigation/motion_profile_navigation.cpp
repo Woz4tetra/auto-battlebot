@@ -91,6 +91,7 @@ void MotionProfileNavigation::reset_state() {
     prev_angular_timestamp_ = 0.0;
     prev_speed_timestamp_ = 0.0;
     last_known_our_pose_.reset();
+    our_footprint_offset_ = Position2D{};
     last_measured_speed_ = 0.0;
     prev_mode_ = BehaviorMode::ATTACK;
 }
@@ -128,6 +129,7 @@ VelocityCommand MotionProfileNavigation::update(RobotDescriptionsStamped robots,
     if (our_robot_opt.has_value()) {
         our_pose = pose_to_pose2d(our_robot_opt->pose);
         last_known_our_pose_ = our_pose;
+        our_footprint_offset_ = our_robot_opt->footprint_center_offset;
         measured_speed = measure_forward_speed(*our_robot_opt, our_pose);
     } else if (last_known_our_pose_.has_value()) {
         our_pose = *last_known_our_pose_;
@@ -195,9 +197,12 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
     // Option 1 (a legal goal) then option 4 (steer around what blocks the run to it). The
     // tangent point is itself clamped, so a hazard hugging a wall cannot push the waypoint out
     // of the arena.
+    // Hazards and walls are cleared by the body, so they measure from the footprint centre; the
+    // profile itself drives the pose to the target.
+    const Pose2D our_body = footprint_center(our_pose, our_footprint_offset_);
     const Pose2D legal_target = clamp_to_field(target_pose, field);
     const Pose2D clamped_target =
-        clamp_to_field(hazards_.steer_around(our_pose, legal_target, field), field);
+        clamp_to_field(hazards_.steer_around(our_body, legal_target, field), field);
     const double dx = clamped_target.x - our_pose.x;
     const double dy = clamped_target.y - our_pose.y;
     const double distance = std::sqrt(dx * dx + dy * dy);
@@ -250,13 +255,13 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
         speed_integral_ = 0.0;
     }
 
-    apply_wall_reverse(our_pose, field, cmd);
+    apply_wall_reverse(our_body, field, cmd);
     // The velocity barrier gets the final say on linear_x, after the angle gate and the wall
     // reverse: it clips the approach-speed component toward every hazard to the plant's
     // stopping envelope against the MEASURED speed. Placement is the fix from the 2026-08-28
     // recording: a v_ref-side brake never reaches the plant while the angle gate holds the
     // channel at zero, and a blind wall reverse can back into a hole; both end here.
-    const auto barrier = hazards_.limit_command(our_pose, field, v_actual, cmd);
+    const auto barrier = hazards_.limit_command(our_body, field, v_actual, cmd);
 
     if (max_linear_command_ > 0.0) {
         cmd.linear_x = std::clamp(cmd.linear_x, -max_linear_command_, max_linear_command_);

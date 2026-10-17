@@ -5,6 +5,7 @@
 #include <cmath>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -44,6 +45,10 @@ struct YoloKeypointModelConfiguration : public KeypointModelConfiguration {
     LabelToKeypointMapConfiguration label_map;
     bool debug_visualization = false;
     std::vector<Label> label_indices;
+    /** Keypoint::reference_offset_m per detected label: how far the robot's reference point sits
+     *  ahead of where its front and back keypoints were labelled, in metres. Labels absent here
+     *  get 0, the keypoint midpoint. */
+    std::unordered_map<Label, double> reference_offset_m_per_label;
 
     YoloKeypointModelConfiguration() { type = "YoloKeypointModel"; }
 
@@ -54,6 +59,7 @@ struct YoloKeypointModelConfiguration : public KeypointModelConfiguration {
         letterbox_padding = parser.get_optional_double("letterbox_padding", letterbox_padding);
         image_size = parser.get_optional_int("image_size", image_size);
         label_map.parse(parser, "label_map");
+        parse_reference_offsets(parser);
         debug_visualization = parser.get_optional_bool("debug_visualization", debug_visualization);
         std::vector<std::string> label_indices_str =
             parser.get_optional_vector<std::string>("label_indices");
@@ -67,6 +73,26 @@ struct YoloKeypointModelConfiguration : public KeypointModelConfiguration {
         }
 
         parser.validate_no_extra_fields();
+    }
+
+    void parse_reference_offsets(ConfigParser &parser) {
+        const toml::table *table_ptr = parser.get_table("reference_offset_m_per_label");
+        if (!table_ptr) {
+            return;  // Optional; every label's reference point is its keypoint midpoint.
+        }
+        for (const auto &[key, value] : *table_ptr) {
+            const std::string label_str(key.str());
+            auto label_opt = magic_enum::enum_cast<Label>(label_str);
+            if (!label_opt.has_value()) {
+                throw ConfigValidationError("Invalid Label: " + label_str);
+            }
+            auto offset = value.value<double>();
+            if (!offset.has_value() || !std::isfinite(*offset)) {
+                throw ConfigValidationError("reference_offset_m_per_label['" + label_str +
+                                            "'] must be a number");
+            }
+            reference_offset_m_per_label[label_opt.value()] = *offset;
+        }
     }
 };
 

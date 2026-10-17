@@ -128,6 +128,9 @@ class PursuitNavigation : public NavigationInterface {
     double prev_angle_error_ = 0.0;
     double prev_timestamp_ = 0.0;
     std::optional<Pose2D> last_known_our_pose_;
+    /** Our footprint centre relative to that pose, held with it. Hazard and wall checks measure
+     *  from the footprint centre; the pursuit itself steers the pose. */
+    Position2D our_footprint_offset_;
     NavigationVisualization last_visualization_;
 };
 

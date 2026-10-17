@@ -87,10 +87,11 @@ enabled = false
 keypoint_height = 0.06
 
 # A random-walking Mrs Buff Mk3 at the middle of the training range (0.2 to 1.2 m/s). The
-# hazard_radius makes it a moving cylinder in the MuJoCo plant, so our robot hits it instead of
-# driving through: 0.168 m is its footprint's half-diagonal (0.2225 x 0.2535 m), the size the RL
-# environment's box opponent has. For a "go to X and stop" mission, set behavior = "static",
-# hazard_radius = 0 and start_pos to the goal (sim_stop_test.py does this).
+# hazard_radius makes it an obstacle our robot hits instead of driving through. In the MuJoCo
+# plant it is a box turned with the opponent's yaw, the RL environment's opponent
+# (warp_nav.OPP_SIZE_M, the Mk3's CAD footprint). The kinematic plant and the clearance score
+# use the 0.168 m disc, the footprint's half-diagonal. For a "go to X and stop" mission, set
+# behavior = "static", hazard_radius = 0 and start_pos to the goal (sim_stop_test.py does this).
 [[opponents]]
 behavior = "random_walk"
 start_pos = [0.3, 0.1]
@@ -100,6 +101,7 @@ sprite = "mrs_buff_mk3"
 radius = 0.5
 replay_csv = ""
 hazard_radius = 0.168
+collision_box = [0.2225, 0.2535, 0.0861]
 
 # The house bot, parked as in half the RL environment's worlds, at its 0.2083 m radius
 # (HOUSE_RADIUS_M). The C++ pairs expect it as the third ground-truth slot (NEUTRAL_ROBOT_1).
@@ -109,3 +111,7 @@ start_pos = [0.85, 0.75]
 heading_deg = 0.0
 sprite = "house_bot"
 hazard_radius = 0.2083
+
+[viewer]
+# MuJoCo's 3D viewer next to the OpenCV window, showing the contact geometry the plant steps.
+mujoco = false

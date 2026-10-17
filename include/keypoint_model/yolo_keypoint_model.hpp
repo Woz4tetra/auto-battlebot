@@ -7,6 +7,7 @@
 #include <opencv2/opencv.hpp>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "config/enum_map_config.hpp"
@@ -45,6 +46,7 @@ class YoloKeypointModel : public KeypointModelInterface {
     bool debug_visualization_;
     LabelToKeypointMapConfiguration label_map_;
     std::vector<Label> label_indices_;
+    std::unordered_map<Label, double> reference_offset_m_per_label_;
 
     TrtEngine engine_;
     GpuLetterbox letterbox_;

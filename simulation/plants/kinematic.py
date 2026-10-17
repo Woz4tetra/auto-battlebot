@@ -7,7 +7,7 @@ import math
 import numpy as np
 from config.kinematic import ObstacleConfig, PlantConfig
 
-from plants.base import HazardMonitor, Pose
+from plants.base import HazardMonitor, Pose, disc_outline
 
 # Internal integration substep. Mirrors auto_battlebot/control/plant.py. At the calibrated
 # 31.7 rad/s top yaw rate this is 0.06 rad of rotation per substep; a whole 33 ms tick is
@@ -42,6 +42,7 @@ class KinematicPlant:
         self._half_x = arena_w / 2.0 - cfg.radius
         self._half_y = arena_h / 2.0 - cfg.radius
         self._hazards = HazardMonitor(obstacles or [], cfg.radius)
+        self._moving_blocks: list[tuple[float, float, float, float]] = []
         self.wall_hits = 0
         self.block_hits = 0
 
@@ -58,9 +59,23 @@ class KinematicPlant:
         # Planar model: it has no roll or pitch to flip over with.
         return False
 
-    def set_moving_blocks(self, blocks: list[tuple[float, float, float]]) -> None:
+    @property
+    def footprint_center_offset(self) -> tuple[float, float]:
+        # The pose is the centre of the disc. The fits behind this plant tracked the keypoint
+        # midpoint, which sits within 2 mm of the footprint centre.
+        return 0.0, 0.0
+
+    def set_moving_blocks(self, blocks: list[tuple[float, float, float, float]]) -> None:
         # Same treatment as a static block: the chassis is pushed out and the clearance is scored.
         self._hazards.set_moving_blocks(blocks)
+        self._moving_blocks = blocks
+
+    def collision_outlines(self) -> list[np.ndarray]:
+        """A disc of [our_robot] radius against a disc of each block's hazard_radius: the
+        centre-clamp against blocks grown by our radius is the same contact."""
+        outlines = [disc_outline(self.x, self.y, self._cfg.radius)]
+        outlines += [disc_outline(x, y, r) for x, y, _, r in self._moving_blocks]
+        return outlines
 
     @staticmethod
     def _effective_command(cmd: float, dz_pos: float, dz_neg: float) -> float:

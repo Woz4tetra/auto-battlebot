@@ -112,6 +112,23 @@ TEST(HazardAssemblerTest, NeutralTrackBecomesATrackedHazardCarryingItsVelocity) 
                 expected_half_diagonal(0.3, 0.3) + expected_half_diagonal(0.3, 0.2) + 0.02, 1e-9);
 }
 
+TEST(HazardAssemblerTest, TrackedHazardSitsOnTheFootprintCentre) {
+    Fixture fixture;
+    HazardAssembler assembler(fixture.config, {}, fixture.clock);
+    RobotDescription bot = house_bot(0.4, 0.1);
+    // Facing +Y: a footprint 0.05 m ahead and 0.02 m to the left lands at (0.38, 0.15).
+    bot.pose.rotation.w = std::cos(M_PI / 4.0);
+    bot.pose.rotation.z = std::sin(M_PI / 4.0);
+    bot.footprint_center_offset = Position2D{0.05, 0.02};
+
+    FieldDescription field;
+    assembler.assemble(robots_with({our_robot(), bot}), field);
+
+    ASSERT_EQ(field.hazards.size(), 1u);
+    EXPECT_NEAR(field.hazards[0].center.x, 0.38, 1e-9);
+    EXPECT_NEAR(field.hazards[0].center.y, 0.15, 1e-9);
+}
+
 TEST(HazardAssemblerTest, OpponentsAreNotHazards) {
     // Opponents are what the solver already avoids as point sites. Turning them into keep-out
     // discs here would double-count them and make the field unreachable.

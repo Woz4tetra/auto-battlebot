@@ -60,6 +60,7 @@ bool PursuitNavigation::initialize() {
     prev_angle_error_ = 0.0;
     prev_timestamp_ = 0.0;
     last_known_our_pose_.reset();
+    our_footprint_offset_ = Position2D{};
     last_visualization_ = NavigationVisualization{};
     spdlog::info("PursuitNavigation initialized with lookahead_time={} s", lookahead_time_);
     return true;
@@ -78,6 +79,7 @@ VelocityCommand PursuitNavigation::update(RobotDescriptionsStamped robots, Field
     if (our_robot_opt.has_value()) {
         our_pose = pose_to_pose2d(our_robot_opt->pose);
         last_known_our_pose_ = our_pose;
+        our_footprint_offset_ = our_robot_opt->footprint_center_offset;
     } else if (last_known_our_pose_.has_value()) {
         our_pose = *last_known_our_pose_;
         pose_source = PoseSource::Cached;
@@ -146,8 +148,9 @@ VelocityCommand PursuitNavigation::compute_pursuit_command(const Pose2D &our_pos
     VelocityCommand cmd{0.0, 0.0, 0.0};
     cmd.angular_z = compute_angular_velocity(angle_error);
     cmd.linear_x = compute_linear_velocity(angle_error, distance, cmd.angular_z);
-    apply_wall_reverse(our_pose, field, cmd);
-    const bool hazard_reverse = hazards_.apply_reverse(our_pose, field, cmd);
+    const Pose2D our_body = footprint_center(our_pose, our_footprint_offset_);
+    apply_wall_reverse(our_body, field, cmd);
+    const bool hazard_reverse = hazards_.apply_reverse(our_body, field, cmd);
 
     if (max_linear_command_ > 0.0) {
         cmd.linear_x = std::clamp(cmd.linear_x, -max_linear_command_, max_linear_command_);

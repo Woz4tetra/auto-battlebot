@@ -426,4 +426,17 @@ TEST(HazardDisplayTest, AKnownSizeShrinksWhatALooseBoxWouldContribute) {
 }
 
 }  // namespace
+TEST(FootprintCenterTest, OffsetTurnsWithTheHeading) {
+    const Position2D offset{0.043, 0.01};
+    const Pose2D east = footprint_center(Pose2D{1.0, 2.0, 0.0}, offset);
+    EXPECT_NEAR(east.x, 1.043, 1e-12);
+    EXPECT_NEAR(east.y, 2.01, 1e-12);
+    EXPECT_NEAR(east.yaw, 0.0, 1e-12);
+
+    const Pose2D north = footprint_center(Pose2D{1.0, 2.0, M_PI / 2.0}, offset);
+    EXPECT_NEAR(north.x, 0.99, 1e-12);
+    EXPECT_NEAR(north.y, 2.043, 1e-12);
+    EXPECT_NEAR(north.yaw, M_PI / 2.0, 1e-12);
+}
+
 }  // namespace auto_battlebot

@@ -27,7 +27,7 @@ from auto_battlebot.mujoco_sim.checks import (
     simulated_lift_accel,
     simulated_top_speed,
 )
-from auto_battlebot.mujoco_sim.closed_loop import ClosedLoopSim, Disc, load_fit_params
+from auto_battlebot.mujoco_sim.closed_loop import ClosedLoopSim, Disc, MovingBlock, load_fit_params
 from auto_battlebot.mujoco_sim.firmware import (
     FirmwareMixer,
     FlipSwitch,
@@ -372,8 +372,10 @@ def test_closed_loop_walls_and_blocks_stop_the_robot(mp: mass_properties.MassPro
     assert sim.pose()[0] < 0.5
     assert sim.wall_contact and not sim.block_contact
 
-    sim = ClosedLoopSim(mp, None, PlantParams(), start=(0.0, 0.0, 0.0), moving_block_radii=[0.1])
-    sim.set_moving_blocks([(0.4, 0.0)])
+    sim = ClosedLoopSim(
+        mp, None, PlantParams(), start=(0.0, 0.0, 0.0), moving_blocks=[MovingBlock(0.1)]
+    )
+    sim.set_moving_blocks([(0.4, 0.0, 0.0)])
     _drive(sim, 0.5, 0.0, 1.0)
     assert sim.pose()[0] < 0.3
     assert sim.block_contact and not sim.wall_contact
@@ -383,6 +385,23 @@ def test_closed_loop_walls_and_blocks_stop_the_robot(mp: mass_properties.MassPro
     )
     _drive(sim, 0.5, 0.0, 1.0)
     assert sim.pose()[0] < 0.3 and sim.block_contact
+
+
+def test_closed_loop_box_block_turns_with_yaw(mp: mass_properties.MassProperties) -> None:
+    """A 0.04 x 0.6 m wall at x = 0.5, centred 0.25 m to the side. Square on, it spans the robot's
+    path; turned 90 deg, it is a thin bar along x that the robot drives past."""
+    for yaw, blocked in ((0.0, True), (math.pi / 2.0, False)):
+        sim = ClosedLoopSim(
+            mp,
+            None,
+            PlantParams(),
+            start=(0.0, 0.0, 0.0),
+            moving_blocks=[MovingBlock(0.3, box=(0.04, 0.6, 0.1))],
+        )
+        sim.set_moving_blocks([(0.5, 0.25, yaw)])
+        _drive(sim, 0.5, 0.0, 1.0)
+        assert sim.block_contact == blocked
+        assert (sim.pose()[0] < 0.5) == blocked
 
 
 def test_closed_loop_reports_upside_down(mp: mass_properties.MassProperties) -> None:
