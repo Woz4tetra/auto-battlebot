@@ -154,7 +154,7 @@ void EspNowTransmitter::send(VelocityCommand command) {
     reconnect_if_needed();
     if (!dongle_.is_open() || !enabled_) return;
 
-    // No slew limit: the firmware rate-limits the arbitrated output.
+    // No slew limit here or in the firmware.
     const auto channels = processor_->process(command);
     const espnow_protocol::CommandPayload payload{
         ++seq_,

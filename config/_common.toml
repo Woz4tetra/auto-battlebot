@@ -202,7 +202,7 @@ angular_channel = 1             # radio CH2
 trainer_enable_channel = 5      # radio CH6
 init_button_channel = 31        # disabled; no transmitter maps a button, reinit is a touchscreen action
 max_motor_rpm = 1500            # RPM
-max_motor_rpm_per_sec = 3000    # RPM/s
+max_motor_rpm_per_sec = 0       # RPM/s; 0 = off
 lifted_deadzone_percent = 5
 zero_deadzone_percent = 2
 reverse_angular_channel = true

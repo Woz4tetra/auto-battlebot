@@ -15,7 +15,8 @@ namespace espnow_protocol {
 const uint32_t COMMAND_STALE_MS = 60;
 
 // 3, not 5: at 250 Hz that is a 12 ms recovery instead of 20 ms. Re-enter the fast path sooner and
-// accept slightly more switching at the edge of range, which the firmware slew limiter absorbs.
+// accept slightly more switching at the edge of range. Both paths carry the same command, so a
+// switch steps the wheels only by what the command changed across the latency difference.
 const uint8_t FRESH_STREAK_REQUIRED = 3;
 
 // Well above COMMAND_STALE_MS. Silence this long re-baselines the sequence number (an app restart

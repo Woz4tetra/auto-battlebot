@@ -24,7 +24,7 @@ max_angular_command = 0.0         # 0 = no limit
 # The radio model mixes linear/angular into the motor outputs, so send body axes.
 drive_processor = "DifferentialDriveProcessor"
 max_motor_rpm = 1500                           # RPM
-max_motor_rpm_per_sec = 2000                   # RPM/s; caps linear accel at 8.5 m/s^2, 3247 RPM/s (slip/flip limit). 0 = off
+max_motor_rpm_per_sec = 0                      # RPM/s; off, nothing rate-limits the command on the way to the wheels
 lifted_deadzone_percent = 0
 zero_deadzone_percent = 2
 reverse_angular_channel = true

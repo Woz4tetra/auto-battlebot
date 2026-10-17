@@ -33,6 +33,15 @@ radio) and the arena measurements wait for it.
 Remaining: next steps 1 to 3 and 6 (CRSF baud, NHRL rules, ZED Box setup, the Phase 1 OTA tests and
 measurements), then Phases 2 and 3.
 
+2026-10-17: the firmware slew limiter ("New: linear slew limiter on the arbitrated output") is
+deleted, and the ZED Box profiles set `max_motor_rpm_per_sec = 0`. Nothing rate-limits the drive
+command on either transport, so the plant is characterized and the RL policy trained without
+one. The sections below that describe the limiter are history.
+
+2026-10-17: the `COMMAND_TIMEOUT` check (5 s of identical CRSF frames) is deleted. With the handset
+sticks idle it stopped the motors 5 s into any ESP-NOW drive. `isLinkUp()` is the only link
+failsafe now, which needs the Crossfire receiver's failsafe set to cut.
+
 ### Robot radio (2026-10-13)
 
 The robot's QT Py is the weak end of the link. Measured with both boards ~30 cm apart, chassis

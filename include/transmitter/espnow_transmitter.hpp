@@ -26,8 +26,8 @@ namespace auto_battlebot {
  *
  * Send-only for control. There is no handset channel input on this transport, so it reports no
  * command feedback, no init button, and no status; under CompositeTransmitter those come from the
- * OpenTX child. It applies no linear slew limit either: the firmware limits the arbitrated output,
- * the only place that knows which transport won.
+ * OpenTX child. It applies no linear slew limit, and neither does the firmware: commands reach the
+ * wheels unlimited.
  *
  * ESP-NOW carries no arm authority. The firmware substitutes the two channel values only after
  * every CRSF gate passes and only while SA (ch5) enables autonomy, and falls back to the trainer

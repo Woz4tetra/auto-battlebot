@@ -58,7 +58,7 @@ struct CommandPayload {
 struct TelemetryPayload {
     uint32_t timestamp_ms;
     uint32_t loop_us;
-    float a_percent;  // arbitrated drive command, after the flip and the slew limiter
+    float a_percent;  // arbitrated drive command, after the flip
     float b_percent;
     float left_cmd;
     float right_cmd;

@@ -27,8 +27,8 @@ REGISTER_CONFIG(TransmitterConfiguration, CompositeTransmitterConfiguration, "Co
 namespace {
 
 // The ESP-NOW child and the OpenTX child each run their own drive processor over the same
-// command. If their settings differ the two transports disagree by a fixed offset, which the
-// firmware slew limiter cannot correct (it limits rate, not value), so refuse it at parse time.
+// command. If their settings differ the two transports disagree by a fixed offset, so refuse it
+// at parse time.
 void check_processor_settings_match(const OpenTxTransmitterConfiguration &opentx,
                                     const EspNowTransmitterConfiguration &espnow) {
     const auto mismatch = [](const std::string &field) {

@@ -43,7 +43,7 @@ The gains come from the closed-loop sim in `auto_battlebot/mujoco_sim`, whose
 | Board | Adafruit QT Py ESP32-S3 (4MB Flash, 2MB PSRAM) |
 | Left ESC | Pin A2, DShot300 via RMT channel 0 |
 | Right ESC | Pin A3, DShot300 via RMT channel 1 |
-| Radio RX | Crossfire Nano, UART on pins 17 (TX) / 18 (RX) |
+| Radio RX | Crossfire Nano, UART on pins 17 (TX) / 18 (RX). Failsafe must be set to cut (no pulses): the firmware's only link failsafe is the CRSF channel timeout |
 | Accelerometer | ADXL375, I2C |
 | Pack voltage and current | Matek I2C-INA-BM (INA228) at 0x45, on the BNO055's I2C bus (`Wire1`) |
 

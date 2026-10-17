@@ -77,10 +77,10 @@ struct OpenTxTransmitterConfiguration : public TransmitterConfiguration {
     double zero_deadzone_percent = 0.0;
     double max_motor_rpm = 1500.0;  // Max output shaft RPM
     /** Max output-shaft angular acceleration (RPM/s). Slew-limits the linear command so the wheel
-     *  surface acceleration stays below the slip/flip threshold. Derivation from the measured
-     *  8.5 m/s^2 limit: dRPM/dt = a * 60 / (pi * wheel_diameter) = 8.5 * 60 / (pi * 0.05)
-     *  ~= 3247 RPM/s. 0 = disabled (no acceleration limit). */
-    double max_motor_rpm_per_sec = 3247.0;
+     *  surface acceleration stays below the slip/flip threshold: the measured 8.5 m/s^2 limit is
+     *  8.5 * 60 / (pi * 0.05) ~= 3247 RPM/s. 0 = disabled, the default: no profile limits, so the
+     *  plant is characterized and the RL policy trained without one. */
+    double max_motor_rpm_per_sec = 0.0;
 
     /** Combined output budget: |linear| + |angular| <= limit.
      *  Angular takes priority; linear fills remaining headroom.
@@ -157,8 +157,8 @@ struct EspNowTransmitterConfiguration : public TransmitterConfiguration {
     std::string drive_processor = "DifferentialDriveProcessor";
 
     /** These six, drive_processor included, must match the OpenTX child of the same
-     * CompositeTransmitter, or the two transports disagree by a fixed offset the firmware slew
-     * limiter cannot correct. CompositeTransmitterConfiguration checks it at parse time. */
+     * CompositeTransmitter, or the two transports disagree by a fixed offset.
+     * CompositeTransmitterConfiguration checks it at parse time. */
     double velocity_saturation_limit = 1.0;
     double zero_deadzone_percent = 0.0;
     double lifted_deadzone_percent = 0.0;

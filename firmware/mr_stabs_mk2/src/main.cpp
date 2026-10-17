@@ -77,28 +77,10 @@ espnow_link::EspNowLink espnow;
 const bool ESPNOW_ENABLED = false;
 
 // Phase 1 of the plan is shadow mode: the robot receives and reports ESP-NOW commands but keeps
-// driving from the trainer channels. Phase 3 sets this true, which turns on both the command
-// substitution and the slew limiter on the arbitrated output.
+// driving from the trainer channels. Phase 3 sets this true, which drives from the ESP-NOW
+// commands. Nothing rate-limits the arbitrated output: a source switch, an ESP-NOW dropout, or an
+// orientation flip steps the wheels in one tick.
 const bool ESPNOW_COMMAND_SUBSTITUTION = false;
-
-// Slew-limit the arbitrated linear command so a source switch, an ESP-NOW dropout, or an
-// orientation flip cannot step the wheels past the slip threshold. Same rate the Jetson applies
-// (include/transmitter/config.hpp: max_motor_rpm_per_sec / max_motor_rpm = 3247 / 1500), so it is
-// a no-op while the trainer path drives.
-const float MAX_A_PERCENT_PER_SEC = 216.5f;
-float limited_a_percent = 0.0f;
-
-float limit_a_percent(float requested, float dt) {
-    const float max_delta = MAX_A_PERCENT_PER_SEC * dt;
-    limited_a_percent =
-        constrain(requested, limited_a_percent - max_delta, limited_a_percent + max_delta);
-    return limited_a_percent;
-}
-
-// Command-timeout failsafe
-crsf_bridge::radio_data_t *prev_radio_data;
-uint32_t command_timer = 0;
-const uint32_t COMMAND_TIMEOUT = 5000;  // ms of identical radio frames before failsafe stop
 
 void set_builtin_led(int value) {
     pixels.fill(pixels.Color(value, 0, 0));
@@ -134,8 +116,6 @@ void stop_escs() {
     left_esc->stop();
     right_esc->stop();
     set_led_intensity(0);
-    // Re-arming always ramps from standstill.
-    limited_a_percent = 0.0f;
 }
 
 // Publishes one tick of diagnostics to the WiFi dashboard and, at 100 Hz, to the telemetry ring
@@ -252,25 +232,6 @@ void reset_steering(float sensed_angle_z) {
     yaw_loop_active = false;
 }
 
-bool compare_radio_data(const crsf_bridge::radio_data_t *data1,
-                        const crsf_bridge::radio_data_t *data2) {
-    return (data1->a_percent == data2->a_percent) && (data1->b_percent == data2->b_percent) &&
-           (data1->armed == data2->armed) && (data1->connected == data2->connected) &&
-           (data1->button_state == data2->button_state) &&
-           (data1->autonomy_enabled == data2->autonomy_enabled) &&
-           (data1->flip_switch_state == data2->flip_switch_state);
-}
-
-void copy_radio_data(const crsf_bridge::radio_data_t *src, crsf_bridge::radio_data_t *dest) {
-    dest->a_percent = src->a_percent;
-    dest->b_percent = src->b_percent;
-    dest->armed = src->armed;
-    dest->connected = src->connected;
-    dest->button_state = src->button_state;
-    dest->autonomy_enabled = src->autonomy_enabled;
-    dest->flip_switch_state = src->flip_switch_state;
-}
-
 void mix_motor_outputs(crsf_bridge::radio_data_t *radio_data, float sensed_angle_z,
                        bool auto_steer_enabled, bool is_upside_down, uint32_t now_us,
                        float &left_command, float &right_command) {
@@ -361,8 +322,6 @@ void setup() {
     set_builtin_led(255);
 
     radio_data = (crsf_bridge::radio_data_t *)malloc(sizeof(crsf_bridge::radio_data_t));
-    prev_radio_data = (crsf_bridge::radio_data_t *)malloc(sizeof(crsf_bridge::radio_data_t));
-    command_timer = millis();
     crsf = new crsf_bridge::CrsfBridge();
     crsf->begin();
 
@@ -432,6 +391,9 @@ void loop() {
         rainbow_tick = (rainbow_tick + 1) % 255;
     }
 
+    // The only link failsafe: isLinkUp() drops 300 ms after the last channel packet. That catches
+    // a lost handset only while the receiver's failsafe is set to send nothing; a receiver set to
+    // hold its last frame keeps the robot armed on stale values.
     if (!radio_ok) {
         stop_escs();
         reset_steering(accel->get_orientation()->x);
@@ -446,46 +408,6 @@ void loop() {
             .b_percent = 0,
             .button_state = false,
             .flip_switch = 0,
-            .left_cmd = 0,
-            .right_cmd = 0,
-            .accel_x = av ? av->x : 0,
-            .accel_y = av ? av->y : 0,
-            .accel_z = av ? av->z : 0,
-            .is_upside_down = false,
-            .loop_us = loop_us,
-            .wifi_clients = wifi.station_count(),
-            .orientation_x = ori ? ori->x : 0,
-            .orientation_y = ori ? ori->y : 0,
-            .orientation_z = ori ? ori->z : 0,
-            .pid_setpoint = yaw_controller->setpoint(),
-            .pid_output = steer_output,
-            .vbat = vbat,
-            .ibat = ibat,
-            .yaw_rate = accel->get_yaw_rate(),
-            .yaw_rate_cmd = yaw_loop_active ? yaw_controller->rate_command() : NAN,
-        };
-        publish_diag(diag, radio_data->autonomy_enabled, false, now_ms);
-        return;
-    }
-
-    // Failsafe: if the radio frame has not changed for COMMAND_TIMEOUT, treat the link as stale
-    if (!compare_radio_data(radio_data, prev_radio_data)) {
-        command_timer = now_ms;
-        copy_radio_data(radio_data, prev_radio_data);
-    } else if (now_ms - command_timer > COMMAND_TIMEOUT) {
-        stop_escs();
-        reset_steering(accel->get_orientation()->x);
-
-        updown_sensor::vector3_t *av = accel->get();
-        updown_sensor::vector3_t *ori = accel->get_orientation();
-        diag_data_t diag = {
-            .timestamp_ms = millis(),
-            .radio_connected = true,
-            .armed = radio_data->armed,
-            .a_percent = radio_data->a_percent,
-            .b_percent = radio_data->b_percent,
-            .button_state = radio_data->button_state,
-            .flip_switch = (uint8_t)radio_data->flip_switch_state,
             .left_cmd = 0,
             .right_cmd = 0,
             .accel_x = av ? av->x : 0,
@@ -579,11 +501,6 @@ void loop() {
     }
 
     if (is_upside_down) radio_data->a_percent *= -1;
-    // After the inversion, so a genuine flip ramps instead of reversing full scale in one tick.
-    // Manual mode keeps unlimited stick authority, matching the Jetson-side limiter's gate.
-    if (ESPNOW_ENABLED && ESPNOW_COMMAND_SUBSTITUTION && radio_data->autonomy_enabled) {
-        radio_data->a_percent = limit_a_percent(radio_data->a_percent, loop_us / 1000000.0f);
-    }
 
     float sensed_angle_z = orientation->x;
 
