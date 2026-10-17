@@ -462,3 +462,53 @@ def test_still_penalty_exempts_only_wedge_pushing() -> None:
     assert out["pinned"][0] == pytest.approx(1.0, abs=0.03)
     assert out["pinned"][1] == 2  # the first touch, then 0.5 s later
     assert out["apart"][0] == pytest.approx(1.0, abs=0.03)
+
+
+def _pursuers(level: float) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    from auto_battlebot.rl.envs.opponents import PURSUIT, Opponents
+
+    gen = torch.Generator().manual_seed(4)
+    opp = Opponents(2048, torch.device("cpu"), torch.float32, gen)
+    opp.pursuit_level = level
+    ones = torch.ones(2048)
+    opp.reset(torch.ones(2048, dtype=torch.bool), (PURSUIT,), ones, holdout=False)
+    p = opp.p
+    return p.speed, p.turn_rate, p.delay_steps.float() * 0.02
+
+
+def test_pursuit_level_scales_pursuer_draws() -> None:
+    """Pursuit level 0 draws only the easiest pursuer; level 1 reaches the hard end of each range,
+    with the delay shrinking as the pursuer gets harder."""
+    from auto_battlebot.rl.envs.opponents import PURSUIT, PURSUIT_EASY, PURSUIT_HARD, Opponents
+
+    n = 4096
+    mask = torch.ones(n, dtype=torch.bool)
+    ones = torch.ones(n, dtype=torch.float64)
+    opp = Opponents(n, torch.device("cpu"), torch.float64, torch.Generator().manual_seed(0))
+    opp.pursuit_level = 0.0
+    opp.reset(mask, (PURSUIT,), ones, holdout=False)
+    assert torch.allclose(opp.p.speed, torch.full_like(opp.p.speed, PURSUIT_EASY[0]))
+    assert torch.allclose(opp.p.turn_rate, torch.full_like(opp.p.turn_rate, PURSUIT_EASY[1]))
+    assert bool((opp.p.delay_steps == round(PURSUIT_EASY[2] / 0.02)).all())
+
+    opp.pursuit_level = 1.0
+    opp.reset(mask, (PURSUIT,), ones, holdout=False)
+    assert float(opp.p.speed.max()) > 0.95 * PURSUIT_HARD[0]
+    assert float(opp.p.turn_rate.max()) > 0.95 * PURSUIT_HARD[1]
+    assert int(opp.p.delay_steps.min()) <= round(0.07 / 0.02)
+
+
+def test_flank_potential_rewards_side_and_rear_up_close() -> None:
+    """0 in front of the opponent or far away, 1 behind it at its centre, rising with bearing."""
+    from auto_battlebot.rl.envs.warp_nav import FLANK_RANGE_M, flank_potential
+
+    arc = math.radians(60.0)
+    yaw = torch.zeros(4, dtype=torch.float64)
+    rel = torch.tensor(
+        [[0.3, 0.0], [0.0, 0.3], [-0.3, 0.0], [-FLANK_RANGE_M - 0.1, 0.0]], dtype=torch.float64
+    )
+    front, side, rear, far = flank_potential(rel, yaw, arc).tolist()
+    assert front == 0.0
+    assert far == 0.0
+    assert side == pytest.approx(1.0 - 0.3 / FLANK_RANGE_M)
+    assert rear == pytest.approx(side)

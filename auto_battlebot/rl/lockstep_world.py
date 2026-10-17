@@ -38,6 +38,7 @@ from auto_battlebot.rl.envs.opponents import OpponentParams, Opponents
 from auto_battlebot.rl.envs.replay_tracks import ReplayTracks
 from auto_battlebot.rl.envs.warp_nav import (
     BLOCK_MOCAPS,
+    FLANK_RANGE_M,
     HOUSE_MOCAP,
     HOUSE_RADIUS_M,
     OPP_MOCAP,
@@ -391,7 +392,13 @@ class LockstepWorld:
         us = np.array(xy)
         if self.score.run_away > 0.5:
             return min(float(np.linalg.norm(us - (o + self.cfg.stage_offset_m * heading))), 1.5)
-        return float(-np.linalg.norm(us - (o - self.cfg.stage_offset_m * heading)))
+        rel = us - o
+        phi = abs(math.remainder(math.atan2(rel[1], rel[0]) - opp[2], 2 * math.pi))
+        u = min(max((phi - 0.5 * self.arc) / (0.5 * math.pi - 0.5 * self.arc), 0.0), 1.0)
+        near = min(max(1.0 - float(np.linalg.norm(rel)) / FLANK_RANGE_M, 0.0), 1.0)
+        flank = u * u * (3.0 - 2.0 * u) * near
+        behind = -float(np.linalg.norm(us - (o - self.cfg.stage_offset_m * heading)))
+        return behind + self.cfg.reward["flank"] * flank
 
     def _score(self, f: np.ndarray, phi0: float, dt: float) -> None:
         cfg, s = self.cfg, self.score

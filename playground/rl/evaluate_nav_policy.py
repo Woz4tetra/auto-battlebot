@@ -7,7 +7,11 @@ first episode is the exported scenario of the same index.
 
 `report` puts any mix of Warp results and lockstep result files side by side, overall and per
 opponent behaviour, with the G4 agreement (Warp against lockstep for the same policy) and the
-G5 comparison (the policy against `MotionProfileNavigation`).
+G5 comparison (the policy against `MotionProfileNavigation`). Its pursuit section splits attack
+episodes against a pursuer by the pursuer's top speed and counts the grid cells beaten (at least
+as many strikes as hits taken, a strike in half the episodes or more). Lockstep rows carry no
+pursuer parameters, so pass the scenario file they ran with `--scenarios`. For the pursuit gate,
+export the pursuit grid with `lockstep_eval.py export --pursuit-grid 4` and score that.
 
     source scripts/activate_python.sh
     python playground/rl/evaluate_nav_policy.py warp runs/rl_nav/<run>/checkpoint.pt \\
@@ -106,8 +110,63 @@ def table(rows: list[dict[str, Any]]) -> dict[str, float]:
     return result
 
 
-def report(paths: list[Path]) -> None:
+SPEED_BINS = ((0.0, 1.21, "0.8-1.2 m/s"), (1.21, 2.01, "1.6-2.0 m/s"), (2.01, 9.0, "2.5 m/s"))
+
+
+def attach_pursuit(rows: list[dict[str, Any]], scenarios: list[dict[str, Any]]) -> None:
+    by_index = {i: s["opp_params"] for i, s in enumerate(scenarios)}
+    for r in rows:
+        p = by_index.get(int(r["index"]))
+        if p is None or "opp_speed" in r:
+            continue
+        r["opp_speed"] = float(p["speed"])
+        r["opp_turn_rate"] = float(p["turn_rate"])
+        r["opp_delay_s"] = float(p["delay_steps"]) * 0.02
+
+
+def pursuit_section(sets: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
+    print("\npursuit attack episodes by top speed: hits per hit taken (strikes, hits taken) n")
+    out: dict[str, Any] = {}
+    for name, rows in sets.items():
+        chased = [
+            r
+            for r in rows
+            if int(r.get("behaviour", -1)) == BEHAVIOURS.index("pursuit")
+            and r.get("run_away", 0.0) < 0.5
+            and "opp_speed" in r
+        ]
+        if not chased:
+            continue
+        cells: dict[tuple[float, float, float], list[dict[str, Any]]] = {}
+        for r in chased:
+            key = (round(r["opp_speed"], 1), round(r["opp_turn_rate"], 1), r["opp_delay_s"])
+            cells.setdefault(key, []).append(r)
+        beaten = sum(
+            sum(r["strikes"] for r in c) >= sum(r["hits_taken"] for r in c)
+            and sum(r["strikes"] > 0 for r in c) >= 0.5 * len(c)
+            for c in cells.values()
+        )
+        parts = []
+        out[name] = {"cells": len(cells), "cells_beaten": beaten}
+        for lo, hi, label in (*SPEED_BINS, (0.0, 9.0, "all")):
+            t = table([r for r in chased if lo <= r["opp_speed"] < hi])
+            if t:
+                out[name][label] = t
+                parts.append(
+                    f"{label}: {t['hits_per_hit_taken']:.2f} ({t['strikes_per_episode']:.2f}, "
+                    f"{t['hits_taken_per_episode']:.2f}) {int(t['episodes'])}"
+                )
+        print(f"  {name:32s} " + " | ".join(parts))
+        print(f"  {'':32s} cells beaten: {beaten} of {len(cells)}")
+    return out
+
+
+def report(paths: list[Path], scenarios: Path | None = None) -> None:
     sets = {p.stem: load(p) for p in paths}
+    if scenarios is not None:
+        scenario_rows = json.loads(scenarios.read_text())
+        for rows in sets.values():
+            attach_pursuit(rows, scenario_rows)
     common = set.intersection(*(set(int(r["index"]) for r in rows) for rows in sets.values()))
     print(f"{len(common)} scenarios scored by every source")
     out: dict[str, Any] = {}
@@ -158,6 +217,9 @@ def report(paths: list[Path]) -> None:
                 f"  {name:32s} {r['hits_taken_per_episode']:.3f} {r['holes_per_episode']:.3f} "
                 f"{r['flips_per_episode']:.3f} n={int(r['episodes'])}"
             )
+    out["pursuit"] = pursuit_section(
+        {n: [r for r in rows if int(r["index"]) in common] for n, rows in sets.items()}
+    )
     Path(paths[0]).with_name("report.json").write_text(json.dumps(out, indent=2))
 
 
@@ -172,11 +234,12 @@ def main() -> None:
     w.add_argument("--out", type=Path, default=REPO / "playground/rl/out/warp_rl.json")
     r = sub.add_parser("report")
     r.add_argument("paths", type=Path, nargs="+")
+    r.add_argument("--scenarios", type=Path, default=None, help="pursuer parameters per index")
     args = ap.parse_args()
     if args.cmd == "warp":
         warp(args.checkpoint, args.count, args.seed, args.out, args.episode_s)
     else:
-        report(args.paths)
+        report(args.paths, args.scenarios)
 
 
 if __name__ == "__main__":

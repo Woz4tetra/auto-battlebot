@@ -9,6 +9,11 @@ model bundle (plan section 12) written at the end.
     source scripts/activate_python.sh
     python training/rl/train_nav_policy.py --hours 3
     python training/rl/train_nav_policy.py --resume runs/rl_nav/<run>/checkpoint.pt --hours 2
+
+`--pursuit-curriculum` starts the pursuers at `--pursuit-level` (0 is the easiest pursuer,
+1 the whole range) and raises the level by 0.1 each time the last 500 or more attack episodes
+against a pursuer since the last raise strike in at least `--pursuit-advance-at` of them. Use it
+with stage P, which gives pursuit half the episodes.
 """
 
 from __future__ import annotations
@@ -29,6 +34,43 @@ from auto_battlebot.rl.policies.mlp import MlpGaussianPolicy
 REPO = Path(__file__).resolve().parents[2]
 ORDER = ["A", "B", "C", "D"]
 CHOICES = list(STAGES)
+
+
+def restore(
+    learner: Ppo, policy: MlpGaussianPolicy, resume: dict | None, reset_log_std: float | None
+) -> None:
+    if resume is None:
+        return
+    learner.load_state_dict(resume["learner"])
+    if reset_log_std is not None:
+        with torch.no_grad():
+            policy.log_std.fill_(reset_log_std)
+
+
+def configure_pursuit(env: WarpNavEnv, args: argparse.Namespace, resume: dict | None) -> None:
+    if args.pursuit_max_speed is not None:
+        hard = env.opponents.pursuit_hard
+        env.opponents.pursuit_hard = (args.pursuit_max_speed, hard[1], hard[2])
+    level = args.pursuit_level
+    if level is None:
+        level = resume.get("pursuit_level", 1.0) if resume is not None else 1.0
+    if args.pursuit_curriculum and args.pursuit_level is None and resume is None:
+        level = 0.0
+    env.opponents.pursuit_level = level
+
+
+def raise_pursuit_level(env: WarpNavEnv, advance_at: float, env_steps: int) -> None:
+    if env.opponents.pursuit_level >= 1.0 or len(env.pursuit_window) < 500:
+        return
+    if env.pursuit_success_rate < advance_at:
+        return
+    env.opponents.pursuit_level = min(1.0, round(env.opponents.pursuit_level + 0.1, 3))
+    print(
+        f"pursuit level -> {env.opponents.pursuit_level:.1f} at {env_steps:,} env steps "
+        f"(success {env.pursuit_success_rate:.3f})",
+        flush=True,
+    )
+    env.pursuit_window = []
 
 
 def main() -> None:
@@ -60,6 +102,21 @@ def main() -> None:
         help="after --resume, set the policy's action log-std (exploration) to this; a long run "
         "shrinks it to almost nothing, and fine-tuning on a changed reward needs it back",
     )
+    ap.add_argument(
+        "--min-log-std",
+        type=float,
+        default=None,
+        help="floor on the policy's action log-std, so exploration cannot collapse",
+    )
+    ap.add_argument("--pursuit-curriculum", action="store_true")
+    ap.add_argument("--pursuit-level", type=float, default=None, help="start level, 0 to 1")
+    ap.add_argument("--pursuit-advance-at", type=float, default=0.5)
+    ap.add_argument(
+        "--pursuit-max-speed",
+        type=float,
+        default=None,
+        help="top speed of the hardest pursuer drawn (the beatable edge from pursuit_map.py)",
+    )
     ap.add_argument("--checkpoint-every-s", type=float, default=600.0)
     ap.add_argument("--out", type=Path, default=REPO / "runs" / "rl_nav")
     args = ap.parse_args()
@@ -78,12 +135,11 @@ def main() -> None:
         seed=args.seed,
     )
     policy = MlpGaussianPolicy(env.spec)
+    if args.min_log_std is not None:
+        policy.cfg.min_log_std = args.min_log_std
+    configure_pursuit(env, args, resume)
     learner = Ppo(policy, env, PpoConfig(), seed=args.seed)
-    if resume is not None:
-        learner.load_state_dict(resume["learner"])
-        if args.reset_log_std is not None:
-            with torch.no_grad():
-                policy.log_std.fill_(args.reset_log_std)
+    restore(learner, policy, resume, args.reset_log_std)
     (out / "config.json").write_text(
         json.dumps(
             {**vars(args), "resume": str(args.resume), "stage": stage}, default=str, indent=2
@@ -97,7 +153,12 @@ def main() -> None:
 
     def save(path: Path) -> None:
         torch.save(
-            {"learner": learner.state_dict(), "stage": env.stage, "env_steps": learner.env_steps},
+            {
+                "learner": learner.state_dict(),
+                "stage": env.stage,
+                "env_steps": learner.env_steps,
+                "pursuit_level": env.opponents.pursuit_level,
+            },
             path,
         )
 
@@ -109,6 +170,8 @@ def main() -> None:
             "wall_s": time.time() - start,
             "stage": env.stage,
             "success": env.success_rate,
+            "pursuit_success": env.pursuit_success_rate,
+            "pursuit_level": env.opponents.pursuit_level,
             **stats,
         }
         log.write(json.dumps(row) + "\n")
@@ -128,6 +191,7 @@ def main() -> None:
             )
             print(
                 f"[{row['wall_s']:7.0f}s] {env.stage} it {it} success={env.success_rate:.3f} "
+                f"pursuit={env.pursuit_success_rate:.3f}@{env.opponents.pursuit_level:.1f} "
                 + " ".join(f"{k}={stats.get(k, float('nan')):.4g}" for k in keys),
                 flush=True,
             )
@@ -144,6 +208,8 @@ def main() -> None:
             env.set_stage(nxt)
             env.success_window = []
             stage_start = learner.env_steps
+        if args.pursuit_curriculum:
+            raise_pursuit_level(env, args.pursuit_advance_at, learner.env_steps)
         if time.time() - last_ckpt >= args.checkpoint_every_s:
             save(out / "checkpoint.pt")
             last_ckpt = time.time()

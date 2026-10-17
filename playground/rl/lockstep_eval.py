@@ -49,11 +49,23 @@ max_angular_command = 1.0
 """
 
 
-def export(count: int, seed: int, out: Path, episode_s: float) -> None:
+def export(count: int, seed: int, out: Path, episode_s: float, pursuit_grid: int) -> None:
+    """`pursuit_grid` > 0 exports that many pursuit-only attack episodes per cell of
+    `PURSUIT_GRID` instead of the `EVAL` mix."""
+    import torch
+
+    from auto_battlebot.rl.envs.opponents import PURSUIT_GRID
     from auto_battlebot.rl.envs.warp_nav import WarpNavConfig, WarpNavEnv
 
-    cfg = WarpNavConfig(worlds=count, stage="EVAL", holdout=True, episode_s=episode_s)
+    if pursuit_grid > 0:
+        count = len(PURSUIT_GRID) * pursuit_grid
+        cfg = WarpNavConfig(worlds=count, stage="PURSUIT", episode_s=episode_s)
+    else:
+        cfg = WarpNavConfig(worlds=count, stage="EVAL", holdout=True, episode_s=episode_s)
     env = WarpNavEnv(cfg, "cuda", seed=seed)
+    if pursuit_grid > 0:
+        grid = torch.tensor(PURSUIT_GRID, device="cuda", dtype=torch.float32)
+        env.opponents.pursuit_fixed = grid.repeat_interleave(pursuit_grid, 0)
     env.reset(seed)
     scenarios = env.export_scenarios()
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -229,6 +241,12 @@ def main() -> None:
     e.add_argument("--count", type=int, default=128)
     e.add_argument("--seed", type=int, default=2026)
     e.add_argument("--out", type=Path, default=REPO / "playground/rl/out/scenarios.json")
+    e.add_argument(
+        "--pursuit-grid",
+        type=int,
+        default=0,
+        help="episodes per pursuit grid cell; exports the pursuit evaluation set instead",
+    )
     e.add_argument("--episode-s", type=float, default=20.0, help="time limit per episode")
     r = sub.add_parser("run")
     r.add_argument("scenarios", type=Path)
@@ -243,7 +261,7 @@ def main() -> None:
     )
     args = ap.parse_args()
     if args.cmd == "export":
-        export(args.count, args.seed, args.out, args.episode_s)
+        export(args.count, args.seed, args.out, args.episode_s, args.pursuit_grid)
     else:
         out = args.out or args.scenarios.parent / f"lockstep_{args.nav}.jsonl"
         run(

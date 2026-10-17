@@ -57,7 +57,14 @@ from auto_battlebot.perception.sensing_model import (
 )
 from auto_battlebot.rl import obs_spec
 from auto_battlebot.rl.env import SOURCES, EnvSpec, Step
-from auto_battlebot.rl.envs.opponents import BEHAVIOURS, REPLAY, Opponents
+from auto_battlebot.rl.envs.opponents import (
+    BEHAVIOURS,
+    OUR_HALF_EXTENT_M,
+    PURSUIT,
+    REPLAY,
+    Opponents,
+    box_support,
+)
 from auto_battlebot.rl.envs.replay_tracks import ReplayTracks
 from auto_battlebot.rl.torch_plant import saturate
 
@@ -108,10 +115,17 @@ STAGES = {
         0.5,
     ),
     "D": Stage(BEHAVIOURS, 3, False, True, 1.0, (1.5, 2.5), 0.2, 0.5),
+    # Pursuit focus: stage D with half the episodes against a pursuer, so the rest of the mix is
+    # still trained while pursuit gets enough episodes to learn from. Pair with the pursuit
+    # difficulty curriculum in train_nav_policy.py.
+    "P": Stage((*BEHAVIOURS, *("pursuit",) * 5), 3, False, True, 1.0, (1.5, 2.5), 0.2, 0.5),
     # Evaluation (gates G4, G5): stage D's mix on the nominal plant, so the lockstep sim, which
     # runs the fit as it is, plays the same robot. Pair with `holdout=True` for the held-out
     # pursuit corner and replay tracks.
     "EVAL": Stage(BEHAVIOURS, 3, False, True, 0.0, (1.5, 2.5), 0.2, 0.5),
+    # Pursuit only, attack only, open arena, nominal plant: the pursuit difficulty map and the
+    # pursuit evaluation set (playground/rl/pursuit_map.py).
+    "PURSUIT": Stage(("pursuit",), 0, True, True, 0.0, (1.5, 2.5), 0.0, 0.0),
     # Diagnostics for a stalled stage C: stage B's opponents and hazards with sensing on, and
     # stage C's opponents and hazards with sensing off.
     "DIAG_SENSE": Stage(STAGE_B_OPPONENTS, 1, True, True, 0.5, (1.5, 2.5), 0.2, 0.0),
@@ -194,6 +208,10 @@ class WarpNavConfig:
             # chassis, which no slew limit stops any more.
             "command_change": -0.05,
             "shaping": 1.0,
+            # Weight of the flank term in the attack potential (`_potential`): being beside or
+            # behind the opponent at close range. A pursuer turns to keep us in its arc, so the
+            # point-behind distance alone barely changes while we circle it.
+            "flank": 2.0,
         }
     )
 
@@ -205,6 +223,18 @@ def wrap(a: torch.Tensor) -> torch.Tensor:
 def smoothstep(u: torch.Tensor) -> torch.Tensor:
     u = u.clamp(0.0, 1.0)
     return u * u * (3.0 - 2.0 * u)
+
+
+FLANK_RANGE_M = 0.8
+
+
+def flank_potential(rel: torch.Tensor, opp_yaw: torch.Tensor, arc: float) -> torch.Tensor:
+    """0 to 1: how far our bearing from the opponent's heading is outside half its arc, at most
+    when beside or behind it, times how close we are (1 at its centre, 0 past FLANK_RANGE_M)."""
+    phi = wrap(torch.atan2(rel[:, 1], rel[:, 0]) - opp_yaw).abs()
+    side = smoothstep((phi - 0.5 * arc) / (0.5 * math.pi - 0.5 * arc))
+    near = (1.0 - rel.norm(dim=1) / FLANK_RANGE_M).clamp(0.0, 1.0)
+    return side * near
 
 
 def _scaled(rng: tuple[float, float], s: float) -> tuple[float, float]:
@@ -471,6 +501,7 @@ class WarpNavEnv:
         self.opponents = Opponents(w, dev, dt, self.gen)
         self.opponents.replay = ReplayTracks(cfg.holdout, dev, dt, episode_s=cfg.episode_s)
         self.success_window: list[float] = []
+        self.pursuit_window: list[float] = []  # attack episodes against a pursuer
         self.episode_stage = torch.full((w,), -1, dtype=torch.long, device=dev)
 
         self.sensing = False
@@ -524,10 +555,17 @@ class WarpNavEnv:
         ok = torch.where(episode["run_away"][done] > 0.5, run_ok, attack_ok)
         self.success_window.extend(ok.float().tolist())
         self.success_window = self.success_window[-2000:]
+        chased = (episode["behaviour"][done] == PURSUIT) & (episode["run_away"][done] < 0.5)
+        self.pursuit_window.extend(ok[chased].float().tolist())
+        self.pursuit_window = self.pursuit_window[-1000:]
 
     @property
     def success_rate(self) -> float:
         return float(np.mean(self.success_window)) if self.success_window else 0.0
+
+    @property
+    def pursuit_success_rate(self) -> float:
+        return float(np.mean(self.pursuit_window)) if self.pursuit_window else 0.0
 
     # ------------------------------------------------------------------ randomness
 
@@ -975,6 +1013,18 @@ class WarpNavEnv:
             "opp_yaw": oyaw,
         }
 
+    def expert_view(self) -> dict[str, torch.Tensor]:
+        """`truth()` plus `reach`: the centre distance at which our footprint and the opponent's
+        touch along the line between them. The scripted sidestep controller reads this."""
+        tr = self.truth()
+        rel = tr["xy"] - tr["opp_xy"]
+        normal = rel / rel.norm(dim=1, keepdim=True).clamp(min=1e-6)
+        ours = torch.tensor(OUR_HALF_EXTENT_M, device=self.device, dtype=self.dtype)
+        tr["reach"] = box_support(normal, tr["opp_yaw"], self.opp_half) + box_support(
+            normal, tr["yaw"], ours.expand(self.num_worlds, 2)
+        )
+        return tr
+
     # ------------------------------------------------------------------ stepping
 
     def _substeps(self) -> None:
@@ -1185,6 +1235,9 @@ class WarpNavEnv:
             episode["first_hit_s"] = self.first_hit_s.clone()
             episode["run_away"] = self.run_away.float()
             episode["behaviour"] = self.opponents.p.behaviour.float()
+            episode["opp_speed"] = self.opponents.p.speed.clone()
+            episode["opp_turn_rate"] = self.opponents.p.turn_rate.clone()
+            episode["opp_delay_s"] = self.opponents.p.delay_steps.float() * cfg.policy_dt_s
             episode["seconds"] = self.steps.float() * self.spec.policy_dt_s
             self.record_success(episode, done)
             self._reset_worlds(done)
@@ -1220,7 +1273,9 @@ class WarpNavEnv:
         heading = torch.stack([torch.cos(tr["opp_yaw"]), torch.sin(tr["opp_yaw"])], 1)
         stage = tr["opp_xy"] - self.cfg.stage_offset_m * heading
         front = tr["opp_xy"] + self.cfg.stage_offset_m * heading
-        attack = -(tr["xy"] - stage).norm(dim=1)
+        attack = -(tr["xy"] - stage).norm(dim=1) + self.cfg.reward["flank"] * flank_potential(
+            tr["xy"] - tr["opp_xy"], tr["opp_yaw"], self.arc
+        )
         flee = (tr["xy"] - front).norm(dim=1).clamp(max=1.5)
         return torch.where(self.run_away, flee, attack)
 

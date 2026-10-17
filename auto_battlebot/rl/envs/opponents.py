@@ -17,10 +17,15 @@ inside the arena by stopping the velocity component that points into a wall.
 
 The evaluation holds out the fastest, shortest-delay corner of `pursuit` (top speed above
 2.3 m/s with a delay under 70 ms): training never draws it.
+
+Pursuit difficulty is a level from 0 to 1 (`Opponents.pursuit_level`). Level 0 draws only the
+easiest pursuer (`PURSUIT_EASY`: 0.8 m/s, 4 rad/s, 250 ms delay); level 1 draws the whole range up
+to `pursuit_hard`. `pursuit_fixed` pins every world's pursuer instead, for the beatable-range map.
 """
 
 from __future__ import annotations
 
+import itertools
 import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -34,6 +39,12 @@ BEHAVIOURS = ("static", "straight", "circle", "random_walk", "pursuit", "corner"
 STATIC, STRAIGHT, CIRCLE, RANDOM_WALK, PURSUIT, CORNER, REPLAY = range(len(BEHAVIOURS))
 PURSUIT_HOLDOUT_SPEED = 2.3
 PURSUIT_HOLDOUT_DELAY = 0.07
+PURSUIT_EASY = (0.8, 4.0, 0.25)  # top speed m/s, turn rate rad/s, reaction delay s
+PURSUIT_HARD = (2.5, 10.0, 0.05)
+# The pursuit evaluation grid: top speed m/s x turn rate rad/s x reaction delay s, 80 cells.
+PURSUIT_GRID = list(
+    itertools.product((0.8, 1.2, 1.6, 2.0, 2.5), (4.0, 6.0, 8.0, 10.0), (0.05, 0.1, 0.15, 0.25))
+)
 DELAY_SLOTS = 16  # pursuit reaction-delay ring, in policy steps (16 x 20 ms > 250 ms)
 OUR_HALF_DIAGONAL_M = 0.106  # Mr Stabs Mk2 footprint, 0.137 x 0.16 m
 OUR_HALF_EXTENT_M = (0.0685, 0.08)  # the same footprint as half length and half width
@@ -102,6 +113,18 @@ class Opponents:
         self.replay: ReplayTracks | None = None  # set when the environment loads replay tracks
         self.replay_index = zl.clone()
         self.replay_t = z.clone()
+        self.pursuit_level = 1.0
+        self.pursuit_hard = PURSUIT_HARD
+        self.pursuit_fixed: torch.Tensor | None = None  # [W, 3]: top speed, turn rate, delay
+
+    def _pursuit_draw(self, u: torch.Tensor, column: int) -> torch.Tensor:
+        """A pursuit parameter from uniform `u`: the easy end at level 0, up to the hard end at
+        level 1. The delay shrinks as it gets harder, so it takes 1 - u, which at level 1 keeps
+        the draw a pre-curriculum seed made."""
+        easy, hard = PURSUIT_EASY[column], self.pursuit_hard[column]
+        if hard < easy:
+            u = 1.0 - u
+        return easy + self.pursuit_level * u * (hard - easy)
 
     def _rand(self, n: int) -> torch.Tensor:
         return torch.rand(n, generator=self.gen, device=self.device, dtype=self.dtype)
@@ -126,14 +149,16 @@ class Opponents:
         p.behaviour = torch.where(mask, choice, p.behaviour)
         speed = self._uniform(0.3, 1.5)
         speed = torch.where(choice == RANDOM_WALK, self._uniform(0.2, 1.2), speed)
-        top = self._uniform(0.8, 2.5)
-        delay = self._uniform(0.05, 0.25)
+        top = self._pursuit_draw(self._rand(n), 0)
+        delay = self._pursuit_draw(self._rand(n), 2)
         if holdout:
             top = self._uniform(PURSUIT_HOLDOUT_SPEED, 2.5)
             delay = self._uniform(0.05, PURSUIT_HOLDOUT_DELAY)
         else:
             corner = (top > PURSUIT_HOLDOUT_SPEED) & (delay < PURSUIT_HOLDOUT_DELAY)
             delay = torch.where(corner, self._uniform(PURSUIT_HOLDOUT_DELAY, 0.25), delay)
+        if self.pursuit_fixed is not None:
+            top, delay = self.pursuit_fixed[:, 0], self.pursuit_fixed[:, 2]
         speed = torch.where(choice == PURSUIT, top, speed) * speed_scale
         p.speed = torch.where(mask, speed, p.speed)
         p.radius = torch.where(mask, self._uniform(0.2, 0.6), p.radius)
@@ -145,7 +170,10 @@ class Opponents:
         p.delay_steps = torch.where(
             mask, torch.round(delay / 0.02).long().clamp(1, DELAY_SLOTS - 1), p.delay_steps
         )
-        p.turn_rate = torch.where(mask, self._uniform(4.0, 10.0), p.turn_rate)
+        turn = self._pursuit_draw(self._rand(n), 1)
+        if self.pursuit_fixed is not None:
+            turn = self.pursuit_fixed[:, 1]
+        p.turn_rate = torch.where(mask, turn, p.turn_rate)
         p.corner = torch.where(
             mask, torch.randint(4, (n,), generator=self.gen, device=self.device), p.corner
         )
