@@ -23,25 +23,28 @@ import torch
 @dataclass(frozen=True)
 class SidestepConfig:
     orbit_m: float = 0.4  # radius we circle the opponent at while working round to its rear
-    orbit_lead_deg: float = 60.0  # aim this far further round the circle than where we are
-    attack_deg: float = 120.0  # ram only once our bearing from its heading is past this
+    orbit_lead_deg: float = 90.0  # aim this far further round the circle: 90 is the tangent
+    attack_deg: float = 75.0  # ram once our bearing from its heading is past this
     # Heading loop, tuned on a 90 degree step in the Warp plant: settles in 0.4 s; gain 0.8
     # oscillated at +-17 rad/s through the 40 to 80 ms command latency.
     gain: float = 0.3  # angular action per radian of heading error
     max_angular: float = 0.5  # about 19 rad/s; full angular spins the chassis over
     lead_s: float = 0.1  # heading error is taken this far ahead at the current yaw rate
-    max_linear: float = 0.7
+    max_linear: float = 1.0
     # Linear action is capped so speed x yaw rate stays under this: harder turns roll it over.
-    max_lateral_mps2: float = 8.0
+    max_lateral_mps2: float = 12.0
     # Inside `slow_m` of touching, linear action is capped at `strike_linear`: ramming the
     # immovable opponent at 2.6 m/s stopped it in one step and pitched it over its nose.
-    slow_m: float = 0.3
-    strike_linear: float = 0.4
+    slow_m: float = 0.45
+    strike_linear: float = 0.25
     contact_m: float = 0.03  # gap at which we count as touching and back off
-    back_off_s: float = 0.25  # reverse this long after touching; pressing on rides up and flips
+    # Reverse this long after touching. Off by default: against a pursuer, backing straight out
+    # stays in its arc and it pins us (30 hits taken per episode against the slowest one).
+    back_off_s: float = 0.0
     # Most each action may change per 20 ms step. Swinging linear from -0.5 to +0.6 in 0.16 s
-    # while backing at 2 m/s pitched the nose to -84 degrees and flipped it.
-    linear_slew: float = 0.04
+    # while backing at 2 m/s pitched the nose to -84 degrees and flipped it; 0.04 was too slow
+    # to get round a pursuer.
+    linear_slew: float = 0.1
     angular_slew: float = 0.1
     back_off_linear: float = -0.3
     switch_deg: float = 30.0  # change orbit direction only once this far over the centre line

@@ -85,8 +85,14 @@ def score(row: dict[str, float]) -> float:
     return row["strikes"] - row["hits_taken"]
 
 
+def rank(row: dict[str, float]) -> tuple[bool, float, float]:
+    """Best variant per cell: beaten first, then strike rate, then strikes less hits taken. On
+    the net score alone a variant that never strikes but is rarely hit wins."""
+    return beaten(row), row["success"], score(row)
+
+
 # The controller settings swept per cell; the best per cell is kept.
-SWEEP = {"flank_m": (0.25, 0.4), "back_m": (0.0, 0.15), "max_linear": (0.7, 1.0)}
+SWEEP = {"orbit_m": (0.3, 0.4), "max_lateral_mps2": (9.0, 12.0), "attack_deg": (75.0, 100.0)}
 
 
 def sidestep(per_cell: int, seed: int) -> dict[str, Any]:
@@ -111,7 +117,7 @@ def sidestep(per_cell: int, seed: int) -> dict[str, Any]:
             r["variant"] = variant
             if len(best) <= i:
                 best.append(r)
-            elif score(r) > score(best[i]):
+            elif rank(r) > rank(best[i]):
                 best[i] = r
     return {"source": "sidestep", "cells": best}
 
