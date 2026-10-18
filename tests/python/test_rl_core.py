@@ -527,3 +527,35 @@ def test_anchor_loss_counts_only_masked_samples_in_std_units() -> None:
     }
     loss = Ppo._anchor_loss(mean, std, flat, torch.arange(3))
     assert float(loss) == pytest.approx(0.5 * (0.2 / 0.1) ** 2 / 2)
+
+
+def test_pursuer_grip_limits_braking_and_turn_rate_at_speed() -> None:
+    """A gripped pursuer at full speed whose target swings behind it cannot stop in one step,
+    and turns no faster than grip / speed; without grip it stops and turns at its full rate."""
+    from auto_battlebot.rl.envs.opponents import DELAY_SLOTS, PURSUIT, Opponents
+
+    dt = 0.02
+    xy = torch.zeros(2, 2, dtype=torch.float64)
+    yaw = torch.zeros(2, dtype=torch.float64)
+    half = torch.full((2, 2), 5.0, dtype=torch.float64)
+    foot = torch.full((2,), 0.1, dtype=torch.float64)
+    opp = Opponents(2, torch.device("cpu"), torch.float64, torch.Generator().manual_seed(0))
+    ones = torch.ones(2, dtype=torch.float64)
+    opp.reset(torch.ones(2, dtype=torch.bool), (PURSUIT,), ones, holdout=False)
+    opp.p.speed[:] = 2.5
+    opp.p.turn_rate[:] = 10.0
+    opp.p.lead[:] = 0.0
+    opp.p.grip = torch.tensor([10.0, 10.0], dtype=torch.float64)
+    opp.forward[:] = 2.5
+    # Our robot directly behind the pursuer: the target is 180 degrees off its heading.
+    opp.history[:, :DELAY_SLOTS, 0] = -2.0
+    opp.history[:, :DELAY_SLOTS, 1] = 0.01
+    v = opp.command(xy, yaw, half, foot, dt)
+    assert float(opp.forward[0]) == pytest.approx(2.5 - 10.0 * dt)
+    assert float(v[0, 2].abs()) == pytest.approx(10.0 / (2.5 - 10.0 * dt))
+
+    opp.p.grip = None
+    opp.forward[:] = 2.5
+    v = opp.command(xy, yaw, half, foot, dt)
+    assert float(opp.forward[0]) == 0.0
+    assert float(v[0, 2].abs()) == pytest.approx(10.0)

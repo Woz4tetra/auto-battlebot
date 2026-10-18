@@ -237,7 +237,8 @@ def flank_potential(rel: torch.Tensor, opp_yaw: torch.Tensor, arc: float) -> tor
     phi = wrap(torch.atan2(rel[:, 1], rel[:, 0]) - opp_yaw).abs()
     side = smoothstep((phi - 0.5 * arc) / (0.5 * math.pi - 0.5 * arc))
     near = (1.0 - rel.norm(dim=1) / FLANK_RANGE_M).clamp(0.0, 1.0)
-    return side * near
+    out: torch.Tensor = side * near
+    return out
 
 
 def _scaled(rng: tuple[float, float], s: float) -> tuple[float, float]:
@@ -958,6 +959,7 @@ class WarpNavEnv:
                 "delay_steps",
                 "turn_rate",
                 "corner",
+                "grip",
             )
         }
         for i in range(self.num_worlds):

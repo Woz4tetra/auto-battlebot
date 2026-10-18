@@ -21,6 +21,13 @@ The evaluation holds out the fastest, shortest-delay corner of `pursuit` (top sp
 Pursuit difficulty is a level from 0 to 1 (`Opponents.pursuit_level`). Level 0 draws only the
 easiest pursuer (`PURSUIT_EASY`: 0.8 m/s, 4 rad/s, 250 ms delay); level 1 draws the whole range up
 to `pursuit_hard`. `pursuit_fixed` pins every world's pursuer instead, for the beatable-range map.
+
+A pursuer has traction: each episode draws a grip limit from `PURSUIT_GRIP_MPS2`, which caps how
+fast its forward speed changes and caps its turn rate at grip / speed. Without it the pursuer was
+a mocap body that stopped dead from 2.5 m/s and pivoted at 10 rad/s, so it never overshot and
+nothing beat the 8 to 10 rad/s pursuers (2026-10-18: `rl_nav_p4` struck in 4.5% of episodes
+against 5 to 7 rad/s pursuers at level 1). Scenarios exported before grip existed carry none and
+replay the old pursuer.
 """
 
 from __future__ import annotations
@@ -41,6 +48,9 @@ PURSUIT_HOLDOUT_SPEED = 2.3
 PURSUIT_HOLDOUT_DELAY = 0.07
 PURSUIT_EASY = (0.8, 4.0, 0.25)  # top speed m/s, turn rate rad/s, reaction delay s
 PURSUIT_HARD = (2.5, 10.0, 0.05)
+# Pursuer traction, m/s^2: about 0.8 to 1.6 g, rubber wheels to very grippy ones. At 2.5 m/s that
+# caps the turn rate at 3.2 to 6.4 rad/s.
+PURSUIT_GRIP_MPS2 = (8.0, 16.0)
 # The pursuit evaluation grid: top speed m/s x turn rate rad/s x reaction delay s, 80 cells.
 PURSUIT_GRID = list(
     itertools.product((0.8, 1.2, 1.6, 2.0, 2.5), (4.0, 6.0, 8.0, 10.0), (0.05, 0.1, 0.15, 0.25))
@@ -81,6 +91,7 @@ class OpponentParams:
     delay_steps: torch.Tensor  # long
     turn_rate: torch.Tensor
     corner: torch.Tensor  # long 0..3
+    grip: torch.Tensor | None = None  # pursuit traction, m/s^2; None: unlimited (old scenarios)
 
 
 class Opponents:
@@ -103,6 +114,7 @@ class Opponents:
             zl.clone(),
             z.clone(),
             zl.clone(),
+            z.clone(),
         )
         self.turn = z.clone()  # random-walk yaw rate state
         self.forward = z.clone()  # commanded forward speed this step
@@ -183,6 +195,11 @@ class Opponents:
             start = self._rand(n) * self.replay.start_span(pick)
             self.replay_index = torch.where(mask, pick, self.replay_index)
             self.replay_t = torch.where(mask, start, self.replay_t)
+        # Drawn last, so the draws above match what a seed gave before grip existed.
+        lo, hi = PURSUIT_GRIP_MPS2
+        grip = self._uniform(lo, hi)
+        p.grip = torch.where(mask, grip, grip if p.grip is None else p.grip)
+        self.forward = torch.where(mask, torch.zeros_like(self.forward), self.forward)
 
     def record_us(
         self, our_xy: torch.Tensor, our_v: torch.Tensor, our_yaw: torch.Tensor | None = None
@@ -248,8 +265,15 @@ class Opponents:
         # clamp(err / dt, -1, 1) * turn_rate saturated past 1 degree of error and turned
         # bang-bang, overshooting and reversing every 20 ms step.
         cap = p.turn_rate
+        chase = p.speed * torch.cos(err).clamp(min=0.0)
+        if p.grip is not None:
+            # Traction: speed changes by at most grip x dt per step, and speed x yaw rate (the
+            # sideways acceleration) stays under grip, so a fast pursuer runs wide and overshoots.
+            step = p.grip * dt
+            chase = self.forward + (chase - self.forward).clamp(min=-step, max=step)
+            cap = torch.minimum(cap, p.grip / chase.abs().clamp(min=1e-3))
         omega = torch.where(pursuit, torch.maximum(torch.minimum(err / dt, cap), -cap), omega)
-        forward = torch.where(pursuit, p.speed * torch.cos(err).clamp(min=0.0), forward)
+        forward = torch.where(pursuit, chase, forward)
 
         corner = b == CORNER
         sx = torch.where((p.corner % 2) == 0, 1.0, -1.0).to(self.dtype)
