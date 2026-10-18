@@ -13,7 +13,9 @@ model bundle (plan section 12) written at the end.
 `--pursuit-curriculum` starts the pursuers at `--pursuit-level` (0 is the easiest pursuer,
 1 the whole range) and raises the level by 0.1 each time the last 500 or more attack episodes
 against a pursuer since the last raise strike in at least `--pursuit-advance-at` of them. Use it
-with stage P, which gives pursuit half the episodes.
+with stage P, which gives pursuit half the episodes. Only episodes whose pursuer was drawn at the
+current level count. `--anchor` holds the policy near another checkpoint's actions in every
+episode that is not against a pursuer (`Ppo` anchor), so the pursuit fine-tune keeps the rest.
 """
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ from pathlib import Path
 
 import torch
 
+from auto_battlebot.rl.envs.opponents import PURSUIT
 from auto_battlebot.rl.envs.warp_nav import STAGES, WarpNavConfig, WarpNavEnv
 from auto_battlebot.rl.export.bundle import spec_from_policy, write_bundle
 from auto_battlebot.rl.learners.ppo import Ppo, PpoConfig
@@ -57,6 +60,13 @@ def configure_pursuit(env: WarpNavEnv, args: argparse.Namespace, resume: dict | 
     if args.pursuit_curriculum and args.pursuit_level is None and resume is None:
         level = 0.0
     env.opponents.pursuit_level = level
+
+
+def set_anchor(learner: Ppo, env: WarpNavEnv, path: Path) -> None:
+    anchor = MlpGaussianPolicy(env.spec).cuda().eval()
+    anchor.load_state_dict(torch.load(path, map_location="cuda")["learner"]["policy"])
+    learner.anchor = anchor
+    learner.anchor_mask = lambda: env.opponents.p.behaviour != PURSUIT
 
 
 def raise_pursuit_level(env: WarpNavEnv, advance_at: float, env_steps: int) -> None:
@@ -117,6 +127,14 @@ def main() -> None:
         default=None,
         help="top speed of the hardest pursuer drawn (the beatable edge from pursuit_map.py)",
     )
+    ap.add_argument(
+        "--anchor",
+        type=Path,
+        default=None,
+        help="checkpoint whose actions the policy is held near outside pursuit episodes, so "
+        "pursuit training does not overwrite the other behaviours",
+    )
+    ap.add_argument("--anchor-coef", type=float, default=0.5)
     ap.add_argument("--checkpoint-every-s", type=float, default=600.0)
     ap.add_argument("--out", type=Path, default=REPO / "runs" / "rl_nav")
     args = ap.parse_args()
@@ -138,8 +156,10 @@ def main() -> None:
     if args.min_log_std is not None:
         policy.cfg.min_log_std = args.min_log_std
     configure_pursuit(env, args, resume)
-    learner = Ppo(policy, env, PpoConfig(), seed=args.seed)
+    learner = Ppo(policy, env, PpoConfig(anchor_coef=args.anchor_coef), seed=args.seed)
     restore(learner, policy, resume, args.reset_log_std)
+    if args.anchor is not None:
+        set_anchor(learner, env, args.anchor)
     (out / "config.json").write_text(
         json.dumps(
             {**vars(args), "resume": str(args.resume), "stage": stage}, default=str, indent=2

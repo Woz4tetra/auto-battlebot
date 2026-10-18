@@ -5,11 +5,18 @@ per update, a critic that also sees the environment's privileged inputs, and an 
 rate that holds the per-update KL near a target, as rsl_rl does. Truncated episodes bootstrap from
 the critic's value of their final state. The ratio is taken on the pre-tanh sample, where the tanh
 Jacobian cancels.
+
+An optional anchor policy keeps behaviour already learned while fine-tuning on a narrower
+problem: on the samples `anchor_mask` selects, the loss adds `anchor_coef` times the squared
+distance from the anchor's mean action, in units of the student's own std. That is the KL from a
+Gaussian at the anchor's mean with the student's std, so it scales with exploration the way the
+surrogate does.
 """
 
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -37,6 +44,7 @@ class PpoConfig:
     desired_kl: float = 0.01
     max_grad_norm: float = 1.0
     critic_hidden: tuple[int, ...] = (256, 256, 128)
+    anchor_coef: float = 0.0
 
 
 def _gaussian_logp(u: torch.Tensor, mean: torch.Tensor, std: torch.Tensor) -> torch.Tensor:
@@ -67,6 +75,8 @@ class Ppo:
             desync()
         self.env_steps = 0
         self.episodes = EpisodeLog()
+        self.anchor: MlpGaussianPolicy | None = None
+        self.anchor_mask: Callable[[], torch.Tensor] | None = None  # [W] bool, this step's worlds
 
     def _value(self, obs: torch.Tensor, priv: torch.Tensor) -> torch.Tensor:
         x = torch.cat([self.policy.norm(obs), self.priv_norm(priv)], dim=-1)
@@ -88,9 +98,17 @@ class Ppo:
             "reward": torch.zeros(steps, worlds, device=dev),
             "done": torch.zeros(steps, worlds, device=dev),
         }
+        anchored = self.anchor is not None and self.anchor_mask is not None
+        if anchored:
+            buf["anchor_mean"] = torch.zeros(steps, worlds, spec.action_dim, device=dev)
+            buf["anchor_w"] = torch.zeros(steps, worlds, device=dev)
         for t in range(steps):
             buf["obs"][t] = self.obs
             buf["priv"][t] = self.priv
+            if anchored:
+                assert self.anchor is not None and self.anchor_mask is not None
+                buf["anchor_mean"][t] = self.anchor.distribution(self.obs)[0]
+                buf["anchor_w"][t] = self.anchor_mask().float()
             mean, std = self.policy.distribution(self.obs)
             u = mean + std * torch.randn_like(mean)
             buf["u"][t] = u
@@ -136,6 +154,8 @@ class Ppo:
             "kl": 0.0,
             "clipfrac": 0.0,
         }
+        if "anchor_w" in flat:
+            stats["anchor_loss"] = 0.0
         count = 0
         for _ in range(cfg.epochs):
             perm = torch.randperm(n, device=self.device)
@@ -150,6 +170,10 @@ class Ppo:
                 value_loss = (value - flat["ret"][idx]).pow(2).mean()
                 entropy = (std.log() + 0.5 * math.log(2 * math.pi * math.e)).sum(-1).mean()
                 loss = -surrogate.mean() + cfg.value_coef * value_loss - cfg.entropy_coef * entropy
+                if "anchor_w" in flat:
+                    anchor_loss = self._anchor_loss(mean, std, flat, idx)
+                    loss = loss + cfg.anchor_coef * anchor_loss
+                    stats["anchor_loss"] += float(anchor_loss.detach())
                 with torch.no_grad():
                     kl = (flat["logp"][idx] - logp).mean().abs()
                     self._adapt_lr(float(kl))
@@ -166,6 +190,8 @@ class Ppo:
                 stats["clipfrac"] += float(((ratio - 1).abs() > cfg.clip).float().mean())
                 count += 1
         stats = {k: v / count for k, v in stats.items()}
+        if "anchor_w" in flat:
+            stats["anchor_share"] = float(flat["anchor_w"].mean())
         # After the update, so the epochs see the normalization the rollout was collected with.
         self.policy.norm.update(buf["obs"])
         self.priv_norm.update(buf["priv"])
@@ -175,6 +201,15 @@ class Ppo:
         stats["env_steps"] = float(self.env_steps)
         stats.update(self.episodes.summary())
         return stats
+
+    @staticmethod
+    def _anchor_loss(
+        mean: torch.Tensor, std: torch.Tensor, flat: dict[str, torch.Tensor], idx: torch.Tensor
+    ) -> torch.Tensor:
+        # Clamped pre-tanh: past +-2.5 the action is within 1.3% of full and the gap is moot.
+        gap = (mean.clamp(-2.5, 2.5) - flat["anchor_mean"][idx].clamp(-2.5, 2.5)) / std.detach()
+        w = flat["anchor_w"][idx]
+        return (w * 0.5 * gap.pow(2).sum(-1)).sum() / w.sum().clamp(min=1.0)
 
     def _adapt_lr(self, kl: float) -> None:
         cfg = self.cfg

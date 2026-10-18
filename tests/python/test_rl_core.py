@@ -512,3 +512,18 @@ def test_flank_potential_rewards_side_and_rear_up_close() -> None:
     assert far == 0.0
     assert side == pytest.approx(1.0 - 0.3 / FLANK_RANGE_M)
     assert rear == pytest.approx(side)
+
+
+def test_anchor_loss_counts_only_masked_samples_in_std_units() -> None:
+    """Zero where the student matches the anchor, half the squared gap in std units elsewhere,
+    and unmasked samples left out of both the sum and the count."""
+    from auto_battlebot.rl.learners.ppo import Ppo
+
+    mean = torch.tensor([[0.0, 0.0], [0.2, 0.0], [5.0, 5.0]])
+    std = torch.full((3, 2), 0.1)
+    flat = {
+        "anchor_mean": torch.tensor([[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]]),
+        "anchor_w": torch.tensor([1.0, 1.0, 0.0]),
+    }
+    loss = Ppo._anchor_loss(mean, std, flat, torch.arange(3))
+    assert float(loss) == pytest.approx(0.5 * (0.2 / 0.1) ** 2 / 2)
