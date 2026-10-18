@@ -119,6 +119,9 @@ STAGES = {
     # still trained while pursuit gets enough episodes to learn from. Pair with the pursuit
     # difficulty curriculum in train_nav_policy.py.
     "P": Stage((*BEHAVIOURS, *("pursuit",) * 5), 3, False, True, 1.0, (1.5, 2.5), 0.2, 0.5),
+    # Three quarters pursuit (16 of 22 draws), for runs with --anchor holding the rest of the
+    # mix: at half, pursuit success stalled at 0.22 to 0.31 on level 0.4 for 1,500 iterations.
+    "P3": Stage((*BEHAVIOURS, *("pursuit",) * 15), 3, False, True, 1.0, (1.5, 2.5), 0.2, 0.5),
     # Evaluation (gates G4, G5): stage D's mix on the nominal plant, so the lockstep sim, which
     # runs the fit as it is, plays the same robot. Pair with `holdout=True` for the held-out
     # pursuit corner and replay tracks.
@@ -557,7 +560,8 @@ class WarpNavEnv:
         self.success_window.extend(ok.float().tolist())
         self.success_window = self.success_window[-2000:]
         # Likewise only pursuers drawn at the current level: the window refills within an
-        # iteration, and episodes from the easier level raised job 43 from 0.4 to 0.7 in 7 iterations.
+        # iteration, and episodes from the easier level raised job 43 from 0.4 to 0.7 in 7
+        # iterations.
         level = self.episode_pursuit_level[done] == self.opponents.pursuit_level
         chased = (episode["behaviour"][done] == PURSUIT) & (episode["run_away"][done] < 0.5) & level
         self.pursuit_window.extend(ok[chased].float().tolist())
