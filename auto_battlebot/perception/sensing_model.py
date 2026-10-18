@@ -53,6 +53,12 @@ def _enum(cls: type[FlipModel], value: Any, where: str) -> FlipModel:
         raise ValueError(f"{where}: {value!r} is not one of {valid}") from None
 
 
+def _bool(value: Any, where: str) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError(f"{where}: {value!r} is not true or false")
+    return value
+
+
 def _array(value: Any, where: str, size: int | None = None) -> np.ndarray:
     arr = np.asarray(value, dtype=float)
     if arr.ndim != 1 or (size is not None and arr.size != size):
@@ -118,6 +124,8 @@ class DropoutSpec:
     measured: DurationTable
     dropped: DurationTable
     borrowed: tuple[str, ...]
+    # False delivers every captured frame: the robot never drops out.
+    enabled: bool = True
 
     @property
     def cells(self) -> int:
@@ -249,6 +257,7 @@ def _parse_robot(d: Mapping[str, Any], where: str) -> RobotSpec:
             drop["quantiles"], drop["dropped_s"], cells, f"{where}.dropout.dropped_s"
         ),
         borrowed=tuple(drop.get("borrowed", [])),
+        enabled=_bool(drop.get("enabled", True), f"{where}.dropout.enabled"),
     )
     ekf = None
     if "ekf_error" in d:
@@ -445,6 +454,7 @@ class _RobotSampler:
         self.wall_bins = spec.dropout.wall_distance_bins_m.size
         self.measured = _Durations(spec.dropout.measured, device, dtype)
         self.dropped = _Durations(spec.dropout.dropped, device, dtype)
+        self.dropout_enabled = spec.dropout.enabled
 
 
 class MeasurementModel:
@@ -657,6 +667,9 @@ class MeasurementModel:
         context: Context,
     ) -> torch.Tensor:
         """Advance robot r's measured/dropped process to time t on capture rows."""
+        if not sampler.dropout_enabled:
+            self.is_measured[:, r] = True
+            return self.is_measured[:, r]
         expired = capture & (t >= self.measured_until[:, r])
         state = torch.where(expired, ~self.is_measured[:, r], self.is_measured[:, r])
         robot_bin = _bin(context.robot_distance_m[:, r].to(self.dtype), sampler.robot_edges)

@@ -166,6 +166,27 @@ def test_measured_fraction_matches_tables() -> None:
     assert measured / delivered == pytest.approx(mean_m / (mean_m + mean_d), abs=0.03)
 
 
+def test_dropout_disabled_measures_every_delivery() -> None:
+    d = _spec_dict()
+    d["robots"]["opponent"]["dropout"]["enabled"] = False
+    model = MeasurementModel(_spec(d), ["opponent"], worlds=64, seed=4, randomize=False)
+    model.reset(torch.ones(64, dtype=torch.bool), 0.0)
+    truth = _truth(64, 1)
+    delivered = 0
+    for k in range(int(10.0 / 0.004)):
+        out = model.step(k * 0.004, truth, _far(64, 1))
+        delivered += int(out.delivered.sum())
+        assert bool((out.measured == out.delivered[:, None]).all())
+    assert delivered > 0
+
+
+def test_dropout_enabled_must_be_bool() -> None:
+    d = _spec_dict()
+    d["robots"]["ours"]["dropout"]["enabled"] = "no"
+    with pytest.raises(ValueError, match="dropout.enabled"):
+        _spec(d)
+
+
 def _table_mean(table: DurationTable) -> float:
     sampler = _Durations(table, torch.device("cpu"), torch.float64)
     u = torch.linspace(0.0, 1.0, 200_001, dtype=torch.float64)

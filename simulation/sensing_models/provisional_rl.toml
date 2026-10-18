@@ -60,6 +60,7 @@ flipped_s = [
 ]
 
 [robots.ours.dropout]
+enabled = false
 robot_distance_bins_m = [0.0, 0.05, 0.2, 0.5]
 wall_distance_bins_m = [0.0, 0.15, 0.3]
 quantiles = [0.0, 0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99, 1.0]
@@ -289,6 +290,7 @@ flipped_s = [
 ]
 
 [robots.opponent.dropout]
+enabled = false
 robot_distance_bins_m = [0.0, 0.05, 0.2, 0.5]
 wall_distance_bins_m = [0.0, 0.15, 0.3]
 quantiles = [0.0, 0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99, 1.0]
