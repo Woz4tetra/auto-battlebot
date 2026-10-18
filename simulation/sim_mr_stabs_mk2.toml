@@ -101,7 +101,7 @@ keypoint_height = 0.06
 # behavior = "static", hazard_radius = 0 and start_pos to the goal (sim_stop_test.py does this).
 [[opponents]]
 behavior = "trained"
-trained_behaviour = "any"
+trained_behaviour = "random_walk"
 trained_holdout = false
 start_pos = [0.3, 0.1]
 speed = 0.7
