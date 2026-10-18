@@ -12,4 +12,4 @@ extends = "simulation/mr_stabs_mk2_kinematic_sim_sensing"
 type = "RlPolicyNavigation"
 
 [navigation.policy]
-bundle = "data/models/nav_policies/rl_nav_d_v2_8k"
+bundle = "data/models/nav_policies/rl_nav_p4"
