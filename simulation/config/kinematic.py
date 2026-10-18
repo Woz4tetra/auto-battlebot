@@ -147,7 +147,7 @@ class PerceptionConfig:
 
 @dataclass
 class OpponentConfig:
-    behavior: str = "static"  # static | straight | circle | random_walk | replay | trained
+    behavior: str = "static"  # static | straight | circle | random_walk | replay | trained | policy
     start_pos: list[float] = field(default_factory=lambda: [0.5, 0.5])
     speed: float = 1.0
     heading_deg: float = 180.0
@@ -175,8 +175,13 @@ class OpponentConfig:
     # the evaluation's held-out pursuit corner and replay tracks instead of the training ones.
     trained_behaviour: str = "any"
     trained_holdout: bool = False
+    # behavior = "policy" only: an exported RL bundle, repo-relative, that drives this opponent on
+    # its own Mr Stabs Mk2 MuJoCo plant (simulation/policy_opponent.py).
+    policy_bundle: str = ""
 
     def __post_init__(self) -> None:
+        if self.behavior == "policy" and not self.policy_bundle:
+            raise ValueError('behavior = "policy" needs policy_bundle')
         if self.trained_behaviour not in TRAINED_BEHAVIOURS:
             raise ValueError(
                 f"unknown trained_behaviour {self.trained_behaviour!r}; "

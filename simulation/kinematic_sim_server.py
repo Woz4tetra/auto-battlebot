@@ -52,6 +52,8 @@ from config.kinematic import (
 )
 from config.loader import load_config
 from plants import PlantInterface, Pose, make_plant
+from plants.base import footprint_center
+from policy_opponent import PolicyOpponent, our_robot_box
 from protocol import (
     GT_COUNT_FMT,
     GT_POSE_FMT,
@@ -114,8 +116,10 @@ class Opponent:
         rng: np.random.Generator,
         obstacles: list[ObstacleConfig] | None = None,
         us_start: tuple[float, float] = (0.0, 0.0),
+        policy: PolicyOpponent | None = None,
     ) -> None:
         self._cfg = cfg
+        self.policy = policy
         self.x, self.y = cfg.start_pos
         self.yaw = math.radians(cfg.heading_deg)
         self._half_x = arena_w / 2.0 - 0.11
@@ -148,6 +152,8 @@ class Opponent:
             if start is not None:
                 self.x, self.y, self.yaw = start
             print(f"sim: trained opponent drew {self._trained.behaviour}")
+        if policy is not None:
+            self.x, self.y, self.yaw = policy.pose()
 
     def observe_us(self, pose: Pose, velocity: tuple[float, float]) -> None:
         """Our robot's state this tick; only the trained behaviours react to it."""
@@ -187,13 +193,24 @@ class Opponent:
 
     def place(self, x: float, y: float) -> None:
         """Put the opponent somewhere directly (viewer drag). Re-seeds the parameterised
-        behaviours so a release resumes from the drop point rather than snapping back."""
+        behaviours so a release resumes from the drop point rather than snapping back. A policy
+        opponent's plant owns its pose, so it cannot be dragged."""
+        if self.policy is not None:
+            return
         self.x, self.y = x, y
         self._clamp()
         self._angle = math.atan2(self.y, self.x)
         self._target = self._random_target()
 
     def step(self, dt: float) -> None:
+        if self.policy is not None:
+            # The plant keeps driving while the viewer holds the opponent: place() ignores it.
+            self.policy.step(dt)
+            self.x, self.y, self.yaw = self.policy.pose()
+            return
+        self._step_scripted(dt)
+
+    def _step_scripted(self, dt: float) -> None:
         if self.dragged:
             return
         behavior = self._cfg.behavior
@@ -411,13 +428,41 @@ class KinematicServer:
         self._plant = self._make_plant()
         x0, y0, _ = self._plant.pose()
         self._opponents = [
-            Opponent(o, cfg.arena.width, cfg.arena.height, rng, self._obstacles, (x0, y0))
+            Opponent(
+                o,
+                cfg.arena.width,
+                cfg.arena.height,
+                rng,
+                self._obstacles,
+                (x0, y0),
+                self._policy_opponent(o) if o.behavior == "policy" else None,
+            )
             for o in cfg.opponents
         ]
         self._perception = Perception(cfg)
         self._cmd_buf: deque[tuple[float, float]] = self._empty_command_buffer()
         self._tick = 0
         self._sim_time = 0.0
+
+    def _policy_opponent(self, opponent: OpponentConfig) -> PolicyOpponent:
+        cfg = self._cfg
+        return PolicyOpponent(
+            opponent,
+            cfg.our_robot,
+            our_robot_box(),
+            [o for o in cfg.opponents if o.hazard_radius > 0.0 and o is not opponent],
+            (cfg.arena.width, cfg.arena.height),
+            self._obstacles,
+            len(self._empty_command_buffer()),
+            cfg.sim.dt,
+        )
+
+    def _observe_for_policy(self, opponent: Opponent, policy: PolicyOpponent) -> None:
+        """Our robot at its footprint centre, and every other obstacle opponent, for `policy`."""
+        x, y, yaw = self._plant.pose()
+        us = footprint_center((x, y, yaw), self._plant.footprint_center_offset)
+        others = [o.pose() for o in self._opponents if o.hazard_radius > 0.0 and o is not opponent]
+        policy.observe((*us, yaw), self._plant.w, others)
 
     def _make_plant(self) -> PlantInterface:
         cfg = self._cfg
@@ -526,6 +571,8 @@ class KinematicServer:
             us_v = (self._plant.v * math.cos(yaw), self._plant.v * math.sin(yaw))
             for opponent in self._opponents:
                 opponent.observe_us((x, y, yaw), us_v)
+                if opponent.policy is not None:
+                    self._observe_for_policy(opponent, opponent.policy)
                 opponent.step(cfg.sim.dt)
             if trace is not None:
                 x, y, yaw = self._plant.pose()

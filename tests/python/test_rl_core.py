@@ -19,6 +19,7 @@ from auto_battlebot.control.plant import steady_state as np_steady_state
 from auto_battlebot.rl import obs_spec
 from auto_battlebot.rl.env import EnvSpec, Step
 from auto_battlebot.rl.export.bundle import read_selftest, spec_from_policy, write_bundle
+from auto_battlebot.rl.export.bundle_policy import BundlePolicy, Hazard, PolicyView
 from auto_battlebot.rl.export.rtneural import run_json
 from auto_battlebot.rl.learners.ppo import Ppo, PpoConfig
 from auto_battlebot.rl.policies.mlp import MlpGaussianConfig, MlpGaussianPolicy
@@ -89,6 +90,36 @@ def test_export_round_trip(tmp_path: Path) -> None:
     np.testing.assert_allclose(np.tanh(run_json(model, o.astype(float))), a, atol=1e-5)
     expected = torch.tanh(policy.actor(policy.norm(obs))).detach().numpy()
     np.testing.assert_allclose(a, expected, atol=1e-5)
+
+
+def test_bundle_policy_matches_torch_and_pushes_history(tmp_path: Path) -> None:
+    torch.manual_seed(4)
+    spec = EnvSpec(obs_spec.OBS_NAMES, (), obs_spec.OBS_SPEC_VERSION, 0.02, 1)
+    policy = MlpGaussianPolicy(spec, MlpGaussianConfig(hidden=(16, 8)))
+    sample = torch.rand(16, obs_spec.OBS_DIM)
+    out = write_bundle(spec_from_policy(policy, "p", 1, sample), tmp_path / "bundle", REPO)
+    runner = BundlePolicy(out)
+    view = PolicyView(
+        our_pose=(-0.5, 0.2, 0.3),
+        our_speed=1.2,
+        our_yaw_rate=-2.0,
+        target_pose=(0.4, -0.1, 2.0),
+        target_velocity=(0.5, 0.0),
+        target_yaw_rate=1.0,
+        target_half_diagonal=0.106,
+        field_half=(1.2, 1.2),
+        hazards=[Hazard(0.0, 0.85, 0.2083, obs_spec.TRACKED)],
+    )
+    obs = runner.observe(view)
+    assert obs.shape == (1, obs_spec.OBS_DIM)
+    linear, angular = runner.act(view)
+    expected = torch.tanh(policy.actor(policy.norm(torch.from_numpy(obs).float())))[0]
+    np.testing.assert_allclose([linear, angular], expected.detach().numpy(), atol=1e-5)
+    pushed = runner.observe(view)[0]
+    names = obs_spec.OBS_NAMES
+    assert pushed[names.index("hist_action_linear_0")] == pytest.approx(linear)
+    assert pushed[names.index("hist_speed_0")] == pytest.approx(1.2 / obs_spec.SPEED_SCALE)
+    assert pushed[names.index("hist_action_linear_1")] == 0.0
 
 
 def test_torch_plant_matches_numpy() -> None:
