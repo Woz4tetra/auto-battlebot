@@ -503,6 +503,7 @@ class WarpNavEnv:
         self.success_window: list[float] = []
         self.pursuit_window: list[float] = []  # attack episodes against a pursuer
         self.episode_stage = torch.full((w,), -1, dtype=torch.long, device=dev)
+        self.episode_pursuit_level = torch.full((w,), -1.0, device=dev, dtype=dt)
 
         self.sensing = False
         self.spec_file = SensingModelFile.load(REPO / cfg.sensing_model)
@@ -555,7 +556,10 @@ class WarpNavEnv:
         ok = torch.where(episode["run_away"][done] > 0.5, run_ok, attack_ok)
         self.success_window.extend(ok.float().tolist())
         self.success_window = self.success_window[-2000:]
-        chased = (episode["behaviour"][done] == PURSUIT) & (episode["run_away"][done] < 0.5)
+        # Likewise only pursuers drawn at the current level: the window refills within an
+        # iteration, and episodes from the easier level raised job 43 from 0.4 to 0.7 in 7 iterations.
+        level = self.episode_pursuit_level[done] == self.opponents.pursuit_level
+        chased = (episode["behaviour"][done] == PURSUIT) & (episode["run_away"][done] < 0.5) & level
         self.pursuit_window.extend(ok[chased].float().tolist())
         self.pursuit_window = self.pursuit_window[-1000:]
 
@@ -779,6 +783,11 @@ class WarpNavEnv:
         self.run_away = torch.where(mask, self._rand(n) < float(sc.run_away), self.run_away)
         self.episode_stage = torch.where(
             mask, torch.full_like(self.episode_stage, self.stage_index), self.episode_stage
+        )
+        self.episode_pursuit_level = torch.where(
+            mask,
+            torch.full_like(self.episode_pursuit_level, self.opponents.pursuit_level),
+            self.episode_pursuit_level,
         )
         false = torch.zeros_like(self.engaged)
         for name in ("engaged", "struck", "prev_arc", "prev_wall", "prev_block"):
