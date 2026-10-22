@@ -40,6 +40,12 @@ bool UpdownSensor::begin()
         initialized = true;
         status.initialized = true;
         has_prev_heading = false;
+        // The Mk2 board carries the BNO055 face down relative to the robot: rotate the chip
+        // frame 180 degrees about X (P4: X kept, Y and Z negated), so every output is in the
+        // robot frame and +z is up with the robot upright. The chip forgets this on reset, so it
+        // is rewritten on every begin().
+        sensor->setAxisRemap(Adafruit_BNO055::REMAP_CONFIG_P4);
+        sensor->setAxisSign(Adafruit_BNO055::REMAP_SIGN_P4);
         sensor->setExtCrystalUse(true);
         return true;
     }

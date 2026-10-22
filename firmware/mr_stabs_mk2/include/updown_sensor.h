@@ -24,7 +24,7 @@ const uint8_t I2C_SHORT_READ = 6;
 const uint8_t I2C_NOT_TRIED = 255;
 
 // The yaw rate is the gyro projected onto the measured up direction (the fused gravity vector,
-// which reads +z with the chip level and face up), so it stays the world yaw rate tilted or
+// which reads +z with the robot upright, after the axis remap in begin()), so it stays the world yaw rate tilted or
 // upside down. The gyro is right-handed, counterclockwise-positive about up; the Euler heading
 // grows clockwise, hence -1. On the 2026-10-06 run, gyro z alone agreed with the heading change
 // on 100% of fast samples upright and on 0% inverted. check_gyro_sign() verifies it live.
