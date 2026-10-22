@@ -45,17 +45,17 @@ The gains come from the closed-loop sim in `auto_battlebot/mujoco_sim`, whose
 | Right ESC | Pin A3, DShot300 via RMT channel 1 |
 | Radio RX | Crossfire Nano, UART on pins 17 (TX) / 18 (RX). Failsafe must be set to cut (no pulses): the firmware's only link failsafe is the CRSF channel timeout |
 | Accelerometer | ADXL375, I2C |
-| Pack voltage and current | Matek I2C-INA-BM (INA228) at 0x45, on the BNO055's I2C bus (`Wire1`) |
+| Pack voltage and current | INA238 at 0x45 on the main board, on the BNO055's I2C bus (`Wire1`) |
 
-### INA228 pack voltage and current wiring
+### INA238 pack voltage and current
 
-The Matek I2C-INA-BM board carries an INA228 and a 200 uohm shunt. The firmware reads bus voltage and shunt voltage; current is shunt voltage over the nominal 200 uohm.
+The main board's INA238 sits on the high side of a 0.5 mohm shunt (R1) between the switched pack + and the ESC bus. The firmware reads bus voltage and shunt voltage; current is shunt voltage over the nominal 0.5 mohm, at 10 mA per count.
 
-- Battery + and the ESC + lead solder to the two sides of the shunt, as close to it as possible. The voltage sense input is on board and rated 0-85 V, so no series resistor or clamp is needed.
-- JST-GH-4P cable to the QT Py: 5 V, GND, SCL, SDA on `Wire1`. The board takes 4-9 V and makes its own 3.3 V for the INA228.
-- Default address 0x45 (decimal 69); 0x44 and 0x41 are the alternatives.
+- VBUS is on the pack side of the shunt, so it reads the shunt's drop high: at most 35 mV in a 70 A stall.
+- A0 and A1 are tied to 3.3 V, so the address is fixed at 0x45.
+- The shunt stays at the reset-default ADCRANGE=0 (+-163.84 mV). ADCRANGE=1 is 4x finer, but a brownout clears it and current would then read 4x high with nothing to flag it.
 
-The INA228 bus voltage is +-0.1% out of the box, so there is no calibration constant. Current accuracy is the shunt tolerance, about +-2%; check it once against a clamp meter. If the chip does not answer at boot, or reports a device ID other than INA228 (Matek also ships the board with an INA238), `vbat` and `ibat` read `nan` and the robot runs normally.
+The INA238 bus voltage is +-0.1% out of the box, so there is no calibration constant. Current accuracy is the shunt tolerance plus the pour resistance inside the Kelvin taps; check it once against a clamp meter. If the chip does not answer at boot, or reports a device ID other than INA238, `vbat` and `ibat` read `nan` and the robot runs normally.
 
 ### CRSF telemetry
 
@@ -63,10 +63,10 @@ While the radio link is up, the firmware sends two CRSF sensor frames back to th
 
 | Frame | EdgeTX sensors | Source |
 |---|---|---|
-| Battery (0x08) | `RxBt` volts, `Curr` amps | INA228. `Capa` and `Bat%` are sent as 0: capacity is not tracked yet |
+| Battery (0x08) | `RxBt` volts, `Curr` amps | INA238. `Capa` and `Bat%` are sent as 0: capacity is not tracked yet |
 | Attitude (0x1E) | `Yaw`, `Roll`, `Ptch` | BNO055 Euler angles. Yaw is heading wrapped to +-180 degrees |
 
-After flashing, run Telemetry > Discover new sensors on the radio. A NaN reading (no INA228) goes out as 0.
+After flashing, run Telemetry > Discover new sensors on the radio. A NaN reading (no INA238) goes out as 0.
 
 ## Building and Flashing
 
@@ -216,7 +216,7 @@ and both sensors. Red rows are the ones to look at.
   sample. Ages are measured to when the loop took the snapshot, once a second, not to when
   the page asked. Once running, it also shows the operation mode (IMUPLUS is 0x08), system
   status (5 is fusion running), system error, self-test bits, and calibration.
-- **INA228**: present, device ID (0x228x), last I2C result, read and failure counts.
+- **INA238**: present, device ID (0x238x), last I2C result, read and failure counts.
 
 A sensor that fails at boot or drops out stops being read, so the robot keeps driving. The
 BNO055 is only retried after a reboot.

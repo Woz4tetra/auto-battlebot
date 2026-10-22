@@ -410,9 +410,7 @@ const I2C_ERR = {
 const KNOWN = {
   0x28: "BNO055",
   0x29: "BNO055 (ADR high)",
-  0x41: "INA228 (alt)",
-  0x44: "INA228 (alt)",
-  0x45: "INA228",
+  0x45: "INA238",
 };
 const SYS_STATUS = [
   "idle",
@@ -580,8 +578,8 @@ function renderStatus(s) {
     [
       "Device id",
       hex(n.device_id, 4) +
-        (n.device_id >> 4 === 0x228 ? " (INA228)" : " (expected 0x228x)"),
-      n.device_id >> 4 !== 0x228,
+        (n.device_id >> 4 === 0x238 ? " (INA238)" : " (expected 0x238x)"),
+      n.device_id >> 4 !== 0x238,
     ],
     ["Last read", ...err(n.last_error)],
     [

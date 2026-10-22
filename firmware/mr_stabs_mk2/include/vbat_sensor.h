@@ -2,25 +2,24 @@
 #include <Arduino.h>
 #include <Wire.h>
 
-// Pack voltage and current from a Matek I2C-INA-BM (TI INA228) on the BNO055's I2C bus (Wire1).
+// Pack voltage and current from the main board's TI INA238 on the BNO055's I2C bus (Wire1).
 //
-// Wiring (Matek I2C-INA-BM):
-// - Battery + and the ESC + lead solder to the two sides of the onboard 200 uohm shunt, as close
-//   to it as possible. The VBUS sense input is on board and rated 0-85 V, so no series resistor
-//   or clamp is needed for a 4S pack.
-// - JST-GH-4P to the QT Py: 5 V, GND, SCL, SDA. The board takes 4-9 V and runs the INA228 from
-//   its own 3.3 V regulator.
-// - Default address 0x45 (decimal 69). 0x44 and 0x41 are the alternatives.
+// Board wiring (hardware/mr_stabs_mk2_pcb/pcba/design.py):
+// - High side: switched pack + (BAT_IN) through the 0.5 mohm shunt R1 to VBATT, the ESC bus.
+//   Vin+ and Vin- are Kelvin taps on the shunt pads through 10 ohm filter resistors. VBUS sits on
+//   the pack side of the shunt, so it reads the shunt's drop high: at most 35 mV in a 70 A stall.
+// - VS, A0 and A1 on +3V3, which sets address 0x45.
 namespace vbat_sensor
 {
-    const uint8_t INA228_ADDRESS = 0x45;
+    const uint8_t INA238_ADDRESS = 0x45;
 
-    // Matek's nominal shunt. Its tolerance is the current reading's: about +-2%.
-    const float SHUNT_OHMS = 0.0002f;
+    // R1's nominal value. Its tolerance and the pour resistance inside the Kelvin taps set the
+    // current reading's gain error; calibrate it against a clamp meter.
+    const float SHUNT_OHMS = 0.0005f;
 
     // A sample is two reads (bus voltage, then shunt voltage), each one register-pointer write
-    // plus a 3-byte read, about 56 SCL clocks. Wire1 runs at the default 100 kHz, so that is
-    // ~1.2 ms on the wire plus driver overhead, blocking. The control loop has no fixed period
+    // plus a 2-byte read, about 47 SCL clocks. Wire1 runs at the default 100 kHz, so that is
+    // ~1 ms on the wire plus driver overhead, blocking. The control loop has no fixed period
     // (it varies with radio state, BNO055 reads, and recording mode), so sampling runs on a time
     // interval instead of every Nth loop. 10 ms still resolves a punch's sag and current spike,
     // which last 100s of ms. Loops in between repeat the last values.
@@ -29,13 +28,13 @@ namespace vbat_sensor
     // chip costs one blocked transaction per second rather than one per sample.
     const uint32_t RETRY_INTERVAL_US = 1000000;
 
-    // INA228 health for the diagnostics page. last_error is a Wire endTransmission() code
+    // INA238 health for the diagnostics page. last_error is a Wire endTransmission() code
     // (0 ok, 2 address NACK, 3 data NACK, 4 bus error, 5 timeout), 6 for a short read, or 255
     // before the first read.
     struct status_t
     {
         bool present = false;
-        uint16_t device_id = 0;  // DEVICE_ID at boot, 0x228x for an INA228
+        uint16_t device_id = 0;  // DEVICE_ID at boot, 0x238x for an INA238
         uint8_t last_error = 255;
         uint32_t reads = 0;
         uint32_t read_failures = 0;
@@ -46,7 +45,7 @@ namespace vbat_sensor
     {
     public:
         // Checks the device ID and writes the ADC config. Returns false and reports NaN from
-        // then on if the chip does not ACK or is not an INA228. Never blocks beyond two I2C
+        // then on if the chip does not ACK or is not an INA238. Never blocks beyond two I2C
         // transactions.
         bool begin(TwoWire *wire = &Wire1);
 
@@ -71,7 +70,6 @@ namespace vbat_sensor
         uint32_t next_interval_us = SAMPLE_INTERVAL_US;
         status_t status;
 
-        bool read_register(uint8_t reg, uint8_t num_bytes, uint32_t *value);
-        bool read_20_bit(uint8_t reg, int32_t *reading);
+        bool read_register(uint8_t reg, uint16_t *value);
     };
 }

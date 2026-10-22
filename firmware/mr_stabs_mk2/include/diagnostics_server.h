@@ -28,8 +28,8 @@ typedef struct {
     float orientation_z;
     float pid_setpoint;
     float pid_output;
-    float vbat;          // pack volts from the INA228, NaN when absent
-    float ibat;          // pack amps from the INA228, positive discharging, NaN when absent
+    float vbat;          // pack volts from the INA238, NaN when absent
+    float ibat;          // pack amps from the INA238, positive discharging, NaN when absent
     float yaw_rate;      // deg/s clockwise from the gyro
     float yaw_rate_cmd;  // deg/s clockwise the yaw loop asks for, NaN when it is not running
 } diag_data_t;

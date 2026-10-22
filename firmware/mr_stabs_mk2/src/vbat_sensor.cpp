@@ -9,10 +9,10 @@ namespace
     const uint8_t REG_VBUS = 0x05;
     const uint8_t REG_DEVICE_ID = 0x3F;
 
-    // DEVICE_ID bits 15..4 are the die ID, bits 3..0 the revision. The Matek board also ships
-    // with an INA238 (die 0x238), whose VBUS and VSHUNT registers are 16 bits at different
-    // scales; reading it with the INA228 scales would be wrong, so it is rejected.
-    const uint16_t INA228_DIE_ID = 0x228;
+    // DEVICE_ID bits 15..4 are the die ID, bits 3..0 the revision. An INA228 (die 0x228) answers
+    // at the same address with 24-bit VBUS and VSHUNT at different scales, so anything else is
+    // rejected rather than misread.
+    const uint16_t INA238_DIE_ID = 0x238;
 
     // MODE=1011 (shunt and bus voltage, continuous), VBUSCT=101 and VSHCT=101 (1052 us each),
     // VTCT=101 (unused), AVG=001 (4 samples). One averaged pair takes 8.4 ms, which fits inside
@@ -21,13 +21,13 @@ namespace
     // temperature at 1052 us, no averaging), which still updates both readings every 3.2 ms.
     const uint16_t ADC_CONFIG_VALUE = 0xBB69;
 
-    // VBUS and VSHUNT: 24 bits, bits 23..4 are a 20-bit two's complement reading.
-    const float BUS_VOLTS_PER_LSB = 195.3125e-6f;
-    // Current comes from the raw shunt voltage rather than the CURRENT register. CURRENT needs
-    // SHUNT_CAL written, and a brownout clears it to 0, which would read as 0 A while the
-    // voltage stayed valid. VSHUNT at the reset-default ADCRANGE=0 (+-163.84 mV) needs no setup:
-    // 312.5 nV per LSB over the 200 uohm shunt is 1.5625 mA per LSB, +-819 A full scale.
-    const float SHUNT_VOLTS_PER_LSB = 312.5e-9f;
+    // VBUS and VSHUNT: 16-bit two's complement.
+    const float BUS_VOLTS_PER_LSB = 3.125e-3f;
+    // Current comes from the raw shunt voltage at the reset-default ADCRANGE=0 (+-163.84 mV).
+    // ADCRANGE=1 would give 4x the resolution, but a brownout clears it back to 0 and the
+    // current would then read 4x high with nothing to flag it. 5 uV per LSB over the 0.5 mohm
+    // shunt is 10 mA per LSB, +-327 A full scale.
+    const float SHUNT_VOLTS_PER_LSB = 5e-6f;
     const float AMPS_PER_LSB = SHUNT_VOLTS_PER_LSB / SHUNT_OHMS;
 }
 
@@ -38,14 +38,14 @@ bool VbatSensor::begin(TwoWire *wire_bus)
     last_amps = NAN;
     sample_timer_us = micros() - SAMPLE_INTERVAL_US;
 
-    uint32_t device_id;
-    present = read_register(REG_DEVICE_ID, 2, &device_id) && (device_id >> 4) == INA228_DIE_ID;
-    status.device_id = (uint16_t)device_id;
+    uint16_t device_id = 0;
+    present = read_register(REG_DEVICE_ID, &device_id) && (device_id >> 4) == INA238_DIE_ID;
+    status.device_id = device_id;
     status.present = present;
     if (!present)
         return false;
 
-    wire->beginTransmission(INA228_ADDRESS);
+    wire->beginTransmission(INA238_ADDRESS);
     wire->write(REG_ADC_CONFIG);
     wire->write((uint8_t)(ADC_CONFIG_VALUE >> 8));
     wire->write((uint8_t)(ADC_CONFIG_VALUE & 0xFF));
@@ -55,33 +55,20 @@ bool VbatSensor::begin(TwoWire *wire_bus)
     return present;
 }
 
-bool VbatSensor::read_register(uint8_t reg, uint8_t num_bytes, uint32_t *value)
+bool VbatSensor::read_register(uint8_t reg, uint16_t *value)
 {
-    wire->beginTransmission(INA228_ADDRESS);
+    wire->beginTransmission(INA238_ADDRESS);
     wire->write(reg);
     status.last_error = wire->endTransmission(false);
     if (status.last_error != 0)
         return false;
-    if (wire->requestFrom(INA228_ADDRESS, num_bytes) != num_bytes)
+    if (wire->requestFrom(INA238_ADDRESS, (uint8_t)2) != 2)
     {
         status.last_error = 6;
         return false;
     }
-    uint32_t raw = 0;
-    for (uint8_t index = 0; index < num_bytes; index++)
-        raw = (raw << 8) | (uint32_t)wire->read();
-    *value = raw;
-    return true;
-}
-
-bool VbatSensor::read_20_bit(uint8_t reg, int32_t *reading)
-{
-    uint32_t raw;
-    if (!read_register(reg, 3, &raw))
-        return false;
-    // Shift the 24-bit register to the top of an int32 so the arithmetic shift sign-extends
-    // the 20-bit reading.
-    *reading = (int32_t)(raw << 8) >> 12;
+    uint16_t high = (uint16_t)wire->read();
+    *value = (uint16_t)((high << 8) | (uint16_t)wire->read());
     return true;
 }
 
@@ -94,9 +81,9 @@ void VbatSensor::update()
         return;
     sample_timer_us = now;
 
-    int32_t bus_reading, shunt_reading;
+    uint16_t bus_raw, shunt_raw;
     status.reads++;
-    if (!read_20_bit(REG_VBUS, &bus_reading))
+    if (!read_register(REG_VBUS, &bus_raw))
     {
         status.read_failures++;
         last_volts = NAN;
@@ -104,9 +91,10 @@ void VbatSensor::update()
         next_interval_us = RETRY_INTERVAL_US;
         return;
     }
-    last_volts = (float)bus_reading * BUS_VOLTS_PER_LSB;
+    last_volts = (float)(int16_t)bus_raw * BUS_VOLTS_PER_LSB;
     status.last_ok_ms = millis();
-    last_amps = read_20_bit(REG_VSHUNT, &shunt_reading) ? (float)shunt_reading * AMPS_PER_LSB
-                                                        : NAN;
+    last_amps = read_register(REG_VSHUNT, &shunt_raw)
+                    ? (float)(int16_t)shunt_raw * AMPS_PER_LSB
+                    : NAN;
     next_interval_us = SAMPLE_INTERVAL_US;
 }

@@ -31,7 +31,7 @@ esc::Esc *left_esc;
 esc::Esc *right_esc;
 
 updown_sensor::UpdownSensor *accel;
-vbat_sensor::VbatSensor vbat_sensor_ina228;
+vbat_sensor::VbatSensor vbat_sensor_ina238;
 DiagnosticsServer diag_server;
 
 // Every 100 Hz telemetry frame, kept in PSRAM for GET /telemetry, so a WiFi client that drops
@@ -200,7 +200,7 @@ void publish_sensor_status(bool armed) {
     accel->refresh_details();
     sensor_status_t status = {};
     status.imu = accel->get_status();
-    status.ina = vbat_sensor_ina228.get_status();
+    status.ina = vbat_sensor_ina238.get_status();
     status.scan = bus_scan;
     status.lines = i2c_bus::read_lines(SDA1, SCL1);
     status.sda_pin = SDA1;
@@ -316,9 +316,9 @@ void setup() {
     if (!accel->begin()) {
         for (int count = 0; count < 10; count++) pulse_led();
     }
-    // INA228 pack voltage and current on the same bus. If it is missing, vbat and ibat report
+    // INA238 pack voltage and current on the same bus. If it is missing, vbat and ibat report
     // NaN and the robot runs normally.
-    vbat_sensor_ina228.begin(&Wire1);
+    vbat_sensor_ina238.begin(&Wire1);
     set_builtin_led(255);
 
     radio_data = (crsf_bridge::radio_data_t *)malloc(sizeof(crsf_bridge::radio_data_t));
@@ -364,9 +364,9 @@ void loop() {
             return;
         }
     }
-    vbat_sensor_ina228.update();
-    float vbat = vbat_sensor_ina228.get_volts();
-    float ibat = vbat_sensor_ina228.get_amps();
+    vbat_sensor_ina238.update();
+    float vbat = vbat_sensor_ina238.get_volts();
+    float ibat = vbat_sensor_ina238.get_amps();
 
     // Read the IMU every loop with the link up, armed or not, so heading stays fresh for the PID
     // and the radio's attitude telemetry tracks the robot while it is disarmed. Rate-limited
