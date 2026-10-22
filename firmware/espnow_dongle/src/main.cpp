@@ -22,6 +22,12 @@ const uint32_t LINK_STATS_PERIOD_MS = 100;
 // a few ms; this only covers a driver hiccup.
 const uint32_t SEND_CALLBACK_TIMEOUT_MS = 50;
 const uint32_t SCAN_DWELL_MS = 150;
+// Robot frames older than this turn the LED red.
+const uint32_t ROBOT_SILENCE_MS = 500;
+const uint32_t LED_PERIOD_MS = 50;
+// NeoPixel levels out of 255. Full brightness is blinding at arm's length.
+const uint8_t LED_BRIGHT = 48;
+const uint8_t LED_DIM = 6;
 
 const uint8_t BROADCAST_MAC[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
@@ -61,6 +67,14 @@ uint32_t send_started_us = 0;
 uint32_t send_started_ms = 0;
 uint32_t last_send_ms = 0;
 uint32_t last_stats_ms = 0;
+
+uint32_t last_robot_rx_ms = 0;
+// Unicast ACK rate over the last link stats period, for the LED.
+bool ack_ok = true;
+uint32_t window_sent = 0;
+uint32_t window_acked = 0;
+uint32_t last_led_color = UINT32_MAX;
+uint32_t last_led_ms = 0;
 
 SerialFrameParser parser;
 
@@ -251,6 +265,7 @@ void service_receive() {
             esp_wifi_config_espnow_rate(WIFI_IF_STA, WIFI_PHY_RATE_6M);
             robot_known = true;
         }
+        if (type == MSG_TELEMETRY || type == MSG_OTA_STATUS) last_robot_rx_ms = millis();
         write_serial_frame(type, frame.data + AIR_HEADER_SIZE,
                            static_cast<uint8_t>(frame.length - AIR_HEADER_SIZE));
     }
@@ -263,6 +278,54 @@ void service_link_stats() {
     const LinkStatsPayload stats = {sent_count,  acked_count, failed_count,
                                     last_rtt_us, channel,     static_cast<uint8_t>(robot_known)};
     write_serial_frame(MSG_LINK_STATS, reinterpret_cast<const uint8_t *>(&stats), sizeof(stats));
+
+    // Below 90% over the period counts as degraded. Counters are read once: the send callback
+    // runs on the WiFi task.
+    const uint32_t sent = sent_count;
+    const uint32_t acked = acked_count;
+    const uint32_t d_sent = sent - window_sent;
+    const uint32_t d_acked = acked - window_acked;
+    window_sent = sent;
+    window_acked = acked;
+    if (d_sent > 0) ack_ok = d_acked * 10 >= d_sent * 9;
+}
+
+void set_led(uint8_t r, uint8_t g, uint8_t b) {
+#ifdef PIN_NEOPIXEL
+    const uint32_t color = (static_cast<uint32_t>(r) << 16) | (g << 8) | b;
+    if (color == last_led_color) return;
+    last_led_color = color;
+    neopixelWrite(PIN_NEOPIXEL, r, g, b);
+#else
+    (void)r;
+    (void)g;
+    (void)b;
+#endif
+}
+
+// Color is the link, brightness is the Jetson:
+//   blue blinking  broadcasting, the robot has never answered
+//   red            robot heard before, nothing from it for ROBOT_SILENCE_MS
+//   amber          robot answering, unicast ACK rate under 90% over the last 100 ms
+//   green          robot answering, ACKs healthy
+// Bright while the Jetson is commanding (a command inside COMMAND_SILENCE_MS), dim otherwise.
+void service_led() {
+    const uint32_t now = millis();
+    if (now - last_led_ms < LED_PERIOD_MS) return;
+    last_led_ms = now;
+    const bool commanding =
+        command_frame_len > 0 && now - last_command_serial_ms < COMMAND_SILENCE_MS;
+    const uint8_t level = commanding ? LED_BRIGHT : LED_DIM;
+    if (!robot_known) {
+        const bool on = (now / 250) % 2 == 0;
+        set_led(0, 0, on ? level : 0);
+    } else if (now - last_robot_rx_ms > ROBOT_SILENCE_MS) {
+        set_led(level, 0, 0);
+    } else if (!ack_ok) {
+        set_led(level, level / 2, 0);
+    } else {
+        set_led(0, level, 0);
+    }
 }
 
 }  // namespace
@@ -275,6 +338,13 @@ void setup() {
     Serial.setTxTimeoutMs(0);
 
     rx_queue = xQueueCreate(32, sizeof(AirFrame));
+
+#ifdef NEOPIXEL_POWER
+    pinMode(NEOPIXEL_POWER, OUTPUT);
+    digitalWrite(NEOPIXEL_POWER, NEOPIXEL_POWER_ON);
+#endif
+    // Solid blue through the channel scan, which takes ~2 s when it runs.
+    set_led(0, 0, LED_DIM);
 
     WiFi.mode(WIFI_STA);
     WiFi.disconnect();
@@ -305,4 +375,5 @@ void loop() {
     service_radio();
     service_receive();
     service_link_stats();
+    service_led();
 }

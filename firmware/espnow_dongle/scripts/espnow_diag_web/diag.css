@@ -1,0 +1,321 @@
+/* Additions to the robot page's style.css (firmware/mr_stabs_mk2/web), served alongside it. */
+
+:root {
+  --on-amber: #121212;
+}
+
+/* Header metrics, as in the dashboard's StatusBar. */
+.metrics {
+  display: flex;
+  align-items: stretch;
+  height: 40px;
+}
+.metrics .cell {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 14px;
+  border-left: 1px solid var(--ink);
+}
+.metrics .k {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.metrics .v {
+  font-weight: 700;
+  font-stretch: 110%;
+  font-size: 20px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.v.warn,
+.leader > .v.warn {
+  color: var(--amber);
+}
+.metrics .v.bad {
+  color: var(--red);
+}
+@media (max-width: 899px) {
+  .metrics {
+    display: none;
+  }
+}
+
+/* Checklist rows: badge, name, value, hint. */
+.checks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 560px), 1fr));
+  column-gap: 32px;
+}
+.check {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  align-items: baseline;
+  column-gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--grid);
+}
+.check .name {
+  font-weight: 600;
+  font-size: 14px;
+  font-stretch: 100%;
+  white-space: normal;
+}
+.check .val {
+  font-family: var(--mono);
+  font-weight: 600;
+  font-size: 14px;
+  text-align: right;
+}
+.check .hint {
+  grid-column: 2 / -1;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.check.skipped {
+  opacity: 0.45;
+}
+
+.badge {
+  display: inline-block;
+  padding: 3px 0;
+  text-align: center;
+  border: 1px solid var(--faint);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+.badge.ok {
+  border-color: var(--green);
+  color: var(--green);
+}
+.badge.warn {
+  background: var(--amber);
+  border-color: var(--amber);
+  color: var(--on-amber);
+}
+.badge.error {
+  background: var(--red);
+  border-color: var(--red);
+  color: #ffffff;
+}
+
+/* Command sliders: label over a full-width range with its value beside it. */
+.sliders {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 4.5em;
+  gap: 6px 12px;
+  align-items: center;
+  margin-top: 14px;
+}
+.sliders .label {
+  grid-column: 1 / -1;
+  margin-top: 6px;
+}
+.sliders input[type="range"] {
+  width: 100%;
+  height: 32px;
+  margin: 0;
+  accent-color: var(--ink);
+}
+.sliders input[type="range"]:disabled {
+  opacity: 0.4;
+}
+.sliders .mono {
+  text-align: right;
+  font-weight: 600;
+}
+
+a.linkbtn {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+/* Gap histogram. */
+.hist {
+  display: grid;
+  grid-template-columns: 5.5em minmax(0, 1fr) 4em;
+  align-items: center;
+  gap: 4px 10px;
+  margin-top: 14px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.hist .bar {
+  height: 12px;
+  background: var(--ink);
+  min-width: 1px;
+}
+.hist .bar.late {
+  background: var(--amber);
+}
+.hist .n {
+  text-align: right;
+  color: var(--muted);
+}
+
+/* Plots, as the dashboard's DiagPlot. */
+.plots {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr));
+  gap: 20px 32px;
+  padding-top: 12px;
+}
+.plot {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.plot .head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.plot .range {
+  letter-spacing: 0;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.plot .frame {
+  height: 110px;
+  border: 2px solid var(--ink);
+}
+.plot svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.plot line {
+  stroke: var(--grid);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.plot polyline {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+/* Frame type table. */
+.tablewrap {
+  overflow-x: auto;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-top: 4px;
+}
+th {
+  text-align: right;
+  font-family: var(--sans);
+  font-weight: 600;
+  font-stretch: 110%;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--ink);
+  white-space: nowrap;
+}
+td {
+  text-align: right;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--grid);
+  white-space: nowrap;
+}
+th:first-child,
+td:first-child,
+th:nth-child(2),
+td:nth-child(2),
+th:nth-child(3),
+td:nth-child(3) {
+  text-align: left;
+}
+tr.foreign td {
+  color: var(--amber);
+}
+td.bad {
+  color: var(--red);
+}
+
+/* Event and text logs. */
+.log {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-height: 320px;
+  overflow-y: auto;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+.log li {
+  display: grid;
+  grid-template-columns: 7.5em 4.5em minmax(0, 1fr);
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--grid);
+}
+.log li.text {
+  grid-template-columns: 7.5em minmax(0, 1fr);
+}
+.log .ts {
+  color: var(--faint);
+}
+.log .lvl.warn {
+  color: var(--amber);
+}
+.log .lvl.error {
+  color: var(--red);
+}
+.log .lvl.good {
+  color: var(--green);
+}
+.log .msg {
+  overflow-wrap: anywhere;
+}
+.log li.empty {
+  display: block;
+  color: var(--muted);
+  font-family: var(--sans);
+}
+
+.files {
+  list-style: none;
+  padding: 0;
+  margin: 10px 0 0;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+.files li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--grid);
+}
+.files a {
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ledswatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: 6px;
+  vertical-align: -1px;
+  border: 1px solid var(--faint);
+}

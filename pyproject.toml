@@ -40,6 +40,7 @@ dependencies = [
   "trimesh",
   "shapely",
   "pyserial",                                # playground/calibration: drives the OpenTX trainer link for drivetrain characterization
+  "flask",                                   # firmware/espnow_dongle/scripts/espnow_diag.py: ESP-NOW link diagnostics page
   "Pillow",                                  # playground/calibration: print-accurate AprilTag PDF export (make_print_tags.py)
   # x86 only: often unavailable or different on Jetson (aarch64)
   "pycuda; platform_machine == \"x86_64\"",
