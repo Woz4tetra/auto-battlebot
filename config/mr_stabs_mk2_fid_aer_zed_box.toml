@@ -16,12 +16,17 @@ accumulate_frames = 1
 "MR_STABS_MK2" = ["OUR_ROBOT_1"]
 
 [transmitter]
+# Commands go out over the ESP-NOW dongle alone. The handset talks only to the robot: it arms, holds
+# the link failsafe, and SA hands the wheels to these commands. Feedback and the SA state come back
+# in the robot's telemetry. The type differs from _common, so the merge replaces this section and
+# every field is restated.
+type = "EspNowTransmitter"
+dongle_serial_path = "/dev/espnow_dongle"
 # The radio model mixes linear/angular into the motor outputs, so send body axes.
 drive_processor = "DifferentialDriveProcessor"
-max_motor_rpm = 1500                           # RPM
-max_motor_rpm_per_sec = 0                      # RPM/s; off, nothing rate-limits the command on the way to the wheels
 lifted_deadzone_percent = 0
 zero_deadzone_percent = 2
+reverse_angular_channel = true
 velocity_saturation_limit = 1.0                # 0 = disabled; e.g. 1.0 = |linear| + |angular| <= 1
 
 [plant]

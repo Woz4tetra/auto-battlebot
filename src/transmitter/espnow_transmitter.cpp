@@ -146,8 +146,39 @@ CommandFeedback EspNowTransmitter::update() {
         if (!bytes.empty()) parser_.feed(bytes.data(), bytes.size(), on_frame, this);
     }
     log_health();
-    // Feedback comes from handset channels, which this transport does not carry.
-    return {};
+
+    if (!latest_telemetry_ ||
+        std::chrono::steady_clock::now() - latest_telemetry_time_ > kTelemetryStale) {
+        return {};
+    }
+    const BodyVelocity body =
+        processor_->to_body_velocity(espnow_telemetry_channels(*latest_telemetry_));
+    CommandFeedback feedback;
+    feedback.stick_commands[FrameId::OUR_ROBOT_1] = {
+        .linear_x = body.linear,
+        .linear_y = 0.0,
+        .angular_z = body.angular,
+    };
+    return feedback;
+}
+
+TransmitterStatus EspNowTransmitter::get_status() const {
+    const bool connected = dongle_.is_open();
+    const bool fresh = connected && latest_telemetry_ &&
+                       std::chrono::steady_clock::now() - latest_telemetry_time_ <= kTelemetryStale;
+    // receiving_channels: the robot hears its handset and we hear the robot. SA on with both means
+    // what send() writes reaches the wheels (with ESPNOW_COMMAND_SUBSTITUTION in the firmware).
+    const bool receiving = fresh && latest_telemetry_->radio_connected != 0;
+    return {.connected = connected,
+            .receiving_channels = receiving,
+            .has_autonomy_switch = true,
+            .autonomy_switch_on = receiving && latest_telemetry_->autonomy_enabled != 0};
+}
+
+DriveProcessorInterface::Channels espnow_telemetry_channels(
+    const espnow_protocol::TelemetryPayload &telemetry) {
+    const double a_percent = telemetry.is_upside_down ? -telemetry.a_percent : telemetry.a_percent;
+    return {.channel_a = -a_percent / 100.0, .channel_b = telemetry.b_percent / 100.0};
 }
 
 void EspNowTransmitter::send(VelocityCommand command) {
@@ -198,6 +229,8 @@ void EspNowTransmitter::handle_frame(uint8_t type, const uint8_t *payload, uint8
 
 void EspNowTransmitter::handle_telemetry(const espnow_protocol::TelemetryPayload &telemetry) {
     telemetry_frames_++;
+    latest_telemetry_ = telemetry;
+    latest_telemetry_time_ = std::chrono::steady_clock::now();
     std::optional<int64_t> round_trip_us;
     if (telemetry.espnow_age_ms != UINT32_MAX && telemetry.espnow_seq != 0) {
         // Unsigned subtraction wraps correctly across the 32-bit rollover. Each sample also holds

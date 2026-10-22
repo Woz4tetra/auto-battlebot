@@ -50,10 +50,14 @@ SUBSYSTEM=="tty", ATTRS{idVendor}=="303a", ATTRS{idProduct}=="1001", \
     ATTRS{serial}=="D8:3B:DA:8E:ED:2C", \
     SYMLINK+="espnow_dongle", ENV{ID_MM_DEVICE_IGNORE}="1", \
     GROUP="dialout", MODE="0660"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="303a", ATTRS{idProduct}=="1001", \
+    ATTRS{serial}=="68:EE:8F:4B:53:50", \
+    SYMLINK+="espnow_dongle", ENV{ID_MM_DEVICE_IGNORE}="1", \
+    GROUP="dialout", MODE="0660"
 
 # mr_stabs_mk2 itself on USB (built with ARDUINO_USB_MODE=1), for scripts/upload and USB rescue.
 SUBSYSTEM=="tty", ATTRS{idVendor}=="303a", ATTRS{idProduct}=="1001", \
-    ATTRS{serial}=="F4:12:FA:59:5C:B4", \
+    ATTRS{serial}=="1C:DB:D4:81:84:04", \
     SYMLINK+="mr_stabs", ENV{ID_MM_DEVICE_IGNORE}="1", \
     GROUP="dialout", MODE="0660"
 

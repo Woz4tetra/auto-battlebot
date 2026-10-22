@@ -1830,7 +1830,8 @@ TEST(SysidProfileTest, MrStabsMk2SysidProfileParsesAndIsSelectable) {
     const auto config_dir = get_config_dir();
     auto config =
         load_classes_from_config((config_dir / "mr_stabs_mk2_sysid_zed_box.toml").string());
-    // ESP-NOW is off until the new PCBA, so the WiFi diagnostics transmitter stands alone.
+    // Sysid keeps the trainer link: its WiFi diagnostics transmitter reads the robot's telemetry
+    // ring.
     EXPECT_NE(
         dynamic_cast<Esp32DiagnosticsOpenTxTransmitterConfiguration *>(config.transmitter.get()),
         nullptr);
@@ -1845,14 +1846,20 @@ TEST(SysidProfileTest, MrStabsMk2SysidProfileParsesAndIsSelectable) {
               profiles.end());
 }
 
-// ESP-NOW is off until the new PCBA (docs/plans/espnow_link_plan.md, Robot radio), so both Mr
-// Stabs ZED Box profiles send over the trainer link alone.
-TEST(EspNowProfileTest, MrStabsMk2ZedBoxProfilesUseOpenTxAlone) {
+// Both Mr Stabs ZED Box profiles send over the ESP-NOW dongle alone; the handset talks only to the
+// robot. The processor settings must match how the radio model mixes, as the trainer path did.
+TEST(EspNowProfileTest, MrStabsMk2ZedBoxProfilesUseEspNowAlone) {
     const auto config_dir = get_config_dir();
     for (const char *name :
          {"mr_stabs_mk2_aer_zed_box.toml", "mr_stabs_mk2_fid_aer_zed_box.toml"}) {
         auto config = load_classes_from_config((config_dir / name).string());
-        EXPECT_EQ(config.transmitter->type, "OpenTxTransmitter") << name;
+        auto *espnow = dynamic_cast<EspNowTransmitterConfiguration *>(config.transmitter.get());
+        ASSERT_NE(espnow, nullptr) << name;
+        EXPECT_EQ(espnow->dongle_serial_path, "/dev/espnow_dongle") << name;
+        EXPECT_EQ(espnow->drive_processor, "DifferentialDriveProcessor") << name;
+        EXPECT_TRUE(espnow->reverse_angular_channel) << name;
+        EXPECT_DOUBLE_EQ(espnow->zero_deadzone_percent, 2.0) << name;
+        EXPECT_DOUBLE_EQ(espnow->lifted_deadzone_percent, 0.0) << name;
     }
 }
 #endif

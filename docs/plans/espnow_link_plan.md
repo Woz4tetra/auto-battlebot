@@ -1121,6 +1121,19 @@ flash.
 
 ## Next steps
 
+Done, 2026-10-21 (Mk2 PCBA):
+
+- Phase 3 command path on, with the trainer link dropped instead of kept as a fallback. The ZED
+  Box profiles (`mr_stabs_mk2_aer_zed_box`, `mr_stabs_mk2_fid_aer_zed_box`) use
+  `EspNowTransmitter` alone; the handset talks only to the robot. `EspNowTransmitter` now
+  reports command feedback (telemetry `a_percent`/`b_percent`, flip and ch0 negation undone)
+  and status (`radio_connected`, `autonomy_enabled`) from robot telemetry, stale after 100 ms.
+  Firmware `ESPNOW_COMMAND_SUBSTITUTION = true`; stale ESP-NOW falls back to the handset
+  sticks, not the Jetson's trainer channels. Sysid keeps OpenTX.
+- `DONGLE_MACS[]` deleted: dongles are paired from the robot's diagnostics page (NVS).
+- Open: the NHRL rules question below was not answered before this switch. The feedback
+  delay differs from the trainer path's; re-check the plant `delay_s` live.
+
 Done, 2026-10-13:
 
 - [`control_loop_thread_plan.md`](control_loop_thread_plan.md) landed first, as planned

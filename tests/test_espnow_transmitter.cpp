@@ -353,23 +353,102 @@ TEST_F(EspNowTransmitterPtyTest, ReopensTheDongleOnlyAfterItGoesSilent) {
     EXPECT_TRUE(logged_silent_reconnect());
 }
 
-TEST_F(EspNowTransmitterPtyTest, DrainsTelemetryAndLinkStatsWithoutFeedback) {
+namespace {
+
+void write_telemetry(int fd, const espnow_protocol::TelemetryPayload &telemetry) {
+    uint8_t frame[espnow_protocol::SERIAL_MAX_FRAME];
+    const size_t n = espnow_protocol::encode_serial_frame(
+        espnow_protocol::MSG_TELEMETRY, reinterpret_cast<const uint8_t *>(&telemetry),
+        sizeof(telemetry), frame);
+    ASSERT_EQ(write(fd, frame, n), static_cast<ssize_t>(n));
+}
+
+}  // namespace
+
+TEST(EspNowTelemetryChannelsTest, UndoesTheFirmwareNegationAndTheUpsideDownFlip) {
+    // The firmware writes a_percent = -100 * channel_a, then negates it when driving upside down.
+    espnow_protocol::TelemetryPayload upright = {};
+    upright.a_percent = -40.0f;
+    upright.b_percent = 25.0f;
+    auto channels = espnow_telemetry_channels(upright);
+    EXPECT_NEAR(channels.channel_a, 0.4, 1e-6);
+    EXPECT_NEAR(channels.channel_b, 0.25, 1e-6);
+
+    espnow_protocol::TelemetryPayload flipped = upright;
+    flipped.a_percent = 40.0f;
+    flipped.is_upside_down = 1;
+    channels = espnow_telemetry_channels(flipped);
+    EXPECT_NEAR(channels.channel_a, 0.4, 1e-6);
+    EXPECT_NEAR(channels.channel_b, 0.25, 1e-6);
+}
+
+TEST_F(EspNowTransmitterPtyTest, NoFeedbackOrSwitchBeforeTelemetry) {
     EspNowTransmitterConfiguration config;
     config.dongle_serial_path = path_;
     EspNowTransmitter transmitter(config, nullptr, nullptr);
     ASSERT_TRUE(transmitter.initialize());
 
-    espnow_protocol::TelemetryPayload telemetry = {};
-    telemetry.espnow_age_ms = UINT32_MAX;
-    uint8_t frame[espnow_protocol::SERIAL_MAX_FRAME];
+    // The boot banner is plain text between frames and must be skipped.
     const char *text = "\nespnow_dongle mac=d8:3b channel=1\n";
     ASSERT_GT(write(master_, text, std::strlen(text)), 0);
-    const size_t n = espnow_protocol::encode_serial_frame(
-        espnow_protocol::MSG_TELEMETRY, reinterpret_cast<const uint8_t *>(&telemetry),
-        sizeof(telemetry), frame);
-    ASSERT_EQ(write(master_, frame, n), static_cast<ssize_t>(n));
     usleep(5000);
     EXPECT_TRUE(transmitter.update().stick_commands.empty());
+    const TransmitterStatus status = transmitter.get_status();
+    EXPECT_TRUE(status.connected);
+    EXPECT_FALSE(status.receiving_channels);
+    EXPECT_TRUE(status.has_autonomy_switch);
+    EXPECT_FALSE(status.autonomy_switch_on);
+}
+
+TEST_F(EspNowTransmitterPtyTest, FeedbackAndSwitchComeFromTelemetry) {
+    EspNowTransmitterConfiguration config;
+    config.dongle_serial_path = path_;
+    config.reverse_angular_channel = true;
+    EspNowTransmitter transmitter(config, nullptr, nullptr);
+    ASSERT_TRUE(transmitter.initialize());
+
+    espnow_protocol::TelemetryPayload telemetry = {};
+    telemetry.espnow_age_ms = UINT32_MAX;
+    telemetry.a_percent = -50.0f;
+    telemetry.b_percent = 20.0f;
+    telemetry.radio_connected = 1;
+    telemetry.autonomy_enabled = 1;
+    write_telemetry(master_, telemetry);
+    usleep(5000);
+
+    // Feedback is the channel pair mapped back through the same processor send() uses.
+    const auto processor = make_drive_processor(
+        config.drive_processor, {.reverse_angular = config.reverse_angular_channel},
+        DiagnosticsLogger::get_logger("espnow_feedback_test"));
+    const BodyVelocity expected = processor->to_body_velocity({0.5, 0.2});
+    const CommandFeedback feedback = transmitter.update();
+    ASSERT_EQ(feedback.stick_commands.count(FrameId::OUR_ROBOT_1), 1u);
+    EXPECT_NEAR(feedback.stick_commands.at(FrameId::OUR_ROBOT_1).linear_x, expected.linear, 1e-6);
+    EXPECT_NEAR(feedback.stick_commands.at(FrameId::OUR_ROBOT_1).angular_z, expected.angular, 1e-6);
+    EXPECT_TRUE(transmitter.get_status().receiving_channels);
+    EXPECT_TRUE(transmitter.get_status().autonomy_switch_on);
+
+    // SA off on the handset: still receiving, switch off.
+    telemetry.autonomy_enabled = 0;
+    write_telemetry(master_, telemetry);
+    usleep(5000);
+    transmitter.update();
+    EXPECT_TRUE(transmitter.get_status().receiving_channels);
+    EXPECT_FALSE(transmitter.get_status().autonomy_switch_on);
+
+    // The robot lost its handset: not receiving, so the switch cannot count as on.
+    telemetry.autonomy_enabled = 1;
+    telemetry.radio_connected = 0;
+    write_telemetry(master_, telemetry);
+    usleep(5000);
+    transmitter.update();
+    EXPECT_FALSE(transmitter.get_status().receiving_channels);
+    EXPECT_FALSE(transmitter.get_status().autonomy_switch_on);
+
+    // Telemetry stops: feedback and status go stale together.
+    usleep(std::chrono::duration_cast<std::chrono::microseconds>(kTelemetryStale).count() + 20000);
+    EXPECT_TRUE(transmitter.update().stick_commands.empty());
+    EXPECT_FALSE(transmitter.get_status().receiving_channels);
 }
 
 }  // namespace auto_battlebot

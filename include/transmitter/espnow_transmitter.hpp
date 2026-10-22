@@ -24,13 +24,15 @@ namespace auto_battlebot {
  * handset mixer and the Crossfire frame period out of the command path, and records the telemetry
  * the robot sends back on /robot/espnow_telemetry.
  *
- * Send-only for control. There is no handset channel input on this transport, so it reports no
- * command feedback, no init button, and no status; under CompositeTransmitter those come from the
- * OpenTX child. It applies no linear slew limit, and neither does the firmware: commands reach the
- * wheels unlimited.
+ * Feedback and status come from the robot's telemetry, so it can run alone, with the handset
+ * talking only to the robot. Feedback is the drive command the robot used each tick, whichever
+ * source it took it from, mapped back to the channel values this class would send. Status reads
+ * SA (autonomy_enabled) and the robot's CRSF link from the same frames. There is no init button.
+ * It applies no linear slew limit, and neither does the firmware: commands reach the wheels
+ * unlimited.
  *
  * ESP-NOW carries no arm authority. The firmware substitutes the two channel values only after
- * every CRSF gate passes and only while SA (ch5) enables autonomy, and falls back to the trainer
+ * every CRSF gate passes and only while SA (ch5) enables autonomy, and falls back to the handset
  * channels when they go stale. See docs/plans/espnow_link_plan.md.
  */
 class EspNowTransmitter : public TransmitterInterface {
@@ -39,8 +41,10 @@ class EspNowTransmitter : public TransmitterInterface {
                       std::shared_ptr<McapRecorder> mcap_recorder);
 
     bool initialize() override;
-    /** Drains telemetry and link stats from the dongle. Always returns empty feedback. */
+    /** Drains telemetry and link stats from the dongle. Feedback is the robot's latest drive
+     *  command, empty once telemetry is older than kTelemetryStale. */
     CommandFeedback update() override;
+    TransmitterStatus get_status() const override;
     void send(VelocityCommand command) override;
     bool did_init_button_press() override { return false; }
     void enable() override { enabled_ = true; }
@@ -74,7 +78,20 @@ class EspNowTransmitter : public TransmitterInterface {
     /** Smallest telemetry round trip since the last health log. */
     std::optional<int64_t> min_round_trip_us_;
     std::chrono::steady_clock::time_point last_health_log_{};
+
+    std::optional<espnow_protocol::TelemetryPayload> latest_telemetry_;
+    std::chrono::steady_clock::time_point latest_telemetry_time_{};
 };
+
+/** Telemetry older than this means the robot is not hearing us or not answering: no feedback,
+ *  and status reports the channels as not receiving. Ten missed 100 Hz frames. */
+constexpr std::chrono::milliseconds kTelemetryStale{100};
+
+/** The drive command a telemetry frame reports, as the two channel values on the wire (what
+ *  send() would write, or the handset's ch0/ch1). Undoes the firmware's upside-down flip and its
+ *  ch0 negation (crsf_bridge reads a_percent = -ch0). */
+DriveProcessorInterface::Channels espnow_telemetry_channels(
+    const espnow_protocol::TelemetryPayload &telemetry);
 
 /** Monotonic microseconds, truncated to 32 bits: the clock the command's jetson_tx_us and the
  *  telemetry echo of it share. */
