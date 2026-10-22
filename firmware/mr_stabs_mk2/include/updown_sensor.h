@@ -84,7 +84,7 @@ class UpdownSensor {
     uint32_t prev_heading_us = 0;
     bool has_prev_heading = false;
     vector3_t *make_unit_vector(float x, float y, float z);
-    bool update_sensor(bool radio_connected);
+    bool update_sensor(bool allow_reconnect);
     vector3_t *init_vector3(float x, float y, float z);
     uint8_t read_registers(uint8_t reg, uint8_t *buffer, uint8_t length);
     bool check_chip_id();
@@ -93,7 +93,9 @@ class UpdownSensor {
    public:
     UpdownSensor();
     bool begin();
-    bool get_is_upside_down(bool radio_connected);
+    /** Samples the BNO055 (rate-limited) and returns the debounced upside-down state.
+     *  allow_reconnect retries begin() on a lost sensor, which blocks for over a second. */
+    bool get_is_upside_down(bool allow_reconnect);
     vector3_t *get() { return grav_vec; }
     vector3_t *get_max() { return max_grav_vec; }
     vector3_t *get_min() { return min_grav_vec; }

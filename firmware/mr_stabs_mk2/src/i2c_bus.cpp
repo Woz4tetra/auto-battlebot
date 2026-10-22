@@ -1,10 +1,13 @@
 #include <driver/gpio.h>
+#include <esp_task_wdt.h>
 #include <i2c_bus.h>
 
 namespace i2c_bus {
 void scan(TwoWire *wire, scan_t *result) {
     result->count = 0;
     for (uint8_t address = 0x08; address < 0x78; address++) {
+        // A stuck bus times out every address; 112 of them can outlast the loop watchdog.
+        esp_task_wdt_reset();
         wire->beginTransmission(address);
         if (wire->endTransmission() == 0 && result->count < MAX_FOUND) {
             result->addresses[result->count++] = address;

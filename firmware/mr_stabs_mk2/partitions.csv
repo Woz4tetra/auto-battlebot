@@ -1,0 +1,10 @@
+# Adafruit's partitions-4MB-tinyuf2.csv with its unused FAT partition replaced by a core dump
+# partition. nvs, otadata, and both app slots keep their offsets, so a USB flash with this table
+# keeps the saved WiFi networks and paired dongles.
+# Name,   Type, SubType,  Offset,   Size
+nvs,      data, nvs,      0x9000,   20K,
+otadata,  data, ota,      0xe000,   8K,
+ota_0,    app,  ota_0,    0x10000,  1408K,
+ota_1,    app,  ota_1,    0x170000, 1408K,
+uf2,      app,  factory,  0x2d0000, 256K,
+coredump, data, coredump, 0x310000, 64K,

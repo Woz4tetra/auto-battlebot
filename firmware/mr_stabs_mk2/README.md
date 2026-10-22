@@ -82,8 +82,7 @@ Requires [PlatformIO](https://platformio.org/).
 # Upload over the SoftAP with ArduinoOTA (connect to MR-STABS WiFi first)
 ./scripts/ota_wifi
 
-# Upload over ESP-NOW through the dongle on the ZED Box (robot disarmed). Needs
-# ESPNOW_ENABLED, which is off until the new PCBA; see OTA Updates.
+# Upload over ESP-NOW through the dongle on the ZED Box (robot disarmed)
 ./scripts/ota
 # ...or through a dongle plugged into this machine
 ./scripts/ota --local /dev/ttyACM0
@@ -100,9 +99,8 @@ Arduino core; `pio test` does not compile `src/`. The heading-hold PID is in `li
 
 ## OTA Updates
 
-**ESP-NOW is off** (`ESPNOW_ENABLED = false` in `src/main.cpp`) until the new PCBA. This board's
-radio hears the dongle at -85 dBm from 30 cm, so the link only works at arm's length. Until then,
-update over the WiFi fallback below or USB. The rest of this section applies once it is back on.
+ESP-NOW is on (`ESPNOW_ENABLED` in `src/main.cpp`). With it off, update over the WiFi fallback
+below or USB.
 
 Firmware updates go over ESP-NOW through the dongle (`firmware/espnow_dongle`,
 `docs/plans/espnow_link_plan.md`). `./scripts/ota` builds the image, copies it to the ZED Box, and
@@ -220,6 +218,48 @@ and both sensors. Red rows are the ones to look at.
 
 A sensor that fails at boot or drops out stops being read, so the robot keeps driving. The
 BNO055 is only retried after a reboot.
+
+### Watchdog and crash dumps
+
+A `loop()` pass longer than 5 s trips the task watchdog (`enableLoopWDT()` at the end of
+`setup()`). So does core 0's idle task starving. A trip panics, writes an ELF core dump to the
+`coredump` partition (`partitions.csv`), and reboots, so a hang no longer leaves the robot dead
+with no access point. ArduinoOTA uploads pause the loop watchdog while they run.
+
+The LAST REBOOT panel shows the reset reason and the dump summary. After a `TASK_WDT` reset, the
+summary's task is whatever ran on core 0 when the watchdog interrupt fired. The stuck task is in
+the full decode:
+
+```bash
+scripts/coredump [PORT] [ELF]   # reads the partition over USB (resets the robot), decodes every task
+```
+
+Pass the ELF of the build that crashed; the panel shows its SHA-256 prefix to compare. ERASE DUMP
+clears it once read. The partition table only changes with a USB flash: OTA uploads keep the old
+one.
+
+### ESP-NOW panel
+
+The same `/status` poll carries the robot's side of the ESP-NOW link. The dongle's side, with its
+ACK rate and the robot's telemetry delivery, is on `firmware/espnow_dongle/scripts/espnow_diag.py`.
+
+- **Link**: whether `esp_now_init()` ran, the channel (or the sweep and the last good channel),
+  the dongle MAC it hears and how long ago, the telemetry ACK rate the robot reports as `lq`, the
+  latest command (seq, age, values, fresh), whether this tick drove from ESP-NOW, and OTA state.
+  The subtitle says whether `ESPNOW_COMMAND_SUBSTITUTION` is on or the robot is in shadow mode.
+- **Refused**: frames with our session magic from a MAC not on the allowed list, with the last
+  such MAC.
+- **Allowed dongles**: the robot accepts only dongles paired from this page, up to 8, saved in
+  NVS (namespace `espnow_pair`) so they survive reboots and reflashes. None are built into the
+  firmware. To pair a new dongle, plug it in near the robot, open this page, and press ALLOW
+  next to its MAC, or type the MAC and press ADD. REMOVE unpairs. All three need the robot
+  disarmed. The page queues the request and `loop()` applies it, since the NVS write stalls
+  both cores for a few ms. Erasing flash (`pio run -t erase`) clears the list, and the robot
+  then accepts no dongle until one is paired again.
+- **Traffic**: received frames by kind with per-second rates, late commands the tracker dropped,
+  wrong-size frames (robot and dongle built from different protocol headers), receive queue
+  overflows (the loop fell behind the WiFi task), telemetry sent, and send results: ACKed,
+  failed after retries, and refused by `esp_now_send()`.
 
 ### WiFi settings
 

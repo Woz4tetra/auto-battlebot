@@ -409,3 +409,39 @@ select:disabled {
 .add {
   margin-top: 4px;
 }
+
+.seg > button:disabled {
+  color: var(--faint);
+  cursor: default;
+}
+.seg > button[aria-pressed="true"]:disabled {
+  color: var(--bg);
+  background: var(--faint);
+}
+
+.nets li .ssid.dongle {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 0;
+  white-space: normal;
+}
+.nets li .ssid.dongle .muted {
+  font-size: 12px;
+}
+
+/* A setting the build has switched off, with the reason. */
+.lockout {
+  margin: 12px 0 4px;
+  padding: 12px 14px;
+  border: 2px solid var(--amber);
+  border-left-width: 8px;
+}
+.lockout .label {
+  color: var(--amber);
+}
+.lockout p {
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
+}

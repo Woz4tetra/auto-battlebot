@@ -99,6 +99,17 @@
 
       <section class="wide">
         <h2 class="label section-head">WIFI</h2>
+        <div class="lockout" id="espnowLockout" hidden>
+          <span class="label">CLIENT MODE DISABLED: ESP-NOW IS ON</span>
+          <p>
+            This build has ESP-NOW enabled, so the robot always runs its own
+            access point (<span class="mono" id="lockoutSsid"></span>) on the
+            ESP-NOW channel (<span class="mono" id="lockoutChannel"></span>).
+            Joining a router would move the radio to the router's channel and
+            cut the dongle off. Saved networks are kept and take effect in a
+            build with <span class="mono">ESPNOW_ENABLED = false</span>.
+          </p>
+        </div>
         <div class="wifi-grid">
           <div>
             <div class="field">
@@ -181,6 +192,60 @@
       <section>
         <h2 class="label section-head">INA238 PACK SENSOR</h2>
         <div id="inaRows"></div>
+      </section>
+
+      <section class="wide">
+        <h2 class="label section-head">LAST REBOOT</h2>
+        <div class="wifi-grid">
+          <div id="bootRows"></div>
+          <div>
+            <p class="note muted">
+              A crash or a loop() pass over 5 s (task watchdog) saves a core
+              dump to flash and reboots. Decode it over USB with
+              <span class="mono">scripts/coredump</span>, or the backtrace with
+              <span class="mono">addr2line</span> against the same build's
+              firmware.elf. Erase it once read so the next one is not mistaken
+              for it.
+            </p>
+            <div class="row">
+              <button class="btn small" id="eraseDumpBtn">ERASE DUMP</button>
+              <span class="mono muted" id="eraseDumpStatus"></span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="wide">
+        <h2 class="label section-head">
+          ESP-NOW <span class="mono muted" id="espnowSub"></span>
+        </h2>
+        <div class="wifi-grid">
+          <div id="espnowLinkRows"></div>
+          <div id="espnowTrafficRows"></div>
+          <div>
+            <h3 class="label">ALLOWED DONGLES</h3>
+            <p class="note muted">
+              The robot only accepts paired dongles. Pairs are saved on the
+              robot and survive reboots and reflashes. Pair a new dongle by
+              plugging it in near the robot and pressing ALLOW on it below.
+              Disarm first.
+            </p>
+            <div class="row" id="pairOffer" hidden>
+              <span class="mono" id="pairOfferMac"></span>
+              <button class="btn small" id="pairBtn">ALLOW</button>
+            </div>
+            <ul class="nets" id="dongleList"></ul>
+            <div class="row">
+              <input
+                id="pairMac"
+                placeholder="aa:bb:cc:dd:ee:ff"
+                autocomplete="off"
+              />
+              <button class="btn small" id="pairManualBtn">ADD</button>
+              <span class="mono muted" id="pairStatus"></span>
+            </div>
+          </div>
+        </div>
       </section>
     </main>
 

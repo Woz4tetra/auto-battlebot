@@ -141,9 +141,9 @@ vector3_t *UpdownSensor::init_vector3(float x, float y, float z)
     return vec;
 }
 
-bool UpdownSensor::get_is_upside_down(bool radio_connected)
+bool UpdownSensor::get_is_upside_down(bool allow_reconnect)
 {
-    if (!update_sensor(radio_connected))
+    if (!update_sensor(allow_reconnect))
         return is_upside_down;
 
     float z = -1 * grav_vec->z;
@@ -155,16 +155,16 @@ bool UpdownSensor::get_is_upside_down(bool radio_connected)
     return is_upside_down;
 }
 
-bool UpdownSensor::update_sensor(bool radio_connected)
+bool UpdownSensor::update_sensor(bool allow_reconnect)
 {
     // An absent or unplugged sensor is never read: each failed read blocks the loop for
     // milliseconds, and at the 10 ms sample interval that starved the ESCs of DShot frames.
-    // begin() blocks for over a second, so it is only retried with the radio disconnected.
-    // main.cpp skips this call with the link down, so in practice a sensor that drops out stays
-    // off, and heading hold with it, until the next reboot.
+    // begin() blocks for over a second, so it is only retried when the caller allows it. main.cpp
+    // never does, so a sensor that drops out stays off, and heading hold with it, until the next
+    // reboot.
     if (!initialized)
     {
-        if (!radio_connected && millis() - reconnect_timer > RECONNECT_INTERVAL)
+        if (allow_reconnect && millis() - reconnect_timer > RECONNECT_INTERVAL)
         {
             begin();
             reconnect_timer = millis();

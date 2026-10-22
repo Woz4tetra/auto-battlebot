@@ -3,6 +3,7 @@
 #include <ArduinoOTA.h>
 #include <WiFi.h>
 #include <Wire.h>
+#include <crash_report.h>
 #include <crsf_bridge.h>
 #include <diagnostics_server.h>
 #include <esc.h>
@@ -44,6 +45,8 @@ uint32_t last_ring_push_ms = 0;
 i2c_bus::scan_t bus_scan = {};
 uint32_t last_status_ms = 0;
 const uint32_t STATUS_INTERVAL_MS = 1000;  // sensor panel refresh on the diagnostics page
+bool last_espnow_active = false;           // for the diagnostics page's ESP-NOW panel
+crash_report::report_t boot_report = {};   // why this boot happened, for the page
 
 const int NUM_PIXELS = 1;
 Adafruit_NeoPixel pixels(NUM_PIXELS, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800);
@@ -70,17 +73,17 @@ uint32_t last_heading_sample_us = 0;
 // ESP-NOW link to the Jetson's dongle (docs/plans/espnow_link_plan.md).
 espnow_link::EspNowLink espnow;
 
-// Off until the new PCBA: this board's radio hears the dongle at -85 dBm from 30 cm, so the link
-// only works at arm's length. Off means no ESP-NOW init, telemetry, or OTA; the SoftAP dashboard
-// and scripts/ota_wifi are the paths in. Turning it on again also needs the ZED Box profiles back
-// on the CompositeTransmitter. See "Robot radio" in the plan.
-const bool ESPNOW_ENABLED = false;
+// Off means no ESP-NOW init, telemetry, or OTA; the SoftAP dashboard and scripts/ota_wifi are the
+// paths in. It was off until the Mk2 PCBA because the old board's radio heard the dongle at
+// -85 dBm from 30 cm. See "Robot radio" in the plan.
+const bool ESPNOW_ENABLED = true;
 
-// Phase 1 of the plan is shadow mode: the robot receives and reports ESP-NOW commands but keeps
-// driving from the trainer channels. Phase 3 sets this true, which drives from the ESP-NOW
-// commands. Nothing rate-limits the arbitrated output: a source switch, an ESP-NOW dropout, or an
+// With SA on and a fresh ESP-NOW command, drive from it instead of the handset sticks; stale
+// ESP-NOW falls back to the sticks. False is shadow mode: commands are received and reported but
+// never drive. The ZED Box sends over ESP-NOW alone, so with this false the Jetson cannot drive.
+// Nothing rate-limits the arbitrated output: a source switch, an ESP-NOW dropout, or an
 // orientation flip steps the wheels in one tick.
-const bool ESPNOW_COMMAND_SUBSTITUTION = false;
+const bool ESPNOW_COMMAND_SUBSTITUTION = true;
 
 void set_builtin_led(int value) {
     pixels.fill(pixels.Color(value, 0, 0));
@@ -122,6 +125,7 @@ void stop_escs() {
 // and over ESP-NOW.
 void publish_diag(diag_data_t &diag, bool autonomy_enabled, bool espnow_active, uint32_t now_ms) {
     diag_server.update(&diag);
+    last_espnow_active = espnow_active;
     const bool ring_due = now_ms - last_ring_push_ms >= espnow_link::TELEMETRY_PERIOD_MS;
     if (!ring_due && !ESPNOW_ENABLED) return;
     espnow_protocol::TelemetryPayload telemetry = {};
@@ -209,6 +213,11 @@ void publish_sensor_status(bool armed) {
     status.yaw_rate = accel->get_yaw_rate();
     status.heading_rate = accel->get_heading_rate();
     status.gyro_sign_suspect = accel->gyro_sign_suspect();
+    if (ESPNOW_ENABLED) espnow.fill_status(status.espnow, status.snapshot_ms);
+    status.espnow.enabled = ESPNOW_ENABLED;
+    status.espnow.substitution = ESPNOW_COMMAND_SUBSTITUTION;
+    status.espnow.driving = last_espnow_active;
+    status.boot = boot_report;
     diag_server.set_status(status);
 }
 
@@ -218,10 +227,12 @@ void setup_ota() {
         .onStart([]() {
             is_loading_firmware = true;
             stop_escs();
+            // handle() runs the whole upload inside one loop() pass.
+            disableLoopWDT();
         })
         .onEnd([]() {})
         .onProgress([](unsigned int progress, unsigned int total) {})
-        .onError([](ota_error_t error) {});
+        .onError([](ota_error_t error) { enableLoopWDT(); });
 
     ArduinoOTA.begin();
 }
@@ -281,6 +292,8 @@ void mix_motor_outputs(crsf_bridge::radio_data_t *radio_data, float sensed_angle
 
 void setup() {
     Serial.begin(115200);
+    crash_report::read(boot_report);
+    crash_report::print(boot_report);
 
 #if defined(NEOPIXEL_POWER)
     pinMode(NEOPIXEL_POWER, OUTPUT);
@@ -339,6 +352,12 @@ void setup() {
     diag_server.begin(&wifi, &telemetry_ring_buffer, esp_random(), tunables);
     if (ESPNOW_ENABLED) espnow.begin(WIFI_IF_AP, espnow_protocol::CHANNEL_OVERRIDE, tunables);
 
+    // A loop() pass that takes over CONFIG_ESP_TASK_WDT_TIMEOUT_S (5 s) panics: the core dump goes
+    // to flash and the robot reboots, instead of hanging with the ESCs on their last command. The
+    // core already watches core 0's idle task. Core 1's idle task is not watched: loop() spins on
+    // core 1 without yielding, so it never runs. Started last: setup() blocks longer than that.
+    enableLoopWDT();
+
     prev_loop_us = micros();
 }
 
@@ -364,15 +383,32 @@ void loop() {
             return;
         }
     }
+    // A dongle pair or unpair from the diagnostics page. Refused while armed inside pair().
+    pair_request_t pair_request;
+    // Erasing the core dump writes flash, so it waits for the loop and refuses while armed.
+    if (diag_server.take_erase_dump_request() && !(radio_ok && radio_data->armed)) {
+        if (crash_report::erase_dump()) {
+            boot_report.has_dump = false;
+            last_status_ms = 0;
+        }
+    }
+    if (ESPNOW_ENABLED && diag_server.take_pair_request(pair_request)) {
+        const bool armed = radio_ok && radio_data->armed;
+        if (pair_request.op == 1) {
+            espnow.pair(pair_request.mac, armed);
+        } else {
+            espnow.unpair(pair_request.mac, armed);
+        }
+        last_status_ms = 0;  // show the result on the next status poll
+    }
     vbat_sensor_ina238.update();
     float vbat = vbat_sensor_ina238.get_volts();
     float ibat = vbat_sensor_ina238.get_amps();
 
-    // Read the IMU every loop with the link up, armed or not, so heading stays fresh for the PID
-    // and the radio's attitude telemetry tracks the robot while it is disarmed. Rate-limited
-    // inside the sensor. Skipped with the link down: get_is_upside_down(false) runs the BNO055
-    // reconnect, which blocks for over a second.
-    bool sensed_upside_down = radio_ok && accel->get_is_upside_down(radio_data->connected);
+    // Read the IMU every loop whatever the radio is doing, so heading stays fresh for the PID and
+    // the diagnostics page and telemetry track the robot with no handset. Rate-limited inside the
+    // sensor. Reconnect stays off: it blocks the loop for over a second.
+    bool sensed_upside_down = accel->get_is_upside_down(false);
     updown_sensor::vector3_t *orientation = accel->get_orientation();
     crsf_bridge::telemetry_data_t telemetry = {
         .pack_volts = vbat,

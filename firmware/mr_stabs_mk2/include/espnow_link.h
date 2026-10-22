@@ -13,12 +13,6 @@
 
 namespace espnow_link {
 
-// Dongles allowed to command, tune, and flash this robot: the STA MAC each dongle prints at boot.
-// Add the bench dongle and the match (u.FL) dongle here as they are built.
-const uint8_t DONGLE_MACS[][6] = {
-    {0xD8, 0x3B, 0xDA, 0x8E, 0xED, 0x2C},  // QT Py ESP32-S3 no-PSRAM, development dongle
-};
-
 // The sweep's candidates. Last-known-good is tried ahead of these.
 const uint8_t CHANNEL_CANDIDATES[] = {1, 6, 11};
 const uint32_t CHANNEL_DWELL_MS = 25;  // ~6 dongle repeats at 250 Hz, plus switch settling
@@ -26,6 +20,11 @@ const uint32_t CHANNEL_DWELL_MS = 25;  // ~6 dongle repeats at 250 Hz, plus swit
 // The control loop runs at ~1 kHz. Telemetry at that rate would hold the channel ~35% of the
 // time at 6 Mbps, so it is sent at 100 Hz, which still resolves every 10 ms control tick.
 const uint32_t TELEMETRY_PERIOD_MS = 10;
+
+// Dongles allowed to command, tune, and flash this robot, by the STA MAC each dongle prints at
+// boot. Paired from the diagnostics page and kept in NVS, so none are built into the firmware.
+// ESP-NOW allows 20 unencrypted peers.
+const uint8_t MAX_PAIRED_DONGLES = 8;
 
 // OTA transfer gives up after this long without a valid OTA frame. The running image is untouched
 // until Update.end() switches the boot slot, so an abort always leaves the old firmware running.
@@ -54,6 +53,16 @@ class EspNowLink {
     /** Fills in the link fields and sends at most every TELEMETRY_PERIOD_MS. */
     void send_telemetry(espnow_protocol::TelemetryPayload &telemetry, uint32_t now_ms);
 
+    /** Link health for the diagnostics page. Leaves enabled, substitution, and driving to the
+     *  caller, which owns those flags. */
+    void fill_status(espnow_status_t &out, uint32_t now_ms) const;
+
+    /** Adds a dongle to the paired list in NVS. Disarmed only: the NVS write stalls both cores
+     *  for a few ms. Returns a pair_result_t. */
+    uint8_t pair(const uint8_t *mac, bool armed);
+    /** Removes a paired dongle. */
+    uint8_t unpair(const uint8_t *mac, bool armed);
+
    private:
     static void on_recv(const uint8_t *mac, const uint8_t *data, int length);
     static void on_sent(const uint8_t *mac, esp_now_send_status_t status);
@@ -70,14 +79,33 @@ class EspNowLink {
     void set_channel(uint8_t channel);
     void service_validation(uint32_t now_ms);
     void send_frame(const uint8_t *mac, uint8_t type, const void *payload, size_t length);
+    void load_paired();
+    void store_paired();
+    void publish_allowed();
+
+    uint8_t paired_[MAX_PAIRED_DONGLES][6] = {};
+    uint8_t paired_count_ = 0;
+    uint8_t last_pair_result_ = 0;
 
     wifi_interface_t ifidx_ = WIFI_IF_STA;
     tunable_ptrs_t tunables_;
     espnow_protocol::CommandTracker tracker_;
     espnow_protocol::OtaSequencer ota_;
 
+    bool begin_ok_ = false;
     uint8_t reply_mac_[6] = {0};
     bool heard_dongle_ = false;
+
+    // Receive counters for fill_status(), from loop() context.
+    uint32_t rx_frames_ = 0;
+    uint32_t rx_commands_new_ = 0;
+    uint32_t rx_commands_repeat_ = 0;
+    uint32_t rx_commands_old_ = 0;
+    uint32_t rx_pings_ = 0;
+    uint32_t rx_tunables_ = 0;
+    uint32_t rx_ota_ = 0;
+    uint32_t rx_size_errors_ = 0;
+    uint32_t tx_telemetry_ = 0;
     uint32_t last_valid_frame_ms_ = 0;
     uint32_t last_telemetry_ms_ = 0;
     uint32_t telemetry_seq_ = 0;

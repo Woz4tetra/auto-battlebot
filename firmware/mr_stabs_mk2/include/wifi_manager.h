@@ -72,6 +72,7 @@ class WifiManager {
 
     snapshot_t snapshot();
     const char *ap_ssid() const { return _ap_ssid; }
+    uint8_t ap_channel() const { return _ap_channel; }
     const char *hostname() const { return _hostname; }
 
     // Settings edits from the page. Each saves to NVS before returning; a false return carries a

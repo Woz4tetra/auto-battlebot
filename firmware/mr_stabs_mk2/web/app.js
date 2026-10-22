@@ -261,8 +261,18 @@ function renderWifi() {
   const mode = pendingMode ?? wifi.mode;
   const selected = pendingSelected ?? wifi.selected;
 
-  for (const b of $("modeSeg").children)
-    b.setAttribute("aria-pressed", b.dataset.mode === mode);
+  // ESP-NOW pins the robot to its access point, so client mode cannot be chosen.
+  const locked = wifi.forced_ap;
+  $("espnowLockout").hidden = !locked;
+  $("lockoutSsid").textContent = wifi.ap_ssid;
+  $("lockoutChannel").textContent = wifi.ap_channel
+    ? "channel " + wifi.ap_channel
+    : "pinned";
+  for (const b of $("modeSeg").children) {
+    b.setAttribute("aria-pressed", b.dataset.mode === (locked ? "ap" : mode));
+    b.disabled = locked;
+  }
+  $("netSelect").disabled = locked;
 
   // Rebuilt only when the list changes, so a poll does not close a dropdown the operator has open.
   const select = $("netSelect");
@@ -287,16 +297,22 @@ function renderWifi() {
     : wifi.networks[0] || "";
   $("selectField").hidden = mode !== "client";
 
-  $("modeNote").textContent = wifi.forced_ap
-    ? "ESP-NOW is enabled in this build, so the robot stays in access point mode on the ESP-NOW channel. The setting is saved for when it is off."
-    : mode === "ap"
+  // The lockout box above explains forced AP mode; the note would only repeat it.
+  $("modeNote").hidden = locked;
+  $("modeNote").textContent =
+    mode === "ap"
       ? `Boots as access point ${wifi.ap_ssid} at 192.168.4.1 and never joins a router.`
       : `Joins the selected network on boot. With no connection after 30 s it falls back to access point ${wifi.ap_ssid}. Once joined, find it at http://${wifi.hostname}.local or by its router address.`;
-  $("applyBtn").disabled = mode === "client" && wifi.networks.length === 0;
+  $("applyBtn").disabled =
+    locked || (mode === "client" && wifi.networks.length === 0);
 
   const pill = $("wifiPill");
   const isAp = wifi.state === "ap" || wifi.state === "fallback_ap";
-  pill.lastChild.textContent = isAp ? "AP" : "CLIENT";
+  pill.lastChild.textContent = isAp
+    ? locked
+      ? "AP · ESP-NOW"
+      : "AP"
+    : "CLIENT";
   pill.firstChild.style.background =
     wifi.state === "connected" || wifi.state === "ap"
       ? "var(--green)"
@@ -589,6 +605,245 @@ function renderStatus(s) {
     ],
     ["Last good read", age(n.last_ok_age_ms)],
   ]);
+
+  if (s.espnow) renderEspNow(s.espnow, s.snapshot_ms);
+  if (s.boot) renderBoot(s.boot);
+}
+
+// ---- last reboot -------------------------------------------------------------------------
+
+// Reset reasons that mean the firmware failed rather than someone rebooting it.
+const BAD_RESETS = ["PANIC", "TASK_WDT", "INT_WDT", "OTHER_WDT", "BROWNOUT"];
+
+function renderBoot(b) {
+  const rows = [
+    ["Reset reason", b.reset_reason, BAD_RESETS.includes(b.reset_reason)],
+  ];
+  if (!b.has_dump) {
+    rows.push(["Core dump", "none"]);
+  } else if (!b.dump_valid) {
+    rows.push([
+      "Core dump",
+      b.dump_size + " B, checksum failed (cut short)",
+      true,
+    ]);
+  } else {
+    rows.push(
+      ["Core dump", b.dump_size + " B", true],
+      // A task watchdog aborts from its interrupt on core 0, so the summary names whatever ran
+      // there. The stuck task is in the full decode (scripts/coredump).
+      [
+        b.reset_reason === "TASK_WDT"
+          ? "Task interrupted (not the stuck one)"
+          : "Task",
+        b.task || "--",
+      ],
+      ["PC", b.pc],
+      ["Exception cause / addr", b.exc_cause + " / " + b.exc_vaddr],
+      [
+        "Backtrace",
+        b.backtrace.join(" ") + (b.backtrace_corrupted ? " (corrupted)" : ""),
+      ],
+      ["Build ELF SHA-256", b.elf_sha256],
+    );
+  }
+  fillRows("bootRows", rows);
+  $("eraseDumpBtn").disabled = !b.has_dump;
+}
+
+$("eraseDumpBtn").onclick = () =>
+  post("/crash/erase", {})
+    .then(() => flash("eraseDumpStatus", "erasing..."))
+    .catch((e) => flash("eraseDumpStatus", e.message));
+
+// ---- ESP-NOW -----------------------------------------------------------------------------
+
+const OTA_STATES = ["idle", "receiving", "done", "validated", "error"];
+const PAIR_RESULTS = [
+  "",
+  "saved",
+  "disarm first",
+  "list full (8 paired)",
+  "already allowed",
+  "",
+  "not paired",
+  "not a device MAC",
+];
+
+function pairRequest(url, mac) {
+  return post(url, { mac: mac.trim().toLowerCase() })
+    .then(() => flash("pairStatus", "sent..."))
+    .catch((err) => flash("pairStatus", err.message));
+}
+
+$("pairBtn").onclick = () =>
+  pairRequest("/espnow/pair", $("pairOfferMac").textContent);
+$("pairManualBtn").onclick = () =>
+  pairRequest("/espnow/pair", $("pairMac").value);
+
+let lastPairResult = 0;
+let lastDongleList = "";
+
+function renderDongles(e) {
+  // A refused dongle is the one to offer, unless it was paired since.
+  const offer =
+    e.rx_rejected > 0 && !e.allowed.includes(e.rejected_mac)
+      ? e.rejected_mac
+      : null;
+  $("pairOffer").hidden = !offer;
+  if (offer) $("pairOfferMac").textContent = offer;
+
+  if (e.pair_result !== lastPairResult) {
+    lastPairResult = e.pair_result;
+    if (PAIR_RESULTS[e.pair_result])
+      flash("pairStatus", PAIR_RESULTS[e.pair_result]);
+  }
+
+  // Rebuilt only when the list changes, so a button is never replaced under a click.
+  const key = e.allowed.join(",") + "|" + e.dongle_mac;
+  if (key === lastDongleList) return;
+  lastDongleList = key;
+  const list = $("dongleList");
+  list.innerHTML = "";
+  if (e.allowed.length === 0) {
+    const li = document.createElement("li");
+    li.className = "empty";
+    li.textContent = "None paired. The robot accepts no dongle until one is.";
+    list.appendChild(li);
+  }
+  for (const mac of e.allowed) {
+    // MAC on its own line and the state under it, so neither is cut off in a narrow column.
+    const li = document.createElement("li");
+    li.innerHTML =
+      '<span class="ssid dongle"><span></span><span class="muted"></span></span>' +
+      '<button class="btn small">REMOVE</button>';
+    const label = li.firstChild;
+    label.firstChild.textContent = mac;
+    label.lastChild.textContent =
+      e.heard_dongle && mac === e.dongle_mac ? "paired, talking now" : "paired";
+    li.lastChild.onclick = () => pairRequest("/espnow/unpair", mac);
+    list.appendChild(li);
+  }
+}
+let prevEspNow = null;
+
+// Per-second rates from the change since the previous status poll.
+function espnowRates(e, snapshotMs) {
+  const p = prevEspNow;
+  prevEspNow = { t: snapshotMs, e };
+  if (!p || snapshotMs <= p.t || e.rx_frames < p.e.rx_frames) return null;
+  const dt = (snapshotMs - p.t) / 1000;
+  const rate = (k) => (e[k] - p.e[k]) / dt;
+  const sent = e.tx_ok - p.e.tx_ok + (e.tx_fail - p.e.tx_fail);
+  return {
+    rx: rate("rx_frames"),
+    cmdNew: rate("rx_commands_new"),
+    cmdRepeat: rate("rx_commands_repeat"),
+    ping: rate("rx_pings"),
+    tlm: rate("tx_telemetry"),
+    ack: sent > 0 ? (100 * (e.tx_ok - p.e.tx_ok)) / sent : null,
+  };
+}
+
+function renderEspNow(e, snapshotMs) {
+  const r = espnowRates(e, snapshotMs);
+  const perS = (v) => (r ? v.toFixed(0) + " /s" : "--");
+  if (!e.enabled) {
+    $("espnowSub").textContent = "off in this build";
+    fillRows("espnowLinkRows", [
+      ["ESPNOW_ENABLED", "false: no ESP-NOW init, telemetry, or OTA", true],
+    ]);
+    fillRows("espnowTrafficRows", []);
+    return;
+  }
+  $("espnowSub").textContent = e.substitution
+    ? "drives from ESP-NOW"
+    : "shadow mode: receives, never drives";
+  const live = e.frame_age_ms != null && e.frame_age_ms < 500;
+  fillRows("espnowLinkRows", [
+    ["Started", e.begin_ok ? "yes" : "esp_now_init FAILED", !e.begin_ok],
+    [
+      "Channel",
+      e.sweeping
+        ? "sweeping (last good " + (e.last_good_channel || "none") + ")"
+        : String(e.channel),
+      e.sweeping,
+    ],
+    ["Dongle", e.heard_dongle ? e.dongle_mac : "never heard", !e.heard_dongle],
+    [
+      "Last dongle frame",
+      e.frame_age_ms == null ? "never" : e.frame_age_ms + " ms ago",
+      !live,
+    ],
+    [
+      "Refused, unpaired dongle",
+      String(e.rx_rejected),
+      e.rx_rejected > 0 && !e.allowed.includes(e.rejected_mac),
+    ],
+    [
+      "Last refused",
+      e.rx_rejected === 0
+        ? "none"
+        : e.rejected_mac +
+          (e.allowed.includes(e.rejected_mac) ? " (paired since)" : ""),
+      e.rx_rejected > 0 && !e.allowed.includes(e.rejected_mac),
+    ],
+    [
+      "Telemetry ACK (LQ, last 32)",
+      e.heard_dongle ? e.lq + " %" : "--",
+      e.heard_dongle && e.lq < 90,
+    ],
+    [
+      "Command",
+      e.command_age_ms == null
+        ? "none yet"
+        : `seq ${e.command_seq}, ${e.command_age_ms} ms ago` +
+          (e.command_fresh ? ", fresh" : ""),
+    ],
+    [
+      "Command a / b",
+      e.command_age_ms == null
+        ? "--"
+        : e.command_a.toFixed(2) + " / " + e.command_b.toFixed(2),
+    ],
+    ["Driving from ESP-NOW", e.driving ? "YES" : "no"],
+    [
+      "OTA",
+      (OTA_STATES[e.ota_state] || "state " + e.ota_state) +
+        (e.validated && e.ota_state !== 3 ? ", this boot validated" : ""),
+      e.ota_state === 4,
+    ],
+  ]);
+  fillRows("espnowTrafficRows", [
+    ["Received", e.rx_frames + " (" + perS(r ? r.rx : 0) + ")"],
+    [
+      "Commands new / repeat",
+      r
+        ? r.cmdNew.toFixed(0) + " / " + r.cmdRepeat.toFixed(0) + " /s"
+        : e.rx_commands_new + " / " + e.rx_commands_repeat,
+    ],
+    ["Commands dropped late", String(e.rx_commands_old), e.rx_commands_old > 0],
+    ["Pings", e.rx_pings + " (" + perS(r ? r.ping : 0) + ")"],
+    ["Tunables / OTA frames", e.rx_tunables + " / " + e.rx_ota],
+    [
+      "Wrong-size frames",
+      String(e.rx_size_errors) +
+        (e.rx_size_errors
+          ? ": robot and dongle built from different headers"
+          : ""),
+      e.rx_size_errors > 0,
+    ],
+    ["Receive queue overflows", String(e.rx_queue_full), e.rx_queue_full > 0],
+    ["Telemetry sent", e.tx_telemetry + " (" + perS(r ? r.tlm : 0) + ")"],
+    [
+      "Send ACK, last poll",
+      r && r.ack != null ? r.ack.toFixed(1) + " %" : "--",
+      r && r.ack != null && r.ack < 90,
+    ],
+    ["Sends ACKed / failed", e.tx_ok + " / " + e.tx_fail, e.tx_fail > 0],
+    ["esp_now_send refused", String(e.tx_errors), e.tx_errors > 0],
+  ]);
+  renderDongles(e);
 }
 
 function pollStatus() {

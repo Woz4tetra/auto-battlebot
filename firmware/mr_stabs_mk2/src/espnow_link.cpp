@@ -22,9 +22,27 @@ QueueHandle_t rx_queue = nullptr;
 volatile uint32_t send_history = 0;
 volatile uint8_t send_history_count = 0;
 
+// Diagnostics counters written by the WiFi task callbacks. Single 32-bit writes; the page only
+// needs them roughly current.
+volatile uint32_t tx_ok = 0;
+volatile uint32_t tx_fail = 0;
+volatile uint32_t tx_errors = 0;
+volatile uint32_t rx_rejected = 0;
+volatile uint32_t rx_queue_full = 0;
+uint8_t rejected_mac[6] = {0};
+
+// Allowed dongles, read by on_recv on the WiFi task. Rewritten only from loop() while disarmed;
+// allowed_count drops to 0 before a rewrite and rises after it, so a frame racing a change is
+// at worst refused once.
+const size_t MAX_ALLOWED = MAX_PAIRED_DONGLES;
+static_assert(MAX_ALLOWED <= 12, "espnow_status_t::allowed holds 12");
+uint8_t allowed_macs[MAX_ALLOWED][6];
+volatile uint8_t allowed_count = 0;
+
 bool is_dongle(const uint8_t *mac) {
-    for (const auto &dongle : DONGLE_MACS) {
-        if (memcmp(mac, dongle, 6) == 0) return true;
+    const uint8_t count = allowed_count;
+    for (uint8_t i = 0; i < count; i++) {
+        if (memcmp(mac, allowed_macs[i], 6) == 0) return true;
     }
     return false;
 }
@@ -61,11 +79,13 @@ bool EspNowLink::begin(wifi_interface_t ifidx, uint8_t channel, const tunable_pt
     if (esp_now_init() != ESP_OK) return false;
     esp_now_register_recv_cb(on_recv);
     esp_now_register_send_cb(on_sent);
+    begin_ok_ = true;
 
     Preferences prefs;
     prefs.begin("espnow", true);
     last_good_channel_ = prefs.getUChar("channel", 0);
     prefs.end();
+    load_paired();
 
     if (channel != 0) {
         set_channel(channel);
@@ -83,25 +103,36 @@ void EspNowLink::set_channel(uint8_t channel) {
     esp_wifi_set_channel(channel, WIFI_SECOND_CHAN_NONE);
     channel_ = channel;
     // Peers and the rate do not survive a channel change, so redo both every time.
-    for (const auto &dongle : DONGLE_MACS) add_or_update_peer(dongle, ifidx_, channel);
+    const uint8_t count = allowed_count;
+    for (uint8_t i = 0; i < count; i++) add_or_update_peer(allowed_macs[i], ifidx_, channel);
     esp_wifi_config_espnow_rate(ifidx_, WIFI_PHY_RATE_6M);
 }
 
 void EspNowLink::on_recv(const uint8_t *mac, const uint8_t *data, int length) {
     // WiFi task context: filter, copy, and return. Never touch ESCs or flash here.
     if (rx_queue == nullptr || !is_air_frame(data, static_cast<size_t>(length))) return;
-    if (!is_dongle(mac)) return;
+    if (!is_dongle(mac)) {
+        // Our session magic from a MAC that is not paired: usually a new dongle nobody paired.
+        memcpy(rejected_mac, mac, 6);
+        rx_rejected = rx_rejected + 1;
+        return;
+    }
     RxFrame frame;
     memcpy(frame.mac, mac, 6);
     frame.length = static_cast<uint8_t>(length);
     memcpy(frame.data, data, length);
-    xQueueSend(rx_queue, &frame, 0);
+    if (xQueueSend(rx_queue, &frame, 0) != pdTRUE) rx_queue_full = rx_queue_full + 1;
 }
 
 void EspNowLink::on_sent(const uint8_t *mac, esp_now_send_status_t status) {
     (void)mac;
     send_history = (send_history << 1) | (status == ESP_NOW_SEND_SUCCESS ? 1u : 0u);
     if (send_history_count < 32) send_history_count = send_history_count + 1;
+    if (status == ESP_NOW_SEND_SUCCESS) {
+        tx_ok = tx_ok + 1;
+    } else {
+        tx_fail = tx_fail + 1;
+    }
 }
 
 void EspNowLink::update(uint32_t now_ms, bool armed) {
@@ -129,17 +160,35 @@ void EspNowLink::handle_frame(const uint8_t *mac, uint8_t type, const uint8_t *p
     memcpy(reply_mac_, mac, 6);
     heard_dongle_ = true;
     last_valid_frame_ms_ = now_ms;
+    rx_frames_++;
 
     switch (type) {
         case MSG_COMMAND: {
-            if (length != sizeof(CommandPayload)) return;
+            if (length != sizeof(CommandPayload)) {
+                rx_size_errors_++;
+                return;
+            }
             CommandPayload command;
             memcpy(&command, payload, sizeof(command));
-            tracker_.on_command(command, now_ms);
+            switch (tracker_.on_command(command, now_ms)) {
+                case CommandTracker::ACCEPTED_NEW:
+                    rx_commands_new_++;
+                    break;
+                case CommandTracker::ACCEPTED_REPEAT:
+                    rx_commands_repeat_++;
+                    break;
+                case CommandTracker::DROPPED_OLD:
+                    rx_commands_old_++;
+                    break;
+            }
             break;
         }
         case MSG_TUNABLE_SET: {
-            if (length != sizeof(TunableSetPayload)) return;
+            rx_tunables_++;
+            if (length != sizeof(TunableSetPayload)) {
+                rx_size_errors_++;
+                return;
+            }
             TunableSetPayload tunable;
             memcpy(&tunable, payload, sizeof(tunable));
             if (tunable.id == TUNABLE_LEFT_ESC_DEADZONE && tunables_.left_esc_deadzone) {
@@ -150,18 +199,23 @@ void EspNowLink::handle_frame(const uint8_t *mac, uint8_t type, const uint8_t *p
             break;
         }
         case MSG_OTA_BEGIN:
+            rx_ota_++;
             ota_begin(mac, payload, length, now_ms, armed);
             break;
         case MSG_OTA_CHUNK:
+            rx_ota_++;
             ota_chunk(payload, length, now_ms);
             break;
         case MSG_OTA_END:
+            rx_ota_++;
             ota_end();
             break;
         case MSG_OTA_ABORT:
+            rx_ota_++;
             if (ota_.active()) ota_abort(OTA_ERR_ABORTED);
             break;
         case MSG_PING:
+            rx_pings_++;
             // Nothing beyond the bookkeeping above: it names the dongle and proves the channel.
             break;
         default:
@@ -331,7 +385,118 @@ void EspNowLink::send_telemetry(TelemetryPayload &telemetry, uint32_t now_ms) {
         count == 0 ? 0
                    : static_cast<uint8_t>(100 * __builtin_popcount(send_history & mask) / count);
     telemetry.telemetry_seq = telemetry_seq_++;
+    tx_telemetry_++;
     send_frame(reply_mac_, MSG_TELEMETRY, &telemetry, sizeof(telemetry));
+}
+
+void EspNowLink::load_paired() {
+    Preferences prefs;
+    // Fails before the first pair, when the namespace does not exist yet.
+    if (prefs.begin("espnow_pair", true)) {
+        const uint8_t count = prefs.getUChar("count", 0);
+        if (count <= MAX_PAIRED_DONGLES &&
+            prefs.getBytes("macs", paired_, sizeof(paired_)) == sizeof(paired_)) {
+            paired_count_ = count;
+        }
+        prefs.end();
+    }
+    publish_allowed();
+}
+
+void EspNowLink::store_paired() {
+    Preferences prefs;
+    prefs.begin("espnow_pair", false);
+    prefs.putUChar("count", paired_count_);
+    prefs.putBytes("macs", paired_, sizeof(paired_));
+    prefs.end();
+}
+
+void EspNowLink::publish_allowed() {
+    allowed_count = 0;
+    size_t n = 0;
+    for (uint8_t i = 0; i < paired_count_; i++) memcpy(allowed_macs[n++], paired_[i], 6);
+    allowed_count = static_cast<uint8_t>(n);
+}
+
+uint8_t EspNowLink::pair(const uint8_t *mac, bool armed) {
+    uint8_t result = PAIR_OK;
+    if (armed) {
+        result = PAIR_ARMED;
+    } else if ((mac[0] & 0x01) != 0) {
+        result = PAIR_BAD_MAC;  // multicast or broadcast: never a dongle's own address
+    } else if (is_dongle(mac)) {
+        result = PAIR_EXISTS;
+    } else if (paired_count_ >= MAX_PAIRED_DONGLES) {
+        result = PAIR_FULL;
+    } else {
+        memcpy(paired_[paired_count_++], mac, 6);
+        store_paired();
+        publish_allowed();
+        if (begin_ok_) add_or_update_peer(mac, ifidx_, channel_);
+    }
+    last_pair_result_ = result;
+    return result;
+}
+
+uint8_t EspNowLink::unpair(const uint8_t *mac, bool armed) {
+    uint8_t result = PAIR_NOT_FOUND;
+    if (armed) {
+        result = PAIR_ARMED;
+    } else {
+        for (uint8_t i = 0; i < paired_count_; i++) {
+            if (memcmp(paired_[i], mac, 6) != 0) continue;
+            memmove(paired_[i], paired_[i + 1], (paired_count_ - i - 1) * 6);
+            paired_count_--;
+            memset(paired_[paired_count_], 0, 6);
+            store_paired();
+            publish_allowed();
+            if (begin_ok_ && esp_now_is_peer_exist(mac)) esp_now_del_peer(mac);
+            result = PAIR_OK;
+            break;
+        }
+    }
+    last_pair_result_ = result;
+    return result;
+}
+
+void EspNowLink::fill_status(espnow_status_t &out, uint32_t now_ms) const {
+    out.begin_ok = begin_ok_;
+    out.channel = channel_;
+    out.sweeping = sweeping_;
+    out.last_good_channel = last_good_channel_;
+    out.heard_dongle = heard_dongle_;
+    memcpy(out.dongle_mac, reply_mac_, 6);
+    out.last_frame_ms = last_valid_frame_ms_;
+    out.rx_frames = rx_frames_;
+    out.rx_commands_new = rx_commands_new_;
+    out.rx_commands_repeat = rx_commands_repeat_;
+    out.rx_commands_old = rx_commands_old_;
+    out.rx_pings = rx_pings_;
+    out.rx_tunables = rx_tunables_;
+    out.rx_ota = rx_ota_;
+    out.rx_size_errors = rx_size_errors_;
+    out.rx_rejected = rx_rejected;
+    memcpy(out.rejected_mac, rejected_mac, 6);
+    out.rx_queue_full = rx_queue_full;
+    out.tx_telemetry = tx_telemetry_;
+    out.tx_ok = tx_ok;
+    out.tx_fail = tx_fail;
+    out.tx_errors = tx_errors;
+    const uint8_t count = send_history_count;
+    const uint32_t mask = count >= 32 ? 0xFFFFFFFFu : ((1u << count) - 1u);
+    out.lq = count == 0
+                 ? 0
+                 : static_cast<uint8_t>(100 * __builtin_popcount(send_history & mask) / count);
+    out.command_fresh = tracker_.fresh(now_ms);
+    out.command_seq = tracker_.latest().seq;
+    out.command_age_ms = tracker_.age_ms(now_ms);
+    out.command_a = tracker_.latest().channel_a;
+    out.command_b = tracker_.latest().channel_b;
+    out.ota_state = ota_state_;
+    out.validated = validated_;
+    out.allowed_count = allowed_count;
+    for (uint8_t i = 0; i < out.allowed_count; i++) memcpy(out.allowed[i], allowed_macs[i], 6);
+    out.pair_result = last_pair_result_;
 }
 
 void EspNowLink::send_frame(const uint8_t *mac, uint8_t type, const void *payload, size_t length) {
@@ -339,7 +504,7 @@ void EspNowLink::send_frame(const uint8_t *mac, uint8_t type, const void *payloa
     const size_t size =
         encode_air_frame(type, static_cast<const uint8_t *>(payload), length, frame);
     if (size == 0) return;
-    esp_now_send(mac, frame, size);
+    if (esp_now_send(mac, frame, size) != ESP_OK) tx_errors = tx_errors + 1;
 }
 
 }  // namespace espnow_link

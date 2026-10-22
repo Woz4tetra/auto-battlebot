@@ -1,0 +1,32 @@
+#!/bin/bash
+# Read the core dump from the robot over USB and decode it: the exception, registers, and every
+# task's backtrace. After a task watchdog reset, find the stuck task in the thread list (the
+# summary names whatever ran on the core that took the watchdog interrupt).
+#
+# Pass the ELF of the build that crashed; the diagnostics page shows its SHA-256 prefix to compare.
+# Reading resets the robot.
+#
+# Usage: scripts/coredump [PORT] [ELF]
+BASE_DIR=$(realpath "$(dirname "$0")")
+cd "${BASE_DIR}/.." || exit 1
+PORT="${1:-}"
+if [ -z "$PORT" ] && [ -e /dev/mr_stabs ]; then
+    PORT=/dev/mr_stabs
+fi
+if [ -z "$PORT" ]; then
+    echo "usage: scripts/coredump PORT [ELF] (no /dev/mr_stabs)" >&2
+    exit 1
+fi
+ELF="${2:-.pio/build/local/firmware.elf}"
+PIO=~/.platformio
+DUMP=$(mktemp --suffix=.coredump)
+trap 'rm -f "$DUMP"' EXIT
+
+echo "ELF SHA-256 prefix: $(sha256sum "$ELF" | cut -c1-16)"
+# Offset and size of the coredump partition in partitions.csv. esp_coredump can read flash
+# itself only with a full ESP-IDF install, so esptool reads the raw partition instead.
+"$PIO/penv/bin/python" "$PIO/packages/tool-esptoolpy/esptool.py" --chip esp32s3 --port "$PORT" \
+    read_flash 0x310000 0x10000 "$DUMP" || exit 1
+"$PIO/penv/bin/python" -m esp_coredump --chip esp32s3 info_corefile \
+    --gdb "$PIO/packages/tool-xtensa-esp-elf-gdb/bin/xtensa-esp32s3-elf-gdb" \
+    --core "$DUMP" --core-format raw "$ELF"
