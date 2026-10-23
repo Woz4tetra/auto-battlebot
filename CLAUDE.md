@@ -39,6 +39,9 @@ Run before committing:
   binaries and skips the step if they are absent.
 - Python: `ruff`
 - TOML: `taplo`
+- Firmware: clang-format covers C/C++ under `firmware/` except PlatformIO's `.pio` and the vendored
+  `firmware/BlHeli-Passthrough`; prettier (with `web/.prettierrc`) covers the firmware web pages.
+  Generated files opt out (`// clang-format off` in `velocity_jig/include/splash_anim.h`)
 
 ## Python
 

@@ -11,8 +11,7 @@ function leaderRows(containerId, rows) {
   for (const [key, label] of rows) {
     const row = document.createElement("div");
     row.className = "leader";
-    row.innerHTML =
-      '<span class="k"></span><span class="dots"></span><span class="v">--</span>';
+    row.innerHTML = '<span class="k"></span><span class="dots"></span><span class="v">--</span>';
     row.firstChild.textContent = label;
     $(containerId).appendChild(row);
     spans[key] = row.lastChild;
@@ -140,11 +139,7 @@ function render() {
   const f = latest;
   latest = null;
   const g = (name) => f[COL[name]];
-  setValue(
-    drive.radio,
-    g("radio_connected") === "1" ? "UP" : "DOWN",
-    g("radio_connected") !== "1",
-  );
+  setValue(drive.radio, g("radio_connected") === "1" ? "UP" : "DOWN", g("radio_connected") !== "1");
   setValue(drive.armed, yesNo(g("armed")));
   setValue(drive.a, g("a_percent") + " %");
   setValue(drive.b, g("b_percent") + " %");
@@ -157,28 +152,13 @@ function render() {
     imuLive.heading,
     [g("orientation_x"), g("orientation_y"), g("orientation_z")].join(" / "),
   );
-  setValue(
-    imuLive.accel,
-    [g("accel_x"), g("accel_y"), g("accel_z")].join(" / "),
-  );
+  setValue(imuLive.accel, [g("accel_x"), g("accel_y"), g("accel_z")].join(" / "));
   const state = GUARD_STATE[+g("guard_state")] || g("guard_state");
-  setTone(
-    heat.state,
-    state,
-    state === "OFF" ? "bad" : state === "NOMINAL" ? "" : "warn",
-  );
+  setTone(heat.state, state, state === "OFF" ? "bad" : state === "NOMINAL" ? "" : "warn");
   const sensors = GUARD_SENSORS[+g("guard_sensors")] || g("guard_sensors");
-  setTone(
-    heat.sensors,
-    sensors,
-    sensors === "NONE" ? "bad" : sensors === "FUSED" ? "" : "warn",
-  );
+  setTone(heat.sensors, sensors, sensors === "NONE" ? "bad" : sensors === "FUSED" ? "" : "warn");
   const scale = +g("guard_scale");
-  setTone(
-    heat.scale,
-    (100 * scale).toFixed(0) + " %",
-    scale < 1 ? "warn" : "",
-  );
+  setTone(heat.scale, (100 * scale).toFixed(0) + " %", scale < 1 ? "warn" : "");
   const riseL = +g("motor_rise_left");
   const riseR = +g("motor_rise_right");
   setTone(
@@ -186,37 +166,19 @@ function render() {
     g("motor_rise_left") + " / " + g("motor_rise_right") + " C",
     riseTone(Math.max(riseL, riseR)),
   );
-  setValue(
-    heat.amps,
-    g("motor_amps_left") + " / " + g("motor_amps_right") + " A",
-  );
+  setValue(heat.amps, g("motor_amps_left") + " / " + g("motor_amps_right") + " A");
   setValue(heat.speed, g("motor_speed_left") + " / " + g("motor_speed_right"));
   const stall = +g("stall_flags");
-  setTone(
-    heat.stall,
-    ["none", "STALL L", "STALL R", "STALL L + R"][stall & 3],
-    stall ? "bad" : "",
-  );
+  setTone(heat.stall, ["none", "STALL L", "STALL R", "STALL L + R"][stall & 3], stall ? "bad" : "");
   const gain = +g("guard_gain");
   setTone(heat.gain, g("guard_gain"), gain < 0.9 || gain > 1.25 ? "warn" : "");
   setValue(heat.crc, g("erpm_crc_errors"));
   setValue(imuLive.yr, g("yaw_rate"));
-  setValue(
-    imuLive.yrc,
-    g("yaw_rate_cmd") === "nan" ? "LOOP OFF" : g("yaw_rate_cmd"),
-  );
+  setValue(imuLive.yrc, g("yaw_rate_cmd") === "nan" ? "LOOP OFF" : g("yaw_rate_cmd"));
   setValue(imuLive.sp, g("pid_setpoint"));
   setValue(imuLive.po, g("pid_output"));
-  setValue(
-    power.vbat,
-    g("vbat") === "nan" ? "NO SENSOR" : g("vbat") + " V",
-    g("vbat") === "nan",
-  );
-  setValue(
-    power.ibat,
-    g("ibat") === "nan" ? "NO SENSOR" : g("ibat") + " A",
-    g("ibat") === "nan",
-  );
+  setValue(power.vbat, g("vbat") === "nan" ? "NO SENSOR" : g("vbat") + " V", g("vbat") === "nan");
+  setValue(power.ibat, g("ibat") === "nan" ? "NO SENSOR" : g("ibat") + " A", g("ibat") === "nan");
   setValue(power.loop, g("loop_us") + " us");
   setValue(power.clients, g("wifi_clients"));
   setValue(power.ts, (g("timestamp_ms") / 1000).toFixed(1) + " s");
@@ -266,10 +228,7 @@ $("dlBtn").onclick = () => {
   });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download =
-    "mr_stabs_" +
-    new Date().toISOString().slice(0, 19).replace(/[:-]/g, "") +
-    ".csv";
+  a.download = "mr_stabs_" + new Date().toISOString().slice(0, 19).replace(/[:-]/g, "") + ".csv";
   a.click();
   URL.revokeObjectURL(a.href);
 };
@@ -289,12 +248,7 @@ for (const btn of document.querySelectorAll("[data-tune]")) {
     .then((r) => r.text())
     .then((v) => ($(input).value = v));
   btn.onclick = () =>
-    fetch(
-      "/tune/" +
-        btn.dataset.tune +
-        "?value=" +
-        encodeURIComponent($(input).value),
-    )
+    fetch("/tune/" + btn.dataset.tune + "?value=" + encodeURIComponent($(input).value))
       .then((r) => r.text())
       .then((t) => flash(input + "S", "set to " + t));
 }
@@ -306,12 +260,11 @@ let pendingMode = null; // the operator's unapplied choice; null follows the rob
 let pendingSelected = null;
 
 function post(url, fields) {
-  return fetch(url, { method: "POST", body: new URLSearchParams(fields) }).then(
-    (r) =>
-      r.text().then((t) => {
-        if (!r.ok) throw new Error(t);
-        return t;
-      }),
+  return fetch(url, { method: "POST", body: new URLSearchParams(fields) }).then((r) =>
+    r.text().then((t) => {
+      if (!r.ok) throw new Error(t);
+      return t;
+    }),
   );
 }
 
@@ -332,9 +285,7 @@ function renderWifi() {
   const locked = wifi.forced_ap;
   $("espnowLockout").hidden = !locked;
   $("lockoutSsid").textContent = wifi.ap_ssid;
-  $("lockoutChannel").textContent = wifi.ap_channel
-    ? "channel " + wifi.ap_channel
-    : "pinned";
+  $("lockoutChannel").textContent = wifi.ap_channel ? "channel " + wifi.ap_channel : "pinned";
   for (const b of $("modeSeg").children) {
     b.setAttribute("aria-pressed", b.dataset.mode === (locked ? "ap" : mode));
     b.disabled = locked;
@@ -359,9 +310,7 @@ function renderWifi() {
       select.appendChild(opt);
     }
   }
-  select.value = wifi.networks.includes(selected)
-    ? selected
-    : wifi.networks[0] || "";
+  select.value = wifi.networks.includes(selected) ? selected : wifi.networks[0] || "";
   $("selectField").hidden = mode !== "client";
 
   // The lockout box above explains forced AP mode; the note would only repeat it.
@@ -370,16 +319,11 @@ function renderWifi() {
     mode === "ap"
       ? `Boots as access point ${wifi.ap_ssid} at 192.168.4.1 and never joins a router.`
       : `Joins the selected network on boot. With no connection after 30 s it falls back to access point ${wifi.ap_ssid}. Once joined, find it at http://${wifi.hostname}.local or by its router address.`;
-  $("applyBtn").disabled =
-    locked || (mode === "client" && wifi.networks.length === 0);
+  $("applyBtn").disabled = locked || (mode === "client" && wifi.networks.length === 0);
 
   const pill = $("wifiPill");
   const isAp = wifi.state === "ap" || wifi.state === "fallback_ap";
-  pill.lastChild.textContent = isAp
-    ? locked
-      ? "AP · ESP-NOW"
-      : "AP"
-    : "CLIENT";
+  pill.lastChild.textContent = isAp ? (locked ? "AP · ESP-NOW" : "AP") : "CLIENT";
   pill.firstChild.style.background =
     wifi.state === "connected" || wifi.state === "ap"
       ? "var(--green)"
@@ -391,11 +335,7 @@ function renderWifi() {
   if (wifi.state === "connecting") state += ` (${wifi.connect_s_left} s left)`;
   const rows = [["State", state, wifi.state === "fallback_ap"]];
   if (isAp) {
-    rows.push(
-      ["Network", wifi.ap_ssid],
-      ["Address", wifi.ip],
-      ["Clients", String(wifi.stations)],
-    );
+    rows.push(["Network", wifi.ap_ssid], ["Address", wifi.ip], ["Clients", String(wifi.stations)]);
   } else {
     rows.push(
       ["Network", wifi.ssid || "--"],
@@ -416,8 +356,7 @@ function renderWifi() {
   }
   for (const ssid of wifi.networks) {
     const li = document.createElement("li");
-    li.innerHTML =
-      '<span class="ssid"></span><button class="btn small">DELETE</button>';
+    li.innerHTML = '<span class="ssid"></span><button class="btn small">DELETE</button>';
     li.firstChild.textContent = ssid;
     li.lastChild.onclick = () =>
       post("/wifi/network/delete", { ssid })
@@ -529,13 +468,9 @@ const age = (ms) => (ms == null ? "never" : (ms / 1000).toFixed(1) + " s ago");
 const err = (c) => [I2C_ERR[c] || "error " + c, c !== 0 && c !== 255];
 
 function selfTest(v) {
-  const failed = ["accel", "mag", "gyro", "MCU"].filter(
-    (_, i) => !((v >> i) & 1),
-  );
+  const failed = ["accel", "mag", "gyro", "MCU"].filter((_, i) => !((v >> i) & 1));
   return [
-    failed.length
-      ? "failed: " + failed.join(", ")
-      : "all passed (" + hex(v) + ")",
+    failed.length ? "failed: " + failed.join(", ") : "all passed (" + hex(v) + ")",
     failed.length > 0,
   ];
 }
@@ -548,29 +483,16 @@ function sampleRate(s) {
   const p = prevImu;
   prevImu = { t: s.snapshot_ms, n: s.imu.samples };
   if (!p || s.snapshot_ms <= p.t || s.imu.samples < p.n) return "--";
-  return (
-    (((s.imu.samples - p.n) * 1000) / (s.snapshot_ms - p.t)).toFixed(0) + " Hz"
-  );
+  return (((s.imu.samples - p.n) * 1000) / (s.snapshot_ms - p.t)).toFixed(0) + " Hz";
 }
 
 function renderStatus(s) {
-  $("busPins").textContent =
-    `Wire1, SDA ${s.bus.sda_pin}, SCL ${s.bus.scl_pin}`;
+  $("busPins").textContent = `Wire1, SDA ${s.bus.sda_pin}, SCL ${s.bus.scl_pin}`;
   const found =
-    s.bus.found
-      .map((a) => hex(a) + (KNOWN[a] ? " " + KNOWN[a] : ""))
-      .join(", ") || "nothing";
+    s.bus.found.map((a) => hex(a) + (KNOWN[a] ? " " + KNOWN[a] : "")).join(", ") || "nothing";
   fillRows("busRows", [
-    [
-      "SDA idle level",
-      s.bus.sda_high ? "high" : "LOW: held by a device",
-      !s.bus.sda_high,
-    ],
-    [
-      "SCL idle level",
-      s.bus.scl_high ? "high" : "LOW: held by a device",
-      !s.bus.scl_high,
-    ],
+    ["SDA idle level", s.bus.sda_high ? "high" : "LOW: held by a device", !s.bus.sda_high],
+    ["SCL idle level", s.bus.scl_high ? "high" : "LOW: held by a device", !s.bus.scl_high],
     [
       "Devices found",
       s.bus.scanned ? found : "not scanned",
@@ -578,9 +500,7 @@ function renderStatus(s) {
     ],
     ["Last scan", s.bus.scanned ? age(s.bus.scan_age_ms) : "never"],
   ]);
-  $("scanStatus").textContent = s.bus.scan_pending
-    ? "scan queued (runs while disarmed)"
-    : "";
+  $("scanStatus").textContent = s.bus.scan_pending ? "scan queued (runs while disarmed)" : "";
 
   const m = s.imu;
   const imuRows = [
@@ -594,8 +514,7 @@ function renderStatus(s) {
       "Chip id",
       m.last_error === 255
         ? "not read"
-        : hex(m.chip_id) +
-          (m.chip_id === 0xa0 ? " (BNO055)" : " (expected 0xA0)"),
+        : hex(m.chip_id) + (m.chip_id === 0xa0 ? " (BNO055)" : " (expected 0xA0)"),
       m.last_error === 0 && m.chip_id !== 0xa0,
     ],
     ["Last chip id read", ...err(m.last_error)],
@@ -604,35 +523,21 @@ function renderStatus(s) {
     ["Sample rate (expect ~100 Hz)", sampleRate(s)],
     [
       "Last sample",
-      m.sample_age_ms == null
-        ? "never"
-        : m.sample_age_ms + " ms before snapshot",
+      m.sample_age_ms == null ? "never" : m.sample_age_ms + " ms before snapshot",
       m.initialized && (m.sample_age_ms == null || m.sample_age_ms > 100),
     ],
   ];
   if (m.details_age_ms != null) {
-    if (m.details_error !== 0)
-      imuRows.push(["Status registers", ...err(m.details_error)]);
+    if (m.details_error !== 0) imuRows.push(["Status registers", ...err(m.details_error)]);
     else
       imuRows.push(
         [
           "Operation mode",
-          (MODES[m.operation_mode] || "mode") +
-            " (" +
-            hex(m.operation_mode) +
-            ")",
+          (MODES[m.operation_mode] || "mode") + " (" + hex(m.operation_mode) + ")",
           m.operation_mode !== 8,
         ],
-        [
-          "System status",
-          SYS_STATUS[m.sys_status] || hex(m.sys_status),
-          m.sys_status !== 5,
-        ],
-        [
-          "System error",
-          SYS_ERR[m.sys_error] || hex(m.sys_error),
-          m.sys_error !== 0,
-        ],
+        ["System status", SYS_STATUS[m.sys_status] || hex(m.sys_status), m.sys_status !== 5],
+        ["System error", SYS_ERR[m.sys_error] || hex(m.sys_error), m.sys_error !== 0],
         ["Self-test", ...selfTest(m.self_test)],
         ["Calibration", calib(m.calibration)],
         ["Status read", age(m.details_age_ms)],
@@ -660,16 +565,11 @@ function renderStatus(s) {
     ["Present", n.present ? "yes" : "NO", !n.present],
     [
       "Device id",
-      hex(n.device_id, 4) +
-        (n.device_id >> 4 === 0x238 ? " (INA238)" : " (expected 0x238x)"),
+      hex(n.device_id, 4) + (n.device_id >> 4 === 0x238 ? " (INA238)" : " (expected 0x238x)"),
       n.device_id >> 4 !== 0x238,
     ],
     ["Last read", ...err(n.last_error)],
-    [
-      "Reads / failures",
-      n.reads + " / " + n.read_failures,
-      n.read_failures > 0,
-    ],
+    ["Reads / failures", n.reads + " / " + n.read_failures, n.read_failures > 0],
     ["Last good read", age(n.last_ok_age_ms)],
   ]);
 
@@ -683,34 +583,23 @@ function renderStatus(s) {
 const BAD_RESETS = ["PANIC", "TASK_WDT", "INT_WDT", "OTHER_WDT", "BROWNOUT"];
 
 function renderBoot(b) {
-  const rows = [
-    ["Reset reason", b.reset_reason, BAD_RESETS.includes(b.reset_reason)],
-  ];
+  const rows = [["Reset reason", b.reset_reason, BAD_RESETS.includes(b.reset_reason)]];
   if (!b.has_dump) {
     rows.push(["Core dump", "none"]);
   } else if (!b.dump_valid) {
-    rows.push([
-      "Core dump",
-      b.dump_size + " B, checksum failed (cut short)",
-      true,
-    ]);
+    rows.push(["Core dump", b.dump_size + " B, checksum failed (cut short)", true]);
   } else {
     rows.push(
       ["Core dump", b.dump_size + " B", true],
       // A task watchdog aborts from its interrupt on core 0, so the summary names whatever ran
       // there. The stuck task is in the full decode (scripts/coredump).
       [
-        b.reset_reason === "TASK_WDT"
-          ? "Task interrupted (not the stuck one)"
-          : "Task",
+        b.reset_reason === "TASK_WDT" ? "Task interrupted (not the stuck one)" : "Task",
         b.task || "--",
       ],
       ["PC", b.pc],
       ["Exception cause / addr", b.exc_cause + " / " + b.exc_vaddr],
-      [
-        "Backtrace",
-        b.backtrace.join(" ") + (b.backtrace_corrupted ? " (corrupted)" : ""),
-      ],
+      ["Backtrace", b.backtrace.join(" ") + (b.backtrace_corrupted ? " (corrupted)" : "")],
       ["Build ELF SHA-256", b.elf_sha256],
     );
   }
@@ -743,27 +632,21 @@ function pairRequest(url, mac) {
     .catch((err) => flash("pairStatus", err.message));
 }
 
-$("pairBtn").onclick = () =>
-  pairRequest("/espnow/pair", $("pairOfferMac").textContent);
-$("pairManualBtn").onclick = () =>
-  pairRequest("/espnow/pair", $("pairMac").value);
+$("pairBtn").onclick = () => pairRequest("/espnow/pair", $("pairOfferMac").textContent);
+$("pairManualBtn").onclick = () => pairRequest("/espnow/pair", $("pairMac").value);
 
 let lastPairResult = 0;
 let lastDongleList = "";
 
 function renderDongles(e) {
   // A refused dongle is the one to offer, unless it was paired since.
-  const offer =
-    e.rx_rejected > 0 && !e.allowed.includes(e.rejected_mac)
-      ? e.rejected_mac
-      : null;
+  const offer = e.rx_rejected > 0 && !e.allowed.includes(e.rejected_mac) ? e.rejected_mac : null;
   $("pairOffer").hidden = !offer;
   if (offer) $("pairOfferMac").textContent = offer;
 
   if (e.pair_result !== lastPairResult) {
     lastPairResult = e.pair_result;
-    if (PAIR_RESULTS[e.pair_result])
-      flash("pairStatus", PAIR_RESULTS[e.pair_result]);
+    if (PAIR_RESULTS[e.pair_result]) flash("pairStatus", PAIR_RESULTS[e.pair_result]);
   }
 
   // Rebuilt only when the list changes, so a button is never replaced under a click.
@@ -837,11 +720,7 @@ function renderEspNow(e, snapshotMs) {
       e.sweeping,
     ],
     ["Dongle", e.heard_dongle ? e.dongle_mac : "never heard", !e.heard_dongle],
-    [
-      "Last dongle frame",
-      e.frame_age_ms == null ? "never" : e.frame_age_ms + " ms ago",
-      !live,
-    ],
+    ["Last dongle frame", e.frame_age_ms == null ? "never" : e.frame_age_ms + " ms ago", !live],
     [
       "Refused, unpaired dongle",
       String(e.rx_rejected),
@@ -851,8 +730,7 @@ function renderEspNow(e, snapshotMs) {
       "Last refused",
       e.rx_rejected === 0
         ? "none"
-        : e.rejected_mac +
-          (e.allowed.includes(e.rejected_mac) ? " (paired since)" : ""),
+        : e.rejected_mac + (e.allowed.includes(e.rejected_mac) ? " (paired since)" : ""),
       e.rx_rejected > 0 && !e.allowed.includes(e.rejected_mac),
     ],
     [
@@ -864,14 +742,11 @@ function renderEspNow(e, snapshotMs) {
       "Command",
       e.command_age_ms == null
         ? "none yet"
-        : `seq ${e.command_seq}, ${e.command_age_ms} ms ago` +
-          (e.command_fresh ? ", fresh" : ""),
+        : `seq ${e.command_seq}, ${e.command_age_ms} ms ago` + (e.command_fresh ? ", fresh" : ""),
     ],
     [
       "Command a / b",
-      e.command_age_ms == null
-        ? "--"
-        : e.command_a.toFixed(2) + " / " + e.command_b.toFixed(2),
+      e.command_age_ms == null ? "--" : e.command_a.toFixed(2) + " / " + e.command_b.toFixed(2),
     ],
     ["Driving from ESP-NOW", e.driving ? "YES" : "no"],
     [
@@ -895,9 +770,7 @@ function renderEspNow(e, snapshotMs) {
     [
       "Wrong-size frames",
       String(e.rx_size_errors) +
-        (e.rx_size_errors
-          ? ": robot and dongle built from different headers"
-          : ""),
+        (e.rx_size_errors ? ": robot and dongle built from different headers" : ""),
       e.rx_size_errors > 0,
     ],
     ["Receive queue overflows", String(e.rx_queue_full), e.rx_queue_full > 0],

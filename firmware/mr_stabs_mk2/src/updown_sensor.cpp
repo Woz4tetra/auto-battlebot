@@ -2,8 +2,7 @@
 
 using namespace updown_sensor;
 
-UpdownSensor::UpdownSensor()
-{
+UpdownSensor::UpdownSensor() {
     wire = &Wire1;
     sensor = new Adafruit_BNO055(55, BNO055_ADDRESS, wire);
     grav_vec = make_unit_vector(0.0, 0.0, -9.81);
@@ -16,26 +15,22 @@ UpdownSensor::UpdownSensor()
     status.details_error = I2C_NOT_TRIED;
 }
 
-namespace
-{
-    const uint8_t REG_CHIP_ID = 0x00;
-    const uint8_t REG_CALIB_STAT = 0x35;  // 0x35..0x3A: CALIB_STAT, ST_RESULT, INT_STA,
-                                          // SYS_CLK_STATUS, SYS_STATUS, SYS_ERR
-    const uint8_t REG_OPR_MODE = 0x3D;
-}
+namespace {
+const uint8_t REG_CHIP_ID = 0x00;
+const uint8_t REG_CALIB_STAT = 0x35;  // 0x35..0x3A: CALIB_STAT, ST_RESULT, INT_STA,
+                                      // SYS_CLK_STATUS, SYS_STATUS, SYS_ERR
+const uint8_t REG_OPR_MODE = 0x3D;
+}  // namespace
 
-bool UpdownSensor::begin()
-{
-    if (initialized)
-        return true;
+bool UpdownSensor::begin() {
+    if (initialized) return true;
     status.begin_attempts++;
     // Read before the library's begin(), which hides why it failed.
     check_chip_id();
     // IMUPLUS fuses accelerometer and gyro only. NDOF (the library default) also fuses the
     // magnetometer, which the drive motor current can bend, moving heading under throttle.
     // Heading is now relative to the orientation at boot.
-    if (sensor->begin(OPERATION_MODE_IMUPLUS))
-    {
+    if (sensor->begin(OPERATION_MODE_IMUPLUS)) {
         delay(1000);
         initialized = true;
         status.initialized = true;
@@ -48,9 +43,7 @@ bool UpdownSensor::begin()
         sensor->setAxisSign(Adafruit_BNO055::REMAP_SIGN_P4);
         sensor->setExtCrystalUse(true);
         return true;
-    }
-    else
-    {
+    } else {
         initialized = false;
         status.initialized = false;
         status.begin_failures++;
@@ -58,29 +51,22 @@ bool UpdownSensor::begin()
     }
 }
 
-uint8_t UpdownSensor::read_registers(uint8_t reg, uint8_t *buffer, uint8_t length)
-{
+uint8_t UpdownSensor::read_registers(uint8_t reg, uint8_t *buffer, uint8_t length) {
     wire->beginTransmission(BNO055_ADDRESS);
     wire->write(reg);
     uint8_t error = wire->endTransmission(false);
-    if (error != 0)
-        return error;
-    if (wire->requestFrom(BNO055_ADDRESS, length) != length)
-        return I2C_SHORT_READ;
-    for (uint8_t index = 0; index < length; index++)
-        buffer[index] = wire->read();
+    if (error != 0) return error;
+    if (wire->requestFrom(BNO055_ADDRESS, length) != length) return I2C_SHORT_READ;
+    for (uint8_t index = 0; index < length; index++) buffer[index] = wire->read();
     return 0;
 }
 
-void UpdownSensor::check_gyro_sign(float heading, uint32_t now_us)
-{
-    if (has_prev_heading && now_us != prev_heading_us)
-    {
+void UpdownSensor::check_gyro_sign(float heading, uint32_t now_us) {
+    if (has_prev_heading && now_us != prev_heading_us) {
         float change = heading - prev_heading;
         change -= 360.0f * floorf((change + 180.0f) / 360.0f);
         heading_rate = change / ((now_us - prev_heading_us) / 1000000.0f);
-        if (fabsf(heading_rate) > SIGN_CHECK_MIN_RATE && fabsf(yaw_rate) > SIGN_CHECK_MIN_RATE)
-        {
+        if (fabsf(heading_rate) > SIGN_CHECK_MIN_RATE && fabsf(yaw_rate) > SIGN_CHECK_MIN_RATE) {
             if ((heading_rate > 0.0f) == (yaw_rate > 0.0f))
                 status.gyro_agree++;
             else
@@ -92,29 +78,23 @@ void UpdownSensor::check_gyro_sign(float heading, uint32_t now_us)
     has_prev_heading = true;
 }
 
-bool UpdownSensor::check_chip_id()
-{
+bool UpdownSensor::check_chip_id() {
     uint8_t chip_id = 0;
     status.last_error = read_registers(REG_CHIP_ID, &chip_id, 1);
     status.chip_id = chip_id;
     return status.last_error == 0 && chip_id == BNO055_CHIP_ID_VALUE;
 }
 
-void UpdownSensor::refresh_details()
-{
-    if (!initialized)
-        return;
+void UpdownSensor::refresh_details() {
+    if (!initialized) return;
     uint32_t now = millis();
-    if (status.details_ms != 0 && now - status.details_ms < DETAILS_INTERVAL)
-        return;
+    if (status.details_ms != 0 && now - status.details_ms < DETAILS_INTERVAL) return;
     status.details_ms = now;
     uint8_t block[6] = {};
     uint8_t mode = 0;
     status.details_error = read_registers(REG_CALIB_STAT, block, sizeof(block));
-    if (status.details_error == 0)
-        status.details_error = read_registers(REG_OPR_MODE, &mode, 1);
-    if (status.details_error != 0)
-        return;
+    if (status.details_error == 0) status.details_error = read_registers(REG_OPR_MODE, &mode, 1);
+    if (status.details_error != 0) return;
     status.calibration = block[0];
     status.self_test = block[1];
     status.sys_status = block[4];
@@ -122,8 +102,7 @@ void UpdownSensor::refresh_details()
     status.operation_mode = mode;
 }
 
-vector3_t *UpdownSensor::make_unit_vector(float x, float y, float z)
-{
+vector3_t *UpdownSensor::make_unit_vector(float x, float y, float z) {
     float magnitude = sqrt(x * x + y * y + z * z);
     vector3_t *unit_vector = (vector3_t *)malloc(sizeof(vector3_t));
     unit_vector->x = x / magnitude;
@@ -132,8 +111,7 @@ vector3_t *UpdownSensor::make_unit_vector(float x, float y, float z)
     return unit_vector;
 }
 
-vector3_t *UpdownSensor::init_vector3(float x, float y, float z)
-{
+vector3_t *UpdownSensor::init_vector3(float x, float y, float z) {
     vector3_t *vec = (vector3_t *)malloc(sizeof(vector3_t));
     vec->x = x;
     vec->y = y;
@@ -141,10 +119,8 @@ vector3_t *UpdownSensor::init_vector3(float x, float y, float z)
     return vec;
 }
 
-bool UpdownSensor::get_is_upside_down(bool allow_reconnect)
-{
-    if (!update_sensor(allow_reconnect))
-        return is_upside_down;
+bool UpdownSensor::get_is_upside_down(bool allow_reconnect) {
+    if (!update_sensor(allow_reconnect)) return is_upside_down;
 
     float z = -1 * grav_vec->z;
 
@@ -155,33 +131,28 @@ bool UpdownSensor::get_is_upside_down(bool allow_reconnect)
     return is_upside_down;
 }
 
-bool UpdownSensor::update_sensor(bool allow_reconnect)
-{
+bool UpdownSensor::update_sensor(bool allow_reconnect) {
     // An absent or unplugged sensor is never read: each failed read blocks the loop for
     // milliseconds, and at the 10 ms sample interval that starved the ESCs of DShot frames.
     // begin() blocks for over a second, so it is only retried when the caller allows it. main.cpp
     // never does, so a sensor that drops out stays off, and heading hold with it, until the next
     // reboot.
-    if (!initialized)
-    {
-        if (allow_reconnect && millis() - reconnect_timer > RECONNECT_INTERVAL)
-        {
+    if (!initialized) {
+        if (allow_reconnect && millis() - reconnect_timer > RECONNECT_INTERVAL) {
             begin();
             reconnect_timer = millis();
         }
         return false;
     }
     uint32_t now = millis();
-    if (now - sample_timer < SAMPLE_INTERVAL)
-    {
+    if (now - sample_timer < SAMPLE_INTERVAL) {
         return false;
     }
     sample_timer = now;
 
     // The Adafruit reads ignore I2C errors and return zeros, so check the sensor still answers.
     // One failed check costs a single transaction; then reads stop until begin() succeeds.
-    if (!check_chip_id())
-    {
+    if (!check_chip_id()) {
         initialized = false;
         status.initialized = false;
         status.lost_count++;
@@ -195,8 +166,7 @@ bool UpdownSensor::update_sensor(bool allow_reconnect)
     sensor->getEvent(&linear_data, Adafruit_BNO055::VECTOR_LINEARACCEL);
     uint32_t end_time = millis();
 
-    if (end_time - start_time > 250)
-    {
+    if (end_time - start_time > 250) {
         initialized = false;
         status.initialized = false;
         status.lost_count++;
@@ -227,18 +197,15 @@ bool UpdownSensor::update_sensor(bool allow_reconnect)
     linear_accel->y = linear_data.acceleration.y;
     linear_accel->z = linear_data.acceleration.z;
     sample_us = micros();
-    float gravity = sqrtf(grav_vec->x * grav_vec->x + grav_vec->y * grav_vec->y +
-                          grav_vec->z * grav_vec->z);
+    float gravity =
+        sqrtf(grav_vec->x * grav_vec->x + grav_vec->y * grav_vec->y + grav_vec->z * grav_vec->z);
     float up_rate;
-    if (gravity > MIN_GRAVITY_FOR_UP)
-    {
-        up_rate = (gyro_vec->x * grav_vec->x + gyro_vec->y * grav_vec->y +
-                   gyro_vec->z * grav_vec->z) /
-                  gravity;
+    if (gravity > MIN_GRAVITY_FOR_UP) {
+        up_rate =
+            (gyro_vec->x * grav_vec->x + gyro_vec->y * grav_vec->y + gyro_vec->z * grav_vec->z) /
+            gravity;
         up_sign = grav_vec->z >= 0.0f ? 1.0f : -1.0f;
-    }
-    else
-    {
+    } else {
         up_rate = up_sign * gyro_vec->z;
     }
     yaw_rate = YAW_RATE_SIGN * up_rate * RAD_TO_DEG;

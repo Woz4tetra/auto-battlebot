@@ -6,13 +6,9 @@ const NONE = "--";
 // ---- formatting --------------------------------------------------------------------------
 
 const num = (v, digits = 1, unit = "") =>
-  v === null || v === undefined
-    ? NONE
-    : v.toFixed(digits) + (unit ? " " + unit : "");
+  v === null || v === undefined ? NONE : v.toFixed(digits) + (unit ? " " + unit : "");
 const int = (v, unit = "") =>
-  v === null || v === undefined
-    ? NONE
-    : Math.round(v).toLocaleString() + (unit ? " " + unit : "");
+  v === null || v === undefined ? NONE : Math.round(v).toLocaleString() + (unit ? " " + unit : "");
 const yesNo = (v) => (v === null || v === undefined ? NONE : v ? "YES" : "NO");
 const ago = (s) =>
   s === null || s === undefined
@@ -57,13 +53,7 @@ function fillRows(id, rows) {
 }
 
 const pctTone = (v, good, bad) =>
-  v === null || v === undefined
-    ? ""
-    : v >= good
-      ? "good"
-      : v < bad
-        ? "bad"
-        : "warn";
+  v === null || v === undefined ? "" : v >= good ? "good" : v < bad ? "bad" : "warn";
 
 // ---- theme -------------------------------------------------------------------------------
 
@@ -104,11 +94,9 @@ function renderHeader(s, live) {
   }
   const portColor = s.port.state === "OPEN" ? "var(--green)" : "var(--red)";
   setPill("portPill", s.port.state, portColor);
-  const tlmLive =
-    s.telemetry_metrics.age_s !== null && s.telemetry_metrics.age_s < 0.5;
+  const tlmLive = s.telemetry_metrics.age_s !== null && s.telemetry_metrics.age_s < 0.5;
   if (!s.link) setPill("robotPill", "NO DONGLE", "var(--red)");
-  else if (!s.link.robot_known)
-    setPill("robotPill", "BROADCAST", "var(--amber)");
+  else if (!s.link.robot_known) setPill("robotPill", "BROADCAST", "var(--amber)");
   else
     setPill(
       "robotPill",
@@ -121,16 +109,8 @@ function renderHeader(s, live) {
   const cells = [
     ["CH", s.link ? String(s.link.channel) : NONE, ""],
     ["ACK %", num(lm.ack_pct_1s, 0), pctTone(lm.ack_pct_1s, 95, 80)],
-    [
-      "TLM HZ",
-      s.telemetry ? String(tm.hz) : NONE,
-      s.telemetry && tm.hz < 80 ? "bad" : "",
-    ],
-    [
-      "DELIV %",
-      num(tm.delivery_pct_5s, 0),
-      pctTone(tm.delivery_pct_5s, 98, 90),
-    ],
+    ["TLM HZ", s.telemetry ? String(tm.hz) : NONE, s.telemetry && tm.hz < 80 ? "bad" : ""],
+    ["DELIV %", num(tm.delivery_pct_5s, 0), pctTone(tm.delivery_pct_5s, 98, 90)],
     [
       "LQ %",
       s.telemetry ? String(s.telemetry.espnow_lq) : NONE,
@@ -169,9 +149,7 @@ function renderChecks(s) {
     const c = byName[name];
     if (!c)
       return `<div class="check skipped"><span class="badge">--</span><span class="name">${name}</span><span class="val">--</span></div>`;
-    const badge = { ok: "OK", warn: "WARN", error: "FAIL", info: "INFO" }[
-      c.level
-    ];
+    const badge = { ok: "OK", warn: "WARN", error: "FAIL", info: "INFO" }[c.level];
     return (
       `<div class="check"><span class="badge ${c.level}">${badge}</span>` +
       `<span class="name">${esc(c.name)}</span><span class="val">${esc(c.value)}</span>` +
@@ -214,24 +192,12 @@ function renderDongle(s) {
     ["Sent / s", num(m.sent_hz, 0)],
     ["Failed / s", num(m.failed_hz, 1), m.failed_hz > 0 ? "warn" : ""],
     ["ACK, last 1 s", num(m.ack_pct_1s, 1, "%"), pctTone(m.ack_pct_1s, 95, 80)],
-    [
-      "ACK, since robot heard",
-      num(m.ack_pct_session, 1, "%"),
-      pctTone(m.ack_pct_session, 95, 80),
-    ],
+    ["ACK, since robot heard", num(m.ack_pct_session, 1, "%"), pctTone(m.ack_pct_session, 95, 80)],
     ["Send callback (last)", l ? int(l.last_rtt_us, "us") : NONE],
     ["Stats rate", `${m.hz} Hz`, l && m.hz < 8 ? "warn" : ""],
     ["Stats age", ago(m.age_s), m.age_s > 0.5 ? "bad" : ""],
-    [
-      "Longest stats gap",
-      num(m.gap_max_ms, 0, "ms"),
-      m.gap_max_ms > 300 ? "warn" : "",
-    ],
-    [
-      "Dongle reboots seen",
-      String(m.dongle_reboots),
-      m.dongle_reboots ? "warn" : "",
-    ],
+    ["Longest stats gap", num(m.gap_max_ms, 0, "ms"), m.gap_max_ms > 300 ? "warn" : ""],
+    ["Dongle reboots seen", String(m.dongle_reboots), m.dongle_reboots ? "warn" : ""],
   ]);
 }
 
@@ -240,54 +206,30 @@ function renderRobotLink(s) {
   const m = s.telemetry_metrics;
   const dongleCh = s.link ? s.link.channel : null;
   fillRows("robotLinkRows", [
-    [
-      "Telemetry",
-      ago(m.age_s),
-      m.age_s === null || m.age_s > 0.5 ? "bad" : "good",
-    ],
+    ["Telemetry", ago(m.age_s), m.age_s === null || m.age_s > 0.5 ? "bad" : "good"],
     ["Rate", t ? `${m.hz} Hz` : NONE, t && m.hz < 80 ? "warn" : ""],
     ["Received", int(m.received)],
     ["Lost (seq gaps)", int(m.dropped), m.dropped ? "warn" : ""],
-    [
-      "Delivery, last 5 s",
-      num(m.delivery_pct_5s, 1, "%"),
-      pctTone(m.delivery_pct_5s, 98, 90),
-    ],
+    ["Delivery, last 5 s", num(m.delivery_pct_5s, 1, "%"), pctTone(m.delivery_pct_5s, 98, 90)],
     [
       "Delivery, session",
       num(m.delivery_pct_session, 2, "%"),
       pctTone(m.delivery_pct_session, 98, 90),
     ],
-    [
-      "Robot LQ (its ACKs)",
-      t ? `${t.espnow_lq} %` : NONE,
-      t ? pctTone(t.espnow_lq, 95, 80) : "",
-    ],
+    ["Robot LQ (its ACKs)", t ? `${t.espnow_lq} %` : NONE, t ? pctTone(t.espnow_lq, 95, 80) : ""],
     [
       "Robot channel",
       t ? (t.espnow_channel ? String(t.espnow_channel) : "SWEEPING") : NONE,
       t && dongleCh !== null && t.espnow_channel !== dongleCh ? "bad" : "",
     ],
     ["Autonomy switch (SA)", t ? (t.autonomy_enabled ? "ON" : "OFF") : NONE],
-    [
-      "ESP-NOW driving",
-      yesNo(t && t.espnow_active),
-      t && t.espnow_active ? "good" : "",
-    ],
+    ["ESP-NOW driving", yesNo(t && t.espnow_active), t && t.espnow_active ? "good" : ""],
     [
       "Since last command",
-      t
-        ? t.espnow_age_ms === 4294967295
-          ? "never"
-          : int(t.espnow_age_ms, "ms")
-        : NONE,
+      t ? (t.espnow_age_ms === 4294967295 ? "never" : int(t.espnow_age_ms, "ms")) : NONE,
     ],
     ["telemetry_seq", t ? int(t.telemetry_seq) : NONE],
-    [
-      "Robot reboots seen",
-      String(m.robot_reboots),
-      m.robot_reboots ? "warn" : "",
-    ],
+    ["Robot reboots seen", String(m.robot_reboots), m.robot_reboots ? "warn" : ""],
     ["Robot uptime", t ? duration(t.timestamp_ms / 1000) : NONE],
   ]);
 }
@@ -297,11 +239,7 @@ function renderTiming(s) {
   const h = m.host_gap_ms;
   fillRows("timingRows", [
     ["Host gap p50 / p90", `${num(h.p50, 1)} / ${num(h.p90, 1)} ms`],
-    [
-      "Host gap p99 / max",
-      `${num(h.p99, 1)} / ${num(h.max, 1)} ms`,
-      h.max > 100 ? "warn" : "",
-    ],
+    ["Host gap p99 / max", `${num(h.p99, 1)} / ${num(h.max, 1)} ms`, h.max > 100 ? "warn" : ""],
     [
       "Robot interval p50 / max",
       `${num(m.robot_interval_ms.p50, 1)} / ${num(m.robot_interval_ms.max, 1)} ms`,
@@ -331,8 +269,7 @@ function renderCommand(s) {
   btn.disabled = s.port.state !== "OPEN";
   sending = c.sending;
   for (const id of ["sliderA", "sliderB"]) $(id).disabled = !c.sending;
-  if (!c.sending && (Number($("sliderA").value) || Number($("sliderB").value)))
-    setNeutral();
+  if (!c.sending && (Number($("sliderA").value) || Number($("sliderB").value))) setNeutral();
   const lag = c.robot_seq !== null && c.sending ? c.seq - c.robot_seq : null;
   // What the robot should report for what the tool is sending: the firmware writes
   // a_percent = -100 * channel_a and b_percent = 100 * channel_b, then negates a_percent upside
@@ -342,8 +279,7 @@ function renderCommand(s) {
   const expA = t ? -100 * c.a * (t.is_upside_down ? -1 : 1) : null;
   const expB = 100 * c.b;
   const mismatch =
-    driving &&
-    (Math.abs(t.a_percent - expA) > 1.5 || Math.abs(t.b_percent - expB) > 1.5);
+    driving && (Math.abs(t.a_percent - expA) > 1.5 || Math.abs(t.b_percent - expB) > 1.5);
   fillRows("cmdRows", [
     ["Sending a / b", c.sending ? `${num(c.a, 2)} / ${num(c.b, 2)}` : "off"],
     [
@@ -364,14 +300,8 @@ function renderCommand(s) {
       t ? `${num(t.a_percent, 1)} / ${num(t.b_percent, 1)}` : NONE,
       mismatch ? "bad" : "",
     ],
-    [
-      "Expected while driving",
-      c.sending ? `${num(expA, 1)} / ${num(expB, 1)}` : NONE,
-    ],
-    [
-      "Robot wheels left / right %",
-      t ? `${num(t.left_cmd, 1)} / ${num(t.right_cmd, 1)}` : NONE,
-    ],
+    ["Expected while driving", c.sending ? `${num(expA, 1)} / ${num(expB, 1)}` : NONE],
+    ["Robot wheels left / right %", t ? `${num(t.left_cmd, 1)} / ${num(t.right_cmd, 1)}` : NONE],
     ["Our seq", int(c.seq)],
     ["Written to dongle", int(c.sent)],
     ["Robot accepted seq", c.robot_seq === null ? NONE : int(c.robot_seq)],
@@ -388,10 +318,8 @@ const FLIP = ["DOWN", "MIDDLE", "UP"];
 // motor_guard::State and motor_guard::Sensors in firmware/mr_stabs_mk2/lib/motor_guard.
 const GUARD_STATE = ["OFF", "NOMINAL", "HOT", "LIMITING"];
 const GUARD_SENSORS = ["FUSED", "SHUNT ONLY", "ERPM ONLY", "NONE"];
-const sensor = (v, unit, digits = 2) =>
-  v === null ? "NO SENSOR" : num(v, digits, unit);
-const triple = (a, b, c, digits = 2) =>
-  [a, b, c].map((v) => num(v, digits)).join(" / ");
+const sensor = (v, unit, digits = 2) => (v === null ? "NO SENSOR" : num(v, digits, unit));
+const triple = (a, b, c, digits = 2) => [a, b, c].map((v) => num(v, digits)).join(" / ");
 
 function renderRobotState(s) {
   const t = s.telemetry;
@@ -403,11 +331,7 @@ function renderRobotState(s) {
   }
   fillRows("stateRows", [
     ["Armed", yesNo(t.armed), t.armed ? "warn" : ""],
-    [
-      "RC radio",
-      t.radio_connected ? "UP" : "DOWN",
-      t.radio_connected ? "" : "bad",
-    ],
+    ["RC radio", t.radio_connected ? "UP" : "DOWN", t.radio_connected ? "" : "bad"],
     ["Drive a / b", `${num(t.a_percent, 1)} / ${num(t.b_percent, 1)} %`],
     ["Left / right", `${num(t.left_cmd, 1)} / ${num(t.right_cmd, 1)} %`],
     ["Flip switch", FLIP[t.flip_switch] || String(t.flip_switch)],
@@ -421,21 +345,12 @@ function renderRobotState(s) {
   const calText = `sys ${(cal >> 6) & 3} gyro ${(cal >> 4) & 3} acc ${(cal >> 2) & 3} mag ${cal & 3}`;
   fillRows("imuRows", [
     ["Calibration", calText, ((cal >> 6) & 3) < 3 ? "warn" : ""],
-    [
-      "Heading / roll / pitch",
-      triple(t.orientation_x, t.orientation_y, t.orientation_z, 1),
-    ],
+    ["Heading / roll / pitch", triple(t.orientation_x, t.orientation_y, t.orientation_z, 1)],
     ["Gravity x / y / z", triple(t.accel_x, t.accel_y, t.accel_z)],
-    [
-      "Linear accel x / y / z",
-      triple(t.linear_accel_x, t.linear_accel_y, t.linear_accel_z),
-    ],
+    ["Linear accel x / y / z", triple(t.linear_accel_x, t.linear_accel_y, t.linear_accel_z)],
     ["Gyro x / y", `${num(t.gyro_x, 1)} / ${num(t.gyro_y, 1)} deg/s`],
     ["Yaw rate", num(t.yaw_rate, 1, "deg/s CW")],
-    [
-      "Yaw rate command",
-      t.yaw_rate_cmd === null ? "LOOP OFF" : num(t.yaw_rate_cmd, 1, "deg/s"),
-    ],
+    ["Yaw rate command", t.yaw_rate_cmd === null ? "LOOP OFF" : num(t.yaw_rate_cmd, 1, "deg/s")],
     ["Heading setpoint", num(t.pid_setpoint, 1)],
     ["Steer output", num(t.pid_output, 2)],
   ]);
@@ -452,30 +367,13 @@ function renderRobotState(s) {
       GUARD_SENSORS[t.guard_sensors] || String(t.guard_sensors),
       t.guard_sensors === 0 ? "" : "warn",
     ],
-    [
-      "Scale",
-      num(t.guard_scale, 2),
-      t.guard_scale !== null && t.guard_scale < 1 ? "warn" : "",
-    ],
+    ["Scale", num(t.guard_scale, 2), t.guard_scale !== null && t.guard_scale < 1 ? "warn" : ""],
     ["Shunt gain", num(t.guard_gain, 2)],
     ["Stalled", stall || "NO", stall ? "bad" : ""],
-    [
-      "Rise left / right",
-      `${num(t.motor_rise_left, 1)} / ${num(t.motor_rise_right, 1)} C`,
-    ],
-    [
-      "Speed left / right",
-      `${num(t.motor_speed_left, 0)} / ${num(t.motor_speed_right, 0)} rad/s`,
-    ],
-    [
-      "Amps left / right",
-      `${num(t.motor_amps_left, 1)} / ${num(t.motor_amps_right, 1)} A`,
-    ],
-    [
-      "eRPM CRC errors",
-      int(t.erpm_crc_errors),
-      t.erpm_crc_errors ? "warn" : "",
-    ],
+    ["Rise left / right", `${num(t.motor_rise_left, 1)} / ${num(t.motor_rise_right, 1)} C`],
+    ["Speed left / right", `${num(t.motor_speed_left, 0)} / ${num(t.motor_speed_right, 0)} rad/s`],
+    ["Amps left / right", `${num(t.motor_amps_left, 1)} / ${num(t.motor_amps_right, 1)} A`],
+    ["eRPM CRC errors", int(t.erpm_crc_errors), t.erpm_crc_errors ? "warn" : ""],
   ]);
 }
 
@@ -484,14 +382,10 @@ function renderLed(s) {
   let color = "off";
   let swatch = "transparent";
   if (s.link && s.port.state === "OPEN") {
-    const stale =
-      s.telemetry_metrics.age_s === null || s.telemetry_metrics.age_s > 0.5;
+    const stale = s.telemetry_metrics.age_s === null || s.telemetry_metrics.age_s > 0.5;
     if (!s.link.robot_known) [color, swatch] = ["BLUE, blinking", "#2f6bff"];
     else if (stale) [color, swatch] = ["RED", "var(--red)"];
-    else if (
-      s.link_metrics.ack_pct_1s !== null &&
-      s.link_metrics.ack_pct_1s < 90
-    )
+    else if (s.link_metrics.ack_pct_1s !== null && s.link_metrics.ack_pct_1s < 90)
       [color, swatch] = ["AMBER", "var(--amber)"];
     else [color, swatch] = ["GREEN", "var(--green)"];
     color += s.command.sending ? ", bright" : ", dim";
@@ -518,9 +412,7 @@ function renderTypes(s) {
   });
   $("types").innerHTML =
     head +
-    (rows.length
-      ? rows.join("")
-      : '<tr><td colspan="8" class="muted">no frames yet</td></tr>');
+    (rows.length ? rows.join("") : '<tr><td colspan="8" class="muted">no frames yet</td></tr>');
 }
 
 function renderOta(s) {
@@ -561,11 +453,7 @@ function renderCapture(s) {
   $("capBtn").setAttribute("aria-pressed", c.active);
   $("capBtn").textContent = c.active ? "STOP CAPTURE" : "CAPTURE";
   fillRows("capRows", [
-    [
-      "Capture",
-      c.active ? `${int(c.records)} records` : "OFF",
-      c.active ? "warn" : "",
-    ],
+    ["Capture", c.active ? `${int(c.records)} records` : "OFF", c.active ? "warn" : ""],
     ["Capture file", c.path ? c.path.split("/").pop() : NONE],
     ["Ring", `${int(c.ring_records)} records`],
   ]);
@@ -656,8 +544,7 @@ const post = (url, body) =>
     body: JSON.stringify(body || {}),
   });
 
-$("sendBtn").onclick = () =>
-  post("/api/command", { on: !(latest && latest.command.sending) });
+$("sendBtn").onclick = () => post("/api/command", { on: !(latest && latest.command.sending) });
 
 // ---- command sliders ---------------------------------------------------------------------
 
@@ -703,16 +590,9 @@ window.addEventListener(
   },
   true,
 );
-window.addEventListener(
-  "keyup",
-  (e) => e.code === "Space" && e.preventDefault(),
-  true,
-);
+window.addEventListener("keyup", (e) => e.code === "Space" && e.preventDefault(), true);
 // A hidden tab may stop running timers; drop to neutral rather than rely on the server deadman.
-document.addEventListener(
-  "visibilitychange",
-  () => document.hidden && setNeutral(),
-);
+document.addEventListener("visibilitychange", () => document.hidden && setNeutral());
 
 // Heartbeat: the tool returns to neutral if it hears nothing for 0.3 s.
 setInterval(pushValues, 100);

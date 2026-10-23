@@ -6,13 +6,13 @@
 # check_python_lint scripts.
 #
 # Steps (in order):
-#   1. clang-format   C/C++ under src/ include/ tests/   (apply, or --dry-run check)
+#   1. clang-format   C/C++ under src/ include/ tests/ firmware/  (apply, or --dry-run check)
 #   2. taplo          TOML under config/                  (apply, or --dry-run check)
 #   3. ruff format    Python under scripts/ etc.          (apply, or --dry-run check)
 #   4. ruff check     Python lint                         (report)
 #   5. protocol.ts    web/src/generated/protocol.ts from remote_protocol_dump (regenerate,
 #                     or --dry-run check; needs build/ and web/node_modules)
-#   6. prettier       web/src                             (apply, or --dry-run check)
+#   6. prettier       web/src, firmware web pages         (apply, or --dry-run check)
 #   7. clang-tidy     C/C++ lint over src/  [cached]      (report; needs build/)
 #   8. mypy           Python type check (scope from mypy.ini)  [slow]
 #   9. svelte-check   web/ types  [slow]
@@ -154,11 +154,22 @@ missing() { echo -e "${DIM}    - $1 (skipped: $2 not found)${NC}"; }
 
 skipped_quick() { echo -e "${DIM}    - $1 (skipped: --quick)${NC}"; }
 
-# Null-delimited list of C/C++ sources.
+# Null-delimited list of C/C++ sources. firmware/ skips PlatformIO's .pio (downloaded libraries
+# and build output) and BlHeli-Passthrough, a vendored upstream library kept diffable against it.
 cpp_files() {
     find "$PROJECT_ROOT/src" "$PROJECT_ROOT/include" "$PROJECT_ROOT/tests" \
         \( -name '*.cpp' -o -name '*.hpp' -o -name '*.h' -o -name '*.c' -o -name '*.cu' \) -print0
+    find "$PROJECT_ROOT/firmware" \
+        \( -name .pio -o -path "$PROJECT_ROOT/firmware/BlHeli-Passthrough" \) -prune -o \
+        \( -name '*.cpp' -o -name '*.hpp' -o -name '*.h' -o -name '*.c' \) -print0
 }
+
+# The firmware's own web pages, served from the microcontrollers. Formatted with web/'s prettier
+# config. Generated files (esc_layout.json) are left alone.
+FIRMWARE_WEB_GLOBS=(
+    "../firmware/mr_stabs_mk2/web/*.{js,mjs,css,html}"
+    "../firmware/espnow_dongle/scripts/espnow_diag_web/*.{js,css,html}"
+)
 
 # Python dirs for ruff format / ruff check (mypy uses mypy.ini scope instead).
 # auto_battlebot/ and playground/ are installed packages; playground is linted and
@@ -276,9 +287,11 @@ fi
 header "prettier ($(mode_label))"
 if have_web; then
     if [ "$DRY_RUN" = true ]; then
-        (cd "$WEB_DIR" && npx --no-install prettier --check src)
+        (cd "$WEB_DIR" && npx --no-install prettier --check --config .prettierrc src \
+            "${FIRMWARE_WEB_GLOBS[@]}")
     else
-        (cd "$WEB_DIR" && npx --no-install prettier --write --log-level warn src)
+        (cd "$WEB_DIR" && npx --no-install prettier --write --log-level warn --config .prettierrc \
+            src "${FIRMWARE_WEB_GLOBS[@]}")
     fi
     record "prettier" $?
 else
