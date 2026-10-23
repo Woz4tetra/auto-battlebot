@@ -10,6 +10,7 @@
 #include <esp_attr.h>
 #include <esp_random.h>
 #include <esp_system.h>
+#include <esp_timer.h>
 #include <espnow_link.h>
 #include <i2c_bus.h>
 #include <motor_guard.h>
@@ -356,6 +357,28 @@ void mix_motor_outputs(crsf_bridge::radio_data_t *radio_data, float sensed_angle
     }
 }
 
+// Sends DShot stop frames every 5 ms from a timer while setup() runs, so the ESCs see an
+// unbroken signal from the moment their pins are driven until loop() takes over. The IMU, WiFi,
+// and ESP-NOW setup between those points takes about 2.5 s.
+esp_timer_handle_t setup_frames_timer = nullptr;
+
+void send_setup_frames(void *) { esc::Esc::stop_pair(*left_esc, *right_esc); }
+
+void start_setup_frames() {
+    esp_timer_create_args_t args = {};
+    args.callback = send_setup_frames;
+    args.name = "esc_setup";
+    esp_timer_create(&args, &setup_frames_timer);
+    esp_timer_start_periodic(setup_frames_timer, 5000);
+}
+
+void stop_setup_frames() {
+    esp_timer_stop(setup_frames_timer);
+    delay(10);  // a callback already running finishes before loop() sends its own frames
+    esp_timer_delete(setup_frames_timer);
+    setup_frames_timer = nullptr;
+}
+
 void setup() {
     Serial.begin(115200);
     crash_report::read(boot_report);
@@ -373,6 +396,8 @@ void setup() {
     right_esc->stop_threshold = 1.0f;
     left_esc->begin();
     right_esc->begin();
+    start_setup_frames();
+    const uint32_t esc_start_ms = millis();
 
     pixels.begin();
     pixels.setBrightness(20);
@@ -420,13 +445,13 @@ void setup() {
     diag_server.begin(&wifi, &telemetry_ring_buffer, esp_random(), tunables);
     if (ESPNOW_ENABLED) espnow.begin(WIFI_IF_AP, espnow_protocol::CHANNEL_OVERRIDE, tunables);
 
-    // ESCs need continuous DShot zero-throttle frames to initialize (~2 seconds). Last in setup,
-    // so loop() carries the frames on without a gap: a gap of a second or more (IMU, WiFi) reads
-    // to the ESC as signal loss, and it re-initializes and plays its start-up tone a second time.
-    for (int i = 0; i < 400; i++) {
-        esc::Esc::stop_pair(*left_esc, *right_esc);
-        delay(5);
-    }
+    // ESCs need continuous DShot zero-throttle frames to initialize (~2 seconds). The timer has
+    // sent them since the ESC pins came up; top that up to 2 s, then hand over to loop(). Before
+    // the timer, the 2.4 s of IMU and WiFi setup left the line idle, and a reset of the ESP32 alone
+    // made the running ESCs play their wake-up jingle twice. A pack power-on still plays it twice:
+    // the ESCs sample the line before any firmware can drive it (measured 212 ms after reset).
+    while (millis() - esc_start_ms < 2000) delay(5);
+    stop_setup_frames();
 
     // A loop() pass that takes over CONFIG_ESP_TASK_WDT_TIMEOUT_S (5 s) panics: the core dump goes
     // to flash and the robot reboots, instead of hanging with the ESCs on their last command. The
