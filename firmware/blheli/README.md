@@ -234,6 +234,58 @@ heard at the new volume.
 - LED bits for ESCs with more than one LED (24).
 - Music pauses, if the format has them (semitones 12-15).
 
+## Gaps versus BLHeliSuite
+
+What BLHeliSuite32xl 1.0.4.4 does that this tool does not, as of 2026-10-23.
+
+Not supported:
+
+- Flashing or verifying ESC firmware (Flash BLHeli, Verify BLHeli). Settings only; a bad
+  firmware write can brick an ESC. Use BLHeliSuite through the USB passthrough for that.
+- Spinning motors from the PC (the Motors tab). Left out on purpose.
+- Any ESC other than BLHeli_32 32.x layout 48 with the `0xdd4e2c` key. `check_layout` refuses
+  other firmware and layout revisions. See "Supporting other ESCs" below.
+- Interfaces other than `firmware/BlHeli-Passthrough` over USB and the Mk2 tuning mode over WiFi.
+  BLHeliSuite also connects through flight controllers, Arduino 4-way adapters and USB linkers.
+
+Supported, less conveniently:
+
+- The CLI works on one ESC at a time and refuses a file read from the other ESC. BLHeliSuite
+  edits all ESCs together and copies master to slave. The dashboard panel copies field by field.
+- No BLHeliSuite `.ini` import or export; backups are the tool's own JSON.
+- The startup tune is text (`A5 1/8 D5 1/4`) with no playback preview. General length and
+  interval are one raw byte, `music_note_config` (high nibble length, low nibble interval).
+- Command line only: field names come from `fields`, not labelled sliders.
+
+Fields the tool carries but does not fully understand are listed under "Not observable on this
+hardware".
+
+## Supporting other ESCs
+
+Ordered from least to most work.
+
+1. **Other BLHeli_32 ESCs on 32.x, layout 48.** Three things can differ:
+   - Key and cipher. BLHeliSuite holds six keys (`0xdd4dfc`, `0xdd4e0c`, `0xdd4e1c`, `0xdd4e2c`,
+     `0xdd4e3c`, `0xdd4e4c`) and two decrypt routines (XTEA at `0x822190`, TEA at `0x822530`).
+     `0x821f10` picks one from the chip ID in the `DeviceInitFlash` reply. Reading that function
+     is static analysis, a few hours, no hardware.
+   - Page address. 32 KB parts keep settings at `0x7C00`; the tweak base follows (`0x7f0fd0` in
+     BLHeliSuite). `cipher.py` already takes the tweak as an argument; `esc.py` does not choose it.
+   - Fields. The `Eep_Hw_*` bytes (48-63) report current sense, LED count, PWM range and S.PORT.
+     The tool could hide fields the hardware lacks, as BLHeliSuite does. Current protection,
+     current sense calibration and multi-LED bits still need an ESC that has them to confirm.
+2. **Other BLHeli_32 firmware or layout revisions.** Offsets may move. Each needs one ESC on that
+   firmware and the procedure used here: Read Setup capture, slider sweep, dry-run Write Setup
+   capture. About an hour per revision with the existing scripts.
+3. **BLHeli_S, Bluejay, AM32.** Their settings are not encrypted, and the layouts are public in
+   the esc-configurator project. BLHeli_S and Bluejay (SiLabs) use a different 4-way mode and
+   bootloader command set: the passthrough has code for it, the Python client does not. AM32
+   uses an ARM bootloader like BLHeli_32, so it is mostly a new field table. Roughly a day per
+   family plus a test ESC.
+
+Each case needs an ESC of that type on the bench to verify a real write. Analysis alone does not
+cover it.
+
 ## Tuning log
 
 One row per settings change that reached a robot, with the evidence behind it: a bench capture,
@@ -244,6 +296,7 @@ a match recording, or a driver note. Read-back-and-restore tests do not count.
 
 ## Next steps
 
-1. Power-cycle after a beep-volume change and listen, to confirm the running firmware (not just
-   the bootloader) picks up written settings.
+1. Listen for ESC 1's startup tune after a power cycle. On 2026-10-23 ESC 0 played its newly
+   written `A5 1/1 A5 1/1 A5 1/1`, so the running firmware does pick up written settings. ESC 1's
+   short `D5 1/8` was not heard; it now holds `D5 1/1 D5 1/1 D5 1/1` for the next listen.
 2. Run the WiFi relay's bench checklist in `docs/plans/esc_settings_dashboard_plan.md` (step 2).
