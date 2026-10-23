@@ -448,3 +448,111 @@ select:disabled {
   font-size: 13px;
   line-height: 1.45;
 }
+
+/* ESC settings editor: one row per field, left and right ESC side by side. */
+.esc-col .esc-title {
+  margin: 12px 0 0;
+}
+.esc-note {
+  min-height: 1.4em;
+  font-size: 12px;
+}
+.esc-note.bad,
+.esc-warn {
+  color: var(--red);
+}
+.esc-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+.esc-check input {
+  width: 20px;
+  height: 20px;
+}
+.esc-review h3 {
+  margin: 14px 0 0;
+}
+.esc-table {
+  margin-top: 16px;
+  border-top: 2px solid var(--ink);
+}
+.esc-row {
+  display: grid;
+  grid-template-columns: minmax(10em, 1.1fr) minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 2px 0 2px 8px;
+  border-bottom: 1px solid var(--grid);
+  border-left: 6px solid transparent;
+}
+.esc-head {
+  min-height: 36px;
+}
+.esc-row.diff {
+  border-left-color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 12%, transparent);
+}
+.esc-row.ro .esc-k,
+.esc-row.ro .esc-ro {
+  color: var(--muted);
+}
+.esc-k {
+  font-size: 14px;
+  font-weight: 600;
+}
+.esc-tag {
+  margin-left: 6px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--amber);
+}
+.esc-cell {
+  min-width: 0;
+}
+.esc-cell .esc-in {
+  width: 100%;
+}
+.esc-cell .esc-ro {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.esc-cell.edited .esc-in {
+  outline: 3px solid var(--ink);
+  outline-offset: -5px;
+  font-weight: 600;
+}
+.esc-cell.invalid .esc-in {
+  border-color: var(--red);
+  color: var(--red);
+}
+.esc-copy {
+  display: flex;
+  gap: 4px;
+}
+.esc-copy .btn.small {
+  width: 32px;
+  padding: 0;
+  font-size: 16px;
+}
+@media (max-width: 599px) {
+  .esc-row {
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    padding: 6px 0 6px 8px;
+  }
+  .esc-k {
+    grid-column: 1 / -1;
+  }
+  .esc-head > :first-child {
+    display: none;
+  }
+}
+.esc-raw {
+  margin: 0 0 4px;
+  font-size: 11px;
+  text-align: right;
+}

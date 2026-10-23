@@ -2,10 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1, viewport-fit=cover"
-    />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Mr Stabs Diagnostics</title>
     <link rel="stylesheet" href="/style.css" />
     <script>
@@ -13,9 +10,7 @@
       // main dashboard.
       try {
         var t = localStorage.getItem("theme");
-        var dark = t
-          ? t === "dark"
-          : matchMedia("(prefers-color-scheme: dark)").matches;
+        var dark = t ? t === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
         document.documentElement.dataset.theme = dark ? "dark" : "light";
       } catch (e) {}
     </script>
@@ -30,22 +25,9 @@
         role="img"
         aria-label="BWBots logo"
       >
-        <path
-          class="left"
-          d="M202 47 A137 137 0 0 0 202 321 L202 240 A56 56 0 0 1 202 128 Z"
-        />
-        <path
-          class="right"
-          d="M277 47 A137 137 0 0 1 277 321 L277 240 A56 56 0 0 0 277 128 Z"
-        />
-        <rect
-          class="pill-shape"
-          x="130"
-          y="118"
-          width="217"
-          height="132"
-          rx="66"
-        />
+        <path class="left" d="M202 47 A137 137 0 0 0 202 321 L202 240 A56 56 0 0 1 202 128 Z" />
+        <path class="right" d="M277 47 A137 137 0 0 1 277 321 L277 240 A56 56 0 0 0 277 128 Z" />
+        <rect class="pill-shape" x="130" y="118" width="217" height="132" rx="66" />
         <text x="238.5" y="222" text-anchor="middle">BW</text>
       </svg>
       <div class="title">
@@ -59,12 +41,7 @@
       <span class="pill" id="linkPill" title="Live data stream"
         ><span class="dot"></span><span>OFFLINE</span></span
       >
-      <button
-        class="icon"
-        id="darkBtn"
-        aria-label="Dark mode"
-        aria-pressed="false"
-      ></button>
+      <button class="icon" id="darkBtn" aria-label="Dark mode" aria-pressed="false"></button>
     </header>
 
     <main>
@@ -87,18 +64,16 @@
         <h2 class="label section-head">MOTOR HEAT</h2>
         <div id="heatRows"></div>
         <p class="note muted">
-          The stall guard's thermal model. Above 35 C it folds the drive
-          back until 50 C, where it holds each motor at its continuous
-          current. Amber sensors mean one source is missing and the guard is
-          running on the other.
+          The stall guard's thermal model. Above 35 C it folds the drive back until 50 C, where it
+          holds each motor at its continuous current. Amber sensors mean one source is missing and
+          the guard is running on the other.
         </p>
       </section>
 
       <section>
         <h2 class="label section-head">RECORD</h2>
         <p class="note muted">
-          Records every loop tick the page receives while it runs. Download
-          saves the CSV that
+          Records every loop tick the page receives while it runs. Download saves the CSV that
           <span class="mono">scripts/log_drive_twitch.py --csv</span> reads.
         </p>
         <div class="row">
@@ -113,12 +88,14 @@
         <div class="lockout" id="espnowLockout" hidden>
           <span class="label">CLIENT MODE DISABLED: ESP-NOW IS ON</span>
           <p>
-            This build has ESP-NOW enabled, so the robot always runs its own
-            access point (<span class="mono" id="lockoutSsid"></span>) on the
-            ESP-NOW channel (<span class="mono" id="lockoutChannel"></span>).
-            Joining a router would move the radio to the router's channel and
-            cut the dongle off. Saved networks are kept and take effect in a
-            build with <span class="mono">ESPNOW_ENABLED = false</span>.
+            This build has ESP-NOW enabled, so the robot always runs its own access point (<span
+              class="mono"
+              id="lockoutSsid"
+            ></span
+            >) on the ESP-NOW channel (<span class="mono" id="lockoutChannel"></span>). Joining a
+            router would move the radio to the router's channel and cut the dongle off. Saved
+            networks are kept and take effect in a build with
+            <span class="mono">ESPNOW_ENABLED = false</span>.
           </p>
         </div>
         <div class="wifi-grid">
@@ -126,9 +103,7 @@
             <div class="field">
               <span class="label">MODE ON BOOT</span>
               <div class="seg" id="modeSeg" role="group" aria-label="WiFi mode">
-                <button data-mode="ap" aria-pressed="false">
-                  ACCESS POINT
-                </button>
+                <button data-mode="ap" aria-pressed="false">ACCESS POINT</button>
                 <button data-mode="client" aria-pressed="false">CLIENT</button>
               </div>
             </div>
@@ -169,25 +144,90 @@
         <div class="tune">
           <label class="label" for="dzL">LEFT %</label>
           <input id="dzL" type="number" min="0" max="50" step="0.5" />
-          <button class="btn" data-tune="left_esc_dz" data-input="dzL">
-            APPLY
-          </button>
+          <button class="btn" data-tune="left_esc_dz" data-input="dzL">APPLY</button>
           <span class="mono muted" id="dzLS"></span>
         </div>
         <div class="tune">
           <label class="label" for="dzR">RIGHT %</label>
           <input id="dzR" type="number" min="0" max="50" step="0.5" />
-          <button class="btn" data-tune="right_esc_dz" data-input="dzR">
-            APPLY
-          </button>
+          <button class="btn" data-tune="right_esc_dz" data-input="dzR">APPLY</button>
           <span class="mono muted" id="dzRS"></span>
         </div>
       </section>
 
-      <section>
+      <section class="wide">
         <h2 class="label section-head">
-          I2C BUS <span class="mono muted" id="busPins"></span>
+          ESC SETTINGS <span class="mono muted">BLHeli_32 over the signal wires</span>
         </h2>
+        <p class="note muted">
+          Bench only, props off. Tuning mode stops both motors and hands the ESC signal wires to the
+          BLHeli bootloader. It is refused while armed, and the robot cannot drive inside it; the
+          radio button or EXIT leaves it. The first read of each ESC downloads a backup, and so does
+          every write.
+        </p>
+        <div class="row">
+          <button class="btn" id="escTuneBtn" aria-pressed="false" disabled>TUNING MODE</button>
+          <span class="mono muted" id="escTuneStatus"></span>
+        </div>
+        <div class="lockout" id="escArmedWarn" hidden>
+          <span class="label">ARMED WHILE TUNING</span>
+          <p>The ESCs cannot drive in tuning mode. Exit it to drive.</p>
+        </div>
+        <div id="escBody" hidden>
+          <div class="wifi-grid">
+            <div class="esc-col" id="escCol1">
+              <h3 class="label esc-title"></h3>
+              <div class="esc-info" id="escInfo1"></div>
+              <div class="row">
+                <button class="btn small esc-read">READ</button>
+                <button class="btn small esc-backup">BACKUP</button>
+                <button class="btn small esc-restore">RESTORE</button>
+                <button class="btn small esc-apply">APPLY</button>
+                <input class="esc-file" type="file" accept=".json" hidden />
+              </div>
+              <p class="note mono esc-note"></p>
+            </div>
+            <div class="esc-col" id="escCol0">
+              <h3 class="label esc-title"></h3>
+              <div class="esc-info" id="escInfo0"></div>
+              <div class="row">
+                <button class="btn small esc-read">READ</button>
+                <button class="btn small esc-backup">BACKUP</button>
+                <button class="btn small esc-restore">RESTORE</button>
+                <button class="btn small esc-apply">APPLY</button>
+                <input class="esc-file" type="file" accept=".json" hidden />
+              </div>
+              <p class="note mono esc-note"></p>
+            </div>
+          </div>
+          <div class="row">
+            <button class="btn" id="escReadBoth">READ BOTH</button>
+            <button class="btn" id="escApplyBoth">APPLY BOTH</button>
+            <button class="btn" id="escRevert">REVERT EDITS</button>
+            <label class="esc-check"
+              ><input type="checkbox" id="escDiffOnly" /> SHOW DIFFERENCES ONLY</label
+            >
+            <span class="mono muted" id="escDiffCount"></span>
+            <span class="mono muted" id="escBusy"></span>
+          </div>
+          <p class="note muted">
+            Amber rows differ between left and right; → and ← copy one value across. An outlined
+            cell is edited and not yet written. Nothing reaches an ESC until APPLY and WRITE.
+          </p>
+          <div class="lockout esc-review" id="escReview" hidden>
+            <span class="label" id="escReviewTitle"></span>
+            <div id="escReviewBody"></div>
+            <div class="row">
+              <button class="btn" id="escWriteBtn">WRITE</button>
+              <button class="btn" id="escCancelBtn">CANCEL</button>
+            </div>
+          </div>
+          <div class="esc-table" id="escTable"></div>
+        </div>
+      </section>
+
+      <section>
+        <h2 class="label section-head">I2C BUS <span class="mono muted" id="busPins"></span></h2>
         <div id="busRows"></div>
         <div class="row">
           <button class="btn" id="scanBtn">RESCAN BUS</button>
@@ -211,12 +251,11 @@
           <div id="bootRows"></div>
           <div>
             <p class="note muted">
-              A crash or a loop() pass over 5 s (task watchdog) saves a core
-              dump to flash and reboots. Decode it over USB with
+              A crash or a loop() pass over 5 s (task watchdog) saves a core dump to flash and
+              reboots. Decode it over USB with
               <span class="mono">scripts/coredump</span>, or the backtrace with
-              <span class="mono">addr2line</span> against the same build's
-              firmware.elf. Erase it once read so the next one is not mistaken
-              for it.
+              <span class="mono">addr2line</span> against the same build's firmware.elf. Erase it
+              once read so the next one is not mistaken for it.
             </p>
             <div class="row">
               <button class="btn small" id="eraseDumpBtn">ERASE DUMP</button>
@@ -227,19 +266,16 @@
       </section>
 
       <section class="wide">
-        <h2 class="label section-head">
-          ESP-NOW <span class="mono muted" id="espnowSub"></span>
-        </h2>
+        <h2 class="label section-head">ESP-NOW <span class="mono muted" id="espnowSub"></span></h2>
         <div class="wifi-grid">
           <div id="espnowLinkRows"></div>
           <div id="espnowTrafficRows"></div>
           <div>
             <h3 class="label">ALLOWED DONGLES</h3>
             <p class="note muted">
-              The robot only accepts paired dongles. Pairs are saved on the
-              robot and survive reboots and reflashes. Pair a new dongle by
-              plugging it in near the robot and pressing ALLOW on it below.
-              Disarm first.
+              The robot only accepts paired dongles. Pairs are saved on the robot and survive
+              reboots and reflashes. Pair a new dongle by plugging it in near the robot and pressing
+              ALLOW on it below. Disarm first.
             </p>
             <div class="row" id="pairOffer" hidden>
               <span class="mono" id="pairOfferMac"></span>
@@ -247,11 +283,7 @@
             </div>
             <ul class="nets" id="dongleList"></ul>
             <div class="row">
-              <input
-                id="pairMac"
-                placeholder="aa:bb:cc:dd:ee:ff"
-                autocomplete="off"
-              />
+              <input id="pairMac" placeholder="aa:bb:cc:dd:ee:ff" autocomplete="off" />
               <button class="btn small" id="pairManualBtn">ADD</button>
               <span class="mono muted" id="pairStatus"></span>
             </div>
@@ -261,5 +293,7 @@
     </main>
 
     <script src="/app.js"></script>
+    <script src="/esc.js"></script>
+    <script src="/esc_panel.js"></script>
   </body>
 </html>

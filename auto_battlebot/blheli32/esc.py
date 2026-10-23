@@ -52,8 +52,8 @@ class VerifyError(RuntimeError):
 
 
 class Session:
-    def __init__(self, port: SerialPort) -> None:
-        self.link = FourWay(port)
+    def __init__(self, port: SerialPort, msp: bool = True) -> None:
+        self.link = FourWay(port, msp=msp)
 
     def open(self) -> str:
         self.link.enter()

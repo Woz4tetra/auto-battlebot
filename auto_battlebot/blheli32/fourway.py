@@ -6,7 +6,8 @@ Framing, from the passthrough's Check_4Way and a usbmon capture of BLHeliSuite32
     response: 0x2E cmd addr_hi addr_lo n params[n or 256] ack crc_hi crc_lo
 
 n = 0 means 256 bytes. CRC is CRC16-XMODEM over everything before it. The serial link first
-switches from MSP to 4-way with MSP_SET_4WAY_IF (0xF5), as BLHeliSuite does.
+switches from MSP to 4-way with MSP_SET_4WAY_IF (0xF5), as BLHeliSuite does. The Mk2 robot's
+tuning-mode relay (http_port.HttpPort) speaks 4-way only, so it skips that step.
 """
 
 from __future__ import annotations
@@ -93,11 +94,15 @@ def msp_request(cmd: int, payload: bytes = b"") -> bytes:
 
 
 class FourWay:
-    """One 4-way session. ESC indices are the passthrough's pin order (0 = A2, 1 = A3)."""
+    """One 4-way session. ESC indices are the passthrough's pin order (0 = A2, 1 = A3).
 
-    def __init__(self, port: SerialPort, timeout_s: float = 2.0) -> None:
+    msp=False skips the MSP switch, for transports that speak 4-way from the start.
+    """
+
+    def __init__(self, port: SerialPort, timeout_s: float = 2.0, msp: bool = True) -> None:
         self._port = port
         self._timeout_s = timeout_s
+        self._msp = msp
 
     def _read_exact(self, n: int) -> bytes:
         out = bytearray()
@@ -113,6 +118,8 @@ class FourWay:
     def enter(self) -> None:
         """Switch the passthrough from MSP to 4-way mode."""
         self._port.reset_input_buffer()
+        if not self._msp:
+            return
         self._port.write(msp_request(MSP_SET_4WAY_IF))
         header = self._read_exact(5)
         if header[:3] != b"$M>":

@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Read, back up, and edit BLHeli_32 ESC settings through the 4-way passthrough.
 
-The robot runs firmware/BlHeli-Passthrough. ESC 0 is pin A2, ESC 1 is pin A3.
+Over USB the robot runs firmware/BlHeli-Passthrough. Over WiFi (--url) it runs the Mk2 firmware,
+and the tool enters tuning mode for the command and leaves it after. ESC 0 is pin A2 (right),
+ESC 1 is pin A3 (left).
 
     venv/bin/python firmware/blheli/blheli32.py read                    # print both ESCs
     venv/bin/python firmware/blheli/blheli32.py backup out/             # save pages + decoded JSON
@@ -12,6 +14,7 @@ The robot runs firmware/BlHeli-Passthrough. ESC 0 is pin A2, ESC 1 is pin A3.
         name=LEFT -o new.json                                           # startup tune and name
     venv/bin/python firmware/blheli/blheli32.py write new.json --esc 0  # diff, confirm, write
     venv/bin/python firmware/blheli/blheli32.py fields                  # every field and range
+    venv/bin/python firmware/blheli/blheli32.py --url http://mr-stabs.local read  # over WiFi
 
 Field reference: firmware/blheli/README.md.
 """
@@ -23,23 +26,54 @@ import base64
 import json
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from auto_battlebot.blheli32 import cipher, layout
 from auto_battlebot.blheli32.esc import EscSnapshot, Session
+from auto_battlebot.blheli32.http_port import HttpPort
 
 DEFAULT_PORT = "/dev/mr_stabs"
 
 
-def open_session(port: str) -> tuple[Session, Any]:
+def open_session(args: argparse.Namespace) -> tuple[Session, Callable[[], None]]:
+    """A session over USB (--port) or the robot's tuning mode (--url), and its close function."""
+    if args.url:
+        http = HttpPort(args.url)
+        entered = http.enter_tuning()
+        session = Session(http, msp=False)
+
+        def close_http() -> None:
+            try:
+                session.close()
+            finally:
+                if entered:
+                    http.exit_tuning()
+
+        try:
+            name = session.open()
+        except BaseException:
+            if entered:
+                http.exit_tuning()
+            raise
+        print(f"interface: {name} at {args.url}", file=sys.stderr)
+        return session, close_http
+
     import serial
 
-    ser = serial.Serial(port, 115200, timeout=0.2)
+    ser = serial.Serial(args.port, 115200, timeout=0.2)
     session = Session(ser)
+
+    def close_serial() -> None:
+        try:
+            session.close()
+        finally:
+            ser.close()
+
     name = session.open()
     print(f"interface: {name}", file=sys.stderr)
-    return session, ser
+    return session, close_serial
 
 
 def snapshot_json(s: EscSnapshot) -> dict[str, Any]:
@@ -88,21 +122,20 @@ def print_settings(payload: bytes, title: str, compare: bytes | None = None) -> 
 
 
 def cmd_read(args: argparse.Namespace) -> None:
-    session, ser = open_session(args.port)
+    session, close = open_session(args)
     try:
         for esc in args.esc:
             s = session.read(esc)
             print_settings(s.payload, f"ESC {esc}  frames good={s.good_frames} bad={s.bad_frames}")
     finally:
-        session.close()
-        ser.close()
+        close()
 
 
 def cmd_backup(args: argparse.Namespace) -> None:
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y-%m-%d_%H%M%S")
-    session, ser = open_session(args.port)
+    session, close = open_session(args)
     try:
         for esc in args.esc:
             s = session.read(esc)
@@ -110,8 +143,7 @@ def cmd_backup(args: argparse.Namespace) -> None:
             path.write_text(json.dumps(snapshot_json(s), indent=1))
             print(path)
     finally:
-        session.close()
-        ser.close()
+        close()
 
 
 def cmd_show(args: argparse.Namespace) -> None:
@@ -157,7 +189,7 @@ def cmd_write(args: argparse.Namespace) -> None:
     # An edit made with `set` must land on the settings it was made from. A plain backup is a
     # restore and overwrites whatever the ESC holds.
     base = bytes.fromhex(doc["base_payload_hex"]) if "base_payload_hex" in doc else None
-    session, ser = open_session(args.port)
+    session, close = open_session(args)
     try:
         before = session.read(args.esc)
         if before.payload == payload:
@@ -173,8 +205,7 @@ def cmd_write(args: argparse.Namespace) -> None:
         after = session.write(args.esc, payload, expect_current=base)
         print(f"ESC {args.esc}: written and verified, {after.good_frames} good frames counted")
     finally:
-        session.close()
-        ser.close()
+        close()
 
 
 def cmd_fields(_: argparse.Namespace) -> None:
@@ -191,7 +222,8 @@ def main() -> None:
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    p.add_argument("--port", default=DEFAULT_PORT)
+    p.add_argument("--port", default=DEFAULT_PORT, help="USB passthrough serial port")
+    p.add_argument("--url", help="Mk2 robot over WiFi instead, e.g. http://mr-stabs.local")
     sub = p.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("read")
     r.add_argument("--esc", type=int, nargs="+", default=[0, 1])

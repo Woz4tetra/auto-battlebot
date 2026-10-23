@@ -1,6 +1,7 @@
 #pragma once
 #include <Arduino.h>
 #include <crash_report.h>
+#include <esc_config.h>
 #include <espnow_protocol.h>
 #include <i2c_bus.h>
 #include <telemetry_ring.h>
@@ -136,8 +137,9 @@ class DiagnosticsServer {
     // Serves the page from web/ (embedded at build time by scripts/embed_web.py), the WiFi
     // settings endpoints, which edit wifi's saved networks, and GET /telemetry, which reads ring.
     // boot_id goes out with every /telemetry reply so a client can tell a reboot restarted seqs.
+    // esc_tuning backs the /esc/ routes: tuning mode and the 4-way frame relay.
     void begin(wifi_manager::WifiManager *wifi, const telemetry_ring_t *ring, uint32_t boot_id,
-               tunable_ptrs_t tunables = {});
+               tunable_ptrs_t tunables = {}, esc_config::EscConfig *esc_tuning = nullptr);
     void update(const diag_data_t *data);
     // True while a browser has the page open. Gate optional diagnostic work on this.
     bool has_clients();
@@ -170,4 +172,5 @@ class DiagnosticsServer {
     wifi_manager::WifiManager *_wifi = nullptr;
     const telemetry_ring_t *_ring = nullptr;
     uint32_t _boot_id = 0;
+    esc_config::EscConfig *_esc = nullptr;
 };

@@ -17,6 +17,9 @@ two panels:
 
 Tuning mode is bench only. It is refused while armed, and the motors cannot run inside it.
 
+Status, 2026-10-23: everything below is built and passes its host tests; none of it has run on
+the robot. "Left to do on the robot" at the end is the hardware checklist.
+
 ## Done: the protocol and the settings layout
 
 The original steps 0 and 1 (capture BLHeliSuite32, map every field) are finished. The result is
@@ -77,7 +80,7 @@ A2, which is wrong on both counts; step 5 fixes it.
 
 Power-cycle the pack after a beep-volume change and listen. The round trip above proved the
 bootloader stores the page; it has not yet proved the running firmware picks it up. Do this with
-the CLI over USB before building anything below.
+the CLI over USB before the hardware checklist at the end.
 
 ## Design: the robot relays 4-way frames
 
@@ -101,197 +104,146 @@ firmware to a port of code that already works against these ESCs.
 firmware/blheli/
   README.md              the spec and CLI usage (was docs/blheli32_settings.md)
   blheli32.py            the CLI (was scripts/blheli32.py)
-  mr_stabs_mk2_esc.ixi   BLHeliSuite32 setup export (was firmware/config/blheli/)
-  captures/              raw and decrypted pages (was firmware/config/blheli/captures/)
-  backups/               CLI backups (was firmware/config/blheli/backups/)
+  export_layout.py       writes the page's field table from layout.py
+  mr_stabs_mk2_esc.ixi   BLHeliSuite32 setup export
+  captures/              the four pages the tests read; other dumps are gitignored
+  backups/               CLI and page backups, gitignored (local to each machine)
 ```
 
-- The library stays in `auto_battlebot/blheli32/`, since shared, importable, type-checked code
-  lives there, and the tests stay in `tests/python/test_blheli32.py`. The CLI imports the library
-  with no `sys.path` changes.
-- The CLI has a shebang and the exec bit, like the other `firmware/` scripts, which keeps ruff's
-  INP001 quiet. It is out of mypy's scope with the rest of `firmware/`, which is fine for a thin
-  CLI over a type-checked library.
-- New files from this plan that are not robot firmware go here too: the `--url` transport docs,
-  and any BLHeli helper scripts. The served layout JSON stays in `firmware/mr_stabs_mk2/web/`,
-  since the robot serves it from there.
+The library stays in `auto_battlebot/blheli32/` (shared, importable, type-checked) and the tests
+in `tests/python/test_blheli32.py`. The served field table stays in `firmware/mr_stabs_mk2/web/`.
 
-## Step 1: 4-way relay and tuning mode in the Mk2 firmware
-
-### Module layout
+## Step 1 (built, untested on hardware): 4-way relay and tuning mode
 
 | Piece | Holds | Tested |
 |---|---|---|
-| `lib/blheli_boot/` | 4-way frame parse/build and CRC16-XMODEM, bootloader command builders and reply parsers, CRC16 0xA001, the address guard | host gtest, `env:native` |
-| `src/esc_config.cpp`, `include/esc_config.h` | serial transport on the ESC pins, the tuning state machine, the one-slot frame queue | bench |
-| `diagnostics_server.cpp` | HTTP routes, frame handoff | bench |
+| `lib/blheli_boot/` | 4-way parse/build, CRC16-XMODEM and 0xA001, the bootloader client, the address guard, `Server::handle()` | 15 gtests in `env:native` with a scripted fake link |
+| `src/esc_config.cpp`, `include/esc_config.h` | SoftwareSerial link on the ESC pins, the state machine, the one-slot frame queue | builds; bench |
+| `src/diagnostics_server.cpp` | the `/esc/` routes | builds; bench |
+| `lib/DShot` | `end()`: uninstalls both RMT channels and resets the pad, so the pins can change hands and `begin()` works again | bench |
 
-`lib/blheli_boot` is ported from `BlHeli-Passthrough/ESP32/4Way.cpp` and `ESC_Serial.cpp`, keeping
-the 4-way dispatcher (the request frames are the same ones BLHeliSuite and `fourway.py` send) and
-dropping MSP. It replaces the fixed `delay(param)` waits with reads that end on the expected length
-plus CRC. Commands it handles: `TestAlive`, `ProtocolGetVersion`, `InterfaceGetName`,
-`InterfaceGetVersion`, `InterfaceExit`, `InterfaceSetMode` (ARM BLB only), `DeviceReset`,
-`DeviceInitFlash`, `DeviceRead`, `DeviceWrite`. `InterfaceGetName` returns a distinct name (for
-example `MrStabsMk2`) so a log shows which relay answered.
+`blheli_boot` is the passthrough's `4Way.cpp` and `ESC_Serial.cpp` minus MSP. Reads end on the
+expected length (data, CRC, result byte) instead of fixed delays. The write keeps the
+passthrough's sequence and retries (set address, set buffer, data, program), since that sequence
+wrote and verified a page on these ESCs. `InterfaceGetName` answers `MrStabsMk2`.
 
-The **address guard** is the bricking protection. `DeviceWrite` is accepted only at `0xF800` with
-exactly 256 bytes. `DevicePageErase` is refused outright, since the write path never uses it.
-Refusals return a 4-way NACK. Reads are unrestricted. A bad page can then corrupt settings
-(fixable by restoring a backup) but cannot overwrite the ESC's application or bootloader.
+The **address guard** accepts `DeviceWrite` only at `0xF800` with exactly 256 bytes and refuses
+`DevicePageErase` and `DeviceEraseAll`, all with ack `0x09`, counted in `/esc/status`. Reads are
+unrestricted. A bad page can corrupt settings (restored from a backup) but not the ESC's
+application or bootloader.
 
 ### Transport
 
-Start with the plerup SoftwareSerial the standalone passthrough uses (known to work with these
-ESCs). It runs on core 1 inside `loop()`, and WiFi stays on core 0, so its bit timing should hold.
-If the step 2 bench test shows CRC failures with WiFi busy, switch to a hardware UART (UART0 is
-free, since `Serial` is the USB-Serial/JTAG port) with TX and RX routed to the same pin and the TX
-open-drain, swapping pins between the two ESCs per command.
+The plerup EspSoftwareSerial 8.2.0 one-wire mode the standalone passthrough runs, on core 1 in
+`loop()`; WiFi stays on core 0. If the step 2 bench test shows CRC failures with WiFi busy, switch
+to a hardware UART (UART0 is free, since `Serial` is the USB-Serial/JTAG port) with TX and RX on
+the same pin and TX open-drain.
 
 ### State machine
 
 ```
-COMBAT --enter request, disarmed, no ESP-NOW drive, no OTA--> ENTERING
-ENTERING: stop_escs(); left/right deinit (RMT TX+RX released); pins handed to blheli_boot
-          --> TUNING
-TUNING:   runs at most one queued 4-way frame per loop() pass; LED blue breathing;
-          control, motor_guard output, and DShot are all off
-TUNING --exit request or radio button edge--> EXITING
-EXITING:  DeviceReset on both ESCs; DShot begin() on both; start_setup_frames();
-          2 s; stop_setup_frames() --> COMBAT
+COMBAT --enter request, disarmed, ESP-NOW not driving--> TUNING
+         (both Esc::deinit(): a last stop frame, RMT released, pads reset)
+TUNING:  runs at most one queued 4-way frame per loop() pass; LED breathes blue
+TUNING --exit request or radio button press--> EXITING
+         (DeviceReset on both ESCs, serial released, Esc::begin() on both)
+EXITING: zero-throttle DShot from the disarmed branch for 2 s --> COMBAT
 ```
 
-Bootloader entry per ESC stays where the client puts it (`DeviceInitFlash` / `DeviceReset`, as
-`Session.read` does), so the firmware holds no per-ESC session state beyond what `4Way.cpp` keeps.
-
-Rules:
-
-- **Entry check** happens in `loop()`, which owns the armed state: `!(radio_ok && armed)`, not
-  `espnow.driving`, not `espnow.ota_in_progress()`. The HTTP handler only sets a request flag,
-  the same pattern as `take_erase_dump_request()`.
-- **Arming inside TUNING does nothing.** DShot is off, so the ESCs cannot drive. The page shows
-  "armed while tuning: exit to drive". There is no auto-exit on arm, because a write half done when
-  the switch flips would leave a corrupt page.
-- **The loop keeps reading** CRSF, the IMU and the INA238 in TUNING, so telemetry and the page stay
-  live. `motor_guard` keeps cooling its thermal model.
-- **ESP-NOW OTA and ArduinoOTA are refused** in TUNING. A reboot is a clean exit: the ESCs leave
-  their bootloader on power-up and the normal 2 s DShot wake-up runs.
-- **Watchdog.** One frame is one bootloader transaction. The longest is the 256-byte
-  `DeviceWrite` (about 140 ms on the wire at 19200 plus the flash write), well under 5 s.
-- **Idle timeout.** No frame for 60 s in TUNING sends `DeviceReset` to both ESCs, so a closed
-  browser tab does not leave an ESC parked in its bootloader. TUNING itself stays until exit.
-- **eRPM after exit.** The status panel's motor guard sensor state has to read `FUSED` again within
-  3 s of COMBAT. If not, the exit sequence is wrong.
+- `loop()` owns the armed state, so the HTTP handler only queues the request. Entry refused while
+  armed or while ESP-NOW drives leaves the reason in `/esc/status` `error`.
+- Tuning mode runs through the disarmed branch whether or not the robot is armed, so the outputs
+  stay stopped and the page shows "armed while tuning". No auto-exit on arm: a write half done
+  when the switch flips would leave a corrupt page.
+- CRSF, the IMU, the INA238 and the motor guard keep running, so telemetry and the page stay live.
+- ArduinoOTA is not serviced and ESP-NOW OTA sees "armed" while tuning, so neither starts. A
+  reboot is a clean exit.
+- One frame blocks the loop for at most about 3 s (a write with every retry), under the 5 s
+  watchdog. An exit request waits for the frame in flight.
+- No frame for 60 s resets both ESCs out of their bootloader. Tuning mode stays.
 
 ### HTTP API
 
-All under `/esc/`, handled on the async TCP task, never blocking on the ESC:
-
 | Route | Does |
 |---|---|
-| `POST /esc/tuning` `{"enter": true\|false}` | sets the request; 409 while armed |
-| `GET /esc/status` | state, last error, guard refusals count, idle seconds |
-| `POST /esc/4way` body: one request frame, hex | queues it; 409 if a frame is pending or not TUNING |
-| `GET /esc/4way` | `{"state": "pending"}`, or `{"state": "done", "frame": "<hex response>"}` |
+| `POST /esc/tuning` form `enter=1\|0` | queues the request; 409 while armed |
+| `GET /esc/status` | `state` (`combat`, `tuning`, `exiting`), `error`, `frames`, `guard_refusals`, `idle_s`, `released`, `pending`, `armed`, `driving` |
+| `POST /esc/4way` form `frame=<hex>` | validates the frame (400 with the reason), queues it, returns `{"id": n}`; 409 when not tuning or a frame is pending |
+| `GET /esc/4way` | `{"id", "state": "none"\|"pending"\|"done", "frame": <hex response>}` |
 
-## Step 2: drive the relay from Python
+## Step 2 (built): drive the relay from Python
 
-Add `HttpPort` to `auto_battlebot/blheli32/` (`http_port.py`): `write()` posts the buffered request
-frame, `read()` polls `GET /esc/4way` and serves the response bytes, `reset_input_buffer()` drops
-any leftover. `FourWay.enter()` skips the MSP switch on this transport (the relay is 4-way only).
-`firmware/blheli/blheli32.py` gets `--url http://mr-stabs.local` as an alternative to `--port`; every
-subcommand works unchanged.
+`auto_battlebot/blheli32/http_port.py`: `HttpPort` satisfies `fourway.SerialPort`. `write()` posts
+each complete request frame and polls until it is done, `read()` serves the response. `Session`
+and `FourWay` take `msp=False` to skip the MSP switch. `blheli32.py --url URL` enters tuning mode
+for the command and leaves it after (only if it entered). Tested against a local fake of the
+`/esc/` routes: a read and a verified write through `Session`, and the 409 refusal while armed.
 
-Bench validation, props off and wheels clear:
+## Step 3 and 4 (built): ESC SETTINGS panel
 
-1. Enter tuning from the page or `curl`, `blheli32.py --url ... read`, exit, drive. Repeat 10
-   times. No failed entry, no jingle loop, guard back to `FUSED`.
-2. 50 reads of both ESCs with the diagnostics page open on two browsers and the telemetry recorder
-   running. Zero CRC failures. If any, switch transport (step 1).
-3. Write each ESC's own backup back with `write`. Read-back matches. The same ESC read over the USB
-   passthrough (`--port`) gives the same payload.
-4. `set` one field (startup beep volume), `write` over WiFi, confirm by ear after a power cycle,
-   restore.
-5. Guard: send a `DeviceWrite` at `0xF700` and a `DevicePageErase` by hand. Both NACK, the ESC
-   still reads clean.
-6. Pull the pack mid-write. On power-up the ESC either boots with old or new settings, or plays its
-   "settings invalid" tone. Restore from the backup over WiFi and confirm it recovers. This is the
-   worst case the address guard leaves, and it has to be recoverable before the page ships.
+`web/esc.js` is the codec and 4-way client, ported from `fourway.py`, `cipher.py` and `layout.py`;
+`web/esc_panel.js` is the panel. `layout.to_json()` writes `web/esc_layout.json` through
+`firmware/blheli/export_layout.py`, and `scripts/embed_web.py` now serves `.json`.
 
-## Step 3: backup / restore panel (B)
+- **TUNING MODE** button, disabled with the reason while armed or driven over ESP-NOW. The panel
+  body shows only in tuning mode, and leaving tuning mode drops every read, so a new session
+  starts from fresh reads.
+- **Columns** Left (ESC 1, A3) and Right (ESC 0, A2), as seen from behind the robot. READ, BACKUP,
+  RESTORE, APPLY per ESC; READ BOTH, APPLY BOTH, REVERT EDITS across both.
+- **Backups.** The first read of each ESC in a session downloads `esc<N>_<time>.json`, and every
+  write first downloads `esc<N>_before_write_<time>.json`, both in the CLI's format. RESTORE
+  refuses a file from the other ESC, an inconsistent `page_b64`, or another layout, then loads it
+  into the form for the normal review.
+- **Differences.** Rows whose left and right differ are amber, the header counts them, and SHOW
+  DIFFERENCES ONLY hides the rest. An outlined cell is edited and not written. Invalid input turns
+  red and blocks APPLY with the reason, as do the cross-field rules (min < center < max throttle,
+  PWM low <= high) and PWM frequencies outside the ESC's `hw_pwm_freq_min/max`.
+- **Copy per field.** `→` copies a value left to right, `←` right to left. Copying edits the form
+  only.
+- **Review.** APPLY and APPLY BOTH list every change, old and new labels and the payload bytes it
+  writes (`byte 20: fe → c8`), with warnings: direction
+  outside bidirectional 3D (3, 4) breaks the robot's throttle mapping, direction equal to the
+  other ESC's turns one wheel the wrong way, and a change to an unverified field. WRITE writes
+  each ESC with the payload it read as the expected current state, and reads back to verify.
+- **Layout check.** An ESC whose firmware or layout bytes do not match the table is read-only in
+  the editor; BACKUP still works.
 
-A **TUNING MODE** button in a new ESC panel on `web/index.html`. Disabled with a reason while armed
-or driven over ESP-NOW. `web/esc.js` holds the 4-way client and the cipher, ported from
-`fourway.py` and `cipher.py`. Once in TUNING:
+Tested: `web/esc.test.mjs` (15 node tests, also run by pytest) decodes the captured pages to
+BLHeliSuite's values, round-trips every field at its limits and options, matches the music
+encoding and the 4-way frames, and runs the client's read, verified write, dropped-write and
+stale-read checks against a fake ESC. The whole page flow (enter, read both, edit, copy, invalid
+input, review with the direction warning, write both, exit, the four downloads) passed in
+headless Chrome against a mock robot, with no horizontal overflow at 390 px.
 
-- **Read** per ESC: shows firmware/layout ids, good/bad frame counts, and downloads
-  `esc<N>_<timestamp>.json`, the same document `snapshot_json()` writes. The page refuses Write on
-  an ESC it has not read this session.
-- **Restore** per ESC: pick a backup JSON. The page applies the CLI's rules: refuse a file whose
-  `esc` is the other ESC, check `page_b64` decodes to `payload_hex`, check the layout bytes, show
-  the changed fields, offer a download of the ESC's current settings, then write and verify.
-- **Exit tuning**.
+## Step 5 (done): docs
 
-There is no whole-block copy from one ESC to the other. The two ESCs differ in direction and
-startup note, so a straight copy is wrong. The editor copies field by field instead (step 4).
+- `firmware/mr_stabs_mk2/README.md`: tuning mode, "Configuring ESCs" (page, CLI over WiFi,
+  flashing through the passthrough), and the pin table fixed (ESC 0 = A2 = right).
+- `firmware/blheli/README.md`: `--url`, the relay's routes and guard; "What each setting does", the
+  field reference from the BLHeli_32 manual with what each field means on Mr Stabs; and an empty
+  "Tuning log" table for each settings change that reaches the robot, with its evidence.
 
-## Step 4: settings editor (C)
+## Left to do on the robot
 
-A second view in the ESC panel, built on B's read and write. The firmware does not change.
+None of this has run on hardware. Props off, wheels clear, in order:
 
-- **Field table.** `layout.py` gains `to_json()`, and a small generator writes
-  `firmware/mr_stabs_mk2/web/esc_layout_32_90_r48.json` (key, offset, width, kind, range, options,
-  unit, off value, verified, doc). A pytest asserts the committed file equals a fresh generation,
-  so the page and the CLI cannot drift.
-- After Read, decode both payloads and show every field: a number input with min/max/unit, or a
-  dropdown for option fields. Right and left side by side in one row per field. Name and music
-  notes are text inputs using the CLI's syntax (`A5 1/8 D5 1/4`).
-- **Differences.** A row whose right and left values differ is highlighted, and the panel header
-  counts them ("3 fields differ"). On the current setup that is `direction` and `music_notes`. A
-  **Show differences only** toggle hides the matching rows. A second, separate highlight marks a
-  cell edited in the form but not yet written, so "differs from the other ESC" and "differs from
-  what this ESC holds" never look the same.
-- **Copy per field.** Each row has a `→` and a `←` button that copy that one field's value from one
-  ESC's column to the other. Copying only edits the form; nothing reaches an ESC until Apply.
-  Copying `direction` triggers the firmware dependency confirm below, since both wheels would then
-  spin the same way. Read-only rows have no copy buttons.
-- Read-only fields shown greyed: firmware/layout ids, `hw_*` capability bytes, `esc_layout`,
-  `esc_mcu`. Options the hardware cannot do (PWM frequencies outside `hw_pwm_freq_min/max`) are
-  disabled. The two unverified fields are shown with a note and accept 0-255.
-- **Apply** shows a table of field, old, new, then encodes the page and writes it, passing the
-  payload it read as the expected current state (the `expect_current` check in `Session.write`).
-  **Apply to both** writes the same field changes to each ESC's own payload, so direction and the
-  startup note keep their per-ESC values.
-- **Layout check.** If the ESC's firmware or layout bytes are not 32 / 90 / 48, the editor is
-  read-only and says why. B's backup and restore still work.
-- **Firmware dependency warning.** The robot firmware assumes bidirectional 3D mode
-  (`esc.h`, `lib/erpm_decode`). Changing `direction` away from 3 or 4 gets a confirm dialog that
-  says throttle mapping breaks. Swapping 3 and 4 on one ESC is allowed, with a note that it reverses
-  that wheel.
-
-Tests:
-
-- `tests/python/test_blheli32.py`: the JSON table matches `layout.py`.
-- `web/esc.test.mjs`, run with `node --test`: decode the captured pages in
-  `firmware/blheli/captures/` and match the Python decode; encode then decode round-trips
-  every field at its min, max and each option; 4-way CRC against frames from `test_blheli32.py`.
-- `lib/blheli_boot` gtests: CRC against captured frames, address guard accepts `0xF800`/256 and
-  rejects one byte either side, any other length, and `DevicePageErase`; reply parser rejects bad
-  CRC and short replies.
-- Bench: change rampup power, motor timing and brake on stop through the editor, verify each with
-  `blheli32.py read` over USB, drive, restore.
-- Bench: change startup beep volume on the right ESC only, confirm its row highlights, copy it to
-  the left with `←`, Apply, read both back, and confirm the row no longer highlights.
-
-## Step 5: docs and cleanup
-
-- README: replace "Configuring ESCs via USB Passthrough" (stale since `4ab45d61`) and the "Tuning
-  mode" line that says USB passthrough activates, with the tuning mode flow; fix the ESC pin
-  mapping table; note that the standalone passthrough is still the way to flash ESC firmware.
-- `firmware/blheli/README.md`: add the WiFi transport (`--url`) to Usage and remove its "next
-  steps" item about the dashboard.
-- A tuning log (README section or `docs/esc_tuning.md`): what each setting does, from the field
-  `doc` strings and the BLHeli_32 manual, and each tuning change with the bench or match data
-  behind it.
+1. Flash: `cd firmware/mr_stabs_mk2 && pio run -e local -t upload` (USB, to apply the partition
+   table if needed) or `./scripts/ota_wifi`.
+2. The remaining prerequisite, over the USB passthrough or WiFi: change startup beep volume,
+   power-cycle the pack, confirm by ear, restore.
+3. Enter tuning, `blheli32.py --url http://mr-stabs.local read`, exit, drive. Repeat 10 times. No
+   failed entry, no jingle loop, motor guard sensors back to `FUSED` within 3 s.
+4. 50 reads of both ESCs with the page open on two browsers and the telemetry recorder running.
+   Zero failures. If any, switch transport (step 1).
+5. Write each ESC's own backup back with `write --url`. The same ESC read over the USB passthrough
+   gives the same payload.
+6. Guard: send a `DeviceWrite` at `0xF700` and a `DevicePageErase` by hand. Both ack `0x09`, the
+   ESC still reads clean.
+7. Pull the pack mid-write. The ESC boots with old or new settings or plays its "settings invalid"
+   tone; restore over WiFi and confirm it recovers.
+8. Page: change rampup power, motor timing and brake on stop, verify with `blheli32.py read`,
+   drive, restore. Change startup beep volume on one ESC, copy it across, APPLY BOTH, confirm the
+   row stops highlighting.
 
 ## Out of scope
 
@@ -300,12 +252,5 @@ Tests:
 - Any ESC firmware other than 32.90 / layout 48. A new version needs new captures and a check of
   `layout.py` against them.
 - Importing or exporting BLHeliSuite `.ini` / `.ixi` files. The backup JSON is the record, and
-  `blheli32.py show` prints it. Revisit if I need to load a setup someone else made in BLHeliSuite.
+  `blheli32.py show` prints it.
 - Changing settings while armed or between matches without a bench.
-
-## Next steps
-
-1. Power-cycle after a beep-volume change and confirm by ear (the remaining prerequisite).
-2. Build `lib/blheli_boot` with its gtests, then tuning mode and the `/esc/` routes (step 1).
-3. Add `HttpPort` and `--url`, and run the step 2 bench list including the pulled-pack test.
-4. Then the backup/restore panel, then the editor.

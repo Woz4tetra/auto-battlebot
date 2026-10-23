@@ -11,12 +11,15 @@ enum dshot_mode_t {
 
 // Bidirectional DShot: inverted frames out, and the ESC's eRPM reply read back on the same pin
 // through an RX channel. BLHeli_32 sees the inverted signal and switches modes on its own.
-class DShot
-{
-public:
+class DShot {
+   public:
     DShot(gpio_num_t pin, rmt_channel_t tx_channel, rmt_channel_t rx_channel,
           dshot_mode_t mode = DSHOT300);
+    ~DShot();
     bool begin();
+    // Uninstalls both RMT channels and hands the pad back as a plain GPIO with nothing routed to
+    // it, so tuning mode can talk to the ESC bootloader on the same wire. begin() works again.
+    void end();
     // Collects the reply to the previous frame, arms the receiver, and sends this frame. The
     // reply arrives about 30 us after the frame, so it is read one call later and never waited on.
     void send(uint16_t throttle, bool telemetry = false);
@@ -30,7 +33,7 @@ public:
     // Replies that arrived but did not decode, from boot.
     uint32_t decode_errors() const { return _decode_errors; }
 
-private:
+   private:
     gpio_num_t _pin;
     rmt_channel_t _channel;
     rmt_channel_t _rx_channel;
@@ -43,7 +46,7 @@ private:
     uint32_t _decode_errors;
     float _reply_bit_ticks;
 
-    rmt_item32_t _items[17]; // 16 data bits + 1 end marker
+    rmt_item32_t _items[17];  // 16 data bits + 1 end marker
     uint16_t _t1h_ticks;
     uint16_t _t1l_ticks;
     uint16_t _t0h_ticks;

@@ -251,12 +251,118 @@ static String body_param(AsyncWebServerRequest *request, const char *name) {
     return request->hasParam(name, true) ? request->getParam(name, true)->value() : String();
 }
 
+static int hex_digit(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+// Hex text to bytes. False on an odd length, a non-hex character, or more than max bytes.
+static bool parse_hex(const String &text, uint8_t *out, size_t max, size_t &size) {
+    if (text.length() % 2 != 0 || text.length() / 2 > max) return false;
+    size = text.length() / 2;
+    for (size_t i = 0; i < size; i++) {
+        const int hi = hex_digit(text[2 * i]);
+        const int lo = hex_digit(text[2 * i + 1]);
+        if (hi < 0 || lo < 0) return false;
+        out[i] = static_cast<uint8_t>((hi << 4) | lo);
+    }
+    return true;
+}
+
+static String esc_status_json(const esc_config::status_t &s) {
+    JsonDocument doc;
+    doc["state"] = esc_config::state_name(s.state);
+    doc["error"] = s.error;
+    doc["frames"] = s.frames;
+    doc["guard_refusals"] = s.guard_refusals;
+    doc["idle_s"] = s.idle_ms / 1000;
+    doc["idle_release_s"] = esc_config::IDLE_RELEASE_MS / 1000;
+    doc["released"] = s.released;
+    doc["pending"] = s.pending;
+    doc["armed"] = s.armed;
+    doc["driving"] = s.driving;
+    String out;
+    serializeJson(doc, out);
+    return out;
+}
+
+// The 4-way relay for tuning mode (docs/plans/esc_settings_dashboard_plan.md). The loop runs one
+// frame at a time: POST queues it and returns an id, GET reports it pending or done.
+static void setup_esc_routes(AsyncWebServer &server, esc_config::EscConfig *esc,
+                             volatile bool *armed) {
+    server.on("/esc/status", HTTP_GET, [esc](AsyncWebServerRequest *request) {
+        AsyncWebServerResponse *response =
+            request->beginResponse(200, "application/json", esc_status_json(esc->status()));
+        response->addHeader("Cache-Control", "no-store");
+        request->send(response);
+    });
+
+    server.on("/esc/tuning", HTTP_POST, [esc, armed](AsyncWebServerRequest *request) {
+        const String enter = body_param(request, "enter");
+        if (enter != "0" && enter != "1") {
+            return request->send(400, "text/plain", "enter must be 0 or 1");
+        }
+        if (enter == "1" && *armed) {
+            return request->send(409, "text/plain", "disarm to enter tuning mode");
+        }
+        esc->request(enter == "1");
+        request->send(200, "text/plain", "queued");
+    });
+
+    server.on("/esc/4way", HTTP_POST, [esc](AsyncWebServerRequest *request) {
+        uint8_t frame[blheli_boot::MAX_REQUEST];
+        size_t size = 0;
+        if (!parse_hex(body_param(request, "frame"), frame, sizeof(frame), size)) {
+            return request->send(400, "text/plain", "frame must be hex, at most 263 bytes");
+        }
+        blheli_boot::Request parsed;
+        const blheli_boot::ParseResult result = blheli_boot::parse_request(frame, size, parsed);
+        if (result != blheli_boot::ParseResult::OK) {
+            return request->send(400, "text/plain", blheli_boot::parse_result_name(result));
+        }
+        uint32_t id = 0;
+        const char *reason = "";
+        if (!esc->submit(frame, size, id, reason)) return request->send(409, "text/plain", reason);
+        request->send(200, "application/json", String("{\"id\":") + id + "}");
+    });
+
+    server.on("/esc/4way", HTTP_GET, [esc](AsyncWebServerRequest *request) {
+        uint8_t frame[blheli_boot::MAX_RESPONSE];
+        size_t size = 0;
+        uint32_t id = 0;
+        const esc_config::Poll state = esc->poll(id, frame, size);
+        String out = String("{\"id\":") + id + ",\"state\":\"";
+        out += state == esc_config::Poll::DONE      ? "done"
+               : state == esc_config::Poll::PENDING ? "pending"
+                                                    : "none";
+        out += "\"";
+        if (state == esc_config::Poll::DONE) {
+            static const char HEX_DIGITS[] = "0123456789abcdef";
+            out += ",\"frame\":\"";
+            out.reserve(out.length() + 2 * size + 2);
+            for (size_t i = 0; i < size; i++) {
+                out += HEX_DIGITS[frame[i] >> 4];
+                out += HEX_DIGITS[frame[i] & 0xF];
+            }
+            out += "\"";
+        }
+        out += "}";
+        AsyncWebServerResponse *response = request->beginResponse(200, "application/json", out);
+        response->addHeader("Cache-Control", "no-store");
+        request->send(response);
+    });
+}
+
 void DiagnosticsServer::begin(wifi_manager::WifiManager *wifi, const telemetry_ring_t *ring,
-                              uint32_t boot_id, tunable_ptrs_t tunables) {
+                              uint32_t boot_id, tunable_ptrs_t tunables,
+                              esc_config::EscConfig *esc_tuning) {
     _wifi = wifi;
     _ring = ring;
     _boot_id = boot_id;
     _tunables = tunables;
+    _esc = esc_tuning;
 
     for (const web_assets::asset_t &asset : web_assets::ASSETS) {
         server.on(asset.path, HTTP_GET, [&asset](AsyncWebServerRequest *request) {
@@ -362,6 +468,8 @@ void DiagnosticsServer::begin(wifi_manager::WifiManager *wifi, const telemetry_r
         _scan_requested = true;
         request->send(200, "text/plain", "ok");
     });
+
+    if (_esc) setup_esc_routes(server, _esc, &_armed);
 
     events.onConnect(
         [](AsyncEventSourceClient *client) { client->send("connected", NULL, millis(), 1000); });

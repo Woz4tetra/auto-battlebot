@@ -4,11 +4,14 @@ ESP32-S3 firmware for the MR STABS battlebot. Runs on an Adafruit QT Py ESP32-S3
 
 ## Modes
 
-The firmware has two modes, toggled by the `button_state` switch on the transmitter (rising edge toggles between them):
+**Combat mode** (default): DShot300 motor control via the CRSF radio link. Differential drive
+mixing, IMU-based flip detection, upside-down compensation. LED shows a rainbow cycle.
 
-**Combat mode** (default) -- DShot300 motor control via the CRSF radio link. Differential drive mixing, accelerometer-based flip detection, upside-down compensation. LED shows a rainbow cycle.
-
-**Tuning mode** -- Motors stop. USB serial passthrough activates so BLHeliSuite32 can configure both ESCs. LED shows a blue breathing pulse. OTA firmware updates also available in this mode.
+**Tuning mode**: motors stop and the ESC signal wires carry the BLHeli_32 bootloader protocol, so
+the diagnostics page or `firmware/blheli/blheli32.py --url` can read and write ESC settings. LED
+shows a blue breathing pulse. Entered from the page's ESC SETTINGS panel or the CLI, refused while
+armed or while ESP-NOW drives. The page's EXIT button or the transmitter button leaves it, after
+2 s of zero-throttle frames to wake the ESCs. See "Configuring ESCs" below.
 
 ### Flip switch and steering
 
@@ -155,48 +158,51 @@ The robot either runs its own access point or joins a router, chosen on the diag
 Run `./scripts/ota_wifi` on that network. In client mode, pass the robot's router address or
 `mr-stabs.local`: `./scripts/ota_wifi 192.168.50.40`.
 
-## Configuring ESCs via USB Passthrough
+## Configuring ESCs
 
-The firmware includes a BLHeli serial passthrough that lets BLHeliSuite32 read and write ESC parameters over USB.
+Both drive ESCs run BLHeli_32 32.90 (layout 48). Their settings are read and written over the
+signal wires, with no USB cable and no BLHeliSuite32. Protocol, field table, and CLI:
+`firmware/blheli/README.md`. Plan and bench checklist: `docs/plans/esc_settings_dashboard_plan.md`.
 
-### Prerequisites
+Bench only: props off, wheels clear, transmitter disarmed.
 
-- Install [BLHeliSuite32](https://github.com/bitdump/BLHeli) on your Linux PC (available as `blhelisuite32-bin` on the AUR, or run via WINE).
-- A USB cable connected to the ESP32-S3.
-- ESCs powered (battery connected).
+### From the diagnostics page
 
-### Connecting
+1. Open the page, find ESC SETTINGS, press ENTER TUNING MODE.
+2. READ BOTH. The first read of each ESC downloads a backup (`esc<N>_<time>.json`, the CLI's
+   format).
+3. Edit in the table. Amber rows differ between left and right; → and ← copy one value across.
+   An outlined cell is edited and not yet written.
+4. APPLY on one ESC, or APPLY BOTH, shows each change and any warning. WRITE saves the ESC's
+   current settings as `esc<N>_before_write_<time>.json`, writes, and reads back to verify.
+5. RESTORE loads a backup into the form for the same ESC, then the same review and write.
+6. EXIT TUNING MODE.
 
-1. Toggle the `button_state` switch on the transmitter. The LED changes to a blue breathing pulse and motors stop.
-2. Open BLHeliSuite32 on your PC.
-3. Select interface: **BLHeli32 Bootloader (Betaflight/Cleanflight)**.
-4. Select port: the ESP32's serial port (typically `/dev/ttyACM0`).
-5. Leave baud rate at **115200**.
-6. Click **Connect**, then **Read Setup**.
+### From the CLI over WiFi
 
-Both ESCs appear as ESC 1 and ESC 2 in the interface.
+```bash
+venv/bin/python firmware/blheli/blheli32.py --url http://mr-stabs.local read
+venv/bin/python firmware/blheli/blheli32.py --url http://mr-stabs.local backup firmware/blheli/backups
+venv/bin/python firmware/blheli/blheli32.py --url http://mr-stabs.local write new.json --esc 0
+```
 
-### Saving Settings
+The CLI enters tuning mode for the command and leaves it after. Use `192.168.4.1` on the robot's
+access point if mDNS does not resolve.
 
-1. Adjust parameters as needed (motor direction, startup power, timing, etc.).
-2. Click **Write Setup** to send the configuration to both ESCs.
-3. Settings persist in the ESC's non-volatile memory across power cycles.
+### Flashing ESC firmware
 
-### Saving an INI Backup
-
-1. After reading the ESC setup, use **File > Save Setup** to export a `.ini` file.
-2. To restore, use **File > Load Setup** then **Write Setup**.
-
-### Exiting Tuning Mode
-
-Toggle the `button_state` switch again. DShot reinitializes, the LED returns to rainbow, and the robot returns to combat mode.
+Tuning mode only writes the 256-byte settings page at `0xF800` and refuses every other write and
+erase. To flash ESC firmware, flash `firmware/BlHeli-Passthrough` to the board and use
+BLHeliSuite32 over USB, then flash this firmware back.
 
 ## ESC Pin Mapping
 
-| BLHeliSuite32 Label | Physical ESC | GPIO Pin |
-|---|---|---|
-| ESC 1 | Left motor | A2 |
-| ESC 2 | Right motor | A3 |
+ESC numbers follow the passthrough's pin order, in the page, the CLI, and backup files.
+
+| ESC | Motor | GPIO pin | RMT TX / RX |
+|---|---|---|---|
+| ESC 0 | Right | A2 | 2 / 5 |
+| ESC 1 | Left | A3 | 3 / 4 |
 
 ## Diagnostics Dashboard
 

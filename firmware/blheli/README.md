@@ -5,8 +5,13 @@ from Mr Stabs Mk2's two Flycolor Raptor 5 ESCs (BLHeli_32 32.90, layout 48, STM3
 BLHeliSuite32xl 1.0.4.4 for Linux, using usbmon captures, gdb watchpoints on BLHeliSuite's
 settings model, disassembly, and a keyboard sweep of every slider in its UI.
 
-- Library: `auto_battlebot/blheli32/` (`cipher.py`, `layout.py`, `fourway.py`, `esc.py`)
+- Library: `auto_battlebot/blheli32/` (`cipher.py`, `layout.py`, `fourway.py`, `esc.py`,
+  `http_port.py`)
 - CLI: `firmware/blheli/blheli32.py`
+- Robot side: `firmware/mr_stabs_mk2` tuning mode (`lib/blheli_boot`, `src/esc_config.cpp`) and
+  the diagnostics page's ESC SETTINGS panel (`web/esc.js`, `web/esc_panel.js`)
+- Page field table: `firmware/mr_stabs_mk2/web/esc_layout.json`, written by
+  `firmware/blheli/export_layout.py` from `layout.py` (a test fails while they differ)
 - Tests: `tests/python/test_blheli32.py`, against pages read from the robot
 - Captured pages the tests read: `firmware/blheli/captures/` (other `.bin` dumps there are
   gitignored)
@@ -14,7 +19,9 @@ settings model, disassembly, and a keyboard sweep of every slider in its UI.
 
 ## Usage
 
-The robot must run `firmware/BlHeli-Passthrough`, powered, transmitter off.
+Over USB the robot runs `firmware/BlHeli-Passthrough`. Over WiFi (`--url`) it runs the Mk2
+firmware, and the CLI enters tuning mode for the command and leaves it after. Either way: powered,
+transmitter disarmed.
 
 ```bash
 venv/bin/python firmware/blheli/blheli32.py read                    # both ESCs
@@ -24,6 +31,7 @@ venv/bin/python firmware/blheli/blheli32.py set BACKUP.json demag_compensation="
     rampup_power=60 -o new.json                                     # offline edit, validated
 venv/bin/python firmware/blheli/blheli32.py set BACKUP.json music_notes="A5 1/8 D5 1/4" name=LEFT -o new.json
 venv/bin/python firmware/blheli/blheli32.py write new.json --esc 0  # diff, confirm, write, verify
+venv/bin/python firmware/blheli/blheli32.py --url http://mr-stabs.local read  # over WiFi
 ```
 
 `write` refuses a file read from the other ESC (direction differs per ESC), refuses an edit whose
@@ -31,8 +39,8 @@ source no longer matches the ESC, saves the ESC's current settings next to the f
 writing, and reads the page back to verify.
 
 `set` takes raw numbers or the labels BLHeliSuite shows (`High`, `Auto`, `By RPM`, `Off`).
-ESC 0 is pin A2, ESC 1 is pin A3 (the passthrough's pin order). Both ESCs read 338422 / 338408
-good input frames, which identifies them.
+ESC 0 is pin A2 (right), ESC 1 is pin A3 (left), the passthrough's pin order. Both ESCs read
+338422 / 338408 good input frames, which identifies them.
 
 ## Transport
 
@@ -46,6 +54,13 @@ response: 2E cmd addr_hi addr_lo n params[n] ack crc_hi crc_lo
 
 `n = 0` means 256 bytes. CRC is CRC16-XMODEM (poly 0x1021, init 0) over everything before it.
 `ack = 0` is success.
+
+The Mk2 firmware's tuning mode relays the same frames over HTTP, with no MSP step: `POST
+/esc/4way frame=<hex>` queues one request and returns an id, and `GET /esc/4way` reports it
+`pending` or `done` with the response frame in hex. `POST /esc/tuning enter=1|0` enters and leaves
+tuning mode, and `GET /esc/status` reports it. The relay answers `InterfaceGetName` with
+`MrStabsMk2` and refuses (ack `0x09`) every `DeviceWrite` that is not 256 bytes at `0xF800`, and
+every `DevicePageErase` and `DeviceEraseAll`.
 
 | Cmd | Name | Params |
 |---|---|---|
@@ -156,6 +171,38 @@ The two ESCs' payloads differ at byte 3 (direction 3 vs 4) and byte 144 (startup
 BLHeliSuite keeps its own in-memory copy with a different order past byte 34 (PWM low and high
 sit at model bytes 34 and 35, the HW fields at 37-46), so its model is not a page image.
 
+## What each setting does
+
+From the BLHeli_32 manual and the field notes in `layout.py` (the page shows those as tooltips).
+The last column is what the setting means on Mr Stabs, which drives over bidirectional DShot300 in
+3D mode and reads eRPM back on the same wire.
+
+| Field | What it does | On Mr Stabs |
+|---|---|---|
+| Direction | Normal or reversed rotation, or bidirectional, where the throttle range splits at center into reverse and forward. "Soft" variants soften the direction change | Must stay Bidirectional 3D (3) or 3D Rev. (4). The firmware maps commands as 3D DShot (`esc.h`), and the two ESCs differ so both wheels drive forward |
+| Rampup power | Power limit at startup and low rpm, and on direction reversal. Higher gives more punch off the line and more risk of a desync | The main launch-feel setting for a pushing robot |
+| PWM frequency low / high | Motor switching frequency at low and high throttle; high can follow rpm (By RPM). Higher is smoother and quieter and costs more switching loss in the ESC | Limited to this ESC's 16-128 kHz |
+| Motor timing | Commutation advance. Higher gives more top speed and current at lower efficiency; Auto picks it from the motor | 16 now |
+| Demag compensation | Cuts power before a commutation when the winding demagnetizes slowly, which protects against stalls and desyncs under hard load. Higher is safer and can cost some power | High now |
+| Min / center / max throttle | Pulse widths for PWM input | No effect on DShot |
+| Throttle cal enable | Stick calibration at power-up on PWM input | No effect on DShot |
+| Temperature protection | ESC temperature where it starts limiting power; Off disables it | 140 C now |
+| Low voltage protection | Per-cell voltage where it starts limiting power | Off; the pack is watched by the INA238 |
+| Current protection | Current limit, on ESCs with a current sensor | These ESCs have none (reads 255); carried through unchanged |
+| Low RPM power protect | Limits power at low rpm. Off gives full power at low rpm, which low-kV or low-voltage setups can need; Adaptive scales the limit with kV and voltage | Off now |
+| Brake on stop | Braking force at zero throttle | 100 % now: the wheels hold at stop |
+| Startup beep volume | Volume of the power-up tune | |
+| Locator beep volume / delay (`beacon_volume`, `beacon_delay`) | Beeps once the throttle has sat at zero for the delay, to find a downed model; the volume also sets the DShot beep command's. Loud beeps heat the motor | 80, after 600 s |
+| LED control | ESC LED on or off | |
+| Maximum acceleration | Slew limit on power, in %/ms; Maximum means none | Unlimited now. A softer launch is possible here instead of in the robot firmware |
+| Non damped mode | Turns off damped light (active freewheeling and regenerative braking) | Off now |
+| Current sense cal | Current sensor gain trim | No sensor; carried through |
+| Music note config / notes | The startup tune: note length and pause, and up to 48 notes | One note each, A5 on ESC 0 and D5 on ESC 1, which tells them apart by ear |
+| Sine modulation mode | Sine power modulation, smoother at low speed. Disables variable PWM frequency | Off now |
+| Auto telemetry | Serial telemetry every 32 ms on the telemetry wire | Not used; the firmware reads eRPM over bidirectional DShot |
+| Stall protection | How the ESC reacts to a stalled motor, Normal or Relaxed (the more tolerant) | Relaxed now; the robot's own stall guard (`lib/motor_guard`) limits current from the firmware side |
+| SBUS channel / S.Port physical ID | Direct receiver input and FrSky telemetry | Not used |
+
 ## Write path
 
 BLHeliSuite's Write Setup, captured against a passthrough built to acknowledge writes without
@@ -187,9 +234,16 @@ heard at the new volume.
 - LED bits for ESCs with more than one LED (24).
 - Music pauses, if the format has them (semitones 12-15).
 
+## Tuning log
+
+One row per settings change that reached a robot, with the evidence behind it: a bench capture,
+a match recording, or a driver note. Read-back-and-restore tests do not count.
+
+| Date | ESC | Field | Old → new | Why | Evidence |
+|---|---|---|---|---|---|
+
 ## Next steps
 
 1. Power-cycle after a beep-volume change and listen, to confirm the running firmware (not just
    the bootloader) picks up written settings.
-2. Wire the library into the dashboard tuning mode in `docs/plans/esc_settings_dashboard_plan.md`:
-   the ESP32 only needs to relay 4-way frames; decoding can stay in the browser or in Python.
+2. Run the WiFi relay's bench checklist in `docs/plans/esc_settings_dashboard_plan.md` (step 2).

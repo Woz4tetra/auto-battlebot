@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import json
+import shutil
+import subprocess
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 
 from auto_battlebot.blheli32 import cipher, layout
 from auto_battlebot.blheli32.esc import Session, VerifyError
+from auto_battlebot.blheli32.http_port import HttpPort, RelayError
 from auto_battlebot.blheli32.fourway import (
     CMD_DEVICE_INIT_FLASH,
     CMD_DEVICE_READ,
@@ -262,3 +267,110 @@ def test_name_is_space_padded() -> None:
     assert payload[128:144] == b"LEFT".ljust(16)
     with pytest.raises(layout.LayoutError):
         layout.encode_name(payload, "x" * 17)
+
+
+REPO = Path(__file__).resolve().parents[2]
+
+
+def test_page_layout_json_is_current() -> None:
+    """The diagnostics page reads this file; regenerate with firmware/blheli/export_layout.py."""
+    committed = (REPO / "firmware/mr_stabs_mk2/web/esc_layout.json").read_text()
+    assert committed == layout.to_json()
+
+
+class FakeRobot:
+    """The Mk2 /esc/ routes in front of a FakePassthrough, served on localhost."""
+
+    def __init__(self) -> None:
+        import http.server
+        import threading
+        import urllib.parse
+
+        self.esc = FakePassthrough()
+        self.state = "combat"
+        self.frame_id = 0
+        self.response: bytes | None = None
+        self.armed = False
+        robot = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *args: object) -> None:
+                pass
+
+            def reply(self, code: int, body: str) -> None:
+                data = body.encode()
+                self.send_response(code)
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def do_GET(self) -> None:  # noqa: N802
+                if self.path == "/esc/status":
+                    self.reply(200, json.dumps({"state": robot.state, "error": ""}))
+                elif self.path == "/esc/4way":
+                    if robot.response is None:
+                        self.reply(200, json.dumps({"id": robot.frame_id, "state": "none"}))
+                    else:
+                        done = {"id": robot.frame_id, "state": "done"}
+                        self.reply(200, json.dumps({**done, "frame": robot.response.hex()}))
+
+            def do_POST(self) -> None:  # noqa: N802
+                body = self.rfile.read(int(self.headers["Content-Length"])).decode()
+                fields = dict(urllib.parse.parse_qsl(body))
+                if self.path == "/esc/tuning":
+                    if fields["enter"] == "1" and robot.armed:
+                        return self.reply(409, "disarm to enter tuning mode")
+                    robot.state = "tuning" if fields["enter"] == "1" else "combat"
+                    self.reply(200, "queued")
+                elif self.path == "/esc/4way":
+                    if robot.state != "tuning":
+                        return self.reply(409, "not in tuning mode")
+                    robot.frame_id += 1
+                    robot.esc.write(bytes.fromhex(fields["frame"]))
+                    robot.response = bytes(robot.esc.rx)
+                    robot.esc.rx.clear()
+                    self.reply(200, json.dumps({"id": robot.frame_id}))
+
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def close(self) -> None:
+        self.server.shutdown()
+
+
+@pytest.fixture
+def robot() -> Iterator[FakeRobot]:
+    r = FakeRobot()
+    yield r
+    r.close()
+
+
+def test_session_over_http_relay(robot: FakeRobot) -> None:
+    port = HttpPort(robot.url, poll_s=0.001)
+    assert port.enter_tuning() is True
+    assert port.enter_tuning() is False  # already in it
+    session = Session(port, msp=False)
+    session.open()
+    before = session.read(0).payload
+    edited = layout.encode(before, {"startup_beep_volume": 200})
+    assert session.write(0, edited, expect_current=before).payload == edited
+    assert [(a, len(p)) for a, p in robot.esc.writes] == [(0xF800, 256)]
+    port.exit_tuning()
+    assert robot.state == "combat"
+
+
+def test_http_relay_refuses_entry_while_armed(robot: FakeRobot) -> None:
+    robot.armed = True
+    with pytest.raises(RelayError, match="409"):
+        HttpPort(robot.url).enter_tuning()
+
+
+def test_page_codec_passes_node_tests() -> None:
+    """web/esc.js against the same captures, through node's built-in test runner."""
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node not installed")
+    test = REPO / "firmware/mr_stabs_mk2/web/esc.test.mjs"
+    result = subprocess.run([node, "--test", str(test)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout + result.stderr

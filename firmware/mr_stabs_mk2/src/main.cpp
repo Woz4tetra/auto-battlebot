@@ -7,6 +7,7 @@
 #include <crsf_bridge.h>
 #include <diagnostics_server.h>
 #include <esc.h>
+#include <esc_config.h>
 #include <esp_attr.h>
 #include <esp_random.h>
 #include <esp_system.h>
@@ -34,6 +35,10 @@ crsf_bridge::radio_data_t *radio_data;
 
 esc::Esc *left_esc;
 esc::Esc *right_esc;
+
+// ESC tuning mode: the diagnostics page and firmware/blheli/blheli32.py --url read and write
+// BLHeli_32 settings through it (docs/plans/esc_settings_dashboard_plan.md).
+esc_config::EscConfig esc_tuning;
 
 updown_sensor::UpdownSensor *accel;
 vbat_sensor::VbatSensor vbat_sensor_ina238;
@@ -132,6 +137,15 @@ void cycle_rainbow_led(int tick, int brightness) {
             i, pixels.ColorHSV(tick * 65536 / 255 + i * 65536 / NUM_PIXELS, 255, 255));
     }
     pixels.setBrightness(brightness);
+    pixels.show();
+}
+
+// Tuning mode: a slow blue breath, so the robot reads as not drivable from across the room.
+void breathe_blue_led(uint32_t now_ms) {
+    const float phase = (now_ms % 3000) / 3000.0f;
+    const uint8_t level = (uint8_t)(10 + 150 * (0.5f - 0.5f * cosf(2.0f * PI * phase)));
+    pixels.setBrightness(255);
+    pixels.fill(pixels.Color(0, 0, level));
     pixels.show();
 }
 
@@ -396,6 +410,7 @@ void setup() {
     right_esc->stop_threshold = 1.0f;
     left_esc->begin();
     right_esc->begin();
+    esc_tuning.begin(right_esc, left_esc, RIGHT_ESC_PIN, LEFT_ESC_PIN);
     start_setup_frames();
     const uint32_t esc_start_ms = millis();
 
@@ -442,7 +457,7 @@ void setup() {
     tunables.left_esc_deadzone = &left_esc->stop_threshold;
     tunables.right_esc_deadzone = &right_esc->stop_threshold;
     setup_telemetry_ring();
-    diag_server.begin(&wifi, &telemetry_ring_buffer, esp_random(), tunables);
+    diag_server.begin(&wifi, &telemetry_ring_buffer, esp_random(), tunables, &esc_tuning);
     if (ESPNOW_ENABLED) espnow.begin(WIFI_IF_AP, espnow_protocol::CHANNEL_OVERRIDE, tunables);
 
     // ESCs need continuous DShot zero-throttle frames to initialize (~2 seconds). The timer has
@@ -468,7 +483,8 @@ void loop() {
     uint32_t loop_us = now_us - prev_loop_us;
     prev_loop_us = now_us;
 
-    ArduinoOTA.handle();
+    // No firmware upload in tuning mode: the ESC pins belong to the bootloader link.
+    if (!esc_tuning.active()) ArduinoOTA.handle();
     if (is_loading_firmware) {
         return;
     }
@@ -483,9 +499,10 @@ void loop() {
     update_motor_guard(micros());
 
     // An ESP-NOW firmware transfer owns the loop: motors stopped, no control, same as ArduinoOTA.
-    // It only starts disarmed, and arming aborts it inside update().
+    // It only starts disarmed, and arming aborts it inside update(). Tuning mode counts as armed
+    // here, so no transfer starts while the ESC pins belong to the bootloader link.
     if (ESPNOW_ENABLED) {
-        espnow.update(now_ms, radio_ok && radio_data->armed);
+        espnow.update(now_ms, (radio_ok && radio_data->armed) || esc_tuning.active());
         if (espnow.ota_in_progress()) {
             stop_escs();
             return;
@@ -509,6 +526,11 @@ void loop() {
         }
         last_status_ms = 0;  // show the result on the next status poll
     }
+    // Enters or leaves tuning mode and relays at most one 4-way frame, which can block for about
+    // 3 s (a settings write). Entry is refused armed or while ESP-NOW drives; the radio button
+    // exits. While active() the disarmed branch below keeps the motor outputs stopped.
+    esc_tuning.update(now_ms, radio_ok && radio_data->armed, last_espnow_active,
+                      radio_ok && radio_data->button_state);
 
     // Read the IMU every loop whatever the radio is doing, so heading stays fresh for the PID and
     // the diagnostics page and telemetry track the robot with no handset. Rate-limited inside the
@@ -528,8 +550,12 @@ void loop() {
     // Combat mode
     if (now_ms - last_led_ms >= 20) {
         last_led_ms = now_ms;
-        cycle_rainbow_led(rainbow_tick, led_intensity);
-        rainbow_tick = (rainbow_tick + 1) % 255;
+        if (esc_tuning.active()) {
+            breathe_blue_led(now_ms);
+        } else {
+            cycle_rainbow_led(rainbow_tick, led_intensity);
+            rainbow_tick = (rainbow_tick + 1) % 255;
+        }
     }
 
     // The only link failsafe: isLinkUp() drops 300 ms after the last channel packet. That catches
@@ -571,7 +597,9 @@ void loop() {
         return;
     }
 
-    if (!radio_data->armed) {
+    // Tuning mode drives nothing, armed or not: DShot is off, or sending the 2 s of wake-up stop
+    // frames on the way out.
+    if (!radio_data->armed || esc_tuning.active()) {
         stop_escs();
         reset_steering(accel->get_orientation()->x);
 
@@ -580,7 +608,7 @@ void loop() {
         diag_data_t diag = {
             .timestamp_ms = millis(),
             .radio_connected = true,
-            .armed = false,
+            .armed = radio_data->armed,
             .a_percent = radio_data->a_percent,
             .b_percent = radio_data->b_percent,
             .button_state = radio_data->button_state,
