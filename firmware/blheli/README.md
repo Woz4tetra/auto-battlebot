@@ -8,8 +8,9 @@ settings model, disassembly, and a keyboard sweep of every slider in its UI.
 - Library: `auto_battlebot/blheli32/` (`cipher.py`, `layout.py`, `fourway.py`, `esc.py`)
 - CLI: `firmware/blheli/blheli32.py`
 - Tests: `tests/python/test_blheli32.py`, against pages read from the robot
-- Raw captures and decrypted pages: `firmware/blheli/captures/`
-- Backups made with the CLI: `firmware/blheli/backups/`
+- Captured pages the tests read: `firmware/blheli/captures/` (other `.bin` dumps there are
+  gitignored)
+- Backups made with the CLI: `firmware/blheli/backups/` (gitignored, local to each machine)
 
 ## Usage
 
