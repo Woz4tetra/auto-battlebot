@@ -65,7 +65,7 @@ MSG_OTA_STATUS = 0x14
 # (name, who sends it, expected payload size or None for variable)
 MESSAGE_TYPES: dict[int, tuple[str, str, int | None]] = {
     MSG_COMMAND: ("COMMAND", "host", 16),
-    MSG_TELEMETRY: ("TELEMETRY", "robot", 118),
+    MSG_TELEMETRY: ("TELEMETRY", "robot", 155),
     MSG_TUNABLE_SET: ("TUNABLE_SET", "host", 5),
     MSG_LINK_STATS: ("LINK_STATS", "dongle", 18),
     MSG_PING: ("PING", "dongle", 0),
@@ -83,16 +83,18 @@ ROBOT_TYPES = {MSG_TELEMETRY, MSG_OTA_STATUS}
 COMMAND = struct.Struct("<IIff")
 LINK_STATS = struct.Struct("<IIIIBB")
 OTA_STATUS = struct.Struct("<BIB16s")
-TELEMETRY = struct.Struct("<II21f9BIIIBI")
+TELEMETRY = struct.Struct("<II21f9BIIIBI8f3BH")
 TELEMETRY_FIELDS = (
     "timestamp_ms loop_us a_percent b_percent left_cmd right_cmd accel_x accel_y accel_z "
     "orientation_x orientation_y orientation_z pid_setpoint pid_output vbat ibat yaw_rate "
     "yaw_rate_cmd linear_accel_x linear_accel_y linear_accel_z gyro_x gyro_y imu_calibration "
     "radio_connected armed autonomy_enabled button_state flip_switch is_upside_down "
-    "espnow_active espnow_channel espnow_age_ms espnow_seq jetson_tx_us espnow_lq telemetry_seq"
+    "espnow_active espnow_channel espnow_age_ms espnow_seq jetson_tx_us espnow_lq telemetry_seq "
+    "motor_rise_left motor_rise_right motor_speed_left motor_speed_right motor_amps_left "
+    "motor_amps_right guard_scale guard_gain guard_state guard_sensors stall_flags erpm_crc_errors"
 ).split()
 assert COMMAND.size == 16 and LINK_STATS.size == 18 and OTA_STATUS.size == 22
-assert TELEMETRY.size == 118 and len(TELEMETRY_FIELDS) == 37
+assert TELEMETRY.size == 155 and len(TELEMETRY_FIELDS) == 49
 
 OTA_STATES = {0: "IDLE", 1: "RECEIVING", 2: "DONE", 3: "VALIDATED", 4: "ERROR"}
 OTA_ERRORS = {

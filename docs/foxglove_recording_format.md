@@ -225,6 +225,8 @@ stream instead, every control loop in record mode, with `backfill` absent.
 - `backfill`: true when the row waited in the ring, either for the next poll or for the link to
   come back; only the newest row of a poll that caught up is false. A backfilled row's
   `host_receive_ns` is late by that wait, so clock fits skip it. `null` on event-stream rows.
+- The motor guard fields (`motor_rise_left` through `erpm_crc_errors`) mean what they do on
+  `/robot/espnow_telemetry`, and are `null` on older firmware.
 - `wifi_clients` is not in the ring and reads 0.
 
 Link health (connected, rows per second, polls and failed polls, parse errors, backfilled and
@@ -250,7 +252,10 @@ the robot sends over ESP-NOW (`publish_diag` in `firmware/mr_stabs_mk2/src/main.
  "radio_connected": true, "armed": true, "autonomy_enabled": true, "button_state": false,
  "flip_switch": 0, "is_upside_down": false, "espnow_active": false, "espnow_channel": 1,
  "espnow_age_ms": 3, "espnow_seq": 4211, "jetson_tx_us": 912034511, "espnow_lq": 100,
- "telemetry_seq": 30517, "round_trip_us": 6120}
+ "telemetry_seq": 30517, "motor_rise_left": 12.4, "motor_rise_right": 11.9,
+ "motor_speed_left": 410.2, "motor_speed_right": -398.7, "motor_amps_left": 6.1,
+ "motor_amps_right": 5.8, "guard_scale": 1.0, "guard_gain": 1.04, "guard_state": 1,
+ "guard_sensors": 0, "stall_flags": 0, "erpm_crc_errors": 0, "round_trip_us": 6120}
 ```
 
 - The fields shared with `/robot/esp32_diagnostics` mean the same thing. Every float is `null`
@@ -274,6 +279,14 @@ the robot sends over ESP-NOW (`publish_diag` in `firmware/mr_stabs_mk2/src/main.
 - `espnow_lq`: robot telemetry send ACK success over its last 32 frames, percent.
 - `telemetry_seq`: +1 per telemetry frame the robot sends, starting at 0 on boot. A gap is frames
   lost between the robot and the host; a drop back toward 0 is a reboot.
+- `motor_rise_*`, `motor_speed_*`, `motor_amps_*`, `guard_*`, `stall_flags`, `erpm_crc_errors`:
+  the motor stall guard (`docs/plans/motor_stall_protection_plan.md`). `motor_rise_*` is the
+  thermal model's winding rise above ambient, C. `motor_speed_*` is shaft speed, rad/s, signed.
+  `motor_amps_*` is the estimated winding current, A. `guard_scale` is 1 while commands pass
+  through and below 1 while limiting; `guard_gain` is the shunt correction on the model current.
+  `guard_state` is 0 OFF, 1 NOMINAL, 2 HOT, 3 LIMITING. `guard_sensors` is 0 FUSED, 1 SHUNT_ONLY,
+  2 ERPM_ONLY, 3 NONE. `stall_flags` bit 0 is the left motor, bit 1 the right. `erpm_crc_errors`
+  sums both ESCs since boot. Recordings before 2026-10-22 lack all twelve.
 - `round_trip_us`: host monotonic arrival minus `jetson_tx_us`. Each sample also holds the robot's
   wait for its next 10 ms telemetry slot and the age of a repeated command, so the per-second
   minimum is the transport estimate.

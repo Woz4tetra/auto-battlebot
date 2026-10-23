@@ -385,6 +385,9 @@ function renderCommand(s) {
 }
 
 const FLIP = ["DOWN", "MIDDLE", "UP"];
+// motor_guard::State and motor_guard::Sensors in firmware/mr_stabs_mk2/lib/motor_guard.
+const GUARD_STATE = ["OFF", "NOMINAL", "HOT", "LIMITING"];
+const GUARD_SENSORS = ["FUSED", "SHUNT ONLY", "ERPM ONLY", "NONE"];
 const sensor = (v, unit, digits = 2) =>
   v === null ? "NO SENSOR" : num(v, digits, unit);
 const triple = (a, b, c, digits = 2) =>
@@ -395,6 +398,7 @@ function renderRobotState(s) {
   if (!t) {
     fillRows("stateRows", [["Telemetry", "none yet"]]);
     fillRows("imuRows", [["Telemetry", "none yet"]]);
+    fillRows("guardRows", [["Telemetry", "none yet"]]);
     return;
   }
   fillRows("stateRows", [
@@ -434,6 +438,44 @@ function renderRobotState(s) {
     ],
     ["Heading setpoint", num(t.pid_setpoint, 1)],
     ["Steer output", num(t.pid_output, 2)],
+  ]);
+
+  const stall = ["", "LEFT", "RIGHT", "BOTH"][t.stall_flags & 3];
+  fillRows("guardRows", [
+    [
+      "State",
+      GUARD_STATE[t.guard_state] || String(t.guard_state),
+      t.guard_state === 3 ? "bad" : t.guard_state === 2 ? "warn" : "",
+    ],
+    [
+      "Sensors",
+      GUARD_SENSORS[t.guard_sensors] || String(t.guard_sensors),
+      t.guard_sensors === 0 ? "" : "warn",
+    ],
+    [
+      "Scale",
+      num(t.guard_scale, 2),
+      t.guard_scale !== null && t.guard_scale < 1 ? "warn" : "",
+    ],
+    ["Shunt gain", num(t.guard_gain, 2)],
+    ["Stalled", stall || "NO", stall ? "bad" : ""],
+    [
+      "Rise left / right",
+      `${num(t.motor_rise_left, 1)} / ${num(t.motor_rise_right, 1)} C`,
+    ],
+    [
+      "Speed left / right",
+      `${num(t.motor_speed_left, 0)} / ${num(t.motor_speed_right, 0)} rad/s`,
+    ],
+    [
+      "Amps left / right",
+      `${num(t.motor_amps_left, 1)} / ${num(t.motor_amps_right, 1)} A`,
+    ],
+    [
+      "eRPM CRC errors",
+      int(t.erpm_crc_errors),
+      t.erpm_crc_errors ? "warn" : "",
+    ],
   ]);
 }
 

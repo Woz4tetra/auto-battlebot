@@ -270,6 +270,10 @@ dT_ss = k tau I^2
 I_cont = sqrt(dT_max / (k tau))          the current the motor holds forever at dT_max
 ```
 
+The firmware keeps the alpha term in `I_cont`, `sqrt(dT_max / (k tau (1 + alpha dT_max)))`.
+Without it the equilibrium at `I_cont` sits about 12 C above `dT_max` (native test,
+2026-10-22).
+
 Time to reach a rise `dT` from cold at constant current:
 
 ```
@@ -407,6 +411,13 @@ and a pre-match check catches anything other than `FUSED`.
 
 ## Step 0: measurements before writing code
 
+**Deferred 2026-10-22.** I skipped these to avoid risking the robot, and the firmware shipped on
+placeholders that lean toward limiting early: `r_cold_ohm = 0.40` (fit says 0.453),
+`rise_soft_c = 35`, `rise_max_c = 50` (down from 50 and 70), `k`, `tau`, `I_peak`, and `P` as
+in "Provisional numbers". The 2c shunt tiebreak is built in without waiting for item 6. `g` in
+telemetry flags a wrong `R_cold` or `P` during normal driving. Item 1 needs no hardware and is
+still worth doing when the 2026-10-21 CSV turns up.
+
 All drive inputs come from the transmitter (sysid tools are human-driven only). Log with the
 dashboard's CSV recording.
 
@@ -463,6 +474,36 @@ open loop, and prints `R_eff`, `P`, `g`, the would-be `dT` trace and scale, and 
 the C++ math with the same constants as CLI defaults. It is a tuning tool, not a golden fixture:
 the native test below is the source of truth.
 
+## Bench findings, 2026-10-23
+
+Wheels in the air, driven over ESP-NOW. Each item changed the firmware from the design below.
+
+- **eRPM crosstalk.** Sending the left frame then the right put the right frame on the wire
+  during the left ESC's reply (about 30 us after its frame), on the neighbouring pin. Left
+  decoded about 40% of frames. Both frames now go out together, and each RX channel arms before
+  its own frame and records frame, gap, and reply as one reception; the decoder skips to the
+  first high run over 12 us. Both ESCs then decoded about 99% of frames.
+- **Reply clock.** The ESCs reply at 95 RMT ticks per bit against the nominal 107, which put a
+  3-bit run at 2.66 bits. The decoder measures the bit length from each reply's 1-bit runs.
+- **Launch stutter.** A full-stick launch read stall current for 2-3 samples while eRPM caught
+  up, and the limiter cut to 76%. The limiter now acts on `|I_hat|` low-passed at 0.1 s. A dual
+  stall at full stick still crosses `I_peak` within about 60 ms.
+- **Duty clamp.** After a full-stick reversal BLHeli restarts the motor at a fraction of the
+  commanded duty for 50 ms or more: the model read 18 A against 2-5 A of pack current, the
+  limiter cut to 67%, and `g` fell to its 0.8 floor. In `FUSED` the measured bound (2e a) now
+  caps the model whenever no motor regenerates, and `g` is clamped to [1, 1.5]: it only corrects
+  upward, the unsafe direction. A high `R` now errs toward limiting early.
+- **Sign tracking.** A 0 reading can fall between guard samples. While the duty opposes the held
+  direction, a speed rise of more than 50 rad/s also flips the sign, since plugging can only slow
+  the motor.
+- **Gain gate.** `g` also needs speed and duty steady for two samples running.
+- **Start-up tone twice.** The 2 s of stop frames ran before the IMU and WiFi setup, which then
+  left the ESCs without frames long enough to re-initialise. The stop frames now end `setup()`.
+
+Open: launch samples imply 0.25-0.34 ohm against `R_cold = 0.40`. Launch transients skew that,
+so a clamped-wheel stall should measure it. If the real value is lower, `SHUNT_ONLY` reads low
+(its model bound needs `R_cold` to be the lowest resistance) and `R_cold` must come down.
+
 ## Firmware changes
 
 ### Bidirectional DShot: `firmware/mr_stabs_mk2/lib/DShot/`
@@ -489,8 +530,10 @@ the native test below is the source of truth.
 - **API.** `DShot::read_erpm(uint32_t &erpm)` returns false on no reply or a bad CRC.
   `esc::Esc` adds `erpm()`, `erpm_valid()` (a valid reply within 50 ms), and `crc_errors()`.
 
-Put the GCR decode and CRC in `lib/DShot/erpm_decode.h` as pure C++, so the native env can test it
-against hand-built pulse trains.
+The GCR decode and CRC live in `lib/erpm_decode/erpm_decode.h` as pure C++, so the native env can
+test them against hand-built pulse trains. They sit in their own library because the native env
+would otherwise build `DShot.cpp`, which needs the Arduino core. The stopped code `0xFFF` is also
+the longest period, so the slowest real reading is `510 << 7` us, 919 eRPM.
 
 ### New library: `firmware/mr_stabs_mk2/lib/motor_guard/`
 

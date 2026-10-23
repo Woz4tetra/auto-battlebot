@@ -7,6 +7,31 @@
 
 namespace auto_battlebot {
 
+/** Motor stall guard state (firmware lib/motor_guard), as the telemetry record carries it. */
+struct Esp32MotorGuard {
+    /** Winding temperature rise above ambient from the thermal model, C. */
+    double motor_rise_left = 0.0;
+    double motor_rise_right = 0.0;
+    /** Motor shaft speed, rad/s, signed. NaN when the firmware has no estimate. */
+    double motor_speed_left = 0.0;
+    double motor_speed_right = 0.0;
+    /** Estimated winding current, A. */
+    double motor_amps_left = 0.0;
+    double motor_amps_right = 0.0;
+    /** Command scale: 1 passes commands through, below 1 is limiting. */
+    double guard_scale = 1.0;
+    /** Shunt correction gain on the model current. */
+    double guard_gain = 1.0;
+    /** motor_guard::State: 0 OFF, 1 NOMINAL, 2 HOT, 3 LIMITING. */
+    int guard_state = 0;
+    /** motor_guard::Sensors: 0 FUSED, 1 SHUNT_ONLY, 2 ERPM_ONLY, 3 NONE. */
+    int guard_sensors = 0;
+    /** Bit 0 left motor stalled, bit 1 right. */
+    int stall_flags = 0;
+    /** eRPM telemetry CRC errors, both ESCs summed since boot. */
+    uint32_t erpm_crc_errors = 0;
+};
+
 /**
  * One line of the Mr Stabs Mk2 firmware's diagnostics stream, as `DiagnosticsServer::update`
  * (firmware/mr_stabs_mk2/src/diagnostics_server.cpp) prints it, plus the host time it arrived.
@@ -48,6 +73,8 @@ struct Esp32DiagnosticsEvent {
     /** Rate the yaw loop commands, deg/s clockwise. Empty when the loop is not running (the
      *  firmware prints `nan`) and on firmware that predates the field. */
     std::optional<double> yaw_rate_cmd;
+    /** Motor stall guard columns. Empty on firmware that predates them. */
+    std::optional<Esp32MotorGuard> guard;
     /** Firmware row counter, +1 per row sent. A gap means rows were dropped between the robot and
      *  the host. Empty on firmware that predates the field. */
     std::optional<uint32_t> seq;
@@ -66,13 +93,13 @@ constexpr int kEsp32DiagnosticsFieldsWithVbat = 21;
 constexpr int kEsp32DiagnosticsFieldsWithIbat = 22;
 /** Field count with `yaw_rate` and `yaw_rate_cmd` appended after `ibat`. */
 constexpr int kEsp32DiagnosticsFieldsWithYawRate = 24;
-/** Field count with `seq` appended after `yaw_rate_cmd`. */
-constexpr int kEsp32DiagnosticsFieldsWithSeq = 25;
+/** Field count with the 12 motor guard columns and then `seq` appended after `yaw_rate_cmd`. */
+constexpr int kEsp32DiagnosticsFieldsWithGuard = 37;
 
 /**
  * Parse one CSV event line. Accepts 20 fields (no `vbat`), 21 (no `ibat`), 22 (no yaw rates), 24
- * (no `seq`), or 25. Returns empty for any other field count or for a field that does not parse as
- * its type.
+ * (no guard or `seq`), or 37. Returns empty for any other field count or for a field that does not
+ * parse as its type.
  */
 std::optional<Esp32DiagnosticsEvent> parse_esp32_diagnostics_csv(std::string_view line,
                                                                  uint64_t host_receive_ns);

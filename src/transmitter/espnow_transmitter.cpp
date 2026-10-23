@@ -108,6 +108,18 @@ std::string to_espnow_telemetry_json(const espnow_protocol::TelemetryPayload &t,
     append_integer(json, "jetson_tx_us", t.jetson_tx_us);
     append_integer(json, "espnow_lq", t.espnow_lq);
     append_integer(json, "telemetry_seq", t.telemetry_seq);
+    append_number(json, "motor_rise_left", t.motor_rise_left);
+    append_number(json, "motor_rise_right", t.motor_rise_right);
+    append_number(json, "motor_speed_left", t.motor_speed_left);
+    append_number(json, "motor_speed_right", t.motor_speed_right);
+    append_number(json, "motor_amps_left", t.motor_amps_left);
+    append_number(json, "motor_amps_right", t.motor_amps_right);
+    append_number(json, "guard_scale", t.guard_scale);
+    append_number(json, "guard_gain", t.guard_gain);
+    append_integer(json, "guard_state", t.guard_state);
+    append_integer(json, "guard_sensors", t.guard_sensors);
+    append_integer(json, "stall_flags", t.stall_flags);
+    append_integer(json, "erpm_crc_errors", t.erpm_crc_errors);
     if (round_trip_us) {
         append_integer(json, "round_trip_us", *round_trip_us);
     } else {

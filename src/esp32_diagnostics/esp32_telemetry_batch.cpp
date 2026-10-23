@@ -62,6 +62,20 @@ Esp32DiagnosticsEvent to_esp32_diagnostics_event(const espnow_protocol::Telemetr
     e.ibat = finite(r.ibat);
     e.yaw_rate = finite(r.yaw_rate);
     e.yaw_rate_cmd = finite(r.yaw_rate_cmd);
+    e.guard = Esp32MotorGuard{
+        .motor_rise_left = r.motor_rise_left,
+        .motor_rise_right = r.motor_rise_right,
+        .motor_speed_left = r.motor_speed_left,
+        .motor_speed_right = r.motor_speed_right,
+        .motor_amps_left = r.motor_amps_left,
+        .motor_amps_right = r.motor_amps_right,
+        .guard_scale = r.guard_scale,
+        .guard_gain = r.guard_gain,
+        .guard_state = r.guard_state,
+        .guard_sensors = r.guard_sensors,
+        .stall_flags = r.stall_flags,
+        .erpm_crc_errors = r.erpm_crc_errors,
+    };
     e.seq = r.telemetry_seq;
     e.backfill = backfill;
     return e;

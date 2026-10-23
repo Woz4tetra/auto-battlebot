@@ -88,6 +88,16 @@ struct TelemetryPayload {
     uint32_t jetson_tx_us;   // echoed from that command, for round-trip measurement
     uint8_t espnow_lq;       // telemetry send ACK success percent over a sliding window
     uint32_t telemetry_seq;  // +1 per telemetry frame sent, so the host can count drops
+    // Motor stall guard (lib/motor_guard), docs/plans/motor_stall_protection_plan.md.
+    float motor_rise_left, motor_rise_right;    // C above ambient, thermal model
+    float motor_speed_left, motor_speed_right;  // rad/s at the motor shaft, signed
+    float motor_amps_left, motor_amps_right;    // estimated winding current I_hat
+    float guard_scale;                          // 1 passes commands through, below 1 limiting
+    float guard_gain;                           // shunt correction g on the model current
+    uint8_t guard_state;                        // motor_guard::State
+    uint8_t guard_sensors;                      // motor_guard::Sensors
+    uint8_t stall_flags;                        // bit 0 left, bit 1 right
+    uint16_t erpm_crc_errors;                   // both ESCs summed, from boot
 };
 
 struct TunableSetPayload {
@@ -143,7 +153,7 @@ struct TelemetryBatchHeader {
 #pragma pack(pop)
 
 const uint32_t TELEMETRY_BATCH_MAGIC = 0x4D525442;  // "BTRM" little-endian
-const uint16_t TELEMETRY_BATCH_VERSION = 1;
+const uint16_t TELEMETRY_BATCH_VERSION = 2;
 // Records per response at most. The client asks again at once when a response comes back full.
 const uint32_t TELEMETRY_BATCH_MAX = 256;
 
@@ -176,7 +186,7 @@ enum OtaError : uint8_t {
 static_assert(sizeof(CommandPayload) == 16, "CommandPayload layout");
 static_assert(sizeof(LinkStatsPayload) == 18, "LinkStatsPayload layout");
 static_assert(sizeof(OtaStatusPayload) == 22, "OtaStatusPayload layout");
-static_assert(sizeof(TelemetryPayload) == 118, "TelemetryPayload layout");
+static_assert(sizeof(TelemetryPayload) == 155, "TelemetryPayload layout");
 static_assert(sizeof(TelemetryBatchHeader) == 32, "TelemetryBatchHeader layout");
 static_assert(sizeof(TelemetryPayload) <= AIR_MAX_PAYLOAD, "telemetry must fit one air frame");
 static_assert(sizeof(OtaChunkHeader) + OTA_CHUNK_DATA <= AIR_MAX_PAYLOAD,

@@ -395,16 +395,20 @@ void DiagnosticsServer::update(const diag_data_t *data) {
     if (!_recording && (now - _last_send_ms < 100)) return;
     _last_send_ms = now;
 
-    char buf[320];
+    char buf[448];
     snprintf(buf, sizeof(buf),
              "%lu,%d,%d,%.1f,%.1f,%d,%u,%.1f,%.1f,%.1f,%.1f,%.1f,%d,%lu,%u,%.1f,%.1f,%.1f,%.1f,%."
-             "2f,%.3f,%.2f,%.1f,%.1f,%lu",
+             "2f,%.3f,%.2f,%.1f,%.1f,%.2f,%.2f,%.1f,%.1f,%.2f,%.2f,%.3f,%.3f,%u,%u,%u,%u,%lu",
              (unsigned long)data->timestamp_ms, data->radio_connected, data->armed, data->a_percent,
              data->b_percent, data->button_state, data->flip_switch, data->left_cmd,
              data->right_cmd, data->accel_x, data->accel_y, data->accel_z, data->is_upside_down,
              (unsigned long)data->loop_us, data->wifi_clients, data->orientation_x,
              data->orientation_y, data->orientation_z, data->pid_setpoint, data->pid_output,
-             data->vbat, data->ibat, data->yaw_rate, data->yaw_rate_cmd, (unsigned long)_seq++);
+             data->vbat, data->ibat, data->yaw_rate, data->yaw_rate_cmd, data->motor_rise_left,
+             data->motor_rise_right, data->motor_speed_left, data->motor_speed_right,
+             data->motor_amps_left, data->motor_amps_right, data->guard_scale, data->guard_gain,
+             data->guard_state, data->guard_sensors, data->stall_flags, data->erpm_crc_errors,
+             (unsigned long)_seq++);
 
     events.send(buf, NULL, now);
 }

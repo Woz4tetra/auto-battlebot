@@ -293,6 +293,9 @@ section.wide {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.leader > .v.warn {
+  color: var(--amber);
+}
 .leader > .v.bad {
   color: var(--red);
 }

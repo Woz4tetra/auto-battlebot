@@ -64,6 +64,9 @@ def telemetry(
         jetson_tx_us=cmd_tx_us,
         espnow_lq=args.lq,
         telemetry_seq=seq,
+        guard_scale=1.0,
+        guard_gain=1.0,
+        guard_state=1,  # NOMINAL
     )
     return encode_frame(
         MSG_TELEMETRY,

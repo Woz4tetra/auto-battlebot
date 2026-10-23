@@ -3,6 +3,7 @@
 #include <charconv>
 #include <cmath>
 #include <cstdio>
+#include <utility>
 #include <vector>
 
 namespace auto_battlebot {
@@ -75,13 +76,59 @@ void append_bool(std::string &json, const char *key, bool value) {
     json += value ? "true" : "false";
 }
 
+void append_null(std::string &json, const char *key) {
+    json += '"';
+    json += key;
+    json += "\":null";
+}
+
+/** The 12 guard keys, each null when the event has no guard columns. */
+void append_guard(std::string &json, const std::optional<Esp32MotorGuard> &guard) {
+    const std::pair<const char *, double Esp32MotorGuard::*> numbers[] = {
+        {"motor_rise_left", &Esp32MotorGuard::motor_rise_left},
+        {"motor_rise_right", &Esp32MotorGuard::motor_rise_right},
+        {"motor_speed_left", &Esp32MotorGuard::motor_speed_left},
+        {"motor_speed_right", &Esp32MotorGuard::motor_speed_right},
+        {"motor_amps_left", &Esp32MotorGuard::motor_amps_left},
+        {"motor_amps_right", &Esp32MotorGuard::motor_amps_right},
+        {"guard_scale", &Esp32MotorGuard::guard_scale},
+        {"guard_gain", &Esp32MotorGuard::guard_gain},
+    };
+    for (const auto &[key, member] : numbers) {
+        if (guard) {
+            append_double(json, key, (*guard).*member);
+        } else {
+            append_null(json, key);
+        }
+        json += ',';
+    }
+    const std::pair<const char *, int Esp32MotorGuard::*> integers[] = {
+        {"guard_state", &Esp32MotorGuard::guard_state},
+        {"guard_sensors", &Esp32MotorGuard::guard_sensors},
+        {"stall_flags", &Esp32MotorGuard::stall_flags},
+    };
+    for (const auto &[key, member] : integers) {
+        if (guard) {
+            append_int(json, key, (*guard).*member);
+        } else {
+            append_null(json, key);
+        }
+        json += ',';
+    }
+    if (guard) {
+        append_uint(json, "erpm_crc_errors", guard->erpm_crc_errors);
+    } else {
+        append_null(json, "erpm_crc_errors");
+    }
+}
+
 }  // namespace
 
 std::optional<Esp32DiagnosticsEvent> parse_esp32_diagnostics_csv(std::string_view line,
                                                                  uint64_t host_receive_ns) {
     line = trim(line);
     std::vector<std::string_view> fields;
-    fields.reserve(kEsp32DiagnosticsFieldsWithSeq);
+    fields.reserve(kEsp32DiagnosticsFieldsWithGuard);
     size_t start = 0;
     while (true) {
         const size_t comma = line.find(',', start);
@@ -95,7 +142,7 @@ std::optional<Esp32DiagnosticsEvent> parse_esp32_diagnostics_csv(std::string_vie
     const int count = static_cast<int>(fields.size());
     if (count != kEsp32DiagnosticsFieldsWithoutVbat && count != kEsp32DiagnosticsFieldsWithVbat &&
         count != kEsp32DiagnosticsFieldsWithIbat && count != kEsp32DiagnosticsFieldsWithYawRate &&
-        count != kEsp32DiagnosticsFieldsWithSeq) {
+        count != kEsp32DiagnosticsFieldsWithGuard) {
         return std::nullopt;
     }
 
@@ -136,9 +183,22 @@ std::optional<Esp32DiagnosticsEvent> parse_esp32_diagnostics_csv(std::string_vie
         if (std::isfinite(yaw_rate)) event.yaw_rate = yaw_rate;
         if (std::isfinite(yaw_rate_cmd)) event.yaw_rate_cmd = yaw_rate_cmd;
     }
-    if (count >= kEsp32DiagnosticsFieldsWithSeq) {
+    if (count >= kEsp32DiagnosticsFieldsWithGuard) {
+        Esp32MotorGuard g;
         uint32_t seq = 0;
-        if (!parse_number(fields[24], seq)) return std::nullopt;
+        const bool guard_ok =
+            parse_number(fields[24], g.motor_rise_left) &&
+            parse_number(fields[25], g.motor_rise_right) &&
+            parse_number(fields[26], g.motor_speed_left) &&
+            parse_number(fields[27], g.motor_speed_right) &&
+            parse_number(fields[28], g.motor_amps_left) &&
+            parse_number(fields[29], g.motor_amps_right) &&
+            parse_number(fields[30], g.guard_scale) && parse_number(fields[31], g.guard_gain) &&
+            parse_int(fields[32], g.guard_state) && parse_int(fields[33], g.guard_sensors) &&
+            parse_int(fields[34], g.stall_flags) && parse_number(fields[35], g.erpm_crc_errors) &&
+            parse_number(fields[36], seq);
+        if (!guard_ok) return std::nullopt;
+        event.guard = g;
         event.seq = seq;
     }
     return event;
@@ -146,7 +206,7 @@ std::optional<Esp32DiagnosticsEvent> parse_esp32_diagnostics_csv(std::string_vie
 
 std::string to_esp32_diagnostics_json(const Esp32DiagnosticsEvent &event) {
     std::string json;
-    json.reserve(640);
+    json.reserve(1024);
     json += '{';
     append_uint(json, "host_receive_ns", event.host_receive_ns);
     json += ',';
@@ -213,6 +273,8 @@ std::string to_esp32_diagnostics_json(const Esp32DiagnosticsEvent &event) {
     } else {
         json += "\"yaw_rate_cmd\":null";
     }
+    json += ',';
+    append_guard(json, event.guard);
     json += ',';
     if (event.seq) {
         append_uint(json, "seq", *event.seq);

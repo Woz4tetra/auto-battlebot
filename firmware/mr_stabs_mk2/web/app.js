@@ -25,6 +25,12 @@ function setValue(span, text, bad) {
   span.classList.toggle("bad", !!bad);
 }
 
+// tone: "" plain, "warn" amber, "bad" red.
+function setTone(span, text, tone) {
+  setValue(span, text, tone === "bad");
+  span.classList.toggle("warn", tone === "warn");
+}
+
 // Rows rebuilt on every status poll: [label, value, bad].
 function fillRows(containerId, rows) {
   const spans = leaderRows(
@@ -59,9 +65,9 @@ renderTheme();
 // ---- live stream -------------------------------------------------------------------------
 
 // Column order of the /events CSV rows. The Jetson's Esp32WifiDiagnostics and
-// scripts/log_drive_twitch.py parse the same order, so it only ever grows at the end.
+// scripts/log_drive_twitch.py parse the same order. New columns go just before seq.
 const HEADER =
-  "timestamp_ms,radio_connected,armed,a_percent,b_percent,button_state,flip_switch,left_cmd,right_cmd,accel_x,accel_y,accel_z,is_upside_down,loop_us,wifi_clients,orientation_x,orientation_y,orientation_z,pid_setpoint,pid_output,vbat,ibat,yaw_rate,yaw_rate_cmd,seq";
+  "timestamp_ms,radio_connected,armed,a_percent,b_percent,button_state,flip_switch,left_cmd,right_cmd,accel_x,accel_y,accel_z,is_upside_down,loop_us,wifi_clients,orientation_x,orientation_y,orientation_z,pid_setpoint,pid_output,vbat,ibat,yaw_rate,yaw_rate_cmd,motor_rise_left,motor_rise_right,motor_speed_left,motor_speed_right,motor_amps_left,motor_amps_right,guard_scale,guard_gain,guard_state,guard_sensors,stall_flags,erpm_crc_errors,seq";
 const COL = Object.fromEntries(HEADER.split(",").map((name, i) => [name, i]));
 const FLIP = ["DOWN", "MIDDLE", "UP"];
 
@@ -92,6 +98,28 @@ const power = leaderRows("powerRows", [
   ["ts", "Robot clock"],
   ["seq", "Row seq"],
 ]);
+
+// Motor stall guard. Mirrors lib/motor_guard Config: rise_soft_c and rise_max_c.
+const RISE_SOFT_C = 35;
+const RISE_MAX_C = 50;
+const GUARD_STATE = ["OFF", "NOMINAL", "HOT", "LIMITING"];
+const GUARD_SENSORS = ["FUSED", "SHUNT ONLY", "ERPM ONLY", "NONE"];
+const heat = leaderRows("heatRows", [
+  ["state", "Guard state"],
+  ["sensors", "Sensors"],
+  ["scale", "Drive scale"],
+  ["rise", `Rise L / R, of ${RISE_MAX_C} C`],
+  ["amps", "Motor current L / R"],
+  ["speed", "Motor speed L / R, rad/s"],
+  ["stall", "Stalled wheel"],
+  ["gain", "Shunt gain g"],
+  ["crc", "eRPM decode errors"],
+]);
+
+function riseTone(rise) {
+  if (!(rise < RISE_MAX_C)) return "bad";
+  return rise > RISE_SOFT_C ? "warn" : "";
+}
 
 let latest = null;
 let rows = [];
@@ -133,6 +161,45 @@ function render() {
     imuLive.accel,
     [g("accel_x"), g("accel_y"), g("accel_z")].join(" / "),
   );
+  const state = GUARD_STATE[+g("guard_state")] || g("guard_state");
+  setTone(
+    heat.state,
+    state,
+    state === "OFF" ? "bad" : state === "NOMINAL" ? "" : "warn",
+  );
+  const sensors = GUARD_SENSORS[+g("guard_sensors")] || g("guard_sensors");
+  setTone(
+    heat.sensors,
+    sensors,
+    sensors === "NONE" ? "bad" : sensors === "FUSED" ? "" : "warn",
+  );
+  const scale = +g("guard_scale");
+  setTone(
+    heat.scale,
+    (100 * scale).toFixed(0) + " %",
+    scale < 1 ? "warn" : "",
+  );
+  const riseL = +g("motor_rise_left");
+  const riseR = +g("motor_rise_right");
+  setTone(
+    heat.rise,
+    g("motor_rise_left") + " / " + g("motor_rise_right") + " C",
+    riseTone(Math.max(riseL, riseR)),
+  );
+  setValue(
+    heat.amps,
+    g("motor_amps_left") + " / " + g("motor_amps_right") + " A",
+  );
+  setValue(heat.speed, g("motor_speed_left") + " / " + g("motor_speed_right"));
+  const stall = +g("stall_flags");
+  setTone(
+    heat.stall,
+    ["none", "STALL L", "STALL R", "STALL L + R"][stall & 3],
+    stall ? "bad" : "",
+  );
+  const gain = +g("guard_gain");
+  setTone(heat.gain, g("guard_gain"), gain < 0.9 || gain > 1.25 ? "warn" : "");
+  setValue(heat.crc, g("erpm_crc_errors"));
   setValue(imuLive.yr, g("yaw_rate"));
   setValue(
     imuLive.yrc,

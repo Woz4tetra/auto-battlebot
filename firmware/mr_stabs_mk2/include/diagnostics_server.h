@@ -33,6 +33,19 @@ typedef struct {
     float ibat;          // pack amps from the INA238, positive discharging, NaN when absent
     float yaw_rate;      // deg/s clockwise from the gyro
     float yaw_rate_cmd;  // deg/s clockwise the yaw loop asks for, NaN when it is not running
+    // Motor stall guard, filled by publish_diag() in main.cpp.
+    float motor_rise_left;  // C above ambient, thermal model
+    float motor_rise_right;
+    float motor_speed_left;  // rad/s at the motor, signed, NaN without eRPM
+    float motor_speed_right;
+    float motor_amps_left;  // estimated winding current I_hat
+    float motor_amps_right;
+    float guard_scale;         // 1 passes commands through
+    float guard_gain;          // shunt correction g
+    uint8_t guard_state;       // motor_guard::State
+    uint8_t guard_sensors;     // motor_guard::Sensors
+    uint8_t stall_flags;       // bit 0 left, bit 1 right
+    uint16_t erpm_crc_errors;  // both ESCs summed, from boot
 } diag_data_t;
 
 // ESP-NOW link health for the page's ESP-NOW panel. Counters run from boot; the page turns them

@@ -41,8 +41,8 @@ The gains come from the closed-loop sim in `auto_battlebot/mujoco_sim`, whose
 | Component | Connection |
 |---|---|
 | Board | Adafruit QT Py ESP32-S3 (4MB Flash, 2MB PSRAM) |
-| Left ESC | Pin A2, DShot300 via RMT channel 0 |
-| Right ESC | Pin A3, DShot300 via RMT channel 1 |
+| Left ESC | Pin A3, bidirectional DShot300: RMT TX channel 3, eRPM reply on RX channel 4 |
+| Right ESC | Pin A2, bidirectional DShot300: RMT TX channel 2, eRPM reply on RX channel 5 |
 | Radio RX | Crossfire Nano, UART on pins 17 (TX) / 18 (RX). Failsafe must be set to cut (no pulses): the firmware's only link failsafe is the CRSF channel timeout |
 | Accelerometer | ADXL375, I2C |
 | Pack voltage and current | INA238 at 0x45 on the main board, on the BNO055's I2C bus (`Wire1`) |
@@ -67,6 +67,32 @@ While the radio link is up, the firmware sends two CRSF sensor frames back to th
 | Attitude (0x1E) | `Yaw`, `Roll`, `Ptch` | BNO055 Euler angles. Yaw is heading wrapped to +-180 degrees |
 
 After flashing, run Telemetry > Discover new sensors on the radio. A NaN reading (no INA238) goes out as 0.
+
+## Stall protection
+
+`lib/motor_guard` keeps a jammed drive motor from cooking itself. On 2026-10-21 a 5 s stall at full stick pulled 70 A and smoked a motor; nothing in the ESCs limits motor current or temperature. The derivation is in `docs/plans/motor_stall_protection_plan.md`.
+
+- **Current.** Each ESC replies to every DShot frame with its eRPM (bidirectional DShot, `lib/DShot`, decoded by `lib/erpm_decode`). Speed gives each motor's model current `(d V - Ke w) / R`. The INA238 pack current caps it (a motor drawing power cannot take more than `I_pack / |d|`), which covers BLHeli holding duty back while it restarts a motor, and raises it through a shared gain `g` (1 to 1.5) when the shunt reads more than the model.
+- **eRPM.** Both ESCs get their frames at the same time, and each receiver arms before its own frame and skips past it to the reply. Sent one after the other, the second frame landed on the first ESC's reply. The decoder measures the reply's bit length, since these ESCs reply about 11% faster than nominal.
+- **Heat.** A one-node thermal model per motor integrates the estimated current. The state survives a watchdog or software reset (RTC memory) and keeps cooling while disarmed, so re-arming does not reset it.
+- **Limit.** The limiter acts on current low-passed at 0.1 s, so the 30 ms of stall or plugging current in a launch or full-stick reversal does not cut power. Below 35 C rise, each motor may draw 15 A, about 4.5x the 3.3 A a 1 g launch needs. From 35 C to 50 C the allowance falls to the continuous current, about 5.4 A, which holds the motor at 50 C. One scale multiplies both wheel commands, so the robot keeps its curvature while folded back. When the jam clears, power returns over about 1 s.
+
+The constants are placeholders. Step 0 of the plan (bench measurements of resistance, duty curve, and thermal constants) was deferred, so they lean toward limiting early: `R_cold` is 0.40 ohm against the MuJoCo fit's 0.453, and `dT_max` is 50 C rather than 70 C. A long wall push may fold back sooner than it needs to.
+
+The MOTOR HEAT panel on the diagnostics page shows:
+
+| Row | Meaning |
+|---|---|
+| Guard state | `NOMINAL`; `HOT` past 35 C with full power; `LIMITING` while the scale is under 100%; `OFF` (red) with no sensor for a motor |
+| Sensors | `FUSED` is normal. `SHUNT ONLY` (an ESC's eRPM is missing or failing its CRC) and `ERPM ONLY` (no INA238) still protect. `NONE` turns the guard off |
+| Drive scale | What both commands are multiplied by |
+| Rise L / R | Modelled winding rise above ambient. Amber past 35 C, red at 50 C |
+| Motor current L / R | Estimated winding current. At partial throttle it exceeds the pack current |
+| Stalled wheel | A wheel commanded above 30% with eRPM at 0 for 100 ms. Telemetry only; heat drives the limit |
+| Shunt gain g | Should sit between 0.9 and 1.25. Outside that for a whole session, a constant is wrong |
+| eRPM decode errors | Replies that failed GCR or CRC, both ESCs, from boot |
+
+Before a match, check that the panel reads `FUSED`.
 
 ## Building and Flashing
 
@@ -196,8 +222,9 @@ The dashboard streams all diagnostic data at 10 Hz:
 - Accelerometer (x, y, z)
 - Orientation (upside down detection)
 - Loop timing and WiFi client count
-- Pack voltage and current (`vbat` and `ibat`, CSV columns 21 and 22, sampled every 10 ms and repeated in between; `ibat` is positive while discharging)
+- Pack voltage and current (`vbat` and `ibat`, sampled every 10 ms and repeated in between; `ibat` is positive while discharging)
 - Yaw rate from the gyro and the rate the yaw loop commands (`yaw_rate`, `yaw_rate_cmd`, deg/s clockwise; the command is `nan` when the loop is not running)
+- Stall guard state (`motor_rise_left` through `erpm_crc_errors`, between `yaw_rate_cmd` and `seq`; see Stall protection)
 - Row sequence number (`seq`, last CSV column, +1 per row sent; a gap in a recording means the browser dropped rows)
 - Current mode (combat / tuning)
 
@@ -287,8 +314,8 @@ reservation on the router and set `esp32_host` to it.
 
 ### Telemetry ring
 
-Every 10 ms the loop stores one `espnow_protocol::TelemetryPayload` (118 B, the ESP-NOW telemetry
-frame) in a ring in PSRAM: 12000 records, two minutes. Without PSRAM it falls back to 500 records
+Every 10 ms the loop stores one `espnow_protocol::TelemetryPayload` (155 B, the ESP-NOW telemetry
+frame) in a ring in PSRAM: 9000 records, 90 s. Without PSRAM it falls back to 500 records
 (5 s) in internal RAM; the boot log over USB says which. Writing never waits on a reader; a reader
 drops any record the loop overwrote mid-copy (`lib/telemetry_ring`, tested in
 `test/test_telemetry_ring`).
@@ -297,7 +324,7 @@ drops any record the loop overwrote mid-copy (`lib/telemetry_ring`, tested in
 `firmware/shared/espnow_protocol`) and then up to 256 records from `from` on, oldest first. With
 no `from` it returns the header alone, which tells a new client where the head is. The header's
 `boot_id` changes on every boot, when seqs restart at 0. The Jetson's `Esp32WifiTelemetry` polls
-it every 100 ms for the sysid profile, so a WiFi dropout shorter than two minutes costs no rows.
+it every 100 ms for the sysid profile, so a WiFi dropout shorter than 90 s costs no rows.
 
 ### Recording Data
 

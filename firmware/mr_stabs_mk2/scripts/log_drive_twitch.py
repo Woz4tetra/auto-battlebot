@@ -47,10 +47,25 @@ COLUMNS = [
     "ibat",
     "yaw_rate",
     "yaw_rate_cmd",
-    "seq",
 ]
+# The motor stall guard's columns, inserted before seq.
+GUARD_COLUMNS = [
+    "motor_rise_left",
+    "motor_rise_right",
+    "motor_speed_left",
+    "motor_speed_right",
+    "motor_amps_left",
+    "motor_amps_right",
+    "guard_scale",
+    "guard_gain",
+    "guard_state",
+    "guard_sensors",
+    "stall_flags",
+    "erpm_crc_errors",
+]
+COLUMNS = COLUMNS + GUARD_COLUMNS + ["seq"]
 # Columns added after the first logs were taken; older CSVs read them as NaN.
-OPTIONAL_COLUMNS = {"yaw_rate", "yaw_rate_cmd", "seq"}
+OPTIONAL_COLUMNS = {"yaw_rate", "yaw_rate_cmd", "seq", *GUARD_COLUMNS}
 
 FLIP_SWITCH_DOWN = 0  # crsf_bridge::DOWN, the auto upside-down and heading-hold position
 UPSIDE_DOWN_BELOW = -1.0  # updown_sensor.h thresholds on the gravity z the diag reports
@@ -93,11 +108,16 @@ def capture(host: str, seconds: float, out: Path) -> None:
                 if not line.startswith("data:"):
                     continue
                 data = line[len("data:") :].strip()
-                # Older firmware sends a shorter row without the yaw or seq columns; pad it so
-                # every row matches the header.
+                # Older firmware sends a shorter row without the yaw, guard, or seq columns; pad
+                # it so every row matches the header. The firmware just before the guard ends
+                # in seq, so its padding goes in front of seq.
                 fields = data.count(",") + 1
                 if not len(COLUMNS) - len(OPTIONAL_COLUMNS) <= fields <= len(COLUMNS):
                     continue
+                if fields == len(COLUMNS) - len(GUARD_COLUMNS):
+                    head, seq = data.rsplit(",", 1)
+                    data = head + ",nan" * len(GUARD_COLUMNS) + "," + seq
+                    fields = len(COLUMNS)
                 f.write(data + ",nan" * (len(COLUMNS) - fields) + "\n")
                 rows += 1
                 if rows % 500 == 0:

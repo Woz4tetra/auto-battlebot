@@ -35,6 +35,12 @@ TelemetryPayload record(uint32_t seq) {
     r.ibat = NAN;
     r.yaw_rate = 12.0f;
     r.yaw_rate_cmd = NAN;
+    r.motor_rise_left = 31.5f;
+    r.motor_speed_right = NAN;
+    r.guard_scale = 0.5f;
+    r.guard_state = 3;
+    r.stall_flags = 2;
+    r.erpm_crc_errors = 517;
     return r;
 }
 
@@ -95,10 +101,19 @@ TEST(Esp32TelemetryBatchTest, RecordBecomesDiagnosticsEvent) {
     EXPECT_FALSE(e.yaw_rate_cmd.has_value());
     EXPECT_EQ(e.seq, 42u);
     EXPECT_EQ(e.backfill, true);
+    ASSERT_TRUE(e.guard.has_value());
+    EXPECT_DOUBLE_EQ(e.guard->motor_rise_left, 31.5);
+    EXPECT_TRUE(std::isnan(e.guard->motor_speed_right));
+    EXPECT_DOUBLE_EQ(e.guard->guard_scale, 0.5);
+    EXPECT_EQ(e.guard->guard_state, 3);
+    EXPECT_EQ(e.guard->stall_flags, 2);
+    EXPECT_EQ(e.guard->erpm_crc_errors, 517u);
     const std::string json = to_esp32_diagnostics_json(e);
     EXPECT_NE(json.find("\"seq\":42"), std::string::npos) << json;
     EXPECT_NE(json.find("\"backfill\":true"), std::string::npos) << json;
     EXPECT_NE(json.find("\"ibat\":null"), std::string::npos) << json;
+    EXPECT_NE(json.find("\"motor_speed_right\":null"), std::string::npos) << json;
+    EXPECT_NE(json.find("\"erpm_crc_errors\":517"), std::string::npos) << json;
 }
 
 /**
