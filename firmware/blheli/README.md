@@ -6,23 +6,23 @@ BLHeliSuite32xl 1.0.4.4 for Linux, using usbmon captures, gdb watchpoints on BLH
 settings model, disassembly, and a keyboard sweep of every slider in its UI.
 
 - Library: `auto_battlebot/blheli32/` (`cipher.py`, `layout.py`, `fourway.py`, `esc.py`)
-- CLI: `scripts/blheli32.py`
+- CLI: `firmware/blheli/blheli32.py`
 - Tests: `tests/python/test_blheli32.py`, against pages read from the robot
-- Raw captures and decrypted pages: `firmware/config/blheli/captures/`
-- Backups made with the CLI: `firmware/config/blheli/backups/`
+- Raw captures and decrypted pages: `firmware/blheli/captures/`
+- Backups made with the CLI: `firmware/blheli/backups/`
 
 ## Usage
 
 The robot must run `firmware/BlHeli-Passthrough`, powered, transmitter off.
 
 ```bash
-venv/bin/python scripts/blheli32.py read                      # both ESCs
-venv/bin/python scripts/blheli32.py backup firmware/config/blheli/backups
-venv/bin/python scripts/blheli32.py fields                    # every field and range
-venv/bin/python scripts/blheli32.py set BACKUP.json demag_compensation="Very High" \
-    rampup_power=60 -o new.json                               # offline edit, validated
-venv/bin/python scripts/blheli32.py set BACKUP.json music_notes="A5 1/8 D5 1/4" name=LEFT -o new.json
-venv/bin/python scripts/blheli32.py write new.json --esc 0    # diff, confirm, write, verify
+venv/bin/python firmware/blheli/blheli32.py read                    # both ESCs
+venv/bin/python firmware/blheli/blheli32.py backup firmware/blheli/backups
+venv/bin/python firmware/blheli/blheli32.py fields                  # every field and range
+venv/bin/python firmware/blheli/blheli32.py set BACKUP.json demag_compensation="Very High" \
+    rampup_power=60 -o new.json                                     # offline edit, validated
+venv/bin/python firmware/blheli/blheli32.py set BACKUP.json music_notes="A5 1/8 D5 1/4" name=LEFT -o new.json
+venv/bin/python firmware/blheli/blheli32.py write new.json --esc 0  # diff, confirm, write, verify
 ```
 
 `write` refuses a file read from the other ESC (direction differs per ESC), refuses an edit whose

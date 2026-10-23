@@ -23,7 +23,7 @@ the board survived. One motor smoked a little.
 Nothing in the current setup limits motor current or motor temperature:
 
 - The ESC's temperature protection (`Eep_Pgm_Temp_Prot_Enable=140`,
-  `firmware/config/blheli/mr_stabs_mk2_esc.ini`) watches the ESC's own sensor, not the motor.
+  `firmware/blheli/mr_stabs_mk2_esc.ixi`) watches the ESC's own sensor, not the motor.
 - Low RPM Power Protect (`Eep_Pgm_Enable_Power_Prot=1`) is on and still let 70 A through. It
   exists to keep startup in sync, not to limit heat.
 - The Flycolor Raptor 5 layout has no current sensor, so BLHeli_32 current protection is not

@@ -18,7 +18,7 @@ from auto_battlebot.blheli32.fourway import (
     parse_response,
 )
 
-CAPTURES = Path(__file__).resolve().parents[2] / "firmware/config/blheli/captures"
+CAPTURES = Path(__file__).resolve().parents[2] / "firmware/blheli/captures"
 
 
 def page(esc: int, addr: str = "f800") -> bytes:

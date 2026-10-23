@@ -1,18 +1,19 @@
+#!/usr/bin/env python3
 """Read, back up, and edit BLHeli_32 ESC settings through the 4-way passthrough.
 
 The robot runs firmware/BlHeli-Passthrough. ESC 0 is pin A2, ESC 1 is pin A3.
 
-    venv/bin/python scripts/blheli32.py read                    # print both ESCs
-    venv/bin/python scripts/blheli32.py backup out/              # save pages + decoded JSON
-    venv/bin/python scripts/blheli32.py show backup.json         # print a saved backup
-    venv/bin/python scripts/blheli32.py set backup.json demag_compensation=High \
-        rampup_power=60 -o new.json                              # edit offline, validates
-    venv/bin/python scripts/blheli32.py set backup.json music_notes="A5 1/8 D5 1/4" \
-        name=LEFT -o new.json                                    # startup tune and name
-    venv/bin/python scripts/blheli32.py write new.json --esc 0   # diff, confirm, write, verify
-    venv/bin/python scripts/blheli32.py fields                   # every field, range, options
+    venv/bin/python firmware/blheli/blheli32.py read                    # print both ESCs
+    venv/bin/python firmware/blheli/blheli32.py backup out/             # save pages + decoded JSON
+    venv/bin/python firmware/blheli/blheli32.py show backup.json        # print a saved backup
+    venv/bin/python firmware/blheli/blheli32.py set backup.json demag_compensation=High \
+        rampup_power=60 -o new.json                                     # edit offline, validates
+    venv/bin/python firmware/blheli/blheli32.py set backup.json music_notes="A5 1/8 D5 1/4" \
+        name=LEFT -o new.json                                           # startup tune and name
+    venv/bin/python firmware/blheli/blheli32.py write new.json --esc 0  # diff, confirm, write
+    venv/bin/python firmware/blheli/blheli32.py fields                  # every field and range
 
-Field reference: docs/blheli32_settings.md.
+Field reference: firmware/blheli/README.md.
 """
 
 from __future__ import annotations

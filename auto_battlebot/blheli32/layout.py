@@ -1,8 +1,8 @@
 """BLHeli_32 settings record: the 192-byte payload of the 0xF800 page, firmware 32.x layout 48.
 
 Offsets follow BLHeliSuite32xl 1.0.4.4's `Eep_*` record order, checked against two decrypted
-Flycolor Raptor 5 pages (firmware/config/blheli/captures/). Encodings come from stepping every
-BLHeliSuite slider and reading back its model byte and label (docs/blheli32_settings.md).
+Flycolor Raptor 5 pages (firmware/blheli/captures/). Encodings come from stepping every
+BLHeliSuite slider and reading back its model byte and label (firmware/blheli/README.md).
 `verified=False` marks fields whose offset or encoding has not been confirmed on hardware.
 """
 
