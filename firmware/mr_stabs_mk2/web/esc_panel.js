@@ -19,8 +19,8 @@
   let review = null; // {title, items: [{esc, payload, changes, warnings}]}
   // Per ESC: snap read this tuning session, edit = the form's payload, bad = key -> message.
   const escs = {
-    0: { snap: null, edit: null, bad: new Map(), saved: false, note: "" },
-    1: { snap: null, edit: null, bad: new Map(), saved: false, note: "" },
+    0: { snap: null, edit: null, bad: new Map(), note: "" },
+    1: { snap: null, edit: null, bad: new Map(), note: "" },
   };
   const rows = {}; // key -> {row, cells: {esc: {input|span}}}
 
@@ -42,16 +42,67 @@
       .replace("Sbus", "SBUS")
       .replace("Sport", "S.Port");
 
-  function download(name, doc) {
-    const blob = new Blob([JSON.stringify(doc, null, 1)], {
-      type: "application/json",
-    });
+  // ---- backup history ----------------------------------------------------------------------
+
+  // Every read and write lands here, in this browser only: nothing is stored on the robot, and
+  // nothing downloads until DOWNLOAD CURRENT or DOWNLOAD HISTORY. localStorage is per origin, so
+  // mr-stabs.local and 192.168.4.1 keep separate histories.
+  const HISTORY_KEY = "escBackupHistory";
+  let history = []; // [{name, doc}], oldest first, docs in blheli32.py's backup format
+  let historyError = "";
+  try {
+    history = JSON.parse(localStorage.getItem(HISTORY_KEY)) || [];
+  } catch (e) {
+    historyError = "browser storage unavailable: history lasts until the page closes";
+  }
+
+  function remember(name, doc) {
+    history.push({ name, doc });
+    try {
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+    } catch (e) {
+      historyError = `browser storage refused a backup (${e.name}): download the history now`;
+    }
+    renderHistory();
+  }
+
+  // Newest backup of each ESC: what it held when the page last read or wrote it.
+  function currentBackups() {
+    const latest = {};
+    for (const h of history) latest[h.doc.esc] = h;
+    return COLUMNS.map((col) => latest[col.esc]).filter(Boolean);
+  }
+
+  function renderHistory() {
+    $("escSaveCurrent").disabled = currentBackups().length === 0;
+    $("escSaveHistory").disabled = $("escClearHistory").disabled = history.length === 0;
+    $("escHistoryCount").textContent =
+      historyError || `${history.length} backup${history.length === 1 ? "" : "s"} in this browser`;
+  }
+
+  function downloadZip(prefix, entries) {
+    const enc = new TextEncoder();
+    const zip = Blheli.zipStore(
+      entries.map((h) => ({ name: h.name, data: enc.encode(JSON.stringify(h.doc, null, 1)) })),
+    );
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = name;
+    a.href = URL.createObjectURL(new Blob([zip], { type: "application/zip" }));
+    a.download = Blheli.backupName(prefix).replace(/\.json$/, ".zip");
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
+
+  $("escSaveCurrent").onclick = () => downloadZip("esc_current", currentBackups());
+  $("escSaveHistory").onclick = () => downloadZip("esc_history", history);
+  $("escClearHistory").onclick = () => {
+    if (!confirm(`Delete ${history.length} ESC backups from this browser?`)) return;
+    history = [];
+    historyError = "";
+    try {
+      localStorage.removeItem(HISTORY_KEY);
+    } catch (e) {}
+    renderHistory();
+  };
 
   // ---- transport ---------------------------------------------------------------------------
 
@@ -75,7 +126,6 @@
     for (const e of Object.values(escs)) {
       e.snap = e.edit = null;
       e.bad.clear();
-      e.saved = false;
       e.note = "";
     }
     review = null;
@@ -171,12 +221,7 @@
       } catch (err) {
         e.note = err.message + ": editor read-only, backup still works";
       }
-      // The first read of a session saves a backup, like `blheli32.py write` does before it
-      // writes anything.
-      if (!e.saved) {
-        download(Blheli.backupName("esc" + esc), Blheli.backupJson(snap, layoutOrRaw()));
-        e.saved = true;
-      }
+      remember(Blheli.backupName("esc" + esc), Blheli.backupJson(snap, layoutOrRaw()));
     } catch (err) {
       e.note = "read failed: " + err.message;
     }
@@ -462,7 +507,6 @@
     const changes = changesFor(esc);
     const problems = problemsFor(esc);
     box.querySelector(".esc-read").disabled = busy;
-    box.querySelector(".esc-backup").disabled = busy || !snap;
     box.querySelector(".esc-restore").disabled = busy || !layoutOk(esc);
     box.querySelector(".esc-apply").disabled =
       busy || !layoutOk(esc) || changes.length === 0 || problems.length > 0;
@@ -575,19 +619,21 @@
       const e = escs[item.esc];
       const held = e.snap;
       // Saved before every write, as `blheli32.py write` does.
-      download(Blheli.backupName(`esc${item.esc}_before_write`), Blheli.backupJson(held, layout));
+      remember(Blheli.backupName(`esc${item.esc}_before_write`), Blheli.backupJson(held, layout));
       try {
         const snap = await client.writeEsc(item.esc, layout, item.payload, held.payload);
         e.snap = snap;
         e.edit = Uint8Array.from(snap.payload);
         e.bad.clear();
         e.note = `written and verified ${new Date().toLocaleTimeString()}`;
+        remember(Blheli.backupName(`esc${item.esc}_after_write`), Blheli.backupJson(snap, layout));
       } catch (err) {
         e.note = "write failed: " + err.message;
         // Show what the ESC holds now; the edits stay in the form.
         try {
           const now = await client.readEsc(item.esc);
           e.snap = now;
+          remember(Blheli.backupName("esc" + item.esc), Blheli.backupJson(now, layoutOrRaw()));
         } catch (err2) {
           e.note += "; read-back failed too: " + err2.message;
         }
@@ -603,8 +649,6 @@
     box.querySelector(".esc-title").textContent = `${col.side} (ESC ${esc}, ${col.pin})`;
     box.querySelector(".esc-read").onclick = () =>
       run(`reading ${SIDE[esc]} ESC...`, () => readEsc(esc));
-    box.querySelector(".esc-backup").onclick = () =>
-      download(Blheli.backupName("esc" + esc), Blheli.backupJson(escs[esc].snap, layoutOrRaw()));
     const file = box.querySelector(".esc-file");
     box.querySelector(".esc-restore").onclick = () => file.click();
     file.onchange = async () => {
@@ -661,6 +705,7 @@
     })
     .catch((e) => ($("escTuneStatus").textContent = "layout table failed to load: " + e.message));
 
+  renderHistory();
   setInterval(pollTuning, 1000);
   pollTuning();
 })();

@@ -169,14 +169,18 @@ Bench only: props off, wheels clear, transmitter disarmed.
 ### From the diagnostics page
 
 1. Open the page, find ESC SETTINGS, press ENTER TUNING MODE.
-2. READ BOTH. The first read of each ESC downloads a backup (`esc<N>_<time>.json`, the CLI's
-   format).
+2. READ BOTH. Every read keeps a backup (`esc<N>_<time>.json`, the CLI's format) in the
+   browser's localStorage. Nothing is stored on the robot, and nothing downloads on its own.
 3. Edit in the table. Amber rows differ between left and right; → and ← copy one value across.
    An outlined cell is edited and not yet written.
-4. APPLY on one ESC, or APPLY BOTH, shows each change and any warning. WRITE saves the ESC's
-   current settings as `esc<N>_before_write_<time>.json`, writes, and reads back to verify.
+4. APPLY on one ESC, or APPLY BOTH, shows each change and any warning. WRITE keeps the ESC's
+   current settings as `esc<N>_before_write_<time>.json`, writes, reads back to verify, and keeps
+   the result as `esc<N>_after_write_<time>.json`.
 5. RESTORE loads a backup into the form for the same ESC, then the same review and write.
-6. EXIT TUNING MODE.
+6. DOWNLOAD CURRENT saves a zip with the newest backup of each ESC; DOWNLOAD HISTORY saves every
+   backup this browser holds. localStorage is per origin, so `mr-stabs.local` and `192.168.4.1`
+   keep separate histories. CLEAR HISTORY deletes them from the browser.
+7. EXIT TUNING MODE.
 
 ### From the CLI over WiFi
 

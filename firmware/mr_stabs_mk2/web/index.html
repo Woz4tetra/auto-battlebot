@@ -162,12 +162,18 @@
         <p class="note muted">
           Bench only, props off. Tuning mode stops both motors and hands the ESC signal wires to the
           BLHeli bootloader. It is refused while armed, and the robot cannot drive inside it; the
-          radio button or EXIT leaves it. The first read of each ESC downloads a backup, and so does
-          every write.
+          radio button or EXIT leaves it. Every read and write keeps a backup in this browser, never
+          on the robot; the buttons below download them as a zip.
         </p>
         <div class="row">
           <button class="btn" id="escTuneBtn" aria-pressed="false" disabled>TUNING MODE</button>
           <span class="mono muted" id="escTuneStatus"></span>
+        </div>
+        <div class="row">
+          <button class="btn" id="escSaveCurrent" disabled>DOWNLOAD CURRENT</button>
+          <button class="btn" id="escSaveHistory" disabled>DOWNLOAD HISTORY</button>
+          <button class="btn" id="escClearHistory" disabled>CLEAR HISTORY</button>
+          <span class="mono muted" id="escHistoryCount"></span>
         </div>
         <div class="lockout" id="escArmedWarn" hidden>
           <span class="label">ARMED WHILE TUNING</span>
@@ -180,7 +186,6 @@
               <div class="esc-info" id="escInfo1"></div>
               <div class="row">
                 <button class="btn small esc-read">READ</button>
-                <button class="btn small esc-backup">BACKUP</button>
                 <button class="btn small esc-restore">RESTORE</button>
                 <button class="btn small esc-apply">APPLY</button>
                 <input class="esc-file" type="file" accept=".json" hidden />
@@ -192,7 +197,6 @@
               <div class="esc-info" id="escInfo0"></div>
               <div class="row">
                 <button class="btn small esc-read">READ</button>
-                <button class="btn small esc-backup">BACKUP</button>
                 <button class="btn small esc-restore">RESTORE</button>
                 <button class="btn small esc-apply">APPLY</button>
                 <input class="esc-file" type="file" accept=".json" hidden />

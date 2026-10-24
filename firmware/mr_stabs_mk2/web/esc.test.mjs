@@ -2,6 +2,7 @@
 // too, from tests/python/test_blheli32.py). The expected values are the ones the Python tests
 // check, so the page and the CLI decode the same.
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -20,6 +21,14 @@ const capture = (esc, addr = "f800") =>
       path.join(here, "../../blheli/captures", `mr_stabs_mk2_esc${esc}_${addr}_2026-10-23.bin`),
     ),
   );
+// Reads a zip on stdin with Python's zipfile (which checks every CRC) and prints each entry.
+const PY_UNZIP = `
+import io, sys, zipfile
+z = zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read()))
+assert z.testzip() is None
+for i in z.infolist():
+    print(i.filename, "%04d-%02d-%02dT%02d:%02d:%02d" % i.date_time, z.read(i).decode())
+`;
 const diff = (a, b) => [...a.keys()].filter((i) => a[i] !== b[i]);
 
 // What BLHeliSuite32xl showed for ESC 1 after Read Setup on 2026-10-23.
@@ -258,5 +267,19 @@ test("backups match blheli32.py's format both ways", () => {
         layout,
       ),
     /inconsistent/,
+  );
+});
+
+test("zipStore writes an archive unzip reads back", () => {
+  assert.equal(Blheli.crc32(new TextEncoder().encode("123456789")), 0xcbf43926);
+  const files = [
+    { name: "esc1_2026-10-24_101500.json", data: new TextEncoder().encode('{"esc": 1}') },
+    { name: "esc0_2026-10-24_101501.json", data: new Uint8Array(0) },
+  ];
+  const zip = Blheli.zipStore(files, new Date(2026, 9, 24, 10, 15, 0));
+  const listing = execFileSync("python3", ["-c", PY_UNZIP], { input: zip }).toString();
+  assert.equal(
+    listing,
+    'esc1_2026-10-24_101500.json 2026-10-24T10:15:00 {"esc": 1}\nesc0_2026-10-24_101501.json 2026-10-24T10:15:00 \n',
   );
 });

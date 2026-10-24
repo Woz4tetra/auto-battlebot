@@ -401,6 +401,91 @@ const Blheli = (() => {
     return { esc: doc.esc, payload };
   }
 
+  // ---- zip archive, entries stored uncompressed ---------------------------------------------
+
+  const CRC_TABLE = Uint32Array.from({ length: 256 }, (_, n) => {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    return c >>> 0;
+  });
+
+  function crc32(bytes) {
+    let c = 0xffffffff;
+    for (const b of bytes) c = CRC_TABLE[(c ^ b) & 0xff] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  }
+
+  // [[value, bytes], ...] -> little-endian Uint8Array, for the zip headers.
+  function packLe(fields) {
+    const out = new Uint8Array(fields.reduce((n, [, size]) => n + size, 0));
+    let i = 0;
+    for (const [value, size] of fields) {
+      for (let k = 0; k < size; k++) out[i++] = (value >>> (8 * k)) & 0xff;
+    }
+    return out;
+  }
+
+  // [{name, data: Uint8Array}] -> one .zip, so a page can hand over many backups as one download.
+  function zipStore(files, date = new Date()) {
+    const time = (date.getHours() << 11) | (date.getMinutes() << 5) | (date.getSeconds() >> 1);
+    const day = ((date.getFullYear() - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate();
+    const parts = [];
+    const central = [];
+    let offset = 0;
+    for (const f of files) {
+      const name = new TextEncoder().encode(f.name);
+      const crc = crc32(f.data);
+      const n = f.data.length;
+      // version 2.0, flag 0x0800 = UTF-8 name, method 0 = stored
+      const common = [
+        [20, 2],
+        [0x0800, 2],
+        [0, 2],
+        [time, 2],
+        [day, 2],
+        [crc, 4],
+        [n, 4],
+        [n, 4],
+      ];
+      parts.push(packLe([[0x04034b50, 4], ...common, [name.length, 2], [0, 2]]), name, f.data);
+      central.push(
+        packLe([
+          [0x02014b50, 4],
+          [20, 2],
+          ...common,
+          [name.length, 2],
+          [0, 2],
+          [0, 2],
+          [0, 2],
+          [0, 2],
+          [0, 4],
+          [offset, 4],
+        ]),
+        name,
+      );
+      offset += 30 + name.length + n;
+    }
+    const centralSize = central.reduce((n, b) => n + b.length, 0);
+    const end = packLe([
+      [0x06054b50, 4],
+      [0, 2],
+      [0, 2],
+      [files.length, 2],
+      [files.length, 2],
+      [centralSize, 4],
+      [offset, 4],
+      [0, 2],
+    ]);
+    const all = [...parts, ...central, end];
+    const out = new Uint8Array(all.reduce((n, b) => n + b.length, 0));
+    let i = 0;
+    for (const b of all) {
+      out.set(b, i);
+      i += b.length;
+    }
+    return out;
+  }
+
   // ---- 4-way client (fourway.py, esc.py) ----------------------------------------------------
 
   // transact(frame: Uint8Array) -> Promise<Uint8Array>: one request frame out, its response in.
@@ -512,6 +597,8 @@ const Blheli = (() => {
     backupJson,
     backupName,
     parseBackup,
+    crc32,
+    zipStore,
     Client,
   };
 })();
