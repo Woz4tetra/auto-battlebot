@@ -378,7 +378,7 @@ select:disabled {
 
 .tune {
   display: grid;
-  grid-template-columns: 5.5em 6em auto 1fr;
+  grid-template-columns: 10.5em 7em auto 1fr;
   align-items: center;
   gap: 10px;
   margin-top: 12px;

@@ -3,6 +3,7 @@
 #include <ArduinoJson.h>
 #include <ESPAsyncWebServer.h>
 #include <WiFi.h>
+#include <tuning_store.h>
 #include <web_assets.h>
 
 #include <memory>
@@ -14,13 +15,23 @@ static portMUX_TYPE status_mux = portMUX_INITIALIZER_UNLOCKED;
 static portMUX_TYPE pair_mux = portMUX_INITIALIZER_UNLOCKED;
 static sensor_status_t shared_status = {};
 
-static void handle_tunable(AsyncWebServerRequest *request, float *ptr) {
-    if (!ptr) {
-        request->send(500, "text/plain", "n/a");
-        return;
+// Every runtime setting with its range and unit, and whether NVS holds the current values.
+static String tuning_json(TuningStore *store) {
+    JsonDocument doc;
+    const tuning::Settings now = store->get();
+    doc["saved"] = store->saved();
+    JsonObject fields = doc["fields"].to<JsonObject>();
+    for (size_t i = 0; i < tuning::FIELD_COUNT; i++) {
+        const tuning::Field &field = tuning::FIELDS[i];
+        JsonObject f = fields[field.key].to<JsonObject>();
+        f["value"] = tuning::get(now, field);
+        f["unit"] = field.unit;
+        f["min"] = field.min;
+        f["max"] = field.max;
     }
-    if (request->hasParam("value")) *ptr = request->getParam("value")->value().toFloat();
-    request->send(200, "text/plain", String(*ptr, 1));
+    String out;
+    serializeJson(doc, out);
+    return out;
 }
 
 // Age in ms of a millis() stamp at snapshot time, or JSON null when it never happened.
@@ -357,12 +368,12 @@ static void setup_esc_routes(AsyncWebServer &server, esc_config::EscConfig *esc,
 }
 
 void DiagnosticsServer::begin(wifi_manager::WifiManager *wifi, const telemetry_ring_t *ring,
-                              uint32_t boot_id, tunable_ptrs_t tunables,
+                              uint32_t boot_id, TuningStore *tuning,
                               esc_config::EscConfig *esc_tuning) {
     _wifi = wifi;
     _ring = ring;
     _boot_id = boot_id;
-    _tunables = tunables;
+    _tuning = tuning;
     _esc = esc_tuning;
 
     for (const web_assets::asset_t &asset : web_assets::ASSETS) {
@@ -427,12 +438,31 @@ void DiagnosticsServer::begin(wifi_manager::WifiManager *wifi, const telemetry_r
         request->send(200, "text/plain", "ok");
     });
 
-    server.on("/tune/left_esc_dz", HTTP_GET, [this](AsyncWebServerRequest *request) {
-        handle_tunable(request, _tunables.left_esc_deadzone);
+    server.on("/tuning", HTTP_GET, [this](AsyncWebServerRequest *request) {
+        if (!_tuning) return request->send(500, "text/plain", "n/a");
+        request->send(200, "application/json", tuning_json(_tuning));
     });
 
-    server.on("/tune/right_esc_dz", HTTP_GET, [this](AsyncWebServerRequest *request) {
-        handle_tunable(request, _tunables.right_esc_deadzone);
+    // Form fields key=value, any subset. Checks every field first and applies none on a bad one.
+    server.on("/tuning", HTTP_POST, [this](AsyncWebServerRequest *request) {
+        if (!_tuning) return request->send(500, "text/plain", "n/a");
+        tuning::Settings check = _tuning->get();
+        for (size_t i = 0; i < request->params(); i++) {
+            const AsyncWebParameter *param = request->getParam(i);
+            if (!param->isPost()) continue;
+            char *end = nullptr;
+            const float value = strtof(param->value().c_str(), &end);
+            if (end == param->value().c_str() || *end != '\0' ||
+                !tuning::set(check, param->name().c_str(), value)) {
+                return request->send(400, "text/plain",
+                                     "bad value or unknown field: " + param->name());
+            }
+        }
+        for (size_t i = 0; i < request->params(); i++) {
+            const AsyncWebParameter *param = request->getParam(i);
+            if (param->isPost()) _tuning->set(param->name().c_str(), param->value().toFloat());
+        }
+        request->send(200, "application/json", tuning_json(_tuning));
     });
 
     server.on("/status", HTTP_GET, [this](AsyncWebServerRequest *request) {

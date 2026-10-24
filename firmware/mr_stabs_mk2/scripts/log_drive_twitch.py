@@ -15,6 +15,7 @@ from an earlier capture or from the dashboard's Download CSV button instead.
 
 import argparse
 import csv
+import json
 import math
 import time
 import urllib.request
@@ -81,10 +82,8 @@ def http_get(host: str, path: str, timeout: float = 2.0) -> str:
 
 
 def fetch_deadzones(host: str) -> tuple[float, float]:
-    return (
-        float(http_get(host, "/tune/left_esc_dz")),
-        float(http_get(host, "/tune/right_esc_dz")),
-    )
+    fields = json.loads(http_get(host, "/tuning"))["fields"]
+    return float(fields["left_deadzone"]["value"]), float(fields["right_deadzone"]["value"])
 
 
 def capture(host: str, seconds: float, out: Path) -> None:

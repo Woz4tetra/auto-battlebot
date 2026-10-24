@@ -125,10 +125,7 @@ struct sensor_status_t {
     crash_report::report_t boot;
 };
 
-struct tunable_ptrs_t {
-    float *left_esc_deadzone = nullptr;
-    float *right_esc_deadzone = nullptr;
-};
+class TuningStore;
 
 using telemetry_ring_t = telemetry_ring::TelemetryRing<espnow_protocol::TelemetryPayload>;
 
@@ -139,7 +136,7 @@ class DiagnosticsServer {
     // boot_id goes out with every /telemetry reply so a client can tell a reboot restarted seqs.
     // esc_tuning backs the /esc/ routes: tuning mode and the 4-way frame relay.
     void begin(wifi_manager::WifiManager *wifi, const telemetry_ring_t *ring, uint32_t boot_id,
-               tunable_ptrs_t tunables = {}, esc_config::EscConfig *esc_tuning = nullptr);
+               TuningStore *tuning = nullptr, esc_config::EscConfig *esc_tuning = nullptr);
     void update(const diag_data_t *data);
     // True while a browser has the page open. Gate optional diagnostic work on this.
     bool has_clients();
@@ -162,7 +159,7 @@ class DiagnosticsServer {
     bool _recording = false;
     uint32_t _last_send_ms = 0;
     uint32_t _seq = 0;  // +1 per row sent, so a gap in a recording shows dropped rows
-    tunable_ptrs_t _tunables;
+    TuningStore *_tuning = nullptr;
     volatile bool _scan_requested = false;
     pair_request_t _pair_request = {};
     volatile bool _erase_dump_requested = false;

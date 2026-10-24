@@ -16,6 +16,7 @@
 #include <i2c_bus.h>
 #include <motor_guard.h>
 #include <telemetry_ring.h>
+#include <tuning_store.h>
 #include <updown_sensor.h>
 #include <usb_bridge.h>
 #include <vbat_sensor.h>
@@ -100,6 +101,8 @@ const float TURN_DEADBAND_PERCENT = 1.0f;  // passthrough steering, same as the 
 const uint32_t HEADING_STALE_US = 100000;
 uint32_t last_heading_sample_us = 0;
 
+TuningStore tuning_store;
+
 // ESP-NOW link to the Jetson's dongle (docs/plans/espnow_link_plan.md).
 espnow_link::EspNowLink espnow;
 
@@ -152,6 +155,17 @@ void breathe_blue_led(uint32_t now_ms) {
 
 void set_led_intensity(float percent) {
     led_intensity = (int)(2.35 * min(100.0f, max(-100.0f, percent))) + 20;
+}
+
+// Hands loop() the page's and ESP-NOW's latest settings, and saves them to NVS while disarmed.
+void apply_tuning(bool armed) {
+    tuning::Settings t;
+    if (tuning_store.take_change(t)) {
+        left_esc->stop_threshold = t.left_deadzone;
+        right_esc->stop_threshold = t.right_deadzone;
+        yaw_controller->set_config(t.yaw);
+    }
+    if (!armed) tuning_store.save();
 }
 
 void stop_escs() {
@@ -409,8 +423,7 @@ void setup() {
     // The RX channels read each ESC's eRPM reply back on the same pin (bidirectional DShot).
     left_esc = new esc::Esc(LEFT_ESC_PIN, RMT_CHANNEL_3, RMT_CHANNEL_4);
     right_esc = new esc::Esc(RIGHT_ESC_PIN, RMT_CHANNEL_2, RMT_CHANNEL_5);
-    left_esc->stop_threshold = 1.0f;
-    right_esc->stop_threshold = 1.0f;
+    tuning_store.begin();
     left_esc->begin();
     right_esc->begin();
     esc_tuning.begin(right_esc, left_esc, RIGHT_ESC_PIN, LEFT_ESC_PIN);
@@ -441,7 +454,7 @@ void setup() {
     crsf = new crsf_bridge::CrsfBridge();
     crsf->begin();
 
-    yaw_controller = new yaw_control::YawController(yaw_control::Config());
+    yaw_controller = new yaw_control::YawController(tuning_store.get().yaw);
 
     if (esp_reset_reason() != ESP_RST_POWERON && guard_rtc.magic == GUARD_RTC_MAGIC) {
         guard.restore(guard_rtc.rise_c[0], guard_rtc.rise_c[1]);
@@ -456,13 +469,10 @@ void setup() {
     wifi.begin(HOSTNAME, WIFI_SSID, WIFI_PASSWORD, espnow_protocol::CHANNEL_OVERRIDE,
                ESPNOW_ENABLED);
     setup_ota();
-    tunable_ptrs_t tunables;
-    tunables.left_esc_deadzone = &left_esc->stop_threshold;
-    tunables.right_esc_deadzone = &right_esc->stop_threshold;
     setup_telemetry_ring();
-    diag_server.begin(&wifi, &telemetry_ring_buffer, esp_random(), tunables, &esc_tuning);
+    diag_server.begin(&wifi, &telemetry_ring_buffer, esp_random(), &tuning_store, &esc_tuning);
     usb_bridge::begin();
-    if (ESPNOW_ENABLED) espnow.begin(WIFI_IF_AP, espnow_protocol::CHANNEL_OVERRIDE, tunables);
+    if (ESPNOW_ENABLED) espnow.begin(WIFI_IF_AP, espnow_protocol::CHANNEL_OVERRIDE, &tuning_store);
 
     // ESCs need continuous DShot zero-throttle frames to initialize (~2 seconds). The timer has
     // sent them since the ESC pins came up; top that up to 2 s, then hand over to loop(). Before
@@ -521,6 +531,7 @@ void loop() {
             last_status_ms = 0;
         }
     }
+    apply_tuning(radio_ok && radio_data->armed);
     if (ESPNOW_ENABLED && diag_server.take_pair_request(pair_request)) {
         const bool armed = radio_ok && radio_data->armed;
         if (pair_request.op == 1) {

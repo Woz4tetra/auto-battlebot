@@ -38,7 +38,7 @@ class EspNowLink {
    public:
     /** Starts ESP-NOW on an interface that is already up. ifidx is WIFI_IF_AP while the SoftAP
      *  exists and WIFI_IF_STA without it. channel is the pinned channel, or 0 to sweep. */
-    bool begin(wifi_interface_t ifidx, uint8_t channel, const tunable_ptrs_t &tunables);
+    bool begin(wifi_interface_t ifidx, uint8_t channel, TuningStore *tuning);
 
     /** Drains received frames and runs the OTA, sweep, and validation state machines. Call once per
      *  loop(), after crsf->update() so armed is current. Arming aborts an OTA transfer. */
@@ -88,7 +88,7 @@ class EspNowLink {
     uint8_t last_pair_result_ = 0;
 
     wifi_interface_t ifidx_ = WIFI_IF_STA;
-    tunable_ptrs_t tunables_;
+    TuningStore *tuning_ = nullptr;
     espnow_protocol::CommandTracker tracker_;
     espnow_protocol::OtaSequencer ota_;
 

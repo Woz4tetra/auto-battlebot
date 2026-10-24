@@ -140,18 +140,18 @@
       </section>
 
       <section>
-        <h2 class="label section-head">ESC DEADZONE</h2>
-        <div class="tune">
-          <label class="label" for="dzL">LEFT %</label>
-          <input id="dzL" type="number" min="0" max="50" step="0.5" />
-          <button class="btn" data-tune="left_esc_dz" data-input="dzL">APPLY</button>
-          <span class="mono muted" id="dzLS"></span>
-        </div>
-        <div class="tune">
-          <label class="label" for="dzR">RIGHT %</label>
-          <input id="dzR" type="number" min="0" max="50" step="0.5" />
-          <button class="btn" data-tune="right_esc_dz" data-input="dzR">APPLY</button>
-          <span class="mono muted" id="dzRS"></span>
+        <h2 class="label section-head">TUNING</h2>
+        <p class="muted">
+          ESC deadzones and yaw loop gains. A change applies at once and saves to flash while
+          disarmed; one made while armed saves at the next disarm.
+          <span class="mono" id="tuningSaved"></span>
+        </p>
+        <div id="tuningFields"></div>
+        <div class="row">
+          <button class="btn" id="tuningDownload">DOWNLOAD</button>
+          <button class="btn" id="tuningRestore">RESTORE</button>
+          <input id="tuningFile" type="file" accept=".json,application/json" hidden />
+          <span class="mono muted" id="tuningStatus"></span>
         </div>
       </section>
 

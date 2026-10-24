@@ -47,6 +47,9 @@ class YawController {
    public:
     explicit YawController(const Config &config);
 
+    // New gains from the next update() on. Keeps the held heading and the integral.
+    void set_config(const Config &config) { _config = config; }
+
     // Hold `heading` from now on: clears the integral and any turn in progress.
     void reset(float heading);
 

@@ -2,6 +2,7 @@
 #include <Update.h>
 #include <esp_now.h>
 #include <espnow_link.h>
+#include <tuning_store.h>
 
 using namespace espnow_protocol;
 
@@ -69,9 +70,9 @@ void add_or_update_peer(const uint8_t *mac, wifi_interface_t ifidx, uint8_t chan
 
 }  // namespace
 
-bool EspNowLink::begin(wifi_interface_t ifidx, uint8_t channel, const tunable_ptrs_t &tunables) {
+bool EspNowLink::begin(wifi_interface_t ifidx, uint8_t channel, TuningStore *tuning) {
     ifidx_ = ifidx;
-    tunables_ = tunables;
+    tuning_ = tuning;
     rx_queue = xQueueCreate(RX_QUEUE_DEPTH, sizeof(RxFrame));
 
     hex_to_md5(ESP.getSketchMD5(), running_md5_);
@@ -191,10 +192,11 @@ void EspNowLink::handle_frame(const uint8_t *mac, uint8_t type, const uint8_t *p
             }
             TunableSetPayload tunable;
             memcpy(&tunable, payload, sizeof(tunable));
-            if (tunable.id == TUNABLE_LEFT_ESC_DEADZONE && tunables_.left_esc_deadzone) {
-                *tunables_.left_esc_deadzone = tunable.value;
-            } else if (tunable.id == TUNABLE_RIGHT_ESC_DEADZONE && tunables_.right_esc_deadzone) {
-                *tunables_.right_esc_deadzone = tunable.value;
+            if (!tuning_) break;
+            if (tunable.id == TUNABLE_LEFT_ESC_DEADZONE) {
+                tuning_->set("left_deadzone", tunable.value);
+            } else if (tunable.id == TUNABLE_RIGHT_ESC_DEADZONE) {
+                tuning_->set("right_deadzone", tunable.value);
             }
             break;
         }

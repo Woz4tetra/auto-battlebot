@@ -233,7 +233,7 @@ $("dlBtn").onclick = () => {
   URL.revokeObjectURL(a.href);
 };
 
-// ---- ESC deadzone ------------------------------------------------------------------------
+// ---- Tuning ----------------------------------------------------------------------------
 
 function flash(id, text) {
   $(id).textContent = text;
@@ -242,16 +242,99 @@ function flash(id, text) {
   }, 4000);
 }
 
-for (const btn of document.querySelectorAll("[data-tune]")) {
-  const input = btn.dataset.input;
-  fetch("/tune/" + btn.dataset.tune)
-    .then((r) => r.text())
-    .then((v) => ($(input).value = v));
-  btn.onclick = () =>
-    fetch("/tune/" + btn.dataset.tune + "?value=" + encodeURIComponent($(input).value))
-      .then((r) => r.text())
-      .then((t) => flash(input + "S", "set to " + t));
+let tuning = null; // last GET /tuning reply
+
+function tuningStamp(date = new Date()) {
+  const p = (n) => String(n).padStart(2, "0");
+  return (
+    `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}_` +
+    `${p(date.getHours())}${p(date.getMinutes())}${p(date.getSeconds())}`
+  );
 }
+
+function showTuning(reply) {
+  tuning = reply;
+  const box = $("tuningFields");
+  for (const [key, f] of Object.entries(reply.fields)) {
+    let row = box.querySelector(`[data-key="${key}"]`);
+    if (!row) {
+      row = document.createElement("div");
+      row.className = "tune";
+      row.dataset.key = key;
+      row.innerHTML =
+        `<label class="label" for="tn_${key}"></label>` +
+        `<input id="tn_${key}" type="number" step="any" />` +
+        `<button class="btn">APPLY</button><span class="mono muted" id="tn_${key}S"></span>`;
+      row.querySelector("label").textContent = key.toUpperCase();
+      row.querySelector("button").onclick = () =>
+        postTuning({ [key]: $(`tn_${key}`).value })
+          .then(() => flash(`tn_${key}S`, `set to ${tuning.fields[key].value} ${f.unit}`))
+          .catch((e) => flash(`tn_${key}S`, e.message));
+      box.append(row);
+    }
+    const input = $(`tn_${key}`);
+    input.min = f.min;
+    input.max = f.max;
+    input.title = `${f.unit}, ${f.min} to ${f.max}`;
+    if (document.activeElement !== input) input.value = +f.value.toPrecision(6);
+  }
+  $("tuningSaved").textContent = reply.saved ? "SAVED" : "NOT SAVED YET (disarm to save)";
+}
+
+function postTuning(values) {
+  return post("/tuning", values).then((t) => showTuning(JSON.parse(t)));
+}
+
+function loadTuning() {
+  fetch("/tuning", { cache: "no-store" })
+    .then((r) => r.json())
+    .then(showTuning)
+    .catch(() => {});
+}
+
+$("tuningDownload").onclick = () => {
+  if (!tuning) return flash("tuningStatus", "not loaded yet");
+  const doc = {
+    kind: "mr_stabs_tuning",
+    read_at: new Date().toISOString(),
+    saved: tuning.saved,
+    settings: Object.fromEntries(Object.entries(tuning.fields).map(([k, f]) => [k, f.value])),
+    units: Object.fromEntries(Object.entries(tuning.fields).map(([k, f]) => [k, f.unit])),
+  };
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(
+    new Blob([JSON.stringify(doc, null, 1)], { type: "application/json" }),
+  );
+  a.download = `tuning_${tuningStamp()}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+
+$("tuningRestore").onclick = () => $("tuningFile").click();
+$("tuningFile").onchange = async () => {
+  const chosen = $("tuningFile").files[0];
+  $("tuningFile").value = "";
+  if (!chosen) return;
+  try {
+    const doc = JSON.parse(await chosen.text());
+    if (doc.kind !== "mr_stabs_tuning" || typeof doc.settings !== "object") {
+      throw new Error("not a tuning download");
+    }
+    const known = tuning ? Object.keys(tuning.fields) : [];
+    const values = Object.fromEntries(
+      Object.entries(doc.settings).filter(([k]) => known.includes(k)),
+    );
+    const skipped = Object.keys(doc.settings).filter((k) => !known.includes(k));
+    await postTuning(values);
+    flash(
+      "tuningStatus",
+      `restored ${Object.keys(values).length} from ${chosen.name}` +
+        (skipped.length ? `, skipped unknown ${skipped.join(", ")}` : ""),
+    );
+  } catch (e) {
+    flash("tuningStatus", `restore failed: ${e.message}`);
+  }
+};
 
 // ---- WiFi --------------------------------------------------------------------------------
 
@@ -415,6 +498,8 @@ $("addForm").onsubmit = (e) => {
 };
 
 setInterval(pollWifi, 2000);
+loadTuning();
+setInterval(loadTuning, 2000);
 pollWifi();
 
 // ---- sensor status -----------------------------------------------------------------------

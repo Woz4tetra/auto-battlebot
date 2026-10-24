@@ -1,6 +1,7 @@
 #include <esc.h>
 
 using namespace esc;
+using esc_map::DSHOT_STOP;
 
 Esc::Esc(gpio_num_t pin, rmt_channel_t channel, rmt_channel_t rx_channel)
     : pin(pin), channel(channel), rx_channel(rx_channel), motor(nullptr), initialized(false) {}
@@ -27,7 +28,7 @@ void Esc::deinit() {
 
 void Esc::write(float signed_percent) {
     if (!initialized) return;
-    motor->send(percent_to_dshot_3d(signed_percent));
+    motor->send(esc_map::percent_to_dshot_3d(signed_percent, stop_threshold));
     take_erpm();
 }
 
@@ -48,8 +49,8 @@ void Esc::send_pair(Esc &left, uint16_t left_value, Esc &right, uint16_t right_v
 }
 
 void Esc::write_pair(Esc &left, float left_percent, Esc &right, float right_percent) {
-    send_pair(left, left.percent_to_dshot_3d(left_percent), right,
-              right.percent_to_dshot_3d(right_percent));
+    send_pair(left, esc_map::percent_to_dshot_3d(left_percent, left.stop_threshold), right,
+              esc_map::percent_to_dshot_3d(right_percent, right.stop_threshold));
 }
 
 void Esc::stop_pair(Esc &left, Esc &right) { send_pair(left, DSHOT_STOP, right, DSHOT_STOP); }
@@ -70,20 +71,5 @@ bool Esc::erpm_valid() const {
 uint32_t Esc::crc_errors() const { return motor ? motor->decode_errors() : 0; }
 
 float Esc::duty(float signed_percent) const {
-    signed_percent = constrain(signed_percent, -100.0f, 100.0f);
-    if (fabsf(signed_percent) < stop_threshold) return 0.0f;
-    return signed_percent / 100.0f;
-}
-
-uint16_t Esc::percent_to_dshot_3d(float signed_percent) {
-    signed_percent = constrain(signed_percent, -100.0f, 100.0f);
-    if (fabsf(signed_percent) < stop_threshold) return DSHOT_STOP;
-
-    if (signed_percent > 0.0f) {
-        return DSHOT_3D_FWD_MIN +
-               (uint16_t)(signed_percent / 100.0f * (DSHOT_3D_FWD_MAX - DSHOT_3D_FWD_MIN));
-    } else {
-        float magnitude = -signed_percent / 100.0f;
-        return DSHOT_3D_REV_MIN + (uint16_t)(magnitude * (DSHOT_3D_REV_MAX - DSHOT_3D_REV_MIN));
-    }
+    return esc_map::duty(signed_percent, stop_threshold);
 }
