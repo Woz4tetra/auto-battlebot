@@ -28,6 +28,7 @@ HOURS="${HOURS:-24}"
 
 DRY_RUN=0
 LIST_ONLY=0
+AUTONOMY_ONLY=0
 
 usage() {
     cat <<'EOF'
@@ -38,6 +39,11 @@ Options:
                   (default: 24; use 0 for no time limit)
   -n, --dry-run   Show what rsync would transfer, transfer nothing
   -l, --list      List the new remote recordings and exit
+      --autonomy-only
+                  Skip MCAPs whose /status/system never reports the autonomy
+                  switch on (checked on the remote; needs its venv). SVOs and
+                  MCAPs from before autonomy_switch_on existed have no such
+                  record: SVOs pass through, those MCAPs are skipped
   -h, --help      Show this help
 
 Environment:
@@ -57,6 +63,7 @@ while [ "$#" -gt 0 ]; do
         --hours=*) HOURS="${1#*=}" ;;
         -n|--dry-run) DRY_RUN=1 ;;
         -l|--list) LIST_ONLY=1 ;;
+        --autonomy-only) AUTONOMY_ONLY=1 ;;
         -h|--help) usage; exit 0 ;;
         --*|-*) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
         *@*) JETSON_USER="${1%%@*}"; JETSON_HOST="${1#*@}" ;;
@@ -172,6 +179,63 @@ awk -v svo_out="$SVO_LIST" -v mcap_out="$MCAP_LIST" '
         else if (name ~ /\.mcap$/) print > mcap_out
     }
 ' "$LOCAL_INDEX" "$REMOTE_LIST"
+
+if [ "$AUTONOMY_ONLY" -eq 1 ] && [ -s "$MCAP_LIST" ]; then
+    echo "Checking $(wc -l < "$MCAP_LIST") MCAP(s) for autonomous activity ..."
+    AUTONOMY_LIST="$(mktemp)"
+    trap 'rm -f "$LOCAL_INDEX" "$RAW_LIST" "$REMOTE_LIST" "$SKIP_LIST" "$SVO_LIST" "$MCAP_LIST" "$AUTONOMY_LIST"' EXIT
+    # Prints "A <seconds> <path>" for MCAPs with autonomy on, "N 0.0 <path>" without.
+    # /status/system is 10 Hz, so seconds = messages / 10.
+    ssh "${SSH_OPTS[@]}" "$REMOTE" \
+        "cd '${JETSON_PATH}' && venv/bin/python -I -c '$(cat <<'PY_EOF'
+import json
+import sys
+
+from mcap.reader import make_reader
+from mcap.records import Channel, Message
+from mcap.stream_reader import StreamReader
+
+
+def switch_on(data):
+    return bool(json.loads(data).get("autonomy_switch_on"))
+
+
+def count_indexed(path):
+    with open(path, "rb") as file:
+        reader = make_reader(file)
+        return sum(switch_on(m.data) for _, _, m in reader.iter_messages(topics=["/status/system"]))
+
+
+def count_streamed(path):
+    """Fallback for a file with no footer (writer crashed): count up to the break."""
+    on = 0
+    status_ids = set()
+    try:
+        with open(path, "rb") as file:
+            for record in StreamReader(file).records:
+                if isinstance(record, Channel) and record.topic == "/status/system":
+                    status_ids.add(record.id)
+                elif isinstance(record, Message) and record.channel_id in status_ids:
+                    on += switch_on(record.data)
+    except Exception:
+        pass
+    return on
+
+
+for line in sys.stdin:
+    path = line.rstrip("\n")
+    try:
+        on = count_indexed(path)
+    except Exception:
+        on = count_streamed(path)
+    tag = "A" if on else "N"
+    print(f"{tag} {on / 10:.1f} {path}")
+PY_EOF
+)'" < "$MCAP_LIST" > "$AUTONOMY_LIST"
+    awk '$1 == "A" { printf "  keep  %6.1fs autonomous  %s\n", $2, $3 }
+         $1 == "N" { printf "  skip  no autonomy         %s\n", $3 }' "$AUTONOMY_LIST"
+    awk '$1 == "A" { print $3 }' "$AUTONOMY_LIST" > "$MCAP_LIST"
+fi
 
 svo_count="$(wc -l < "$SVO_LIST")"
 mcap_count="$(wc -l < "$MCAP_LIST")"
