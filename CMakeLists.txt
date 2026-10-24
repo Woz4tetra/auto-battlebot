@@ -418,11 +418,11 @@ if(BUILD_WITH_ZED)
 endif()
 
 # nvcc rejects the GCC warning flags, so .cu files pass them through to the host compiler and
-# promote nvcc's own warnings separately.
+# promote nvcc's own warnings separately. No -O here: CMAKE_BUILD_TYPE already passes one, and
+# nvcc warns on a second. Device code is optimized by ptxas regardless of the host -O level.
 set(CUDA_COMPILE_FLAGS
     -Xcompiler=-Wall,-Wextra,-Werror
     --Werror=all-warnings
-    -O2
 )
 
 # Compiler flags for the library

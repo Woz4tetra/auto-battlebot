@@ -1,5 +1,6 @@
 <script lang="ts">
-  // Pick a profile from /status/app, then hold APPLY AND REBOOT: select_profile, then reboot.
+  // Tapping a profile persists it with select_profile right away, so restarting the service also
+  // loads it. Holding APPLY AND REBOOT re-sends the selection, then reboots.
   import { status } from "../lib/status.svelte";
   import HoldButton from "./HoldButton.svelte";
 
@@ -14,9 +15,14 @@
   const changed = $derived(choice !== null && choice !== running);
   const note = $derived(
     changed
-      ? `Selected ${choice}. It loads on the next boot.`
+      ? `Selected ${choice}. It loads when the app restarts.`
       : "Pick a profile, then apply. The app reboots to load it.",
   );
+
+  function pick(name: string) {
+    picked = name;
+    void status.command("/command/select_profile", { name });
+  }
 
   async function apply() {
     if (!changed || !choice || busy) return;
@@ -35,7 +41,7 @@
     <span class="label">PROFILE</span>
   </div>
   {#each profiles as name (name)}
-    <button class="profile" aria-pressed={choice === name} onclick={() => (picked = name)}>
+    <button class="profile" aria-pressed={choice === name} onclick={() => pick(name)}>
       <span class="box"></span>
       <span class="name mono">{name}</span>
       {#if name === running}<span class="label running">RUNNING</span>{/if}

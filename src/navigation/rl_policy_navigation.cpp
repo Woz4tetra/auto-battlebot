@@ -34,8 +34,13 @@ double squared_distance(double ax, double ay, double bx, double by) {
     return dx * dx + dy * dy;
 }
 
+struct SpeedAndYawRate {
+    double speed;
+    double yaw_rate;
+};
+
 /** Our forward speed along our heading and yaw rate, from the filter's field-frame velocity. */
-std::pair<double, double> measured_speed_and_yaw_rate(const RobotDescription &our_robot) {
+SpeedAndYawRate measured_speed_and_yaw_rate(const RobotDescription &our_robot) {
     const double yaw = pose_to_pose2d(our_robot.pose).yaw;
     const double speed =
         our_robot.velocity.vx * std::cos(yaw) + our_robot.velocity.vy * std::sin(yaw);

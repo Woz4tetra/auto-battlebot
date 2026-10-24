@@ -317,8 +317,8 @@ void Runner::apply_recording(bool enabled, bool from_worker) const {
 std::string Runner::select_profile(const std::string &name) {
     spdlog::info("Runner received profile switch request: {}", name);
     if (profile_select_callback_) profile_select_callback_(name);
-    // The new profile only takes effect on the next launch; tell the user to reboot.
-    std::string notice = "Selected " + name + ". Reboot to apply.";
+    // The new profile only takes effect on the next launch.
+    std::string notice = "Selected " + name + ". Restart the app or reboot to apply.";
     return notice;
 }
 
