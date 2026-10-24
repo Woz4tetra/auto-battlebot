@@ -1850,8 +1850,9 @@ TEST(SysidProfileTest, MrStabsMk2SysidProfileParsesAndIsSelectable) {
 // robot. The processor settings must match how the radio model mixes, as the trainer path did.
 TEST(EspNowProfileTest, MrStabsMk2ZedBoxProfilesUseEspNowAlone) {
     const auto config_dir = get_config_dir();
-    for (const char *name : {"mr_stabs_mk2_aer_zed_box.toml", "mr_stabs_mk2_fid_zed_box.toml",
-                             "mr_stabs_mk2_fid_old_plant_zed_box.toml"}) {
+    for (const char *name :
+         {"mr_stabs_mk2_aer_zed_box.toml", "mr_stabs_mk2_fid_zed_box.toml",
+          "mr_stabs_mk2_fid_old_plant_zed_box.toml", "mr_stabs_mk2_fid_rl_zed_box.toml"}) {
         auto config = load_classes_from_config((config_dir / name).string());
         auto *espnow = dynamic_cast<EspNowTransmitterConfiguration *>(config.transmitter.get());
         ASSERT_NE(espnow, nullptr) << name;
@@ -1878,6 +1879,17 @@ TEST(EspNowProfileTest, OldPlantProfileRestoresGeometryPlantAndSlewLimit) {
     EXPECT_DOUBLE_EQ(plant.tau_ang_a, 0.0);
     EXPECT_DOUBLE_EQ(plant.tau_lin_a, 0.0);
     EXPECT_DOUBLE_EQ(plant.c_sb, 0.0);
+}
+
+// The RL profile swaps only the navigation; the policy refuses to load without the 6-state
+// opponent filter.
+TEST(RlProfileTest, FiducialRlProfileUsesPolicyBundle) {
+    auto config =
+        load_classes_from_config((get_config_dir() / "mr_stabs_mk2_fid_rl_zed_box.toml").string());
+    auto *nav = dynamic_cast<RlPolicyNavigationConfiguration *>(config.navigation.get());
+    ASSERT_NE(nav, nullptr);
+    EXPECT_EQ(nav->policy.bundle, "data/models/nav_policies/rl_nav_p4");
+    EXPECT_EQ(nav->opponent_mode, OpponentMode::KALMAN);
 }
 #endif
 

@@ -1,0 +1,11 @@
+# Fiducial profile driven by RlPolicyNavigation instead of MotionProfileNavigation. Same bundle as
+# simulation/mr_stabs_mk2_rl_sim.toml. The policy trained in the sim's 2.4 m arena; this field is
+# 1.5 m. It has no HazardAvoidance layer: walls and hazards reach it only through its observation.
+extends = "mr_stabs_mk2_fid_zed_box"
+
+# `type` differs from _common's MotionProfileNavigation, so this replaces the section wholesale.
+[navigation]
+type = "RlPolicyNavigation"
+
+[navigation.policy]
+bundle = "data/models/nav_policies/rl_nav_p4"
