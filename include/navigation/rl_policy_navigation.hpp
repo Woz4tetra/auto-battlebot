@@ -28,6 +28,12 @@ namespace auto_battlebot {
  * opponent_mode must be KALMAN, the manifest must parse with known values, a builder must exist
  * for its obs_spec_version and make the tensors the network reads, and the self-test must pass.
  * Every call resets the policy, the history and the schedule.
+ *
+ * Once our robot has gone unmeasured for longer than max_our_unmeasured_s it commands zero, the
+ * same as when our robot is missing. The coasted track keeps reporting the last yaw rate, so the
+ * policy otherwise holds whatever it was doing when the keypoints dropped, usually a full-rate
+ * spin, and the motion blur from that spin keeps the keypoint model from reacquiring the robot.
+ * Stopping lets it reacquire, and the next policy step runs on the first measured tick.
  */
 class RlPolicyNavigation : public NavigationInterface {
    public:

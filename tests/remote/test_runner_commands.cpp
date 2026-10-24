@@ -26,6 +26,9 @@
 namespace auto_battlebot {
 namespace {
 
+// [control_loop] robot_cache_max_age_s default.
+constexpr double kCacheMaxAgeS = 0.25;
+
 // Toggled on the runner's recording worker and read by the tick, hence the atomics.
 class RecordingCamera : public NoopRgbdCamera {
    public:
@@ -99,7 +102,7 @@ class RunnerCommandsTest : public ::testing::Test {
         auto loop = std::make_shared<ControlLoop>(
             std::make_shared<NoopRobotFilter>(), std::make_shared<NoopTarget>(),
             std::make_shared<NoopNavigation>(), std::make_shared<NoopTransmitter>(), nullptr,
-            nullptr);
+            nullptr, kCacheMaxAgeS);
         RunnerRemote remote;
         commands_ = remote.commands;
         runner_ = std::make_unique<Runner>(
@@ -319,7 +322,7 @@ class CameraSettingsCommandsTest : public ::testing::Test {
         auto loop = std::make_shared<ControlLoop>(
             std::make_shared<NoopRobotFilter>(), std::make_shared<NoopTarget>(),
             std::make_shared<NoopNavigation>(), std::make_shared<NoopTransmitter>(), nullptr,
-            nullptr);
+            nullptr, kCacheMaxAgeS);
         RunnerRemote remote;
         commands_ = remote.commands;
         store_ = std::make_shared<CameraProfileStore>(dir_ / "camera_profiles.toml");

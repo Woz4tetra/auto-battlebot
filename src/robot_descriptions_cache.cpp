@@ -19,7 +19,8 @@ RobotDescriptionsCache::Resolved RobotDescriptionsCache::resolve(
         has_previous_ = true;
         return Resolved{current, false};
     }
-    if (has_previous_ && has_navigation_critical_robots(previous_)) {
+    if (has_previous_ && has_navigation_critical_robots(previous_) &&
+        current.header.stamp - previous_.header.stamp <= max_age_s_) {
         return Resolved{previous_, true};
     }
     return Resolved{current, false};

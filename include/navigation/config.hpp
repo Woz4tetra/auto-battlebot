@@ -423,6 +423,10 @@ struct RlPolicyNavigationConfiguration : public NavigationConfiguration {
     /** What apply_robot_filter found, for the refusal message: the filter or estimator type. */
     std::string opponent_mode_source = "no [robot_filter] config was applied";
 
+    /** Seconds without a measurement of our robot before RlPolicyNavigation commands zero. Above
+     * the filter's 0.1 s stale age, so one or two dropped frames do not interrupt the policy. */
+    double max_our_unmeasured_s = 0.15;
+
     RlPolicyNavigationConfiguration() { type = "RlPolicyNavigation"; }
 
     void parse_fields(ConfigParser &parser) override {
@@ -434,6 +438,7 @@ struct RlPolicyNavigationConfiguration : public NavigationConfiguration {
         }
         ConfigParser policy_parser(*table, "navigation.policy");
         policy.parse(policy_parser);
+        PARSE_FIELD_DOUBLE(max_our_unmeasured_s)
     }
 
     void apply_robot_filter(const RobotFilterConfiguration &robot_filter) override;

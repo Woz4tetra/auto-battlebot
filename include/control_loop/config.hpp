@@ -15,12 +15,18 @@ struct ControlLoopConfiguration {
     double rate_hz = 250.0;
     /** Threaded driver only: a cycle older than this marks the loop unhealthy. */
     double watchdog_timeout_ms = 20.0;
+    /** Longest gap (seconds) RobotDescriptionsCache fills with the last set that had both our robot
+     * and an opponent. Past it navigation sees the robots as they are and runs its no-robot
+     * path. */
+    double robot_cache_max_age_s = 0.25;
 
     virtual ~ControlLoopConfiguration() = default;
     virtual void parse_fields(ConfigParser &parser) {
         rate_hz = parser.get_optional_double("rate_hz", rate_hz);
         watchdog_timeout_ms =
             parser.get_optional_double("watchdog_timeout_ms", watchdog_timeout_ms);
+        robot_cache_max_age_s =
+            parser.get_optional_double("robot_cache_max_age_s", robot_cache_max_age_s);
     }
 };
 

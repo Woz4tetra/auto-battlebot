@@ -16,14 +16,16 @@ ControlLoop::ControlLoop(std::shared_ptr<RobotFilterInterface> robot_filter,
                          std::shared_ptr<NavigationInterface> navigation,
                          std::shared_ptr<TransmitterInterface> transmitter,
                          std::shared_ptr<ClockInterface> clock,
-                         std::shared_ptr<HazardAssembler> hazard_assembler)
+                         std::shared_ptr<HazardAssembler> hazard_assembler,
+                         double robot_cache_max_age_s)
     : robot_filter_(std::move(robot_filter)),
       target_selector_(std::move(target_selector)),
       navigation_(std::move(navigation)),
       transmitter_(std::move(transmitter)),
       clock_(std::move(clock)),
       hazard_assembler_(std::move(hazard_assembler)),
-      diagnostics_logger_(DiagnosticsLogger::get_logger("runner")) {}
+      diagnostics_logger_(DiagnosticsLogger::get_logger("runner")),
+      robot_descriptions_cache_(robot_cache_max_age_s) {}
 
 bool ControlLoop::initialize() {
     if (!transmitter_->initialize()) {

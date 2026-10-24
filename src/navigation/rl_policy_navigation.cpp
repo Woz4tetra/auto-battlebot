@@ -160,11 +160,20 @@ VelocityCommand RlPolicyNavigation::update(RobotDescriptionsStamped robots, Fiel
     for (const auto &robot : robots.descriptions) {
         if (robot.frame_id == FrameId::OUR_ROBOT_1) our_robot = &robot;
     }
-    if (!loaded_ || our_robot == nullptr) {
+    // Measured on the control clock as well as the track's own age, because a snapshot the
+    // RobotDescriptionsCache substitutes carries the age frozen at the moment it was cached.
+    const double our_unmeasured_s =
+        our_robot == nullptr
+            ? 0.0
+            : std::max(0.0, clock_->now() - robots.header.stamp) + our_robot->measurement_age_s;
+    const bool our_robot_lost = our_unmeasured_s > config_.max_our_unmeasured_s;
+    if (!loaded_ || our_robot == nullptr || our_robot_lost) {
         if (!loaded_) {
             logger_->debug("not_initialized", "No bundle loaded; command zero");
-        } else {
+        } else if (our_robot == nullptr) {
             logger_->debug("no_robot", "Our robot not found; command zero");
+        } else {
+            logger_->debug("our_robot_unmeasured", {{"unmeasured_s", our_unmeasured_s}});
         }
         // Step as soon as the robot is back rather than waiting out the period.
         ticks_until_step_ = 0;

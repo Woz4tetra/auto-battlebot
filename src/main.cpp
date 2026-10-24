@@ -107,7 +107,8 @@ int run_application(const auto_battlebot::ClassConfiguration& class_config,
     // on its own thread, so nothing else may touch those components after Runner::initialize().
     auto hazard_assembler = make_hazard_assembler(*class_config.field_filter, clock);
     auto control_loop_body = std::make_shared<ControlLoop>(
-        robot_filter, target_selector, navigation, transmitter, clock, hazard_assembler);
+        robot_filter, target_selector, navigation, transmitter, clock, hazard_assembler,
+        class_config.control_loop->robot_cache_max_age_s);
     auto control_loop = make_control_loop(*class_config.control_loop, control_loop_body);
 
     // Commands come from the viz sink: the web page and Foxglove.

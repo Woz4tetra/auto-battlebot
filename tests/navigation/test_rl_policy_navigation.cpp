@@ -88,6 +88,47 @@ TEST(RlPolicyNavigationTest, NoRobotCommandsZeroAndLogsIt) {
     EXPECT_FALSE(nav->get_last_visualization().path.has_value());
 }
 
+TEST(RlPolicyNavigationTest, AnUnmeasuredRobotCommandsZero) {
+    auto nav = make_nav(config_for(rl_test::constant_bundle()));
+    ASSERT_TRUE(nav->initialize());
+    auto logger = DiagnosticsLogger::get_logger("rl_policy_nav");
+    logger->clear();
+
+    RobotDescription ours = robot_at(FrameId::OUR_ROBOT_1, 0.0, 0.0);
+    ours.velocity.omega = 15.0;
+    ours.measurement_age_s = RlPolicyNavigationConfiguration{}.max_our_unmeasured_s + 0.05;
+    const VelocityCommand command = nav->update(robots_of({ours}), field(), TargetSelection{});
+    EXPECT_EQ(command.linear_x, 0.0);
+    EXPECT_EQ(command.angular_z, 0.0);
+    bool logged = false;
+    for (const auto &snapshot : logger->get_snapshots()) {
+        logged = logged || (snapshot.subsection == "our_robot_unmeasured" && !snapshot.held);
+    }
+    EXPECT_TRUE(logged);
+
+    // Measured again: the policy steps on that same tick rather than waiting out its period.
+    ours.measurement_age_s = 0.0;
+    const VelocityCommand resumed = nav->update(robots_of({ours}), field(), TargetSelection{});
+    EXPECT_DOUBLE_EQ(resumed.linear_x, 0.3);
+    EXPECT_DOUBLE_EQ(resumed.angular_z, -0.1);
+}
+
+TEST(RlPolicyNavigationTest, AFrozenSnapshotAgesOnTheControlClock) {
+    // The cache hands back a snapshot whose measurement_age_s stopped growing when it was cached.
+    auto clock = std::make_shared<ManualClock>();
+    RlPolicyNavigation nav(config_for(rl_test::constant_bundle()), clock);
+    ASSERT_TRUE(nav.initialize());
+
+    RobotDescriptionsStamped robots = robots_of({robot_at(FrameId::OUR_ROBOT_1, 0.0, 0.0)});
+    robots.header.stamp = 10.0;
+    robots.descriptions[0].measurement_age_s = 0.05;
+    clock->set(10.05);
+    EXPECT_DOUBLE_EQ(nav.update(robots, field(), TargetSelection{}).linear_x, 0.3);
+
+    clock->set(10.0 + RlPolicyNavigationConfiguration{}.max_our_unmeasured_s);
+    EXPECT_EQ(nav.update(robots, field(), TargetSelection{}).linear_x, 0.0);
+}
+
 TEST(RlPolicyNavigationTest, RefusesHoldOpponentMode) {
     const std::string error = start_error<ConfigValidationError>(
         config_for(rl_test::constant_bundle(), OpponentMode::HOLD));

@@ -65,7 +65,7 @@ class ControlLoop {
                 std::shared_ptr<NavigationInterface> navigation,
                 std::shared_ptr<TransmitterInterface> transmitter,
                 std::shared_ptr<ClockInterface> clock,
-                std::shared_ptr<HazardAssembler> hazard_assembler);
+                std::shared_ptr<HazardAssembler> hazard_assembler, double robot_cache_max_age_s);
 
     /**
      * Brings up the transmitter. Called by ControlLoopInterface::start() before any driver can
