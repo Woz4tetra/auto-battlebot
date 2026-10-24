@@ -26,6 +26,8 @@ Spec
     0.3 clear while the board slides in.
 - Install: push the sleeve on before the board goes in. With the board seated the guide face
   overhangs the pins' axis, so the sleeve cannot come off or go on along it.
+- Model: features() (recipe.py), so the checked solid and the Onshape Part Studio are the
+  same 10 features. The relief is two Right-plane polygon cuts.
 - Critical dimensions: pocket 7.72 x 2.60 x 2.0 deep; 3 x Ø1.30 holes at x = -2.54, 0, 2.54;
   walls 1.5 (1.2 fdm.md minimum after the 0.3 lead-in); outside 10.72 x 5.60 x 9.50.
 
@@ -39,7 +41,8 @@ import math
 from dataclasses import dataclass
 from pathlib import Path
 
-from build123d import Align, Axis, Box, Cylinder, Part, Pos, Rot, chamfer, fillet, import_step
+import recipe  # build123d-part/scripts, on the path when run through scripts/run
+from build123d import Align, Box, Part, Pos, Rot, import_step
 
 PROCESS = "fdm"
 MATERIAL = "petg"
@@ -89,35 +92,121 @@ def z_top(p: Params) -> float:
     return -(p.body_top - p.grip)
 
 
-def build(p: Params) -> Part:
+def features(p: Params) -> list[dict]:
+    """The sleeve as 10 CAD features (recipe.py), replayed by build() and by the onshape skill."""
     px, py = p.body_x + p.pocket_clear, p.body_y + p.pocket_clear
     ox, oy = px + 2 * p.wall, py + 2 * p.wall
-    h = z_top(p) - z_bottom(p)
+    pins = [(x, 0.0) for x in (-p.pitch, 0.0, p.pitch)]
+    ring, pocket = (0.0, (oy + py) / 4), (p.pitch / 2, 0.0)
 
-    part = Pos(0, 0, z_bottom(p)) * Box(ox, oy, h, align=C_MIN)
-    verticals = part.edges().filter_by(Axis.Z)
-    assert len(verticals) == 4
-    part = fillet(verticals, p.corner_r)
-    foot = part.edges().group_by(Axis.Z)[0]
-    assert len(foot) == 8  # 4 lines + 4 fillet arcs
-    part = chamfer(foot, p.foot_chamfer)
+    # Chassis relief, sketched on the Right plane (sketch x = part Y, sketch y = part Z): the
+    # guide face moved relief_gap toward the sleeve is the line y = y0 + slope z. Material on
+    # its rear side goes beside the wall (x past wall_x) and behind the lip tip.
+    y0, slope = guide_line(p, p.relief_gap)
+    wall_x, tip_y, _ = to_part(p, p.wall_x, p.lip_tip_y, 0)
+    lo, hi, far = z_bottom(p) - 1.0, 0.0, oy  # sketch bounds past the sleeve
+    tip_z = (tip_y - p.relief_gap - y0) / slope  # where the face crosses the tip's step
+    assert lo < tip_z < hi
+    beside_wall = [(y0 + slope * lo, lo), (far, lo), (far, hi), (y0 + slope * hi, hi)]
+    behind_tip = [
+        (tip_y - p.relief_gap, lo),
+        (far, lo),
+        (far, hi),
+        (y0 + slope * hi, hi),
+        (tip_y - p.relief_gap, tip_z),
+    ]
 
-    part -= Pos(0, 0, z_top(p)) * Box(px, py, p.grip, align=C_MAX)
-    mouth = (
-        part.edges()
-        .group_by(Axis.Z)[-1]
-        .filter_by(
-            lambda e: abs(e.center().X) < px / 2 + 0.01 and abs(e.center().Y) < py / 2 + 0.01
-        )
-    )
-    assert len(mouth) == 4
-    part = chamfer(mouth, p.mouth_chamfer)
+    return [
+        {
+            "op": "sketch",
+            "name": "outline",
+            "profiles": [
+                {"rect": (0, 0, ox, oy), "r": p.corner_r},
+                {"rect": (0, 0, px, py)},
+                *[{"circle": (x, y, p.pin_hole)} for x, y in pins],
+            ],
+        },
+        {
+            "op": "extrude",
+            "name": "body",
+            "sketch": "outline",
+            "regions": [ring, pocket, *pins],
+            "start": z_bottom(p),
+            "depth": z_top(p) - z_bottom(p),
+        },
+        {
+            "op": "chamfer",
+            "name": "foot",
+            "edges": [(0, -oy / 2, z_bottom(p))],
+            "size": p.foot_chamfer,
+        },
+        {
+            "op": "extrude",
+            "name": "pocket",
+            "sketch": "outline",
+            "regions": [pocket, *pins],
+            "start": z_top(p),
+            "depth": p.grip,
+            "flip": True,
+            "mode": "remove",
+        },
+        {
+            "op": "chamfer",
+            "name": "mouth",
+            "size": p.mouth_chamfer,
+            "tangent": False,
+            "edges": [
+                (0, py / 2, z_top(p)),
+                (0, -py / 2, z_top(p)),
+                (px / 2, 0, z_top(p)),
+                (-px / 2, 0, z_top(p)),
+            ],
+        },
+        {
+            "op": "extrude",
+            "name": "pin holes",
+            "sketch": "outline",
+            "regions": pins,
+            "start": -p.body_top,
+            "depth": p.pin_tip - p.body_top + p.tip_gap,
+            "flip": True,
+            "mode": "remove",
+        },
+        {
+            "op": "sketch",
+            "name": "wall relief",
+            "plane": "Right",
+            "profiles": [{"polygon": beside_wall}],
+        },
+        {
+            "op": "extrude",
+            "name": "wall relief",
+            "sketch": "wall relief",
+            "regions": [(far - 0.5, hi - 0.5)],
+            "start": wall_x - p.relief_gap,
+            "depth": ox,
+            "mode": "remove",
+        },
+        {
+            "op": "sketch",
+            "name": "lip relief",
+            "plane": "Right",
+            "profiles": [{"polygon": behind_tip}],
+        },
+        {
+            "op": "extrude",
+            "name": "lip relief",
+            "sketch": "lip relief",
+            "regions": [(far - 0.5, lo + 0.5)],
+            "start": -ox,
+            "depth": 2 * ox,
+            "mode": "remove",
+        },
+    ]
 
-    floor = -p.body_top
-    for x in (-p.pitch, 0.0, p.pitch):
-        depth = p.pin_tip - p.body_top + p.tip_gap
-        part -= Pos(x, 0, floor) * Cylinder(p.pin_hole / 2, depth, align=C_MAX)
-    return part - relief(p)
+
+def build(p: Params) -> Part:
+    return recipe.build(features(p))
 
 
 def to_part(p: Params, x: float, y: float, z: float) -> tuple[float, float, float]:
@@ -125,22 +214,18 @@ def to_part(p: Params, x: float, y: float, z: float) -> tuple[float, float, floa
     return x - p.at_x, y - p.at_y, z + p.board_t
 
 
+def guide_line(p: Params, offset: float) -> tuple[float, float]:
+    """The guide face moved `offset` toward the sleeve, as y = y0 + slope * z (part frame)."""
+    _, y0, _ = to_part(p, 0, p.guide_y0, 0)
+    tilt = math.atan(p.guide_slope)
+    return y0 - p.guide_slope * p.board_t - offset / math.cos(tilt), p.guide_slope
+
+
 def guide_half(p: Params, offset: float) -> Part:
     """Everything behind the chassis guide face moved `offset` toward the sleeve (part frame)."""
-    _, y0, _ = to_part(p, 0, p.guide_y0, 0)
+    y0, _ = guide_line(p, offset)
     tilt = math.degrees(math.atan(p.guide_slope))
-    y0 -= p.guide_slope * p.board_t + offset / math.cos(math.radians(tilt))
     return Pos(0, y0, 0) * Rot(-tilt, 0, 0) * Box(80, 80, 80, align=MIN_Y)
-
-
-def relief(p: Params) -> Part:
-    """Material 0.3 off the guide face: at the wall (x past wall_x) and around the lip tip."""
-    wall_x, tip_y, _ = to_part(p, p.wall_x, p.lip_tip_y, 0)
-    beside_wall = Pos(wall_x - p.relief_gap, 0, 0) * Box(
-        20, 40, 40, align=(Align.MIN, Align.CENTER, Align.CENTER)
-    )
-    behind_tip = Pos(0, tip_y - p.relief_gap, 0) * Box(40, 20, 40, align=MIN_Y)
-    return guide_half(p, p.relief_gap) & (beside_wall + behind_tip)
 
 
 def chassis_proxy(p: Params) -> Part:
