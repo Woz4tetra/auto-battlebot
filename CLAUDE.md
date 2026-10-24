@@ -134,6 +134,12 @@ All code is in namespace `auto_battlebot`. Interfaces live in `include/<module>/
 
 - New component: add interface to `include/<module>/`, implementation to `src/<module>/`, register in the factory
 - Prefer TOML config over compile-time switches for behavior changes
+- Tunable values (thresholds, timeouts, rates, limits) go in the component's config struct as a
+  defaulted field, not in a `static constexpr`, global, or file-scope constant. Keep constants for
+  values fixed by math, a spec, or a file format (e.g. observation tensor sizes). Pass the value in
+  through the constructor rather than reaching for a global
+- Leave a config key out of the TOML files when its value matches the struct default. Write it
+  only where a profile overrides it
 - Config constants are enums, never strings. Any field with a fixed set of valid values gets an
   `enum class` in `include/enums/<name>.hpp`, an include in `include/enums.hpp`, and
   `PARSE_ENUM`/`PARSE_ENUM_REQUIRED` in the config struct. A typo then fails at parse with the
