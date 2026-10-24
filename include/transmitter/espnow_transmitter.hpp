@@ -28,8 +28,8 @@ namespace auto_battlebot {
  * talking only to the robot. Feedback is the drive command the robot used each tick, whichever
  * source it took it from, mapped back to the channel values this class would send. Status reads
  * SA (autonomy_enabled) and the robot's CRSF link from the same frames. There is no init button.
- * It applies no linear slew limit, and neither does the firmware: commands reach the wheels
- * unlimited.
+ * The firmware applies no slew limit. max_motor_rpm_per_sec > 0 rate-limits the linear command
+ * here, the same way OpenTxTransmitter does; 0 sends commands to the wheels unlimited.
  *
  * ESP-NOW carries no arm authority. The firmware substitutes the two channel values only after
  * every CRSF gate passes and only while SA (ch5) enables autonomy, and falls back to the handset
@@ -48,7 +48,7 @@ class EspNowTransmitter : public TransmitterInterface {
     void send(VelocityCommand command) override;
     bool did_init_button_press() override { return false; }
     void enable() override { enabled_ = true; }
-    void disable() override { enabled_ = false; }
+    void disable() override;
 
    private:
     static void on_frame(void *context, uint8_t type, const uint8_t *payload, uint8_t length);
@@ -57,6 +57,9 @@ class EspNowTransmitter : public TransmitterInterface {
     void log_health();
     bool reconnect_if_needed();
     bool write_frame(uint8_t type, const void *payload, uint8_t length);
+    /** Caps how fast the normalized linear command changes. Passes it through while the limit is
+     *  off or SA is off, holding a standstill baseline, so engaging SA ramps up from zero. */
+    double limit_linear_acceleration(double linear_command);
 
     EspNowTransmitterConfiguration config_;
     std::shared_ptr<DiagnosticsModuleLogger> logger_;
@@ -67,6 +70,10 @@ class EspNowTransmitter : public TransmitterInterface {
     espnow_protocol::SerialFrameParser parser_;
     uint32_t seq_ = 0;
     bool enabled_ = false;
+    /** Normalized units per second: max_motor_rpm_per_sec / max_motor_rpm. 0 = off. */
+    double max_linear_rate_per_sec_ = 0.0;
+    double prev_linear_command_ = 0.0;
+    std::optional<std::chrono::steady_clock::time_point> last_send_time_;
     std::chrono::steady_clock::time_point next_reconnect_attempt_ =
         std::chrono::steady_clock::now();
 

@@ -1,0 +1,31 @@
+extends = "mr_stabs_mk2_fid_zed_box"
+
+# A/B profile for the jitter that appeared after 2026-10-12: the fiducial profile with the plant and
+# slew limit it ran then. The firmware slew limiter stays deleted; at 3247 RPM/s it was looser
+# than this one, so this limit was the one in effect.
+
+[transmitter]
+max_motor_rpm = 1500         # RPM
+max_motor_rpm_per_sec = 2000 # RPM/s; normalized 1.33/s
+
+# Geometry-derived plant from before the 2026-10-15 fit: full stick = max_motor_rpm at the wheel.
+# k_fwd = k_rev = 1500 RPM * pi * 0.05 m / 60 = 3.92699 m/s
+# k_ang = 2 * 3.92699 / 0.131 m track = 59.9541 rad/s
+# No lags, delay, or coupling, so the navigation feedforward adds no derivative terms.
+[plant]
+dz_lin_fwd = 0.0
+dz_lin_rev = 0.0
+dz_ang_l = 0.0
+dz_ang_r = 0.0
+k_fwd = 3.92699
+k_rev = 3.92699
+k_ang = 59.9541
+tau_lin_a = 0.0
+tau_lin_d = 0.0
+tau_ang_a = 0.0
+tau_ang_d = 0.0
+delay_s = 0.0
+c_sb = 0.0
+c_ad = 0.0
+c_drift = 0.0
+c_drift_bias = 0.0

@@ -1,5 +1,6 @@
 #include "transmitter/espnow_transmitter.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -147,7 +148,11 @@ EspNowTransmitter::EspNowTransmitter(const EspNowTransmitterConfiguration &confi
       telemetry_channel_(kTopic, "json",
                          VizSchema::jsonschema(foxglove_adapters::kEspNowTelemetrySchemaName,
                                                foxglove_adapters::kEspNowTelemetrySchema),
-                         false, std::move(sink), std::move(mcap_recorder)) {}
+                         false, std::move(sink), std::move(mcap_recorder)) {
+    if (config_.max_motor_rpm_per_sec > 0.0 && config_.max_motor_rpm > 0.0) {
+        max_linear_rate_per_sec_ = config_.max_motor_rpm_per_sec / config_.max_motor_rpm;
+    }
+}
 
 bool EspNowTransmitter::initialize() { return reconnect_if_needed(); }
 
@@ -197,7 +202,7 @@ void EspNowTransmitter::send(VelocityCommand command) {
     reconnect_if_needed();
     if (!dongle_.is_open() || !enabled_) return;
 
-    // No slew limit here or in the firmware.
+    command.linear_x = limit_linear_acceleration(command.linear_x);
     const auto channels = processor_->process(command);
     const espnow_protocol::CommandPayload payload{
         ++seq_,
@@ -210,6 +215,39 @@ void EspNowTransmitter::send(VelocityCommand command) {
         dongle_.close();
         next_reconnect_attempt_ = std::chrono::steady_clock::now();
     }
+}
+
+void EspNowTransmitter::disable() {
+    enabled_ = false;
+    // Re-enabling ramps up from a standstill rather than resuming from the last command.
+    prev_linear_command_ = 0.0;
+    last_send_time_.reset();
+}
+
+double EspNowTransmitter::limit_linear_acceleration(double linear_command) {
+    if (max_linear_rate_per_sec_ <= 0.0) return linear_command;
+
+    const auto now = std::chrono::steady_clock::now();
+    if (!get_status().autonomy_switch_on) {
+        // The robot drives from the sticks, so hold the baseline at a standstill.
+        prev_linear_command_ = 0.0;
+        last_send_time_ = now;
+        return linear_command;
+    }
+    if (!last_send_time_) {
+        last_send_time_ = now;
+        prev_linear_command_ = linear_command;
+        return linear_command;
+    }
+
+    const double dt = std::chrono::duration<double>(now - *last_send_time_).count();
+    last_send_time_ = now;
+    if (dt <= 0.0) return linear_command;
+
+    const double max_delta = max_linear_rate_per_sec_ * dt;
+    prev_linear_command_ = std::clamp(linear_command, prev_linear_command_ - max_delta,
+                                      prev_linear_command_ + max_delta);
+    return prev_linear_command_;
 }
 
 void EspNowTransmitter::on_frame(void *context, uint8_t type, const uint8_t *payload,

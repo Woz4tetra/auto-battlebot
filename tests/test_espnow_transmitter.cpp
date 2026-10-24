@@ -375,6 +375,60 @@ void write_telemetry(int fd, const espnow_protocol::TelemetryPayload &telemetry)
 
 }  // namespace
 
+std::vector<espnow_protocol::CommandPayload> read_commands(const std::vector<uint8_t> &bytes) {
+    espnow_protocol::SerialFrameParser parser;
+    std::vector<ParsedFrame> frames;
+    parser.feed(bytes.data(), bytes.size(), collect_frame, &frames);
+    std::vector<espnow_protocol::CommandPayload> commands;
+    for (const auto &frame : frames) {
+        if (frame.type != espnow_protocol::MSG_COMMAND) continue;
+        espnow_protocol::CommandPayload command;
+        std::memcpy(&command, frame.payload.data(), sizeof(command));
+        commands.push_back(command);
+    }
+    return commands;
+}
+
+// With SA on, a linear step ramps at max_motor_rpm_per_sec / max_motor_rpm; with SA off it passes
+// through so the robot never lags the sticks.
+TEST_F(EspNowTransmitterPtyTest, SlewLimitsLinearOnlyWhileAutonomyIsOn) {
+    EspNowTransmitterConfiguration config;
+    config.dongle_serial_path = path_;
+    config.max_motor_rpm = 1500.0;
+    config.max_motor_rpm_per_sec = 1500.0;  // 1.0 normalized per second
+    EspNowTransmitter transmitter(config, nullptr, nullptr);
+    ASSERT_TRUE(transmitter.initialize());
+    transmitter.enable();
+
+    espnow_protocol::TelemetryPayload telemetry = {};
+    telemetry.espnow_age_ms = UINT32_MAX;
+    telemetry.radio_connected = 1;
+    telemetry.autonomy_enabled = 0;
+    write_telemetry(master_, telemetry);
+    usleep(5000);
+    transmitter.update();
+    // The ramp runs from this send: the baseline's time is the last tick SA was off.
+    const auto start = std::chrono::steady_clock::now();
+    transmitter.send({1.0, 0.0, 0.5});
+    auto commands = read_commands(read_master());
+    ASSERT_EQ(commands.size(), 1u);
+    EXPECT_FLOAT_EQ(commands[0].channel_a, 0.5f);  // SA off: unlimited (saturation splits 1.0)
+
+    telemetry.autonomy_enabled = 1;
+    write_telemetry(master_, telemetry);
+    usleep(5000);
+    transmitter.update();
+    usleep(50000);
+    transmitter.send({1.0, 0.0, 0.0});
+    const double elapsed_s =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+    commands = read_commands(read_master());
+    ASSERT_EQ(commands.size(), 1u);
+    // Ramps from the standstill baseline held while SA was off.
+    EXPECT_GT(commands[0].channel_a, 0.0f);
+    EXPECT_LE(commands[0].channel_a, elapsed_s + 1e-3);
+}
+
 TEST(EspNowTelemetryChannelsTest, UndoesTheFirmwareNegationAndTheUpsideDownFlip) {
     // The firmware writes a_percent = -100 * channel_a, then negates it when driving upside down.
     espnow_protocol::TelemetryPayload upright = {};

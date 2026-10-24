@@ -52,7 +52,7 @@ MR_STABS_PLANT_CONFIGS = tuple(
         "mr_stabs_mk2_desktop.toml",
         "mr_stabs_mk2_jetson.toml",
         "mr_stabs_mk2_aer_zed_box.toml",
-        "mr_stabs_mk2_fid_aer_zed_box.toml",
+        "mr_stabs_mk2_fid_zed_box.toml",
         "playback/mr_stabs_mk2_playback.toml",
         "simulation/mr_stabs_mk2_kinematic_sim.toml",
     )

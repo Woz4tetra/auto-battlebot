@@ -165,6 +165,11 @@ struct EspNowTransmitterConfiguration : public TransmitterConfiguration {
     bool reverse_linear_channel = false;
     bool reverse_angular_channel = false;
 
+    /** Linear slew limit, same meaning as OpenTxTransmitterConfiguration's: the normalized linear
+     *  command may change by at most max_motor_rpm_per_sec / max_motor_rpm per second. 0 = off. */
+    double max_motor_rpm = 1500.0;
+    double max_motor_rpm_per_sec = 0.0;
+
     EspNowTransmitterConfiguration() { type = "EspNowTransmitter"; }
 
     void parse_fields(ConfigParser &parser) override {
@@ -180,6 +185,9 @@ struct EspNowTransmitterConfiguration : public TransmitterConfiguration {
             parser.get_optional_bool("reverse_linear_channel", reverse_linear_channel);
         reverse_angular_channel =
             parser.get_optional_bool("reverse_angular_channel", reverse_angular_channel);
+        max_motor_rpm = parser.get_optional_double("max_motor_rpm", max_motor_rpm);
+        max_motor_rpm_per_sec =
+            parser.get_optional_double("max_motor_rpm_per_sec", max_motor_rpm_per_sec);
     }
 };
 
