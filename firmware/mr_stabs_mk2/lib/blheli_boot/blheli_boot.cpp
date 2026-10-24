@@ -1,5 +1,6 @@
 #include "blheli_boot.h"
 
+#include <cstdio>
 #include <cstring>
 
 namespace blheli_boot {
@@ -11,6 +12,10 @@ static const uint8_t BOOT_INIT[] = {0,   0,   0,   0,   0,   0,   0,    0,   0x0
 static const uint8_t INTERFACE_VERSION[] = {200, 5};
 // The passthrough's retry count for the steps of a write.
 static const uint8_t WRITE_TRIES = 3;
+static const uint8_t READ_TRIES = 3;  // a read changes nothing, so it can repeat
+static const uint8_t INIT_TRIES = 3;
+static const uint32_t REBOOT_SETTLE_MS = 500;
+static const size_t INIT_REPLY_SIZE = 9;
 
 bool write_allowed(uint16_t address, size_t length) {
     return address == SETTINGS_ADDRESS && length == SETTINGS_SIZE;
@@ -85,6 +90,26 @@ size_t build_response(uint8_t cmd, uint16_t address, const uint8_t *params, size
     return 8 + length;
 }
 
+void Server::describe(char *out, size_t size, const char *step, size_t received,
+                      size_t expected) const {
+    int at = expected > 0
+                 ? snprintf(out, size, "%s: got %u of %u bytes", step,
+                            static_cast<unsigned>(received), static_cast<unsigned>(expected))
+                 : snprintf(out, size, "%s: %u bytes", step, static_cast<unsigned>(received));
+    const size_t shown = received < 12 ? received : 12;
+    for (size_t i = 0; i < shown && at > 0 && static_cast<size_t>(at) < size; i++) {
+        at += snprintf(out + at, size - at, "%s%02x", i == 0 ? " [" : " ", _rx[i]);
+    }
+    if (shown > 0 && at > 0 && static_cast<size_t>(at) < size) {
+        snprintf(out + at, size - at, "%s]", received > shown ? " .." : "");
+    }
+}
+
+uint8_t Server::fail(const char *step, size_t received, size_t expected) {
+    describe(_failure, sizeof(_failure), step, received, expected);
+    return ACK_GENERAL_ERROR;
+}
+
 void Server::send_boot(const uint8_t *data, size_t size) {
     uint8_t buf[256 + 2];
     memcpy(buf, data, size);
@@ -94,8 +119,14 @@ void Server::send_boot(const uint8_t *data, size_t size) {
     _link.send(buf, size + 2);
 }
 
-bool Server::boot_ack(uint32_t first_ms) {
-    return _link.receive(_rx, sizeof(_rx), 1, first_ms) >= 1 && _rx[0] == BOOT_SUCCESS;
+// Replies are read until the line goes quiet and checked from their end. Switching the pin from
+// transmit to receive sometimes decodes as a stray byte (0xfe) ahead of the reply, seen on the
+// robot on 2026-10-23; the passthrough's first-byte checks would fail on it the same way.
+bool Server::boot_ack(uint32_t first_ms, const char *step) {
+    const size_t n = _link.receive(_rx, sizeof(_rx), 0, first_ms);
+    if (n >= 1 && _rx[n - 1] == BOOT_SUCCESS) return true;
+    fail(step, n, 1);
+    return false;
 }
 
 bool Server::set_address(uint16_t address, uint8_t tries) {
@@ -104,43 +135,99 @@ bool Server::set_address(uint16_t address, uint8_t tries) {
     for (uint8_t attempt = 0; attempt < tries; attempt++) {
         if (attempt > 0) _link.delay_ms(20);
         send_boot(cmd, sizeof(cmd));
-        if (boot_ack(250)) return true;
+        if (boot_ack(250, "set address")) return true;
     }
     return false;
 }
 
-uint8_t Server::init_flash(uint8_t esc, uint8_t *signature) {
-    _link.select(esc);
-    _link.send(BOOT_INIT, sizeof(BOOT_INIT));
-    // The reply's length is not fixed: read until the line goes quiet. The passthrough maps
-    // bytes 5, 4, 3 to the signature BLHeliSuite reads (06 47 6d 04 on these ESCs).
-    const size_t n = _link.receive(_rx, sizeof(_rx), 0, 250);
-    if (n < 6 || _rx[n - 1] != BOOT_SUCCESS) return ACK_GENERAL_ERROR;
-    signature[0] = _rx[5];
-    signature[1] = _rx[4];
-    signature[2] = _rx[3];
-    signature[3] = MODE_ARM_BLB;
-    return ACK_OK;
+// The handshake reply is "471", the signature, boot version and pages, then 0x30:
+// 34 37 31 6d 47 06 07 04 30 on these ESCs.
+bool Server::handshake(uint8_t *signature) {
+    static const uint16_t RETRY_DELAY_MS[INIT_TRIES] = {0, 100, 250};
+    for (uint8_t attempt = 0; attempt < INIT_TRIES; attempt++) {
+        if (RETRY_DELAY_MS[attempt] > 0) _link.delay_ms(RETRY_DELAY_MS[attempt]);
+        _link.send(BOOT_INIT, sizeof(BOOT_INIT));
+        const size_t n = _link.receive(_rx, sizeof(_rx), 0, 250);
+        describe(_init_reply, sizeof(_init_reply), "init reply", n, 0);
+        if (n < INIT_REPLY_SIZE) {
+            fail("init flash", n, INIT_REPLY_SIZE);
+            continue;
+        }
+        const uint8_t *reply = _rx + n - INIT_REPLY_SIZE;
+        if (reply[0] != '4' || reply[1] != '7' || reply[2] != '1' ||
+            reply[INIT_REPLY_SIZE - 1] != BOOT_SUCCESS) {
+            fail("init flash", n, INIT_REPLY_SIZE);
+            continue;
+        }
+        _failure[0] = '\0';
+        // The passthrough's order, which is what BLHeliSuite reads: 06 47 6d 04 here.
+        signature[0] = reply[5];
+        signature[1] = reply[4];
+        signature[2] = reply[3];
+        signature[3] = MODE_ARM_BLB;
+        return true;
+    }
+    return false;
 }
 
-uint8_t Server::read(uint16_t address, size_t length, uint8_t *data) {
+// Tuning mode puts the ESCs in their bootloader by stopping DShot, so the handshake normally
+// answers at once. If it does not, the ESC is restarted the passthrough's way and given
+// REBOOT_SETTLE_MS of quiet high line before the handshake is tried again.
+uint8_t Server::init_flash(uint8_t esc, uint8_t *signature) {
+    _link.select(esc);
+    _esc = esc;
+    if (handshake(signature)) return ACK_OK;
+    _reboots++;
+    reset_esc(esc);
+    _link.delay_ms(REBOOT_SETTLE_MS);
+    _link.select(esc);
+    return handshake(signature) ? ACK_OK : ACK_GENERAL_ERROR;
+}
+
+uint8_t Server::read_once(uint16_t address, size_t length, uint8_t *data) {
     if (!set_address(address, 1)) return ACK_GENERAL_ERROR;
     const uint8_t cmd[] = {BOOT_READ_FLASH, static_cast<uint8_t>(length & 0xFF)};
     send_boot(cmd, sizeof(cmd));
     // Data, CRC low and high, result. 256 bytes take 135 ms on the wire at 19200.
     const size_t expect = length + 3;
-    const size_t n = _link.receive(_rx, sizeof(_rx), expect, 500);
-    if (n != expect || _rx[length + 2] != BOOT_SUCCESS) return ACK_GENERAL_ERROR;
-    if (crc_boot(_rx, length + 2) != 0) return ACK_GENERAL_ERROR;
-    memcpy(data, _rx, length);
+    const size_t n = _link.receive(_rx, sizeof(_rx), 0, 500);
+    if (n < expect) return fail("read flash", n, expect);
+    const uint8_t *reply = _rx + n - expect;
+    if (reply[length + 2] != BOOT_SUCCESS) return fail("read flash", n, expect);
+    if (crc_boot(reply, length + 2) != 0) return fail("read flash CRC", n, expect);
+    _failure[0] = '\0';
+    memcpy(data, reply, length);
     return ACK_OK;
 }
 
-// The passthrough's write, retries included, which wrote and verified a page on these ESCs on
-// 2026-10-23. SetBuffer has no reply; the ESC answers after the data.
+// A read changes nothing, so it repeats. On the robot a session's first 256-byte read has failed
+// its CRC three times running and taken the session down (2 CLI runs in 9 on 2026-10-23), so the
+// last resort redoes the handshake before trying again.
+uint8_t Server::read(uint16_t address, size_t length, uint8_t *data) {
+    _first_read_failure[0] = '\0';
+    for (uint8_t attempt = 0; attempt < READ_TRIES; attempt++) {
+        if (attempt > 0) _link.delay_ms(20);
+        if (read_once(address, length, data) == ACK_OK) return ACK_OK;
+        if (attempt == 0) memcpy(_first_read_failure, _failure, sizeof(_failure));
+    }
+    if (_esc < 0) return ACK_GENERAL_ERROR;
+    _resyncs++;
+    uint8_t signature[4];
+    _link.select(static_cast<uint8_t>(_esc));
+    if (!handshake(signature)) return ACK_GENERAL_ERROR;
+    for (uint8_t attempt = 0; attempt < READ_TRIES; attempt++) {
+        if (read_once(address, length, data) == ACK_OK) return ACK_OK;
+        _link.delay_ms(20);
+    }
+    return ACK_GENERAL_ERROR;
+}
+
+// The passthrough's write and retries, which wrote and verified a page on these ESCs on
+// 2026-10-23, except that it stops when the address or the data is not acknowledged: the
+// passthrough sends ProgFlash anyway, which could commit a buffer that never arrived intact.
+// SetBuffer has no reply; the ESC answers after the data.
 uint8_t Server::write(uint16_t address, const uint8_t *data, size_t length) {
-    uint8_t ack = ACK_OK;
-    if (!set_address(address, WRITE_TRIES)) ack = ACK_GENERAL_ERROR;
+    if (!set_address(address, WRITE_TRIES)) return ACK_GENERAL_ERROR;
 
     const uint8_t buffer_cmd[] = {BOOT_SET_BUFFER, 0x00, static_cast<uint8_t>(length == 256),
                                   static_cast<uint8_t>(length & 0xFF)};
@@ -151,19 +238,20 @@ uint8_t Server::write(uint16_t address, const uint8_t *data, size_t length) {
     for (uint8_t attempt = 0; attempt < WRITE_TRIES && !ok; attempt++) {
         if (attempt > 0) _link.delay_ms(20);
         send_boot(data, length);
-        ok = boot_ack(350);
+        ok = boot_ack(350, "write buffer");
     }
-    if (!ok) ack = ACK_GENERAL_ERROR;
+    if (!ok) return ACK_GENERAL_ERROR;
 
     const uint8_t prog_cmd[] = {BOOT_PROG_FLASH, 0x01};
     ok = false;
     for (uint8_t attempt = 0; attempt < WRITE_TRIES && !ok; attempt++) {
         if (attempt > 0) _link.delay_ms(30);
         send_boot(prog_cmd, sizeof(prog_cmd));
-        ok = boot_ack(400);  // the result waits for the flash commit
+        ok = boot_ack(400, "program flash");  // the result waits for the flash commit
     }
-    if (!ok) ack = ACK_GENERAL_ERROR;
-    return ack;
+    if (!ok) return ACK_GENERAL_ERROR;
+    _failure[0] = '\0';
+    return ACK_OK;
 }
 
 void Server::reset_esc(uint8_t esc) {
@@ -210,10 +298,16 @@ size_t Server::handle(const uint8_t *frame, size_t size, uint8_t *out) {
             return build_response(req.cmd, req.address, &zero, 1, ACK_OK, out);
         }
         case DEVICE_RESET:
+            // BLHeliSuite and the clients send this before each DeviceInitFlash and after each
+            // session. A real restart holds the line low, so the ESC boots its application and
+            // has to fall back into the bootloader through its lost-signal check; a handshake
+            // landing on that check left the ESC unreachable in 1 session in 10 on 2026-10-23.
+            // The ESC is already in its bootloader, so only select it. Leaving tuning mode, the
+            // idle timeout, and a failed handshake still restart it with reset_esc().
             if (param >= _link.count()) {
                 return build_response(req.cmd, req.address, &zero, 1, ACK_INVALID_CHANNEL, out);
             }
-            reset_esc(param);
+            _link.select(param);
             return build_response(req.cmd, req.address, &zero, 1, ACK_OK, out);
         case DEVICE_INIT_FLASH: {
             if (param >= _link.count()) {

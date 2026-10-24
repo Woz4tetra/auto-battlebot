@@ -17,6 +17,7 @@
 #include <motor_guard.h>
 #include <telemetry_ring.h>
 #include <updown_sensor.h>
+#include <usb_bridge.h>
 #include <vbat_sensor.h>
 #include <wifi_manager.h>
 #include <yaw_control.h>
@@ -394,6 +395,8 @@ void stop_setup_frames() {
 }
 
 void setup() {
+    Serial.setRxBufferSize(4096);  // usb_bridge requests arrive as whole lines
+    Serial.setTxBufferSize(4096);
     Serial.begin(115200);
     crash_report::read(boot_report);
     crash_report::print(boot_report);
@@ -458,6 +461,7 @@ void setup() {
     tunables.right_esc_deadzone = &right_esc->stop_threshold;
     setup_telemetry_ring();
     diag_server.begin(&wifi, &telemetry_ring_buffer, esp_random(), tunables, &esc_tuning);
+    usb_bridge::begin();
     if (ESPNOW_ENABLED) espnow.begin(WIFI_IF_AP, espnow_protocol::CHANNEL_OVERRIDE, tunables);
 
     // ESCs need continuous DShot zero-throttle frames to initialize (~2 seconds). The timer has

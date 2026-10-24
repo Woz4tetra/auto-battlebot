@@ -16,6 +16,12 @@ enum class State : uint8_t { COMBAT, TUNING, EXITING };
 const uint32_t IDLE_RELEASE_MS = 60000;
 // EXITING sends zero-throttle DShot this long before control comes back, as setup() does.
 const uint32_t WAKE_MS = 2000;
+// After entering TUNING both lines are held high this long before the first frame goes out.
+const uint32_t SETTLE_MS = 1000;
+// Entry waits until COMBAT has lasted this long. Exiting restarts the ESCs, and entering again
+// right away left them out of the bootloader 3 times in 8; after 1 s of DShot, 0 in 14. Measured
+// on 2026-10-23 with the earlier software serial link.
+const uint32_t REENTRY_MS = 3000;
 
 struct status_t {
     State state;
@@ -27,6 +33,7 @@ struct status_t {
     bool pending;      // a frame is queued
     bool armed;        // as of the latest update()
     bool driving;      // ESP-NOW drove the latest tick
+    char failure[96];  // why the latest bootloader exchange failed, "" after a success
 };
 
 enum class Poll : uint8_t { NONE, PENDING, DONE };
@@ -58,6 +65,10 @@ class EscConfig {
     esc::Esc *_escs[2] = {nullptr, nullptr};
     volatile State _state = State::COMBAT;
     uint32_t _exit_started_ms = 0;
+    uint32_t _entered_ms = 0;
+    uint32_t _combat_since_ms = 0;  // boot counts as the start of COMBAT
+    uint32_t _logged_resyncs = 0;
+    uint32_t _logged_reboots = 0;
     uint32_t _last_activity_ms = 0;
     bool _released = false;
     bool _prev_button = false;
@@ -66,6 +77,7 @@ class EscConfig {
     // Guarded by _mux.
     int8_t _requested = -1;  // -1 none, 0 exit, 1 enter
     const char *_error = "";
+    char _failure[96] = "";
     uint32_t _frames = 0;
     bool _armed = false;
     bool _driving = false;

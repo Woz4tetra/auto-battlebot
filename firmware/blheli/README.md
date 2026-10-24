@@ -62,6 +62,20 @@ tuning mode, and `GET /esc/status` reports it. The relay answers `InterfaceGetNa
 `MrStabsMk2` and refuses (ack `0x09`) every `DeviceWrite` that is not 256 bytes at `0xF800`, and
 every `DevicePageErase` and `DeviceEraseAll`.
 
+The relay differs from the passthrough where the robot showed it had to (2026-10-23, details in
+`docs/plans/esc_settings_dashboard_plan.md`, "Bench findings"):
+
+- Tuning mode stops DShot and holds both lines high, and that alone puts the ESCs in their
+  bootloader. `DeviceReset` therefore only selects the ESC. A real restart (the passthrough's
+  `RestartBootloader` and 300 ms low) boots the application, and the relay uses it only when a
+  handshake gets no answer, and when tuning mode ends.
+- The link is a hardware UART in open-drain half duplex, not EspSoftwareSerial, which lost bits
+  inside the robot firmware.
+- Replies are checked from their end, the handshake must return all 9 bytes
+  (`34 37 31 6d 47 06 07 04 30`), reads retry, and a write stops before `ProgFlash` if the data
+  was not acknowledged.
+- `GET /esc/status` `failure` says why the latest exchange failed, with the bytes received.
+
 | Cmd | Name | Params |
 |---|---|---|
 | 0x31 | ProtocolGetVersion | - (reply 0x6C) |
@@ -293,10 +307,13 @@ a match recording, or a driver note. Read-back-and-restore tests do not count.
 
 | Date | ESC | Field | Old → new | Why | Evidence |
 |---|---|---|---|---|---|
+| 2026-10-23 | 0 (right) | `music_notes` | `A5 1/1 A5 1/1 A5 1/1` → `F5 1/8 A5 1/8 C6 1/8 F6 1/2` | A nicer startup tune: F major, played with ESC 1 as a chord | Written and verified through the page over the USB dashboard; a CLI read differed from `backups/esc0_2026-10-23_205816.json` in payload bytes 144-147 only. Not yet heard after a power cycle |
+| 2026-10-23 | 1 (left) | `music_notes` | `D5 1/1 D5 1/1 D5 1/1` → `C5 1/8 F5 1/8 A5 1/8 C6 1/2` | Harmony under ESC 0's tune | Same, against `backups/esc1_2026-10-23_205816.json` |
 
 ## Next steps
 
-1. Listen for ESC 1's startup tune after a power cycle. On 2026-10-23 ESC 0 played its newly
-   written `A5 1/1 A5 1/1 A5 1/1`, so the running firmware does pick up written settings. ESC 1's
-   short `D5 1/8` was not heard; it now holds `D5 1/1 D5 1/1 D5 1/1` for the next listen.
+1. Power-cycle the pack and listen for the F major tune from both ESCs together. On 2026-10-23
+   ESC 0 had played its earlier `A5 1/1 A5 1/1 A5 1/1`, so the running firmware does pick up
+   written settings; ESC 1's tune has not been heard yet. Startup beep volume is 40 on ESC 0 and
+   254 on ESC 1, so the right ESC's half of the chord will be quiet until those match.
 2. Run the WiFi relay's bench checklist in `docs/plans/esc_settings_dashboard_plan.md` (step 2).

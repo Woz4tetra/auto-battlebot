@@ -189,6 +189,35 @@ venv/bin/python firmware/blheli/blheli32.py --url http://mr-stabs.local write ne
 The CLI enters tuning mode for the command and leaves it after. Use `192.168.4.1` on the robot's
 access point if mDNS does not resolve.
 
+Tuning mode waits up to 3 s after the previous exit before it starts, while the ESCs restart, and
+holds the first frame 1 s while they drop into their bootloader.
+
+### Over USB, without WiFi
+
+`scripts/usb_dashboard.py` serves the whole diagnostics page on localhost through the USB cable.
+The robot's log lines, including `esc tuning:` lines for every failed bootloader exchange, print
+in the same terminal.
+
+```bash
+venv/bin/python firmware/mr_stabs_mk2/scripts/usb_dashboard.py --log robot.log
+# open http://localhost:8080, or:
+venv/bin/python firmware/blheli/blheli32.py --url http://localhost:8080 read
+```
+
+Opening the port does not reset the robot. The script leaves DTR up, since pyserial dropping DTR
+while RTS is still high resets the chip. `pio device monitor` and the script cannot share the port.
+
+How it works: each browser request goes down the serial line as one base64 line, `src/usb_bridge.cpp`
+replays it against the robot's own web server on 127.0.0.1 and streams the response back in
+frames with a CRC32, and the script writes it to the browser. A damaged or stalled GET is sent
+again (a loopback TCP response occasionally stalls for 10 s); a POST gets a 502 instead, since the
+robot may have acted on it. Two constraints found on the bench:
+
+- The bridge task runs on core 1, where `Serial.begin()` put the USB-Serial/JTAG interrupt.
+  Writing from core 0 lost whole 64-byte packets.
+- Arduino's `log_e()` output goes through the bridge task as whole lines, so it never splits a
+  frame.
+
 ### Flashing ESC firmware
 
 Tuning mode only writes the 256-byte settings page at `0xF800` and refuses every other write and

@@ -17,8 +17,10 @@ two panels:
 
 Tuning mode is bench only. It is refused while armed, and the motors cannot run inside it.
 
-Status, 2026-10-23: everything below is built and passes its host tests; none of it has run on
-the robot. "Left to do on the robot" at the end is the hardware checklist.
+Status, 2026-10-23 evening: built, and run on the robot over the USB dashboard (below). The page
+read both ESCs and wrote and verified a new startup tune on both. Before that the page failed every
+read (`command 0x3A at 0xF800 failed, ack 0x0f`); "Bench findings" has what was wrong. "Left to do
+on the robot" at the end says which checks are still open.
 
 ## Done: the protocol and the settings layout
 
@@ -64,7 +66,7 @@ fresh bootloader session, restored. Only payload byte 20 changed; ESC 1 was unto
 | Payload differences between ESCs | byte 3 (direction) and byte 144 (startup note) only | `firmware/blheli/README.md` |
 | Signal path | each pad through 100 ohm to its GPIO | `docs/plans/motor_stall_protection_plan.md` |
 | Bootloader link | half-duplex 19200 8N1 on the signal wire, CRC16 0xA001 | `firmware/BlHeli-Passthrough/ESP32/ESC_Serial.cpp` |
-| Bootloader entry | send `RestartBootloader`, hold the line low 300 ms, release high | `4Way.cpp` `cmd_DeviceReset` |
+| Bootloader entry | stop DShot and hold the line high: the ESC drops into its bootloader within about 1 s. The passthrough's `RestartBootloader` plus 300 ms low restarts the ESC into its application instead | robot, 2026-10-23 ("Bench findings") |
 | Read time | about 300 ms per 256 bytes | `4Way.cpp` `cmd_DeviceRead` |
 | Loop watchdog | 5 s per `loop()` pass | `src/main.cpp` |
 | Web server | ESPAsyncWebServer: handlers run on the async TCP task and must not block | `src/diagnostics_server.cpp` |
@@ -117,15 +119,23 @@ in `tests/python/test_blheli32.py`. The served field table stays in `firmware/mr
 
 | Piece | Holds | Tested |
 |---|---|---|
-| `lib/blheli_boot/` | 4-way parse/build, CRC16-XMODEM and 0xA001, the bootloader client, the address guard, `Server::handle()` | 15 gtests in `env:native` with a scripted fake link |
-| `src/esc_config.cpp`, `include/esc_config.h` | SoftwareSerial link on the ESC pins, the state machine, the one-slot frame queue | builds; bench |
-| `src/diagnostics_server.cpp` | the `/esc/` routes | builds; bench |
-| `lib/DShot` | `end()`: uninstalls both RMT channels and resets the pad, so the pins can change hands and `begin()` works again | bench |
+| `lib/blheli_boot/` | 4-way parse/build, CRC16-XMODEM and 0xA001, the bootloader client, the address guard, `Server::handle()` | 24 gtests in `env:native` with a scripted fake link; robot |
+| `src/esc_config.cpp`, `include/esc_config.h` | UART2 link on the ESC pins, the state machine, the one-slot frame queue | robot |
+| `src/diagnostics_server.cpp` | the `/esc/` routes | robot |
+| `lib/DShot` | `end()`: uninstalls both RMT channels and resets the pad, so the pins can change hands and `begin()` works again | robot: the ESCs counted 6400 good DShot frames and 0 bad after a tuning session |
 
-`blheli_boot` is the passthrough's `4Way.cpp` and `ESC_Serial.cpp` minus MSP. Reads end on the
-expected length (data, CRC, result byte) instead of fixed delays. The write keeps the
-passthrough's sequence and retries (set address, set buffer, data, program), since that sequence
-wrote and verified a page on these ESCs. `InterfaceGetName` answers `MrStabsMk2`.
+`blheli_boot` is the passthrough's `4Way.cpp` and `ESC_Serial.cpp` minus MSP, with these changes:
+
+- Replies are read until the line goes quiet and checked from their end, so a stray leading byte
+  does not fail them.
+- `DeviceInitFlash` requires the full `"471"` reply and retries the handshake. If the ESC never
+  answers, it restarts the ESC the passthrough's way, waits 500 ms, and tries once more.
+- `DeviceRead` retries 3 times, then redoes the handshake and tries 3 more.
+- `DeviceReset` only selects the ESC (see "Bench findings").
+- The write keeps the passthrough's sequence and retries (set address, set buffer, data, program),
+  but stops before `ProgFlash` when the address or the data was not acknowledged.
+
+`InterfaceGetName` answers `MrStabsMk2`.
 
 The **address guard** accepts `DeviceWrite` only at `0xF800` with exactly 256 bytes and refuses
 `DevicePageErase` and `DeviceEraseAll`, all with ack `0x09`, counted in `/esc/status`. Reads are
@@ -134,17 +144,18 @@ application or bootloader.
 
 ### Transport
 
-The plerup EspSoftwareSerial 8.2.0 one-wire mode the standalone passthrough runs, on core 1 in
-`loop()`; WiFi stays on core 0. If the step 2 bench test shows CRC failures with WiFi busy, switch
-to a hardware UART (UART0 is free, since `Serial` is the USB-Serial/JTAG port) with TX and RX on
-the same pin and TX open-drain.
+UART2 (UART1 is the CRSF receiver), routed through the GPIO matrix to the selected ESC's pin with
+TX and RX on the same pin, open drain with the pull-up. The receiver hears every byte sent, and the
+link drops that echo before reading the reply. The other ESC's line is driven high. This replaced
+the passthrough's EspSoftwareSerial, which lost bits inside this firmware (see "Bench findings").
 
 ### State machine
 
 ```
-COMBAT --enter request, disarmed, ESP-NOW not driving--> TUNING
-         (both Esc::deinit(): a last stop frame, RMT released, pads reset)
-TUNING:  runs at most one queued 4-way frame per loop() pass; LED breathes blue
+COMBAT --enter request, disarmed, ESP-NOW not driving, 3 s since the last exit--> TUNING
+         (both Esc::deinit(): a last stop frame, RMT released; both lines driven high)
+TUNING:  after 1 s of high line, runs at most one queued 4-way frame per loop() pass;
+         LED breathes blue
 TUNING --exit request or radio button press--> EXITING
          (DeviceReset on both ESCs, serial released, Esc::begin() on both)
 EXITING: zero-throttle DShot from the disarmed branch for 2 s --> COMBAT
@@ -167,7 +178,7 @@ EXITING: zero-throttle DShot from the disarmed branch for 2 s --> COMBAT
 | Route | Does |
 |---|---|
 | `POST /esc/tuning` form `enter=1\|0` | queues the request; 409 while armed |
-| `GET /esc/status` | `state` (`combat`, `tuning`, `exiting`), `error`, `frames`, `guard_refusals`, `idle_s`, `released`, `pending`, `armed`, `driving` |
+| `GET /esc/status` | `state` (`combat`, `tuning`, `exiting`), `error`, `frames`, `guard_refusals`, `idle_s`, `released`, `pending`, `armed`, `driving`, `failure` (why the latest bootloader exchange failed, with the bytes received) |
 | `POST /esc/4way` form `frame=<hex>` | validates the frame (400 with the reason), queues it, returns `{"id": n}`; 409 when not tuning or a frame is pending |
 | `GET /esc/4way` | `{"id", "state": "none"\|"pending"\|"done", "frame": <hex response>}` |
 
@@ -223,25 +234,61 @@ headless Chrome against a mock robot, with no horizontal overflow at 390 px.
   field reference from the BLHeli_32 manual with what each field means on Mr Stabs; and an empty
   "Tuning log" table for each settings change that reaches the robot, with its evidence.
 
+## Bench findings, 2026-10-23
+
+The robot on a bench supply, wheels clear, driven from the laptop over the USB dashboard. Each
+bug and its fix:
+
+- Bug: `DeviceInitFlash` passed on junk. It accepted any reply of 6 or more bytes ending in `0x30`,
+  so a garbled `d3 6a 1d 07 04 30` gave signature `30 04 07 04` and the session went on to fail.
+  Fix: require the full 9-byte `34 37 31 6d 47 06 07 04 30` and retry the handshake.
+- Bug: the settings read failed on a stray byte. The set-address ack arrived as `fe 30`, and the
+  first-byte check refused it. That is the page's original `ack 0x0f`. Fix: check replies from
+  their end, and retry reads.
+- Bug: the software serial link lost bits inside this firmware. 40 of 72 reads needed a retry: bad
+  CRCs, a missing byte, `0x30` read as `0xfe`. Moving the USB bridge between cores did not change
+  it. Fix: UART2 in open-drain half duplex. 0 retries in the 144 reads, 48 handshakes and 6 CLI
+  sessions logged after the switch.
+- Bug: `DeviceReset` before every handshake made entry flaky. Its 300 ms low restarts the ESC into
+  its application, which then has to fall back into the bootloader through its lost-signal check.
+  A handshake landing on that check left the ESC unreachable in 1 CLI session in 10. Stopping
+  DShot with the line held high puts the ESC in its bootloader by itself. Fix: `DeviceReset` only
+  selects the ESC; the relay restarts it only when the handshake gets no answer. Leaving tuning
+  mode and the 60 s idle timeout still restart both.
+- Bug: entering again right after an exit failed 3 times in 8. The exit restarts both ESCs. Fix:
+  entry waits until 3 s after the exit finished (0 failures in 14 after 1 s or more), and frames
+  wait 1 s after entry with both lines driven high.
+
+The page then read both ESCs in 2.4 to 3.8 s. It wrote a new startup tune to both ("Tuning log" in
+`firmware/blheli/README.md`) and verified it, and a CLI read afterwards differed from the backup in
+payload bytes 144 to 147 only.
+
+## USB dashboard
+
+`firmware/mr_stabs_mk2/scripts/usb_dashboard.py` serves the diagnostics page on
+`http://localhost:8080` over the USB cable, so the page and `blheli32.py --url
+http://localhost:8080` work without WiFi. The robot's log lines print in the same terminal. On
+the robot, `src/usb_bridge.cpp` replays each request against its own web server on 127.0.0.1.
+Details in `firmware/mr_stabs_mk2/README.md`.
+
 ## Left to do on the robot
 
-None of this has run on hardware. Props off, wheels clear, in order:
+Done on 2026-10-23: flashing over USB, repeated entry and exit with reads (more than 20 sessions),
+reads of both ESCs (more than 150), and a page write of both ESCs verified by a CLI read. Still open:
 
-1. Flash: `cd firmware/mr_stabs_mk2 && pio run -e local -t upload` (USB, to apply the partition
-   table if needed) or `./scripts/ota_wifi`.
-2. The remaining prerequisite, over the USB passthrough or WiFi: change startup beep volume,
-   power-cycle the pack, confirm by ear, restore.
-3. Enter tuning, `blheli32.py --url http://mr-stabs.local read`, exit, drive. Repeat 10 times. No
-   failed entry, no jingle loop, motor guard sensors back to `FUSED` within 3 s.
-4. 50 reads of both ESCs with the page open on two browsers and the telemetry recorder running.
-   Zero failures. If any, switch transport (step 1).
-5. Write each ESC's own backup back with `write --url`. The same ESC read over the USB passthrough
-   gives the same payload.
-6. Guard: send a `DeviceWrite` at `0xF700` and a `DevicePageErase` by hand. Both ack `0x09`, the
+1. Power-cycle the pack and listen: both ESCs should play the new F major tune together. This also
+   closes the old prerequisite (a written setting takes effect after a power cycle).
+2. Drive after a tuning session: motor guard sensors back to `FUSED` within 3 s, no jingle loop.
+   The bench run never spun the motors.
+3. Repeat the reads over WiFi with the page open on two browsers and the telemetry recorder
+   running. Everything so far went over the USB bridge.
+4. Write each ESC's own backup back with `write --url` (`firmware/blheli/backups/*_205816.json`
+   hold the pre-tune state). The same ESC read over the USB passthrough gives the same payload.
+5. Guard: send a `DeviceWrite` at `0xF700` and a `DevicePageErase` by hand. Both ack `0x09`, the
    ESC still reads clean.
-7. Pull the pack mid-write. The ESC boots with old or new settings or plays its "settings invalid"
+6. Pull the pack mid-write. The ESC boots with old or new settings or plays its "settings invalid"
    tone; restore over WiFi and confirm it recovers.
-8. Page: change rampup power, motor timing and brake on stop, verify with `blheli32.py read`,
+7. Page: change rampup power, motor timing and brake on stop, verify with `blheli32.py read`,
    drive, restore. Change startup beep volume on one ESC, copy it across, APPLY BOTH, confirm the
    row stops highlighting.
 

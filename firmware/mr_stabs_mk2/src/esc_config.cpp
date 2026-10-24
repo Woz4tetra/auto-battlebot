@@ -1,5 +1,9 @@
-#include <SoftwareSerial.h>
+#include <driver/gpio.h>
+#include <driver/uart.h>
 #include <esc_config.h>
+#include <esp_rom_gpio.h>
+#include <soc/gpio_sig_map.h>
+#include <soc/uart_periph.h>
 
 namespace esc_config {
 
@@ -15,49 +19,79 @@ const char *state_name(State state) {
     return "unknown";
 }
 
-// The bootloader link on the ESC signal wires: one-wire SoftwareSerial at 19200, as in the
-// standalone passthrough (firmware/BlHeli-Passthrough/ESP32/ESC_Serial.cpp), which is known to
-// work with these ESCs through the 100 ohm series resistors. It runs on core 1 in loop().
+// The bootloader link on the ESC signal wires: 19200 8N1, half duplex, one wire per ESC.
+//
+// The passthrough (firmware/BlHeli-Passthrough/ESP32/ESC_Serial.cpp) bit-bangs this with
+// EspSoftwareSerial. Inside this firmware that lost bits: 40 of 72 reads on 2026-10-23 needed a
+// retry (bad CRCs, a 0x30 ack read as 0xfe), so the link uses UART2 instead. The GPIO matrix routes
+// the UART's TX and RX to the selected ESC's pin, set open drain with the pull-up, so the ESC can
+// pull the line low to answer. The receiver hears every byte sent, and receive() drops that echo.
 class EscConfig::SerialLink : public blheli_boot::EscLink {
    public:
     SerialLink(uint8_t pin0, uint8_t pin1) : _pins{pin0, pin1} {}
 
     uint8_t count() const override { return 2; }
 
-    // Restarts the serial on the pin every time, as the passthrough does: hold_low() leaves the
-    // pin as a plain output.
     void select(uint8_t esc) override {
-        _serial.end();
+        if (!_installed) {
+            uart_config_t config = {};
+            config.baud_rate = 19200;
+            config.data_bits = UART_DATA_8_BITS;
+            config.parity = UART_PARITY_DISABLE;
+            config.stop_bits = UART_STOP_BITS_1;
+            config.flow_ctrl = UART_HW_FLOWCTRL_DISABLE;
+            config.source_clk = UART_SCLK_APB;
+            uart_driver_install(PORT, 1024, 0, 0, nullptr, 0);
+            uart_param_config(PORT, &config);
+            // Hand each byte over as it lands. The default 120-byte threshold holds a reply back
+            // for 62 ms at a time, longer than the 10 ms gap that ends it.
+            uart_set_rx_full_threshold(PORT, 1);
+            _installed = true;
+        }
+        if (_current >= 0 && _current != esc) drive(_pins[_current], 1);
         _current = esc;
-        _serial.begin(19200, SWSERIAL_8N1, _pins[esc], _pins[esc], false, 512);
-        _serial.enableIntTx(false);
+        const gpio_num_t pin = static_cast<gpio_num_t>(_pins[esc]);
+        // uart_set_pin() leaves the shared pin input only. Open drain gives the UART the line
+        // back, and since gpio_set_direction() reconnects the pin to plain GPIO output, the
+        // UART's TX signal is routed to it again last.
+        uart_set_pin(PORT, pin, pin, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+        gpio_set_pull_mode(pin, GPIO_PULLUP_ONLY);
+        gpio_set_direction(pin, GPIO_MODE_INPUT_OUTPUT_OD);
+        esp_rom_gpio_connect_out_signal(pin, UART_PERIPH_SIGNAL(PORT, SOC_UART_TX_PIN_IDX), false,
+                                        false);
+        uart_flush_input(PORT);
+        _echo = 0;
     }
 
     void send(const uint8_t *data, size_t size) override {
         if (_current < 0) return;
-        _serial.enableTx(true);
-        _serial.write(data, size);
-        _serial.enableTx(false);
+        // Anything still in the receiver belongs to an earlier exchange.
+        uart_flush_input(PORT);
+        uart_write_bytes(PORT, reinterpret_cast<const char *>(data), size);
+        _echo = size;
     }
 
     size_t receive(uint8_t *buf, size_t max, size_t expect, uint32_t first_ms) override {
         if (_current < 0) return 0;
-        const uint32_t start = millis();
-        while (!_serial.available()) {
-            if (millis() - start >= first_ms) return 0;
-            delayMicroseconds(200);
-        }
-        size_t n = 0;
-        uint32_t last_byte = millis();
-        while (n < max && (expect == 0 || n < expect)) {
-            if (_serial.available()) {
-                buf[n++] = _serial.read();
-                last_byte = millis();
-            } else if (millis() - last_byte >= 10) {
+        // Our own bytes come back first. 256 of them take 135 ms on the wire.
+        while (_echo > 0) {
+            uint8_t sink[64];
+            const size_t want = _echo < sizeof(sink) ? _echo : sizeof(sink);
+            const int got = uart_read_bytes(PORT, sink, want, pdMS_TO_TICKS(200));
+            if (got <= 0) {
+                _echo = 0;
                 break;
-            } else {
-                delayMicroseconds(100);
             }
+            _echo -= got;
+        }
+        int got = uart_read_bytes(PORT, buf, 1, pdMS_TO_TICKS(first_ms));
+        if (got <= 0) return 0;
+        size_t n = 1;
+        while (n < max && (expect == 0 || n < expect)) {
+            // A gap of 10 ms ends the reply, as in the passthrough.
+            got = uart_read_bytes(PORT, buf + n, 1, pdMS_TO_TICKS(10));
+            if (got <= 0) break;
+            n += got;
         }
         return n;
     }
@@ -65,26 +99,51 @@ class EscConfig::SerialLink : public blheli_boot::EscLink {
     void hold_low(uint32_t ms) override {
         if (_current < 0) return;
         const uint8_t pin = _pins[_current];
-        pinMode(pin, OUTPUT);
-        digitalWrite(pin, LOW);
+        drive(pin, 0);
         delay(ms);
-        digitalWrite(pin, HIGH);
+        drive(pin, 1);
+        _current = -1;  // the next select() hands the pin back to the UART
     }
 
     void delay_ms(uint32_t ms) override { delay(ms); }
 
+    // Drives both signal lines high. A BLHeli ESC that has lost its signal enters the bootloader
+    // only if the line reads high when it checks, so neither line is left floating on a pull-up.
+    void idle_high() {
+        _current = -1;
+        drive(_pins[0], 1);
+        drive(_pins[1], 1);
+    }
+
     // Gives both pins back for DShot.
     void release() {
-        _serial.end();
         _current = -1;
+        if (_installed) {
+            // Park the receiver on a constant high input before the driver goes.
+            esp_rom_gpio_connect_in_signal(GPIO_MATRIX_CONST_ONE_INPUT,
+                                           UART_PERIPH_SIGNAL(PORT, SOC_UART_RX_PIN_IDX), false);
+            uart_driver_delete(PORT);
+            _installed = false;
+        }
         gpio_reset_pin(static_cast<gpio_num_t>(_pins[0]));
         gpio_reset_pin(static_cast<gpio_num_t>(_pins[1]));
     }
 
    private:
-    SoftwareSerial _serial;
+    static const uart_port_t PORT = UART_NUM_2;  // UART1 is the CRSF receiver
+
+    // Takes the pin from the UART and drives it as a plain GPIO.
+    static void drive(uint8_t pin, uint32_t level) {
+        const gpio_num_t gpio = static_cast<gpio_num_t>(pin);
+        esp_rom_gpio_connect_out_signal(gpio, SIG_GPIO_OUT_IDX, false, false);
+        gpio_set_direction(gpio, GPIO_MODE_OUTPUT);
+        gpio_set_level(gpio, level);
+    }
+
     uint8_t _pins[2];
     int8_t _current = -1;
+    size_t _echo = 0;  // bytes sent that the receiver has not given back yet
+    bool _installed = false;
 };
 
 EscConfig::EscConfig() { _mux = portMUX_INITIALIZER_UNLOCKED; }
@@ -156,6 +215,7 @@ status_t EscConfig::status() {
     s.pending = _slot_state == Poll::PENDING;
     s.armed = _armed;
     s.driving = _driving;
+    memcpy(s.failure, _failure, sizeof(s.failure));
     portEXIT_CRITICAL(&_mux);
     return s;
 }
@@ -164,6 +224,8 @@ void EscConfig::enter(uint32_t now_ms) {
     // deinit() sends a last stop frame, then releases the RMT channels and the pins.
     _escs[0]->deinit();
     _escs[1]->deinit();
+    _link->idle_high();
+    _entered_ms = now_ms;
     _last_activity_ms = now_ms;
     _released = false;
     set_error("");
@@ -197,6 +259,14 @@ void EscConfig::update(uint32_t now_ms, bool armed, bool driving, bool button_pr
     switch (_state) {
         case State::COMBAT:
             if (requested != 1) return;
+            if (now_ms - _combat_since_ms < REENTRY_MS) {
+                // Keep the request until the ESCs have run long enough to answer.
+                portENTER_CRITICAL(&_mux);
+                if (_requested == -1) _requested = 1;
+                portEXIT_CRITICAL(&_mux);
+                set_error("ESCs still starting up: tuning mode follows in a moment");
+                return;
+            }
             if (armed) {
                 set_error("armed: disarm to enter tuning mode");
             } else if (driving) {
@@ -211,7 +281,8 @@ void EscConfig::update(uint32_t now_ms, bool armed, bool driving, bool button_pr
             uint8_t frame[blheli_boot::MAX_REQUEST];
             size_t size = 0;
             portENTER_CRITICAL(&_mux);
-            if (_slot_state == Poll::PENDING) {
+            // Frames wait out SETTLE_MS: the ESCs need a quiet high line to enter the bootloader.
+            if (_slot_state == Poll::PENDING && now_ms - _entered_ms >= SETTLE_MS) {
                 memcpy(frame, _request, _request_size);
                 size = _request_size;
                 have_frame = true;
@@ -220,7 +291,31 @@ void EscConfig::update(uint32_t now_ms, bool armed, bool driving, bool button_pr
             if (have_frame) {
                 uint8_t response[blheli_boot::MAX_RESPONSE];
                 const size_t n = _server->handle(frame, size, response);
+                if (frame[1] == blheli_boot::DEVICE_READ && _server->first_read_failure()[0]) {
+                    Serial.printf("esc tuning: read 0x%02x%02x retried after %s\n", frame[2],
+                                  frame[3], _server->first_read_failure());
+                }
+                if (_server->resyncs() != _logged_resyncs) {
+                    _logged_resyncs = _server->resyncs();
+                    Serial.printf("esc tuning: redid the handshake to finish a read (%lu so far)\n",
+                                  (unsigned long)_logged_resyncs);
+                }
+                if (_server->reboots() != _logged_reboots) {
+                    _logged_reboots = _server->reboots();
+                    Serial.printf(
+                        "esc tuning: restarted ESC %u to reach its bootloader (%lu so far)\n",
+                        frame[5], (unsigned long)_logged_reboots);
+                }
+                const char *failure = _server->failure();
+                if (frame[1] == blheli_boot::DEVICE_INIT_FLASH) {
+                    Serial.printf("esc tuning: ESC %u %s\n", frame[5], _server->init_reply());
+                }
+                if (n > 0 && response[5 + (response[4] == 0 ? 256 : response[4])] != 0) {
+                    Serial.printf("esc tuning: cmd 0x%02x ack 0x%02x: %s\n", frame[1],
+                                  response[5 + (response[4] == 0 ? 256 : response[4])], failure);
+                }
                 portENTER_CRITICAL(&_mux);
+                strncpy(_failure, failure, sizeof(_failure) - 1);
                 memcpy(_response, response, n);
                 _response_size = n;
                 _slot_state = Poll::DONE;
@@ -241,7 +336,10 @@ void EscConfig::update(uint32_t now_ms, bool armed, bool driving, bool button_pr
         }
 
         case State::EXITING:
-            if (now_ms - _exit_started_ms >= WAKE_MS) _state = State::COMBAT;
+            if (now_ms - _exit_started_ms >= WAKE_MS) {
+                _combat_since_ms = now_ms;
+                _state = State::COMBAT;
+            }
             return;
     }
 }

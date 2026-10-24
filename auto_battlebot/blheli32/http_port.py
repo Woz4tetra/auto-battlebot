@@ -36,7 +36,7 @@ class HttpPort:
         data = urllib.parse.urlencode(fields).encode() if fields is not None else None
         req = urllib.request.Request(self._base + path, data=data)
         try:
-            with urllib.request.urlopen(req, timeout=5.0) as resp:
+            with urllib.request.urlopen(req, timeout=10.0) as resp:
                 body: bytes = resp.read()
         except urllib.error.HTTPError as e:
             raise RelayError(f"{path}: HTTP {e.code}: {e.read().decode(errors='replace')}") from e
@@ -64,7 +64,8 @@ class HttpPort:
         if self.status()["state"] == "tuning":
             return False
         self._call("/esc/tuning", {"enter": "1"})
-        self._wait_for("tuning", 5.0)
+        # The robot holds entry for up to 3 s after leaving tuning mode, while the ESCs restart.
+        self._wait_for("tuning", 8.0)
         return True
 
     def exit_tuning(self) -> None:

@@ -283,6 +283,7 @@ static String esc_status_json(const esc_config::status_t &s) {
     doc["pending"] = s.pending;
     doc["armed"] = s.armed;
     doc["driving"] = s.driving;
+    doc["failure"] = s.failure;
     String out;
     serializeJson(doc, out);
     return out;

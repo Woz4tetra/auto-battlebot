@@ -100,21 +100,46 @@ class Server {
     // One request frame in, one response frame out. Returns the response size, 0 when the frame
     // is too short to answer.
     size_t handle(const uint8_t *frame, size_t size, uint8_t *out);
-    // DeviceReset outside a frame: restarts the ESC, which leaves its bootloader.
+    // Restarts the ESC: the restart command, then the line low for 300 ms, as the passthrough's
+    // DeviceReset does. The ESC boots its application.
     void reset_esc(uint8_t esc);
     // Writes and erases the guard refused, from boot.
     uint32_t guard_refusals() const { return _guard_refusals; }
+    // Why the latest bootloader exchange failed ("" after a success): the step, the bytes
+    // received against those expected, and the first few received.
+    const char *failure() const { return _failure; }
+    // The latest DeviceInitFlash reply as received, for diagnosing bootloader entry.
+    const char *init_reply() const { return _init_reply; }
+    // Reads that needed the handshake redone, from boot.
+    uint32_t resyncs() const { return _resyncs; }
+    // The first failed attempt of the latest read, "" when it succeeded at once.
+    const char *first_read_failure() const { return _first_read_failure; }
+    // Handshakes that needed the ESC restarted first, from boot.
+    uint32_t reboots() const { return _reboots; }
 
    private:
     EscLink &_link;
     uint32_t _guard_refusals = 0;
     uint8_t _rx[MAX_RESPONSE];
+    char _failure[96] = "";
+    char _init_reply[96] = "";
+    char _first_read_failure[96] = "";
+    int8_t _esc = -1;  // the ESC of the latest handshake
+    uint32_t _resyncs = 0;
+    uint32_t _reboots = 0;
+
+    // Formats the step, the bytes received against those expected (0: unknown), and the first few.
+    void describe(char *out, size_t size, const char *step, size_t received, size_t expected) const;
+    // Records a failed step and returns ACK_GENERAL_ERROR.
+    uint8_t fail(const char *step, size_t received, size_t expected);
 
     void send_boot(const uint8_t *data, size_t size);
-    bool boot_ack(uint32_t first_ms);
+    bool boot_ack(uint32_t first_ms, const char *step);
     bool set_address(uint16_t address, uint8_t tries);
+    bool handshake(uint8_t *signature);
     uint8_t init_flash(uint8_t esc, uint8_t *signature);
     uint8_t read(uint16_t address, size_t length, uint8_t *data);
+    uint8_t read_once(uint16_t address, size_t length, uint8_t *data);
     uint8_t write(uint16_t address, const uint8_t *data, size_t length);
 };
 
