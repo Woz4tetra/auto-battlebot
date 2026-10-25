@@ -47,16 +47,49 @@ TEST(DriveProcessorTest, TankUnMixesToDifferentialOutput) {
             const TankDriveProcessor tank(config, make_logger());
 
             for (const auto& cmd : kCommands) {
-                const auto expected = differential.process(cmd);
                 const auto body = tank.to_body_velocity(tank.process(cmd));
-                EXPECT_NEAR(body.linear, expected.channel_a, 1e-12)
+                const auto differential_body =
+                    differential.to_body_velocity(differential.process(cmd));
+                EXPECT_NEAR(body.linear, differential_body.linear, 1e-12)
                     << "linear=" << cmd.linear_x << " angular=" << cmd.angular_z
                     << " reverse_linear=" << reverse_linear
                     << " reverse_angular=" << reverse_angular;
-                EXPECT_NEAR(body.angular, expected.channel_b, 1e-12)
+                EXPECT_NEAR(body.angular, differential_body.angular, 1e-12)
                     << "linear=" << cmd.linear_x << " angular=" << cmd.angular_z
                     << " reverse_linear=" << reverse_linear
                     << " reverse_angular=" << reverse_angular;
+            }
+        }
+    }
+}
+
+// The readback reports the command in the frame process() took it, so the filter predicts motion
+// in the direction the navigator asked for. The reversals only change what goes on the wire.
+TEST(DriveProcessorTest, ReadbackUndoesTheReversals) {
+    for (const bool reverse_linear : {false, true}) {
+        for (const bool reverse_angular : {false, true}) {
+            const auto config = make_config(reverse_linear, reverse_angular);
+            const auto plain_config = make_config(false, false);
+            const DifferentialDriveProcessor differential(config, make_logger());
+            const TankDriveProcessor tank(config, make_logger());
+            const DifferentialDriveProcessor plain(plain_config, make_logger());
+
+            for (const auto& cmd : kCommands) {
+                // Saturation and deadzones still shape the command; only the sign must match.
+                const auto expected = plain.process(cmd);
+                for (const DriveProcessorInterface* processor :
+                     {static_cast<const DriveProcessorInterface*>(&differential),
+                      static_cast<const DriveProcessorInterface*>(&tank)}) {
+                    const auto body = processor->to_body_velocity(processor->process(cmd));
+                    EXPECT_NEAR(body.linear, expected.channel_a, 1e-12)
+                        << "linear=" << cmd.linear_x << " angular=" << cmd.angular_z
+                        << " reverse_linear=" << reverse_linear
+                        << " reverse_angular=" << reverse_angular;
+                    EXPECT_NEAR(body.angular, expected.channel_b, 1e-12)
+                        << "linear=" << cmd.linear_x << " angular=" << cmd.angular_z
+                        << " reverse_linear=" << reverse_linear
+                        << " reverse_angular=" << reverse_angular;
+                }
             }
         }
     }

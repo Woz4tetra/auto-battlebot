@@ -41,7 +41,10 @@ TankDriveProcessor::Channels TankDriveProcessor::process(VelocityCommand command
 }
 
 BodyVelocity TankDriveProcessor::to_body_velocity(Channels channels) const {
-    return inverse_mix_from_wheels({.left = channels.channel_a, .right = channels.channel_b});
+    auto body = inverse_mix_from_wheels({.left = channels.channel_a, .right = channels.channel_b});
+    if (config_.reverse_linear) body.linear = -body.linear;
+    if (config_.reverse_angular) body.angular = -body.angular;
+    return body;
 }
 
 }  // namespace auto_battlebot

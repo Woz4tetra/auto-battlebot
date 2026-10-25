@@ -489,6 +489,10 @@ TEST_F(EspNowTransmitterPtyTest, FeedbackAndSwitchComeFromTelemetry) {
     ASSERT_EQ(feedback.stick_commands.count(FrameId::OUR_ROBOT_1), 1u);
     EXPECT_NEAR(feedback.stick_commands.at(FrameId::OUR_ROBOT_1).linear_x, expected.linear, 1e-6);
     EXPECT_NEAR(feedback.stick_commands.at(FrameId::OUR_ROBOT_1).angular_z, expected.angular, 1e-6);
+    // Body frame, not wire frame: b_percent 20 is what send() writes for angular -0.2 under
+    // reverse_angular_channel, so the feedback must read -0.2.
+    EXPECT_NEAR(feedback.stick_commands.at(FrameId::OUR_ROBOT_1).linear_x, 0.5, 1e-6);
+    EXPECT_NEAR(feedback.stick_commands.at(FrameId::OUR_ROBOT_1).angular_z, -0.2, 1e-6);
     EXPECT_TRUE(transmitter.get_status().receiving_channels);
     EXPECT_TRUE(transmitter.get_status().autonomy_switch_on);
 

@@ -47,9 +47,9 @@ class DriveProcessorInterface {
 
     /**
      * Undo the mixing in process() to recover the body-frame command a pair of channel values
-     * represents. Used to report the values on the wire back to the filter. The reversals are not
-     * undone: they compensate robot wiring downstream of the channels, so the result stays in
-     * channel terms.
+     * represents. Used to report the values on the wire back to the filter, so the reversals are
+     * undone too: the result is in the same body frame as the command process() took, which is
+     * the frame the filter's plant prediction and the RL policy's observation expect.
      */
     virtual BodyVelocity to_body_velocity(Channels channels) const = 0;
 };
