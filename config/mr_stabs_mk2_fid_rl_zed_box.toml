@@ -1,5 +1,5 @@
 # Fiducial profile driven by RlPolicyNavigation instead of MotionProfileNavigation. The bundle is
-# rl_nav_p4_nodrop: rl_nav_p4 retrained from p3 with sensing dropouts off. The policy trained in
+# rl_nav_p4: rl_nav_p4 retrained from p3 with sensing dropouts off. The policy trained in
 # the sim's 2.4 m arena; this field is 1.5 m. It has no HazardAvoidance layer: walls and hazards
 # reach it only through its observation.
 extends = "mr_stabs_mk2_fid_zed_box"
@@ -9,4 +9,4 @@ extends = "mr_stabs_mk2_fid_zed_box"
 type = "RlPolicyNavigation"
 
 [navigation.policy]
-bundle = "data/models/nav_policies/rl_nav_p4_nodrop"
+bundle = "data/models/nav_policies/rl_nav_p4"

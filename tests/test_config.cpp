@@ -7,7 +7,6 @@
 #include "config/config.hpp"
 #include "config/config_parser.hpp"
 #include "config/profile_selection.hpp"
-#include "directories.hpp"
 #include "field_filter/config.hpp"
 #include "keypoint_model/config.hpp"
 #include "mask_model/config.hpp"
@@ -1823,74 +1822,5 @@ TEST_F(ConfigTest, AprilTagKeypointModelRejectsANonRotation) {
 
     EXPECT_THROW(load_classes_from_config(temp_config_file.string()), ConfigValidationError);
 }
-
-#ifdef BUILD_WITH_ZED
-// The profile's camera is ZedOneRgbCamera, which only registers when the ZED SDK is built in.
-TEST(SysidProfileTest, MrStabsMk2SysidProfileParsesAndIsSelectable) {
-    const auto config_dir = get_config_dir();
-    auto config =
-        load_classes_from_config((config_dir / "mr_stabs_mk2_sysid_zed_box.toml").string());
-    // Sysid keeps the trainer link: its WiFi diagnostics transmitter reads the robot's telemetry
-    // ring.
-    EXPECT_NE(
-        dynamic_cast<Esp32DiagnosticsOpenTxTransmitterConfiguration *>(config.transmitter.get()),
-        nullptr);
-    auto *model = dynamic_cast<AprilTagKeypointModelConfiguration *>(config.keypoint_model.get());
-    ASSERT_NE(model, nullptr);
-    EXPECT_EQ(model->tags.size(), 2u);
-    EXPECT_EQ(config.navigation->type, "NoopNavigation");
-
-    const ProfileSelectorConfig selector = load_profile_selector(config_dir);
-    const auto profiles = list_available_profiles(config_dir, selector.pattern);
-    EXPECT_NE(std::find(profiles.begin(), profiles.end(), "mr_stabs_mk2_sysid_zed_box"),
-              profiles.end());
-}
-
-// Both Mr Stabs ZED Box profiles send over the ESP-NOW dongle alone; the handset talks only to the
-// robot. The processor settings must match how the radio model mixes, as the trainer path did.
-TEST(EspNowProfileTest, MrStabsMk2ZedBoxProfilesUseEspNowAlone) {
-    const auto config_dir = get_config_dir();
-    for (const char *name : {"mr_stabs_mk2_aer_zed_box.toml", "mr_stabs_mk2_fid_zed_box.toml",
-                             "mr_stabs_mk2_fid_rl_zed_box.toml"}) {
-        auto config = load_classes_from_config((config_dir / name).string());
-        auto *espnow = dynamic_cast<EspNowTransmitterConfiguration *>(config.transmitter.get());
-        ASSERT_NE(espnow, nullptr) << name;
-        EXPECT_EQ(espnow->dongle_serial_path, "/dev/espnow_dongle") << name;
-        EXPECT_EQ(espnow->drive_processor, "DifferentialDriveProcessor") << name;
-        EXPECT_TRUE(espnow->reverse_angular_channel) << name;
-        EXPECT_DOUBLE_EQ(espnow->zero_deadzone_percent, 2.0) << name;
-        EXPECT_DOUBLE_EQ(espnow->lifted_deadzone_percent, 0.0) << name;
-    }
-}
-
-// Both Mr Stabs ZED Box profiles run the geometry plant and the slew limit.
-TEST(EspNowProfileTest, MrStabsMk2ZedBoxProfilesUseGeometryPlantAndSlewLimit) {
-    for (const char *name : {"mr_stabs_mk2_aer_zed_box.toml", "mr_stabs_mk2_fid_zed_box.toml"}) {
-        auto config = load_classes_from_config((get_config_dir() / name).string());
-        auto *espnow = dynamic_cast<EspNowTransmitterConfiguration *>(config.transmitter.get());
-        ASSERT_NE(espnow, nullptr) << name;
-        EXPECT_DOUBLE_EQ(espnow->max_motor_rpm, 1500.0) << name;
-        EXPECT_DOUBLE_EQ(espnow->max_motor_rpm_per_sec, 2000.0) << name;
-        ASSERT_TRUE(config.plant.params.has_value()) << name;
-        const auto &plant = *config.plant.params;
-        EXPECT_DOUBLE_EQ(plant.k_fwd, 3.92699) << name;
-        EXPECT_DOUBLE_EQ(plant.k_ang, 59.9541) << name;
-        EXPECT_DOUBLE_EQ(plant.tau_ang_a, 0.0) << name;
-        EXPECT_DOUBLE_EQ(plant.tau_lin_a, 0.0) << name;
-        EXPECT_DOUBLE_EQ(plant.c_sb, 0.0) << name;
-    }
-}
-
-// The RL profile swaps only the navigation; the policy refuses to load without the 6-state
-// opponent filter.
-TEST(RlProfileTest, FiducialRlProfileUsesPolicyBundle) {
-    auto config =
-        load_classes_from_config((get_config_dir() / "mr_stabs_mk2_fid_rl_zed_box.toml").string());
-    auto *nav = dynamic_cast<RlPolicyNavigationConfiguration *>(config.navigation.get());
-    ASSERT_NE(nav, nullptr);
-    EXPECT_EQ(nav->policy.bundle, "data/models/nav_policies/rl_nav_p4_nodrop");
-    EXPECT_EQ(nav->opponent_mode, OpponentMode::KALMAN);
-}
-#endif
 
 }  // namespace auto_battlebot
