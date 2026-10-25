@@ -50,9 +50,15 @@ BATCHED_FIELDS = (
     "actuator_forcerange",
 )
 # Contacts and constraint rows per world. The hull pieces, skid and both treads rarely give more
-# than 8 contacts; the headroom covers a robot on its side.
+# than 8 contacts; the headroom covers a robot on its side. The broadphase pairs the floor plane
+# with every robot geom, so a model with more pieces (Mrs Buff Mk3: 30 pieces and four treads)
+# needs room for that many candidate pairs: `nconmax_for` scales it.
 NCONMAX = 24
 NJMAX = 160
+
+
+def nconmax_for(model: mujoco.MjModel) -> int:
+    return max(NCONMAX, 2 * model.ngeom)
 
 
 @dataclass
@@ -290,7 +296,9 @@ class WarpRollout:
         self.index = ModelIndex.of(self.mjm)
         self.height = rest_height(mp, collision, timestep)
         self.m = mjw.put_model(self.mjm, batch_sizes={f: nworld for f in BATCHED_FIELDS})
-        self.d = mjw.put_data(self.mjm, self.mjd, nworld=nworld, nconmax=NCONMAX, njmax=NJMAX)
+        self.d = mjw.put_data(
+            self.mjm, self.mjd, nworld=nworld, nconmax=nconmax_for(self.mjm), njmax=NJMAX
+        )
         self.tape_v = wp.zeros((nworld, steps, 2), dtype=float)
         self.tape_zero = wp.zeros((nworld, steps, 2), dtype=float)
         self.coast = wp.zeros(nworld, dtype=float)

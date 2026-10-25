@@ -12,6 +12,9 @@ decades) and are released in stages so each group is fit on the data that identi
 
 The zero-command mode (brake or coast) is discrete; `fit` runs once per mode asked for.
 
+`specs` overrides the parameter bounds for another robot (Mrs Buff Mk3's motor and four-wheel
+scrub sit outside Mr Stabs Mk2's ranges); the default is PARAM_SPECS.
+
 Loss: at each horizon, the raw measurement nearest to it (within 20 ms) against the prediction
 at that measurement's time. Position and heading errors are divided by the session noise floor
 and Huber-weighted; nose-lift windows add a pitch term over every measurement in the window.
@@ -20,7 +23,7 @@ and Huber-weighted; nose-lift windows add a pitch term over every measurement in
 from __future__ import annotations
 
 import math
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, fields
 
 import numpy as np
@@ -105,12 +108,19 @@ STAGES: tuple[Stage, ...] = (
 )
 
 
-def with_values(base: PlantParams, names: Sequence[str], unit: np.ndarray) -> PlantParams:
-    return base.replace(**{n: SPEC_BY_NAME[n].from_unit(float(u)) for n, u in zip(names, unit)})
+def with_values(
+    base: PlantParams,
+    names: Sequence[str],
+    unit: np.ndarray,
+    specs: Mapping[str, ParamSpec] = SPEC_BY_NAME,
+) -> PlantParams:
+    return base.replace(**{n: specs[n].from_unit(float(u)) for n, u in zip(names, unit)})
 
 
-def unit_of(params: PlantParams, names: Sequence[str]) -> np.ndarray:
-    return np.array([SPEC_BY_NAME[n].to_unit(getattr(params, n)) for n in names])
+def unit_of(
+    params: PlantParams, names: Sequence[str], specs: Mapping[str, ParamSpec] = SPEC_BY_NAME
+) -> np.ndarray:
+    return np.array([specs[n].to_unit(getattr(params, n)) for n in names])
 
 
 def _huber(r: np.ndarray, delta: float = HUBER_DELTA) -> np.ndarray:
@@ -256,6 +266,7 @@ def run_stage(
     sigma0: float = 0.2,
     seed: int = 0,
     log: Callable[[str], None] = print,
+    specs: Mapping[str, ParamSpec] = SPEC_BY_NAME,
 ) -> StageResult:
     import cma
 
@@ -263,7 +274,7 @@ def run_stage(
     if len(sub) == 0:
         log(f"[{stage.name}] no {stage.kinds} windows; stage skipped")
         return StageResult(stage.name, start, math.nan)
-    x0 = unit_of(start, stage.free)
+    x0 = unit_of(start, stage.free, specs)
     es = cma.CMAEvolutionStrategy(
         x0,
         sigma0,
@@ -276,7 +287,7 @@ def run_stage(
     history = []
     for gen in range(generations):
         xs = es.ask()
-        cands = [with_values(start, stage.free, np.asarray(x)) for x in xs]
+        cands = [with_values(start, stage.free, np.asarray(x), specs) for x in xs]
         losses, _ = score_candidates(simulate, sub, cands)
         es.tell(xs, [float(v) if np.isfinite(v) else 1e12 for v in losses])
         k = int(np.argmin(losses))
@@ -301,12 +312,21 @@ def fit(
     generations: int = 40,
     seed: int = 0,
     log: Callable[[str], None] = print,
+    specs: Mapping[str, ParamSpec] = SPEC_BY_NAME,
 ) -> FitResult:
     current = start or PlantParams()
     results = []
     for i, stage in enumerate(stages):
         res = run_stage(
-            simulate, batch, current, stage, popsize, generations, seed=seed + 101 * i, log=log
+            simulate,
+            batch,
+            current,
+            stage,
+            popsize,
+            generations,
+            seed=seed + 101 * i,
+            log=log,
+            specs=specs,
         )
         results.append(res)
         if math.isfinite(res.loss):
