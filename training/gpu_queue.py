@@ -25,7 +25,9 @@ with it.
 
 Long-lived GPU tenants step aside while the queue has work. Every executable in
 ~/.config/gpu_queue/yield.d/ runs with `pause` before each job, and with `resume`
-once the queue has sat empty for the idle timeout. megamind's model server is one:
+once the queue has sat empty for the idle timeout. The job's devices arrive as
+GPU_QUEUE_DEVICES (e.g. "0,1"), so a tenant pinned to a GPU the job leaves alone can
+keep running. megamind's model server is one:
 
     ln -s ~/home-apps/megamind/extractor.sh ~/.config/gpu_queue/yield.d/megamind
 """
@@ -122,31 +124,41 @@ def find_job(state: dict[str, Any], job_id: int) -> dict[str, Any] | None:
     return next((job for job in state["jobs"] if job["id"] == job_id), None)
 
 
-def gpu_busy_processes(ignore_pids: set[int]) -> list[tuple[int, int]]:
-    """Compute processes holding real memory, excluding our own job's pids."""
+def nvidia_smi_rows(query: str) -> list[list[str]]:
+    out = subprocess.run(
+        ["nvidia-smi", query, "--format=csv,noheader,nounits"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
+    ).stdout
+    return [[field.strip() for field in line.split(",")] for line in out.splitlines() if line]
+
+
+def gpu_busy_processes(
+    ignore_pids: set[int], devices: list[int] | None = None
+) -> list[tuple[int, int]]:
+    """Compute processes holding real memory, excluding our own job's pids.
+
+    With `devices`, only processes on those GPU indices count: a tenant pinned to a GPU
+    the job does not use is no reason to wait.
+    """
     try:
-        out = subprocess.run(
-            [
-                "nvidia-smi",
-                "--query-compute-apps=pid,used_memory",
-                "--format=csv,noheader,nounits",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=True,
-        ).stdout
-    except (OSError, subprocess.SubprocessError):
+        apps = nvidia_smi_rows("--query-compute-apps=pid,gpu_uuid,used_memory")
+        uuids = {uuid: int(index) for index, uuid in nvidia_smi_rows("--query-gpu=index,uuid")}
+    except (OSError, subprocess.SubprocessError, ValueError):
         # If nvidia-smi cannot be read, assume busy rather than stacking a second run.
         return [(-1, -1)]
     busy = []
-    for line in out.splitlines():
-        if not line.strip():
+    for row in apps:
+        if len(row) != 3:
             continue
-        pid_text, _, mem_text = line.partition(",")
+        pid_text, uuid, mem_text = row
         try:
-            pid, mib = int(pid_text.strip()), int(mem_text.strip())
+            pid, mib = int(pid_text), int(mem_text)
         except ValueError:
+            continue
+        if devices is not None and uuids.get(uuid) not in devices:
             continue
         if pid not in ignore_pids and mib >= BUSY_MIB:
             busy.append((pid, mib))
@@ -296,14 +308,19 @@ def run_job(job: dict[str, Any]) -> None:
         record.update(finished_at=now(), exit_code=proc.returncode, pid=None)
 
 
+def job_devices(job: dict[str, Any]) -> list[int]:
+    # Jobs queued before devices were recorded ran on all three.
+    return list(job.get("devices") or [0, 1, 2])
+
+
 def wait_for_gpus(job_id: int) -> bool:
-    """Block until no outside process is using the GPUs. False if the job vanished."""
+    """Block until no outside process is using the job's GPUs. False if the job vanished."""
     announced = False
     while True:
         record = find_job(read_state(), job_id)
         if record is None or record["state"] != "queued" or record["cancel_requested"]:
             return False
-        busy = gpu_busy_processes(ignore_pids=set())
+        busy = gpu_busy_processes(ignore_pids=set(), devices=job_devices(record))
         if not busy:
             return True
         if not announced:
@@ -313,15 +330,19 @@ def wait_for_gpus(job_id: int) -> bool:
         time.sleep(POLL_SECONDS)
 
 
-def run_yield_hooks(action: str) -> None:
+def run_yield_hooks(action: str, devices: list[int] | None = None) -> None:
     """Run every tenant hook with `pause` or `resume`; output lands in the worker log.
 
-    A failing hook is reported and skipped. wait_for_gpus still refuses to start a job
-    while anything holds the GPUs, so the worst a broken pause can do is the wait the
-    queue would have had without hooks.
+    A pause passes the job's GPUs as GPU_QUEUE_DEVICES, and the hook decides whether
+    its tenant is in the way. A failing hook is reported and skipped. wait_for_gpus
+    still refuses to start a job while anything holds its GPUs, so the worst a broken
+    pause can do is the wait the queue would have had without hooks.
     """
     if not YIELD_DIR.is_dir():
         return
+    env = dict(os.environ)
+    if devices is not None:
+        env["GPU_QUEUE_DEVICES"] = ",".join(str(device) for device in devices)
     for hook in sorted(YIELD_DIR.iterdir()):
         if not (hook.is_file() and os.access(hook, os.X_OK)):
             continue
@@ -330,6 +351,7 @@ def run_yield_hooks(action: str) -> None:
             code = subprocess.run(
                 [str(hook), action],
                 stdin=subprocess.DEVNULL,
+                env=env,
                 timeout=HOOK_TIMEOUT,
                 check=False,
             ).returncode
@@ -397,7 +419,7 @@ def cmd_worker(args: argparse.Namespace) -> int:
         idle_since = time.monotonic()
         # Every job, not once per sweep: a tenant restarted by hand mid-sweep would
         # otherwise hold the GPUs and park the queue in wait_for_gpus indefinitely.
-        run_yield_hooks("pause")
+        run_yield_hooks("pause", job_devices(job))
         yielded = True
         if not wait_for_gpus(job["id"]):
             continue
