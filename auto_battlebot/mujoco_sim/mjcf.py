@@ -1,7 +1,9 @@
-"""MJCF for Mr Stabs Mk2, built from the mass-property table and the convex collision pieces.
+"""MJCF for a drive robot, built from its mass-property table and convex collision pieces.
 
-The chassis on a free joint with the full CAD inertia tensor, two wheels on hinges about y,
-and one rotor body per gearmotor, coupled to its wheel at the gear ratio by a joint equality.
+The chassis on a free joint with the full CAD inertia tensor, two driven wheels on hinges about
+y, and one rotor body per gearmotor, coupled to its wheel at the gear ratio by a joint equality.
+A robot with belt-driven front wheels (Mrs Buff Mk3) adds two follower wheels, each held to its
+side's driven wheel 1:1 by another joint equality; the motors drive only the back pair.
 
 The rotor is a body rather than wheel-joint `armature`. Armature adds N^2 J_r to the wheel's
 joint inertia, which is right for how hard the motor must push, but passes no reaction to the
@@ -10,9 +12,10 @@ rotor's angular momentum, N J_r alpha (not N^2 J_r alpha, which is 22.6 times la
 body keeps both right, and the gyroscopic coupling in yaw with it. The planetary gearbox turns
 the rotor the same way as the wheel, so the coupling coefficient is +N.
 
-The chassis collides through its CoACD pieces plus a small sphere at the nose skid, where the
-robot rests (the COM sits ahead of the axle). Robot geoms carry the friction; the floor's is
-zero, so MuJoCo's max-combination rule leaves the robot's value in charge of each contact.
+The chassis collides through its CoACD pieces, and Mr Stabs Mk2 adds a small sphere at the nose
+skid, where she rests (the COM sits ahead of the axle). A four-wheeled robot has no skid. Robot
+geoms carry the friction; the floor's is zero, so MuJoCo's max-combination rule leaves the
+robot's value in charge of each contact.
 
 Geom and joint names are stable: the rollout looks them up to batch per-world parameters.
 """
@@ -33,6 +36,9 @@ COLLISION_DIR = ASSET_DIR / "collision"
 SKID_RADIUS_M = 0.0015
 WHEEL_JOINTS = ("wheel_left", "wheel_right")
 WHEEL_GEOMS = ("wheel_left_tread", "wheel_right_tread")
+FOLLOWER_JOINTS = ("follower_left", "follower_right")
+FOLLOWER_GEOMS = ("follower_left_tread", "follower_right_tread")
+BELT_EQUALITIES = ("belt_left", "belt_right")
 ROTOR_BODIES = ("rotor_left", "rotor_right")
 GEAR_EQUALITIES = ("gear_left", "gear_right")
 # The rotor's mass is already in the CAD chassis; the body only needs to carry inertia.
@@ -48,7 +54,7 @@ FLOOR_CONTYPE = 1
 @dataclass(frozen=True)
 class CollisionSet:
     pieces: tuple[Path, ...]  # convex OBJ pieces in the body frame
-    skid_point: np.ndarray  # lowest nose point, body frame
+    skid_point: np.ndarray | None  # lowest nose point, body frame; None on four wheels
     rest_pitch_rad: float  # nose-down pitch with both wheels and the skid on the floor
 
     @classmethod
@@ -56,8 +62,10 @@ class CollisionSet:
         meta = tomllib.loads((directory / "collision.toml").read_text())
         return cls(
             pieces=tuple(directory / p for p in meta["pieces"]),
-            skid_point=np.asarray(meta["skid_point_m"], dtype=float),
-            rest_pitch_rad=float(meta["rest_pitch_rad"]),
+            skid_point=(
+                np.asarray(meta["skid_point_m"], dtype=float) if "skid_point_m" in meta else None
+            ),
+            rest_pitch_rad=float(meta.get("rest_pitch_rad", 0.0)),
         )
 
 
@@ -96,6 +104,7 @@ def build_mjcf(
     params: PlantParams,
     collision: CollisionSet | None = None,
     timestep: float = 1e-3,
+    model_name: str = "mr_stabs_mk2",
 ) -> str:
     """The model XML. `collision=None` leaves out the hull (skid sphere only), for tests."""
     motor = MotorConstants(gear_ratio=mp.gear_ratio, kt=mp.motor_kt)
@@ -116,20 +125,30 @@ def build_mjcf(
                 f'contype="{ROBOT_CONTYPE}" conaffinity="{FLOOR_CONTYPE}" condim="3" '
                 f'friction="{_vec(skid_friction(params))}" group="3"/>'
             )
-        skid = collision.skid_point + np.array([0.0, 0.0, SKID_RADIUS_M])
+        skid = (
+            None
+            if collision.skid_point is None
+            else collision.skid_point + np.array([0.0, 0.0, SKID_RADIUS_M])
+        )
     else:
         # No hull: put the skid at the bottom-front of the chassis COM box.
         skid = np.array([0.07, 0.0, -0.018 + SKID_RADIUS_M])
 
     wheels = []
-    for name, geom, body, sign in (
-        (WHEEL_JOINTS[0], WHEEL_GEOMS[0], mp.wheel_left, 1.0),
-        (WHEEL_JOINTS[1], WHEEL_GEOMS[1], mp.wheel_right, -1.0),
-    ):
+    sides = [
+        (WHEEL_JOINTS[0], WHEEL_GEOMS[0], mp.wheel_left, 1.0, mp.axle_x),
+        (WHEEL_JOINTS[1], WHEEL_GEOMS[1], mp.wheel_right, -1.0, mp.axle_x),
+    ]
+    if mp.follower_axle_x is not None:
+        sides += [
+            (FOLLOWER_JOINTS[0], FOLLOWER_GEOMS[0], mp.wheel_left, 1.0, mp.follower_axle_x),
+            (FOLLOWER_JOINTS[1], FOLLOWER_GEOMS[1], mp.wheel_right, -1.0, mp.follower_axle_x),
+        ]
+    for name, geom, body, sign, axle_x in sides:
         axle_y = sign * mp.track_half_width
         axial, radial = body.fullinertia[1], 0.5 * (body.fullinertia[0] + body.fullinertia[2])
         wheels.append(
-            f"""      <body name="{name}" pos="{_vec([0.0, axle_y, 0.0])}">
+            f"""      <body name="{name}" pos="{_vec([axle_x, axle_y, 0.0])}">
         <inertial pos="0 0 0" mass="{body.mass:.9g}" diaginertia="{_vec([radial, axial, radial])}"/>
         <joint name="{name}" type="hinge" axis="0 1 0"
                damping="{params.joint_damping:.9g}" frictionloss="{params.joint_frictionloss:.9g}"/>
@@ -140,8 +159,9 @@ def build_mjcf(
         )
     rotors = []
     for rotor, sign in ((ROTOR_BODIES[0], 1.0), (ROTOR_BODIES[1], -1.0)):
+        rotor_pos = _vec([mp.axle_x, sign * mp.track_half_width, 0.0])
         rotors.append(
-            f"""      <body name="{rotor}" pos="{_vec([0.0, sign * mp.track_half_width, 0.0])}">
+            f"""      <body name="{rotor}" pos="{rotor_pos}">
         <inertial pos="0 0 0" mass="{ROTOR_MASS_KG}"
                   diaginertia="{_vec(rotor_diaginertia(rotor_axial))}"/>
         <joint name="{rotor}" type="hinge" axis="0 1 0"/>
@@ -152,13 +172,27 @@ def build_mjcf(
         f'polycoef="0 {mp.gear_ratio:.9g} 0 0 0" solref="{_vec(GEAR_SOLREF)}"/>'
         for eq, rotor, wheel in zip(GEAR_EQUALITIES, ROTOR_BODIES, WHEEL_JOINTS)
     ]
+    if mp.follower_axle_x is not None:
+        equalities += [
+            f'    <joint name="{eq}" joint1="{follower}" joint2="{wheel}" '
+            f'polycoef="0 1 0 0 0" solref="{_vec(GEAR_SOLREF)}"/>'
+            for eq, follower, wheel in zip(BELT_EQUALITIES, FOLLOWER_JOINTS, WHEEL_JOINTS)
+        ]
+    skid_block = (
+        ""
+        if skid is None
+        else f"""
+      <geom name="{SKID_GEOM}" type="sphere" size="{SKID_RADIUS_M}" pos="{_vec(skid)}"
+            contype="{ROBOT_CONTYPE}" conaffinity="{FLOOR_CONTYPE}" condim="4"
+            friction="{_vec(skid_friction(params))}"/>"""
+    )
 
     c = mp.chassis
     asset_block = "\n".join(assets)
     hull_block = "\n".join(hull_geoms)
     wheel_block = "\n".join(wheels + rotors)
     equality_block = "\n".join(equalities)
-    return f"""<mujoco model="mr_stabs_mk2">
+    return f"""<mujoco model="{model_name}">
   <compiler angle="radian" autolimits="true"/>
   <option timestep="{timestep:.9g}" integrator="implicitfast" cone="elliptic"/>
   <default>
@@ -173,10 +207,7 @@ def build_mjcf(
     <body name="chassis" pos="{_vec([0.0, 0.0, initial_height(mp)])}">
       <freejoint name="root"/>
       <inertial pos="{_vec(c.com)}" mass="{c.mass:.9g}" fullinertia="{_vec(c.fullinertia)}"/>
-{hull_block}
-      <geom name="{SKID_GEOM}" type="sphere" size="{SKID_RADIUS_M}" pos="{_vec(skid)}"
-            contype="{ROBOT_CONTYPE}" conaffinity="{FLOOR_CONTYPE}" condim="4"
-            friction="{_vec(skid_friction(params))}"/>
+{hull_block}{skid_block}
 {wheel_block}
     </body>
   </worldbody>

@@ -607,3 +607,47 @@ def test_load_fit_params_takes_the_lowest_finite_loss(tmp_path: Path) -> None:
     path = tmp_path / "fit.json"
     path.write_text(json.dumps({"runs": runs}))
     assert load_fit_params(path).delay_s == 0.04
+
+
+def _mk3() -> tuple[mujoco.MjModel, mass_properties.MassProperties]:
+    from auto_battlebot.mujoco_sim.mjcf import build_mjcf
+
+    asset = mass_properties.asset_dir("mrs_buff_mk3")
+    mp3 = mass_properties.load(asset / "mass_properties.toml")
+    xml = build_mjcf(mp3, PlantParams(), CollisionSet.load(asset / "collision"), DT, "mrs_buff_mk3")
+    return mujoco.MjModel.from_xml_string(xml), mp3
+
+
+def test_mk3_rests_on_four_wheels_at_the_cad_mass() -> None:
+    model, mp3 = _mk3()
+    assert float(model.body_mass.sum()) == pytest.approx(1.332, abs=1e-3)
+    data = mujoco.MjData(model)
+    for _ in range(int(2.0 / DT)):
+        mujoco.mj_step(model, data)
+    names = [mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, i) for i in range(model.ngeom)]
+    touching = {
+        names[c.geom2] if names[c.geom1] == "floor" else names[c.geom1]
+        for c in data.contact[: data.ncon]
+    }
+    assert touching == {
+        "wheel_left_tread",
+        "wheel_right_tread",
+        "follower_left_tread",
+        "follower_right_tread",
+    }
+    assert mp3.weapon is not None and mp3.weapon.radius == pytest.approx(0.05, abs=1e-3)
+
+
+def test_mk3_belts_turn_the_front_wheels_with_the_back() -> None:
+    model, mp3 = _mk3()
+    data = mujoco.MjData(model)
+    for _ in range(int(1.0 / DT)):
+        data.ctrl[:] = [8.0, 8.0]
+        mujoco.mj_step(model, data)
+    back = [data.qvel[model.joint(n).dofadr[0]] for n in ("wheel_left", "wheel_right")]
+    front = [data.qvel[model.joint(n).dofadr[0]] for n in ("follower_left", "follower_right")]
+    assert front == pytest.approx(back, rel=1e-2)
+    # Half the pack drives at about half the free speed.
+    speed = float(back[0]) * mp3.wheel_radius
+    free = 8.0 / (mp3.gear_ratio * mp3.motor_kt) * mp3.wheel_radius
+    assert 0.8 * free < speed < free

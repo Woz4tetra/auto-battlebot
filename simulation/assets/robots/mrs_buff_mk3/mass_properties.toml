@@ -1,0 +1,97 @@
+# Mrs Buff Mk3 mass properties. Generated; do not edit by hand.
+# Regenerate: python playground/calibration/build_mrs_buff_mk3_model.py
+[provenance]
+onshape_assembly = "Onshape Mass and section properties against the footprint-centre connector, screenshots 2026-10-25 (onshape_export/*.png); tensors shifted to each COM"
+urdf_export = "onshape_export/mrs_buff_mk3.urdf (Onshape URDF exporter 1.222); geometry, weapon axis and collision meshes only, it carries no mass overrides"
+chassis = "whole assembly minus four wheels; the weapon is lumped in (not spinning)"
+scale_mass_kg = "not weighed; the CAD total stands"
+motor = "Blitz Pro 24 mm 650 KV 5.2:1, justcuzrobotics.com product page and datasheet"
+rotor = "estimate: Mr Stabs Mk2's 1806 rotor scaled to a 2306 bell; fit absorbs it"
+generator = "playground/calibration/build_mrs_buff_mk3_model.py"
+
+[frame]
+description = "FLU at the footprint centre, at axle height: x = -Y_asm, y = +X_asm, z = +Z_asm"
+
+[chassis]
+mass_kg = 1.24
+com_m = [
+    0.0135379,
+    -0.0002449,
+    0.0097397,
+]
+fullinertia_kg_m2 = [
+    0.00356745,
+    0.00436111,
+    0.00705314,
+    -3.26151e-05,
+    -0.000588688,
+    -5.339e-06,
+]
+
+[wheel_left]
+mass_kg = 0.023
+com_m = [
+    -0.072,
+    0.097009,
+    0.0,
+]
+fullinertia_kg_m2 = [
+    3.95218e-06,
+    5.79283e-06,
+    3.85905e-06,
+    2.0421e-08,
+    3.05281e-09,
+    7.0218e-09,
+]
+
+[wheel_right]
+mass_kg = 0.023
+com_m = [
+    -0.072,
+    -0.097009,
+    0.0,
+]
+fullinertia_kg_m2 = [
+    3.95218e-06,
+    5.79283e-06,
+    3.85905e-06,
+    2.0421e-08,
+    3.05281e-09,
+    7.0218e-09,
+]
+
+[weapon]
+sweep_center_m = [
+    0.08029,
+    -0.00046,
+    0.0305,
+]
+sweep_radius_m = 0.05
+sweep_half_width_m = 0.00476
+body_mass_kg = 0.249
+body_com_m = [
+    0.080292,
+    0.000152,
+    0.0305,
+]
+body_fullinertia_kg_m2 = [
+    7.6227e-05,
+    0.00013688,
+    7.95597e-05,
+    1.38916e-08,
+    3.97396e-05,
+    5.364e-09,
+]
+
+[geometry]
+axle_x_m = -0.072
+follower_axle_x_m = 0.0405
+track_half_width_m = 0.1
+wheel_radius_m = 0.02485
+tread_width_m = 0.01
+
+[drivetrain]
+gear_ratio = 5.2
+motor_kv_rpm_per_v = 650.0
+motor_kt_nm_per_a = 0.0146912
+rotor_inertia_kg_m2 = 3e-06

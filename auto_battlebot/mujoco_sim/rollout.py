@@ -23,6 +23,8 @@ from auto_battlebot.mujoco_sim.actuator import MotorConstants, PlantParams
 from auto_battlebot.mujoco_sim.mass_properties import MassProperties
 from auto_battlebot.mujoco_sim.mjcf import (
     CHASSIS_GEOM_PREFIX,
+    FOLLOWER_GEOMS,
+    FOLLOWER_JOINTS,
     ROTOR_BODIES,
     SKID_GEOM,
     WHEEL_GEOMS,
@@ -64,6 +66,9 @@ class ModelIndex:
     rotor_bodies: np.ndarray
     rotor_dofs: np.ndarray
     rotor_qpos: np.ndarray
+    # Belt-driven wheels, in WHEEL_JOINTS order; empty on a two-wheeled robot.
+    follower_dofs: np.ndarray
+    follower_qpos: np.ndarray
 
     @classmethod
     def of(cls, model: mujoco.MjModel) -> ModelIndex:
@@ -74,14 +79,18 @@ class ModelIndex:
             ]
             return np.array([i for i, n in enumerate(names) if pred(n)], dtype=int)  # type: ignore[operator]
 
+        joints = {model.joint(i).name for i in range(model.njnt)}
+        followers = [n for n in FOLLOWER_JOINTS if n in joints]
         return cls(
-            wheel_geoms=geom_ids(lambda n: n in WHEEL_GEOMS),
+            wheel_geoms=geom_ids(lambda n: n in WHEEL_GEOMS or n in FOLLOWER_GEOMS),
             skid_geoms=geom_ids(lambda n: n == SKID_GEOM or n.startswith(CHASSIS_GEOM_PREFIX)),
             wheel_dofs=np.array([model.joint(n).dofadr[0] for n in WHEEL_JOINTS]),
             wheel_qpos=np.array([model.joint(n).qposadr[0] for n in WHEEL_JOINTS]),
             rotor_bodies=np.array([model.body(n).id for n in ROTOR_BODIES]),
             rotor_dofs=np.array([model.joint(n).dofadr[0] for n in ROTOR_BODIES]),
             rotor_qpos=np.array([model.joint(n).qposadr[0] for n in ROTOR_BODIES]),
+            follower_dofs=np.array([model.joint(n).dofadr[0] for n in followers], dtype=int),
+            follower_qpos=np.array([model.joint(n).qposadr[0] for n in followers], dtype=int),
         )
 
 
@@ -127,8 +136,9 @@ def param_arrays(
         out.geom_friction[w, index.skid_geoms] = skid_friction(p)
         out.geom_solref[w, robot_geoms] = solref(p)
         out.geom_solimp[w, robot_geoms] = solimp(p)
-        out.dof_damping[w, index.wheel_dofs] = p.joint_damping
-        out.dof_frictionloss[w, index.wheel_dofs] = p.joint_frictionloss
+        bearings = np.concatenate([index.wheel_dofs, index.follower_dofs])
+        out.dof_damping[w, bearings] = p.joint_damping
+        out.dof_frictionloss[w, bearings] = p.joint_frictionloss
         axial = mp.rotor_inertia * p.armature_scale
         out.body_inertia[w, index.rotor_bodies] = rotor_diaginertia(axial)
         out.actuator_gainprm[w, :, 0] = motor.gain(p)
@@ -181,6 +191,8 @@ def initial_qpos_qvel(
     qvel[:, 5] = np.cos(state.pitch) * state.yaw_rate
     wheels = np.stack([state.wheel_left, state.wheel_right], axis=1)
     qvel[:, index.wheel_dofs] = wheels
+    if len(index.follower_dofs):
+        qvel[:, index.follower_dofs] = wheels
     qvel[:, index.rotor_dofs] = gear_ratio * wheels
     return qpos, qvel
 
