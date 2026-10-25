@@ -228,6 +228,9 @@ class WarpNavConfig:
     strike_x_m: float = 0.06
     strike_half_width_m: float = 0.081
     danger_margin_m: float = 0.10
+    # reward["hole_near_per_s"] ramps from 0 at this distance outside a hole's edge to full weight
+    # at the edge, so the policy learns to keep clear before the terminal hole penalty.
+    hole_margin_m: float = 0.15
     # Under this body speed, unless our wedge is on the opponent from outside its arc, the robot
     # counts as standing still and pays reward["still_per_s"]. Spinning in place still counts: a
     # robot turning on the spot is as easy to hit as a parked one.
@@ -253,6 +256,10 @@ class WarpNavConfig:
             "hit_taken": -10.0,
             "danger_per_s": -1.0,
             "hole": -10.0,
+            # Off by default. Mrs Buff Mk3's stage C fine-tune with hole -30 still fell in on
+            # 0.05 to 0.07 of training episodes, mostly with no hit taken: a terminal penalty
+            # alone gives little credit to the steps that drove there.
+            "hole_near_per_s": 0.0,
             "block_event": -0.5,
             "wall_event": -0.2,
             "flip": -20.0,
@@ -1343,12 +1350,12 @@ class WarpNavEnv:
         self.stats["block_contacts"] += block_event.float()
         self.prev_block = block
 
-        in_hole = (
-            ((tr["xy"][:, None] - self.slot_xy).norm(dim=-1) < self.slot_r)
-            & self.slot_present
-            & (self.slot_kind == obs_spec.HOLE)
-        ).any(1)
+        is_hole = self.slot_present & (self.slot_kind == obs_spec.HOLE)
+        edge = (tr["xy"][:, None] - self.slot_xy).norm(dim=-1) - self.slot_r
+        in_hole = ((edge < 0.0) & is_hole).any(1)
         reward += torch.where(in_hole, rw["hole"], 0.0)
+        near = torch.where(is_hole, 1.0 - edge / cfg.hole_margin_m, 0.0).clamp(0.0, 1.0)
+        reward += rw["hole_near_per_s"] * dt * near.amax(1)
         self.stats["holes"] += in_hole.float()
         tipped = (tr["up_z"] < 0.0) | (tr["pitch"].abs() > math.radians(80))
         self.flip_s = torch.where(tipped, self.flip_s + dt, torch.zeros_like(self.flip_s))
