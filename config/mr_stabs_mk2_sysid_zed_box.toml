@@ -1,29 +1,11 @@
 # System identification sessions for Mr Stabs Mk2 (docs/plans/mujoco_warp_mr_stabs_plan.md). The
 # driver drives by hand in the 1.52 m test box under a tripod-mounted ZED X One S; the app records
-# the robot's AprilTag poses and the firmware's diagnostics stream into the MCAP.
+# the robot's AprilTag poses and the firmware's ESP-NOW telemetry into the MCAP.
 extends = "mr_stabs_mk2_fid_zed_box"
 
-# The type differs from the base, so the merge replaces this section outright: every radio field
-# from _common and mr_stabs_mk2_zed_box is restated here.
-[transmitter]
-type = "Esp32DiagnosticsOpenTxTransmitter"
-drive_processor = "DifferentialDriveProcessor"
-linear_channel = 0                             # radio CH1
-angular_channel = 1                            # radio CH2
-trainer_enable_channel = 5                     # radio CH6
-init_button_channel = 31                       # disabled
-max_motor_rpm = 1500                           # RPM
-max_motor_rpm_per_sec = 0                      # RPM/s; off
-lifted_deadzone_percent = 0
-zero_deadzone_percent = 2
-reverse_angular_channel = true
-velocity_saturation_limit = 1.0
-# Polls the robot's telemetry ring (GET /telemetry, 100 Hz records, two minutes deep). This is
-# its access point, which the box joins on its second WiFi dongle. With the robot in client mode
-# on the box's router, set this to the address the router reserves for it.
-esp32_host = "192.168.50.243"
-esp32_port = 80
-reconnect_period_s = 1.0      # wait after a failed poll
+# The transmitter is the base's EspNowTransmitter. The dongle pings the robot every 10 ms on its
+# own, which is enough for the robot to stream 100 Hz telemetry back on /robot/espnow_telemetry,
+# so nothing has to be sent and the handset needs no USB link.
 
 [keypoint_model]
 type = "AprilTagKeypointModel"
@@ -82,5 +64,5 @@ field_size_y = 1.52
 type = "NoopNavigation" # the driver drives; autonomy has nothing to do
 
 [runner]
-# Autonomy has nothing to send. Off, so an engaged trainer switch cannot put zeros on the sticks.
+# Autonomy has nothing to send. Off, so flipping SA cannot put zeros on the wheels.
 autonomy_enabled_by_default = false
