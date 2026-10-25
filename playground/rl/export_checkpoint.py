@@ -29,10 +29,15 @@ def main() -> None:
     ap.add_argument("checkpoint", type=Path)
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--run-id", default=None)
+    ap.add_argument("--robot", default=None, help="default: the robot the checkpoint trained")
     args = ap.parse_args()
-    env = WarpNavEnv(WarpNavConfig(worlds=64, stage="EVAL", holdout=True), "cuda", seed=7)
+    ckpt = torch.load(args.checkpoint, map_location="cuda")
+    robot = args.robot or ckpt.get("robot", "mr_stabs_mk2")
+    env = WarpNavEnv(
+        WarpNavConfig(worlds=64, stage="EVAL", holdout=True, robot=robot), "cuda", seed=7
+    )
     policy = MlpGaussianPolicy(env.spec).cuda()
-    policy.load_state_dict(torch.load(args.checkpoint, map_location="cuda")["learner"]["policy"])
+    policy.load_state_dict(ckpt["learner"]["policy"])
     obs, _ = env.reset(7)
     seen = []
     for _ in range(50):
