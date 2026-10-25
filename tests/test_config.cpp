@@ -1850,9 +1850,8 @@ TEST(SysidProfileTest, MrStabsMk2SysidProfileParsesAndIsSelectable) {
 // robot. The processor settings must match how the radio model mixes, as the trainer path did.
 TEST(EspNowProfileTest, MrStabsMk2ZedBoxProfilesUseEspNowAlone) {
     const auto config_dir = get_config_dir();
-    for (const char *name :
-         {"mr_stabs_mk2_aer_zed_box.toml", "mr_stabs_mk2_fid_zed_box.toml",
-          "mr_stabs_mk2_fid_old_plant_zed_box.toml", "mr_stabs_mk2_fid_rl_zed_box.toml"}) {
+    for (const char *name : {"mr_stabs_mk2_aer_zed_box.toml", "mr_stabs_mk2_fid_zed_box.toml",
+                             "mr_stabs_mk2_fid_rl_zed_box.toml"}) {
         auto config = load_classes_from_config((config_dir / name).string());
         auto *espnow = dynamic_cast<EspNowTransmitterConfiguration *>(config.transmitter.get());
         ASSERT_NE(espnow, nullptr) << name;
@@ -1864,21 +1863,22 @@ TEST(EspNowProfileTest, MrStabsMk2ZedBoxProfilesUseEspNowAlone) {
     }
 }
 
-// The A/B profile restores the 2026-10-12 plant and slew limit over the current AER profile.
-TEST(EspNowProfileTest, OldPlantProfileRestoresGeometryPlantAndSlewLimit) {
-    auto config = load_classes_from_config(
-        (get_config_dir() / "mr_stabs_mk2_fid_old_plant_zed_box.toml").string());
-    auto *espnow = dynamic_cast<EspNowTransmitterConfiguration *>(config.transmitter.get());
-    ASSERT_NE(espnow, nullptr);
-    EXPECT_DOUBLE_EQ(espnow->max_motor_rpm, 1500.0);
-    EXPECT_DOUBLE_EQ(espnow->max_motor_rpm_per_sec, 2000.0);
-    ASSERT_TRUE(config.plant.params.has_value());
-    const auto &plant = *config.plant.params;
-    EXPECT_DOUBLE_EQ(plant.k_fwd, 3.92699);
-    EXPECT_DOUBLE_EQ(plant.k_ang, 59.9541);
-    EXPECT_DOUBLE_EQ(plant.tau_ang_a, 0.0);
-    EXPECT_DOUBLE_EQ(plant.tau_lin_a, 0.0);
-    EXPECT_DOUBLE_EQ(plant.c_sb, 0.0);
+// Both Mr Stabs ZED Box profiles run the geometry plant and the slew limit.
+TEST(EspNowProfileTest, MrStabsMk2ZedBoxProfilesUseGeometryPlantAndSlewLimit) {
+    for (const char *name : {"mr_stabs_mk2_aer_zed_box.toml", "mr_stabs_mk2_fid_zed_box.toml"}) {
+        auto config = load_classes_from_config((get_config_dir() / name).string());
+        auto *espnow = dynamic_cast<EspNowTransmitterConfiguration *>(config.transmitter.get());
+        ASSERT_NE(espnow, nullptr) << name;
+        EXPECT_DOUBLE_EQ(espnow->max_motor_rpm, 1500.0) << name;
+        EXPECT_DOUBLE_EQ(espnow->max_motor_rpm_per_sec, 2000.0) << name;
+        ASSERT_TRUE(config.plant.params.has_value()) << name;
+        const auto &plant = *config.plant.params;
+        EXPECT_DOUBLE_EQ(plant.k_fwd, 3.92699) << name;
+        EXPECT_DOUBLE_EQ(plant.k_ang, 59.9541) << name;
+        EXPECT_DOUBLE_EQ(plant.tau_ang_a, 0.0) << name;
+        EXPECT_DOUBLE_EQ(plant.tau_lin_a, 0.0) << name;
+        EXPECT_DOUBLE_EQ(plant.c_sb, 0.0) << name;
+    }
 }
 
 // The RL profile swaps only the navigation; the policy refuses to load without the 6-state
@@ -1888,7 +1888,7 @@ TEST(RlProfileTest, FiducialRlProfileUsesPolicyBundle) {
         load_classes_from_config((get_config_dir() / "mr_stabs_mk2_fid_rl_zed_box.toml").string());
     auto *nav = dynamic_cast<RlPolicyNavigationConfiguration *>(config.navigation.get());
     ASSERT_NE(nav, nullptr);
-    EXPECT_EQ(nav->policy.bundle, "data/models/nav_policies/rl_nav_p4");
+    EXPECT_EQ(nav->policy.bundle, "data/models/nav_policies/rl_nav_p4_nodrop");
     EXPECT_EQ(nav->opponent_mode, OpponentMode::KALMAN);
 }
 #endif
