@@ -9,6 +9,12 @@ model bundle (plan section 12) written at the end.
     source scripts/activate_python.sh
     python training/rl/train_nav_policy.py --hours 3
     python training/rl/train_nav_policy.py --resume runs/rl_nav/<run>/checkpoint.pt --hours 2
+    python training/rl/train_nav_policy.py --robot mrs_buff_mk3 --name rl_nav_mk3 --hours 6
+
+`--robot` picks the robot (`warp_nav.ROBOTS`), Mr Stabs Mk2 by default. A checkpoint records its
+robot, and resuming it as another robot is refused. A robot with a self-play opponent driver
+(`policy_opponents.py`) plays a frozen copy of the policy, refreshed every `--self-play-every`
+iterations.
 
 `--pursuit-curriculum` starts the pursuers at `--pursuit-level` (0 is the easiest pursuer,
 1 the whole range) and raises the level by 0.1 each time the last 500 or more attack episodes
@@ -29,7 +35,7 @@ from pathlib import Path
 import torch
 
 from auto_battlebot.rl.envs.opponents import PURSUIT
-from auto_battlebot.rl.envs.warp_nav import STAGES, WarpNavConfig, WarpNavEnv
+from auto_battlebot.rl.envs.warp_nav import ROBOTS, STAGES, WarpNavConfig, WarpNavEnv
 from auto_battlebot.rl.export.bundle import spec_from_policy, write_bundle
 from auto_battlebot.rl.learners.ppo import Ppo, PpoConfig
 from auto_battlebot.rl.policies.mlp import MlpGaussianPolicy
@@ -83,9 +89,26 @@ def raise_pursuit_level(env: WarpNavEnv, advance_at: float, env_steps: int) -> N
     env.pursuit_window = []
 
 
+def load_resume(args: argparse.Namespace) -> tuple[dict | None, str]:
+    """The checkpoint to resume, if any, and the stage to start in."""
+    stage = args.stage
+    resume = torch.load(args.resume, map_location="cuda") if args.resume else None
+    if resume is None:
+        return None, stage
+    if not args.force_stage:
+        stage = resume.get("stage", stage)
+    # Checkpoints from before the robot was recorded are all Mr Stabs Mk2.
+    trained = resume.get("robot", "mr_stabs_mk2")
+    if trained != args.robot:
+        raise SystemExit(f"{args.resume} trained {trained}, not {args.robot}")
+    return resume, stage
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     ap.add_argument("--name", default="rl_nav_ppo")
+    ap.add_argument("--robot", default="mr_stabs_mk2", choices=list(ROBOTS))
+    ap.add_argument("--fit-file", default="", help="MuJoCo plant fit; default: the robot's own")
     # 8,192 runs 91,000 policy steps/s on the laptop 4080 against 66,000 at 4,096.
     ap.add_argument("--worlds", type=int, default=8192)
     ap.add_argument("--episode-s", type=float, default=20.0, help="time limit per episode")
@@ -136,6 +159,7 @@ def main() -> None:
     )
     ap.add_argument("--anchor-coef", type=float, default=0.5)
     ap.add_argument("--checkpoint-every-s", type=float, default=600.0)
+    ap.add_argument("--self-play-every", type=int, default=25, help="iterations per refresh")
     ap.add_argument("--out", type=Path, default=REPO / "runs" / "rl_nav")
     args = ap.parse_args()
 
@@ -143,12 +167,15 @@ def main() -> None:
     out = args.out / f"{args.name}_s{args.seed}_{stamp}"
     out.mkdir(parents=True, exist_ok=True)
     torch.manual_seed(args.seed)
-    stage = args.stage
-    resume = torch.load(args.resume, map_location="cuda") if args.resume else None
-    if resume is not None and not args.force_stage:
-        stage = resume.get("stage", stage)
+    resume, stage = load_resume(args)
     env = WarpNavEnv(
-        WarpNavConfig(worlds=args.worlds, stage=stage, episode_s=args.episode_s),
+        WarpNavConfig(
+            worlds=args.worlds,
+            stage=stage,
+            episode_s=args.episode_s,
+            robot=args.robot,
+            fit_file=args.fit_file,
+        ),
         "cuda",
         seed=args.seed,
     )
@@ -175,6 +202,7 @@ def main() -> None:
         torch.save(
             {
                 "learner": learner.state_dict(),
+                "robot": args.robot,
                 "stage": env.stage,
                 "env_steps": learner.env_steps,
                 "pursuit_level": env.opponents.pursuit_level,
@@ -183,6 +211,8 @@ def main() -> None:
         )
 
     while time.time() - start < args.hours * 3600:
+        if it % args.self_play_every == 0:
+            env.policy_opp.set_self_play(policy.state_dict())
         stats = learner.iterate()
         it += 1
         row = {

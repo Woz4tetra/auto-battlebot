@@ -224,12 +224,15 @@ class Opponents:
         footprint: torch.Tensor,
         dt: float,
         opp_half: torch.Tensor | None = None,
+        override: tuple[torch.Tensor, torch.Tensor] | None = None,
     ) -> torch.Tensor:
         """World-frame (vx, vy, yaw rate) for every world's opponent this step, [W, 3].
 
         `footprint` is the opponent's half-diagonal, which keeps it off the walls; `opp_half`
         [W, 2] is its half length and half width, which stops it at contact with us. Without it
-        the opponent is taken as a square with that half-diagonal."""
+        the opponent is taken as a square with that half-diagonal. `override` is (mask [W],
+        velocity [W, 3]): worlds whose opponent something else drives (`policy_opponents.py`),
+        held to the same wall and contact rules."""
         p = self.p
         b = p.behaviour
         forward = torch.zeros_like(yaw)
@@ -316,6 +319,8 @@ class Opponents:
         self.forward = forward
         v = torch.stack([forward * torch.cos(yaw), forward * torch.sin(yaw), omega], 1)
         v = torch.where(rep[:, None], world, v)
+        if override is not None:
+            v = torch.where(override[0][:, None], override[1], v)
         # Wall stop: no velocity component into a wall the opponent is touching.
         stop_x = ((xy[:, 0] >= lim[:, 0]) & (v[:, 0] > 0)) | (
             (xy[:, 0] <= -lim[:, 0]) & (v[:, 0] < 0)

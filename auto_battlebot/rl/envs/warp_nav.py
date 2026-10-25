@@ -67,6 +67,7 @@ from auto_battlebot.rl.envs.opponents import (
     Opponents,
     box_support,
 )
+from auto_battlebot.rl.envs.policy_opponents import PolicyDriver, PolicyOpponents
 from auto_battlebot.rl.envs.replay_tracks import ReplayTracks
 from auto_battlebot.rl.torch_plant import saturate
 
@@ -108,12 +109,28 @@ class RobotProfile:
     command: str
     weapon: str
     opponents: tuple[str, ...]
+    # Opponents driven by trained policies (`policy_opponents.py`), drawn in a stage's
+    # `policy` share of episodes.
+    drivers: tuple[PolicyDriver, ...] = ()
 
 
+MK2_POLICY_DRIVER = PolicyDriver(
+    "mr_stabs_mk2_policy",
+    "mr_stabs_mk2",
+    "config/mr_stabs_mk2_desktop.toml",
+    "runs/rl_nav/rl_nav_ppo_p4_s7_2026-10-18_04-04-10/checkpoint.pt",
+)
 ROBOTS = {
     "mr_stabs_mk2": RobotProfile(DEFAULT_FIT, "firmware", "wedge", ("mrs_buff_mk3",)),
     "mrs_buff_mk3": RobotProfile(
-        MK3_INTERIM_FIT, "direct", "disk", ("mr_stabs_mk2", "mrs_buff_mk3")
+        MK3_INTERIM_FIT,
+        "direct",
+        "disk",
+        ("mr_stabs_mk2", "mrs_buff_mk3"),
+        drivers=(
+            MK2_POLICY_DRIVER,
+            PolicyDriver("self_play", "mrs_buff_mk3", "config/_common.toml", ""),
+        ),
     ),
 }
 
@@ -128,6 +145,7 @@ class Stage:
     arena: tuple[float, float]  # side length range, m
     run_away: float  # fraction of RUN_AWAY episodes
     house: float  # probability of a house bot
+    policy: float = 0.0  # share of opponents driven by a policy, for robots that have drivers
 
 
 STAGE_B_OPPONENTS = ("static", "straight", "circle", "random_walk")
@@ -146,19 +164,20 @@ STAGES = {
         (1.5, 2.5),
         0.2,
         0.5,
+        0.25,
     ),
-    "D": Stage(BEHAVIOURS, 3, False, True, 1.0, (1.5, 2.5), 0.2, 0.5),
+    "D": Stage(BEHAVIOURS, 3, False, True, 1.0, (1.5, 2.5), 0.2, 0.5, 0.3),
     # Pursuit focus: stage D with half the episodes against a pursuer, so the rest of the mix is
     # still trained while pursuit gets enough episodes to learn from. Pair with the pursuit
     # difficulty curriculum in train_nav_policy.py.
-    "P": Stage((*BEHAVIOURS, *("pursuit",) * 5), 3, False, True, 1.0, (1.5, 2.5), 0.2, 0.5),
+    "P": Stage((*BEHAVIOURS, *("pursuit",) * 5), 3, False, True, 1.0, (1.5, 2.5), 0.2, 0.5, 0.3),
     # Three quarters pursuit (16 of 22 draws), for runs with --anchor holding the rest of the
     # mix: at half, pursuit success stalled at 0.22 to 0.31 on level 0.4 for 1,500 iterations.
-    "P3": Stage((*BEHAVIOURS, *("pursuit",) * 15), 3, False, True, 1.0, (1.5, 2.5), 0.2, 0.5),
+    "P3": Stage((*BEHAVIOURS, *("pursuit",) * 15), 3, False, True, 1.0, (1.5, 2.5), 0.2, 0.5, 0.3),
     # Evaluation (gates G4, G5): stage D's mix on the nominal plant, so the lockstep sim, which
     # runs the fit as it is, plays the same robot. Pair with `holdout=True` for the held-out
     # pursuit corner and replay tracks.
-    "EVAL": Stage(BEHAVIOURS, 3, False, True, 0.0, (1.5, 2.5), 0.2, 0.5),
+    "EVAL": Stage(BEHAVIOURS, 3, False, True, 0.0, (1.5, 2.5), 0.2, 0.5, 0.3),
     # Pursuit only, attack only, open arena, nominal plant: the pursuit difficulty map and the
     # pursuit evaluation set (playground/rl/pursuit_map.py).
     "PURSUIT": Stage(("pursuit",), 0, True, True, 0.0, (1.5, 2.5), 0.0, 0.0),
@@ -359,9 +378,17 @@ class WarpNavEnv:
         self.substeps = int(round(cfg.measure_period_s / cfg.timestep_s))
         self.launches = int(round(cfg.policy_dt_s / cfg.measure_period_s))
         self.max_steps = int(round(cfg.episode_s / cfg.policy_dt_s))
+        self.profile = ROBOTS[cfg.robot]
+        drivers = ("scripted", *(d.name for d in self.profile.drivers))
+        # The opponent's driver joins the critic's inputs only for a robot that has drivers, so
+        # Mr Stabs Mk2's privileged vector, and the checkpoints trained on it, stay as they were.
+        self.privileged_names = (
+            *PRIVILEGED_NAMES,
+            *((f"driver_{d}" for d in drivers) if self.profile.drivers else ()),
+        )
         self.spec = EnvSpec(
             obs_names=obs_spec.OBS_NAMES,
-            privileged_names=PRIVILEGED_NAMES,
+            privileged_names=self.privileged_names,
             obs_spec_version=obs_spec.OBS_SPEC_VERSION,
             policy_dt_s=cfg.policy_dt_s,
             max_episode_steps=self.max_steps,
@@ -371,7 +398,6 @@ class WarpNavEnv:
         self.arc = math.radians(cfg.arc_half_angle_deg)
         self.stage = cfg.stage
 
-        self.profile = ROBOTS[cfg.robot]
         asset = mass_properties.asset_dir(cfg.robot)
         self.mp = mass_properties.load(asset / "mass_properties.toml")
         self.collision = CollisionSet.load(asset / "collision")
@@ -581,6 +607,9 @@ class WarpNavEnv:
         self.first_strike_s = torch.full((w,), math.inf, device=dev, dtype=dt)
         self.first_hit_s = torch.full((w,), math.inf, device=dev, dtype=dt)
         self.opponents = Opponents(w, dev, dt, self.gen, our_half=self.our_half)
+        self.policy_opp = PolicyOpponents(
+            self.profile.drivers, self.spec, w, cfg.policy_dt_s, dev, dt
+        )
         self.opponents.replay = ReplayTracks(cfg.holdout, dev, dt, episode_s=cfg.episode_s)
         self.success_window: list[float] = []
         self.pursuit_window: list[float] = []  # attack episodes against a pursuer
@@ -642,7 +671,13 @@ class WarpNavEnv:
         # iteration, and episodes from the easier level raised job 43 from 0.4 to 0.7 in 7
         # iterations.
         level = self.episode_pursuit_level[done] == self.opponents.pursuit_level
-        chased = (episode["behaviour"][done] == PURSUIT) & (episode["run_away"][done] < 0.5) & level
+        scripted = episode["driver"][done] == 0
+        chased = (
+            (episode["behaviour"][done] == PURSUIT)
+            & (episode["run_away"][done] < 0.5)
+            & level
+            & scripted
+        )
         self.pursuit_window.extend(ok[chased].float().tolist())
         self.pursuit_window = self.pursuit_window[-1000:]
 
@@ -732,6 +767,8 @@ class WarpNavEnv:
         n = self.num_worlds
         m1 = mask[:, None]
         model = torch.randint(0, len(self.opp_sizes), (n,), generator=self.gen, device=self.device)
+        self.policy_opp.draw(mask, self.stage_cfg.policy, self.gen)
+        model = self.policy_opp.robot_of(self.policy_opp.driver, model, self.profile.opponents)
         self.opp_model = torch.where(mask, model, self.opp_model)
         osize = self.opp_sizes[model] * self._uniform(*_scaled((0.8, 1.2), s))[:, None]
         self.opp_half = torch.where(m1, osize[:, :2] / 2, self.opp_half)
@@ -1225,6 +1262,7 @@ class WarpNavEnv:
             self.opp_half.norm(dim=1),
             dt,
             opp_half=self.opp_half,
+            override=self._policy_opponent_command(tr0) if self.policy_opp.available else None,
         )
         self._house_command()
         self.flags.zero_()
@@ -1335,6 +1373,7 @@ class WarpNavEnv:
             episode["first_hit_s"] = self.first_hit_s.clone()
             episode["run_away"] = self.run_away.float()
             episode["behaviour"] = self.opponents.p.behaviour.float()
+            episode["driver"] = self.policy_opp.driver.float()
             episode["opp_speed"] = self.opponents.p.speed.clone()
             episode["opp_turn_rate"] = self.opponents.p.turn_rate.clone()
             episode["opp_delay_s"] = self.opponents.p.delay_steps.float() * cfg.policy_dt_s
@@ -1354,6 +1393,64 @@ class WarpNavEnv:
             final_privileged=final_priv,
             episode=episode,
         )
+
+    def _policy_opponent_command(
+        self, tr: dict[str, torch.Tensor]
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Policy-driven opponents' velocities: each sees the arena from its side, exactly."""
+        n = self.num_worlds
+        zeros = torch.zeros(n, device=self.device, dtype=self.dtype)
+        false = torch.zeros(n, dtype=torch.bool, device=self.device)
+        hz_xy, hz_r, hz_kind, hz_vel, hz_present = self._hazards()
+        inp = obs_spec.ObsInputs(
+            our_xy=tr["opp_xy"],
+            our_yaw=tr["opp_yaw"],
+            our_speed=self.policy_opp.v,
+            our_yaw_rate=self.policy_opp.w_rate,
+            our_age_s=zeros,
+            our_stale=false,
+            run_away=false,
+            hist_action=self.policy_opp.hist_action,
+            hist_speed=self.policy_opp.hist_speed,
+            hist_yaw_rate=self.policy_opp.hist_rate,
+            opp_present=~false,
+            opp_xy=tr["xy"],
+            opp_yaw=tr["yaw"],
+            opp_velocity=tr["velocity"],
+            opp_yaw_rate=tr["yaw_rate"],
+            opp_position_sigma=zeros,
+            opp_heading_sigma=zeros,
+            opp_yaw_rate_sigma=zeros,
+            opp_half_diagonal=zeros + self.our_half_diag,
+            opp_age_s=zeros,
+            opp_stale=false,
+            field_half=self.arena_half,
+            hazard_xy=hz_xy,
+            hazard_radius=hz_r,
+            hazard_kind=hz_kind,
+            hazard_velocity=hz_vel,
+            hazard_present=hz_present,
+        )
+        velocity, active = self.policy_opp.command(inp, tr["opp_yaw"])
+        return active, velocity
+
+    def _hazards(
+        self,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Holes, wall blocks and the house bot, as the observation takes them."""
+        n = self.num_worlds
+        hz_xy = torch.cat([self.slot_xy, self.mocap_pos[:, HOUSE_MOCAP, None, :2]], 1)
+        hz_r = torch.cat([self.slot_r, torch.full((n, 1), HOUSE_RADIUS_M, device=self.device)], 1)
+        hz_kind = torch.cat(
+            [
+                self.slot_kind,
+                torch.full((n, 1), obs_spec.TRACKED, device=self.device, dtype=torch.long),
+            ],
+            1,
+        )
+        hz_vel = torch.cat([torch.zeros_like(self.slot_xy), self.mover_vel_t[:, 1, None, :2]], 1)
+        hz_present = torch.cat([self.slot_present, self.house_present[:, None]], 1)
+        return hz_xy, hz_r, hz_kind, hz_vel, hz_present
 
     def _house_command(self) -> None:
         n = self.num_worlds
@@ -1441,17 +1538,7 @@ class WarpNavEnv:
             opp_age, opp_stale = zeros, false
         self.last_speed, self.last_rate = our_v, our_w
 
-        hz_xy = torch.cat([self.slot_xy, self.mocap_pos[:, HOUSE_MOCAP, None, :2]], 1)
-        hz_r = torch.cat([self.slot_r, torch.full((n, 1), HOUSE_RADIUS_M, device=self.device)], 1)
-        hz_kind = torch.cat(
-            [
-                self.slot_kind,
-                torch.full((n, 1), obs_spec.TRACKED, device=self.device, dtype=torch.long),
-            ],
-            1,
-        )
-        hz_vel = torch.cat([torch.zeros_like(self.slot_xy), self.mover_vel_t[:, 1, None, :2]], 1)
-        hz_present = torch.cat([self.slot_present, self.house_present[:, None]], 1)
+        hz_xy, hz_r, hz_kind, hz_vel, hz_present = self._hazards()
         inp = obs_spec.ObsInputs(
             our_xy=our_xy,
             our_yaw=our_yaw,
@@ -1518,4 +1605,9 @@ class WarpNavEnv:
             ],
             1,
         )
+        if self.policy_opp.available:
+            drivers = torch.nn.functional.one_hot(
+                self.policy_opp.driver, len(self.policy_opp.names)
+            ).to(self.dtype)
+            priv = torch.cat([priv, drivers], 1)
         return obs, priv
