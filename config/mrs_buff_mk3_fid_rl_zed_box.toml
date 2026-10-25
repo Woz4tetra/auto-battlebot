@@ -1,9 +1,10 @@
 # Mrs Buff Mk3 on the fiducial field, driven by RlPolicyNavigation. Commands go out through
 # _common's OpenTxTransmitter: the handset relays them over ELRS through the trainer port. The
 # drivetrain plant is _common's, which is the Mrs Buff Stage A fit. The bundle is
-# rl_nav_mk3_c_near (queue job 58 on megamind, 2026-10-25), copied from
-# runs/rl_nav/rl_nav_mk3_c_near_<timestamp>/bundle. It has no HazardAvoidance layer: walls and
-# hazards reach it only through its observation.
+# rl_nav_mk3_c_near (queue job 58 on megamind, 2026-10-25), exported from
+# runs/rl_nav/rl_nav_mk3_c_near_s15_2026-10-25_18-11-33. It trained with the weapon off, against
+# a MuJoCo plant fitted to the jig plant rather than to Mk3 recordings. It has no HazardAvoidance
+# layer: walls and hazards reach it only through its observation.
 extends = "_zed_box"
 
 [field_filter]
