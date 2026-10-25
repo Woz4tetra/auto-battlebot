@@ -354,6 +354,17 @@ class LockstepWorld:
                         return True
         return False
 
+    def _in_arc(self, p: np.ndarray, ox: float, oy: float, oyaw: float, phi: float) -> bool:
+        """`warp_kernels.in_opponent_arc`: a hit taken."""
+        from auto_battlebot.rl.envs.warp_kernels import FRONT_FACE_MARGIN_M
+
+        if abs(phi) >= self.arc:
+            return False
+        if self.profile.arc_rule == "front_face":
+            along = math.cos(oyaw) * (p[0] - ox) + math.sin(oyaw) * (p[1] - oy)
+            return along > self.opp_half[0] - FRONT_FACE_MARGIN_M
+        return True
+
     def _on_weapon(self, rot: np.ndarray, p: np.ndarray) -> bool:
         """A contact with the opponent lands on our weapon: Mk3's disk sweep, Mk2's wedge."""
         if self.profile.weapon == "disk":
@@ -385,7 +396,7 @@ class LockstepWorld:
                 p = c.pos
                 phi = wrap(math.atan2(p[1] - oy, p[0] - ox) - oyaw)
                 flags[0] = 1
-                if abs(phi) < self.arc:
+                if self._in_arc(np.asarray(p), ox, oy, oyaw, phi):
                     flags[1] = 1
                     continue
                 if self._on_weapon(rot, np.asarray(p)):

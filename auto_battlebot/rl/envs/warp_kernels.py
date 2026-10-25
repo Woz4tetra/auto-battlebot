@@ -39,6 +39,13 @@ GYRO_RANGE_DPS = 2000.0
 PI = 3.14159265358979
 WEAPON_WEDGE = 0
 WEAPON_DISK = 1
+# A contact is a hit taken when it is inside the opponent's front arc (ARC_ANGLE, Mr Stabs Mk2's
+# training), or, for a robot as wide as Mrs Buff Mk3, only on the opponent's front face
+# (ARC_FRONT_FACE): her front spans an opponent's front corners when she rams its side, which
+# the angle alone counts as a hit.
+ARC_ANGLE = 0
+ARC_FRONT_FACE = 1
+FRONT_FACE_MARGIN_M = 0.01
 # A disk-sweep point this close to the opponent's box counts as the weapon touching it.
 SWEEP_MARGIN_M = 0.005
 SWEEP_ANGLES = 16
@@ -377,6 +384,24 @@ def on_weapon(
     return on_wedge(qpos, w, p, strike_x, strike_half_width) == 1
 
 
+@wp.func
+def in_opponent_arc(
+    p: wp.vec3,
+    op: wp.vec3,
+    oyaw: float,
+    box_half: wp.vec3,
+    phi: float,
+    arc_half_angle: float,
+    rule: int,
+) -> bool:
+    if wp.abs(phi) >= arc_half_angle:
+        return False
+    if rule == ARC_FRONT_FACE:
+        along = wp.cos(oyaw) * (p[0] - op[0]) + wp.sin(oyaw) * (p[1] - op[1])
+        return along > box_half[0] - FRONT_FACE_MARGIN_M
+    return True
+
+
 @wp.kernel
 def classify_contacts(
     nacon: wp.array(dtype=int),
@@ -396,6 +421,7 @@ def classify_contacts(
     sweep_y: float,
     geom_size: wp.array2d(dtype=wp.vec3),
     opponent_geom: int,
+    arc_rule: int,
     flags: wp.array2d(dtype=float),
 ):
     """OR this substep's contacts into per-world flags.
@@ -443,11 +469,10 @@ def classify_contacts(
     ang = wp.atan2(p[1] - op[1], p[0] - op[0]) - oyaw
     phi = ang - 2.0 * PI * wp.floor((ang + PI) / (2.0 * PI))
     wp.atomic_max(flags, w, 0, 1.0)
-    in_arc = wp.abs(phi) < arc_half_angle
-    if in_arc:
+    box_half = geom_size[w, opponent_geom]
+    if in_opponent_arc(p, op, oyaw, box_half, phi, arc_half_angle, arc_rule):
         wp.atomic_max(flags, w, 1, 1.0)
         return
-    box_half = geom_size[w, opponent_geom]
     if on_weapon(
         qpos, w, p, weapon, strike_x, strike_half_width, sweep, sweep_y, op, oyaw, box_half
     ):

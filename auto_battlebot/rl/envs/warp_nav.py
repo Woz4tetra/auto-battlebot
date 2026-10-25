@@ -112,6 +112,9 @@ class RobotProfile:
     # Opponents driven by trained policies (`policy_opponents.py`), drawn in a stage's
     # `policy` share of episodes.
     drivers: tuple[PolicyDriver, ...] = ()
+    # Which contacts are hits taken (`warp_kernels.in_opponent_arc`): "angle", anywhere in the
+    # opponent's front arc, or "front_face", only its front face inside the arc.
+    arc_rule: str = "angle"
 
 
 MK2_POLICY_DRIVER = PolicyDriver(
@@ -131,6 +134,7 @@ ROBOTS = {
             MK2_POLICY_DRIVER,
             PolicyDriver("self_play", "mrs_buff_mk3", "config/_common.toml", ""),
         ),
+        arc_rule="front_face",
     ),
 }
 
@@ -533,6 +537,11 @@ class WarpNavEnv:
         self.wheel_dofs: Any = wp.array(self.index.wheel_dofs.astype(np.int32), dtype=int)
         self.emf = float(self.mp.gear_ratio * self.mp.motor_kt)
         self.direct = 1 if self.profile.command == "direct" else 0
+        self.arc_rule = (
+            warp_kernels.ARC_FRONT_FACE
+            if self.profile.arc_rule == "front_face"
+            else warp_kernels.ARC_ANGLE
+        )
         self.weapon_kind = (
             warp_kernels.WEAPON_DISK if self.profile.weapon == "disk" else warp_kernels.WEAPON_WEDGE
         )
@@ -1213,6 +1222,7 @@ class WarpNavEnv:
                     self.sweep_y,
                     self.m.geom_size,
                     self.opp_geom,
+                    self.arc_rule,
                 ],
                 outputs=[self.flags_wp],
             )
