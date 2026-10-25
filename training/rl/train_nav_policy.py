@@ -104,6 +104,16 @@ def load_resume(args: argparse.Namespace) -> tuple[dict | None, str]:
     return resume, stage
 
 
+def reward_weights(overrides: list[str]) -> dict[str, float]:
+    weights = WarpNavConfig().reward
+    for item in overrides:
+        key, sep, value = item.partition("=")
+        if not sep or key not in weights:
+            raise SystemExit(f"--reward {item}: expected KEY=VALUE with KEY one of {list(weights)}")
+        weights[key] = float(value)
+    return weights
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     ap.add_argument("--name", default="rl_nav_ppo")
@@ -161,6 +171,13 @@ def main() -> None:
     ap.add_argument("--checkpoint-every-s", type=float, default=600.0)
     ap.add_argument("--self-play-every", type=int, default=25, help="iterations per refresh")
     ap.add_argument("--out", type=Path, default=REPO / "runs" / "rl_nav")
+    ap.add_argument(
+        "--reward",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="override one reward weight (WarpNavConfig.reward), e.g. hole=-30; repeatable",
+    )
     args = ap.parse_args()
 
     stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -175,6 +192,7 @@ def main() -> None:
             episode_s=args.episode_s,
             robot=args.robot,
             fit_file=args.fit_file,
+            reward=reward_weights(args.reward),
         ),
         "cuda",
         seed=args.seed,
