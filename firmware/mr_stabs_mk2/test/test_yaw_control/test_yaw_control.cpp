@@ -174,3 +174,31 @@ int main(int argc, char **argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
+
+namespace {
+const float kDegToRad = 3.14159265358979f / 180.0f;
+}  // namespace
+
+TEST(UnwrapGyroRate, PassesInRangeReadingsThrough) {
+    EXPECT_NEAR(yaw_control::unwrap_gyro_rate(0.5f, 0.4f), 0.5f, kTol);
+    EXPECT_NEAR(yaw_control::unwrap_gyro_rate(-30.0f, -29.0f), -30.0f, kTol);
+}
+
+// 2026-10-25 01:44 recording: yaw_rate went from -1950 to +1997 deg/s in one sample while the
+// robot kept spinning the same way. The unwrapped rate stays negative.
+TEST(UnwrapGyroRate, KeepsTheSignPastTheRange) {
+    const float unwrapped =
+        yaw_control::unwrap_gyro_rate(1997.0f * kDegToRad, -1950.0f * kDegToRad);
+    EXPECT_NEAR(unwrapped / kDegToRad, 1997.0f - 4096.0f, 0.1f);
+}
+
+// A spin well past the range, wrapping round toward zero, is still tracked sample by sample.
+TEST(UnwrapGyroRate, TracksASpinUpPastTheRange) {
+    float unwrapped = 0.0f;
+    for (float truth = 0.0f; truth >= -3400.0f; truth -= 50.0f) {
+        const float raw =
+            yaw_control::wrap_degrees(truth * (360.0f / 4096.0f)) * (4096.0f / 360.0f);
+        unwrapped = yaw_control::unwrap_gyro_rate(raw * kDegToRad, unwrapped);
+        ASSERT_NEAR(unwrapped / kDegToRad, truth, 0.5f);
+    }
+}
