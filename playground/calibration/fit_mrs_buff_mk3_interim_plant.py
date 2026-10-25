@@ -76,9 +76,15 @@ SPECS = {
         ParamSpec("joint_damping", 1e-6, 1e-3, log=True),
         ParamSpec("wheel_mu_slide", 0.1, 3.0, log=True),
         ParamSpec("wheel_mu_torsion", 1e-4, 5e-2, log=True),
-        ParamSpec("solref_timeconst", 0.004, 0.05, log=True),
+        # Capped at 0.02 s: the same contact softness applies to walls and opponents, and a
+        # softer contact lets the hull sink into them in a collision. M4 is flat, so the floor
+        # alone would happily trade stiffness away.
+        ParamSpec("solref_timeconst", 0.004, 0.02, log=True),
         ParamSpec("solimp_dmax", 0.9, 0.9999),
         ParamSpec("armature_scale", 0.3, 3.0, log=True),
+        # The ESC's current limit caps acceleration. The datasheet gives 10.4 A stall at 12 V;
+        # without this term the fit pinned the rotor inertia at 3x to slow the launch.
+        ParamSpec("current_limit_a", 3.0, 40.0, log=True),
     )
 }
 STAGES = (
@@ -94,6 +100,7 @@ STAGES = (
             "joint_frictionloss",
             "joint_damping",
             "armature_scale",
+            "current_limit_a",
         ),
         ("flat",),
     ),
@@ -303,7 +310,9 @@ def main() -> None:
     log(f"{len(train)} training and {len(holdout)} held-out windows from {M4_FILE.name}")
 
     runs = []
-    start = PlantParams(resistance_ohm=1.2, wheel_mu_slide=0.6, armature_scale=1.0)
+    start = PlantParams(
+        resistance_ohm=1.2, wheel_mu_slide=0.6, armature_scale=1.0, current_limit_a=12.0
+    )
     for mode in args.modes:
         for r in range(args.restarts):
             base = replace(start, brake_on_zero=(mode == "brake"))

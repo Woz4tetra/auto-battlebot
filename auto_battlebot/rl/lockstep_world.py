@@ -6,8 +6,12 @@ robot, so the real C++ binary (`RlPolicyNavigation` or `MotionProfileNavigation`
 episodes the Python evaluation scored:
 
 - the same model: `warp_nav.build_model` (fitted MJCF, mocap walls, blocks, house bot, opponent)
-- the same command chain, scalar: transport delay, `FirmwareMixer`, drivetrain delay, shaping
-- the same opponent behaviours (`opponents.Opponents` with one world on the CPU)
+- the same command chain, scalar: transport delay, `FirmwareMixer` (Mr Stabs Mk2) or the radio's
+  direct mix (Mrs Buff Mk3), drivetrain delay, shaping
+- the same opponent behaviours (`opponents.Opponents` with one world on the CPU), and the same
+  policy-driven opponents (`policy_opponents.PolicyOpponents`) for scenarios that drew one
+
+The robot is the scenario's (`robot`, Mr Stabs Mk2 when absent).
 - the same contact classification and episode scoring as `WarpNavEnv.step`, tick by tick
 """
 
@@ -31,10 +35,18 @@ from auto_battlebot.mujoco_sim.actuator import (
 )
 from auto_battlebot.mujoco_sim.closed_loop import load_fit_params
 from auto_battlebot.mujoco_sim.firmware import FirmwareMixer, gyro_from_yaw_rate, heading_from_yaw
-from auto_battlebot.mujoco_sim.mjcf import CHASSIS_GEOM_PREFIX, SKID_GEOM, WHEEL_GEOMS, CollisionSet
+from auto_battlebot.mujoco_sim.mjcf import (
+    CHASSIS_GEOM_PREFIX,
+    FOLLOWER_GEOMS,
+    SKID_GEOM,
+    WHEEL_GEOMS,
+    CollisionSet,
+)
 from auto_battlebot.mujoco_sim.rollout import ModelIndex, pose_from_qpos, rest_height
 from auto_battlebot.rl import obs_spec
+from auto_battlebot.rl.env import EnvSpec
 from auto_battlebot.rl.envs.opponents import OpponentParams, Opponents
+from auto_battlebot.rl.envs.policy_opponents import PolicyOpponents
 from auto_battlebot.rl.envs.replay_tracks import ReplayTracks
 from auto_battlebot.rl.envs.warp_nav import (
     BLOCK_MOCAPS,
@@ -42,8 +54,9 @@ from auto_battlebot.rl.envs.warp_nav import (
     HOUSE_MOCAP,
     HOUSE_RADIUS_M,
     OPP_MOCAP,
-    OUR_HALF_DIAGONAL_M,
     REPO,
+    ROBOT_SIZE_M,
+    ROBOTS,
     WALL_HEIGHT_M,
     WALL_MOCAPS,
     WALL_T_M,
@@ -56,7 +69,8 @@ from auto_battlebot.rl.envs.warp_nav import (
 
 def geom_role(name: str) -> int:
     """`classify_contacts` roles: 1 our robot, 2 opponent, 3 wall, 4 wall block, 5 house bot."""
-    if name.startswith(CHASSIS_GEOM_PREFIX) or name == SKID_GEOM or name in WHEEL_GEOMS:
+    ours = name in WHEEL_GEOMS or name in FOLLOWER_GEOMS or name == SKID_GEOM
+    if ours or name.startswith(CHASSIS_GEOM_PREFIX):
         return 1
     roles = {"opponent": 2, "house_bot": 5}
     if name in roles:
@@ -103,15 +117,24 @@ class LockstepWorld:
         self, scenario: dict[str, Any], cfg: WarpNavConfig | None = None, timestep: float = 1e-3
     ) -> None:
         # Scenarios record the episode length they were exported with; older ones ran 20 s.
-        self.cfg = cfg or WarpNavConfig(episode_s=float(scenario.get("episode_s", 20.0)))
+        self.cfg = cfg or WarpNavConfig(
+            episode_s=float(scenario.get("episode_s", 20.0)),
+            robot=str(scenario.get("robot", "mr_stabs_mk2")),
+        )
         self.sc = scenario
         self.timestep = timestep
-        mp = mass_properties.load()
-        collision = CollisionSet.load()
+        self.profile = ROBOTS[self.cfg.robot]
+        asset = mass_properties.asset_dir(self.cfg.robot)
+        mp = mass_properties.load(asset / "mass_properties.toml")
+        collision = CollisionSet.load(asset / "collision")
+        self.mp = mp
+        size = ROBOT_SIZE_M[self.cfg.robot]
+        self.our_half = (size[0] / 2, size[1] / 2)
+        self.our_half_diag = math.hypot(*self.our_half)
         fit = load_fit_params(REPO / resolved_fit_file(self.cfg))
         fit = fit.replace(wheel_mu_roll=max(fit.wheel_mu_roll, 1e-5))
         self.fit = fit
-        self.model = build_model(mp, fit, collision, timestep)
+        self.model = build_model(mp, fit, collision, timestep, self.cfg.robot)
         self.data = mujoco.MjData(self.model)
         self.index = ModelIndex.of(self.model)
         self.motor = MotorConstants(gear_ratio=mp.gear_ratio, kt=mp.motor_kt)
@@ -161,7 +184,8 @@ class LockstepWorld:
                 self.model.geom_size[g] = [s["r"], WALL_HEIGHT_M / 2, 0.0]
                 self.data.mocap_pos[WALL_MOCAPS + i] = [s["x"], s["y"], WALL_HEIGHT_M / 2]
         osize = np.asarray(scenario["opp_size"], dtype=float)
-        self.model.geom_size[names.index("opponent")] = osize / 2
+        self.opp_geom = names.index("opponent")
+        self.model.geom_size[self.opp_geom] = osize / 2
         self.opp_half = osize[:2] / 2
         ox, oy, oyaw = scenario["opp_pose"]
         self.data.mocap_pos[OPP_MOCAP] = [ox, oy, osize[2] / 2]
@@ -189,6 +213,7 @@ class LockstepWorld:
         self.side_gain = np.array([float(gain_l), float(gain_r)])
         self.deadzone = np.array([fit.deadzone_left, fit.deadzone_right])
         self.mixer = FirmwareMixer(auto_steer=True)
+        self.direct = self.profile.command == "direct"
         latency = float(scenario.get("latency", 0.06))
         transport = max(0, round((latency - fit.delay_s) / timestep))
         drive = max(0, round(fit.delay_s / timestep))
@@ -202,7 +227,32 @@ class LockstepWorld:
             torch.device("cpu"),
             torch.float64,
             torch.Generator().manual_seed(int(scenario.get("seed", 0))),
+            our_half=self.our_half,
         )
+        self.driver = int(scenario.get("driver", 0))
+        self.policy_opp: PolicyOpponents | None = None
+        if self.driver > 0:
+            spec = EnvSpec(
+                obs_names=obs_spec.OBS_NAMES,
+                privileged_names=(),
+                obs_spec_version=obs_spec.OBS_SPEC_VERSION,
+                policy_dt_s=self.cfg.policy_dt_s,
+                max_episode_steps=1,
+            )
+            driver = self.profile.drivers[self.driver - 1]
+            if not driver.checkpoint:
+                raise ValueError(
+                    f"scenario {scenario.get('seed')}: {driver.name} has no fixed policy"
+                )
+            self.policy_opp = PolicyOpponents(
+                self.profile.drivers,
+                spec,
+                1,
+                self.cfg.policy_dt_s,
+                torch.device("cpu"),
+                torch.float32,
+            )
+            self.policy_opp.driver[:] = self.driver
         p = scenario["opp_params"]
         self.opponents.p = OpponentParams(
             **{
@@ -273,7 +323,43 @@ class LockstepWorld:
     def _wheel_volts(self, left: float, right: float) -> np.ndarray:
         u = np.array([left, right]) / 100.0
         shaped = shape_command(u, self.deadzone, self.fit.curve)
-        return np.asarray(shaped * NOMINAL_PACK_V * self.side_gain)
+        volts = shaped * NOMINAL_PACK_V * self.side_gain
+        if not self.fit.brake_on_zero:
+            # Coast: a zero command lets the wheel freewheel, the back-EMF voltage.
+            emf = self.motor.back_emf_volts(self.data.qvel[self.index.wheel_dofs])
+            volts = np.where(shaped == 0.0, emf, volts)
+        return np.asarray(volts)
+
+    def _sweep_hits(self, rot: np.ndarray) -> bool:
+        """`warp_kernels.weapon_sweep_hit`: the weapon's sweep cylinder within the margin of the
+        opponent's box, at the same sample points."""
+        from auto_battlebot.rl.envs.warp_kernels import SWEEP_ANGLES, SWEEP_MARGIN_M
+
+        sweep = self.mp.weapon
+        ox, oy, oyaw = self.opponent_pose()
+        centre = np.array([ox, oy, self.data.mocap_pos[OPP_MOCAP][2]])
+        half = self.model.geom_size[self.opp_geom]
+        c, s_ = math.cos(oyaw), math.sin(oyaw)
+        for k in range(SWEEP_ANGLES):
+            a = 2.0 * math.pi * k / SWEEP_ANGLES
+            for r in (sweep.radius, 0.5 * sweep.radius, 0.0):
+                for face in (-1, 0, 1):
+                    local = sweep.center + np.array(
+                        [r * math.cos(a), sweep.half_width * face, r * math.sin(a)]
+                    )
+                    d = self.data.qpos[:3] + rot @ local - centre
+                    lx, ly = c * d[0] + s_ * d[1], -s_ * d[0] + c * d[1]
+                    q = np.maximum(np.abs([lx, ly, d[2]]) - half, 0.0)
+                    if float(np.linalg.norm(q)) < SWEEP_MARGIN_M:
+                        return True
+        return False
+
+    def _on_weapon(self, rot: np.ndarray, p: np.ndarray) -> bool:
+        """A contact with the opponent lands on our weapon: Mk3's disk sweep, Mk2's wedge."""
+        if self.profile.weapon == "disk":
+            return self._sweep_hits(rot)
+        b = rot.T @ (p - self.data.qpos[:3])
+        return bool(b[0] > self.cfg.strike_x_m and abs(b[1]) < self.cfg.strike_half_width_m)
 
     def _classify(self, flags: np.ndarray) -> None:
         x, y, _ = self.pose()
@@ -302,8 +388,7 @@ class LockstepWorld:
                 if abs(phi) < self.arc:
                     flags[1] = 1
                     continue
-                b = rot.T @ (np.asarray(p) - self.data.qpos[:3])
-                if b[0] > self.cfg.strike_x_m and abs(b[1]) < self.cfg.strike_half_width_m:
+                if self._on_weapon(rot, np.asarray(p)):
                     flags[2] = 1
                     flags[3] = max(flags[3], abs(phi))
 
@@ -329,6 +414,7 @@ class LockstepWorld:
             foot,
             dt,
             opp_half=torch.as_tensor(np.asarray(self.opp_half)[None], dtype=torch.float64),
+            override=self._policy_override(x0, y0, yaw0, v0, ox, oy, oyaw),
         )
         self.opp_vel = cmd[0].numpy()
         self._house_command()
@@ -340,6 +426,14 @@ class LockstepWorld:
         for _ in range(max(1, round(dt / sub))):
             self.transport.append((a_percent, b_percent))
             a, b = self.transport.popleft()
+            if self.direct:
+                # The radio's mix: left = linear - angular, right = linear + angular.
+                self.drive.append((-a + b, -a - b))
+                self.data.ctrl[:] = self._wheel_volts(*self.drive.popleft())
+                self._move_mocaps(sub)
+                mujoco.mj_step(self.model, self.data)
+                self._classify(flags)
+                continue
             up = self.up_z
             if up < -0.1:
                 self.upside = True
@@ -362,6 +456,68 @@ class LockstepWorld:
             self._classify(flags)
         self.t += dt
         self._score(flags, phi0, dt)
+
+    def _policy_override(
+        self,
+        x: float,
+        y: float,
+        yaw: float,
+        v: np.ndarray,
+        ox: float,
+        oy: float,
+        oyaw: float,
+    ) -> tuple[torch.Tensor, torch.Tensor] | None:
+        """The policy-driven opponent's velocity, as `WarpNavEnv._policy_opponent_command`."""
+        po = self.policy_opp
+        if po is None:
+            return None
+        f = torch.float32
+
+        def t(values: list[float]) -> torch.Tensor:
+            return torch.tensor([values], dtype=f)
+
+        slots = self.slots
+        house = self.house_pose()
+        hz_xy = t([[sl["x"], sl["y"]] for sl in slots] + [list(house[:2]) if house else [0.0, 0.0]])
+        hz_r = t([sl["r"] for sl in slots] + [HOUSE_RADIUS_M])
+        hz_kind = torch.tensor([[sl["kind"] for sl in slots] + [obs_spec.TRACKED]])
+        hz_vel = t([[0.0, 0.0]] * len(slots) + [list(self.house_v)])
+        hz_present = torch.tensor(
+            [[bool(sl["present"]) for sl in slots] + [bool(self.house["present"])]]
+        )
+        zero = torch.zeros(1, dtype=f)
+        false = torch.zeros(1, dtype=torch.bool)
+        inp = obs_spec.ObsInputs(
+            our_xy=t([ox, oy]),
+            our_yaw=t([oyaw])[0],
+            our_speed=po.v,
+            our_yaw_rate=po.w_rate,
+            our_age_s=zero,
+            our_stale=false,
+            run_away=false,
+            hist_action=po.hist_action,
+            hist_speed=po.hist_speed,
+            hist_yaw_rate=po.hist_rate,
+            opp_present=~false,
+            opp_xy=t([x, y]),
+            opp_yaw=t([yaw])[0],
+            opp_velocity=t([float(v[0]), float(v[1])]),
+            opp_yaw_rate=t([self.yaw_rate])[0],
+            opp_position_sigma=zero,
+            opp_heading_sigma=zero,
+            opp_yaw_rate_sigma=zero,
+            opp_half_diagonal=zero + self.our_half_diag,
+            opp_age_s=zero,
+            opp_stale=false,
+            field_half=t(list(self.half)),
+            hazard_xy=hz_xy,
+            hazard_radius=hz_r,
+            hazard_kind=hz_kind,
+            hazard_velocity=hz_vel,
+            hazard_present=hz_present,
+        )
+        velocity, active = po.command(inp, t([oyaw])[0])
+        return active, velocity.to(torch.float64)
 
     def _move_mocaps(self, dt: float) -> None:
         p = self.data.mocap_pos[OPP_MOCAP]
@@ -446,7 +602,7 @@ class LockstepWorld:
         ox, oy, oyaw = self.opponent_pose()
         rel = np.array([x - ox, y - oy])
         phi_us = wrap(math.atan2(rel[1], rel[0]) - oyaw)
-        reach = float(np.linalg.norm(self.opp_half)) + OUR_HALF_DIAGONAL_M + cfg.danger_margin_m
+        reach = float(np.linalg.norm(self.opp_half)) + self.our_half_diag + cfg.danger_margin_m
         if not contact and abs(phi_us) < self.arc and np.linalg.norm(rel) < reach:
             r += rw["danger_per_s"] * dt
             s.danger_s += dt

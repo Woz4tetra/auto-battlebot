@@ -1,0 +1,50 @@
+# Mrs Buff Mk3 against the lockstep sim with simulated perception, the Mk3 twin of
+# mr_stabs_mk2_kinematic_sim_sensing.toml: the sim's sensing model delivers keypoint measurements
+# with latency, noise and heading flips, and the real RobotFrontBackFilter and
+# KalmanMotionEstimator run on them. playground/rl/lockstep_eval.py --robot mrs_buff_mk3 extends
+# this file per scenario.
+#
+# Extends simulation/_simulation, not kinematic_sim, for the same reason as the Mk2 file: it keeps
+# _common's robot filter. [plant] and [navigation] are _common's, which are Mrs Buff Mk3's: the
+# jig-fitted plant and the MotionProfileNavigation she ships with.
+extends = "simulation/_simulation"
+
+[field_model]
+type = "FixedMaskModel"
+
+[robot_mask_model]
+type = "NoopRobotBlobModel"
+
+# Keep size_x/size_y in sync with the sim's [arena].
+[field_filter]
+type = "FixedFieldFilter"
+size_x = 2.4
+size_y = 2.4
+
+# One label per sim ground-truth slot: our robot, then [[opponents]] in order. HOUSE_BOT maps to
+# NEUTRAL_ROBOT_1 through _common's label_mapping.
+[keypoint_model]
+type = "SimKeypointModel"
+labels = ["MRS_BUFF_MK3", "OPPONENT", "HOUSE_BOT"]
+
+# The sim sends front and back keypoints and no box; the lockstep overlay restates the opponent's
+# footprint per scenario.
+[robot_filter.robot_size_meters_per_label]
+OPPONENT = [0.2225, 0.2535, 0.0861]
+
+[robot_filter.label_mapping]
+"MRS_BUFF_MK3" = ["OUR_ROBOT_1"]
+"OPPONENT" = ["THEIR_ROBOT_1", "THEIR_ROBOT_2", "THEIR_ROBOT_3"]
+
+# Actuation latency is modelled in sim ticks by the server.
+[transmitter]
+init_delay_seconds = 0.0
+
+[runner]
+max_loop_rate = 0.0
+
+[mcap]
+enable = false
+
+[clock]
+type = "ManualClock"

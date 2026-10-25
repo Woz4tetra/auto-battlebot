@@ -1082,6 +1082,7 @@ class WarpNavEnv:
                     "seed": i,
                     "robot": self.cfg.robot,
                     "opp_model": self.profile.opponents[int(self.opp_model[i])],
+                    "driver": int(self.policy_opp.driver[i]),
                     "holdout": self.cfg.holdout,
                     "arena_half": to(self.arena_half[i]),
                     "our_pose": [float(q[i, 0]), float(q[i, 1]), float(yaw[i])],

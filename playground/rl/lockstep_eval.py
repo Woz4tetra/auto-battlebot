@@ -14,6 +14,10 @@ Episodes run in parallel, one server and one binary per worker.
     python playground/rl/lockstep_eval.py run playground/rl/out/scenarios.json --nav rl \\
         --bundle <dir>
 
+`export --robot mrs_buff_mk3` exports Mrs Buff Mk3 episodes; `run` reads the robot from the
+scenarios and runs the binary on that robot's sim profile (`BASE_CONFIG`). Scenarios that drew
+a policy-driven opponent (`policy_opponents.py`) replay it.
+
 `--record <dir>` keeps each episode's work directory under `<dir>/ep<index>` and records an MCAP
 there. The binary writes recordings to `<cwd>/data/recordings`, so it runs from that directory
 with a `config` symlink, which keeps the recordings out of the repo's `data/`.
@@ -35,7 +39,11 @@ from auto_battlebot.rl import obs_spec
 
 REPO = Path(__file__).resolve().parents[2]
 BINARY = REPO / "build/auto_battlebot"
-BASE_CONFIG = "simulation/mr_stabs_mk2_kinematic_sim_sensing"
+BASE_CONFIG = {
+    "mr_stabs_mk2": "simulation/mr_stabs_mk2_kinematic_sim_sensing",
+    "mrs_buff_mk3": "simulation/mrs_buff_mk3_kinematic_sim_sensing",
+}
+OUR_LABEL = {"mr_stabs_mk2": "MR_STABS_MK2", "mrs_buff_mk3": "MRS_BUFF_MK3"}
 MOTION_PROFILE = """[navigation]
 type = "MotionProfileNavigation"
 stop_distance = 0.15
@@ -49,7 +57,9 @@ max_angular_command = 1.0
 """
 
 
-def export(count: int, seed: int, out: Path, episode_s: float, pursuit_grid: int) -> None:
+def export(
+    count: int, seed: int, out: Path, episode_s: float, pursuit_grid: int, robot: str
+) -> None:
     """`pursuit_grid` > 0 exports that many pursuit-only attack episodes per cell of
     `PURSUIT_GRID` instead of the `EVAL` mix."""
     import torch
@@ -59,9 +69,11 @@ def export(count: int, seed: int, out: Path, episode_s: float, pursuit_grid: int
 
     if pursuit_grid > 0:
         count = len(PURSUIT_GRID) * pursuit_grid
-        cfg = WarpNavConfig(worlds=count, stage="PURSUIT", episode_s=episode_s)
+        cfg = WarpNavConfig(worlds=count, stage="PURSUIT", episode_s=episode_s, robot=robot)
     else:
-        cfg = WarpNavConfig(worlds=count, stage="EVAL", holdout=True, episode_s=episode_s)
+        cfg = WarpNavConfig(
+            worlds=count, stage="EVAL", holdout=True, episode_s=episode_s, robot=robot
+        )
     env = WarpNavEnv(cfg, "cuda", seed=seed)
     if pursuit_grid > 0:
         grid = torch.tensor(PURSUIT_GRID, device="cuda", dtype=torch.float32)
@@ -87,12 +99,13 @@ def overlay(scenario: dict, nav: str, bundle: Path | None, port: int, workdir: P
                 "",
             ]
     hazards.write_text("\n".join(lines) or "hazards = []\n")
-    labels = ['"MR_STABS_MK2"', '"OPPONENT"'] + (
+    robot = str(scenario.get("robot", "mr_stabs_mk2"))
+    labels = [f'"{OUR_LABEL[robot]}"', '"OPPONENT"'] + (
         ['"HOUSE_BOT"'] if scenario["house"]["present"] else []
     )
     mode = "RUN_AWAY" if scenario["run_away"] > 0.5 else "ATTACK"
     size = scenario["opp_size"]
-    text = f"""extends = "{BASE_CONFIG}"
+    text = f"""extends = "{BASE_CONFIG[robot]}"
 
 [rgbd_camera]
 sim_port = {port}
@@ -248,6 +261,7 @@ def main() -> None:
         help="episodes per pursuit grid cell; exports the pursuit evaluation set instead",
     )
     e.add_argument("--episode-s", type=float, default=20.0, help="time limit per episode")
+    e.add_argument("--robot", default="mr_stabs_mk2", choices=list(BASE_CONFIG))
     r = sub.add_parser("run")
     r.add_argument("scenarios", type=Path)
     r.add_argument("--nav", choices=["motion_profile", "rl", "pursuit"], required=True)
@@ -261,7 +275,7 @@ def main() -> None:
     )
     args = ap.parse_args()
     if args.cmd == "export":
-        export(args.count, args.seed, args.out, args.episode_s, args.pursuit_grid)
+        export(args.count, args.seed, args.out, args.episode_s, args.pursuit_grid, args.robot)
     else:
         out = args.out or args.scenarios.parent / f"lockstep_{args.nav}.jsonl"
         run(
