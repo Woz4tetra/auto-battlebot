@@ -49,6 +49,7 @@ from auto_battlebot.rl.envs.warp_nav import (
     WALL_T_M,
     WarpNavConfig,
     build_model,
+    resolved_fit_file,
     smoothstep,
 )
 
@@ -107,7 +108,7 @@ class LockstepWorld:
         self.timestep = timestep
         mp = mass_properties.load()
         collision = CollisionSet.load()
-        fit = load_fit_params(REPO / self.cfg.fit_file)
+        fit = load_fit_params(REPO / resolved_fit_file(self.cfg))
         fit = fit.replace(wheel_mu_roll=max(fit.wheel_mu_roll, 1e-5))
         self.fit = fit
         self.model = build_model(mp, fit, collision, timestep)

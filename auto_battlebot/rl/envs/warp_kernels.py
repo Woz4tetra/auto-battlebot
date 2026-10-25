@@ -7,7 +7,13 @@ one CUDA graph.
 
 The firmware is `auto_battlebot/mujoco_sim/firmware.py`'s current-firmware path (`legacy=False`,
 auto steer on) ported line for line; `firmware_test` runs it alone so a test can compare it with
-the scalar `FirmwareMixer`.
+the scalar `FirmwareMixer`. That is Mr Stabs Mk2's chain. Mrs Buff Mk3 has no onboard controller:
+the radio mixes linear and angular straight to her ESCs (`direct`), which run open loop with no
+eRPM feedback.
+
+Strikes: Mr Stabs Mk2's land on her wedge, a box at the nose. Mrs Buff Mk3's land on her weapon
+disk's sweep, the cylinder the disk fills when it spins; `weapon_sweep_hit` tests it against the
+opponent's box at sample points over the cylinder.
 
 No `from __future__ import annotations`: warp reads the annotations as live types.
 """
@@ -31,6 +37,11 @@ IDLE_THROTTLE = 5.0
 SAMPLE_PERIOD = 0.01
 GYRO_RANGE_DPS = 2000.0
 PI = 3.14159265358979
+WEAPON_WEDGE = 0
+WEAPON_DISK = 1
+# A disk-sweep point this close to the opponent's box counts as the weapon touching it.
+SWEEP_MARGIN_M = 0.005
+SWEEP_ANGLES = 16
 
 # Firmware state columns, one row per world.
 FW_SETPOINT = 0
@@ -206,9 +217,13 @@ def command_path(
     emf_per_radps: float,
     dt: float,
     upside: wp.array(dtype=int),
+    direct: int,
     ctrl: wp.array2d(dtype=float),
 ):
     """Jetson command -> transport delay -> firmware -> drivetrain delay -> shaped wheel volts.
+
+    `direct` = 1 skips the firmware: left = linear - angular, right = linear + angular, in
+    percent, the radio's mix (positive angular turns counterclockwise, as the firmware's does).
 
     `shaping` columns: deadzone left, deadzone right, curve, left gain, right gain, pack volts,
     left reverse gain, right reverse gain, coast flag.
@@ -237,7 +252,13 @@ def command_path(
         upside[w] = 1
     elif up[2] > 0.1:
         upside[w] = 0
-    lr = firmware_mix(fw, w, a_percent, b_percent, heading, rate, dt, upside[w])
+    lr = wp.vec2(0.0, 0.0)
+    if direct == 1:
+        lin = wp.clamp(linear, -1.0, 1.0)
+        ang = wp.clamp(angular, -1.0, 1.0)
+        lr = wp.vec2(100.0 * (lin - ang), 100.0 * (lin + ang))
+    else:
+        lr = firmware_mix(fw, w, a_percent, b_percent, heading, rate, dt, upside[w])
 
     drive_ring[w, h, 0] = lr[0]
     drive_ring[w, h, 1] = lr[1]
@@ -278,6 +299,84 @@ def move_mocap(
     mocap_quat[w, body] = wp.quat(wp.cos(0.5 * yaw), 0.0, 0.0, wp.sin(0.5 * yaw))
 
 
+@wp.func
+def box_distance(p: wp.vec3, centre: wp.vec3, yaw: float, half: wp.vec3) -> float:
+    """Distance from a point to a box turned by yaw about z (0 inside)."""
+    d = p - centre
+    c = wp.cos(yaw)
+    s = wp.sin(yaw)
+    local = wp.vec3(c * d[0] + s * d[1], -s * d[0] + c * d[1], d[2])
+    q = wp.vec3(
+        wp.max(wp.abs(local[0]) - half[0], 0.0),
+        wp.max(wp.abs(local[1]) - half[1], 0.0),
+        wp.max(wp.abs(local[2]) - half[2], 0.0),
+    )
+    return wp.length(q)
+
+
+@wp.func
+def weapon_sweep_hit(
+    qpos: wp.array2d(dtype=float),
+    w: int,
+    sweep: wp.vec4,
+    sweep_y: float,
+    box_centre: wp.vec3,
+    box_yaw: float,
+    box_half: wp.vec3,
+) -> int:
+    """1 if the weapon's sweep cylinder (axis along body y) comes within SWEEP_MARGIN_M of the
+    box. `sweep` is (centre x, centre z, radius, half width) in the body frame, `sweep_y` the
+    centre's body y. Samples the rim and half radius at both faces and the mid-plane, and the
+    axis."""
+    q = mj_quat(qpos, w)
+    origin = wp.vec3(qpos[w, 0], qpos[w, 1], qpos[w, 2])
+    for k in range(SWEEP_ANGLES):
+        a = 2.0 * PI * float(k) / float(SWEEP_ANGLES)
+        for ring in range(3):
+            r = sweep[2] * (1.0 - 0.5 * float(ring))
+            if ring == 2:
+                r = 0.0
+            for face in range(3):
+                y = sweep_y + sweep[3] * float(face - 1)
+                local = wp.vec3(sweep[0] + r * wp.cos(a), y, sweep[1] + r * wp.sin(a))
+                p = origin + wp.quat_rotate(q, local)
+                if box_distance(p, box_centre, box_yaw, box_half) < SWEEP_MARGIN_M:
+                    return 1
+    return 0
+
+
+@wp.func
+def on_wedge(
+    qpos: wp.array2d(dtype=float), w: int, p: wp.vec3, strike_x: float, strike_half_width: float
+) -> int:
+    """1 if a contact point is on Mr Stabs Mk2's wedge: ahead of strike_x, near the centre line."""
+    q = mj_quat(qpos, w)
+    rel = wp.vec3(p[0] - qpos[w, 0], p[1] - qpos[w, 1], p[2] - qpos[w, 2])
+    b = wp.quat_rotate_inv(q, rel)
+    if b[0] > strike_x and wp.abs(b[1]) < strike_half_width:
+        return 1
+    return 0
+
+
+@wp.func
+def on_weapon(
+    qpos: wp.array2d(dtype=float),
+    w: int,
+    p: wp.vec3,
+    weapon: int,
+    strike_x: float,
+    strike_half_width: float,
+    sweep: wp.vec4,
+    sweep_y: float,
+    box_centre: wp.vec3,
+    box_yaw: float,
+    box_half: wp.vec3,
+) -> bool:
+    if weapon == WEAPON_DISK:
+        return weapon_sweep_hit(qpos, w, sweep, sweep_y, box_centre, box_yaw, box_half) == 1
+    return on_wedge(qpos, w, p, strike_x, strike_half_width) == 1
+
+
 @wp.kernel
 def classify_contacts(
     nacon: wp.array(dtype=int),
@@ -292,9 +391,18 @@ def classify_contacts(
     arc_half_angle: float,
     strike_x: float,
     strike_half_width: float,
+    weapon: int,
+    sweep: wp.vec4,
+    sweep_y: float,
+    geom_size: wp.array2d(dtype=wp.vec3),
+    opponent_geom: int,
     flags: wp.array2d(dtype=float),
 ):
     """OR this substep's contacts into per-world flags.
+
+    `weapon` WEAPON_WEDGE: a contact point ahead of `strike_x` within `strike_half_width` of the
+    centre line is on our wedge. WEAPON_DISK: any contact with the opponent while our weapon's
+    sweep touches its box (`weapon_sweep_hit`).
 
     `geom_role`: 0 other, 1 our robot, 2 opponent, 3 arena wall, 4 wall block, 5 house bot.
     Flag columns: 0 any opponent contact, 1 contact inside the opponent's arc, 2 contact on our
@@ -339,10 +447,10 @@ def classify_contacts(
     if in_arc:
         wp.atomic_max(flags, w, 1, 1.0)
         return
-    q = mj_quat(qpos, w)
-    rel = wp.vec3(p[0] - qpos[w, 0], p[1] - qpos[w, 1], p[2] - qpos[w, 2])
-    b = wp.quat_rotate_inv(q, rel)
-    if b[0] > strike_x and wp.abs(b[1]) < strike_half_width:
+    box_half = geom_size[w, opponent_geom]
+    if on_weapon(
+        qpos, w, p, weapon, strike_x, strike_half_width, sweep, sweep_y, op, oyaw, box_half
+    ):
         wp.atomic_max(flags, w, 2, 1.0)
         wp.atomic_max(flags, w, 3, wp.abs(phi))
 

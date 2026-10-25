@@ -1,6 +1,7 @@
-"""The full RL training environment: Mr Stabs Mk2 on MuJoCo Warp (plan sections 5 to 8).
+"""The full RL training environment: a drive robot on MuJoCo Warp (plan sections 5 to 8).
 
-Each world holds the fitted Mr Stabs Mk2 MJCF, four arena walls, up to three wall blocks, a house
+`WarpNavConfig.robot` picks the robot (`ROBOTS`): Mr Stabs Mk2 or Mrs Buff Mk3. Each world holds
+that robot's fitted MJCF, four arena walls, up to three wall blocks, a house
 bot and an opponent, all walls and robots other than ours as mocap bodies, so every world places
 its own arena per episode without per-world model geometry. Holes are not geometry: the chassis
 centre crossing a hole's radius ends the episode.
@@ -38,6 +39,8 @@ from auto_battlebot.mujoco_sim.closed_loop import load_fit_params
 from auto_battlebot.mujoco_sim.mjcf import (
     CHASSIS_GEOM_PREFIX,
     FLOOR_CONTYPE,
+    FOLLOWER_GEOMS,
+    FOLLOWER_JOINTS,
     ROBOT_CONTYPE,
     ROTOR_BODIES,
     SKID_GEOM,
@@ -59,7 +62,6 @@ from auto_battlebot.rl import obs_spec
 from auto_battlebot.rl.env import SOURCES, EnvSpec, Step
 from auto_battlebot.rl.envs.opponents import (
     BEHAVIOURS,
-    OUR_HALF_EXTENT_M,
     PURSUIT,
     REPLAY,
     Opponents,
@@ -70,6 +72,7 @@ from auto_battlebot.rl.torch_plant import saturate
 
 REPO = Path(__file__).resolve().parents[3]
 DEFAULT_FIT = "playground/calibration/out/mujoco_sysid/fit_2026-10-15_yolo_brake/fit.json"
+MK3_INTERIM_FIT = "playground/calibration/out/mujoco_sysid/mk3_interim/fit.json"
 WALL_HEIGHT_M = 0.3
 WALL_T_M = 0.05
 PARKED = 50.0
@@ -78,11 +81,41 @@ WALL_MOCAPS = 4
 BLOCK_MOCAPS = 3
 HOUSE_MOCAP = WALL_MOCAPS + BLOCK_MOCAPS
 OPP_MOCAP = HOUSE_MOCAP + 1
-OPP_SIZE_M = (0.2225, 0.2535, 0.0861)  # MRS_BUFF_MK3, config/_common.toml
+# Footprints as length, width, height (config/_common.toml robot_size_meters_per_label).
+ROBOT_SIZE_M = {
+    "mr_stabs_mk2": (0.137, 0.16, 0.0703),
+    "mrs_buff_mk3": (0.2225, 0.2535, 0.0861),
+}
+OPP_SIZE_M = ROBOT_SIZE_M["mrs_buff_mk3"]  # the largest opponent footprint, the MJCF placeholder
 # HOUSE_BOT footprint half-diagonal from config/_common.toml (0.254 x 0.3302 m), the radius the
 # C++ hazard assembler gives a tracked house bot.
 HOUSE_RADIUS_M = 0.2083
 OUR_HALF_DIAGONAL_M = 0.5 * math.hypot(0.137, 0.16)
+
+
+@dataclass(frozen=True)
+class RobotProfile:
+    """What the environment needs to know about the robot it trains.
+
+    `command`: "firmware" runs Mr Stabs Mk2's onboard mixer and gyro yaw loop; "direct" is a
+    radio mix straight to open-loop ESCs (Mrs Buff Mk3, no eRPM feedback, no IMU). `weapon`:
+    "wedge" scores contact on a box at the nose (`strike_x_m`, `strike_half_width_m`); "disk"
+    scores the weapon's sweep cylinder from mass_properties.toml. `opponents`: the robots whose
+    footprints the opponent box is drawn from, one per episode.
+    """
+
+    fit_file: str
+    command: str
+    weapon: str
+    opponents: tuple[str, ...]
+
+
+ROBOTS = {
+    "mr_stabs_mk2": RobotProfile(DEFAULT_FIT, "firmware", "wedge", ("mrs_buff_mk3",)),
+    "mrs_buff_mk3": RobotProfile(
+        MK3_INTERIM_FIT, "direct", "disk", ("mr_stabs_mk2", "mrs_buff_mk3")
+    ),
+}
 
 
 @dataclass(frozen=True)
@@ -165,7 +198,8 @@ class WarpNavConfig:
     policy_dt_s: float = 0.02
     measure_period_s: float = 0.01
     episode_s: float = 20.0
-    fit_file: str = DEFAULT_FIT
+    robot: str = "mr_stabs_mk2"  # a key of ROBOTS
+    fit_file: str = ""  # empty: the robot's own (RobotProfile.fit_file)
     sensing_model: str = "simulation/sensing_models/provisional_rl.toml"
     arc_half_angle_deg: float = 60.0
     strike_x_m: float = 0.06
@@ -219,6 +253,10 @@ class WarpNavConfig:
     )
 
 
+def resolved_fit_file(cfg: WarpNavConfig) -> str:
+    return cfg.fit_file or ROBOTS[cfg.robot].fit_file
+
+
 def wrap(a: torch.Tensor) -> torch.Tensor:
     return torch.remainder(a + math.pi, 2.0 * math.pi) - math.pi
 
@@ -247,9 +285,13 @@ def _scaled(rng: tuple[float, float], s: float) -> tuple[float, float]:
 
 
 def build_model(
-    mp: Any, params: MjPlantParams, collision: CollisionSet, timestep: float
+    mp: Any,
+    params: MjPlantParams,
+    collision: CollisionSet,
+    timestep: float,
+    model_name: str = "mr_stabs_mk2",
 ) -> mujoco.MjModel:
-    spec = mujoco.MjSpec.from_string(build_mjcf(mp, params, collision, timestep))
+    spec = mujoco.MjSpec.from_string(build_mjcf(mp, params, collision, timestep, model_name))
     # MJ_MINMU, not zero: MuJoCo Warp warns that a zero coefficient can produce NaN, and contacts
     # take the larger of the pair's values, so the robot's own friction still governs.
     common = {
@@ -329,14 +371,24 @@ class WarpNavEnv:
         self.arc = math.radians(cfg.arc_half_angle_deg)
         self.stage = cfg.stage
 
-        self.mp = mass_properties.load()
-        self.collision = CollisionSet.load()
-        self.fit = load_fit_params(REPO / cfg.fit_file)
+        self.profile = ROBOTS[cfg.robot]
+        asset = mass_properties.asset_dir(cfg.robot)
+        self.mp = mass_properties.load(asset / "mass_properties.toml")
+        self.collision = CollisionSet.load(asset / "collision")
+        size = ROBOT_SIZE_M[cfg.robot]
+        self.our_half = (size[0] / 2, size[1] / 2)
+        self.our_half_diag = math.hypot(*self.our_half)
+        self.opp_sizes = torch.tensor(
+            [ROBOT_SIZE_M[r] for r in self.profile.opponents], device=self.device, dtype=self.dtype
+        )
+        if self.profile.weapon == "disk" and self.mp.weapon is None:
+            raise ValueError(f"{cfg.robot} scores a disk weapon but has no [weapon] sweep")
+        self.fit = load_fit_params(REPO / resolved_fit_file(cfg))
         # The fit's rolling friction (7.9e-6) is under MJ_MINMU, which MuJoCo Warp warns can give
         # NaN with condim 6. The difference is far below anything the fit resolved.
         self.fit = self.fit.replace(wheel_mu_roll=max(self.fit.wheel_mu_roll, 1e-5))
         self.motor = MotorConstants(gear_ratio=self.mp.gear_ratio, kt=self.mp.motor_kt)
-        self.mjm = build_model(self.mp, self.fit, self.collision, cfg.timestep_s)
+        self.mjm = build_model(self.mp, self.fit, self.collision, cfg.timestep_s, cfg.robot)
         mjd = mujoco.MjData(self.mjm)
         mujoco.mj_forward(self.mjm, mjd)
         self.index = ModelIndex.of(self.mjm)
@@ -357,7 +409,11 @@ class WarpNavEnv:
             )
         }
         self.m = mjw.put_model(self.mjm, batch_sizes=batched)
-        self.d = mjw.put_data(self.mjm, mjd, nworld=w, nconmax=cfg.nconmax, njmax=cfg.njmax)
+        # A robot with many collision pieces (Mrs Buff Mk3's 30) pairs each with the floor, walls
+        # and opponent in broadphase, so the buffers grow with the model.
+        nconmax = max(cfg.nconmax, 3 * self.mjm.ngeom)
+        njmax = max(cfg.njmax, 6 * nconmax)
+        self.d = mjw.put_data(self.mjm, mjd, nworld=w, nconmax=nconmax, njmax=njmax)
 
         t = wp.to_torch
         self.qpos = t(self.d.qpos)
@@ -393,7 +449,12 @@ class WarpNavEnv:
         ]
         role = np.zeros(self.mjm.ngeom, dtype=np.int32)
         for i, n in enumerate(names):
-            if n.startswith(CHASSIS_GEOM_PREFIX) or n == SKID_GEOM or n in WHEEL_GEOMS:
+            if (
+                n.startswith(CHASSIS_GEOM_PREFIX)
+                or n == SKID_GEOM
+                or n in WHEEL_GEOMS
+                or n in FOLLOWER_GEOMS
+            ):
                 role[i] = 1
             elif n == "opponent":
                 role[i] = 2
@@ -407,11 +468,14 @@ class WarpNavEnv:
         self.wall_geoms = [names.index(f"arena_wall_{i}") for i in range(WALL_MOCAPS)]
         self.block_geoms = [names.index(f"wall_block_{i}") for i in range(BLOCK_MOCAPS)]
         self.opp_geom = names.index("opponent")
-        self.wheel_geoms = [names.index(g) for g in WHEEL_GEOMS]
+        self.wheel_geoms = [names.index(g) for g in (*WHEEL_GEOMS, *FOLLOWER_GEOMS) if g in names]
         self.skid_geoms = [
             i for i, n in enumerate(names) if n == SKID_GEOM or n.startswith(CHASSIS_GEOM_PREFIX)
         ]
-        self.wheel_bodies = [self.mjm.body(n).id for n in WHEEL_JOINTS]
+        bodies = {self.mjm.body(i).name for i in range(self.mjm.nbody)}
+        self.wheel_bodies = [
+            self.mjm.body(n).id for n in (*WHEEL_JOINTS, *FOLLOWER_JOINTS) if n in bodies
+        ]
         self.rotor_bodies = [self.mjm.body(n).id for n in ROTOR_BODIES]
         self.chassis_body = self.mjm.body("chassis").id
         self.mocap_ids = {
@@ -442,6 +506,19 @@ class WarpNavEnv:
         self.flags_wp = wp.zeros((w, 7), dtype=float)
         self.wheel_dofs: Any = wp.array(self.index.wheel_dofs.astype(np.int32), dtype=int)
         self.emf = float(self.mp.gear_ratio * self.mp.motor_kt)
+        self.direct = 1 if self.profile.command == "direct" else 0
+        self.weapon_kind = (
+            warp_kernels.WEAPON_DISK if self.profile.weapon == "disk" else warp_kernels.WEAPON_WEDGE
+        )
+        sweep = self.mp.weapon
+        self.sweep = wp.vec4(
+            *(
+                (sweep.center[0], sweep.center[2], sweep.radius, sweep.half_width)
+                if sweep is not None
+                else (0.0, 0.0, 0.0, 0.0)
+            )
+        )
+        self.sweep_y = float(sweep.center[1]) if sweep is not None else 0.0
         self.cmd_t = t(self.cmd)
         self.fw_t = t(self.fw)
         self.shaping_t = t(self.shaping)
@@ -465,6 +542,7 @@ class WarpNavEnv:
         self.house_present = zb.clone()
         self.house_vel = torch.zeros(w, 2, device=dev, dtype=dt)
         self.opp_half = torch.tensor(OPP_SIZE_M[:2], device=dev, dtype=dt).repeat(w, 1) / 2
+        self.opp_model = torch.zeros(w, dtype=torch.long, device=dev)  # index into opponents
         self.run_away = zb.clone()
         self.t = z.clone()
         self.steps = torch.zeros(w, dtype=torch.long, device=dev)
@@ -502,7 +580,7 @@ class WarpNavEnv:
         self.stats = {k: z.clone() for k in self.stats_keys}
         self.first_strike_s = torch.full((w,), math.inf, device=dev, dtype=dt)
         self.first_hit_s = torch.full((w,), math.inf, device=dev, dtype=dt)
-        self.opponents = Opponents(w, dev, dt, self.gen)
+        self.opponents = Opponents(w, dev, dt, self.gen, our_half=self.our_half)
         self.opponents.replay = ReplayTracks(cfg.holdout, dev, dt, episode_s=cfg.episode_s)
         self.success_window: list[float] = []
         self.pursuit_window: list[float] = []  # attack episodes against a pursuer
@@ -653,10 +731,9 @@ class WarpNavEnv:
     def _reset_opponent(self, mask: torch.Tensor, s: float) -> tuple[torch.Tensor, torch.Tensor]:
         n = self.num_worlds
         m1 = mask[:, None]
-        osize = (
-            torch.tensor(OPP_SIZE_M, device=self.device, dtype=self.dtype)[None]
-            * self._uniform(*_scaled((0.8, 1.2), s))[:, None]
-        )
+        model = torch.randint(0, len(self.opp_sizes), (n,), generator=self.gen, device=self.device)
+        self.opp_model = torch.where(mask, model, self.opp_model)
+        osize = self.opp_sizes[model] * self._uniform(*_scaled((0.8, 1.2), s))[:, None]
         self.opp_half = torch.where(m1, osize[:, :2] / 2, self.opp_half)
         g = self.opp_geom
         self.geom_size[:, g] = torch.where(m1, osize / 2, self.geom_size[:, g])
@@ -755,7 +832,7 @@ class WarpNavEnv:
         n = self.num_worlds
         m1 = mask[:, None]
         # Clear of the opponent, hazards and house bot, by rejection with a few retries.
-        our_reach = self.arena_half - OUR_HALF_DIAGONAL_M - 0.05
+        our_reach = self.arena_half - self.our_half_diag - 0.05
         xy = (self._rand(n, 2) * 2 - 1) * our_reach
         for _ in range(12):
             bad = (xy - oxy).norm(dim=1) < 0.5
@@ -861,7 +938,7 @@ class WarpNavEnv:
             else torch.full((n,), fit.joint_damping, device=self.device)
         )
         dd = self.base["dof_damping"].expand(n, -1).clone()
-        for dof in self.index.wheel_dofs:
+        for dof in (*self.index.wheel_dofs, *self.index.follower_dofs):
             dd[:, int(dof)] = damping
         self.dof_damping[:] = torch.where(m1, dd, self.dof_damping)
 
@@ -966,6 +1043,8 @@ class WarpNavEnv:
             out.append(
                 {
                     "seed": i,
+                    "robot": self.cfg.robot,
+                    "opp_model": self.profile.opponents[int(self.opp_model[i])],
                     "holdout": self.cfg.holdout,
                     "arena_half": to(self.arena_half[i]),
                     "our_pose": [float(q[i, 0]), float(q[i, 1]), float(yaw[i])],
@@ -1034,7 +1113,7 @@ class WarpNavEnv:
         tr = self.truth()
         rel = tr["xy"] - tr["opp_xy"]
         normal = rel / rel.norm(dim=1, keepdim=True).clamp(min=1e-6)
-        ours = torch.tensor(OUR_HALF_EXTENT_M, device=self.device, dtype=self.dtype)
+        ours = torch.tensor(self.our_half, device=self.device, dtype=self.dtype)
         tr["reach"] = box_support(normal, tr["opp_yaw"], self.opp_half) + box_support(
             normal, tr["yaw"], ours.expand(self.num_worlds, 2)
         )
@@ -1065,6 +1144,7 @@ class WarpNavEnv:
                     self.emf,
                     dt,
                     self.upside_wp,
+                    self.direct,
                 ],
                 outputs=[d.ctrl],
             )
@@ -1090,6 +1170,11 @@ class WarpNavEnv:
                     self.arc,
                     self.cfg.strike_x_m,
                     self.cfg.strike_half_width_m,
+                    self.weapon_kind,
+                    self.sweep,
+                    self.sweep_y,
+                    self.m.geom_size,
+                    self.opp_geom,
                 ],
                 outputs=[self.flags_wp],
             )
@@ -1186,7 +1271,7 @@ class WarpNavEnv:
 
         rel = tr["xy"] - tr["opp_xy"]
         phi_us = wrap(torch.atan2(rel[:, 1], rel[:, 0]) - tr["opp_yaw"])
-        reach = self.opp_half.norm(dim=1) + OUR_HALF_DIAGONAL_M + cfg.danger_margin_m
+        reach = self.opp_half.norm(dim=1) + self.our_half_diag + cfg.danger_margin_m
         danger = ~contact & (phi_us.abs() < self.arc) & (rel.norm(dim=1) < reach)
         reward += torch.where(danger, rw["danger_per_s"] * dt, 0.0)
         self.stats["danger_s"] += danger.float() * dt

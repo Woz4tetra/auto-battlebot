@@ -96,8 +96,14 @@ class OpponentParams:
 
 class Opponents:
     def __init__(
-        self, worlds: int, device: torch.device, dtype: torch.dtype, gen: torch.Generator
+        self,
+        worlds: int,
+        device: torch.device,
+        dtype: torch.dtype,
+        gen: torch.Generator,
+        our_half: tuple[float, float] = OUR_HALF_EXTENT_M,
     ) -> None:
+        """`our_half`: our footprint as half length and half width, centred on our pose."""
         self.w = worlds
         self.device = device
         self.dtype = dtype
@@ -128,6 +134,7 @@ class Opponents:
         self.pursuit_level = 1.0
         self.pursuit_hard = PURSUIT_HARD
         self.pursuit_fixed: torch.Tensor | None = None  # [W, 3]: top speed, turn rate, delay
+        self.our_half = torch.tensor(our_half, device=device, dtype=dtype)
 
     def _pursuit_draw(self, u: torch.Tensor, column: int) -> torch.Tensor:
         """A pursuit parameter from uniform `u`: the easy end at level 0, up to the hard end at
@@ -332,9 +339,7 @@ class Opponents:
         away = ours - xy
         dist = away.norm(dim=1).clamp(min=1e-6)
         normal = away / dist[:, None]
-        us_half = torch.tensor(OUR_HALF_EXTENT_M, device=self.device, dtype=self.dtype).expand(
-            self.w, 2
-        )
+        us_half = self.our_half.expand(self.w, 2)
         reach = box_support(normal, yaw, opp_half) + box_support(normal, our_yaw, us_half)
         allowed = ((dist - reach + CONTACT_PRESS_M) / dt).clamp(min=0.0)
         closing = (v[:, :2] * normal).sum(1)

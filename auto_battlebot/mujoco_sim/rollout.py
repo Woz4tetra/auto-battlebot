@@ -61,6 +61,12 @@ def nconmax_for(model: mujoco.MjModel) -> int:
     return max(NCONMAX, 2 * model.ngeom)
 
 
+def njmax_for(model: mujoco.MjModel) -> int:
+    """Constraint rows: up to six per contact (condim 6 on the treads), plus equalities and
+    joint friction."""
+    return max(NJMAX, 6 * nconmax_for(model))
+
+
 @dataclass
 class ModelIndex:
     """Where each fitted quantity sits in the compiled model."""
@@ -297,7 +303,11 @@ class WarpRollout:
         self.height = rest_height(mp, collision, timestep)
         self.m = mjw.put_model(self.mjm, batch_sizes={f: nworld for f in BATCHED_FIELDS})
         self.d = mjw.put_data(
-            self.mjm, self.mjd, nworld=nworld, nconmax=nconmax_for(self.mjm), njmax=NJMAX
+            self.mjm,
+            self.mjd,
+            nworld=nworld,
+            nconmax=nconmax_for(self.mjm),
+            njmax=njmax_for(self.mjm),
         )
         self.tape_v = wp.zeros((nworld, steps, 2), dtype=float)
         self.tape_zero = wp.zeros((nworld, steps, 2), dtype=float)
