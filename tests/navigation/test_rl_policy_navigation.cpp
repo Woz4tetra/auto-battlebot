@@ -197,6 +197,42 @@ TEST(RlPolicyNavigationTest, ConstantPolicyDrivesItsActionUnedited) {
     EXPECT_DOUBLE_EQ(viz.command.linear_x, 0.3);
 }
 
+TEST(RlPolicyNavigationTest, TheHazardBarrierClipsDrivingTowardAHole) {
+    RlPolicyNavigationConfiguration config = config_for(rl_test::constant_bundle());
+    config.hazard_barrier_enable = true;
+    JigPlantParams plant;
+    plant.k_fwd = 4.9;
+    plant.k_rev = 4.4;
+    plant.tau_lin_d = 0.2;
+    plant.delay_s = 0.05;
+    config.apply_plant(PlantConfiguration{plant, {}});
+    auto nav = make_nav(config);
+    nav->initialize();
+
+    FieldDescription with_hole = field();
+    FieldHazard hole;
+    hole.center = Pose2D{0.25, 0.0, 0.0};
+    hole.hard_radius = 0.2;
+    with_hole.hazards.push_back(hole);
+
+    // 5 cm from the hard rim, facing it: 0.3 of 4.9 m/s cannot stop in time.
+    const VelocityCommand toward =
+        nav->update(robots_of({robot_at(FrameId::OUR_ROBOT_1, 0.0, 0.0)}), with_hole, {});
+    EXPECT_LT(toward.linear_x, 0.3);
+    EXPECT_DOUBLE_EQ(toward.angular_z, -0.1);
+
+    // Facing away, the policy's forward command leaves the hole behind and passes unedited.
+    const VelocityCommand away =
+        nav->update(robots_of({robot_at(FrameId::OUR_ROBOT_1, 0.0, 0.0, M_PI)}), with_hole, {});
+    EXPECT_DOUBLE_EQ(away.linear_x, 0.3);
+}
+
+TEST(RlPolicyNavigationConfigTest, TheHazardBarrierNeedsAPlant) {
+    RlPolicyNavigationConfiguration config = config_for(rl_test::constant_bundle());
+    config.hazard_barrier_enable = true;
+    EXPECT_THROW(config.apply_plant(PlantConfiguration{}), ConfigValidationError);
+}
+
 TEST(RlPolicyNavigationTest, StepsThePolicyEveryPeriodAndHoldsTheActionBetween) {
     // linear = tanh(0.5 * our_speed / 2.5), angular = tanh(0.5 * our_yaw_rate / 15).
     const auto bundle = rl_test::write_linear_bundle("nav_schedule", 1, 138, 0.5, 0.0, "obs.vector",

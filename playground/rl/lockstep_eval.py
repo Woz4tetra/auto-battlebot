@@ -85,7 +85,9 @@ def export(
     print(f"wrote {len(scenarios)} scenarios to {out}")
 
 
-def overlay(scenario: dict, nav: str, bundle: Path | None, port: int, workdir: Path) -> Path:
+def overlay(
+    scenario: dict, nav: str, bundle: Path | None, port: int, workdir: Path, barrier: bool = False
+) -> Path:
     hazards = workdir / "hazards.toml"
     lines = []
     for s in scenario["slots"]:
@@ -132,8 +134,9 @@ OPPONENT = [{size[0]:.4f}, {size[1]:.4f}, {size[2]:.4f}]
     elif nav == "rl":
         assert bundle is not None
         text += (
-            '\n[navigation]\ntype = "RlPolicyNavigation"\n\n'
-            f'[navigation.policy]\nbundle = "{bundle.resolve()}"\n'
+            '\n[navigation]\ntype = "RlPolicyNavigation"\n'
+            + ("hazard_barrier_enable = true\n" if barrier else "")
+            + f'\n[navigation.policy]\nbundle = "{bundle.resolve()}"\n'
         )
     elif nav != "pursuit":
         raise ValueError(nav)
@@ -142,7 +145,7 @@ OPPONENT = [{size[0]:.4f}, {size[1]:.4f}, {size[2]:.4f}]
     return path
 
 
-Job = tuple[Path, int, str, Path | None, Path, int, Path | None, str]
+Job = tuple[Path, int, str, Path | None, Path, int, Path | None, str, bool]
 RECORD = '\n[mcap]\nenable = true\nignored_topics = ["/camera/image"]\n'
 
 
@@ -158,11 +161,11 @@ def work_dir(index: int, record: Path | None) -> contextlib.AbstractContextManag
 
 
 def run_one(args: Job) -> str:
-    scenarios, index, nav, bundle, results, port, record, extra = args
+    scenarios, index, nav, bundle, results, port, record, extra, barrier = args
     scenario = json.loads(scenarios.read_text())[index]
     with work_dir(index, record) as tmp:
         work = Path(tmp)
-        cfg = overlay(scenario, nav, bundle, port, work)
+        cfg = overlay(scenario, nav, bundle, port, work, barrier)
         if record is not None:
             cfg.write_text(cfg.read_text() + RECORD)
         if extra:
@@ -225,6 +228,7 @@ def run(
     port_base: int,
     record: Path | None = None,
     extra: Path | None = None,
+    barrier: bool = False,
 ) -> None:
     count = len(json.loads(scenarios.read_text()))
     indices = list(range(count if limit is None else min(count, limit)))
@@ -234,7 +238,8 @@ def run(
     record = record.resolve() if record is not None else None
     text = extra.read_text() if extra is not None else ""
     jobs = [
-        (scenarios, i, nav, bundle, out, port_base + (i % workers), record, text) for i in indices
+        (scenarios, i, nav, bundle, out, port_base + (i % workers), record, text, barrier)
+        for i in indices
     ]
     # Ports are reused by worker slot; a slot runs its jobs one after another.
     slots: list[list[Job]] = [[] for _ in range(workers)]
@@ -285,6 +290,11 @@ def main() -> None:
         default=None,
         help="TOML appended to every episode's overlay, e.g. a [plant] table to score against",
     )
+    r.add_argument(
+        "--hazard-barrier",
+        action="store_true",
+        help="--nav rl: run the motion profile's hazard velocity barrier on the policy command",
+    )
     args = ap.parse_args()
     if args.cmd == "export":
         export(args.count, args.seed, args.out, args.episode_s, args.pursuit_grid, args.robot)
@@ -300,6 +310,7 @@ def main() -> None:
             args.port_base,
             args.record,
             args.extra_config,
+            args.hazard_barrier,
         )
 
 

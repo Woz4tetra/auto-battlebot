@@ -12,6 +12,7 @@
 
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "directories.hpp"
+#include "hazards/hazard_geometry.hpp"
 #include "transform_utils.hpp"
 
 namespace auto_battlebot {
@@ -53,7 +54,26 @@ RlPolicyNavigation::RlPolicyNavigation(const RlPolicyNavigationConfiguration &co
                                        std::shared_ptr<ClockInterface> clock)
     : config_(config),
       clock_(std::move(clock)),
-      logger_(DiagnosticsLogger::get_logger("rl_policy_nav")) {}
+      logger_(DiagnosticsLogger::get_logger("rl_policy_nav")) {
+    if (config_.hazard_barrier_enable && config_.plant.has_value()) {
+        // The same envelope MotionProfileNavigation builds from the fit. Only the barrier: the
+        // tangent layer steers a goal and the policy has none.
+        HazardAvoidanceSettings settings;
+        settings.tangent_enable = false;
+        settings.reverse_distance = 0.0;
+        settings.prediction_horizon_s = config_.hazard_prediction_horizon_s;
+        settings.max_linear_speed_fwd = config_.plant->k_fwd;
+        settings.max_linear_speed_rev = config_.plant->k_rev;
+        settings.barrier_horizon_s = config_.plant->tau_lin_d + config_.plant->delay_s;
+        settings.barrier_delay_s = config_.plant->delay_s;
+        if (settings.barrier_horizon_s <= 0.0) {
+            spdlog::warn(
+                "RlPolicyNavigation hazard barrier is off: [plant] tau_lin_d + delay_s is 0, so "
+                "there is no stopping envelope");
+        }
+        hazards_.emplace(settings);
+    }
+}
 
 void RlPolicyNavigation::load() {
     if (config_.opponent_mode != OpponentMode::KALMAN) {
@@ -208,8 +228,21 @@ VelocityCommand RlPolicyNavigation::update(RobotDescriptionsStamped robots, Fiel
     }
     --ticks_until_step_;
 
-    const VelocityCommand command{action_.linear, 0.0, action_.angular};
+    VelocityCommand command{action_.linear, 0.0, action_.angular};
     const Pose2D our_pose = pose_to_pose2d(our_robot->pose);
+    if (hazards_) {
+        const double v_actual = measured_speed_and_yaw_rate(*our_robot).speed;
+        const auto barrier =
+            hazards_->limit_command(footprint_center(our_pose, our_robot->footprint_center_offset),
+                                    field, v_actual, command);
+        if (barrier.engaged) {
+            logger_->debug("hazard_barrier", {{"policy_linear", action_.linear},
+                                              {"linear", command.linear_x},
+                                              {"v_actual", v_actual},
+                                              {"braking", barrier.braking ? 1 : 0},
+                                              {"bound", std::min(barrier.bound_mps, 99.0)}});
+        }
+    }
     last_visualization_.path =
         NavigationPathSegment{our_pose.x, our_pose.y, target.pose.x, target.pose.y};
     last_visualization_.command = command;

@@ -6,6 +6,7 @@
 
 #include "diagnostics_logger/diagnostics_module_logger.hpp"
 #include "navigation/config.hpp"
+#include "navigation/hazard_avoidance.hpp"
 #include "navigation/navigation_interface.hpp"
 #include "rl_policy/action_history.hpp"
 #include "rl_policy/observation_builder_interface.hpp"
@@ -20,9 +21,11 @@ namespace auto_battlebot {
  * This class finds our robot and the target opponent, schedules policy steps and logs. The
  * bundle decides everything else: the policy kind, the network runtime, the decoder and the
  * observation spec. Every policy_period_ticks control ticks it builds the observation, runs the
- * policy and stores the action; every tick it returns the stored action. Nothing edits the action
- * on its way to the transmitter: there is no HazardAvoidance here, and hazards reach the policy
- * only as observations.
+ * policy and stores the action; every tick it returns the stored action. By default nothing edits
+ * the action on its way to the transmitter and hazards reach the policy only as observations.
+ * With hazard_barrier_enable the motion profile's velocity barrier clips linear_x every tick
+ * against the measured speed; the action history keeps the policy's own output, which is what
+ * training saw.
  *
  * initialize() loads and checks the bundle the first time it runs and throws naming what failed:
  * opponent_mode must be KALMAN, the manifest must parse with known values, a builder must exist
@@ -66,6 +69,8 @@ class RlPolicyNavigation : public NavigationInterface {
     RlPolicyNavigationConfiguration config_;
     std::shared_ptr<ClockInterface> clock_;
     std::shared_ptr<DiagnosticsModuleLogger> logger_;
+    /** Set when hazard_barrier_enable is on. */
+    std::optional<HazardAvoidance> hazards_;
 
     std::unique_ptr<rl_policy::PolicyInterface> policy_;
     std::unique_ptr<rl_policy::ObservationBuilderInterface> builder_;
