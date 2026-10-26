@@ -1104,7 +1104,13 @@ _PLANAR_OPTIONS = {
     "angular": (False, False, True),
     "prior_std": ((1.0, 5.0, 50.0), (1.0, 5.0, 50.0), (math.pi, 40.0, 1000.0)),
 }
-_TILT_OPTIONS = {"angular": (True, True), "prior_std": ((0.5, 10.0, 300.0), (0.5, 10.0, 300.0))}
+# Tilt is fed unwrapped and never wraps its innovations. Wrapped, a pitch rate of one turn per
+# camera frame (377 rad/s at 60 Hz) fits every fix exactly, and on 2026-10-25 the cross-validated
+# q let the filter settle there: right at the knots, a random angle between them.
+_TILT_OPTIONS = {
+    "angular": (False, False),
+    "prior_std": ((0.5, 10.0, 300.0), (0.5, 10.0, 300.0)),
+}
 
 
 def _filter_options(kind: dict[str, Any], opts: SmootherOptions) -> FilterOptions:
@@ -1279,7 +1285,7 @@ def smooth_session(
         t_s=(raw.stamp_ns - t0_ns).astype(np.float64) / _NS,
         t0_ns=t0_ns,
         kind=np.full((n, 2), KIND_POSITION, dtype=np.int8),
-        z=np.stack([raw.pitch, raw.roll], axis=1),
+        z=np.stack([np.unwrap(raw.pitch), np.unwrap(raw.roll)], axis=1),
         r=np.stack([sig["tilt"] ** 2, sig["tilt"] ** 2], axis=1),
     )
     tilt, cv_tilt = _fit_axes(
@@ -1452,6 +1458,10 @@ def _fuse_imu_tilt(
         resid = tag[up] - np.polyval(coef, x)
         sigma[a] = 1.4826 * float(np.median(np.abs(resid - np.median(resid))))
         z[:, a] = np.polyval(coef, imu_at(stamps_ns, col))
+        # Onto the branch of the unwrapped tag fix before each stamp, so no innovation sees a turn.
+        before = np.clip(np.searchsorted(raw.stamp_ns, stamps_ns, side="right") - 1, 0, None)
+        branch = tilt_knots.z[before, a]
+        z[:, a] = branch + wrap_angle(z[:, a] - branch)
         report[col] = {"gain": float(coef[0]), "offset": float(coef[1]), "sigma": sigma[a]}
     n = tilt_knots.t_s.shape[0]
     stamps = np.concatenate([raw.stamp_ns, stamps_ns])
@@ -1722,7 +1732,7 @@ def _grid_frame(
             "yaw_rate": m[:, 2, 1],
             "ax": ax,
             "ay": ay,
-            # The tilt filter wraps its innovations, so its state can sit a whole turn off.
+            # The tilt measurements are unwrapped, so the state can sit a whole turn off.
             "pitch": wrap_angle(tm[:, 0, 0]),
             "roll": wrap_angle(tm[:, 1, 0]),
             "sigma_x": np.sqrt(c2 * var_along + s2 * var_across),

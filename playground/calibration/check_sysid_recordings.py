@@ -18,10 +18,12 @@ Checks, each PASS / WARN / FAIL:
   Recordings from the match profile carry no tags. They need /camera/video replayed through the
   sysid keypoint model first (config/playback/mr_stabs_mk2_sysid_playback.toml).
 - our-robot track: share of frames with an OUR_ROBOT marker (YOLO path, match profile).
-- ESP32 stream: events against the firmware loop rate, gaps, pack voltage. The fit's command tape
-  is the per-motor left_cmd/right_cmd from this stream, so without it there is no command tape.
-- sticks: the maneuver menu, measured from the radio's stick channels. Seconds of straight holds
-  per level and direction, creep, spins, arcs, reversals, punches, and hard stops.
+- robot telemetry: /robot/espnow_telemetry, or /robot/esp32_diagnostics before 2026-10-25.
+  Events against the 100 Hz telemetry rate, gaps, pack voltage. The fit's command tape is the
+  per-motor left_cmd/right_cmd from this stream, so without it there is no command tape.
+- sticks: the maneuver menu, measured from the radio's stick channels, or from the telemetry's
+  a_percent/b_percent when the radio was not on USB. Seconds of straight holds per level and
+  direction, creep, spins, arcs, reversals, punches, and hard stops.
 - SVO (ZED 2i only, with --svo-dir): an SVO whose frame stamps overlap this recording, and how
   many frames it holds.
 
@@ -56,9 +58,9 @@ from auto_battlebot.recording.mcap_io import (
 from auto_battlebot.recording.svo2 import read_frame_stamps
 from auto_battlebot.recording.sysid_io import (
     field_transform_constancy,
-    load_esp32_diagnostics,
     load_field_from_camera,
     load_robot_tags,
+    load_robot_telemetry,
     load_transmitter_channels,
     rotation_angle,
 )
@@ -80,6 +82,11 @@ TAG_COVERAGE_PASS = 0.7  # smoother WindowOptions.coverage_min
 TAG_COVERAGE_WARN = 0.5
 TAG_MIN_PX = 40.0  # plan: at least ~40 px on the far side
 ESP32_RATE_PASS = 0.95
+# The firmware sends one telemetry record per espnow_link::TELEMETRY_PERIOD_MS (10 ms) at most.
+TELEMETRY_HZ = 100.0
+# Telemetry a_percent/b_percent to radio channel units. CH1 runs opposite to a_percent and CH2
+# with b_percent (radio delay correlations, mujoco_sysid/s01_2026-10-15/session.json).
+PERCENT_TO_CHANNEL = STICK_FULL / 100.0
 ESP32_GAP_S = 0.05
 VBAT_MIN_V = 9.0  # anything below this on a 4S pack is a bad reading, not a flat pack
 
@@ -298,21 +305,24 @@ def check_track(path: Path, rep: Report, has_tags: bool) -> pd.DataFrame:
     return ours
 
 
-def check_esp32(path: Path, rep: Report) -> bool:
-    esp = load_esp32_diagnostics(path)
+def check_esp32(esp: pd.DataFrame, rep: Report) -> bool:
     if esp.empty:
         rep.add(
-            "ESP32 stream",
+            "robot telemetry",
             "FAIL",
-            "no /robot/esp32_diagnostics: no per-motor command tape and no pack voltage."
-            " Record with mr_stabs_mk2_sysid_zed_box (box joined to MR-STABS)",
+            "no /robot/espnow_telemetry or /robot/esp32_diagnostics: no per-motor command tape"
+            " and no pack voltage. Record with mr_stabs_mk2_sysid_zed_box, ESP-NOW dongle paired",
         )
         return False
     host = esp["log_time_ns"].to_numpy(np.int64)
     span = (host.max() - host.min()) / 1e9
     rate = (len(esp) - 1) / span if span > 0 else math.nan
     loop_us = esp["loop_us"].to_numpy(float) if "loop_us" in esp else np.array([math.nan])
-    expected = 1e6 / float(np.nanmedian(loop_us)) if np.isfinite(loop_us).any() else math.nan
+    expected = (
+        min(1e6 / float(np.nanmedian(loop_us)), TELEMETRY_HZ)
+        if np.isfinite(loop_us).any()
+        else math.nan
+    )
     robot_ms = esp["timestamp_ms"].to_numpy(float)
     rgaps = np.diff(robot_ms) / 1e3
     gaps = int(np.sum(rgaps > ESP32_GAP_S))
@@ -320,9 +330,9 @@ def check_esp32(path: Path, rep: Report) -> bool:
     rep.stats.update(esp32_rate=rate, esp32_expected=expected, esp32_gaps=gaps)
     level = "PASS" if ratio >= ESP32_RATE_PASS and gaps == 0 else "WARN"
     rep.add(
-        "ESP32 stream",
+        "robot telemetry",
         level,
-        f"{rate:.0f} events/s vs firmware loop {expected:.0f}/s ({ratio:.0%});"
+        f"{rate:.0f} events/s vs {expected:.0f}/s expected ({ratio:.0%});"
         f" {gaps} robot-clock gaps > {ESP32_GAP_S * 1e3:.0f} ms,"
         f" longest {np.nanmax(rgaps) * 1e3 if len(rgaps) else math.nan:.0f} ms",
     )
@@ -348,6 +358,18 @@ def check_esp32(path: Path, rep: Report) -> bool:
 # ---------------------------------------------------------------------------
 # Sticks and the maneuver menu
 # ---------------------------------------------------------------------------
+
+
+def sticks_from_telemetry(esp: pd.DataFrame) -> pd.DataFrame:
+    """The handset sticks as the robot saw them, in the radio channel frame's columns. With
+    autonomy off the telemetry's arbitrated a_percent/b_percent are the handset's."""
+    return pd.DataFrame(
+        {
+            "stamp_ns": esp["log_time_ns"].to_numpy(np.int64),
+            f"ch{LINEAR_CH}": -esp["a_percent"].to_numpy(float) * PERCENT_TO_CHANNEL,
+            f"ch{ANGULAR_CH}": esp["b_percent"].to_numpy(float) * PERCENT_TO_CHANNEL,
+        }
+    ).dropna()
 
 
 def stick_centers(sticks: pd.DataFrame) -> tuple[float, float]:
@@ -388,7 +410,7 @@ def maneuver_menu(sticks: pd.DataFrame) -> dict[str, Any]:
 
 def check_sticks(sticks: pd.DataFrame, rep: Report) -> None:
     if sticks.empty:
-        rep.add("sticks", "FAIL", "no transmitter channel log: cannot see what was driven")
+        rep.add("sticks", "FAIL", "no stick channels or telemetry: cannot see what was driven")
         return
     menu = maneuver_menu(sticks)
     rep.menu = menu
@@ -538,10 +560,13 @@ def check_recording(
     check_camera(stamps, rep)
     check_video(counts, rep)
     check_field(path, rep, counts)
+    esp = load_robot_telemetry(path)
     sticks = load_transmitter_channels(path).dropna(subset=[f"ch{LINEAR_CH}", f"ch{ANGULAR_CH}"])
+    if sticks.empty and not esp.empty:
+        sticks = sticks_from_telemetry(esp)
     has_tags = check_tags(path, rep, stamps, sticks)
     ours = check_track(path, rep, has_tags)
-    check_esp32(path, rep)
+    check_esp32(esp, rep)
     check_sticks(sticks, rep)
     check_svo(stamps, spans, rep)
     if plots is not None:

@@ -1,4 +1,4 @@
-"""Readers for the drivetrain sysid topics: robot AprilTags, ESP32 diagnostics, sticks, field pose.
+"""Readers for the drivetrain sysid topics: robot AprilTags, robot telemetry, sticks, field pose.
 
 Contracts (written by the C++ app, see ``docs/plans/mujoco_warp_mr_stabs_plan.md``):
 
@@ -7,8 +7,12 @@ Contracts (written by the C++ app, see ``docs/plans/mujoco_warp_mr_stabs_plan.md
   solution as (rvec, tvec, reprojection error). rvec/tvec map marker-frame points (origin at the
   tag center, x right, y up in the printed image, z out of the face) into the OpenCV camera
   frame (x right, y down, z forward).
-- ``/robot/esp32_diagnostics`` (JSON): one flat object per firmware loop. ``host_receive_ns`` is
-  the app clock at receipt (also the MCAP log_time); ``timestamp_ms`` is the robot clock.
+- ``/robot/espnow_telemetry`` (JSON): one flat object per 10 ms telemetry frame over the ESP-NOW
+  dongle. ``host_receive_ns`` is the app clock at receipt (also the MCAP log_time);
+  ``timestamp_ms`` is the robot clock.
+- ``/robot/esp32_diagnostics`` (JSON): the same drive fields polled over WiFi, in recordings made
+  before the sysid profile moved to ESP-NOW (2026-10-25). Its ``seq`` is ESP-NOW's
+  ``telemetry_seq``.
 - ``/diagnostics/opentx_transmitter``, subsection ``channels``: the 16 stick channels the radio
   echoes over USB, as ``values/0`` .. ``values/15``. Logged on every channels frame since
   2026-10-13, only when they changed before that.
@@ -35,6 +39,7 @@ from auto_battlebot.recording.diag_io import TRANSMITTER_HW_ID, iter_diagnostic_
 from auto_battlebot.recording.mcap_io import decode_json, decode_tf_message, iter_messages
 
 ROBOT_TAGS_TOPIC = "/apriltag/robot_tags"
+ESPNOW_TELEMETRY_TOPIC = "/robot/espnow_telemetry"
 ESP32_DIAGNOSTICS_TOPIC = "/robot/esp32_diagnostics"
 TF_TOPIC = "/tf"
 TF_STATIC_TOPIC = "/tf_static"
@@ -44,7 +49,8 @@ CAMERA_FRAME = "camera"
 
 NUM_TRANSMITTER_CHANNELS = 16
 
-# Field order of one /robot/esp32_diagnostics event, with the pandas dtype each column gets.
+# Field order of one robot telemetry event, with the pandas dtype each column gets. ESP-NOW
+# frames carry more fields than these; the extras are dropped, and wifi_clients reads as 0.
 # Booleans stay bool; vbat and ibat are float with NaN where the firmware had no INA228 reading
 # (null, or a recording older than the field). yaw_rate and yaw_rate_cmd are NaN when absent, and
 # seq is a nullable integer, <NA> in recordings older than the field. backfill is False on
@@ -208,7 +214,7 @@ def load_robot_tags(path: Path | str) -> list[RobotTagsFrame]:
 
 
 # ---------------------------------------------------------------------------
-# /robot/esp32_diagnostics
+# /robot/espnow_telemetry and /robot/esp32_diagnostics
 # ---------------------------------------------------------------------------
 
 
@@ -236,13 +242,25 @@ def esp32_events_frame(events: list[dict[str, Any]]) -> pd.DataFrame:
     )
 
 
-def load_esp32_diagnostics(path: Path | str) -> pd.DataFrame:
-    """Every ``/robot/esp32_diagnostics`` event, in log order, plus the MCAP ``log_time_ns``."""
-    events = []
-    log_times = []
-    for _topic, log_time_ns, data in iter_messages(path, [ESP32_DIAGNOSTICS_TOPIC]):
-        events.append(decode_json(data))
-        log_times.append(log_time_ns)
+def load_robot_telemetry(path: Path | str) -> pd.DataFrame:
+    """Every robot telemetry event, in log order, plus the MCAP ``log_time_ns``.
+
+    Reads ``/robot/espnow_telemetry`` when the recording has any, else ``/robot/esp32_diagnostics``.
+    Empty when it has neither.
+    """
+    by_topic: dict[str, tuple[list[dict[str, Any]], list[int]]] = {
+        ESPNOW_TELEMETRY_TOPIC: ([], []),
+        ESP32_DIAGNOSTICS_TOPIC: ([], []),
+    }
+    for topic, log_time_ns, data in iter_messages(path, list(by_topic)):
+        event = decode_json(data)
+        if topic == ESPNOW_TELEMETRY_TOPIC:
+            event["seq"] = event.get("telemetry_seq")
+        by_topic[topic][0].append(event)
+        by_topic[topic][1].append(log_time_ns)
+    events, log_times = by_topic[ESPNOW_TELEMETRY_TOPIC]
+    if not events:
+        events, log_times = by_topic[ESP32_DIAGNOSTICS_TOPIC]
     df = esp32_events_frame(events)
     df.insert(0, "log_time_ns", pd.Series(log_times, dtype="int64"))
     return df

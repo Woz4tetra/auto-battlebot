@@ -60,6 +60,7 @@ from auto_battlebot.mujoco_sim import greybox, mass_properties
 from auto_battlebot.mujoco_sim.actuator import NOMINAL_PACK_V, MotorConstants, shape_command
 from auto_battlebot.mujoco_sim.actuator import PlantParams as MujocoParams
 from auto_battlebot.mujoco_sim.closed_loop import ClosedLoopSim
+from auto_battlebot.mujoco_sim.firmware import FlipSwitch
 from auto_battlebot.mujoco_sim.fit import window_errors
 from auto_battlebot.mujoco_sim.mjcf import CollisionSet
 from auto_battlebot.mujoco_sim.session import build_batch, load_session
@@ -172,12 +173,16 @@ def _model() -> tuple[mass_properties.MassProperties, CollisionSet]:
 
 
 def simulate_tape(
-    params: MujocoParams, tape: Tape, pack_voltage: float, auto_steer: bool, pitch_gate: float
+    params: MujocoParams,
+    tape: Tape,
+    pack_voltage: float,
+    flip_switch: FlipSwitch,
+    pitch_gate: float,
 ) -> Trace:
     mp, collision = _model()
     sim = ClosedLoopSim(
         mp, collision, params, start=(0.0, 0.0, 0.0), pack_voltage=pack_voltage,
-        auto_steer=auto_steer,
+        flip_switch=flip_switch,
     )  # fmt: skip
     n = len(tape.lin)
     state = np.empty((n + 1, 6))
@@ -315,7 +320,7 @@ def analytic(params: MujocoParams, pack_voltage: float) -> dict[str, float]:
 def distill_run(job: dict[str, Any]) -> dict[str, Any]:
     """One MuJoCo parameter set in, one grey-box table and its scores out. Runs in a worker."""
     params = MujocoParams(**job["params"])
-    sim_args = (params, job["pack_voltage"], job["auto_steer"], job["pitch_gate"])
+    sim_args = (params, job["pack_voltage"], FlipSwitch(job["flip_switch"]), job["pitch_gate"])
     train = [simulate_tape(params, t, *sim_args[1:]) for t in train_tapes()]
     holdout = [simulate_tape(params, t, *sim_args[1:]) for t in random_tapes(job["holdout"], 1)]
     start = seed_table(params, job["pack_voltage"])
@@ -475,7 +480,12 @@ def main() -> None:
     ap.add_argument("--loss-ratio", type=float, default=1.25, help="restarts to distill")
     ap.add_argument("--max-runs", type=int, default=6)
     ap.add_argument("--pitch-gate-deg", type=float, default=5.0)
-    ap.add_argument("--no-auto-steer", action="store_true", help="flip switch UP on the robot")
+    ap.add_argument(
+        "--flip-switch",
+        choices=[f.value for f in FlipSwitch],
+        default=FlipSwitch.DOWN.value,
+        help="flip switch position during the sessions; down runs the heading hold",
+    )
     ap.add_argument("--holdout-tapes", type=int, default=12)
     ap.add_argument("--delay-windows", type=int, default=1500)
     ap.add_argument("--max-windows", type=int, default=4000)
@@ -516,7 +526,7 @@ def main() -> None:
             "loss": float(r["loss"]),
             "params": r["best"],
             "pack_voltage": pack,
-            "auto_steer": not args.no_auto_steer,
+            "flip_switch": args.flip_switch,
             "pitch_gate": math.radians(args.pitch_gate_deg),
             "holdout": args.holdout_tapes,
             "delay_windows": args.delay_windows,
@@ -570,7 +580,7 @@ def main() -> None:
         "fit_dir": str(args.fit_dir),
         "radio_delay_s": radio,
         "pack_voltage": pack,
-        "auto_steer": not args.no_auto_steer,
+        "flip_switch": args.flip_switch,
         "pitch_gate_deg": args.pitch_gate_deg,
         "plant": final.to_dict(),
         "runs": results,
@@ -600,7 +610,7 @@ def main() -> None:
         f"# Distilled from {args.fit_dir} by distill_mujoco_plant.py.\n"
         f"# delay_s = {table.delay_s * 1e3:.1f} ms drivetrain (fit to MuJoCo)"
         f" + {radio * 1e3:.1f} ms radio (session clock alignment).\n"
-        f"# Pack {pack:.2f} V, auto-steer {'on' if not args.no_auto_steer else 'off'}.\n"
+        f"# Pack {pack:.2f} V, flip switch {args.flip_switch}.\n"
     )
     (out / "plant.toml").write_text(header + final.to_toml("plant"))
     (out / "distill.json").write_text(json.dumps(report, indent=2, default=float))
