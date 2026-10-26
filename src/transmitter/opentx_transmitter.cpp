@@ -90,12 +90,14 @@ CommandFeedback OpenTxTransmitter::update() {
     if (!latest_channels_) return {};
 
     constexpr double kChannelScale = 1.0 / kChannelMax;
+    const double angular_readback_sign = config_.invert_angular_channel_readback ? -1.0 : 1.0;
 
     // The channels on the wire are in whatever space the processor emits, so convert them back to
     // body axes. They stay normalized: consumers scale by the fitted [plant] gains themselves.
     const auto body = processor_->to_body_velocity({
         .channel_a = get_channel_value(config_.linear_channel) * kChannelScale,
-        .channel_b = get_channel_value(config_.angular_channel) * kChannelScale,
+        .channel_b =
+            get_channel_value(config_.angular_channel) * kChannelScale * angular_readback_sign,
     });
 
     CommandFeedback feedback;
