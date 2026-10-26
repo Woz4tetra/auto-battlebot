@@ -142,7 +142,7 @@ OPPONENT = [{size[0]:.4f}, {size[1]:.4f}, {size[2]:.4f}]
     return path
 
 
-Job = tuple[Path, int, str, Path | None, Path, int, Path | None]
+Job = tuple[Path, int, str, Path | None, Path, int, Path | None, str]
 RECORD = '\n[mcap]\nenable = true\nignored_topics = ["/camera/image"]\n'
 
 
@@ -158,13 +158,15 @@ def work_dir(index: int, record: Path | None) -> contextlib.AbstractContextManag
 
 
 def run_one(args: Job) -> str:
-    scenarios, index, nav, bundle, results, port, record = args
+    scenarios, index, nav, bundle, results, port, record, extra = args
     scenario = json.loads(scenarios.read_text())[index]
     with work_dir(index, record) as tmp:
         work = Path(tmp)
         cfg = overlay(scenario, nav, bundle, port, work)
         if record is not None:
             cfg.write_text(cfg.read_text() + RECORD)
+        if extra:
+            cfg.write_text(cfg.read_text() + "\n" + extra)
         # One thread per server: torch and BLAS pools otherwise spin about 7 cores per episode.
         threads = {k: "1" for k in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS")}
         env = {**os.environ, "PYTHONUNBUFFERED": "1", **threads}
@@ -222,6 +224,7 @@ def run(
     limit: int | None,
     port_base: int,
     record: Path | None = None,
+    extra: Path | None = None,
 ) -> None:
     count = len(json.loads(scenarios.read_text()))
     indices = list(range(count if limit is None else min(count, limit)))
@@ -229,7 +232,10 @@ def run(
     out.unlink(missing_ok=True)  # the server appends; a rerun must not stack on old results
     # The binary runs from the record directory, so every path it is handed must be absolute.
     record = record.resolve() if record is not None else None
-    jobs = [(scenarios, i, nav, bundle, out, port_base + (i % workers), record) for i in indices]
+    text = extra.read_text() if extra is not None else ""
+    jobs = [
+        (scenarios, i, nav, bundle, out, port_base + (i % workers), record, text) for i in indices
+    ]
     # Ports are reused by worker slot; a slot runs its jobs one after another.
     slots: list[list[Job]] = [[] for _ in range(workers)]
     for i, job in enumerate(jobs):
@@ -273,6 +279,12 @@ def main() -> None:
     r.add_argument(
         "--port-base", type=int, default=15000, help="two runs at once need distinct bases"
     )
+    r.add_argument(
+        "--extra-config",
+        type=Path,
+        default=None,
+        help="TOML appended to every episode's overlay, e.g. a [plant] table to score against",
+    )
     args = ap.parse_args()
     if args.cmd == "export":
         export(args.count, args.seed, args.out, args.episode_s, args.pursuit_grid, args.robot)
@@ -287,6 +299,7 @@ def main() -> None:
             args.limit,
             args.port_base,
             args.record,
+            args.extra_config,
         )
 
 

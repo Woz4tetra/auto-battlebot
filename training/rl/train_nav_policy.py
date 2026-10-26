@@ -178,6 +178,12 @@ def main() -> None:
         metavar="KEY=VALUE",
         help="override one reward weight (WarpNavConfig.reward), e.g. hole=-30; repeatable",
     )
+    ap.add_argument(
+        "--hole-margin",
+        type=float,
+        default=WarpNavConfig.hole_margin_m,
+        help="distance outside a hole's edge where reward hole_near_per_s starts, m",
+    )
     args = ap.parse_args()
 
     stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -193,6 +199,7 @@ def main() -> None:
             robot=args.robot,
             fit_file=args.fit_file,
             reward=reward_weights(args.reward),
+            hole_margin_m=args.hole_margin,
         ),
         "cuda",
         seed=args.seed,
