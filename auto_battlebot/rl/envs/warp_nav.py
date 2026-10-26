@@ -73,6 +73,8 @@ from auto_battlebot.rl.torch_plant import saturate
 
 REPO = Path(__file__).resolve().parents[3]
 DEFAULT_FIT = "playground/calibration/out/mujoco_sysid/fit_2026-10-15_yolo_brake/fit.json"
+PROVISIONAL_RL_SENSING = "simulation/sensing_models/provisional_rl.toml"
+MK3_SENSING = "simulation/sensing_models/provisional_rl_mrs_buff_mk3.toml"
 MK3_INTERIM_FIT = "playground/calibration/out/mujoco_sysid/mk3_interim/fit.json"
 WALL_HEIGHT_M = 0.3
 WALL_T_M = 0.05
@@ -115,6 +117,9 @@ class RobotProfile:
     # Which contacts are hits taken (`warp_kernels.in_opponent_arc`): "angle", anywhere in the
     # opponent's front arc, or "front_face", only its front face inside the arc.
     arc_rule: str = "angle"
+    # The sensing model, whose `[robots.ours.ekf_error]` table is fitted per robot: the filter's
+    # error grows with speed, and Mrs Buff Mk3 drives faster than Mr Stabs Mk2.
+    sensing_model: str = PROVISIONAL_RL_SENSING
 
 
 MK2_POLICY_DRIVER = PolicyDriver(
@@ -135,6 +140,7 @@ ROBOTS = {
             PolicyDriver("self_play", "mrs_buff_mk3", "config/_common.toml", ""),
         ),
         arc_rule="front_face",
+        sensing_model=MK3_SENSING,
     ),
 }
 
@@ -223,7 +229,7 @@ class WarpNavConfig:
     episode_s: float = 20.0
     robot: str = "mr_stabs_mk2"  # a key of ROBOTS
     fit_file: str = ""  # empty: the robot's own (RobotProfile.fit_file)
-    sensing_model: str = "simulation/sensing_models/provisional_rl.toml"
+    sensing_model: str = ""  # empty: the robot's own (RobotProfile.sensing_model)
     arc_half_angle_deg: float = 60.0
     strike_x_m: float = 0.06
     strike_half_width_m: float = 0.081
@@ -285,6 +291,10 @@ class WarpNavConfig:
 
 def resolved_fit_file(cfg: WarpNavConfig) -> str:
     return cfg.fit_file or ROBOTS[cfg.robot].fit_file
+
+
+def resolved_sensing_model(cfg: WarpNavConfig) -> str:
+    return cfg.sensing_model or ROBOTS[cfg.robot].sensing_model
 
 
 def wrap(a: torch.Tensor) -> torch.Tensor:
@@ -633,7 +643,7 @@ class WarpNavEnv:
         self.episode_pursuit_level = torch.full((w,), -1.0, device=dev, dtype=dt)
 
         self.sensing = False
-        self.spec_file = SensingModelFile.load(REPO / cfg.sensing_model)
+        self.spec_file = SensingModelFile.load(REPO / resolved_sensing_model(cfg))
         self.measure = MeasurementModel(
             self.spec_file, ("ours", "opponent"), w, dev, dt, seed=seed + 101
         )
