@@ -28,6 +28,7 @@ max_motor_rpm_per_sec = 0                      # RPM/s; off, nothing rate-limits
 lifted_deadzone_percent = 0
 zero_deadzone_percent = 2
 reverse_angular_channel = true
+invert_angular_channel_readback = false        # the Mr Stabs radio model sends raw Ele/Ail
 velocity_saturation_limit = 1.0                # 0 = disabled; e.g. 1.0 = |linear| + |angular| <= 1
 
 [plant]

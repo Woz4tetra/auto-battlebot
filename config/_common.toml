@@ -209,16 +209,18 @@ type = "OpenTxTransmitter"
 # DifferentialDriveProcessor sends linear/angular for a radio model that mixes them itself.
 drive_processor = "TankDriveProcessor"
 # Channel mapping (0-based config index = radio channel label - 1).
-linear_channel = 0              # radio CH1
-angular_channel = 1             # radio CH2
-trainer_enable_channel = 5      # radio CH6
-init_button_channel = 31        # disabled; no transmitter maps a button, reinit is a touchscreen action
-max_motor_rpm = 1500            # RPM
-max_motor_rpm_per_sec = 0       # RPM/s; 0 = off
+linear_channel = 0             # radio CH1
+angular_channel = 1            # radio CH2
+trainer_enable_channel = 5     # radio CH6
+init_button_channel = 31       # disabled; no transmitter maps a button, reinit is a touchscreen action
+max_motor_rpm = 1500           # RPM
+max_motor_rpm_per_sec = 0      # RPM/s; 0 = off
 lifted_deadzone_percent = 5
 zero_deadzone_percent = 2
 reverse_angular_channel = true
-velocity_saturation_limit = 1.0 # 0 = disabled; e.g. 1.0 = |linear| + |angular| <= 1
+# The Mrs Buff CRSFR model inverts CH2 (right motor) on output; undo it on the readback.
+invert_angular_channel_readback = true
+velocity_saturation_limit = 1.0        # 0 = disabled; e.g. 1.0 = |linear| + |angular| <= 1
 
 # The measured drivetrain, read by two subsystems: the our-robot EKF propagates through it and
 # MotionProfileNavigation inverts it for the brake schedule and feedforward. One table, so a
@@ -231,20 +233,20 @@ velocity_saturation_limit = 1.0 # 0 = disabled; e.g. 1.0 = |linear| + |angular| 
 # (3486 edges, SNR 22.4), corroborated by the tau-pinned profile (54 ms) and the stage 2
 # camera value (59 ms).
 [plant]
-dz_lin_fwd = 0.0109768
-dz_lin_rev = 0.0253396
-dz_ang_l = 0.016061
-dz_ang_r = 0.0240734
-k_fwd = 4.88002
+dz_lin_fwd = 0.0
+dz_lin_rev = 0.0
+dz_ang_l = 0.0
+dz_ang_r = 0.0
+k_fwd = 4.3546
 k_rev = 4.3546
 k_ang = 31.7062
-tau_lin_a = 0.14921
-tau_lin_d = 0.2        # from experiment: 0.123461
-tau_ang_a = 0.173867
-tau_ang_d = 0.0878998
+tau_lin_a = 0.0
+tau_lin_d = 0.0     # from experiment: 0.123461
+tau_ang_a = 0.0
+tau_ang_d = 0.0
 delay_s = 0.0522094
-c_sb = 2.70197
-c_ad = 0.463423
+c_sb = 0.0
+c_ad = 0.0
 c_drift = 0.0
 c_drift_bias = 0.0
 

@@ -71,6 +71,13 @@ struct OpenTxTransmitterConfiguration : public TransmitterConfiguration {
     int trainer_enable_channel = 5;
     bool reverse_linear_channel = false;
     bool reverse_angular_channel = false;
+    /** The radio model inverts the angular channel's output after the trainer input is mixed in.
+     *  The Mrs Buff CRSFR model does this to its right-motor channel
+     *  (firmware/config/CHANNEL_CONVENTION.md). Sending is unaffected, since the trainer value
+     *  goes through the same inversion as the sticks. The channels read back are mixer outputs,
+     *  though, so the readback has to undo it. Left uninverted, the left and right wheels read back
+     *  with opposite signs, and forward stick reports as a spin. */
+    bool invert_angular_channel_readback = false;
     /** Minimum non-zero output magnitude (%) after zero deadzone is exceeded. */
     double lifted_deadzone_percent = 0.0;
     /** Input magnitude (%) below which output is forced to zero. */
@@ -105,6 +112,8 @@ struct OpenTxTransmitterConfiguration : public TransmitterConfiguration {
             parser.get_optional_bool("reverse_linear_channel", reverse_linear_channel);
         reverse_angular_channel =
             parser.get_optional_bool("reverse_angular_channel", reverse_angular_channel);
+        invert_angular_channel_readback = parser.get_optional_bool(
+            "invert_angular_channel_readback", invert_angular_channel_readback);
         lifted_deadzone_percent =
             parser.get_optional_double("lifted_deadzone_percent", lifted_deadzone_percent);
         zero_deadzone_percent =
