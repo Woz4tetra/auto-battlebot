@@ -47,7 +47,8 @@ DifferentialDriveProcessor::Channels DifferentialDriveProcessor::process(
 }
 
 BodyVelocity DifferentialDriveProcessor::to_body_velocity(Channels channels) const {
-    return {.linear = channels.channel_a, .angular = channels.channel_b};
+    return {.linear = config_.reverse_linear ? -channels.channel_a : channels.channel_a,
+            .angular = config_.reverse_angular ? -channels.channel_b : channels.channel_b};
 }
 
 }  // namespace auto_battlebot

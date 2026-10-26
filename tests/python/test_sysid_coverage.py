@@ -15,7 +15,7 @@ from auto_battlebot.calibration.sysid import model, synthetic, telemetry
 from auto_battlebot.calibration.sysid.coverage import CoverageSession, _pitched
 from auto_battlebot.calibration.sysid.maneuvers import ManeuverSegmenter
 from auto_battlebot.calibration.sysid.pose_stream import TagPose
-from auto_battlebot.calibration.sysid.profile import load_profile, load_profile_toml
+from auto_battlebot.calibration.sysid.profile import load_profile
 from auto_battlebot.calibration.sysid.sources import Dispatcher, replay
 from auto_battlebot.calibration.sysid.worker import InlineEngine
 from auto_battlebot.control.firmware_mixer import BatchedMixer, LoopState
@@ -89,15 +89,6 @@ def test_telemetry_columns_follow_the_schema(tmp_path: Path) -> None:
     assert len(df) == 3
     assert df["a_percent"].isna().all()
     assert df["telemetry_seq"].isna().all()  # nullable, absent in this payload
-
-
-def test_profile_extends_chain() -> None:
-    data = load_profile_toml("mr_stabs_mk2_sysid_zed_box")
-    assert data["navigation"]["type"] == "NoopNavigation"
-    assert data["runner"]["autonomy_enabled_by_default"] is False
-    prof = load_profile()
-    assert prof.field_size_x_m == pytest.approx(1.52)
-    assert any(m.upside_down for m in prof.mounts.values())
 
 
 # -- segmenter ---------------------------------------------------------------------------

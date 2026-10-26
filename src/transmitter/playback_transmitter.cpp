@@ -52,8 +52,8 @@ CommandFeedback PlaybackTransmitter::update() {
 
     if (!last_processed_) return CommandFeedback{};
 
-    // last_processed_ is already normalized stick space, the same thing OpenTxTransmitter reads
-    // back from its channels.
+    // last_processed_ is already normalized body-frame stick space, the same thing
+    // OpenTxTransmitter reads back from its channels.
     CommandFeedback feedback;
     feedback.stick_commands[FrameId::OUR_ROBOT_1] = {
         .linear_x = last_processed_->linear,

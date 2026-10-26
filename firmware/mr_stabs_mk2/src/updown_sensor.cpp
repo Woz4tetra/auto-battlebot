@@ -1,4 +1,5 @@
 #include <updown_sensor.h>
+#include <yaw_control.h>
 
 using namespace updown_sensor;
 
@@ -35,6 +36,8 @@ bool UpdownSensor::begin() {
         initialized = true;
         status.initialized = true;
         has_prev_heading = false;
+        // The gyro unwrap tracks from the previous sample, which a reconnect leaves stale.
+        gyro_vec->x = gyro_vec->y = gyro_vec->z = 0.0f;
         // The Mk2 board carries the BNO055 face down relative to the robot: rotate the chip
         // frame 180 degrees about X (P4: X kept, Y and Z negated), so every output is in the
         // robot frame and +z is up with the robot upright. The chip forgets this on reset, so it
@@ -189,9 +192,9 @@ bool UpdownSensor::update_sensor(bool allow_reconnect) {
     orientation->y = orientation_data.orientation.y;
     orientation->z = orientation_data.orientation.z;
 
-    gyro_vec->x = gyro_data.gyro.x;
-    gyro_vec->y = gyro_data.gyro.y;
-    gyro_vec->z = gyro_data.gyro.z;
+    gyro_vec->x = yaw_control::unwrap_gyro_rate(gyro_data.gyro.x, gyro_vec->x);
+    gyro_vec->y = yaw_control::unwrap_gyro_rate(gyro_data.gyro.y, gyro_vec->y);
+    gyro_vec->z = yaw_control::unwrap_gyro_rate(gyro_data.gyro.z, gyro_vec->z);
 
     linear_accel->x = linear_data.acceleration.x;
     linear_accel->y = linear_data.acceleration.y;

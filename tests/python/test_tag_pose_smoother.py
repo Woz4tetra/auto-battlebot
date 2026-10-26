@@ -431,7 +431,7 @@ def test_reader_round_trip(session: Session, tmp_path: Path) -> None:
         np.testing.assert_allclose(det.solutions[0].transform[:3, :3], rot, atol=1e-12)
     assert sum(1 for f in frames if not f.detections) > 0  # empty frames are kept
 
-    esp = sysid_io.load_esp32_diagnostics(path)
+    esp = sysid_io.load_robot_telemetry(path)
     assert len(esp) == len(session.esp32)
     assert list(esp.columns[1:]) == [name for name, _ in sysid_io.ESP32_FIELDS]
     assert (esp["log_time_ns"] == esp["host_receive_ns"]).all()

@@ -9,6 +9,10 @@ float clamp(float value, float low, float high) { return fmin(fmax(value, low), 
 
 float wrap_degrees(float angle) { return angle - 360.0f * floor((angle + 180.0f) / 360.0f); }
 
+float unwrap_gyro_rate(float raw, float previous) {
+    return raw + GYRO_WRAP_RAD_S * roundf((previous - raw) / GYRO_WRAP_RAD_S);
+}
+
 YawController::YawController(const Config &config) : _config(config) {}
 
 void YawController::reset(float heading) {

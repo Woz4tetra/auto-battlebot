@@ -1,7 +1,8 @@
 """Smooth one Mr Stabs Mk2 sysid session into the bundle the MuJoCo fit reads.
 
 Reads an MCAP recorded with the ``mr_stabs_mk2_sysid_zed_box`` profile (``/apriltag/robot_tags``,
-``/robot/esp32_diagnostics``, the transmitter channels, ``/tf``) and writes, under
+the robot telemetry (``/robot/espnow_telemetry``, or ``/robot/esp32_diagnostics`` before
+2026-10-25), the transmitter channels when the radio was on USB, ``/tf``) and writes, under
 ``playground/calibration/out/mujoco_sysid/<session_name>/``:
 
 - ``smoothed.csv``: RTS-smoothed axle-center pose on a 5 ms grid
@@ -54,9 +55,9 @@ from auto_battlebot.perception.tag_pose_smoother import (
 from auto_battlebot.recording.esp32_clock import crsf_to_unit, fit_robot_clock, radio_link_delay
 from auto_battlebot.recording.sysid_io import (
     field_transform_constancy,
-    load_esp32_diagnostics,
     load_field_from_camera,
     load_robot_tags,
+    load_robot_telemetry,
     load_transmitter_channels,
 )
 
@@ -387,7 +388,7 @@ def main(argv: list[str] | None = None) -> Path:
     rest_pitch = args.rest_pitch_rad if args.rest_pitch_rad is not None else default_rest_pitch()
     frames = load_robot_tags(args.mcap)
     field = load_field_from_camera(args.mcap)
-    esp32 = load_esp32_diagnostics(args.mcap)
+    esp32 = load_robot_telemetry(args.mcap)
     sticks = load_transmitter_channels(args.mcap)
     print(
         f"{len(frames)} tag frames, {len(esp32)} ESP32 events, {len(sticks)} stick updates, "

@@ -1,0 +1,30 @@
+# Mrs Buff Mk3 on the fiducial field, driven by RlPolicyNavigation. Commands go out through
+# _common's OpenTxTransmitter: the handset relays them over ELRS through the trainer port. The
+# drivetrain plant is _common's, which is the Mrs Buff Stage A fit. The bundle is
+# rl_nav_mk3_c_near (queue job 58 on megamind, 2026-10-25), exported from
+# runs/rl_nav/rl_nav_mk3_c_near_s15_2026-10-25_18-11-33. It trained with the weapon off, against
+# a MuJoCo plant fitted to the jig plant rather than to Mk3 recordings. It has no HazardAvoidance
+# layer: walls and hazards reach it only through its observation.
+extends = "_zed_box"
+
+[field_filter]
+type = "FiducialFieldFilter"
+corner = "NEG_X_NEG_Y"
+board_offset_x = 0.02
+board_offset_y = 0.02
+field_size_x = 1.5
+field_size_y = 1.5
+# The AprilTag corner fit lands at 0.55 px from one frame, and its error is bias, so stacking
+# frames buys nothing. One frame stalls the loop ~530 ms on the ZED Box, once per lock.
+accumulate_frames = 1
+
+[robot_filter.label_mapping]
+"MR_STABS_MK2" = ["THEIR_ROBOT_1"]
+"MRS_BUFF_MK3" = ["OUR_ROBOT_1"]
+
+# `type` differs from _common's MotionProfileNavigation, so this replaces the section wholesale.
+[navigation]
+type = "RlPolicyNavigation"
+
+[navigation.policy]
+bundle = "data/models/nav_policies/rl_nav_mk3_c_near"

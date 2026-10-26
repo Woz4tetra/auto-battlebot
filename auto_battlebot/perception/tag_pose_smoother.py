@@ -1030,6 +1030,28 @@ def bno055_yaw_rate(
     return ImuYawRate(grid, rate, valid)
 
 
+def gyro_yaw_rate(
+    stamp_ns: np.ndarray, yaw_rate_deg_s: np.ndarray, heading: ImuYawRate
+) -> ImuYawRate:
+    """Yaw rate from the firmware's gyro ``yaw_rate``, on ``heading``'s grid.
+
+    The firmware projects the gyro onto the gravity vector (``updown_sensor.cpp``), so the rate
+    is about the field's up axis whichever side is up, and it is not differentiated, so it carries
+    none of the heading's five-sample smoothing. It is clockwise in deg/s; this flips it to
+    counter-clockwise, the heading rate's sign. Firmware before ecc27961 wrapped the gyro past
+    2000 deg/s, which reads about 70 rad/s off, so samples that far from an upright heading rate
+    are dropped.
+    """
+    if heading.stamp_ns.size == 0:
+        return heading
+    t = np.asarray(stamp_ns, dtype=np.int64)
+    order = np.argsort(t, kind="stable")
+    rate_ccw = -np.radians(np.asarray(yaw_rate_deg_s, dtype=np.float64)[order])
+    rate = resample_linear(t[order], rate_ccw, heading.stamp_ns, max_gap_s=0.1)
+    wrapped = heading.valid & (np.abs(rate - heading.rate) > GYRO_WRAP_TOLERANCE)
+    return ImuYawRate(heading.stamp_ns, rate, np.isfinite(rate) & ~wrapped)
+
+
 # ---------------------------------------------------------------------------
 # Session pipeline
 # ---------------------------------------------------------------------------
@@ -1099,12 +1121,23 @@ IMU_SRC = -1
 EXTRA_SRC = -2
 IMU_GAIN_MAX_RATE = 25.0  # rad/s: fit the BNO055 gain below its clipping
 IMU_MAX_RATE = 30.0  # rad/s: no IMU knot above this
+GYRO_WRAP_TOLERANCE = 10.0  # rad/s: gyro vs heading rate gap that marks a wrapped gyro reading
+# The pitch gyro's sigma: its noise floor, not the chassis vibration it also reports.
+GYRO_PITCH_SIGMA = 0.1  # rad/s
+# 0.5 s pitch changes over 3 degrees, tag against integrated gyro: s05 2026-10-25 correlates 0.84.
+GYRO_PITCH_MIN_CORRELATION = 0.3
 
 _PLANAR_OPTIONS = {
     "angular": (False, False, True),
     "prior_std": ((1.0, 5.0, 50.0), (1.0, 5.0, 50.0), (math.pi, 40.0, 1000.0)),
 }
-_TILT_OPTIONS = {"angular": (True, True), "prior_std": ((0.5, 10.0, 300.0), (0.5, 10.0, 300.0))}
+# Tilt is fed unwrapped and never wraps its innovations. Wrapped, a pitch rate of one turn per
+# camera frame (377 rad/s at 60 Hz) fits every fix exactly, and on 2026-10-25 the cross-validated
+# q let the filter settle there: right at the knots, a random angle between them.
+_TILT_OPTIONS = {
+    "angular": (False, False),
+    "prior_std": ((0.5, 10.0, 300.0), (0.5, 10.0, 300.0)),
+}
 
 
 def _filter_options(kind: dict[str, Any], opts: SmootherOptions) -> FilterOptions:
@@ -1279,7 +1312,7 @@ def smooth_session(
         t_s=(raw.stamp_ns - t0_ns).astype(np.float64) / _NS,
         t0_ns=t0_ns,
         kind=np.full((n, 2), KIND_POSITION, dtype=np.int8),
-        z=np.stack([raw.pitch, raw.roll], axis=1),
+        z=np.stack([np.unwrap(raw.pitch), np.unwrap(raw.roll)], axis=1),
         r=np.stack([sig["tilt"] ** 2, sig["tilt"] ** 2], axis=1),
     )
     tilt, cv_tilt = _fit_axes(
@@ -1299,13 +1332,10 @@ def smooth_session(
     imu: ImuYawRate | None = None
     imu_lag: dict[str, Any] | None = None
     if esp32 is not None and len(esp32) >= 5:
-        imu = bno055_yaw_rate(
-            esp32["stamp_ns"].to_numpy(),
-            esp32["orientation_x"].to_numpy(),
-            esp32["is_upside_down"].to_numpy(),
-        )
+        imu, source = _telemetry_yaw_rate(esp32)
         tag_rate = _raw_tag_yaw_rate(raw.stamp_ns, raw.yaw, grid_ns)
         imu_lag, checks["imu_yaw_rate"] = _imu_agreement(grid_ns, tag_rate, imu, opts)
+        checks["imu_yaw_rate"]["source"] = source
         fused = _fuse_imu(
             raw, planar_z, planar_sigma, t0_ns, planar, planar_opts, imu, checks, opts
         )
@@ -1335,17 +1365,26 @@ def smooth_session(
         )
         if with_yolo is not None:
             planar, yolo_fixes, yolo_cal = with_yolo
-            if esp32 is not None and len(esp32):
-                tilt = _fuse_imu_tilt(
-                    esp32,
-                    yolo_fixes["stamp_ns"].to_numpy(np.int64),
-                    raw,
-                    cands.upside_down,
-                    tilt,
-                    tilt_knots,
-                    _filter_options(_TILT_OPTIONS, opts),
-                    checks,
-                )
+            grid = _grid_frame(planar, tilt, grid_ns, azimuth)
+    if esp32 is not None and len(esp32):
+        yolo_stamps = (
+            yolo_fixes["stamp_ns"].to_numpy(np.int64)
+            if yolo_fixes is not None
+            else np.zeros(0, np.int64)
+        )
+        fused_tilt = _fuse_imu_tilt(
+            esp32,
+            yolo_stamps,
+            raw,
+            cands.upside_down,
+            tilt,
+            tilt_knots,
+            _filter_options(_TILT_OPTIONS, opts),
+            checks,
+            opts.fuse_imu,
+        )
+        if fused_tilt is not None:
+            tilt = fused_tilt
             grid = _grid_frame(planar, tilt, grid_ns, azimuth)
 
     meas = _measurement_table(raw, cands, ippe, reproj, sig, planar, tilt, azimuth)
@@ -1417,55 +1456,151 @@ def _fuse_imu(
     return _AxisFit(knots, src, run, planar.q, exempt)
 
 
+def _telemetry_yaw_rate(esp32: pd.DataFrame) -> tuple[ImuYawRate, str]:
+    """The gyro yaw rate where the telemetry carries it, else the differentiated heading."""
+    heading = bno055_yaw_rate(
+        esp32["stamp_ns"].to_numpy(),
+        esp32["orientation_x"].to_numpy(),
+        esp32["is_upside_down"].to_numpy(),
+    )
+    gyro = esp32["yaw_rate"].to_numpy(float) if "yaw_rate" in esp32 else np.array([np.nan])
+    if np.isfinite(gyro).mean() > 0.9:
+        return gyro_yaw_rate(esp32["stamp_ns"].to_numpy(), gyro, heading), "gyro"
+    return heading, "heading"
+
+
+def _gyro_pitch_agreement(
+    raw: RawPoses,
+    et: np.ndarray,
+    rate: np.ndarray,
+    upright: np.ndarray,
+    interval_s: float = 0.5,
+    step_s: float = 0.1,
+    min_change_deg: float = 3.0,
+) -> dict[str, Any]:
+    """Sign and fit of the integrated pitch gyro against tag pitch changes over ``interval_s``.
+
+    Each tag end is the median of the fixes within 30 ms. Only intervals where the tags move more
+    than ``min_change_deg`` score the sign: a flat robot's tag pitch is mostly noise.
+    """
+    integral = np.concatenate([[0.0], np.cumsum(np.nan_to_num(rate[1:]) * np.diff(et) / _NS)])
+    pitch = np.unwrap(raw.pitch)
+
+    def tag_at(stamps: np.ndarray) -> np.ndarray:
+        lo = np.searchsorted(raw.stamp_ns, stamps - 30_000_000)
+        hi = np.searchsorted(raw.stamp_ns, stamps + 30_000_000)
+        return np.array([np.median(pitch[a:b]) if b - a >= 2 else np.nan for a, b in zip(lo, hi)])
+
+    span = int(interval_s * _NS)
+    starts = np.arange(int(raw.stamp_ns[0]), int(raw.stamp_ns[-1]) - span, int(step_s * _NS))
+    ends = starts + span
+    d_tag = tag_at(ends) - tag_at(starts)
+    d_gyro = np.interp(ends, et, integral) - np.interp(starts, et, integral)
+    # Upright for the whole interval: inverted, the gyro's sense of pitch flips.
+    flips = np.concatenate([[0], np.cumsum(~upright)])
+    clean = flips[np.searchsorted(et, ends)] == flips[np.searchsorted(et, starts)]
+    big = np.isfinite(d_tag) & clean & (np.abs(d_tag) > math.radians(min_change_deg))
+    if big.sum() < 20:
+        return {"intervals": int(big.sum())}
+    corr = float(np.corrcoef(d_gyro[big], d_tag[big])[0, 1])
+    return {
+        "intervals": int(big.sum()),
+        "correlation": corr,
+        "slope": float(np.polyfit(d_gyro[big], d_tag[big], 1)[0]),
+        "sign": 1.0 if corr >= 0 else -1.0,
+    }
+
+
 def _fuse_imu_tilt(
     esp32: pd.DataFrame,
-    stamps_ns: np.ndarray,
+    yolo_stamps_ns: np.ndarray,
     raw: RawPoses,
     upside_down: np.ndarray,
     tilt: _AxisFit,
     tilt_knots: Knots,
     tilt_opts: FilterOptions,
     checks: dict[str, Any],
-) -> _AxisFit:
-    """Rerun the tilt smoother with the robot IMU's pitch and roll at ``stamps_ns``.
+    fuse_gyro: bool,
+) -> _AxisFit | None:
+    """Rerun the tilt smoother with the robot IMU's tilt; None when there is nothing to add.
 
-    YOLO fixes carry no tilt, and across a long dropout the tilt state wanders far enough to mark
-    a robot sitting flat as lifting its nose. The BNO055 pitch and roll are mapped onto tag pitch
-    and roll by a straight line fitted on upright tag detections; its residual (about 2 degrees,
-    mostly tag noise) is the sigma. The IMU lag is the one the yaw-rate check measured.
+    Pitch: the gyro's pitch rate (``gyro_y``, the chip axis along the axle, which picks up no yaw)
+    at every upright telemetry sample, so the tags only pin its bias. The BNO055's fused Euler
+    pitch is not used where the gyro is: on 2026-10-25 hard spins pulled it up to 18 degrees off
+    while the tags and the gyro read the robot flat. The gyro's sign is measured against tag pitch
+    changes and the fusion skipped when they do not agree.
+
+    Roll, and pitch without the gyro: YOLO fixes carry no tilt, and across a long dropout the tilt
+    state wanders far enough to mark a robot sitting flat as lifting its nose. At each YOLO fix the
+    BNO055 Euler angle is mapped onto the tag angle by a straight line fitted on upright tag
+    detections; its residual (about 2 degrees, mostly tag noise) is the sigma.
+
+    The IMU lag is the one the yaw-rate check measured.
     """
     lag_ns = int(round(float((checks.get("imu_yaw_rate") or {}).get("lag_s") or 0.0) * _NS))
     e = esp32.sort_values("stamp_ns")
     et = e["stamp_ns"].to_numpy(np.int64)
+    upright = ~e["is_upside_down"].to_numpy(bool)
+    report: dict[str, Any] = {"lag_s": lag_ns / _NS, "yolo_fixes": int(len(yolo_stamps_ns))}
+
+    gyro_stamps = np.zeros(0, np.int64)
+    gyro_rate = np.zeros(0)
+    gyro_y = e["gyro_y"].to_numpy(float) if "gyro_y" in e else np.array([np.nan])
+    if fuse_gyro and np.isfinite(gyro_y).mean() > 0.9:
+        rate = np.radians(gyro_y)
+        agreement = _gyro_pitch_agreement(raw, et - lag_ns, rate, upright)
+        fused = abs(agreement.get("correlation", 0.0)) >= GYRO_PITCH_MIN_CORRELATION
+        if fused:
+            keep = upright & np.isfinite(rate)
+            stamps = et[keep] - lag_ns
+            inside = (stamps >= raw.stamp_ns[0]) & (stamps <= raw.stamp_ns[-1])
+            gyro_stamps = stamps[inside]
+            gyro_rate = agreement["sign"] * rate[keep][inside]
+        report["gyro_pitch"] = {**agreement, "fused": fused, "knots": int(len(gyro_stamps))}
+    if len(gyro_stamps) == 0 and len(yolo_stamps_ns) == 0:
+        checks["imu_tilt"] = report
+        return None
 
     def imu_at(stamps: np.ndarray, col: str) -> np.ndarray:
         at = np.clip(np.searchsorted(et, stamps + lag_ns, side="right") - 1, 0, len(et) - 1)
         return np.asarray(e[col].to_numpy(float)[at])
 
     up = ~np.asarray(upside_down, dtype=bool)
-    z = np.zeros((len(stamps_ns), 2))
+    m = len(yolo_stamps_ns)
+    z = np.zeros((m, 2))
     sigma = np.zeros(2)
-    report: dict[str, Any] = {}
     for a, (col, tag) in enumerate((("orientation_y", raw.pitch), ("orientation_z", raw.roll))):
         x = imu_at(raw.stamp_ns[up], col)
         coef = np.polyfit(x, tag[up], 1)
         resid = tag[up] - np.polyval(coef, x)
         sigma[a] = 1.4826 * float(np.median(np.abs(resid - np.median(resid))))
-        z[:, a] = np.polyval(coef, imu_at(stamps_ns, col))
+        z[:, a] = np.polyval(coef, imu_at(yolo_stamps_ns, col))
+        # Onto the branch of the unwrapped tag fix before each stamp, so no innovation sees a turn.
+        before = np.clip(np.searchsorted(raw.stamp_ns, yolo_stamps_ns, side="right") - 1, 0, None)
+        branch = tilt_knots.z[before, a]
+        z[:, a] = branch + wrap_angle(z[:, a] - branch)
         report[col] = {"gain": float(coef[0]), "offset": float(coef[1]), "sigma": sigma[a]}
+    yolo_kind = np.full((m, 2), KIND_POSITION, dtype=np.int8)
+    if len(gyro_stamps):
+        yolo_kind[:, 0] = KIND_NONE  # the gyro carries pitch across the dropout
+    g = len(gyro_stamps)
+    gyro_kind = np.tile(np.array([KIND_RATE, KIND_NONE], dtype=np.int8), (g, 1))
+    gyro_z = np.stack([gyro_rate, np.zeros(g)], axis=1)
+    gyro_r = np.tile([GYRO_PITCH_SIGMA**2, 1.0], (g, 1))
+
     n = tilt_knots.t_s.shape[0]
-    stamps = np.concatenate([raw.stamp_ns, stamps_ns])
+    stamps = np.concatenate([raw.stamp_ns, yolo_stamps_ns, gyro_stamps])
     order = np.argsort(stamps, kind="stable")
     knots = Knots(
         t_s=(stamps[order] - tilt_knots.t0_ns).astype(np.float64) / _NS,
         t0_ns=tilt_knots.t0_ns,
-        kind=np.full((len(stamps), 2), KIND_POSITION, dtype=np.int8),
-        z=np.concatenate([tilt_knots.z, z])[order],
-        r=np.concatenate([tilt_knots.r, np.tile(sigma**2, (len(stamps_ns), 1))])[order],
+        kind=np.concatenate([tilt_knots.kind, yolo_kind, gyro_kind])[order],
+        z=np.concatenate([tilt_knots.z, z, gyro_z])[order],
+        r=np.concatenate([tilt_knots.r, np.tile(sigma**2, (m, 1)), gyro_r])[order],
     )
-    src = np.concatenate([np.arange(n), np.full(len(stamps_ns), EXTRA_SRC)])[order]
+    src = np.concatenate([np.arange(n), np.full(m, EXTRA_SRC), np.full(g, IMU_SRC)])[order]
     run, exempt = smooth_with_recheck(knots, tilt.q, tilt_opts)
-    checks["imu_tilt"] = {"fixes": len(stamps_ns), "lag_s": lag_ns / _NS, **report}
+    checks["imu_tilt"] = report
     return _AxisFit(knots, src, run, tilt.q, exempt)
 
 
@@ -1722,7 +1857,7 @@ def _grid_frame(
             "yaw_rate": m[:, 2, 1],
             "ax": ax,
             "ay": ay,
-            # The tilt filter wraps its innovations, so its state can sit a whole turn off.
+            # The tilt measurements are unwrapped, so the state can sit a whole turn off.
             "pitch": wrap_angle(tm[:, 0, 0]),
             "roll": wrap_angle(tm[:, 1, 0]),
             "sigma_x": np.sqrt(c2 * var_along + s2 * var_across),

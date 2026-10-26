@@ -18,7 +18,7 @@ import numpy as np
 import warp as wp
 
 from auto_battlebot.mujoco_sim.firmware import FirmwareMixer
-from auto_battlebot.recording.sysid_io import load_esp32_diagnostics
+from auto_battlebot.recording.sysid_io import load_robot_telemetry
 from auto_battlebot.rl.envs.warp_kernels import FW_COLUMNS, firmware_test
 
 REPO = Path(__file__).resolve().parents[2]
@@ -39,7 +39,7 @@ def main() -> None:
     wp.init()
     report = {}
     for path in SESSIONS:
-        df = load_esp32_diagnostics(REPO / path)
+        df = load_robot_telemetry(REPO / path)
         rows = []
         for a, b in armed_spans(df):
             seg = df.iloc[a:b]

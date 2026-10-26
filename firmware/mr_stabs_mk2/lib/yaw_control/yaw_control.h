@@ -75,4 +75,15 @@ class YawController {
 
 // Wraps an angle difference to [-180, 180).
 float wrap_degrees(float angle);
+
+/** One full wrap of a BNO055 gyro axis in rad/s: the register is int16 at 16 LSB per deg/s, so it
+ *  spans 65536 / 16 = 4096 deg/s. */
+constexpr float GYRO_WRAP_RAD_S = 4096.0f * 3.14159265358979f / 180.0f;
+
+/** Undo the gyro wrap past its +/-2000 deg/s range. A spin faster than that reads back with the
+ *  opposite sign, which turns the yaw-rate loop into positive feedback: it drives the motors
+ *  harder to "brake" a spin it sees going the wrong way. Picks the reading's alias nearest the
+ *  previous unwrapped rate, which is exact while the rate changes by under half a wrap
+ *  (2048 deg/s) between samples. */
+float unwrap_gyro_rate(float raw, float previous);
 }  // namespace yaw_control
