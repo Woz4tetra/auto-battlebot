@@ -3,10 +3,15 @@
 # hostname it already has; this script never renames it.
 #
 # The iPad plugs into the box with a USB-C Ethernet dongle. Nothing on that link hands out
-# addresses: the box takes the fixed IPv4 link-local address 169.254.42.1/16, and the iPad
-# self-assigns a 169.254.x.x address a few seconds after the cable goes in. A DHCP server would
-# work too, but it would hand out addresses to a whole shop LAN the day the box is plugged into a
-# router; link-local can't do that.
+# addresses: the box takes the fixed address 10.42.42.1/24, and the iPad is set by hand to
+# 10.42.42.2/24 with no router (Settings > Ethernet > the dongle > Configure IP > Manual). A DHCP
+# server would save that step, but it would hand out addresses to a whole shop LAN the day the
+# box is plugged into a router.
+#
+# The cable used to be link-local (169.254.42.1/16). iOS routes link-local traffic out its
+# primary interface, which is Wi-Fi whenever the iPad has both, so after a replug Safari sent
+# the dashboard requests over Wi-Fi, where the firewall below drops them. Only the cable has a
+# route to 10.42.42.0/24. Keep this subnet in sync with include/host/dashboard_network.hpp.
 #
 # The name is the box's hostname, published by Avahi over mDNS. Avahi answers a hostname query on
 # each interface with that interface's own address, so the iPad on the cable and a phone on Wi-Fi
@@ -36,7 +41,7 @@ install_dashboard_network() {
     local hostname
     hostname=$(hostname)
     local profile="auto-battlebot-dashboard"
-    local address="169.254.42.1/16"
+    local address="10.42.42.1/24"
     local table="auto_battlebot_dashboard"
     local nft_file="/etc/auto-battlebot/dashboard.nft"
     local firewall_unit="dashboard-firewall.service"
@@ -217,8 +222,8 @@ EOF
         [ -n "$wifi_iface" ] &&
             echo "  - sudo -u $app_user systemctl start $wifi_unit   # no password prompt"
     fi
-    echo "  - On the iPad: Settings > Ethernet shows a self-assigned 169.254.x.x address, and"
-    echo "    Safari opens http://$hostname.local"
+    echo "  - On the iPad: Settings > Ethernet > Configure IP > Manual, 10.42.42.2 / 255.255.255.0,"
+    echo "    no router; Safari opens http://10.42.42.1"
 }
 
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then

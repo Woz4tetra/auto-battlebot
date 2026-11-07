@@ -157,7 +157,7 @@ struct CommandAckMessage {
 
 struct NetworkMessage {
     std::string hostname;
-    /** IPv4 link-local address on the cable, empty when no port has one. */
+    /** Address on the dashboard cable subnet (10.42.42.0/24), empty when no port has one. */
     std::string cable_address;
     std::string wifi_interface;
     std::optional<std::string> wifi_address;

@@ -37,6 +37,9 @@ const BACKOFF_MAX_MS = 5000;
 // speaks the same wire protocol, so offer both.
 const SILENCE_MS = 3000;
 const PROBE_TIMEOUT_MS = 1500;
+// A handshake that has not opened by now is abandoned. Unplugging the cable mid-attempt leaves the
+// SYN unanswered, and iOS waits over a minute before failing it; nothing else retries meanwhile.
+const CONNECT_TIMEOUT_MS = 2000;
 const SUBPROTOCOLS = ["foxglove.sdk.v1", FoxgloveClient.SUPPORTED_SUBPROTOCOL];
 
 export function relayUrl(): string {
@@ -59,6 +62,7 @@ class Connection {
   #state: ConnectionState = "closed";
   #attempt = 0;
   #reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  #connectTimer: ReturnType<typeof setTimeout> | null = null;
   #lastMessageAt = 0;
   #probing = false;
   #canPublish = false;
@@ -92,7 +96,7 @@ class Connection {
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState !== "visible") return;
       if (this.#state === "open") void this.#checkSilence();
-      else if (this.#state === "closed") this.#reconnectNow();
+      else this.#reconnectNow();
     });
     setInterval(() => void this.#checkSilence(), 1000);
   }
@@ -252,9 +256,18 @@ class Connection {
     // The DOM send() signature is narrower than IWebSocket's; the client only sends ArrayBuffers.
     const client = new FoxgloveClient({ ws: ws as unknown as IWebSocket });
     this.#client = client;
+    this.#connectTimer = setTimeout(() => {
+      this.#connectTimer = null;
+      if (this.#client !== client || this.#state !== "connecting") return;
+      console.warn("relay handshake timed out; reconnecting");
+      this.#teardown();
+      client.close();
+      this.#scheduleReconnect();
+    }, CONNECT_TIMEOUT_MS);
 
     client.on("open", () => {
       if (this.#client !== client) return;
+      this.#clearConnectTimer();
       this.#attempt = 0;
       this.#lastMessageAt = performance.now();
       this.#setState("open");
@@ -344,7 +357,13 @@ class Connection {
     pending.resolve(ack);
   }
 
+  #clearConnectTimer(): void {
+    if (this.#connectTimer) clearTimeout(this.#connectTimer);
+    this.#connectTimer = null;
+  }
+
   #teardown(): void {
+    this.#clearConnectTimer();
     this.#client = null;
     this.#canPublish = false;
     this.#channels.clear();
@@ -371,6 +390,11 @@ class Connection {
     if (this.#reconnectTimer) clearTimeout(this.#reconnectTimer);
     this.#reconnectTimer = null;
     this.#attempt = 0;
+    const pending = this.#client;
+    if (pending) {
+      this.#teardown();
+      pending.close();
+    }
     this.#connect();
   }
 

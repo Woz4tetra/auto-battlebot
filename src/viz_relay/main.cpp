@@ -47,6 +47,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "host/dashboard_network.hpp"
 #include "viz/frame.hpp"
 #include "viz/static_files.hpp"
 
@@ -106,7 +107,7 @@ class CrowSpdlogHandler : public crow::ILogHandler {
     }
 };
 
-/** "cable" for the IPv4 link-local range the dashboard port uses, "local" for loopback, and
+/** "cable" for the dashboard cable subnet, "local" for loopback, and
  *  "wifi" for anything else. */
 std::string link_for_address(const std::string& address) {
     std::string v4 = address;
@@ -114,7 +115,7 @@ std::string link_for_address(const std::string& address) {
     in_addr addr{};
     if (::inet_pton(AF_INET, v4.c_str(), &addr) == 1) {
         const uint32_t ip = ntohl(addr.s_addr);
-        if ((ip >> 16) == 0xA9FE) return "cable";
+        if (auto_battlebot::is_dashboard_cable_address(ip)) return "cable";
         if ((ip >> 24) == 127) return "local";
         return "wifi";
     }

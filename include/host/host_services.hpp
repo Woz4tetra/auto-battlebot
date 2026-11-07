@@ -63,8 +63,9 @@ class HostServices {
      *  prompting on a terminal. */
     static int run_systemctl_command(const std::string& verb, const std::string& unit);
 
-    /** Reads interface addresses with getifaddrs(): the first IPv4 link-local address is the
-     *  cable, and the first interface with /sys/class/net/<name>/wireless is the Wi-Fi. */
+    /** Reads interface addresses with getifaddrs(): the first address on the dashboard cable
+     *  subnet is the cable, and the first interface with /sys/class/net/<name>/wireless is the
+     * Wi-Fi. */
     static remote::NetworkMessage read_network();
 
    private:

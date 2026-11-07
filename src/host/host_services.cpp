@@ -16,6 +16,7 @@
 #include <fstream>
 #include <thread>
 
+#include "host/dashboard_network.hpp"
 #include "remote/status_bus.hpp"
 
 namespace auto_battlebot {
@@ -105,10 +106,10 @@ remote::NetworkMessage HostServices::read_network() {
         char text[INET_ADDRSTRLEN] = {};
         ::inet_ntop(AF_INET, &sin->sin_addr, text, sizeof(text));
         const uint32_t ip = ntohl(sin->sin_addr.s_addr);
-        const bool link_local = (ip >> 16) == 0xA9FE;  // 169.254.0.0/16
+        const bool cable = is_dashboard_cable_address(ip);
         const std::string name = a->ifa_name;
         const bool wireless = std::filesystem::exists("/sys/class/net/" + name + "/wireless");
-        if (link_local && out.cable_address.empty()) {
+        if (cable && out.cable_address.empty()) {
             out.cable_address = text;
         } else if (wireless && !out.wifi_address) {
             out.wifi_interface = name;
