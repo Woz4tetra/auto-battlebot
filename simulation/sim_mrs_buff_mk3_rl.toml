@@ -1,0 +1,106 @@
+# Mrs Buff Mk3 against the kinematic sim, in the world her RL policy trained in
+# (auto_battlebot/rl/envs/warp_nav.py, stage C): 50 Hz ticks, the provisional_rl sensing model,
+# a moving opponent driven by the training behaviours, the house bot, and holes. Run it with:
+#
+#   ./scripts/run_simulation.sh simulation/sim_mrs_buff_mk3_rl.toml \
+#       config/simulation/mrs_buff_mk3_rl_sim.toml
+#
+# The policy trained on a MuJoCo model of Mk3 fitted to the jig plant. The interactive server's
+# MuJoCo plant is Mr Stabs Mk2's, so this runs the jig plant itself on the kinematic model, as
+# sim_mrs_buff_mk3.toml does. Keep [arena] in sync with the C++ pair's [field_filter].
+obstacles_file = "config/hazards/massd_arena_north_south.toml"
+
+[server]
+host = "127.0.0.1"
+port = 14882
+
+[sim]
+dt = 0.02 # 50 Hz: the RL policy steps every 20 ms, and the lockstep eval ticks at this rate
+seed = 0
+
+[arena]
+width = 2.4
+height = 2.4
+
+# Measured actuation latency (command issue to wheel response), in ms of sim time. From the jig
+# onset stack: 52.2 ms over 3486 edges at SNR 22.4, clock measured. The server quantizes this to
+# whole sim ticks, so at dt = 0.02 it is applied as 3 ticks (60 ms), the RL environment's nominal.
+[latency]
+command_ms = 52.2094
+
+[camera]
+res_width = 640
+res_height = 360
+# Overhead and slightly back, the way the ZED actually mounts over the cage. The old low side
+# view was arbitrary: nothing rendered, so the pose only fed the projection-bias model. Now the UI
+# draws its overlay on this frame, so the pose decides whether the arena is even in shot.
+fov = 52.0
+pos = [0.0, -0.5, 2.6]
+lookat = [0.0, 0.0, 0.0]
+
+[our_robot]
+start_pos = [-0.9, -0.9]
+start_yaw_deg = 45.0
+sprite = "mrs_buff_mk3"
+radius = 0.11
+# MRS BUFF MK3 plant, transcribed from playground/calibration/out/plant_stageA.toml (model M4,
+# velocity jig sessions 2026-08-19 through 2026-08-23). Edit the fit, not this file.
+# Mapping from the fit's parameter names:
+#   k_fwd/k_rev -> max_linear_speed_fwd/_rev      tau_lin_a/_d -> tau_linear_accel/_decel
+#   k_ang       -> max_angular_speed              tau_ang_a/_d -> tau_angular_accel/_decel
+#   c_sb        -> steer_brake_coeff              c_ad         -> angular_droop_coeff
+#   dz_lin_fwd/_rev, dz_ang_l/_r -> deadzone_linear/_rev, deadzone_angular/_right
+# Measured with guard plates on; their ground friction is part of the fitted plant.
+max_linear_speed = 4.88002         # symmetric fallback (unused once _fwd/_rev are set)
+max_angular_speed = 31.7062
+tau_linear = 0.14921               # fallback
+tau_angular = 0.173867             # fallback
+max_linear_speed_fwd = 4.88002
+max_linear_speed_rev = 4.3546
+tau_linear_accel = 0.14921         # +/- 0.0738 (n=13): the weakest number in the set
+tau_linear_decel = 0.123461        # coast: the term that drives stopping overrun
+tau_angular_accel = 0.173867
+tau_angular_decel = 0.0878998
+steer_brake_coeff = 2.70197        # forward authority is gone at |u_ang_eff| = 0.370
+angular_droop_coeff = 0.463423
+deadzone_linear = 0.0109768
+deadzone_linear_rev = 0.0253396
+deadzone_angular = 0.016061
+deadzone_angular_right = 0.0240734
+
+# Perception latency, dropouts and noise come from a sensing model
+# (docs/plans/sensing_model_plan.md). Empty sends the true poses every tick. Pair a model with
+# config/simulation/kinematic_sim_sensing.toml on the C++ side, so the real keypoint filter and
+# motion estimator see the measurements.
+[perception]
+# The table the Mk3 policies trained on: Mr Stabs Mk2's lockstep-fitted EKF error with the
+# measured dropout gaps (warp_nav.PROVISIONAL_RL_SENSING).
+sensing_model = "simulation/sensing_models/provisional_rl.toml"
+randomize = false
+
+[perception.projection_bias]
+enabled = false
+keypoint_height = 0.06
+
+# A copy of Mrs Buff Mk3 driven by the RL training opponents. trained_behaviour picks static,
+# straight, circle, random_walk, pursuit, corner or replay, or "any" to draw one per client
+# connection; the server prints the draw. The collision box is the CAD footprint the C++ pair's
+# robot filter restates.
+[[opponents]]
+behavior = "trained"
+trained_behaviour = "any"
+trained_holdout = false
+start_pos = [0.3, 0.1]
+heading_deg = 180.0
+sprite = "mrs_buff_mk3"
+hazard_radius = 0.168
+collision_box = [0.2225, 0.2535, 0.0861]
+
+# The house bot, parked as in half the training worlds, at its 0.2083 m radius (HOUSE_RADIUS_M).
+# The C++ pair expects it as the third ground-truth slot (NEUTRAL_ROBOT_1).
+[[opponents]]
+behavior = "static"
+start_pos = [0.85, 0.3]
+heading_deg = 0.0
+sprite = "house_bot"
+hazard_radius = 0.2083

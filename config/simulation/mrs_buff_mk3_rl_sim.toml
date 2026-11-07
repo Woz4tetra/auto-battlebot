@@ -1,0 +1,44 @@
+# Mrs Buff Mk3 on RlPolicyNavigation against the sim, with simulated perception and the hazard
+# barrier on. Pairs with simulation/sim_mrs_buff_mk3_rl.toml:
+#
+#   ./scripts/run_simulation.sh simulation/sim_mrs_buff_mk3_rl.toml \
+#       config/simulation/mrs_buff_mk3_rl_sim.toml
+#
+# The bundle is queue job 64's 07:17 checkpoint (rl_nav_mk3_c_margin2, weapon off). With the
+# barrier on and the [plant] below, it scored 0.706 hits per hit taken over the 128 Mk3 lockstep
+# scenarios against MotionProfileNavigation's 0.011, with no holes (playground/rl/out/mk3). runs/
+# is megamind's training output; swap in any export (playground/rl/export_checkpoint.py).
+extends = "simulation/mrs_buff_mk3_kinematic_sim_sensing"
+
+[field_filter]
+hazards_file = "config/hazards/massd_arena_north_south.toml"
+
+[keypoint_model]
+labels = ["MRS_BUFF_MK3", "OPPONENT", "HOUSE_BOT"]
+
+# `type` differs from _common's MotionProfileNavigation, so this replaces the section wholesale.
+[navigation]
+type = "RlPolicyNavigation"
+hazard_barrier_enable = true
+
+[navigation.policy]
+bundle = "runs/rl_nav/rl_nav_mk3_c_margin2_s21_2026-10-26_04-56-46/checkpoint_0717/bundle"
+
+# The jig plant from before cd5d2ba7 zeroed the lags, deadzones and coupling, which is what the
+# lockstep scores above ran with. The barrier's stopping horizon is tau_lin_d + delay_s: 0.252 s
+# here, 0.052 s on _common's current table. Delete this table to run on _common's.
+[plant]
+dz_lin_fwd = 0.0109768
+dz_lin_rev = 0.0253396
+dz_ang_l = 0.016061
+dz_ang_r = 0.0240734
+k_fwd = 4.88002
+k_rev = 4.3546
+k_ang = 31.7062
+tau_lin_a = 0.14921
+tau_lin_d = 0.2
+tau_ang_a = 0.173867
+tau_ang_d = 0.0878998
+delay_s = 0.0522094
+c_sb = 2.70197
+c_ad = 0.463423

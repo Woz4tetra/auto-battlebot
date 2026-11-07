@@ -140,7 +140,10 @@ ROBOTS = {
             PolicyDriver("self_play", "mrs_buff_mk3", "config/_common.toml", ""),
         ),
         arc_rule="front_face",
-        sensing_model=MK3_SENSING,
+        # Not MK3_SENSING: most of its heading error comes from the sim's own spin-rate mismatch
+        # (the filter's jig plant spins 21% faster than the MuJoCo plant), and two fine-tunes on
+        # it (queue jobs 60 and 61, 2026-10-25) stopped attacking: lockstep hits per hit taken
+        # fell from 0.33 to 0.02. Use it once the MuJoCo fit matches the jig plant's spin.
     ),
 }
 

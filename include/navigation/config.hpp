@@ -427,7 +427,31 @@ struct RlPolicyNavigationConfiguration : public NavigationConfiguration {
      * the filter's 0.1 s stale age, so one or two dropped frames do not interrupt the policy. */
     double max_our_unmeasured_s = 0.15;
 
+    /** Run MotionProfileNavigation's hazard velocity barrier (HazardAvoidance::limit_command) on
+     * the policy's command every tick. Off by default, so a policy trained to see hazards only as
+     * observations drives unedited. Mrs Buff Mk3's policies still drove into holes in about 2 of
+     * 128 lockstep episodes after the dense near-hole penalty (jobs 62 and 64), while the motion
+     * profile with this barrier dropped none. Needs the top-level [plant] table for the stopping
+     * envelope. */
+    bool hazard_barrier_enable = false;
+
+    /** Seconds ahead to advance a tracked hazard along its velocity, as in the motion profile. */
+    double hazard_prediction_horizon_s = 0.25;
+
+    /** Stamped in by apply_plant; absent when the config has no [plant] table. */
+    std::optional<JigPlantParams> plant;
+
     RlPolicyNavigationConfiguration() { type = "RlPolicyNavigation"; }
+
+    void apply_plant(const PlantConfiguration &plant_config) override {
+        plant = plant_config.params;
+        if (hazard_barrier_enable && !plant.has_value()) {
+            throw ConfigValidationError(
+                "navigation type = 'RlPolicyNavigation' with hazard_barrier_enable = true "
+                "requires the top-level [plant] table: the barrier's stopping envelope is "
+                "tau_lin_d + delay_s from the fit");
+        }
+    }
 
     void parse_fields(ConfigParser &parser) override {
         const toml::table *table = parser.get_table("policy");
@@ -439,6 +463,8 @@ struct RlPolicyNavigationConfiguration : public NavigationConfiguration {
         ConfigParser policy_parser(*table, "navigation.policy");
         policy.parse(policy_parser);
         PARSE_FIELD_DOUBLE(max_our_unmeasured_s)
+        PARSE_FIELD_BOOL(hazard_barrier_enable)
+        PARSE_FIELD_DOUBLE(hazard_prediction_horizon_s)
     }
 
     void apply_robot_filter(const RobotFilterConfiguration &robot_filter) override;
