@@ -1,0 +1,3 @@
+3DX_Same_Sky_Supplier: Same Sky
+3DX_Same_Sky_Part Number: TBP01P1W-508-02GR
+3DX_Same_Sky_Description: TBP01P1W-508 Series - 2 Poles, Pluggable, 180° Insertion Entry, 5.08 Pitch, 28~12 (AWG), Terminal Block Connector, RoHS Compliant

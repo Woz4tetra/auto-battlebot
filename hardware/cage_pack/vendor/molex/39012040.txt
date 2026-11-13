@@ -1,0 +1,10 @@
+﻿"Symbol";"Value";"Unit";
+"TraceParts.PartNumber";"33-19012026-116100";"";
+"REFERENCE";"39012040";"";
+"TraceParts.PartTitle";"Mini-Fit Jr.";"";
+"TraceParts.InstanceId";"33-19012026-116100D2P6FXVNAT2X1AXZEBS3APESD";"";
+"SUPPLIER";"Molex";"";
+"DESIGN";"Mini-Fit Jr. Receptacle Housing, Dual Row, 4 Circuits, UL 94V-2, Natural";"";
+"TRACEPARTS";"TRACEPARTS";"";
+"TraceParts.PartLanguage";"en";"";
+"TraceParts.PartVersion";"1.1.4";"";

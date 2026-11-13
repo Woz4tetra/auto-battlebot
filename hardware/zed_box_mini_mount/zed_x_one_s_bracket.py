@@ -20,6 +20,8 @@ plate.
 - Ball head: 1 x McMaster 93365A160 (1/4-20 brass tapered heat-set, 0.300" = 7.62 mm long,
   for a 0.349" = 8.86 mm max hole), pressed from the top so the platform's clamp load
   wedges it into its taper. The 5.5 mm stud then engages 5.1 mm of it.
+- Model: features() (recipe.py), so the checked solid and the Onshape Part Studio are the
+  same 11 features.
 - Camera field of view (110° x 80°, wide lens) is clear: every part of the bracket sits
   behind the plate, and the screw heads sit behind the lens's FOV cone vertex.
 
@@ -36,21 +38,18 @@ Open questions
 from dataclasses import dataclass
 from pathlib import Path
 
+import recipe  # build123d-part/scripts, on the path when run through scripts/run
 import smallrig_2948_ball_head as ballhead
 import zed_x_one_s_front_mount as front_mount
 from build123d import (
     Align,
-    Axis,
-    Box,
     Compound,
     Cylinder,
     Location,
     Part,
     Pos,
     Rot,
-    chamfer,
     export_step,
-    fillet,
     import_step,
 )
 
@@ -97,47 +96,49 @@ class Params:
         return self.floor_t + self.plate_h / 2
 
 
-def build(p: Params) -> Part:
+def features(p: Params) -> list[dict]:
+    """Floor, cheeks, edge finishes, then the inserts' holes: 11 CAD features (recipe.py)."""
     half = p.width / 2
-    depth = p.plate_y + p.plate_t - p.floor_back
-    floor = Pos(0, p.floor_back, 0) * Box(
-        p.width, depth, p.floor_t, align=(Align.CENTER, Align.MIN, Align.MIN)
-    )
-    part = floor
+    y1 = p.plate_y + p.plate_t
+    depth = y1 - p.floor_back
+    yc = p.floor_back + depth / 2
     cheek_w = half - p.cheek_inner
-    for sx in (-1, 1):
-        part += Pos(sx * (p.cheek_inner + cheek_w / 2), p.cheek_back, 0) * Box(
-            cheek_w,
-            p.plate_y - p.cheek_back,
-            p.cheek_top,
-            align=(Align.CENTER, Align.MIN, Align.MIN),
-        )
-    vertical = part.edges().filter_by(Axis.Z)
-    floor_corners = vertical.filter_by(
-        lambda e: abs(abs(e.center().Y - (p.floor_back + depth / 2)) - depth / 2) < 1e-6
-    )
-    assert len(floor_corners) == 4, f"expected 4 floor corners, got {len(floor_corners)}"
-    part = fillet(floor_corners, p.outer_r)
-    # Cheek back edges only; the cheek fronts stay sharp where the plate seats.
-    cheek_backs = (
-        part.edges().filter_by(Axis.Z).filter_by(lambda e: abs(e.center().Y - p.cheek_back) < 1e-6)
-    )
-    assert len(cheek_backs) == 4, f"expected 4 cheek back edges, got {len(cheek_backs)}"
-    part = fillet(cheek_backs, p.cheek_r)
-    bed = part.edges().filter_by(lambda e: e.center().Z < 1e-6 and e.length > 1)
-    part = chamfer(bed, p.bed_chamfer)
+    cheek_x = p.cheek_inner + cheek_w / 2
+    cheek_d = p.plate_y - p.cheek_back
+    cheek_yc = p.cheek_back + cheek_d / 2
+    zc = (p.floor_t + p.cheek_top) / 2  # mid-height of the cheeks above the floor
+    m4 = [(sx * p.slot_x, p.axis_z + sz * p.screw_dz) for sx in (-1, 1) for sz in (-1, 1)]
+    return [
+        {"op": "sketch", "name": "Floor", "plane": "Top", "profiles": [
+            {"rect": (0, yc, p.width, depth)}]},
+        {"op": "extrude", "name": "Floor", "sketch": "Floor", "regions": [(0, yc)],
+         "depth": p.floor_t},
+        {"op": "sketch", "name": "Cheeks", "plane": "Top", "profiles": [
+            {"rect": (sx * cheek_x, cheek_yc, cheek_w, cheek_d)} for sx in (-1, 1)]},
+        {"op": "extrude", "name": "Cheeks", "sketch": "Cheeks", "mode": "add",
+         "regions": [(sx * cheek_x, cheek_yc) for sx in (-1, 1)], "depth": p.cheek_top},
+        {"op": "fillet", "name": "Floor corners", "size": p.outer_r, "tangent": False,
+         "edges": [(sx * half, y, p.floor_t / 2) for sx in (-1, 1) for y in (p.floor_back, y1)]},
+        # Cheek back edges only; the cheek fronts stay sharp where the plate seats.
+        {"op": "fillet", "name": "Cheek backs", "size": p.cheek_r, "tangent": False,
+         "edges": [(sx * x, p.cheek_back, zc) for sx in (-1, 1) for x in (p.cheek_inner, half)]},
+        {"op": "chamfer", "name": "Elephant's foot chamfer", "size": p.bed_chamfer,
+         "edges": [(0, p.floor_back, 0)]},
+        {"op": "sketch", "name": "Ball head insert", "plane": "Top", "profiles": [
+            {"circle": (0, 0, p.q_insert_hole)}]},
+        {"op": "extrude", "name": "Ball head insert hole", "sketch": "Ball head insert",
+         "regions": [(0, 0)], "depth": p.floor_t, "mode": "remove"},
+        # Front plane: sketch x = +X, sketch y = +Z, normal -Y; the holes run -Y from the
+        # cheek fronts at y = plate_y.
+        {"op": "sketch", "name": "Front mount inserts", "plane": "Front", "profiles": [
+            {"circle": (x, z, p.m4_insert_hole)} for x, z in m4]},
+        {"op": "extrude", "name": "Front mount insert holes", "sketch": "Front mount inserts",
+         "regions": m4, "depth": p.m4_hole_depth, "start": -p.plate_y, "mode": "remove"},
+    ]  # fmt: skip
 
-    # 1/4-20 insert from the top, hole through.
-    part -= Cylinder(p.q_insert_hole / 2, p.floor_t, align=C_MIN)
-    # M4 inserts in the cheek fronts, running -Y.
-    for sx in (-1, 1):
-        for sz in (-1, 1):
-            part -= (
-                Pos(sx * p.slot_x, p.plate_y, p.axis_z + sz * p.screw_dz)
-                * Rot(90, 0, 0)
-                * Cylinder(p.m4_insert_hole / 2, p.m4_hole_depth, align=C_MIN)
-            )
-    return part
+
+def build(p: Params) -> Part:
+    return recipe.build(features(p))
 
 
 def camera_body_step() -> Path:

@@ -1,0 +1,119 @@
+<!-- Template for dynamics.py write_fragment(): string.Template, $names filled in. No $ in the script. -->
+<style>
+.dyn table{border-collapse:collapse;width:100%;font-size:.85rem;margin:.4rem 0 1rem}
+.dyn td,.dyn th{border-bottom:1px solid var(--rule,#ccc);padding:4px 6px;text-align:left;vertical-align:top}
+.dyn td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.dyn .PASS{color:var(--pass,#1d7a46)} .dyn .WARN{color:var(--warn,#a86a00)} .dyn .FAIL{color:var(--fail,#b3261e);font-weight:600}
+.dyn .big{font-size:1.6rem;font-weight:700} .dyn .tiles{display:flex;flex-wrap:wrap;gap:12px;margin:.5rem 0}
+.dyn .tile{border:1px solid var(--rule,#ccc);padding:8px 12px;min-width:150px}
+.dyn img{max-width:100%} .dyn small{color:var(--muted,#666)}
+.dyn .table-wrap{overflow-x:auto}
+.dyn .kpick{display:grid;gap:6px;background:var(--sheet,#fff);border:1px solid var(--rule,#ccc);padding:10px 14px;margin:.4rem 0}
+.dyn .kpick label{font-family:var(--mono,monospace);font-size:.9rem}
+.dyn .kpick input[type=range]{width:100%;accent-color:var(--layout-blue,#1f55b8)}
+.dyn .kpick .ends{display:flex;justify-content:space-between;font-size:.75rem;color:var(--muted,#666)}
+</style>
+<div class="dyn">
+<div class="tiles">
+<div class="tile"><div class="big">$total_kg kg</div>everything, cups included</div>
+<div class="tile"><div class="big">$pack_kg kg</div>carried by the cup seals</div>
+<div class="tile"><div class="big">$cg_z mm</div>CG out from the glass</div>
+<div class="tile"><div class="big PASS">${static_margin}x</div>static margin, worst cup</div>
+<div class="tile"><div class="big WARN">$po_in m/s</div>inner sheet leaves its $engage mm channel</div>
+<div class="tile"><div class="big FAIL">no</div>cups alone for every hit</div>
+</div>
+<p><b>Verdict.</b> At rest each cup carries $static_shear N of shear and, at worst, $static_pull N of
+pull, edge peel included, against 343 N and 490 N rated, a margin of ${static_margin}x. The two cups
+sit level, $span mm apart, so each takes the pack's gravity moment as peel on its own rim.
+A hit on the wall is different. The channels let the sheet edges slide, so the outer sheet bends
+freely, and the stiff enclosure tray bridging $span mm of the curving sheet pries the two cups apart.
+The cups' stiffness decides the verdict and is unknown until they arrive: a 5 m/s driven hit holds
+for cups $hold_5 kN/m, a 10 m/s slam $hold_10 kN/m. A thrown robot or a spinner bite goes
+over the rating at nearly every stiffness, and above $po_in m/s the inner sheet's edge leaves its
+$engage mm channel, so the wall itself fails. <b>The steel tether is load-bearing, not optional.</b></p>
+
+<h3>Shock: worst case over hit location and pack position, per cup</h3>
+<div class="kpick">
+<label for="kcup">Cup axial stiffness: <b id="kcup_v"></b> kN/m per cup</label>
+<input type="range" id="kcup" min="0" max="$k_n" step="1" value="$k_default" aria-describedby="kcup_note">
+<div class="ends"><span>10 · soft rubber</span><span>100</span><span>1000 · stiff</span></div>
+<small id="kcup_note">Measure it once the cups arrive: hang known weights off one cup on a sheet and read
+the movement with a dial indicator. Stiffness = added load / added movement.</small>
+</div>
+<div class="table-wrap"><table id="shock"><thead><tr><th>Scenario</th><th>Momentum to outer sheet (N s)</th>
+<th>Pack accel (g)</th><th>Cup pull $cup_names (N)</th><th>Shear per cup (N)</th><th>Outer sheet (mm)</th>
+<th>Interaction</th><th>Holds for cups (kN/m)</th></tr></thead><tbody>$srows</tbody></table></div>
+<p><small>Pull = the cup's normal force + 4 x its rocking moment / its 50.75 mm radius, the edge peel of a
+disk on an elastic foundation. Interaction = pull / 490 N + shear / 343 N per cup, gravity included; over 1 means past the
+SmallRig rating, under 0.5 is a 2x margin. Each row is the worst of three hit locations (panel centre,
+mid-height under the pack, 150 mm from the pack) and two pack positions (mid-span, 350 mm from a corner
+post); the row's tooltip names it. "Holds for cups" is the stiffness range that stays at or under 1.</small></p>
+<img alt="Pack acceleration and the worst cup's pull over time for the worst case of each scenario, at 100 kN/m"
+ src="data:image/png;base64,$png">
+
+<h3>Wall: two-sheet impact and channel engagement</h3>
+<p>A 3 lb robot hitting the centre of the inner sheet, which slaps the outer sheet across the 1" gap
+(two_sheet.py). At 10 m/s the inner sheet bends $w10_in mm, the outer one $w10_out mm, and $w10_frac % of the
+robot's momentum reaches the outer sheet. As a sheet bows, its edges slide in from the channels. With
+$engage mm of engagement per edge the inner sheet pulls out at $po_in m/s and the outer one at
+$po_out m/s; past that the wall itself fails and the numbers below that speed are the last valid ones.</p>
+<div class="table-wrap"><table><thead><tr><th>Robot (m/s)</th><th>Momentum to outer sheet (N s)</th>
+<th>Bending inner / outer (mm)</th><th>Outer stress (MPa)</th><th>Pull-in inner (mm)</th><th>Pull-in outer (mm)</th>
+</tr></thead><tbody>$wrows</tbody></table></div>
+<p><small>Pull-in is per edge, on the worst line across the sheet; PASS under half the engagement, WARN to
+the full $engage mm, FAIL past it. Outer stress against 62 MPa yield (static; it rises at impact rates).</small></p>
+
+<h3>Vibration</h3>
+<p>Bare outer sheet, simply supported: first modes $modes Hz. On its cups the pack bounces at
+$bounce_lo-$bounce_hi Hz and rocks at
+$rock_lo-$rock_hi Hz from 20 to 400 kN/m. The cups sit
+$cup_below mm below the sheet's top edge, where the first mode moves at $edge_amp of
+its mid-panel amplitude. Moving the pack up toward the frame cuts that further; the sheet's
+retainer plate sets the limit.</p>
+<h3>Mass budget</h3>
+<div class="table-wrap"><table><tr><th>Item</th><th>g</th><th>Source</th></tr>$rows
+<tr><td><b>Total</b></td><td class=num><b>$total_g</b></td><td>CG ($cg_x, $cg_y, $cg_z) mm</td></tr></table></div>
+<h3>Model and its limits</h3>
+<ul>
+<li>Sheets: 1/4" polycarbonate, 2.44 x 1.22 m (NHRL wiki, 3 lb cage), E 2.38 GPa, held in channels on all four
+sides with $engage mm of engagement (assumed). The edges slide in plane, so both sheets are linear Kirchhoff
+plates, simply supported, 200 modes to ~600 Hz, 3 % damping. hardware/cage_pack/dynamics.py and two_sheet.py.</li>
+<li>Pack: rigid, three DOF (bounce, rock about X and Y) on two cups, each an axial spring and a disk's rocking
+spring (k R<sup>2</sup>/4) against the sheet's slope, with 10 % damping; shear treated as rigid. The printed
+PETG panel is about 5 times less stiff in bending than the 1.6 mm aluminium one (E 2.1 vs 69 GPa, 3 vs
+1.6 mm thick), before its ribs; it and the printed cup arms flex between the cups and act as a softer cup spring,
+which moves the result toward the soft end of the slider.</li>
+<li>Robot hits: two_sheet.py models the robot as a 1.36 kg point mass on the inner sheet and the sheet-to-sheet
+contact on a 61 x 31 grid, and its transferred momentum drives the outer-sheet pulse here. It runs without the
+pack. The spinner bite keeps a 50 % guess; the last row puts all the momentum through.</li>
+<li>Rubber friction in the channels holds the edges a little, so real bending sits slightly under these numbers.</li>
+<li>SmallRig's ratings are static. Vacuum cups hold short pulls better than long ones, but they fail by
+edge peel, which this model does not resolve.</li>
+</ul>
+<script>
+(() => {
+  const K = $k_json, D = $data_json;
+  const s = document.getElementById("kcup"), out = document.getElementById("kcup_v");
+  const verdict = (ir) => ir <= 0.5 ? ["PASS", "holds, 2x margin"] : ir <= 1 ? ["WARN", "holds, under 2x"] : ["FAIL", "over rating"];
+  const show = () => {
+    const i = +s.value;
+    const kn = Number((K[i] / 1000).toPrecision(2));
+    out.textContent = kn;
+    s.setAttribute("aria-valuetext", kn + " kN/m");
+    document.querySelectorAll("#shock tbody tr").forEach((tr) => {
+      const r = D[tr.dataset.s][i], c = (f) => tr.querySelector('[data-f="' + f + '"]');
+      const v = verdict(r[0]);
+      c("acc").textContent = r[4].toFixed(0);
+      c("pull").textContent = r[1] + " / " + r[2];
+      c("shear").textContent = r[3];
+      c("sheet").textContent = r[5].toFixed(0);
+      c("ir").className = v[0];
+      c("ir").textContent = r[0].toFixed(2) + " · " + v[1];
+      tr.title = "worst case: " + r[6];
+    });
+  };
+  s.addEventListener("input", show);
+  show();
+})();
+</script>
+</div>

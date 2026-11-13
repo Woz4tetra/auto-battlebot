@@ -1,0 +1,10 @@
+﻿"Symbol";"Value";"Unit";
+"TraceParts.PartNumber";"33-07072025-062821";"";
+"REFERENCE";"732512771";"";
+"TraceParts.PartTitle";"SMA";"";
+"TraceParts.InstanceId";"33-07072025-062821617AJQ1435YEECZN7TINMLHUG";"";
+"SUPPLIER";"Molex";"";
+"DESIGN";"SMA Jack, Reverse Polarity, Right-Angle, Bulkhead Receptacle, PCB, Through Hole, Brass Body, Gold (Au) Plated Body, Jam Nut and Lock Washer, 2.79mm Leg Length, 50 Ohms";"";
+"TRACEPARTS";"TRACEPARTS";"";
+"TraceParts.PartLanguage";"en";"";
+"TraceParts.PartVersion";"1.0.9";"";
