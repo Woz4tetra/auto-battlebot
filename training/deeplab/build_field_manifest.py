@@ -60,12 +60,7 @@ def scan_split(root: Path, split: str) -> list[dict]:
 
 
 def pair_duplicates(records: list[dict]) -> int:
-    """Point each `floor_dataset__`-prefixed record at its unprefixed twin.
-
-    Pairing is by canonical name, across splits -- putting the same pixels in train
-    under one name and val under another is exactly the leak this has to surface.
-    Returns the number of pairs made.
-    """
+    """Point each `floor_dataset__`-prefixed record at its unprefixed twin."""
     by_canonical: dict[str, list[dict]] = defaultdict(list)
     for record in records:
         by_canonical[record["canonical"]].append(record)
@@ -198,10 +193,6 @@ def verify_duplicates(manifest: dict, root: Path, algorithm: str, workers: int) 
         entry = {"duplicate": record["path"], "original": original["path"]}
         if image_same:
             record["mask_differs"] = True
-            # Same photo, two annotations. The newer one is the re-label, and it is what
-            # the clean corpus has to carry -- keeping the older mask would silently train
-            # and score against a superseded annotation. mtime is the only ordering the
-            # corpus records, so it is what decides.
             newer = max(
                 (record["mask"], original["mask"]),
                 key=lambda rel: (root / rel).stat().st_mtime,

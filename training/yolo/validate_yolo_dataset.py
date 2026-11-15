@@ -10,7 +10,7 @@ from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Literal, Optional, Tuple, TypedDict
 
 import yaml
 from natsort import natsorted
@@ -167,6 +167,14 @@ NAMED_COLORS: Dict[str, List[int]] = {
 }
 
 
+Verdict = Literal["pass", "fail"]
+
+
+class ClassInfo(TypedDict):
+    name: str
+    color: str
+
+
 class YOLODatasetValidator:
     """Contact-sheet validator: page through grid thumbnails, judge from the keyboard."""
 
@@ -188,8 +196,8 @@ class YOLODatasetValidator:
         self.class_labels_path = class_labels_path
 
         self.image_annotation_pairs: List[Tuple[Path, Path]] = []
-        self.validation_state: Dict[str, str] = {}  # path -> 'pass'/'fail'
-        self.class_info: Dict[int, Dict] = {}  # class_id -> {name, color}
+        self.validation_state: Dict[str, Verdict] = {}
+        self.class_info: Dict[int, ClassInfo] = {}
         self.show_labels = True
 
         self.page_step = self.PAGE_STEPS.index(self.DEFAULT_PAGE)

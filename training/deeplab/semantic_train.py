@@ -39,6 +39,8 @@ from auto_battlebot.segmentation.model_config import (
 matplotlib.use("agg")
 
 FIELD_CHANNEL = 1
+LogitsBCHW = torch.Tensor
+OneHotBCHW = torch.Tensor
 FIELD_INDEX_NAME = "field_index.json"
 AMP_DTYPES = {"off": None, "bf16": torch.bfloat16}
 
@@ -227,7 +229,6 @@ def get_dataset(
         pin_memory=True,
         worker_init_fn=seed_worker,
     )
-    # Validation must not shuffle: FieldIoU pairs each sample with its field by position.
     valid_loader = DataLoader(
         valid_ds,
         batch_size=batch_size,
@@ -269,10 +270,7 @@ class Loss(nn.Module):
         self.smooth = smooth
         self.use_dice = use_dice
 
-    def forward(self, predictions: torch.Tensor, targets: torch.Tensor) -> Any:
-        # predictions --> (B, #C, H, W) unnormalized (logits)
-        # targets     --> (B, #C, H, W) one-hot encoded
-
+    def forward(self, predictions: LogitsBCHW, targets: OneHotBCHW) -> Any:
         pixel_loss = functional.binary_cross_entropy_with_logits(
             predictions, targets, reduction="mean"
         )
@@ -303,10 +301,7 @@ class Metric(nn.Module):
         self.smooth = smooth
         self.use_dice = use_dice
 
-    def forward(self, predictions: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-        # predictions  --> (B, #C, H, W) unnormalized
-        # targets      --> (B, #C, H, W) one-hot encoded
-
+    def forward(self, predictions: LogitsBCHW, targets: OneHotBCHW) -> torch.Tensor:
         predictions = convert_2_onehot(predictions, num_classes=self.num_classes)
 
         metric = intermediate_metric_calculation(
@@ -317,17 +312,7 @@ class Metric(nn.Module):
 
 
 class FieldIoU:
-    """Per-field validation IoU, accumulated in dataset order.
-
-    Cage-6 is a third of the corpus, so the global mean this script has always selected
-    on is roughly a Cage-6 score -- the checkpoint that maximises it can be regressing
-    Cage-3 and Cage-4 the whole way. Selecting on the macro-average across field types
-    gives every arena one vote regardless of how much footage of it exists.
-
-    The pad border is cropped before scoring so this matches score_masks.py, which grades
-    the checkpoints afterwards; selecting on one definition and grading on another would
-    make the Phase-A ladder disagree with its own stopping rule.
-    """
+    """Per-field validation IoU, accumulated in dataset order."""
 
     def __init__(self, fields: list[str], pad_size: int) -> None:
         self.fields = fields

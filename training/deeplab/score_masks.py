@@ -97,12 +97,7 @@ def load_field_index(eval_target: Path, override: Path | None) -> dict[str, str]
 
 
 def boundary(mask: np.ndarray) -> np.ndarray:
-    """Inner 1px contour of a binary mask.
-
-    BORDER_REPLICATE keeps the image frame from counting as a boundary: the floor runs
-    off the edge of nearly every frame, and a spurious contour there would swamp the
-    wall line, which is the edge that actually matters downstream.
-    """
+    """Inner 1px contour of a binary mask."""
     kernel = np.ones((3, 3), np.uint8)
     eroded = cv2.erode(mask, kernel, borderType=cv2.BORDER_REPLICATE)
     return mask ^ eroded
@@ -325,14 +320,26 @@ def plot_epoch_ladder(aggregates: pd.DataFrame, output: Path) -> bool:
     return True
 
 
+def higher_is_better(metric: str) -> bool:
+    """Whether a larger value of `metric` is an improvement; unknown metrics are an error."""
+    if metric == "iou" or metric.startswith("bf1@"):
+        return True
+    raise ValueError(f"no direction known for metric {metric!r}")
+
+
+def verdict_for(low: float, high: float, higher_is_better: bool) -> str:
+    """Verdict from a bootstrap interval of candidate minus baseline."""
+    if low > 0:
+        return "better" if higher_is_better else "worse"
+    if high < 0:
+        return "worse" if higher_is_better else "better"
+    return "ns"
+
+
 def select_frames(
     fields: list[str], field_filter: str | None, exclude_field: str
 ) -> tuple[list[int], str]:
-    """Frame indices to score, and a one-line reason for the console.
-
-    --field-filter wins over --exclude-field: naming a field explicitly overrides the
-    default exclusion, so `--field-filter unclassified` still works.
-    """
+    """Frame indices to score, and a one-line reason for the console."""
     if field_filter:
         wanted = set(field_filter.split(","))
         return (
@@ -528,8 +535,7 @@ def run_significance(
                     verdict = "n/a"
                 else:
                     low, high = (float(v) for v in np.nanpercentile(delta, [lo_pct, hi_pct]))
-                    # Every metric here is higher-is-better.
-                    verdict = "better" if low > 0 else "worse" if high < 0 else "ns"
+                    verdict = verdict_for(low, high, higher_is_better(metric))
                 rows.append(
                     {
                         "candidate": name,

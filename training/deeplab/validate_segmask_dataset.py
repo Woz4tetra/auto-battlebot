@@ -11,7 +11,7 @@ from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Literal, Optional, Tuple, TypedDict
 
 import numpy as np
 import yaml
@@ -184,6 +184,14 @@ def ceil_div(numerator: int, denominator: int) -> int:
     return -(-numerator // denominator)
 
 
+Verdict = Literal["pass", "fail"]
+
+
+class ClassInfo(TypedDict):
+    name: str
+    color: str
+
+
 class SegmaskDatasetValidator:
     """Contact-sheet validator: page through a grid of thumbnails, judge with the keyboard."""
 
@@ -206,8 +214,8 @@ class SegmaskDatasetValidator:
         self.class_labels_path = class_labels_path
 
         self.image_mask_pairs: List[Tuple[Path, Path]] = []
-        self.validation_state: Dict[str, str] = {}  # path -> 'pass'/'fail'
-        self.class_info: Dict[int, Dict] = {}  # class_id -> {name, color}
+        self.validation_state: Dict[str, Verdict] = {}
+        self.class_info: Dict[int, ClassInfo] = {}
         self.show_overlay = True
         self.overlay_alpha = 0.45
 
@@ -307,7 +315,6 @@ class SegmaskDatasetValidator:
         tmp = self.state_file.with_suffix(".json.tmp")
         with open(tmp, "w") as f:
             json.dump(self.validation_state, f, indent=2)
-        # Atomic replace so an interrupted write cannot truncate existing work
         tmp.replace(self.state_file)
 
     def key_for(self, index: int) -> str:

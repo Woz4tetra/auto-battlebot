@@ -4,6 +4,7 @@ import argparse
 import json
 import random
 from pathlib import Path
+from typing import NamedTuple, TypedDict
 
 import cv2
 import numpy as np
@@ -48,22 +49,23 @@ def field_box(mask: np.ndarray) -> tuple[float, float, float, float] | None:
     )
 
 
-def measure(mask: np.ndarray) -> tuple[float, float, float]:
-    """Return (mask fraction, bbox fraction, bbox aspect ratio) of the frame.
+class FieldMeasure(NamedTuple):
+    mask_frac: float
+    bbox_frac: float
+    bbox_aspect_mask: float
 
-    The mask is square because the model resizes anisotropically to a square input, so
-    fractions are scale-free and transfer back to the source frame. The aspect ratio is
-    reported in *source* terms by the caller, which knows the frame shape.
-    """
+
+def measure(mask: np.ndarray) -> FieldMeasure:
+    """Return the mask fraction, bbox fraction, and bbox aspect ratio in mask terms."""
     h, w = mask.shape
     area = float(h * w)
     covered = float(mask.sum())
     if covered == 0:
-        return 0.0, 0.0, 0.0
+        return FieldMeasure(0.0, 0.0, 0.0)
     ys, xs = np.nonzero(mask)
     bh = float(ys.max() - ys.min() + 1)
     bw = float(xs.max() - xs.min() + 1)
-    return covered / area, (bh * bw) / area, bw / bh
+    return FieldMeasure(covered / area, (bh * bw) / area, bw / bh)
 
 
 def read_boxes(label_path: Path) -> list[tuple[float, float, float, float]]:
@@ -80,16 +82,17 @@ def read_boxes(label_path: Path) -> list[tuple[float, float, float, float]]:
     return boxes
 
 
-def margin_retention(
-    rows: list[dict[str, float]], margins: tuple[float, ...]
-) -> list[dict[str, float]]:
-    """For each margin: share of labels surviving the crop, and the zoom the crop still buys.
+class MarginRow(TypedDict):
+    margin: float
+    kept: float
+    whole: float
+    zoom: float
+    n_labels: int
 
-    `kept` counts boxes retaining at least a quarter of their area (what the dataset builder
-    keeps); `whole` counts boxes entirely inside the crop. `zoom` is the linear scale gain on
-    the median frame, after the margin is clamped at the frame edge.
-    """
-    out = []
+
+def margin_retention(rows: list[dict[str, float]], margins: tuple[float, ...]) -> list[MarginRow]:
+    """For each margin: share of labels surviving the crop, and the zoom the crop still buys."""
+    out: list[MarginRow] = []
     for margin in margins:
         total = kept = whole = 0
         areas = []

@@ -46,13 +46,7 @@ def held_corpora(src: Path) -> List[Path]:
 
 
 def video_key(rel: Path) -> str:
-    """Identify the source video a frame came from.
-
-    Two naming schemes are in play. Clips cut locally are `<video>__<offset>_segmask`, so the
-    offset is dropped. SegmentFlow exports lead with the video id, so the id is taken directly.
-    Anything else falls back to its top-level directory, which at worst splits one video into
-    several groups -- conservative, since it can only ever over-separate, never leak.
-    """
+    """Identify the source video a frame came from."""
     parts = rel.parts
     top = parts[0]
     if len(parts) > 1 and re.search(r"__\d+_segmask$", parts[1]):
@@ -63,11 +57,7 @@ def video_key(rel: Path) -> str:
 
 
 def scene_stem(rel: Path) -> str:
-    """A collision-proof output name for a frame at `rel` within its source root.
-
-    Sub-exports reuse frame numbers heavily -- one corpus here carries 1,407 frames over 90
-    distinct basenames -- so the directory path has to survive into the filename.
-    """
+    """A collision-proof output name for a frame at `rel` within its source root."""
     slug = re.sub(r"[^A-Za-z0-9._-]+", "_", "__".join(rel.parts[:-1]))
     return f"{slug}__{rel.stem}" if slug else rel.stem
 
@@ -98,12 +88,7 @@ def check_label_space(frames: List[Path], expected: int, sample: int = 40) -> se
 def assign_videos(
     groups: Dict[str, List[Tuple[Path, Path]]], val_frac: float, seed: int
 ) -> Dict[str, str]:
-    """Assign whole videos to train or val, filling val up to `val_frac` by frame count.
-
-    Videos are taken in a seeded random order and only while they still fit under the target, so
-    val never overshoots. Overshooting is the worse error in both directions: it starves training
-    of material, and one oversized video would dominate the val score with a single venue.
-    """
+    """Assign whole videos to train or val, filling val up to `val_frac` by frame count."""
     total = sum(len(v) for v in groups.values())
     target = total * val_frac
     order = sorted(groups)

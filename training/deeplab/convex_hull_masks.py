@@ -103,13 +103,7 @@ def prepare_samples(
 def convex_hull_mask(
     mask: np.ndarray, min_blob_fraction: float, min_blob_image_fraction: float
 ) -> tuple[np.ndarray, MaskStats]:
-    """Drop speck blobs, then replace each surviving blob with its convex hull.
-
-    A blob is dropped when its pixel area is at or below `min_blob_fraction` of the
-    largest blob of the same class in this mask AND it covers less than
-    `min_blob_image_fraction` of the image. The second test keeps the smaller side
-    of a field that an occluder has split unevenly.
-    """
+    """Drop speck blobs, then replace each surviving blob with its convex hull."""
     hulls: list[tuple[float, int, np.ndarray]] = []
     kept = np.zeros(mask.shape, dtype=bool)
     blobs_dropped = 0
@@ -273,9 +267,6 @@ def replicate_entry(source: Path, dest: Path) -> None:
         os.symlink(os.readlink(source), dest)
         return
 
-    # Images are never rewritten in place by the tooling, so sharing an inode is
-    # safe and free. Metadata files (validation_state.json and friends) do get
-    # rewritten, so they must be real copies.
     if source.suffix.lower() in IMAGE_SUFFIXES:
         try:
             os.link(source, dest)

@@ -40,11 +40,7 @@ def load_frames(manifest_path: Path, drop_augment: bool, drop_duplicates: bool) 
 def choose_eval_scenes(
     scene_sizes: dict[str, int], val_frac: float, rng: random.Random
 ) -> list[str]:
-    """Pick the scene subset whose frame share lands closest to val_frac.
-
-    At least one scene must stay on each side, so a field with a single scene gets an
-    empty selection and is handled by the caller.
-    """
+    """Pick the scene subset whose frame share lands closest to val_frac."""
     scenes = sorted(scene_sizes)
     if len(scenes) < 2:
         return []
@@ -75,13 +71,7 @@ def choose_eval_scenes(
 
 
 def scene_spread_order(frames_by_scene: dict[str, list[str]], rng: random.Random) -> list[str]:
-    """One global ordering of a field's frames, round-robin across its scenes.
-
-    Prefixes of this list are the ladder rungs, which is what makes them nested: a drop
-    between rungs cannot be blamed on which frames happened to be drawn. Round-robin
-    spreads a small budget across recordings rather than spending it all on one, which
-    is the choice `data_scaling` found mattered more than raw frame count.
-    """
+    """One global ordering of a field's frames, round-robin across its scenes."""
     pools = {}
     for scene, names in sorted(frames_by_scene.items()):
         shuffled = sorted(names)
@@ -105,15 +95,7 @@ def mask_for(record: dict) -> str:
 
 
 def build_tree(records: list[dict], source_root: Path, target_dir: Path, materialize: str) -> None:
-    """Write one split's images and masks. Rebuilt from scratch every run.
-
-    The mask is always named after its image (`<stem>_mask.png`), which matters because
-    the surviving mask may come from the frame's duplicate twin and so carry a different
-    name in the source tree.
-
-    `copy` makes the corpus standalone -- it no longer refers to the tree it was built
-    from, so that tree can be archived. `symlink` costs nothing but keeps the dependency.
-    """
+    """Write one split's images and masks. Rebuilt from scratch every run."""
     replace_path(target_dir)
     target_dir.mkdir(parents=True)
     for record in records:
