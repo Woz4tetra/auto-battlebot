@@ -825,6 +825,7 @@ Load one CSV from analyze_apriltag_mcap.py (a --drive recording) into a fitting 
 
 The CSV carries both halves the fit needs: the solved pose per frame (x, y, yaw, visible) and the scripted command active at that frame (cmd_lin, cmd_ang, label, zero-order-held onto the frame time). Commands are read from every row (the full timeline, including frames where the tag was not visible); pose is read only from visible frames.
 
+- `load_session`: Commands and poses come from one recording on one absolute CLOCK_MONOTONIC clock, so no time alignment is needed. The sync twitches at the protocol's start and end are a visual cross-check in `--plot`.
 - `load_session`: Commands span the full timeline. Frames before the first issued command have empty cells; treat the command there as zero (no command) and the label as unset (matches no protocol phase).
 
 `fit_deadzone`:
