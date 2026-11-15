@@ -53,7 +53,6 @@ def _hex(af: float, t: float, z0: float) -> Part:
     return Pos(0, 0, z0) * extrude(RegularPolygon(af / 2, 6, major_radius=False), t)
 
 
-# Panel connectors. Frame: origin on the panel's outer face, +Z OUT of the enclosure.
 def gx16_panel(wall: float) -> Part:
     flange = Cylinder(19.0 / 2, 2.0, align=C_MIN)
     shroud = Pos(0, 0, 2.0) * Cylinder(16.0 / 2, 6.0, align=C_MIN)
@@ -80,16 +79,14 @@ def gx12_panel(wall: float) -> Part:
 
 
 def gx12_plug(cable_d: float = 5.5) -> Part:
-    """GX12 cable plug mated on gx12_panel: Ø15 x 30 body over the shroud, then a boot down
-    to the cable. Generic GX12 drawing, about +-1 mm."""
+    """GX12 cable plug mated on gx12_panel."""
     body = Pos(0, 0, 2.0) * Cylinder(15.0 / 2, 30.0, align=C_MIN)
     boot = Pos(0, 0, 32.0) * Cone(12.0 / 2, cable_d / 2, 10.0, align=C_MIN)
     return body + boot
 
 
 def dupont_2p() -> Part:
-    """2-pin 0.1" (2.54 mm) crimp housing on a vertical pin header: 5.1 x 2.6 x 14, starting
-    2.5 above the board (the header's plastic base)."""
+    """2-pin 0.1 in crimp housing on a vertical header."""
     return Pos(0, 0, 2.5) * Box(5.1, 2.6, 14.0, align=C_MIN)
 
 
@@ -99,12 +96,7 @@ def gx12_cap() -> Part:
 
 
 def cit_ah_button(wall: float) -> Part:
-    """CIT AH 19 mm anti-vandal pushbutton, latching, quick-connect tabs (AH1LBBG12).
-
-    Frame: origin on the wall's outer face at the hole's centre, +Z out through the wall.
-    Bezel Ø21.8 x 2.0 with the Ø15.4 actuator flush in it; M19 body 31.8 deep from the
-    bezel's face, the last 8.0 being the solder tabs. Nut 3.0 thick (not on the datasheet).
-    """
+    """CIT AH 19 mm latching pushbutton envelope."""
     import cage_layout as cl
 
     bd, bt = cl.SWITCH_BEZEL
@@ -117,12 +109,8 @@ def cit_ah_button(wall: float) -> Part:
     return bezel + cap + body + tabs + nut
 
 
-# Wire-to-board and wire-to-device plugs. Frame: origin on the mating face, +Z away from
-# the partner (the direction the plug comes off).
 def tbp_plug_2p(insert: float = 8.0) -> Part:
-    """Same Sky TBP01P1W-508-02GR: 2-pole 5.08 mm pluggable plug with locking flanges.
-    X along the pole pitch, Y the 15.00 height, Z from the mating face back to the wire
-    entry (18.00). `insert` of it sits inside the header shroud."""
+    """Same Sky TBP01P1W-508-02GR 2-pole pluggable plug envelope."""
     body = Pos(0, 0, -insert) * Box(10.16, 15.0, 18.0, align=C_MIN)
     ears = Pos(0, -3.3, -insert) * Box(15.24 + 5.0, 8.4, 6.0, align=C_MIN)
     screws = [
@@ -133,8 +121,7 @@ def tbp_plug_2p(insert: float = 8.0) -> Part:
 
 
 def minifit_plug(cols: int, rows: int) -> Part:
-    """Molex Mini-Fit Jr receptacle housing over a vertical header: 4.2 mm pitch, starts 3.0
-    above the board (the header's base), 13.6 tall."""
+    """Molex Mini-Fit Jr receptacle housing over a vertical header."""
     w, d = cols * 4.2 + 1.2, rows * 4.2 + 1.2
     housing = Pos(0, 0, 3.0) * Box(w, d, 13.6, align=C_MIN)
     latch = Pos(0, d / 2, 8.0) * Box(3.0, 2.0, 6.0, align=(Align.CENTER, Align.MIN, Align.MIN))
@@ -178,8 +165,7 @@ def fakra_plug() -> Part:
 
 
 def suction_cup() -> Part:
-    """Lever suction cup, generic 4.5" (114 mm): cup face on the glass at Z = 0, 1/4-20
-    male stud on top along +Z. Total 52 tall to the stud's tip."""
+    """Generic 4.5 in lever suction cup with a 1/4-20 stud."""
     cup = Cone(114.0 / 2, 52.0 / 2, 12.0, align=C_MIN)
     housing = Pos(0, 0, 12.0) * Cylinder(60.0 / 2, 18.0, align=C_MIN)
     lever = (
@@ -192,10 +178,8 @@ def suction_cup() -> Part:
     return cup + housing + lever + boss + stud
 
 
-# Cables: a circle swept along a polyline with rounded corners.
 def tube(points: list[tuple[float, float, float]], d: float, bend_r: float | None = None) -> Part:
-    """Cable centreline through `points`, corners rounded to `bend_r` (default 3 x d), cut
-    down to fit the shortest segment."""
+    """Cable tube through points, corner radius shrunk to fit short segments."""
     pts = [p for i, p in enumerate(points) if i == 0 or p != points[i - 1]]
     last = len(pts) - 1
     pts = [

@@ -1,12 +1,4 @@
-"""ZED Box Mini on an INNOREL CP10 cheese plate through the printed adapter.
-
-- Cheese plate: innorel_cp10.py, top face at z = 0.
-- Adapter: zed_cheese_plate_adapter.py on the plate, top face at z = 6.7.
-- ZED Box Mini: Stereolabs STEP as placed by the previous 12 mm adapter (sheet at z = 12),
-  dropped 6 mm onto the new top face.
-- 4 x M3 x 6 heat-set inserts in the adapter, 4 x M3 x 6 SHCS through the ZED ears.
-- 4 x 1/4-20 x 1/2" flanged button heads (80/20 3342) in counterbores under the ZED body.
-"""
+"""ZED Box Mini on an INNOREL CP10 cheese plate through the printed adapter."""
 
 from build123d import Align, Cylinder, Pos
 from zed_cheese_plate_adapter import Params
@@ -68,7 +60,7 @@ def fasteners():
             "length": 12.7,
             "head": "button",
             "dir": "-Z",
-            "at": [(x, y, T - P.cbore_depth) for x, y in BOLT_XY],  # counterbore floor
+            "at": [(x, y, T - P.cbore_depth) for x, y in BOLT_XY],
             "into": "plate",
             "thread": "tapped",
         },

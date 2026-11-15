@@ -110,7 +110,6 @@ def top_location(p: Params) -> Location:
 def build(p: Params) -> Part:
     _check_pose(p)
     body = Cone(p.body_d_bot / 2, p.body_d_top / 2, p.body_h, align=C_MIN)
-    # Socket opening and the drop notch toward +X, down to the neck's lowest position.
     body -= Pos(0, 0, p.ball_z) * Cylinder(p.neck_d / 2 + 1.5, p.body_h, align=C_MIN)
     notch_floor = p.ball_z - p.notch_w / 2
     body -= Pos(p.body_d_bot / 2, 0, notch_floor) * Box(
@@ -118,7 +117,6 @@ def build(p: Params) -> Part:
     )
     body -= Pos(0, 0, p.ball_z) * Sphere(p.ball_d / 2)
     body -= Cylinder(p.tap_d / 2, p.tap_depth, align=C_MIN)
-    # Wing knob on -X: hub along -X, then a flat wing.
     hub_len = p.knob_reach - 3.0 - p.body_d_bot / 2 + 2.0
     body += (
         Pos(-(p.body_d_bot / 2 - 2.0), 0, p.knob_z)
@@ -137,7 +135,6 @@ def sections(p: Params) -> list[str]:
 
 
 def expect(p: Params) -> dict:
-    # Listing: 49 mm tall with the ~12 mm cold shoe, 33 mm deep across the knob.
     return {"bbox": (None, None, 42.5)}
 
 

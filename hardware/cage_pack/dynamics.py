@@ -156,9 +156,6 @@ def mass_budget() -> dict:
     return {"items": [asdict(i) for i in MASS], "total_g": tot, "cg_mm": cg, "pack_g": pack_g}
 
 
-# ---------------------------------------------------------------------------------------
-# Panel and pack model
-
 E_PC, NU_PC, RHO_PC = 2.38e9, 0.37, 1200.0  # polycarbonate, Covestro Makrolon typical
 H = 0.00635  # 1/4"
 A = 2.438  # 8' along the wall
@@ -199,8 +196,7 @@ def phi_dx(x, y):
 
 
 def cup_frame(pack: dict):
-    """Reference point (midpoint of the cups) in frame metres, each cup's offset from it,
-    and the CG's in-plane offset from it."""
+    """Cup midpoint, cup offsets and CG offset in frame metres."""
     x0 = sum(c[0] for c in CUPS) / len(CUPS)
     y0 = sum(c[1] for c in CUPS) / len(CUPS)
     rel = [(cx - x0, cy - y0) for cx, cy in CUPS]
@@ -431,11 +427,7 @@ def _kn(k: float) -> str:
 
 
 def write_fragment(summary: dict) -> None:
-    """HTML section for page_assembly.py --extra: mass budget, static, channel and shock checks.
-
-    The shock table is driven by a cup stiffness slider: every K_SWEEP value is embedded and
-    a small script fills the table for the chosen one.
-    """
+    """HTML section for page_assembly.py --extra with the stiffness slider."""
     import base64
     import html
     import string
@@ -563,7 +555,7 @@ def write_fragment(summary: dict) -> None:
 def main() -> None:
     import sys
 
-    if "--fragment-only" in sys.argv:  # rebuild analysis.html from report.json, no simulation
+    if "--fragment-only" in sys.argv:
         write_fragment(json.loads((OUT / "report.json").read_text()))
         return
     OUT.mkdir(parents=True, exist_ok=True)
@@ -638,7 +630,6 @@ def main() -> None:
         },
     }
     (OUT / "report.json").write_text(json.dumps(summary, indent=1))
-    # Plot the governing case of each scenario at k = 1e5.
     fig, ax = plt.subplots(2, 1, figsize=(9, 6), sharex=True)
     for sname in scen:
         rr = [r for r in results if r["scenario"] == sname and r["case"]["k_cup"] == K_DEFAULT]

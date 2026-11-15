@@ -262,7 +262,7 @@ MCMASTER: dict[str, tuple[float, int, float]] = {
 def mcmaster(pn: str) -> dict:
     """BOM keys for a McMaster item placed as a component (a component's own "mcmaster" key
     would make the skill load its STEP instead)."""
-    if pn not in MCMASTER:  # not priced yet
+    if pn not in MCMASTER:
         return {
             "vendor": "McMaster-Carr",
             "part_number": pn,

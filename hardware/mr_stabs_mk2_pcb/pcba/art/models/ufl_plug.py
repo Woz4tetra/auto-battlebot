@@ -39,7 +39,7 @@ class Params:
 def build(p: Params) -> Part:
     c = (Align.CENTER, Align.CENTER, Align.MIN)
     plug = Pos(0, 0, p.socket_z) * Cylinder(p.cap_dia / 2, p.mated_h, align=c)
-    zc = p.shield_top + p.cable_dia / 2  # resting on the shield
+    zc = p.shield_top + p.cable_dia / 2
     plug += Pos(0, 0, zc) * Sphere(p.cable_dia / 2)
     plug += Pos(0, 0, zc) * (Rot(90, 0, 0) * Cylinder(p.cable_dia / 2, p.run_y, align=c))
     return plug

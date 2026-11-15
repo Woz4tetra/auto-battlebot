@@ -122,7 +122,6 @@ class Params:
     edge_chamfer: float = 0.5  # elephant's foot on the bed edge, fdm.md
 
 
-# ---------------------------------------------------------------------------- frames
 
 
 def axis_frame(p: Params) -> np.ndarray:
@@ -172,7 +171,6 @@ def radio_to_part(p: Params) -> Location:
     trsf = gp_Trsf()
     trsf.SetValues(*r[0], t[0], *r[1], t[1], *r[2], t[2])
     to_axis = Location(trsf)
-    # Axis frame -> part frame: flip so +Z points into the block, origin on the panel face.
     return Pos(0, 0, panel_top(p)) * Rot(180, 0, 0) * to_axis
 
 
@@ -185,10 +183,7 @@ SURFACE_Y = (-28.0, 10.0)
 
 
 def shell_slab(p: Params, lift: float = 0.0, depth: float = 40.0) -> Part:
-    """The scanned shell top under the block as a solid slab, radio frame.
-
-    `lift` offsets the top along its normal, so the tape gap holds on the slopes too.
-    """
+    """Scanned shell top under the block as a solid slab, offset by lift along its normal."""
     xs = np.arange(SURFACE_X[0] - 8, SURFACE_X[1] + 8.01, 1.0)
     ys = np.arange(SURFACE_Y[0] - 8, SURFACE_Y[1] + 8.01, 1.0)
     rows = [[Vector(x, y, _clamped_z(x, y)) for y in ys] for x in xs]
@@ -204,7 +199,6 @@ def _clamped_z(x: float, y: float) -> float:
     return shell_z(float(np.clip(x, *SURFACE_X)), float(np.clip(y, *SURFACE_Y)))
 
 
-# ------------------------------------------------------------------------------ part
 
 
 def footprint(p: Params):
@@ -234,7 +228,6 @@ def build(p: Params) -> Part:
         10.0  # prism runs this far under the shell point: past the 6 mm dome drop, inside the slab
     )
     to_part = radio_to_part(p)
-    # Prism along the axis (axis frame: w up the receptacle axis), then into the part frame.
     prism = Pos(0, 0, -below) * extrude(footprint(p), h + below)
     block = Pos(0, 0, h) * Rot(180, 0, 0) * prism
 
@@ -266,7 +259,6 @@ def build(p: Params) -> Part:
     # groove (part -Y): a groove leaving through a hex corner leaves knife edges.
     hexagon = RegularPolygon(p.nut_af / 2, 6, major_radius=False)
     block -= Pos(0, 0, p.panel_t) * extrude(hexagon, h + below)
-    # Thread hole, and the counterbore the key tab turns in.
     block -= Pos(0, 0, -1) * Cylinder(p.hole_d / 2, p.panel_t + 2, align=C_MIN)
     block -= Pos(0, 0, -1) * Cylinder(p.key_d / 2, p.key_depth + 1, align=C_MIN)
 
@@ -296,7 +288,6 @@ def sections(p: Params) -> list[str]:
     return ["x=0", "y=0", f"z={p.key_depth / 2}", f"z={p.panel_t + 1}"]
 
 
-# ----------------------------------------------------------------------------- mates
 
 
 def receptacle(p: Params) -> Part:

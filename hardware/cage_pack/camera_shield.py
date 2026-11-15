@@ -81,13 +81,12 @@ def _print(xa: float, za: float) -> tuple[float, float]:
 
 
 def features(p: Params) -> list[dict]:
-    """The shield in its print frame: flange on the bed (Z = 0), hood and boss rising from it.
-    Print X runs down the wall (assembly -Z), print Z out from it (assembly +X)."""
+    """Shield features in the print frame."""
     x0, x1, y0, y1, zh0, zh1 = _extent(p)
     t, yc = p.t, cl.CAM_Y
     xf = x0 + t
-    fx0, _ = _print(0, zh1 + cl.SHIELD_RIB)  # flange from the ribs' top...
-    fx1, _ = _print(0, cl.CAM_AXIS_Z - p.flange_below)  # ...down to below the head axis
+    fx0, _ = _print(0, zh1 + cl.SHIELD_RIB)
+    fx1, _ = _print(0, cl.CAM_AXIS_Z - p.flange_below)
     bx, _ = _print(0, cl.CAM_AXIS_Z)
     sx, _ = _print(0, cl.SHIELD_SCREW_Z)
     boss_top = cl.HEAD_SEAT_X - x0

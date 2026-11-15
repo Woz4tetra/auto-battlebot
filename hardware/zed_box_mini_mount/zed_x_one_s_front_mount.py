@@ -60,7 +60,6 @@ class Params:
 
 def build(p: Params) -> Part:
     t = p.thickness
-    # Profile in XZ, extruded along +Y: Rot(-90, 0, 0) maps +Z to +Y.
     plate = Box(p.length, p.height, t, align=(Align.CENTER, Align.CENTER, Align.MIN))
     corners = plate.edges().filter_by(Axis.Z)
     assert len(corners) == 4, f"expected 4 corners, got {len(corners)}"
@@ -85,7 +84,6 @@ def build(p: Params) -> Part:
                 )
             )
     plate -= Cylinder(p.bore / 2, t, align=(Align.CENTER, Align.CENTER, Align.MIN))
-    # Sketch Y becomes world -Z under Rot(-90, 0, 0); the part is symmetric in Z, so it stays put.
     return Rot(-90, 0, 0) * plate
 
 

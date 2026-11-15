@@ -47,10 +47,7 @@ def build(p: Params) -> Part:
         x = (i - (p.n - 1) / 2) * p.pitch
         y_tip = -(p.body_y0 + p.body + p.mate)
         y_back = -p.body_y0
-        # Mating pin through the insulator and out the far side.
         part += Pos(x, (y_tip + y_back) / 2, zc) * Box(p.pin, y_back - y_tip, p.pin)
-        # Tail: down from the pin line to the board at the insulator's near face, then the foot
-        # along the pad to its end (model y = -foot_y0, footprint-local y is down).
         y_foot = -p.foot_y0
         part += Pos(x, y_back + p.pin / 2, zc / 2) * Box(p.pin, p.pin, zc)
         part += Pos(x, (y_back + y_foot) / 2, p.foot_t / 2) * Box(p.pin, y_foot - y_back, p.foot_t)

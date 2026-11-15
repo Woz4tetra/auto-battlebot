@@ -142,8 +142,7 @@ CAM_FAKRA_TIP = (3.30, -42.72, -23.75)
 
 
 def fakra_cam():
-    """Camera FAKRA plug seat: the plug's nose on the jack's axis, FAKRA_ENGAGE back from its
-    tip, and the cable direction (away from the lens)."""
+    """Camera FAKRA plug seat point and cable direction."""
     tip = Vector(*_world(CAMERA_AT, CAM_FAKRA_TIP))
     d = Vector(*_world_dir(CAMERA_AT, (0, 1, 0)))
     seat = tip - d * FAKRA_ENGAGE
@@ -209,8 +208,7 @@ def _carrier():
 
 
 def _tray_inserts():
-    """M3 x 6.4 heat-set inserts in the tray's bosses, flush with each boss top, and the cup
-    arms' four, flush with the panel's glass side."""
+    """Heat-set inserts in the tray bosses and the cup arm screws."""
     tops = [(xy, cl.PANEL_Z1 + cl.BOSS_H) for xy in cl.ZED_EAR_HOLES + pcba_cage.holes()]
     tops += [(xy, cl.CLAMP_Z0) for xy in cl.UPS_HOLES]
     tops += [(xy, cl.WALL_EDGE_Z) for xy in enclosure.lid_screws()]
@@ -251,8 +249,7 @@ def _shield_insert():
 
 
 def _sma_bulkhead(y: float, z: float):
-    """RP-SMA female bulkhead (1/4-36, nut on each side) through the +X wall: the pigtail's
-    or extension's panel end."""
+    """RP-SMA female bulkhead through the +X wall."""
     x = WALL_OUT_X[1]
     inner = Pos(x - cl.WALL_T, y, z) * Rot(0, -90, 0) * Cylinder(4.0, 9.0, align=C_MIN)
     outer = Pos(x, y, z) * Rot(0, 90, 0) * Cylinder(4.0, 10.0, align=C_MIN)
@@ -268,8 +265,7 @@ def _vendor_solids(rel: str) -> tuple:
 
 
 def _vendor(rel: str, origin, x_dir, z_dir, keep=None) -> Compound:
-    """A vendor STEP re-framed: `origin`, `x_dir` and `z_dir`, given in the STEP's own
-    coordinates, become the local origin and axes. `keep` filters solids by bounding box."""
+    """Vendor STEP re-framed so origin, x_dir, z_dir (STEP coords) become the local frame."""
     inv = Location(Plane(origin, x_dir=x_dir, z_dir=z_dir)).inverse()
     return Compound([inv * s for s in _vendor_solids(rel) if keep is None or keep(s)])
 
@@ -300,7 +296,7 @@ def _hr10_plug() -> Compound:
         (0, 0, 4.28),
         (1, 0, 0),
         (0, 0, 1),
-        keep=lambda s: s.bounding_box().max.Z < 0.0,  # the body, behind the nose
+        keep=lambda s: s.bounding_box().max.Z < 0.0,
     )
     cable = Pos(0, 0, -25.8) * Cylinder(2.5, 40.0, align=C_MAX)
     return Compound([*body.solids(), cable])
@@ -317,7 +313,7 @@ def _rj45_coupler():
     the cable's moulded stub inside, two screws at 27.5 along X."""
     x, z = cl.RJ45_AT
     o = (x, cl.Y_OUT[0] + RJ45_FLANGE_BACK, z)
-    at = Location(Plane(o, x_dir=(0, -1, 0), z_dir=(0, 0, -1)))  # mouth -Y, out of the wall
+    at = Location(Plane(o, x_dir=(0, -1, 0), z_dir=(0, 0, -1)))
     return Compound([at * s for s in _vendor_solids("grabcad/rj45_moddiy_cab105.step")])
 
 
@@ -350,12 +346,12 @@ def _antenna(x: float, y: float, z: float) -> Compound:
     4 mm past the wall, whip folded 90° to +Y at its hinge (STEP x = 36.25)."""
     solids = _vendor_solids("rf/Lcom_HG2402RD-RSF_3D.step")
     tip, hinge = 61.89, 36.25
-    at = Pos(x + 4.0 + tip, y, z) * Rot(0, 0, 180)  # STEP -X (toward the whip) -> +X
+    at = Pos(x + 4.0 + tip, y, z) * Rot(0, 0, 180)
     fold = Pos(x + 4.0 + tip - hinge, y, z) * Rot(0, 0, 90) * Pos(-(x + 4.0 + tip - hinge), -y, -z)
     out = []
     for sol in solids:
         placed = at * sol
-        whip = sol.bounding_box().min.X < 0  # the whip reaches back past the hinge
+        whip = sol.bounding_box().min.X < 0
         out.append(fold * placed if whip else placed)
     return Compound(out)
 
@@ -378,7 +374,6 @@ def _rj45_plug():
     return Compound([*head, boot])
 
 
-# Power button: bezel on the bottom wall's outer face, tabs inside, ending at BUTTON_TABS_Y.
 SWITCH_AT = (cl.SWITCH_X, cl.Y_OUT[0], cl.SWITCH_Z)
 BUTTON_TABS_Y = cl.Y_OUT[0] + cl.SWITCH_DEPTH
 # OpenUPS J10 (motherboard on/off) and J8 (start/stop) 2-pin headers, located from Mini-Box's
@@ -386,7 +381,6 @@ BUTTON_TABS_Y = cl.Y_OUT[0] + cl.SWITCH_DEPTH
 UPS_J10 = cl.ups(6.2, 0.0, 77.5)[:2]
 UPS_J8 = cl.ups(32.5, 0.0, 77.5)[:2]
 DUPONT_TOP = UPS_TOP + 16.5
-# Charger: Mean Well GST120A24-P1M, 167 x 67 x 35, lying outside the -X wall.
 CHARGER = (167.0, 67.0, 35.0)
 CHARGER_AT = (cl.X_OUT[0] - 230.0, cl.PORTS["gx12"][0], 5.0)  # +X end's centre, underside
 
@@ -416,8 +410,6 @@ def _plugs() -> dict:
     )
     p, d = fakra_cam()
     out["fakra_plug_cam"] = cn.place(_fakra_plug(), p, d, (1, 0, 0))
-    # Internal RJ45: 90° plug, 22 mm body into the ZED's jack, cable leaving +Z (up, to run
-    # down the -X side above the power cables).
     out["rj45_plug"] = _rj45_plug()
     out["rj45_coupler"] = _rj45_coupler()
     out_dir = (-1.0, 0.0, 0.0)
@@ -475,8 +467,7 @@ DISP_PLUG_END_X = cl.DISP_X + cl.DISP_GH_MOUTH_X - 6.5  # GHR housing, 6.5 out o
 
 
 def _gh_display_plug():
-    """GHR-13V-S housing in the display's horizontal GH: 18.0 wide (cn.gh_plug's rule),
-    6.5 out of the mouth along -X, 3.0 thick, cable leaving -X."""
+    """GHR-13V-S housing in the display GH socket."""
     x1 = cl.DISP_X + cl.DISP_GH_MOUTH_X
     z0, z1 = DISP_PLUG_Z
     return Pos((DISP_PLUG_END_X + x1) / 2, cl.DISP_Y + cl.DISP_GH[1], z0) * Box(
@@ -678,7 +669,7 @@ def _cable_runs() -> dict:
         (xc, -112.0, ez_),
         (xc, ay, ez_),
         (xc, ay, az),
-        (cl.X_IN[1] - 7.0, ay, az),  # into the bulkhead's inner body
+        (cl.X_IN[1] - 7.0, ay, az),
     ])  # fmt: skip
     # Display: out of the module's GH toward -X, down past its -X end, along y = -107.5
     # beside the ZED and over the PCBA's +Y edge into J7.
@@ -746,7 +737,7 @@ def _glass():
     w, h = 600.0, 500.0
     outer = Pos(0, top - h / 2, 0) * Box(w, h, cl.GLASS_T, align=C_MAX)
     inner = Pos(0, top - h / 2, -cl.GLASS_T - cl.GLASS_GAP) * Box(w, h, cl.GLASS_T, align=C_MAX)
-    retainer = Pos(0, top + 25.0, 0) * Box(w, 75.0, 3.0, align=C_MIN)  # steel flat, assumed
+    retainer = Pos(0, top + 25.0, 0) * Box(w, 75.0, 3.0, align=C_MIN)
     return outer, inner, retainer
 
 
@@ -893,7 +884,7 @@ def components():
                 "shape": pcba_cage.parts_compound(),
                 "color": "#b0b6bd",
                 "name": "PCBA parts",
-                "bom": False,  # priced with the board: bom_data.PCBA
+                "bom": False,
             },
             "charger": {
                 "shape": _charger(),
@@ -959,8 +950,6 @@ def components():
             },
         }
     )
-    # Plugs, panel parts and cable runs are envelopes for clearance; what is bought for them
-    # is in bom_extra() (the kits, wire and connectors they are made from).
     for name, shape in _plugs().items():
         comps[name] = {
             "shape": shape,
@@ -1216,7 +1205,7 @@ EXPECT = {
     "allow_interference": [
         ("cup_left", "glass_outer"),
         ("cup_right", "glass_outer"),
-        ("quarter_inserts", "ball_head"),  # the bracket's insert threads onto the head's stud
+        ("quarter_inserts", "ball_head"),
         ("tray_inserts", "enclosure"),
         ("battery_clamp", "openups"),  # board seated on the clamp's tubes
         ("battery", "battery_holder"),  # contact springs drawn uncompressed, cradle snap lips
@@ -1281,7 +1270,7 @@ EXPECT = {
         ("tether", "glass_outer"),
         ("lid_inserts", "enclosure_lid"),
         ("gh_J7", "pcba_parts"),
-        ("gh_display", "display"),  # the housing sits in the module's GH socket
+        ("gh_display", "display"),
         ("display_lead", "gh_display"),
         ("display_lead", "gh_J7"),
     ],

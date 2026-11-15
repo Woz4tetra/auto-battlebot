@@ -15,7 +15,7 @@ def _draw(ax, g, **kw):
             continue
         x, y = p.exterior.xy
         ax.fill(x, y, **kw)
-        for ring in p.interiors:  # holes: repaint with the board colour
+        for ring in p.interiors:
             x, y = ring.xy
             ax.fill(x, y, fc=HOLE_FC, ec="none")
 

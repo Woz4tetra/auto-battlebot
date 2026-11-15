@@ -128,7 +128,6 @@ class Params:
     insert_depth: float = 6.7  # insert 5.7 + 1, fasteners.md
 
 
-# ------------------------------------------------------------------------------- bar
 
 
 @lru_cache(maxsize=1)
@@ -153,14 +152,7 @@ def bar() -> Solid:
 
 
 def _draft_wire(x: float, loop: np.ndarray, upper: bool, z_cut: float, z_far: float) -> Wire:
-    """One half's bore profile at one station.
-
-    The loop's arc between its widest points on this half's side (over the top for the top
-    half), clipped to z_cut, then straight walls at the section's full width on to z_far.
-    Each wall rises (or drops) from whichever is farther from the split, the widest point or
-    z_cut: from the widest point there is no undercut, and below z_cut the bar cannot reach
-    past a wall at full width however its widest point wanders between stations.
-    """
+    """One half's bore profile at one station."""
     n = len(loop)
     i_back, i_front = int(np.argmax(loop[:, 0])), int(np.argmin(loop[:, 0]))
     y_back, y_front = float(loop[i_back, 0]), float(loop[i_front, 0])
@@ -222,7 +214,6 @@ def bore_tool(p: Params, upper: bool) -> Solid:
     return Solid.make_loft(wires, ruled=True)
 
 
-# ------------------------------------------------------------------------------ halves
 
 
 def clamp_x(p: Params) -> float:
@@ -243,17 +234,12 @@ def _slab(p: Params, z_lo: float, z_hi: float, y_lo: float, y_hi: float) -> Part
 
 
 def _break_bore_ends(p: Params, part: Part) -> Part:
-    """Entry chamfer on the bore's edges at both end faces.
-
-    The bar's crown runs nearly parallel to the clamp, so the bore meets each end face at a
-    grazing angle there; the chamfer also eases the clamp onto the bar.
-    """
+    """Entry chamfer where the bore meets the end faces at a grazing angle."""
 
     def bore_arc_at_end(e) -> bool:
         c = e.center()
         flat = all(abs(v.X - c.X) < 1e-4 for v in e.vertices())
         at_end = min(abs(c.X - p.x0), abs(c.X - p.x1)) < 1e-4
-        # The arc along the bar's surface; the short step pieces beside it take no chamfer.
         return flat and at_end and e.geom_type == GeomType.BSPLINE and e.length > 5
 
     edges = part.edges().filter_by(bore_arc_at_end)
@@ -267,7 +253,6 @@ def top_radio(p: Params) -> Part:
     tx, ty = p.tower_x, p.tower_y
     y_lo, y_hi = ty - p.tower_half_y, ty + p.tower_half_y
     part = _slab(p, z_lo, p.ear_top, p.y_front, p.y_back)
-    # Spine over the clamp, up to the panel, carrying the tower.
     part += _slab(p, z_lo, ztop, y_lo, y_hi)
     tower = RectangleRounded(2 * p.tower_half_x, 2 * p.tower_half_y, p.corner_r)
     part += Pos(tx, ty, tower_floor(p)) * extrude(tower, ztop - tower_floor(p))
@@ -286,7 +271,6 @@ def top_radio(p: Params) -> Part:
         p.notch_w, ty - y_lo + 1, p.notch_h + 1, align=(Align.CENTER, Align.MIN, Align.MIN)
     )
 
-    # Screw holes and head counterbores.
     for y in (p.screw_y_front, p.screw_y_back):
         part -= Pos(clamp_x(p), y, z_lo - 1) * Cylinder(
             p.clearance_d / 2, p.ear_top - z_lo + 2, align=C_MIN
@@ -334,7 +318,6 @@ def sections(p: Params) -> list[str]:
     ]
 
 
-# ----------------------------------------------------------------------------- mates
 
 
 def receptacle_radio(p: Params) -> Part:

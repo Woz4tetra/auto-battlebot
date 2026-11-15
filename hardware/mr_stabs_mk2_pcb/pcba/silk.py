@@ -81,8 +81,7 @@ P = pads_by_value()
 
 
 def behind(value, label, side=None, gap=0.85):
-    """Label just behind a front-edge wire pad (toward the board's interior). gap is pad edge to
-    text centre: half the text height plus the text box's margin plus solder-mask clearance."""
+    """Label behind a front-edge wire pad; gap = half text height + text margin + mask clearance."""
     x, y, s, half, _ = P[value][0]
     text(label, x, y + half + gap, side or s)
 
@@ -147,7 +146,6 @@ for value, names, caption in (
 text("MR STABS MK2", -36.0, -13.6, "B", h=0.9, bold=True)
 text(f"{VERSION} BEN W 2026", -36.0, -15.1, "B", h=0.8)
 
-# Refdes on the B-side connectors sit on top of the labels above; JLCPCB places from the CPL.
 for fp in board.GetFootprints():
     if fp.GetValue() in ("NANO_RX", "BOOT/RST", "TYPE-C-31-D-06"):
         fp.Reference().SetVisible(False)
@@ -169,8 +167,7 @@ ART = os.path.join(os.path.dirname(os.path.abspath(__file__)), "art")
 
 
 def draw_json(name, cx, cy, side="B"):
-    """Polygons in (u, v) mm as the image reads; B silk is mirrored in x because it is read from
-    below."""
+    """Draw vectorized art polygons, mirrored on B."""
     sx = -1 if side == "B" else 1
     for rings in json.load(open(os.path.join(ART, name)))["polys"]:
         ps = pcbnew.SHAPE_POLY_SET()

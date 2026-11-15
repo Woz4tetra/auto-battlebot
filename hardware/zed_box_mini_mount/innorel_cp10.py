@@ -144,14 +144,12 @@ def build(p: Params) -> Part:
             hole = Cylinder(
                 EDGE_DIA[k] / 2, p.edge_hole_depth, align=(Align.CENTER, Align.CENTER, Align.MAX)
             )
-            # Rot(-90, 0, 0) maps +Z to +Y, so the hole runs inward from the +Y edge.
             part -= Pos(v, sy * p.width / 2, zc) * Rot(-90 * sy, 0, 0) * hole
     for v, k in mirrored_1d(SHORT_EDGE):
         for sx in (-1, 1):
             hole = Cylinder(
                 EDGE_DIA[k] / 2, p.edge_hole_depth, align=(Align.CENTER, Align.CENTER, Align.MAX)
             )
-            # Rot(0, 90, 0) maps +Z to +X.
             part -= Pos(sx * p.length / 2, v, zc) * Rot(0, 90 * sx, 0) * hole
     return part
 

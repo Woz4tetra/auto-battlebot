@@ -229,7 +229,6 @@ gnd += ldo["GND"]
 v5 & c("1uF", "C52923", "c_ldo_in") & gnd
 v3v3 & c("10uF", "C19702", "c_ldo_out", C0603) & gnd
 
-# --- ESP32-S3-MINI-1U-N4R2: the QT Py's chip, flash and PSRAM, with a U.FL socket on the module.
 mcu = part(
     "mk2",
     "ESP32-S3-MINI-1U-N4R2",
@@ -355,12 +354,11 @@ for name in ("A8", "B8"):
 esd = part(
     "Power_Protection", "USBLC6-2SC6", "Package_TO_SOT_SMD:SOT-23-6", lcsc="C2687116", tag="esd"
 )
-dp += esd["I/O1"]  # both pins of each flow-through pair
+dp += esd["I/O1"]
 dm += esd["I/O2"]
 gnd += esd["GND"]
 vbus_usb += esd["VBUS"]
 
-# --- ESC signal pads: DShot through 100 ohm, a ground beside each.
 for side, io in (("l", "IO8"), ("r", "IO9")):
     sig = Net(f"DSHOT_{side.upper()}")
     mcu[io] & r("100", "C25076", f"r_dshot_{side}") & sig

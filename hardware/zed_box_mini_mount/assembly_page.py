@@ -120,11 +120,7 @@ def wire_points(wire, u: int, v: int, step: float = 0.25) -> list[list[float]]:
 def cut(
     shape: Shape, axis: str, value: float, window: tuple[float, float, float, float] | None = None
 ) -> list[dict]:
-    """Faces of `shape` on the plane axis = value, as 2D polygons with holes.
-
-    `window` (u0, u1, v0, v1) limits the cut to a region of the plane, which keeps cuts through
-    large compounds fast.
-    """
+    """Faces of shape on plane axis = value; window bounds the cut so large compounds stay fast."""
     i = "XYZ".index(axis)
     u, v = [k for k in range(3) if k != i]
     big = 1000.0
@@ -229,7 +225,6 @@ def main() -> None:
     assert len(sheets) == 1, f"expected one ZED base sheet, got {len(sheets)}"
     sheet = sheets[0]
 
-    # STEP files in the shared assembly frame: they line up when imported together.
     step_dir = args.out.parent / "step"
     step_dir.mkdir(exist_ok=True)
     for name, shape in {

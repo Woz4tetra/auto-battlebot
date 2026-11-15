@@ -252,7 +252,6 @@ def header_in_part() -> Part:
 def mates(p: Params) -> dict:
     return {
         "header": header_in_part(),
-        # board slab around the footprint, solder side down at z 0
         "board": Pos(0, 0, 0) * Box(20, 12, 1.6, align=C_MIN),
         "chassis": chassis_proxy(p),
     }

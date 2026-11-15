@@ -91,7 +91,6 @@ MATERIAL = "pc"  # density stand-in, see docstring
 STEP_DIR = Path.home() / "Downloads" / "Mr Stabs Mk2"
 CHASSIS_STEP = STEP_DIR / "Mr Stabs Mk2 - Mr Stabs Mk2 Chassis.step"
 ESC_STEP = STEP_DIR / "Mr Stabs Mk2 - ReadyToSky 35A Brushless ESC.step"
-# Robot parts the keep-outs are checked against. The wedge (top plate) is off during install.
 ROBOT_STEPS = {
     "top_plate": STEP_DIR / "Mr Stabs Mk2 - Mr Stabs Mk2 Top Plate.step",
     "bottom_plate": STEP_DIR / "Mr Stabs Mk2 - Mr Stabs Mk2 Bottom Plate.step",
@@ -336,8 +335,6 @@ def expect(p: Params) -> dict:
         "bbox": (93.24 if p.wings else 25.4, 35.0, 1.6),
         "holes": {3.66: 4},
         "hole_at": {3.66: [{"x": x, "y": y} for x, y in hole_xy(p)]},
-        # The board seats on the bosses, so it touches the chassis; every other chassis
-        # face must stay 0.3 mm away (side and rear walls).
         "gap": {"chassis": 0.25},
         # The plastite threads form in the TPU pilot holes, so the screws overlap the chassis.
         "allow_interference": [f"screw_{i}" for i in range(4)],

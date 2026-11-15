@@ -72,7 +72,6 @@ def _run(v0, hit, berger, k_robot, k_sheet, nx, ny, t_end, dt, probes):
     P = shapes(mn, gx, gy)  # grid x modes
     ph = shapes(mn, np.array([hit[0]]), np.array([hit[1]]))[0]
     pr = shapes(mn, np.array([p[0] for p in probes]), np.array([p[1] for p in probes]))
-    # Curvatures on the grid for bending stress: w_xx = -sum (m pi/A)^2 q phi, etc.
     kx2 = (mn[:, 0] * np.pi / A) ** 2
     ky2 = (mn[:, 1] * np.pi / B) ** 2
     # Berger: N = (3 D / (2 h^2)) sum q^2 k^2 (tension per unit length, both directions)

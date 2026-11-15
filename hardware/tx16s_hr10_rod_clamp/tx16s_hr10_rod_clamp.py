@@ -119,7 +119,6 @@ class Params:
     rod_bend_r: float = 5.0
 
 
-# ----------------------------------------------------------------------------- frames
 
 
 @lru_cache(maxsize=1)
@@ -158,7 +157,6 @@ def tower_xy() -> tuple[float, float]:
     return float(c[0]), float(c[1])
 
 
-# ------------------------------------------------------------------------------- rod
 
 
 def rod(p: Params) -> Solid:
@@ -179,7 +177,6 @@ def rod(p: Params) -> Solid:
     return run + Solid.sweep(profile, Wire([arc])) + arm
 
 
-# ------------------------------------------------------------------------------ halves
 
 
 def _cross2(a: np.ndarray, b: np.ndarray) -> float:
@@ -229,7 +226,7 @@ def _rod_space(p: Params) -> Solid:
     rb = p.bore_d / 2
     run_v = (p.run_v_lo + p.run_v_hi) / 2
     slot = SlotCenterToCenter(p.run_v_hi - p.run_v_lo, p.bore_d)
-    run = Plane.YZ.offset(-1) * Pos(run_v, 0) * extrude(slot, p.run_len + 5)  # along +u
+    run = Plane.YZ.offset(-1) * Pos(run_v, 0) * extrude(slot, p.run_len + 5)
     arm = Pos(0, -1, 0) * Rot(-90, 0, 0) * Cylinder(rb, p.arm_len + 5, align=C_MIN)
     lo = p.run_v_lo - rb
     pocket = Pos(-rb, lo, -rb) * Box(
@@ -271,7 +268,6 @@ def _cavity_floor(p: Params) -> float:
     zs = []
     for x in (tx - h / np.cos(np.pi / 6), tx + p.tower_half_x + 2):
         for y in (ty - h, ty + h):
-            # point (x, y, z) with n-coordinate n_min: solve for z
             rel = np.array([x - o[0], y - o[1], 0.0])
             zs.append(o[2] + (n_min - np.dot(rel, n)) / n[2])
     return float(max(zs))
@@ -336,7 +332,6 @@ def sections(p: Params) -> list[str]:
     return [f"x={p.run_len - 8}", f"y={p.arm_len - 6}", f"x={s1[0]}", f"y={s2[1]}", f"z={off}"]
 
 
-# -------------------------------------------------------------------------- receptacle
 
 
 def receptacle_radio(p: Params) -> Solid:

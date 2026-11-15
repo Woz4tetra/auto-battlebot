@@ -46,7 +46,7 @@ holes_l = sorted(d["ref"] for d in info if d["value"] == "MountingHole_L")
 holes_r = sorted(d["ref"] for d in info if d["value"] == "MountingHole_R")
 holes = holes_l + holes_r  # (-9.8, -9.8), (-9.8, 9.8), (9.8, -9.8), (9.8, 9.8)
 c100_3v3 = [d["ref"] for d in info if d["value"] == "100nF" and nets(d["ref"]) == {"+3V3", "GND"}]
-assert len(c100_3v3) == 4, c100_3v3  # INA VS, MCU, IMU VDD, IMU VDDIO
+assert len(c100_3v3) == 4, c100_3v3
 r10k_imu = [
     d["ref"]
     for d in info
@@ -139,7 +139,6 @@ fixed = {
     holes[1]: (-9.8, 9.8, 0),
     holes[2]: (9.8, -9.8, 0),
     holes[3]: (9.8, 9.8, 0),
-    # GND stitching vias in the stem's sides (design.py).
     find("GND_STITCH", nth=0): (11.6, -2.6, 0),
     find("GND_STITCH", nth=1): (-11.6, -2.6, 0),
     find("PACK_A-"): (-14.9, PAD_Y, 0),
@@ -148,8 +147,6 @@ fixed = {
     find("SW_BACK"): (14.9, PAD_Y, 0),
     find("SW_OUT"): (19.5, PAD_Y, 0),
     find("PACK_B+"): (24.1, PAD_Y, 0),
-    # Shunt along y right above SW_BACK: pad 1 BAT_IN toward the pad, pad 2 VBATT toward the rear.
-    # VBUS OR-ing diode, pinned at 0 deg: at 90 deg its stock silk touches its own pad 1.
 }
 THROUGH = {
     "GND_STITCH",
@@ -172,7 +169,6 @@ LABEL_STRIPS = [
     if values[ref] in ("PACK_A-", "PACK_A+", "PACK_B-", "PACK_B+", "SW_OUT", "SW_BACK")
 ]
 
-# B side, fixed: USB-C on the right ear's rear strip; the headers on the left ear's.
 B_FIXED = {
     # USB-C in the stem, away from the motors under the ears: a dislodged motor can reach the
     # ears, not the stem between the bosses. USB between the front washers (0.15 mm to each),
@@ -217,7 +213,6 @@ B_FIXED = {
     find("BOOT/RST"): (-21.0, -9.0, 0),
 }
 for ref, (x, y, rot) in B_FIXED.items():
-    # Via-grid wire pads go through the board: they block the roof face above them too.
     lay.fix_bottom(ref, x, y, rot, through=values[ref] in THROUGH)
 # Only their through-hole legs reach the F side: block those, not the whole body.
 from shapely import affinity
@@ -245,7 +240,6 @@ wanted = {
     INA: (15.4, -9.1, 270),
     find("100nF", "SENSE_P", "SENSE_N"): (18.4, -12.2, 90),  # off the BAT_IN pour
     c100_3v3[0]: (15.2, -6.1, 0),
-    # Buck on the right ear outboard: VIN from VBATT near ESC_R+, SW into the inductor.
     find("TPS54202DDC"): (30.0, -14.2, 0),
     find("10uF", "VBATT", nth=0): (27.0, -10.0, 90),
     find("10uF", "VBATT", nth=1): (25.0, -10.0, 90),
@@ -256,19 +250,15 @@ wanted = {
     find("100k", "V5_BUCK"): (33.0, -12.6, 0),
     find("12k", "FB"): (33.0, -13.8, 0),
     find("15uH"): (40.0, -14.0, 0),
-    find("47pF"): (33.0, -11.4, 0),  # feed-forward across R_top
+    find("47pF"): (33.0, -11.4, 0),
     find("22uF", nth=0): (44.0, -14.6, 90),
     find("22uF", nth=1): (37.5, -11.8, 0),
-    find("22uF", nth=2): (44.0, -12.4, 0),  # third output cap, sim/buck_loop.py
+    find("22uF", nth=2): (44.0, -12.4, 0),
     find("B5819W", "V5_BUCK"): (31.0, -7.0, 0),
     find("10uF", "+5V"): (28.5, -10.0, 90),
-    # USB ESD, CC resistors and the VBUS OR-ing diode over the connector, which sits under the
-    # left ear's rear strip on B.
     find("USBLC6-2SC6"): (-6.4, -10.8, 90),
-    # CC resistors between the USB-C's shell legs, right over its CC pads.
     find("5.1k", pin_net(USB, "A5")): (0.0, -10.6, 0),
     find("5.1k", pin_net(USB, "B5")): (0.0, -12.0, 0),
-    # LDO block and EN RC on the left ear, by the module's 3V3 / EN side.
     find("AP2112K-3.3"): (-17.0, -9.0, 0),
     find("1uF", "+5V"): (-19.6, -9.0, 90),
     find("10uF", "+3V3", nth=0): (-14.6, -9.0, 90),
@@ -277,11 +267,9 @@ wanted = {
     find("10k", "EN"): (-22.5, -7.0, 0),
     find("1uF", "EN"): (-22.5, -8.4, 0),
     find("10k", "IO0"): (-25.5, -7.0, 0),
-    # NeoPixel behind the module on the roof face, facing the TPU roof so it shows through.
     LED: (0.0, 13.0, 0),
     find("100", pin_net(LED, "3")): (3.2, 13.0, 90),
-    find("100nF", "+5V"): (-3.2, 13.0, 90),  # LED VDD
-    # DShot and CRSF series resistors by their pads and header.
+    find("100nF", "+5V"): (-3.2, 13.0, 90),
     find("100", "DSHOT_L"): (-8.6, -6.0, 90),
     find("100", "DSHOT_R"): (8.6, -6.0, 90),
     find("100", pin_net(find("NANO_RX"), "3")): (9.0, -6.0, 90),
@@ -299,7 +287,7 @@ wanted = {
     find("10k", "IMU_BOOTLOAD"): (11.4, -18.0, 90),
     find("4.7k", "SDA1"): (-1.2, -17.6, 90),
     find("4.7k", "SCL1"): (1.2, -17.6, 90),
-    find("B5819W", "VBUS_USB"): (-15.0, -12.6, 0),  # VBUS diode, inboard left ear
+    find("B5819W", "VBUS_USB"): (-15.0, -12.6, 0),
 }
 # BNO055 CAP pin cap.
 cap_ref = [find("1uF", "IMU_CAP")]

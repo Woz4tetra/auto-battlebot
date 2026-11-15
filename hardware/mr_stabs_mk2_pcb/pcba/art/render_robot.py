@@ -89,7 +89,7 @@ def lines(depth, nimg, px):
         jump = np.abs(d - a) > 1.2  # mm: silhouette and occlusion edges
         crease = (fg & fa) & ((nimg * na).sum(-1) < math.cos(math.radians(35)))
         edge |= jump | crease
-    return edge[::-1]  # image rows top-down
+    return edge[::-1]
 
 
 if __name__ == "__main__":

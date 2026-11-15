@@ -139,8 +139,7 @@ def lid_screws() -> list[tuple[float, float]]:
 
 
 def _teardrop(cx: float, cy: float, d: float, flat: float = 0.5):
-    """Circle with a 45° roof cut flat `flat` above the circle's top, so it prints in a wall:
-    (profiles, region points). The roof's sides are tangent to the circle."""
+    """Circle with a flat 45 degree roof so it prints in a wall."""
     r = d / 2
     k = r / math.sqrt(2)
     top = r + flat
@@ -180,8 +179,7 @@ def _through_y(y_mid: float, depth: float) -> dict:
 
 
 def _touches(cells, x: float, y: float, r: float) -> bool:
-    """A circle at (x, y), radius r, is tangent (within 0.01) to an edge of one of the cells,
-    each (x0, x1, y0, y1)."""
+    """True if a circle is tangent to an edge of any cell."""
     for x0, x1, y0, y1 in cells:
         for (ax, ay), (bx, by) in (((x0, y0), (x1, y0)), ((x1, y0), (x1, y1)),
                                    ((x1, y1), (x0, y1)), ((x0, y1), (x0, y0))):  # fmt: skip
@@ -239,8 +237,7 @@ def pocket_sketch(xs, ys, land, keep_circles=(), keep_boxes=(), ysign: float = 1
 
 
 def _pocket_sketch(p: Params):
-    """Panel thinned to p.floor between 3 mm lands: ~55 mm cells on the spine, the cross
-    rib and lines at x = -56, 48.5 and y = -116."""
+    """Panel pockets between lands."""
     m = p.pocket_land
     xs = [cl.X_IN[0] + m, -56.0, 0.0, 48.5, cl.X_IN[1] - m]
     ys = [cl.Y_IN[0] + m, -116.0, cl.ZED_YC, cl.Y_IN[1] - m]
@@ -261,8 +258,7 @@ def _pocket_sketch(p: Params):
 
 
 def _ribs_sketch(p: Params):
-    """Spine along X = 0, the cross rib under the ZED Box Mini wall to wall, and a ring round
-    each CP10 washer: (profiles, region points). The spine stops at each ring's inside."""
+    """Spine, cross rib and CP10 rings sketch."""
     from build123d import Circle, Rectangle
 
     r_out = p.ring[0] / 2 + p.ring[1]
@@ -298,8 +294,7 @@ def _lid_boss_profile(wall: str, p: Params) -> tuple[list[tuple[float, float]], 
 
 
 def features(p: Params) -> list[dict]:
-    """The tray as CAD features, in build order: shell, ribs, bosses, lid bosses, pads,
-    pockets, panel holes, then each wall's ports."""
+    """The tray as CAD features in build order."""
     t = cl.WALL_T
     z0, z1, ze = cl.PANEL_Z0, cl.PANEL_Z1, cl.WALL_EDGE_Z
     # Shell
@@ -713,7 +708,7 @@ def expect(p: Params) -> dict:
             # Rib rings round the CP10 washers: the lower one runs into the OpenUPS's +X lower
             # standoff boss, so only the upper reads as a hole.
             p.ring[0]: 1,
-            cl.CP10_SPOT[0]: 2,  # washer spot faces
+            cl.CP10_SPOT[0]: 2,
         },
         "hole_at": {
             p.cp10_hole: [{"x": 0.0, "y": y} for y in cl.CP10_Y],

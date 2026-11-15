@@ -153,7 +153,6 @@ def camera_body_step() -> Path:
 
 def camera_location(p: Params) -> Location:
     """Camera STEP frame -> bracket frame: lens along +Y, front face on the plate."""
-    # Rot(0, 0, 180) maps (x, y) to (-x, -y); the Pos then lands the axis at (0, axis_z).
     return Pos(CAM_AXIS_X, p.plate_y + CAM_FRONT_Y, p.axis_z - CAM_AXIS_Z) * Rot(0, 0, 180)
 
 

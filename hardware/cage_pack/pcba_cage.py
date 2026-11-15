@@ -126,7 +126,6 @@ PLACEMENT = {
     "SW1_boot": ("SW_SPST_TL3342.step", 0, X0 + 6.5, Y0 + 13.0),
     "SW2_reset": ("SW_SPST_TL3342.step", 0, X0 + 13.0, Y0 + 13.0),
     "D1_status": ("LED_WS2812B_PLCC4_5.0x5.0mm_P3.2mm.step", 0, X0 + 40.5, Y0 + 12.5),
-    # Bottom side, start/stop circuit.
     "U5_photomos_j8": (SOP4, 0, X0 + 20.0, Y0 + 30.0),
     "U6_opto_j10": (SOP4, 0, X0 + 26.0, Y0 + 30.0),
     "Q1_led_fet": (SOT23, 0, X0 + 32.0, Y0 + 30.0),
@@ -156,7 +155,7 @@ def parts() -> dict[str, Shape]:
         return _model(name)
 
     def at(ref: str, rot: float, x: float, y: float) -> Pos:
-        if ref in BOTTOM:  # mirrored onto the underside, hanging down
+        if ref in BOTTOM:
             return Pos(x, y, cl.PCBA_Z) * Rot(180, 0, rot)
         return Pos(x, y, TOP) * Rot(0, 0, rot)
 

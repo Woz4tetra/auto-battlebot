@@ -100,7 +100,6 @@ def features(p: Params) -> list[dict]:
             "profiles": [{"rect": (0, 0, p.length, p.width), "r": p.corner_r}]
             # M3 heat-set insert holes for the ZED ears, through so the screw length is free.
             + [{"circle": (x, y, p.insert_hole)} for x, y in holes]
-            # 1/4-20 clearance holes inside their counterbores.
             + [{"circle": (x, y, p.bolt_clear)} for x, y in bolts]
             + [{"circle": (x, y, p.cbore_d)} for x, y in bolts],
         },
@@ -142,7 +141,6 @@ def mates(p: Params) -> dict:
         for sy in (-1, 1):
             zxy = Pos(sx * p.zed_hole_x, sy * p.zed_hole_y, 0)
             zed -= zxy * Pos(0, 0, top) * Cylinder(ZED_EAR_HOLE / 2, ZED_SHEET_T, align=C_MIN)
-            # M3 x 8 SHCS: head on the ear, shank down into the insert.
             s = (
                 zxy
                 * Pos(0, 0, top + ZED_SHEET_T)
@@ -163,7 +161,6 @@ def mates(p: Params) -> dict:
                 )
             )
             inserts = ins if inserts is None else inserts + ins
-            # 1/4-20 x 1/2 flanged button head seated on the counterbore floor.
             b = Pos(sx * p.plate_hole_x, sy * p.plate_hole_y, top - p.cbore_depth) * (
                 Cylinder(FBHCS_14_HEAD_D / 2, FBHCS_14_HEAD_H, align=C_MIN)
                 + Cylinder(

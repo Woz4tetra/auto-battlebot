@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from build123d import Align, Box, Cylinder, Part, Pos, Rot
 
 PROCESS = "none"
-MATERIAL = "pc"  # density stand-in for FR4
+MATERIAL = "pc"
 
 
 @dataclass
@@ -38,7 +38,6 @@ class Params:
 def build(p: Params) -> Part:
     c = (Align.CENTER, Align.CENTER, Align.MIN)
     rx = Pos(0, 0, p.base_z) * Box(p.width, p.board_t, p.length, align=c)
-    # Shielded SoC and the U.FL on the +Y face.
     rx += Pos(0, p.board_t / 2, p.base_z + 8.0) * Box(
         p.chip, p.comp_h, p.chip, align=(Align.CENTER, Align.MIN, Align.MIN)
     )
@@ -52,4 +51,4 @@ SECTIONS = ["x", "y"]
 
 
 def expect(p: Params) -> dict:
-    return {"bbox": (11.0, None, 18.0)}  # module size; it starts at z 2.5
+    return {"bbox": (11.0, None, 18.0)}

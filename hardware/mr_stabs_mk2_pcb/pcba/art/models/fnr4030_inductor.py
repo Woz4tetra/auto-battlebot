@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from build123d import Align, Axis, Box, Cylinder, Part, Pos, chamfer
 
 PROCESS = "none"
-MATERIAL = "steel"  # density stand-in for ferrite
+MATERIAL = "steel"
 
 
 @dataclass

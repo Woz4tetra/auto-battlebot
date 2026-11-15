@@ -86,8 +86,7 @@ def _pocket_sketch(p: Params):
 
 
 def features(p: Params) -> list[dict]:
-    """The lid in its print frame (outside face on the bed, Y mirrored): plate, lip, pockets,
-    display window, rim and bosses, screw holes and vents, all sketched on Top."""
+    """The lid as CAD features in the print frame."""
     t = cl.LID_T
     xc, yc = (cl.X_OUT[0] + cl.X_OUT[1]) / 2, -(cl.Y_OUT[0] + cl.Y_OUT[1]) / 2
     w, h = cl.X_OUT[1] - cl.X_OUT[0], cl.Y_OUT[1] - cl.Y_OUT[0]

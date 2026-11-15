@@ -1,10 +1,4 @@
-"""Export each high-current net's copper for copper_ir.py: every layer's pours, tracks and pads,
-the vias and plated holes that join the layers, and the terminal pads where wires land.
-
-    SKILL/scripts/kicad python3 sim/export_geometry.py      -> sim/copper_<NET>.json
-
-Board frame mm (x right, y toward the rear).
-"""
+"""Export high-current net copper for copper_ir.py."""
 
 import json
 
@@ -83,7 +77,6 @@ def export(net, terminals):
     print(net, counts, "holes", len(holes), "terminals", list(terms))
 
 
-# Each high-current path, wire pad to wire pad (footprint value, pad number).
 export("PACK+", {"in": ("PACK_B+", "1"), "out": ("SW_OUT", "1")})
 export("BAT_IN", {"in": ("SW_BACK", "1"), "out": ("0.5m", "1")})
 export("VBATT", {"in": ("0.5m", "2"), "esc_l": ("ESC_L+", "1"), "esc_r": ("ESC_R+", "1")})

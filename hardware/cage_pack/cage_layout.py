@@ -123,7 +123,6 @@ INSERT_HOLE = 4.0  # 94180A333 in plastic
 INSERT_LEN = 6.4
 INSERT_DEPTH = INSERT_LEN + 1.0  # fasteners.md: 1 mm deeper than the insert
 
-# ZED Box Mini: STEP x -> X, y -> Y, on four 8 mm bosses, over the upper CP10 hole.
 ZED_XC = 0.0
 ZED_YC = -50.0
 ZED_DZ = PANEL_Z1 + BOSS_H - ZED_STEP_BASE_Z
@@ -206,7 +205,6 @@ def ups(x: float, y: float, z: float) -> tuple[float, float, float]:
 
 UPS_HOLES = [ups(x, 60.54, z)[:2] for x in (-27.98, 64.02) for z in (79.0, 126.0)]
 
-# Custom PCBA on four 8 mm bosses, right of the OpenUPS.
 PCBA_X0, PCBA_X1 = 12.0, 56.0
 PCBA_Y0, PCBA_Y1 = -150.0, -104.0  # +Y edge 2.2 short of the ZED Box Mini's body
 PCBA_Z = PANEL_Z1 + BOSS_H

@@ -93,8 +93,7 @@ class Network:
                 self.couple(a[m], b[m], np.full(int(m.sum()), gs))
 
     def cell_at(self, name, x, y, reach=0.6):
-        """The copper cell nearest (x, y) on a layer within reach (a via sits in its own
-        clearance hole on planes of other nets), or -1."""
+        """Nearest copper cell within reach (vias sit in clearance holes on other-net planes), or -1."""
         ix = self.idx.get(name)
         if ix is None:
             return -1
