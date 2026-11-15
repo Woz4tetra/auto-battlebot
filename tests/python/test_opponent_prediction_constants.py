@@ -13,6 +13,7 @@ from playground.opponent_prediction import (
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_HPP = REPO_ROOT / "include" / "robot_filter" / "motion_estimator_config.hpp"
 ESTIMATOR_HPP = REPO_ROOT / "include" / "robot_filter" / "kalman_motion_estimator.hpp"
+RUNNER_CONFIG_HPP = REPO_ROOT / "include" / "runner_config.hpp"
 
 
 def _cpp_default(name: str) -> float:
@@ -25,8 +26,9 @@ def test_golden_fixture_sigmas_match_cpp_defaults() -> None:
     assert fixture.BLOB_SIGMA == _cpp_default("blob_position_sigma_m")
 
 
-def test_eval_latency_matches_estimator_documentation() -> None:
-    milliseconds = int(
-        re.search(r"measured (\d+) ms perception latency", ESTIMATOR_HPP.read_text()).group(1)
+def test_rewind_history_covers_eval_latency() -> None:
+    capacity = int(re.search(r"kSnapshotCapacity = (\d+);", ESTIMATOR_HPP.read_text()).group(1))
+    loop_rate_hz = float(
+        re.search(r"max_loop_rate\(([\d.]+)\)", RUNNER_CONFIG_HPP.read_text()).group(1)
     )
-    assert evaluate_opponent_prediction.LATENCY_S == milliseconds / 1000.0
+    assert capacity / loop_rate_hz > evaluate_opponent_prediction.LATENCY_S
