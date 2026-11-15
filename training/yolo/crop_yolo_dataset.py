@@ -128,8 +128,7 @@ def record_crop(
 def plan_crop(
     recordings: list[Path], rect: tuple[int, int, int, int], min_box_px: float
 ) -> tuple[list[tuple[Path, list[Path]]], int]:
-    """Check every image and label before anything is written, since a crop that fails
-    halfway leaves a dataset of mixed sizes. Returns (work, images already cropped)."""
+    """Check every image and label before anything is written; returns (work, already cropped)."""
     x0, y0, crop_w, crop_h = rect
     work: list[tuple[Path, list[Path]]] = []
     skipped = 0

@@ -55,13 +55,7 @@ def expected_cache_header(algo: str) -> str:
 
 
 def check_cache_header(cache_path: Path, algo: str, have_frames: bool) -> None:
-    """Refuse a cache this TensorRT will not accept when there are no frames to fall back on.
-
-    A cache built by a different TensorRT is rejected by the builder, which then asks the
-    calibrator for batches. With no --calib-dir there are none, so the build would finish having
-    calibrated on nothing -- and the batch-count check cannot catch it, because a cache was read.
-    Carrying caches to a Jetson is exactly the case this protects.
-    """
+    """Refuse a cache this TensorRT will not accept when there are no frames to fall back on."""
     header = cache_path.read_text(encoding="utf-8", errors="replace").splitlines()[0].strip()
     expected = expected_cache_header(algo)
     if header == expected:
@@ -86,14 +80,7 @@ def parse_partition(text: str) -> tuple[int, int]:
 def select_calibration_frames(
     calib_dir: Path, count: int, partition: tuple[int, int] | None = None
 ) -> list[Path]:
-    """`count` frames from `calib_dir`, stratified across scenes and evenly spaced within each.
-
-    `partition` (index, parts) first thins each scene to every Nth frame, so two calls with
-    different indices cannot return a frame in common however small the scene is. Shifting the
-    picks by half a stride instead is not enough: the val split's smallest scenes are consumed
-    whole, which left 162 of 1000 frames shared. That is how arm S gets a genuinely disjoint
-    second sample out of the same directory, with no RNG anywhere.
-    """
+    """`count` frames from `calib_dir`, stratified across scenes and evenly spaced within each."""
     images = sorted(path for path in calib_dir.iterdir() if path.suffix.lower() in IMAGE_SUFFIXES)
     if not images:
         raise SystemExit(f"no images found in --calib-dir {calib_dir}")
@@ -282,10 +269,6 @@ def resolve_int8_config(model_path: Path, args: argparse.Namespace) -> Int8Confi
     if not args.int8:
         return None
     partition = parse_partition(args.calib_partition) if args.calib_partition else None
-    # The sample is part of the cache key, not just the model. TensorRT reads whatever cache it
-    # finds and skips calibration entirely, so a name keyed on the ONNX stem alone would hand a
-    # rebuild with a different sample the old scales and report success. That is precisely the
-    # arm S comparison, silently answered with a copy of the arm it was meant to check.
     sample_tag = f"_{args.calib_count}" + (f"_p{partition[0]}-{partition[1]}" if partition else "")
     cache_path = (
         Path(args.calib_cache)

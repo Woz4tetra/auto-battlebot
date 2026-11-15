@@ -264,9 +264,6 @@ class YOLODatasetValidator:
             image_files.extend(self.dataset_path.rglob(f"*{ext}"))
             image_files.extend(self.dataset_path.rglob(f"*{ext.upper()}"))
 
-        # Drop anything remove_failed_annotations.py set aside. Those pairs already
-        # failed validation, and their backup paths do not match the state keys, so
-        # they would come back as fresh unvalidated entries.
         image_files = [
             img_path
             for img_path in image_files
@@ -353,7 +350,6 @@ class YOLODatasetValidator:
         tmp = self.state_file.with_suffix(".json.tmp")
         with open(tmp, "w") as f:
             json.dump(self.validation_state, f, indent=2)
-        # Atomic replace so an interrupted write cannot truncate existing work
         tmp.replace(self.state_file)
 
     def key_for(self, index: int) -> str:
@@ -859,12 +855,7 @@ class YOLODatasetValidator:
         return (index, self.thumb_box(), self.show_labels)
 
     def render_thumb(self, index: int) -> Image.Image:
-        """Return a cached thumbnail for `index`, rendering it if needed.
-
-        Every thumbnail is letterboxed to the identical `thumb_box()` size. Cells
-        then never change shape when a new image lands in them, which is what made
-        the grid jump around while a page was loading.
-        """
+        """Return a cached thumbnail for `index`, rendering it if needed."""
         box = self.thumb_box()
         cache_key = self.thumb_key(index)
 
@@ -1155,13 +1146,7 @@ class YOLODatasetValidator:
 
 
 def find_class_yaml(dataset_path: Path) -> Optional[Path]:
-    """Locate the data yaml describing the dataset's classes.
-
-    The root is checked first, then the whole tree, because a tree of per-scene exports keeps one
-    yaml inside each export rather than a single one at the top. Those per-scene yamls only agree
-    when the scenes share a vocabulary; when they do not, a single class list would mislabel
-    everything drawn from the other scenes, so say so instead of picking one silently.
-    """
+    """Locate the data yaml describing the dataset's classes."""
     candidates = sorted(dataset_path.glob("*.y*ml")) or sorted(dataset_path.rglob("*.y*ml"))
     candidates = [p for p in candidates if p.suffix in (".yml", ".yaml")]
     if not candidates:

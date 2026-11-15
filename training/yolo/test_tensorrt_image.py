@@ -6,11 +6,16 @@ import argparse
 import glob
 import time
 from pathlib import Path
+from typing import NamedTuple
 
 import cv2
 
 from auto_battlebot.perception.detection_viz import draw_detections, load_class_names
-from auto_battlebot.perception.trt_yolo import DetectionTuple, TrtYoloModel
+from auto_battlebot.perception.trt_yolo import (
+    DetectionTuple,
+    TrtYoloModel,
+    resolve_num_classes,
+)
 
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"}
 
@@ -61,7 +66,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--num-keypoints",
-        default=0,
+        default=None,
         type=int,
         help="Number of keypoints per detection (default: inferred)",
     )
@@ -142,12 +147,7 @@ def report(path: Path, detections: list[DetectionTuple], quiet: bool) -> None:
 
 
 def output_names(image_paths: list[Path]) -> dict[Path, str]:
-    """Map each input to a unique annotated filename.
-
-    A recursive glob often pulls the same stem from several directories (train/val
-    splits, per-scene folders). Bare stems would overwrite each other, so a colliding
-    name takes its parent directory as a prefix, then a counter if that still collides.
-    """
+    """Map each input to a unique annotated filename."""
     names: dict[Path, str] = {}
     used: set[str] = set()
     for path in image_paths:
@@ -163,17 +163,20 @@ def output_names(image_paths: list[Path]) -> dict[Path, str]:
     return names
 
 
+class InferStats(NamedTuple):
+    images: int
+    detections: int
+    infer_s: float
+
+
 def process_images(
     image_paths: list[Path],
     model: TrtYoloModel,
     out_dir: Path | None,
     class_names: list[str] | None,
     args: argparse.Namespace,
-) -> tuple[int, int, float]:
-    """Infer on each image, then report, save, and show it.
-
-    Returns (images processed, detections found, seconds spent in infer).
-    """
+) -> InferStats:
+    """Infer on each image, then report, save, and show it."""
     out_names = output_names(image_paths) if out_dir is not None else {}
     processed = 0
     total_detections = 0
@@ -200,7 +203,7 @@ def process_images(
             if cv2.waitKey(0) & 0xFF == ord("q"):
                 print("Interrupted by user")
                 break
-    return processed, total_detections, inference_s
+    return InferStats(processed, total_detections, inference_s)
 
 
 def main() -> None:
@@ -217,14 +220,7 @@ def main() -> None:
     if class_names is not None:
         print(f"Labeling boxes with {len(class_names)} class names from --names")
 
-    # Determine the class count before building the model. An explicit --num-classes wins;
-    # otherwise fall back to the number of names from --names. A raw multi-class pose head
-    # ([1, 4 + nc + 3*nk, anchors]) cannot be split correctly without it: the layout
-    # inference would guess a single class, misread the extra class scores as keypoint
-    # coordinates, and drop nearly every detection.
-    resolved_num_classes = (
-        args.num_classes if args.num_classes > 0 else (len(class_names) if class_names else 0)
-    )
+    resolved_num_classes = resolve_num_classes(args.num_classes, class_names)
 
     print("Loading engine...")
     model = TrtYoloModel(
@@ -232,9 +228,7 @@ def main() -> None:
         conf_threshold=args.conf,
         nms_iou_threshold=args.iou,
         num_classes=resolved_num_classes,
-        # CLI 0 means "infer from the engine layout"; the library sentinel for that is -1
-        # (0 there means "no keypoints", used for seg engines).
-        num_keypoints=args.num_keypoints if args.num_keypoints > 0 else -1,
+        num_keypoints=args.num_keypoints if (args.num_keypoints or 0) > 0 else -1,
         letterbox_padding=0.0,
         bbox_half_wh=args.bbox_half_wh,
         swap_wh=args.swap_wh,

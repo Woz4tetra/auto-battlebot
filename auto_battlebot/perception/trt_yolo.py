@@ -371,6 +371,13 @@ def scale_detections_to_frame(
     return result
 
 
+def resolve_num_classes(explicit: int, class_names: list[str] | None) -> int:
+    """Explicit class count if positive, else the number of names, else 0 (infer from engine)."""
+    if explicit > 0:
+        return explicit
+    return len(class_names) if class_names else 0
+
+
 def load_engine(engine_path: str) -> tuple[Any, Any]:
     """Load TensorRT engine and create execution context."""
     import tensorrt as trt

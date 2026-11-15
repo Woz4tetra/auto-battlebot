@@ -11,7 +11,7 @@ import numpy as np
 from tqdm import tqdm
 
 from auto_battlebot.perception.detection_viz import draw_detections, load_class_names
-from auto_battlebot.perception.trt_yolo import TrtYoloModel
+from auto_battlebot.perception.trt_yolo import TrtYoloModel, resolve_num_classes
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -55,7 +55,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--num-keypoints",
-        default=0,
+        default=None,
         type=int,
         help="Number of keypoints per detection (default: inferred)",
     )
@@ -191,14 +191,7 @@ def main() -> None:
     if class_names is not None:
         print(f"Labeling boxes with {len(class_names)} class names from --names")
 
-    # Determine the class count before building the model. An explicit --num-classes wins;
-    # otherwise fall back to the number of names from --names. A raw multi-class pose head
-    # ([1, 4 + nc + 3*nk, anchors]) cannot be split correctly without it: the layout
-    # inference would guess a single class, misread the extra class scores as keypoint
-    # coordinates, and drop nearly every detection.
-    resolved_num_classes = (
-        args.num_classes if args.num_classes > 0 else (len(class_names) if class_names else 0)
-    )
+    resolved_num_classes = resolve_num_classes(args.num_classes, class_names)
 
     print("Loading engine...")
     model = TrtYoloModel(
@@ -206,9 +199,7 @@ def main() -> None:
         conf_threshold=args.conf,
         nms_iou_threshold=args.iou,
         num_classes=resolved_num_classes,
-        # CLI 0 means "infer from the engine layout"; the library sentinel for that is -1
-        # (0 there means "no keypoints", used for seg engines).
-        num_keypoints=args.num_keypoints if args.num_keypoints > 0 else -1,
+        num_keypoints=args.num_keypoints if (args.num_keypoints or 0) > 0 else -1,
         letterbox_padding=0.0,
         bbox_half_wh=args.bbox_half_wh,
         swap_wh=args.swap_wh,

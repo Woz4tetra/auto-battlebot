@@ -46,19 +46,12 @@ def dataset_root_for(npy: Path, scan_root: Path) -> Path:
 
 
 def own_process_chain() -> set[int]:
-    """This process and its ancestors.
-
-    They must be excluded from the in-use scan: the shell that invoked this tool very often
-    has the dataset name in its own command line (``rm -rf .../old_dataset``, a prior
-    ``find``), which would otherwise mark every dataset you just typed about as busy.
-    """
+    """This process and its ancestors."""
     chain: set[int] = set()
     pid = os.getpid()
     while pid > 1 and pid not in chain:
         chain.add(pid)
         try:
-            # /proc/<pid>/stat field 4 is PPid; comm (field 2) may contain spaces or parens,
-            # so split after the trailing ')'.
             stat = Path(f"/proc/{pid}/stat").read_text()
             pid = int(stat[stat.rindex(")") + 1 :].split()[1])
         except (OSError, ValueError, IndexError):
@@ -77,26 +70,7 @@ def describe_process(proc: Path) -> str:
 
 
 def busy_datasets(candidates: list[Path]) -> dict[Path, dict[int, str]]:
-    """Which candidate datasets are being used by a live process, and by which PIDs.
-
-    Returns ``{dataset: {pid: "<command> (<signal>)"}}`` for every busy dataset.
-
-    Two signals:
-
-    * an **open file descriptor** resolving inside the dataset -- exact, but only catches a
-      run at the instant it holds a file open, and ultralytics closes each ``.npy`` right
-      after reading it;
-    * a **python** process whose command line mentions the dataset, by absolute path *or* by
-      directory name. The name is needed because training is launched from ``training/yolo``
-      with a relative dataset path (``../data/scenesplit_2026-07-25/old+new.yml``), which an
-      absolute-path match silently misses -- the exact way an earlier version of this tool
-      offered to delete the cache out from under a live 3-hour run.
-
-    Restricting the command-line signal to *python* processes, and skipping this process and
-    its ancestors, is what keeps the loose name match from firing on the shell you are typing
-    in. Erring toward "busy" is deliberate: a false positive costs disk, a false negative
-    costs a training run.
-    """
+    """Which candidate datasets are being used by a live process, and by which PIDs."""
     resolved = {c: (str(c.resolve()), c.name) for c in candidates}
     skip = own_process_chain()
     busy: dict[Path, dict[int, str]] = {}
@@ -124,8 +98,6 @@ def cmdline_matches(proc: Path, resolved: dict[Path, tuple[str, str]]) -> list[t
         if path in cmdline:
             matches.append((dataset, "path in command line"))
         elif name in GENERIC_SPLIT_NAMES:
-            # A split is named by its dataset: `train` alone is in every `training/...` path
-            # and `val` in every `validate_*.py`, which held caches no process was using.
             if dataset.parent.name in components:
                 matches.append((dataset, f"name {dataset.parent.name!r} in command line"))
         elif name in components:

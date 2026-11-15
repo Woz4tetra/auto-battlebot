@@ -7,8 +7,6 @@ import shutil
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-# Directory failed pairs are moved into. validate_yolo_dataset.py skips it by name,
-# so keep the two in sync.
 BACKUP_DIR_NAME = "validation_backup"
 
 
@@ -22,11 +20,7 @@ def load_validation_state(state_file: Path) -> Dict[str, str]:
 
 
 def annotation_candidates(img_path: Path) -> List[Path]:
-    """Paths that could hold `img_path`'s annotation, most specific first.
-
-    Covers both layouts the validators produce: a YOLO export's `images/` + `labels/` pair, and a
-    segmask export where the annotation is a `<stem>_mask.png` sitting beside the frame.
-    """
+    """Paths that could hold `img_path`'s annotation, most specific first."""
     img_str = str(img_path)
     sibling_label = Path(
         img_str.replace("/images/", "/labels/").replace("\\images\\", "\\labels\\")
@@ -47,8 +41,6 @@ def find_image_annotation_pairs(dataset_path: Path) -> List[Tuple[Path, Path]]:
         image_files.extend(dataset_path.rglob(f"*{ext}"))
         image_files.extend(dataset_path.rglob(f"*{ext.upper()}"))
 
-    # Never re-process pairs an earlier run already set aside, or they get moved into
-    # a backup nested inside the backup.
     image_files = [
         img_path
         for img_path in image_files
@@ -57,7 +49,6 @@ def find_image_annotation_pairs(dataset_path: Path) -> List[Tuple[Path, Path]]:
 
     pairs = []
     for img_path in sorted(set(image_files)):
-        # A mask is an annotation, not a frame to be paired in its own right.
         if img_path.stem.endswith("_mask"):
             continue
         for label_path in annotation_candidates(img_path):
@@ -69,12 +60,7 @@ def find_image_annotation_pairs(dataset_path: Path) -> List[Tuple[Path, Path]]:
 
 
 def find_datasets_with_state(search_root: Path) -> List[Tuple[Path, Path]]:
-    """Recursively find dataset roots that have validation_state.json.
-
-    The root is wherever the state file sits, since validate_yolo_dataset.py writes it
-    at the root its keys are relative to. That root may hold `images/` and `labels/`
-    directly, or hold one subdirectory per recording with the pairs a level down.
-    """
+    """Recursively find dataset roots that have validation_state.json."""
     found: List[Tuple[Path, Path]] = []
     seen: set[Path] = set()
 
