@@ -971,3 +971,140 @@ commands are the real ones:
 3. Step 14: non-terminal flips and mid-match starts, scored with the step 12 scorer.
 4. Before the test box is free: write `config/mr_stabs_mk2_sensing_zed_box.toml`, measure the
    printed tag, and plan the camera remount to 0.75 m straight down.
+
+## Notes moved from code comments (2026-11-15)
+
+### `playground/rl/bench_warp_env.py`
+
+Random actions, stages A (no sensing) and D (sensing, full scene), 60 timed steps after 10 warm-up
+steps. Run on an idle GPU: a training job on the same card halves the numbers.
+
+source scripts/activate_python.sh
+python playground/rl/bench_warp_env.py
+
+### `playground/rl/dropout_sweep.py`
+
+Runs one deterministic 20 s episode per world in the Warp environment's EVAL stage for each
+setting: dropouts off, then on for our robot, the opponent or both, with the sensing model's
+`dropout_stretch` pinned (gaps x stretch, measured runs / stretch; training draws 0.7 to 2.0).
+Each setting switches dropouts per robot by wrapping `MeasurementModel._advance_dropout`, so it
+ignores whatever the sensing file's dropout `enabled` flag says.
+
+source scripts/activate_python.sh
+python playground/rl/dropout_sweep.py runs/rl_nav/<run>/checkpoint.pt ... \
+--out playground/rl/out/dropout_sweep.json
+
+### `playground/rl/evaluate_nav_policy.py`
+
+`warp` scores a training checkpoint in the Warp environment on the `EVAL` stage with
+`holdout=True`: stage D's opponent mix with the held-out pursuit corner and replay tracks, on the
+nominal plant. With the same `--count` and `--seed` as `lockstep_eval.py export`, each world's
+first episode is the exported scenario of the same index.
+
+`report` puts any mix of Warp results and lockstep result files side by side, overall and per
+opponent behaviour, with the G4 agreement (Warp against lockstep for the same policy) and the
+G5 comparison (the policy against `MotionProfileNavigation`). Its pursuit section splits attack
+episodes against a pursuer by the pursuer's top speed and counts the grid cells beaten (at least
+as many strikes as hits taken, a strike in half the episodes or more). Lockstep rows carry no
+pursuer parameters, so pass the scenario file they ran with `--scenarios`. For the pursuit gate,
+export the pursuit grid with `lockstep_eval.py export --pursuit-grid 4` and score that.
+
+source scripts/activate_python.sh
+python playground/rl/evaluate_nav_policy.py warp runs/rl_nav/<run>/checkpoint.pt \
+--count 128 --seed 2026 --out playground/rl/out/warp_rl.json
+python playground/rl/evaluate_nav_policy.py report playground/rl/out/warp_rl.json \
+playground/rl/out/lockstep_rl.jsonl playground/rl/out/lockstep_motion_profile.jsonl
+
+### `playground/rl/export_checkpoint.py`
+
+The self-test pairs are real observations: the checkpoint's policy is run for a second in the
+`EVAL` environment and 16 of the observations it saw are kept. The exporter checks the RTNeural
+JSON against PyTorch before writing (`auto_battlebot/rl/export/bundle.py`); the C++ side runs the
+same pairs again at startup.
+
+source scripts/activate_python.sh
+python playground/rl/export_checkpoint.py runs/rl_nav/<run>/checkpoint.pt \
+--out data/models/nav_policies/rl_nav_<run>
+
+### `playground/rl/extract_replay_tracks.py`
+
+Reads the filtered opponent poses (`/robot_markers`, THEIR_ROBOT_*) from the NHRL May and MassD
+match replays in `playground/opponent_prediction/out/replays/`, splits them into continuous
+segments (no gap over 0.25 s, at least 3 s long), resamples each to 50 Hz, and stores positions
+as fractions of the recording's field half size so the environment can scale them into any arena.
+
+Two whole recordings (one per venue) are the evaluation set, never trained on: the plan holds out
+20% of the replay tracks (section 6), and holding out recordings rather than segments keeps one
+driver's habits from leaking across the split.
+
+Output: `simulation/opponent_tracks/replay_tracks.npz`.
+
+source scripts/activate_python.sh
+python playground/rl/extract_replay_tracks.py
+
+### `playground/rl/lockstep_eval.py`
+
+- the server appends; a rerun must not stack on old results The binary runs from the record directory, so every path it is handed must be absolute. (at `out.unlink(missing_ok=True)`)
+- Ports are reused by worker slot; a slot runs its jobs one after another. (at `slots: list[list[Job]] = [[] for _ in range(workers)]`)
+
+### `playground/rl/make_rl_golden_fixture.py`
+
+Each case is one world's `ObsInputs` and the 138 floats `build_v1` makes from it in float64.
+`tests/rl_policy/test_observation_v1.cpp` feeds the same inputs to `ObservationBuilderV1` and
+requires agreement to 1e-5. Edge cases first (no target, stale target with unknown sigmas, no
+hazards, our robot against a wall, starting inside a hole, more than four hazards, a tie in edge
+distance), then random worlds.
+
+source scripts/activate_python.sh
+python playground/rl/make_rl_golden_fixture.py
+
+### `playground/rl/make_tiny_test_bundle.py`
+
+A Dense(4, 8, ELU) -> Dense(8, 2) actor with fixed seeded weights and a non-trivial input
+normalization, so the folding is exercised. Its manifest names obs spec version 0, which has no
+C++ builder: the bundle is for the runtime, policy and self-test tests, never for navigation.
+
+source scripts/activate_python.sh
+python playground/rl/make_tiny_test_bundle.py
+
+### `playground/rl/pursuit_map.py`
+
+Every world runs one 20 s attack episode against a pursuer pinned to one grid cell, in the Warp
+environment's `PURSUIT` stage (pursuit only, open arena, nominal plant, sensing on). `sidestep`
+sweeps the scripted controller's settings (`auto_battlebot/rl/sidestep.py`) and keeps the best
+per cell; `policy` scores a training checkpoint, deterministic. `show` prints saved maps side by
+side. A cell counts as beaten when the episodes there land at least as many strikes as hits taken
+and strike in at least half of them.
+
+source scripts/activate_python.sh
+python playground/rl/pursuit_map.py sidestep --out playground/rl/out/pursuit_map_sidestep.json
+python playground/rl/pursuit_map.py policy runs/rl_nav/<run>/checkpoint.pt \
+--out playground/rl/out/pursuit_map_policy.json
+python playground/rl/pursuit_map.py show playground/rl/out/pursuit_map_*.json
+
+- the net score alone a variant that never strikes but is rarely hit wins.
+
+### `playground/rl_toy/summarize_bakeoff.py`
+
+Reads every `runs/rl_toy/<arm>_s<seed>_<stamp>/metrics.jsonl` and reports, per arm, the median
+and range over seeds (never the best run) of: the final evaluation, and the evaluation reached by
+matched budgets of environment steps and wall-clock time, read off each run's periodic
+evaluations (the last evaluation at or under the budget).
+
+source scripts/activate_python.sh
+python playground/rl_toy/summarize_bakeoff.py --steps 25e6 50e6 100e6 --minutes 5 10 15
+
+### `simulation/rl_eval_server.py`
+
+Serves one scenario exported by `WarpNavEnv.export_scenarios` to one C++ client, then writes the
+episode's score as a JSON line and exits. The world is `auto_battlebot.rl.lockstep_world`: the
+Warp environment's arena, opponent behaviours, command chain and scoring on CPU MuJoCo, so the
+real C++ navigation (`RlPolicyNavigation` or `MotionProfileNavigation`) is scored on the same
+episodes, with the same numbers, as the Python evaluation.
+
+Perception is the sensing model at the tick rate, as in `kinematic_sim_server.py`, with one
+measurement slot per robot: ours, the opponent, and the house bot when the scenario has one.
+
+python simulation/rl_eval_server.py --scenarios s.json --index 3 --port 14890 \
+--results results.jsonl --label motion_profile
+

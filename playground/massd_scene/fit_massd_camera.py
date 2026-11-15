@@ -1,32 +1,5 @@
 #!/usr/bin/env python3
-"""Fit the MassDestruction broadcast camera: focal length and pose, from the floor alone.
-
-Nothing about this camera is calibrated. The clip is a YouTube broadcast, so the focal
-length has to come out of the picture with the pose. The floor gives it: the plywood is a
-square seen corner-on, so its two edge families meet at two vanishing points, and a
-principal point at the image centre with square pixels turns their orthogonality into one
-equation for f:
-
-    (u1 - cx)(u2 - cx) + (v1 - cy)(v2 - cy) + f^2 = 0
-
-The vanishing points come from a RANSAC over LSD segments on the floor, which locks onto
-the rails, the painted squares, the pit rim and the plywood seams: every straight line in
-the arena runs along one of the two axes. With f in hand the two axis directions fix the
-plane's orientation, and three floor edges (the two far ones and the near one opposite the
-far-left) fix the rest: their intersections are the far corner and the right corner, and
-the distance between them is the mat size, which sets the range.
-
-The fit is exact by construction, like the NHRL three-line fit: six unknowns, six
-equations, no residual to report. Judge it on `<clip>_overlay.png` and on the sanity
-checks in `poses/summary.csv`.
-
-Scale in: `--mat-size`, the plywood floor edge to edge. 2.26 m is the MassD arena, from an
-8 ft (2.4384 m) wall interior less a 2x4 rail on each side, cross-checked two ways against
-our own metric ZED recording of the same venue (see the report).
-
-Usage:
-    venv/bin/python playground/massd_scene/fit_massd_camera.py runs/massd_scene
-"""
+"""Fit the MassDestruction broadcast camera: focal length and pose, from the floor alone."""
 
 from __future__ import annotations
 
@@ -188,11 +161,7 @@ def build_pose(
     mat_size: float,
     inside_px: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Camera pose in W from the two floor axes, the far corner and the mat size.
-
-    W is the Blender world frame of `auto_battlebot.perception.cage_calibration`: mat
-    centre at the origin, z up, +y the mat axis pointing away from the camera.
-    """
+    """Camera pose in W from the two floor axes, the far corner and the mat size."""
     k = np.array([[focal, 0.0, principal[0]], [0.0, focal, principal[1]], [0.0, 0.0, 1.0]])
     k_inv = np.linalg.inv(k)
     axis_a = k_inv @ np.array([*vp_along, 1.0])
@@ -204,7 +173,7 @@ def build_pose(
 
     corner_ray = k_inv @ np.array([*corner_px, 1.0])
     corner_ray /= np.linalg.norm(corner_ray)
-    if up @ corner_ray > 0:  # up must point back toward the camera
+    if up @ corner_ray > 0:
         up = -up
 
     inside_ray = k_inv @ np.array([*inside_px, 1.0])

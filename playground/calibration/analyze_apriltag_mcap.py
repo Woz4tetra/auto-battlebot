@@ -1,35 +1,4 @@
-"""Solve field-plane robot poses from an apriltag_track.py image recording.
-
-Replays the recorded camera images, re-runs the AprilTag detection (apriltag_detect, the same code
-the live preview used), and solves the (t, x, y, yaw, visible) truth CSV that fit_plant_calib.py
-consumes.
-Two solves, mirroring capture:
-  1. The floor extrinsic from the /floor/image lock burst (board visible).
-  2. The robot tag pose in that floor frame, per /camera/image frame.
-
-Because the images are recorded raw, the floor lock, detector tuning, intrinsics, and yaw offset can
-all be corrected here and re-run without re-driving the robot.
-
-Transmitter data recorded alongside the frames is carried through to the truth CSV as extra columns,
-so
-the commanded input stays aligned with the solved ground-truth pose:
-  - a read-only stick capture (radio connected, no --drive) adds tx_sample_t, ch0..chN, joined per
-    frame by timestamp.
-  - an apriltag_track.py --drive excitation adds the active scripted command (cmd_lin, cmd_ang,
-    trainer_lin, trainer_ang, label), zero-order-held onto each frame time. fit_plant_calib.py fits
-    the plant directly from this single CSV, so no separate command log is needed.
-
-Usage:
-    source scripts/activate_python.sh
-    python playground/calibration/analyze_apriltag_mcap.py \
-        playground/calibration/out/apriltag_track.mcap \
-        --out playground/calibration/out/truth_log.csv
-    # Re-solve with a corrected yaw offset (overrides the value recorded at capture):
-    python playground/calibration/analyze_apriltag_mcap.py rec.mcap \
-        --yaw-offset-deg 90 --plot fit.png
-    # Also emit a Foxglove overlay (camera frames + solved pose markers via TF) to eyeball the fit:
-    python playground/calibration/analyze_apriltag_mcap.py rec.mcap --overlay-mcap overlay.mcap
-"""
+"""Solve field-plane robot poses from an apriltag_track.py image recording."""
 
 from __future__ import annotations
 
@@ -45,8 +14,6 @@ from auto_battlebot.calibration.apriltag import apriltag_mcap as amcap
 
 OVERLAY_DEFAULT = object()
 
-# Upsample factor for robot-tag detection. The tag is ~40 px at 1080p and drops out during fast
-# motion; detecting on a 2x image recovers borderline frames (the floor board is large, solved 1x).
 ROBOT_DETECT_SCALE = 2.0
 
 

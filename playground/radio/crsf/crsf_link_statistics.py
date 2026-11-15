@@ -10,16 +10,16 @@ from bw_shared.radio.crsf.crsf_packet_base import CrsfPacketBase
 @dataclass
 class CrsfLinkStatistics(CrsfPacketBase):
     type: FrameType = FrameType.LINK_STATISTICS
-    up_rssi_ant1: int = 0  # Uplink RSSI Antenna 1 (dBm * -1)
-    up_rssi_ant2: int = 0  # Uplink RSSI Antenna 2 (dBm * -1)
-    up_link_quality: int = 0  # Uplink Package success rate / Link quality (%)
-    up_snr: int = 0  # Uplink SNR (dB)
-    active_antenna: int = 0  # number of currently best antenna
-    rf_profile: int = 0  # enum {4fps = 0 , 50fps, 150fps}
-    up_rf_power: int = 0  # enum {0mW = 0, 10mW, 25mW, 100mW, 500mW, 1000mW, 2000mW, 250mW, 50mW}
-    down_rssi: int = 0  # Downlink RSSI (dBm * -1)
-    down_link_quality: int = 0  # Downlink Package success rate / Link quality (%)
-    down_snr: int = 0  # Downlink SNR (dB)
+    up_rssi_ant1: int = 0
+    up_rssi_ant2: int = 0
+    up_link_quality: int = 0
+    up_snr: int = 0
+    active_antenna: int = 0
+    rf_profile: int = 0
+    up_rf_power: int = 0
+    down_rssi: int = 0
+    down_link_quality: int = 0
+    down_snr: int = 0
 
     @classmethod
     def from_bytes(cls, payload: bytes):

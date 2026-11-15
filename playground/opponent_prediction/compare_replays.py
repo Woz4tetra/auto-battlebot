@@ -1,26 +1,4 @@
-"""Compare HOLD and KALMAN playback replays (plan step 4), and score the filter on match data.
-
-Reads the pairs `run_replays.py` writes to `out/replays/<recording>_<mode>.mcap`.
-
-Per run, from the recording:
-- estimator counters: `num_gated`, `num_reinit`, `num_rewind_missed`, opponent heading flips and
-  heading re-initializations, summed over perception frames
-- identity swaps: consecutive opponent measurements under 0.2 s and 0.15 m apart that carry
-  different `THEIR_ROBOT_*` ids. Association runs on the estimator's predicted position, so this
-  is where the mode can change who is who
-- opponent coverage: share of `/status/tracks` messages with a fresh (not stale) opponent
-- navigation: share of `/diagnostics/motion_profile_nav` messages without our robot
-
-On the KALMAN runs' `THEIR_ROBOT_1` measurement stream, offline through the mirror:
-- the plan's "against later measurements" metric: periodic dropouts withhold measurements and
-  the rendered estimate is scored against them
-- the opponent position sigma that makes the mean position NIS 2 on match data, the cage
-  counterpart of the sysid tuning
-
-Usage:
-    source scripts/activate_python.sh
-    python playground/opponent_prediction/compare_replays.py
-"""
+"""Compare HOLD and KALMAN playback replays (plan step 4), and score the filter on match data."""
 
 from __future__ import annotations
 

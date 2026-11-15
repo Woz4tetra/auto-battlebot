@@ -661,3 +661,308 @@ minimum hold makes every step battery longer than the runbook's first draft assu
 4. Run blocks 0 and 1, then a first pass of block 2, and fit before scheduling the remaining sessions.
    One fit on real data will change some of these procedures, and it is cheaper to find that out after
    one session than after three.
+
+## Notes moved from code comments (2026-11-15)
+
+### `playground/calibration/fit_jig_plant.py`
+
+Input is one or more session directories written by `velocity_jig_drive.py`. Each holds the
+downloaded `LOG-N.TXT` files, a sidecar TOML per log carrying the experiment parameters, and
+a command CSV. Output is a plant parameter TOML, a printed report, and optionally a
+self-contained HTML report.
+
+Runs reach the right fit by the waveform kind, channel and role their sidecar declares, so a
+new excitation needs a catalog entry rather than a change here.
+
+The fit machinery lives in `auto_battlebot/calibration/jig/jig_fit.py`; this file is the
+command line
+over it.
+
+Usage:
+source scripts/activate_python.sh
+python playground/calibration/fit_jig_plant.py \
+playground/calibration/out/2026-08-17-garage \
+--out playground/calibration/out/plant_params.toml \
+--report playground/calibration/out/jig_fit.html
+
+- Train and holdout come from the role each waveform declares, so a holdout stays a holdout even if the same excitation is later reused for fitting. (at `fit_runs = loaded.select(roles=("fit",))`)
+- Imported here so a fit that writes no report never pays for matplotlib. (at `from jig_report import render_report`)
+
+### `playground/calibration/jig_report.py`
+
+Answers two questions the fitted numbers alone do not: which excitation needs more runs, and
+how much more data is worth collecting. Everything is embedded, so the file opens with no
+network and can be copied around on its own.
+
+Sections, in reading order:
+
+0  What to collect next    parameters ranked by confidence, mapped to the waveform that
+constrains them, with a run count to reach the target
+1  Data inventory          per waveform: runs, usable seconds, windows contributed
+2  Run quality             the capture and offline gates, per run
+3  Parameters              stage A estimates with spread and provenance
+4  Evidence                gain scatters, staircases, tau trends, coupling, drift, delay
+5  Convergence             leave-one-run-out influence, and the learning curve
+6  Coverage                what of the input space has actually been visited
+7  Horizon quality         RMSE against the acceptance criteria
+8  Residual diagnostics    what a missing model term would look like
+9  Per run                 measured against predicted, with residuals
+10  Excluded and provenance
+
+Imported by `fit_jig_plant.py --report`. It imports from `auto_battlebot.calibration`, never from a
+CLI.
+
+Spread falls as 1/sqrt(N), so N scales as (rel_now / rel_target)^2. This is an
+estimate from one point on the curve; the learning curve section measures the slope
+instead of assuming it.
+
+- Notices are not problems. They render as their own chip so a clipped accel reads as "look at this" rather than joining the reasons a run was dropped. (at `chips = "".join(chip(p, "bad") for p in problems)`)
+
+A parameter that moves more than its own spread when one run is dropped rests on that
+single run. That is the sharpest possible "collect more of this", and unlike the
+learning curve it costs one short refit per run rather than dozens.
+
+The point is the slope, not any single value. A curve still falling at the right edge
+means more runs will keep helping; one that has flattened means the limit is the
+excitation, not the sample count, and more of the same will not move it.
+
+The scalar lag-1 version answers "is there structure"; the curve answers "how much and
+over what scale". Structure lasting tens of lags is a missing model term, and no amount
+of process-noise tuning covers that honestly.
+
+Built on the same windowing the fit uses rather than a private integrator: a bespoke
+plotting path that disagreed with the fit would be worse than no plot at all. The model
+is reinitialized from truth every `reinit_s`, so a 30 s run stays readable instead of
+diverging in the first second and telling you nothing after it.
+
+- Grey out what the fit ignores, so a run that looks bad because it was excluded is visibly different from one that is bad because the model is wrong. (at `bad = ~run.commanded`)
+
+### `playground/calibration/plot_jig_runs.py`
+
+Made to be re-run between batteries: it walks a session directory and writes `LOG-N.png`
+beside every `LOG-N.TXT` that does not have one yet, so running it again after three more
+runs costs three plots rather than a rebuild of the whole session.
+
+This is the per-run eyeball check, not the fit report. It answers "did the robot do what I
+told it to" before `fit_jig_plant.py --report` answers "does the model explain it".
+
+The commands come from the sidecar's `LOG-N.cmd.csv` and are on the host clock; the log is
+on the jig's own microsecond clock. The sidecar's clock probes are what relate the two, so
+the overlay is only as good as they are, and a run with no sidecar still gets a plot with
+the command panels left out rather than being skipped.
+
+Usage:
+source scripts/activate_python.sh
+
+# newest session under playground/calibration/out
+python playground/calibration/plot_jig_runs.py
+
+# a specific session, in physical units, redrawing everything
+python playground/calibration/plot_jig_runs.py \
+playground/calibration/out/2026-08-19 \
+--calibration playground/calibration/out/jig_calibration.toml --force
+
+- Encoder counts are quantized, so a raw difference is mostly quantization noise. 50 ms of smoothing is well under the ~60 ms plant time constant, so it does not round off the rise. (at `SMOOTH_S = 0.05`)
+- Bias removed using the opening hold only. The fit ramps it between the two holds; here a constant is enough, and using both would hide a drift worth seeing on the plot. (at `return np.degrees((log.gyro - st.bias) @ st.up)`)
+- Accel clipping is marked, not shaded. Shading says "the fit skips this"; the fit does not skip it, because nothing in the plant model reads acceleration. This is a "look here". (at `ACCEL_CLIP_COLOUR = "#c2185b"`)
+
+Four kinds, and they are excluded for different reasons worth telling apart:
+
+- **still hold**: real data, but it is where the gyro bias and the noise floor come from,
+not something the fit windows over.
+- **operator pause**: the run was stopped and the robot carried back to its mark. Every
+sample here is the operator's hands, which is why the gates skip it too: setting the
+robot down clips the accelerometer without a wall ever being involved.
+- **not commanded**: outside the command log there is no input, so the model would be
+asked to predict motion from nothing. The fit keeps two seconds of coast past the last
+command, since the runner zeroes and disarms on exit, and drops the rest. That is why
+the gap between the opening hold and the first command is dead time: the cable was out.
+- **gyro saturated**: a yaw axis is at full scale, so its true value is unknown and every
+heading integrated past it is wrong.
+
+Accel clipping is deliberately not here. It is marked on the accel panel instead, because
+the fit does not exclude it: no part of the plant model reads acceleration.
+
+- Clipping inside a pause is the robot being set down, and that stretch is already shaded as a pause. Only clipping in the robot's own data earns the saturation colour. (at `sat, _ = saturated_mask(log, pauses, clock, sensors="g")`)
+- Everything goes onto the host clock, because that is the one the commands are on. With no sidecar this is the identity and the axis is jig seconds; the title says so. (at `t = clock.host_seconds(log.t)`)
+- Only worth saying when nothing is already correcting for it. Once the run records an invert flag the opposed channels are expected, and repeating the warning sends the reader off to re-run --check-radio for a setting that is already right. (at `inverted = bool(record.provenance.get("read_invert_a")) or bool(`)
+- Twin axis, not a shared one: the two are different units, and scaling the command onto the measurement would mean picking a gain, which is the fit's job. The zeros are aligned afterwards so the shared horizontal line means zero for both, and the axis still carries no implied gain. (at `twin = ax.twinx()`)
+- Marked, not shaded, and only on this panel. Where it lands on the time axis is the whole point: a clip between the first and last command is something that hit the robot, a clip outside them is the operator picking it up to reach the USB cable. (at `clip, clip_axes = saturated_mask(`)
+- A clip is a couple of milliseconds wide, which is invisible on a two-minute axis. The span carries the position and a caret at the top carries the visibility. (at `marks = spans(clip, t)`)
+- Net rotation over the commanded stretch only. Whatever happened while the operator was carrying the robot around is not the robot's response to a command. (at `end = int(np.searchsorted(t, float(record.cmd_t[-1] - record.cmd_t[0])`)
+- Only the gyro reaches the title. Accel clipping stays on its own panel, where the time axis says whether it was the robot or the operator. (at `_, gyro_axes = saturated_mask(`)
+
+On a tank robot both channels go the same way for a straight command, so a persistent
+anti-correlation means one channel is reversed somewhere between here and the wheels.
+
+The tool only samples while a program is playing, so a trace drawn from its own first
+sample jumps straight to the first commanded value and reads as though the robot was
+already being driven. Nothing was commanded before the program, so a zero anchor is the
+honest shape. The anchors sit one lead just outside the sampled window rather than at the
+plot edges, which would claim coverage of time nobody measured.
+
+`sensors` picks which halves to look at: `"g"` for the gyro, `"a"` for the accel, `"ga"`
+for both. They are asked for separately because they mean different things. A railed gyro
+axis is a hole in the measurement the fit depends on, so it shades as excluded. A clipped
+accel axis is an event nothing in the model reads, so it only gets marked.
+
+Samples inside an operator pause are not the robot's data at all, so they neither shade
+nor name an axis.
+
+Trapezoid rather than a rectangle sum: at 1 kHz the difference is small, but a rate that
+swings hundreds of degrees per second inside a few samples is exactly where a rectangle
+sum biases, and those transients are most of the rotation in a driven run.
+
+Matplotlib scales a twin axis independently, so the twin's zero lands wherever it likes
+relative to the measurement's. That reads as the robot moving while nothing is commanded,
+or the reverse, which is exactly the thing these panels exist to rule out.
+
+The primary keeps its own range; the twin is stretched so zero sits at the same fraction
+of the height. One horizontal line is then zero for both traces.
+
+`span` covers +/- that much, which is right for a command in [-1, 1]. Pass `lo`/`hi`
+instead for a one-sided signal like heading or distance: covering +/-max would waste most
+of the axis on a half the data never visits.
+
+Returns whether the zeros ended up aligned. They will not be when doing so would squash
+the twin past `max_stretch` times its own range, and the caller should then mark the
+twin's zero itself.
+
+- One-sided data pushes zero to an edge, and a twin stretched to match would squash the command into a sliver. Pad the measurement's axis instead: some empty space there costs nothing, while an unreadable command trace costs the whole panel. (at `keep = 0.15`)
+- Two signals of opposite sign cannot both fill the panel with their zeros at the same height: an all-positive distance and an all-negative heading force one down to a sliver. Past a point a squashed trace costs more than the shared zero line buys, so give up the alignment and say so by returning False. (at `natural = max(want_hi - want_lo, 1e-9)`)
+
+`RunRecord` prefers the radio's readback for fitting, since that is what the robot
+received. For a plot the intent matters too, so pull the requested columns back out when
+they exist. A hand-driven run has no intent to show, so the readback is the intent.
+
+### `playground/calibration/rederive_sidecars.py`
+
+A sidecar records what the gates decided at the bench, and the gates change. Two of them
+changed on 2026-08-20: operator pauses are now cut out before anything is counted, and the
+radio's channel B is now known to come back negated. Both of those turned a discard into a
+pass without a single sample of the recording being different, and the only honest way to
+carry that forward is to run the current gates over the runs that are already captured.
+
+What this rewrites, per run:
+
+- `[[pause]]` gains the host window it always described. Sidecars written before the runner
+recorded it carry only the program time and the seconds held, so the window comes back
+from the gap it left in the command stream.
+- `meas_linear`/`meas_angular` in the command CSV, re-derived from `meas_ch_a`/`meas_ch_b`
+through the corrected mix. The channels are the measurement and are left alone; those two
+columns were only ever an interpretation of them.
+- `contamination`, `gates` and `verdict`, recomputed from the above.
+
+An operator's own judgement is never overwritten. A run whose gate note starts with
+`operator:`, or whose notes say to discard it, keeps its verdict no matter what the gates
+now say: the tool cannot see the wall the robot hit.
+
+./rederive_sidecars.py out/2026-08-20            # show what would change
+./rederive_sidecars.py out/2026-08-20 --write    # apply it
+
+The header is reissued from the current preamble rather than preserved, because a file
+written before a column existed carries a `# columns:` line that no longer describes its
+own rows. Channels the older run never recorded come back as nan, which is the truth.
+
+- Recomputed from the probes rather than carried over. The stored value is only as good as the version of `skew_ppm` that wrote it, and the pre-2026-08-23 one divided across a reboot: LOG-119 carried -1048410 ppm, which nothing should ever apply. (at `if clock_pre is not None and clock_post is not None:`)
+
+### `playground/calibration/velocity_jig_drive.py`
+
+Replaces the browser tool at `firmware/velocity_jig/web_tool`. One run produces a triple in
+the output directory: the downloaded log, a sidecar TOML holding the experiment parameters,
+and a CSV of the command timeline.
+
+source scripts/activate_python.sh
+
+# inspect without hardware
+python playground/calibration/velocity_jig_drive.py --list-waveforms
+python playground/calibration/velocity_jig_drive.py --waveform lin_step_full --dry-run
+
+# record; --out defaults to out/<date>-<name>
+python playground/calibration/velocity_jig_drive.py \
+--waveform lin_step_full --waveform lin_coast \
+--name "garage floor sweep"
+
+Two USB serial devices are open at once: the jig (`/dev/ttyACM*`) and the OpenTX radio
+(0483:5740). `--list-ports` shows every candidate with its ids.
+
+PAUSES. A piecewise waveform stops between cells and waits for Enter, so the robot can be
+put back on its mark before the next one. The program clock stops with it and the sidecar
+records each window. `--no-pause` plays straight through.
+
+ONE CLOCK. Command timestamps and clock probes both come from `time.monotonic()` in this
+process. Splitting them across processes reintroduces exactly the offset the `TIME` probe
+exists to remove, and the transport delay fitted afterwards would be that offset plus the
+real delay with no way to tell them apart.
+
+SAFETY. Trainer mode ADDS to the human driver's sticks, so a run is only as safe as the
+person holding the radio. The channels are zeroed and the link disarmed on every exit path:
+normal return, Ctrl-C, exception, and a hard wall-clock timeout. Verify that once per
+session with a deliberate Ctrl-C before trusting it for the rest of the day.
+
+Session files are committed, so an absolute path in one goes stale the moment the tree is
+cloned somewhere else.
+
+- Long enough to bound the gyro bias estimate, short enough that an operator will actually stand still for it. The fit needs two of these per run to bracket the bias drift. (at `DEFAULT_HOLD_S = 5.0`)
+- Long enough for the robot to stop from full command once the excitation ends. The piecewise waveforms give themselves 4 s through a trailing coast cell, and that is many decel constants, so match it rather than invent a second number. (at `SETTLE_COAST_S = 4.0`)
+- How long the command must have been zero at the end of a program for the robot to be at rest when it returns. Many decel constants, so what follows is a stopped robot and not a slow one. (at `REST_TAIL_S = 1.0`)
+
+`index` is 1-based, matching what `play` hands to `on_pause`.
+
+Empty for a continuous program. A chirp, sine, triangle or PRBS has `segments = None`
+because it has no cell structure to slice by, and it never pauses either, so the only
+caller that reaches it is the arm-time preview. `describe` covers that case.
+
+Sampled from `at`, which is the authority for what actually gets sent, rather than read
+off the catalog amplitude. A capped or clipped waveform would otherwise be described by
+the number it asked for instead of the one the robot receives.
+
+- Longest "about to send" list printed in full. A staircase has no rest between rungs, so its first cell is the whole ladder: 60 lines that bury the prompt underneath them and tell the operator nothing the summary does not. (at `PREVIEW_LINES = 4`)
+
+Prints the cell about to play before waiting. Knowing that the next command is -0.4 and
+not +0.6 is what tells the operator which way to aim the robot, and how much floor it
+needs, while there is still time to do something about it.
+
+Lateral excursion matters as much as forward span. With a non-zero drift term a straight
+run arcs, and a 3 m step that fits the length of the board can still leave it sideways.
+
+- Where the operator stopped the run to reset the robot's position. The segment times above already carry these, so a reader that ignores pauses still labels the run correctly. `t_start`/`t_end` are host seconds, the same clock the command log and the still holds use: the robot was handled inside each window, so the gates, the saturation count and the commanded-seconds total all skip them. (at `for p in pauses:`)
+
+One directory per day per name. Re-running the same name on the same day appends to it,
+which is what you want: a session is the leave-one-out unit for the fit, and one battery
+on one floor is one session whether it took one invocation or five.
+
+`fatal` is the difference between "this run's data is unusable" and "something went
+wrong at the bench that you want to fix before the next run". Conflating the two throws
+away complete recordings: a jig that reboots after the post-hold loses the skew
+correction and the dropped-sample count, neither of which is a defect in the samples it
+already wrote.
+
+- The reasons go in the sidecar too. A verdict with no reason means working out months later whether a run was thrown away for a real fault or a since-fixed tool bug. The warnings go beside them: a run can be worth keeping and still be worth fixing. (at `gate_note = "; ".join(problems)`)
+
+Cheap enough at 1 kHz that it is not worth deferring: knowing at the robot beats finding
+out a week later when the fit excludes the run.
+
+Accel clipping is a warning here, not a gate. It was a gate until 2026-08-22, when it
+turned out to be discarding runs for the run card rather than for the data: every run
+ends with the operator picking the robot up to plug the USB cable back in, and that
+clips the accel outside the pause mask. Nothing in the plant model reads acceleration
+anyway, so the clip is worth seeing and never worth discarding a recording over.
+
+- Whether the run survived is a question about the samples, not about how tidily the session ended. A recording cut short by a reset, a card that stopped taking writes, or a battery that browned out all look the same here: the log stops before the second still hold, or it has holes in the middle. (at `step = np.diff(log.t)`)
+- Setting the robot back on its mark clips the accel, so the operator's pauses come out before anything is counted. What is left is the robot's own data. (at `keep = ~pause_mask(clock.host_seconds(log.t), pauses)`)
+- log parsed and live in `RunQuality.problems()`, not here.
+- The jig counts microseconds since its own boot, so a post-probe below the pre-probe is a board that restarted rather than a clock that drifted. Reporting the ppm here would be arithmetic on a counter that went backwards. Replugging the USB cable did this on LOG-62, and the recording ended with it.  Not fatal on its own. What the reboot costs is the skew correction, worth about 0.9 ms per 30 s at the RP2040's 30 ppm and measured at 2.77 ppm on this board, and the dropped-sample count, which the log's own timestamps show anyway. Whether the reset truncated the run is a separate question, and `log_gates` answers it from the samples instead of assuming the worst. (at `out.append(`)
+- Readback wiring, from --check-radio. These affect only how the radio's own report is interpreted, never what gets sent, so a wrong value costs a false contamination flag rather than a wrong command. (at `parser.add_argument("--read-linear", type=int, default=0)`)
+
+Run this with the ROBOT POWERED OFF. The radio's mixer responds to trainer input whether
+or not anything is listening downstream, so nothing has to move for this to work.
+
+Sends five known commands and regresses every returned channel against them. That
+recovers which channel carries what, its sign, and its scale. A radio with servo-reverse
+set on one drive channel reports it negated while the ESC compensates, so the robot
+drives correctly and only the readback disagrees. Left unfound, that shows up as a
+contamination gate firing on runs that were fine.
+
+- How the radio's channels were read. Recorded because meas_linear/meas_angular are these settings applied to the raw channels, so reinterpreting a run later needs to know which settings produced them. (at `"mix": mix.mode,`)
+

@@ -1,11 +1,4 @@
-"""Policy steps per second of the Warp environment at 2,048, 4,096 and 8,192 worlds (plan step 4).
-
-Random actions, stages A (no sensing) and D (sensing, full scene), 60 timed steps after 10 warm-up
-steps. Run on an idle GPU: a training job on the same card halves the numbers.
-
-    source scripts/activate_python.sh
-    python playground/rl/bench_warp_env.py
-"""
+"""Policy steps per second of the Warp environment at 2,048, 4,096 and 8,192 worlds."""
 
 from __future__ import annotations
 

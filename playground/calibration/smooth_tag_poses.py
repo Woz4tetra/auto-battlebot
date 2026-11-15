@@ -395,7 +395,6 @@ def main(argv: list[str] | None = None) -> Path:
     )
     meas = result.measurements.assign(source="tag")
     if result.yolo_fixes is not None:
-        # Position and heading only; the 2D keypoints carry no height or tilt.
         fixes = result.yolo_fixes.assign(
             tag_id=-1,
             z=np.nan,
@@ -408,8 +407,6 @@ def main(argv: list[str] | None = None) -> Path:
         )
         meas = pd.concat([meas, fixes[MEASUREMENT_COLUMNS]], ignore_index=True)
         meas = meas.sort_values("stamp_ns", kind="stable").reset_index(drop=True)
-    # The video frames YOLO filled in count as camera frames for window coverage, so a dropout the
-    # fixes cover reads as covered and a rejected fix still counts against it.
     frame_stamps = result.frame_stamps_ns
     if result.yolo_fixes is not None:
         frame_stamps = np.union1d(frame_stamps, result.yolo_fixes["stamp_ns"].to_numpy(np.int64))

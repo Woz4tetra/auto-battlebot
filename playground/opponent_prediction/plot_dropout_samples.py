@@ -1,27 +1,4 @@
-"""Plot the opponent filter coasting through 0.2 s, 1 s and 3 s dropouts.
-
-Two sources:
-
-- `sysid`: the Mr Stabs Mk2 sysid sessions, scored against AprilTag truth
-  (`auto_battlebot/perception/sysid_sessions.py`).
-- `replay`: an MCAP from a playback replay, which logs every opponent measurement the C++
-  estimator received (`kalman_motion_estimator` diagnostics, `opponent_measurement_<id>`). There is
-  no truth there, so the withheld measurements stand in for it: the dropout is scored against what
-  the camera saw while the filter was not allowed to.
-
-For each source and gap length the script picks samples spread across the recording where the
-robot is moving, withholds every measurement in the gap, and runs three arms over the same
-stream: the 6-state filter (`phase1`), the previous 4-state arm (`kalman4`), and HOLD. Each sample
-gets a figure: the top-down path, position error against time into the gap with the filter's own
-2-sigma, heading, and yaw rate. A summary figure per source gives the median error against time
-into the gap over every periodic gap in the recording.
-
-Usage:
-    source scripts/activate_python.sh
-    python playground/opponent_prediction/plot_dropout_samples.py sysid
-    python playground/opponent_prediction/plot_dropout_samples.py replay out/replays/<name>.mcap
-Figures go under playground/opponent_prediction/out/samples/.
-"""
+"""Plot the opponent filter coasting through 0.2 s, 1 s and 3 s dropouts."""
 
 from __future__ import annotations
 
@@ -68,7 +45,6 @@ def replay_session(mcap: Path, frame_id: str = "THEIR_ROBOT_1") -> SessionData:
     key = f"opponent_measurement_{frame_id}"
     for _topic, _log_ns, data in iter_messages(mcap, ["/diagnostics/kalman_motion_estimator"]):
         entry = _find(decode_json(data), key)
-        # The diagnostics re-send a channel's last value with held = true; only fresh ones count.
         if entry is not None and not entry.get("held", False):
             rows.append(entry["values"])
     if not rows:
@@ -260,7 +236,6 @@ def plot_sample(data: SessionData, start_ns: int, gap_s: float, path: Path) -> d
         ax.set_xlim((show[0] - start_ns) / 1e9, (show[1] - start_ns) / 1e9)
         ax.set_xlabel("time from dropout start (s)")
         ax.grid(alpha=0.3)
-    # Frame the path, not the rings: past the coast horizon the 2-sigma reaches metres.
     px = np.concatenate([tr["x"][tr["valid"]], data.meas_x[shown]])
     py = np.concatenate([tr["y"][tr["valid"]], data.meas_y[shown]])
     cx, cy = 0.5 * (px.min() + px.max()), 0.5 * (py.min() + py.max())

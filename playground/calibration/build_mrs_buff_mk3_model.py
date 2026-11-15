@@ -1,35 +1,4 @@
-"""Build the Mrs Buff Mk3 model: mass properties, collision pieces, and the MJCF.
-
-Writes, under simulation/assets/robots/mrs_buff_mk3/:
-    mass_properties.toml       lumped bodies, wheel geometry, drivetrain, weapon sweep
-    collision/hull_*.obj       convex pieces of the chassis structure, body frame
-    collision/disk_*.obj       convex pieces of the weapon disk, body frame
-    collision/collision.toml   piece list
-    mrs_buff_mk3.xml           the model at the nominal PlantParams
-
-The body frame is FLU at the footprint centre, at axle height: 15.75 mm ahead of the midpoint
-between the axles. The Onshape assembly has +X to the robot's left and -Y forward, so
-x = -Y_asm, y = +X_asm, z = +Z_asm, the same rotation as Mr Stabs Mk2's export.
-
-Mass properties come from Onshape's Mass and section properties panel, not the URDF: the URDF
-export sums to 708 g against the assembly's 1,332 g, because the ESCs, batteries, wheel cores and
-weapon motor export at zero mass and the drive motors are not in it at all. The panel reports the
-inertia tensor about the reference mate connector's origin, not about the COM, so each tensor is
-shifted to its COM here (parallel axis). The wheel was measured against a connector on its own
-axle, which keeps that shift small; the screenshots are in onshape_export/.
-
-The weapon does not spin in this model: the disk and its rotating parts are lumped into the
-chassis, and its CoACD pieces collide as chassis geometry. Its sweep (the cylinder the disk fills
-when spinning) is recorded for the strike reward.
-
-The drive motors (Blitz Pro 24 mm, 650 KV, 5.2:1) turn the back wheels; 120XL belts turn the front
-wheels 1:1. No rotor inertia is published for the 2306 motor: 3.0e-6 kg m^2 is Mr Stabs Mk2's
-CAD-integrated 1806 rotor (9.3e-7) scaled by bell mass and radius, and the fit's armature scale
-absorbs the error.
-
-    python playground/calibration/build_mrs_buff_mk3_model.py            # reuse collision pieces
-    python playground/calibration/build_mrs_buff_mk3_model.py --split    # rerun CoACD
-"""
+"""Build the Mrs Buff Mk3 model: mass properties, collision pieces, and the MJCF."""
 
 from __future__ import annotations
 
@@ -70,7 +39,6 @@ TREAD_LINKS = tuple(f"mbmk3_integrated_pulley_wheel_tread{s}" for s in ("", "_1"
 COACD_THRESHOLD = 0.05
 COACD_MAX_PIECES = {"hull": 24, "disk": 6}
 
-# Assembly -> body. The footprint centre sits at Y_asm = 80.29 mm, at the axle height Z_asm = -30.5.
 R_BODY_ASM = np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
 ORIGIN_ASM_M = np.array([0.0, 0.08029, -0.0305])
 
@@ -91,28 +59,21 @@ def _about_com(mass: float, com_mm: list[float], tensor_kg_mm2: list[list[float]
     return MassBody(mass, com, tensor - _shift(mass, com))
 
 
-# Onshape panel readings against the footprint-centre connector (x forward, y left, z up).
-# Screenshot 2026-10-25 10:24: the whole assembly.
 FULL = _about_com(
     1.332,
     [11.515, -0.228, 9.067],
     [[4566.754, -28.422, -752.176], [-28.422, 5043.084, -2.353], [-752.176, -2.353, 8475.613]],
 )
-# Screenshot 2026-10-25 10:23: the disk and every part that turns with it.
 WEAPON = _about_com(
     0.249,
     [80.292, 0.152, 30.5],
     [[307.865, -3.025, -570.038], [-3.025, 1973.767, -1.149], [-570.038, -1.149, 1684.82]],
 )
-# Screenshot 2026-10-25 10:35: one wheel (tread, core, hub plate, clamp hub, two M3 screws)
-# against a connector on its axle, z along the axle; the four wheels are identical. The front
-# wheels' 6 mm shoulder screws are axles that do not turn, so they stay in the chassis.
 WHEEL_MASS = 0.023
 WHEEL_CONNECTOR_COM_MM = np.array([-0.082, -0.028, -14.009])
 WHEEL_CONNECTOR_TENSOR = np.array(
     [[8.466, 0.003, -0.006], [0.003, 8.373, -0.002], [-0.006, -0.002, 5.793]]
 )
-# A wheel COM in the footprint frame (screenshot 2026-10-25 10:21, back right wheel, same parts).
 WHEEL_COM_BACK_RIGHT_MM = np.array([-71.918, -97.009, 0.028])
 
 
@@ -244,7 +205,7 @@ def main() -> None:
     geo = geometry(assembly)
     sweep = weapon_sweep(assembly)
     wheels = wheel_bodies(geo["axle_x_m"], geo["follower_axle_x_m"])
-    chassis = subtract(FULL, list(wheels.values()))  # the weapon stays in: it does not spin
+    chassis = subtract(FULL, list(wheels.values()))
     print(f"geometry {geo}")
     print(f"weapon sweep {sweep}")
     print(

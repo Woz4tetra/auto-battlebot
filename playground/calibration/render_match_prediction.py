@@ -1,22 +1,4 @@
-"""Render open-loop prediction videos against the measured match track.
-
-For each joined recording, the plant model integrates forward from the measured
-pose for a fixed horizon (default 3 s), then resets to the measurement and goes
-again. The video shows where the model walks off and how fast: measured robot
-in blue, predicted ghost in orange, error readout in the corner.
-
-Prediction only runs while the auto switch was up (in manual segments the
-logged channels did not drive the robot, so there is nothing to predict from)
-and resets wait for a frame with a measured pose.
-
-Usage:
-    source scripts/activate_python.sh
-    python playground/calibration/render_match_prediction.py \\
-        --pair <replay>.mcap:<original>.mcap:2026-05-01_17-42-20 \\
-        --params playground/calibration/out/plant_match.toml \\
-        --cmd-lead-ms 40 \\
-        --out-dir playground/calibration/out/match_fit/videos
-"""
+"""Render open-loop prediction videos against the measured match track."""
 
 from __future__ import annotations
 

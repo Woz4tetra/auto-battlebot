@@ -1,11 +1,4 @@
-"""Mr Stabs Mk2 rigid-body plant (auto_battlebot.mujoco_sim.closed_loop) behind the sim's
-plant interface.
-
-Walls and wall blocks are real contact geometry here, so the arena is not shrunk by the robot
-radius the way the kinematic clamp shrinks it. Holes stay a centre-crosses-the-lip test, and
-once the robot falls in it stops stepping. The hit counters count ticks with any contact, which
-matches the kinematic plant's one-hit-per-tick behaviour while it pushes into a wall.
-"""
+"""Mr Stabs Mk2 rigid-body plant (auto_battlebot.mujoco_sim.closed_loop) behind the sim's"""
 
 from __future__ import annotations
 
@@ -32,15 +25,11 @@ from plants.base import HazardMonitor, Pose, footprint_center
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# Points around a cylinder rim or a sphere for the footprint hull; 1.3 mm of chord error on the
-# 0.168 m opponent cylinder.
 FOOTPRINT_SEGMENTS = 32
 
 
 def _geom_points(model: mujoco.MjModel, geom: int) -> np.ndarray | None:
-    """Points in the geom's own frame whose convex hull is the shape, or None for a type the
-    model does not use. A sphere gets three orthogonal great circles, close enough for the skid's
-    1.5 mm radius."""
+    """Points in the geom's own frame whose convex hull is the shape, or None for a type the"""
     kind = model.geom_type[geom]
     size = np.asarray(model.geom_size[geom], dtype=float)
     theta = np.linspace(0.0, 2.0 * math.pi, FOOTPRINT_SEGMENTS, endpoint=False)
@@ -213,7 +202,6 @@ class MujocoPlant:
         self._sim.set_moving_blocks([(x, y, yaw) for x, y, yaw, _ in blocks])
 
     def _on_substep(self, x: float, y: float) -> bool:
-        # Clearance and fall-in from the footprint centre, not the axle the pose tracks.
         yaw = self._sim.pose()[2]
         self._hazards.record(*footprint_center((x, y, yaw), self._footprint_center_offset))
         return self._hazards.fell_in

@@ -1,14 +1,4 @@
-"""Export a training checkpoint as a model bundle for `RlPolicyNavigation` (plan step 8).
-
-The self-test pairs are real observations: the checkpoint's policy is run for a second in the
-`EVAL` environment and 16 of the observations it saw are kept. The exporter checks the RTNeural
-JSON against PyTorch before writing (`auto_battlebot/rl/export/bundle.py`); the C++ side runs the
-same pairs again at startup.
-
-    source scripts/activate_python.sh
-    python playground/rl/export_checkpoint.py runs/rl_nav/<run>/checkpoint.pt \\
-        --out data/models/nav_policies/rl_nav_<run>
-"""
+"""Export a training checkpoint as a model bundle for `RlPolicyNavigation` (plan step 8)."""
 
 from __future__ import annotations
 

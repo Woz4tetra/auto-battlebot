@@ -1,34 +1,5 @@
 #!/usr/bin/env python3
-"""Prove the cached depth belongs to the frame the labels describe.
-
-`cache_gt_depth.py` reaches each wanted frame with `set_svo_position`. Seeking an SVO can smear
-the decode, and a smeared seek is silent: the depth still arrives, still has the right shape, and
-is simply the wrong frame. Every conclusion drawn from a depth gate would then be measuring
-noise against labels that describe a different moment.
-
-The check re-seeks the same indices and pulls the LEFT image instead of depth, then compares it to
-the ground-truth PNG that carries the same stamp.
-
-The comparison is relative, not absolute. The pipeline's PNGs are rectified and colour-processed
-differently from a raw SVO retrieve, and desktop playback frames are affine-warped a few percent
-against live Jetson frames, so even a perfectly matched pair has a mean absolute difference in the
-teens. An absolute threshold cannot tell that apart from a wrong frame.
-
-What can: sweep the neighbouring indices too. Whatever constant penalty rectification adds applies
-to all of them equally, so if the seek lands where it claims, the claimed index is the argmin and
-its neighbours are worse. A smeared or off-by-N seek puts the argmin somewhere else. The reported
-number is the fraction of sampled frames whose best offset is 0, plus the margin between the
-claimed index and its best neighbour.
-
-The comparison is restricted to the ground-truth boxes, dilated. Over a whole frame the arena,
-walls and crowd are identical from one index to the next and swamp the only thing that moved; the
-robot is a few percent of the pixels. Inside its own box it is most of them, which is what makes a
-one-frame offset visible at all.
-
-Usage:
-    python playground/check_depth_cache_alignment.py training/data/nhrl_keypoints_eval_test \
-        --svo-roots data/svo -o training/data/eval_results/depth_cache_alignment.json
-"""
+"""Prove the cached depth belongs to the frame the labels describe."""
 
 from __future__ import annotations
 
@@ -48,8 +19,6 @@ DEFAULT_ARGMIN_PASS = 0.8
 # Indices either side of the claimed one to sweep.
 DEFAULT_SWEEP = 3
 
-# Pixels of slack around each GT box, so a robot that moved slightly still falls inside the window
-# being compared rather than half outside it.
 BOX_PAD_PX = 20
 
 
@@ -142,10 +111,6 @@ def compare(
     if not at_claimed:
         return {"error": "no comparable frames"}
 
-    # Per-frame argmin is a weak matcher: when a robot barely moves between adjacent indices, the
-    # winner among neighbours is decided by noise. Averaging the curve over every sampled frame is
-    # the statistic that actually separates a good seek from a bad one. A correct seek gives a
-    # V centred on 0; a broken one gives a flat curve, because then no index is special.
     curve = {
         offset: round(float(np.mean(values)), 2)
         for offset, values in sorted(by_offset.items())
@@ -159,8 +124,6 @@ def compare(
         "offset_histogram": {str(o): best_offsets.count(o) for o in sorted(set(best_offsets))},
         "mad_curve": {str(k): v for k, v in curve.items()},
         "curve_argmin": min(curve, key=lambda k: curve[k]),
-        # How much better the claimed index is than the distant ones. A flat curve means the seek
-        # carries no frame-specific information and the cache cannot be trusted.
         "curve_depth": round(float(np.mean(far)) - curve[0], 2) if far else None,
         "mad_at_claimed_mean": round(float(np.mean(at_claimed)), 2),
         "margin_over_best_neighbour_mean": round(float(np.mean(margins)), 2),
@@ -187,9 +150,6 @@ def main() -> int:
             continue
         result = compare(svo, wanted, subdataset, args.limit, args.sweep)
         if "curve_argmin" in result:
-            # +-1 counts as aligned: SVO image stamps sit about half a frame before the pipeline
-            # stamps that name the GT images, so the true minimum lies between two indices and
-            # which side wins is arbitrary. A cache off by more than that is not usable.
             aligned = abs(result["curve_argmin"]) <= 1 and (result["curve_depth"] or 0) > 0
             result["verdict"] = "aligned" if aligned else "SUSPECT"
         report[subdataset.name] = result

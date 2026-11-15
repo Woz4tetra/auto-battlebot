@@ -1,28 +1,4 @@
-"""Score the opponent filter against AprilTag ground truth on the Mr Stabs Mk2 sysid sessions.
-
-The filter is `auto_battlebot.perception.opponent_filter`, the parity-tested mirror of the C++
-opponent arm. Each session replays the way the app runs: a measurement arrives `LATENCY_S` after
-its shutter, coast() runs every `TICK_S` on the control clock, and the estimate is rendered at
-now + `LEAD_S`. Every rendered estimate is scored against the tag truth at its render time. See
-`auto_battlebot/perception/sysid_sessions.py` for where the measurements and the truth come from.
-
-Arms:
-- `hold`: the estimate is the last measurement (today's production `opponent_mode = HOLD`).
-- `kalman4`: the previous 4-state KALMAN arm: position filter only, past `max_coast_s` the
-  covariance freezes with the state, and heading is the last measured rotation, or the velocity
-  direction while stale and faster than 0.3 m/s.
-- `phase1`: the 6-state filter this plan adds.
-
-Dropout scenarios withhold every measurement inside periodic gaps, on top of the natural gaps
-YOLO already has. Errors are split by time since the last measurement arrived (0 means it arrived
-this tick) and by motion class.
-
-Usage:
-    source scripts/activate_python.sh
-    python playground/opponent_prediction/evaluate_opponent_prediction.py grid    # tune on train
-    python playground/opponent_prediction/evaluate_opponent_prediction.py report  # score both
-Output goes under playground/opponent_prediction/out/.
-"""
+"""Score the opponent filter against AprilTag ground truth on the Mr Stabs Mk2 sysid sessions."""
 
 from __future__ import annotations
 
@@ -82,16 +58,10 @@ def opponent_max_coast_s() -> float:
 
 
 class LegacyOpponentFilter(OpponentFilter):
-    """The 4-state arm the plan replaces, built on the mirror so gating and rewind are shared.
-
-    Its translation block is identical to the 6-state filter's. Two things differ: past the coast
-    horizon it froze the covariance with the state (identity transition), and it rendered the
-    last measured rotation, or the velocity direction while stale and fast.
-    """
+    """The 4-state arm the plan replaces, built on the mirror so gating and rewind are shared."""
 
     def __init__(self, batch: int, config: OpponentFilterConfig) -> None:
         super().__init__(batch, config)
-        # It coasted opponents to the horizon it shared with our robot.
         self.opponent_max_coast_s = torch.full((batch,), max_coast_s(), dtype=torch.float64)
 
     def _advance(self, target: torch.Tensor, mask: torch.Tensor) -> None:
@@ -113,7 +83,7 @@ class LegacyOpponentFilter(OpponentFilter):
         q[:, PX, VX] = q[:, VX, PX] = qa * dt**2 / 2.0
         q[:, PY, VY] = q[:, VY, PY] = qa * dt**2 / 2.0
         q[:, VX, VX] = q[:, VY, VY] = qa * dt
-        q[:, THETA, THETA] = MAX_HEADING_VARIANCE  # heading unused; keep it inert
+        q[:, THETA, THETA] = MAX_HEADING_VARIANCE
         x = torch.einsum("bij,bj->bi", f, self.x)
         p = f @ self.p @ f.transpose(1, 2) + q
         p = (p + p.transpose(1, 2)) * 0.5
@@ -376,13 +346,7 @@ TUNE_PERIOD_S = 3.0
 
 
 def objective(s: dict) -> float:
-    """Lower is better.
-
-    Median and p90 position error fresh and at 0.35 s, normalized by 20 / 80 mm and
-    100 / 400 mm; median heading error normalized by 0.1 and 0.3 rad; the 2-sigma coverage miss on
-    position and heading, 0.05 of miss per unit; and the share of measurements the gate rejected,
-    1% per unit. A rejected measurement on a clean sysid stream is lost track, not an outlier.
-    """
+    """Lower is better."""
     fresh = s["by_gap"]["0"]
     late = s["by_gap"]["0.35"]
     every = s["all"]

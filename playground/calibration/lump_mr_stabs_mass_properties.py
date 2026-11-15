@@ -25,10 +25,6 @@ from auto_battlebot.mujoco_sim.onshape_export import (
 
 ASSET_DIR = Path(__file__).resolve().parents[2] / "simulation/assets/robots/mr_stabs_mk2"
 
-# Onshape "Mass and section properties" on the whole Mr Stabs Mk2 assembly, screenshot
-# 2026-09-25 23:10 (onshape_export/onshape_mass_properties_2026-09-25.png). Assembly frame, mm
-# and g mm^2, inertia about the COM. Unlike the URDF export, this includes the Onshape mass
-# overrides for the motors, ESCs, flight controller, batteries and switch.
 ONSHAPE_MASS_G = 494.22
 ONSHAPE_COM_MM = (0.004, -29.548, 0.798)
 ONSHAPE_INERTIA_G_MM2 = {
@@ -41,10 +37,8 @@ ONSHAPE_INERTIA_G_MM2 = {
 }
 SCALE_MASS_G = 495.9
 
-# Repeat Robotics Compact 1806 gearmotor (repeat-robotics.com/products/repeat-compact-1806).
 GEAR_RATIO = 22.6
 MOTOR_KV_RPM_PER_V = 2300.0
-# CAD integration of the rotor: steel flux ring, 14 N52 magnets, aluminum end cap, steel shaft.
 ROTOR_INERTIA_KG_M2 = 9.3e-7
 GEARMOTOR_MASS_KG = 0.0445
 WHEEL_RADIUS_M = 0.025

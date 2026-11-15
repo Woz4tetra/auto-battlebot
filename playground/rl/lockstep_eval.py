@@ -209,15 +209,13 @@ def run(
     count = len(json.loads(scenarios.read_text()))
     indices = list(range(count if limit is None else min(count, limit)))
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.unlink(missing_ok=True)  # the server appends; a rerun must not stack on old results
-    # The binary runs from the record directory, so every path it is handed must be absolute.
+    out.unlink(missing_ok=True)
     record = record.resolve() if record is not None else None
     text = extra.read_text() if extra is not None else ""
     jobs = [
         (scenarios, i, nav, bundle, out, port_base + (i % workers), record, text, barrier)
         for i in indices
     ]
-    # Ports are reused by worker slot; a slot runs its jobs one after another.
     slots: list[list[Job]] = [[] for _ in range(workers)]
     for i, job in enumerate(jobs):
         slots[i % workers].append(job)

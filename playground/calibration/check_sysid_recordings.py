@@ -1,37 +1,4 @@
-"""Check Mr Stabs Mk2 drive recordings before they go into the MuJoCo plant fit.
-
-Reads each MCAP once and reports, per recording, whether it can feed smooth_tag_poses.py and
-fit_mujoco_plant.py, and what is missing if it cannot. Nothing here fits anything: it is the
-look you take the morning after a session, before deciding whether to drive again.
-
-Checks, each PASS / WARN / FAIL:
-
-- file: the MCAP has a summary. A missing one means it was copied while still recording
-  (re-download it) or the app died mid-write.
-- camera: frame rate from /camera/frame_meta (60 fps target) and the longest gap.
-- video: /camera/video against /camera/frame_meta. The ZED X One records its footage into the
-  MCAP, not an SVO, so this is the only copy to replay.
-- field: a field -> camera transform exists and stays put. The tripod does not move, so more
-  than 5 mm or 0.5 deg of wander means a re-init or a bumped tripod partway through.
-- robot tags: share of camera frames with a robot AprilTag, overall and while the sticks are
-  off center, and the tag's pixel size. The smoother's window gate is 70% coverage.
-  Recordings from the match profile carry no tags. They need /camera/video replayed through the
-  sysid keypoint model first (config/playback/mr_stabs_mk2_sysid_playback.toml).
-- our-robot track: share of frames with an OUR_ROBOT marker (YOLO path, match profile).
-- robot telemetry: /robot/espnow_telemetry, or /robot/esp32_diagnostics before 2026-10-25.
-  Events against the 100 Hz telemetry rate, gaps, pack voltage. The fit's command tape is the
-  per-motor left_cmd/right_cmd from this stream, so without it there is no command tape.
-- sticks: the maneuver menu, measured from the radio's stick channels, or from the telemetry's
-  a_percent/b_percent when the radio was not on USB. Seconds of straight holds per level and
-  direction, creep, spins, arcs, reversals, punches, and hard stops.
-- SVO (ZED 2i only, with --svo-dir): an SVO whose frame stamps overlap this recording, and how
-  many frames it holds.
-
-    python playground/calibration/check_sysid_recordings.py data/recordings/*2026-10-11*.mcap \\
-        --svo-dir data/svo --plots playground/calibration/out/mujoco_sysid/checks
-
-Exit status is 1 if any recording has a FAIL, so it can gate a script.
-"""
+"""Check Mr Stabs Mk2 drive recordings before they go into the MuJoCo plant fit."""
 
 from __future__ import annotations
 
@@ -65,7 +32,6 @@ from auto_battlebot.recording.sysid_io import (
     rotation_angle,
 )
 
-# Stick channels, from the sysid and zed_box profiles: CH1 linear, CH2 angular, +/-1024 full scale.
 LINEAR_CH = 0
 ANGULAR_CH = 1
 STICK_FULL = 1024.0
@@ -73,24 +39,20 @@ GRID_S = 0.01
 
 CAMERA_FPS_PASS = 55.0
 CAMERA_GAP_WARN_S = 0.1
-CAMERA_GAP_FAIL_S = 1.0  # a stall this long splits the session for the smoother anyway
-VIDEO_COVERAGE_PASS = 0.99  # /camera/video messages per /camera/frame_meta
+CAMERA_GAP_FAIL_S = 1.0
+VIDEO_COVERAGE_PASS = 0.99
 FIELD_DRIFT_M = 0.005
 FIELD_DRIFT_DEG = 0.5
 TAG_COVERAGE_PASS = 0.7  # smoother WindowOptions.coverage_min
 TAG_COVERAGE_WARN = 0.5
-TAG_MIN_PX = 40.0  # plan: at least ~40 px on the far side
+TAG_MIN_PX = 40.0
 ESP32_RATE_PASS = 0.95
 # The firmware sends one telemetry record per espnow_link::TELEMETRY_PERIOD_MS (10 ms) at most.
 TELEMETRY_HZ = 100.0
-# Telemetry a_percent/b_percent to radio channel units. CH1 runs opposite to a_percent and CH2
-# with b_percent (radio delay correlations, mujoco_sysid/s01_2026-10-15/session.json).
 PERCENT_TO_CHANNEL = STICK_FULL / 100.0
 ESP32_GAP_S = 0.05
 VBAT_PLAUSIBLE_MIN_V = 9.0
 
-# Session totals worth aiming for before calling a recording day enough. Rough: enough repeats
-# per stage of the staged fit to hold a session out and still fit on the rest.
 MENU_TARGETS = {
     "hold_s_fwd": 20.0,
     "hold_s_rev": 15.0,
@@ -167,8 +129,6 @@ def check_video(counts: dict[str, int], rep: Report) -> None:
     share = video / frames if frames else math.nan
     rep.stats["video_coverage"] = share
     level = "PASS" if share >= VIDEO_COVERAGE_PASS else "WARN"
-    # Over 100% is normal: the encoder starts at camera open, a second or so before the first
-    # pipeline tick writes frame_meta. Under it means the encoder dropped frames.
     rep.add("video", level, f"{video} frames for {frames} camera frames ({share:.1%})")
 
 
@@ -202,9 +162,7 @@ def check_camera(stamps: np.ndarray, rep: Report) -> None:
 
 
 def check_field(path: Path, rep: Report, counts: dict[str, int]) -> None:
-    """Each field init redefines the field frame, so a session is a run of locks. The smoother
-    wants one; report how many there were, how long the longest held, and whether the camera
-    wandered within it (a bumped tripod)."""
+    """Each field init redefines the field frame, so a session is a run of locks. The smoother"""
     series = load_field_from_camera(path)
     reinits = counts.get("/command/reinit_field", 0)
     if len(series) == 0:
@@ -290,7 +248,6 @@ def check_track(path: Path, rep: Report, has_tags: bool) -> pd.DataFrame:
         return ours
     present = ours["timestamp_ns"].nunique() / ticks
     rep.stats["our_track_coverage"] = present
-    # Informational when tags exist: the fit reads tags, this is only the live keypoint path.
     level = "INFO" if has_tags else ("PASS" if present >= TAG_COVERAGE_PASS else "WARN")
     extent = ""
     if not ours.empty:
@@ -350,8 +307,7 @@ def check_esp32(esp: pd.DataFrame, rep: Report) -> bool:
 
 
 def sticks_from_telemetry(esp: pd.DataFrame) -> pd.DataFrame:
-    """The handset sticks as the robot saw them, in the radio channel frame's columns. With
-    autonomy off the telemetry's arbitrated a_percent/b_percent are the handset's."""
+    """The handset sticks as the robot saw them, in the radio channel frame's columns. With"""
     return pd.DataFrame(
         {
             "stamp_ns": esp["log_time_ns"].to_numpy(np.int64),
@@ -362,8 +318,7 @@ def sticks_from_telemetry(esp: pd.DataFrame) -> pd.DataFrame:
 
 
 def stick_centers(sticks: pd.DataFrame) -> tuple[float, float]:
-    """Resting value of each stick channel: the value held longest. A trimmed or worn gimbal
-    rests a few counts off zero, which would otherwise read as constant creep."""
+    """Resting value of each stick channel: the value held longest. A trimmed or worn gimbal"""
     t = sticks["stamp_ns"].to_numpy(np.int64)
     held = np.diff(np.concatenate([t, [t[-1]]]))
     out = []
@@ -379,8 +334,7 @@ def stick_centers(sticks: pd.DataFrame) -> tuple[float, float]:
 
 
 def stick_at(sticks: pd.DataFrame, stamps_ns: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Linear and angular stick fraction held at each stamp (channels log only on change),
-    with each channel's resting offset removed."""
+    """Linear and angular stick fraction held at each stamp (channels log only on change),"""
     t = sticks["stamp_ns"].to_numpy(np.int64)
     c_lin, c_ang = stick_centers(sticks)
     idx = np.clip(np.searchsorted(t, stamps_ns, side="right") - 1, 0, len(t) - 1)

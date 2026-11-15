@@ -1,32 +1,5 @@
 #!/usr/bin/env python3
-"""Fit the basement drive-test box camera from ZED depth and the rail edges, K known.
-
-The box is a 5 ft plywood floor inside 2x4 rails stood on edge, pushed into a corner of the
-basement's stone walls. The camera is our own ZED on a stand beside it, so unlike the MassD
-broadcast the intrinsics are known (`camera_rect.json`, read from the SVO) and the SVO has
-metric depth. Two steps:
-
-1. Floor plane from depth. RANSAC over the XYZ of the plywood-coloured pixels, refined by
-   SVD. This fixes camera height and tilt without assuming anything about the box.
-2. Box centre and yaw in that plane from the image. The rails give sharp edges: the floor
-   meeting the left, right and far rails, and the inner and outer top edges of all four.
-   Starting from the rail-top points in the depth, (x, y, yaw) is moved until those edges,
-   projected through K, sit on the Canny edges of the target (mean clipped distance). Depth
-   alone puts the right rail 5 cm off: the camera looks straight at its inner face and the
-   stereo smears it.
-
-Box size is an input (`--mat-size`, `--rail-height`, `--rail-thickness`), not a fit: the
-depth measured 1.515 x 1.530 m inside the rails and 0.0875 m rail height, which is a 5 ft
-square and a 3.5 in 2x4 to within the stereo's noise.
-
-Reads `<scene>/targets/<clip>/{target.png, xyz.npy, meta.json}` and `<scene>/camera_rect.json`.
-Writes `<scene>/poses/<clip>.toml` (CageCalibration, W frame: floor centre, z up, +y away
-from the camera), `<scene>/poses/<clip>_overlay.png`, `<scene>/poses/summary.csv`, and
-`<scene>/targets/<clip>/hull_mask.png`: the floor the camera sees, rails cut out.
-
-Usage:
-    venv/bin/python playground/basement_scene/fit_basement_camera.py runs/basement_scene
-"""
+"""Fit the basement drive-test box camera from ZED depth and the rail edges, K known."""
 
 from __future__ import annotations
 
@@ -141,11 +114,7 @@ def rail_top_start(xyz: np.ndarray, plane: Plane) -> np.ndarray:
 
 
 def _mid_between_peaks(values: np.ndarray) -> float:
-    """Midpoint of the densest 5 mm bin in each half: the two opposite rail tops.
-
-    Percentiles of the extent would not do: the stone wall stands at rail-top height just
-    outside two of the rails and drags them outward.
-    """
+    """Midpoint of the densest 5 mm bin in each half: the two opposite rail tops."""
     counts, edges = np.histogram(values, bins=np.arange(values.min(), values.max() + 0.005, 0.005))
     centres = (edges[:-1] + edges[1:]) / 2
     half = len(centres) // 2

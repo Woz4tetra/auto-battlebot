@@ -1,33 +1,4 @@
-"""Generate a multi-material 3D-print file for the robot's AprilTag (Bambu Lab AMS).
-
-This is the 3D-print counterpart of make_print_tags.py for the tag that mounts on the robot top.
-Instead of a paper tag you tape down, it emits a printable plate: a white base with the black
-AprilTag cells raised on top as a second material. Two watertight objects share one coordinate
-frame, so in Bambu Studio you assign white to the base and black to the tag and slice.
-
-The black geometry comes straight from the cv2.aruco DICT_APRILTAG_36h11 bit pattern, so the printed
-tag is geometrically identical to what apriltag_track.py detects (id and orientation verified by re-
-detecting a top-down raster before writing). A white margin around the tag gives the quiet zone the
-detector needs.
-
-The 3MF is written directly (a zip of XML) so it needs no lxml: two named, pre-colored objects that
-import into Bambu Studio already split into a white base and a black tag. STL pairs are written too.
-
-Outputs, written to --out-dir:
-    robot_tag.3mf         two objects (white base + black tag), pre-colored
-    robot_tag_white.stl   base only
-    robot_tag_black.stl   tag only
-
-Usage:
-    source scripts/activate_python.sh
-    python playground/calibration/make_robot_tag_3d.py --out-dir playground/calibration/print_3d
-
-Default: id 0, 130 mm tag, 2 mm white base, 0.6 mm raised black, 16 mm white margin (a ~1-cell quiet
-zone). The plate is 162 x 162 mm, well within a 256 mm Bambu bed. Bambu Studio: import
-robot_tag.3mf, confirm the tag object is black filament and the base is white, then slice. Use
-0.1-0.2 mm layers and a base thickness that is a clean multiple of the layer height. Note its
-physical edge (--tag-size) and heading offset for apriltag_track.py --tag-size / --yaw-offset-deg.
-"""
+"""Generate a multi-material 3D-print file for the robot's AprilTag (Bambu Lab AMS)."""
 
 from __future__ import annotations
 
@@ -73,12 +44,7 @@ def black_cell_boxes(
     base_h: float,
     tag_h: float,
 ) -> list[trimesh.Trimesh]:
-    """Boxes for the black cells, raised on top of the base. origin is the tag's (x0, y0) corner in
-    mm.
-
-    Consecutive black cells in a row are merged into one box to keep the mesh small and free of
-    internal coplanar faces.
-    """
+    """Boxes for the black cells, raised on top of the base."""
     side = grid.shape[0]
     cell = tag_mm / side
     boxes: list[trimesh.Trimesh] = []

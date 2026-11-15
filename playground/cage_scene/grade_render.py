@@ -1,30 +1,5 @@
 #!/usr/bin/env python3
-"""Grade cage renders against the robot-free target frames, per region.
-
-Each render `<stem>.png` under --renders is paired with the target frames it stands for: the
-clip of the same name, or every clip of the event an event pose (`cage2_<event>`) was fitted
-from. Metrics are computed on the full frame, inside the mat hull, and outside it, and are
-written in long form to `metrics.csv` with a `source` column so baselines sit beside the render:
-
-    render            the render under test
-    baseline_mean     the pixel mean of all targets, scored against each target (the
-                      clip-to-clip floor from exposure and mat wear)
-    baseline_flat     the target's own mat-mean colour painted everywhere
-    baseline_previous --baseline-render, another render directory, if given
-
-Metrics: l1_gray, l1_rgb (0..255, at --scale), ssim_gray (11x11 Gaussian, sigma 1.5),
-edge_chamfer_px (symmetric Canny edge distance, full resolution), lab_dmean_L/a/b,
-lab_dstd_L/a/b, mat_iou (overlap of the render's mat mask with the target hull, full-frame only).
-`report.md` holds the per-region means and a per-clip table, and `<stem>_sheet.png` shows
-target | render | abs diff | edge overlay.
-
-Usage:
-    venv/bin/python playground/cage_scene/grade_render.py \\
-        --renders runs/cage_scene/renders/r001 --targets runs/cage_scene/targets \\
-        --out runs/cage_scene/grades/r001
-    venv/bin/python playground/cage_scene/grade_render.py --compare runs/cage_scene/grades/r001 \\
-        runs/cage_scene/grades/r002
-"""
+"""Grade cage renders against the robot-free target frames, per region."""
 
 from __future__ import annotations
 

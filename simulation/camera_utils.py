@@ -11,11 +11,7 @@ import numpy.typing as npt
 
 
 def fov_to_intrinsics(fov_deg: float, width: int, height: int) -> tuple[float, float, float, float]:
-    """Derive (fx, fy, cx, cy) from a vertical FOV and resolution.
-
-    Camera FOV is vertical, so fy is computed from height.
-    fx = fy assumes square pixels.
-    """
+    """Derive (fx, fy, cx, cy) from a vertical FOV and resolution."""
     fov_rad = math.radians(fov_deg)
     fy = (height / 2.0) / math.tan(fov_rad / 2.0)
     fx = fy
@@ -115,21 +111,7 @@ def ground_plane_homography(
     metres_per_pixel: float,
     top_down_size: int,
 ) -> npt.NDArray[np.float64]:
-    """Homography taking top-down arena pixels to camera image pixels.
-
-    The arena floor is a plane, so its image is an exact homography of a top-down render of it --
-    no ray marching, no geometry. That is what lets the simulated camera reuse the viewer's
-    composition instead of rendering the world a second way.
-
-    Args:
-        view_matrix: 4x4 camera-from-world, as built by `camera_view_matrix`.
-        intrinsics: (fx, fy, cx, cy) for the output image.
-        metres_per_pixel: scale of the top-down render.
-        top_down_size: side length of the (square) top-down render, in pixels.
-
-    Returns:
-        A 3x3 matrix suitable for ``cv2.warpPerspective``.
-    """
+    """Homography taking top-down arena pixels to camera image pixels."""
     fx, fy, cx, cy = intrinsics
     camera_matrix = np.array([[fx, 0.0, cx], [0.0, fy, cy], [0.0, 0.0, 1.0]], dtype=np.float64)
 
@@ -137,7 +119,6 @@ def ground_plane_homography(
     translation = view_matrix[:3, 3]
     world_to_image = camera_matrix @ np.column_stack([rotation[:, 0], rotation[:, 1], translation])
 
-    # Top-down pixels to field metres: x right, y up, origin at the centre of the render.
     half = top_down_size / 2.0
     scale = metres_per_pixel
     pixels_to_world = np.array(
@@ -153,11 +134,7 @@ def ground_plane_depth(
     width: int,
     height: int,
 ) -> npt.NDArray[np.float32]:
-    """Per-pixel depth of the floor plane, in metres along the optical axis.
-
-    Pixels whose ray points at or above the horizon get NaN, which is what a stereo camera reports
-    where it has no match.
-    """
+    """Per-pixel depth of the floor plane, in metres along the optical axis."""
     fx, fy, cx, cy = intrinsics
     rotation = view_matrix[:3, :3]
     translation = view_matrix[:3, 3]

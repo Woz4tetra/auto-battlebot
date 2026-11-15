@@ -1,14 +1,4 @@
-"""Write the observation-spec golden fixture the C++ builder is tested against (plan gate G3).
-
-Each case is one world's `ObsInputs` and the 138 floats `build_v1` makes from it in float64.
-`tests/rl_policy/test_observation_v1.cpp` feeds the same inputs to `ObservationBuilderV1` and
-requires agreement to 1e-5. Edge cases first (no target, stale target with unknown sigmas, no
-hazards, our robot against a wall, starting inside a hole, more than four hazards, a tie in edge
-distance), then random worlds.
-
-    source scripts/activate_python.sh
-    python playground/rl/make_rl_golden_fixture.py
-"""
+"""Write the observation-spec golden fixture the C++ builder is tested against (plan gate G3)."""
 
 from __future__ import annotations
 

@@ -1,19 +1,5 @@
 #!/usr/bin/env python3
-"""
-OpenTX Channel Data Streaming Test Script
-
-This script connects to the OpenTX radio via USB serial and parses the custom
-channel data packets along with CRSF telemetry data.
-
-Channel packet format:
-- Sync: 0xA5
-- Length: packet length excluding sync byte
-- Data: channel values as 16-bit signed integers (little-endian)
-- Checksum: XOR of all bytes excluding sync
-
-Usage:
-    python3 test_channel_streaming.py [--port /dev/ttyACM0] [--baudrate 115200]
-"""
+"""OpenTX Channel Data Streaming Test Script"""
 
 import argparse
 import struct

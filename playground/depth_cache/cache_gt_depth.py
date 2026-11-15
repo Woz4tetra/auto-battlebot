@@ -1,27 +1,5 @@
 #!/usr/bin/env python3
-"""Extract ZED depth for every ground-truth frame in an eval dataset, into a cache.
-
-Depth is not recorded in the MCAP: the ZED SDK computes it on device and the pipeline never
-publishes it. The stereo pair is in the SVO though, so replaying the SVO through pyzed with the
-same DEPTH_MODE the runtime uses reproduces what the camera would have measured.
-
-The join is by SVO frame index, never by timestamp. Each GT frame's
-`camera_transforms/<stamp_ns>.json` carries `image_stream_index`, which is the absolute index
-into the SVO. SVO image stamps sit about half a frame before the pipeline stamps that name the
-GT images, so a nearest-timestamp match silently picks the wrong frame.
-
-Frames whose transform method is `ambiguous` or `unavailable` are skipped: the first has two
-processed frames claiming one index and the second has no pose at all, so neither can be placed
-in the field frame later.
-
-Output is one `<subdataset>.npz` per sub dataset, keyed by stamp_ns, holding float16 depth in
-metres at the SVO's native resolution. Non-finite depth (no stereo match) is preserved as NaN,
-because which pixels the camera failed to measure is the result this experiment turns on.
-
-Usage:
-    python playground/cache_gt_depth.py training/data/nhrl_keypoints_eval_test \
-        --svo-roots data/svo -o <cache dir>
-"""
+"""Extract ZED depth for every ground-truth frame in an eval dataset, into a cache."""
 
 from __future__ import annotations
 
@@ -34,24 +12,13 @@ import yaml
 
 USABLE_METHODS = ("exact", "interpolated")
 
-# ZED_NEURAL_LIGHT is the config/_common.toml default and the cheapest neural mode. NEURAL_PLUS
-# is the most accurate one the SDK offers and is what a depth-based detector deserves to be
-# graded on: on a sample MassD frame it returns depth for 0.718 of pixels against
-# NEURAL_LIGHT's 0.583. Pass --depth-mode to pick; the cache name records the choice.
 DEFAULT_DEPTH_MODE = "NEURAL_PLUS"
 
-# config/_common.toml does not set depth_minimum_distance; 0.3 m is the ZED default for METER
-# units and the arena floor is never closer than that.
 DEPTH_MIN_M = 0.3
 
 
 def resolve_svo(source_mcap: str, roots: list[Path]) -> Path | None:
-    """The SVO for a recording, found by the timestamp suffix the MCAP name carries.
-
-    Recordings are named `<profile>_<start>__<svo stamp>.mcap` and the SVO is `<svo stamp>.svo2`,
-    so the suffix after the double underscore is the key. Roots are searched recursively because
-    the May fights live in `svo/NHRL_2026-05-02/` but the 05-01 one is in `svo/tests/`.
-    """
+    """The SVO for a recording, found by the timestamp suffix the MCAP name carries."""
     stem = Path(source_mcap).stem
     if "__" not in stem:
         return None

@@ -1,27 +1,4 @@
-"""Fast headless kinematic simulation server for control tuning.
-
-A lightweight alternative to the Genesis server (sim_server.py): same TCP protocol
-(simulation/protocol.py), but 2D kinematic physics instead of rendering. Pair it with
-config/headless_sim.toml on the C++ side (Noop perception + GroundTruthRobotFilter), so the real
-PursuitNavigation runs unchanged and the resulting MCAP is scored by
-playground/control_stage0/stage0_metrics.py exactly like a real fight.
-
-The sim owns logical time: it sends its accumulated sim_time in each response, and the C++ side
-adopts it (ManualClock), so the controller's dt is correct no matter how fast the loop free-runs.
-Runs are deterministic (seeded) and can go far faster than real time.
-
-Models the effects that actually drive overshoot:
-  - our robot's drivetrain, from the plant [our_robot] plant selects (simulation/plants/): the
-    first-order kinematic lag model, or the Mr Stabs Mk2 MuJoCo rigid body
-  - actuation latency (command ring buffer, in sim ticks)
-  - perception: the sensing model's latency, dropouts, noise and heading flips
-    (auto_battlebot/perception/sensing_model.py), plus the flat-plane projection bias
-  - square arena with walls
-
-Usage:
-    source scripts/activate_python.sh
-    python simulation/kinematic_sim_server.py simulation/kinematic_sim.toml
-"""
+"""Fast headless kinematic simulation server for control tuning."""
 
 from __future__ import annotations
 
@@ -85,8 +62,6 @@ if TYPE_CHECKING:
 # context only.
 DEFAULT_OPPONENT_RADIUS_M = 0.106
 
-# [sim] trace_csv columns. Poses are ground truth, not what perception reported; goal is the first
-# opponent, which a go-to-point mission drives to. Pitch is 0 on the kinematic plant.
 TRACE_HEADER = (
     "tick",
     "t",
@@ -178,7 +153,6 @@ class Opponent:
             )
             if not self._in_hazard(*candidate):
                 return candidate
-        # Hazards cover most of the reachable arena; fall back to the last draw pushed clear.
         return self._push_out(*candidate)
 
     def _clamp(self) -> None:
@@ -187,9 +161,7 @@ class Opponent:
         self.x, self.y = self._push_out(self.x, self.y)
 
     def place(self, x: float, y: float) -> None:
-        """Put the opponent somewhere directly (viewer drag). Re-seeds the parameterised
-        behaviours so a release resumes from the drop point rather than snapping back. A policy
-        opponent's plant owns its pose, so it cannot be dragged."""
+        """Put the opponent somewhere directly (viewer drag). Re-seeds the parameterised"""
         if self.policy is not None:
             return
         self.x, self.y = x, y
@@ -223,9 +195,6 @@ class Opponent:
                 self.yaw = math.atan2(math.sin(self.yaw + math.pi), math.cos(self.yaw + math.pi))
             self._clamp()
             return
-        # A drive robot faces the way it moves, so circle and random_walk point their heading
-        # along their velocity. The RL environment's opponents are unicycles; a heading that never
-        # turned kept the weapon side facing one way while the robot slid around.
         if behavior == "circle":
             self._angle += (self._cfg.speed / max(self._cfg.radius, 0.01)) * dt
             self.x = self._cfg.radius * math.cos(self._angle)
@@ -288,11 +257,7 @@ class Frame:
 
 
 class Perception:
-    """Degrades true poses into what perception delivers: the sensing model's measurement stream
-    plus the flat-plane projection bias, or the true poses every tick when no model is set.
-
-    The sim captures one perception frame per tick, so the model's frame rate is the tick rate.
-    """
+    """Degrades true poses into what perception delivers: the sensing model's measurement stream"""
 
     def __init__(self, cfg: KinematicSimConfig) -> None:
         self._cfg = cfg.perception
@@ -380,11 +345,6 @@ class KinematicServer:
             )
             print(f"Obstacles from {cfg.obstacles_file}: {summary}")
 
-        # One compositor, two consumers. The UI draws robot markers, the field border and hazard
-        # rings by projecting field points through the intrinsics above, so the frame it draws on
-        # has to be a plausible camera image or the whole overlay collapses into a few pixels. The
-        # floor is a plane, so the camera view is an exact homography of this top-down composition
-        # and needs no second renderer.
         self._world = Viewer(cfg, self._obstacles)
         self._viewer = self._world if cfg.viewer.enable else None
         self._mujoco_window: MujocoWindow | None = None
@@ -456,11 +416,7 @@ class KinematicServer:
         )
 
     def _render_camera(self) -> None:
-        """Warp the top-down arena into the camera's view.
-
-        Costs wall-clock time and nothing else: the sim owns logical time, so a slower render
-        makes the sim slower in real time and changes nothing the controller sees.
-        """
+        """Warp the top-down arena into the camera's view."""
         cam = self._cfg.camera
         # Write into the existing buffer rather than rebinding it: _send_frame ships
         # `self._rgb.data` straight down the socket, so it has to stay the contiguous array the
@@ -595,8 +551,7 @@ class KinematicServer:
         )
 
     def _report(self, outcome: str) -> None:
-        """One machine-readable line per episode. sim_sweep greps it for the hazard columns;
-        a metric derived from the MCAP alone could not see a fall-in, because the run ends there."""
+        """One machine-readable line per episode. sim_sweep greps it for the hazard columns;"""
         clearance = self._plant.min_hazard_clearance
         clearance_str = "nan" if clearance == float("inf") else f"{clearance:.4f}"
         print(

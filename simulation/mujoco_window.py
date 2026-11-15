@@ -1,12 +1,4 @@
-"""MuJoCo's own 3D viewer on the MuJoCo plant, next to the OpenCV top-down window.
-
-Shows the contact geometry the plant actually steps: the hull meshes, wheels, skid, arena walls,
-wall blocks and the opponents (a box or a cylinder each, per [[opponents]] collision_box). The
-OpenCV window draws sprites at the same poses, so the two side by side show where the sprites and
-the collision shapes disagree.
-
-Passive mode: the sim server keeps stepping, and sync() copies the state to the render thread.
-"""
+"""MuJoCo's own 3D viewer on the MuJoCo plant, next to the OpenCV top-down window."""
 
 from __future__ import annotations
 

@@ -1,36 +1,4 @@
-"""Distill a fitted MuJoCo plant into the app's grey-box [plant] table for Mr Stabs Mk2.
-
-The app's EKF and MotionProfileNavigation both run JigPlantModel: first-order lag, deadzones,
-delay, and steer-brake coupling, with stick commands in. The MuJoCo fit (fit_mujoco_plant.py) has
-motor, contact, and inertia terms the app cannot run. This drives the fitted MuJoCo model through
-ClosedLoopSim with stick tapes shaped like the velocity jig protocol (deadzone staircases, steps
-with coasts, reversals, a steer/brake grid), fits the M4 grey-box model to the result the way
-fit_jig_plant.py fits jig data, and scores it on random stick tapes the fit never saw.
-
-Stick tapes go into ClosedLoopSim, which runs the firmware mixer and auto-steer, the drivetrain
-delay, and command shaping. That matches what the app's plant is fed: CommandFeedback is the
-transmitter's stick readback, after its slew limit and deadzone. The radio link delay is not in
-ClosedLoopSim, so it comes from the sessions' clock alignment and is added to the fitted delay
-afterwards. A pure shift adds exactly.
-
-Samples after the chassis pitches more than --pitch-gate-deg off its rest pitch are dropped, and
-stay dropped for the rest of that tape. The grey-box model is flat and cannot represent a wheelie
-or a flip, so the table only covers the command range the robot stays down in. The report lists
-which tapes lost samples.
-
-Every restart within --loss-ratio of the best MuJoCo loss is distilled too. The spread across those
-tables is the parameter spread the plan hands to the learned sim, and shows which grey-box terms
-the MuJoCo data pins.
-
-    python playground/calibration/distill_mujoco_plant.py \\
-        playground/calibration/out/mujoco_sysid/fit_<ts> \\
-        --holdout playground/calibration/out/mujoco_sysid/s04
-
-Writes <fit_dir>/distilled/plant.toml (the best run's [plant] table, radio delay included),
-distill.json (every run's table, sim and session scores, spread, masked tapes) and
-plant_steps.png (step-and-release responses and steady-state speed against stick, the distilled
-table against the one the profiles carry now).
-"""
+"""Distill a fitted MuJoCo plant into the app's grey-box [plant] table for Mr Stabs Mk2."""
 
 from __future__ import annotations
 
@@ -66,17 +34,13 @@ from auto_battlebot.mujoco_sim.mjcf import CollisionSet
 from auto_battlebot.mujoco_sim.session import build_batch, load_session
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-# The table the app runs today, scored alongside so the report shows what the swap buys.
 CURRENT_TABLE = REPO_ROOT / "config" / "mr_stabs_mk2_aer_zed_box.toml"
 
 RECORD_DT = 0.005  # stick and state grid, the jig fit's 200 Hz
 REST_S = 0.3
-# The jig fit's horizons: C1 is stated at 100 ms, C2 and C3 at 400 ms.
 HORIZONS = (0.033, 0.066, 0.100, 0.200, 0.300, 0.400, 0.500)
 STRIDE_S = 0.05
 STRUCTURE = next(m for m in MODEL_LADDER if m.name == "M4")
-# Mrs Buff's jig fit landed c_sb at 2.70, past PARAM_BOUNDS' 1.5, so the bound is widened rather
-# than left to decide the answer.
 BOUNDS = {"c_sb": (-0.5, 4.0), "c_ad": (-0.5, 2.0)}
 COARSE_DELAYS = np.arange(0.0, 0.1001, 0.01)
 ACCEPT = {"C1_pos_100ms_mm": 15.0, "C2_pos_400ms_mm": 80.0, "C3_head_400ms_deg": 8.0}
@@ -186,7 +150,6 @@ def simulate_tape(
         sim.step(float(tape.lin[k]), float(tape.ang[k]), RECORD_DT)
         sample(k + 1)
     tilted = np.abs(state[:, 5] - collision.rest_pitch_rad) > pitch_gate
-    # Latched: once the robot has pitched up it lands somewhere the flat model never predicted.
     valid = np.cumsum(tilted) == 0
     return Trace(
         tape.name,
@@ -327,8 +290,7 @@ def distill_run(job: dict[str, Any]) -> dict[str, Any]:
 def score_sessions(
     paths: list[Path], doc: dict[str, Any], tables: dict[str, plant.PlantParams]
 ) -> dict[str, Any]:
-    """Every table on the held-out flat windows, through the same per-motor tape and inverse
-    mixer the direct grey-box fit uses. Errors in multiples of each session's noise floor."""
+    """Every table on the held-out flat windows, through the same per-motor tape and inverse"""
     mp, _ = _model()
     batch = build_batch(
         [load_session(p) for p in paths],
@@ -477,9 +439,6 @@ def main() -> None:
         if radio is None:
             raise SystemExit("no session has a radio delay; pass --radio-delay-ms")
         if radio < 0.0:
-            # A stick move cannot reach the ESP32 before it is sent: a negative lag is a clock
-            # fit or stamping error (2026-10-15 measured -9.5 ms), and added to the drivetrain
-            # delay it would write a negative delay_s.
             print(
                 f"radio delay {radio * 1e3:.1f} ms is negative; using 0. Check the clock fit, "
                 "or pass --radio-delay-ms"
@@ -521,7 +480,6 @@ def main() -> None:
 
     best = results[0]
     table = plant.PlantParams.from_dict(best["table"])
-    # The app's delay runs from stick readback to motion: radio link plus drivetrain.
     final = table.replace(delay_s=table.delay_s + radio)
 
     _print_table(results)

@@ -1,22 +1,4 @@
-"""Generate the golden-vector fixture for the C++ JigPlantModel test.
-
-Steps the Python reference plant (auto_battlebot/control/plant.py, `Plant` class: zero-order-hold
-command buffer, 2 ms substeps) over a scenario that exercises every term, and writes the
-commands plus expected states as a C++ header. The C++ test replays the same commands
-through JigPlantModel::propagate and must match: both sides are double precision with the
-same substep, so the tolerance can sit at 1e-9.
-
-The scenario covers: quiet start (zero command before the delay elapses), a forward step, a
-reversal through the deadzone (decel then accel tau), a pure spin, a combined command that
-drives the steer-brake factor into its zero clamp (c_sb 2.70 crosses zero at |u_ang_eff|
-0.37), sub-deadzone commands, and a final coast.
-
-Usage:
-    source scripts/activate_python.sh
-    python playground/calibration/make_plant_golden_fixture.py
-
-Paths are resolved from the repo root, so the working directory does not matter.
-"""
+"""Generate the golden-vector fixture for the C++ JigPlantModel test."""
 
 from __future__ import annotations
 

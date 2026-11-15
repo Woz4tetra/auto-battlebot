@@ -40,11 +40,9 @@ def rest_contact(vertices: np.ndarray, wheel_radius: float) -> tuple[np.ndarray,
     front = vertices[vertices[:, 0] > 0.0]
     best_theta, best_vertex = np.inf, front[0]
     for x, _, z in front:
-        # -x sin(t) + z cos(t) = -r  ->  solve for the smallest t in [0, pi/2)
         amp = np.hypot(x, z)
         if amp < wheel_radius:
             continue
-        # -x sin t + z cos t = amp cos(t - alpha) with alpha = atan2(-x, z)
         alpha = np.arctan2(-x, z)
         candidates = alpha + np.array([1.0, -1.0]) * np.arccos(-wheel_radius / amp)
         candidates = np.mod(candidates + np.pi, 2 * np.pi) - np.pi

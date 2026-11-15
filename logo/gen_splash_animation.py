@@ -1,46 +1,5 @@
 #!/usr/bin/env python3
-"""Regenerate the BWBots splash animation at high resolution from the logo SVG.
-
-The original 160x128 bwbots_splash.gif was authored at low resolution. This script
-rebuilds the same animation from the vector logo (logo/bwbots_logo.svg) at
-the robot UI's screen size (1024x600 by default, full-screen on the Jetson LCD):
-
-  frame 0      black
-  frames 1-7   the two half-discs slide in from the screen edges and meet
-  frames 8-16  the assembled disc spins one full clockwise turn, decelerating
-  frames 17-26 the halves fly apart, overshoot, and settle; the BW pill wipes
-               open from the center on top of them (frames 17-20)
-
-The per-frame motion table below was measured from the original GIF via
-connected-component analysis (positions normalized by the disc radius). Artwork
-proportions come from the SVG, which differs slightly from the hand-made GIF:
-the GIF's pill is ~8% larger and its final gap ~30% wider than the vector logo.
-The SVG is the true mark, so the final composition uses SVG proportions and the
-split trajectory is rescaled to land there.
-
-Rendering: the half-discs are plain semicircles drawn supersampled with PIL (the
-SVG halves have notches that are always hidden behind the pill). The pill + "BW"
-text is rasterized from the SVG via the inkscape CLI (glyphs are path outlines,
-no fonts needed). On the black background the black half is drawn as a white
-outline and the white half as plain fill, exactly like the original GIF.
-
-The disc size tracks the output height (same proportion as the reference GIF).
-When the canvas is wider than the reference's 5:4 aspect, the slide-in stage is
-rescaled so the halves still enter from the physical screen edges instead of
-materializing mid-screen.
-
-Verification: every rendered frame is center-cropped to the reference aspect,
-downscaled to 160x128, and diffed against the original GIF frame. A contact sheet
-(original / rendered / diff) and per-frame mean absolute error are written next to
-the output. On canvases wider than 5:4 the slide-in frames legitimately differ
-(longer runway), so expect elevated MAE there.
-
-Requires: inkscape on PATH. Run inside the project venv (numpy, Pillow).
-
-Usage:
-    logo/gen_splash_animation.py                    # 1024x600 (robot LCD)
-    logo/gen_splash_animation.py --size 480x384 --fps-mult 1 --no-verify
-"""
+"""Regenerate the BWBots splash animation at high resolution from the logo SVG."""
 
 from __future__ import annotations
 
@@ -57,28 +16,17 @@ from PIL import Image, ImageDraw
 SCRIPT_DIR = Path(__file__).resolve().parent
 ASSETS_DIR = SCRIPT_DIR
 
-# Reference GIF geometry (the motion table is normalized against these).
 REF_SIZE = (160, 128)
 REF_RADIUS = 30.0
 REF_FRAME_MS = 50
-# Hold the assembled logo before the GIF ends/loops so playback doesn't cut off
-# abruptly (the UI pauses the gif during this window, then fades to the app).
 HOLD_LAST_MS = 500
 
-# Disc radius as a fraction of output height (from the reference GIF: disc
-# radius 30 on a 128-tall canvas, disc centered).
 RADIUS_FRAC = REF_RADIUS / 128.0
 
-# SVG geometry, in path coordinates of bwbots_logo.svg (before the group's
-# 0.2645833 scale). Used to size/position the pill and the final layout.
-SVG_DISC_DIAMETER = 273.07  # black half-disc vertical extent
+SVG_DISC_DIAMETER = 273.07
 SVG_VIEWBOX_W = 93.0
 SVG_GROUP_SCALE = 0.2645833
-# Final logo half-gap (flat edge of each half-disc to logo center), fraction of r.
-# From the SVG: flats at x=203.5 / 277.2, gap 73.7 units on a 136.5 radius.
 FINAL_HALF_GAP = 0.270
-# The GIF's final half-gap is wider (10.5 px / 30 px); the measured split offsets
-# below are rescaled so the same trajectory settles at the SVG's layout.
 GIF_FINAL_HALF_GAP = 0.35
 SPLIT_RESCALE = FINAL_HALF_GAP / GIF_FINAL_HALF_GAP
 
@@ -86,11 +34,6 @@ PILL_BODY_ID = "path20"
 PILL_TEXT_ID = "path24"
 PILL_KEEP_IDS = {PILL_BODY_ID, PILL_TEXT_ID}
 
-# Per-frame motion, measured from bwbots_splash_160x128.gif.
-#   left_off / right_off: signed offset of each half-disc's flat edge from the
-#     disc center, in units of disc radius (left half sits left of its flat edge).
-#   angle: clockwise rotation of the assembled disc, degrees (0 = white half right).
-#   pill: revealed width fraction of the pill (center-out wipe).
 # fmt: off
 KEYFRAMES: list[tuple[float, float, float, float]] = [
     # left    right   angle  pill
@@ -220,13 +163,7 @@ def render_frame(
 
 
 def build_keyframes(canvas_half_width_r: float) -> list[tuple[float, float, float, float]]:
-    """Adapt the measured table to the output canvas.
-
-    Slide-in offsets (frames 0-6) are scaled so the halves enter from the actual
-    canvas edge (the reference table assumed a 5:4 canvas, 2.667 radii wide). The
-    first visible frame keeps the reference's look: the flat edge 0.12 r inside the
-    screen edge. Split offsets (frames 17+) are scaled to settle at the SVG layout.
-    """
+    """Adapt the measured table to the output canvas."""
     slide_k = max(1.0, (canvas_half_width_r - 0.12) / abs(KEYFRAMES[1][0]))
     adapted = []
     for idx, (left, right, angle, pill) in enumerate(KEYFRAMES):
@@ -357,9 +294,6 @@ def main() -> int:
     if not args.no_verify:
         preview = out_path.with_name(out_path.stem + "_verify.png")
         worst = verify(frames, args.fps_mult, args.ref_gif, preview)
-        # Expected: MAE 2-5 on spin frames, up to ~22 on split frames (intentional
-        # SVG-true pill artwork / gap vs the hand-made GIF) and elevated on slide
-        # frames when the canvas is wider than 5:4 (longer slide-in runway).
         if worst > 30.0:
             print("warning: worst-frame error is high; inspect the verify sheet", file=sys.stderr)
     return 0

@@ -1,23 +1,5 @@
 #!/usr/bin/env python3
-"""Fit the cage-high camera pose per clip from the rectified mat hull.
-
-For each `targets/<clip>/` written by extract_targets.py: fit straight lines to the mat
-outline where it is actually visible (the near edge runs off the bottom of the cage-high
-frame, so usually three sides), solve the pose against the known mat size at the rectified K
-by least squares from a seed pose, and check the answer is a camera above the mat at a
-plausible height and tilt. The seed is the true_battlebot Cage 2 prior when it exists, else
-the four-corner homography. A clip whose outline is fully in frame is solved from four
-corners first and refined on its four lines. Poses are written in the `config/cages/*.toml`
-format the C++ `CalibratedFieldFilter` reads, one per clip and, with --event-pose, one per
-event (median translation, chordal-mean rotation) for rendering sweeps.
-
-`--landmarks <json>` adds hand-picked correspondences `[{"image": [u, v], "field": [x, y, z]}]`
-in hfield metres (see `auto_battlebot.perception.cage_calibration`) and refines the
-homography pose with solvePnP. Use it only when the grading says the far edge is off.
-
-Usage:
-    venv/bin/python playground/cage_scene/fit_cage_camera.py runs/cage_scene --event-pose
-"""
+"""Fit the cage-high camera pose per clip from the rectified mat hull."""
 
 from __future__ import annotations
 
@@ -53,10 +35,8 @@ from auto_battlebot.perception.field_pose import (
 PRIOR_DIR = Path("~/Documents/true_battlebot/perception/configs/metrics_tool").expanduser()
 DEFAULT_SEED_PRIOR = PRIOR_DIR / "nhrl_cage_2.toml"
 LINE_FIT_ROUNDS = 3
-# The undistorted hull polygon lands a few pixels inside the frame where the mat ran off it.
 BORDER_MARGIN_PX = 6
 SENSOR_BORDER_LINE_PX = 14.0
-# NHRL squares the camera to the mat; a fit yawed past this followed something other than the mat.
 YAW_LIMIT_DEG = 10.0
 HEIGHT_RANGE_M = (1.0, 2.0)
 TILT_RANGE_DEG = (20.0, 40.0)

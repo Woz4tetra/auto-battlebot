@@ -1,46 +1,4 @@
-"""Fit a provisional our-robot EKF error table and write a sensing model the RL toy can load.
-
-`OurEkfErrorModel` refuses a sensing model without `[robots.ours.ekf_error]`, and the sensing
-plan fits that table in step 5 from test-box sessions that are not recorded yet. Until then this
-script fits it from what exists: the real EKF on the 2026-10-15 sysid sessions, against the
-AprilTag truth bundles that `smooth_tag_poses.py` wrote.
-
-- theta, v, omega: the EKF's corrected state, logged on every heading update in
-  `/diagnostics/kalman_motion_estimator` (`our_heading`), compared with the smoothed truth at the
-  measurement stamp (log time minus `stamp_age_s`; both are on the camera clock).
-- along, cross: the EKF's position is not in the recording, so these take the measurement model's
-  own position sigmas, with a 0.1 s correlation time. An assumption, marked in the file.
-
-Sigmas are 1.4826 x MAD per speed bin, so stamp-misalignment tails during fast spins do not
-inflate them. The EKF in those sessions ran on AprilTag keypoints, which are cleaner than live
-YOLO, so the sigmas are a floor; the sensing model's `ekf_sigma_scale` randomization (0.5x to
-1.5x) is wider.
-
-The dropout gap tables are replaced too. `provisional.toml` fits gaps between keypoint heading
-updates over whole replay recordings, including spans with a robot off the field (its table runs
-to the 20 s cap): our robot's gaps reach p90 2.15 s and spend 31% of the time over 0.5 s. The RL
-observation counts time since any measurement, which the six NHRL May fights measured directly
-(`docs/experiments/control_improvement/perception_reliability_may_fights.md`): p50 56 ms, p75
-144 ms, p90 338 ms, p95 497 ms, p99 1.42 s, max 5.78 s. Every context cell of both roles takes
-that pooled table; the quantiles under p50, which the report does not list, run from a 40 ms
-minimum (1.5 frames at 37 fps). The measured-run tables stay as fitted.
-
-Output: `simulation/sensing_models/provisional_rl.toml`, a copy of `provisional.toml` with these
-two changes. Refit when the test-box sessions exist (sensing plan step 5).
-
-`--lockstep` takes the EKF error from the C++ binary in the lockstep sim instead
-(`playground/rl/lockstep_eval.py run --record`): the estimate `RlPolicyNavigation` read on each
-policy step (`/diagnostics/rl_policy_nav`) against the sim truth of the same tick
-(`/diagnostics/sim_camera`), all five components measured. That is the real filter's output at
-control time, latency compensation included, on the sensing model's simulated keypoints. The
-sysid fit compares the corrected state at the measurement stamp instead, and missed most of it:
-under the RL policy the lockstep heading error is several times the sysid table's. Ticks inside
-a measurement gap are left out, because `OurEkfErrorModel` coasts through those itself.
-
-    source scripts/activate_python.sh
-    python playground/rl/fit_provisional_ekf_error.py
-    python playground/rl/fit_provisional_ekf_error.py --lockstep playground/rl/out/lockstep_record
-"""
+"""Fit a provisional our-robot EKF error table and write a sensing model the RL toy can load."""
 
 from __future__ import annotations
 
@@ -66,9 +24,6 @@ SESSIONS = (
     ),
 )
 POSITION_TAU_S = 0.1
-# Pooled dropout gap quantiles from the May 2026 NHRL fights, on the sensing model's quantile grid
-# [0, .01, .05, .1, .25, .5, .75, .9, .95, .99, 1]. Entries under p50 are interpolated from the
-# 40 ms minimum gap.
 MEASURED_GAP_QUANTILES_S = (
     0.040,
     0.041,
@@ -131,8 +86,6 @@ def errors(mcap: Path, bundle: Path) -> pd.DataFrame:
             "omega": ekf["omega"].to_numpy() - at("yaw_rate"),
         }
     )
-    # The EKF can carry a 180 degree heading flip for a frame or two; that is the flip model's
-    # job, not the AR(1) error's.
     return out[out["theta"].abs() < np.pi / 2]
 
 
@@ -179,7 +132,6 @@ def lockstep_errors(mcap: Path) -> pd.DataFrame:
     out = pd.DataFrame(rows)
     if out.empty:
         return out
-    # The steady age is latency plus one frame; past 2.5 frames of delivery age is a gap.
     fresh = out["age"] - out["age"].min() <= 1.5 * TICK_S
     return out[fresh & (out["theta"].abs() < np.pi / 2)]
 
@@ -259,9 +211,6 @@ def main() -> None:
         per_bin = []
         for b in range(len(edges)):
             sel = values[bins == b]
-            # Sparse fast bins borrow the next slower bin with data.
-            # Robust sigma: the tails are fast-spin moments where a few ms of stamp misalignment
-            # reads as heading error, and an AR(1) Gaussian cannot represent them anyway.
             mad = float(np.median(np.abs(sel - np.median(sel)))) if sel.size else 0.0
             per_bin.append(1.4826 * mad if sel.size >= 50 else float("nan"))
         for b in range(len(per_bin)):

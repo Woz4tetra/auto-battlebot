@@ -1,35 +1,4 @@
-"""Push the fitted plant numbers from plant_stageA.toml into every consumer that hard-codes them.
-
-The plant numbers have three homes: the fit (`playground/calibration/out/plant_stageA.toml`), the
-kinematic sim (`simulation/sim_mrs_buff_mk3.toml`), and the C++ config chain's `[plant]` table
-(`config/_common.toml`). Only the first is authored. They drifted apart once already, which is how
-MotionProfileNavigation ended up running Mr Stabs Mk2's time constants on Mrs Buff Mk3, so this
-script makes the other two derived.
-
-The `[plant]` table is read by both the our-robot EKF and MotionProfileNavigation, so there is one
-C++-side target rather than one per consumer.
-
-It rewrites the numeric literal of each mapped field in place and touches nothing else. The
-hand-written doc comments around those fields explain what each number does and why, which a
-block regenerator would flatten, so they are left alone. That also means adding a field to the
-fit does not automatically give it a home here: add it to the tables below and write the comment
-by hand.
-
-`--check` rewrites nothing and exits 1 if any consumer disagrees with the fit. Run it after a
-refit, and in CI if the fit ever starts changing on its own.
-
-Usage:
-    source scripts/activate_python.sh
-    python playground/calibration/write_plant_configs.py           # rewrite
-    python playground/calibration/write_plant_configs.py --check   # report drift, change nothing
-
-Mr Stabs Mk2 has no jig fit. Its table comes from the MuJoCo fit through distill_mujoco_plant.py and
-goes into its own profiles' [plant] tables only; its sim config keeps the MuJoCo plant, so no sim
-fields are written:
-
-    python playground/calibration/write_plant_configs.py --robot mr_stabs_mk2 \
-        --fit playground/calibration/out/mujoco_sysid/fit_<ts>/distilled/plant.toml
-"""
+"""Push the fitted plant numbers from plant_stageA.toml into every consumer that hard-codes them."""
 
 from __future__ import annotations
 
@@ -45,7 +14,6 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_FIT = REPO_ROOT / "playground" / "calibration" / "out" / "plant_stageA.toml"
 SIM_CONFIG = REPO_ROOT / "simulation" / "sim_mrs_buff_mk3.toml"
 PLANT_CONFIG = REPO_ROOT / "config" / "_common.toml"
-# Every Mr Stabs Mk2 profile restates [plant] in full rather than inheriting Mrs Buff's.
 MR_STABS_PLANT_CONFIGS = tuple(
     REPO_ROOT / "config" / rel
     for rel in (
@@ -83,15 +51,6 @@ SIM_FIELDS = {
     "deadzone_angular_right": "dz_ang_r",
 }
 
-# The controller inverts the plant, so it takes the same terms under its own names.
-#
-# `angular_droop_coeff` is absent on purpose. The plant does droop (c_ad = 0.463) but compensating
-# for it measured worse: on a 90-degree turning approach it took terminal error from 0.008 m to
-# 0.067 m and time-to-goal from 1.10 s to 2.83 s, because the harder turn it commands is exactly
-# what the steer-brake term then charges forward speed for. The controller default stays 0.0 and
-# is not derived from the fit. `c_drift`/`c_drift_bias` are absent because model M4 disables them.
-# The [plant] table uses the fit's own names, so this mapping is the identity. Listed explicitly
-# so a field added to the fit does not silently skip the table.
 PLANT_FIELDS = {
     name: name
     for name in (

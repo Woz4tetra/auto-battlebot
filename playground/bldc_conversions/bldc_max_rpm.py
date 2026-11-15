@@ -1,33 +1,10 @@
-"""Theoretical max RPM calculator for the drivetrain BLDC motors.
-
-Hardware:
-- 2x Repeat Compact 1806, 2300 Kv, 22.6:1 gearbox
-  https://repeat-robotics.com/products/repeat-compact-1806
-- 2x BLHeli ESC
-- 2x GNB 2S 300mAh LiHV battery wired in series -> 4S bus
-  https://www.racedayquads.com/products/gaoneng-gnb-3-8v-2s-300mah-80c-lihv-whoop-micro-battery-w-cabled-connector-xt30
-
-Theoretical no-load speed is just Kv times the applied voltage. Kv is the
-back-EMF constant: at N rpm the motor generates N/Kv volts of back-EMF, so the
-rotor spins up until back-EMF equals the supply and no more current flows. Real
-top speed is a few percent lower (winding resistance, iron/friction losses,
-ESC timing), but this is the ceiling the ESC can command.
-
-The 2300 Kv figure is validated by the manufacturer's own output-shaft numbers:
-  2300 * 14.8 V (4S nominal) / 22.6 = 1506 rpm  (spec sheet says 1500 rpm)
-  2300 * 11.1 V (3S nominal) / 22.6 = 1130 rpm  (spec sheet says 1130 rpm)
-
-Usage:
-    python playground/bldc_max_rpm.py
-"""
+"""Theoretical max RPM calculator for the drivetrain BLDC motors."""
 
 from __future__ import annotations
 
 REPEAT_1806_KV_RPM_PER_V = 2300.0
 GEAR_RATIO_MOTOR_PER_OUTPUT = 22.6
 
-# GNB LiHV cell. LiHV charges to 4.35 V/cell (vs 4.20 for a plain LiPo) and
-# sags to ~3.8 V/cell nominal.
 CELL_NOMINAL_V = 3.8
 CELL_CHARGED_V = 4.35
 

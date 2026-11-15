@@ -60,13 +60,7 @@ def pick_topic(available: list[str], hints: tuple[str, ...], override: str | Non
 
 
 def decode_organized_cloud(msg: Any) -> tuple[np.ndarray, np.ndarray]:
-    """An organized XYZ+BGRA PointCloud2 back into a BGR image and a metric depth image.
-
-    The 2024 competition bags never recorded the ZED image or depth streams; the only
-    per-pixel data is this cloud, published once when the field was initialised. It is in
-    the optical frame (verified: unprojecting z through K reproduces the cloud's own x and
-    y to 0.0000 m), so z is exactly the depth image the C++ path expects.
-    """
+    """An organized XYZ+BGRA PointCloud2 back into a BGR image and a metric depth image."""
     raw = np.frombuffer(bytes(msg.data), dtype=np.uint8).reshape(
         msg.height, msg.width, msg.point_step
     )
@@ -138,12 +132,7 @@ def load_frames(path: Path, args: argparse.Namespace) -> tuple[list[dict], dict]
 
 
 def stillest_frames(frames: list[dict], count: int, stride: int) -> list[int]:
-    """Indices of the frames where the tripod is most settled.
-
-    Motion is measured by phase correlation against the previous sampled frame, the same
-    way the cage-camera stability check works. The camera is meant to be static, so this
-    is really a filter for someone bumping the tripod or walking through the shot.
-    """
+    """Indices of the frames where the tripod is most settled."""
     sampled = list(range(0, len(frames), max(1, stride)))
     scores = []
     previous = None

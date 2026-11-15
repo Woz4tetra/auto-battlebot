@@ -1,27 +1,4 @@
-"""Self-contained HTML report on a velocity jig plant fit.
-
-Answers two questions the fitted numbers alone do not: which excitation needs more runs, and
-how much more data is worth collecting. Everything is embedded, so the file opens with no
-network and can be copied around on its own.
-
-Sections, in reading order:
-
-  0  What to collect next    parameters ranked by confidence, mapped to the waveform that
-                             constrains them, with a run count to reach the target
-  1  Data inventory          per waveform: runs, usable seconds, windows contributed
-  2  Run quality             the capture and offline gates, per run
-  3  Parameters              stage A estimates with spread and provenance
-  4  Evidence                gain scatters, staircases, tau trends, coupling, drift, delay
-  5  Convergence             leave-one-run-out influence, and the learning curve
-  6  Coverage                what of the input space has actually been visited
-  7  Horizon quality         RMSE against the acceptance criteria
-  8  Residual diagnostics    what a missing model term would look like
-  9  Per run                 measured against predicted, with residuals
- 10  Excluded and provenance
-
-Imported by `fit_jig_plant.py --report`. It imports from `auto_battlebot.calibration`, never from a
-CLI.
-"""
+"""Self-contained HTML report on a velocity jig plant fit."""
 
 from __future__ import annotations
 
@@ -56,8 +33,6 @@ from auto_battlebot.control.plant import (
     predict_windows,
 )
 
-# Relative spread below which a parameter counts as measured. 10% is the point where the
-# parameter stops being the thing limiting the model.
 TARGET_REL = 0.10
 WEAK_REL = 0.30
 
@@ -234,12 +209,7 @@ class ParamStatus:
         return {"measured": "ok", "weak": "warn", "not measured": "bad"}[self.status]
 
     def runs_needed(self, target_rel: float = TARGET_REL) -> int:
-        """How many more runs to reach the target, by the root-N law.
-
-        Spread falls as 1/sqrt(N), so N scales as (rel_now / rel_target)^2. This is an
-        estimate from one point on the curve; the learning curve section measures the slope
-        instead of assuming it.
-        """
+        """How many more runs to reach the target, by the root-N law."""
         if self.runs_now < 1 or not np.isfinite(self.rel) or self.rel <= target_rel:
             return 0
         return max(1, int(np.ceil(self.runs_now * (self.rel / target_rel) ** 2)) - self.runs_now)
@@ -378,8 +348,6 @@ def section_quality(loaded: Loaded) -> Section:
     for run in loaded.runs:
         q = run.quality
         problems = q.problems()
-        # Notices are not problems. They render as their own chip so a clipped accel reads as
-        # "look at this" rather than joining the reasons a run was dropped.
         chips = "".join(chip(p, "bad") for p in problems)
         chips += "".join(chip(n, "warn") for n in q.notices())
         chips = chips or chip("clean", "ok")
@@ -613,12 +581,7 @@ def jackknife(
     stride_s: float,
     max_windows: int,
 ) -> tuple[list[str], dict[str, np.ndarray]]:
-    """Refit with each run dropped in turn.
-
-    A parameter that moves more than its own spread when one run is dropped rests on that
-    single run. That is the sharpest possible "collect more of this", and unlike the
-    learning curve it costs one short refit per run rather than dozens.
-    """
+    """Refit with each run dropped in turn."""
     names = structure.free_names()
     shifts = {n: [] for n in names}
     labels: list[str] = []
@@ -653,12 +616,7 @@ def learning_curve(
     n_boot: int,
     seed: int = 12345,
 ) -> tuple[np.ndarray, dict[str, np.ndarray]]:
-    """Parameter spread against the number of runs included, by bootstrap over runs.
-
-    The point is the slope, not any single value. A curve still falling at the right edge
-    means more runs will keep helping; one that has flattened means the limit is the
-    excitation, not the sample count, and more of the same will not move it.
-    """
+    """Parameter spread against the number of runs included, by bootstrap over runs."""
     names = structure.free_names()
     rng = np.random.default_rng(seed)
     counts = [c for c in (2, 3, 5, 8, 12, 20) if c <= len(runs)]
@@ -909,12 +867,7 @@ def section_horizons(reports: dict) -> Section:
 
 
 def residual_acf(err: WindowErrors, max_lag: int = 40, horizon_index: int = -1) -> np.ndarray:
-    """Autocorrelation of the position residual across window starts.
-
-    The scalar lag-1 version answers "is there structure"; the curve answers "how much and
-    over what scale". Structure lasting tens of lags is a missing model term, and no amount
-    of process-noise tuning covers that honestly.
-    """
+    """Autocorrelation of the position residual across window starts."""
     series = err.position[:, horizon_index]
     series = series - series.mean()
     denom = float(series @ series)
@@ -1050,13 +1003,7 @@ def section_residuals(err: WindowErrors | None, runs: Sequence[Run]) -> Section:
 
 
 def run_trace_figure(run: Run, params: PlantParams, structure: ModelStructure, reinit_s: float):
-    """Commands, measured against predicted, and the residual.
-
-    Built on the same windowing the fit uses rather than a private integrator: a bespoke
-    plotting path that disagreed with the fit would be worse than no plot at all. The model
-    is reinitialized from truth every `reinit_s`, so a 30 s run stays readable instead of
-    diverging in the first second and telling you nothing after it.
-    """
+    """Commands, measured against predicted, and the residual."""
     ws = build_windows([run], window_delay(params, structure), (reinit_s,), reinit_s, 4000)
     if ws is None:
         return None
@@ -1086,8 +1033,6 @@ def run_trace_figure(run: Run, params: PlantParams, structure: ModelStructure, r
     axes[3].set_ylabel(f"|err| at {reinit_s * 1e3:.0f} ms (mm)", fontsize=8)
     axes[3].set_xlabel("time (s)", fontsize=9)
 
-    # Grey out what the fit ignores, so a run that looks bad because it was excluded is
-    # visibly different from one that is bad because the model is wrong.
     bad = ~run.commanded
     if np.any(bad):
         edges = np.flatnonzero(np.diff(bad.astype(int)) != 0) + 1

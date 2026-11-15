@@ -1,24 +1,4 @@
-"""Render open-loop prediction videos reprojected into the camera view.
-
-Same content as `render_match_prediction.py` (plant integrates the transmitted
-commands open loop, resetting to the measured pose every few seconds) but drawn
-over the actual SVO RGB frames: measured footprint in blue, predicted ghost in
-orange, both projected onto the field plane through the replay's per-tick
-field->camera_world->camera transforms and camera intrinsics.
-
-The SVO file is taken from `/camera/frame_meta` (it records the path the replay
-played), and the Nth decoded left-eye JPEG is SVO frame N, so frames pair with
-ticks exactly. Projection uses the tick's own field->camera_world transform, so
-field re-initializations mid-replay cannot smear the overlay.
-
-Usage:
-    source scripts/activate_python.sh
-    python playground/calibration/render_match_prediction_camera.py \\
-        --pair <replay>.mcap:<original>.mcap:2026-05-01_17-42-20 \\
-        --params playground/calibration/out/plant_match.toml \\
-        --cmd-lead-ms 40 \\
-        --out-dir playground/calibration/out/match_fit/videos
-"""
+"""Render open-loop prediction videos reprojected into the camera view."""
 
 from __future__ import annotations
 

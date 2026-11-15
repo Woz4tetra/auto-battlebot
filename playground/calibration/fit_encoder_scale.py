@@ -1,25 +1,4 @@
-"""Fit metres per encoder count from hand-pushed runs over measured distances (runbook E4).
-
-The encoder scale is the constant every linear measurement depends on, so it is measured
-rather than inferred from a top speed. Push the robot with the motors disarmed between two
-marked points, dwelling at each so the stops are unambiguous, and this reads the count at
-each dwell and fits counts against distance through the origin.
-
-    source scripts/activate_python.sh
-    python playground/calibration/fit_encoder_scale.py \\
-        --run 0.5  LOG-38.TXT LOG-39.TXT LOG-40.TXT \\
-        --run 0.75 LOG-42.TXT LOG-43.TXT LOG-44.TXT \\
-        --run 1.0  LOG-45.TXT LOG-46.TXT LOG-47.TXT \\
-        --plot out/encoder_scale.png
-
-Several distances beat one distance repeated. A fixed error (the marks, or the robot not
-quite stopping on them) is a constant offset in counts, so it bends a counts-against-distance
-line away from the origin. With one distance that offset is invisible and lands entirely in
-the scale; with three it shows up as an intercept, which this reports.
-
-An out-and-back is worth more than a one-way push, because returning to the start makes the
-closure error visible, and closure is the only check a single pass affords.
-"""
+"""Fit metres per encoder count from hand-pushed runs over measured distances (runbook E4)."""
 
 from __future__ import annotations
 
@@ -67,11 +46,7 @@ class Pass:
 def find_dwells(
     t: np.ndarray, count: np.ndarray, *, min_s: float = 0.75, tol_counts: float = 40.0
 ) -> list[Dwell]:
-    """Stretches where the count barely moves, which is where the marks are.
-
-    The tolerance is in counts rather than a velocity threshold: a hand push is slow, so a
-    velocity bar tight enough to exclude the push would also split every dwell in two.
-    """
+    """Stretches where the count barely moves, which is where the marks are."""
     dt = float(np.median(np.diff(t))) if len(t) > 1 else 0.001
     window = max(2, int(round(min_s / max(dt, 1e-9))))
     if len(count) < window:
@@ -131,13 +106,7 @@ def read_pass(path: Path, distance_m: float, *, min_s: float, tol: float) -> Pas
 
 @dataclass
 class Fit:
-    """Both fits, and which one to believe.
-
-    Through the origin is the model you want to be true: zero distance, zero counts. The
-    two-parameter fit exists to test it. When the intercept is real, the through-origin slope
-    is pulled up by a fixed per-pass error and overstates the scale, while the differential
-    slope is honest because a constant offset cancels out of it.
-    """
+    """Both fits, and which one to believe."""
 
     counts_per_m: float  # through the origin
     stderr: float
@@ -175,13 +144,7 @@ class Fit:
 
 
 def fit_scale(passes: list[Pass]) -> Fit:
-    """Counts against distance, through the origin, plus an intercept as a diagnostic.
-
-    Through the origin is the model: zero distance is zero counts. The intercept is fitted
-    separately only to check that assumption. An intercept far from zero means a fixed error
-    per pass, most likely the marks or where the robot actually came to rest, and it inflates
-    the scale fitted from short pushes.
-    """
+    """Counts against distance, through the origin, plus an intercept as a diagnostic."""
     x = np.array([p.distance_m for p in passes])
     y = np.array([p.span for p in passes])
 

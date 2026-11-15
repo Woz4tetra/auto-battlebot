@@ -1,33 +1,4 @@
-"""Closed-loop stop test: MotionProfileNavigation on Mr Stabs Mk2 against the MuJoCo plant.
-
-The last check before a distilled [plant] table goes on the robot. The app plans its brake
-schedule and feedforward from the [plant] table while the sim moves the robot with the fitted
-MuJoCo model, so every error in the table shows up as a stop that lands short, overshoots, or
-oscillates. Each arm is one [plant] table, and every arm drives the same goals.
-
-Each run is the real binary (build/auto_battlebot) against kinematic_sim_server.py, headless,
-one goal per run: a static "opponent" at the goal, attack mode with a zero terminal speed, so the
-controller drives there and stops within stop_distance. Scored from the sim's own per-tick
-trace, which is ground truth:
-
-- stop_along_m: where the robot came to rest, along the final approach, relative to the goal.
-  Negative is short. Anything in [-stop_distance, +stop_distance] counts as a stop on target.
-- peak_along_m: furthest past the goal it got on the way. Overshoot that it later backed out of
-  shows here and not in stop_along_m.
-- arrive_s: first time inside stop_distance. settle_s: from then until speed stays under 0.05 m/s.
-- reentries: how many times it left the stop circle again after arriving (oscillation).
-- flipped: pitch left its rest value by more than 60 deg. Nothing else in the row means anything
-  then. The flat [plant] table cannot predict a backflip, so a flipping arm needs a lower
-  --max-linear-command, not a better table.
-
-    python playground/calibration/sim_stop_test.py \\
-        --fit-file playground/calibration/out/mujoco_sysid/fit_<ts>/fit.json \\
-        --arm current=config/mr_stabs_mk2_aer_zed_box.toml \\
-        --arm distilled=playground/calibration/out/mujoco_sysid/fit_<ts>/distilled/plant.toml
-
-Build first (scripts/build.sh). Runs are sequential: the C++ side has the sim port hard-coded.
-Writes <out>/results.csv and one trace and log per run; --out defaults next to the fit file.
-"""
+"""Closed-loop stop test: MotionProfileNavigation on Mr Stabs Mk2 against the MuJoCo plant."""
 
 from __future__ import annotations
 
@@ -101,14 +72,12 @@ def write_sim_config(
         max_ticks=int(round(seconds / cfg["sim"]["dt"])), stop_on_outcome=True, trace_csv=str(trace)
     )
     cfg["viewer"] = {**cfg.get("viewer", {}), "enable": False}
-    # The MuJoCo plant holds the drivetrain delay itself; the sim's own buffer is the radio part.
     cfg["latency"]["command_ms"] = radio_ms
     robot = cfg["our_robot"]
     robot["plant"] = "mujoco"
     robot["start_pos"] = [case.start[0], case.start[1]]
     robot["start_yaw_deg"] = case.start[2]
     robot["mujoco"]["fit_file"] = str(fit_file.resolve())
-    # The base config runs the RL environment's 2 ms step; the fit and its checks run at 1 ms.
     robot["mujoco"]["timestep"] = 1e-3
     opp = cfg["opponents"][0]
     opp.update(behavior="static", start_pos=list(case.goal), hazard_radius=0.0)
@@ -118,7 +87,6 @@ def write_sim_config(
 
 
 def write_cpp_overlay(table: PlantParams, max_linear: float | None, path: Path) -> None:
-    # Same type as the base, so these merge key by key: arrive stopped at the goal.
     nav: dict[str, Any] = {
         "type": "MotionProfileNavigation",
         "attack_terminal_speed_fraction": 0.0,

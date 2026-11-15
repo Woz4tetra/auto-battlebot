@@ -1,26 +1,4 @@
-"""Generate print-ready AprilTag PDFs for drivetrain calibration: a floor grid and a robot tag.
-
-The PDF export (pixels-per-mm -> DPI, so a 100%-scale print is dimensionally exact) is adapted from
-true_battlebot scripts/tags/tag_tools.py. The tags themselves are rendered with cv2.aruco
-(DICT_APRILTAG_36h11) so the printed geometry exactly matches the GridBoard model apriltag_track.py
-uses for pose. cv2.aruco's ids match the canonical AprilRobotics tag36h11 family (verified), so
-these are real AprilTags.
-
-Sizing keeps the camera resolution in mind. apriltag_track.py runs the OAK-1 W at 1080p (1920x1080 @
-60 fps); the script prints the estimated marker size in pixels at that resolution for the given
-mount height. Face-on, 36h11 needs ~18 px edge to decode, so aim well above that (>= ~30 px). If
-your mount is high and the estimate is small, increase --floor-marker-size / --robot-tag-size, lower
-the mount, or step up to 4K.
-
-Usage:
-    source scripts/activate_python.sh
-    python playground/calibration/make_print_tags.py --out-dir playground/calibration/print
-
-The floor grid is normally the manufactured board (3x5 of 65 mm markers, 15 mm gaps, ids 160..174
-numbered right-to-left per row); this script reproduces it only if you need a reprint. The robot tag
-(id 20, off the floor's 160..174 range) is the piece you actually print here. Defaults match
-apriltag_track.py. Print at 100% (no "fit to page"), tape the tag flat on the robot top.
-"""
+"""Generate print-ready AprilTag PDFs for drivetrain calibration: a floor grid and a robot tag."""
 
 from __future__ import annotations
 
@@ -36,11 +14,7 @@ DICTIONARY = cv2.aruco.DICT_APRILTAG_36h11
 
 
 def save_pdf(img_gray: np.ndarray, px_per_mm: float, out: Path) -> None:
-    """Save a grayscale image as a PDF whose page is dimensionally exact when printed at 100%.
-
-    The tags are pure black/white, so the image is stored bilevel (mode "1"): PDF keeps that
-    lossless (no JPEG softening of the marker edges), and the file stays small.
-    """
+    """Save a grayscale image as a PDF whose page is dimensionally exact when printed at 100%."""
     dpi = px_per_mm * 25.4
     pil = Image.fromarray(img_gray > 127)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -110,7 +84,6 @@ def main() -> None:
     # Robot tag (id off the floor's 160..174 range).
     p.add_argument("--robot-tag-id", type=int, default=20)
     p.add_argument("--robot-tag-size", type=float, default=0.13, help="robot tag edge (m)")
-    # Camera sizing estimate (defaults: OAK-1 W wide lens at 1080p).
     p.add_argument(
         "--mount-height", type=float, default=1.0, help="camera height above the floor (m)"
     )

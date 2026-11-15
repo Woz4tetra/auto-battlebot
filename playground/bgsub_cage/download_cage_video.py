@@ -1,22 +1,4 @@
-"""Download NHRL fixed overhead cage video from BrettZone as 1080p clips.
-
-Every recording in this repo comes from a moving ZED, so background subtraction
-cannot be evaluated on it. This pulls the one NHRL camera that never moves:
-``Cage-N-Overhead-High``, a near top-down view of the cage floor.
-
-The source object on Linode is 3840x2160 at 59.94 fps and about 1.4 GB per fight.
-It serves byte ranges, so ffmpeg seeks straight to the fight window and scales to
-1080p in the same pass. The 4K never lands on disk.
-
-Output names match the BrettZone export pattern that
-``training/deeplab/field_labels.py`` already parses::
-
-    BZ-<tournamentID>-<p1clean>-<p2clean>-<gameID>-Cage-<n>-Overhead-High.mp4
-
-Usage:
-    python download_cage_video.py OUTPUT_DIR --limit 20 --seed 0 --since 2026-04-01
-    python download_cage_video.py OUTPUT_DIR --dry-run
-"""
+"""Download NHRL fixed overhead cage video from BrettZone as 1080p clips."""
 
 from __future__ import annotations
 
@@ -36,17 +18,12 @@ import requests
 
 API_BASE = "https://brettzone.nhrl.io/brettZone/api.php"
 REQUEST_TIMEOUT = 30
-# The docs ask for no more than one request every 5 s against live endpoints. The
-# archive endpoints used here carry no such limit, but a small gap keeps us polite.
 REQUEST_GAP_S = 0.25
 
 OVERHEAD_RE = re.compile(r"^Cage-(\d+)-Overhead-High$")
 NULL_DATE_PREFIX = "0000"
 DATE_FIELDS = ("endTime", "startTime", "scheduledStartTime", "createTime")
 
-# Pre-roll before the fight starts and post-roll after it ends, in seconds. The
-# pre-roll catches the countdown with both robots parked, which is the cleanest
-# background frame a clip contains.
 PRE_ROLL_S = 3.0
 POST_ROLL_S = 5.0
 
@@ -505,8 +482,6 @@ def main() -> int:
         fights = select_fights(tournaments, args.brettzone_api_key, args.min_length, args.min_cams)
         print(f"{len(fights)} eligible fights across {len(tournaments)} tournaments")
 
-        # Oversample so fights whose overhead recording is missing can be replaced without
-        # a second pass over the API.
         candidates = sample_fights(fights, args.limit * 3, args.per_tournament * 3, args.seed)
 
     output_dir = args.output_dir

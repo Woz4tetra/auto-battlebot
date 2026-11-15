@@ -40,8 +40,6 @@ TEXT_BGR = (240, 240, 240)
 FLIPPED_BGR = (60, 200, 255)
 COLLISION_BGR = (255, 60, 255)
 
-# Manifest suffix for the underside render: the robot rolled 180 deg about its front axis, so the
-# front still points +X and it rotates by yaw like the top view.
 FLIPPED_SUFFIX = "_flipped"
 
 
@@ -51,9 +49,7 @@ def _resolve(path: str) -> Path:
 
 
 class SpriteSet:
-    """Sprites plus the two conventions the runtime depends on, both read from sprites.json:
-    pixels-per-metre (so blits scale to any window) and front-points-+X (so rotation is a plain
-    rotation by yaw with no per-asset offset). Missing sprites degrade to drawn discs."""
+    """Sprites plus the two conventions the runtime depends on, both read from sprites.json:"""
 
     def __init__(self, sprites_dir: str) -> None:
         self._sprites: dict[str, tuple[np.ndarray, float]] = {}
@@ -106,8 +102,7 @@ class Viewer:
         )
 
     def _load_background(self, path: str) -> np.ndarray:
-        """Scale the arena texture once at startup and keep the result; blitting a pre-scaled
-        background per frame is free. The texture maps the whole arena, so it scales with it."""
+        """Scale the arena texture once at startup and keep the result; blitting a pre-scaled"""
         image = cv2.imread(str(_resolve(path)), cv2.IMREAD_COLOR)
         if image is None:
             return np.full((self._size, self._size, 3), 30, dtype=np.uint8)
@@ -126,8 +121,6 @@ class Viewer:
                 cv2.circle(canvas, center, radius_px, HOLE_RIM_BGR, 2, cv2.LINE_AA)
             else:
                 cv2.circle(canvas, center, radius_px, BLOCK_BGR, -1, cv2.LINE_AA)
-            # The keep-out ring is the geometry the controller actually steers on. Showing it
-            # next to the real hole is the single most useful thing this window does.
             keepout_px = int(round((obstacle.radius + inflate) * self._px_per_m))
             cv2.circle(canvas, center, keepout_px, KEEPOUT_BGR, 1, cv2.LINE_AA)
 
@@ -182,8 +175,7 @@ class Viewer:
         ).astype(np.uint8)
 
     def _draw_collision(self, canvas: np.ndarray, plant: Any) -> None:
-        """What the plant actually collides with, over the sprites: the two differ, and a scrape
-        or a hit that the sprites do not explain shows up here."""
+        """What the plant actually collides with, over the sprites: the two differ, and a scrape"""
         polygons = [
             np.column_stack(
                 [
@@ -263,32 +255,20 @@ class Viewer:
             self._drag_index = None
 
     def _opponent_sprite(self, index: int) -> str:
-        """Sprite for opponent *index*, from its own config entry.
-
-        Opponents are drawn in config order, so the index maps straight onto ``[[opponents]]``. A
-        run that adds opponents beyond the configured list (none do today) falls back to the first
-        entry rather than raising mid-frame.
-        """
+        """Sprite for opponent *index*, from its own config entry."""
         opponents = self._cfg.opponents
         if not opponents:
             return "mrs_buff_mk2"
         return str(opponents[min(index, len(opponents) - 1)].sprite)
 
     def compose_world(self, plant: Any, opponents: list[Any]) -> np.ndarray:
-        """Top-down arena: floor, hazards, robots. No HUD.
-
-        Split out from `compose` because the simulated camera feed warps this into the camera's
-        view, and text and heading arrows drawn for a top-down window read as garbage once they
-        are projected into a perspective image.
-        """
+        """Top-down arena: floor, hazards, robots. No HUD."""
         canvas: np.ndarray = self._background.copy()
         self._draw_obstacles(canvas, inflate=self._cfg.our_robot.radius)
         for index, opponent in enumerate(opponents):
             ox, oy, oyaw = opponent.pose()
             self._draw_robot(canvas, ox, oy, oyaw, self._opponent_sprite(index), OPP_BGR, 0.11)
         x, y, yaw = plant.pose()
-        # The sprite is centred on the footprint, which need not be the pose: the MuJoCo plant's
-        # pose is the axle.
         cx, cy = footprint_center((x, y, yaw), plant.footprint_center_offset)
         self._draw_robot(
             canvas,
@@ -328,8 +308,6 @@ class Viewer:
             cv2.setMouseCallback(self._window, self._on_mouse)
             self._window_open = True
         cv2.imshow(self._window, canvas)
-        # Free-running at sim speed makes the window unusable for dragging things by hand, so
-        # realtime paces the wait to sim.dt. Headless sweeps never get here.
         wait_ms = 1
         if self._cfg.viewer.realtime:
             wait_ms = max(1, int(self._cfg.sim.dt * self._cfg.viewer.render_every * 1000))

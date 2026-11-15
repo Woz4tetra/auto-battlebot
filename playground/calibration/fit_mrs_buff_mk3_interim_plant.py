@@ -1,25 +1,4 @@
-"""Fit Mrs Buff Mk3's MuJoCo plant to her jig-fitted grey-box plant, until a tagged session exists.
-
-Mr Stabs Mk2's MuJoCo plant was fit to hand-driven sessions with AprilTags (fit_mujoco_plant.py).
-Mrs Buff Mk3 has no such session, only the velocity jig's M4 grey-box fit
-(playground/calibration/out/plant_stageA.toml: speeds, lags, deadzones, steer-brake and angular
-droop, measured on the floor with the guard plates on). This drives the M4 model with jig-shaped
-command tapes, treats its poses as measurements, and fits the MuJoCo plant to them with the same
-staged CMA-ES and loss the session fit uses. M4 is flat, so this pins drive and scrub, not
-tipping; with the weapon off she does not tip.
-
-Commands are what the app sends: `DifferentialDriveProcessor` output (angular priority, the zero
-deadzone), linear and angular in [-1, 1]. The radio mixes them per motor as left = linear -
-angular, right = linear + angular (positive angular turns counterclockwise, the inverse
-`greybox.predict` uses). Her ESCs run open loop: there is no eRPM feedback and no onboard yaw
-loop, so the voltage-source actuator model is the whole command chain after the delay.
-
-    python playground/calibration/fit_mrs_buff_mk3_interim_plant.py \\
-        --out playground/calibration/out/mujoco_sysid/mk3_interim
-
-Writes fit.json (load_fit_params reads it), holdout.json (per-horizon errors and response
-checks against M4) and fit.log.
-"""
+"""Fit Mrs Buff Mk3's MuJoCo plant to her jig-fitted grey-box plant."""
 
 from __future__ import annotations
 
@@ -76,14 +55,9 @@ SPECS = {
         ParamSpec("joint_damping", 1e-6, 1e-3, log=True),
         ParamSpec("wheel_mu_slide", 0.1, 3.0, log=True),
         ParamSpec("wheel_mu_torsion", 1e-4, 5e-2, log=True),
-        # Capped at 0.02 s: the same contact softness applies to walls and opponents, and a
-        # softer contact lets the hull sink into them in a collision. M4 is flat, so the floor
-        # alone would happily trade stiffness away.
         ParamSpec("solref_timeconst", 0.004, 0.02, log=True),
         ParamSpec("solimp_dmax", 0.9, 0.9999),
         ParamSpec("armature_scale", 0.3, 3.0, log=True),
-        # The ESC's current limit caps acceleration. The datasheet gives 10.4 A stall at 12 V;
-        # without this term the fit pinned the rotor inertia at 3x to slow the launch.
         ParamSpec("current_limit_a", 3.0, 40.0, log=True),
     )
 }
@@ -123,12 +97,7 @@ def saturate(lin: np.ndarray, ang: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
 
 def command_tape(rng: np.random.Generator, n: int) -> tuple[np.ndarray, np.ndarray]:
-    """One window's linear and angular commands on the PLANT_DT grid, piecewise constant.
-
-    Each window draws one family, the way the jig protocol excites one term at a time: straight
-    steps and reversals, spins, arcs on the steer/brake grid, and staircases near the deadzone.
-    Holds end in zero about a third of the time, so the coast or brake decel is in the data.
-    """
+    """One window's linear and angular commands on the PLANT_DT grid, piecewise constant."""
     lin = np.zeros(n)
     ang = np.zeros(n)
     family = rng.integers(0, 5)

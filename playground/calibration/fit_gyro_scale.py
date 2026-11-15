@@ -1,28 +1,4 @@
-"""Fit the gyro scale factor from rotations through a known angle (runbook E3).
-
-Integrating the gyro over a rotation of known size and comparing to that size gives one
-number: how much the gyro over- or under-reports. Every heading estimate is multiplied by it,
-so an unmeasured 2% here is 2% of heading error that no filter tuning removes.
-
-    source scripts/activate_python.sh
-    python playground/calibration/fit_gyro_scale.py \\
-        --run 3600 LOG-a.TXT \\
-        --run -3600 LOG-b.TXT \\
-        --plot playground/calibration/out/gyro_scale.png
-
-`--run` takes the true rotation in degrees, signed: positive counter-clockwise viewed from
-above. Run both directions. A scale that differs between them is not a scale factor at all,
-it is a mounting or axis-sign problem, and averaging the two would bury it.
-
-The yaw axis comes from gravity, not from a note about how the jig is bolted on. At rest the
-accelerometer reads +1 g on whichever axis points up, and the IMU puts gyro and accel on one
-right-handed triad, so up plus the right-hand rule fixes positive yaw as counter-clockwise
-from above. That survives a tilted remount, which no single gyro axis would.
-
-Bias dominates the error budget on a slow rotation. A 0.05 deg/s bias over a 20 s turn is
-1 deg, so the bias is taken from the still hold that opens the run and ramped to the one that
-closes it. A run with only one still hold gets a constant bias and says so.
-"""
+"""Fit the gyro scale factor from rotations through a known angle (runbook E3)."""
 
 from __future__ import annotations
 
@@ -38,8 +14,6 @@ from auto_battlebot.calibration.jig.velocity_jig import (
     still_stats,
 )
 
-# Below this the robot counts as stationary for the purpose of finding where the turn starts
-# and stops. Well above the bias, well below a hand rotation.
 TURN_EPS_DPS = 1.0
 
 
@@ -240,7 +214,6 @@ def main() -> None:
             f"{_fmt(t.bias_drift_dps, 4):>11}"
         )
 
-    # Through the origin over signed angles, so both directions constrain one number.
     x = np.array([t.reference_deg for t in turns])
     y = np.array([t.measured_deg for t in turns])
     slope = float(np.sum(x * y) / np.sum(x * x))

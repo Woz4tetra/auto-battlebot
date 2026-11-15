@@ -97,8 +97,6 @@ def run(
     for topic, log_time_ns, data in messages:
         dispatch(topic, log_time_ns, data)
         now = time.monotonic()
-        # Unpaced replays advance on recording time, so a fast replay closes the same windows
-        # as a live run would.
         due = (
             now - last_advance >= ADVANCE_S
             if paced

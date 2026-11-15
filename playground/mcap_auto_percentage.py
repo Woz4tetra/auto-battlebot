@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
-"""
-Report what percentage of a match recording the robot spent in autonomous mode.
-
-The match window runs from the first time values/15 == 1024 (auto engaged)
-to the last auto->manual transition.  Auto mode is detected from the
-diagnostics: opentx_transmitter / channels / values/15 == 1024.
-"""
+"""Report what percentage of a match recording the robot spent in autonomous mode."""
 
 import argparse
 import sys

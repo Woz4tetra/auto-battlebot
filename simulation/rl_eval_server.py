@@ -1,17 +1,4 @@
-"""Lockstep server for RL evaluation scenarios (plan gates G4 and G5).
-
-Serves one scenario exported by `WarpNavEnv.export_scenarios` to one C++ client, then writes the
-episode's score as a JSON line and exits. The world is `auto_battlebot.rl.lockstep_world`: the
-Warp environment's arena, opponent behaviours, command chain and scoring on CPU MuJoCo, so the
-real C++ navigation (`RlPolicyNavigation` or `MotionProfileNavigation`) is scored on the same
-episodes, with the same numbers, as the Python evaluation.
-
-Perception is the sensing model at the tick rate, as in `kinematic_sim_server.py`, with one
-measurement slot per robot: ours, the opponent, and the house bot when the scenario has one.
-
-    python simulation/rl_eval_server.py --scenarios s.json --index 3 --port 14890 \\
-        --results results.jsonl --label motion_profile
-"""
+"""Lockstep server for RL evaluation scenarios (plan gates G4 and G5)."""
 
 from __future__ import annotations
 

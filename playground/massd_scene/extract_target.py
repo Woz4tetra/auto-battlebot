@@ -1,29 +1,5 @@
 #!/usr/bin/env python3
-"""Robot-free target frame from a MassDestruction broadcast clip, banners cropped off.
-
-The Omega broadcast lays a title bar over the top of the picture and a sponsor bar over
-the bottom. Both are cropped here (the crop used by
-`data/downloads/mass_destruction/MANIFEST.md`: rows 96 to 982 of a 1080p stream), so the
-target, the hull mask and every K written downstream describe the same 1920x886 picture.
-
-Unlike the NHRL cage-high flow this takes one hand-checked frame rather than a per-pixel
-median: the fights fill the whole clip, so the median still carries robot ghosts, while a
-between-round frame is genuinely empty. `--scan` ranks candidate frames by how little of
-the floor differs from the clip median and writes a contact sheet to choose from; the
-chosen index is then passed with `--frame`.
-
-Output layout (matching playground/cage_scene so the cage-high tools read it unchanged):
-
-    <out>/targets/<clip>/target.png      1920x886, banners cropped
-    <out>/targets/<clip>/hull_mask.png   255 inside the cached floor hull
-    <out>/targets/<clip>/meta.json       clip, event, source frame, crop
-
-Usage:
-    venv/bin/python playground/massd_scene/extract_target.py \\
-        data/downloads/massd_resurgence6_mrsbuff/r1_beeroll_vs_mrsbuff.mp4 \\
-        --frame 8140 --out runs/massd_scene
-    venv/bin/python playground/massd_scene/extract_target.py <video> --scan 12
-"""
+"""Robot-free target frame from a MassDestruction broadcast clip, banners cropped off."""
 
 from __future__ import annotations
 
@@ -54,11 +30,7 @@ def read_frame(video: Path, index: int) -> np.ndarray:
 def scan_for_empty(
     video: Path, polygon: np.ndarray, stride: int, count: int
 ) -> list[tuple[int, float]]:
-    """Rank sampled frames by the floor fraction that differs from the clip median.
-
-    Robots, brooms and hands all read as floor that moved. Thin objects score low, so the
-    ranking narrows the search rather than deciding it; look at the contact sheet.
-    """
+    """Rank sampled frames by the floor fraction that differs from the clip median."""
     capture = cv2.VideoCapture(str(video))
     thumbs: list[np.ndarray] = []
     indices: list[int] = []

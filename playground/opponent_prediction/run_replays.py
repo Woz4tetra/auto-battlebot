@@ -1,16 +1,4 @@
-"""Replay NHRL May and MassD matches with opponent_mode HOLD and KALMAN (plan step 4).
-
-Each recording runs twice through the release binary in real-time playback, once per mode, one
-at a time so the two runs see the same GPU load. The overlays live under `out/replay_configs/`
-and each run's MCAP is moved to `out/replays/<recording>_<mode>.mcap`. `compare_replays.py`
-reads them.
-
-Usage:
-    source scripts/activate_python.sh
-    python playground/opponent_prediction/run_replays.py            # all recordings
-    python playground/opponent_prediction/run_replays.py --only 14-12-27
-    python playground/opponent_prediction/run_replays.py --mode KALMAN
-"""
+"""Replay NHRL May and MassD matches with opponent_mode HOLD and KALMAN (plan step 4)."""
 
 from __future__ import annotations
 
@@ -82,7 +70,6 @@ def run(svo: str, start: int, mode: str) -> Path | None:
     if not new:
         print(f"{name}: no recording ({elapsed:.0f} s, exit {proc.returncode}); see {log}")
         return None
-    # The recorder splits video into a second file; keep the main one (the diagnostics).
     dest_dir = OUT / "replays"
     kept = None
     for path in new:
@@ -107,7 +94,6 @@ def main() -> None:
         if args.only and args.only not in svo:
             continue
         for mode in (args.mode,) if args.mode else MODES:
-            # HOLD runs do not exercise the opponent filter, so a filter change keeps them.
             done = OUT / "replays" / f"{Path(svo).stem}_{mode}.mcap"
             if mode == "HOLD" and done.exists() and not args.rerun_hold:
                 print(f"{done.name}: kept")

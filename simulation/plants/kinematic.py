@@ -9,11 +9,7 @@ from config.kinematic import ObstacleConfig, PlantConfig
 
 from plants.base import HazardMonitor, Pose, disc_outline
 
-# Internal integration substep. Mirrors auto_battlebot/control/plant.py. At the calibrated
-# 31.7 rad/s top yaw rate this is 0.06 rad of rotation per substep; a whole 33 ms tick is
-# 1.05 rad, where straight-line integration of an arc is wrong by tens of degrees of heading.
 SUBSTEP_S = 0.002
-# Below this yaw rate the arc radius v/w blows up, so fall back to the straight-line form.
 STRAIGHT_W = 1e-6
 
 
@@ -60,8 +56,6 @@ class KinematicPlant:
 
     @property
     def footprint_center_offset(self) -> tuple[float, float]:
-        # The pose is the centre of the disc. The fits behind this plant tracked the keypoint
-        # midpoint, which sits within 2 mm of the footprint centre.
         return 0.0, 0.0
 
     def set_moving_blocks(self, blocks: list[tuple[float, float, float, float]]) -> None:
@@ -69,8 +63,7 @@ class KinematicPlant:
         self._moving_blocks = blocks
 
     def collision_outlines(self) -> list[np.ndarray]:
-        """A disc of [our_robot] radius against a disc of each block's hazard_radius: the
-        centre-clamp against blocks grown by our radius is the same contact."""
+        """A disc of [our_robot] radius against a disc of each block's hazard_radius: the"""
         outlines = [disc_outline(self.x, self.y, self._cfg.radius)]
         outlines += [disc_outline(x, y, r) for x, y, _, r in self._moving_blocks]
         return outlines
@@ -104,9 +97,6 @@ class KinematicPlant:
         fwd = cfg.max_linear_speed_fwd or cfg.max_linear_speed
         rev = cfg.max_linear_speed_rev or fwd
         v_target = lc * (fwd if lc >= 0.0 else rev)
-        # Coupling multiplies the steady-state target, not the achieved speed: turning costs a
-        # fraction of the forward command's authority and driving costs a fraction of the turn's,
-        # but neither brakes a robot that is already coasting.
         v_target *= max(0.0, 1.0 - cfg.steer_brake_coeff * abs(ac))
         w_target = ac * cfg.max_angular_speed
         w_target *= max(0.0, 1.0 - cfg.angular_droop_coeff * abs(lc))
@@ -132,8 +122,6 @@ class KinematicPlant:
     def _resolve_obstacles(self, nx: float, ny: float) -> tuple[float, float, bool]:
         """Push the chassis out of blocks and latch a fall-in."""
         blocked = False
-        # A block is a wall with a curved face: push the chassis back out along the radius, which
-        # is what the rectangle clamp does for the arena walls.
         for bx, by, br in self._hazards.blocks():
             ddx, ddy = nx - bx, ny - by
             dist = math.hypot(ddx, ddy)
@@ -158,8 +146,6 @@ class KinematicPlant:
         tau_a_dec: float,
     ) -> bool:
         """Advance one substep, returning True on a wall hit."""
-        # Pose uses the velocity at the start of the substep, so the arc is exact for the v and w
-        # actually held over it.
         next_yaw = self.yaw + self.w * dt
         if abs(self.w) > STRAIGHT_W:
             radius = self.v / self.w
@@ -169,9 +155,6 @@ class KinematicPlant:
             dx = self.v * dt * math.cos(self.yaw)
             dy = self.v * dt * math.sin(self.yaw)
 
-        # Accel or decel is decided per channel by whether the target is further from zero than
-        # the current speed. Braking into a reversal uses the decel constant until the sign flips,
-        # as the drivetrain does: friction first, then torque.
         tau_lin = tau_l_acc if abs(v_target) > abs(self.v) else tau_l_dec
         tau_ang = tau_a_acc if abs(w_target) > abs(self.w) else tau_a_dec
         a_lin = 1.0 - math.exp(-dt / max(tau_lin, 1e-4))

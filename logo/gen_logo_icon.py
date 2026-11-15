@@ -1,17 +1,5 @@
 #!/usr/bin/env python3
-"""Render the BWBots logo as a small transparent PNG for a dark top bar.
-
-Produces the dark-background variant used by the splash animation: the logo's
-black half-disc is drawn as a white outline (it would vanish against the dark
-bar), the white half is plain fill, and the BW pill comes from the SVG. The
-background is transparent so the icon sits directly on the bar.
-
-Requires: inkscape on PATH. Run inside the project venv (numpy, Pillow).
-
-Usage:
-    logo/gen_logo_icon.py                  # 24 px tall -> logo/bwbots_logo_dark_h24.png
-    logo/gen_logo_icon.py --height 48
-"""
+"""Render the BWBots logo as a small transparent PNG for a dark top bar."""
 
 from __future__ import annotations
 

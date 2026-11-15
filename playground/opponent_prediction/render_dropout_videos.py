@@ -1,30 +1,4 @@
-"""Render the opponent filter coasting through dropouts, drawn over the camera video.
-
-One video per scene, each with a 0.2 s, a 1 s and a 3 s dropout:
-
-- `apartment`: Mr Stabs Mk2 sysid session `2026-10-15_00-29-00`, with AprilTag truth. Frames come
-  from the recording's `/camera/video`; the camera pose from its `/tf`.
-- `nhrl`: NHRL May 17-26-14 KALMAN replay. Frames from the SVO, matched through
-  `/camera/frame_meta`.
-- `massd`: MassD 13-20-08 KALMAN replay, same way.
-
-For each dropout, every measurement inside the gap is withheld and the measurement stream runs
-through the filter mirror and through HOLD, rendered at each frame's own time with the 63 ms
-perception latency (no render lead, so the overlay lines up with the picture). Drawn in field
-coordinates and projected onto the floor:
-
-- truth (apartment only): green footprint and heading
-- measurements: white dot, hollow grey while withheld
-- HOLD: orange footprint
-- the 6-state filter: blue footprint, heading arrow and 2-sigma position ring
-
-Videos play at half speed. Output: `playground/opponent_prediction/out/videos/<scene>.mp4`.
-
-Usage:
-    source scripts/activate_python.sh
-    python playground/opponent_prediction/render_dropout_videos.py            # all scenes
-    python playground/opponent_prediction/render_dropout_videos.py --scene nhrl
-"""
+"""Render the opponent filter coasting through dropouts, drawn over the camera video."""
 
 from __future__ import annotations
 
@@ -145,12 +119,7 @@ def sysid_frames(session: str) -> FrameSource:
 
 
 def replay_clock_offset_ns(mcap: Path) -> int:
-    """Rebased pipeline stamp minus the SVO image stamp.
-
-    `/keypoint_detections` is logged at its own (rebased) stamp and each tick's
-    `/camera/frame_meta` follows it by the camera grab time, so a detection pairs with the next
-    frame_meta.
-    """
+    """Rebased pipeline stamp minus the SVO image stamp."""
     fm_log, fm_stamp = [], []
     for _t, ns, data in iter_messages(mcap, ["/camera/frame_meta"]):
         fm_log.append(ns)

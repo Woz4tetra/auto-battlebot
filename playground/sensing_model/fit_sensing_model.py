@@ -1,29 +1,4 @@
-"""Fit the sensing model the RL environment and the lockstep sim sample from.
-
-`docs/plans/sensing_model_plan.md` section 8. Until the test-box sessions exist the model is
-provisional and fitted from the NHRL May and MassD KALMAN replays alone
-(`playground/opponent_prediction/run_replays.py --mode KALMAN`):
-
-- Dropouts conditioned on the distance to the nearest robot and wall, flip onsets and flipped-run
-  lengths.
-- Position and heading noise by speed bin, from the opponent measurements with no truth: each
-  measurement against a quadratic fit through its neighbours. That sees frame-to-frame jitter
-  only. Bias and slow errors (plane height, field lock, the laptop playback warp) are invisible
-  to it, so the bias tables are zero. Both roles get these numbers, so the opponents stand in for
-  Mr Stabs.
-
-The 2026-10-15 sysid sessions have tag truth but were shot on the apartment floor, which the
-detector never trained on (its synthetic scenes are NHRL, MassD and the AER test box), so they
-are not used.
-
-Output: `simulation/sensing_models/provisional.toml`, and `playground/sensing_model/out/
-fit_report.json` with the per-cell sample counts, the holdout session's noise and the flip
-analysis.
-
-Usage:
-    source scripts/activate_python.sh
-    python playground/sensing_model/fit_sensing_model.py
-"""
+"""Fit the sensing model the RL environment and the lockstep sim sample from."""
 
 from __future__ import annotations
 
@@ -45,7 +20,6 @@ OUTPUT = REPO_ROOT / "simulation/sensing_models/provisional.toml"
 REPORT = Path(__file__).resolve().parent / "out/fit_report.json"
 REPLAYS = OPPONENT_OUT / "replays"
 
-# The replays measure at 30 Hz. The lockstep sim runs the model at the ZED Box camera rate.
 FRAME_HZ = 30.0
 FRAME_S = 1.0 / FRAME_HZ
 SIM_FRAME_HZ = 60.0
@@ -55,18 +29,11 @@ ROBOT_DISTANCE_BINS = [0.0, 0.05, 0.2, 0.5]
 WALL_DISTANCE_BINS = [0.0, 0.15, 0.3]
 QUANTILES = [0.0, 0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99, 1.0]
 MIN_CELL_SAMPLES = 30
-# Spans are clipped to the RL episode length. A longer gap acts the same within one episode, and
-# the few there are (a robot dead against a wall for 125 s in 14-12-27) would otherwise set the
-# top quantiles alone.
 MAX_SPAN_S = 20.0
-# A gap is a step longer than this many frames. Single missing frames are left out: laptop
-# playback drops about one frame per 0.5 s for pacing, which is not the robot going unseen.
 GAP_MIN_FRAMES = 2.5
-# Jitter fit: this many contiguous neighbours on each side of a measurement, 0.1 s at 30 Hz.
 JITTER_HALF = 3
 FLIP_RAD = math.radians(150.0)
 MAX_FLIPPED_RUN_S = 1.0
-# A role with fewer heading jumps than this takes the onset rate pooled over both roles.
 MIN_ROLE_JUMPS = 10
 # Footprint radius per tracked label, for edge-to-edge distance: half the mean of the x and y
 # extents in config/_common.toml robot_size_meters_per_label. The generic opponent has no size;
@@ -113,11 +80,7 @@ def _windows(t: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 def _fit(
     t: np.ndarray, centres: np.ndarray, idx: np.ndarray, values: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Least-squares quadratic through each centre's neighbours (`values`, one row per centre).
-
-    Returns the fit's value and slope at the centre, and the variance factor h: with white noise
-    of sigma, measurement minus fit has variance sigma^2 (1 + h).
-    """
+    """Least-squares quadratic through each centre's neighbours (`values`, one row per centre)."""
     dt = t[idx] - t[centres][:, None]
     design = np.stack([np.ones_like(dt), dt, dt * dt], axis=-1)
     gram_inv = np.linalg.inv(np.einsum("cni,cnj->cij", design, design))
@@ -126,12 +89,7 @@ def _fit(
 
 
 def jitter_noise(tracks: list[Track]) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Body-frame position and heading jitter by speed bin, from the opponent measurements.
-
-    A residual is a measurement minus the quadratic through its neighbours, scaled by
-    1 / sqrt(1 + h) to undo the fit's own noise. Speed is the fit's slope. A heading residual past
-    pi / 2 is a flip and is left out, and so is a window that holds a heading jump past FLIP_RAD.
-    """
+    """Body-frame position and heading jitter by speed bin, from the opponent measurements."""
     along_all, cross_all, herr_all, speed_all, hspeed_all = [], [], [], [], []
     for tr in tracks:
         if tr.role != "opponent":
@@ -151,7 +109,6 @@ def jitter_noise(tracks: list[Track]) -> tuple[dict[str, Any], dict[str, Any]]:
         speed = np.hypot(vx, vy)
         speed_all.append(speed)
 
-        # Heading: neighbours taken relative to the centre, so the fit sees no 2 pi steps.
         yaw_fit, _, _ = _fit(tr.stamps, centres, idx, _wrap(tr.yaw[idx] - yaw[:, None]))
         herr = _wrap(-yaw_fit) * scale
         window = centres[:, None] + np.arange(-JITTER_HALF, JITTER_HALF)[None, :]
@@ -329,11 +286,7 @@ def _cell(ctx: tuple[float, float]) -> tuple[int, int]:
 def conditioned_table(
     durations: list[float], contexts: list[tuple[float, float]]
 ) -> tuple[list[list[float]], list[int], list[str]]:
-    """Quantile rows per (robot bin, wall bin) cell, row-major, with the borrowing rule.
-
-    A cell with fewer than MIN_CELL_SAMPLES durations adds its wall-axis neighbours, then its
-    robot-axis neighbours, then falls back to the pooled durations.
-    """
+    """Quantile rows per (robot bin, wall bin) cell, row-major, with the borrowing rule."""
     nr, nw = len(ROBOT_DISTANCE_BINS), len(WALL_DISTANCE_BINS)
     by_cell: dict[tuple[int, int], list[float]] = {(i, j): [] for i in range(nr) for j in range(nw)}
     for d, ctx in zip(durations, contexts):
@@ -362,9 +315,7 @@ def conditioned_table(
 
 
 def replay_flips(tracks: list[Track]) -> dict[str, Any]:
-    """Heading jumps past FLIP_RAD between contiguous measurements. A jump reversed by another
-    within MAX_FLIPPED_RUN_S bounds a run of flipped frames. Each flip has an onset and an end, so
-    the onset rate is half the jump rate."""
+    """Heading jumps past FLIP_RAD between contiguous measurements. A jump reversed by another"""
     flipped_s: list[float] = []
     measured_s = 0.0
     jump_count = 0
@@ -389,8 +340,7 @@ def replay_flips(tracks: list[Track]) -> dict[str, Any]:
 
 
 def flip_runs_table(flipped_s: list[float], onset_per_s: float) -> dict[str, Any]:
-    """Bursty flip tables: flipped-run quantiles from data, normal runs exponential with the
-    measured onset rate. The exponential's q = 1 point is its p99.9."""
+    """Bursty flip tables: flipped-run quantiles from data, normal runs exponential with the"""
     mean_normal = 1.0 / onset_per_s
     q = np.array(QUANTILES)
     normal = -np.log(1.0 - np.minimum(q, 0.999)) * mean_normal
@@ -419,7 +369,6 @@ def main() -> None:
         "noise": noise_report,
         "roles": {},
     }
-    # Flipped-run lengths pool both roles: each alone has too few.
     all_flips = replay_flips(tracks)
     flipped_s = all_flips["flipped_s"]
     pooled_onset = 0.5 * all_flips["jumps"] / all_flips["measured_s"]

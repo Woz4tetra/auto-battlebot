@@ -1,25 +1,4 @@
-"""Fit the Mr Stabs Mk2 MuJoCo plant to smoothed sysid sessions, then validate on held-out ones.
-
-Inputs are session bundles from smooth_tag_poses.py (playground/calibration/out/mujoco_sysid/
-<session>/). Hold out whole sessions, never windows from a training session.
-
-    # fit on three sessions, validate on a fourth
-    python playground/calibration/fit_mujoco_plant.py fit \\
-        out/mujoco_sysid/s01 out/mujoco_sysid/s02 out/mujoco_sysid/s03 \\
-        --holdout out/mujoco_sysid/s04 --restarts 4
-
-    # re-validate an existing fit
-    python playground/calibration/fit_mujoco_plant.py validate out/mujoco_sysid/fit_<ts> \\
-        out/mujoco_sysid/s04
-
-Validation writes ``validation.json`` and, under ``plots/``, the loss curves, the restarts'
-parameters, held-out rollouts against the measured robot, and the error per horizon (see
-``auto_battlebot/mujoco_sim/plots.py``). ``validate --name X`` writes ``validation_X.json`` and
-``plots_X/`` instead, so one fit can be scored on several holdouts side by side.
-
-`fit` prints its total rollout-steps up front. 1.64e9 steps take about 27 minutes on the
-RTX 4080 laptop.
-"""
+"""Fit the Mr Stabs Mk2 MuJoCo plant to smoothed sysid sessions, then validate on held-out ones."""
 
 from __future__ import annotations
 
@@ -75,15 +54,7 @@ def _batch(
 
 
 def _subsample(batch: WindowBatch, limit: int, seed: int) -> WindowBatch:
-    """An even random draw from every maneuver and window kind, as far as each one has windows.
-
-    Strata are drive direction (forward, reverse, spin, other) crossed with flat and nose-lift.
-    Each gets an equal share of the limit; a stratum with fewer windows than its share gives the
-    rest to the others. A plain random draw followed the session's mix, which is mostly forward:
-    the 2026-10-15 fit got 5 reverse windows out of 64, one of them a reversing turn, and its
-    MuJoCo model turned 24 deg too far in median over 0.4 s on reverse windows against 4 deg
-    forward.
-    """
+    """An even random draw from every maneuver and window kind, as far as each one has windows."""
     if len(batch) <= limit:
         return batch
     rng = np.random.default_rng(seed)

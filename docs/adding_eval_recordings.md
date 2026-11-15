@@ -149,3 +149,28 @@ recording made with the publisher disabled has none of these and cannot get tran
 Recordings made after 2026-08-04 also carry `/camera/frame_meta`, giving the SVO frame index
 per processed frame directly. Older recordings, including all of the 2026-05 NHRL set, predate
 it, and their frames are matched by the timestamp interval rule instead.
+
+## Notes moved from code comments (2026-11-15)
+
+### `playground/depth_cache/cache_gt_depth.py`
+
+Depth is not recorded in the MCAP: the ZED SDK computes it on device and the pipeline never
+publishes it. The stereo pair is in the SVO though, so replaying the SVO through pyzed with the
+same DEPTH_MODE the runtime uses reproduces what the camera would have measured.
+
+The join is by SVO frame index, never by timestamp. Each GT frame's
+`camera_transforms/<stamp_ns>.json` carries `image_stream_index`, which is the absolute index
+into the SVO. SVO image stamps sit about half a frame before the pipeline stamps that name the
+GT images, so a nearest-timestamp match silently picks the wrong frame.
+
+Frames whose transform method is `ambiguous` or `unavailable` are skipped: the first has two
+processed frames claiming one index and the second has no pose at all, so neither can be placed
+in the field frame later.
+
+Output is one `<subdataset>.npz` per sub dataset, keyed by stamp_ns, holding float16 depth in
+metres at the SVO's native resolution. Non-finite depth (no stereo match) is preserved as NaN,
+because which pixels the camera failed to measure is the result this experiment turns on.
+
+Usage:
+python playground/cache_gt_depth.py training/data/nhrl_keypoints_eval_test         --svo-roots data/svo -o <cache dir>
+

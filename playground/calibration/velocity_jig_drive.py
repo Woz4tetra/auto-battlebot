@@ -1,37 +1,4 @@
-"""Drive scripted excitation for a velocity jig session, and bring the logs home.
-
-Replaces the browser tool at `firmware/velocity_jig/web_tool`. One run produces a triple in
-the output directory: the downloaded log, a sidecar TOML holding the experiment parameters,
-and a CSV of the command timeline.
-
-    source scripts/activate_python.sh
-
-    # inspect without hardware
-    python playground/calibration/velocity_jig_drive.py --list-waveforms
-    python playground/calibration/velocity_jig_drive.py --waveform lin_step_full --dry-run
-
-    # record; --out defaults to out/<date>-<name>
-    python playground/calibration/velocity_jig_drive.py \\
-        --waveform lin_step_full --waveform lin_coast \\
-        --name "garage floor sweep"
-
-Two USB serial devices are open at once: the jig (`/dev/ttyACM*`) and the OpenTX radio
-(0483:5740). `--list-ports` shows every candidate with its ids.
-
-PAUSES. A piecewise waveform stops between cells and waits for Enter, so the robot can be
-put back on its mark before the next one. The program clock stops with it and the sidecar
-records each window. `--no-pause` plays straight through.
-
-ONE CLOCK. Command timestamps and clock probes both come from `time.monotonic()` in this
-process. Splitting them across processes reintroduces exactly the offset the `TIME` probe
-exists to remove, and the transport delay fitted afterwards would be that offset plus the
-real delay with no way to tell them apart.
-
-SAFETY. Trainer mode ADDS to the human driver's sticks, so a run is only as safe as the
-person holding the radio. The channels are zeroed and the link disarmed on every exit path:
-normal return, Ctrl-C, exception, and a hard wall-clock timeout. Verify that once per
-session with a deliberate Ctrl-C before trusting it for the rest of the day.
-"""
+"""Drive scripted excitation for a velocity jig session, and bring the logs home."""
 
 from __future__ import annotations
 
@@ -62,11 +29,7 @@ DEFAULT_CATALOG = Path(__file__).resolve().parent / "waveforms.toml"
 
 
 def _repo_relative(path: Path) -> Path:
-    """Path relative to the repo root when it lives inside it, else unchanged.
-
-    Session files are committed, so an absolute path in one goes stale the moment the tree is
-    cloned somewhere else.
-    """
+    """Path relative to the repo root when it lives inside it, else unchanged."""
     try:
         return path.resolve().relative_to(REPO_ROOT)
     except ValueError:
@@ -74,8 +37,6 @@ def _repo_relative(path: Path) -> Path:
 
 
 DEFAULT_OUT_ROOT = Path(__file__).resolve().parent / "out"
-# Long enough to bound the gyro bias estimate, short enough that an operator will actually
-# stand still for it. The fit needs two of these per run to bracket the bias drift.
 DEFAULT_HOLD_S = 5.0
 DEFAULT_PROBES = 200
 
@@ -130,15 +91,9 @@ def prompt(msg: str) -> None:
         raise SystemExit("\naborted: stdin closed") from None
 
 
-# Long enough for the robot to stop from full command once the excitation ends. The piecewise
-# waveforms give themselves 4 s through a trailing coast cell, and that is many decel
-# constants, so match it rather than invent a second number.
 SETTLE_COAST_S = 4.0
 
 
-# How long the command must have been zero at the end of a program for the robot to be at
-# rest when it returns. Many decel constants, so what follows is a stopped robot and not a
-# slow one.
 REST_TAIL_S = 1.0
 
 
@@ -164,26 +119,14 @@ def ends_at_rest(program: ex.Program, eps: float = 1e-3, tail_s: float = REST_TA
 
 
 def upcoming(program: ex.Program, pause_at: Sequence[float], index: int) -> list[Any]:
-    """The segments that will play once this pause is released, up to the next stop.
-
-    `index` is 1-based, matching what `play` hands to `on_pause`.
-
-    Empty for a continuous program. A chirp, sine, triangle or PRBS has `segments = None`
-    because it has no cell structure to slice by, and it never pauses either, so the only
-    caller that reaches it is the arm-time preview. `describe` covers that case.
-    """
+    """The segments that will play once this pause is released, up to the next stop."""
     start = pause_at[index - 1]
     stop = pause_at[index] if index < len(pause_at) else float("inf")
     return [s for s in (program.segments or []) if start <= s.t0 < stop]
 
 
 def describe_continuous(program: ex.Program, step_s: float = 0.005) -> str:
-    """One line for a program with no segments: what it sweeps and how hard.
-
-    Sampled from `at`, which is the authority for what actually gets sent, rather than read
-    off the catalog amplitude. A capped or clipped waveform would otherwise be described by
-    the number it asked for instead of the one the robot receives.
-    """
+    """One line for a program with no segments: what it sweeps and how hard."""
     n = max(2, int(program.duration_s / step_s) + 1)
     lin = np.array([program.at(i * step_s)[0] for i in range(n)])
     ang = np.array([program.at(i * step_s)[1] for i in range(n)])
@@ -194,9 +137,6 @@ def describe_continuous(program: ex.Program, step_s: float = 0.005) -> str:
     )
 
 
-# Longest "about to send" list printed in full. A staircase has no rest between rungs, so
-# its first cell is the whole ladder: 60 lines that bury the prompt underneath them and tell
-# the operator nothing the summary does not.
 PREVIEW_LINES = 4
 
 
@@ -224,12 +164,7 @@ def preview(program: ex.Program, pause_at: Sequence[float], index: int) -> list[
 
 
 def pause_prompt(index: int, count: int, program: ex.Program, pause_at: Sequence[float]) -> None:
-    """Between-cell stop. The channels are already zeroed when this is called.
-
-    Prints the cell about to play before waiting. Knowing that the next command is -0.4 and
-    not +0.6 is what tells the operator which way to aim the robot, and how much floor it
-    needs, while there is still time to do something about it.
-    """
+    """Between-cell stop. The channels are already zeroed when this is called."""
     say(f"\n      --- paused {index}/{count} ---")
     lines = preview(program, pause_at, index)
     if lines:
@@ -287,11 +222,7 @@ class Footprint:
 
 
 def predict_footprint(program: ex.Program, params: PlantParams, dt: float = 0.005) -> Footprint:
-    """Where the robot ends up, using the real plant model rather than a hand-set one.
-
-    Lateral excursion matters as much as forward span. With a non-zero drift term a straight
-    run arcs, and a 3 m step that fits the length of the board can still leave it sideways.
-    """
+    """Where the robot ends up, using the real plant model rather than a hand-set one."""
     n = int((program.duration_s + 2.0) / dt)
     lin = []
     ang = []
@@ -418,11 +349,6 @@ def write_run_toml(
                 "label": seg.label,
             },
         )
-    # Where the operator stopped the run to reset the robot's position. The segment times
-    # above already carry these, so a reader that ignores pauses still labels the run
-    # correctly. `t_start`/`t_end` are host seconds, the same clock the command log and the
-    # still holds use: the robot was handled inside each window, so the gates, the saturation
-    # count and the commanded-seconds total all skip them.
     for p in pauses:
         lines += _table(
             "[pause]",
@@ -487,12 +413,7 @@ def slug(text: str) -> str:
 
 
 def default_out_dir(name: str) -> Path:
-    """Where a session lands when --out is not given.
-
-    One directory per day per name. Re-running the same name on the same day appends to it,
-    which is what you want: a session is the leave-one-out unit for the fit, and one battery
-    on one floor is one session whether it took one invocation or five.
-    """
+    """Where a session lands when --out is not given."""
     stamp = f"{datetime.now():%Y-%m-%d}"
     tail = slug(name)
     return DEFAULT_OUT_ROOT / (f"{stamp}-{tail}" if tail else stamp)
@@ -512,14 +433,7 @@ def git_sha() -> str:
 
 @dataclass(frozen=True)
 class Gate:
-    """One thing a gate found.
-
-    `fatal` is the difference between "this run's data is unusable" and "something went
-    wrong at the bench that you want to fix before the next run". Conflating the two throws
-    away complete recordings: a jig that reboots after the post-hold loses the skew
-    correction and the dropped-sample count, neither of which is a defect in the samples it
-    already wrote.
-    """
+    """One thing a gate found."""
 
     reason: str
     fatal: bool = True
@@ -751,9 +665,6 @@ def run_one(
     problems = [g.reason for g in found if g.fatal]
     warnings = [g.reason for g in found if not g.fatal]
     verdict = "discard" if problems else "pass"
-    # The reasons go in the sidecar too. A verdict with no reason means working out months
-    # later whether a run was thrown away for a real fault or a since-fixed tool bug. The
-    # warnings go beside them: a run can be worth keeping and still be worth fixing.
     gate_note = "; ".join(problems)
     for warning in warnings:
         say(f"      WARNING: {warning}")
@@ -825,17 +736,7 @@ def log_gates(
     clock: ClockFit,
     holds: dict[str, tuple[float, float]] | None = None,
 ) -> list[Gate]:
-    """Gates that need the downloaded log parsed, checked here rather than at fit time.
-
-    Cheap enough at 1 kHz that it is not worth deferring: knowing at the robot beats finding
-    out a week later when the fit excludes the run.
-
-    Accel clipping is a warning here, not a gate. It was a gate until 2026-08-22, when it
-    turned out to be discarding runs for the run card rather than for the data: every run
-    ends with the operator picking the robot up to plug the USB cable back in, and that
-    clips the accel outside the pause mask. Nothing in the plant model reads acceleration
-    anyway, so the clip is worth seeing and never worth discarding a recording over.
-    """
+    """Gates that need the downloaded log parsed, checked here rather than at fit time."""
     try:
         from auto_battlebot.calibration.jig.velocity_jig import pause_mask, read_jig_log
 
@@ -844,10 +745,6 @@ def log_gates(
         return [Gate(f"log unreadable: {err}")]
 
     out: list[Gate] = []
-    # Whether the run survived is a question about the samples, not about how tidily the
-    # session ended. A recording cut short by a reset, a card that stopped taking writes, or
-    # a battery that browned out all look the same here: the log stops before the second
-    # still hold, or it has holes in the middle.
     step = np.diff(log.t)
     late = int(np.count_nonzero(step > 5 * log.dt)) if len(step) else 0
     if late:
@@ -857,8 +754,6 @@ def log_gates(
         if window[0] < covered[0] - 0.1 or window[1] > covered[1] + 0.1:
             out.append(Gate(f"the log stops short of the {kind} still hold"))
 
-    # Setting the robot back on its mark clips the accel, so the operator's pauses come out
-    # before anything is counted. What is left is the robot's own data.
     keep = ~pause_mask(clock.host_seconds(log.t), pauses)
     sat = [a for a in log.saturation(keep=keep) if a.count]
     gyro = [a for a in sat if a.name.startswith("g")]
@@ -901,8 +796,7 @@ def gates(
     hold_s: float,
     contamination: float,
 ) -> list[Gate]:
-    """Capture-time gates. The offline ones (bias drift, saturation, encoder slip) need the
-    log parsed and live in `RunQuality.problems()`, not here."""
+    """Capture-time gates. The offline ones (bias drift, saturation, encoder slip) need the"""
     out: list[Gate] = []
     if dropped:
         out.append(Gate(f"dropped={dropped} samples on the SD path"))
@@ -911,16 +805,6 @@ def gates(
     if clock_post.residual_ms > 2.0:
         out.append(Gate(f"clock post residual {clock_post.residual_ms:.2f} ms"))
     if clock_post.at_jig_ms < clock_pre.at_jig_ms:
-        # The jig counts microseconds since its own boot, so a post-probe below the pre-probe
-        # is a board that restarted rather than a clock that drifted. Reporting the ppm here
-        # would be arithmetic on a counter that went backwards. Replugging the USB cable did
-        # this on LOG-62, and the recording ended with it.
-        #
-        # Not fatal on its own. What the reboot costs is the skew correction, worth about
-        # 0.9 ms per 30 s at the RP2040's 30 ppm and measured at 2.77 ppm on this board, and
-        # the dropped-sample count, which the log's own timestamps show anyway. Whether the
-        # reset truncated the run is a separate question, and `log_gates` answers it from the
-        # samples instead of assuming the worst.
         out.append(
             Gate(
                 f"the jig rebooted between clock probes (uptime "
@@ -971,9 +855,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--rate", type=float, default=50.0, help="command send rate in Hz")
     parser.add_argument("--mix", choices=("tank", "direct"), default="tank")
     parser.add_argument("--no-reverse-angular", action="store_true")
-    # Readback wiring, from --check-radio. These affect only how the radio's own report is
-    # interpreted, never what gets sent, so a wrong value costs a false contamination flag
-    # rather than a wrong command.
     parser.add_argument("--read-linear", type=int, default=0)
     parser.add_argument("--read-angular", type=int, default=1)
     parser.add_argument("--read-arm", type=int, default=4)
@@ -1058,17 +939,7 @@ def mix_from_args(args: argparse.Namespace) -> dp.MixConfig:
 
 
 def do_check_radio(link: dp.TrainerLink, amplitude: float = 0.5) -> None:
-    """Work out how the radio reports what we send it, without guessing.
-
-    Run this with the ROBOT POWERED OFF. The radio's mixer responds to trainer input whether
-    or not anything is listening downstream, so nothing has to move for this to work.
-
-    Sends five known commands and regresses every returned channel against them. That
-    recovers which channel carries what, its sign, and its scale. A radio with servo-reverse
-    set on one drive channel reports it negated while the ESC compensates, so the robot
-    drives correctly and only the readback disagrees. Left unfound, that shows up as a
-    contamination gate firing on runs that were fine.
-    """
+    """Work out how the radio reports what we send it, without guessing."""
     probes = [(0.0, 0.0), (amplitude, 0.0), (-amplitude, 0.0), (0.0, amplitude), (0.0, -amplitude)]
     say("Radio check. Robot OFF; nothing needs to move.")
     say(f"Sending {len(probes)} known commands at amplitude {amplitude:g}.\n")
@@ -1214,9 +1085,6 @@ def main() -> None:
     provenance = {
         "drive_cli_sha": git_sha(),
         "waveform_toml": str(_repo_relative(args.waveforms)),
-        # How the radio's channels were read. Recorded because meas_linear/meas_angular are
-        # these settings applied to the raw channels, so reinterpreting a run later needs to
-        # know which settings produced them.
         "mix": mix.mode,
         "reverse_angular": mix.reverse_angular,
         "channel_scale": mix.channel_scale,

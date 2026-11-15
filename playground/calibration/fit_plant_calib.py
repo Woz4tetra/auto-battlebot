@@ -1,28 +1,4 @@
-"""Fit the full tank drivetrain plant from a calibration session.
-
-Input is one CSV from analyze_apriltag_mcap.py run on an apriltag_track.py --drive recording. That
-single file carries both halves the fit needs, recorded in one process on one absolute
-CLOCK_MONOTONIC clock (no
-time alignment is done here):
-  - the solved ground-truth pose per frame   (t, x, y, yaw, visible)
-  - the scripted command active at that frame (cmd_lin, cmd_ang, trainer_lin, trainer_ang, label)
-
-It extends playground/control_stage0/fit_plant.py: the same first-order AR(1) identification (v[k+1]
-= a*v[k] + b*cmd[k], tau = -dt/ln(a), gain = b/(1-a)) and lag-by-cross-correlation idea, but driven
-by clean AprilTag truth and the labelled excitation protocol instead of noisy MCAP perception poses.
-That lets us pull out what the MCAP fit could not: per-direction deadzone, forward/reverse gain
-asymmetry, separate accel vs coast (decel) time constants, the steer-brake coupling, and the
-actuation lag.
-
-Outputs: a printed report, the `[our_robot]` block to paste into simulation/kinematic_sim.toml, a
-recommended `lifted_deadzone_percent` for config/main.toml, and a validation plot (--plot).
-
-Usage:
-    source scripts/activate_python.sh
-    python playground/calibration/fit_plant_calib.py \
-        playground/calibration/out/truth_log.csv \
-        --plot playground/calibration/out/fit.png
-"""
+"""Fit the full tank drivetrain plant from a calibration session."""
 
 from __future__ import annotations
 
@@ -83,13 +59,7 @@ def _zoh(src_t: np.ndarray, src_v: np.ndarray, dst_t: np.ndarray) -> np.ndarray:
 
 
 def load_session(session_path: Path) -> Session:
-    """Load one CSV from analyze_apriltag_mcap.py (a --drive recording) into a fitting Session.
-
-    The CSV carries both halves the fit needs: the solved pose per frame (x, y, yaw, visible) and
-    the scripted command active at that frame (cmd_lin, cmd_ang, label, zero-order-held onto the
-    frame time). Commands are read from every row (the full timeline, including frames where the tag
-    was not visible); pose is read only from visible frames.
-    """
+    """Load one CSV from analyze_apriltag_mcap.py (a --drive recording) into a fitting Session."""
     data = _read_csv(session_path)
     if "cmd_lin" not in data:
         raise SystemExit(
@@ -99,9 +69,6 @@ def load_session(session_path: Path) -> Session:
             "enough)."
         )
 
-    # Commands span the full timeline. Frames before the first issued command have empty cells;
-    # treat the command there as zero (no command) and the label as unset (matches no protocol
-    # phase).
     cmd_t = np.array(data["t"], dtype=float)
     cmd_lin = np.array([v or "0" for v in data["cmd_lin"]], dtype=float)
     cmd_ang = np.array([v or "0" for v in data["cmd_ang"]], dtype=float)
@@ -185,12 +152,7 @@ def _deadzone_levels(cmd: np.ndarray, vel: np.ndarray, sign: float) -> dict[floa
 
 
 def fit_deadzone(cmd: np.ndarray, vel: np.ndarray, sign: float, eps: float) -> float:
-    """Smallest staircase command level (same sign) whose sustained motion exceeds eps.
-
-    Works per command level, not per sample: the staircase holds each command for ~0.8 s, so the
-    median |velocity| over that hold is compared to the threshold. This rejects single-sample noise
-    spikes that a per-sample test would mistake for motion onset.
-    """
+    """Smallest staircase command level (same sign) whose sustained motion exceeds eps."""
     moving = [level for level, med in _deadzone_levels(cmd, vel, sign).items() if med > eps]
     return float(min(moving)) if moving else float("nan")
 
@@ -221,7 +183,7 @@ def _rise_tau(mv: np.ndarray, vss: float, dt: float, eps: float, gap: np.ndarray
     runs = _runs(inband)
     if not runs:
         return float("nan")
-    a0, b0 = runs[0]  # the leading rise; ignore later re-entries from steady-state noise
+    a0, b0 = runs[0]
     sel = np.arange(a0, b0)
     if len(sel) < 3:
         return float("nan")
@@ -269,8 +231,6 @@ def _drive_segments(
             continue
         mv = np.abs(vel[a:b])
         seg_gap = s.gap[a:b]
-        # Steady-state speed from in-frame samples only; interpolated steady samples would bias vss
-        # (and, through it, both the gain and the rise-tau fit).
         steady = mv[int(0.6 * n) :]
         steady_in = steady[~seg_gap[int(0.6 * n) :]]
         vss = float(np.median(steady_in)) if len(steady_in) >= 2 else float(np.median(steady))
@@ -290,11 +250,7 @@ def fit_drive_segments(
     dz_rev: float,
     eps: float,
 ) -> tuple[list[float], list[float], list[float], list[float]]:
-    """Per held-drive segment: steady-state gain and rise tau, bucketed by command sign.
-
-    Returns (gains_fwd, gains_rev, taus_fwd, taus_rev). Gain is Vss / effective-command (deadzone
-    removed), which is a steady-state quantity and so immune to the smoothing/noise tau trade-off.
-    """
+    """Per held-drive segment: steady-state gain and rise tau, bucketed by command sign."""
     gf: list[float] = []
     gr: list[float] = []
     tf: list[float] = []
@@ -333,7 +289,7 @@ def _decay_segments(
             k += 1
         if k < 4:
             continue
-        if s.gap[a : a + k].any():  # the coasting portion must be measured, not interpolated
+        if s.gap[a : a + k].any():
             continue
         tt = np.arange(k) * s.dt
         slope = float(np.polyfit(tt, np.log(mv[:k]), 1)[0])
@@ -363,11 +319,7 @@ def _steer_brake_levels(s: Session) -> dict[float, float]:
 
 
 def fit_steer_brake(s: Session) -> float:
-    """Fractional forward-speed loss per unit |angular command| during the steer-brake grid.
-
-    One steady-state forward-speed sample per grid cell (last half of each drive segment), so the
-    rising transient does not bias the slope. speed/speed0 = 1 - coeff*|ang|.
-    """
+    """Fractional forward-speed loss per unit |angular command| during the steer-brake grid."""
     levels = _steer_brake_levels(s)
     if 0.0 not in levels or len(levels) < 3:
         return float("nan")
@@ -401,27 +353,7 @@ class LatencyDiag:
 
 
 def _latency_stack(s: Session) -> LatencyDiag:
-    """Pool every clean command edge and stack the acceleration that follows it to time the
-    transport lag.
-
-    The dedicated latency battery is not trusted on its own: its aggressive bipolar steps flip the
-    robot or drive it out of frame, leaving the truth pose (and so the velocity) mostly interpolated
-    across dropouts. Instead every clean command edge in the whole session is pooled. Linear edges
-    are timed against forward acceleration (dv/dt), angular edges against yaw acceleration (dw/dt);
-    the transport delay is the same physical path (Crossfire + ESC + mechanical) for both, so they
-    stack together. Any edge whose response window overlaps a truth gap is dropped, which is what
-    removes the flipped latency segments and leans the estimate on the many in-frame angular-step
-    onsets.
-
-    Each edge contributes its post-edge acceleration, sign-flipped to the step direction so accels
-    and decels add rather than cancel, and scaled by the channel's own accel spread so m/s^2 and
-    rad/s^2 are comparable. Stacking many onsets averages down the per-frame perception noise that
-    made the single latency-battery correlation swing wildly between runs. Lag is the peak of the
-    averaged acceleration pulse, which for a delay + first-order plant sits exactly at the transport
-    delay: dv/dt is zero until motion starts then jumps to its maximum right at the delay. The peak
-    is far more robust to noise here than a first-threshold crossing at this frame rate and onset
-    count.
-    """
+    """Pool every clean command edge and stack the acceleration that follows it to time the"""
     pre = 4  # samples kept before each edge to measure the pre-onset baseline
     max_lag = max(5, round(0.24 / s.dt))  # search transport delays out to 240 ms
     win = pre + max_lag + 1
@@ -502,9 +434,6 @@ class FitContext:
 def _context(s: Session) -> FitContext:
     eps_lin = max(MOTION_EPS_LIN, ONSET_SIGMA * s.v_noise)
     eps_ang = max(MOTION_EPS_ANG, ONSET_SIGMA * s.w_noise)
-    # The deadzone test compares a per-level MEDIAN over a ~0.8 s hold, which averages down the
-    # noise by ~sqrt(N); use a gentler threshold than the per-sample motion floor so the onset is
-    # not pushed high.
     dz_eps_lin = max(MOTION_EPS_LIN, 2.0 * s.v_noise)
     dz_eps_ang = max(MOTION_EPS_ANG, 2.0 * s.w_noise)
     return FitContext(
@@ -808,8 +737,6 @@ def _panel_latency(ax, diag):  # type: ignore[no-untyped-def]
         ax.plot(diag.lags_ms, diag.smooth, color="C3", lw=1.0, alpha=0.8, label="smoothed")
         if not math.isnan(diag.lag_ms):
             ax.axvline(diag.lag_ms, color="C2", lw=2.0, label=f"lag = {diag.lag_ms:.0f} ms")
-        # Zoom to the averaged pulse: individual onsets are ~10x noisier and would flatten it off-
-        # scale.
         amp = float(np.max(np.abs(diag.stack))) or 1.0
         ax.set_ylim(-3.0 * amp, 3.0 * amp)
     ax.set_xlabel("time after command edge (ms)", fontsize=8)

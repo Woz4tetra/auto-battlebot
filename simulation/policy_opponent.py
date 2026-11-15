@@ -1,22 +1,4 @@
-"""An opponent driven by an RL navigation bundle on its own Mr Stabs Mk2 plant.
-
-`[[opponents]] behavior = "policy"` runs `policy_bundle` through `BundlePolicy` the way
-`RlPolicyNavigation` runs it on our robot, so a config can put the same policy on both robots.
-The opponent steps the MuJoCo plant our robot uses, with the fit and pack voltage from
-`[our_robot.mujoco]` and the same `[latency] command_ms`, and attacks our robot.
-
-Each plant carries the other robot as a moving box (`collision_box`), placed at its footprint
-centre every tick, which is the shape the RL environment gives its opponent. Two boxes pushed by
-two plants is not one contact solve: each robot feels the other as an immovable mocap body.
-
-The opponent sees ground truth: our footprint centre, its finite-difference velocity, no sigmas,
-ages or stale flags. That is the observation the policy trained on with sensing off. Our robot
-still sees the opponent through the sensing model and the C++ filter.
-
-`pose()` is the opponent's footprint centre, not its axle, so the C++ side, the viewer and our
-plant's contact box all see the robot where its footprint is, as the training opponent's pose is
-its box centre.
-"""
+"""An opponent driven by an RL navigation bundle on its own Mr Stabs Mk2 plant."""
 
 from __future__ import annotations
 
@@ -105,8 +87,6 @@ class PolicyOpponent:
         if self._target is None:
             raise RuntimeError("PolicyOpponent.step before observe")
         if self._ticks_until_step <= 0:
-            # The transmitter's drive processor sits between the policy and the robot, as
-            # SimTransmitter puts it in front of our plant and the RL environment trains with it.
             action = torch.tensor([self._policy.act(self._view())])
             self._action = tuple(saturate(action)[0].tolist())
             self._ticks_until_step = self._period

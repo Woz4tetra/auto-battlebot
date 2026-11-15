@@ -1,24 +1,4 @@
-"""Fit the drivetrain plant model from velocity jig sessions.
-
-Input is one or more session directories written by `velocity_jig_drive.py`. Each holds the
-downloaded `LOG-N.TXT` files, a sidecar TOML per log carrying the experiment parameters, and
-a command CSV. Output is a plant parameter TOML, a printed report, and optionally a
-self-contained HTML report.
-
-Runs reach the right fit by the waveform kind, channel and role their sidecar declares, so a
-new excitation needs a catalog entry rather than a change here.
-
-The fit machinery lives in `auto_battlebot/calibration/jig/jig_fit.py`; this file is the
-command line
-over it.
-
-Usage:
-    source scripts/activate_python.sh
-    python playground/calibration/fit_jig_plant.py \\
-        playground/calibration/out/2026-08-17-garage \\
-        --out playground/calibration/out/plant_params.toml \\
-        --report playground/calibration/out/jig_fit.html
-"""
+"""Fit the drivetrain plant model from velocity jig sessions."""
 
 from __future__ import annotations
 
@@ -220,14 +200,10 @@ def main() -> None:
     profile: DelayProfile | None = None
     reports: dict[str, HorizonReport] = {}
 
-    # Train and holdout come from the role each waveform declares, so a holdout stays a
-    # holdout even if the same excitation is later reused for fitting.
     fit_runs = loaded.select(roles=("fit",))
     test_runs = loaded.select(roles=("holdout",))
     print(f"\ntrain runs: {len(fit_runs)}, holdout runs: {len(test_runs)}")
 
-    # The plan's objective horizons, plus 400 ms because that is where acceptance criteria C2 and
-    # C3 are stated and a table should measure the horizon it reports.
     horizons = (0.033, 0.066, 0.100, 0.200, 0.300, 0.400, 0.500)
     stride_s = args.stride_ms / 1000.0
     weights = FitWeights()
@@ -366,7 +342,6 @@ def main() -> None:
         note = f"fit from {', '.join(str(s) for s in args.sessions)} with model {structure.name}"
         write_params(args.out, params, stage, note, structure)
     if args.report:
-        # Imported here so a fit that writes no report never pays for matplotlib.
         from jig_report import render_report
 
         render_report(

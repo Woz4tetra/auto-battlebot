@@ -1,21 +1,4 @@
-"""Plot a smoothed sysid bundle so each smoothing check can be judged by eye.
-
-Reads a bundle written by ``smooth_tag_poses.py`` and writes, under ``<bundle>/plots/``:
-
-- ``overview.png``: the whole session on one time axis. Which source fixed the pose at each
-  moment (tag, YOLO, neither); the smoothed yaw rate against the robot IMU's on a log scale,
-  with the 50 rad/s line no real drive crosses; pitch against the flat band the window gate
-  uses; x and y against the box the near-rail gate assumes; and the fit windows, by kind.
-- ``floor.png``: top-down, every tag and YOLO fix, the smoothed path, the box, and where each
-  fit window starts.
-- ``dropouts.png``: one top-down panel per tag dropout longer than ``--min-gap-s`` in which the
-  robot stayed upright, 0.5 s either side. ``--compare`` overlays a second bundle of the same
-  recording (for example one smoothed without ``--yolo``).
-
-    python playground/calibration/plot_sysid_bundle.py \\
-        playground/calibration/out/mujoco_sysid/<session>_yolo \\
-        --compare playground/calibration/out/mujoco_sysid/<session>_tag
-"""
+"""Plot a smoothed sysid bundle so each smoothing check can be judged by eye."""
 
 from __future__ import annotations
 
@@ -76,7 +59,7 @@ def _imu_yaw_rate(cmd: pd.DataFrame, session: dict) -> tuple[np.ndarray, np.ndar
     """BNO055 yaw rate, counter-clockwise, shifted by the lag the smoother measured."""
     agreement = session.get("imu_yaw_rate") or {}
     lag = float(agreement.get("lag_s") or 0.0)
-    sign = -float(agreement.get("measured_sign") or 1.0)  # heading is clockwise
+    sign = -float(agreement.get("measured_sign") or 1.0)
     t = cmd["t"].to_numpy() - lag
     heading = np.unwrap(np.radians(cmd["orientation_x"].to_numpy()))
     grid = np.arange(t[0], t[-1], 0.01)

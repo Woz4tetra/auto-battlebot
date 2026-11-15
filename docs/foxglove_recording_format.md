@@ -423,3 +423,53 @@ keeps them across app reconnects when the schema is unchanged. It serves one app
 second app connecting while one is attached is accepted and closed at once (the app's sink
 retries quietly every second), so a dev replay next to a service instance cannot fight over the
 relay.
+
+## Notes moved from code comments (2026-11-15)
+
+### `playground/calibration/check_sysid_recordings.py`
+
+- with each channel's resting offset removed.
+
+### `playground/mcap_auto_percentage.py`
+
+The match window runs from the first time values/15 == 1024 (auto engaged)
+to the last auto->manual transition.  Auto mode is detected from the
+diagnostics: opentx_transmitter / channels / values/15 == 1024.
+
+### `playground/opponent_prediction/plot_dropout_samples.py`
+
+- The diagnostics re-send a channel's last value with held = true; only fresh ones count. (at `if entry is not None and not entry.get("held", False):`)
+
+### `playground/opponent_prediction/render_dropout_videos.py`
+
+`/keypoint_detections` is logged at its own (rebased) stamp and each tick's
+`/camera/frame_meta` follows it by the camera grab time, so a detection pairs with the next
+frame_meta.
+
+### `playground/opponent_prediction/run_replays.py`
+
+- The recorder splits video into a second file; keep the main one (the diagnostics). (at `dest_dir = OUT / "replays"`)
+
+### `playground/radio/channel_streaming.py`
+
+This script connects to the OpenTX radio via USB serial and parses the custom
+channel data packets along with CRSF telemetry data.
+
+Channel packet format:
+- Sync: 0xA5
+- Length: packet length excluding sync byte
+- Data: channel values as 16-bit signed integers (little-endian)
+- Checksum: XOR of all bytes excluding sync
+
+Usage:
+python3 test_channel_streaming.py [--port /dev/ttyACM0] [--baudrate 115200]
+
+### `playground/radio/crsf/crsf_link_statistics.py`
+
+- Uplink RSSI Antenna 1 (dBm * -1) Uplink RSSI Antenna 2 (dBm * -1) Uplink Package success rate / Link quality (%) Uplink SNR (dB) number of currently best antenna enum {4fps = 0 , 50fps, 150fps} enum {0mW = 0, 10mW, 25mW, 100mW, 500mW, 1000mW, 2000mW, 250mW, 50mW} Downlink RSSI (dBm * -1) Downlink Package success rate / Link quality (%) Downlink SNR (dB) (at `up_rssi_ant1: int = 0`)
+
+### `simulation/protocol.py`
+
+- Ground truth poses appended after depth buffer: uint32 num_robots, then num_robots * (x, y, yaw) as float64. First entry = our robot, rest = opponents in config order. x, y, yaw per robot (3 x float64 = 24 bytes) (at `GT_POSE_SIZE: int = struct.calcsize(GT_POSE_FMT)`)
+- After the ground truth: what perception delivered this tick, from the sensing model (auto_battlebot/perception/sensing_model.py). One header, then one pose per ground-truth slot in the same order. Flags travel as 0.0 / 1.0 so the block stays all float64 like the rest. delivered, capture_time (sim seconds) (at `MEAS_HEADER_SIZE: int = struct.calcsize(MEAS_HEADER_FMT)`)
+

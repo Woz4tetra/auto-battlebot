@@ -1,38 +1,5 @@
 #!/usr/bin/env python3
-"""Stone-wall albedos for the basement scene, from the target frame and its ZED depth.
-
-The box stands in a corner of the basement: a stone wall 2.5 cm behind the far rail and
-another 7 cm off the right rail. A panorama at infinity cannot stand in for walls that
-close, so each one becomes a vertical plane in the scene (`[[walls]]` in the spec) with this
-texture on it.
-
-For each wall:
-
-1. Plane from depth. The ZED points in a region behind the box are fitted to a vertical
-   plane; its offset is the median of the inliers. The fit also reports how far its normal
-   is from the box axis, which is the check that the wall really is square to the box.
-2. Orthographic warp. The wall plane is mapped to the image through the fitted pose and K,
-   and the target is resampled onto a grid at `--px-per-m`, columns from `start` to `end`
-   and rows from `z_top` down, the layout `synthgen.cage_spec.wall_quads` expects.
-3. Seen mask from depth, not from the picture. A texel counts as seen only if the ZED put
-   that pixel within `--wall-tolerance` of the plane, so the hoist in front of the far wall,
-   the rails and the bracket at the right edge are left out rather than painted onto it.
-   Points at or below the rail tops are dropped too: the far rail stands inside the
-   tolerance of the far wall.
-4. Fill. The largest wholly seen rectangle, its lighting gradient flattened, is tiled over
-   the whole wall in shifted, cross-faded copies (`texture_fill.offset_tile`). Every seen
-   texel is then put back on top with a feathered edge, so the fitted view sees its own
-   photo and every other view sees the same stone continued. The seen texels have the
-   photo's broad lighting divided out first (`SHADING_SIGMA_M`): the scene's tubes light
-   the wall, and a baked hot spot would show as a bright patch against the fill.
-
-Writes `<out>/<name>_albedo.png`, `_seen.png` (the depth mask) and `.json`, and prints the
-`[[walls]]` block to paste into the spec.
-
-Usage:
-    venv/bin/python playground/basement_scene/build_wall_textures.py runs/basement_scene \\
-        --out training/data/environments/meatball_basement/walls
-"""
+"""Stone-wall albedos for the basement scene, from the target frame and its ZED depth."""
 
 from __future__ import annotations
 
@@ -47,16 +14,12 @@ import numpy as np
 from auto_battlebot.perception.cage_calibration import load_cage_calibration, world_from_camera
 from auto_battlebot.perception.texture_fill import largest_seen_rectangle, offset_tile
 
-# W-frame regions whose depth points belong to each wall: above the rail tops so the box
-# itself stays out, and clear of the corner so neither wall votes for the other.
 FAR_REGION = {"axis": 1, "min": 0.78, "max": 1.2, "along": (-0.7, 0.7)}
 RIGHT_REGION = {"axis": 0, "min": 0.82, "max": 1.3, "along": (-0.5, 0.65)}
 MIN_HEIGHT_M = 0.12
 RAIL_TOP_M = 0.088
 SEEN_ABOVE_RAIL_M = 0.11
 FEATHER_PX = 9
-# Scale of the photo's lighting divided out of the seen texels, metres. The scene's own tubes
-# light the wall; left in, the real hot spot shows as a bright patch against the tiled fill.
 SHADING_SIGMA_M = 0.25
 
 
@@ -117,11 +80,7 @@ def texture_from_wall(wall: Wall, px_per_m: float) -> np.ndarray:
 
 
 def flatten_seen_shading(texture: np.ndarray, seen: np.ndarray, sigma_px: float) -> np.ndarray:
-    """Divide the seen texels' broad brightness out, blurring over seen texels only.
-
-    A plain blur would drag the unseen texels' placeholder value into the estimate along
-    every edge of the seen region; normalised convolution uses the seen ones alone.
-    """
+    """Divide the seen texels' broad brightness out, blurring over seen texels only."""
     lab = cv2.cvtColor(texture, cv2.COLOR_BGR2Lab).astype(np.float32)
     weight = seen.astype(np.float32)
     lum = lab[:, :, 0] * weight
@@ -173,7 +132,6 @@ def main() -> None:
     print(f"far wall   y = {far_y:.3f} m, normal {far_angle:.1f} deg off +y, {far_n} points")
     print(f"right wall x = {right_x:.3f} m, normal {right_angle:.1f} deg off +x, {right_n} points")
 
-    # Both run away from the shared corner, so the texture's left edge meets at the corner.
     z_bottom, z_top = -args.floor_drop, args.ceiling
     walls = [
         Wall("far", (right_x, far_y), (right_x - args.reach, far_y), z_bottom, z_top),

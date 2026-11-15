@@ -40,18 +40,12 @@ REQUEST_SIZE: int = struct.calcsize(REQUEST_FMT)
 RESPONSE_HEADER_FMT: str = "<II16d4dd"
 RESPONSE_HEADER_SIZE: int = struct.calcsize(RESPONSE_HEADER_FMT)
 
-# Ground truth poses appended after depth buffer:
-#   uint32 num_robots, then num_robots * (x, y, yaw) as float64.
-#   First entry = our robot, rest = opponents in config order.
-GT_POSE_FMT: str = "<ddd"  # x, y, yaw per robot (3 x float64 = 24 bytes)
+GT_POSE_FMT: str = "<ddd"
 GT_POSE_SIZE: int = struct.calcsize(GT_POSE_FMT)
 GT_COUNT_FMT: str = "<I"
 GT_COUNT_SIZE: int = struct.calcsize(GT_COUNT_FMT)
 
-# After the ground truth: what perception delivered this tick, from the sensing model
-# (auto_battlebot/perception/sensing_model.py). One header, then one pose per ground-truth slot in
-# the same order. Flags travel as 0.0 / 1.0 so the block stays all float64 like the rest.
-MEAS_HEADER_FMT: str = "<dd"  # delivered, capture_time (sim seconds)
+MEAS_HEADER_FMT: str = "<dd"
 MEAS_HEADER_SIZE: int = struct.calcsize(MEAS_HEADER_FMT)
 MEAS_POSE_FMT: str = "<dddd"
 MEAS_POSE_SIZE: int = struct.calcsize(MEAS_POSE_FMT)

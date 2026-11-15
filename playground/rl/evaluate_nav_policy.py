@@ -1,24 +1,4 @@
-"""Score navigation policies on the held-out evaluation scenarios (plan gates G4 and G5).
-
-`warp` scores a training checkpoint in the Warp environment on the `EVAL` stage with
-`holdout=True`: stage D's opponent mix with the held-out pursuit corner and replay tracks, on the
-nominal plant. With the same `--count` and `--seed` as `lockstep_eval.py export`, each world's
-first episode is the exported scenario of the same index.
-
-`report` puts any mix of Warp results and lockstep result files side by side, overall and per
-opponent behaviour, with the G4 agreement (Warp against lockstep for the same policy) and the
-G5 comparison (the policy against `MotionProfileNavigation`). Its pursuit section splits attack
-episodes against a pursuer by the pursuer's top speed and counts the grid cells beaten (at least
-as many strikes as hits taken, a strike in half the episodes or more). Lockstep rows carry no
-pursuer parameters, so pass the scenario file they ran with `--scenarios`. For the pursuit gate,
-export the pursuit grid with `lockstep_eval.py export --pursuit-grid 4` and score that.
-
-    source scripts/activate_python.sh
-    python playground/rl/evaluate_nav_policy.py warp runs/rl_nav/<run>/checkpoint.pt \\
-        --count 128 --seed 2026 --out playground/rl/out/warp_rl.json
-    python playground/rl/evaluate_nav_policy.py report playground/rl/out/warp_rl.json \\
-        playground/rl/out/lockstep_rl.jsonl playground/rl/out/lockstep_motion_profile.jsonl
-"""
+"""Score navigation policies on the held-out evaluation scenarios (plan gates G4 and G5)."""
 
 from __future__ import annotations
 
@@ -102,8 +82,6 @@ def table(rows: list[dict[str, Any]]) -> dict[str, float]:
     episode = {k: torch.tensor([float(r.get(k, 0.0)) for r in rows]) for k in keys}
     episode_s = max(float(r.get("episode_s", EPISODE_S)) for r in rows)
     result = summarize(episode, episode_s).as_dict()
-    # A flip or a hole ends the episode early, so danger seconds per episode reward dying fast.
-    # The share of time alive spent in danger compares policies that survive for different times.
     alive = sum(float(r.get("seconds", episode_s)) for r in rows)
     result["danger_share"] = sum(float(r["danger_s"]) for r in rows) / max(alive, 1e-9)
     result["seconds_per_episode"] = alive / len(rows)
