@@ -590,3 +590,48 @@ def test_pursuer_grip_limits_braking_and_turn_rate_at_speed() -> None:
     v = opp.command(xy, yaw, half, foot, dt)
     assert float(opp.forward[0]) == 0.0
     assert float(v[0, 2].abs()) == pytest.approx(10.0)
+
+
+def test_lockstep_slew_and_guard_stages() -> None:
+    """The scenario's slew limit ramps the linear command at its rate (the first command passes
+    through), and the guard scale multiplies the mixer's wheel commands. Both off by default."""
+    import json
+
+    from auto_battlebot.rl.lockstep_world import LockstepWorld
+
+    base = json.loads((REPO / "tests/python/data/rl_scenario_static.json").read_text())
+    dt = 0.02
+
+    def run(**stages: float) -> np.ndarray:
+        world = LockstepWorld({**base, **stages, "trace": True}, timestep=2e-3)
+        world.step(0.0, 0.0, dt)
+        for _ in range(30):
+            world.step(-0.9, 0.0, dt)
+        return np.asarray(world.score.extra["trace"])
+
+    neither = run()
+    np.testing.assert_allclose(neither[:, 1], neither[:, 0])  # sent == commanded
+    slew = run(slew_per_s=1.0)
+    np.testing.assert_allclose(slew[1:6, 1], [-0.02, -0.04, -0.06, -0.08, -0.10], atol=1e-9)
+    guard = run(guard_scale=0.5)
+    np.testing.assert_allclose(guard[:, 1], neither[:, 1])
+    # Same sent command, half the wheel command, on the tick the mixer first sees the step.
+    k = int(np.argmax(np.abs(neither[:, 2]) > 1.0))
+    assert guard[k, 2] == pytest.approx(0.5 * neither[k, 2], rel=0.05)
+    # Reverse reads negative, as the firmware's left_cmd does. Checked early: held -0.9 reverse
+    # tips the fitted robot over its nose within about 0.6 s, and the firmware then inverts it.
+    assert neither[10, 2] < -50.0
+
+
+def test_step_response_helpers() -> None:
+    from auto_battlebot.mujoco_sim.step_response import StickTape, ideal_step, loosest_slew
+
+    tape = ideal_step(0.6, slew_per_s=2.0, duration_s=0.5)
+    np.testing.assert_allclose(tape.linear[:3], [0.02, 0.04, 0.06])
+    assert tape.linear[-1] == pytest.approx(0.6)
+    held = StickTape.resample(np.array([0.0, 0.025]), np.array([0.1, 0.5]), np.zeros(2), 0.05)
+    np.testing.assert_allclose(held.linear, [0.1, 0.1, 0.1, 0.5, 0.5])
+    sweep = [(0.0, 95.0), (1.0, 2.0), (4.0, 5.0), (8.0, 99.0), (12.0, 3.0)]
+    assert loosest_slew(sweep, 30.0) == 4.0  # stops at the first failure from the slow end
+    assert loosest_slew([(1.0, 50.0)], 30.0) is None
+    assert loosest_slew([(1.0, 2.0), (0.0, 3.0)], 30.0) == 0.0

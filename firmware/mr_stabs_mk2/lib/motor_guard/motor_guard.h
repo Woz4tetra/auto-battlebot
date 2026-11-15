@@ -49,9 +49,15 @@ struct Config {
     // to 76% on the 2026-10-23 bench run. At 0.1 s a dual stall at full stick still crosses
     // I_peak within about 60 ms. The thermal model integrates the raw estimate either way.
     float limit_filter_s = 0.1f;
+    // Hard trip: a motor's estimated rise at or above this cuts drive until disarm. It protects the
+    // motors while the scaling limits above are loosened for test-box sessions. Placeholder: set it
+    // from a motor can temperature measured after a 3 minute driven session against the logged
+    // motor_rise_left/right (docs/plans/nav_scoring_and_rl_v2_plan.md, section 0.3).
+    float trip_rise_c = 70.0f;
 };
 
-enum class State : uint8_t { OFF, NOMINAL, HOT, LIMITING };
+// TRIPPED outranks every other state: the trip latches whatever the sensors do afterward.
+enum class State : uint8_t { OFF, NOMINAL, HOT, LIMITING, TRIPPED };
 enum class Sensors : uint8_t { FUSED, SHUNT_ONLY, ERPM_ONLY, NONE };
 
 const int NUM_MOTORS = 2;
@@ -66,8 +72,12 @@ class MotorGuard {
     // still cools the model.
     void update(float dt_s, float volts, float amps, float left_duty, float right_duty,
                 float left_erpm, float right_erpm);
-    // Call every control loop. Scales both percent commands by the held scale.
+    // Call every control loop. Scales both percent commands by the held scale, or zeroes them
+    // while tripped.
     void apply(float &left_percent, float &right_percent) const;
+    // Call on disarm. A motor still at or above trip_rise_c trips again on the next update.
+    void clear_trip() { _tripped = false; }
+    bool tripped() const { return _tripped; }
     float scale() const { return _scale; }
     float rise_c(int motor) const { return _rise_c[motor]; }  // 0 left, 1 right
     float amps_estimate(int motor) const { return _amps[motor]; }
@@ -100,6 +110,7 @@ class MotorGuard {
     float _gain = 1.0f;
     float _log_scale = 0.0f;  // u = ln(scale)
     float _scale = 1.0f;
+    bool _tripped = false;
     float _volts = 0.0f;  // last INA238 voltage
     float _volts_age_s = 1e9f;
     Sensors _sensors = Sensors::NONE;

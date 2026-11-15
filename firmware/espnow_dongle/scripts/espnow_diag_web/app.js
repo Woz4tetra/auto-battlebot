@@ -316,7 +316,7 @@ function renderCommand(s) {
 
 const FLIP = ["DOWN", "MIDDLE", "UP"];
 // motor_guard::State and motor_guard::Sensors in firmware/mr_stabs_mk2/lib/motor_guard.
-const GUARD_STATE = ["OFF", "NOMINAL", "HOT", "LIMITING"];
+const GUARD_STATE = ["OFF", "NOMINAL", "HOT", "LIMITING", "TRIPPED"];
 const GUARD_SENSORS = ["FUSED", "SHUNT ONLY", "ERPM ONLY", "NONE"];
 const sensor = (v, unit, digits = 2) => (v === null ? "NO SENSOR" : num(v, digits, unit));
 const triple = (a, b, c, digits = 2) => [a, b, c].map((v) => num(v, digits)).join(" / ");
@@ -360,7 +360,7 @@ function renderRobotState(s) {
     [
       "State",
       GUARD_STATE[t.guard_state] || String(t.guard_state),
-      t.guard_state === 3 ? "bad" : t.guard_state === 2 ? "warn" : "",
+      t.guard_state >= 3 ? "bad" : t.guard_state === 2 ? "warn" : "",
     ],
     [
       "Sensors",

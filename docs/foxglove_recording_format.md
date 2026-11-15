@@ -284,7 +284,7 @@ the robot sends over ESP-NOW (`publish_diag` in `firmware/mr_stabs_mk2/src/main.
   thermal model's winding rise above ambient, C. `motor_speed_*` is shaft speed, rad/s, signed.
   `motor_amps_*` is the estimated winding current, A. `guard_scale` is 1 while commands pass
   through and below 1 while limiting; `guard_gain` is the shunt correction on the model current.
-  `guard_state` is 0 OFF, 1 NOMINAL, 2 HOT, 3 LIMITING. `guard_sensors` is 0 FUSED, 1 SHUNT_ONLY,
+  `guard_state` is 0 OFF, 1 NOMINAL, 2 HOT, 3 LIMITING, 4 TRIPPED (thermal trip latched until disarm). `guard_sensors` is 0 FUSED, 1 SHUNT_ONLY,
   2 ERPM_ONLY, 3 NONE. `stall_flags` bit 0 is the left motor, bit 1 the right. `erpm_crc_errors`
   sums both ESCs since boot. Recordings before 2026-10-22 lack all twelve.
 - `round_trip_us`: host monotonic arrival minus `jetson_tx_us`. Each sample also holds the robot's

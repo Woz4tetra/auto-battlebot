@@ -22,7 +22,7 @@ struct Esp32MotorGuard {
     double guard_scale = 1.0;
     /** Shunt correction gain on the model current. */
     double guard_gain = 1.0;
-    /** motor_guard::State: 0 OFF, 1 NOMINAL, 2 HOT, 3 LIMITING. */
+    /** motor_guard::State: 0 OFF, 1 NOMINAL, 2 HOT, 3 LIMITING, 4 TRIPPED. */
     int guard_state = 0;
     /** motor_guard::Sensors: 0 FUSED, 1 SHUNT_ONLY, 2 ERPM_ONLY, 3 NONE. */
     int guard_sensors = 0;

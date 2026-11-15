@@ -13,6 +13,17 @@ episodes the Python evaluation scored:
 
 The robot is the scenario's (`robot`, Mr Stabs Mk2 when absent).
 - the same contact classification and episode scoring as `WarpNavEnv.step`, tick by tick
+
+Two field stages the Warp environment leaves out, both off unless the scenario sets them:
+
+- `slew_per_s`: the host transmitter's linear slew limit (`EspNowTransmitter`), in normalized
+  units per second, `max_motor_rpm_per_sec / max_motor_rpm`. 0 is off.
+- `guard_scale`: a fixed firmware motor guard scale on both wheel commands after the mixer
+  (`MotorGuard::apply`), Mr Stabs Mk2 only. 1 is off.
+
+`trace: true` records each tick's commanded linear, the linear after the slew limit, and the
+mean wheel command after the guard in `score.extra["trace"]`, in the field's units: the wheel
+command is the firmware's `left_cmd`/`right_cmd` mean, percent, positive forward.
 """
 
 from __future__ import annotations
@@ -220,6 +231,26 @@ class LockstepWorld:
         self.transport: deque[tuple[float, float]] = deque([(0.0, 0.0)] * transport)
         self.drive: deque[tuple[float, float]] = deque([(0.0, 0.0)] * drive)
         self.upside = False
+        self.slew_per_s = float(scenario.get("slew_per_s", 0.0))
+        self.guard_scale = float(scenario.get("guard_scale", 1.0))
+        if self.direct and self.guard_scale != 1.0:
+            raise ValueError(
+                "guard_scale models the Mr Stabs Mk2 firmware guard; this robot has none"
+            )
+        self.sent_linear: float | None = None  # the slew limiter's last output
+        self.trace: list[tuple[float, float, float]] | None = (
+            [] if scenario.get("trace", False) else None
+        )
+
+    def _limit_slew(self, linear: float, dt: float) -> float:
+        """`EspNowTransmitter::limit_linear_acceleration`: the first command passes through."""
+        if self.slew_per_s <= 0.0:
+            return linear
+        if self.sent_linear is not None:
+            step = self.slew_per_s * dt
+            linear = min(max(linear, self.sent_linear - step), self.sent_linear + step)
+        self.sent_linear = linear
+        return linear
 
     def _init_opponent(self, scenario: dict[str, Any]) -> None:
         self.opponents = Opponents(
@@ -431,15 +462,19 @@ class LockstepWorld:
         self._house_command()
 
         flags = np.zeros(7)
-        a_percent = -100.0 * float(np.clip(linear, -1.0, 1.0))
+        commanded = float(np.clip(linear, -1.0, 1.0))
+        sent = self._limit_slew(commanded, dt)
+        a_percent = -100.0 * sent
         b_percent = -100.0 * float(np.clip(angular, -1.0, 1.0))
         sub = self.timestep
+        wheel = 0.0  # mean wheel command the firmware wrote on the tick's last substep
         for _ in range(max(1, round(dt / sub))):
             self.transport.append((a_percent, b_percent))
             a, b = self.transport.popleft()
             if self.direct:
                 # The radio's mix: left = linear - angular, right = linear + angular.
                 self.drive.append((-a + b, -a - b))
+                wheel = -a
                 self.data.ctrl[:] = self._wheel_volts(*self.drive.popleft())
                 self._move_mocaps(sub)
                 mujoco.mj_step(self.model, self.data)
@@ -460,12 +495,19 @@ class LockstepWorld:
                 upside_down=self.upside,
                 yaw_rate_dps=gyro_from_yaw_rate(self.yaw_rate),
             )
+            # After the mixer, as the firmware applies it.
+            left *= self.guard_scale
+            right *= self.guard_scale
+            wheel = 0.5 * (left + right)
             self.drive.append((left, right))
             self.data.ctrl[:] = self._wheel_volts(*self.drive.popleft())
             self._move_mocaps(sub)
             mujoco.mj_step(self.model, self.data)
             self._classify(flags)
         self.t += dt
+        if self.trace is not None:
+            self.trace.append((commanded, sent, wheel))
+            self.score.extra["trace"] = self.trace
         self._score(flags, phi0, dt)
 
     def _policy_override(

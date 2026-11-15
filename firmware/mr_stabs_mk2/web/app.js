@@ -101,7 +101,7 @@ const power = leaderRows("powerRows", [
 // Motor stall guard. Mirrors lib/motor_guard Config: rise_soft_c and rise_max_c.
 const RISE_SOFT_C = 35;
 const RISE_MAX_C = 50;
-const GUARD_STATE = ["OFF", "NOMINAL", "HOT", "LIMITING"];
+const GUARD_STATE = ["OFF", "NOMINAL", "HOT", "LIMITING", "TRIPPED"];
 const GUARD_SENSORS = ["FUSED", "SHUNT ONLY", "ERPM ONLY", "NONE"];
 const heat = leaderRows("heatRows", [
   ["state", "Guard state"],
@@ -154,7 +154,8 @@ function render() {
   );
   setValue(imuLive.accel, [g("accel_x"), g("accel_y"), g("accel_z")].join(" / "));
   const state = GUARD_STATE[+g("guard_state")] || g("guard_state");
-  setTone(heat.state, state, state === "OFF" ? "bad" : state === "NOMINAL" ? "" : "warn");
+  const bad = state === "OFF" || state === "TRIPPED";
+  setTone(heat.state, state, bad ? "bad" : state === "NOMINAL" ? "" : "warn");
   const sensors = GUARD_SENSORS[+g("guard_sensors")] || g("guard_sensors");
   setTone(heat.sensors, sensors, sensors === "NONE" ? "bad" : sensors === "FUSED" ? "" : "warn");
   const scale = +g("guard_scale");

@@ -328,9 +328,14 @@ void update_motor_guard(uint32_t now_us) {
     const float amps = fresh ? vbat_sensor_ina238.get_amps() : NAN;
     const float left_erpm = left_esc->erpm_valid() ? (float)left_esc->erpm() : -1.0f;
     const float right_erpm = right_esc->erpm_valid() ? (float)right_esc->erpm() : -1.0f;
+    const bool was_tripped = guard.tripped();
     guard.update(dt_s, volts, amps, last_left_duty, last_right_duty, left_erpm, right_erpm);
     guard_rtc.rise_c[0] = guard.rise_c(0);
     guard_rtc.rise_c[1] = guard.rise_c(1);
+    if (guard.tripped() && !was_tripped) {
+        Serial.printf("motor guard: TRIPPED at %.1f / %.1f C, drive cut until disarm\n",
+                      guard.rise_c(0), guard.rise_c(1));
+    }
 }
 
 void reset_steering(float sensed_angle_z) {
@@ -615,6 +620,8 @@ void loop() {
     // Tuning mode drives nothing, armed or not: DShot is off, or sending the 2 s of wake-up stop
     // frames on the way out.
     if (!radio_data->armed || esc_tuning.active()) {
+        // Disarm is the only way out of a thermal trip. A link loss keeps it latched.
+        if (!radio_data->armed) guard.clear_trip();
         stop_escs();
         reset_steering(accel->get_orientation()->x);
 

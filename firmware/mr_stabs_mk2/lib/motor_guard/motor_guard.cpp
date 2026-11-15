@@ -32,6 +32,7 @@ void MotorGuard::restore(float left_rise_c, float right_rise_c) {
 }
 
 State MotorGuard::state() const {
+    if (_tripped) return State::TRIPPED;
     if (_sensors == Sensors::NONE) return State::OFF;
     if (_scale < 1.0f) return State::LIMITING;
     for (int k = 0; k < NUM_MOTORS; k++) {
@@ -41,6 +42,11 @@ State MotorGuard::state() const {
 }
 
 void MotorGuard::apply(float &left_percent, float &right_percent) const {
+    if (_tripped) {
+        left_percent = 0.0f;
+        right_percent = 0.0f;
+        return;
+    }
     if (_scale >= 1.0f) return;
     left_percent *= _scale;
     right_percent *= _scale;
@@ -213,6 +219,7 @@ void MotorGuard::update(float dt_s, float volts, float amps, float left_duty, fl
         _rise_c[k] = decay * _rise_c[k] + (1.0f - decay) * _config.k_c_per_a2s * _config.tau_s *
                                               (1.0f + _config.alpha_per_c * _rise_c[k]) * amps_k *
                                               amps_k;
+        if (_rise_c[k] >= _config.trip_rise_c) _tripped = true;
     }
 
     update_limiter(dt_s);

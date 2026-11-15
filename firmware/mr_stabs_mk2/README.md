@@ -86,7 +86,7 @@ The MOTOR HEAT panel on the diagnostics page shows:
 
 | Row | Meaning |
 |---|---|
-| Guard state | `NOMINAL`; `HOT` past 35 C with full power; `LIMITING` while the scale is under 100%; `OFF` (red) with no sensor for a motor |
+| Guard state | `NOMINAL`; `HOT` past 35 C with full power; `LIMITING` while the scale is under 100%; `OFF` (red) with no sensor for a motor; `TRIPPED` (red) once a motor's rise reaches `trip_rise_c`, drive cut until disarm |
 | Sensors | `FUSED` is normal. `SHUNT ONLY` (an ESC's eRPM is missing or failing its CRC) and `ERPM ONLY` (no INA238) still protect. `NONE` turns the guard off |
 | Drive scale | What both commands are multiplied by |
 | Rise L / R | Modelled winding rise above ambient. Amber past 35 C, red at 50 C |

@@ -159,6 +159,63 @@ TEST(MotorGuard, DualStallAtFullCommandNeverPassesMaxRise) {
     EXPECT_GT(peak_rise, config.rise_max_c - 3.0f);  // it does use the budget
     // Held at I_cont the duty is under stall_duty, so the stall flag has cleared by now.
     EXPECT_EQ(sim.guard.state(), State::LIMITING);
+    EXPECT_FALSE(sim.guard.tripped());  // the trip sits above where the limiter holds
+}
+
+namespace {
+// A dual stall at full command with the trip forced low, run until it latches.
+Sim tripped_sim(float trip_rise_c) {
+    Config config;
+    config.trip_rise_c = trip_rise_c;
+    Sim sim(config);
+    sim.plant.locked[0] = sim.plant.locked[1] = true;
+    while (!sim.guard.tripped() && sim.time_s < 60.0f) sim.tick(100.0f, 100.0f);
+    return sim;
+}
+}  // namespace
+
+TEST(MotorGuard, TripLatchesAndCutsDriveUntilCleared) {
+    Sim sim = tripped_sim(5.0f);
+    ASSERT_TRUE(sim.guard.tripped());
+    EXPECT_GE(std::fmax(sim.guard.rise_c(0), sim.guard.rise_c(1)), 5.0f);
+    EXPECT_EQ(sim.guard.state(), State::TRIPPED);
+    float left = 80.0f, right = -60.0f;
+    sim.guard.apply(left, right);
+    EXPECT_EQ(left, 0.0f);
+    EXPECT_EQ(right, 0.0f);
+
+    // Still commanding, then cooled well under the threshold: the latch holds.
+    sim.plant.locked[0] = sim.plant.locked[1] = false;
+    sim.run(120.0f, 100.0f, 100.0f);
+    EXPECT_LT(sim.guard.rise_c(0), 5.0f);
+    EXPECT_TRUE(sim.guard.tripped());
+    EXPECT_EQ(sim.duty[0], 0.0f);
+    EXPECT_EQ(sim.duty[1], 0.0f);
+
+    sim.guard.clear_trip();
+    sim.tick(30.0f, 30.0f);
+    EXPECT_FALSE(sim.guard.tripped());
+    EXPECT_NE(sim.guard.state(), State::TRIPPED);
+    EXPECT_GT(sim.duty[0], 0.0f);
+}
+
+TEST(MotorGuard, ClearedWhileHotTripsAgain) {
+    Sim sim = tripped_sim(5.0f);
+    ASSERT_TRUE(sim.guard.tripped());
+    sim.guard.clear_trip();
+    sim.tick(0.0f, 0.0f);  // one sample of cooling leaves the rise above the threshold
+    EXPECT_TRUE(sim.guard.tripped());
+}
+
+TEST(MotorGuard, TripOutlastsSensorLoss) {
+    Sim sim = tripped_sim(5.0f);
+    ASSERT_TRUE(sim.guard.tripped());
+    sim.shunt_ok = false;
+    sim.erpm_ok[0] = sim.erpm_ok[1] = false;
+    sim.run(1.0f, 100.0f, 100.0f);
+    EXPECT_EQ(sim.guard.sensors(), Sensors::NONE);
+    EXPECT_EQ(sim.guard.state(), State::TRIPPED);
+    EXPECT_EQ(sim.duty[0], 0.0f);
 }
 
 TEST(MotorGuard, LimiterSettlesWithoutOvershootOrOscillation) {
