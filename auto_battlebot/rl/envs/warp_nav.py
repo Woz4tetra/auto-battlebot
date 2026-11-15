@@ -931,7 +931,7 @@ class WarpNavEnv:
         for name in ("engaged", "struck", "prev_arc", "prev_wall", "prev_block"):
             setattr(self, name, torch.where(mask, false, getattr(self, name)))
         zero = torch.zeros_like(self.t)
-        for name in ("t", "apart_s", "arc_s", "flip_s", "last_speed", "last_rate"):
+        for name in ("t", "apart_s", "arc_contact_s", "flip_s", "last_speed", "last_rate"):
             setattr(self, name, torch.where(mask, zero, getattr(self, name)))
         self.steps = torch.where(mask, torch.zeros_like(self.steps), self.steps)
         self.prev_action = torch.where(m1, torch.zeros_like(self.prev_action), self.prev_action)
