@@ -7,6 +7,7 @@ import json
 import math
 import time
 from dataclasses import replace
+from enum import IntEnum
 from pathlib import Path
 
 import numpy as np
@@ -96,26 +97,34 @@ def saturate(lin: np.ndarray, ang: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return 0.5 * (a + b), 0.5 * (a - b)
 
 
+class Family(IntEnum):
+    STRAIGHT = 0
+    SPIN = 1
+    ARC = 2
+    STEER_BRAKE_ARC = 3
+    DEADZONE_STAIRCASE = 4
+
+
 def command_tape(rng: np.random.Generator, n: int) -> tuple[np.ndarray, np.ndarray]:
     """One window's linear and angular commands on the PLANT_DT grid, piecewise constant."""
     lin = np.zeros(n)
     ang = np.zeros(n)
-    family = rng.integers(0, 5)
+    family = Family(rng.integers(0, len(Family)))
     t = 0
     while t < n:
         hold = int(rng.uniform(0.15, 0.5) / PLANT_DT)
         if rng.random() < 0.3:
             v, w = 0.0, 0.0
-        elif family == 0:  # straight
+        elif family is Family.STRAIGHT:
             v, w = rng.choice([-1, 1]) * rng.uniform(0.05, 1.0), 0.0
-        elif family == 1:  # spin
+        elif family is Family.SPIN:
             v, w = 0.0, rng.choice([-1, 1]) * rng.uniform(0.05, 1.0)
-        elif family == 2:  # arc
+        elif family is Family.ARC:
             w = rng.uniform(-1.0, 1.0)
             v = rng.uniform(-1.0, 1.0) * (1.0 - abs(w))
-        elif family == 3:  # full-speed arc with a growing turn: the steer-brake grid
+        elif family is Family.STEER_BRAKE_ARC:
             v, w = rng.choice([-1, 1]) * 1.0, rng.uniform(-0.6, 0.6)
-        else:  # deadzone staircase
+        else:
             v, w = rng.uniform(-0.08, 0.08), rng.uniform(-0.08, 0.08)
         lin[t : t + hold], ang[t : t + hold] = v, w
         t += hold

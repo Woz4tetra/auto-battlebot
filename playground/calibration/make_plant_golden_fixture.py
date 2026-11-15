@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import NamedTuple
 
 from auto_battlebot.control.plant import Plant, PlantParams
 
@@ -14,15 +15,21 @@ DT = 0.002
 CMD_TICK_S = 0.02
 RECORD_STRIDE = 5
 
-# (duration_s, u_lin, u_ang) held segments.
+
+class Segment(NamedTuple):
+    duration_s: float
+    u_lin: float
+    u_ang: float
+
+
 SCENARIO = [
-    (0.30, 0.0, 0.0),
-    (0.50, 0.5, 0.0),
-    (0.40, -0.6, 0.0),
-    (0.40, 0.0, 0.4),
-    (0.40, 0.5, 0.5),
-    (0.20, 0.005, 0.02),
-    (0.20, 0.0, 0.0),
+    Segment(0.30, 0.0, 0.0),
+    Segment(0.50, 0.5, 0.0),
+    Segment(0.40, -0.6, 0.0),
+    Segment(0.40, 0.0, 0.4),
+    Segment(0.40, 0.5, 0.5),
+    Segment(0.20, 0.005, 0.02),
+    Segment(0.20, 0.0, 0.0),
 ]
 
 PARAM_FIELDS = [

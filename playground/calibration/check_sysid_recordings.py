@@ -7,6 +7,7 @@ import json
 import math
 import os
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -65,10 +66,17 @@ MENU_TARGETS = {
 }
 
 
+class Level(Enum):
+    PASS = "PASS"
+    WARN = "WARN"
+    FAIL = "FAIL"
+    INFO = "INFO"
+
+
 @dataclass
 class Check:
     name: str
-    level: str  # PASS | WARN | FAIL | INFO
+    level: Level
     detail: str
 
 
@@ -79,15 +87,15 @@ class Report:
     stats: dict[str, Any] = field(default_factory=dict)
     menu: dict[str, Any] = field(default_factory=dict)
 
-    def add(self, name: str, level: str, detail: str) -> None:
+    def add(self, name: str, level: Level, detail: str) -> None:
         self.checks.append(Check(name, level, detail))
 
     @property
-    def worst(self) -> str:
-        for level in ("FAIL", "WARN", "PASS"):
+    def worst(self) -> Level:
+        for level in (Level.FAIL, Level.WARN, Level.PASS):
             if any(c.level == level for c in self.checks):
                 return level
-        return "INFO"
+        return Level.INFO
 
 
 def check_file(path: Path, rep: Report) -> dict[str, int] | None:
@@ -96,10 +104,10 @@ def check_file(path: Path, rep: Report) -> dict[str, int] | None:
         with open(path, "rb") as handle:
             summary = make_reader(handle).get_summary()
     except Exception as exc:  # the mcap reader raises a mix of types on a torn file
-        rep.add("file", "FAIL", f"unreadable ({str(exc)[:60]}); re-download or drop it")
+        rep.add("file", Level.FAIL, f"unreadable ({str(exc)[:60]}); re-download or drop it")
         return None
     if summary is None or summary.statistics is None:
-        rep.add("file", "FAIL", "no summary: copied while recording, or the app died mid-write")
+        rep.add("file", Level.FAIL, "no summary: copied while recording, or the app died mid-write")
         return None
     st = summary.statistics
     duration = (st.message_end_time - st.message_start_time) / 1e9
@@ -108,7 +116,7 @@ def check_file(path: Path, rep: Report) -> dict[str, int] | None:
     }
     rep.stats["duration_s"] = duration
     rep.stats["size_mb"] = path.stat().st_size / 1e6
-    level = "PASS" if duration >= 30.0 else "WARN"
+    level = Level.PASS if duration >= 30.0 else Level.WARN
     rep.add("file", level, f"{duration:.0f} s, {rep.stats['size_mb']:.0f} MB")
     return counts
 
@@ -120,14 +128,14 @@ def check_video(counts: dict[str, int], rep: Report) -> None:
     if video == 0:
         rep.add(
             "video",
-            "FAIL",
+            Level.FAIL,
             "no /camera/video: nothing to replay. Builds since the GStreamer encoder refuse to"
             " start like this; an older build's encoder failed to open",
         )
         return
     share = video / frames if frames else math.nan
     rep.stats["video_coverage"] = share
-    level = "PASS" if share >= VIDEO_COVERAGE_PASS else "WARN"
+    level = Level.PASS if share >= VIDEO_COVERAGE_PASS else Level.WARN
     rep.add("video", level, f"{video} frames for {frames} camera frames ({share:.1%})")
 
 
@@ -141,7 +149,7 @@ def frame_stamps(path: Path) -> np.ndarray:
 
 def check_camera(stamps: np.ndarray, rep: Report) -> None:
     if len(stamps) < 2:
-        rep.add("camera", "FAIL", "no /camera/frame_meta")
+        rep.add("camera", Level.FAIL, "no /camera/frame_meta")
         return
     dt = np.diff(np.sort(stamps)) / 1e9
     fps = 1.0 / float(np.median(dt))
@@ -149,9 +157,9 @@ def check_camera(stamps: np.ndarray, rep: Report) -> None:
     mean_fps = (len(stamps) - 1) / span if span > 0 else math.nan
     gaps = int(np.sum(dt > CAMERA_GAP_WARN_S))
     rep.stats.update(camera_fps=fps, camera_mean_fps=mean_fps, camera_max_gap_s=float(dt.max()))
-    level = "PASS" if mean_fps >= CAMERA_FPS_PASS and gaps == 0 else "WARN"
+    level = Level.PASS if mean_fps >= CAMERA_FPS_PASS and gaps == 0 else Level.WARN
     if dt.max() > CAMERA_GAP_FAIL_S:
-        level = "FAIL"
+        level = Level.FAIL
     rep.add(
         "camera",
         level,
@@ -165,7 +173,7 @@ def check_field(path: Path, rep: Report, counts: dict[str, int]) -> None:
     series = load_field_from_camera(path)
     reinits = counts.get("/command/reinit_field", 0)
     if len(series) == 0:
-        rep.add("field", "FAIL", "no field -> camera transform: field never locked")
+        rep.add("field", Level.FAIL, "no field -> camera transform: field never locked")
         return
     t = series.matrices[:, :3, 3]
     step = np.linalg.norm(np.diff(t, axis=0), axis=1)
@@ -186,7 +194,7 @@ def check_field(path: Path, rep: Report, counts: dict[str, int]) -> None:
     moved = (
         drift["max_translation_m"] > FIELD_DRIFT_M or drift["max_rotation_deg"] > FIELD_DRIFT_DEG
     )
-    level = "WARN" if moved or len(locks) > 1 else "PASS"
+    level = Level.WARN if moved or len(locks) > 1 else Level.PASS
     note = ""
     if len(locks) > 1:
         note = " -- smooth each lock as its own session"
@@ -206,7 +214,7 @@ def check_tags(path: Path, rep: Report, cam_stamps: np.ndarray, sticks: pd.DataF
     if not frames:
         rep.add(
             "robot tags",
-            "FAIL",
+            Level.FAIL,
             "no /apriltag/robot_tags: recorded without the sysid profile. Replay /camera/video"
             " through config/playback/mr_stabs_mk2_sysid_playback.toml to recover them",
         )
@@ -225,7 +233,11 @@ def check_tags(path: Path, rep: Report, cam_stamps: np.ndarray, sticks: pd.DataF
     rep.stats.update(tag_coverage=coverage, tag_coverage_moving=moving_cov, tag_frames=len(frames))
     worst = min(coverage, moving_cov) if math.isfinite(moving_cov) else coverage
     level = (
-        "PASS" if worst >= TAG_COVERAGE_PASS else "WARN" if worst >= TAG_COVERAGE_WARN else "FAIL"
+        Level.PASS
+        if worst >= TAG_COVERAGE_PASS
+        else Level.WARN
+        if worst >= TAG_COVERAGE_WARN
+        else Level.FAIL
     )
     per_frame = len(frames) / len(cam_stamps) if len(cam_stamps) else math.nan
     rep.add(
@@ -243,11 +255,11 @@ def check_track(path: Path, rep: Report, has_tags: bool) -> pd.DataFrame:
     ours = pos[pos["group"] == "OURS"] if not pos.empty else pos
     ticks = pos["timestamp_ns"].nunique() if not pos.empty else 0
     if ticks == 0:
-        rep.add("our-robot track", "INFO" if has_tags else "WARN", "no /robot_markers")
+        rep.add("our-robot track", Level.INFO if has_tags else Level.WARN, "no /robot_markers")
         return ours
     present = ours["timestamp_ns"].nunique() / ticks
     rep.stats["our_track_coverage"] = present
-    level = "INFO" if has_tags else ("PASS" if present >= TAG_COVERAGE_PASS else "WARN")
+    level = Level.INFO if has_tags else (Level.PASS if present >= TAG_COVERAGE_PASS else Level.WARN)
     extent = ""
     if not ours.empty:
         extent = f", drove over {np.ptp(ours['x']):.2f} x {np.ptp(ours['y']):.2f} m of field"
@@ -259,7 +271,7 @@ def check_esp32(esp: pd.DataFrame, rep: Report) -> bool:
     if esp.empty:
         rep.add(
             "robot telemetry",
-            "FAIL",
+            Level.FAIL,
             "no /robot/espnow_telemetry or /robot/esp32_diagnostics: no per-motor command tape"
             " and no pack voltage. Record with mr_stabs_mk2_sysid_zed_box, ESP-NOW dongle paired",
         )
@@ -278,7 +290,7 @@ def check_esp32(esp: pd.DataFrame, rep: Report) -> bool:
     gaps = int(np.sum(rgaps > ESP32_GAP_S))
     ratio = rate / expected if math.isfinite(expected) else math.nan
     rep.stats.update(esp32_rate=rate, esp32_expected=expected, esp32_gaps=gaps)
-    level = "PASS" if ratio >= ESP32_RATE_PASS and gaps == 0 else "WARN"
+    level = Level.PASS if ratio >= ESP32_RATE_PASS and gaps == 0 else Level.WARN
     rep.add(
         "robot telemetry",
         level,
@@ -289,19 +301,19 @@ def check_esp32(esp: pd.DataFrame, rep: Report) -> bool:
     vbat = esp["vbat"].to_numpy(float) if "vbat" in esp else np.array([])
     good = vbat[np.isfinite(vbat) & (vbat > VBAT_PLAUSIBLE_MIN_V)]
     if len(good) == 0:
-        rep.add("pack voltage", "FAIL", "vbat missing or NaN: the fit falls back to 15.2 V")
+        rep.add("pack voltage", Level.FAIL, "vbat missing or NaN: the fit falls back to 15.2 V")
     else:
         bad = 1.0 - len(good) / len(vbat)
         rep.stats.update(vbat_start=float(good[:50].mean()), vbat_end=float(good[-50:].mean()))
         rep.add(
             "pack voltage",
-            "PASS" if bad < 0.01 else "WARN",
+            Level.PASS if bad < 0.01 else Level.WARN,
             f"{good[:50].mean():.2f} V start, {good[-50:].mean():.2f} V end,"
             f" min {good.min():.2f} V (sag), {bad:.1%} bad readings",
         )
     armed = esp["armed"].astype(bool).mean() if "armed" in esp else math.nan
     flip_down = (~esp["is_upside_down"].astype(bool)).mean() if "is_upside_down" in esp else 1.0
-    rep.add("robot state", "INFO", f"armed {armed:.0%} of events, upright {flip_down:.0%}")
+    rep.add("robot state", Level.INFO, f"armed {armed:.0%} of events, upright {flip_down:.0%}")
     return True
 
 
@@ -352,7 +364,7 @@ def maneuver_menu(sticks: pd.DataFrame) -> dict[str, Any]:
 
 def check_sticks(sticks: pd.DataFrame, rep: Report) -> None:
     if sticks.empty:
-        rep.add("sticks", "FAIL", "no stick channels or telemetry: cannot see what was driven")
+        rep.add("sticks", Level.FAIL, "no stick channels or telemetry: cannot see what was driven")
         return
     menu = maneuver_menu(sticks)
     rep.menu = menu
@@ -360,20 +372,20 @@ def check_sticks(sticks: pd.DataFrame, rep: Report) -> None:
     if c_lin or c_ang:
         rep.add(
             "stick center",
-            "WARN" if max(abs(c_lin), abs(c_ang)) / STICK_FULL >= 0.02 else "INFO",
+            Level.WARN if max(abs(c_lin), abs(c_ang)) / STICK_FULL >= 0.02 else Level.INFO,
             f"rests at linear {c_lin:+.0f}, angular {c_ang:+.0f} of {STICK_FULL:.0f}"
             " (subtracted below). Re-center the radio trims if this reaches the 2% deadzone",
         )
     rep.add(
         "sticks",
-        "PASS" if menu["driving_s"] >= 30.0 else "WARN",
+        Level.PASS if menu["driving_s"] >= 30.0 else Level.WARN,
         f"driving {menu['driving_s']:.0f} of {menu['total_s']:.0f} s,"
         f" max |linear| {menu['max_linear']:.2f}, max |angular| {menu['max_angular']:.2f}",
     )
     if menu["jitter_near_center_s"] > 5.0:
         rep.add(
             "stick jitter",
-            "WARN",
+            Level.WARN,
             f"{menu['jitter_near_center_s']:.0f} s with the linear stick barely off center"
             " (0.5-2%): blurs the deadzone",
         )
@@ -409,19 +421,19 @@ def check_svo(
     if spans is None:
         return
     if len(stamps) == 0:
-        rep.add("SVO", "WARN", "no camera stamps to pair on")
+        rep.add("SVO", Level.WARN, "no camera stamps to pair on")
         return
     lo, hi = int(stamps.min()), int(stamps.max())
     best = max(spans, key=lambda s: min(hi, s[2]) - max(lo, s[1]), default=None)
     if best is None or min(hi, best[2]) - max(lo, best[1]) <= 0:
-        rep.add("SVO", "FAIL", "no SVO overlaps this recording: download it from the box")
+        rep.add("SVO", Level.FAIL, "no SVO overlaps this recording: download it from the box")
         return
     svo, a, b, n = best
     covered = (min(hi, b) - max(lo, a)) / max(hi - lo, 1)
     rep.stats["svo"] = str(svo)
     rep.add(
         "SVO",
-        "PASS" if covered >= 0.98 else "WARN",
+        Level.PASS if covered >= 0.98 else Level.WARN,
         f"{svo.name}: {n} frames, covers {covered:.0%} of the MCAP's camera span",
     )
 
@@ -502,9 +514,9 @@ def check_recording(
 
 
 def print_report(rep: Report) -> None:
-    print(f"\n{rep.worst:4}  {rep.path.name}")
+    print(f"\n{rep.worst.value:4}  {rep.path.name}")
     for c in rep.checks:
-        print(f"   {c.level:4}  {c.name:16} {c.detail}")
+        print(f"   {c.level.value:4}  {c.name:16} {c.detail}")
     if "plot" in rep.stats:
         print(f"         plot {rep.stats['plot']}")
 
@@ -567,7 +579,7 @@ def main() -> None:
         doc = [
             {
                 "path": str(r.path),
-                "worst": r.worst,
+                "worst": r.worst.value,
                 "checks": [c.__dict__ for c in r.checks],
                 "stats": r.stats,
                 "menu": r.menu,
@@ -576,7 +588,7 @@ def main() -> None:
         ]
         args.json.write_text(json.dumps(doc, indent=2, default=float))
         print(f"\nwrote {args.json}")
-    fails = [r for r in reports if r.worst == "FAIL"]
+    fails = [r for r in reports if r.worst == Level.FAIL]
     print(f"\n{len(reports) - len(fails)} of {len(reports)} recording(s) without a FAIL")
     raise SystemExit(1 if fails else 0)
 

@@ -9,6 +9,7 @@ import subprocess
 from collections.abc import Iterator
 from contextlib import closing
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
 
 import cv2
@@ -48,11 +49,16 @@ BLACK = (20, 20, 20)
 REPLAYS = OUT / "replays"
 
 
+class SceneKind(Enum):
+    SYSID = "sysid"
+    REPLAY = "replay"
+
+
 @dataclass
 class Scene:
     name: str
     title: str
-    kind: str  # "sysid" or "replay"
+    kind: SceneKind
     session: str = ""
     mcap: Path = field(default_factory=Path)
     svo: Path = field(default_factory=Path)
@@ -66,14 +72,14 @@ SCENES = {
     "apartment": Scene(
         "apartment",
         "Apartment floor, Mr Stabs Mk2 sysid (AprilTag truth)",
-        "sysid",
+        SceneKind.SYSID,
         session="2026-10-15_00-29-00",
         half_size_m=0.075,
     ),
     "nhrl": Scene(
         "nhrl",
         "NHRL May 2026, cage, 17-26-14 (no truth; withheld measurements shown)",
-        "replay",
+        SceneKind.REPLAY,
         mcap=REPLAYS / "2026-05-02T17-26-14_KALMAN.mcap",
         svo=REPO_ROOT / "data/svo/NHRL_2026-05-02/2026-05-02T17-26-14.svo2",
         half_size_m=0.11,
@@ -82,7 +88,7 @@ SCENES = {
     "massd": Scene(
         "massd",
         "MassD Aug 2026, arena, 13-20-08 (no truth; withheld measurements shown)",
-        "replay",
+        SceneKind.REPLAY,
         mcap=REPLAYS / "2026-08-29T13-20-08_KALMAN.mcap",
         svo=REPO_ROOT / "data/svo/MassD_2026-08-29/2026-08-29T13-20-08.svo2",
         half_size_m=0.11,
@@ -348,7 +354,7 @@ def draw_error_readout(out, data, est, hold, t_ns: int, has_truth: bool, scale: 
 def render_frame(img, t_ns, cff, k, data, seg: Segment, scene: Scene, scale: float) -> np.ndarray:
     cff = lift_to_plane(cff, scene.plane_z_m)
     out = img.copy()
-    has_truth = scene.kind == "sysid"
+    has_truth = scene.kind is SceneKind.SYSID
     half = scene.half_size_m
     gap_end = seg.start_ns + int(seg.gap_s * 1e9)
 
@@ -399,13 +405,13 @@ def title_card(shape, scene: Scene, gap: float) -> np.ndarray:
 
 
 def render_scene(scene: Scene) -> Path:
-    if scene.kind == "sysid":
+    if scene.kind is SceneKind.SYSID:
         data = load_session(scene.session)
     else:
         data = replay_session(scene.mcap)
     segments = pick_segments(data)
     last_ns = max(s.window[1] for s in segments)
-    if scene.kind == "sysid":
+    if scene.kind is SceneKind.SYSID:
         source = sysid_frames(scene.session)
     else:
         source = replay_frames(scene, replay_last_index(scene, last_ns))

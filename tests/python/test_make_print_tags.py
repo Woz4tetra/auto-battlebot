@@ -1,4 +1,4 @@
-"""make_print_tags prints the board the floor solve expects and a robot tag the floor cannot claim."""
+"""make_print_tags prints the board the floor solve expects and an unclaimed robot tag id."""
 
 from __future__ import annotations
 
