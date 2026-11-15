@@ -1,51 +1,10 @@
-"""Cup arm: a printed PETG arm that carries one suction cup off a side wall of the tray.
-
-The tray's panel sits CUP_H off the glass, level with the cups' rail tops. Each arm's plate
-lies on its cup's rail beside the tray, with one 3/8-16 screw and a load washer down into
-the cup's centre thread. Its tongue reaches under the panel and takes two M3 screws up into
-heat-set inserts pressed into the panel's glass side. A step between the two hugs the side
-wall's outside face. The cup's whole rim, release tabs included, is outside the tray.
-
-Both arms are this part: the -X arm is the +X arm turned 180° about the glass normal, since
-the profile is symmetric about the cup's axis along Y. Print two.
-
-Spec
-- Process: FDM, black PETG, printed on its side: the profile below is the bed face, the
-  arm's width rises from it, so every face of the profile is a wall and the screw holes
-  run across the layers. PROCESS = "fdm".
-- Frame (print frame): X = out from the side wall's outside face, Y = along the glass
-  normal from the cups' rail tops (Y = 0 is Z = CUP_H in the assembly), Z = across the arm,
-  0 to ARM_W. ASSEMBLY_AT places it on either side.
-- Profile: tongue 36 under the panel, 10 thick; beam 18 deep (tongue + plate) to 8 mm
-  past the wall, sloping up to the plate 2 mm short of the cup's rail; plate 8 thick to 30
-  past the cup's axis. 40 wide.
-- Holes:
-  - cup screw: Ø10.3 (3/8" normal clearance, fasteners.md) at the cup's axis, CUP_OUT
-    from the wall, in a Ø27 x 3.0 washer spot face. That leaves 5.0 under the washer, so a
-    3/8-16 x 5/8" screw engages the cup's thread by 9.4, as the old 1/2" screw did through
-    the tray's 1.6.
-  - panel screws: 2 x Ø3.4 (M3 normal clearance) 28 in from the wall, 24 apart, each
-    under a Ø6.5 x 3.5 counterbore for an M3 socket head from the glass side. M3 x 12
-    engages the panel's 6.4 mm inserts by 5.5 (86 %).
-- Model: features() (recipe.py), so the checked solid and the Onshape Part Studio are the
-  same eight features: profile, arm, foot chamfer, cup screw sketch, hole, spot face,
-  panel screw sketch, holes and counterbores.
-
-Load path: the cup pulls the plate; the beam carries it to the wall as a lever, the panel
-screws in tension 28 in from the wall and the panel's underside bearing on the tongue
-at the wall. With the cup 45 out, a cup pull F puts about 2.6 F into the two screws.
-
-Open questions
-- Release tab positions are from photos (smallrig_4122c.py): check them on the real cups.
-- The inserts pull out toward the side they were pressed from. Pull test a printed coupon
-  before trusting the arm with a pack on the glass.
-"""
+"""Cup arm that carries one suction cup off a tray side wall."""
 
 from dataclasses import dataclass
 
 import b123d_fix  # noqa: F401
 import cage_layout as cl
-import recipe  # build123d-part/scripts, on the path when run through scripts/run
+import recipe
 from build123d import Part, Pos, Rot
 
 PROCESS = "fdm"
@@ -83,8 +42,7 @@ def _bed_edge_midpoints(poly: list[tuple[float, float]]) -> list[tuple[float, fl
 
 
 def features(p: Params) -> list[dict]:
-    """Profile on Top extruded across the arm, then the screw holes from the Front plane
-    (sketch x = X, y = Z; normal -Y, so an extrude's start is minus the Y it begins at)."""
+    """Arm profile and screw holes as CAD features."""
     poly = profile(p)
     tt, tp = cl.ARM_TONGUE_T, cl.ARM_PLATE_T
     zm = W / 2

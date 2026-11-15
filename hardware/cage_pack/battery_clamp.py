@@ -1,30 +1,10 @@
-"""Battery clamp: a printed PETG plate that holds the battery holder and cells down and
-carries the OpenUPS on four standoff tubes.
-
-The plate sits on the tray's four 25 mm bosses. Four M3 x 16 screws go down through the
-OpenUPS, the tubes and the plate into the bosses' heat-set inserts, so one set of screws
-holds the board, the plate and the battery. Taking the OpenUPS off frees the plate and the
-cells.
-
-Spec
-- Process: FDM, black PETG, printed plate-down with the tubes rising from it (the build
-  frame is the print frame). PROCESS = "fdm".
-- Frame: cage_layout.py, underside at Z = CLAMP_Z0.
-- Holes: 4 x Ø3.4 through plate and tubes on the OpenUPS's 92 x 47 pattern
-  (cage_layout.UPS_HOLES).
-- Size: the hole pattern + 6 mm margin, 5 mm corners, 3 mm thick. Tubes Ø8 x 6 tall. The
-  battery holder (78.84 wide) sits between the boss columns. The plate clears the holder's
-  walls by 0.4 and the cells by 2.1; a 2 mm foam strip stuck under the plate holds the
-  cells' middle 59 mm down in their cradles.
-- Model: features() (recipe.py), so the checked solid and the Onshape Part Studio are the
-  same four features: plate sketch and plate, tube sketch and tubes.
-"""
+"""Battery clamp plate that holds the cells and carries the OpenUPS."""
 
 from dataclasses import dataclass
 
 import b123d_fix  # noqa: F401
 import cage_layout as cl
-import recipe  # build123d-part/scripts, on the path when run through scripts/run
+import recipe
 from build123d import Part
 
 PROCESS = "fdm"

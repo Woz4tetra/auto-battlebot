@@ -1,11 +1,4 @@
-"""Line-art render of the Mr Stabs Mk2 CAD for the silkscreen icon.
-
-Software z-buffer: rasterize the assembly's triangles into depth and normal images, then mark
-pixels where depth jumps (silhouettes) or the normal turns sharply (creases). Writes
-robot_lines.png (white lines on black) for silk.py to vectorize.
-
-    ~/.local/share/pcba-design/venv/bin/python art/render_robot.py [--preview]
-"""
+"""Line-art render of the Mk2 CAD for the silkscreen icon."""
 
 import glob
 import math

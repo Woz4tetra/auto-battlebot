@@ -1,16 +1,4 @@
-"""Finish the routed board: wire-pad and pin labels, the Mk2 and BWBots art, USB-C shell paste.
-
-    SKILL/scripts/kicad python3 silk.py mk2_routed.kicad_pcb        (in place; or IN OUT)
-
-Run it on the routed board after flow.sh and before check.sh / fab.sh: flow.sh rebuilds the
-board from the netlist on every try, so anything added before routing is lost. Silk does not
-touch copper, so the route is unchanged. Labels are placed from the pads' real positions, found
-by the wire pads' values (the net labels in design.py), so they follow placement changes.
-
-Board frame (gen_placement.py): x right, y toward the rear wall, mm; KiCad X = 100 + x,
-Y = 100 - y. B-side items are drawn as seen from below (x mirrored) so they read correctly
-when the board is turned over.
-"""
+"""Add labels, art and USB-C shell paste to the routed Mk2 board."""
 
 import json
 import os
@@ -163,8 +151,6 @@ _caption_esc_pairs()
 _label_header_pins()
 
 
-# Name, revision and signature on the left ear's bare wedge-face strip (over the ESC). The
-# roof-face pads carry their own labels, so the strip needs no pad legend.
 text("MR STABS MK2", -36.0, -13.6, "B", h=0.9, bold=True)
 text(f"{VERSION} BEN W 2026", -36.0, -15.1, "B", h=0.8)
 
@@ -172,8 +158,6 @@ for fp in board.GetFootprints():
     if fp.GetValue() in ("NANO_RX", "BOOT/RST", "TYPE-C-31-D-06"):
         fp.Reference().SetVisible(False)
 
-# Hide every refdes: on a board this dense they collide with parts and labels, and JLCPCB
-# assembles from the CPL. The labels above say what each connection is.
 for fp in board.GetFootprints():
     fp.Reference().SetVisible(False)
     # The EasyEDA LED footprint's polarity circle sits on its own pad 1; the chamfer marks it too.

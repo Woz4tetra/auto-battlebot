@@ -1,14 +1,4 @@
-"""Render the assembled board: every part's 3D model, plus the parts KiCad has none for.
-
-    SKILL/scripts/kicad python3 render_3d.py      (after make_fab.sh; reads mk2_routed.kicad_pcb)
-
-Stock models come from SKILL/scripts/fetch_3dmodels.py; the rest are build123d models in
-art/models/ (checked with the build123d skill's check.py, STEPs copied to lib/mk2.3dshapes/):
-    L1   FNR4030S100MT inductor, the footprint KiCad ships without a model
-    H2   the Crossfire Nano RX on its right-angle header
-    ESP1 the U.FL plug and Molex 146153-0050 lead on the module's socket
-Writes render_3d_{top,bottom,iso_top,iso_bottom}.png. The fab board is not modified.
-"""
+"""Render the assembled Mk2 board with custom models for parts KiCad lacks."""
 
 import os
 import subprocess
@@ -43,8 +33,6 @@ for fp in board.GetFootprints():
     elif v.startswith("ESP32-S3-MINI-1U"):
         add_model(fp, "ufl_plug.step", UFL_SOCKET_OFFSET)
 
-# Drill origin at the hole-pattern centre (KiCad 100, 100), the board frame of
-# ../mr_stabs_mk2_pcb.py and the chassis CAD, so the STEP drops into the robot assembly.
 board.GetDesignSettings().SetAuxOrigin(pcbnew.VECTOR2I(pcbnew.FromMM(100), pcbnew.FromMM(100)))
 out = "mk2_render.kicad_pcb"  # beside the project, so KIPRJMOD resolves
 board.Save(out)

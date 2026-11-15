@@ -1,12 +1,4 @@
 #!/usr/bin/env bash
-# Routed board -> JLCPCB upload files. Run from this directory after SKILL/scripts/flow.sh mk2.
-#   ./make_fab.sh
-# 1. silk.py: labels, Mk2 and BWBots art, via-field tenting (flow.sh rebuilds the board each try,
-#    so these go on after routing).
-# 2. check.sh: DRC, exits 1 on any error or unconnected item.
-# 3. fab.sh: fab/gerbers.zip, fab/bom.csv, fab/cpl.csv.
-# 4. Drop BOM rows with no LCSC number: wire pads and the via field are copper, not parts.
-# 5. schematic.py (connectivity checked against mk2.net) and render_3d.py, then the review page.
 set -euo pipefail
 S=/home/ben/.claude/plugins/cache/pcba-skill/pcba-design/0.1.0/skills/pcba-design
 "$S/scripts/kicad" python3 silk.py mk2_routed.kicad_pcb

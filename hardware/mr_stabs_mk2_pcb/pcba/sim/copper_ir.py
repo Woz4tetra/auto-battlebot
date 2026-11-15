@@ -1,19 +1,4 @@
-"""DC current flow through each high-current net, every copper layer at once.
-
-    ~/.local/share/pcba-design/venv/bin/python sim/copper_ir.py    (after export_geometry.py)
-
-Finite volume on a 0.15 mm grid per layer: each cell couples to its neighbours by 1 / R_sheet;
-each via or plated hole couples the cells it passes through on every layer by the barrel
-resistance between those layers. A wire pad is a terminal: its cells are tied to one node (the
-wire and its solder are far better conductors than the board). Current enters and leaves at
-the terminals, split evenly between the ESCs. Reports, per net and load: the voltage drop,
-the copper loss, the busiest via's current, and the 99.9th-percentile current density;
-writes sim/copper_ir.json and sim/copper_ir_<NET>.png (20 A).
-
-Copper: 2 oz outer (as ordered), 0.5 oz inner (JLCPCB's 4-layer default; this design does not
-order 1 oz). Stack positions for a 1.6 mm JLCPCB 4-layer board: F 0, In1 0.21, In2 1.39, B 1.6.
-This is DC and electrical only: no temperature.
-"""
+"""DC current flow through each high-current net."""
 
 import json
 import math

@@ -1,30 +1,4 @@
-"""Camera range check: sweeps the ZED X One S through the SmallRig 2948 ball head's whole
-range and measures how close it comes to everything fixed around it.
-
-    PYTHONPATH=$SKILL/scripts ~/.local/share/build123d-part/venv/bin/python camera_range.py
-
-$SKILL is the build123d-part skill's directory: the part files import its recipe.py.
-
-What moves: the camera body, the bracket, the front mount and the FAKRA plug in the
-camera's back, as points sampled off their tessellated surfaces (0.5 mm tolerance), carried
-by the head's pose. The GMSL cable is not swept; it hangs slack.
-
-Three checks, from the head's range (smallrig_2948_ball_head._check_pose):
-- mount: the camera and bracket spun all the way round on the stud at the default pan and
-  tilt, plug off, as when screwing the camera on. Must clear.
-- aim: pan and spin all the way round (15° steps), the neck tilted up to the socket's 20°
-  in eight directions, plug on, keeping the poses that look into the cage: the optical
-  axis within AIM_CONE_DEG_FROM_GLASS_NORMAL of the glass normal. Must clear. (Spun to look
-  away from the glass, the plug in the camera's back swings into the glass; nobody aims it there.)
-- notch: the neck dropped into the notch, 15° steps to 90°, at every pan and spin, plug
-  on. Reported as the deepest drop that clears at each pan; not a pass/fail check, since
-  a full 90° drop folds the camera back through the wall or the glass at most pans.
-
-Fixed: the glass, the tray and lid (one box), the shield's flange, hood and ribs, and the
-three RP-SMA antennas on the +X wall (boxes round each hinge and whip). Each is a box; the
-clearance is the smallest distance from any sampled point to it over all poses, negative
-inside it. Exits 1 when any clearance is under MIN_CLEAR_MM.
-"""
+"""Sweep the camera through the ball head range and report clearances."""
 
 import sys
 from functools import cache

@@ -1,68 +1,4 @@
-"""Mr Stabs Mk2 main PCB placeholder: the largest board that fits the chassis electronics bay.
-
-Stands in for a single board that replaces the QT Py ESP32-S3, the BNO055 breakout, the Matek
-I2C-INA-BM and the loose Crossfire Nano RX. Sized from the chassis STEP, laid out with
-surface-mount keep-outs to show the parts fit. Not a routed design.
-
-Two outlines, picked by `Params.wings`:
-- wings = True (default): the stem between the bosses plus an ear into each ESC pocket,
-  93.2 x 35.0, 1621 mm2 (the stem alone is 846). The ESCs stand on their long edge under
-  the ears' front strip.
-- wings = False: the stem only, 25.4 x 35.0, ESC pockets left empty.
-
-Spec
-- Process: 1.6 mm FR4, routed outline, 0.5 mm inside corner radius (1 mm router bit).
-  No PCB process in check.py, so PROCESS = "none". MATERIAL is a density stand-in only
-  (FR4 is about 1.85 g/cm3, not in the table).
-- Frame: origin at the center of the 4-hole pattern on the board's top face, which seats
-  against the chassis bosses. +Z points into the chassis (toward the bosses), +Y toward the
-  rear wall. The frame is the Onshape assembly frame rotated -9.588 deg about X (the hole
-  axes lean that far) and shifted by CHASSIS_SHIFT; `chassis_in_board_frame()` applies it.
-- Install: wedge plate off, the board slides in along INSTALL_DIR, the plate's normal,
-  19.2 deg off the board's axis. Straight along the board's axis is impossible: the rear
-  cross member sits under the stem's last 8.4 mm. The ear outline is set by that sweep as
-  much as by the walls at the seat. `python mr_stabs_mk2_pcb.py` checks the sweep and every
-  keep-out against the chassis, plates, clamps and motors.
-- Interfaces (0.3 mm gaps, edges from the chassis STEP):
-  - Chassis (TPU): 4 bosses with Ø2.50 plastite pilot holes on a 19.6 mm square, flat
-    faces at the board's top face. #6 flat-head plastite screws come up from below
-    through 3D-printed countersunk washers (user's part), the board, into the bosses.
-    The drivers reach all four along INSTALL_DIR.
-  - Stem: side walls at x = ±13.0, rear wall at y = 15.0.
-  - Ears, seated: ledge under the rear edge at y -4.89; clamp boss at y -10.71 past x 35.5.
-  - Ears, on the way in: outer wall at x 46.92; the wing front wall's lip (z -1 to -8.5)
-    limits the ear front to y -17.67 outboard of x 27.0.
-  - Front edge stops short of the power-wire bay (user: no PCB there).
-  - ESCs (ReadyToSky 35A, 26 x 12 x 5, wired, not soldered): on edge under each ear,
-    x 14 to 40, y -20 to -15, top 0.5 mm below the board. The only rigid placement in the
-    pocket: lying flat needs 26 mm along x and 12 along y, and the pocket narrows to 4.8 mm
-    past x 35.5.
-- Critical dimensions: 4 x Ø3.66 at (±9.8, ±9.8); 1.6 thick.
-
-Part placement, wings layout (keep-out boxes in `mates()`, sizes from datasheets):
-- Top side, under the chassis roof (3.78 mm headroom over stem and ears): Crossfire Nano RX
-  18 x 11 x 3.0 between the boss rows; BNO055 block between the front bosses; wire pads at
-  the front edge; ESP32-S3R2 block on the left ear with the chip antenna on the left tip
-  (no copper past x -40.5); buck/LDO power block on the right ear.
-- Bottom side: INA238 + 2512 shunt at the front by the wire pads; NeoPixel; ESC and USB
-  connectors (Molex 505567 vertical, mated, 10 mm) on the ears' rear strip, where there is
-  14 mm down to the wedge. Nothing over the ESCs.
-
-Open questions
-- ESP32-S3-MINI-1 (15.4 x 20.5) still does not fit: the left ear is 12.2 mm deep past
-  x 26.5 and 15.1 inboard of it. The bare ESP32-S3R2 is laid out instead.
-- The antenna is 2.6 mm past the end of the left ESC, which sits 0.5 mm below the board.
-- ESC leads are not modeled: phase wires leave the outer end at x 40 toward the motor,
-  power and signal leave the inner end at x 14 toward the wire bay. The ESCs go in after
-  the board and are placed by hand, so no sweep covers them.
-- The install sweep is a straight slide along the wedge normal; the closest pass is 0.27 mm
-  at the inside corner where the ear front steps back. A flexing TPU chassis may allow more.
-- Crossfire Nano RX height assumed 3.0 mm (TBS lists 18 x 11 only). Top headroom is 3.78.
-- Countersunk washer assumed Ø9.0 x 3.0 with an 82 deg seat. The rear two are D-cut at
-  |x| = 13.0 because the side walls step in to 13.3 below the board. The #6 head (Ø6.66)
-  reaches x = 13.13 there, so the seat rim breaks through the flat by 0.13 mm. 3.0 thick puts
-  a 3/8 screw tip at 4.93, short of the 5.0 pilot bore.
-"""
+"""Mr Stabs Mk2 main PCB placeholder outline and keep-outs."""
 
 import math
 from dataclasses import dataclass
@@ -98,7 +34,6 @@ ROBOT_STEPS = {
     "clamp_right": STEP_DIR / "Mr Stabs Mk2 - Mr Stabs Mk2 Motor Clamp Right.step",
 }
 
-# Hole axes in the chassis STEP lean (0, -0.16656, 0.98603): 9.588 deg about X.
 MOTOR_BORE_CENTER_X = 35.4
 MOTOR_BORE_R = 13.0
 MOTOR_BORE_LEN = 38.2
@@ -106,11 +41,7 @@ SWEEP_START_SHORT_OF_SEAT = 0.5
 FLAT_HEAD_ANGLE_DEG = 82.0
 ESC_EDGE_H = 12.0
 TILT_DEG = math.degrees(math.atan2(0.16655509, 0.98603215))
-# Hole-pattern center on the boss faces, in the tilted frame (chassis STEP, measured).
 CHASSIS_SHIFT = (0.0, 7.4276, -10.314653658)
-# The board goes in through the wedge-plate opening along the plate's normal, 19.2 deg off
-# the board's own axis (wedge plate STEP). Straight along -Z, the rear cross member under the
-# stem's last 8.4 mm and the rear screws' driver path are both blocked.
 INSTALL_DIR = (0.0, -0.328457, -0.944519)
 
 C_MAX = (Align.CENTER, Align.CENTER, Align.MAX)
@@ -119,30 +50,27 @@ C_MIN = (Align.CENTER, Align.CENTER, Align.MIN)
 
 @dataclass
 class Params:
-    wings: bool = True  # user: use the ESC pockets, as E3 did
-    thickness: float = 1.6  # user
-    x_half: float = 12.7  # side walls at ±13.0 (chassis STEP), 0.3 gap
-    y_max: float = 14.7  # rear wall at 15.0 (chassis STEP), 0.3 gap
-    y_min: float = -20.3  # front wall -20.62 (chassis STEP), 0.3 gap; wire bay beyond
-    # Ear edges, measured by sweeping each edge along INSTALL_DIR (chassis STEP), 0.3 gap:
-    ear_y: float = -5.19  # ledge under the board edge at y -4.89
-    lip_x: float = 35.2  # motor clamp boss starts at x 35.5
-    tip_y: float = -11.01  # clamp boss at board level reaches y -10.71
-    tip_x: float = 46.62  # outer wall at x 46.92 along the install path
-    wall_x: float = (
-        26.5  # wing front wall starts at x 27.0; the 0.5 inside fillet needs the extra 0.2
-    )
-    ear_front_y: float = -17.37  # wing front wall lip, y -17.67 along the install path
-    inside_r: float = 0.5  # 1 mm router bit
-    rear_corner_r: float = 1.0  # rear corners pass the wall steps on the way in
-    hole_pitch: float = 19.6  # boss pilot holes (chassis STEP)
-    hole_dia: float = 3.66  # #6 close clearance, fasteners.md
-    washer_od: float = 9.0  # assumed, user's printed countersunk washer
-    washer_t: float = 3.0  # assumed; puts the 3/8 screw tip 0.1 short of the pilot floor
-    washer_flat_x: float = 13.0  # wall below the board at |x| 13.3 (chassis STEP), 0.3 gap
-    screw_len: float = 9.53  # #6 x 3/8 flat head plastite, overall (assembly STEP)
-    screw_head_dia: float = 6.66  # assembly STEP
-    screw_dia: float = 3.5  # #6 plastite major, approximate
+    wings: bool = True
+    thickness: float = 1.6
+    x_half: float = 12.7
+    y_max: float = 14.7
+    y_min: float = -20.3
+    ear_y: float = -5.19
+    lip_x: float = 35.2
+    tip_y: float = -11.01
+    tip_x: float = 46.62
+    wall_x: float = 26.5
+    ear_front_y: float = -17.37
+    inside_r: float = 0.5
+    rear_corner_r: float = 1.0
+    hole_pitch: float = 19.6
+    hole_dia: float = 3.66
+    washer_od: float = 9.0
+    washer_t: float = 3.0
+    washer_flat_x: float = 13.0
+    screw_len: float = 9.53
+    screw_head_dia: float = 6.66
+    screw_dia: float = 3.5
 
 
 def chassis_in_board_frame() -> Part:
@@ -201,38 +129,38 @@ def build(p: Params) -> Part:
 # (name, side, x, y, size_x, size_y, height). Side "top" sits on z = 0 and rises toward the
 # roof; "bottom" hangs from z = -thickness.
 STEM_COMPONENTS = [
-    ("crossfire_nano_rx", "top", 0.0, 0.0, 18.0, 11.0, 3.0),  # TBS: 18 x 11, height assumed
-    ("bno055", "top", 0.0, -11.6, 7.0, 7.0, 1.2),  # LGA-28 5.2 x 3.8 + 32 kHz crystal + caps
-    ("pad_bat_pos", "top", -9.0, -18.2, 3.0, 3.0, 0.5),  # 16-18 AWG solder pads
+    ("crossfire_nano_rx", "top", 0.0, 0.0, 18.0, 11.0, 3.0),
+    ("bno055", "top", 0.0, -11.6, 7.0, 7.0, 1.2),
+    ("pad_bat_pos", "top", -9.0, -18.2, 3.0, 3.0, 0.5),
     ("pad_bat_neg", "top", -3.0, -18.2, 3.0, 3.0, 0.5),
     ("pad_esc_pos", "top", 3.0, -18.2, 3.0, 3.0, 0.5),
     ("pad_esc_neg", "top", 9.0, -18.2, 3.0, 3.0, 0.5),
-    ("esp32_s3", "bottom", 0.0, 0.0, 10.0, 10.0, 1.2),  # QFN-56 7 x 7 + flash + crystal
-    ("antenna", "bottom", 0.0, 12.4, 3.2, 1.6, 1.1),  # 2.4 GHz chip antenna, rear edge
-    ("shunt", "bottom", -6.5, -17.6, 6.4, 3.2, 0.7),  # 2512, 1 mohm
-    ("ina238", "bottom", 0.0, -17.6, 4.0, 4.0, 1.1),  # VSSOP-10 3 x 3 + caps
-    ("buck_ldo", "bottom", 7.6, -17.6, 5.5, 5.5, 2.0),  # TPS54202 + inductor + AP2112K
-    ("esc_signal_pads", "bottom", 10.5, 0.0, 2.0, 4.0, 0.5),  # left/right DShot + GND
+    ("esp32_s3", "bottom", 0.0, 0.0, 10.0, 10.0, 1.2),
+    ("antenna", "bottom", 0.0, 12.4, 3.2, 1.6, 1.1),
+    ("shunt", "bottom", -6.5, -17.6, 6.4, 3.2, 0.7),
+    ("ina238", "bottom", 0.0, -17.6, 4.0, 4.0, 1.1),
+    ("buck_ldo", "bottom", 7.6, -17.6, 5.5, 5.5, 2.0),
+    ("esc_signal_pads", "bottom", 10.5, 0.0, 2.0, 4.0, 0.5),
     ("esc_signal_pads_2", "bottom", -10.5, 0.0, 2.0, 4.0, 0.5),
-    ("neopixel", "bottom", -7.3, 2.0, 3.5, 3.5, 1.0),  # SK6812 3535 status LED
-    ("prog_pads", "bottom", 7.3, 2.0, 3.5, 3.5, 0.3),  # USB D+/D-/5V/GND pigtail pads
+    ("neopixel", "bottom", -7.3, 2.0, 3.5, 3.5, 1.0),
+    ("prog_pads", "bottom", 7.3, 2.0, 3.5, 3.5, 0.3),
 ]
 
 WING_COMPONENTS = [
-    ("crossfire_nano_rx", "top", 0.0, 0.0, 18.0, 11.0, 3.0),  # TBS: 18 x 11, height assumed
-    ("bno055", "top", 0.0, -11.6, 7.0, 7.0, 1.2),  # LGA-28 5.2 x 3.8 + 32 kHz crystal + caps
-    ("pad_bat_pos", "top", -9.0, -18.3, 3.0, 3.0, 0.5),  # 16-18 AWG solder pads
+    ("crossfire_nano_rx", "top", 0.0, 0.0, 18.0, 11.0, 3.0),
+    ("bno055", "top", 0.0, -11.6, 7.0, 7.0, 1.2),
+    ("pad_bat_pos", "top", -9.0, -18.3, 3.0, 3.0, 0.5),
     ("pad_bat_neg", "top", -3.0, -18.3, 3.0, 3.0, 0.5),
     ("pad_esc_pos", "top", 3.0, -18.3, 3.0, 3.0, 0.5),
     ("pad_esc_neg", "top", 9.0, -18.3, 3.0, 3.0, 0.5),
-    ("esp32_s3", "top", -27.5, -11.28, 13.0, 11.5, 1.2),  # QFN-56 + flash + crystal + RF match
-    ("antenna", "top", -44.5, -13.0, 1.6, 3.2, 1.1),  # 2.4 GHz chip antenna, no copper past x -40.5
-    ("power", "top", 24.0, -12.0, 10.0, 8.0, 2.0),  # TPS54202 + inductor + caps + AP2112K
-    ("shunt", "bottom", -6.5, -17.6, 6.4, 3.2, 0.7),  # 2512, 1 mohm
-    ("ina238", "bottom", 0.0, -17.6, 4.0, 4.0, 1.1),  # VSSOP-10 3 x 3 + caps
-    ("neopixel", "bottom", 0.0, 2.0, 3.5, 3.5, 1.0),  # SK6812 3535 status LED
-    ("esc_connector", "bottom", 24.0, -9.6, 9.0, 5.0, 10.0),  # Molex 505567 vertical, mated
-    ("usb_connector", "bottom", -24.0, -9.6, 9.0, 5.0, 10.0),  # same part, USB pigtail
+    ("esp32_s3", "top", -27.5, -11.28, 13.0, 11.5, 1.2),
+    ("antenna", "top", -44.5, -13.0, 1.6, 3.2, 1.1),
+    ("power", "top", 24.0, -12.0, 10.0, 8.0, 2.0),
+    ("shunt", "bottom", -6.5, -17.6, 6.4, 3.2, 0.7),
+    ("ina238", "bottom", 0.0, -17.6, 4.0, 4.0, 1.1),
+    ("neopixel", "bottom", 0.0, 2.0, 3.5, 3.5, 1.0),
+    ("esc_connector", "bottom", 24.0, -9.6, 9.0, 5.0, 10.0),
+    ("usb_connector", "bottom", -24.0, -9.6, 9.0, 5.0, 10.0),
 ]
 
 ESC_CENTER_X = 27.0
@@ -357,7 +285,6 @@ def expect(p: Params) -> dict:
         "holes": {3.66: 4},
         "hole_at": {3.66: [{"x": x, "y": y} for x, y in hole_xy(p)]},
         "gap": {"chassis": 0.25},
-        # The plastite threads form in the TPU pilot holes, so the screws overlap the chassis.
         "allow_interference": [f"screw_{i}" for i in range(4)],
         "clearance": {
             "esc_left": ESC_BELOW_BOARD_GAP - 0.05,

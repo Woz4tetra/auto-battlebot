@@ -1,13 +1,4 @@
-"""Render the HR10 rod clamp, receptacle and mated plug on the full scanned TX16S.
-
-Writes context_*.png into the check_assembly.py output directory and adds them to its
-report.json, so page_assembly.py embeds them with the other drawings. Run
-check_assembly.py first.
-
-    ~/.local/share/build123d-part/venv/bin/python \
-        hardware/tx16s_hr10_rod_clamp/render_context.py \
-        ~/Downloads/radiomaster-tx16-1.snapshot.2.zip
-"""
+"""Render the rod clamp on the scanned TX16S for the assembly report."""
 
 import argparse
 import importlib.util

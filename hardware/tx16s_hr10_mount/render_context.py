@@ -1,11 +1,4 @@
-"""Render the HR10 mount, receptacle and mated plug on the full scanned TX16S.
-
-Writes context_*.png into the check.py output directory and adds them to its report.json,
-so page.py embeds them with the other renders. Run check.py first.
-
-    ~/.local/share/build123d-part/venv/bin/python hardware/tx16s_hr10_mount/render_context.py \
-        ~/Downloads/radiomaster-tx16-1.snapshot.2.zip
-"""
+"""Render the HR10 mount on the scanned TX16S for the check report."""
 
 import argparse
 import importlib.util

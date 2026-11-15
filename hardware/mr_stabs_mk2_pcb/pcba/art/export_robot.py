@@ -1,7 +1,4 @@
-"""Export the Mr Stabs Mk2 assembly parts to STL for the silkscreen line render (render_robot.py).
-
-~/.local/share/build123d-part/venv/bin/python art/export_robot.py
-"""
+"""Export Mr Stabs Mk2 assembly parts to STL for the silkscreen render."""
 
 from pathlib import Path
 

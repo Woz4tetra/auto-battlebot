@@ -1,57 +1,11 @@
-"""Custom PCBA for the cage pack: an ESP32-S3 board with the USB bridge, the power button's
-start/stop logic and GH leads, in the printed enclosure.
-
-Spec
-- Process: 1.6 mm FR4, 4 layers, JLCPCB. PROCESS = "none".
-- Envelope: 44 x 46. Grown 8 mm toward +Y (from 44 x 38) for J7; the +Y edge stops 2.2
-  short of the ZED Box Mini's body.
-- Frame: cage_layout.py. On four 8 mm standoffs, at PCBA_X0..X1, PCBA_Y0..Y1.
-- Holes: 4 x Ø3.2 on 8 mm printed bosses with M3 inserts in the enclosure panel. The -X
-  pair sits 13.5 in from the edge, which leaves the -Y edge clear for the GH connectors.
-- U1 is an ESP32-S3-WROOM-1U (u.FL) so the antenna sits on the enclosure wall, clear of
-  the ZED Box Mini and the battery.
-- USB-C (J1) on the +X edge, facing +X; its 90° plug turns the cable toward +Y and out of
-  the pod's top wall notch to the ZED Box Mini's USB-A.
-- The three JST GH sockets (OpenUPS USB, transmitter UART, pack NTC) sit along the -Y
-  edge, toward the OpenUPS and the -X panel connectors, either side of the -X hole.
-- Touch display on J7, a vertical JST GH 13-pin (BM13B-GHS-TBT), centred on the +Y edge
-  between the two +Y holes. Pinout follows the Waveshare 2.8inch Capacitive Touch LCD's
-  13-pin header so a straight GH-to-GH lead works: VCC (3.3 V), GND, MISO (no connect),
-  MOSI, SCLK, LCD_CS, LCD_DC, LCD_RST, LCD_BL (PWM), TP_SDA, TP_SCL, TP_INT, TP_RST.
-  10 ESP32-S3 GPIOs; MOSI and SCLK on SPI2's IO_MUX pins (IO11, IO12) so the clock is not
-  limited by the GPIO matrix (40 MHz there). The backlight's current is not published:
-  measure it before sizing U3. Firmware keeps the display off the command path: commands
-  on their own high-priority task, the display on the other core at low priority with DMA
-  transfers.
-- Power button (CIT AH1LBBG12, latching, SPST-NO + SPST-NC, 12 V LED ring) on J5: GND (both
-  contacts' commons and LED -), NO, NC, LED +. The button carries signal current only; the
-  battery stays wired to the OpenUPS through the 10 A fuse.
-- OpenUPS control on J6: J8 (start/stop) pair, J10 (motherboard on/off) pair, VBAT through
-  a polyfuse, GND. OpenUPS set to OPENUPSMODE = 1, so input power charges but never starts
-  the output on its own.
-  - Button pressed in (NO closes): a battery-powered RC one-shot (Q2, dual N-FET) drives
-    photoMOS U5 across J8 for ~0.5 s, which starts the output. It runs with the ESP32 off.
-  - Button released (NC closes): the ESP32 sees NC, tells the Jetson over USB to shut down,
-    then holds U5 for 6 s (a long J8 press) once the Jetson confirms or a timeout passes.
-    The OpenUPS cuts its output UPS_HARDOFF_TOUT later.
-  - The Jetson can ask for the same long press over USB to power the pack off itself.
-  - J10's off pulse (low battery or a fault) reaches the ESP32 through optocoupler U6,
-    which tells the Jetson to shut down before the OpenUPS cuts power.
-  - Q1 switches the button's LED ring from VBAT through a series resistor, so the ESP32
-    can show running, shutting down and fault states.
-  U5, U6, Q1 and Q2 sit on the bottom side; the board stands 8 mm off the panel.
-- Model: features() (recipe.py) for the bare board, so the Onshape Part Studio matches it;
-  the components are placed separately (parts()).
-- No part sits over a mounting hole's 3 mm radius: `python pcba_cage.py` lists any part
-  pair on the same side, or part-hole overlap, in plan view.
-"""
+"""Custom ESP32-S3 PCBA space claim for the cage pack."""
 
 from dataclasses import dataclass
 from functools import cache
 
 import b123d_fix  # noqa: F401
 import cage_layout as cl
-import recipe  # build123d-part/scripts, on the path when run through scripts/run
+import recipe
 from build123d import Align, Box, Compound, Part, Pos, Rot, Shape, import_step
 
 PROCESS = "none"
@@ -96,16 +50,11 @@ X0, Y0 = cl.PCBA_X0, cl.PCBA_Y0
 GH4V = "JST_GH_BM04B-GHS-TBT_1x04-1MP_P1.25mm_Vertical.step"
 GH2V = "JST_GH_BM02B-GHS-TBT_1x02-1MP_P1.25mm_Vertical.step"
 GH6V = "JST_GH_BM06B-GHS-TBT_1x06-1MP_P1.25mm_Vertical.step"
-# KiCad's 9.0 library has no BM13B model here: the outline from the BM02-06 models' rule,
-# 1.25 n + 3.25 wide, 4.95 deep, 4.2 tall.
 GH13V = "box:19.5x4.95x4.2"
 # Datasheet outlines where KiCad has no model: "box:W x D x H".
 SOP4 = "box:4.4x3.8x2.1"  # Toshiba TLP172A photoMOS / TLP293 optocoupler, SO4
 SOT23 = "box:2.9x2.4x1.1"
-SOT363 = "box:2.1x2.0x1.0"  # 2N7002DW dual N-FET
-# ESP32-S3-WROOM-1U: KiCad 9.0 has no model, so this is the datasheet outline (18.0 x 19.2 x
-# 3.2, shield can) with the u.FL receptacle near the +Y end. Its pigtail runs to an RP-SMA
-# bulkhead in the enclosure's antenna wall.
+SOT363 = "box:2.1x2.0x1.0"
 WROOM_1U = "envelope:wroom1u"
 PLACEMENT = {
     "U1_esp32s3_wroom1u": (WROOM_1U, 0, X0 + 27.0, Y0 + 22.0),

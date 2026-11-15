@@ -1,19 +1,4 @@
-"""TBS Crossfire Nano RX standing on the board's 1x4 header (H2): render model only.
-
-Origin at the header footprint origin on the board's wedge face, +Z away from the board, the pin
-row along X. The RX's front (2.54 mm) pad row slides over the header pins and rests on the
-header's 2.5 mm plastic, so the module stands 18 mm tall above it, its 11 mm edge along X.
-
-Spec
-- Process: none (render proxy, not manufactured).
-- Interfaces: 4 pads on the RX's short edge over the header pins
-  (TBS quickstart: GND, 5V, Ch1, Ch2).
-- Critical dimensions: 18 x 11 module (TBS), 1.0 mm board, components 1.2 mm on one face,
-  base 2.5 mm above the board (header plastic, HX PZ2.54 datasheet).
-
-Open questions
-- Board thickness and component height are estimates; TBS gives only 18 x 11.
-"""
+"""TBS Crossfire Nano RX render proxy on H2."""
 
 from dataclasses import dataclass
 

@@ -1,12 +1,4 @@
-"""Printed-part masses from PrusaSlicer instead of solid volume x a guessed fill factor.
-
-    ~/.local/share/build123d-part/venv/bin/python print_mass.py [part ...]
-
-Slices each part's STL (out/<part>/<part>.stl, written by check.py) with petg_p1s.ini
-through the PrusaSlicer flatpak and reads "filament used [g]" from the G-code. Run
-check.py on a part first so its STL is current. Settings that change the result live in
-petg_p1s.ini: 4 perimeters, 5 top and 4 bottom layers, 25 % gyroid.
-"""
+"""Printed-part masses from PrusaSlicer."""
 
 import re
 import subprocess

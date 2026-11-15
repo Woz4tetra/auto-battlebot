@@ -1,13 +1,4 @@
-"""Check both clamp halves and a mated plug against the raw TX16S scan.
-
-check.py and check_assembly.py measure against the lofted bar from x 58 to 80. The bar's
-corner under the tower, the right arm, and everything the plug passes are only in the
-scan, so this measures every scan vertex near the clamp.
-
-    ~/.local/share/build123d-part/venv/bin/python \
-        hardware/tx16s_hr10_handle_clamp/verify_scan.py \
-        ~/Downloads/radiomaster-tx16-1.snapshot.2.zip
-"""
+"""Check both clamp halves and a mated plug against the raw TX16S scan."""
 
 import argparse
 import importlib.util

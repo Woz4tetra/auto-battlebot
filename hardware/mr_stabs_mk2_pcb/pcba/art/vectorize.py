@@ -1,18 +1,4 @@
-"""Turn the silkscreen images into polygons in mm: the Mk2 line renders and the BWBots logo.
-
-    ~/.local/share/pcba-design/venv/bin/python art/vectorize.py
-
-Inputs:
-    robot: render_robot.py's renderer, re-run here at board resolution (view az 145, el 28),
-        once from below and once from above.
-    logo: logo_dark_h240.png from logo/gen_logo_icon.py --height 240 --out art/logo_dark_h240.png,
-        the dashboard's dark-background variant (black half-disc drawn as an outline).
-
-Writes robot_silk.json, robot_top_silk.json and logo_silk.json:
-{"size": [w, h], "polys": [[exterior, hole, ...]]},
-points in mm with the origin at the image centre, u right and v up as the image reads. silk.py
-draws robot_top_silk.json on F.SilkS and the others on B.SilkS, mirrored so they read from below.
-"""
+"""Vectorize silkscreen images into mm polygons."""
 
 import json
 import math
@@ -26,7 +12,7 @@ from shapely.geometry import MultiPolygon, Polygon, box
 from shapely.ops import unary_union
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-MIN_LINE = 0.18  # mm; JLCPCB silk minimum is 0.15
+MIN_LINE = 0.18
 
 
 def dilate(mask, r):

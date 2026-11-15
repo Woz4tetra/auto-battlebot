@@ -1,12 +1,4 @@
-"""Check the HR10 mount and a mated plug against the raw TX16S scan, not the height map.
-
-check.py measures against a smoothed slab of the top surface, which cannot hold the
-handle arm, the toggle levers, or anything the plug passes. This places the block and the
-plug envelope in the radio frame and measures every scan vertex near them.
-
-    ~/.local/share/build123d-part/venv/bin/python hardware/tx16s_hr10_mount/verify_scan.py \
-        ~/Downloads/radiomaster-tx16-1.snapshot.2.zip
-"""
+"""Check the HR10 mount and plug against the raw TX16S scan."""
 
 import argparse
 import importlib.util

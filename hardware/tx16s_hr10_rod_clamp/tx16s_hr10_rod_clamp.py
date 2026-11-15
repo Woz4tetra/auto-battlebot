@@ -1,49 +1,4 @@
-"""TX16S MK2 HR10 rod clamp: holds an HR10A-7R-4S receptacle on the bare handle rod.
-
-Variant of ../tx16s_hr10_handle_clamp for the handle with its plastic sheath removed. Two
-printed halves close on the bare Ø5 rod around the handle's right corner, so they grip the
-end of the back run and the top of the right arm at once. The two legs point in different
-directions, so the clamp cannot turn about either one: it is located by the bend, and the
-screws only have to hold it closed. A tower on the top half stands the receptacle with its
-axis vertical, as on the other two mounts.
-
-Spec
-- Process: FDM PLA. Top half prints on its split face, bottom half on its underside; both
-  are built in the rod plane, so neither needs flipping.
-- Rod frame (u, v, n): origin on the arm axis at the corner, u along the run (pilot's
-  left, radio -X), v down the arm toward the pilot, n normal to the rod plane (up, tilted
-  20.6 deg toward the pilot). Radio frame as ../tx16s_hr10_mount/scan_patch.py.
-- Rod: Ø5.00, cylinder fit to the bare arm in the scan (4087 vertices, 0.11 RMS, y 32..42).
-  The fitted arm axis, run up to the back run, meets the run sheath's centre height within
-  0.15 mm, so the rod bends in one plane (n = 0).
-- Bore: Ø5.2 (FDM close fit, dfm/fdm.md: holes print 0.1-0.2 under) with the halves 0.8
-  apart, so the screws close each half 0.1 onto the rod and still leave 0.6 of squeeze.
-- Run position: unknown inside the old sheath. Centred it would sit at v +0.2; flush with
-  the sheath's back face, as the arm sat flush with its outer face, at v -3.1. The run's
-  groove is a slot from v -3.4 to +0.5, tight in n only.
-- Bend radius: unknown, it was inside the sheath. The corner is a pocket clear of the rod
-  for any centreline radius up to 10 mm; the grips start 10 mm from the corner on each leg.
-  check.py passes mate.rod with the rod at both ends of the slot and bend radii 2.6 and 10
-  (--params '{"rod_v": -3.4, "rod_bend_r": 2.6}' and so on).
-- Fasteners: 3 x M3 x 8 SHCS along -n, counterbored in the top half, into M3 hex nuts in
-  pockets on the bottom half's underside (fasteners.md). One beside the run, one beside the
-  arm, one outside the corner, so each groove has a screw on either side of it.
-- Receptacle: M8x0.5 nut in a 10.1 AF hex cavity under a 2.0 panel (catalog max), Ø8.3
-  hole with a Ø10.6 x 0.8 key-tab counterbore, as the other mounts. The cavity opens to
-  pilot's right (+X) as a slot the nut slides in through; the pigtail leaves by the same
-  slot and drops down outside the arm.
-
-Assembly
-1. Slide the M8 nut into the tower's side slot, thread the receptacle down into it from
-   the top until the flange seats, medium threadlocker on the thread.
-2. Solder the pigtail and lead it out of the slot.
-3. Drop the three M3 nuts into the bottom half's pockets, close both halves on the corner,
-   screw up evenly until the halves stop rocking on the rod.
-
-Open questions
-- Run position and bend radius (above). If the halves bottom out on the rod, check the
-  run sits inside the slot; if the clamp slides along the arm, shim the slot.
-"""
+"""TX16S MK2 HR10 rod clamp on the bare handle rod corner."""
 
 from dataclasses import dataclass
 from functools import lru_cache
@@ -74,7 +29,6 @@ MATERIAL = "pla"
 C_MIN = (Align.CENTER, Align.CENTER, Align.MIN)
 C_MAX = (Align.CENTER, Align.CENTER, Align.MAX)
 
-# Cylinder fit to the bare arm (see docstring): a point on its axis and its direction.
 ARM_POINT = np.array([85.552, 37.0, -34.645])
 ARM_DIR = np.array([0.01683, 1.0, 0.37518])
 ROD_FRAME_ORIGIN_Y = 57.7
@@ -85,18 +39,17 @@ THREAD_LEN = 7.7
 
 @dataclass
 class Params:
-    half: str = "top"  # "top" or "bottom"
-    rod_d: float = 5.0  # scan fit
-    bore_d: float = 5.2  # rod + 0.2, FDM close fit
-    gap: float = 0.8  # between halves on the rod
-    t: float = 6.0  # each half's outer face from the rod plane: 3.4 over the bore
-    # Run slot: rod centre anywhere from flush-back to centred (docstring)
+    half: str = "top"
+    rod_d: float = 5.0
+    bore_d: float = 5.2
+    gap: float = 0.8
+    t: float = 6.0
     run_v_lo: float = -3.4
     run_v_hi: float = 0.5
-    bend_max: float = 10.0  # corner pocket clears centreline radii up to this
-    run_len: float = 27.0  # grip on the run ends at u 27 (radio x 59)
-    arm_len: float = 26.0  # grip on the arm ends at v 26 (radio y 33, clear of the body)
-    wall: float = 3.0  # outside the bore, in plane
+    bend_max: float = 10.0
+    run_len: float = 27.0
+    arm_len: float = 26.0
+    wall: float = 3.0
     screws: tuple = ((17.0, 8.5), (8.5, 17.0), (-7.5, -10.5))
     m3_clearance_dia: float = 3.4
     m3_cbore_dia: float = 6.5
@@ -115,7 +68,6 @@ class Params:
     key_d: float = 10.6
     key_depth: float = 0.8
     m8_af: float = 10.1
-    # Rod shown in the mates, rod frame (unknowns: any value inside the ranges above)
     rod_v: float = -1.45
     rod_bend_r: float = 5.0
 

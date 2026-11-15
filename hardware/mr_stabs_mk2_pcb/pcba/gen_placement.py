@@ -1,33 +1,4 @@
-"""Write placement.json for the Mr Stabs Mk2 board from board-frame coordinates.
-
-Board frame (../mr_stabs_mk2_pcb.py): origin at the centre of the 19.6 mm hole pattern on the roof
-face, x right (toward the right ESC), y toward the rear wall, mm. KiCad F side is the roof face
-(3.78 mm to the chassis roof), B side the wedge face. Parts are found by value and nets, not
-refdes, so a regenerated netlist keeps its placement.
-
-    SKILL/scripts/run gen_placement.py   (needs info.jsonl and cad/keepout.json)
-
-Floorplan:
-    centre, F       ESP32-S3-MINI-1U at (0, 0): the only spot a 15.4 mm square fits on the roof
-                    face (0.47 mm to the front bosses and the rear cross member). USB and CRSF
-                    pins face the front, I2C the right, 3V3 / IO0 / DShot the left.
-    front centre, F BNO055 block front-right between the bosses, clear of the USB-C legs; USB
-                    ESD and CC beside the connector.
-    ear front edges, F
-                    12 AWG lap pads, wires laid flat into the wire bay ahead (40 mm clear at
-                    |x| 14 to 26). Left: PACK_A-, PACK_A+, PACK_B-. Right: SW_BACK, SW_OUT,
-                    PACK_B+. Each switch lead and pack A stay on one side; pack B splits.
-    right ear, F    INA238 above the shunt, buck block and its three output caps outboard.
-    left ear, F     LDO, EN RC.
-    stem rear, F    NeoPixel behind the module, under the TPU roof so it shows through.
-    right ear, B    shunt and its Kelvin resistors, ESC+ lap pads and the 100 uF bulk on its
-                    VBATT pour.
-    stem, B         USB-C between the bosses, away from the motors.
-    stem front, B   ESC- lap pads beside PACK_A-, then DShot and signal-ground pads, below the
-                    washers.
-    left ear, B     BOOT/RST 1x3 SMD jumper header.
-    stem rear, B    Nano RX 1x4 right-angle SMD header, pins forward; the RX stands on them.
-"""
+"""Write placement.json for the Mk2 board."""
 
 import json
 import sys
@@ -171,45 +142,23 @@ LAP_PAD_LABEL_STRIPS = [
 ]
 
 B_FIXED = {
-    # USB-C in the stem, away from the motors under the ears: a dislodged motor can reach the
-    # ears, not the stem between the bosses. USB between the front washers (0.15 mm to each),
-    # BOOT/RST out on the left ear where the USB was.
     USB: (0.0, -11.1, 0),
-    # Shunt on the wedge face: BAT_IN end toward SW_BACK, VBATT end toward the B-side ESC bus.
-    # The 20 A crosses layers once, in the stitched BAT_IN pour between it and SW_BACK.
     find("0.5m"): (
         15.4,
         -9.95,
         90,
-    ),  # courtyard clears the ear-edge ledge (B_low) and the D-cut washer
-    # Kelvin resistors on the shunt's side, beside its pads, so each tap leaves from the pad
-    # itself (Vishay's sensing-trace drawing); SENSE_P / SENSE_N then via up to the INA238.
+    ),
     find("10", "SENSE_P"): (18.6, -12.4, 90),
     find("10", "SENSE_N"): (18.6, -10.2, 90),
-    # 100 uF bulk on the right ear's wedge face (8 mm tall; 18-21 mm free there), on the shunt's
-    # VBATT pour beside the ESC+ pads. It sat in the stem for motor-impact protection, but its
-    # feed crossed the USB-C and BNO055 fan-out, and at 2 oz spacing no Freerouting try (26 of
-    # them) routed it; a prewired track there walled off the stem's signals.
-    find("100uF 35V"): (30.6, -10.0, 90),  # pads along y: at 0 deg the GND pad crossed the ear edge
-    # ESC power and DShot lap pads on the stem's front strip, below the washers (y < -14.3).
-    # Leads run forward into the wire bay, then out to each ESC's inner end at |x| 14.
-    # + outboard so the B-side VBATT pour reaches each one from the bus above the washers.
-    # ESC+ on the shunt's VBATT pour (right ear), ESC- beside the pack's GND entry (left ear):
-    # the 20 A never crosses the 0.5 oz inner planes (sim/plane_ir.py). Leads run from each ESC's
-    # inner end at |x| 14 under the ears.
+    find("100uF 35V"): (30.6, -10.0, 90),
     find("ESC_L+"): (21.0, -11.8, 0),
     find("ESC_R+"): (24.6, -11.8, 0),
-    # ESC- on the stem's front strip, 4 to 8 mm from PACK_A- (the GND entry): their via grids
-    # carry the return to PACK_A-'s grid. The left ear's roof face is full of the LDO block.
     find("ESC_L-"): (-10.6, -17.1, 0),
     find("ESC_R-"): (-6.8, -17.1, 0),
     find("DSHOT_L"): (-3.8, -18.1, 0),
     find("SIG_GND_L"): (-1.6, -18.1, 0),
     find("SIG_GND_R"): (1.6, -18.1, 0),
     find("DSHOT_R"): (3.8, -18.1, 0),
-    # Right-angle header, pins pointing forward: the RX stands on them at y 4.2-6.6, 18 mm deep
-    # toward the wedge, where 22 mm is free (cad/, sectioned).
-    # 180: KiCad mirrors bottom footprints (its pins would point rearward at 0); see lay.size.
     find("NANO_RX"): (0.0, 12.6, 180),
     find("BOOT/RST"): (-21.0, -9.0, 0),
 }
@@ -241,21 +190,12 @@ def _through_leg_keepouts(b_fixed):
 lay.keepout = unary_union([lay.keepout, *_through_leg_keepouts(B_FIXED), *LAP_PAD_LABEL_STRIPS])
 
 wanted = {
-    # INA238 on the shunt's Kelvin lines, VBUS pin over the F BAT_IN pour.
-    # The sense taps see a little pour and via resistance besides the shunt: a fixed gain error,
-    # calibrated out with a known load.
-    # 270: pins 6-10 (GND, VBATT, SENSE) face the shunt; at 90 they faced the ear's rear edge
-    # and pin 7 had no room for its GND via.
-    # y -9.1: at -8.6 its pins 1-5 sat 0.68 mm from the rear edge and SDA squeezed past SCL's
-    # pad; lower also seats VBUS (pin 8) on the F BAT_IN pour.
     INA: (15.4, -9.1, 270),
-    find("100nF", "SENSE_P", "SENSE_N"): (18.4, -12.2, 90),  # off the BAT_IN pour
+    find("100nF", "SENSE_P", "SENSE_N"): (18.4, -12.2, 90),
     c100_3v3[0]: (15.2, -6.1, 0),
     find("TPS54202DDC"): (30.0, -14.2, 0),
     find("10uF", "VBATT", nth=0): (27.0, -10.0, 90),
     find("10uF", "VBATT", nth=1): (25.0, -10.0, 90),
-    # 270: VBATT pad up, against the F VBATT patch; at 90 its GND pad faced the patch and the
-    # GND fanout track cut the VBATT pad off it.
     find("100nF", "VBATT"): (27.23, -16.15, 270),
     find("100nF", "SW"): (32.5, -15.8, 0),
     find("100k", "V5_BUCK"): (33.0, -12.6, 0),
@@ -285,10 +225,6 @@ wanted = {
     find("100", "DSHOT_R"): (8.6, -6.0, 90),
     find("100", pin_net(find("NANO_RX"), "3")): (9.0, -6.0, 90),
     find("100", pin_net(find("NANO_RX"), "4")): (-9.0, 6.0, 90),
-    # IMU between the front bosses, rotated so every LGA side has room to escape.
-    # IMU block front-right of the USB-C's shell legs (they pierce the top at (+-2.4, -8.95) and
-    # (+-2.4, -13.25)), rotated 90 with room on every side: at the front edge 3 nets could not
-    # escape the LGA.
     IMU: (7.6, -16.4, 90),
     find("32.768kHz"): (3.6, -16.4, 90),
     find("22pF", "XOUT32"): (3.6, -14.0, 0),
@@ -305,14 +241,10 @@ imu_cap_ref = [find("1uF", "IMU_CAP")]
 REACH = {
     find("22uF", nth=2): 12.0,
     find("USBLC6-2SC6"): 8.0,
-}  # the ear tip is full; take the nearest free spot
+}
 for ref, (x, y, rot) in wanted.items():
     lay.want(ref, x, y, rot, reach=REACH.get(ref, 6.0), bottom_ok=False)
-# The CAP pin's cap goes straight under the IMU on the wedge face (the roof face around it is
-# full; 6 mm away on top it would not route): a short reach so it never lands far off on top.
 lay.want(imu_cap_ref[0], 7.6, -17.2, 0, reach=1.5, bottom_ok=True)
-# XIN's load cap on the wedge face under the crystal, between the USB-C and the signal pads: at
-# the front edge on top its GND pad had no room for a via in any of 20 routing tries.
 lay.want(find("22pF", "XIN32"), 3.1, -15.25, 0, reach=1.0, bottom_ok=True)
 solved = lay.solve()
 if "--plot" in sys.argv:
@@ -322,11 +254,8 @@ if "--plot" in sys.argv:
 k = lay.to_kicad
 
 spec = {
-    "inherit": "jlcpcb_2layer",  # JLCPCB's 2-layer minimums are also safe on its 4-layer process
-    # Signal vias are 0.5 / 0.25 mm (netclasses below); JLCPCB drills 0.2 mm on 4 layers.
+    "inherit": "jlcpcb_2layer",
     "rules": {"min_through_hole_diameter": 0.25},
-    # Both inner layers are GND (the default fanout covers them). stitch_pitch 1.0 packs the
-    # BAT_IN and VBATT pours' F/B overlaps with vias.
     "flow": {
         "tries": 10,
         "fr_passes": 50,
@@ -334,10 +263,7 @@ spec = {
         "stitch_nets": ["BAT_IN", "VBATT"],
         "stitch_pitch": 1.0,
     },
-    # 4 layers: F signal, In1 and In2 solid GND (the ESC return), B signal. VBATT lives only on
-    # the right ear's B pour, shunt to ESC+ pads (sim/copper_ir.py).
-    "order": {"assembled": 2},  # 5 PCBs, 2 assembled (intake)
-    # Schematic sheets by function (SKILL/scripts/schematic.py); passives follow their IC.
+    "order": {"assembled": 2},
     "schematic": {
         "sheets": [
             ["Power", ["U2", "U3", "U1"]],
@@ -348,11 +274,8 @@ spec = {
         "power_nets": ["VBATT"],
     },
     "layers": 4,
-    # 2 oz outer for the ESC current: JLCPCB's 2 oz minimums, 0.16 mm track and 0.20 mm space.
     "outer_copper_oz": 2,
     "plane_layers": ["In1.Cu", "In2.Cu"],
-    # Worst-case net voltages for rating_check.py: 4S LiHV is 17.4 V full; SW swings to VIN;
-    # BOOT rides about 5.6 V above SW.
     "net_voltage": {
         "PACK_MID": [0, 8.7],
         "PACK+": [0, 17.4],
@@ -368,17 +291,10 @@ spec = {
         "+3V3": [0, 3.6],
     },
     "differential": [["SENSE_P", "SENSE_N", 0.1], ["BUCK_BOOT", "SW", 5.6]],
-    # Convex corners filleted (pcb.py); the notch corners stay sharp for the chassis bay.
     "board": {"outline": [k(x, y) for x, y in outline_b], "corner_radius": 1.0},
     "netclasses": {
-        # Signals at JLCPCB's 2 oz minimum width on 0.5 / 0.25 mm vias: at 0.2 mm clearance, 0.2
-        # then 0.16 mm tracks on 0.6 mm vias left every Freerouting try 4 to 18 errors or unrouted
-        # links in the stem (crystal, SDA, DSHOT_R, the INA238 sense tap). They carry milliamps.
         "Default": {"track_width": 0.16, "via_diameter": 0.5, "via_drill": 0.25},
-        # Classes below inherit Default's vias; anything carrying current keeps 0.6 / 0.3.
-        # GND's fanout and stitching vias also join the outer pours that return ESC current.
         "Ground": {"track_width": 0.2, "via_diameter": 0.6, "via_drill": 0.3, "nets": ["GND"]},
-        # Tracks only feed pins; the zones carry the current.
         "Battery": {
             "track_width": 0.3,
             "via_diameter": 0.6,
@@ -391,7 +307,6 @@ spec = {
             "via_drill": 0.3,
             "nets": ["+5V", "V5_BUCK", "VBUS_USB", "SW"],
         },
-        # 0.2 mm: the BNO055's LGA pads are 0.25 mm wide at 0.5 mm pitch. Under 0.4 A.
         "Rail": {"track_width": 0.2, "nets": ["+3V3"]},
         "USB": {"track_width": 0.2, "nets": ["USB_DP", "USB_DM"]},
     },
@@ -425,8 +340,6 @@ spec = {
             "net": "BAT_IN",
             "layers": ["F.Cu"],
             "priority": 3,
-            # Reaches up toward the shunt so the stitching vias in its overlap with the B pour
-            # share the layer change with SW_BACK's grid (sim/copper_ir.py: its top row crowded).
             "outline": [
                 k(x, y) for x, y in [(12.9, -20.0), (17.0, -20.0), (17.0, -11.4), (12.9, -11.4)]
             ],
@@ -460,9 +373,6 @@ spec = {
                 k(x, y) for x, y in [(18.75, -10.4), (19.6, -10.4), (19.6, -11.05), (18.75, -11.05)]
             ],
         },
-        # Buck input on F: C4, C5 and C6's VBATT pads to U2's VIN, over the B VBATT pour, so
-        # VBATT stitching drops it to B. Routed, that drop failed in some tries. Clear of the
-        # PACK+ pour (x < 26.2) and the +5V pad of C12.
         {
             "net": "VBATT",
             "layers": ["F.Cu"],
@@ -483,9 +393,6 @@ spec = {
                 ]
             ],
         },
-        # Shunt VBATT end on B, under the ESC+ pads, the bulk cap and the whole F buck patch: other
-        # nets' tracks (+5V, SW) cut that patch, and a keepout there boxed in U2's SW pin, so
-        # each piece instead gets its own VBATT stitching vias down to this pour.
         {
             "net": "VBATT",
             "layers": ["B.Cu"],

@@ -1,16 +1,4 @@
-"""Write cad/keepout.json: what each board face must clear, in the placeholder's board frame.
-
-Frame (../../mr_stabs_mk2_pcb.py): origin at the hole-pattern centre on the roof face, +Z into the
-chassis, +Y toward the rear wall. KiCad F side is the roof face (z 0 up), B side the wedge face
-(z -1.6 down). cad/stl/ holds the robot parts already moved into that frame (export from the
-placeholder's robot_in_board_frame() and esc_shapes()).
-
-    ~/.local/share/pcba-design/venv/bin/python cad/make_keepout.py
-
-Keys: "F" union of every section from z 0.1 to 3.78 (roof face, low parts only);
-"B_low" sections from z -1.7 to -4 (anything on the wedge face: ESCs, the ledge ridge,
-washers); "B_tall" sections down to -12 (USB-C body 8.5 mm, headers 8.5 mm plus solder).
-"""
+"""Write cad/keepout.json for each board face."""
 
 import glob
 import json

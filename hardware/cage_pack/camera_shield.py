@@ -1,39 +1,10 @@
-"""Camera light shield: a black PETG hood over the back of the ZED X One S, which hangs off
-the enclosure's +X wall on a SmallRig 2948 ball head.
-
-Light from behind the camera reflects off the cage glass into the lens; the hood shades
-the camera's back (+Z, toward the viewer) and takes a knock before the camera does. It
-stays out of the camera's way: the hood's underside sits above the highest point the
-camera and its FAKRA plug reach anywhere in the head's range, and its stiffening ribs are
-on its top face (camera_range.py checks the sweep against keep_out()).
-
-Spec
-- Process: FDM, black PETG, printed flange-down (the flange's wall face on the bed), so the
-  hood, ribs and spacer boss all rise straight from it. `build()` returns the print frame;
-  `PRINT_TO_ASSEMBLY` puts it on the wall. PROCESS = "fdm".
-- Frame: cage_layout.py. Flange on the +X wall's outside face (X = X_OUT[1]).
-- Interfaces:
-  - Ball head: spacer boss Ø22 x CAM_SPACER on the flange, under the head's Ø23 base. A
-    1/4-20 x 1" socket head from inside the tray goes through the wall pad, the flange and
-    the boss (Ø6.53 close clearance) into the head's base thread, clamping all three.
-  - Anti-rotation: M3 x 8 button head through Ø3.4 in the flange into an M3 x 6.4 insert in
-    the wall at (CAM_Y, SHIELD_SCREW_Z).
-- Critical dimensions: hood underside SHIELD_HOOD_Z0, 3 mm over the swept envelope; hood
-  SHIELD_Y wide, to HEAD_SEAT_X + SHIELD_REACH.
-- Model: features() (recipe.py) in the print frame, so the checked solid and the Onshape
-  Part Studio are the same ten features: flange sketch (flange, boss and both holes),
-  flange, spacer boss, hood sketch, hood, hood corner fillets, rib sketch, three ribs.
-
-Open questions
-- The hood is a 3 mm cantilever of about 95 mm off a clamp under one 1/4-20 screw and one
-  M3. A knock on its far end levers the head screw; check it by hand before trusting it.
-"""
+"""Camera light shield hood on the +X wall."""
 
 from dataclasses import dataclass
 
 import b123d_fix  # noqa: F401
 import cage_layout as cl
-import recipe  # build123d-part/scripts, on the path when run through scripts/run
+import recipe
 from build123d import Part, Pos, Rot
 
 PROCESS = "fdm"

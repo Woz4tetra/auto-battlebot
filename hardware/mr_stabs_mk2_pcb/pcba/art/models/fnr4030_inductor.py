@@ -1,16 +1,4 @@
-"""FNR4030S100MT 10 uH shielded power inductor (L1, LCSC C167879): render model only.
-
-KiCad's library has no 3D model for Inductor_SMD:L_Taiyo-Yuden_NR-40xx, so the board render showed
-bare pads. Origin at the footprint origin on the board surface, +Z up from the board.
-
-Spec
-- Process: none (render proxy, not manufactured).
-- Interfaces: sits on the footprint's two pads, centred.
-- Critical dimensions: body 4.0 x 4.0, 3.0 tall (LCSC package "SMD,4x4mm"; 4030 = 4.0 x 3.0 max).
-
-Open questions
-- Height is the series maximum, 3.0 mm; the roof headroom over it is 0.78 mm.
-"""
+"""FNR4030S100MT inductor render proxy."""
 
 from dataclasses import dataclass
 

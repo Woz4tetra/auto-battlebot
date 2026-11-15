@@ -1,63 +1,4 @@
-"""TX16S MK2 HR10 trainer-port mount: holds an HR10A-7R-4S receptacle on top of the radio.
-
-The Jetson trainer link runs on the radio's AUX1 UART (bottom front face). A pigtail from
-AUX1 runs up the outside of the shell to this block, which stands the receptacle on top of
-the right shoulder block, tilted back so the mating plug and its cable lead away from the
-pilot. The block is bonded with VHB tape to a contour taken from a 3D scan of the radio:
-the right shoulder block has no screws to borrow, and the module bay, which may change,
-is the only other flat area on top.
-
-Spec
-- Process: FDM PLA, panel face on the bed, contoured base up. No supports.
-- Frame: origin at the receptacle's panel-hole centre on the panel face; +Z runs into the
-  block toward the radio (print direction). Radio frame (scan_patch.py: +X pilot's right,
-  +Y away from pilot, +Z up) maps here by radio_to_part().
-- Placement: receptacle axis meets the shell at radio (95.3, -10.5), tilted 20 deg back
-  about radio X. Footprint stays in x 87.8..102.8: ahead of the carry-handle hinge arm
-  (x 81..88, only behind y 12) and inboard of the two outer shoulder toggles. Toggle A's
-  boss flank starts at x 102 for y -2..6, so the back-right corner tapers in. The front
-  wall is vertical at radio y = -24, ahead of the dome's front roll-off. The module bay
-  (x < 70) is 18 mm away. verify_scan.py checks all of this against the raw scan.
-- Interfaces:
-  - Shell: base is the scan height map (tx16s_top_right_heightmap.npz) offset 1.1 mm
-    along its normal for 3M VHB 5952 (1.1 mm, made for painted and low-energy plastics).
-  - HR10A-7R-4S(73), Hirose HR10 catalog p.7 and p.20: panel hole 8.1 +0.1, key slot
-    1.6 +0.1 to 5.1 from centre, panel 0.7 to 2.0 thick, M8x0.5 nut 10 AF.
-  - Captive nut: the M8x0.5 nut sits in a 10.1 AF hex cavity under the panel, open to
-    the base, and the receptacle threads down into it. A nut under a keyed panel needs a
-    10 mm socket (Ø15) or pliers to turn it, and neither fits a block this narrow. The
-    key tab turns with the receptacle, so it rides in a Ø10.6 x 0.8 counterbore under
-    the flange instead of a slot (tab length <= 0.7, the catalog's thinnest panel).
-  - Hole Ø8.3: catalog 8.1 +0.1, +0.2 FDM undersize (fdm.md).
-  - Wire exit: a groove the full width of the hex flat (5.83) from the cavity out the
-    back wall. Flat roof, at least 4.5 mm over the shell along its run.
-- Critical dimensions: panel 2.0 thick (1.2 web under the counterbore); hole Ø8.3;
-  counterbore Ø10.6 x 0.8; hex cavity 10.1 AF, 11 deep from the tape face at the axis,
-  a flat toward the groove; walls 1.67 at the hex corners (+-X); 0.5 chamfer on every
-  base edge.
-- Edge geometry: the walls run along the tilted axis and the shell slopes away under
-  them, so every base edge, groove edge and corner here was placed to keep check.py's
-  1.2 mm minimum wall. The chamfers are fragile: base_chamfer 0.45 or 0.55, or
-  taper_u 4.5, fails to build.
-
-Assembly
-1. Solder nothing yet. Push the nut into the hex cavity from the base and hold it up
-   against the panel with a pencil.
-2. Thread the receptacle in from the top by its body until the flange seats. A drop of
-   medium threadlocker on the thread.
-3. Solder the pigtail to the cups through the base, lay it in the groove.
-4. Clean the shell with IPA, VHB 5952 on the base, press 30 s, wait 24 h before loading.
-
-Open questions
-- Handle swing: the scan shows the handle up and back. If it folds forward over the top,
-  check the plug clears its arm (verify_scan.py reports the gap to the scanned arm only).
-- Key tab length and the flange's bearing ring: the counterbore leaves the flange 0.2 mm
-  of PLA to sit on (r 5.3 to 5.5). Print to 3 mm height first and seat a receptacle; if
-  the tab is longer than 0.8, raise key_depth (and panel_t cannot follow past 2.0).
-- Receptacle flange thickness and nut thickness are not in the catalog; the mate models
-  them as 1.5 and 2.0.
-- AUX1 connector type and pin order: meter the port before wiring the pigtail.
-"""
+"""TX16S MK2 HR10 trainer-port mount bonded on the right shoulder."""
 
 from dataclasses import dataclass
 from functools import lru_cache
@@ -93,33 +34,28 @@ C_MIN = (Align.CENTER, Align.CENTER, Align.MIN)
 
 @dataclass
 class Params:
-    # Placement, radio frame (scan_patch.py)
-    axis_x: float = 95.3  # between hinge arm and toggle A's boss (from x 102)
-    axis_y: float = -10.5  # nearer toggle B (y -20, flank x 106) than A (y +2, flank x 102)
-    tilt_deg: float = 20.0  # plug leans back, away from the pilot
-    front_y: float = -24.0  # vertical front wall, ahead of the dome roll-off at y -26
-    # Footprint across the axis: u along radio X, v toward the back
-    u_half: float = 7.5  # hex 11.66 across corners + 1.67 walls
-    v_front: float = -19.0  # front trim crosses the bed here, so the bed edge stays square
-    v_back: float = 14.0  # back edge, short of the shell's back drop at y = 11
-    taper_v: float = -2.0  # back-right taper starts here...
-    taper_u: float = 5.0  # ...and ends here at v_back: toggle A's boss flank reaches x 102
+    axis_x: float = 95.3
+    axis_y: float = -10.5
+    tilt_deg: float = 20.0
+    front_y: float = -24.0
+    u_half: float = 7.5
+    v_front: float = -19.0
+    v_back: float = 14.0
+    taper_v: float = -2.0
+    taper_u: float = 5.0
     r_corner: float = 3.0
-    r_taper_corner: float = 0.6  # back-right: arc starts outboard of the groove wall (x 2.92)
-    trim_corner_r: float = 1.5  # front trim's side edges; 2.0 leaves the base chamfer no room
-    # Bond
-    tape: float = 1.1  # 3M VHB 5952 thickness
-    base_chamfer: float = 0.5  # breaks the acute edges where the tilted base meets the walls
-    # Receptacle, HR10 catalog
-    panel_t: float = 2.0  # catalog 0.7 to 2.0; the max, for a 1.2 web under the counterbore
-    hole_d: float = 8.3  # 8.1 +0.1 catalog, +0.2 FDM undersize (fdm.md)
-    key_d: float = 10.6  # key tab tip r 5.1, +0.1 catalog, +0.1 FDM
-    key_depth: float = 0.8  # tab <= 0.7, the catalog's thinnest panel
-    nut_af: float = 10.1  # 10 AF nut, snug sliding fit (fdm.md)
-    cavity_depth: float = 11.0  # tape face to panel: 7.7 behind the panel + wire bend
-    # Wire exit
-    groove_h: float = 4.5  # least clear height over the shell along the groove; 3.5 OD cable
-    edge_chamfer: float = 0.5  # elephant's foot on the bed edge, fdm.md
+    r_taper_corner: float = 0.6
+    trim_corner_r: float = 1.5
+    tape: float = 1.1
+    base_chamfer: float = 0.5
+    panel_t: float = 2.0
+    hole_d: float = 8.3
+    key_d: float = 10.6
+    key_depth: float = 0.8
+    nut_af: float = 10.1
+    cavity_depth: float = 11.0
+    groove_h: float = 4.5
+    edge_chamfer: float = 0.5
 
 
 def axis_frame(p: Params) -> np.ndarray:
@@ -172,10 +108,6 @@ def radio_to_part(p: Params) -> Location:
     return Pos(0, 0, panel_top(p)) * Rot(180, 0, 0) * to_axis
 
 
-# Height map region the base follows. Outside it the slab continues flat from its edge, so
-# the tilted prism always ends inside the slab; a B-spline through the real back-edge drop
-# and toggle bosses overshoots by centimetres. Inside, the spline is within 0.3 mm of the
-# map except the y = -27.5 and 8.5 edge rows (0.5 to 0.9 mm above it: a gap, never a clash).
 SURFACE_X = (86.5, 107.0)
 SURFACE_Y = (-28.0, 10.0)
 
@@ -241,14 +173,10 @@ def build(p: Params) -> Part:
 
     block = _chamfer_bed_edge(block, p)
 
-    # Vertical front wall in the radio frame. It leans 20 deg from the print axis, toward
-    # the part, so it prints without support.
     front = Pos(p.axis_x, p.front_y, -60) * Box(
         80, 80, 80, align=(Align.CENTER, Align.MAX, Align.CENTER)
     )
     block -= to_part * front
-    # Round the trim's two side edges: square ones meet the tilted base in a sharp
-    # three-way corner.
     trim_dir = (to_part * Pos(0, -1, 0)).position - (to_part * Pos(0, 0, 0)).position
     trim = block.faces().filter_by(lambda f: f.normal_at(f.center()).dot(trim_dir) > 0.99)
     assert len(trim) == 1, len(trim)
@@ -259,18 +187,11 @@ def build(p: Params) -> Part:
 
     block = _contour_base(block, p, to_part)
 
-    # Captive-nut cavity under the panel, open through the base. A flat faces the wire
-    # groove (part -Y): a groove leaving through a hex corner leaves knife edges.
     hexagon = RegularPolygon(p.nut_af / 2, 6, major_radius=False)
     block -= Pos(0, 0, p.panel_t) * extrude(hexagon, h + below)
     block -= Pos(0, 0, -1) * Cylinder(p.hole_d / 2, p.panel_t + 2, align=C_MIN)
     block -= Pos(0, 0, -1) * Cylinder(p.key_d / 2, p.key_depth + 1, align=C_MIN)
 
-    # Wire groove from the cavity out the back wall. The roof is flat in the part frame,
-    # square to the hex flat it leaves through (a roof following the shell meets that flat
-    # at an acute angle), and sits at the lowest roof that keeps groove_h over the shell
-    # along the whole run. The groove is as wide as the hex flat, so its walls carry on
-    # from the neighbouring hex faces with no short edges between.
     o = axis_origin(p)
     roof = min(
         (to_part * Pos(o[0], y, shell_z(o[0], y) + p.groove_h)).position.Z
@@ -279,10 +200,6 @@ def build(p: Params) -> Part:
     flat = p.nut_af / np.sqrt(3)
     block -= Pos(0, 0, roof) * Box(flat, 40, 40, align=(Align.CENTER, Align.MAX, Align.MIN))
 
-    # Edge break around the contoured base. The walls run along the tilted axis and the
-    # shell slopes away under them, so the base meets them at down to 55 deg: a feather
-    # edge that tears off the tape. Chamfer every edge of the base face, cavity rim included.
-    # The base is the largest B-spline face; the trim fillets come out as B-splines too.
     base = block.faces().filter_by(GeomType.BSPLINE).sort_by(lambda f: f.area)[-1]
     assert base.area > 150, base.area
     return chamfer(base.edges(), p.base_chamfer)
@@ -300,7 +217,6 @@ def receptacle(p: Params) -> Part:
     )
     flange = Cylinder(11.0 / 2, flange_t, align=(Align.CENTER, Align.CENTER, Align.MAX))
     thread = Cylinder(7.9 / 2, 7.7, align=C_MIN)
-    # Key tab: r 3.9 to 5.0, 1.5 wide, 0.7 long; it ends up wherever the thread stops.
     key = Pos(0, -4.45, 0) * Box(1.5, 1.1, 0.7, align=C_MIN)
     nut = Pos(0, 0, p.panel_t) * extrude(RegularPolygon(10.0 / 2, 6, major_radius=False), nut_t)
     return front + flange + thread + key + nut

@@ -1,34 +1,4 @@
-"""Cage pack enclosure lid: a flat black PETG plate over the tray's open front.
-
-Spec
-- Process: FDM, black PETG, printed outside face down on a Bambu P1S, the lip rising from
-  it. `build()` returns it in that print frame: outside face on Z = 0, turned over about X.
-  `PRINT_TO_ASSEMBLY` puts it back on the tray. PROCESS = "fdm".
-- Frame: cage_layout.py. Underside on the tray walls' edges (Z = WALL_EDGE_Z); outline equal
-  to the tray's, so it fits the same 256 x 256 plate.
-- Interfaces:
-  - 6 x Ø3.4 over the tray's lid bosses (enclosure.lid_screws()), M3 x 8 button heads into
-    M3 x 6.4 heat-set inserts.
-  - Lip: 1.6 thick, 5 deep, 0.3 inside the walls. It locates the lid and closes the light
-    path at the joint; notched 0.5 clear round each boss.
-- Vents: 3 x 30 slots over the ZED Box Mini's top face, which carries its fan intake.
-- Touch display (cage_layout.DISP_*): the Waveshare 2.8" module's glass sits on the
-  underside, landscape, in the lower right, clear of the ZED Box Mini and the OpenUPS's
-  plugs. The lid is its bezel: a window 0.4 larger than the 58.2 x 43.8 touch area each
-  side, R1 corners, a 0.8 chamfer on the outside edge for a fingertip. A 1.0 tall, 1.2
-  wide rim 0.3 round the glass locates it. Four Ø8 bosses hang to the display's
-  standoff plane with M3 x 6.4 inserts for display_bracket.py, which clamps the glass up
-  against the lid. The plate round the window is left full thickness (no pockets).
-- Weight: pocketed from the inside to a 1.2 mm skin between 3 mm lands, a land round the
-  lip's inside and each screw boss; print_mass.py slices it at 86 g (143 g unpocketed).
-  Printed face down, so the pockets face up and need no support.
-- Critical dimensions: outline 250.8 x 213.8 with R4 corners; lip outside 245.4 x 208.4;
-  display bosses on cage_layout.DISP_EARS, their end faces in the standoffs' plane.
-- Model: features() (recipe.py) in the print frame, so the checked solid and the Onshape
-  Part Studio are the same 17 features, in print order: plate, foot chamfer, lip, pockets,
-  display window and its chamfer, glass rim, display bosses and insert holes, then the
-  screw holes and vents.
-"""
+"""Cage pack enclosure lid, printed in black PETG."""
 
 from dataclasses import dataclass
 from typing import NamedTuple
@@ -36,7 +6,7 @@ from typing import NamedTuple
 import b123d_fix  # noqa: F401
 import cage_layout as cl
 import enclosure
-import recipe  # build123d-part/scripts, on the path when run through scripts/run
+import recipe
 import regions
 from build123d import Part, Pos, Rectangle, RectangleRounded, Rot
 
@@ -75,10 +45,7 @@ def _zp(z: float) -> float:
 
 
 def _pocket_sketch(p: Params):
-    """Plate thinned to p.skin_t from the inside between 3 mm lands, on the tray panel's
-    grid except x = 4.5, which falls between two vent slots where the spine's x = 0 would
-    cut through one; a land runs round the inside of the lip, each screw boss and the
-    display."""
+    """Lid pockets between lands."""
     m = p.pocket_land_w
     lip_inner_offset = cl.LID_LIP_WALL_GAP + cl.LID_LIP_T + 1.0
     xs = [cl.X_IN[0] + lip_inner_offset, -56.0, 4.5, 48.5, cl.X_IN[1] - lip_inner_offset]

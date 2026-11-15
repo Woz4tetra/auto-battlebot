@@ -1,44 +1,5 @@
-"""Mass budget and shock / vibration check for the cage pack on two SmallRig 4122C cups.
+"""Mass budget and shock check for the cage pack on two suction cups."""
 
-    venv/bin/python hardware/cage_pack/dynamics.py            # writes out/dynamics/
-
-Model
-- Outer polycarbonate sheet of the NHRL 3 lb cage wall: one 4' x 8' sheet, 1/4" thick
-  (NHRL wiki, Cage Design). Linear Kirchhoff plate, simply supported on all four edges, modal
-  superposition over m = 1..20, n = 1..10 (to ~600 Hz), 3 % modal damping. The cage holds
-  every sheet in channels on all four sides, so the edges slide in plane and the sheet bends
-  without membrane stiffening. That is the case that pries the cups hardest.
-- The pack: a rigid body with three DOF at the midpoint between the cups (normal
-  translation w_p, rotation theta_x about X and theta_y about Y), CG out from the glass by
-  h. It couples to the plate only through the two cups (cage_layout.CUP_X, CUP_Y: one off
-  each side wall, level). Each cup is a normal spring k_cup and, as a disk on an elastic
-  foundation of radius R_CUP_FACE_M, a rocking spring k_cup R^2 / 4 about each in-plane axis
-  against the sheet's slope under it, all with 10 % damping. Shear stiffness is taken as
-  rigid, so in-plane loads come from the pack's rotation (a_y = -h theta_x'').
-- Each cup's pull is its normal force plus its rocking moment as edge peel on the same
-  disk: P = T + 4 M / R, the force that would load the seal's rim as hard if spread
-  evenly. Two level cups carry the gravity moment and any rocking that way, since they
-  have no vertical spacing to make a couple from.
-- Excitation: a hit on the inner sheet reaches the outer sheet when the inner sheet slaps
-  it across the 1" air gap. two_sheet.py models that contact for a robot hit and gives the
-  momentum that arrives; here it lands on the outer sheet as a half-sine force pulse. The
-  spinner bite keeps a 50 % guess: a point mass is no model of a blade biting.
-- Channel engagement: two_sheet.py also gives how far each sheet's edge slides out of its
-  channel, against CHANNEL_ENGAGE_M (10 mm, assumed).
-- Cup stiffness is unknown until the cups arrive, so every case runs over K_SWEEP_N_PER_M and the
-  page's slider picks one.
-- Cup capacity: SmallRig rates 50 kg "horizontal mounting" (pull off the surface) and 35 kg
-  "vertical mounting" (shear), B&H spec table. Checked as a linear interaction
-  T/T_rated + V/V_rated <= 1 per cup, with the static gravity loads included.
-
-Not modelled, and why
-- The pack's effect on the sheet-to-sheet contact: two_sheet.py runs without it.
-- Frame base motion: a 1.36 kg robot at 10 m/s into a cage of 150+ kg of steel moves the
-  frame by under 0.1 m/s; the sheet's own flexing dominates near the pack.
-- Glass-to-cup slip and vacuum leak-down over time.
-"""
-
-# Matrix and physics symbols keep their textbook capitals (M, K, C, N, J).
 # ruff: noqa: N806
 import json
 import math
@@ -55,11 +16,6 @@ import numpy as np  # noqa: E402
 HERE = Path(__file__).parent
 OUT = HERE / "out" / "dynamics"
 G = 9.81
-
-# ---------------------------------------------------------------------------------------
-# Mass budget. Positions in cage_layout coordinates (mm): X along the wall, Y up from the
-# frame origin (the upper CP10 hole), Z out from the glass. Printed parts are print_mass.py's
-# PrusaSlicer numbers (petg_p1s.ini: 4 perimeters, 25 % gyroid).
 
 
 @dataclass
@@ -146,7 +102,7 @@ MASS = [
     Item("Fasteners, inserts", 25.0, 0.0, -90.0, 60.0, "estimate"),
     Item("Display screws, inserts, GH lead", 8.0, 50.0, -135.0, 100.0, "estimate"),
 ]
-CUP_RUBBER_G = 60.0  # part of each cup that moves with the glass, not with the pack (estimate)
+CUP_RUBBER_G = 60.0
 
 
 def mass_budget() -> dict:
@@ -156,11 +112,11 @@ def mass_budget() -> dict:
     return {"items": [asdict(i) for i in MASS], "total_g": tot, "cg_mm": cg, "pack_g": pack_g}
 
 
-E_PC, NU_PC, RHO_PC = 2.38e9, 0.37, 1200.0  # polycarbonate, Covestro Makrolon typical
+E_PC, NU_PC, RHO_PC = 2.38e9, 0.37, 1200.0
 ROBOT_MASS_KG = 1.36
-H = 0.00635  # 1/4"
-A = 2.438  # 8' along the wall
-B = 1.219  # 4' tall
+H = 0.00635
+A = 2.438
+B = 1.219
 D = E_PC * H**3 / (12 * (1 - NU_PC**2))
 RHO_H = RHO_PC * H
 CUP_BELOW_EDGE_M = cl.CUP_BELOW_EDGE / 1000
@@ -204,8 +160,7 @@ def cup_frame(pack: dict):
 
 
 def static_cups(pack: dict) -> list[dict]:
-    """Gravity on the pack, per cup: normal pull T, rocking moments, shear, and the pull P
-    with edge peel. The cups share the gravity moment M g h by their stiffness (k cancels)."""
+    """Static gravity loads per cup."""
     _, rel, _ = cup_frame(pack)
     M = pack["pack_g"] / 1000.0
     h = pack["cg_mm"][2] / 1000.0
@@ -261,8 +216,6 @@ def simulate(case: Case, pack: dict, t_end: float = 0.25, dt: float = 1e-5) -> d
     M = pack["pack_g"] / 1000.0
     h = pack["cg_mm"][2] / 1000.0
     J = M * (0.08**2 + 0.05**2) / 3  # about its own CG, box ~ 160 x 100 x 100 modal_mass
-    # DOFs: [q_1..q_nm, w_p, theta_x, theta_y]; pack normal motion at (dx, dy) from the
-    # reference is w_p + theta_x dy + theta_y dx.
     n = nm + 3
     Mm = np.zeros((n, n))
     Mm[:nm, :nm] = np.eye(nm) * modal_mass
@@ -277,8 +230,6 @@ def simulate(case: Case, pack: dict, t_end: float = 0.25, dt: float = 1e-5) -> d
     K[:nm, :nm] = np.diag(modal_mass * w**2)
     C = np.zeros((n, n))
     C[:nm, :nm] = np.diag(2 * ZETA_PANEL * modal_mass * w)
-    # Each cup: an axial row (stretch w_p + theta_x dy + theta_y dx - phi . q) and two
-    # rocking rows (pack rotation less the sheet's slope under the cup).
     k, kr = case.k_cup_n_per_m, case.k_cup_n_per_m * R_CUP_FACE_M**2 / 4
     c = 2 * ZETA_CUP * M / 2 * math.sqrt(k * 2 / M)
     cr = c * R_CUP_FACE_M**2 / 4
@@ -295,9 +246,6 @@ def simulate(case: Case, pack: dict, t_end: float = 0.25, dt: float = 1e-5) -> d
         C += c * np.outer(ra, ra) + cr * (np.outer(rx, rx) + np.outer(ry, ry))
     pf, _ = phi(*case.hit_xy_m)
     f_dir = np.concatenate([pf, [0.0, 0.0, 0.0]])
-    # Berger membrane stiffening: a uniform in-plane tension N from the sheet's stretch,
-    # N = E h / (2 (1 - nu^2) A B) * integral |grad w|^2, edges held in plane. Each mode then
-    # gains stiffness N k_i^2 (A B / 4). Off when berger is False (linear upper bound).
     kk = np.pi**2 * np.array([(m / A) ** 2 + (nn / B) ** 2 for m, nn in MODES])
     nfac = E_PC * H / (2 * (1 - NU_PC**2) * A * B) * (A * B / 4)
     Minv = np.linalg.inv(Mm)
@@ -354,7 +302,6 @@ def free_frequencies(pack: dict, pack_x: float, k_cup: float) -> dict:
     h = pack["cg_mm"][2] / 1000.0
     J = M * (0.08**2 + 0.05**2) / 3 + M * h**2
     (_, y0), rel, _ = cup_frame(pack)
-    # Rocking about X: the cups' vertical spacing as a couple plus each one's own disk.
     k_rot = sum(k_cup * dy**2 for _, dy in rel) + len(rel) * k_cup * R_CUP_FACE_M**2 / 4
     return {
         "bare_panel_hz": [{"mode": list(m), "hz": round(f, 2)} for m, f in bare],

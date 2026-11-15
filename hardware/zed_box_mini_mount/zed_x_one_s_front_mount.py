@@ -1,25 +1,4 @@
-"""Stereolabs ZED X One S front mount (ACC-151300): 50 x 30 x 4 mm aluminum plate.
-
-Reference model for the camera bracket assembly, not a part to make. Dimensions come from the
-"ZED X One S - Front mount, Mounting Guide" page of the ZED X One S datasheet Rev1.8
-(vendor/zed_x_one_s_datasheet.pdf, page 11):
-
-- 50 x 30 x 4 mm, 4 x R4 corners
-- 2 x Ø5.4 slots at x = ±18 (36 mm pitch), 20 mm center to center along the 30 mm side
-- 4 x Ø2.4 thru on the camera's 21 mm square, counterbored Ø4.4 x 2 from the front
-- Ø20.5 bore on the optical axis for the lens ring
-
-The camera's front face sits on the back face; its 4 x M2 x 0.4 front holes take the screws
-from the counterbored side. The store page lists the plate as 27.22 x 55 x 4 mm, which matches
-neither the drawing nor the product photo, so the drawing wins.
-
-Coordinates: origin on the optical axis in the back face (the camera side). +Y is the viewing
-direction (the plate runs y = 0..4), X along the 50 mm side, +Z up.
-
-Open questions
-- The side notches on the 30 mm edges are drawn but not dimensioned; modeled 9 x 1.5 mm from
-  the drawing's scale. They touch nothing in this assembly.
-"""
+"""Stereolabs ZED X One S front mount (ACC-151300) reference model."""
 
 from dataclasses import dataclass
 

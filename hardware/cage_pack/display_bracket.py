@@ -1,31 +1,10 @@
-"""Display bracket: a printed PETG frame behind the touch display that clamps its glass
-against the lid's underside.
-
-Four M2.5 x 6 screws go up through the frame into the display's threaded standoffs, and
-four M3 x 8 screws go up through its ears into heat-set inserts in the lid's display
-bosses. The display comes away with the lid; unplug its GH lead first.
-
-Spec
-- Process: FDM, black PETG, printed flat (the build frame is the print frame).
-  PROCESS = "fdm".
-- Frame: cage_layout.py. Top face on the display's standoff ends (DISP_BACK_Z), the
-  bosses' end faces in the same plane.
-- Holes: 4 x Ø2.9 (M2.5 normal clearance, fasteners.md) on the display's 60 x 41
-  standoff pattern; 4 x Ø3.4 (M3 normal clearance) at the lid bosses (DISP_EARS).
-- Size: frame 71 x 50 round the standoffs, ears out to ±36 in Y, 2.6 thick. A window
-  through the middle, and a notch at the -X end round the display's GH connector, whose
-  back face sits in the frame's top plane; its lead leaves through the notch.
-- Critical dimensions: the standoff pattern (from Waveshare's STEP, inspect_step.py),
-  the ear pattern (shared with enclosure_lid.py through cage_layout).
-- Model: features() (recipe.py), so the checked solid and the Onshape Part Studio are the
-  same five features: outline sketch, plate, corner fillets, cut-out sketch, cut.
-"""
+"""Display bracket that clamps the touch display to the lid."""
 
 from dataclasses import dataclass
 
 import b123d_fix  # noqa: F401
 import cage_layout as cl
-import recipe  # build123d-part/scripts, on the path when run through scripts/run
+import recipe
 from build123d import Part
 
 PROCESS = "fdm"

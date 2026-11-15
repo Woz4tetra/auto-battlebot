@@ -1,28 +1,20 @@
-"""Hirose HR10 4-pin envelopes: HR10A-7R-4S panel receptacle and HR10A-7P-4P cable plug.
-
-Same catalog numbers as hardware/tx16s_hr10_mount/tx16s_hr10_mount.py (Hirose HR10 catalog
-p.6, p.7, p.20). Hirose gates its STEP downloads behind a login, so these are traced from the
-catalog drawings, not exact models.
-
-Frame: origin on the panel's front face at the receptacle axis, +Z into the enclosure (the
-thread and nut side), -Z out toward the mating plug.
-"""
+"""Hirose HR10 4-pin receptacle and plug envelopes."""
 
 from build123d import Align, Box, Cylinder, Part, Pos, RegularPolygon, extrude
 
 C_MIN = (Align.CENTER, Align.CENTER, Align.MIN)
 C_MAX = (Align.CENTER, Align.CENTER, Align.MAX)
 
-PANEL_HOLE = 8.1  # catalog 8.1 +0.1
-KEY_R = 5.1  # key slot to centre, catalog
-KEY_W = 1.6  # catalog 1.6 +0.1
-PANEL_T_MAX = 2.0  # catalog 0.7 to 2.0
-FRONT_LEN = 6.3  # receptacle in front of the panel, catalog
-THREAD_LEN = 7.7  # M8 x 0.5 thread behind the panel, catalog
-PLUG_D = 11.5  # HR10A-7P plug body, catalog p.6
-PLUG_LEN = 35.0  # plug body with strain relief, catalog p.6
-FLANGE_T = 1.5  # not in the catalog, assumed
-NUT_T = 2.0  # not in the catalog, assumed
+PANEL_HOLE = 8.1
+KEY_R = 5.1
+KEY_W = 1.6
+PANEL_T_MAX = 2.0
+FRONT_LEN = 6.3
+THREAD_LEN = 7.7
+PLUG_D = 11.5
+PLUG_LEN = 35.0
+FLANGE_T = 1.5
+NUT_T = 2.0
 SOLDER_CUP_ENVELOPE = (6.0, 4.0)
 FDM_HOLE_ALLOWANCE = 0.1
 

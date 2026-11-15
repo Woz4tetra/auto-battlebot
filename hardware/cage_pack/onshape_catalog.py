@@ -1,20 +1,4 @@
-"""Onshape names and part properties for the cage pack, keyed by assembly component or
-fastener group (cage_pack_assembly.ONSHAPE_PARTS).
-
-Each entry sets the Part Studio tab, part and (for a purchased part) document name, `title`,
-upper case the Onshape way, and the part's properties: Part number (the manufacturer's
-part number), Vendor (the manufacturer) and Description (what it is and where it was
-bought). `home` is "own" for an off-the-shelf part, which lives in its own document, and
-"main" for a part designed here. `bom: False` sets "Exclude from all BOMs" (the cage wall,
-the PCBA's parts, which are priced with the board).
-
-Components with congruent shapes (the two cups, every M3 insert) share one entry's title
-and become one Part Studio with several instances.
-
-Sources: manufacturer pages, Digi-Key and McMaster listings, and for Amazon items the
-listing's brand (from search snippets, checked 2026-11-11). Where a maker gives no part
-number the Amazon ASIN stands in, and the description says so.
-"""
+"""Onshape names and part properties for the cage pack."""
 
 AMZ = "No manufacturer part number; the part number is the Amazon ASIN."
 

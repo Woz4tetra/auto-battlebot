@@ -1,23 +1,5 @@
-"""Two-sheet cage wall impact: robot -> inner sheet -> 1" air gap -> outer sheet.
+"""Two-sheet cage wall impact model."""
 
-    venv/bin/python hardware/cage_pack/two_sheet.py --v 10 [--held] [--hit x,y]
-
-Gives the momentum that reaches the outer sheet, which dynamics.py takes as its input,
-and how far each sheet pulls out of its edge channels.
-
-- Both sheets: 1/4" PC, 2.44 x 1.22 m, simply supported, modal (sin x sin) to FMAX = 600 Hz,
-  3 % modal damping. The cage holds them in channels on all four sides, so the edges slide
-  in plane: plain linear bending, no membrane stiffening. --held adds Berger stiffening
-  (edges pinned in plane) for comparison.
-- Robot: 1.36 kg point mass with a compression-only contact spring on the inner sheet.
-- Sheet to sheet: compression-only penalty springs on a 61 x 31 grid, 25.4 mm gap.
-- Channel pull-in: an edge slides in by half the arc-length excess of the bent sheet across
-  that span, 1/2 * integral of slope^2, split between the two edges; the worst line across
-  the sheet is reported.
-- Semi-implicit Euler on modal coordinates, dt 10 us; halving dt changes results under 1 %.
-"""
-
-# Matrix and physics symbols keep their textbook capitals (M, P, N).
 # ruff: noqa: N806
 from __future__ import annotations
 
@@ -77,7 +59,6 @@ def _run(v0, hit, berger, k_robot, k_sheet, nx, ny, t_end, dt, probes):
     pr = shapes(mn, np.array([p[0] for p in probes]), np.array([p[1] for p in probes]))
     kx2 = (mn[:, 0] * np.pi / A_M) ** 2
     ky2 = (mn[:, 1] * np.pi / B_M) ** 2
-    # Berger: N = (3 D / (2 h^2)) sum q^2 k^2 (tension per unit length, both directions)
     cb = 3 * D / (2 * H_M**2) if berger else 0.0
 
     qi = np.zeros(len(k2))
@@ -86,8 +67,6 @@ def _run(v0, hit, berger, k_robot, k_sheet, nx, ny, t_end, dt, probes):
     vo = np.zeros(len(k2))
     robot_x, robot_v, robot_m = 0.0, v0, ROBOT_MASS_KG
 
-    # Channel pull-in. Along Y at column x: 1/2 int w_y^2 dy = 1/2 sum_n (n pi/B)^2 (B/2) a_n(x)^2,
-    # a_n(x) = sum_m q_mn sin(m pi x / A); the same along X. Sampled on 41 lines each way.
     xs, ys = np.linspace(0, A_M, 43)[1:-1], np.linspace(0, B_M, 23)[1:-1]
     sin_lines_by_mode = np.sin(np.outer(xs, mn[:, 0] * np.pi / A_M))
     syn = np.sin(np.outer(ys, mn[:, 1] * np.pi / B_M))
@@ -153,7 +132,6 @@ def _run(v0, hit, berger, k_robot, k_sheet, nx, ny, t_end, dt, probes):
             pv = pr @ qo
             out["probe_max"] = [max(a, abs(float(b))) for a, b in zip(out["probe_max"], pv)]
             out["pry_max"] = max(out["pry_max"], abs(float(pv[0] - pv[1])) if len(pv) > 1 else 0)
-            # Outer bending stress at the surface: sigma = 6 M / h^2, plus membrane N / h.
             wxx = -phi_grid @ (kx2 * qo)
             wyy = -phi_grid @ (ky2 * qo)
             mxx = -D * (wxx + NU * wyy)

@@ -1,41 +1,4 @@
-"""Cage pack: ZED Box Mini, battery and PCBA in a printed PETG enclosure on two SmallRig
-4122C suction cups on an NHRL cage wall.
-
-    scripts/run check_assembly.py cage_pack_assembly.py      (build123d-part skill)
-
-The box is printed on a Bambu P1S. It shades the camera, takes a fall, and is the one part
-carrying every load to the cups.
-
-Frame: cage_layout.py. Z = 0 on the outer polycarbonate face, +Z out of the cage, +Y up.
-
-Load path: every part is screwed to the enclosure tray (enclosure.py). Two printed arms
-(cup_arm.py) screw to the panel's underside, two M3 each, and carry the cups beside the
-side walls, one 3/8-16 screw each. Nothing else bears on the glass except the two cup faces.
-
-What goes where
-- Cups beside the -X and +X walls at y = -70, 45 past each wall, pump knobs pointing
-  outward. Each cup's rim, and so its release tabs, is outside the tray.
-- ZED Box Mini across the top on 8 mm printed bosses, over the upper CP10 tripod hole.
-- Lower left: four P30B cells in an MPD BK-18650-PC8 holder on a carrier PCB that wires
-  them in series (no spot welding), held by battery_clamp.py, under the OpenUPS.
-- Lower middle: the custom PCBA (ESP32-S3-WROOM-1U).
-- Lid, lower right: a Waveshare 2.8" capacitive touch display (SPI + I2C) for boot
-  progress, faults and stats, glass on the lid's underside behind a window, clamped by
-  display_bracket.py. A GH 13-pin lead runs down the -X side of it to the PCBA's J7.
-- -X wall: HR10 transmitter port, GX12 DC input to the OpenUPS
-  VIN, from a Mean Well GST120A24 (24 V 5 A) whose barrel plug is swapped for a GX12 plug.
-- Bottom wall: latching power button (CIT AH1LBBG12), signal only, wired to the PCBA (J5),
-  and beside it the RJ45 panel coupler (iPad), both reachable from below on the glass.
-  The battery stays on the OpenUPS through the 10 A fuse. The PCBA (J6) presses the OpenUPS
-  J8 to start or stop it and reads J10's off pulse; with OPENUPSMODE = 1, DC input charges
-  the battery without starting the output, so the pack charges when off and runs and
-  charges when on. See pcba_cage.py.
-- +X wall: three RP-SMA bulkheads, two for the ZED's AX210 WiFi, one for the ESP32.
-- Outside the +X wall: the ZED X One S on a SmallRig 2948 ball head, nothing round it but
-  air, so it spins onto the head's stud and reaches the head's full range with the lid on.
-  camera_shield.py hoods its back against light from behind the camera.
-- Safety tether: 1/8" steel lanyard from the top wall's -X hole to the cage frame.
-"""
+"""Cage pack assembly: enclosure, electronics, camera and cables."""
 
 import importlib.util
 import math
@@ -101,9 +64,6 @@ def _sibling(name: str):
 ballhead = _sibling("smallrig_2948_ball_head")
 bracket = _sibling("zed_x_one_s_bracket")
 BRP = bracket.Params()
-# Ball head on the shield's spacer boss outside the +X wall, axis +X; its knob (head -X)
-# faces +Z, toward the viewer, and its drop notch the glass. Neck straight out (tilt 0);
-# the platform's spin sets the aim.
 HEAD = Location(
     Plane(origin=(cl.HEAD_SEAT_X, cl.CAM_Y, cl.CAM_AXIS_Z), x_dir=(0, 0, -1), z_dir=(1, 0, 0))
 )
@@ -112,7 +72,6 @@ BRACKET_AT = HEAD * ballhead.top_location(BALL)
 CAMERA_AT = BRACKET_AT * bracket.camera_location(BRP)
 UPS_LOC = Location(Plane(origin=cl.ups(0.0, 0.0, 0.0), x_dir=(-1, 0, 0), z_dir=(0, 1, 0)))
 
-# OpenUPS connectors (STEP solid centres, inspect_step.py), on the board's top face.
 UPS_TOP = cl.UPS_BOARD_Z0 + 1.6
 UPS_VOUT = cl.ups(61.89, 0.0, 88.49)[:2]
 UPS_VIN = cl.ups(-27.50, 0.0, 97.43)[:2]
@@ -133,16 +92,9 @@ def _world_dir(loc: Location, v) -> tuple[float, float, float]:
     return (d.X, d.Y, d.Z)
 
 
-# FAKRA plug (Rosenberger 59Z114-000Z): 26 long from its nose, which sits FAKRA_ENGAGE back
-# from the jack's tip, so the cable leaves 26 - FAKRA_ENGAGE past the tip.
 FAKRA_PLUG_LEN = 26.0
 FAKRA_ENGAGE = 9.0
-# The STEP is the housing alone, bored Ø6.70 through; the cable's crimp ferrule sits this far
-# inside its back end.
 FAKRA_CABLE_IN = 6.0
-# ZED X One S FAKRA jack in the camera STEP's frame (inspect_step.py, solid 6): axis along
-# the STEP's +Y (away from the lens) at (x, z) = (3.30, -23.75), 2.8 and 6.1 off the lens
-# axis, tip at y = -42.72, 13.3 behind the body's back face.
 CAM_FAKRA_TIP = (3.30, -42.72, -23.75)
 
 
@@ -154,8 +106,6 @@ def fakra_cam():
     return (seat.X, seat.Y, seat.Z), (d.X, d.Y, d.Z)
 
 
-# MPD's STEP has the cells along its X, height along Y from the pin tips (holder base at
-# Y = 3.2), across the cells along Z. Placed with the cells along Y, base on the carrier.
 HOLDER_AT = Location(
     Plane(
         (cl.BRICK_XC, cl.BRICK_YC, cl.HOLDER_Z0 - cl.HOLDER_PIN),
@@ -275,11 +225,7 @@ def _vendor(rel: str, origin, x_dir, z_dir, keep=None) -> Compound:
     return Compound([inv * s for s in _vendor_solids(rel) if keep is None or keep(s)])
 
 
-# GrabCAD "GX12 Aviation Connectors" (Nelson Stoldt), axis along the STEP's X, mating
-# toward -X. connectors.py frame: origin on the wall's outer face, +Z outward.
 def _gx12_jack() -> Compound:
-    """GX12-2 panel jack: front shroud and flange outside, nut and solder cups inside. The
-    model's gasket face (x = 1.0) sits on the wall; its nut leaves a 2.0 panel gap."""
     return _vendor("grabcad/gx12_2_jack.step", (1.0, 0, 0), (0, 1, 0), (-1, 0, 0))
 
 
@@ -307,15 +253,11 @@ def _hr10_plug() -> Compound:
     return Compound([*body.solids(), cable])
 
 
-# ModDIY panel jack (GrabCAD "Panel Mount RJ45", traced from their CAB105): STEP axis X,
-# jack mouth toward +X, flange back face at x = -11.55, cable stub out to x = -44.5.
 RJ45_FLANGE_BACK = -11.55
 RJ45_FLANGE_TO_STUB_END = 44.5 + RJ45_FLANGE_BACK
 
 
 def _rj45_coupler():
-    """ModDIY panel-mount RJ45 jack: 7 mm flange outside the bottom wall, 21.4 x 22 body and
-    the cable's moulded stub inside, two screws at 27.5 along X."""
     x, z = cl.RJ45_AT
     o = (x, cl.Y_OUT[0] + RJ45_FLANGE_BACK, z)
     at = Location(Plane(o, x_dir=(0, -1, 0), z_dir=(0, 0, -1)))
@@ -323,32 +265,22 @@ def _rj45_coupler():
 
 
 def _minifit(rel: str) -> Compound:
-    """Molex Mini-Fit Jr receptacle housing (Molex's STEP): mating face at its z = -10.8,
-    cavities centred on y = -5.0, latch +Y. connectors.minifit_plug frame: origin on the
-    header's base, +Z off the board, housing from 3.0 up."""
     return _vendor(rel, (0, -5.0, -13.8), (1, 0, 0), (0, 0, 1))
 
 
 def _tbp_plug() -> Compound:
-    """Same Sky TBP01P1W-508-02GR (Same Sky's STEP): mates along its +X (pin end at
-    x = 17.5), poles along its Z at 0 and 5.08, 15 tall along Y. connectors.tbp_plug_2p
-    frame: X along the poles, Y height, mating face at z = -8."""
     return _vendor(
         "samesky/Same_Sky_TBP01P1W-508-02GR.step", (9.5, 7.5, 2.54), (0, 0, 1), (-1, 0, 0)
     )
 
 
 def _fakra_plug() -> Compound:
-    """Rosenberger 59Z114-000Z FAKRA Z-code plug housing (Rosenberger's STEP), 26 long,
-    coded nose at its z = -0.2. connectors.fakra_plug frame: +Z outward from the jack."""
     return _vendor(
         "fakra/Rosenberger_59Z114-000Z_housing_plug.step", (0, 0, -0.2), (1, 0, 0), (0, 0, -1)
     )
 
 
 def _antenna(x: float, y: float, z: float) -> Compound:
-    """L-com HG2402RD-RSF tilt-swivel RP-SMA antenna (L-com's STEP), plug onto the bulkhead
-    4 mm past the wall, whip folded 90° to +Y at its hinge (STEP x = 36.25)."""
     solids = _vendor_solids("rf/Lcom_HG2402RD-RSF_3D.step")
     tip, hinge = 61.89, 36.25
     at = Pos(x + 4.0 + tip, y, z) * Rot(0, 0, 180)
@@ -366,9 +298,6 @@ def _is_rj45_head(solid) -> bool:
 
 
 def _rj45_plug():
-    """The extension's 90° plug in the ZED's jack: GrabCAD "RJ45_Ethernet_Plug" head (22.17
-    long, mouth at its z = 22.17, latch +Y), 15 in the jack with the latch up, plus the
-    moulded right-angle boot turning the cable +Z."""
     rx, ry, rz = cl.ZED_RJ45_MOUTH
     at = Location(Plane((rx + 15.0 - 22.17, ry, rz), x_dir=(0, 1, 0), z_dir=(1, 0, 0)))
     head = [at * s for s in _vendor_solids("grabcad/rj45_plug.step") if _is_rj45_head(s)]
@@ -381,8 +310,6 @@ def _rj45_plug():
 
 SWITCH_AT = (cl.SWITCH_X, cl.Y_OUT[0], cl.SWITCH_Z)
 BUTTON_TABS_Y = cl.Y_OUT[0] + cl.SWITCH_DEPTH
-# OpenUPS J10 (motherboard on/off) and J8 (start/stop) 2-pin headers, located from Mini-Box's
-# connection diagram against the J5 and J7 connectors in the STEP (about +-1 mm).
 UPS_J10 = cl.ups(6.2, 0.0, 77.5)[:2]
 UPS_J8 = cl.ups(32.5, 0.0, 77.5)[:2]
 DUPONT_TOP = UPS_TOP + 16.5
@@ -391,9 +318,6 @@ CHARGER_CORD_END_AT = (cl.X_OUT[0] - 230.0, cl.SERVICE_PORTS_YZ["gx12"][0], 5.0)
 
 
 def _charger():
-    """Mean Well GST120A (Mean Well's GS-120 case STEP): case x 65.53 to 233.11 in the
-    STEP, DC cord end at +X, 67 x 35. The STEP's 100 mm cord stub is cut off at the case;
-    charger_cord carries on from there."""
     x1, y, z0 = CHARGER_CORD_END_AT
     keep = Pos(233.3, 0, 0) * Box(400, 400, 400, align=(Align.MAX, Align.CENTER, Align.CENTER))
     at = Pos(x1 - 233.11, y - 4.5, z0 - 9.14)
@@ -409,7 +333,6 @@ def _plugs() -> dict:
     out["tbp_plug"] = cn.place(
         Rot(0, 0, 90) * _tbp_plug(), cl.ZED_POWER_MOUTH, (-1, 0, 0), (0, 0, 1)
     )
-    # Head along +X, cable leaving -Y (away from the FAKRA plug above it).
     out["usb_a_plug"] = cn.place(cn.usb_a_plug_90(), cl.ZED_USB_A, (1, 0, 0), (0, -1, 0))
     fx, fy, fz = cl.ZED_FAKRA_A_TIP
     out["fakra_plug_zed"] = cn.place(
@@ -430,8 +353,6 @@ def _plugs() -> dict:
         hr10.receptacle(cl.HR10_PANEL_T), (ox, hy, hz), (1, 0, 0), (0, 1, 0)
     )
     out["hr10_tx_plug"] = cn.place(_hr10_plug(), (ox, hy, hz), (1, 0, 0), (0, 1, 0))
-    # RP-SMA bulkheads, one per antenna, then each antenna screwed onto its bulkhead and
-    # folded up: the same part three times, so Onshape holds one antenna model.
     out["sma_bulkheads"] = Compound([_sma_bulkhead(y, z) for y, z in cl.ANTENNAS_YZ.values()])
     for name, (y, z) in cl.ANTENNAS_YZ.items():
         out[f"antenna_{name}"] = _antenna(cl.X_OUT[1], y, z)
@@ -960,7 +881,7 @@ def components():
                 "min_volume": 1,
                 "at": Pos(cl.DISP_TOUCH_X, cl.DISP_TOUCH_Y, cl.DISP_FRONT_Z - 0.7) * Rot(0, 0, -90),
                 "color": "#1d2229",
-                "material": "brass",  # the M2.5 standoffs' threads
+                "material": "brass",
                 **_bd("display"),
             },
             "display_bracket": {
@@ -990,7 +911,7 @@ def components():
             "ball_head": {
                 "shape": HEAD * ballhead.build(BALL),
                 "color": "#2b2f36",
-                "material": "al6061",  # aluminium head: 1.5 D thread rule
+                "material": "al6061",
                 **bd.COMPONENTS_BY_ASSEMBLY_NAME["ball_head"],
             },
             "camera_bracket": {
@@ -1064,12 +985,6 @@ def components():
     return comps
 
 
-# Onshape (the onshape skill): what each component is fastened to, on a pair of coaxial hole
-# edges the two share, so it follows that part when a dimension changes. The tray is the
-# fixed root. Anything not listed is inserted fixed where it is modelled: the glass, the
-# cells and their holder, the charger, the cables and most plugs share no hole with what
-# they sit on.
-# Onshape names and part properties, and which parts get their own document.
 ONSHAPE_PARTS = onshape_catalog.PARTS
 
 ONSHAPE_MATES = {
@@ -1307,8 +1222,8 @@ EXPECT = {
         ("cup_right", "glass_outer"),
         ("quarter_inserts", "ball_head"),
         ("tray_inserts", "enclosure"),
-        ("battery_clamp", "openups"),  # board seated on the clamp's tubes
-        ("battery", "battery_holder"),  # contact springs drawn uncompressed, cradle snap lips
+        ("battery_clamp", "openups"),
+        ("battery", "battery_holder"),
         ("quarter_inserts", "camera_bracket"),
         ("shield_insert", "enclosure"),
         ("shield_insert", "camera_shield"),

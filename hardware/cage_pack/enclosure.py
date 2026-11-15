@@ -1,66 +1,4 @@
-"""Cage pack enclosure tray: the one part that carries everything, printed in black PETG.
-
-A 3 mm back panel with four 2.4 mm walls rising toward the viewer, printed on a Bambu P1S
-with the panel's glass-side face on the bed. Two printed arms (cup_arm.py) screw to the
-panel's underside and carry a suction cup each, beside the side walls; everything inside
-screws into heat-set inserts in printed bosses. The lid (enclosure_lid.py) closes the front.
-
-Spec
-- Process: FDM, black PETG, 0.4 nozzle, 0.2 layers, printed panel-down (the build frame is
-  the print frame). Outside 250.8 x 213.8 x 73.0 on the P1S's 256 x 256 plate: 2.6 mm each
-  side, so no brim; PETG over ASA for that reason (less warp) and for its impact toughness.
-  PROCESS = "fdm".
-- Frame: cage_layout.py. Panel's glass-side face at Z = CUP_H (level with the cups' rail
-  tops).
-- Stiffness: a cross of 6 mm ribs on the panel, a spine along X = 0 between the two CP10
-  holes and a cross rib along Y = -50 under the ZED Box Mini wall to wall, with a ring
-  around each CP10 hole. The 70 mm walls close the box.
-- Weight: the panel is pocketed from the inside down to a 1.2 mm floor (six solid layers),
-  leaving 3 mm full-thickness lands along the ribs, at x = -56, 48.5 and y = -116, round
-  every boss and CP10 ring, and round the panel's edge. print_mass.py slices it at 282 g
-  (317 g unpocketed).
-- Interfaces:
-  - Cup arms: 4 x Ø4.0 x 7.4 insert holes up from the panel's glass side, 28 in from each
-    side wall at y = CUP_Y +- 12, for M3 x 6.4 heat-set inserts pressed from below. Each
-    sits under a Ø8 x 6 boss on the panel's inside; the +X pair is under the ZED Box
-    Mini's edge, 2 mm below its underside. M3 x 12 socket heads come up through each arm's
-    tongue.
-  - Tripod (CP10): 2 x Ø10.3 (3/8" normal clearance) at (0, 0) and (0, -153.5), where the
-    cups used to bolt on, each in a Ø27 x 1.4 washer spot face. A 3/8-16 x 1/2" button head
-    over a 1" washer from inside reaches a CP10 cheese plate under the panel.
-  - Bosses Ø8 with Ø4.0 x 7.4 holes for M3 x 6.4 heat-set inserts (94180A333): four 8 mm
-    under the ZED Box Mini's ears, four 8 mm under the PCBA, four 25 mm under the battery
-    clamp and OpenUPS.
-  - Camera (+X wall, outside): a 1/4-20 x 1" socket head from inside through a 4 mm pad on
-    the wall's inside face (Ø6.53 close clearance), the shield's flange and spacer boss,
-    into the ball head's base thread. An M3 insert through the pad (from inside) takes the
-    shield's anti-rotation screw. A Ø14 pointed-roof hole passes the GMSL cable's FAKRA plug.
-  - Service wall (-X): HR10 Ø8.2 + key slot in a 1.8 mm spot face (catalog panel 0.7 to
-    2.0). GX12 hole with a flat-topped teardrop roof, under its nut.
-  - Bottom wall: Ø19.3 power button hole (CIT AH, 19.00 cut-out) with a teardrop roof that
-    stays under the button's Ø21.8 bezel. Beside it at cage_layout.RJ45_AT, the ModDIY RJ45
-    panel jack cut-out 21.8 x 21.6 with a 0.2 mm roof that stays under its 22 mm flange (a
-    21.4 mm bridge), 2 x Ø3.4 on 27.5 mm.
-  - Antenna wall (+X): 3 x Ø6.5 for RP-SMA bulkheads.
-  - Lid: six 9 x 9 bosses hung from the walls' tops, each with an M3 insert hole along -Z,
-    carried by 50° gussets so they print without support.
-  - Tether: Ø6.5 through the top wall at the -X end, in a pad that makes the wall 6 mm thick
-    there.
-- Vents: 3 x 30 slots with pointed roofs in the top and bottom walls.
-- Critical dimensions: inside 209 x 209 x 70; CP10 holes 153.5 apart on X = 0, the INNOREL
-  CP10's 3/8-16 pair, so the tray bolts to a CP10 on a tripod; arm insert holes on
-  cage_layout.arm_screws(); fits the P1S plate with BED_MARGIN each side.
-
-Open questions
-- The arm inserts are pressed from the glass side and pull out toward it under load; pull
-  test a printed coupon. PETG creeps under the arm screws' heads: check them before each
-  event.
-- Tether pull-out of the 6 mm pad is about 3 kN in shear at 30 MPa: estimate only. Pull test
-  a printed coupon before trusting it.
-- Panel stiffness against the aluminium tray is lower; dynamics.py assumes a stiff tray.
-- The 1.2 mm pocket floors carry the glass-side face; a hit through the glass at a pocket is
-  unchecked. Raise `floor` to 1.6 for about +10 g if a test print feels soft.
-"""
+"""Cage pack enclosure tray, printed in black PETG."""
 
 import math
 from dataclasses import dataclass
@@ -69,7 +7,7 @@ from typing import NamedTuple
 import b123d_fix  # noqa: F401
 import cage_layout as cl
 import hr10
-import recipe  # build123d-part/scripts, on the path when run through scripts/run
+import recipe
 import regions
 from build123d import Part, Pos
 

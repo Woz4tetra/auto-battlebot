@@ -1,14 +1,4 @@
-"""Build the assembly review page for the ZED Box Mini cheese plate adapter.
-
-Run in the build123d-part skill venv from this directory:
-
-    ~/.local/share/build123d-part/venv/bin/python assembly_page.py path/to/zed_box_mini.step
-
-The STEP is Stereolabs' "ZED Box Mini Wifi with fan.step" from stereolabs.com/3dmodels. It is
-33 MB, so it stays out of git. Writes out/assembly/: index.html (from assembly_page.html with
-the measured data injected) and one mesh JSON per part group for the 3D viewer, and
-out/step/: the adapter, cheese plate, and ZED Box Mini as STEP in the assembly frame.
-"""
+"""Build the assembly review page for the ZED Box Mini cheese plate adapter."""
 
 import argparse
 import base64
@@ -42,8 +32,6 @@ C_MIN = (Align.CENTER, Align.CENTER, Align.MIN)
 C_MAX = (Align.CENTER, Align.CENTER, Align.MAX)
 INCH = 25.4
 
-# STEP frame: X across the box, Y up (base sheet bottom at Y = 3.5), Z along the box (0..143).
-# Adapter frame: X along the box, Y across, Z up, base sheet bottom on the adapter top face.
 ZED_BASE_Y = 3.5
 ZED_MID_Z = 71.5
 ZED_MIN_SOLID_MM3 = 200.0

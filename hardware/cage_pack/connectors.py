@@ -1,26 +1,4 @@
-"""Cable connector envelopes for the cage pack assembly, traced from datasheet drawings.
-
-Exact vendor models are used wherever one could be downloaded (vendor/: KiCad's 3D library
-for the PCBA parts, Mini-Box's OpenUPS STEP, Stereolabs' ZED Box Mini and ZED X One S). The
-parts below have no free model, so each is an envelope from its datasheet's drawing, close
-enough for clearance and cable routing, not for mating geometry.
-
-Every function returns a part in a local frame: origin on the mating plane at the contact
-axis, +Z pointing away from the mating partner (out of a panel, up off a header, back along
-the cable). `place(shape, origin, z_dir, x_dir)` puts one in the assembly.
-
-| Part | Source |
-| --- | --- |
-| GX16-8 panel receptacle, cable plug | generic GX16 drawing (M16 x 1, flange Ø19, plug Ø19 x 45) |
-| GX12-2 panel receptacle, cable plug | generic GX12 drawing (assembly uses vendor/grabcad) |
-| CIT AH power button | CIT AH datasheet, latching (bezel Ø21.8 x 2.0, M19 body, 31.8 deep) |
-| Same Sky TBP01P1W-508-02GR | datasheet p.2: 10.16 wide, 15.00 tall, 18.00 deep, flanges 15.24 |
-| Mini-Fit Jr receptacle housings | 4.2 pitch, 9.6 x 9.6 (2x2), 9.6 x 5.4 (1x2), 13.6 tall |
-| JST PH / GH housings | JST catalog outlines |
-| USB plugs (A 90°, C 90°, mini-B 90°) | generic overmolds |
-| FAKRA-Z plug (Stereolabs GMSL2 cable) | generic FAKRA housing 9.6 square |
-| Lever suction cup with 1/4-20 stud | generic 4.5" (114 mm) cup, e.g. Delvie's Plus |
-"""
+"""Cable connector envelopes for the cage pack assembly."""
 
 from build123d import (
     Align,
