@@ -98,8 +98,6 @@ bool VideoDecoder::decode(const std::byte *data, size_t len, cv::Mat &bgr) {
 }
 
 bool is_keyframe_access_unit(const std::byte *data, size_t len) {
-    // Walk the Annex-B start codes looking for NAL type 5 (IDR). Cheaper than decoding, and the
-    // seek path needs the answer before it has a decoder running.
     for (size_t i = 0; i + 4 < len; ++i) {
         const auto byte_at = [data](size_t index) { return static_cast<uint8_t>(data[index]); };
         const bool short_code = byte_at(i) == 0 && byte_at(i + 1) == 0 && byte_at(i + 2) == 1;

@@ -86,7 +86,6 @@ void AsyncPublisher::publish_initial_field_description(
 void AsyncPublisher::publish_field_description(
     const FieldDescription &field_description,
     const FieldDescriptionWithInlierPoints &initial_field_description) {
-    // The inlier cloud is held by shared pointer, so this per-tick copy does not copy points.
     enqueue([this, field_description, initial_field_description] {
         inner_->publish_field_description(field_description, initial_field_description);
     });

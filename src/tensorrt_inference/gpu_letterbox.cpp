@@ -8,8 +8,6 @@
 namespace auto_battlebot {
 namespace {
 
-// The device address for `pointer` if the GPU can read it where it is: device or managed memory,
-// or pinned host memory mapped into the device's address space. nullptr for pageable memory.
 const uint8_t *device_readable(const void *pointer) {
     cudaPointerAttributes attributes{};
     if (cudaPointerGetAttributes(&attributes, pointer) != cudaSuccess) {

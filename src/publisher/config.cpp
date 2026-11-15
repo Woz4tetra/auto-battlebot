@@ -8,7 +8,6 @@
 #include "publisher/foxglove_publisher.hpp"
 
 namespace auto_battlebot {
-// Automatic registration of config types
 REGISTER_CONFIG(PublisherConfiguration, NoopPublisherConfiguration, "NoopPublisher")
 REGISTER_CONFIG(PublisherConfiguration, FoxglovePublisherConfiguration, "FoxglovePublisher")
 
@@ -41,7 +40,6 @@ std::shared_ptr<PublisherInterface> make_publisher(const PublisherConfiguration 
     if (config.type == "NoopPublisher") {
         return std::make_shared<NoopPublisher>();
     } else if (config.type == "FoxglovePublisher") {
-        // Encoding and fan-out run on AsyncPublisher's thread, off the control tick.
         return std::make_shared<AsyncPublisher>(std::make_shared<FoxglovePublisher>(
             std::move(sink), std::move(mcap_recorder),
             dynamic_cast<const FoxglovePublisherConfiguration &>(config)));

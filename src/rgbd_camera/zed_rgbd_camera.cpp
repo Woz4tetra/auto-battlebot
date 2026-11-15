@@ -21,7 +21,6 @@ constexpr auto kGetWaitTimeout = std::chrono::milliseconds(100);
 // get() gives up past this with no frame, so the runner gets its tick back to read quit and
 // reboot commands and to reinitialize the camera. A healthy ZED never goes this long.
 constexpr auto kGetDeadline = std::chrono::seconds(2);
-// Between grabs that return a transient error, so a streak of them does not spin a core.
 constexpr auto kTransientErrorBackoff = std::chrono::milliseconds(5);
 constexpr double kOpenWaitWarnMs = 2000.0;
 constexpr double kJoinWaitWarnMs = 1000.0;
@@ -34,9 +33,6 @@ double elapsed_ms(const std::chrono::steady_clock::time_point &start) {
         .count();
 }
 
-// Emit the standard "validation:" timing warning if the elapsed time since `start` exceeds
-// `warn_ms`. Centralizes the repeated measure-and-warn pattern while keeping the log text
-// byte-identical to the historical format.
 void warn_if_slow(const std::chrono::steady_clock::time_point &start, const char *label,
                   double warn_ms) {
     const double ms = elapsed_ms(start);
@@ -91,7 +87,6 @@ ZedRgbdCamera::ZedRgbdCamera(ZedRgbdCameraConfiguration &config)
 }
 
 ZedRgbdCamera::~ZedRgbdCamera() {
-    // Cancel any in-progress initialize() before doing anything else.
     cancel_open_ = true;
     if (device_.has_pending_open()) {
         // is_initialized_ is false (only set after a successful open returns), so on a leaked
@@ -127,7 +122,6 @@ void ZedRgbdCamera::cancel_initialize() { cancel_open_ = true; }
 bool ZedRgbdCamera::initialize() {
     const auto initialize_start = std::chrono::steady_clock::now();
 
-    // Clean up previous thread if it exists (support re-initialization)
     if (capture_thread_.joinable()) {
         stop_thread_ = true;
         data_cv_.notify_all();
@@ -144,7 +138,6 @@ bool ZedRgbdCamera::initialize() {
         }
     }
 
-    // Ensure the SDK camera handle is reset before calling open() again.
     if (is_initialized_) {
         svo_recorder_->stop();
         device_.close();
@@ -171,7 +164,6 @@ bool ZedRgbdCamera::initialize() {
         svo_recorder_->start();
     }
 
-    // Start capture thread
     capture_thread_ = std::thread(&ZedRgbdCamera::capture_thread_loop, this);
 
     warn_if_slow(initialize_start, "zed_initialize_total", kOpenWaitWarnMs);
@@ -199,8 +191,6 @@ void ZedRgbdCamera::reset_capture_timing_stats() const {
 
 void ZedRgbdCamera::capture_thread_loop() {
     while (!stop_thread_) {
-        // capture_frame() bumps frame_counter_ under data_mutex_ once the frame is fully
-        // populated; we just wake any waiters here.
         if (capture_frame()) {
             data_cv_.notify_all();
         } else if (should_close_) {
@@ -220,8 +210,6 @@ bool ZedRgbdCamera::capture_frame() {
     const ZedDevice::GrabStatus grab_status = device_.grab();
 
     if (grab_status == ZedDevice::GrabStatus::TransientError) {
-        // Recoverable: wait for the next good frame. A streak that outlasts kGetDeadline makes
-        // get() fail and the runner reinitialize the camera.
         std::this_thread::sleep_for(kTransientErrorBackoff);
         return false;
     }
@@ -253,7 +241,6 @@ bool ZedRgbdCamera::capture_frame() {
     // this frame landed, which is what lets a recording be joined back to its SVO frames.
     const SvoRecorder::FrameRef svo_frame = svo_recorder_->on_frame_grabbed();
 
-    // Lock mutex to modify data
     const auto lock_hold_start = std::chrono::steady_clock::now();
     std::lock_guard<std::mutex> lock(data_mutex_);
 
@@ -311,7 +298,6 @@ bool ZedRgbdCamera::get(CameraData &data) {
     if (!camera_connected_) return false;
 
     data = latest_data_;
-    // Mark the frame as consumed for non-depth path; harmless for depth path
     last_returned_frame_counter_ = frame_counter_;
 
     if (diagnostics_logger_ && captures_since_last_report_ > 0) {
@@ -355,7 +341,6 @@ bool ZedRgbdCamera::should_close() { return should_close_; }
 bool ZedRgbdCamera::set_recording_enabled(bool enabled) {
     if (svo_recorder_->desired() == enabled) return true;
 
-    // Before the camera is open, just remember the desired state; initialize() acts on it.
     if (!is_initialized_) {
         svo_recorder_->set_desired(enabled);
         return true;

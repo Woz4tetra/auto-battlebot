@@ -11,7 +11,6 @@
 #include "keypoint_model/yolo_keypoint_model.hpp"
 
 namespace auto_battlebot {
-// Automatic registration of config types
 REGISTER_CONFIG(KeypointModelConfiguration, NoopKeypointModelConfiguration, "NoopKeypointModel")
 REGISTER_CONFIG(KeypointModelConfiguration, YoloKeypointModelConfiguration, "YoloKeypointModel")
 REGISTER_CONFIG(KeypointModelConfiguration, AprilTagKeypointModelConfiguration,

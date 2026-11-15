@@ -21,8 +21,6 @@ auto_battlebot::HazardAvoidanceSettings hazard_settings_from(
     settings.tangent_max_iterations = config.hazard_tangent_max_iterations;
     settings.waypoint_clearance_m = config.hazard_waypoint_clearance_m;
     settings.side_release_m = config.hazard_side_release_m;
-    // The barrier speeds stay zero: no plant fit here, so the velocity barrier is off and the
-    // reverse backstop below is pursuit's only speed response.
     settings.prediction_horizon_s = config.hazard_prediction_horizon_s;
     settings.reverse_distance = config.hazard_reverse_distance;
     settings.heading_threshold = config.hazard_heading_threshold;
@@ -68,8 +66,6 @@ bool PursuitNavigation::initialize() {
 
 VelocityCommand PursuitNavigation::update(RobotDescriptionsStamped robots, FieldDescription field,
                                           const TargetSelection &target) {
-    // Continuity across momentary detection gaps is provided upstream by Runner's
-    // RobotDescriptionsCache so that target selection and navigation see the same robot set.
     last_visualization_ = NavigationVisualization{};
     last_visualization_.header = robots.header;
 
@@ -111,8 +107,6 @@ VelocityCommand PursuitNavigation::update(RobotDescriptionsStamped robots, Field
                               });
 
     last_visualization_.command = cmd;
-    // Last write to last_visualization_; this also retires effective_robots, which we no longer
-    // need.
     last_visualization_.robots = std::move(robots);
     return cmd;
 }
@@ -182,8 +176,8 @@ double PursuitNavigation::apply_hysteresis(double angle_error) {
         return angle_error;
     }
 
-    constexpr double commit_threshold = M_PI * 0.75;  // 135 deg
-    constexpr double release_threshold = M_PI * 0.5;  // 90 deg
+    constexpr double commit_threshold = M_PI * 0.75;
+    constexpr double release_threshold = M_PI * 0.5;
 
     // Commit to a turn direction on a large error, then HOLD it until the error falls below the
     // release threshold. The previous code re-committed whenever the error's sign changed, which
@@ -295,10 +289,8 @@ double PursuitNavigation::wall_facing_angle(const Pose2D &pose, const FieldDescr
     double dist_x = half_x - std::abs(pose.x);
     double dist_y = half_y - std::abs(pose.y);
     if (dist_x <= dist_y) {
-        // Nearest wall is left or right; normal points in ±X direction
         return (pose.x >= 0.0) ? 0.0 : M_PI;
     } else {
-        // Nearest wall is top or bottom; normal points in ±Y direction
         return (pose.y >= 0.0) ? M_PI / 2.0 : -M_PI / 2.0;
     }
 }
@@ -306,11 +298,9 @@ double PursuitNavigation::wall_facing_angle(const Pose2D &pose, const FieldDescr
 Pose2D PursuitNavigation::clamp_to_field(const Pose2D &pose, const FieldDescription &field) const {
     Pose2D clamped = pose;
 
-    // Get field half-sizes with margin
     double half_x = (field.size.size.x / 2.0) - boundary_margin_;
     double half_y = (field.size.size.y / 2.0) - boundary_margin_;
 
-    // Clamp to field boundaries (field center is at origin)
     if (half_x > 0) {
         clamped.x = std::clamp(clamped.x, -half_x, half_x);
     }

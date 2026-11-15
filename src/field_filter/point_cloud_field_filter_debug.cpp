@@ -32,8 +32,6 @@ const cv::Vec3b kPointColor(200, 200, 200);
 const cv::Vec3b kInlierColor(50, 200, 50);
 const cv::Vec3b kOutlierColor(50, 50, 200);
 
-// Fixed-size canvas that maps a 2D point range onto pixels, with Y growing upward.
-// Every scatter panel shares this so the three stages stay visually comparable.
 class ScatterCanvas {
    public:
     ScatterCanvas(const cv::Point2f &min_corner, const cv::Point2f &max_corner,
@@ -98,7 +96,6 @@ void compute_extents(const std::vector<cv::Point2f> &points, cv::Point2f &min_co
     }
 }
 
-// Project the cloud onto the camera X-Z plane, the view that shows the field edge-on.
 std::vector<cv::Point2f> cloud_to_xz(const pcl::PointCloud<pcl::PointXYZ>::Ptr &cloud) {
     std::vector<cv::Point2f> points;
     points.reserve(cloud->points.size());
@@ -123,7 +120,6 @@ cv::Mat colorize_depth(const cv::Mat &depth_image) {
     cv::Mat colorized;
     cv::applyColorMap(normalized, colorized, cv::COLORMAP_JET);
 
-    // NaN pixels normalize to arbitrary values, so blank them out.
     for (int v = 0; v < depth_image.rows; ++v) {
         for (int u = 0; u < depth_image.cols; ++u) {
             if (std::isnan(depth_image.at<float>(v, u))) {
@@ -175,7 +171,6 @@ void add_point_cloud_panels(const FieldFilterDebugFrame &frame, DebugPanels &pan
         }
     }
 
-    // Both panels share extents so the inlier split lines up with the raw cloud.
     ScatterCanvas raw_cloud(min_corner, max_corner);
     ScatterCanvas classified_cloud(min_corner, max_corner);
     for (size_t i = 0; i < points.size(); ++i) {
@@ -233,8 +228,6 @@ void add_rectangle_panels(const FieldFilterDebugFrame &frame, DebugPanels &panel
     panels.emplace_back("Field Edge and Yaw", angle_image);
 }
 
-// Reproject the fitted rectangle back onto the depth image. If the corners do not land on
-// the field edges, the plane fit or the flattening transform is wrong.
 void add_reprojection_panel(const FieldFilterDebugFrame &frame, DebugPanels &panels) {
     cv::Mat reprojected = colorize_depth(frame.masked_depth_image);
     double fx = frame.intrinsics.at<double>(0, 0);
@@ -265,7 +258,6 @@ void add_reprojection_panel(const FieldFilterDebugFrame &frame, DebugPanels &pan
     panels.emplace_back("Field Reprojected", reprojected);
 }
 
-// Lay the panels out in a grid, letterboxing each one so mixed aspect ratios keep their shape.
 cv::Mat tile_panels(const DebugPanels &panels) {
     int rows = std::max(1, static_cast<int>(std::floor(std::sqrt(panels.size()))));
     int columns = (static_cast<int>(panels.size()) + rows - 1) / rows;

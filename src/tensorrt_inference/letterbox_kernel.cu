@@ -24,7 +24,6 @@ __device__ inline void source_index(int d, float scale, int size, int &i0, int &
     frac = f;
 }
 
-// One thread per tensor pixel, writing all three planes.
 __global__ void letterbox(const uint8_t *__restrict__ source, int source_width, int source_height,
                           size_t source_step, int source_channels, LetterboxGeometry geometry,
                           float scale_x, float scale_y, float *__restrict__ tensor) {
@@ -53,7 +52,6 @@ __global__ void letterbox(const uint8_t *__restrict__ source, int source_width, 
     const int c0 = x0 * source_channels;
     const int c1 = x1 * source_channels;
 
-    // Source is BGR(A); the tensor is RGB, so source channel c goes to plane 2 - c.
     for (int c = 0; c < 3; ++c) {
         const float top = (1.0f - fx) * row0[c0 + c] + fx * row0[c1 + c];
         const float bottom = (1.0f - fx) * row1[c0 + c] + fx * row1[c1 + c];
@@ -67,7 +65,6 @@ bool launch_letterbox_kernel(const uint8_t *source, int source_width, int source
                              size_t source_step, int source_channels,
                              const LetterboxGeometry &geometry, float *tensor, void *stream) {
     if (geometry.resized_width <= 0 || geometry.resized_height <= 0) return false;
-    // cv::resize's inverse scale, computed in double as it does.
     const float scale_x = static_cast<float>(static_cast<double>(source_width) /
                                              static_cast<double>(geometry.resized_width));
     const float scale_y = static_cast<float>(static_cast<double>(source_height) /

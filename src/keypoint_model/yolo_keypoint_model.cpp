@@ -296,7 +296,6 @@ void YoloKeypointModel::record_raw_detections(const std::vector<DetectionRow> &k
                               class_id,
                               label_indices_[static_cast<size_t>(class_id)],
                               {}};
-        // Keypoints are still in input-image coordinates (scale_boxes only maps the box).
         for (size_t kp_idx = 6; kp_idx + 2 < row.size(); kp_idx += 3) {
             const Keypoint scaled_kp = scale_keypoint(
                 Keypoint{Label::EMPTY, KeypointLabel::EMPTY, static_cast<double>(row[kp_idx]),

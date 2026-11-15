@@ -13,8 +13,6 @@ void RobotDescriptionsCache::reset() {
 RobotDescriptionsCache::Resolved RobotDescriptionsCache::resolve(
     const RobotDescriptionsStamped &current) {
     if (has_navigation_critical_robots(current)) {
-        // Single full copy per critical tick: the cache snapshot. Returned reference points back
-        // at the caller's `current` so we don't pay another copy on this branch.
         previous_ = current;
         has_previous_ = true;
         return Resolved{current, false};

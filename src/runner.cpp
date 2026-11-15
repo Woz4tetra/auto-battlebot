@@ -52,7 +52,6 @@ Runner::Runner(
       health_logger_(std::move(health_logger)),
       last_tick_time_(std::chrono::steady_clock::now()),
       app_start_time_(last_tick_time_) {
-    // Weak: the queue is shared with main and the UI, and may outlive the camera.
     remote_.commands->set_on_system_action([camera = std::weak_ptr<RgbdCameraInterface>(camera_)] {
         if (auto locked = camera.lock()) locked->cancel_initialize();
     });
@@ -152,7 +151,6 @@ void Runner::publish_tracks(const RobotDescriptionsStamped &robots, const FieldD
         tracked.image = remote::project_field_point(field, camera_info, tracked.x, tracked.y);
         message.robots.push_back(std::move(tracked));
     }
-    // The segment navigation steered along this cycle.
     const NavigationVisualization visualization = control_loop_->last_visualization();
     if (const auto &path = visualization.path) {
         remote::TargetMessage out;
@@ -182,7 +180,6 @@ void Runner::stop_recordings_for_shutdown() const {
     if (mcap_recorder_) {
         // Publishing runs on its own thread; let it catch up so the last frames are recorded.
         publisher_->flush();
-        // And the log lines up to here, which reach the recorder through the async logger.
         spdlog::default_logger()->flush();
         mcap_recorder_->set_enabled(false);
         mcap_recorder_->close();
@@ -195,14 +192,11 @@ void Runner::roll_over_recording_if_full() {
     const auto now = std::chrono::steady_clock::now();
     if (now - last_size_check_ < kCheckInterval) return;
     last_size_check_ = now;
-    // The file stays past the cap until the worker gets to it; one rollover per crossing.
     if (rollover_pending_.load()) return;
     if (mcap_recorder_ && mcap_recorder_->past_size_limit()) {
         spdlog::info("[Runner] {} reached the size cap; rolling over",
                      mcap_recorder_->file_path().string());
     } else if (camera_->recording_needs_restart()) {
-        // The new file restarts the encoder and its indices from zero, so video resumes after
-        // about a second instead of staying off for the rest of the file.
         spdlog::error("[Runner] The camera's video encoder stopped; restarting the recording");
     } else {
         return;
@@ -217,8 +211,6 @@ void Runner::roll_over_recording_if_full() {
 
 void Runner::set_opponent_count(int count) {
     runtime_opponent_count_ = count;
-    // Before the field is initialized there is no filter to reinitialize; initialize_field
-    // applies the current count itself, so the change is picked up either way.
     if (initialized_) control_loop_->request_filter_reinit(runtime_opponent_count_);
 }
 
@@ -236,7 +228,6 @@ void Runner::set_behavior_mode(BehaviorMode mode) {
 void Runner::set_auto_tracking(bool enabled) {
     if (auto_tracking_ == enabled) return;
     auto_tracking_ = enabled;
-    // Off parks the target at the field center until the dashboard places it.
     control_loop_->set_target_override(enabled ? std::nullopt : std::optional<Pose2D>(Pose2D{}));
 }
 
@@ -258,7 +249,6 @@ std::string Runner::set_manual_target(const remote::SetManualTargetCommand &comm
         point = *hit;
     }
     if (!std::isfinite(point.x) || !std::isfinite(point.y)) return "Target is not finite";
-    // A tap past the field edge, or on the far wall, holds the nearest point on the field.
     if (projection_field_) {
         const double hx = projection_field_->size.size.x / 2.0;
         const double hy = projection_field_->size.size.y / 2.0;
@@ -317,7 +307,6 @@ void Runner::apply_recording(bool enabled, bool from_worker) const {
 std::string Runner::select_profile(const std::string &name) {
     spdlog::info("Runner received profile switch request: {}", name);
     if (profile_select_callback_) profile_select_callback_(name);
-    // The new profile only takes effect on the next launch.
     std::string notice = "Selected " + name + ". Restart the app or reboot to apply.";
     return notice;
 }
@@ -327,7 +316,6 @@ void Runner::run_system_action(SystemAction action) {
     // Finalize recordings before the host reboots/powers off, otherwise the MCAP
     // writer is never closed and the file is left corrupted.
     stop_recordings_for_shutdown();
-    // The caller runs the actual host command once the process has torn down.
     if (system_action_callback_) system_action_callback_(action);
 }
 
@@ -360,7 +348,6 @@ std::string Runner::run_camera_profile(CameraProfileAction action, const std::st
                                                        : std::nullopt;
                     if (!settings) throw std::runtime_error("No camera profile named " + name);
                 }
-                // nullopt puts back what the camera opened with.
                 camera_->request_camera_settings(settings);
                 requested_camera_settings_ = settings;
                 active_camera_profile_ = name;
@@ -370,7 +357,6 @@ std::string Runner::run_camera_profile(CameraProfileAction action, const std::st
             }
             case CameraProfileAction::SAVE: {
                 if (!remote_.camera_profiles) throw std::runtime_error("No profile store");
-                // Saving DEFAULT's untouched values under a new name stores the read-back.
                 CameraSettings settings;
                 if (requested_camera_settings_) {
                     settings = *requested_camera_settings_;
@@ -392,7 +378,6 @@ std::string Runner::run_camera_profile(CameraProfileAction action, const std::st
                 if (!remote_.camera_profiles) throw std::runtime_error("No profile store");
                 remote_.camera_profiles->remove(name);
                 message = "Deleted " + name;
-                // The camera keeps what it has; only the label changes.
                 if (active_camera_profile_ == name) {
                     active_camera_profile_ = CameraProfileStore::kDefaultName;
                     camera_settings_modified_ = requested_camera_settings_.has_value();
@@ -447,7 +432,6 @@ bool Runner::handle_commands(bool &should_reinit_field) {
     bool keep_running = true;
     for (auto &command : remote_.commands->drain()) {
         const std::string_view topic = remote::command_topic_of(command);
-        // A drag on a view sends a manual target ~10 times a second.
         if (std::holds_alternative<remote::SetManualTargetCommand>(command)) {
             spdlog::debug("Command: {}", topic);
         } else {
@@ -558,14 +542,9 @@ bool Runner::handle_uninitialized_tick(const CameraData &camera_data, double loo
 }
 
 void Runner::initialize() {
-    // Initialize all interfaces
     if (!camera_->initialize()) {
         spdlog::error("Failed to initialize camera");
     }
-    // A model that fails to load is fatal. Continuing produced a process that looked healthy
-    // but published nothing usable, and the real cause (a missing or mismatched TensorRT
-    // engine) scrolled past in the startup log. The component logs the diagnosis before it
-    // returns false; these throws stop the run on it.
     if (!field_model_->initialize()) {
         throw std::runtime_error("Failed to initialize field model");
     }
@@ -578,9 +557,6 @@ void Runner::initialize() {
     control_loop_->set_autonomy_enabled(autonomy_enabled_);
     control_loop_->set_behavior_mode(behavior_mode_);
     if (!auto_tracking_) control_loop_->set_target_override(Pose2D{});
-    // Brings up the transmitter, then starts the thread for threaded drivers (a no-op for stepped
-    // ones). Everything the control loop touches must be constructed by now, since it may begin
-    // cycling immediately.
     if (!control_loop_->start()) {
         spdlog::error("Failed to initialize control loop");
     }
@@ -593,9 +569,6 @@ void Runner::initialize_field(const CameraData &camera_data) {
     field_filter_->reset(camera_data.tf_visodom_from_camera);
     MaskStamped field_mask = field_model_->update(camera_data.rgb);
 
-    // Check before publishing. Publishing first put an empty /field_mask in the recording on
-    // every failed init, so a run that found nothing looked the same as one that never got a
-    // mask, and the missing field markers read as a publisher problem instead.
     if (field_mask.mask.mask.empty()) {
         spdlog::error("Field model returned an empty mask; skipping field initialization.");
         return;
@@ -620,8 +593,6 @@ void Runner::initialize_field(const CameraData &camera_data) {
 }
 
 int Runner::run() {
-    // max_loop_rate <= 0 means free-run: no wall-clock pacing, so the loop runs as fast as it can.
-    // In the headless sim that is lockstep with the sim server's responses.
     const bool paced = runner_config_.max_loop_rate > 0.0;
     const auto loop_duration = paced ? std::chrono::microseconds(static_cast<int64_t>(
                                            1000000.0 / runner_config_.max_loop_rate))
@@ -631,7 +602,6 @@ int Runner::run() {
     while (true) {
         auto current_time = std::chrono::steady_clock::now();
 
-        // Sleep until next tick to maintain loop rate (skipped when free-running).
         if (paced) {
             auto remaining_time = loop_duration - (current_time - prev_time);
             if (remaining_time.count() < 0) {
@@ -696,9 +666,6 @@ bool Runner::tick() {
     if (!handle_commands(should_reinit_field)) return false;
     roll_over_recording_if_full();
 
-    // Stepped drivers read the transmitter here, on this thread, before the camera grab. Threaded
-    // drivers own it and make this a no-op, latching the init-button edge for
-    // take_init_button_press() to hand back.
     control_loop_->pump_input();
     update_timers();
     should_reinit_field = should_reinit_field || control_loop_->take_init_button_press();
@@ -715,9 +682,6 @@ bool Runner::tick() {
         return recover_camera_after_failure();
     }
 
-    // Drive logical time from the frame stamp: control dt and message stamps come from this single
-    // source, so sim/playback runs are deterministic and correct regardless of wall-clock speed.
-    // (Pipeline latency below intentionally stays on wall-clock.)
     if (clock_) {
         clock_->set(camera_data.rgb.header.stamp);
     }
@@ -757,8 +721,6 @@ bool Runner::tick() {
         BatchResult batch = perception_batch_->update(camera_data.rgb, camera_data.camera_info);
         keypoints = std::move(batch.keypoints);
         robot_blob_keypoints = std::move(batch.robot_blob_keypoints);
-        // Per-model wall times are measured inside the workers and re-emitted here under
-        // the sequential-era labels so latency reports stay comparable across versions.
         DiagnosticsData keypoint_timing;
         keypoint_timing["elapsed_ms"] = batch.keypoint_model_elapsed_ms;
         diagnostics_logger_->info("keypoint_model.update", keypoint_timing, "");
@@ -799,9 +761,6 @@ bool Runner::tick() {
                                                     camera_data.camera_info, field_description);
     }
 
-    // Hand perception to the control loop and let the driver decide when cycles run. The stepped
-    // driver runs them inline here; the threaded driver consumes measurements on its own thread
-    // and ignores advance_to.
     control_loop_->submit_measurement(ControlMeasurement{
         .keypoints = keypoints,
         .robot_blob_keypoints = robot_blob_keypoints,
@@ -816,8 +775,6 @@ bool Runner::tick() {
     const ControlOutput control_output = control_loop_->latest_output();
     const RobotDescriptionsStamped &robots = control_output.robots;
 
-    // The control loop owns hazard assembly (it holds the stale-track state), so the runner
-    // borrows this cycle's discs to publish and to draw rather than recomputing them.
     FieldDescription hazard_view = field_description;
     hazard_view.hazards = control_output.hazards;
 

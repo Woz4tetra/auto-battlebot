@@ -8,7 +8,6 @@
 namespace auto_battlebot {
 namespace {
 
-/** Pixel of a field-frame floor point, or nullopt when it is behind the camera or off the image. */
 std::optional<Eigen::Vector2d> project_floor_point(const Eigen::Matrix4d &camera_from_field,
                                                    const CameraInfo &camera_info, double x,
                                                    double y) {

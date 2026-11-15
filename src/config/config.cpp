@@ -7,7 +7,6 @@
 
 namespace auto_battlebot {
 namespace {
-// Deep-copy an overlay node into dst[key], replacing whatever is there.
 void assign_copy(toml::table &dst, std::string_view key, const toml::node &src) {
     src.visit([&](auto &&node) { dst.insert_or_assign(key, node); });
 }
@@ -27,7 +26,7 @@ void merge_into(toml::table &base, const toml::table &overlay) {
             auto base_type = (*base_sub)["type"].value<std::string>();
             auto overlay_type = (*overlay_sub)["type"].value<std::string>();
             if (base_type && overlay_type && *base_type != *overlay_type) {
-                assign_copy(base, key.str(), value);  // type changed -> replace section
+                assign_copy(base, key.str(), value);
             } else {
                 merge_into(*base_sub, *overlay_sub);
             }
@@ -50,9 +49,6 @@ std::filesystem::path resolve_extends(const std::filesystem::path &config_root,
     return resolved;
 }
 
-// Parse `path` and, if it declares `extends`, recursively load+merge its base config underneath it.
-// `config_root` is the directory that `extends` values are resolved against.
-// `chain` holds the canonical paths currently being resolved, for cycle detection.
 toml::table load_and_merge_config(const std::filesystem::path &path,
                                   const std::filesystem::path &config_root,
                                   std::vector<std::filesystem::path> &chain) {
@@ -145,7 +141,6 @@ ClassConfiguration load_classes_from_config(const std::filesystem::path &path,
 
         std::vector<std::string> parsed_sections;
 
-        // Parsed before its consumers: both the robot filter and navigation are handed this.
         config.plant = load_plant_from_toml(toml_data, parsed_sections);
         config.camera = load_camera_from_toml(toml_data, parsed_sections);
         config.field_model = load_field_model_from_toml(toml_data, parsed_sections);

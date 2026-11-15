@@ -26,7 +26,6 @@ void DiagnosticsModuleLogger::log(int8_t level, const std::string &subsection_na
     const auto now = now_();
     std::lock_guard<std::mutex> lock(mutex_);
     Section &section = sections_[subsection_name];
-    // The first log of a window replaces whatever the section held from an earlier one.
     if (!section.fresh) {
         section = Section{};
         section.fresh = true;

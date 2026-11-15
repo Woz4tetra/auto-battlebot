@@ -76,7 +76,6 @@ CommandFeedback OpenTxTransmitter::update() {
     auto bytes = serial_.read_available();
     if (bytes.empty()) return {};
 
-    // Parse CRSF telemetry frames
     auto crsf_results = crsf_parser_.parse(bytes);
     for (const auto& [packet, error] : crsf_results) {
         if (!packet) continue;
@@ -92,8 +91,6 @@ CommandFeedback OpenTxTransmitter::update() {
     constexpr double kChannelScale = 1.0 / kChannelMax;
     const double angular_readback_sign = config_.invert_angular_channel_readback ? -1.0 : 1.0;
 
-    // The channels on the wire are in whatever space the processor emits, so convert them back to
-    // body axes. They stay normalized: consumers scale by the fitted [plant] gains themselves.
     const auto body = processor_->to_body_velocity({
         .channel_a = get_channel_value(config_.linear_channel) * kChannelScale,
         .channel_b =
@@ -128,9 +125,6 @@ void OpenTxTransmitter::send(VelocityCommand command) {
 
     command.linear_x = limit_linear_acceleration(command.linear_x);
 
-    // What the two channels carry depends on the configured processor: left and right motor
-    // commands under tank drive, forward velocity and yaw rate under differential drive (where the
-    // OpenTX-side mixer combines them into per-wheel motor outputs).
     const auto channels = processor_->process(command);
     const int channel_a_value = to_trainer_value(channels.channel_a);
     const int channel_b_value = to_trainer_value(channels.channel_b);
@@ -148,7 +142,6 @@ double OpenTxTransmitter::limit_linear_acceleration(double linear_command) {
 
     const double now = clock_->now();
 
-    // Only compute slew rate when auto switch is active
     if (get_channel_value(config_.trainer_enable_channel) < 0) {
         prev_linear_command_ = 0.0;
         last_send_time_ = now;
@@ -156,7 +149,6 @@ double OpenTxTransmitter::limit_linear_acceleration(double linear_command) {
     }
 
     if (!last_send_time_) {
-        // First tick after (re)enable: no dt yet, so establish the baseline and pass through.
         last_send_time_ = now;
         prev_linear_command_ = linear_command;
         return linear_command;
@@ -164,7 +156,7 @@ double OpenTxTransmitter::limit_linear_acceleration(double linear_command) {
 
     const double dt = now - *last_send_time_;
     last_send_time_ = now;
-    if (dt <= 0.0) return linear_command;  // Non-advancing clock: nothing to rate-limit against.
+    if (dt <= 0.0) return linear_command;
 
     const double max_delta = max_linear_rate_per_sec_ * dt;
     const double limited = std::clamp(linear_command, prev_linear_command_ - max_delta,
@@ -216,9 +208,6 @@ void OpenTxTransmitter::log_switch_states() {
     const auto states = std::make_tuple(autonomy_enabled, init_pressed);
     if (last_logged_switch_states_ == states) return;
     last_logged_switch_states_ = states;
-    // The raw value next to each flag separates "switch on the wrong channel" from "threshold
-    // set wrong": both look like a flag that never changes. These two flags decide whether
-    // the robot moves at all, so they log at info and survive the default log level.
     logger_->info("switch_states", {{"has_switch_states", true},
                                     {"autonomy_enabled", static_cast<int>(autonomy_enabled)},
                                     {"autonomy_raw", trainer_raw},
@@ -287,7 +276,6 @@ bool OpenTxTransmitter::channels_fresh() const {
 TransmitterStatus OpenTxTransmitter::get_status() const {
     const bool connected = serial_.is_open();
     const bool receiving = connected && channels_fresh();
-    // Same reading as log_switch_states(): a non-negative trainer channel mixes our commands in.
     return {.connected = connected,
             .receiving_channels = receiving,
             .has_autonomy_switch = true,

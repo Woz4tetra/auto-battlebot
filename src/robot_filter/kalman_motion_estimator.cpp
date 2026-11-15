@@ -46,13 +46,11 @@ constexpr int kTheta = 4;
 constexpr int kOmega = 5;
 /** theta is the one angle state. */
 constexpr std::array<bool, 6> kOpponentAngleStates = {false, false, false, false, true, false};
-/** Heading variance cap: past pi^2 the heading is unknown, and growing further means nothing. */
 constexpr double kMaxHeadingVariance = M_PI * M_PI;
 /** The flip test only means something while the heading's own 2-sigma is inside its pi/2: past
  * that, a measurement more than pi/2 away is as likely a turn the track did not see as a flip. */
 constexpr double kFlipTestMaxVariance = (M_PI / 4.0) * (M_PI / 4.0);
 
-/** Seconds from a track's last accepted measurement to the time it is rendered at. */
 double measurement_age(double render_time, double last_measured_stamp) {
     return std::max(0.0, render_time - last_measured_stamp);
 }
@@ -64,8 +62,6 @@ KalmanMotionEstimator::KalmanMotionEstimator(const KalmanMotionEstimatorConfigur
     : config_(config),
       diagnostics_logger_(DiagnosticsLogger::get_logger("kalman_motion_estimator")),
       our_dr_plant_(config.plant.value_or(JigPlantParams{})) {
-    // Config validation requires the plant table in both our-robot modes: EKF propagates through
-    // JigPlantModel, DEAD_RECKONING scales stick with our_dr_plant_.
     if (config_.our_robot_mode == OurRobotMode::EKF && config_.plant.has_value()) {
         plant_model_ = std::make_unique<JigPlantModel>(*config_.plant, config_.plant_noise);
     }
@@ -119,7 +115,6 @@ void KalmanMotionEstimator::push_snapshot(OpponentTrack &track) {
 }
 
 bool KalmanMotionEstimator::rewind_opponent(OpponentTrack &track, double target_stamp) {
-    // Newest snapshot at or before the measurement time. Snapshots are stored in time order.
     size_t found = kSnapshotCapacity;
     for (size_t i = 0; i < track.snapshot_count; ++i) {
         const Snapshot &snapshot = track.snapshots[(track.snapshot_start + i) % kSnapshotCapacity];
@@ -133,7 +128,6 @@ bool KalmanMotionEstimator::rewind_opponent(OpponentTrack &track, double target_
     track.covariance = snapshot.covariance;
     track.heading_initialized = snapshot.heading_initialized;
     track.stamp = snapshot.stamp;
-    // Snapshots after the restored one describe a future that no longer exists.
     track.snapshot_count = found + 1;
     return true;
 }
@@ -207,9 +201,6 @@ void KalmanMotionEstimator::advance_our_ekf(OurEkfTrack &track, double target_st
     if (dt_total <= 0.0) return;
     const double dt = std::min(dt_total, kMaxIntegrationStepS);
 
-    // Pose integration stops at the coast horizon (predicting further with this model is
-    // fiction, same as the opponent arm), but only for the span past it: a step that crosses
-    // the horizon still integrates its measured-side portion.
     const double age = track.stamp - track.last_measured_stamp;
     const double allowed = std::max(0.0, config_.max_coast_s - age);
     const double move = dt_total > kMaxIntegrationStepS ? 0.0 : std::min(dt, allowed);
@@ -300,7 +291,6 @@ void KalmanMotionEstimator::init_opponent(OpponentTrack &track, const RobotDescr
     if (measures_heading(measurement)) {
         init_opponent_heading(track, pose_to_pose2d(measurement.pose).yaw);
     } else {
-        // Unknown heading: variance at the cap, and the render reports it as such.
         track.covariance(kTheta, kTheta) = kMaxHeadingVariance;
         track.covariance(kOmega, kOmega) =
             config_.initial_yaw_rate_sigma * config_.initial_yaw_rate_sigma;
@@ -319,7 +309,6 @@ void KalmanMotionEstimator::init_opponent(OpponentTrack &track, const RobotDescr
 
 ekf::Mat<2, 2> KalmanMotionEstimator::measurement_noise_for(
     const RobotDescription &measurement, const MotionEstimatorContext &context) const {
-    // Keypoint-derived poses carry their front/back points; blob centroids do not.
     const bool is_blob = measurement.keypoints.empty();
     const double keypoint_sigma = measurement.group == Group::OURS
                                       ? config_.keypoint_position_sigma_m
@@ -351,8 +340,6 @@ RobotDescription KalmanMotionEstimator::render_opponent(const OpponentTrack &tra
     description.uncertainty.position_sigma_m =
         std::sqrt(std::max(0.0, position_eigen.eigenvalues().maxCoeff()));
 
-    // A heading-blind label or a never-measured heading has nothing to render: the rotation stays
-    // the latest measurement's and the sigmas stay infinite.
     const bool heading_known =
         track.heading_initialized &&
         std::find(config_.heading_blind_labels.begin(), config_.heading_blind_labels.end(),
@@ -655,16 +642,12 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
             track.output_stale = true;
             ++track.consecutive_rejects;
             if (track.consecutive_rejects >= config_.reinit_after_rejects) {
-                // Fast recovery beats a graceful wrong answer: after this many consistent
-                // rejects the world moved, not the measurement.
                 init_opponent(track, input, timestamp, measurement_noise(0, 0));
                 ++num_reinit;
             }
         }
     }
 
-    // Our robot: dead-reckon unmeasured tracks with the last commanded velocity, exactly as
-    // RobotTemporalMotionFilter does.
     for (auto &[frame_id, track] : our_tracks_) {
         if (measured_frame_ids.count(frame_id) != 0) {
             track.output_stale = false;
@@ -690,8 +673,6 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
         track.stamp = timestamp;
     }
 
-    // Our robot in ekf mode: propagate unmeasured tracks through the plant model, which is
-    // the coast behavior the jig fit exists to make honest.
     for (auto &[frame_id, track] : our_ekf_tracks_) {
         if (measured_frame_ids.count(frame_id) != 0) continue;
         track.output_stale = true;
@@ -702,8 +683,6 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
         frame_id_assigner.set_last_position(frame_id, predicted_position);
     }
 
-    // Hold-mode opponents without a measurement this frame: stale, pinned in place, and the
-    // assigner keeps associating against the held pose.
     for (auto &[frame_id, track] : held_opponent_tracks_) {
         if (measured_frame_ids.count(frame_id) != 0) continue;
         track.output_stale = true;
@@ -711,8 +690,6 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
         frame_id_assigner.set_last_position(frame_id, track.description.pose.position);
     }
 
-    // Opponents without an accepted measurement this frame: predict to the frame time and keep
-    // the assigner's association anchor on the predicted position.
     for (auto &[frame_id, track] : opponent_tracks_) {
         if (measured_frame_ids.count(frame_id) == 0) track.output_stale = true;
         if (track.output_stale) {
@@ -853,8 +830,6 @@ std::optional<std::vector<RobotDescription>> KalmanMotionEstimator::coast(double
         const double dt = target - track.stamp;
         if (cmd_it != command_feedback_.stick_commands.end() && dt > 0.0 &&
             dt <= kMaxIntegrationStepS) {
-            // The same dead-reckoning step update() will commit at the next perception frame,
-            // rendered ahead of time on a copy so the output moves between frames.
             const VelocityCommand cmd = plant_stick_to_body_velocity(cmd_it->second, our_dr_plant_);
             Pose2D predicted_pose = pose_to_pose2d(output.pose);
             const Eigen::Vector2d velocity_field =

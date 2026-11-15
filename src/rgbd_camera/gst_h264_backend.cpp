@@ -86,8 +86,6 @@ bool gst_element_installed(const char *factory_name) {
 
 class GstH264Backend : public H264Backend {
    public:
-    /** `factory` is kNvv4l2Factory (NVMM through nvvidconv) or kX264Factory (I420 through
-     *  videoconvert). */
     GstH264Backend(const char *factory, PacketSink sink)
         : name_(factory), hardware_(name_ == kNvv4l2Factory), sink_(std::move(sink)) {}
     ~GstH264Backend() override { teardown(); }
@@ -108,7 +106,6 @@ class GstH264Backend : public H264Backend {
             return false;
         }
         appsrc_ = GST_APP_SRC(source);
-        // The pipeline owns the elements from here; teardown() releases them with it.
         gst_bin_add_many(GST_BIN(pipeline_), source, convert, encoder, parse, sink, nullptr);
         encoder_ = encoder;
         // The keyframe request fires from a probe on the encoder's input as the requested frame
@@ -140,7 +137,6 @@ class GstH264Backend : public H264Backend {
                          "insert-sps-pps", TRUE, "num-B-Frames", 0u, "maxperf-enable", TRUE,
                          nullptr);
         } else {
-            // The preview shares the CPU with perception: the cheapest preset, on one core.
             gst_util_set_object_arg(G_OBJECT(encoder), "tune", "zerolatency");
             gst_util_set_object_arg(G_OBJECT(encoder), "speed-preset",
                                     options_.software_preview ? "ultrafast" : "veryfast");
@@ -219,8 +215,6 @@ class GstH264Backend : public H264Backend {
             force_idr_at_.insert(timestamp);
         }
 
-        // The buffer borrows the Mat's pixels and frees the Mat when the encoder is done with it,
-        // so the frame VideoEncoder already copied once is not copied again.
         auto *owner = new cv::Mat(std::move(image));
         const gsize size = owner->total() * owner->elemSize();
         GstBuffer *buffer =
@@ -347,7 +341,6 @@ class GstH264Backend : public H264Backend {
     VideoEncoderOptions options_;
     GstElement *pipeline_ = nullptr;
     GstAppSrc *appsrc_ = nullptr;
-    /** Owned by pipeline_. */
     GstElement *encoder_ = nullptr;
     std::mutex force_mutex_;
     /** Buffer timestamps whose frame must come out as an IDR. */

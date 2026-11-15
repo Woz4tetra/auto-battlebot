@@ -9,7 +9,6 @@
 #include "time/system_clock.hpp"
 
 namespace auto_battlebot {
-// Automatic registration of config types
 REGISTER_CONFIG(ClockConfiguration, SystemClockConfiguration, "SystemClock")
 REGISTER_CONFIG(ClockConfiguration, ManualClockConfiguration, "ManualClock")
 REGISTER_CONFIG(ClockConfiguration, CameraFollowingClockConfiguration, "CameraFollowingClock")

@@ -154,8 +154,6 @@ int64_t VideoEncoder::submit(const cv::Mat &frame, uint64_t log_time_ns) {
             return -1;
         }
         if (queue_.size() >= options_.queue_depth) {
-            // Counted, not silent. Frame loss discovered months later against ground truth is
-            // exactly the failure this counter exists to prevent.
             dropped_frames_.fetch_add(1);
             return -1;
         }
@@ -209,7 +207,6 @@ void VideoEncoder::encode_loop() {
                 codec_name_, pts, discarded);
         }
     }
-    // Flush, so the frames the encoder was still holding reach the recording.
     backend_->finish();
 }
 

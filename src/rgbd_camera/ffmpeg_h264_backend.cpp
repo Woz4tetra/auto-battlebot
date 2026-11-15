@@ -47,7 +47,6 @@ class FfmpegH264Backend : public H264Backend {
         context_->gop_size = options_.keyframe_interval;
         context_->max_b_frames = 0;
         if (name_ == "libx264") {
-            // The preview shares the CPU with perception: the cheapest preset, on one core.
             av_opt_set(context_->priv_data, "preset",
                        options_.software_preview ? "ultrafast" : "veryfast", 0);
             av_opt_set(context_->priv_data, "tune", "zerolatency", 0);

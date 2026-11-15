@@ -11,7 +11,6 @@ Eigen::Vector3d to_eigen(const cv::Vec3d &vector) {
     return Eigen::Vector3d(vector[0], vector[1], vector[2]);
 }
 
-/** Rotation whose first two columns are the given field axes in camera coordinates. */
 Eigen::Matrix3d rotation_from_axes(const Eigen::Vector3d &x_axis, const Eigen::Vector3d &y_axis) {
     Eigen::Matrix3d rotation;
     rotation.col(0) = x_axis;
@@ -27,7 +26,6 @@ Eigen::Matrix4d to_transform(const Eigen::Matrix3d &rotation, const Eigen::Vecto
     return transform;
 }
 
-/** Twice the signed area of a quad, so only its sign is used: which way it winds. */
 double signed_area(const std::array<cv::Point2d, 4> &quad) {
     double total = 0.0;
     for (size_t i = 0; i < 4; ++i) {
@@ -38,7 +36,6 @@ double signed_area(const std::array<cv::Point2d, 4> &quad) {
     return total;
 }
 
-/** Mean distance from each projected corner to the fitted line of every supported side. */
 double line_residual(const std::array<cv::Point2d, 4> &projected,
                      const std::array<cv::Vec3d, 4> &lines,
                      const std::array<bool, 4> &side_supported) {
@@ -105,9 +102,6 @@ FieldPoseResult pose_from_corners(const std::array<cv::Point2d, 4> &image_corner
     std::vector<cv::Point2d> object_points(object.begin(), object.end());
     std::vector<cv::Point2d> image_points(image_corners.begin(), image_corners.end());
 
-    // Method 0 is the exact four-point solve. Corners outside the sensor are fine here: nothing
-    // in findHomography requires them to land on the image, and at a cage mount the near mat
-    // corners never do.
     const cv::Mat homography_cv = cv::findHomography(object_points, image_points, 0);
     if (homography_cv.empty()) {
         result.failure = "findHomography failed";
@@ -121,8 +115,6 @@ FieldPoseResult pose_from_corners(const std::array<cv::Point2d, 4> &image_corner
     }
 
     const Eigen::Matrix3d h = intrinsics.inverse() * homography;
-    // One scale for both rotation columns; averaging the two norms is less sensitive to corner
-    // noise than trusting either alone.
     const double scale = 2.0 / (h.col(0).norm() + h.col(1).norm());
     Eigen::Vector3d r1 = h.col(0) * scale;
     Eigen::Vector3d r2 = h.col(1) * scale;
@@ -133,7 +125,6 @@ FieldPoseResult pose_from_corners(const std::array<cv::Point2d, 4> &image_corner
         translation = -translation;
     }
 
-    // The measured corners never satisfy the orthonormality constraint exactly.
     Eigen::Matrix3d raw = rotation_from_axes(r1, r2);
     Eigen::JacobiSVD<Eigen::Matrix3d> svd(raw, Eigen::ComputeFullU | Eigen::ComputeFullV);
     Eigen::Matrix3d rotation = svd.matrixU() * svd.matrixV().transpose();
@@ -228,7 +219,6 @@ FieldPoseResult pose_from_three_lines(const std::array<cv::Vec3d, 4> &lines,
         result.failure = "field side intersections are at infinity";
         return result;
     }
-    // Corner i sits between sides i-1 and i, so these are corners `between` and `second`.
     const cv::Point2d object_near = object[between];
     const cv::Point2d object_far = object[second];
     const cv::Point2d object_span = object_far - object_near;

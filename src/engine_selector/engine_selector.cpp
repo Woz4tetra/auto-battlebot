@@ -34,8 +34,6 @@ std::optional<std::string> EngineSelector::select(TrtEngine &engine) {
     std::vector<std::string> rejections;
 
     for (const std::string &candidate : config_.candidates) {
-        // Cheapest filter first. Engine files are synced per architecture, so on any
-        // given machine most candidates simply are not present and cost nothing to skip.
         if (!std::filesystem::exists(candidate)) {
             rejections.push_back(candidate + " -> not present on this machine");
             continue;

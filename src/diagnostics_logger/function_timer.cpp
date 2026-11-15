@@ -36,7 +36,6 @@ void FunctionTimer::log_elapsed_time() {
     DiagnosticsData data;
     data["elapsed_ms"] = elapsed;
 
-    // Log as warning if threshold is set and exceeded, otherwise info
     if (warn_threshold_ms_ > 0 && elapsed > warn_threshold_ms_) {
         data["threshold_ms"] = warn_threshold_ms_;
         logger_->warning(timer_name_, data, "");

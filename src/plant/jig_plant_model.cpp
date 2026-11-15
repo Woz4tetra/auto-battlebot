@@ -11,10 +11,8 @@ namespace {
 constexpr double kSubstepS = 0.002;
 constexpr double kStraightW = 1e-6;
 
-/** Exact first-order discretization over dt. tau = 0 means no lag. */
 double lag_alpha(double dt, double tau) { return tau > 1e-9 ? std::exp(-dt / tau) : 0.0; }
 
-/** Wrap to [-pi, pi), matching wrap_angle in plant.py (numpy mod semantics). */
 double wrap_angle(double angle) {
     double wrapped = std::fmod(angle + M_PI, 2.0 * M_PI);
     if (wrapped < 0.0) {
@@ -43,9 +41,7 @@ void command_at(std::span<const TimedCommand> commands, double stamp, double &u_
 JigPlantModel::JigPlantModel(const JigPlantParams &params, const JigPlantNoiseParams &noise)
     : params_(params), noise_(noise) {}
 
-void JigPlantModel::reset() {
-    // Stateless besides the parameters: the state lives in the caller's EKF.
-}
+void JigPlantModel::reset() {}
 
 PlantState JigPlantModel::propagate_unwrapped(const PlantState &state,
                                               std::span<const TimedCommand> commands, double t0,
@@ -69,8 +65,6 @@ PlantState JigPlantModel::propagate_unwrapped(const PlantState &state,
         double w_target = 0.0;
         plant_steady_state(u_lin, u_ang, params_, v_target, w_target);
 
-        // Pose along the arc with the start-of-substep velocity, then the velocity update,
-        // the ordering integrate_step in plant.py defines.
         const double theta_next = out.theta + out.w * sub_dt;
         double dx = 0.0;
         double dy = 0.0;

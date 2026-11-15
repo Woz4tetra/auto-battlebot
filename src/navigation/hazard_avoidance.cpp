@@ -103,12 +103,10 @@ HazardBarrierResult HazardAvoidance::limit_command(const Pose2D &our_pose,
         const double dx = center.x - our_pose.x;
         const double dy = center.y - our_pose.y;
         const double distance = std::hypot(dx, dy);
-        if (distance < kEps) continue;  // dead centre: no direction to limit against
+        if (distance < kEps) continue;
         const double gap = distance - hazard.hard_radius;
-        // Fraction of forward motion that approaches this hazard: +1 dead ahead, -1 dead
-        // behind. A diff drive only translates along its heading, so this is the whole story.
         const double toward = (cos_yaw * dx + sin_yaw * dy) / distance;
-        if (std::abs(toward) < kEps) continue;  // passing abeam costs nothing
+        if (std::abs(toward) < kEps) continue;
 
         const double v_approach = v_actual * toward;
         // The approach speed a first-order plant can still shed by the hard rim, with the same

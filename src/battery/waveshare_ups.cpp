@@ -25,11 +25,9 @@ constexpr uint16_t INA219_CALIBRATION_16V_5A = 26868;
 // Config register bits matching the Waveshare reference setup (16V range, gain/ADC, continuous
 // mode).
 constexpr uint16_t INA219_CONFIG_16V_5A_CONTINUOUS = 0x0EEF;
-// Datasheet constant used in the INA219 calibration equation.
 constexpr double INA219_CALIBRATION_NUMERATOR = 0.04096;
 // Shunt resistor value on the UPS board; used with calibration to convert raw current counts.
 constexpr double INA219_SHUNT_RESISTANCE_OHM = 0.01;
-// Current LSB derived from calibration: Current_LSB = 0.04096 / (Cal * Rshunt).
 constexpr double INA219_CURRENT_LSB_A =
     INA219_CALIBRATION_NUMERATOR / (INA219_CALIBRATION_16V_5A * INA219_SHUNT_RESISTANCE_OHM);
 // INA219 power register uses Power_LSB = 20 * Current_LSB.

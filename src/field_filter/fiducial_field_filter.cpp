@@ -189,8 +189,6 @@ std::shared_ptr<FieldDescriptionWithInlierPoints> FiducialFieldFilter::compute_f
         return failed;
     }
 
-    // The recording carries raw frames, so distortion has already been removed upstream by the
-    // camera's rectification and D is zero here.
     const cv::Mat distortion = camera_data.camera_info.distortion.empty()
                                    ? cv::Mat::zeros(1, 5, CV_64F)
                                    : camera_data.camera_info.distortion;

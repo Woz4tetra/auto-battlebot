@@ -54,8 +54,6 @@ ActionCommand NetworkPolicy::act(const TensorSet &observation) {
     for (size_t i = 0; i < inputs.size(); ++i) {
         Tensor &input = inputs[i];
         const Tensor *source = observation.find(input.spec.name);
-        // RlPolicyNavigation checks names and shapes at initialize(); this only guards a caller
-        // that skipped that check.
         if (source == nullptr || source->data.size() != input.data.size()) return ActionCommand{};
         std::copy(source->data.begin(), source->data.end(), input.data.begin());
     }

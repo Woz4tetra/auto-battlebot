@@ -29,7 +29,6 @@ OutputChannel &FoxgloveDiagnosticsBackend::channel_for(const std::string &module
 
 void FoxgloveDiagnosticsBackend::receive(const std::vector<DiagnosticStatusSnapshot> &snapshots) {
     if (snapshots.empty()) return;
-    // Group by module, preserving the (alphabetical) order the logger emits.
     std::map<std::string, std::vector<const DiagnosticStatusSnapshot *>> by_module;
     for (const auto &snap : snapshots) by_module[snap.name].push_back(&snap);
 

@@ -64,7 +64,6 @@ static bool is_start_byte(uint8_t b) {
 CrsfParseResult CrsfParser::parse_single_packet(const uint8_t* frame, size_t frame_len) {
     // frame: [start][length][type][payload...][crc8]
     uint8_t received_crc = frame[frame_len - 1];
-    // CRC covers [type][payload] = frame[2 .. frame_len-2]
     uint8_t calc_crc = crsf_crc8(frame + 2, frame_len - 3);
     if (received_crc != calc_crc) {
         return {std::nullopt, CrsfParseError{"CRC mismatch: expected " + std::to_string(calc_crc) +
@@ -73,7 +72,7 @@ CrsfParseResult CrsfParser::parse_single_packet(const uint8_t* frame, size_t fra
 
     uint8_t frame_type = frame[2];
     const uint8_t* payload = frame + 3;
-    size_t payload_len = frame_len - 4;  // exclude start, length, type, crc
+    size_t payload_len = frame_len - 4;
 
     switch (static_cast<CrsfFrameType>(frame_type)) {
         case CrsfFrameType::BATTERY: {

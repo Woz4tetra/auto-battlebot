@@ -133,7 +133,6 @@ void ControlLoop::run_cycle() {
     if (measurement) {
         field_description_ = measurement->field_description;
     }
-    // Nothing to steer by until the first measurement has defined the field.
     if (!field_description_) {
         diagnostics_logger_->debug("navigation", "waiting for the field; no commands sent");
         return;
@@ -178,18 +177,12 @@ void ControlLoop::run_cycle() {
                                     {"our_blob_present_no_keypoint", our_blob_no_keypoint}});
     }
 
-    // Resolve once so target selection and navigation operate on the same robot set within a
-    // cycle. Substitutes the previous critical snapshot when a frame is missing OUR or THEIRS.
     auto cached_robots = robot_descriptions_cache_.resolve(robots);
     const BehaviorMode behavior_mode = behavior_mode_.load();
-    // The mode that actually drove this cycle's target selection, whatever the transmitter is.
-    // OpenTxTransmitter logs the raw switch channel separately; this is the resolved value.
     diagnostics_logger_->debug(
         "navigation", {{"using_previous_robots", static_cast<int>(cached_robots.using_previous)},
                        {"behavior_mode", std::string(magic_enum::enum_name(behavior_mode))}});
 
-    // Hazards are assembled once here, so target selection and navigation see the same keep-out
-    // discs, already inflated, within the cycle.
     if (hazard_assembler_) {
         hazard_assembler_->assemble(cached_robots.robots, *field_description_);
     }

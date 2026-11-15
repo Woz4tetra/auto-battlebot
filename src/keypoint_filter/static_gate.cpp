@@ -115,7 +115,6 @@ ModelResultStamped StaticDetectionGate::filter(const ModelResultStamped &model_r
         const Eigen::Vector3d field_point = transform_point(tf_field_from_camera, camera_point);
         const Eigen::Vector2d position(field_point.x(), field_point.y());
 
-        // Match to the nearest tracked cluster within the match radius.
         Cluster *matched = nullptr;
         double best_distance = std::numeric_limits<double>::infinity();
         for (Cluster &cluster : clusters_) {

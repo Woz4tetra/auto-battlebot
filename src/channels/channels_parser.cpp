@@ -11,7 +11,6 @@ static constexpr uint8_t kExpectedDataLength = kChannelsPerPacket * 2 + 1;  // 3
 
 std::optional<std::array<int16_t, kChannelsPerPacket>> ChannelsParser::parse_phase_packet(
     const uint8_t* packet_data, size_t packet_len, uint8_t phase) {
-    // packet_data: [phase][length][channel_data x 32 bytes][checksum]
     if (packet_len < 2) return std::nullopt;
 
     uint8_t length = packet_data[1];
@@ -71,7 +70,6 @@ std::vector<std::array<int16_t, kMaxChannels>> ChannelsParser::process(const uin
 
         if (buffer_.size() < total_size) break;
 
-        // packet_data starts at sync_len (phase byte), length = 2 + packet_length
         auto channels = parse_phase_packet(buffer_.data() + kSyncLen, 2 + packet_length, phase);
 
         buffer_.erase(buffer_.begin(), buffer_.begin() + static_cast<ptrdiff_t>(total_size));

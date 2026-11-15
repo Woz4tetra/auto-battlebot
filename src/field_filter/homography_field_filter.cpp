@@ -77,9 +77,6 @@ std::shared_ptr<FieldDescriptionWithInlierPoints> HomographyFieldFilter::compute
                                               std::to_string(outline.side_rms_px[2]) + " " +
                                               std::to_string(outline.side_rms_px[3])}});
     consecutive_failures_ = 0;
-    // Say what the fit was, every time. Nothing about a wrong-but-plausible field pose is visible
-    // downstream, so the numbers that would show it have to be in the log rather than only in a
-    // recording nobody opens.
     spdlog::info(
         "HomographyFieldFilter: {} sides, {:.1f} px reprojection error, side scatter {:.1f} {:.1f} "
         "{:.1f} {:.1f} px, mask fills {:.2f} of its quad",
@@ -101,9 +98,6 @@ std::shared_ptr<FieldDescriptionWithInlierPoints> HomographyFieldFilter::compute
     description->tf_camera_from_fieldcenter.tf = pose.tf_camera_from_fieldcenter;
     description->size.header = camera_data.rgb.header;
     description->size.size = Size{config_.field_size_x, config_.field_size_y, 0.0};
-    // inlier_points stays empty. Its one consumer, to_field_point_cloud, returns nullopt on an
-    // empty cloud and the publisher already handles that, so /field_points simply does not
-    // publish. The field rectangle still does.
     return description;
 }
 }  // namespace auto_battlebot

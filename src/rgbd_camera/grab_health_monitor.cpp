@@ -12,7 +12,6 @@ void GrabHealthMonitor::record(bool is_error, std::chrono::steady_clock::time_po
     if (is_error) {
         error_count_++;
     }
-    // Drop samples that have aged out of the window.
     while (!samples_.empty() && (now - samples_.front().first) > window_) {
         if (samples_.front().second) {
             error_count_--;

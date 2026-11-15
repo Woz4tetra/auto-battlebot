@@ -12,8 +12,6 @@ constexpr double kDegenerateEps = 1e-9;
 // Radii closer than this count as tied and fall through to the tie-break preference.
 constexpr double kTieEps = 1e-9;
 
-/** A constraint site: an opponent is a point (radius 0), a hazard is a disc. Clearance from a
- *  site is `distance_to_center - radius`, which makes the two uniform everywhere below. */
 struct Site {
     double x = 0.0;
     double y = 0.0;
@@ -21,7 +19,6 @@ struct Site {
     bool is_hazard = false;
 };
 
-/** Wall constraint: clearance(c) = half - sign * c[axis]. */
 struct Wall {
     int axis;     // 0 = x, 1 = y
     double sign;  // +1 for the +half wall, -1 for the -half wall
@@ -47,8 +44,6 @@ double dist2(double ax, double ay, const Pose2D &b) {
     return dx * dx + dy * dy;
 }
 
-/** Real roots of a t^2 + b t + c = 0, degrading to linear when a ~ 0. Returns the number of
- *  roots written. */
 int solve_quadratic(double a, double b, double c, std::array<double, 2> &roots) {
     if (std::abs(a) < kDegenerateEps) {
         if (std::abs(b) < kDegenerateEps) return 0;
@@ -64,7 +59,6 @@ int solve_quadratic(double a, double b, double c, std::array<double, 2> &roots) 
 }
 
 Linear wall_constraint(const Wall &wall) {
-    // r = half - sign * c[axis]  ->  sign * c[axis] + r = half
     Linear linear;
     (wall.axis == 0 ? linear.ax : linear.ay) = wall.sign;
     linear.ar = 1.0;
@@ -84,23 +78,14 @@ Linear equal_clearance_constraint(const Site &a, const Site &b) {
     return linear;
 }
 
-/** Tracks the best candidate seen. Every candidate is scored on the true objective, which
- *  doubles as the feasibility check: a candidate outside the rectangle or crowding an
- *  unrelated opponent scores low and loses. Radii within kTieEps count as tied: with a
- *  preference point set, the tied candidate nearest it wins; otherwise the first candidate in
- *  generation order is kept. */
 class Best {
    public:
     Best(const Size &field, const std::vector<Pose2D> &opponents,
          const std::vector<FieldHazard> &hazards, const Pose2D *prefer)
         : field_(field), opponents_(opponents), hazards_(hazards), prefer_(prefer) {
-        // A field fully covered by constraints still has a least-bad point; starting at -inf
-        // reports it rather than a zero-initialized origin.
         result_.radius = -std::numeric_limits<double>::infinity();
     }
 
-    /** `source` names the constraint family that generated the point. Held as a literal
-     *  pointer through the enumeration and turned into a string once, in finish(). */
     void consider(double x, double y, const char *source) {
         ++evaluations_;
         const double r = empty_circle_radius(field_, x, y, opponents_, hazards_);
@@ -190,8 +175,6 @@ void add_three_wall_candidates(Best &best, double half_x, double half_y) {
     }
 }
 
-/** Family names are kept in the vocabulary the diagnostics already use, so a recorded fight
- *  without hazards reads exactly as it did before. Hazard involvement swaps the site word. */
 const char *two_wall_source(const Wall &a, const Wall &b, const Site &site) {
     if (a.axis == b.axis) {
         return site.is_hazard ? "opposite_walls_hazard" : "opposite_walls_point";
@@ -234,8 +217,6 @@ EmptyCircle solve_exact(const Size &field, const std::vector<Pose2D> &opponents,
 
     Best best(field, opponents, hazards,
               tie_break_near.has_value() ? &tie_break_near.value() : nullptr);
-    // The field center covers the fully degenerate case (every triple skipped) and joins the
-    // no-opponent plateau tie on a non-square field.
     best.consider(0.0, 0.0, "field_center");
 
     std::vector<Site> sites;

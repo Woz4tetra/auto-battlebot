@@ -52,7 +52,6 @@ cv::Matx33d to_matx(const std::array<double, 9> &values) {
                        values[7], values[8]);
 }
 
-/** Robot body pose in the camera frame, from a tag pose and the tag's mounting. */
 void body_in_camera(const TagPoseSolution &solution, const TagMount &mount,
                     cv::Matx33d &rotation_camera_body, cv::Vec3d &translation_camera_body) {
     const cv::Matx33d rotation_camera_tag = rotation_from_rvec(solution.rvec);
@@ -336,7 +335,6 @@ ModelResultStamped AprilTagKeypointModel::update(RgbImage image, const CameraInf
                full;
     }
 
-    // Recorded before anything is filtered: the corners are the measurement.
     const auto image_stamp_ns = static_cast<uint64_t>(std::llround(image.header.stamp * 1e9));
     last_tags_json_ = to_json(image_stamp_ns, image, camera_info, searched_roi, detections);
     channel_.log(last_tags_json_, image_stamp_ns);
@@ -398,7 +396,6 @@ void AprilTagKeypointModel::emit_keypoints(const Detection &detection, const Tag
     cv::projectPoints(body_points, rvec_camera_body, translation_camera_body, intrinsics,
                       distortion, projected);
 
-    // The wheels hold the axle one radius off the floor either way up.
     const int detection_index = static_cast<int>(result.boxes.size());
     const std::array<KeypointLabel, 2> labels = {KeypointLabel::MR_STABS_MK2_FRONT,
                                                  KeypointLabel::MR_STABS_MK2_BACK};
@@ -488,7 +485,6 @@ std::string AprilTagKeypointModel::to_json(uint64_t image_stamp_ns, const RgbIma
             append_number(json, detection.corners[c].y);
             json += ']';
         }
-        // OpenCV's aruco detector exposes no decision margin.
         json += "],\"decision_margin\":null,\"solutions\":[";
         for (size_t s = 0; s < detection.solutions.size(); ++s) {
             const TagPoseSolution &solution = detection.solutions[s];

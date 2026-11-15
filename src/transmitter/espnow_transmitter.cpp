@@ -229,7 +229,6 @@ double EspNowTransmitter::limit_linear_acceleration(double linear_command) {
 
     const auto now = std::chrono::steady_clock::now();
     if (!get_status().autonomy_switch_on) {
-        // The robot drives from the sticks, so hold the baseline at a standstill.
         prev_linear_command_ = 0.0;
         last_send_time_ = now;
         return linear_command;
@@ -360,7 +359,6 @@ bool EspNowTransmitter::reconnect_if_needed() {
         return false;
     }
     logger_->info("dongle_opened", {{"path", config_.dongle_serial_path}});
-    // One silence window of grace for the first link stats frame.
     last_frame_time_ = now;
     parser_ = espnow_protocol::SerialFrameParser();
     link_stats_.reset();

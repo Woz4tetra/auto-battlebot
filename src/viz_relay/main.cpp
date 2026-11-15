@@ -85,7 +85,6 @@ struct ClientMessage {
     std::vector<std::byte> payload;
 };
 
-/** Routes Crow's log lines to spdlog. */
 class CrowSpdlogHandler : public crow::ILogHandler {
    public:
     void log(std::string message, crow::LogLevel level) override {
@@ -122,7 +121,6 @@ std::string link_for_address(const std::string& address) {
     return address == "::1" ? "local" : "wifi";
 }
 
-/** The first of <exe_dir>/web (installed) and <exe_dir>/../web/dist (the build/ tree). */
 std::filesystem::path default_web_root() {
     std::error_code ec;
     const auto exe_dir = std::filesystem::read_symlink("/proc/self/exe", ec).parent_path();
@@ -144,7 +142,6 @@ class DashboardHttp {
     bool start(const std::string& host, uint16_t port) {
         crow::logger::setHandler(&log_handler_);
         app_.loglevel(crow::LogLevel::Warning);
-        // The relay handles SIGINT and SIGTERM itself.
         app_.signal_clear();
 
         CROW_ROUTE(app_, "/healthz")
@@ -209,7 +206,6 @@ class DashboardHttp {
     std::future<void> running_;
 };
 
-// Client channel ids are only unique within one client connection.
 uint64_t client_channel_key(uint32_t client_id, uint32_t channel_id) {
     return (static_cast<uint64_t>(client_id) << 32) | channel_id;
 }
@@ -273,7 +269,6 @@ class Relay {
 
         if (http_port_ != 0) {
             http_ = std::make_unique<DashboardHttp>(web_root_, app_connected_);
-            // A dashboard that fails to bind is logged, not fatal: Foxglove still works.
             if (!http_->start(host_, http_port_)) http_.reset();
         }
 
@@ -323,7 +318,6 @@ class Relay {
             return false;
         }
         std::strncpy(addr.sun_path, socket_path_.c_str(), sizeof(addr.sun_path) - 1);
-        // A stale socket file from a previous relay would make bind() fail with EADDRINUSE.
         ::unlink(socket_path_.c_str());
         if (::bind(listen_fd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
             spdlog::error("bind({}): {}", socket_path_, std::strerror(errno));
@@ -404,8 +398,6 @@ class Relay {
                 return;
             }
             read_buffer_.insert(read_buffer_.end(), chunk, chunk + n);
-            // Keep draining while data is available, but do not starve the poll loop on a
-            // firehose: one 64 KB chunk per iteration is plenty at 60 Hz.
             if (static_cast<size_t>(n) < sizeof(chunk)) break;
         }
         size_t off = 0;
@@ -510,9 +502,6 @@ class Relay {
             RelayChannel& ch = ch_it->second;
             if (event.delta > 0) {
                 ++ch.subscribers;
-                // Re-send the retained message so a client that attaches mid-run sees geometry
-                // that was published once at startup. log() reaches every subscriber, which is
-                // harmless for these topics.
                 if (ch.latch && !ch.retained.empty()) {
                     ch.channel->log(ch.retained.data(), ch.retained.size(), ch.retained_log_time);
                 }
@@ -547,9 +536,6 @@ class Relay {
             auto_battlebot::viz::encode_subscriber_count(ch.app_channel_id, ch.subscribers));
     }
 
-    /** Queues the whole frame and sends what the socket takes now; poll_once() sends the rest.
-     *  A send that stopped partway used to drop the remainder, which tore the frame and left the
-     *  app parsing garbage. */
     void send_to_app(const std::vector<std::byte>& frame) {
         if (app_out_.size() - app_out_sent_ + frame.size() > kMaxAppOutBytes) {
             if (!warned_app_out_full_) {
@@ -572,7 +558,6 @@ class Relay {
                                app_out_.size() - app_out_sent_, MSG_NOSIGNAL);
             if (n < 0) {
                 if (errno == EINTR) continue;
-                // A full pipe waits for POLLOUT; anything else shows up as EOF on the next read.
                 return;
             }
             app_out_sent_ += static_cast<size_t>(n);

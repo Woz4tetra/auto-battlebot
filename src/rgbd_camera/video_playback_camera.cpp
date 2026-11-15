@@ -83,8 +83,6 @@ bool compressed_video_payload(const std::byte *message, size_t len, const std::b
     return false;
 }
 
-/** One number out of the FrameMeta JSON we write ourselves. Fixed shape, so a parser is more
- *  machinery than the job needs. */
 bool frame_meta_number(std::string_view json, std::string_view key, int64_t &out) {
     const size_t start = json.find(key);
     if (start == std::string_view::npos) {
@@ -185,8 +183,6 @@ bool VideoPlaybackCamera::scan_file() {
         }
     }
     if (!has_video) {
-        // Name the missing channel. A recording that carries only /camera/image starts fine and
-        // then produces nothing, which reads as a broken camera rather than the wrong recording.
         spdlog::error(
             "[VideoPlaybackCamera] {} has no {} channel{}. Playback needs the recorded video "
             "stream, not the JPEG debug topic.",
@@ -275,8 +271,6 @@ bool VideoPlaybackCamera::initialize() {
         return false;
     }
 
-    // Decode forward from the last keyframe at or before the target, then discard until it. With
-    // an IDR every 30 frames the worst case is 29 discarded frames.
     int64_t seek_ordinal = 0;
     for (int64_t i = config_.start_frame; i >= 0; --i) {
         if (frame_index_[static_cast<size_t>(i)].keyframe) {
@@ -354,9 +348,6 @@ void VideoPlaybackCamera::pace(double stamp_seconds) {
         return;
     }
     if (now - target > kMaxCatchUp) {
-        // Too far behind to make up. Re-anchor rather than sprint through what is owed: a box that
-        // cannot keep up should play as fast as it can, and a replay held at a breakpoint should
-        // resume rather than fast-forward.
         pace_anchor_ = now;
         pace_anchor_stamp_s_ = stamp_seconds;
     }
@@ -407,7 +398,6 @@ bool VideoPlaybackCamera::get(CameraData &data) {
     data.rgb.image = rectified;
     data.rgb.header.stamp = stamp;
     data.rgb.header.frame_id = FrameId::CAMERA;
-    // depth stays empty; the RGB camera has none and playback must not invent one.
     data.tracking_ok = true;
     data.tf_visodom_from_camera.header.stamp = stamp;
     data.tf_visodom_from_camera.header.frame_id = FrameId::VISUAL_ODOMETRY;

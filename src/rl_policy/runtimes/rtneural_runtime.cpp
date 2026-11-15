@@ -21,8 +21,6 @@ constexpr std::array<std::string_view, 10> kLayerTypes = {"dense",       "time-d
                                                           "prelu",       "batchnorm",
                                                           "batchnorm2d", "activation"};
 
-/** Activations RTNeural's createActivation knows. For any other name it returns null and the
- * model crashes on its first forward pass. Empty means no activation. */
 constexpr std::array<std::string_view, 6> kActivations = {"",        "tanh",    "relu",
                                                           "sigmoid", "softmax", "elu"};
 
@@ -64,7 +62,7 @@ void check_layers(const NetworkSpec &spec, const nlohmann::json &model) {
             }
         }
         if (type != "dense") {
-            previous_size = -1;  // Only Dense layers are shape-checked here.
+            previous_size = -1;
             continue;
         }
         const int out_size = layer.at("shape").back().get<int>();
@@ -96,8 +94,6 @@ void check_layers(const NetworkSpec &spec, const nlohmann::json &model) {
 
 struct RtNeuralRuntime::Model {
     std::unique_ptr<RTNeural::Model<float>> network;
-    /** RTNeural maps a layer's input as aligned memory, so the input is staged here rather than
-     * read from the caller's tensor. */
     std::vector<float, Eigen::aligned_allocator<float>> input;
 };
 

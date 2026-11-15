@@ -46,9 +46,6 @@ void GroundTruthRobotFilter::correct([[maybe_unused]] ModelResultStamped keypoin
     result.header.frame_id = FrameId::FIELD;
     result.header.stamp = clock_->now();
 
-    // What the sim's perception delivered, not its ground truth. A robot perception missed, or a
-    // tick that carried no frame, becomes a NaN slot, which describe() turns into a held, stale
-    // pose. With no sensing model on the sim side every slot is measured every tick.
     const SimMeasurementFrame &frame = connection_->last_measurements();
     constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
     std::vector<Pose2D> gt;

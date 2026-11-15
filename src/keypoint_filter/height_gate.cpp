@@ -36,8 +36,6 @@ double KeypointHeightGate::height_at(const cv::Mat &depth, const CameraInfo &cam
     if (!pixel_to_camera_ray(camera_info, col, row, ray)) {
         return std::numeric_limits<double>::quiet_NaN();
     }
-    // DEPTH measures distance along the optical axis, so the ray (which has z = 1) scales straight
-    // by z to reach the surface point.
     const Eigen::Vector3d point = ray * static_cast<double>(z);
     return plane.orientation * (point - plane.center).dot(plane.normal);
 }
@@ -116,7 +114,7 @@ KeypointHeightGate::Relief KeypointHeightGate::measure_relief(
             if (distance_squared > ring_outer_squared) continue;
             const bool in_circle = distance_squared <= inner_squared;
             const bool in_ring = distance_squared >= ring_inner_squared;
-            if (!in_circle && !in_ring) continue;  // the gap
+            if (!in_circle && !in_ring) continue;
             const double height = height_at(depth, camera_info, plane, col, row);
             if (!std::isfinite(height)) continue;
             (in_circle ? inside : around).push_back(height);
@@ -173,9 +171,6 @@ ModelResultStamped KeypointHeightGate::filter(const ModelResultStamped &model_re
     for (const auto &[group_key, indices] : groups) {
         stats_.groups_in++;
 
-        // Two different questions, two different measurements. The gate asks "does anything in
-        // this detection stand up", answered over the detection circle. Projection asks "how far
-        // above the plane is this pixel's surface", answered at the pixel.
         const Relief relief =
             measure_relief(depth.image, camera_info, plane, model_results, indices);
 

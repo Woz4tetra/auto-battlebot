@@ -37,7 +37,6 @@ struct Encoder {
         }
         width = w;
         height = h;
-        // Worst case for a JPEG is well under the raw frame size; libjpeg grows it if not.
         out.resize(static_cast<size_t>(w) * static_cast<size_t>(h) * 3 / 2);
         return true;
     }
@@ -66,7 +65,6 @@ AUTO_BATTLEBOT_NVJPG_EXPORT size_t auto_battlebot_nvjpg_encode(void *handle,
     if (!encoder || !i420 || width <= 0 || height <= 0 || (width | height) & 1) return 0;
     if (!encoder->ensure_buffer(width, height)) return 0;
 
-    // I420 is one contiguous Y, U, V; NvBuffer has one plane each with its own stride.
     const unsigned char *src = i420;
     for (uint32_t p = 0; p < encoder->buffer->n_planes; ++p) {
         NvBuffer::NvBufferPlane &plane = encoder->buffer->planes[p];
@@ -83,7 +81,6 @@ AUTO_BATTLEBOT_NVJPG_EXPORT size_t auto_battlebot_nvjpg_encode(void *handle,
     if (encoder->jpeg->encodeFromBuffer(*encoder->buffer, JCS_YCbCr, &data, size, quality) != 0) {
         return 0;
     }
-    // libjpeg reallocates when the output outgrows the buffer; keep the larger one.
     if (data != encoder->out.data()) {
         encoder->out.assign(data, data + size);
         std::free(data);
@@ -91,5 +88,4 @@ AUTO_BATTLEBOT_NVJPG_EXPORT size_t auto_battlebot_nvjpg_encode(void *handle,
     *jpeg = encoder->out.data();
     return size;
 }
-
-}  // extern "C"
+}

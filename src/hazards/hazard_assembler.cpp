@@ -90,8 +90,6 @@ void HazardAssembler::assemble(const RobotDescriptionsStamped &robots, FieldDesc
         }
     }
 
-    // Its own channel, every cycle, so a replay can tell "the controller did not know" from
-    // "the controller knew and drove in anyway".
     DiagnosticsData values{
         {"count", static_cast<int>(hazards.size())},
         {"static_count", static_count},

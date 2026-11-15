@@ -14,7 +14,6 @@
 #include "transmitter/sim_transmitter.hpp"
 
 namespace auto_battlebot {
-// Automatic registration of config types
 REGISTER_CONFIG(TransmitterConfiguration, NoopTransmitterConfiguration, "NoopTransmitter")
 REGISTER_CONFIG(TransmitterConfiguration, PlaybackTransmitterConfiguration, "PlaybackTransmitter")
 REGISTER_CONFIG(TransmitterConfiguration, OpenTxTransmitterConfiguration, "OpenTxTransmitter")
@@ -143,7 +142,6 @@ std::shared_ptr<TransmitterInterface> make_transmitter(
         std::vector<std::shared_ptr<TransmitterInterface>> children;
         children.reserve(composite.children.size());
         for (const auto &child_config : composite.children) {
-            // Copies, not moves: every child shares the same clock and sinks.
             children.push_back(make_transmitter(*child_config, clock, sink, mcap_recorder));
         }
         return std::make_shared<CompositeTransmitter>(std::move(children),

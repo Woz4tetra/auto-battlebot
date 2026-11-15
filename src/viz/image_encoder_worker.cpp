@@ -17,7 +17,6 @@ ImageEncoderWorker::~ImageEncoderWorker() {
 }
 
 void ImageEncoderWorker::submit(Job job) {
-    // A replaced frame is freed after the lock is released, so the worker never waits on it.
     std::optional<Job> replaced;
     {
         std::lock_guard<std::mutex> lock(mutex_);

@@ -12,7 +12,6 @@ namespace auto_battlebot {
 
 const NvjpgJpegEncoder::Plugin *NvjpgJpegEncoder::plugin() {
     static const std::optional<Plugin> loaded = []() -> std::optional<Plugin> {
-        // The plugin is built and installed next to this library.
         Dl_info info{};
         if (dladdr(reinterpret_cast<void *>(&NvjpgJpegEncoder::plugin), &info) == 0 ||
             info.dli_fname == nullptr) {

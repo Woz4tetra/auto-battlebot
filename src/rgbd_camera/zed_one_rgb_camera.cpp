@@ -107,7 +107,6 @@ void ZedOneRgbCamera::read_calibration() {
     info.intrinsics.at<double>(1, 1) = rectified.fy;
     info.intrinsics.at<double>(0, 2) = rectified.cx;
     info.intrinsics.at<double>(1, 2) = rectified.cy;
-    // Zeros: the SDK already removed the distortion, so camera_info emits a trivial plumb_bob.
     info.distortion = cv::Mat::zeros(1, 5, CV_64F);
     latest_data_.camera_info = info;
 
@@ -137,17 +136,17 @@ bool ZedOneRgbCamera::start_encoder() {
     encoder_options.fps = config_.camera_fps;
     encoder_options.bitrate = config_.video_bitrate_kbps * 1000;
     encoder_options.input_format = VideoInputFormat::BGRA;
-    if (!encoder_.start(encoder_options, [this](const std::byte *data, size_t len,
-                                                uint64_t log_time_ns, bool /*keyframe*/) {
-            foxglove::schemas::CompressedVideo message;
-            // Foxglove's decoder rejects a frame whose timestamp is not after the previous one.
-            message.timestamp =
-                foxglove_adapters::to_timestamp(static_cast<double>(log_time_ns) * 1e-9);
-            message.frame_id = "camera";
-            message.format = "h264";
-            message.data.assign(data, data + len);
-            video_channel_->log_message(message, log_time_ns);
-        })) {
+    if (!encoder_.start(
+            encoder_options, [this](const std::byte *data, size_t len, uint64_t log_time_ns, bool) {
+                foxglove::schemas::CompressedVideo message;
+                // Foxglove's decoder rejects a frame whose timestamp is not after the previous one.
+                message.timestamp =
+                    foxglove_adapters::to_timestamp(static_cast<double>(log_time_ns) * 1e-9);
+                message.frame_id = "camera";
+                message.format = "h264";
+                message.data.assign(data, data + len);
+                video_channel_->log_message(message, log_time_ns);
+            })) {
         video_channel_.reset();
         return false;
     }
@@ -162,8 +161,6 @@ bool ZedOneRgbCamera::initialize() {
         return false;
     }
     read_calibration();
-    // Nothing is set on the camera at startup: DEFAULT is whatever it opened with, kept so a
-    // dashboard switch back to DEFAULT can restore it.
     const CameraSettingLimits limits = read_limits();
     // A usable manual start for the fields the SDK cannot report: half a frame, lowest gain.
     CameraSettings unknown;
@@ -175,7 +172,6 @@ bool ZedOneRgbCamera::initialize() {
     latest_data_.tracking_ok = true;
 
     if (mcap_recorder_) {
-        // VideoPlaybackCamera reads this to replay the file; no config/cameras/ file needed.
         mcap_recorder_->write_metadata(kCameraCalibrationMetadataKey,
                                        camera_calibration_to_toml(calibration_));
     }
@@ -195,7 +191,6 @@ bool ZedOneRgbCamera::initialize() {
 }
 
 bool ZedOneRgbCamera::capture_frame() {
-    // grab() blocks until the next frame, so the loop runs at the sensor rate.
     const sl::ERROR_CODE grab_result = zed_.grab();
     if (grab_result == sl::ERROR_CODE::SUCCESS) {
         grab_health_.record(false, std::chrono::steady_clock::now());
@@ -242,7 +237,6 @@ bool ZedOneRgbCamera::capture_frame() {
         latest_data_.camera_info.header = latest_data_.rgb.header;
         latest_data_.depth.image = cv::Mat();
         latest_data_.tracking_ok = true;
-        // A clamped camera does not move: no visual odometry, no camera-world rebase.
         latest_data_.tf_visodom_from_camera.header.stamp = latest_data_.rgb.header.stamp;
         latest_data_.tf_visodom_from_camera.header.frame_id = FrameId::VISUAL_ODOMETRY;
         latest_data_.tf_visodom_from_camera.child_frame_id = FrameId::CAMERA;
@@ -371,7 +365,6 @@ CameraSettingLimits ZedOneRgbCamera::read_limits() {
     };
     CameraSettingLimits limits;
     limits.exposure_us = range(sl::VIDEO_SETTINGS::EXPOSURE_TIME);
-    // The sensor cannot expose longer than one frame at the rate it opened with.
     limits.exposure_us.max = std::min(limits.exposure_us.max, 1'000'000 / config_.camera_fps);
     limits.analog_gain_mdb = range(sl::VIDEO_SETTINGS::ANALOG_GAIN);
     limits.digital_gain = range(sl::VIDEO_SETTINGS::DIGITAL_GAIN);
@@ -443,7 +436,6 @@ void ZedOneRgbCamera::service_settings() {
     if (request) {
         const CameraSettings target = request->value_or(opened_settings_);
         apply_settings(target);
-        // What the camera now runs, for the fields it cannot report back.
         const CameraSettingLimits &limits = settings_state_->limits;
         auto clamp = [](int value, const CameraSettingRange &range) {
             return range.supported ? std::clamp(value, range.min, range.max) : value;

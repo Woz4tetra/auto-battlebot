@@ -55,11 +55,9 @@ bool SerialPort::open(const std::string& path, int baud_rate) {
     cfsetispeed(&tty, speed);
     cfsetospeed(&tty, speed);
 
-    // 8N1, no flow control, raw mode
     cfmakeraw(&tty);
     tty.c_cflag |= CLOCAL | CREAD;
 
-    // Non-blocking: return immediately with whatever data is available
     tty.c_cc[VMIN] = 0;
     tty.c_cc[VTIME] = 0;
 
@@ -109,8 +107,6 @@ std::vector<uint8_t> SerialPort::read_available() {
     return result;
 }
 
-// ---------------------------------------------------------------------------
-
 static std::string read_sysfs_string(const std::string& path) {
     std::ifstream f(path);
     if (!f.is_open()) return {};
@@ -130,7 +126,6 @@ std::optional<std::string> find_opentx_device() {
 
             if (access(dev_path.c_str(), F_OK) != 0) continue;
 
-            // Resolve sysfs symlink: /sys/class/tty/<name>/device -> USB interface
             std::string sysfs_link = "/sys/class/tty/" + name + "/device";
             char real_path[PATH_MAX];
             if (realpath(sysfs_link.c_str(), real_path) == nullptr) continue;

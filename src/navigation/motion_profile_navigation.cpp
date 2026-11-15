@@ -57,8 +57,6 @@ MotionProfileNavigation::MotionProfileNavigation(const MotionProfileNavigationCo
       max_angular_speed_(config.plant.k_ang),
       tau_angular_accel_(config.plant.tau_ang_a),
       tau_angular_decel_(config.plant.tau_ang_d),
-      // The coefficient is measured, the compensation is a choice: off means the droop term
-      // simply never divides back out, which compensate_coupling already does at zero.
       angular_droop_coeff_(config.compensate_angular_droop ? config.plant.c_ad : 0.0),
       angular_droop_floor_(config.angular_droop_floor),
       angular_kp_(config.angular_kp),
@@ -99,8 +97,6 @@ void MotionProfileNavigation::reset_state() {
 double MotionProfileNavigation::terminal_velocity_for(BehaviorMode mode) const {
     const double configured = (mode == BehaviorMode::RUN_AWAY) ? run_away_terminal_speed_fraction_
                                                                : attack_terminal_speed_fraction_;
-    // Scale the fraction by the fitted top speed. The controller only ever drives toward the
-    // goal, so a negative fraction has nothing to mean and clamps to a stop.
     return std::clamp(configured, 0.0, 1.0) * max_linear_speed_fwd_;
 }
 
@@ -194,11 +190,6 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
                        "Behavior mode changed; resetting the trajectory");
     }
     prev_mode_ = mode;
-    // Option 1 (a legal goal) then option 4 (steer around what blocks the run to it). The
-    // tangent point is itself clamped, so a hazard hugging a wall cannot push the waypoint out
-    // of the arena.
-    // Hazards and walls are cleared by the body, so they measure from the footprint centre; the
-    // profile itself drives the pose to the target.
     const Pose2D our_body = footprint_center(our_pose, our_footprint_offset_);
     const Pose2D legal_target = clamp_to_field(target_pose, field);
     const Pose2D clamped_target =
@@ -295,7 +286,6 @@ std::optional<double> MotionProfileNavigation::measure_forward_speed(const Robot
     // A stale track is the filter propagating our own last command, so its velocity is a function
     // of what this controller asked for. Feeding that back is not feedback.
     if (robot.is_stale) return std::nullopt;
-    // Project the field-frame velocity onto our heading for a signed forward speed.
     return robot.velocity.vx * std::cos(our_pose.yaw) + robot.velocity.vy * std::sin(our_pose.yaw);
 }
 
@@ -362,7 +352,6 @@ double MotionProfileNavigation::compute_linear_command(double v_ref, double dvdt
         const double err = v_ref - v_actual;
         if (speed_ki_ > 0.0) {
             speed_integral_ += err * dt;
-            // Anti-windup: bound the integral so its command contribution stays within [-1, 1].
             const double limit = 1.0 / speed_ki_;
             speed_integral_ = std::clamp(speed_integral_, -limit, limit);
         }
@@ -386,7 +375,6 @@ double MotionProfileNavigation::compute_linear_command(double v_ref, double dvdt
     // feeding the compensated values back saturates both channels within a few ticks.
     prev_linear_uncompensated_ = std::clamp(u, -1.0, 1.0);
 
-    // Steer-brake: the plant multiplies forward authority by (1 - c_sb*|u_ang_eff|).
     const double u_ang_eff = plant_effective_command(
         prev_angular_uncompensated_, angular_deadzone_left_, angular_deadzone_right_);
     u = compensate_coupling(u, u_ang_eff, steer_brake_coeff_, steer_brake_floor_);
@@ -428,9 +416,6 @@ double MotionProfileNavigation::apply_hysteresis(double angle_error) {
 }
 
 double MotionProfileNavigation::compute_yaw_reference(double angle_error, double now_s) {
-    // Logical time (frame stamp), not wall-clock: the PD derivative dt must track the time between
-    // frames the controller actually processed so it stays correct under sim / playback time
-    // scaling.
     double d_term = 0.0;
     if (angular_kd_ != 0.0 && prev_angular_timestamp_ > 0.0) {
         const double dt = now_s - prev_angular_timestamp_;
@@ -459,9 +444,6 @@ double MotionProfileNavigation::compute_angular_command(double w_ref, double dt)
     double u = (w_ref + tau * dwdt) / max_angular_speed_;
     prev_angular_uncompensated_ = std::clamp(u, -1.0, 1.0);
 
-    // Angular droop: the plant multiplies yaw authority by (1 - c_ad*|u_lin_eff|), so the heading
-    // loop is weaker at speed than in place. Driven by the uncompensated linear command; see the
-    // loop-gain note in compute_linear_command.
     const double u_lin_eff =
         plant_effective_command(prev_linear_uncompensated_, deadzone_, deadzone_);
     u = compensate_coupling(u, u_lin_eff, angular_droop_coeff_, angular_droop_floor_);
@@ -503,10 +485,8 @@ double MotionProfileNavigation::wall_facing_angle(const Pose2D &pose,
     double dist_x = half_x - std::abs(pose.x);
     double dist_y = half_y - std::abs(pose.y);
     if (dist_x <= dist_y) {
-        // Nearest wall is left or right; normal points in the ±X direction.
         return (pose.x >= 0.0) ? 0.0 : M_PI;
     }
-    // Nearest wall is top or bottom; normal points in the ±Y direction.
     return (pose.y >= 0.0) ? M_PI / 2.0 : -M_PI / 2.0;
 }
 

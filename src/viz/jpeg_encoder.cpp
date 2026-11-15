@@ -21,7 +21,6 @@ bool OpenCvJpegEncoder::encode(const cv::Mat &bgr, int quality, std::vector<std:
 }
 
 std::unique_ptr<JpegEncoderInterface> make_jpeg_encoder() {
-    // Logged once per process, not once per encoder.
     static std::atomic<bool> logged{false};
     std::unique_ptr<JpegEncoderInterface> encoder;
 #ifdef AUTO_BATTLEBOT_HAVE_NVJPG

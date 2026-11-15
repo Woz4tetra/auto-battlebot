@@ -23,7 +23,6 @@ namespace auto_battlebot {
 
 HostServices::HostServices(Options options, std::shared_ptr<remote::StatusBus> status_bus)
     : options_(std::move(options)), status_bus_(std::move(status_bus)) {
-    // Apply a saved "on" at startup. The unit is not enabled at boot, so "off" needs no action.
     if (read_state_file().value_or(false)) requested_ = true;
     thread_ = std::thread([this] { run(); });
 }

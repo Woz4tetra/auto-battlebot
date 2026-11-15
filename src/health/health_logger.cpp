@@ -109,7 +109,6 @@ void HealthLogger::perform_sampling() {
         any_logged = collect_x86_health() || any_logged;
     }
 
-    // Self-detects availability (Jetson-only hwmon nodes); no-op on x86.
     any_logged = collect_jetson_power() || any_logged;
     any_logged = collect_disk_usage() || any_logged;
 
@@ -749,7 +748,6 @@ bool HealthLogger::collect_cpu_temp_sysfs_or_sensors() {
 }
 
 bool HealthLogger::collect_disk_usage() {
-    // The filesystem that data/recordings and data/temp_svo write to.
     const std::filesystem::path path = get_project_path("data");
     std::error_code ec;
     const std::filesystem::space_info space = std::filesystem::space(path, ec);

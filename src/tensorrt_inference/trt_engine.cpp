@@ -22,11 +22,8 @@ namespace auto_battlebot {
 namespace {
 constexpr double kExecuteWarnMs = 120.0;
 
-// Non-zero while a TrtEngine::ScopedQuietLogging guard is alive. Atomic because models
-// are constructed from the same thread today but nothing enforces that.
 std::atomic<int> g_quiet_depth{0};
 
-// Minimal TensorRT logger (only log errors/warnings via spdlog).
 class TrtLogger : public nvinfer1::ILogger {
    public:
     void log(Severity severity, nvinfer1::AsciiChar const* msg) noexcept override {
@@ -43,9 +40,6 @@ class TrtLogger : public nvinfer1::ILogger {
 
 TrtLogger g_trt_logger;
 
-// A failed load is an expected outcome while EngineSelector probes candidates, so route
-// TrtEngine's own load diagnostics through the same switch as TensorRT's. Outside
-// probing these stay errors.
 void log_load_failure(const std::string& message) {
     if (g_quiet_depth.load(std::memory_order_relaxed) > 0) {
         spdlog::debug("{}", message);
@@ -127,7 +121,6 @@ class FileStreamReader final : public TrtStreamReaderBase {
 #endif
 };
 
-// Compute volume (product of dimensions). Returns 0 if dims are invalid.
 int64_t volume(const nvinfer1::Dims& dims) {
     if (dims.nbDims <= 0) return 0;
     int64_t v = 1;
@@ -212,7 +205,6 @@ bool TrtEngine::load(const std::string& engine_path) {
     }
     runtime_ = rt;
 
-    // Allow version-compatible engines (built with VERSION_COMPATIBLE) to load.
     rt->setEngineHostCodeAllowed(true);
 
     // Streaming rather than whole-file: an engine built for another GPU architecture or
@@ -394,9 +386,6 @@ bool TrtEngine::load(const std::string& engine_path) {
     output_shape_ = first_output_shape;
     output_num_elements_ = first_output_vol;
 
-    // Final step: per-engine non-blocking stream plus pinned staging buffers. Created
-    // last so every earlier error path stays untouched; on failure the destructor-style
-    // cleanup below releases everything allocated so far.
     auto cleanup_all = [this]() {
         if (stream_) {
             cudaStreamDestroy(static_cast<cudaStream_t>(stream_));
@@ -509,8 +498,6 @@ void TrtEngine::capture_graph() {
     // runs after the first successful inference (the model's warmup), with the stream idle.
     graph_capture_attempted_ = true;
     auto stream = static_cast<cudaStream_t>(stream_);
-    // Thread-local mode: other threads (the ZED SDK, the other model) keep using CUDA while this
-    // thread captures.
     cudaError_t err = cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal);
     if (err != cudaSuccess) {
         spdlog::warn("TrtEngine: cudaStreamBeginCapture failed ({}); running without a CUDA graph",
@@ -561,8 +548,6 @@ bool TrtEngine::run_and_wait(std::chrono::steady_clock::time_point exec_start, c
 }
 
 bool TrtEngine::upload_input(const float* host_input) {
-    // Stage through pinned memory so the copy is async on this engine's stream; the single
-    // synchronize in run_and_wait is the only blocking point.
     std::memcpy(h_input_pinned_, host_input, getInputSizeBytes());
     const cudaError_t err =
         cudaMemcpyAsync(d_input_, h_input_pinned_, getInputSizeBytes(), cudaMemcpyHostToDevice,

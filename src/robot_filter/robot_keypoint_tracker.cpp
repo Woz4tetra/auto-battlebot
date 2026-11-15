@@ -69,8 +69,6 @@ std::vector<RobotKeypointCandidate> RobotKeypointTracker::extract_candidates(
 
         Eigen::Vector3d point_a;
         Eigen::Vector3d point_b;
-        // Prefer the height KeypointHeightGate measured from depth; the configured constant is
-        // the fallback for keypoints it could not measure.
         const double configured_height = config_.keypoint_heights.height_for(group_key.first);
         const double height_a =
             std::isfinite(kp_a.height_above_plane) ? kp_a.height_above_plane : configured_height;

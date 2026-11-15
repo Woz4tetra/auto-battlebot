@@ -21,15 +21,11 @@ std::optional<TargetSelection> SafestPointTarget::get_target(const RobotDescript
         return attack_selector_.get_target(robots, field, mode);
     }
 
-    // Hoist the opponent scan out of the solver so its hot path is pure arithmetic. Our pose
-    // only feeds the tie-break; unlike NearestTarget, run-away keeps producing answers
-    // without it.
     std::vector<Pose2D> opponents;
     opponents.reserve(robots.descriptions.size());
     std::optional<Pose2D> our_pose;
     for (const auto &robot : robots.descriptions) {
         if (robot.group == Group::THEIRS) {
-            // Clearance from their body, not the point their pose tracks.
             opponents.push_back(footprint_center(robot));
         } else if (robot.frame_id == FrameId::OUR_ROBOT_1) {
             our_pose = pose_to_pose2d(robot.pose);
@@ -41,8 +37,6 @@ std::optional<TargetSelection> SafestPointTarget::get_target(const RobotDescript
         if (!held_target_.has_value()) {
             held_target_ = candidate;
         } else {
-            // Re-measure the held target each cycle so one gone bad is abandoned promptly, and
-            // only retarget when the new candidate is a real improvement, not solver jitter.
             const double held_radius =
                 circle_radius(held_target_->x, held_target_->y, field, opponents);
             const double candidate_radius =
@@ -54,8 +48,6 @@ std::optional<TargetSelection> SafestPointTarget::get_target(const RobotDescript
     }
 
     if (!held_target_.has_value()) return std::nullopt;
-    // The radius next to the target is the one number that says whether the chosen spot is
-    // actually open or merely the best of a bad set.
     logger_->debug("run_away_target",
                    {{"x", held_target_->x},
                     {"y", held_target_->y},
@@ -64,7 +56,6 @@ std::optional<TargetSelection> SafestPointTarget::get_target(const RobotDescript
     TargetSelection selection;
     selection.pose.x = held_target_->x;
     selection.pose.y = held_target_->y;
-    // yaw stays 0.0: both navigation implementations ignore target yaw.
     return selection;
 }
 
@@ -77,8 +68,6 @@ std::optional<Pose2D> SafestPointTarget::solve(const FieldDescription &field,
                                                const std::vector<Pose2D> &opponents,
                                                const std::optional<Pose2D> &our_pose) const {
     const EmptyCircle best = solve_exact(field.size.size, opponents, field.hazards, our_pose);
-    // The winning constraint family says which geometry pinned this answer: a target that
-    // keeps coming back as "field_center" means the opponent terms never bound the solve.
     logger_->debug("solver", {{"x", best.center.x},
                               {"y", best.center.y},
                               {"radius", best.radius},
