@@ -49,8 +49,6 @@ for arm in "${ARMS[@]}"; do
     for recording in "${recordings[@]}"; do
         name=$(basename "$recording")
         mkdir -p "$dest/$name"
-        # -l hardlinks the frames, so the images cost nothing per arm. labels/ is left absent:
-        # prelabel_dataset.py treats a missing label file as empty and writes every frame.
         cp -al "$recording/images" "$dest/$name/images"
         for meta in data.yaml data.yml; do
             [ -f "$recording/$meta" ] && cp "$recording/$meta" "$dest/$name/$meta"

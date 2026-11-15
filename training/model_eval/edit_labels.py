@@ -94,11 +94,7 @@ def _child_dirs(path: Path) -> list[Path]:
 
 
 def _find_data_yaml(dataset_path: Path) -> Path | None:
-    """The dataset's data.yaml, or the shallowest one beneath it when dataset_path is a
-    parent holding subdatasets (opening the parent labels them all in one pass, and the
-    subdatasets share a schema). Prelabel output nests two deep, as
-    parent/<conf_dir>/<recording>/data.yaml, so checking only immediate children misses it
-    and every box falls back to a bare class index."""
+    """The dataset's data.yaml, or the shallowest one beneath a parent of subdatasets."""
     names = ("data.yaml", "data.yml")
     for name in names:
         if (dataset_path / name).exists():
@@ -158,11 +154,7 @@ def load_kpt_count(data: dict) -> int:
 
 
 def _label_path_for(img_path: Path) -> Path:
-    """Label file for an image: swap the nearest images/ path component for labels/.
-
-    Works for a single dataset (dataset/images/x.png -> dataset/labels/x.txt) and for a
-    parent of subdatasets (parent/rec/images/x.png -> parent/rec/labels/x.txt), so labels
-    always land in the labels/ dir score.py reads, not next to the image."""
+    """Label file for an image: swap the nearest images/ path component for labels/."""
     parts = img_path.parts
     for i in range(len(parts) - 1, -1, -1):
         if parts[i] == "images":

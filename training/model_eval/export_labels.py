@@ -7,6 +7,7 @@ import argparse
 import glob
 import shutil
 from pathlib import Path
+from typing import Literal, NewType
 
 import cv2
 import numpy as np
@@ -25,7 +26,9 @@ from auto_battlebot.recording.mcap_io import (
     match_stamps,
 )
 
-TOPICS = {"blob": BLOB_DETECTIONS_TOPIC, "keypoint": KEYPOINT_DETECTIONS_TOPIC}
+StampNs = NewType("StampNs", int)
+TopicKey = Literal["blob", "keypoint"]
+TOPICS: dict[TopicKey, str] = {"blob": BLOB_DETECTIONS_TOPIC, "keypoint": KEYPOINT_DETECTIONS_TOPIC}
 DEFAULT_OUTPUT_DIR = Path(__file__).parent.parent / "data" / "model_eval"
 
 DEFAULT_COLORS = [
@@ -43,13 +46,11 @@ DEFAULT_COLORS = [
 
 
 def load_recording(
-    mcap_path: Path, topic_keys: list[str]
-) -> tuple[dict[str, dict[int, Detections]], dict[int, bytes]]:
-    """Read the requested detection topics and /camera/image in a single pass.
-
-    Returns ({topic_key: {stamp_ns: Detections}}, {stamp_ns: raw image bytes})."""
-    detections: dict[str, dict[int, Detections]] = {key: {} for key in topic_keys}
-    images: dict[int, bytes] = {}
+    mcap_path: Path, topic_keys: list[TopicKey]
+) -> tuple[dict[TopicKey, dict[StampNs, Detections]], dict[StampNs, bytes]]:
+    """Read the requested detection topics and /camera/image in a single pass."""
+    detections: dict[TopicKey, dict[StampNs, Detections]] = {key: {} for key in topic_keys}
+    images: dict[StampNs, bytes] = {}
     topic_lookup = {TOPICS[key]: key for key in topic_keys}
     messages = tqdm(
         iter_messages(mcap_path, [*topic_lookup, CAMERA_IMAGE_TOPIC]),
@@ -61,9 +62,9 @@ def load_recording(
         key = topic_lookup.get(topic)
         if key is not None:
             dets = decode_detections(data)
-            detections[key][dets.stamp_ns] = dets
+            detections[key][StampNs(dets.stamp_ns)] = dets
         elif topic == CAMERA_IMAGE_TOPIC:
-            images[decode_image_stamp_ns(data)] = data
+            images[StampNs(decode_image_stamp_ns(data))] = data
     return detections, images
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from typing import NamedTuple
 
 import matplotlib
 
@@ -51,6 +52,9 @@ COMPARISONS = (
 )
 
 DEGENERATE = {("gtbox", "gt_boxcenter")}
+
+
+PointsN2 = np.ndarray
 
 
 def box_centers(boxes: np.ndarray) -> np.ndarray:
@@ -204,17 +208,12 @@ def error_rows(
     stamp: int,
     gt_labels: list[str],
     gt_sides: np.ndarray,
-    references: dict[str, np.ndarray],
-    estimates: dict[str, np.ndarray],
+    references: dict[str, PointsN2],
+    estimates: dict[str, PointsN2],
     pairs: dict[str, dict[int, int]],
     geometry=None,
 ) -> list[dict]:
-    """One row per GT box: distance from each estimator to each reference point.
-
-    `references` holds an (N, 2) target per GT box (the GT box center, the keypoint
-    midpoint), `estimates` an (N, 2) position array per estimator, and `pairs` the
-    matching {gt index: prediction index}. Emits `err_<reference>_<estimator>_px`, left
-    empty when the estimator did not match that GT box or either point is NaN."""
+    """One row per GT box: distance from each estimator to each reference point."""
     rows = []
     for g in range(len(gt_labels)):
         row: dict = {
@@ -273,10 +272,13 @@ def floor_errors(
     return row
 
 
-def collect(args: argparse.Namespace) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Run both models over the GT frames.
+class Collected(NamedTuple):
+    offsets: pd.DataFrame
+    matched: pd.DataFrame
 
-    Returns (per-detection offsets for the seg model, per-matched-GT-box position errors)."""
+
+def collect(args: argparse.Namespace) -> Collected:
+    """Run both models over the GT frames: per-detection seg offsets, per-matched-box errors."""
     from ultralytics import YOLO
 
     gt_frames, names, images = load_gt(args.gt)
@@ -352,7 +354,7 @@ def collect(args: argparse.Namespace) -> tuple[pd.DataFrame, pd.DataFrame]:
     matched = pd.DataFrame(matched_rows)
     for column in [c for c in matched.columns if c.endswith("_px") and c.startswith("err_")]:
         matched[column.replace("_px", "_norm")] = matched[column] / matched["gt_longer_side_px"]
-    return offsets, matched
+    return Collected(offsets, matched)
 
 
 def describe(values: np.ndarray) -> dict[str, float]:

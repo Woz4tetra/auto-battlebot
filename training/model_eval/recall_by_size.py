@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from typing import NamedTuple
 
 import matplotlib
 
@@ -33,10 +34,13 @@ def bin_labels(edges: list[float]) -> list[str]:
     return names
 
 
-def per_frame_counts(
-    frames: list, edges: list[float], iou_threshold: float
-) -> tuple[np.ndarray, np.ndarray]:
-    """(hits, totals) arrays of shape (num_frames, num_bins), GT boxes binned by sqrt-area.
+class SizeBinCounts(NamedTuple):
+    hits: np.ndarray
+    totals: np.ndarray
+
+
+def per_frame_counts(frames: list, edges: list[float], iou_threshold: float) -> SizeBinCounts:
+    """Hits and totals of shape (num_frames, num_bins), GT boxes binned by sqrt-area.
 
     Kept per frame rather than summed so the bootstrap can resample frames and re-sum, which
     is what makes the resampling paired across candidates.
@@ -57,7 +61,7 @@ def per_frame_counts(
             totals[index, bin_index] += 1
             if gt_index in matched:
                 hits[index, bin_index] += 1
-    return hits, totals
+    return SizeBinCounts(hits, totals)
 
 
 def bootstrap_delta(

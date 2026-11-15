@@ -77,8 +77,6 @@ def _field_sizes(data: bytes) -> list[tuple[int, float, float]]:
         points = entity.lines[0].points
         if len(points) < 4:
             continue
-        # The border is a closed LINE_STRIP whose first four points are the corners. Opposite
-        # edges give the fitted extents.
         corners = np.array(points[:4], dtype=np.float64)
         edges = [float(np.linalg.norm(corners[(i + 1) % 4] - corners[i])) for i in range(4)]
         sizes.append((entity.stamp_ns, (edges[0] + edges[2]) / 2.0, (edges[1] + edges[3]) / 2.0))
@@ -217,9 +215,6 @@ def export_sub_dataset(sub_dir: Path, dry_run: bool) -> dict[str, int]:
     field_from_cameraworld = recording["field_from_cameraworld"]
     dynamic_frames = frame_indices(image_stamps, np.array([s for s, _ in dynamic], dtype=np.int64))
     field_tf_stamps = [stamp for stamp, _ in field_from_cameraworld]
-    # /field_markers is published once per field init, but the field -> camera_world edge now
-    # repeats every cycle, so the two no longer share a stamp. Take the latest markers at or
-    # before the image instead of keying the size off an exact stamp match.
     field_sizes = recording["field_sizes"]
     field_size_stamps = [stamp for stamp, _, _ in field_sizes]
 
