@@ -21,6 +21,7 @@ struct ColorRGBf {
 };
 
 inline ColorRGBf get_color_for_index(int index) {
+    float hue = std::fmod(index * 137.5f, 360.0f);
     float sat = 0.8f;
     float val = 0.9f;
 
