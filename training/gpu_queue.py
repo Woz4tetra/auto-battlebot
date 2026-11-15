@@ -33,8 +33,6 @@ YIELD_RESUME_IDLE_SECONDS = 600
 LEGACY_JOB_DEVICES = (0, 1, 2)
 TERMINAL_STATES = ("done", "failed", "cancelled")
 ACTIVE_STATES = ("running", "claimed")
-# Ultralytics' epoch counter ("  46/100      12.7G  ...") and its batch bar
-# ("111/270 2.5it/s"), which together say how far a running train job has got.
 EPOCH_RE = re.compile(r"\s(\d+)/(\d+)\s+[\d.]+G\s")
 BATCH_RE = re.compile(r"(\d+)/(\d+)\s+[\d.]+it/s")
 LOG_TAIL_BYTES = 256 * 1024
@@ -42,7 +40,6 @@ OWNER_SEARCH_PARENT_DEPTH = 12
 LOG_PROGRESS_TRUST_FRACTION = 0.15
 MIN_HISTORY_SECONDS = 300
 SMOKE_EPOCHS = 10
-# Never inherited from the agent that started the worker; see job_env.
 UNSAFE_ENV = frozenset(
     {
         "CUDA_VISIBLE_DEVICES",
@@ -103,7 +100,6 @@ def gpu_busy_processes(
         apps = nvidia_smi_rows("--query-compute-apps=pid,gpu_uuid,used_memory")
         uuids = {uuid: int(index) for index, uuid in nvidia_smi_rows("--query-gpu=index,uuid")}
     except (OSError, subprocess.SubprocessError, ValueError):
-        # If nvidia-smi cannot be read, assume busy rather than stacking a second run.
         return [(-1, -1)]
     busy = []
     for row in apps:
@@ -173,8 +169,6 @@ def cmd_submit(args: argparse.Namespace) -> int:
             "pid": None,
             "log": None,
             "cancel_requested": False,
-            # What the submitter knows about this job's cost. Absent keys are dropped so a
-            # job that declared nothing looks exactly like one queued before these existed.
             "hint": {
                 key: value
                 for key, value in (
@@ -188,9 +182,6 @@ def cmd_submit(args: argparse.Namespace) -> int:
         state["next_id"] += 1
         state["jobs"].append(job)
         state["worker_stop"] = False
-        # Test liveness while still holding the state lock. An idle worker decides to
-        # exit under the same lock, so it cannot see an empty queue and then die after
-        # we have both appended a job and observed it alive.
         needs_worker = not worker_alive()
     print(f"queued job {job['id']} ({job['name']})")
     if needs_worker:
@@ -212,13 +203,7 @@ def next_queued(state: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def job_env(job: dict[str, Any]) -> dict[str, str]:
-    """Environment for a job, with the spawning agent's device settings stripped.
-
-    The worker inherits the environment of whichever agent happened to start it, and
-    then hands that environment to every later job from every other agent. A stray
-    CUDA_VISIBLE_DEVICES or PYTHONPATH would silently override `-d 0 1 2` hours later,
-    so drop those and let the job's own env win.
-    """
+    """Environment for a job, with the spawning agent's device settings stripped."""
     inherited = {key: value for key, value in os.environ.items() if key not in UNSAFE_ENV}
     return inherited | job["env"]
 
@@ -312,13 +297,7 @@ def run_yield_hooks(action: str, devices: list[int] | None = None) -> None:
 
 
 def exit_if_idle() -> None:
-    """Exit the worker if the queue is still empty, holding the state lock until death.
-
-    A submitter appends its job and tests worker liveness under the same lock, so
-    ending the process here — rather than after releasing — closes the window where it
-    would enqueue a job, see this worker as alive, and skip spawning a replacement.
-    os._exit skips the state write-back, which is correct: nothing was modified.
-    """
+    """Exit the worker if the queue is still empty, holding the state lock until death."""
     with locked_state() as state:
         if next_queued(state) is not None:
             return
@@ -328,12 +307,7 @@ def exit_if_idle() -> None:
 
 
 def idle_tick(args: argparse.Namespace, idle: float, yielded: bool) -> bool:
-    """One poll of an empty queue. Returns whether the tenants are still paused.
-
-    Resumes the tenants once the queue has sat empty long enough, then exits the
-    worker if its idle timeout has passed -- resume first, never after: a worker
-    that is gone cannot give the GPUs back.
-    """
+    """One poll of an empty queue. Returns whether the tenants are still paused."""
     if yielded and idle > (args.idle_exit or YIELD_RESUME_IDLE_SECONDS):
         run_yield_hooks("resume")
         yielded = False
@@ -503,7 +477,6 @@ def log_progress(job: dict[str, Any]) -> tuple[float, str] | None:
     with path.open("rb") as handle:
         handle.seek(max(0, path.stat().st_size - LOG_TAIL_BYTES))
         tail = handle.read().decode("utf-8", "replace")
-    # The progress bar redraws with carriage returns, so split on those too.
     for line in reversed(tail.replace("\r", "\n").splitlines()):
         epoch_match = EPOCH_RE.search(line)
         if not epoch_match:
@@ -648,14 +621,7 @@ def format_units(work: float) -> str:
 
 
 def work_estimate(state: dict[str, Any], job: dict[str, Any]) -> tuple[float | None, str]:
-    """Seconds from the declared work size and the measured rate of jobs like it.
-
-    A rate is only borrowed from the same profile, or failing that the same model. Pooling
-    across model sizes is what made a `yolo26x-pose` arm inherit 2h18m from sixteen
-    `yolo26s-pose` runs when it needed most of a day: an `x` costs several times an `s` per
-    unit, so a rate learned on one says nothing about the other. Without a usable rate this
-    returns None and the caller says so, rather than quoting a number it cannot support.
-    """
+    """Seconds from the declared work size and the measured rate of jobs like it."""
     work = job_work(job)
     if work is None:
         return None, ""
@@ -710,12 +676,7 @@ def run_order(state: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def forecast(state: dict[str, Any], ref: datetime) -> dict[int, dict[str, Any]]:
-    """Predicted duration and finish time for each unfinished job, in run order.
-
-    The running job is timed from its own progress where the log reports it, and
-    every queued job is stacked on the one ahead of it. One unknown duration makes
-    everything behind it unknown too, which is honest: the queue is serial.
-    """
+    """Predicted duration and finish time for each unfinished job, in run order."""
     plan: dict[int, dict[str, Any]] = {}
     cursor: datetime | None = ref
     for job in run_order(state):
@@ -919,10 +880,7 @@ def latest_job_with_log(state: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def tail_offset(path: Path, lines: int) -> int:
-    """Byte offset `lines` newlines back from the end of the file.
-
-    Counts only real newlines: Ultralytics redraws its progress bar with carriage
-    returns, so a `\\r`-aware split would rewind thousands of redraws of one epoch."""
+    """Byte offset `lines` newlines back from the end of the file."""
     data = path.read_bytes()
     idx = len(data)
     for _ in range(lines):

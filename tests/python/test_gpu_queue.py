@@ -7,7 +7,9 @@ imported. That is not a sys.path write: nothing else in the tree gains an import
 from __future__ import annotations
 
 import argparse
+import contextlib
 import importlib.util
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -147,3 +149,136 @@ class TestTypicalSeconds:
         seconds, basis = queue.typical_seconds({"jobs": [past, job]}, job)
         assert seconds == pytest.approx(7200)
         assert "run_domain_mix_arm.sh" in basis or "yolo26s-pose" in basis
+
+
+class TestJobEnv:
+    def test_job_env_strips_unsafe_inherited_vars(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "1")
+        monkeypatch.setenv("PYTHONPATH", "/somewhere")
+        job = make_job(1, ["true"])
+        job["env"] = {"NCCL_P2P_DISABLE": "1"}
+        env = queue.job_env(job)
+        assert "CUDA_VISIBLE_DEVICES" not in env
+        assert "PYTHONPATH" not in env
+        assert env["NCCL_P2P_DISABLE"] == "1"
+
+
+class TestGpuBusy:
+    def test_gpu_users_unreadable_smi_is_busy(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def unreadable(query: str) -> list[list[str]]:
+            raise OSError("nvidia-smi missing")
+
+        monkeypatch.setattr(queue, "nvidia_smi_rows", unreadable)
+        assert queue.gpu_busy_processes(set()) != []
+
+
+class TestLogProgress:
+    def write_log(self, tmp_path: Path, text: str) -> dict[str, Any]:
+        log = tmp_path / "job.log"
+        log.write_text(text)
+        return {"log": str(log)}
+
+    def test_reads_epoch_counter_from_ultralytics_line(self, tmp_path: Path) -> None:
+        job = self.write_log(tmp_path, "      Epoch    GPU_mem\n  46/100      12.7G  0.5\n")
+        reading = queue.log_progress(job)
+        assert reading is not None
+        fraction, label = reading
+        assert label == "46/100"
+        assert fraction == pytest.approx(45 / 100)
+
+    def test_progress_bar_carriage_returns_split_into_lines(self, tmp_path: Path) -> None:
+        job = self.write_log(tmp_path, "  1/100      12.7G  0.5\r  2/100      12.7G  0.5\r")
+        reading = queue.log_progress(job)
+        assert reading is not None
+        assert reading[1] == "2/100"
+
+
+class TestTailOffset:
+    def test_tail_offset_ignores_carriage_returns(self, tmp_path: Path) -> None:
+        log = tmp_path / "job.log"
+        log.write_bytes(b"start\nbar 1\rbar 2\rbar 3\rend\n")
+        assert queue.tail_offset(log, 2) == len(b"start\n")
+
+
+class TestForecast:
+    def test_unknown_duration_propagates_to_later_jobs(self) -> None:
+        first = make_job(1, ["bash", "run.sh"])
+        second = make_job(2, ["bash", "run.sh"])
+        plan = queue.forecast({"jobs": [first, second]}, datetime(2026, 9, 16))
+        assert plan[1]["finish"] is None
+        assert plan[2]["finish"] is None
+
+
+class TestIdleTick:
+    def test_idle_tick_resumes_before_exit(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls: list[str] = []
+        monkeypatch.setattr(
+            queue, "run_yield_hooks", lambda action, devices=None: calls.append(action)
+        )
+        monkeypatch.setattr(queue, "exit_if_idle", lambda: calls.append("exit"))
+        args = argparse.Namespace(idle_exit=60.0)
+        still_paused = queue.idle_tick(args, 120.0, True)
+        assert calls == ["resume", "exit"]
+        assert not still_paused
+
+
+class TestSubmitLiveness:
+    def test_submit_and_idle_exit_cannot_orphan_a_job(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        held: list[bool] = []
+        state: dict[str, Any] = {"next_id": 1, "jobs": [], "worker_stop": False}
+        lock_held = {"value": False}
+
+        @contextlib.contextmanager
+        def fake_locked_state() -> Any:
+            lock_held["value"] = True
+            try:
+                yield state
+            finally:
+                lock_held["value"] = False
+
+        def fake_worker_alive() -> bool:
+            held.append(lock_held["value"])
+            return True
+
+        monkeypatch.setattr(queue, "locked_state", fake_locked_state)
+        monkeypatch.setattr(queue, "worker_alive", fake_worker_alive)
+        args = argparse.Namespace(
+            command=["true"],
+            devices=[0],
+            name="n",
+            cwd=str(tmp_path),
+            by="t",
+            work=None,
+            profile=None,
+            eta=None,
+        )
+        assert queue.cmd_submit(args) == 0
+        assert held == [True]
+
+
+class TestSubmitHints:
+    def test_submit_without_hints_records_no_hint_keys(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        state: dict[str, Any] = {"next_id": 1, "jobs": [], "worker_stop": False}
+
+        @contextlib.contextmanager
+        def fake_locked_state() -> Any:
+            yield state
+
+        monkeypatch.setattr(queue, "locked_state", fake_locked_state)
+        monkeypatch.setattr(queue, "worker_alive", lambda: True)
+        args = argparse.Namespace(
+            command=["true"],
+            devices=[0],
+            name="n",
+            cwd=str(tmp_path),
+            by="t",
+            work=None,
+            profile=None,
+            eta=None,
+        )
+        queue.cmd_submit(args)
+        assert state["jobs"][0]["hint"] == {}
