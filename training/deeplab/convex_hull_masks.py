@@ -168,8 +168,6 @@ def convex_hull_mask(
                     continue
                 blobs_rescued += 1
 
-            # Crop to the blob's bounding box before extracting points; comparing
-            # the full label image per blob is the slow way to do this.
             x = stats[index, cv2.CC_STAT_LEFT]
             y = stats[index, cv2.CC_STAT_TOP]
             w = stats[index, cv2.CC_STAT_WIDTH]

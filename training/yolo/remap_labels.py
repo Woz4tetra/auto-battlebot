@@ -1,25 +1,5 @@
 #!/usr/bin/env python3
-"""Remap class IDs in a YOLO dataset.
-
-Reads a TOML config that maps source class IDs to target class IDs, then
-rewrites YOLO label files (*.txt). Useful for collapsing multi-class datasets
-into fewer classes or converting to binary tasks.
-
-Usage:
-    python remap_labels.py remap_config.toml /path/to/dataset --output /path/to/output
-
-Example TOML config:
-    [label_map]
-    0 = 1
-    1 = 0
-    2 = 0
-
-Source classes not listed in `label_map` are left unchanged.
-
-This tool only rewrites IDs; it cannot delete annotations or classes. To remove whole
-classes (drop their annotation lines and renumber the survivors to a contiguous range),
-use edit_yolo_classes.py instead.
-"""
+"""Remap class IDs in a YOLO dataset from a TOML label_map."""
 
 import argparse
 import ast
@@ -52,11 +32,7 @@ def load_config(config_path: Path) -> dict[int, int]:
 
 
 def find_label_files(dataset_dir: Path) -> tuple[list[Path], Path]:
-    """Find YOLO label files under dataset_dir.
-
-    Returns (label_files, labels_root). If dataset_dir/labels exists, that is
-    used as labels_root; otherwise dataset_dir is used.
-    """
+    """Find YOLO label files and their root under dataset_dir."""
     labels_root = dataset_dir / "labels" if (dataset_dir / "labels").is_dir() else dataset_dir
     return sorted(labels_root.rglob("*.txt")), labels_root
 
@@ -78,7 +54,6 @@ def find_paired_image(label_path: Path, dataset_dir: Path, labels_root: Path) ->
     """Best-effort lookup of the image paired with a label file."""
     candidate_prefixes: list[Path] = []
 
-    # 1) Canonical YOLO layout: labels/<...>/<name>.txt -> images/<...>/<name>.<ext>
     images_root = dataset_dir / "images"
     if images_root.is_dir():
         try:
@@ -87,10 +62,8 @@ def find_paired_image(label_path: Path, dataset_dir: Path, labels_root: Path) ->
         except ValueError:
             pass
 
-    # 2) Same directory as the label file.
     candidate_prefixes.append(label_path.with_suffix(""))
 
-    # 3) If path includes /labels/, mirror to /images/.
     parts = label_path.parts
     if "labels" in parts:
         idx = parts.index("labels")
@@ -98,7 +71,6 @@ def find_paired_image(label_path: Path, dataset_dir: Path, labels_root: Path) ->
         rel_no_suffix = Path(*parts[idx + 1 :]).with_suffix("")
         candidate_prefixes.append(prefix / "images" / rel_no_suffix)
 
-    # 4) Also try mirroring relative to the provided dataset root.
     try:
         rel = label_path.relative_to(dataset_dir)
         rel_parts = list(rel.parts)
@@ -293,21 +265,12 @@ def parse_yaml_names_list(data_yaml_path: Path) -> list[str] | None:
         if not stripped.startswith("names:"):
             continue
 
-        # Common YOLO form: names: ["a", "b"] or names: [a, b]
         value = stripped.partition(":")[2].strip()
         if value:
             inline_names = _parse_yaml_inline_names(value)
             if inline_names is not None:
                 return inline_names
 
-        # Block forms:
-        # names:
-        #   - class_a
-        #   - class_b
-        # or:
-        # names:
-        #   0: class_a
-        #   1: class_b
         base_indent = len(line) - len(line.lstrip())
         block_names = _parse_yaml_names_block(lines[idx + 1 :], base_indent)
         if block_names is not None:

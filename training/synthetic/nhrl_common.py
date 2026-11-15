@@ -16,17 +16,14 @@ from typing import Any
 
 import numpy as np
 
-# --- Endpoints ---
 BRETTZONE_API_BASE = "https://brettzone.nhrl.io/brettZone/api.php"
 BRETTZONE_THUMB_BASE = "https://brettzone.nhrl.io/robots-thumb"
 MESHY_API_BASE = "https://api.meshy.ai/openapi/v1"
 
-# --- Sidecar schema constants ---
 SIDECAR_SCHEMA_VERSION = 3
 KEYPOINT_FRAME = "gltf_model"
 KEYPOINT_METHOD = "pca_centerline_v1"
 
-# --- State file statuses ---
 STATUS_SKIPPED_NO_THUMBNAIL = "skipped_no_thumbnail"
 STATUS_SUBMITTED = "submitted"
 STATUS_SUCCEEDED = "succeeded"
@@ -118,11 +115,6 @@ def select_bots(
     return keep[:take]
 
 
-# ---------------------------------------------------------------------------
-# JSON / state persistence
-# ---------------------------------------------------------------------------
-
-
 def atomic_write_json(path: Path, obj: Any) -> None:
     """Write JSON to *path* atomically (temp file + os.replace)."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -162,11 +154,6 @@ def save_state(state_path: Path, state: dict[str, Any]) -> None:
 def is_rejected(entry: dict[str, Any]) -> bool:
     """True if a state entry was human-rejected (skip download + meshing)."""
     return bool(entry.get(STATE_REJECTED_KEY))
-
-
-# ---------------------------------------------------------------------------
-# Sidecar schema
-# ---------------------------------------------------------------------------
 
 
 def build_sidecar(
@@ -223,11 +210,6 @@ def sidecar_path_for(model_path: Path) -> Path:
     return model_path.with_suffix(".json")
 
 
-# ---------------------------------------------------------------------------
-# Keypoint geometry
-# ---------------------------------------------------------------------------
-
-
 def footprint_axes(
     vertices: np.ndarray, slice_fraction: float = 0.05
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, float] | None:
@@ -263,8 +245,6 @@ def footprint_axes(
     if max_horiz_full < 1e-5:
         return None
 
-    # Grow the bottom slice until it holds enough points and spans at least half
-    # the model's larger horizontal extent, else fall back to the whole model.
     slice_pts = vertices
     for frac in (slice_fraction, 0.10, 0.25, 0.5, 1.0):
         pts = vertices[y <= y_min + frac * height]
@@ -292,8 +272,6 @@ def footprint_axes(
     # is reproducible regardless of the eigensolver's sign convention.
     if u1[0] < -1e-12 or (abs(u1[0]) <= 1e-12 and u1[1] < 0.0):
         u1 = -u1
-    # Lateral axis = u1 rotated +90 degrees in the (X, Z) plane; guaranteed unit
-    # and perpendicular. Its sign is arbitrary (front/back is chosen downstream).
     u2 = np.array([-u1[1], u1[0]], dtype=float)
 
     return centroid_xz, u1, u2, slice_pts, y_min

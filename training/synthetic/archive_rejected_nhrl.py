@@ -47,7 +47,6 @@ def _topdown_image_for(sidecar: Path, data: dict) -> Path | None:
         img = sidecar.parent / str(rel)
         if img.exists():
             return img
-    # Fall back to the conventional layout even if the sidecar lacks the field.
     fallback = sidecar.parent / "topdown" / f"{sidecar.stem}.png"
     return fallback if fallback.exists() else None
 

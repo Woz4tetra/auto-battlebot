@@ -120,7 +120,6 @@ def transform_labels(lines: list[str], x0: float, y0: float, cw: float, ch: floa
         cls, cx, cy, bw, bh = parts[0], *(float(v) for v in parts[1:5])
         left, right = cx - bw / 2, cx + bw / 2
         top, bottom = cy - bh / 2, cy + bh / 2
-        # Into crop-relative fractions, then clip to the crop.
         left, right = (left - x0) / cw, (right - x0) / cw
         top, bottom = (top - y0) / ch, (bottom - y0) / ch
         clipped = (max(left, 0.0), max(top, 0.0), min(right, 1.0), min(bottom, 1.0))
@@ -150,7 +149,6 @@ def crop_one(
     h, w = frame.shape[:2]
 
     if box is None:
-        # No field found: keep the whole frame rather than inventing a crop.
         x0, y0, x1, y1 = 0.0, 0.0, 1.0, 1.0
     else:
         x0, y0, x1, y1 = box

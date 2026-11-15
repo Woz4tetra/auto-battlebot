@@ -68,7 +68,6 @@ class TestProtection:
         assert protected_part_indices(parts, ["a", "b"], keypoints, (), 1.0, 0.0) == {0}
 
     def test_oversized_part_is_protected(self):
-        # One part holds 8^3 = 512 times the volume of the other, so it is nearly all of it.
         parts = [box((0, 0, 0), 0.4), box((1.0, 0, 0), 0.05)]
         assert protected_part_indices(parts, ["big", "small"], [], (), 0.45, 0.0) == {0}
 
@@ -197,7 +196,6 @@ class TestDamageBudget:
         budget = DamageBudget()
         n = 200
         taken = sum(budget.take(probability) for _ in range(n))
-        # A tracked split is never more than one scene off its share.
         assert abs(taken - probability * n) <= 1
 
     def test_never_damages_at_zero(self):

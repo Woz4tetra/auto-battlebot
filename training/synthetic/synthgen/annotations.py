@@ -131,18 +131,7 @@ def segmentation_annotations_from_segmap(
     img_h: int,
     min_bbox_dim: int = 1,
 ) -> list[YoloSegAnnotation]:
-    """Convert a category-id segmentation map into YOLO-seg annotations.
-
-    Args:
-        seg_map: Category-id segmentation map.
-        img_w: Image width in pixels.
-        img_h: Image height in pixels.
-        min_bbox_dim: Contours whose bbox is smaller than this (either axis,
-            pixels) are dropped.
-
-    Returns:
-        One ``(class_id, polygon)`` entry per kept contour.
-    """
+    """Convert a category-id segmentation map into YOLO-seg annotations."""
     seg_2d = seg_map.squeeze()
     annotations: list[YoloSegAnnotation] = []
     for class_id in sorted(int(v) for v in np.unique(seg_2d).tolist()):
@@ -165,8 +154,6 @@ def segmentation_annotations_from_segmap(
             if contour.shape[0] >= 3:
                 polygon = [(float(x) / img_w, float(y) / img_h) for x, y in contour[:, 0, :]]
             else:
-                # Preserve tiny visible objects (e.g. heavily occluded or edge-clipped)
-                # by emitting a minimal rectangle polygon.
                 x_min = int(xs.min())
                 x_max = int(xs.max())
                 y_min = int(ys.min())

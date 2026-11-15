@@ -77,7 +77,7 @@ def parse_pairs(pairs: list[str], what: str) -> dict[str, str]:
 
 def detect(model_path: Path, frames: list[Path], renames: dict[str, str], args) -> list[list]:
     """``[class_name, confidence]`` for every detection at or above the floor."""
-    from ultralytics import YOLO  # deferred: slow import, and --help should not pay it
+    from ultralytics import YOLO
 
     model = YOLO(str(model_path))
     names = {index: renames.get(name, name) for index, name in model.names.items()}

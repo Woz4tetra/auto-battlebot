@@ -491,7 +491,6 @@ def gpu_owner(pid: int, state: dict[str, Any]) -> str:
         if job.get("pid") and job["pid"] in ancestry:
             return f"job {job['id']} {job['name']}"
     command = process_command(pid)
-    # A process that died between the nvidia-smi read and now has nothing to name.
     return command if command in ("exited", "unknown") else f"{command} (outside the queue)"
 
 
@@ -532,13 +531,7 @@ ENV_ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 
 
 def script_name(job: dict[str, Any]) -> str:
-    """The script a job runs, so a 3-minute export is never averaged with a train.
-
-    `env ARM_DATE=... bash run_domain_mix_arm.sh ...` used to read as "env", because the
-    command carries no `.py`: every arm then shared one meaningless shape and the coarsest
-    match tier pooled them all. The `env` prefix and its assignments are skipped, and a
-    shell script counts as the script when there is no Python one.
-    """
+    """The script a job runs, so a 3-minute export is never averaged with a train."""
     command = list(job["command"])
     if command and Path(command[0]).name == "env":
         command = command[1:]
@@ -711,12 +704,7 @@ def job_work(job: dict[str, Any]) -> float | None:
 
 
 def job_profile(job: dict[str, Any]) -> str:
-    """The cost class a job's seconds-per-unit rate is learned within.
-
-    Two jobs share a profile when one unit of work costs them the same, which is what
-    `--profile` names. Falling back to model and input size keeps jobs that never declared
-    one from all landing in the same bucket.
-    """
+    """The cost class a job's seconds-per-unit rate is learned within."""
     declared = job_hint(job).get("profile")
     if declared:
         return str(declared)
@@ -761,15 +749,7 @@ def work_estimate(state: dict[str, Any], job: dict[str, Any]) -> tuple[float | N
 
 
 def typical_seconds(state: dict[str, Any], job: dict[str, Any]) -> tuple[float | None, str]:
-    """What a job that has not started should take, learned from the jobs like it.
-
-    Three sources, most specific first. An `--eta` the submitter gave outright, since an
-    agent queuing the first run of a model family knows more than the history does. Then
-    `--work` scaled by the measured rate of the same profile, which is what makes a 58,447
-    frame arm predict differently from an 18,447 frame one. Then the original fallback:
-    median seconds-per-epoch of the closest shape, scaled by this job's epoch count, and its
-    median wall time when either side has no epoch flag.
-    """
+    """What a job that has not started should take, learned from the jobs like it."""
     eta = job_hint(job).get("eta_seconds")
     if eta:
         return float(eta), "as submitted"
@@ -1052,7 +1032,7 @@ def follow_log(job: dict[str, Any], tail: int, pinned: bool) -> int:
                 current = fresh
                 continue
 
-            _drain(handle)  # what the job wrote between the last read and its exit
+            _drain(handle)
             print(
                 f"\njob {fresh['id']} {fresh['state']} (exit {fresh['exit_code']})",
                 file=sys.stderr,
@@ -1062,7 +1042,7 @@ def follow_log(job: dict[str, Any], tail: int, pinned: bool) -> int:
 
             nxt = running_job(state)
             if nxt is None or nxt["id"] == current["id"]:
-                continue  # nothing running yet; wait for the worker to pop the next job
+                continue
             if handle is not None:
                 handle.close()
             handle = None
@@ -1101,8 +1081,6 @@ def _drain(handle: Any) -> None:
 def cmd_logs(args: argparse.Namespace) -> int:
     state = read_state()
     if args.job_id is None:
-        # No id means "whatever is training now"; fall back to the last job that ran so
-        # the command still shows something in the gap between two jobs.
         job = running_job(state) or latest_job_with_log(state)
         if job is None:
             print("no job has produced a log yet", file=sys.stderr)

@@ -1,13 +1,4 @@
-"""Interactive viewer for an image + segmentation mask pair.
-
-Displays the image with a colored overlay of label indices. Press 'T' to
-toggle between the plain image and the overlay. Uses matplotlib so you can
-pan and zoom.
-
-Usage:
-    python view_mask.py image.jpg image_mask.png
-    python view_mask.py image.jpg image_mask.png --alpha 0.5
-"""
+"""Interactive viewer for an image and segmentation mask pair."""
 
 import argparse
 import sys

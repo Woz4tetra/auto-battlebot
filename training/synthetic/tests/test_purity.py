@@ -1,9 +1,4 @@
-"""Guard: every pure synthgen module must import without Blender.
-
-If someone adds a ``bpy``/``blenderproc``/``mathutils`` import to one of these
-modules, this test fails immediately in the plain venv instead of breaking
-only inside the Docker/Blender environment.
-"""
+"""Guard: every pure synthgen module must import without Blender."""
 
 import importlib
 

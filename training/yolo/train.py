@@ -15,7 +15,6 @@ from ultralytics import YOLO
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_ROOT = Path(BASE_DIR).resolve().parents[0] / "data"
 CACHE_MAX_AGE_DAYS = 7.0
-# Image cache for models whose config does not set one, and when --cache is not passed.
 DEFAULT_CACHE = "disk"
 
 
@@ -314,7 +313,6 @@ def main() -> None:
     checkpoint_path = args.checkpoint
     devices = tuple(args.devices)
     workers = args.workers
-    # None means "not passed" -- each model's own config then decides. Resolved per model below.
     cache_override = False if args.cache == "false" else args.cache
     save_period = args.save_period
     fraction = args.fraction
@@ -330,7 +328,6 @@ def main() -> None:
     if not args.no_clear_cache:
         reclaim_stale_caches(dataset, args.cache_max_age)
 
-    # One timestamp per script run so all models in this session share the same date.
     session_date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
     hyper_params = dict(
@@ -386,10 +383,8 @@ def main() -> None:
         model_cache = settings.pop("cache", DEFAULT_CACHE)
         cache = model_cache if cache_override is None else cache_override
 
-        # Load the model.
         model = YOLO(checkpoint_path if checkpoint_path else model_key)
 
-        # Training in a new folder per session (date + time so same-day runs don't overwrite).
         run_name = f"auto_battlebots_{session_date}_{model_key}"
         model.train(
             data=dataset,

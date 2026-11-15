@@ -42,14 +42,11 @@ REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 cd "$REPO"
 [ -d "$SOURCE" ] || { echo "no dataset at $SOURCE" >&2; exit 1; }
 
-# Every arm's weights must exist before the first one runs, so a typo fails in seconds rather than
-# after an hour of inference.
 for arm in "${ARMS[@]}"; do
     weights="data/models/${MODEL}_${arm}_${DATE}_${CKPT}.pt"
     [ -f "$weights" ] || { echo "missing weights $weights" >&2; exit 1; }
 done
 
-# The recordings to copy: the dataset itself if it holds images/, else every child that does.
 recordings=()
 if [ -d "$SOURCE/images" ]; then
     recordings=("$SOURCE")

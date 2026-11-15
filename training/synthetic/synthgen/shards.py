@@ -65,11 +65,7 @@ class MergeSummary:
 
 
 def split_evenly(total: int, parts: int, offset: int = 0) -> list[int]:
-    """*total* over *parts* as evenly as integers allow, the remainder from index *offset* on.
-
-    Raises:
-        ValueError: When *parts* is not positive or *total* is negative.
-    """
+    """total over parts as evenly as integers allow, remainder from offset on."""
     if parts <= 0:
         raise ValueError(f"parts must be positive, got {parts}")
     if total < 0:
@@ -181,12 +177,7 @@ class _PartContents:
 def _collect_part(
     part: Path, out_images: Path, out_labels: Path, seen: dict[str, Path]
 ) -> _PartContents:
-    """Check one part and list what it adds to the merge; *seen* tracks names across parts.
-
-    Raises:
-        ValueError: When the part's manifest, labels or data.yml are out of step with its images,
-            or one of its file names is already in an earlier part.
-    """
+    """Check one part and list what it adds to the merge."""
     # Frames only: the pipeline also writes a `_debug_frame0.jpg` beside them, which has no label
     # or manifest row and is not training data.
     images = sorted(
@@ -208,11 +199,7 @@ def _collect_part(
 
 
 def _check_manifest_rows(part: Path, image_names: set[str], rows: list[tuple[str, dict]]) -> None:
-    """Every image has exactly one manifest row, and every row has an image.
-
-    Raises:
-        ValueError: Naming a few of each kind of mismatch.
-    """
+    """Every image has exactly one manifest row, and every row has an image."""
     by_image = Counter(row["image"] for _, row in rows)
     if set(by_image) == image_names and all(count == 1 for count in by_image.values()):
         return
@@ -234,11 +221,7 @@ def _read_manifest(path: Path) -> list[tuple[str, dict]]:
 
 
 def _data_yml_body(path: Path) -> list[str]:
-    """A data.yml's lines without its ``path``, which is the one line that differs per run.
-
-    Raises:
-        ValueError: When the part wrote no data.yml.
-    """
+    """A data.yml's lines without its path line."""
     if not path.is_file():
         raise ValueError(f"{path} is missing")
     lines = path.read_text(encoding="utf-8").splitlines()

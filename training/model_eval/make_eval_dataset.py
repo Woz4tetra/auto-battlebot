@@ -54,7 +54,6 @@ DEFAULT_PLAYBACK_CONFIG = _REPO / "config" / "playback" / "_playback.toml"
 # Aspect ratio above which a frame is treated as a ZED side-by-side pair (keep left eye).
 # 16:9 single eye is 1.78; a side-by-side pair is 3.56.
 SIDE_BY_SIDE_ASPECT = 2.6
-# Distinct editor colors for classes added via --extra-classes, in order.
 EXTRA_COLORS = ["#22c55e", "#f59e0b", "#a855f7", "#14b8a6", "#f43f5e"]
 
 
@@ -182,7 +181,6 @@ def write_recording(
     dataset_dir = output_dir / recording_name(mcap_path)
     images_dir = dataset_dir / "images"
     labels_dir = dataset_dir / "labels"
-    # Clear any prior extraction so re-runs don't mix old and new samples.
     for stale in (images_dir, labels_dir):
         if stale.is_dir():
             for old in stale.iterdir():
@@ -200,7 +198,7 @@ def write_recording(
         frame = decode_compressed_image(data)
         stem = f"{frame.stamp_ns:019d}"
         cv2.imwrite(str(images_dir / f"{stem}.png"), left_eye(frame.image))
-        (labels_dir / f"{stem}.txt").write_text("")  # empty: label from scratch
+        (labels_dir / f"{stem}.txt").write_text("")
         written += 1
 
     (dataset_dir / "data.yaml").write_text(

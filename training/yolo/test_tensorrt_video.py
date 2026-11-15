@@ -1,20 +1,4 @@
-"""Run YOLO pose inference on a video using a TensorRT engine file.
-
-Thin CLI around auto_battlebot.perception.trt_yolo (shared with training/model_eval/score.py).
-Matches the C++ YoloKeypointModel pipeline: same preprocessing (letterbox, BGR->RGB,
-normalize), same output layout [1, num_features, num_predictions], and same NMS/postprocess.
-
-Expects engines built from ONNX models exported with end2end disabled (the default
-in convert_to_onnx.py). The model output has sigmoid already applied to class scores
-and keypoint visibility, and bboxes are in xyxy format. If raw logits are detected
-(values outside [0,1]), sigmoid is applied as a fallback.
-
-Usage:
-  python training/yolo/test_tensorrt_video.py path/to/model.engine path/to/video.mp4 -o out.mp4
-  python training/yolo/test_tensorrt_video.py model.engine video.mp4 --show --conf 0.5
-
-Requires: tensorrt, pycuda, opencv-python, numpy, tqdm
-"""
+"""Run YOLO pose inference on a video using a TensorRT engine file."""
 
 from __future__ import annotations
 

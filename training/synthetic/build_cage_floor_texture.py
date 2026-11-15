@@ -155,7 +155,7 @@ def combine_clips(clips: list[WarpedClip]) -> tuple[np.ndarray, np.ndarray]:
         mean = clip.texture[valid].reshape(-1, 3).mean(axis=0)
         gain = 128.0 / np.maximum(mean, 1.0)
         scaled = np.clip(clip.texture.astype(np.float32) * gain, 0, 255)
-        scaled[~valid] = np.nan  # the frame did not see this part of the mat
+        scaled[~valid] = np.nan
         stack.append(scaled)
     with np.errstate(all="ignore"), warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)  # all-NaN columns are the unseen strip

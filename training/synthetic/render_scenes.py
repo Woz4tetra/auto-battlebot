@@ -139,8 +139,6 @@ def main() -> None:
         random.seed(args.seed)
         np.random.seed(args.seed)
 
-    # Deferred import: synthgen.pipeline imports bpy, which only exists inside
-    # Blender's Python after the blenderproc import above.
     from synthgen.pipeline import run
 
     run(args)

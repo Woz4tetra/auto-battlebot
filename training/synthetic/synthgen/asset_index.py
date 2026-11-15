@@ -1,8 +1,4 @@
-"""Filesystem discovery and class-id bookkeeping for assets (no Blender imports).
-
-Covers distractor model discovery, VRAM audit loading, keypoint sidecar reading,
-segmentation label maps, and output directory/start-index resolution.
-"""
+"""Filesystem discovery and class-id bookkeeping for assets (no Blender imports)."""
 
 import csv
 import json
@@ -54,15 +50,7 @@ class OutputLayout:
 def discover_model_files(
     sources: tuple[DistractorSource, ...], resolve: PathResolveFn
 ) -> list[SourceModelFiles]:
-    """Find loadable 3D model files grouped by source directory.
-
-    Args:
-        sources: Configured distractor sources.
-        resolve: Path resolver for relative source paths.
-
-    Returns:
-        One entry per source directory that exists and contains model files.
-    """
+    """Find loadable 3D model files grouped by source directory."""
     groups: list[SourceModelFiles] = []
     for src in sources:
         d = resolve(src.path)
@@ -129,12 +117,7 @@ def load_distractor_vram_audit(csv_path: Path, resolve: PathResolveFn) -> dict[P
 
 
 def load_sidecar_keypoints(model_path: Path) -> tuple[np.ndarray, np.ndarray] | None:
-    """Load front/back keypoints from a distractor model's JSON sidecar.
-
-    Returns the keypoints in Blender local axes (converted from the sidecar's
-    GLTF-native frame via ``model_to_blender_local``), or ``None`` when the
-    sidecar is missing or its keypoints are null (degenerate mesh).
-    """
+    """Load front/back keypoints (Blender local axes) from a distractor model's JSON sidecar."""
     sidecar = model_path.with_suffix(".json")
     if not sidecar.exists():
         return None
@@ -213,15 +196,7 @@ class DistractorClassIdAssigner:
 
 
 def resolve_output_layout(output: OutputConfig, resolve: PathResolveFn) -> OutputLayout:
-    """Resolve and create the output directories.
-
-    Args:
-        output: Parsed ``[output]`` config.
-        resolve: Path resolver for the configured directories.
-
-    Returns:
-        Resolved layout with directories created.
-    """
+    """Resolve and create the output directories."""
     image_dir = resolve(output.image_dir)
     label_dir = resolve(output.label_dir)
     image_dir.mkdir(parents=True, exist_ok=True)

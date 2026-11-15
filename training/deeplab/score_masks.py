@@ -310,11 +310,7 @@ def plot_by_field(summary: pd.DataFrame, output: Path) -> None:
 
 
 def plot_epoch_ladder(aggregates: pd.DataFrame, output: Path) -> bool:
-    """Macro IoU vs epoch, one line per run, when the candidates are a checkpoint ladder.
-
-    With two seed arms the spread between the lines is the noise floor delta that every
-    Phase-B gate is read against, so it is shaded rather than left to the eye.
-    """
+    """Macro IoU vs epoch, one line per run, when the candidates are a checkpoint ladder."""
     parsed = []
     for _, row in aggregates.iterrows():
         match = EPOCH_RE.search(str(row["candidate"]))

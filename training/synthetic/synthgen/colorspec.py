@@ -1,9 +1,4 @@
-"""Color parsing and color -> material-type matching (no Blender imports).
-
-Robot GLTF exports encode part colors either in Principled BSDF inputs (read on
-the Blender side) or in material names like ``0.501961_0.501961_0.501961_...``;
-this module holds the pure matching logic against the config's color mapping.
-"""
+"""Color parsing and color-to-material matching (no Blender imports)."""
 
 from dataclasses import dataclass
 
@@ -24,14 +19,7 @@ class ColorMappingEntry:
 
 
 def color_from_material_name(name: str) -> Rgb | None:
-    """Parse RGB from material names like ``0.501961_0.501961_0.501961_...``.
-
-    Args:
-        name: Blender material name.
-
-    Returns:
-        The 0-255 RGB triple, or None when the name is not color-encoded.
-    """
+    """Parse RGB from material names like 0.501961_0.501961_0.501961_."""
     parts = name.split("_")
     if len(parts) >= 3:
         try:

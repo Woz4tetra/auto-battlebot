@@ -30,15 +30,12 @@ from natsort import natsorted
 from PIL import Image, ImageDraw, ImageFont, ImageTk
 
 NAMED_COLORS: Dict[str, List[int]] = {
-    # Primary colors
     "red": [255, 0, 0],
     "green": [0, 255, 0],
     "blue": [0, 0, 255],
-    # Secondary colors
     "yellow": [255, 255, 0],
     "cyan": [0, 255, 255],
     "magenta": [255, 0, 255],
-    # Common colors
     "orange": [255, 165, 0],
     "pink": [255, 192, 203],
     "purple": [128, 0, 128],
@@ -49,7 +46,6 @@ NAMED_COLORS: Dict[str, List[int]] = {
     "olive": [128, 128, 0],
     "aqua": [0, 255, 255],
     "fuchsia": [255, 0, 255],
-    # Grayscale
     "white": [255, 255, 255],
     "gray": [128, 128, 128],
     "grey": [128, 128, 128],
@@ -60,7 +56,6 @@ NAMED_COLORS: Dict[str, List[int]] = {
     "darkgrey": [169, 169, 169],
     "dimgray": [105, 105, 105],
     "dimgrey": [105, 105, 105],
-    # Light variants
     "lightred": [255, 102, 102],
     "lightblue": [173, 216, 230],
     "lightgreen": [144, 238, 144],
@@ -74,7 +69,6 @@ NAMED_COLORS: Dict[str, List[int]] = {
     "lightseagreen": [32, 178, 170],
     "lightskyblue": [135, 206, 250],
     "lightsteelblue": [176, 196, 222],
-    # Dark variants
     "darkred": [139, 0, 0],
     "darkgreen": [0, 100, 0],
     "darkblue": [0, 0, 139],
@@ -91,7 +85,6 @@ NAMED_COLORS: Dict[str, List[int]] = {
     "darkolivegreen": [85, 107, 47],
     "darkorchid": [153, 50, 204],
     "darkkhaki": [189, 183, 107],
-    # Reds and pinks
     "crimson": [220, 20, 60],
     "firebrick": [178, 34, 34],
     "indianred": [205, 92, 92],
@@ -101,7 +94,6 @@ NAMED_COLORS: Dict[str, List[int]] = {
     "mediumvioletred": [199, 21, 133],
     "palevioletred": [219, 112, 147],
     "rosybrown": [188, 143, 143],
-    # Oranges and yellows
     "gold": [255, 215, 0],
     "coral": [255, 127, 80],
     "salmon": [250, 128, 114],
@@ -112,7 +104,6 @@ NAMED_COLORS: Dict[str, List[int]] = {
     "khaki": [240, 230, 140],
     "palegoldenrod": [238, 232, 170],
     "goldenrod": [218, 165, 32],
-    # Greens
     "limegreen": [50, 205, 50],
     "forestgreen": [34, 139, 34],
     "seagreen": [46, 139, 87],
@@ -125,7 +116,6 @@ NAMED_COLORS: Dict[str, List[int]] = {
     "lawngreen": [124, 252, 0],
     "olivedrab": [107, 142, 35],
     "yellowgreen": [154, 205, 50],
-    # Blues and cyans
     "skyblue": [135, 206, 235],
     "deepskyblue": [0, 191, 255],
     "dodgerblue": [30, 144, 255],
@@ -143,7 +133,6 @@ NAMED_COLORS: Dict[str, List[int]] = {
     "turquoise": [64, 224, 208],
     "mediumturquoise": [72, 209, 204],
     "paleturquoise": [175, 238, 238],
-    # Purples and violets
     "violet": [238, 130, 238],
     "indigo": [75, 0, 130],
     "blueviolet": [138, 43, 226],
@@ -153,7 +142,6 @@ NAMED_COLORS: Dict[str, List[int]] = {
     "mediumpurple": [147, 112, 219],
     "thistle": [216, 191, 216],
     "lavender": [230, 230, 250],
-    # Browns and neutrals
     "brown": [139, 69, 19],
     "saddlebrown": [139, 69, 19],
     "sienna": [160, 82, 45],
@@ -189,7 +177,6 @@ NAMED_COLORS: Dict[str, List[int]] = {
     "slategrey": [112, 128, 144],
 }
 
-# Default fallback colors for classes when no config is provided
 DEFAULT_CLASS_COLORS = [
     [255, 0, 0],
     [0, 255, 0],
@@ -224,14 +211,12 @@ class SegmaskDatasetValidator:
         self.state_file = self.dataset_path / "validation_state.json"
         self.class_labels_path = class_labels_path
 
-        # Data structures
         self.image_mask_pairs: List[Tuple[Path, Path]] = []
         self.validation_state: Dict[str, str] = {}  # path -> 'pass'/'fail'
         self.class_info: Dict[int, Dict] = {}  # class_id -> {name, color}
         self.show_overlay = True
         self.overlay_alpha = 0.45
 
-        # Grid state
         self.page_step = self.PAGE_STEPS.index(self.DEFAULT_PAGE)
         self.thumb_px = 260
         self.selected_index = 0
@@ -251,30 +236,24 @@ class SegmaskDatasetValidator:
         self.executor = ThreadPoolExecutor(max_workers=min(8, (os.cpu_count() or 4)))
         self._layout_job: Optional[str] = None
 
-        # Zoom overlay
         self.zoom_window: Optional[tk.Toplevel] = None
         self.zoom_label: Optional[tk.Label] = None
         self.zoom_photo: Optional[ImageTk.PhotoImage] = None
 
-        # UI components
         self.root = tk.Tk()
         self.root.title("Segmentation Mask Dataset Validator")
         self.root.geometry("1600x1000")
 
-        # Status
         self.status_var = tk.StringVar()
         self.page_info_var = tk.StringVar()
         self.selection_var = tk.StringVar()
         self.show_overlay_var = tk.BooleanVar(value=True)
 
-        # Initialize
         self.load_dataset()
         self.load_class_info(self.class_labels_path)
         self.load_state()
         self.setup_ui()
         self.jump_to_next_unvalidated()
-
-    # ------------------------------------------------------------------ data
 
     def load_dataset(self):
         """Recursively find all image and mask pairs in the dataset."""
@@ -285,7 +264,6 @@ class SegmaskDatasetValidator:
         image_files = []
         for ext in image_extensions:
             for p in self.dataset_path.rglob(f"*{ext}"):
-                # Exclude mask files themselves
                 if "_mask" not in p.stem:
                     image_files.append(p)
             for p in self.dataset_path.rglob(f"*{ext.upper()}"):
@@ -347,8 +325,6 @@ class SegmaskDatasetValidator:
 
     def status_of(self, index: int) -> str:
         return self.validation_state.get(self.key_for(index), "unvalidated")
-
-    # -------------------------------------------------------------- rendering
 
     def color_name_to_rgb(self, color: str) -> Tuple[int, int, int]:
         """Convert a color name or hex string to an (R, G, B) tuple."""
@@ -489,8 +465,6 @@ class SegmaskDatasetValidator:
             self.photo_cache.move_to_end(key)
         return key, photo
 
-    # ------------------------------------------------------------------- grid
-
     @property
     def page_size(self) -> int:
         return self.PAGE_STEPS[self.page_step]
@@ -507,7 +481,6 @@ class SegmaskDatasetValidator:
         sidebar = ttk.Frame(main_container, relief=tk.RIDGE, borderwidth=2)
         sidebar.pack(side=tk.RIGHT, fill=tk.Y, padx=(0, 8), pady=8)
 
-        # === PAGE SECTION ===
         page_section = ttk.LabelFrame(sidebar, text="Page", padding="12")
         page_section.pack(fill=tk.X, padx=10, pady=(10, 5))
 
@@ -537,7 +510,6 @@ class SegmaskDatasetValidator:
             page_section, text="⏩ Next Unvalidated (U)", command=self.jump_to_next_unvalidated
         ).pack(fill=tk.X, pady=(6, 0))
 
-        # === VALIDATION SECTION ===
         validation_section = ttk.LabelFrame(sidebar, text="Validate", padding="12")
         validation_section.pack(fill=tk.X, padx=10, pady=5)
 
@@ -565,7 +537,6 @@ class SegmaskDatasetValidator:
             validation_section, text="↺ Clear selected (C)", command=lambda: self.validate(None)
         ).pack(fill=tk.X, pady=(8, 2))
 
-        # === DISPLAY OPTIONS SECTION ===
         options_section = ttk.LabelFrame(sidebar, text="Display Options", padding="12")
         options_section.pack(fill=tk.X, padx=10, pady=5)
 
@@ -602,7 +573,6 @@ class SegmaskDatasetValidator:
         )
         self.alpha_scale.pack(fill=tk.X, pady=(0, 5))
 
-        # === JUMP SECTION ===
         jump_section = ttk.LabelFrame(sidebar, text="Jump to Frame", padding="12")
         jump_section.pack(fill=tk.X, padx=10, pady=5)
         jump_frame = ttk.Frame(jump_section)
@@ -611,7 +581,6 @@ class SegmaskDatasetValidator:
         self.jump_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
         ttk.Button(jump_frame, text="Go", command=self._submit_jump, width=5).pack(side=tk.RIGHT)
 
-        # === KEYBOARD SHORTCUTS SECTION ===
         shortcuts_section = ttk.LabelFrame(sidebar, text="Keyboard Shortcuts", padding="12")
         shortcuts_section.pack(fill=tk.X, padx=10, pady=5)
 
@@ -631,12 +600,10 @@ class SegmaskDatasetValidator:
             shortcuts_section, text=shortcuts_text, font=("Courier", 9), justify=tk.LEFT
         ).pack(anchor=tk.W)
 
-        # Status bar at bottom
         status_frame = ttk.Frame(self.root)
         status_frame.pack(side=tk.BOTTOM, fill=tk.X)
         ttk.Label(status_frame, textvariable=self.status_var, relief=tk.SUNKEN).pack(fill=tk.X)
 
-        # Keyboard bindings
         self.bind_key("<Left>", lambda: self.move_selection(-1))
         self.bind_key("<Right>", lambda: self.move_selection(1))
         self.bind_key("<Up>", lambda: self.move_selection(-self.columns))
@@ -658,7 +625,6 @@ class SegmaskDatasetValidator:
         self.bind_key("<equal>", lambda: self.change_thumb_size(1))
         self.bind_key("<minus>", lambda: self.change_thumb_size(-1))
 
-        # Typing in the jump box must not trigger shortcuts; Enter submits it.
         self.jump_entry.bind("<Return>", self._submit_jump)
 
     def bind_key(self, sequence: str, action):
@@ -702,7 +668,6 @@ class SegmaskDatasetValidator:
             candidate = min(width, height * 16 / 9)
             if candidate <= 0:
                 continue
-            # Prefer the biggest thumbnail; break ties toward fewer empty slots.
             score = (candidate, -(candidate_columns * candidate_rows - target))
             if score > best_score:
                 best_score = score
@@ -802,7 +767,6 @@ class SegmaskDatasetValidator:
 
         indices = [i for i in range(self.page_start, min(self.page_start + len(self.cells), total))]
 
-        # Decode everything missing from the cache in parallel before touching tk.
         pending = [i for i in indices if self._cached(i) is None]
         if pending:
             list(self.executor.map(self.render_thumb, pending))
@@ -881,8 +845,6 @@ class SegmaskDatasetValidator:
         for index in range(start, end):
             if self._cached(index) is None:
                 self.executor.submit(self.render_thumb, index)
-
-    # ------------------------------------------------------------ interaction
 
     def move_selection(self, delta: int):
         total = len(self.image_mask_pairs)
@@ -997,8 +959,6 @@ class SegmaskDatasetValidator:
         if sync_scale:
             self.size_scale.set(step)
         self.relayout()
-
-    # ------------------------------------------------------------------ zoom
 
     def open_zoom(self):
         """Show the selected frame full size in its own window."""

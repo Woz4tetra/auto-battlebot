@@ -206,7 +206,6 @@ def verify_duplicates(manifest: dict, root: Path, algorithm: str, workers: int) 
     if not pairs:
         return {"pairs": 0, "identical": 0, "differing": [], "algorithm": algorithm}
 
-    # One hash per distinct file: an original with several prefixed copies is read once.
     wanted: set[str] = set()
     for record in pairs:
         original = by_path[record["duplicate_of"]]
@@ -252,7 +251,6 @@ def verify_duplicates(manifest: dict, root: Path, algorithm: str, workers: int) 
             entry["newer_side"] = "duplicate" if newer == record["mask"] else "original"
             mask_only.append(entry)
         else:
-            # Different picture: not a duplicate at all. Keep it and let it into the corpus.
             record["duplicate_of"] = None
             record["image_differs"] = True
             image_differs.append(entry)

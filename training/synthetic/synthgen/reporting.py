@@ -15,15 +15,12 @@ from typing import Any
 class DropReason(str, enum.Enum):
     """Why a whole rendered frame was discarded."""
 
-    # Segmentation mode
     SEG_FLOOR_ONLY = "seg_floor_only"
     SEG_NO_ANNOTATIONS = "seg_no_annotations"
     SEG_VISIBLE_CLASS_UNANNOTATED = "seg_visible_class_unannotated"
     SEG_NO_ROBOT_VISIBLE = "seg_no_robot_visible"
-    # Keypoint mode
     KP_PROMINENT_ROBOT_UNLABELED = "kp_prominent_robot_unlabeled"
     KP_NO_ANNOTATIONS = "kp_no_annotations"
-    # Whole-scene failure (counted once per planned frame so totals reconcile)
     SCENE_NO_SEGMAPS = "scene_no_segmaps"
 
 
@@ -105,16 +102,7 @@ class RunStats:
         return "   ".join(parts)
 
     def summary_lines(self, requested: int, written: int, scenes: int) -> list[str]:
-        """Build the human-readable end-of-run summary.
-
-        Args:
-            requested: Number of images the run was asked to produce.
-            written: Number of images actually written.
-            scenes: Number of scene attempts consumed.
-
-        Returns:
-            Lines ready to be logged one by one.
-        """
+        """Build the human-readable end-of-run summary."""
         short = max(0, requested - written)
         headline = f"Run summary: {written}/{requested} images written across {scenes} scenes"
         if self.frames_dropped or short:

@@ -45,13 +45,11 @@ class TestMinDistanceForFrameFraction:
         assert min_distance_for_frame_fraction(1.0, 1.0, 0.0) == 0.0
 
     def test_closed_form_against_projection(self) -> None:
-        """The silhouette of the sphere at the returned distance must land at
-        exactly max_frame_fraction of the half-frame."""
+        """The sphere silhouette at the returned distance fills max_frame_fraction of the frame."""
         radius = 0.25
         fov = math.radians(70)
         fraction = 0.85
         distance = min_distance_for_frame_fraction(radius, fov, fraction)
-        # Silhouette angle theta: sin(theta) = radius / distance.
         theta = math.asin(radius / distance)
         projected_fraction = math.tan(theta) / math.tan(fov / 2.0)
         assert projected_fraction == pytest.approx(fraction, rel=1e-9)

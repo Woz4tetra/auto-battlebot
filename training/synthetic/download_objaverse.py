@@ -1,9 +1,4 @@
-"""Download robot/mechanical 3D models from Objaverse for use as distractors.
-
-Usage:
-    python download_objaverse.py ../data/distractor_models/objaverse --max-models 100
-    python download_objaverse.py ../data/distractor_models/objaverse --tags robot vehicle drone
-"""
+"""Download robot and mechanical 3D models from Objaverse as distractors."""
 
 import argparse
 import csv
@@ -15,7 +10,6 @@ import objaverse
 import trimesh
 
 DEFAULT_TAGS = [
-    # plausible objects
     "robot",
     "mech",
     "mechanical",
@@ -26,7 +20,6 @@ DEFAULT_TAGS = [
     "machine",
     "automaton",
     "debris",
-    # random
     "rancho",
     "gauntlet",
     "rebozuelo",

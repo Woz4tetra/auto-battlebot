@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import blenderproc as bproc  # noqa: F401  # isort: skip  (blenderproc must be imported first)
 
-# BlenderProc insists its import is the first statement, so the module docstring follows it.
 DESCRIPTION = """
 Render the empty NHRL cage from fitted cage-high camera poses, for grading against footage.
 
@@ -174,7 +173,6 @@ def render_robot_frames(
     """One render per real frame, MRS BUFF at the recovered pose, from that clip's camera."""
     frames = load_robot_frames(args.robot_frames)
     cfg = load_render_config(args.config)
-    # The frame file and the [[robots]] entries now use the same lowercase class names.
     robot_name = str(frames[0]["robot"])
     cfg_robots = tuple(r for r in cfg.robots if r.name == robot_name)
     cc_materials = load_cc_materials(

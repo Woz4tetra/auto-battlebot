@@ -139,7 +139,7 @@ def _render_topdown(
     # Derive the affine [x, z, 1] -> [px, py]. Ortho top-down makes model (x,z)
     # -> pixel exactly affine and independent of height, so 3 points define it.
     def _project(mx: float, mz: float) -> np.ndarray:
-        world = mathutils.Vector((mx, -mz, 0.0))  # model->blender world = [x,-z,y]
+        world = mathutils.Vector((mx, -mz, 0.0))
         co = world_to_camera_view(bpy.context.scene, cam_ob, world)
         return np.array([co.x * res, (1.0 - co.y) * res])
 

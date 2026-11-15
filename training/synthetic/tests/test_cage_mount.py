@@ -1,10 +1,4 @@
-"""Cage-mount poses put the camera where the mount says, looking where it says.
-
-The cross-checks go through `auto_battlebot.perception.cage_calibration`, which owns the frame
-conventions: a pose built here, converted back to `T_W<-cam_cv` and summarised, must report the
-height, tilt and yaw that were asked for. That pins `cage_mount`'s hand-written Blender camera
-basis against the repo's own definition of those frames.
-"""
+"""Cage-mount poses put the camera where the mount says, looking where it says."""
 
 from __future__ import annotations
 
@@ -28,8 +22,6 @@ from synthgen.cage_mount import (
 from auto_battlebot.perception.cage_calibration import OPENCV_TO_BLENDER_CAMERA, pose_summary
 
 WALL_HALF = 2.4384 / 2
-# The May 2026 fit: 1.16 m above the mat, 0.11 m inside the near wall, 31.9 deg off straight
-# down, square to the wall.
 FITTED = CageMount("near", 0.02, 1.16, 0.109, 31.9, 0.0, 0.0)
 
 
@@ -56,10 +48,9 @@ def test_every_wall_looks_inward_and_down(wall: str) -> None:
     position = mount_position(mount, WALL_HALF)
     forward = mount_forward(mount)
 
-    # Inside the cage, above the mat, and aimed across it and down.
     assert np.linalg.norm(position[:2]) < WALL_HALF * math.sqrt(2)
     assert position[2] == pytest.approx(1.2)
-    assert float(np.dot(position[:2], normal[:2])) < 0  # the wall is opposite the inward normal
+    assert float(np.dot(position[:2], normal[:2])) < 0
     assert float(np.dot(forward, normal)) > 0
     assert forward[2] < 0
     assert summarize(mount)["tilt_from_down_deg"] == pytest.approx(33.0)
@@ -67,7 +58,6 @@ def test_every_wall_looks_inward_and_down(wall: str) -> None:
 
 def test_yaw_turns_toward_the_along_axis() -> None:
     summary = summarize(CageMount("near", 0.0, 1.2, 0.1, 32.0, 7.0, 0.0))
-    # On the near wall the along axis is +x, and pose_summary's yaw is positive toward +x.
     assert summary["yaw_deg"] == pytest.approx(7.0)
 
 
@@ -82,8 +72,8 @@ def test_cam2world_is_a_right_handed_rotation() -> None:
 def test_roll_rotates_the_image_axes_only() -> None:
     upright = mount_cam2world(CageMount("far", 0.0, 1.2, 0.1, 32.0, 0.0, 0.0), WALL_HALF)
     rolled = mount_cam2world(CageMount("far", 0.0, 1.2, 0.1, 32.0, 0.0, 10.0), WALL_HALF)
-    assert np.allclose(upright[:3, 2], rolled[:3, 2], atol=1e-9)  # same optical axis
-    assert np.allclose(upright[:3, 3], rolled[:3, 3], atol=1e-9)  # same position
+    assert np.allclose(upright[:3, 2], rolled[:3, 2], atol=1e-9)
+    assert np.allclose(upright[:3, 3], rolled[:3, 3], atol=1e-9)
     angle = math.degrees(math.acos(float(np.clip(np.dot(upright[:3, 1], rolled[:3, 1]), -1, 1))))
     assert angle == pytest.approx(10.0, abs=1e-6)
 
@@ -91,7 +81,7 @@ def test_roll_rotates_the_image_axes_only() -> None:
 def test_straight_down_mount_still_builds_a_valid_basis() -> None:
     rotation = mount_cam2world(CageMount("near", 0.0, 1.4, 0.1, 0.0, 0.0, 0.0), WALL_HALF)[:3, :3]
     assert np.allclose(rotation.T @ rotation, np.eye(3), atol=1e-9)
-    assert np.allclose(rotation[:, 2], [0.0, 0.0, 1.0], atol=1e-9)  # -forward is +z
+    assert np.allclose(rotation[:, 2], [0.0, 0.0, 1.0], atol=1e-9)
 
 
 def test_samples_stay_inside_their_ranges() -> None:

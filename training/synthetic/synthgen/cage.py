@@ -1,9 +1,4 @@
-"""Build the NHRL cage in Blender from a `CageSceneSpec` (requires Blender).
-
-Geometry comes from `synthgen.cage_spec`; this module only turns boxes and cylinders into
-mesh objects, wires materials, places lights, and sets the camera from a fitted
-`CageCalibration`. The pure geometry stays testable without a renderer.
-"""
+"""Build the NHRL cage in Blender from a CageSceneSpec (requires Blender)."""
 
 from __future__ import annotations
 
@@ -409,11 +404,7 @@ def _find_texture(texture_dir: Path, suffix: str) -> Path | None:
 def make_textured_material(
     name: str, texture_dir: Path, albedo_gain: float = 1.0, led_emission: float = 0.0
 ) -> bproc.types.Material:
-    """Principled BSDF fed by an ambientCG-style set (Color, Roughness, Metalness, NormalGL).
-
-    `albedo_gain` scales the colour map. `led_emission` makes the saturated texels (the LED
-    eyes and mouth on the house bot) glow with their own colour; grey texels stay dark.
-    """
+    """Principled BSDF fed by an ambientCG-style set (Color, Roughness, Metalness, NormalGL)."""
     mat = bproc.material.create(name)
     bsdf = _principled(mat)
     for suffix, socket, non_color in (
@@ -573,7 +564,7 @@ def house_bot_keypoints(parent: bpy.types.Object) -> tuple[np.ndarray, np.ndarra
 
     basis = parent.matrix_world.to_3x3()
     axis = np.array((basis @ mathutils.Vector((1.0, 0.0, 0.0))).normalized().to_tuple())
-    axis[2] = 0.0  # the model stands upright, so its front axis is horizontal
+    axis[2] = 0.0
     axis = axis / max(float(np.linalg.norm(axis)), 1e-9)
 
     center = (points.max(axis=0) + points.min(axis=0)) / 2
@@ -693,9 +684,6 @@ def set_camera(
     bproc.camera.set_resolution(width, height)
     bproc.camera.set_intrinsics_from_K_matrix(k_rect, width, height)
     return int(bproc.camera.add_camera_pose(cam2world, frame=frame))
-
-
-# ------------------------------------------------------------------ rendering helpers
 
 
 def render_poses(

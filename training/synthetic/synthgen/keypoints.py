@@ -1,8 +1,4 @@
-"""Keypoint projection and annotation building (requires Blender).
-
-Pixel statistics are measured here; the keep/drop decisions themselves live in
-the pure ``synthgen.gating`` module so they stay unit-testable.
-"""
+"""Keypoint projection and annotation building (requires Blender)."""
 
 import bpy
 import mathutils
@@ -37,17 +33,7 @@ logger = get_logger(__name__)
 def project_keypoint_to_2d(
     kp_local: np.ndarray, world_mat: np.ndarray
 ) -> tuple[float, float, float] | None:
-    """Project a 3D model-space keypoint to normalized 2D image coordinates.
-
-    Uses Blender's built-in projection which handles all camera conventions.
-
-    Args:
-        kp_local: Keypoint in the object's local (Blender) frame.
-        world_mat: The object's 4x4 world matrix.
-
-    Returns:
-        ``(x_norm, y_norm, depth)`` or None if behind the camera.
-    """
+    """Project a local-frame keypoint to normalized image coordinates and depth, or None."""
     kp_world = world_mat @ np.append(kp_local, 1.0)
     point_3d = mathutils.Vector(kp_world[:3])
 
@@ -73,11 +59,7 @@ def _project_keypoint_pair(
     ignore_occlusion: bool,
     lens: LensView | None = None,
 ) -> list[tuple[float, float, int]]:
-    """Project a front/back keypoint pair to image space with visibility flags.
-
-    Blender projects into the render. With a warped *lens* that is the wide render, so the point
-    is mapped into the written view, and one the view cannot see is out of frame.
-    """
+    """Project a front/back keypoint pair to the written view with visibility flags."""
     keypoints_2d: list[tuple[float, float, int]] = []
     for kp_local in (kp_front, kp_back):
         proj = project_keypoint_to_2d(kp_local, world_mat)
@@ -161,12 +143,7 @@ def build_robot_keypoint_annotations(
     ignore_obstructions: bool,
     lens: LensView | None = None,
 ) -> tuple[list[YoloAnnotation], list[RobotGateVerdict]]:
-    """Build keypoint annotations for every robot that passes its gate.
-
-    Returns:
-        ``(annotations, verdicts)`` — one verdict per scene robot; the frame
-        decision from the verdicts is made by ``gating.decide_keypoint_frame``.
-    """
+    """Build keypoint annotations for every robot that passes its gate."""
     annotations: list[YoloAnnotation] = []
     verdicts: list[RobotGateVerdict] = []
     for robot in scene_robots:

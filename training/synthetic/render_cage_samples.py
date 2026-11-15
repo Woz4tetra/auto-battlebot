@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import blenderproc as bproc  # noqa: F401  # isort: skip  (blenderproc must be imported first)
 
-# BlenderProc insists its import is the first statement, so the module docstring follows it.
 DESCRIPTION = """
 Render labelled robot samples inside the NHRL cage from the fixed cage-high camera.
 

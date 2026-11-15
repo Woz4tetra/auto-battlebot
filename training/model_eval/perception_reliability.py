@@ -66,11 +66,7 @@ class Reliability:
 
 
 def read_reliability(path: Path) -> Reliability:
-    """Read the per-tick perception diagnostics and count FrameId-assigner jump rejects.
-
-    Each /diagnostics message is one runner tick and carries at most one `perception` status. Ticks
-    before the filter initializes have no `perception` status and are skipped.
-    """
+    """Read the per-tick perception diagnostics and count FrameId-assigner jump rejects."""
     frames: list[Frame] = []
     jump_rejects = 0
     has_leak_signal = False
@@ -117,17 +113,14 @@ class Gaps:
 
 
 def _gaps(frames: list[Frame], live: np.ndarray) -> Gaps:
-    """Dropout gaps: maximal runs where `live` is False, in frames and real milliseconds.
-
-    `live` is a per-frame boolean mask aligned to `frames` (True = the track was live this tick).
-    """
+    """Dropout gaps: maximal runs where live is False, in frames and milliseconds."""
     t = np.array([f.t for f in frames])
     n = len(frames)
     lens: list[int] = []
     durs: list[float] = []
     for a, b in _false_runs(live):
         lens.append(b - a)
-        end_t = t[b] if b < n else t[-1]  # recovery time, or end of recording
+        end_t = t[b] if b < n else t[-1]
         durs.append((end_t - t[a]) * 1e3)
     return Gaps(count=len(lens), frames=np.array(lens), ms=np.array(durs))
 
@@ -138,20 +131,12 @@ def opponent_gaps(frames: list[Frame]) -> Gaps:
 
 
 def our_robot_gaps(frames: list[Frame]) -> Gaps:
-    """Dropout gaps: maximal runs with no live OUR_ROBOT_1, in frames and real milliseconds.
-
-    These are the our-robot keypoint-dropout gaps the robot-filter decay plan bounds: the proposed
-    `hold_window` should cover the typical gap (~p90) so the "ours" identity survives it.
-    """
+    """Dropout gaps with no live OUR_ROBOT_1."""
     return _gaps(frames, np.array([f.our_live > 0 for f in frames]))
 
 
 def _print_gap_block(label: str, gaps: Gaps, time_without_pct: float | None = None) -> None:
-    """Print a dropout-gap summary for one track (opponent or our-robot).
-
-    `time_without_pct` (% of ticks with no live track) is printed when given; it is omitted for a
-    pooled block across recordings, where a single live fraction is not meaningful.
-    """
+    """Print a dropout-gap summary for one track."""
     if gaps.count:
         print(
             f"  {label} dropout gaps: {gaps.count}   frames [median {np.median(gaps.frames):.0f}, "

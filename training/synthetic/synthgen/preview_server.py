@@ -100,7 +100,6 @@ class SceneInfo:
     render_height: int
     preview_width: int
     preview_height: int
-    # Rectified intrinsics at both alphas, because the page can switch between them live.
     k_rect_full: list[list[float]]
     k_rect_cropped: list[list[float]]
     k_calibrated: list[list[float]]
@@ -128,8 +127,6 @@ class Mailbox:
         self._frame_times: list[float] = []
         self._seq = 0
 
-    # -- poses -------------------------------------------------------------------------------
-
     def submit_pose(self, request: RenderRequest) -> None:
         """Replace whatever the render loop had not started yet."""
         with self._lock:
@@ -150,8 +147,6 @@ class Mailbox:
     def set_pose(self, request: RenderRequest) -> None:
         """Force the current pose, for a snap or a reset. Same slot, so it still coalesces."""
         self.submit_pose(request)
-
-    # -- frames ------------------------------------------------------------------------------
 
     def publish(self, jpeg: bytes, view: str, render_ms: float, size: tuple[int, int]) -> int:
         with self._frame_ready:
@@ -188,8 +183,6 @@ class Mailbox:
             span = self._frame_times[-1] - self._frame_times[0]
             return (len(self._frame_times) - 1) / span if span > 0 else 0.0
 
-    # -- commands and marks ------------------------------------------------------------------
-
     def push_command(self, command: Command) -> None:
         with self._lock:
             self._commands.append(command)
@@ -212,8 +205,6 @@ class Mailbox:
     def marks(self) -> list[CageMount]:
         with self._lock:
             return list(self._marks)
-
-    # -- status ------------------------------------------------------------------------------
 
     def set_status(self, text: str) -> None:
         with self._lock:
@@ -265,9 +256,6 @@ def mount_readout(
     }
 
 
-# The mat points a robot is shown and measured at: the center plus all eight compass directions.
-# North is +y in the W frame, which is away from the near wall, so it is the top of the image for a
-# camera on that wall.
 COMPASS: tuple[tuple[str, int, int], ...] = (
     ("center", 0, 0),
     ("N", 0, 1),
@@ -339,13 +327,7 @@ def project_world_points(
 
 
 def clip_to_near_plane(points_cam: np.ndarray, near_m: float = NEAR_PLANE_M) -> np.ndarray:
-    """Sutherland-Hodgman clip of a closed polygon against the camera's near plane.
-
-    This is what makes an outline correct when the shape runs past the edges of the lens. A mat
-    corner behind the camera cannot be projected at all, so the polygon is cut where it crosses
-    the near plane and the drawn outline is the true visible silhouette instead of a quad with
-    one corner flung somewhere arbitrary.
-    """
+    """Sutherland-Hodgman clip of a closed polygon against the camera's near plane."""
     points = np.asarray(points_cam, dtype=np.float64).reshape(-1, 3)
     clipped: list[np.ndarray] = []
     for index, current in enumerate(points):
@@ -373,8 +355,6 @@ def overlay_geometry(pose: FreeflyPose, scene: SceneInfo, alpha: float) -> dict[
     )
     k_rect = scene_k_rect(scene, alpha)
     mat_px, mat_front = project_world_points(pose, k_rect, corners)
-    # The stroked outline comes from the near-clipped polygon, not from the four corners: with a
-    # corner behind the lens there is no quad to draw, only the part of the mat still in front.
     outline = project_camera_points(k_rect, clip_to_near_plane(world_to_camera(pose, corners)))
 
     robots = []
@@ -604,7 +584,7 @@ def make_handler(mailbox: Mailbox, router: Router) -> type[BaseHTTPRequestHandle
         protocol_version = "HTTP/1.1"
         disable_nagle_algorithm = True
 
-        def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 - stdlib signature
+        def log_message(self, format: str, *args: Any) -> None:
             logger.debug("%s %s", self.address_string(), format % args)
 
         def _reply(self, response: Response) -> None:
@@ -615,7 +595,7 @@ def make_handler(mailbox: Mailbox, router: Router) -> type[BaseHTTPRequestHandle
             if response.body:
                 self.wfile.write(response.body)
 
-        def do_GET(self) -> None:  # noqa: N802 - stdlib signature
+        def do_GET(self) -> None:
             route = urlparse(self.path)
             if route.path == "/frame":
                 since = parse_qs(route.query).get("since", ["0"])[0]
@@ -627,7 +607,7 @@ def make_handler(mailbox: Mailbox, router: Router) -> type[BaseHTTPRequestHandle
                 return
             self._reply(router.get(route.path))
 
-        def do_POST(self) -> None:  # noqa: N802 - stdlib signature
+        def do_POST(self) -> None:
             try:
                 body = read_json_body(self.headers, self.rfile)
             except ValueError as error:

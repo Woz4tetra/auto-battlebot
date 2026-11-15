@@ -103,8 +103,6 @@ class DamageBudget:
     def take(self, scene_probability: float) -> bool:
         """Whether the next scene is a damaged one, and record the decision."""
         wanted = scene_probability * (self.scenes + 1)
-        # The half-step is the usual rounding tracker: it keeps the running count on the
-        # nearer side of the target share instead of always damaging the first scene.
         decision = self.damaged + 0.5 < wanted
         self.scenes += 1
         self.damaged += int(decision)
@@ -141,12 +139,8 @@ class RemovablePart:
     name: str
     pieces: int
     subset: bool = False
-    # Parts that go with this one, e.g. the weapon disk with the weapon module it hangs on.
     includes: tuple[str, ...] = ()
-    # Subset parts: relative odds of losing 1, 2, ... pieces. Empty means every count is
-    # equally likely; a wheel usually comes off alone, so the wheels weight one heavily.
     count_weights: tuple[float, ...] = ()
-    # False for a part that only goes with another (a decal with its plate): never drawn alone.
     selectable: bool = True
 
 
@@ -230,11 +224,7 @@ def assign_faces_to_pieces(
 
 
 def piece_count(part: RemovablePart) -> int:
-    """How many of a subset part's pieces one draw removes, from ``count_weights``.
-
-    Weights past the part's piece count are ignored and missing ones count as zero, so a
-    wheels part that lost a box to an empty split still draws from the counts it can reach.
-    """
+    """How many of a subset part's pieces one draw removes, from ``count_weights``."""
     counts = list(range(1, part.pieces + 1))
     if not part.count_weights:
         return random.choice(counts)
@@ -251,13 +241,7 @@ def draw_named_part_damage(
     allowed: tuple[str, ...],
     count_range: tuple[int, int],
 ) -> NamedPartDraw | None:
-    """Pick 1..n of the allowed named parts to remove, or None when none is allowed.
-
-    Args:
-        parts: The robot's named parts, in config order. Parts with no pieces are skipped.
-        allowed: The batch's ``[damage].removable_parts``; empty allows every part.
-        count_range: How many distinct parts one draw removes, clamped to what is allowed.
-    """
+    """Pick 1..n of the allowed named parts to remove, or None when none is allowed."""
     by_name = {part.name: part for part in parts if part.pieces > 0}
     candidates = [
         name for name in by_name if by_name[name].selectable and (not allowed or name in allowed)

@@ -250,10 +250,10 @@ def _handle_key(models: list[Model], index: int, key: int, ui: dict[str, Any]) -
         model.save(reviewed=True)
     elif key in (ord("a"), ord(" "), 13, 10):
         model.save(reviewed=True)
-        index += 1  # advancing past the last model ends the review loop
+        index += 1
     elif key == ord("r"):
         model.reject()
-        index += 1  # advancing past the last model ends the review loop
+        index += 1
     elif key == ord("u"):
         model.reset_axis()
         model.save(reviewed=False)
@@ -276,7 +276,6 @@ def main() -> None:
     if not models:
         raise SystemExit(f"No reviewable models matched {args.models} in {models_dir}")
 
-    # Resume on the first model that has not been reviewed or rejected yet.
     start_index = next((i for i, m in enumerate(models) if not m.reviewed and not m.rejected), 0)
 
     print(

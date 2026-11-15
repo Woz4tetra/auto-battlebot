@@ -70,8 +70,6 @@ def per_frame_counts(
         widths = frame.gt_boxes[:, 2] - frame.gt_boxes[:, 0]
         heights = frame.gt_boxes[:, 3] - frame.gt_boxes[:, 1]
         which = np.digitize(np.sqrt(np.clip(widths * heights, 0, None)), edges)
-        # match_indices reports an unmatched GT box as (g, None), so both halves must be
-        # present for it to count as found.
         matched = {
             g for g, p in match_indices(frame, iou_threshold) if g is not None and p is not None
         }

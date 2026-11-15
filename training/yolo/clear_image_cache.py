@@ -39,7 +39,6 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# Datasets live here. `data/` at the repo root holds MCAP/SVO/engines and is off limits.
 DEFAULT_ROOT = Path("training/data")
 PROTECTED = ("data/recordings", "data/models")
 
@@ -70,11 +69,7 @@ def relatime_enabled() -> bool:
 
 
 def dataset_root_for(npy: Path, scan_root: Path) -> Path:
-    """The dataset directory a cache file belongs to.
-
-    Walks up from the ``.npy`` to the child of ``scan_root`` -- i.e. groups
-    ``<root>/<dataset>/<split>/images/x.npy`` under ``<root>/<dataset>``.
-    """
+    """The dataset directory a cache file belongs to."""
     rel = npy.relative_to(scan_root)
     return scan_root / rel.parts[0]
 
@@ -167,7 +162,6 @@ def cmdline_matches(proc: Path, resolved: dict[Path, tuple[str, str]]) -> list[t
     return matches
 
 
-# Directory names every dataset has. Matched on their own they say nothing about which dataset.
 GENERIC_SPLIT_NAMES = frozenset({"train", "val", "valid", "test", "images", "labels"})
 
 

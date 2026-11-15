@@ -47,7 +47,6 @@ from auto_battlebot.perception.camera_geometry import (
     pixels_to_floor,
 )
 
-# Categorical slots 1-3 of the validated default palette, in fixed order.
 SERIES_COLORS = ("#2a78d6", "#eb6834", "#1baf7a")
 GRID_COLOR = "#c9c8c2"
 TEXT_SECONDARY = "#52514e"
@@ -58,14 +57,11 @@ NEAR_THRESHOLDS = (0.02, 0.05, 0.1)
 
 MASK_BINARY_THRESHOLD = 0.5
 
-# The two points an estimate can be graded against. The GT box center is what the labels
-# encode; the keypoint midpoint is what the aim controller is steering at.
 REFERENCES = {
     "gtbox": "the GT box center",
     "kpmid": "the keypoint front/back midpoint",
 }
 
-# Display names, in the order they appear in tables and the plot.
 ESTIMATORS = {
     "centroid": "mask centroid",
     "seg_boxcenter": "seg box center",
@@ -81,8 +77,6 @@ COMPARISONS = (
     ("seg_boxcenter", "gt_boxcenter"),
 )
 
-# `gt_boxcenter` is the GT box center, so grading it against the `gtbox` reference is
-# identically zero. Report it only against the keypoint midpoint.
 DEGENERATE = {("gtbox", "gt_boxcenter")}
 
 
@@ -355,7 +349,6 @@ def collect(args: argparse.Namespace) -> tuple[pd.DataFrame, pd.DataFrame]:
         rows, centroids = centroid_rows(key.stamp_ns, boxes, scores, labels, masks)
         offset_rows.extend(rows)
 
-        # Position error against the GT box center, over class-blind IoU matches.
         seg_pairs = gt_matches(gt_boxes, gt_labels, boxes, labels, scores, args.iou)
 
         bbox_pairs: dict[int, int] = {}
@@ -588,11 +581,7 @@ def plot(offsets: pd.DataFrame, matched: pd.DataFrame, output: Path) -> None:
 
 
 def plot_keypoint_reference(matched: pd.DataFrame, output: Path) -> None:
-    """Distance from each position estimate to the keypoint midpoint, the true aim point.
-
-    A dot plot rather than overlaid ECDFs: four categories against one measure reads
-    better as rows, and it keeps the series count inside the validated palette's
-    all-pairs cap."""
+    """Distance from each position estimate to the keypoint midpoint."""
     estimators = [e for e in ESTIMATORS if f"err_kpmid_{e}_norm" in matched]
     if not estimators:
         return

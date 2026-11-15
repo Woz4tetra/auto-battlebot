@@ -108,7 +108,7 @@ def convert_rows(
         except ValueError:
             continue
         dst = index_map.get(src_cls)
-        if dst is None:  # dropped class
+        if dst is None:
             continue
         if not to_bbox or len(coords) == 4:
             out.append(" ".join([str(dst), *(f"{c:.6f}" for c in coords)]))

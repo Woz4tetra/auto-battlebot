@@ -128,7 +128,6 @@ ARMS = (
     # so no `_cagehigh` arm can be measured on it.
     Arm("d50000", None, 50000, venues=ALL_VENUES),
 )
-# (smaller, larger) pairs whose training lists must nest.
 NESTED = (
     ("base", "d2500"),
     ("d2500", "d5000"),
@@ -146,11 +145,7 @@ NESTED = (
 
 
 def selected_arms(only: Sequence[str] | None, scale: float) -> list[Arm]:
-    """The grid, or the named subset of it, with every set count multiplied by *scale*.
-
-    Raises:
-        SystemExit: When *only* names an arm the grid does not have.
-    """
+    """The grid, or a named subset of it, with every set count multiplied by scale."""
     names = {arm.name for arm in ARMS}
     unknown = sorted(set(only or ()) - names)
     if unknown:
@@ -167,11 +162,7 @@ def selected_arms(only: Sequence[str] | None, scale: float) -> list[Arm]:
 
 
 def load_domain(dataset: Path) -> list[DomainFrame]:
-    """Every frame in a merged render, from its manifest.
-
-    Raises:
-        SystemExit: When a row has no view; the view arms cannot be built from such a render.
-    """
+    """Every frame in a merged render, from its manifest."""
     frames = []
     for line in (dataset / "manifest.jsonl").read_text(encoding="utf-8").splitlines():
         if not line.strip():
@@ -186,15 +177,7 @@ def load_domain(dataset: Path) -> list[DomainFrame]:
 
 
 def load_extra_real(root: Path) -> list[Path]:
-    """The frames of a hand-labelled dataset that its review state marks `pass`.
-
-    `validation_state.json` is the authority on what was reviewed; `.edit_state.json` drops whole
-    recordings and is never read. Keys are image paths relative to *root*.
-
-    Raises:
-        SystemExit: When the review state is missing, or a passed frame lacks its image or label,
-            or a label names a class outside `NAMES`.
-    """
+    """The frames a hand-labelled dataset's validation_state.json marks pass."""
     state_path = root / REVIEW_STATE
     if not state_path.is_file():
         raise SystemExit(f"{root}: no {REVIEW_STATE}, so nothing says which frames were reviewed")
@@ -274,11 +257,7 @@ def build_arm(
     seed: int,
     extra_real: Sequence[Path] = (),
 ) -> tuple[list[Path], dict]:
-    """One arm's training frames and its row for manifest.json.
-
-    Raises:
-        SystemExit: When a source holds fewer frames than the arm asks for.
-    """
+    """One arm's training frames and its row in manifest.json."""
     count = len(randomized) if arm.randomized is None else arm.randomized
     if count > len(randomized):
         raise SystemExit(f"{arm.name}: wants {count} randomized frames, pool has {len(randomized)}")

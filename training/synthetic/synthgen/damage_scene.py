@@ -79,7 +79,6 @@ class DamageTarget:
     parent: bpy.types.Object
     meshes: list[bpy.types.Object]
     keypoints: tuple[np.ndarray | None, ...]
-    # Named parts, for a robot with [[robots.damage_parts]]: their draw specs and pieces.
     named_parts: tuple[RemovablePart, ...] = ()
     named_pieces: dict[str, list[list[bpy.types.Object]]] = field(default_factory=dict)
 
@@ -277,8 +276,6 @@ def _apply_chunk_draw(
     cutter = pool.acquire(draw.shape)
     if cutter is None:
         return False
-    # The draw is already in world space, and the cutter is an unparented world object, so
-    # its location and scale are the drawn numbers with no frame conversion.
     cutter.location = mathutils.Vector(draw.centre)
     cutter.scale = (draw.radius_m, draw.radius_m, draw.radius_m)
     # Random orientation so a cube cutter leaves a different facet shape each time.
@@ -288,7 +285,6 @@ def _apply_chunk_draw(
     modifier.operation = "DIFFERENCE"
     # EXACT copes with the non-manifold Meshy meshes; FAST silently returns the input on them.
     modifier.solver = "EXACT"
-    # The cut faces take the cutter's dark interior material instead of the target's slot 0.
     modifier.material_mode = "TRANSFER"
     modifier.object = cutter
     session.modifiers.append((target, name))
@@ -341,7 +337,6 @@ def _damage_instance(
                 class_name=class_name, damage=part_draw.damage, mechanism=MECHANISM_PARTS
             )
 
-    # One fused mesh, or a part robot where everything is protected: take a bite instead.
     target = max(meshes, key=lambda o: len(getattr(o.data, "vertices", ()) or ()))
     chunk_draw = draw_chunk_damage(
         _world_vertices(target),

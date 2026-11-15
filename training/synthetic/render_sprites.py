@@ -197,10 +197,7 @@ def render_sprite(
     args: argparse.Namespace,
     flipped: bool = False,
 ) -> dict[str, object]:
-    """Import one model, texture it, shoot it from straight above, write the PNG.
-
-    *flipped* lays it on its back first, so the camera sees the underside.
-    """
+    """Import one model, texture it, shoot it from straight above, write the PNG."""
     clear_scene()
 
     model_path = spec.model_path if spec.model_path is not None else robot_config.model_path

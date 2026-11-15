@@ -19,7 +19,6 @@ from synthgen.logsetup import get_logger
 
 logger = get_logger(__name__)
 
-# The Cycles denoiser names the cage spec's ``render.denoiser`` accepts, plus "none".
 _CYCLES_DENOISERS = {
     "OPTIX": "OPTIX",
     "INTEL": "OPENIMAGEDENOISE",

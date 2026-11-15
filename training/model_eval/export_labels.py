@@ -50,11 +50,8 @@ from auto_battlebot.recording.mcap_io import (
 )
 
 TOPICS = {"blob": BLOB_DETECTIONS_TOPIC, "keypoint": KEYPOINT_DETECTIONS_TOPIC}
-# Anchored to this script (training/model_eval/), so it resolves to training/data/model_eval
-# regardless of the working directory.
 DEFAULT_OUTPUT_DIR = Path(__file__).parent.parent / "data" / "model_eval"
 
-# Distinct editor colors, indexed by class id (wraps around).
 DEFAULT_COLORS = [
     "#FF0000",
     "#00FF00",
@@ -90,8 +87,6 @@ def load_recording(
             dets = decode_detections(data)
             detections[key][dets.stamp_ns] = dets
         elif topic == CAMERA_IMAGE_TOPIC:
-            # Key by the header (frame) stamp: log_time is wall clock in playback.
-            # Defer image decoding until we know which frames have detections to pair with.
             images[decode_image_stamp_ns(data)] = data
     return detections, images
 
@@ -215,7 +210,6 @@ def export_recording(mcap_path: Path, output_dir: Path, topic_keys: list[str]) -
     image_stamps = sorted(images)
     matches = {key: match_stamps(sorted(detections[key]), image_stamps) for key in present}
 
-    # Shared images: the union of frames any present model labels, written once.
     needed: dict[int, int] = {}
     for key in present:
         needed.update(matches[key])

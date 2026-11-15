@@ -63,8 +63,6 @@ def _time_loop(
 
 def _load_frame(path: str | None) -> np.ndarray:
     if path is None:
-        # 640x640 mid-grey: valid input, but detection counts are meaningless. Only used
-        # when no eval image is available; the printed banner says so.
         return np.full((640, 640, 3), 128, dtype=np.uint8)
     frame = cv2.imread(path)
     if frame is None:

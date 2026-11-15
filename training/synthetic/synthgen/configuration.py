@@ -894,15 +894,7 @@ def _load_raw(config_path: Path, seen: tuple[Path, ...] = ()) -> dict[str, Any]:
 
 
 def _apply_only_cage(cages: tuple[CageConfig, ...], name: Any) -> tuple[CageConfig, ...]:
-    """Narrow the scene mix to one cage, which then takes every scene.
-
-    This is how a per-venue render is pinned in a file rather than on the command line:
-    the named cage goes to probability 1.0 and every other cage is disabled, so no scene
-    lands in the HDRI arena or the other venue.
-
-    Raises:
-        ConfigError: When no ``[[cages]]`` entry carries *name*.
-    """
+    """Narrow the scene mix to one cage, which then takes every scene."""
     if name is None:
         return cages
     wanted = str(name)
@@ -922,14 +914,7 @@ DAMAGE_MODES = ("config", "off", "all")
 
 
 def apply_venue(cfg: RenderConfig, venue: str | None) -> RenderConfig:
-    """Pin every scene to one venue from the command line, the way ``only_cage`` does in a file.
-
-    ``venue`` is a ``[[cages]]`` name, or ``"arena"`` for the HDRI arena alone, which drops
-    every cage. None leaves the config's own mix.
-
-    Raises:
-        ConfigError: When *venue* names neither a cage nor the arena.
-    """
+    """Pin every scene to one venue from the command line, the way ``only_cage`` does in a file."""
     if venue is None:
         return cfg
     if venue == ARENA_VENUE:
@@ -974,13 +959,7 @@ def apply_view(cfg: RenderConfig, view: str | None) -> RenderConfig:
 
 
 def apply_damage_parts(cfg: RenderConfig, names: list[str] | None) -> RenderConfig:
-    """Pin the named parts this batch may remove from the command line.
-
-    None keeps ``[damage].removable_parts``.
-
-    Raises:
-        ConfigError: When a name is not a ``[[robots.damage_parts]]`` entry of any robot.
-    """
+    """Pin the named parts this batch may remove from the command line."""
     if names is None:
         return cfg
     _check_removable_parts(cfg.robots, tuple(names), "--damage-parts")
@@ -992,21 +971,7 @@ def load_render_config(
     launch_cwd: Path | None = None,
     project_root: Path | None = None,
 ) -> RenderConfig:
-    """Load and validate config.toml into typed dataclasses.
-
-    Args:
-        config_path: Path to config.toml (resolved against launch CWD and
-            project root when relative).
-        launch_cwd: Override for the launch working directory (defaults to
-            ``BLENDERPROC_CWD`` or the process CWD).
-        project_root: Override for the repository root.
-
-    Returns:
-        The fully parsed configuration.
-
-    Raises:
-        ConfigError: When a required key is missing or a value is malformed.
-    """
+    """Load and validate config.toml into typed dataclasses."""
     if launch_cwd is None:
         launch_cwd = Path(os.environ.get("BLENDERPROC_CWD", os.getcwd()))
     if project_root is None:

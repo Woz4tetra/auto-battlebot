@@ -110,8 +110,6 @@ def freefly_from_cam2world(cam2world: np.ndarray) -> FreeflyPose:
     up = matrix[:3, 1]
 
     if abs(float(forward[2])) > _DEGENERATE_COS:
-        # Looking near-straight-down: the optical axis carries no heading, so take it from the
-        # image's own up axis and call the remaining rotation yaw rather than roll.
         heading = _unit_horizontal(up)
         yaw_deg = math.degrees(math.atan2(heading[0], heading[1]))
     else:
@@ -172,16 +170,10 @@ def mount_from_cam2world(
 
 
 def mount_residual(cam2world: np.ndarray, mount: CageMount, wall_half_m: float) -> MountResidual:
-    """Meters and degrees between a flown pose and *mount*'s pose.
-
-    Against `mount_from_cam2world`'s own answer this reads zero and is a live self-check that the
-    two directions have not drifted. Against a clamped mount it is the real number: how far outside
-    the sampling ranges the camera has been flown.
-    """
+    """Meters and degrees between a flown pose and mount's pose."""
     flown = np.asarray(cam2world, dtype=np.float64)
     projected = mount_cam2world(mount, wall_half_m)
     position_m = float(np.linalg.norm(flown[:3, 3] - projected[:3, 3]))
-    # Angle of the rotation that takes one camera basis to the other.
     relative = projected[:3, :3].T @ flown[:3, :3]
     cosine = float(np.clip((np.trace(relative) - 1.0) / 2.0, -1.0, 1.0))
     return MountResidual(position_m=position_m, angle_deg=math.degrees(math.acos(cosine)))
@@ -208,11 +200,7 @@ def clamp_mount_to_ranges(mount: CageMount, ranges: CageMountRanges) -> CageMoun
 def ranges_covering(
     mounts: list[CageMount], pad_m: float = 0.0, pad_deg: float = 0.0
 ) -> CageMountRanges:
-    """The smallest `CageMountRanges` containing every mount in *mounts*, widened by the pads.
-
-    Lengths widen by *pad_m* on each side and angles by *pad_deg*, so one number cannot be applied
-    to two different units by accident.
-    """
+    """The smallest CageMountRanges containing every mount, widened by the pads."""
     if not mounts:
         raise ValueError("no mounts marked; fly to a pose and mark it before saving ranges")
     walls = tuple(wall for wall in WALLS if any(mount.wall == wall for mount in mounts))

@@ -34,7 +34,6 @@ from pathlib import Path
 from random import Random
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp"}
-# Derived files that sit next to images (ultralytics cache="disk"); never pooled.
 DERIVED_EXTS = {".npy", ".cache"}
 
 
@@ -69,7 +68,6 @@ def select_synth(frames: list[Path], fraction: float, order: str, seed: int) -> 
     keep = round(fraction * len(frames))
     if order == "sequential":
         return frames[:keep]
-    # random: seeded, reproducible, comparable to the sequential arm at the same fraction.
     shuffled = list(frames)
     Random(seed).shuffle(shuffled)
     return shuffled[:keep]

@@ -73,19 +73,7 @@ def evaluate_robot_gate(
     min_visibility: float,
     ignore_obstructions: bool,
 ) -> RobotGateVerdict:
-    """Decide whether one robot gets a keypoint annotation.
-
-    Args:
-        stats: The robot's pixel measurements for this frame.
-        min_visibility: Minimum visible/unobstructed pixel fraction
-            (``output.min_robot_visibility``).
-        ignore_obstructions: When True, all occlusion checks are skipped
-            (``output.ignore_obstructions``).
-
-    Returns:
-        The gate verdict; ``frame_fatal`` is set when the robot is skipped but
-        prominently visible, which should drop the whole frame.
-    """
+    """Decide whether one robot gets a keypoint annotation."""
     skip_reason: RobotSkipReason | None = None
     detail = ""
 
@@ -127,16 +115,7 @@ def evaluate_robot_gate(
 
 
 def decide_keypoint_frame(verdicts: list[RobotGateVerdict], annotation_count: int) -> FrameDecision:
-    """Decide whether a keypoint-mode frame gets written.
-
-    Args:
-        verdicts: Gate verdicts for every robot in the scene.
-        annotation_count: Total annotations built for the frame (robots plus
-            keypoint-carrying distractors).
-
-    Returns:
-        The frame decision with a drop reason when applicable.
-    """
+    """Decide whether a keypoint-mode frame gets written."""
     fatal = [v for v in verdicts if v.frame_fatal]
     if fatal:
         worst = max(fatal, key=lambda v: v.stats.visible_px)
@@ -160,16 +139,7 @@ def decide_seg_frame(
     annotated_category_ids: set[int],
     robot_class_ids: set[int],
 ) -> FrameDecision:
-    """Decide whether a segmentation-mode frame gets written.
-
-    Args:
-        visible_category_ids: Foreground class ids present in the segmap.
-        annotated_category_ids: Class ids that produced polygon annotations.
-        robot_class_ids: The class ids that represent target robots.
-
-    Returns:
-        The frame decision with a drop reason when applicable.
-    """
+    """Decide whether a segmentation-mode frame gets written."""
     if visible_category_ids == {SEG_FLOOR_CLASS_ID}:
         return FrameDecision(
             keep=False, drop_reason=DropReason.SEG_FLOOR_ONLY, detail="only floor visible"

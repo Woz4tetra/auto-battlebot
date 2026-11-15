@@ -37,11 +37,7 @@ RASTER = (
 
 
 def polygon_to_bbox(coords: list[float]) -> tuple[float, float, float, float] | None:
-    """Axis-aligned normalized bbox (cx, cy, w, h) from a flat [x, y, x, y, ...] polygon.
-
-    Naive min/max over every point. Kept for callers that genuinely want one box per polygon row;
-    prefer ``top_contours_bbox`` for mask-derived labels -- see its docstring for why.
-    """
+    """Axis-aligned normalized bbox (cx, cy, w, h) of a flat polygon."""
     xs, ys = coords[0::2], coords[1::2]
     if len(xs) < 3 or len(ys) < 3:
         return None
@@ -136,10 +132,7 @@ def top_contours_bbox(
 
 
 def convert_label(text: str) -> list[str]:
-    """Convert one polygon label file to box rows: **one box per class**, top-3 contours.
-
-    Rows already in box form (4 coords) pass through untouched.
-    """
+    """Convert one polygon label file to box rows, one box per class."""
     by_class: dict[int, list[list[float]]] = defaultdict(list)
     out_lines: list[str] = []
     for raw in text.splitlines():

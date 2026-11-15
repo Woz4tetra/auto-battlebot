@@ -158,13 +158,7 @@ def mounts_behind_walls(
     venue_walls: Sequence[tuple[str, tuple[float, float], tuple[float, float]]],
     margin_m: float = 0.10,
 ) -> list[str]:
-    """One message per mount corner that a venue wall hides the mat from, empty when none does.
-
-    *venue_walls* are (name, start, end) segments in W, as `[[walls]]` in a cage spec gives
-    them. A wall's box side is the side the mat centre is on. A corner is blocked when it is
-    within *margin_m* of the wall's plane or past it, and abreast of the segment: a camera
-    beyond a wall's end sees round it and is left alone.
-    """
+    """One message per mount corner that a venue wall hides the mat from, empty when none does."""
     blocked = []
     for name, start, end in venue_walls:
         a, b = np.asarray(start, dtype=float), np.asarray(end, dtype=float)

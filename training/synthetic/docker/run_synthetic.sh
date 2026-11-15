@@ -39,7 +39,6 @@ require_gpu=0
 while [ $# -gt 0 ]; do
   case "${1:-}" in
     --port)
-      # Published on the loopback interface only: this is a dev tool, not a service.
       docker_port_args+=(-p "127.0.0.1:${2}:${2}")
       shift 2
       ;;
@@ -80,8 +79,6 @@ fi
 hf_cache_host="${HOME}/.cache/huggingface"
 mkdir -p "$hf_cache_host"
 
-# Resolve repository root from this script location so behavior is stable
-# regardless of the caller's current working directory.
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/../../.." && pwd)"
 

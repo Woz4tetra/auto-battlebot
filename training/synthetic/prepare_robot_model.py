@@ -56,10 +56,7 @@ def _color_from_node(node: bpy.types.ShaderNode) -> tuple[int, int, int] | None:
 
 
 def _color_from_material_name(name: str) -> tuple[int, int, int] | None:
-    """Parse RGB from material names like '0.501961_0.501961_0.501961_...'
-
-    Common in CAD-exported GLTFs where names are auto-generated from RGBA.
-    """
+    """Parse RGB from CAD-exported material names like 0.501961_0.501961_0.501961_."""
     parts = name.split("_")
     if len(parts) >= 3:
         try:
@@ -72,12 +69,7 @@ def _color_from_material_name(name: str) -> tuple[int, int, int] | None:
 
 
 def get_material_base_color(mat: bpy.types.Material) -> tuple[int, int, int] | None:
-    """Extract the base color RGB (0-255) from a Blender material.
-
-    Tries, in order: the Principled BSDF default value (when no texture is
-    linked), the connected source node's color output, and finally the
-    material name (for CAD-exported GLTFs that encode color in the name).
-    """
+    """Extract the base color RGB (0-255) from a Blender material."""
     if not mat.use_nodes:
         return _color_from_material_name(mat.name)
     bsdf = None
@@ -343,12 +335,7 @@ def _wire_displacement_channel(tree: bpy.types.NodeTree, texture_dir: Path) -> b
 
 
 def _apply_pbr_textures(bpy_mat: bpy.types.Material, texture_dir: Path) -> None:
-    """Load PBR image textures from *texture_dir* and wire them into the material.
-
-    Scans for files containing standard PBR suffixes (Color, Roughness,
-    Metalness, NormalGL, Displacement) and connects them to the corresponding
-    Principled BSDF inputs.  Uses the model's existing UV mapping.
-    """
+    """Load PBR image textures from texture_dir and wire them into the material."""
     if not bpy_mat.use_nodes:
         bpy_mat.use_nodes = True
     tree = bpy_mat.node_tree
@@ -547,8 +534,6 @@ def apply_pbr_materials(
     cc_materials_cache: dict[str, bproc.types.Material],
 ) -> None:
     """Replace GLTF placeholder materials with PBR textures based on color mapping."""
-    # Keep prior behavior (load during apply) while preserving materials across
-    # multiple robots in one run.
     loaded_this_pass = _load_cc_materials(materials_config, cc_textures_dir)
     if loaded_this_pass:
         cc_materials_cache.update(loaded_this_pass)
@@ -685,12 +670,7 @@ def _slugify(name: str) -> str:
 
 
 def _resolve_output_path(user_path: Path, robot_name: str, default_ext: str, multi: bool) -> Path:
-    """Turn a user-supplied path into a concrete file path.
-
-    If *user_path* looks like a directory (no image extension or ends with /),
-    the output file is placed inside it.  When *multi* is true, the robot name
-    is always embedded in the filename.
-    """
+    """Turn a user-supplied path into a concrete output file path."""
     is_dir = not user_path.suffix or user_path.suffix.lower() not in _KNOWN_OUTPUT_EXTENSIONS
     slug = _slugify(robot_name)
     if is_dir:
@@ -802,7 +782,6 @@ def main() -> None:
             out = _resolve_output_path(args.export_gltf, rname, ".glb", multi)
             out = resolve_path(out)
             out.parent.mkdir(parents=True, exist_ok=True)
-            # Select only this robot's meshes for export
             bpy.ops.object.select_all(action="DESELECT")
             for obj in meshes:
                 obj.select_set(True)

@@ -212,8 +212,6 @@ def main() -> None:
     print(f"GT: {len(gt_frames)} frames, classes: {names}")
 
     cpp_by_stamp = read_cpp_detections(args.cpp_mcap, TOPICS[args.topic])
-    # GT frames carry a subdataset alongside the stamp; the C++ recordings are keyed by
-    # stamp alone, so the match runs over stamps and the result is read back per frame.
     matches = match_stamps(
         sorted(key.stamp_ns for key in gt_frames), sorted(cpp_by_stamp), STAMP_TOLERANCE_NS
     )

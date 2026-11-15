@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import blenderproc as bproc  # noqa: F401  # isort: skip  (blenderproc must be imported first)
 
-# BlenderProc insists its import is the first statement, so the module docstring follows it.
 DESCRIPTION = """Fly a camera around the built cage with WASD and a mouse, and save where it landed.
 
 Runs under `blenderproc run` inside the auto-battlebot-synthetic image, and serves a page the host
@@ -171,7 +170,7 @@ def find_mount_ranges(config_path: Path, cage_name: str) -> CageMountRanges:
     """The `[cages.mount]` ranges the live readout is judged against."""
     try:
         config = load_render_config(config_path)
-    except Exception as error:  # noqa: BLE001 - a bad config must not stop the tool from flying
+    except Exception as error:
         logger.warning(
             "could not read %s (%s); falling back to default mount ranges", config_path, error
         )
@@ -419,7 +418,7 @@ def render_loop(
             jpeg, elapsed_ms, size = renderer.render_preview(
                 freefly_cam2world(request.pose), request.view, request.alpha
             )
-        except Exception as error:  # noqa: BLE001 - one bad frame must not end the session
+        except Exception as error:
             logger.exception("preview render failed: %s", error)
             mailbox.set_status(f"render failed: {error}")
             time.sleep(0.25)

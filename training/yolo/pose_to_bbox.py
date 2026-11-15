@@ -50,12 +50,7 @@ def parse_class_map(spec: str | None) -> dict[int, int]:
 
 
 def convert_label(text: str, class_map: dict[int, int]) -> tuple[list[str], int]:
-    """Convert one pose label file's rows to box rows. Returns (rows, malformed count).
-
-    Keeps ``class cx cy w h`` (first four coords), drops any keypoint columns, and
-    applies ``class_map`` (classes absent from the map are left unchanged). A row with
-    fewer than four coords is malformed (not a valid box) and is dropped and counted.
-    """
+    """Convert one pose label file's rows to box rows; returns (rows, malformed count)."""
     out_lines: list[str] = []
     malformed = 0
     for raw in text.splitlines():
@@ -71,7 +66,7 @@ def convert_label(text: str, class_map: dict[int, int]) -> tuple[list[str], int]
         if len(coords) < 4:
             malformed += 1
             continue
-        cx, cy, w, h = coords[:4]  # box only; drop keypoint columns
+        cx, cy, w, h = coords[:4]
         if w <= 0 or h <= 0:
             malformed += 1
             continue

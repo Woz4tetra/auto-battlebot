@@ -59,8 +59,8 @@ def clean_name_from_token(token: str) -> str:
     token = token.strip()
     if not token:
         return ""
-    token = token.rsplit("/", 1)[-1]  # drop any scheme/directory prefix
-    return Path(token).stem  # drop the .png extension
+    token = token.rsplit("/", 1)[-1]
+    return Path(token).stem
 
 
 def _thumbnail_path(thumb_dir: Path, entry: dict[str, Any], clean_name: str) -> Path:
@@ -86,7 +86,6 @@ def set_rejected(
             rejected_dir.mkdir(parents=True, exist_ok=True)
             src.replace(rejected_dir / src.name)
     else:
-        # Restore a previously-rejected PNG if it is sitting in the archive.
         archived = rejected_dir / src.name
         if archived.exists() and not src.exists():
             src.parent.mkdir(parents=True, exist_ok=True)
@@ -101,11 +100,6 @@ def clear_decision(
         entry, False, thumb_dir=thumb_dir, rejected_dir=rejected_dir, clean_name=clean_name
     )
     entry[_THUMB_REVIEWED_KEY] = False
-
-
-# ---------------------------------------------------------------------------
-# Bulk (non-interactive) reject
-# ---------------------------------------------------------------------------
 
 
 def _gather_tokens(args: argparse.Namespace) -> list[str]:
@@ -146,11 +140,6 @@ def _bulk_reject(
     print(f"\nFlagged {rejected} bot(s) as rejected. State written to {state_path}.")
     if unknown:
         print(f"{len(unknown)} name(s) not found in state (ignored): {', '.join(unknown)}")
-
-
-# ---------------------------------------------------------------------------
-# Interactive review
-# ---------------------------------------------------------------------------
 
 
 def _reviewable_bots(state: dict[str, Any], thumb_dir: Path) -> list[str]:
@@ -268,7 +257,7 @@ def _run_interactive(
         clean_name = names[index]
         entry = state[clean_name]
         src = _thumbnail_path(thumb_dir, entry, clean_name)
-        if not src.exists():  # rejected PNGs live in the archive dir
+        if not src.exists():
             src = rejected_dir / src.name
         img = _load_thumb(src)
         if img is None:

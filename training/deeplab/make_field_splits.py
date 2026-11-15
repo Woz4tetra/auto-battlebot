@@ -94,8 +94,6 @@ def choose_eval_scenes(
             subset for size in range(1, len(scenes)) for subset in combinations(scenes, size)
         ]
     else:
-        # Greedy over a seeded shuffle: add scenes while that moves the total toward
-        # the target. Only reachable for a field with more scenes than we have today.
         order = scenes[:]
         rng.shuffle(order)
         picked: list[str] = []

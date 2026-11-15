@@ -6,33 +6,13 @@ import numpy as np
 
 
 def model_to_blender_local(vec: "list[float] | np.ndarray") -> np.ndarray:
-    """Convert model-space keypoints (OnShape/GLTF) into Blender local axes.
-
-    GLTF import applies axis conversion (Y-up -> Z-up), so keypoints authored in
-    the model's native frame must be remapped before projection/visibility tests.
-
-    Args:
-        vec: XYZ position in the model's native (GLTF, Y-up) frame.
-
-    Returns:
-        The position in Blender local (Z-up) axes.
-    """
+    """Convert model-space (glTF Y-up) keypoints into Blender local (Z-up) axes."""
     x, y, z = [float(v) for v in vec]
     return np.array([x, -z, y], dtype=float)
 
 
 def narrow_fov(sensor_fov: float, width_px: int, height_px: int) -> float:
-    """Smaller of the horizontal/vertical field of view, in radians.
-
-    Args:
-        sensor_fov: Camera FOV along the longer image dimension (radians).
-        width_px: Render width in pixels.
-        height_px: Render height in pixels.
-
-    Returns:
-        The FOV along the narrower image dimension (radians); ``sensor_fov``
-        unchanged when the resolution is degenerate.
-    """
+    """Smaller of the horizontal and vertical field of view, in radians."""
     if width_px <= 0 or height_px <= 0:
         return sensor_fov
     short, long = (height_px, width_px) if width_px >= height_px else (width_px, height_px)

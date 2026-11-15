@@ -48,7 +48,6 @@ class TestMatchMaterialType:
         assert fallback is False
 
     def test_nearest_fallback_within_ceiling(self) -> None:
-        # 20 units off gray: outside tolerance 1, inside the 45.0 fallback.
         material, dist, fallback = match_material_type((148, 128, 128), MAPPING)
         assert material == "aluminum"
         assert dist == pytest.approx(20.0)

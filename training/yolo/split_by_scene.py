@@ -67,7 +67,6 @@ SCENE_PATTERNS = (
 
 DATE_RE = re.compile(r"(20\d{2})-(\d{2})-(\d{2})")
 TOURNAMENT_RE = re.compile(r"nhrl_([a-z]+)(\d{2})_")
-# Some early recordings are named by unix epoch seconds (e.g. "1729981569.1952372").
 EPOCH_RE = re.compile(r"(?<!\d)(1[5-9]\d{8})(?!\d)")
 MONTHS = {
     "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "june": 6, "jun": 6,

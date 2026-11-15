@@ -209,7 +209,6 @@ def main() -> None:
             f"{len(frames) / len(pool_frames) * 100:8.1f} %"
         )
 
-    # nesting is a correctness property, not an intention -- assert it
     for smaller, larger in (
         ("scene50", "scene75"),
         ("scene75", "base100"),

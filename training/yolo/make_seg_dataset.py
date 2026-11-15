@@ -1,16 +1,5 @@
 #!/usr/bin/env python3
-"""
-Build a flat YOLO-seg dataset from one or more segmentation datasets.
-
-For each image:
-- floor_only mode: keep floor polygons minus all non-floor polygons
-- merged_classes mode: remap source class IDs into configured class groups
-
-Output is a flat dataset:
-- <output>/images/*.jpg|png|...
-- <output>/labels/*.txt
-- <output>/data.yaml
-"""
+"""Build a flat YOLO-seg dataset from one or more segmentation datasets."""
 
 from __future__ import annotations
 
@@ -258,7 +247,6 @@ def parse_yolo_seg_rows(
         except ValueError:
             continue
 
-        # YOLO-seg: class x1 y1 ... xn yn
         if len(values) < 6 or len(values) % 2 != 0:
             continue
 
@@ -659,7 +647,6 @@ def build_floor_rows(
     if not pieces:
         return []
 
-    # Keep only largest polygons to control output size.
     pieces = sorted(pieces, key=lambda p: p.area, reverse=True)[:max_polygons]
 
     out_rows: list[str] = []

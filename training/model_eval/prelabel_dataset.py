@@ -123,7 +123,7 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=0, help="Seed for the hold-out draw")
     args = parser.parse_args()
 
-    from ultralytics import YOLO  # deferred: slow import, and --help should not pay it
+    from ultralytics import YOLO
 
     model = YOLO(str(args.model))
     renames = parse_map(args.map)

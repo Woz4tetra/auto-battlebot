@@ -210,7 +210,6 @@ class CageStage:
     ) -> None:
         self._cfg = cage_cfg
         self._spec = spec
-        # The view this cage writes, and the camera Blender renders it through.
         self.lens = lens
         self._width = width
         self._height = height

@@ -1,19 +1,4 @@
-"""Run YOLO inference on still images using a TensorRT engine file.
-
-Thin CLI around auto_battlebot.perception.trt_yolo, the same library the video CLI and
-training/model_eval/score.py use, so detections match the C++ YoloKeypointModel path:
-same letterbox preprocessing, same output decode, same per-class NMS.
-
-Inputs accept files, directories, and shell-style globs. Quote a glob to let the script
-expand it instead of the shell (needed for recursive '**' patterns).
-
-Usage:
-  python training/yolo/test_tensorrt_image.py model.engine frame.png -o out/
-  python training/yolo/test_tensorrt_image.py model.engine 'renders/**/*.png' --num-classes 2
-  python training/yolo/test_tensorrt_image.py model.engine images_dir/ --names data.yaml --show
-
-Requires: tensorrt, pycuda, opencv-python, numpy
-"""
+"""Run YOLO inference on still images using a TensorRT engine file."""
 
 from __future__ import annotations
 
@@ -135,8 +120,6 @@ def resolve_image_paths(specs: list[str], recursive: bool) -> list[Path]:
         elif path.exists():
             paths.append(path)
         else:
-            # Unexpanded glob (quoted, or no shell match). recursive=True costs nothing
-            # when the pattern has no '**'.
             matches = [Path(m) for m in glob.glob(spec, recursive=True)]
             if not matches:
                 raise FileNotFoundError(f"No images match: {spec}")

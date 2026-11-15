@@ -59,9 +59,6 @@ GEN = torch.Generator(device="cpu").manual_seed(0)
 RNG = np.random.default_rng(0)
 
 
-# ----------------------------- data -----------------------------
-
-
 def anchor_centers() -> np.ndarray:
     """(8400, 2) anchor-center pixel coords across the 3 detection scales, matching head order."""
     pts = []
@@ -138,9 +135,6 @@ def load_eval(root: Path, max_frames: int) -> list[dict]:
     return frames
 
 
-# ----------------------------- model -----------------------------
-
-
 class Model:
     """Wraps a YOLO .pt: raw opponent-score readout + backbone embedding + Grad-CAM at layer 16."""
 
@@ -212,7 +206,7 @@ class Model:
                         torch.sigmoid(cls_maps[j][0, OPP_CHANNELS]).amax(0).reshape(-1)
                         for j in range(3)
                     ]
-                )  # (8400,) opponent prob per anchor, matches anchor_centers order
+                )
                 cx, cy = self.anchors[:, 0], self.anchors[:, 1]
                 inside = (cx >= box[0]) & (cx <= box[2]) & (cy >= box[1]) & (cy <= box[3])
                 idx = np.where(inside)[0]
@@ -227,9 +221,6 @@ class Model:
             for h in handles:
                 h.remove()
         return cv2.resize(cam_np, (IMGSZ, IMGSZ))
-
-
-# ----------------------------- metrics -----------------------------
 
 
 def mass_fractions(sal: np.ndarray, box: list[float]) -> dict[str, float]:
@@ -255,9 +246,6 @@ def mass_fractions(sal: np.ndarray, box: list[float]) -> dict[str, float]:
         out[f"{name}_frac"] = float(frac)
         out[f"{name}_concentration"] = float(frac / area_frac)
     return out
-
-
-# ----------------------------- probes -----------------------------
 
 
 def rise(model: Model, frames: list[dict], n_masks: int, grid: int) -> dict:
@@ -389,9 +377,6 @@ def gradcam_probe(model: Model, frames: list[dict], k: int) -> dict:
     return {"agg": agg, "examples": examples}
 
 
-# ----------------------------- crops for feature space -----------------------------
-
-
 def opponent_crops(frames: list[dict], k: int) -> list[np.ndarray]:
     crops = []
     for fr in frames:
@@ -456,9 +441,6 @@ def _iou(a: list[float], b: list[float]) -> float:
     return inter / (ua + 1e-8)
 
 
-# ----------------------------- figures -----------------------------
-
-
 def save_overlays(examples: list, path: Path, title: str) -> None:
     if not examples:
         return
@@ -498,9 +480,6 @@ def save_embedding_scatter(feats: dict, path: Path, title: str) -> None:
     fig.tight_layout()
     fig.savefig(path, dpi=100)
     plt.close(fig)
-
-
-# ----------------------------- main -----------------------------
 
 
 PROBES = ("rise", "cut_paste", "feature_space", "gradcam")

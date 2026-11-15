@@ -1,12 +1,5 @@
 #!/usr/bin/env python3
-"""
-Plot YOLO training results from a results.csv file.
-
-Usage:
-    python3 plot_results.py results.csv
-    python3 plot_results.py results.csv --output training_plot.png
-    python3 plot_results.py results.csv --show
-"""
+"""Plot YOLO training results from a results.csv file."""
 
 import argparse
 import sys
@@ -84,7 +77,6 @@ PANEL_GROUPS = [
     ),
 ]
 
-# Distinct colors for lines within each panel
 LINE_COLORS = [
     "#E74C3C",
     "#3498DB",
@@ -173,7 +165,6 @@ def make_figure(df: pd.DataFrame, csv_path: Path) -> plt.Figure:
         ax = fig.add_subplot(gs[row, col])
         plot_panel(ax, df, title, series_specs)
 
-    # If odd number of panels, hide the last empty cell
     if n_panels % n_cols != 0:
         ax_empty = fig.add_subplot(gs[n_rows - 1, n_cols - 1])
         ax_empty.set_visible(False)

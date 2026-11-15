@@ -1,10 +1,4 @@
-"""Distractor model loading, placement, and pool management (requires Blender).
-
-Distractors are decoy objects (Objaverse props and CAD NHRL robots) placed
-around the target robots. The pool is loaded within an approximate VRAM budget
-and periodically re-rolled; CAD distractors can carry keypoint sidecars that
-turn into ``nhrl_robot`` annotations in keypoint mode.
-"""
+"""Distractor model loading, placement, and pool management (requires Blender)."""
 
 import math
 import random
@@ -104,13 +98,7 @@ def load_distractor(
     instance_id: int = 0,
     keypoints: tuple[np.ndarray, np.ndarray] | None = None,
 ) -> DistractorInstance | None:
-    """Load a single distractor model under a parent empty.
-
-    Returns the loaded instance, or None on failure. The parent empty controls
-    transform for the whole group so sub-parts keep their relative positions.
-    When *keypoints* is given (CAD distractors in keypoint mode), the front/back
-    positions and *instance_id* are kept for later annotation extraction.
-    """
+    """Load a single distractor model under a parent empty, or None on failure."""
     try:
         suffix = file_path.suffix.lower()
         if suffix in (".glb", ".gltf"):
@@ -170,8 +158,6 @@ def load_distractor(
             kp_back=keypoints[1] if keypoints is not None else None,
         )
     except Exception as e:
-        # Model files come from the wild (Objaverse, mesh reconstruction) and
-        # can fail import in arbitrary ways; a bad file must not kill the run.
         logger.warning("Failed to load distractor %s: %s", file_path.name, e)
         return None
 
@@ -377,11 +363,7 @@ def _ray_hits_distractor(
     origin: mathutils.Vector,
     target: mathutils.Vector,
 ) -> bpy.types.Object | None:
-    """Cast a ray from *origin* toward *target*.
-
-    Returns the first distractor object hit between the two points, or
-    *None* if the path is clear (or hits a non-distractor).
-    """
+    """Cast a ray from origin toward target; return the first distractor hit or None."""
     direction = target - origin
     dist = direction.length
     direction.normalize()
@@ -398,13 +380,7 @@ def clear_blocking_distractors(
     keypoints_world: list[mathutils.Vector],
     active_distractors: list[DistractorInstance],
 ) -> None:
-    """Hide distractors that block the camera's view of every robot keypoint.
-
-    For each camera pose, rays are cast toward each keypoint.  A distractor
-    is only hidden when it blocks *all* keypoints from a given camera — if at
-    least one keypoint is reachable the distractor is kept.  The process
-    repeats until every camera can see at least one keypoint.
-    """
+    """Hide distractors that block the camera's view of every robot keypoint."""
     bpy.context.view_layer.update()
     scene = bpy.context.scene
     hidden: set[int] = set()
@@ -493,8 +469,6 @@ class DistractorPoolManager:
             )
         for distractor in self.pool:
             hide_distractor(distractor)
-        # Segmentation pass indices are assigned at call time only. Refreshing
-        # distractors creates new meshes, so we must re-run this assignment.
         self._enable_segmentation()
         self.images_since_shuffle = 0
 

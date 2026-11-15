@@ -107,7 +107,7 @@ class TestSegAnnotationsFromSegmap:
 
     def test_tiny_blob_becomes_rectangle(self) -> None:
         seg = np.zeros((20, 20), dtype=np.int32)
-        seg[10, 10] = 2  # single pixel -> contour with < 3 points
+        seg[10, 10] = 2
         annotations = segmentation_annotations_from_segmap(seg, 20, 20)
         assert len(annotations) == 1
         _, polygon = annotations[0]

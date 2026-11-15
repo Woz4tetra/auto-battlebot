@@ -292,9 +292,6 @@ class CageSceneSpec:
     render: RenderSpec = field(default_factory=RenderSpec)
 
 
-# ----------------------------------------------------------------------------- loading
-
-
 def _build(cls: Any, data: Any) -> Any:
     """Recursively build a frozen dataclass from a TOML table, rejecting unknown keys."""
     if not (isinstance(cls, type) and is_dataclass(cls)):
@@ -366,9 +363,6 @@ def with_albedo(spec: CageSceneSpec, albedo: str) -> CageSceneSpec:
     return replace(spec, mat=replace(spec.mat, albedo=albedo))
 
 
-# ---------------------------------------------------------------------------- geometry
-
-
 def all_tubes(spec: CageSceneSpec) -> list[TubeLight]:
     """The tube grid expanded to individual tubes, plus any explicit `[[lights.tubes]]`."""
     grid = spec.lights.grid
@@ -396,11 +390,7 @@ Rect = tuple[float, float, float, float]  # x0, x1, y0, y1
 
 
 def subtract_rects(rects: list[Rect], hole: Rect) -> list[Rect]:
-    """Guillotine `hole` out of every rectangle, keeping the pieces axis-aligned.
-
-    A rectangle that overlaps the hole becomes up to four pieces (below, above, left,
-    right of it). Rectangles that miss the hole are passed through untouched.
-    """
+    """Guillotine hole out of every rectangle, keeping the pieces axis-aligned."""
     out: list[Rect] = []
     hx0, hx1, hy0, hy1 = hole
     for x0, x1, y0, y1 in rects:

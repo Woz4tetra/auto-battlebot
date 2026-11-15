@@ -33,7 +33,6 @@ def convert_svo_file(svo_file: Path, channel: int, output: Path, crf: int, prese
     topic, total = find_side_by_side_topic(svo_file)
     fps = sample_fps(svo_file, topic)
 
-    # crop the requested half of the side-by-side frame using intrinsic width.
     crop = "crop=iw/2:ih:0:0" if channel == 0 else "crop=iw/2:ih:iw/2:0"
     # ZED uses intra-refresh (GDR) H.264 with periodic SPS/PPS and no IDR frames,
     # so ffmpeg logs benign "pps_id out of range" / "Overread VUI" warnings on a

@@ -90,11 +90,7 @@ class LensView:
 def build_lens_view(
     calibration: CameraCalibration, size: tuple[int, int], view: str, alpha: float = 1.0
 ) -> LensView:
-    """The render camera and warp maps for *view* at output *size*.
-
-    Raises:
-        ValueError: When *view* is not one of `VIEWS`.
-    """
+    """The render camera and warp maps for view at output size."""
     if view not in VIEWS:
         raise ValueError(f"unknown view {view!r}; valid views are {list(VIEWS)}")
     width, height = size
@@ -258,7 +254,6 @@ def _warp(lens: LensView, array: np.ndarray, interpolation: int) -> np.ndarray:
     if squeeze:
         work = work[:, :, 0]
     map_x, map_y = lens.distortion_map
-    # Replicate is never read in practice: the wide render covers every sensor ray by construction.
     out = cv2.remap(work, map_x, map_y, interpolation, borderMode=cv2.BORDER_REPLICATE)
     if lens.rectify_map is not None:
         rect_x, rect_y = lens.rectify_map

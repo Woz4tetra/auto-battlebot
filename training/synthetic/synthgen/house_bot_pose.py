@@ -13,7 +13,6 @@ import random
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-# Draws before giving up on full clearance and keeping the roomiest draw seen.
 PLACEMENT_TRIES = 200
 
 
@@ -39,13 +38,7 @@ def sample_house_bot_pose(
     clearance: float,
     rng: random.Random | None = None,
 ) -> HouseBotPose:
-    """Draw a pose with the footprint on the mat and at least `clearance` from every robot.
-
-    Positions are uniform over the square that keeps the footprint circle on the mat; the
-    heading is uniform over the full turn. A draw is accepted when every robot centre is at
-    least `radius + robot_radius + clearance` away. After `PLACEMENT_TRIES` rejections the
-    draw with the most room is kept, and its negative margin says by how much it fell short.
-    """
+    """Draw a house bot pose with the footprint on the mat and clear of every robot."""
     rng = rng or random.Random()
     reach = mat_half - radius
     if reach <= 0:

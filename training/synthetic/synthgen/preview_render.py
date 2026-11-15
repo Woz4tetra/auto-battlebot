@@ -57,11 +57,7 @@ PREVIEW_QUALITY = 90
 
 @dataclass(frozen=True)
 class ViewSetup:
-    """One view's lens and render settings, cached so a key press does not rebuild the maps.
-
-    Building a warped lens solves the undistortion for every output pixel, so it is kept here,
-    and switching back to a view re-applies its intrinsics rather than solving again.
-    """
+    """One view's lens and render settings, cached so a key press does not rebuild the maps."""
 
     lens: LensView
     size: tuple[int, int]
@@ -134,8 +130,6 @@ class PreviewRenderer:
         self._setups: dict[tuple[str, bool, float], ViewSetup] = {}
         self._applied: tuple[str, bool, float] | None = None
 
-    # -- properties ------------------------------------------------------------------------
-
     def k_rect(self, alpha: float = 1.0) -> np.ndarray:
         """The rectified matrix for *alpha*, at the full render size."""
         return self._k_rect[alpha]
@@ -147,8 +141,6 @@ class PreviewRenderer:
     @property
     def render_size(self) -> tuple[int, int]:
         return self._render_size
-
-    # -- lifecycle -------------------------------------------------------------------------
 
     def capture_scene_state(self) -> None:
         """Remember the cage's own render settings. Call once, after the cage is active.
@@ -177,8 +169,6 @@ class PreviewRenderer:
         scene.render.resolution_percentage = was
         self._applied = None  # force a full property write on the first real frame
         return time.monotonic() - started
-
-    # -- rendering -------------------------------------------------------------------------
 
     def render_preview(
         self, cam2world: np.ndarray, view: str, alpha: float = 1.0
@@ -214,8 +204,6 @@ class PreviewRenderer:
         _assert_no_keyframes(camera)
         camera.matrix_world = mathutils.Matrix(np.asarray(cam2world, dtype=np.float64).tolist())
         bpy.context.view_layer.update()
-
-    # -- mode and view switching -----------------------------------------------------------
 
     def _apply(self, view: str, preview: bool, alpha: float) -> ViewSetup:
         # The distorted view is the raw sensor frame, which no rectification alpha touches, so it
@@ -306,8 +294,6 @@ class PreviewRenderer:
             intrinsics_size=lens.render_size,
             resolution_percentage=100,
         )
-
-    # -- pixels ----------------------------------------------------------------------------
 
     def _render_to(self, path: Path) -> None:
         scene = bpy.context.scene

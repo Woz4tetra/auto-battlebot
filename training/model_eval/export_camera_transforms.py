@@ -216,7 +216,6 @@ def resolve_dynamic(
     if matches == 1:
         return "exact", dynamic[left][1], {"tf_stamp_ns": int(dynamic[left][0])}
     if matches > 1:
-        # Two processed frames claim this interval. Take the first and say so.
         return (
             "ambiguous",
             dynamic[left][1],

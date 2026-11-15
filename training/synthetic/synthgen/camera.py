@@ -131,8 +131,6 @@ def sample_camera_pose(
             if target_in_frame(cam2world, robot_center):
                 return cam2world, False
 
-    # Deterministic fallback: aim straight at the target with zero noise. The
-    # target then projects at the frame center, so the acceptance test holds.
     cam2world = _pose_toward(cam_pos, np.array(robot_center, dtype=float))
     return cam2world, True
 

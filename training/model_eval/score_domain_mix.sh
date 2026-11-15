@@ -55,7 +55,6 @@ LABELS="mr_stabs_mk2,mrs_buff_mk3,opponent,house_bot"
 candidates=()
 BASELINE=""
 for arm in "${ARMS[@]}"; do
-    # `arm:ckpt` pins one arm to its own checkpoint; a bare arm takes CKPT.
     ckpt=${arm#*:}
     [ "$ckpt" = "$arm" ] && ckpt=$CKPT
     arm=${arm%%:*}

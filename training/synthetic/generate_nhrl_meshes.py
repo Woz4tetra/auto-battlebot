@@ -116,7 +116,7 @@ def _update_audit(dest: Path, audit_csv: Path) -> None:
         rows = load_audit_table(audit_csv)
         rows[str(dest.resolve())] = estimate_model_gpu_row(dest, source=dest.parent.name)
         write_audit_table(audit_csv, rows)
-    except Exception as e:  # noqa: BLE001 - audit is best-effort
+    except Exception as e:
         print(f"  Warning: failed to update audit for {dest.name}: {e}")
 
 

@@ -128,7 +128,6 @@ class SegDataset(Dataset):
 
     @staticmethod
     def _augment(image: Image.Image, mask: Image.Image) -> tuple[Image.Image, Image.Image]:
-        # Photometric (image only)
         image = tv_functional.adjust_brightness(image, pyrandom.uniform(0.7, 1.3))
         image = tv_functional.adjust_contrast(image, pyrandom.uniform(0.7, 1.3))
         image = tv_functional.adjust_saturation(image, pyrandom.uniform(0.7, 1.3))
@@ -136,7 +135,6 @@ class SegDataset(Dataset):
         if pyrandom.random() < 0.3:
             image = tv_functional.gaussian_blur(image, kernel_size=5)
 
-        # Geometric (image + mask together)
         if pyrandom.random() < 0.5:
             image = tv_functional.hflip(image)
             mask = tv_functional.hflip(mask)
@@ -257,26 +255,18 @@ def intermediate_metric_calculation(
     smooth: float = 1e-6,
     dims: tuple[int, int] = (2, 3),
 ) -> torch.Tensor:
-    # dims corresponding to image height and width: [B, C, H, W].
 
-    # Intersection: |G ∩ P|. Shape: (batch_size, num_classes)
     intersection = (predictions * targets).sum(dim=dims)
 
-    # Summation: |G| + |P|. Shape: (batch_size, num_classes).
     summation = predictions.sum(dim=dims) + targets.sum(dim=dims)
 
     if use_dice:
-        # Dice Shape: (batch_size, num_classes)
         metric = (2.0 * intersection + smooth) / (summation + smooth)
     else:
-        # Union. Shape: (batch_size, num_classes)
         union = summation - intersection
 
-        # IoU Shape: (batch_size, num_classes)
         metric = (intersection + smooth) / (union + smooth)
 
-    # Compute the mean over the remaining axes (batch and classes).
-    # Shape: Scalar
     total = metric.mean()
 
     return total
@@ -292,7 +282,6 @@ class Loss(nn.Module):
         # predictions --> (B, #C, H, W) unnormalized (logits)
         # targets     --> (B, #C, H, W) one-hot encoded
 
-        # Numerically stable BCE that fuses sigmoid + log internally
         pixel_loss = functional.binary_cross_entropy_with_logits(
             predictions, targets, reduction="mean"
         )
@@ -307,9 +296,7 @@ class Loss(nn.Module):
 
 
 def convert_2_onehot(matrix: torch.Tensor, num_classes: int = 3) -> torch.Tensor:
-    """
-    Perform one-hot encoding across the channel dimension.
-    """
+    """Perform one-hot encoding across the channel dimension."""
     matrix = matrix.permute(0, 2, 3, 1)
     matrix = torch.argmax(matrix, dim=-1)
     matrix = functional.one_hot(matrix, num_classes=num_classes)
@@ -329,15 +316,12 @@ class Metric(nn.Module):
         # predictions  --> (B, #C, H, W) unnormalized
         # targets      --> (B, #C, H, W) one-hot encoded
 
-        # Converting unnormalized predictions into one-hot encoded across channels.
-        # Shape: (B, #C, H, W)
-        predictions = convert_2_onehot(predictions, num_classes=self.num_classes)  # one hot encoded
+        predictions = convert_2_onehot(predictions, num_classes=self.num_classes)
 
         metric = intermediate_metric_calculation(
             predictions, targets, use_dice=self.use_dice, smooth=self.smooth
         )
 
-        # Compute the mean over the remaining axes (batch and classes). Shape: Scalar
         return metric
 
 
@@ -525,11 +509,7 @@ def log_epoch(
     losses: tuple[Any, Any, Any, Any],
     field_summary: dict[str, float],
 ) -> "csv.DictWriter":
-    """Append one row to metrics.csv, writing the header on the first call.
-
-    score_masks.py grades the checkpoint ladder properly afterwards; this row is what
-    keeps an interrupted or ungraded run readable.
-    """
+    """Append one row to metrics.csv, writing the header on the first call."""
     train_loss, train_metric, valid_loss, valid_metric = losses
     row = {
         "epoch": epoch,
@@ -900,8 +880,6 @@ def main() -> None:
         if args.save_period and epoch % args.save_period == 0:
             save_checkpoint(output / f"ckpt_ep{epoch:03d}.pth")
 
-        # Without a field index there is no per-field summary, so this falls back to the
-        # legacy class-mean IoU rather than silently selecting on nothing.
         selected = field_summary.get(select_metric, float(valid_metric))
         if np.isfinite(selected) and selected >= best_metric:
             print(f"Saving model. {select_metric} {selected:0.4f} >= {best_metric:0.4f}")
