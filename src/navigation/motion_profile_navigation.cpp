@@ -189,9 +189,6 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
     const double now_s = clock_->now();
     const double terminal_velocity = terminal_velocity_for(mode);
 
-    // A flipped switch is a new mission: the goal jumps from the opponent to the safe point (or
-    // back) and the terminal speed changes with it. Carrying the old reference across the flip
-    // would feed the feedforward a dv/dt step that the plant never asked for.
     if (mode != prev_mode_) {
         reset_trajectory_state();
         logger_->debug("mode",
@@ -214,16 +211,10 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
     const double dt = logical_dt_since(prev_speed_timestamp_, now_s);
     prev_speed_timestamp_ = now_s;
 
-    // Without a measurement, carry the last measured speed forward rather than reporting zero. A
-    // zero here would tell the speed feedback the robot is stopped and tell the hazard barrier
-    // there is no momentum to arrest, so the controller would command MORE thrust in exactly the
-    // stretch where it is blind.
     const bool speed_is_measured = measured_speed.has_value();
     if (speed_is_measured) last_measured_speed_ = *measured_speed;
     const double v_actual = last_measured_speed_;
 
-    // Zero-velocity mission complete: cut the command and reset the tracker so the next mission
-    // starts clean. A drive-through mission (terminal velocity > 0) never stops.
     if (terminal_velocity <= 0.0 && distance < stop_distance_) {
         reset_trajectory_state();
         logger_->debug("stop", {{"distance", distance}}, "Reached goal; stopping");
@@ -241,8 +232,6 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
     }
     prev_w_ref_ = w_ref;
 
-    // Only drive forward once roughly facing the target; otherwise turn in place and bleed the
-    // linear state so the robot does not lunge the instant the heading gate opens.
     if (std::abs(angle_error) < angle_threshold_) {
         cmd.linear_x = compute_linear_command(v_ref, dvdt, v_actual, dt, speed_is_measured);
         prev_v_ref_ = v_ref;
@@ -252,11 +241,6 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
     }
 
     apply_wall_reverse(our_body, field, cmd);
-    // The velocity barrier gets the final say on linear_x, after the angle gate and the wall
-    // reverse: it clips the approach-speed component toward every hazard to the plant's
-    // stopping envelope against the MEASURED speed. Placement is the fix from the 2026-08-28
-    // recording: a v_ref-side brake never reaches the plant while the angle gate holds the
-    // channel at zero, and a blind wall reverse can back into a hole; both end here.
     const auto barrier = hazards_.limit_command(our_body, field, v_actual, cmd);
 
     if (max_linear_command_ > 0.0) {
@@ -288,8 +272,6 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
 
 std::optional<double> MotionProfileNavigation::measure_forward_speed(const RobotDescription &robot,
                                                                      const Pose2D &our_pose) const {
-    // A stale track is the filter propagating our own last command, so its velocity is a function
-    // of what this controller asked for. Feeding that back is not feedback.
     if (robot.is_stale) return std::nullopt;
     return robot.velocity.vx * std::cos(our_pose.yaw) + robot.velocity.vy * std::sin(our_pose.yaw);
 }
@@ -303,28 +285,10 @@ double MotionProfileNavigation::compensate_coupling(double command, double effec
 
 double MotionProfileNavigation::compute_reference_speed(double distance, double dt,
                                                         double terminal_velocity) const {
-    // Coast-aware brake schedule for a first-order plant: after the brake command bites, the
-    // residual travel to shed to v_term is ~ v*tau_decel, so keeping v <= v_term + d/brake_horizon
-    // guarantees arrival at v_term. The inverse of the measured plant, not a hand-set brake
-    // distance.
-    //
-    // `distance` needs no latency lead of its own. The motion estimator renders every track at
-    // now + plant.delay_s, so the pose this distance is measured from is already the pose the
-    // robot will hold when this command reaches the wheels. Subtracting v*latency here as well
-    // double-counted that travel and braked early: 10.4 cm at 2 m/s, against a 0.15 m
-    // stop_distance. BrakeScheduleDoesNotSubtractALatencyLead guards it.
-    //
-    // The horizon keeps latency_ on top of tau_decel_, which by that same argument is one delay
-    // too many: the decay starts at the state's own time, so tau_decel_ alone is the derived
-    // value. It stays as margin. Dropping it takes the horizon from 0.252 s to 0.200 s and
-    // raises the reference speed 26% at every distance, and nothing here has been measured
-    // against a stop since. Change it with a field or replay check, not on the algebra.
     const double brake_horizon = std::max(tau_decel_ + latency_, 1e-3);
     double v_ref = terminal_velocity + distance / brake_horizon;
     v_ref = std::clamp(v_ref, 0.0, max_linear_speed_fwd_);
 
-    // Rate-limit ramp-up only, for a clean launch and a bounded feedforward derivative. Braking
-    // (a falling reference) must stay immediate.
     if (dt > 0.0 && accel_limit_ > 0.0) {
         const double max_rise = prev_v_ref_ + accel_limit_ * dt;
         v_ref = std::min(v_ref, max_rise);
@@ -339,9 +303,6 @@ double MotionProfileNavigation::compute_linear_command(double v_ref, double dvdt
     const double tau = (dvdt >= 0.0) ? tau_accel_ : tau_decel_;
     const double u_ff = (v_ref + tau * dvdt) / max_linear_speed_fwd_;
 
-    // Speed feedback closes the loop on plant-model error, but only while the speed is a
-    // measurement. On a stale track the integrator is frozen and the proportional term dropped;
-    // the feedforward is open-loop by construction and stays valid.
     double u_fb = 0.0;
     if (speed_is_measured) {
         const double err = v_ref - v_actual;
@@ -355,19 +316,10 @@ double MotionProfileNavigation::compute_linear_command(double v_ref, double dvdt
 
     double u = u_ff + u_fb;
 
-    // The feedforward divided by the forward gain, but reverse is a weaker drive than forward, so
-    // a braking command normalized against k_fwd arrives smaller than intended. Rescale once the
-    // sign is known. This is the branch the old sign-of-v_ref test could never reach: v_ref is
-    // clamped non-negative, and it is the derivative term that drives the command negative.
     if (u < 0.0 && max_linear_speed_rev_ > 1e-6) {
         u *= max_linear_speed_fwd_ / max_linear_speed_rev_;
     }
 
-    // Remember the command before compensation. Each channel's coupling term is driven by the
-    // other channel's UNCOMPENSATED command, which breaks what is otherwise a positive feedback
-    // loop: compensating the droop raises the turn command, which raises the steer-brake
-    // compensation, which raises the droop compensation again. Measured loop gain is above 1, so
-    // feeding the compensated values back saturates both channels within a few ticks.
     prev_linear_uncompensated_ = std::clamp(u, -1.0, 1.0);
 
     const double u_ang_eff = plant_effective_command(
@@ -387,10 +339,6 @@ double MotionProfileNavigation::apply_hysteresis(double angle_error) {
     constexpr double kTurnCommitRad = M_PI * 0.75;
     constexpr double kTurnReleaseRad = M_PI * 0.5;
 
-    // Commit to a turn direction on a large error, then HOLD it until the error falls below the
-    // release threshold. Near 180 deg the shortest-turn sign flips on tiny perturbations (and the
-    // actuation latency keeps it flipping), so without the latch the robot dithers left-right and
-    // never completes the turn. Only commit when not already committed.
     if (committed_turn_sign_ == 0) {
         if (std::abs(angle_error) > kTurnCommitRad) {
             committed_turn_sign_ = (angle_error > 0) ? 1 : -1;
@@ -487,8 +435,6 @@ Pose2D MotionProfileNavigation::clamp_to_field(const Pose2D &pose,
     if (half_y > 0) {
         clamped.y = std::clamp(clamped.y, -half_y, half_y);
     }
-    // Option 1: a goal inside a hazard makes every layer below spend the match fighting it, so
-    // push it to the nearest legal point before anything else runs.
     return push_out_of_hazards(clamped, field.hazards, half_x, half_y);
 }
 

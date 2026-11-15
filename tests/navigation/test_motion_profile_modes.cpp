@@ -15,7 +15,8 @@ namespace {
 // Per-mode terminal velocity: ATTACK drives through the opponent, RUN_AWAY arrives stopped at the
 // safe point. The mode rides on TargetSelection, stamped by ControlLoop::resolve_target.
 
-RobotDescriptionsStamped make_our_robot(double x, double y, double yaw, double vx = 0.0) {
+RobotDescriptionsStamped make_our_robot(double x, double y, double yaw, double vx = 0.0,
+                                        bool is_stale = false) {
     RobotDescription robot;
     robot.label = Label::MRS_BUFF_MK3;
     robot.frame_id = FrameId::OUR_ROBOT_1;
@@ -24,6 +25,7 @@ RobotDescriptionsStamped make_our_robot(double x, double y, double yaw, double v
     robot.pose.position.y = y;
     robot.pose.rotation = euler_to_quaternion(0.0, 0.0, yaw);
     robot.velocity = Velocity2D{vx, 0.0, 0.0};
+    robot.is_stale = is_stale;
 
     RobotDescriptionsStamped robots;
     robots.descriptions.push_back(robot);
@@ -35,6 +37,16 @@ FieldDescription make_field() {
     field.size.size.x = 6.0;
     field.size.size.y = 6.0;
     return field;
+}
+
+FieldHazard make_hazard(double x, double y, double hard_radius, double inflated_radius) {
+    FieldHazard hazard;
+    hazard.center.x = x;
+    hazard.center.y = y;
+    hazard.hard_radius = hard_radius;
+    hazard.inflated_radius = inflated_radius;
+    hazard.object_radius = hard_radius;
+    return hazard;
 }
 
 TargetSelection make_target(double x, double y, BehaviorMode mode) {
@@ -253,6 +265,164 @@ TEST_F(MotionProfileModeTest, ModeFlipResetsTheTrajectory) {
     EXPECT_GT(held_cmd.angular_z, 0.0);
     // New mission, so the latch is clear and the turn follows the shortest way round again.
     EXPECT_LT(flipped_cmd.angular_z, 0.0);
+}
+
+class MotionProfileGateTest : public MotionProfileModeTest {
+   protected:
+    VelocityCommand step(MotionProfileNavigation &nav, double time_s, double target_x,
+                         double target_y, BehaviorMode mode, double vx = 0.0, bool stale = false,
+                         const FieldDescription &field = make_field()) {
+        clock_->set(time_s);
+        return nav.update(make_our_robot(0.0, 0.0, 0.0, vx, stale), field,
+                          make_target(target_x, target_y, mode));
+    }
+};
+
+TEST_F(MotionProfileGateTest, ModeFlipDropsTheCarriedReferenceSpeed) {
+    auto nav = make_nav(config_);
+    for (const double t : {1.0, 1.05, 1.1}) step(*nav, t, 3.0, 0.0, BehaviorMode::ATTACK);
+
+    const VelocityCommand cmd = step(*nav, 1.15, 0.5, 0.0, BehaviorMode::RUN_AWAY);
+
+    EXPECT_GT(cmd.linear_x, 0.0);
+    EXPECT_LT(cmd.linear_x, 0.5);
+}
+
+TEST_F(MotionProfileGateTest, MissingSpeedHoldsTheLastMeasurement) {
+    config_.hazard_tangent_enable = false;
+    FieldDescription field = make_field();
+    field.hazards.push_back(make_hazard(0.6, 0.0, 0.1, 0.2));
+    auto remembers = make_nav(config_);
+    auto forgets = make_nav(config_);
+    step(*remembers, 1.0, 3.0, 0.0, BehaviorMode::ATTACK, 2.0, false, field);
+    step(*forgets, 1.0, 3.0, 0.0, BehaviorMode::ATTACK, 0.0, false, field);
+
+    const VelocityCommand held =
+        step(*remembers, 1.05, 3.0, 0.0, BehaviorMode::ATTACK, 0.0, true, field);
+    const VelocityCommand zero =
+        step(*forgets, 1.05, 3.0, 0.0, BehaviorMode::ATTACK, 0.0, true, field);
+
+    EXPECT_LT(held.linear_x, zero.linear_x);
+}
+
+TEST_F(MotionProfileGateTest, HeadingGateBleedsLinearState) {
+    config_.angular_kp = 0.0;
+    config_.angular_kd = 0.0;
+    config_.speed_ki = 2.0;
+    auto wound = make_nav(config_);
+    auto clean = make_nav(config_);
+    for (const double t : {1.0, 1.05, 1.1}) step(*wound, t, 3.0, 0.0, BehaviorMode::ATTACK);
+    step(*wound, 1.15, -1.0, 3.0, BehaviorMode::ATTACK);
+    step(*clean, 1.15, -1.0, 3.0, BehaviorMode::ATTACK);
+
+    EXPECT_DOUBLE_EQ(step(*wound, 1.2, 3.0, 0.0, BehaviorMode::ATTACK).linear_x,
+                     step(*clean, 1.2, 3.0, 0.0, BehaviorMode::ATTACK).linear_x);
+}
+
+TEST_F(MotionProfileGateTest, BarrierClipsWallReverseTowardHole) {
+    config_.hazard_tangent_enable = false;
+    config_.wall_reverse_distance = 0.5;
+    FieldDescription field = make_field();
+    field.hazards.push_back(make_hazard(2.35, 0.0, 0.1, 0.15));
+    auto nav = make_nav(config_);
+
+    clock_->set(1.0);
+    const VelocityCommand cmd = nav->update(make_our_robot(2.7, 0.0, 0.0), field,
+                                            make_target(3.0, 0.0, BehaviorMode::ATTACK));
+
+    EXPECT_LT(cmd.linear_x, 0.0);
+    EXPECT_GT(cmd.linear_x, -0.5);
+}
+
+TEST_F(MotionProfileGateTest, StaleTrackGivesNoMeasuredSpeed) {
+    MotionProfileNavigationConfiguration open_loop = config_;
+    open_loop.speed_kp = 0.0;
+    open_loop.speed_ki = 0.0;
+    auto stale_nav = make_nav(config_);
+    auto open_nav = make_nav(open_loop);
+
+    EXPECT_DOUBLE_EQ(step(*stale_nav, 1.0, 0.3, 0.0, BehaviorMode::RUN_AWAY, 3.0, true).linear_x,
+                     step(*open_nav, 1.0, 0.3, 0.0, BehaviorMode::RUN_AWAY, 3.0, true).linear_x);
+}
+
+TEST_F(MotionProfileGateTest, FallingReferenceIsNotRateLimited) {
+    auto nav = make_nav(config_);
+    for (const double t : {1.0, 1.05, 1.1}) step(*nav, t, 3.0, 0.0, BehaviorMode::RUN_AWAY);
+
+    EXPECT_LT(step(*nav, 1.15, 0.3, 0.0, BehaviorMode::RUN_AWAY).linear_x, 0.0);
+}
+
+TEST_F(MotionProfileGateTest, StaleSpeedFreezesTheIntegrator) {
+    config_.speed_ki = 2.0;
+    MotionProfileNavigationConfiguration open_loop = config_;
+    open_loop.speed_kp = 0.0;
+    open_loop.speed_ki = 0.0;
+    auto stale_nav = make_nav(config_);
+    auto open_nav = make_nav(open_loop);
+
+    double stale_cmd = 0.0;
+    double open_cmd = 0.0;
+    for (const double t : {1.0, 1.05, 1.1, 1.15}) {
+        stale_cmd = step(*stale_nav, t, 0.3, 0.0, BehaviorMode::RUN_AWAY, 0.0, true).linear_x;
+        open_cmd = step(*open_nav, t, 0.3, 0.0, BehaviorMode::RUN_AWAY, 0.0, true).linear_x;
+    }
+
+    EXPECT_DOUBLE_EQ(stale_cmd, open_cmd);
+}
+
+TEST_F(MotionProfileGateTest, ReverseCommandRescaledByReverseGain) {
+    MotionProfileNavigationConfiguration weak = config_;
+    weak.plant.k_rev = config_.plant.k_fwd * 0.8;
+    MotionProfileNavigationConfiguration equal = config_;
+    equal.plant.k_rev = config_.plant.k_fwd;
+    auto weak_nav = make_nav(weak);
+    auto equal_nav = make_nav(equal);
+    double weak_cmd = 0.0;
+    double equal_cmd = 0.0;
+    double t = 1.0;
+    for (const double distance : {3.0, 3.0, 3.0, 0.4}) {
+        t += 0.05;
+        weak_cmd = step(*weak_nav, t, distance, 0.0, BehaviorMode::RUN_AWAY).linear_x;
+        equal_cmd = step(*equal_nav, t, distance, 0.0, BehaviorMode::RUN_AWAY).linear_x;
+    }
+
+    ASSERT_LT(equal_cmd, 0.0);
+    ASSERT_GT(equal_cmd, -0.8);
+    EXPECT_NEAR(weak_cmd / equal_cmd, 1.25, 1e-9);
+}
+
+TEST_F(MotionProfileGateTest, CouplingTermsReadUncompensatedCommands) {
+    config_.compensate_angular_droop = true;
+    config_.angle_threshold = 3.0;
+    config_.angular_kp = 20.0;
+    config_.max_yaw_rate = 0.0;
+    config_.max_angular_command = 0.0;
+    config_.max_linear_command = 0.0;
+    config_.accel_limit = 0.0;
+    config_.speed_kp = 0.0;
+    auto nav = make_nav(config_);
+    VelocityCommand cmd;
+    for (int i = 0; i < 12; ++i) {
+        cmd = step(*nav, 1.0 + 0.05 * i, 0.245, 0.08, BehaviorMode::RUN_AWAY);
+    }
+
+    EXPECT_LT(cmd.linear_x, 0.8);
+    EXPECT_LT(cmd.angular_z, 0.25);
+}
+
+TEST_F(MotionProfileGateTest, GoalInsideHazardIsPushedOut) {
+    config_.hazard_tangent_enable = false;
+    FieldDescription field = make_field();
+    field.hazards.push_back(make_hazard(0.6, 0.0, 0.2, 0.3));
+    auto blocked = make_nav(config_);
+    auto open = make_nav(config_);
+
+    const VelocityCommand pushed =
+        step(*blocked, 1.0, 0.6, 0.1, BehaviorMode::ATTACK, 0.0, false, field);
+    const VelocityCommand direct = step(*open, 1.0, 0.6, 0.1, BehaviorMode::ATTACK);
+
+    ASSERT_GT(direct.angular_z, 0.0);
+    EXPECT_GT(pushed.angular_z, 1.5 * direct.angular_z);
 }
 
 }  // namespace

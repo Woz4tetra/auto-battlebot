@@ -94,6 +94,16 @@ reference across would feed the feedforward a `dv/dt` step the plant never asked
    capped at `v_term + max(0, d - |v|*latency) / tau_decel`. The brake point comes out of
    the measured plant instead of a hand-tuned brake distance. Ramp-up is rate-limited by
    `accel_limit`.
+   The distance needs no latency lead of its own: the motion estimator renders every track at
+   `now + plant.delay_s`, so the pose it measures from is already where the robot will be when the
+   command reaches the wheels. Subtracting `v*latency` as well double-counted the travel and
+   braked 10.4 cm early at 2 m/s, against the 0.15 m `stop_distance`
+   (`BrakeScheduleDoesNotSubtractALatencyLead` guards it). The horizon still adds `latency_` on
+   top of `tau_decel_`, which is the same argument one delay too many, since decay starts from
+   the state's own time and `tau_decel_` alone is the derived value. It stays as margin.
+   Dropping it takes the horizon from 0.252 s to 0.200 s and raises the reference speed 26% at
+   every distance. Nothing has measured that against a stop, so change it with a field or
+   replay check, not on the algebra.
 2. **Inverse-plant feedforward.** `u_ff = (v_ref + tau*dv/dt) / k_fwd`, with `tau`
    selected by the sign of `dv/dt` so a falling reference actually commands the brake.
    A negative command is rescaled by `k_fwd / k_rev` because reverse is the weaker
