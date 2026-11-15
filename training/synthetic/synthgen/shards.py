@@ -65,14 +65,7 @@ def split_evenly(total: int, parts: int, offset: int = 0) -> list[int]:
 def plan_shard_runs(
     total: int, shards: int, views: Sequence[str], seed_base: int
 ) -> list[ShardRun]:
-    """Every run of a sharded render, in (shard, view) order.
-
-    Frame indices run contiguously across the runs in that order, so no two runs write the same
-    file name. Seeds are ``seed_base`` plus the run's position, so no two runs draw the same scenes.
-
-    Raises:
-        ValueError: On an empty, repeated or unknown view, or a non-positive shard count.
-    """
+    """Every run of a sharded render, in (shard, view) order."""
     views = tuple(views)
     unknown = [view for view in views if view not in VIEWS]
     if unknown:
@@ -109,16 +102,7 @@ def resume_point(frames: Sequence[int], run: ShardRun) -> tuple[int, int]:
 
 
 def merge_parts(parts: Sequence[Path], out: Path) -> MergeSummary:
-    """Hardlink every part's frames into one flat *out* and concatenate their manifests.
-
-    Everything is checked before anything is written: each image has a label and exactly one
-    manifest row, no file name repeats across parts, and every part wrote the same ``data.yml``
-    apart from its ``path``. ``os.link`` rather than a copy, so the merge costs directory
-    entries rather than gigabytes; parts and *out* must share a filesystem.
-
-    Raises:
-        ValueError: When a check fails, or *out* already holds images or labels.
-    """
+    """Hardlink every part's frames into one flat *out* and concatenate their manifests."""
     out_images, out_labels = out / "images", out / "labels"
     for existing in (out_images, out_labels, out / MANIFEST_NAME):
         if existing.exists():

@@ -274,3 +274,33 @@ def test_the_pose_reply_projects_through_the_alpha_it_was_given(router: Router) 
     full = json.loads(router.post("/pose", dict(FITTED, alpha=1.0)).body)
     cropped = json.loads(router.post("/pose", dict(FITTED, alpha=0.0)).body)
     assert cropped["overlay"]["robots"][0]["width_px"] > full["overlay"]["robots"][0]["width_px"]
+
+
+def test_project_world_points_behind_lens_is_nan() -> None:
+    from synthgen.preview_server import project_world_points
+
+    pose = FreeflyPose(0.0, -2.0, 1.2, 0.0, -30.0, 0.0)
+    behind = np.array([0.0, -6.0, 1.2])
+    ahead = np.array([0.0, 0.0, 0.0])
+    pixels, in_front = project_world_points(pose, SCENE.k_rect_full, np.stack([behind, ahead]))
+    assert in_front.tolist() == [False, True]
+    assert np.isnan(pixels[0]).all()
+    assert np.isfinite(pixels[1]).all()
+
+
+def test_mat_margin_matches_config_default() -> None:
+    from synthgen.configuration import CageConfig
+    from synthgen.preview_server import MAT_MARGIN_M
+
+    assert MAT_MARGIN_M == CageConfig.__dataclass_fields__["mat_margin_m"].default
+
+
+def test_download_cannot_escape_the_output_directory(tmp_path: Path) -> None:
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "a.png").write_bytes(b"png")
+    (tmp_path / "secret.txt").write_text("secret")
+    router = Router(Mailbox(), SCENE, CageMountRanges(), lambda: b"", out_dir=out)
+    assert router.download("a.png").code == 200
+    assert router.download("../secret.txt").code == 404
+    assert router.download(str(tmp_path / "secret.txt")).code == 404

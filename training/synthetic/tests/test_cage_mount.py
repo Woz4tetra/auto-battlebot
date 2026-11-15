@@ -149,3 +149,12 @@ def test_mount_sliding_past_a_wall_is_rejected() -> None:
 
 def test_a_venue_without_walls_blocks_nothing() -> None:
     assert mounts_behind_walls(CageMountRanges(), 1.2, []) == []
+
+
+def test_wall_axes_handedness() -> None:
+    normal, along = wall_axes("near")
+    assert normal.tolist() == [0.0, 1.0, 0.0]
+    assert along.tolist() == [1.0, 0.0, 0.0]
+    for wall in WALLS:
+        normal, along = wall_axes(wall)
+        assert np.cross(along, normal)[2] == pytest.approx(1.0)

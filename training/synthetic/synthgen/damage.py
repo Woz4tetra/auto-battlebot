@@ -119,10 +119,7 @@ class FacePiece:
 def model_box_to_blender_local(
     box: tuple[float, float, float, float, float, float],
 ) -> tuple[float, float, float, float, float, float]:
-    """A model-frame (glTF, Y-up) box in Blender local axes, the conversion keypoints get.
-
-    ``(x, y, z)`` maps to ``(x, -z, y)``, so the z bounds swap and negate into y.
-    """
+    """A model-frame (glTF, Y-up) box in Blender local axes, the conversion keypoints get."""
     x0, y0, z0, x1, y1, z1 = box
     return (x0, -z1, y0, x1, -z0, y1)
 
@@ -134,11 +131,7 @@ def base_object_name(name: str) -> str:
 
 
 def object_name_matches(name: str, pattern: str) -> bool:
-    """Whether Blender object *name* is *pattern*, or *pattern* plus a ``_N`` index.
-
-    A Blender glTF export splits one colour into ``mat_128_128_128``, ``mat_128_128_128_1``,
-    and so on, and a second import appends ``.001``; all of them are the pattern's colour.
-    """
+    """Whether Blender object *name* is *pattern*, or *pattern* plus a ``_N`` index."""
     base = base_object_name(name)
     if base == pattern:
         return True
@@ -149,16 +142,7 @@ def object_name_matches(name: str, pattern: str) -> bool:
 def assign_faces_to_pieces(
     centres: np.ndarray, object_name: str, pieces: list[FacePiece]
 ) -> np.ndarray:
-    """Per face, the index of the first piece whose boxes hold its centre, or -1.
-
-    First match wins, so config order settles faces two parts' boxes both hold: the weapon
-    disk is listed before the weapon module that surrounds it.
-
-    Args:
-        centres: ``(n, 3)`` face centres in the parent frame.
-        object_name: The Blender object the faces belong to.
-        pieces: Every piece of every named part, in config order.
-    """
+    """Per face, the index of the first piece whose boxes hold its centre, or -1."""
     pts = np.asarray(centres, dtype=np.float64).reshape(-1, 3)
     assign = np.full(len(pts), -1, dtype=np.int64)
     for index, piece in enumerate(pieces):
@@ -248,23 +232,7 @@ def protected_part_indices(
     max_volume_fraction: float,
     keypoint_clearance_m: float,
 ) -> set[int]:
-    """Parts that must survive: keypoint anchors, oversized parts, and named patterns.
-
-    Args:
-        part_corners: Per part, an ``(n, 3)`` array of points in the robot's parent frame.
-        part_names: Per part, its Blender object name.
-        keypoints: Keypoint positions in the same parent frame.
-        name_patterns: Lowercase substrings; a part whose name contains one is protected.
-        max_volume_fraction: Parts holding more than this share of the summed part
-            bounding volumes are protected, so one draw cannot take most of the robot.
-            Summed rather than the robot's own box, so the test needs nothing but the
-            parts themselves; overlapping boxes make it a little conservative, which is
-            the safe direction for a protection rule.
-        keypoint_clearance_m: Bounding boxes are grown by this before the keypoint test.
-
-    Returns:
-        Indices into *part_corners* that may not be removed.
-    """
+    """Parts that must survive: keypoint anchors, oversized parts, and named patterns."""
     total = sum(bbox_corner_volume(c) for c in part_corners)
     protected: set[int] = set()
     for index, corners in enumerate(part_corners):
@@ -327,11 +295,7 @@ def draw_chunk_damage(
     shapes: tuple[str, ...],
     keypoint_clearance_m: float,
 ) -> ChunkDraw | None:
-    """Seed a cutter on the surface, clear of every keypoint, or None if no seed is clear.
-
-    A cutter that swallows a keypoint would leave the annotation pointing at a hole, so
-    candidate seeds within the cutter's own reach of a keypoint are rejected and redrawn.
-    """
+    """Seed a cutter on the surface, clear of every keypoint, or None if no seed is clear."""
     if not surface_points:
         return None
     volume = bbox_corner_volume(bbox_corners)

@@ -57,14 +57,7 @@ class CageMountRanges:
 
 
 def wall_axes(wall: str) -> tuple[np.ndarray, np.ndarray]:
-    """(inward normal, along axis) of *wall* in the W frame, both unit vectors.
-
-    The along axis is the inward normal turned -90 deg about z, so for the near wall (normal
-    +y) it is +x: positive `along_m` moves right as that camera sees it.
-
-    Raises:
-        ValueError: When *wall* is not one of `WALLS`.
-    """
+    """(inward normal, along axis) of *wall* in the W frame, both unit vectors."""
     if wall not in WALLS:
         raise ValueError(f"unknown cage wall {wall!r}; valid walls are {list(WALLS)}")
     normal = {

@@ -263,8 +263,6 @@ COMPASS: tuple[tuple[str, int, int], ...] = (
     ("W", -1, 0),
     ("NW", -1, 1),
 )
-# Meters of mat kept clear at the edge, matching `[[cages]].mat_margin_m`, so the sample points sit
-# where the batch pipeline will actually place a robot rather than hanging off the edge.
 MAT_MARGIN_M = 0.20
 NEAR_PLANE_M = 0.02
 
@@ -302,12 +300,7 @@ def project_camera_points(k: np.ndarray, points_cam: np.ndarray) -> np.ndarray:
 def project_world_points(
     pose: FreeflyPose, k: np.ndarray, points_w: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray]:
-    """(pixels, in_front) for world points seen by *pose* through pinhole matrix *k*.
-
-    Pixels for points behind the lens are meaningless and come back as NaN rather than as a
-    plausible-looking number: a pinhole has no answer there, and substituting one puts a mat
-    corner in a completely wrong place on screen. Callers must check `in_front`.
-    """
+    """(pixels, in_front) for world points seen by *pose* through pinhole matrix *k*."""
     in_camera = world_to_camera(pose, points_w)
     in_front = in_camera[:, 2] > NEAR_PLANE_M
     pixels = np.full((len(in_camera), 2), np.nan)
@@ -458,7 +451,6 @@ class Router:
         """One output file as an attachment. Flat directory only, so a name cannot escape it."""
         if self._out_dir is None:
             return Response(404, b"no output directory\n")
-        # Path(name).name strips any directory part, so '../' and absolute paths cannot reach out.
         target = self._out_dir / Path(name).name
         if not target.is_file():
             return Response(404, f"no output named {name!r}\n".encode())

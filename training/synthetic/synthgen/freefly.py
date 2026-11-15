@@ -1,23 +1,4 @@
-"""Free-flight camera poses, and their projection back onto a `CageMount`.
-
-Pure module (no Blender). `pose_camera_server.py` flies a camera around the cage with WASD and a
-mouse; `synthgen.cage_mount` describes the same camera as a wall, a place on it and an aim. This
-module is the bridge: `freefly_cam2world` builds the flown pose and `mount_from_cam2world` reads
-the equivalent `CageMount` straight back out.
-
-That read-back is exact, not a projection. `(along, height, inset)` spans position and
-`(tilt, yaw, roll)` spans orientation, so every pose a camera can fly to is some mount, including
-ones outside the cage. What a flown pose *can* fall outside is the sampling ranges the batch render
-will draw from, so `clamp_mount_to_ranges` is what pulls it back and `mount_residual` measures how
-far it had to move.
-
-Both directions go through `cage_mount.camera_basis_cam2world`, so a flown pose and a sampled mount
-can never drift onto different camera conventions.
-
-Angles follow `auto_battlebot.perception.cage_calibration.pose_summary`: `yaw_deg` is the heading of
-the optical axis projected on the floor, 0 along +y and positive toward +x. `pitch_deg` is its
-elevation above horizontal, so -90 looks straight down and a cage camera flies at roughly -58.
-"""
+"""Free-flight camera poses, and their projection back onto a `CageMount`."""
 
 from __future__ import annotations
 
@@ -133,9 +114,6 @@ def mount_from_cam2world(
     forward = -matrix[:3, 2]
     horizontal = np.array([position[0], position[1], 0.0])
 
-    # The camera's own wall is the one whose inward normal points away from the lens, so the
-    # smallest normal-dot-position wins. Getting this sign backwards puts every mount on the
-    # opposite wall, and it costs a whole render run to notice.
     wall = min(walls, key=lambda name: float(np.dot(wall_axes(name)[0], horizontal)))
     normal, along = wall_axes(wall)
 

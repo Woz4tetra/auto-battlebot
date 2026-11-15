@@ -8,9 +8,6 @@ ROBOT_CATEGORY_ID = 1
 DISTRACTOR_CATEGORY_ID = 2
 HOUSE_BOT_CATEGORY_ID = 3
 
-# Class ids used in segmentation mode. Per-robot classes are appended after
-# SEG_ROBOT_CLASS_ID. This scheme is consumed downstream by
-# training/yolo/remap_config_synthetic.toml and training/deeplab/remap_robots.toml.
 SEG_FLOOR_CLASS_ID = 1
 SEG_OBJECT_CLASS_ID = 2
 SEG_ROBOT_CLASS_ID = 3
@@ -23,9 +20,6 @@ MODEL_EXTENSIONS = {".glb", ".gltf", ".obj", ".ply"}
 
 MIN_KEYPOINT_BBOX_DIM_PX = 5
 
-# A robot that fails its annotation gate but shows at least this many visible
-# pixels is "prominent": leaving it unlabeled would create a false negative in
-# the training data, so the frame is dropped instead.
 PROMINENT_UNLABELED_ROBOT_MIN_PX = MIN_KEYPOINT_BBOX_DIM_PX**2
 
 KEYPOINT_DEPTH_TOLERANCE_M = 0.05

@@ -121,10 +121,7 @@ def warp_image(lens: LensView, image: np.ndarray) -> np.ndarray:
 
 
 def warp_label(lens: LensView, label: np.ndarray) -> np.ndarray:
-    """A rendered id or depth map in *lens*'s view, sampled nearest so values are never blended.
-
-    Pixels in the rectified view's black border read 0, the background id.
-    """
+    """A rendered id or depth map in *lens*'s view, sampled nearest so values are never blended."""
     return _warp(lens, label, cv2.INTER_NEAREST)
 
 

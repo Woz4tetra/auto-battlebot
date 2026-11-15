@@ -1,9 +1,4 @@
-"""Annotation extraction math and YOLO label file writers (no Blender imports).
-
-The byte format of every file written here (label lines, ``data.yml``,
-``label_index.txt``) is a frozen contract with the downstream dataset tooling in
-``training/yolo/`` and ``training/deeplab/``.
-"""
+"""Annotation extraction math and YOLO label file writers (no Blender imports)."""
 
 from pathlib import Path
 

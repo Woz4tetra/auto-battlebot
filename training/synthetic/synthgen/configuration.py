@@ -1,12 +1,4 @@
-"""Typed configuration parsed from config.toml (no Blender imports).
-
-Every default that used to live in a scattered ``dict.get(key, default)`` call
-is centralized here, with the same values the original code used. The TOML
-schema itself is a frozen contract: keys are neither added nor renamed, and
-unknown keys (e.g. ``randomization.light_color_temp_range``,
-``environment.ground_textures``) are tolerated because sibling scripts consume
-them.
-"""
+"""Typed configuration parsed from config.toml (no Blender imports)."""
 
 import os
 import tomllib

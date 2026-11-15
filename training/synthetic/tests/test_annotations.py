@@ -188,3 +188,50 @@ class TestBuildNamesList:
 
     def test_gap_filling(self) -> None:
         assert build_names_list({0: "a", 3: "d"}) == ["a", "unknown_1", "unknown_2", "d"]
+
+
+def test_label_writers_golden_bytes(tmp_path) -> None:
+    from synthgen.annotations import (
+        build_names_list,
+        write_data_yml,
+        write_label_index,
+        write_yolo_labels,
+        write_yolo_seg_labels,
+    )
+    from synthgen.constants import ANNOTATION_MODE_KEYPOINTS_BBOX
+
+    labels = tmp_path / "a.txt"
+    write_yolo_labels(
+        labels,
+        [(1, (0.5, 0.25, 0.1, 0.2), [(0.4, 0.2, 2), (0.9, 0.9, 0)])],
+    )
+    assert labels.read_text() == (
+        "1 0.500000 0.250000 0.100000 0.200000 0.400000 0.200000 2 0.000000 0.000000 0\n"
+    )
+    seg = tmp_path / "s.txt"
+    write_yolo_seg_labels(seg, [(3, [(0.1, 0.2), (0.3, 0.4), (0.5, 0.6)])])
+    assert seg.read_text() == "3 0.100000 0.200000 0.300000 0.400000 0.500000 0.600000\n"
+    index = tmp_path / "label_index.txt"
+    write_label_index(index, {2: "b", 0: "a"})
+    assert index.read_text() == "0:a\n2:b\n"
+    assert build_names_list({2: "b", 0: "a"}) == ["a", "unknown_1", "b"]
+    data = tmp_path / "data.yml"
+    write_data_yml(data, tmp_path, ["a", "b"], ANNOTATION_MODE_KEYPOINTS_BBOX)
+    assert data.read_text() == (
+        f"path: {tmp_path.resolve()}\ntrain: images\nval: images\nnc: 2\n"
+        "names: ['a', 'b']\nkpt_shape: [2, 3]\nflip_idx: [0, 1]\n"
+    )
+
+
+def test_seg_class_ids_match_remap_configs() -> None:
+    from pathlib import Path
+
+    from synthgen.constants import SEG_FLOOR_CLASS_ID, SEG_OBJECT_CLASS_ID, SEG_ROBOT_CLASS_ID
+
+    from auto_battlebot.compat import tomllib
+
+    root = Path(__file__).resolve().parents[2]
+    config = tomllib.loads((root / "yolo" / "remap_config_synthetic.toml").read_text())
+    assert {SEG_FLOOR_CLASS_ID, SEG_OBJECT_CLASS_ID, SEG_ROBOT_CLASS_ID} <= {
+        int(key) for key in config["label_map"]
+    }
