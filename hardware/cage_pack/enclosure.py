@@ -64,6 +64,7 @@ Open questions
 
 import math
 from dataclasses import dataclass
+from typing import NamedTuple
 
 import b123d_fix  # noqa: F401
 import cage_layout as cl
@@ -76,28 +77,36 @@ PROCESS = "fdm"
 MATERIAL = "petg"
 
 
+BOTTOM_VENT_X_MAX = 8.0
+
+
+class RibRing(NamedTuple):
+    inside_dia: float
+    wall: float
+
+
 @dataclass
 class Params:
-    cp10_hole: float = 10.3  # 3/8" normal clearance, fasteners.md
-    clear: float = 3.4  # M3 normal clearance, fasteners.md
-    gx12_hole: float = 12.2  # M12 x 1 bulkhead
-    switch_hole: float = cl.SWITCH_HOLE  # CIT AH cut-out 19.00, printed +0.3
-    sma_hole: float = 6.5  # RP-SMA bulkhead, 1/4-36 thread
+    cp10_clearance_dia: float = 10.3
+    m3_clearance_dia: float = 3.4
+    gx12_m12_hole: float = 12.2
+    switch_hole: float = cl.SWITCH_HOLE
+    rpsma_hole: float = 6.5
     tether_hole: float = 6.5
-    tether_pad: tuple = (20.0, 3.6, 24.0)  # X, extra wall thickness, Z
-    rj45_cut: tuple = (21.8, 21.6)  # ModDIY panel RJ45 body 21.4 x 22.0 (model): X, Z
-    rj45_roof: float = 0.2  # flange is no taller than the body: 21.4 mm bridge
-    rj45_screw: float = 27.5  # its flange screw pitch, along X
-    hr10_spot: float = 14.0  # spot face, clears the 10 mm A/F nut's corners
-    vent: tuple = (3.0, 30.0)  # slot width, length (along Z)
+    tether_pad_xtz: tuple = (20.0, 3.6, 24.0)
+    rj45_cut_xz: tuple = (21.8, 21.6)
+    rj45_roof_rise: float = 0.2
+    rj45_screw_pitch_x: float = 27.5
+    hr10_spot_dia: float = 14.0
+    vent_wl: tuple = (3.0, 30.0)
     vent_pitch: float = 9.0
-    head_screw_hole: float = 6.53  # 1/4" close clearance, fasteners.md
-    gmsl_hole: float = 14.0  # FAKRA plug body passes
-    ring: tuple = (28.0, 2.4)  # rib ring round each CP10 washer: inside Ø, wall
-    gusset_slope: float = 50.0  # lid boss underside, degrees from horizontal
-    foot_chamfer: float = 0.5  # elephant's foot, fdm.md
-    floor: float = 1.2  # panel left under the pockets: 6 layers, all solid
-    pocket_land: float = 3.0  # full-thickness panel kept along lines and round features
+    quarter_close_clearance_dia: float = 6.53
+    gmsl_hole_dia: float = 14.0
+    ring: RibRing = RibRing(28.0, 2.4)
+    gusset_slope: float = 50.0
+    foot_chamfer: float = 0.5
+    floor: float = 1.2
+    pocket_land: float = 3.0
 
 
 def ups_lower_holes() -> list[tuple[float, float]]:
@@ -124,7 +133,7 @@ def lid_bosses() -> list[tuple[str, float]]:
 
 def lid_screws() -> list[tuple[float, float]]:
     """(x, y) of each lid screw: the boss's insert axis."""
-    o = cl.LID_BOSS / 2
+    o = cl.LID_BOSS_SIZE / 2
     out = []
     for wall, a in lid_bosses():
         out.append(
@@ -143,8 +152,13 @@ def _teardrop(cx: float, cy: float, d: float, flat: float = 0.5):
     r = d / 2
     k = r / math.sqrt(2)
     top = r + flat
-    half = r * math.sqrt(2) - top  # roof width at `top`, halved
-    roof = [(cx - k, cy + k), (cx + k, cy + k), (cx + half, cy + top), (cx - half, cy + top)]
+    roof_half_w = r * math.sqrt(2) - top
+    roof = [
+        (cx - k, cy + k),
+        (cx + k, cy + k),
+        (cx + roof_half_w, cy + top),
+        (cx - roof_half_w, cy + top),
+    ]
     pts = [(cx, cy), (cx, cy + (k + r) / 2), (cx, cy + (r + top) / 2)]
     return [{"circle": (cx, cy, d)}, {"polygon": roof}], pts
 
@@ -241,19 +255,18 @@ def _pocket_sketch(p: Params):
     m = p.pocket_land
     xs = [cl.X_IN[0] + m, -56.0, 0.0, 48.5, cl.X_IN[1] - m]
     ys = [cl.Y_IN[0] + m, -116.0, cl.ZED_YC, cl.Y_IN[1] - m]
-    r_ring = p.ring[0] / 2 + p.ring[1]
+    r_ring = p.ring.inside_dia / 2 + p.ring.wall
     holes = cl.ZED_EAR_HOLES + pcba_holes() + ups_lower_holes() + cl.arm_screws()
     circles = [(x, y, cl.BOSS_D / 2) for x, y in holes] + [(0.0, y, r_ring) for y in cl.CP10_Y]
     h = cl.RIB_T / 2
-    tx, tn, _ = p.tether_pad
+    tx, tn, _ = p.tether_pad_xtz
     _, d, _ = cl.CAM_PAD
     w = cl.CAM_PAD[0]
-    boxes = [
-        (-h, h, cl.Y_IN[0], cl.Y_IN[1]),  # spine
-        (cl.X_IN[0], cl.X_IN[1], cl.ZED_YC - h, cl.ZED_YC + h),  # cross rib
-        (-100.0 - tx / 2, -100.0 + tx / 2, cl.Y_IN[1] - tn, cl.Y_IN[1]),
-        (cl.X_IN[1] - d, cl.X_IN[1], cl.CAM_Y - w / 2, cl.CAM_Y + w / 2),
-    ]
+    spine_box = (-h, h, cl.Y_IN[0], cl.Y_IN[1])
+    cross_rib_box = (cl.X_IN[0], cl.X_IN[1], cl.ZED_YC - h, cl.ZED_YC + h)
+    tether_pad_box = (-100.0 - tx / 2, -100.0 + tx / 2, cl.Y_IN[1] - tn, cl.Y_IN[1])
+    cam_pad_box = (cl.X_IN[1] - d, cl.X_IN[1], cl.CAM_Y - w / 2, cl.CAM_Y + w / 2)
+    boxes = [spine_box, cross_rib_box, tether_pad_box, cam_pad_box]
     return pocket_sketch(xs, ys, m, circles, boxes)
 
 
@@ -261,19 +274,19 @@ def _ribs_sketch(p: Params):
     """Spine, cross rib and CP10 rings sketch."""
     from build123d import Circle, Rectangle
 
-    r_out = p.ring[0] / 2 + p.ring[1]
+    r_out = p.ring.inside_dia / 2 + p.ring.wall
     yc_spine = (cl.Y_IN[0] + cl.Y_IN[1]) / 2
     spine = {"rect": (0.0, yc_spine, cl.RIB_T, cl.Y_IN[1] - cl.Y_IN[0])}
     xc_cross = (cl.X_IN[0] + cl.X_IN[1]) / 2
     cross = {"rect": (xc_cross, cl.ZED_YC, cl.X_IN[1] - cl.X_IN[0], cl.RIB_T)}
     rings = [{"circle": (0.0, y, 2 * r_out)} for y in cl.CP10_Y]
-    insides = [{"circle": (0.0, y, p.ring[0])} for y in cl.CP10_Y]
+    insides = [{"circle": (0.0, y, p.ring.inside_dia)} for y in cl.CP10_Y]
     target = Pos(0, yc_spine) * Rectangle(cl.RIB_T, cl.Y_IN[1] - cl.Y_IN[0])
     target += Pos(xc_cross, cl.ZED_YC) * Rectangle(cl.X_IN[1] - cl.X_IN[0], cl.RIB_T)
     for y in cl.CP10_Y:
         target += Pos(0, y) * Circle(r_out)
     for y in cl.CP10_Y:
-        target -= Pos(0, y) * Circle(p.ring[0] / 2)
+        target -= Pos(0, y) * Circle(p.ring.inside_dia / 2)
     profiles = [spine, cross, *rings, *insides]
     return profiles, regions.cell_points(profiles, target)
 
@@ -283,9 +296,9 @@ def _lid_boss_profile(wall: str, p: Params) -> tuple[list[tuple[float, float]], 
     block under the wall's edge, its underside a 50° gusset back into the wall; it starts
     0.2 inside the wall so the block fuses. Top and bottom walls sketch on Right (Y, Z), the
     ±X walls on Front (X, Z)."""
-    w, d = cl.LID_BOSS, cl.LID_BOSS_DEPTH
+    w, d = cl.LID_BOSS_SIZE, cl.LID_BOSS_FULL_DEPTH
     drop = w * math.tan(math.radians(p.gusset_slope))
-    zt = cl.WALL_EDGE_Z
+    zt = cl.LID_UNDERSIDE_Z
     face, inward = {"top": (cl.Y_IN[1], -1), "bottom": (cl.Y_IN[0], 1),
                     "-x": (cl.X_IN[0], 1), "+x": (cl.X_IN[1], -1)}[wall]  # fmt: skip
     pts = [(-0.2, zt), (w, zt), (w, zt - d), (-0.2, zt - d - drop - 0.2)]
@@ -293,23 +306,21 @@ def _lid_boss_profile(wall: str, p: Params) -> tuple[list[tuple[float, float]], 
     return poly, (face + inward * w / 2, zt - d / 2)
 
 
-def features(p: Params) -> list[dict]:
-    """The tray as CAD features in build order."""
+def _shell_ops(p: Params) -> list[dict]:
     t = cl.WALL_T
-    z0, z1, ze = cl.PANEL_Z0, cl.PANEL_Z1, cl.WALL_EDGE_Z
-    # Shell
+    z0, z1, ze = cl.PANEL_Z0, cl.PANEL_Z1, cl.LID_UNDERSIDE_Z
     xo, yo = (cl.X_OUT[0] + cl.X_OUT[1]) / 2, (cl.Y_OUT[0] + cl.Y_OUT[1]) / 2
     xi, yi = (cl.X_IN[0] + cl.X_IN[1]) / 2, (cl.Y_IN[0] + cl.Y_IN[1]) / 2
     wo, ho = cl.X_OUT[1] - cl.X_OUT[0], cl.Y_OUT[1] - cl.Y_OUT[0]
     wi, hi = cl.X_IN[1] - cl.X_IN[0], cl.Y_IN[1] - cl.Y_IN[0]
-    ops = [
+    return [
         {
             "op": "sketch",
             "name": "Tray outline",
             "plane": "Top",
             "profiles": [
-                {"rect": (xo, yo, wo, ho), "r": cl.CORNER_R},
-                {"rect": (xi, yi, wi, hi), "r": cl.CORNER_R - t},
+                {"rect": (xo, yo, wo, ho), "r": cl.OUTER_CORNER_R},
+                {"rect": (xi, yi, wi, hi), "r": cl.OUTER_CORNER_R - t},
             ],
         },
         {
@@ -336,7 +347,11 @@ def features(p: Params) -> list[dict]:
             "edges": [(xo, cl.Y_OUT[0], z0)],
         },
     ]
-    # Ribs
+
+
+def _rib_ops(p: Params) -> list[dict]:
+    z1 = cl.PANEL_Z1
+    ops: list[dict] = []
     rib_profiles, rib_pts = _ribs_sketch(p)
     ops += [
         {"op": "sketch", "name": "Ribs", "plane": "Top", "profiles": rib_profiles},
@@ -350,8 +365,12 @@ def features(p: Params) -> list[dict]:
             "mode": "add",
         },
     ]
-    # Insert bosses: ZED Box Mini ears and PCBA (8 mm), OpenUPS lower standoffs (25 mm), and
-    # the cup arms' (6 mm, their inserts pressed from the glass side).
+    return ops
+
+
+def _insert_boss_ops(p: Params) -> list[dict]:
+    z1 = cl.PANEL_Z1
+    ops: list[dict] = []
     short = cl.ZED_EAR_HOLES + pcba_holes()
     tall = ups_lower_holes()
     arms = cl.arm_screws()
@@ -380,7 +399,7 @@ def features(p: Params) -> list[dict]:
             "name": "OpenUPS bosses",
             "sketch": "Insert bosses",
             "regions": [(x + ring, y) for x, y in tall] + tall,
-            "depth": cl.UPS_STANDOFF_LO,
+            "depth": cl.UPS_BOSS_H,
             "start": z1,
             "mode": "add",
         },
@@ -394,7 +413,11 @@ def features(p: Params) -> list[dict]:
             "mode": "add",
         },
     ]
-    # Lid bosses
+    return ops
+
+
+def _lid_boss_ops(p: Params) -> list[dict]:
+    ops: list[dict] = []
     by_plane = {"Right": [], "Front": []}
     for wall, a in lid_bosses():
         poly, pt = _lid_boss_profile(wall, p)
@@ -411,7 +434,7 @@ def features(p: Params) -> list[dict]:
             }
         )
         for k, (wall, a, _, pt) in enumerate(items):
-            w = cl.LID_BOSS
+            w = cl.LID_BOSS_SIZE
             rng = {"start": a - w / 2, "depth": w} if plane == "Right" else _through_y(a, w)
             ops.append(
                 {
@@ -423,8 +446,13 @@ def features(p: Params) -> list[dict]:
                     **rng,
                 }
             )
-    # Pads: tether (top wall, -X end) and camera (+X wall, inside)
-    tx, tn, tz = p.tether_pad
+    return ops
+
+
+def _pad_ops(p: Params) -> list[dict]:
+    z1 = cl.PANEL_Z1
+    ops: list[dict] = []
+    tx, tn, tz = p.tether_pad_xtz
     cw, cd, ctop = cl.CAM_PAD
     ops += [
         {
@@ -455,7 +483,12 @@ def features(p: Params) -> list[dict]:
             "mode": "add",
         },
     ]
-    # Panel pockets
+    return ops
+
+
+def _pocket_ops(p: Params) -> list[dict]:
+    z0, z1 = cl.PANEL_Z0, cl.PANEL_Z1
+    ops: list[dict] = []
     pocket_profiles, pocket_pts = _pocket_sketch(p)
     ops += [
         {"op": "sketch", "name": "Panel pockets", "plane": "Top", "profiles": pocket_profiles},
@@ -469,9 +502,17 @@ def features(p: Params) -> list[dict]:
             "mode": "remove",
         },
     ]
-    # Panel holes: CP10 screws with their washer spot faces, then every insert hole.
+    return ops
+
+
+def _panel_hole_ops(p: Params) -> list[dict]:
+    z0, z1, ze = cl.PANEL_Z0, cl.PANEL_Z1, cl.LID_UNDERSIDE_Z
+    short = cl.ZED_EAR_HOLES + pcba_holes()
+    tall = ups_lower_holes()
+    arms = cl.arm_screws()
+    ops: list[dict] = []
     cp10 = [(0.0, y) for y in cl.CP10_Y]
-    spot_ring = (p.cp10_hole + cl.CP10_SPOT[0]) / 4
+    spot_ring = (p.cp10_clearance_dia + cl.CP10_SPOT[0]) / 4
     lids = lid_screws()
     ops += [
         {
@@ -479,7 +520,7 @@ def features(p: Params) -> list[dict]:
             "name": "CP10 screws",
             "plane": "Top",
             "profiles": [
-                *[{"circle": (x, y, p.cp10_hole)} for x, y in cp10],
+                *[{"circle": (x, y, p.cp10_clearance_dia)} for x, y in cp10],
                 *[{"circle": (x, y, cl.CP10_SPOT[0])} for x, y in cp10],
             ],
         },
@@ -516,7 +557,7 @@ def features(p: Params) -> list[dict]:
             "sketch": "Insert bosses",
             "regions": tall,
             "depth": cl.INSERT_DEPTH,
-            "start": z1 + cl.UPS_STANDOFF_LO - cl.INSERT_DEPTH,
+            "start": z1 + cl.UPS_BOSS_H - cl.INSERT_DEPTH,
             "mode": "remove",
         },
         {
@@ -544,12 +585,17 @@ def features(p: Params) -> list[dict]:
             "mode": "remove",
         },
     ]
-    # -X wall (Right plane: sketch x = +Y, y = +Z): GX12, HR10.
+    return ops
+
+
+def _minus_x_wall_ops(p: Params) -> list[dict]:
+    t = cl.WALL_T
+    ops: list[dict] = []
     t3 = 3 * t
-    mid_mx, mid_px = cl.X_IN[0] - t / 2, cl.X_IN[1] + t / 2
-    gy, gz = cl.PORTS["gx12"]
-    hy, hz = cl.PORTS["hr10"]
-    gx12, gx12_pts = _teardrop(gy, gz, p.gx12_hole)
+    mid_mx = cl.X_IN[0] - t / 2
+    gy, gz = cl.SERVICE_PORTS_YZ["gx12"]
+    hy, hz = cl.SERVICE_PORTS_YZ["hr10"]
+    gx12, gx12_pts = _teardrop(gy, gz, p.gx12_m12_hole)
     key_h = hr10.KEY_R + 0.05
     hr10_hole = [{"circle": (hy, hz, hr10.PANEL_HOLE + 0.2)},
                  {"rect": (hy, hz - key_h / 2, hr10.KEY_W + 0.2, key_h)}]  # fmt: skip
@@ -580,7 +626,7 @@ def features(p: Params) -> list[dict]:
         },
     ]
     spot = t - cl.HR10_PANEL_T
-    hr10_spot, hr10_spot_pts = _teardrop(hy, hz, p.hr10_spot)
+    hr10_spot, hr10_spot_pts = _teardrop(hy, hz, p.hr10_spot_dia)
     ops += [
         {"op": "sketch", "name": "HR10 spot face", "plane": "Right", "profiles": hr10_spot},
         {
@@ -592,10 +638,16 @@ def features(p: Params) -> list[dict]:
             **_through_x(cl.X_IN[0], 2 * spot),
         },
     ]
-    # +X wall (Right plane): antennas and the GMSL plug; through the camera pad, the ball
-    # head's screw and the shield's insert.
-    gmsl, gmsl_pts = _teardrop(*cl.GMSL_HOLE, p.gmsl_hole)
-    antennas = list(cl.ANTENNAS.values())
+    return ops
+
+
+def _plus_x_wall_ops(p: Params) -> list[dict]:
+    t = cl.WALL_T
+    t3 = 3 * t
+    mid_px = cl.X_IN[1] + t / 2
+    ops: list[dict] = []
+    gmsl, gmsl_pts = _teardrop(*cl.GMSL_HOLE, p.gmsl_hole_dia)
+    antennas = list(cl.ANTENNAS_YZ.values())
     pad_holes = [(cl.CAM_Y, cl.CAM_AXIS_Z), (cl.CAM_Y, cl.SHIELD_SCREW_Z)]
     pad = t + cl.CAM_PAD[1]
     ops += [
@@ -604,9 +656,9 @@ def features(p: Params) -> list[dict]:
             "name": "+X wall ports",
             "plane": "Right",
             "profiles": [
-                *[{"circle": (y, z, p.sma_hole)} for y, z in antennas],
+                *[{"circle": (y, z, p.rpsma_hole)} for y, z in antennas],
                 *gmsl,
-                {"circle": (*pad_holes[0], p.head_screw_hole)},
+                {"circle": (*pad_holes[0], p.quarter_close_clearance_dia)},
                 {"circle": (*pad_holes[1], cl.INSERT_HOLE)},
             ],
         },
@@ -627,11 +679,18 @@ def features(p: Params) -> list[dict]:
             **_through_x(mid_px, 3 * pad),
         },
     ]
-    # Bottom and top walls (Front plane: sketch x = +X, y = +Z): button, RJ45, vents, tether.
-    vz = z1 + cl.RIB_H + 4.0 + p.vent[1] / 2
+    return ops
+
+
+def _bottom_and_top_wall_ops(p: Params) -> list[dict]:
+    t = cl.WALL_T
+    z1 = cl.PANEL_Z1
+    t3 = 3 * t
+    ops: list[dict] = []
+    vz = z1 + cl.RIB_H + 4.0 + p.vent_wl[1] / 2
     rx, rz = cl.RJ45_AT
-    screws = [(rx + s * p.rj45_screw / 2, rz) for s in (-1, 1)]
-    bottom_vents = [(x, vz) for x in _span(-100.0, 8.0, p.vent_pitch)]  # left of the RJ45
+    screws = [(rx + s * p.rj45_screw_pitch_x / 2, rz) for s in (-1, 1)]
+    bottom_vents = [(x, vz) for x in _span(-100.0, BOTTOM_VENT_X_MAX, p.vent_pitch)]
     top_vents = [(x, vz) for x in _span(-84.0, cl.X_IN[1] - 8.0, p.vent_pitch)]
     switch, switch_pts = _teardrop(cl.SWITCH_X, cl.SWITCH_Z, p.switch_hole)
     tether = (-100.0, z1 + 12.0)
@@ -642,9 +701,9 @@ def features(p: Params) -> list[dict]:
             "plane": "Front",
             "profiles": [
                 *switch,
-                _roofed_rect(rx, rz, *p.rj45_cut, p.rj45_roof),
-                *[{"circle": (x, z, p.clear)} for x, z in screws],
-                *[_slot(x, z, *p.vent) for x, z in bottom_vents],
+                _roofed_rect(rx, rz, *p.rj45_cut_xz, p.rj45_roof_rise),
+                *[{"circle": (x, z, p.m3_clearance_dia)} for x, z in screws],
+                *[_slot(x, z, *p.vent_wl) for x, z in bottom_vents],
             ],
         },
         {
@@ -660,7 +719,7 @@ def features(p: Params) -> list[dict]:
             "name": "Top wall ports",
             "plane": "Front",
             "profiles": [
-                *[_slot(x, z, *p.vent) for x, z in top_vents],
+                *[_slot(x, z, *p.vent_wl) for x, z in top_vents],
                 {"circle": (*tether, p.tether_hole)},
             ],
         },
@@ -681,7 +740,23 @@ def features(p: Params) -> list[dict]:
             **_through_y(cl.Y_IN[1] + t / 2, 4 * (t + 4)),
         },
     ]
-    return ops  # fmt: skip
+    return ops
+
+
+def features(p: Params) -> list[dict]:
+    """The tray as CAD features in build order."""
+    return [
+        *_shell_ops(p),
+        *_rib_ops(p),
+        *_insert_boss_ops(p),
+        *_lid_boss_ops(p),
+        *_pad_ops(p),
+        *_pocket_ops(p),
+        *_panel_hole_ops(p),
+        *_minus_x_wall_ops(p),
+        *_plus_x_wall_ops(p),
+        *_bottom_and_top_wall_ops(p),
+    ]
 
 
 def build(p: Params) -> Part:
@@ -700,18 +775,19 @@ def expect(p: Params) -> dict:
     return {
         "bbox": (w, hgt, cl.DEPTH + cl.PANEL_T),
         "holes": {
-            p.cp10_hole: 2,
-            cl.INSERT_HOLE: 12 + 4 + 6 + 1,  # bosses, cup arms, lid bosses, +X wall shield
-            p.clear: 2,  # RJ45 coupler screws
-            p.head_screw_hole: 1,  # camera's 1/4-20 through the +X wall
-            p.sma_hole: 3 + 1,  # three antennas and the tether hole
-            # Rib rings round the CP10 washers: the lower one runs into the OpenUPS's +X lower
-            # standoff boss, so only the upper reads as a hole.
-            p.ring[0]: 1,
+            p.cp10_clearance_dia: 2,
+            cl.INSERT_HOLE: len(
+                cl.ZED_EAR_HOLES + pcba_holes() + ups_lower_holes() + cl.arm_screws() + lid_screws()
+            )
+            + 1,
+            p.m3_clearance_dia: 2,
+            p.quarter_close_clearance_dia: 1,
+            p.rpsma_hole: 3 + 1,
+            p.ring.inside_dia: 1,
             cl.CP10_SPOT[0]: 2,
         },
         "hole_at": {
-            p.cp10_hole: [{"x": 0.0, "y": y} for y in cl.CP10_Y],
+            p.cp10_clearance_dia: [{"x": 0.0, "y": y} for y in cl.CP10_Y],
             cl.INSERT_HOLE: [{"x": x, "y": y} for x, y in cl.arm_screws()],
         },
         "mass_g": (None, 700),
@@ -724,6 +800,6 @@ if __name__ == "__main__":
     h = cl.Y_OUT[1] - cl.Y_OUT[0]
     print(f"footprint {w:.1f} x {h:.1f} on a {cl.BED:.0f} plate: margins "
           f"{(cl.BED - w) / 2:.1f}, {(cl.BED - h) / 2:.1f}")  # fmt: skip
-    for _, (y, z) in list(cl.PORTS.items()) + list(cl.ANTENNAS.items()):
-        assert cl.PANEL_Z1 + cl.RIB_H + 8 <= z <= cl.WALL_Z_MAX - 8, z
+    for _, (y, z) in list(cl.SERVICE_PORTS_YZ.items()) + list(cl.ANTENNAS_YZ.items()):
+        assert cl.PANEL_Z1 + cl.RIB_H + 8 <= z <= cl.PORT_Z_MAX - 8, z
     print("port heights ok")

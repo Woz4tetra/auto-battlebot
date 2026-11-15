@@ -77,6 +77,9 @@ from build123d import (
 )
 
 PROCESS = "fdm"
+THREAD_LEN = 7.7
+CABLE_OD = 3.5
+INSERT_LEN = 5.7
 MATERIAL = "pla"
 
 SECTIONS = Path(__file__).resolve().parent / "tx16s_handle_bar_sections.npz"
@@ -115,19 +118,16 @@ class Params:
     key_d: float = 10.6
     key_depth: float = 0.8
     nut_af: float = 10.1
-    cavity_depth: float = 9.7  # panel underside to tower floor: 7.7 behind the panel + 2
-    notch_w: float = 5.0  # wire notch through the tower's front wall; 3.5 OD cable
+    cavity_depth: float = THREAD_LEN + 2.0
+    notch_w: float = CABLE_OD + 1.5
     notch_h: float = 4.5
-    # Fasteners
-    screw_y_front: float = 44.0  # Ø3.4 hole 2.3 clear of the bar front at x 61
-    screw_y_back: float = 70.0  # head counterbore clear of the spine's back face
-    clearance_d: float = 3.4  # M3 normal clearance, fasteners.md
-    cbore_d: float = 6.5  # M3 SHCS counterbore, fasteners.md
+    screw_y_front: float = 44.0
+    screw_y_back: float = 70.0
+    m3_clearance_dia: float = 3.4
+    m3_cbore_dia: float = 6.5
     cbore_depth: float = 3.3
-    insert_d: float = 4.0  # M3 heat-set insert hole, fasteners.md
-    insert_depth: float = 6.7  # insert 5.7 + 1, fasteners.md
-
-
+    insert_hole_dia: float = 4.0
+    insert_depth: float = INSERT_LEN + 1.0
 
 
 @lru_cache(maxsize=1)
@@ -214,8 +214,6 @@ def bore_tool(p: Params, upper: bool) -> Solid:
     return Solid.make_loft(wires, ruled=True)
 
 
-
-
 def clamp_x(p: Params) -> float:
     return (p.x0 + p.x1) / 2
 
@@ -259,24 +257,22 @@ def top_radio(p: Params) -> Part:
     part -= bore_tool(p, upper=True)
     part = _break_bore_ends(p, part)
 
-    # Captive-nut cavity, open at the tower's floor. Flats face +-X.
     hexagon = RegularPolygon(p.nut_af / 2, 6, major_radius=False, rotation=30)
     part -= Pos(tx, ty, tower_floor(p) - 1) * extrude(
         hexagon, ztop - p.panel_t - tower_floor(p) + 1
     )
     part -= Pos(tx, ty, ztop - p.panel_t - 1) * Cylinder(p.hole_d / 2, p.panel_t + 2, align=C_MIN)
     part -= Pos(tx, ty, ztop + 1) * Cylinder(p.key_d / 2, p.key_depth + 1, align=C_MAX)
-    # Wire notch through the tower's front wall, onto the arm.
     part -= Pos(tx, y_lo - 1, tower_floor(p) - 1) * Box(
         p.notch_w, ty - y_lo + 1, p.notch_h + 1, align=(Align.CENTER, Align.MIN, Align.MIN)
     )
 
     for y in (p.screw_y_front, p.screw_y_back):
         part -= Pos(clamp_x(p), y, z_lo - 1) * Cylinder(
-            p.clearance_d / 2, p.ear_top - z_lo + 2, align=C_MIN
+            p.m3_clearance_dia / 2, p.ear_top - z_lo + 2, align=C_MIN
         )
         part -= Pos(clamp_x(p), y, p.ear_top + 1) * Cylinder(
-            p.cbore_d / 2, p.cbore_depth + 1, align=C_MAX
+            p.m3_cbore_dia / 2, p.cbore_depth + 1, align=C_MAX
         )
     return part
 
@@ -288,7 +284,7 @@ def bottom_radio(p: Params) -> Part:
     part = _break_bore_ends(p, part)
     for y in (p.screw_y_front, p.screw_y_back):
         part -= Pos(clamp_x(p), y, z_hi + 1) * Cylinder(
-            p.insert_d / 2, p.insert_depth + 1, align=C_MAX
+            p.insert_hole_dia / 2, p.insert_depth + 1, align=C_MAX
         )
     return part
 
@@ -316,8 +312,6 @@ def sections(p: Params) -> list[str]:
         f"y={p.screw_y_front - mid_y}",
         f"y={p.screw_y_back - mid_y}",
     ]
-
-
 
 
 def receptacle_radio(p: Params) -> Part:
@@ -353,12 +347,12 @@ def mates(p: Params) -> dict:
 def expect(p: Params) -> dict:
     if p.half == "top":
         return {
-            "holes": {p.hole_d: 1, p.key_d: 1, p.clearance_d: 2, p.cbore_d: 2},
+            "holes": {p.hole_d: 1, p.key_d: 1, p.m3_clearance_dia: 2, p.m3_cbore_dia: 2},
             "clearance": {"other_half": p.gap - 0.05, "plug": 0.5},
             "min_wall": 1.2,
         }
     return {
-        "holes": {p.insert_d: 2},
+        "holes": {p.insert_hole_dia: 2},
         "bbox": (p.x1 - p.x0, p.y_back - p.y_front, p.split_z - p.gap / 2 - p.bottom),
         "clearance": {"other_half": p.gap - 0.05},
         "min_wall": 1.2,

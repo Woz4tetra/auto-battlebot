@@ -45,8 +45,7 @@ TAP_3_8_16 = 8.4  # 5/16" drill
 LOCATING = 4.0  # measured from the drawing
 EDGE_SMALL = 3.8  # unlabeled on the drawing, measured
 
-# First-quadrant hole centers (x, y) in mm; each mirrors about both axes.
-QUARTER_20 = [
+QUARTER_20_Q1 = [
     (5.5, 10.0), (5.5, 18.45), (5.5, 26.95), (5.5, 35.45), (5.5, 44.15),
     (10.25, 0.0),
     (27.5, 0.0), (27.5, 9.95), (27.5, 18.45), (27.5, 26.9), (27.5, 35.45), (27.5, 44.15),
@@ -120,7 +119,7 @@ def build(p: Params) -> Part:
         return Cylinder(d / 2, t, align=(Align.CENTER, Align.CENTER, Align.MAX))
 
     for pts, d in (
-        (QUARTER_20, TAP_1_4_20),
+        (QUARTER_20_Q1, TAP_1_4_20),
         (THREE_EIGHTHS_16, TAP_3_8_16),
         (LOCATING_HOLES, LOCATING),
     ):

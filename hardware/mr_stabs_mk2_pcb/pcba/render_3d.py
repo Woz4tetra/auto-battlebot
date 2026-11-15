@@ -27,18 +27,21 @@ def add_model(fp, name, offset=(0, 0, 0), rotate=(0, 0, 0)):
     fp.Models().push_back(m)
 
 
+NANO_RX_OFFSET = (0, -6.65, -2.45)
+NANO_RX_ROTATION = (0, 0, 180)
+UFL_SOCKET_OFFSET = (-4.6, 5.1, 0)
+PLAN_ZOOM = "1.9"
+ISO_ZOOM = "1.05"
+
 for fp in board.GetFootprints():
     v = fp.GetValue()
     if v in ("10uH", "15uH"):
         fp.Models().clear()
         add_model(fp, "fnr4030_inductor.step")
     elif v == "NANO_RX":
-        # Slid onto the right-angle pins against the insulator's far face (model y -6.1), its
-        # 11 mm edge resting on the board, standing 18 mm away from it, parts facing forward.
-        add_model(fp, "nano_rx.step", (0, -6.65, -2.45), (0, 0, 180))
+        add_model(fp, "nano_rx.step", NANO_RX_OFFSET, NANO_RX_ROTATION)
     elif v.startswith("ESP32-S3-MINI-1U"):
-        # U.FL socket centre, from the module footprint's own model: (-4.6, +5.1) mm, y up.
-        add_model(fp, "ufl_plug.step", (-4.6, 5.1, 0))
+        add_model(fp, "ufl_plug.step", UFL_SOCKET_OFFSET)
 
 # Drill origin at the hole-pattern centre (KiCad 100, 100), the board frame of
 # ../mr_stabs_mk2_pcb.py and the chassis CAD, so the STEP drops into the robot assembly.
@@ -51,8 +54,12 @@ views = {
     "iso_top": ["--side", "top", "--rotate", "-40,0,25"],
     "iso_bottom": ["--side", "bottom", "--rotate", "-40,0,-25"],
 }
-# Plan views fill the frame at 1.9; the tilted views need 1.0 to keep the ear tips in.
-ZOOM = {"top": "1.9", "bottom": "1.9", "iso_top": "1.05", "iso_bottom": "1.05"}
+ZOOM = {
+    "top": PLAN_ZOOM,
+    "bottom": PLAN_ZOOM,
+    "iso_top": ISO_ZOOM,
+    "iso_bottom": ISO_ZOOM,
+}
 for name, args in views.items():
     subprocess.run(
         [

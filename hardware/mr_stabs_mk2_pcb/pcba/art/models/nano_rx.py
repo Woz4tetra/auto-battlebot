@@ -25,24 +25,24 @@ MATERIAL = "pc"
 
 @dataclass
 class Params:
-    width: float = 11.0  # TBS
-    length: float = 18.0  # TBS
-    board_t: float = 1.0  # estimate
-    base_z: float = 2.5  # header plastic height
-    chip: float = 7.0  # the RF SoC under its shield, estimate
-    comp_h: float = 1.2  # estimate
-    ufl_dia: float = 2.0  # antenna U.FL on the RX
+    width_tbs: float = 11.0
+    length_tbs: float = 18.0
+    board_t_est: float = 1.0
+    header_plastic_h: float = 2.5
+    chip_est: float = 7.0
+    comp_h_est: float = 1.2
+    ufl_dia: float = 2.0
     pitch: float = 2.54
 
 
 def build(p: Params) -> Part:
     c = (Align.CENTER, Align.CENTER, Align.MIN)
-    rx = Pos(0, 0, p.base_z) * Box(p.width, p.board_t, p.length, align=c)
-    rx += Pos(0, p.board_t / 2, p.base_z + 8.0) * Box(
-        p.chip, p.comp_h, p.chip, align=(Align.CENTER, Align.MIN, Align.MIN)
+    rx = Pos(0, 0, p.header_plastic_h) * Box(p.width_tbs, p.board_t_est, p.length_tbs, align=c)
+    rx += Pos(0, p.board_t_est / 2, p.header_plastic_h + 8.0) * Box(
+        p.chip_est, p.comp_h_est, p.chip_est, align=(Align.CENTER, Align.MIN, Align.MIN)
     )
-    rx += Pos(3.0, p.board_t / 2, p.base_z + 16.0) * (
-        Rot(-90, 0, 0) * Cylinder(p.ufl_dia / 2, p.comp_h, align=c)
+    rx += Pos(3.0, p.board_t_est / 2, p.header_plastic_h + 16.0) * (
+        Rot(-90, 0, 0) * Cylinder(p.ufl_dia / 2, p.comp_h_est, align=c)
     )
     return rx
 

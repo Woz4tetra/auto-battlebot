@@ -18,8 +18,9 @@ from PIL import Image
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STL = os.path.join(HERE, "robot_stl")
-MOTOR_Y, MOTOR_Z = -9.04, 8.93  # drive axis in the assembly frame (placeholder's TILT and SHIFT)
-WHEEL_X = 61.0  # wheel centre plane, outboard of the motor bores (x 16.3 to 54.5)
+MOTOR_AXIS_Y, MOTOR_AXIS_Z = -9.04, 8.93
+WHEEL_CENTER_X = 61.0
+DEPTH_JUMP_MM = 1.2
 
 
 def load():
@@ -32,7 +33,7 @@ def load():
         if "Wheel" in name:
             side = -1 if "(1)" in name else 1
             m.apply_transform(trimesh.transformations.rotation_matrix(math.pi / 2, [0, 1, 0]))
-            m.apply_translation([side * WHEEL_X, MOTOR_Y, MOTOR_Z])
+            m.apply_translation([side * WHEEL_CENTER_X, MOTOR_AXIS_Y, MOTOR_AXIS_Z])
         parts.append(m)
     return trimesh.util.concatenate(parts)
 
@@ -86,7 +87,7 @@ def lines(depth, nimg, px):
         a = np.roll(np.roll(d, dy, 0), dx, 1)
         na = np.roll(np.roll(nimg, dy, 0), dx, 1)
         fa = np.roll(np.roll(fg, dy, 0), dx, 1)
-        jump = np.abs(d - a) > 1.2  # mm: silhouette and occlusion edges
+        jump = np.abs(d - a) > DEPTH_JUMP_MM
         crease = (fg & fa) & ((nimg * na).sum(-1) < math.cos(math.radians(35)))
         edge |= jump | crease
     return edge[::-1]
@@ -94,9 +95,9 @@ def lines(depth, nimg, px):
 
 if __name__ == "__main__":
     mesh = load()
-    PX = 6.0  # pixels per mm of model; silk.py scales the result to the board
-    depth, nimg = render(mesh, view_matrix(az=-35, el=28), PX)
-    img = lines(depth, nimg, PX)
+    PX_PER_MODEL_MM = 6.0
+    depth, nimg = render(mesh, view_matrix(az=-35, el=28), PX_PER_MODEL_MM)
+    img = lines(depth, nimg, PX_PER_MODEL_MM)
     Image.fromarray((img * 255).astype(np.uint8)).save(os.path.join(HERE, "robot_lines.png"))
     print("robot_lines.png", img.shape)
     if "--preview" in sys.argv:

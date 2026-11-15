@@ -92,29 +92,65 @@ def z_top(p: Params) -> float:
     return -(p.body_top - p.grip)
 
 
+def _chassis_relief_ops(p: Params, ox: float, oy: float) -> list[dict]:
+    y0, slope = guide_line(p, p.relief_gap)
+    wall_x, tip_y, _ = to_part(p, p.wall_x, p.lip_tip_y, 0)
+    sketch_z_lo, sketch_z_hi, sketch_far_y = z_bottom(p) - 1.0, 0.0, oy
+    guide_crosses_tip_z = (tip_y - p.relief_gap - y0) / slope
+    assert sketch_z_lo < guide_crosses_tip_z < sketch_z_hi
+    beside_wall = [
+        (y0 + slope * sketch_z_lo, sketch_z_lo),
+        (sketch_far_y, sketch_z_lo),
+        (sketch_far_y, sketch_z_hi),
+        (y0 + slope * sketch_z_hi, sketch_z_hi),
+    ]
+    behind_tip = [
+        (tip_y - p.relief_gap, sketch_z_lo),
+        (sketch_far_y, sketch_z_lo),
+        (sketch_far_y, sketch_z_hi),
+        (y0 + slope * sketch_z_hi, sketch_z_hi),
+        (tip_y - p.relief_gap, guide_crosses_tip_z),
+    ]
+    return [
+        {
+            "op": "sketch",
+            "name": "wall relief",
+            "plane": "Right",
+            "profiles": [{"polygon": beside_wall}],
+        },
+        {
+            "op": "extrude",
+            "name": "wall relief",
+            "sketch": "wall relief",
+            "regions": [(sketch_far_y - 0.5, sketch_z_hi - 0.5)],
+            "start": wall_x - p.relief_gap,
+            "depth": ox,
+            "mode": "remove",
+        },
+        {
+            "op": "sketch",
+            "name": "lip relief",
+            "plane": "Right",
+            "profiles": [{"polygon": behind_tip}],
+        },
+        {
+            "op": "extrude",
+            "name": "lip relief",
+            "sketch": "lip relief",
+            "regions": [(sketch_far_y - 0.5, sketch_z_lo + 0.5)],
+            "start": -ox,
+            "depth": 2 * ox,
+            "mode": "remove",
+        },
+    ]
+
+
 def features(p: Params) -> list[dict]:
     """The sleeve as 10 CAD features (recipe.py), replayed by build() and by the onshape skill."""
     px, py = p.body_x + p.pocket_clear, p.body_y + p.pocket_clear
     ox, oy = px + 2 * p.wall, py + 2 * p.wall
     pins = [(x, 0.0) for x in (-p.pitch, 0.0, p.pitch)]
     ring, pocket = (0.0, (oy + py) / 4), (p.pitch / 2, 0.0)
-
-    # Chassis relief, sketched on the Right plane (sketch x = part Y, sketch y = part Z): the
-    # guide face moved relief_gap toward the sleeve is the line y = y0 + slope z. Material on
-    # its rear side goes beside the wall (x past wall_x) and behind the lip tip.
-    y0, slope = guide_line(p, p.relief_gap)
-    wall_x, tip_y, _ = to_part(p, p.wall_x, p.lip_tip_y, 0)
-    lo, hi, far = z_bottom(p) - 1.0, 0.0, oy  # sketch bounds past the sleeve
-    tip_z = (tip_y - p.relief_gap - y0) / slope  # where the face crosses the tip's step
-    assert lo < tip_z < hi
-    beside_wall = [(y0 + slope * lo, lo), (far, lo), (far, hi), (y0 + slope * hi, hi)]
-    behind_tip = [
-        (tip_y - p.relief_gap, lo),
-        (far, lo),
-        (far, hi),
-        (y0 + slope * hi, hi),
-        (tip_y - p.relief_gap, tip_z),
-    ]
 
     return [
         {
@@ -172,36 +208,7 @@ def features(p: Params) -> list[dict]:
             "flip": True,
             "mode": "remove",
         },
-        {
-            "op": "sketch",
-            "name": "wall relief",
-            "plane": "Right",
-            "profiles": [{"polygon": beside_wall}],
-        },
-        {
-            "op": "extrude",
-            "name": "wall relief",
-            "sketch": "wall relief",
-            "regions": [(far - 0.5, hi - 0.5)],
-            "start": wall_x - p.relief_gap,
-            "depth": ox,
-            "mode": "remove",
-        },
-        {
-            "op": "sketch",
-            "name": "lip relief",
-            "plane": "Right",
-            "profiles": [{"polygon": behind_tip}],
-        },
-        {
-            "op": "extrude",
-            "name": "lip relief",
-            "sketch": "lip relief",
-            "regions": [(far - 0.5, lo + 0.5)],
-            "start": -ox,
-            "depth": 2 * ox,
-            "mode": "remove",
-        },
+        *_chassis_relief_ops(p, ox, oy),
     ]
 
 

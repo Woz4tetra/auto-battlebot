@@ -77,7 +77,10 @@ C_MAX = (Align.CENTER, Align.CENTER, Align.MAX)
 # Cylinder fit to the bare arm (see docstring): a point on its axis and its direction.
 ARM_POINT = np.array([85.552, 37.0, -34.645])
 ARM_DIR = np.array([0.01683, 1.0, 0.37518])
-CORNER_Y = 57.7  # rod frame origin: the arm axis at the back run's sheath centre
+ROD_FRAME_ORIGIN_Y = 57.7
+M3_NUT_AF = 5.5
+M3_NUT_T = 2.4
+THREAD_LEN = 7.7
 
 
 @dataclass
@@ -94,22 +97,20 @@ class Params:
     run_len: float = 27.0  # grip on the run ends at u 27 (radio x 59)
     arm_len: float = 26.0  # grip on the arm ends at v 26 (radio y 33, clear of the body)
     wall: float = 3.0  # outside the bore, in plane
-    # Screws, rod frame (u, v)
     screws: tuple = ((17.0, 8.5), (8.5, 17.0), (-7.5, -10.5))
-    clearance_d: float = 3.4  # M3 normal clearance, fasteners.md
-    cbore_d: float = 6.5  # M3 SHCS counterbore, fasteners.md
+    m3_clearance_dia: float = 3.4
+    m3_cbore_dia: float = 6.5
     cbore_depth: float = 3.3
-    nut_af: float = 5.7  # M3 nut 5.5 AF + 0.2, fasteners.md
-    nut_depth: float = 3.4  # nut 2.4, sunk 1.0 so an M3 x 8 runs through it
-    boss_r: float = 4.5  # outline around each screw: counterbore + 1.25
-    # Receptacle tower, radio frame
-    tower_u: float = 4.0  # over the corner, rod frame
-    tower_v: float = 4.0
-    tower_half_x: float = 7.5  # hex corner 5.83 + 1.67; the +X side is the open slot
-    tower_half_y: float = 7.55  # hex flat 5.05 + 2.5
-    floor_skin: float = 1.2  # cavity floor over the bore (dfm/fdm.md min wall)
-    cavity_depth: float = 9.7  # panel underside to cavity floor: 7.7 behind panel + 2
-    panel_t: float = 2.0  # catalog max
+    nut_af: float = M3_NUT_AF + 0.2
+    nut_depth: float = M3_NUT_T + 1.0
+    boss_r: float = 6.5 / 2 + 1.25
+    tower_over_corner_u_rod_frame: float = 4.0
+    tower_over_corner_v_rod_frame: float = 4.0
+    tower_half_x: float = 7.5
+    tower_half_y: float = 7.55
+    cavity_floor_over_bore_t: float = 1.2
+    cavity_depth: float = THREAD_LEN + 2.0
+    panel_t: float = 2.0
     hole_d: float = 8.3
     key_d: float = 10.6
     key_depth: float = 0.8
@@ -119,13 +120,11 @@ class Params:
     rod_bend_r: float = 5.0
 
 
-
-
 @lru_cache(maxsize=1)
 def rod_axes() -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Origin, u, v, n of the rod frame in radio coordinates."""
     d = ARM_DIR / np.linalg.norm(ARM_DIR)
-    origin = ARM_POINT + d * (CORNER_Y - ARM_POINT[1]) / d[1]
+    origin = ARM_POINT + d * (ROD_FRAME_ORIGIN_Y - ARM_POINT[1]) / d[1]
     v = -d
     u = np.array([-1.0, 0, 0]) - np.dot([-1.0, 0, 0], v) * v
     u /= np.linalg.norm(u)
@@ -153,10 +152,8 @@ def radio_to_part(p: Params, half: str | None = None) -> Location:
 def tower_xy() -> tuple[float, float]:
     o, u, v, _ = rod_axes()
     p = Params()
-    c = o + p.tower_u * u + p.tower_v * v
+    c = o + p.tower_over_corner_u_rod_frame * u + p.tower_over_corner_v_rod_frame * v
     return float(c[0]), float(c[1])
-
-
 
 
 def rod(p: Params) -> Solid:
@@ -177,10 +174,23 @@ def rod(p: Params) -> Solid:
     return run + Solid.sweep(profile, Wire([arc])) + arm
 
 
-
-
 def _cross2(a: np.ndarray, b: np.ndarray) -> float:
     return float(a[0] * b[1] - a[1] * b[0])
+
+
+def _convex_hull(pts: np.ndarray) -> np.ndarray:
+    pts = pts[np.lexsort((pts[:, 1], pts[:, 0]))]
+
+    def half_hull(seq):
+        out: list = []
+        for q in seq:
+            while len(out) >= 2 and _cross2(out[-1] - out[-2], q - out[-2]) <= 0:
+                out.pop()
+            out.append(q)
+        return out
+
+    lower, upper = half_hull(pts), half_hull(pts[::-1])
+    return np.array(lower[:-1] + upper[:-1])
 
 
 def _outline_points(p: Params) -> np.ndarray:
@@ -200,19 +210,7 @@ def _outline_points(p: Params) -> np.ndarray:
     pts = [np.array(c) + 1.5 * ring for c in corners]
     pts += [np.array(s) + p.boss_r * ring for s in p.screws]
     pts = np.vstack(pts)
-    # Monotone-chain convex hull
-    pts = pts[np.lexsort((pts[:, 1], pts[:, 0]))]
-
-    def half_hull(seq):
-        out: list = []
-        for q in seq:
-            while len(out) >= 2 and _cross2(out[-1] - out[-2], q - out[-2]) <= 0:
-                out.pop()
-            out.append(q)
-        return out
-
-    lower, upper = half_hull(pts), half_hull(pts[::-1])
-    return np.array(lower[:-1] + upper[:-1])
+    return _convex_hull(pts)
 
 
 def _slab(p: Params, n_lo: float, n_hi: float) -> Solid:
@@ -238,9 +236,9 @@ def _rod_space(p: Params) -> Solid:
 def _screw_cuts(p: Params, top: bool) -> Solid:
     cuts = None
     for su, sv in p.screws:
-        c = Pos(su, sv, -p.t - 1) * Cylinder(p.clearance_d / 2, 2 * p.t + 2, align=C_MIN)
+        c = Pos(su, sv, -p.t - 1) * Cylinder(p.m3_clearance_dia / 2, 2 * p.t + 2, align=C_MIN)
         if top:
-            c += Pos(su, sv, p.t + 1) * Cylinder(p.cbore_d / 2, p.cbore_depth + 1, align=C_MAX)
+            c += Pos(su, sv, p.t + 1) * Cylinder(p.m3_cbore_dia / 2, p.cbore_depth + 1, align=C_MAX)
         else:
             hexagon = RegularPolygon(p.nut_af / 2, 6, major_radius=False)
             c += Pos(su, sv, -p.t - 1) * extrude(hexagon, p.nut_depth + 1)
@@ -260,10 +258,10 @@ def nuts_rod(p: Params) -> Solid:
 
 
 def _cavity_floor(p: Params) -> float:
-    """Lowest radio z for the cavity floor: floor_skin over the bore across its footprint."""
+    """Lowest radio z for the cavity floor, cavity_floor_over_bore_t over the bore."""
     o, u, v, n = rod_axes()
     tx, ty = tower_xy()
-    n_min = p.bore_d / 2 + p.floor_skin
+    n_min = p.bore_d / 2 + p.cavity_floor_over_bore_t
     h = p.m8_af / 2
     zs = []
     for x in (tx - h / np.cos(np.pi / 6), tx + p.tower_half_x + 2):
@@ -332,8 +330,6 @@ def sections(p: Params) -> list[str]:
     return [f"x={p.run_len - 8}", f"y={p.arm_len - 6}", f"x={s1[0]}", f"y={s2[1]}", f"z={off}"]
 
 
-
-
 def receptacle_radio(p: Params) -> Solid:
     """HR10A-7R-4S envelope standing on the panel, radio frame (catalog; flange, nut assumed)."""
     flange_t, nut_t = 1.5, 2.0
@@ -372,9 +368,9 @@ def expect(p: Params) -> dict:
         "min_wall": 1.2,
     }
     if p.half == "top":
-        common["holes"] = {p.hole_d: 1, p.key_d: 1, p.clearance_d: 3, p.cbore_d: 3}
+        common["holes"] = {p.hole_d: 1, p.key_d: 1, p.m3_clearance_dia: 3, p.m3_cbore_dia: 3}
         common["clearance"]["plug"] = 0.5
         return common
-    common["holes"] = {p.clearance_d: 3}
+    common["holes"] = {p.m3_clearance_dia: 3}
     common["bbox"] = (None, None, p.t - p.gap / 2)
     return common

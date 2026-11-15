@@ -74,8 +74,7 @@ _antenna = _own(
     "antenna bought (Amazon B01KBU61S8), which has no published model.",
 )
 
-PARTS: dict[str, dict] = {
-    # Designed here
+DESIGNED_PARTS: dict[str, dict] = {
     "enclosure": _main("ENCLOSURE", "Enclosure tray, black PETG, Bambu P1S."),
     "enclosure_lid": _main("ENCLOSURE LID", "Enclosure lid, black PETG."),
     "battery_clamp": _main("BATTERY CLAMP", "Battery clamp and OpenUPS standoffs, black PETG."),
@@ -108,7 +107,9 @@ PARTS: dict[str, dict] = {
     "charger_cord": _main(
         "CHARGER DC CORD", "Mean Well DC cord, barrel plug cut off, GX12 plug fitted."
     ),
-    # Bought
+}
+
+BOUGHT_PARTS: dict[str, dict] = {
     "cup_left": _cup,
     "cup_right": _cup,
     "tray_inserts": _insert,
@@ -319,7 +320,9 @@ PARTS: dict[str, dict] = {
     ),
     "gh_J7": _gh13,
     "gh_display": _gh13,
-    # Fasteners (the M3 x 6 under the ZED is Onshape Standard Content)
+}
+
+FASTENER_PARTS: dict[str, dict] = {
     "cup_screws": _mc(
         "91255A621",
         "3/8-16 X 5/8 BUTTON HEAD SCREW",
@@ -373,3 +376,5 @@ PARTS: dict[str, dict] = {
         "18-8 stainless socket head screw, M4 x 0.7 x 12 mm.",
     ),
 }
+
+PARTS: dict[str, dict] = DESIGNED_PARTS | BOUGHT_PARTS | FASTENER_PARTS

@@ -47,7 +47,7 @@ INCH = 25.4
 ZED_BASE_Y = 3.5
 ZED_MID_Z = 71.5
 ZED_MIN_SOLID_MM3 = 200.0
-MESH_UNIT = 0.01  # mm per int16 step in the viewer meshes
+MESH_MM_PER_STEP = 0.01
 
 
 def zed_location(top: float) -> Location:
@@ -58,7 +58,7 @@ def zed_location(top: float) -> Location:
 
 
 def write_mesh(shape: Shape, path: Path, tol: float, angular: float) -> None:
-    """One mesh as JSON: base64 int16 positions in units of MESH_UNIT mm (Z up) and uint32
+    """One mesh as JSON: base64 int16 positions in units of MESH_MM_PER_STEP mm (Z up) and uint32
     triangle indices. Artifacts serve JSON but not GLB; the viewer computes normals."""
     pos: list[int] = []
     idx: list[int] = []
@@ -66,12 +66,12 @@ def write_mesh(shape: Shape, path: Path, tol: float, angular: float) -> None:
         verts, tris = solid.tessellate(tol, angular)
         base = len(pos) // 3
         for vtx in verts:
-            pos.extend(round(c / MESH_UNIT) for c in (vtx.X, vtx.Y, vtx.Z))
+            pos.extend(round(c / MESH_MM_PER_STEP) for c in (vtx.X, vtx.Y, vtx.Z))
         for t in tris:
             idx.extend(base + k for k in t)
     assert max(abs(c) for c in pos) < 32768, "mesh exceeds the int16 range"
     mesh = {
-        "unit": MESH_UNIT,
+        "unit": MESH_MM_PER_STEP,
         "pos": base64.b64encode(struct.pack(f"<{len(pos)}h", *pos)).decode(),
         "idx": base64.b64encode(struct.pack(f"<{len(idx)}I", *idx)).decode(),
     }
@@ -198,6 +198,50 @@ def insert_analysis(p: adapter.Params) -> dict:
     }
 
 
+def _base_sheet(zed, thickness: float):
+    sheets = [
+        s
+        for s in zed.solids()
+        if s.bounding_box().size.Y > 100 and s.bounding_box().min.Z < thickness + 0.01
+    ]
+    assert len(sheets) == 1, f"expected one ZED base sheet, got {len(sheets)}"
+    return sheets[0]
+
+
+def _hole_overlap_layers(part, plate, sheet, top: float) -> dict:
+    zone = (-100.0, 100.0, -56.0, 56.0)
+    return {
+        "zed_sheet": cut(sheet, "Z", top + 0.5, zone),
+        "adapter_top": cut(part, "Z", top - 0.5, zone),
+        "adapter_bottom": cut(part, "Z", 2.0, zone),
+        "plate": cut(plate, "Z", -5.0, zone),
+    }
+
+
+def _stack_sections(p, stack: dict) -> dict:
+    top = p.thickness
+    ix, iy = p.zed_hole_x, p.zed_hole_y
+    bx, by = p.plate_hole_x, p.plate_hole_y
+    return {
+        "insert": {
+            "axis": "X",
+            "at": ix,
+            "window": [iy - 9, iy + 6, -10.0, top + 6],
+            "parts": {
+                k: cut(s, "X", ix, (iy - 9, iy + 6, -10.0, top + 6)) for k, s in stack.items()
+            },
+        },
+        "bolt": {
+            "axis": "X",
+            "at": bx,
+            "window": [by - 13, by + 13, -10.0, top + 3],
+            "parts": {
+                k: cut(s, "X", bx, (by - 13, by + 13, -10.0, top + 3)) for k, s in stack.items()
+            },
+        },
+    }
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("zed_step", type=Path)
@@ -216,14 +260,7 @@ def main() -> None:
         f"ZED placed: x {zb.min.X:.2f}..{zb.max.X:.2f} y {zb.min.Y:.2f}..{zb.max.Y:.2f}",
         f"z {zb.min.Z:.2f}..{zb.max.Z:.2f}",
     )
-    # The base sheet: the only solid wider than the adapter's 100 mm.
-    sheets = [
-        s
-        for s in zed.solids()
-        if s.bounding_box().size.Y > 100 and s.bounding_box().min.Z < p.thickness + 0.01
-    ]
-    assert len(sheets) == 1, f"expected one ZED base sheet, got {len(sheets)}"
-    sheet = sheets[0]
+    sheet = _base_sheet(zed, p.thickness)
 
     step_dir = args.out.parent / "step"
     step_dir.mkdir(exist_ok=True)
@@ -235,7 +272,6 @@ def main() -> None:
         export_step(shape, str(step_dir / f"{name}.step"))
         print(f"{name}.step {(step_dir / f'{name}.step').stat().st_size / 1e6:.2f} MB")
 
-    # Small internal components are hidden by the case and would triple the mesh size.
     zed_mesh = Compound([s for s in zed.solids() if s.volume > ZED_MIN_SOLID_MM3])
     meshes = {"adapter": part, "plate": plate, "zed": zed_mesh, **hw}
     for name, shape in meshes.items():
@@ -243,15 +279,8 @@ def main() -> None:
         write_mesh(shape, args.out / f"{name}.json", tol, 0.35 if name == "zed" else 0.2)
         print(f"{name}.json {(args.out / f'{name}.json').stat().st_size / 1e6:.2f} MB")
 
-    # Plan-view layers for the hole overlap drawing.
     top = p.thickness
-    zone = (-100.0, 100.0, -56.0, 56.0)
-    plan = {
-        "zed_sheet": cut(sheet, "Z", top + 0.5, zone),
-        "adapter_top": cut(part, "Z", top - 0.5, zone),
-        "adapter_bottom": cut(part, "Z", 2.0, zone),
-        "plate": cut(plate, "Z", -5.0, zone),
-    }
+    plan = _hole_overlap_layers(part, plate, sheet, top)
     zed_holes = circle_centers(sheet, adapter.ZED_EAR_HOLE)
     insert_holes = circle_centers(part, p.insert_hole)
     bolt_holes = circle_centers(part, p.bolt_clear)
@@ -284,28 +313,7 @@ def main() -> None:
             }
         )
 
-    # Cross-sections through one insert and one bolt, every part in the stack.
-    stack = {"adapter": part, "plate": plate, "zed_sheet": sheet, **hw}
-    ix, iy = p.zed_hole_x, p.zed_hole_y
-    bx, by = p.plate_hole_x, p.plate_hole_y
-    sections = {
-        "insert": {
-            "axis": "X",
-            "at": ix,
-            "window": [iy - 9, iy + 6, -10.0, top + 6],
-            "parts": {
-                k: cut(s, "X", ix, (iy - 9, iy + 6, -10.0, top + 6)) for k, s in stack.items()
-            },
-        },
-        "bolt": {
-            "axis": "X",
-            "at": bx,
-            "window": [by - 13, by + 13, -10.0, top + 3],
-            "parts": {
-                k: cut(s, "X", bx, (by - 13, by + 13, -10.0, top + 3)) for k, s in stack.items()
-            },
-        },
-    }
+    sections = _stack_sections(p, {"adapter": part, "plate": plate, "zed_sheet": sheet, **hw})
 
     report = json.loads((HERE / "out" / "zed_cheese_plate_adapter" / "report.json").read_text())
     checks = [
@@ -319,7 +327,7 @@ def main() -> None:
         "pairs": pairs,
         "zed_holes": zed_holes,
         "plate_holes": {
-            "q": cp10.mirrored(cp10.QUARTER_20),
+            "q": cp10.mirrored(cp10.QUARTER_20_Q1),
             "t": cp10.mirrored(cp10.THREE_EIGHTHS_16),
             "a": cp10.mirrored(cp10.LOCATING_HOLES),
         },

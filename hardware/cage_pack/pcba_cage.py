@@ -61,7 +61,7 @@ C_MIN = (Align.CENTER, Align.CENTER, Align.MIN)
 
 @dataclass
 class Params:
-    hole: float = 3.2  # M3 close clearance, fasteners.md
+    m3_close_clearance_dia: float = 3.2
 
 
 def holes() -> list[tuple[float, float]]:
@@ -79,7 +79,8 @@ def features(p: Params) -> list[dict]:
     xc, yc = (cl.PCBA_X0 + cl.PCBA_X1) / 2, (cl.PCBA_Y0 + cl.PCBA_Y1) / 2
     return [
         {"op": "sketch", "name": "Board outline", "plane": "Top", "profiles": [
-            {"rect": (xc, yc, w, h)}, *[{"circle": (x, y, p.hole)} for x, y in holes()]]},
+            {"rect": (xc, yc, w, h)},
+            *[{"circle": (x, y, p.m3_close_clearance_dia)} for x, y in holes()]]},
         {"op": "extrude", "name": "Board", "sketch": "Board outline", "regions": [(xc, yc)],
          "depth": cl.PCBA_T, "start": cl.PCBA_Z},
     ]  # fmt: skip
@@ -181,7 +182,7 @@ def mates(p: Params) -> dict:
 def expect(p: Params) -> dict:
     return {
         "bbox": (cl.PCBA_X1 - cl.PCBA_X0, cl.PCBA_Y1 - cl.PCBA_Y0, cl.PCBA_T),
-        "holes": {p.hole: 4},
+        "holes": {p.m3_close_clearance_dia: 4},
         "allow_interference": list(PLACEMENT),
     }
 

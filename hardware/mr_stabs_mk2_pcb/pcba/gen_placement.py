@@ -44,7 +44,8 @@ MCU, IMU, INA = find("ESP32-S3-MINI-1U-N4R2"), find("BNO055"), find("INA238")
 USB, LED = find("TYPE-C-31-D-06"), find("XL-2020RGBC-WS2812B")
 holes_l = sorted(d["ref"] for d in info if d["value"] == "MountingHole_L")
 holes_r = sorted(d["ref"] for d in info if d["value"] == "MountingHole_R")
-holes = holes_l + holes_r  # (-9.8, -9.8), (-9.8, 9.8), (9.8, -9.8), (9.8, 9.8)
+holes = holes_l + holes_r
+HOLE_XY = [(-9.8, -9.8), (-9.8, 9.8), (9.8, -9.8), (9.8, 9.8)]
 c100_3v3 = [d["ref"] for d in info if d["value"] == "100nF" and nets(d["ref"]) == {"+3V3", "GND"}]
 assert len(c100_3v3) == 4, c100_3v3
 r10k_imu = [
@@ -83,7 +84,11 @@ class SidedLayout(Layout):
             s = self.rect(r, x, y, rot)
             if not self.region_fixed.contains(s):
                 self.problems.append(f"fixed {r} leaves the board")
-            ko = under_low if self.info[r]["value"] in ("0.5m", "10") else self.bottom_keepout
+            ko = (
+                under_low_keepout
+                if self.info[r]["value"] in ("0.5m", "10")
+                else self.bottom_keepout
+            )
             if s.intersects(ko):
                 self.problems.append(f"fixed {r} hits the B-side keep-out")
             out[r] = (x, y, rot, "B")
@@ -102,15 +107,15 @@ right = [
     (P["wall_x"], P["ear_front_y"]),
     (P["wall_x"], P["y_min"]),
 ]
-outline_b = right + [(-x, y) for x, y in reversed(right)]  # ../mr_stabs_mk2_pcb.py outline()
+outline_b = right + [(-x, y) for x, y in reversed(right)]
 
 keep = json.load(open("cad/keepout.json"))
-roof = shape(keep["F"]).buffer(0.3)  # bosses and rear cross member on the roof face
-under = shape(keep["B_tall"]).buffer(0.3)  # ESCs, ledge ridge, washers on the wedge face
-under_low = shape(keep["B_low"]).buffer(0.3)  # what a part under 2.4 mm tall must clear
+roof_keepout = shape(keep["F"]).buffer(0.3)
+under_tall_keepout = shape(keep["B_tall"]).buffer(0.3)
+under_low_keepout = shape(keep["B_low"]).buffer(0.3)
 
-lay = SidedLayout("info.jsonl", outline_b, bottom_keepout=under, edge=0.25)
-lay.keepout = roof
+lay = SidedLayout("info.jsonl", outline_b, bottom_keepout=under_tall_keepout, edge=0.25)
+lay.keepout = roof_keepout
 # EasyEDA courtyards that miss their own pads (footprint_audit.py).
 lay.size(LED, (-1.25, 1.25), (-1.2, 1.2))
 lay.size(USB, (-4.6, 4.6), (-2.95, 2.95))
@@ -132,23 +137,20 @@ for h in holes:
 # checked against the board edge only, and the keep-out margin is checked here.
 assert lay.rect(MCU, 0, 0, 0).distance(shape(keep["F"])) > 0.3
 
-PAD_Y = -17.3  # lap pads: courtyard 0.25 mm inside the front edge at y -20.3; labels behind
+LAP_PAD_Y = -17.3
 fixed = {
     MCU: (0.0, 0.0, 0),
-    holes[0]: (-9.8, -9.8, 0),
-    holes[1]: (-9.8, 9.8, 0),
-    holes[2]: (9.8, -9.8, 0),
-    holes[3]: (9.8, 9.8, 0),
+    **{h: (x, y, 0) for h, (x, y) in zip(holes, HOLE_XY)},
     find("GND_STITCH", nth=0): (11.6, -2.6, 0),
     find("GND_STITCH", nth=1): (-11.6, -2.6, 0),
-    find("PACK_A-"): (-14.9, PAD_Y, 0),
-    find("PACK_A+"): (-19.5, PAD_Y, 0),
-    find("PACK_B-"): (-24.1, PAD_Y, 0),
-    find("SW_BACK"): (14.9, PAD_Y, 0),
-    find("SW_OUT"): (19.5, PAD_Y, 0),
-    find("PACK_B+"): (24.1, PAD_Y, 0),
+    find("PACK_A-"): (-14.9, LAP_PAD_Y, 0),
+    find("PACK_A+"): (-19.5, LAP_PAD_Y, 0),
+    find("PACK_B-"): (-24.1, LAP_PAD_Y, 0),
+    find("SW_BACK"): (14.9, LAP_PAD_Y, 0),
+    find("SW_OUT"): (19.5, LAP_PAD_Y, 0),
+    find("PACK_B+"): (24.1, LAP_PAD_Y, 0),
 }
-THROUGH = {
+THROUGH_BOARD_VALUES = {
     "GND_STITCH",
     "MountingHole_L",
     "MountingHole_R",
@@ -156,15 +158,14 @@ THROUGH = {
     "PACK_A-",
     "ESC_L-",
     "ESC_R-",
-}  # holes block both sides
+}
 for ref, (x, y, rot) in fixed.items():
-    lay.fix(ref, x, y, rot, through=values[ref] in THROUGH)
+    lay.fix(ref, x, y, rot, through=values[ref] in THROUGH_BOARD_VALUES)
 
-# silk.py writes a label 1.4 mm deep just behind each lap pad; keep parts off those strips.
 from shapely.geometry import box as _box
 
-LABEL_STRIPS = [
-    _box(x - 1.8, PAD_Y + 2.5, x + 1.8, PAD_Y + 3.9)
+LAP_PAD_LABEL_STRIPS = [
+    _box(x - 1.8, LAP_PAD_Y + 2.5, x + 1.8, LAP_PAD_Y + 3.9)
     for ref, (x, y, rot) in fixed.items()
     if values[ref] in ("PACK_A-", "PACK_A+", "PACK_B-", "PACK_B+", "SW_OUT", "SW_BACK")
 ]
@@ -213,21 +214,31 @@ B_FIXED = {
     find("BOOT/RST"): (-21.0, -9.0, 0),
 }
 for ref, (x, y, rot) in B_FIXED.items():
-    lay.fix_bottom(ref, x, y, rot, through=values[ref] in THROUGH)
-# Only their through-hole legs reach the F side: block those, not the whole body.
+    lay.fix_bottom(ref, x, y, rot, through=values[ref] in THROUGH_BOARD_VALUES)
 from shapely import affinity
 from shapely.geometry import Point
 from shapely.ops import unary_union
 
-legs = []
-for ref, (x, y, rot) in B_FIXED.items():
-    d = lay.info[ref]
-    for name, x0, x1, y0, y1 in d["pad_boxes"]:
-        if name in ("25", "EP", ""):  # shell legs and locating pegs pierce the board
-            c = Point((x0 + x1) / 2, -(y0 + y1) / 2)  # footprint-local y down -> y up
-            c = affinity.translate(affinity.rotate(c, rot, origin=(0, 0)), x, y)
-            legs.append(c.buffer(max(x1 - x0, y1 - y0) / 2 + 0.3))
-lay.keepout = unary_union([lay.keepout, *legs, *LABEL_STRIPS])
+PIERCING_PAD_NAMES = ("25", "EP", "")
+
+
+def _pad_center_board_frame(x0, x1, y0, y1, rot, x, y):
+    c = Point((x0 + x1) / 2, -(y0 + y1) / 2)
+    return affinity.translate(affinity.rotate(c, rot, origin=(0, 0)), x, y)
+
+
+def _through_leg_keepouts(b_fixed):
+    legs = []
+    for ref, (x, y, rot) in b_fixed.items():
+        d = lay.info[ref]
+        for name, x0, x1, y0, y1 in d["pad_boxes"]:
+            if name in PIERCING_PAD_NAMES:
+                c = _pad_center_board_frame(x0, x1, y0, y1, rot, x, y)
+                legs.append(c.buffer(max(x1 - x0, y1 - y0) / 2 + 0.3))
+    return legs
+
+
+lay.keepout = unary_union([lay.keepout, *_through_leg_keepouts(B_FIXED), *LAP_PAD_LABEL_STRIPS])
 
 wanted = {
     # INA238 on the shunt's Kelvin lines, VBUS pin over the F BAT_IN pour.
@@ -289,8 +300,7 @@ wanted = {
     find("4.7k", "SCL1"): (1.2, -17.6, 90),
     find("B5819W", "VBUS_USB"): (-15.0, -12.6, 0),
 }
-# BNO055 CAP pin cap.
-cap_ref = [find("1uF", "IMU_CAP")]
+imu_cap_ref = [find("1uF", "IMU_CAP")]
 
 REACH = {
     find("22uF", nth=2): 12.0,
@@ -300,7 +310,7 @@ for ref, (x, y, rot) in wanted.items():
     lay.want(ref, x, y, rot, reach=REACH.get(ref, 6.0), bottom_ok=False)
 # The CAP pin's cap goes straight under the IMU on the wedge face (the roof face around it is
 # full; 6 mm away on top it would not route): a short reach so it never lands far off on top.
-lay.want(cap_ref[0], 7.6, -17.2, 0, reach=1.5, bottom_ok=True)
+lay.want(imu_cap_ref[0], 7.6, -17.2, 0, reach=1.5, bottom_ok=True)
 # XIN's load cap on the wedge face under the crystal, between the USB-C and the signal pads: at
 # the front edge on top its GND pad had no room for a via in any of 20 routing tries.
 lay.want(find("22pF", "XIN32"), 3.1, -15.25, 0, reach=1.0, bottom_ok=True)
@@ -308,7 +318,7 @@ solved = lay.solve()
 if "--plot" in sys.argv:
     import debug_plot
 
-    debug_plot.plot(lay, solved, roof, under, outline_b)
+    debug_plot.plot(lay, solved, roof_keepout, under_tall_keepout, outline_b)
 k = lay.to_kicad
 
 spec = {
@@ -392,8 +402,8 @@ spec = {
         {"net": "GND", "layers": ["F.Cu", "B.Cu"]},
         {"net": "GND", "layers": ["In1.Cu"]},
         {"net": "GND", "layers": ["In2.Cu"]},
-        # Pack series join: PACK_A+ to PACK_B-, both on the left ear's front edge.
         {
+            "name": "pack series join",
             "net": "PACK_MID",
             "layers": ["F.Cu", "B.Cu"],
             "priority": 2,
@@ -401,8 +411,8 @@ spec = {
                 k(x, y) for x, y in [(-26.2, -20.0), (-17.3, -20.0), (-17.3, -13.4), (-26.2, -13.4)]
             ],
         },
-        # Switch loop out: PACK_B+ to SW_OUT, the full pad height.
         {
+            "name": "switch loop out",
             "net": "PACK+",
             "layers": ["F.Cu"],
             "priority": 2,
@@ -410,8 +420,8 @@ spec = {
                 k(x, y) for x, y in [(17.3, -20.0), (26.2, -20.0), (26.2, -14.6), (17.3, -14.6)]
             ],
         },
-        # Switch loop back: the F pour under SW_BACK, its vias, the B pour under the shunt.
         {
+            "name": "switch loop back, F pour under SW_BACK",
             "net": "BAT_IN",
             "layers": ["F.Cu"],
             "priority": 3,
@@ -422,6 +432,7 @@ spec = {
             ],
         },
         {
+            "name": "switch loop back, B pour under the shunt",
             "net": "BAT_IN",
             "layers": ["B.Cu"],
             "priority": 3,

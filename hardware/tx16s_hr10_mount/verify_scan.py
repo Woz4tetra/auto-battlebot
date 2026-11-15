@@ -16,6 +16,7 @@ import numpy as np
 import pyvista as pv
 
 HERE = Path(__file__).resolve().parent
+BOND_BAND_MM = 2.5
 
 
 def _load(name: str):
@@ -69,15 +70,14 @@ def main() -> None:
         where = np.round(near[i], 1)
         print(f"{name}: min gap {g[i]:.2f} mm at radio {where}, {inside} vertices inside")
 
-    # Bond line: scan points within 2.5 mm of the block are the ones under the base; their
-    # gap is what the tape fills.
     g = signed_gaps(block, near)
-    under = near[(g > 0) & (g < 2.5)]
-    gu = g[(g > 0) & (g < 2.5)]
+    under_base = (g > 0) & (g < BOND_BAND_MM)
+    under = near[under_base]
+    gu = g[under_base]
     if len(under):
         q = np.percentile(gu, [1, 50, 99])
         gaps = f"p1 {q[0]:.2f} p50 {q[1]:.2f} p99 {q[2]:.2f}"
-        print(f"bond line: {len(under)} scan vertices within 2.5 mm, gap {gaps}")
+        print(f"bond line: {len(under)} scan vertices within {BOND_BAND_MM} mm, gap {gaps}")
 
 
 if __name__ == "__main__":

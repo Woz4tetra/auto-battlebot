@@ -25,6 +25,17 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 meshes = {
     os.path.basename(f)[:-4]: trimesh.load(f) for f in glob.glob(os.path.join(HERE, "stl", "*.stl"))
 }
+HOLE_OFFSET = 9.8
+WASHER_OD = 9.0
+WASHER_FLAT_X = 13.0
+
+
+def _even_odd_fill(loops):
+    acc = Polygon()
+    for loop in loops:
+        if len(loop) >= 3:
+            acc = acc.symmetric_difference(Polygon(loop[:, :2]).buffer(0))
+    return acc
 
 
 def section(z):
@@ -33,18 +44,15 @@ def section(z):
         s = m.section(plane_origin=[0, 0, z], plane_normal=[0, 0, 1])
         if s is None:
             continue
-        acc = Polygon()
-        for loop in s.discrete:  # even-odd fill, so holes in a section stay holes
-            if len(loop) >= 3:
-                acc = acc.symmetric_difference(Polygon(loop[:, :2]).buffer(0))
-        polys.append(acc)
+        polys.append(_even_odd_fill(s.discrete))
     return unary_union(polys)
 
 
-# The user's printed countersunk washers under each hole: 9.0 mm OD, 3.0 thick, D-cut at |x| 13.
 washers = unary_union(
     [
-        Point(sx * 9.8, sy * 9.8).buffer(4.5).intersection(box(-13, -50, 13, 50))
+        Point(sx * HOLE_OFFSET, sy * HOLE_OFFSET)
+        .buffer(WASHER_OD / 2)
+        .intersection(box(-WASHER_FLAT_X, -50, WASHER_FLAT_X, 50))
         for sx in (-1, 1)
         for sy in (-1, 1)
     ]

@@ -52,30 +52,34 @@ PROCESS = "fdm"
 MATERIAL = "petg"
 
 W = cl.ARM_W
-_BASE = Pos(0, W / 2, 0) * Rot(90, 0, 0)  # print frame -> wall frame, cup axis at y = 0
+PRINT_TO_WALL = Pos(0, W / 2, 0) * Rot(90, 0, 0)
 ASSEMBLY_AT = {
-    "-x": Pos(cl.X_OUT[0], cl.CUP_Y, cl.CUP_H) * Rot(0, 0, 180) * _BASE,
-    "+x": Pos(cl.X_OUT[1], cl.CUP_Y, cl.CUP_H) * _BASE,
+    "-x": Pos(cl.X_OUT[0], cl.CUP_Y, cl.CUP_H) * Rot(0, 0, 180) * PRINT_TO_WALL,
+    "+x": Pos(cl.X_OUT[1], cl.CUP_Y, cl.CUP_H) * PRINT_TO_WALL,
 }
 
 
 @dataclass
 class Params:
-    cup_hole: float = 10.3  # 3/8" normal clearance, fasteners.md
-    clear: float = 3.4  # M3 normal clearance, fasteners.md
-    rail_gap: float = 2.0  # beam end to the cup's rail
-    slope: float = 6.0  # beam's slope up to the plate, along X
-    plate_past: float = 30.0  # plate beyond the cup's axis; the rail ends 28 past it
-    foot_chamfer: float = 0.5  # elephant's foot, fdm.md
+    cup_clearance_dia: float = 10.3
+    m3_clearance_dia: float = 3.4
+    beam_to_rail_gap: float = 2.0
+    slope: float = 6.0
+    plate_past: float = 30.0
+    foot_chamfer: float = 0.5
 
 
 def profile(p: Params) -> list[tuple[float, float]]:
     """The arm's side profile in the print frame (X out from the wall, Y from the rail tops)."""
     lt, tt, tp = cl.ARM_TONGUE, cl.ARM_TONGUE_T, cl.ARM_PLATE_T
-    beam = cl.CUP_OUT - 28.0 - p.rail_gap  # the rail is 56 long, centred on the cup
+    beam = cl.CUP_OUT - cl.CUP_RAIL_HALF_LEN - p.beam_to_rail_gap
     end = cl.CUP_OUT + p.plate_past
     return [(-lt, -tt), (beam - p.slope, -tt), (beam, 0.0), (end, 0.0), (end, tp),
             (0.0, tp), (0.0, 0.0), (-lt, 0.0)]  # fmt: skip
+
+
+def _bed_edge_midpoints(poly: list[tuple[float, float]]) -> list[tuple[float, float, float]]:
+    return [((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, 0.0) for a, b in zip(poly, poly[1:] + poly[:1])]
 
 
 def features(p: Params) -> list[dict]:
@@ -86,11 +90,10 @@ def features(p: Params) -> list[dict]:
     zm = W / 2
     cup = (cl.CUP_OUT, zm)
     screws = [(-cl.ARM_SCREW_IN, zm + s * cl.ARM_SCREW_DY) for s in (-1, 1)]
-    spot_ring = (cl.CUP_OUT + (p.cup_hole + cl.ARM_SPOT[0]) / 4, zm)
+    spot_ring = (cl.CUP_OUT + (p.cup_clearance_dia + cl.ARM_SPOT[0]) / 4, zm)
     cb_d, cb_t = cl.ARM_CBORE
-    cb_ring = [(x + (p.clear + cb_d) / 4, z) for x, z in screws]
-    # Bed-face edges for the foot chamfer: the midpoint of each profile side at Z = 0.
-    sides = [((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, 0.0) for a, b in zip(poly, poly[1:] + poly[:1])]
+    cb_ring = [(x + (p.m3_clearance_dia + cb_d) / 4, z) for x, z in screws]
+    sides = _bed_edge_midpoints(poly)
     return [
         {"op": "sketch", "name": "Arm profile", "plane": "Top", "profiles": [{"polygon": poly}]},
         {"op": "extrude", "name": "Arm", "sketch": "Arm profile",
@@ -98,13 +101,13 @@ def features(p: Params) -> list[dict]:
         {"op": "chamfer", "name": "Elephant's foot chamfer", "size": p.foot_chamfer,
          "edges": sides},
         {"op": "sketch", "name": "Cup screw", "plane": "Front", "profiles": [
-            {"circle": (*cup, p.cup_hole)}, {"circle": (*cup, cl.ARM_SPOT[0])}]},
+            {"circle": (*cup, p.cup_clearance_dia)}, {"circle": (*cup, cl.ARM_SPOT[0])}]},
         {"op": "extrude", "name": "Cup screw hole", "sketch": "Cup screw", "regions": [cup],
          "start": -(tp + 1.0), "depth": tp + 2.0, "mode": "remove"},
         {"op": "extrude", "name": "Washer spot face", "sketch": "Cup screw",
          "regions": [spot_ring], "start": -tp, "depth": cl.ARM_SPOT[1], "mode": "remove"},
         {"op": "sketch", "name": "Panel screws", "plane": "Front", "profiles": [
-            *[{"circle": (*xz, p.clear)} for xz in screws],
+            *[{"circle": (*xz, p.m3_clearance_dia)} for xz in screws],
             *[{"circle": (*xz, cb_d)} for xz in screws]]},
         {"op": "extrude", "name": "Panel screw holes", "sketch": "Panel screws",
          "regions": screws, "start": -1.0, "depth": tt + 2.0, "mode": "remove"},
@@ -124,6 +127,11 @@ def sections(p: Params) -> list[str]:
 def expect(p: Params) -> dict:
     return {
         "bbox": (cl.ARM_TONGUE + cl.CUP_OUT + p.plate_past, cl.ARM_TONGUE_T + cl.ARM_PLATE_T, W),
-        "holes": {p.cup_hole: 1, cl.ARM_SPOT[0]: 1, p.clear: 2, cl.ARM_CBORE[0]: 2},
-        "hole_at": {p.cup_hole: [{"x": cl.CUP_OUT, "z": W / 2}]},
+        "holes": {
+            p.cup_clearance_dia: 1,
+            cl.ARM_SPOT[0]: 1,
+            p.m3_clearance_dia: 2,
+            cl.ARM_CBORE[0]: 2,
+        },
+        "hole_at": {p.cup_clearance_dia: [{"x": cl.CUP_OUT, "z": W / 2}]},
     }

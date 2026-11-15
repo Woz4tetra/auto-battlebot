@@ -10,12 +10,13 @@ search results (first relevant listing; Amazon prices move daily). Mouser blocks
 browsing and Mini-Box shows no OpenUPS price without a cart, so neither is priced here.
 """
 
+from typing import NamedTuple
+
 AMZ = "https://www.amazon.com/dp/"
 DK = "https://www.digikey.com/en/products/detail/"
 MC = "https://www.mcmaster.com/"
 
-# Keyed by assembly component name.
-COMPONENTS: dict[str, dict] = {
+COMPONENTS_BY_ASSEMBLY_NAME: dict[str, dict] = {
     "cup": {
         "name": 'SmallRig 4122C Suction Cup Camera Mount (4")',
         "vendor": "B&H",
@@ -115,8 +116,7 @@ COMPONENTS: dict[str, dict] = {
     },
 }
 
-# Cabling and panel parts that have no solid of their own in the assembly.
-EXTRAS: list[dict] = [
+UNMODELED_EXTRAS: list[dict] = [
     {
         "name": "Inline ATC fuse holder 16 AWG, 4-pack with fuses (fit 10 A)",
         "vendor": "Amazon",
@@ -243,19 +243,30 @@ PCBA: dict = {
     "note": "Estimate: one of two assembled boards from the Mk2 order's $452.79 total",
 }
 
-# McMaster, keyed by part number: (per-unit price, pack size, pack price).
-MCMASTER: dict[str, tuple[float, int, float]] = {
-    "91255A619": (18.43 / 50, 50, 18.43),  # 3/8-16 x 1/2" alloy button head, black oxide
-    "92311A537": (13.28 / 100, 100, 13.28),  # 1/4-20 x 1/2" 18-8 cup-point set screw
-    "91292A111": (11.58 / 100, 100, 11.58),  # M3 x 6 18-8 SHCS
-    "91292A112": (6.46 / 100, 100, 6.46),  # M3 x 8 18-8 SHCS
-    "91292A115": (8.44 / 100, 100, 8.44),  # M3 x 16 18-8 SHCS
-    "92095A181": (8.80 / 100, 100, 8.80),  # M3 x 8 18-8 button head
-    "92095A182": (8.64 / 100, 100, 8.64),  # M3 x 10 18-8 button head
-    "94180A331": (20.44 / 100, 100, 20.44),  # M3 brass tapered heat-set, 3.8 mm
-    "94180A333": (27.84 / 100, 100, 27.84),  # M3 brass tapered heat-set, 6.4 mm
-    "93365A160": (15.76 / 25, 25, 15.76),  # 1/4-20 brass tapered heat-set, 0.300"
-    "92141A051": (9.25 / 100, 100, 9.25),  # 3/8" 18-8 oversized washer, 1" OD, 0.040-0.060"
+
+class McMasterPrice(NamedTuple):
+    unit: float
+    pack: int
+    pack_price: float
+    description: str
+
+
+MCMASTER: dict[str, McMasterPrice] = {
+    "91255A619": McMasterPrice(
+        18.43 / 50, 50, 18.43, '3/8-16 x 1/2" alloy button head, black oxide'
+    ),
+    "92311A537": McMasterPrice(13.28 / 100, 100, 13.28, '1/4-20 x 1/2" 18-8 cup-point set screw'),
+    "91292A111": McMasterPrice(11.58 / 100, 100, 11.58, "M3 x 6 18-8 SHCS"),
+    "91292A112": McMasterPrice(6.46 / 100, 100, 6.46, "M3 x 8 18-8 SHCS"),
+    "91292A115": McMasterPrice(8.44 / 100, 100, 8.44, "M3 x 16 18-8 SHCS"),
+    "92095A181": McMasterPrice(8.80 / 100, 100, 8.80, "M3 x 8 18-8 button head"),
+    "92095A182": McMasterPrice(8.64 / 100, 100, 8.64, "M3 x 10 18-8 button head"),
+    "94180A331": McMasterPrice(20.44 / 100, 100, 20.44, "M3 brass tapered heat-set, 3.8 mm"),
+    "94180A333": McMasterPrice(27.84 / 100, 100, 27.84, "M3 brass tapered heat-set, 6.4 mm"),
+    "93365A160": McMasterPrice(15.76 / 25, 25, 15.76, '1/4-20 brass tapered heat-set, 0.300"'),
+    "92141A051": McMasterPrice(
+        9.25 / 100, 100, 9.25, '3/8" 18-8 oversized washer, 1" OD, 0.040-0.060"'
+    ),
 }
 
 
@@ -269,7 +280,7 @@ def mcmaster(pn: str) -> dict:
             "url": MC + pn,
             "note": "Price not checked",
         }
-    unit, pack, pack_price = MCMASTER[pn]
+    unit, pack, pack_price, _ = MCMASTER[pn]
     return {
         "vendor": "McMaster-Carr",
         "part_number": pn,

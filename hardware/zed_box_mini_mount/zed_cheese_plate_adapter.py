@@ -35,7 +35,6 @@ Open questions
   The 2.7 mm of PLA under each flange is the weak link.
 """
 
-
 from dataclasses import dataclass
 
 import recipe  # build123d-part/scripts, on the path when run through scripts/run
@@ -92,7 +91,7 @@ def features(p: Params) -> list[dict]:
     """
     holes = [(sx * p.zed_hole_x, sy * p.zed_hole_y) for sx in (-1, 1) for sy in (-1, 1)]
     bolts = [(sx * p.plate_hole_x, sy * p.plate_hole_y) for sx in (-1, 1) for sy in (-1, 1)]
-    ring = (p.bolt_clear + p.cbore_d) / 4  # radius halfway across the counterbore floor
+    cbore_floor_mid_r = (p.bolt_clear + p.cbore_d) / 4
     return [
         {
             "op": "sketch",
@@ -107,7 +106,7 @@ def features(p: Params) -> list[dict]:
         {
             "op": "extrude",
             "sketch": "outline",
-            "regions": [(x + ring, y) for x, y in bolts],
+            "regions": [(x + cbore_floor_mid_r, y) for x, y in bolts],
             "depth": p.thickness - p.cbore_depth,
             "mode": "add",
         },

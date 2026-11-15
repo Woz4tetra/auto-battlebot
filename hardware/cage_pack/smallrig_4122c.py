@@ -32,17 +32,17 @@ THREAD_DEPTH = 10.0  # 3/8-16, assumed: a 9/16" screw through 4.83 of plate enga
 TAP_38 = 8.4  # 3/8-16 tap drill (5/16"), fasteners.md
 
 
-TAB = (14.0, 12.0, 9.0)  # release tab: tangential width, radial length, height (guessed)
+TAB_W_L_H = (14.0, 12.0, 9.0)
 
 
 def build() -> Part:
     rubber = Cone(cl.CUP_SKIRT_D / 2, 92.0 / 2, 6.0, align=C_MIN)
     housing = Pos(0, 0, 6.0) * Cone(88.0 / 2, 64.0 / 2, 18.0, align=C_MIN)
     block = Pos(0, 0, 24.0) * Box(50.0, 40.0, cl.CUP_H - 24.0, align=C_MIN)
-    rail = Pos(0, 0, cl.CUP_H) * Box(56.0, 21.0, 4.0, align=C_MAX)
+    rail = Pos(0, 0, cl.CUP_H) * Box(2 * cl.CUP_RAIL_HALF_LEN, 21.0, 4.0, align=C_MAX)
     pump = Pos(0, 0, 33.0) * Rot(0, -90, 0) * Cylinder(9.0, cl.CUP_REACH, align=C_MIN)
     part = rubber + housing + block + rail + pump
-    w, ln, h = TAB
+    w, ln, h = TAB_W_L_H
     for s in (-1, 1):
         a = 180.0 + s * cl.CUP_TAB_ANGLE
         r = cl.CUP_SKIRT_D / 2 + 2.0 - ln / 2

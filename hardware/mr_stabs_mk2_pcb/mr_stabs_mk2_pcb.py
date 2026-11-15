@@ -99,6 +99,12 @@ ROBOT_STEPS = {
 }
 
 # Hole axes in the chassis STEP lean (0, -0.16656, 0.98603): 9.588 deg about X.
+MOTOR_BORE_CENTER_X = 35.4
+MOTOR_BORE_R = 13.0
+MOTOR_BORE_LEN = 38.2
+SWEEP_START_SHORT_OF_SEAT = 0.5
+FLAT_HEAD_ANGLE_DEG = 82.0
+ESC_EDGE_H = 12.0
 TILT_DEG = math.degrees(math.atan2(0.16655509, 0.98603215))
 # Hole-pattern center on the boss faces, in the tilted frame (chassis STEP, measured).
 CHASSIS_SHIFT = (0.0, 7.4276, -10.314653658)
@@ -167,6 +173,12 @@ def outline(p: Params) -> list[tuple[float, float]]:
     return right + [(-x, y) for x, y in reversed(right)]
 
 
+def outline_extents(p: Params) -> tuple[float, float]:
+    pts = outline(p)
+    xs, ys = [x for x, _ in pts], [y for _, y in pts]
+    return max(xs) - min(xs), max(ys) - min(ys)
+
+
 def build(p: Params) -> Part:
     pts = outline(p)
     face = Face(Wire.make_polygon([Vector(x, y, 0) for x, y in pts], close=True))
@@ -223,9 +235,9 @@ WING_COMPONENTS = [
     ("usb_connector", "bottom", -24.0, -9.6, 9.0, 5.0, 10.0),  # same part, USB pigtail
 ]
 
-ESC_X = 27.0  # ESC spans x 14 to 40: inner end by the wire bay, outer end toward the motor
-ESC_Y = -17.5  # y -20 to -15: 0.62 to the front wall
-ESC_GAP = 0.5  # below the board's underside
+ESC_CENTER_X = 27.0
+ESC_CENTER_Y = -17.5
+ESC_BELOW_BOARD_GAP = 0.5
 
 
 def component_shapes(p: Params) -> dict:
@@ -244,7 +256,9 @@ def washer_shapes(p: Params) -> dict:
     for i, (x, y) in enumerate(hole_xy(p)):
         w = Pos(x, y, -p.thickness) * Cylinder(p.washer_od / 2, p.washer_t, align=C_MAX)
         w &= Box(2 * p.washer_flat_x, 100, 100)
-        cone_h = (p.screw_head_dia - p.screw_dia) / 2 / math.tan(math.radians(41))  # 82 deg head
+        cone_h = (
+            (p.screw_head_dia - p.screw_dia) / 2 / math.tan(math.radians(FLAT_HEAD_ANGLE_DEG / 2))
+        )
         w -= Pos(x, y, -p.thickness - p.washer_t) * Cone(
             p.screw_head_dia / 2, p.screw_dia / 2, cone_h, align=C_MIN
         )
@@ -256,7 +270,7 @@ def washer_shapes(p: Params) -> dict:
 def screw_shapes(p: Params) -> dict:
     """#6 flat head plastite, head flush with the washer's underside, simplified."""
     out = {}
-    cone_h = (p.screw_head_dia - p.screw_dia) / 2 / math.tan(math.radians(41))
+    cone_h = (p.screw_head_dia - p.screw_dia) / 2 / math.tan(math.radians(FLAT_HEAD_ANGLE_DEG / 2))
     z0 = -p.thickness - p.washer_t
     for i, (x, y) in enumerate(hole_xy(p)):
         head = Pos(x, y, z0) * Cone(p.screw_head_dia / 2, p.screw_dia / 2, cone_h, align=C_MIN)
@@ -271,9 +285,12 @@ def esc_shapes(p: Params) -> dict:
     """ReadyToSky 35A ESCs on their long edge under each ear (STEP: 26 x 12 x 5, centered)."""
     if not p.wings:
         return {}
-    esc = Rot(90, 0, 0) * import_step(ESC_STEP)  # 12 mm side now along Z
-    z = -p.thickness - ESC_GAP - 6.0
-    return {"esc_right": Pos(ESC_X, ESC_Y, z) * esc, "esc_left": Pos(-ESC_X, ESC_Y, z) * esc}
+    esc = Rot(90, 0, 0) * import_step(ESC_STEP)
+    z = -p.thickness - ESC_BELOW_BOARD_GAP - ESC_EDGE_H / 2
+    return {
+        "esc_right": Pos(ESC_CENTER_X, ESC_CENTER_Y, z) * esc,
+        "esc_left": Pos(-ESC_CENTER_X, ESC_CENTER_Y, z) * esc,
+    }
 
 
 def robot_in_board_frame() -> dict:
@@ -282,9 +299,19 @@ def robot_in_board_frame() -> dict:
     for name, path in ROBOT_STEPS.items():
         out[name] = Pos(*CHASSIS_SHIFT) * Rot(-TILT_DEG, 0, 0) * import_step(path)
     for side, sx in (("right", 1), ("left", -1)):
-        motor = Pos(sx * 35.4, 0, 0) * Rot(0, 90, 0) * Cylinder(13, 38.2)  # bores x 16.3 to 54.5
+        motor = (
+            Pos(sx * MOTOR_BORE_CENTER_X, 0, 0)
+            * Rot(0, 90, 0)
+            * Cylinder(MOTOR_BORE_R, MOTOR_BORE_LEN)
+        )
         out[f"motor_{side}"] = Pos(*CHASSIS_SHIFT) * Rot(-TILT_DEG, 0, 0) * motor
     return out
+
+
+def _install_sweep(p: Params):
+    top = build(p).faces().sort_by(Axis.Z)[-1]
+    start = Vector(*INSTALL_DIR) * SWEEP_START_SHORT_OF_SEAT
+    return extrude(Pos(start.X, start.Y, start.Z) * top, amount=45, dir=INSTALL_DIR)
 
 
 def fit_report(p: Params) -> list[str]:
@@ -300,12 +327,7 @@ def fit_report(p: Params) -> list[str]:
         lines.append(
             f"{'FAIL' if worst[0] < 0.25 else 'PASS'}  {name:20s} {worst[0]:7.3f} mm to {worst[1]}"
         )
-    # Install: the board comes in along INSTALL_DIR with the wedge plate off. The sweep starts
-    # 0.5 mm short of the seat, where its top meets the boss faces; check.py's chassis gap
-    # covers the seated board.
-    top = build(p).faces().sort_by(Axis.Z)[-1]
-    start = Vector(*INSTALL_DIR) * 0.5
-    sweep = extrude(Pos(start.X, start.Y, start.Z) * top, amount=45, dir=INSTALL_DIR)
+    sweep = _install_sweep(p)
     worst = min((sweep.distance_to(r), rn) for rn, r in robot.items() if rn != "top_plate")
     verdict = "FAIL" if worst[0] < 0.25 else "PASS"
     lines.append(f"{verdict}  {'install sweep':20s} {worst[0]:7.3f} mm to {worst[1]}")
@@ -315,7 +337,7 @@ def fit_report(p: Params) -> list[str]:
 def sections(p: Params) -> list[str]:
     out = [f"x={p.hole_pitch / 2}", f"y={p.hole_pitch / 2}", "y=0"]
     if p.wings:
-        out += [f"x={ESC_X}", f"y={ESC_Y}", "x=-27.5"]
+        out += [f"x={ESC_CENTER_X}", f"y={ESC_CENTER_Y}", "x=-27.5"]
     return out
 
 
@@ -331,14 +353,18 @@ def mates(p: Params) -> dict:
 
 def expect(p: Params) -> dict:
     return {
-        # Outline extents from the chassis edges (docstring), 0.3 mm gaps.
-        "bbox": (93.24 if p.wings else 25.4, 35.0, 1.6),
+        "bbox": (*outline_extents(p), 1.6),
         "holes": {3.66: 4},
         "hole_at": {3.66: [{"x": x, "y": y} for x, y in hole_xy(p)]},
         "gap": {"chassis": 0.25},
         # The plastite threads form in the TPU pilot holes, so the screws overlap the chassis.
         "allow_interference": [f"screw_{i}" for i in range(4)],
-        "clearance": {"esc_left": ESC_GAP - 0.05, "esc_right": ESC_GAP - 0.05} if p.wings else {},
+        "clearance": {
+            "esc_left": ESC_BELOW_BOARD_GAP - 0.05,
+            "esc_right": ESC_BELOW_BOARD_GAP - 0.05,
+        }
+        if p.wings
+        else {},
     }
 
 

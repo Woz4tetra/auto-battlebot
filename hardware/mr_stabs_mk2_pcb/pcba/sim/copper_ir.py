@@ -35,7 +35,7 @@ PLATING = 20e-6
 H = 0.15
 OZ = {"F": 2.0, "In1": 0.5, "In2": 0.5, "B": 2.0}
 Z = {"F": 0.0, "In1": 0.21e-3, "In2": 1.39e-3, "B": 1.6e-3}
-TIE = 1e4  # S per cell, terminal cells to their node
+TIE_S_PER_CELL = 1e4
 
 
 def barrel_g(drill_mm, length_m):
@@ -93,7 +93,7 @@ class Network:
                 self.couple(a[m], b[m], np.full(int(m.sum()), gs))
 
     def cell_at(self, name, x, y, reach=0.6):
-        """Nearest copper cell within reach (vias sit in clearance holes on other-net planes), or -1."""
+        """Nearest copper cell within reach (vias sit in other-net clearance holes), or -1."""
         ix = self.idx.get(name)
         if ix is None:
             return -1
@@ -124,7 +124,9 @@ class Network:
             ix = self.idx[spec["layer"]]
             m = shapely.contains_xy(poly_union(spec["poly"]), self.gx, self.gy) & (ix >= 0)
             cells = ix[m]
-            self.couple(cells, np.full(cells.size, self.node[t]), np.full(cells.size, TIE))
+            self.couple(
+                cells, np.full(cells.size, self.node[t]), np.full(cells.size, TIE_S_PER_CELL)
+            )
 
     def solve(self, currents):
         """Node voltages for currents injected at the terminals; the first terminal is 0 V."""
@@ -153,7 +155,8 @@ class Network:
             dvy, dvx = np.gradient(vg, H * 1e-3)
             gs = 1.0 / (RHO / (OZ[name] * 35e-6))
             loss += float(np.nansum((dvx**2 + dvy**2) * gs * (H * 1e-3) ** 2))
-            dens[name] = np.hypot(dvx, dvy) * gs * 1e-3  # A per mm of width
+            dens_a_per_mm = np.hypot(dvx, dvy) * gs * 1e-3
+            dens[name] = dens_a_per_mm
         iv = {}
         for c1, c2, g, vi in self.via_links:
             iv[vi] = max(iv.get(vi, 0.0), abs((v[c1] - v[c2]) * g))

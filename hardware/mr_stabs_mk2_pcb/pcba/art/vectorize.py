@@ -70,36 +70,33 @@ def dump(g, size, name, min_area):
     print(f"{name}: {len(polys)} polygons, {size[0]:.1f} x {size[1]:.1f} mm")
 
 
-# --- Robot, twice: seen from above for F silk and from below for B silk. The unflipped view
-# (CAD +z toward the viewer) shows the robot's top; FLIP spins it 180 deg about y to show the
-# underside. Each is
-# fit inside its free box on the board at 25 px per board mm.
-mesh = render_robot.load()
-FLIP = trimesh.transformations.rotation_matrix(math.pi, [0, 1, 0])[:3, :3]
-px_per_mm_board = 25.0
+BOTTOM_SILK_BOX = (10.4, 5.4)
+TOP_SILK_BOX = (10.4, 5.4)
+PX_PER_MM_BOARD = 25.0
 
 
-def robot(rot, box_w, box_h, name):
-    v = mesh.vertices @ rot.T
-    span = v[:, :2].max(0) - v[:, :2].min(0)
-    scale = min(box_w / span[0], box_h / span[1])  # board mm per model mm
-    px = scale * px_per_mm_board
-    depth, nimg = render_robot.render(mesh, rot, px)
-    lines = render_robot.lines(depth, nimg, px)
-    lines = dilate(lines, int(MIN_LINE * px_per_mm_board / 2))
-    g, size = to_polys(lines, 1 / px_per_mm_board)
-    dump(g, size, name, min_area=0.02)
+def render_robot_views():
+    mesh = render_robot.load()
+    flip = trimesh.transformations.rotation_matrix(math.pi, [0, 1, 0])[:3, :3]
+
+    def robot(rot, box_w, box_h, name):
+        v = mesh.vertices @ rot.T
+        span = v[:, :2].max(0) - v[:, :2].min(0)
+        board_mm_per_model_mm = min(box_w / span[0], box_h / span[1])
+        px = board_mm_per_model_mm * PX_PER_MM_BOARD
+        depth, nimg = render_robot.render(mesh, rot, px)
+        lines = render_robot.lines(depth, nimg, px)
+        lines = dilate(lines, int(MIN_LINE * PX_PER_MM_BOARD / 2))
+        g, size = to_polys(lines, 1 / PX_PER_MM_BOARD)
+        dump(g, size, name, min_area=0.02)
+
+    robot(render_robot.view_matrix(145, 28) @ flip, *BOTTOM_SILK_BOX, "robot_silk.json")
+    robot(render_robot.view_matrix(145, 28), *TOP_SILK_BOX, "robot_top_silk.json")
 
 
-# Bottom: the robot seen from below, on the right ear tip's wedge face, x 35.5 to 46.3.
-robot(render_robot.view_matrix(145, 28) @ FLIP, 10.4, 5.4, "robot_silk.json")
-# Top: the robot seen from above, on the left ear tip of the roof face, x -46.4 to -35,
-# y -17.1 to -11.3.
-robot(render_robot.view_matrix(145, 28), 10.4, 5.4, "robot_top_silk.json")
+render_robot_views()
 
-# --- Logo: 5.4 mm tall. Its outline stroke is about 0.07 mm at that size, so every stroke is
-# grown by a little under half the silk minimum on each side.
-LOGO_H = 4.0  # stem, between the two headers' captions
+LOGO_H = 4.0
 im = np.array(Image.open(os.path.join(HERE, "logo_dark_h240.png")).convert("RGBA")).astype(float)
 lum = im[..., :3].mean(-1) * im[..., 3] / 255
 mask = lum > 128

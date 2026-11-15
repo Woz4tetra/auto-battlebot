@@ -32,7 +32,7 @@ HERE = Path(__file__).parent
 VENDOR = HERE / "vendor"
 ZED_MOUNT = HERE.parent / "zed_box_mini_mount"
 ZED_STEP = ZED_MOUNT / "out" / "step" / "zed_box_mini.step"
-ZED_STEP_BASE_Z = 12.0  # base sheet underside in that STEP
+ZED_STEP_BASE_SHEET_Z = 12.0
 OPENUPS_STEP = VENDOR / "openups.step"
 
 # SmallRig 4122C (B&H page + dimension photo in ~/Downloads, 2026-11-07)
@@ -70,9 +70,9 @@ X_IN = (-112.0, 97.0)  # inside faces of the -X and +X walls
 Y_IN = (-183.0, 26.0)  # inside faces of the bottom and top walls
 X_OUT = (X_IN[0] - WALL_T, X_IN[1] + WALL_T)
 Y_OUT = (Y_IN[0] - WALL_T, Y_IN[1] + WALL_T)
-WALL_EDGE_Z = PANEL_Z1 + DEPTH  # walls' front edge = lid's underside
-CORNER_R = 4.0  # outside vertical corners; inside ones are CORNER_R - WALL_T
-RIB_H = 6.0  # panel ribs, under the ZED Box Mini's 8 mm bosses
+LID_UNDERSIDE_Z = PANEL_Z1 + DEPTH
+OUTER_CORNER_R = 4.0  # outside vertical corners; inside ones are OUTER_CORNER_R - WALL_T
+RIB_H = 6.0
 RIB_T = 2.4
 HR10_PANEL_T = 1.8  # spot face around the HR10: catalog panel 0.7 to 2.0
 
@@ -109,26 +109,28 @@ assert Y_OUT[1] - Y_OUT[0] <= BED - 2 * BED_MARGIN, "tray too tall for the P1S"
 # locating and light-sealing lip inside the walls; six M3 screws down into heat-set inserts
 # in bosses hung from the walls' tops.
 LID_T = 2.4
-LID_LIP = 5.0  # lip depth below the walls' edge
+LID_LIP_DEPTH = 5.0
 LID_LIP_T = 1.6
-LID_GAP = 0.3  # lip to the walls' inside faces
-LID_BOSS = 9.0  # boss block, along and out from the wall
-LID_BOSS_DEPTH = 10.0  # full-width part below the edge; a 50° gusset carries it below that
-WALL_Z_MAX = WALL_EDGE_Z - LID_LIP - 1.0  # ports and vents stay below the lid's lip
+LID_LIP_WALL_GAP = 0.3
+LID_BOSS_SIZE = 9.0
+LID_BOSS_FULL_DEPTH = 10.0
+PORT_Z_MAX = LID_UNDERSIDE_Z - LID_LIP_DEPTH - 1.0
 
 # Printed bosses on the panel with M3 heat-set inserts (McMaster 94180A333, 6.4 long).
 BOSS_H = 8.0  # clears the 3/8-16 button head + washer (6.8) under the ZED
 BOSS_D = 8.0  # fasteners.md: M3 insert needs >= 7.0
 INSERT_HOLE = 4.0  # 94180A333 in plastic
 INSERT_LEN = 6.4
-INSERT_DEPTH = INSERT_LEN + 1.0  # fasteners.md: 1 mm deeper than the insert
+CUP_RAIL_HALF_LEN = 28.0
+INSERT_BOTTOM_CLEARANCE = 1.0
+INSERT_DEPTH = INSERT_LEN + INSERT_BOTTOM_CLEARANCE
 
 ZED_XC = 0.0
 ZED_YC = -50.0
-ZED_DZ = PANEL_Z1 + BOSS_H - ZED_STEP_BASE_Z
+ZED_DZ = PANEL_Z1 + BOSS_H - ZED_STEP_BASE_SHEET_Z
 ZED_EAR_HOLES = [(ZED_XC + sx * 24.0, ZED_YC + sy * 47.3) for sx in (-1, 1) for sy in (-1, 1)]
 ZED_Y0, ZED_Y1 = ZED_YC - 51.8, ZED_YC + 51.98
-ZED_X0, ZED_X1 = ZED_XC - 71.9, ZED_XC + 71.5  # body; FAKRA jacks reach +81.25
+ZED_BODY_X0, ZED_BODY_X1 = ZED_XC - 71.9, ZED_XC + 71.5
 ZED_TOP = 65.6 + ZED_DZ
 
 
@@ -137,15 +139,14 @@ def zed(x: float, y: float, z: float) -> tuple[float, float, float]:
     return (ZED_XC + x, ZED_YC + y, z + ZED_DZ)
 
 
-ZED_RJ45 = zed(-71.5, 14.01, 28.22)  # jack mouth on the -X face
-ZED_POWER = zed(-71.9, -23.96, 25.11)  # TBP header mouth; plug mates along +X
+ZED_RJ45_MOUTH = zed(-71.5, 14.01, 28.22)
+ZED_POWER_MOUTH = zed(-71.9, -23.96, 25.11)
 ZED_USB_A = zed(71.5, -11.60, 24.53)
-ZED_FAKRA_A = zed(81.25, 6.85, 24.37)  # jack tip, port A
-ZED_SMA = [zed(x, 51.98, 30.0) for x in (-49.5, -29.5)]  # WiFi jacks on the +Y face
+ZED_FAKRA_A_TIP = zed(81.25, 6.85, 24.37)
+ZED_WIFI_SMA_JACKS = [zed(x, 51.98, 30.0) for x in (-49.5, -29.5)]
 
-# Service wall (-X) ports: (y, z) centres on the wall.
 PORT_Z = 88.0
-PORTS = {
+SERVICE_PORTS_YZ = {
     "hr10": (-32.0, PORT_Z),
     "gx12": (-92.0, PORT_Z),
 }
@@ -164,9 +165,11 @@ SWITCH_NUT = (23.4, 3.0)  # across corners, thickness (assumed)
 # stays under the display bracket (z 105.6) and its 33 mm inside clears the PCBA's -Y edge.
 RJ45_AT = (30.0, 93.0)
 
-# Antenna wall (+X): RP-SMA bulkheads, (y, z).
-# Each folds its whip up (+Y), so they stack in Z where they share a Y.
-ANTENNAS = {"zed_wifi_1": (8.0, 100.0), "zed_wifi_2": (8.0, ZED_SMA[1][2]), "esp32": (-25.0, 60.0)}
+ANTENNAS_YZ = {
+    "zed_wifi_1": (8.0, 100.0),
+    "zed_wifi_2": (8.0, ZED_WIFI_SMA_JACKS[1][2]),
+    "esp32": (-25.0, 60.0),
+}
 
 # Battery: four Molicel P30B in an MPD BK-18650-PC8 holder (no spot welding), cells along Y,
 # soldered to a bare carrier PCB that puts them in series and carries the battery and
@@ -188,19 +191,19 @@ CARRIER_TAB = ((-18.0, -137.0), (-5.0, -124.0))  # (x0, y0), (x1, y1); 0.8 off t
 FOAM = 1.5  # pad under the carrier
 UPS_XC, UPS_YC = -58.0, -143.0
 BRICK_XC, BRICK_YC = UPS_XC, -142.0
-BRICK_Z0 = PANEL_Z1 + FOAM  # carrier underside
-HOLDER_Z0 = BRICK_Z0 + CARRIER_T
-BRICK = (CARRIER[0], CARRIER[1], CARRIER_T + HOLDER[2])  # X, Y, Z envelope
-UPS_STANDOFF_LO = 25.0  # panel -> clamp plate: printed bosses with inserts
-CLAMP_T = 3.0  # printed PETG plate
-UPS_STANDOFF_HI = 6.0  # clamp plate -> OpenUPS: tubes printed on the clamp
-CLAMP_Z0 = PANEL_Z1 + UPS_STANDOFF_LO
-UPS_Z0 = CLAMP_Z0 + CLAMP_T + UPS_STANDOFF_HI  # board underside
+CARRIER_Z0 = PANEL_Z1 + FOAM
+HOLDER_Z0 = CARRIER_Z0 + CARRIER_T
+BRICK = (CARRIER[0], CARRIER[1], CARRIER_T + HOLDER[2])
+UPS_BOSS_H = 25.0
+CLAMP_T = 3.0
+UPS_TUBE_H = 6.0
+CLAMP_Z0 = PANEL_Z1 + UPS_BOSS_H
+UPS_BOARD_Z0 = CLAMP_Z0 + CLAMP_T + UPS_TUBE_H
 
 
 def ups(x: float, y: float, z: float) -> tuple[float, float, float]:
     """OpenUPS STEP point -> this frame (board plane is the STEP's XZ, components +y)."""
-    return (UPS_XC - (x - 18.02), UPS_YC + (z - 102.5), UPS_Z0 + (y - 60.54))
+    return (UPS_XC - (x - 18.02), UPS_YC + (z - 102.5), UPS_BOARD_Z0 + (y - 60.54))
 
 
 UPS_HOLES = [ups(x, 60.54, z)[:2] for x in (-27.98, 64.02) for z in (79.0, 126.0)]
@@ -218,18 +221,20 @@ PCBA_T = 1.6
 # standoffs (Ø5.5) on 41 x 60, 4.0 proud of the PCB. STEP frame: glass front at z = 0.7,
 # standoff ends at z = -9.3, connector end toward -y.
 DISP_STEP = VENDOR / "waveshare" / "2_8inch-capacitive-touch-lcd.stp"
-DISP_X, DISP_Y = 53.5, -140.0  # touch area centre: glass x 14.0..87.0, y -165.3..-114.7
-DISP_GLASS = (73.06, 50.54)  # X, Y in this frame
-DISP_GLASS_X = (-39.53, 33.53)  # glass ends from the touch area centre, connector end first
-DISP_VA = (58.2, 43.8)  # touch and visible area, X, Y
-DISP_DEPTH = 10.0  # glass front to standoff ends
-DISP_FRONT_Z = WALL_EDGE_Z  # glass front on the lid's underside
+DISP_TOUCH_X, DISP_TOUCH_Y = 53.5, -140.0
+DISP_GLASS_SIZE_XY = (73.06, 50.54)
+DISP_GLASS_X_FROM_TOUCH = (-39.53, 33.53)
+DISP_VA = (58.2, 43.8)
+DISP_DEPTH = 10.0
+DISP_FRONT_Z = LID_UNDERSIDE_Z
 DISP_BACK_Z = DISP_FRONT_Z - DISP_DEPTH
-DISP_STANDOFFS = [(x, y) for x in (-32.9, 27.1) for y in (-20.5, 20.5)]  # from DISP_X, DISP_Y
+DISP_STANDOFFS = [
+    (x, y) for x in (-32.9, 27.1) for y in (-20.5, 20.5)
+]  # from DISP_TOUCH_X, DISP_TOUCH_Y
 DISP_EARS = [(x, y) for x in (-13.0, 13.0) for y in (-31.5, 31.5)]  # bracket screws, same
 DISP_BRACKET_T = 2.6  # M2.5 x 6 then engages 3.3 of the standoffs (1.25 D brass: 3.12)
 DISP_GH = (-29.5, -0.55)  # the module's GH1.25 13-pin (SM13B), centre; mouth faces -X
-DISP_GH_MOUTH_X = -32.42  # its mating face, from DISP_X
+DISP_GH_MOUTH_X = -32.42  # its mating face, from DISP_TOUCH_X
 
 # Camera on the +X wall's outside. The ball head's base sits on the shield's spacer boss,
 # its axis along +X at (CAM_Y, CAM_AXIS_Z); a 1/4-20 screw from inside the tray holds both.
@@ -241,7 +246,7 @@ CAM_SPACER = 9.0  # boss on the flange: the head clears the wall at 90° into it
 HEAD_SEAT_X = X_OUT[1] + SHIELD_T + CAM_SPACER  # ball head's base face
 CAM_PAD = (30.0, 4.0, 106.0)  # inside pad on the +X wall: Y width, X depth, top Z
 SHIELD_SCREW_Z = 100.0  # M3 anti-rotation screw through flange and wall into an insert
-GMSL_HOLE = ZED_FAKRA_A[1:]  # (y, z): the FAKRA plug passes straight out through the +X wall
+GMSL_HOLE = ZED_FAKRA_A_TIP[1:]  # (y, z): the FAKRA plug passes straight out through the +X wall
 # Shield hood over the camera's back (+Z): its underside above the highest point the camera
 # and its FAKRA plug reach anywhere in the head's range (camera_range.py). It covers the
 # camera at the default aim; ribs on its top face stiffen it, out of the camera's way.

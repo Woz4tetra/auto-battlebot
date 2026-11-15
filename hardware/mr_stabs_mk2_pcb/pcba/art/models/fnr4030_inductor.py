@@ -22,20 +22,22 @@ MATERIAL = "steel"
 
 @dataclass
 class Params:
-    side: float = 4.0  # datasheet body
-    height: float = 3.0  # datasheet max height
-    edge: float = 0.3  # cosmetic top-edge chamfer
-    core_dia: float = 3.0  # visible winding opening on top
+    body_side: float = 4.0
+    body_max_height: float = 3.0
+    top_chamfer: float = 0.3
+    winding_opening_dia: float = 3.0
     core_depth: float = 0.15
 
 
 def build(p: Params) -> Part:
-    body = Box(p.side, p.side, p.height, align=(Align.CENTER, Align.CENTER, Align.MIN))
+    body = Box(
+        p.body_side, p.body_side, p.body_max_height, align=(Align.CENTER, Align.CENTER, Align.MIN)
+    )
     top = body.edges().filter_by(Axis.Z, reverse=True).group_by(Axis.Z)[-1]
     assert len(top) == 4
-    body = chamfer(top, p.edge)
-    body -= Pos(0, 0, p.height - p.core_depth) * Cylinder(
-        p.core_dia / 2, p.core_depth, align=(Align.CENTER, Align.CENTER, Align.MIN)
+    body = chamfer(top, p.top_chamfer)
+    body -= Pos(0, 0, p.body_max_height - p.core_depth) * Cylinder(
+        p.winding_opening_dia / 2, p.core_depth, align=(Align.CENTER, Align.CENTER, Align.MIN)
     )
     return body
 

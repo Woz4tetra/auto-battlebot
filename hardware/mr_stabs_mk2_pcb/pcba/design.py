@@ -76,6 +76,8 @@ from skidl import ERC, KICAD9, Net, Part, generate_netlist, lib_search_paths, se
 set_default_tool(KICAD9)
 NC = builtins.NC  # SKiDL 2.3 injects its no-connect net into builtins instead of exporting it
 HERE = os.path.dirname(os.path.abspath(__file__))
+POWER_DRIVE = 3
+SBU_PINS = ("A8", "B8")
 lib_search_paths[KICAD9].append(os.path.join(HERE, "lib"))
 
 R0402 = "Resistor_SMD:R_0402_1005Metric"
@@ -121,7 +123,7 @@ pack_mid, pack_pos, bat_in, vbatt, gnd = (
 )
 v5_buck, vbus_usb, v5, v3v3 = Net("V5_BUCK"), Net("VBUS_USB"), Net("+5V"), Net("+3V3")
 for n in (pack_mid, pack_pos, bat_in, vbatt, gnd, v5_buck, vbus_usb, v5, v3v3):
-    n.drive = 3  # power nets, so SKiDL ERC accepts passive-only loads
+    n.drive = POWER_DRIVE
 sda, scl = Net("SDA1"), Net("SCL1")
 
 # --- Packs in series: A- is ground, A+ joins B-, B+ goes out to the switch and comes back as
@@ -349,8 +351,8 @@ dp += usb["A6"], usb["B6"], mcu["IO20"]
 dm += usb["A7"], usb["B7"], mcu["IO19"]
 for cc, tag in (("A5", "r_cc1"), ("B5", "r_cc2")):
     usb[cc] & r("5.1k", "C25905", tag) & gnd
-for name in ("A8", "B8"):
-    usb[name] += NC  # SBU
+for name in SBU_PINS:
+    usb[name] += NC
 esd = part(
     "Power_Protection", "USBLC6-2SC6", "Package_TO_SOT_SMD:SOT-23-6", lcsc="C2687116", tag="esd"
 )
@@ -400,8 +402,6 @@ for pin in mcu.pins:
     if pin.name not in used:
         pin += NC
 
-# Name the nets SKiDL left as N$n, so the schematic and the board read by function: a net on an
-# MCU pin takes the pin's name, the rest are named here.
 NAMES = {
     (buck, "BOOT"): "BUCK_BOOT",
     (imu, "~{RESET}"): "IMU_RST",
@@ -413,11 +413,17 @@ NAMES = {
     (j_rx, 3): "CRSF_RX_TX",
     (j_rx, 4): "CRSF_RX_RX",
 }
-for (p, pin), name in NAMES.items():
-    p[pin].net.name = name
-for pin in mcu.pins:
-    if pin.is_connected() and pin.net.name.startswith("N$"):
-        pin.net.name = pin.name
+
+
+def _name_unnamed_nets():
+    for (p, pin), name in NAMES.items():
+        p[pin].net.name = name
+    for pin in mcu.pins:
+        if pin.is_connected() and pin.net.name.startswith("N$"):
+            pin.net.name = pin.name
+
+
+_name_unnamed_nets()
 
 ERC()
 generate_netlist(file_="mk2.net")

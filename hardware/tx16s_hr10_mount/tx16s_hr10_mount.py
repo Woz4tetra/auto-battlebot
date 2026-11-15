@@ -122,8 +122,6 @@ class Params:
     edge_chamfer: float = 0.5  # elephant's foot on the bed edge, fdm.md
 
 
-
-
 def axis_frame(p: Params) -> np.ndarray:
     """Rows: the block's u (radio X), v (back, along the shell) and w (receptacle axis)."""
     t = np.radians(p.tilt_deg)
@@ -199,8 +197,6 @@ def _clamped_z(x: float, y: float) -> float:
     return shell_z(float(np.clip(x, *SURFACE_X)), float(np.clip(y, *SURFACE_Y)))
 
 
-
-
 def footprint(p: Params):
     """Cross-section across the axis. The back-right tapers in to clear toggle A's boss."""
     corners = [
@@ -222,19 +218,28 @@ def footprint(p: Params):
     return fillet(rest, p.r_corner)
 
 
+PRISM_BELOW_SHELL = 10.0
+FDM_MIN_WALL = 1.2
+
+
+def _chamfer_bed_edge(block, p: Params):
+    bed = block.edges().filter_by_position(Axis.Z, -1e-6, 1e-6)
+    assert len(bed) == 10, len(bed)
+    return chamfer(bed, p.edge_chamfer)
+
+
+def _contour_base(block, p: Params, to_part):
+    return block - to_part * shell_slab(p, lift=p.tape)
+
+
 def build(p: Params) -> Part:
     h = panel_top(p)
-    below = (
-        10.0  # prism runs this far under the shell point: past the 6 mm dome drop, inside the slab
-    )
+    below = PRISM_BELOW_SHELL
     to_part = radio_to_part(p)
     prism = Pos(0, 0, -below) * extrude(footprint(p), h + below)
     block = Pos(0, 0, h) * Rot(180, 0, 0) * prism
 
-    # Bed edge (panel face, z = 0 in the part frame) before any cut reaches it.
-    bed = block.edges().filter_by_position(Axis.Z, -1e-6, 1e-6)
-    assert len(bed) == 10, len(bed)  # 5 sides + 5 corner arcs
-    block = chamfer(bed, p.edge_chamfer)
+    block = _chamfer_bed_edge(block, p)
 
     # Vertical front wall in the radio frame. It leans 20 deg from the print axis, toward
     # the part, so it prints without support.
@@ -252,8 +257,7 @@ def build(p: Params) -> Part:
     assert len(sides) == 2, len(sides)
     block = fillet(sides, p.trim_corner_r)
 
-    # Contour the base: everything below the shell plus the tape gap goes.
-    block -= to_part * shell_slab(p, lift=p.tape)
+    block = _contour_base(block, p, to_part)
 
     # Captive-nut cavity under the panel, open through the base. A flat faces the wire
     # groove (part -Y): a groove leaving through a hex corner leaves knife edges.
@@ -286,8 +290,6 @@ def build(p: Params) -> Part:
 
 def sections(p: Params) -> list[str]:
     return ["x=0", "y=0", f"z={p.key_depth / 2}", f"z={p.panel_t + 1}"]
-
-
 
 
 def receptacle(p: Params) -> Part:
@@ -324,5 +326,5 @@ def expect(p: Params) -> dict:
         "holes": {p.hole_d: 1, p.key_d: 1},
         "clearance": {"shell": p.tape - 0.05, "plug": 0.5},
         "allow_interference": [],
-        "min_wall": 1.2,  # fdm.md minimum
+        "min_wall": FDM_MIN_WALL,
     }

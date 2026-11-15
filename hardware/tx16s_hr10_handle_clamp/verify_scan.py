@@ -62,7 +62,7 @@ def main() -> None:
     near = v[np.all((v > lo) & (v < hi), axis=1)]
     print(f"{len(near)} scan vertices within 15 mm of the clamp or plug")
 
-    on_corner = near[:, 0] > p.x1  # bar corner, arm: past the clamp's right end
+    past_clamp_end = near[:, 0] > p.x1
     for name, mesh in meshes.items():
         g = signed_gaps(mesh, near)
         i = int(np.argmin(g))
@@ -71,9 +71,9 @@ def main() -> None:
             f"{int((g < 0).sum())} vertices inside"
         )
         if name == "top":
-            gc = g[on_corner]
+            gc = g[past_clamp_end]
             j = int(np.argmin(gc))
-            where = np.round(near[on_corner][j], 1)
+            where = np.round(near[past_clamp_end][j], 1)
             print(f"  tower over the corner: min gap {gc[j]:.2f} at radio {where}")
 
 

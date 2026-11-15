@@ -12,7 +12,7 @@ Model
   translation w_p, rotation theta_x about X and theta_y about Y), CG out from the glass by
   h. It couples to the plate only through the two cups (cage_layout.CUP_X, CUP_Y: one off
   each side wall, level). Each cup is a normal spring k_cup and, as a disk on an elastic
-  foundation of radius R_CUP, a rocking spring k_cup R^2 / 4 about each in-plane axis
+  foundation of radius R_CUP_FACE_M, a rocking spring k_cup R^2 / 4 about each in-plane axis
   against the sheet's slope under it, all with 10 % damping. Shear stiffness is taken as
   rigid, so in-plane loads come from the pack's rotation (a_y = -h theta_x'').
 - Each cup's pull is its normal force plus its rocking moment as edge peel on the same
@@ -24,8 +24,8 @@ Model
   momentum that arrives; here it lands on the outer sheet as a half-sine force pulse. The
   spinner bite keeps a 50 % guess: a point mass is no model of a blade biting.
 - Channel engagement: two_sheet.py also gives how far each sheet's edge slides out of its
-  channel, against ENGAGE (10 mm, assumed).
-- Cup stiffness is unknown until the cups arrive, so every case runs over K_SWEEP and the
+  channel, against CHANNEL_ENGAGE_M (10 mm, assumed).
+- Cup stiffness is unknown until the cups arrive, so every case runs over K_SWEEP_N_PER_M and the
   page's slider picks one.
 - Cup capacity: SmallRig rates 50 kg "horizontal mounting" (pull off the surface) and 35 kg
   "vertical mounting" (shear), B&H spec table. Checked as a linear interaction
@@ -72,7 +72,7 @@ class Item:
     source: str
 
 
-PANEL = 51.2  # tray panel's inner face, cage_layout.PANEL_Z1
+PANEL = cl.PANEL_Z1
 MASS = [
     Item("ZED Box Mini", 600.0, 0.0, -50.0, PANEL + 8.0 + 26.8, "Stereolabs store page, 600 g"),
     Item(
@@ -157,25 +157,23 @@ def mass_budget() -> dict:
 
 
 E_PC, NU_PC, RHO_PC = 2.38e9, 0.37, 1200.0  # polycarbonate, Covestro Makrolon typical
+ROBOT_MASS_KG = 1.36
 H = 0.00635  # 1/4"
 A = 2.438  # 8' along the wall
 B = 1.219  # 4' tall
 D = E_PC * H**3 / (12 * (1 - NU_PC**2))
 RHO_H = RHO_PC * H
-# Frame origin below the sheet's supported top edge (assumed), and the cups from it, m.
-CUP_BELOW_EDGE = cl.CUP_BELOW_EDGE / 1000
+CUP_BELOW_EDGE_M = cl.CUP_BELOW_EDGE / 1000
 CUPS = [(x / 1000, cl.CUP_Y / 1000) for x in cl.CUP_X]
 CUP_NAMES = ("-X", "+X")
-R_CUP = cl.CUP_D / 2 / 1000  # rubber face radius
+R_CUP_FACE_M = cl.CUP_D / 2 / 1000
 ZETA_PANEL = 0.03
 ZETA_CUP = 0.10
-T_RATED = 50.0 * G  # per cup, pull
-V_RATED = 35.0 * G  # per cup, shear
-# Cup axial stiffness sweep, N/m per cup: 10 kN/m to 1 MN/m in tenth-decade steps. Includes
-# 20, 100 and 400 kN/m (to 0.3 %), the old three columns.
-K_SWEEP = [float(k) for k in np.round(np.geomspace(1e4, 1e6, 21), -2)]
+T_RATED_PER_CUP_N = 50.0 * G
+V_RATED_PER_CUP_N = 35.0 * G
+K_SWEEP_N_PER_M = [float(k) for k in np.round(np.geomspace(1e4, 1e6, 21), -2)]
 K_DEFAULT = 1e5
-ENGAGE = 0.010  # m, sheet depth in each edge channel (assumed)
+CHANNEL_ENGAGE_M = 0.010
 MODES = [(m, n) for m in range(1, 21) for n in range(1, 11)]
 
 
@@ -211,19 +209,19 @@ def static_cups(pack: dict) -> list[dict]:
     _, rel, _ = cup_frame(pack)
     M = pack["pack_g"] / 1000.0
     h = pack["cg_mm"][2] / 1000.0
-    kr = R_CUP**2 / 4  # per unit k
+    kr_per_k = R_CUP_FACE_M**2 / 4
     K = np.zeros((3, 3))
     for dx, dy in rel:
         r = np.array([1.0, dy, dx])
         K += np.outer(r, r)
-    K[1, 1] += len(rel) * kr
-    K[2, 2] += len(rel) * kr
+    K[1, 1] += len(rel) * kr_per_k
+    K[2, 2] += len(rel) * kr_per_k
     u = np.linalg.solve(K, [0.0, M * G * h, 0.0])
     out = []
     for dx, dy in rel:
         t = u[0] + u[1] * dy + u[2] * dx
-        mx, my = kr * u[1], kr * u[2]
-        p = t + 4 * math.hypot(mx, my) / R_CUP
+        mx, my = kr_per_k * u[1], kr_per_k * u[2]
+        p = t + 4 * math.hypot(mx, my) / R_CUP_FACE_M
         out.append({"T": t, "Mx": mx, "My": my, "V": M * G / len(rel), "P": p})
     return out
 
@@ -237,28 +235,37 @@ def omegas():
 @dataclass
 class Case:
     name: str
-    momentum: float  # N s reaching the outer sheet
-    tau: float  # s, half-sine pulse length
-    hit: tuple  # (x, y) m on the sheet
-    pack_x: float  # m from the left post
-    k_cup: float  # N/m per cup
-    berger: bool = False  # True: edges pinned in plane (not this cage's channels)
+    momentum_ns: float
+    tau_s: float
+    hit_xy_m: tuple
+    pack_x_m: float
+    k_cup_n_per_m: float
+    berger_pinned_edges: bool = False
+
+
+def _cup_pulls_with_gravity(rec: dict, st: list, ncup: int) -> list:
+    pulls = []
+    for j in range(ncup):
+        T = rec[f"T{j}"] + st[j]["T"]
+        mom = np.hypot(rec[f"Mx{j}"] + st[j]["Mx"], rec[f"My{j}"] + st[j]["My"])
+        pulls.append(T + 4 * mom / R_CUP_FACE_M)
+    return pulls
 
 
 def simulate(case: Case, pack: dict, t_end: float = 0.25, dt: float = 1e-5) -> dict:
     nm = len(MODES)
     w = omegas()
-    mm = RHO_H * A * B / 4  # modal mass, unit-amplitude sine modes
+    modal_mass = RHO_H * A * B / 4
     (x0, y0), rel, (xc, yc) = cup_frame(pack)
-    ys = B - CUP_BELOW_EDGE + y0  # cup line on the sheet; pack_x is the frame origin's x
+    cup_line_y = B - CUP_BELOW_EDGE_M + y0
     M = pack["pack_g"] / 1000.0
     h = pack["cg_mm"][2] / 1000.0
-    J = M * (0.08**2 + 0.05**2) / 3  # about its own CG, box ~ 160 x 100 x 100 mm
+    J = M * (0.08**2 + 0.05**2) / 3  # about its own CG, box ~ 160 x 100 x 100 modal_mass
     # DOFs: [q_1..q_nm, w_p, theta_x, theta_y]; pack normal motion at (dx, dy) from the
     # reference is w_p + theta_x dy + theta_y dx.
     n = nm + 3
     Mm = np.zeros((n, n))
-    Mm[:nm, :nm] = np.eye(nm) * mm
+    Mm[:nm, :nm] = np.eye(nm) * modal_mass
     Mm[nm:, nm:] = M * np.array(
         [
             [1.0, yc, xc],
@@ -267,17 +274,17 @@ def simulate(case: Case, pack: dict, t_end: float = 0.25, dt: float = 1e-5) -> d
         ]
     )
     K = np.zeros((n, n))
-    K[:nm, :nm] = np.diag(mm * w**2)
+    K[:nm, :nm] = np.diag(modal_mass * w**2)
     C = np.zeros((n, n))
-    C[:nm, :nm] = np.diag(2 * ZETA_PANEL * mm * w)
+    C[:nm, :nm] = np.diag(2 * ZETA_PANEL * modal_mass * w)
     # Each cup: an axial row (stretch w_p + theta_x dy + theta_y dx - phi . q) and two
     # rocking rows (pack rotation less the sheet's slope under the cup).
-    k, kr = case.k_cup, case.k_cup * R_CUP**2 / 4
+    k, kr = case.k_cup_n_per_m, case.k_cup_n_per_m * R_CUP_FACE_M**2 / 4
     c = 2 * ZETA_CUP * M / 2 * math.sqrt(k * 2 / M)
-    cr = c * R_CUP**2 / 4
+    cr = c * R_CUP_FACE_M**2 / 4
     rows = []
     for dx, dy in rel:
-        px, py = case.pack_x + x0 + dx, ys + dy
+        px, py = case.pack_x_m + x0 + dx, cup_line_y + dy
         ph, ph_y = phi(px, py)
         ph_x = phi_dx(px, py)
         ra = np.concatenate([-ph, [1.0, dy, dx]])
@@ -286,7 +293,7 @@ def simulate(case: Case, pack: dict, t_end: float = 0.25, dt: float = 1e-5) -> d
         rows.append((ra, rx, ry))
         K += k * np.outer(ra, ra) + kr * (np.outer(rx, rx) + np.outer(ry, ry))
         C += c * np.outer(ra, ra) + cr * (np.outer(rx, rx) + np.outer(ry, ry))
-    pf, _ = phi(*case.hit)
+    pf, _ = phi(*case.hit_xy_m)
     f_dir = np.concatenate([pf, [0.0, 0.0, 0.0]])
     # Berger membrane stiffening: a uniform in-plane tension N from the sheet's stretch,
     # N = E h / (2 (1 - nu^2) A B) * integral |grad w|^2, edges held in plane. Each mode then
@@ -297,7 +304,7 @@ def simulate(case: Case, pack: dict, t_end: float = 0.25, dt: float = 1e-5) -> d
     u = np.zeros(n)
     v = np.zeros(n)
     steps = int(t_end / dt)
-    amp = case.momentum * np.pi / (2 * case.tau)
+    amp = case.momentum_ns * np.pi / (2 * case.tau_s)
     ncup = len(rel)
     rec = {key: np.zeros(steps) for key in ("t", "Vy", "Vx", "acc", "wmax")}
     rec |= {f"{key}{j}": np.zeros(steps) for key in ("T", "Mx", "My") for j in range(ncup)}
@@ -305,8 +312,8 @@ def simulate(case: Case, pack: dict, t_end: float = 0.25, dt: float = 1e-5) -> d
     fnl = np.zeros(n)
     for i in range(steps):
         t = i * dt
-        f = f_dir * (amp * math.sin(math.pi * t / case.tau) if t <= case.tau else 0.0)
-        if case.berger:
+        f = f_dir * (amp * math.sin(math.pi * t / case.tau_s) if t <= case.tau_s else 0.0)
+        if case.berger_pinned_edges:
             N = nfac * np.sum(kk * u[:nm] ** 2)
             fnl[:nm] = N * kk * (A * B / 4) * u[:nm]
         a = Minv @ (f - C @ v - K @ u - fnl)
@@ -321,15 +328,10 @@ def simulate(case: Case, pack: dict, t_end: float = 0.25, dt: float = 1e-5) -> d
         rec["Vx"][i] = M * h * a[nm + 2]
         rec["acc"][i] = a[nm] + a[nm + 1] * yc + a[nm + 2] * xc
         rec["wmax"][i] = max(abs(pc @ u[:nm]), abs(pf @ u[:nm]))
-    # Static gravity loads added to the dynamic ones, then each cup's pull with edge peel.
     st = static_cups(pack)
-    pulls = []
-    for j in range(ncup):
-        T = rec[f"T{j}"] + st[j]["T"]
-        mom = np.hypot(rec[f"Mx{j}"] + st[j]["Mx"], rec[f"My{j}"] + st[j]["My"])
-        pulls.append(T + 4 * mom / R_CUP)
+    pulls = _cup_pulls_with_gravity(rec, st, ncup)
     Vc = np.hypot(rec["Vy"] / ncup - st[0]["V"], rec["Vx"] / ncup)
-    ratio = np.max(pulls, axis=0) / T_RATED + Vc / V_RATED
+    ratio = np.max(pulls, axis=0) / T_RATED_PER_CUP_N + Vc / V_RATED_PER_CUP_N
     return {
         "case": asdict(case),
         "peak_pull_N": [float(pp.max()) for pp in pulls],
@@ -353,12 +355,12 @@ def free_frequencies(pack: dict, pack_x: float, k_cup: float) -> dict:
     J = M * (0.08**2 + 0.05**2) / 3 + M * h**2
     (_, y0), rel, _ = cup_frame(pack)
     # Rocking about X: the cups' vertical spacing as a couple plus each one's own disk.
-    k_rot = sum(k_cup * dy**2 for _, dy in rel) + len(rel) * k_cup * R_CUP**2 / 4
+    k_rot = sum(k_cup * dy**2 for _, dy in rel) + len(rel) * k_cup * R_CUP_FACE_M**2 / 4
     return {
         "bare_panel_hz": [{"mode": list(m), "hz": round(f, 2)} for m, f in bare],
         "pack_bounce_hz": round(math.sqrt(2 * k_cup / M) / 2 / np.pi, 1),
         "pack_rocking_hz": round(math.sqrt(k_rot / J) / 2 / np.pi, 1),
-        "mode_amplitude_at_cups": round(math.sin(math.pi * (B - CUP_BELOW_EDGE + y0) / B), 3),
+        "mode_amplitude_at_cups": round(math.sin(math.pi * (B - CUP_BELOW_EDGE_M + y0) / B), 3),
     }
 
 
@@ -376,7 +378,7 @@ SCENARIOS = {
     ),
     "worst_full_transfer": (
         None,
-        1.36 * 20.0,
+        ROBOT_MASS_KG * 20.0,
         0.004,
         "20 m/s robot, all its momentum on the outer sheet in 4 ms",
     ),
@@ -404,19 +406,19 @@ def wall_impacts() -> dict:
 
 
 def pull_out_speed(wall: dict, key: str) -> float | None:
-    """Robot speed where a sheet's pull-in reaches ENGAGE, linear between sampled speeds."""
+    """Robot speed where a sheet's pull-in reaches CHANNEL_ENGAGE_M, interpolated linearly."""
     vs = sorted(wall)
     for v0, v1 in zip(vs, vs[1:]):
         p0, p1 = wall[v0][key], wall[v1][key]
-        if p0 < ENGAGE * 1000 <= p1:
-            return v0 + (ENGAGE * 1000 - p0) / (p1 - p0) * (v1 - v0)
+        if p0 < CHANNEL_ENGAGE_M * 1000 <= p1:
+            return v0 + (CHANNEL_ENGAGE_M * 1000 - p0) / (p1 - p0) * (v1 - v0)
     return None
 
 
 def _sim(args):
     c, pack = args
     r = simulate(c, pack)
-    if c.k_cup != K_DEFAULT:
+    if c.k_cup_n_per_m != K_DEFAULT:
         r.pop("series")
     return r
 
@@ -424,6 +426,40 @@ def _sim(args):
 def _kn(k: float) -> str:
     """kN/m to two significant figures: 501200 -> '500'."""
     return f"{float(f'{k / 1000:.2g}'):g}"
+
+
+def _holds_label(ks: list, ws: list) -> str:
+    ok = [k for k, w in zip(ks, ws) if w["peak_interaction"] <= 1.0]
+    first_fail = next((k for k, w in zip(ks, ws) if w["peak_interaction"] > 1.0), None)
+    if first_fail is None:
+        return f"all, to {_kn(ks[-1])}"
+    if not ok or ok[0] > first_fail:
+        return f"none, from {_kn(ks[0])}"
+    return f"up to {_kn(max(k for k in ok if k < first_fail))}"
+
+
+def _worst_per_stiffness(res: list, scen: dict, ks: list) -> tuple[dict, dict]:
+    def worst(sname, k):
+        q = [r for r in res if r["scenario"] == sname and r["case"]["k_cup_n_per_m"] == k]
+        return max(q, key=lambda r: r["peak_interaction"])
+
+    data, holds = {}, {}
+    for sname in scen:
+        ws = [worst(sname, k) for k in ks]
+        data[sname] = [
+            [
+                round(w["peak_interaction"], 3),
+                round(w["peak_pull_N"][0]),
+                round(w["peak_pull_N"][1]),
+                round(w["peak_shear_per_cup_N"]),
+                round(w["peak_pack_accel_g"], 1),
+                round(w["peak_sheet_deflection_mm"], 1),
+                w["hit"].replace("_", " ") + ", " + w["pack_pos"].replace("_", " "),
+            ]
+            for w in ws
+        ]
+        holds[sname] = _holds_label(ks, ws)
+    return data, holds
 
 
 def write_fragment(summary: dict) -> None:
@@ -444,35 +480,7 @@ def write_fragment(summary: dict) -> None:
     ks = summary["k_sweep"]
     scen = summary["scenarios"]
 
-    def worst(sname, k):
-        q = [r for r in res if r["scenario"] == sname and r["case"]["k_cup"] == k]
-        return max(q, key=lambda r: r["peak_interaction"])
-
-    # Per scenario: the worst case at every swept stiffness, and the stiffest cup that holds.
-    data, holds = {}, {}
-    for sname in scen:
-        ws = [worst(sname, k) for k in ks]
-        data[sname] = [
-            [
-                round(w["peak_interaction"], 3),
-                round(w["peak_pull_N"][0]),
-                round(w["peak_pull_N"][1]),
-                round(w["peak_shear_per_cup_N"]),
-                round(w["peak_pack_accel_g"], 1),
-                round(w["peak_sheet_deflection_mm"], 1),
-                w["hit"].replace("_", " ") + ", " + w["pack_pos"].replace("_", " "),
-            ]
-            for w in ws
-        ]
-        ok = [k for k, w in zip(ks, ws) if w["peak_interaction"] <= 1.0]
-        # Holds up to the last stiffness before the first failure.
-        first_fail = next((k for k, w in zip(ks, ws) if w["peak_interaction"] > 1.0), None)
-        if first_fail is None:
-            holds[sname] = f"all, to {_kn(ks[-1])}"
-        elif not ok or ok[0] > first_fail:
-            holds[sname] = f"none, from {_kn(ks[0])}"
-        else:
-            holds[sname] = f"up to {_kn(max(k for k in ok if k < first_fail))}"
+    data, holds = _worst_per_stiffness(res, scen, ks)
     po = summary["pull_out_speed"]
 
     def desc(d):
@@ -499,7 +507,7 @@ def write_fragment(summary: dict) -> None:
 
     wrows = "".join(
         f"<tr><td class=num>{float(v):.0f}</td>"
-        f"<td class=num>{w['momentum_out']:.1f} of {1.36 * float(v):.1f}</td>"
+        f"<td class=num>{w['momentum_out']:.1f} of {ROBOT_MASS_KG * float(v):.1f}</td>"
         f"<td class=num>{w['inner_mm']:.0f} / {w['outer_mm']:.0f}</td>"
         f"<td class=num>{w['sigma_outer_mpa']:.0f}</td>"
         f"{pull_cell(w['pull_in_inner_mm'])}{pull_cell(w['pull_in_outer_mm'])}</tr>"
@@ -523,7 +531,7 @@ def write_fragment(summary: dict) -> None:
         "static_pull": f"{st['pull_worst_N']:.1f}",
         "cup_names": " / ".join(CUP_NAMES),
         "span": f"{(CUPS[1][0] - CUPS[0][0]) * 1000:.0f}",
-        "cup_below": f"{(CUP_BELOW_EDGE - CUPS[0][1]) * 1000:.0f}",
+        "cup_below": f"{(CUP_BELOW_EDGE_M - CUPS[0][1]) * 1000:.0f}",
         "srows": srows,
         "wrows": wrows,
         "rows": rows,
@@ -560,9 +568,8 @@ def main() -> None:
         return
     OUT.mkdir(parents=True, exist_ok=True)
     pack = mass_budget()
-    yb = B - CUP_BELOW_EDGE + CUPS[0][1]  # the cup line on the sheet
+    cup_line_y = B - CUP_BELOW_EDGE_M + CUPS[0][1]
     wall = wall_impacts()
-    # Momentum reaching the outer sheet. 3 lb robot = 1.36 kg.
     scen = {
         name: (wall[v]["momentum_out"] if v else p, tau, desc, v)
         for name, (v, p, tau, desc) in SCENARIOS.items()
@@ -570,11 +577,11 @@ def main() -> None:
     hits = {
         "below_pack": lambda px: (px, B / 2),
         "centre": lambda px: (A / 2, B / 2),
-        "near_pack": lambda px: (px + 0.15, yb - 0.15),
+        "near_pack": lambda px: (px + 0.15, cup_line_y - 0.15),
     }
     jobs = []
     for pack_x_name, pack_x in (("mid_span", A / 2), ("near_post", 0.35)):
-        for k_cup in K_SWEEP:
+        for k_cup in K_SWEEP_N_PER_M:
             for sname, (p, tau, _desc, _v) in scen.items():
                 for hname, hf in hits.items():
                     c = Case(
@@ -597,9 +604,9 @@ def main() -> None:
         r.update(tags | {"desc": scen[tags["scenario"]][2]})
         results.append(r)
     for r in results:
-        if r["case"]["k_cup"] == K_DEFAULT and r["pack_pos"] == "mid_span":
+        if r["case"]["k_cup_n_per_m"] == K_DEFAULT and r["pack_pos"] == "mid_span":
             print(
-                f"{r['case']['name']:46s} P={r['case']['momentum']:5.1f} "
+                f"{r['case']['name']:46s} P={r['case']['momentum_ns']:5.1f} "
                 f"acc {r['peak_pack_accel_g']:6.1f} g P {max(r['peak_pull_N']):6.0f} N "
                 f"V {r['peak_shear_per_cup_N']:5.0f} N IR {r['peak_interaction']:.2f} "
                 f"sheet {r['peak_sheet_deflection_mm']:5.1f} mm"
@@ -614,7 +621,7 @@ def main() -> None:
             "shear_per_cup_N": st[0]["V"],
             "pull_worst_N": static_p,
             "per_cup": dict(zip(CUP_NAMES, st, strict=True)),
-            "interaction_worst": static_p / T_RATED + st[0]["V"] / V_RATED,
+            "interaction_worst": static_p / T_RATED_PER_CUP_N + st[0]["V"] / V_RATED_PER_CUP_N,
         },
         "frequencies": freqs,
         "results": [{k: v for k, v in r.items() if k != "series"} for r in results],
@@ -623,8 +630,8 @@ def main() -> None:
             "inner": pull_out_speed(wall, "pull_in_inner_mm"),
             "outer": pull_out_speed(wall, "pull_in_outer_mm"),
         },
-        "engage_mm": ENGAGE * 1000,
-        "k_sweep": K_SWEEP,
+        "engage_mm": CHANNEL_ENGAGE_M * 1000,
+        "k_sweep": K_SWEEP_N_PER_M,
         "scenarios": {
             n: {"momentum": p, "tau": t, "desc": d, "speed": v} for n, (p, t, d, v) in scen.items()
         },
@@ -632,14 +639,16 @@ def main() -> None:
     (OUT / "report.json").write_text(json.dumps(summary, indent=1))
     fig, ax = plt.subplots(2, 1, figsize=(9, 6), sharex=True)
     for sname in scen:
-        rr = [r for r in results if r["scenario"] == sname and r["case"]["k_cup"] == K_DEFAULT]
+        rr = [
+            r for r in results if r["scenario"] == sname and r["case"]["k_cup_n_per_m"] == K_DEFAULT
+        ]
         r = max(rr, key=lambda r: r["peak_interaction"])
         t = np.array(r["series"]["t"]) * 1000
         ax[0].plot(
             t, np.array(r["series"]["acc"]) / G, label=f"{sname} ({r['hit']}, {r['pack_pos']})"
         )
         ax[1].plot(t, r["series"]["P"], label=sname)
-    ax[1].axhline(T_RATED, color="k", ls="--", lw=1, label="rated pull 490 N")
+    ax[1].axhline(T_RATED_PER_CUP_N, color="k", ls="--", lw=1, label="rated pull 490 N")
     ax[0].set_ylabel("pack normal accel (g)")
     ax[1].set_ylabel("worst cup pull, edge peel in (N)")
     ax[1].set_xlabel("time (ms)")

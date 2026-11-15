@@ -69,7 +69,7 @@ class Params:
     pan: float = 0.0
     tilt: float = 0.0
     tilt_dir: float = 0.0
-    spin: float = 0.0  # platform about the stud
+    platform_spin_deg: float = 0.0
 
 
 def _check_pose(p: Params) -> None:
@@ -98,7 +98,7 @@ def _pose(p: Params) -> Location:
         * Rot(0, p.tilt, 0)
         * Rot(0, 0, -p.tilt_dir)
         * Pos(0, 0, -c)
-        * Rot(0, 0, p.spin)
+        * Rot(0, 0, p.platform_spin_deg)
     )
 
 

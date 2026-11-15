@@ -38,7 +38,7 @@ class Params:
 
 
 def build(p: Params) -> Part:
-    zc = p.body / 2  # pin centreline
+    pin_zc = p.body / 2
     body = Pos(0, -(p.body_y0 + p.body / 2), 0) * Box(
         p.body_len, p.body, p.body, align=(Align.CENTER, Align.CENTER, Align.MIN)
     )
@@ -47,9 +47,9 @@ def build(p: Params) -> Part:
         x = (i - (p.n - 1) / 2) * p.pitch
         y_tip = -(p.body_y0 + p.body + p.mate)
         y_back = -p.body_y0
-        part += Pos(x, (y_tip + y_back) / 2, zc) * Box(p.pin, y_back - y_tip, p.pin)
+        part += Pos(x, (y_tip + y_back) / 2, pin_zc) * Box(p.pin, y_back - y_tip, p.pin)
         y_foot = -p.foot_y0
-        part += Pos(x, y_back + p.pin / 2, zc / 2) * Box(p.pin, p.pin, zc)
+        part += Pos(x, y_back + p.pin / 2, pin_zc / 2) * Box(p.pin, p.pin, pin_zc)
         part += Pos(x, (y_back + y_foot) / 2, p.foot_t / 2) * Box(p.pin, y_foot - y_back, p.foot_t)
     return part
 
@@ -58,5 +58,4 @@ SECTIONS = ["x", "y"]
 
 
 def expect(p: Params) -> dict:
-    # x: insulator length; y: foot end (-1.2 -> +1.2 in model y) to pin tip (12.1)
-    return {"bbox": (9.96, 13.3, 2.5)}
+    return {"bbox": (p.body_len, -p.foot_y0 + p.body_y0 + p.body + p.mate, p.body)}

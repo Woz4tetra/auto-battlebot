@@ -36,30 +36,31 @@ table says; `pan` also keeps the wing knob off the adapter and ZED Box Mini.
 
 import os
 
+import innorel_cp10
 import smallrig_2948_ball_head as ballhead
 import zed_cheese_plate_adapter as adapter
 import zed_x_one_s_bracket as bracket
 from build123d import Align, Cylinder, Location, Pos, Rot
 
 INCH = 25.4
-PLATE_T = 10.0  # innorel_cp10.Params.thickness
+PLATE_T = innorel_cp10.Params().thickness
 
 OPTIONS = {
     "top_end": (
         Pos(-88.25, 0, 0) * Rot(0, 0, 180),
-        ballhead.Params(pan=180, tilt=15, tilt_dir=180, spin=90),
+        ballhead.Params(pan=180, tilt=15, tilt_dir=180, platform_spin_deg=90),
     ),
     "underside": (
         Pos(88.25, 0, -PLATE_T) * Rot(180, 0, 0),
-        ballhead.Params(pan=180, tilt=30, spin=90),
+        ballhead.Params(pan=180, tilt=30, platform_spin_deg=90),
     ),
     "long_edge": (
         Pos(90.0, 50.0, -PLATE_T / 2) * Rot(-90, 0, 0),
-        ballhead.Params(pan=270, tilt=80, spin=90),
+        ballhead.Params(pan=270, tilt=80, platform_spin_deg=90),
     ),
     "short_edge": (
         Pos(100.0, 13.95, -PLATE_T / 2) * Rot(0, 90, 0),
-        ballhead.Params(pan=180, tilt=70, spin=90),
+        ballhead.Params(pan=180, tilt=70, platform_spin_deg=90),
     ),
 }
 OPTION = os.environ.get("MOUNT_OPTION", "top_end")

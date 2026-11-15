@@ -64,7 +64,8 @@ CAMERA_BODY_STEP = HERE / "vendor" / "zed_x_one_s_wide_body.step"
 # square). Solid 9 of the STEP is the FOV frustum surface, not hardware.
 CAM_FRONT_Y = -76.2705954
 CAM_AXIS_X, CAM_AXIS_Z = 0.5142, -17.6945
-WASHER_ID, WASHER_OD, WASHER_T = 4.3, 9.0, 0.8  # McMaster 93475A230
+WASHER_93475A230 = (4.3, 9.0, 0.8)
+WASHER_ID, WASHER_OD, WASHER_T = WASHER_93475A230
 
 
 @dataclass
@@ -106,7 +107,7 @@ def features(p: Params) -> list[dict]:
     cheek_x = p.cheek_inner + cheek_w / 2
     cheek_d = p.plate_y - p.cheek_back
     cheek_yc = p.cheek_back + cheek_d / 2
-    zc = (p.floor_t + p.cheek_top) / 2  # mid-height of the cheeks above the floor
+    cheek_mid_z = (p.floor_t + p.cheek_top) / 2
     m4 = [(sx * p.slot_x, p.axis_z + sz * p.screw_dz) for sx in (-1, 1) for sz in (-1, 1)]
     return [
         {"op": "sketch", "name": "Floor", "plane": "Top", "profiles": [
@@ -121,7 +122,8 @@ def features(p: Params) -> list[dict]:
          "edges": [(sx * half, y, p.floor_t / 2) for sx in (-1, 1) for y in (p.floor_back, y1)]},
         # Cheek back edges only; the cheek fronts stay sharp where the plate seats.
         {"op": "fillet", "name": "Cheek backs", "size": p.cheek_r, "tangent": False,
-         "edges": [(sx * x, p.cheek_back, zc) for sx in (-1, 1) for x in (p.cheek_inner, half)]},
+         "edges": [(sx * x, p.cheek_back, cheek_mid_z)
+                   for sx in (-1, 1) for x in (p.cheek_inner, half)]},
         {"op": "chamfer", "name": "Elephant's foot chamfer", "size": p.bed_chamfer,
          "edges": [(0, p.floor_back, 0)]},
         {"op": "sketch", "name": "Ball head insert", "plane": "Top", "profiles": [

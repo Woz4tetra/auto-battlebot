@@ -49,4 +49,4 @@ SECTIONS = ["x", "y"]
 
 
 def expect(p: Params) -> dict:
-    return {"bbox": (None, None, 2.88)}  # plug base at z 0.8 to the cable top at 3.68
+    return {"bbox": (None, None, p.shield_top + p.cable_dia - p.socket_z)}
