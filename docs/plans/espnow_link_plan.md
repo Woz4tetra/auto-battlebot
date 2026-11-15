@@ -1160,3 +1160,13 @@ Remaining, in order:
    proven instead.
 6. Run the Phase 1 OTA tests and, once the new PCBA is in, the latency, loss, ACK-rate, and
    path-agreement measurements. Get all of them before writing any of Phase 2.
+
+## Notes moved from `src/` comments (2026-11-15)
+
+Each entry names the file and the code it described.
+
+### `src/transmitter/espnow_transmitter.cpp`
+
+Beside `const bool receiving = fresh && latest_telemetry_->radio_connected != 0;`:
+
+receiving_channels: the robot hears its handset and we hear the robot. SA on with both means what send() writes reaches the wheels (with ESPNOW_COMMAND_SUBSTITUTION in the firmware).

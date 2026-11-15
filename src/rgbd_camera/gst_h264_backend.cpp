@@ -1,7 +1,3 @@
-// H.264 through GStreamer. nvv4l2h264enc is the Jetson's hardware encoder, which FFmpeg cannot
-// reach on stock L4T. x264enc is the software encoder for the dashboard preview on a Jetson with no
-// NVENC (the Orin Nano), where NVIDIA's FFmpeg build has no libx264. Built only when pkg-config
-// finds gstreamer-app-1.0 (AUTO_BATTLEBOT_HAVE_GSTREAMER).
 #include <gst/app/gstappsink.h>
 #include <gst/app/gstappsrc.h>
 #include <gst/gst.h>
@@ -21,9 +17,6 @@ namespace auto_battlebot {
 namespace {
 constexpr const char *kNvv4l2Factory = "nvv4l2h264enc";
 constexpr const char *kX264Factory = "x264enc";
-/** Frames appsrc may hold. Past it encode() waits up to kStallTimeout for the pipeline, then
- *  drops: VideoEncoder's own queue absorbs bursts, and a push into a stalled pipeline must not
- *  hang stop(). The pipeline holds 1920x1200 at 60 fps on the ZED Box, so this is a stall guard. */
 constexpr guint64 kMaxQueuedFrames = 2;
 constexpr auto kStallTimeout = std::chrono::milliseconds(1000);
 constexpr GstClockTime kFinishTimeout = 2 * GST_SECOND;
@@ -131,11 +124,8 @@ class GstH264Backend : public H264Backend {
         if (hardware_) {
             g_object_set(encoder, "bitrate", static_cast<guint>(options_.bitrate), "iframeinterval",
                          static_cast<guint>(options_.keyframe_interval), "idrinterval",
-                         static_cast<guint>(options_.keyframe_interval),
-                         // SPS/PPS in band ahead of every IDR: CompressedVideo needs it, and it is
-                         // what makes a mid-file seek decode.
-                         "insert-sps-pps", TRUE, "num-B-Frames", 0u, "maxperf-enable", TRUE,
-                         nullptr);
+                         static_cast<guint>(options_.keyframe_interval), "insert-sps-pps", TRUE,
+                         "num-B-Frames", 0u, "maxperf-enable", TRUE, nullptr);
         } else {
             gst_util_set_object_arg(G_OBJECT(encoder), "tune", "zerolatency");
             gst_util_set_object_arg(G_OBJECT(encoder), "speed-preset",
@@ -144,7 +134,6 @@ class GstH264Backend : public H264Backend {
                          "key-int-max", static_cast<guint>(options_.keyframe_interval), "bframes",
                          0u, "threads", options_.software_preview ? 1u : 0u, "byte-stream", TRUE,
                          nullptr);
-            // x264enc writes SPS/PPS once; h264parse repeats them ahead of every IDR.
             g_object_set(parse, "config-interval", -1, nullptr);
         }
 
@@ -212,7 +201,7 @@ class GstH264Backend : public H264Backend {
             gst_util_uint64_scale(static_cast<guint64>(pts), GST_SECOND, options_.fps);
         if (force_keyframe) {
             std::lock_guard<std::mutex> lock(force_mutex_);
-            force_idr_at_.insert(timestamp);
+            pending_idr_timestamps_.insert(timestamp);
         }
 
         auto *owner = new cv::Mat(std::move(image));
@@ -253,7 +242,7 @@ class GstH264Backend : public H264Backend {
         bool force = false;
         {
             std::lock_guard<std::mutex> lock(self->force_mutex_);
-            force = self->force_idr_at_.erase(timestamp) > 0;
+            force = self->pending_idr_timestamps_.erase(timestamp) > 0;
         }
         if (force && self->hardware_) {
             g_signal_emit_by_name(self->encoder_, "force-IDR");
@@ -343,8 +332,7 @@ class GstH264Backend : public H264Backend {
     GstAppSrc *appsrc_ = nullptr;
     GstElement *encoder_ = nullptr;
     std::mutex force_mutex_;
-    /** Buffer timestamps whose frame must come out as an IDR. */
-    std::set<GstClockTime> force_idr_at_;
+    std::set<GstClockTime> pending_idr_timestamps_;
     guint64 frame_bytes_ = 0;
 };
 

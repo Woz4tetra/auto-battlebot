@@ -1,20 +1,3 @@
-// viz_relay: the process that owns the Foxglove WebSocket server.
-//
-// auto_battlebot connects over a unix socket and streams already-encoded messages; this process
-// re-publishes them on ws://<host>:8765 with foxglove::WebSocketServer. Because the server lives
-// here and not in the app, Foxglove stays connected across app restarts: channels are keyed by
-// topic and reused when the app reconnects with the same schema, so panels never blink.
-//
-// It also latches: the last message on a topic advertised with latch=1 is re-sent whenever a new
-// client subscribes, which is what lets Foxglove attach mid-run and still see the field border
-// and inlier cloud that were published once at startup.
-//
-// It also serves the web dashboard (web/dist) over HTTP with Crow. Both servers live here because
-// this process outlives app restarts: when the app crashes the page still loads and shows the app
-// as down.
-//
-// Framing is in include/viz/frame.hpp; the layout is documented in
-// docs/foxglove_recording_format.md.
 
 #include <arpa/inet.h>
 #include <crow.h>
@@ -42,6 +25,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -70,9 +54,7 @@ struct RelayChannel {
     std::vector<std::byte> retained;
     uint64_t retained_log_time = 0;
     uint32_t subscribers = 0;
-    // The app's id for this topic on the current connection, 0 when the app has not (re)advertised
-    // it since connecting. Subscriber counts are only sent back for advertised channels.
-    uint32_t app_channel_id = 0;
+    std::optional<uint32_t> app_channel_id;
 };
 
 struct SubscriptionEvent {
@@ -106,19 +88,31 @@ class CrowSpdlogHandler : public crow::ILogHandler {
     }
 };
 
-/** "cable" for the dashboard cable subnet, "local" for loopback, and
- *  "wifi" for anything else. */
-std::string link_for_address(const std::string& address) {
+enum class ClientLink { CABLE, LOCAL, WIFI };
+
+const char* link_name(ClientLink link) {
+    switch (link) {
+        case ClientLink::CABLE:
+            return "cable";
+        case ClientLink::LOCAL:
+            return "local";
+        case ClientLink::WIFI:
+            return "wifi";
+    }
+    return "wifi";
+}
+
+ClientLink link_for_address(const std::string& address) {
     std::string v4 = address;
     if (v4.starts_with("::ffff:")) v4 = v4.substr(7);
     in_addr addr{};
     if (::inet_pton(AF_INET, v4.c_str(), &addr) == 1) {
         const uint32_t ip = ntohl(addr.s_addr);
-        if (auto_battlebot::is_dashboard_cable_address(ip)) return "cable";
-        if ((ip >> 24) == 127) return "local";
-        return "wifi";
+        if (auto_battlebot::is_dashboard_cable_address(ip)) return ClientLink::CABLE;
+        if ((ip >> 24) == 127) return ClientLink::LOCAL;
+        return ClientLink::WIFI;
     }
-    return address == "::1" ? "local" : "wifi";
+    return address == "::1" ? ClientLink::LOCAL : ClientLink::WIFI;
 }
 
 std::filesystem::path default_web_root() {
@@ -151,7 +145,7 @@ class DashboardHttp {
             res.set_header("Cache-Control", "no-cache");
             res.body = std::string("{\"app_connected\":") +
                        (app_connected_.load() ? "true" : "false") + ",\"link\":\"" +
-                       link_for_address(req.remote_ip_address) + "\"}";
+                       link_name(link_for_address(req.remote_ip_address)) + "\"}";
             return res;
         });
         CROW_ROUTE(app_, "/")([this](const crow::request& req) { return serve(req.url); });
@@ -378,7 +372,7 @@ class Relay {
         app_out_sent_ = 0;
         warned_app_out_full_ = false;
         app_channels_.clear();
-        for (auto& [topic, ch] : channels_) ch.app_channel_id = 0;
+        for (auto& [topic, ch] : channels_) ch.app_channel_id.reset();
         spdlog::info("auto_battlebot disconnected; channels stay advertised");
     }
 
@@ -531,9 +525,9 @@ class Relay {
     }
 
     void send_subscriber_count(const RelayChannel& ch) {
-        if (app_fd_ < 0 || ch.app_channel_id == 0) return;
+        if (app_fd_ < 0 || !ch.app_channel_id) return;
         send_to_app(
-            auto_battlebot::viz::encode_subscriber_count(ch.app_channel_id, ch.subscribers));
+            auto_battlebot::viz::encode_subscriber_count(*ch.app_channel_id, ch.subscribers));
     }
 
     void send_to_app(const std::vector<std::byte>& frame) {

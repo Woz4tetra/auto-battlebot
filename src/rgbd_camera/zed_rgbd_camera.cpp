@@ -237,16 +237,11 @@ bool ZedRgbdCamera::capture_frame() {
     camera_connected_ = true;
     grab_health_.record(false, std::chrono::steady_clock::now());
 
-    // Roll the SVO file over if it has grown past the size cap. The return value says where
-    // this frame landed, which is what lets a recording be joined back to its SVO frames.
     const SvoRecorder::FrameRef svo_frame = svo_recorder_->on_frame_grabbed();
 
     const auto lock_hold_start = std::chrono::steady_clock::now();
     std::lock_guard<std::mutex> lock(data_mutex_);
 
-    // Depth is retrieved for every frame. The ZED already computes it on every grab
-    // (RuntimeParameters::enable_depth is always on), so this only adds the measure retrieve and
-    // its copy, and it happens here on the capture thread rather than on the pipeline's.
     if (!device_.retrieve(latest_data_)) {
         return false;
     }
@@ -282,11 +277,6 @@ bool ZedRgbdCamera::get(CameraData &data) {
     int wait_loops = 0;
     std::unique_lock<std::mutex> lock(data_mutex_);
 
-    // Every published frame carries depth, so there is one path: take the prefetched frame
-    // immediately, otherwise wait for the next one. Requesting depth and waiting for a frame that
-    // honoured the request used to cost up to two frame periods, because the capture thread reads
-    // the request before grab() and so an in-flight grab could never satisfy it. That halved the
-    // pipeline's frame rate while leaving per-tick latency looking healthy.
     if (!(frame_counter_ > last_returned_frame_counter_)) {
         if (!wait_for_new_frame(lock, wait_loops,
                                 [&]() { return frame_counter_ > last_returned_frame_counter_; })) {

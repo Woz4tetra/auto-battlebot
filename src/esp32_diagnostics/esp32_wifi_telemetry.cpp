@@ -19,8 +19,10 @@ namespace auto_battlebot {
 namespace {
 constexpr auto kPollSlice = std::chrono::milliseconds(100);
 constexpr auto kRequestTimeout = std::chrono::milliseconds(1000);
-/** A full reply is 32 + 256 * 118 bytes; anything much past that is not ours. */
-constexpr size_t kMaxReplyBytes = 64 * 1024;
+constexpr size_t kBatchHeaderBytes = 32;
+constexpr size_t kMaxRecordsPerReply = 256;
+constexpr size_t kRecordBytes = 118;
+constexpr size_t kMaxReplyBytes = 2 * (kBatchHeaderBytes + kMaxRecordsPerReply * kRecordBytes);
 constexpr size_t kMaxQueuedEvents = 1000;
 
 uint64_t system_clock_ns() {

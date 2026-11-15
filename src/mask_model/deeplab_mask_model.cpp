@@ -6,6 +6,9 @@
 #include <filesystem>
 
 namespace auto_battlebot {
+namespace {
+constexpr double kUpdateWarnMs = 1000.0;
+}  // namespace
 DeepLabMaskModel::DeepLabMaskModel(DeepLabMaskModelConfiguration& config,
                                    std::shared_ptr<EngineSelector> engine_selector)
     : model_type_(config.model_type),
@@ -71,7 +74,7 @@ bool DeepLabMaskModel::initialize() {
 }
 
 MaskStamped DeepLabMaskModel::update(RgbImage image) {
-    FunctionTimer timer(diagnostics_logger_, "update", 1000.0);  // Warn if > 1000ms
+    FunctionTimer timer(diagnostics_logger_, "update", kUpdateWarnMs);
 
     if (!initialized_) {
         diagnostics_logger_->error({}, "Model not initialized");

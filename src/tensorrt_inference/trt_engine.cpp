@@ -207,9 +207,6 @@ bool TrtEngine::load(const std::string& engine_path) {
 
     rt->setEngineHostCodeAllowed(true);
 
-    // Streaming rather than whole-file: an engine built for another GPU architecture or
-    // TensorRT version is rejected once the header has been read, so EngineSelector can
-    // try a candidate list without paying a full read per miss.
     nvinfer1::ICudaEngine* eng = rt->deserializeCudaEngine(reader);
     if (!eng) {
         log_load_failure("TrtEngine: deserializeCudaEngine failed.");
@@ -491,11 +488,6 @@ bool TrtEngine::enqueue_network() {
 }
 
 void TrtEngine::capture_graph() {
-    // A graph replays every kernel with one launch instead of one per layer. On the Orin NX,
-    // trtexec put the yolo26l-pose engine at 12.02 ms of GPU time without one and 10.62 ms with.
-    //
-    // One attempt per engine. TensorRT needs one ordinary enqueueV3 before a capture, so this
-    // runs after the first successful inference (the model's warmup), with the stream idle.
     graph_capture_attempted_ = true;
     auto stream = static_cast<cudaStream_t>(stream_);
     cudaError_t err = cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal);
@@ -585,7 +577,7 @@ bool TrtEngine::execute_multi(const float* host_input, const std::vector<float*>
     return true;
 }
 
-const float* TrtEngine::execute_device_input() {
+const float* TrtEngine::execute_into_pinned_output() {
     if (!context_ || !d_input_ || !d_output_ || !stream_) return nullptr;
     const auto exec_start = std::chrono::steady_clock::now();
     if (!run_and_wait(exec_start, "execute_device_input")) return nullptr;

@@ -9,8 +9,6 @@
 namespace auto_battlebot {
 
 namespace {
-// Bound on how long update() waits for both models. ~30x the worst per-model time seen in
-// latency reports; hitting it means a model is wedged, not slow.
 constexpr std::chrono::milliseconds kUpdateWaitTimeout(1000);
 constexpr std::chrono::seconds kJoinHardTimeout(2);
 constexpr std::chrono::seconds kExceptionLogInterval(5);

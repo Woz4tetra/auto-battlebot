@@ -51,7 +51,7 @@ class OpenTxTransmitter : public TransmitterInterface {
     // Linear-command slew limiter. Caps the normalized linear command rate so wheel-surface
     // acceleration stays below the slip/flip threshold (see config_.max_motor_rpm_per_sec).
     // Expressed in normalized units/second: max_motor_rpm_per_sec / max_motor_rpm. 0 = disabled.
-    double max_linear_rate_per_sec_ = 0.0;
+    double max_normalized_linear_rate_per_s_ = 0.0;
     double prev_linear_command_ = 0.0;
     std::optional<double> last_send_time_;
     SerialPort serial_;

@@ -187,10 +187,9 @@ void Runner::stop_recordings_for_shutdown() const {
 }
 
 void Runner::roll_over_recording_if_full() {
-    // A stat() per check; once a second is plenty for a 10 GB cap.
-    constexpr auto kCheckInterval = std::chrono::seconds(1);
+    constexpr auto kRecordingSizeCheckInterval = std::chrono::seconds(1);
     const auto now = std::chrono::steady_clock::now();
-    if (now - last_size_check_ < kCheckInterval) return;
+    if (now - last_size_check_ < kRecordingSizeCheckInterval) return;
     last_size_check_ = now;
     if (rollover_pending_.load()) return;
     if (mcap_recorder_ && mcap_recorder_->past_size_limit()) {
@@ -687,10 +686,6 @@ bool Runner::tick() {
     }
 
     if (should_reinit_field) {
-        // An init request means "keep trying", not "try exactly this frame". A fiducial board
-        // stacks correspondences over several frames before its pose latches, and a mask fit can
-        // lose one frame to a robot sitting on the field edge. Bounded, because the retry runs the
-        // field-mask model each frame and a request that will never succeed has to stop somewhere.
         field_init_attempts_remaining_ = kFieldInitAttempts;
     }
     if (field_init_attempts_remaining_ > 0) {
@@ -738,18 +733,6 @@ bool Runner::tick() {
         }
     }
 
-    // Gate perception against the field geometry before anything downstream sees it.
-    //
-    // The static gate runs first, and on robot blobs only. It has to see every detection to learn
-    // which field positions never move, so putting the height gate ahead of it would starve it of
-    // the floor-graphic detections it exists to catch. Our own robot comes from a different model
-    // and the filter tracks it regardless, so suppressing it for holding still would be wrong.
-    //
-    // The height gate then measures how far above the field plane each detection stands and
-    // records it on every keypoint, so projection stops assuming every robot is exactly
-    // keypoint_height_meters tall. It rejects on that measurement only when reject_enable is set:
-    // the height distributions of real robots and floor graphics overlap enough that rejecting
-    // costs real detections. See KeypointHeightGateConfiguration.
     {
         FunctionTimer timer(diagnostics_logger_, "keypoint_filter");
         robot_blob_keypoints =
@@ -779,24 +762,12 @@ bool Runner::tick() {
     hazard_view.hazards = control_output.hazards;
 
     {
-        // Measure end-to-end latency from when the image was sampled (camera frame timestamp)
-        // rather than from `robots.header.stamp`, which gets reused across cache substitutions
-        // and so under-reports latency on substituted ticks.
-        //
-        // Differenced against the logical clock, not the wall clock. Both give the same answer
-        // on hardware, where SystemClock is the wall clock and the frame stamps are wall-clock
-        // stamps. Off a recording only the logical clock shares a timeline with the stamps: the
-        // wall-clock form read -790 ms on a 70 s replay, reporting the age of the recording
-        // rather than the age of the frame.
         const double pipeline_latency_ms =
             ((clock_ ? clock_->now() : auto_battlebot::now()) - camera_data.rgb.header.stamp) *
             1000.0;
         diagnostics_logger_->debug("pipeline", {{"latency_ms", pipeline_latency_ms}});
     }
 
-    // All publishing runs after the command send so none of it (notably the ~10 ms image
-    // compression on Jetson) sits on the control critical path. The live publisher is an
-    // AsyncPublisher, so this block only queues copies of the tick's outputs.
     {
         FunctionTimer timer(diagnostics_logger_, "publishers");
         publisher_->publish_camera_data(camera_data);

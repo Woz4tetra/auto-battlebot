@@ -42,9 +42,6 @@ void signal_quit(int) {
     for (std::size_t i = 0; i < g_quittables_count; ++i) g_quittables[i]->request_quit();
 }
 
-// The build version stamped next to the executable by the generate_git_version target (see
-// cmake/git_version.cmake). Kept out of the binary so a new commit only rewrites the text file
-// instead of forcing a recompile and relink.
 std::string read_build_version() {
     std::error_code ec;
     const std::filesystem::path exe = std::filesystem::read_symlink("/proc/self/exe", ec);
@@ -98,8 +95,6 @@ int run_application(const auto_battlebot::ClassConfiguration& class_config,
     auto static_gate =
         std::make_shared<StaticDetectionGate>(class_config.keypoint_filter.static_gate);
 
-    // The control loop owns the filter/target/navigation/transmit half. A threaded driver runs it
-    // on its own thread, so nothing else may touch those components after Runner::initialize().
     auto hazard_assembler = make_hazard_assembler(*class_config.field_filter, clock);
     auto control_loop_body = std::make_shared<ControlLoop>(
         robot_filter, target_selector, navigation, transmitter, clock, hazard_assembler,

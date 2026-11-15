@@ -119,3 +119,31 @@ This increases the maximum RAM a process from a given user can use.
     root hard stack 8192
     root soft stack 8192
     ```
+
+## Notes moved from `src/` comments (2026-11-15)
+
+Each entry names the file and the code it described.
+
+### `src/health/health_logger.cpp`
+
+Beside `for (int channel = 1; channel <= 7; ++channel) {`:
+
+Find the channel labeled VDD_IN (module input rail); the channel number is board-specific.
+
+### `src/health/health_logger.cpp`
+
+Beside `bool have_all_counts = true;`:
+
+OC1 = under-voltage, OC2 = VDD_IN average power over limit, OC3 = VDD_IN instant power over peak. Each event throttles clocks, so a nonzero delta means the supply hit a hardware limit since the last sample. The INA3221 samples too slowly to see these transients; the latched counters are the only reliable signal.
+
+### `src/main.cpp`
+
+Beside `std::string read_build_version() {`:
+
+The build version stamped next to the executable by the generate_git_version target (see cmake/git_version.cmake). Kept out of the binary so a new commit only rewrites the text file instead of forcing a recompile and relink.
+
+### `src/rgbd_camera/gst_h264_backend.cpp`
+
+Beside `#include <gst/app/gstappsink.h>`:
+
+H.264 through GStreamer. nvv4l2h264enc is the Jetson's hardware encoder, which FFmpeg cannot reach on stock L4T. x264enc is the software encoder for the dashboard preview on a Jetson with no NVENC (the Orin Nano), where NVIDIA's FFmpeg build has no libx264. Built only when pkg-config finds gstreamer-app-1.0 (AUTO_BATTLEBOT_HAVE_GSTREAMER).

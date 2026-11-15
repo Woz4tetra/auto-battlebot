@@ -221,23 +221,15 @@ double PursuitNavigation::compute_linear_velocity(double angle_error, double dis
                                                   double angular_z) {
     if (std::abs(angle_error) >= angle_threshold_) return 0.0;
 
-    // Velocity ramp: full speed below near_distance, min_scale at far_distance and beyond,
-    // linear interpolation in between.
-    double speed_scale = 1.0;
-    if (distance > velocity_ramp_near_distance_) {
-        if (distance >= velocity_ramp_far_distance_) {
-            speed_scale = velocity_ramp_min_scale_;
-        } else {
-            const double t = (distance - velocity_ramp_near_distance_) /
-                             (velocity_ramp_far_distance_ - velocity_ramp_near_distance_);
-            speed_scale = 1.0 - t * (1.0 - velocity_ramp_min_scale_);
-        }
-    }
+    const auto distance_speed_scale = [&]() {
+        if (distance <= velocity_ramp_near_distance_) return 1.0;
+        if (distance >= velocity_ramp_far_distance_) return velocity_ramp_min_scale_;
+        const double t = (distance - velocity_ramp_near_distance_) /
+                         (velocity_ramp_far_distance_ - velocity_ramp_near_distance_);
+        return 1.0 - t * (1.0 - velocity_ramp_min_scale_);
+    };
+    double speed_scale = distance_speed_scale();
 
-    // Coast-aware brake: within brake_distance of the target, ramp the commanded speed linearly to
-    // zero so the robot decelerates into the goal instead of driving in at full speed and coasting
-    // past it. brake_distance should cover the stopping lead (latency travel + coast). 0 disables
-    // (ram behavior).
     if (brake_distance_ > 0.0 && distance < brake_distance_) {
         speed_scale *= distance / brake_distance_;
     }

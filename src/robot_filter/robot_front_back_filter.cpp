@@ -301,13 +301,15 @@ void RobotFrontBackFilter::merge_blob_detections(
         robot_keypoint_tracker_.detect_with_confidence(robot_blob_keypoints, field, camera_info);
     const int blob_candidates_before_overwrite = static_cast<int>(blob_detections.size());
 
-    // Convert blob detections from camera to map
-    for (auto &blob_detection : blob_detections) {
-        auto blob_pos = blob_detection.description.pose.position;
-        const Eigen::Vector3d blob_center_camera(blob_pos.x, blob_pos.y, blob_pos.z);
-        blob_detection.description.pose.position =
-            vector_to_position(transform_point(tf_fieldcenter_from_camera, blob_center_camera));
-    }
+    const auto transform_blobs_to_field = [&]() {
+        for (auto &blob_detection : blob_detections) {
+            auto blob_pos = blob_detection.description.pose.position;
+            const Eigen::Vector3d blob_center_camera(blob_pos.x, blob_pos.y, blob_pos.z);
+            blob_detection.description.pose.position =
+                vector_to_position(transform_point(tf_fieldcenter_from_camera, blob_center_camera));
+        }
+    };
+    transform_blobs_to_field();
 
     erase_out_of_field(blob_detections, field, field_bounds_margin_meters_);
 
@@ -403,16 +405,18 @@ std::vector<RobotDescription> RobotFrontBackFilter::convert_keypoints_to_measure
     diagnostics_logger_->debug(
         {{"num_labels_with_front_back_assignments", static_cast<int>(front_back_mapping.size())}});
 
-    // Clear stale last_position for single-FrameId labels that have no detections this frame,
-    // so when they reappear we assign without bias from an old position.
-    int cleared_single_label_positions = 0;
-    for (const auto &[label, frame_ids] : label_to_frame_ids_) {
-        if (frame_ids.size() != 1) continue;
-        if (front_back_mapping.count(label) == 0) {
-            frame_id_assigner_.clear_last_position(frame_ids[0]);
-            ++cleared_single_label_positions;
+    const auto clear_absent_single_slot_positions = [&]() {
+        int cleared = 0;
+        for (const auto &[label, frame_ids] : label_to_frame_ids_) {
+            if (frame_ids.size() != 1) continue;
+            if (front_back_mapping.count(label) == 0) {
+                frame_id_assigner_.clear_last_position(frame_ids[0]);
+                ++cleared;
+            }
         }
-    }
+        return cleared;
+    };
+    const int cleared_single_label_positions = clear_absent_single_slot_positions();
     diagnostics_logger_->debug(
         {{"num_cleared_single_label_last_positions", cleared_single_label_positions}});
 

@@ -190,3 +190,25 @@ if that changes.
 - [ZED Box Mini flash docs](https://docs.stereolabs.com/docs/products/embedded/zed-box-mini/reset-update)
 - [ZED Box Mini product docs](https://docs.stereolabs.com/docs/products/embedded/zed-box-mini)
 - [Stereolabs forum: Box Mini JetPack upgrade](https://community.stereolabs.com/t/jetpack-zed-sdk-upgrade-for-zed-box-mini-carrier-board/11542)
+
+## Notes moved from `src/` comments (2026-11-15)
+
+Each entry names the file and the code it described.
+
+### `src/host/host_services.cpp`
+
+Beside `std::string arg0 = "systemctl", arg1 = "--no-ask-password", arg2 = "--no-block", arg3 = verb,`:
+
+posix_spawn rather than std::system: no shell, and no fork of a process holding CUDA and camera threads. --no-block queues the job and returns: a plain start waits for the unit to finish starting, and the destructor joins this thread, so a slow unit held up app exit for up to systemd's 90 s. Errors that matter here (no such unit, polkit refusal) still come back as a nonzero exit.
+
+### `src/rgbd_camera/gst_h264_backend.cpp`
+
+Beside `constexpr guint64 kMaxQueuedFrames = 2;`:
+
+Frames appsrc may hold. Past it encode() waits up to kStallTimeout for the pipeline, then drops: VideoEncoder's own queue absorbs bursts, and a push into a stalled pipeline must not hang stop(). The pipeline holds 1920x1200 at 60 fps on the ZED Box, so this is a stall guard.
+
+### `src/rgbd_camera/video_encoder.cpp`
+
+Beside `constexpr const char *kFfmpegHardware[] = {"h264_nvenc", "h264_nvv4l2m2m"};`:
+
+In preference order. FFmpeg's names are tried before GStreamer's because the desktop's NVENC lives there; on the Jetsons the GStreamer element is the one that opens.

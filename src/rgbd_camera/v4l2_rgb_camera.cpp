@@ -22,6 +22,7 @@ namespace {
 constexpr auto kGrabErrorWindow = std::chrono::seconds(10);
 constexpr double kGrabErrorExitThreshold = 0.70;
 constexpr auto kGetWaitTimeout = std::chrono::milliseconds(100);
+constexpr int kV4l2ExposureUnitUs = 100;
 constexpr const char *kVideoTopic = "/camera/video";
 
 std::pair<int, int> resolution_size(Resolution resolution) {
@@ -46,6 +47,16 @@ std::pair<int, int> resolution_size(Resolution resolution) {
             return {672, 376};
     }
     return {1920, 1200};
+}
+
+int xioctl(int fd, unsigned long request, void *argument);
+
+void requeue_buffer(int fd, uint32_t index) {
+    v4l2_buffer stale{};
+    stale.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    stale.memory = V4L2_MEMORY_MMAP;
+    stale.index = index;
+    xioctl(fd, VIDIOC_QBUF, &stale);
 }
 
 int xioctl(int fd, unsigned long request, void *argument) {
@@ -150,8 +161,7 @@ bool V4l2RgbCamera::negotiate_format() {
 bool V4l2RgbCamera::apply_controls() {
     if (config_.exposure_us > 0) {
         set_control(fd_, V4L2_CID_EXPOSURE_AUTO, V4L2_EXPOSURE_MANUAL, "exposure_auto");
-        // V4L2 exposure_absolute is in 100 us units.
-        set_control(fd_, V4L2_CID_EXPOSURE_ABSOLUTE, config_.exposure_us / 100,
+        set_control(fd_, V4L2_CID_EXPOSURE_ABSOLUTE, config_.exposure_us / kV4l2ExposureUnitUs,
                     "exposure_absolute");
     }
     if (config_.gain > 0) {
@@ -268,8 +278,6 @@ bool V4l2RgbCamera::initialize() {
     latest_data_.tracking_ok = true;
 
     if (mcap_recorder_) {
-        // The video is pre-rectification, so replay needs this calibration. Embedded, a recording
-        // replays without the file, and a revised one can still override it through config.
         mcap_recorder_->write_metadata(kCameraCalibrationMetadataKey,
                                        camera_calibration_to_toml(calibration_));
     }
@@ -303,12 +311,7 @@ int V4l2RgbCamera::dequeue_newest(uint64_t &capture_time_ns) {
             return -1;
         }
         if (newest >= 0) {
-            // An older frame the pipeline never reached. Give the buffer straight back.
-            v4l2_buffer stale{};
-            stale.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-            stale.memory = V4L2_MEMORY_MMAP;
-            stale.index = static_cast<uint32_t>(newest);
-            xioctl(fd_, VIDIOC_QBUF, &stale);
+            requeue_buffer(fd_, static_cast<uint32_t>(newest));
         }
         newest = static_cast<int>(buffer.index);
         // V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC: the kernel's capture instant on CLOCK_MONOTONIC.
@@ -350,10 +353,6 @@ bool V4l2RgbCamera::capture_frame() {
 
     const cv::Mat uyvy(height_, width_, CV_8UC2, buffers_[static_cast<size_t>(index)].start);
 
-    // The recording is pre-rectification on purpose: a calibration can be revised later and
-    // re-applied to footage already shot.
-    // The encoder numbers the frames it takes; frame_meta carries that number, so it matches the
-    // video packet in whichever file the frame lands in. -1 when it took none.
     const int64_t video_frame_index = encoder_.submit(uyvy, wall_time_ns());
 
     // Pinned, so the keypoint model's GPU preprocess reads the frame in place. Both Mats take the

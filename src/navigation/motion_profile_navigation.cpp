@@ -22,8 +22,6 @@ auto_battlebot::HazardAvoidanceSettings hazard_settings_from(
     settings.waypoint_clearance_m = config.hazard_waypoint_clearance_m;
     settings.side_release_m = config.hazard_side_release_m;
     settings.prediction_horizon_s = config.hazard_prediction_horizon_s;
-    // The barrier's envelope is the plant fit itself: the same tau_lin_d + delay_s horizon the
-    // goal brake schedule inverts, so one refit moves both.
     settings.barrier_enable = config.hazard_barrier_enable;
     settings.max_linear_speed_fwd = config.plant.k_fwd;
     settings.max_linear_speed_rev = config.plant.k_rev;
@@ -34,6 +32,18 @@ auto_battlebot::HazardAvoidanceSettings hazard_settings_from(
 }  // namespace
 
 namespace auto_battlebot {
+static double logical_dt_since(double previous_timestamp, double now_s) {
+    if (previous_timestamp <= 0.0) return 0.0;
+    const double d = now_s - previous_timestamp;
+    return (d > 0.0 && d < 0.5) ? d : 0.0;
+}
+
+static double inverse_deadzone(double u, double deadzone) {
+    if (deadzone > 0.0 && std::abs(u) > 1e-6) {
+        return std::copysign(std::abs(u) * (1.0 - deadzone) + deadzone, u);
+    }
+    return u;
+}
 
 MotionProfileNavigation::MotionProfileNavigation(const MotionProfileNavigationConfiguration &config,
                                                  std::shared_ptr<ClockInterface> clock)
@@ -201,12 +211,7 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
     const double raw_angle_error = normalize_angle(angle_to_target - our_pose.yaw);
     const double angle_error = apply_hysteresis(raw_angle_error);
 
-    // Logical dt between frames (guards against the accelerated free-run collapsing dt).
-    double dt = 0.0;
-    if (prev_speed_timestamp_ > 0.0) {
-        const double d = now_s - prev_speed_timestamp_;
-        if (d > 0.0 && d < 0.5) dt = d;
-    }
+    const double dt = logical_dt_since(prev_speed_timestamp_, now_s);
     prev_speed_timestamp_ = now_s;
 
     // Without a measurement, carry the last measured speed forward rather than reporting zero. A
@@ -292,11 +297,6 @@ std::optional<double> MotionProfileNavigation::measure_forward_speed(const Robot
 double MotionProfileNavigation::compensate_coupling(double command, double effect, double coeff,
                                                     double floor) {
     if (coeff <= 0.0) return command;
-    // The plant scales the channel by (1 - coeff*|effect|). Below the floor it delivers so little
-    // that dividing by the modelled multiplier is extrapolation, not compensation: for the
-    // steer-brake term the floor sits just under 1/c_sb, where the fitted linear loss reaches zero
-    // and the fit stops describing the plant. Saturating there keeps the command finite and stops
-    // the controller from believing it has authority it does not have.
     const double authority = std::max(floor, 1.0 - coeff * std::abs(effect));
     return command / authority;
 }
@@ -336,11 +336,6 @@ double MotionProfileNavigation::compute_linear_command(double v_ref, double dvdt
                                                        double dt, bool speed_is_measured) {
     if (max_linear_speed_fwd_ <= 1e-6) return 0.0;
 
-    // Inverse-plant feedforward: steady-state fraction plus the lag term tau * dv/dt, using BOTH
-    // signs of dv/dt and the regime-appropriate time constant. A rising reference (dv/dt > 0) adds
-    // thrust to overcome spin-up lag; a falling reference (dv/dt < 0) reduces throttle or commands
-    // reverse, which is what a first-order plant needs to actually track a deceleration instead of
-    // coasting past the goal.
     const double tau = (dvdt >= 0.0) ? tau_accel_ : tau_decel_;
     const double u_ff = (v_ref + tau * dvdt) / max_linear_speed_fwd_;
 
@@ -379,12 +374,7 @@ double MotionProfileNavigation::compute_linear_command(double v_ref, double dvdt
         prev_angular_uncompensated_, angular_deadzone_left_, angular_deadzone_right_);
     u = compensate_coupling(u, u_ang_eff, steer_brake_coeff_, steer_brake_floor_);
 
-    // Exact inverse-deadzone: the plant applies (|c| - dz)/(1 - dz), so pre-distort the command so
-    // the desired fraction survives. No-op when deadzone_ == 0 (the sim / real-robot default, since
-    // the transmitter lifts the physical deadzone upstream).
-    if (deadzone_ > 0.0 && std::abs(u) > 1e-6) {
-        u = std::copysign(std::abs(u) * (1.0 - deadzone_) + deadzone_, u);
-    }
+    u = inverse_deadzone(u, deadzone_);
     return std::clamp(u, -1.0, 1.0);
 }
 
@@ -394,22 +384,22 @@ double MotionProfileNavigation::apply_hysteresis(double angle_error) {
         return angle_error;
     }
 
-    constexpr double commit_threshold = M_PI * 0.75;  // 135 deg
-    constexpr double release_threshold = M_PI * 0.5;  // 90 deg
+    constexpr double kTurnCommitRad = M_PI * 0.75;
+    constexpr double kTurnReleaseRad = M_PI * 0.5;
 
     // Commit to a turn direction on a large error, then HOLD it until the error falls below the
     // release threshold. Near 180 deg the shortest-turn sign flips on tiny perturbations (and the
     // actuation latency keeps it flipping), so without the latch the robot dithers left-right and
     // never completes the turn. Only commit when not already committed.
     if (committed_turn_sign_ == 0) {
-        if (std::abs(angle_error) > commit_threshold) {
+        if (std::abs(angle_error) > kTurnCommitRad) {
             committed_turn_sign_ = (angle_error > 0) ? 1 : -1;
         }
-    } else if (std::abs(angle_error) < release_threshold) {
+    } else if (std::abs(angle_error) < kTurnReleaseRad) {
         committed_turn_sign_ = 0;
     }
 
-    if (committed_turn_sign_ != 0 && std::abs(angle_error) > release_threshold) {
+    if (committed_turn_sign_ != 0 && std::abs(angle_error) > kTurnReleaseRad) {
         return std::abs(angle_error) * committed_turn_sign_;
     }
     return angle_error;
@@ -434,10 +424,6 @@ double MotionProfileNavigation::compute_yaw_reference(double angle_error, double
 double MotionProfileNavigation::compute_angular_command(double w_ref, double dt) {
     if (max_angular_speed_ <= 1e-6) return 0.0;
 
-    // Same inverse-plant shape as the linear channel. The yaw spin-up constant is about twice the
-    // coast constant, so the feedforward has to know which way the reference is moving: a turn
-    // that is winding up needs extra command, a turn that is stopping needs the command pulled
-    // back early or the heading sails past.
     const double dwdt = (dt > 0.0) ? (w_ref - prev_w_ref_) / dt : 0.0;
     const double tau =
         (std::abs(w_ref) > std::abs(prev_w_ref_)) ? tau_angular_accel_ : tau_angular_decel_;

@@ -21,18 +21,10 @@ struct VideoPlaybackCamera::ReaderState {
 
 namespace {
 constexpr const char *kVideoTopic = "/camera/video";
-// How far behind real time playback will try to make up. Beyond this the deadline is re-anchored,
-// so a process that was suspended or stopped at a breakpoint resumes instead of fast-forwarding
-// through everything it owes.
-constexpr auto kMaxCatchUp = std::chrono::milliseconds(500);
+constexpr auto kMaxPlaybackCatchUpBeforeReanchor = std::chrono::milliseconds(500);
 constexpr const char *kFrameMetaTopic = "/camera/frame_meta";
 constexpr const char *kImageTopic = "/camera/image";
 
-/** The `data` field of a foxglove.CompressedVideo, without linking protobuf.
- *
- * The message is four fields: timestamp(1), frame_id(2), data(3), format(4). Pulling one
- * length-delimited field out of a wire-format message is a dozen lines; a protobuf dependency for
- * it would be the larger thing to maintain. */
 bool compressed_video_payload(const std::byte *message, size_t len, const std::byte *&out,
                               size_t &out_len) {
     size_t offset = 0;
@@ -132,9 +124,7 @@ VideoPlaybackCamera::~VideoPlaybackCamera() {
 }
 
 bool VideoPlaybackCamera::scan_file() {
-    // Metadata first: the recording carries the calibration its video needs. Older recordings
-    // only name a calibration_id, resolved against config/cameras/.
-    {
+    const auto read_recorded_calibration_metadata = [this]() {
         std::ifstream stream(video_file_path_, std::ios::binary);
         mcap::FileStreamReader data_source(stream);
         mcap::TypedRecordReader record_reader(data_source, 8);
@@ -153,7 +143,8 @@ bool VideoPlaybackCamera::scan_file() {
                 break;
             }
         }
-    }
+    };
+    read_recorded_calibration_metadata();
     if (!recorded_calibration_toml_.empty()) {
         recorded_calibration_id_ =
             parse_camera_calibration(recorded_calibration_toml_, video_file_path_ + " metadata")
@@ -278,10 +269,6 @@ bool VideoPlaybackCamera::initialize() {
             break;
         }
     }
-    // Video only from here. The stamps are already indexed, and camera_info is not read at all:
-    // the recording is pre-rectification, so its camera_info describes a rectified stream that
-    // playback regenerates from the calibration file rather than replays. Everything else in the
-    // file is the previous run's output, which replay exists to regenerate.
     mcap::ReadMessageOptions options;
     options.topicFilter = [](std::string_view topic) { return topic == kVideoTopic; };
     options.startTime = frame_index_[static_cast<size_t>(seek_ordinal)].log_time_ns;
@@ -347,7 +334,7 @@ void VideoPlaybackCamera::pace(double stamp_seconds) {
         std::this_thread::sleep_until(target);
         return;
     }
-    if (now - target > kMaxCatchUp) {
+    if (now - target > kMaxPlaybackCatchUpBeforeReanchor) {
         pace_anchor_ = now;
         pace_anchor_stamp_s_ = stamp_seconds;
     }

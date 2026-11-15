@@ -5,13 +5,13 @@
 #include <string>
 
 namespace auto_battlebot {
+static bool trainer_mixed_in(int trainer_raw) { return trainer_raw >= 0; }
+
 namespace {
 constexpr auto kReconnectInterval = std::chrono::seconds(1);
-// The OpenTX `channels on` stream is periodic, so a gap this long means trainer mode never
-// engaged or has dropped. Also doubles as the grace window after a (re)connect.
-constexpr auto kChannelTimeout = std::chrono::milliseconds(500);
-constexpr int kChannelMax = 1000;  // raw RC channel range [-1000, 1000]
-constexpr int kTrainerMax = 500;   // OpenTX trainer output range [-500, 500]
+constexpr auto kChannelStreamStallTimeout = std::chrono::milliseconds(500);
+constexpr int kOpenTxRawChannelMax = 1000;
+constexpr int kOpenTxTrainerOutputMax = 500;
 }  // namespace
 
 OpenTxTransmitter::OpenTxTransmitter(const OpenTxTransmitterConfiguration& config,
@@ -29,12 +29,8 @@ OpenTxTransmitter::OpenTxTransmitter(const OpenTxTransmitterConfiguration& confi
                                    .reverse_angular = config.reverse_angular_channel,
                                },
                                logger_)) {
-    // The command reaching send() is normalized ([-1, 1] == +/-max_motor_rpm), so an RPM/s limit
-    // becomes a normalized rate limit by dividing out max_motor_rpm. The wheel diameter only
-    // entered the RPM/s default derived from the m/s^2 slip threshold, so the config carries that
-    // result rather than the geometry.
     if (config_.max_motor_rpm_per_sec > 0.0 && config_.max_motor_rpm > 0.0) {
-        max_linear_rate_per_sec_ = config_.max_motor_rpm_per_sec / config_.max_motor_rpm;
+        max_normalized_linear_rate_per_s_ = config_.max_motor_rpm_per_sec / config_.max_motor_rpm;
     }
 }
 
@@ -88,7 +84,7 @@ CommandFeedback OpenTxTransmitter::update() {
 
     if (!latest_channels_) return {};
 
-    constexpr double kChannelScale = 1.0 / kChannelMax;
+    constexpr double kChannelScale = 1.0 / kOpenTxRawChannelMax;
     const double angular_readback_sign = config_.invert_angular_channel_readback ? -1.0 : 1.0;
 
     const auto body = processor_->to_body_velocity({
@@ -138,11 +134,11 @@ void OpenTxTransmitter::send(VelocityCommand command) {
 }
 
 double OpenTxTransmitter::limit_linear_acceleration(double linear_command) {
-    if (max_linear_rate_per_sec_ <= 0.0) return linear_command;
+    if (max_normalized_linear_rate_per_s_ <= 0.0) return linear_command;
 
     const double now = clock_->now();
 
-    if (get_channel_value(config_.trainer_enable_channel) < 0) {
+    if (!trainer_mixed_in(get_channel_value(config_.trainer_enable_channel))) {
         prev_linear_command_ = 0.0;
         last_send_time_ = now;
         return linear_command;
@@ -158,7 +154,7 @@ double OpenTxTransmitter::limit_linear_acceleration(double linear_command) {
     last_send_time_ = now;
     if (dt <= 0.0) return linear_command;
 
-    const double max_delta = max_linear_rate_per_sec_ * dt;
+    const double max_delta = max_normalized_linear_rate_per_s_ * dt;
     const double limited = std::clamp(linear_command, prev_linear_command_ - max_delta,
                                       prev_linear_command_ + max_delta);
     if (limited != linear_command) {
@@ -187,8 +183,8 @@ void OpenTxTransmitter::write_trainer_channels(int channel_a_value, int channel_
 
 int OpenTxTransmitter::get_channel_value(int channel_idx) const {
     if (!latest_channels_ || channel_idx < 0 || channel_idx >= kMaxChannels) return 0;
-    return std::clamp(static_cast<int>((*latest_channels_)[channel_idx]), -kChannelMax,
-                      kChannelMax);
+    return std::clamp(static_cast<int>((*latest_channels_)[channel_idx]), -kOpenTxRawChannelMax,
+                      kOpenTxRawChannelMax);
 }
 
 void OpenTxTransmitter::log_switch_states() {
@@ -198,12 +194,7 @@ void OpenTxTransmitter::log_switch_states() {
     }
     const int trainer_raw = get_channel_value(config_.trainer_enable_channel);
     const int init_raw = get_channel_value(config_.init_button_channel);
-    // SA drives this channel high when it is down, which is the position that mixes the trainer
-    // inputs into ch0/ch1 (firmware/config/CHANNEL_CONVENTION.md). Negative therefore means the
-    // sticks alone reach the robot and nothing we send is applied. The comparison in
-    // limit_linear_acceleration() reads the same way: its `< 0` branch is the bypass taken when
-    // we are not driving.
-    const bool autonomy_enabled = trainer_raw >= 0;
+    const bool autonomy_enabled = trainer_mixed_in(trainer_raw);
     const bool init_pressed = init_raw > config_.init_button_threshold;
     const auto states = std::make_tuple(autonomy_enabled, init_pressed);
     if (last_logged_switch_states_ == states) return;
@@ -234,8 +225,8 @@ bool OpenTxTransmitter::did_init_button_press() {
 }
 
 int OpenTxTransmitter::to_trainer_value(double normalized) {
-    int value = static_cast<int>(normalized * kTrainerMax);
-    return std::clamp(value, -kTrainerMax, kTrainerMax);
+    int value = static_cast<int>(normalized * kOpenTxTrainerOutputMax);
+    return std::clamp(value, -kOpenTxTrainerOutputMax, kOpenTxTrainerOutputMax);
 }
 
 void OpenTxTransmitter::handle_packet(const CrsfLinkStatistics& pkt) {
@@ -270,17 +261,18 @@ void OpenTxTransmitter::process_channel_updates(const std::vector<uint8_t>& byte
 }
 
 bool OpenTxTransmitter::channels_fresh() const {
-    return (std::chrono::steady_clock::now() - last_channel_time_) < kChannelTimeout;
+    return (std::chrono::steady_clock::now() - last_channel_time_) < kChannelStreamStallTimeout;
 }
 
 TransmitterStatus OpenTxTransmitter::get_status() const {
     const bool connected = serial_.is_open();
     const bool receiving = connected && channels_fresh();
-    return {.connected = connected,
-            .receiving_channels = receiving,
-            .has_autonomy_switch = true,
-            .autonomy_switch_on = receiving && latest_channels_.has_value() &&
-                                  get_channel_value(config_.trainer_enable_channel) >= 0};
+    return {
+        .connected = connected,
+        .receiving_channels = receiving,
+        .has_autonomy_switch = true,
+        .autonomy_switch_on = receiving && latest_channels_.has_value() &&
+                              trainer_mixed_in(get_channel_value(config_.trainer_enable_channel))};
 }
 
 bool OpenTxTransmitter::reconnect_if_needed() {

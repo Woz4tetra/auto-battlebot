@@ -19,14 +19,10 @@ namespace auto_battlebot {
 namespace {
 constexpr const char *kTopic = "/apriltag/robot_tags";
 constexpr double kDegrees = M_PI / 180.0;
-/** Two floor candidates closer than this are the same direction. */
-constexpr double kSameDirectionRad = 5.0 * kDegrees;
-/** Candidates farther than this from the winner are a rival cluster. */
-constexpr double kRivalRad = 10.0 * kDegrees;
-/** Below this difference in fit to the floor the two IPPE solutions are indistinguishable. */
-constexpr double kAmbiguousRad = 2.0 * kDegrees;
-/** How decisively the overhead-camera prior must separate the two solutions before it decides. */
-constexpr double kOverheadPriorMarginRad = 15.0 * kDegrees;
+constexpr double kSameFloorDirectionToleranceRad = 5.0 * kDegrees;
+constexpr double kRivalClusterMinAngleRad = 10.0 * kDegrees;
+constexpr double kIppeAmbiguousFitDifferenceRad = 2.0 * kDegrees;
+constexpr double kOverheadPriorDecisiveMarginRad = 15.0 * kDegrees;
 constexpr size_t kMinFramesToLock = 30;
 constexpr size_t kMaxFramesHeld = 300;
 constexpr size_t kLockAttemptEvery = 10;
@@ -77,15 +73,17 @@ void append_vec3(std::string &json, const cv::Vec3d &value) {
     }
     json += ']';
 }
+std::vector<cv::Point3f> ippe_square_object_corners(float half) {
+    return {{-half, half, 0.0f}, {half, half, 0.0f}, {half, -half, 0.0f}, {-half, -half, 0.0f}};
+}
+
 }  // namespace
 
 std::vector<TagPoseSolution> solve_tag_pose(const std::array<cv::Point2f, 4> &corners,
                                             double tag_size_m, const cv::Mat &intrinsics,
                                             const cv::Mat &distortion) {
     const float half = static_cast<float>(tag_size_m / 2.0);
-    // The order SOLVEPNP_IPPE_SQUARE requires, which is also aruco's corner order.
-    const std::vector<cv::Point3f> object_points = {
-        {-half, half, 0.0f}, {half, half, 0.0f}, {half, -half, 0.0f}, {-half, -half, 0.0f}};
+    const std::vector<cv::Point3f> object_points = ippe_square_object_corners(half);
     const std::vector<cv::Point2f> image_points(corners.begin(), corners.end());
 
     std::vector<cv::Mat> rvecs;
@@ -124,8 +122,8 @@ TagMount make_tag_mount(const AprilTagMountConfiguration &config, double rest_pi
     mount.rotation_body_tag = to_matx(config.rotation);
     mount.translation_body_tag =
         cv::Vec3d(config.translation_m[0], config.translation_m[1], config.translation_m[2]);
-    // Body z component of the tag's z axis, the printed face normal.
-    mount.faces_up = mount.rotation_body_tag(2, 2) > 0.0;
+    const double tag_normal_body_z = mount.rotation_body_tag(2, 2);
+    mount.faces_up = tag_normal_body_z > 0.0;
     // Positive pitch about body y is nose down in FLU, which tips floor up toward body -x.
     mount.floor_up_body = mount.faces_up
                               ? cv::Vec3d(-std::sin(rest_pitch_rad), 0.0, std::cos(rest_pitch_rad))
@@ -143,8 +141,9 @@ bool camera_above_floor(const TagPoseSolution &solution, const TagMount &mount) 
     cv::Matx33d rotation_camera_body;
     cv::Vec3d translation_camera_body;
     body_in_camera(solution, mount, rotation_camera_body, translation_camera_body);
-    // The camera sits at the origin; its offset from the axle along floor up is its height.
-    return floor_up_from_tag_pose(solution, mount).dot(-translation_camera_body) > 0.0;
+    const double camera_height_above_axle =
+        floor_up_from_tag_pose(solution, mount).dot(-translation_camera_body);
+    return camera_height_above_axle > 0.0;
 }
 
 size_t select_ippe_solution(const std::vector<TagPoseSolution> &solutions, const TagMount &mount,
@@ -154,7 +153,8 @@ size_t select_ippe_solution(const std::vector<TagPoseSolution> &solutions, const
     const bool above_1 = camera_above_floor(solutions[1], mount);
     if (above_0 != above_1) return above_0 ? 0 : 1;
     const cv::Vec3d reference = floor_up_camera ? *floor_up_camera : cv::Vec3d(0.0, 0.0, -1.0);
-    const double margin = floor_up_camera ? kAmbiguousRad : kOverheadPriorMarginRad;
+    const double margin =
+        floor_up_camera ? kIppeAmbiguousFitDifferenceRad : kOverheadPriorDecisiveMarginRad;
     const double angle_0 = angle_between(floor_up_from_tag_pose(solutions[0], mount), reference);
     const double angle_1 = angle_between(floor_up_from_tag_pose(solutions[1], mount), reference);
     if (std::abs(angle_0 - angle_1) < margin) return 0;
@@ -186,7 +186,7 @@ void FloorNormalEstimator::try_lock() {
     cv::Vec3d best;
     for (const auto &frame : frames_) {
         for (const auto &candidate : frame) {
-            const size_t count = support(candidate, kSameDirectionRad);
+            const size_t count = support(candidate, kSameFloorDirectionToleranceRad);
             if (count > best_support) {
                 best_support = count;
                 best = candidate;
@@ -199,8 +199,9 @@ void FloorNormalEstimator::try_lock() {
     size_t rival_support = 0;
     for (const auto &frame : frames_) {
         for (const auto &candidate : frame) {
-            if (angle_between(candidate, best) <= kRivalRad) continue;
-            rival_support = std::max(rival_support, support(candidate, kSameDirectionRad));
+            if (angle_between(candidate, best) <= kRivalClusterMinAngleRad) continue;
+            rival_support =
+                std::max(rival_support, support(candidate, kSameFloorDirectionToleranceRad));
         }
     }
     // A robot holding still repeats both solutions every frame, so both clusters are full and
@@ -210,7 +211,8 @@ void FloorNormalEstimator::try_lock() {
     cv::Vec3d sum(0.0, 0.0, 0.0);
     for (const auto &frame : frames_) {
         for (const auto &candidate : frame) {
-            if (angle_between(candidate, best) < kSameDirectionRad) sum += cv::normalize(candidate);
+            if (angle_between(candidate, best) < kSameFloorDirectionToleranceRad)
+                sum += cv::normalize(candidate);
         }
     }
     estimate_ = cv::normalize(sum);
@@ -220,7 +222,7 @@ void FloorNormalEstimator::try_lock() {
 }
 
 void FloorNormalEstimator::refine(const cv::Vec3d &chosen) {
-    if (!estimate_ || angle_between(chosen, *estimate_) >= kSameDirectionRad) return;
+    if (!estimate_ || angle_between(chosen, *estimate_) >= kSameFloorDirectionToleranceRad) return;
     estimate_ =
         cv::normalize((1.0 - kRefineGain) * *estimate_ + kRefineGain * cv::normalize(chosen));
 }
@@ -319,36 +321,40 @@ ModelResultStamped AprilTagKeypointModel::update(RgbImage image, const CameraInf
             solve_tag_pose(detection.corners, config_.tag_size_m, intrinsics, distortion);
     }
 
-    // Next frame's window: every robot tag found, grown by the margin.
-    if (detections.empty()) {
-        roi_.reset();
-    } else {
-        cv::Rect bounds;
-        for (const auto &detection : detections) {
-            const std::vector<cv::Point2f> points(detection.corners.begin(),
-                                                  detection.corners.end());
-            bounds |= cv::boundingRect(points);
+    const auto update_search_roi = [&]() {
+        if (detections.empty()) {
+            roi_.reset();
+        } else {
+            cv::Rect bounds;
+            for (const auto &detection : detections) {
+                const std::vector<cv::Point2f> points(detection.corners.begin(),
+                                                      detection.corners.end());
+                bounds |= cv::boundingRect(points);
+            }
+            const int margin = config_.roi_margin_px;
+            roi_ = cv::Rect(bounds.x - margin, bounds.y - margin, bounds.width + 2 * margin,
+                            bounds.height + 2 * margin) &
+                   full;
         }
-        const int margin = config_.roi_margin_px;
-        roi_ = cv::Rect(bounds.x - margin, bounds.y - margin, bounds.width + 2 * margin,
-                        bounds.height + 2 * margin) &
-               full;
-    }
+    };
+    update_search_roi();
 
     const auto image_stamp_ns = static_cast<uint64_t>(std::llround(image.header.stamp * 1e9));
     last_tags_json_ = to_json(image_stamp_ns, image, camera_info, searched_roi, detections);
     channel_.log(last_tags_json_, image_stamp_ns);
 
-    // Keypoints from the best-fitting tag. Both tags in one frame means the robot is on its side;
-    // the better fit is the better guess.
-    const Detection *best = nullptr;
-    for (const auto &detection : detections) {
-        if (detection.solutions.empty()) continue;
-        if (!best || detection.solutions.front().reprojection_error_px <
-                         best->solutions.front().reprojection_error_px) {
-            best = &detection;
+    const auto select_best_fitting_tag = [&]() {
+        const Detection *best = nullptr;
+        for (const auto &detection : detections) {
+            if (detection.solutions.empty()) continue;
+            if (!best || detection.solutions.front().reprojection_error_px <
+                             best->solutions.front().reprojection_error_px) {
+                best = &detection;
+            }
         }
-    }
+        return best;
+    };
+    const Detection *best = select_best_fitting_tag();
     if (best) {
         emit_keypoints(*best, *mount_for(best->id), intrinsics, distortion, result);
     }

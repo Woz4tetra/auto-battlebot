@@ -10,8 +10,7 @@ namespace auto_battlebot::remote {
 
 namespace {
 
-/** Closer than this to the camera plane, a point projects to a meaningless far-away pixel. */
-constexpr double kMinDepthM = 0.05;
+constexpr double kNearPlaneDepthM = 0.05;
 
 std::optional<ImagePoint> project(const FieldDescription &field, const CameraInfo &camera_info,
                                   double x, double y) {
@@ -19,7 +18,7 @@ std::optional<ImagePoint> project(const FieldDescription &field, const CameraInf
     const double cx = tf(0, 0) * x + tf(0, 1) * y + tf(0, 3);
     const double cy = tf(1, 0) * x + tf(1, 1) * y + tf(1, 3);
     const double cz = tf(2, 0) * x + tf(2, 1) * y + tf(2, 3);
-    if (cz < kMinDepthM) return std::nullopt;
+    if (cz < kNearPlaneDepthM) return std::nullopt;
     const cv::Mat &k = camera_info.intrinsics;
     const double u = k.at<double>(0, 0) * (cx / cz) + k.at<double>(0, 2);
     const double v = k.at<double>(1, 1) * (cy / cz) + k.at<double>(1, 2);

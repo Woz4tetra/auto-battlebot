@@ -9,10 +9,6 @@
 
 namespace auto_battlebot {
 namespace {
-// Hazard paths are written repo-relative ("config/hazards/one_hole.toml") so the same string works
-// in the C++ config and in the sim's, which have no directory in common. Each side resolves it
-// against the project root itself. Unlike `extends`, this is a plain file path: no implied
-// directory and no implied extension.
 std::filesystem::path resolve(const std::string &value) {
     std::filesystem::path path(value);
     if (path.is_absolute()) return path;

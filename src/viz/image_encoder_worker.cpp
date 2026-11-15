@@ -50,8 +50,6 @@ void ImageEncoderWorker::run() {
         const double ms =
             std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start)
                 .count();
-        // Freed before relocking: the last reference to a pinned frame frees it, which can be
-        // slow, and submit() on the tick takes this lock.
         job = Job{};
 
         lock.lock();

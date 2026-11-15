@@ -17,11 +17,18 @@
 
 namespace auto_battlebot {
 namespace {
+CameraSettings default_manual_settings(const CameraSettingLimits &limits) {
+    CameraSettings unknown;
+    unknown.exposure_us = limits.exposure_us.max / 2;
+    unknown.analog_gain_mdb = limits.analog_gain_mdb.min;
+    unknown.digital_gain = std::max(1, limits.digital_gain.min);
+    return unknown;
+}
+
 constexpr auto kGrabErrorWindow = std::chrono::seconds(10);
 constexpr double kGrabErrorExitThreshold = 0.70;
 constexpr auto kGetWaitTimeout = std::chrono::milliseconds(100);
-/** grab() returns within a frame period on a working camera. */
-constexpr auto kJoinTimeout = std::chrono::seconds(3);
+constexpr auto kCaptureThreadJoinTimeout = std::chrono::seconds(3);
 constexpr const char *kVideoTopic = "/camera/video";
 }  // namespace
 
@@ -43,7 +50,7 @@ ZedOneRgbCamera::~ZedOneRgbCamera() {
     stop_thread_.store(true);
     data_cv_.notify_all();
     if (capture_thread_.joinable()) {
-        const auto deadline = std::chrono::steady_clock::now() + kJoinTimeout;
+        const auto deadline = std::chrono::steady_clock::now() + kCaptureThreadJoinTimeout;
         while (!capture_thread_done_.load() && std::chrono::steady_clock::now() < deadline) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
@@ -54,7 +61,7 @@ ZedOneRgbCamera::~ZedOneRgbCamera() {
             spdlog::critical(
                 "[ZedOneRgbCamera] Capture thread stuck in grab() for {} s at "
                 "shutdown; exiting",
-                kJoinTimeout.count());
+                kCaptureThreadJoinTimeout.count());
             spdlog::default_logger()->flush();
             std::_Exit(EXIT_FAILURE);
         }
@@ -162,12 +169,7 @@ bool ZedOneRgbCamera::initialize() {
     }
     read_calibration();
     const CameraSettingLimits limits = read_limits();
-    // A usable manual start for the fields the SDK cannot report: half a frame, lowest gain.
-    CameraSettings unknown;
-    unknown.exposure_us = limits.exposure_us.max / 2;
-    unknown.analog_gain_mdb = limits.analog_gain_mdb.min;
-    unknown.digital_gain = std::max(1, limits.digital_gain.min);
-    opened_settings_ = read_settings(unknown);
+    opened_settings_ = read_settings(default_manual_settings(limits));
     settings_state_ = CameraSettingsState{opened_settings_, limits};
     latest_data_.tracking_ok = true;
 
@@ -223,9 +225,6 @@ bool ZedOneRgbCamera::capture_frame() {
     bgr.allocator = PinnedMatAllocator::instance();
     cv::cvtColor(bgra, bgr, cv::COLOR_BGRA2BGR);
 
-    // The encoder numbers the frames it takes; frame_meta carries that number, so it matches the
-    // video packet in whichever file the frame lands in. -1 when it took none. BGRA, not the BGR
-    // copy: the Jetson's nvvidconv takes 4-channel input directly.
     const int64_t video_frame_index = encoder_.submit(bgra, wall_time_ns());
 
     {
@@ -302,8 +301,6 @@ bool ZedOneRgbCamera::set_recording_enabled(bool enabled) {
     if (encoder_.running()) {
         return true;
     }
-    // A recording started from the remote UI after launch lands here, not in initialize(). Not
-    // fatal here: the UI reports the failed toggle, and killing a running match over it is worse.
     if (!mcap_recorder_ || !start_encoder()) {
         spdlog::error("[ZedOneRgbCamera] Recording toggled on but no H.264 encoder opened");
         return false;
@@ -444,10 +441,8 @@ void ZedOneRgbCamera::service_settings() {
         known.analog_gain_mdb = clamp(target.analog_gain_mdb, limits.analog_gain_mdb);
         known.digital_gain = clamp(target.digital_gain, limits.digital_gain);
     }
-    // Auto exposure and white balance move on their own; read them back about twice a second
-    // and right after a change.
-    constexpr int kReadbackPeriodFrames = 30;
-    if (!request && ++frames_since_settings_read_ < kReadbackPeriodFrames) return;
+    constexpr int kSettingsReadbackPeriodFrames = 30;
+    if (!request && ++frames_since_settings_read_ < kSettingsReadbackPeriodFrames) return;
     frames_since_settings_read_ = 0;
     const CameraSettings current = read_settings(known);
     std::lock_guard<std::mutex> lock(settings_mutex_);

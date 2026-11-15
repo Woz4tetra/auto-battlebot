@@ -12,6 +12,9 @@
 namespace auto_battlebot {
 namespace {
 constexpr float kMinBoxEdge = 1.0f;
+constexpr bool kSwapRbToRgb = true;
+constexpr bool kCenterCrop = false;
+constexpr int kDetectHeadBoxFeatures = 4;
 }  // namespace
 
 YoloBboxRobotBlobModel::YoloBboxRobotBlobModel(YoloBboxRobotBlobModelConfiguration &config,
@@ -236,7 +239,7 @@ void YoloBboxRobotBlobModel::preprocess_image(const cv::Mat &image, cv::Size inp
     letterbox(bgr_image, resized, {input_size.height, input_size.width});
 
     cv::Mat blob = cv::dnn::blobFromImage(resized, 1.0 / 255.0, cv::Size(), cv::Scalar(),
-                                          /*swapRB=*/true, /*crop=*/false, CV_32F);
+                                          kSwapRbToRgb, kCenterCrop, CV_32F);
     buffer.resize(blob.total());
     std::memcpy(buffer.data(), blob.ptr<float>(), blob.total() * sizeof(float));
 }
@@ -277,9 +280,7 @@ std::vector<YoloBboxRobotBlobModel::Detection> YoloBboxRobotBlobModel::decode_de
     const int feature_dim = static_cast<int>(det_shape[1]);
     const int num_predictions = static_cast<int>(det_shape[2]);
     const int class_dim = static_cast<int>(label_indices_.size());
-    // Detect head is [1, 4 + num_classes, num_predictions]: 4 box coords then per-class scores,
-    // with no trailing mask coefficients (unlike the seg head).
-    if (feature_dim < 4 + class_dim) return detections;
+    if (feature_dim < kDetectHeadBoxFeatures + class_dim) return detections;
 
     auto read_feature = [&](int prediction_index, int feature_index) -> float {
         return det_output[static_cast<size_t>(feature_index) * num_predictions + prediction_index];

@@ -8,11 +8,7 @@
 
 namespace auto_battlebot {
 namespace {
-// In preference order. FFmpeg's names are tried before GStreamer's because the desktop's NVENC
-// lives there; on the Jetsons the GStreamer element is the one that opens.
 constexpr const char *kFfmpegHardware[] = {"h264_nvenc", "h264_nvv4l2m2m"};
-// Software. On the Orin it cannot hold a recording's 60 fps and takes the cores perception needs,
-// so there it is only for the preview (VideoEncoderOptions::software_preview).
 constexpr const char *kFfmpegSoftware = "libx264";
 
 bool software_allowed(const VideoEncoderOptions &options) {

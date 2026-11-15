@@ -18,8 +18,6 @@ TankDriveProcessor::Channels TankDriveProcessor::process(VelocityCommand command
     if (config_.reverse_linear) saturated.linear = -saturated.linear;
     if (config_.reverse_angular) saturated.angular = -saturated.angular;
 
-    // The static-friction barrier exists per wheel, not per body axis, so the lifted deadzone is
-    // applied in wheel space, which is also the space these channels are sent in.
     const auto wheels_in = mix_to_wheels(saturated);
     const double zero_dz = std::clamp(config_.zero_deadzone_percent, 0.0, 100.0) / 100.0;
     const double lifted_dz = std::clamp(config_.lifted_deadzone_percent, 0.0, 100.0) / 100.0;

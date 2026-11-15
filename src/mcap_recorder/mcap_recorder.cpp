@@ -292,7 +292,6 @@ void McapRecorder::handle(OpenOp& op) {
     foxglove::McapWriterOptions opts;
     opts.context = context_;
     opts.path = path_string;
-    // No compression: the Jetson writes this at 60 Hz next to the control loop.
     opts.compression = foxglove::McapCompression::None;
     auto writer = foxglove::McapWriter::create(opts);
     if (!writer.has_value()) {

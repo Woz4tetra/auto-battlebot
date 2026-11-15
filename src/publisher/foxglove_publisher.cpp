@@ -202,9 +202,6 @@ void FoxglovePublisher::publish_camera_data(const CameraData &data) {
     FunctionTimer timer(diagnostics_logger_, "publish_camera_data");
     const uint64_t log_time = wall_time_ns();
 
-    // JPEG compression is ~10 ms of CPU on the Jetson, so it runs on worker threads, and only
-    // when a client subscribed or the recorder records the topic. The loop pays one copy of the
-    // frame, or one resize for the preview.
     if (rgb_image_.has_consumers() && !data.rgb.image.empty()) {
         image_worker_->submit({data.rgb.image.clone(), data.rgb.header, log_time});
     }

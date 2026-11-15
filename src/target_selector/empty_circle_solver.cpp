@@ -9,8 +9,7 @@ namespace auto_battlebot {
 namespace {
 
 constexpr double kDegenerateEps = 1e-9;
-// Radii closer than this count as tied and fall through to the tie-break preference.
-constexpr double kTieEps = 1e-9;
+constexpr double kRadiusTieEps = 1e-9;
 
 struct Site {
     double x = 0.0;
@@ -19,18 +18,15 @@ struct Site {
     bool is_hazard = false;
 };
 
+enum class Axis { X, Y };
+enum class WallSide { NEG, POS };
+
 struct Wall {
-    int axis;     // 0 = x, 1 = y
-    double sign;  // +1 for the +half wall, -1 for the -half wall
+    Axis axis;
+    WallSide side;
     double half;
 };
 
-/** One linear equation in the unknowns (cx, cy, r): a_x cx + a_y cy + a_r r = b.
- *
- *  Every constraint family reduces to two of these plus one site's quadratic. A wall being
- *  active is already linear; two sites being equally clear is linear too, because subtracting
- *  their squared forms cancels cx^2 + cy^2 and r^2. That is what lets one routine solve the
- *  wall/point/hazard mixtures the plan's families spell out separately. */
 struct Linear {
     double ax = 0.0;
     double ay = 0.0;
@@ -60,14 +56,12 @@ int solve_quadratic(double a, double b, double c, std::array<double, 2> &roots) 
 
 Linear wall_constraint(const Wall &wall) {
     Linear linear;
-    (wall.axis == 0 ? linear.ax : linear.ay) = wall.sign;
+    (wall.axis == Axis::X ? linear.ax : linear.ay) = wall.side == WallSide::POS ? 1.0 : -1.0;
     linear.ar = 1.0;
     linear.b = wall.half;
     return linear;
 }
 
-/** Two sites equally clear. Squaring both |c - s_i| = r + R_i and subtracting cancels the
- *  quadratic terms, leaving one linear equation. */
 Linear equal_clearance_constraint(const Site &a, const Site &b) {
     Linear linear;
     linear.ax = 2.0 * (b.x - a.x);
@@ -89,8 +83,8 @@ class Best {
     void consider(double x, double y, const char *source) {
         ++evaluations_;
         const double r = empty_circle_radius(field_, x, y, opponents_, hazards_);
-        bool take = r > result_.radius + kTieEps;
-        if (!take && prefer_ != nullptr && r > result_.radius - kTieEps) {
+        bool take = r > result_.radius + kRadiusTieEps;
+        if (!take && prefer_ != nullptr && r > result_.radius - kRadiusTieEps) {
             take = dist2(x, y, *prefer_) < dist2(result_.center.x, result_.center.y, *prefer_);
         }
         if (take) {
@@ -117,14 +111,6 @@ class Best {
     const Pose2D *prefer_;
 };
 
-/** Solve two linear constraints plus one site's quadratic and hand the resulting centers to
- *  `best`.
- *
- *  In (cx, cy, r) space the two linear constraints meet on a line, found as the cross product
- *  of their normals with the usual two-plane particular point. Substituting that line into
- *  |c - s| = r + R leaves a quadratic in the line parameter. Parallel constraints (which is
- *  what a degenerate triple looks like here: coincident sites, collinear sites, the same wall
- *  twice) give a zero direction and are skipped. */
 void add_candidates(Best &best, const Linear &first, const Linear &second, const Site &site,
                     const char *source) {
     const double dx = first.ay * second.ar - first.ar * second.ay;
@@ -133,7 +119,6 @@ void add_candidates(Best &best, const Linear &first, const Linear &second, const
     const double d2 = dx * dx + dy * dy + dr * dr;
     if (d2 < kDegenerateEps) return;
 
-    // P = (b1 (n2 x D) + b2 (D x n1)) / |D|^2 satisfies both planes.
     const double n2d_x = second.ay * dr - second.ar * dy;
     const double n2d_y = second.ar * dx - second.ax * dr;
     const double n2d_r = second.ax * dy - second.ay * dx;
@@ -157,9 +142,6 @@ void add_candidates(Best &best, const Linear &first, const Linear &second, const
     }
 }
 
-/** Three walls: a triple of the four walls contains exactly one opposite pair (axis a) plus one
- *  wall on the other axis (axis b, sign s). Equidistance from the pair pins c[a] = 0 and
- *  r = half_a; matching the third wall puts c[b] at s * (half_b - half_a). */
 void add_three_wall_candidates(Best &best, double half_x, double half_y) {
     for (int b_axis = 0; b_axis < 2; ++b_axis) {
         const double half_a = b_axis == 0 ? half_y : half_x;
@@ -228,8 +210,10 @@ EmptyCircle solve_exact(const Size &field, const std::vector<Pose2D> &opponents,
         sites.push_back(Site{hazard.center.x, hazard.center.y, hazard.inflated_radius, true});
     }
 
-    const Wall walls[4] = {
-        {0, 1.0, half_x}, {0, -1.0, half_x}, {1, 1.0, half_y}, {1, -1.0, half_y}};
+    const Wall walls[4] = {{Axis::X, WallSide::POS, half_x},
+                           {Axis::X, WallSide::NEG, half_x},
+                           {Axis::Y, WallSide::POS, half_y},
+                           {Axis::Y, WallSide::NEG, half_y}};
     std::array<Linear, 4> wall_linears{};
     for (int i = 0; i < 4; ++i) {
         wall_linears[i] = wall_constraint(walls[i]);

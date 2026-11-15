@@ -164,11 +164,12 @@ void build_observation_v1(const ObservationInputsV1 &in, std::span<double, obs_v
         return i < j;
     };
 
-    size_t previous = count;  // none yet
+    const size_t kNoPrevious = count;
+    size_t previous = kNoPrevious;
     for (int k = 0; k < kMaxHazards; ++k) {
         size_t best = count;
         for (size_t i = 0; i < count; ++i) {
-            if (previous != count && !before(previous, i)) continue;
+            if (previous != kNoPrevious && !before(previous, i)) continue;
             if (best == count || before(i, best)) best = i;
         }
         if (best == count) {

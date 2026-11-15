@@ -18,9 +18,6 @@ SerialPort::~SerialPort() { close(); }
 bool SerialPort::open(const std::string& path, int baud_rate) {
     close();
 
-    // Linux raises DTR and RTS together on open, and this never touches them. Changing them can
-    // reset an ESP32-S3 USB-Serial/JTAG device (the ESP-NOW dongle): DTR low with RTS high holds it
-    // in reset.
     fd_ = ::open(path.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
     if (fd_ < 0) return false;
 
@@ -115,6 +112,29 @@ static std::string read_sysfs_string(const std::string& path) {
     return s;
 }
 
+static bool find_usb_ids_in_ancestors(std::string current, uint16_t target_vid,
+                                      uint16_t target_pid) {
+    for (int depth = 0; depth < 5; ++depth) {
+        std::string vendor_str = read_sysfs_string(current + "/idVendor");
+        std::string product_str = read_sysfs_string(current + "/idProduct");
+
+        if (!vendor_str.empty() && !product_str.empty()) {
+            try {
+                auto vid = static_cast<uint16_t>(std::stoul(vendor_str, nullptr, 16));
+                auto pid = static_cast<uint16_t>(std::stoul(product_str, nullptr, 16));
+                return vid == target_vid && pid == target_pid;
+            } catch (...) {
+            }
+            return false;
+        }
+
+        auto slash = current.rfind('/');
+        if (slash == std::string::npos) break;
+        current = current.substr(0, slash);
+    }
+    return false;
+}
+
 std::optional<std::string> find_opentx_device() {
     static constexpr uint16_t kTargetVid = 0x0483;
     static constexpr uint16_t kTargetPid = 0x5740;
@@ -130,28 +150,7 @@ std::optional<std::string> find_opentx_device() {
             char real_path[PATH_MAX];
             if (realpath(sysfs_link.c_str(), real_path) == nullptr) continue;
 
-            // Walk up the device hierarchy looking for idVendor/idProduct
-            std::string current(real_path);
-            for (int depth = 0; depth < 5; ++depth) {
-                std::string vendor_str = read_sysfs_string(current + "/idVendor");
-                std::string product_str = read_sysfs_string(current + "/idProduct");
-
-                if (!vendor_str.empty() && !product_str.empty()) {
-                    try {
-                        auto vid = static_cast<uint16_t>(std::stoul(vendor_str, nullptr, 16));
-                        auto pid = static_cast<uint16_t>(std::stoul(product_str, nullptr, 16));
-                        if (vid == kTargetVid && pid == kTargetPid) {
-                            return dev_path;
-                        }
-                    } catch (...) {
-                    }
-                    break;
-                }
-
-                auto slash = current.rfind('/');
-                if (slash == std::string::npos) break;
-                current = current.substr(0, slash);
-            }
+            if (find_usb_ids_in_ancestors(real_path, kTargetVid, kTargetPid)) return dev_path;
         }
     }
     return std::nullopt;

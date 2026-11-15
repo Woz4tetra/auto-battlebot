@@ -6,10 +6,12 @@
 namespace auto_battlebot {
 namespace {
 
-// Mirrors SUBSTEP_S and STRAIGHT_W in auto_battlebot/plant.py. The substep bounds the
-// held-velocity arc error; the yaw floor keeps the arc radius division away from 0/0.
-constexpr double kSubstepS = 0.002;
-constexpr double kStraightW = 1e-6;
+constexpr double kMaxArcSubstepS = 0.002;
+constexpr double kMinArcYawRateRadPerS = 1e-6;
+
+double select_lag_tau(double target, double current, double tau_accel, double tau_decel) {
+    return std::abs(target) > std::abs(current) ? tau_accel : tau_decel;
+}
 
 double lag_alpha(double dt, double tau) { return tau > 1e-9 ? std::exp(-dt / tau) : 0.0; }
 
@@ -50,7 +52,7 @@ PlantState JigPlantModel::propagate_unwrapped(const PlantState &state,
     if (span_s <= 0.0) {
         return state;
     }
-    const int substeps = std::max(1, static_cast<int>(std::lround(span_s / kSubstepS)));
+    const int substeps = std::max(1, static_cast<int>(std::lround(span_s / kMaxArcSubstepS)));
     const double sub_dt = span_s / static_cast<double>(substeps);
 
     PlantState out = state;
@@ -68,7 +70,7 @@ PlantState JigPlantModel::propagate_unwrapped(const PlantState &state,
         const double theta_next = out.theta + out.w * sub_dt;
         double dx = 0.0;
         double dy = 0.0;
-        if (std::abs(out.w) > kStraightW) {
+        if (std::abs(out.w) > kMinArcYawRateRadPerS) {
             const double radius = out.v / out.w;
             dx = radius * (std::sin(theta_next) - std::sin(out.theta));
             dy = -radius * (std::cos(theta_next) - std::cos(out.theta));
@@ -77,12 +79,10 @@ PlantState JigPlantModel::propagate_unwrapped(const PlantState &state,
             dy = out.v * sub_dt * std::sin(out.theta);
         }
 
-        // Accel or decel per channel by whether the target is further from zero than the
-        // current speed: friction first, then torque, when braking into a reversal.
         const double tau_lin =
-            std::abs(v_target) > std::abs(out.v) ? params_.tau_lin_a : params_.tau_lin_d;
+            select_lag_tau(v_target, out.v, params_.tau_lin_a, params_.tau_lin_d);
         const double tau_ang =
-            std::abs(w_target) > std::abs(out.w) ? params_.tau_ang_a : params_.tau_ang_d;
+            select_lag_tau(w_target, out.w, params_.tau_ang_a, params_.tau_ang_d);
         const double a_lin = lag_alpha(sub_dt, tau_lin);
         const double a_ang = lag_alpha(sub_dt, tau_ang);
 
@@ -97,9 +97,6 @@ PlantState JigPlantModel::propagate_unwrapped(const PlantState &state,
 
 PlantState JigPlantModel::propagate(const PlantState &state, std::span<const TimedCommand> commands,
                                     double t0, double t1, Eigen::Matrix<double, 5, 5> &jacobian) {
-    // Central differences. The model is piecewise, so at a branch boundary (tau selection,
-    // coupling clamp) this returns the two-sided average slope, which is what the covariance
-    // propagation can best do with a kink anyway.
     constexpr double kEps = 1e-6;
     for (int col = 0; col < 5; ++col) {
         PlantState plus = state;
@@ -130,17 +127,7 @@ PlantState JigPlantModel::propagate(const PlantState &state, std::span<const Tim
 
 Eigen::Matrix<double, 5, 5> JigPlantModel::process_noise(
     const PlantState &state, [[maybe_unused]] std::span<const TimedCommand> commands, double dt) {
-    // Growth-law mechanisms from fit_process_noise.py, mapped per predict step. The
-    // white-noise acceleration PSDs use the standard discrete block (position picks up the
-    // h^3/3 growth through the Jacobian as the EKF accumulates F P F^T + Q). The
-    // scale-factor and delay-jitter mechanisms grow h^2 and h^0, which additive per-step Q
-    // cannot reproduce, so they are injected at a rate matched at the 400 ms design horizon:
-    // exact at a full coast, conservative below it. q = 3c assumes undamped velocity-error
-    // integration; the plant's lag damps it, so the h^3 terms come out somewhat narrow over
-    // long coasts. Cross-track has no velocity state, so its whole budget is
-    // horizon-matched, and heading noise also reaches cross-track through the Jacobian: a
-    // known double count in the wide direction.
-    constexpr double kDesignHorizonS = 0.4;  // the max-coast timeout
+    constexpr double kDesignHorizonS = 0.4;
     const double sf_v = noise_.scale_factor * state.v;
     const double sf_w = noise_.heading_scale_factor * state.w;
     const double jitter = noise_.delay_jitter_s * state.v;

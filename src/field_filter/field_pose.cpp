@@ -167,36 +167,29 @@ FieldPoseResult pose_from_three_lines(const std::array<cv::Vec3d, 4> &lines,
         return result;
     }
 
-    // The two sides opposite each other are the pair that survives whichever side is missing.
-    // `between` is the third, running from one to the other.
-    const size_t first = (missing + 1) % 4;
-    const size_t between = (missing + 2) % 4;
-    const size_t second = (missing + 3) % 4;
+    const size_t pair_first = (missing + 1) % 4;
+    const size_t middle_side = (missing + 2) % 4;
+    const size_t pair_second = (missing + 3) % 4;
 
     const auto object = field_object_corners(size_x, size_y);
     const auto direction_of = [&object](size_t side) {
         const cv::Point2d delta = object[(side + 1) % 4] - object[side];
         return cv::Point2d(delta.x, delta.y) * (1.0 / cv::norm(delta));
     };
-    const cv::Point2d along_pair = direction_of(first);
-    const cv::Point2d along_between = direction_of(between);
+    const cv::Point2d along_pair = direction_of(pair_first);
+    const cv::Point2d along_between = direction_of(middle_side);
 
     const Eigen::Matrix3d intrinsics_inverse = intrinsics.inverse();
 
-    // The two opposite sides are parallel in the world, so they meet at the vanishing point of
-    // their shared direction. Homogeneous throughout, so a camera looking square-on, where that
-    // point runs off to infinity, needs no special case.
     const Eigen::Vector3d vanishing =
-        intrinsics_inverse * to_eigen(lines[first].cross(lines[second]));
+        intrinsics_inverse * to_eigen(lines[pair_first].cross(lines[pair_second]));
     if (vanishing.norm() < 1e-12) {
         result.failure = "opposite field sides are coincident";
         return result;
     }
     const Eigen::Vector3d pair_axis = vanishing.normalized();
 
-    // Every point on the third side backprojects into a plane with this normal, and that side's
-    // own vanishing point lies on it, so the remaining field axis is perpendicular to both.
-    const Eigen::Vector3d between_plane = intrinsics.transpose() * to_eigen(lines[between]);
+    const Eigen::Vector3d between_plane = intrinsics.transpose() * to_eigen(lines[middle_side]);
     const Eigen::Vector3d between_axis_raw = between_plane.cross(pair_axis);
     if (between_axis_raw.norm() < 1e-12) {
         result.failure = "field sides are degenerate in the image";
@@ -204,8 +197,7 @@ FieldPoseResult pose_from_three_lines(const std::array<cv::Vec3d, 4> &lines,
     }
     const Eigen::Vector3d between_axis = between_axis_raw.normalized();
 
-    // The two corners the third side still has. Both are finite: they are the ones inside frame.
-    const auto finite_corner = [&](size_t left, size_t right, Eigen::Vector3d &out) {
+    const auto finite_corner_in_camera = [&](size_t left, size_t right, Eigen::Vector3d &out) {
         const cv::Vec3d point = lines[left].cross(lines[right]);
         if (std::abs(point[2]) < 1e-9) {
             return false;
@@ -215,12 +207,13 @@ FieldPoseResult pose_from_three_lines(const std::array<cv::Vec3d, 4> &lines,
     };
     Eigen::Vector3d ray_near;
     Eigen::Vector3d ray_far;
-    if (!finite_corner(first, between, ray_near) || !finite_corner(between, second, ray_far)) {
+    if (!finite_corner_in_camera(pair_first, middle_side, ray_near) ||
+        !finite_corner_in_camera(middle_side, pair_second, ray_far)) {
         result.failure = "field side intersections are at infinity";
         return result;
     }
-    const cv::Point2d object_near = object[between];
-    const cv::Point2d object_far = object[second];
+    const cv::Point2d object_near = object[middle_side];
+    const cv::Point2d object_far = object[pair_second];
     const cv::Point2d object_span = object_far - object_near;
 
     // A rectangle mirrored about either of its own axes is the same rectangle, so a mirrored
@@ -234,15 +227,11 @@ FieldPoseResult pose_from_three_lines(const std::array<cv::Vec3d, 4> &lines,
         for (const double between_sign : {1.0, -1.0}) {
             const Eigen::Vector3d axis_pair = pair_sign * pair_axis;
             const Eigen::Vector3d axis_between = between_sign * between_axis;
-            // The two field axes are an orthonormal basis, so the camera-frame image of field
-            // +x is its component along each.
             const Eigen::Vector3d field_x =
                 along_pair.x * axis_pair + along_between.x * axis_between;
             const Eigen::Vector3d field_y =
                 along_pair.y * axis_pair + along_between.y * axis_between;
 
-            // The two corners are a known distance apart along the third side, which is what
-            // fixes the scale a homography would have taken from four corners.
             const Eigen::Vector3d span = object_span.x * field_x + object_span.y * field_y;
             Eigen::Matrix<double, 3, 2> basis;
             basis.col(0) = -ray_near;

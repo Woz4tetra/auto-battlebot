@@ -154,9 +154,7 @@ void ControlLoop::run_cycle() {
         robots = robot_filter_->state();
     }
 
-    if (measurement) {
-        // Raw detection counts before the cache resolves missing critical robots, so future
-        // recordings expose how often a fresh (non-stale) opponent fix was actually available.
+    const auto log_raw_detection_counts = [&]() {
         int their_total = 0;
         int their_live = 0;
         int our_live = 0;
@@ -175,7 +173,8 @@ void ControlLoop::run_cycle() {
                                     {"their_count_live", their_live},
                                     {"our_present_live", our_live},
                                     {"our_blob_present_no_keypoint", our_blob_no_keypoint}});
-    }
+    };
+    if (measurement) log_raw_detection_counts();
 
     auto cached_robots = robot_descriptions_cache_.resolve(robots);
     const BehaviorMode behavior_mode = behavior_mode_.load();

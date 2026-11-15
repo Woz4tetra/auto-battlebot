@@ -21,13 +21,6 @@ ZedSvoPlaybackCamera::ZedSvoPlaybackCamera(ZedSvoPlaybackCameraConfiguration &co
     spdlog::info("Resolved SVO path: {}", svo_abs_path.string());
     svo_path_ = svo_abs_path.string();
 
-    // Both of these change what the replay measures, and neither shows up as an error. Say so at
-    // startup so a replay run is not read as if it reproduced field timing.
-    //
-    // Without rebasing, frame stamps stay on the recording's clock while the control loop reads
-    // the wall clock, so everything that compares the two degrades quietly: the filter's latency
-    // compensation holds every prediction instead of leading, and the pipeline latency
-    // diagnostic reports the age of the recording rather than the age of the frame.
     if (!rebase_stamps_) {
         spdlog::warn(
             "rebase_stamps = false: SVO frame stamps stay on the recording's clock, which does "
@@ -113,8 +106,6 @@ bool ZedSvoPlaybackCamera::initialize() {
 bool ZedSvoPlaybackCamera::get(CameraData &data) {
     if (!is_initialized_ || should_close_) return false;
 
-    // Grab on the caller's thread. Every frame reaches the pipeline, in order, and depth is
-    // retrieved for this frame rather than requested for a later one.
     const ZedDevice::GrabStatus status = device_.grab();
     if (status == ZedDevice::GrabStatus::EndOfFile) {
         spdlog::info("End of SVO file reached.");

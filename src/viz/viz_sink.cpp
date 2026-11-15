@@ -21,8 +21,7 @@ constexpr size_t kMaxBulkBytes = 32u * 1024u * 1024u;
 constexpr size_t kMaxPriorityBytes = 4u * 1024u * 1024u;
 constexpr auto kReconnectInterval = std::chrono::seconds(1);
 constexpr auto kSendStallTimeout = std::chrono::seconds(2);
-/** A connection the relay closes sooner than this was refused, not lost. */
-constexpr auto kSettleTime = std::chrono::seconds(1);
+constexpr auto kRefusedVsLostSettleTime = std::chrono::seconds(1);
 constexpr int kPollMs = 50;
 
 bool is_bulk_schema(const std::string& name) {
@@ -304,7 +303,7 @@ void VizSink::run() {
         }
 
         const auto now = std::chrono::steady_clock::now();
-        if (!settled_ && now - connected_at_ >= kSettleTime && relay_has_read()) {
+        if (!settled_ && now - connected_at_ >= kRefusedVsLostSettleTime && relay_has_read()) {
             settled_ = true;
             if (lost_warned_) {
                 spdlog::info("[VizSink] Reconnected to viz_relay at {}", socket_path_);

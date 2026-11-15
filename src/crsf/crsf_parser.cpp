@@ -4,9 +4,8 @@
 
 namespace auto_battlebot {
 
-// CRC8 lookup table: polynomial x^8 + x^7 + x^6 + x^4 + x^2 + 1 (0xD5)
 // clang-format off
-static constexpr uint8_t kCrc8Table[256] = {
+static constexpr uint8_t kCrc8Poly0xD5Table[256] = {
     0x00, 0xD5, 0x7F, 0xAA, 0xFE, 0x2B, 0x81, 0x54,
     0x29, 0xFC, 0x56, 0x83, 0xD7, 0x02, 0xA8, 0x7D,
     0x52, 0x87, 0x2D, 0xF8, 0xAC, 0x79, 0xD3, 0x06,
@@ -49,7 +48,7 @@ static constexpr size_t kMaxFrameLength = 64;
 uint8_t crsf_crc8(const uint8_t* data, size_t length) {
     uint8_t crc = 0;
     for (size_t i = 0; i < length; ++i) {
-        crc = kCrc8Table[crc ^ data[i]];
+        crc = kCrc8Poly0xD5Table[crc ^ data[i]];
     }
     return crc;
 }

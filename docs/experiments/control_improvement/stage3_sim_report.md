@@ -158,3 +158,13 @@ Each run writes `results.csv` and per-run trajectory PNGs to its `sweep_out/` di
    and re-tune the brake horizon.
 3. Promote the tracker config into `config/main.toml` for the robot's stop missions once validated.
 4. Only escalate to Ramsete / LQR / MPC (Stage 5) if the tracker cannot meet spec on the real robot.
+
+## Notes moved from `src/` comments (2026-11-15)
+
+Each entry names the file and the code it described.
+
+### `src/navigation/pursuit_navigation.cpp`
+
+Beside `if (brake_distance_ > 0.0 && distance < brake_distance_) {`:
+
+Coast-aware brake: within brake_distance of the target, ramp the commanded speed linearly to zero so the robot decelerates into the goal instead of driving in at full speed and coasting past it. brake_distance should cover the stopping lead (latency travel + coast). 0 disables (ram behavior).

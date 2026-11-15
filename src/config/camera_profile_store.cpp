@@ -226,24 +226,28 @@ void CameraProfileStore::require_writable() const {
     }
 }
 
-void CameraProfileStore::write() const {
+static void write_file_atomically(const std::filesystem::path &path, const std::string &content) {
     std::error_code ec;
-    std::filesystem::create_directories(path_.parent_path(), ec);
-    // Write beside the target and rename over it, so a power cut mid-save leaves the old file.
-    std::filesystem::path tmp = path_;
+    std::filesystem::path tmp = path;
     tmp += ".tmp";
     {
         std::ofstream out(tmp, std::ios::trunc);
-        out << format_camera_profiles(profiles_);
+        out << content;
         out.flush();
         if (!out) {
             throw std::runtime_error("Could not write " + tmp.string());
         }
     }
-    std::filesystem::rename(tmp, path_, ec);
+    std::filesystem::rename(tmp, path, ec);
     if (ec) {
-        throw std::runtime_error("Could not replace " + path_.string() + ": " + ec.message());
+        throw std::runtime_error("Could not replace " + path.string() + ": " + ec.message());
     }
+}
+
+void CameraProfileStore::write() const {
+    std::error_code ec;
+    std::filesystem::create_directories(path_.parent_path(), ec);
+    write_file_atomically(path_, format_camera_profiles(profiles_));
 }
 
 }  // namespace auto_battlebot
