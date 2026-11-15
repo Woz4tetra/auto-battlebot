@@ -9,7 +9,7 @@ import json
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import cv2
 import numpy as np
@@ -220,6 +220,11 @@ def world_from_camera_pose(plane: Plane, params: np.ndarray) -> np.ndarray:
     return np.asarray(np.linalg.inv(camera_from_world))
 
 
+class RailBox(NamedTuple):
+    x_range: tuple[float, float]
+    y_range: tuple[float, float]
+
+
 def hull_mask(
     shape: tuple[int, int], k: np.ndarray, plane: Plane, params: np.ndarray, box: Box
 ) -> np.ndarray:
@@ -231,12 +236,13 @@ def hull_mask(
     floor = [box_point(plane, params, a * inner, b * inner, 0.0) for a, b in corners]
     cv2.fillPoly(mask, [np.round(project(k, np.array(floor))).astype(np.int32)], 255)
     rails = (
-        ((-outer, -inner), (-outer, outer)),  # left: x range, y range
-        ((inner, outer), (-outer, outer)),
-        ((-outer, outer), (inner, outer)),
-        ((-outer, outer), (-outer, -inner)),
+        RailBox((-outer, -inner), (-outer, outer)),
+        RailBox((inner, outer), (-outer, outer)),
+        RailBox((-outer, outer), (inner, outer)),
+        RailBox((-outer, outer), (-outer, -inner)),
     )
-    for (x0, x1), (y0, y1) in rails:
+    for rail in rails:
+        (x0, x1), (y0, y1) = rail.x_range, rail.y_range
         corners = [
             box_point(plane, params, x, y, z)
             for x in (x0, x1)

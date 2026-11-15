@@ -15,10 +15,10 @@ class PlantInterface(Protocol):
     """Our robot's drivetrain, as the server and viewer use it."""
 
     @property
-    def v(self) -> float: ...  # forward speed, m/s
+    def v_mps(self) -> float: ...
 
     @property
-    def w(self) -> float: ...  # yaw rate, rad/s
+    def w_radps(self) -> float: ...
 
     @property
     def fell_in(self) -> bool: ...

@@ -735,22 +735,22 @@ def section_coverage(loaded: Loaded, params: PlantParams) -> Section:
         lin_eff = effective_command(lin, params.dz_lin_fwd, params.dz_lin_rev)
         ang_eff = effective_command(ang, params.dz_ang_l, params.dz_ang_r)
         edges = np.linspace(-1, 1, 12)
-        grid, _, _ = np.histogram2d(lin_eff, ang_eff, bins=[edges, edges])
-        grid *= dt
+        sample_counts, _, _ = np.histogram2d(lin_eff, ang_eff, bins=[edges, edges])
+        seconds_held = sample_counts * dt
         fig, ax = plt.subplots(figsize=(5.6, 4.4))
-        masked = np.ma.masked_where(grid <= 0, grid)
+        masked = np.ma.masked_where(seconds_held <= 0, seconds_held)
         cmap = plt.get_cmap("viridis").copy()
         cmap.set_bad("#d8d8d8")
         im = ax.pcolormesh(edges, edges, masked.T, cmap=cmap)
         fig.colorbar(im, ax=ax, label="seconds held")
         ax.set_xlabel("effective linear command", fontsize=9)
         ax.set_ylabel("effective angular command", fontsize=9)
-        empty = int(np.count_nonzero(grid <= 0))
+        empty = int(np.count_nonzero(seconds_held <= 0))
         sec.add(
             figure_html(
                 fig,
-                f"Command occupancy, weighted by time held. {empty} of {grid.size} cells are "
-                "empty (grey). Empty cells off the axes are what a coupling grid fills.",
+                f"Command occupancy, weighted by time held. {empty} of {seconds_held.size} "
+                "cells are empty (grey). Empty cells off the axes are what a coupling grid fills.",
             )
         )
 

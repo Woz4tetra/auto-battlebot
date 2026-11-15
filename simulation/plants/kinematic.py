@@ -33,8 +33,8 @@ class KinematicPlant:
         self._cfg = cfg
         self.x, self.y = cfg.start_pos
         self.yaw = math.radians(cfg.start_yaw_deg)
-        self.v = 0.0
-        self.w = 0.0
+        self.v_mps = 0.0
+        self.w_radps = 0.0
         self._half_x = arena_w / 2.0 - cfg.radius
         self._half_y = arena_h / 2.0 - cfg.radius
         self._hazards = HazardMonitor(obstacles or [], cfg.radius)
@@ -115,8 +115,8 @@ class KinematicPlant:
             ):
                 break
             if self.fell_in:
-                self.v = 0.0
-                self.w = 0.0
+                self.v_mps = 0.0
+                self.w_radps = 0.0
                 break
 
     def _resolve_obstacles(self, nx: float, ny: float) -> tuple[float, float, bool]:
@@ -146,17 +146,17 @@ class KinematicPlant:
         tau_a_dec: float,
     ) -> bool:
         """Advance one substep, returning True on a wall hit."""
-        next_yaw = self.yaw + self.w * dt
-        if abs(self.w) > STRAIGHT_W:
-            radius = self.v / self.w
+        next_yaw = self.yaw + self.w_radps * dt
+        if abs(self.w_radps) > STRAIGHT_W:
+            radius = self.v_mps / self.w_radps
             dx = radius * (math.sin(next_yaw) - math.sin(self.yaw))
             dy = -radius * (math.cos(next_yaw) - math.cos(self.yaw))
         else:
-            dx = self.v * dt * math.cos(self.yaw)
-            dy = self.v * dt * math.sin(self.yaw)
+            dx = self.v_mps * dt * math.cos(self.yaw)
+            dy = self.v_mps * dt * math.sin(self.yaw)
 
-        tau_lin = tau_l_acc if abs(v_target) > abs(self.v) else tau_l_dec
-        tau_ang = tau_a_acc if abs(w_target) > abs(self.w) else tau_a_dec
+        tau_lin = tau_l_acc if abs(v_target) > abs(self.v_mps) else tau_l_dec
+        tau_ang = tau_a_acc if abs(w_target) > abs(self.w_radps) else tau_a_dec
         a_lin = 1.0 - math.exp(-dt / max(tau_lin, 1e-4))
         a_ang = 1.0 - math.exp(-dt / max(tau_ang, 1e-4))
 
@@ -176,10 +176,10 @@ class KinematicPlant:
 
         self.x, self.y = nx, ny
         self.yaw = math.atan2(math.sin(next_yaw), math.cos(next_yaw))
-        self.v += a_lin * (v_target - self.v)
-        self.w += a_ang * (w_target - self.w)
+        self.v_mps += a_lin * (v_target - self.v_mps)
+        self.w_radps += a_ang * (w_target - self.w_radps)
         if hit:
-            self.v = 0.0
+            self.v_mps = 0.0
         return hit
 
     def pose(self) -> Pose:

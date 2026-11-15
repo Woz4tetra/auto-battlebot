@@ -106,8 +106,8 @@ class PolicyOpponent:
         ]
         return PolicyView(
             our_pose=self._plant.pose(),
-            our_speed=self._plant.v,
-            our_yaw_rate=self._plant.w,
+            our_speed=self._plant.v_mps,
+            our_yaw_rate=self._plant.w_radps,
             target_pose=self._target,
             target_velocity=self._target_velocity,
             target_yaw_rate=self._target_yaw_rate,

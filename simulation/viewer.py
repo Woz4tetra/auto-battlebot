@@ -208,7 +208,7 @@ class Viewer:
         lines = [
             f"t={sim_time:6.2f}s  tick={tick}",
             f"cmd lin={linear:+.2f} ang={angular:+.2f}",
-            f"v={plant.v:+.2f} m/s  w={plant.w:+.2f} rad/s",
+            f"v={plant.v_mps:+.2f} m/s  w={plant.w_radps:+.2f} rad/s",
         ]
         if self._obstacles:
             gap = "n/a" if clearance == float("inf") else f"{clearance:+.3f} m"

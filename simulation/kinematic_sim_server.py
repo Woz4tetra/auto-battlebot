@@ -405,7 +405,7 @@ class KinematicServer:
         x, y, yaw = self._plant.pose()
         us = footprint_center((x, y, yaw), self._plant.footprint_center_offset)
         others = [o.pose() for o in self._opponents if o.hazard_radius > 0.0 and o is not opponent]
-        policy.observe((*us, yaw), self._plant.w, others)
+        policy.observe((*us, yaw), self._plant.w_radps, others)
 
     def _make_plant(self) -> PlantInterface:
         cfg = self._cfg
@@ -506,7 +506,7 @@ class KinematicServer:
             )
             self._plant.step(applied[0], applied[1], cfg.sim.dt)
             x, y, yaw = self._plant.pose()
-            us_v = (self._plant.v * math.cos(yaw), self._plant.v * math.sin(yaw))
+            us_v = (self._plant.v_mps * math.cos(yaw), self._plant.v_mps * math.sin(yaw))
             for opponent in self._opponents:
                 opponent.observe_us((x, y, yaw), us_v)
                 if opponent.policy is not None:
@@ -524,8 +524,8 @@ class KinematicServer:
                         f"{x:.5f}",
                         f"{y:.5f}",
                         f"{yaw:.5f}",
-                        f"{self._plant.v:.5f}",
-                        f"{self._plant.w:.5f}",
+                        f"{self._plant.v_mps:.5f}",
+                        f"{self._plant.w_radps:.5f}",
                         f"{getattr(self._plant, 'pitch', 0.0):.5f}",
                         f"{goal[0]:.5f}",
                         f"{goal[1]:.5f}",

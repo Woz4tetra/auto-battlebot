@@ -158,11 +158,11 @@ class MujocoPlant:
         self.block_hits = 0
 
     @property
-    def v(self) -> float:
+    def v_mps(self) -> float:
         return 0.0 if self.fell_in else self._sim.forward_speed
 
     @property
-    def w(self) -> float:
+    def w_radps(self) -> float:
         return 0.0 if self.fell_in else self._sim.yaw_rate
 
     @property
