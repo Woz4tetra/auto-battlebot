@@ -62,7 +62,7 @@ from auto_battlebot.mujoco_sim.rollout import (
 WALL_HEIGHT_M = 0.3  # tall enough that a backflip lands inside the arena
 WALL_THICKNESS_M = 0.05
 BLOCK_HEIGHT_M = 0.3
-PARKED_XY = (50.0, 50.0)  # moving blocks wait here until their first position arrives
+UNPLACED_BLOCK_XY = (50.0, 50.0)
 ARENA_WALL_PREFIX = "arena_wall_"
 BLOCK_PREFIX = "wall_block_"
 MOVING_BLOCK_PREFIX = "moving_block_"
@@ -137,7 +137,7 @@ def _add_static_geoms(
         body = spec.worldbody.add_body(
             name=f"{MOVING_BLOCK_PREFIX}{i}",
             mocap=True,
-            pos=[*PARKED_XY, height / 2.0],
+            pos=[*UNPLACED_BLOCK_XY, height / 2.0],
         )
         if block.box is None:
             shape, size = mujoco.mjtGeom.mjGEOM_CYLINDER, [block.radius, height / 2.0, 0.0]

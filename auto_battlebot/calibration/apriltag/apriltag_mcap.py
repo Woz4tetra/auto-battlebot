@@ -347,7 +347,9 @@ class OverlayWriter:
     """Writes a Foxglove overlay MCAP: frames, calibration, TF, pose markers."""
 
     _BODY = (0.16, 0.16, 0.05)
-    _ARROW = (0.22, 0.02, 0.04)  # length, shaft diameter, head diameter
+    _ARROW_LENGTH_M = 0.22
+    _ARROW_SHAFT_DIAMETER_M = 0.02
+    _ARROW_HEAD_DIAMETER_M = 0.04
     _BODY_COLOR = (0.10, 0.80, 0.30, 0.6)
     _ARROW_COLOR = (1.00, 0.55, 0.05, 0.95)
     _TRAJ_COLOR = (0.20, 0.55, 1.00, 0.9)
@@ -448,7 +450,9 @@ class OverlayWriter:
     ) -> list[mcap_io.SceneEntity]:
         """Body cube and heading arrow at (x, y, z) with the given yaw."""
         pose = mcap_io.Pose(position=(x, y, z), orientation=tuple(quat))
-        length, shaft_diameter, head_diameter = self._ARROW
+        length = self._ARROW_LENGTH_M
+        shaft_diameter = self._ARROW_SHAFT_DIAMETER_M
+        head_diameter = self._ARROW_HEAD_DIAMETER_M
         return [
             mcap_io.SceneEntity(
                 id=f"{ns}/0",

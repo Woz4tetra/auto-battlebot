@@ -38,8 +38,7 @@ CAMERA_FRAME_ID = "camera"
 VIDEO_TOPIC = "/camera/video"
 FRAME_META_TOPIC = "/camera/frame_meta"
 CAMERA_INFO_TOPIC = "/camera/camera_info"
-# What the camera itself writes. Half a second of seek granularity at 60 fps.
-KEYFRAME_INTERVAL = 30
+CAMERA_GOP_FRAMES = 30
 DEFAULT_CRF = 20
 DEFAULT_PRESET = "veryfast"
 
@@ -122,9 +121,9 @@ def iter_access_units(
         "-bf",
         "0",
         "-g",
-        str(KEYFRAME_INTERVAL),
+        str(CAMERA_GOP_FRAMES),
         "-keyint_min",
-        str(KEYFRAME_INTERVAL),
+        str(CAMERA_GOP_FRAMES),
         "-sc_threshold",
         "0",
         "-pix_fmt",

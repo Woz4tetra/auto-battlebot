@@ -24,7 +24,8 @@ the robot:
   detection outside the range the co-visible inliers span, widened by ``GATE_MARGIN``, is dropped.
 
 Fixes fill tag dropouts only: video frames between two tag detections more than
-``DROPOUT_MIN_NS`` apart. Between closer tag fixes YOLO adds little and is three times noisier, and
+``TAG_DROPOUT_MIN_GAP_NS`` apart. Between closer tag fixes YOLO adds little and is three times
+noisier, and
 a fit horizon would score against it instead of a tag a few milliseconds away. They are also used
 only while the robot is upright and flat by its own IMU: a wheelie or a flip moves the keypoints
 off the plane they are projected onto.
@@ -41,12 +42,12 @@ from scipy.optimize import least_squares
 
 GATE_MARGIN = 1.3
 MIN_CONF = 0.5
-INLIER_M = 0.03  # a co-visible detection within this of the tag defines the size gates
+SIZE_GATE_INLIER_RADIUS_M = 0.03
 OFFSETS_MS = tuple(range(-60, 61, 4))
-PAIR_MAX_NS = 20_000_000  # a detection pairs with tags no further than this from its stamp
+TAG_PAIR_MAX_OFFSET_NS = 20_000_000
 HALF_FRAME_NS = 8_400_000
-DROPOUT_MIN_NS = 100_000_000  # tag detections further apart than this bound a dropout
-FLAT_LIMIT_DEG = 15.0  # IMU pitch and roll off their upright medians
+TAG_DROPOUT_MIN_GAP_NS = 100_000_000
+UPRIGHT_TILT_LIMIT_DEG = 15.0
 
 
 @dataclass
@@ -171,7 +172,7 @@ def calibrate(
 
     def fit_at(offset_ns: int) -> tuple[float, np.ndarray, np.ndarray] | None:
         shifted = stamps + offset_ns
-        pair = np.abs(nearest_tag(shifted)) < PAIR_MAX_NS
+        pair = np.abs(nearest_tag(shifted)) < TAG_PAIR_MAX_OFFSET_NS
         if pair.sum() < 50:
             return None
         sub = best_per_frame[pair]
@@ -206,7 +207,7 @@ def calibrate(
     dyaw = _wrap(proj["yaw"] - np.interp(shifted, tag_stamp_ns, tag_yaw))
     err = np.hypot(dx, dy)
     c, s = np.cos(azimuth), np.sin(azimuth)
-    inl = err < INLIER_M
+    inl = err < SIZE_GATE_INLIER_RADIUS_M
     diag = _box_diag(sub)[inl]
     sep = proj["sep"][inl]
     confident = det[det["conf"] >= MIN_CONF]
@@ -246,14 +247,14 @@ def calibrate(
 
 
 def flat_mask(esp32: pd.DataFrame, stamp_ns: np.ndarray) -> np.ndarray:
-    """True where the robot's own IMU says it is upright and within ``FLAT_LIMIT_DEG`` of level."""
+    """True where the robot's own IMU says it is upright, within ``UPRIGHT_TILT_LIMIT_DEG``."""
     e = esp32.sort_values("stamp_ns")
     t = e["stamp_ns"].to_numpy(np.int64)
     upright = e["is_upside_down"].to_numpy() == 0
     pitch = e["orientation_y"].to_numpy(float)
     roll = e["orientation_z"].to_numpy(float)
-    ok = upright & (np.abs(pitch - np.median(pitch[upright])) < FLAT_LIMIT_DEG)
-    ok &= np.abs(roll - np.median(roll[upright])) < FLAT_LIMIT_DEG
+    ok = upright & (np.abs(pitch - np.median(pitch[upright])) < UPRIGHT_TILT_LIMIT_DEG)
+    ok &= np.abs(roll - np.median(roll[upright])) < UPRIGHT_TILT_LIMIT_DEG
     at = np.clip(np.searchsorted(t, stamp_ns, side="right") - 1, 0, len(t) - 1)
     return np.asarray(ok[at])
 
@@ -266,7 +267,7 @@ def select_fixes(
     tag_stamps_ns: np.ndarray,
     esp32: pd.DataFrame | None,
 ) -> tuple[pd.DataFrame, dict[str, int]]:
-    """One fix per video frame inside a tag dropout (see ``DROPOUT_MIN_NS``).
+    """One fix per video frame inside a tag dropout (see ``TAG_DROPOUT_MIN_GAP_NS``).
 
     Returns rows of ``stamp_ns`` (the video stamp moved onto the tag's image clock), ``x``, ``y``,
     ``yaw``, ``conf`` and the counts behind them.
@@ -296,7 +297,7 @@ def select_fixes(
     j = np.searchsorted(tags, shifted)
     inside = (j > 0) & (j < tags.size)
     j = np.clip(j, 1, tags.size - 1)
-    keep = inside & (tags[j] - tags[j - 1] > DROPOUT_MIN_NS)
+    keep = inside & (tags[j] - tags[j - 1] > TAG_DROPOUT_MIN_GAP_NS)
     keep &= (tags[j] - shifted > HALF_FRAME_NS) & (shifted - tags[j - 1] > HALF_FRAME_NS)
     report["video_frames_in_dropouts"] = int(keep.sum())
     if esp32 is not None and len(esp32):

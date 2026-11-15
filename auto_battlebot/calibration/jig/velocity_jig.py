@@ -1216,9 +1216,7 @@ class RunQuality:
     verdict: str | None
     dropped: int | None
     malformed_rows: int
-    # Gyro only. A railed gyro axis means the yaw rate itself is wrong, and yaw rate is the
-    # measurement every angular parameter and the whole dead-reckoned heading rest on.
-    worst_saturation: float
+    worst_gyro_saturation: float
     saturated_axes: list[str]
     bias_drift_dps: float
     clock_measured: bool
@@ -1272,11 +1270,11 @@ class RunQuality:
         interior = self.malformed_rows - self.malformed_tail
         if interior:
             out.append(f"{interior} malformed rows")
-        if self.saturated_axes and self.worst_saturation > max_saturation:
+        if self.saturated_axes and self.worst_gyro_saturation > max_saturation:
             axes = ", ".join(self.saturated_axes)
             out.append(
                 f"gyro saturation on {axes}: {self.saturated_samples} samples "
-                f"({self.worst_saturation:.3%} of the worst axis)"
+                f"({self.worst_gyro_saturation:.3%} of the worst axis)"
             )
         if np.isfinite(self.bias_drift_dps) and self.bias_drift_dps > max_bias_drift_dps:
             out.append(f"gyro bias drift {self.bias_drift_dps:.3f} deg/s")
@@ -1523,7 +1521,7 @@ def load_run(
         malformed_rows=log.malformed_rows,
         malformed_tail=log.malformed_tail,
         still_holds_waived=record.waive_still_holds,
-        worst_saturation=max((a.fraction for a in gyro_sat), default=0.0),
+        worst_gyro_saturation=max((a.fraction for a in gyro_sat), default=0.0),
         saturated_axes=[a.name for a in gyro_sat if a.count],
         saturated_samples=sum(a.count for a in gyro_sat),
         accel_clip_axes=[a.name for a in accel_sat if a.count],

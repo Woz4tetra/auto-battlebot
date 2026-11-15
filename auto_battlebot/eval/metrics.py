@@ -23,6 +23,9 @@ HEADING_ACC_KEY = f"kp_heading_acc@{HEADING_THRESHOLD_DEG:g}deg"
 PCK_KEY = f"kp_pck@{PCK_FRACTION:g}"
 
 
+VISIBILITY_UNLABELED = 0
+
+
 def iou_matrix(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """Pairwise IoU between (N, 4) and (M, 4) xyxy boxes."""
     if len(a) == 0 or len(b) == 0:
@@ -141,7 +144,7 @@ def pr_from_counts(counts: dict[str, np.ndarray]) -> dict[str, float]:
     fp = float(counts["fp"].sum())
     fn = float(counts["fn"].sum())
     wrong_class = float(counts["wrong"].sum())
-    localized = tp + wrong_class  # right box regardless of name
+    localized_any_class = tp + wrong_class
     total_gt = tp + wrong_class + fn
     total_pred = tp + wrong_class + fp
     precision = tp / total_pred if total_pred else 0.0
@@ -151,8 +154,8 @@ def pr_from_counts(counts: dict[str, np.ndarray]) -> dict[str, float]:
         "precision": precision,
         "recall": recall,
         "f1": f1,
-        "localization_recall": localized / total_gt if total_gt else 0.0,
-        "wrong_class_rate": wrong_class / localized if localized else 0.0,
+        "localization_recall": localized_any_class / total_gt if total_gt else 0.0,
+        "wrong_class_rate": wrong_class / localized_any_class if localized_any_class else 0.0,
     }
 
 
@@ -189,7 +192,7 @@ def keypoint_per_frame(frames: list[Frame], iou_threshold: float) -> dict[str, n
             box = frame.gt_boxes[g]
             norm = max(box[2] - box[0], box[3] - box[1])
             for k in range(len(gt_kps)):
-                if gt_kps[k, 2] <= 0:  # visibility 0 = not labeled
+                if gt_kps[k, 2] <= VISIBILITY_UNLABELED:
                     continue
                 err = float(np.hypot(*(gt_kps[k, :2] - pred_kps[k, :2])))
                 stats["err_sum"][fi] += err

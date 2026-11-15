@@ -19,6 +19,8 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
+TUNING_EXIT_HOLD_TIMEOUT_S = 8.0
+
 
 class RelayError(RuntimeError):
     pass
@@ -64,8 +66,7 @@ class HttpPort:
         if self.status()["state"] == "tuning":
             return False
         self._call("/esc/tuning", {"enter": "1"})
-        # The robot holds entry for up to 3 s after leaving tuning mode, while the ESCs restart.
-        self._wait_for("tuning", 8.0)
+        self._wait_for("tuning", TUNING_EXIT_HOLD_TIMEOUT_S)
         return True
 
     def exit_tuning(self) -> None:

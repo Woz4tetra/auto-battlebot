@@ -43,10 +43,8 @@ OPENTX_VID = 0x0483
 OPENTX_PID = 0x5740
 TRANSMITTER_USB_IDS = frozenset({(OPENTX_VID, OPENTX_PID)})
 
-# The two trainer channels this writes. What they MEAN depends on the mix: under "direct"
-# they are linear and angular, under "tank" they are left and right wheel.
-CHANNEL_A = 0
-CHANNEL_B = 1
+TRAINER_CHANNEL_0 = 0
+TRAINER_CHANNEL_1 = 1
 
 # Radio channel-stream framing: sync, phase byte (0 = channels 1..16, 1 = 17..32), length
 # byte, 16 little-endian int16, then a checksum equal to phase ^ length ^ every data byte.
@@ -145,7 +143,7 @@ class MixConfig:
 class CommandSample:
     """One tick: what was asked for, what was sent, and what the radio said it sent."""
 
-    t: float  # time.monotonic()
+    t_monotonic_s: float
     linear: float
     angular: float
     trim: float
@@ -157,9 +155,8 @@ class CommandSample:
     meas_angular: float = float("nan")
     # Weapon throttle and the weapon arm switch, CH3 and CH5 on the radio. Neither drives
     # the plant, and both explain a run: the arm says whether the bot was live, and the
-    # throttle says whether the disc was spun up when the gyro saw something it should not.
-    meas_weapon: float = float("nan")
-    meas_arm: float = float("nan")
+    meas_weapon_throttle_ch3: float = float("nan")
+    meas_weapon_arm_ch5: float = float("nan")
     label: str = ""
 
 
@@ -299,14 +296,14 @@ class TrainerLink:
 
     def send(self, linear: float, angular: float) -> tuple[int, int]:
         a, b = self.mix.to_channels(linear, angular)
-        self._serial.write(f"trainer {CHANNEL_A} {a}\r\n".encode())
-        self._serial.write(f"trainer {CHANNEL_B} {b}\r\n".encode())
+        self._serial.write(f"trainer {TRAINER_CHANNEL_0} {a}\r\n".encode())
+        self._serial.write(f"trainer {TRAINER_CHANNEL_1} {b}\r\n".encode())
         return a, b
 
     def disarm(self) -> None:
         try:
-            self._serial.write(f"trainer {CHANNEL_A} 0\r\n".encode())
-            self._serial.write(f"trainer {CHANNEL_B} 0\r\n".encode())
+            self._serial.write(f"trainer {TRAINER_CHANNEL_0} 0\r\n".encode())
+            self._serial.write(f"trainer {TRAINER_CHANNEL_1} 0\r\n".encode())
             self._serial.flush()
         except Exception:
             pass
@@ -452,7 +449,7 @@ def play(
             m = link.measured()
             meas_lin, meas_ang = link.to_body(m.ch_a, m.ch_b)
             sample = CommandSample(
-                t=now,
+                t_monotonic_s=now,
                 linear=linear,
                 angular=angular,
                 trim=trim,
@@ -462,8 +459,8 @@ def play(
                 meas_ch_b=m.ch_b,
                 meas_linear=meas_lin,
                 meas_angular=meas_ang,
-                meas_weapon=m.weapon,
-                meas_arm=m.arm,
+                meas_weapon_throttle_ch3=m.weapon,
+                meas_weapon_arm_ch5=m.arm,
                 label=_label_at(program, elapsed),
             )
             result.commands.append(sample)
@@ -521,7 +518,7 @@ def stream_measured(
         m = link.measured()
         lin, ang = link.to_body(m.ch_a, m.ch_b)
         yield CommandSample(
-            t=now,
+            t_monotonic_s=now,
             linear=0.0,
             angular=0.0,
             trim=0.0,
@@ -531,7 +528,7 @@ def stream_measured(
             meas_ch_b=m.ch_b,
             meas_linear=lin,
             meas_angular=ang,
-            meas_weapon=m.weapon,
-            meas_arm=m.arm,
+            meas_weapon_throttle_ch3=m.weapon,
+            meas_weapon_arm_ch5=m.arm,
         )
         time.sleep(max(0.0, period - (time.monotonic() - now)))

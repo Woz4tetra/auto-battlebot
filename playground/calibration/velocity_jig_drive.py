@@ -483,10 +483,10 @@ COMMAND_PREAMBLE = [
 def command_row(s: dp.CommandSample) -> str:
     """One CSV line. Shared so a rewrite cannot drift from the header it is written under."""
     return (
-        f"{s.t:.6f},{s.linear:.4f},{s.angular:.4f},{s.trim:.4f},"
+        f"{s.t_monotonic_s:.6f},{s.linear:.4f},{s.angular:.4f},{s.trim:.4f},"
         f"{s.meas_ch_a:.4f},{s.meas_ch_b:.4f},"
         f"{s.meas_linear:.4f},{s.meas_angular:.4f},"
-        f"{s.meas_weapon:.4f},{s.meas_arm:.4f}"
+        f"{s.meas_weapon_throttle_ch3:.4f},{s.meas_weapon_arm_ch5:.4f}"
     )
 
 
@@ -684,10 +684,10 @@ def run_one(
         for sample in dp.stream_measured(trainer, program.duration_s, args.rate):
             commands.append(replace(sample, label=program.kind))
         say(f"      {len(commands)} radio samples")
-        live = [c for c in commands if c.meas_arm > 0.0]
+        live = [c for c in commands if c.meas_weapon_arm_ch5 > 0.0]
         if live:
-            span = live[-1].t - live[0].t
-            peak = max(abs(c.meas_weapon) for c in live)
+            span = live[-1].t_monotonic_s - live[0].t_monotonic_s
+            peak = max(abs(c.meas_weapon_throttle_ch3) for c in live)
             say(f"      weapon armed for {span:.0f} s, throttle peak {peak:+.2f}")
     else:
         countdown(program.duration_s, "run the maneuver")

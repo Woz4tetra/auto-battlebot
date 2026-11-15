@@ -27,8 +27,8 @@ INFO_ADDRESS = 0xFD90
 class EscSnapshot:
     index: int
     signature: bytes
-    page: bytes  # encrypted, exactly as read
-    payload: bytes  # decrypted 192-byte record
+    encrypted_page: bytes
+    decrypted_payload: bytes
     stats: bytes
     info: bytes
 

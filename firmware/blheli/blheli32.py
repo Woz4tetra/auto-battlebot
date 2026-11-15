@@ -81,13 +81,13 @@ def snapshot_json(s: EscSnapshot) -> dict[str, Any]:
         "esc": s.index,
         "read_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "signature": s.signature.hex(),
-        "page_b64": base64.b64encode(s.page).decode(),
-        "payload_hex": s.payload.hex(),
+        "page_b64": base64.b64encode(s.encrypted_page).decode(),
+        "payload_hex": s.decrypted_payload.hex(),
         "stats_hex": s.stats.hex(),
         "info_hex": s.info.hex(),
         "good_frames": s.good_frames,
         "bad_frames": s.bad_frames,
-        "settings": layout.decode(s.payload),
+        "settings": layout.decode(s.decrypted_payload),
     }
 
 
@@ -126,7 +126,9 @@ def cmd_read(args: argparse.Namespace) -> None:
     try:
         for esc in args.esc:
             s = session.read(esc)
-            print_settings(s.payload, f"ESC {esc}  frames good={s.good_frames} bad={s.bad_frames}")
+            print_settings(
+                s.decrypted_payload, f"ESC {esc}  frames good={s.good_frames} bad={s.bad_frames}"
+            )
     finally:
         close()
 
@@ -192,10 +194,10 @@ def cmd_write(args: argparse.Namespace) -> None:
     session, close = open_session(args)
     try:
         before = session.read(args.esc)
-        if before.payload == payload:
+        if before.decrypted_payload == payload:
             print(f"ESC {args.esc} already holds these settings; nothing written")
             return
-        print_settings(payload, f"writing ESC {args.esc}", compare=before.payload)
+        print_settings(payload, f"writing ESC {args.esc}", compare=before.decrypted_payload)
         if input("write these settings? [y/N] ").strip().lower() != "y":
             raise SystemExit("not written")
         stamp = time.strftime("%Y-%m-%d_%H%M%S")

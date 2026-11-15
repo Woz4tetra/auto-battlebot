@@ -124,7 +124,7 @@ class RefitState:
             scale = float(np.sum(r0[mask] ** 2) / max(n, 1))
             if job.refit_index >= CONTACT_AFTER_REFITS and len(ids) >= CONTACT_AFTER_WINDOWS:
                 limit = CONTACT_SIGMA * math.sqrt(max(scale, 1.0))
-                tag_cols = 3 * model.MAX_TAGS
+                tag_cols = 3 * model.MAX_TAG_FIXES_PER_SUB
                 worst = np.max(np.abs(r0[:, :tag_cols]), axis=1)
                 bad = {int(full.owner[i]) for i in np.flatnonzero(worst > limit)}
                 contact = sorted(bad)

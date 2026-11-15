@@ -159,11 +159,11 @@ class CoverageSession:
         self.usable_count = 0
         self.theta = model.PRIOR_VECTOR.copy()
         self.ladder = {s.name: model.PRIOR_VECTOR.copy() for s in MODEL_LADDER}
-        self.fisher_fit = np.zeros((model.NP, model.NP))  # at the last refit
-        self.fisher_new = np.zeros((model.NP, model.NP))  # windows since
+        self.fisher_at_last_refit = np.zeros((model.NP, model.NP))
+        self.fisher_since_refit = np.zeros((model.NP, model.NP))
         self.scale = 1.0
         self.refits = 0
-        self._refit_upto = -1  # last window id in the newest applied refit
+        self._last_refit_window_id = -1
         self._sent_upto = -1
         self._last_refit_t = 0.0
         self._pending_refit = False
@@ -361,28 +361,29 @@ class CoverageSession:
         inside = [p for p in poses if start_ns < p.stamp_ns <= end_ns]
         if len(inside) < 4:
             return None
-        if len(inside) > model.MAX_TAGS:
-            pick = np.linspace(0, len(inside) - 1, model.MAX_TAGS).round().astype(int)
+        if len(inside) > model.MAX_TAG_FIXES_PER_SUB:
+            pick = np.linspace(0, len(inside) - 1, model.MAX_TAG_FIXES_PER_SUB).round().astype(int)
             inside = [inside[i] for i in pick]
         tau = np.array([(p.stamp_ns - start_ns) / _NS for p in inside])
         yaw_meas = np.array([p.yaw for p in inside])
         yaw_meas = est.theta + np.unwrap(np.concatenate([[0.0], yaw_meas - est.theta]))[1:]
         body = rows[model.HIST_N :]
         gyro = np.array([r.gyro_dps for r in body])[
-            model.GYRO_EVERY : model.GYRO_EVERY * (model.GYRO_N + 1) : model.GYRO_EVERY
+            model.GYRO_STRIDE_SAMPLES : model.GYRO_STRIDE_SAMPLES
+            * (model.GYRO_N + 1) : model.GYRO_STRIDE_SAMPLES
         ]
         end = state_at(poses, end_ns)
         return model.SubWindow(
             state0=np.array([est.x, est.y, est.theta, est.v, w0]),
             cmd_lin=lin,
             cmd_ang=ang,
-            tag_tau=tau,
+            tag_tau_s=tau,
             tag_x=np.array([p.x for p in inside]),
             tag_y=np.array([p.y for p in inside]),
             tag_yaw=yaw_meas,
-            tag_sa=np.array([p.sigma_along for p in inside]),
-            tag_sc=np.array([p.sigma_across for p in inside]),
-            tag_sy=np.array([p.sigma_yaw for p in inside]),
+            tag_sigma_along_m=np.array([p.sigma_along for p in inside]),
+            tag_sigma_across_m=np.array([p.sigma_across for p in inside]),
+            tag_sigma_yaw_rad=np.array([p.sigma_yaw for p in inside]),
             gyro=-np.radians(gyro),
             gyro_ok=np.isfinite(gyro),
             a_percent=np.nan_to_num(np.array([r.a for r in body])),
@@ -434,7 +435,7 @@ class CoverageSession:
                     rec.subs, [rec.id] * len(rec.subs), self.poses.noise.view_azimuth_rad
                 )
                 _r, jac = model.jacobian(self.theta, batch)
-                self.fisher_new += model.information(jac)
+                self.fisher_since_refit += model.information(jac)
             self._add_coverage(rows, poses)
         self.windows.append(rec)
         self._resolve_events()
@@ -537,10 +538,10 @@ class CoverageSession:
             if w.status == "used":
                 w.status = "wall"
                 w.reason = "contact"
-        self._refit_upto = reply.upto
-        self.fisher_fit = reply.fisher
+        self._last_refit_window_id = reply.upto
+        self.fisher_at_last_refit = reply.fisher
         # Windows that closed while the refit ran, at the new estimate.
-        self.fisher_new = np.zeros((model.NP, model.NP))
+        self.fisher_since_refit = np.zeros((model.NP, model.NP))
         late = [w for w in self.windows if w.id > reply.upto and w.status == "used"]
         if late:
             subs, owners = [], []
@@ -549,14 +550,14 @@ class CoverageSession:
                 owners += [w.id] * len(w.subs)
             batch = model.stack(subs, owners, self.poses.noise.view_azimuth_rad)
             _r, jac = model.jacobian(self.theta, batch)
-            self.fisher_new = model.information(jac)
+            self.fisher_since_refit = model.information(jac)
         self.candidates = reply.candidates
         self.floor_limited = np.asarray(reply.floor_limited, dtype=bool)
         self.ladder_holdout = reply.ladder_holdout
         self._push_history(reply.driving_s, reply.holdout, reply.ladder_holdout)
 
     def _covariance(self) -> np.ndarray:
-        return model.covariance(self.fisher_fit + self.fisher_new, self.scale)
+        return model.covariance(self.fisher_at_last_refit + self.fisher_since_refit, self.scale)
 
     def _push_history(self, t: float, hold: float, ladder: dict[str, float]) -> None:
         cov = self._covariance()

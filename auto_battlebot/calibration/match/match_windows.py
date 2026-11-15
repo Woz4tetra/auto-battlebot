@@ -45,7 +45,7 @@ from auto_battlebot.recording.mcap_io import (
     iter_messages,
 )
 
-OUR_ROBOT_MARKER_ID = 4  # FrameId enum index of OUR_ROBOT_1
+OUR_ROBOT_MARKER_ID = 4
 THEIR_ROBOT_MARKER_IDS = (6, 7, 8)
 
 # The auto switch reads back 1024 when autonomy is enabled. Only then does the
@@ -81,8 +81,8 @@ class ReplayTrack:
     x: np.ndarray
     y: np.ndarray
     theta: np.ndarray
-    live: np.ndarray  # bool, our robot detected fresh this frame
-    opp_x: np.ndarray  # nan when no opponent track this frame
+    live: np.ndarray
+    opp_x: np.ndarray
     opp_y: np.ndarray
     field_size: tuple[float, float] | None
     rebase_offset_std_ns: float

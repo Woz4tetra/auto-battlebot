@@ -12,7 +12,6 @@ import pytest
 
 from auto_battlebot.blheli32 import cipher, layout
 from auto_battlebot.blheli32.esc import Session, VerifyError
-from auto_battlebot.blheli32.http_port import HttpPort, RelayError
 from auto_battlebot.blheli32.fourway import (
     CMD_DEVICE_INIT_FLASH,
     CMD_DEVICE_READ,
@@ -22,6 +21,7 @@ from auto_battlebot.blheli32.fourway import (
     crc16_xmodem,
     parse_response,
 )
+from auto_battlebot.blheli32.http_port import HttpPort, RelayError
 
 CAPTURES = Path(__file__).resolve().parents[2] / "firmware/blheli/captures"
 
@@ -200,17 +200,17 @@ def test_session_reads() -> None:
     snap = session.read(0)
     assert snap.good_frames == 338422
     assert snap.input_protocol == 5
-    assert layout.decode(snap.payload)["rampup_power"] == 100
+    assert layout.decode(snap.decrypted_payload)["rampup_power"] == 100
 
 
 def test_write_is_one_page_and_verifies() -> None:
     esc = FakePassthrough()
     session = Session(esc)
     session.open()
-    before = session.read(0).payload
+    before = session.read(0).decrypted_payload
     edited = layout.encode(before, {"pwm_frequency_low": 16, "pwm_frequency_high": 48})
     after = session.write(0, edited, expect_current=before)
-    assert after.payload == edited
+    assert after.decrypted_payload == edited
     # BLHeliSuite's Write Setup: a single 256-byte DeviceWrite at 0xF800, no page erase.
     assert [(a, len(p)) for a, p in esc.writes] == [(0xF800, 256)]
 
@@ -219,14 +219,14 @@ def test_write_of_unchanged_settings_sends_nothing() -> None:
     esc = FakePassthrough()
     session = Session(esc)
     session.open()
-    session.write(0, session.read(0).payload)
+    session.write(0, session.read(0).decrypted_payload)
     assert esc.writes == []
 
 
 def test_dropped_write_fails_verify() -> None:
     session = Session(FakePassthrough(drop_writes=True))
     session.open()
-    before = session.read(0).payload
+    before = session.read(0).decrypted_payload
     with pytest.raises(VerifyError, match=r"\[5\]"):
         session.write(0, layout.encode(before, {"pwm_frequency_low": 16}))
 
@@ -235,7 +235,7 @@ def test_stale_backup_is_refused_before_writing() -> None:
     esc = FakePassthrough()
     session = Session(esc)
     session.open()
-    before = session.read(0).payload
+    before = session.read(0).decrypted_payload
     stale = layout.encode(before, {"rampup_power": 50})
     with pytest.raises(VerifyError, match="no longer matches"):
         session.write(0, layout.encode(before, {"brake_on_stop": 0}), expect_current=stale)
@@ -352,9 +352,9 @@ def test_session_over_http_relay(robot: FakeRobot) -> None:
     assert port.enter_tuning() is False  # already in it
     session = Session(port, msp=False)
     session.open()
-    before = session.read(0).payload
+    before = session.read(0).decrypted_payload
     edited = layout.encode(before, {"startup_beep_volume": 200})
-    assert session.write(0, edited, expect_current=before).payload == edited
+    assert session.write(0, edited, expect_current=before).decrypted_payload == edited
     assert [(a, len(p)) for a, p in robot.esc.writes] == [(0xF800, 256)]
     port.exit_tuning()
     assert robot.state == "combat"

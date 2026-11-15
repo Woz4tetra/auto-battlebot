@@ -59,6 +59,9 @@ def make_detector() -> cv2.aruco.ArucoDetector:
     return aruco.ArucoDetector(dictionary, p)
 
 
+MIN_GAMMA_POWER = 0.35
+
+
 def auto_gamma(
     frame: np.ndarray, target_mean: float = 120.0, min_mean: float = 110.0
 ) -> np.ndarray:
@@ -76,7 +79,7 @@ def auto_gamma(
     if mean >= min_mean or mean < 1.0:
         return frame
     power = math.log(target_mean / 255.0) / math.log(mean / 255.0)
-    power = max(0.35, min(1.0, power))  # clamp so very dark frames are not blown into noise
+    power = max(MIN_GAMMA_POWER, min(1.0, power))
     lut = np.clip(255.0 * (np.arange(256) / 255.0) ** power, 0, 255).astype(np.uint8)
     return cv2.LUT(frame, lut)
 
