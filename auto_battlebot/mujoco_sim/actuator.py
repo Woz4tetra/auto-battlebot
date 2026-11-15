@@ -1,20 +1,4 @@
-"""DC gearmotor as a MuJoCo `general` actuator, and the command tape that drives it.
-
-A brushless motor behind a synchronous-rectifying ESC is, averaged over a PWM period, a voltage
-source behind a resistance with back-EMF. At the wheel:
-
-    torque = (eta N Kt / R) * V  -  (eta N^2 Kt Ke / R) * qvel
-
-which is affine in the control and the joint speed, so it is exactly MuJoCo's `general` actuator
-with `gainprm[0] = eta N Kt / R` and `biasprm[2] = -eta N^2 Kt Ke / R` (Ke = Kt in SI units).
-The control is the applied voltage V; `forcerange` carries the current limit.
-
-The command tape turns the logged per-motor percent (after the firmware mixer) into V: delay,
-deadzone, a one-term throttle curve, the left/right gain ratio, and the logged pack voltage.
-A zero command either shorts the motor (brake: V = 0, the back-EMF term brakes) or lets it
-freewheel (coast). Coast has no fixed-parameter form, so the rollout sets V to the back-EMF
-voltage N Ke qvel on those steps, which zeroes the motor torque.
-"""
+"""DC gearmotor as a MuJoCo `general` actuator, and the command tape that drives it."""
 
 from __future__ import annotations
 
@@ -22,7 +6,6 @@ from dataclasses import dataclass, fields
 
 import numpy as np
 
-# ReadyToSky 35 A ESC; the phase-current limit the ESC enforces is not published.
 DEFAULT_CURRENT_LIMIT_A = 35.0
 NOMINAL_PACK_V = 15.2
 
@@ -34,7 +17,7 @@ class PlantParams:
     delay_s: float = 0.03  # firmware command to motion; the radio part is measured separately
     deadzone_left: float = 0.02  # fraction of full command
     deadzone_right: float = 0.02
-    curve: float = 0.0  # throttle curvature: g(x) = x (1 + curve (1 - |x|))
+    curve: float = 0.0
     resistance_ohm: float = 0.2
     efficiency: float = 0.8
     lr_gain_ratio: float = 1.0  # left gain over right gain

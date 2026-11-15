@@ -1,14 +1,4 @@
-"""4-way transport over the Mk2 robot's ESC tuning mode (firmware/mr_stabs_mk2, /esc/ routes).
-
-HttpPort satisfies fourway.SerialPort, so esc.Session runs over WiFi unchanged: write() posts one
-4-way request frame and waits for the robot to relay it, and read() serves the response bytes.
-Pass msp=False to Session; the relay speaks 4-way from the start.
-
-    POST /esc/tuning  enter=1|0      enter or leave tuning mode (409 while armed)
-    GET  /esc/status                 {"state": "combat"|"tuning"|"exiting", "error": ...}
-    POST /esc/4way    frame=<hex>    queue one request frame -> {"id": n}
-    GET  /esc/4way                   {"id": n, "state": "none"|"pending"|"done", "frame": <hex>}
-"""
+"""4-way transport over the Mk2 robot's ESC tuning mode (firmware/mr_stabs_mk2, /esc/ routes)."""
 
 from __future__ import annotations
 

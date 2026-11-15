@@ -1,9 +1,4 @@
-"""The sysid monitor's page: one static HTML file and a websocket of JSON snapshots.
-
-Served by the Python process itself, on the laptop, because the page shows that process's
-state, not the app's. ``GET /`` returns ``static/index.html``; ``/ws`` sends a ``hello`` with
-the parameter list, then every snapshot ``publish`` hands it.
-"""
+"""The sysid monitor's page: one static HTML file and a websocket of JSON snapshots."""
 
 from __future__ import annotations
 

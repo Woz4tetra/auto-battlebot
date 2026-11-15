@@ -1,31 +1,4 @@
-"""Match-driving window loader for the plant fit.
-
-Joins regenerated replay poses to the original transmitted commands for one NHRL
-recording, resamples both onto the SVO frame grid, and cuts open-loop scoring
-windows with `auto_battlebot.control.plant.make_windows`. The sibling of the jig loader
-in `jig_fit.py`: same window machinery, different excitation source (match
-driving instead of jig protocols).
-
-The join (docs/experiments/control_improvement/match_plant_fit_plan.md step 2):
-
-1. Replay mcap `/camera/frame_meta` carries `video_frame_index` and the raw
-   original-clock `image_stamp_ns` per tick, so the SVO frame index is the join
-   key and the grid at once. No timestamp matching against the SVO file is
-   needed; `image_stamp_ns` never went through the replay's stamp rebase.
-2. `/robot_markers` (ns `robot_bounds`) in the same replay mcap carries the
-   field-frame pose per tick. Ticks are associated to frame_meta by log order
-   (markers follow their frame_meta within 0.4 ms) and the association is
-   verified through the constant rebase offset between the marker header stamp
-   and `image_stamp_ns`.
-3. The original mcap `/diagnostics` `opentx_transmitter` `channels` entries are
-   the transmitted command, already on the original clock.
-
-Command normalization matches the jig fit so the stage A seed stays on one
-scale: channels divided by 1024 full scale, tank inverse mix with channel B
-inverted, angular negated (`drive_protocol.MixConfig` defaults, verified
-against this data: positive angular tracks positive yaw rate, positive linear
-tracks forward motion; join validation 2026-09-01).
-"""
+"""Match-driving window loader for the plant fit."""
 
 from __future__ import annotations
 
@@ -49,25 +22,14 @@ from auto_battlebot.recording.mcap_io import (
 OUR_ROBOT_MARKER_ID = FRAME_IDS.index("OUR_ROBOT_1")
 THEIR_ROBOT_MARKER_IDS = tuple(FRAME_IDS.index(f"THEIR_ROBOT_{i}") for i in (1, 2, 3))
 
-# The auto switch reads back 1024 when autonomy is enabled. Only then does the
-# radio mix the logged channels into what the robot receives; manual segments
-# are excluded from windows entirely (plan step 3).
 AUTO_SWITCH_VALUE = 1024.0
 
-# Full scale of the radio channel readback stream, same as
-# auto_battlebot.calibration.jig.drive_protocol.MixConfig.channel_scale.
-CHANNEL_SCALE = 2048.0  # (ch0 - ch1) spans 2 * 1024 at full stick
+CHANNEL_SCALE = 2048.0
 
-# Contact gates. A window overlapping any gated sample is dropped; contact
-# windows are not fit material (impact model later, not this fit).
-WALL_MARGIN_M = 0.10  # robot center this close to the occupancy hull counts as wall contact
-OPPONENT_DIST_M = 0.35  # center-to-center; below this the robots are plausibly touching
-# Finite-difference acceleration beyond what k_fwd/tau can produce means an
-# impact or a perception glitch. Stage A gives k_fwd/tau_lin_a ~ 33 m/s^2 and
-# k_ang/tau_ang_a ~ 182 rad/s^2; thresholds sit above those plus the
-# pose-noise floor of the 30 Hz double difference.
-LIN_ACCEL_LIMIT = 50.0  # m/s^2
-ANG_ACCEL_LIMIT = 400.0  # rad/s^2
+WALL_MARGIN_M = 0.10
+OPPONENT_DIST_M = 0.35
+LIN_ACCEL_LIMIT = 50.0
+ANG_ACCEL_LIMIT = 400.0
 
 MANEUVER_CLASSES = ("straight", "arc", "spin", "reversal", "stop", "mixed", "idle")
 
@@ -208,7 +170,7 @@ def load_replay_track(replay_path: Path | str) -> ReplayTrack:
     order = np.argsort(svo_indices)
     offset_arr = np.array(offsets, dtype=np.int64)
     offset_std = float(offset_arr.std()) if len(offset_arr) else float("nan")
-    if len(offset_arr) and offset_std > 1e6:  # 1 ms; measured 100 ns on clean runs
+    if len(offset_arr) and offset_std > 1e6:
         raise ValueError(
             f"{replay_path}: marker-to-frame association drifted "
             f"(rebase offset std {offset_std / 1e6:.2f} ms); the join is not trustworthy"
@@ -282,12 +244,7 @@ def load_commands(original_path: Path | str) -> CommandLog:
 
 @dataclass
 class MatchRun:
-    """One recording resampled onto its SVO frame grid, jig-Run-shaped.
-
-    The grid index is the SVO frame index shifted to zero, so the grid is exact
-    by construction: no accumulated drift, and a dropped exporter frame is a
-    hole in `pose_valid` rather than a timing error.
-    """
+    """One recording resampled onto its SVO frame grid, jig-Run-shaped."""
 
     name: str
     recording: str
@@ -312,22 +269,11 @@ class MatchRun:
 
 
 def _fill_grid(track: ReplayTrack) -> tuple[np.ndarray, dict[str, np.ndarray], float, int]:
-    """Place per-frame samples onto a uniform time grid.
-
-    The SVO frame index is NOT the grid: the original camera occasionally
-    missed a grab, so consecutive indices can sit two frame intervals apart
-    (the 17-42-20 recording has ~1% of intervals at 67 ms). Slots are assigned
-    by cumulative rounding of the stamp differences, so a missed grab leaves an
-    empty slot instead of shearing everything after it; per-frame jitter is
-    about a millisecond against a 16 ms rounding margin.
-    """
+    """Place per-frame samples onto a uniform time grid."""
     rel = (track.stamp_ns - track.stamp_ns[0]).astype(float)
     steps = np.diff(rel)
     dt0 = float(np.median(steps))
     slots = np.concatenate([[0], np.cumsum(np.maximum(1, np.round(steps / dt0).astype(int)))])
-    # Refine dt by least squares of stamp against slot, centered so the fit is
-    # well conditioned, then re-assign. One pass converges: the refinement is
-    # well under the rounding margin.
     slope, intercept = np.polyfit(slots.astype(float), rel, 1)
     slots = np.concatenate([[0], np.cumsum(np.maximum(1, np.round(steps / slope).astype(int)))])
     slope, intercept = np.polyfit(slots.astype(float), rel, 1)
@@ -372,12 +318,6 @@ def build_match_run(
     size = len(t)
     stamps = (t0_ns + (t * 1e9)).astype(np.int64)
 
-    # Single-slot holes between two live frames are camera grab drops, not
-    # perception dropouts: the original pipeline missed ~25% of grabs on this
-    # data, so a strict continuity rule keeps no window at all. The pose is
-    # interpolated across exactly one missing slot (chord error under 6 mm at
-    # 1 m/s and 10 rad/s, below the per-frame pose noise); longer holes and
-    # true perception dropouts still split windows.
     live = grid["live"]
     hole = ~grid["present"]
     hole[1:-1] &= grid["live"][:-2] & grid["live"][2:]
@@ -436,11 +376,6 @@ def build_match_run(
             v[sel] = (dx * np.cos(theta[sel]) + dy * np.sin(theta[sel])) / dt
             w[sel] = _wrapped(theta[sel + a] - theta[sel + b]) / dt
 
-    # Contact gates. Walls come from the pose occupancy hull, not the field
-    # marker: the field frame is not guaranteed centered, and the 17-42-24
-    # replay's single field detection reports a nonsense 2.6 x 0.8 m box. The
-    # robot bumps every wall over a match, so the occupancy extremes ARE the
-    # wall positions for the robot center.
     contact = np.zeros(size, dtype=bool)
     if np.count_nonzero(usable) > 100:
         x_lo, x_hi = np.nanpercentile(x[usable], [0.2, 99.8])
@@ -496,11 +431,7 @@ def build_match_run(
 
 
 def split_run(run: MatchRun, fraction: float) -> tuple[MatchRun, MatchRun]:
-    """Split a run at a time fraction into contiguous (head, tail) runs.
-
-    Contiguous, not random: the holdout must not interleave the training data
-    or the two sets share every slow-varying condition (battery, floor spot).
-    """
+    """Split a run at a time fraction into contiguous (head, tail) runs."""
     cut = int(len(run.t) * fraction)
 
     def _piece(sl: slice, role: str, tag: str) -> MatchRun:

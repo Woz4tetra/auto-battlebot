@@ -29,8 +29,6 @@ OVERRIDES_PATH = Path(__file__).with_name("field_overrides.toml")
 
 UNCLASSIFIED = "unclassified"
 
-# A merge artifact: merge_segmask_datasets.py re-imported a tree that was already
-# present, prefixing every name. The unprefixed twin is the original.
 DUPLICATE_PREFIX = "floor_dataset__"
 
 _AUGMENT_RE = re.compile(r"_augment-(\d+)$")
@@ -88,8 +86,6 @@ def parse_field(stem: str) -> str:
     if cage:
         return f"cage{cage.group(1)}"
     if _MOBILECAM_RE.search(stem):
-        # MobileCam-1/3/4 are movable rigs; which cage they point at is not in the name,
-        # so they group as one "field" and are reported as such.
         return "mobilecam"
     if _SKYCAM_RE.search(stem):
         return "skycam"

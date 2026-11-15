@@ -27,17 +27,7 @@ class EngineDetector:
 
 
 class FieldCropDetector:
-    """Crops each frame to its field box before inference, then maps detections back.
-
-    Arm E of `input_geometry_2026-09-05` trains on field-cropped images, so it has to be
-    evaluated on field-cropped frames. Cropping here rather than pre-cropping the eval set
-    leaves the GT in full-frame coordinates, so every candidate is scored against the same
-    boxes and the paired bootstrap stays paired.
-
-    Boxes come from a JSON keyed by frame stem, as written by
-    `training/deeplab/build_field_crop_dataset.py masks --recursive`. A frame with no field
-    detected passes through uncropped, matching what the dataset builder does.
-    """
+    """Crops each frame to its field box before inference, then maps detections back."""
 
     def __init__(
         self,
@@ -96,16 +86,7 @@ class FieldCropDetector:
 
 
 class PrecomputedDetector:
-    """Detections read from a JSON file instead of produced by an engine.
-
-    Some detectors cannot be handed one image at a time. Background subtraction needs the
-    whole recording to build its background, so it is run separately by
-    `background_subtraction_predict.py` and its output is replayed here, which keeps every
-    metric, threshold and plot identical to an engine's.
-
-    Format: {"labels": [...], "frames": {"<stamp_ns>": [{"xyxy": [x1, y1, x2, y2],
-    "score": float, "class_id": int, "kps": [[x, y, v], ...]}]}}.
-    """
+    """Detections read from a JSON file instead of produced by an engine."""
 
     def __init__(self, path: Path, conf_threshold: float) -> None:
         payload = json.loads(path.read_text())
@@ -196,13 +177,7 @@ def build_detector(
     images: dict[FrameKey, Path],
     args: argparse.Namespace,
 ) -> Detector:
-    """The detector for one candidate, with any preprocessing that candidate was trained on.
-
-    Geometry arms differ in how the frame reaches the tensor, and an engine fed the wrong
-    preprocessing fails quietly rather than loudly: a stretch-trained engine handed a
-    letterboxed frame simply sees the wrong aspect ratio. Both modes are opt-in per
-    candidate so a mixed run scores each arm the way it was trained.
-    """
+    """The detector for one candidate, with any preprocessing that candidate was trained on."""
     if not engine_path.exists():
         raise SystemExit(f"Candidate not found: {engine_path}")
     if engine_path.suffix == ".json":

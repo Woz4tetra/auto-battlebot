@@ -44,9 +44,9 @@ UPDOWN_THRESHOLD_UP_Z = 1.0 / STANDARD_GRAVITY
 class FlipSwitch(str, Enum):
     """Transmitter flip switch (CRSF ch7) position."""
 
-    DOWN = "down"  # power-on default: heading hold on, inverted while the IMU reads upside down
-    MIDDLE = "middle"  # heading hold off, never inverted
-    UP = "up"  # heading hold off, always inverted
+    DOWN = "down"
+    MIDDLE = "middle"
+    UP = "up"
 
     @classmethod
     def _missing_(cls, value: object) -> FlipSwitch:
@@ -235,12 +235,7 @@ class YawController:
 
 @dataclass
 class FirmwareMixer:
-    """Stick percents, the sensed heading and gyro rate in, per-motor percents out.
-
-    `step` is one control loop. In the current firmware the heading and gyro only change when a
-    BNO055 sample lands, every `sample_period`, and the yaw loop runs on those samples alone.
-    `pid_output` is the differential the mixer adds to the left wheel and takes off the right.
-    """
+    """Stick percents, the sensed heading and gyro rate in, per-motor percents out."""
 
     auto_steer: bool = True
     legacy: bool = False

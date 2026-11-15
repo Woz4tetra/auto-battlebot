@@ -122,12 +122,7 @@ def rotation_rpy_sxyz(roll: float, pitch: float, yaw: float) -> np.ndarray:
 def prior_from_position_rpy(
     position: tuple[float, float, float], rpy_deg: tuple[float, float, float]
 ) -> np.ndarray:
-    """T_W<-cam_cv from a true_battlebot `metrics_tool/nhrl_cage_*.toml` camera block.
-
-    Those files store `tf_map_from_camera` as position plus roll/pitch/yaw in degrees under
-    the 'sxyz' convention, with the map frame equal to W and the camera in OpenCV
-    convention. Roll near -150 deg is a camera looking down and across toward +y.
-    """
+    """T_W<-cam_cv from a true_battlebot `metrics_tool/nhrl_cage_*.toml` camera block."""
     tf = np.eye(4)
     tf[:3, :3] = rotation_rpy_sxyz(*(math.radians(v) for v in rpy_deg))
     tf[:3, 3] = position

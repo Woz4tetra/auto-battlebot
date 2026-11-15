@@ -1,38 +1,4 @@
-"""The live coverage session: telemetry and tags in, labeled motions and plant coverage out.
-
-``CoverageSession`` is pure and deterministic: a source feeds it decoded messages in log order
-(``feed_telemetry``, ``feed_tags``, ``feed_field``), ``advance`` processes everything older than
-``LAG_S``, and ``snapshot`` returns the page's JSON. It does no IO; the refit runs through a
-``RefitEngine`` (``worker.py``), inline for tests and replay or in a process when live.
-
-Pipeline per 10 ms grid sample, once the tags around it have arrived:
-
-1. Telemetry is put on the host clock (``telemetry.LiveClock``). Commands are held to the grid;
-   the gyro is interpolated. The clock map rests on the fastest deliveries, so the minimum
-   radio latency stays in it and every telemetry stamp reads that much late. The fit's delay
-   absorbs it for the commands; for the gyro it is a millisecond or two against the tags.
-2. ``maneuvers.ManeuverSegmenter`` labels the sticks.
-3. Every ``model.WINDOW_S`` the window closes: gates, three sub-windows from the tag poses,
-   Fisher information at the current estimate, and a status.
-4. A refit runs every ``REFIT_S`` of driving when new windows closed.
-
-Gates, first match wins:
-
-- jetson: ``espnow_active`` or ``autonomy_enabled`` anywhere in the window. The sysid profile
-  never commands, so this is a banner as well as a gate.
-- link: telemetry missing for over ``GAP_S``, counted from ``telemetry_seq`` (frames lost) or
-  from ``timestamp_ms`` (frames late). A frame or two lost is held over and costs nothing.
-- tags: accepted tag fixes cover under ``TAG_COVERAGE_MIN`` of the camera frames.
-- flip: the robot is upside down, or the running median of ``PITCH_MEDIAN_N`` tag poses is
-  pitched more than ``PITCH_LIMIT_DEG`` off the rest pose.
-- wall: the axle center within ``ROBOT_LENGTH_M`` of a rail (``sysid_windows.near_rail``), or,
-  once the fit has settled, a tag residual over ``CONTACT_SIGMA`` (marked by the refit).
-- disarmed: ``armed`` false.
-- idle: no motor command over ``IDLE_CMD`` and no tag speed.
-
-Every fifth usable window is held out: it scores the closed-loop prediction and never enters
-the fit.
-"""
+"""The live coverage session: telemetry and tags in, labeled motions and plant coverage out."""
 
 from __future__ import annotations
 
@@ -66,8 +32,6 @@ LAG_S = 0.5
 GAP_S = 0.05
 TAG_COVERAGE_MIN = 0.7
 PITCH_LIMIT_DEG = 4.0
-# Poses in the running median the pitch gate tests. Single-frame tag pitch spikes reach 8 deg on
-# a flat spin (frame-to-frame sd 1.7 deg); a real nose lift lasts far longer than 7 frames.
 PITCH_MEDIAN_N = 7
 ROBOT_LENGTH_M = 0.15
 IDLE_CMD = 0.02

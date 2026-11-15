@@ -1,24 +1,4 @@
-"""Staged CMA-ES fit of the Mr Stabs Mk2 MuJoCo plant against hand-driven windows.
-
-Each generation scores every candidate on every window at once: one world per (candidate,
-window) pair. CMA-ES is gradient-free, so the delay (a tape shift) and the chaotic contact
-don't need special handling. Parameters live on a unit cube (log scale where the range spans
-decades) and are released in stages so each group is fit on the data that identifies it:
-
-1. flat windows: delay, deadzones, throttle curve, R, efficiency, gearbox friction
-2. flat windows: skid and torsional friction, left/right ratio, wheel sliding friction
-3. nose-lift windows: armature scale and wheel traction, everything else frozen
-4. all windows: every continuous parameter, starting from the staged result
-
-The zero-command mode (brake or coast) is discrete; `fit` runs once per mode asked for.
-
-`specs` overrides the parameter bounds for another robot (Mrs Buff Mk3's motor and four-wheel
-scrub sit outside Mr Stabs Mk2's ranges); the default is PARAM_SPECS.
-
-Loss: at each horizon, the raw measurement nearest to it (within 20 ms) against the prediction
-at that measurement's time. Position and heading errors are divided by the session noise floor
-and Huber-weighted; nose-lift windows add a pitch term over every measurement in the window.
-"""
+"""Staged CMA-ES fit of the Mr Stabs Mk2 MuJoCo plant against hand-driven windows."""
 
 from __future__ import annotations
 
@@ -54,7 +34,6 @@ class ParamSpec:
         return self.lo + u * (self.hi - self.lo)
 
 
-# Bounds from the plan's parameter table; "wide" ones span what the robot could physically be.
 PARAM_SPECS: tuple[ParamSpec, ...] = (
     ParamSpec("delay_s", 0.0, 0.06),
     ParamSpec("deadzone_left", 0.0, 0.06),

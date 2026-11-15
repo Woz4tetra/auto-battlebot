@@ -1,30 +1,4 @@
-"""One RL evaluation scenario on CPU MuJoCo, for the lockstep sim (plan gates G4 and G5).
-
-The Warp environment exports its held-out evaluation episodes as scenarios
-(`WarpNavEnv.export_scenarios`); this module plays one of them against whatever drives the
-robot, so the real C++ binary (`RlPolicyNavigation` or `MotionProfileNavigation`) runs the same
-episodes the Python evaluation scored:
-
-- the same model: `warp_nav.build_model` (fitted MJCF, mocap walls, blocks, house bot, opponent)
-- the same command chain, scalar: transport delay, `FirmwareMixer` (Mr Stabs Mk2) or the radio's
-  direct mix (Mrs Buff Mk3), drivetrain delay, shaping
-- the same opponent behaviours (`opponents.Opponents` with one world on the CPU), and the same
-  policy-driven opponents (`policy_opponents.PolicyOpponents`) for scenarios that drew one
-
-The robot is the scenario's (`robot`, Mr Stabs Mk2 when absent).
-- the same contact classification and episode scoring as `WarpNavEnv.step`, tick by tick
-
-Two field stages the Warp environment leaves out, both off unless the scenario sets them:
-
-- `slew_per_s`: the host transmitter's linear slew limit (`EspNowTransmitter`), in normalized
-  units per second, `max_motor_rpm_per_sec / max_motor_rpm`. 0 is off.
-- `guard_scale`: a fixed firmware motor guard scale on both wheel commands after the mixer
-  (`MotorGuard::apply`), Mr Stabs Mk2 only. 1 is off.
-
-`trace: true` records each tick's commanded linear, the linear after the slew limit, and the
-mean wheel command after the guard in `score.extra["trace"]`, in the field's units: the wheel
-command is the firmware's `left_cmd`/`right_cmd` mean, percent, positive forward.
-"""
+"""One RL evaluation scenario on CPU MuJoCo, for the lockstep sim (plan gates G4 and G5)."""
 
 from __future__ import annotations
 

@@ -1,16 +1,4 @@
-"""BLHeli_32 settings page encryption.
-
-The ESC stores its 256-byte settings page at 0xF800 and returns it encrypted over the bootloader.
-Each 8-byte block is XTEA (32 rounds) with a tweak added into every round key: the page base
-BLHeliSuite passes (0xF800 on 64 KB parts, 0x7C00 on 32 KB parts) plus 8 per block. The key is
-BLHeliSuite32xl 1.0.4.4's, at VA 0xdd4e2c in the Linux binary.
-
-A decrypted block is a 2-byte nonce and 6 payload bytes. The ESC draws a fresh nonce for every
-block on every read, so two reads of the same settings never match as ciphertext. The nonce
-carries no check: a wrong key shows up as a payload whose firmware and layout bytes are wrong
-(layout.check_layout), and transport errors are caught by the 4-way CRC. 32 blocks carry 192
-payload bytes, which is the settings record `layout.py` describes.
-"""
+"""BLHeli_32 settings page encryption."""
 
 from __future__ import annotations
 

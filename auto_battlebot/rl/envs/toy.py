@@ -204,8 +204,7 @@ class ToyEnv:
         return self._observe()
 
     def desynchronize(self) -> None:
-        """Spread the worlds' truncation steps over one episode, so training batches do not all
-        reset on the same step. Evaluation skips this: every scenario plays a full episode."""
+        """Spread the worlds' truncation steps over one episode."""
         offset = (self._rand(self.num_worlds) * self.max_steps).long()
         self.steps = offset
 

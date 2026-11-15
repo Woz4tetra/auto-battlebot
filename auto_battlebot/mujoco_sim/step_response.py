@@ -1,18 +1,4 @@
-"""Mr Stabs Mk2's pitch response to a forward stick step from rest, and an armature refit from it.
-
-A held forward step lifts the nose: the motors' reaction torque pitches the chassis back about
-the axle. How far depends on the rotor inertia reflected through the gearbox, which the MuJoCo
-fit scales by `armature_scale`, and the sysid fit could not pin it (two restarts, 1.10 and 0.51,
-fit equally well). A forward step test pins it: replay each measured stick tape through the
-closed-loop sim (`ClosedLoopSim`: firmware mixer, drivetrain delay, command shaping) on open
-floor, and pick the armature scale whose peak nose lift matches the measured one.
-
-Pitch follows `pose_from_qpos`: the robot rests nose-down at the collision set's rest pitch, and
-lifting the nose makes pitch smaller. Nose lift is the rest pitch minus the lowest pitch reached.
-
-`slew_sweep` runs the same sim with a slew-limited ideal step, to find the loosest host slew limit
-(`EspNowTransmitter`, normalized units per second) that keeps the nose down.
-"""
+"""Mr Stabs Mk2's pitch response to a forward stick step, and an armature refit."""
 
 from __future__ import annotations
 
@@ -128,8 +114,7 @@ def slew_sweep(
 
 
 def loosest_slew(sweep: Sequence[tuple[float, float]], limit_deg: float) -> float | None:
-    """The highest rate whose lift stays under `limit_deg`, 0 meaning no limit, None if none do.
-    Assumes lift grows with rate, so it stops at the first rate (from slowest) that fails."""
+    """The highest rate whose lift stays under `limit_deg`, 0 meaning no limit, None if none do."""
     ordered = sorted(sweep, key=lambda rl: math.inf if rl[0] <= 0.0 else rl[0])
     best: float | None = None
     for rate, lift in ordered:

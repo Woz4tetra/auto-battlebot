@@ -1,36 +1,4 @@
-"""MCAP layout for the AprilTag ground-truth pipeline: raw camera images in, poses out (offline).
-
-apriltag_track.py records the camera images here; analyze_apriltag_mcap.py replays them, re-runs the
-AprilTag detection, and solves the field-plane pose. Recording images instead of detections means
-the floor lock, the detector tuning, the intrinsics, and the yaw offset can all be corrected and re-
-run offline without re-driving the robot.
-
-A recording holds:
-  - /calibration/metadata : one JSON message (intrinsics, image size, robot tag + floor board
-    params).
-  - /floor/image          : the frames captured during the one-time floor-board lock (board
-    visible).
-  - /camera/image         : the driving frames to track the robot tag in.
-  - /transmitter/channels : one JSON message per driving frame, stamped with that frame's time,
-    holding the transmitter stick axes the driver was commanding (read-only; present only when the
-    OpenTX radio is connected).
-  - /drive/command        : one JSON message per issued command (~50 Hz), stamped with its send
-    time, holding the scripted excitation command (present only when run with --drive).
-
-Images are stored either as foxglove.CompressedImage (JPEG, the default) or foxglove.RawImage
-(uncompressed bgr8, lossless) depending on the capture format; both open in Foxglove. JPEG is lossy
-at the marker edges the subpixel corner refinement keys on, so its stored corners differ slightly
-from the live frame; raw is bit-identical to what the camera produced. MCAP chunk compression is
-chosen per format: JPEG uses ZSTD (frames are already small, so it is cheap and shrinks them
-further), while raw uses no compression. Compressing 6 MB raw frames per frame is the capture
-bottleneck (ZSTD ~26 ms, LZ4 ~13 ms, both cap fps below 60 and barely shrink noisy sensor data), so
-raw stores uncompressed (~3.6 ms/frame) and relies on the NVMe.
-
-Timestamps are CLOCK_MONOTONIC seconds; each frame's monotonic time is the MCAP log_time, and
-analysis reads the pose timestamps straight back from it. With --drive the issued commands share
-that same clock (one process), so the command log and the solved poses align with no time
-correction.
-"""
+"""MCAP layout for the AprilTag ground-truth pipeline: raw camera images in, poses out (offline)."""
 
 from __future__ import annotations
 
@@ -50,9 +18,6 @@ TOPIC_CAMERA_IMAGE = "/camera/image"
 TOPIC_TRANSMITTER = "/transmitter/channels"
 TOPIC_COMMAND = "/drive/command"
 
-# JPEG quality for the stored frames. High enough that the lossy edges do not meaningfully move the
-# subpixel-refined marker corners, while keeping 1080p frames a few hundred KB so 60 fps capture
-# sustains.
 JPEG_QUALITY = 95
 
 METADATA_SCHEMA = {
@@ -76,10 +41,6 @@ METADATA_SCHEMA = {
     },
 }
 
-# JSON schema for the transmitter stick axes recorded per driving frame. The MCAP log_time is
-# the image timestamp (for alignment); sample_t is when the snapshot was actually decoded off the
-# radio, so analysis can tell how stale the sticks are relative to the frame. channels holds the raw
-# OpenTX values.
 CHANNELS_SCHEMA = {
     "type": "object",
     "properties": {
@@ -95,10 +56,6 @@ CHANNELS_SCHEMA = {
     },
 }
 
-# JSON schema for the scripted excitation command issued per send (~50 Hz) in a run with --drive.
-# The MCAP log_time is the command's CLOCK_MONOTONIC send time. cmd_lin/cmd_ang are the normalized
-# [-1, 1] commands; trainer_lin/trainer_ang are the integer [-500, 500] values actually written to
-# the trainer link; label tags the protocol phase so the fitter can slice the run.
 COMMAND_SCHEMA = {
     "type": "object",
     "properties": {
@@ -134,20 +91,12 @@ def _decode_image(data: bytes) -> np.ndarray:
 
 
 class CaptureWriter:
-    """Writes the calibration metadata and the floor / camera image streams to an MCAP file.
-
-    Metadata is written lazily, just before the first image, so its image_width/image_height come
-    straight from a real frame rather than from possibly-unreliable capture properties. Call
-    set_metadata() once before recording any frames.
-    """
+    """Writes the calibration metadata and the floor / camera image streams to an MCAP file."""
 
     def __init__(self, path: Path, image_format: str = "jpeg") -> None:
         if image_format not in IMAGE_FORMATS:
             raise ValueError(f"image_format must be one of {IMAGE_FORMATS}, got {image_format!r}")
         self._image_format = image_format
-        # JPEG frames are tiny and already compressed, so ZSTD is cheap. Raw frames are 6 MB each
-        # and ZSTD-ing each is the capture wall (~26 ms; LZ4 ~13 ms), both under 60 fps. Raw uses
-        # NONE: ~3.6 ms/frame, lossless; NVMe carries the ~370 MB/s (~3.6 GB per ~10 s capture).
         compression = "zstd" if image_format == "jpeg" else None
         self._writer = mcap_write.McapWriter(path, allow_overwrite=True, compression=compression)
         self._meta: dict | None = None
@@ -192,13 +141,7 @@ class CaptureWriter:
         self._write_image(TOPIC_CAMERA_IMAGE, t, frame)
 
     def write_channels(self, image_t: float, sample_t: float, channels: list[int]) -> None:
-        """Record the driver's stick axes for one frame, stamped (log_time) with image time
-        `image_t`.
-
-        `sample_t` is when the snapshot was decoded off the radio; its difference from `image_t` is
-        the staleness of the sticks relative to the frame. No metadata gate: channels only ever
-        accompany the /camera/image frames, which write the metadata first.
-        """
+        """Record the driver's stick axes for one frame at image time `image_t`."""
         payload = {"sample_t": sample_t, "channels": [int(c) for c in channels]}
         self._writer.log_json(TOPIC_TRANSMITTER, payload, _ns(image_t), schema=CHANNELS_JSON_SCHEMA)
 
@@ -211,13 +154,7 @@ class CaptureWriter:
         trainer_ang: int,
         label: str,
     ) -> None:
-        """Record one scripted excitation command (--drive), stamped (log_time) with its send time
-        `t`.
-
-        Commands run on their own ~50 Hz clock independent of the camera; analysis zero-order-holds
-        them onto the frame times. No metadata gate: commands only ever accompany the /camera/image
-        frames, which write the metadata first.
-        """
+        """Record one scripted excitation command (--drive) at send time `t`."""
         payload = {
             "cmd_lin": float(cmd_lin),
             "cmd_ang": float(cmd_ang),
@@ -276,36 +213,11 @@ def read_commands(path: Path) -> list[dict]:
     return out
 
 
-# --------------------------------------------------------------------------------------------------
-# Foxglove overlay recording
-#
-# analyze_apriltag_mcap.py can emit a second MCAP that overlays the solved poses on the camera
-# frames so the geometry can be eyeballed in Foxglove. It carries everything Foxglove needs to
-# project the 3D scene onto the image in the 3D panel: the camera frames (copied verbatim from the
-# source), a CameraCalibration so the projection is calibrated, a TF tree (field -> camera fixed,
-# field -> robot per frame), and scene geometry (a body cube + heading arrow at the robot, plus the
-# full trajectory line).
-#
-# Frames (all in the OpenCV camera convention, so there is no
-# extra optical rotation):
-#   field  : the floor GridBoard frame, z = 0 on the floor. The fixed world frame.
-#   camera : the camera optical frame (x right, y down, z forward).
-#   robot  : the robot tag projected onto the field plane (x, y, 0) rotated by yaw about field z.
-#
-# Everything is a Foxglove schema (foxglove.FrameTransforms, foxglove.CameraCalibration,
-# foxglove.SceneUpdate), the same ones the live stack records.
-# --------------------------------------------------------------------------------------------------
-
 TOPIC_CAMERA_INFO = "/camera/camera_info"
 TOPIC_TF = "/tf"
 TOPIC_TF_STATIC = "/tf_static"
 TOPIC_MARKERS = "/overlay/markers"
 
-# The calibration field frame (the GridBoard frame) can have +z pointing either way depending on
-# board orientation; when it points toward the floor the camera renders below the field in
-# Foxglove's z-up world. WORLD is a display-only root that flips the field (identity or 180deg about
-# x, chosen from the camera's z) so the rig shows upright. It does not affect the image overlay,
-# which depends only on the field -> camera relative transform.
 WORLD_FRAME = "world"
 FIELD_FRAME = "field"
 CAMERA_FRAME = "camera"
@@ -361,11 +273,6 @@ class OverlayWriter:
         self._k = [float(v) for v in k]
         self._w = int(width)
         self._h = int(height)
-        # Frames are undistorted before writing and the published calibration carries zero
-        # distortion, so Foxglove's pinhole projection of the 3D markers lands exactly on the (now
-        # rectified) image. The ZED's full distortion model has too many coefficients for Foxglove
-        # to apply, so we bake it out here instead. Keeping the same K as the new camera matrix
-        # preserves focal length and centre.
         k3 = np.asarray(k, dtype=np.float64).reshape(3, 3)
         dv = np.asarray(d, dtype=np.float64).reshape(-1)
         self._map1, self._map2 = cv2.initUndistortRectifyMap(

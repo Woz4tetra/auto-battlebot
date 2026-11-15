@@ -236,6 +236,88 @@ After the fix, `tau_linear_accel = 0.058 s`, `tau_linear_decel = 0.078 s`, `tau_
 - **Deadzone is floored.** 0.04 is the smallest command step the staircase tested, and motion already
   exceeded threshold there, so the real deadzone is ≤0.04, not exactly 0.04.
 
+## Fit follow-ups from stage 2
+
+How the jig tools changed to fix what stage 2 got wrong.
+
+### `calibration/jig/excitation.py`
+
+#### `MIN_HOLD_S`
+
+`MIN_HOLD_S` is the shortest hold. A held command shorter than this cannot show a plateau to read a steady state off. Stage 2
+held roughly a fifth of a second, which sat under the rise, and no maximum speed could be
+read from it. The floor is applied to every generated hold rather than trusted to config.
+
+#### `_build_step`
+
+Ladder of held commands, each returning to zero, optionally shuttling direction.
+
+`reverse_cap` scales the reverse half of the ladder down independently. The robot is not
+required to behave the same both ways, and this one does not: above 0.5 reverse it breaks
+into an uncommanded spin. A spun hold is not a straight-line steady state, and nothing
+downstream rejects it, because `held_segments` gates on the commanded angular channel,
+which is zero throughout a linear run. So the spun rungs enter `k_rev`, the pooled
+`tau_lin_a`, and both straight-line drift terms as if they were clean.
+
+Scaling rather than clipping, for the reason `cap_amplitudes` gives: the gain fit reads a
+slope, and clipping collapses the top rungs onto one value.
+
+#### `_build_staircase`
+
+Creep the command up until the wheels break static friction.
+
+Stage 2 reported a deadzone of 0.04 because 0.04 was the smallest command it tested and
+the robot already moved there. Starting at 0.01 is the point: several rungs must sit
+below the motion threshold or the crossing is an extrapolation.
+
+### `calibration/jig/jig_fit.py`
+
+#### `held_segments`
+
+Every contiguous stretch where this channel held a constant nonzero command.
+
+`min_level` drops cells commanded below it. The default keeps everything, because the
+deadzone staircase depends on rungs down at 0.001 and must see them. Gain and rise fits
+want a floor: the radio's trainer range is 1000 steps, so a rest cell reads back at up to
+0.002 rather than 0.000, and those rest cells were being collected as held segments in
+their own right. On LOG-121 that was eight of the run's sixteen, each contributing a
+`nan` rise constant and inflating the reported segment count with nothing.
+
+#### `_pool`
+
+Median of the usable segment values, with a spread that survives one bad segment.
+
+The value was always the median, which is robust. The spread was `np.std` over the same
+list, which is not, so a single wild segment reported a parameter as unmeasured while the
+median sat on the right answer. `tau_ang_a` came back 0.1834 +/- 1.211 with fifteen
+segments inside 0.10-0.24 and three at 0.36, 1.16 and 5.43 -- all three from the two
+lowest reverse amplitudes, where the rise band is only a handful of samples wide and a
+log-linear fit through its tail returns whatever it likes.
+
+Tukey fences cut those, and the note carries both the outliers and the segments that
+never produced a number, so a thin pool is visible rather than hidden behind `n`.
+
+#### `fit_deadzone`
+
+Deadzone from the staircase: the command level where motion first clears the noise.
+
+The test is on the median velocity over a 1.5 s hold, so the threshold is 5 sigma of the
+stationary noise divided by sqrt(N), not 5 sigma of a single sample. Stage 2 reported 0.04
+because that was the smallest level tested; the staircase starts at 0.01 so the answer is no
+longer floored by the protocol.
+
+### `control/plant.py`
+
+#### `PlantParams`
+
+The parameter vector uses the stage 2 values as priors. They come from the 2026-07-03 AprilTag
+calibration (run `175805`, this document). Only the actuation lag is trusted; the rest are
+starting points for the jig fit. Deadzones are floored at 0.04 there because that was the
+smallest command tested, not because motion started there.
+
+The yaw rate figure is in rad/s, camera-derived and possibly inflated by yaw keypoint flips. The
+angular decel constant was unmeasured in stage 2 and is seeded from the linear decel constant.
+
 ## Next steps
 
 The single fix that unblocks everything is keeping the tag in frame during linear motion. In priority order:

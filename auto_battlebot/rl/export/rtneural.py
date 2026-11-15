@@ -1,15 +1,4 @@
-"""PyTorch Dense stacks to RTNeural's JSON model format.
-
-RTNeural's `json_parser::parseJson` reads the TensorFlow-style layout its `python/model_utils.py`
-writes: `in_shape` whose last entry is the input size, then one entry per layer with `type`,
-`activation` (empty for none), `shape` (last entry the output size) and `weights`. A Dense
-layer's `weights` are `[kernel, bias]` with the kernel indexed `[input][output]`, the transpose of
-`torch.nn.Linear.weight`.
-
-Only `Linear` followed optionally by one activation is supported, which is all `mlp_gaussian`
-uses. The input normalization is folded into the first layer: `W' = W / std` per input column and
-`b' = b - W' @ mean`.
-"""
+"""PyTorch Dense stacks to RTNeural's JSON model format."""
 
 from __future__ import annotations
 

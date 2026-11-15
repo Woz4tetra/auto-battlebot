@@ -1,26 +1,4 @@
-"""Fit windows for the drivetrain sysid: gating and initial state (plan "Data pipeline" 3 and 4).
-
-Input is the smoothed grid from ``tag_pose_smoother.smooth_session``. Three per-sample gates run
-first and cut the session into spans:
-
-- **near_rail**: the axle center within ``robot_length_m`` of a box rail, where wall contact is
-  possible.
-- **esp32_gap**: inside a gap in the ESP32 stream longer than ``esp32_max_gap_s``, or outside the
-  stream altogether, since the fit has no command tape there.
-- **flip**: the upright/inverted state changes, which the fit cannot start or end across.
-
-Each span shorter than ``window_s`` is dropped; the rest are cut into ``floor(L / window_s)``
-equal windows, so every window is between ``window_s`` and ``2 * window_s`` long (1 to 2 s by
-default). A window is then dropped if accepted tag detections cover less than
-``coverage_min`` of its camera frames. A kept window is ``nose_lift`` when its pitch leaves the
-rest pitch by more than ``pitch_limit_deg`` anywhere, otherwise ``flat``.
-
-Initial state per window is the smoothed state at its first sample. Wheel speeds come from the
-no-slip relation in the body frame, ``(v -/+ w * track_half_width) / wheel_radius`` for left
-and right, with v the forward speed along body x and w the yaw rate about body z. A wheel
-spinning to roll the robot forward is positive, which is positive rotation about body +y. On an
-inverted robot body z points down, so the body-frame yaw rate is minus the field one.
-"""
+"""Fit windows for the drivetrain sysid: gating and initial state (plan "Data pipeline" 3 and 4)."""
 
 from __future__ import annotations
 

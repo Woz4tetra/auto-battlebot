@@ -1,16 +1,4 @@
-"""A scripted controller that beats a pursuer by out-turning it, on true state, batched in torch.
-
-It circles the opponent at `orbit_m`, aiming `orbit_lead_deg` further round towards its rear on
-the side we are already on. A pursuer turns to keep us in front of it, at 4 to 10 rad/s; Mr Stabs
-Mk2 turns at up to 37 rad/s in the Warp plant, so on a small circle we can get round faster than
-the pursuer turns. Once our bearing from its heading passes `attack_deg` it drives at the
-opponent's centre for the strike. Commands are slew-limited: a step from 0 to full throttle
-wheelies the chassis over.
-
-It plays the expert for the pursuit beatable-range map (`playground/rl/pursuit_map.py`) and the
-behaviour-cloning warm start (`training/rl/pretrain_sidestep.py`). Actions are the policy's:
-(linear, angular) in [-1, 1], positive angular turning counter-clockwise.
-"""
+"""A scripted controller that beats a pursuer by out-turning it, on true state, batched in torch."""
 
 from __future__ import annotations
 
@@ -82,7 +70,6 @@ class Sidestep:
         err = wrap(torch.atan2(to[:, 1], to[:, 0]) - yaw - tr["yaw_rate"] * cfg.lead_s)
         angular = (cfg.gain * err).clamp(-cfg.max_angular, cfg.max_angular)
         linear = cfg.max_linear * torch.cos(err).clamp(min=0.0)
-        # Full linear action is about 2.6 m/s and full angular about 37 rad/s.
         lateral_cap = cfg.max_lateral_mps2 / (2.6 * 37.0 * angular.abs().clamp(min=1e-3))
         linear = torch.minimum(linear, lateral_cap)
         gap = rel.norm(dim=1) - tr["reach"]

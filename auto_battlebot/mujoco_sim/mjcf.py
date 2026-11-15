@@ -1,24 +1,4 @@
-"""MJCF for a drive robot, built from its mass-property table and convex collision pieces.
-
-The chassis on a free joint with the full CAD inertia tensor, two driven wheels on hinges about
-y, and one rotor body per gearmotor, coupled to its wheel at the gear ratio by a joint equality.
-A robot with belt-driven front wheels (Mrs Buff Mk3) adds two follower wheels, each held to its
-side's driven wheel 1:1 by another joint equality; the motors drive only the back pair.
-
-The rotor is a body rather than wheel-joint `armature`. Armature adds N^2 J_r to the wheel's
-joint inertia, which is right for how hard the motor must push, but passes no reaction to the
-parent body. The chassis does react to the rotor spinning up, by the rate of change of the
-rotor's angular momentum, N J_r alpha (not N^2 J_r alpha, which is 22.6 times larger). A rotor
-body keeps both right, and the gyroscopic coupling in yaw with it. The planetary gearbox turns
-the rotor the same way as the wheel, so the coupling coefficient is +N.
-
-The chassis collides through its CoACD pieces, and Mr Stabs Mk2 adds a small sphere at the nose
-skid, where she rests (the COM sits ahead of the axle). A four-wheeled robot has no skid. Robot
-geoms carry the friction; the floor's is zero, so MuJoCo's max-combination rule leaves the
-robot's value in charge of each contact.
-
-Geom and joint names are stable: the rollout looks them up to batch per-world parameters.
-"""
+"""MJCF for a drive robot, built from its mass-property table and convex collision pieces."""
 
 from __future__ import annotations
 
@@ -41,7 +21,6 @@ FOLLOWER_GEOMS = ("follower_left_tread", "follower_right_tread")
 BELT_EQUALITIES = ("belt_left", "belt_right")
 ROTOR_BODIES = ("rotor_left", "rotor_right")
 GEAR_EQUALITIES = ("gear_left", "gear_right")
-# The rotor's mass is already in the CAD chassis; the body only needs to carry inertia.
 ROTOR_MASS_KG = 1e-4
 # Gear-coupling stiffness: time constant at the 2-step minimum for a 1 ms step.
 GEAR_SOLREF = (0.002, 1.0)

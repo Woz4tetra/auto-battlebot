@@ -1,29 +1,4 @@
-"""The fit behind the sysid monitor: window residuals, Fisher information, refits, suggestions.
-
-Each 1.5 s fit window is cut into three 0.5 s sub-windows. A sub-window starts from the tag
-state estimate at its start (``pose_stream.state_at`` plus the gyro) and runs the plant open loop
-on the recorded motor commands for 0.5 s, the horizon the Kalman plan scores. Its residuals are:
-
-- tag position, along and across the camera view, at each tag fix, over the per-fix sigma
-  floored at ``POS_FLOOR_M`` for model error,
-- tag heading at each fix, likewise floored at ``YAW_FLOOR_RAD``,
-- gyro yaw rate every 20 ms over ``SIGMA_GYRO_RADPS``.
-
-Heading has to be in there: with velocity and yaw rate alone the two drift terms never separated
-in the prototype.
-
-The fit input is the motor command (``firmware_mixer.motor_to_plant`` of ``left_cmd``/
-``right_cmd``), so the same 16 drivetrain parameters come out with the yaw loop on or off and
-the loop's feedback stays out of the Fisher matrix. Delay is one of the 16: commands are shifted
-by a fractional, linearly interpolated delay, which keeps the residual smooth in it.
-
-Predictions for the page (holdout, ghosts, suggestions) instead run the sticks through
-``firmware_mixer.closed_loop_rollout``, so they score the plant the Jetson would command.
-
-Uncertainty is the Cramer-Rao bound ``s^2 (J^T J + prior)^-1`` with ``s^2`` the fit's residual
-variance per row when that exceeds 1, so a model that cannot reach the tag noise reports wider
-bars instead of tighter ones.
-"""
+"""The fit behind the sysid monitor: window residuals, Fisher information, refits, suggestions."""
 
 from __future__ import annotations
 
@@ -64,11 +39,6 @@ FIT_SUBSTEP_S = 0.005
 POS_FLOOR_M = 0.01
 YAW_FLOOR_RAD = 0.03
 SIGMA_GYRO_RADPS = 0.3
-
-# Fit parameters, with their priors (``PlantParams`` defaults, the stage 2 values), prior
-# sigmas, ring targets and finite-difference steps.
-#   targets: 4 ms delay, 6 ms each lag, 3% of the prior for each gain, 0.008 each deadzone,
-#   0.03 each coupling term, 0.12 rad/s each drift term.
 
 
 @dataclass(frozen=True)
@@ -242,9 +212,6 @@ def _interp(track: np.ndarray, pos: np.ndarray) -> np.ndarray:
     return out
 
 
-# Prior sigmas on each sub-window's start state from the local tag estimate: x, y, theta, v.
-# The start state is a nuisance: each sub-window refines it, and the information it could fake
-# is projected out of the Jacobian.
 NUISANCE_SD = np.array([0.005, 0.005, 0.02, 0.1])
 NUISANCE_STEP = np.array([1e-3, 1e-3, 1e-3, 1e-2])
 NUISANCE = len(NUISANCE_SD)
@@ -325,13 +292,7 @@ def jacobian(
     free: Sequence[int] | None = None,
     structure: ModelStructure = FULL_MODEL,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """(r, J) with J shaped (S, R + NUISANCE, NP); columns outside ``free`` are zero.
-
-    Forward differences at the refined start states, stepped away from a bound, then projected
-    so the start states absorb what they can: data rows become ``J - jn A^-1 jn^T J`` and the
-    prior rows ``-A^-1 jn^T J / sd``. ``J^T J`` of the result is the Schur complement, the
-    information left once the start states are marginalized.
-    """
+    """(r, J) with J shaped (S, R + NUISANCE, NP); columns outside ``free`` are zero."""
     prof = _profile(theta, batch, structure)
     base = _raw_residuals(theta, batch, prof.s0, structure)
     jac = np.zeros(base.shape + (NP,))
@@ -630,11 +591,7 @@ class Candidate:
 def expected_subwindows(
     theta: np.ndarray, motion: Motion, loop_on: bool, tag_sigma: tuple[float, float, float]
 ) -> tuple[list[SubWindow], float]:
-    """Simulate a motion from rest and cut it into the sub-windows a session would record.
-
-    Returns the sub-windows (measurements equal to the prediction, so their residual is zero
-    and only the Jacobian matters) and how far the robot travels.
-    """
+    """Simulate a motion from rest and cut it into the sub-windows a session would record."""
     n = len(motion.throttle)
     a = -motion.throttle * 100.0
     b = -motion.steer * 100.0

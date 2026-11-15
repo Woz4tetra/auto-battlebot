@@ -468,6 +468,808 @@ The replay page stays up after the recording ends; Ctrl-C writes the session and
 Drives recorded on a match profile have no tags. Replay their video through
 `config/playback/mr_stabs_mk2_sysid_playback.toml` first, one recording at a time.
 
+## Module reference
+
+Design notes for the Python modules behind the sysid workflow, grouped by module.
+
+### `calibration/jig/drive_protocol.py`
+
+Trainer link to the OpenTX/EdgeTX radio: writes commands, reads back what was sent.
+
+Mirrors the trainer protocol in `src/transmitter/opentx_transmitter.cpp`. The radio is a USB
+CDC device (VID 0x0483, PID 0x5740) primed once with `telemetry on` + `channels on`, then
+driven with `trainer <channel> <value>` at 50 Hz, value in [-500, 500].
+
+**One port, both directions.** The same serial port that accepts `trainer` writes also
+streams the radio's mixer output back once primed. Reading that back matters because
+trainer mode *adds* to the human driver's sticks: the mixer output is the command the robot
+actually received, not the one this process asked for. Two consequences:
+
+- A hand-driven run has a real command log. Without the readback it has a column of zeros
+  and is unusable for fitting.
+- A scripted run gets a contamination check. If the driver's stick is not centered, measured
+  diverges from commanded and the run can be flagged instead of quietly poisoning the fit.
+
+Commands are sent RAW. The deployed transmitter applies `DifferentialDriveProcessor`'s
+lifted and zero deadzones; this does not, because the physical deadzone is exactly what is
+being measured and pre-compensating it here would measure the compensation.
+
+SAFETY
+- The robot moves fast. Run in a clear, bounded space with guard plates on.
+- Keep the human driver's sticks centered: in trainer mode the radio ADDS stick input.
+- Zero the channels and disarm on every exit path: normal return, Ctrl-C, exception, and a
+  hard wall-clock timeout. `Armed()` is a context manager that does this.
+
+#### `_SYNC`
+
+Radio channel-stream framing: sync, phase byte (0 = channels 1..16, 1 = 17..32), length
+byte, 16 little-endian int16, then a checksum equal to phase ^ length ^ every data byte.
+
+#### `Measured`
+
+One tick of the named channels, as the radio reported them.
+
+A record rather than a tuple: this is unpacked at three call sites and the drive pair
+reads the same as any other pair of floats, so a widening tuple is a silent reordering
+waiting to happen.
+
+#### `stream_measured`
+
+Ticks from the radio alone, nothing commanded.
+
+This is how a hand-driven run gets a command log: the tool sends nothing, the operator
+drives, and the radio reports what it sent. `linear` and `angular` stay zero because
+nothing was asked for; the measured channels are the whole record of the run, which is
+why the weapon pair rides along with the drive pair here.
+
+### `calibration/jig/excitation.py`
+
+Excitation waveforms for velocity jig runs, declared in TOML.
+
+This replaces the web tool's `excitation.js` plus its hard-coded 21-entry experiment
+catalog. The catalog was the runbook compiled into JavaScript, so changing an amplitude or
+trying a new excitation meant editing code. Here a waveform is a TOML table:
+
+    [waveform.lin_step_full]
+    kind = "step"
+    channel = "linear"
+    role = "fit"
+    amplitudes = [0.25, 0.5, 0.75, 1.0]
+    hold_s = 2.0
+
+`kind`, `channel` and `role` are also what the fit routes on, so a new waveform reaches the
+right fit without touching the fitter.
+
+Commands are normalized to [-1, 1] and dimensionless. Mapping to the radio's integer range
+is the transmitter link's job, and deadzone compensation is deliberately not applied
+anywhere: the physical deadzone is one of the things being measured.
+
+#### `Program`
+
+A playable excitation.
+
+`segments` is present for piecewise programs and None for continuous ones (chirp, sine,
+triangle, PRBS, manual), where there is no cell structure to slice by. `at(t)` is the
+authority either way: the player samples it, and segments exist so the fit can label
+samples by phase.
+
+#### `_build_coast`
+
+Accelerate, hold, then drop to zero instantly and let the robot roll to a stop.
+
+The drop must be instantaneous. A ramp down is a second input and the decel constant
+fitted through it is the ramp's, not the robot's.
+
+`reverse_cap` lowers the entry speed of the reverse repetitions only, same reason as in
+`_build_step`: the tail has to decay from a straight-line steady state, and a robot that
+spun up during the entry is scrubbing the encoder wheel sideways for the whole tail.
+
+#### `_build_grid`
+
+Cross linear against angular to separate the coupling terms.
+
+The angular list must span both signs. Steer-brake and angular droop flip with the turn
+direction while straight-line drift does not, so a grid that only turns one way cannot
+tell them apart and will fold the drift into the droop coefficient.
+
+#### `_build_chirp`
+
+Swept sine, logarithmic by default.
+
+A first-order model with tau 58 ms puts its corner near 2.7 Hz. A sweep through that
+corner is the frequency-domain cross-check on a time-constant fitted from steps.
+
+#### `_build_triangle`
+
+Constant slew between the peaks, so unlike a sine it excites the rate limit evenly
+rather than concentrating the fastest command changes at the zero crossings.
+
+#### `_build_trim`
+
+Low-amplitude straight drive used to measure the arc, not to fit anything.
+
+Run before a session to find out whether a straight run will stay on the board, and to
+seed the drift parameter before any fit exists. Driven open loop here; the closed-loop
+correction lives in the CLI, which can see the jig's live stream.
+
+### `calibration/jig/jig_fit.py`
+
+#### `COAST_KINDS`
+
+Kinds that return the channel to zero mid-run, which is where a decay constant is read.
+A dedicated `coast` waveform is the one to add when a decel constant comes back weak;
+before this routing existed, angular decay could only come from the drops at the end of
+angular steps.
+
+#### `fit_drift`
+
+The drift fit uses both columns at once. Fitting them one at a time would let the first
+absorb the second, the same trap the mirrored-cell decomposition avoids for droop.
+
+#### `build_windows`
+
+Cut windows out of every run and stack them into one batch.
+
+Runs with a detached encoder carry no linear truth, so they are excluded from the position
+objective. Their heading is still measured, which is what makes the angular parameters
+fittable at rates the encoder cannot survive; `require_encoder=False` builds that set.
+
+A window needs a known command for every sample it spans. That rules out the still holds at
+both ends of every run and rules out an operator-driven run whose sticks were never logged:
+with no command, the model predicts a robot that never moves and the residual is pure truth.
+
+#### `residual_autocorrelation`
+
+Lag-1 autocorrelation of the longest-horizon position error across window starts.
+
+Strong autocorrelation says the model is missing a structural term. No amount of process
+noise tuning fixes that honestly; it only widens the covariance to cover a bias.
+
+### `calibration/jig/jig_link.py`
+
+USB console client for the velocity jig (`firmware/velocity_jig`).
+
+The jig is a Feather RP2040 Adalogger that rides on the robot and logs a wheel encoder plus
+an ISM330DHCX IMU to microSD at 1 kHz. It speaks a line protocol over native USB CDC:
+
+    LIST            -> "F <name> <size>" per file, then "END"
+    GET <name>      -> "SIZE <n>", exactly n raw bytes, then "\nEND\n"
+    DEL <name>      -> "OK" or "ERR"
+    TIME            -> "TIME <rx_us> <tx_us>"
+    STREAM          -> "STREAM", then "S t_us,count,gx,gy,gz,ax,ay,az" at 10 Hz until any
+                       byte arrives, then "END"
+
+Three firmware behaviors shape this client:
+
+1. **Blind during recording.** Every command except `TIME` answers `BUSY`. `TIME` is the
+   exception on purpose: it touches neither the SD card nor the capture path, so a mid-run
+   probe measures skew across the run window instead of extrapolating into it.
+2. **Recording starts and stops on physical buttons.** There is no `START`. Button A emits
+   an unsolicited `recording <name>` and button B a `stopped, n=... dropped=...`, so the
+   client latches those lines as they arrive rather than only while something is waiting.
+   Operators press A during the clock probe burst, and an unlatched press hangs the CLI.
+3. **`STREAM` stops on any byte** and can exit into a recording: pressing A mid-stream
+   prints `END` and then `recording <name>`, so `END` is not necessarily terminal.
+
+Baud is nominal. This is native USB CDC, so transfers run at USB Full Speed regardless.
+
+#### `find_jig_port`
+
+Locate the jig, never the transmitter.
+
+Exact USB id match first. Falling back to "any ACM port that is not the radio" keeps the
+tool usable before JIG_USB_IDS has been confirmed, but it warns through the caller so
+the constant gets fixed rather than quietly relied on.
+
+#### `find_port_by_serial`
+
+Re-find a port after a replug.
+
+Matching on the device path does not survive a replug: /dev/ttyACM0 can come back as
+ttyACM1 if anything else enumerated in between. The RP2040's serial number is its flash
+id, so it is stable across the unplug the run card asks for.
+
+#### `wait_stopped`
+
+Block until button B is pressed. Returns (samples, dropped).
+
+Must be called with the cable plugged in: the stop summary goes to the wire
+unbuffered, so a press while unplugged loses the counts for good.
+
+#### `probe_clock`
+
+Fit the host-to-jig clock offset from a burst of TIME round trips.
+
+The jig counts microseconds since its own boot, so cross-correlating command edges
+against measured acceleration only ever recovers `clock_offset + transport_delay`.
+Measuring the offset separately is what makes the fitted transport delay a real number
+rather than a real number plus however far apart the two clocks happen to be.
+
+Only the fastest decile is kept. USB Full Speed polls in 1 ms frames, so most of the
+spread is host scheduling; the fastest round trips are the ones whose transport was
+most nearly symmetric, which is the assumption the midpoint pairing rests on.
+
+### `calibration/jig/velocity_jig.py`
+
+Velocity jig log reading, calibration, and dead-reckoned ground truth.
+
+The jig is an RP2040 datalogger that rides on the robot and records a wheel encoder plus an
+ISM330DHCX IMU at 1 kHz (`firmware/velocity_jig`). It writes plain text with a comment header:
+
+    # auto-battlebot velocity jig
+    # columns: t_us,count,gx,gy,gz,ax,ay,az  (raw int16 imu)
+    # encoder: quadrature x4 (constant column if unplugged)
+    # sample_rate_hz=1000 gyro_dps_per_lsb=0.070 accel_g_per_lsb=0.000244
+
+Everything here turns those raw counts into the ground truth the plant fit consumes: yaw rate
+about the measured gravity axis, forward speed from encoder arc length with the encoder wheel's
+lever arm removed, and a dead-reckoned pose. It also carries the two things a log alone cannot
+tell you: which host clock a sample belongs to (`ClockFit`), and which run it came from
+(`load_session_dir`, reading the sidecar TOML that `velocity_jig_drive.py` writes next to
+every downloaded log).
+
+Three things get flagged rather than silently absorbed, because stage 2 shipped parameters
+from silently degraded ground truth:
+
+- Saturated gyro channels (`|raw| > 32000`), per axis, per run. This one disqualifies a run:
+  a railed yaw axis makes the heading integral wrong from that sample on.
+- Clipped accelerometer channels, past `ACCEL_SATURATION_G`. Reported, never gated. Nothing
+  in the plant model reads acceleration, so a clip marks an impact worth looking at rather
+  than data the fit would be wrong to use.
+- Gyro bias drift between the pre-run and post-run still holds.
+
+See `docs/experiments/kalman_filter/kalman_filter_plan.md` part 1.2 and the companion runbook.
+
+#### `RAW_SATURATION`
+
+int16 full scale is 32767, and `RAW_SATURATION` is 32000. Anything at or past it is either
+clipped or one LSB away from it, and a clipped channel biases every fit downstream of it.
+
+#### `ROLES`
+
+Whether a run trains the fit or validates it. Declared per waveform rather than derived,
+so a holdout stays a holdout even if someone later reuses the same excitation for fitting.
+
+#### `saturation`
+
+Per-axis saturation report, gyro first then accel.
+
+`keep` restricts the report to the samples that describe the plant. Handling the
+robot at an operator pause clips the accel for a sample or two, which says nothing
+about the run, so callers that know where the pauses were mask them out.
+
+The gyro keeps the raw rail test. Its ranges are chosen to sit just above the spin
+rates being measured, so "near full scale" is the whole question there. The accel
+runs wide of anything commanded, so what matters is the physical number.
+
+#### `read_jig_log`
+
+`time_us_64()` wraps after 584,000 years, so a decreasing timestamp means a corrupt row,
+not a rollover. The reader keeps the monotone prefix and counts the rest as malformed.
+
+#### `_bridge_blips`
+
+Fill False runs no longer than `max_run`, leaving longer ones alone.
+
+A held segment is one contiguous run, so without this a single sample over threshold
+splits a 5 s hold into two 2.5 s halves and neither clears `min_duration`. That is not a
+hypothetical: LOG-143's pre-hold peaked at 2.01 dps against the 2.0 bar with the encoder
+dead still and gravity flat to 0.5%, and it was thrown out, while LOG-115 peaked at 1.90
+and passed. The two are the same physical state.
+
+Real motion lasts far longer than this window. A blip is a footfall on the floor, a bump
+of the bench, or the sensor's own tail.
+
+#### `find_still_segments`
+
+Find stationary stretches at least `min_duration` long.
+
+Stillness is tested three ways because each alone has a blind spot. The gyro catches
+rotation. The accelerometer magnitude near 1 g catches acceleration but says nothing about
+constant speed, so a robot cruising in a straight line looks perfectly still to it. The
+encoder closes that hole, which matters because the deadzone staircases spend their first
+several seconds barely moving and would otherwise get absorbed into the opening still hold.
+
+The thresholds are loose on purpose. A hold that is not actually still shows up later as bias
+disagreement between the pre and post holds.
+
+#### `still_stats`
+
+Gyro bias and the gravity ("up") unit vector over one still hold.
+
+The yaw axis comes from gravity rather than from a note about how the jig is bolted on. The
+accelerometer measures specific force, so at rest it reads +1 g on whichever axis points up,
+and the ISM330DHCX puts gyro and accel on one right-handed triad. That makes positive yaw
+counter-clockwise viewed from above with no further assumption, and it survives a tilted
+remount that no single gyro axis would.
+
+#### `JigCalibration`
+
+Bench calibration from runbook block 0, one set per hardware configuration.
+
+`meters_per_count` (E4) and `gyro_scale` (E3) set the units of every fitted parameter.
+`r_enc_perp` (E5) is the encoder wheel's lever arm, removed from every speed measurement,
+which is what makes combined linear-plus-angular runs usable instead of discarded. `r_imu` is
+kept for the report and for E5's own sanity check against a tape measure.
+
+#### `ClockProbe`
+
+One `TIME` probe burst, as `velocity_jig_drive.py` records it.
+
+The probe sends `TIME` many times, keeps the fastest decile by round trip, and reports
+the median host-minus-jig offset with the RMS about that median as `residual_ms`. Only
+the fastest probes are kept because USB Full Speed polls in 1 ms frames: most of the
+spread is host scheduling, and the fastest round trips are the ones whose transport was
+most nearly symmetric.
+
+#### `PauseWindow`
+
+One operator stop, in host seconds.
+
+The robot is picked up, walked back to its mark and set down inside this window, so the
+motion there is the operator's rather than the plant's. Every gate and every duration
+that describes the run has to skip it: setting the robot down clips the accelerometer,
+and counting the wait as commanded time makes a 17 s excitation look like 54 s.
+
+#### `WaveformSpec`
+
+What a run played, in the terms the fit routes on.
+
+This replaces the runbook experiment id. A fit that keys on "E8" needs editing every
+time a new excitation is worth trying; a fit that keys on "a step on the linear
+channel" does not. `params` is the catalog entry verbatim, which is what lets the
+report say that an amplitude was declared but never actually reached.
+
+#### `RunRecord`
+
+The two drive channels exactly as the radio reported them. This is the measurement;
+cmd_lin/cmd_ang are these read through a mix, so a mix set wrong can be corrected from
+these without re-recording.
+
+#### `_pause_windows`
+
+Pause windows from the sidecar, or reconstructed from the command stream.
+
+Sidecars written before the host windows were recorded carry only the program time and
+the seconds held, neither of which places the pause on the log. The command gaps do, and
+they are the same measurement the runner would have written.
+
+#### `load_run_record`
+
+Read one sidecar TOML and its command CSV.
+
+`commands` picks which stream the fit sees. "measured" is the radio's own report, which
+is what the robot actually received and the right default. "requested" is what the tool
+asked for, and is the escape hatch for a run whose readback was mis-decoded: a wrong mix
+or channel sign corrupts the measured stream while leaving the requested one exact.
+
+#### `GroundTruth`
+
+Dead-reckoned truth for one run, on the jig's 1 kHz sample grid.
+
+Heading drift dominates position drift, so this is trustworthy over the 500 ms windows the
+plant fit uses and not over a whole 30 s run. Validation is windowed for exactly that reason.
+
+#### `solve_ground_truth`
+
+Unicycle dead reckoning from encoder arc length and gyro yaw.
+
+    w(t)     = (gyro(t) . up - bias . up) * gyro_scale
+    theta(t) = theta_0 + integral w dt              (trapezoidal, at the log rate)
+    ds(t)    = (count(t) - count(t-1)) * meters_per_count
+    v(t)     = ds/dt - w(t) * r_enc_perp            (encoder lever arm removed)
+    p(t)     = p_0 + integral [v cos(theta), v sin(theta)] dt
+
+Bias is taken from the pre-run still hold and, when a post-run hold is given, ramped linearly
+to it across the run. A linear ramp is the right shape for thermal drift and it removes the
+part of the heading error that a single-point bias leaves behind.
+
+Encoder speed is smoothed over `smooth_s` before use. Differentiating a quantized count at
+1 kHz otherwise produces a square wave whose amplitude is meters_per_count / dt, which is
+much larger than the speeds being fit.
+
+#### `RunQuality`
+
+Quality is set per run in the sidecar. The post hold exists to bracket gyro bias drift, and
+without it `solve_ground_truth` holds the pre-hold bias constant instead of ramping it.
+Measured on this board that is worth very little: rate random walk is 1.862e-4
+deg/s/sqrt(s) (E2, LOG-97), so 60 s of run moves the bias about 1.4e-3 deg/s and leaves
+roughly 0.04 deg of heading error. Even the worst drift seen across 33 two-hold runs,
+0.0155 deg/s, is only about 0.5 deg over 60 s. Waive it when a run is worth more than
+that, and never on a run whose still holds failed because the robot was being handled.
+
+#### `problems`
+
+Gyro only, and zero tolerance. A railed yaw axis is unrecoverable: the true rate is
+unknown, so the heading integral past that sample is wrong and stays wrong.
+
+The accelerometer used to gate here too and no longer does. It cost more runs than
+it saved, and it discarded them for the procedure rather than for the data: on
+2026-08-22 the clip that discarded LOG-108 landed 1.29 s before the first command
+(unplugging the USB cable) and the one that discarded LOG-110 landed 18.8 s after
+the last (picking the robot up to plug it back in). See `accel_clip_samples`.
+
+#### `notices`
+
+Things worth looking at that do not disqualify the run.
+
+Separate from `problems` on purpose. A reason to open the plot is not a reason to
+throw the recording away, and folding the two together is what made an unplugged
+cable look identical to a wall strike.
+
+#### `Run`
+
+One run resampled onto a uniform grid, with commands aligned to it.
+
+Fits should not depend on the log rate, and the command log is asynchronous, so both get put
+on one grid here. Everything downstream (per-phase fits, window prediction, residuals) reads
+these arrays and nothing else.
+
+#### `_hold_uncovered_s`
+
+Seconds of a commanded still hold that the log does not show as still.
+
+Overlap, not edge alignment. The jig starts recording when the operator presses A, which
+is before the CLI starts its hold countdown, so the detected still segment routinely
+begins earlier than the commanded one and ends later. An edge comparison reads that
+normal offset as a fault.
+
+What actually matters is whether the robot was motionless for the window the fit will
+take its gyro bias from. A commanded hold that the log shows as moving means the jig was
+not recording when the CLI thought it was, and every downstream alignment is off.
+
+#### `load_run`
+
+Read a run's log, solve ground truth, and resample it with its commands onto one grid.
+
+`fit_hz` of 200 keeps five samples per 10 ms and is far above the 2.7 Hz corner of the plant,
+while cutting the 1 kHz log down to something a windowed simulation fit can iterate over.
+
+### `calibration/sysid/coverage.py`
+
+The live coverage session: telemetry and tags in, labeled motions and plant coverage out.
+
+``CoverageSession`` is pure and deterministic: a source feeds it decoded messages in log order
+(``feed_telemetry``, ``feed_tags``, ``feed_field``), ``advance`` processes everything older than
+``LAG_S``, and ``snapshot`` returns the page's JSON. It does no IO; the refit runs through a
+``RefitEngine`` (``worker.py``), inline for tests and replay or in a process when live.
+
+Pipeline per 10 ms grid sample, once the tags around it have arrived:
+
+1. Telemetry is put on the host clock (``telemetry.LiveClock``). Commands are held to the grid;
+   the gyro is interpolated. The clock map rests on the fastest deliveries, so the minimum
+   radio latency stays in it and every telemetry stamp reads that much late. The fit's delay
+   absorbs it for the commands; for the gyro it is a millisecond or two against the tags.
+2. ``maneuvers.ManeuverSegmenter`` labels the sticks.
+3. Every ``model.WINDOW_S`` the window closes: gates, three sub-windows from the tag poses,
+   Fisher information at the current estimate, and a status.
+4. A refit runs every ``REFIT_S`` of driving when new windows closed.
+
+Gates, first match wins:
+
+- jetson: ``espnow_active`` or ``autonomy_enabled`` anywhere in the window. The sysid profile
+  never commands, so this is a banner as well as a gate.
+- link: telemetry missing for over ``GAP_S``, counted from ``telemetry_seq`` (frames lost) or
+  from ``timestamp_ms`` (frames late). A frame or two lost is held over and costs nothing.
+- tags: accepted tag fixes cover under ``TAG_COVERAGE_MIN`` of the camera frames.
+- flip: the robot is upside down, or the running median of ``PITCH_MEDIAN_N`` tag poses is
+  pitched more than ``PITCH_LIMIT_DEG`` off the rest pose.
+- wall: the axle center within ``ROBOT_LENGTH_M`` of a rail (``sysid_windows.near_rail``), or,
+  once the fit has settled, a tag residual over ``CONTACT_SIGMA`` (marked by the refit).
+- disarmed: ``armed`` false.
+- idle: no motor command over ``IDLE_CMD`` and no tag speed.
+
+Every fifth usable window is held out: it scores the closed-loop prediction and never enters
+the fit.
+
+#### `PITCH_MEDIAN_N`
+
+The pitch gate tests a running median of 7 tag poses. Single-frame tag pitch spikes reach 8 deg
+on a flat spin (frame-to-frame sd 1.7 deg), and a real nose lift lasts far longer than 7 frames.
+
+### `calibration/sysid/maneuvers.py`
+
+What the driver did with the sticks: holds, edges, creeps, arcs, spins.
+
+Two consumers:
+
+- ``ManeuverSegmenter`` labels the stick stream as it arrives for the live coverage monitor. It
+  works on the uniform 10 ms grid the monitor builds, with sticks as fractions, throttle forward
+  positive and steer left positive.
+- ``menu_from_grid`` is the offline session summary that
+  ``playground/calibration/check_sysid_recordings.py`` prints against its ``MENU_TARGETS``. It
+  moved here unchanged when the live monitor became its second caller.
+
+Live definitions, ported from the prototype page:
+
+- Plateau: a maximal run where a channel stays within ``PLATEAU_TOL`` of every other sample in
+  it, the jitter of a held thumb.
+- Hold: a plateau of ``HOLD_S`` or longer away from zero. A throttle hold with the steer mean
+  under ``ARC_STEER`` is straight, with more it is an arc; a steer hold with the throttle mean
+  under ``ARC_STEER`` is a spin.
+- Edge: the move between two long plateaus (rest counts at any length) that differ by at least
+  ``EDGE_MIN``. Clean when it took ``SNAP_S`` or less. Only clean edges count toward delay and
+  lag; a slower one is a slew.
+- Creep: a monotonic climb out of zero past ``CREEP_PAST`` that took ``CREEP_MIN_S`` or longer.
+
+#### `BINS`
+
+The coverage map bins are stick fractions, finer near zero where the deadzones are.
+
+#### `EDGE_ROWS`
+
+The transition table has rows for the yaw loop. The loop rows are steer edges with the flip
+switch down, where the firmware yaw loop answers instead of the open-loop drivetrain.
+
+### `calibration/sysid/model.py`
+
+The fit behind the sysid monitor: window residuals, Fisher information, refits, suggestions.
+
+Each 1.5 s fit window is cut into three 0.5 s sub-windows. A sub-window starts from the tag
+state estimate at its start (``pose_stream.state_at`` plus the gyro) and runs the plant open loop
+on the recorded motor commands for 0.5 s, the horizon the Kalman plan scores. Its residuals are:
+
+- tag position, along and across the camera view, at each tag fix, over the per-fix sigma
+  floored at ``POS_FLOOR_M`` for model error,
+- tag heading at each fix, likewise floored at ``YAW_FLOOR_RAD``,
+- gyro yaw rate every 20 ms over ``SIGMA_GYRO_RADPS``.
+
+Heading has to be in there: with velocity and yaw rate alone the two drift terms never separated
+in the prototype.
+
+The fit input is the motor command (``firmware_mixer.motor_to_plant`` of ``left_cmd``/
+``right_cmd``), so the same 16 drivetrain parameters come out with the yaw loop on or off and
+the loop's feedback stays out of the Fisher matrix. Delay is one of the 16: commands are shifted
+by a fractional, linearly interpolated delay, which keeps the residual smooth in it.
+
+Predictions for the page (holdout, ghosts, suggestions) instead run the sticks through
+``firmware_mixer.closed_loop_rollout``, so they score the plant the Jetson would command.
+
+Uncertainty is the Cramer-Rao bound ``s^2 (J^T J + prior)^-1`` with ``s^2`` the fit's residual
+variance per row when that exceeds 1, so a model that cannot reach the tag noise reports wider
+bars instead of tighter ones.
+
+#### `ParamSpec`
+
+Each fit parameter has a prior (the `PlantParams` defaults, which are the stage 2 values), a
+prior sigma, a ring target and a finite-difference step. The ring targets are:
+
+- 4 ms for delay
+- 6 ms for each lag
+- 3% of the prior for each gain
+- 0.008 for each deadzone
+- 0.03 for each coupling term
+- 0.12 rad/s for each drift term
+
+#### `NUISANCE_SD`
+
+Prior sigmas on each sub-window's start state come from the local tag estimate: x, y, theta, v.
+The start state is a nuisance: each sub-window refines it, and the information it could fake
+is projected out of the Jacobian.
+
+#### `jacobian`
+
+(r, J) with J shaped (S, R + NUISANCE, NP); columns outside ``free`` are zero.
+
+Forward differences at the refined start states, stepped away from a bound, then projected
+so the start states absorb what they can: data rows become ``J - jn A^-1 jn^T J`` and the
+prior rows ``-A^-1 jn^T J / sd``. ``J^T J`` of the result is the Schur complement, the
+information left once the start states are marginalized.
+
+#### `expected_subwindows`
+
+Simulate a motion from rest and cut it into the sub-windows a session would record.
+
+Returns the sub-windows (measurements equal to the prediction, so their residual is zero
+and only the Jacobian matters) and how far the robot travels.
+
+### `calibration/sysid/pose_stream.py`
+
+Causal robot pose from the AprilTag stream, for the live sysid monitor.
+
+The offline path (``tag_pose_smoother.smooth_session``) runs a two-pass RTS smoother over the
+whole session. The live monitor only needs two things from the tags, and neither needs the
+future past a short lag:
+
+- one body pose per detection, for the fit residual and the gates. Each frame goes through the
+  offline ``build_candidates`` and ``select_ippe``; ``select_ippe`` looks ahead up to its
+  ``neighbour_window_s`` on close calls, so a detection is final once it is that much older
+  than the newest frame.
+- the state each fit window starts from. ``state_at`` fits a weighted quadratic in time to the
+  poses within ``STATE_HALF_SPAN_S`` either side of the start, which is a fixed-lag smoother of
+  that one instant. Velocity is its slope projected on the heading; yaw rate comes from the
+  gyro, which the caller passes in.
+
+Frames follow ``tag_pose_smoother``: the output frame is the recorded field frame turned so z
+points up, the body frame is FLU at the axle midpoint, and yaw is counter-clockwise.
+
+### `calibration/sysid/server.py`
+
+The sysid monitor's page: one static HTML file and a websocket of JSON snapshots.
+
+Served by the Python process itself, on the laptop, because the page shows that process's
+state, not the app's. ``GET /`` returns ``static/index.html``; ``/ws`` sends a ``hello`` with
+the parameter list, then every snapshot ``publish`` hands it.
+
+### `calibration/sysid/telemetry.py`
+
+Robot telemetry for the sysid monitor: the frame schema, the plant inputs, the robot clock.
+
+``/robot/espnow_telemetry`` is the source. The column list is read from the JSON schema the
+recorder writes (``mcap_write.ESPNOW_TELEMETRY_JSON_SCHEMA``), so a field added there shows up
+here with no edit and a renamed one fails loudly where it is used instead of reading as NaN.
+Integers load as nullable ``Int64`` (``telemetry_seq`` is <NA> in recordings older than it),
+numbers as float with NaN for null, booleans as bool.
+
+Without ESP-NOW telemetry the source is ``/robot/esp32_diagnostics``, the robot's telemetry
+ring polled over WiFi (older recordings: its event stream), with the same drive fields.
+``from_diagnostics`` renames its ``seq`` to ``telemetry_seq`` so drops count the same way; the
+columns it lacks (``espnow_active``, ``autonomy_enabled``) read as False. Its ``backfill`` rows
+waited in the ring, so their ``host_receive_ns`` is late and the live clock skips them.
+
+Plant inputs:
+
+- fit input: ``left_cmd``/``right_cmd``, what the ESCs got after the deadband and the yaw loop,
+  through ``firmware_mixer.motor_to_plant``.
+- prediction input and stick display: ``a_percent``/``b_percent``, the arbitrated sticks before
+  the mixer. ``throttle = -a / 100`` (forward positive) and ``steer = -b / 100`` (left positive),
+  the plant's sign convention.
+
+### `calibration/sysid/worker.py`
+
+Refits for the sysid monitor, off the session's thread.
+
+``RefitState`` keeps every usable window's sub-windows and turns a ``RefitJob`` into a
+``RefitReply``: a warm-started fit, the Fisher matrix over every fit window, the contact gate,
+the holdout score, every third time the model ladder, and the ranked suggestions.
+
+Two engines run it. ``InlineEngine`` calls it on ``submit``, which keeps tests and replays
+deterministic. ``ProcessEngine`` runs it in a spawned process so a live session keeps labeling
+while a refit takes a few seconds.
+
+### `control/firmware_mixer.py`
+
+#### `from_telemetry`
+
+Seed the loop from the telemetry sample at a window start.
+
+The setpoint is carried over as an offset from the recorded heading, so it lands in the
+simulated heading frame whatever the BNO055's absolute heading is. The integral is what
+is left of the recorded output once the feedforward and proportional terms come off;
+the firmware does not report it, but it reports everything else in that sum.
+
+#### `BatchedMixer`
+
+`mix_motor_outputs` plus `YawController`, stepped once per BNO055 sample.
+
+The firmware runs the yaw loop only when a fresh IMU sample lands (every 10 ms), and the
+steer output it computes holds until the next one. Stepping the whole mixer at that period
+keeps the loop exact and costs at most one control loop of stick latency in passthrough.
+
+### `control/plant.py`
+
+#### `delayed_commands`
+
+Shift a uniformly sampled command timeline back by `delay_s`.
+
+The shift is fractional and interpolated linearly between samples. At the fit grid rate the
+command is already a staircase sampled finely, so interpolating between two samples of it is
+a sub-grid-step approximation to the true edge time, which is what makes the delay profile
+smooth enough to search on a 2 ms grid.
+
+#### `subsample`
+
+Thin the window set to at most `limit` windows, evenly across the run.
+
+Windows overlap heavily at a 50 ms stride, so thinning costs far less information than
+the count suggests, and it is the knob that keeps a delay profile search over 60 grid
+points to minutes instead of an hour.
+
+### `mujoco_sim/onshape_export.py`
+
+#### `TagFrame`
+
+A tag's marker frame in the body frame.
+
+`rotation` and `translation` form T_body_tag, mapping points in the OpenCV marker frame
+(origin at the tag center, x right and y up in the printed image, z out of the face; the
+object points solvePnP IPPE_SQUARE expects) into the body frame.
+
+### `mujoco_sim/session.py`
+
+Load smooth_tag_poses.py session bundles into rollout windows for the MuJoCo fit.
+
+A bundle is the directory playground/calibration/smooth_tag_poses.py writes per recording:
+smoothed.csv (uniform-grid smoothed pose), measurements.csv (raw tag detections), commands.csv
+(ESP32 events on the app clock), windows.csv (gated windows with initial states) and
+session.json (noise floor, clock fit, ...).
+
+The fit's loss reads the raw measurements, never the smoothed poses; the smoothed state only
+supplies each window's initial conditions.
+
+### `mujoco_sim/validate.py`
+
+#### `firmware_closed_loop`
+
+The recordings used by `firmware_closed_loop` predate the 2026-10-05 heading hold rework.
+
+### `perception/sysid_windows.py`
+
+Fit windows for the drivetrain sysid: gating and initial state (plan "Data pipeline" 3 and 4).
+
+Input is the smoothed grid from ``tag_pose_smoother.smooth_session``. Three per-sample gates run
+first and cut the session into spans:
+
+- **near_rail**: the axle center within ``robot_length_m`` of a box rail, where wall contact is
+  possible.
+- **esp32_gap**: inside a gap in the ESP32 stream longer than ``esp32_max_gap_s``, or outside the
+  stream altogether, since the fit has no command tape there.
+- **flip**: the upright/inverted state changes, which the fit cannot start or end across.
+
+Each span shorter than ``window_s`` is dropped; the rest are cut into ``floor(L / window_s)``
+equal windows, so every window is between ``window_s`` and ``2 * window_s`` long (1 to 2 s by
+default). A window is then dropped if accepted tag detections cover less than
+``coverage_min`` of its camera frames. A kept window is ``nose_lift`` when its pitch leaves the
+rest pitch by more than ``pitch_limit_deg`` anywhere, otherwise ``flat``.
+
+Initial state per window is the smoothed state at its first sample. Wheel speeds come from the
+no-slip relation in the body frame, ``(v -/+ w * track_half_width) / wheel_radius`` for left
+and right, with v the forward speed along body x and w the yaw rate about body z. A wheel
+spinning to roll the robot forward is positive, which is positive rotation about body +y. On an
+inverted robot body z points down, so the body-frame yaw rate is minus the field one.
+
+### `recording/esp32_clock.py`
+
+Put ESP32 events on the app clock and measure the delays around them.
+
+The app stamps every ESP32 event with its receive time, which carries WiFi jitter: a few
+milliseconds typically and tens of milliseconds when the link retries. The robot's
+``timestamp_ms`` has no jitter but runs on its own crystal. ``fit_robot_clock`` maps one onto
+the other with a line (offset and drift). Receive delay is never negative, so the line is the
+lower envelope of (robot time, receive time): it rests on the fastest deliveries, which a least
+squares line would not. The minimum transport latency stays inside the offset; nothing in the
+data can separate it.
+
+A reboot resets ``timestamp_ms``, so each run of increasing robot time gets its own line.
+
+``cross_correlation_delay`` estimates the lag between two signals on the app clock. It serves the
+two checks in the plan: stick channels against the ESP32's ``a_percent``/``b_percent`` (the radio
+link delay) and BNO055 yaw rate against tag yaw rate.
+
+#### `_lower_envelope_line`
+
+(intercept, slope) of the line under every point that minimises the summed gap.
+
+Minimising sum(y - a - b x) subject to y >= a + b x is a two-variable linear program whose
+optimum is the lower-hull edge spanning mean(x) (Moon, Skelly and Towsley 1999, skew
+estimation for network delay measurements).
+
+#### `fit_robot_clock`
+
+The line is fitted to receive time minus robot time, so the slope is the drift and stays near
+zero. Fitting host time against robot time directly loses the ppm-level slope to rounding.
+
+#### `radio_link_delay`
+
+How long a stick move takes to show up in the ESP32's ``a_percent``/``b_percent``.
+
+Both signals are held between samples (the stick is logged only on change) and correlated
+on their first differences, so the slow drift of a held stick does not dominate the peak.
+
+#### `_smooth`
+
+Gaussian blur that treats NaN as zero. Widens single-sample steps into a peak the
+parabolic refinement can fit.
+
+### `recording/sysid_io.py`
+
+#### `field_transform_constancy`
+
+How far the camera pose wanders from its median over the session.
+
+The tripod does not move, so anything above a millimetre or two means a field re-init or a
+bumped tripod, and the session needs a look before its poses are used.
+
 ## Troubleshooting
 
 - Tag size: `tag_size_m = 0.064` is the CAD value. Measure the printed tag and correct it in both

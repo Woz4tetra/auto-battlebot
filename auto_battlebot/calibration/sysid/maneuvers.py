@@ -1,26 +1,4 @@
-"""What the driver did with the sticks: holds, edges, creeps, arcs, spins.
-
-Two consumers:
-
-- ``ManeuverSegmenter`` labels the stick stream as it arrives for the live coverage monitor. It
-  works on the uniform 10 ms grid the monitor builds, with sticks as fractions, throttle forward
-  positive and steer left positive.
-- ``menu_from_grid`` is the offline session summary that
-  ``playground/calibration/check_sysid_recordings.py`` prints against its ``MENU_TARGETS``. It
-  moved here unchanged when the live monitor became its second caller.
-
-Live definitions, ported from the prototype page:
-
-- Plateau: a maximal run where a channel stays within ``PLATEAU_TOL`` of every other sample in
-  it, the jitter of a held thumb.
-- Hold: a plateau of ``HOLD_S`` or longer away from zero. A throttle hold with the steer mean
-  under ``ARC_STEER`` is straight, with more it is an arc; a steer hold with the throttle mean
-  under ``ARC_STEER`` is a spin.
-- Edge: the move between two long plateaus (rest counts at any length) that differ by at least
-  ``EDGE_MIN``. Clean when it took ``SNAP_S`` or less. Only clean edges count toward delay and
-  lag; a slower one is a slew.
-- Creep: a monotonic climb out of zero past ``CREEP_PAST`` that took ``CREEP_MIN_S`` or longer.
-"""
+"""What the driver did with the sticks: holds, edges, creeps, arcs, spins."""
 
 from __future__ import annotations
 
@@ -42,11 +20,8 @@ CREEP_MIN_S = 0.8
 HANDS_OFF_STEER = 0.03
 
 CHANNELS = ("Throttle", "Steer")
-# Coverage map bins, stick fractions: finer near zero, where the deadzones are.
 BINS = (-1.0, -0.75, -0.5, -0.25, -0.1, -0.05, 0.0, 0.05, 0.1, 0.25, 0.5, 0.75, 1.0)
 AMPS = (0.25, 0.5, 0.75, 1.0)
-# Rows of the transition table. The loop rows are steer edges with the flip switch down, where
-# the firmware yaw loop answers instead of the open-loop drivetrain.
 EDGE_ROWS = (
     "Forward",
     "Reverse",

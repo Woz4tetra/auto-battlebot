@@ -1,13 +1,4 @@
-"""Load smooth_tag_poses.py session bundles into rollout windows for the MuJoCo fit.
-
-A bundle is the directory playground/calibration/smooth_tag_poses.py writes per recording:
-smoothed.csv (uniform-grid smoothed pose), measurements.csv (raw tag detections), commands.csv
-(ESP32 events on the app clock), windows.csv (gated windows with initial states) and
-session.json (noise floor, clock fit, ...).
-
-The fit's loss reads the raw measurements, never the smoothed poses; the smoothed state only
-supplies each window's initial conditions.
-"""
+"""Load smooth_tag_poses.py session bundles into rollout windows for the MuJoCo fit."""
 
 from __future__ import annotations
 
@@ -31,7 +22,6 @@ from auto_battlebot.mujoco_sim.rollout import InitialState
 # Tape history kept before each window start, so the delay shift never runs off the front.
 TAPE_PAD_S = 0.12
 DEFAULT_HORIZONS = (0.2, 0.4, 1.0)
-# A measurement counts for a horizon when it lands within this of it (60 fps is 16.7 ms).
 HORIZON_TOLERANCE_S = 0.02
 
 
@@ -81,12 +71,7 @@ def load_session(path: Path) -> Session:
 
 
 def motor_polarity(session: Session) -> float:
-    """+1 if a positive mean per-motor command drives the robot forward, else -1.
-
-    The firmware mixer writes left = -a + turn, and the ESC wiring decides which way that
-    turns the wheel; the recording settles it by correlating the mean command with the
-    smoothed forward speed.
-    """
+    """+1 if a positive mean per-motor command drives the robot forward, else -1."""
     s = session.smoothed
     forward = s["vx"] * np.cos(s["yaw"]) + s["vy"] * np.sin(s["yaw"])
     cmd = session.commands

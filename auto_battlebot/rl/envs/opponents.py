@@ -1,34 +1,4 @@
-"""Opponent behaviours for the RL environments (plan section 6), batched over worlds in torch.
-
-Every behaviour drives a unicycle: a forward speed along the opponent's heading (negative backs
-up) and a yaw rate, which the Warp environment hands to its `move_mocap` kernel each policy
-step. Every behaviour has a heading, so the front arc is always exercised. Positions are kept
-inside the arena by stopping the velocity component that points into a wall.
-
-| Behaviour | Parameters drawn per episode |
-| --- | --- |
-| static | pose |
-| straight | speed 0.3 to 1.5 m/s; reflects off walls |
-| circle | speed 0.3 to 1.5 m/s, radius 0.2 to 0.6 m, direction |
-| random_walk | speed 0.2 to 1.2 m/s, turn-rate noise 1 to 4 rad/s |
-| pursuit | lead 0 to 0.3 s, delay 50 to 250 ms, top speed 0.8 to 2.5 m/s, turn 4 to 10 rad/s |
-| corner | a corner; backs into it, then turns to face us |
-| replay | a human opponent track (`replay_tracks.py`) |
-
-The evaluation holds out the fastest, shortest-delay corner of `pursuit` (top speed above
-2.3 m/s with a delay under 70 ms): training never draws it.
-
-Pursuit difficulty is a level from 0 to 1 (`Opponents.pursuit_level`). Level 0 draws only the
-easiest pursuer (`PURSUIT_EASY`: 0.8 m/s, 4 rad/s, 250 ms delay); level 1 draws the whole range up
-to `pursuit_hard`. `pursuit_fixed` pins every world's pursuer instead, for the beatable-range map.
-
-A pursuer has traction: each episode draws a grip limit from `PURSUIT_GRIP_MPS2`, which caps how
-fast its forward speed changes and caps its turn rate at grip / speed. Without it the pursuer was
-a mocap body that stopped dead from 2.5 m/s and pivoted at 10 rad/s, so it never overshot and
-nothing beat the 8 to 10 rad/s pursuers (2026-10-18: `rl_nav_p4` struck in 4.5% of episodes
-against 5 to 7 rad/s pursuers at level 1). Scenarios exported before grip existed carry none and
-replay the old pursuer.
-"""
+"""Opponent behaviours for the RL environments (plan section 6), batched over worlds in torch."""
 
 from __future__ import annotations
 
@@ -48,20 +18,14 @@ PURSUIT_HOLDOUT_SPEED = 2.3
 PURSUIT_HOLDOUT_DELAY = 0.07
 PURSUIT_EASY = (0.8, 4.0, 0.25)  # top speed m/s, turn rate rad/s, reaction delay s
 PURSUIT_HARD = (2.5, 10.0, 0.05)
-# Pursuer traction, m/s^2: about 0.8 to 1.6 g, rubber wheels to very grippy ones. At 2.5 m/s that
-# caps the turn rate at 3.2 to 6.4 rad/s.
 PURSUIT_GRIP_MPS2 = (8.0, 16.0)
 # The pursuit evaluation grid: top speed m/s x turn rate rad/s x reaction delay s, 80 cells.
 PURSUIT_GRID = list(
     itertools.product((0.8, 1.2, 1.6, 2.0, 2.5), (4.0, 6.0, 8.0, 10.0), (0.05, 0.1, 0.15, 0.25))
 )
-DELAY_SLOTS = 16  # pursuit reaction-delay ring, in policy steps (16 x 20 ms > 250 ms)
-OUR_HALF_DIAGONAL_M = 0.106  # Mr Stabs Mk2 footprint, 0.137 x 0.16 m
-OUR_HALF_EXTENT_M = (0.0685, 0.08)  # the same footprint as half length and half width
-# How far an opponent may press into our footprint along the line between centres. 0: it stops
-# at contact. Against an idle robot, pursuit still registers 7 hits per episode at 0 (the boxes'
-# corners meet before their centre-line extents do) and flips it 0.06 times per episode, against
-# 0.09 at 5 mm; the corner overlap, not this depth, is what pries it.
+DELAY_SLOTS = 16
+OUR_HALF_DIAGONAL_M = 0.106
+OUR_HALF_EXTENT_M = (0.0685, 0.08)
 CONTACT_PRESS_M = 0.0
 
 
@@ -270,9 +234,6 @@ class Opponents:
         seen = self.history[torch.arange(self.w, device=self.device), slot]
         aim = seen[:, :2] + seen[:, 2:4] * p.lead[:, None]
         err = wrap(torch.atan2(aim[:, 1] - xy[:, 1], aim[:, 0] - xy[:, 0]) - yaw)
-        # Proportional: the rate that closes the error in one step, capped at turn_rate. The old
-        # clamp(err / dt, -1, 1) * turn_rate saturated past 1 degree of error and turned
-        # bang-bang, overshooting and reversing every 20 ms step.
         cap = p.turn_rate
         chase = p.speed * torch.cos(err).clamp(min=0.0)
         if p.grip is not None:

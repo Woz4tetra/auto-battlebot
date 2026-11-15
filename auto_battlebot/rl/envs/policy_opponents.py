@@ -1,16 +1,4 @@
-"""Opponents driven by trained navigation policies, for the RL environment, batched in torch.
-
-A driver is a navigation policy on a robot: Mr Stabs Mk2 running a trained Mk2 bundle, or a copy
-of the robot in training (self-play, a frozen snapshot the trainer refreshes). Each policy step it
-builds the observation (`obs_spec.build_v1`) from the opponent's side of the arena, from true
-state: it sees us exactly, the way `simulation/policy_opponent.py` plays a mirror match. Its
-action goes through `DifferentialDriveProcessor`'s saturation, the robot's command delay and its
-grey-box plant (`torch_plant`), and comes out as the opponent mocap's velocity. The scripted
-opponents' wall and contact rules (`Opponents.command`) still apply.
-
-Driver 0 is the scripted opponents (`opponents.py`); drivers 1 and up are `PolicyDriver`s in the
-order given.
-"""
+"""Opponents driven by trained navigation policies, for the RL environment, batched in torch."""
 
 from __future__ import annotations
 

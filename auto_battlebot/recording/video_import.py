@@ -1,20 +1,4 @@
-"""Wrap a plain video file into a recording shaped like the RGB camera's.
-
-The camera records H.264 on ``/camera/video`` inside the same MCAP as the pipeline output
-(``docs/foxglove_recording_format.md``). Fixed-camera footage from elsewhere, such as NHRL's
-``Cage-N-Overhead-High`` feed, is the same shape of data from a different sensor, so re-wrapping it
-gives ``VideoPlaybackCamera`` something to replay before the camera hardware exists.
-
-What comes out is a recording, not a match: it carries the three camera channels and nothing else,
-because everything else in a real file is pipeline *output* and replay exists to regenerate it.
-
-The video is re-encoded rather than remuxed. A general MP4 uses B-frames and whatever GOP its
-encoder chose; the camera writes ``max_b_frames = 0`` and an IDR every 30 frames, and both
-``start_frame`` seeking and reading the nth message as the nth captured frame depend on that.
-
-Two CLIs sit on this: ``scripts/video_to_mcap.py`` converts videos you already have, and
-``scripts/nhrl_to_recordings.py`` runs the whole NHRL flow from fight to replayable recording set.
-"""
+"""Wrap a plain video file into a recording shaped like the RGB camera's."""
 
 from __future__ import annotations
 
@@ -93,12 +77,7 @@ def probe(video: Path) -> VideoInfo:
 def iter_access_units(
     video: Path, fps: float, crf: int = DEFAULT_CRF, preset: str = DEFAULT_PRESET
 ) -> Iterator[bytes]:
-    """Annex-B access units, one per frame, re-encoded to the camera's constraints.
-
-    ffmpeg writes a raw H.264 elementary stream to stdout and libavcodec's own parser splits it
-    back into one packet per coded picture. Hand-rolling that split from start codes gets the
-    SPS-before-IDR case wrong in ways that only show up as a frame count that is quietly short.
-    """
+    """Annex-B access units, one per frame, re-encoded to the camera's constraints."""
     import av
 
     command = [

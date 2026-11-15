@@ -1,13 +1,4 @@
-"""`fasttd3`: TD3 for massively parallel simulation, after Seo et al. 2025 (FastTD3).
-
-What makes it fast, kept here: thousands of parallel worlds feeding a GPU replay buffer, a large
-batch, n-step returns, a distributional (C51) critic with clipped double Q, and per-world
-exploration noise drawn from a range so some worlds explore and some exploit. The actor is the
-same Dense/ELU stack as `mlp_gaussian` (its mean path), so it exports to RTNeural unchanged. No
-LayerNorm anywhere: RTNeural cannot run it (plan section 11), so this arm trains without it.
-
-The critic sees the privileged inputs, as PPO's does.
-"""
+"""`fasttd3`: TD3 for massively parallel simulation, after Seo et al."""
 
 from __future__ import annotations
 
@@ -125,9 +116,6 @@ class FastTd3:
     @torch.no_grad()
     def _collect(self) -> dict[str, float]:
         if self.filled < self.cfg.learning_starts:
-            # Uniform actions until learning starts, as TD3 does: a buffer filled by the untrained
-            # actor plus small noise holds one action sign per state, and the critic then cannot
-            # see what the other sign earns.
             action = torch.rand(self.env.num_worlds, 2, device=self.device) * 2.0 - 1.0
         else:
             action = self._actor(self.policy.actor, self.obs)

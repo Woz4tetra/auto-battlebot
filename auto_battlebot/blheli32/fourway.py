@@ -1,14 +1,4 @@
-"""BLHeli 4-way interface client over a serial passthrough (firmware/BlHeli-Passthrough).
-
-Framing, from the passthrough's Check_4Way and a usbmon capture of BLHeliSuite32xl 1.0.4.4:
-
-    request:  0x2F cmd addr_hi addr_lo n params[n or 256] crc_hi crc_lo
-    response: 0x2E cmd addr_hi addr_lo n params[n or 256] ack crc_hi crc_lo
-
-n = 0 means 256 bytes. CRC is CRC16-XMODEM over everything before it. The serial link first
-switches from MSP to 4-way with MSP_SET_4WAY_IF (0xF5), as BLHeliSuite does. The Mk2 robot's
-tuning-mode relay (http_port.HttpPort) speaks 4-way only, so it skips that step.
-"""
+"""BLHeli 4-way interface client over a serial passthrough (firmware/BlHeli-Passthrough)."""
 
 from __future__ import annotations
 

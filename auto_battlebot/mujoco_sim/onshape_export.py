@@ -165,11 +165,7 @@ def _require(node: ET.Element | None) -> ET.Element:
 
 
 def body_from_root(assembly: UrdfAssembly) -> tuple[np.ndarray, np.ndarray]:
-    """Rotation and translation taking root-frame points into the body frame.
-
-    The origin is the axle midpoint: the wheel joints sit on the axle line, and the midpoint
-    along it is halfway between the two lumped wheel COMs.
-    """
+    """Rotation and translation taking root-frame points into the body frame."""
     wheel_coms = [assembly.lumped(assembly.wheel_links(j)).com for j in WHEEL_JOINTS]
     joint_points = [assembly.link_pose(assembly.wheel_links(j)[0])[:3, 3] for j in WHEEL_JOINTS]
     axle_mid = 0.5 * (joint_points[0] + joint_points[1])
@@ -201,12 +197,7 @@ def load_mesh_in_root(
 
 @dataclass
 class TagFrame:
-    """A tag's marker frame in the body frame.
-
-    `rotation` and `translation` form T_body_tag, mapping points in the OpenCV marker frame
-    (origin at the tag center, x right and y up in the printed image, z out of the face; the
-    object points solvePnP IPPE_SQUARE expects) into the body frame.
-    """
+    """A tag's marker frame in the body frame."""
 
     tag_id: int
     rotation: np.ndarray
@@ -222,13 +213,7 @@ def extract_tag_frame(
     outward: np.ndarray,
     px_per_m: float = 20000.0,
 ) -> TagFrame:
-    """Find a tag's marker frame by rendering its CAD face and running the aruco detector.
-
-    The export does not say which in-plane direction is the printed image's "up", so the face
-    is rasterized as seen from outside (looking along -normal) and decoded; the detected corner
-    order then fixes the frame. The face is the set of triangles facing `outward` that lie on
-    the outermost plane.
-    """
+    """Find a tag's marker frame by rendering its CAD face and running the aruco detector."""
     triangles: list[np.ndarray] = []
     shades: list[float] = []
     for mesh, color in meshes_in_body:
@@ -321,12 +306,7 @@ def onshape_inertia_to_tensor(
 def chassis_from_assembly(
     assembly_total: MassBody, wheels: list[MassBody], scale_mass: float
 ) -> tuple[MassBody, MassBody]:
-    """Chassis = Onshape whole assembly minus the wheels, then topped up to the scale.
-
-    Returns (chassis at CAD mass, chassis at scale mass). The unmodeled difference between the
-    scale and CAD (wire, glue, solder) is spread like the rest of the chassis: added at its COM
-    with the inertia scaled by the mass ratio.
-    """
+    """Chassis = Onshape whole assembly minus the wheels, then topped up to the scale."""
     cad = subtract(assembly_total, wheels)
     extra = scale_mass - assembly_total.mass
     ratio = (cad.mass + extra) / cad.mass

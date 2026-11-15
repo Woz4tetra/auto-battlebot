@@ -59,7 +59,7 @@ from auto_battlebot.mujoco_sim.rollout import (
     rest_height,
 )
 
-WALL_HEIGHT_M = 0.3  # tall enough that a backflip lands inside the arena
+WALL_HEIGHT_M = 0.3
 WALL_THICKNESS_M = 0.05
 BLOCK_HEIGHT_M = 0.3
 UNPLACED_BLOCK_XY = (50.0, 50.0)
@@ -103,8 +103,6 @@ def _add_static_geoms(
     blocks: Sequence[Disc],
     moving_blocks: Sequence[MovingBlock],
 ) -> None:
-    # Zero friction, like the floor: MuJoCo takes the max of the pair, so the robot's own geom
-    # friction governs every wall contact.
     common = {"contype": FLOOR_CONTYPE, "conaffinity": ROBOT_CONTYPE, "friction": [0.0, 0.0, 0.0]}
     if arena is not None:
         half_w, half_h = arena[0] / 2.0, arena[1] / 2.0

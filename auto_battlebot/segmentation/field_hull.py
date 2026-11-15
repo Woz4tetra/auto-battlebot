@@ -1,21 +1,4 @@
-"""Cage floor region for a fixed camera: DeepLab floor mask plus a convex hull.
-
-Lifted out of ``training/model_eval/rembg_field.py``, which holds the same two
-pieces but no longer imports: it depends on ``auto_battlebot.background_subtraction``
-and ``auto_battlebot.floor_background``, both deleted in c4fed999.
-
-The hull matters because a robot standing on the floor punches a hole in the raw
-mask exactly where the robot is, and masking detections by that mask would delete
-the things being counted. The true field is a square seen in perspective, so it is
-convex, and the hull can only ever recover floor the mask lost.
-
-One hull per clip, not per frame. The camera does not move, so the mask is built
-from a per-pixel median over sampled frames: robots are absent from any given pixel
-in most samples, so the median has no robots on it and the hull has no holes to
-repair.
-
-The DeepLab loader lives in ``auto_battlebot.segmentation``, so this imports normally.
-"""
+"""Cage floor region for a fixed camera: DeepLab floor mask plus a convex hull."""
 
 from __future__ import annotations
 

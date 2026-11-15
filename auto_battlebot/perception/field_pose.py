@@ -1,20 +1,4 @@
-"""Two ways to get the camera <-> field transform, for comparison.
-
-`depth_plane_field` is a port of the shipped C++ path in
-`src/field_filter/point_cloud_field_filter.cpp` (`PointCloudFieldFilter::compute_field`):
-mask -> depth -> point cloud -> RANSAC plane -> flatten -> minimum-area rectangle. It
-measures the field size rather than assuming it, and needs a depth image.
-
-`homography_field` is the new one: the same mask, but only its outline in the RGB frame,
-solved against a field of known metric size. Four image corners plus four object corners
-give a homography, and with the intrinsics that decomposes straight into a pose. No depth.
-
-Both return a 4x4 tf_camera_from_fieldcenter, so they are directly comparable.
-
-A square field is 90-degree ambiguous in yaw for both methods, and 180-degree ambiguous
-even when rectangular, because a bare rectangle carries no handedness. Compare yaw modulo
-that symmetry; `yaw_difference_deg` does.
-"""
+"""Two ways to get the camera <-> field transform, for comparison."""
 
 from __future__ import annotations
 
@@ -339,7 +323,6 @@ def _fit_side_lines(
             return None
         selected = points[mine]
         normal, offset = _fit_line(selected)
-        # One robust pass so a robot resting on the floor edge cannot pull the line in.
         residual = np.abs(selected @ normal - offset)
         keep = residual <= max(2.0, 2.5 * float(np.median(residual)))
         if keep.sum() >= 20:
@@ -364,20 +347,7 @@ def _intersect_side_lines(lines: list[tuple[np.ndarray, float]]) -> np.ndarray |
 def refine_quad_by_edges(
     boundary: np.ndarray, seed: np.ndarray, iterations: int = 4, corner_skip: float = 0.20
 ) -> np.ndarray | None:
-    """Fit the four field edges to the mask outline and intersect them.
-
-    `approxPolyDP` returns vertices that lie *on* the outline, so it can only ever produce
-    a quad inscribed in the mask. Where the floor mat has rounded corners that quad chords
-    across them and comes out about 19% small in area on this footage, which is 11%
-    linearly and puts the camera 11% too far away.
-
-    The straight middle stretch of each side is the real field edge, so each contour point
-    is assigned to whichever side of the current quad it is nearest, points within
-    `corner_skip` of either end are dropped as belonging to the rounding, and the surviving
-    points are fitted. Intersecting adjacent fitted lines extrapolates back to where the
-    edges actually meet. Assignment is by nearest edge rather than a fixed distance band,
-    because the seed can start far enough off that any fixed band excludes the true edge.
-    """
+    """Fit the four field edges to the mask outline and intersect them."""
     points = boundary.reshape(-1, 2).astype(np.float64)
     if len(points) < 64:
         return None
@@ -395,13 +365,7 @@ def refine_quad_by_edges(
 
 
 def quad_from_mask(contour_mask: np.ndarray) -> np.ndarray | None:
-    """The field outline reduced to four image corners.
-
-    Under perspective a rectangle projects to a general quadrilateral, not a rotated
-    rectangle, so `minAreaRect` is wrong here: it returns the bounding box of the quad and
-    the error grows with camera tilt. Simplify the convex hull instead, loosening the
-    tolerance until exactly four vertices survive.
-    """
+    """The field outline reduced to four image corners."""
     contours, _ = cv2.findContours(
         (contour_mask > 0).astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
     )
@@ -440,15 +404,7 @@ def pose_from_corners(
     field_size_xy: tuple[float, float],
     intrinsics: np.ndarray,
 ) -> tuple[np.ndarray, float] | None:
-    """Decompose the corner homography into tf_camera_from_field.
-
-    H = K [r1 r2 t] up to scale, so K^-1 H recovers two rotation columns and the
-    translation, and the third column is their cross product. The result is
-    orthonormalized because measured corners never satisfy the constraint exactly.
-    Returns (4x4 transform, mean corner reprojection error in px), or None when
-    findHomography fails. Field z points toward the camera when the camera looks down
-    at the field from above: r3 . t is negative for every pose this returns.
-    """
+    """Decompose the corner homography into tf_camera_from_field."""
     object_corners = field_object_corners(field_size_xy)
     homography, _ = cv2.findHomography(object_corners, np.asarray(image_corners), method=0)
     if homography is None or homography.shape != (3, 3):
@@ -456,8 +412,6 @@ def pose_from_corners(
 
     k_inv = np.linalg.inv(intrinsics)
     h = k_inv @ homography
-    # One scale for both rotation columns; averaging the two norms is less sensitive to
-    # corner noise than trusting either alone.
     lambda_ = 2.0 / (np.linalg.norm(h[:, 0]) + np.linalg.norm(h[:, 1]))
     r1, r2, t = h[:, 0] * lambda_, h[:, 1] * lambda_, h[:, 2] * lambda_
     if t[2] < 0:
@@ -540,10 +494,6 @@ def homography_field(
     coverage = None
     if quad is not None:
         quad_area = abs(cv2.contourArea(quad.astype(np.float32)))
-        # Mask area over quad area. Above 1 the mask spills outside the four-sided fit, so
-        # the outline is not the quadrilateral this method assumes and at least one edge is
-        # not the field's real edge. Reprojection error cannot see this: the homography
-        # fits whatever four corners it is handed, however wrong they are.
         coverage = float((contour_mask > 0).sum()) / max(1.0, quad_area)
     fallback = False
     if quad is None:
@@ -610,13 +560,7 @@ def side_lines_from_points(
     corner_skip: float = 0.15,
     min_points: int = 40,
 ) -> list[tuple[np.ndarray, float] | None]:
-    """One fitted line per side of `seed_quad`, or None where the outline gives no support.
-
-    Points are assigned to the nearest seed side, the ends of each side are skipped as
-    corner rounding, and a robust total-least-squares line is fitted to the rest. The seed
-    may have corners far outside the image (a pose prior projected into the frame): only the
-    assignment depends on it, not the fitted lines.
-    """
+    """One fitted line per side of `seed_quad`, or None where the outline gives no support."""
     if len(points) < min_points:
         return [None] * 4
     quad = order_corners(np.asarray(seed_quad, dtype=np.float64))
@@ -668,14 +612,7 @@ def pose_from_lines(
     intrinsics: np.ndarray,
     tf_init: np.ndarray,
 ) -> tuple[np.ndarray, float] | None:
-    """tf_camera_from_field from three or four observed field edge lines.
-
-    Each supported side contributes two residuals: the signed pixel distance of its two
-    projected field corners from the observed line. Three sides give six equations for the
-    six pose parameters, which is the clipped-near-edge case the cage-high camera presents;
-    four sides overdetermine and refine. `tf_init` seeds the solve and must be on the right
-    side of the field (a prior pose or a four-corner fit). Returns (4x4, RMS residual px).
-    """
+    """tf_camera_from_field from three or four observed field edge lines."""
     supported = [i for i, line in enumerate(lines) if line is not None]
     if len(supported) < 3:
         return None

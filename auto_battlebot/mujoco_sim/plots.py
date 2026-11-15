@@ -1,17 +1,4 @@
-"""Figures that make a MuJoCo plant fit and its validation readable at a glance.
-
-``fit_mujoco_plant.py`` calls these from validation, so every validated fit directory gets them:
-
-- ``loss.png``: CMA-ES best loss per generation for every restart, stage by stage. Restarts
-  that end at the same loss found the same basin; one far above the rest got stuck.
-- ``params.png``: where each restart's best parameters sit inside their search range. A
-  parameter the restarts agree on is identified; one scattered across its range is not, and one
-  pinned to a bound is fighting the model.
-- ``rollouts.png``: held-out windows top-down, the measured robot against the MuJoCo and grey-box
-  rollouts from the same start state and the same logged motor commands.
-- ``errors.png``: position and heading error at each scoring horizon on the held-out windows, as
-  multiples of the measurement noise, MuJoCo against the grey-box.
-"""
+"""Figures that make a MuJoCo plant fit and its validation readable at a glance."""
 
 from __future__ import annotations
 

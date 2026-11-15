@@ -1,16 +1,4 @@
-"""Held-out validation of a MuJoCo plant fit (the plan's six acceptance checks).
-
-1. MuJoCo beats or matches the grey-box plant at 0.4 and 1.0 s on flat windows.
-2. Errors as multiples of the noise floor.
-3. Physical numbers inside physical ranges; coast tau near the measured 0.078 s.
-4. Nose lift on the same held-out windows as the real robot, and not on the others.
-5. The firmware layer in closed loop tracks the logged pid_output and per-motor commands on
-   straight holds.
-6. Restart agreement and the parameter pairs that trade off.
-7. Errors per drive direction, open loop and with the firmware yaw loop closed around the sim.
-
-Every function returns plain dicts so the CLI can dump them to JSON.
-"""
+"""Held-out validation of a MuJoCo plant fit (the plan's six acceptance checks)."""
 
 from __future__ import annotations
 
@@ -161,13 +149,7 @@ def firmware_closed_loop(
     height: float,
     max_windows: int = 20,
 ) -> dict[str, Any]:
-    """Check 5, on CPU MuJoCo: drive the fitted drivetrain from the logged sticks through the
-    firmware mixer with the sim's heading, and compare its outputs with the logged ones.
-
-    Only windows where the turn stick stays inside the 1% threshold (straight holds, where the
-    heading hold acts) are used. The sim heading is offset to match the logged BNO055 heading at
-    the window start, so only the change in heading drives the PID.
-    """
+    """Check 5, on CPU MuJoCo: the firmware mixer's outputs against the logged ones."""
     if batch.firmware.size == 0:
         return {"windows": 0}
     fw = batch.firmware[:, batch.pad :]
@@ -189,7 +171,6 @@ def firmware_closed_loop(
             model, index, batch.take(np.array([i])).state, height, mp.gear_ratio
         )
         data.qpos[:], data.qvel[:] = qpos[0], qvel[0]
-        # The recordings predate the 2026-10-05 heading hold rework.
         mixer = FirmwareMixer(legacy=True)
         heading_offset = fw[i, 0, 5] - heading_from_yaw(batch.state.yaw[i])
         queue = [(0.0, 0.0)] * delay_steps
@@ -248,18 +229,7 @@ def closed_loop_replay(
     height: float,
     record_every: int = 5,
 ) -> tuple[np.ndarray, float]:
-    """Check 7, on CPU MuJoCo: replay each window from the logged sticks through the current
-    firmware mixer, with the yaw loop fed the sim's heading and gyro.
-
-    Open-loop replay drives the plant with the logged per-motor commands, which the yaw loop
-    computed against the real robot. Where the loop was holding a heading against a disturbance
-    the plant does not have, the replayed correction turns the sim instead: on 2026-10-15 the
-    heading hold backed up straight with 1.12 to 1.6x more left than right command, and the
-    sim spun up to 400 deg. Here the loop corrects the sim's own heading, as it did the robot's.
-
-    Windows recorded before the yaw loop, or without firmware columns, replay open loop.
-    Returns (N, S, 7) chassis qpos sampled every `record_every` steps and the sample interval.
-    """
+    """Check 7, on CPU MuJoCo: replay windows with the yaw loop closed."""
     model = mujoco.MjModel.from_xml_string(build_mjcf(mp, params, collision, batch.dt))
     data = mujoco.MjData(model)
     index = ModelIndex.of(model)

@@ -1,10 +1,4 @@
-"""BLHeli_32 settings record: the 192-byte payload of the 0xF800 page, firmware 32.x layout 48.
-
-Offsets follow BLHeliSuite32xl 1.0.4.4's `Eep_*` record order, checked against two decrypted
-Flycolor Raptor 5 pages (firmware/blheli/captures/). Encodings come from stepping every
-BLHeliSuite slider and reading back its model byte and label (firmware/blheli/README.md).
-`verified=False` marks fields whose offset or encoding has not been confirmed on hardware.
-"""
+"""BLHeli_32 settings record: the 192-byte payload of the 0xF800 page, firmware 32.x layout 48."""
 
 from __future__ import annotations
 
@@ -374,9 +368,6 @@ def parse_value(key: str, text: str) -> int:
     raise LayoutError(f"{key}: {text!r} is not a number or one of the labels")
 
 
-# Startup music. One byte per note: bits 7-6 length (0 = 1/8, 1 = 1/4, 2 = 1/2, 3 = 1/1),
-# bits 5-0 = (octave - 4) * 16 + semitone. 0xFF ends the list. Decoded from BLHeliSuite's
-# Write Setup for "C5 1/8 C#5 1/4 D6 1/2 C4 1/2 B5 1/1 A5 1/8" -> 10 51 A2 80 DB 19.
 NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 _LENGTHS = {8: 0, 4: 1, 2: 2, 1: 3}
 MUSIC = BY_KEY["music_notes"]

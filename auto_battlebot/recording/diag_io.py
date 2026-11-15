@@ -68,9 +68,6 @@ def group_of(name: str) -> str:
 
 _RUNNER_PREFIXES = {"pipeline": "pipeline", "navigation": "nav", "perception": "perc"}
 
-# Transmitter channel -> column. values/15 is the auto switch; values/0 and values/1 are the
-# actual transmitted drive command (post trainer-mode mix of navigation and driver sticks),
-# which is the true plant input.
 _TRANSMITTER_COLUMNS = (
     ("values/0", "ch_linear"),
     ("values/1", "ch_angular"),
@@ -147,16 +144,7 @@ def _fill_latched_channels(df: pd.DataFrame) -> None:
 
 
 def load_field_size(path: Path) -> tuple[float, float] | None:
-    """Arena (width, height) in metres, recovered from the field border marker.
-
-    The C++ encoder builds the four corners as (+-size.x/2, +-size.y/2) in the
-    field-center frame and then rigid-transforms them, so the rectangle edge
-    lengths recover the true size regardless of the frame they are expressed in.
-
-    The field is published a few times (initial + re-inits) and early detections
-    can be bad. The arena is fixed, so the largest-area detection is the best
-    estimate; return that.
-    """
+    """Arena (width, height) in metres, recovered from the field border marker."""
     best: tuple[float, float] | None = None
     best_area = -1.0
     for _topic, _ts, data in iter_messages(path, [FIELD_MARKERS_TOPIC]):

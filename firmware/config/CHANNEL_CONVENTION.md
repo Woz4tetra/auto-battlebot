@@ -69,6 +69,18 @@ From `config/_common.toml` (`[transmitter]`):
 - `init_button_channel = 31`: disabled; no transmitter maps a button. Reinit is
   a touchscreen action. ch9 stays reserved for this.
 
+## Simulator flip switch
+
+### `mujoco_sim/firmware.py`
+
+#### Flip switch states in the simulator
+
+`mujoco_sim/firmware.py` models the flip switch as `FlipSwitch`:
+
+- `down` (power-on default): heading hold on, inverted while the IMU reads upside down.
+- `middle`: heading hold off, never inverted.
+- `up`: heading hold off, always inverted.
+
 ## Known gaps
 
 - The "mr stabs mk2" model in `mrs_buff_mk3.etx` predates this convention: arm

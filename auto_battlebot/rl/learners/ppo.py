@@ -1,17 +1,4 @@
-"""`ppo`: proximal policy optimization for a tanh-squashed Gaussian actor (plan section 11).
-
-Clipped surrogate, generalized advantage estimation (lambda 0.95, gamma 0.99), 24 steps per world
-per update, a critic that also sees the environment's privileged inputs, and an adaptive learning
-rate that holds the per-update KL near a target, as rsl_rl does. Truncated episodes bootstrap from
-the critic's value of their final state. The ratio is taken on the pre-tanh sample, where the tanh
-Jacobian cancels.
-
-An optional anchor policy keeps behaviour already learned while fine-tuning on a narrower
-problem: on the samples `anchor_mask` selects, the loss adds `anchor_coef` times the squared
-distance from the anchor's mean action, in units of the student's own std. That is the KL from a
-Gaussian at the anchor's mean with the student's std, so it scales with exploration the way the
-surrogate does.
-"""
+"""`ppo`: proximal policy optimization for a tanh-squashed Gaussian actor (plan section 11)."""
 
 from __future__ import annotations
 
@@ -206,7 +193,6 @@ class Ppo:
     def _anchor_loss(
         mean: torch.Tensor, std: torch.Tensor, flat: dict[str, torch.Tensor], idx: torch.Tensor
     ) -> torch.Tensor:
-        # Clamped pre-tanh: past +-2.5 the action is within 1.3% of full and the gap is moot.
         gap = (mean.clamp(-2.5, 2.5) - flat["anchor_mean"][idx].clamp(-2.5, 2.5)) / std.detach()
         w = flat["anchor_w"][idx]
         return (w * 0.5 * gap.pow(2).sum(-1)).sum() / w.sum().clamp(min=1.0)

@@ -79,13 +79,7 @@ def letterbox(
 
 
 def stretch(image: np.ndarray, target_h: int, target_w: int) -> tuple[np.ndarray, float, float]:
-    """Resize to the target ignoring aspect ratio. Returns (resized, scale_x, scale_y).
-
-    The alternative to letterboxing. Squeezing 16:9 into a square costs 0.5x horizontally
-    but only 0.89x vertically, so a robot lands 1.33x larger than a letterbox puts it at
-    the same tensor size, and no pixels go to padding. Detections come back through two
-    scales instead of one.
-    """
+    """Resize to the target ignoring aspect ratio."""
     height, width = image.shape[:2]
     resized = cv2.resize(image, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
     return resized, target_w / width, target_h / height

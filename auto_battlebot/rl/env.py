@@ -1,10 +1,4 @@
-"""The source seam: `VecEnv` and what it returns.
-
-Every environment is batched over worlds and auto-resets a world the step it finishes, so a
-learner never waits on a slow world. Observations are one flat vector per world whose layout is
-named in `EnvSpec.obs_names`; the privileged vector is the critic's extra input and never reaches
-the actor or the exported bundle.
-"""
+"""The source seam: `VecEnv` and what it returns."""
 
 from __future__ import annotations
 

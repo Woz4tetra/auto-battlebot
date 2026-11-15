@@ -111,13 +111,7 @@ class LoopState:
         a_percent: Any,
         config: YawConfig | None = None,
     ) -> LoopState:
-        """Seed the loop from the telemetry sample at a window start.
-
-        The setpoint is carried over as an offset from the recorded heading, so it lands in the
-        simulated heading frame whatever the BNO055's absolute heading is. The integral is what
-        is left of the recorded output once the feedforward and proportional terms come off;
-        the firmware does not report it, but it reports everything else in that sum.
-        """
+        """Seed the loop from the telemetry sample at a window start."""
         c = config or YawConfig()
         active = np.asarray(active, dtype=bool)
         heading0 = np.asarray(heading0_deg, dtype=float)
@@ -152,12 +146,7 @@ class LoopState:
 
 
 class BatchedMixer:
-    """`mix_motor_outputs` plus `YawController`, stepped once per BNO055 sample.
-
-    The firmware runs the yaw loop only when a fresh IMU sample lands (every 10 ms), and the
-    steer output it computes holds until the next one. Stepping the whole mixer at that period
-    keeps the loop exact and costs at most one control loop of stick latency in passthrough.
-    """
+    """`mix_motor_outputs` plus `YawController`, stepped once per BNO055 sample."""
 
     def __init__(self, state: LoopState, config: YawConfig | None = None) -> None:
         self.c = config or YawConfig()

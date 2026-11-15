@@ -68,6 +68,4 @@ def save_timing_cache(config: trt.IBuilderConfig, path: Path | None) -> None:
     if cache is None:
         return
     path.parent.mkdir(parents=True, exist_ok=True)
-    # Last writer wins. Concurrent builders may race here; the cache is advisory, and a lost
-    # update only costs the next build some re-timing.
     path.write_bytes(memoryview(cache.serialize()))

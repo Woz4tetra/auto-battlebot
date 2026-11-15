@@ -69,9 +69,6 @@ def topic_of(data: bytes) -> str:
     return getattr(data, "topic", "")
 
 
-# Protobuf decoders keyed by schema name, filled from the schema records of every file read
-# through ``iter_messages``. Foxglove schema names are stable, so a decoder learned from one
-# recording serves any other.
 _PROTO_DECODERS: dict[str, Callable[[bytes], Any]] = {}
 
 
@@ -196,14 +193,7 @@ class FrameMeta:
 
 
 def decode_frame_meta(data: bytes) -> FrameMeta:
-    """``/camera/frame_meta``. ``image_stamp_ns`` is a decimal string on the wire (it is above
-    2^53); the legacy bare-number form is accepted too.
-
-    Recordings written before video moved into the MCAP carry ``svo_frame_index`` and ``svo_path``
-    instead. The index reads back as ``video_frame_index``, which is what it always was: the
-    ordinal of the frame in whatever video stream the run was writing. The path is dropped, since
-    with one file there is no second file to join to.
-    """
+    """Decode a `/camera/frame_meta` message."""
     payload = decode_json(data)
     index = payload.get("video_frame_index", payload.get("svo_frame_index", -1))
     return FrameMeta(
@@ -213,12 +203,7 @@ def decode_frame_meta(data: bytes) -> FrameMeta:
 
 
 def decode_diagnostic_array(data: bytes) -> list[dict]:
-    """One dict per diagnostic status: ``{level, name, message, hardware_id, values}``.
-
-    For a ``/diagnostics/<module>`` JSON message ``hardware_id`` is the module (from the topic),
-    ``name`` is the section key and ``values`` are typed. Held sections, which repeat values
-    logged before this message, are skipped, so each logged value is read once.
-    """
+    """One dict per diagnostic status: ``{level, name, message, hardware_id, values}``."""
     topic = topic_of(data)
     module = (
         topic[len(DIAGNOSTICS_TOPIC_PREFIX) :] if topic.startswith(DIAGNOSTICS_TOPIC_PREFIX) else ""
@@ -351,12 +336,7 @@ def iter_video_frames(path: Path | str) -> Iterator[tuple[int, np.ndarray]]:
 def iter_camera_frames(
     path: Path | str, prefer_video: bool = True
 ) -> Iterator[tuple[int, np.ndarray]]:
-    """Frames from whichever camera topic the recording carries.
-
-    A label run records ``/camera/image`` because its config clears ``ignored_topics``; an ordinary
-    match recording carries ``/camera/video`` and no JPEG at all. Tools that used to need
-    ``scripts/combine_mcap_svo.py`` to reach match frames can point straight at the recording.
-    """
+    """Frames from whichever camera topic the recording carries."""
     topics = recording_topics(path)
     if prefer_video and CAMERA_VIDEO_TOPIC in topics:
         yield from iter_video_frames(path)
@@ -780,12 +760,7 @@ def decode_log(data: bytes) -> LogMessage:
 def match_stamps(
     reference_ns: list[int], candidate_ns: list[int], tolerance_ns: int = 1_000_000
 ) -> dict[int, int]:
-    """Match each reference stamp to the nearest candidate stamp within tolerance.
-
-    Playback replays of the same SVO produce identical frame stamps, but the stamp reaches
-    different topics through different double->ns conversions, so allow a small tolerance
-    (default 1 ms; frames are >15 ms apart). Returns {reference_stamp: candidate_stamp}.
-    """
+    """Match each reference stamp to the nearest candidate stamp within tolerance."""
     matches: dict[int, int] = {}
     if not reference_ns or not candidate_ns:
         return matches

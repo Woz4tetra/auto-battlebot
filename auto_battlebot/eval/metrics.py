@@ -1,9 +1,4 @@
-"""Detection and keypoint metrics over matched GT/prediction frames.
-
-Detection metrics are frame-decomposable (recall, precision, F1, localization recall) so
-the paired bootstrap in `significance.py` can resample them. mAP is dataset-level and
-stays a point estimate. Keypoint metrics are level-independent.
-"""
+"""Detection and keypoint metrics over matched GT/prediction frames."""
 
 from __future__ import annotations
 
@@ -221,10 +216,6 @@ def keypoint_metrics_from_stats(stats: dict[str, np.ndarray]) -> dict[str, float
     if head_cnt > 0:
         metrics["kp_heading_err_deg"] = float(stats["head_err_sum"].sum()) / head_cnt
         metrics[HEADING_ACC_KEY] = float(stats["head_correct"].sum()) / head_cnt
-    # Sample sizes behind the ratios above. On an eval set where only a few classes carry
-    # keypoints these are small enough to decide whether a delta is worth believing, so
-    # they are reported next to the metric rather than left in the stats dict. Excluded
-    # from KEYPOINT_METRICS: they are counts, not scores, and are not bootstrapped.
     metrics["kp_matched_kps"] = err_cnt
     metrics["kp_matched_boxes"] = head_cnt
     return metrics

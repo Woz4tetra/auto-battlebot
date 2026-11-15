@@ -1,20 +1,4 @@
-"""Fill the unseen part of a texture warped from one photo, by reflecting what was seen.
-
-A floor or wall texture built from a single fixed camera has holes: the strip hidden behind a
-rail, the wall below the box, anything past the frame edge. A flat mean colour in there reads
-as a painted band from any other viewpoint. Reflecting the seen texture across the edge of
-the hole carries the grain, the stone pattern and the lighting gradient on into it instead.
-
-`mirror_fill` suits a narrow hole beside a large seen area (the floor strip behind a rail).
-A hole larger than what was seen, like a wall seen only in a band above a box, comes out
-kaleidoscopic from it: reflections of reflections fan out from every concave corner. There
-`largest_seen_rectangle` and `offset_tile` cover the texture with shifted, overlapping copies
-of one clean seen rectangle instead. Flipped copies would match at every seam but stack into
-mirror axes the eye picks out at once; shifted ones with blended overlaps do not.
-
-Used by `training/synthetic/build_cage_floor_texture.py` (floor albedo) and
-`playground/basement_scene/build_wall_textures.py` (wall albedo).
-"""
+"""Fill the unseen part of a texture warped from one photo, by reflecting what was seen."""
 
 from __future__ import annotations
 
@@ -89,11 +73,7 @@ def largest_seen_rectangle(seen: np.ndarray, step: int = 4) -> tuple[int, int, i
 
 
 def flatten_luminance(image: np.ndarray, sigma_px: float) -> np.ndarray:
-    """Divide out the low-frequency brightness of a BGR image, keeping its mean.
-
-    A seen patch carries the photo's lighting gradient; copies of it laid side by side would
-    show that gradient as a step at every seam.
-    """
+    """Divide out the low-frequency brightness of a BGR image, keeping its mean."""
     lab = cv2.cvtColor(image, cv2.COLOR_BGR2Lab).astype(np.float32)
     low = cv2.GaussianBlur(lab[:, :, 0], (0, 0), sigma_px)
     lab[:, :, 0] = np.clip(lab[:, :, 0] / np.maximum(low, 1.0) * float(lab[:, :, 0].mean()), 0, 255)

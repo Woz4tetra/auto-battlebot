@@ -35,8 +35,6 @@ DEFAULT_KEYPOINT_HEIGHT_M = 0.03
 
 USABLE_METHODS = ("exact", "interpolated")
 
-# The arena is an 8 ft square. The per-frame `field_size_m` is the RANSAC fit's estimate and
-# reads undersized or outright fails on some inits, so the nominal is what to draw.
 NOMINAL_FIELD_SIZE_M = 2.4384
 
 

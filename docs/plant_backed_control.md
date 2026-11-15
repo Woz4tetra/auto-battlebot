@@ -167,6 +167,138 @@ bool rather than a second copy of the number.
   its own profiles; setting `type` there makes the merge replace the whole section, so
   those profiles spell out every pursuit field rather than inheriting any.
 
+## Fit stages and plant details
+
+Notes on how the jig fit and the plant model produce the parameters used here.
+
+### `calibration/jig/jig_fit.py`
+
+Plant fitting for velocity jig sessions: loading, per-phase fits, joint fit, scoring.
+
+Split out of `fit_jig_plant.py` so the report can call the fit machinery without importing a
+command-line script. `fit_jig_plant.py` is the CLI over this module; `jig_report.py` and
+`fit_process_noise.py` import from here.
+
+The fit runs in two stages, because a cold-start joint fit over a dozen parameters will find
+a local minimum and look convincing while doing it:
+
+- **Stage A, per phase.** Each waveform is designed so one group of parameters dominates, so
+  it fits in near-closed form: deadzone staircases, gains and rise constants from steps,
+  decel from coast tails, coupling and straight-line drift from the grid, and transport delay
+  pooled from an onset stack over every command edge. It also reports per-parameter spread,
+  so a parameter that was not actually measured says so.
+
+- **Stage B, joint by simulation error.** Starting from stage A, minimize multi-step
+  open-loop prediction error over sliding windows at the horizons the filter coasts over.
+  That optimizes exactly the quantity the Kalman filter depends on, which one-step-ahead
+  fitting does not: any model missing a delay term can fake one-step accuracy.
+
+Transport delay is not smooth in the objective, so it is profiled on a grid rather than
+handed to the optimizer, which also produces a profile-likelihood curve.
+
+Runs are routed to fits by waveform kind, channel and role rather than by a fixed list of
+experiment ids, so a new excitation reaches the right fit without editing this file.
+
+#### `fit_coupling`
+
+Steer-brake and angular droop from the E13 grid.
+
+    v = k_lin * u_lin_eff * (1 - c_sb * |u_ang_eff|)
+    w = k_ang * u_ang_eff * (1 - c_ad * |u_lin_eff|)
+
+Both are regressed through the origin on fractional loss. A coefficient whose spread covers
+zero does not go in the model: three terms that are all real beat six where two are noise.
+
+Angular droop and straight-line drift both make yaw depend on the linear command, so
+a grid that only ever turns one way cannot tell them apart. They separate on turn
+symmetry: for a cell at (u_lin, +u_ang) and its mirror at (u_lin, -u_ang), droop is a
+fractional loss that flips with the turn while drift is additive and does not. The
+half-difference isolates droop; the half-sum isolates drift.
+
+#### `fit_drift`
+
+Straight-line drift: the yaw a pure forward command produces on its own.
+
+The guard plates drag asymmetrically on the floor, so the robot arcs when told to go
+straight. That friction is in every match, so it belongs in the model rather than being
+trimmed away and forgotten.
+
+Two candidate mechanisms with different shapes, fitted together and reported separately:
+
+    c_drift       a left/right gain mismatch, so yaw scales with the linear command
+    c_drift_bias  an asymmetric drag torque, so yaw is constant while sliding
+
+Both flip sign in reverse, which is why both directions are required: a forward-only fit
+cannot tell an odd function from an even one, and these two terms differ by exactly that.
+
+#### `fit_delay`
+
+Transport delay from every clean command edge in the session, pooled.
+
+Linear edges are timed against forward acceleration, angular edges against yaw acceleration.
+The physical path is shared (Crossfire link, ESC, mechanical), which is what lets both stack
+together. The peak of the averaged acceleration pulse sits at the transport delay: with a
+pure delay in front of a first-order lag, dv/dt is zero until motion starts and jumps to its
+maximum right at the delay.
+
+This estimate is only a transport delay if the clocks were aligned. On an identity clock it
+is `clock_offset + delay` and the report has to say so.
+
+#### `joint_fit`
+
+Minimize windowed open-loop error over the structure's free parameters.
+
+Soft-L1 loss so a slipped wheel or a wall bump cannot steer the parameters. This is the only
+thing standing between a bad window and the fit, so keep the capture-time verdict honest.
+Delay is fixed here and profiled outside: the objective is not smooth in it at the
+millisecond resolution that matters.
+
+`bounds` overrides `PARAM_BOUNDS` per parameter. The match fit uses it to hold gains and
+time constants inside the jig error bars widened 3x, so match data refines the jig answer
+instead of wandering to a new one on weaker excitation.
+
+#### `profile_delay`
+
+Grid search the transport delay, refitting the continuous parameters at each point.
+
+The profile curve is the deliverable, not just its minimum: a flat profile means the delay is
+not identifiable from this excitation, and that belongs in the report rather than being
+hidden behind a single number.
+
+Resolution is bounded by the analysis grid, not by `delay_grid`. On synthetic data with a
+known 45 ms delay, a 200 Hz grid puts the minimum at 50 ms and a 500 Hz grid puts it at
+44 ms, so quote the delay no finer than half a grid step.
+
+### `calibration/jig/velocity_jig.py`
+
+#### `ClockFit`
+
+Jig microseconds to host seconds, as offset plus linear skew.
+
+Cross-correlating command edges against measured acceleration only ever recovers
+`clock_offset + transport_delay`. Measuring the offset separately is what makes the fitted
+transport delay a real number instead of a number plus however far the clocks are apart.
+
+### `control/plant.py`
+
+#### `effective_command`
+
+Deadzone removal and rescale, per sign.
+
+    u_eff = 0                                  if |u| <= dz
+    u_eff = sign(u) * (|u| - dz) / (1 - dz)    otherwise
+
+The rescale keeps full command mapping to full effect, so the gain stays the max speed rather
+than becoming max speed divided by (1 - dz).
+
+#### `WindowSet`
+
+Open-loop windows cut out of one run.
+
+Each window reinitializes the model from ground truth at its start and runs open loop to each
+horizon. That is exactly what the filter does between camera corrections, so it is what the
+fit optimizes and what the noise model characterizes.
+
 ## Next steps
 
 - Field-test `MotionProfileNavigation` against `PursuitNavigation` on hardware; the deltas

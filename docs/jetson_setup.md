@@ -105,6 +105,15 @@ To start the desktop manually after logging into the CLI:
 -   Log in and try `sudo su`
 -   If no password prompt appears, these steps worked
 
+## Engine build notes
+
+### `tensorrt_build.py`
+
+#### TensorRT timing cache
+
+`save_timing_cache` in `tensorrt_build.py` is last writer wins. Concurrent builders may race
+there; the cache is advisory, and a lost update only costs the next build some re-timing.
+
 ## Increase memory security limit
 
 This increases the maximum RAM a process from a given user can use.

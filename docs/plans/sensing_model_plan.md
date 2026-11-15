@@ -524,6 +524,36 @@ Steps 1 to 4 need no new recordings.
 - **Filter changes.** Gate S2 runs through the current filter. Any change to the opponent filter
   re-runs S2, and any change to the model's spec version means an RL retrain.
 
+## Implementation notes
+
+Notes on `perception/sensing_model.py`.
+
+### `perception/sensing_model.py`
+
+#### `GAP_MIN_FRAMES`
+
+A gap in our robot's measurements starts once the last one is this many frame periods old;
+shorter waits are the normal spacing between frames and are part of the fitted EKF error.
+
+#### `DurationTable`
+
+`DurationTable` holds inverse CDFs of a state's duration, one row per context cell.
+
+`quantiles` runs from 0 to 1 inclusive, so the first and last columns are the observed minimum
+and maximum and a draw never leaves the observed range. Sampling interpolates in log duration,
+which keeps the heavy tail between p95 and p99 from being drawn as a straight line.
+
+#### `OurEkfErrorModel`
+
+`OurEkfErrorModel` renders our robot's EKF output: truth plus AR(1) error, coasting through measurement gaps.
+
+Each component of `EKF_COMPONENTS` follows
+`e_k = rho * e_{k-1} + sigma(v) * sqrt(1 - rho^2) * n`, `rho = exp(-dt / tau)`, so its
+long-run std is `sigma(v)` whatever `tau` is. Along and cross errors rotate with the true
+heading. Once the last delivered measurement is `GAP_MIN_FRAMES` frame periods old, the
+rendered pose coasts at its last forward speed and yaw rate until it is `max_coast_s` old,
+then holds and reads stale, as `KalmanMotionEstimator` does.
+
 ## Next steps
 
 1. Steps 6 and 7, which need no recordings.

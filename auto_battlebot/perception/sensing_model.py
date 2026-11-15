@@ -16,8 +16,6 @@ from auto_battlebot.compat import tomllib
 
 SPEC_VERSION = 1
 EKF_COMPONENTS = ("along", "cross", "theta", "v", "omega")
-# A gap in our robot's measurements starts once the last one is this many frame periods old;
-# shorter waits are the normal spacing between frames and are part of the fitted EKF error.
 GAP_MIN_FRAMES = 2.5
 CLOCK_EPS_S = 1e-6
 
@@ -68,12 +66,7 @@ def _range(value: Any, where: str) -> tuple[float, float]:
 
 @dataclass(frozen=True)
 class DurationTable:
-    """Inverse CDFs of a state's duration, one row per context cell.
-
-    `quantiles` runs from 0 to 1 inclusive, so the first and last columns are the observed minimum
-    and maximum and a draw never leaves the observed range. Sampling interpolates in log duration,
-    which keeps the heavy tail between p95 and p99 from being drawn as a straight line.
-    """
+    """Inverse CDFs of a state's duration, one row per context cell."""
 
     quantiles: np.ndarray
     values_s: np.ndarray
@@ -690,8 +683,6 @@ class MeasurementModel:
         scale = self.params.error_scale
         n = self._randn(self.worlds, 3)
         c, s = torch.cos(theta), torch.sin(theta)
-        # The along-track bias differs by direction of travel: on the 2026-10-15 sysid sessions
-        # it is +4 mm forward and +13 mm in reverse above 1.5 m/s.
         velocity = truth.velocity[:, r].to(self.dtype)
         reversing = velocity[:, 0] * c + velocity[:, 1] * s < 0.0
         bias_along = torch.where(reversing, sampler.bias_along_reverse[b], sampler.bias_along[b])
@@ -704,15 +695,7 @@ class MeasurementModel:
 
 
 class OurEkfErrorModel:
-    """Rendered our-robot EKF output: truth plus AR(1) error, coasting through measurement gaps.
-
-    Each component of `EKF_COMPONENTS` follows
-    `e_k = rho * e_{k-1} + sigma(v) * sqrt(1 - rho^2) * n`, `rho = exp(-dt / tau)`, so its
-    long-run std is `sigma(v)` whatever `tau` is. Along and cross errors rotate with the true
-    heading. Once the last delivered measurement is `GAP_MIN_FRAMES` frame periods old, the
-    rendered pose coasts at its last forward speed and yaw rate until it is `max_coast_s` old,
-    then holds and reads stale, as `KalmanMotionEstimator` does.
-    """
+    """Rendered our-robot EKF output: truth plus AR(1) error, coasting through measurement gaps."""
 
     def __init__(
         self,

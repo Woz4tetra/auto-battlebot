@@ -15,18 +15,7 @@ AGNOSTIC_LABEL = "robot"
 
 
 class FrameKey(NamedTuple):
-    """Which frame this is: the subdataset it came from, and its stamp.
-
-    Keying by stamp alone loses frames whenever two subdatasets number a frame the same.
-    That is the normal case for a set built from video, where every recording starts at
-    stamp 0: cage_high_x50_conf044 loaded 571 of its 636 frames, the nine recordings'
-    frame 0 collapsing into one. Sets sampled from SVO recordings carry stamps unique
-    across recordings and were never affected.
-
-    dataset is the subdataset's path relative to the GT root, "." for a single dataset.
-    stamp_ns stays available for the consumers that have to align GT against something
-    else timestamped, such as compare_cpp_python.py against a C++ MCAP.
-    """
+    """Which frame this is: the subdataset it came from, and its stamp."""
 
     dataset: str
     stamp_ns: int

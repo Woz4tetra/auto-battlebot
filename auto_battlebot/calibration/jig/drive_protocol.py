@@ -1,29 +1,4 @@
-"""Trainer link to the OpenTX/EdgeTX radio: writes commands, reads back what was sent.
-
-Mirrors the trainer protocol in `src/transmitter/opentx_transmitter.cpp`. The radio is a USB
-CDC device (VID 0x0483, PID 0x5740) primed once with `telemetry on` + `channels on`, then
-driven with `trainer <channel> <value>` at 50 Hz, value in [-500, 500].
-
-**One port, both directions.** The same serial port that accepts `trainer` writes also
-streams the radio's mixer output back once primed. Reading that back matters because
-trainer mode *adds* to the human driver's sticks: the mixer output is the command the robot
-actually received, not the one this process asked for. Two consequences:
-
-- A hand-driven run has a real command log. Without the readback it has a column of zeros
-  and is unusable for fitting.
-- A scripted run gets a contamination check. If the driver's stick is not centered, measured
-  diverges from commanded and the run can be flagged instead of quietly poisoning the fit.
-
-Commands are sent RAW. The deployed transmitter applies `DifferentialDriveProcessor`'s
-lifted and zero deadzones; this does not, because the physical deadzone is exactly what is
-being measured and pre-compensating it here would measure the compensation.
-
-SAFETY
-- The robot moves fast. Run in a clear, bounded space with guard plates on.
-- Keep the human driver's sticks centered: in trainer mode the radio ADDS stick input.
-- Zero the channels and disarm on every exit path: normal return, Ctrl-C, exception, and a
-  hard wall-clock timeout. `Armed()` is a context manager that does this.
-"""
+"""Trainer link to the OpenTX/EdgeTX radio: writes commands, reads back what was sent."""
 
 from __future__ import annotations
 
@@ -47,8 +22,6 @@ TRANSMITTER_USB_IDS = frozenset({(OPENTX_VID, OPENTX_PID)})
 TRAINER_CHANNEL_0 = 0
 TRAINER_CHANNEL_1 = 1
 
-# Radio channel-stream framing: sync, phase byte (0 = channels 1..16, 1 = 17..32), length
-# byte, 16 little-endian int16, then a checksum equal to phase ^ length ^ every data byte.
 _SYNC = bytes([0xA3, 0xA4, 0xA5])
 _CHANNELS_PER_PACKET = 16
 _NUM_CHANNELS = 32
@@ -208,12 +181,7 @@ class _ChannelDecoder:
 
 @dataclass(frozen=True)
 class Measured:
-    """One tick of the named channels, as the radio reported them.
-
-    A record rather than a tuple: this is unpacked at three call sites and the drive pair
-    reads the same as any other pair of floats, so a widening tuple is a silent reordering
-    waiting to happen.
-    """
+    """One tick of the named channels, as the radio reported them."""
 
     ch_a: float = float("nan")
     ch_b: float = float("nan")
@@ -503,13 +471,7 @@ class Armed:
 def stream_measured(
     link: TrainerLink, seconds: float, rate_hz: float = 50.0
 ) -> Iterator[CommandSample]:
-    """Ticks from the radio alone, nothing commanded.
-
-    This is how a hand-driven run gets a command log: the tool sends nothing, the operator
-    drives, and the radio reports what it sent. `linear` and `angular` stay zero because
-    nothing was asked for; the measured channels are the whole record of the run, which is
-    why the weapon pair rides along with the drive pair here.
-    """
+    """Ticks from the radio alone, nothing commanded."""
     period = 1.0 / rate_hz
     t0 = time.monotonic()
     while True:

@@ -1,32 +1,4 @@
-"""Velocity jig log reading, calibration, and dead-reckoned ground truth.
-
-The jig is an RP2040 datalogger that rides on the robot and records a wheel encoder plus an
-ISM330DHCX IMU at 1 kHz (`firmware/velocity_jig`). It writes plain text with a comment header:
-
-    # auto-battlebot velocity jig
-    # columns: t_us,count,gx,gy,gz,ax,ay,az  (raw int16 imu)
-    # encoder: quadrature x4 (constant column if unplugged)
-    # sample_rate_hz=1000 gyro_dps_per_lsb=0.070 accel_g_per_lsb=0.000244
-
-Everything here turns those raw counts into the ground truth the plant fit consumes: yaw rate
-about the measured gravity axis, forward speed from encoder arc length with the encoder wheel's
-lever arm removed, and a dead-reckoned pose. It also carries the two things a log alone cannot
-tell you: which host clock a sample belongs to (`ClockFit`), and which run it came from
-(`load_session_dir`, reading the sidecar TOML that `velocity_jig_drive.py` writes next to
-every downloaded log).
-
-Two failure modes get flagged rather than silently absorbed, because stage 2 shipped
-parameters from silently degraded ground truth:
-
-- Saturated gyro channels (`|raw| > 32000`), per axis, per run. This one disqualifies a run:
-  a railed yaw axis makes the heading integral wrong from that sample on.
-- Clipped accelerometer channels, past `ACCEL_SATURATION_G`. Reported, never gated. Nothing
-  in the plant model reads acceleration, so a clip marks an impact worth looking at rather
-  than data the fit would be wrong to use.
-- Gyro bias drift between the pre-run and post-run still holds.
-
-See `docs/experiments/kalman_filter/kalman_filter_plan.md` part 1.2 and the companion runbook.
-"""
+"""Velocity jig log reading, calibration, and dead-reckoned ground truth."""
 
 from __future__ import annotations
 
@@ -42,8 +14,6 @@ from auto_battlebot.compat import tomllib
 G_MPS2 = 9.80665
 DEG_TO_RAD = np.pi / 180.0
 
-# int16 full scale is 32767. Anything at or past this is either clipped or one LSB away from it,
-# and a clipped channel biases every fit downstream of it.
 RAW_SATURATION = 32000
 
 # Accelerometer gate, in g rather than raw counts. A raw threshold means a different physical
@@ -67,8 +37,6 @@ WAVEFORM_KINDS = (
     "manual",
 )
 CHANNELS = ("linear", "angular", "combined")
-# Whether a run trains the fit or validates it. Declared per waveform rather than derived,
-# so a holdout stays a holdout even if someone later reuses the same excitation for fitting.
 ROLES = ("fit", "holdout")
 
 # Sidecar metadata format. Checked on load: reading a future file as if it were this
@@ -161,16 +129,8 @@ class JigLog:
         return bool(len(self.count) and self.count.max() != self.count.min())
 
     def saturation(self, keep: np.ndarray | None = None) -> list[AxisSaturation]:
-        """Per-axis saturation report, gyro first then accel.
-
-        `keep` restricts the report to the samples that describe the plant. Handling the
-        robot at an operator pause clips the accel for a sample or two, which says nothing
-        about the run, so callers that know where the pauses were mask them out.
-        """
+        """Per-axis saturation report, gyro first then accel."""
         out: list[AxisSaturation] = []
-        # The gyro keeps the raw rail test. Its ranges are chosen to sit just above the spin
-        # rates being measured, so "near full scale" is the whole question there. The accel
-        # runs wide of anything commanded, so what matters is the physical number.
         limits = (
             ("g", self.gyro_raw, RAW_SATURATION),
             ("a", self.accel_raw, self.header.accel_raw_limit),
@@ -252,8 +212,6 @@ def read_jig_log(path: Path | str) -> JigLog:
 
     data = np.array(rows, dtype=np.int64)
     header = _parse_header(header_lines)
-    # time_us_64() wraps after 584,000 years, so a decreasing timestamp means a corrupt row, not
-    # a rollover. Keep the monotone prefix and count the rest as malformed.
     good = np.concatenate([[True], np.diff(data[:, 0]) > 0])
     interior_bad = int(np.count_nonzero(~good))
     malformed += interior_bad
@@ -317,17 +275,7 @@ def _runs(mask: np.ndarray) -> list[tuple[int, int]]:
 
 
 def _bridge_blips(mask: np.ndarray, max_run: int) -> np.ndarray:
-    """Fill False runs no longer than `max_run`, leaving longer ones alone.
-
-    A held segment is one contiguous run, so without this a single sample over threshold
-    splits a 5 s hold into two 2.5 s halves and neither clears `min_duration`. That is not a
-    hypothetical: LOG-143's pre-hold peaked at 2.01 dps against the 2.0 bar with the encoder
-    dead still and gravity flat to 0.5%, and it was thrown out, while LOG-115 peaked at 1.90
-    and passed. The two are the same physical state.
-
-    Real motion lasts far longer than this window. A blip is a footfall on the floor, a bump
-    of the bench, or the sensor's own tail.
-    """
+    """Fill False runs no longer than `max_run`, leaving longer ones alone."""
     if max_run < 1 or mask.all() or not mask.any():
         return np.asarray(mask, dtype=bool)
     out = mask.copy()
@@ -350,17 +298,7 @@ def find_still_segments(
     accel_tol_g: float = 0.05,
     max_blip_s: float = 0.05,
 ) -> list[StillSegment]:
-    """Find stationary stretches at least `min_duration` long.
-
-    Stillness is tested three ways because each alone has a blind spot. The gyro catches
-    rotation. The accelerometer magnitude near 1 g catches acceleration but says nothing about
-    constant speed, so a robot cruising in a straight line looks perfectly still to it. The
-    encoder closes that hole, which matters because the deadzone staircases spend their first
-    several seconds barely moving and would otherwise get absorbed into the opening still hold.
-
-    The thresholds are loose on purpose. A hold that is not actually still shows up later as bias
-    disagreement between the pre and post holds.
-    """
+    """Find stationary stretches at least `min_duration` long."""
     gyro_dps = np.linalg.norm(log.gyro_raw.astype(float), axis=1) * log.header.gyro_dps_per_lsb
     accel_g = np.linalg.norm(log.accel_raw.astype(float), axis=1) * log.header.accel_g_per_lsb
     still = (gyro_dps < gyro_thresh_dps) & (np.abs(accel_g - 1.0) < accel_tol_g)
@@ -382,14 +320,7 @@ def find_still_segments(
 
 
 def still_stats(log: JigLog, seg: StillSegment) -> StillStats:
-    """Gyro bias and the gravity ("up") unit vector over one still hold.
-
-    The yaw axis comes from gravity rather than from a note about how the jig is bolted on. The
-    accelerometer measures specific force, so at rest it reads +1 g on whichever axis points up,
-    and the ISM330DHCX puts gyro and accel on one right-handed triad. That makes positive yaw
-    counter-clockwise viewed from above with no further assumption, and it survives a tilted
-    remount that no single gyro axis would.
-    """
+    """Gyro bias and the gravity ("up") unit vector over one still hold."""
     sl = seg.as_slice()
     gyro = log.gyro[sl]
     accel = log.accel[sl]
@@ -413,13 +344,7 @@ def bias_drift_dps(pre: StillStats, post: StillStats, up: np.ndarray | None = No
 
 @dataclass(frozen=True)
 class JigCalibration:
-    """Bench calibration from runbook block 0, one set per hardware configuration.
-
-    `meters_per_count` (E4) and `gyro_scale` (E3) set the units of every fitted parameter.
-    `r_enc_perp` (E5) is the encoder wheel's lever arm, removed from every speed measurement,
-    which is what makes combined linear-plus-angular runs usable instead of discarded. `r_imu` is
-    kept for the report and for E5's own sanity check against a tape measure.
-    """
+    """Bench calibration from runbook block 0, one set per hardware configuration."""
 
     meters_per_count: float
     gyro_scale: float = 1.0
@@ -475,14 +400,7 @@ r_imu = 0.0               # E5, lateral accel vs yaw rate squared slope, meters
 
 @dataclass(frozen=True)
 class ClockProbe:
-    """One `TIME` probe burst, as `velocity_jig_drive.py` records it.
-
-    The probe sends `TIME` many times, keeps the fastest decile by round trip, and reports
-    the median host-minus-jig offset with the RMS about that median as `residual_ms`. Only
-    the fastest probes are kept because USB Full Speed polls in 1 ms frames: most of the
-    spread is host scheduling, and the fastest round trips are the ones whose transport was
-    most nearly symmetric.
-    """
+    """One `TIME` probe burst, as `velocity_jig_drive.py` records it."""
 
     offset_ms: float  # host minus jig
     residual_ms: float
@@ -517,12 +435,7 @@ class ClockProbe:
 
 @dataclass(frozen=True)
 class ClockFit:
-    """Jig microseconds to host seconds, as offset plus linear skew.
-
-    Cross-correlating command edges against measured acceleration only ever recovers
-    `clock_offset + transport_delay`. Measuring the offset separately is what makes the fitted
-    transport delay a real number instead of a number plus however far the clocks are apart.
-    """
+    """Jig microseconds to host seconds, as offset plus linear skew."""
 
     offset_ms: float
     skew_ppm: float = 0.0
@@ -595,13 +508,7 @@ class ProtocolSegment:
 
 @dataclass(frozen=True)
 class PauseWindow:
-    """One operator stop, in host seconds.
-
-    The robot is picked up, walked back to its mark and set down inside this window, so the
-    motion there is the operator's rather than the plant's. Every gate and every duration
-    that describes the run has to skip it: setting the robot down clips the accelerometer,
-    and counting the wait as commanded time makes a 17 s excitation look like 54 s.
-    """
+    """One operator stop, in host seconds."""
 
     t_start: float
     t_end: float
@@ -660,13 +567,7 @@ def overlaps_pause(window: np.ndarray, pauses: Sequence[PauseWindow]) -> bool:
 
 @dataclass(frozen=True)
 class WaveformSpec:
-    """What a run played, in the terms the fit routes on.
-
-    This replaces the runbook experiment id. A fit that keys on "E8" needs editing every
-    time a new excitation is worth trying; a fit that keys on "a step on the linear
-    channel" does not. `params` is the catalog entry verbatim, which is what lets the
-    report say that an amplitude was declared but never actually reached.
-    """
+    """What a run played, in the terms the fit routes on."""
 
     name: str
     kind: str
@@ -781,9 +682,6 @@ class RunRecord:
     command_source: str = "commanded"
     cmd_lin_requested: np.ndarray | None = None
     cmd_ang_requested: np.ndarray | None = None
-    # The two drive channels exactly as the radio reported them. This is the measurement;
-    # cmd_lin/cmd_ang are these read through a mix, so a mix set wrong can be corrected from
-    # these without re-recording.
     meas_ch_a: np.ndarray | None = None
     meas_ch_b: np.ndarray | None = None
     provenance: dict[str, Any] = field(default_factory=dict)
@@ -911,12 +809,7 @@ def _hold_window(data: dict[str, Any] | None) -> tuple[float, float] | None:
 
 
 def _pause_windows(entries: list[dict[str, Any]], cmd_t: np.ndarray) -> list[PauseWindow]:
-    """Pause windows from the sidecar, or reconstructed from the command stream.
-
-    Sidecars written before the host windows were recorded carry only the program time and
-    the seconds held, neither of which places the pause on the log. The command gaps do, and
-    they are the same measurement the runner would have written.
-    """
+    """Pause windows from the sidecar, or reconstructed from the command stream."""
     if not entries:
         return []
     parsed = [PauseWindow.from_toml(entry) for entry in entries]
@@ -937,13 +830,7 @@ def load_run_record(
     *,
     commands: str = "measured",
 ) -> RunRecord:
-    """Read one sidecar TOML and its command CSV.
-
-    `commands` picks which stream the fit sees. "measured" is the radio's own report, which
-    is what the robot actually received and the right default. "requested" is what the tool
-    asked for, and is the escape hatch for a run whose readback was mis-decoded: a wrong mix
-    or channel sign corrupts the measured stream while leaving the requested one exact.
-    """
+    """Read one sidecar TOML and its command CSV."""
     toml_path = Path(toml_path)
     with open(toml_path, "rb") as handle:
         data = tomllib.load(handle)
@@ -1090,11 +977,7 @@ def _moving_average(a: np.ndarray, window: int) -> np.ndarray:
 
 @dataclass
 class GroundTruth:
-    """Dead-reckoned truth for one run, on the jig's 1 kHz sample grid.
-
-    Heading drift dominates position drift, so this is trustworthy over the 500 ms windows the
-    plant fit uses and not over a whole 30 s run. Validation is windowed for exactly that reason.
-    """
+    """Dead-reckoned truth for one run, on the jig's 1 kHz sample grid."""
 
     t: np.ndarray  # host seconds if a ClockFit was supplied, else jig seconds
     v: np.ndarray  # body forward speed, m/s
@@ -1130,22 +1013,7 @@ def solve_ground_truth(
     smooth_s: float = 0.02,
     onset_smooth_s: float = 0.005,
 ) -> GroundTruth:
-    """Unicycle dead reckoning from encoder arc length and gyro yaw.
-
-        w(t)     = (gyro(t) . up - bias . up) * gyro_scale
-        theta(t) = theta_0 + integral w dt              (trapezoidal, at the log rate)
-        ds(t)    = (count(t) - count(t-1)) * meters_per_count
-        v(t)     = ds/dt - w(t) * r_enc_perp            (encoder lever arm removed)
-        p(t)     = p_0 + integral [v cos(theta), v sin(theta)] dt
-
-    Bias is taken from the pre-run still hold and, when a post-run hold is given, ramped linearly
-    to it across the run. A linear ramp is the right shape for thermal drift and it removes the
-    part of the heading error that a single-point bias leaves behind.
-
-    Encoder speed is smoothed over `smooth_s` before use. Differentiating a quantized count at
-    1 kHz otherwise produces a square wave whose amplitude is meters_per_count / dt, which is
-    much larger than the speeds being fit.
-    """
+    """Unicycle dead reckoning from encoder arc length and gyro yaw."""
     n = len(log.t)
     up = still_pre.up if still_pre is not None else np.array([0.0, 0.0, 1.0])
     bias = still_pre.bias if still_pre is not None else np.zeros(3)
@@ -1226,13 +1094,6 @@ class RunQuality:
     encoder_valid: bool
     saturated_samples: int = 0
     malformed_tail: int = 0
-    # Set per run in the sidecar. The post hold exists to bracket gyro bias drift, and
-    # without it `solve_ground_truth` holds the pre-hold bias constant instead of ramping it.
-    # Measured on this board that is worth very little: rate random walk is 1.862e-4
-    # deg/s/sqrt(s) (E2, LOG-97), so 60 s of run moves the bias about 1.4e-3 deg/s and leaves
-    # roughly 0.04 deg of heading error. Even the worst drift seen across 33 two-hold runs,
-    # 0.0155 deg/s, is only about 0.5 deg over 60 s. Waive it when a run is worth more than
-    # that, and never on a run whose still holds failed because the robot was being handled.
     still_holds_waived: bool = False
     accel_clip_axes: list[str] = field(default_factory=list)
     accel_clip_samples: int = 0
@@ -1246,14 +1107,6 @@ class RunQuality:
     def problems(
         self,
         max_bias_drift_dps: float = 0.05,
-        # Gyro only, and zero tolerance. A railed yaw axis is unrecoverable: the true rate is
-        # unknown, so the heading integral past that sample is wrong and stays wrong.
-        #
-        # The accelerometer used to gate here too and no longer does. It cost more runs than
-        # it saved, and it discarded them for the procedure rather than for the data: on
-        # 2026-08-22 the clip that discarded LOG-108 landed 1.29 s before the first command
-        # (unplugging the USB cable) and the one that discarded LOG-110 landed 18.8 s after
-        # the last (picking the robot up to plug it back in). See `accel_clip_samples`.
         max_saturation: float = 0.0,
         max_clock_residual_ms: float = 2.0,
         min_commanded_s: float = 1.0,
@@ -1293,12 +1146,7 @@ class RunQuality:
         return out
 
     def notices(self) -> list[str]:
-        """Things worth looking at that do not disqualify the run.
-
-        Separate from `problems` on purpose. A reason to open the plot is not a reason to
-        throw the recording away, and folding the two together is what made an unplugged
-        cable look identical to a wall strike.
-        """
+        """Things worth looking at that do not disqualify the run."""
         out: list[str] = []
         if self.still_holds_waived and (
             self.still_holds < 2 or max(self.hold_pre_gap_s, self.hold_post_gap_s) > 0.5
@@ -1319,12 +1167,7 @@ class RunQuality:
 
 @dataclass
 class Run:
-    """One run resampled onto a uniform grid, with commands aligned to it.
-
-    Fits should not depend on the log rate, and the command log is asynchronous, so both get put
-    on one grid here. Everything downstream (per-phase fits, window prediction, residuals) reads
-    these arrays and nothing else.
-    """
+    """One run resampled onto a uniform grid, with commands aligned to it."""
 
     record: RunRecord
     quality: RunQuality
@@ -1397,17 +1240,7 @@ def _hold_uncovered_s(
     stills: Sequence[StillSegment],
     clock: ClockFit,
 ) -> float:
-    """Seconds of a commanded still hold that the log does not show as still.
-
-    Overlap, not edge alignment. The jig starts recording when the operator presses A, which
-    is before the CLI starts its hold countdown, so the detected still segment routinely
-    begins earlier than the commanded one and ends later. An edge comparison reads that
-    normal offset as a fault.
-
-    What actually matters is whether the robot was motionless for the window the fit will
-    take its gyro bias from. A commanded hold that the log shows as moving means the jig was
-    not recording when the CLI thought it was, and every downstream alignment is off.
-    """
+    """Seconds of a commanded still hold that the log does not show as still."""
     if commanded is None:
         return 0.0
     lo, hi = commanded
@@ -1443,11 +1276,7 @@ def load_run(
     fit_hz: float = 200.0,
     smooth_s: float = 0.02,
 ) -> Run:
-    """Read a run's log, solve ground truth, and resample it with its commands onto one grid.
-
-    `fit_hz` of 200 keeps five samples per 10 ms and is far above the 2.7 Hz corner of the plant,
-    while cutting the 1 kHz log down to something a windowed simulation fit can iterate over.
-    """
+    """Read a run's log, solve ground truth, and resample it with its commands onto one grid."""
     if not record.log_file:
         raise ValueError(f"run {record.run_id} has no log file recorded")
     log = read_jig_log(Path(log_dir) / record.log_file)

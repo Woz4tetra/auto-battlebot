@@ -1,22 +1,4 @@
-"""Read ZED ``.svo2`` recordings without the ZED SDK.
-
-A ``.svo2`` file is an MCAP container written by ``libmcap stereolabs``:
-
-  * ``<camera>/side_by_side`` (``zed_sdk_encoded``): one message per frame, an
-    8-byte length prefix followed by an Annex-B H.264 access unit holding the
-    ``[left | right]`` stereo pair. The message ``log_time`` is the camera
-    frame timestamp in epoch nanoseconds.
-  * ``<camera>/sensors`` and ``<camera>/integrated_sensors`` (JSON): IMU and
-    friends, carried as an opaque base64 blob that only the SDK decodes.
-  * ``svo_header`` / ``svo_footer`` (JSON): calibration, and an index listing
-    every message timestamp per topic. Both carry a ``log_time`` unrelated to
-    the recording's own timeline, so never take the time range from the MCAP
-    summary statistics.
-
-Depth is not available through this path: the SDK computes it on the device
-and it is not stored in the recording. Use ``training/svo_export.py`` (pyzed)
-if you need the depth channel.
-"""
+"""Read ZED ``.svo2`` recordings without the ZED SDK."""
 
 from __future__ import annotations
 
@@ -34,8 +16,6 @@ from auto_battlebot.recording.mcap_io import iter_messages
 SIDE_BY_SIDE_SUFFIX = "/side_by_side"
 FOOTER_TOPIC = "svo_footer"
 
-# Each side_by_side payload is two 4-byte little-endian sizes followed by the
-# Annex-B stream, which always opens on a 4-byte start code.
 _PAYLOAD_HEADER_BYTES = 8
 _ANNEX_B_START_CODE = b"\x00\x00\x00\x01"
 

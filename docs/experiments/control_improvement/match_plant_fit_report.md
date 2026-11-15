@@ -247,6 +247,113 @@ gap, the rest is gains, lag, and drift.
   to ~22 Hz in the worst stretches; single-frame holes are interpolated.
 - 22 matched pairs on 11-45-05 is a thin floor estimate for that fight.
 
+## Match window loader
+
+Notes on `calibration/match/match_windows.py`, which turns an NHRL recording into scoring windows for this fit.
+
+### `calibration/match/match_windows.py`
+
+Match-driving window loader for the plant fit.
+
+Joins regenerated replay poses to the original transmitted commands for one NHRL
+recording, resamples both onto the SVO frame grid, and cuts open-loop scoring
+windows with `auto_battlebot.control.plant.make_windows`. The sibling of the jig loader
+in `jig_fit.py`: same window machinery, different excitation source (match
+driving instead of jig protocols).
+
+The join (docs/experiments/control_improvement/match_plant_fit_plan.md step 2):
+
+1. Replay mcap `/camera/frame_meta` carries `video_frame_index` and the raw
+   original-clock `image_stamp_ns` per tick, so the SVO frame index is the join
+   key and the grid at once. No timestamp matching against the SVO file is
+   needed; `image_stamp_ns` never went through the replay's stamp rebase.
+2. `/robot_markers` (ns `robot_bounds`) in the same replay mcap carries the
+   field-frame pose per tick. Ticks are associated to frame_meta by log order
+   (markers follow their frame_meta within 0.4 ms) and the association is
+   verified through the constant rebase offset between the marker header stamp
+   and `image_stamp_ns`.
+3. The original mcap `/diagnostics` `opentx_transmitter` `channels` entries are
+   the transmitted command, already on the original clock.
+
+Command normalization matches the jig fit so the stage A seed stays on one
+scale: channels divided by 1024 full scale, tank inverse mix with channel B
+inverted, angular negated (`drive_protocol.MixConfig` defaults, verified
+against this data: positive angular tracks positive yaw rate, positive linear
+tracks forward motion; join validation 2026-09-01).
+
+#### `AUTO_SWITCH_VALUE`
+
+The auto switch reads back 1024 when autonomy is enabled. Only then does the
+radio mix the logged channels into what the robot receives; manual segments
+are excluded from windows entirely (plan step 3).
+
+#### `CHANNEL_SCALE`
+
+The radio channel readback stream is 1024 at full scale, the same as
+`auto_battlebot.calibration.jig.drive_protocol.MixConfig.channel_scale`. (ch0 - ch1) spans
+2 * 1024 at full stick.
+
+#### Contact gates
+
+A window overlapping any gated sample is dropped. Contact windows are not fit material (the
+impact model comes later, not in this fit).
+
+- `WALL_MARGIN_M`: a robot center this close to the occupancy hull counts as wall contact.
+- Center-to-center distance below the robot-robot threshold means the robots are plausibly touching.
+- Finite-difference acceleration beyond what k_fwd/tau can produce (m/s^2, rad/s^2) means an
+  impact or a perception glitch. Stage A gives k_fwd/tau_lin_a of about 33 m/s^2 and
+  k_ang/tau_ang_a of about 182 rad/s^2. The thresholds sit above those plus the pose-noise
+  floor of the 30 Hz double difference.
+
+#### `load_replay_track`
+
+The marker-to-frame_meta stamp association is verified within 1 ms. Measured offsets were 100 ns on clean runs.
+
+#### `MatchRun`
+
+One recording resampled onto its SVO frame grid, jig-Run-shaped.
+
+The grid index is the SVO frame index shifted to zero, so the grid is exact
+by construction: no accumulated drift, and a dropped exporter frame is a
+hole in `pose_valid` rather than a timing error.
+
+#### `_fill_grid`
+
+Place per-frame samples onto a uniform time grid.
+
+The SVO frame index is NOT the grid: the original camera occasionally
+missed a grab, so consecutive indices can sit two frame intervals apart
+(the 17-42-20 recording has ~1% of intervals at 67 ms). Slots are assigned
+by cumulative rounding of the stamp differences, so a missed grab leaves an
+empty slot instead of shearing everything after it; per-frame jitter is
+about a millisecond against a 16 ms rounding margin.
+
+Refine dt by least squares of stamp against slot, centered so the fit is
+well conditioned, then re-assign. One pass converges: the refinement is
+well under the rounding margin.
+
+#### `build_match_run`
+
+Single-slot holes between two live frames are camera grab drops, not
+perception dropouts: the original pipeline missed ~25% of grabs on this
+data, so a strict continuity rule keeps no window at all. The pose is
+interpolated across exactly one missing slot (chord error under 6 mm at
+1 m/s and 10 rad/s, below the per-frame pose noise); longer holes and
+true perception dropouts still split windows.
+
+Walls come from the pose occupancy hull, not the field
+marker: the field frame is not guaranteed centered, and the 17-42-24
+replay's single field detection reports a nonsense 2.6 x 0.8 m box. The
+robot bumps every wall over a match, so the occupancy extremes ARE the
+wall positions for the robot center.
+
+#### `split_run`
+
+Split a run at a time fraction into contiguous (head, tail) runs.
+
+Contiguous, not random: the holdout must not interleave the training data
+or the two sets share every slow-varying condition (battery, floor spot).
+
 ## Next steps
 
 1. Offer `plant_match.toml` (minus `delay_s`) as the EKF plant-slot candidate

@@ -1,29 +1,4 @@
-"""Plant fitting for velocity jig sessions: loading, per-phase fits, joint fit, scoring.
-
-Split out of `fit_jig_plant.py` so the report can call the fit machinery without importing a
-command-line script. `fit_jig_plant.py` is the CLI over this module; `jig_report.py` and
-`fit_process_noise.py` import from here.
-
-The fit runs in two stages, because a cold-start joint fit over a dozen parameters will find
-a local minimum and look convincing while doing it:
-
-- **Stage A, per phase.** Each waveform is designed so one group of parameters dominates, so
-  it fits in near-closed form: deadzone staircases, gains and rise constants from steps,
-  decel from coast tails, coupling and straight-line drift from the grid, and transport delay
-  pooled from an onset stack over every command edge. It also reports per-parameter spread,
-  so a parameter that was not actually measured says so.
-
-- **Stage B, joint by simulation error.** Starting from stage A, minimize multi-step
-  open-loop prediction error over sliding windows at the horizons the filter coasts over.
-  That optimizes exactly the quantity the Kalman filter depends on, which one-step-ahead
-  fitting does not: any model missing a delay term can fake one-step accuracy.
-
-Transport delay is not smooth in the objective, so it is profiled on a grid rather than
-handed to the optimizer, which also produces a profile-likelihood curve.
-
-Runs are routed to fits by waveform kind, channel and role rather than by a fixed list of
-experiment ids, so a new excitation reaches the right fit without editing this file.
-"""
+"""Plant fitting for velocity jig sessions: loading, per-phase fits, joint fit, scoring."""
 
 from __future__ import annotations
 
@@ -65,10 +40,6 @@ MIN_HOLD_S = 0.4  # shortest command hold worth fitting a steady state to
 # exact, so a combined grid run cannot leak into a pure-linear gain fit.
 DEADZONE_KINDS = ("staircase",)
 STEP_KINDS = ("step",)
-# Kinds that return the channel to zero mid-run, which is where a decay constant is read.
-# A dedicated `coast` waveform is the one to add when a decel constant comes back weak;
-# before this routing existed, angular decay could only come from the drops at the end of
-# angular steps.
 COAST_KINDS = ("step", "coast")
 GRID_KINDS = ("grid",)
 DRIFT_KINDS = ("step", "staircase", "coast", "trim")
@@ -230,15 +201,7 @@ def _rise_tau(mv: np.ndarray, v_ss: float, dt: float, eps: float) -> float:
 
 
 def held_segments(run: Run, channel: str, min_level: float = 0.0) -> list[HeldSegment]:
-    """Every contiguous stretch where this channel held a constant nonzero command.
-
-    `min_level` drops cells commanded below it. The default keeps everything, because the
-    deadzone staircase depends on rungs down at 0.001 and must see them. Gain and rise fits
-    want a floor: the radio's trainer range is 1000 steps, so a rest cell reads back at up to
-    0.002 rather than 0.000, and those rest cells were being collected as held segments in
-    their own right. On LOG-121 that was eight of the run's sixteen, each contributing a
-    `nan` rise constant and inflating the reported segment count with nothing.
-    """
+    """Every contiguous stretch where this channel held a constant nonzero command."""
     cmd, vel = _channel(run, channel)
     other = run.cmd_ang if channel == "lin" else run.cmd_lin
     eps = _eps(run, channel)
@@ -326,18 +289,7 @@ class Estimate:
 
 
 def _pool(values: Sequence[float]) -> Estimate:
-    """Median of the usable segment values, with a spread that survives one bad segment.
-
-    The value was always the median, which is robust. The spread was `np.std` over the same
-    list, which is not, so a single wild segment reported a parameter as unmeasured while the
-    median sat on the right answer. `tau_ang_a` came back 0.1834 +/- 1.211 with fifteen
-    segments inside 0.10-0.24 and three at 0.36, 1.16 and 5.43 -- all three from the two
-    lowest reverse amplitudes, where the rise band is only a handful of samples wide and a
-    log-linear fit through its tail returns whatever it likes.
-
-    Tukey fences cut those, and the note carries both the outliers and the segments that
-    never produced a number, so a thin pool is visible rather than hidden behind `n`.
-    """
+    """Median of the usable segment values, with a spread that survives one bad segment."""
     seen = len(values)
     vals = np.array([v for v in values if np.isfinite(v)], dtype=float)
     if len(vals) == 0:
@@ -360,13 +312,7 @@ def _pool(values: Sequence[float]) -> Estimate:
 
 
 def fit_deadzone(runs: Sequence[Run], channel: str, sign: float) -> Estimate:
-    """Deadzone from the staircase: the command level where motion first clears the noise.
-
-    The test is on the median velocity over a 1.5 s hold, so the threshold is 5 sigma of the
-    stationary noise divided by sqrt(N), not 5 sigma of a single sample. Stage 2 reported 0.04
-    because that was the smallest level tested; the staircase starts at 0.01 so the answer is no
-    longer floored by the protocol.
-    """
+    """Deadzone from the staircase: the command level where motion first clears the noise."""
     levels: dict[float, tuple[float, int]] = {}
     noise: list[float] = []
     for run in runs:
@@ -468,24 +414,12 @@ def _steer_brake_points(
 def fit_coupling(
     runs: Sequence[Run], p: PlantParams
 ) -> tuple[Estimate, Estimate, list[tuple[float, float, float, float, float]]]:
-    """Steer-brake and angular droop from the E13 grid.
-
-        v = k_lin * u_lin_eff * (1 - c_sb * |u_ang_eff|)
-        w = k_ang * u_ang_eff * (1 - c_ad * |u_lin_eff|)
-
-    Both are regressed through the origin on fractional loss. A coefficient whose spread covers
-    zero does not go in the model: three terms that are all real beat six where two are noise.
-    """
+    """Steer-brake and angular droop from the E13 grid."""
     cells = _coupling_cells(runs, p)
     sb_x, sb_y = _steer_brake_points(cells, p)
     ad_x: list[float] = []
     ad_y: list[float] = []
 
-    # Angular droop and straight-line drift both make yaw depend on the linear command, so
-    # a grid that only ever turns one way cannot tell them apart. They separate on turn
-    # symmetry: for a cell at (u_lin, +u_ang) and its mirror at (u_lin, -u_ang), droop is a
-    # fractional loss that flips with the turn while drift is additive and does not. The
-    # half-difference isolates droop; the half-sum isolates drift.
     pairs = _mirror_pairs(cells)
     for lin_eff, ang_mag, w_pos, w_neg in pairs:
         w0 = p.k_ang * ang_mag
@@ -562,20 +496,7 @@ def _mirror_pairs(
 
 
 def fit_drift(runs: Sequence[Run], p: PlantParams) -> tuple[Estimate, Estimate, list]:
-    """Straight-line drift: the yaw a pure forward command produces on its own.
-
-    The guard plates drag asymmetrically on the floor, so the robot arcs when told to go
-    straight. That friction is in every match, so it belongs in the model rather than being
-    trimmed away and forgotten.
-
-    Two candidate mechanisms with different shapes, fitted together and reported separately:
-
-        c_drift       a left/right gain mismatch, so yaw scales with the linear command
-        c_drift_bias  an asymmetric drag torque, so yaw is constant while sliding
-
-    Both flip sign in reverse, which is why both directions are required: a forward-only fit
-    cannot tell an odd function from an even one, and these two terms differ by exactly that.
-    """
+    """Straight-line drift: the yaw a pure forward command produces on its own."""
     points: list[tuple[float, float]] = []  # (u_lin_eff, w_ss)
     for run in runs:
         for seg in held_segments(run, "lin"):
@@ -599,8 +520,6 @@ def fit_drift(runs: Sequence[Run], p: PlantParams) -> tuple[Estimate, Estimate, 
         note = "only one direction driven, so drift and drift bias are not separable"
         return Estimate(float("nan"), note=note), Estimate(float("nan"), note=note), points
 
-    # Both columns at once. Fitting them one at a time would let the first absorb the second,
-    # which is the same trap the mirrored-cell decomposition avoids for droop.
     design = np.stack([x, np.sign(x)], axis=1)
     coeff, *_ = np.linalg.lstsq(design, y, rcond=None)
     resid = y - design @ coeff
@@ -632,17 +551,7 @@ class DelayStack:
 
 
 def fit_delay(runs: Sequence[Run]) -> DelayStack:
-    """Transport delay from every clean command edge in the session, pooled.
-
-    Linear edges are timed against forward acceleration, angular edges against yaw acceleration.
-    The physical path is shared (Crossfire link, ESC, mechanical), which is what lets both stack
-    together. The peak of the averaged acceleration pulse sits at the transport delay: with a
-    pure delay in front of a first-order lag, dv/dt is zero until motion starts and jumps to its
-    maximum right at the delay.
-
-    This estimate is only a transport delay if the clocks were aligned. On an identity clock it
-    is `clock_offset + delay` and the report has to say so.
-    """
+    """Transport delay from every clean command edge in the session, pooled."""
     dt = runs[0].dt if runs else 0.005
     pre = 4
     max_lag = max(5, int(round(0.24 / dt)))
@@ -832,16 +741,7 @@ def build_windows(
     max_windows: int,
     require_encoder: bool = True,
 ) -> WindowSet | None:
-    """Cut windows out of every run and stack them into one batch.
-
-    Runs with a detached encoder carry no linear truth, so they are excluded from the position
-    objective. Their heading is still measured, which is what makes the angular parameters
-    fittable at rates the encoder cannot survive; `require_encoder=False` builds that set.
-
-    A window needs a known command for every sample it spans. That rules out the still holds at
-    both ends of every run and rules out an operator-driven run whose sticks were never logged:
-    with no command, the model predicts a robot that never moves and the residual is pure truth.
-    """
+    """Cut windows out of every run and stack them into one batch."""
     sets = []
     for index, run in enumerate(runs):
         if require_encoder and not run.encoder_valid:
@@ -905,17 +805,7 @@ def joint_fit(
     max_nfev: int | None = None,
     bounds: dict[str, tuple[float, float]] | None = None,
 ) -> tuple[PlantParams, float]:
-    """Minimize windowed open-loop error over the structure's free parameters.
-
-    Soft-L1 loss so a slipped wheel or a wall bump cannot steer the parameters. This is the only
-    thing standing between a bad window and the fit, so keep the capture-time verdict honest.
-    Delay is fixed here and profiled outside: the objective is not smooth in it at the
-    millisecond resolution that matters.
-
-    `bounds` overrides `PARAM_BOUNDS` per parameter. The match fit uses it to hold gains and
-    time constants inside the jig error bars widened 3x, so match data refines the jig answer
-    instead of wandering to a new one on weaker excitation.
-    """
+    """Minimize windowed open-loop error over the structure's free parameters."""
     names = structure.free_names()
     x0 = start.to_vector(names)
     table = {**PARAM_BOUNDS, **(bounds or {})}
@@ -960,16 +850,7 @@ def profile_delay(
     delay_grid: np.ndarray,
     max_nfev: int,
 ) -> DelayProfile:
-    """Grid search the transport delay, refitting the continuous parameters at each point.
-
-    The profile curve is the deliverable, not just its minimum: a flat profile means the delay is
-    not identifiable from this excitation, and that belongs in the report rather than being
-    hidden behind a single number.
-
-    Resolution is bounded by the analysis grid, not by `delay_grid`. On synthetic data with a
-    known 45 ms delay, a 200 Hz grid puts the minimum at 50 ms and a 500 Hz grid puts it at
-    44 ms, so quote the delay no finer than half a grid step.
-    """
+    """Grid search the transport delay, refitting the continuous parameters at each point."""
     costs = []
     fits = []
     for delay in delay_grid:
@@ -1031,11 +912,7 @@ def print_horizon_table(title: str, report: HorizonReport) -> None:
 
 
 def residual_autocorrelation(err: WindowErrors, lag: int = 1) -> float:
-    """Lag-1 autocorrelation of the longest-horizon position error across window starts.
-
-    Strong autocorrelation says the model is missing a structural term. No amount of process
-    noise tuning fixes that honestly; it only widens the covariance to cover a bias.
-    """
+    """Lag-1 autocorrelation of the longest-horizon position error across window starts."""
     series = err.position[:, -1]
     if len(series) <= lag + 2:
         return float("nan")

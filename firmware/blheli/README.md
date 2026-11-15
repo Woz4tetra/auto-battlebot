@@ -310,6 +310,85 @@ a match recording, or a driver note. Read-back-and-restore tests do not count.
 | 2026-10-23 | 0 (right) | `music_notes` | `A5 1/1 A5 1/1 A5 1/1` → `F5 1/8 A5 1/8 C6 1/8 F6 1/2` | A nicer startup tune: F major, played with ESC 1 as a chord | Written and verified through the page over the USB dashboard; a CLI read differed from `backups/esc0_2026-10-23_205816.json` in payload bytes 144-147 only. Not yet heard after a power cycle |
 | 2026-10-23 | 1 (left) | `music_notes` | `D5 1/1 D5 1/1 D5 1/1` → `C5 1/8 F5 1/8 A5 1/8 C6 1/2` | Harmony under ESC 0's tune | Same, against `backups/esc1_2026-10-23_205816.json` |
 
+## Python module notes
+
+Notes on the modules under `auto_battlebot/blheli32/`.
+
+### `blheli32/cipher.py`
+
+BLHeli_32 settings page encryption.
+
+The ESC stores its 256-byte settings page at 0xF800 and returns it encrypted over the bootloader.
+Each 8-byte block is XTEA (32 rounds) with a tweak added into every round key: the page base
+BLHeliSuite passes (0xF800 on 64 KB parts, 0x7C00 on 32 KB parts) plus 8 per block. The key is
+BLHeliSuite32xl 1.0.4.4's, at VA 0xdd4e2c in the Linux binary.
+
+A decrypted block is a 2-byte nonce and 6 payload bytes. The ESC draws a fresh nonce for every
+block on every read, so two reads of the same settings never match as ciphertext. The nonce
+carries no check: a wrong key shows up as a payload whose firmware and layout bytes are wrong
+(layout.check_layout), and transport errors are caught by the 4-way CRC. 32 blocks carry 192
+payload bytes, which is the settings record `layout.py` describes.
+
+### `blheli32/esc.py`
+
+Read and write BLHeli_32 settings through the 4-way passthrough.
+
+The read sequence is BLHeliSuite32xl's, from a usbmon capture: per ESC, DeviceReset(n),
+DeviceInitFlash(n), read 256 bytes at 0xF800 (settings), 16 at 0xFA00 (input frame counters),
+16 at 0xFD90, then DeviceReset(n) to release it.
+
+Write Setup, from a capture against a passthrough that acknowledged writes without forwarding
+them: DeviceReset(n), DeviceInitFlash(n), read the three regions, one DeviceWrite of the
+256-byte encrypted page at 0xF800 (no DevicePageErase; the bootloader erases), read the three
+regions back to verify, DeviceReset(n). Every payload byte BLHeliSuite does not edit, reserved
+ones included, is written back exactly as read.
+
+#### `EscSnapshot`
+
+0xFA00 stats: byte 3 is the detected input protocol (5 on DShot; other codes unmapped),
+then good and bad input frame counters as little-endian u32.
+
+### `blheli32/fourway.py`
+
+BLHeli 4-way interface client over a serial passthrough (firmware/BlHeli-Passthrough).
+
+Framing, from the passthrough's Check_4Way and a usbmon capture of BLHeliSuite32xl 1.0.4.4:
+
+    request:  0x2F cmd addr_hi addr_lo n params[n or 256] crc_hi crc_lo
+    response: 0x2E cmd addr_hi addr_lo n params[n or 256] ack crc_hi crc_lo
+
+n = 0 means 256 bytes. CRC is CRC16-XMODEM over everything before it. The serial link first
+switches from MSP to 4-way with MSP_SET_4WAY_IF (0xF5), as BLHeliSuite does. The Mk2 robot's
+tuning-mode relay (http_port.HttpPort) speaks 4-way only, so it skips that step.
+
+### `blheli32/http_port.py`
+
+4-way transport over the Mk2 robot's ESC tuning mode (firmware/mr_stabs_mk2, /esc/ routes).
+
+HttpPort satisfies fourway.SerialPort, so esc.Session runs over WiFi unchanged: write() posts one
+4-way request frame and waits for the robot to relay it, and read() serves the response bytes.
+Pass msp=False to Session; the relay speaks 4-way from the start.
+
+    POST /esc/tuning  enter=1|0      enter or leave tuning mode (409 while armed)
+    GET  /esc/status                 {"state": "combat"|"tuning"|"exiting", "error": ...}
+    POST /esc/4way    frame=<hex>    queue one request frame -> {"id": n}
+    GET  /esc/4way                   {"id": n, "state": "none"|"pending"|"done", "frame": <hex>}
+
+### `blheli32/layout.py`
+
+BLHeli_32 settings record: the 192-byte payload of the 0xF800 page, firmware 32.x layout 48.
+
+Offsets follow BLHeliSuite32xl 1.0.4.4's `Eep_*` record order, checked against two decrypted
+Flycolor Raptor 5 pages (firmware/blheli/captures/). Encodings come from stepping every
+BLHeliSuite slider and reading back its model byte and label (firmware/blheli/README.md).
+`verified=False` marks fields whose offset or encoding has not been confirmed on hardware.
+
+#### `NOTE_NAMES`
+
+Startup music. One byte per note: bits 7-6 length (0 = 1/8, 1 = 1/4, 2 = 1/2, 3 = 1/1),
+bits 5-0 = (octave - 4) * 16 + semitone. 0xFF ends the list. Decoded from BLHeliSuite's
+Write Setup for "C5 1/8 C#5 1/4 D6 1/2 C4 1/2 B5 1/1 A5 1/8" -> 10 51 A2 80 DB 19.
+
 ## Next steps
 
 1. Power-cycle the pack and listen for the F major tune from both ESCs together. On 2026-10-23

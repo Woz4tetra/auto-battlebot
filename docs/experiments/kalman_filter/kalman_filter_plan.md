@@ -757,6 +757,92 @@ Remember `cmake -S . -B build` after adding source files; the source glob is not
   good problem: it means the filter should weight the model heavily, and it makes the case for keeping
   an IMU on the deployed robot.
 
+## Plant model implementation notes
+
+Notes on `auto_battlebot/control/plant.py`, the plant this plan fits.
+
+### `control/plant.py`
+
+Grey-box drivetrain plant model: command in, pose out.
+
+One implementation, used by the plant fit, by the process-noise fit, and (mirrored exactly) by
+the C++ filter and the kinematic sim. Every term is a physical effect with a parameter that can
+be defended, and each is separately excitable by one phase of the jig drive protocol:
+
+    1. Static input map   deadzone and per-sign gain           (E7, E10 deadzone; E8, E11 gain)
+    2. Transport delay    command issue to wheel response      (every command edge)
+    3. Actuator lag       first-order, accel and decel apart   (E8, E9, E11)
+    4. Cross-coupling     steer-brake and angular droop        (E13 grid)
+    5. Kinematics         exact arc integration, 2 ms substeps
+
+Structure is switchable through `ModelStructure` so the model ladder in the plan (M0 static map,
+M1 plus delay, M2 plus symmetric lag, M3 plus asymmetry, M4 plus coupling) is the same code path
+with terms turned off, not five separate models that could disagree for uninteresting reasons.
+
+The prediction the Kalman filter actually depends on is multi-step, not one-step, so this module
+also owns the windowed open-loop prediction used to score it (`predict_windows`). One-step error
+can be faked by any model with a delay term; 500 ms of open-loop coast cannot.
+
+See `docs/experiments/kalman_filter/kalman_filter_plan.md` part 1.
+
+#### `SUBSTEP_S`
+
+Substep for the internal integration. At the calibrated 61.5 rad/s top yaw rate this is
+0.12 rad of rotation per substep, where holding v and w constant costs well under a millimeter.
+
+#### `STRAIGHT_W`
+
+Below this yaw rate the arc integration divides by ~0, so it falls back to the straight-line
+form. 1e-6 rad/s over a 500 ms horizon is 5e-7 rad of heading, far below anything measurable.
+
+#### `PlantParams`
+
+- `c_sb` (steer-brake): fraction of forward speed lost per unit |angular command|.
+- `c_ad` (angular droop): fraction of yaw rate lost per unit |linear command|.
+- Straight-line drift: the robot arcs under a pure forward command because the guard plates drag
+  asymmetrically on the floor. Two candidate mechanisms with different shapes, both zero by
+  default so an unfitted parameter set behaves as before:
+  - `c_drift` is a left/right gain mismatch, so yaw scales with the linear command (rad/s per
+    unit effective linear command).
+  - `c_drift_bias` is an asymmetric drag torque, so yaw is constant while sliding (rad/s while
+    moving, signed by the linear command).
+
+Both flip sign in reverse. Which one is real is a model-ladder question (M5, M6), not something
+to assume: fit both and let the holdout choose.
+
+#### `steady_state`
+
+Target body speed and yaw rate for a held command, coupling included.
+
+Coupling is multiplicative on the target, not on the achieved speed: turning costs a fraction
+of the forward command's authority, it does not brake a robot that is already coasting.
+
+#### `integrate_step`
+
+Accel or decel is decided per channel by whether the target is further from zero than the
+current speed. Braking into a reversal uses the decel constant until the sign flips, which
+is what the drivetrain does: friction first, then torque.
+
+#### `simulate`
+
+Run the plant over a command timeline. Vectorized over leading dimensions.
+
+`u_lin` and `u_ang` are shaped (..., N) and already delayed (see `delayed_commands`), so this
+function has no notion of transport delay. Keeping the delay in the command sampling rather
+than in a ring buffer is what makes a fractional delay exact and the batch case cheap: a pure
+delay is a shift of the command timeline and nothing more.
+
+Returns the final state and the per-sample trajectory, so the same call serves both the
+windowed error (final state only) and plotting (trajectory).
+
+#### `WindowErrors`
+
+Open-loop error at each horizon, decomposed in the body frame at the window start.
+
+The decomposition matters because the error sources differ: along-track error comes from
+speed and delay errors, cross-track error comes mostly from heading error and grows faster.
+A Euclidean position error hides which of the two is broken.
+
 ## Next steps
 
 1. Add `TIME`, the 4000 dps / 16 g ranges, and per-axis saturation counters to

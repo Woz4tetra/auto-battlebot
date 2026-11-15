@@ -39,10 +39,6 @@ GYRO_RANGE_DPS = 2000.0
 PI = 3.14159265358979
 WEAPON_WEDGE = 0
 WEAPON_DISK = 1
-# A contact is a hit taken when it is inside the opponent's front arc (ARC_ANGLE, Mr Stabs Mk2's
-# training), or, for a robot as wide as Mrs Buff Mk3, only on the opponent's front face
-# (ARC_FRONT_FACE): her front spans an opponent's front corners when she rams its side, which
-# the angle alone counts as a hit.
 ARC_ANGLE = 0
 ARC_FRONT_FACE = 1
 FRONT_FACE_MARGIN_M = 0.01

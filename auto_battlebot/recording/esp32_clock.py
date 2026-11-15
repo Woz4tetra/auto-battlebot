@@ -1,19 +1,4 @@
-"""Put ESP32 events on the app clock and measure the delays around them.
-
-The app stamps every ESP32 event with its receive time, which carries WiFi jitter: a few
-milliseconds typically and tens of milliseconds when the link retries. The robot's
-``timestamp_ms`` has no jitter but runs on its own crystal. ``fit_robot_clock`` maps one onto
-the other with a line (offset and drift). Receive delay is never negative, so the line is the
-lower envelope of (robot time, receive time): it rests on the fastest deliveries, which a least
-squares line would not. The minimum transport latency stays inside the offset; nothing in the
-data can separate it.
-
-A reboot resets ``timestamp_ms``, so each run of increasing robot time gets its own line.
-
-``cross_correlation_delay`` estimates the lag between two signals on the app clock. It serves the
-two checks in the plan: stick channels against the ESP32's ``a_percent``/``b_percent`` (the radio
-link delay) and BNO055 yaw rate against tag yaw rate.
-"""
+"""Put ESP32 events on the app clock and measure the delays around them."""
 
 from __future__ import annotations
 
@@ -89,12 +74,7 @@ def _lower_hull(x: np.ndarray, y: np.ndarray) -> np.ndarray:
 
 
 def _lower_envelope_line(x: np.ndarray, y: np.ndarray) -> tuple[float, float]:
-    """(intercept, slope) of the line under every point that minimises the summed gap.
-
-    Minimising sum(y - a - b x) subject to y >= a + b x is a two-variable linear program whose
-    optimum is the lower-hull edge spanning mean(x) (Moon, Skelly and Towsley 1999, skew
-    estimation for network delay measurements).
-    """
+    """(intercept, slope) of the line under every point that minimises the summed gap."""
     if x.shape[0] == 1:
         return float(y[0]), 0.0
     order = np.argsort(x, kind="stable")
@@ -143,8 +123,6 @@ def fit_robot_clock(timestamp_ms: np.ndarray, host_receive_ns: np.ndarray) -> Cl
         robot_ref = int(r[0])
         host_ref = int(h[0])
         x = (r - robot_ref).astype(np.float64) / 1e3
-        # Receive time minus robot time, so the slope is the drift and stays near zero; fitting
-        # host against robot directly loses the ppm-level slope to rounding.
         y = (h - host_ref).astype(np.float64) / 1e9 - x
         intercept, slope = _lower_envelope_line(x, y)
         seg = ClockSegment(
@@ -278,11 +256,7 @@ def radio_link_delay(
     max_lag_s: float = 0.25,
     smooth_s: float = 0.006,
 ) -> LagEstimate:
-    """How long a stick move takes to show up in the ESP32's ``a_percent``/``b_percent``.
-
-    Both signals are held between samples (the stick is logged only on change) and correlated
-    on their first differences, so the slow drift of a held stick does not dominate the peak.
-    """
+    """How long a stick move takes to show up in the ESP32's ``a_percent``/``b_percent``."""
     if len(stick_stamp_ns) < 2 or len(esp32_stamp_ns) < 2:
         return LagEstimate(math.nan, math.nan, 1, 0, np.zeros(0), np.zeros(0))
     start = max(int(stick_stamp_ns[0]), int(esp32_stamp_ns[0]))
@@ -297,8 +271,7 @@ def radio_link_delay(
 
 
 def _smooth(x: np.ndarray, sigma_samples: float) -> np.ndarray:
-    """Gaussian blur that treats NaN as zero. Widens single-sample steps into a peak the
-    parabolic refinement can fit."""
+    """Gaussian blur that treats NaN as zero."""
     if sigma_samples <= 0.0:
         return x
     half = int(math.ceil(3.0 * sigma_samples))

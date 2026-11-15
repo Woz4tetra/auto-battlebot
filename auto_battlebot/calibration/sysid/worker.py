@@ -1,13 +1,4 @@
-"""Refits for the sysid monitor, off the session's thread.
-
-``RefitState`` keeps every usable window's sub-windows and turns a ``RefitJob`` into a
-``RefitReply``: a warm-started fit, the Fisher matrix over every fit window, the contact gate,
-the holdout score, every third time the model ladder, and the ranked suggestions.
-
-Two engines run it. ``InlineEngine`` calls it on ``submit``, which keeps tests and replays
-deterministic. ``ProcessEngine`` runs it in a spawned process so a live session keeps labeling
-while a refit takes a few seconds.
-"""
+"""Refits for the sysid monitor, off the session's thread."""
 
 from __future__ import annotations
 
