@@ -1,30 +1,4 @@
-"""Measure how far a YOLO-seg mask centroid sits from its own bounding-box center.
-
-The segmentation head emits a mask and a box for the same detection, but the pipeline
-only consumes a position. This script asks whether the mask centroid carries position
-information the box center does not:
-
-1. Per detection, the offset between the mask centroid and that detection's box center,
-   in pixels and as a fraction of the box's longer side (the same normalization
-   score.py uses for keypoint PCK).
-2. Over IoU-matched detections, how far each position estimate lands from the ground-truth
-   box center. A detect-only model can be passed as a third estimator so the mask
-   centroid, the seg box center, and a bbox-only model are graded on one scale.
-
-Inference runs through ultralytics on the .pt weights, not the TensorRT engine, because
-TrtYoloModel discards the mask coefficients. Detection metrics from this path differ
-slightly from score.py's engine numbers; the offsets measured here are self-consistent
-because centroid and box come from the same forward pass.
-
-Example:
-
-    python training/model_eval/mask_centroid_vs_box.py training/data/nhrl_keypoints_eval_test \
-        --seg-weights data/models_v2/yolo26n-seg_nhrl_robots_2026-04-27.pt \
-        --seg-labels opponent,opponent,house_bot,mr_stabs_mk2,mrs_buff_mk3 \
-        --bbox-weights data/models/yolo26n_nhrl_robots_bbox_2class_mixed_2026-07-31.pt \
-        --bbox-labels opponent,house_bot \
-        --taxonomy training/model_eval/taxonomy_merged.yaml --conf 0.5
-"""
+"""Measure how far a YOLO-seg mask centroid sits from its own bounding-box center."""
 
 from __future__ import annotations
 
@@ -215,10 +189,7 @@ def centroid_rows(
 
 
 def keypoint_midpoints(gt_keypoints: list[np.ndarray]) -> np.ndarray:
-    """(N, 2) front/back keypoint midpoint per GT box, NaN where either end is unlabeled.
-
-    This is the point the aim controller actually wants: the middle of the robot chassis
-    along its heading axis, which is not the same as the center of its bounding box."""
+    """(N, 2) front/back keypoint midpoint per GT box, NaN where either end is unlabeled."""
     mids = np.full((len(gt_keypoints), 2), np.nan)
     for i, kps in enumerate(gt_keypoints):
         if len(kps) <= max(FRONT_IDX, BACK_IDX):
@@ -277,12 +248,7 @@ def floor_errors(
     estimates: dict[str, np.ndarray],
     pairs: dict[str, dict[int, int]],
 ) -> dict:
-    """The same errors again, but measured on the arena floor in millimetres.
-
-    Each estimate's pixel is projected onto the plane the robot sits on and the distance is
-    taken between floor points, not scaled from a pixel distance. Perspective means a pixel
-    is worth far more at the far wall than at the camera, so a single mm-per-pixel factor
-    would misstate both ends."""
+    """The same errors again, but measured on the arena floor in millimetres."""
     height = height_for_label(gt_label)
     row: dict = {}
     projected: dict[str, np.ndarray] = {}
@@ -359,8 +325,6 @@ def collect(args: argparse.Namespace) -> tuple[pd.DataFrame, pd.DataFrame]:
             bbox_centers = box_centers(b_boxes)
             bbox_pairs = gt_matches(gt_boxes, gt_labels, b_boxes, b_labels, b_scores, args.iou)
 
-        # The GT box center is itself an estimator of the aim point, and the best any
-        # box-based method can do: it is the label, with no detection error in it.
         identity = dict(enumerate(range(len(gt_boxes))))
         matched_rows.extend(
             error_rows(
@@ -453,11 +417,7 @@ def summarize(
 
 
 def range_band_table(matched: pd.DataFrame, bands: int = 4) -> pd.DataFrame | None:
-    """Aim-point error in millimetres per estimator, split into equal-count range bands.
-
-    Bands are quantiles of the robot's ground range from the camera rather than fixed
-    distances, so each row carries the same weight instead of the far band holding a
-    handful of robots."""
+    """Aim-point error in millimetres per estimator, split into equal-count range bands."""
     if "camera_range_m" not in matched:
         return None
     usable = matched.dropna(subset=["camera_range_m"]).copy()

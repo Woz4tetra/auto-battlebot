@@ -1,36 +1,5 @@
 #!/usr/bin/env python3
-"""YOLO label editor for correcting model pre-labels into ground truth.
-
-Like training/yolo/validate_yolo_dataset.py, but edits annotations instead of
-pass/fail marking: move, resize, add, delete, and reclass boxes, and drag pose
-keypoints. Detect rows (class cx cy w h) and pose rows (class cx cy w h kx ky v ...)
-are editable; any other rows (seg) are preserved verbatim.
-
-Usage:
-    python training/model_eval/edit_labels.py data/eval/<svo_name>
-
-Editing is click-move-click (no dragging needed): one click grabs a handle, move
-the mouse to position it, and a second click drops it. A press-move-release drag
-still finishes in one gesture, so both styles work.
-
-Controls:
-    click empty space          start a new box (current class; inherits keypoint
-                               count from existing pose boxes, centered); move to
-                               size it, click to place
-    click a box body           pick it up; move to reposition, click to drop
-    click a corner handle      grab it; move to resize, click to release
-    click a keypoint circle    pick it up; move to reposition, click to drop
-    k                          keypoint mode on the selected box: each click places the
-                               next keypoint (shift+click marks it occluded); the mode
-                               ends once the box has a full set. Escape cancels
-    1-9, 0                     set class of selected box / current draw class
-    Delete or x                delete selected box
-    a/d or left/right          previous / next image (auto-saves)
-    space                      mark reviewed + jump to next unreviewed
-    n                          jump to next unreviewed (without marking)
-    +/- or ctrl+wheel          zoom in / out at the cursor; 0 (numpad) resets to fit
-    ctrl+s                     save
-"""
+"""YOLO label editor for correcting model pre-labels into ground truth."""
 
 from __future__ import annotations
 

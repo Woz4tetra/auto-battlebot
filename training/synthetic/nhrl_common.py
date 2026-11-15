@@ -92,13 +92,7 @@ def select_bots(
     min_fights: int,
     oversample: float = 0.2,
 ) -> list[dict[str, Any]]:
-    """Filter, rank, and truncate the BrettZone bot list.
-
-    Drops bracket/bye placeholders and bots below ``min_fights``, sorts by
-    total fights descending (name as a deterministic tie-break), and returns
-    up to ``ceil(limit * (1 + oversample))`` entries so downstream thumbnail
-    404s still leave ``limit`` usable bots.
-    """
+    """Filter, rank, and truncate the BrettZone bot list."""
     keep: list[dict[str, Any]] = []
     for bot in bots:
         clean_name = str(bot.get("cleanName", "")).strip()
@@ -213,23 +207,7 @@ def sidecar_path_for(model_path: Path) -> Path:
 def footprint_axes(
     vertices: np.ndarray, slice_fraction: float = 0.05
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, float] | None:
-    """Derive the horizontal principal axes of a mesh's ground footprint.
-
-    *vertices* is an ``(N, 3)`` array in the GLTF-native frame (Y is up).  The
-    bottom ``slice_fraction`` of the height is taken to isolate the footprint,
-    then grown until it holds enough points and spans at least half the model's
-    larger horizontal extent (so a sparse lowest-point cluster does not skew the
-    axes).  2D PCA over the slice's ``(X, Z)`` coordinates yields the forward
-    axis ``u1`` (largest variance, rotation-invariant) and the perpendicular
-    lateral axis ``u2``.  ``u1`` is oriented deterministically so repeated runs
-    are reproducible; which physical end is "front" is still arbitrary and is
-    resolved by the human review pass.
-
-    Returns ``(centroid_xz, u1, u2, slice_pts, y_ground)`` where ``centroid_xz``
-    and the unit axes are 2D ``(X, Z)`` vectors, ``slice_pts`` is the ``(M, 3)``
-    footprint slice, and ``y_ground`` is the slice's lowest Y.  Returns ``None``
-    for a degenerate mesh (empty, flat, or no horizontal extent).
-    """
+    """Derive the horizontal principal axes of a mesh's ground footprint."""
     if vertices.ndim != 2 or vertices.shape[0] < 3 or vertices.shape[1] != 3:
         return None
 
@@ -307,25 +285,11 @@ def keypoints_along_axis(
 def compute_bottom_slice_keypoints(
     vertices: np.ndarray, slice_fraction: float = 0.05
 ) -> tuple[np.ndarray, np.ndarray] | None:
-    """Derive centered front/back keypoints for a Y-up mesh.
-
-    The forward axis and lateral center come from the ground footprint's
-    principal axis (see `footprint_axes`); the front/back extent is the full
-    mesh's silhouette projected onto that axis, so the points reach the robot's
-    true ends rather than the wheel-contact patch.  Returns the centerline
-    ``(front, back)`` in the GLTF-native frame.  Front/back orientation is
-    arbitrary for an unknown robot and is resolved by the human review pass.
-
-    Returns ``None`` for a degenerate mesh (empty, flat, or no horizontal
-    extent).
-    """
+    """Derive centered front/back keypoints for a Y-up mesh."""
     axes = footprint_axes(vertices, slice_fraction)
     if axes is None:
         return None
     _centroid_xz, u1, _u2, _slice_pts, y_ground = axes
-    # Axis comes from the footprint PCA; the centerline is based on the full
-    # mesh's bounding-box center so it stays in the model's middle at any
-    # orientation, and the extent reaches the true silhouette ends.
     xz = vertices[:, [0, 2]]
     base_xz = 0.5 * (xz.min(axis=0) + xz.max(axis=0))
     return keypoints_along_axis(base_xz, u1, vertices, y_ground)

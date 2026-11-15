@@ -782,3 +782,12 @@ plan also asked, which model should label cage-high footage, and there the answe
 5. **Question 5 still needs labelled e-CAM25 footage, raw and rectified.** No view ranking here
    can answer it: the ZED eval is the `pinhole` view's home ground, which the plan called in
    advance.
+
+## Notes moved from code comments (2026-11-15)
+
+- `training/yolo/make_domain_mix_arms.py`, `main` (`above if len(set(frames)) != len(frames) - len(real) * (arm.real_repeat - 1):`):
+  Oversampled real frames are the only intended repeats, so the unique count has to drop by exactly the copies asked for. Anything else is a source drawn twice.
+- `training/yolo/make_domain_mix_arms.py` (`above CAGE_VENUES = (NHRL, MASSD)`):
+  What an arm with no venue filter draws from: the two renders the 2026-09-13 grid was built over.
+- `training/yolo/run_domain_mix_arm.sh` (`above DATE=${ARM_DATE:-$(date +%F)}`):
+  Stamped before training, not after, so an arm that runs past midnight keeps one date.

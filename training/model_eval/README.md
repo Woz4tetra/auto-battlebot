@@ -167,3 +167,259 @@ so only 38 of its 100 images resolve exactly.
 - `make_robot_capture_mosaic.py` renders the sharpest GT crops of each robot in an eval
   dataset, one row per robot, with opponents named by recording (`--opponent name=prefix`).
   Supporting figure for the Meshy fidelity grades.
+
+## Notes moved from code comments (2026-11-15)
+
+- `training/model_eval/benchmark_engines.py`, `main` (`above post_mean = means["total"] - means["pre"] - means["gpu"]`):
+  Residual, not a timed loop: NMS/decode plus the coordinate rescale. Means are additive so this subtraction is valid; the same trick on medians would not be.
+- `training/model_eval/benchmark_engines.py`:
+
+  ```text
+  Per-engine inference latency, reported the same way on the dev box and the Jetson.
+
+  `trtexec` is not available everywhere, on megamind TensorRT comes from the pip wheel,
+  which ships no binary, so this reuses `auto_battlebot.perception.trt_yolo.TrtYoloModel`, the same
+  class `score.py` scores with. That also makes the numbers directly comparable to the
+  accuracy run instead of measuring a differently-configured engine.
+
+  Four levels are reported, because they answer different questions:
+
+    pre    `preprocess_frame` only: letterbox resize and the NCHW float blob. Pure CPU.
+    gpu    `_run` only: H2D copy, `execute_async_v3`, D2H copy, stream sync. Comparable to
+           `trtexec` with data transfers.
+    post   the residual, `total - pre - gpu`: NMS/decode and the coordinate rescale. Pure
+           CPU, and in Python rather than the C++ the app runs, so this is the level that
+           transfers worst. Derived from means, which are additive; medians are not.
+    total  `infer`: pre + gpu + post end to end. This is what the C++ `update()` call
+           actually costs, and it is the one the frame-period decision rests on --
+           `docs/experiments/parallel_yolo_batch/shared_preprocess_2026-07-24.md` found GPU
+           inference is 1-3 ms while a full per-model update is ~12 ms on the Jetson, so
+           quoting GPU time alone understates a bigger model by ~4x.
+
+  The `pre`/`post` split matters on the Jetson specifically: its CPU is far slower relative
+  to its GPU than the dev box's, so the CPU stages are a much larger share of the total and
+  the Python-vs-C++ gap on those stages is what decides how much of a Python `total` the
+  C++ app actually pays.
+
+  Feed it a real eval frame (the default) rather than noise: NMS cost scales with the
+  number of surviving boxes, and a noise image decodes to a degenerate detection count.
+  ```
+
+- `training/model_eval/compare_cpp_python.py`:
+
+  ```text
+  Compare the C++ and Python inference paths for one detector on the same GT frames.
+
+  The C++ path is detections the perception stack recorded during playback
+  (/blob_detections or /keypoint_detections in one or more MCAPs). The Python path is
+  direct TensorRT inference on the GT images (auto_battlebot.perception.trt_yolo, as score.py uses).
+  Both are scored with score.py's machinery on exactly the GT frames the recordings cover,
+  so the two columns are frame-for-frame comparable.
+
+  Beyond the metric table, matched C++/Python detection pairs are compared directly:
+  box center offset, and a linear fit of C++ keypoint coordinates against Python's
+  (slope != 1 means a scale error somewhere in the C++ path, intercept != 0 a translation).
+
+  Usage:
+      python training/model_eval/compare_cpp_python.py training/data/nhrl_keypoints_eval_test         --engine data/models/yolo26n-pose_our_robots_2026-05-01_x86_64_sm89.engine         --labels mr_stabs_mk2,mrs_buff_mk3 --topic keypoint --conf 0.5         --taxonomy training/model_eval/taxonomy_keypoint.yaml         --cpp-mcap 'data/recordings/auto_battlebot_experiments_eval_smoke_*.mcap'
+  ```
+
+- `training/model_eval/edit_labels.py`:
+
+  ```text
+  YOLO label editor for correcting model pre-labels into ground truth.
+
+  Like training/yolo/validate_yolo_dataset.py, but edits annotations instead of
+  pass/fail marking: move, resize, add, delete, and reclass boxes, and drag pose
+  keypoints. Detect rows (class cx cy w h) and pose rows (class cx cy w h kx ky v ...)
+  are editable; any other rows (seg) are preserved verbatim.
+
+  Usage:
+      python training/model_eval/edit_labels.py data/eval/<svo_name>
+
+  Editing is click-move-click (no dragging needed): one click grabs a handle, move
+  the mouse to position it, and a second click drops it. A press-move-release drag
+  still finishes in one gesture, so both styles work.
+
+  Controls:
+      click empty space          start a new box (current class; inherits keypoint
+                                 count from existing pose boxes, centered); move to
+                                 size it, click to place
+      click a box body           pick it up; move to reposition, click to drop
+      click a corner handle      grab it; move to resize, click to release
+      click a keypoint circle    pick it up; move to reposition, click to drop
+      k                          keypoint mode on the selected box: each click places the
+                                 next keypoint (shift+click marks it occluded); the mode
+                                 ends once the box has a full set. Escape cancels
+      1-9, 0                     set class of selected box / current draw class
+      Delete or x                delete selected box
+      a/d or left/right          previous / next image (auto-saves)
+      space                      mark reviewed + jump to next unreviewed
+      n                          jump to next unreviewed (without marking)
+      +/- or ctrl+wheel          zoom in / out at the cursor; 0 (numpad) resets to fit
+      ctrl+s                     save
+  ```
+
+- `training/model_eval/export_camera_transforms.py`, `export_sub_dataset` (`above "image_stream_index": position,`):
+  Position in this mcap's /camera/image stream, used to match images against transforms. Not the .svo2 frame index: ZED_SVO_Editor drops a few frames per file, so the two differ by a small offset.
+- `training/model_eval/export_camera_transforms.py` (`above MAX_INTERP_GAP_FRAMES = 8`):
+  Interpolating across a long dropout says more about the gap than the frame. Beyond this many camera frames between the bracketing processed frames, report unavailable instead.
+- `training/model_eval/export_labels.py`:
+
+  ```text
+  Export YOLO datasets with model pre-labels from label_playback MCAP recordings.
+
+  Reads /camera/image, /blob_detections and /keypoint_detections from one or more MCAPs
+  produced by `./scripts/build_and_run.sh -c config/label_playback.toml`, pairs them by
+  frame stamp, and writes one dataset per model per recording. Images are written once at
+  the recording top level and symlinked into each subdataset:
+
+      <output-dir>/<recording>/images/<stamp_ns>.png       (shared, real files)
+      <output-dir>/<recording>/blob/images   -> ../images  (symlink)
+      <output-dir>/<recording>/blob/labels/<stamp_ns>.txt  (class cx cy w h)
+      <output-dir>/<recording>/blob/data.yaml
+      <output-dir>/<recording>/keypoint/images -> ../images
+      <output-dir>/<recording>/keypoint/labels/<stamp_ns>.txt  (class cx cy w h kx ky v ...)
+      <output-dir>/<recording>/keypoint/data.yaml
+
+  Accepts multiple MCAP paths or globs and writes each under --output-dir automatically,
+  so `export_labels.py data/recordings/*.mcap` processes a whole batch. Both the blob
+  detector (detect rows) and keypoint model (pose rows) are exported by default; restrict
+  with --topics.
+
+  Correct the pre-labels with edit_labels.py, then score candidate runs with score.py.
+
+  Usage:
+      python training/model_eval/export_labels.py data/recordings/*.mcap         [--output-dir <dir>] [--topics blob keypoint]
+  ```
+
+- `training/model_eval/make_eval_dataset.py`:
+
+  ```text
+  Build a hand-labeling eval dataset from /camera/image frames in MCAP recordings.
+
+  Unlike export_labels.py (which needs detection topics to write model pre-labels), this
+  samples raw frames from recordings that carry no detections, writing empty label files
+  for labeling from scratch in edit_labels.py. One subdataset per recording:
+
+      <output-dir>/<recording>/images/<stamp_ns>.png   (left-eye frame)
+      <output-dir>/<recording>/labels/<stamp_ns>.txt    (empty, ready to label)
+      <output-dir>/<recording>/data.yaml                (names/colors/kpt_shape/flip_idx)
+
+  Frames are named by the /camera/image header stamp_ns, which is the SVO frame stamp. That
+  is how score.py aligns this ground truth to a later candidate playback run over the same
+  SVO, so the dataset is scorable without any AVI/frame-index bookkeeping.
+
+  Frames before each video's svo_start_frame (from the playback config) are skipped, then a
+  fixed number are sampled evenly across the rest (decorrelated, not consecutive). The MCAP
+  /camera/image stream is the SVO frames in order, so svo_start_frame applies as an index
+  into that stream. Class names/colors and the keypoint schema are seeded from a source
+  dataset (default: our_robot_keypoints) and can be extended with --extra-classes for robots
+  absent from the training set (opponents, house).
+
+  Usage:
+      python training/model_eval/make_eval_dataset.py data/recordings/*.mcap         [--output-dir <dir>] [--per-video 100]         [--playback-config config/playback/_playback.toml]         [--extra-classes opponent house_bot]
+  ```
+
+- `training/model_eval/make_field_projection_check.py`, `pick_frames`:
+  Frames with a usable pose, dealt round-robin across recordings.
+  Round-robin rather than first-N so one fight cannot vouch for the whole export, and spaced within each recording so the tiles are not consecutive frames of one moment.
+- `training/model_eval/predict_all_arms.sh` (`above set -euo pipefail`):
+
+  ```text
+  Label one dataset with every domain-mix arm, each arm into its own directory, for a side-by-side
+  read of which arm labels the footage best.
+
+  `prelabel_dataset.py` fills only empty label files, on purpose: a second pre-label round must not
+  overwrite frames someone has corrected. Comparing arms wants the opposite, every frame labelled by
+  every arm, so each arm gets its own copy of the dataset whose images are hardlinked and whose
+  `labels/` starts out missing. The source dataset is never written to, and the hardlinks mean
+  fifteen arms cost fifteen sets of label files rather than fifteen copies of the images.
+
+    bash training/model_eval/predict_all_arms.sh training/data/nhrl_cage_high_eval \
+        training/data/cage_high_arm_labels_2026-09-16 yolo26s-pose 2026-09-13 base d2500 swap_half
+
+  Output: <out_root>/<arm>/<recording>/{images,labels,data.yaml}, each openable in edit_labels.py
+  and validate_yolo_dataset.py. Each recording also carries `prelabel_holdout.json`, which records
+  the model, conf and class map that wrote its labels.
+
+  Environment: CONF (default 0.15, the pre-label floor: deleting a spurious box is one keypress,
+  drawing a missed one is a dozen), CKPT (default last), DEVICE (default 0), IMGSZ (default 640),
+  MAP (default "nhrl_robot=opponent", the arms' class for an opponent against this dataset's name),
+  FORCE (set to rebuild an arm whose directory already exists).
+  ```
+
+- `training/model_eval/prelabel_dataset.py` (`above KEYPOINT_VISIBLE_CONF = 0.5`):
+  A keypoint the model is at least this sure of is labelled visible (2), the rest labelled but not visible (1), matching how the eval set flags occluded keypoints.
+- `training/model_eval/score.py`:
+
+  ```text
+  Score candidate TensorRT detector engines against a YOLO ground-truth dataset.
+
+  Each candidate engine runs inference directly on the GT images (no playback, no stamp
+  alignment), matching the C++ pipeline's preprocessing and NMS. Predictions are compared
+  against the labels at three label levels:
+
+      agnostic   every label collapses to "robot": pure localization (did it find the robot)
+      archetype  labels map through taxonomy.yaml: NHRL archetype naming
+      instance   labels as-is: per-robot-instance naming
+
+  The gap between agnostic recall and class-aware mAP is the cost of splitting the
+  OPPONENT category. Outputs a summary table (stdout + summary.csv) and plots.
+
+  The GT argument is either a single dataset dir (data.yaml + images/ + labels/) or a root
+  containing such subdatasets (e.g. training/data/nhrl_keypoints_eval_test). If a
+  validation_state.json is present, only frames it marks `pass` are scored; failing that, an
+  edit_labels.py .edit_state.json is used the same way.
+
+  --labels maps engine class indices to GT label names, in class order (mirrors the C++
+  label_indices config). When the engine head carries keypoints (YOLO-pose), keypoint
+  metrics are added over IoU-matched boxes: mean pixel error, PCK@0.1 of the GT box's
+  longer side, and heading error (angle of the front->back keypoint vector, mean degrees
+  and accuracy within 10 degrees).
+
+  With two or more candidates, a paired bootstrap reports whether each candidate differs
+  significantly from the baseline (the first candidate, or --baseline NAME). Because every
+  candidate is scored on the same GT frames, resampling frames paired cancels the
+  "this frame is just hard" variance, so a few hundred frames can resolve real differences.
+  mAP is dataset-level and left as a point estimate; the detection questions are covered by
+  the recall / precision / localization tests, which are frame-decomposable.
+
+  Usage:
+      python training/model_eval/score.py training/data/nhrl_keypoints_eval_test         --candidate deployed=data/models/<model>_x86_64_sm89.engine         --labels opponent,opponent,house_bot,mr_stabs_mk2,mrs_buff_mk3         [--taxonomy training/model_eval/taxonomy.yaml] [--conf 0.5] [--nms-iou 0.45]         [--iou 0.5] [--baseline NAME] [--bootstrap 1000] [--seed 0] [--alpha 0.05]         [--output <dir>]
+  ```
+
+- `training/model_eval/score_domain_mix.sh` (`above set -euo pipefail`):
+
+  ```text
+  Score domain-mix arms on nhrl_keypoints_eval_test: pooled, heading, per venue, per recording.
+
+  Step 5 of docs/experiments/perception_performance/synthetic_domain_mix_plan_2026-09-12.md. Reads
+  each arm's square-640 engine at data/models/<model>_<arm>_<date>_<ckpt>_x86_64_<sm>.engine, the
+  name run_domain_mix_arm.sh gives it. The first arm is the baseline every other arm is bootstrapped
+  against.
+
+    bash training/model_eval/score_domain_mix.sh yolo26s-pose 2026-09-13 base d2500 d5000 d10000
+
+  An arm may carry its own checkpoint as `arm:ckpt`, which overrides CKPT for that arm alone and
+  names it `arm_ckpt` in the output. The matched-presentation table needs this: each arm is read at
+  the checkpoint bracketing the baseline's frame-presentations, which is a different epoch per arm.
+
+    RUNS=opponent bash training/model_eval/score_domain_mix.sh yolo26s-pose 2026-09-13 \
+        base d20000:epoch50 d40000:epoch25
+
+  Output: training/data/nhrl_keypoints_eval_test/scores_domain_mix_<model>/
+    pooled/        all 688 frames, taxonomy.yaml (every class scored together)
+    opponent/      all 688 frames, taxonomy_opponent.yaml: the adoption metric
+    heading/       all 688 frames, taxonomy_keypoint_ours.yaml (our robot's keypoints only)
+    venue_nhrl/    the 590 NHRL May frames, opponents only
+    venue_massd/   the 98 MassD August frames, opponents only
+    rec_<name>/    one recording, which is one opponent, opponents only
+  Every run keeps the bootstrap. 98 MassD frames is where a point estimate misleads most.
+
+  Environment: CKPT (default last), SM (default sm86, this box), OUT, CONF (default 0.5), and RUNS
+  (default all), a comma-separated subset of pooled, opponent, heading, venues and recordings. The
+  matched-presentation read wants `opponent` alone: twelve runs over ten candidates is an hour of
+  GPU for one column of one table.
+  ```
+

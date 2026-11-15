@@ -1,47 +1,5 @@
 #!/usr/bin/env python3
-"""Export camera intrinsics and per-image camera->field transforms for the eval dataset.
-
-Reads each sub dataset's `data.yaml` for its `source_mcap`, then writes alongside the
-existing `images/` and `labels/` (neither is modified):
-
-    <sub-dataset>/camera_info.json                  intrinsics, constant over the recording
-    <sub-dataset>/camera_transforms/<stamp_ns>.json  one per image
-
-The transform is `tf_field_from_camera`: multiply a point in the camera frame by it to get
-that point in the field frame. It is the composition of two recorded transforms:
-
-    tf_field_from_camera = tf_field_from_cameraworld @ tf_cameraworld_from_camera
-
-Both edges come from `/tf`, published once per frame the perception loop actually processed.
-`field -> camera_world` only changes on a field re-init but is restamped every cycle, so the
-applicable one is the latest at or before the image. Recordings made before that edge moved
-carry it once on `/tf_static`; those are read the same way.
-
-Frame association
------------------
-Dataset images are named by `/camera/image` header stamp, which the SVO recorder wrote.
-`/tf` and `/camera/camera_info` carry the perception pipeline's own stamps, and the two
-differ: a pipeline stamp lands roughly 0.4 to 0.9 of the way through the SVO frame interval
-it belongs to, a stable sub-frame capture lag rather than clock skew. It never crosses an
-interval boundary, so "the pipeline stamp inside [svo_stamp, next_svo_stamp)" identifies the
-frame exactly. Each image and each `/tf` sample is resolved to a position in the
-`/camera/image` stream that way, and the two are matched on that position. It is a position
-within this mcap, not a .svo2 frame index; ZED_SVO_Editor drops a few frames per file, so the
-two differ by a small offset. That offset is the same for both sides here, so it cancels.
-
-The pipeline ran slower than the camera (~25 fps against 30 fps), so it skipped frames. For a
-skipped frame no live transform was ever computed and the result is interpolated from the
-neighbouring processed frames. Every image gets a file; the `method` field says which case it
-was, so a consumer can filter on it:
-
-    exact         one processed frame owns this image's frame index
-    interpolated  frame was skipped; slerp/lerp between the nearest processed frames
-    ambiguous     two processed frames claim this index (only the 05-01 recording)
-    unavailable   no field frame yet, or no processed frame to interpolate from
-
-Usage:
-    python training/model_eval/export_camera_transforms.py [--dataset-dir <dir>] [--dry-run]
-"""
+"""Export camera intrinsics and per-image camera->field transforms for the eval dataset."""
 
 from __future__ import annotations
 
@@ -75,8 +33,6 @@ FIELD_MARKERS_TOPIC = "/field_markers"
 FIELD_FRAME = "field"
 CAMERA_WORLD_FRAME = "camera_world"
 
-# Interpolating across a long dropout says more about the gap than the frame. Beyond this many
-# camera frames between the bracketing processed frames, report unavailable instead.
 MAX_INTERP_GAP_FRAMES = 8
 
 
@@ -154,8 +110,6 @@ def read_recording(mcap_path: Path) -> dict[str, Any]:
         else:
             for tf in decode_tf_message(data):
                 if tf.parent_frame_id == FIELD_FRAME:
-                    # Recordings made before the edge moved carry it once on /tf_static;
-                    # newer ones repeat it on /tf every cycle. Both land here.
                     field_from_cameraworld.append((tf.stamp_ns, tf.matrix))
                 elif topic == TF_TOPIC and tf.parent_frame_id == CAMERA_WORLD_FRAME:
                     dynamic.append((tf.stamp_ns, tf.matrix))
@@ -306,9 +260,6 @@ def export_sub_dataset(sub_dir: Path, dry_run: bool) -> dict[str, int]:
         record: dict[str, Any] = {
             "image": image_path.name,
             "stamp_ns": stamp,
-            # Position in this mcap's /camera/image stream, used to match images against
-            # transforms. Not the .svo2 frame index: ZED_SVO_Editor drops a few frames per
-            # file, so the two differ by a small offset.
             "image_stream_index": position,
             "method": method,
             "source_mcap": str(mcap_path),
@@ -323,10 +274,6 @@ def export_sub_dataset(sub_dir: Path, dry_run: bool) -> dict[str, int]:
             record["provenance"]["field_tf_stamp_ns"] = int(
                 field_from_cameraworld[field_tf_index][0]
             )
-            # Extents the RANSAC plane fit measured at this field init, centred on the field
-            # origin. Needed to know where the arena edges are: the transform alone does not
-            # say. Estimates vary per init and some are plainly bad fits, so the value is
-            # reported as measured rather than snapped to a nominal arena size.
             size_index = bisect_right(field_size_stamps, stamp) - 1
             size = None if size_index < 0 else field_sizes[size_index][1:]
             record["field_size_m"] = (

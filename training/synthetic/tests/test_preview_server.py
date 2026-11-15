@@ -1,10 +1,4 @@
-"""The mailbox coalesces, and the router answers without ever touching Blender.
-
-The render loop runs on the main thread and HTTP handlers run on their own, so the mailbox is the
-only shared state. Two things have to hold: a pose that arrives mid-render replaces the pending one
-rather than queueing behind it (otherwise releasing W plays back a backlog of stale frames), and
-commands do queue, because dropping a mark or a save would lose work.
-"""
+"""The mailbox coalesces, and the router answers without ever touching Blender."""
 
 from __future__ import annotations
 

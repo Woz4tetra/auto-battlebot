@@ -1,10 +1,4 @@
-"""Cage geometry spec: the TOML schema, dotted overrides, and the primitives it expands to.
-
-Pure module (no Blender). `cage.py` turns the boxes and cylinders returned here into mesh
-objects; tests check the geometry without a renderer. All lengths are metres in the W frame:
-mat centre at the origin, z up, +y away from the fixed camera, +x to its right. The mat top
-surface is z = 0.
-"""
+"""Cage geometry spec: the TOML schema, dotted overrides, and the primitives it expands to."""
 
 from __future__ import annotations
 

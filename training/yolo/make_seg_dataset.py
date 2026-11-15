@@ -354,8 +354,6 @@ def robust_difference(floor_geom: object, obstacle_geom: object) -> object:
 
 
 def _build_hole_cut_buffers(polygon: Polygon, epsilon: float) -> list[Polygon]:
-    # Build tiny cuts from each hole to the exterior boundary. Removing those
-    # slits turns holey polygons into regular polygons without fan triangulation.
     cutters = []
     for ring in polygon.interiors:
         try:

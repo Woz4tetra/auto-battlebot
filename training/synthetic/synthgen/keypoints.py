@@ -178,15 +178,7 @@ def build_house_bot_annotation(
     ignore_occlusion: bool,
     lens: LensView | None = None,
 ) -> YoloAnnotation | None:
-    """Annotate the cage's house bot, boxed from the pixels of its own category.
-
-    There is exactly one house bot in a scene and it never moves, so it is boxed from the
-    category segmap rather than an instance id. A robot standing in front of it shrinks the
-    box to what is still visible, and hides it entirely once nothing is left.
-
-    Returns:
-        The annotation, or None when the house bot is out of frame or too small to label.
-    """
+    """Annotate the cage's house bot, boxed from the pixels of its own category."""
     bbox = bbox_from_category_segmap(cat_seg, HOUSE_BOT_CATEGORY_ID, img_w, img_h)
     if bbox is None:
         return None

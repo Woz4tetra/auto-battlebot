@@ -1,31 +1,5 @@
 #!/usr/bin/env python3
-"""Build a hand-labeling eval dataset from /camera/image frames in MCAP recordings.
-
-Unlike export_labels.py (which needs detection topics to write model pre-labels), this
-samples raw frames from recordings that carry no detections, writing empty label files
-for labeling from scratch in edit_labels.py. One subdataset per recording:
-
-    <output-dir>/<recording>/images/<stamp_ns>.png   (left-eye frame)
-    <output-dir>/<recording>/labels/<stamp_ns>.txt    (empty, ready to label)
-    <output-dir>/<recording>/data.yaml                (names/colors/kpt_shape/flip_idx)
-
-Frames are named by the /camera/image header stamp_ns, which is the SVO frame stamp. That
-is how score.py aligns this ground truth to a later candidate playback run over the same
-SVO, so the dataset is scorable without any AVI/frame-index bookkeeping.
-
-Frames before each video's svo_start_frame (from the playback config) are skipped, then a
-fixed number are sampled evenly across the rest (decorrelated, not consecutive). The MCAP
-/camera/image stream is the SVO frames in order, so svo_start_frame applies as an index
-into that stream. Class names/colors and the keypoint schema are seeded from a source
-dataset (default: our_robot_keypoints) and can be extended with --extra-classes for robots
-absent from the training set (opponents, house).
-
-Usage:
-    python training/model_eval/make_eval_dataset.py data/recordings/*.mcap \
-        [--output-dir <dir>] [--per-video 100] \
-        [--playback-config config/playback/_playback.toml] \
-        [--extra-classes opponent house_bot]
-"""
+"""Build a hand-labeling eval dataset from /camera/image frames in MCAP recordings."""
 
 from __future__ import annotations
 

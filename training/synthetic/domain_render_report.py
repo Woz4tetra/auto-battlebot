@@ -1,22 +1,4 @@
-"""Gate report for a merged domain-mix render: per-view counts, classes, keypoints, drops, damage.
-
-Step 3 of docs/experiments/perception_performance/synthetic_domain_mix_plan_2026-09-12.md lists the
-checks a render passes before it goes to training. `validate_yolo_integrity.py --strict` covers the
-dataset's structure; this covers what that cannot see, all split by view because the distorted and
-rectified views cut objects at the frame edge and at the border where pinhole does not:
-
-- frames per view and venue from `manifest.jsonl`, against an even three-way split
-- instances per class, so our robots are not rare
-- keypoints flagged 0 (not visible), against the randomized pool's rate
-- frames dropped by the visibility gate, from each run's `render.log` in the parts directory
-- fully clean frames, the pool the damage-off arm draws from
-
-    venv/bin/python training/synthetic/domain_render_report.py \\
-        training/data/synth_cage_nhrl_2026-09-13 \\
-        --baseline training/data/all_robot_keypoints/train
-
-Writes `gate_report.json` beside the dataset's manifest and exits 1 when a gate fails.
-"""
+"""Gate report for a merged domain-mix render: counts, classes, keypoints, drops, damage."""
 
 from __future__ import annotations
 
@@ -35,10 +17,7 @@ SUMMARY_RE = re.compile(
     r"Run summary: (?P<written>\d+)/\d+ images written across (?P<scenes>\d+) scenes"
     r"(?: \((?P<dropped>\d+) frames dropped)?"
 )
-# The step 3 gate: past this share of attempted frames dropped, the mat margin or the
-# distractor count needs a look before the rest of the budget goes.
 MAX_DROP_FRACTION = 0.25
-# A view's frame count may sit this far from an exact third: the uneven split and rounding.
 VIEW_COUNT_SLACK = 1
 REPORT_NAME = "gate_report.json"
 

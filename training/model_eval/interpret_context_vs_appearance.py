@@ -1,33 +1,4 @@
-"""Context-vs-appearance interpretability for the synthetic+bbox opponent detectors.
-
-Tests the report's central claim: the opponent detector keys on *context* (arena / "not us,
-not house bot, on the floor") rather than the opponent's own *appearance*. Runs four probes on
-two models (real_bbox baseline, mix_all) over the independent eval, and prints metrics + saves
-figures:
-
-  1. RISE occlusion-saliency  - where does the evidence for an opponent box live? Inside the box
-     (appearance) or in the surrounding context? Metric: saliency concentration inside vs a
-     context ring vs background, normalized by area.
-  2. Cut-paste context swap   - opponent crop on a neutral gray canvas (appearance only) vs on a
-     different frame's real arena (appearance + swapped context) vs original. If the score
-     collapses without arena context, the model needs context, not the robot's pixels.
-  3. Feature-space check      - are real-opponent and synthetic-opponent crops separable in
-     backbone-embedding space (domain gap)? Linear-probe accuracy + centroid cosine distance,
-     per model. Also whether mix_all pulls the two closer.
-  4. Grad-CAM                 - gradient saliency at the P3 neck layer for the opponent score at
-     each GT box; corroborates RISE with the inside-box mass fraction.
-
-All probes define the target consistently as the max opponent class score (channels object+robot)
-among head anchors whose center falls inside the target box.
-
-Usage:
-  PYTHONPATH=. venv/bin/python training/model_eval/interpret_context_vs_appearance.py \
-      --eval training/data/nhrl_keypoints_eval_test \
-      --real data/models/yolo26n_nhrl_robots_bbox_2026-07-16.pt \
-      --mix  data/models/yolo26n_mix_all_2026-07-22.pt \
-      --synth training/data/synth_bbox_from_keypoints \
-      --out training/data/nhrl_keypoints_eval_test/scores_synth_plus_bbox/interpretability
-"""
+"""Context-vs-appearance interpretability for the synthetic+bbox opponent detectors."""
 
 from __future__ import annotations
 

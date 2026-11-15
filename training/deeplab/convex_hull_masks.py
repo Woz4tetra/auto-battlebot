@@ -1,39 +1,4 @@
-"""Regenerate a segmask dataset with every mask blob replaced by its convex hull.
-
-Each `*_mask.png` is read as class IDs (0 = background). For every non-background
-class, each connected blob is replaced by the convex hull of that blob, so a
-mask with three separate blobs of one class comes out as three separate hulls.
-
-Speck blobs are dropped before hulling: any blob whose pixel area is at or below
-`--min-blob-fraction` of the largest blob of its class in that image is deleted
-outright rather than hulled. Otherwise a stray handful of pixels would survive as
-its own hull.
-
-That relative test alone deletes real regions when an occluder splits the field
-into uneven pieces: a robot across the middle of the frame can leave one side at
-9% of the other, which is a genuine half of the field, not a speck. So a blob also
-survives if it covers at least `--min-blob-image-fraction` of the whole image
-regardless of how it compares to the largest blob. Measured on the field corpus,
-runner-up blobs that survive the relative test start around 0.36% of the image,
-while the median dropped one is 0.08%, so the absolute floor separates the two
-cleanly.
-
-Hulls are painted largest-area first, so a small hull that lands inside a big one
-stays visible. Pixels from the surviving original blobs are stamped back on top
-afterwards, so hull expansion can only ever claim background pixels, never
-overwrite an existing annotation.
-
-Everything else in the dataset is reproduced as-is: source images are hardlinked
-(copied if the output lands on another filesystem), metadata files are copied,
-symlinks are recreated as symlinks.
-
-Usage:
-    python convex_hull_masks.py /path/to/dataset -o /path/to/output
-    python convex_hull_masks.py /path/to/dataset -o /path/to/output --samples 500
-
-Samples are before/after comparison renders written outside the output dataset
-(default `<output>_samples`) so they do not pollute the dataset tree.
-"""
+"""Regenerate a segmask dataset with every mask blob replaced by its convex hull."""
 
 from __future__ import annotations
 

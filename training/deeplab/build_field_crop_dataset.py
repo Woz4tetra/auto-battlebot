@@ -1,28 +1,4 @@
-"""Build the field-cropped training corpus for arm E of input_resolution_plan.md.
-
-Arm E asks whether spending the input tensor on the field alone beats spending it on the
-whole frame. At deployment the field is already available -- `field_filter.track_field`
-runs before perception and is computed once at init, not per frame -- so cropping to it
-costs arithmetic. The training corpus has no depth, so the field has to come from the
-DeepLab RGB model instead.
-
-Two stages, so the expensive one runs once:
-
-  masks  Run DeepLab over every image and record the field bounding box in normalized
-         frame coordinates. GPU-bound, a few minutes over 32k images. Cached to JSON.
-  crop   Read that JSON, crop each image to the box plus a margin, and rewrite the labels.
-         CPU-bound and cheap, so the margin can be re-tuned without touching the GPU.
-
-Unlike the anisotropic-stretch arm, a crop *does* move normalized YOLO coordinates: every
-box is re-expressed against the cropped frame and clipped to it.
-
-    python training/deeplab/build_field_crop_dataset.py masks \
-        --model ../../data/models/field_deeplabv3p_r50_2026-07-29.pth \
-        --src ../data/nhrl_robots_bbox_2class --out field_boxes.json
-    python training/deeplab/build_field_crop_dataset.py crop \
-        --src ../data/nhrl_robots_bbox_2class --dst ../data/nhrl_robots_bbox_2class_fieldcrop \
-        --boxes field_boxes.json --margin 0.10
-"""
+"""Build the field-cropped training corpus for arm E of input_resolution_plan.md."""
 
 import argparse
 import json
@@ -39,8 +15,6 @@ from auto_battlebot.segmentation.load_deeplabv3 import common_transforms, load_m
 FLOOR_CLASS = 1
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png"}
 SPLITS = ("train", "val")
-# A clipped box keeping less than this share of its original area is dropped rather than
-# taught as a sliver: a robot mostly outside the crop is not what the box was annotating.
 MIN_VISIBLE_AREA = 0.25
 
 
@@ -73,9 +47,6 @@ def stage_masks(args: argparse.Namespace) -> None:
     transform = common_transforms(pad_size=cfg.pad_size)
     boxes: dict[str, list[float] | None] = {}
 
-    # Recursive mode walks an eval root of per-recording directories and keys each frame by
-    # its stem, which is the capture timestamp and unique across recordings. The split mode
-    # keys by "<split>/<filename>", which is what the crop stage reads.
     groups = [("", args.src)] if args.recursive else [(s, args.src / s / "images") for s in SPLITS]
 
     for split, root in groups:
@@ -135,13 +106,7 @@ def transform_labels(lines: list[str], x0: float, y0: float, cw: float, ch: floa
 def crop_one(
     job: tuple[str, str, str, str, list[float] | None, float, bool],
 ) -> tuple[int, int, int]:
-    """Write one cropped image and its labels. Returns (labels in, labels out, frames dropped).
-
-    A frame whose crop discarded a label is skipped entirely when `drop_clipped` is set.
-    Keeping it would leave a robot visible in the image with no box on it, which trains a
-    false negative -- the one case where an unlabelled image is not a useful background
-    negative. It costs 0.3% of frames at margin 0.20.
-    """
+    """Write one cropped image and its labels. Returns (labels in, labels out, frames dropped)."""
     img_path, lbl_path, img_out, lbl_out, box, margin, drop_clipped = job
     frame = cv2.imread(img_path)
     if frame is None:

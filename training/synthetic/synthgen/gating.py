@@ -1,16 +1,4 @@
-"""Frame keep/drop policy (no Blender imports).
-
-Every decision about whether a robot gets annotated and whether a frame gets
-written lives here, so the policy is unit-testable and every negative outcome
-carries a reason.
-
-Keypoint-mode policy: a robot that fails its annotation gate is left unlabeled
-and the frame is kept, UNLESS the robot is prominently visible — an unlabeled
-prominent robot would be a false negative in the training data, so those frames
-are dropped instead. This replaces the old behavior where any gate failure
-discarded the whole frame (even for a few-pixel sliver at the frame edge),
-which was the main source of unexplained frame drops.
-"""
+"""Frame keep/drop policy (no Blender imports)."""
 
 from dataclasses import dataclass
 
@@ -24,20 +12,7 @@ from synthgen.reporting import DropReason, RobotSkipReason
 
 @dataclass(frozen=True)
 class RobotPixelStats:
-    """Per-robot pixel measurements for one frame, computed from the segmaps.
-
-    Attributes:
-        instance_id: The robot's instance id in the instance segmap.
-        name: Robot name for log messages.
-        tracked: True when per-instance stats are available (instance segmap
-            was rendered). Without it, robots share one category id and
-            per-robot prominence cannot be established.
-        visible_px: Robot pixels in the rendered (occluded) segmap.
-        bbox_w_px: Bounding-box width in pixels (0 when the robot has no bbox).
-        bbox_h_px: Bounding-box height in pixels.
-        unobstructed_px: Robot pixels in the distractor-free clean pass, or
-            None when the clean pass was unavailable (or skipped).
-    """
+    """Per-robot pixel measurements for one frame, computed from the segmaps."""
 
     instance_id: int
     name: str

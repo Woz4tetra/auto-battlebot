@@ -1,18 +1,5 @@
 #!/usr/bin/env python3
-"""Merge per-export `validation_state.json` files into one at the dataset root.
-
-`validate_yolo_dataset.py` keys its verdicts on the image path relative to whatever directory it
-was opened on. Open a single export and the keys read `images/frame_000000.jpg`; open a tree of
-exports and the same frame is `<export>/images/frame_000000.jpg`. The verdicts are the same
-human review either way, but the keys do not match, so a tree opened at the root starts from
-zero even though every frame under it has already been judged.
-
-This rewrites the per-export keys to be root-relative and writes the union. Frames whose image is
-no longer on disk are dropped, since a verdict pointing at nothing only makes the counts lie.
-
-Usage:
-    python training/yolo/merge_validation_state.py <dataset_root>
-"""
+"""Merge per-export `validation_state.json` files into one at the dataset root."""
 
 from __future__ import annotations
 

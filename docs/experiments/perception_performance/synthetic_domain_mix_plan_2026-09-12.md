@@ -1071,3 +1071,36 @@ What is left:
    recording run from 1 (`08-48-31`) and 4 (`09-50-45__09-52-23`) to 376 (`09-20-17__09-27-24`),
    so a few clips are mostly empty arena or pre-match footage and review fast.
 4. Record and label e-CAM25 footage for question 5, raw and rectified. Needs the robot.
+
+## Notes moved from code comments (2026-11-15)
+
+- `training/synthetic/domain_render_report.py` (`above VIEW_COUNT_SLACK = 1`):
+  A view's frame count may sit this far from an exact third: the uneven split and rounding.
+- `training/synthetic/domain_render_report.py` (`above MAX_DROP_FRACTION = 0.25`):
+  The step 3 gate: past this share of attempted frames dropped, the mat margin or the distractor count needs a look before the rest of the budget goes.
+- `training/synthetic/synthgen/damage.py`, `cutter_radius_m`:
+
+  ```text
+  Half-extent (cube) or radius (icosphere) that removes *volume_fraction* of a box.
+
+  The cutter is seeded on the surface rather than buried in the middle, so in practice
+  roughly half of it overlaps the mesh; the fraction is what the cutter was sized for,
+  not a measured loss.
+
+  Raises:
+      ValueError: When *shape* is not a known cutter shape.
+  ```
+
+- `training/synthetic/synthgen/damage_scene.py`, `_damage_instance` (`above named_draw = draw_named_part_damage(`):
+  A robot that names its parts loses whole assemblies. The random-fraction path below is what they replace, so a batch that allows none of them leaves it clean.
+- `training/synthetic/synthgen/damage_scene.py`, `_apply_chunk_draw` (`above cutter.rotation_euler = tuple(random.uniform(0.0, 2.0 * math.pi) for _ in range(3))`):
+  Random orientation so a cube cutter leaves a different facet shape each time.
+- `training/synthetic/synthgen/damage_scene.py`, `acquire`:
+  The next free cutter of *shape*, or None when the pool is exhausted.
+  Cutters alternate shapes, so this scans forward for the first match and swaps it to the front of the free range rather than keeping a queue per shape.
+- `training/yolo/make_domain_mix_arms.py` (`above Arm("d50000_cagehigh", None, 50000, venues=ALL_VENUES, extra_real=True),`):
+  Pose-only arms, pose_only_perception_plan_2026-09-19.md step 1b. `d50000` is both cage renders and the 10,000 basement frames; with unequal venues an even interleave runs out of basement frames at 30,000, so it takes every frame and is not a prefix of anything.
+- `training/yolo/make_domain_mix_arms.py` (`above Arm("d40000_real3x", None, 40000, real_repeat=3),`):
+  `d40000`'s frames with the real ones written three times, so the real share holds at 2.28 percent instead of falling to 0.77. Tests whether diluting the 452 real frames is what costs `d40000` its small-robot recall, against the training schedule as the other candidate.
+- `training/yolo/make_domain_mix_arms.py` (`above ARMS = (`):
+  The step 4 grid. `nodamage` is "best mix" in the plan, which is not known until the Q1 to Q3 arms are scored, so a candidate is built for each plausible mix and the one matching the winner gets trained. `swap_half` led the 2026-09-16 scoring, which is why its damage-free twin is here.

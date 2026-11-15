@@ -1,33 +1,4 @@
-"""Delete ultralytics ``cache="disk"`` image caches, keeping recently-used ones.
-
-Training with ``cache="disk"`` writes one ``.npy`` per image next to it. These are pure
-derived data -- ultralytics regenerates them on the next run -- but they dwarf the images
-themselves: on megamind 297 GB of ``.npy`` sat next to 24 GB of actual unique data, and
-filled the NVMe to 97 %.
-
-Deleting them is safe but not free: the next training run on that dataset re-caches, which
-costs a few minutes of IO. So this tool skips caches that were *used* recently.
-
-**Age is measured from access time by default, not modification time.** A cache is written
-once and then read by every subsequent run, so mtime says "when was this dataset first
-trained on" -- a cache generated months ago and used daily looks ancient by mtime. atime
-answers the question that matters: when was this last actually read. The root filesystem is
-mounted ``relatime``, which updates atime on read once a day, so day-granularity ages are
-accurate. On a ``noatime`` mount atime is frozen and this tool says so rather than silently
-deleting a hot cache.
-
-Datasets referenced by a running process are never touched, whatever their age.
-
-Usage:
-  # what would go, using the default 7-day floor
-  python training/yolo/clear_image_cache.py --dry-run
-
-  # actually delete caches unused for 14+ days
-  python training/yolo/clear_image_cache.py --older-than 14
-
-  # aggressive: everything not currently in use
-  python training/yolo/clear_image_cache.py --older-than 0
-"""
+"""Delete ultralytics ``cache="disk"`` image caches, keeping recently-used ones."""
 
 from __future__ import annotations
 
@@ -314,13 +285,7 @@ def validate(args: argparse.Namespace) -> bool:
 def sweep(
     root: Path, older_than: float, *, use_atime: bool = True, protect: set[Path] | None = None
 ) -> tuple[int, int]:
-    """Delete stale caches under ``root``. Returns (bytes freed, files removed).
-
-    The importable entry point, used by ``train.py`` to reclaim disk before a run. ``protect`` names
-    datasets to spare regardless of age: ``busy_datasets`` skips this process and its ancestors, so
-    a caller about to train on a dataset must name it explicitly or risk deleting its own cache
-    (harmless -- it regenerates -- but a slow way to start a run).
-    """
+    """Delete stale caches under ``root``. Returns (bytes freed, files removed)."""
     groups = collect(root, use_atime)
     if not groups:
         return 0, 0

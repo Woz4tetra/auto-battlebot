@@ -57,10 +57,6 @@ logger = get_logger(__name__)
 
 CUTTER_NAME_PREFIX = "damage_cutter"
 _CUTTER_UNIT_DIAMETER = 2.0
-# The faces a boolean cut opens take the cutter's material (material_mode TRANSFER). With
-# no material they took slot 0 of the target through the primitive's own UVs and rendered
-# near white, which no real robot's torn-open interior looks like. Dark, rough and slightly
-# metallic reads as exposed internals and frame at 34 to 70 px.
 CUT_INTERIOR_MATERIAL_NAME = "damage_cut_interior"
 _CUT_INTERIOR_BASE_COLOR = (0.035, 0.035, 0.04, 1.0)
 _CUT_INTERIOR_ROUGHNESS = 0.7
@@ -117,11 +113,7 @@ class CutterPool:
         self._next = 0
 
     def acquire(self, shape: str) -> bpy.types.Object | None:
-        """The next free cutter of *shape*, or None when the pool is exhausted.
-
-        Cutters alternate shapes, so this scans forward for the first match and swaps it
-        to the front of the free range rather than keeping a queue per shape.
-        """
+        """The next free cutter of *shape*, or None when the pool is exhausted."""
         for index in range(self._next, len(self._cutters)):
             cutter = self._cutters[index]
             if cutter.get("cutter_shape") == shape:
@@ -170,22 +162,6 @@ def _cut_interior_material() -> bpy.types.Material:
         bsdf.inputs["Roughness"].default_value = _CUT_INTERIOR_ROUGHNESS
         bsdf.inputs["Metallic"].default_value = _CUT_INTERIOR_METALLIC
     return material
-
-
-# The two mechanisms work in different frames, on purpose.
-#
-# Chunk removal works in WORLD space, because the cutter is an unparented world object: a
-# distractor's parent carries a per-scene scale (place_scene_distractors resizes each Meshy
-# model to the 3 lb class), so a radius measured in the parent frame and applied in the
-# world comes out wrong by that scale factor.
-#
-# Part removal works in the robot's PARENT frame, because that is the frame the parts and
-# the keypoints were modelled in. Bounding boxes there are axis-aligned to the robot, so
-# which parts are protected does not depend on which way the robot happens to be facing;
-# measured over three poses on 2026-09-12, the same robot's protected set held at 9 and 36
-# parts in its own frame while world-space boxes wobbled between 6 and 71 as it rotated.
-# The one length that does not survive the frame change is keypoint_clearance_m, which the
-# caller divides by the parent's scale to keep it a clearance in metres.
 
 
 def _world_corners(obj: bpy.types.Object) -> np.ndarray:
@@ -273,7 +249,6 @@ def _apply_chunk_draw(
         return False
     cutter.location = mathutils.Vector(draw.centre)
     cutter.scale = (draw.radius_m, draw.radius_m, draw.radius_m)
-    # Random orientation so a cube cutter leaves a different facet shape each time.
     cutter.rotation_euler = tuple(random.uniform(0.0, 2.0 * math.pi) for _ in range(3))
     name = f"damage_{cutter.name}"
     modifier = target.modifiers.new(name=name, type="BOOLEAN")
@@ -301,8 +276,6 @@ def _damage_instance(
         return undamaged
 
     if instance.named_parts:
-        # A robot that names its parts loses whole assemblies. The random-fraction path
-        # below is what they replace, so a batch that allows none of them leaves it clean.
         named_draw = draw_named_part_damage(
             list(instance.named_parts), cfg.removable_parts, cfg.part_count
         )
@@ -380,11 +353,6 @@ def apply_scene_damage(
     if not cfg.enabled:
         return session, recorded
 
-    # Whole scenes are clean or not, which is what keeps the clean pool the size the arms
-    # need. Rolling only per instance would not: a scene carries several robot-like
-    # instances, so a frame with every one of them clean measured 15 percent of frames at
-    # probability 0.35, not the half a damage-off arm has to draw from. The split is
-    # tracked rather than flipped, because a run is only a handful of scenes.
     scene_damaged = budget.take(cfg.scene_probability)
     pool.reset()
     targets: list[tuple[str, DamageTarget]] = [

@@ -1,21 +1,5 @@
 #!/usr/bin/env python3
-"""Orthographic mat albedo from the rectified cage-high targets.
-
-Each target is warped onto the mat plane through its fitted pose (the inverse of the
-homography K [r1 r2 t]) into a square texture over the mat, then the clips of one event are
-combined by a per-pixel median after normalising each clip to its own mat-region mean, so
-exposure drift between fights does not vote. The texture is in the hfield frame: pixel x
-runs along hfield +x, pixel y along hfield +y, origin at (-half, -half).
-
-Outputs `<out>/cage2_<event>_albedo.png` with a `.json` sidecar (px per metre, extent,
-clips used) and a downscaled `_preview.png`. The default `--out` is the cage environment
-directory the Blender spec reads the albedo from.
-
-Usage:
-    venv/bin/python training/synthetic/build_cage_floor_texture.py runs/cage_scene --px-per-m 1024
-    venv/bin/python training/synthetic/build_cage_floor_texture.py runs/cage_scene \
-        --source target_4k.png
-"""
+"""Orthographic mat albedo from the rectified cage-high targets."""
 
 from __future__ import annotations
 
@@ -165,8 +149,6 @@ def combine_clips(clips: list[WarpedClip]) -> tuple[np.ndarray, np.ndarray]:
         stack.append(scaled)
     median = nanmedian_over_seen_frames(np.stack(stack))
     unseen = np.isnan(median[:, :, 0])
-    # Restore the event's mean colour so the albedo carries the real mat tint, and fill what no
-    # clip saw (the near strip the camera cuts off) with that mean.
     target_mean = np.mean(
         [c.texture[c.mask > 127].reshape(-1, 3).mean(axis=0) for c in clips], axis=0
     )

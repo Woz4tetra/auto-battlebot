@@ -84,11 +84,7 @@ class Command:
 
 @dataclass(frozen=True)
 class SceneInfo:
-    """Static facts about the built scene, gathered once on the main thread.
-
-    Everything here is fixed for the life of the process, so the handler can serve it without
-    touching Blender.
-    """
+    """Static facts about the built scene, gathered once on the main thread."""
 
     spec_path: str
     calibration_id: str
@@ -270,8 +266,6 @@ COMPASS: tuple[tuple[str, int, int], ...] = (
 # Meters of mat kept clear at the edge, matching `[[cages]].mat_margin_m`, so the sample points sit
 # where the batch pipeline will actually place a robot rather than hanging off the edge.
 MAT_MARGIN_M = 0.20
-# Nothing real sits within 2 cm of the lens, and clipping there keeps projected pixel coordinates
-# finite and small enough for a canvas to stroke.
 NEAR_PLANE_M = 0.02
 
 
@@ -281,11 +275,7 @@ def scene_k_rect(scene: SceneInfo, alpha: float) -> np.ndarray:
 
 
 def mat_sample_points(mat_size_m: float, margin_m: float = MAT_MARGIN_M) -> dict[str, np.ndarray]:
-    """The nine mat points worth measuring a robot at, keyed by compass label.
-
-    Fixed in the world frame, not relative to the camera: a mount is judged by how a robot reads
-    across the whole mat at once, and fixed points keep the readout stable while flying.
-    """
+    """The nine mat points worth measuring a robot at, keyed by compass label."""
     offset = mat_size_m / 2 - margin_m
     return {name: np.array([x * offset, y * offset, 0.0]) for name, x, y in COMPASS}
 
@@ -344,11 +334,7 @@ def clip_to_near_plane(points_cam: np.ndarray, near_m: float = NEAR_PLANE_M) -> 
 
 
 def overlay_geometry(pose: FreeflyPose, scene: SceneInfo, alpha: float) -> dict[str, Any]:
-    """Mat outline and robot-sized boxes, projected for the page to draw over the frame.
-
-    The robot pixel widths are the number that decides the `imgsz` question, so they belong on
-    screen while a mount is being chosen rather than in a 40,000-frame render afterwards.
-    """
+    """Mat outline and robot-sized boxes, projected for the page to draw over the frame."""
     half = scene.mat_size_m / 2
     corners = np.array(
         [[-half, -half, 0.0], [half, -half, 0.0], [half, half, 0.0], [-half, half, 0.0]]
@@ -535,8 +521,6 @@ class Router:
         except (KeyError, TypeError, ValueError) as error:
             return Response(400, f"bad pose: {error}\n".encode())
         self._mailbox.submit_pose(request)
-        # Answering with the readout instead of 204 keeps the page's overlay locked to the pose it
-        # just sent. It is pure math on a handler thread, so it still never blocks on a render.
         return Response.json(
             mount_readout(request.pose, self._scene, self._ranges, self._spec, request.alpha)
         )
@@ -579,8 +563,6 @@ def make_handler(mailbox: Mailbox, router: Router) -> type[BaseHTTPRequestHandle
     """Wire *router* to the stdlib server. Only the frame long-poll is handled here."""
 
     class Handler(BaseHTTPRequestHandler):
-        # Keep-alive matters at 15 fps: without it every frame pays a fresh TCP connection, and
-        # HTTP/1.1 keep-alive only works if every response carries a Content-Length.
         protocol_version = "HTTP/1.1"
         disable_nagle_algorithm = True
 
@@ -635,7 +617,7 @@ def serve(
     out_dir: Path,
     page_source: Callable[[], bytes],
     port: int,
-    host: str = "0.0.0.0",  # noqa: S104 - inside the container; the host publishes to 127.0.0.1
+    host: str = "0.0.0.0",
 ) -> ThreadingHTTPServer:
     """Bind the port and serve on a daemon thread. The caller keeps the main thread for `bpy`."""
     handler = make_handler(mailbox, Router(mailbox, scene, ranges, page_source, spec, out_dir))

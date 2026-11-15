@@ -116,3 +116,41 @@ Tunable thresholds: `--keypoint-height` (default 0.06 m), `--wall-contact-margin
    baseline. The projection-error numbers above are the predicted upside.
 4. On the next Jetson recordings, re-run this analyzer to get the true perception-reliability and
    opponent mislabel rates now that the forward-looking logs are in place.
+
+## Notes moved from code comments (2026-11-15)
+
+- `training/model_eval/perception_reliability.py`:
+
+  ```text
+  Measure opponent-track reliability from a playback MCAP recording.
+
+  Stage 0 instrumentation for the control-improvement plan. From a recording (a real Jetson SVO
+  replayed in playback, or a live run), report how often a live (non-stale) opponent track is
+  available and how long the track is lost at a time. This sets how hard the predictor must work:
+  it coasts through the measured dropout gaps, so the gap-length distribution bounds the horizon.
+
+  Source data is the `perception` diagnostics subsection the runner emits once per tick
+  (their_count_total, their_count_live, our_present_live; src/runner.cpp), plus the `jump_reject`
+  events the FrameId assigner logs. Any recording carrying `/diagnostics` (post 2026-06-19) works
+  with no re-instrumentation. The message stamp is the camera frame stamp, so dropout durations
+  are real time even under free-run playback.
+
+  Metrics:
+    - opponent validity: % of ticks with a live (non-stale) opponent (their_count_live > 0)
+    - our-robot validity: % of ticks with a live OUR_ROBOT_1 (our_present_live > 0)
+    - opponent dropout gaps: run-lengths of consecutive ticks with no live opponent (frames + ms)
+    - our-robot dropout gaps: run-lengths of consecutive ticks with no live OUR_ROBOT_1 (frames + ms).
+      These bound the keypoint-override decay `hold_window` in docs/robot_filter_decay_plan.md:
+      if our-robot gaps are short, holding the "ours" identity across them is cheap.
+    - track churn: jump_reject events per second (the FrameId assigner refusing a far reassignment)
+
+  Not yet measured: true track-ID-switch rate. The diagnostics carry opponent counts, not per-slot
+  identity, so a physical robot swapping FrameId slots is not directly observable. jump_reject rate
+  is the available proxy. Exact switch tracking needs a small addition to the perception diagnostics
+  block (log the live THEIRS FrameId set); see docs.
+
+  Usage:
+      source scripts/activate_python.sh
+      python training/model_eval/perception_reliability.py         data/recordings/auto_battlebot_experiment_playback_2026-06-20_00-15-08.mcap         --csv out/perception.csv --plot out/perception.png
+  ```
+

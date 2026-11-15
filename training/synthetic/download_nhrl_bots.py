@@ -1,14 +1,4 @@
-"""Fetch the NHRL bot roster from BrettZone and cache thumbnails for meshing.
-
-Step 1 of the NHRL robot distractor pipeline.  Pages the BrettZone bots API,
-caches the roster locally, ranks bots by activity, downloads their thumbnails,
-and records which bots lack a usable thumbnail in the shared state file.  No
-Meshy credits are spent here.
-
-Usage:
-    python download_nhrl_bots.py ../data/distractor_models/robots --limit 300
-    python download_nhrl_bots.py ../data/distractor_models/robots --min-fights 5 --refresh-bot-list
-"""
+"""Fetch the NHRL bot roster from BrettZone and cache thumbnails for meshing."""
 
 from __future__ import annotations
 
@@ -49,7 +39,6 @@ def fetch_all_bots(api_key: str | None) -> list[dict[str, Any]]:
         if page >= total_pages or not page_bots:
             break
         page += 1
-        # Fair-use: stay well under the 5s real-time poll ceiling for archive data.
         time.sleep(0.3)
     return bots
 

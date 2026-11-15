@@ -37,8 +37,6 @@ import yaml
 
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg"}
 HOLDOUT_NAME = "prelabel_holdout.json"
-# A keypoint the model is at least this sure of is labelled visible (2), the rest labelled but
-# not visible (1), matching how the eval set flags occluded keypoints.
 KEYPOINT_VISIBLE_CONF = 0.5
 
 

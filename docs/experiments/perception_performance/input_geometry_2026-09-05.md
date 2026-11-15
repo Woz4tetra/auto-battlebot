@@ -674,3 +674,91 @@ happen to be running today.
   eval-frame sampling and not seed variance. A second seed on B and D would settle it.
 - **The keypoint model and DeepLab still take their own input sizes.** A rectangular blob
   engine does not change that, and nothing here should be read as a shared resize.
+
+## Notes moved from code comments (2026-11-15)
+
+- `training/deeplab/build_field_crop_dataset.py`, `crop_one`:
+  Write one cropped image and its labels. Returns (labels in, labels out, frames dropped).
+  A frame whose crop discarded a label is skipped entirely when `drop_clipped` is set. Keeping it would leave a robot visible in the image with no box on it, which trains a false negative, the one case where an unlabelled image is not a useful background negative. It costs 0.3% of frames at margin 0.20.
+- `training/deeplab/build_field_crop_dataset.py`:
+
+  ```text
+  Build the field-cropped training corpus for arm E of input_resolution_plan.md.
+
+  Arm E asks whether spending the input tensor on the field alone beats spending it on the
+  whole frame. At deployment the field is already available, `field_filter.track_field`
+  runs before perception and is computed once at init, not per frame, so cropping to it
+  costs arithmetic. The training corpus has no depth, so the field has to come from the
+  DeepLab RGB model instead.
+
+  Two stages, so the expensive one runs once:
+
+    masks  Run DeepLab over every image and record the field bounding box in normalized
+           frame coordinates. GPU-bound, a few minutes over 32k images. Cached to JSON.
+    crop   Read that JSON, crop each image to the box plus a margin, and rewrite the labels.
+           CPU-bound and cheap, so the margin can be re-tuned without touching the GPU.
+
+  Unlike the anisotropic-stretch arm, a crop *does* move normalized YOLO coordinates: every
+  box is re-expressed against the cropped frame and clipped to it.
+
+      python training/deeplab/build_field_crop_dataset.py masks         --model ../../data/models/field_deeplabv3p_r50_2026-07-29.pth         --src ../data/nhrl_robots_bbox_2class --out field_boxes.json
+      python training/deeplab/build_field_crop_dataset.py crop         --src ../data/nhrl_robots_bbox_2class --dst ../data/nhrl_robots_bbox_2class_fieldcrop         --boxes field_boxes.json --margin 0.10
+  ```
+
+- `training/deeplab/field_fraction_gate.py`, `main` (`above for rec in sorted(p for p in args.eval_root.iterdir() if (p / "images").is_dir()):`):
+  The eval set is several recordings with different framing; keep them separate so a single outlier recording cannot decide the gate.
+- `training/deeplab/field_fraction_gate.py`, `tensor_tradeoff`:
+  Zoom and padding for each engine input shape, cropped and uncropped.
+  Zoom is the letterbox scale relative to arm A's 640x640, which is what sets how many pixels a robot lands on. The source resolution cancels out of that ratio for a 16:9 frame, so 1280x720 stands in for both corpora.
+- `training/deeplab/field_fraction_gate.py`:
+
+  ```text
+  Go / no-go gate for the field-crop arm (arm E of input_resolution_plan.md).
+
+  Arm E crops each frame to the field before the detector sees it, buying resolution where
+  the robots are. That only closes the train/deploy domain gap if the field occupies a
+  *similar* fraction of the frame in both corpora. NHRL's overhead cage cameras are framed on
+  the cage, so the field may already fill the frame there, while the ZED shoots from inside
+  the cage and sees much less. If the two fractions differ sharply, cropping teaches the
+  detector a scale the deployment camera never delivers and arm E should be cut.
+
+  Runs the trained DeepLab field model over a sample of both corpora and reports, per corpus,
+  the fraction of the frame covered by the field mask and by its bounding box (the bbox is
+  what a crop would actually use).
+
+  With `--labels`, it also answers the question that decides the arm: how much margin the crop
+  needs before it stops clipping annotated robots, and how much zoom survives that margin. A
+  crop tight enough to zoom is a crop that cuts robots in half; a crop loose enough to keep
+  them is a crop that covers the frame.
+
+  With `--tensors`, it reports what the crop is worth once it is letterboxed into a real
+  engine input, against not cropping at all. This is the version that decides the arm, because
+  a letterbox scale is set by whichever axis binds first, and the field box spans nearly the
+  full frame width on both corpora. Cropping removes rows the width-bound scale was going to
+  apply anyway, so it buys no zoom at any tensor shape that is 16:9 or squarer, it only
+  spends the freed rows on padding.
+
+      python training/deeplab/field_fraction_gate.py         --model data/models/field_deeplabv3p_r50_2026-07-29.pth         --train-images training/data/nhrl_robots_bbox_2class/train/images         --eval-root training/data/nhrl_keypoints_eval_test         --sample 300 --device cpu
+  ```
+
+- `training/yolo/make_stretched_dataset.py`:
+
+  ```text
+  Build an anisotropically-resized copy of a YOLO dataset, for the stretch arm.
+
+  Arm D of `input_resolution_plan.md` fills the input tensor by ignoring aspect ratio
+  instead of padding to preserve it. Squeezing 16:9 into a square costs 0.5x horizontally
+  but only 0.89x vertically, so a robot lands at sqrt(0.5 * 0.89) = 0.67 of its source size
+  against 0.50 for a letterbox: 1.33x more robot at the same 409,600 tensor pixels and no
+  padding.
+
+  Normalized YOLO labels need no change. `cx cy w h` are fractions of width and height, so
+  an anisotropic resize leaves every one of them identical; the label files are copied as
+  symlinks. Only the images are rewritten.
+
+  Training then runs at `imgsz=640` with `rect=False`, where ultralytics' letterbox is a
+  no-op on already-square images.
+
+      python training/yolo/make_stretched_dataset.py         training/data/nhrl_robots_bbox_2class training/data/nhrl_robots_bbox_2class_stretch
+  ```
+

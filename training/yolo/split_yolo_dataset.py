@@ -1,9 +1,4 @@
-"""Split a flat images/ + labels/ pair into train/val/test directories.
-
-Note this is a **frame-level random** split. For anything graded on generalization, prefer
-``split_by_scene.py``: consecutive frames of one recording are near-duplicates, so a random split
-puts near-copies of the training frames into val and val stops measuring anything useful.
-"""
+"""Split a flat images/ + labels/ pair into train/val/test directories."""
 
 import argparse
 import random

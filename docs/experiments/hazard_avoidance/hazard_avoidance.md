@@ -307,3 +307,18 @@ parks near the middle.
   may hand away the match. Today both modes get the same treatment, and the goal is pushed to the
   hazard boundary rather than abandoned, so attack closes to the nearest legal point instead of
   giving up.
+
+## Notes moved from code comments (2026-11-15)
+
+- `training/synthetic/render_sprites.py`, `render_sprite` (`above "source": str(resolved_model.relative_to(REPO_ROOT)),`):
+  Repo-relative, so the manifest names the same file whatever directory it ran from.
+- `training/synthetic/render_sprites.py`, `render_sprite` (`above return {`):
+  The rendered image spans `span` metres, so this is the true scale of the file on disk, not the requested one (which the pixel rounding perturbs).
+- `training/synthetic/render_sprites.py`, `render_sprite` (`camera.rotation_euler = (0.0, 0.0, 0.0)`):
+  straight down, +X right and +Y up in the image
+- `training/synthetic/render_sprites.py`, `add_sky_lighting`:
+  Light the scene from an outdoor sky HDRI.
+  The sun gives the silhouette an edge and the sky fills the flat top surfaces, which is most of what a top-down sprite shows. Rotation aims the sun, so it decides which side catches the highlight.
+- `training/synthetic/render_sprites.py`, `upright_yaw`:
+  Yaw that turns *front_local* onto +X once the model is standing upright.
+  The front/back keypoints are authored in the model's own frame. Standing the model up moves them, and the ground roll tilts them out of the horizontal plane, so take the heading of the projection rather than the raw vector.

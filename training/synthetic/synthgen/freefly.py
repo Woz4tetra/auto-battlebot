@@ -36,8 +36,6 @@ from synthgen.cage_mount import (
     wall_axes,
 )
 
-# Straight up or straight down leaves yaw and roll expressing the same rotation, so the client
-# never gets to send either.
 PITCH_LIMIT_DEG = 89.9
 
 
@@ -129,11 +127,7 @@ def freefly_from_cam2world(cam2world: np.ndarray) -> FreeflyPose:
 def mount_from_cam2world(
     cam2world: np.ndarray, wall_half_m: float, walls: tuple[str, ...] = WALLS
 ) -> CageMount:
-    """The `CageMount` that describes *cam2world* exactly, picking among *walls*.
-
-    Every pose is some mount, so nothing is lost here. The wall choice only decides which numbers
-    say so: pick a different wall and `along_m` and `inset_m` change to match.
-    """
+    """The `CageMount` that describes *cam2world* exactly, picking among *walls*."""
     matrix = np.asarray(cam2world, dtype=np.float64)
     position = matrix[:3, 3]
     forward = -matrix[:3, 2]
@@ -178,12 +172,7 @@ def mount_residual(cam2world: np.ndarray, mount: CageMount, wall_half_m: float) 
 
 
 def clamp_mount_to_ranges(mount: CageMount, ranges: CageMountRanges) -> CageMount:
-    """The nearest mount the batch sampler could actually draw from *ranges*.
-
-    Every scalar is clamped into its range. The wall is kept if `ranges.walls` allows it; otherwise
-    the caller should re-read the mount with `walls=ranges.walls` first, since moving a camera to
-    another wall renames `along_m` and `inset_m` rather than clamping them.
-    """
+    """The nearest mount the batch sampler could actually draw from *ranges*."""
     return CageMount(
         wall=mount.wall if mount.wall in ranges.walls else ranges.walls[0],
         along_m=_clamp(mount.along_m, ranges.along_m),

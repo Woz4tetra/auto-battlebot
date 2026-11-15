@@ -1,23 +1,4 @@
-"""Render one venue's domain-mix dataset across several GPUs, one view per run, then merge it.
-
-Step 3 of docs/experiments/perception_performance/synthetic_domain_mix_plan_2026-09-12.md. The GPU
-queue runs one job at a time, so this is that one job: one worker per GPU renders its shard as one
-``render_scenes.py`` container per view, back to back, and once every run has finished the runs are
-hardlinked into one flat dataset.
-
-    venv/bin/python training/gpu_queue.py submit --name render_cage_nhrl --by <agent> -d 0 1 2 -- \\
-      venv/bin/python training/synthetic/render_shards.py config_cage_nhrl.toml \\
-        --out ../data/synth_cage_nhrl_2026-09-13 --total 20000 --gpus 0 1 2 --seed-base 0
-
-``render_scenes.py`` runs inside the container, whose working directory is training/synthetic, so
-the config and ``--out`` are relative to that directory. Anything after a bare ``--`` goes to every
-``render_scenes.py`` run, for smoke tests (``-- --images-per-scene 2 --damage all``).
-
-Runs write to ``<out>_parts/shard<i>_<view>/``. A rerun resumes: a finished run is skipped, a run a
-crash cut short continues one past its last frame on disk under a fresh seed, and the merge happens
-only once every run is complete. The parts stay after the merge; the dataset's files are hardlinks
-to them, so deleting the parts costs nothing but the directory entries.
-"""
+"""Render one venue's domain-mix dataset across several GPUs, one view per run, then merge it."""
 
 from __future__ import annotations
 
@@ -45,8 +26,6 @@ from synthgen.shards import (
 SYNTHETIC_DIR = Path(__file__).resolve().parent
 RUN_SYNTHETIC = SYNTHETIC_DIR / "docker" / "run_synthetic.sh"
 DEFAULT_IMAGE = "auto-battlebot-synthetic"
-# The view that runs one frame short comes last. NHRL keeps this order; MassD passes
-# `--views rectified distorted pinhole` so the two venues are short on different views.
 DEFAULT_VIEW_ORDER = (VIEW_PINHOLE, VIEW_RECTIFIED, VIEW_DISTORTED)
 # A resumed run reseeds so it does not replay the scenes its first attempt already drew. The
 # stride keeps resumed seeds clear of every run's base seed.
@@ -192,11 +171,7 @@ def report_progress(runs: list[ShardRun], parts_dir: Path, done: threading.Event
 
 
 def record_source(parts_dir: Path) -> Path:
-    """The commit and uncommitted training/synthetic diff this attempt renders from.
-
-    The containers mount the repo live, so a run started hours in reads whatever synthgen holds
-    then. The patch is what makes the render traceable when the tree was not committed first.
-    """
+    """The commit and uncommitted training/synthetic diff this attempt renders from."""
     parts_dir.mkdir(parents=True, exist_ok=True)
 
     def git(*args: str) -> str:

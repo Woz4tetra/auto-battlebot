@@ -1,36 +1,4 @@
-"""Interactively confirm front/back keypoint direction for NHRL robot models.
-
-Step 3.5 of the NHRL robot distractor pipeline, run on the HOST after
-``compute_nhrl_keypoints.py`` (which renders each robot's full-material
-orthographic top-down and records the model->pixel affine in the sidecar).
-Which end is *front* (thrust/weapon direction), and even which axis, cannot be
-recovered from a static mesh, so this shows the render and lets an operator
-**draw the centerline**: drag across the robot to set the forward axis at any
-angle (front = the end you drag toward).  Front/back snap to the footprint's
-extremes along that direction, centered on the body.  Confirmed sidecars are
-marked ``reviewed: true`` so recompute never clobbers them.  Bad meshes can be
-marked ``rejected: true``; ``archive_rejected_nhrl.py`` then moves them out of
-the pool so they never render.
-
-The review starts on the first model that is neither reviewed nor rejected, so
-re-running the tool resumes where the last pass left off.
-
-This tool loads only the sidecar PNG + JSON (no mesh, no trimesh, no rendering),
-so it is light and host-only, but it needs a GUI display.  Run in a root project
-venv (needs ``opencv-python`` + ``numpy``):
-
-    venv/bin/python training/synthetic/review_nhrl_keypoints.py \
-        training/data/distractor_models/robots
-
-Controls:
-    drag       draw the centerline direction (front = drag end)
-    f          flip front/back
-    a / space  accept (mark reviewed) and go to next
-    r          reject the model (mark rejected) and go to next
-    n / .      next        p / ,      previous
-    u          reset to geometry default (clears reviewed/rejected)
-    q / esc    quit
-"""
+"""Interactively confirm front/back keypoint direction for NHRL robot models."""
 
 from __future__ import annotations
 

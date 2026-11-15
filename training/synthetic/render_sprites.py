@@ -59,27 +59,13 @@ from synthgen.robots import import_gltf_as_robot
 LAUNCH_CWD = Path(os.environ.get("BLENDERPROC_CWD", os.getcwd()))
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# Sky-only outdoor HDRI. Sun plus blue-sky fill lights a top-down view evenly; the three-area-lamp
-# rig this replaced left the flat upper surfaces that dominate a top-down sprite reading as
-# near-black.
 SPRITE_MARGIN = 1.08
 HDRI = REPO_ROOT / "training/data/hdris/table_mountain_1_puresky_2k.hdr"
 
 
 @dataclass(frozen=True)
 class SpriteSpec:
-    """One sprite the viewer asks for by name.
-
-    Attributes:
-        name: Manifest key and PNG stem, and what a sim config's ``sprite`` key names. Sprites
-            are named after the robot, not its role: which one is ours is a per-run choice.
-        robot: ``[[robots]]`` entry to render, by its config ``name``.
-        model_path: Override the config's model, keeping its materials and orientation. Used for
-            robots the training set does not need but the viewer draws.
-        front_model: Front direction in the model's own frame, for an override model that has
-            no keypoints of its own. Same frame the config's ``[robots.keypoints]`` use, so it goes
-            through the same Y-up to Z-up conversion.
-    """
+    """One sprite the viewer asks for by name."""
 
     name: str
     robot: str
@@ -90,17 +76,12 @@ class SpriteSpec:
 SPRITES = (
     SpriteSpec(name="mrs_buff_mk3", robot="mrs_buff_mk3"),
     SpriteSpec(name="mr_stabs_mk2", robot="mr_stabs_mk2"),
-    # Mrs Buff MK2 is not in the training set, but it shares the MK3's OnShape palette, so the
-    # MK3's colour mapping textures it correctly. Its CAD origin sits at the back rather than the
-    # front, hence the explicit front direction.
     SpriteSpec(
         name="mrs_buff_mk2",
         robot="mrs_buff_mk3",
         model_path=REPO_ROOT / "simulation/assets/robots/mrs_buff_mk2.glb",
         front_model=(0.0, -1.0, 0.0),
     ),
-    # The house bot GLB carries baked PBR textures already, so the colour mapping finds nothing to
-    # replace and leaves them alone. Its painted face points +X.
     SpriteSpec(
         name="house_bot",
         robot="mrs_buff_mk3",
@@ -121,12 +102,7 @@ def clear_scene() -> None:
 
 
 def upright_yaw(front_local: np.ndarray, upright: mathutils.Matrix) -> float:
-    """Yaw that turns *front_local* onto +X once the model is standing upright.
-
-    The front/back keypoints are authored in the model's own frame. Standing the model up moves
-    them, and the ground roll tilts them out of the horizontal plane, so take the heading of the
-    projection rather than the raw vector.
-    """
+    """Yaw that turns *front_local* onto +X once the model is standing upright."""
     world_front = upright @ mathutils.Vector(tuple(float(v) for v in front_local))
     if world_front.xy.length < 1e-9:
         raise ValueError("front direction is vertical once upright; cannot derive a yaw")
@@ -163,12 +139,7 @@ def world_bounds(meshes: list[bproc.types.MeshObject]) -> tuple[mathutils.Vector
 
 
 def add_sky_lighting(strength: float, rotation_deg: float) -> None:
-    """Light the scene from an outdoor sky HDRI.
-
-    The sun gives the silhouette an edge and the sky fills the flat top surfaces, which is most of
-    what a top-down sprite shows. Rotation aims the sun, so it decides which side catches the
-    highlight.
-    """
+    """Light the scene from an outdoor sky HDRI."""
     if not HDRI.exists():
         raise FileNotFoundError(f"HDRI not found: {HDRI}")
 
@@ -236,7 +207,7 @@ def render_sprite(
     camera_data.ortho_scale = span
     camera = bpy.data.objects.new("sprite_cam", camera_data)
     camera.location = (center.x, center.y, hi.z + 2.0)
-    camera.rotation_euler = (0.0, 0.0, 0.0)  # straight down, +X right and +Y up in the image
+    camera.rotation_euler = (0.0, 0.0, 0.0)
     bpy.context.collection.objects.link(camera)
     bpy.context.scene.camera = camera
 
@@ -257,14 +228,11 @@ def render_sprite(
     scene.render.filepath = str(out_path)
     bpy.ops.render.render(write_still=True)
 
-    # The rendered image spans `span` metres, so this is the true scale of the file on disk, not
-    # the requested one (which the pixel rounding perturbs).
     return {
         "file": out_path.name,
         "pixels_per_meter": round(pixels / span, 4),
         "footprint_m": [round(extent_x, 4), round(extent_y, 4)],
         "front_axis": "+X",
-        # Repo-relative, so the manifest names the same file whatever directory it ran from.
         "source": str(resolved_model.relative_to(REPO_ROOT)),
     }
 

@@ -1,24 +1,5 @@
 #!/usr/bin/env python3
-"""Draw the arena floor onto eval frames so the exported camera transforms can be eyeballed.
-
-Everything downstream of `export_camera_transforms.py` (floor distances, range bands) is only
-as good as `tf_field_from_camera`. This projects things whose correct appearance is known and
-lets you check them by eye:
-
-- The nominal 8 ft arena square and a 0.5 m grid on the floor plane. The square should sit on
-  the cage walls. `field_size_m` from the RANSAC fit is deliberately not used, since it reads
-  undersized and sometimes fails outright; the nominal is the honest thing to draw.
-- Range rings at 1, 2 and 3 m from the camera's nadir, which should look like concentric
-  ellipses hugging the floor.
-- Each labeled robot's keypoint midpoint, round-tripped pixel -> floor -> pixel. The
-  round-trip marker must land back on the original, and the printed residual says by how much.
-  This catches a broken transform even when the grid looks plausible.
-
-Usage:
-    python training/model_eval/make_field_projection_check.py \
-        training/data/nhrl_keypoints_eval_test \
-        -o docs/experiments/perception_performance/assets/2026-08-03_mask_centroid/field_check.png
-"""
+"""Draw the arena floor onto eval frames so the exported camera transforms can be eyeballed."""
 
 from __future__ import annotations
 
@@ -165,10 +146,7 @@ def legend(width):
 
 
 def pick_frames(gt_frames, images, count: int, method: str) -> list[FrameKey]:
-    """Frames with a usable pose, dealt round-robin across recordings.
-
-    Round-robin rather than first-N so one fight cannot vouch for the whole export, and
-    spaced within each recording so the tiles are not consecutive frames of one moment."""
+    """Frames with a usable pose, dealt round-robin across recordings."""
     usable: dict[str, list[int]] = {}
     for stamp in sorted(gt_frames):
         if load_frame_geometry(images[stamp], methods=(method,)) is None:

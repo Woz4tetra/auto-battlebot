@@ -1,34 +1,4 @@
-"""Go / no-go gate for the field-crop arm (arm E of input_resolution_plan.md).
-
-Arm E crops each frame to the field before the detector sees it, buying resolution where
-the robots are. That only closes the train/deploy domain gap if the field occupies a
-*similar* fraction of the frame in both corpora. NHRL's overhead cage cameras are framed on
-the cage, so the field may already fill the frame there, while the ZED shoots from inside
-the cage and sees much less. If the two fractions differ sharply, cropping teaches the
-detector a scale the deployment camera never delivers and arm E should be cut.
-
-Runs the trained DeepLab field model over a sample of both corpora and reports, per corpus,
-the fraction of the frame covered by the field mask and by its bounding box (the bbox is
-what a crop would actually use).
-
-With `--labels`, it also answers the question that decides the arm: how much margin the crop
-needs before it stops clipping annotated robots, and how much zoom survives that margin. A
-crop tight enough to zoom is a crop that cuts robots in half; a crop loose enough to keep
-them is a crop that covers the frame.
-
-With `--tensors`, it reports what the crop is worth once it is letterboxed into a real
-engine input, against not cropping at all. This is the version that decides the arm, because
-a letterbox scale is set by whichever axis binds first, and the field box spans nearly the
-full frame width on both corpora. Cropping removes rows the width-bound scale was going to
-apply anyway, so it buys no zoom at any tensor shape that is 16:9 or squarer -- it only
-spends the freed rows on padding.
-
-    python training/deeplab/field_fraction_gate.py \
-        --model data/models/field_deeplabv3p_r50_2026-07-29.pth \
-        --train-images training/data/nhrl_robots_bbox_2class/train/images \
-        --eval-root training/data/nhrl_keypoints_eval_test \
-        --sample 300 --device cpu
-"""
+"""Go / no-go gate for the field-crop arm (arm E of input_resolution_plan.md)."""
 
 import argparse
 import json
@@ -171,12 +141,7 @@ def tensor_tradeoff(
     src_w: float = 1280.0,
     src_h: float = 720.0,
 ) -> list[dict[str, object]]:
-    """Zoom and padding for each engine input shape, cropped and uncropped.
-
-    Zoom is the letterbox scale relative to arm A's 640x640, which is what sets how many
-    pixels a robot lands on. The source resolution cancels out of that ratio for a 16:9
-    frame, so 1280x720 stands in for both corpora.
-    """
+    """Zoom and padding for each engine input shape, cropped and uncropped."""
     base = min(640.0 / src_h, 640.0 / src_w)
     boxes = [r["field_box"] for r in rows if r.get("field_box")]
     out: list[dict[str, object]] = []
@@ -348,8 +313,6 @@ def main() -> None:
     results.append(summary)
     per_frame["train"] = rows
 
-    # The eval set is several recordings with different framing; keep them separate so a
-    # single outlier recording cannot decide the gate.
     for rec in sorted(p for p in args.eval_root.iterdir() if (p / "images").is_dir()):
         images = sample_images(rec / "images", args.sample, rng)
         summary, rows = run_corpus(

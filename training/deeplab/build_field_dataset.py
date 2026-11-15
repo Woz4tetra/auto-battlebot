@@ -1,26 +1,5 @@
 #!/usr/bin/env python3
-"""Assemble a segmask tree into one train/val field-segmentation dataset.
-
-`merge_segmask_datasets.py` + `split_segmask_dataset.py` would also produce a merged dataset, but
-`split_segmask_dataset.py` shuffles at frame level. Every corpus here is video-derived at a fixed
-stride, so a frame-level shuffle puts near-identical neighbours on both sides of the split and the
-val score stops measuring generalisation. This tool splits at the level of the source video
-instead, and never splits one video across train and val.
-
-It also refuses to reshuffle a corpus that is already split. A source subtree holding its own
-`train/` and `val/` is treated as settled: its frames keep the side they are already on. That
-keeps a previously published split, and any anchor scores computed against it, still comparable
-after new material is folded in. Only the unsplit material gets an assignment, sized to match the
-held corpus's val fraction.
-
-Masks are assumed to already share one label space; the tool checks this rather than remapping,
-since a remap needs per-source class names that flat segmask exports do not carry.
-
-Usage:
-    python training/deeplab/build_field_dataset.py \
-        --src ~/Desktop/deeplab_field_2026-07-29 \
-        --out ~/Desktop/deeplab_field_merged_2026-07-29
-"""
+"""Assemble a segmask tree into one train/val field-segmentation dataset."""
 
 from __future__ import annotations
 
@@ -40,8 +19,6 @@ from PIL import Image
 IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png")
 MASK_SUFFIX = "_mask.png"
 SPLITS = ("train", "val")
-# SegmentFlow names an export after the video it was cut from, and a YouTube id is 11 characters.
-# Slices of one video differ only after that prefix, so the prefix is the video identity.
 YOUTUBE_ID_LEN = 11
 
 

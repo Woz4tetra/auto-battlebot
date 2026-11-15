@@ -164,11 +164,7 @@ def get_training_set_paths(data_directory: Path) -> tuple[list[Path], list[Path]
 
 
 def paths_from_list(list_path: Path, dataset_root: Path) -> tuple[list[Path], list[Path]]:
-    """Read an arm's image list. Relative entries resolve against the corpus root.
-
-    Arms are lists rather than directories of copies because the Phase-B ladder is 18
-    arms over ~29 k images; physical copies would be ~350 GB against 282 GB free.
-    """
+    """Read an arm's image list. Relative entries resolve against the corpus root."""
     if not list_path.exists():
         raise SystemExit(f"Image list not found: {list_path}")
     paths = []
@@ -181,11 +177,7 @@ def paths_from_list(list_path: Path, dataset_root: Path) -> tuple[list[Path], li
 
 
 def load_field_index(dataset_root: Path, override: Path | None) -> dict[str, str]:
-    """Image name -> field type, written by make_field_splits.py.
-
-    Absent, training still works but model selection falls back to the global mean IoU,
-    which on this corpus is roughly a Cage-6 score.
-    """
+    """Image name -> field type, written by make_field_splits.py."""
     path = override or (dataset_root / FIELD_INDEX_NAME)
     if not path.exists():
         return {}
@@ -413,11 +405,7 @@ class TrainingStepInterface:
         self.amp_dtype = amp_dtype
 
     def autocast(self) -> ContextManager[Any]:
-        """bf16 autocast is ~1.67x on an A6000 at this resolution and needs no GradScaler.
-
-        Verify it is loss-neutral before spending a full budget on it -- run the same
-        seed both ways for 20 epochs and compare (Phase A's amp_check arms).
-        """
+        """bf16 autocast is ~1.67x on an A6000 at this resolution and needs no GradScaler."""
         if self.amp_dtype is None:
             return nullcontext()
         return torch.autocast(device_type="cuda", dtype=self.amp_dtype)

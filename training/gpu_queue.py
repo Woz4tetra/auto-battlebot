@@ -1,36 +1,5 @@
 #!/usr/bin/env python3
-"""Serial GPU job queue, so several agents can share megamind's three A6000s.
-
-Every training arm in the experiment plans runs DDP across all three GPUs, so the
-scheduling unit is the whole box: one job at a time, in submission order. Agents
-submit and poll rather than launching training directly.
-
-    training/gpu_queue.py submit --name B_s384x640 --work 2591400 --profile yolo26s@640 -- \\
-        venv/bin/python training/yolo/train.py training/data/... yolo26s -d 0 1 2 -b 96
-    training/gpu_queue.py status
-    training/gpu_queue.py logs 3 --tail 40
-    training/gpu_queue.py logs -f            # follow whatever is training, across jobs
-
-Finish times are learned from what past jobs took, so tell the queue how big a job is:
-`--work` (frames times epochs, for a training arm) and `--profile` (the cost class the
-seconds-per-unit rate is learned within). Neither is guessable from the command line, where
-epochs often arrive positionally and the frame count lives inside a dataset. A rate is never
-borrowed across models, since an `x` costs several times an `s` per unit, so the first run of
-a model family has nothing to learn from and should carry `--eta` instead.
-
-A worker process pops jobs; `submit` starts one if none is alive. The worker waits
-for the GPUs to go idle before each job, so a run launched outside the queue (by
-hand or by an agent that has not adopted it) delays the queue instead of colliding
-with it.
-
-Long-lived GPU tenants step aside while the queue has work. Every executable in
-~/.config/gpu_queue/yield.d/ runs with `pause` before each job, and with `resume`
-once the queue has sat empty for the idle timeout. The job's devices arrive as
-GPU_QUEUE_DEVICES (e.g. "0,1"), so a tenant pinned to a GPU the job leaves alone can
-keep running. megamind's model server is one:
-
-    ln -s ~/home-apps/megamind/extractor.sh ~/.config/gpu_queue/yield.d/megamind
-"""
+"""Serial GPU job queue, so several agents can share megamind's three A6000s."""
 
 import argparse
 import contextlib
@@ -56,15 +25,9 @@ STATE_LOCK = QUEUE_DIR / "state.lock"
 WORKER_LOCK = QUEUE_DIR / "worker.lock"
 LOG_DIR = QUEUE_DIR / "logs"
 
-# A compute process holding more than this is treated as somebody using the GPUs.
-# Sunshine's desktop streamer sits at ~260 MiB and must not count as busy.
 BUSY_MIB = int(os.environ.get("AB_GPU_QUEUE_BUSY_MIB", "1024"))
 POLL_SECONDS = 10
-# Tenant hooks live in a fixed directory, not an env var: the worker's environment is
-# whatever the agent that spawned it had (see job_env), so an env setting would come
-# and go depending on who submitted first.
 YIELD_DIR = Path.home() / ".config" / "gpu_queue" / "yield.d"
-# A pause can sit through a container's full stop grace period (60 s for vLLM).
 HOOK_TIMEOUT = 300
 YIELD_RESUME_IDLE_SECONDS = 600
 LEGACY_JOB_DEVICES = (0, 1, 2)
@@ -77,7 +40,6 @@ BATCH_RE = re.compile(r"(\d+)/(\d+)\s+[\d.]+it/s")
 LOG_TAIL_BYTES = 256 * 1024
 OWNER_SEARCH_PARENT_DEPTH = 12
 LOG_PROGRESS_TRUST_FRACTION = 0.15
-# A run this short is a smoke test or an export, not a training arm to learn from.
 MIN_HISTORY_SECONDS = 300
 SMOKE_EPOCHS = 10
 # Never inherited from the agent that started the worker; see job_env.
@@ -136,11 +98,7 @@ def nvidia_smi_rows(query: str) -> list[list[str]]:
 def gpu_busy_processes(
     ignore_pids: set[int], devices: list[int] | None = None
 ) -> list[tuple[int, int]]:
-    """Compute processes holding real memory, excluding our own job's pids.
-
-    With `devices`, only processes on those GPU indices count: a tenant pinned to a GPU
-    the job does not use is no reason to wait.
-    """
+    """Compute processes holding real memory, excluding our own job's pids."""
     try:
         apps = nvidia_smi_rows("--query-compute-apps=pid,gpu_uuid,used_memory")
         uuids = {uuid: int(index) for index, uuid in nvidia_smi_rows("--query-gpu=index,uuid")}
@@ -328,13 +286,7 @@ def wait_for_gpus(job_id: int) -> bool:
 
 
 def run_yield_hooks(action: str, devices: list[int] | None = None) -> None:
-    """Run every tenant hook with `pause` or `resume`; output lands in the worker log.
-
-    A pause passes the job's GPUs as GPU_QUEUE_DEVICES, and the hook decides whether
-    its tenant is in the way. A failing hook is reported and skipped. wait_for_gpus
-    still refuses to start a job while anything holds its GPUs, so the worst a broken
-    pause can do is the wait the queue would have had without hooks.
-    """
+    """Run every tenant hook with `pause` or `resume`; output lands in the worker log."""
     if not YIELD_DIR.is_dir():
         return
     env = dict(os.environ)
@@ -449,11 +401,7 @@ def parent_pid(pid: int) -> int:
 
 
 def process_ancestry(pid: int) -> set[int]:
-    """A pid and everything that spawned it.
-
-    A job owns its GPU processes at a distance: Ultralytics re-launches itself under
-    torchrun, which puts one child per GPU two levels below the pid the queue recorded.
-    """
+    """A pid and everything that spawned it."""
     seen = {pid}
     for _ in range(OWNER_SEARCH_PARENT_DEPTH):
         pid = parent_pid(pid)
@@ -584,13 +532,7 @@ def flag_value(command: list[str], *flags: str) -> str | None:
 
 
 def job_shape(job: dict[str, Any]) -> dict[str, str]:
-    """What makes two jobs comparable: same script, model, input size, dataset.
-
-    An `s` model costs about a third more per epoch than an `n` at the same input
-    size, and 1024 costs more than 640, so pooling them all gave F_s_stretch an
-    estimate 34 minutes short. Matching on the shape is what makes each finished
-    job sharpen the next prediction instead of blurring it.
-    """
+    """What makes two jobs comparable: same script, model, input size, dataset."""
     command = job["command"]
     data = next((part for part in command if "training/data/" in part), "")
     if data.endswith(".yml") or data.endswith(".yaml"):
@@ -603,8 +545,6 @@ def job_shape(job: dict[str, Any]) -> dict[str, str]:
     }
 
 
-# Coarsest match last: a prediction from three same-shape runs beats one from any
-# five jobs that happen to have run.
 MATCH_TIERS = (
     ("script", "model", "imgsz", "data"),
     ("script", "model", "imgsz"),
@@ -638,13 +578,7 @@ def past_durations(state: dict[str, Any]) -> list[tuple[dict[str, Any], float]]:
 def usable_history(
     state: dict[str, Any], job: dict[str, Any]
 ) -> list[tuple[dict[str, Any], float]]:
-    """Finished jobs worth learning from when predicting this one.
-
-    smoke_rect ran one epoch in a minute, nearly all of it startup, so its
-    seconds-per-epoch is nothing like a real arm's -- and being the only other
-    yolo26n @640 run at the time, it dragged A2's estimate 30 minutes low. When the
-    job being predicted is a real training run, the minute-long jobs are dropped.
-    """
+    """Finished jobs worth learning from when predicting this one."""
     history = [
         (past, seconds) for past, seconds in past_durations(state) if past["id"] != job["id"]
     ]
@@ -666,9 +600,6 @@ def matching_history(
         ]
         if matches:
             return matches, describe_match(shape, keys, len(matches))
-    # Nothing has run this script before. Averaging in unrelated jobs is where the
-    # wild misses came from -- bench_geometry, ten seconds long, inherited 1h53m from
-    # the training arms -- so the queue says it does not know instead.
     return [], "no comparable runs yet"
 
 
@@ -796,9 +727,6 @@ def forecast(state: dict[str, Any], ref: datetime) -> dict[int, dict[str, Any]]:
             reading = log_progress(job)
             progress = reading[1] if reading else None
             fraction = reading[0] if reading else 0.0
-            # The first epochs carry the dataset scan and warmup, so extrapolating from
-            # them overshoots badly: F_s_stretch read 3h13m at epoch 3, against the 1h53m
-            # its sibling arm took. Past runs win until a job's own rate has settled.
             if fraction >= LOG_PROGRESS_TRUST_FRACTION or (history is None and fraction > 0.02):
                 seconds, measured, basis = elapsed / fraction, True, ""
             if seconds is not None:
@@ -1006,15 +934,7 @@ def tail_offset(path: Path, lines: int) -> int:
 
 
 def follow_log(job: dict[str, Any], tail: int, pinned: bool) -> int:
-    """Stream a job's log until it ends, then roll onto whatever runs next.
-
-    The rollover is the point. The queue runs one job at a time for hours, so the
-    log path worth watching changes several times over a sweep, and a plain
-    `tail -f` on one path goes quiet exactly when the next arm starts. With an
-    explicit job id (`pinned`) it stops when that job does instead.
-
-    Bytes are copied straight through rather than line-buffered, so the progress
-    bar's carriage returns still redraw in place."""
+    """Stream a job's log until it ends, then roll onto whatever runs next."""
     current = job
     handle: Any = None
     try:

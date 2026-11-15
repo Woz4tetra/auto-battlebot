@@ -1,9 +1,4 @@
 #!/usr/bin/env bash
-# Three-arm synthetic-vs-real experiment (docs/experiments/perception_performance/synthetic_arms_plan.md).
-#
-# Sequential, not parallel: each arm gets the same 3-GPU DDP recipe, so arm-to-arm differences
-# come from the training set and nothing else. Run dirs are renamed per arm afterwards because
-# train.py names every run by date + model key alone.
 set -u
 
 REPO=/home/ben/auto-battlebot

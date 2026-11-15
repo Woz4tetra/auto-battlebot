@@ -1,21 +1,4 @@
-"""Camera mounts on the NHRL cage: where a camera can plausibly sit, and the pose it sees.
-
-Pure module (no Blender). `cage_scene.py` turns the poses returned here into BlenderProc
-camera poses; tests check the geometry without a renderer.
-
-A mount is five numbers and a wall, not a free pose: the camera is clamped high on one of the
-four walls looking down and across the mat. `playground/cage_scene/fit_cage_camera.py` fits
-NHRL's own `Cage-2-Overhead-High` phone that way across eleven clips and lands at 1.16 m above
-the mat, 0.11 m inside the wall plane, 32 deg off straight down, within 1.7 deg of square to
-the wall. The default ranges below bracket those fits, so a sampled mount is the same kind of
-mount with mounting slop instead of one fitted pose.
-
-Poses come out as the cam2world matrix `bproc.camera.add_camera_pose` wants, in the W frame
-`auto_battlebot/perception/cage_calibration.py` documents: mat centre at the origin, z up, the
-mat top surface at z = 0. The Blender camera looks down its own -z with +y up, which is the
-one convention this module encodes by hand; `tests/test_cage_mount.py` pins it against
-`cage_calibration`'s own helpers so the two cannot drift.
-"""
+"""Camera mounts on the NHRL cage: where a camera can plausibly sit, and the pose it sees."""
 
 from __future__ import annotations
 
@@ -26,8 +9,6 @@ from dataclasses import dataclass
 
 import numpy as np
 
-# The wall a camera is mounted on, named from the fitted camera's point of view: it sits on
-# the near wall, so +y in the W frame runs away from it.
 WALLS: tuple[str, ...] = ("near", "far", "left", "right")
 
 _UP = np.array([0.0, 0.0, 1.0])
@@ -136,11 +117,7 @@ def mount_position(mount: CageMount, wall_half_m: float) -> np.ndarray:
 
 
 def mount_corners(ranges: CageMountRanges, wall_half_m: float) -> list[tuple[str, np.ndarray]]:
-    """Horizontal extremes of every mount *ranges* can draw, as (wall, xy) pairs.
-
-    A mount's position is linear in `along_m` and `inset_m`, so the four corners of that
-    rectangle bound every draw on a wall.
-    """
+    """Horizontal extremes of every mount *ranges* can draw, as (wall, xy) pairs."""
     corners = []
     for wall in ranges.walls:
         for along in ranges.along_m:

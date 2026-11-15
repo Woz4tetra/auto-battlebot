@@ -1,31 +1,4 @@
-"""Pool a full real dataset with a fraction of a synthetic dataset into one flat YOLO tree.
-
-Recipe C (see docs/experiments/perception_performance/experiment_runbook.md) has no committed
-script; this is it, written for the data_epoch_min experiment's Phase B synthetic scene-variation
-probe. Every real frame is always included; synthetic frames are subsampled by --synth-fraction,
-selected either in image-numbered (filename) order or randomly. Filenames carry a
-"...T17-01-18-000050..." timestamp + frame index, so filename order IS render-sequence order:
---synth-order sequential is scene-correlated, --synth-order random spreads scene coverage. The gap
-between the two accuracy-vs-fraction curves at a fixed real count answers "how much synthetic scene
-variation do I need".
-
-Output is a flat images/+labels/ tree ready for:
-    split_yolo_dataset.py  ->  validate_yolo_integrity.py --strict
-
-Keep synthetic out of val: pool into the train split only, and build a real-only val split
-separately (grade always on the external eval, never same-corpus val).
-
-Only the image (.jpg/.png/...) and its stem-matched .txt label are linked. Any .npy / labels.cache
-next to the images are ultralytics cache="disk" artifacts (derived) and are skipped; training
-regenerates them.
-
-Example:
-    python pool_datasets.py \
-        --real ../data/real_our_robots \
-        --synth ../data/all_robot_keypoints/train \
-        --out ../data/phaseB_r100_s25_seq \
-        --synth-fraction 0.25 --synth-order sequential
-"""
+"""Pool a full real dataset with a fraction of a synthetic dataset into one flat YOLO tree."""
 
 import argparse
 import os

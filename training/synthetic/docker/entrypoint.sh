@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Step down to the host's UID/GID so files written into the mounted repo are owned
-# by the host user instead of root. run_synthetic.sh passes HOST_UID/HOST_GID; when
-# they are absent (image run directly) we keep the previous root behavior.
 if [ "$(id -u)" = "0" ] && [ -n "${HOST_UID:-}" ] && [ -n "${HOST_GID:-}" ] && [ "${HOST_UID}" != "0" ]; then
   getent group "$HOST_GID" >/dev/null 2>&1 || groupadd -g "$HOST_GID" bot
   getent passwd "$HOST_UID" >/dev/null 2>&1 || \

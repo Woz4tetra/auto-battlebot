@@ -388,3 +388,37 @@ wheelies and backing into walls at speed after a strike. Two of the causes were 
 not the policy's, and are fixed: a mocap opponent driving into the wedge pried an idle robot over
 (66 flips in 80 early-ending episodes with zero actions; now none), and a command-change weight too
 small to stop the policy chattering.
+
+## Notes moved from code comments (2026-11-15)
+
+- `training/rl/train_nav_policy.py`, `main` (`above ap.add_argument("--worlds", type=int, default=8192)`):
+  8,192 runs 91,000 policy steps/s on the laptop 4080 against 66,000 at 4,096.
+- `training/rl/train_nav_policy.py`:
+
+  ```text
+  Train the RL navigation policy on the Warp environment through the curriculum (plan step 6, 7).
+
+  Stages A to D advance when the rolling success rate (attack: at least one strike; run away: no
+  hit taken, no fall, no flip) over the last 2000 episodes passes `--advance-at` (70%). Output goes
+  to `runs/rl_nav/<name>_<timestamp>/`: `metrics.jsonl`, `checkpoint.pt` (rewritten every
+  `--checkpoint-every-s`), `stage_<X>.pt` at each stage transition, and `bundle/`, the exported
+  model bundle (plan section 12) written at the end.
+
+      source scripts/activate_python.sh
+      python training/rl/train_nav_policy.py --hours 3
+      python training/rl/train_nav_policy.py --resume runs/rl_nav/<run>/checkpoint.pt --hours 2
+      python training/rl/train_nav_policy.py --robot mrs_buff_mk3 --name rl_nav_mk3 --hours 6
+
+  `--robot` picks the robot (`warp_nav.ROBOTS`), Mr Stabs Mk2 by default. A checkpoint records its
+  robot, and resuming it as another robot is refused. A robot with a self-play opponent driver
+  (`policy_opponents.py`) plays a frozen copy of the policy, refreshed every `--self-play-every`
+  iterations.
+
+  `--pursuit-curriculum` starts the pursuers at `--pursuit-level` (0 is the easiest pursuer,
+  1 the whole range) and raises the level by 0.1 each time the last 500 or more attack episodes
+  against a pursuer since the last raise strike in at least `--pursuit-advance-at` of them. Use it
+  with stage P, which gives pursuit half the episodes. Only episodes whose pursuer was drawn at the
+  current level count. `--anchor` holds the policy near another checkpoint's actions in every
+  episode that is not against a pursuer (`Ppo` anchor), so the pursuit fine-tune keeps the rest.
+  ```
+

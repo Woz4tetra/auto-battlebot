@@ -238,12 +238,7 @@ def unload_distractor_pool(pool: list[DistractorInstance]) -> None:
 
 
 def hide_distractor(distractor: DistractorInstance) -> None:
-    """Take a distractor out of the render: hidden, and parked far off-screen via its parent.
-
-    Hiding is what saves the time. A parked-but-visible pool still syncs into every pass
-    (5.5M polygons and 850 MB of textures for a five-model pool), while a hidden one costs
-    nothing. The park keeps it clear of the ray casts in ``clear_blocking_distractors``.
-    """
+    """Take a distractor out of the render: hidden, and parked far off-screen via its parent."""
     for mesh in distractor.meshes:
         mesh.blender_obj.hide_render = True
         mesh.blender_obj.hide_viewport = True
@@ -265,20 +260,7 @@ def place_distractor(
     air_probability: float,
     air_height_range: tuple[float, float],
 ) -> None:
-    """Place a distractor at a random position within the arena.
-
-    ``scale_range`` is interpreted as multiples of ``base_size`` (the fixed 3 lb
-    weight-class reference dimension), so [0.5, 2.0] means the distractor will be
-    between half and twice the 3 lb base size regardless of its native
-    dimensions.  The parent empty is used for transform so sub-parts keep their
-    relative arrangement.
-
-    With probability ``air_probability`` the object floats above the ground
-    with a fully random tumbling orientation.  Otherwise it sits on the
-    ground: generic objects keep a fully random orientation, while robot-like
-    (CAD robot) distractors sit flat with a random yaw and a 50% chance of
-    being inverted, mirroring the target robots' ground poses.
-    """
+    """Place a distractor at a random position within the arena."""
     show_distractor(distractor)
     parent = distractor.parent
     desired_size = base_size * random.uniform(scale_range[0], scale_range[1])
@@ -287,8 +269,6 @@ def place_distractor(
 
     airborne = random.random() < air_probability
     if distractor.is_robot_like and not airborne:
-        # Grounded robot pose: flat on the field, random yaw, 50% inverted.
-        # GLB import is Z-up, so identity roll/pitch sits the model upright.
         roll = math.pi if random.random() < 0.5 else 0.0
         rot = (roll, 0.0, random.uniform(0, 2 * math.pi))
     else:
@@ -334,8 +314,6 @@ def place_scene_distractors(
         hide_distractor(distractor)
     default_air_prob = rand_cfg.air_probability
     default_air_range = rand_cfg.air_height_range
-    # Distractor robots are all treated as the 3 lb weight class; scale off this
-    # fixed base rather than whichever robot happens to be in the scene.
     for distractor in active:
         if distractor.is_robot_like:
             air_prob = (

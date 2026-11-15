@@ -1,18 +1,4 @@
-"""Extract the camera video from a pipeline recording, as MP4 or as still frames.
-
-The video-MCAP counterpart to ``svo_rgb_extract.py``. A recording made with the RGB camera carries
-one Annex-B H.264 access unit per frame on ``/camera/video``, in the same file as the pipeline
-output, so there is no second file to find and no join to do. Frames come out pre-rectification,
-which is what makes a revised lens calibration applicable to footage already shot.
-
-The MP4 path pipes the raw access units straight into ffmpeg without decoding, which is fast and
-lossless. The frames path decodes and writes PNGs, for labelling.
-
-Usage:
-    venv/bin/python training/video_mcap_extract.py recording.mcap
-    venv/bin/python training/video_mcap_extract.py recording.mcap --frames out_dir/
-    venv/bin/python training/video_mcap_extract.py recording.mcap --frames out_dir/ --stride 10
-"""
+"""Extract the camera video from a pipeline recording, as MP4 or as still frames."""
 
 from __future__ import annotations
 
@@ -112,8 +98,6 @@ def to_frames(recording: Path, out_dir: Path, stride: int) -> None:
     for index, (stamp_ns, image) in enumerate(iter_video_frames(recording)):
         if index % stride != 0:
             continue
-        # Index first so the filenames sort in capture order; the stamp is there so a frame can be
-        # tied back to the pipeline messages around it.
         cv2.imwrite(str(out_dir / f"{index:06d}_{stamp_ns}.png"), image)
         written += 1
     print(f"wrote {written} frames to {out_dir}")

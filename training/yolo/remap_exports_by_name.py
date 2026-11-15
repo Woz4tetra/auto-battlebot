@@ -1,26 +1,5 @@
 #!/usr/bin/env python3
-"""Remap each per-scene YOLO export to a shared vocabulary, keeping the per-export layout.
-
-`remap_labels_by_name.py` does the same name-based remap but flattens every scene into one
-merged dataset. That is right when the next step is training and wrong when the next step is
-review: the merge prefixes filenames and leaves the hand-made `validation_state.json` behind,
-so the frame verdicts in `validate_yolo_dataset.py` no longer line up.
-
-This tool writes a mirror of the source tree instead. One output directory per export, same
-image and label filenames, `validation_state.json` carried across, and a `data.yml` holding the
-new vocabulary. Source exports are never touched, so the per-robot class names survive.
-
-Config format is `remap_labels_by_name.py`'s: `target_names`, `default`, and a `[map]` of source
-class name -> target name (or `__drop__`). Names with no rule fall through to `default` and are
-all printed, so a new non-robot class appearing upstream is visible rather than silently folded
-in.
-
-Usage:
-    python training/yolo/remap_exports_by_name.py \
-        --src ~/Desktop/new_data \
-        --config training/yolo/remap_config_2class.toml \
-        --out ~/Desktop/new_data_2class
-"""
+"""Remap each per-scene YOLO export to a shared vocabulary, keeping the per-export layout."""
 
 from __future__ import annotations
 
@@ -72,12 +51,7 @@ def convert_scene(
 
 
 def write_data_yml(path: Path, targets: list[str]) -> None:
-    """Write the export's data.yml.
-
-    The split keys are inherited from what SegmentFlow emits and are decorative here -- an export
-    is a flat images/ + labels/ pair with no train/ or val/ under it. Downstream splitting tools
-    write their own data.yml.
-    """
+    """Write the export's data.yml."""
     data = {
         "train": "train/images",
         "val": "val/images",

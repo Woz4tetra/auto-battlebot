@@ -72,12 +72,7 @@ def choose_val_scenes(
     seed: int,
     trials: int = 4000,
 ) -> list[str]:
-    """Pick ``count`` scenes whose frame share is near ``frac`` and whose house_bot share matches.
-
-    Searched rather than taken in order because scene sizes are so uneven that any fixed rule lands
-    far off the target; a random search over whole-scene combinations gets within a fraction of a
-    percent on both axes.
-    """
+    """Pick ``count`` scenes whose frame share is near ``frac`` with a matching house_bot share."""
     names = sorted(images)
     total_frames = sum(len(v) for v in images.values())
     total_hb = sum(classes[s][1] for s in names) or 1
@@ -143,7 +138,6 @@ def write_arm(out: Path, name: str, frames: list[Path], names: list[str], val_li
 def summarize(name: str, frames: list[Path], classes: dict[str, Counter]) -> dict:
     """Per-arm stats for the manifest and the console table."""
     scenes = sorted({scene_of(p.stem) for p in frames})
-    # class counts are per-scene, so only exact for whole-scene arms; report frames either way
     return {"frames": len(frames), "scenes": len(scenes), "scene_list": scenes}
 
 

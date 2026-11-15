@@ -1,40 +1,5 @@
 #!/usr/bin/env python3
-"""Build the clean DeepLab field corpus: deduplicated, scene-disjoint, field-stratified.
-
-Reads the manifest from `build_field_manifest.py` and materializes a corpus whose
-train/eval line no scene crosses, so val IoU measures generalization rather than
-partial memorization. Also writes the Phase-B leave-one-field-out arms.
-
-Where one image was annotated twice, the **newer** mask wins: the `floor_dataset__` twin
-is a re-label, and carrying the older annotation would train and score against a
-superseded one. Masks are renamed after their image, since the surviving mask may come
-from the twin.
-
-`--materialize copy` (the default) writes real files so the corpus stands alone and the
-tree it was built from can be archived. Arms stay plain image lists either way -- 18 arms
-of physical copies would be ~350 GB against 282 GB free.
-
-Layout written under --out:
-
-    train/, val/        image + mask pairs (semantic_train.py's default layout)
-    eval -> val         the name score_masks.py is pointed at
-    arms/full.txt       every train image; the Phase-A arm
-    arms/lofo_<probe>_n<N>.txt
-                        probe field held out entirely (n0), then added back at
-                        N frames drawn scene-spread. Rungs are nested, asserted here.
-    splits.json         which scenes went where, and why
-    field_index.json    image name -> field / scene / split, read by semantic_train.py
-                        for macro-average model selection and by score_masks.py
-
-Single-scene fields cannot be held out scene-disjointly. They stay wholly in train and
-are reported as having no eval representation rather than silently breaking the rule.
-
-Usage:
-    python3 training/deeplab/make_field_splits.py \
-        --manifest training/data/deeplab_field_2026-07-28/manifest.json \
-        --out training/data/deeplab_field_2026-07-28 \
-        --val-frac 0.15 --drop-augment-copies --drop-duplicates --seed 4176
-"""
+"""Build the clean DeepLab field corpus: deduplicated, scene-disjoint, field-stratified."""
 
 from __future__ import annotations
 
@@ -47,12 +12,9 @@ from collections import defaultdict
 from itertools import combinations
 from pathlib import Path
 
-# Phase B probes. Cage-6 is unusable: removing a third of the corpus would make the base
-# arm differ in size as well as field coverage.
 PROBE_FIELDS = ("cage2", "cage5", "zed2023")
 LADDER = (0, 50, 150, 400, 1000, "all")
 
-# Exhaustive subset search stays cheap below this; the largest field has 15 scenes.
 MAX_SCENES_FOR_EXHAUSTIVE = 18
 
 
@@ -106,8 +68,6 @@ def choose_eval_scenes(
 
     def score(subset: tuple[str, ...]) -> tuple[float, int]:
         held = sum(scene_sizes[s] for s in subset)
-        # Fewer scenes breaks ties: a holdout concentrated in one recording is a
-        # cleaner statement about that recording than one smeared across many.
         return abs(held - target), len(subset)
 
     best = min(candidates, key=score)
@@ -140,11 +100,7 @@ def scene_spread_order(frames_by_scene: dict[str, list[str]], rng: random.Random
 
 
 def mask_for(record: dict) -> str:
-    """The mask to use for a frame: the newer annotation when the image was labelled twice.
-
-    `newer_mask` is set by build_field_manifest.py --verify-duplicates. Without it the
-    record's own mask is the only one there is.
-    """
+    """The mask to use for a frame: the newer annotation when the image was labelled twice."""
     return record.get("newer_mask", record["mask"])
 
 

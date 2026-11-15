@@ -1,30 +1,5 @@
 #!/usr/bin/env python3
-"""Inventory the floor-mask corpus: field type, scene, and provenance per frame.
-
-The corpus is a flat pile of `<name>.jpg` + `<name>_mask.png` pairs under train/ val/
-test/, and the filename is the only provenance. This script reads that filename for
-every frame and writes a manifest recording:
-
-    field / scene   the arena and the recording (see field_labels.py)
-    source          the labelled frame identity; offline `_augment-N` copies share it
-    duplicate_of    the unprefixed twin of a `floor_dataset__`-prefixed file
-
-Nothing is deleted or moved -- the only write is the manifest. `make_field_splits.py`
-consumes it to build the clean, scene-disjoint corpus.
-
-Duplicate pairing is by name. `--verify-duplicates` re-reads the manifest and hashes
-both sides of every pair, so the claim is checked at full scale before
-`make_field_splits.py` acts on it; a pair whose bytes differ is un-paired and flagged
-rather than dropped.
-
-Usage:
-    python3 training/deeplab/build_field_manifest.py training/data/floor_mask_dataset \
-        --out training/data/deeplab_field_2026-07-28/manifest.json
-
-    python3 training/deeplab/build_field_manifest.py training/data/floor_mask_dataset \
-        --manifest training/data/deeplab_field_2026-07-28/manifest.json \
-        --verify-duplicates --hash md5
-"""
+"""Inventory the floor-mask corpus: field type, scene, and provenance per frame."""
 
 from __future__ import annotations
 
@@ -101,8 +76,6 @@ def pair_duplicates(records: list[dict]) -> int:
         prefixed = [r for r in group if r["prefixed"]]
         if not originals or not prefixed:
             continue
-        # More than one original would make "the twin" ambiguous; take the first in
-        # sorted order so the manifest is reproducible, and let the summary report it.
         original = min(originals, key=lambda r: r["path"])
         for record in prefixed:
             record["duplicate_of"] = original["path"]
@@ -120,9 +93,6 @@ def summarize(records: list[dict]) -> dict:
         entry["frames"] += 1
         entry["scenes"].add(record["scene"])
 
-    # The split was drawn per-file, so both kinds of copy leak across it. Counted
-    # separately because they are separate defects: the augment figure stands even if
-    # the duplicate claim were to fall over.
     augment_splits: dict[str, set[str]] = defaultdict(set)
     all_splits: dict[str, set[str]] = defaultdict(set)
     for record in records:
@@ -189,17 +159,7 @@ def mask_agreement(root: Path, left: str, right: str) -> float:
 
 
 def verify_duplicates(manifest: dict, root: Path, algorithm: str, workers: int) -> dict:
-    """Hash both sides of every duplicate pair and record what actually matches.
-
-    A pair is un-paired only when the *images* differ, because the leak this exists to
-    remove is the same pixels appearing on both sides of the split -- a pair that shares
-    an image but disagrees on the mask is still one frame, still leaks, and is kept
-    paired with `mask_differs` set so the disagreement stays auditable. Their mask IoU is
-    measured too: two labelings of one image bound the label noise in this corpus, which
-    is what boundary F1 has to be read against.
-
-    Mutates the manifest's records in place and returns the verification report.
-    """
+    """Hash both sides of every duplicate pair and record what actually matches."""
     records = manifest["frames"]
     by_path = {r["path"]: r for r in records}
     pairs = [r for r in records if r["duplicate_of"] is not None]

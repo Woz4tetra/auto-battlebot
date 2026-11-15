@@ -1,19 +1,4 @@
-"""Convert a YOLO segmentation-polygon dataset into a detection (bbox-only) dataset.
-
-Preserves class ids and the train/val/test split structure exactly. Each polygon
-label row ``class x1 y1 x2 y2 ...`` becomes a box row ``class cx cy w h`` from the
-polygon's axis-aligned bounds. Rows already in box form (4 coords) pass through.
-Images are hardlinked (fast, no copy) when the output is on the same filesystem,
-otherwise copied.
-
-Built for the seg-vs-bbox controlled comparison: identical images, classes, and
-splits as the seg dataset, box labels only, so any box-AP difference is attributable
-to the seg-vs-detect head and nothing else.
-
-Usage:
-  python training/yolo/seg_to_bbox.py training/data/nhrl_seg/nhrl_robots \
-      -o training/data/nhrl_robots_bbox
-"""
+"""Convert a YOLO segmentation-polygon dataset into a detection (bbox-only) dataset."""
 
 from __future__ import annotations
 
@@ -50,20 +35,11 @@ def polygon_to_bbox(coords: list[float]) -> tuple[float, float, float, float] | 
     return cx, cy, min(w, 1.0), min(h, 1.0)
 
 
-SUBCONTOUR_JUMP = 0.03  # ~p99.7 of consecutive-point steps; see split_subcontours
+SUBCONTOUR_JUMP = 0.03
 
 
 def split_subcontours(pts: np.ndarray, jump: float = SUBCONTOUR_JUMP) -> list[np.ndarray]:
-    """Split one label row's point list where it leaps to a disjoint contour.
-
-    A single YOLO-seg row can hold several contours concatenated end to end -- 23.6 % of sampled
-    polygons in this corpus contain a step larger than 3 % of the frame, against a median step of
-    0.21 % and p99 of 1.8 %. Handing the whole path to ``fillPoly`` fills the bridge between the
-    blobs, which is how one Bee-Roll row became a 26 %-of-frame box.
-
-    Over-splitting is safe: the pieces are rasterised into the same mask, so parts of a genuinely
-    contiguous shape touch and merge back into one contour. Only truly disjoint blobs stay separate.
-    """
+    """Split one label row's point list where it leaps to a disjoint contour."""
     if len(pts) < 2:
         return [pts]
     steps = np.linalg.norm(np.diff(pts, axis=0), axis=1)
@@ -73,38 +49,13 @@ def split_subcontours(pts: np.ndarray, jump: float = SUBCONTOUR_JUMP) -> list[np
     return [piece for piece in np.split(pts, breaks) if len(piece) >= 3]
 
 
-TOP_CONTOURS = 3  # a robot's mask commonly splits into a few real parts; see top_contours_bbox
+TOP_CONTOURS = 3
 
 
 def top_contours_bbox(
     polygons: list[list[float]], top_n: int = TOP_CONTOURS
 ) -> tuple[float, float, float, float] | None:
-    """One box for one label: enclosing the label's **``top_n`` largest connected contours**.
-
-    Per-polygon min/max produces two visible defects on this corpus:
-
-    * **Boxes covering most of the frame.** A single label *row* can hold several disjoint contours
-      concatenated together (23.6 % of sampled polygons contain a >3 % coordinate jump). Taking
-      min/max across all of them spans the gaps -- one Bee-Roll row rendered as a 26 %-of-frame box
-      whose largest real contour was 23 %, and worse cases span the arena.
-    * **Small boxes nested inside a bigger one.** A shattered mask emits a row per fragment, so one
-      robot became ~270 separate targets strewn across the crowd while the robot itself sat unboxed.
-
-    Rasterising every polygon for the label into one mask and taking connected contours fixes both,
-    without a coordinate-jump threshold: touching fragments merge into one contour, distant debris
-    ranks below the real body. The source vocabulary is per-robot-instance, so one box per label is
-    one box per robot.
-
-    **Why ``top_n`` = 3 rather than 1.** Taking only the single largest contour undersized the
-    boxes: a robot's mask routinely splits into a few genuine pieces -- a spinner blade detached by
-    motion blur, a wedge split by an occluder -- and keeping only the biggest clipped the rest out
-    of the box. Enclosing the three largest contours recovers those parts while still ignoring the
-    long tail of speckle that caused the original over-sized boxes.
-
-    The trade-off is real: where a label's second contour is genuinely distant (debris across the
-    arena rather than a detached blade), enclosing it re-inflates the box. ``top_n`` is a parameter
-    so that balance can be retuned without touching callers.
-    """
+    """One box for one label: enclosing the label's **``top_n`` largest connected contours**."""
     h, w = CONTOUR_RASTER_SIZE_PX
     mask = np.zeros((h, w), dtype=np.uint8)
     drawn = False

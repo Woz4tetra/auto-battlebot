@@ -1,16 +1,5 @@
 #!/usr/bin/env python3
-"""
-Segmentation Mask Dataset Validation UI
-
-This script provides a GUI for manually validating segmentation mask dataset
-annotations. Images are shown as a page of thumbnails with their mask
-overlays; arrow keys move the selection, y/n pass or fail it, and t/b judge
-every image on screen at once. Press Z to zoom the selected frame.
-The validation state is saved and can be resumed later.
-
-Mask convention: each image foo.jpg has a corresponding foo_mask.png where
-pixel values are integer class IDs (same format used by semantic_train.py).
-"""
+"""Segmentation Mask Dataset Validation UI."""
 
 import argparse
 import json
@@ -230,9 +219,6 @@ class SegmaskDatasetValidator:
         self.rows = 1
         self.cells: List[Dict] = []
 
-        # Thumbnails are decoded off the main thread and cached, so paging stays snappy.
-        # The PhotoImage cache is separate because those must be built on the main
-        # thread; keeping them lets a redraw skip cells whose picture has not changed.
         self.thumb_cache: "OrderedDict[Tuple, Image.Image]" = OrderedDict()
         self.cache_limit = 800
         self.photo_cache: "OrderedDict[Tuple, ImageTk.PhotoImage]" = OrderedDict()
@@ -361,8 +347,6 @@ class SegmaskDatasetValidator:
         img_path, mask_path = self.image_mask_pairs[index]
 
         image = Image.open(img_path)
-        # draft() lets libjpeg decode at a reduced DCT scale: the single biggest
-        # win for grid paging, since full 1080p decodes dominate otherwise.
         image.draft("RGB", box)
         image = image.convert("RGB")
         image.thumbnail(box, Image.Resampling.BILINEAR)
@@ -427,12 +411,7 @@ class SegmaskDatasetValidator:
         return (index, self.thumb_box(), round(self.overlay_alpha, 3), self.show_overlay)
 
     def render_thumb(self, index: int) -> Image.Image:
-        """Return a cached thumbnail for `index`, rendering it if needed.
-
-        Every thumbnail is letterboxed to the identical `thumb_box()` size. Cells
-        then never change shape when a new image lands in them, which is what made
-        the grid jump around while a page was loading.
-        """
+        """Return a cached thumbnail for `index`, rendering it if needed."""
         box = self.thumb_box()
         cache_key = self.thumb_key(index)
 
@@ -453,11 +432,7 @@ class SegmaskDatasetValidator:
         return thumb
 
     def photo_for(self, index: int) -> Tuple[Tuple, ImageTk.PhotoImage]:
-        """Return (cache key, PhotoImage) for `index`, reusing the last upload.
-
-        Reusing the PhotoImage is what keeps arrow-key navigation quiet: moving the
-        selection only recolors borders, it does not re-upload nine images to X.
-        """
+        """Return (cache key, PhotoImage) for `index`, reusing the last upload."""
         key = self.thumb_key(index)
         photo = self.photo_cache.get(key)
         if photo is None:
@@ -717,11 +692,8 @@ class SegmaskDatasetValidator:
                 highlightcolor=self.IDLE_COLOR,
             )
             frame.grid(row=row, column=col, padx=2, pady=2)
-            # Fixed pixel size: the label must not resize itself around whatever
-            # image it is handed, or every cell reflows as a page loads.
             image_label = tk.Label(frame, bd=0, bg="#000000", width=width, height=height)
             image_label.pack(padx=3, pady=(3, 0))
-            # width=1 char keeps a long filename from widening the cell
             caption = tk.Label(
                 frame,
                 text="",
@@ -803,11 +775,7 @@ class SegmaskDatasetValidator:
         self.refresh_zoom()
 
     def paint_cell(self, cell: Dict, index: int):
-        """Push `index` into `cell`, touching only the widget options that changed.
-
-        Every config() call repaints, so a blind rewrite of all nine cells on every
-        keystroke is what the flicker was.
-        """
+        """Push `index` into `cell`, touching only the widget options that changed."""
         key, photo = self.photo_for(index)
         if cell["photo_key"] != key:
             cell["photo"] = photo  # keep a strong reference; tk does not

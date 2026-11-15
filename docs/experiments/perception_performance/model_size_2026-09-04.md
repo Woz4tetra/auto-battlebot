@@ -471,3 +471,20 @@ experiment and does not cost 1.7x the training time.
 - Run: `runs/projects/auto_battlebots_2026-09-05_00-17-01_yolo26s/` (`results.csv`, `weights/{best,last,epoch0,epoch25,epoch50,epoch75}.pt`)
 - Log: `training/projects/model_size_mixed_logs/yolo26s_mixed.log`, scoring script `post_train.sh` alongside
 - Models: `data/models/yolo26s_mixed_2class_2026-09-05{,_ep50,_ep75}.{pt,onnx,_x86_64_sm86.engine}`
+
+## Notes moved from code comments (2026-11-15)
+
+- `training/yolo/train.py`, `main` (`above "yolo26s": {"batch": 64, "epochs": 100, "imgsz": 640, "cache": "ram"},`):
+
+  ```text
+  Size-sweep arms (model_size_2026-09-04). The sweep held batch at 96 via `--batch`,
+  not the 64 below: 96 splits evenly over 3 GPUs (32/GPU, measured at 32.4 GB for
+  yolo26x) while 64 and 128 do not. 64 is the safe per-model default for a single-GPU
+  run, yolo26x at 96 on one GPU needs ~93 GB and yolo26m/l do not fit either. Same
+  epochs and `cache: "ram"` rationale as yolo26n above.
+
+  Batch also silently scales weight decay (trainer.py: wd * batch * accumulate / nbs,
+  nbs=64), so changing it changes regularization: 0.0005 at batch 64, 0.00075 at 96,
+  0.0010 at the deployed yolo26n's 128.
+  ```
+

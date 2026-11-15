@@ -747,8 +747,6 @@ class YOLODatasetValidator:
         img_path, label_path = self.image_annotation_pairs[index]
 
         image = Image.open(img_path)
-        # draft() lets libjpeg decode at a reduced DCT scale: the single biggest
-        # win for grid paging, since full 1080p decodes dominate otherwise.
         image.draft("RGB", box)
         image = image.convert("RGBA")
         image.thumbnail(box, Image.Resampling.BILINEAR)
@@ -879,11 +877,7 @@ class YOLODatasetValidator:
         return thumb
 
     def photo_for(self, index: int) -> Tuple[Tuple, ImageTk.PhotoImage]:
-        """Return the cached (key, PhotoImage) pair for `index`.
-
-        Reusing the PhotoImage is what keeps arrow-key navigation quiet: moving the
-        selection only recolors borders, it does not re-upload every image to X.
-        """
+        """Return the cached (key, PhotoImage) pair for `index`."""
         key = self.thumb_key(index)
         photo = self.photo_cache.get(key)
         if photo is None:

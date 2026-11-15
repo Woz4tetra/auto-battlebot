@@ -1,20 +1,4 @@
-"""Extract left/right RGB video from a ZED ``.svo2`` recording without the ZED SDK.
-
-A ``.svo2`` file is an MCAP container holding H.264-encoded side-by-side stereo
-frames on the ``<camera>/side_by_side`` topic. Each message is one access unit:
-an 8-byte length prefix followed by an Annex-B H.264 stream. This script reads
-those frames with the ``mcap`` library, crops the requested eye, and pipes the
-raw H.264 straight into ffmpeg to write an MP4. No ``pyzed`` / CUDA required.
-
-Depth is NOT available through this path. The ZED SDK computes depth from the
-stereo pair on the device and it is not stored in the recording; use the SDK
-(``svo_export.py``) if you need the depth channel.
-
-Usage:
-    python training/svo_rgb_extract.py recording.svo2                 # left eye
-    python training/svo_rgb_extract.py recording.svo2 --channel 1     # right eye
-    python training/svo_rgb_extract.py a.svo2 b.svo2 --output out.mp4
-"""
+"""Extract left/right RGB video from a ZED ``.svo2`` recording without the ZED SDK."""
 
 from __future__ import annotations
 

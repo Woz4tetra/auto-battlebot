@@ -1,11 +1,4 @@
-"""VRAM audit CSV helpers for distractor models (trimesh-based).
-
-Mirrors the ``distractor_gpu_audit.csv`` schema written by
-``download_objaverse.py`` so ``render_scenes.py``'s pre-import VRAM budget
-check works for generated NHRL robots.  Kept separate from
-``download_objaverse.py`` so the NHRL pipeline runs in the root venv without an
-``objaverse`` dependency.
-"""
+"""VRAM audit CSV helpers for distractor models (trimesh-based)."""
 
 from __future__ import annotations
 

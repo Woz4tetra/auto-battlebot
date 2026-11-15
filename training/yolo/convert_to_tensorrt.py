@@ -1,32 +1,4 @@
-"""Convert a YOLO pose model in ONNX form to TensorRT engine format.
-
-The input is always .onnx; export a checkpoint first with convert_to_onnx.py. Building
-through TensorRT Builder + OnnxParser rather than Ultralytics model.export() keeps the
-plan format the one the C++ YoloKeypointModel can load, and needs no Ultralytics.
-
-  python training/yolo/convert_to_onnx.py model.pt
-  python training/yolo/convert_to_tensorrt.py model.onnx -o data/models/model.engine
-
-Engines are GPU- and TensorRT-version specific: an engine built on x86 cannot
-run on Jetson (or vice versa). For Jetson deployment, copy the .onnx to the
-Jetson and run this script there to produce the .engine used by the C++ app.
-
-The C++ YoloKeypointModel expects:
-- Input: single tensor, shape [1, 3, H, W] (NCHW, float32), e.g. [1, 3, 640, 640].
-- Output: single tensor, shape [1, num_features, num_predictions], e.g. [1, 56, 8400]
-  (features = 4 bbox + num_classes + num_keypoints*3).
-
-Output filenames include a platform tag (e.g. _x86_64_sm89, _aarch64_sm72) that
-encodes both CPU architecture and GPU compute capability so incompatible engines
-are not loaded by accident. --int8 adds a precision tag ahead of it
-(model_int8_x86_64_sm86.engine), leaving FP16 filenames byte-identical.
-
-INT8 needs calibration: activation ranges depend on the data, so real frames are run
-through the network to measure them.
-
-  python training/yolo/convert_to_tensorrt.py model.onnx --int8 \
-      --calib-dir training/data/nhrl_robots_bbox_2class/val/images --calib-count 1000
-"""
+"""Convert a YOLO pose model in ONNX form to TensorRT engine format."""
 
 import argparse
 import time
@@ -50,29 +22,8 @@ from auto_battlebot.tensorrt_build import (
     save_timing_cache,
 )
 
-# Every engine in a sweep is the same architecture with different weights, so TensorRT's tactic
-# timings are reusable. Persisting them turns each build after the first from a kernel-autotuning
-# search into little more than weight serialisation: measured 396.4 s cold vs 4.2 s warm on
-# yolo26n at 640x640, a 94x difference, with 7,175 timing entries reused.
-#
-# Builds are deliberately sequential and in-process. Fanning them across GPUs was tried and gives
-# only ~3x, because each concurrent builder pays the full tactic search independently -- and three
-# cold searches cost far more than one cold search plus N warm ones. Sequential also keeps the
-# cache warm in memory between models within a single invocation.
-# Repo-local so the cache travels with the checkout and is obviously disposable; `.cache/` is
-# already gitignored. Not in $HOME, where it would silently outlive the project and be easy to
-# forget when a TensorRT or driver upgrade invalidates it.
-
-# The calibration cache holds one scale per tensor plus a version header, and nothing about the
-# GPU: no architecture, no sm tag, no CPU arch. So it transports to another machine, which is
-# what keeps a Jetson follow-up short. TensorRT does write its own version string and the
-# algorithm name into it and rejects a mismatch, so a JetPack shipping a different TensorRT
-# recalibrates from frames instead.
 DEFAULT_INT8_CACHE_DIR = REPO_ROOT / ".cache" / "tensorrt" / "int8"
 CALIB_ALGOS = ("entropy2", "minmax")
-# First line of a calibration cache, e.g. ``TRT-101401-EntropyCalibration2``. TensorRT writes it
-# and rejects a cache whose header does not match the running build, which is the whole reason a
-# cache can be carried to another machine safely.
 CALIB_CACHE_ALGO_NAMES = {"entropy2": "EntropyCalibration2", "minmax": "MinMaxCalibration"}
 IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png")
 
@@ -84,13 +35,7 @@ def _scene_of(path: Path) -> str:
 
 
 def fair_scene_allocation(scene_sizes: dict[str, int], total: int) -> dict[str, int]:
-    """Max-min fair split of `total` frames across scenes. Deterministic, no RNG.
-
-    The val split is heavily imbalanced: its three largest cage cameras hold a quarter of the
-    frames, so a plain stride over the directory would calibrate mostly on those. Water-filling
-    hands every scene an equal share, and re-divides what a scene cannot use among the scenes
-    that still have frames left.
-    """
+    """Max-min fair split of `total` frames across scenes. Deterministic, no RNG."""
     remaining = total
     allocation: dict[str, int] = {}
     ordered = sorted(scene_sizes.items(), key=lambda item: (item[1], item[0]))
@@ -244,12 +189,7 @@ def _configure_int8(
     """Turn on INT8 and attach the calibrator. Returns the calibrator, or None for FP16."""
     if int8 is None:
         return None
-    # FP16 stays set alongside INT8 so layers the builder will not quantize fall back to FP16
-    # rather than to FP32.
     config.set_flag(trt.BuilderFlag.INT8)
-    # The calibrator has to feed the network its real geometry, so the size comes from the parsed
-    # input shape rather than from --imgsz. That is what makes the 384x640 arms work with no
-    # second flag.
     _, _, input_h, input_w = (int(dim) for dim in network.get_input(0).shape)
     calibrator = _make_calibrator(int8, input_h, input_w)
     print(
@@ -257,8 +197,6 @@ def _configure_int8(
         f"cache {int8.cache_path}"
     )
     with warnings.catch_warnings():
-        # Implicit calibration is deprecated in favour of explicit Q/DQ, a different export
-        # pipeline and out of scope. The warning fires on this one assignment.
         warnings.simplefilter("ignore", DeprecationWarning)
         config.int8_calibrator = calibrator
     return calibrator
@@ -357,8 +295,6 @@ def resolve_int8_config(model_path: Path, args: argparse.Namespace) -> Int8Confi
     frames: list[Path] = []
     if args.calib_dir:
         frames = select_calibration_frames(Path(args.calib_dir), args.calib_count, partition)
-        # An audit trail for which frames produced which scales, and the only way to check that
-        # a second sample really is disjoint from the first.
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         manifest = cache_path.with_suffix(".frames.txt")
         # Explicit utf-8: 86 of the corpus filenames carry non-ASCII characters (a fullwidth

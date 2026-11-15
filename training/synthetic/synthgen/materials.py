@@ -54,8 +54,6 @@ def get_material_base_color(mat: bpy.types.Material) -> Rgb | None:
     if source_color is not None:
         return source_color
 
-    # Non-constant source (image texture, procedural, etc.) — the material has
-    # intentional visual content that shouldn't be remapped.
     return None
 
 

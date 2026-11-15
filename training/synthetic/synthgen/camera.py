@@ -187,8 +187,6 @@ def setup_scene_cameras(
     centroid = robot_centroid(robot_positions)
     cam_count = min(images_per_scene, remaining)
 
-    # Push the camera back far enough that the robots' bounding sphere can never
-    # dominate the frame (near-full-frame robots produce confusing annotations).
     min_dist = cam_cfg.min_distance
     max_dist = cam_cfg.max_distance
     radius = scene_bounding_radius(scene_robots, centroid)

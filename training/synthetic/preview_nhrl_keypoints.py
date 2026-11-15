@@ -1,16 +1,5 @@
 import blenderproc as bproc  # isort: skip  # must be first import for blenderproc run
 
-# Render 6-view keypoint previews for NHRL robot distractor models.
-#
-# Step 4 of the NHRL robot distractor pipeline.  For each model it imports the
-# GLB, reads the <stem>.json sidecar, drops a red marker at the front keypoint
-# and a blue marker at the back keypoint, and renders a 3x2 grid of cardinal
-# views (mirroring prepare_robot_model.py previews) so the bottom-slice
-# heuristic can be eyeballed.
-#
-# Usage:
-#     blenderproc run preview_nhrl_keypoints.py -- ../data/distractor_models/robots
-#     blenderproc run preview_nhrl_keypoints.py -- ../data/distractor_models/robots --limit 10
 
 import argparse
 import json

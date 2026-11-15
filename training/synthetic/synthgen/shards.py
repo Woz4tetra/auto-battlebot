@@ -1,17 +1,4 @@
-"""How a sharded render splits its frames over GPUs and views, and how the runs merge back.
-
-Pure module (no Blender), used by ``render_shards.py`` for step 3 of
-docs/experiments/perception_performance/synthetic_domain_mix_plan_2026-09-12.md. Each GPU renders
-its shard as one ``render_scenes.py`` run per view. Every run writes its own directory, because
-``data.yml`` and ``manifest.jsonl`` are written per run and would race in a shared one, and
-``merge_parts`` hardlinks the finished runs into one flat dataset.
-
-**Allocation.** The total splits evenly over the views, remainder to the views in the order given,
-so the caller picks which view runs short by putting it last. Each view's count then splits over
-the shards with its remainder starting one shard further along per view, which keeps the shard
-totals within one frame of each other too. Every shard renders every view because a warped frame
-costs about twice a pinhole one: a pinhole-only GPU would sit idle for half the render.
-"""
+"""How a sharded render splits its frames over GPUs and views, and how the runs merge back."""
 
 from __future__ import annotations
 
@@ -176,8 +163,6 @@ def _collect_part(
     part: Path, out_images: Path, out_labels: Path, seen: dict[str, Path]
 ) -> _PartContents:
     """Check one part and list what it adds to the merge."""
-    # Frames only: the pipeline also writes a `_debug_frame0.jpg` beside them, which has no label
-    # or manifest row and is not training data.
     images = sorted(
         path for path in (part / "images").glob(f"*{IMAGE_SUFFIX}") if path.stem.isdigit()
     )

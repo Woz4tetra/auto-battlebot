@@ -1,37 +1,5 @@
 #!/usr/bin/env python3
-"""Score DeepLab field-mask checkpoints against held-out ground truth, per field type.
-
-The global mean IoU this project has been reading is roughly a Cage-6 score -- one field
-is a third of the corpus -- so a checkpoint that maximises it can be regressing the small
-cages the whole way. Everything here is therefore reported **macro-averaged across field
-types** and as **worst field**, with the global mean kept only for continuity.
-
-Metrics, per field and macro-averaged:
-
-    field IoU       the primary number.
-    boundary F1     at each --boundary-tol, in pixels at the model's native resolution.
-                    The mask feeds PointCloudFieldFilter, which fits the field plane and
-                    hands wall bounds to navigation: 2% wrong in the interior costs
-                    nothing, 2% wrong at the wall line moves the boundary. IoU cannot
-                    tell those apart.
-    worst-field IoU the metric that actually gates deployment.
-
-With two or more candidates a paired bootstrap reports whether each differs from the
-baseline. Resampling is stratified by field and shared across candidates, so every field
-stays represented in every resample (a macro-average over a resample that dropped a small
-field is not the same estimator) and per-frame difficulty cancels.
-
-Checkpoints are graded as `.pth` directly -- engine conversion is only needed for the
-deployment candidate, and a per-arm conversion would add ~20 runs of overhead to measure
-a quantisation effect this experiment is not asking about.
-
-Usage:
-    python3 training/deeplab/score_masks.py \
-        training/data/deeplab_field_2026-07-28/eval \
-        --candidate deployed=data/models/field_deeplabv3p_r50_2026-04-29.pth \
-        --by-field --boundary-tol 2,5,10 --bootstrap 1000 \
-        --output training/data/deeplab_field_2026-07-28/scores/anchor
-"""
+"""Score DeepLab field-mask checkpoints against held-out ground truth, per field type."""
 
 from __future__ import annotations
 
@@ -150,11 +118,7 @@ class BoundaryCounts(NamedTuple):
 def frame_stats(
     pred: np.ndarray, truth: np.ndarray, tolerances: list[int]
 ) -> tuple[float, float, dict[int, BoundaryCounts]]:
-    """Per-frame sufficient statistics: (intersection, union, {tol: boundary counts}).
-
-    Kept as counts rather than ratios so the bootstrap can resample frames and re-sum
-    instead of re-running inference on every resample.
-    """
+    """Per-frame sufficient statistics: (intersection, union, {tol: boundary counts})."""
     intersection = float(np.count_nonzero(pred & truth))
     union = float(np.count_nonzero(pred | truth))
 

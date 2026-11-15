@@ -68,7 +68,6 @@ def match_material_type(
     if best_match is not None:
         return best_match, best_dist, False
 
-    # CAD exports can introduce close shade variants for the same part color.
     if nearest_match is not None and nearest_dist <= COLOR_MATCH_FALLBACK_MAX_DIST:
         return nearest_match, nearest_dist, True
     return None, nearest_dist, False

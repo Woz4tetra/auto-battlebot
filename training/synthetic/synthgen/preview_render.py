@@ -49,8 +49,7 @@ from synthgen.preview_server import mat_sample_points
 
 logger = get_logger(__name__)
 
-# tmpfs, so the render never touches a disk. One fixed name: a varying one fills /dev/shm.
-PREVIEW_PATH = Path("/dev/shm/ab_pose_preview.jpg")  # noqa: S108 - tmpfs is the point
+PREVIEW_PATH = Path("/dev/shm/ab_pose_preview.jpg")
 PREVIEW_SAMPLES = 8
 PREVIEW_QUALITY = 90
 
@@ -123,8 +122,6 @@ class PreviewRenderer:
             max(1, round(render_size[0] * preview_percentage / 100)),
             max(1, round(render_size[1] * preview_percentage / 100)),
         )
-        # Both rectification alphas up front: the page toggles between them live, and each one is
-        # a different rectified matrix, so the pinhole view and the overlay both have to follow.
         self._k_rect = {alpha: rectify_maps(calibration, render_size, alpha)[2] for alpha in ALPHAS}
         self._cage_state: RenderState | None = None
         self._setups: dict[tuple[str, bool, float], ViewSetup] = {}
@@ -155,11 +152,7 @@ class PreviewRenderer:
         self._cage_state = snapshot_render_state()
 
     def warm_up(self) -> float:
-        """Render a throwaway frame so the OptiX kernel compile lands before the port opens.
-
-        The first Cycles frame costs about 1.3 s on an RTX 4080 Laptop; every later one is about
-        50 ms. Paying it here keeps it off the user's first keypress.
-        """
+        """Render a throwaway frame so the OptiX kernel compile lands before the port opens."""
         started = time.monotonic()
         self._apply("pinhole", preview=True, alpha=1.0)
         scene = bpy.context.scene
@@ -209,15 +202,12 @@ class PreviewRenderer:
         self._applied = None
 
     def _apply(self, view: str, preview: bool, alpha: float) -> ViewSetup:
-        # The distorted view is the raw sensor frame, which no rectification alpha touches, so it
-        # shares one cache entry instead of paying the lens-distortion solve again per alpha.
         key = (view, preview, 1.0 if view == "distorted" else alpha)
         if self._applied == key:
             return self._setups[key]
         if self._cage_state is None:
             raise RuntimeError("capture_scene_state() must run before any render")
 
-        # Put back the complete drift-prone set first, so nothing survives from the other mode.
         restore_render_state(self._cage_state)
         scene = bpy.context.scene
         self._write_mode_settings(scene, preview)
@@ -237,17 +227,11 @@ class PreviewRenderer:
         denoiser = self._spec.render.denoiser
         if preview:
             cycles.samples = PREVIEW_SAMPLES
-            cycles.use_adaptive_sampling = False  # overhead with no payoff at 8 spp
-            # Bounces stay at the spec's own values, not a cheaper preview set. The mat is lit
-            # through the polycarbonate panels, so truncating transmission bounces makes the
-            # preview systematically darker than the render it is supposed to be previewing.
-            # Samples are the lever here; the denoiser is what buys back the noise.
+            cycles.use_adaptive_sampling = False
             cycles.max_bounces = 12
             cycles.transmission_bounces = self._spec.render.transmission_bounces
             cycles.transparent_max_bounces = self._spec.render.transmission_bounces
             cycles.glossy_bounces = self._spec.render.glossy_bounces
-            # The scene is static and only the camera moves, so the cache is pure win here. The
-            # batch pipeline turns this off for the opposite reason: it mutates geometry per frame.
             cycles.use_persistent_data = True
             scene.render.image_settings.file_format = "JPEG"
             scene.render.image_settings.quality = PREVIEW_QUALITY
@@ -273,8 +257,6 @@ class PreviewRenderer:
     def _build_setup(self, view: str, preview: bool, alpha: float) -> ViewSetup:
         size = self._preview_size if preview else self._render_size
         if view == "pinhole":
-            # Scale with resolution_percentage, never by rescaling K: it is applied after
-            # projection, so the preview frames identically to the full render by construction.
             lens = build_lens_view(self._calibration, self._render_size, view, alpha)
             return ViewSetup(
                 lens=lens,
@@ -284,8 +266,6 @@ class PreviewRenderer:
                 resolution_percentage=self._preview_percentage if preview else 100,
             )
 
-        # Warped views build the lens at their own size, because its maps index the wide render
-        # in pixels.
         lens = build_lens_view(self._calibration, size, view, alpha)
         logger.info(
             "%s view at %dx%d renders a wide %dx%d frame", view, size[0], size[1], *lens.render_size
@@ -301,12 +281,12 @@ class PreviewRenderer:
     def _render_to(self, path: Path) -> None:
         scene = bpy.context.scene
         scene.render.filepath = str(path)
-        with _suppress_stdout():  # Blender prints a Fra:/Mem: line per render call
+        with _suppress_stdout():
             bpy.ops.render.render(write_still=True)
 
     def _finish(self, setup: ViewSetup, path: Path, quality: int) -> bytes:
         if not setup.lens.warps:
-            return path.read_bytes()  # Blender's own JPEG, already color managed
+            return path.read_bytes()
         image = cv2.imread(str(path), cv2.IMREAD_COLOR)
         if image is None:
             raise RuntimeError(f"Blender wrote no image to {path}")
@@ -322,17 +302,7 @@ class PreviewRenderer:
 
 
 class RobotField:
-    """One imported robot, standing at every mat sample point via linked duplicates.
-
-    The robot is 511 mesh parts. Importing it nine times builds 4599 objects with their own mesh
-    data, which is enough to take the process down; `obj.copy()` shares the mesh datablock, so
-    eight clones cost eight transforms and nothing else. Materials come along for free because
-    they hang off the shared mesh.
-
-    All nine share a heading, so the projected widths in the readout compare like for like. They
-    are placed once, at construction: the sample points are fixed in the world, and moving
-    geometry per frame would throw away Cycles' persistent-data cache.
-    """
+    """One imported robot, standing at every mat sample point via linked duplicates."""
 
     def __init__(self, robot: Any, mat_size_m: float, ground_roll_deg: float) -> None:
         import math
@@ -351,7 +321,7 @@ class RobotField:
             bpy.context.scene.collection.objects.link(parent)
             self._parents.append(parent)
             for original in originals:
-                clone = original.copy()  # shares original.data, so no mesh is duplicated
+                clone = original.copy()
                 bpy.context.scene.collection.objects.link(clone)
                 clone.parent = parent
                 clone.matrix_parent_inverse = original.matrix_parent_inverse.copy()

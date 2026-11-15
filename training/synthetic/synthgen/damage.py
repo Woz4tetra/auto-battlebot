@@ -1,39 +1,4 @@
-"""Battle damage as a per-instance random variable: what to remove, decided without Blender.
-
-A real robot two minutes into a match is missing parts. Every synthetic robot so far is
-factory fresh, so the detector never sees a chewed one until the match does. This module
-draws the damage; ``synthgen.damage_scene`` applies it to the Blender scene and undoes it.
-
-Three mechanisms, chosen by what the robot's config and mesh structure allow:
-
-* **Named part removal**, for a robot whose ``[[robots.damage_parts]]`` names its real
-  assemblies (wheels, weapon disk, top plate). A CAD export grouped by material colour has
-  no part structure to hide, so ``synthgen.robots.split_damage_parts`` cuts the model into
-  those named pieces once at load, and a draw removes whole assemblies. The random-fraction
-  mechanism below hid a few bolts at a time, which never looked like a robot that lost a
-  fight. Named removal skips the keypoint protection: the batch asked for those parts gone.
-
-* **Part removal**, for the CAD robots. ``import_gltf_as_robot`` returns the GLB's mesh
-  objects, so those robots arrive already split into parts and a subset can simply go.
-* **Chunk removal**, for the Meshy opponents. Those GLBs are usually one fused textured
-  mesh, where part removal would either do nothing or delete the whole robot, so a cutter
-  primitive seeded on the surface takes a bite out instead.
-
-Three things are protected, because damage must not turn a label into a lie:
-
-* a part whose bounding box contains a keypoint, since ``[robots.keypoints]`` are
-  model-frame offsets and deleting what one sits on leaves it floating in mid-air;
-* a part big enough that removing it removes most of the robot;
-* anything matching a configured name pattern, for cases the geometry misses.
-
-``damage`` in the manifest means the fraction of the robot's mesh parts removed for the
-parts mechanism, and the fraction of bounding volume the cutter was sized to take for the
-chunk mechanism. They are not the same scale and are not comparable across mechanisms;
-``mechanism`` is recorded beside the number so an arm can separate them.
-
-Draws use the module-level ``random`` like the rest of the pipeline, so ``--seed`` covers
-damage too.
-"""
+"""Battle damage as a per-instance random variable: what to remove, decided without Blender."""
 
 from __future__ import annotations
 
@@ -53,8 +18,6 @@ CUTTER_ICOSPHERE = "icosphere"
 CUTTER_SHAPES = (CUTTER_CUBE, CUTTER_ICOSPHERE)
 
 CUTTER_SEED_RETRIES = 12
-# Surface vertices sampled as candidate cutter seeds. A fused Meshy mesh can carry 100k
-# vertices and the draw only needs a handful of candidates.
 SURFACE_SAMPLE_LIMIT = 64
 
 
@@ -87,14 +50,7 @@ class InstanceDamage:
 
 @dataclass
 class DamageBudget:
-    """Tracks the damaged/clean scene split so a short run still lands on the ratio.
-
-    Damage is drawn per scene, so a run is a handful of draws, not thousands: a 100-frame
-    probe at ten frames per scene is ten of them. A coin flip at 0.5 put one scene in ten
-    on the damaged side on 2026-09-12, which is inside its binomial spread and useless as
-    a clean pool. This tracks the split the way ``choose_cage`` tracks the scene mix: each
-    scene goes to whichever side is behind its share, so the ratio holds at any length.
-    """
+    """Tracks the damaged/clean scene split so a short run still lands on the ratio."""
 
     scenes: int = 0
     damaged: int = 0
@@ -354,15 +310,7 @@ def draw_part_damage(
 
 
 def cutter_radius_m(bbox_volume_m3: float, volume_fraction: float, shape: str) -> float:
-    """Half-extent (cube) or radius (icosphere) that removes *volume_fraction* of a box.
-
-    The cutter is seeded on the surface rather than buried in the middle, so in practice
-    roughly half of it overlaps the mesh; the fraction is what the cutter was sized for,
-    not a measured loss.
-
-    Raises:
-        ValueError: When *shape* is not a known cutter shape.
-    """
+    """Half-extent (cube) or radius (icosphere) that removes *volume_fraction* of a box."""
     target = max(bbox_volume_m3, 0.0) * max(volume_fraction, 0.0)
     if shape == CUTTER_CUBE:
         return float((target / 8.0) ** (1.0 / 3.0))

@@ -183,11 +183,7 @@ class DistractorClassIdAssigner:
             return self.next_seg_class_id
 
     def allocate_keypoint_instance_id(self) -> int:
-        """Unique robot_instance_id for a keypoint-annotated CAD distractor.
-
-        Returns 0 in segmentation mode (instance ids are managed there by the
-        segmentation pass, and distractor keypoints are not emitted).
-        """
+        """Unique robot_instance_id for a keypoint-annotated CAD distractor."""
         if self.is_segmentation_mode:
             return 0
         instance_id = self._next_instance_id

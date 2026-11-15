@@ -1,18 +1,4 @@
-"""Convert a DeepLab .pth checkpoint (or .onnx model) to TensorRT engine format.
-
-Accepts either a .pth checkpoint (which is first exported to ONNX internally)
-or a pre-exported .onnx model (which skips straight to the TensorRT build).
-
-Engines are GPU- and TensorRT-version specific: an engine built on x86 cannot
-run on Jetson (or vice versa). For Jetson deployment, copy the .pth/.onnx model
-to the Jetson and run this script there to produce the .engine used by the C++
-app. Same TensorRT version (or VERSION_COMPATIBLE build) helps across patch
-versions on the same platform.
-
-Output filenames include a platform tag (e.g. _x86_64_sm89, _aarch64_sm72) that
-encodes both CPU architecture and GPU compute capability so incompatible engines
-are not loaded by accident.
-"""
+"""Convert a DeepLab .pth checkpoint (or .onnx model) to TensorRT engine format."""
 
 import argparse
 import os
@@ -32,15 +18,6 @@ from auto_battlebot.tensorrt_build import (
     load_timing_cache,
     save_timing_cache,
 )
-
-# TensorRT's tactic timings are keyed by layer shape and type, so they are reusable across builds
-# of the same architecture with different weights. Persisting them turns each build after the first
-# from a kernel-autotuning search into little more than weight serialisation.
-#
-# Repo-local so the cache travels with the checkout and is obviously disposable; `.cache/` is
-# already gitignored. Not in $HOME, where it would silently outlive the project and be easy to
-# forget when a TensorRT or driver upgrade invalidates it. Shared with the YOLO converter: entries
-# are content-keyed, so unrelated architectures coexist in one file without colliding.
 
 
 def export_onnx(

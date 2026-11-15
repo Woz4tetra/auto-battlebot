@@ -14,7 +14,6 @@ from urllib.parse import parse_qs, urlparse
 AMBIENTCG_URL_TEMPLATE = "https://ambientcg.com/get?file={asset}_2K-JPG.zip"
 AMBIENTCG_ASSETS_API = "https://ambientcg.com/api/v3/assets"
 
-# BlenderProc only uses these texture map suffixes (from CCMaterialLoader source).
 KEEP_SUFFIXES = {
     "_Color",
     "_AmbientOcclusion",

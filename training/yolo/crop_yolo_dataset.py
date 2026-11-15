@@ -1,25 +1,4 @@
-"""Crop a YOLO dataset's images and annotations to a pixel rectangle, in place.
-
-Broadcast footage carries banners the camera never sees: the MassDestruction streams put
-a scoreboard above the cage view and a ticker below it. Training or scoring on those rows
-teaches the detector about graphics. This crops the images and moves the labels with them,
-so a hand-labeled set stays usable without relabeling.
-
-Boxes are shifted into the crop and clipped to it; a box left thinner than --min-box-px on
-either axis is dropped. Keypoints that land outside the crop are written as
-``0.000000 0.000000 0`` (visibility 0 = out-of-frame, the convention in
-training/synthetic/synthgen/annotations.py); the rest keep their visibility flag. Rows that
-are neither detect (5 values) nor pose (5 + 3k) abort the run before anything is written,
-since a polygon cannot be clipped this way.
-
-Each recording's data.yaml gains a ``crop``/``source_size`` record, which also makes the
-pass idempotent: an image already at the crop size is left alone rather than cropped twice.
-
-Usage:
-  # one recording, or a root of subdatasets filtered by directory name
-  python training/yolo/crop_yolo_dataset.py training/data/cage_high_x50_conf044 \
-      --rect 0 94 1920 895 --match 'r[123]_*' --dry-run
-"""
+"""Crop a YOLO dataset's images and annotations to a pixel rectangle, in place."""
 
 from __future__ import annotations
 

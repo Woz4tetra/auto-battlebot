@@ -6,9 +6,6 @@ ANNOTATION_MODE_SEGMENTATION_BBOX = "segmentation_bbox"
 BACKGROUND_CATEGORY_ID = 0
 ROBOT_CATEGORY_ID = 1
 DISTRACTOR_CATEGORY_ID = 2
-# The NHRL house bot parked on a cage rail. It is scenery, not a competitor, but it is
-# robot-shaped and sits in frame in real cage footage, so it gets its own category and its own
-# YOLO class rather than being left unlabelled for the detector to guess at.
 HOUSE_BOT_CATEGORY_ID = 3
 
 # Class ids used in segmentation mode. Per-robot classes are appended after
@@ -46,9 +43,6 @@ DISTRACTOR_OFFSCREEN_LOCATION = (1000.0, 1000.0, 1000.0)
 
 PROGRESS_LOG_SCENE_INTERVAL = 50
 
-# Denoiser for the HDRI arena half; a cage scene uses its spec's ``render.denoiser``. OptiX
-# runs on the render device, where BlenderProc's default Intel compositor node cost 6 s of
-# CPU per ten-frame scene for the same output.
 ARENA_DENOISER = "OPTIX"
 
 # Camera views a cage frame can be written in; see synthgen.lens. `pinhole` renders at the
@@ -58,7 +52,4 @@ VIEW_PINHOLE = "pinhole"
 VIEW_DISTORTED = "distorted"
 VIEW_RECTIFIED = "rectified"
 VIEWS: tuple[str, ...] = (VIEW_PINHOLE, VIEW_DISTORTED, VIEW_RECTIFIED)
-# The two rectification alphas the pose camera server toggles between. 1.0 keeps every source
-# pixel, so the frame is wider than the lens and carries a black border; 0.0 crops to the largest
-# all-valid rectangle, so there is no border and a narrower field. The C++ `Rectifier` ships 1.0.
 ALPHAS: tuple[float, ...] = (1.0, 0.0)

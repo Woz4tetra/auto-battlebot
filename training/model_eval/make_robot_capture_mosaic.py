@@ -1,27 +1,5 @@
 #!/usr/bin/env python3
-"""Mosaic of the sharpest real captures of each robot in an eval dataset.
-
-Supporting figure for the Meshy fidelity grades (`meshy_grade_*.md`). Those experiments
-ask whether a Meshy mesh built from a stale thumbnail still looks like the robot the
-camera sees at fight time, so the reader needs the clearest real views of each robot to
-compare against. One row per robot, the N best crops from its ground-truth boxes.
-
-Our robots are read from their own GT label. The eval GT labels every opponent as a
-generic `opponent`, so each opponent is named by the recording it fought in
-(`--opponent name=recording_prefix`), the same map the grade uses.
-
-"Best" is the variance of the Laplacian over the crop after it is resized to a fixed
-edge, which prefers sharp, large boxes and penalizes motion blur and small robots alike
-(a small crop is upsampled and reads as soft). Boxes touching the frame edge are skipped
-since they are partly out of view. Picks from one recording are kept at least
-`--min-gap` seconds apart, otherwise a robot that sits still for ten seconds fills its
-whole row with the same view.
-
-Usage:
-    python training/model_eval/make_robot_capture_mosaic.py \
-        training/data/nhrl_keypoints_eval_test \
-        -o docs/experiments/perception_performance/assets/<date>/robot_captures_mosaic.png
-"""
+"""Mosaic of the sharpest real captures of each robot in an eval dataset."""
 
 from __future__ import annotations
 

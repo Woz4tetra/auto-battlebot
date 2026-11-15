@@ -1,10 +1,4 @@
-"""Where the house bot stands in one scene (pure module, no Blender).
-
-The NHRL house bot drives around the cage during a fight, so a fixed pose teaches the detector
-that it only ever sits in one corner facing one way. Each cage scene draws a new one: anywhere on
-the mat with its whole footprint on it, any heading, and clear of the robots already placed so
-the two never interpenetrate. `cage_scene.CageStage.place_house_bot` applies it.
-"""
+"""Where the house bot stands in one scene (pure module, no Blender)."""
 
 from __future__ import annotations
 

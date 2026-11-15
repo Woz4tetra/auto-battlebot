@@ -1,41 +1,4 @@
-"""Review NHRL bot thumbnails and reject the ones unfit for Meshy image-to-3D.
-
-Step 1.5 of the NHRL robot distractor pipeline, run on the HOST after
-``download_nhrl_bots.py`` and BEFORE ``generate_nhrl_meshes.py`` so no Meshy
-credits are spent on bad source images (busy backgrounds, multiple bots, tiny/
-side-on shots, logos).  Decisions are recorded in the shared state file
-(``.nhrl_generation_state.json``) as a ``rejected`` flag on each bot entry.  A
-rejected bot is skipped by both ``generate_nhrl_meshes.py`` (never meshed) and
-``download_nhrl_bots.py`` (never re-downloaded, even after its thumbnail is
-deleted), so the veto is sticky across re-runs.
-
-Two ways to use it:
-
-1. Interactive review (needs a GUI display + ``opencv-python``):
-
-       ../../venv/bin/python review_nhrl_thumbnails.py ../data/distractor_models/robots
-
-   Shows each downloaded thumbnail; ``a``/space accepts, ``r`` rejects (and moves
-   the PNG to ``rejected_thumbnails/``), ``n``/``p`` navigate, ``u`` clears the
-   decision, ``q`` quits.  Resumes on the first un-reviewed thumbnail.
-
-2. Bulk reject from a list (no GUI), for names you have already triaged
-   elsewhere.  Tokens may be bare clean names, ``<name>.png``, or ``trash:///``
-   URIs; pass them as arguments, from a file, or on stdin:
-
-       ../../venv/bin/python review_nhrl_thumbnails.py ../data/distractor_models/robots \
-           --reject yeschef mako apex
-       ../../venv/bin/python review_nhrl_thumbnails.py ../data/distractor_models/robots \
-           --reject-file rejected.txt
-       cat rejected.txt | review_nhrl_thumbnails.py ../data/distractor_models/robots --reject -
-
-Controls (interactive):
-    a / space  accept and go to next
-    r          reject (move PNG out of the pool) and go to next
-    n / .      next        p / ,      previous
-    u          clear the decision (un-review, un-reject)
-    q / esc    quit
-"""
+"""Review NHRL bot thumbnails and reject the ones unfit for Meshy image-to-3D."""
 
 from __future__ import annotations
 

@@ -1,30 +1,5 @@
 #!/usr/bin/env python3
-"""Export YOLO datasets with model pre-labels from label_playback MCAP recordings.
-
-Reads /camera/image, /blob_detections and /keypoint_detections from one or more MCAPs
-produced by `./scripts/build_and_run.sh -c config/label_playback.toml`, pairs them by
-frame stamp, and writes one dataset per model per recording. Images are written once at
-the recording top level and symlinked into each subdataset:
-
-    <output-dir>/<recording>/images/<stamp_ns>.png       (shared, real files)
-    <output-dir>/<recording>/blob/images   -> ../images  (symlink)
-    <output-dir>/<recording>/blob/labels/<stamp_ns>.txt  (class cx cy w h)
-    <output-dir>/<recording>/blob/data.yaml
-    <output-dir>/<recording>/keypoint/images -> ../images
-    <output-dir>/<recording>/keypoint/labels/<stamp_ns>.txt  (class cx cy w h kx ky v ...)
-    <output-dir>/<recording>/keypoint/data.yaml
-
-Accepts multiple MCAP paths or globs and writes each under --output-dir automatically,
-so `export_labels.py data/recordings/*.mcap` processes a whole batch. Both the blob
-detector (detect rows) and keypoint model (pose rows) are exported by default; restrict
-with --topics.
-
-Correct the pre-labels with edit_labels.py, then score candidate runs with score.py.
-
-Usage:
-    python training/model_eval/export_labels.py data/recordings/*.mcap \
-        [--output-dir <dir>] [--topics blob keypoint]
-"""
+"""Export YOLO datasets with model pre-labels from label_playback MCAP recordings."""
 
 from __future__ import annotations
 

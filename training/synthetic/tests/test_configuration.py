@@ -104,17 +104,11 @@ class TestRealConfig:
         assert basement.mount.walls == ("near", "left")
         assert nhrl.enabled is True
         assert nhrl.probability == pytest.approx(0.5)
-        # 64 with the spec's OptiX denoiser matched 128 with the compositor denoiser on
-        # 2026-09-12 (37.6 vs 39.9 dB PSNR against a 512-sample reference, crops alike).
         assert nhrl.render_samples == 64
         assert massd.render_samples == 64
         assert nhrl.mount.walls == ("near", "far", "left", "right")
         assert nhrl.mount.height_m == (0.60, 1.25)
         assert massd.probability == pytest.approx(0.25)
-        # Both mounts stand outside the wall, close to it, with tilt derived from where they
-        # land and aimed short of the field centre. NHRL's come from the 12 poses flown in
-        # pose_camera_server.py on 2026-09-12; MassD's come from the coverage sweeps, pulled
-        # in once the half moved to the wider e-CAM25 lens.
         for mount in (nhrl.mount, massd.mount):
             assert mount.aim == "centre"
             assert mount.inset_m[0] < 0.0 and mount.inset_m[1] < 0.0
@@ -123,9 +117,6 @@ class TestRealConfig:
         assert nhrl.mount.tilt_offset_deg == (-22.0, -10.0)
         assert massd.mount.inset_m == (-0.25, -0.10)
         assert massd.mount.height_m == (0.45, 1.10)
-        # Both mounts stay clear of the glass. A camera within 0.055 m of the wall put an
-        # adjacent pane across a 118 degree frame edge-on, and the rough refraction cost 402
-        # seconds per render pass at 32 samples where a healthy scene takes 4 to 23 at 128.
         for mount in (nhrl.mount, massd.mount):
             assert mount.inset_m[1] <= -0.08
         assert nhrl.camera_calibration == massd.camera_calibration

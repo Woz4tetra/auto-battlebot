@@ -1,9 +1,4 @@
-"""Logging configuration for the synthgen package.
-
-Every module gets its logger via ``get_logger(__name__)``; the entry point calls
-``configure()`` once. BlenderProc/Blender write their own stdout noise, so the
-format stays terse and level names only appear for WARNING and above.
-"""
+"""Logging configuration for the synthgen package."""
 
 import logging
 

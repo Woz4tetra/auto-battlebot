@@ -180,7 +180,6 @@ class SceneState:
     # One mount per camera pose, aligned by frame index. Empty for the HDRI half, whose
     # cameras come off a sampled shell rather than a wall.
     mounts: tuple[CageMount, ...] = ()
-    # One entry per instance damage was rolled for, damaged or not.
     damage: tuple[InstanceDamage, ...] = ()
     lens: LensView | None = None
 
@@ -260,14 +259,7 @@ def _write_keypoint_data_yml(
 def _append_manifest_row(
     layout: OutputLayout, scene: SceneState, frame_name: str, local_idx: int
 ) -> None:
-    """One JSON line per written frame: which arena, view, mount, and what was damaged.
-
-    This is what makes the damage arms a filter rather than a second render: a damage-off
-    arm keeps the frames whose every instance reports ``damage == 0``. The mount is here
-    too, so a frame can be traced back to the camera placement that produced it. The view
-    is the only record of which lens a frame went through once per-view runs are merged
-    into one directory; the HDRI half has no lens model and is always pinhole.
-    """
+    """One JSON line per written frame: which arena, view, mount, and what was damaged."""
     mount = scene.mounts[local_idx] if local_idx < len(scene.mounts) else None
     row = {
         "image": f"{frame_name}.jpg",
@@ -335,12 +327,7 @@ def _warp_render_data(lens: LensView | None, data: dict) -> dict:
 def _render_clean_inst_seg_maps(
     inst_seg_maps: Any, active_distractors: list[DistractorInstance], lens: LensView | None
 ) -> Any:
-    """Render an occlusion-free instance segmentation pass with distractors hidden.
-
-    Only the segmap is read from this pass, so it renders under ``occlusion_pass``: one
-    sample and camera rays only. Distractors that ``clear_blocking_distractors`` already
-    hid stay hidden afterwards, which is why visibility is saved alongside the transform.
-    """
+    """Render an occlusion-free instance segmentation pass with distractors hidden."""
     if inst_seg_maps is None:
         return None
     if not active_distractors:
@@ -438,8 +425,6 @@ def _extract_frame_annotations(
             int(v) for v in np.unique(cat_seg.squeeze()).tolist() if int(v) > BACKGROUND_CATEGORY_ID
         }
         annotated_category_ids: set[int] = set()
-        # Skip the (comparatively expensive) contour extraction for floor-only
-        # frames; decide_seg_frame reports them as SEG_FLOOR_ONLY regardless.
         if visible_category_ids != {SEG_FLOOR_CLASS_ID}:
             seg_annotations = segmentation_annotations_from_segmap(
                 cat_seg, img_w, img_h, min_bbox_dim=cfg.output.segmentation_min_bbox_dim
@@ -713,11 +698,6 @@ def render_scene(
             robot.meshes, cfg.randomization.roughness_jitter, cfg.randomization.hue_jitter_degrees
         )
 
-    # -- Battle damage, before anything renders --
-    # Damage goes on after posing and material jitter and comes off in the finally below,
-    # so both render passes see the same chewed silhouette and the next scene gets the
-    # model back whole. The annotations need no special handling: bboxes and keypoint
-    # visibility are computed from the segmentation of what actually rendered.
     damage_session, instance_damage = apply_scene_damage(
         cfg.damage,
         cutter_pool,
@@ -739,8 +719,6 @@ def render_scene(
     try:
         _stage_cameras(cam_poses, cage, fallback_count, stats)
 
-        # Every map comes out of Blender at render resolution; everything below works in the
-        # written view, so the warp happens once, here, before anything reads a pixel.
         data = _warp_render_data(None if cage is None else cage.lens, bproc.renderer.render())
 
         if scene_idx == 0:

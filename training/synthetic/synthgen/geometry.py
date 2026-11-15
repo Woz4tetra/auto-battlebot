@@ -26,9 +26,6 @@ def min_distance_for_frame_fraction(
     """Closest camera distance, in meters, that keeps a *radius* sphere within the fraction."""
     if radius <= 0.0 or min_fov <= 0.0 or max_half_frame_fraction <= 0.0:
         return 0.0
-    # On the image plane a point at angle theta lands at tan(theta)/tan(fov/2) of
-    # the half-frame. Solving tan(theta) = max_half_frame_fraction * tan(fov/2) for the
-    # sphere silhouette (sin(theta) = radius/distance) gives this closed form.
     k = max_half_frame_fraction * math.tan(min_fov / 2.0)
     if k <= 0.0:
         return 0.0
