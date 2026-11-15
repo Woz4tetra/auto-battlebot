@@ -93,16 +93,18 @@ def msp_request(cmd: int, payload: bytes = b"") -> bytes:
     return b"$M<" + bytes([len(payload), cmd]) + payload + bytes([checksum])
 
 
+ESC_PINS = ("A2", "A3")
+
+
 class FourWay:
-    """One 4-way session. ESC indices are the passthrough's pin order (0 = A2, 1 = A3).
+    """One 4-way session. ESC indices follow the passthrough pin order in `ESC_PINS`."""
 
-    msp=False skips the MSP switch, for transports that speak 4-way from the start.
-    """
-
-    def __init__(self, port: SerialPort, timeout_s: float = 2.0, msp: bool = True) -> None:
+    def __init__(
+        self, port: SerialPort, timeout_s: float = 2.0, switch_from_msp: bool = True
+    ) -> None:
         self._port = port
         self._timeout_s = timeout_s
-        self._msp = msp
+        self._msp = switch_from_msp
 
     def _read_exact(self, n: int) -> bytes:
         out = bytearray()

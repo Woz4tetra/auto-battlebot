@@ -167,7 +167,7 @@ class LockstepWorld:
         self.t = 0.0
         self.engaged = self.struck = self.prev_arc = self.prev_wall = self.prev_block = False
         self.apart_s = 0.0
-        self.arc_s = 0.0
+        self.arc_contact_s = 0.0
         self.flip_s = 0.0
         self.done = False
         self.arc = math.radians(self.cfg.arc_half_angle_deg)
@@ -237,7 +237,7 @@ class LockstepWorld:
             raise ValueError(
                 "guard_scale models the Mr Stabs Mk2 firmware guard; this robot has none"
             )
-        self.sent_linear: float | None = None  # the slew limiter's last output
+        self.slew_last_linear: float | None = None
         self.trace: list[tuple[float, float, float]] | None = (
             [] if scenario.get("trace", False) else None
         )
@@ -246,10 +246,10 @@ class LockstepWorld:
         """`EspNowTransmitter::limit_linear_acceleration`: the first command passes through."""
         if self.slew_per_s <= 0.0:
             return linear
-        if self.sent_linear is not None:
+        if self.slew_last_linear is not None:
             step = self.slew_per_s * dt
-            linear = min(max(linear, self.sent_linear - step), self.sent_linear + step)
-        self.sent_linear = linear
+            linear = min(max(linear, self.slew_last_linear - step), self.slew_last_linear + step)
+        self.slew_last_linear = linear
         return linear
 
     def _init_opponent(self, scenario: dict[str, Any]) -> None:
@@ -633,9 +633,9 @@ class LockstepWorld:
             s.strikes += 1
             s.rear_strikes += float(f[3] > 2 * math.pi / 3)
             s.first_strike_s = min(s.first_strike_s, self.t)
-        self.arc_s = self.arc_s + dt if arc else 0.0
-        if arc and (not self.prev_arc or self.arc_s >= cfg.arc_rehit_s):
-            self.arc_s = 0.0
+        self.arc_contact_s = self.arc_contact_s + dt if arc else 0.0
+        if arc and (not self.prev_arc or self.arc_contact_s >= cfg.arc_rehit_s):
+            self.arc_contact_s = 0.0
             r += rw["hit_taken"]
             s.hits_taken += 1
             s.first_hit_s = min(s.first_hit_s, self.t)

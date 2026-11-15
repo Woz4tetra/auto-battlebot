@@ -79,7 +79,7 @@ MK3_INTERIM_FIT = "playground/calibration/out/mujoco_sysid/mk3_interim/fit.json"
 WALL_HEIGHT_M = 0.3
 WALL_T_M = 0.05
 PARKED = 50.0
-N_SLOTS = 3  # holes and wall blocks
+N_HAZARD_SLOTS = 3
 WALL_MOCAPS = 4
 BLOCK_MOCAPS = 3
 HOUSE_MOCAP = WALL_MOCAPS + BLOCK_MOCAPS
@@ -585,10 +585,10 @@ class WarpNavEnv:
         z = torch.zeros(w, device=dev, dtype=dt)
         zb = torch.zeros(w, dtype=torch.bool, device=dev)
         self.arena_half = torch.full((w, 2), 1.25, device=dev, dtype=dt)
-        self.slot_xy = torch.zeros(w, N_SLOTS, 2, device=dev, dtype=dt)
-        self.slot_r = torch.zeros(w, N_SLOTS, device=dev, dtype=dt)
-        self.slot_kind = torch.zeros(w, N_SLOTS, dtype=torch.long, device=dev)
-        self.slot_present = torch.zeros(w, N_SLOTS, dtype=torch.bool, device=dev)
+        self.slot_xy = torch.zeros(w, N_HAZARD_SLOTS, 2, device=dev, dtype=dt)
+        self.slot_r = torch.zeros(w, N_HAZARD_SLOTS, device=dev, dtype=dt)
+        self.slot_kind = torch.zeros(w, N_HAZARD_SLOTS, dtype=torch.long, device=dev)
+        self.slot_present = torch.zeros(w, N_HAZARD_SLOTS, dtype=torch.bool, device=dev)
         self.house_present = zb.clone()
         self.house_vel = torch.zeros(w, 2, device=dev, dtype=dt)
         self.opp_half = torch.tensor(OPP_SIZE_M[:2], device=dev, dtype=dt).repeat(w, 1) / 2
@@ -600,7 +600,7 @@ class WarpNavEnv:
         self.engaged = zb.clone()
         self.struck = zb.clone()
         self.apart_s = z.clone()
-        self.arc_s = z.clone()  # seconds of arc contact since the last hit charged
+        self.arc_contact_s = z.clone()
         self.prev_arc = zb.clone()
         self.prev_wall = zb.clone()
         self.prev_block = zb.clone()
@@ -636,7 +636,7 @@ class WarpNavEnv:
         )
         self.opponents.replay = ReplayTracks(cfg.holdout, dev, dt, episode_s=cfg.episode_s)
         self.success_window: list[float] = []
-        self.pursuit_window: list[float] = []  # attack episodes against a pursuer
+        self.pursuit_attack_success_window: list[float] = []
         self.episode_stage = torch.full((w,), -1, dtype=torch.long, device=dev)
         self.episode_pursuit_level = torch.full((w,), -1.0, device=dev, dtype=dt)
 
@@ -700,8 +700,8 @@ class WarpNavEnv:
             & level
             & scripted
         )
-        self.pursuit_window.extend(ok[chased].float().tolist())
-        self.pursuit_window = self.pursuit_window[-1000:]
+        self.pursuit_attack_success_window.extend(ok[chased].float().tolist())
+        self.pursuit_attack_success_window = self.pursuit_attack_success_window[-1000:]
 
     @property
     def success_rate(self) -> float:
@@ -709,7 +709,11 @@ class WarpNavEnv:
 
     @property
     def pursuit_success_rate(self) -> float:
-        return float(np.mean(self.pursuit_window)) if self.pursuit_window else 0.0
+        return (
+            float(np.mean(self.pursuit_attack_success_window))
+            if self.pursuit_attack_success_window
+            else 0.0
+        )
 
     def _rand(self, *shape: int) -> torch.Tensor:
         return torch.rand(*shape, generator=self.gen, device=self.device, dtype=self.dtype)
@@ -825,12 +829,12 @@ class WarpNavEnv:
         m1 = mask[:, None]
         sc = self.stage_cfg
         count = torch.randint(0, int(sc.hazards) + 1, (n,), generator=self.gen, device=self.device)
-        present = torch.arange(N_SLOTS, device=self.device)[None] < count[:, None]
-        kind = torch.where(self._rand(n, N_SLOTS) < 0.5, obs_spec.HOLE, obs_spec.WALL_BLOCK)
+        present = torch.arange(N_HAZARD_SLOTS, device=self.device)[None] < count[:, None]
+        kind = torch.where(self._rand(n, N_HAZARD_SLOTS) < 0.5, obs_spec.HOLE, obs_spec.WALL_BLOCK)
         if sc.holes_only:
             kind = torch.full_like(kind, obs_spec.HOLE)
-        radius = 0.1 + 0.2 * self._rand(n, N_SLOTS)
-        sxy = (self._rand(n, N_SLOTS, 2) * 2 - 1) * (
+        radius = 0.1 + 0.2 * self._rand(n, N_HAZARD_SLOTS)
+        sxy = (self._rand(n, N_HAZARD_SLOTS, 2) * 2 - 1) * (
             self.arena_half[:, None, :] - radius[..., None]
         )
         clear = (sxy - oxy[:, None]).norm(dim=-1) > radius + opp_foot[:, None] + 0.15
@@ -1114,7 +1118,7 @@ class WarpNavEnv:
                             "y": float(self.slot_xy[i, k, 1]),
                             "r": float(self.slot_r[i, k]),
                         }
-                        for k in range(N_SLOTS)
+                        for k in range(N_HAZARD_SLOTS)
                     ],
                     "house": {
                         "present": bool(self.house_present[i]),
@@ -1294,9 +1298,13 @@ class WarpNavEnv:
         strike = starting & wedge & ~arc & attack
         u = (f[:, 3] - self.arc) / (math.pi - self.arc)
         reward += torch.where(strike, rw["strike_base"] + rw["strike_rear"] * smoothstep(u), 0.0)
-        self.arc_s = torch.where(arc, self.arc_s + dt, torch.zeros_like(self.arc_s))
-        hit = arc & (~self.prev_arc | (self.arc_s >= cfg.arc_rehit_s))
-        self.arc_s = torch.where(hit, torch.zeros_like(self.arc_s), self.arc_s)
+        self.arc_contact_s = torch.where(
+            arc, self.arc_contact_s + dt, torch.zeros_like(self.arc_contact_s)
+        )
+        hit = arc & (~self.prev_arc | (self.arc_contact_s >= cfg.arc_rehit_s))
+        self.arc_contact_s = torch.where(
+            hit, torch.zeros_like(self.arc_contact_s), self.arc_contact_s
+        )
         reward += torch.where(hit, rw["hit_taken"], 0.0)
         self.prev_arc = arc
         self.stats["strikes"] += strike.float()

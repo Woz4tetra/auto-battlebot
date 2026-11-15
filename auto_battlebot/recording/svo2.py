@@ -218,9 +218,7 @@ def _iter_jpegs(stream: IO[bytes]) -> Iterator[bytes]:
     an image.
     """
     buffer = bytearray()
-    # Where the next SOI search starts. Everything before it has been checked,
-    # apart from a short overlap so a marker split across two reads is found.
-    scan = 0
+    next_soi_search_start = 0
     header_checked = False
     while True:
         chunk = stream.read(_READ_CHUNK)
@@ -232,13 +230,13 @@ def _iter_jpegs(stream: IO[bytes]) -> Iterator[bytes]:
                 raise RuntimeError("ffmpeg output does not start with a JPEG marker")
             header_checked = True
         while True:
-            index = buffer.find(_JPEG_SOI, scan)
+            index = buffer.find(_JPEG_SOI, next_soi_search_start)
             if index < 0:
-                scan = max(0, len(buffer) - len(_JPEG_SOI) + 1)
+                next_soi_search_start = max(0, len(buffer) - len(_JPEG_SOI) + 1)
                 break
             if index > 0:
                 yield bytes(buffer[:index])
                 del buffer[:index]
-            scan = len(_JPEG_SOI)
+            next_soi_search_start = len(_JPEG_SOI)
     if buffer:
         yield bytes(buffer)

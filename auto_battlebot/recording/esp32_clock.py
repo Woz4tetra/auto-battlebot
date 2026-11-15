@@ -30,11 +30,11 @@ class ClockSegment:
     """host_ns = host_ref_ns + offset_s * 1e9 + (1 + drift) * (robot_ms - robot_ref_ms) * 1e6"""
 
     first_index: int
-    last_index: int  # inclusive
+    last_index_inclusive: int
     robot_ref_ms: int
     host_ref_ns: int
     offset_s: float
-    drift: float  # fractional: +1e-6 means the robot clock runs 1 ppm slow against the app
+    drift: float
     residual_ms_percentiles: dict[str, float] = field(default_factory=dict)
 
     @property
@@ -149,7 +149,7 @@ def fit_robot_clock(timestamp_ms: np.ndarray, host_receive_ns: np.ndarray) -> Cl
         intercept, slope = _lower_envelope_line(x, y)
         seg = ClockSegment(
             first_index=first,
-            last_index=last,
+            last_index_inclusive=last,
             robot_ref_ms=robot_ref,
             host_ref_ns=host_ref,
             offset_s=intercept,

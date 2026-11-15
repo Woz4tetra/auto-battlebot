@@ -172,7 +172,7 @@ class Batch:
     tag_inv_sigma_yaw: np.ndarray
     gyro: np.ndarray
     gyro_inv_sigma: np.ndarray
-    owner: np.ndarray
+    owner_window_index: np.ndarray
     view_c: float
     view_s: float
 
@@ -197,7 +197,7 @@ def stack(subs: Sequence[SubWindow], owners: Sequence[int], view_azimuth: float)
         tag_inv_sigma_yaw=np.zeros((s, MAX_TAG_FIXES_PER_SUB)),
         gyro=np.zeros((s, g)),
         gyro_inv_sigma=np.zeros((s, g)),
-        owner=np.asarray(owners, dtype=np.int64),
+        owner_window_index=np.asarray(owners, dtype=np.int64),
         view_c=float(np.cos(view_azimuth)),
         view_s=float(np.sin(view_azimuth)),
     )
@@ -384,7 +384,7 @@ class FitResult:
     theta: np.ndarray
     fisher: np.ndarray  # J^T J of the data rows at theta
     scale: float  # residual variance per data row, the covariance inflation
-    window_max: dict[int, float]  # owner -> largest |tag residual| in that window
+    window_max: dict[int, float]  # owner_window_index -> largest |tag residual| in that window
     rows: int
 
 
@@ -438,9 +438,9 @@ def fit(
     scale = float(np.sum(r[active] ** 2) / max(n, 1))
     tag_cols = 3 * MAX_TAG_FIXES_PER_SUB
     worst: dict[int, float] = {}
-    for row, owner in enumerate(batch.owner):
+    for row, owner_window_index in enumerate(batch.owner_window_index):
         m = float(np.max(np.abs(r[row, :tag_cols]))) if tag_cols else 0.0
-        worst[int(owner)] = max(worst.get(int(owner), 0.0), m)
+        worst[int(owner_window_index)] = max(worst.get(int(owner_window_index), 0.0), m)
     return FitResult(theta, information(j), scale, worst, n)
 
 
@@ -704,7 +704,7 @@ def rank_candidates(
     _r, jac = jacobian(theta, batch)
     out: list[Candidate] = []
     for i, motion in enumerate(CATALOG):
-        rows = batch.owner == i
+        rows = batch.owner_window_index == i
         f = information(jac[rows])
         fills = fills_of(np.sqrt(np.diag(covariance(fisher + f, scale))))
         gains = np.maximum(fills - base_fills, 0.0)

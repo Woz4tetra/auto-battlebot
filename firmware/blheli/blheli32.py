@@ -42,7 +42,7 @@ def open_session(args: argparse.Namespace) -> tuple[Session, Callable[[], None]]
     if args.url:
         http = HttpPort(args.url)
         entered = http.enter_tuning()
-        session = Session(http, msp=False)
+        session = Session(http, switch_from_msp=False)
 
         def close_http() -> None:
             try:

@@ -126,10 +126,10 @@ class RefitState:
                 limit = CONTACT_SIGMA * math.sqrt(max(scale, 1.0))
                 tag_cols = 3 * model.MAX_TAG_FIXES_PER_SUB
                 worst = np.max(np.abs(r0[:, :tag_cols]), axis=1)
-                bad = {int(full.owner[i]) for i in np.flatnonzero(worst > limit)}
+                bad = {int(full.owner_window_index[i]) for i in np.flatnonzero(worst > limit)}
                 contact = sorted(bad)
                 self.contact |= bad
-                keep = ~np.isin(full.owner, list(bad))
+                keep = ~np.isin(full.owner_window_index, list(bad))
                 jac = jac[keep]
                 r0 = r0[keep]
                 mask = mask[keep]

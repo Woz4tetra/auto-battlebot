@@ -350,7 +350,7 @@ def test_session_over_http_relay(robot: FakeRobot) -> None:
     port = HttpPort(robot.url, poll_s=0.001)
     assert port.enter_tuning() is True
     assert port.enter_tuning() is False  # already in it
-    session = Session(port, msp=False)
+    session = Session(port, switch_from_msp=False)
     session.open()
     before = session.read(0).decrypted_payload
     edited = layout.encode(before, {"startup_beep_volume": 200})

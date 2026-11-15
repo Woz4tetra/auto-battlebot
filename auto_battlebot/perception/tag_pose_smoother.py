@@ -37,7 +37,7 @@ from auto_battlebot.recording.esp32_clock import cross_correlation_delay, resamp
 from auto_battlebot.recording.sysid_io import FieldFromCamera, RobotTagsFrame, rotation_angle
 
 _NS = 1_000_000_000
-_FLIP_X = np.diag([1.0, -1.0, -1.0, 1.0])  # 180 degrees about x: rest pose of an inverted body
+_ROT_180_ABOUT_X = np.diag([1.0, -1.0, -1.0, 1.0])
 
 KIND_NONE = 0
 KIND_POSITION = 1
@@ -122,13 +122,13 @@ def up_from_field(field_from_camera: FieldFromCamera) -> tuple[np.ndarray, bool]
         raise ValueError("no camera -> field transform in the recording (run field init)")
     cam_z = float(np.median(field_from_camera.matrices[:, 2, 3]))
     if cam_z < 0.0:
-        return _FLIP_X.copy(), True
+        return _ROT_180_ABOUT_X.copy(), True
     return np.eye(4), False
 
 
 def rest_rotation(r_up_body: np.ndarray, upside_down: bool) -> np.ndarray:
     """Body rotation relative to its rest pose: the identity for an upright robot sitting flat."""
-    return r_up_body @ _FLIP_X[:3, :3] if upside_down else r_up_body
+    return r_up_body @ _ROT_180_ABOUT_X[:3, :3] if upside_down else r_up_body
 
 
 def euler_zyx(r: np.ndarray) -> tuple[float, float, float]:
@@ -244,7 +244,7 @@ class IppeChoice:
     choice: np.ndarray  # (N,) 0 or 1
     close_call: np.ndarray  # (N,) bool: tilts within the margin, decided by neighbours
     close_calls: int
-    unresolved_close_calls: int  # close calls with no neighbour in reach, left to the tilt test
+    close_calls_left_to_tilt: int
 
 
 def select_ippe(
@@ -294,7 +294,7 @@ def select_ippe(
         choice=choice,
         close_call=close,
         close_calls=int(close.sum()),
-        unresolved_close_calls=unresolved,
+        close_calls_left_to_tilt=unresolved,
     )
 
 
@@ -347,7 +347,7 @@ class NoiseModel:
     size_ref_px: float = 50.0
     view_azimuth_rad: float = 0.0
     calibrated: bool = False
-    still_segments: int = 0
+    noise_calibration_segments: int = 0
     still_detections: int = 0
 
     def factor(self, reprojection_error_px: np.ndarray, size_px: np.ndarray) -> np.ndarray:
@@ -379,7 +379,7 @@ class NoiseModel:
             "size_ref_px": self.size_ref_px,
             "view_azimuth_rad": self.view_azimuth_rad,
             "calibrated": self.calibrated,
-            "still_segments": self.still_segments,
+            "still_segments": self.noise_calibration_segments,
             "still_detections": self.still_detections,
         }
 
@@ -516,7 +516,7 @@ def calibrate_noise(
     model.k_yaw = k["yaw"]
     model.k_tilt = k["tilt"]
     model.calibrated = True
-    model.still_segments = len(segments)
+    model.noise_calibration_segments = len(segments)
     model.still_detections = detections
     return model
 
@@ -1041,7 +1041,9 @@ class SessionSmoothing:
     imu_lag: dict[str, Any] | None
     residual_acf: np.ndarray
     innovation_acf: np.ndarray
-    still_segments: list[tuple[int, int]]  # detection index ranges the noise model came from
+    noise_calibration_segments: list[
+        tuple[int, int]
+    ]  # detection index ranges the noise model came from
     # YOLO position fixes on frames the tag missed (stamp, x, y, yaw, sigmas, rejected), or None.
     yolo_fixes: pd.DataFrame | None = None
     yolo_calibration: yolo_field_fixes.YoloCalibration | None = None
@@ -1364,7 +1366,7 @@ def smooth_session(
         imu_lag=imu_lag,
         residual_acf=residual_acf,
         innovation_acf=innovation_acf,
-        still_segments=segments,
+        noise_calibration_segments=segments,
         yolo_fixes=yolo_fixes,
         yolo_calibration=yolo_cal,
     )
@@ -1754,7 +1756,7 @@ def _session_checks(
     }
     checks["ippe"] = {
         "close_calls": ippe.close_calls,
-        "unresolved_close_calls": ippe.unresolved_close_calls,
+        "unresolved_close_calls": ippe.close_calls_left_to_tilt,
         "detections": int(len(meas)),
     }
     checks["gating"] = {

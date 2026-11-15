@@ -27,6 +27,7 @@ SAFETY
 
 from __future__ import annotations
 
+import math
 import struct
 import threading
 import time
@@ -290,7 +291,7 @@ class TrainerLink:
 
     def to_body(self, a: float, b: float) -> tuple[float, float]:
         """Two drive channels to (linear, angular), under the configured mix."""
-        if a != a or b != b:  # NaN in, NaN out
+        if math.isnan(a) or math.isnan(b):
             return float("nan"), float("nan")
         return self.mix.from_channels(a, b)
 
@@ -373,7 +374,7 @@ class PlayResult:
             if settle > 0:
                 settle -= 1
                 continue
-            if c.meas_linear != c.meas_linear:  # NaN: no readback yet
+            if math.isnan(c.meas_linear):
                 continue
             diffs.append(max(abs(c.meas_linear - target[0]), abs(c.meas_angular - target[1])))
         if not diffs:

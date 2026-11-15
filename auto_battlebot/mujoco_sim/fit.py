@@ -32,7 +32,7 @@ from auto_battlebot.mujoco_sim.actuator import PlantParams
 from auto_battlebot.mujoco_sim.rollout import pose_from_qpos
 from auto_battlebot.mujoco_sim.session import HORIZON_TOLERANCE_S, WindowBatch
 
-HUBER_DELTA = 3.0  # noise-floor multiples
+HUBER_DELTA_NOISE_MULTIPLES = 3.0
 
 
 @dataclass(frozen=True)
@@ -123,7 +123,7 @@ def unit_of(
     return np.array([specs[n].to_unit(getattr(params, n)) for n in names])
 
 
-def _huber(r: np.ndarray, delta: float = HUBER_DELTA) -> np.ndarray:
+def _huber(r: np.ndarray, delta: float = HUBER_DELTA_NOISE_MULTIPLES) -> np.ndarray:
     a = np.abs(r)
     return np.asarray(np.where(a <= delta, 0.5 * a**2, delta * (a - 0.5 * delta)))
 

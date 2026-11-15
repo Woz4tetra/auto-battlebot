@@ -38,6 +38,7 @@ from typing import Any, Sequence
 import numpy as np
 
 from auto_battlebot.control.plant import WindowSet, concat_windows, make_windows
+from auto_battlebot.recording.diag_io import FRAME_IDS
 from auto_battlebot.recording.mcap_io import (
     decode_diagnostic_array,
     decode_scene_update,
@@ -45,8 +46,8 @@ from auto_battlebot.recording.mcap_io import (
     iter_messages,
 )
 
-OUR_ROBOT_MARKER_ID = 4
-THEIR_ROBOT_MARKER_IDS = (6, 7, 8)
+OUR_ROBOT_MARKER_ID = FRAME_IDS.index("OUR_ROBOT_1")
+THEIR_ROBOT_MARKER_IDS = tuple(FRAME_IDS.index(f"THEIR_ROBOT_{i}") for i in (1, 2, 3))
 
 # The auto switch reads back 1024 when autonomy is enabled. Only then does the
 # radio mix the logged channels into what the robot receives; manual segments
@@ -81,7 +82,7 @@ class ReplayTrack:
     x: np.ndarray
     y: np.ndarray
     theta: np.ndarray
-    live: np.ndarray
+    our_live_fresh: np.ndarray
     opp_x: np.ndarray
     opp_y: np.ndarray
     field_size: tuple[float, float] | None
@@ -223,7 +224,7 @@ def load_replay_track(replay_path: Path | str) -> ReplayTrack:
         x=_col(2),
         y=_col(3),
         theta=_col(4),
-        live=_col(5, bool),
+        our_live_fresh=_col(5, bool),
         opp_x=_col(6),
         opp_y=_col(7),
         field_size=field_size,
@@ -352,7 +353,7 @@ def _fill_grid(track: ReplayTrack) -> tuple[np.ndarray, dict[str, np.ndarray], f
     ):
         grid[key][slots] = source
     present[slots] = True
-    live[slots] = track.live
+    live[slots] = track.our_live_fresh
     grid["present"] = present
     grid["live"] = live
     t = np.arange(size) * dt

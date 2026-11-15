@@ -29,8 +29,8 @@ import math
 from dataclasses import dataclass, field
 from enum import Enum
 
-TURNING_COOLDOWN_TIME = 0.25  # legacy only
-ANGULAR_SCALE = 1.0  # legacy only
+LEGACY_TURNING_COOLDOWN_S = 0.25
+LEGACY_ANGULAR_SCALE = 1.0
 TURN_THRESHOLD_PERCENT = 1.0
 SAMPLE_PERIOD_S = 0.01  # updown_sensor::SAMPLE_INTERVAL
 GYRO_RANGE_DPS = 2000.0  # BNO055 gyro full scale in its fusion modes
@@ -268,11 +268,11 @@ class FirmwareMixer:
         self.cooldown_timer = 0.0
 
     def _legacy_angular(self, b_percent: float, heading_deg: float, dt: float) -> float:
-        angular = b_percent * ANGULAR_SCALE
+        angular = b_percent * LEGACY_ANGULAR_SCALE
         if abs(angular) > TURN_THRESHOLD_PERCENT:
             self.angle_setpoint = heading_deg
             self.was_turning = True
-            self.cooldown_timer = TURNING_COOLDOWN_TIME
+            self.cooldown_timer = LEGACY_TURNING_COOLDOWN_S
             return angular
         if self.was_turning:
             self.cooldown_timer -= dt

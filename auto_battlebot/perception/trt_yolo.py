@@ -126,14 +126,14 @@ def sigmoid(x: np.ndarray) -> np.ndarray:
     return cast(np.ndarray, result)
 
 
-def xywh2xyxy(boxes: np.ndarray, half_wh: bool = False) -> None:
+def xywh2xyxy(boxes: np.ndarray, wh_are_half_extents: bool = False) -> None:
     """In-place: (cx, cy, w, h) -> (x1, y1, x2, y2).
 
-    If half_wh, 3rd/4th are half-width/half-height (no /2).
+    If wh_are_half_extents, 3rd/4th are half-width/half-height (no /2).
     """
     cx, cy = boxes[:, 0].copy(), boxes[:, 1].copy()
     w, h = boxes[:, 2].copy(), boxes[:, 3].copy()
-    if half_wh:
+    if wh_are_half_extents:
         boxes[:, 0] = cx - w
         boxes[:, 1] = cy - h
         boxes[:, 2] = cx + w
@@ -285,7 +285,7 @@ def non_max_suppression(
     kp_data = transposed[mask, 4 + num_classes : 4 + num_classes + num_keypoint_vals].copy()
     _activate_keypoint_visibility(kp_data)
     if not bbox_xyxy:
-        xywh2xyxy(boxes_xywh, half_wh=bbox_half_wh)
+        xywh2xyxy(boxes_xywh, wh_are_half_extents=bbox_half_wh)
     all_keep = _per_class_nms(boxes_xywh, scores, cls_ids, num_classes, iou_thres)
     all_keep = all_keep[np.argsort(-scores[all_keep])[:max_det]]
     return _build_detections(all_keep, boxes_xywh, scores, cls_ids, kp_data, num_keypoints)
