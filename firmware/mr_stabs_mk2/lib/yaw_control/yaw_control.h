@@ -47,10 +47,8 @@ class YawController {
    public:
     explicit YawController(const Config &config);
 
-    // New gains from the next update() on. Keeps the held heading and the integral.
     void set_config(const Config &config) { _config = config; }
 
-    // Hold `heading` from now on: clears the integral and any turn in progress.
     void reset(float heading);
 
     // One BNO055 sample. turn_percent is the turn stick (-100..100), throttle the drive command
@@ -73,7 +71,6 @@ class YawController {
     float _rate_command = 0.0f;
 };
 
-// Wraps an angle difference to [-180, 180).
 float wrap_degrees(float angle);
 
 /** One full wrap of a BNO055 gyro axis in rad/s: the register is int16 at 16 LSB per deg/s, so it

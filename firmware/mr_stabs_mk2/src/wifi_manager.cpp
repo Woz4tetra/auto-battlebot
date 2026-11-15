@@ -164,7 +164,6 @@ bool WifiManager::save_network(const char *ssid, const char *password, String &e
         error = "SSID must be 1 to 32 characters";
         return false;
     }
-    // WPA2 takes 8 to 63 characters; empty joins an open network.
     if (password_len != 0 && (password_len < 8 || password_len > PASSWORD_LEN)) {
         error = "password must be empty (open network) or 8 to 63 characters";
         return false;
@@ -239,7 +238,6 @@ const network_t *WifiManager::find(const char *ssid) const {
 void WifiManager::load() {
     _settings = {};
     Preferences prefs;
-    // Fails on first boot, before the namespace exists: AP mode, nothing saved.
     if (!prefs.begin(PREFS_NAMESPACE, true)) return;
     _settings.mode = prefs.getUChar("mode", 0) == 1 ? link_mode_t::CLIENT : link_mode_t::AP;
     prefs.getString("selected", _settings.selected, sizeof(_settings.selected));

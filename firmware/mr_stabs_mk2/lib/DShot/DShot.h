@@ -27,10 +27,7 @@ class DShot {
     // one ESC's frame on the wire during its neighbour's reply, and the crosstalk corrupts it.
     void start(uint16_t throttle, bool telemetry = false);
     void finish();
-    // The reply collected by the latest send(): false when there was none or it failed the GCR
-    // or CRC check.
     bool read_erpm(uint32_t &erpm) const;
-    // Replies that arrived but did not decode, from boot.
     uint32_t decode_errors() const { return _decode_errors; }
 
    private:

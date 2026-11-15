@@ -7,21 +7,17 @@ namespace {
 // RMT ticks per reply bit at DShot300: 2667 ns at 25 ns per tick.
 const float kBitTicks = 106.7f;
 
-// The 21 reply bits for a 12-bit payload, start bit in bit 20, as the ESC builds them.
 uint32_t reply_bits(uint16_t payload) {
     uint32_t value = payload & 0xFFFu;
     const uint32_t crc = ~(value ^ (value >> 4) ^ (value >> 8)) & 0xFu;
     value = (value << 4) | crc;
-    uint32_t bits = 1;  // start bit
+    uint32_t bits = 1;
     for (int nibble = 3; nibble >= 0; nibble--) {
         bits = (bits << 5) | erpm_decode::GCR_ENCODE[(value >> (4 * nibble)) & 0xF];
     }
     return bits;
 }
 
-// Run lengths in ticks between edges. Each 1 is an edge. The run after the last edge merges into
-// the idle line, so it is given as tail_ticks: 0 for what the RMT records at its idle threshold,
-// or a long run.
 std::vector<uint32_t> runs_for(uint32_t bits, uint32_t tail_ticks, float stretch = 1.0f) {
     std::vector<uint32_t> runs;
     int last_edge = -1;
@@ -76,8 +72,6 @@ TEST(ErpmDecode, FullSpeed) {
 }
 
 TEST(ErpmDecode, EveryPeriodSurvivesBothTails) {
-    // Whether the RMT records the final run as 0 at its idle threshold or as a long run, and with
-    // each run 15% long or short, every payload decodes back to itself.
     for (uint32_t period = 20; period < 65000; period = period * 9 / 8 + 1) {
         const uint16_t payload = payload_for_period(period);
         const uint32_t bits = reply_bits(payload);
@@ -122,11 +116,9 @@ TEST(ErpmDecode, FlippedBitFailsCrcOrGcr) {
 TEST(ErpmDecode, RejectsMalformedTrains) {
     uint32_t erpm = 0;
     EXPECT_FALSE(erpm_decode::decode(nullptr, 0, kBitTicks, erpm));
-    // A long run mid-reply is noise.
     std::vector<uint32_t> runs = runs_for(reply_bits(payload_for_period(1000)), 0);
     runs[1] = 30 * static_cast<uint32_t>(kBitTicks);
     EXPECT_FALSE(decode_runs(runs, erpm));
-    // Too few edges for a reply: the last run cannot be inferred into a valid frame.
     const std::vector<uint32_t> short_train = {static_cast<uint32_t>(kBitTicks), 0};
     EXPECT_FALSE(decode_runs(short_train, erpm));
 }

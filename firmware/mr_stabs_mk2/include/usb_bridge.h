@@ -13,7 +13,6 @@
 //                     "\x1eE <id>\n"                    the connection closed
 namespace usb_bridge {
 
-// Starts the bridge task. Call after Serial.begin().
 void begin();
 
 }  // namespace usb_bridge

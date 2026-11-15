@@ -15,7 +15,6 @@ static portMUX_TYPE status_mux = portMUX_INITIALIZER_UNLOCKED;
 static portMUX_TYPE pair_mux = portMUX_INITIALIZER_UNLOCKED;
 static sensor_status_t shared_status = {};
 
-// Every runtime setting with its range and unit, and whether NVS holds the current values.
 static String tuning_json(TuningStore *store) {
     JsonDocument doc;
     const tuning::Settings now = store->get();
@@ -34,7 +33,6 @@ static String tuning_json(TuningStore *store) {
     return out;
 }
 
-// Age in ms of a millis() stamp at snapshot time, or JSON null when it never happened.
 static String age_or_null(bool happened, uint32_t stamp_ms, uint32_t snapshot_ms) {
     return happened ? String(snapshot_ms - stamp_ms) : String("null");
 }
@@ -269,7 +267,6 @@ static int hex_digit(char c) {
     return -1;
 }
 
-// Hex text to bytes. False on an odd length, a non-hex character, or more than max bytes.
 static bool parse_hex(const String &text, uint8_t *out, size_t max, size_t &size) {
     if (text.length() % 2 != 0 || text.length() / 2 > max) return false;
     size = text.length() / 2;

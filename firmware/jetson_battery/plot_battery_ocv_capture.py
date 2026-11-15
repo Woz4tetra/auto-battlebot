@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
-"""Plot battery capture CSV and save figure as PNG.
-
-Example:
-  python scripts/plot_battery_ocv_capture.py \
-      --input-csv data/battery_discharge_capture.csv \
-      --output-png data/battery_discharge_capture.png
-"""
+"""Plot a battery capture CSV and save the figure as PNG."""
 
 from __future__ import annotations
 

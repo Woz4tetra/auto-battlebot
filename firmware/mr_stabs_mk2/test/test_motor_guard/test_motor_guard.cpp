@@ -61,7 +61,6 @@ struct Plant {
         }
     }
 
-    // What the ESC reports: |w| as whole eRPM, 0 below the floor.
     float erpm(int k) const {
         const float value = std::fabs(speed[k]) * 60.0f * config.pole_pairs / kTwoPi;
         return value < kErpmFloor ? 0.0f : std::floor(value);
@@ -88,7 +87,6 @@ struct Sim {
         return std::fabs(percent) < 1.0f ? 0.0f : percent / 100.0f;
     }
 
-    // One sample with the pilot asking for these percent commands.
     void tick(float left_percent, float right_percent) {
         pack_history.push_back(plant.avg_pack);
         while ((int)pack_history.size() > amps_delay) pack_history.pop_front();
@@ -109,7 +107,6 @@ struct Sim {
     }
 };
 
-// Time to reach rise dt_c from cold at constant current, section 4, alpha ignored.
 float closed_form_time(const Config &c, float amps, float rise_c) {
     return -c.tau_s * std::log(1.0f - rise_c / (c.k_c_per_a2s * c.tau_s * amps * amps));
 }
@@ -131,8 +128,6 @@ TEST(MotorGuard, ColdAndLightlyLoadedPassesThroughBitForBit) {
 }
 
 TEST(MotorGuard, SoftLimitTimeMatchesClosedForm) {
-    // A command under I_peak, so nothing limits before the soft threshold. Alpha off, so the
-    // closed form applies.
     Config config;
     config.alpha_per_c = 0.0f;
     Sim sim(config);
@@ -159,11 +154,10 @@ TEST(MotorGuard, DualStallAtFullCommandNeverPassesMaxRise) {
     EXPECT_GT(peak_rise, config.rise_max_c - 3.0f);  // it does use the budget
     // Held at I_cont the duty is under stall_duty, so the stall flag has cleared by now.
     EXPECT_EQ(sim.guard.state(), State::LIMITING);
-    EXPECT_FALSE(sim.guard.tripped());  // the trip sits above where the limiter holds
+    EXPECT_FALSE(sim.guard.tripped());
 }
 
 namespace {
-// A dual stall at full command with the trip forced low, run until it latches.
 Sim tripped_sim(float trip_rise_c) {
     Config config;
     config.trip_rise_c = trip_rise_c;
@@ -184,7 +178,6 @@ TEST(MotorGuard, TripLatchesAndCutsDriveUntilCleared) {
     EXPECT_EQ(left, 0.0f);
     EXPECT_EQ(right, 0.0f);
 
-    // Still commanding, then cooled well under the threshold: the latch holds.
     sim.plant.locked[0] = sim.plant.locked[1] = false;
     sim.run(120.0f, 100.0f, 100.0f);
     EXPECT_LT(sim.guard.rise_c(0), 5.0f);
@@ -203,7 +196,7 @@ TEST(MotorGuard, ClearedWhileHotTripsAgain) {
     Sim sim = tripped_sim(5.0f);
     ASSERT_TRUE(sim.guard.tripped());
     sim.guard.clear_trip();
-    sim.tick(0.0f, 0.0f);  // one sample of cooling leaves the rise above the threshold
+    sim.tick(0.0f, 0.0f);
     EXPECT_TRUE(sim.guard.tripped());
 }
 
@@ -260,7 +253,6 @@ TEST(MotorGuard, ShuntOnlyEstimatesTheStalledMotor) {
     EXPECT_EQ(sim.guard.sensors(), Sensors::SHUNT_ONLY);
     const float truth = sim.plant.avg_amps[0];
     EXPECT_NEAR(sim.guard.amps_estimate(0), truth, 0.10f * truth);
-    // The free motor reads high, never low.
     EXPECT_GE(sim.guard.amps_estimate(1), sim.plant.avg_amps[1]);
 }
 
@@ -269,31 +261,27 @@ TEST(MotorGuard, GainConvergesToResistanceRatioAndHolds) {
     sim.plant.locked[0] = true;
     sim.run(2.0f, 50.0f, 50.0f);
     const float ratio = sim.plant.r_ohm / sim.config.r_cold_ohm;
-    // The model's R also carries the thermal model's rise, which the plant's does not.
     const float expected = ratio / (1.0f + sim.config.alpha_per_c * sim.guard.rise_c(0));
     EXPECT_NEAR(1.0f / sim.guard.gain(), expected, 0.05f * expected);
     sim.plant.locked[0] = false;
-    sim.run(0.05f, 0.0f, 0.0f);  // the sample that still carries the last duty
+    sim.run(0.05f, 0.0f, 0.0f);
     const float held = sim.guard.gain();
-    sim.run(2.0f, 0.0f, 0.0f);  // idle and coasting
+    sim.run(2.0f, 0.0f, 0.0f);
     EXPECT_FLOAT_EQ(sim.guard.gain(), held);
 }
 
 TEST(MotorGuard, PluggingAndRegenTrackTrueCurrent) {
     Sim sim;
-    // Converge the shunt gain on a loaded wheel first; free running never moves it.
     sim.plant.locked[0] = true;
     sim.run(2.0f, 40.0f, 40.0f);
     sim.plant.locked[0] = false;
-    sim.run(1.0f, 100.0f, 100.0f);  // up to free speed
+    sim.run(1.0f, 100.0f, 100.0f);
     ASSERT_GT(sim.guard.speed_rad_s(0), 1000.0f);
     // Full reverse at speed. eRPM never reads 0 at this sample rate, so the shunt tiebreak must
     // flip the sign. Until it does, the estimate errs high.
     int misses = 0;
     float true_heat = 0.0f, estimated_heat = 0.0f;
     for (int i = 0; i < 100; i++) {
-        // The guard's update in this tick sees the previous duty and the speed now, so the true
-        // current at that instant is the plant's at the same inputs.
         const float truth = sim.plant.motor_amps(0, sim.duty[0]);
         sim.tick(-100.0f, -100.0f);
         const float estimate = sim.guard.amps_estimate(0);
@@ -321,7 +309,6 @@ TEST(MotorGuard, StallFlagNeedsHeldLockedRotor) {
     sim.plant.locked[0] = false;
     sim.run(0.05f, 40.0f, 40.0f);
     EXPECT_FALSE(sim.guard.stalled(0));
-    // A launch from rest never reads as a stall.
     Sim launch;
     for (int i = 0; i < 50; i++) {
         launch.tick(100.0f, 100.0f);
@@ -331,8 +318,6 @@ TEST(MotorGuard, StallFlagNeedsHeldLockedRotor) {
 }
 
 TEST(MotorGuard, LaunchesFromRestDoNotStutter) {
-    // Full-stick launches and reversals in the air draw stall current for a few samples while
-    // back-EMF builds and eRPM catches up. None of it may cut power or move the shunt gain.
     Sim sim(Config(), 2);
     for (int launch = 0; launch < 5; launch++) {
         for (float command : {100.0f, -100.0f}) {
@@ -362,8 +347,6 @@ TEST(MotorGuard, EscDutyClampAtLowSpeedDoesNotLimit) {
 }
 
 TEST(MotorGuard, HighResistanceErrsTowardLimitingEarly) {
-    // R above R_cold leaves g at its floor of 1, so the model reads high. The guard must reach
-    // the soft limit no later than the truth does.
     Config config;
     config.alpha_per_c = 0.0f;
     Sim sim(config);
@@ -400,7 +383,6 @@ TEST(MotorGuard, RecoveryIsRateLimited) {
         ASSERT_LE(now - previous, sim.config.recover_per_s * kDt + 1e-5f);
         previous = now;
     }
-    // Free running at full stick is far under the allowed current once the jam clears.
     EXPECT_EQ(sim.guard.scale(), 1.0f);
 }
 
@@ -414,7 +396,6 @@ TEST(MotorGuard, LosingOneEncoderMidStallKeepsTheHeat) {
     EXPECT_EQ(sim.guard.sensors(), Sensors::SHUNT_ONLY);
     EXPECT_NEAR(sim.guard.rise_c(0), rise_before, 0.5f);
     sim.run(2.0f, 100.0f, 100.0f);
-    // The bounds keep the stalled motor's estimate near the truth, and the right stays fused.
     EXPECT_NEAR(sim.guard.amps_estimate(0), sim.plant.avg_amps[0], 0.15f * sim.plant.avg_amps[0]);
     EXPECT_NEAR(sim.guard.amps_estimate(1), sim.plant.avg_amps[1], 0.10f * sim.plant.avg_amps[1]);
     EXPECT_EQ(sim.guard.state(), State::LIMITING);
@@ -466,7 +447,6 @@ TEST(MotorGuard, LongGapIsClampedToMaxDt) {
 
 TEST(MotorGuard, StoppedMotorsDrawNothing) {
     MotorGuard guard{Config()};
-    // Coasting at speed with a DShot stop: the ESC freewheels.
     guard.update(kDt, kPackVolts, 0.3f, 0.0f, 0.0f, 20000.0f, 20000.0f);
     EXPECT_EQ(guard.amps_estimate(0), 0.0f);
     EXPECT_EQ(guard.amps_estimate(1), 0.0f);

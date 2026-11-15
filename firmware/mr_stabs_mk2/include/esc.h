@@ -4,7 +4,6 @@
 #include <esc_map.h>
 
 namespace esc {
-// eRPM older than this reads invalid, and the motor guard falls back to the shunt.
 const uint32_t ERPM_VALID_MS = 50;
 
 class Esc {
@@ -34,7 +33,6 @@ class Esc {
     // Duty the ESC runs for a command: 0 inside stop_threshold, else esc_map's floor-offset
     // duty, so 1% runs about 7%.
     float duty(float signed_percent) const;
-    // Latest eRPM reply, unsigned. Valid while a reply decoded within ERPM_VALID_MS.
     uint32_t erpm() const { return last_erpm; }
     bool erpm_valid() const;
     // Replies that failed the GCR or CRC check, from boot.

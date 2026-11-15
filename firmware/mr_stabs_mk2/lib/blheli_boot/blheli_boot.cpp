@@ -140,8 +140,6 @@ bool Server::set_address(uint16_t address, uint8_t tries) {
     return false;
 }
 
-// The handshake reply is "471", the signature, boot version and pages, then 0x30:
-// 34 37 31 6d 47 06 07 04 30 on these ESCs.
 bool Server::handshake(uint8_t *signature) {
     static const uint16_t RETRY_DELAY_MS[INIT_TRIES] = {0, 100, 250};
     for (uint8_t attempt = 0; attempt < INIT_TRIES; attempt++) {
@@ -160,7 +158,6 @@ bool Server::handshake(uint8_t *signature) {
             continue;
         }
         _failure[0] = '\0';
-        // The passthrough's order, which is what BLHeliSuite reads: 06 47 6d 04 here.
         signature[0] = reply[5];
         signature[1] = reply[4];
         signature[2] = reply[3];
@@ -222,10 +219,6 @@ uint8_t Server::read(uint16_t address, size_t length, uint8_t *data) {
     return ACK_GENERAL_ERROR;
 }
 
-// The passthrough's write and retries, which wrote and verified a page on these ESCs on
-// 2026-10-23, except that it stops when the address or the data is not acknowledged: the
-// passthrough sends ProgFlash anyway, which could commit a buffer that never arrived intact.
-// SetBuffer has no reply; the ESC answers after the data.
 uint8_t Server::write(uint16_t address, const uint8_t *data, size_t length) {
     if (!set_address(address, WRITE_TRIES)) return ACK_GENERAL_ERROR;
 
@@ -318,7 +311,6 @@ size_t Server::handle(const uint8_t *frame, size_t size, uint8_t *out) {
             return build_response(req.cmd, req.address, signature, 4, ack, out);
         }
         case DEVICE_READ: {
-            // Read straight into the response's parameter bytes.
             const size_t length = param == 0 ? 256 : param;
             const uint8_t ack = read(req.address, length, out + 5);
             if (ack != ACK_OK) return build_response(req.cmd, req.address, &zero, 1, ack, out);

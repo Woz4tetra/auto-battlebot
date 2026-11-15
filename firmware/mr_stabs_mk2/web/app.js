@@ -2,9 +2,6 @@
 
 const $ = (id) => document.getElementById(id);
 
-// ---- leader rows -------------------------------------------------------------------------
-
-// Builds "Label ..... value" rows into a container and returns {key: value span}.
 function leaderRows(containerId, rows) {
   const spans = {};
   $(containerId).innerHTML = "";
@@ -39,8 +36,6 @@ function fillRows(containerId, rows) {
   rows.forEach((r, i) => setValue(spans[i], r[1], r[2]));
 }
 
-// ---- theme -------------------------------------------------------------------------------
-
 const SUN =
   '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square"><circle cx="12" cy="12" r="4.5"/><path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3M4.6 4.6l2.1 2.1M17.3 17.3l2.1 2.1M4.6 19.4l2.1-2.1M17.3 6.7l2.1-2.1"/></svg>';
 const MOON =
@@ -60,8 +55,6 @@ $("darkBtn").onclick = () => {
   renderTheme();
 };
 renderTheme();
-
-// ---- live stream -------------------------------------------------------------------------
 
 // Column order of the /events CSV rows. The Jetson's Esp32WifiDiagnostics and
 // scripts/log_drive_twitch.py parse the same order. New columns go just before seq.
@@ -203,8 +196,6 @@ function connect() {
 requestAnimationFrame(render);
 connect();
 
-// ---- recording ---------------------------------------------------------------------------
-
 $("recBtn").onclick = () => {
   recording = !recording;
   $("recBtn").setAttribute("aria-pressed", recording);
@@ -233,8 +224,6 @@ $("dlBtn").onclick = () => {
   a.click();
   URL.revokeObjectURL(a.href);
 };
-
-// ---- Tuning ----------------------------------------------------------------------------
 
 function flash(id, text) {
   $(id).textContent = text;
@@ -337,8 +326,6 @@ $("tuningFile").onchange = async () => {
   }
 };
 
-// ---- WiFi --------------------------------------------------------------------------------
-
 let wifi = null;
 let pendingMode = null; // the operator's unapplied choice; null follows the robot
 let pendingSelected = null;
@@ -365,7 +352,6 @@ function renderWifi() {
   const mode = pendingMode ?? wifi.mode;
   const selected = pendingSelected ?? wifi.selected;
 
-  // ESP-NOW pins the robot to its access point, so client mode cannot be chosen.
   const locked = wifi.forced_ap;
   $("espnowLockout").hidden = !locked;
   $("lockoutSsid").textContent = wifi.ap_ssid;
@@ -502,8 +488,6 @@ setInterval(pollWifi, 2000);
 loadTuning();
 setInterval(loadTuning, 2000);
 pollWifi();
-
-// ---- sensor status -----------------------------------------------------------------------
 
 const I2C_ERR = {
   0: "ok",
@@ -663,8 +647,6 @@ function renderStatus(s) {
   if (s.boot) renderBoot(s.boot);
 }
 
-// ---- last reboot -------------------------------------------------------------------------
-
 // Reset reasons that mean the firmware failed rather than someone rebooting it.
 const BAD_RESETS = ["PANIC", "TASK_WDT", "INT_WDT", "OTHER_WDT", "BROWNOUT"];
 
@@ -698,8 +680,6 @@ $("eraseDumpBtn").onclick = () =>
     .then(() => flash("eraseDumpStatus", "erasing..."))
     .catch((e) => flash("eraseDumpStatus", e.message));
 
-// ---- ESP-NOW -----------------------------------------------------------------------------
-
 const OTA_STATES = ["idle", "receiving", "done", "validated", "error"];
 const PAIR_RESULTS = [
   "",
@@ -725,7 +705,6 @@ let lastPairResult = 0;
 let lastDongleList = "";
 
 function renderDongles(e) {
-  // A refused dongle is the one to offer, unless it was paired since.
   const offer = e.rx_rejected > 0 && !e.allowed.includes(e.rejected_mac) ? e.rejected_mac : null;
   $("pairOffer").hidden = !offer;
   if (offer) $("pairOfferMac").textContent = offer;
@@ -763,7 +742,6 @@ function renderDongles(e) {
 }
 let prevEspNow = null;
 
-// Per-second rates from the change since the previous status poll.
 function espnowRates(e, snapshotMs) {
   const p = prevEspNow;
   prevEspNow = { t: snapshotMs, e };

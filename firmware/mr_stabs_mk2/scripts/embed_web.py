@@ -1,4 +1,3 @@
-# noqa: INP001  (PlatformIO extra script: SCons execs it, nothing imports it)
 """PlatformIO pre-build step: gzip web/ into a C header the diagnostics server serves.
 
 Writes web_assets.h into the build directory and puts that directory on the include path, so
@@ -10,7 +9,7 @@ output byte-identical between builds.
 import gzip
 from pathlib import Path
 
-Import("env")  # noqa: F821  (SCons builtin)
+Import("env")  # noqa: F821
 
 CONTENT_TYPES = {
     ".html": "text/html",

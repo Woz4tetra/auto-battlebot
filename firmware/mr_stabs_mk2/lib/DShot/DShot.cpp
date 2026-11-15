@@ -105,12 +105,11 @@ bool DShot::begin() {
                                    false);
     REG_SET_BIT(GPIO_FUNC0_OUT_SEL_CFG_REG + _pin * 4, GPIO_FUNC0_OEN_SEL);
 
-    // Compute tick counts at 40 MHz (25 ns/tick)
     uint32_t bit_ns = DSHOT_BIT_NS[_mode];
     uint32_t total_ticks = bit_ns / TICK_NS;
-    _t1h_ticks = (total_ticks * 3) / 4;  // 75%
+    _t1h_ticks = (total_ticks * 3) / 4;
     _t1l_ticks = total_ticks - _t1h_ticks;
-    _t0h_ticks = (total_ticks * 3) / 8;  // 37.5%
+    _t0h_ticks = (total_ticks * 3) / 8;
     _t0l_ticks = total_ticks - _t0h_ticks;
     // The reply runs at 5/4 of the frame's bit rate.
     _reply_bit_ticks = bit_ns * 4.0f / 5.0f / TICK_NS;
@@ -129,7 +128,6 @@ void DShot::end() {
     rmt_driver_uninstall(_rx_channel);
     _rx_ring = nullptr;
     _reply_ok = false;
-    // Clears the matrix routing begin() set up, the output enable select included.
     gpio_reset_pin(_pin);
     _installed = false;
 }
@@ -150,7 +148,6 @@ void DShot::encode_frame(uint16_t packet) {
         _items[i].level1 = 1;
         _items[i].duration1 = bit ? _t1l_ticks : _t0l_ticks;
     }
-    // End marker
     _items[16].level0 = 1;
     _items[16].duration0 = 0;
     _items[16].level1 = 1;
@@ -192,8 +189,6 @@ void DShot::collect_reply() {
             runs[count++] = items[i].duration1;
             last_level = items[i].level1;
         }
-        // The final high run merges into the idle line and the RMT records it as length 0.
-        // Leave a 0 for the decoder to infer.
         if (last_level == 0 && count < MAX_RUNS) runs[count++] = 0;
         vRingbufferReturnItem(_rx_ring, items);
         // The reply starts on a low run, but the capture can open with a stray edge or two:

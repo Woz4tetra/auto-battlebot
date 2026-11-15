@@ -1,8 +1,5 @@
 "use strict";
 
-// ESC SETTINGS panel: tuning mode, backup and restore, and the side-by-side settings editor
-// (docs/plans/esc_settings_dashboard_plan.md). The codec and 4-way client are in esc.js; the
-// robot only relays frames. Uses $, post and flash from app.js.
 (() => {
   // Left to right as seen from behind the robot. ESC numbers follow the passthrough.
   const COLUMNS = [
@@ -42,8 +39,6 @@
       .replace("Sbus", "SBUS")
       .replace("Sport", "S.Port");
 
-  // ---- backup history ----------------------------------------------------------------------
-
   // Every read and write lands here, in this browser only: nothing is stored on the robot, and
   // nothing downloads until DOWNLOAD CURRENT or DOWNLOAD HISTORY. localStorage is per origin, so
   // mr-stabs.local and 192.168.4.1 keep separate histories.
@@ -66,7 +61,6 @@
     renderHistory();
   }
 
-  // Newest backup of each ESC: what it held when the page last read or wrote it.
   function currentBackups() {
     const latest = {};
     for (const h of history) latest[h.doc.esc] = h;
@@ -104,8 +98,6 @@
     renderHistory();
   };
 
-  // ---- transport ---------------------------------------------------------------------------
-
   async function transact(frame) {
     const sent = JSON.parse(await post("/esc/4way", { frame: Blheli.hex(frame) }));
     const deadline = performance.now() + 15000;
@@ -119,8 +111,6 @@
     throw new Error("no response from the robot in 15 s");
   }
   const client = new Blheli.Client(transact);
-
-  // ---- tuning mode -------------------------------------------------------------------------
 
   function clearSession() {
     for (const e of Object.values(escs)) {
@@ -143,7 +133,6 @@
     }
     const inTuning = t.state === "tuning";
     if (!inTuning && (escs[0].snap || escs[1].snap)) {
-      // A new tuning session starts from fresh reads.
       clearSession();
       renderAll();
     }
@@ -185,8 +174,6 @@
       .then(() => setTimeout(pollTuning, 200))
       .catch((e) => flash("escTuneStatus", e.message));
   };
-
-  // ---- reading -----------------------------------------------------------------------------
 
   function setNote(esc, text) {
     escs[esc].note = text;
@@ -250,8 +237,6 @@
       return false;
     }
   };
-
-  // ---- editor table ------------------------------------------------------------------------
 
   function hwPwmBounds(esc) {
     const e = escs[esc];
@@ -333,7 +318,6 @@
         if (i === 0) row.appendChild(copy);
       }
       if (editable) {
-        // → copies the left column's value to the right, ← the reverse.
         const toRight = document.createElement("button");
         toRight.className = "btn small";
         toRight.textContent = "→";
@@ -351,8 +335,6 @@
     }
   }
 
-  // The payload bytes a change writes, e.g. "byte 20: fe → c8". Wide fields (name, music) list
-  // only the bytes that change.
   function rawChange(f, before, after) {
     const h = (b) => b.toString(16).padStart(2, "0");
     if (f.width <= 2) {
@@ -445,8 +427,6 @@
     renderAll();
   }
 
-  // Two separate highlights: a row whose left and right differ, and a cell edited away from what
-  // its ESC holds.
   function renderHighlights() {
     const both = escs[0].edit && escs[1].edit;
     const diffOnly = $("escDiffOnly").checked;
@@ -474,8 +454,6 @@
         : `${differ} fields differ between left and right`
       : "read both ESCs to compare";
   }
-
-  // ---- per-ESC columns ---------------------------------------------------------------------
 
   function changesFor(esc) {
     const e = escs[esc];
@@ -535,8 +513,6 @@
       );
     $("escRevert").disabled = busy;
   }
-
-  // ---- review and write --------------------------------------------------------------------
 
   function warningsFor(esc, payload, changes) {
     const warnings = [];
@@ -640,8 +616,6 @@
       }
     }
   }
-
-  // ---- wiring ------------------------------------------------------------------------------
 
   function wireColumn(col) {
     const esc = col.esc;

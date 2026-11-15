@@ -26,16 +26,12 @@ struct report_t {
     char elf_sha256[17];  // first 16 hex characters of the crashing build's ELF SHA-256
 };
 
-/** Reads the reset reason and any core dump. Call once in setup(). */
 void read(report_t &out);
 
-/** Prints the report to Serial, one line per field. */
 void print(const report_t &report);
 
-/** Name for an esp_reset_reason_t, e.g. "TASK_WDT". */
 const char *reset_reason_name(uint8_t reason);
 
-/** Erases the dump in flash. Returns false if there was none or the erase failed. */
 bool erase_dump();
 
 }  // namespace crash_report

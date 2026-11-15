@@ -453,7 +453,6 @@ class Model:
     def model_name(self) -> str:
         return self.raw[HDR : HDR + 12].split(b"\x00")[0].decode("latin1")
 
-    # --- editing ---
     def set_input_expo(self, chn: int, value: int) -> int:
         """Set EXPO curve on every input line for input `chn` (0-based). Returns count."""
         n = 0
@@ -467,8 +466,7 @@ class Model:
         return n
 
     def set_mix_src(self, ch: int, new_src: int, old_src=None) -> int:
-        """Repoint mix line(s) on channel `ch` (0-based) to `new_src`. If
-        `old_src` is given, only lines currently using it are changed. Returns count."""
+        """Repoint mix lines on channel `ch` to `new_src`; returns the count."""
         n = 0
         for m in self.mixes:
             if not m.empty() and m.dest_ch == ch and (old_src is None or m.src_raw == old_src):
@@ -494,8 +492,7 @@ class Model:
         switch: int = 0,
         trim_off: bool = True,
     ) -> int:
-        """Insert a mix line on channel `ch` (0-based), after that channel's last
-        existing line, shifting subsequent mixes down. Returns the insert index."""
+        """Insert a mix line after channel `ch`'s last line; returns the index."""
         if self._mix_count() >= MIX_N:
             raise ValueError("mix table full")
         last = -1
@@ -596,7 +593,6 @@ class SdBin:
         if m.serialize() != bytes(m.raw):
             raise AssertionError("model not stable under serialize")
         if self.compressed:
-            # the RLE codec must reproduce the radio's exact stored bytes
             struct = m.serialize()[HDR : HDR + MODEL_STRUCT_SIZE]
             if rlc_compress(struct) != self._orig[HDR:]:
                 raise AssertionError("RLE recompression does not match original bytes")
@@ -610,7 +606,6 @@ def open_container(path: str):
     return SdBin(path)
 
 
-# --- CLI -------------------------------------------------------------------
 def _pick(otx: Otx, idx):
     if idx is None:
         if len(otx.models) == 1:
@@ -639,7 +634,7 @@ def cmd_dump(args):
 
 
 def cmd_verify(args):
-    c = open_container(args.file)  # construction self-checks every model
+    c = open_container(args.file)
     print(f"OK: {args.file} - fourcc/version valid, {c.self_test()}")
     return 0
 

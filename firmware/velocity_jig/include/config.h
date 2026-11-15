@@ -1,10 +1,6 @@
 #pragma once
 #include <Arduino.h>
 
-// Pin map. On arduino-pico the Arduino pin number equals the RP2040 GPIO number.
-// Source of truth: docs/velocity_jig_wiring.md
-
-// I2C1 - OLED SH1107 128x64 FeatherWing (stacked). GP2/GP3 is I2C1 -> Wire1.
 static constexpr uint8_t PIN_I2C_SDA = 2;
 static constexpr uint8_t PIN_I2C_SCL = 3;
 static constexpr uint8_t OLED_ADDR = 0x3C;
@@ -14,14 +10,12 @@ static constexpr uint8_t PIN_BTN_A = 9;  // start recording
 static constexpr uint8_t PIN_BTN_B = 6;  // stop recording
 static constexpr uint8_t PIN_BTN_C = 5;  // live diagnostics readout
 
-// SPI1 - ISM330DHCX IMU
 static constexpr uint8_t PIN_IMU_SCK = 14;
 static constexpr uint8_t PIN_IMU_MOSI = 15;
 static constexpr uint8_t PIN_IMU_MISO = 8;
 static constexpr uint8_t PIN_IMU_CS = 10;
 static constexpr uint8_t PIN_IMU_INT1 = 12;  // data-ready interrupt
 
-// SPI0 - onboard microSD
 static constexpr uint8_t PIN_SD_SCK = 18;
 static constexpr uint8_t PIN_SD_MOSI = 19;
 static constexpr uint8_t PIN_SD_MISO = 20;
@@ -34,8 +28,6 @@ static constexpr uint8_t PIN_ENC_B = 27;
 // Onboard LED (status/error blink). Not named PIN_LED: the arduino-pico variant
 // already defines that as a macro.
 static constexpr uint8_t PIN_STATUS_LED = 13;
-
-// ---- Rates and ranges ----
 
 // Logging sample rate. A hardware timer polls the IMU + encoder at this rate
 // (no dependency on the IMU INT1 wire). The IMU runs faster internally, so each
@@ -73,8 +65,6 @@ static constexpr float ACCEL_G_PER_LSB = 0.000488f;  // 0.488 mg/LSB at +/-16g
 static constexpr float GYRO_DPS_PER_LSB = 0.140f;    // 140 mdps/LSB at +/-4000dps
 #define ACCEL_G_PER_LSB_STR "0.000488"
 #define GYRO_DPS_PER_LSB_STR "0.140"
-
-// ---- SD and buffering ----
 
 // SD SPI clock. This bounds the SD-read side of downloads. 24 MHz is a good
 // balance; drop to 16 if a card is flaky. (USB Full Speed ~1 MB/s is the real

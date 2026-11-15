@@ -1,12 +1,6 @@
 "use strict";
 
-// BLHeli_32 settings codec and 4-way client for the ESC panel (esc_panel.js). A port of
-// auto_battlebot/blheli32/ (fourway.py, cipher.py, layout.py); firmware/blheli/README.md is the
-// spec, and esc_layout.json is the field table generated from layout.py. No DOM here, so
-// esc.test.mjs runs it under node.
 const Blheli = (() => {
-  // ---- 4-way framing ------------------------------------------------------------------------
-
   const CMD = {
     DEVICE_RESET: 0x35,
     DEVICE_INIT_FLASH: 0x37,
@@ -77,8 +71,6 @@ const Blheli = (() => {
 
   const toBase64 = (bytes) => btoa(String.fromCharCode(...bytes));
   const fromBase64 = (text) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
-
-  // ---- page encryption (cipher.py) ----------------------------------------------------------
 
   // XTEA, 32 rounds, with a tweak added into each round key term: 0xF800 + 8 per block. Each
   // decrypted block is a 2-byte nonce and 6 payload bytes.
@@ -161,8 +153,6 @@ const Blheli = (() => {
     }
     return page;
   }
-
-  // ---- settings record (layout.py) ----------------------------------------------------------
 
   const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
   const LENGTHS = { 8: 0, 4: 1, 2: 2, 1: 3 };
@@ -259,7 +249,6 @@ const Blheli = (() => {
       return buf;
     }
 
-    // Range and option membership for one raw value, or an error message.
     function rangeError(f, value) {
       if (!Number.isInteger(value) || value < f.lo || value > f.hi) {
         return `${f.key}=${value} outside ${f.lo}..${f.hi}`;
@@ -336,8 +325,6 @@ const Blheli = (() => {
     };
   }
 
-  // ---- ESC snapshots and backups (esc.py, blheli32.py) --------------------------------------
-
   function snapshot(index, signature, page, stats, info) {
     const u32le = (b, i) => u32(b, i);
     return {
@@ -362,7 +349,6 @@ const Blheli = (() => {
     );
   }
 
-  // The document `blheli32.py backup` writes, so the page and the CLI read each other's files.
   function backupJson(snap, layout, date = new Date()) {
     return {
       esc: snap.index,
@@ -382,7 +368,6 @@ const Blheli = (() => {
     return `${prefix}_${localStamp(date, "_")}.json`;
   }
 
-  // A backup document -> {esc, payload}, with blheli32.py's consistency checks.
   function parseBackup(doc, layout) {
     if (typeof doc !== "object" || doc === null || typeof doc.payload_hex !== "string") {
       throw new LayoutError("not a blheli32.py backup: no payload_hex");
@@ -401,8 +386,6 @@ const Blheli = (() => {
     return { esc: doc.esc, payload };
   }
 
-  // ---- zip archive, entries stored uncompressed ---------------------------------------------
-
   const CRC_TABLE = Uint32Array.from({ length: 256 }, (_, n) => {
     let c = n;
     for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
@@ -415,7 +398,6 @@ const Blheli = (() => {
     return (c ^ 0xffffffff) >>> 0;
   }
 
-  // [[value, bytes], ...] -> little-endian Uint8Array, for the zip headers.
   function packLe(fields) {
     const out = new Uint8Array(fields.reduce((n, [, size]) => n + size, 0));
     let i = 0;
@@ -425,7 +407,6 @@ const Blheli = (() => {
     return out;
   }
 
-  // [{name, data: Uint8Array}] -> one .zip, so a page can hand over many backups as one download.
   function zipStore(files, date = new Date()) {
     const time = (date.getHours() << 11) | (date.getMinutes() << 5) | (date.getSeconds() >> 1);
     const day = ((date.getFullYear() - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate();
@@ -486,8 +467,6 @@ const Blheli = (() => {
     return out;
   }
 
-  // ---- 4-way client (fourway.py, esc.py) ----------------------------------------------------
-
   // transact(frame: Uint8Array) -> Promise<Uint8Array>: one request frame out, its response in.
   class Client {
     constructor(transact) {
@@ -529,7 +508,6 @@ const Blheli = (() => {
       return data;
     }
 
-    // BLHeliSuite's Read Setup for one ESC.
     async readEsc(esc) {
       const signature = await this.initEsc(esc);
       let page;
@@ -545,8 +523,6 @@ const Blheli = (() => {
       return snapshot(esc, signature, page, stats, info);
     }
 
-    // Session.write: check the ESC still holds expectCurrent, one 256-byte write at 0xF800,
-    // read back and compare. Returns a fresh snapshot.
     async writeEsc(esc, layout, payload, expectCurrent) {
       layout.checkLayout(payload);
       const page = encodePage(payload);

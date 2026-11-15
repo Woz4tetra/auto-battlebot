@@ -13,7 +13,6 @@
 
 namespace espnow_link {
 
-// The sweep's candidates. Last-known-good is tried ahead of these.
 const uint8_t CHANNEL_CANDIDATES[] = {1, 6, 11};
 const uint32_t CHANNEL_DWELL_MS = 25;  // ~6 dongle repeats at 250 Hz, plus switch settling
 
@@ -44,13 +43,11 @@ class EspNowLink {
      *  loop(), after crsf->update() so armed is current. Arming aborts an OTA transfer. */
     void update(uint32_t now_ms, bool armed);
 
-    /** True while an OTA transfer owns the loop. main.cpp stops the ESCs and skips control. */
     bool ota_in_progress() const { return ota_.active(); }
 
     bool fresh(uint32_t now_ms) const { return tracker_.fresh(now_ms); }
     const espnow_protocol::CommandPayload &latest() const { return tracker_.latest(); }
 
-    /** Fills in the link fields and sends at most every TELEMETRY_PERIOD_MS. */
     void send_telemetry(espnow_protocol::TelemetryPayload &telemetry, uint32_t now_ms);
 
     /** Link health for the diagnostics page. Leaves enabled, substitution, and driving to the
@@ -60,7 +57,6 @@ class EspNowLink {
     /** Adds a dongle to the paired list in NVS. Disarmed only: the NVS write stalls both cores
      *  for a few ms. Returns a pair_result_t. */
     uint8_t pair(const uint8_t *mac, bool armed);
-    /** Removes a paired dongle. */
     uint8_t unpair(const uint8_t *mac, bool armed);
 
    private:
@@ -110,7 +106,6 @@ class EspNowLink {
     uint32_t last_telemetry_ms_ = 0;
     uint32_t telemetry_seq_ = 0;
 
-    // Channel: pinned, or swept until a dongle frame arrives.
     bool sweeping_ = false;
     uint8_t channel_ = 0;
     uint8_t last_good_channel_ = 0;

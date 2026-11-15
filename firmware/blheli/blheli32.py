@@ -1,23 +1,5 @@
 #!/usr/bin/env python3
-"""Read, back up, and edit BLHeli_32 ESC settings through the 4-way passthrough.
-
-Over USB the robot runs firmware/BlHeli-Passthrough. Over WiFi (--url) it runs the Mk2 firmware,
-and the tool enters tuning mode for the command and leaves it after. ESC 0 is pin A2 (right),
-ESC 1 is pin A3 (left).
-
-    venv/bin/python firmware/blheli/blheli32.py read                    # print both ESCs
-    venv/bin/python firmware/blheli/blheli32.py backup out/             # save pages + decoded JSON
-    venv/bin/python firmware/blheli/blheli32.py show backup.json        # print a saved backup
-    venv/bin/python firmware/blheli/blheli32.py set backup.json demag_compensation=High \
-        rampup_power=60 -o new.json                                     # edit offline, validates
-    venv/bin/python firmware/blheli/blheli32.py set backup.json music_notes="A5 1/8 D5 1/4" \
-        name=LEFT -o new.json                                           # startup tune and name
-    venv/bin/python firmware/blheli/blheli32.py write new.json --esc 0  # diff, confirm, write
-    venv/bin/python firmware/blheli/blheli32.py fields                  # every field and range
-    venv/bin/python firmware/blheli/blheli32.py --url http://mr-stabs.local read  # over WiFi
-
-Field reference: firmware/blheli/README.md.
-"""
+"""Read, back up, and edit BLHeli_32 ESC settings through the 4-way passthrough."""
 
 from __future__ import annotations
 

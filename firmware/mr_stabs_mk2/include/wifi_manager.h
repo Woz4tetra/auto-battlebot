@@ -66,8 +66,6 @@ class WifiManager {
     void begin(const char *hostname, const char *ap_ssid, const char *ap_password,
                uint8_t ap_channel, bool force_ap);
 
-    // Station count on the access point, 0 in client mode. Refreshed by the task, so it is
-    // cheap to read every loop.
     uint8_t station_count() const { return _stations; }
 
     snapshot_t snapshot();
@@ -75,12 +73,8 @@ class WifiManager {
     uint8_t ap_channel() const { return _ap_channel; }
     const char *hostname() const { return _hostname; }
 
-    // Settings edits from the page. Each saves to NVS before returning; a false return carries a
-    // reason in error. Writing flash stalls both cores for a few ms, so the caller refuses these
-    // while the robot is armed.
     bool save_network(const char *ssid, const char *password, String &error);
     bool delete_network(const char *ssid, String &error);
-    // Saves mode and the selected network, then restarts WiFi with them.
     bool apply(link_mode_t mode, const char *selected, String &error);
 
    private:

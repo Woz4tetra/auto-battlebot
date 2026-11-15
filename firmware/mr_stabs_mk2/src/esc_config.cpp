@@ -115,7 +115,6 @@ class EscConfig::SerialLink : public blheli_boot::EscLink {
         drive(_pins[1], 1);
     }
 
-    // Gives both pins back for DShot.
     void release() {
         _current = -1;
         if (_installed) {
@@ -132,7 +131,6 @@ class EscConfig::SerialLink : public blheli_boot::EscLink {
    private:
     static const uart_port_t PORT = UART_NUM_2;  // UART1 is the CRSF receiver
 
-    // Takes the pin from the UART and drives it as a plain GPIO.
     static void drive(uint8_t pin, uint32_t level) {
         const gpio_num_t gpio = static_cast<gpio_num_t>(pin);
         esp_rom_gpio_connect_out_signal(gpio, SIG_GPIO_OUT_IDX, false, false);
@@ -221,7 +219,6 @@ status_t EscConfig::status() {
 }
 
 void EscConfig::enter(uint32_t now_ms) {
-    // deinit() sends a last stop frame, then releases the RMT channels and the pins.
     _escs[0]->deinit();
     _escs[1]->deinit();
     _link->idle_high();
@@ -233,7 +230,6 @@ void EscConfig::enter(uint32_t now_ms) {
 }
 
 void EscConfig::start_exit(uint32_t now_ms) {
-    // A reset restarts each ESC out of its bootloader, then DShot takes the pins back.
     _server->reset_esc(0);
     _server->reset_esc(1);
     _link->release();
@@ -260,7 +256,6 @@ void EscConfig::update(uint32_t now_ms, bool armed, bool driving, bool button_pr
         case State::COMBAT:
             if (requested != 1) return;
             if (now_ms - _combat_since_ms < REENTRY_MS) {
-                // Keep the request until the ESCs have run long enough to answer.
                 portENTER_CRITICAL(&_mux);
                 if (_requested == -1) _requested = 1;
                 portEXIT_CRITICAL(&_mux);

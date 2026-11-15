@@ -260,7 +260,7 @@ def main() -> int:
         port.baudrate = 921600
         port.dtr = True
         port.rts = True
-        with port:  # opens it
+        with port:
             flash(port, image)
     except OtaError as error:
         print(f"OTA failed: {error}", file=sys.stderr)

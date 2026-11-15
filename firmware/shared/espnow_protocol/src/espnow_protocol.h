@@ -58,7 +58,7 @@ struct CommandPayload {
 struct TelemetryPayload {
     uint32_t timestamp_ms;
     uint32_t loop_us;
-    float a_percent;  // arbitrated drive command, after the flip
+    float a_percent;
     float b_percent;
     float left_cmd;
     float right_cmd;
@@ -116,7 +116,7 @@ struct LinkStatsPayload {
     uint32_t failed;
     uint32_t last_rtt_us;  // esp_now_send to send callback for the newest unicast frame
     uint8_t channel;
-    uint8_t robot_known;  // 0 while the dongle broadcasts, 1 once it has learned the robot MAC
+    uint8_t robot_known;
 };
 
 struct OtaBeginPayload {
@@ -152,7 +152,7 @@ struct TelemetryBatchHeader {
 
 #pragma pack(pop)
 
-const uint32_t TELEMETRY_BATCH_MAGIC = 0x4D525442;  // "BTRM" little-endian
+const uint32_t TELEMETRY_BATCH_MAGIC = 0x4D525442;
 const uint16_t TELEMETRY_BATCH_VERSION = 2;
 // Records per response at most. The client asks again at once when a response comes back full.
 const uint32_t TELEMETRY_BATCH_MAX = 256;
@@ -192,7 +192,6 @@ static_assert(sizeof(TelemetryPayload) <= AIR_MAX_PAYLOAD, "telemetry must fit o
 static_assert(sizeof(OtaChunkHeader) + OTA_CHUNK_DATA <= AIR_MAX_PAYLOAD,
               "OTA chunk must fit one air frame");
 
-/** CRC-16/CCITT-FALSE: poly 0x1021, init 0xFFFF. */
 uint16_t crc16_ccitt(const uint8_t *data, size_t length);
 
 /** Writes a serial frame into out, which must hold SERIAL_OVERHEAD + length bytes. Returns the
@@ -203,14 +202,8 @@ size_t encode_serial_frame(uint8_t type, const uint8_t *payload, uint8_t length,
  *  frame size, or 0 when the payload does not fit AIR_MAX_PAYLOAD. */
 size_t encode_air_frame(uint8_t type, const uint8_t *payload, size_t length, uint8_t *out);
 
-/** True when frame starts with the session magic and has a type byte. */
 bool is_air_frame(const uint8_t *frame, size_t length);
 
-/**
- * Streaming serial frame parser. Feed bytes as they arrive, in any split. Every complete frame with
- * a valid CRC is handed to the handler once. Garbage and CRC failures are skipped by dropping one
- * byte and rescanning for the magic, so a corrupted frame cannot hide a good one behind it.
- */
 class SerialFrameParser {
    public:
     using Handler = void (*)(void *context, uint8_t type, const uint8_t *payload, uint8_t length);

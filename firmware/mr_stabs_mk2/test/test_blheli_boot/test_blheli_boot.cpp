@@ -27,7 +27,6 @@ Bytes with_boot_crc(Bytes data) {
     return data;
 }
 
-// Replays scripted ESC replies, one per receive() call, and records everything sent.
 struct FakeLink : EscLink {
     std::deque<Bytes> replies;
     std::vector<Bytes> sent;
@@ -82,7 +81,6 @@ TEST(BlheliBootCrc, XmodemCheckValue) {
 TEST(BlheliBootCrc, BootCrcCheckValue) {
     const uint8_t text[] = {'1', '2', '3', '4', '5', '6', '7', '8', '9'};
     EXPECT_EQ(crc_boot(text, sizeof(text)), 0xBB3D);
-    // A reply with its CRC appended low byte first sums to zero, as the passthrough checks.
     Bytes reply = with_boot_crc({0x10, 0x20, 0x30});
     EXPECT_EQ(crc_boot(reply.data(), reply.size()), 0);
 }
@@ -138,7 +136,7 @@ TEST(BlheliBootServer, GuardRefusesOtherWritesAndErases) {
     EXPECT_EQ(run(server, request(DEVICE_PAGE_ERASE, 0, {0x3E})).ack, ACK_INVALID_PARAM);
     EXPECT_EQ(run(server, request(DEVICE_ERASE_ALL, 0, {0x00})).ack, ACK_INVALID_PARAM);
     EXPECT_EQ(server.guard_refusals(), 7u);
-    EXPECT_TRUE(link.sent.empty());  // nothing reached an ESC
+    EXPECT_TRUE(link.sent.empty());
 }
 
 TEST(BlheliBootServer, InterfaceCommands) {
@@ -322,7 +320,6 @@ TEST(BlheliBootServer, WriteSendsThePassthroughSequence) {
 
 TEST(BlheliBootServer, WriteNeverProgramsDataTheEscDidNotAcknowledge) {
     FakeLink link;
-    // Address on the second try, then no reply to the data.
     link.replies = {{}, {BOOT_SUCCESS}};
     Server server(link);
     EXPECT_EQ(run(server, request(DEVICE_WRITE, 0xF800, page_bytes())).ack, ACK_GENERAL_ERROR);

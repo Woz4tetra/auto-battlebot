@@ -196,7 +196,7 @@ def main() -> int:
                 try:
                     os.write(master, out)
                 except (BlockingIOError, OSError):
-                    pass  # No reader: drop, as the dongle does.
+                    pass
             time.sleep(0.001)
     except KeyboardInterrupt:
         pass

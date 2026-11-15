@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""Capture INA219 discharge data and generate a static OCV table.
-
-Example:
-  python scripts/build_battery_ocv_table.py --i2c-bus 7 --i2c-address 0x41 \\
-      --cutoff-voltage 9.0 --sample-interval 2.0
-"""
+"""Capture INA219 discharge data and generate a static OCV table."""
 
 from __future__ import annotations
 

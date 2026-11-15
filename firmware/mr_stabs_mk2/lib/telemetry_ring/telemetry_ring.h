@@ -6,8 +6,6 @@
 
 namespace telemetry_ring {
 
-// What read() copied. Sequence numbers count every record ever pushed since boot, so a reader
-// that asks for `from` and gets first_seq > from lost the records in between to overwrite.
 struct read_result_t {
     uint32_t first_seq;  // seq of out[0]
     uint32_t count;      // records copied
@@ -39,16 +37,12 @@ class TelemetryRing {
         if (capacity_ == 0) return;
         const uint32_t seq = head_.load(std::memory_order_relaxed);
         record.telemetry_seq = seq;
-        // Announce the slot before touching it, so a reader copying the old record there can
-        // tell afterwards that it may be torn.
         started_.store(seq + 1, std::memory_order_relaxed);
         std::atomic_thread_fence(std::memory_order_seq_cst);
         std::memcpy(&storage_[seq % capacity_], &record, sizeof(Record));
         head_.store(seq + 1, std::memory_order_release);
     }
 
-    // Copies up to max records starting at seq `from` into out, oldest first. A `from` older
-    // than the ring holds starts at the oldest record; one at or past head copies nothing.
     read_result_t read(uint32_t from, Record *out, uint32_t max) const {
         const uint32_t head = head_.load(std::memory_order_acquire);
         const uint32_t oldest = head > capacity_ ? head - capacity_ : 0;
@@ -58,8 +52,6 @@ class TelemetryRing {
             std::memcpy(&out[i], &storage_[(first + i) % capacity_], sizeof(Record));
         }
         std::atomic_thread_fence(std::memory_order_acquire);
-        // Every slot the writer has started on since the copy began held a record older than
-        // started - capacity. Those copies may be half old, half new: drop them.
         const uint32_t started = started_.load(std::memory_order_relaxed);
         const uint32_t valid = started > capacity_ ? started - capacity_ : 0;
         if (first < valid) {

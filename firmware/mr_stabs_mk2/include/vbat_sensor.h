@@ -46,7 +46,6 @@ class VbatSensor {
     // transactions.
     bool begin(TwoWire *wire = &Wire1);
 
-    // Samples voltage and current when SAMPLE_INTERVAL_US has passed, else does nothing.
     void update();
 
     // Pack volts. NaN when the chip was absent at boot or the last read failed.

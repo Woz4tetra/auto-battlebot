@@ -1,10 +1,6 @@
 #pragma once
 #include <cstdint>
 
-// Keeps a stalled drive motor from cooking itself. Estimates each motor's winding current from
-// eRPM and the INA238 pack current, runs a one-node thermal model per motor, and scales both drive
-// commands down when a motor's current exceeds what its temperature allows.
-// docs/plans/motor_stall_protection_plan.md has the derivation; section numbers below refer to it.
 namespace motor_guard {
 
 // Step 0 of the plan was deferred, so every value here is a placeholder chosen to err toward
@@ -56,7 +52,6 @@ struct Config {
     float trip_rise_c = 70.0f;
 };
 
-// TRIPPED outranks every other state: the trip latches whatever the sensors do afterward.
 enum class State : uint8_t { OFF, NOMINAL, HOT, LIMITING, TRIPPED };
 enum class Sensors : uint8_t { FUSED, SHUNT_ONLY, ERPM_ONLY, NONE };
 
@@ -72,10 +67,7 @@ class MotorGuard {
     // still cools the model.
     void update(float dt_s, float volts, float amps, float left_duty, float right_duty,
                 float left_erpm, float right_erpm);
-    // Call every control loop. Scales both percent commands by the held scale, or zeroes them
-    // while tripped.
     void apply(float &left_percent, float &right_percent) const;
-    // Call on disarm. A motor still at or above trip_rise_c trips again on the next update.
     void clear_trip() { _tripped = false; }
     bool tripped() const { return _tripped; }
     float scale() const { return _scale; }
@@ -88,7 +80,6 @@ class MotorGuard {
     State state() const;
     Sensors sensors() const { return _sensors; }
     float continuous_amps() const { return _continuous_amps; }
-    // Restores heat after a warm reset (RTC_NOINIT values); clamps to [0, rise_max_c * 2].
     void restore(float left_rise_c, float right_rise_c);
 
    private:
@@ -108,7 +99,7 @@ class MotorGuard {
     bool _stalled[NUM_MOTORS] = {false, false};
     float _stall_s[NUM_MOTORS] = {0.0f, 0.0f};
     float _gain = 1.0f;
-    float _log_scale = 0.0f;  // u = ln(scale)
+    float _log_scale = 0.0f;
     float _scale = 1.0f;
     bool _tripped = false;
     float _volts = 0.0f;  // last INA238 voltage

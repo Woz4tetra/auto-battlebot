@@ -16,7 +16,6 @@ const float UPSIDE_DOWN_THRESHOLD = 1.0;
 const uint32_t RECONNECT_INTERVAL = 1000;
 const uint8_t BNO055_ADDRESS = 0x28;
 const uint8_t BNO055_CHIP_ID_VALUE = 0xA0;
-// How often refresh_details() rereads the status registers for the diagnostics page.
 const uint32_t DETAILS_INTERVAL = 1000;
 // Error codes in status_t are Wire endTransmission() codes: 0 ok, 1 data too long,
 // 2 address NACK, 3 data NACK, 4 other bus error, 5 timeout. These two are added here.
@@ -34,10 +33,8 @@ const float YAW_RATE_SIGN = -1.0f;
 const float MIN_GRAVITY_FOR_UP = 3.0f;
 // Both rates must exceed this for a sample to vote on whether their signs agree.
 const float SIGN_CHECK_MIN_RATE = 60.0f;
-// Votes against the sign before the yaw-rate loop is locked out.
 const uint32_t SIGN_CHECK_MIN_DISAGREE = 10;
 
-// BNO055 health for the diagnostics page.
 typedef struct {
     bool initialized;
     uint32_t begin_attempts;
@@ -47,7 +44,6 @@ typedef struct {
     uint32_t lost_count;  // samples whose CHIP_ID check failed after a good begin()
     uint32_t samples;
     uint32_t last_sample_ms;
-    // Status registers, read by refresh_details(). details_ms is 0 until the first read.
     uint32_t details_ms;
     uint8_t details_error;
     uint8_t operation_mode;  // OPR_MODE, 0x08 for IMUPLUS
@@ -104,7 +100,6 @@ class UpdownSensor {
     vector3_t *get_gyro() { return gyro_vec; }  // rad/s, chip frame
     // Fused acceleration with gravity removed, m/s^2, chip frame.
     vector3_t *get_linear_accel() { return linear_accel; }
-    // micros() when the last sample was read, 0 before the first. A change means new data.
     uint32_t get_sample_us() { return sample_us; }
     // Rereads the status registers if DETAILS_INTERVAL has passed and the sensor is up. Two
     // short I2C reads. Every sample calls it, so CALIB_STAT stays fresh for telemetry; the

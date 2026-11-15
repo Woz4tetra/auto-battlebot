@@ -20,7 +20,6 @@ const uint16_t INA238_DIE_ID = 0x238;
 // temperature at 1052 us, no averaging), which still updates both readings every 3.2 ms.
 const uint16_t ADC_CONFIG_VALUE = 0xBB69;
 
-// VBUS and VSHUNT: 16-bit two's complement.
 const float BUS_VOLTS_PER_LSB = 3.125e-3f;
 // Current comes from the raw shunt voltage at the reset-default ADCRANGE=0 (+-163.84 mV).
 // ADCRANGE=1 would give 4x the resolution, but a brownout clears it back to 0 and the

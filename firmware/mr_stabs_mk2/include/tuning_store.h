@@ -14,13 +14,10 @@ class TuningStore {
     void begin();
 
     tuning::Settings get();
-    // True when `key` names a field and `value` is in its range.
     bool set(const char *key, float value);
-    // True once per change since the last call, with the settings to apply.
     bool take_change(tuning::Settings &out);
     // Writes changed values to NVS. Call from loop() while disarmed.
     void save();
-    // False while a change is waiting for save().
     bool saved();
 
    private:

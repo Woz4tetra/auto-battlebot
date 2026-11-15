@@ -7,8 +7,6 @@
 #include <vector>
 
 namespace {
-// value and check are both derived from the seq the writer was on, so a record whose bytes
-// come from two different pushes fails the check.
 struct Record {
     uint32_t telemetry_seq;
     uint32_t value;
@@ -64,10 +62,10 @@ TEST(TelemetryRing, ResumesFromSeqAndCapsAtMax) {
     EXPECT_EQ(out[0].value, 4u);
     EXPECT_EQ(out[2].value, 6u);
 
-    r = ring.read(10, out, 16);  // caught up
+    r = ring.read(10, out, 16);
     EXPECT_EQ(r.count, 0u);
     EXPECT_EQ(r.first_seq, 10u);
-    r = ring.read(50, out, 16);  // past head: nothing, and first_seq says where head is
+    r = ring.read(50, out, 16);
     EXPECT_EQ(r.count, 0u);
     EXPECT_EQ(r.first_seq, 10u);
 }
@@ -97,8 +95,6 @@ TEST(TelemetryRing, ZeroCapacityIsInert) {
     EXPECT_EQ(r.head, 0u);
 }
 
-// A writer laps a small ring while a reader copies from it. Every record the reader keeps must be
-// whole and carry the seq it claims; torn ones must be dropped, never returned.
 TEST(TelemetryRing, ConcurrentReaderNeverSeesTornRecords) {
     const uint32_t kCapacity = 32;
     const uint32_t kPushes = 400000;

@@ -107,7 +107,6 @@ struct pair_request_t {
     uint8_t mac[6];
 };
 
-// Sensor and I2C bus health, served as JSON at /status for the page's sensor panel.
 struct sensor_status_t {
     updown_sensor::status_t imu;
     vbat_sensor::status_t ina;

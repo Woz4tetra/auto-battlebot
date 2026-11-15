@@ -31,7 +31,6 @@
 #include "pico/time.h"
 #include "splash_anim.h"
 
-// --- Debug bring-up instrumentation (set -DVJIG_DEBUG=1 in platformio.ini) ---
 #ifndef VJIG_DEBUG
 #define VJIG_DEBUG 0
 #endif
@@ -45,16 +44,11 @@
 #define DBGFLUSH() ((void)0)
 #endif
 
-// ---------------------------------------------------------------------------
-// Globals
-// ---------------------------------------------------------------------------
-
 static Adafruit_ISM330DHCX g_imu;
 static Adafruit_SH1107 g_display(64, 128, &Wire);
 static SdFs g_sd;
 static FsFile g_file;
 
-// One row: IMU sample plus the encoder count captured at the same instant.
 struct Sample {
     uint64_t t_us;  // capture time, microseconds since boot (time_us_64)
     int32_t count;  // quadrature count
@@ -75,25 +69,18 @@ static bool g_recording = false;
 static char g_curName[24] = {0};
 static bool g_menuSummary = false;  // show last-run stats on the menu footer
 
-// Encoder quadrature state, maintained continuously by edge interrupts.
 static volatile int32_t g_encCount = 0;
 static volatile uint8_t g_encState = 0;
 
-// Fixed-rate capture timer (the recording producer).
 static repeating_timer_t g_sampleTimer;
 
-// SD write staging buffer.
 static char g_wbuf[WBUF_SIZE];
 static uint32_t g_wlen = 0;
-
-// ---------------------------------------------------------------------------
-// Ring buffer
-// ---------------------------------------------------------------------------
 
 static inline void ringPush(const Sample& s) {
     uint32_t h = g_head;
     uint32_t n = (h + 1) & RING_MASK;
-    if (n == g_tail) {  // full
+    if (n == g_tail) {
         g_overflow++;
         return;
     }
@@ -144,11 +131,6 @@ static inline void imuReadRaw(int16_t* g, int16_t* a) {
     a[2] = (int16_t)(b[10] | (b[11] << 8));
 }
 
-// ---------------------------------------------------------------------------
-// Capture ISRs
-// ---------------------------------------------------------------------------
-
-// 4x quadrature decode table indexed by (prev_state << 2) | new_state.
 static const int8_t QDEC[16] = {0, -1, 1, 0, 1, 0, 0, -1, -1, 0, 0, 1, 0, 1, -1, 0};
 
 static void encISR() {
@@ -157,16 +139,13 @@ static void encISR() {
     g_encState = s;
 }
 
-// Fixed-rate capture (hardware timer). Reads the IMU and latches the encoder
-// count together, then queues one row. Timer-driven, so it does not depend on
-// the IMU INT1 wire being connected.
 static bool sampleTimerCb(repeating_timer_t*) {
     Sample s;
     s.t_us = time_us_64();
     s.count = g_encCount;
     imuReadRaw(s.g, s.a);
     ringPush(s);
-    return true;  // keep firing
+    return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -227,7 +206,6 @@ static inline void emitRow(const Sample& s) {
     wputc('\n');
 }
 
-// Drain up to DRAIN_CAP records to the staging buffer.
 static void drainToSD() {
     uint32_t head = g_head;  // snapshot
     uint32_t processed = 0;
@@ -242,11 +220,6 @@ static void drainAll() {
     while (g_tail != g_head) drainToSD();
 }
 
-// ---------------------------------------------------------------------------
-// OLED
-// ---------------------------------------------------------------------------
-
-// Animated BWBots splash, then a short hold on the finished logo.
 static void drawSplash() {
     for (uint8_t i = 0; i < SPLASH_FRAMES; i++) {
         g_display.clearDisplay();
@@ -262,22 +235,18 @@ static void drawMenu(bool withSummary) {
     g_display.clearDisplay();
     g_display.setTextSize(1);
 
-    // Title bar (inverted).
     g_display.fillRect(0, 0, 128, 13, SH110X_WHITE);
     g_display.setTextColor(SH110X_BLACK);
     g_display.setCursor(4, 3);
     g_display.print("VELOCITY JIG");
     g_display.setTextColor(SH110X_WHITE);
 
-    // Start option: record-dot icon.
     g_display.fillCircle(9, 21, 4, SH110X_WHITE);
     g_display.setCursor(20, 17);
     g_display.print("A  Start rec");
-    // Stop option: stop-square icon.
     g_display.fillRect(5, 28, 8, 8, SH110X_WHITE);
     g_display.setCursor(20, 28);
     g_display.print("B  Stop");
-    // Diagnostics option: triangle icon.
     g_display.fillTriangle(9, 39, 14, 47, 4, 47, SH110X_WHITE);
     g_display.setCursor(20, 39);
     g_display.print("C  Diagnostics");
@@ -303,7 +272,7 @@ static void drawRecording(const char* name) {
     g_display.drawRect(0, 0, 128, 64, SH110X_WHITE);
     g_display.setTextColor(SH110X_WHITE);
 
-    g_display.fillCircle(14, 16, 6, SH110X_WHITE);  // REC dot
+    g_display.fillCircle(14, 16, 6, SH110X_WHITE);
     g_display.setTextSize(2);
     g_display.setCursor(30, 9);
     g_display.print("REC");
@@ -330,7 +299,6 @@ static void drawDiagnostics() {
     g_display.clearDisplay();
     g_display.setTextSize(1);
 
-    // Title bar (inverted).
     g_display.fillRect(0, 0, 128, 13, SH110X_WHITE);
     g_display.setTextColor(SH110X_BLACK);
     g_display.setCursor(4, 3);
@@ -347,19 +315,18 @@ static void drawDiagnostics() {
     g_display.print(encA);
     g_display.print(encB);
 
-    // IMU rows, one column per axis.
     static const uint8_t COL[3] = {8, 48, 88};
     g_display.setCursor(0, 30);
     g_display.print("G");
     for (int i = 0; i < 3; i++) {
         g_display.setCursor(COL[i], 30);
-        g_display.print((float)g[i] * GYRO_DPS_PER_LSB, 0);  // dps, whole numbers
+        g_display.print((float)g[i] * GYRO_DPS_PER_LSB, 0);
     }
     g_display.setCursor(0, 42);
     g_display.print("A");
     for (int i = 0; i < 3; i++) {
         g_display.setCursor(COL[i], 42);
-        g_display.print((float)a[i] * ACCEL_G_PER_LSB, 2);  // g
+        g_display.print((float)a[i] * ACCEL_G_PER_LSB, 2);
     }
 
     g_display.drawFastHLine(0, 53, 128, SH110X_WHITE);
@@ -370,7 +337,6 @@ static void drawDiagnostics() {
     g_display.display();
 }
 
-// Fatal error: show a message and blink the LED forever.
 static void fatal(const char* msg) {
     g_display.clearDisplay();
     g_display.setTextSize(1);
@@ -396,10 +362,6 @@ static void fatal(const char* msg) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// File naming and header
-// ---------------------------------------------------------------------------
-
 static bool nextName(char* out, size_t n) {
     for (uint32_t i = 0; i < 100000; i++) {
         snprintf(out, n, "LOG-%lu.TXT", (unsigned long)i);
@@ -418,10 +380,6 @@ static void writeHeader() {
     wputStr(line);
 }
 
-// ---------------------------------------------------------------------------
-// Record start/stop
-// ---------------------------------------------------------------------------
-
 static void startRecording() {
     char name[24];
     if (!nextName(name, sizeof(name))) {
@@ -433,18 +391,17 @@ static void startRecording() {
         drawMenu(false);
         return;
     }
-    g_file.preAllocate(PREALLOC_BYTES);  // best effort; avoids FAT-growth stalls
+    g_file.preAllocate(PREALLOC_BYTES);
 
     strncpy(g_curName, name, sizeof(g_curName) - 1);
     g_curName[sizeof(g_curName) - 1] = 0;
 
-    // Reset buffers/counters before enabling the capture ISR.
     g_wlen = 0;
     g_head = g_tail = 0;
     g_overflow = 0;
     g_produced = 0;
     noInterrupts();
-    g_encCount = 0;  // each file starts its count at 0
+    g_encCount = 0;
     interrupts();
     writeHeader();
 
@@ -452,18 +409,18 @@ static void startRecording() {
     // Capture on a fixed-rate timer (negative period = strict period from start).
     add_repeating_timer_us(-(int64_t)(1000000UL / SAMPLE_RATE_HZ), sampleTimerCb, nullptr,
                            &g_sampleTimer);
-    drawRecording(name);  // last screen update until STOP
+    drawRecording(name);
     Serial.print("recording ");
     Serial.println(name);
 }
 
 static void stopRecording() {
-    cancel_repeating_timer(&g_sampleTimer);  // stop capture first
+    cancel_repeating_timer(&g_sampleTimer);
     g_recording = false;
 
     drainAll();
     wflush();
-    g_file.truncate();  // drop the unused preallocated tail (else file stays 32 MB)
+    g_file.truncate();
     g_file.sync();
     g_file.close();
 
@@ -475,10 +432,6 @@ static void stopRecording() {
     g_menuSummary = true;
     drawMenu(true);
 }
-
-// ---------------------------------------------------------------------------
-// Buttons (debounced, active low)
-// ---------------------------------------------------------------------------
 
 struct Btn {
     uint8_t pin;
@@ -548,7 +501,6 @@ static uint8_t g_cmdLen = 0;
 // does not land inside the host's round-trip measurement.
 static uint64_t g_cmdRxUs = 0;
 
-// Non-blocking line reader. Returns true when a full line sits in g_cmd.
 static bool serialReadLine() {
     while (Serial.available()) {
         char c = (char)Serial.read();
@@ -628,11 +580,11 @@ static void cmdTime() {
 static void cmdStream() {
     Serial.println("STREAM");
     for (;;) {
-        if (Serial.available()) {  // any input stops the stream
+        if (Serial.available()) {
             while (Serial.available()) Serial.read();
             break;
         }
-        if (justPressed(g_btnA)) {  // physical start-record exits the stream
+        if (justPressed(g_btnA)) {
             Serial.println("END");
             startRecording();
             return;
@@ -679,15 +631,11 @@ static void handleCommand() {
         Serial.println("REBOOTING to bootloader");
         Serial.flush();
         delay(50);
-        reset_usb_boot(0, 0);  // reboot into the UF2 bootloader, no button needed
+        reset_usb_boot(0, 0);
     } else if (c[0]) {
         Serial.println("ERR unknown");
     }
 }
-
-// ---------------------------------------------------------------------------
-// Debug helpers (compiled out when VJIG_DEBUG == 0)
-// ---------------------------------------------------------------------------
 
 // Pump the USB stack and wait (bounded) for the serial monitor to attach. This
 // is the key fix: delay() services USB, so the CDC port enumerates here even if
@@ -705,7 +653,6 @@ static void dbgWaitForHost(uint32_t timeout_ms) {
 #endif
 }
 
-// Scan an I2C bus and print every responding address.
 static void dbgI2CScan(TwoWire& w) {
 #if VJIG_DEBUG
     Serial.print("[dbg] I2C scan:");
@@ -724,10 +671,6 @@ static void dbgI2CScan(TwoWire& w) {
     (void)w;
 #endif
 }
-
-// ---------------------------------------------------------------------------
-// Setup / loop
-// ---------------------------------------------------------------------------
 
 static void imuInit() {
     SPI1.setSCK(PIN_IMU_SCK);
@@ -772,8 +715,6 @@ static void sdInit() {
 }
 
 static void encoderInit() {
-    // Pull-ups so a disconnected encoder reads a stable level (no phantom
-    // counts). The count column then stays constant during angular-only runs.
     pinMode(PIN_ENC_A, INPUT_PULLUP);
     pinMode(PIN_ENC_B, INPUT_PULLUP);
     g_encState = (uint8_t)((digitalRead(PIN_ENC_A) << 1) | digitalRead(PIN_ENC_B));
@@ -788,8 +729,6 @@ void setup() {
     pinMode(PIN_STATUS_LED, OUTPUT);
     digitalWrite(PIN_STATUS_LED, LOW);
 
-    // Pump USB and wait (bounded) for the monitor before touching hardware, so
-    // the serial port always enumerates even if a later init call hangs.
     dbgWaitForHost(8000);
     DBGLN("");
     DBGLN("=== velocity jig bring-up ===");
@@ -864,11 +803,11 @@ void setup() {
     g_display.setRotation(1);
     g_display.clearDisplay();
     g_display.display();
-    drawSplash();  // animated BWBots logo
+    drawSplash();
 
     imuInit();
     sdInit();
-    encoderInit();  // encoder tracks continuously, independent of recording
+    encoderInit();
 
     DBGLN("[dbg] ready -> menu");
     drawMenu(false);
@@ -878,9 +817,6 @@ void loop() {
     if (g_recording) {
         drainToSD();
         if (justPressed(g_btnB)) stopRecording();
-        // Answer the console without touching the SD or capture path. TIME is
-        // served for real so the host can probe the clock mid-run; everything
-        // else gets BUSY.
         if (serialReadLine()) {
             if (!strncmp(g_cmd, "TIME", 4)) {
                 cmdTime();

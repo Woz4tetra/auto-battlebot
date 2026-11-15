@@ -113,7 +113,6 @@ void EspNowLink::on_recv(const uint8_t *mac, const uint8_t *data, int length) {
     // WiFi task context: filter, copy, and return. Never touch ESCs or flash here.
     if (rx_queue == nullptr || !is_air_frame(data, static_cast<size_t>(length))) return;
     if (!is_dongle(mac)) {
-        // Our session magic from a MAC that is not paired: usually a new dongle nobody paired.
         memcpy(rejected_mac, mac, 6);
         rx_rejected = rx_rejected + 1;
         return;
@@ -144,7 +143,6 @@ void EspNowLink::update(uint32_t now_ms, bool armed) {
     }
 
     if (ota_.active()) {
-        // Crossfire keeps authority: arming hands the robot straight back to the pilot.
         if (armed) {
             ota_abort(OTA_ERR_ABORTED);
         } else if (now_ms - last_ota_frame_ms_ > OTA_SILENCE_MS) {
@@ -286,11 +284,9 @@ void EspNowLink::ota_end() {
         return;
     }
     if (!ota_.complete()) {
-        // Host is ahead of us; the status tells it where to resume.
         send_ota_status(OTA_RECEIVING, OTA_OK);
         return;
     }
-    // Checks the MD5 and the image header and SHA-256, then switches the boot slot.
     if (!Update.end()) {
         ota_.reset();
         send_ota_status(OTA_ERROR, OTA_ERR_VERIFY);
@@ -393,7 +389,6 @@ void EspNowLink::send_telemetry(TelemetryPayload &telemetry, uint32_t now_ms) {
 
 void EspNowLink::load_paired() {
     Preferences prefs;
-    // Fails before the first pair, when the namespace does not exist yet.
     if (prefs.begin("espnow_pair", true)) {
         const uint8_t count = prefs.getUChar("count", 0);
         if (count <= MAX_PAIRED_DONGLES &&
@@ -425,7 +420,7 @@ uint8_t EspNowLink::pair(const uint8_t *mac, bool armed) {
     if (armed) {
         result = PAIR_ARMED;
     } else if ((mac[0] & 0x01) != 0) {
-        result = PAIR_BAD_MAC;  // multicast or broadcast: never a dongle's own address
+        result = PAIR_BAD_MAC;
     } else if (is_dongle(mac)) {
         result = PAIR_EXISTS;
     } else if (paired_count_ >= MAX_PAIRED_DONGLES) {

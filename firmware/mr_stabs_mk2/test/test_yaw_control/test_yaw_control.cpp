@@ -9,7 +9,6 @@ const float kTol = 1e-3f;
 const float kDt = 0.01f;
 const float kForward = -50.0f;  // throttle driving nose-first, past the idle band
 
-// Proportional-only controller, so outputs are easy to predict.
 Config p_only() {
     Config config;
     config.ki = 0.0f;
@@ -28,7 +27,6 @@ TEST(YawController, HeadingHoldHasNoFeedforward) {
     Config config = p_only();
     YawController yaw(config);
     yaw.reset(90.0f);
-    // Drifted 10 degrees counterclockwise: command a clockwise rate back, through feedback only.
     float out = yaw.update(0.0f, kForward, 80.0f, 0.0f, kDt);
     float command = config.k_heading * 10.0f;
     EXPECT_NEAR(yaw.rate_command(), command, kTol);
@@ -42,7 +40,6 @@ TEST(YawController, IdlesStandingStillWithStickCentered) {
     float out = yaw.update(0.5f, config.idle_throttle - 0.5f, 60.0f, 200.0f, kDt);
     EXPECT_EQ(out, 0.0f);
     EXPECT_EQ(yaw.rate_command(), 0.0f);
-    // The held heading follows the robot, so driving off holds where it stands now.
     EXPECT_NEAR(yaw.setpoint(), 60.0f, kTol);
     yaw.update(0.0f, kForward, 60.0f, 0.0f, kDt);
     EXPECT_NEAR(yaw.rate_command(), 0.0f, kTol);
@@ -61,7 +58,7 @@ TEST(YawController, HeadingHoldWrapsAcrossNorth) {
     YawController yaw(p_only());
     yaw.reset(355.0f);
     yaw.update(0.0f, kForward, 5.0f, 0.0f, kDt);
-    EXPECT_LT(yaw.rate_command(), 0.0f);  // 10 degrees clockwise of the setpoint: turn back
+    EXPECT_LT(yaw.rate_command(), 0.0f);
 }
 
 TEST(YawController, HeadingHoldRateIsCapped) {
@@ -98,12 +95,10 @@ TEST(YawController, ReleasedTurnBrakesThenHoldsWhereItStopped) {
     YawController yaw(config);
     yaw.reset(0.0f);
     yaw.update(50.0f, kForward, 0.0f, 0.0f, kDt);
-    // Released while still spinning: brake at zero rate, no setpoint yet.
     yaw.update(0.0f, kForward, 40.0f, 300.0f, kDt);
     EXPECT_TRUE(yaw.capturing());
     EXPECT_EQ(yaw.rate_command(), 0.0f);
     EXPECT_LT(yaw.output(), 0.0f);
-    // Slowed below capture_rate: hold this heading.
     yaw.update(0.0f, kForward, 52.0f, config.capture_rate - 1.0f, kDt);
     EXPECT_FALSE(yaw.capturing());
     EXPECT_NEAR(yaw.setpoint(), 52.0f, kTol);
@@ -132,7 +127,6 @@ TEST(YawController, IntegralRemovesSteadyRateError) {
     float first = yaw.update(0.0f, kForward, 0.0f, -10.0f, kDt);
     float later = first;
     for (int i = 0; i < 100; i++) later = yaw.update(0.0f, kForward, 0.0f, -10.0f, kDt);
-    // 1 s of 10 deg/s error at ki 0.02 %/deg adds 0.2 %.
     EXPECT_NEAR(later - first, config.ki * 10.0f * 1.0f, 1e-3f);
 }
 
@@ -141,10 +135,8 @@ TEST(YawController, IntegralHeldWhileSaturated) {
     config.ki = 10.0f;
     YawController yaw(config);
     yaw.reset(0.0f);
-    // Full stick from standstill: feedforward plus feedback is past 100 %, so no windup.
     for (int i = 0; i < 200; i++) yaw.update(100.0f, kForward, 0.0f, 0.0f, kDt);
     EXPECT_NEAR(yaw.output(), 100.0f, kTol);
-    // At the commanded rate only the feedforward is left: the integral never grew.
     float out = yaw.update(100.0f, kForward, 0.0f, config.max_rate, kDt);
     EXPECT_NEAR(out, config.feedforward * config.max_rate, kTol);
 }
@@ -192,7 +184,6 @@ TEST(UnwrapGyroRate, KeepsTheSignPastTheRange) {
     EXPECT_NEAR(unwrapped / kDegToRad, 1997.0f - 4096.0f, 0.1f);
 }
 
-// A spin well past the range, wrapping round toward zero, is still tracked sample by sample.
 TEST(UnwrapGyroRate, TracksASpinUpPastTheRange) {
     float unwrapped = 0.0f;
     for (float truth = 0.0f; truth >= -3400.0f; truth -= 50.0f) {

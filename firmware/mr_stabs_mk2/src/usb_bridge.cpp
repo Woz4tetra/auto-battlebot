@@ -45,14 +45,13 @@ static portMUX_TYPE log_mux = portMUX_INITIALIZER_UNLOCKED;
 static void IRAM_ATTR log_putc(char c) {
     portENTER_CRITICAL_SAFE(&log_mux);
     const size_t next = (log_head + 1) % LOG_RING;
-    if (next != log_tail) {  // full: drop the character
+    if (next != log_tail) {
         log_ring[log_head] = c;
         log_head = next;
     }
     portEXIT_CRITICAL_SAFE(&log_mux);
 }
 
-// Writes out the buffered log up to its last complete line.
 static void flush_log() {
     static char out[LOG_RING];
     size_t n = 0;
@@ -168,7 +167,6 @@ static void read_serial() {
     }
 }
 
-// Returns true when any connection moved bytes.
 static bool pump_connections() {
     static uint8_t data[CHUNK];
     static char out[16 + 4 * ((CHUNK + 2) / 3) + 12];
@@ -186,7 +184,7 @@ static bool pump_connections() {
                 at += written;
                 at += snprintf(out + at, sizeof(out) - at, " %08lx\n",
                                (unsigned long)crc32_le(0, data, n));
-                if (!write_whole(out, at)) close(c);  // the laptop is not reading
+                if (!write_whole(out, at)) close(c);
                 moved = true;
             }
         } else if (peer_closed(c.client)) {

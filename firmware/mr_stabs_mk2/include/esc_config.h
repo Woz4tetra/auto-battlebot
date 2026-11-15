@@ -16,7 +16,6 @@ enum class State : uint8_t { COMBAT, TUNING, EXITING };
 const uint32_t IDLE_RELEASE_MS = 60000;
 // EXITING sends zero-throttle DShot this long before control comes back, as setup() does.
 const uint32_t WAKE_MS = 2000;
-// After entering TUNING both lines are held high this long before the first frame goes out.
 const uint32_t SETTLE_MS = 1000;
 // Entry waits until COMBAT has lasted this long. Exiting restarts the ESCs, and entering again
 // right away left them out of the bootloader 3 times in 8; after 1 s of DShot, 0 in 14. Measured
@@ -52,7 +51,6 @@ class EscConfig {
 
     // HTTP side, safe from the network task.
     void request(bool enter);
-    // Queues one 4-way request frame. False with a reason when not in TUNING or one is pending.
     bool submit(const uint8_t *frame, size_t size, uint32_t &id, const char *&reason);
     // The latest frame's state; out gets the response frame when DONE (MAX_RESPONSE bytes).
     Poll poll(uint32_t &id, uint8_t *out, size_t &size);

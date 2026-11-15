@@ -1,6 +1,3 @@
-// ESP-NOW dongle for mr_stabs_mk2. Bridges framed USB serial from the Jetson to ESP-NOW and back.
-// Holds no authority: it forwards what the Jetson sends, repeats the latest command so one lost
-// packet is covered in 4 ms, and never invents a command. See docs/plans/espnow_link_plan.md.
 #include <Arduino.h>
 #include <WiFi.h>
 #include <esp_now.h>
@@ -189,8 +186,6 @@ void on_serial_frame(void *context, uint8_t type, const uint8_t *payload, uint8_
     (void)context;
     if (type == MSG_COMMAND) {
         if (length != sizeof(CommandPayload)) return;
-        // Forward on arrival: the new command takes the slot and goes out at the next free radio
-        // slot, never waiting for the repeat timer.
         command_frame_len = encode_air_frame(type, payload, length, command_frame);
         command_pending = true;
         last_command_serial_ms = millis();
@@ -343,7 +338,6 @@ void setup() {
     pinMode(NEOPIXEL_POWER, OUTPUT);
     digitalWrite(NEOPIXEL_POWER, NEOPIXEL_POWER_ON);
 #endif
-    // Solid blue through the channel scan, which takes ~2 s when it runs.
     set_led(0, 0, LED_DIM);
 
     WiFi.mode(WIFI_STA);

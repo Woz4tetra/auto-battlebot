@@ -1,12 +1,5 @@
 #!/usr/bin/env python3
-"""Plot and summarize a velocity-jig LOG file.
-
-Usage: plot_log.py data/downloads/LOG-1.TXT [--show] [--out plot.png]
-
-Reads the scale factors and sample rate from the file header, converts the raw
-int16 IMU columns to dps / g, prints summary stats, and saves a 3-panel plot
-(gyro, accel, encoder count) next to the input file.
-"""
+"""Plot and summarize a velocity-jig LOG file."""
 
 import argparse
 import os

@@ -25,7 +25,6 @@
 
 const char *WIFI_SSID = "MR-STABS";
 const char *WIFI_PASSWORD = "havocbots";
-// DHCP and mDNS name in client mode: http://mr-stabs.local
 const char *HOSTNAME = "mr-stabs";
 wifi_manager::WifiManager wifi;
 
@@ -38,8 +37,6 @@ crsf_bridge::radio_data_t *radio_data;
 esc::Esc *left_esc;
 esc::Esc *right_esc;
 
-// ESC tuning mode: the diagnostics page and firmware/blheli/blheli32.py --url read and write
-// BLHeli_32 settings through it (docs/plans/esc_settings_dashboard_plan.md).
 esc_config::EscConfig esc_tuning;
 
 updown_sensor::UpdownSensor *accel;
@@ -62,7 +59,7 @@ struct guard_rtc_t {
     uint32_t magic;
     float rise_c[motor_guard::NUM_MOTORS];
 };
-const uint32_t GUARD_RTC_MAGIC = 0x4D475244;  // "DRGM"
+const uint32_t GUARD_RTC_MAGIC = 0x4D475244;
 RTC_NOINIT_ATTR guard_rtc_t guard_rtc;
 DiagnosticsServer diag_server;
 
@@ -103,12 +100,8 @@ uint32_t last_heading_sample_us = 0;
 
 TuningStore tuning_store;
 
-// ESP-NOW link to the Jetson's dongle (docs/plans/espnow_link_plan.md).
 espnow_link::EspNowLink espnow;
 
-// Off means no ESP-NOW init, telemetry, or OTA; the SoftAP dashboard and scripts/ota_wifi are the
-// paths in. It was off until the Mk2 PCBA because the old board's radio heard the dongle at
-// -85 dBm from 30 cm. See "Robot radio" in the plan.
 const bool ESPNOW_ENABLED = true;
 
 // With SA on and a fresh ESP-NOW command, drive from it instead of the handset sticks; stale
@@ -157,7 +150,6 @@ void set_led_intensity(float percent) {
     led_intensity = (int)(2.35 * min(100.0f, max(-100.0f, percent))) + 20;
 }
 
-// Hands loop() the page's and ESP-NOW's latest settings, and saves them to NVS while disarmed.
 void apply_tuning(bool armed) {
     tuning::Settings t;
     if (tuning_store.take_change(t)) {
@@ -175,8 +167,6 @@ void stop_escs() {
     set_led_intensity(0);
 }
 
-// Publishes one tick of diagnostics to the WiFi dashboard and, at 100 Hz, to the telemetry ring
-// and over ESP-NOW.
 void publish_diag(diag_data_t &diag, bool autonomy_enabled, bool espnow_active, uint32_t now_ms) {
     diag.motor_rise_left = guard.rise_c(0);
     diag.motor_rise_right = guard.rise_c(1);
@@ -267,8 +257,6 @@ void setup_telemetry_ring() {
                   capacity == TELEMETRY_RING_PSRAM_RECORDS ? "PSRAM" : "internal RAM");
 }
 
-// Feeds the diagnostics page's sensor and I2C panel. Does nothing with no browser open. A bus
-// scan blocks for ~15 ms, so a requested scan waits until the robot is disarmed.
 void publish_sensor_status(bool armed) {
     if (!diag_server.has_clients()) return;
     if (diag_server.scan_requested() && !armed) {
@@ -316,7 +304,6 @@ void setup_ota() {
     ArduinoOTA.begin();
 }
 
-// Feeds the guard one INA238 sample, or a NaN one after GUARD_PERIOD_US without a sample.
 void update_motor_guard(uint32_t now_us) {
     const uint32_t reads = vbat_sensor_ina238.get_status().reads;
     const bool fresh = reads != last_guard_reads;
@@ -371,7 +358,6 @@ void mix_motor_outputs(crsf_bridge::radio_data_t *radio_data, float sensed_angle
         yaw_loop_active = false;
     } else {
         if (!yaw_loop_active || is_upside_down != was_upside_down) {
-            // Engaging (switch moved to DOWN, IMU back) or just flipped: hold this heading.
             yaw_controller->reset(sensed_angle_z);
             yaw_loop_active = true;
         }
@@ -425,7 +411,6 @@ void setup() {
     digitalWrite(NEOPIXEL_POWER, HIGH);
 #endif
 
-    // The RX channels read each ESC's eRPM reply back on the same pin (bidirectional DShot).
     left_esc = new esc::Esc(LEFT_ESC_PIN, RMT_CHANNEL_3, RMT_CHANNEL_4);
     right_esc = new esc::Esc(RIGHT_ESC_PIN, RMT_CHANNEL_2, RMT_CHANNEL_5);
     tuning_store.begin();
@@ -469,8 +454,6 @@ void setup() {
     guard_rtc.rise_c[0] = guard.rise_c(0);
     guard_rtc.rise_c[1] = guard.rise_c(1);
 
-    // Access point or router, as saved from the diagnostics page. With ESP-NOW on, the access
-    // point stays up on the pinned channel ESP-NOW shares, whatever is saved.
     wifi.begin(HOSTNAME, WIFI_SSID, WIFI_PASSWORD, espnow_protocol::CHANNEL_OVERRIDE,
                ESPNOW_ENABLED);
     setup_ota();
@@ -527,7 +510,6 @@ void loop() {
             return;
         }
     }
-    // A dongle pair or unpair from the diagnostics page. Refused while armed inside pair().
     pair_request_t pair_request;
     // Erasing the core dump writes flash, so it waits for the loop and refuses while armed.
     if (diag_server.take_erase_dump_request() && !(radio_ok && radio_data->armed)) {
@@ -546,9 +528,6 @@ void loop() {
         }
         last_status_ms = 0;  // show the result on the next status poll
     }
-    // Enters or leaves tuning mode and relays at most one 4-way frame, which can block for about
-    // 3 s (a settings write). Entry is refused armed or while ESP-NOW drives; the radio button
-    // exits. While active() the disarmed branch below keeps the motor outputs stopped.
     esc_tuning.update(now_ms, radio_ok && radio_data->armed, last_espnow_active,
                       radio_ok && radio_data->button_state);
 
@@ -567,7 +546,6 @@ void loop() {
     crsf->send_telemetry(&telemetry);
     publish_sensor_status(radio_ok && radio_data->armed);
 
-    // Combat mode
     if (now_ms - last_led_ms >= 20) {
         last_led_ms = now_ms;
         if (esc_tuning.active()) {
@@ -617,8 +595,6 @@ void loop() {
         return;
     }
 
-    // Tuning mode drives nothing, armed or not: DShot is off, or sending the 2 s of wake-up stop
-    // frames on the way out.
     if (!radio_data->armed || esc_tuning.active()) {
         // Disarm is the only way out of a thermal trip. A link loss keeps it latched.
         if (!radio_data->armed) guard.clear_trip();

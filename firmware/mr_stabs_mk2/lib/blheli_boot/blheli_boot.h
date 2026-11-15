@@ -36,7 +36,7 @@ enum Ack : uint8_t {
     ACK_INVALID_CMD = 0x02,
     ACK_INVALID_CRC = 0x03,
     ACK_INVALID_CHANNEL = 0x08,
-    ACK_INVALID_PARAM = 0x09,  // also what the address guard answers
+    ACK_INVALID_PARAM = 0x09,
     ACK_GENERAL_ERROR = 0x0F,
 };
 
@@ -75,11 +75,9 @@ enum class ParseResult : uint8_t { OK, SHORT, BAD_START, BAD_LENGTH, BAD_CRC };
 ParseResult parse_request(const uint8_t *frame, size_t size, Request &out);
 const char *parse_result_name(ParseResult result);
 
-// Writes a response frame into out (MAX_RESPONSE bytes) and returns its size. length is 1..256.
 size_t build_response(uint8_t cmd, uint16_t address, const uint8_t *params, size_t length,
                       uint8_t ack, uint8_t *out);
 
-// The one-wire serial link to the ESCs, by passthrough index (0 = A2, 1 = A3).
 class EscLink {
    public:
     virtual ~EscLink() = default;
@@ -89,7 +87,6 @@ class EscLink {
     // Reads until expect bytes have arrived (0: no length known), a 10 ms gap after the first
     // byte, max bytes, or nothing at all for first_ms. Returns the count read.
     virtual size_t receive(uint8_t *buf, size_t max, size_t expect, uint32_t first_ms) = 0;
-    // Drives the selected line low for ms, then high.
     virtual void hold_low(uint32_t ms) = 0;
     virtual void delay_ms(uint32_t ms) = 0;
 };
@@ -97,22 +94,14 @@ class EscLink {
 class Server {
    public:
     explicit Server(EscLink &link) : _link(link) {}
-    // One request frame in, one response frame out. Returns the response size, 0 when the frame
-    // is too short to answer.
     size_t handle(const uint8_t *frame, size_t size, uint8_t *out);
-    // Restarts the ESC: the restart command, then the line low for 300 ms, as the passthrough's
-    // DeviceReset does. The ESC boots its application.
     void reset_esc(uint8_t esc);
     // Writes and erases the guard refused, from boot.
     uint32_t guard_refusals() const { return _guard_refusals; }
-    // Why the latest bootloader exchange failed ("" after a success): the step, the bytes
-    // received against those expected, and the first few received.
     const char *failure() const { return _failure; }
-    // The latest DeviceInitFlash reply as received, for diagnosing bootloader entry.
     const char *init_reply() const { return _init_reply; }
     // Reads that needed the handshake redone, from boot.
     uint32_t resyncs() const { return _resyncs; }
-    // The first failed attempt of the latest read, "" when it succeeded at once.
     const char *first_read_failure() const { return _first_read_failure; }
     // Handshakes that needed the ESC restarted first, from boot.
     uint32_t reboots() const { return _reboots; }
@@ -128,9 +117,7 @@ class Server {
     uint32_t _resyncs = 0;
     uint32_t _reboots = 0;
 
-    // Formats the step, the bytes received against those expected (0: unknown), and the first few.
     void describe(char *out, size_t size, const char *step, size_t received, size_t expected) const;
-    // Records a failed step and returns ACK_GENERAL_ERROR.
     uint8_t fail(const char *step, size_t received, size_t expected);
 
     void send_boot(const uint8_t *data, size_t size);

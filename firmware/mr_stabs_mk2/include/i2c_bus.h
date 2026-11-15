@@ -2,8 +2,6 @@
 #include <Arduino.h>
 #include <Wire.h>
 
-// Bus-level I2C checks for the diagnostics page: which addresses answer, and whether a device is
-// holding SDA or SCL low.
 namespace i2c_bus {
 const uint8_t MAX_FOUND = 16;
 

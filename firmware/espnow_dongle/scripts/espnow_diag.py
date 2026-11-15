@@ -364,8 +364,6 @@ class Diagnostics:
         self.interval_gap_ms = 0.0
         self.interval_rtt_ms: float | None = None
 
-    # ---- events and capture ----------------------------------------------------------------
-
     def event(self, level: str, text: str) -> None:
         record = {"t": time.time(), "level": level, "text": text}
         self.events.append(record)
@@ -416,8 +414,6 @@ class Diagnostics:
             "banner": self.banner,
             "telemetry_fields": TELEMETRY_FIELDS,
         }
-
-    # ---- frame handling --------------------------------------------------------------------
 
     def on_bytes(self, data: bytes, now: float) -> None:
         self.rx_bytes += len(data)
@@ -576,8 +572,6 @@ class Diagnostics:
         if self.interval_rtt_ms is None or rtt_ms < self.interval_rtt_ms:
             self.interval_rtt_ms = rtt_ms
 
-    # ---- periodic work ---------------------------------------------------------------------
-
     def next_command(self, now: float) -> bytes | None:
         if not self.sending or now < self.cmd_next_s:
             return None
@@ -643,8 +637,6 @@ class Diagnostics:
             for values in self.series.values():
                 values.popleft()
 
-    # ---- derived numbers -------------------------------------------------------------------
-
     def metrics(self, now: float) -> dict[str, Any]:
         m: dict[str, Any] = {}
         m["rx_bytes_per_s"] = sum(n for _, n in self.rx_log)
@@ -709,8 +701,7 @@ class Diagnostics:
         return m
 
     def checks(self, now: float, m: dict[str, Any]) -> list[dict[str, str]]:
-        """Ordered link checklist. Each later check assumes the earlier ones pass, so the list
-        stops at the first check that rules out the rest."""
+        """Ordered link checklist that stops at the first failing check."""
         out: list[dict[str, str]] = []
         if self._check_reach(out, m):
             self._check_telemetry(out, m)
@@ -917,9 +908,6 @@ class Diagnostics:
         }
 
 
-# ---- serial thread ---------------------------------------------------------------------------
-
-
 def open_port(path: str) -> serial.Serial:
     # DTR and RTS go high before the open, as in espnow_ota.py: setting them low one at a time
     # passes through DTR low RTS high, which resets an ESP32-S3 on its USB-Serial/JTAG port.
@@ -1014,9 +1002,6 @@ def serial_loop(diag: Diagnostics, stop: threading.Event) -> None:
         if diag.port is not None:
             diag.port.close()
         diag.stop_capture()
-
-
-# ---- web -------------------------------------------------------------------------------------
 
 
 def make_app(diag: Diagnostics) -> Flask:

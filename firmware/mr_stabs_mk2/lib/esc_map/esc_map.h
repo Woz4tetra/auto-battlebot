@@ -14,8 +14,6 @@ const uint16_t DSHOT_3D_STEPS = 999;  // steps above zero in each direction
 // smallest one past stop_threshold already moves the motor.
 const uint16_t FLOOR_STEP = 66;
 
-// Steps above zero for a command magnitude in percent: 0 inside stop_threshold, else
-// FLOOR_STEP at the threshold up to DSHOT_3D_STEPS at 100%.
 inline uint16_t steps(float magnitude, float stop_threshold) {
     magnitude = fminf(magnitude, 100.0f);
     if (magnitude < stop_threshold || magnitude <= 0.0f) return 0;
@@ -28,7 +26,6 @@ inline uint16_t percent_to_dshot_3d(float signed_percent, float stop_threshold) 
     return (signed_percent > 0.0f ? DSHOT_3D_FWD_MIN : DSHOT_3D_REV_MIN) + n;
 }
 
-// Signed duty the ESC applies for a command, as a fraction of full: the DShot step over 999.
 inline float duty(float signed_percent, float stop_threshold) {
     float d = steps(fabsf(signed_percent), stop_threshold) / (float)DSHOT_3D_STEPS;
     return signed_percent < 0.0f ? -d : d;

@@ -49,7 +49,6 @@ COLUMNS = [
     "yaw_rate",
     "yaw_rate_cmd",
 ]
-# The motor stall guard's columns, inserted before seq.
 GUARD_COLUMNS = [
     "motor_rise_left",
     "motor_rise_right",
@@ -65,7 +64,6 @@ GUARD_COLUMNS = [
     "erpm_crc_errors",
 ]
 COLUMNS = COLUMNS + GUARD_COLUMNS + ["seq"]
-# Columns added after the first logs were taken; older CSVs read them as NaN.
 OPTIONAL_COLUMNS = {"yaw_rate", "yaw_rate_cmd", "seq", *GUARD_COLUMNS}
 
 FLIP_SWITCH_DOWN = 0  # crsf_bridge::DOWN, the auto upside-down and heading-hold position

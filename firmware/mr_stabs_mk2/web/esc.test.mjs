@@ -1,6 +1,3 @@
-// esc.js against the pages read from Mr Stabs Mk2's ESCs. Run with `node --test` (pytest runs it
-// too, from tests/python/test_blheli32.py). The expected values are the ones the Python tests
-// check, so the page and the CLI decode the same.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -21,7 +18,6 @@ const capture = (esc, addr = "f800") =>
       path.join(here, "../../blheli/captures", `mr_stabs_mk2_esc${esc}_${addr}_2026-10-23.bin`),
     ),
   );
-// Reads a zip on stdin with Python's zipfile (which checks every CRC) and prints each entry.
 const PY_UNZIP = `
 import io, sys, zipfile
 z = zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read()))
@@ -165,13 +161,10 @@ test("name is space padded", () => {
 });
 
 test("request framing matches fourway.py", () => {
-  // build_request(0x3A, 0xF800, b"\x00")
   assert.equal(Blheli.hex(Blheli.buildRequest(0x3a, 0xf800, [0])), "2f3af800010093f4");
   assert.equal(Blheli.crc16xmodem(new TextEncoder().encode("123456789")), 0x31c3);
 });
 
-// Answers 4-way frames like the robot's relay and an ESC, from the captured ESC 1 pages. Every
-// read re-encrypts with fresh nonces, as the ESC does.
 class FakeEsc {
   constructor({ dropWrites = false } = {}) {
     this.settings = Blheli.decodePage(capture(1));

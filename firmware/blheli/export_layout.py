@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
-"""Write the BLHeli_32 field table for the Mk2 diagnostics page's ESC editor.
-
-    venv/bin/python firmware/blheli/export_layout.py
-
-Rerun after any change to auto_battlebot/blheli32/layout.py; tests/python/test_blheli32.py fails
-while the two differ.
-"""
+"""Write the BLHeli_32 field table for the Mk2 diagnostics page's ESC editor."""
 
 from pathlib import Path
 

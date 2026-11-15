@@ -15,7 +15,7 @@ from PIL import Image
 
 GIF = "/home/ben/Downloads/bwbots_splash_crop.gif"
 W, H = 128, 64
-THRESH = 204  # 0 -> black; 204 (gray outline) and 255 -> white
+THRESH = 204
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_H = os.path.join(HERE, "..", "include", "splash_anim.h")
 
@@ -39,8 +39,6 @@ def main():
     im = Image.open(GIF)
     n = im.n_frames
 
-    # Source is already cropped to the display; use each frame as-is (centered if
-    # it happens to be smaller than 128x64).
     ox, oy = (W - im.size[0]) // 2, (H - im.size[1]) // 2
 
     frames, packed = [], []

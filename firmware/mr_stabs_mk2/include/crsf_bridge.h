@@ -24,7 +24,6 @@ typedef enum three_state_switch { DOWN = 0, MIDDLE = 1, UP = 2 } three_state_swi
 // Values sent back to the radio as CRSF sensors. NaN fields are sent as 0.
 typedef struct telemetry_data {
     float pack_volts, pack_amps;
-    // BNO055 Euler angles, degrees: heading 0..360, roll, pitch.
     float heading_deg, roll_deg, pitch_deg;
 } telemetry_data_t;
 
@@ -52,8 +51,6 @@ class CrsfBridge {
     CrsfBridge();
     void begin();
     bool update(radio_data_t *radio_data);
-    // Sends one telemetry frame when TELEMETRY_INTERVAL_MS has passed. Does nothing while the
-    // link is down.
     void send_telemetry(const telemetry_data_t *telemetry);
 };
 }  // namespace crsf_bridge
