@@ -25,8 +25,6 @@ class TankDriveProcessor : public DriveProcessorInterface {
     /** channel_a is the left wheel command, channel_b is the right wheel command. */
     Channels process(VelocityCommand command) const override;
 
-    /** Inverse of the differential mixing: linear is the wheel average, angular is half the
-     *  difference. The reversals are undone after un-mixing. */
     BodyVelocity to_body_velocity(Channels channels) const override;
 
    private:

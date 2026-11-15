@@ -1,9 +1,11 @@
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <memory>
 #include <vector>
 
 #include "transmitter/differential_drive_processor.hpp"
+#include "transmitter/drive_mixing.hpp"
 #include "transmitter/drive_processor_interface.hpp"
 #include "transmitter/tank_drive_processor.hpp"
 
@@ -153,4 +155,76 @@ TEST(DriveProcessorTest, FactoryBuildsBothProcessorsAndRejectsUnknown) {
               nullptr);
     EXPECT_THROW(make_drive_processor("NopeDriveProcessor", config, make_logger()),
                  std::invalid_argument);
+}
+
+TEST(DriveProcessorTest, InverseRoundTripsWithReversals) {
+    const std::vector<VelocityCommand> in_range = {command(0.0, 0.0), command(0.6, 0.0),
+                                                   command(0.0, 0.5), command(0.4, 0.4),
+                                                   command(-0.7, 0.2)};
+    for (const bool reverse_linear : {false, true}) {
+        for (const bool reverse_angular : {false, true}) {
+            DriveProcessorInterface::Config config = {.velocity_saturation_limit = 1.0,
+                                                      .reverse_linear = reverse_linear,
+                                                      .reverse_angular = reverse_angular};
+            const DifferentialDriveProcessor differential(config, make_logger());
+            const TankDriveProcessor tank(config, make_logger());
+            for (const DriveProcessorInterface* processor :
+                 {static_cast<const DriveProcessorInterface*>(&differential),
+                  static_cast<const DriveProcessorInterface*>(&tank)}) {
+                for (const auto& cmd : in_range) {
+                    const auto body = processor->to_body_velocity(processor->process(cmd));
+                    EXPECT_NEAR(body.linear, cmd.linear_x, 1e-12)
+                        << "reverse_linear=" << reverse_linear
+                        << " reverse_angular=" << reverse_angular;
+                    EXPECT_NEAR(body.angular, cmd.angular_z, 1e-12)
+                        << "reverse_linear=" << reverse_linear
+                        << " reverse_angular=" << reverse_angular;
+                }
+            }
+        }
+    }
+}
+
+TEST(DriveMixingTest, SaturateGivesAngularPriority) {
+    const auto both_full = saturate_velocity(1.0, 1.0, 1.0);
+    EXPECT_DOUBLE_EQ(both_full.angular, 1.0);
+    EXPECT_DOUBLE_EQ(both_full.linear, 0.0);
+
+    const auto partial = saturate_velocity(1.0, 0.4, 1.0);
+    EXPECT_DOUBLE_EQ(partial.angular, 0.4);
+    EXPECT_NEAR(partial.linear, 0.6, 1e-12);
+
+    const auto reverse = saturate_velocity(-1.0, 0.4, 1.0);
+    EXPECT_NEAR(reverse.linear, -0.6, 1e-12);
+}
+
+TEST(DriveMixingTest, SaturateLimitZeroClampsEachAxis) {
+    const auto clamped = saturate_velocity(1.5, -2.0, 0.0);
+    EXPECT_DOUBLE_EQ(clamped.linear, 1.0);
+    EXPECT_DOUBLE_EQ(clamped.angular, -1.0);
+}
+
+TEST(DriveMixingTest, MixWithinUnitRange) {
+    for (const double linear : {-1.5, -1.0, -0.3, 0.0, 0.3, 1.0, 1.5}) {
+        for (const double angular : {-1.5, -1.0, -0.3, 0.0, 0.3, 1.0, 1.5}) {
+            const auto wheels = mix_to_wheels(saturate_velocity(linear, angular, 1.0));
+            EXPECT_LE(std::abs(wheels.left), 1.0 + 1e-12)
+                << "linear=" << linear << " angular=" << angular;
+            EXPECT_LE(std::abs(wheels.right), 1.0 + 1e-12)
+                << "linear=" << linear << " angular=" << angular;
+        }
+    }
+}
+
+TEST(DriveMixingTest, LiftedDeadzoneMapping) {
+    EXPECT_EQ(apply_lifted_deadzone(0.02, 0.02, 0.1), 0.0);
+    EXPECT_EQ(apply_lifted_deadzone(-0.01, 0.02, 0.1), 0.0);
+
+    const double just_above = apply_lifted_deadzone(0.0201, 0.02, 0.1);
+    EXPECT_GE(just_above, 0.1);
+    EXPECT_LT(just_above, 0.11);
+
+    EXPECT_NEAR(apply_lifted_deadzone(1.0, 0.02, 0.1), 1.0, 1e-12);
+    EXPECT_NEAR(apply_lifted_deadzone(-1.0, 0.02, 0.1), -1.0, 1e-12);
+    EXPECT_LT(apply_lifted_deadzone(-0.5, 0.02, 0.1), -0.1);
 }

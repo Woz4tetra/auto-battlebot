@@ -8,14 +8,6 @@
 
 namespace auto_battlebot {
 
-/**
- * Emits linear and angular channels for a robot whose radio-side mixer combines them into
- * per-wheel motor outputs. Applies:
- *   1. Velocity saturation (angular priority, linear fills remaining headroom)
- *   2. Per-wheel lifted deadzone (applied in wheel space so steering at speed and spinning in
- *      place do not artificially inflate small inputs)
- *   3. Channel reversal to compensate for physical motor wiring
- */
 class DifferentialDriveProcessor : public DriveProcessorInterface {
    public:
     DifferentialDriveProcessor(const Config& config,
