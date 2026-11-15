@@ -1,18 +1,4 @@
-"""The HTTP side of `pose_camera_server.py`: a mailbox and a stdlib request handler.
-
-Pure module (no Blender), because `bpy` is not thread safe and this half runs on handler threads.
-One rule holds the design together: **handler threads touch only the mailbox**. Everything that
-reads or writes Blender state happens on the main thread, which takes poses out of the mailbox and
-puts rendered frames back in.
-
-The mailbox holds one pending pose and one published frame. Overwriting the pending slot is the
-coalescing: poses that arrive while a render is in flight collapse to the newest, so releasing W
-cannot play back a queue of stale frames. Commands (mark, save, full render) are a real queue,
-since dropping one of those would lose work.
-
-Pose readout, range clamping and snapping are pure `synthgen.freefly` math, so the handler answers
-those itself rather than waking the render loop for them.
-"""
+"""The HTTP side of `pose_camera_server.py`: a mailbox and a stdlib request handler."""
 
 from __future__ import annotations
 
@@ -21,11 +7,11 @@ import math
 import mimetypes
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 from urllib.parse import parse_qs, urlparse
 
 import numpy as np
@@ -226,13 +212,48 @@ def pose_from_json(data: dict[str, Any]) -> FreeflyPose:
     )
 
 
+class OverlayRobot(TypedDict):
+    name: str
+    center_m: list[float]
+    pixels: list[list[float]]
+    visible: bool
+    width_px: float
+    height_px: float
+
+
+class OverlayCorner(TypedDict):
+    pixel: list[float] | None
+    in_front: bool
+    in_frame: bool
+
+
+class OverlayMat(TypedDict):
+    outline: list[list[float]]
+    corners: list[OverlayCorner]
+
+
+class Overlay(TypedDict):
+    mat: OverlayMat
+    robots: list[OverlayRobot]
+
+
+class MountReadout(TypedDict):
+    mount: dict[str, Any]
+    clamped: dict[str, Any]
+    in_ranges: dict[str, bool]
+    residual_m: float
+    residual_deg: float
+    overlay: Overlay
+    glass_hidden: list[str]
+
+
 def mount_readout(
     pose: FreeflyPose,
     scene: SceneInfo,
     ranges: CageMountRanges,
     spec: CageSceneSpec | None,
     alpha: float,
-) -> dict[str, Any]:
+) -> MountReadout:
     """The live `CageMount` the page shows, plus how far outside the sampling ranges it sits."""
     cam2world = freefly_cam2world(pose)
     exact = mount_from_cam2world(cam2world, scene.wall_half_m)
@@ -246,8 +267,6 @@ def mount_readout(
         "residual_m": residual.position_m,
         "residual_deg": residual.angle_deg,
         "overlay": overlay_geometry(pose, scene, alpha),
-        # Which panes the render hides because the camera stands outside them. Same rule the
-        # batch pipeline applies, so the page can say what the render will actually do.
         "glass_hidden": list(panels_outside_camera(spec, (pose.x_m, pose.y_m))) if spec else [],
     }
 
@@ -326,7 +345,7 @@ def clip_to_near_plane(points_cam: np.ndarray, near_m: float = NEAR_PLANE_M) -> 
     return np.asarray(clipped) if clipped else np.zeros((0, 3))
 
 
-def overlay_geometry(pose: FreeflyPose, scene: SceneInfo, alpha: float) -> dict[str, Any]:
+def overlay_geometry(pose: FreeflyPose, scene: SceneInfo, alpha: float) -> Overlay:
     """Mat outline and robot-sized boxes, projected for the page to draw over the frame."""
     half = scene.mat_size_m / 2
     corners = np.array(
@@ -336,12 +355,10 @@ def overlay_geometry(pose: FreeflyPose, scene: SceneInfo, alpha: float) -> dict[
     mat_px, mat_front = project_world_points(pose, k_rect, corners)
     outline = project_camera_points(k_rect, clip_to_near_plane(world_to_camera(pose, corners)))
 
-    robots = []
+    robots: list[OverlayRobot] = []
     for name, center in mat_sample_points(scene.mat_size_m).items():
         box = _robot_box(center, scene)
         pixels, in_front = project_world_points(pose, k_rect, box)
-        # A box with any corner behind the lens has no projected width, so it is reported as not
-        # visible rather than measured from pixels a pinhole cannot produce.
         visible = bool(np.all(in_front))
         width_px = float(np.ptp(pixels[:, 0])) if visible else 0.0
         height_px = float(np.ptp(pixels[:, 1])) if visible else 0.0
@@ -357,11 +374,7 @@ def overlay_geometry(pose: FreeflyPose, scene: SceneInfo, alpha: float) -> dict[
         )
     return {
         "mat": {
-            # The polygon to stroke. Already clipped, so it may have three to six points, or none
-            # when the mat is entirely behind the lens.
             "outline": outline.tolist(),
-            # The four corners themselves, for the in-frame dots. `null` where a corner is behind
-            # the lens and has no pixel at all.
             "corners": [
                 {
                     "pixel": [float(x), float(y)] if front else None,
@@ -409,7 +422,7 @@ class Response:
     headers: tuple[tuple[str, str], ...] = ()
 
     @staticmethod
-    def json(payload: dict[str, Any], code: int = 200) -> Response:
+    def json(payload: Mapping[str, Any], code: int = 200) -> Response:
         return Response(code, json.dumps(payload).encode(), "application/json")
 
 

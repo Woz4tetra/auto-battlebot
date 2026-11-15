@@ -7,6 +7,7 @@ from bpy_extras.object_utils import world_to_camera_view
 
 from synthgen.annotations import (
     YoloAnnotation,
+    YoloBox,
     bbox_from_category_segmap,
     check_keypoint_visibility,
 )
@@ -87,7 +88,7 @@ def measure_robot_pixels(
     clean_inst_seg: np.ndarray | None,
     img_w: int,
     img_h: int,
-) -> tuple[RobotPixelStats, tuple[float, float, float, float] | None]:
+) -> tuple[RobotPixelStats, YoloBox | None]:
     """Measure one robot's pixel statistics for the gate.
 
     Args:

@@ -451,13 +451,17 @@ def pit_boxes(spec: CageSceneSpec) -> list[Box]:
         top = -spec.mat.thickness
         height = pit.depth + 2 * t - spec.mat.thickness
         out += [
-            _slab(f"pit{i}_wall_near", (x0 - t, x1 + t, y0 - t, y0), top, height, f"pit{i}_wall"),
-            _slab(f"pit{i}_wall_far", (x0 - t, x1 + t, y1, y1 + t), top, height, f"pit{i}_wall"),
-            _slab(f"pit{i}_wall_left", (x0 - t, x0, y0, y1), top, height, f"pit{i}_wall"),
-            _slab(f"pit{i}_wall_right", (x1, x1 + t, y0, y1), top, height, f"pit{i}_wall"),
+            _slab(
+                f"pit{i}_wall_near", Rect(x0 - t, x1 + t, y0 - t, y0), top, height, f"pit{i}_wall"
+            ),
+            _slab(
+                f"pit{i}_wall_far", Rect(x0 - t, x1 + t, y1, y1 + t), top, height, f"pit{i}_wall"
+            ),
+            _slab(f"pit{i}_wall_left", Rect(x0 - t, x0, y0, y1), top, height, f"pit{i}_wall"),
+            _slab(f"pit{i}_wall_right", Rect(x1, x1 + t, y0, y1), top, height, f"pit{i}_wall"),
             _slab(
                 f"pit{i}_floor",
-                (x0 - t / 2, x1 + t / 2, y0 - t / 2, y1 + t / 2),
+                Rect(x0 - t / 2, x1 + t / 2, y0 - t / 2, y1 + t / 2),
                 -pit.depth,
                 t,
                 f"pit{i}_floor",
