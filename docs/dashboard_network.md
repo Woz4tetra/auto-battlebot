@@ -1,0 +1,4 @@
+# Dashboard network
+
+- The dashboard cable subnet is 10.42.42.0/24, set up by `install/install_dashboard_network.sh`. The box is 10.42.42.1. It is a routable private subnet rather than 169.254/16 because iOS routes link-local traffic out its primary interface: with Wi-Fi on, the iPad sent the dashboard requests over Wi-Fi instead of the cable.
+- `HostServices` runs the jobs the loop must never wait on: opening the dashboard to Wi-Fi and reading the network addresses the System tab shows. It has one worker thread. `set_wifi_access()` queues the request and returns; the worker runs `systemctl start|stop dashboard-wifi.service`, which a polkit rule from the install script lets the app user do for that unit only. The setting persists in the state file and is applied again at startup, so a phone reaches the box after a reboot without the iPad. The worker publishes `/status/network` after each change and every `refresh_period`.

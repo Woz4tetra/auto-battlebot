@@ -62,10 +62,7 @@ class FoxglovePublisher : public PublisherInterface {
     OutputChannel blob_annotations_;
     OutputChannel keypoint_detections_;
     OutputChannel keypoint_annotations_;
-    /** Downscaled JPEG for the web dashboard. Live only, never recorded. */
     OutputChannel preview_image_;
-    /** H.264 preview: NVENC where the box has it, libx264 at ultrafast on one thread where it does
-     *  not (the Orin Nano). Created when either can open. */
     std::unique_ptr<OutputChannel> preview_video_;
 
     FoxglovePublisherConfiguration config_;

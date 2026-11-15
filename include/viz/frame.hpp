@@ -6,11 +6,6 @@
 #include <string>
 #include <vector>
 
-// Socket framing shared by the app-side VizSink and the viz_relay process. The full layout is
-// documented in docs/foxglove_recording_format.md ("Relay socket framing"). Every frame on the
-// SOCK_STREAM unix socket is [u32 len][u8 kind][body], little-endian, with len counting the kind
-// byte plus the body.
-
 namespace auto_battlebot {
 namespace viz {
 
@@ -48,8 +43,6 @@ struct SubscriberCountFrame {
     uint32_t count = 0;
 };
 
-// A message a Foxglove client published to the relay, forwarded to the app. Client channels are
-// per-connection on the relay side, so the frame carries the topic rather than an id.
 struct ClientMessageFrame {
     std::string topic;
     // Points into the buffer the frame was decoded from.
@@ -192,9 +185,6 @@ inline bool decode_client_message(const std::byte* body, size_t len, ClientMessa
     return true;
 }
 
-// Default socket path. A fixed /tmp path rather than $XDG_RUNTIME_DIR so the systemd unit for
-// the relay and the one for the app agree without sharing environment, and so the docker
-// playback container (which runs both) needs no extra mount.
 inline std::string default_socket_path() { return "/tmp/auto_battlebot_viz.sock"; }
 
 }  // namespace viz

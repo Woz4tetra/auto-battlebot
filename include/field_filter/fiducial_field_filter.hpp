@@ -21,20 +21,8 @@ std::vector<int> floor_board_ids(int cols, int rows, int first_id);
 
 cv::aruco::DetectorParameters small_apriltag_detector_parameters();
 
-/** Brighten an underexposed frame with a gamma curve. Arena lighting is often dim enough that a
- *  raw frame decodes zero tags because the marker contrast is crushed into shadow; the stretch is
- *  monotonic and per channel, so corner geometry and the recovered pose are unchanged. */
 cv::Mat auto_gamma(const cv::Mat &frame, double target_mean = 120.0, double min_mean = 110.0);
 
-/**
- * @brief Field pose from an AprilTag board, ignoring the field mask.
- *
- * The mode for a venue nobody has surveyed. It depends on nothing we have to segment and on no
- * assumed mat size, so a clipped, cluttered or badly segmented outline costs it nothing. It also
- * replays: detection runs off `camera_data.rgb`, so a recording whose first frames contain the
- * board carries everything needed to re-derive the field transform later. Record ten seconds
- * with the board down before pulling it, every time.
- */
 class FiducialFieldFilter : public CameraWorldFieldFilter {
    public:
     explicit FiducialFieldFilter(const FiducialFieldFilterConfiguration &config);
@@ -43,10 +31,6 @@ class FiducialFieldFilter : public CameraWorldFieldFilter {
     std::shared_ptr<FieldDescriptionWithInlierPoints> compute_field(
         const CameraData &camera_data, const MaskStamped &field_mask) override;
 
-    /** Board origin (the grid's minimum-x, minimum-y printed corner) in the board layout frame,
-     *  composed from the configured corner, offsets and orientation. The layout frame is centred
-     *  on the field with the printed board's x and y and z into the floor; compute_field turns it
-     *  into the published field frame. */
     Eigen::Matrix4d tf_fieldcenter_from_board() const;
 
    protected:

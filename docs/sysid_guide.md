@@ -482,3 +482,9 @@ Drives recorded on a match profile have no tags. Replay their video through
   `imu_fused` and `imu_yaw_rate` (correlation, lag, gain).
 - Many windows labelled nose-lift while the robot sat flat: the tilt state drifted through a
   dropout. With `--yolo` the IMU's pitch holds it; check `session.json` `imu_tilt`.
+
+## AprilTag pose selection
+
+- Rest pitch: the floor-up vector in the body frame while the robot rests with a tag showing. Upright it leans back by the rest pitch (the robot sits nose down on its wedge tip). Upside down it is body -z, since the resting pitch on the top face is unmeasured.
+- IPPE disambiguation: the index of the IPPE solution to trust, from solutions sorted by reprojection error. A solution that puts the camera under the floor is dropped when the other does not. Of the rest, the one whose implied floor up lies closest to the reference wins, because the other IPPE solution is the planar flip, which tilts the robot off the floor. The reference is `floor_up_camera` when known. Without it the reference is camera -z, right for an overhead camera and up to the tripod tilt off otherwise, so it only decides when the two solutions differ by more than 15 degrees against it. Otherwise, or when the two lie within 2 degrees of a known floor, the lowest reprojection error wins.
+- Floor normal learning: the floor's up direction in the fixed camera frame is learned from the tags themselves. Every frame gives two candidates, one per IPPE solution. The right ones all agree, since the robot drives on one floor; the flipped ones move with the robot's position and heading. Until one direction has the support of most frames and no rival cluster does, `estimate()` stays empty and selection falls back to reprojection error. After that it tracks slowly, so a wheelie or a flip does not drag it.

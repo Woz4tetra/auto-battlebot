@@ -67,10 +67,6 @@ struct ClassConfiguration {
 ClassConfiguration load_classes_from_config(const std::filesystem::path &path = {},
                                             const std::filesystem::path &config_root = {});
 
-// Load `path` and resolve its `extends` chain into a single merged TOML table -- exactly the data
-// fed to every section parser. Useful for dumping the effective config. Note this reflects only
-// values explicitly set by the config (or its bases); defaults applied by parsers for omitted
-// optional fields are not included.
 toml::table load_merged_config(const std::filesystem::path &path,
                                const std::filesystem::path &config_root = {});
 std::filesystem::path normalize_config_path(const std::string &config_path);

@@ -119,3 +119,26 @@ This increases the maximum RAM a process from a given user can use.
     root hard stack 8192
     root soft stack 8192
     ```
+
+## Engine selection
+
+A TensorRT engine is compiled ahead of time against one GPU architecture and one TensorRT version, and is not portable across either. Deserializing a mismatched engine fails with "the engine plan file is not compatible with this version of TensorRT", which names the version even when the real mismatch is compute capability, and says nothing about what the machine is or what was tried. The engine selector therefore asks TensorRT rather than parsing the sm tag out of the filename: the first candidate that deserializes on this device is the correct one. Filenames stay purely descriptive. One instance per model that loads engines; the model factories construct them.
+
+## Power telemetry
+
+Jetson power telemetry reads the INA3221 VDD_IN rail and the soctherm over-current event counters. Paths are discovered once by hwmon name because indices shift across boots; empty means unavailable.
+
+## Runtime state location
+
+The Wi-Fi access state file is `$HOME/.local/state/auto_battlebot/wifi_access`. It lives under `$HOME`, not `config/`, because a deploy overwrites the repo tree.
+
+## Video encoder
+
+- The H.264 preview uses NVENC where the box has it and libx264 at ultrafast on one thread where it does not (the Orin Nano). It is created when either can open.
+- The nvv4l2h264enc backend returns nullptr when an element is missing or the pipeline does not reach PLAYING, which is where nvv4l2h264enc opens the encoder device.
+
+## Pinned frame memory
+
+`PinnedMatAllocator` backs a `cv::Mat` with pinned, device-mapped host memory so `GpuLetterbox` reads a frame in place instead of copying it to the GPU. Set it on the destination Mat before the conversion that fills it (`frame.allocator = PinnedMatAllocator::instance();`). Pinning is slow because it locks pages, so released buffers go back to a pool keyed by size and the next frame reuses one. On Orin, pinned memory stays CPU-cached and I/O coherent, so the CPU writes into it at full speed. With no CUDA device, or when a pinned allocation fails, it falls back to OpenCV's standard allocator and the frame takes the copy path. The pool keeps 16 free buffers per size: a frame lives about ten ticks between the pipeline and the publisher queue, so this covers steady state without pinning memory forever.
+
+GPU letterbox: a frame in pinned host memory is read in place. The Orin's GPU and CPU share DRAM, so the kernel fetches only the source pixels it samples. Anything else (a playback frame, a camera without the pinned allocator) is copied to a device staging buffer first.

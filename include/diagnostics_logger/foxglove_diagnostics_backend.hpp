@@ -10,12 +10,6 @@
 #include "viz/viz_sink.hpp"
 
 namespace auto_battlebot {
-/**
- * Diagnostics backend that publishes one JSON channel per module, `/diagnostics/<module>`, to
- * the live relay and the recorder. Values are typed (numbers stay numbers) and the payload is
- * keyed by subsection so a Foxglove plot path cannot silently retarget when a module first logs
- * mid-run. Layout in docs/foxglove_recording_format.md.
- */
 class FoxgloveDiagnosticsBackend : public DiagnosticsBackend {
    public:
     FoxgloveDiagnosticsBackend(std::shared_ptr<VizSink> sink,

@@ -7,13 +7,6 @@
 
 namespace auto_battlebot {
 
-/**
- * Drives ControlLoop::run_cycle(). Two implementations, differing only in what schedules a cycle.
- *
- * SteppedControlLoop runs cycles synchronously from the perception tick, which keeps playback
- * reproducible. ThreadedControlLoop runs them on its own thread at rate_hz, so the command tracks
- * the filter's evolving estimate instead of freezing between perception frames.
- */
 class ControlLoopInterface {
    public:
     virtual ~ControlLoopInterface() = default;
@@ -30,12 +23,6 @@ class ControlLoopInterface {
 
     virtual void stop() = 0;
 
-    /**
-     * Read transmitter input on the caller's thread.
-     *
-     * Stepped drivers do the read here, so a single-threaded run reads the transmitter before
-     * the camera grab. Threaded drivers own the transmitter on their own thread and ignore this.
-     */
     virtual void pump_input() {}
 
     /** Run cycles until logical time reaches until. */

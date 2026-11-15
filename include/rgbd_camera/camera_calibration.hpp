@@ -6,19 +6,6 @@
 #include "data_structures.hpp"
 
 namespace auto_battlebot {
-/**
- * @brief Intrinsics and distortion for one physical camera, measured once.
- *
- * The ZED handed us rectified frames and near-zero distortion coefficients. A 104.6 degree M12
- * lens does not, and every downstream consumer assumes a pinhole: the homography fit, keypoint
- * projection, the UI marker overlay, and the trained detectors. So the camera rectifies before
- * publishing, and the `CameraInfo` it emits carries the rectified matrix with D zeroed.
- *
- * Calibrate through polycarbonate. The camera sits behind a cage panel, and a flat sheet in the
- * optical path refracts increasingly toward the frame edges, which is exactly where the field
- * boundary sits. Calibrating in free air folds that error into the field pose where no
- * reprojection residual will ever show it.
- */
 struct CameraCalibration {
     std::string calibration_id;
     int width = 0;
@@ -34,9 +21,6 @@ struct CameraCalibration {
     cv::Mat distortion_coefficients() const;
 };
 
-/** MCAP metadata key (under the `auto_battlebot` record) holding the calibration a recording's
- *  /camera/video needs, as the same TOML text a `config/cameras/` file holds. With it the
- *  recording replays without a sidecar file. */
 inline constexpr const char *kCameraCalibrationMetadataKey = "camera_calibration";
 
 CameraCalibration load_camera_calibration(const std::string &path);

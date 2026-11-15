@@ -19,22 +19,6 @@
 
 namespace auto_battlebot {
 
-/**
- * Sends autonomous velocity commands to Mr Stabs Mk2 through the ESP-NOW USB dongle, cutting the
- * handset mixer and the Crossfire frame period out of the command path, and records the telemetry
- * the robot sends back on /robot/espnow_telemetry.
- *
- * Feedback and status come from the robot's telemetry, so it can run alone, with the handset
- * talking only to the robot. Feedback is the drive command the robot used each tick, whichever
- * source it took it from, mapped back to the channel values this class would send. Status reads
- * SA (autonomy_enabled) and the robot's CRSF link from the same frames. There is no init button.
- * The firmware applies no slew limit. max_motor_rpm_per_sec > 0 rate-limits the linear command
- * here, the same way OpenTxTransmitter does; 0 sends commands to the wheels unlimited.
- *
- * ESP-NOW carries no arm authority. The firmware substitutes the two channel values only after
- * every CRSF gate passes and only while SA (ch5) enables autonomy, and falls back to the handset
- * channels when they go stale. See docs/plans/espnow_link_plan.md.
- */
 class EspNowTransmitter : public TransmitterInterface {
    public:
     EspNowTransmitter(const EspNowTransmitterConfiguration &config, std::shared_ptr<VizSink> sink,
@@ -89,8 +73,6 @@ class EspNowTransmitter : public TransmitterInterface {
     std::chrono::steady_clock::time_point latest_telemetry_time_{};
 };
 
-/** Telemetry older than this means the robot is not hearing us or not answering: no feedback,
- *  and status reports the channels as not receiving. Ten missed 100 Hz frames. */
 constexpr std::chrono::milliseconds kTelemetryStale{100};
 
 /** The drive command a telemetry frame reports, as the two channel values on the wire (what

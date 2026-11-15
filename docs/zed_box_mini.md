@@ -190,3 +190,11 @@ if that changes.
 - [ZED Box Mini flash docs](https://docs.stereolabs.com/docs/products/embedded/zed-box-mini/reset-update)
 - [ZED Box Mini product docs](https://docs.stereolabs.com/docs/products/embedded/zed-box-mini)
 - [Stereolabs forum: Box Mini JetPack upgrade](https://community.stereolabs.com/t/jetpack-zed-sdk-upgrade-for-zed-box-mini-carrier-board/11542)
+
+## ZedDevice split
+
+`ZedDevice` owns the ZED SDK handle and turns one grab into a `CameraData`. It knows nothing about threading, recording, replay, or reconnection: those differ between a live camera and an SVO replay, and live in the two `RgbdCameraInterface` implementations that share this class. What is in `ZedDevice` is what both would otherwise have to duplicate, notably the `open()` cancellation and leak-on-timeout handling, which is subtle enough that two copies would drift.
+
+- `grab()` (one `zed_.grab()`) is separate from `retrieve()` so a live camera can roll its SVO recorder between the two, which is where the recorder needs to run.
+- `retrieve()` fills image, depth, pose, `pose_tracking_ready`, and the raw capture stamp. Depth comes back on every frame: `grab()` computes it regardless (`RuntimeParameters::enable_depth` is always on), so retrieving it conditionally saved only the measure copy while costing callers a flag to get wrong.
+- `retrieve()` leaves `frame_identity.video_frame_index` alone: a live camera takes it from the file it is writing, a replay from the file it is reading. Stamps are the original capture time, so any rebasing is the caller's business.

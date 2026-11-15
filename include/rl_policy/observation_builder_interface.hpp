@@ -19,11 +19,6 @@ struct ObservationContext {
     const ActionHistory &history;
 };
 
-/**
- * One observation spec version: robots, field, target and history to named tensors. The output
- * depends on the context and nothing else. A new spec version is a new builder; old bundles keep
- * loading because each bundle names the version it was trained on.
- */
 class ObservationBuilderInterface {
    public:
     virtual ~ObservationBuilderInterface() = default;

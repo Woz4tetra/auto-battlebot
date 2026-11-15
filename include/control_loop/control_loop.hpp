@@ -38,24 +38,12 @@ struct ControlOutput {
      *  output rather than what navigation asked for. */
     CommandFeedback command_feedback;
     bool our_blob_present_no_keypoint = false;
-    /** Behavior mode that produced `target`, so UI and MCAP recordings can tell a run-away
-     *  target from an attack selector gone haywire. */
     BehaviorMode behavior_mode = BehaviorMode::ATTACK;
     /** `target` is the dashboard's held point rather than the selector's pick. */
     bool manual_target = false;
-    /** Keep-out discs the control loop assembled for this cycle, already inflated. The runner
-     * publishes these; it cannot rebuild them, because the assembler holds stale-track state. */
     std::vector<FieldHazard> hazards;
 };
 
-/**
- * The filter/target/navigation/transmit half of the pipeline, decoupled from perception.
- *
- * Owns the transmitter outright. Every call into it happens on whichever thread drives the cycle,
- * so the Runner reaches it only through the thread-safe request setters below. Drivers
- * (SteppedControlLoop, ThreadedControlLoop) decide when run_cycle() fires; the cycle body is
- * identical either way.
- */
 class ControlLoop {
    public:
     ControlLoop(std::shared_ptr<RobotFilterInterface> robot_filter,
@@ -92,7 +80,6 @@ class ControlLoop {
 
     ControlOutput latest_output() const;
 
-    /** Requests applied at the top of the next cycle, so the components stay single-threaded. */
     void request_filter_reinit(int opponent_count);
     void set_autonomy_enabled(bool enabled);
     void set_behavior_mode(BehaviorMode mode);

@@ -173,3 +173,48 @@ bool rather than a second copy of the number.
   so far are from sim (`docs/experiments/control_improvement/stage4_sim_report.md`).
 - Pass the plant fit's acceptance criteria so production configs can move our robot off
   dead reckoning onto the EKF arm.
+
+## Config handling
+
+- `apply_plant` hands the shared top-level `[plant]` table to a config after `parse_fields`. It is separate from parsing because the plant is a top-level section and the config's own parser never sees it. Controllers and estimators that do not model the plant (pursuit, fixed velocity, dead reckoning) keep the no-op.
+- A missing `[plant]` is not an error at parse time (`plant/config.hpp`): a profile that runs neither the EKF nor `MotionProfileNavigation` needs no plant, and those that do raise their own error when they find it missing.
+- `MotionProfileNavigation` throws on a missing `[plant]`. Every plant term it inverts comes from the fit, so there is nothing sensible to fall back on: a defaulted plant would brake and feedforward against a drivetrain no experiment measured.
+
+## Plant parameters
+
+- `PlantParams` mirrors `PlantParams` in `auto_battlebot/plant.py` field for field. Values come from the jig fit (`fit_jig_plant.py`) copied into the `[plant]` table; the fit output stays the source of truth. Model structure selection happens fit-side: a ladder rung disables a term by writing it as zero, so the struct needs no ladder knowledge. Zero tau means no lag, zero delay means no delay.
+- `PlantModelInterface` is the process model for the our-robot EKF: commands in, predicted state and Jacobian out. `JigPlantModel` mirrors `auto_battlebot/plant.py` exactly (deadzone, per-sign gain, transport delay, asymmetric first-order lag, arc integration with 2 ms substeps). `plant_model_` in `KalmanMotionEstimator` holds the concrete type so `coast()` can propagate a copy without paying for the finite-difference Jacobian.
+- Dead-reckoning arms use the fitted gains alone (`k_fwd`, `k_rev`, `k_ang`): no deadzone removal, no steer-brake or droop coupling, no drift, no lag. They hold one command flat across a single frame and carry no state, so the coupling terms would model a response the arm cannot represent. Use `plant_steady_state()` instead when the caller integrates a command history with lag, as `JigPlantModel` does for the EKF arm. `linear_y` is always zero: a differential drive has no lateral degree of freedom and every transmitter writes zero there.
+
+## MotionProfileNavigation control law
+
+Motion-profiled tracker with inverse-plant feedforward and speed feedback. For a first-order drivetrain it drives to the goal and arrives at a commanded terminal velocity without overrunning.
+
+The terminal velocity is per behavior mode: ATTACK drives through the opponent at full speed, RUN_AWAY arrives stopped at the safe point. Both are configurable, and a mode flip resets the trajectory state because the mission changed. The config value is a fraction of the plant's `k_fwd`, clamped to [0, 1] (0 is a precise zero-velocity stop, 1 is full speed). It is normalized rather than m/s so a refit rescales it instead of leaving a hand-copied speed stale.
+
+1. Distance-to-go velocity profile. The residual travel after commanding v_term on a first-order plant is about v * (tau_decel + latency), so the reference speed is capped at v_term + d / (tau_decel + latency): a coast-aware brake schedule derived from the measured plant, not a hand-tuned brake distance. Ramp-up is rate-limited for a clean launch.
+2. Inverse-plant feedforward. Maps the reference speed (m/s) back to a normalized command by dividing by max speed, adds tau_accel * dv/dt to overcome spin-up lag, divides out the steer-brake authority the turn is costing, and applies exact inverse-deadzone.
+3. Speed PID feedback. Corrects plant-model error using our filtered speed, so open-loop feedforward accuracy and disturbance rejection stay separated. The feedback is dropped while our track is stale, because a dead-reckoned speed is a function of our own command and closing a loop on it is not feedback. The last measured speed is held through stale stretches so the latency lead keeps working while the speed feedback is off.
+4. Angular control in the same shape: turn-lock hysteresis, a PD on heading producing a yaw-rate reference in rad/s, then an inverse-plant feedforward through `max_angular_speed` with the regime-appropriate yaw time constant and the angular droop divided out.
+
+A mission reset clears the trajectory and integrator state that only makes sense within one mission: turn commitment, reference speeds, the speed integral, and the coupling history. It runs when a zero-velocity goal is reached and when the behavior mode flips. It leaves the pose and speed memory alone, since those describe the robot rather than the mission.
+
+## Plant terms in the navigation config
+
+- The measured drivetrain is stamped in by `apply_plant` from the shared top-level `[plant]` table rather than parsed from `[navigation]`. The controller inverts the same fit the our-robot EKF propagates, so both read one table. `k_fwd` / `k_rev` are the divisors mapping a reference speed back to a normalized command, `tau_lin_a` feedforwards dv/dt against spin-up lag, `tau_lin_d` and `delay_s` set the brake horizon, `c_sb` is the steer-brake loss the controller divides back out, and `dz_ang_l` / `dz_ang_r` turn a commanded turn into the effective turn the coupling terms are defined against.
+- `steer_brake_floor`: floor on the steer-brake authority multiplier. 1/c_sb = 0.370 is where the fitted linear loss reaches zero and where the fit's own residuals say the shape stops describing the plant, so the compensation saturates there instead of extrapolating into a singularity.
+- Angular control is closed in rad/s, the same shape as the linear channel. `PursuitNavigation`'s angular gains are NOT interchangeable: there they are normalized command per radian, here they are rad/s per radian, a factor of `k_ang` apart.
+- Droop compensation (fit c_ad = 0.463): the plant multiplies yaw authority by (1 - c_ad * |u_lin_eff|), so the heading loop is weaker at speed than in place. It defaults OFF even though the coefficient is measured, because compensating it makes the controller worse. On the 90-degree turning approach, enabling it takes terminal error from 0.008 m to 0.067 m and time-to-goal from 1.10 s to 2.83 s. Compensating buys faster heading convergence by commanding a harder turn, and a harder turn is exactly what the steer-brake term charges forward speed for. The heading loop is closed-loop already and gets there without the help; the forward speed it spends is not refunded.
+- Floor on the droop multiplier: c_ad = 0.463 never reaches zero, so the floor is a guard against a refit pushing the coefficient past 1, not a shape limit like `steer_brake_floor`.
+
+### The coupling compensations are mutually recursive
+
+The droop term reads the linear command and the steer-brake term reads the turn command. Each is driven by the previous tick's UNCOMPENSATED counterpart, which breaks the loop. Feeding the compensated values back instead has a loop gain above 1 and saturates both channels within a few ticks.
+
+## Temporal motion filter
+
+`RobotTemporalMotionFilter` reads only `k_fwd`, `k_rev` and `k_ang` from the shared `[plant]` table. Its prediction holds one command flat over a frame, with no state to carry lag or coupling.
+
+## Transmitter acceleration limit
+
+`max_motor_rpm_per_sec` slew-limits the linear command so wheel surface acceleration stays below the slip and flip threshold. The measured limit is 8.5 m/s^2, which is 8.5 * 60 / (pi * 0.05) = about 3247 RPM/s for the 0.05 m wheel radius. 0 disables it, the default: no profile limits, so the plant is characterized and the RL policy trained without one.

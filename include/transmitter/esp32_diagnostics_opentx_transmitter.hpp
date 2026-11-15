@@ -15,14 +15,6 @@
 
 namespace auto_battlebot {
 
-/**
- * OpenTxTransmitter that also records the robot firmware's diagnostics stream.
- *
- * The radio side is the base class, untouched. On top of it an Esp32WifiTelemetry worker polls
- * the firmware's telemetry ring, and update() drains what arrived since the last tick into one
- * `/robot/esp32_diagnostics` JSON message per 100 Hz record, logged at the host arrival time.
- * Link health goes to the `esp32_diagnostics` diagnostics module once a second.
- */
 class Esp32DiagnosticsOpenTxTransmitter : public OpenTxTransmitter {
    public:
     Esp32DiagnosticsOpenTxTransmitter(const Esp32DiagnosticsOpenTxTransmitterConfiguration &config,

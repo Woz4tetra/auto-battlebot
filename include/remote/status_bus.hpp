@@ -13,13 +13,6 @@
 
 namespace auto_battlebot::remote {
 
-/**
- * Publishes the status topics in RemoteTopics::status to the relay and the MCAP recorder.
- *
- * Every status channel is advertised at construction, so a client sees the full list before the
- * first message. Throttling is UI pacing on std::chrono::steady_clock and never feeds control, so
- * it does not follow the playback clock. Thread-safe; publish() never blocks on the network.
- */
 class StatusBus {
    public:
     StatusBus(std::shared_ptr<VizSink> sink, std::shared_ptr<McapRecorder> recorder);

@@ -40,27 +40,6 @@ struct SelftestSpec {
     double tolerance = 1e-4;
 };
 
-/**
- * A model bundle directory, parsed and checked (plan section 12):
- *
- *     manifest.toml         policy kind, observation spec, decoder, execution, networks
- *     actor.rtneural.json   the network (NETWORK bundles)
- *     selftest.bin          observation and decoded-action pairs from PyTorch (NETWORK bundles)
- *
- * NETWORK bundles are written by auto_battlebot/rl/export/bundle.py. A CONSTANT bundle is written
- * by hand for the bench and the lockstep sim before a trained bundle exists. It has no networks,
- * decoder or self-test, only the action every tick:
- *
- *     format_version = 1
- *     run_id = "constant_forward"
- *     policy_kind = "CONSTANT"
- *     obs_spec_version = 1
- *     execution = "INLINE"
- *     policy_period_ticks = 5
- *
- *     [constant]
- *     action = [0.3, 0.0]   # linear, angular, normalized [-1, 1]
- */
 struct PolicyBundle {
     std::filesystem::path directory;
     int format_version = 0;

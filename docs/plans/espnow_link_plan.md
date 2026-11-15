@@ -1160,3 +1160,11 @@ Remaining, in order:
    proven instead.
 6. Run the Phase 1 OTA tests and, once the new PCBA is in, the latency, loss, ACK-rate, and
    path-agreement measurements. Get all of them before writing any of Phase 2.
+
+## Transmitter behavior notes
+
+- `EspNowTransmitter` sends autonomous velocity commands to Mr Stabs Mk2 through the ESP-NOW USB dongle, cutting the handset mixer and the Crossfire frame period out of the command path, and records the telemetry the robot sends back on `/robot/espnow_telemetry`.
+- Feedback and status come from the robot's telemetry, so it can run alone, with the handset talking only to the robot. Feedback is the drive command the robot used each tick, whichever source it took it from, mapped back to the channel values this class would send. Status reads SA (autonomy_enabled) and the robot's CRSF link from the same frames. There is no init button.
+- The firmware applies no slew limit. `max_motor_rpm_per_sec > 0` rate-limits the linear command in the host transmitter, the same way `OpenTxTransmitter` does; 0 sends commands to the wheels unlimited.
+- ESP-NOW carries no arm authority. The firmware substitutes the two channel values only after every CRSF gate passes and only while SA (ch5) enables autonomy, and falls back to the handset channels when they go stale.
+- Telemetry older than ten missed 100 Hz frames means the robot is not hearing us or not answering: no feedback, and status reports the channels as not receiving.

@@ -11,34 +11,6 @@
 
 namespace auto_battlebot {
 
-/**
- * @brief Measures how far each detection stands above the floor around it, and rejects the ones
- *        that do not stand above it at all.
- *
- * Two jobs, deliberately separable:
- *
- * 1. Measurement, always on. Each surviving keypoint carries the height measured at its own pixel,
- *    which RobotKeypointTracker and FrontBackKeypointConverter project with in place of the
- *    configured `keypoint_height_meters` constant. A keypoint that cannot be measured keeps NaN
- *    and falls back to the constant, so this has no false-negative risk.
- *
- * 2. Rejection, on by default, against the *local* relief: the top percentile inside the
- *    detection's inscribed circle minus the floor percentile of a ring around it. Comparing a
- *    detection with its own surroundings rather than with the fitted field plane cancels plane-fit
- *    error, plane drift and depth bias. On the 2026-08-29 MassD replay that lifts separation of
- *    arena-logo detections from moving ones to AUC 0.928, against 0.903 for absolute height.
- *
- * Two things this gate learned the hard way, both pinned by tests:
- *
- * - Sample inside the detection box, never at the keypoint pixels. Blob keypoints are the ends of
- *   a box midline and land on the floor beside a robot: mr_stabs_mk2 read -0.019 m at its keypoint
- *   pixels and +0.056 m over its box.
- * - Take an upper percentile, never a median. Even an inscribed circle holds floor alongside the
- *   robot, because the camera views the arena about 23 degrees off horizontal.
- *
- * The gate abstains rather than guesses. With no depth, no field transform, no detection box, or
- * too few valid samples in either region, the group passes through untouched.
- */
 class KeypointHeightGate {
    public:
     struct Stats {
@@ -77,9 +49,6 @@ class KeypointHeightGate {
     double height_at(const cv::Mat &depth, const CameraInfo &camera_info, const Plane &plane,
                      int col, int row) const;
 
-    /** Median height over the sample window centred on (x, y), for the per-keypoint annotation.
-     *  A median rather than a mean because depth bleeds across object edges, where the outliers
-     *  are hundreds of millimetres rather than a few. */
     double height_at_keypoint(const cv::Mat &depth, const CameraInfo &camera_info,
                               const Plane &plane, double x, double y) const;
 

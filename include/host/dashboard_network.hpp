@@ -4,10 +4,6 @@
 
 namespace auto_battlebot {
 
-/** The subnet install/install_dashboard_network.sh puts on the dashboard cable, 10.42.42.0/24.
- *  The box is 10.42.42.1. A routable private subnet rather than 169.254/16: iOS routes
- *  link-local traffic out its primary interface, so with Wi-Fi on the iPad sent the dashboard
- *  requests over Wi-Fi instead of the cable. */
 inline constexpr uint32_t kDashboardCableNet = 0x0A2A2A00;
 inline constexpr uint32_t kDashboardCableMask = 0xFFFFFF00;
 

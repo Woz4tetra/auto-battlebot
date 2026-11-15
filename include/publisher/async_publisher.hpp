@@ -27,7 +27,6 @@ namespace auto_battlebot {
  */
 class AsyncPublisher : public PublisherInterface {
    public:
-    /** A tick makes seven publish calls, so this holds about nine ticks. */
     static constexpr size_t kMaxPendingCalls = 64;
 
     explicit AsyncPublisher(std::shared_ptr<PublisherInterface> inner);

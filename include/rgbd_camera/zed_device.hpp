@@ -57,15 +57,6 @@ inline sl::DEPTH_MODE get_zed_depth_mode(DepthMode depth_mode) {
     throw std::invalid_argument("Unknown DepthMode value");
 }
 
-/**
- * Owns the ZED SDK handle and turns one grab into a CameraData.
- *
- * Knows nothing about threading, recording, replay, or reconnection: those differ between a live
- * camera and an SVO replay, and live in the two RgbdCameraInterface implementations that share
- * this class. What is here is everything both of them would otherwise have to duplicate, notably
- * the open() cancellation and leak-on-timeout handling, which is subtle enough that two copies
- * would drift.
- */
 class ZedDevice {
    public:
     enum class GrabStatus { Ok, TransientError, EndOfFile, Fatal };
@@ -97,21 +88,8 @@ class ZedDevice {
     /** Intrinsics and resolution, valid once open() has succeeded. */
     CameraInfo read_camera_info() const;
 
-    /** One zed_.grab(). Kept separate from retrieve() so a live camera can roll its SVO recorder
-     *  between the two, which is where the recorder needs to run. */
     GrabStatus grab();
 
-    /**
-     * Fills image, depth, pose, pose_tracking_ready, and the raw capture stamp.
-     *
-     * Depth comes back on every frame. grab() computes it regardless (RuntimeParameters
-     * ::enable_depth is always on), so retrieving it conditionally saved only the measure copy
-     * while costing the callers a flag to get wrong.
-     *
-     * Leaves frame_identity.video_frame_index alone: a live camera takes it from the
-     * file it is writing, a replay from the file it is reading. Stamps are the original capture
-     * time, so any rebasing is the caller's business.
-     */
     bool retrieve(CameraData &out);
 
     bool is_svo_input() const;
@@ -129,13 +107,6 @@ class ZedDevice {
     sl::Mat zed_rgb_;
     sl::Mat zed_depth_;
 
-    /** Where an SDK buffer sat last time, so retrieve() can report when one moves.
-     *
-     *  Chasing frames that came out cyclically rotated left by 235 px, which is 940 bytes at
-     *  4 bytes per pixel. A constant per-row shift like that is a moved base pointer, not a
-     *  stride mismatch, and the SDK reuses these Mats, so the geometry should never change
-     *  after the first frame. Silent in steady state: one line at startup, one only if
-     *  something moves. */
     struct BufferGeometry {
         size_t width = 0;
         size_t height = 0;

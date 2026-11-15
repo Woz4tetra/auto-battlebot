@@ -97,9 +97,6 @@ struct TrackedRobot {
                     y, yaw, image)
 };
 
-/** Where navigation is steering this cycle: an opponent in ATTACK, a safe point in RUN_AWAY, or
- *  the dashboard's held point while auto tracking is off. The segment runs from where navigation
- *  placed our robot, which may be a held stale track. */
 struct TargetMessage {
     double from_x = 0.0;
     double from_y = 0.0;

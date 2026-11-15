@@ -36,8 +36,6 @@ class RobotTemporalMotionFilter {
     std::map<FrameId, double> last_output_timestamp_per_frame_id_;
     std::map<FrameId, double> last_measured_timestamp_s_per_frame_id_;
     std::map<FrameId, RobotDescription> last_description_per_frame_id_;
-    // Fitted gains from the shared [plant] table. Only k_fwd, k_rev, and k_ang are read: the
-    // prediction holds one command flat over a frame, with no state to carry lag or coupling.
     JigPlantParams plant_;
 };
 }  // namespace auto_battlebot

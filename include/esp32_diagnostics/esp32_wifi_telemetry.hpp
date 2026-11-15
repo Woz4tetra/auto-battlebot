@@ -20,8 +20,6 @@ struct Esp32WifiTelemetryOptions {
     /** The robot's address, an IP literal: no DNS lookup happens here. */
     std::string host = "192.168.4.1";
     int port = 80;
-    /** Time between polls while caught up. The ring holds two minutes, so this only sets how
-     *  stale the newest row is when it lands, not whether rows are lost. */
     std::chrono::milliseconds poll_period{100};
     std::chrono::milliseconds retry_period{1000};
 };
@@ -41,17 +39,6 @@ struct Esp32WifiTelemetryStats {
     uint32_t ring_capacity = 0;
 };
 
-/**
- * Reads the Mr Stabs Mk2 firmware's telemetry ring over WiFi (`GET /telemetry`).
- *
- * A worker thread polls with the seq after the last record it holds, so a reply carries every
- * record since, and a link that drops costs time but no rows while the ring still holds them. The
- * first poll after start or a robot reboot only learns where the ring's head is: history from
- * before this client was listening is not replayed. Each record becomes an Esp32DiagnosticsEvent
- * stamped with the reply's arrival time. All but the newest row of a poll that caught up are
- * marked backfill, since their arrival time says when the poll ran, not when the robot sent them.
- * Nothing here blocks the caller on the network.
- */
 class Esp32WifiTelemetry {
    public:
     using ClockNs = std::function<uint64_t()>;

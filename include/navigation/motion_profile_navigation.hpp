@@ -10,36 +10,6 @@
 #include "time/clock_interface.hpp"
 
 namespace auto_battlebot {
-/**
- * @brief Motion-profiled tracker with inverse-plant feedforward and speed feedback.
- *
- * Stage 3 control law (control_improvement_plan.md, option 2). For a first-order drivetrain it
- * drives to the goal and arrives at a commanded terminal velocity without overrunning:
- *
- * The terminal velocity is per behavior mode: ATTACK drives through the opponent at full speed,
- * RUN_AWAY arrives stopped at the safe point. Both are configurable, and a mode flip resets the
- * trajectory state because the mission changed.
- *
- *  1. Distance-to-go velocity profile. The residual travel after commanding v_term on a first-order
- *     plant is ~ v*(tau_decel + latency), so the reference speed is capped at
- *     v_term + d/(tau_decel + latency): a coast-aware brake schedule derived from the measured
- *     plant, not a hand-tuned brake distance. Ramp-up is rate-limited for a clean launch.
- *  2. Inverse-plant feedforward. Maps the reference speed (m/s) back to a normalized command by
- *     dividing by max speed, adds tau_accel * dv/dt to overcome spin-up lag, divides out the
- *     steer-brake authority the turn is costing it, and applies exact inverse-deadzone.
- *  3. Speed PID feedback. Corrects plant-model error using our filtered speed, so open-loop
- *     feedforward accuracy and disturbance rejection stay separated. The feedback is dropped
- *     while our track is stale, because a dead-reckoned speed is a function of our own command
- *     and closing a loop on it is not feedback.
- *  4. Angular control in the same shape: turn-lock hysteresis, a PD on heading producing a
- *     yaw-rate reference in rad/s, then an inverse-plant feedforward through max_angular_speed
- *     with the regime-appropriate yaw time constant and the angular droop divided out.
- *
- * The two coupling compensations are mutually recursive: the droop term reads the linear command
- * and the steer-brake term reads the turn command. Each is driven by the previous tick's
- * UNCOMPENSATED counterpart, which breaks the loop. Feeding the compensated values back instead
- * has a loop gain above 1 and saturates both channels within a few ticks.
- */
 class MotionProfileNavigation : public NavigationInterface {
    public:
     MotionProfileNavigation(const MotionProfileNavigationConfiguration &config,
@@ -63,11 +33,6 @@ class MotionProfileNavigation : public NavigationInterface {
                                     const FieldDescription &field,
                                     std::optional<double> measured_speed, BehaviorMode mode);
 
-    /**
-     * @brief Terminal speed (m/s) for the driver's current mode: the configured fraction,
-     * clamped to [0, 1], times the plant's k_fwd. Normalized in config so a refit rescales
-     * it instead of leaving a hand-copied speed stale.
-     */
     double terminal_velocity_for(BehaviorMode mode) const;
 
     /**
@@ -101,13 +66,6 @@ class MotionProfileNavigation : public NavigationInterface {
 
     void reset_state();
 
-    /**
-     * @brief Clear the trajectory and integrator state that only makes sense within one mission:
-     * turn commitment, reference speeds, the speed integral, and the coupling history. Runs when
-     * a zero-velocity goal is reached and when the behavior mode flips, both of which start a new
-     * mission. Leaves the pose and speed memory alone, since those describe the robot rather than
-     * the mission.
-     */
     void reset_trajectory_state();
 
     double max_linear_speed_fwd_;
@@ -159,8 +117,6 @@ class MotionProfileNavigation : public NavigationInterface {
     double prev_speed_timestamp_ = 0.0;
     std::optional<Pose2D> last_known_our_pose_;
     Position2D our_footprint_center_offset_;
-    /** Last speed that came from a measurement, held through stale stretches so the latency lead
-     * keeps working while the speed feedback is off. */
     double last_measured_speed_ = 0.0;
     double prev_w_ref_ = 0.0;
     /**

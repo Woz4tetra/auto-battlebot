@@ -8,19 +8,6 @@
 #include "transform_utils.hpp"
 
 namespace auto_battlebot {
-/**
- * @brief Base for filters that fit the field once and then rebase it as the camera moves.
- *
- * `compute_field` runs at init and answers in the camera frame of that instant, which the filter
- * pins as camera-world. Every later frame rebases through the camera's motion since. Keeping one
- * definition of that rebase matters: each field re-init redefines field -> camera_world, and when
- * two filters carried their own copy the sparse mask topics let Foxglove project a stale mask
- * through the new camera pose. `scripts/fix_field_mask_frames.py` exists to repair recordings
- * that hit it.
- *
- * On a clamped RGB camera `tf_visodom_from_camera` is identity and the rebase is a no-op, which
- * is the point: nothing to drift.
- */
 class CameraWorldFieldFilter : public FieldFilterInterface {
    public:
     void reset(TransformStamped tf_visodom_from_camera) override {

@@ -17,11 +17,6 @@ struct NavigationConfiguration {
     virtual ~NavigationConfiguration() = default;
     virtual void parse_fields([[maybe_unused]] ConfigParser &parser) {}
 
-    /**
-     * Hand over the shared [plant] table, after parse_fields. Separate from parsing because the
-     * plant is a top-level section: this config's own parser never sees it. Controllers that do
-     * not model the plant (pursuit, fixed velocity) keep the no-op.
-     */
     virtual void apply_plant([[maybe_unused]] const PlantConfiguration &plant) {}
 
     virtual void apply_robot_filter([[maybe_unused]] const RobotFilterConfiguration &robot_filter) {
@@ -92,14 +87,6 @@ struct PursuitNavigationConfiguration : public NavigationConfiguration {
      * turn; the plant/transmitter scales it by max_angular_speed). 0 = no limit. */
     double max_angular_command = 0.0;
 
-    // --- Hazard avoidance ---
-    //
-    // Only the last-ditch reverse is wired into pursuit. The velocity barrier is stated in m/s
-    // against the plant fit, and pursuit closes its loops in normalized command against an
-    // unfitted plant, so there is no honest envelope to enforce here; that lives in
-    // MotionProfileNavigation. The tangent fields below ride along in the shared settings
-    // struct but pursuit does not call steer_around. See docs/hazard_avoidance.md.
-
     /** Steer at a tangent point on a blocking hazard's rim instead of at the true goal
      * (option 4, the primary response). Costs nothing in navigation: both controllers only ever
      * chase a Pose2D. */
@@ -126,14 +113,6 @@ struct PursuitNavigationConfiguration : public NavigationConfiguration {
      * now aims at where it was. */
     double hazard_prediction_horizon_s = 0.25;
 
-    /** Distance (m) from a hazard edge inside which linear_x is overridden to reverse, when the
-     * heading also points at it. 0 = disabled.
-     *
-     * This is a stopping response, and the numbers say it will fire too late to save a
-     * full-speed approach: it is a backstop for what the steering layer cannot solve, mainly a
-     * hazard that appears close because the house bot drove into our path or its track
-     * initialised late. If a sweep shows it firing often, that is evidence options 3 and 4 are
-     * mistuned, not evidence this is working. */
     double hazard_reverse_distance = 0.12;
 
     /** Heading must point within this angle (rad) of the hazard for the reverse to trigger. */
@@ -196,15 +175,6 @@ struct FixedVelocityNavigationConfiguration : public NavigationConfiguration {
 };
 
 struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
-    // --- Plant parameters ---
-    //
-    // The measured drivetrain, stamped in by apply_plant from the shared top-level [plant] table
-    // rather than parsed from [navigation]. The controller inverts the same fit the our-robot EKF
-    // propagates, so both read one table: k_fwd / k_rev are the divisors mapping a reference speed
-    // back to a normalized command, tau_lin_a feedforwards dv/dt against spin-up lag, tau_lin_d
-    // and delay_s set the brake horizon, c_sb is the steer-brake loss the controller divides back
-    // out, and dz_ang_l / dz_ang_r turn a commanded turn into the effective turn the coupling
-    // terms are defined against.
     JigPlantParams plant;
 
     /** Residual command deadzone (0..1 fraction) the plant still shows. Exact inverse-deadzone is
@@ -217,16 +187,7 @@ struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
      * bounded feedforward derivative. Braking (falling reference) is never rate-limited. */
     double accel_limit = 8.5;
 
-    /** Floor on the steer-brake authority multiplier. 1/c_sb = 0.370 is where the fitted linear
-     * loss reaches zero and where the fit's own residuals say the shape stops describing the
-     * plant, so the compensation saturates here instead of extrapolating into a singularity. */
     double steer_brake_floor = 0.3;
-
-    // Commanded terminal speed at the goal, one per behavior mode: the driver's switch decides
-    // whether the mission is to hit something or to get away from it, and those want opposite
-    // arrivals. Both are a fraction of the plant's k_fwd, clamped to [0, 1]: 0 is a precise
-    // zero-velocity stop and 1 is full speed. Normalized rather than m/s so a refit rescales
-    // them instead of leaving a hand-copied speed stale.
 
     /** Terminal speed while the driver has ATTACK selected, as a fraction of the plant's k_fwd. */
     double attack_terminal_speed_fraction = 1.0;
@@ -245,27 +206,8 @@ struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
     /** Integral gain on speed error. 0 = P-only. */
     double speed_ki = 0.0;
 
-    // --- Angular control ---
-    //
-    // Closed in rad/s, the same shape as the linear channel: a PD sets a yaw-rate reference, an
-    // inverse-plant feedforward turns it into a normalized command through the plant's k_ang and
-    // the regime-appropriate tau_ang_a / tau_ang_d. PursuitNavigation's angular gains are NOT
-    // interchangeable with these; there they are normalized command per radian, here they are
-    // rad/s per radian, a factor of k_ang apart.
-
-    /** Compensate the plant's angular droop, the fit's c_ad = 0.463: the plant multiplies yaw
-     * authority by (1 - c_ad*|u_lin_eff|), so the heading loop is weaker at speed than in place.
-     *
-     * Defaults OFF even though the coefficient is measured, because compensating it makes the
-     * controller worse. On the 90-degree turning approach, enabling it takes terminal error from
-     * 0.008 m to 0.067 m and time-to-goal from 1.10 s to 2.83 s. Compensating buys faster heading
-     * convergence by commanding a harder turn, and a harder turn is exactly what the steer-brake
-     * term charges forward speed for. The heading loop is closed-loop already and gets there
-     * without the help; the forward speed it spends is not refunded. */
     bool compensate_angular_droop = false;
 
-    /** Floor on the droop multiplier. c_ad = 0.463 never reaches zero, so this is a guard against
-     * a refit pushing the coefficient past 1, not a shape limit like steer_brake_floor. */
     double angular_droop_floor = 0.3;
 
     /** Proportional gain on heading error (rad/s per rad). */
@@ -303,18 +245,6 @@ struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
     /** Only reverse off a wall when heading is within this angle (rad) of facing it. */
     double wall_heading_threshold = 0.6;
 
-    // --- Hazard avoidance ---
-    //
-    // Two aim layers and one speed rule. The aim layers keep the goal legal (clamp_to_field
-    // pushes it out of every keep-out) and steer a tangent around whatever blocks the run to
-    // it, both against the fat inflated radius. The velocity barrier is the only speed rule:
-    // the approach-speed component toward every hazard is limited to what the plant can shed in
-    // the remaining gap to the hard radius, applied to the final command against measured
-    // speed, so neither the angle gate nor a wall reverse can carry the robot in. It replaced
-    // the steering speed cap, the stop-at-rim brake, and the fixed hazard reverse after the
-    // 2026-08-28 AER recording showed all three losing to a blocked-push spin-up and an
-    // angle-gated coast. See docs/hazard_avoidance.md.
-
     /** Steer at a tangent point on a blocking hazard's rim instead of at the true goal
      * (option 4, the primary response). Costs nothing in navigation: both controllers only ever
      * chase a Pose2D. */
@@ -348,11 +278,6 @@ struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
 
     MotionProfileNavigationConfiguration() { type = "MotionProfileNavigation"; }
 
-    /**
-     * Every plant term this controller inverts comes from the fit, so there is nothing sensible
-     * to fall back on when the table is missing: a defaulted plant would brake and feedforward
-     * against a drivetrain no experiment measured.
-     */
     void apply_plant(const PlantConfiguration &plant_config) override {
         if (!plant_config.params.has_value()) {
             throw ConfigValidationError(
@@ -412,12 +337,6 @@ struct RlPolicyNavigationConfiguration : public NavigationConfiguration {
      * the filter's 0.1 s stale age, so one or two dropped frames do not interrupt the policy. */
     double max_our_unmeasured_s = 0.15;
 
-    /** Run MotionProfileNavigation's hazard velocity barrier (HazardAvoidance::limit_command) on
-     * the policy's command every tick. Off by default, so a policy trained to see hazards only as
-     * observations drives unedited. Mrs Buff Mk3's policies still drove into holes in about 2 of
-     * 128 lockstep episodes after the dense near-hole penalty (jobs 62 and 64), while the motion
-     * profile with this barrier dropped none. Needs the top-level [plant] table for the stopping
-     * envelope. */
     bool hazard_barrier_enable = false;
 
     /** Seconds ahead to advance a tracked hazard along its velocity, as in the motion profile. */

@@ -5,10 +5,6 @@
 
 namespace auto_battlebot {
 
-/**
- * Image controls a camera can change while it streams, in the ZED SDK's own units so a profile
- * goes to setCameraSettings unconverted. The dashboard converts for display.
- */
 struct CameraSettings {
     /** On: the SDK's AEC/AGC owns exposure and both gains, and the three values below are what
      *  it last chose. Off: they are applied as given. */

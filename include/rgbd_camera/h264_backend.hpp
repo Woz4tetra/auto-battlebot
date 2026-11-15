@@ -36,8 +36,6 @@ std::unique_ptr<H264Backend> open_ffmpeg_h264(const std::string &codec,
 bool ffmpeg_h264_registered(const std::string &codec);
 
 #ifdef AUTO_BATTLEBOT_HAVE_GSTREAMER
-/** nvv4l2h264enc through GStreamer. nullptr when an element is missing or the pipeline does not
- *  reach PLAYING, which is where nvv4l2h264enc opens the encoder device. */
 std::unique_ptr<H264Backend> open_gst_nvv4l2_h264(const VideoEncoderOptions &options,
                                                   H264Backend::PacketSink sink);
 bool gst_nvv4l2_h264_installed();

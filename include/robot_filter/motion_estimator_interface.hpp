@@ -19,15 +19,6 @@ struct MotionEstimatorContext {
     double our_robot_hold_window_s = 0.0;
 };
 
-/**
- * The propagation seam inside RobotFrontBackFilter: owns per-track motion state between the
- * association front-end (keypoint conversion, blob merging, FrameId assignment) and the emitted
- * RobotDescriptions. Implementations swap the state estimation strategy (dead reckoning vs
- * Kalman) without touching association.
- *
- * Call pattern mirrors RobotFilterInterface: predict() at control rate, update() at perception
- * rate, and the two are not in lockstep.
- */
 class MotionEstimatorInterface {
    public:
     virtual ~MotionEstimatorInterface() = default;
@@ -46,11 +37,6 @@ class MotionEstimatorInterface {
         return std::nullopt;
     }
 
-    /**
-     * How far past `now` coast() renders. Consumers steer by a state that has to describe the
-     * field at the moment the command they are about to compute actually reaches the wheels, not
-     * at the moment the shutter closed. Returning 0 means coast() renders at `now`.
-     */
     virtual double render_lead_s() const { return 0.0; }
 };
 

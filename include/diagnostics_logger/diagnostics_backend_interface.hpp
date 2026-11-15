@@ -16,8 +16,6 @@ constexpr int8_t ERROR = 2;
 constexpr int8_t STALE = 3;
 }  // namespace DiagnosticLevel
 
-/** One flattened diagnostics value. Numbers stay numbers all the way to the recording; only
- *  the UI stringifies, at render time. */
 using DiagnosticScalar = std::variant<int, double, std::string>;
 
 std::string diagnostic_scalar_to_string(const DiagnosticScalar &value);

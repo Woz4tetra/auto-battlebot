@@ -11,18 +11,6 @@
 #include "diagnostics_logger/diagnostics_utils.hpp"
 
 namespace auto_battlebot {
-/**
- * @brief A logger for a specific module that accumulates diagnostic information.
- *
- * This class should not be used directly; instead, use DiagnosticsLogger
- * to manage multiple module loggers.
- *
- * Subsections are sticky. Each publish window (the span between two clear() calls) starts a
- * subsection over on its first log, then merges later logs into it. A subsection not logged in
- * the current window keeps its last values and is reported as held, with its age, until
- * HELD_SECTION_EXPIRY passes without a log. So a module that logs one subsection per send and
- * another only on change publishes both in every message instead of alternating between them.
- */
 class DiagnosticsModuleLogger {
    public:
     using TimeSource = std::function<std::chrono::steady_clock::time_point()>;
@@ -87,8 +75,6 @@ class DiagnosticsModuleLogger {
 
     std::string logger_name_;
     TimeSource now_;
-    // Guards sections_. A module logger has two writers: the control thread logging, and the
-    // Runner thread clearing during DiagnosticsLogger::publish().
     mutable std::mutex mutex_;
     std::map<std::string, Section> sections_;
 };

@@ -21,15 +21,6 @@ struct BatchResult {
     double robot_blob_model_elapsed_ms = 0.0;
 };
 
-/**
- * @brief Runs the keypoint model and the robot blob model in parallel on two persistent
- * worker threads, joining on both before returning.
- *
- * Depends only on the model interfaces, so any implementation selected by the factories
- * (TensorRT, noop, ...) stays swappable without changes here. Worker threads are created
- * once at construction and woken per tick via a condition variable, mirroring the ZED
- * producer/consumer handshake, to avoid per-frame thread creation in the hot loop.
- */
 class ParallelModelBatch {
    public:
     ParallelModelBatch(std::shared_ptr<KeypointModelInterface> keypoint_model,

@@ -18,17 +18,6 @@ namespace remote {
 class StatusBus;
 }
 
-/**
- * Host-side jobs the loop must never wait on: opening the dashboard to Wi-Fi and reading the
- * network addresses the System tab shows.
- *
- * One worker thread. set_wifi_access() queues the request and returns; the worker runs
- * `systemctl start|stop dashboard-wifi.service`, which a polkit rule from
- * install/install_dashboard_network.sh lets the app user do for that unit only. The setting
- * persists in `state_file` and is applied again at startup, so a phone reaches the box after a
- * reboot without the iPad. The worker publishes /status/network after each change and every
- * `refresh_period`.
- */
 class HostServices {
    public:
     using SystemctlRunner = std::function<int(const std::string& verb, const std::string& unit)>;
@@ -53,8 +42,6 @@ class HostServices {
 
     remote::NetworkMessage network() const;
 
-    /** $HOME/.local/state/auto_battlebot/wifi_access. Under $HOME, not config/, because a deploy
-     *  overwrites the repo tree. */
     static std::filesystem::path default_state_file();
 
     /** `systemctl --no-ask-password <verb> <unit>`, so a missing polkit rule fails instead of

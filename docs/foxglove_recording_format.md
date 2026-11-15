@@ -423,3 +423,69 @@ keeps them across app reconnects when the schema is unchanged. It serves one app
 second app connecting while one is attached is accepted and closed at once (the app's sink
 retries quietly every second), so a dev replay next to a service instance cannot fight over the
 relay.
+
+## Design notes from the headers
+
+### Frame identity
+
+`FrameIdentity` says which camera frame a piece of pipeline output came from. `Header::stamp` is a double, so it cannot carry a nanosecond stamp losslessly; `image_stamp_ns` keeps the raw integer, which relates a video frame to the pipeline messages around it without decoding anything. `video_frame_index` is the ordinal of the frame within the video stream, so `start_frame` on playback has an unambiguous meaning across a rollover boundary. There is no path field: video lives on `/camera/video` inside the same MCAP as the pipeline output, so there is no second file to join to.
+
+### Detections
+
+Raw detector output (`/blob_detections`, `/keypoint_detections`) is captured in original-image pixel coordinates before the blob/keypoint collapse, so offline tools can score the model itself. The JSON payload is `{"stamp":<sec>,"w":<px>,"h":<px>,"dets":[{"x1","y1","x2","y2","conf","class_id","label","kps"}]}`.
+
+### Behavior mode and targets
+
+The control loop snapshot carries the behavior mode that produced the target, so the UI and MCAP recordings can tell a run-away target from an attack selector gone haywire. The target segment on the remote status topic is where navigation is steering this cycle: an opponent in ATTACK, a safe point in RUN_AWAY, or the dashboard's held point while auto tracking is off. The segment runs from where navigation placed our robot, which may be a held stale track.
+
+### Hazards topic
+
+Keep-out discs are published every cycle at the inflated radius the controller steers on, unlike the field border which is published once, because tracked hazards move and a replay has to be able to say what the controller knew.
+
+### Diagnostics values
+
+A diagnostics value stays typed: numbers stay numbers all the way to the recording, and only the UI stringifies at render time. The Foxglove backend publishes one JSON channel per module, `/diagnostics/<module>`, keyed by subsection so a Foxglove plot path cannot silently retarget when a module first logs mid-run.
+
+Subsections are sticky. Each publish window (the span between two `clear()` calls) starts a subsection over on its first log, then merges later logs into it. A subsection not logged in the current window keeps its last values and is reported as held, with its age, until `HELD_SECTION_EXPIRY` (10 s) passes without a log. A module that logs one subsection per send and another only on change therefore publishes both in every message. A module logger has two writers (the control thread logging, and the Runner thread clearing during `DiagnosticsLogger::publish()`), so a mutex guards the sections.
+
+### ESP32 diagnostics rows
+
+- `seq` is the firmware's row counter, +1 per row sent. A gap means rows were dropped between the robot and the host. It is empty on firmware that predates the field.
+- `backfill` is set on rows read from the firmware's telemetry ring (`GET /telemetry`): true when the row arrived later than it would have live, because it waited in the ring for the poll or for the link to come back. Its `host_receive_ns` then overstates the delivery delay, so clock fits skip it. It is empty on rows from the event stream.
+- `OpenTxTransmitter` with diagnostics wraps the radio side untouched. An `Esp32WifiTelemetry` worker polls the firmware's telemetry ring, and `update()` drains what arrived since the last tick into one `/robot/esp32_diagnostics` JSON message per 100 Hz record, logged at the host arrival time. Link health goes to the `esp32_diagnostics` diagnostics module once a second.
+
+### Camera world rebase
+
+Field filters that fit once and rebase as the camera moves share one rebase definition. `compute_field` runs at init and answers in the camera frame of that instant, which the filter pins as camera-world; every later frame rebases through the camera's motion since. Each field re-init redefines field to camera_world, and when two filters carried their own copy the sparse mask topics let Foxglove project a stale mask through the new camera pose. `scripts/fix_field_mask_frames.py` repairs recordings that hit it. On a clamped RGB camera `tf_visodom_from_camera` is identity and the rebase is a no-op.
+
+### AprilTag recording
+
+The AprilTag keypoint model searches a window around the last detection (the full frame when there is none or the window finds nothing), solves both IPPE poses for each robot tag, and records the raw measurement on `/apriltag/robot_tags`, frames without a detection included, so the corners can be re-solved offline. It then composes the chosen tag pose with the tag's mounting, projects the configured front and back body points into the image, and returns them labeled MR_STABS_MK2 with their height above the floor, the same shape the YOLO model produces.
+
+### Recorder
+
+- `McapRecorder` writes already-encoded messages with the Foxglove SDK writer. Callers open a channel once per topic and write bytes against it. The recorder is the single gate on what lands in the file: `enabled_` (toggled from the UI) and the configured ignored topics. Producers can ask `records_topic()` before doing expensive encoding.
+- Every file operation runs on one writer thread. `write()` copies the message into a queue and returns, and `set_enabled()` queues the open or close. No caller waits on the disk, so a file closing, old recordings being deleted, or a slow write cannot stall the tick, the control thread, or a thread that logs. `mutex_` only guards the queue and the gate, never I/O, and no code logs while holding it. The writer thread touches `writer_`, `context_` and `channels_`, which only it uses, and takes `mutex_` only to copy shared state.
+- `enabled_hint_` mirrors `enabled_` so `write()` can skip the copy without the lock while recording is off.
+- Queue cap: queued bytes past which `write()` drops a message instead of growing the queue. Messages over `kLargeMessageBytes` (video, images) hit the lower cap, so a disk that falls behind costs frames before it costs status, state and log messages. At the ZED Box's 30 Mbps the lower cap is about 30 s of video.
+- Rollover: when the current file reaches `max_size_gb` the runner rolls over by turning recording off and on, so the camera's encoder restarts with it: the new file opens on an IDR with frame indices from zero. Switching files under a running encoder started mid-GOP.
+- File-level metadata sits alongside `active_profile`. `calibration_id` says which calibration rectified a recording's frames so a revised one can be applied later.
+- MCAP metadata key (under the `auto_battlebot` record) holds the calibration a recording's `/camera/video` needs, as the same TOML text a `config/cameras/` file holds. With it the recording replays without a sidecar file.
+
+### Video playback camera
+
+`VideoPlaybackCamera` replays `/camera/video` out of a pipeline recording. It is synchronous like the SVO playback camera: `get()` decodes on the caller's thread, so every frame reaches the pipeline in order and none are skipped. Reproducible replay is what regression testing rests on. It reads three channels and ignores the rest: everything else in the file (markers, detections, diagnostics, log) is the previous run's output, which replay exists to regenerate. MCAP indexes channels, so filtering at the reader means those messages are never deserialized. `depth` comes back empty, `tf_visodom_from_camera` is identity, and `pose_tracking_ready` is true.
+
+### Publisher
+
+- `AsyncPublisher` queue: a tick makes seven publish calls, so the queue holds about nine ticks.
+- `/camera/preview` is a downscaled JPEG for the web dashboard. Live only, never recorded.
+
+### Status bus
+
+`StatusBus` publishes the status topics in `RemoteTopics::status` to the relay and the MCAP recorder. Every status channel is advertised at construction, so a client sees the full list before the first message. Throttling is UI pacing on `std::chrono::steady_clock` and never feeds control, so it does not follow the playback clock. `/status/app` repeats every 5 s so a relay that connects late still gets it. `/status/network` is paced by `HostServices` (after each change and every 5 s) and `/status/battery` by `BatteryMonitor` (once a second), so the bus does not throttle either.
+
+### Relay socket framing
+
+- Client channels are per-connection on the relay side, so a frame from a Foxglove client carries the topic rather than a channel id.
+- The default socket path is a fixed `/tmp` path rather than `$XDG_RUNTIME_DIR`, so the systemd unit for the relay and the one for the app agree without sharing environment, and so the docker playback container (which runs both) needs no extra mount.

@@ -8,17 +8,6 @@
 #include "mask_model/mask_model_interface.hpp"
 
 namespace auto_battlebot {
-/**
- * @brief "Free roam" mask model: selects field pixels with classical heuristics instead of a
- * segmentation model, so PointCloudFieldFilter can fit whatever flat surface the camera points at.
- *
- * Two composable selectors, ANDed together to form the mask:
- * - Center ROI: centered rectangle covering roi_fraction of the frame (1.0 = full frame).
- * - Seeded color match: the median Lab color of a small center patch is the reference, and the
- *   whole frame is thresholded per channel against it. Lighting gradients and shadows mostly move
- *   L, so tolerance_l is set very loose while tolerance_ab stays tighter. Downstream RANSAC
- *   rejects same-colored non-plane pixels, so the mask only needs to be roughly right.
- */
 class FreeRoamMaskModel : public MaskModelInterface {
    public:
     explicit FreeRoamMaskModel(const FreeRoamMaskModelConfiguration &config);

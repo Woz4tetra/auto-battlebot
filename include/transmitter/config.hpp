@@ -80,11 +80,7 @@ struct OpenTxTransmitterConfiguration : public TransmitterConfiguration {
     double lifted_deadzone_percent = 0.0;
     /** Input magnitude (%) below which output is forced to zero. */
     double zero_deadzone_percent = 0.0;
-    double max_motor_rpm = 1500.0;  // Max output shaft RPM
-    /** Max output-shaft angular acceleration (RPM/s). Slew-limits the linear command so the wheel
-     *  surface acceleration stays below the slip/flip threshold: the measured 8.5 m/s^2 limit is
-     *  8.5 * 60 / (pi * 0.05) ~= 3247 RPM/s. 0 = disabled, the default: no profile limits, so the
-     *  plant is characterized and the RL policy trained without one. */
+    double max_motor_rpm = 1500.0;
     double max_motor_rpm_per_sec = 0.0;
 
     /** Combined output budget: |linear| + |angular| <= limit.

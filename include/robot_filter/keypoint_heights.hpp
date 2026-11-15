@@ -6,11 +6,6 @@
 
 namespace auto_battlebot {
 
-/**
- * @brief Height of tracked keypoints above the field plane, used to correct the radial bias of
- *        flat-plane projection. Heights are per robot label with a shared default for labels
- *        without an explicit entry. A height of 0.0 disables the correction.
- */
 struct KeypointHeights {
     double default_meters = 0.0;
     std::unordered_map<Label, double> per_label_meters;

@@ -11,12 +11,6 @@
 
 namespace auto_battlebot::rl_policy {
 
-/**
- * The pairs in selftest.bin, written by auto_battlebot/rl/export/bundle.py. Little-endian: the
- * bytes "RLST", uint32 version (1), uint32 pair count N, uint32 observation size D, uint32 action
- * size A, then N x D float32 observations, then N x A float32 decoded actions
- * (`scale * tanh(network output)`), both row-major.
- */
 struct SelftestPairs {
     uint32_t count = 0;
     uint32_t observation_size = 0;

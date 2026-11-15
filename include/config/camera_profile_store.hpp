@@ -14,12 +14,6 @@ struct CameraProfile {
     CameraSettings settings;
 };
 
-/**
- * Named camera profiles saved on this box, in one TOML file under $HOME so a deploy never
- * clobbers venue tuning. DEFAULT is built in, always listed first, and means "what the camera
- * opened with"; it is never written to the file. Nothing records which profile was active: the
- * app starts on DEFAULT every time.
- */
 class CameraProfileStore {
    public:
     static constexpr const char *kDefaultName = "DEFAULT";

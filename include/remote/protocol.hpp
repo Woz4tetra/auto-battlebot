@@ -35,9 +35,6 @@ struct CommandTopic {
     std::string_view topic;
 };
 
-// /status/app repeats every 5 s so a relay that connects late still gets it. /status/network is
-// paced by HostServices itself (after each change and every 5 s), and /status/battery by
-// BatteryMonitor (once a second), so the bus does not throttle either.
 struct RemoteTopics {
     static constexpr auto status = std::tuple{
         StatusTopic<SystemStatusMessage>{"/status/system", Latch::NO, 10.0},

@@ -18,13 +18,6 @@ namespace remote {
 class StatusBus;
 }
 
-/**
- * Reads the robot computer's battery on its own thread and publishes /status/battery.
- *
- * Each period it takes one sample, steps the estimator, logs the `battery_ina219` diagnostics,
- * and publishes. An I2C read can take tens of milliseconds, which is why this never runs on the
- * main loop. Construct it after DiagnosticsLogger::initialize, or the diagnostics are dropped.
- */
 class BatteryMonitor {
    public:
     /** Read one battery sample; false on failure. */

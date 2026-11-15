@@ -40,20 +40,6 @@ struct HazardBarrierResult {
     double bound_mps = std::numeric_limits<double>::infinity();
 };
 
-/** The hazard layers that PursuitNavigation and MotionProfileNavigation share.
- *
- * Two aim layers and one speed rule. The aim layers (steer_around, plus the goal push-out the
- * controllers run in clamp_to_field) plan against the fat `inflated_radius_m`. The speed rule
- * (limit_command) is a directional velocity barrier against the thin `hard_radius`: per hazard,
- * the velocity component toward it may not exceed gap / (tau_decel + delay), which is exactly
- * the stopping envelope the plant can follow. One rule replaces the old steering speed cap, the
- * stop-at-rim brake, and the fixed hazard reverse, and it composes across hazards: each hazard
- * only constrains the velocity component toward itself, so backing away from one is
- * automatically speed-limited by the one behind.
- *
- * Holds the only cross-tick state the layers need: the latched pass side, so the robot does not
- * re-pick a side every tick and cut back across the hazard it was rounding.
- */
 class HazardAvoidance {
    public:
     explicit HazardAvoidance(HazardAvoidanceSettings settings);

@@ -10,15 +10,6 @@
 #include "enums/label.hpp"
 
 namespace auto_battlebot {
-/**
- * Configuration for mapping Labels to their corresponding KeypointLabels
- * Parses TOML format (array of tables for guaranteed order):
- * [[section]]
- * label = "LABEL_NAME"
- * keypoints = ["KEYPOINT_LABEL_1", "KEYPOINT_LABEL_2"]
- *
- * Uses ordered storage to ensure indices match model class order
- */
 struct LabelToKeypointMapConfiguration {
     std::vector<std::pair<Label, std::vector<KeypointLabel>>> label_to_keypoints;
 

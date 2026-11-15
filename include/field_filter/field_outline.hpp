@@ -8,9 +8,6 @@ namespace auto_battlebot {
 cv::Mat find_largest_contour_mask(const cv::Mat &mask);
 
 struct FieldOutlineParams {
-    /** Contour points this close to the frame edge are dropped before the edge fit. They sit
-     *  where the field crosses the image border, not where the field ends, and a line fitted
-     *  through them is the border rather than the mat edge. */
     int border_margin_px = 2;
     int refine_iterations = 4;
     /** Fraction of each side dropped at both ends, as belonging to the mat's rounded corners. */
@@ -41,8 +38,6 @@ struct FieldOutline {
      *  as support. It is the number that says a fit should be distrusted. */
     std::array<double, 4> side_rms_px{-1.0, -1.0, -1.0, -1.0};
     int supported_sides = 0;
-    /** Mask area over quad area. Above ~1.05 the outline is not the quadrilateral the fit
-     *  assumes, so at least one side is not a field edge. Reprojection error cannot see this. */
     double mask_over_quad_area = 0.0;
 };
 

@@ -7,21 +7,6 @@
 #include "tensorrt_inference/trt_engine.hpp"
 
 namespace auto_battlebot {
-/**
- * Picks the engine file that runs on this machine's GPU.
- *
- * A TensorRT engine is compiled ahead of time against one GPU architecture and one
- * TensorRT version, and it is not portable across either. Deserializing a mismatched
- * engine fails with "the engine plan file is not compatible with this version of
- * TensorRT", which names the version even when the real mismatch is compute capability,
- * and says nothing about what the machine is or what was tried.
- *
- * Selection asks TensorRT rather than parsing the sm tag out of the filename: the first
- * candidate that deserializes on this device is the correct one. Filenames stay purely
- * descriptive.
- *
- * One instance per model that loads engines; the model factories construct them.
- */
 class EngineSelector {
    public:
     EngineSelector(EngineSelectorConfiguration config, std::string owner);

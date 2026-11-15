@@ -25,8 +25,6 @@ class OpenCvJpegEncoder : public JpegEncoderInterface {
     std::vector<uint8_t> buffer_;
 };
 
-/** The Jetson's NVJPG engine when this build has it and it opens, then OpenCV. Logs which one
- *  it picked. No config field: where NVJPG exists it is always the right choice. */
 std::unique_ptr<JpegEncoderInterface> make_jpeg_encoder();
 
 }  // namespace auto_battlebot

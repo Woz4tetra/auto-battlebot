@@ -39,8 +39,6 @@ class HealthLogger {
     uint64_t heartbeat_ticks_ = 0;
     double max_tick_ms_ = 0.0;
 
-    // Jetson power telemetry: INA3221 VDD_IN rail + soctherm over-current event counters.
-    // Paths are discovered once by hwmon name (indices shift across boots); empty = unavailable.
     bool power_hwmon_scanned_ = false;
     std::string vdd_in_voltage_path_;
     std::string vdd_in_current_path_;

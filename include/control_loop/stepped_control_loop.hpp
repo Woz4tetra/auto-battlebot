@@ -23,7 +23,6 @@ class SteppedControlLoop : public ControlLoopInterface {
 
     void stop() override {}
 
-    /** Read inline, so a single-threaded run reads the transmitter before the camera grab. */
     void pump_input() override { loop_->pump_input(); }
 
     void advance_to(double until) override;

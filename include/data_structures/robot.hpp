@@ -30,16 +30,9 @@ struct RobotDescription {
     Size size;
     std::vector<Position> keypoints = std::vector<Position>();
     Velocity2D velocity;
-    /** Footprint of the robot. For labels listed in [robot_filter.robot_size_meters_per_label]
-     * this is the known dimensions, not the detector's box; the box that was measured is logged
-     * to the `detected_size` diagnostics channel instead of being carried here. */
     bool is_stale = false;
     PoseUncertainty uncertainty;
     double measurement_age_s = 0.0;
-    /** Centre of the robot's footprint in its body frame (x forward, y left), in metres from
-     *  `pose`. `pose` is the point control tracks, our robot's axle; hazard and clearance checks
-     *  measure from the footprint centre instead, through footprint_center(). Set per label from
-     *  [robot_filter.footprint_center_offset_per_label]; zero where the pose is the centre. */
     Position2D footprint_center_offset{};
 };
 

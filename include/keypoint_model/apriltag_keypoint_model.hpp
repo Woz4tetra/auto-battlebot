@@ -33,9 +33,6 @@ struct TagMount {
     cv::Matx33d rotation_body_tag = cv::Matx33d::eye();
     cv::Vec3d translation_body_tag{0.0, 0.0, 0.0};
     bool printed_face_up_body_z = true;
-    /** Floor up in the body frame while the robot rests with this tag showing. Upright it leans
-     *  back by the rest pitch (the robot sits nose down on its wedge tip); upside down it is body
-     *  -z, since the resting pitch on the top face is unmeasured. */
     cv::Vec3d floor_up_body{0.0, 0.0, 1.0};
 };
 
@@ -47,29 +44,9 @@ cv::Vec3d floor_up_from_tag_pose(const TagPoseSolution &solution, const TagMount
  *  of a steeply viewed tag can put it below, which no real frame does. */
 bool camera_above_floor(const TagPoseSolution &solution, const TagMount &mount);
 
-/**
- * Index of the IPPE solution to trust, from `solutions` sorted by reprojection error.
- *
- * A solution that puts the camera under the floor is dropped when the other does not. Of the
- * rest, the one whose implied floor up lies closest to the reference wins: the other IPPE
- * solution is the planar flip, which tilts the robot off the floor. The reference is
- * `floor_up_camera` when known. Without it the reference is camera -z, right for an overhead
- * camera and up to the tripod tilt off otherwise, so it only decides when the two solutions
- * differ by more than 15 degrees against it. Otherwise, or when the two lie within 2 degrees of
- * a known floor, the lowest reprojection error wins.
- */
 size_t select_ippe_solution(const std::vector<TagPoseSolution> &solutions, const TagMount &mount,
                             const std::optional<cv::Vec3d> &floor_up_camera);
 
-/**
- * Learns the floor's up direction in the (fixed) camera frame from the tags themselves.
- *
- * Every frame gives two candidates, one per IPPE solution. The right ones all agree, since the
- * robot drives on one floor; the flipped ones move with the robot's position and heading. Until
- * one direction has the support of most frames and no rival cluster does, estimate() stays empty
- * and selection falls back to reprojection error. After that it tracks slowly, so a wheelie or
- * a flip does not drag it.
- */
 class FloorNormalEstimator {
    public:
     void add_frame(const std::vector<cv::Vec3d> &candidates);
@@ -83,16 +60,6 @@ class FloorNormalEstimator {
     std::optional<cv::Vec3d> estimate_;
 };
 
-/**
- * Keypoints for Mr Stabs Mk2 from its AprilTags, for sessions where the tag is ground truth.
- *
- * Per frame it searches a window around the last detection (the full frame when there is none,
- * or when the window finds nothing), solves both IPPE poses for each robot tag, and records the
- * raw measurement on `/apriltag/robot_tags`, frames without a detection included, so the corners
- * can be re-solved offline. It then composes the chosen tag pose with the tag's mounting, projects
- * the configured front and back body points into the image, and returns them labeled
- * MR_STABS_MK2 with their height above the floor, the same shape the YOLO model produces.
- */
 class AprilTagKeypointModel : public KeypointModelInterface {
    public:
     AprilTagKeypointModel(const AprilTagKeypointModelConfiguration &config,

@@ -17,11 +17,6 @@ struct MotionEstimatorConfiguration {
     virtual ~MotionEstimatorConfiguration() = default;
     virtual void parse_fields([[maybe_unused]] ConfigParser &parser) {}
 
-    /**
-     * Hand over the shared [plant] table, after parse_fields. Separate from parsing because the
-     * plant is a top-level section: this config's own parser never sees it. Estimators that
-     * ignore the plant keep the no-op.
-     */
     virtual void apply_plant([[maybe_unused]] const PlantConfiguration &plant) {}
 };
 
@@ -68,9 +63,6 @@ enum class OurRobotMode { DEAD_RECKONING, EKF };
 enum class OpponentMode { KALMAN, HOLD };
 
 struct KalmanMotionEstimatorConfiguration : public MotionEstimatorConfiguration {
-    /** The plant fit has not passed acceptance (heading misses by 4x at the 400 ms coast
-     * horizon), so production configs stay on DEAD_RECKONING; sim and playback experiments
-     * opt in through the extends chain. */
     OurRobotMode our_robot_mode = OurRobotMode::DEAD_RECKONING;
 
     OpponentMode opponent_mode = OpponentMode::HOLD;
@@ -125,45 +117,15 @@ struct KalmanMotionEstimatorConfiguration : public MotionEstimatorConfiguration 
     /** Floor on the diagonal of P so the covariance cannot collapse and lock out measurements. */
     double covariance_floor = 1e-6;
 
-    /**
-     * Coast horizon (seconds). Unmeasured tracks predict forward with growing covariance up to
-     * this age, then hold position. Default sits at the measured p90-p95 of perception dropout
-     * gaps; predicting multi-second gaps with a short-horizon model is fiction.
-     */
     double max_coast_s = 0.4;
-    /**
-     * Coast horizon (seconds) for opponent tracks: past this age since the last accepted
-     * measurement position and heading hold. Separate from max_coast_s because the our-robot
-     * EKF predicts from the commands it issued and an opponent track has none. 0.1 is the best
-     * trade on the 2026-10-15 sysid evaluation: longer horizons overshoot robots that stop or
-     * reverse (median error at 0.35 s 98 mm at 0.1 against 244 mm at 0.2), shorter ones lose the
-     * fresh-estimate gain (p90 87 mm at 0.1 against 176 mm with none).
-     */
     double opponent_max_coast_s = 0.1;
 
-    /**
-     * Baseline (seconds) for the our-robot forward-speed observation, differenced between two
-     * accepted keypoint poses. Nothing else in the update observes v directly, so without this
-     * the speed the motion profile brakes on is whatever the plant model predicted. One frame
-     * of baseline is too short to be useful: at 30 Hz and a 0.03 m position sigma the
-     * difference carries ~1.3 m/s of noise, so the reference pose is held until the gap reaches
-     * this value (about three frames) and the sigma falls with it.
-     */
     double speed_measurement_min_dt_s = 0.08;
     /** Baseline age (seconds) past which the held reference pose is dropped rather than
      * differenced. A gap this long means dropped detections, and the robot's path between the
      * two poses is no longer a straight line worth differentiating. */
     double speed_measurement_max_dt_s = 0.25;
-    /** Position noise (meters) the forward-speed sigma is derived from. Deliberately not
-     * keypoint_position_sigma_m: that one is a conservative placeholder that also sets the
-     * position gate, while differencing needs the real frame-to-frame scatter. Measured at
-     * 2.7 mm median residual about a 9-frame smooth on the 2026-08-23 20-37 recording, taken
-     * here at 3.5 mm to leave room for the smoother following some of the noise. */
     double speed_position_sigma_m = 0.0035;
-    /** Floor on the derived forward-speed sigma (m/s). Position scatter is not the whole error:
-     * the chord understates an arc, the projection inherits the heading error, and the two
-     * endpoint stamps are not exact. Set from the residual against a 150 ms chord reference on
-     * the same recording, 0.168 m/s median absolute, which is 0.25 sigma if Gaussian. */
     double speed_sigma_floor_mps = 0.25;
     /** Chi-square gate for the forward-speed update alone, deliberately looser than gate_nis.
      * That gate protects a pose the track cannot recover without; this one guards a state whose

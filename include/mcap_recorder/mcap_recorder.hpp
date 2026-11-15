@@ -25,27 +25,10 @@
 
 namespace auto_battlebot {
 
-/**
- * Writes already-encoded messages to an MCAP file with the Foxglove SDK writer.
- *
- * Callers open a channel once per topic and then write bytes against it. The recorder is the
- * single gate on what lands in the file: `enabled_` (toggled from the UI) and the configured
- * ignored topics. Producers can ask `records_topic()` before doing expensive encoding.
- *
- * Every file operation runs on one writer thread. write() copies the message into a queue and
- * returns, and set_enabled() queues the open or close. No caller ever waits on the disk, so a
- * file closing, old recordings being deleted, or a slow write cannot stall the tick, the control
- * thread, or a thread that logs. mutex_ only guards the queue and the gate, never I/O, and no
- * code logs while holding it.
- */
 class McapRecorder {
    public:
     using ChannelId = uint32_t;
 
-    /** Queued bytes past which write() drops a message instead of growing the queue. Messages
-     *  over kLargeMessageBytes (video, images) hit the lower cap, so a disk that falls behind
-     *  costs frames before it costs status, state and log messages. At the ZED Box's 30 Mbps the
-     *  lower cap is about 30 s of video. */
     static constexpr size_t kLargeMessageBytes = 64 * 1024;
     static constexpr size_t kMaxQueuedLargeBytes = 128ULL * 1024 * 1024;
     static constexpr size_t kMaxQueuedBytes = 192ULL * 1024 * 1024;
@@ -71,9 +54,6 @@ class McapRecorder {
      *  UI toggle after shutdown cannot start a new file. */
     void close();
     void flush();
-    /** The current file has reached max_size_gb. The runner rolls over by turning recording off
-     *  and on, so the camera's encoder restarts with it: the new file opens on an IDR with frame
-     *  indices from zero. Switching files under a running encoder started mid-GOP. */
     bool past_size_limit() const;
 
     /** Register a topic. Idempotent per topic. The id stays valid across files: a topic
@@ -83,8 +63,6 @@ class McapRecorder {
 
     void write(ChannelId channel, const std::byte* data, size_t len, uint64_t log_time_ns);
 
-    /** File-level metadata, alongside `active_profile`. Used for `calibration_id`, so a recording
-     *  says which calibration rectified its frames and a revised one can be applied later. */
     void write_metadata(const std::string& key, const std::string& value);
 
     /** Refuse to record over a file something is reading. With video in the main MCAP, a replay
@@ -136,8 +114,6 @@ class McapRecorder {
     std::filesystem::path next_file_path_locked();
     void push_locked(Op op, size_t bytes);
 
-    // Writer thread. These touch writer_, context_ and channels_, which only that thread uses,
-    // and take mutex_ only to copy shared state.
     void writer_loop();
     void handle(OpenOp& op);
     void handle(CloseOp& op);
@@ -160,7 +136,6 @@ class McapRecorder {
     uint64_t dropped_messages_ = 0;
     bool stop_ = false;
     bool enabled_ = false;
-    /** Mirrors enabled_ so write() can skip the copy without the lock while recording is off. */
     std::atomic<bool> enabled_hint_{false};
     bool closed_for_good_ = false;
     bool paused_for_test_ = false;

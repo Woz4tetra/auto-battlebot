@@ -6,8 +6,6 @@
 
 namespace auto_battlebot::rl_policy {
 
-/** `action[i] = scale[i] * tanh(raw[i])`: the mean of a tanh-squashed Gaussian policy, which is
- * what deployment runs (plan section 2). */
 class SquashedDecoder : public ActionDecoderInterface {
    public:
     explicit SquashedDecoder(std::vector<double> scale);

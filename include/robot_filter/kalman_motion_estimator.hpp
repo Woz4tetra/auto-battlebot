@@ -17,34 +17,6 @@
 
 namespace auto_battlebot {
 
-/**
- * Kalman-filter propagation behind the motion estimator seam.
- *
- * Non-OURS tracks run a 6-state linear Kalman filter [px, py, vx, vy, theta, omega]: a
- * constant-velocity translation block and an independent constant-yaw-rate heading block, each
- * driven by its own continuous white-noise acceleration. Keypoint measurements correct position
- * and heading, blob centroids position only. Position is chi-square gated, with
- * reinitialization after repeated rejects; a heading more than pi/2 off the track is a front/back
- * flip and corrects nothing, and a run of flips re-initializes the heading block. Unmeasured
- * tracks predict forward with growing covariance up to max_coast_s of track age, then hold
- * position and heading. Measurements older than the track state (perception latency) are handled
- * by rewinding to a stored snapshot, correcting at the measurement's own stamp, and
- * re-propagating. The opponent coast horizon is opponent_max_coast_s. The Python mirror in
- * auto_battlebot/perception/opponent_filter.py must change with this arm;
- * tests/test_kalman_motion_estimator.cpp holds the two to a golden fixture.
- *
- * The our-robot track has two modes. DEAD_RECKONING applies the last commanded velocity
- * directly, matching DeadReckoningMotionEstimator for that track. EKF runs a 5-state EKF
- * [x, y, theta, v, w] propagated through JigPlantModel with the issued-command history
- * (normalized stick space, from CommandFeedback::stick_commands) read at t - delay, corrected by
- * keypoint poses (position + heading) or blob centroids (position only). A heading innovation past
- * pi/2 falls back to the position rows: the front/back keypoint converter can flip, and folding a
- * flipped heading in would spin the whole state.
- *
- * coast() renders every track advanced to the control-loop clock plus render_lead_s(), so the
- * emitted state moves between perception frames instead of freezing at the last correct(), and
- * describes where each robot will be when the command computed from it reaches the wheels.
- */
 class KalmanMotionEstimator : public MotionEstimatorInterface {
    public:
     explicit KalmanMotionEstimator(const KalmanMotionEstimatorConfiguration &config);
@@ -76,12 +48,6 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
     std::optional<OpponentFilterState> opponent_filter_state(FrameId frame_id) const;
 
    private:
-    /**
-     * At the 250 Hz control rate this is roughly 240 ms of rewind history: coast() commits an
-     * opponent snapshot every tick, so a 30 Hz frame burns about nine slots. That covers the
-     * measured 63 ms perception latency with room to spare, and num_rewind_missed reports when
-     * it does not.
-     */
     static constexpr size_t kSnapshotCapacity = 64;
     /** A single propagation step longer than this freezes position: a clock gap that large is
      * not motion to integrate. Covariance still grows, capped at this step. */
@@ -182,8 +148,6 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
     std::map<FrameId, HeldTrack> our_tracks_;
     std::map<FrameId, OurEkfTrack> our_ekf_tracks_;
 
-    /** Present only in EKF mode; the concrete type so coast() can propagate a copy without
-     * paying for the finite-difference Jacobian. */
     std::unique_ptr<JigPlantModel> plant_model_;
 
     /** Fitted gains for the DEAD_RECKONING our-robot arm, which scales stick to body velocity

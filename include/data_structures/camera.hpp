@@ -19,17 +19,6 @@ struct CameraInfo {
     cv::Mat distortion;
 };
 
-/**
- * @brief Which camera frame a piece of pipeline output came from.
- *
- * `Header::stamp` is a double, so it cannot carry a nanosecond stamp losslessly; `image_stamp_ns`
- * keeps the raw integer, which is what relates a video frame to the pipeline messages around it
- * without decoding anything. `video_frame_index` is the ordinal of the frame within the video
- * stream, so `start_frame` on playback has an unambiguous meaning across a rollover boundary.
- *
- * There is no path field. Video now lives on `/camera/video` inside the same MCAP as the pipeline
- * output, so there is no second file to join to.
- */
 struct FrameIdentity {
     uint64_t image_stamp_ns = 0;
     int64_t video_frame_index = -1;

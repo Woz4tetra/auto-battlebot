@@ -12,8 +12,6 @@ struct DetectionKeypoint {
     double confidence = 0.0;
 };
 
-// Raw detector output in original-image pixel coordinates, captured before the
-// blob/keypoint collapse so offline tools can score the model itself.
 struct Detection2D {
     double x1 = 0.0;
     double y1 = 0.0;

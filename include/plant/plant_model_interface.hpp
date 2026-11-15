@@ -20,15 +20,6 @@ struct TimedCommand {
     VelocityCommand command{0.0, 0.0, 0.0};
 };
 
-/**
- * Process model for the our-robot EKF: commands in, predicted state and Jacobian out.
- *
- * JigPlantModel implements this, mirroring auto_battlebot/plant.py exactly (deadzone,
- * per-sign gain, transport delay, asymmetric first-order lag, arc integration with 2 ms
- * substeps), configured from the [plant] table. The plant fit
- * has not passed its acceptance criteria, so only sim, playback, and test configs opt in via
- * our_robot_mode = "EKF"; production configs stay on dead reckoning on purpose.
- */
 class PlantModelInterface {
    public:
     virtual ~PlantModelInterface() = default;

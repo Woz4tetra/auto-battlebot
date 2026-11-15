@@ -4,14 +4,6 @@
 
 namespace auto_battlebot {
 
-/**
- * Drivetrain plant parameters, mirroring `PlantParams` in auto_battlebot/plant.py field for
- * field. Values come from the jig fit (fit_jig_plant.py) copied into the
- * [plant] config table; the fit output stays the source of
- * truth. Model structure selection happens fit-side: a ladder rung disables a term by
- * writing it as zero, so this struct needs no ladder knowledge. Zero tau means no lag, zero
- * delay means no delay.
- */
 struct JigPlantParams {
     double dz_lin_fwd = 0.0;
     double dz_lin_rev = 0.0;
@@ -31,17 +23,6 @@ struct JigPlantParams {
     double c_drift_bias = 0.0;  // rad/s while moving, signed by the linear command
 };
 
-/**
- * Continuous-time process noise from fit_process_noise.py, mirroring its growth-law
- * mechanisms: white-noise acceleration (variance growing h^3), scale-factor error on the
- * velocity states (h^2, state-dependent), heading angle random walk (h), and delay jitter
- * (constant). Defaults are the fit from sessions 2026-08-19 through 2026-08-23 against
- * plant_stageA.toml; the config table overrides them field by field.
- *
- * The scale-factor and jitter terms grow faster or slower than the linear-in-h accumulation
- * an additive Q can produce, so process_noise() injects them at a rate matched at the 400 ms
- * design horizon (the max-coast timeout): exact there, conservative below it.
- */
 struct JigPlantNoiseParams {
     double q_along = 0.37125;                // (m/s^2)^2/Hz, white-noise accel on v
     double q_cross = 0.351167;               // (m/s^2)^2/Hz, cross-track, no state to feed
@@ -62,17 +43,6 @@ double plant_effective_command(double u, double dz_pos, double dz_neg);
 void plant_steady_state(double u_lin, double u_ang, const JigPlantParams &params, double &v_target,
                         double &w_target);
 
-/**
- * Stick command to body velocity through the fitted gains alone: no deadzone removal, no
- * steer-brake or droop coupling, no drift, no lag. This is what the dead-reckoning arms
- * integrate. They hold one command flat across a single frame and carry no state, so the
- * coupling terms would model a response the arm cannot represent. Use plant_steady_state()
- * instead when the caller integrates a command history with lag, which is what JigPlantModel
- * does for the EKF arm.
- *
- * linear_y is always zero: a differential drive has no lateral degree of freedom, and every
- * transmitter writes zero there.
- */
 VelocityCommand plant_stick_to_body_velocity(const VelocityCommand &stick,
                                              const JigPlantParams &params);
 

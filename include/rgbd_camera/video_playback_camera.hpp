@@ -14,21 +14,6 @@
 #include "rgbd_camera/video_decoder.hpp"
 
 namespace auto_battlebot {
-/**
- * @brief Replays `/camera/video` out of a pipeline recording.
- *
- * Synchronous like the SVO playback camera: get() decodes on the caller's thread, so every frame
- * reaches the pipeline in order and none are skipped. Reproducible replay is what the project's
- * regression testing rests on, and a capture thread would trade that away for a realism a file
- * does not need.
- *
- * It reads three channels and ignores the rest. Everything else in the file, the markers, the
- * detections, the diagnostics, the log, is the previous run's *output*, which replay exists to
- * regenerate; reading it would be wrong rather than merely wasteful. MCAP indexes channels, so
- * filtering at the reader means those messages are never deserialized.
- *
- * `depth` comes back empty, `tf_visodom_from_camera` identity, `pose_tracking_ready` true.
- */
 class VideoPlaybackCamera : public RgbdCameraInterface {
    public:
     explicit VideoPlaybackCamera(const VideoPlaybackCameraConfiguration &config);

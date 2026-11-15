@@ -55,8 +55,6 @@ struct ObservationHazardV1 {
     bool present = true;
 };
 
-/** One world's inputs, field frame unless noted: `ObsInputs` in obs_spec.py with the batch
- * dimension dropped. Infinite sigmas mean unknown and are allowed. */
 struct ObservationInputsV1 {
     double our_x = 0.0;
     double our_y = 0.0;

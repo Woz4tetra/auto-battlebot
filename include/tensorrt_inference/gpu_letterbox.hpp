@@ -5,14 +5,6 @@
 
 namespace auto_battlebot {
 
-/**
- * Letterboxes a camera frame straight into a TensorRT input buffer on the GPU, replacing the CPU
- * resize, pad, normalize and CHW pack.
- *
- * A frame in pinned host memory (PinnedMatAllocator) is read in place: the Orin's GPU and CPU share
- * DRAM, so the kernel fetches only the source pixels it samples. Anything else (a playback
- * frame, a camera without the pinned allocator) is copied to a device staging buffer first.
- */
 class GpuLetterbox {
    public:
     GpuLetterbox() = default;

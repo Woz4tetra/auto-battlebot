@@ -9,18 +9,6 @@
 
 namespace auto_battlebot {
 
-/**
- * @brief Manages SVO recording for an open ZED camera.
- *
- * Owns the recording lifecycle: filename generation, enabling/disabling
- * recording on the SDK, evicting old files when the holding directory grows too
- * large, and rolling the active file over once it exceeds the size cap.
- *
- * Threading: set_desired()/start()/stop() are driven from the runner thread;
- * on_frame_grabbed() runs on the capture thread. Both call into the same sl::Camera
- * handle. lifecycle_mutex_ serializes start, stop and the size rollover, so a toggle
- * cannot land between the rollover's stop and its start.
- */
 class SvoRecorder {
    public:
     SvoRecorder(sl::Camera &camera, std::filesystem::path holding_dir, uint64_t max_size_bytes,
@@ -71,9 +59,7 @@ class SvoRecorder {
     uint64_t holding_dir_max_size_bytes_;
 
     std::atomic<bool> desired_{false};
-    /** Held across the SDK calls in start, stop and rollover. Never taken per frame. */
     std::mutex lifecycle_mutex_;
-    /** Guards current_path_ and frame_index_; held briefly, never across an SDK call. */
     mutable std::mutex mutex_;
     std::filesystem::path current_path_;
     /** Capture thread only. */

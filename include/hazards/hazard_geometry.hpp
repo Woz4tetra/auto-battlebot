@@ -16,13 +16,6 @@ namespace auto_battlebot {
  * Every routine here treats a hazard as an already-inflated disc (see FieldHazard): "inside the
  * radius" means the robot is in trouble, with no further clearance arithmetic. */
 
-/** Half the diagonal of a footprint, which is the radius of the smallest disc containing it.
- *
- * Using the diagonal rather than half the length keeps the keep-out conservative for a robot
- * approaching a hazard corner-first. The UI draws this same circle per robot so the inflation in
- * a keep-out ring is visible rather than implicit: a tracked ring is this for the hazard, plus
- * this for our own robot, plus the configured margin.
- */
 inline double half_diagonal(const Size &size) {
     return 0.5 * std::sqrt(size.x * size.x + size.y * size.y);
 }
@@ -64,21 +57,6 @@ std::optional<size_t> first_blocking_hazard(const Pose2D &start, const Pose2D &g
  *  unchanged, whatever their velocity field happens to hold. */
 Pose2D predicted_center(const FieldHazard &hazard, double seconds);
 
-/** A waypoint that steers around a hazard instead of at the true goal.
- *
- * The point is the tangency point on a circle of `radius` around `center`, which is what the
- * robot should drive at: once it arrives, the run from there to the true goal is tangent to that
- * circle and no longer blocked, so the goal comes back on its own. Pass a `radius` a little
- * larger than the keep-out so the waypoint leaves real clearance -- aiming at the keep-out rim
- * itself means arriving with zero clearance and grinding along the edge.
- *
- * Picks the side that costs less heading change from `heading`, so the robot does not cut back
- * across the hazard it committed to rounding. `committed_side` latches that choice: pass the
- * previous return's side back in (+1 or -1) to keep it, or 0 to choose freshly.
- *
- * Inside the circle there is no tangent, so the waypoint points straight out along the radius.
- * That is the only useful direction there, and the reverse backstop covers the rest.
- */
 struct TangentWaypoint {
     Pose2D point;
     int side = 0;  // +1 = pass on the left of the hazard, -1 = right

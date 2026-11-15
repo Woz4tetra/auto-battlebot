@@ -110,12 +110,8 @@ class Runner : public Quittable {
     std::string set_camera_settings(const CameraSettings &settings, bool &accepted);
     std::string run_camera_profile(CameraProfileAction action, const std::string &name,
                                    bool &accepted);
-    /** /status/camera_settings: right after a camera command, otherwise twice a second so the
-     *  auto-exposure read-back stays current. */
     void publish_camera_settings(bool now);
     std::string active_camera_profile_ = CameraProfileStore::kDefaultName;
-    /** What the dashboard last asked the camera for; nullopt while on DEFAULT. SAVE stores this
-     *  rather than the read-back, which can trail a request by a frame. */
     std::optional<CameraSettings> requested_camera_settings_;
     bool camera_settings_modified_ = false;
     std::chrono::steady_clock::time_point last_camera_settings_publish_{};
@@ -130,8 +126,6 @@ class Runner : public Quittable {
     std::shared_ptr<KeypointHeightGate> height_gate_;
     std::shared_ptr<StaticDetectionGate> static_gate_;
     std::shared_ptr<ParallelModelBatch> perception_batch_;
-    /** Owns the filter/target/navigation/transmit half. The Runner reaches the transmitter through
-     *  it once running, since a threaded driver owns it on another thread. */
     std::shared_ptr<ControlLoopInterface> control_loop_;
     std::shared_ptr<PublisherInterface> publisher_;
     std::shared_ptr<McapRecorder> mcap_recorder_;
@@ -146,8 +140,6 @@ class Runner : public Quittable {
 
     bool initialized_;
     int field_init_attempts_remaining_ = 0;
-    /** One second at 60 Hz. Long enough for a fiducial board to accumulate, short enough that a
-     *  request with no board in frame stops running the mask model. */
     static constexpr int kFieldInitAttempts = 60;
     bool autonomy_enabled_;
     BehaviorMode behavior_mode_;
@@ -176,8 +168,6 @@ class Runner : public Quittable {
     bool handle_uninitialized_tick(const CameraData &camera_data, double loop_rate_hz);
     double elapsed_ms();
 
-    /** Held by apply_recording and by camera reinitialization, which both start and stop the
-     *  camera's encoder or SVO recorder. */
     mutable std::mutex recording_mutex_;
     std::atomic<bool> rollover_pending_{false};
     /** The control loop has missed its watchdog, and since when. Loop thread only. */

@@ -30,11 +30,6 @@ struct PlantConfiguration {
     JigPlantNoiseParams noise;
 };
 
-/**
- * Parse the optional top-level [plant] section. Absence is not an error here: a profile that
- * runs neither the EKF nor MotionProfileNavigation needs no plant, and those that do raise
- * their own error when they find it missing.
- */
 PlantConfiguration load_plant_from_toml(const toml::table &toml_data,
                                         std::vector<std::string> &parsed_sections);
 
