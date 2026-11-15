@@ -96,6 +96,11 @@ def _pitched(poses: list[TagPose]) -> bool:
     return bool(np.median(runs, axis=1).max() > math.radians(PITCH_LIMIT_DEG))
 
 
+def straight_run_room_m(diag: float) -> float:
+    """Room for a straight run: the diagonal less a robot length and a stop at each end."""
+    return max(diag - 0.6, 0.0)
+
+
 class CoverageSession:
     def __init__(self, profile: SysidProfile, engine: RefitEngine) -> None:
         self.profile = profile
@@ -105,8 +110,7 @@ class CoverageSession:
         self.segmenter = ManeuverSegmenter(model.DT)
         self.half_extent = profile.half_extent_m
         diag = math.hypot(profile.field_size_x_m, profile.field_size_y_m)
-        # Room for a straight run: the diagonal less a robot length and a stop at each end.
-        self.floor_run_m = max(diag - 0.6, 0.0)
+        self.floor_run_m = straight_run_room_m(diag)
 
         self._tele: deque[_Telemetry] = deque()
         self._tele_ptr = 0

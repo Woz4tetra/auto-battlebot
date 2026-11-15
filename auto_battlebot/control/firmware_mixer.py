@@ -72,6 +72,38 @@ def motor_to_plant(left_cmd: Any, right_cmd: Any) -> tuple[np.ndarray, np.ndarra
     return (left + right) / 200.0, (right - left) / 200.0
 
 
+def _capturing_mask(
+    active: np.ndarray,
+    turning: np.ndarray,
+    idle: np.ndarray,
+    rate_cmd: np.ndarray,
+    offset: np.ndarray,
+) -> np.ndarray:
+    """A released turn with the rate command at zero is still braking, not holding heading."""
+    mask: np.ndarray = active & ~turning & ~idle & (rate_cmd == 0.0) & (np.abs(offset) > 0.5)
+    return mask
+
+
+def _update_capture(
+    s: LoopState,
+    c: YawConfig,
+    turning: np.ndarray,
+    idle: np.ndarray,
+    rate_dps: np.ndarray,
+    heading_deg: np.ndarray,
+    dt: float,
+) -> None:
+    """Brake a released turn at zero rate until slow or timed out, then hold where it stopped."""
+    releasing = ~turning & s.capturing
+    s.capture_time = np.where(releasing, s.capture_time + dt, s.capture_time)
+    captured = releasing & (
+        (np.abs(rate_dps) < c.capture_rate) | (s.capture_time >= c.capture_timeout)
+    )
+    s.setpoint = np.where(captured | idle, heading_deg, s.setpoint)
+    s.capturing = np.where(turning, True, np.where(captured | idle, False, s.capturing))
+    s.capture_time = np.where(turning, 0.0, s.capture_time)
+
+
 @dataclass
 class LoopState:
     """Per-window YawController state, plus whether the loop is running. All shaped (B,)."""
@@ -127,10 +159,8 @@ class LoopState:
             np.asarray(pid_output, dtype=float) - ff_term - p_term, -c.i_max, c.i_max
         )
         integral = np.where(active, np.nan_to_num(integral), 0.0)
-        # A released turn with the rate command at zero is still braking (capturing): a heading
-        # hold would be commanding k_heading times a nonzero error instead.
         idle = ~turning & (np.abs(np.asarray(a_percent, dtype=float)) < c.idle_throttle)
-        capturing = active & ~turning & ~idle & (rate_cmd == 0.0) & (np.abs(offset) > 0.5)
+        capturing = _capturing_mask(active, turning, idle, rate_cmd, offset)
         return cls(
             active=active,
             setpoint=np.where(active, np.mod(heading0 + offset, 360.0), heading0),
@@ -177,15 +207,7 @@ class BatchedMixer:
         turning = np.abs(b) > c.turn_threshold
         idle = ~turning & (np.abs(a) < c.idle_throttle)
 
-        # Released turn: brake at zero rate until slow or timed out, then hold where it stopped.
-        releasing = ~turning & s.capturing
-        s.capture_time = np.where(releasing, s.capture_time + dt, s.capture_time)
-        captured = releasing & (
-            (np.abs(rate_dps) < c.capture_rate) | (s.capture_time >= c.capture_timeout)
-        )
-        s.setpoint = np.where(captured | idle, heading_deg, s.setpoint)
-        s.capturing = np.where(turning, True, np.where(captured | idle, False, s.capturing))
-        s.capture_time = np.where(turning, 0.0, s.capture_time)
+        _update_capture(s, c, turning, idle, rate_dps, heading_deg, dt)
 
         hold = np.clip(
             c.k_heading * wrap_degrees(s.setpoint - heading_deg), -c.hold_rate_max, c.hold_rate_max

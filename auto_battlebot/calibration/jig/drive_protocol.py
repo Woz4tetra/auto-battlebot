@@ -201,13 +201,16 @@ class TrainerLink:
         self._packets = 0
         self._lock = threading.Lock()
         self._stop = threading.Event()
-        # Re-prime, same as OpenTxTransmitter::initialize().
-        self._serial.write(b"telemetry on\r\n")
-        self._serial.write(b"channels on\r\n")
+        self._prime_radio()
         self._reader: threading.Thread | None = None
         if read_back:
             self._reader = threading.Thread(target=self._run, name="trainer-reader", daemon=True)
             self._reader.start()
+
+    def _prime_radio(self) -> None:
+        """Enable telemetry and the channel stream, as OpenTxTransmitter::initialize() does."""
+        self._serial.write(b"telemetry on\r\n")
+        self._serial.write(b"channels on\r\n")
 
     def _run(self) -> None:
         decoder = _ChannelDecoder()

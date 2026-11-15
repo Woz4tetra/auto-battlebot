@@ -118,6 +118,20 @@ def load_frame_geometry(
     )
 
 
+def _pixels_to_field_rays(points: np.ndarray, geometry: FrameGeometry) -> np.ndarray:
+    """Pixels to normalized camera rays (+Z forward), rotated into the field frame."""
+    rays_camera = np.stack(
+        [
+            (points[:, 0] - geometry.cx) / geometry.fx,
+            (points[:, 1] - geometry.cy) / geometry.fy,
+            np.ones(len(points)),
+        ],
+        axis=1,
+    )
+    rays_field: np.ndarray = rays_camera @ geometry.tf_field_from_camera[:3, :3].T
+    return rays_field
+
+
 def pixels_to_floor(
     points_px: np.ndarray, geometry: FrameGeometry, plane_height_m: float = 0.0
 ) -> np.ndarray:
@@ -127,16 +141,7 @@ def pixels_to_floor(
     if len(points) == 0:
         return out
 
-    # Pixel -> normalized camera ray (+Z forward), then rotate into the field frame.
-    rays_camera = np.stack(
-        [
-            (points[:, 0] - geometry.cx) / geometry.fx,
-            (points[:, 1] - geometry.cy) / geometry.fy,
-            np.ones(len(points)),
-        ],
-        axis=1,
-    )
-    rays_field = rays_camera @ geometry.tf_field_from_camera[:3, :3].T
+    rays_field = _pixels_to_field_rays(points, geometry)
     origin = geometry.camera_position
 
     denominator = rays_field[:, 2]

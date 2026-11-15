@@ -306,6 +306,73 @@ def _fill_grid(track: ReplayTrack) -> tuple[np.ndarray, dict[str, np.ndarray], f
     return t, grid, dt, t0_ns
 
 
+def hold_commands_on_grid(
+    commands: CommandLog, stamps: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Zero-order hold of the change log at each grid stamp, with no command outside its span."""
+    j = np.searchsorted(commands.t_ns, stamps, side="right") - 1
+    in_span = (j >= 0) & (stamps <= commands.t_ns[-1] + int(1e9))
+    j = np.clip(j, 0, len(commands.t_ns) - 1)
+    return commands.lin[j], commands.ang[j], commands.auto[j] & in_span
+
+
+def _wrapped(a: np.ndarray) -> np.ndarray:
+    return (a + np.pi) % (2.0 * np.pi) - np.pi
+
+
+def central_difference_velocity(
+    x: np.ndarray, y: np.ndarray, theta: np.ndarray, usable: np.ndarray, dt: float
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Body speed and yaw rate by central difference over live neighbors.
+
+    Edges of a live stretch fall back to one-sided differences and isolated live samples get NaN.
+    The third return is the mask of samples with both neighbors live.
+    """
+    size = len(x)
+    v = np.full(size, np.nan)
+    w = np.full(size, np.nan)
+    prev_ok = np.zeros(size, dtype=bool)
+    next_ok = np.zeros(size, dtype=bool)
+    prev_ok[1:] = usable[:-1]
+    next_ok[:-1] = usable[1:]
+    both = usable & prev_ok & next_ok
+    fwd = usable & ~prev_ok & next_ok
+    bwd = usable & prev_ok & ~next_ok
+
+    idx = np.flatnonzero(both)
+    if len(idx):
+        dx = x[idx + 1] - x[idx - 1]
+        dy = y[idx + 1] - y[idx - 1]
+        v[idx] = (dx * np.cos(theta[idx]) + dy * np.sin(theta[idx])) / (2.0 * dt)
+        w[idx] = _wrapped(theta[idx + 1] - theta[idx - 1]) / (2.0 * dt)
+    for sel, a, b in ((np.flatnonzero(fwd), 1, 0), (np.flatnonzero(bwd), 0, -1)):
+        if len(sel):
+            dx = x[sel + a] - x[sel + b]
+            dy = y[sel + a] - y[sel + b]
+            v[sel] = (dx * np.cos(theta[sel]) + dy * np.sin(theta[sel])) / dt
+            w[sel] = _wrapped(theta[sel + a] - theta[sel + b]) / dt
+    return v, w, both
+
+
+def gate_acceleration_spikes(
+    v: np.ndarray, w: np.ndarray, both: np.ndarray, dt: float
+) -> np.ndarray:
+    """Samples next to an acceleration no actuator can produce, the neighbors of each included."""
+    size = len(v)
+    lin_spike = np.zeros(size, dtype=bool)
+    ang_spike = np.zeros(size, dtype=bool)
+    idx = np.flatnonzero(both[:-1] & both[1:])
+    if len(idx):
+        lin_acc = np.abs(v[idx + 1] - v[idx]) / dt
+        ang_acc = np.abs(w[idx + 1] - w[idx]) / dt
+        lin_spike[idx] |= lin_acc > LIN_ACCEL_LIMIT
+        ang_spike[idx] |= ang_acc > ANG_ACCEL_LIMIT
+    spike = lin_spike | ang_spike
+    for shift in (-1, 1):
+        spike |= np.roll(lin_spike | ang_spike, shift)
+    return spike
+
+
 def build_match_run(
     track: ReplayTrack,
     commands: CommandLog,
@@ -333,48 +400,12 @@ def build_match_run(
     grid["live"] = live
     grid["present"] = grid["present"] | hole
 
-    # Commands: zero-order hold of the change log at each grid stamp. Samples
-    # before the first entry or after the last have no known command.
-    j = np.searchsorted(commands.t_ns, stamps, side="right") - 1
-    in_span = (j >= 0) & (stamps <= commands.t_ns[-1] + int(1e9))
-    j = np.clip(j, 0, len(commands.t_ns) - 1)
-    cmd_lin = commands.lin[j]
-    cmd_ang = commands.ang[j]
-    auto = commands.auto[j] & in_span
+    cmd_lin, cmd_ang, auto = hold_commands_on_grid(commands, stamps)
 
     usable = grid["live"]
 
-    # Velocities by central difference over live neighbors. A sample needs both
-    # neighbors live for the central form; edges of a live stretch fall back to
-    # one-sided, and isolated live samples get no velocity (and no window ever
-    # starts there, because the window span check needs a live run anyway).
     x, y, theta = grid["x"], grid["y"], grid["theta"]
-    v = np.full(size, np.nan)
-    w = np.full(size, np.nan)
-
-    def _wrapped(a: np.ndarray) -> np.ndarray:
-        return (a + np.pi) % (2.0 * np.pi) - np.pi
-
-    prev_ok = np.zeros(size, dtype=bool)
-    next_ok = np.zeros(size, dtype=bool)
-    prev_ok[1:] = usable[:-1]
-    next_ok[:-1] = usable[1:]
-    both = usable & prev_ok & next_ok
-    fwd = usable & ~prev_ok & next_ok
-    bwd = usable & prev_ok & ~next_ok
-
-    idx = np.flatnonzero(both)
-    if len(idx):
-        dx = x[idx + 1] - x[idx - 1]
-        dy = y[idx + 1] - y[idx - 1]
-        v[idx] = (dx * np.cos(theta[idx]) + dy * np.sin(theta[idx])) / (2.0 * dt)
-        w[idx] = _wrapped(theta[idx + 1] - theta[idx - 1]) / (2.0 * dt)
-    for sel, a, b in ((np.flatnonzero(fwd), 1, 0), (np.flatnonzero(bwd), 0, -1)):
-        if len(sel):
-            dx = x[sel + a] - x[sel + b]
-            dy = y[sel + a] - y[sel + b]
-            v[sel] = (dx * np.cos(theta[sel]) + dy * np.sin(theta[sel])) / dt
-            w[sel] = _wrapped(theta[sel + a] - theta[sel + b]) / dt
+    v, w, both = central_difference_velocity(x, y, theta, usable, dt)
 
     contact = np.zeros(size, dtype=bool)
     if np.count_nonzero(usable) > 100:
@@ -389,24 +420,7 @@ def build_match_run(
     opp_dist = np.hypot(grid["opp_x"] - x, grid["opp_y"] - y)
     contact |= usable & (opp_dist < OPPONENT_DIST_M)
 
-    # Acceleration spikes from consecutive live velocity samples. |dv/dt| past
-    # what the actuators can produce is an impact (or a perception glitch, e.g.
-    # a front/back keypoint flip); either way the samples around it are not
-    # open-loop plant response. The spike gates its neighbors too, because the
-    # difference stencil smears one bad pose across adjacent velocity samples.
-    dv_ok = both.copy()
-    lin_spike = np.zeros(size, dtype=bool)
-    ang_spike = np.zeros(size, dtype=bool)
-    idx = np.flatnonzero(dv_ok[:-1] & dv_ok[1:])
-    if len(idx):
-        lin_acc = np.abs(v[idx + 1] - v[idx]) / dt
-        ang_acc = np.abs(w[idx + 1] - w[idx]) / dt
-        lin_spike[idx] |= lin_acc > LIN_ACCEL_LIMIT
-        ang_spike[idx] |= ang_acc > ANG_ACCEL_LIMIT
-    spike = lin_spike | ang_spike
-    for shift in (-1, 1):
-        spike |= np.roll(lin_spike | ang_spike, shift)
-    contact |= spike
+    contact |= gate_acceleration_spikes(v, w, both, dt)
 
     valid = usable & auto & ~contact & np.isfinite(v) & np.isfinite(w)
 

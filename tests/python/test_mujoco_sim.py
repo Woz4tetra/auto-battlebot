@@ -587,7 +587,7 @@ def test_mixer_runs_the_yaw_loop_inverted_with_tail_first_throttle() -> None:
     inverted = FirmwareMixer(yaw=YawController(config))
     upright.step(60.0, 25.0, 0.0, 0.01, yaw_rate_dps=100.0)
     inverted.step(-60.0, 25.0, 0.0, 0.01, upside_down=True, yaw_rate_dps=100.0)
-    assert inverted.yaw_loop_active
+    assert inverted.loop.active
     assert inverted.pid_output == pytest.approx(upright.pid_output)
 
 

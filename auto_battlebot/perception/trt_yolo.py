@@ -492,20 +492,27 @@ class TrtYoloModel:
             self.num_keypoints,
         ) = resolve_model_layout(dim1, dim2, num_classes, num_keypoints)
 
-        # Bind all IO tensors; unused outputs (mask prototypes) still need an address.
-        self._buffers = []
+        self._buffers, self._d_input, self._d_output = self._bind_all_io_tensors(
+            input_name, output_name
+        )
+        self.stream = cuda.Stream()
+
+    def _bind_all_io_tensors(self, input_name: str, output_name: str) -> tuple[list[Any], Any, Any]:
+        """Bind every IO tensor; unused outputs (mask prototypes) still need an address."""
+        buffers = []
+        d_input = d_output = None
         for i in range(self.engine.num_io_tensors):
             name = self.engine.get_tensor_name(i)
             shape = self.context.get_tensor_shape(name)
             nbytes = int(np.prod([int(d) for d in shape])) * 4
-            buf = cuda.mem_alloc(nbytes)
-            self._buffers.append(buf)
+            buf = self._cuda.mem_alloc(nbytes)
+            buffers.append(buf)
             self.context.set_tensor_address(name, int(buf))
             if name == input_name:
-                self._d_input = buf
+                d_input = buf
             elif name == output_name:
-                self._d_output = buf
-        self.stream = cuda.Stream()
+                d_output = buf
+        return buffers, d_input, d_output
 
     def describe(self) -> str:
         """One-line human-readable layout summary."""
