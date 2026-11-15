@@ -284,7 +284,7 @@ void KalmanMotionEstimator::init_opponent_heading(OpponentTrack &track, double y
     track.covariance(kOmega, kOmega) =
         config_.initial_yaw_rate_sigma * config_.initial_yaw_rate_sigma;
     track.heading_initialized = true;
-    track.consecutive_flips = 0;
+    track.consecutive_heading_flips = 0;
 }
 
 void KalmanMotionEstimator::init_opponent(OpponentTrack &track, const RobotDescription &measurement,
@@ -305,7 +305,7 @@ void KalmanMotionEstimator::init_opponent(OpponentTrack &track, const RobotDescr
         track.covariance(kOmega, kOmega) =
             config_.initial_yaw_rate_sigma * config_.initial_yaw_rate_sigma;
         track.heading_initialized = false;
-        track.consecutive_flips = 0;
+        track.consecutive_heading_flips = 0;
     }
     track.stamp = stamp;
     track.last_measured_stamp = stamp;
@@ -348,7 +348,7 @@ RobotDescription KalmanMotionEstimator::render_opponent(const OpponentTrack &tra
 
     const Eigen::SelfAdjointEigenSolver<ekf::Mat<2, 2>> position_eigen(
         track.covariance.block<2, 2>(kPx, kPx), Eigen::EigenvaluesOnly);
-    description.uncertainty.position_sigma_m =
+    description.uncertainty.position_sigma_major_axis_m =
         std::sqrt(std::max(0.0, position_eigen.eigenvalues().maxCoeff()));
 
     // A heading-blind label or a never-measured heading has nothing to render: the rotation stays
@@ -634,10 +634,10 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
                                                     predicted_heading, heading_observation,
                                                     heading_noise, 0.0, {true},
                                                     kOpponentAngleStates, config_.covariance_floor);
-                track.consecutive_flips = 0;
+                track.consecutive_heading_flips = 0;
             } else {
                 ++num_opponent_heading_flips;
-                if (++track.consecutive_flips >= config_.heading_flip_reinit_count) {
+                if (++track.consecutive_heading_flips >= config_.heading_flip_reinit_count) {
                     init_opponent_heading(track, measured_yaw);
                     ++num_opponent_heading_reinit;
                 }
@@ -760,8 +760,9 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
         const PoseUncertainty &uncertainty = outputs.back().uncertainty;
         // Infinite sigmas (heading never measured, heading-blind label) are left out rather
         // than written as a non-finite number.
-        DiagnosticsData fields{{"position_sigma_m", uncertainty.position_sigma_m},
-                               {"consecutive_heading_flips", track.consecutive_flips}};
+        DiagnosticsData fields{
+            {"position_sigma_major_axis_m", uncertainty.position_sigma_major_axis_m},
+            {"consecutive_heading_flips", track.consecutive_heading_flips}};
         if (std::isfinite(uncertainty.heading_sigma_rad)) {
             fields["heading_sigma_rad"] = uncertainty.heading_sigma_rad;
             fields["yaw_rate_sigma_rad_s"] = uncertainty.yaw_rate_sigma_rad_s;

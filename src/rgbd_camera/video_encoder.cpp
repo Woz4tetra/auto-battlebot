@@ -63,7 +63,7 @@ bool VideoEncoder::start(const VideoEncoderOptions &options, PacketSink sink,
     }
     {
         std::lock_guard<std::mutex> lock(pts_mutex_);
-        log_time_by_pts_.clear();
+        log_time_by_frame_ordinal_.clear();
     }
 
     const H264Backend::PacketSink deliver_packet = [this](const std::byte *data, size_t len,
@@ -102,7 +102,7 @@ bool VideoEncoder::start(const VideoEncoderOptions &options, PacketSink sink,
     return true;
 }
 
-bool VideoEncoder::hardware_encoder_available() {
+bool VideoEncoder::hardware_encoder_installed() {
     for (const char *name : kFfmpegHardware) {
         if (ffmpeg_h264_registered(name)) return true;
     }
@@ -184,12 +184,12 @@ void VideoEncoder::encode_loop() {
         const int64_t pts = next_pts_++;
         {
             std::lock_guard<std::mutex> lock(pts_mutex_);
-            log_time_by_pts_[pts] = frame.log_time_ns;
+            log_time_by_frame_ordinal_[pts] = frame.log_time_ns;
         }
         if (!backend_->encode(std::move(frame.image), pts, frame.force_keyframe)) {
             {
                 std::lock_guard<std::mutex> lock(pts_mutex_);
-                log_time_by_pts_.erase(pts);
+                log_time_by_frame_ordinal_.erase(pts);
             }
             // This frame already has its index in frame_meta, and encoding the frames behind it
             // would put each one packet before its index. Take nothing more, so every index
@@ -217,9 +217,10 @@ void VideoEncoder::deliver(const std::byte *data, size_t len, int64_t pts, bool 
     uint64_t log_time_ns = 0;
     {
         std::lock_guard<std::mutex> lock(pts_mutex_);
-        if (auto it = log_time_by_pts_.find(pts); it != log_time_by_pts_.end()) {
+        if (auto it = log_time_by_frame_ordinal_.find(pts);
+            it != log_time_by_frame_ordinal_.end()) {
             log_time_ns = it->second;
-            log_time_by_pts_.erase(it);
+            log_time_by_frame_ordinal_.erase(it);
         }
     }
     if (sink_ && log_time_ns != 0) {

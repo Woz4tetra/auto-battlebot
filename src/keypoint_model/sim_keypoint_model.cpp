@@ -75,7 +75,7 @@ ModelResultStamped SimKeypointModel::update(RgbImage image, const CameraInfo &ca
     if (!connection_) connection_ = SimConnection::instance();
     return sim_measurements_to_keypoints(
         connection_->last_measurements(), config_.labels, config_.keypoint_offset_m,
-        connection_->last_camera_from_field(), camera_info, image.header);
+        connection_->last_camera_from_fieldcenter(), camera_info, image.header);
 }
 
 }  // namespace auto_battlebot

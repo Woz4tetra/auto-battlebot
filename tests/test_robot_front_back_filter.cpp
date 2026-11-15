@@ -317,13 +317,13 @@ TEST(RobotFrontBackFilterTest, FlagsLeakOpportunityOnKeypointMiss) {
                                   camera_info, no_blob, command_feedback);
     ASSERT_EQ(first.descriptions.size(), 1u);
     ASSERT_EQ(first.descriptions[0].frame_id, FrameId::OUR_ROBOT_1);
-    EXPECT_FALSE(filter.last_our_blob_present_no_keypoint());
+    EXPECT_FALSE(filter.last_suppressed_own_blob());
 
     // Frame 2: our keypoint drops out; a blob sits where our robot was. This is a leak-opportunity.
     // The frame stamp must come from the keypoints, which drive the filter's clock.
     const auto second = run_filter(filter, make_empty_keypoints(1.1), field, camera_info,
                                    make_opponent_blob(1.1, 300.0, 340.0, 220.0), command_feedback);
-    EXPECT_TRUE(filter.last_our_blob_present_no_keypoint());
+    EXPECT_TRUE(filter.last_suppressed_own_blob());
     (void)second;
 }
 
@@ -345,7 +345,7 @@ TEST(RobotFrontBackFilterTest, NoLeakFlagWhenBlobFarFromHeldPose) {
     const ModelResultStamped no_keypoints;
     run_filter(filter, no_keypoints, field, camera_info,
                make_opponent_blob(1.1, 300.0, 340.0, 380.0), command_feedback);
-    EXPECT_FALSE(filter.last_our_blob_present_no_keypoint());
+    EXPECT_FALSE(filter.last_suppressed_own_blob());
 }
 
 // When our keypoint is present the blob is suppressed / double-counts, so it is never a leak.
@@ -365,7 +365,7 @@ TEST(RobotFrontBackFilterTest, NoLeakFlagWhenOurKeypointPresent) {
     // Our keypoint is present again this frame alongside a coincident blob: not a leak-opportunity.
     run_filter(filter, make_our_keypoints(1.1, 300.0, 340.0, 220.0), field, camera_info,
                make_opponent_blob(1.1, 300.0, 340.0, 220.0), command_feedback);
-    EXPECT_FALSE(filter.last_our_blob_present_no_keypoint());
+    EXPECT_FALSE(filter.last_suppressed_own_blob());
 }
 
 // Stale-identity decay (docs/robot_filter_decay_plan.md): an our-robot track whose keypoints drop
@@ -456,7 +456,7 @@ TEST(RobotFrontBackFilterTest, SuppressesBlobOnOurHeldPoseDuringKeypointDropout)
     const auto result = run_filter(filter, make_empty_keypoints(1.1), field, camera_info,
                                    make_opponent_blob(1.1, 300.0, 340.0, 220.0), command_feedback);
 
-    EXPECT_TRUE(filter.last_our_blob_present_no_keypoint());
+    EXPECT_TRUE(filter.last_suppressed_own_blob());
     EXPECT_EQ(find_frame_id(result, FrameId::THEIR_ROBOT_1), nullptr);
 }
 
@@ -480,7 +480,7 @@ TEST(RobotFrontBackFilterTest, EmitsBlobOnOurHeldPoseAfterWindowExpires) {
     const auto result = run_filter(filter, make_empty_keypoints(2.0), field, camera_info,
                                    make_opponent_blob(2.0, 300.0, 340.0, 220.0), command_feedback);
 
-    EXPECT_FALSE(filter.last_our_blob_present_no_keypoint());
+    EXPECT_FALSE(filter.last_suppressed_own_blob());
     EXPECT_NE(find_frame_id(result, FrameId::THEIR_ROBOT_1), nullptr);
 }
 
@@ -503,7 +503,7 @@ TEST(RobotFrontBackFilterTest, KeepsBlobOutsideRadiusDuringKeypointDropout) {
     const auto result = run_filter(filter, make_empty_keypoints(1.1), field, camera_info,
                                    make_opponent_blob(1.1, 300.0, 340.0, 380.0), command_feedback);
 
-    EXPECT_FALSE(filter.last_our_blob_present_no_keypoint());
+    EXPECT_FALSE(filter.last_suppressed_own_blob());
     EXPECT_NE(find_frame_id(result, FrameId::THEIR_ROBOT_1), nullptr);
 }
 
@@ -525,7 +525,7 @@ TEST(RobotFrontBackFilterTest, ZeroRadiusDisablesDropoutSuppression) {
     const auto result = run_filter(filter, make_empty_keypoints(1.1), field, camera_info,
                                    make_opponent_blob(1.1, 300.0, 340.0, 220.0), command_feedback);
 
-    EXPECT_FALSE(filter.last_our_blob_present_no_keypoint());
+    EXPECT_FALSE(filter.last_suppressed_own_blob());
     EXPECT_NE(find_frame_id(result, FrameId::THEIR_ROBOT_1), nullptr);
 }
 }  // namespace auto_battlebot

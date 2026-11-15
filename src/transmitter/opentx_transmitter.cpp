@@ -290,7 +290,7 @@ TransmitterStatus OpenTxTransmitter::get_status() const {
     // Same reading as log_switch_states(): a non-negative trainer channel mixes our commands in.
     return {.connected = connected,
             .receiving_channels = receiving,
-            .has_autonomy_switch = true,
+            .has_trainer_autonomy_switch = true,
             .autonomy_switch_on = receiving && latest_channels_.has_value() &&
                                   get_channel_value(config_.trainer_enable_channel) >= 0};
 }

@@ -192,7 +192,7 @@ TEST_F(VideoPlaybackCameraTest, FullDataPipeline) {
     EXPECT_EQ(data.tf_visodom_from_camera.transform.tf.rows(), 4);
     // A clamped camera does not move.
     EXPECT_TRUE(data.tf_visodom_from_camera.transform.tf.isIdentity(1e-12));
-    EXPECT_TRUE(data.tracking_ok);
+    EXPECT_TRUE(data.pose_tracking_ready);
 }
 
 TEST_F(VideoPlaybackCameraTest, MultipleFrameProcessing) {

@@ -329,7 +329,7 @@ TEST_F(StickyDiagnosticsModuleLoggerTest, HeldSubsectionExpires) {
 
     // Expired subsections are dropped at clear(), not only hidden.
     logger.clear();
-    advance_ms(DiagnosticsModuleLogger::SECTION_EXPIRY.count() * 1000);
+    advance_ms(DiagnosticsModuleLogger::HELD_SECTION_EXPIRY.count() * 1000);
     logger.clear();
     EXPECT_TRUE(logger.get_snapshots().empty());
 }

@@ -50,8 +50,8 @@ Runner::Runner(
       initial_field_description_(),
       diagnostics_logger_(DiagnosticsLogger::get_logger("runner")),
       health_logger_(std::move(health_logger)),
-      last_tick_time_(std::chrono::steady_clock::now()),
-      app_start_time_(last_tick_time_) {
+      prev_tick_start_(std::chrono::steady_clock::now()),
+      constructed_at_(prev_tick_start_) {
     // Weak: the queue is shared with main and the UI, and may outlive the camera.
     remote_.commands->set_on_system_action([camera = std::weak_ptr<RgbdCameraInterface>(camera_)] {
         if (auto locked = camera.lock()) locked->cancel_initialize();
@@ -61,9 +61,9 @@ Runner::Runner(
 Runner::~Runner() { remote_.commands->set_on_system_action(nullptr); }
 
 static_assert(std::atomic<bool>::is_always_lock_free,
-              "request_quit() runs in a signal handler and needs a lock-free store");
+              "quit_from_signal_handler() runs in a signal handler and needs a lock-free store");
 
-void Runner::request_quit() {
+void Runner::quit_from_signal_handler() {
     quit_requested_.store(true);
     // A camera re-open can take 30 s. cancel_initialize() only stores an atomic, so this is
     // still safe from the signal handler.
@@ -89,7 +89,7 @@ void Runner::publish_system_status(bool camera_ok, double loop_rate_hz) {
         message.compute_mode = health_logger_->get_last_compute_mode();
     }
     message.uptime_s = uptime_s();
-    if (transmitter.has_autonomy_switch)
+    if (transmitter.has_trainer_autonomy_switch)
         message.autonomy_switch_on = transmitter.autonomy_switch_on;
     message.autonomy_on_s = autonomy_on_s();
     if (mcap_recorder_) message.mcap_file_s = mcap_recorder_->file_age_s();
@@ -103,23 +103,24 @@ void Runner::publish_system_status(bool camera_ok, double loop_rate_hz) {
 }
 
 double Runner::uptime_s() const {
-    return std::chrono::duration<double>(std::chrono::steady_clock::now() - app_start_time_)
+    return std::chrono::duration<double>(std::chrono::steady_clock::now() - constructed_at_)
         .count();
 }
 
 std::optional<double> Runner::autonomy_on_s() const {
-    if (!autonomy_switch_since_) return std::nullopt;
-    return std::chrono::duration<double>(std::chrono::steady_clock::now() - *autonomy_switch_since_)
+    if (!autonomy_switch_on_since_) return std::nullopt;
+    return std::chrono::duration<double>(std::chrono::steady_clock::now() -
+                                         *autonomy_switch_on_since_)
         .count();
 }
 
 void Runner::update_timers() {
     const TransmitterStatus transmitter = control_loop_->transmitter_status();
-    const bool on = transmitter.has_autonomy_switch && transmitter.autonomy_switch_on;
-    if (on && !autonomy_switch_since_) {
-        autonomy_switch_since_ = std::chrono::steady_clock::now();
+    const bool on = transmitter.has_trainer_autonomy_switch && transmitter.autonomy_switch_on;
+    if (on && !autonomy_switch_on_since_) {
+        autonomy_switch_on_since_ = std::chrono::steady_clock::now();
     } else if (!on) {
-        autonomy_switch_since_.reset();
+        autonomy_switch_on_since_.reset();
     }
     diagnostics_logger_->debug(
         {{"uptime_s", uptime_s()}, {"autonomy_on_s", autonomy_on_s().value_or(0.0)}});
@@ -200,7 +201,7 @@ void Runner::roll_over_recording_if_full() {
     if (mcap_recorder_ && mcap_recorder_->past_size_limit()) {
         spdlog::info("[Runner] {} reached the size cap; rolling over",
                      mcap_recorder_->file_path().string());
-    } else if (camera_->recording_needs_restart()) {
+    } else if (camera_->recording_encoder_stalled()) {
         // The new file restarts the encoder and its indices from zero, so video resumes after
         // about a second instead of staying off for the rest of the file.
         spdlog::error("[Runner] The camera's video encoder stopped; restarting the recording");
@@ -730,7 +731,7 @@ bool Runner::tick() {
         field_init_attempts_remaining_ = kFieldInitAttempts;
     }
     if (field_init_attempts_remaining_ > 0) {
-        if (camera_data.tracking_ok) {
+        if (camera_data.pose_tracking_ready) {
             --field_init_attempts_remaining_;
             initialize_field(camera_data);
             if (field_init_attempts_remaining_ == 0 && !initialized_) {
@@ -869,8 +870,8 @@ bool Runner::tick() {
 
 double Runner::elapsed_ms() {
     auto now = std::chrono::steady_clock::now();
-    double elapsed = to_ms(now - last_tick_time_);
-    last_tick_time_ = now;
+    double elapsed = to_ms(now - prev_tick_start_);
+    prev_tick_start_ = now;
     return elapsed;
 }
 

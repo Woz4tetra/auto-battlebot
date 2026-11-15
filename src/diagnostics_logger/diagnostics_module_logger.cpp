@@ -100,7 +100,7 @@ void DiagnosticsModuleLogger::clear() {
     const auto now = now_();
     std::lock_guard<std::mutex> lock(mutex_);
     for (auto it = sections_.begin(); it != sections_.end();) {
-        if (now - it->second.last_logged >= SECTION_EXPIRY) {
+        if (now - it->second.last_logged >= HELD_SECTION_EXPIRY) {
             it = sections_.erase(it);
         } else {
             it->second.fresh = false;
@@ -121,7 +121,7 @@ std::vector<DiagnosticStatusSnapshot> DiagnosticsModuleLogger::get_snapshots() c
     std::vector<DiagnosticStatusSnapshot> snapshots;
     for (const auto &[subsection_name, section] : sections_) {
         const auto age = now - section.last_logged;
-        if (!section.fresh && age >= SECTION_EXPIRY) continue;
+        if (!section.fresh && age >= HELD_SECTION_EXPIRY) continue;
         std::string combined_message;
         for (size_t i = 0; i < section.messages.size(); ++i) {
             if (i > 0) combined_message += " | ";

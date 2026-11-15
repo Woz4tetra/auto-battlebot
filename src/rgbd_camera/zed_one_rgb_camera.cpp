@@ -172,7 +172,7 @@ bool ZedOneRgbCamera::initialize() {
     unknown.digital_gain = std::max(1, limits.digital_gain.min);
     opened_settings_ = read_settings(unknown);
     settings_state_ = CameraSettingsState{opened_settings_, limits};
-    latest_data_.tracking_ok = true;
+    latest_data_.pose_tracking_ready = true;
 
     if (mcap_recorder_) {
         // VideoPlaybackCamera reads this to replay the file; no config/cameras/ file needed.
@@ -241,7 +241,7 @@ bool ZedOneRgbCamera::capture_frame() {
         // Foxglove image panels reject a calibration whose frame differs from the image's.
         latest_data_.camera_info.header = latest_data_.rgb.header;
         latest_data_.depth.image = cv::Mat();
-        latest_data_.tracking_ok = true;
+        latest_data_.pose_tracking_ready = true;
         // A clamped camera does not move: no visual odometry, no camera-world rebase.
         latest_data_.tf_visodom_from_camera.header.stamp = latest_data_.rgb.header.stamp;
         latest_data_.tf_visodom_from_camera.header.frame_id = FrameId::VISUAL_ODOMETRY;

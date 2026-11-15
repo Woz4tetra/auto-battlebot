@@ -39,12 +39,7 @@ class PursuitNavigation : public NavigationInterface {
      */
     double apply_hysteresis(double angle_error);
 
-    /**
-     * @brief Compute angular velocity (rad/s) using a PD controller on angle_error.
-     *
-     * Updates prev_angle_error_ and prev_timestamp_ for use on the next call.
-     */
-    double compute_angular_velocity(double angle_error);
+    double compute_angular_velocity_rad_s(double angle_error);
 
     /**
      * @brief Compute forward linear velocity (m/s).
@@ -55,12 +50,8 @@ class PursuitNavigation : public NavigationInterface {
      */
     double compute_linear_velocity(double angle_error, double distance, double angular_z);
 
-    /**
-     * @brief If close to and facing a wall, override cmd.linear_x with a reverse command to
-     * back away. Modifies cmd in place.
-     */
-    void apply_wall_reverse(const Pose2D &our_pose, const FieldDescription &field,
-                            VelocityCommand &cmd);
+    void override_linear_with_wall_reverse(const Pose2D &our_pose, const FieldDescription &field,
+                                           VelocityCommand &cmd);
 
     Pose2D clamp_to_field(const Pose2D &pose, const FieldDescription &field) const;
 
@@ -98,9 +89,7 @@ class PursuitNavigation : public NavigationInterface {
     double prev_angle_error_ = 0.0;
     double prev_timestamp_ = 0.0;
     std::optional<Pose2D> last_known_our_pose_;
-    /** Our footprint centre relative to that pose, held with it. Hazard and wall checks measure
-     *  from the footprint centre; the pursuit itself steers the pose. */
-    Position2D our_footprint_offset_;
+    Position2D our_footprint_offset_from_pose_;
     NavigationVisualization last_visualization_;
 };
 

@@ -209,7 +209,7 @@ bool ZedDevice::retrieve(CameraData &out) {
     if (tracking_enabled_) {
         const sl::POSITIONAL_TRACKING_STATE tracking_state =
             zed_.getPosition(zed_pose_, sl::REFERENCE_FRAME::WORLD);
-        out.tracking_ok = (tracking_state == sl::POSITIONAL_TRACKING_STATE::OK);
+        out.pose_tracking_ready = (tracking_state == sl::POSITIONAL_TRACKING_STATE::OK);
         if (tracking_state != prev_tracking_state_) {
             spdlog::info("Tracking state: {}", sl::toString(tracking_state).c_str());
             prev_tracking_state_ = tracking_state;
@@ -224,7 +224,7 @@ bool ZedDevice::retrieve(CameraData &out) {
         }
     } else {
         out.tf_visodom_from_camera.transform.tf = Eigen::MatrixXd::Identity(4, 4);
-        out.tracking_ok = true;
+        out.pose_tracking_ready = true;
     }
 
     // Convert into a fresh Mat rather than reusing out.rgb.image. Consumers are handed a shallow

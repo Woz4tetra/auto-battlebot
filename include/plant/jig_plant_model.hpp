@@ -42,8 +42,6 @@ class JigPlantModel final : public PlantModelInterface {
     const JigPlantParams &params() const { return params_; }
     const JigPlantNoiseParams &noise() const { return noise_; }
 
-    /** Propagate without wrapping theta, exposed for the finite difference and for tests
-     * that accumulate heading past pi. */
     PlantState propagate_unwrapped(const PlantState &state, std::span<const TimedCommand> commands,
                                    double t0, double t1) const;
 

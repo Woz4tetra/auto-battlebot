@@ -38,9 +38,9 @@ __global__ void letterbox(const uint8_t *__restrict__ source, int source_width, 
     const int rx = x - geometry.left;
     const int ry = y - geometry.top;
     if (rx < 0 || ry < 0 || rx >= geometry.resized_width || ry >= geometry.resized_height) {
-        out[0] = kLetterboxPadValue;
-        out[plane] = kLetterboxPadValue;
-        out[2 * plane] = kLetterboxPadValue;
+        out[0] = kYoloPadGrey01;
+        out[plane] = kYoloPadGrey01;
+        out[2 * plane] = kYoloPadGrey01;
         return;
     }
 

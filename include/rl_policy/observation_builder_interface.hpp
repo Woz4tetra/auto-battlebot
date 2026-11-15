@@ -32,8 +32,7 @@ class ObservationBuilderInterface {
 
     virtual std::vector<TensorSpec> output_specs() const = 0;
 
-    /** Policy steps of history the spec reads. */
-    virtual size_t history_length() const = 0;
+    virtual size_t history_policy_steps() const = 0;
 
     /** Writes every tensor output_specs() names into `observation`. Does not allocate once its
      * scratch space has grown to the field's hazard count. */

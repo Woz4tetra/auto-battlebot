@@ -20,7 +20,7 @@ SimTransmitter::SimTransmitter(const SimTransmitterConfiguration &config,
 }
 
 bool SimTransmitter::initialize() {
-    start_time_ = clock_->now();
+    start_time_s_ = clock_->now();
     initialized_ = true;
     return true;
 }
@@ -29,7 +29,7 @@ CommandFeedback SimTransmitter::update() {
     if (!initialized_) return CommandFeedback{};
 
     if (!init_button_pressed_) {
-        const double elapsed = clock_->now() - start_time_;
+        const double elapsed = clock_->now() - start_time_s_;
         if (elapsed >= init_delay_seconds_) {
             init_button_pressed_ = true;
         }

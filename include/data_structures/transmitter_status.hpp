@@ -15,9 +15,7 @@ namespace auto_battlebot {
 struct TransmitterStatus {
     bool connected = false;
     bool receiving_channels = false;
-    /** The radio has a switch that hands the wheels to autonomy (OpenTX's trainer switch).
-     *  Playback and sim have none. */
-    bool has_autonomy_switch = false;
+    bool has_trainer_autonomy_switch = false;
     bool autonomy_switch_on = false;
 };
 

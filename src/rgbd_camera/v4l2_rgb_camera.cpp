@@ -270,7 +270,7 @@ bool V4l2RgbCamera::initialize() {
 
     rectifier_.build(calibration_, cv::Size(width_, height_));
     latest_data_.camera_info = rectifier_.camera_info();
-    latest_data_.tracking_ok = true;
+    latest_data_.pose_tracking_ready = true;
 
     if (mcap_recorder_) {
         // The video is pre-rectification, so replay needs this calibration. Embedded, a recording
@@ -378,7 +378,7 @@ bool V4l2RgbCamera::capture_frame() {
         // Foxglove image panels reject a calibration whose frame differs from the image's.
         latest_data_.camera_info.header = latest_data_.rgb.header;
         latest_data_.depth.image = cv::Mat();
-        latest_data_.tracking_ok = true;
+        latest_data_.pose_tracking_ready = true;
         // A clamped camera does not move, so there is no visual odometry and no camera-world
         // rebase to do. The field filter's rebase becomes a no-op, which removes the class of bug
         // that scripts/fix_field_mask_frames.py exists to repair offline.

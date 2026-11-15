@@ -55,8 +55,7 @@ class CompositeTransmitter : public TransmitterInterface {
     std::vector<std::optional<VelocityCommand>> pending_;
     TimeSource now_;
 
-    /** Sends child i its pending command if its period has passed, or unconditionally. */
-    void deliver_pending(size_t i, std::chrono::steady_clock::time_point now, bool force);
+    void flush_child_if_due(size_t i, std::chrono::steady_clock::time_point now, bool force);
     std::shared_ptr<DiagnosticsModuleLogger> logger_;
 };
 

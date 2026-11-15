@@ -15,7 +15,7 @@ class GroundTruthRobotFilter : public RobotFilterInterface {
    public:
     explicit GroundTruthRobotFilter(std::shared_ptr<ClockInterface> clock, int neutral_count = 0)
         : clock_(std::move(clock)) {
-        neutral_count_ = neutral_count;
+        trailing_neutral_slot_count_ = neutral_count;
     }
 
     bool initialize(int opponent_count) override;
@@ -50,9 +50,8 @@ class GroundTruthRobotFilter : public RobotFilterInterface {
 
     std::vector<FrameId> our_frame_ids_;
     std::vector<FrameId> opponent_frame_ids_;
-    /** Trailing ground-truth slots mapped to NEUTRAL_ROBOT_* instead of THEIR_ROBOT_*. */
     std::vector<FrameId> neutral_frame_ids_;
-    int neutral_count_ = 0;
+    int trailing_neutral_slot_count_ = 0;
     std::shared_ptr<SimConnection> connection_;
     std::shared_ptr<ClockInterface> clock_;
     RobotDescriptionsStamped state_;

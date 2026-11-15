@@ -170,7 +170,7 @@ void ControlLoop::run_cycle() {
                 our_live = 1;
             }
         }
-        const int our_blob_no_keypoint = robot_filter_->last_our_blob_present_no_keypoint() ? 1 : 0;
+        const int our_blob_no_keypoint = robot_filter_->last_suppressed_own_blob() ? 1 : 0;
         diagnostics_logger_->debug("perception",
                                    {{"their_count_total", their_total},
                                     {"their_count_live", their_live},
@@ -212,7 +212,7 @@ void ControlLoop::run_cycle() {
         output_.behavior_mode = behavior_mode;
         output_.manual_target = target_override.has_value();
         output_.hazards = field_description_->hazards;
-        output_.our_blob_present_no_keypoint = robot_filter_->last_our_blob_present_no_keypoint();
+        output_.our_blob_present_no_keypoint = robot_filter_->last_suppressed_own_blob();
         visualization_ = navigation_->get_last_visualization();
     }
 }

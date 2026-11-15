@@ -30,7 +30,7 @@ class SimTransmitter : public TransmitterInterface {
     double init_delay_seconds_;
     double command_delay_ms_;
     double velocity_saturation_limit_;
-    double start_time_ = 0.0;  // logical seconds
+    double start_time_s_ = 0.0;
     bool init_button_pressed_ = false;
     bool init_button_done_ = false;
     bool initialized_ = false;

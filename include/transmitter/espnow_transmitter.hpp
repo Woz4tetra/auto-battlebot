@@ -78,12 +78,11 @@ class EspNowTransmitter : public TransmitterInterface {
         std::chrono::steady_clock::now();
 
     std::optional<espnow_protocol::LinkStatsPayload> link_stats_;
-    std::chrono::steady_clock::time_point last_frame_time_{};  // any frame from the dongle
+    std::chrono::steady_clock::time_point last_dongle_frame_time_{};
     std::optional<espnow_protocol::LinkStatsPayload> link_stats_at_last_log_;
     uint64_t telemetry_frames_ = 0;
     uint64_t telemetry_frames_at_last_log_ = 0;
-    /** Smallest telemetry round trip since the last health log. */
-    std::optional<int64_t> min_round_trip_us_;
+    std::optional<int64_t> min_round_trip_us_since_health_log_;
     std::chrono::steady_clock::time_point last_health_log_{};
 
     std::optional<espnow_protocol::TelemetryPayload> latest_telemetry_;

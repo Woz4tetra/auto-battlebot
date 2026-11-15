@@ -91,9 +91,9 @@ void MotionProfileNavigation::reset_state() {
     prev_angular_timestamp_ = 0.0;
     prev_speed_timestamp_ = 0.0;
     last_known_our_pose_.reset();
-    our_footprint_offset_ = Position2D{};
+    our_footprint_center_offset_ = Position2D{};
     last_measured_speed_ = 0.0;
-    prev_mode_ = BehaviorMode::ATTACK;
+    last_tick_mode_ = BehaviorMode::ATTACK;
 }
 
 double MotionProfileNavigation::terminal_velocity_for(BehaviorMode mode) const {
@@ -129,7 +129,7 @@ VelocityCommand MotionProfileNavigation::update(RobotDescriptionsStamped robots,
     if (our_robot_opt.has_value()) {
         our_pose = pose_to_pose2d(our_robot_opt->pose);
         last_known_our_pose_ = our_pose;
-        our_footprint_offset_ = our_robot_opt->footprint_center_offset;
+        our_footprint_center_offset_ = our_robot_opt->footprint_center_offset;
         measured_speed = measure_forward_speed(*our_robot_opt, our_pose);
     } else if (last_known_our_pose_.has_value()) {
         our_pose = *last_known_our_pose_;
@@ -186,20 +186,20 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
     // A flipped switch is a new mission: the goal jumps from the opponent to the safe point (or
     // back) and the terminal speed changes with it. Carrying the old reference across the flip
     // would feed the feedforward a dv/dt step that the plant never asked for.
-    if (mode != prev_mode_) {
+    if (mode != last_tick_mode_) {
         reset_trajectory_state();
         logger_->debug("mode",
                        {{"mode", std::string(magic_enum::enum_name(mode))},
                         {"terminal_velocity", terminal_velocity}},
                        "Behavior mode changed; resetting the trajectory");
     }
-    prev_mode_ = mode;
+    last_tick_mode_ = mode;
     // Option 1 (a legal goal) then option 4 (steer around what blocks the run to it). The
     // tangent point is itself clamped, so a hazard hugging a wall cannot push the waypoint out
     // of the arena.
     // Hazards and walls are cleared by the body, so they measure from the footprint centre; the
     // profile itself drives the pose to the target.
-    const Pose2D our_body = footprint_center(our_pose, our_footprint_offset_);
+    const Pose2D our_body = footprint_center(our_pose, our_footprint_center_offset_);
     const Pose2D legal_target = clamp_to_field(target_pose, field);
     const Pose2D clamped_target =
         clamp_to_field(hazards_.steer_around(our_body, legal_target, field), field);
@@ -255,7 +255,7 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
         speed_integral_ = 0.0;
     }
 
-    apply_wall_reverse(our_body, field, cmd);
+    override_linear_with_wall_reverse(our_body, field, cmd);
     // The velocity barrier gets the final say on linear_x, after the angle gate and the wall
     // reverse: it clips the approach-speed component toward every hazard to the plant's
     // stopping envelope against the MEASURED speed. Placement is the fix from the 2026-08-28
@@ -469,9 +469,9 @@ double MotionProfileNavigation::compute_angular_command(double w_ref, double dt)
     return std::clamp(u, -1.0, 1.0);
 }
 
-void MotionProfileNavigation::apply_wall_reverse(const Pose2D &our_pose,
-                                                 const FieldDescription &field,
-                                                 VelocityCommand &cmd) const {
+void MotionProfileNavigation::override_linear_with_wall_reverse(const Pose2D &our_pose,
+                                                                const FieldDescription &field,
+                                                                VelocityCommand &cmd) const {
     if (wall_reverse_distance_ <= 0.0) return;
 
     const double wall_dist = distance_to_nearest_wall(our_pose, field);

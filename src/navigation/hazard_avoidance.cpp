@@ -20,7 +20,7 @@ HazardAvoidance::HazardAvoidance(HazardAvoidanceSettings settings) : settings_(s
 
 void HazardAvoidance::reset() {
     committed_side_ = 0;
-    committed_hazard_ = 0;
+    latched_hazard_index_ = 0;
     last_substituted_ = false;
 }
 
@@ -45,19 +45,19 @@ Pose2D HazardAvoidance::steer_around(const Pose2D &our_pose, const Pose2D &goal,
 
         // The latch belongs to one hazard. Rounding a different one is a fresh decision.
         const int side =
-            (last_substituted_ || committed_hazard_ != *blocking) ? 0 : committed_side_;
+            (last_substituted_ || latched_hazard_index_ != *blocking) ? 0 : committed_side_;
         // Tangent to a circle a little wider than the keep-out, so arriving at the waypoint
         // leaves real clearance and the run from there to the goal is unblocked against the
         // keep-out itself. Tangent to the keep-out exactly would put the waypoint on the rim.
         const TangentWaypoint tangent = tangent_waypoint(
-            our_pose, center, hazard.inflated_radius + settings_.waypoint_clearance_m, our_pose.yaw,
-            side);
+            our_pose, center, hazard.inflated_radius_m + settings_.waypoint_clearance_m,
+            our_pose.yaw, side);
 
         // A hazard already routed around is excluded from the next pass. The new segment runs
         // tangent to it by construction, so re-testing it only produces a substitution loop.
         handled.push_back(*blocking);
         if (!tangent.inside) {
-            committed_hazard_ = *blocking;
+            latched_hazard_index_ = *blocking;
             committed_side_ = tangent.side;
         }
         last_substituted_ = true;
@@ -72,7 +72,7 @@ Pose2D HazardAvoidance::steer_around(const Pose2D &our_pose, const Pose2D &goal,
         for (const auto &hazard : field.hazards) {
             const Pose2D center = predicted_center(hazard, settings_.prediction_horizon_s);
             nearest = std::min(nearest, std::hypot(our_pose.x - center.x, our_pose.y - center.y) -
-                                            hazard.inflated_radius);
+                                            hazard.inflated_radius_m);
         }
         if (nearest > settings_.side_release_m) committed_side_ = 0;
     }
@@ -166,7 +166,7 @@ bool HazardAvoidance::apply_reverse(const Pose2D &our_pose, const FieldDescripti
         const Pose2D center = predicted_center(hazard, settings_.prediction_horizon_s);
         const double dx = center.x - our_pose.x;
         const double dy = center.y - our_pose.y;
-        const double gap = std::hypot(dx, dy) - hazard.inflated_radius;
+        const double gap = std::hypot(dx, dy) - hazard.inflated_radius_m;
         if (gap >= settings_.reverse_distance) continue;
 
         const double heading_err = std::abs(normalize_angle(std::atan2(dy, dx) - our_pose.yaw));

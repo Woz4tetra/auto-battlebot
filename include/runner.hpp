@@ -85,10 +85,8 @@ class Runner : public Quittable {
     const remote::SystemStatusMessage &system_status() const { return last_status_; }
     remote::CameraSettingsMessage camera_settings_status() const;
 
-    // Called from the SIGINT/SIGTERM handler, so it only sets a flag the loop polls.
     ~Runner() override;
-    /** Also cancels a camera re-open in progress. Called from the signal handler. */
-    void request_quit() override;
+    void quit_from_signal_handler() override;
 
    private:
     std::atomic<bool> quit_requested_{false};
@@ -159,12 +157,9 @@ class Runner : public Quittable {
     std::shared_ptr<FieldDescriptionWithInlierPoints> initial_field_description_;
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
     std::shared_ptr<HealthLogger> health_logger_;
-    /** Start of the previous tick, for the loop rate. */
-    std::chrono::steady_clock::time_point last_tick_time_;
-    /** When the Runner was built, for /status/system uptime. */
-    std::chrono::steady_clock::time_point app_start_time_;
-    /** When the transmitter's autonomy switch last went on; empty while it is off. */
-    std::optional<std::chrono::steady_clock::time_point> autonomy_switch_since_;
+    std::chrono::steady_clock::time_point prev_tick_start_;
+    std::chrono::steady_clock::time_point constructed_at_;
+    std::optional<std::chrono::steady_clock::time_point> autonomy_switch_on_since_;
 
     void publish_system_status(bool camera_ok, double loop_rate_hz);
     remote::SystemStatusMessage last_status_;

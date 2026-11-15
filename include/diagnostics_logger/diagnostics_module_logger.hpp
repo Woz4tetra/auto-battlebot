@@ -20,15 +20,14 @@ namespace auto_battlebot {
  * Subsections are sticky. Each publish window (the span between two clear() calls) starts a
  * subsection over on its first log, then merges later logs into it. A subsection not logged in
  * the current window keeps its last values and is reported as held, with its age, until
- * SECTION_EXPIRY passes without a log. So a module that logs one subsection per send and another
- * only on change publishes both in every message instead of alternating between them.
+ * HELD_SECTION_EXPIRY passes without a log. So a module that logs one subsection per send and
+ * another only on change publishes both in every message instead of alternating between them.
  */
 class DiagnosticsModuleLogger {
    public:
     using TimeSource = std::function<std::chrono::steady_clock::time_point()>;
 
-    /** A held subsection drops out of the snapshots once it goes this long without a log. */
-    static constexpr std::chrono::seconds SECTION_EXPIRY{10};
+    static constexpr std::chrono::seconds HELD_SECTION_EXPIRY{10};
 
     explicit DiagnosticsModuleLogger(const std::string &logger_name,
                                      TimeSource now = std::chrono::steady_clock::now);

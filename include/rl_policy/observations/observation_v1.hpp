@@ -101,7 +101,7 @@ class ObservationBuilderV1 : public ObservationBuilderInterface {
    public:
     int spec_version() const override { return obs_v1::kSpecVersion; }
     std::vector<TensorSpec> output_specs() const override;
-    size_t history_length() const override { return obs_v1::kHistory; }
+    size_t history_policy_steps() const override { return obs_v1::kHistory; }
     void build(const ObservationContext &context, TensorSet &observation) override;
 
    private:

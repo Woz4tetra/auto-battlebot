@@ -10,8 +10,7 @@ struct HistoryEntry {
     double action_angular = 0.0;
     /** m/s, along our heading. */
     double measured_speed = 0.0;
-    /** rad/s. */
-    double measured_yaw_rate = 0.0;
+    double yaw_rate_rad_s = 0.0;
 };
 
 /**

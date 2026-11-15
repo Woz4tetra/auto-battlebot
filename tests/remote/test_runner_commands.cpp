@@ -46,7 +46,7 @@ class RecordingCamera : public NoopRgbdCamera {
         return history;
     }
     bool is_recording_enabled() const override { return recording; }
-    bool recording_needs_restart() const override { return needs_restart; }
+    bool recording_encoder_stalled() const override { return needs_restart; }
     std::atomic<bool> needs_restart{false};
 
     // With lost_ set, get() fails and a re-open blocks like a ZED that is not there, until
@@ -271,7 +271,7 @@ class LostCameraTick {
 // A re-open of a missing camera can take 30 s, and SIGTERM must not wait for it.
 TEST_F(RunnerCommandsTest, QuitCancelsACameraReopen) {
     LostCameraTick tick(*runner_, *camera_);
-    runner_->request_quit();
+    runner_->quit_from_signal_handler();
     EXPECT_LT(tick.join(), 500.0);
     EXPECT_FALSE(tick.result());
 }

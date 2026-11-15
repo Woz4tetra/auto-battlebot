@@ -724,7 +724,7 @@ TEST(KalmanMotionEstimatorTest, OpponentBlobBornTrackHasUnknownHeadingUntilKeypo
     EXPECT_TRUE(std::isinf((*coasted)[0].uncertainty.heading_sigma_rad));
     EXPECT_TRUE(std::isinf((*coasted)[0].uncertainty.yaw_rate_sigma_rad_s));
     EXPECT_EQ((*coasted)[0].velocity.omega, 0.0);
-    EXPECT_TRUE(std::isfinite((*coasted)[0].uncertainty.position_sigma_m));
+    EXPECT_TRUE(std::isfinite((*coasted)[0].uncertainty.position_sigma_major_axis_m));
 
     // The first keypoint heading initializes the block whatever its value: there is no prior to
     // call it a flip against.
@@ -829,12 +829,12 @@ TEST(KalmanMotionEstimatorTest, OpponentSigmasShrinkWhenMeasuredAndGrowWhileCoas
                          field, context);
     }
     const PoseUncertainty converged = (*estimator.coast(t))[0].uncertainty;
-    EXPECT_LT(converged.position_sigma_m, early.position_sigma_m);
+    EXPECT_LT(converged.position_sigma_major_axis_m, early.position_sigma_major_axis_m);
     EXPECT_LT(converged.heading_sigma_rad, early.heading_sigma_rad);
     EXPECT_LT(converged.yaw_rate_sigma_rad_s, early.yaw_rate_sigma_rad_s);
 
     const PoseUncertainty coasting = (*estimator.coast(t + 0.15))[0].uncertainty;
-    EXPECT_GT(coasting.position_sigma_m, converged.position_sigma_m);
+    EXPECT_GT(coasting.position_sigma_major_axis_m, converged.position_sigma_major_axis_m);
     EXPECT_GT(coasting.heading_sigma_rad, converged.heading_sigma_rad);
     EXPECT_GT(coasting.yaw_rate_sigma_rad_s, converged.yaw_rate_sigma_rad_s);
 }
@@ -915,7 +915,8 @@ TEST(KalmanMotionEstimatorTest, OpponentArmMatchesPythonMirrorGoldenFixture) {
         expect_value(out.velocity.vx, row[3], at + "vx");
         expect_value(out.velocity.vy, row[4], at + "vy");
         expect_value(out.velocity.omega, row[5], at + "omega");
-        expect_value(out.uncertainty.position_sigma_m, row[6], at + "position_sigma_m");
+        expect_value(out.uncertainty.position_sigma_major_axis_m, row[6],
+                     at + "position_sigma_major_axis_m");
         expect_value(out.uncertainty.heading_sigma_rad, row[7], at + "heading_sigma_rad");
         expect_value(out.uncertainty.yaw_rate_sigma_rad_s, row[8], at + "yaw_rate_sigma_rad_s");
         EXPECT_EQ(out.is_stale ? 1.0 : 0.0, row[9]) << at << "is_stale";

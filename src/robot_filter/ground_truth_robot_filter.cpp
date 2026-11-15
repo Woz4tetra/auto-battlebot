@@ -31,7 +31,7 @@ bool GroundTruthRobotFilter::initialize(int opponent_count) {
     }
     // Neutral slots follow the opponents in ground-truth order, so a sim config puts the house
     // bot last in [[opponents]] and nothing else about the ordering changes.
-    const int neutrals = std::clamp(neutral_count_, 0, 2);
+    const int neutrals = std::clamp(trailing_neutral_slot_count_, 0, 2);
     for (int i = 0; i < neutrals; ++i) {
         neutral_frame_ids_.push_back(neutral_ids[i]);
     }

@@ -44,7 +44,7 @@ bool CompositeTransmitter::initialize() {
 
 CommandFeedback CompositeTransmitter::update() {
     const auto now = now_();
-    for (size_t i = 0; i < children_.size(); i++) deliver_pending(i, now, false);
+    for (size_t i = 0; i < children_.size(); i++) flush_child_if_due(i, now, false);
 
     CommandFeedback merged;
     // Reverse order so the primary is applied last and wins on a key collision.
@@ -60,12 +60,12 @@ void CompositeTransmitter::send(VelocityCommand command) {
     const auto now = now_();
     for (size_t i = 0; i < children_.size(); i++) {
         pending_[i] = command;
-        deliver_pending(i, now, false);
+        flush_child_if_due(i, now, false);
     }
 }
 
-void CompositeTransmitter::deliver_pending(size_t i, std::chrono::steady_clock::time_point now,
-                                           bool force) {
+void CompositeTransmitter::flush_child_if_due(size_t i, std::chrono::steady_clock::time_point now,
+                                              bool force) {
     if (!pending_[i]) return;
     if (!force && last_send_[i] && now - *last_send_[i] < transmit_period_[i]) return;
     last_send_[i] = now;
@@ -89,7 +89,7 @@ void CompositeTransmitter::enable() {
 void CompositeTransmitter::disable() {
     const auto now = now_();
     for (size_t i = 0; i < children_.size(); i++) {
-        deliver_pending(i, now, true);
+        flush_child_if_due(i, now, true);
         children_[i]->disable();
     }
 }

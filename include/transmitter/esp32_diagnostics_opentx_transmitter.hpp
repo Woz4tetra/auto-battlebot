@@ -47,11 +47,9 @@ class Esp32DiagnosticsOpenTxTransmitter : public OpenTxTransmitter {
 
     std::chrono::steady_clock::time_point last_health_log_{};
     uint64_t events_at_last_health_log_ = 0;
-    /** Largest robot-clock step between consecutive events since the last health log. */
-    uint64_t max_robot_gap_ms_ = 0;
+    uint64_t max_robot_clock_step_since_health_log_ = 0;
     std::optional<uint64_t> last_robot_timestamp_ms_;
-    /** Host arrival minus robot stamp for the newest event, milliseconds. */
-    std::optional<double> clock_offset_ms_;
+    std::optional<double> newest_arrival_lag_ms_;
 };
 
 }  // namespace auto_battlebot

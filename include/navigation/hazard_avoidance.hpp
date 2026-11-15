@@ -43,7 +43,7 @@ struct HazardBarrierResult {
 /** The hazard layers that PursuitNavigation and MotionProfileNavigation share.
  *
  * Two aim layers and one speed rule. The aim layers (steer_around, plus the goal push-out the
- * controllers run in clamp_to_field) plan against the fat `inflated_radius`. The speed rule
+ * controllers run in clamp_to_field) plan against the fat `inflated_radius_m`. The speed rule
  * (limit_command) is a directional velocity barrier against the thin `hard_radius`: per hazard,
  * the velocity component toward it may not exceed gap / (tau_decel + delay), which is exactly
  * the stopping envelope the plant can follow. One rule replaces the old steering speed cap, the
@@ -96,8 +96,7 @@ class HazardAvoidance {
    private:
     HazardAvoidanceSettings settings_;
     int committed_side_ = 0;
-    /** Index of the hazard the side latch belongs to. A different hazard gets a fresh choice. */
-    size_t committed_hazard_ = 0;
+    size_t latched_hazard_index_ = 0;
     bool last_substituted_ = false;
 };
 

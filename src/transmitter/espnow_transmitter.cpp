@@ -188,7 +188,7 @@ TransmitterStatus EspNowTransmitter::get_status() const {
     const bool receiving = fresh && latest_telemetry_->radio_connected != 0;
     return {.connected = connected,
             .receiving_channels = receiving,
-            .has_autonomy_switch = true,
+            .has_trainer_autonomy_switch = true,
             .autonomy_switch_on = receiving && latest_telemetry_->autonomy_enabled != 0};
 }
 
@@ -256,7 +256,7 @@ void EspNowTransmitter::on_frame(void *context, uint8_t type, const uint8_t *pay
 }
 
 void EspNowTransmitter::handle_frame(uint8_t type, const uint8_t *payload, uint8_t length) {
-    last_frame_time_ = std::chrono::steady_clock::now();
+    last_dongle_frame_time_ = std::chrono::steady_clock::now();
     switch (type) {
         case espnow_protocol::MSG_LINK_STATS: {
             if (length != sizeof(espnow_protocol::LinkStatsPayload)) return;
@@ -288,7 +288,8 @@ void EspNowTransmitter::handle_telemetry(const espnow_protocol::TelemetryPayload
         // transport estimate.
         const int64_t sample = static_cast<int64_t>(espnow_monotonic_us() - telemetry.jetson_tx_us);
         round_trip_us = sample;
-        if (!min_round_trip_us_ || sample < *min_round_trip_us_) min_round_trip_us_ = sample;
+        if (!min_round_trip_us_since_health_log_ || sample < *min_round_trip_us_since_health_log_)
+            min_round_trip_us_since_health_log_ = sample;
     }
     const uint64_t now_ns = wall_time_ns();
     telemetry_channel_.log(to_espnow_telemetry_json(telemetry, now_ns, round_trip_us), now_ns);
@@ -310,8 +311,9 @@ void EspNowTransmitter::log_health() {
             ? static_cast<double>(telemetry_frames_ - telemetry_frames_at_last_log_) / elapsed_s
             : 0.0;
     telemetry_frames_at_last_log_ = telemetry_frames_;
-    if (min_round_trip_us_) data["min_round_trip_us"] = static_cast<int>(*min_round_trip_us_);
-    min_round_trip_us_.reset();
+    if (min_round_trip_us_since_health_log_)
+        data["min_round_trip_us"] = static_cast<int>(*min_round_trip_us_since_health_log_);
+    min_round_trip_us_since_health_log_.reset();
     if (link_stats_) {
         data["channel"] = static_cast<int>(link_stats_->channel);
         data["robot_known"] = static_cast<int>(link_stats_->robot_known);
@@ -341,12 +343,13 @@ bool EspNowTransmitter::reconnect_if_needed() {
     const auto now = std::chrono::steady_clock::now();
 
     if (dongle_.is_open()) {
-        if (now - last_frame_time_ < kDongleSilence) return true;
+        if (now - last_dongle_frame_time_ < kDongleSilence) return true;
         // Open but quiet. A port whose device went away reads empty forever, so only a fresh open
         // recovers it. Rate-limited like the open itself so an absent dongle is not thrashed.
         if (now < next_reconnect_attempt_) return true;
         const auto silent_ms =
-            std::chrono::duration_cast<std::chrono::milliseconds>(now - last_frame_time_).count();
+            std::chrono::duration_cast<std::chrono::milliseconds>(now - last_dongle_frame_time_)
+                .count();
         logger_->warning("dongle_silent_reconnecting",
                          {{"silent_ms", static_cast<int>(silent_ms)}});
         dongle_.close();
@@ -361,7 +364,7 @@ bool EspNowTransmitter::reconnect_if_needed() {
     }
     logger_->info("dongle_opened", {{"path", config_.dongle_serial_path}});
     // One silence window of grace for the first link stats frame.
-    last_frame_time_ = now;
+    last_dongle_frame_time_ = now;
     parser_ = espnow_protocol::SerialFrameParser();
     link_stats_.reset();
     link_stats_at_last_log_.reset();

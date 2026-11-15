@@ -47,8 +47,7 @@ inline LetterboxGeometry compute_letterbox_geometry(int source_width, int source
     return geometry;
 }
 
-// Grey the YOLO letterbox pads with, as a 0-1 value.
-constexpr float kLetterboxPadValue = 114.0f / 255.0f;
+constexpr float kYoloPadGrey01 = 114.0f / 255.0f;
 
 // Enqueues one kernel on `stream` (a cudaStream_t) that letterboxes an 8-bit BGR or BGRA image
 // into `tensor`: bilinear resize with cv::resize INTER_LINEAR's sample positions, BGR to RGB,

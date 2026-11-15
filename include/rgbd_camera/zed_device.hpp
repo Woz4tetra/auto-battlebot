@@ -102,7 +102,7 @@ class ZedDevice {
     GrabStatus grab();
 
     /**
-     * Fills image, depth, pose, tracking_ok, and the raw capture stamp.
+     * Fills image, depth, pose, pose_tracking_ready, and the raw capture stamp.
      *
      * Depth comes back on every frame. grab() computes it regardless (RuntimeParameters
      * ::enable_depth is always on), so retrieving it conditionally saved only the measure copy

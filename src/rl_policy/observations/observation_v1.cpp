@@ -224,7 +224,7 @@ ObservationInputsV1 observation_inputs_v1(const ObservationContext &context,
         in.hist_action[2 * k] = entry.action_linear;
         in.hist_action[2 * k + 1] = entry.action_angular;
         in.hist_speed[k] = entry.measured_speed;
-        in.hist_yaw_rate[k] = entry.measured_yaw_rate;
+        in.hist_yaw_rate[k] = entry.yaw_rate_rad_s;
     }
 
     if (context.target_opponent != nullptr) {
@@ -237,7 +237,7 @@ ObservationInputsV1 observation_inputs_v1(const ObservationContext &context,
         in.opp_vx = opponent.velocity.vx;
         in.opp_vy = opponent.velocity.vy;
         in.opp_yaw_rate = opponent.velocity.omega;
-        in.opp_position_sigma = opponent.uncertainty.position_sigma_m;
+        in.opp_position_sigma = opponent.uncertainty.position_sigma_major_axis_m;
         in.opp_heading_sigma = opponent.uncertainty.heading_sigma_rad;
         in.opp_yaw_rate_sigma = opponent.uncertainty.yaw_rate_sigma_rad_s;
         in.opp_half_diagonal = 0.5 * std::hypot(opponent.size.x, opponent.size.y);

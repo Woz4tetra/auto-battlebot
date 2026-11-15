@@ -17,9 +17,7 @@ class RgbdCameraInterface {
     virtual bool should_close() = 0;
     virtual bool set_recording_enabled([[maybe_unused]] bool enabled) { return false; }
     virtual bool is_recording_enabled() const { return false; }
-    /** The camera's recording failed in a way only an off and on fixes (its video encoder
-     *  stopped taking frames). The runner checks this once a second and restarts recording. */
-    virtual bool recording_needs_restart() const { return false; }
+    virtual bool recording_encoder_stalled() const { return false; }
     virtual bool supports_camera_settings() const { return false; }
     virtual void request_camera_settings([[maybe_unused]] std::optional<CameraSettings> settings) {}
     virtual std::optional<CameraSettingsState> camera_settings() const { return std::nullopt; }

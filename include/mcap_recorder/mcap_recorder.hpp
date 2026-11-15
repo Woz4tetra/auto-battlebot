@@ -163,8 +163,7 @@ class McapRecorder {
     /** Mirrors enabled_ so write() can skip the copy without the lock while recording is off. */
     std::atomic<bool> enabled_hint_{false};
     bool closed_for_good_ = false;
-    /** Tests only: the writer thread takes no batch while set, like a disk that stopped. */
-    bool writer_held_ = false;
+    bool paused_for_test_ = false;
     std::filesystem::path file_path_;
     std::chrono::steady_clock::time_point file_started_{};
     std::unordered_set<std::string> issued_paths_;

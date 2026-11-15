@@ -39,7 +39,8 @@ auto_battlebot::Quittable* g_quittables[kMaxQuittables] = {};
 std::size_t g_quittables_count = 0;
 
 void signal_quit(int) {
-    for (std::size_t i = 0; i < g_quittables_count; ++i) g_quittables[i]->request_quit();
+    for (std::size_t i = 0; i < g_quittables_count; ++i)
+        g_quittables[i]->quit_from_signal_handler();
 }
 
 // The build version stamped next to the executable by the generate_git_version target (see
@@ -147,7 +148,7 @@ int run_application(const auto_battlebot::ClassConfiguration& class_config,
 
     runner.initialize();
 
-    // Runner::request_quit() only stores atomics, so it is safe from the signal handler.
+    // Runner::quit_from_signal_handler() only stores atomics, so it is signal-safe.
     g_quittables[g_quittables_count++] = &runner;
 
     std::signal(SIGINT, signal_quit);

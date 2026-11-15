@@ -23,7 +23,7 @@ inline constexpr int kKindMeasured = 1;
 inline constexpr int kKindEmpty = 2;
 
 // Render rows: x, y, yaw, vx, vy,
-// omega, position_sigma_m, heading_sigma_rad, yaw_rate_sigma_rad_s, is_stale.
+// omega, position_sigma_major_axis_m, heading_sigma_rad, yaw_rate_sigma_rad_s, is_stale.
 // State rows: 6 state, the covariance upper triangle row by row, stamp,
 // heading_initialized. One per recorded update event, in event order.
 

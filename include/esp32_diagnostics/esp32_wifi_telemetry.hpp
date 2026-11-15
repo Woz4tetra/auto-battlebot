@@ -33,8 +33,7 @@ struct Esp32WifiTelemetryStats {
     uint64_t parse_errors = 0;
     uint64_t events = 0;
     uint64_t backfilled = 0;
-    /** Records overwritten in the ring before a poll reached them. */
-    uint64_t lost_records = 0;
+    uint64_t ring_overwritten_records = 0;
     /** Times the robot's boot id changed, so seqs restarted. */
     uint64_t reboots = 0;
     uint64_t dropped_events = 0;

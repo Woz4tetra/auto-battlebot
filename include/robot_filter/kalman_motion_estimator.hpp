@@ -109,11 +109,8 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
     struct OpponentTrack {
         OpponentVec state = OpponentVec::Zero();
         OpponentMat covariance = OpponentMat::Zero();
-        /** False until a keypoint heading has been folded in: a blob-born track, or a
-         * heading-blind label. The heading block is then meaningless and renders as unknown. */
         bool heading_initialized = false;
-        /** Consecutive keypoint headings rejected as flips. */
-        int consecutive_flips = 0;
+        int consecutive_heading_flips = 0;
         /** Time the state refers to. */
         double stamp = 0.0;
         double last_measured_stamp = 0.0;
@@ -202,8 +199,6 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
     /** Control-clock time of the last clock-gap warning. -inf so the first one always fires,
      * whatever epoch the clock is on. */
     double last_clock_gap_warning_ = -std::numeric_limits<double>::infinity();
-    /** Smallest span the last coast() propagated any track over, reported in update()'s
-     * diagnostics. Positive and under kMaxIntegrationStepS means propagation is really running. */
     double min_coast_span_s_ = 0.0;
 };
 

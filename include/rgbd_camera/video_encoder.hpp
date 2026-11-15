@@ -83,10 +83,7 @@ class VideoEncoder {
 
     void request_keyframe() { keyframe_requested_.store(true); }
 
-    /** True when a hardware candidate is installed (FFmpeg h264_nvenc or h264_nvv4l2m2m, or
-     *  GStreamer nvv4l2h264enc), so start() would not fall through to libx264. It does not prove
-     *  the encoder opens. */
-    static bool hardware_encoder_available();
+    static bool hardware_encoder_installed();
 
     static bool software_encoder_available();
 
@@ -119,9 +116,7 @@ class VideoEncoder {
     int64_t next_pts_ = 0;
     /** Guarded by mutex_. Equals next_pts_ once the queue drains. */
     int64_t next_submit_index_ = 0;
-    /** pts is the frame ordinal, so the capture time survives whatever latency the encoder holds
-     *  frames for. Written on the encode thread, read wherever the backend delivers packets. */
-    std::unordered_map<int64_t, uint64_t> log_time_by_pts_;
+    std::unordered_map<int64_t, uint64_t> log_time_by_frame_ordinal_;
     std::mutex pts_mutex_;
 
     std::deque<QueuedFrame> queue_;

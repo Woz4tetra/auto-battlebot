@@ -408,7 +408,7 @@ bool VideoPlaybackCamera::get(CameraData &data) {
     data.rgb.header.stamp = stamp;
     data.rgb.header.frame_id = FrameId::CAMERA;
     // depth stays empty; the RGB camera has none and playback must not invent one.
-    data.tracking_ok = true;
+    data.pose_tracking_ready = true;
     data.tf_visodom_from_camera.header.stamp = stamp;
     data.tf_visodom_from_camera.header.frame_id = FrameId::VISUAL_ODOMETRY;
     data.tf_visodom_from_camera.child_frame_id = FrameId::CAMERA;

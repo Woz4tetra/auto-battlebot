@@ -13,9 +13,6 @@ struct ColorRGBf {
     float g = 0.0f;
     float b = 0.0f;
 
-    /**
-     * @brief Get color as BGR cv::Scalar (0-255 range)
-     */
     inline auto to_bgr_255() const -> std::tuple<float, float, float> {
         return {b * 255.0f, g * 255.0f, r * 255.0f};
     }

@@ -254,8 +254,8 @@ TEST(AprilTagKeypointModelTest, BottomTagMeansUpsideDown) {
 }
 
 TEST(AprilTagKeypointModelTest, TagMountFacingComesFromRotation) {
-    EXPECT_TRUE(make_tag_mount(top_tag(), kRestPitch).faces_up);
-    EXPECT_FALSE(make_tag_mount(bottom_tag(), kRestPitch).faces_up);
+    EXPECT_TRUE(make_tag_mount(top_tag(), kRestPitch).printed_face_up_body_z);
+    EXPECT_FALSE(make_tag_mount(bottom_tag(), kRestPitch).printed_face_up_body_z);
 }
 
 TEST(AprilTagKeypointModelTest, KnownFloorPicksTheTrueIppeSolutionOnATiltedView) {

@@ -22,7 +22,7 @@ std::shared_ptr<FieldDescriptionWithInlierPoints> HomographyFieldFilter::compute
     // repeat the same diagnosis on every frame. Say it once, then drop to debug until something
     // changes.
     const auto report = [this](const std::string &message) {
-        if (consecutive_failures_++ == 0) {
+        if (consecutive_fit_failures_++ == 0) {
             spdlog::warn("HomographyFieldFilter: {}", message);
         } else {
             spdlog::debug("HomographyFieldFilter: {}", message);
@@ -76,7 +76,7 @@ std::shared_ptr<FieldDescriptionWithInlierPoints> HomographyFieldFilter::compute
                                               std::to_string(outline.side_rms_px[1]) + " " +
                                               std::to_string(outline.side_rms_px[2]) + " " +
                                               std::to_string(outline.side_rms_px[3])}});
-    consecutive_failures_ = 0;
+    consecutive_fit_failures_ = 0;
     // Say what the fit was, every time. Nothing about a wrong-but-plausible field pose is visible
     // downstream, so the numbers that would show it have to be in the log rather than only in a
     // recording nobody opens.

@@ -50,7 +50,7 @@ Pose2D push_out_of_hazards(const Pose2D &pose, const std::vector<FieldHazard> &h
             double dx = result.x - hazard.center.x;
             double dy = result.y - hazard.center.y;
             double distance = std::hypot(dx, dy);
-            if (distance >= hazard.inflated_radius) continue;
+            if (distance >= hazard.inflated_radius_m) continue;
             if (distance < kEps) {
                 // Dead centre: no radial direction to follow, so leave along +x. Any direction
                 // is equally good and picking one keeps the result deterministic.
@@ -58,8 +58,8 @@ Pose2D push_out_of_hazards(const Pose2D &pose, const std::vector<FieldHazard> &h
                 dy = 0.0;
                 distance = 1.0;
             }
-            result.x = hazard.center.x + dx / distance * hazard.inflated_radius;
-            result.y = hazard.center.y + dy / distance * hazard.inflated_radius;
+            result.x = hazard.center.x + dx / distance * hazard.inflated_radius_m;
+            result.y = hazard.center.y + dy / distance * hazard.inflated_radius_m;
             moved = true;
         }
         if (half_x > 0.0) result.x = std::clamp(result.x, -half_x, half_x);
@@ -79,7 +79,7 @@ std::optional<size_t> first_blocking_hazard(const Pose2D &start, const Pose2D &g
         Pose2D center = predicted_center(hazards[i], predict_s);
         double t = 0.0;
         const double distance = segment_distance(start, goal, center, t);
-        if (distance >= hazards[i].inflated_radius) continue;
+        if (distance >= hazards[i].inflated_radius_m) continue;
         if (t < nearest_t) {
             nearest_t = t;
             nearest = i;

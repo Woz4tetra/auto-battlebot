@@ -259,9 +259,9 @@ fg::SceneUpdate to_robot_scene(const RobotDescriptionsStamped &robots) {
         }
 
         // Two-sigma position ring, only where the estimator reports one.
-        if (std::isfinite(robot.uncertainty.position_sigma_m)) {
+        if (std::isfinite(robot.uncertainty.position_sigma_major_axis_m)) {
             constexpr int kRingSegments = 32;
-            const double radius = 2.0 * robot.uncertainty.position_sigma_m;
+            const double radius = 2.0 * robot.uncertainty.position_sigma_major_axis_m;
             fg::SceneEntity entity = make_entity(robots.header, "robot_uncertainty", robot_id);
             fg::LinePrimitive ring =
                 make_line(fg::LinePrimitive::LineType::LINE_STRIP, 0.006, solid_color);

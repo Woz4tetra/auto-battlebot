@@ -27,7 +27,7 @@ namespace auto_battlebot {
  * regenerate; reading it would be wrong rather than merely wasteful. MCAP indexes channels, so
  * filtering at the reader means those messages are never deserialized.
  *
- * `depth` comes back empty, `tf_visodom_from_camera` identity, `tracking_ok` true.
+ * `depth` comes back empty, `tf_visodom_from_camera` identity, `pose_tracking_ready` true.
  */
 class VideoPlaybackCamera : public RgbdCameraInterface {
    public:

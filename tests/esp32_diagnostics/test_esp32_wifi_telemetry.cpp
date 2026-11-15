@@ -266,7 +266,7 @@ TEST(Esp32WifiTelemetryTest, StartsAtHeadThenReadsEverythingNew) {
     EXPECT_EQ(events.back().backfill, false);
     for (size_t i = 0; i + 1 < events.size(); i++) EXPECT_EQ(events[i].backfill, true) << i;
     const Esp32WifiTelemetryStats stats = telemetry.stats();
-    EXPECT_EQ(stats.lost_records, 0u);
+    EXPECT_EQ(stats.ring_overwritten_records, 0u);
     EXPECT_EQ(stats.lag_records, 0u);
     EXPECT_EQ(stats.ring_capacity, 50u);
     telemetry.stop();
@@ -287,7 +287,7 @@ TEST(Esp32WifiTelemetryTest, CatchesUpAfterAnOutageWithoutLoss) {
     const auto events = collect(telemetry, 40);
     ASSERT_EQ(events.size(), 40u);
     for (size_t i = 0; i < events.size(); i++) EXPECT_EQ(events[i].seq, i);
-    EXPECT_EQ(telemetry.stats().lost_records, 0u);
+    EXPECT_EQ(telemetry.stats().ring_overwritten_records, 0u);
     EXPECT_GE(telemetry.stats().poll_failures, 1u);
     telemetry.stop();
 }
@@ -308,7 +308,7 @@ TEST(Esp32WifiTelemetryTest, CountsRecordsTheRingOverwrote) {
     ASSERT_EQ(events.size(), 50u);
     EXPECT_EQ(events.front().seq, 30u);
     EXPECT_EQ(events.back().seq, 79u);
-    EXPECT_EQ(telemetry.stats().lost_records, 30u);
+    EXPECT_EQ(telemetry.stats().ring_overwritten_records, 30u);
     telemetry.stop();
 }
 
@@ -328,7 +328,7 @@ TEST(Esp32WifiTelemetryTest, RebootResyncsToTheNewHead) {
     const auto events = collect(telemetry, 5);
     ASSERT_EQ(events.size(), 5u);
     EXPECT_EQ(events.front().seq, 3u);
-    EXPECT_EQ(telemetry.stats().lost_records, 0u);
+    EXPECT_EQ(telemetry.stats().ring_overwritten_records, 0u);
     telemetry.stop();
 }
 

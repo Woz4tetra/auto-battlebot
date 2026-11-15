@@ -460,7 +460,7 @@ TEST_F(EspNowTransmitterPtyTest, NoFeedbackOrSwitchBeforeTelemetry) {
     const TransmitterStatus status = transmitter.get_status();
     EXPECT_TRUE(status.connected);
     EXPECT_FALSE(status.receiving_channels);
-    EXPECT_TRUE(status.has_autonomy_switch);
+    EXPECT_TRUE(status.has_trainer_autonomy_switch);
     EXPECT_FALSE(status.autonomy_switch_on);
 }
 

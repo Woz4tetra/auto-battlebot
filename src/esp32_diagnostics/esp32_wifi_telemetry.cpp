@@ -154,7 +154,7 @@ bool Esp32WifiTelemetry::poll_once(bool &more) {
         return true;
     }
 
-    if (h.first_seq > next_seq_) stats_.lost_records += h.first_seq - next_seq_;
+    if (h.first_seq > next_seq_) stats_.ring_overwritten_records += h.first_seq - next_seq_;
     const bool caught_up = h.first_seq + h.count == h.head;
     for (uint32_t i = 0; i < h.count; i++) {
         const bool backfill = !(caught_up && i + 1 == h.count);

@@ -49,8 +49,7 @@ struct SimMeasurementFrame {
 struct CameraData {
     TransformStamped tf_visodom_from_camera;
     FrameIdentity frame_identity;
-    // True when camera pose tracking is ready for stable field initialization.
-    bool tracking_ok = true;
+    bool pose_tracking_ready = true;
     CameraInfo camera_info;
     RgbImage rgb;
     DepthImage depth;

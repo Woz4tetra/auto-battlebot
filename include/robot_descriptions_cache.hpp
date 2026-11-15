@@ -32,7 +32,6 @@ class RobotDescriptionsCache {
         bool using_previous;
     };
 
-    /** @param max_age_s Longest gap (seconds, by header stamp) the cached set may stand in for. */
     explicit RobotDescriptionsCache(double max_age_s) : max_age_s_(max_age_s) {}
 
     void reset();

@@ -60,7 +60,7 @@ bool PursuitNavigation::initialize() {
     prev_angle_error_ = 0.0;
     prev_timestamp_ = 0.0;
     last_known_our_pose_.reset();
-    our_footprint_offset_ = Position2D{};
+    our_footprint_offset_from_pose_ = Position2D{};
     last_visualization_ = NavigationVisualization{};
     spdlog::info("PursuitNavigation initialized with lookahead_time={} s", lookahead_time_);
     return true;
@@ -79,7 +79,7 @@ VelocityCommand PursuitNavigation::update(RobotDescriptionsStamped robots, Field
     if (our_robot_opt.has_value()) {
         our_pose = pose_to_pose2d(our_robot_opt->pose);
         last_known_our_pose_ = our_pose;
-        our_footprint_offset_ = our_robot_opt->footprint_center_offset;
+        our_footprint_offset_from_pose_ = our_robot_opt->footprint_center_offset;
     } else if (last_known_our_pose_.has_value()) {
         our_pose = *last_known_our_pose_;
         pose_source = PoseSource::Cached;
@@ -146,10 +146,10 @@ VelocityCommand PursuitNavigation::compute_pursuit_command(const Pose2D &our_pos
     }
 
     VelocityCommand cmd{0.0, 0.0, 0.0};
-    cmd.angular_z = compute_angular_velocity(angle_error);
+    cmd.angular_z = compute_angular_velocity_rad_s(angle_error);
     cmd.linear_x = compute_linear_velocity(angle_error, distance, cmd.angular_z);
-    const Pose2D our_body = footprint_center(our_pose, our_footprint_offset_);
-    apply_wall_reverse(our_body, field, cmd);
+    const Pose2D our_body = footprint_center(our_pose, our_footprint_offset_from_pose_);
+    override_linear_with_wall_reverse(our_body, field, cmd);
     const bool hazard_reverse = hazards_.apply_reverse(our_body, field, cmd);
 
     if (max_linear_command_ > 0.0) {
@@ -205,7 +205,7 @@ double PursuitNavigation::apply_hysteresis(double angle_error) {
     return angle_error;
 }
 
-double PursuitNavigation::compute_angular_velocity(double angle_error) {
+double PursuitNavigation::compute_angular_velocity_rad_s(double angle_error) {
     // Logical time (frame stamp), not wall-clock: the PD derivative dt must track the time between
     // the frames the controller actually processed, so it stays correct under sim/playback time
     // scaling.
@@ -263,8 +263,9 @@ double PursuitNavigation::compute_linear_velocity(double angle_error, double dis
     return speed_scale * turn_scale * steer_brake;
 }
 
-void PursuitNavigation::apply_wall_reverse(const Pose2D &our_pose, const FieldDescription &field,
-                                           VelocityCommand &cmd) {
+void PursuitNavigation::override_linear_with_wall_reverse(const Pose2D &our_pose,
+                                                          const FieldDescription &field,
+                                                          VelocityCommand &cmd) {
     if (wall_reverse_distance_ <= 0.0) return;
 
     const double wall_dist = distance_to_nearest_wall(our_pose, field);

@@ -51,15 +51,10 @@ class ZedRgbdCamera : public RgbdCameraInterface {
     mutable std::condition_variable data_cv_;
     std::thread capture_thread_;
 
-    // Lifecycle flags.
-    //   is_initialized_:   open() succeeded and the capture thread is running.
-    //   should_close_:     capture requested application shutdown (fatal error / end of SVO).
-    //   stop_thread_:      request the capture thread to exit (re-init / destruction).
-    //   camera_connected_: last grab() succeeded; cleared on grab failure.
-    std::atomic<bool> is_initialized_;
-    std::atomic<bool> should_close_;
-    std::atomic<bool> stop_thread_;
-    std::atomic<bool> camera_connected_;
+    std::atomic<bool> capture_running_;
+    std::atomic<bool> shutdown_requested_;
+    std::atomic<bool> stop_capture_thread_;
+    std::atomic<bool> last_grab_ok_;
 
     // Frame handoff between capture thread and get(). Counters guarded by data_mutex_.
     // Every captured frame carries depth, so get() never has to request one and wait: it takes

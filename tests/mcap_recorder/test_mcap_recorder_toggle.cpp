@@ -69,7 +69,7 @@ struct McapRecorderTestAccess {
     static void hold_writer(McapRecorder &recorder, bool hold) {
         {
             std::lock_guard<std::mutex> lock(recorder.mutex_);
-            recorder.writer_held_ = hold;
+            recorder.paused_for_test_ = hold;
         }
         recorder.work_cv_.notify_all();
     }

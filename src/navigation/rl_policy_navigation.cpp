@@ -122,7 +122,7 @@ void RlPolicyNavigation::load() {
     }
 
     observation_ = rl_policy::TensorSet(made);
-    history_.emplace(builder->history_length());
+    history_.emplace(builder->history_policy_steps());
     builder_ = std::move(builder);
     policy_ = std::move(policy);
     run_id_ = bundle.run_id;
@@ -142,7 +142,7 @@ bool RlPolicyNavigation::initialize() {
     policy_->reset();
     history_->clear();
     action_ = rl_policy::ActionCommand{};
-    ticks_until_step_ = 0;
+    ticks_until_policy_step_ = 0;
     target_frame_id_ = FrameId::EMPTY;
     last_visualization_ = NavigationVisualization{};
     return true;
@@ -196,7 +196,7 @@ VelocityCommand RlPolicyNavigation::update(RobotDescriptionsStamped robots, Fiel
             logger_->debug("our_robot_unmeasured", {{"unmeasured_s", our_unmeasured_s}});
         }
         // Step as soon as the robot is back rather than waiting out the period.
-        ticks_until_step_ = 0;
+        ticks_until_policy_step_ = 0;
         last_visualization_.robots = std::move(robots);
         return VelocityCommand{0.0, 0.0, 0.0};
     }
@@ -208,7 +208,7 @@ VelocityCommand RlPolicyNavigation::update(RobotDescriptionsStamped robots, Fiel
         target_frame_id_ = target_frame_id;
     }
 
-    if (ticks_until_step_ <= 0) {
+    if (ticks_until_policy_step_ <= 0) {
         const rl_policy::ObservationContext context{*our_robot, opponent, field, target, *history_};
         builder_->build(context, observation_);
         const auto start = std::chrono::steady_clock::now();
@@ -223,10 +223,10 @@ VelocityCommand RlPolicyNavigation::update(RobotDescriptionsStamped robots, Fiel
         }
         const auto [speed, yaw_rate] = measured_speed_and_yaw_rate(*our_robot);
         history_->push(rl_policy::HistoryEntry{action_.linear, action_.angular, speed, yaw_rate});
-        ticks_until_step_ = policy_period_ticks_;
+        ticks_until_policy_step_ = policy_period_ticks_;
         log_step(robots, *our_robot, opponent, field, inference_us);
     }
-    --ticks_until_step_;
+    --ticks_until_policy_step_;
 
     VelocityCommand command{action_.linear, 0.0, action_.angular};
     const Pose2D our_pose = pose_to_pose2d(our_robot->pose);

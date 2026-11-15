@@ -21,8 +21,8 @@ void clip_to_field_bounds(auto_battlebot::Position &position,
 
 namespace auto_battlebot {
 void RobotTemporalMotionFilter::reset() {
-    last_timestamp_per_frame_id_.clear();
-    last_measured_timestamp_per_frame_id_.clear();
+    last_output_timestamp_per_frame_id_.clear();
+    last_measured_timestamp_s_per_frame_id_.clear();
     last_description_per_frame_id_.clear();
 }
 
@@ -36,7 +36,7 @@ std::vector<RobotDescription> RobotTemporalMotionFilter::update_with_prediction(
         if (input.frame_id == FrameId::EMPTY) continue;
         measured_frame_ids.insert(input.frame_id);
         last_description_per_frame_id_[input.frame_id] = input;
-        last_measured_timestamp_per_frame_id_[input.frame_id] = timestamp;
+        last_measured_timestamp_s_per_frame_id_[input.frame_id] = timestamp;
     }
 
     for (auto &[frame_id, desc] : last_description_per_frame_id_) {
@@ -48,8 +48,8 @@ std::vector<RobotDescription> RobotTemporalMotionFilter::update_with_prediction(
             continue;
         }
 
-        auto ts_it = last_timestamp_per_frame_id_.find(frame_id);
-        if (ts_it == last_timestamp_per_frame_id_.end()) continue;
+        auto ts_it = last_output_timestamp_per_frame_id_.find(frame_id);
+        if (ts_it == last_output_timestamp_per_frame_id_.end()) continue;
 
         const double dt = timestamp - ts_it->second;
         if (dt <= 0.0 || dt > 1.0) continue;
@@ -78,13 +78,13 @@ std::vector<RobotDescription> RobotTemporalMotionFilter::update_with_prediction(
             const FrameId frame_id = it->first;
             const bool is_ours = it->second.group == Group::OURS;
             const bool measured_this_frame = measured_frame_ids.count(frame_id) != 0;
-            const auto ts_it = last_measured_timestamp_per_frame_id_.find(frame_id);
+            const auto ts_it = last_measured_timestamp_s_per_frame_id_.find(frame_id);
             const bool expired = is_ours && !measured_this_frame &&
-                                 ts_it != last_measured_timestamp_per_frame_id_.end() &&
+                                 ts_it != last_measured_timestamp_s_per_frame_id_.end() &&
                                  (timestamp - ts_it->second) > our_robot_hold_window_s;
             if (expired) {
-                last_timestamp_per_frame_id_.erase(frame_id);
-                last_measured_timestamp_per_frame_id_.erase(frame_id);
+                last_output_timestamp_per_frame_id_.erase(frame_id);
+                last_measured_timestamp_s_per_frame_id_.erase(frame_id);
                 it = last_description_per_frame_id_.erase(it);
             } else {
                 ++it;
@@ -98,7 +98,7 @@ std::vector<RobotDescription> RobotTemporalMotionFilter::update_with_prediction(
         RobotDescription output = desc;
         output.is_stale = measured_frame_ids.count(frame_id) == 0;
         // Refresh the per-robot timestamp so the next frame's dead-reckoning dt spans one frame.
-        last_timestamp_per_frame_id_[frame_id] = timestamp;
+        last_output_timestamp_per_frame_id_[frame_id] = timestamp;
         outputs.push_back(std::move(output));
     }
     return outputs;

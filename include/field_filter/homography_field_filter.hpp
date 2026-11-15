@@ -32,8 +32,7 @@ class HomographyFieldFilter : public CameraWorldFieldFilter {
 
    private:
     HomographyFieldFilterConfiguration config_;
-    /** Failures since the last successful fit, so a retried init reports its diagnosis once. */
-    int consecutive_failures_ = 0;
+    int consecutive_fit_failures_ = 0;
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
 };
 }  // namespace auto_battlebot

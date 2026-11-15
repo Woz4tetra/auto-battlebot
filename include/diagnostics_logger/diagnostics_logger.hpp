@@ -44,7 +44,6 @@ class DiagnosticsLogger {
     static void publish();
 
    protected:
-    /** Guards loggers_: the UI thread can create a logger while the loop thread publishes. */
     static std::mutex loggers_mutex_;
     static std::map<std::string, std::shared_ptr<DiagnosticsModuleLogger>> loggers_;
     static std::vector<std::shared_ptr<DiagnosticsBackend>> backends_;

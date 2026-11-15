@@ -126,9 +126,9 @@ TagMount make_tag_mount(const AprilTagMountConfiguration &config, double rest_pi
     mount.translation_body_tag =
         cv::Vec3d(config.translation_m[0], config.translation_m[1], config.translation_m[2]);
     // Body z component of the tag's z axis, the printed face normal.
-    mount.faces_up = mount.rotation_body_tag(2, 2) > 0.0;
+    mount.printed_face_up_body_z = mount.rotation_body_tag(2, 2) > 0.0;
     // Positive pitch about body y is nose down in FLU, which tips floor up toward body -x.
-    mount.floor_up_body = mount.faces_up
+    mount.floor_up_body = mount.printed_face_up_body_z
                               ? cv::Vec3d(-std::sin(rest_pitch_rad), 0.0, std::cos(rest_pitch_rad))
                               : cv::Vec3d(0.0, 0.0, -1.0);
     return mount;

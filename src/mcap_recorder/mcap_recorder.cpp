@@ -254,7 +254,7 @@ void McapRecorder::writer_loop() {
         uint64_t batch_seq = 0;
         {
             std::unique_lock<std::mutex> lock(mutex_);
-            work_cv_.wait(lock, [this] { return stop_ || (!queue_.empty() && !writer_held_); });
+            work_cv_.wait(lock, [this] { return stop_ || (!queue_.empty() && !paused_for_test_); });
             if (queue_.empty()) break;
             batch.swap(queue_);
             // queued_bytes_ keeps counting the batch until it is written, so the cap bounds

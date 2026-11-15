@@ -33,12 +33,8 @@ class RobotTemporalMotionFilter {
         double field_bounds_margin_meters, double our_robot_hold_window_s);
 
    private:
-    // Last timestamp each tracked robot appeared in the output. Used only to compute the dt for the
-    // commanded-velocity dead-reckoning of unmeasured robots in update_with_prediction.
-    std::map<FrameId, double> last_timestamp_per_frame_id_;
-    // Last timestamp each tracked robot had a real measurement (not a prediction). Drives the
-    // our-robot stale-identity decay in update_with_prediction.
-    std::map<FrameId, double> last_measured_timestamp_per_frame_id_;
+    std::map<FrameId, double> last_output_timestamp_per_frame_id_;
+    std::map<FrameId, double> last_measured_timestamp_s_per_frame_id_;
     std::map<FrameId, RobotDescription> last_description_per_frame_id_;
     // Fitted gains from the shared [plant] table. Only k_fwd, k_rev, and k_ang are read: the
     // prediction holds one command flat over a frame, with no state to carry lag or coupling.

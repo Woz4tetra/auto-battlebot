@@ -17,8 +17,7 @@ namespace auto_battlebot {
  * been measured, or a label listed as heading-blind.
  */
 struct PoseUncertainty {
-    /** Square root of the larger eigenvalue of the 2x2 position covariance. */
-    double position_sigma_m = std::numeric_limits<double>::infinity();
+    double position_sigma_major_axis_m = std::numeric_limits<double>::infinity();
     double heading_sigma_rad = std::numeric_limits<double>::infinity();
     double yaw_rate_sigma_rad_s = std::numeric_limits<double>::infinity();
 };

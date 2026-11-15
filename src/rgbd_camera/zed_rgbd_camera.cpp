@@ -65,10 +65,10 @@ bool join_with_timeout(std::thread &thread, const std::atomic<bool> &done_flag,
 }  // namespace
 
 ZedRgbdCamera::ZedRgbdCamera(ZedRgbdCameraConfiguration &config)
-    : is_initialized_(false),
-      should_close_(false),
-      stop_thread_(false),
-      camera_connected_(false),
+    : capture_running_(false),
+      shutdown_requested_(false),
+      stop_capture_thread_(false),
+      last_grab_ok_(false),
       frame_counter_(0),
       last_returned_frame_counter_(0),
       grab_health_(kGrabErrorWindow, kGrabErrorExitThreshold) {
@@ -94,7 +94,7 @@ ZedRgbdCamera::~ZedRgbdCamera() {
     // Cancel any in-progress initialize() before doing anything else.
     cancel_open_ = true;
     if (device_.has_pending_open()) {
-        // is_initialized_ is false (only set after a successful open returns), so on a leaked
+        // capture_running_ is false (only set after a successful open returns), so on a leaked
         // open the capture-thread / zed_.close() block below is correctly skipped. Returning
         // also avoids racing zed_.close() against the still-running zed_.open() call.
         if (!device_.await_or_leak_open("ZedRgbdCamera destructor",
@@ -102,8 +102,8 @@ ZedRgbdCamera::~ZedRgbdCamera() {
             return;
         }
     }
-    if (is_initialized_) {
-        stop_thread_ = true;
+    if (capture_running_) {
+        stop_capture_thread_ = true;
         if (capture_thread_.joinable()) {
             data_cv_.notify_all();
             const auto join_start = std::chrono::steady_clock::now();
@@ -129,7 +129,7 @@ bool ZedRgbdCamera::initialize() {
 
     // Clean up previous thread if it exists (support re-initialization)
     if (capture_thread_.joinable()) {
-        stop_thread_ = true;
+        stop_capture_thread_ = true;
         data_cv_.notify_all();
         const auto join_start = std::chrono::steady_clock::now();
         const bool joined =
@@ -139,16 +139,16 @@ bool ZedRgbdCamera::initialize() {
             // Old capture thread is detached and may still be inside zed_.grab(). Re-opening
             // the same SDK handle while another thread is using it would race; signal a soft
             // shutdown so the runner exits cleanly via Restart=on-failure rather than racing.
-            should_close_ = true;
+            shutdown_requested_ = true;
             return false;
         }
     }
 
     // Ensure the SDK camera handle is reset before calling open() again.
-    if (is_initialized_) {
+    if (capture_running_) {
         svo_recorder_->stop();
         device_.close();
-        is_initialized_ = false;
+        capture_running_ = false;
     }
 
     reset_runtime_state();
@@ -156,7 +156,7 @@ bool ZedRgbdCamera::initialize() {
     cancel_open_ = false;
     const ZedDevice::OpenResult open_result = device_.open(cancel_open_);
     if (open_result == ZedDevice::OpenResult::Leaked) {
-        should_close_ = true;
+        shutdown_requested_ = true;
         return false;
     }
     if (open_result != ZedDevice::OpenResult::Opened) return false;
@@ -165,7 +165,7 @@ bool ZedRgbdCamera::initialize() {
 
     latest_data_.camera_info = device_.read_camera_info();
 
-    is_initialized_ = true;
+    capture_running_ = true;
 
     if (svo_recorder_->desired()) {
         svo_recorder_->start();
@@ -179,9 +179,9 @@ bool ZedRgbdCamera::initialize() {
 }
 
 void ZedRgbdCamera::reset_runtime_state() {
-    stop_thread_ = false;
-    should_close_ = false;
-    camera_connected_ = true;
+    stop_capture_thread_ = false;
+    shutdown_requested_ = false;
+    last_grab_ok_ = true;
     capture_thread_done_.store(false, std::memory_order_release);
     frame_counter_ = 0;
     last_returned_frame_counter_ = 0;
@@ -198,12 +198,12 @@ void ZedRgbdCamera::reset_capture_timing_stats() const {
 }
 
 void ZedRgbdCamera::capture_thread_loop() {
-    while (!stop_thread_) {
+    while (!stop_capture_thread_) {
         // capture_frame() bumps frame_counter_ under data_mutex_ once the frame is fully
         // populated; we just wake any waiters here.
         if (capture_frame()) {
             data_cv_.notify_all();
-        } else if (should_close_) {
+        } else if (shutdown_requested_) {
             break;
         }
     }
@@ -211,7 +211,7 @@ void ZedRgbdCamera::capture_thread_loop() {
 }
 
 bool ZedRgbdCamera::capture_frame() {
-    if (!is_initialized_) {
+    if (!capture_running_) {
         return false;
     }
 
@@ -227,13 +227,13 @@ bool ZedRgbdCamera::capture_frame() {
     }
 
     if (grab_status != ZedDevice::GrabStatus::Ok) {
-        camera_connected_ = false;
+        last_grab_ok_ = false;
         grab_health_.record(true, std::chrono::steady_clock::now());
 
-        if (grab_health_.should_shutdown() && !should_close_.load()) {
+        if (grab_health_.should_shutdown() && !shutdown_requested_.load()) {
             {
                 std::lock_guard<std::mutex> lock(data_mutex_);
-                should_close_ = true;
+                shutdown_requested_ = true;
             }
             data_cv_.notify_all();
             spdlog::error(
@@ -246,7 +246,7 @@ bool ZedRgbdCamera::capture_frame() {
         data_cv_.notify_all();
         return false;
     }
-    camera_connected_ = true;
+    last_grab_ok_ = true;
     grab_health_.record(false, std::chrono::steady_clock::now());
 
     // Roll the SVO file over if it has grown past the size cap. The return value says where
@@ -290,7 +290,7 @@ bool ZedRgbdCamera::capture_frame() {
 }
 
 bool ZedRgbdCamera::get(CameraData &data) {
-    if (!is_initialized_) return false;
+    if (!capture_running_) return false;
     const auto get_start = std::chrono::steady_clock::now();
     int wait_loops = 0;
     std::unique_lock<std::mutex> lock(data_mutex_);
@@ -307,8 +307,8 @@ bool ZedRgbdCamera::get(CameraData &data) {
         }
     }
 
-    if (should_close_ || stop_thread_) return false;
-    if (!camera_connected_) return false;
+    if (shutdown_requested_ || stop_capture_thread_) return false;
+    if (!last_grab_ok_) return false;
 
     data = latest_data_;
     // Mark the frame as consumed for non-depth path; harmless for depth path
@@ -338,10 +338,11 @@ bool ZedRgbdCamera::wait_for_new_frame(std::unique_lock<std::mutex> &lock, int &
                                        const std::function<bool()> &frame_ready) {
     const auto deadline = std::chrono::steady_clock::now() + kGetDeadline;
     while (!data_cv_.wait_for(lock, kGetWaitTimeout, [&]() {
-        return frame_ready() || should_close_ || stop_thread_ || !camera_connected_.load();
+        return frame_ready() || shutdown_requested_ || stop_capture_thread_ ||
+               !last_grab_ok_.load();
     })) {
         wait_loops++;
-        if (!camera_connected_.load()) return false;
+        if (!last_grab_ok_.load()) return false;
         if (std::chrono::steady_clock::now() >= deadline) {
             spdlog::error("[ZedRgbdCamera] No frame in {} s", kGetDeadline.count());
             return false;
@@ -350,13 +351,13 @@ bool ZedRgbdCamera::wait_for_new_frame(std::unique_lock<std::mutex> &lock, int &
     return true;
 }
 
-bool ZedRgbdCamera::should_close() { return should_close_; }
+bool ZedRgbdCamera::should_close() { return shutdown_requested_; }
 
 bool ZedRgbdCamera::set_recording_enabled(bool enabled) {
     if (svo_recorder_->desired() == enabled) return true;
 
     // Before the camera is open, just remember the desired state; initialize() acts on it.
-    if (!is_initialized_) {
+    if (!capture_running_) {
         svo_recorder_->set_desired(enabled);
         return true;
     }

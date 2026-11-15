@@ -77,8 +77,7 @@ class RlPolicyNavigation : public NavigationInterface {
     std::string selftest_summary_;
     int policy_period_ticks_ = 1;
 
-    /** Control ticks until the next policy step; 0 steps on this tick. */
-    int ticks_until_step_ = 0;
+    int ticks_until_policy_step_ = 0;
     rl_policy::ActionCommand action_;
     /** Frame of the opponent the policy last saw as its target; EMPTY for none. A change resets
      * the policy. */

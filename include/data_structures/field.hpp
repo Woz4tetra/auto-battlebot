@@ -47,12 +47,10 @@ enum class HazardSource { STATIC, TRACKED };
  * re-deriving clearance. */
 struct FieldHazard {
     Pose2D center;
-    /** Keep-out radius: the geometry inflated by our robot's half-diagonal and the configured
-     * margin. This is what navigation steers around, because it steers a point. */
-    double inflated_radius = 0.0;
+    double inflated_radius_m = 0.0;
     /** The hazard itself, before inflation: the hole in the floor, or the robot's own footprint.
      *
-     * This is what the overlays draw. Drawing `inflated_radius` instead read as the hazard being
+     * This is what the overlays draw. Drawing `inflated_radius_m` instead read as the hazard being
      * twice its real size, because the inflation that makes it a configuration-space obstacle has
      * no visible cause; the robot circles on screen give the eye enough to judge the margin without
      * a second ring for every hazard. */
@@ -60,7 +58,7 @@ struct FieldHazard {
     /** The loss boundary: the geometry plus our half-diagonal plus a small hard margin. Crossing
      * it means a wheel is at the hole lip (or the chassis is in contact), so this is what the
      * velocity barrier limits approach speed against. Deliberately smaller than
-     * `inflated_radius`: steering plans around the fat disc, the speed rule only gets strict at
+     * `inflated_radius_m`: steering plans around the fat disc, the speed rule only gets strict at
      * the thin one, so a fight in the outer band is legal but never arrives fast. */
     double hard_radius = 0.0;
     Velocity2D velocity;

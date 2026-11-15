@@ -148,7 +148,7 @@ TEST(ObservationV1AdapterTest, AStaleTargetWithUnknownHeadingReadsTheCaps) {
     opponent.measurement_age_s = 0.9;
     opponent.size = Size{0.3, 0.4, 0.1};
     opponent.velocity = Velocity2D{-0.5, 0.25, 0.0};
-    opponent.uncertainty.position_sigma_m = 0.03;
+    opponent.uncertainty.position_sigma_major_axis_m = 0.03;
     // Heading and yaw-rate sigmas stay infinite: the heading was never measured.
     world.opponent = opponent;
 
@@ -206,7 +206,7 @@ TEST(ObservationV1AdapterTest, HazardsUseTheObjectRadiusAndTheirKind) {
     FieldHazard house_bot;
     house_bot.center = Pose2D{0.5, 0.0, 0.0};
     house_bot.object_radius = 0.2;
-    house_bot.inflated_radius = 0.5;  // never read
+    house_bot.inflated_radius_m = 0.5;  // never read
     house_bot.velocity = Velocity2D{0.25, 0.0, 0.0};
     house_bot.source = HazardSource::TRACKED;
     house_bot.kind = HazardKind::ROBOT;

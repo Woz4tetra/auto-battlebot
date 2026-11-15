@@ -70,12 +70,12 @@ TEST(HazardAssemblerTest, StaticHazardIsInflatedOnceByOurSizePlusMargin) {
     EXPECT_EQ(field.hazards[0].source, HazardSource::STATIC);
     EXPECT_NEAR(field.hazards[0].center.x, 0.3, 1e-9);
     EXPECT_NEAR(field.hazards[0].center.y, -0.2, 1e-9);
-    EXPECT_NEAR(field.hazards[0].inflated_radius, 0.25 + expected_half_diagonal(0.3, 0.2) + 0.10,
+    EXPECT_NEAR(field.hazards[0].inflated_radius_m, 0.25 + expected_half_diagonal(0.3, 0.2) + 0.10,
                 1e-9);
     // The loss boundary carries only the small hard margin: steering plans around the fat disc,
     // the velocity barrier gets strict at the thin one.
     EXPECT_NEAR(field.hazards[0].hard_radius, 0.25 + expected_half_diagonal(0.3, 0.2) + 0.02, 1e-9);
-    EXPECT_LT(field.hazards[0].hard_radius, field.hazards[0].inflated_radius);
+    EXPECT_LT(field.hazards[0].hard_radius, field.hazards[0].inflated_radius_m);
 }
 
 TEST(HazardAssemblerTest, OurSizeFallsBackRatherThanShrinkingOnADropout) {
@@ -87,11 +87,11 @@ TEST(HazardAssemblerTest, OurSizeFallsBackRatherThanShrinkingOnADropout) {
 
     FieldDescription seen;
     assembler.assemble(robots_with({our_robot()}), seen);
-    const double with_track = seen.hazards[0].inflated_radius;
+    const double with_track = seen.hazards[0].inflated_radius_m;
 
     FieldDescription dropped;
     assembler.assemble(robots_with({}), dropped);
-    EXPECT_NEAR(dropped.hazards[0].inflated_radius, with_track, 1e-9);
+    EXPECT_NEAR(dropped.hazards[0].inflated_radius_m, with_track, 1e-9);
 }
 
 TEST(HazardAssemblerTest, NeutralTrackBecomesATrackedHazardCarryingItsVelocity) {
@@ -106,7 +106,7 @@ TEST(HazardAssemblerTest, NeutralTrackBecomesATrackedHazardCarryingItsVelocity) 
     EXPECT_EQ(field.hazards[0].source, HazardSource::TRACKED);
     EXPECT_NEAR(field.hazards[0].center.x, 0.4, 1e-9);
     EXPECT_NEAR(field.hazards[0].velocity.vx, 0.5, 1e-9);
-    EXPECT_NEAR(field.hazards[0].inflated_radius,
+    EXPECT_NEAR(field.hazards[0].inflated_radius_m,
                 expected_half_diagonal(0.3, 0.3) + expected_half_diagonal(0.3, 0.2) + 0.05, 1e-9);
     EXPECT_NEAR(field.hazards[0].hard_radius,
                 expected_half_diagonal(0.3, 0.3) + expected_half_diagonal(0.3, 0.2) + 0.02, 1e-9);
@@ -292,14 +292,14 @@ TEST(HazardAssemblerTest, CarriesTheGeometryAlongsideTheKeepOut) {
     for (const auto &hazard : field.hazards) {
         if (hazard.source == HazardSource::STATIC) {
             EXPECT_NEAR(hazard.object_radius, 0.2828, 1e-9);
-            EXPECT_NEAR(hazard.inflated_radius, 0.2828 + ours + 0.10, 1e-9);
+            EXPECT_NEAR(hazard.inflated_radius_m, 0.2828 + ours + 0.10, 1e-9);
         } else {
             EXPECT_NEAR(hazard.object_radius, their_own, 1e-9);
-            EXPECT_NEAR(hazard.inflated_radius, their_own + ours + 0.05, 1e-9);
+            EXPECT_NEAR(hazard.inflated_radius_m, their_own + ours + 0.05, 1e-9);
         }
         // The gap between the two rings is exactly the inflation, which is the point of drawing
         // both.
-        EXPECT_GT(hazard.inflated_radius, hazard.object_radius);
+        EXPECT_GT(hazard.inflated_radius_m, hazard.object_radius);
     }
 }
 

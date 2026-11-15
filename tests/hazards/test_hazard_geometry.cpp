@@ -28,7 +28,7 @@ FieldHazard hazard(double x, double y, double radius, HazardSource source = Haza
     FieldHazard h;
     h.center.x = x;
     h.center.y = y;
-    h.inflated_radius = radius;
+    h.inflated_radius_m = radius;
     // The barrier tests below reason about one radius, so the hard radius matches the keep-out
     // here; the assembler tests cover the two radii differing.
     h.hard_radius = radius;

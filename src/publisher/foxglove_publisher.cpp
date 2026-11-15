@@ -114,7 +114,7 @@ FoxglovePublisher::FoxglovePublisher(std::shared_ptr<VizSink> sink,
       preview_worker_(
           make_jpeg_worker("camera_preview", preview_image_, config_.preview_jpeg_quality)) {
     if (sink_ && config_.preview_width > 0 &&
-        (VideoEncoder::hardware_encoder_available() ||
+        (VideoEncoder::hardware_encoder_installed() ||
          VideoEncoder::software_encoder_available())) {
         preview_video_ = std::make_unique<OutputChannel>("/camera/preview_video", "protobuf",
                                                          sdk_schema<CompressedVideo>(), kUnlatched,

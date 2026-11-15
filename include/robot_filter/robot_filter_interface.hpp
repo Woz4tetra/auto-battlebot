@@ -28,13 +28,7 @@ class RobotFilterInterface {
 
     virtual RobotDescriptionsStamped state() const = 0;
 
-    /**
-     * True if, on the most recent correct(), our robot's keypoint was missing this frame yet a blob
-     * detection coincided with our robot's held pose, and was therefore discarded rather than
-     * assigned an opponent FrameId at our own position. Counts the ticks where the suppression
-     * actually did work. Filters that do not track this return false.
-     */
-    virtual bool last_our_blob_present_no_keypoint() const { return false; }
+    virtual bool last_suppressed_own_blob() const { return false; }
 };
 
 }  // namespace auto_battlebot

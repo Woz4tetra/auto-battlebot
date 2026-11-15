@@ -31,9 +31,7 @@ class RobotFrontBackFilter : public RobotFilterInterface {
 
     RobotDescriptionsStamped state() const override { return state_; }
 
-    bool last_our_blob_present_no_keypoint() const override {
-        return our_blob_present_no_keypoint_;
-    }
+    bool last_suppressed_own_blob() const override { return our_blob_present_no_keypoint_; }
 
    private:
     std::unordered_map<Label, RobotConfig> robot_configs_;

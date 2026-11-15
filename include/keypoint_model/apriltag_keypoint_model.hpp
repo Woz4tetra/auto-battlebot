@@ -32,9 +32,7 @@ struct TagMount {
     int id = 0;
     cv::Matx33d rotation_body_tag = cv::Matx33d::eye();
     cv::Vec3d translation_body_tag{0.0, 0.0, 0.0};
-    /** True when the printed face points up the body z axis, so the camera above sees it with
-     *  the robot upright. A tag facing down shows only with the robot upside down. */
-    bool faces_up = true;
+    bool printed_face_up_body_z = true;
     /** Floor up in the body frame while the robot rests with this tag showing. Upright it leans
      *  back by the rest pitch (the robot sits nose down on its wedge tip); upside down it is body
      *  -z, since the resting pitch on the top face is unmeasured. */

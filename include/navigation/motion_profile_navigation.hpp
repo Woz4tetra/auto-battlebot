@@ -90,8 +90,8 @@ class MotionProfileNavigation : public NavigationInterface {
 
     double compute_angular_command(double w_ref, double dt);
 
-    void apply_wall_reverse(const Pose2D &our_pose, const FieldDescription &field,
-                            VelocityCommand &cmd) const;
+    void override_linear_with_wall_reverse(const Pose2D &our_pose, const FieldDescription &field,
+                                           VelocityCommand &cmd) const;
 
     Pose2D clamp_to_field(const Pose2D &pose, const FieldDescription &field) const;
 
@@ -158,9 +158,7 @@ class MotionProfileNavigation : public NavigationInterface {
     double speed_integral_ = 0.0;
     double prev_speed_timestamp_ = 0.0;
     std::optional<Pose2D> last_known_our_pose_;
-    /** Our footprint centre relative to that pose, held with it. Hazard and wall checks measure
-     *  from the footprint centre; the pursuit itself steers the pose. */
-    Position2D our_footprint_offset_;
+    Position2D our_footprint_center_offset_;
     /** Last speed that came from a measurement, held through stale stretches so the latency lead
      * keeps working while the speed feedback is off. */
     double last_measured_speed_ = 0.0;
@@ -172,8 +170,7 @@ class MotionProfileNavigation : public NavigationInterface {
      */
     double prev_linear_uncompensated_ = 0.0;
     double prev_angular_uncompensated_ = 0.0;
-    /** Mode the last tick ran under, to notice the driver flipping the switch. */
-    BehaviorMode prev_mode_ = BehaviorMode::ATTACK;
+    BehaviorMode last_tick_mode_ = BehaviorMode::ATTACK;
     NavigationVisualization last_visualization_;
 };
 
