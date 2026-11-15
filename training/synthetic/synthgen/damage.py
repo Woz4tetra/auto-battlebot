@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import random
 from dataclasses import dataclass
+from typing import NamedTuple
 
 import numpy as np
 
@@ -21,6 +22,20 @@ CUTTER_SEED_RETRIES = 12
 SURFACE_SAMPLE_LIMIT = 64
 
 
+class NamedPartRemoval(NamedTuple):
+    part_name: str
+    piece_indices: tuple[int, ...]
+
+
+class Aabb(NamedTuple):
+    x_min: float
+    y_min: float
+    z_min: float
+    x_max: float
+    y_max: float
+    z_max: float
+
+
 @dataclass(frozen=True)
 class InstanceDamage:
     """What one robot instance ended up with, recorded per frame in ``manifest.jsonl``."""
@@ -28,8 +43,7 @@ class InstanceDamage:
     class_name: str
     damage: float
     mechanism: str
-    # Named removal only: (part name, removed piece indices), in draw order.
-    parts: tuple[tuple[str, tuple[int, ...]], ...] = ()
+    parts: tuple[NamedPartRemoval, ...] = ()
 
     @property
     def is_damaged(self) -> bool:
@@ -98,30 +112,23 @@ class RemovablePart:
 class NamedPartDraw:
     """Which pieces of which named parts to hide, and what fraction of all pieces that is."""
 
-    removed: tuple[tuple[str, tuple[int, ...]], ...]
+    removed: tuple[NamedPartRemoval, ...]
     damage: float
 
 
 @dataclass(frozen=True)
 class FacePiece:
-    """Where one piece of a named part is, for assigning mesh faces to it at load.
+    """Where one piece of a named part is, for assigning mesh faces to it at load."""
 
-    Boxes are ``(x_min, y_min, z_min, x_max, y_max, z_max)`` in the robot's parent frame.
-    ``objects`` and ``exclude_objects`` filter on the Blender object name, matched by
-    ``object_name_matches``; for a GLB grouped by colour that name is the material colour.
-    """
-
-    boxes: tuple[tuple[float, float, float, float, float, float], ...]
+    boxes: tuple[Aabb, ...]
     objects: tuple[str, ...] = ()
     exclude_objects: tuple[str, ...] = ()
 
 
-def model_box_to_blender_local(
-    box: tuple[float, float, float, float, float, float],
-) -> tuple[float, float, float, float, float, float]:
+def model_box_to_blender_local(box: Aabb) -> Aabb:
     """A model-frame (glTF, Y-up) box in Blender local axes, the conversion keypoints get."""
     x0, y0, z0, x1, y1, z1 = box
-    return (x0, -z1, y0, x1, -z0, y1)
+    return Aabb(x0, -z1, y0, x1, -z0, y1)
 
 
 def base_object_name(name: str) -> str:
@@ -199,7 +206,9 @@ def draw_named_part_damage(
                 )
     total = sum(part.split_piece_count for part in by_name.values())
     return NamedPartDraw(
-        removed=tuple((name, tuple(sorted(indices))) for name, indices in removed.items()),
+        removed=tuple(
+            NamedPartRemoval(name, tuple(sorted(indices))) for name, indices in removed.items()
+        ),
         damage=sum(len(indices) for indices in removed.values()) / total,
     )
 

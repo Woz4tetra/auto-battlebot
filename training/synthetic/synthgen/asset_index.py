@@ -4,7 +4,7 @@ import csv
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, NamedTuple
 
 import numpy as np
 
@@ -24,6 +24,13 @@ from synthgen.logsetup import get_logger
 logger = get_logger(__name__)
 
 PathResolveFn = Callable[[Path], Path]
+VramMb = float
+
+
+class SegClassMaps(NamedTuple):
+    robot_instance_to_class: dict[int, int]
+    class_names: dict[int, str]
+    next_free_class_id: int
 
 
 @dataclass(frozen=True)
@@ -79,23 +86,14 @@ def compute_source_budgets(groups: list[SourceModelFiles], max_count: int) -> li
     return budgets
 
 
-def load_distractor_vram_audit(csv_path: Path, resolve: PathResolveFn) -> dict[Path, float]:
-    """Load precomputed distractor VRAM estimates keyed by absolute model path.
-
-    Args:
-        csv_path: Audit CSV location (possibly relative).
-        resolve: Path resolver for the CSV and the model paths in its rows.
-
-    Returns:
-        Mapping of resolved model path to estimated VRAM megabytes; empty when
-        the CSV is missing or unreadable.
-    """
+def load_distractor_vram_audit(csv_path: Path, resolve: PathResolveFn) -> dict[Path, VramMb]:
+    """Resolved model path to estimated VRAM in MB; empty when the CSV is missing or unreadable."""
     resolved = resolve(csv_path)
     if not resolved.exists():
         logger.info("VRAM audit CSV not found: %s", resolved)
         return {}
 
-    estimates: dict[Path, float] = {}
+    estimates: dict[Path, VramMb] = {}
     try:
         with resolved.open(newline="") as f:
             reader = csv.DictReader(f)
@@ -134,20 +132,12 @@ def load_sidecar_keypoints(model_path: Path) -> tuple[np.ndarray, np.ndarray] | 
 
 def setup_segmentation_labels(
     robot_configs: tuple[RobotConfig, ...], is_segmentation_mode: bool
-) -> tuple[dict[int, int], dict[int, str], int]:
-    """Build segmentation class-id maps and return them with the next free class id.
-
-    Args:
-        robot_configs: Parsed ``[[robots]]`` entries (order defines instance ids).
-        is_segmentation_mode: Whether segmentation labels are being produced.
-
-    Returns:
-        ``(robot_instance_id -> seg class id, seg class id -> name, next free id)``.
-    """
+) -> SegClassMaps:
+    """Class-id maps for segmentation mode, and the next free class id."""
     seg_robot_class_ids: dict[int, int] = {}
     seg_label_names: dict[int, str] = {}
     if not is_segmentation_mode:
-        return seg_robot_class_ids, seg_label_names, SEG_ROBOT_CLASS_ID + 1
+        return SegClassMaps(seg_robot_class_ids, seg_label_names, SEG_ROBOT_CLASS_ID + 1)
 
     seg_label_names[BACKGROUND_CATEGORY_ID] = "background"
     seg_label_names[SEG_FLOOR_CLASS_ID] = "floor"
@@ -158,7 +148,7 @@ def setup_segmentation_labels(
         seg_robot_class_ids[ri] = next_seg_class_id
         seg_label_names[next_seg_class_id] = rcfg.name
         next_seg_class_id += 1
-    return seg_robot_class_ids, seg_label_names, next_seg_class_id
+    return SegClassMaps(seg_robot_class_ids, seg_label_names, next_seg_class_id)
 
 
 class DistractorClassIdAssigner:

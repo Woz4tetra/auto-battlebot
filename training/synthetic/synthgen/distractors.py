@@ -14,6 +14,7 @@ import numpy as np
 from synthgen.asset_index import (
     DistractorClassIdAssigner,
     PathResolveFn,
+    VramMb,
     compute_source_budgets,
     discover_model_files,
     load_sidecar_keypoints,
@@ -412,7 +413,7 @@ class DistractorPoolManager:
         resolve: PathResolveFn,
         load_keypoints: bool,
         enable_segmentation: Callable[[], None],
-        vram_estimates: dict[Path, float],
+        vram_estimates: dict[Path, VramMb],
     ) -> None:
         self._cfg = dist_cfg
         self._assigner = assigner

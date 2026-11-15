@@ -11,6 +11,7 @@ from synthgen.damage import (
     MECHANISM_NAMED,
     MECHANISM_NONE,
     MECHANISM_PARTS,
+    Aabb,
     DamageBudget,
     FacePiece,
     InstanceDamage,
@@ -290,6 +291,18 @@ class TestNamedParts:
         draw = draw_named_part_damage(self.PARTS, ("top_plate", "weapon_disk"), (5, 9))
         assert draw is not None
         assert {name for name, _ in draw.removed} == {"top_plate", "weapon_disk"}
+
+    def test_removals_and_boxes_have_named_fields(self):
+        random.seed(3)
+        draw = draw_named_part_damage(self.PARTS, ("weapon_module",), (1, 1))
+        assert draw is not None
+        assert {r.part_name: r.piece_indices for r in draw.removed} == {
+            "weapon_module": (0,),
+            "weapon_disk": (0,),
+        }
+        box = model_box_to_blender_local(Aabb(-0.1, 0.02, -0.05, 0.2, 0.18, 0.01))
+        assert (box.x_min, box.y_min, box.z_min) == (-0.1, -0.01, 0.02)
+        assert (box.x_max, box.y_max, box.z_max) == (0.2, 0.05, 0.18)
 
     def test_manifest_row_lists_the_parts(self):
         row = InstanceDamage(

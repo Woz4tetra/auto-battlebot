@@ -14,7 +14,7 @@ from synthgen.annotations import normalize_annotation_mode
 from synthgen.cage_mount import WALLS, CageMountRanges, MountAim
 from synthgen.colorspec import ColorMappingEntry
 from synthgen.constants import AnnotationMode, View
-from synthgen.damage import CUTTER_SHAPES
+from synthgen.damage import CUTTER_SHAPES, Aabb
 from synthgen.geometry import model_to_blender_local
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -89,7 +89,7 @@ class DamagePartConfig:
     name: str
     # Each piece is boxes, [x_min, y_min, z_min, x_max, y_max, z_max] in the model's native
     # frame like keypoints. A plain part is one piece; a subset part loses 1..n of them.
-    pieces: tuple[tuple[tuple[float, float, float, float, float, float], ...], ...]
+    pieces: tuple[tuple[Aabb, ...], ...]
     # Only faces of these Blender objects (``.001`` suffix ignored). Empty means any object.
     objects: tuple[str, ...] = ()
     exclude_objects: tuple[str, ...] = ()
@@ -437,7 +437,7 @@ def _parse_robot(section: dict[str, Any], index: int) -> RobotConfig:
     )
 
 
-def _as_box(value: Any, context: str) -> tuple[float, float, float, float, float, float]:
+def _as_box(value: Any, context: str) -> Aabb:
     try:
         x0, y0, z0, x1, y1, z1 = (float(v) for v in value)
     except (TypeError, ValueError) as e:
@@ -446,7 +446,7 @@ def _as_box(value: Any, context: str) -> tuple[float, float, float, float, float
         ) from e
     if x0 > x1 or y0 > y1 or z0 > z1:
         raise ConfigError(f"{context}: a min bound exceeds its max in {value!r}")
-    return (x0, y0, z0, x1, y1, z1)
+    return Aabb(x0, y0, z0, x1, y1, z1)
 
 
 def _as_count_weights(entry: dict[str, Any], piece_count: int, context: str) -> tuple[float, ...]:
@@ -464,9 +464,7 @@ def _as_count_weights(entry: dict[str, Any], piece_count: int, context: str) -> 
     return weights
 
 
-def _parse_part_pieces(
-    entry: dict[str, Any], context: str
-) -> tuple[tuple[tuple[float, float, float, float, float, float], ...], ...]:
+def _parse_part_pieces(entry: dict[str, Any], context: str) -> tuple[tuple[Aabb, ...], ...]:
     """A part's pieces: ``pieces`` as given, or ``boxes`` as one piece or one per box.
 
     ``boxes`` on a subset part makes each box its own piece, which suits a wheel. A piece

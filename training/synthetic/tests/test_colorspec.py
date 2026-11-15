@@ -59,6 +59,11 @@ class TestMatchMaterialType:
         assert material is None
         assert fallback is False
 
+    def test_result_fields_are_named(self) -> None:
+        match = match_material_type((148, 128, 128), MAPPING)
+        assert (match.material, match.distance, match.used_fallback) == tuple(match)
+        assert match.used_fallback is True
+
     def test_empty_mapping(self) -> None:
         material, dist, fallback = match_material_type((1, 2, 3), ())
         assert material is None

@@ -144,6 +144,15 @@ class TestSegmentationLabels:
         assert names == {}
         assert next_id == SEG_ROBOT_CLASS_ID + 1
 
+    def test_result_fields_are_named(self) -> None:
+        maps = setup_segmentation_labels(self.ROBOTS, True)
+        assert maps.robot_instance_to_class == {
+            1: SEG_ROBOT_CLASS_ID + 1,
+            2: SEG_ROBOT_CLASS_ID + 2,
+        }
+        assert maps.class_names[SEG_ROBOT_CLASS_ID + 2] == "beta"
+        assert maps.next_free_class_id == SEG_ROBOT_CLASS_ID + 3
+
     def test_segmentation_mode_scheme(self) -> None:
         ids, names, next_id = setup_segmentation_labels(self.ROBOTS, True)
         assert names[0] == "background"
