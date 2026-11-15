@@ -9,6 +9,7 @@ from synthgen.cage_spec import (
     CageSceneSpec,
     MatSpec,
     PitSpec,
+    VenueSpec,
     WallSpec,
     all_tubes,
     block_boxes,
@@ -152,6 +153,22 @@ def test_pit_walls_close_the_hole_below_the_mat() -> None:
         assert top == pytest.approx(-thickness)
         assert bottom < -0.13
     assert boxes["pit0_floor"].center[2] < -0.13
+    floor_bottom = boxes["pit0_floor"].center[2] - boxes["pit0_floor"].size[2] / 2
+    wall_bottom = boxes["pit0_wall_near"].center[2] - boxes["pit0_wall_near"].size[2] / 2
+    assert wall_bottom < floor_bottom
+
+
+def test_riser_clears_pit_walls_by_margin() -> None:
+    spec = CageSceneSpec(
+        pits=(PitSpec(center=(0.5, -0.2), size=(0.4, 0.4), depth=0.13, wall_thickness=0.02),),
+        venue=VenueSpec(riser=True),
+    )
+    walls = [box for box in pit_boxes(spec) if "wall" in box.name]
+    for riser in stage_riser_boxes(spec):
+        for wall in walls:
+            gap_x = abs(riser.center[0] - wall.center[0]) - (riser.size[0] + wall.size[0]) / 2
+            gap_y = abs(riser.center[1] - wall.center[1]) - (riser.size[1] + wall.size[1]) / 2
+            assert max(gap_x, gap_y) > 1e-6
 
 
 def test_bolts_can_be_driven_through_the_inner_rail_face() -> None:

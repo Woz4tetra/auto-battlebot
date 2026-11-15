@@ -5,7 +5,7 @@ from __future__ import annotations
 import tomllib
 from dataclasses import dataclass, field, fields, is_dataclass, replace
 from pathlib import Path
-from typing import Any, get_args, get_origin, get_type_hints
+from typing import Any, NamedTuple, get_args, get_origin, get_type_hints
 
 Vec3 = tuple[float, float, float]
 
@@ -380,7 +380,11 @@ def all_tubes(spec: CageSceneSpec) -> list[TubeLight]:
     return tubes
 
 
-Rect = tuple[float, float, float, float]  # x0, x1, y0, y1
+class Rect(NamedTuple):
+    x0: float
+    x1: float
+    y0: float
+    y1: float
 
 
 def subtract_rects(rects: list[Rect], hole: Rect) -> list[Rect]:
@@ -389,24 +393,24 @@ def subtract_rects(rects: list[Rect], hole: Rect) -> list[Rect]:
     hx0, hx1, hy0, hy1 = hole
     for x0, x1, y0, y1 in rects:
         if hx1 <= x0 or hx0 >= x1 or hy1 <= y0 or hy0 >= y1:
-            out.append((x0, x1, y0, y1))
+            out.append(Rect(x0, x1, y0, y1))
             continue
         cx0, cx1 = max(x0, hx0), min(x1, hx1)
         if y0 < hy0:
-            out.append((x0, x1, y0, hy0))
+            out.append(Rect(x0, x1, y0, hy0))
         if hy1 < y1:
-            out.append((x0, x1, hy1, y1))
+            out.append(Rect(x0, x1, hy1, y1))
         if x0 < cx0:
-            out.append((x0, cx0, max(y0, hy0), min(y1, hy1)))
+            out.append(Rect(x0, cx0, max(y0, hy0), min(y1, hy1)))
         if cx1 < x1:
-            out.append((cx1, x1, max(y0, hy0), min(y1, hy1)))
-    return [r for r in out if r[1] - r[0] > 1e-6 and r[3] - r[2] > 1e-6]
+            out.append(Rect(cx1, x1, max(y0, hy0), min(y1, hy1)))
+    return [r for r in out if r.x1 - r.x0 > 1e-6 and r.y1 - r.y0 > 1e-6]
 
 
 def pit_rects(spec: CageSceneSpec) -> list[Rect]:
     """Every pit opening as an (x0, x1, y0, y1) rectangle in W."""
     return [
-        (
+        Rect(
             pit.center[0] - pit.size[0] / 2,
             pit.center[0] + pit.size[0] / 2,
             pit.center[1] - pit.size[1] / 2,
@@ -430,7 +434,7 @@ def mat_boxes(spec: CageSceneSpec) -> list[Box]:
     """The mat, cut into pieces around any pits. One box when there are none."""
     m = spec.mat
     half = m.size / 2
-    rects: list[Rect] = [(-half, half, -half, half)]
+    rects: list[Rect] = [Rect(-half, half, -half, half)]
     for hole in pit_rects(spec):
         rects = subtract_rects(rects, hole)
     if len(rects) == 1:
@@ -439,13 +443,7 @@ def mat_boxes(spec: CageSceneSpec) -> list[Box]:
 
 
 def pit_boxes(spec: CageSceneSpec) -> list[Box]:
-    """Four walls and a floor per pit, closing the hole off below the mat.
-
-    The walls hang from the mat's underside, not from z = 0: a wall top flush with the floor
-    surface is coplanar with the mat slab it sits under and z-fights in a ring around the
-    opening. What shows above each wall is the mat's own cut edge, which is what the real
-    plywood rim looks like. The walls run past the floor slab for the same reason.
-    """
+    """Four walls and a floor per pit, closing the hole off below the mat."""
     out: list[Box] = []
     for i, (pit, rect) in enumerate(zip(spec.pits, pit_rects(spec))):
         x0, x1, y0, y1 = rect
@@ -625,12 +623,11 @@ def stage_riser_boxes(spec: CageSceneSpec) -> list[Box]:
     height = spec.venue.floor_drop - spec.mat.thickness
     outer = spec.cage.interior + 2 * spec.panel.thickness + 2 * spec.cage.post_size
     half = outer / 2
-    rects: list[Rect] = [(-half, half, -half, half)]
+    rects: list[Rect] = [Rect(-half, half, -half, half)]
     for pit, hole in zip(spec.pits, pit_rects(spec)):
-        # Clear of the pit walls, not flush with them: coincident faces z-fight.
         margin = pit.wall_thickness * 1.5
         rects = subtract_rects(
-            rects, (hole[0] - margin, hole[1] + margin, hole[2] - margin, hole[3] + margin)
+            rects, Rect(hole.x0 - margin, hole.x1 + margin, hole.y0 - margin, hole.y1 + margin)
         )
     if len(rects) == 1:
         return [_slab("riser", rects[0], -spec.mat.thickness, height, "frame")]
@@ -687,14 +684,7 @@ def house_bot_box(spec: CageSceneSpec) -> Box | None:
 
 
 def mat_image_uv(x_w: float, y_w: float, mat_size: float) -> tuple[float, float]:
-    """Image UV (Blender convention, v up) of a W-frame point on the mat, for the albedo built by
-    training/synthetic/build_cage_floor_texture.py.
-
-    That texture is laid out in the hfield frame: image column along hfield +x, image row along
-    hfield +y, origin at the (-half, -half) corner. With hfield x = -W y and hfield y = W x, the
-    column fraction is 0.5 - y/size and the row fraction is 0.5 + x/size; Blender's v runs up
-    the image, so v = 1 - row.
-    """
+    """Image UV (Blender convention, v up) of a W-frame point on the floor texture."""
     u = 0.5 - y_w / mat_size
     v = 1.0 - (0.5 + x_w / mat_size)
     return u, v
