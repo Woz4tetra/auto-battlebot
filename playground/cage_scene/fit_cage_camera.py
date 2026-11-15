@@ -112,6 +112,43 @@ def chordal_mean_rotation(rotations: list[np.ndarray]) -> np.ndarray:
     return np.asarray(rotation)
 
 
+def draw_world_axes(out: np.ndarray, tf_cam_from_hfield: np.ndarray, k_rect: np.ndarray) -> None:
+    tf_w_from_cam = world_from_camera(tf_cam_from_hfield)
+    tf_cam_from_w = np.linalg.inv(tf_w_from_cam)
+    axes_w = np.array(
+        [[0, 0, 0, 1], [0.5, 0, 0, 1], [0, 0.5, 0, 1], [0, 0, 0.5, 1]], dtype=np.float64
+    )
+    cam = (tf_cam_from_w @ axes_w.T)[:3]
+    px = k_rect @ cam
+    px = (px[:2] / px[2]).T
+    origin = tuple(np.round(px[0]).astype(int))
+    for end, color in zip(px[1:], [(0, 0, 255), (0, 255, 0), (255, 0, 0)]):
+        cv2.arrowedLine(out, origin, tuple(np.round(end).astype(int)), color, 3, tipLength=0.1)
+
+
+def refine_on_visible_edges(
+    tf_cam_from_hfield: np.ndarray,
+    seed_quad: np.ndarray | None,
+    points: np.ndarray,
+    image_shape: tuple[int, int],
+    mat: tuple[float, float],
+    k_rect: np.ndarray,
+) -> tuple[np.ndarray, int, float]:
+    supported = 0
+    line_rms = float("nan")
+    height, width = image_shape
+    for round_index in range(LINE_FIT_ROUNDS):
+        if seed_quad is None or round_index > 0:
+            seed_quad = project_field_corners(tf_cam_from_hfield, mat, k_rect)
+        lines = drop_border_lines(side_lines_from_points(points, seed_quad), width, height)
+        supported = sum(line is not None for line in lines)
+        refined = pose_from_lines(lines, mat, k_rect, tf_cam_from_hfield)
+        if refined is None:
+            break
+        tf_cam_from_hfield, line_rms = refined
+    return tf_cam_from_hfield, supported, line_rms
+
+
 def draw_overlay(
     target: np.ndarray,
     quad: np.ndarray,
@@ -124,18 +161,7 @@ def draw_overlay(
     projected = project_field_corners(tf_cam_from_hfield, mat, k_rect)
     cv2.polylines(out, [np.round(quad).astype(np.int32)], True, (0, 255, 255), 2)
     cv2.polylines(out, [np.round(projected).astype(np.int32)], True, (255, 0, 255), 2)
-    # W axes from the mat centre: x red, y green, z blue, 0.5 m each.
-    tf_w_from_cam = world_from_camera(tf_cam_from_hfield)
-    tf_cam_from_w = np.linalg.inv(tf_w_from_cam)
-    axes_w = np.array(
-        [[0, 0, 0, 1], [0.5, 0, 0, 1], [0, 0.5, 0, 1], [0, 0, 0.5, 1]], dtype=np.float64
-    )
-    cam = (tf_cam_from_w @ axes_w.T)[:3]
-    px = k_rect @ cam
-    px = (px[:2] / px[2]).T
-    origin = tuple(np.round(px[0]).astype(int))
-    for end, color in zip(px[1:], [(0, 0, 255), (0, 255, 0), (255, 0, 0)]):
-        cv2.arrowedLine(out, origin, tuple(np.round(end).astype(int)), color, 3, tipLength=0.1)
+    draw_world_axes(out, tf_cam_from_hfield, k_rect)
     for i, line in enumerate(text):
         cv2.putText(out, line, (20, 40 + 32 * i), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 0), 4)
         cv2.putText(out, line, (20, 40 + 32 * i), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
@@ -211,19 +237,9 @@ def main() -> None:
                 continue
             tf_cam_from_hfield = seed_prior
 
-        # Refine on the visible edge lines, re-seeding the side assignment from each solution.
-        supported = 0
-        line_rms = float("nan")
-        height, width = mask.shape[:2]
-        for round_index in range(LINE_FIT_ROUNDS):
-            if seed_quad is None or round_index > 0:
-                seed_quad = project_field_corners(tf_cam_from_hfield, mat, k_rect)
-            lines = drop_border_lines(side_lines_from_points(points, seed_quad), width, height)
-            supported = sum(line is not None for line in lines)
-            refined = pose_from_lines(lines, mat, k_rect, tf_cam_from_hfield)
-            if refined is None:
-                break
-            tf_cam_from_hfield, line_rms = refined
+        tf_cam_from_hfield, supported, line_rms = refine_on_visible_edges(
+            tf_cam_from_hfield, seed_quad, points, mask.shape[:2], mat, k_rect
+        )
         row["sides_supported"] = supported
         row["line_rms_px"] = line_rms
         row["reprojection_px"] = reprojection_px

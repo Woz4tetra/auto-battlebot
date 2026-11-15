@@ -240,6 +240,27 @@ def robot_regions(
     return {"robot": box, "shadow_ring": ring, "mat_rest": mat_rest}
 
 
+def shadow_contrast_metrics(regions, name, r_gray, t_gray) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for source, gray in (("render", r_gray), ("target", t_gray)):
+        rest, ring = gray[regions["mat_rest"]].mean(), gray[regions["shadow_ring"]].mean()
+        for metric, value in (
+            ("shadow_drop_gray", rest - ring),
+            ("shadow_ratio", ring / max(rest, 1.0)),
+        ):
+            rows.append(
+                {
+                    "clip": name,
+                    "render": name,
+                    "region": "shadow_ring",
+                    "metric": metric,
+                    "source": source,
+                    "value": float(value),
+                }
+            )
+    return rows
+
+
 def robot_footprint_overlap(regions, robot_mask, name, r_gray, t_gray) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     box = regions["robot"]
@@ -316,25 +337,9 @@ def grade_robot_frames(args: argparse.Namespace) -> None:
                         "value": value,
                     }
                 )
-        # Shadow contrast: how much darker the ring is than the rest of the mat, target vs render.
         t_gray = cv2.cvtColor(target, cv2.COLOR_BGR2GRAY).astype(float)
         r_gray = cv2.cvtColor(render, cv2.COLOR_BGR2GRAY).astype(float)
-        for source, gray in (("render", r_gray), ("target", t_gray)):
-            rest, ring = gray[regions["mat_rest"]].mean(), gray[regions["shadow_ring"]].mean()
-            for metric, value in (
-                ("shadow_drop_gray", rest - ring),
-                ("shadow_ratio", ring / max(rest, 1.0)),
-            ):
-                rows.append(
-                    {
-                        "clip": name,
-                        "render": name,
-                        "region": "shadow_ring",
-                        "metric": metric,
-                        "source": source,
-                        "value": float(value),
-                    }
-                )
+        rows.extend(shadow_contrast_metrics(regions, name, r_gray, t_gray))
         if robot_mask is not None:
             rows.extend(robot_footprint_overlap(regions, robot_mask, name, r_gray, t_gray))
         x0, y0, x1, y1 = [int(round(v)) for v in pose["box_rect"]]

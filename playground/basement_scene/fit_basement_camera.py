@@ -60,6 +60,10 @@ def floor_pixels(target: np.ndarray) -> np.ndarray:
     return cv2.erode(floor, np.ones((25, 25), np.uint8)) > 0
 
 
+def orient_up_toward_camera(normal: np.ndarray, origin: np.ndarray) -> np.ndarray:
+    return -normal if normal @ -origin < 0 else normal
+
+
 def fit_plane(xyz: np.ndarray, floor: np.ndarray, seed: int) -> Plane:
     points = xyz[floor]
     points = points[np.isfinite(points).all(axis=1)]
@@ -77,8 +81,7 @@ def fit_plane(xyz: np.ndarray, floor: np.ndarray, seed: int) -> Plane:
     fitted = points[best]
     origin = fitted.mean(axis=0)
     normal = np.linalg.svd(fitted - origin)[2][2]
-    if normal @ -origin < 0:  # up points back toward the camera
-        normal = -normal
+    normal = orient_up_toward_camera(normal, origin)
     x_axis = np.array([1.0, 0.0, 0.0]) - normal[0] * normal
     x_axis /= np.linalg.norm(x_axis)
     y_axis = np.cross(normal, x_axis)

@@ -207,6 +207,50 @@ def shade_excluded_regions(regions, axes, fig):
         )
 
 
+def plot_requested_panel(axes, record, have_cmd, t0) -> None:
+    ax = axes[0]
+    if have_cmd:
+        req_lin, req_ang = _requested(record)
+        ct, rl, ra = from_rest(record.cmd_t - t0, req_lin, req_ang)
+        ax.step(ct, rl, where="post", lw=1.4, color="C0", label="linear")
+        ax.step(ct, ra, where="post", lw=1.4, color="C1", label="angular")
+        for seg in record.segments:
+            ax.axvline(seg.t0, color="0.85", lw=0.6, zorder=0)
+        ax.set_ylim(-1.05, 1.05)
+        ax.legend(fontsize=8, ncol=2, loc="upper right")
+        ax.set_ylabel("commanded", fontsize=9)
+    else:
+        ax.text(
+            0.5,
+            0.5,
+            "no sidecar, so no command log",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+            color="0.5",
+        )
+        ax.set_ylabel("commanded", fontsize=9)
+
+
+def plot_measured_vs_commanded(axes, record, have_cmd, t0, t, speed, speed_label, yaw) -> None:
+    req_lin, req_ang = _requested(record) if have_cmd else (None, None)
+    for ax, measured, label, cmd, cmd_label, colour in (
+        (axes[2], speed, speed_label, req_lin, "linear command", "C0"),
+        (axes[3], yaw, "yaw rate (deg/s)", req_ang, "angular command", "C1"),
+    ):
+        ax.plot(t, measured, lw=0.9, color="0.25", label="measured")
+        ax.set_ylabel(label, fontsize=9)
+        ax.axhline(0.0, color="0.55", lw=1.0, zorder=1)
+        if have_cmd:
+            twin = ax.twinx()
+            ctx, cv = from_rest(record.cmd_t - t0, cmd)
+            twin.step(ctx, cv, where="post", lw=1.1, color=colour, alpha=0.75, label=cmd_label)
+            twin.set_ylabel(cmd_label, fontsize=8, color=colour)
+            twin.tick_params(axis="y", labelcolor=colour, labelsize=8)
+            align_zero(ax, twin)
+        ax.legend(fontsize=8, loc="upper left")
+
+
 def plot_run(
     log_path: Path,
     out_path: Path,
@@ -235,49 +279,11 @@ def plot_run(
         gridspec_kw={"height_ratios": [1.0, 1.0, 1.5, 1.5, 1.2, 1.0]},
     )
 
-    # 1. What the tool asked for, in body units.
-    ax = axes[0]
-    if have_cmd:
-        req_lin, req_ang = _requested(record)
-        ct, rl, ra = from_rest(record.cmd_t - t0, req_lin, req_ang)
-        ax.step(ct, rl, where="post", lw=1.4, color="C0", label="linear")
-        ax.step(ct, ra, where="post", lw=1.4, color="C1", label="angular")
-        for seg in record.segments:
-            ax.axvline(seg.t0, color="0.85", lw=0.6, zorder=0)
-        ax.set_ylim(-1.05, 1.05)
-        ax.legend(fontsize=8, ncol=2, loc="upper right")
-        ax.set_ylabel("commanded", fontsize=9)
-    else:
-        ax.text(
-            0.5,
-            0.5,
-            "no sidecar, so no command log",
-            ha="center",
-            va="center",
-            transform=ax.transAxes,
-            color="0.5",
-        )
-        ax.set_ylabel("commanded", fontsize=9)
+    plot_requested_panel(axes, record, have_cmd, t0)
 
     plot_radio_panel(axes, record, have_cmd, t0)
 
-    # 3 and 4. Measured against commanded.
-    req_lin, req_ang = _requested(record) if have_cmd else (None, None)
-    for ax, measured, label, cmd, cmd_label, colour in (
-        (axes[2], speed, speed_label, req_lin, "linear command", "C0"),
-        (axes[3], yaw, "yaw rate (deg/s)", req_ang, "angular command", "C1"),
-    ):
-        ax.plot(t, measured, lw=0.9, color="0.25", label="measured")
-        ax.set_ylabel(label, fontsize=9)
-        ax.axhline(0.0, color="0.55", lw=1.0, zorder=1)
-        if have_cmd:
-            twin = ax.twinx()
-            ctx, cv = from_rest(record.cmd_t - t0, cmd)
-            twin.step(ctx, cv, where="post", lw=1.1, color=colour, alpha=0.75, label=cmd_label)
-            twin.set_ylabel(cmd_label, fontsize=8, color=colour)
-            twin.tick_params(axis="y", labelcolor=colour, labelsize=8)
-            align_zero(ax, twin)
-        ax.legend(fontsize=8, loc="upper left")
+    plot_measured_vs_commanded(axes, record, have_cmd, t0, t, speed, speed_label, yaw)
 
     ax = plot_accel_panel(axes, log, t)
 

@@ -133,6 +133,14 @@ def run_once(sim_cfg: Path, cpp_cfg: Path, log: Path, timeout_s: float) -> bool:
                 server.kill()
 
 
+def approach_direction(x, y, dist, gx, gy) -> tuple[int, float, float]:
+    near = np.flatnonzero(dist < 0.5)
+    k0 = int(near[0]) if len(near) else 0
+    ux, uy = gx - x[k0], gy - y[k0]
+    norm = math.hypot(ux, uy) or 1.0
+    return k0, ux / norm, uy / norm
+
+
 def score_trace(path: Path, stop_distance: float) -> dict[str, float]:
     rows = np.genfromtxt(path, delimiter=",", names=True)
     if rows.size < 2:
@@ -140,12 +148,7 @@ def score_trace(path: Path, stop_distance: float) -> dict[str, float]:
     t, x, y, v, pitch = rows["t"], rows["x"], rows["y"], rows["v"], rows["pitch"]
     gx, gy = float(rows["goal_x"][0]), float(rows["goal_y"][0])
     dist = np.hypot(gx - x, gy - y)
-    # Approach direction: where the robot was when it got within 0.5 m (or its start).
-    near = np.flatnonzero(dist < 0.5)
-    k0 = int(near[0]) if len(near) else 0
-    ux, uy = gx - x[k0], gy - y[k0]
-    norm = math.hypot(ux, uy) or 1.0
-    ux, uy = ux / norm, uy / norm
+    k0, ux, uy = approach_direction(x, y, dist, gx, gy)
     along = (x - gx) * ux + (y - gy) * uy
     inside = dist < stop_distance
     arrived = np.flatnonzero(inside)

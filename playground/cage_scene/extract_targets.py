@@ -25,6 +25,10 @@ DEFAULT_CALIBRATION = Path("config/cameras/brettzone_cage_high.toml")
 SOURCE_SIZE = (3840, 2160)
 
 
+def event_group_from_tournament_id(entry: dict[str, Any]) -> str:
+    return str(entry.get("tournament_id", "")).rsplit("_", 1)[0]
+
+
 def load_manifest(clip_dir: Path) -> dict[str, dict[str, Any]]:
     entries = json.loads((clip_dir / "manifest.json").read_text())
     return {entry["filename"]: entry for entry in entries}
@@ -160,8 +164,7 @@ def main() -> None:
             "clip": video.stem,
             "video": str(video),
             "event": entry.get("tournament_id"),
-            # Weight classes share a weekend and a camera mount, so they share an event group.
-            "event_group": str(entry.get("tournament_id", "")).rsplit("_", 1)[0],
+            "event_group": event_group_from_tournament_id(entry),
             "game_id": entry.get("game_id"),
             "cage": entry.get("cage"),
             "camera": entry.get("camera"),

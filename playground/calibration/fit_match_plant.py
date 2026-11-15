@@ -444,48 +444,7 @@ def report_gain_drift(score_sets, final_params, structure, summary):
             summary.setdefault("gain_drift", {})[set_name] = drift
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--fit", type=parse_pair, required=True, metavar="REPLAY:ORIGINAL")
-    parser.add_argument(
-        "--validate", type=parse_pair, action="append", default=[], metavar="REPLAY:ORIGINAL"
-    )
-    parser.add_argument(
-        "--seed",
-        type=Path,
-        default=Path("playground/calibration/out/plant_stageA.toml"),
-    )
-    parser.add_argument("--sim-plant", type=Path, default=Path("simulation/sim_mrs_buff_mk3.toml"))
-    parser.add_argument("--out", type=Path, default=None)
-    parser.add_argument("--report-dir", type=Path, default=None)
-    parser.add_argument("--widen", type=float, default=3.0, help="jig error bar multiplier")
-    parser.add_argument("--stride-ms", type=float, default=50.0)
-    parser.add_argument("--max-windows", type=int, default=4000)
-    parser.add_argument("--delay-windows", type=int, default=1200)
-    parser.add_argument("--holdout-fraction", type=float, default=0.30)
-    parser.add_argument("--max-nfev", type=int, default=100)
-    parser.add_argument(
-        "--cmd-lead-ms",
-        type=float,
-        default=0.0,
-        help="shift command timestamps this much earlier before fitting. The channel readback"
-        " reaches the log tens of ms after the RF frame carrying the same values left the"
-        " radio, so the effective transport delay on the logged timeline can be negative;"
-        " a lead moves the delay profile minimum back inside the searchable range."
-        " Effective delay on the logged timeline = fitted delay minus this lead.",
-    )
-    args = parser.parse_args()
-
-    stride_s = args.stride_ms / 1000.0
-    weights = FitWeights()
-
-    seed, bounds = load_seed(args.seed, args.widen)
-    print("seed (jig stage A) and match-fit bounds:")
-    for name, (lo, hi) in bounds.items():
-        print(f"  {name:10} {getattr(seed, name):8.4g}  bounds [{lo:.4g}, {hi:.4g}]")
-    sim_params = load_sim_plant(args.sim_plant)
-
-    # --- load and join ---
+def load_and_join_runs(args: argparse.Namespace) -> tuple[MatchRun, MatchRun, list[MatchRun]]:
     def load_run(replay: Path, original: Path, role: str) -> MatchRun:
         name = original.stem.replace("auto_battlebot_main_", "").replace("_repaired", "")
         print(f"\nloading {name} ({role})")
@@ -509,8 +468,10 @@ def main() -> None:
     validation_runs = [
         load_run(replay, original, role="validation") for replay, original in args.validate
     ]
+    return train_run, holdout_run, validation_runs
 
-    # --- ladder ---
+
+def climb_model_ladder(train_run, holdout_run, seed, bounds, weights, stride_s, args):
     print("\n=== Model ladder (match windows, stage A seed) ===")
     delay_grid = np.arange(0.010, 0.1101, 0.008)
     results = []
@@ -563,19 +524,20 @@ def main() -> None:
             break
     structure, fitted, delay, _ = results[best_i]
     print(f"\nselected rung {structure.name} (holdout metric {metrics[best_i]:.4f})")
+    return structure, fitted, delay
 
-    # --- radio-dropout gate ---
-    # Each recording is flagged on its own window set: dt comes from the
-    # recording's frame cadence, so window sets from different recordings
-    # cannot be concatenated.
+
+def radio_dropout_gate(
+    train_run, holdout_run, validation_runs, delay, stride_s, fitted, structure, report_dir
+):
     print("\n=== Radio-dropout gate ===")
     spans: list[tuple[int, int]] = []
     csv_rows: list[list[str | int]] = []
     total_flagged = 0
-    gate_groups: list[list[MatchRun]] = [[train_run, holdout_run]] + [
+    per_recording_groups: list[list[MatchRun]] = [[train_run, holdout_run]] + [
         [run] for run in validation_runs
     ]
-    for group in gate_groups:
+    for group in per_recording_groups:
         group_w = build_match_windows(group, delay, HORIZONS, stride_s, 0)
         if group_w is None:
             continue
@@ -602,7 +564,6 @@ def main() -> None:
             )
     print(f"  flagged {total_flagged} windows -> {len(spans)} merged spans")
 
-    report_dir = args.report_dir
     if report_dir is not None:
         report_dir.mkdir(parents=True, exist_ok=True)
         with open(report_dir / "nonresponsive_windows.csv", "w", newline="") as handle:
@@ -621,6 +582,88 @@ def main() -> None:
             )
             writer.writerows(csv_rows)
         print(f"  wrote {report_dir / 'nonresponsive_windows.csv'}")
+    return spans
+
+
+def report_gates(all_reports, all_classes, summary):
+    print("\n=== Gates ===")
+    for set_name, reports in all_reports.items():
+        a = report_row(reports["A_jig_seed"], "pos_rmse_mm", 0.4)
+        b = report_row(reports["B_match_fit"], "pos_rmse_mm", 0.4)
+        ah = report_row(reports["A_jig_seed"], "head_rmse_deg", 0.4)
+        bh = report_row(reports["B_match_fit"], "head_rmse_deg", 0.4)
+        verdict = "PASS" if (b < a and bh < ah * 1.2) or (bh < ah and b < a * 1.2) else "CHECK"
+        print(
+            f"  {set_name}: A pos@400 {a:.1f} mm head {ah:.2f} deg | "
+            f"B pos@400 {b:.1f} mm head {bh:.2f} deg -> {verdict}"
+        )
+        summary["gates"][set_name] = {
+            "A_pos400_mm": a,
+            "B_pos400_mm": b,
+            "A_head400_deg": ah,
+            "B_head400_deg": bh,
+        }
+        # Per-class regression check (transfer gate: no class regresses > 20%).
+        for label, (n, b_pos, _bh) in all_classes[set_name]["B_match_fit"].items():
+            a_entry = all_classes[set_name]["A_jig_seed"].get(label)
+            if a_entry is None or n < 10:
+                continue
+            _an, a_pos, _ah2 = a_entry
+            if b_pos > 1.2 * a_pos:
+                print(f"    class {label} regressed: B {b_pos:.1f} mm vs A {a_pos:.1f} mm (n={n})")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--fit", type=parse_pair, required=True, metavar="REPLAY:ORIGINAL")
+    parser.add_argument(
+        "--validate", type=parse_pair, action="append", default=[], metavar="REPLAY:ORIGINAL"
+    )
+    parser.add_argument(
+        "--seed",
+        type=Path,
+        default=Path("playground/calibration/out/plant_stageA.toml"),
+    )
+    parser.add_argument("--sim-plant", type=Path, default=Path("simulation/sim_mrs_buff_mk3.toml"))
+    parser.add_argument("--out", type=Path, default=None)
+    parser.add_argument("--report-dir", type=Path, default=None)
+    parser.add_argument("--widen", type=float, default=3.0, help="jig error bar multiplier")
+    parser.add_argument("--stride-ms", type=float, default=50.0)
+    parser.add_argument("--max-windows", type=int, default=4000)
+    parser.add_argument("--delay-windows", type=int, default=1200)
+    parser.add_argument("--holdout-fraction", type=float, default=0.30)
+    parser.add_argument("--max-nfev", type=int, default=100)
+    parser.add_argument(
+        "--cmd-lead-ms",
+        type=float,
+        default=0.0,
+        help="shift command timestamps this much earlier before fitting. The channel readback"
+        " reaches the log tens of ms after the RF frame carrying the same values left the"
+        " radio, so the effective transport delay on the logged timeline can be negative;"
+        " a lead moves the delay profile minimum back inside the searchable range."
+        " Effective delay on the logged timeline = fitted delay minus this lead.",
+    )
+    args = parser.parse_args()
+
+    stride_s = args.stride_ms / 1000.0
+    weights = FitWeights()
+
+    seed, bounds = load_seed(args.seed, args.widen)
+    print("seed (jig stage A) and match-fit bounds:")
+    for name, (lo, hi) in bounds.items():
+        print(f"  {name:10} {getattr(seed, name):8.4g}  bounds [{lo:.4g}, {hi:.4g}]")
+    sim_params = load_sim_plant(args.sim_plant)
+
+    train_run, holdout_run, validation_runs = load_and_join_runs(args)
+
+    structure, fitted, delay = climb_model_ladder(
+        train_run, holdout_run, seed, bounds, weights, stride_s, args
+    )
+
+    spans = radio_dropout_gate(
+        train_run, holdout_run, validation_runs, delay, stride_s, fitted, structure, args.report_dir
+    )
+    report_dir = args.report_dir
 
     final_params = final_fit(
         train_run, delay, stride_s, args, spans, fitted, structure, weights, bounds
@@ -679,32 +722,7 @@ def main() -> None:
                 "head_rmse_deg": floor["head_rmse_deg"].tolist(),
             }
 
-    # --- gates ---
-    print("\n=== Gates ===")
-    for set_name, reports in all_reports.items():
-        a = report_row(reports["A_jig_seed"], "pos_rmse_mm", 0.4)
-        b = report_row(reports["B_match_fit"], "pos_rmse_mm", 0.4)
-        ah = report_row(reports["A_jig_seed"], "head_rmse_deg", 0.4)
-        bh = report_row(reports["B_match_fit"], "head_rmse_deg", 0.4)
-        verdict = "PASS" if (b < a and bh < ah * 1.2) or (bh < ah and b < a * 1.2) else "CHECK"
-        print(
-            f"  {set_name}: A pos@400 {a:.1f} mm head {ah:.2f} deg | "
-            f"B pos@400 {b:.1f} mm head {bh:.2f} deg -> {verdict}"
-        )
-        summary["gates"][set_name] = {
-            "A_pos400_mm": a,
-            "B_pos400_mm": b,
-            "A_head400_deg": ah,
-            "B_head400_deg": bh,
-        }
-        # Per-class regression check (transfer gate: no class regresses > 20%).
-        for label, (n, b_pos, _bh) in all_classes[set_name]["B_match_fit"].items():
-            a_entry = all_classes[set_name]["A_jig_seed"].get(label)
-            if a_entry is None or n < 10:
-                continue
-            _an, a_pos, _ah2 = a_entry
-            if b_pos > 1.2 * a_pos:
-                print(f"    class {label} regressed: B {b_pos:.1f} mm vs A {a_pos:.1f} mm (n={n})")
+    report_gates(all_reports, all_classes, summary)
 
     report_gain_drift(score_sets, final_params, structure, summary)
 

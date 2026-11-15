@@ -72,6 +72,11 @@ def find_dwells(
     return out
 
 
+def far_mark_dwells(dwells: list[Dwell], origin: float, far_dwell: Dwell) -> list[float]:
+    span = abs(far_dwell.count - origin)
+    return [d.count for d in dwells if abs(abs(d.count - origin) - span) < 0.1 * span]
+
+
 def read_pass(path: Path, distance_m: float, *, min_s: float, tol: float) -> Pass:
     log = read_jig_log(path)
     if not log.encoder_moved:
@@ -87,10 +92,7 @@ def read_pass(path: Path, distance_m: float, *, min_s: float, tol: float) -> Pas
 
     origin = dwells[0].count
     far_dwell = max(dwells, key=lambda d: abs(d.count - origin))
-    # Dwells within a tenth of the span of the far one are all "at the far mark"; the spread
-    # among them is the wheel creeping while the robot sat still, which is a real error term.
-    span = abs(far_dwell.count - origin)
-    near_far = [d.count for d in dwells if abs(abs(d.count - origin) - span) < 0.1 * span]
+    near_far = far_mark_dwells(dwells, origin, far_dwell)
     return Pass(
         path=path,
         distance_m=distance_m,
@@ -166,53 +168,9 @@ def fit_scale(passes: list[Pass]) -> Fit:
     return Fit(k, se, slope, slope_se, intercept, intercept_se, len(x), len(set(x)))
 
 
-def plot_residuals(fig, gs, fit, x, y, distances, mark_error_mm):
-    ax = fig.add_subplot(gs[1, 1])
-    model = (
-        fit.slope_counts_per_m * x + fit.intercept_counts
-        if fit.intercept_real
-        else fit.counts_per_m * x
-    )
-    resid_mm = (y - model) * fit.meters_per_count * 1e3
-    for i, dist in enumerate(distances):
-        sel = x == dist
-        ax.plot(x[sel], resid_mm[sel], "o", ms=6, color=f"C{i}")
-    ax.axhline(0.0, color="0.5", lw=1.0)
-    ax.axhspan(
-        -mark_error_mm,
-        mark_error_mm,
-        color="0.85",
-        zorder=0,
-        label=f"+/-{mark_error_mm:g} mm marking error",
-    )
-    ax.set_xlabel("marked distance (m)", fontsize=9)
-    ax.set_ylabel("residual (mm)", fontsize=9)
-    ax.legend(fontsize=8)
-    ax.set_title(
-        "Residual from the " + ("offset fit" if fit.intercept_real else "through-origin fit"),
-        fontsize=10,
-    )
-
-
-def make_plot(path: Path, passes: list[Pass], fit: Fit, mark_error_mm: float) -> None:
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
+def plot_pass_timeline(fig, gs, by_distance, distances, fit):
     from matplotlib.lines import Line2D
 
-    by_distance: dict[float, list[Pass]] = {}
-    for p in passes:
-        by_distance.setdefault(p.distance_m, []).append(p)
-    distances = sorted(by_distance)
-
-    fig = plt.figure(figsize=(13, 8.5))
-    gs = fig.add_gridspec(2, 2, height_ratios=[1.25, 1.0], hspace=0.32, wspace=0.24)
-
-    # Every pass end to end, so a stall, a bounce or a bad dwell is visible rather than
-    # reduced to one number. Only two dwells per pass reach the fit, the start and the far
-    # mark, so they are drawn filled and every other dwell hollow: the difference between
-    # them is the whole reason a pass can look fine and still contribute a bad point.
     ax = fig.add_subplot(gs[0, :])
     for i, dist in enumerate(distances):
         for j, p in enumerate(by_distance[dist]):
@@ -261,7 +219,8 @@ def make_plot(path: Path, passes: list[Pass], fit: Fit, mark_error_mm: float) ->
     )
     ax.legend(handles=handles, labels=labels, fontsize=8, ncol=len(distances) + 2)
 
-    # The fit itself.
+
+def plot_fit(fig, gs, passes, fit, distances):
     ax = fig.add_subplot(gs[1, 0])
     x = np.array([p.distance_m for p in passes])
     y = np.array([p.span for p in passes])
@@ -292,7 +251,55 @@ def make_plot(path: Path, passes: list[Pass], fit: Fit, mark_error_mm: float) ->
     ax.legend(fontsize=8)
     ax.set_title("Counts against distance, through the origin", fontsize=10)
 
-    plot_residuals(fig, gs, fit, x, y, distances, mark_error_mm)
+
+def plot_residuals(fig, gs, passes, fit, distances, mark_error_mm):
+    x = np.array([p.distance_m for p in passes])
+    y = np.array([p.span for p in passes])
+    ax = fig.add_subplot(gs[1, 1])
+    model = (
+        fit.slope_counts_per_m * x + fit.intercept_counts
+        if fit.intercept_real
+        else fit.counts_per_m * x
+    )
+    resid_mm = (y - model) * fit.meters_per_count * 1e3
+    for i, dist in enumerate(distances):
+        sel = x == dist
+        ax.plot(x[sel], resid_mm[sel], "o", ms=6, color=f"C{i}")
+    ax.axhline(0.0, color="0.5", lw=1.0)
+    ax.axhspan(
+        -mark_error_mm,
+        mark_error_mm,
+        color="0.85",
+        zorder=0,
+        label=f"+/-{mark_error_mm:g} mm marking error",
+    )
+    ax.set_xlabel("marked distance (m)", fontsize=9)
+    ax.set_ylabel("residual (mm)", fontsize=9)
+    ax.legend(fontsize=8)
+    ax.set_title(
+        "Residual from the " + ("offset fit" if fit.intercept_real else "through-origin fit"),
+        fontsize=10,
+    )
+
+
+def make_plot(path: Path, passes: list[Pass], fit: Fit, mark_error_mm: float) -> None:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    by_distance: dict[float, list[Pass]] = {}
+    for p in passes:
+        by_distance.setdefault(p.distance_m, []).append(p)
+    distances = sorted(by_distance)
+
+    fig = plt.figure(figsize=(13, 8.5))
+    gs = fig.add_gridspec(2, 2, height_ratios=[1.25, 1.0], hspace=0.32, wspace=0.24)
+
+    plot_pass_timeline(fig, gs, by_distance, distances, fit)
+
+    plot_fit(fig, gs, passes, fit, distances)
+    plot_residuals(fig, gs, passes, fit, distances, mark_error_mm)
 
     fig.suptitle(
         f"Encoder scale: meters_per_count = {fit.meters_per_count:.6e} "

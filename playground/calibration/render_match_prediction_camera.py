@@ -134,6 +134,35 @@ def _poly(img: np.ndarray, uv: np.ndarray, color, thickness=2, closed=True) -> N
     cv2.polylines(img, [pts], closed, color, thickness, lineType=cv2.LINE_AA)
 
 
+def draw_stick_bars(img, run, k, hud_scale) -> None:
+    bx = int(1560 * hud_scale)
+    by = int(1000 * hud_scale)
+    bw = int(300 * hud_scale)
+    bh = int(24 * hud_scale)
+    for row, (value, color, label) in enumerate(
+        (
+            (float(run.cmd_lin[k]), BLUE_BGR, "lin"),
+            (float(run.cmd_ang[k]), (60, 180, 60), "ang"),
+        )
+    ):
+        y0 = by + row * (bh + int(8 * hud_scale))
+        cv2.rectangle(img, (bx, y0), (bx + bw, y0 + bh), (30, 30, 30), -1)
+        mid = bx + bw // 2
+        cv2.line(img, (mid, y0), (mid, y0 + bh), (120, 120, 120), 1)
+        extent = int(np.clip(value, -1, 1) * (bw // 2))
+        cv2.rectangle(img, (mid, y0 + 3), (mid + extent, y0 + bh - 3), color, -1)
+        cv2.putText(
+            img,
+            label,
+            (bx - int(52 * hud_scale), y0 + bh - int(6 * hud_scale)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6 * hud_scale,
+            WHITE,
+            1,
+            cv2.LINE_AA,
+        )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -346,33 +375,7 @@ def main() -> None:
                         cv2.LINE_AA,
                     )
 
-                # Stick bars, bottom right.
-                bx = int(1560 * hud_scale)
-                by = int(1000 * hud_scale)
-                bw = int(300 * hud_scale)
-                bh = int(24 * hud_scale)
-                for row, (value, color, label) in enumerate(
-                    (
-                        (float(run.cmd_lin[k]), BLUE_BGR, "lin"),
-                        (float(run.cmd_ang[k]), (60, 180, 60), "ang"),
-                    )
-                ):
-                    y0 = by + row * (bh + int(8 * hud_scale))
-                    cv2.rectangle(img, (bx, y0), (bx + bw, y0 + bh), (30, 30, 30), -1)
-                    mid = bx + bw // 2
-                    cv2.line(img, (mid, y0), (mid, y0 + bh), (120, 120, 120), 1)
-                    extent = int(np.clip(value, -1, 1) * (bw // 2))
-                    cv2.rectangle(img, (mid, y0 + 3), (mid + extent, y0 + bh - 3), color, -1)
-                    cv2.putText(
-                        img,
-                        label,
-                        (bx - int(52 * hud_scale), y0 + bh - int(6 * hud_scale)),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.6 * hud_scale,
-                        WHITE,
-                        1,
-                        cv2.LINE_AA,
-                    )
+                draw_stick_bars(img, run, k, hud_scale)
 
                 encoder.stdin.write(img.tobytes())
                 drawn += 1

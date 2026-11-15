@@ -30,6 +30,13 @@ MIN_SEPARATION_PX = 120.0
 HULL_MARGIN_PX = 40
 
 
+def spread_picks(candidates: list, count: int) -> list:
+    return [
+        candidates[int(round(i))]
+        for i in np.linspace(0, len(candidates) - 1, min(count, len(candidates)))
+    ]
+
+
 def load_statuses(scene_dir: Path) -> dict[str, str]:
     summary = scene_dir / "poses" / "summary.csv"
     with summary.open() as handle:
@@ -135,11 +142,7 @@ def main() -> None:
         if not candidates:
             print(f"{video.stem}: no clean MRS BUFF frames")
             continue
-        # Spread the picks over the clip: first, last, and evenly between.
-        picks = [
-            candidates[int(round(i))]
-            for i in np.linspace(0, len(candidates) - 1, min(args.per_clip, len(candidates)))
-        ]
+        picks = spread_picks(candidates, args.per_clip)
         for frame_index, det, frame in picks:
             rectified = cv2.remap(frame, map_x, map_y, cv2.INTER_LINEAR)
             pts = undistort_points(np.array([det["front"], det["back"]]), calibration, k_rect)

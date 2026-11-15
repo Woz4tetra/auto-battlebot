@@ -143,17 +143,7 @@ def plot_per_run_error(fig, gs, turns):
     ax.legend(fontsize=8)
 
 
-def make_plot(path: Path, turns: list[Turn], scale: float) -> None:
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    fig = plt.figure(figsize=(13, 8.5))
-    gs = fig.add_gridspec(2, 2, height_ratios=[1.15, 1.0], hspace=0.34, wspace=0.24)
-
-    # Yaw rate, with the integrated stretch shaded. Everything outside the shading is a still
-    # hold and contributes only bias, so seeing where the boundary falls matters.
+def plot_yaw_rate(fig, gs, turns):
     ax = fig.add_subplot(gs[0, 0])
     for i, turn in enumerate(turns):
         ax.plot(turn.t, turn.yaw_dps, lw=0.9, color=f"C{i}", label=turn.path.name)
@@ -164,7 +154,8 @@ def make_plot(path: Path, turns: list[Turn], scale: float) -> None:
     ax.set_title("Yaw rate, with the integrated stretch shaded", fontsize=10)
     ax.legend(fontsize=8)
 
-    # The integral, against what it should have reached.
+
+def plot_integral(fig, gs, turns):
     ax = fig.add_subplot(gs[0, 1])
     for i, turn in enumerate(turns):
         ax.plot(turn.t, turn.angle_deg, lw=1.2, color=f"C{i}", label=turn.path.name)
@@ -178,8 +169,19 @@ def make_plot(path: Path, turns: list[Turn], scale: float) -> None:
     )
     ax.legend(fontsize=8)
 
-    plot_measured_vs_true(fig, gs, turns, scale)
 
+def make_plot(path: Path, turns: list[Turn], scale: float) -> None:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig = plt.figure(figsize=(13, 8.5))
+    gs = fig.add_gridspec(2, 2, height_ratios=[1.15, 1.0], hspace=0.34, wspace=0.24)
+
+    plot_yaw_rate(fig, gs, turns)
+    plot_integral(fig, gs, turns)
+    plot_measured_vs_true(fig, gs, turns, scale)
     plot_per_run_error(fig, gs, turns)
 
     fig.suptitle(f"Gyro scale: {scale:.4f}  ({len(turns)} rotations)", fontsize=12)

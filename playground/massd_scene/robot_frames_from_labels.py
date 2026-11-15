@@ -62,6 +62,11 @@ def pixels_to_floor(
     return translation[None, :] + directions * scale[:, None]
 
 
+def shift_box_for_crop(target: dict, top: int) -> tuple[list[float], np.ndarray]:
+    box = [target["box"][0], target["box"][1] - top, target["box"][2], target["box"][3] - top]
+    return box, target["keypoints"] - np.array([0.0, top])
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -100,9 +105,7 @@ def main() -> None:
         others = [d for d in detections if d is not target]
         if any(boxes_overlap(target["box"], d["box"]) for d in others):
             continue
-        # The banner crop moves every pixel up; keep anything the crop did not eat.
-        box = [target["box"][0], target["box"][1] - top, target["box"][2], target["box"][3] - top]
-        points = target["keypoints"] - np.array([0.0, top])
+        box, points = shift_box_for_crop(target, top)
         if box[1] < 0 or box[3] > bottom - top or points[:, 1].min() < 0:
             continue
 

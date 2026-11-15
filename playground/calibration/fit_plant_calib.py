@@ -70,6 +70,38 @@ def truth_gap_mask(tru_t, grid):
     return truth_dt, gap
 
 
+@dataclass
+class ResampledTruth:
+    dt: float
+    grid: np.ndarray
+    v: np.ndarray
+    v_raw: np.ndarray
+    w: np.ndarray
+    w_raw: np.ndarray
+
+
+def resample_and_differentiate_truth(
+    tru_t: np.ndarray, x: np.ndarray, y: np.ndarray, yaw: np.ndarray
+) -> ResampledTruth:
+    dt = 1.0 / FIT_GRID_HZ
+    grid = np.arange(tru_t[0], tru_t[-1], dt)
+    xg = np.interp(grid, tru_t, x)
+    yg = np.interp(grid, tru_t, y)
+    yawg = np.interp(grid, tru_t, np.unwrap(yaw))
+    win = max(2, round(POSITION_SMOOTH_S * FIT_GRID_HZ))
+
+    def body_forward(xx: np.ndarray, yy: np.ndarray) -> np.ndarray:
+        vx = np.gradient(xx, dt)
+        vy = np.gradient(yy, dt)
+        return vx * np.cos(yawg) + vy * np.sin(yawg)
+
+    v = body_forward(_smooth(xg, win), _smooth(yg, win))
+    v_raw = body_forward(xg, yg)
+    w = np.gradient(_smooth(yawg, win), dt)
+    w_raw = np.gradient(yawg, dt)
+    return ResampledTruth(dt, grid, v, v_raw, w, w_raw)
+
+
 def load_session(session_path: Path) -> Session:
     """Load one CSV from analyze_apriltag_mcap.py (a --drive recording) into a fitting Session."""
     data = _read_csv(session_path)
@@ -92,28 +124,15 @@ def load_session(session_path: Path) -> Session:
     y = np.array([v or "nan" for v in data["y"]], dtype=float)[visible]
     yaw = np.array([v or "nan" for v in data["yaw"]], dtype=float)[visible]
 
-    # Commands and poses come from one recording on one absolute CLOCK_MONOTONIC clock, so no time
-    # alignment is needed. The sync twitches at the protocol's start/end are a visual cross-check in
-    # --plot. Resample the (gappy, variable-rate) truth onto a uniform grid at FIT_GRID_HZ so the
-    # fits do not depend on the camera frame rate, then differentiate. Differentiating raw pose
-    # amplifies perception noise by 1/dt, so a fixed-time smoother (not fixed-sample) is applied
-    # before differentiation; the unsmoothed version is kept only for motion-onset (lag) timing.
-    dt = 1.0 / FIT_GRID_HZ
-    grid = np.arange(tru_t[0], tru_t[-1], dt)
-    xg = np.interp(grid, tru_t, x)
-    yg = np.interp(grid, tru_t, y)
-    yawg = np.interp(grid, tru_t, np.unwrap(yaw))
-    win = max(2, round(POSITION_SMOOTH_S * FIT_GRID_HZ))
-
-    def body_forward(xx: np.ndarray, yy: np.ndarray) -> np.ndarray:
-        vx = np.gradient(xx, dt)
-        vy = np.gradient(yy, dt)
-        return vx * np.cos(yawg) + vy * np.sin(yawg)
-
-    v = body_forward(_smooth(xg, win), _smooth(yg, win))
-    v_raw = body_forward(xg, yg)
-    w = np.gradient(_smooth(yawg, win), dt)
-    w_raw = np.gradient(yawg, dt)
+    truth = resample_and_differentiate_truth(tru_t, x, y, yaw)
+    dt, grid, v, v_raw, w, w_raw = (
+        truth.dt,
+        truth.grid,
+        truth.v,
+        truth.v_raw,
+        truth.w,
+        truth.w_raw,
+    )
 
     truth_dt, gap = truth_gap_mask(tru_t, grid)
 
@@ -352,6 +371,15 @@ class LatencyDiag:
     lag_ms: float
 
 
+def parabolic_peak_offset(values: np.ndarray, peak_i: int) -> float:
+    if 0 < peak_i < len(values) - 1:
+        a, b, c = values[peak_i - 1], values[peak_i], values[peak_i + 1]
+        denom = a - 2.0 * b + c
+        if abs(denom) > 1e-9:
+            return float(np.clip(0.5 * (a - c) / denom, -0.5, 0.5))
+    return 0.0
+
+
 def _latency_stack(s: Session) -> LatencyDiag:
     """Pool clean command edges and stack the acceleration after each to time the transport lag."""
     pre = PRE_EDGE_SAMPLES
@@ -396,14 +424,7 @@ def _latency_stack(s: Session) -> LatencyDiag:
     smooth = np.convolve(stack, np.array([0.25, 0.5, 0.25]), mode="same")
     causal = smooth[pre:]
     peak_i = int(np.argmax(causal))
-    # Parabolic sub-sample refinement around the peak, to average down the 1-frame quantization
-    # across runs.
-    delta = 0.0
-    if 0 < peak_i < len(causal) - 1:
-        a, b, c = causal[peak_i - 1], causal[peak_i], causal[peak_i + 1]
-        denom = a - 2.0 * b + c
-        if abs(denom) > 1e-9:
-            delta = float(np.clip(0.5 * (a - c) / denom, -0.5, 0.5))
+    delta = parabolic_peak_offset(causal, peak_i)
     snr = float(causal[peak_i] / (np.std(smooth[:pre]) + 1e-9))
     lag_ms = (peak_i + delta) * s.dt_s * 1000.0
     return LatencyDiag(pre, s.dt_s, lags_ms, stack, smooth, windows, count, snr, peak_i, lag_ms)

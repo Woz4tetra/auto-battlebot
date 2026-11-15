@@ -272,43 +272,18 @@ def state_at(trace: ev.Trace, t_ns: int) -> dict | None:
     return {name: float(v[k, 0]) for name, v in trace.values.items()}
 
 
-def render_frame(img, t_ns, cff, k, data, seg: Segment, scene: Scene, scale: float) -> np.ndarray:
-    # Lift the field points onto the measurement plane by shifting the camera down by its height.
+def lift_to_plane(cff: np.ndarray, plane_z_m: float) -> np.ndarray:
     lift = np.eye(4)
-    lift[2, 3] = scene.plane_z_m
-    cff = cff @ lift
-    out = img.copy()
-    has_truth = scene.kind == "sysid"
-    half = scene.half_size_m
-    gap_end = seg.start_ns + int(seg.gap_s * 1e9)
-    in_gap = seg.start_ns <= t_ns < gap_end
+    lift[2, 3] = plane_z_m
+    return cff @ lift
 
-    if has_truth:
-        tr = data.truth_at(np.array([t_ns]))
-        if tr["valid"][0]:
-            draw_robot(out, cff, k, tr["x"][0], tr["y"][0], tr["yaw"][0], half, GREEN, 2)
 
-    # The newest measurement taken by this frame time, from the last 0.1 s.
-    ms = data.meas_stamp_ns
+def newest_measurement(ms: np.ndarray, t_ns: int, max_age_ns: float) -> int:
     j = int(np.searchsorted(ms, t_ns, side="right")) - 1
-    if j >= 0 and t_ns - ms[j] < 1e8:
-        uv = project(cff, k, np.array([[data.meas_x[j], data.meas_y[j]]]))[0]
-        if np.isfinite(uv).all():
-            withheld = seg.start_ns <= ms[j] < gap_end
-            if withheld:
-                cv2.circle(out, tuple(uv.astype(int)), int(7 * scale), GREY, 2, cv2.LINE_AA)
-            else:
-                cv2.circle(out, tuple(uv.astype(int)), int(5 * scale), WHITE, -1, cv2.LINE_AA)
+    return j if j >= 0 and t_ns - ms[j] < max_age_ns else -1
 
-    hold = state_at(seg.hold, t_ns)
-    if hold is not None:
-        draw_robot(out, cff, k, hold["x"], hold["y"], hold["yaw"], half, ORANGE, 2)
-    est = state_at(seg.phase1, t_ns)
-    if est is not None:
-        draw_ring(out, cff, k, est["x"], est["y"], 2.0 * est["position_sigma_m"], BLUE)
-        draw_robot(out, cff, k, est["x"], est["y"], est["yaw"], half, BLUE, 3)
 
-    # Zoomed inset around the filter estimate.
+def draw_zoom_inset(out, est, cff, k, scale: float) -> None:
     if est is not None:
         c = project(cff, k, np.array([[est["x"], est["y"]]]))[0]
         if np.isfinite(c).all():
@@ -327,7 +302,10 @@ def render_frame(img, t_ns, cff, k, data, seg: Segment, scene: Scene, scale: flo
                 out[y0 : y0 + size, x0 : x0 + size] = inset
                 cv2.rectangle(out, (x0, y0), (x0 + size, y0 + size), WHITE, 2)
 
-    # Banner and status.
+
+def draw_banner(out, scene: Scene, seg: Segment, t_ns: int, scale: float) -> None:
+    gap_end = seg.start_ns + int(seg.gap_s * 1e9)
+    in_gap = seg.start_ns <= t_ns < gap_end
     label(out, f"{scene.title}   [{SPEED:g}x speed]", (14, int(32 * scale)), 0.7 * scale)
     if in_gap:
         status = (
@@ -341,13 +319,18 @@ def render_frame(img, t_ns, cff, k, data, seg: Segment, scene: Scene, scale: flo
         status = f"tracking; {seg.gap_s:g} s dropout in {(seg.start_ns - t_ns) / 1e9:.2f} s"
         color = WHITE
     label(out, status, (14, int(70 * scale)), 0.75 * scale, color)
+
+
+def draw_error_readout(out, data, est, hold, t_ns: int, has_truth: bool, scale: float) -> None:
+    ms = data.meas_stamp_ns
+    j = newest_measurement(ms, t_ns, 5e7)
     if est is not None:
         ref = None
         if has_truth:
             tr = data.truth_at(np.array([t_ns]))
             if tr["valid"][0]:
                 ref = (tr["x"][0], tr["y"][0], "truth")
-        elif j >= 0 and t_ns - ms[j] < 5e7:
+        elif j >= 0:
             ref = (data.meas_x[j], data.meas_y[j], "measurement")
         sig = est["position_sigma_m"]
         line = f"filter 2-sigma {200 * sig:.0f} cm" if np.isfinite(sig) else "filter 2-sigma -"
@@ -360,6 +343,43 @@ def render_frame(img, t_ns, cff, k, data, seg: Segment, scene: Scene, scale: flo
             if np.isfinite(sig):
                 line += f"   filter 2-sigma {200 * sig:.0f} cm"
         label(out, line, (14, int(108 * scale)), 0.65 * scale)
+
+
+def render_frame(img, t_ns, cff, k, data, seg: Segment, scene: Scene, scale: float) -> np.ndarray:
+    cff = lift_to_plane(cff, scene.plane_z_m)
+    out = img.copy()
+    has_truth = scene.kind == "sysid"
+    half = scene.half_size_m
+    gap_end = seg.start_ns + int(seg.gap_s * 1e9)
+
+    if has_truth:
+        tr = data.truth_at(np.array([t_ns]))
+        if tr["valid"][0]:
+            draw_robot(out, cff, k, tr["x"][0], tr["y"][0], tr["yaw"][0], half, GREEN, 2)
+
+    ms = data.meas_stamp_ns
+    j = newest_measurement(ms, t_ns, 1e8)
+    if j >= 0:
+        uv = project(cff, k, np.array([[data.meas_x[j], data.meas_y[j]]]))[0]
+        if np.isfinite(uv).all():
+            withheld = seg.start_ns <= ms[j] < gap_end
+            if withheld:
+                cv2.circle(out, tuple(uv.astype(int)), int(7 * scale), GREY, 2, cv2.LINE_AA)
+            else:
+                cv2.circle(out, tuple(uv.astype(int)), int(5 * scale), WHITE, -1, cv2.LINE_AA)
+
+    hold = state_at(seg.hold, t_ns)
+    if hold is not None:
+        draw_robot(out, cff, k, hold["x"], hold["y"], hold["yaw"], half, ORANGE, 2)
+    est = state_at(seg.phase1, t_ns)
+    if est is not None:
+        draw_ring(out, cff, k, est["x"], est["y"], 2.0 * est["position_sigma_m"], BLUE)
+        draw_robot(out, cff, k, est["x"], est["y"], est["yaw"], half, BLUE, 3)
+
+    draw_zoom_inset(out, est, cff, k, scale)
+
+    draw_banner(out, scene, seg, t_ns, scale)
+    draw_error_readout(out, data, est, hold, t_ns, has_truth, scale)
     legend(out, scale, has_truth)
     return out
 
