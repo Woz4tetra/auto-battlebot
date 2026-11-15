@@ -120,8 +120,6 @@ function renderHeader(s, live) {
 }
 
 function renderChecks(s) {
-  // Checks after the first error are not shown by the server; list them greyed so the shape of
-  // the checklist stays put.
   const ALL = [
     "Serial port",
     "Dongle link stats",

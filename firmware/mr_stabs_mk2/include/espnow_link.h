@@ -14,10 +14,8 @@
 namespace espnow_link {
 
 const uint8_t CHANNEL_CANDIDATES[] = {1, 6, 11};
-const uint32_t CHANNEL_DWELL_MS = 25;  // ~6 dongle repeats at 250 Hz, plus switch settling
+const uint32_t CHANNEL_DWELL_MS = 25;
 
-// The control loop runs at ~1 kHz. Telemetry at that rate would hold the channel ~35% of the
-// time at 6 Mbps, so it is sent at 100 Hz, which still resolves every 10 ms control tick.
 const uint32_t TELEMETRY_PERIOD_MS = 10;
 
 // Dongles allowed to command, tune, and flash this robot, by the STA MAC each dongle prints at
@@ -25,12 +23,8 @@ const uint32_t TELEMETRY_PERIOD_MS = 10;
 // ESP-NOW allows 20 unencrypted peers.
 const uint8_t MAX_PAIRED_DONGLES = 8;
 
-// OTA transfer gives up after this long without a valid OTA frame. The running image is untouched
-// until Update.end() switches the boot slot, so an abort always leaves the old firmware running.
 const uint32_t OTA_SILENCE_MS = 5000;
 
-// Every boot reports OTA_VALIDATED, with its MD5, once it has run this long and heard a dongle.
-// The flasher waits for it as proof the new image runs.
 const uint32_t VALIDATE_AFTER_MS = 10000;
 
 class EspNowLink {

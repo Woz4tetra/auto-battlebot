@@ -6,18 +6,10 @@
 
 namespace espnow_protocol {
 
-// 15 missed packets at the dongle's 250 Hz repeat rate. Kept generous on purpose: falling back to
-// the trainer path costs ~5 ms, so a window that drops out on transient loss works against the
-// latency goal. Tighten only if stale commands prove to be a real hazard.
 const uint32_t COMMAND_STALE_MS = 60;
 
-// 3, not 5: at 250 Hz that is a 12 ms recovery instead of 20 ms. Re-enter the fast path sooner and
-// accept slightly more switching at the edge of range. Both paths carry the same command, so a
-// switch steps the wheels only by what the command changed across the latency difference.
 const uint8_t FRESH_STREAK_REQUIRED = 3;
 
-// Well above COMMAND_STALE_MS. Silence this long re-baselines the sequence number (an app restart
-// starts again from 0) and, when the channel is not pinned, starts the robot's channel sweep.
 const uint32_t REACQUIRE_SILENCE_MS = 500;
 
 class CommandTracker {

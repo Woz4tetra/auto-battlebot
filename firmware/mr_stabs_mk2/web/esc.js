@@ -75,8 +75,6 @@ const Blheli = (() => {
   const toBase64 = (bytes) => btoa(String.fromCharCode(...bytes));
   const fromBase64 = (text) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
 
-  // XTEA, 32 rounds, with a tweak added into each round key term: 0xF800 + 8 per block. Each
-  // decrypted block is a 2-byte nonce and 6 payload bytes.
   const KEY = [0x81fbc617, 0x9e81c901, 0x29a1fa54, 0x318234b4];
   const DELTA = 0x9e3779b9;
   const TWEAK = 0xf800;
@@ -140,7 +138,6 @@ const Blheli = (() => {
     return out;
   }
 
-  // Random nonces per block, as BLHeliSuite's Write Setup sends.
   const randomNonce = () => crypto.getRandomValues(new Uint8Array(2));
 
   function encodePage(payload, nonce = randomNonce) {

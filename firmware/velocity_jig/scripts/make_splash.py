@@ -1,12 +1,5 @@
 #!/usr/bin/env python3
-"""Bake the BWBots splash GIF into a 1-bit OLED animation header.
-
-Uses the pre-cropped 128x64 GIF as-is (no crop, scale, or filtering). The source
-has 3 gray levels: 0 maps to black; 204 (the gray outline) and 255 map to white.
-
-Writes include/splash_anim.h. Add --preview <png> for a montage.
-Regenerate with: scripts/make_splash.py
-"""
+"""Bake the BWBots splash GIF into a 1-bit OLED animation header."""
 
 import os
 import sys

@@ -114,7 +114,6 @@ void WifiManager::start_from_saved() {
 
     if (WiFi.getMode() & WIFI_MODE_AP) WiFi.softAPdisconnect(true);
     WiFi.mode(WIFI_STA);
-    // Modem sleep holds incoming packets for up to 100-300 ms.
     WiFi.setSleep(false);
     WiFi.setAutoReconnect(true);
     xSemaphoreTake(_lock, portMAX_DELAY);
@@ -199,7 +198,6 @@ bool WifiManager::delete_network(const char *ssid, String &error) {
         _settings.networks[i] = _settings.networks[i + 1];
     }
     _settings.count--;
-    // Leave no stale password behind in NVS.
     memset(&_settings.networks[_settings.count], 0, sizeof(network_t));
     if (strcmp(_settings.selected, ssid) == 0) {
         copy_str(_settings.selected, _settings.count ? _settings.networks[0].ssid : "",

@@ -20,7 +20,6 @@ static constexpr uint8_t PIN_SD_MOSI = 19;
 static constexpr uint8_t PIN_SD_MISO = 20;
 static constexpr uint8_t PIN_SD_CS = 23;
 
-// Encoder (quadrature) on A0/A1. Consecutive pins -> PIO/ISR quadrature decode.
 static constexpr uint8_t PIN_ENC_A = 26;
 static constexpr uint8_t PIN_ENC_B = 27;
 
@@ -28,9 +27,6 @@ static constexpr uint8_t PIN_ENC_B = 27;
 // already defines that as a macro.
 static constexpr uint8_t PIN_STATUS_LED = 13;
 
-// Logging sample rate. A hardware timer polls the IMU + encoder at this rate
-// (no dependency on the IMU INT1 wire). The IMU runs faster internally, so each
-// poll returns a fresh, BDU-coherent sample. 1 kHz is plenty for velocity.
 static constexpr uint32_t SAMPLE_RATE_HZ = 1000;
 static constexpr int64_t STRICT_SAMPLE_PERIOD_US = -(int64_t)(1000000UL / SAMPLE_RATE_HZ);
 static constexpr uint32_t STREAM_PERIOD_MS = 100;
@@ -52,58 +48,25 @@ static constexpr uint8_t CTRL3_C_IF_INC = 0x04;
 #define IMU_ODR LSM6DS_RATE_1_66K_HZ
 static constexpr uint32_t IMU_ODR_HZ = 1660;
 
-// Full-scale ranges. Battlebot: fast spin + hard hits. The standard ranges are
-// the LSM6DS enums (ISM330DHCX adds only a 4000 dps gyro extension).
-//
-// Both ranges were raised after the 2026-08-20 session ran out of headroom on
-// each. The angular steps peaked at 2054 dps against the 2294 dps that +/-2000
-// covers, 90% of full scale, and the coupling grid pegged the accelerometer at
-// +/-32764 on nine isolated 1 ms samples with nothing struck: tank-steer
-// chatter through the guard plates, not an impact. The gyro extension also has
-// to cover the raised angular_cap in waveforms.toml.
-//
-// Cost of the change is resolution: both channels halve, so the noise floor per
-// LSB doubles. That is the right trade here, because a clipped sample's true
-// value is unknown and biases every fit that reads it.
 #define IMU_ACCEL_RANGE LSM6DS_ACCEL_RANGE_16_G
 #define IMU_GYRO_RANGE ISM330DHCX_GYRO_RANGE_4000_DPS
-// LSB scale factors for the ranges above (documented in the file header).
-// String forms are used in the file header to avoid a float-printf dependency.
-//
-// These are the nominal datasheet sensitivities, so full int16 swing covers
-// more than the range name: 0.000488 * 32768 = 15.99 g, 0.140 * 32768 = 4587
-// dps. read_jig_log derives the header's range that way, which is why a
-// +/-2000 dps log reports 2293.76.
-static constexpr float ACCEL_G_PER_LSB = 0.000488f;  // 0.488 mg/LSB at +/-16g
-static constexpr float GYRO_DPS_PER_LSB = 0.140f;    // 140 mdps/LSB at +/-4000dps
+static constexpr float ACCEL_G_PER_LSB = 0.000488f;
+static constexpr float GYRO_DPS_PER_LSB = 0.140f;
 #define ACCEL_G_PER_LSB_STR "0.000488"
 #define GYRO_DPS_PER_LSB_STR "0.140"
 
-// SD SPI clock. This bounds the SD-read side of downloads. 24 MHz is a good
-// balance; drop to 16 if a card is flaky. (USB Full Speed ~1 MB/s is the real
-// download ceiling, not the serial baud, which USB CDC ignores.)
 static constexpr uint32_t SD_SCK_MHZ_VAL = 24;
 
-// Contiguous preallocation per file. Preallocating avoids FAT-growth latency
-// spikes mid-run (a key part of gap-free logging). Truncated to actual size on
-// close. Rows are ~60 B at ~1.66 kHz (~100 KB/s), so 32 MB covers ~5 min.
-// Writes past the reservation still work but may stall; raise for longer runs.
 static constexpr uint64_t PREALLOC_BYTES = 32ULL * 1024 * 1024;
 
 // Capture ring buffer. Producer = ISR, consumer = main loop. Sized to absorb
 // worst-case SD write stalls (~100 ms) many times over. Must be a power of two.
 static constexpr uint32_t RING_SLOTS = 4096;  // 4096 * 24 B ~= 96 KB
 
-// SD write staging buffer. Formatted ASCII accumulates here and flushes in
-// large blocks for efficient sector writes.
 static constexpr uint32_t WBUF_SIZE = 8192;
 
-// Max records drained to SD per loop pass (keeps the STOP button responsive).
 static constexpr uint32_t DRAIN_CAP = 1024;
 
 static constexpr uint32_t DEBOUNCE_MS = 30;
 
-// Diagnostics screen refresh period. A full 128x64 frame is 1 KB over I2C at
-// 400 kHz (~25 ms), so 100 ms keeps the buttons and USB responsive. Idle mode
-// only: the screen is never redrawn while recording.
 static constexpr uint32_t DIAG_REFRESH_MS = 100;

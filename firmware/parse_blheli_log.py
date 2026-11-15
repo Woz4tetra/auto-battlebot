@@ -33,11 +33,7 @@ def _try_record(data: bytes, lpos: int, length: int):
 
 
 def extract_strings(data: bytes) -> list[dict]:
-    """Extract length-prefixed text records from xlg binary data.
-
-    The xlg format embeds strings after 0xFF delimiters as:
-        FF [00|80] [00|FF] FF <4-byte LE length> <string bytes>
-    """
+    """Extract length-prefixed text records from xlg binary data."""
     entries = []
     pos = 0
     length = len(data)

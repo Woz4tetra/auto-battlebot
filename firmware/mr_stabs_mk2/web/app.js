@@ -191,8 +191,6 @@ function connect() {
   };
 }
 
-// While recording the robot sends every loop tick, so the DOM updates once per frame instead
-// of once per message.
 requestAnimationFrame(render);
 connect();
 
@@ -364,7 +362,6 @@ function renderWifi() {
   }
   $("netSelect").disabled = locked;
 
-  // Rebuilt only when the list changes, so a poll does not close a dropdown the operator has open.
   const select = $("netSelect");
   const key = wifi.networks.join("\n");
   if (select.dataset.key !== key) {
@@ -385,7 +382,6 @@ function renderWifi() {
   select.value = wifi.networks.includes(selected) ? selected : wifi.networks[0] || "";
   $("selectField").hidden = mode !== "client";
 
-  // The lockout box above explains forced AP mode; the note would only repeat it.
   $("modeNote").hidden = locked;
   $("modeNote").textContent =
     mode === "ap"
@@ -660,8 +656,6 @@ function renderBoot(b) {
   } else {
     rows.push(
       ["Core dump", b.dump_size + " B", true],
-      // A task watchdog aborts from its interrupt on core 0, so the summary names whatever ran
-      // there. The stuck task is in the full decode (scripts/coredump).
       [
         b.reset_reason === "TASK_WDT" ? "Task interrupted (not the stuck one)" : "Task",
         b.task || "--",
@@ -715,7 +709,6 @@ function renderDongles(e) {
     if (PAIR_RESULTS[e.pair_result]) flash("pairStatus", PAIR_RESULTS[e.pair_result]);
   }
 
-  // Rebuilt only when the list changes, so a button is never replaced under a click.
   const key = e.allowed.join(",") + "|" + e.dongle_mac;
   if (key === lastDongleList) return;
   lastDongleList = key;
@@ -728,7 +721,6 @@ function renderDongles(e) {
     list.appendChild(li);
   }
   for (const mac of e.allowed) {
-    // MAC on its own line and the state under it, so neither is cut off in a narrow column.
     const li = document.createElement("li");
     li.innerHTML =
       '<span class="ssid dongle"><span></span><span class="muted"></span></span>' +

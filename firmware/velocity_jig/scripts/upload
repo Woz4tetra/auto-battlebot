@@ -1,10 +1,4 @@
 #!/bin/bash
-# Button-free flash. Reboots the jig into the UF2 bootloader over USB (1200-baud
-# touch), then copies the firmware image onto the RPI-RP2 drive. No need to reach
-# the physical BOOTSEL button buried under the OLED.
-#
-# Usage: upload [SERIAL_PORT]
-#   SERIAL_PORT defaults to the first of /dev/ttyACM0..2 that exists.
 set -u
 if [ $# -gt 1 ] || [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
     echo "Usage: $(basename "$0") [SERIAL_PORT]"

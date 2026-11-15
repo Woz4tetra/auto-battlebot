@@ -85,7 +85,6 @@ void CrsfBridge::send_telemetry(const telemetry_data_t *telemetry) {
 }
 
 void CrsfBridge::send_battery(const telemetry_data_t *telemetry) {
-    // Capacity used and percent remaining are not tracked yet, so they go out as 0.
     crsf_sensor_battery_t battery = {0};
     battery.voltage = to_be_u16(telemetry->pack_volts * 10.0f);
     battery.current = to_be_u16(telemetry->pack_amps * 10.0f);
@@ -93,8 +92,6 @@ void CrsfBridge::send_battery(const telemetry_data_t *telemetry) {
 }
 
 void CrsfBridge::send_attitude(const telemetry_data_t *telemetry) {
-    // Radians x 10000 in an int16, so every angle must be within +-3.27 rad. Heading is
-    // wrapped from 0..360 to +-180 degrees first.
     const float scale = 10000.0f * DEG_TO_RAD;
     crsf_sensor_attitude_t attitude = {0};
     attitude.pitch = to_be_i16(telemetry->pitch_deg * scale);

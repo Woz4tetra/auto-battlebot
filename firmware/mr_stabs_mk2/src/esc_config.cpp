@@ -20,13 +20,6 @@ const char *state_name(State state) {
     return "unknown";
 }
 
-// The bootloader link on the ESC signal wires: 19200 8N1, half duplex, one wire per ESC.
-//
-// The passthrough (firmware/BlHeli-Passthrough/ESP32/ESC_Serial.cpp) bit-bangs this with
-// EspSoftwareSerial. Inside this firmware that lost bits: 40 of 72 reads on 2026-10-23 needed a
-// retry (bad CRCs, a 0x30 ack read as 0xfe), so the link uses UART2 instead. The GPIO matrix routes
-// the UART's TX and RX to the selected ESC's pin, set open drain with the pull-up, so the ESC can
-// pull the line low to answer. The receiver hears every byte sent, and receive() drops that echo.
 class EscConfig::SerialLink : public blheli_boot::EscLink {
    public:
     SerialLink(uint8_t pin0, uint8_t pin1) : _pins{pin0, pin1} {}
@@ -66,7 +59,6 @@ class EscConfig::SerialLink : public blheli_boot::EscLink {
 
     void send(const uint8_t *data, size_t size) override {
         if (_current < 0) return;
-        // Anything still in the receiver belongs to an earlier exchange.
         uart_flush_input(PORT);
         uart_write_bytes(PORT, reinterpret_cast<const char *>(data), size);
         _echo_bytes_pending = size;
@@ -74,7 +66,6 @@ class EscConfig::SerialLink : public blheli_boot::EscLink {
 
     size_t receive(uint8_t *buf, size_t max, size_t expect, uint32_t first_ms) override {
         if (_current < 0) return 0;
-        // Our own bytes come back first. 256 of them take 135 ms on the wire.
         while (_echo_bytes_pending > 0) {
             uint8_t sink[64];
             const size_t want =
@@ -103,13 +94,11 @@ class EscConfig::SerialLink : public blheli_boot::EscLink {
         drive(pin, 0);
         delay(ms);
         drive(pin, 1);
-        _current = -1;  // the next select() hands the pin back to the UART
+        _current = -1;
     }
 
     void delay_ms(uint32_t ms) override { delay(ms); }
 
-    // Drives both signal lines high. A BLHeli ESC that has lost its signal enters the bootloader
-    // only if the line reads high when it checks, so neither line is left floating on a pull-up.
     void idle_high() {
         _current = -1;
         drive(_pins[0], 1);
@@ -119,7 +108,6 @@ class EscConfig::SerialLink : public blheli_boot::EscLink {
     void release() {
         _current = -1;
         if (_installed) {
-            // Park the receiver on a constant high input before the driver goes.
             esp_rom_gpio_connect_in_signal(GPIO_MATRIX_CONST_ONE_INPUT,
                                            UART_PERIPH_SIGNAL(PORT, SOC_UART_RX_PIN_IDX), false);
             uart_driver_delete(PORT);
@@ -130,7 +118,7 @@ class EscConfig::SerialLink : public blheli_boot::EscLink {
     }
 
    private:
-    static const uart_port_t PORT = UART_NUM_2;  // UART1 is the CRSF receiver
+    static const uart_port_t PORT = UART_NUM_2;
 
     static void drive(uint8_t pin, uint32_t level) {
         const gpio_num_t gpio = static_cast<gpio_num_t>(pin);
@@ -278,7 +266,6 @@ void EscConfig::update(uint32_t now_ms, bool armed, bool driving, bool button_pr
             uint8_t frame[blheli_boot::MAX_REQUEST];
             size_t size = 0;
             portENTER_CRITICAL(&_mux);
-            // Frames wait out SETTLE_MS: the ESCs need a quiet high line to enter the bootloader.
             if (_slot_state == Poll::PENDING && now_ms - _entered_ms >= SETTLE_MS) {
                 memcpy(frame, _request, _request_size);
                 size = _request_size;

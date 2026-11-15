@@ -387,3 +387,215 @@ mistake, and DShot 3D direction reversals that heading hold causes. Join the MR-
 ### Zero Overhead
 
 The diagnostics server does no work when no browser is connected. There is no impact on combat mode performance when the dashboard is not open.
+
+## Notes moved from code comments
+
+### crash reports and scripts/coredump
+
+- `mr_stabs_mk2/include/crash_report.h`: Why the robot last rebooted, and the core dump a crash left in flash. A panic or a task watchdog timeout writes an ELF core dump to the coredump partition (partitions.csv), then reboots. read() picks it up on the next boot and keeps the summary for the diagnostics page; the full dump, with every task's stack, stays in flash until erased. Decode it over USB with scripts/coredump.
+
+### CRSF telemetry
+
+- `mr_stabs_mk2/include/crsf_bridge.h`: Battery and attitude frames alternate, one every 50 ms, so each reaches the radio at 10 Hz. That matches the BNO055's 100 ms sample interval; faster would repeat the same attitude.
+- `mr_stabs_mk2/src/crsf_bridge.cpp`: Capacity used and percent remaining are not tracked yet, so they go out as 0.
+
+### ESP-NOW channel sweep
+
+- `mr_stabs_mk2/include/espnow_link.h`: ~6 dongle repeats at 250 Hz, plus switch settling
+
+### ESP-NOW telemetry rate
+
+- `mr_stabs_mk2/include/espnow_link.h`: The control loop runs at ~1 kHz. Telemetry at that rate would hold the channel ~35% of the time at 6 Mbps, so it is sent at 100 Hz, which still resolves every 10 ms control tick.
+
+### ESP-NOW OTA
+
+- `mr_stabs_mk2/include/espnow_link.h`: OTA transfer gives up after this long without a valid OTA frame. The running image is untouched until Update.end() switches the boot slot, so an abort always leaves the old firmware running.
+- `mr_stabs_mk2/include/espnow_link.h`: Every boot reports OTA_VALIDATED, with its MD5, once it has run this long and heard a dongle. The flasher waits for it as proof the new image runs.
+- `mr_stabs_mk2/scripts/espnow_ota.py`: Flash mr_stabs_mk2 over ESP-NOW through the USB dongle. Run it on the machine the dongle is plugged into, normally the ZED Box (scripts/ota does that over ssh). The robot must be disarmed. The transfer is go-back-N over the 0x10-0x14 messages in docs/plans/espnow_link_plan.md, then the script waits for the rebooted robot to report the new image valid and checks its MD5. venv/bin/python firmware/mr_stabs_mk2/scripts/espnow_ota.py firmware.bin --manage-service
+- `mr_stabs_mk2/scripts/ota`: Build mr_stabs_mk2 and flash it over ESP-NOW (docs/plans/espnow_link_plan.md). The robot must be disarmed. The flasher then waits for the new image to report running, ~10 s after boot with a dongle in range. There is no rollback: a bad image is rescued over USB with scripts/upload. Usage: scripts/ota # through the dongle on the ZED Box, over ssh scripts/ota --local [PORT] # through a dongle on this machine (default /dev/espnow_dongle) Env, same as scripts/deploy_to_jetson.sh: JETSON_HOST ZED Box hostname or IP (default: jetson) JETSON_USER SSH user (default: what ~/.ssh/config resolves) JETSON_KEY SSH private key (default: ~/.ssh/<host> if it exists) JETSON_PATH repo on the box (default: ~/auto-battlebot)
+- `mr_stabs_mk2/scripts/ota`: -t so sudo can prompt for the service stop and start.
+- `mr_stabs_mk2/src/espnow_link.cpp`: Deep enough to hold the host's 16-chunk OTA window while a 64 KB block erase stalls loop().
+- `mr_stabs_mk2/src/espnow_link.cpp`: Tell the host where to resume right away rather than waiting for its timeout, but at most every 20 ms: a lost chunk drops the rest of the window, one status per chunk.
+- `mr_stabs_mk2/src/espnow_link.cpp`: The Arduino bootloader is built without rollback, so nothing here reverts a bad image: this is the flasher's proof that the new image runs, for 10 s, with the radio working. A bad image is rescued over USB (scripts/upload).
+- `mr_stabs_mk2/src/espnow_link.cpp`: The flasher waits for this to confirm the new image is the one running. Repeated over 5 s because a single frame can be lost.
+- `shared/espnow_protocol/src/espnow_protocol.h`: image accepted, rebooting sent after reboot once the new image marked itself valid
+- `shared/espnow_protocol/src/espnow_protocol.h`: Update.begin refused: size does not fit the slot
+
+### I2C troubleshooting
+
+- `mr_stabs_mk2/include/i2c_bus.h`: Reads the idle level of both lines. Both should be high between transactions; a line stuck low means a device is holding it, and every transaction will fail until power is cycled.
+
+### runtime tuning
+
+- `mr_stabs_mk2/include/tuning_store.h`: The runtime settings (lib/tuning) shared by the tasks that change them and the loop that uses them. The diagnostics page writes from the web server task and ESP-NOW from loop(), so every access copies under a spinlock. loop() applies a change on its next pass and saves it to NVS only while disarmed, since a flash write stalls both cores for a few ms; a change made while armed is saved at the next disarm, and lost if the robot powers off first.
+- `mr_stabs_mk2/lib/tuning/tuning.h`: Every setting the diagnostics page and ESP-NOW can change at runtime. The robot keeps them in NVS, one float per field under the field's key, so adding a field keeps the others' values.
+
+### BNO055 status registers
+
+- `mr_stabs_mk2/include/updown_sensor.h`: OPR_MODE, 0x08 for IMUPLUS SYS_STATUS, 5 when fusion is running ST_RESULT, 0x0F when accel, mag, gyro and MCU all passed SYS_ERR, 0 when there is no error CALIB_STAT: sys, gyro, accel, mag, two bits each Gyro sign check: samples where the gyro and the heading change agreed or disagreed.
+- `mr_stabs_mk2/src/updown_sensor.cpp`: 0x35..0x3A: CALIB_STAT, ST_RESULT, INT_STA, SYS_CLK_STATUS, SYS_STATUS, SYS_ERR
+
+### BNO055 sample rate
+
+- `mr_stabs_mk2/include/updown_sensor.h`: The BNO055 fusion output updates at 100 Hz, so reading faster returns repeated values.
+
+### Sensor and I2C panel
+
+- `mr_stabs_mk2/include/updown_sensor.h`: Rereads the status registers if DETAILS_INTERVAL has passed and the sensor is up. Two short I2C reads. Every sample calls it, so CALIB_STAT stays fresh for telemetry; the diagnostics page also calls it, for while the link is down and samples stop.
+- `mr_stabs_mk2/src/i2c_bus.cpp`: The I2C driver leaves both pins as open-drain with input enabled, so the GPIO input register reads the real line level without disturbing the bus.
+
+### IMU
+
+- `mr_stabs_mk2/include/updown_sensor.h`: The same rate from the change in heading between the last two samples. Laggier and coarser than the gyro; kept to check the gyro's sign.
+- `mr_stabs_mk2/src/main.cpp`: Read the IMU every loop whatever the radio is doing, so heading stays fresh for the PID and the diagnostics page and telemetry track the robot with no handset. Rate-limited inside the sensor. Reconnect stays off: it blocks the loop for over a second.
+- `mr_stabs_mk2/src/updown_sensor.cpp`: IMUPLUS fuses accelerometer and gyro only. NDOF (the library default) also fuses the magnetometer, which the drive motor current can bend, moving heading under throttle. Heading is now relative to the orientation at boot.
+- `mr_stabs_mk2/src/updown_sensor.cpp`: An absent or unplugged sensor is never read: each failed read blocks the loop for milliseconds, and at the 10 ms sample interval that starved the ESCs of DShot frames. begin() blocks for over a second, so it is only retried when the caller allows it. main.cpp never does, so a sensor that drops out stays off, and heading hold with it, until the next reboot.
+
+### USB dashboard protocol
+
+- `mr_stabs_mk2/include/usb_bridge.h`: Serves the diagnostics page over the USB serial port, for when WiFi is not reachable. scripts/usb_dashboard.py on the laptop listens on localhost and sends each browser request down the serial line; this task replays it against the robot's own web server on 127.0.0.1 and sends the raw HTTP response back. Log lines keep flowing on the same port between frames. Frames are single lines. Each data frame carries a CRC32 of its bytes, and the laptop retries a GET whose response arrives damaged. laptop -> robot "\x1eQ <id> <base64 request>\n" open a connection and send the request "\x1eC <id>\n" the browser went away, close it robot -> laptop "\x1eD <id> <base64 bytes> <crc32>\n" response bytes, in order "\x1eE <id>\n" the connection closed
+- `mr_stabs_mk2/scripts/usb_dashboard.py`: Serve the robot's diagnostics page on localhost over USB serial. Every browser request goes down the USB cable to the robot, which replays it against its own web server (src/usb_bridge.cpp) and streams the raw response back. The robot's log lines print here, and to --log when given. Nothing on the robot needs WiFi. venv/bin/python firmware/mr_stabs_mk2/scripts/usb_dashboard.py # then open http://localhost:8080
+
+### current calibration
+
+- `mr_stabs_mk2/include/vbat_sensor.h`: R1's nominal value. Its tolerance and the pour resistance inside the Kelvin taps set the current reading's gain error; calibrate it against a clamp meter.
+
+### INA238 sampling
+
+- `mr_stabs_mk2/include/vbat_sensor.h`: A sample is two reads (bus voltage, then shunt voltage), each one register-pointer write plus a 2-byte read, about 47 SCL clocks. Wire1 runs at the default 100 kHz, so that is ~1 ms on the wire plus driver overhead, blocking. The control loop has no fixed period (it varies with radio state, BNO055 reads, and recording mode), so sampling runs on a time interval instead of every Nth loop. 10 ms still resolves a punch's sag and current spike, which last 100s of ms. Loops in between repeat the last values.
+
+### INA238 registers
+
+- `mr_stabs_mk2/include/vbat_sensor.h`: DEVICE_ID at boot, 0x238x for an INA238
+
+### WiFi modes
+
+- `mr_stabs_mk2/include/wifi_manager.h`: Chooses between the robot's own access point and joining a router, from settings the diagnostics page saves to NVS. AP mode: the access point comes up on boot and the robot never looks for a router. Client mode: the robot joins the selected network on boot. With no connection after CONNECT_TIMEOUT_MS it gives up and brings up the access point instead, until the next boot or the next apply. A connection that drops later reconnects on its own. Everything after the first start runs in a task on core 0, so the timeout, the fallback, and a mode switch from the page never stall the control loop on core 1.
+- `mr_stabs_mk2/include/wifi_manager.h`: AP mode client mode, waiting for the first connection client mode, joined client mode, joined once and lost it; the driver retries client mode, gave up after CONNECT_TIMEOUT_MS
+- `mr_stabs_mk2/src/espnow_link.cpp`: Pinned with the SoftAP up, the AP already owns this channel and this is a no-op.
+- `mr_stabs_mk2/src/wifi_manager.cpp`: Modem sleep holds incoming packets for up to 100-300 ms.
+- `mr_stabs_mk2/src/wifi_manager.cpp`: Leave no stale password behind in NVS.
+
+### WiFi modes and ESP-NOW channel
+
+- `mr_stabs_mk2/include/wifi_manager.h`: Starts WiFi from the saved settings before returning, so ArduinoOTA and the web server can bind afterwards. force_ap keeps the access point up on ap_channel whatever is saved: ESP-NOW needs a fixed channel, which a router would take over.
+
+### bidirectional DShot
+
+- `mr_stabs_mk2/lib/DShot/DShot.cpp`: DShot bit timing in nanoseconds Bit‑1: 75% active, 25% idle Bit‑0: 37.5% active, 62.5% idle Inverted for bidirectional DShot: the line idles high and each bit starts low.
+- `mr_stabs_mk2/lib/DShot/DShot.cpp`: The receiver arms before the frame and records frame, gap, and reply as one reception, so it can never arm too late for the reply. The idle threshold must outlast the gap (about 30 us); 80 us of quiet ends the reception.
+- `mr_stabs_mk2/lib/DShot/DShot.cpp`: A high run this long is the gap between our frame and the reply. The frame's longest high run is 2.1 us and the reply's is 8 us at DShot300.
+- `mr_stabs_mk2/lib/DShot/DShot.cpp`: the RX memory block's 48 items
+- `mr_stabs_mk2/lib/DShot/DShot.cpp`: rmt_config() pointed the pin at one channel or the other. Connect both: the TX channel's output and the RX channel's input on the same pad, with the output enable taken from the GPIO register so send() can release the line for the reply. The pull-up holds it high then.
+- `mr_stabs_mk2/lib/DShot/DShot.cpp`: Drain the ring and keep the first reception that decodes. The driver re-arms the receiver after every reception, so anything after the reply is noise picked up while the line sits on the pull-up for the rest of the loop (worst with WiFi streaming every loop).
+- `mr_stabs_mk2/lib/DShot/DShot.cpp`: Armed before the frame, so no software latency can miss the reply's start. The capture holds our frame, the gap, and the reply; collect_reply() skips to the gap.
+- `mr_stabs_mk2/lib/DShot/DShot.h`: Bidirectional DShot: inverted frames out, and the ESC's eRPM reply read back on the same pin through an RX channel. BLHeli_32 sees the inverted signal and switches modes on its own.
+- `mr_stabs_mk2/lib/DShot/DShot.h`: Collects the reply to the previous frame, arms the receiver, and sends this frame. The reply arrives about 30 us after the frame, so it is read one call later and never waited on.
+- `mr_stabs_mk2/lib/erpm_decode/erpm_decode.h`: Decodes a bidirectional DShot eRPM reply from the RMT's run lengths. Pure C++, so the native env tests it against hand-built pulse trains. The DShot driver lives in lib/DShot, which needs the Arduino core. The ESC answers each inverted DShot frame with 21 bits at 5/4 of the DShot bit rate. The line idles high and the first falling edge is the start bit. Every edge is a 1 and every bit period without an edge is a 0, so a run of n bit periods between edges decodes to a 1 followed by n - 1 zeros. The 20 bits after the start bit are four 5-bit GCR groups, one per nibble of eeem mmmm mmmm cccc: a period of m << e us and a 4-bit CRC.
+- `mr_stabs_mk2/lib/erpm_decode/erpm_decode.h`: the longest period the reply encodes
+- `mr_stabs_mk2/lib/esc_map/esc_map.h`: DShot 3D mode: 48-1047 reverse, 1048-2047 forward, higher value = faster in both directions.
+
+### tuning
+
+- `mr_stabs_mk2/lib/tuning/tuning.cpp`: Ranges only catch typos and torn writes; the defaults in yaw_control.h say what is sensible.
+
+### BNO055 gyro range
+
+- `mr_stabs_mk2/lib/yaw_control/yaw_control.h`: One full wrap of a BNO055 gyro axis in rad/s: the register is int16 at 16 LSB per deg/s, so it spans 65536 / 16 = 4096 deg/s.
+
+### partitions and core dumps
+
+- `mr_stabs_mk2/platformio.ini`: Adds a core dump partition; see the header of partitions.csv. Envs copy it by name below. OTA uploads do not rewrite the partition table: flash over USB once to apply it.
+- `mr_stabs_mk2/scripts/coredump`: Read the core dump from the robot over USB and decode it: the exception, registers, and every task's backtrace. After a task watchdog reset, find the stuck task in the thread list (the summary names whatever ran on the core that took the watchdog interrupt). Pass the ELF of the build that crashed; the diagnostics page shows its SHA-256 prefix to compare. Reading resets the robot. Usage: scripts/coredump [PORT] [ELF]
+- `mr_stabs_mk2/web/app.js`: A task watchdog aborts from its interrupt on core 0, so the summary names whatever ran there. The stuck task is in the full decode (scripts/coredump).
+
+### build flags
+
+- `mr_stabs_mk2/platformio.ini`: Serial on the chip's USB-Serial/JTAG port instead of TinyUSB. That port is hardware: it stays up when the firmware hangs, and esptool can reset the chip into the ROM bootloader through it, so a bad image is rescued over USB without pressing BOOT (glued on this robot). AsyncTCP's task defaults to any core, so serving the web page or /telemetry could preempt the control loop on core 1. Pinned to core 0 with WiFi.
+
+### capturing CRSF telemetry
+
+- `mr_stabs_mk2/scripts/capture_crsf_telemetry.py`: Capture the raw CRSF telemetry frames an EdgeTX radio receives, and decode the sensors. Needs the custom EdgeTX build in ~/edgetx, whose `telemetry on` CLI command mirrors every byte from the external module to USB serial. Plug the radio in over USB and pick "USB Serial (VCP)". Prints each battery and attitude frame as raw bytes and decoded values, then a count of every frame type seen, and writes the same to a log file.
+
+### web page embedding
+
+- `mr_stabs_mk2/scripts/embed_web.py`: PlatformIO pre-build step: gzip web/ into a C header the diagnostics server serves. Writes web_assets.h into the build directory and puts that directory on the include path, so nothing generated lands in the source tree. The header is rewritten only when its content changes, so an untouched web/ does not trigger a recompile. gzip runs with mtime 0 to keep the output byte-identical between builds.
+
+### drive twitch logging
+
+- `mr_stabs_mk2/scripts/log_drive_twitch.py`: Log Mr Stabs over the diagnostics stream and check two causes of twitching while driving. 1. Spurious upside-down flips. With the flip switch DOWN, the firmware takes is_upside_down from the BNO055 gravity vector and negates the throttle when it changes. It flips upside down below accel_z = -1 m/s^2 and back above +1 m/s^2. A flip that reverts within --flip-window while the switch did not move is a false detection: the drive reversed under the driver. 2. DShot 3D reversals. A wheel command crossing from one side of the ESC deadzone to the other is a direction reversal, which the ESC handles with a stall. A reversal is blamed on heading hold when the driver's own stick mix for that wheel kept its sign. Join the MR-STABS WiFi, arm, and drive. Ctrl-C stops the capture early. --csv analyzes a file from an earlier capture or from the dashboard's Download CSV button instead.
+
+### diagnostics HTTP API
+
+- `mr_stabs_mk2/scripts/log_drive_twitch.py`: The connect greeting is also a data line; only full diag rows have every column.
+- `mr_stabs_mk2/src/diagnostics_server.cpp`: Records go out exactly as the ring holds them, after a TelemetryBatchHeader. No `from` returns just the header, which tells a new client where head is without replaying the whole ring.
+- `shared/espnow_protocol/src/espnow_protocol.h`: Body of the robot's `GET /telemetry?from=<seq>&max=<n>` over WiFi: this header, then `count` TelemetryPayload records, oldest first. The firmware fills a ring of them at the ESP-NOW telemetry rate whether or not anyone reads it, so a client that loses the link catches up on everything still in the ring once it is back. telemetry_seq in each record is the ring's seq.
+
+### flashing
+
+- `mr_stabs_mk2/scripts/ota_wifi`: Flash over WiFi with ArduinoOTA. With no argument it targets the robot's own access point (join MR-STABS first). In client mode pass the address the router gave it, or mr-stabs.local: ./scripts/ota_wifi 192.168.50.40
+- `mr_stabs_mk2/scripts/upload`: Flash over USB. No button needed: esptool resets the chip into its ROM bootloader through the USB-Serial/JTAG port, even with the firmware hung. Uses /dev/mr_stabs (install_udev_rules.sh) when present, since the ESP-NOW dongle shows the same 303a:1001 and auto-detect can pick it. Usage: scripts/upload [PORT]
+
+### memory
+
+- `mr_stabs_mk2/src/crash_report.cpp`: The summary is large for the stack; it is read once, at boot.
+- `mr_stabs_mk2/src/diagnostics_server.cpp`: PSRAM first: a full batch is 30 KB, too much to ask of fragmented internal RAM.
+- `mr_stabs_mk2/src/main.cpp`: Every 100 Hz telemetry frame, kept in PSRAM for GET /telemetry, so a WiFi client that drops out catches up instead of losing the gap. 9000 records of 155 B is 1.4 MB of the 2 MB PSRAM, 90 s. Without PSRAM it falls back to a few seconds in internal RAM.
+
+### ESC Pin Mapping
+
+- `mr_stabs_mk2/src/esc_config.cpp`: UART1 is the CRSF receiver
+
+### General
+
+- `mr_stabs_mk2/src/espnow_link.cpp`: WiFi task context: filter, copy, and return. Never touch ESCs or flash here.
+
+### motor guard
+
+- `mr_stabs_mk2/src/main.cpp`: The thermal state survives a watchdog, panic, or software reset, so a reset mid-match resumes the estimate. A power-on starts cold. Whether it survives a brownout reset is untested.
+- `mr_stabs_mk2/src/main.cpp`: Before the ESP-NOW OTA return, so the guard's model keeps cooling during a transfer.
+
+### status LED
+
+- `mr_stabs_mk2/src/main.cpp`: Tuning mode: a slow blue breath, so the robot reads as not drivable from across the room.
+
+### transmitter trim
+
+- `mr_stabs_mk2/src/main.cpp`: The stick's resting trim (about 1% on this transmitter) would otherwise creep a wheel.
+
+### ESC startup
+
+- `mr_stabs_mk2/src/main.cpp`: Sends DShot stop frames every 5 ms from a timer while setup() runs, so the ESCs see an unbroken signal from the moment their pins are driven until loop() takes over. The IMU, WiFi, and ESP-NOW setup between those points takes about 2.5 s.
+- `mr_stabs_mk2/src/main.cpp`: ESCs need continuous DShot zero-throttle frames to initialize (~2 seconds). The timer has sent them since the ESC pins came up; top that up to 2 s, then hand over to loop(). Before the timer, the 2.4 s of IMU and WiFi setup left the line idle, and a reset of the ESP32 alone made the running ESCs play their wake-up jingle twice. A pack power-on still plays it twice: the ESCs sample the line before any firmware can drive it (measured 212 ms after reset).
+
+### I2C bus speed
+
+- `mr_stabs_mk2/src/main.cpp`: BNO055 IMU lives on the Wire1 I2C bus Stays at the default 100 kHz. The BNO055 stretches the clock, which can fail at 400 kHz, and every failed read blocks the loop for the 50 ms Wire timeout, starving the ESCs of DShot frames. Recorded for the diagnostics page: shows which devices answered at boot.
+
+### watchdog and core dumps
+
+- `mr_stabs_mk2/src/main.cpp`: A loop() pass that takes over CONFIG_ESP_TASK_WDT_TIMEOUT_S (5 s) panics: the core dump goes to flash and the robot reboots, instead of hanging with the ESCs on their last command. The core already watches core 0's idle task. Core 1's idle task is not watched: loop() spins on core 1 without yielding, so it never runs. Started last: setup() blocks longer than that.
+
+### INA238 configuration
+
+- `mr_stabs_mk2/src/vbat_sensor.cpp`: MODE=1011 (shunt and bus voltage, continuous), VBUSCT=101 and VSHCT=101 (1052 us each), VTCT=101 (unused), AVG=001 (4 samples). One averaged pair takes 8.4 ms, which fits inside one SAMPLE_INTERVAL_US, so every read returns a fresh average and ESC switching ripple is averaged out. A chip that browns out resets to 0xFB68 (continuous bus, shunt, and temperature at 1052 us, no averaging), which still updates both readings every 3.2 ms.
+- `mr_stabs_mk2/src/vbat_sensor.cpp`: Current comes from the raw shunt voltage at the reset-default ADCRANGE=0 (+-163.84 mV). ADCRANGE=1 would give 4x the resolution, but a brownout clears it back to 0 and the current would then read 4x high with nothing to flag it. 5 uV per LSB over the 0.5 mohm shunt is 10 mA per LSB, +-327 A full scale.
+
+### Stall protection
+
+- `mr_stabs_mk2/test/test_motor_guard/test_motor_guard.cpp`: Runs the guard against the plant the way main.cpp does: update with the previous sample's duty and the measured pack current, then scale this sample's command.
+- `mr_stabs_mk2/test/test_motor_guard/test_motor_guard.cpp`: The model bound d V / R_cold only holds with R_cold the lowest resistance the circuit has.
+- `mr_stabs_mk2/test/test_motor_guard/test_motor_guard.cpp`: Full reverse at speed. eRPM never reads 0 at this sample rate, so the shunt tiebreak must flip the sign. Until it does, the estimate errs high.
+
+### diagnostics page
+
+- `mr_stabs_mk2/web/app.js`: While recording the robot sends every loop tick, so the DOM updates once per frame instead of once per message.
+- `mr_stabs_mk2/web/app.js`: Rebuilt only when the list changes, so a poll does not close a dropdown the operator has open.
+- `mr_stabs_mk2/web/app.js`: The lockout box above explains forced AP mode; the note would only repeat it.
+- `mr_stabs_mk2/web/app.js`: Rebuilt only when the list changes, so a button is never replaced under a click.
+- `mr_stabs_mk2/web/app.js`: MAC on its own line and the state under it, so neither is cut off in a narrow column.
+- `mr_stabs_mk2/web/esc_panel.js`: keep what the operator typed
+
+### bidirectional DShot (RMT channels)
+
+- `lib/DShot/DShot.cpp`: The ESP32-S3 RX-only RMT channels are 4 to 7. Their matrix signals count from `RMT_SIG_IN0_IDX`.

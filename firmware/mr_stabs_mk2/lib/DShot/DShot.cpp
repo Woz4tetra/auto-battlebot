@@ -9,10 +9,6 @@
 // Mark our channels so NeoPixel skips them.
 extern bool rmt_reserved_channels[];
 
-// DShot bit timing in nanoseconds
-//   Bit‑1: 75% active, 25% idle
-//   Bit‑0: 37.5% active, 62.5% idle
-// Inverted for bidirectional DShot: the line idles high and each bit starts low.
 static const uint32_t DSHOT_BIT_NS[] = {
     6670,  // DSHOT150
     3333,  // DSHOT300
@@ -23,19 +19,13 @@ static const uint32_t APB_HZ = 80000000;
 static const uint32_t RMT_CLK_DIV = 2;
 static const uint32_t TICK_NS = 1000000000 / (APB_HZ / RMT_CLK_DIV);
 static const float REPLY_BIT_RATE_RATIO = 5.0f / 4.0f;
-// The S3's RX-only channels are 4 to 7; their matrix signals count from RMT_SIG_IN0_IDX.
 static const int RMT_FIRST_RX_CHANNEL = 4;
-// The receiver arms before the frame and records frame, gap, and reply as one reception, so it
-// can never arm too late for the reply. The idle threshold must outlast the gap (about 30 us);
-// 80 us of quiet ends the reception.
 static const uint16_t RX_IDLE_TICKS = 80000 / TICK_NS;
-// A high run this long is the gap between our frame and the reply. The frame's longest high run
-// is 2.1 us and the reply's is 8 us at DShot300.
 static const uint32_t GAP_TICKS = 12000 / TICK_NS;
 static const uint8_t RX_FILTER_APB_CYCLES_0_5US = 40;
 static const size_t RX_RING_BYTES = 1024;
 static const size_t START_TRIES = 3;
-static const size_t MAX_RUNS = 96;  // the RX memory block's 48 items
+static const size_t MAX_RUNS = 96;
 
 DShot::DShot(gpio_num_t pin, rmt_channel_t tx_channel, rmt_channel_t rx_channel, dshot_mode_t mode)
     : _pin(pin),
@@ -97,9 +87,6 @@ bool DShot::begin() {
     if (err != ESP_OK) return false;
     rmt_get_ringbuf_handle(_rx_channel, &_rx_ring);
 
-    // rmt_config() pointed the pin at one channel or the other. Connect both: the TX channel's
-    // output and the RX channel's input on the same pad, with the output enable taken from the
-    // GPIO register so send() can release the line for the reply. The pull-up holds it high then.
     gpio_set_pull_mode(_pin, GPIO_PULLUP_ONLY);
     gpio_set_direction(_pin, GPIO_MODE_INPUT_OUTPUT);
     esp_rom_gpio_connect_out_signal(_pin, RMT_SIG_OUT0_IDX + _channel, false, false);
@@ -169,9 +156,6 @@ void DShot::collect_reply() {
     rmt_rx_stop(_rx_channel);
     _rx_armed = false;
 
-    // Drain the ring and keep the first reception that decodes. The driver re-arms the receiver
-    // after every reception, so anything after the reply is noise picked up while the line sits
-    // on the pull-up for the rest of the loop (worst with WiFi streaming every loop).
     uint32_t runs[MAX_RUNS];
     bool received = false;
     size_t size = 0;
@@ -228,8 +212,6 @@ void DShot::start(uint16_t throttle, bool telemetry) {
 
     uint16_t packet = build_packet(throttle, telemetry);
     encode_frame(packet);
-    // Armed before the frame, so no software latency can miss the reply's start. The capture
-    // holds our frame, the gap, and the reply; collect_reply() skips to the gap.
     rmt_rx_start(_rx_channel, true);
     _rx_armed = true;
     set_output(true);

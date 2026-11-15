@@ -1,12 +1,5 @@
 #!/usr/bin/env python3
-"""Capture the raw CRSF telemetry frames an EdgeTX radio receives, and decode the sensors.
-
-Needs the custom EdgeTX build in ~/edgetx, whose `telemetry on` CLI command mirrors every byte
-from the external module to USB serial. Plug the radio in over USB and pick "USB Serial (VCP)".
-
-Prints each battery and attitude frame as raw bytes and decoded values, then a count of every
-frame type seen, and writes the same to a log file.
-"""
+"""Capture the raw CRSF telemetry frames an EdgeTX radio receives, and decode the sensors."""
 
 import argparse
 import time
@@ -83,7 +76,6 @@ def main() -> None:
     try:
         while time.monotonic() < end:
             buffer.extend(device.read(256))
-            # A CRSF frame is [address][length][type][payload][crc]; length covers type..crc.
             while len(buffer) >= 4:
                 length = buffer[1]
                 if not 2 <= length <= 62:

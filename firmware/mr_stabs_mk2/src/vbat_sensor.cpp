@@ -13,18 +13,9 @@ const uint8_t REG_DEVICE_ID = 0x3F;
 // rejected rather than misread.
 const uint16_t INA238_DIE_ID = 0x238;
 
-// MODE=1011 (shunt and bus voltage, continuous), VBUSCT=101 and VSHCT=101 (1052 us each),
-// VTCT=101 (unused), AVG=001 (4 samples). One averaged pair takes 8.4 ms, which fits inside
-// one SAMPLE_INTERVAL_US, so every read returns a fresh average and ESC switching ripple is
-// averaged out. A chip that browns out resets to 0xFB68 (continuous bus, shunt, and
-// temperature at 1052 us, no averaging), which still updates both readings every 3.2 ms.
 const uint16_t ADC_CONFIG_VALUE = 0xBB69;
 
 const float BUS_VOLTS_PER_LSB = 3.125e-3f;
-// Current comes from the raw shunt voltage at the reset-default ADCRANGE=0 (+-163.84 mV).
-// ADCRANGE=1 would give 4x the resolution, but a brownout clears it back to 0 and the
-// current would then read 4x high with nothing to flag it. 5 uV per LSB over the 0.5 mohm
-// shunt is 10 mA per LSB, +-327 A full scale.
 const float SHUNT_VOLTS_PER_LSB = 5e-6f;
 const float AMPS_PER_LSB = SHUNT_VOLTS_PER_LSB / SHUNT_OHMS;
 }  // namespace

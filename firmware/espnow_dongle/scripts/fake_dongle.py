@@ -1,13 +1,5 @@
 #!/usr/bin/env python3
-"""Simulated ESP-NOW dongle on a pty, for running espnow_diag.py without hardware.
-
-Speaks the dongle's serial side: the boot banner, MSG_LINK_STATS every 100 ms, and robot
-telemetry at 100 Hz, echoing the seq and jetson_tx_us of the last MSG_COMMAND it reads. Flags
-inject the faults the diagnostics page should catch.
-
-    venv/bin/python firmware/espnow_dongle/scripts/fake_dongle.py /tmp/fake_dongle &
-    venv/bin/python firmware/espnow_dongle/scripts/espnow_diag.py --port /tmp/fake_dongle
-"""
+"""Simulated ESP-NOW dongle on a pty, for running espnow_diag.py without hardware."""
 
 from __future__ import annotations
 

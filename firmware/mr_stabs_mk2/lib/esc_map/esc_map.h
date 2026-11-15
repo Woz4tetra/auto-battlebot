@@ -4,14 +4,9 @@
 
 namespace esc_map {
 const uint16_t DSHOT_STOP = 0;
-// DShot 3D mode: 48-1047 reverse, 1048-2047 forward, higher value = faster in both directions.
 const uint16_t DSHOT_3D_REV_MIN = 48;
 const uint16_t DSHOT_3D_FWD_MIN = 1048;
-const uint16_t DSHOT_3D_STEPS = 999;  // steps above zero in each direction
-// The ESCs run every step from 1 to 65 at the same speed, the speed of step 65, and respond
-// linearly from 66 up: both ESCs, both directions, no hysteresis, unchanged by sine mode,
-// rampup power or PWM frequency (stand sweeps, 2026-10-24). Commands start at 66 so the
-// smallest one past stop_threshold already moves the motor.
+const uint16_t DSHOT_3D_STEPS = 999;
 const uint16_t FLOOR_STEP = 66;
 
 inline uint16_t steps(float magnitude, float stop_threshold) {

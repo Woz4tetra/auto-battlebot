@@ -3,11 +3,6 @@
 #include <blheli_boot.h>
 #include <esc.h>
 
-// ESC tuning mode (docs/plans/esc_settings_dashboard_plan.md). Stops DShot, hands both ESC
-// signal wires to the BLHeli bootloader link, and relays 4-way frames posted over HTTP. The robot
-// never decodes settings: the diagnostics page and firmware/blheli/blheli32.py --url do.
-//
-// ESC indices follow the passthrough: 0 = A2, the right ESC; 1 = A3, the left ESC.
 namespace esc_config {
 
 enum class State : uint8_t { COMBAT, TUNING, EXITING };
@@ -15,9 +10,6 @@ enum class State : uint8_t { COMBAT, TUNING, EXITING };
 const uint32_t IDLE_BOOTLOADER_RELEASE_MS = 60000;
 const uint32_t ESC_WAKE_MS = 2000;
 const uint32_t SETTLE_MS = 1000;
-// Entry waits until COMBAT has lasted this long. Exiting restarts the ESCs, and entering again
-// right away left them out of the bootloader 3 times in 8; after 1 s of DShot, 0 in 14. Measured
-// on 2026-10-23 with the earlier software serial link.
 const uint32_t REENTRY_MS = 3000;
 
 struct status_t {
@@ -60,7 +52,7 @@ class EscConfig {
     volatile State _state = State::COMBAT;
     uint32_t _exit_started_ms = 0;
     uint32_t _entered_ms = 0;
-    uint32_t _combat_since_ms = 0;  // boot counts as the start of COMBAT
+    uint32_t _combat_since_ms = 0;
     uint32_t _logged_resyncs = 0;
     uint32_t _logged_reboots = 0;
     uint32_t _last_activity_ms = 0;

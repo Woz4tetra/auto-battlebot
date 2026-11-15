@@ -5,13 +5,10 @@
 
 namespace blheli_boot {
 
-// The passthrough's DeviceInitFlash handshake. It carries its own CRC, so it goes out raw.
 static const uint8_t BOOT_INIT[] = {0,   0,   0,   0,   0,   0,   0,    0,   0x0D,
                                     'B', 'L', 'H', 'e', 'l', 'i', 0xF4, 0x7D};
-// The passthrough's InterfaceGetVersion, 20.0.05.
 static const uint8_t INTERFACE_VERSION[] = {200, 5};
-// The passthrough's retry count for the steps of a write.
-static const uint8_t READ_TRIES = 3;  // a read changes nothing, so it can repeat
+static const uint8_t READ_TRIES = 3;
 static const uint32_t REBOOT_SETTLE_MS = 500;
 static const uint32_t PROG_FLASH_ACK_TIMEOUT_MS = 400;
 static const size_t INIT_REPLY_SIZE = 9;
@@ -166,9 +163,6 @@ bool Server::handshake(uint8_t *signature) {
     return false;
 }
 
-// Tuning mode puts the ESCs in their bootloader by stopping DShot, so the handshake normally
-// answers at once. If it does not, the ESC is restarted the passthrough's way and given
-// REBOOT_SETTLE_MS of quiet high line before the handshake is tried again.
 uint8_t Server::init_flash(uint8_t esc, uint8_t *signature) {
     _link.select(esc);
     _handshake_esc = esc;
@@ -184,7 +178,6 @@ uint8_t Server::read_once(uint16_t address, size_t length, uint8_t *data) {
     if (!set_address(address, 1)) return ACK_GENERAL_ERROR;
     const uint8_t cmd[] = {BOOT_READ_FLASH, static_cast<uint8_t>(length & 0xFF)};
     send_boot(cmd, sizeof(cmd));
-    // Data, CRC low and high, result. 256 bytes take 135 ms on the wire at 19200.
     const size_t expect = length + 3;
     const size_t n = _link.receive(_rx, sizeof(_rx), 0, 500);
     if (n < expect) return fail("read flash", n, expect);
@@ -250,7 +243,6 @@ void Server::reset_esc(uint8_t esc) {
     _link.select(esc);
     const uint8_t cmd[] = {BOOT_RESTART, 0x00};
     send_boot(cmd, sizeof(cmd));
-    // Betaflight's sequence: line low 300 ms, then high. No reply; drain whatever comes.
     _link.hold_low(300);
     _link.receive(_rx, sizeof(_rx), 0, 50);
 }
@@ -280,10 +272,8 @@ size_t Server::handle(const uint8_t *frame, size_t size, uint8_t *out) {
             return build_response(req.cmd, req.address, &zero, 1,
                                   param == MODE_ARM_BLB ? ACK_OK : ACK_INVALID_PARAM, out);
         case INTERFACE_EXIT:
-            // Tuning mode owns the pins; leaving it is POST /esc/tuning.
             return build_response(req.cmd, req.address, &zero, 1, ACK_OK, out);
         case TEST_ALIVE: {
-            // Answered OK whatever the ESC says, as the passthrough does.
             const uint8_t cmd[] = {BOOT_KEEP_ALIVE, 0x00};
             send_boot(cmd, sizeof(cmd));
             _link.receive(_rx, sizeof(_rx), 1, 200);

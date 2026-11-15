@@ -206,8 +206,6 @@ static String wifi_json(wifi_manager::WifiManager *wifi) {
     return out;
 }
 
-// Records go out exactly as the ring holds them, after a TelemetryBatchHeader. No `from` returns
-// just the header, which tells a new client where head is without replaying the whole ring.
 static void handle_telemetry(AsyncWebServerRequest *request, const telemetry_ring_t *ring,
                              uint32_t boot_id) {
     using espnow_protocol::TelemetryBatchHeader;
@@ -223,7 +221,6 @@ static void handle_telemetry(AsyncWebServerRequest *request, const telemetry_rin
     if (!has_from) max = 0;
 
     const size_t capacity_bytes = sizeof(TelemetryBatchHeader) + max * sizeof(TelemetryPayload);
-    // PSRAM first: a full batch is 30 KB, too much to ask of fragmented internal RAM.
     uint8_t *raw = static_cast<uint8_t *>(psramFound() ? ps_malloc(capacity_bytes) : nullptr);
     if (!raw) raw = static_cast<uint8_t *>(malloc(capacity_bytes));
     if (!raw) return request->send(503, "text/plain", "out of memory");
@@ -298,8 +295,6 @@ static String esc_status_json(const esc_config::status_t &s) {
     return out;
 }
 
-// The 4-way relay for tuning mode (docs/plans/esc_settings_dashboard_plan.md). The loop runs one
-// frame at a time: POST queues it and returns an id, GET reports it pending or done.
 static void setup_esc_routes(AsyncWebServer &server, esc_config::EscConfig *esc,
                              volatile bool *armed) {
     server.on("/esc/status", HTTP_GET, [esc](AsyncWebServerRequest *request) {

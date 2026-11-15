@@ -2,19 +2,10 @@
 #include <cstddef>
 #include <cstdint>
 
-// Decodes a bidirectional DShot eRPM reply from the RMT's run lengths. Pure C++, so the native
-// env tests it against hand-built pulse trains. The DShot driver lives in lib/DShot, which needs
-// the Arduino core.
-//
-// The ESC answers each inverted DShot frame with 21 bits at 5/4 of the DShot bit rate. The line
-// idles high and the first falling edge is the start bit. Every edge is a 1 and every bit period
-// without an edge is a 0, so a run of n bit periods between edges decodes to a 1 followed by
-// n - 1 zeros. The 20 bits after the start bit are four 5-bit GCR groups, one per nibble of
-// eeem mmmm mmmm cccc: a period of m << e us and a 4-bit CRC.
 namespace erpm_decode {
 
 const uint32_t REPLY_BITS = 21;
-const uint16_t PAYLOAD_STOPPED = 0x0FFF;  // the longest period the reply encodes
+const uint16_t PAYLOAD_STOPPED = 0x0FFF;
 
 const uint8_t GCR_ENCODE[16] = {0x19, 0x1B, 0x12, 0x13, 0x1D, 0x15, 0x16, 0x17,
                                 0x1A, 0x09, 0x0A, 0x0B, 0x1E, 0x0D, 0x0E, 0x0F};
@@ -79,9 +70,6 @@ inline bool decode(const uint32_t *runs, size_t count, float bit_ticks, uint32_t
            payload_to_erpm(payload, erpm);
 }
 
-// The ESC's reply clock is its own: BLHeli_32 on Mr Stabs sends bits at 95 ticks against the
-// nominal 107, which leaves a 3-bit run at 2.66 bits, close to rounding down. Measure the bit
-// from the reply's single-bit runs (within 35% of nominal) and decode with that.
 inline float measured_bit_ticks(const uint32_t *runs, size_t count, float nominal_ticks) {
     float sum = 0.0f;
     int n = 0;

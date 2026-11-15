@@ -176,8 +176,6 @@ TEST(UnwrapGyroRate, PassesInRangeReadingsThrough) {
     EXPECT_NEAR(yaw_control::unwrap_gyro_rate(-30.0f, -29.0f), -30.0f, kTol);
 }
 
-// 2026-10-25 01:44 recording: yaw_rate went from -1950 to +1997 deg/s in one sample while the
-// robot kept spinning the same way. The unwrapped rate stays negative.
 TEST(UnwrapGyroRate, KeepsTheSignPastTheRange) {
     const float unwrapped =
         yaw_control::unwrap_gyro_rate(1997.0f * kDegToRad, -1950.0f * kDegToRad);

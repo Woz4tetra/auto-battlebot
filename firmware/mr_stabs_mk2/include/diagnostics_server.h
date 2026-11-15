@@ -49,8 +49,6 @@ typedef struct {
     uint16_t erpm_crc_errors;  // both ESCs summed, from boot
 } diag_data_t;
 
-// ESP-NOW link health for the page's ESP-NOW panel. Counters run from boot; the page turns them
-// into rates. Filled by espnow_link::EspNowLink::fill_status().
 struct espnow_status_t {
     bool enabled;
     bool command_substitution;
@@ -128,10 +126,6 @@ using telemetry_ring_t = telemetry_ring::TelemetryRing<espnow_protocol::Telemetr
 
 class DiagnosticsServer {
    public:
-    // Serves the page from web/ (embedded at build time by scripts/embed_web.py), the WiFi
-    // settings endpoints, which edit wifi's saved networks, and GET /telemetry, which reads ring.
-    // boot_id goes out with every /telemetry reply so a client can tell a reboot restarted seqs.
-    // esc_tuning backs the /esc/ routes: tuning mode and the 4-way frame relay.
     void begin(wifi_manager::WifiManager *wifi, const telemetry_ring_t *ring, uint32_t boot_id,
                TuningStore *tuning = nullptr, esc_config::EscConfig *esc_tuning = nullptr);
     void update(const diag_data_t *data);

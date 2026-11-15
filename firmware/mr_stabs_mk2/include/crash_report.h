@@ -1,12 +1,5 @@
 #pragma once
 
-// Why the robot last rebooted, and the core dump a crash left in flash.
-//
-// A panic or a task watchdog timeout writes an ELF core dump to the coredump partition
-// (partitions.csv), then reboots. read() picks it up on the next boot and keeps the summary for
-// the diagnostics page; the full dump, with every task's stack, stays in flash until erased.
-// Decode it over USB with scripts/coredump.
-
 #include <Arduino.h>
 
 namespace crash_report {

@@ -91,8 +91,6 @@ TEST(ErpmDecode, EveryPeriodSurvivesBothTails) {
 }
 
 TEST(ErpmDecode, MeasuredBitHandlesAFastEscClock) {
-    // Recorded on the robot: the ESC's bits run at 95 ticks, 11% fast. At 25% fast a 3-bit run
-    // rounds down against the nominal bit and fails; measuring the bit recovers it.
     for (uint32_t period = 20; period < 65000; period = period * 9 / 8 + 1) {
         const uint16_t payload = payload_for_period(period);
         uint32_t expected = 0;

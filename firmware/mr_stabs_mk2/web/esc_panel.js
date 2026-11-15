@@ -1,7 +1,6 @@
 "use strict";
 
 (() => {
-  // Left to right as seen from behind the robot. ESC numbers follow the passthrough.
   const COLUMNS = [
     { esc: 1, side: "LEFT", pin: "A3" },
     { esc: 0, side: "RIGHT", pin: "A2" },
@@ -40,9 +39,6 @@
       .replace("Sbus", "SBUS")
       .replace("Sport", "S.Port");
 
-  // Every read and write lands here, in this browser only: nothing is stored on the robot, and
-  // nothing downloads until DOWNLOAD CURRENT or DOWNLOAD HISTORY. localStorage is per origin, so
-  // mr-stabs.local and 192.168.4.1 keep separate histories.
   const HISTORY_KEY = "escBackupHistory";
   let history = []; // [{name, doc}], oldest first, docs in blheli32.py's backup format
   let historyError = "";
@@ -215,7 +211,6 @@
     }
   }
 
-  // backupJson decodes the settings; a page from another layout gets an empty decode instead.
   function layoutOrRaw() {
     return {
       decode: (p) => {
@@ -376,7 +371,7 @@
         continue;
       }
       el.disabled = !editable;
-      if (e.bad.has(f.key)) continue; // keep what the operator typed
+      if (e.bad.has(f.key)) continue;
       if (f.kind === "music") el.value = layout.decodeMusic(e.edit);
       else if (f.key === "name") el.value = layout.text(f, e.edit).replace(/ +$/, "");
       else el.value = layout.read(f, e.edit);
@@ -605,7 +600,6 @@
         remember(Blheli.backupName(`esc${item.esc}_after_write`), Blheli.backupJson(snap, layout));
       } catch (err) {
         e.note = "write failed: " + err.message;
-        // Show what the ESC holds now; the edits stay in the form.
         try {
           const now = await client.readEsc(item.esc);
           e.snap = now;

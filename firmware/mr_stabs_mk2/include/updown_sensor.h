@@ -22,12 +22,6 @@ const uint32_t DETAILS_INTERVAL = 1000;
 const uint8_t I2C_SHORT_READ = 6;
 const uint8_t I2C_NOT_TRIED = 255;
 
-// The yaw rate is the gyro projected onto the measured up direction (the fused gravity vector,
-// which reads +z with the robot upright, after the axis remap in begin()), so it stays the world
-// yaw rate tilted or upside down. The gyro is right-handed, counterclockwise-positive about up; the
-// Euler heading grows clockwise, hence -1. On the 2026-10-06 run, gyro z alone agreed with the
-// heading change on 100% of fast samples upright and on 0% inverted. check_gyro_sign() verifies it
-// live.
 const float YAW_RATE_SIGN = -1.0f;
 const float MIN_GRAVITY_FOR_UP_MPS2 = 3.0f;
 const float SIGN_CHECK_MIN_RATE_DPS = 60.0f;
@@ -44,16 +38,14 @@ typedef struct {
     uint32_t last_sample_ms;
     uint32_t details_ms;
     uint8_t details_error;
-    uint8_t operation_mode;  // OPR_MODE, 0x08 for IMUPLUS
-    uint8_t sys_status;      // SYS_STATUS, 5 when fusion is running
-    uint8_t self_test;       // ST_RESULT, 0x0F when accel, mag, gyro and MCU all passed
-    uint8_t sys_error;       // SYS_ERR, 0 when there is no error
-    uint8_t calibration;     // CALIB_STAT: sys, gyro, accel, mag, two bits each
-    // Gyro sign check: samples where the gyro and the heading change agreed or disagreed.
+    uint8_t operation_mode;
+    uint8_t sys_status;
+    uint8_t self_test;
+    uint8_t sys_error;
+    uint8_t calibration;
     uint32_t gyro_agree;
     uint32_t gyro_disagree;
 } status_t;
-// The BNO055 fusion output updates at 100 Hz, so reading faster returns repeated values.
 const uint32_t SAMPLE_INTERVAL = 10;
 
 class UpdownSensor {
@@ -96,14 +88,9 @@ class UpdownSensor {
     vector3_t *get_gyro_rad_s_chip() { return gyro_vec; }
     vector3_t *get_linear_accel_mps2_chip() { return linear_accel; }
     uint32_t get_sample_us() { return sample_us; }
-    // Rereads the status registers if DETAILS_INTERVAL has passed and the sensor is up. Two
-    // short I2C reads. Every sample calls it, so CALIB_STAT stays fresh for telemetry; the
-    // diagnostics page also calls it, for while the link is down and samples stop.
     void refresh_details();
     const status_t &get_status() { return status; }
     float get_yaw_rate_cw_dps() { return yaw_rate_cw_dps; }
-    // The same rate from the change in heading between the last two samples. Laggier and
-    // coarser than the gyro; kept to check the gyro's sign.
     float get_heading_rate_cw_dps() { return heading_rate_cw_dps; }
     // True once the gyro and the heading change have disagreed in sign more often than they
     // agreed, at least SIGN_CHECK_MIN_DISAGREE times: YAW_RATE_SIGN is wrong for this

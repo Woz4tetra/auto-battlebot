@@ -18,8 +18,7 @@ UpdownSensor::UpdownSensor() {
 
 namespace {
 const uint8_t REG_CHIP_ID = 0x00;
-const uint8_t REG_CALIB_STAT = 0x35;  // 0x35..0x3A: CALIB_STAT, ST_RESULT, INT_STA,
-                                      // SYS_CLK_STATUS, SYS_STATUS, SYS_ERR
+const uint8_t REG_CALIB_STAT = 0x35;
 const uint8_t REG_OPR_MODE = 0x3D;
 }  // namespace
 
@@ -28,9 +27,6 @@ bool UpdownSensor::begin() {
     status.begin_attempts++;
     // Read before the library's begin(), which hides why it failed.
     check_chip_id();
-    // IMUPLUS fuses accelerometer and gyro only. NDOF (the library default) also fuses the
-    // magnetometer, which the drive motor current can bend, moving heading under throttle.
-    // Heading is now relative to the orientation at boot.
     if (sensor->begin(OPERATION_MODE_IMUPLUS)) {
         delay(1000);
         initialized = true;
@@ -38,10 +34,6 @@ bool UpdownSensor::begin() {
         has_prev_heading = false;
         // The gyro unwrap tracks from the previous sample, which a reconnect leaves stale.
         gyro_vec->x = gyro_vec->y = gyro_vec->z = 0.0f;
-        // The Mk2 board carries the BNO055 face down relative to the robot: rotate the chip
-        // frame 180 degrees about X (P4: X kept, Y and Z negated), so every output is in the
-        // robot frame and +z is up with the robot upright. The chip forgets this on reset, so it
-        // is rewritten on every begin().
         sensor->setAxisRemap(Adafruit_BNO055::REMAP_CONFIG_P4);
         sensor->setAxisSign(Adafruit_BNO055::REMAP_SIGN_P4);
         sensor->setExtCrystalUse(true);
@@ -136,11 +128,6 @@ bool UpdownSensor::get_is_upside_down(bool allow_blocking_reconnect) {
 }
 
 bool UpdownSensor::update_sensor(bool allow_blocking_reconnect) {
-    // An absent or unplugged sensor is never read: each failed read blocks the loop for
-    // milliseconds, and at the 10 ms sample interval that starved the ESCs of DShot frames.
-    // begin() blocks for over a second, so it is only retried when the caller allows it. main.cpp
-    // never does, so a sensor that drops out stays off, and heading hold with it, until the next
-    // reboot.
     if (!initialized) {
         if (allow_blocking_reconnect && millis() - reconnect_timer > RECONNECT_INTERVAL) {
             begin();

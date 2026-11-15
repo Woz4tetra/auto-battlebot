@@ -1,13 +1,5 @@
 #!/usr/bin/env python3
-"""Flash mr_stabs_mk2 over ESP-NOW through the USB dongle.
-
-Run it on the machine the dongle is plugged into, normally the ZED Box (scripts/ota does that over
-ssh). The robot must be disarmed. The transfer is go-back-N over the 0x10-0x14 messages in
-docs/plans/espnow_link_plan.md, then the script waits for the rebooted robot to report the new
-image valid and checks its MD5.
-
-    venv/bin/python firmware/mr_stabs_mk2/scripts/espnow_ota.py firmware.bin --manage-service
-"""
+"""Flash mr_stabs_mk2 over ESP-NOW through the USB dongle."""
 
 from __future__ import annotations
 

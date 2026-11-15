@@ -15,8 +15,6 @@ float signf(float value) { return value < 0.0f ? -1.0f : 1.0f; }
 }  // namespace
 
 MotorGuard::MotorGuard(const Config &config) : _config(config) {
-    // Steady state dT = k tau (1 + alpha dT) I^2, solved at dT = rise_max_c. Leaving out the
-    // copper tempco puts the equilibrium about 12 C above rise_max_c.
     _continuous_amps_at_rise_max =
         std::sqrt(config.rise_max_c / (config.k_c_per_a2s * config.tau_s *
                                        (1.0f + config.alpha_per_c * config.rise_max_c)));
@@ -182,21 +180,12 @@ void MotorGuard::update(float dt_s, float volts, float amps, float left_duty, fl
 
     resolve_contested_reversal(duty, erpm, amps, v, model);
 
-    // 2b: the shunt sets the total through one shared gain. Gated so idle and regen, where the
-    // sum is near zero or negative, do not move it. Also gated on load: free running, the model
-    // current is the small difference of d V and Ke w, and friction, eRPM lag, and duty error
-    // swamp it. On the 2026-10-23 bench run that pinned g at its 1.5 clamp.
     const float motor_draw = duty[0] * model[0] + duty[1] * model[1];
     float stalled_draw = 0.0f;
     for (int k = 0; k < NUM_MOTORS; k++) {
         stalled_draw += duty[k] * duty[k] * v /
                         (_config.r_cold_ohm * (1.0f + _config.alpha_per_c * _rise_c[k]));
     }
-    // And on steady speed: the INA238 averages over 8.4 ms and eRPM lags a loop, so during a
-    // launch or reversal the shunt and the model describe different instants. A launch on the
-    // 2026-10-23 bench run dragged g to its 0.8 floor.
-    // The same goes for the duty: the INA238 sample spans up to the last two updates, and eRPM
-    // still reads the old speed on the sample a step lands in.
     bool steady = true;
     for (int k = 0; k < NUM_MOTORS; k++) {
         steady &= std::fabs(_speed[k] - _last_speed[k]) < _config.gain_steady_rad_s;
@@ -216,11 +205,6 @@ void MotorGuard::update(float dt_s, float volts, float amps, float left_duty, fl
     for (int k = 0; k < NUM_MOTORS; k++) {
         if (speed_ok[k]) _amps[k] = _gain * model[k];
     }
-    // The measured bound (2e a) caps the model too. The model assumes the ESC applies the
-    // commanded duty, but BLHeli holds duty back while it restarts a motor at low RPM: after a
-    // full-stick reversal on the 2026-10-23 bench run the model read 18 A against 2-5 A of pack
-    // current, and the limiter cut to 67%. The bound only holds while no motor regenerates,
-    // since regen adds a negative term to the pack current.
     bool motoring = shunt_ok;
     for (int k = 0; k < NUM_MOTORS; k++) {
         motoring &= !speed_ok[k] || duty[k] * _amps[k] >= 0.0f;
@@ -245,8 +229,6 @@ void MotorGuard::update(float dt_s, float volts, float amps, float left_duty, fl
     update_limiter(dt_s);
 }
 
-// Sections 5 and 6: per-motor allowed current from temperature, then one integrator on ln(scale).
-// In a stall the current is proportional to the scale, so the loop gain is 1 everywhere.
 void MotorGuard::update_limiter(float dt_s) {
     if (_sensors == Sensors::NONE) {
         _log_scale = 0.0f;

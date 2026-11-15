@@ -52,8 +52,6 @@ uint32_t last_guard_reads = 0;
 float last_left_scaled_duty = 0.0f;
 float last_right_scaled_duty = 0.0f;
 
-// The thermal state survives a watchdog, panic, or software reset, so a reset mid-match resumes
-// the estimate. A power-on starts cold. Whether it survives a brownout reset is untested.
 struct guard_rtc_t {
     uint32_t magic;
     float rise_c[motor_guard::NUM_MOTORS];
@@ -62,9 +60,6 @@ const uint32_t GUARD_RTC_MAGIC = 0x4D475244;
 RTC_NOINIT_ATTR guard_rtc_t guard_rtc;
 DiagnosticsServer diag_server;
 
-// Every 100 Hz telemetry frame, kept in PSRAM for GET /telemetry, so a WiFi client that drops
-// out catches up instead of losing the gap. 9000 records of 155 B is 1.4 MB of the 2 MB PSRAM,
-// 90 s. Without PSRAM it falls back to a few seconds in internal RAM.
 const uint32_t TELEMETRY_RING_PSRAM_RECORDS = 9000;
 const uint32_t TELEMETRY_RING_HEAP_RECORDS = 500;
 telemetry_ring::TelemetryRing<espnow_protocol::TelemetryPayload> telemetry_ring_buffer;
@@ -86,11 +81,6 @@ bool is_loading_firmware = false;
 bool prev_button_state = false;
 uint32_t prev_loop_us = 0;
 
-// Steering in the flip-switch-DOWN mode: lib/yaw_control's cascaded heading and yaw-rate loop
-// on the BNO055, run once per IMU sample. It replaces the heading-hold PID, which was off while
-// the stick turned and so could not stop the tail-first spin. Without a usable IMU (no sample
-// for HEADING_STALE_US, or the gyro failed its sign check) and while inverted, the turn stick
-// passes straight through, as in MIDDLE.
 yaw_control::YawController *yaw_controller;
 float steer_differential_pct = 0.0f;
 bool yaw_loop_active = false;
@@ -138,7 +128,6 @@ void cycle_rainbow_led(int tick, int brightness) {
     pixels.show();
 }
 
-// Tuning mode: a slow blue breath, so the robot reads as not drivable from across the room.
 void breathe_blue_led(uint32_t now_ms) {
     const float phase = (now_ms % 3000) / 3000.0f;
     const uint8_t level = (uint8_t)(10 + 150 * (0.5f - 0.5f * cosf(2.0f * PI * phase)));
@@ -349,13 +338,8 @@ void mix_motor_outputs(crsf_bridge::radio_data_t *radio_data, float sensed_angle
     if (fresh_heading) last_heading_sample_us = sample_us;
     bool heading_stale = sample_us == 0 || now_us - sample_us > HEADING_STALE_US;
 
-    // The differential turns the robot the same way inverted (both the wheel sides and their
-    // ground direction swap), and the yaw rate is projected on the measured up direction, so
-    // the loop runs upside down too. A flip restarts it: the Euler heading swings while the
-    // robot goes over.
     bool yaw_usable = auto_steer_enabled && !heading_stale && !accel->gyro_sign_suspect();
     if (!yaw_usable) {
-        // The stick's resting trim (about 1% on this transmitter) would otherwise creep a wheel.
         steer_differential_pct = fabs(b_percent) > TURN_DEADBAND_PERCENT ? b_percent : 0.0f;
         yaw_loop_active = false;
     } else {
@@ -380,9 +364,6 @@ void mix_motor_outputs(crsf_bridge::radio_data_t *radio_data, float sensed_angle
     }
 }
 
-// Sends DShot stop frames every 5 ms from a timer while setup() runs, so the ESCs see an
-// unbroken signal from the moment their pins are driven until loop() takes over. The IMU, WiFi,
-// and ESP-NOW setup between those points takes about 2.5 s.
 esp_timer_handle_t setup_frames_timer = nullptr;
 
 void send_setup_frames(void *) { esc::Esc::stop_pair(*left_esc, *right_esc); }
@@ -428,11 +409,7 @@ void setup() {
 
     for (int count = 0; count < 2; count++) pulse_led();
 
-    Wire1.begin();  // BNO055 IMU lives on the Wire1 I2C bus
-    // Stays at the default 100 kHz. The BNO055 stretches the clock, which can fail at 400 kHz,
-    // and every failed read blocks the loop for the 50 ms Wire timeout, starving the ESCs of
-    // DShot frames.
-    // Recorded for the diagnostics page: shows which devices answered at boot.
+    Wire1.begin();
     i2c_bus::scan(&Wire1, &bus_scan);
     accel = new updown_sensor::UpdownSensor();
     if (!accel->begin()) {
@@ -465,18 +442,9 @@ void setup() {
     usb_bridge::begin();
     if (ESPNOW_ENABLED) espnow.begin(WIFI_IF_AP, espnow_protocol::CHANNEL_OVERRIDE, &tuning_store);
 
-    // ESCs need continuous DShot zero-throttle frames to initialize (~2 seconds). The timer has
-    // sent them since the ESC pins came up; top that up to 2 s, then hand over to loop(). Before
-    // the timer, the 2.4 s of IMU and WiFi setup left the line idle, and a reset of the ESP32 alone
-    // made the running ESCs play their wake-up jingle twice. A pack power-on still plays it twice:
-    // the ESCs sample the line before any firmware can drive it (measured 212 ms after reset).
     while (millis() - esc_start_ms < esc_config::ESC_WAKE_MS) delay(5);
     stop_setup_frames();
 
-    // A loop() pass that takes over CONFIG_ESP_TASK_WDT_TIMEOUT_S (5 s) panics: the core dump goes
-    // to flash and the robot reboots, instead of hanging with the ESCs on their last command. The
-    // core already watches core 0's idle task. Core 1's idle task is not watched: loop() spins on
-    // core 1 without yielding, so it never runs. Started last: setup() blocks longer than that.
     enableLoopWDT();
 
     prev_loop_us = micros();
@@ -497,7 +465,6 @@ void loop() {
     bool radio_ok = crsf->update(radio_data);
     uint32_t now_ms = millis();
 
-    // Before the ESP-NOW OTA return, so the guard's model keeps cooling during a transfer.
     vbat_sensor_ina238.update();
     float vbat = vbat_sensor_ina238.get_pack_volts();
     float ibat = vbat_sensor_ina238.get_pack_amps_discharge();
@@ -534,9 +501,6 @@ void loop() {
     esc_tuning.update(now_ms, radio_ok && radio_data->armed, last_espnow_driving,
                       radio_ok && radio_data->button_state);
 
-    // Read the IMU every loop whatever the radio is doing, so heading stays fresh for the PID and
-    // the diagnostics page and telemetry track the robot with no handset. Rate-limited inside the
-    // sensor. Reconnect stays off: it blocks the loop for over a second.
     bool sensed_upside_down = accel->get_is_upside_down(false);
     updown_sensor::vector3_t *orientation = accel->get_orientation();
     crsf_bridge::telemetry_data_t telemetry = {
@@ -559,9 +523,6 @@ void loop() {
         }
     }
 
-    // The only link failsafe: isLinkUp() drops 300 ms after the last channel packet. That catches
-    // a lost handset only while the receiver's failsafe is set to send nothing; a receiver set to
-    // hold its last frame keeps the robot armed on stale values.
     if (!radio_ok) {
         stop_escs();
         reset_steering(accel->get_orientation()->x);
@@ -643,8 +604,6 @@ void loop() {
     if (ESPNOW_ENABLED && ESPNOW_COMMAND_SUBSTITUTION && radio_data->autonomy_enabled &&
         espnow.fresh(now_ms)) {
         const espnow_protocol::CommandPayload &cmd = espnow.latest();
-        // Same place the trainer path lands: the Jetson's two channel values go into ch0/ch1 at
-        // full scale, and crsf_bridge negates ch0 into a_percent.
         radio_data->a_percent = -100.0f * cmd.channel_a;
         radio_data->b_percent = 100.0f * cmd.channel_b;
         espnow_active = true;
@@ -661,7 +620,7 @@ void loop() {
         case crsf_bridge::MIDDLE:
             is_upside_down = false;
             break;
-        case crsf_bridge::DOWN:  // this is the default position when the transmitter powers on
+        case crsf_bridge::DOWN:
             auto_steer_enabled = true;
             is_upside_down = sensed_upside_down;
             break;

@@ -43,7 +43,6 @@ void read(report_t &out) {
     out.dump_checksum_ok = esp_core_dump_image_check() == ESP_OK;
     if (!out.dump_checksum_ok) return;
 
-    // The summary is large for the stack; it is read once, at boot.
     static esp_core_dump_summary_t summary;
     if (esp_core_dump_get_summary(&summary) != ESP_OK) return;
     strncpy(out.crashing_task_name, summary.exc_task, sizeof(out.crashing_task_name) - 1);

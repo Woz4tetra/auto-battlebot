@@ -9,8 +9,6 @@ enum dshot_mode_t {
     DSHOT600,
 };
 
-// Bidirectional DShot: inverted frames out, and the ESC's eRPM reply read back on the same pin
-// through an RX channel. BLHeli_32 sees the inverted signal and switches modes on its own.
 static const int FRAME_BITS = 16;
 
 class DShot {
@@ -19,11 +17,7 @@ class DShot {
           dshot_mode_t mode = DSHOT300);
     ~DShot();
     bool begin();
-    // Uninstalls both RMT channels and hands the pad back as a plain GPIO with nothing routed to
-    // it, so tuning mode can talk to the ESC bootloader on the same wire. begin() works again.
     void end();
-    // Collects the reply to the previous frame, arms the receiver, and sends this frame. The
-    // reply arrives about 30 us after the frame, so it is read one call later and never waited on.
     void send(uint16_t throttle, bool telemetry = false);
     // send() in two steps, so several ESCs transmit together. Frames sent one after another put
     // one ESC's frame on the wire during its neighbour's reply, and the crosstalk corrupts it.

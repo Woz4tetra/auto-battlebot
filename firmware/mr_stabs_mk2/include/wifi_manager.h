@@ -4,16 +4,6 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 
-// Chooses between the robot's own access point and joining a router, from settings the
-// diagnostics page saves to NVS.
-//
-// AP mode: the access point comes up on boot and the robot never looks for a router.
-// Client mode: the robot joins the selected network on boot. With no connection after
-// CONNECT_TIMEOUT_MS it gives up and brings up the access point instead, until the next boot or
-// the next apply. A connection that drops later reconnects on its own.
-//
-// Everything after the first start runs in a task on core 0, so the timeout, the fallback, and
-// a mode switch from the page never stall the control loop on core 1.
 namespace wifi_manager {
 
 const size_t MAX_NETWORKS = 8;
@@ -24,11 +14,11 @@ const uint32_t CONNECT_TIMEOUT_MS = 30000;
 enum class link_mode_t : uint8_t { AP = 0, CLIENT = 1 };
 
 enum class link_state_t : uint8_t {
-    AP,            // AP mode
-    CONNECTING,    // client mode, waiting for the first connection
-    CONNECTED,     // client mode, joined
-    RECONNECTING,  // client mode, joined once and lost it; the driver retries
-    FALLBACK_AP,   // client mode, gave up after CONNECT_TIMEOUT_MS
+    AP,
+    CONNECTING,
+    CONNECTED,
+    RECONNECTING,
+    FALLBACK_AP,
 };
 
 struct network_t {
@@ -60,9 +50,6 @@ struct snapshot_t {
 
 class WifiManager {
    public:
-    // Starts WiFi from the saved settings before returning, so ArduinoOTA and the web server can
-    // bind afterwards. force_ap keeps the access point up on ap_channel whatever is saved: ESP-NOW
-    // needs a fixed channel, which a router would take over.
     void begin(const char *hostname, const char *ap_ssid, const char *ap_password,
                uint8_t ap_channel, bool force_ap);
 

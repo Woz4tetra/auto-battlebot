@@ -4,8 +4,6 @@
 #include "yaw_control.h"
 
 namespace tuning {
-// Every setting the diagnostics page and ESP-NOW can change at runtime. The robot keeps them in
-// NVS, one float per field under the field's key, so adding a field keeps the others' values.
 struct Settings {
     float left_deadzone = 1.0f;   // % of command below which the left ESC gets DShot stop
     float right_deadzone = 1.0f;  // same, right ESC

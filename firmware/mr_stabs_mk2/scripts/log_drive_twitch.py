@@ -1,17 +1,5 @@
 #!/usr/bin/env python3
-"""Log Mr Stabs over the diagnostics stream and check two causes of twitching while driving.
-
-1. Spurious upside-down flips. With the flip switch DOWN, the firmware takes is_upside_down from
-   the BNO055 gravity vector and negates the throttle when it changes. It flips upside down below
-   accel_z = -1 m/s^2 and back above +1 m/s^2. A flip that reverts within --flip-window while the
-   switch did not move is a false detection: the drive reversed under the driver.
-2. DShot 3D reversals. A wheel command crossing from one side of the ESC deadzone to the other is
-   a direction reversal, which the ESC handles with a stall. A reversal is blamed on heading hold
-   when the driver's own stick mix for that wheel kept its sign.
-
-Join the MR-STABS WiFi, arm, and drive. Ctrl-C stops the capture early. --csv analyzes a file
-from an earlier capture or from the dashboard's Download CSV button instead.
-"""
+"""Log Mr Stabs over the diagnostics stream and check two causes of twitching while driving."""
 
 import argparse
 import csv
@@ -101,7 +89,6 @@ def capture(host: str, seconds: float, out: Path) -> None:
                 if time.monotonic() > end:
                     break
                 line = raw.decode(errors="replace").strip()
-                # The connect greeting is also a data line; only full diag rows have every column.
                 if not line.startswith("data:"):
                     continue
                 data = line[len("data:") :].strip()

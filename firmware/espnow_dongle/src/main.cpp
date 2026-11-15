@@ -9,7 +9,6 @@ using namespace espnow_protocol;
 
 namespace {
 
-// Re-send the latest command at 250 Hz so a lost packet is covered quickly.
 const uint32_t REPEAT_PERIOD_US = 4000;
 // Stop repeating once the Jetson has been quiet this long. Without it the dongle would re-send a
 // dead process's last command forever, and the robot would treat it as live.
@@ -22,7 +21,6 @@ const uint32_t SCAN_DWELL_MS = 150;
 const uint32_t ROBOT_SILENCE_LED_RED_MS = 500;
 const uint32_t LED_PERIOD_MS = 50;
 const uint32_t ACK_DEGRADED_PERCENT = 90;
-// NeoPixel levels out of 255. Full brightness is blinding at arm's length.
 const uint8_t LED_BRIGHT = 48;
 const uint8_t LED_DIM = 6;
 
@@ -36,8 +34,6 @@ struct AirFrame {
 
 QueueHandle_t wifi_task_rx_queue;
 
-// Frames waiting for the radio. Commands do not queue here: only the newest command matters, so
-// it lives in its own slot and jumps the queue.
 const size_t TX_QUEUE_LEN = 24;
 AirFrame tx_queue[TX_QUEUE_LEN];
 size_t tx_head = 0;
@@ -102,9 +98,6 @@ void on_promiscuous(void *buffer, wifi_promiscuous_pkt_type_t type) {
     if (scan_channel < 14) scan_bytes_by_channel[scan_channel] += packet->rx_ctrl.sig_len;
 }
 
-// Scores every channel by bytes heard and picks the quietest of 1, 6, and 11, counting energy
-// from overlapping neighbors. Bytes heard is a proxy for airtime: it misses non-WiFi interferers
-// (other teams' control links, video TX), which nothing in a WiFi scan can see.
 uint8_t pick_channel() {
     if (CHANNEL_OVERRIDE != 0) return CHANNEL_OVERRIDE;
 
@@ -155,7 +148,6 @@ void add_peer(const uint8_t *mac) {
 void write_serial_frame(uint8_t type, const uint8_t *payload, uint8_t length) {
     uint8_t out[SERIAL_MAX_FRAME];
     const size_t size = encode_serial_frame(type, payload, length, out);
-    // Never block on the host. With no reader the frame is dropped, which is what we want.
     if (Serial.availableForWrite() >= static_cast<int>(size)) {
         Serial.write(out, size);
         return;
@@ -189,8 +181,6 @@ void on_serial_frame(void *context, uint8_t type, const uint8_t *payload, uint8_
         last_repeat_us = micros();
         return;
     }
-    // Everything else goes out once. OTA retries are the host's job; a repeated chunk would only
-    // be dropped by the robot as out of order.
     queue_frame(type, payload, length);
 }
 
@@ -221,8 +211,6 @@ void service_radio() {
     }
     last_send_ms = millis();
 
-    // Broadcast until the robot is heard from. Broadcast gets no MAC-layer ACK or retry, so the
-    // link stats only mean something once robot_known is set.
     const uint8_t *dest = robot_known ? robot_mac : BROADCAST_MAC;
     send_started_us = micros();
     send_started_ms = millis();
@@ -249,7 +237,6 @@ void service_receive() {
     AirFrame frame;
     while (xQueueReceive(wifi_task_rx_queue, &frame, 0) == pdTRUE) {
         const uint8_t type = frame.data[sizeof(AIR_MAGIC)];
-        // Only the robot sends these types, so the first one names the robot.
         if ((type == MSG_TELEMETRY || type == MSG_OTA_STATUS) &&
             (!robot_known || memcmp(frame.mac, robot_mac, 6) != 0)) {
             memcpy(robot_mac, frame.mac, 6);
@@ -297,12 +284,6 @@ void set_led(uint8_t r, uint8_t g, uint8_t b) {
 #endif
 }
 
-// Color is the link, brightness is the Jetson:
-//   blue blinking  broadcasting, the robot has never answered
-//   red            robot heard before, nothing from it for ROBOT_SILENCE_LED_RED_MS
-//   amber          robot answering, unicast ACK rate under 90% over the last 100 ms
-//   green          robot answering, ACKs healthy
-// Bright while the Jetson is commanding (a command inside COMMAND_SILENCE_MS), dim otherwise.
 void service_led() {
     const uint32_t now = millis();
     if (now - last_led_ms < LED_PERIOD_MS) return;
@@ -325,8 +306,6 @@ void service_led() {
 }  // namespace
 
 void setup() {
-    // The default 256-byte RX buffer overflows on the OTA host's 16-chunk (~4 KB) window and the
-    // HWCDC ISR drops the excess, so every chunk after the first fails its CRC. Two windows.
     Serial.setRxBufferSize(8192);
     Serial.begin(921600);
     Serial.setTxTimeoutMs(0);
@@ -350,7 +329,6 @@ void setup() {
     esp_now_register_send_cb(on_sent);
     esp_now_register_recv_cb(on_recv);
     add_peer(BROADCAST_MAC);
-    // After esp_wifi_start(), which WiFi.mode() ran. The 1 Mbps default costs ~1.2 ms a frame.
     esp_wifi_config_espnow_rate(WIFI_IF_STA, WIFI_PHY_RATE_6M);
 
     // Plain text, once. The Jetson's parser skips anything that is not a framed message.

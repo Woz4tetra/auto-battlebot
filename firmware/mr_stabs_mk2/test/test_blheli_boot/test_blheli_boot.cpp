@@ -112,7 +112,6 @@ TEST(BlheliBootFrames, ParseRejectsBadFrames) {
     Bytes long_frame = frame;
     long_frame.push_back(0);
     EXPECT_EQ(parse_request(long_frame.data(), long_frame.size(), req), ParseResult::BAD_LENGTH);
-    // n = 0 means 256 parameter bytes.
     const Bytes full = request(DEVICE_WRITE, 0xF800, page_bytes());
     ASSERT_EQ(full[4], 0);
     ASSERT_EQ(parse_request(full.data(), full.size(), req), ParseResult::OK);
@@ -176,7 +175,6 @@ TEST(BlheliBootServer, InitFlashReturnsTheSignature) {
 }
 
 TEST(BlheliBootServer, InitFlashRetriesAGarbledHandshake) {
-    // Captured on the robot: a handshake answered while the ESC was booting, then a clean one.
     FakeLink link;
     link.replies = {{0xD3, 0x6A, 0x1D, 0x07, 0x04, BOOT_SUCCESS},
                     {'4', '7', '1', 0x6D, 0x47, 0x06, 0x07, 0x04, BOOT_SUCCESS}};
@@ -233,7 +231,6 @@ TEST(BlheliBootServer, ReadReturnsCheckedData) {
 }
 
 TEST(BlheliBootServer, ReadSkipsAStrayLeadingByte) {
-    // Captured on the robot: the address ack arrived as fe 30.
     FakeLink link;
     const Bytes page = page_bytes();
     Bytes reply = {0xFE};

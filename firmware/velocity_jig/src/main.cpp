@@ -1,23 +1,3 @@
-// auto-battlebot velocity jig firmware
-//
-// Feather RP2040 Adalogger. Logs encoder count and IMU (accel + gyro) together
-// to the microSD card, one row per IMU sample. For an angular-only run, just
-// unplug the encoder: its inputs are pulled up, so the count column stays
-// constant instead of drifting.
-//
-// OLED menu: A = start recording, B = stop, C = live diagnostics readout.
-//
-// Gap-free design:
-//   - Every sample is captured in the IMU INT1 data-ready ISR, so SD write
-//     latency never delays a capture. Captures land in a RAM ring buffer.
-//   - The main loop drains the ring to SD in large blocks. A long SD stall just
-//     lets the ring fill; the ISR keeps sampling. An overflow counter flags any
-//     loss (it should stay 0).
-//   - Files are preallocated contiguous to avoid FAT-growth latency, and the
-//     card is on its own SPI peripheral (SPI0), separate from the IMU (SPI1).
-//   - The screen is drawn once at record start and left untouched until stop.
-//
-// Wiring and pin map: docs/velocity_jig_wiring.md and include/config.h
 
 #include <Adafruit_ISM330DHCX.h>
 #include <Adafruit_SH110X.h>
@@ -56,8 +36,6 @@ struct Sample {
     int16_t accel_raw[3];
 };
 
-// SPSC ring buffer. Producer = IMU ISR, consumer = loop(). Single core, so the
-// ISR atomically preempts the loop; volatile 32-bit indices are sufficient.
 static Sample g_ring[RING_SLOTS];
 static constexpr uint32_t RING_MASK = RING_SLOTS - 1;
 static volatile uint32_t g_ring_write = 0;
@@ -88,10 +66,6 @@ static inline void ringPush(const Sample& s) {
     g_ring_write = n;  // publish
     g_captured_samples++;
 }
-
-// ---------------------------------------------------------------------------
-// IMU raw access (fast burst read, bypasses the library for per-sample reads)
-// ---------------------------------------------------------------------------
 
 static void imuWriteReg(uint8_t reg, uint8_t val) {
     SPI1.beginTransaction(SPISettings(8000000, MSBFIRST, SPI_MODE0));
@@ -146,10 +120,6 @@ static bool sampleTimerCb(repeating_timer_t*) {
     ringPush(s);
     return true;
 }
-
-// ---------------------------------------------------------------------------
-// SD write staging (integer-only formatting -> light CPU load)
-// ---------------------------------------------------------------------------
 
 static inline void wflush() {
     if (g_wlen) {
@@ -285,9 +255,6 @@ static void drawRecording(const char* name) {
     g_display.display();
 }
 
-// Live encoder + IMU readout, converted to physical units. Idle mode only,
-// nothing is recorded. Raw counts are scaled here (floats are fine off the
-// capture path) so a wiggle test reads directly in dps and g.
 static void drawDiagnostics() {
     int16_t g[3], a[3];
     imuReadRaw(g, a);
@@ -304,8 +271,6 @@ static void drawDiagnostics() {
     g_display.print("DIAGNOSTICS");
     g_display.setTextColor(SH110X_WHITE);
 
-    // Encoder: count plus the raw A/B levels, so an unplugged or miswired
-    // encoder is visible even when the count is not moving.
     g_display.setCursor(0, 17);
     g_display.print("ENC ");
     g_display.print(count);
@@ -353,7 +318,7 @@ static void fatal(const char* msg) {
         delay(120);
         digitalWrite(PIN_STATUS_LED, LOW);
         delay(120);
-        if (millis() - last >= 1000) {  // re-emit so a late-attached monitor sees it
+        if (millis() - last >= 1000) {
             last = millis();
             Serial.print("FATAL: ");
             Serial.println(msg);
@@ -455,14 +420,6 @@ static bool justPressed(Btn& b) {
     return false;
 }
 
-// ---------------------------------------------------------------------------
-// Diagnostics mode (idle only)
-//
-// Refreshes the live readout until B or C is pressed. Serial input also breaks
-// out, without being consumed, so the next loop() pass answers the command
-// normally instead of leaving the host console hanging.
-// ---------------------------------------------------------------------------
-
 static bool pollExitButtons() {
     const bool exitB = justPressed(g_btnB);
     const bool exitC = justPressed(g_btnC);
@@ -485,21 +442,9 @@ static void runDiagnostics() {
     drawMenu(g_showLastRunSummary);
 }
 
-// ---------------------------------------------------------------------------
-// USB serial console (idle only): LIST / GET / DEL / STREAM / TIME
-//
-// A host-side TUI (scripts/console) drives this. It runs only from the idle
-// branch of loop(), so it never touches the SD card or the capture path while
-// recording. During recording, commands are answered with "BUSY", except TIME,
-// which is answered normally because it touches neither.
-// ---------------------------------------------------------------------------
-
 static char g_cmd[64];
 static uint8_t g_cmdLen = 0;
 
-// Capture clock at the instant the terminating newline was consumed. TIME
-// reports this rather than sampling inside the handler, so dispatch overhead
-// does not land inside the host's round-trip measurement.
 static uint64_t g_cmdRxUs = 0;
 
 static bool serialReadLine() {
@@ -557,19 +502,6 @@ static void cmdGet(const char* name) {
 
 static void cmdDel(const char* name) { Serial.println(g_sd.remove(name) ? "OK" : "ERR"); }
 
-// Clock probe for aligning the jig's log timestamps with a host clock.
-//
-// Replies "TIME <rx_us> <tx_us>", both from the same time_us_64() base the log
-// rows use. rx_us is when the request line completed, tx_us is sampled just
-// before the reply is pushed out, so the pair brackets the jig-side processing
-// span. The host times the round trip, keeps the lowest-RTT probes, and pairs
-// the midpoint of (t_send, t_recv) with the midpoint of (rx_us, tx_us). Probing
-// before and after a recording gives offset and skew; the RP2040 crystal drifts
-// ~30 ppm, which is ~0.9 ms over a 30 s run.
-//
-// Runs during recording too. It touches neither the SD card nor the capture
-// path, and a mid-run probe measures skew over the run window instead of
-// extrapolating into it.
 static void cmdTime() {
     Serial.print("TIME ");
     Serial.print(g_cmdRxUs);
@@ -709,7 +641,6 @@ static void sdInit() {
     SPI.setRX(PIN_SD_MISO);
     DBG("[dbg] sd.begin (SPI0 GP18/19/20 CS23)... ");
     DBGFLUSH();
-    // Dedicated SPI: the card owns SPI0, so SdFat keeps CS optimizations.
     if (!g_sd.begin(SdSpiConfig(PIN_SD_CS, DEDICATED_SPI, SD_SCK_MHZ(SD_SCK_MHZ_VAL), &SPI))) {
         fatal("SD init failed");
     }
@@ -737,8 +668,6 @@ static void encoderInit() {
 }
 
 void setup() {
-    // 921600 is nominal only: this is native USB CDC, so the baud is ignored and
-    // transfers run at USB Full Speed regardless. Kept in sync with the host.
     Serial.begin(921600);
     pinMode(PIN_STATUS_LED, OUTPUT);
     digitalWrite(PIN_STATUS_LED, LOW);
@@ -751,10 +680,6 @@ void setup() {
     pinMode(PIN_BTN_STOP_REC, INPUT_PULLUP);
     pinMode(PIN_BTN_DIAGNOSTICS, INPUT_PULLUP);
 
-    // OLED on I2C1 (GP2/GP3). First a non-blocking bus-idle check: with internal
-    // pull-ups both lines should read high when idle. A line stuck low means it
-    // is held down (short, bad connection, or a device holding the bus), which is
-    // exactly what hangs the first I2C transaction. Report instead of hanging.
     pinMode(PIN_I2C_SDA, INPUT_PULLUP);
     pinMode(PIN_I2C_SCL, INPUT_PULLUP);
     delay(5);

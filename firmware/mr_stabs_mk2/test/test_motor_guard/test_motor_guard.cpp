@@ -21,9 +21,6 @@ const float kPackVolts = 15.2f;
 const float kTwoPi = 6.2831853f;
 const float kSlowestNonzeroErpm = 919.0f;
 
-// Two motors on a stiff pack. Current is the averaged ESC model the guard assumes,
-// I = (d V - Ke w) / R, with R 15% below the guard's R_cold so the shunt gain has something to
-// correct (g only corrects upward). A DShot stop freewheels: no current.
 struct Plant {
     Config config;
     float r_ohm;
@@ -74,8 +71,6 @@ struct Plant {
     }
 };
 
-// Runs the guard against the plant the way main.cpp does: update with the previous sample's
-// duty and the measured pack current, then scale this sample's command.
 struct Sim {
     Config config;
     MotorGuard guard;
@@ -251,7 +246,6 @@ TEST(MotorGuard, SingleStallEstimatesEachMotor) {
 
 TEST(MotorGuard, ShuntOnlyEstimatesTheStalledMotor) {
     Sim sim;
-    // The model bound d V / R_cold only holds with R_cold the lowest resistance the circuit has.
     sim.plant.r_ohm = sim.config.r_cold_ohm;
     sim.erpm_ok[0] = sim.erpm_ok[1] = false;
     sim.plant.locked[0] = true;
@@ -283,8 +277,6 @@ TEST(MotorGuard, PluggingAndRegenTrackTrueCurrent) {
     sim.plant.locked[0] = false;
     sim.run(1.0f, 100.0f, 100.0f);
     ASSERT_GT(sim.guard.motor_shaft_speed_signed_rad_s(0), 1000.0f);
-    // Full reverse at speed. eRPM never reads 0 at this sample rate, so the shunt tiebreak must
-    // flip the sign. Until it does, the estimate errs high.
     int misses = 0;
     float true_heat = 0.0f, estimated_heat = 0.0f;
     for (int i = 0; i < 100; i++) {
@@ -337,8 +329,6 @@ TEST(MotorGuard, LaunchesFromRestDoNotStutter) {
 }
 
 TEST(MotorGuard, EscDutyClampAtLowSpeedDoesNotLimit) {
-    // BLHeli restarts a reversed motor at a fraction of the commanded duty. The model alone
-    // overestimates; the shunt bound must keep the guard from cutting power.
     Sim sim(Config(), 2);
     sim.plant.blheli_restart_below_rad_s = 800.0f;
     sim.plant.slow_duty_fraction = 0.3f;

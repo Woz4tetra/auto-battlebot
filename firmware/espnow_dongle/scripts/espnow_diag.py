@@ -1,22 +1,5 @@
 #!/usr/bin/env python3
-"""ESP-NOW link diagnostics: reads the dongle's serial stream and serves a live page.
-
-Decodes every serial frame the dongle forwards (link stats, robot telemetry, OTA status, and any
-frame some other host put on the channel), tracks ACK rate, telemetry drops, arrival gaps, and
-command round trip, and runs a checklist that names the likely fault. Every frame lands in a
-2-minute ring that can be saved after the fact, and CAPTURE writes the whole stream to JSONL.
-
-The dongle allows one reader. Stop the app first, or pass --manage-service:
-
-    venv/bin/python firmware/espnow_dongle/scripts/espnow_diag.py --manage-service
-    # then open http://<host>:8090
-
-SEND COMMANDS streams commands at --command-hz so the command path, sequence numbers, and round
-trip can be measured. They start neutral (channel_a = channel_b = 0); the page's sliders set them,
-and the space bar returns both to neutral. The page refreshes the values every 100 ms; after
-COMMAND_DEADMAN_S without a refresh (tab closed, laptop asleep, network gone) they fall back to
-neutral. The robot only drives from them while armed with SA on, so the handset keeps authority.
-"""
+"""ESP-NOW link diagnostics: reads the dongle's serial stream and serves a live page."""
 
 from __future__ import annotations
 
@@ -74,9 +57,6 @@ MESSAGE_TYPES: dict[int, tuple[str, str, int | None]] = {
     MSG_OTA_ABORT: ("OTA_ABORT", "host", 0),
     MSG_OTA_STATUS: ("OTA_STATUS", "robot", 22),
 }
-# The dongle forwards every air frame carrying the session magic, whoever sent it. Only these
-# two come from the robot; anything else read back from the air is another dongle or host on
-# this channel.
 ROBOT_TYPES = {MSG_TELEMETRY, MSG_OTA_STATUS}
 
 COMMAND = struct.Struct("<IIff")
@@ -561,7 +541,7 @@ class Diagnostics:
         if t["espnow_age_ms"] == UINT32_MAX or robot_seq == 0:
             return
         if robot_seq == self.cmd_last_robot_seq:
-            return  # Same command echoed again: its second sample also holds a 10 ms slot wait.
+            return
         if self.cmd_last_robot_seq and robot_seq > self.cmd_last_robot_seq + 1:
             self.cmd_seq_jumps += robot_seq - self.cmd_last_robot_seq - 1
         self.cmd_last_robot_seq = robot_seq
@@ -923,9 +903,7 @@ def open_port(path: str) -> serial.Serial:
 
 
 def reset_dongle(port: serial.Serial) -> None:
-    """One chip reset through the USB-Serial/JTAG lines: DTR low with RTS high holds EN low, then
-    RTS low releases it with GPIO0 free, so the dongle boots its firmware and prints the banner.
-    One pulse only: two resets inside ~500 ms drop an Adafruit board into TinyUF2."""
+    """One chip reset through the USB-Serial/JTAG lines: DTR low with RTS high holds EN low, then."""
     port.dtr = False
     time.sleep(0.2)
     port.rts = False

@@ -317,3 +317,81 @@ a match recording, or a driver note. Read-back-and-restore tests do not count.
    written settings; ESC 1's tune has not been heard yet. Startup beep volume is 40 on ESC 0 and
    254 on ESC 1, so the right ESC's half of the chord will be quiet until those match.
 2. Run the WiFi relay's bench checklist in `docs/plans/esc_settings_dashboard_plan.md` (step 2).
+
+## Notes moved from code comments
+
+### tuning mode over WiFi
+
+- `mr_stabs_mk2/include/esc_config.h`: ESC tuning mode (docs/plans/esc_settings_dashboard_plan.md). Stops DShot, hands both ESC signal wires to the BLHeli bootloader link, and relays 4-way frames posted over HTTP. The robot never decodes settings: the diagnostics page and firmware/blheli/blheli32.py --url do. ESC indices follow the passthrough: 0 = A2, the right ESC; 1 = A3, the left ESC.
+- `mr_stabs_mk2/lib/blheli_boot/blheli_boot.cpp`: Tuning mode owns the pins; leaving it is POST /esc/tuning.
+- `mr_stabs_mk2/src/diagnostics_server.cpp`: The 4-way relay for tuning mode (docs/plans/esc_settings_dashboard_plan.md). The loop runs one frame at a time: POST queues it and returns an id, GET reports it pending or done.
+- `mr_stabs_mk2/web/esc_panel.js`: backupJson decodes the settings; a page from another layout gets an empty decode instead.
+- `mr_stabs_mk2/web/esc_panel.js`: Show what the ESC holds now; the edits stay in the form.
+
+### tuning mode
+
+- `mr_stabs_mk2/lib/DShot/DShot.h`: Uninstalls both RMT channels and hands the pad back as a plain GPIO with nothing routed to it, so tuning mode can talk to the ESC bootloader on the same wire. begin() works again.
+- `mr_stabs_mk2/lib/blheli_boot/blheli_boot.cpp`: Tuning mode puts the ESCs in their bootloader by stopping DShot, so the handshake normally answers at once. If it does not, the ESC is restarted the passthrough's way and given REBOOT_SETTLE_MS of quiet high line before the handshake is tried again.
+- `mr_stabs_mk2/lib/blheli_boot/blheli_boot.cpp`: Betaflight's sequence: line low 300 ms, then high. No reply; drain whatever comes.
+- `mr_stabs_mk2/src/esc_config.cpp`: Drives both signal lines high. A BLHeli ESC that has lost its signal enters the bootloader only if the line reads high when it checks, so neither line is left floating on a pull-up.
+- `mr_stabs_mk2/src/esc_config.cpp`: Frames wait out SETTLE_MS: the ESCs need a quiet high line to enter the bootloader.
+
+### 4-way protocol
+
+- `mr_stabs_mk2/lib/blheli_boot/blheli_boot.cpp`: The passthrough's DeviceInitFlash handshake. It carries its own CRC, so it goes out raw.
+- `mr_stabs_mk2/lib/blheli_boot/blheli_boot.cpp`: The passthrough's InterfaceGetVersion, 20.0.05.
+- `mr_stabs_mk2/lib/blheli_boot/blheli_boot.cpp`: The passthrough's retry count for the steps of a write.
+- `mr_stabs_mk2/lib/blheli_boot/blheli_boot.cpp`: a read changes nothing, so it can repeat
+- `mr_stabs_mk2/lib/blheli_boot/blheli_boot.cpp`: Answered OK whatever the ESC says, as the passthrough does.
+- `mr_stabs_mk2/lib/blheli_boot/blheli_boot.h`: 4-way framing: request 2F cmd addr_hi addr_lo n params[n] crc_hi crc_lo, response 2E cmd addr_hi addr_lo n params[n] ack crc_hi crc_lo. n = 0 means 256. CRC16-XMODEM.
+
+### bootloader link
+
+- `mr_stabs_mk2/lib/blheli_boot/blheli_boot.cpp`: Data, CRC low and high, result. 256 bytes take 135 ms on the wire at 19200.
+- `mr_stabs_mk2/lib/blheli_boot/blheli_boot.h`: Bootloader link: 19200 8N1 half duplex on the signal wire, CRC16 poly 0xA001 (reflected, init 0), sent low byte first. Replies end in a result byte.
+- `mr_stabs_mk2/lib/blheli_boot/blheli_boot.h`: Reads until expect bytes have arrived (0: no length known), a 10 ms gap after the first byte, max bytes, or nothing at all for first_ms. Returns the count read.
+- `mr_stabs_mk2/src/esc_config.cpp`: The bootloader link on the ESC signal wires: 19200 8N1, half duplex, one wire per ESC. The passthrough (firmware/BlHeli-Passthrough/ESP32/ESC_Serial.cpp) bit-bangs this with EspSoftwareSerial. Inside this firmware that lost bits: 40 of 72 reads on 2026-10-23 needed a retry (bad CRCs, a 0x30 ack read as 0xfe), so the link uses UART2 instead. The GPIO matrix routes the UART's TX and RX to the selected ESC's pin, set open drain with the pull-up, so the ESC can pull the line low to answer. The receiver hears every byte sent, and receive() drops that echo.
+- `mr_stabs_mk2/src/esc_config.cpp`: Our own bytes come back first. 256 of them take 135 ms on the wire.
+- `mr_stabs_mk2/src/esc_config.cpp`: Park the receiver on a constant high input before the driver goes.
+- `mr_stabs_mk2/test/test_blheli_boot/test_blheli_boot.cpp`: n = 0 means 256 parameter bytes.
+
+### Transport
+
+- `mr_stabs_mk2/lib/blheli_boot/blheli_boot.h`: BLHeli 4-way interface server and BLHeli_32 bootloader client. Tuning mode relays 4-way request frames from HTTP (the diagnostics page, or firmware/blheli/blheli32.py --url) to the ESC signal wires. Ported from firmware/BlHeli-Passthrough/ESP32/4Way.cpp and ESC_Serial.cpp, minus MSP, with reads that end on the expected length instead of fixed delays, and with an address guard. Protocol and settings layout: firmware/blheli/README.md.
+- `mr_stabs_mk2/src/esc_config.cpp`: Anything still in the receiver belongs to an earlier exchange.
+- `mr_stabs_mk2/src/esc_config.cpp`: the next select() hands the pin back to the UART
+
+### Write path
+
+- `mr_stabs_mk2/lib/blheli_boot/blheli_boot.h`: The settings page is the only flash a write may touch. BLHeliSuite's Write Setup is one 256-byte DeviceWrite here and no page erase, so anything else is refused: a bad page can corrupt settings (restored from a backup) but never the ESC's application or bootloader.
+
+### captured bootloader exchanges
+
+- `mr_stabs_mk2/test/test_blheli_boot/test_blheli_boot.cpp`: Captured on the robot: a handshake answered while the ESC was booting, then a clean one.
+- `mr_stabs_mk2/test/test_blheli_boot/test_blheli_boot.cpp`: Captured on the robot: the address ack arrived as fe 30.
+
+### Stall protection row
+
+- `mr_stabs_mk2/test/test_motor_guard/test_motor_guard.cpp`: BLHeli restarts a reversed motor at a fraction of the commanded duty. The model alone overestimates; the shunt bound must keep the guard from cutting power.
+
+### General
+
+- `mr_stabs_mk2/web/esc.js`: XTEA, 32 rounds, with a tweak added into each round key term: 0xF800 + 8 per block. Each decrypted block is a 2-byte nonce and 6 payload bytes.
+- `mr_stabs_mk2/web/esc_panel.js`: Left to right as seen from behind the robot. ESC numbers follow the passthrough.
+
+### encryption
+
+- `mr_stabs_mk2/web/esc.js`: Random nonces per block, as BLHeliSuite's Write Setup sends.
+
+### captured ESC pages
+
+- `mr_stabs_mk2/web/esc.test.mjs`: What BLHeliSuite32xl showed for ESC 1 after Read Setup on 2026-10-23.
+- `mr_stabs_mk2/web/esc.test.mjs`: BLHeliSuite's own Write Setup with PWM low 16 / high 48 changed bytes 5 and 34 only.
+
+### dashboard ESC panel
+
+- `mr_stabs_mk2/web/esc_panel.js`: Every read and write lands here, in this browser only: nothing is stored on the robot, and nothing downloads until DOWNLOAD CURRENT or DOWNLOAD HISTORY. localStorage is per origin, so mr-stabs.local and 192.168.4.1 keep separate histories.
+
+### xlg log format section
+
+- `parse_blheli_log.py`: Extract length-prefixed text records from xlg binary data. The xlg format embeds strings after 0xFF delimiters as: FF [00|80] [00|FF] FF <4-byte LE length> <string bytes>

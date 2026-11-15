@@ -27,7 +27,6 @@ for i in z.infolist():
 `;
 const diff = (a, b) => [...a.keys()].filter((i) => a[i] !== b[i]);
 
-// What BLHeliSuite32xl showed for ESC 1 after Read Setup on 2026-10-23.
 const BLHELISUITE_ESC1 = {
   direction: 3,
   rampup_power: 100,
@@ -93,7 +92,6 @@ test("encode changes only the field bytes", () => {
   const after = layout.encode(before, { demag_compensation: 4, beacon_delay: 1200 });
   assert.deepEqual(diff(before, after), [7, 22, 23]);
   assert.equal(layout.decode(after).beacon_delay, 1200);
-  // BLHeliSuite's own Write Setup with PWM low 16 / high 48 changed bytes 5 and 34 only.
   const pwm = layout.encode(before, { pwm_frequency_low: 16, pwm_frequency_high: 48 });
   assert.deepEqual(diff(before, pwm), [5, 34]);
 });

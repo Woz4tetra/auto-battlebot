@@ -3,9 +3,6 @@
 
 namespace motor_guard {
 
-// Step 0 of the plan was deferred, so every value here is a placeholder chosen to err toward
-// limiting early: R_cold below the MuJoCo fit (overestimates current) and dT_max 20 C under the
-// plan's 70 C.
 struct Config {
     float r_cold_ohm = 0.40f;          // effective circuit resistance, cold (fit says 0.453)
     float ke_v_s_per_rad = 4.152e-3f;  // back-EMF constant, 2300 KV
@@ -29,26 +26,14 @@ struct Config {
                                      // and while neither motor's speed moved more per update
     float gain_min_load = 0.4f;      // and above this fraction of the draw with no back-EMF
     float gain_tau_s = 0.5f;
-    // g only raises the model. Over-estimates (a high R, or BLHeli holding duty back while it
-    // restarts a motor) are capped by the shunt bound instead: a duty clamp drove g to 0.8 on
-    // the 2026-10-23 bench run, which would have under-read every later stall.
     float gain_min = 1.0f;
     float gain_max = 1.5f;
     float stall_duty = 0.3f;  // stall flag: |d| above this with eRPM 0
     float stall_hold_s = 0.1f;
     float fallback_volts = 15.2f;  // V once the last INA238 voltage is volts_hold_s old
     float volts_hold_s = 1.0f;
-    float min_amps = 0.1f;  // estimates below this do not drive the limiter
-    // The limiter acts on |I_hat| low-passed at this time constant. Launches and full-stick
-    // reversals draw stall to plugging current (up to about 47 A) for about 30 ms while back-EMF
-    // builds and eRPM catches up a loop late. Acting on the raw estimate cut a full-stick launch
-    // to 76% on the 2026-10-23 bench run. At 0.1 s a dual stall at full stick still crosses
-    // I_peak within about 60 ms. The thermal model integrates the raw estimate either way.
+    float min_amps = 0.1f;
     float limit_filter_s = 0.1f;
-    // Hard trip: a motor's estimated rise at or above this cuts drive until disarm. It protects the
-    // motors while the scaling limits above are loosened for test-box sessions. Placeholder: set it
-    // from a motor can temperature measured after a 3 minute driven session against the logged
-    // motor_rise_left/right (docs/plans/nav_scoring_and_rl_v2_plan.md, section 0.3).
     float trip_rise_c = 70.0f;
 };
 

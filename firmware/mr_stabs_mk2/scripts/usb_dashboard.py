@@ -1,13 +1,5 @@
 #!/usr/bin/env python3
-"""Serve the robot's diagnostics page on localhost over USB serial.
-
-Every browser request goes down the USB cable to the robot, which replays it against its own web
-server (src/usb_bridge.cpp) and streams the raw response back. The robot's log lines print here,
-and to --log when given. Nothing on the robot needs WiFi.
-
-    venv/bin/python firmware/mr_stabs_mk2/scripts/usb_dashboard.py
-    # then open http://localhost:8080
-"""
+"""Serve the robot's diagnostics page on localhost over USB serial."""
 
 import argparse
 import base64

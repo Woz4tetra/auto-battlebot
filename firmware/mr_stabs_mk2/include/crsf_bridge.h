@@ -15,8 +15,6 @@ const float MAX_CYCLE = 1700.0;
 
 const float EPSILON_PERCENT = 0.1;
 
-// Battery and attitude frames alternate, one every 50 ms, so each reaches the radio at 10 Hz.
-// That matches the BNO055's 100 ms sample interval; faster would repeat the same attitude.
 const uint32_t TELEMETRY_INTERVAL_MS = 50;
 
 typedef enum three_state_switch { DOWN = 0, MIDDLE = 1, UP = 2 } three_state_switch_t;
@@ -30,8 +28,6 @@ typedef struct telemetry_data {
 typedef struct radio_data {
     float a_percent, b_percent;
     bool armed, connected, button_state;
-    // ch5 (SA) down: the handset mixes the Jetson's trainer inputs into ch0/ch1. Also the only
-    // gate on ESP-NOW command substitution. Not the flip switch: that is ch7 (SB).
     bool autonomy_enabled;
     three_state_switch_t flip_switch_state;
 } radio_data_t;

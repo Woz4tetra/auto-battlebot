@@ -1,10 +1,4 @@
-"""PlatformIO pre-build step: gzip web/ into a C header the diagnostics server serves.
-
-Writes web_assets.h into the build directory and puts that directory on the include path, so
-nothing generated lands in the source tree. The header is rewritten only when its content
-changes, so an untouched web/ does not trigger a recompile. gzip runs with mtime 0 to keep the
-output byte-identical between builds.
-"""
+"""PlatformIO pre-build step: gzip web/ into a C header the diagnostics server serves."""
 
 import gzip
 from pathlib import Path

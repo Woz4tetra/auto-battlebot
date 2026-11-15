@@ -30,8 +30,6 @@ class Esc {
     // eRPM reply. Use these, not write() and stop().
     static void write_pair(Esc &left, float left_percent, Esc &right, float right_percent);
     static void stop_pair(Esc &left, Esc &right);
-    // Duty the ESC runs for a command: 0 inside stop_threshold, else esc_map's floor-offset
-    // duty, so 1% runs about 7%.
     float duty(float signed_percent) const;
     uint32_t erpm() const { return last_erpm; }
     bool erpm_valid() const;

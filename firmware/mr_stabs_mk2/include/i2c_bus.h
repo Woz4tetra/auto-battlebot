@@ -21,7 +21,5 @@ typedef struct {
 // 100 kHz, so a full scan blocks for ~15 ms: only run it with the robot disarmed.
 void scan(TwoWire *wire, scan_t *result);
 
-// Reads the idle level of both lines. Both should be high between transactions; a line stuck
-// low means a device is holding it, and every transaction will fail until power is cycled.
 lines_t read_lines(uint8_t sda_pin, uint8_t scl_pin);
 }  // namespace i2c_bus

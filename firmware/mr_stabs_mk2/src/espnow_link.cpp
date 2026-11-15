@@ -15,7 +15,6 @@ struct RxFrame {
     uint8_t data[AIR_MAX_FRAME];
 };
 
-// Deep enough to hold the host's 16-chunk OTA window while a 64 KB block erase stalls loop().
 const UBaseType_t RX_QUEUE_DEPTH = 40;
 QueueHandle_t rx_queue = nullptr;
 
@@ -99,7 +98,6 @@ bool EspNowLink::begin(wifi_interface_t ifidx, uint8_t channel, TuningStore *tun
 }
 
 void EspNowLink::set_channel(uint8_t channel) {
-    // Pinned with the SoftAP up, the AP already owns this channel and this is a no-op.
     esp_wifi_set_channel(channel, WIFI_SECOND_CHAN_NONE);
     channel_ = channel;
     // Peers and the rate do not survive a channel change, so redo both every time.
@@ -109,7 +107,6 @@ void EspNowLink::set_channel(uint8_t channel) {
 }
 
 void EspNowLink::on_recv(const uint8_t *mac, const uint8_t *data, int length) {
-    // WiFi task context: filter, copy, and return. Never touch ESCs or flash here.
     if (rx_queue == nullptr || !is_air_frame(data, static_cast<size_t>(length))) return;
     if (!is_dongle(mac)) {
         memcpy(rejected_mac, mac, 6);
@@ -216,7 +213,6 @@ void EspNowLink::handle_frame(const uint8_t *mac, uint8_t type, const uint8_t *p
             break;
         case MSG_PING:
             rx_pings_++;
-            // Nothing beyond the bookkeeping above: it names the dongle and proves the channel.
             break;
         default:
             break;
@@ -263,8 +259,6 @@ void EspNowLink::ota_chunk(const uint8_t *payload, size_t length, uint32_t now_m
     const uint32_t data_length = static_cast<uint32_t>(length - sizeof(header));
 
     if (ota_.on_chunk(header.offset, data_length) == OtaSequencer::DROP) {
-        // Tell the host where to resume right away rather than waiting for its timeout, but at
-        // most every 20 ms: a lost chunk drops the rest of the window, one status per chunk.
         if (now_ms - last_drop_status_ms_ >= 20) {
             last_drop_status_ms_ = now_ms;
             send_ota_status(OTA_RECEIVING, OTA_OK);
@@ -319,16 +313,11 @@ void EspNowLink::send_ota_status(uint8_t state, uint8_t error) {
 
 void EspNowLink::service_validation(uint32_t now_ms) {
     if (!validated_) {
-        // The Arduino bootloader is built without rollback, so nothing here reverts a bad image:
-        // this is the flasher's proof that the new image runs, for 10 s, with the radio working.
-        // A bad image is rescued over USB (scripts/upload).
         if (now_ms < VALIDATE_AFTER_MS || !heard_dongle_) return;
         validated_ = true;
         validated_reports_left_ = 10;
         memcpy(ota_mac_, reply_mac_, 6);
     }
-    // The flasher waits for this to confirm the new image is the one running. Repeated over 5 s
-    // because a single frame can be lost.
     if (validated_reports_left_ > 0 && now_ms - last_validated_report_ms_ >= 500) {
         last_validated_report_ms_ = now_ms;
         validated_reports_left_--;

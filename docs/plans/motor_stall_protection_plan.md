@@ -777,3 +777,18 @@ wheel-speed measurement in the update step. Order:
 5. Write `lib/motor_guard` and its native test, then wire `main.cpp`.
 6. Update the payload, Jetson decoder, and dashboard in one commit.
 7. Bench and floor validation (step 5).
+
+## Notes moved from code comments
+
+### General
+
+- `mr_stabs_mk2/lib/motor_guard/motor_guard.cpp`: Steady state dT = k tau (1 + alpha dT) I^2, solved at dT = rise_max_c. Leaving out the copper tempco puts the equilibrium about 12 C above rise_max_c.
+- `mr_stabs_mk2/lib/motor_guard/motor_guard.cpp`: Sections 5 and 6: per-motor allowed current from temperature, then one integrator on ln(scale). In a stall the current is proportional to the scale, so the loop gain is 1 everywhere.
+
+### current placeholder values
+
+- `mr_stabs_mk2/lib/motor_guard/motor_guard.h`: Step 0 of the plan was deferred, so every value here is a placeholder chosen to err toward limiting early: R_cold below the MuJoCo fit (overestimates current) and dT_max 20 C under the plan's 70 C.
+
+### test plant
+
+- `mr_stabs_mk2/test/test_motor_guard/test_motor_guard.cpp`: Two motors on a stiff pack. Current is the averaged ESC model the guard assumes, I = (d V - Ke w) / R, with R 15% below the guard's R_cold so the shunt gain has something to correct (g only corrects upward). A DShot stop freewheels: no current.
