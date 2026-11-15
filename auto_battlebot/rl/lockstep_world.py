@@ -367,6 +367,8 @@ class LockstepWorld:
         from auto_battlebot.rl.envs.warp_kernels import SWEEP_ANGLES, SWEEP_MARGIN_M
 
         sweep = self.mp.weapon
+        if sweep is None:
+            raise ValueError("the disk weapon profile needs a weapon in the mass properties")
         ox, oy, oyaw = self.opponent_pose()
         centre = np.array([ox, oy, self.data.mocap_pos[OPP_MOCAP][2]])
         half = self.model.geom_size[self.opp_geom]
@@ -393,7 +395,7 @@ class LockstepWorld:
             return False
         if self.profile.arc_rule == "front_face":
             along = math.cos(oyaw) * (p[0] - ox) + math.sin(oyaw) * (p[1] - oy)
-            return along > self.opp_half[0] - FRONT_FACE_MARGIN_M
+            return bool(along > self.opp_half[0] - FRONT_FACE_MARGIN_M)
         return True
 
     def _on_weapon(self, rot: np.ndarray, p: np.ndarray) -> bool:
@@ -526,7 +528,7 @@ class LockstepWorld:
             return None
         f = torch.float32
 
-        def t(values: list[float]) -> torch.Tensor:
+        def t(values: list[Any]) -> torch.Tensor:
             return torch.tensor([values], dtype=f)
 
         slots = self.slots

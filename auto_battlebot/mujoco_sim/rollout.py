@@ -58,7 +58,7 @@ NJMAX = 160
 
 
 def nconmax_for(model: mujoco.MjModel) -> int:
-    return max(NCONMAX, 2 * model.ngeom)
+    return max(NCONMAX, 2 * int(model.ngeom))
 
 
 def njmax_for(model: mujoco.MjModel) -> int:

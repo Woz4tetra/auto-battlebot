@@ -252,6 +252,17 @@ else
     record "install scripts" 0
 fi
 
+header "comment budget"
+COMMENT_BUDGET=(python3 "$SCRIPT_DIR/comment_budget.py" --root "$PROJECT_ROOT")
+"${COMMENT_BUDGET[@]}" check
+comment_rc=$?
+if [ $comment_rc -eq 0 ] && [ "$DRY_RUN" = false ]; then
+    "${COMMENT_BUDGET[@]}" ratchet
+    [ -n "$(git -C "$PROJECT_ROOT" config core.hooksPath)" ] ||
+        git -C "$PROJECT_ROOT" config core.hooksPath scripts/git-hooks
+fi
+record "comment budget" $comment_rc
+
 # ---- 6. protocol.ts (web types generated from include/remote/protocol.hpp) ----
 WEB_DIR="$PROJECT_ROOT/web"
 PROTOCOL_TS="$WEB_DIR/src/generated/protocol.ts"
