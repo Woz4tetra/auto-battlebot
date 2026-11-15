@@ -483,202 +483,241 @@ Drives recorded on a match profile have no tags. Replay their video through
 - Many windows labelled nose-lift while the robot sat flat: the tilt state drifted through a
   dropout. With `--yolo` the IMU's pitch holds it; check `session.json` `imu_tilt`.
 
-## Notes moved from code comments (2026-11-15)
+## Sysid script behavior
 
 ### `playground/calibration/analyze_apriltag_mcap.py`
 
+`analyze_apriltag_mcap.py`:
+
+Solve field-plane robot poses from an apriltag_track.py image recording.
+
+```
 Replays the recorded camera images, re-runs the AprilTag detection (apriltag_detect, the same code
 the live preview used), and solves the (t, x, y, yaw, visible) truth CSV that fit_plant_calib.py
 consumes.
 Two solves, mirroring capture:
-1. The floor extrinsic from the /floor/image lock burst (board visible).
-2. The robot tag pose in that floor frame, per /camera/image frame.
+  1. The floor extrinsic from the /floor/image lock burst (board visible).
+  2. The robot tag pose in that floor frame, per /camera/image frame.
+```
 
-Because the images are recorded raw, the floor lock, detector tuning, intrinsics, and yaw offset can
-all be corrected here and re-run without re-driving the robot.
+Because the images are recorded raw, the floor lock, detector tuning, intrinsics, and yaw offset can all be corrected here and re-run without re-driving the robot.
 
+```
 Transmitter data recorded alongside the frames is carried through to the truth CSV as extra columns,
 so
 the commanded input stays aligned with the solved ground-truth pose:
-- a read-only stick capture (radio connected, no --drive) adds tx_sample_t, ch0..chN, joined per
-frame by timestamp.
-- an apriltag_track.py --drive excitation adds the active scripted command (cmd_lin, cmd_ang,
-trainer_lin, trainer_ang, label), zero-order-held onto each frame time. fit_plant_calib.py fits
-the plant directly from this single CSV, so no separate command log is needed.
+  - a read-only stick capture (radio connected, no --drive) adds tx_sample_t, ch0..chN, joined per
+    frame by timestamp.
+  - an apriltag_track.py --drive excitation adds the active scripted command (cmd_lin, cmd_ang,
+    trainer_lin, trainer_ang, label), zero-order-held onto each frame time. fit_plant_calib.py fits
+    the plant directly from this single CSV, so no separate command log is needed.
+```
 
+```
 Usage:
-source scripts/activate_python.sh
-python playground/calibration/analyze_apriltag_mcap.py         playground/calibration/out/apriltag_track.mcap         --out playground/calibration/out/truth_log.csv
-# Re-solve with a corrected yaw offset (overrides the value recorded at capture):
-python playground/calibration/analyze_apriltag_mcap.py rec.mcap         --yaw-offset-deg 90 --plot fit.png
-# Also emit a Foxglove overlay (camera frames + solved pose markers via TF) to eyeball the fit:
-python playground/calibration/analyze_apriltag_mcap.py rec.mcap --overlay-mcap overlay.mcap
+    source scripts/activate_python.sh
+    python playground/calibration/analyze_apriltag_mcap.py         playground/calibration/out/apriltag_track.mcap         --out playground/calibration/out/truth_log.csv
+    # Re-solve with a corrected yaw offset (overrides the value recorded at capture):
+    python playground/calibration/analyze_apriltag_mcap.py rec.mcap         --yaw-offset-deg 90 --plot fit.png
+    # Also emit a Foxglove overlay (camera frames + solved pose markers via TF) to eyeball the fit:
+    python playground/calibration/analyze_apriltag_mcap.py rec.mcap --overlay-mcap overlay.mcap
+```
 
-- Upsample factor for robot-tag detection. The tag is ~40 px at 1080p and drops out during fast motion; detecting on a 2x image recovers borderline frames (the floor board is large, solved 1x). (at `ROBOT_DETECT_SCALE = 2.0`)
+- `ROBOT_DETECT_SCALE`: Upsample factor for robot-tag detection. The tag is ~40 px at 1080p and drops out during fast motion; detecting on a 2x image recovers borderline frames (the floor board is large, solved 1x).
 
 ### `playground/calibration/check_sysid_recordings.py`
 
-Reads each MCAP once and reports, per recording, whether it can feed smooth_tag_poses.py and
-fit_mujoco_plant.py, and what is missing if it cannot. Nothing here fits anything: it is the
-look you take the morning after a session, before deciding whether to drive again.
+`check_sysid_recordings.py`:
+
+Check Mr Stabs Mk2 drive recordings before they go into the MuJoCo plant fit.
+
+Reads each MCAP once and reports, per recording, whether it can feed smooth_tag_poses.py and fit_mujoco_plant.py, and what is missing if it cannot. Nothing here fits anything: it is the look you take the morning after a session, before deciding whether to drive again.
 
 Checks, each PASS / WARN / FAIL:
 
 - file: the MCAP has a summary. A missing one means it was copied while still recording
-(re-download it) or the app died mid-write.
+  (re-download it) or the app died mid-write.
 - camera: frame rate from /camera/frame_meta (60 fps target) and the longest gap.
 - video: /camera/video against /camera/frame_meta. The ZED X One records its footage into the
-MCAP, not an SVO, so this is the only copy to replay.
+  MCAP, not an SVO, so this is the only copy to replay.
 - field: a field -> camera transform exists and stays put. The tripod does not move, so more
-than 5 mm or 0.5 deg of wander means a re-init or a bumped tripod partway through.
+  than 5 mm or 0.5 deg of wander means a re-init or a bumped tripod partway through.
 - robot tags: share of camera frames with a robot AprilTag, overall and while the sticks are
-off center, and the tag's pixel size. The smoother's window gate is 70% coverage.
-Recordings from the match profile carry no tags. They need /camera/video replayed through the
-sysid keypoint model first (config/playback/mr_stabs_mk2_sysid_playback.toml).
+  off center, and the tag's pixel size. The smoother's window gate is 70% coverage.
+  Recordings from the match profile carry no tags. They need /camera/video replayed through the
+  sysid keypoint model first (config/playback/mr_stabs_mk2_sysid_playback.toml).
 - our-robot track: share of frames with an OUR_ROBOT marker (YOLO path, match profile).
 - robot telemetry: /robot/espnow_telemetry, or /robot/esp32_diagnostics before 2026-10-25.
-Events against the 100 Hz telemetry rate, gaps, pack voltage. The fit's command tape is the
-per-motor left_cmd/right_cmd from this stream, so without it there is no command tape.
+  Events against the 100 Hz telemetry rate, gaps, pack voltage. The fit's command tape is the
+  per-motor left_cmd/right_cmd from this stream, so without it there is no command tape.
 - sticks: the maneuver menu, measured from the radio's stick channels, or from the telemetry's
-a_percent/b_percent when the radio was not on USB. Seconds of straight holds per level and
-direction, creep, spins, arcs, reversals, punches, and hard stops.
+  a_percent/b_percent when the radio was not on USB. Seconds of straight holds per level and
+  direction, creep, spins, arcs, reversals, punches, and hard stops.
 - SVO (ZED 2i only, with --svo-dir): an SVO whose frame stamps overlap this recording, and how
-many frames it holds.
+  many frames it holds.
 
-python playground/calibration/check_sysid_recordings.py data/recordings/*2026-10-11*.mcap \
---svo-dir data/svo --plots playground/calibration/out/mujoco_sysid/checks
+```
+    python playground/calibration/check_sysid_recordings.py data/recordings/*2026-10-11*.mcap \
+        --svo-dir data/svo --plots playground/calibration/out/mujoco_sysid/checks
+```
 
 Exit status is 1 if any recording has a FAIL, so it can gate a script.
 
-- Stick channels, from the sysid and zed_box profiles: CH1 linear, CH2 angular, +/-1024 full scale. (at `LINEAR_CH = 0`)
-- a stall this long splits the session for the smoother anyway /camera/video messages per /camera/frame_meta (at `CAMERA_GAP_FAIL_S = 1.0`)
-- plan: at least ~40 px on the far side (at `TAG_MIN_PX = 40.0`)
-- Telemetry a_percent/b_percent to radio channel units. CH1 runs opposite to a_percent and CH2 with b_percent (radio delay correlations, mujoco_sysid/s01_2026-10-15/session.json). (at `PERCENT_TO_CHANNEL = STICK_FULL / 100.0`)
-- Session totals worth aiming for before calling a recording day enough. Rough: enough repeats per stage of the staged fit to hold a session out and still fit on the rest. (at `MENU_TARGETS = {`)
-- Over 100% is normal: the encoder starts at camera open, a second or so before the first pipeline tick writes frame_meta. Under it means the encoder dropped frames. (at `rep.add("video", level, f"{video} frames for {frames} camera frames ({`)
+- `LINEAR_CH`: Stick channels, from the sysid and zed_box profiles: CH1 linear, CH2 angular, +/-1024 full scale.
+- `CAMERA_GAP_FAIL_S`: A stall this long splits the session for the smoother anyway /camera/video messages per /camera/frame_meta.
+- `TAG_MIN_PX`: plan: at least ~40 px on the far side.
+- `PERCENT_TO_CHANNEL`: Telemetry a_percent/b_percent to radio channel units. CH1 runs opposite to a_percent and CH2 with b_percent (radio delay correlations, mujoco_sysid/s01_2026-10-15/session.json).
+- `MENU_TARGETS`: Session totals worth aiming for before calling a recording day enough. Rough: enough repeats per stage of the staged fit to hold a session out and still fit on the rest.
+- `check_video`: Over 100% is normal: the encoder starts at camera open, a second or so before the first pipeline tick writes frame_meta. Under it means the encoder dropped frames.
 
-wants one; report how many there were, how long the longest held, and whether the camera
-wandered within it (a bumped tripod).
+`check_field`:
 
-- Informational when tags exist: the fit reads tags, this is only the live keypoint path. (at `level = "INFO" if has_tags else ("PASS" if present >= TAG_COVERAGE_PAS`)
-- autonomy off the telemetry's arbitrated a_percent/b_percent are the handset's.
-- rests a few counts off zero, which would otherwise read as constant creep.
+Each field init redefines the field frame, so a session is a run of locks. The smoother wants one; report how many there were, how long the longest held, and whether the camera wandered within it (a bumped tripod).
+
+- `check_track`: Informational when tags exist: the fit reads tags, this is only the live keypoint path.
+
+`sticks_from_telemetry`:
+
+The handset sticks as the robot saw them, in the radio channel frame's columns. With autonomy off the telemetry's arbitrated a_percent/b_percent are the handset's.
+
+`stick_centers`:
+
+Resting value of each stick channel: the value held longest. A trimmed or worn gimbal rests a few counts off zero, which would otherwise read as constant creep.
 
 ### `playground/calibration/detect_robot_yolo.py`
 
-One row per ``MR_STABS_MK2`` detection: the box, its confidence, and the front and back keypoints
-in pixels. A frame can have several, because the model sometimes labels the floor marker board as
-the robot; ``smooth_tag_poses.py --yolo`` drops those with size gates and keeps the best survivor
-per frame, projects it onto the field, and uses it where the tag drops out. Kept as its own stage
-so the detections can be inspected, and so the smoother does not need TensorRT.
+`detect_robot_yolo.py`:
 
-source scripts/activate_python.sh
-python playground/calibration/detect_robot_yolo.py data/recordings/<session>.mcap \
---out playground/calibration/out/mujoco_sysid/<session>/yolo.csv
+Run the YOLO pose engine over a sysid recording's video and write our robot's detections.
+
+One row per ``MR_STABS_MK2`` detection: the box, its confidence, and the front and back keypoints in pixels. A frame can have several, because the model sometimes labels the floor marker board as the robot; ``smooth_tag_poses.py --yolo`` drops those with size gates and keeps the best survivor per frame, projects it onto the field, and uses it where the tag drops out. Kept as its own stage so the detections can be inspected, and so the smoother does not need TensorRT.
+
+```
+    source scripts/activate_python.sh
+    python playground/calibration/detect_robot_yolo.py data/recordings/<session>.mcap \
+        --out playground/calibration/out/mujoco_sysid/<session>/yolo.csv
+```
 
 ### `playground/calibration/find_flip_accel.py`
 
-tracking).
+`find_flip_accel.py`:
 
-A torque-happy rammer (e.g. Mr Stabs) backflips when you slam the throttle from rest: it is the
-acceleration (how fast the command rises), not the top speed, that pitches it over. This ramps the
-forward command 0 -> target at an escalating slew rate and stops at the rate that flips it. Feed the
-result is the safe forward command slew rate, so scripted excitation and the deployed
-controller slew-limit every motion to stay upright, instead of blindly capping speed.
+Find the max forward acceleration a robot tolerates before it flips (trainer link ONLY, no tracking).
 
-No camera, no MCAP, no AprilTag. The measurement is operator-in-the-loop: you watch the robot and
-answer whether it flipped. Ctrl-C during a ramp aborts that trial and zeroes the link.
+A torque-happy rammer (e.g. Mr Stabs) backflips when you slam the throttle from rest: it is the acceleration (how fast the command rises), not the top speed, that pitches it over. This ramps the forward command 0 -> target at an escalating slew rate and stops at the rate that flips it. Feed the result is the safe forward command slew rate, so scripted excitation and the deployed controller slew-limit every motion to stay upright, instead of blindly capping speed.
 
+No camera, no MCAP, no AprilTag. The measurement is operator-in-the-loop: you watch the robot and answer whether it flipped. Ctrl-C during a ramp aborts that trial and zeroes the link.
+
+```
 SAFETY
 - Guard plates ON, competition battery, surface matched to the NHRL arena floor (plate friction is
-part of the plant, see am32_tuning.md).
+  part of the plant, see am32_tuning.md).
 - Clear, bounded lane several metres long: each trial ramps to full speed and coasts.
 - Driver sticks CENTERED: in trainer mode the radio ADDS stick input to the command.
 - The link is zeroed and disarmed on every exit (normal, Ctrl-C, exception, per-trial hard timeout).
+```
 
+```
 Usage:
-source scripts/activate_python.sh
-python playground/calibration/find_flip_accel.py --robot mr_stabs_mk2
+    source scripts/activate_python.sh
+    python playground/calibration/find_flip_accel.py --robot mr_stabs_mk2
+```
 
-- d(speed)/dt = d(command)/dt * v_max, since speed ~= command * v_max (deadzone/lag aside). (at `return f"  (~{accel_cmd * v_max:.1f} m/s^2)" if v_max is not None else`)
+- `main.in_ms2`: d(speed)/dt = d(command)/dt * v_max, since speed ~= command * v_max (deadzone/lag aside).
 
 ### `playground/calibration/fit_encoder_scale.py`
 
-The encoder scale is the constant every linear measurement depends on, so it is measured
-rather than inferred from a top speed. Push the robot with the motors disarmed between two
-marked points, dwelling at each so the stops are unambiguous, and this reads the count at
-each dwell and fits counts against distance through the origin.
+`fit_encoder_scale.py`:
 
-source scripts/activate_python.sh
-python playground/calibration/fit_encoder_scale.py \
---run 0.5  LOG-38.TXT LOG-39.TXT LOG-40.TXT \
---run 0.75 LOG-42.TXT LOG-43.TXT LOG-44.TXT \
---run 1.0  LOG-45.TXT LOG-46.TXT LOG-47.TXT \
---plot out/encoder_scale.png
+Fit metres per encoder count from hand-pushed runs over measured distances (runbook E4).
 
-Several distances beat one distance repeated. A fixed error (the marks, or the robot not
-quite stopping on them) is a constant offset in counts, so it bends a counts-against-distance
-line away from the origin. With one distance that offset is invisible and lands entirely in
-the scale; with three it shows up as an intercept, which this reports.
+The encoder scale is the constant every linear measurement depends on, so it is measured rather than inferred from a top speed. Push the robot with the motors disarmed between two marked points, dwelling at each so the stops are unambiguous, and this reads the count at each dwell and fits counts against distance through the origin.
 
-An out-and-back is worth more than a one-way push, because returning to the start makes the
-closure error visible, and closure is the only check a single pass affords.
+```
+    source scripts/activate_python.sh
+    python playground/calibration/fit_encoder_scale.py \
+        --run 0.5  LOG-38.TXT LOG-39.TXT LOG-40.TXT \
+        --run 0.75 LOG-42.TXT LOG-43.TXT LOG-44.TXT \
+        --run 1.0  LOG-45.TXT LOG-46.TXT LOG-47.TXT \
+        --plot out/encoder_scale.png
+```
 
-The tolerance is in counts rather than a velocity threshold: a hand push is slow, so a
-velocity bar tight enough to exclude the push would also split every dwell in two.
+Several distances beat one distance repeated. A fixed error (the marks, or the robot not quite stopping on them) is a constant offset in counts, so it bends a counts-against-distance line away from the origin. With one distance that offset is invisible and lands entirely in the scale; with three it shows up as an intercept, which this reports.
 
-Through the origin is the model you want to be true: zero distance, zero counts. The
-two-parameter fit exists to test it. When the intercept is real, the through-origin slope
-is pulled up by a fixed per-pass error and overstates the scale, while the differential
-slope is honest because a constant offset cancels out of it.
+An out-and-back is worth more than a one-way push, because returning to the start makes the closure error visible, and closure is the only check a single pass affords.
 
-Through the origin is the model: zero distance is zero counts. The intercept is fitted
-separately only to check that assumption. An intercept far from zero means a fixed error
-per pass, most likely the marks or where the robot actually came to rest, and it inflates
-the scale fitted from short pushes.
+`find_dwells`:
+
+Stretches where the count barely moves, which is where the marks are.
+
+The tolerance is in counts rather than a velocity threshold: a hand push is slow, so a velocity bar tight enough to exclude the push would also split every dwell in two.
+
+`Fit`:
+
+Both fits, and which one to believe.
+
+Through the origin is the model you want to be true: zero distance, zero counts. The two-parameter fit exists to test it. When the intercept is real, the through-origin slope is pulled up by a fixed per-pass error and overstates the scale, while the differential slope is honest because a constant offset cancels out of it.
+
+`fit_scale`:
+
+Counts against distance, through the origin, plus an intercept as a diagnostic.
+
+Through the origin is the model: zero distance is zero counts. The intercept is fitted separately only to check that assumption. An intercept far from zero means a fixed error per pass, most likely the marks or where the robot actually came to rest, and it inflates the scale fitted from short pushes.
 
 ### `playground/calibration/fit_gyro_noise.py`
 
-A bias estimate taken from a 10 s still hold is only good for as long as the bias stays
-put. The Allan deviation curve says how long that is: it falls while averaging still helps,
-bottoms out where bias instability takes over, and climbs once the bias itself is wandering.
-The tau at the minimum is the answer to "how often do the still holds need retaking", and
-the two slopes on either side are the process-noise terms the filter needs for heading.
+`fit_gyro_noise.py`:
 
-source scripts/activate_python.sh
-python playground/calibration/fit_gyro_noise.py \
-playground/calibration/out/gyro_bias/LOG-97.TXT \
---plot playground/calibration/out/gyro_noise.png
+Fit the gyro noise model from a long stationary recording (runbook E2).
 
-Runs on one log, so a 30 min recording of a robot doing nothing is the whole experiment.
-Longer is better: the curve is only trustworthy out to about a tenth of the record, because
-past that there are too few independent clusters left to average.
+A bias estimate taken from a 10 s still hold is only good for as long as the bias stays put. The Allan deviation curve says how long that is: it falls while averaging still helps, bottoms out where bias instability takes over, and climbs once the bias itself is wandering. The tau at the minimum is the answer to "how often do the still holds need retaking", and the two slopes on either side are the process-noise terms the filter needs for heading.
 
-Three axes plus yaw. Yaw is taken along measured gravity rather than off whichever gyro
-channel happens to point up, matching E0 and fit_gyro_scale.py: at rest the accelerometer
-reads +1 g on the axis pointing up, so the unit vector along it is the yaw axis whatever
-the mount looks like. That survives a tilted remount where a fixed channel would not.
+```
+    source scripts/activate_python.sh
+    python playground/calibration/fit_gyro_noise.py \
+        playground/calibration/out/gyro_bias/LOG-97.TXT \
+        --plot playground/calibration/out/gyro_noise.png
+```
+
+Runs on one log, so a 30 min recording of a robot doing nothing is the whole experiment. Longer is better: the curve is only trustworthy out to about a tenth of the record, because past that there are too few independent clusters left to average.
+
+Three axes plus yaw. Yaw is taken along measured gravity rather than off whichever gyro channel happens to point up, matching E0 and fit_gyro_scale.py: at rest the accelerometer reads +1 g on the axis pointing up, so the unit vector along it is the yaw axis whatever the mount looks like. That survives a tilted remount where a fixed channel would not.
 
 The estimators follow IEEE 952:
 
-N  angle random walk    sigma = N / sqrt(tau)     slope -1/2, read at tau = 1 s
-B  bias instability     sigma = 0.664 * B         slope 0, the floor of the curve
-K  rate random walk     sigma = K * sqrt(tau / 3) slope +1/2, read at tau = 3 s
+```
+    N  angle random walk    sigma = N / sqrt(tau)     slope -1/2, read at tau = 1 s
+    B  bias instability     sigma = 0.664 * B         slope 0, the floor of the curve
+    K  rate random walk     sigma = K * sqrt(tau / 3) slope +1/2, read at tau = 3 s
+```
 
-Nothing here reads the encoder or the command log, so this is the one experiment that needs
-no radio and no clear floor.
+Nothing here reads the encoder or the command log, so this is the one experiment that needs no radio and no clear floor.
 
-- Clusters longer than this fraction of the record average too few independent samples to mean anything: at tau = T/3 there are three clusters, and the curve turns into noise about its own noise. IEEE 952 draws confidence bands instead; truncating is the blunt version and is enough to keep a reader from over-reading the right-hand tail. (at `MAX_CLUSTER_FRACTION = 0.1`)
+- `MAX_CLUSTER_FRACTION`: Clusters longer than this fraction of the record average too few independent samples to mean anything: at tau = T/3 there are three clusters, and the curve turns into noise about its own noise. IEEE 952 draws confidence bands instead; truncating is the blunt version and is enough to keep a reader from over-reading the right-hand tail.
 
+`overlapping_allan`:
+
+Overlapping Allan deviation of a rate signal.
+
+```
 Works on the integrated angle, which turns the three-sample second difference into two
 array slices and makes the whole sweep a handful of passes over the data instead of a
 Python loop per cluster.
+```
 
-sigma^2(tau) = sum (theta[k+2m] - 2 theta[k+m] + theta[k])^2 / (2 tau^2 (n - 2m))
+```
+    sigma^2(tau) = sum (theta[k+2m] - 2 theta[k+m] + theta[k])^2 / (2 tau^2 (n - 2m))
+```
 
-Overlapping rather than plain: every offset within a cluster contributes, which buys
-roughly sqrt(3) tighter confidence for the same record at no extra cost here.
+Overlapping rather than plain: every offset within a cluster contributes, which buys roughly sqrt(3) tighter confidence for the same record at no extra cost here.
 
+`_read_at`:
+
+```
+Value of the slope-`slope` asymptote at tau = `target`.
+```
+
+```
 Reading a single point off a noisy curve throws away most of the record, so this fits the
 line of the known slope through `band` and evaluates it at the target. `band` defaults to
 the decade around the target, which keeps the fit inside the region where that slope
@@ -686,231 +725,243 @@ actually holds instead of dragging in the part of the curve governed by a differ
 Pass a band explicitly when the asymptote lives somewhere other than near the target,
 which is the case for rate random walk on any record short enough that the +1/2 region
 has not opened up by tau = 3 s.
+```
 
-- A record only measures rate random walk if its curve has actually turned up. Requiring the far end to sit this far above the floor rejects a curve that merely stopped falling, where fitting a +1/2 line would report the noise floor dressed up as a drift term. (at `RRW_RISE_RATIO = 1.15`)
+- `RRW_RISE_RATIO`: A record only measures rate random walk if its curve has actually turned up. Requiring the far end to sit this far above the floor rejects a curve that merely stopped falling, where fitting a +1/2 line would report the noise floor dressed up as a drift term.
 
-The whole record is stationary, so the mean accelerometer vector is gravity and there is
-no centripetal term to swamp it. A 20 mg accel bias tilts this by about 20 mrad, which
-leaks 2% of the roll and pitch rates into yaw; on a robot sitting still that is 2% of
-nothing.
+`yaw_rate`:
 
-- The +1/2 guide is anchored in the region that actually rises, and only drawn over that region. Drawn across the whole axis from a tau = 3 s anchor it would sit a decade under the data and imply a drift term this record cannot see. (at `rise = next((c for c in curves if np.isfinite(c.rrw_deg_per_s_sqrt_s))`)
+Gyro projected onto measured gravity, in deg/s.
+
+The whole record is stationary, so the mean accelerometer vector is gravity and there is no centripetal term to swamp it. A 20 mg accel bias tilts this by about 20 mrad, which leaks 2% of the roll and pitch rates into yaw; on a robot sitting still that is 2% of nothing.
+
+- `make_plot`: The +1/2 guide is anchored in the region that actually rises, and only drawn over that region. Drawn across the whole axis from a tau = 3 s anchor it would sit a decade under the data and imply a drift term this record cannot see.
 
 ### `playground/calibration/fit_gyro_scale.py`
 
-Integrating the gyro over a rotation of known size and comparing to that size gives one
-number: how much the gyro over- or under-reports. Every heading estimate is multiplied by it,
-so an unmeasured 2% here is 2% of heading error that no filter tuning removes.
+`fit_gyro_scale.py`:
 
-source scripts/activate_python.sh
-python playground/calibration/fit_gyro_scale.py \
---run 3600 LOG-a.TXT \
---run -3600 LOG-b.TXT \
---plot playground/calibration/out/gyro_scale.png
+Fit the gyro scale factor from rotations through a known angle (runbook E3).
 
-`--run` takes the true rotation in degrees, signed: positive counter-clockwise viewed from
-above. Run both directions. A scale that differs between them is not a scale factor at all,
-it is a mounting or axis-sign problem, and averaging the two would bury it.
+Integrating the gyro over a rotation of known size and comparing to that size gives one number: how much the gyro over- or under-reports. Every heading estimate is multiplied by it, so an unmeasured 2% here is 2% of heading error that no filter tuning removes.
 
-The yaw axis comes from gravity, not from a note about how the jig is bolted on. At rest the
-accelerometer reads +1 g on whichever axis points up, and the IMU puts gyro and accel on one
-right-handed triad, so up plus the right-hand rule fixes positive yaw as counter-clockwise
-from above. That survives a tilted remount, which no single gyro axis would.
+```
+    source scripts/activate_python.sh
+    python playground/calibration/fit_gyro_scale.py \
+        --run 3600 LOG-a.TXT \
+        --run -3600 LOG-b.TXT \
+        --plot playground/calibration/out/gyro_scale.png
+```
 
-Bias dominates the error budget on a slow rotation. A 0.05 deg/s bias over a 20 s turn is
-1 deg, so the bias is taken from the still hold that opens the run and ramped to the one that
-closes it. A run with only one still hold gets a constant bias and says so.
+`--run` takes the true rotation in degrees, signed: positive counter-clockwise viewed from above. Run both directions. A scale that differs between them is not a scale factor at all, it is a mounting or axis-sign problem, and averaging the two would bury it.
 
-- Below this the robot counts as stationary for the purpose of finding where the turn starts and stops. Well above the bias, well below a hand rotation. (at `TURN_EPS_DPS = 1.0`)
-- Through the origin over signed angles, so both directions constrain one number. (at `x = np.array([t.reference_deg for t in turns])`)
+The yaw axis comes from gravity, not from a note about how the jig is bolted on. At rest the accelerometer reads +1 g on whichever axis points up, and the IMU puts gyro and accel on one right-handed triad, so up plus the right-hand rule fixes positive yaw as counter-clockwise from above. That survives a tilted remount, which no single gyro axis would.
+
+Bias dominates the error budget on a slow rotation. A 0.05 deg/s bias over a 20 s turn is 1 deg, so the bias is taken from the still hold that opens the run and ramped to the one that closes it. A run with only one still hold gets a constant bias and says so.
+
+- `TURN_EPS_DPS`: Below this the robot counts as stationary for the purpose of finding where the turn starts and stops. Well above the bias, well below a hand rotation.
+- `main`: Through the origin over signed angles, so both directions constrain one number.
 
 ### `playground/calibration/fit_mujoco_plant.py`
 
-Inputs are session bundles from smooth_tag_poses.py (playground/calibration/out/mujoco_sysid/
-<session>/). Hold out whole sessions, never windows from a training session.
+`fit_mujoco_plant.py`:
 
-# fit on three sessions, validate on a fourth
-python playground/calibration/fit_mujoco_plant.py fit \
-out/mujoco_sysid/s01 out/mujoco_sysid/s02 out/mujoco_sysid/s03 \
---holdout out/mujoco_sysid/s04 --restarts 4
+Fit the Mr Stabs Mk2 MuJoCo plant to smoothed sysid sessions, then validate on held-out ones.
 
-# re-validate an existing fit
-python playground/calibration/fit_mujoco_plant.py validate out/mujoco_sysid/fit_<ts> \
-out/mujoco_sysid/s04
+Inputs are session bundles from smooth_tag_poses.py (playground/calibration/out/mujoco_sysid/ <session>/). Hold out whole sessions, never windows from a training session.
 
-Validation writes ``validation.json`` and, under ``plots/``, the loss curves, the restarts'
-parameters, held-out rollouts against the measured robot, and the error per horizon (see
-``auto_battlebot/mujoco_sim/plots.py``). ``validate --name X`` writes ``validation_X.json`` and
-``plots_X/`` instead, so one fit can be scored on several holdouts side by side.
+```
+    # fit on three sessions, validate on a fourth
+    python playground/calibration/fit_mujoco_plant.py fit \
+        out/mujoco_sysid/s01 out/mujoco_sysid/s02 out/mujoco_sysid/s03 \
+        --holdout out/mujoco_sysid/s04 --restarts 4
+```
 
-`fit` prints its total rollout-steps up front. 1.64e9 steps take about 27 minutes on the
-RTX 4080 laptop.
+```
+    # re-validate an existing fit
+    python playground/calibration/fit_mujoco_plant.py validate out/mujoco_sysid/fit_<ts> \
+        out/mujoco_sysid/s04
+```
+
+Validation writes ``validation.json`` and, under ``plots/``, the loss curves, the restarts' parameters, held-out rollouts against the measured robot, and the error per horizon (see ``auto_battlebot/mujoco_sim/plots.py``). ``validate --name X`` writes ``validation_X.json`` and ``plots_X/`` instead, so one fit can be scored on several holdouts side by side.
+
+`fit` prints its total rollout-steps up front. 1.64e9 steps take about 27 minutes on the RTX 4080 laptop.
 
 ### `playground/calibration/fit_plant_calib.py`
 
+`fit_plant_calib.py`:
+
+Fit the full tank drivetrain plant from a calibration session.
+
+```
 Input is one CSV from analyze_apriltag_mcap.py run on an apriltag_track.py --drive recording. That
 single file carries both halves the fit needs, recorded in one process on one absolute
 CLOCK_MONOTONIC clock (no
 time alignment is done here):
-- the solved ground-truth pose per frame   (t, x, y, yaw, visible)
-- the scripted command active at that frame (cmd_lin, cmd_ang, trainer_lin, trainer_ang, label)
+  - the solved ground-truth pose per frame   (t, x, y, yaw, visible)
+  - the scripted command active at that frame (cmd_lin, cmd_ang, trainer_lin, trainer_ang, label)
+```
 
+```
 It extends playground/control_stage0/fit_plant.py: the same first-order AR(1) identification (v[k+1]
 = a*v[k] + b*cmd[k], tau = -dt/ln(a), gain = b/(1-a)) and lag-by-cross-correlation idea, but driven
 by clean AprilTag truth and the labelled excitation protocol instead of noisy MCAP perception poses.
 That lets us pull out what the MCAP fit could not: per-direction deadzone, forward/reverse gain
 asymmetry, separate accel vs coast (decel) time constants, the steer-brake coupling, and the
 actuation lag.
+```
 
-Outputs: a printed report, the `[our_robot]` block to paste into simulation/kinematic_sim.toml, a
-recommended `lifted_deadzone_percent` for config/main.toml, and a validation plot (--plot).
+Outputs: a printed report, the `[our_robot]` block to paste into simulation/kinematic_sim.toml, a recommended `lifted_deadzone_percent` for config/main.toml, and a validation plot (--plot).
 
+```
 Usage:
-source scripts/activate_python.sh
-python playground/calibration/fit_plant_calib.py         playground/calibration/out/truth_log.csv         --plot playground/calibration/out/fit.png
+    source scripts/activate_python.sh
+    python playground/calibration/fit_plant_calib.py         playground/calibration/out/truth_log.csv         --plot playground/calibration/out/fit.png
+```
 
-The CSV carries both halves the fit needs: the solved pose per frame (x, y, yaw, visible) and
-the scripted command active at that frame (cmd_lin, cmd_ang, label, zero-order-held onto the
-frame time). Commands are read from every row (the full timeline, including frames where the tag
-was not visible); pose is read only from visible frames.
+`load_session`:
 
-- Commands span the full timeline. Frames before the first issued command have empty cells; treat the command there as zero (no command) and the label as unset (matches no protocol phase). (at `cmd_t = np.array(data["t"], dtype=float)`)
+Load one CSV from analyze_apriltag_mcap.py (a --drive recording) into a fitting Session.
 
-Works per command level, not per sample: the staircase holds each command for ~0.8 s, so the
-median |velocity| over that hold is compared to the threshold. This rejects single-sample noise
-spikes that a per-sample test would mistake for motion onset.
+The CSV carries both halves the fit needs: the solved pose per frame (x, y, yaw, visible) and the scripted command active at that frame (cmd_lin, cmd_ang, label, zero-order-held onto the frame time). Commands are read from every row (the full timeline, including frames where the tag was not visible); pose is read only from visible frames.
 
-- the leading rise; ignore later re-entries from steady-state noise (at `a0, b0 = runs[0]`)
-- Steady-state speed from in-frame samples only; interpolated steady samples would bias vss (and, through it, both the gain and the rise-tau fit). (at `steady = mv[int(0.6 * n) :]`)
+- `load_session`: Commands span the full timeline. Frames before the first issued command have empty cells; treat the command there as zero (no command) and the label as unset (matches no protocol phase).
 
-Returns (gains_fwd, gains_rev, taus_fwd, taus_rev). Gain is Vss / effective-command (deadzone
-removed), which is a steady-state quantity and so immune to the smoothing/noise tau trade-off.
+`fit_deadzone`:
 
-- the coasting portion must be measured, not interpolated (at `if s.gap[a : a + k].any():`)
+Smallest staircase command level (same sign) whose sustained motion exceeds eps.
 
+Works per command level, not per sample: the staircase holds each command for ~0.8 s, so the median |velocity| over that hold is compared to the threshold. This rejects single-sample noise spikes that a per-sample test would mistake for motion onset.
+
+- `_rise_tau`: The leading rise; ignore later re-entries from steady-state noise.
+- `_drive_segments`: Steady-state speed from in-frame samples only; interpolated steady samples would bias vss (and, through it, both the gain and the rise-tau fit).
+
+`fit_drive_segments`:
+
+Per held-drive segment: steady-state gain and rise tau, bucketed by command sign.
+
+Returns (gains_fwd, gains_rev, taus_fwd, taus_rev). Gain is Vss / effective-command (deadzone removed), which is a steady-state quantity and so immune to the smoothing/noise tau trade-off.
+
+- `_decay_segments`: The coasting portion must be measured, not interpolated.
+
+`fit_steer_brake`:
+
+Fractional forward-speed loss per unit |angular command| during the steer-brake grid.
+
+```
 One steady-state forward-speed sample per grid cell (last half of each drive segment), so the
 rising transient does not bias the slope. speed/speed0 = 1 - coeff*|ang|.
+```
 
-transport lag.
+`_latency_stack`:
 
-The dedicated latency battery is not trusted on its own: its aggressive bipolar steps flip the
-robot or drive it out of frame, leaving the truth pose (and so the velocity) mostly interpolated
-across dropouts. Instead every clean command edge in the whole session is pooled. Linear edges
-are timed against forward acceleration (dv/dt), angular edges against yaw acceleration (dw/dt);
-the transport delay is the same physical path (Crossfire + ESC + mechanical) for both, so they
-stack together. Any edge whose response window overlaps a truth gap is dropped, which is what
-removes the flipped latency segments and leans the estimate on the many in-frame angular-step
-onsets.
+Pool every clean command edge and stack the acceleration that follows it to time the transport lag.
 
-Each edge contributes its post-edge acceleration, sign-flipped to the step direction so accels
-and decels add rather than cancel, and scaled by the channel's own accel spread so m/s^2 and
-rad/s^2 are comparable. Stacking many onsets averages down the per-frame perception noise that
-made the single latency-battery correlation swing wildly between runs. Lag is the peak of the
-averaged acceleration pulse, which for a delay + first-order plant sits exactly at the transport
-delay: dv/dt is zero until motion starts then jumps to its maximum right at the delay. The peak
-is far more robust to noise here than a first-threshold crossing at this frame rate and onset
-count.
+The dedicated latency battery is not trusted on its own: its aggressive bipolar steps flip the robot or drive it out of frame, leaving the truth pose (and so the velocity) mostly interpolated across dropouts. Instead every clean command edge in the whole session is pooled. Linear edges are timed against forward acceleration (dv/dt), angular edges against yaw acceleration (dw/dt); the transport delay is the same physical path (Crossfire + ESC + mechanical) for both, so they stack together. Any edge whose response window overlaps a truth gap is dropped, which is what removes the flipped latency segments and leans the estimate on the many in-frame angular-step onsets.
 
-- The deadzone test compares a per-level MEDIAN over a ~0.8 s hold, which averages down the noise by ~sqrt(N); use a gentler threshold than the per-sample motion floor so the onset is not pushed high. (at `dz_eps_lin = max(MOTION_EPS_LIN, 2.0 * s.v_noise)`)
-- Zoom to the averaged pulse: individual onsets are ~10x noisier and would flatten it off- scale. (at `amp = float(np.max(np.abs(diag.stack))) or 1.0`)
+Each edge contributes its post-edge acceleration, sign-flipped to the step direction so accels and decels add rather than cancel, and scaled by the channel's own accel spread so m/s^2 and rad/s^2 are comparable. Stacking many onsets averages down the per-frame perception noise that made the single latency-battery correlation swing wildly between runs. Lag is the peak of the averaged acceleration pulse, which for a delay + first-order plant sits exactly at the transport delay: dv/dt is zero until motion starts then jumps to its maximum right at the delay. The peak is far more robust to noise here than a first-threshold crossing at this frame rate and onset count.
+
+- `_context`: The deadzone test compares a per-level MEDIAN over a ~0.8 s hold, which averages down the noise by ~sqrt(N); use a gentler threshold than the per-sample motion floor so the onset is not pushed high.
+- `_panel_latency`: Zoom to the averaged pulse: individual onsets are ~10x noisier and would flatten it off- scale.
 
 ### `playground/calibration/jig_report.py`
 
-- Relative spread below which a parameter counts as measured. 10% is the point where the parameter stops being the thing limiting the model. (at `TARGET_REL = 0.10`)
+- `TARGET_REL`: Relative spread below which a parameter counts as measured. 10% is the point where the parameter stops being the thing limiting the model.
 
 ### `playground/calibration/make_print_tags.py`
 
-The PDF export (pixels-per-mm -> DPI, so a 100%-scale print is dimensionally exact) is adapted from
-true_battlebot scripts/tags/tag_tools.py. The tags themselves are rendered with cv2.aruco
-(DICT_APRILTAG_36h11) so the printed geometry exactly matches the GridBoard model apriltag_track.py
-uses for pose. cv2.aruco's ids match the canonical AprilRobotics tag36h11 family (verified), so
-these are real AprilTags.
+`make_print_tags.py`:
 
-Sizing keeps the camera resolution in mind. apriltag_track.py runs the OAK-1 W at 1080p (1920x1080 @
-60 fps); the script prints the estimated marker size in pixels at that resolution for the given
-mount height. Face-on, 36h11 needs ~18 px edge to decode, so aim well above that (>= ~30 px). If
-your mount is high and the estimate is small, increase --floor-marker-size / --robot-tag-size, lower
-the mount, or step up to 4K.
+Generate print-ready AprilTag PDFs for drivetrain calibration: a floor grid and a robot tag.
 
+The PDF export (pixels-per-mm -> DPI, so a 100%-scale print is dimensionally exact) is adapted from true_battlebot scripts/tags/tag_tools.py. The tags themselves are rendered with cv2.aruco (DICT_APRILTAG_36h11) so the printed geometry exactly matches the GridBoard model apriltag_track.py uses for pose. cv2.aruco's ids match the canonical AprilRobotics tag36h11 family (verified), so these are real AprilTags.
+
+Sizing keeps the camera resolution in mind. apriltag_track.py runs the OAK-1 W at 1080p (1920x1080 @ 60 fps); the script prints the estimated marker size in pixels at that resolution for the given mount height. Face-on, 36h11 needs ~18 px edge to decode, so aim well above that (>= ~30 px). If your mount is high and the estimate is small, increase --floor-marker-size / --robot-tag-size, lower the mount, or step up to 4K.
+
+```
 Usage:
-source scripts/activate_python.sh
-python playground/calibration/make_print_tags.py --out-dir playground/calibration/print
+    source scripts/activate_python.sh
+    python playground/calibration/make_print_tags.py --out-dir playground/calibration/print
+```
 
-The floor grid is normally the manufactured board (3x5 of 65 mm markers, 15 mm gaps, ids 160..174
-numbered right-to-left per row); this script reproduces it only if you need a reprint. The robot tag
-(id 20, off the floor's 160..174 range) is the piece you actually print here. Defaults match
-apriltag_track.py. Print at 100% (no "fit to page"), tape the tag flat on the robot top.
+The floor grid is normally the manufactured board (3x5 of 65 mm markers, 15 mm gaps, ids 160..174 numbered right-to-left per row); this script reproduces it only if you need a reprint. The robot tag (id 20, off the floor's 160..174 range) is the piece you actually print here. Defaults match apriltag_track.py. Print at 100% (no "fit to page"), tape the tag flat on the robot top.
 
-The tags are pure black/white, so the image is stored bilevel (mode "1"): PDF keeps that
-lossless (no JPEG softening of the marker edges), and the file stays small.
+`save_pdf`:
 
-- Camera sizing estimate (defaults: OAK-1 W wide lens at 1080p). (at `p.add_argument(`)
+Save a grayscale image as a PDF whose page is dimensionally exact when printed at 100%.
+
+The tags are pure black/white, so the image is stored bilevel (mode "1"): PDF keeps that lossless (no JPEG softening of the marker edges), and the file stays small.
+
+- `main`: Camera sizing estimate (defaults: OAK-1 W wide lens at 1080p).
 
 ### `playground/calibration/make_robot_tag_3d.py`
 
-This is the 3D-print counterpart of make_print_tags.py for the tag that mounts on the robot top.
-Instead of a paper tag you tape down, it emits a printable plate: a white base with the black
-AprilTag cells raised on top as a second material. Two watertight objects share one coordinate
-frame, so in Bambu Studio you assign white to the base and black to the tag and slice.
+`make_robot_tag_3d.py`:
 
-The black geometry comes straight from the cv2.aruco DICT_APRILTAG_36h11 bit pattern, so the printed
-tag is geometrically identical to what apriltag_track.py detects (id and orientation verified by re-
-detecting a top-down raster before writing). A white margin around the tag gives the quiet zone the
-detector needs.
+Generate a multi-material 3D-print file for the robot's AprilTag (Bambu Lab AMS).
 
-The 3MF is written directly (a zip of XML) so it needs no lxml: two named, pre-colored objects that
-import into Bambu Studio already split into a white base and a black tag. STL pairs are written too.
+This is the 3D-print counterpart of make_print_tags.py for the tag that mounts on the robot top. Instead of a paper tag you tape down, it emits a printable plate: a white base with the black AprilTag cells raised on top as a second material. Two watertight objects share one coordinate frame, so in Bambu Studio you assign white to the base and black to the tag and slice.
 
+The black geometry comes straight from the cv2.aruco DICT_APRILTAG_36h11 bit pattern, so the printed tag is geometrically identical to what apriltag_track.py detects (id and orientation verified by re- detecting a top-down raster before writing). A white margin around the tag gives the quiet zone the detector needs.
+
+The 3MF is written directly (a zip of XML) so it needs no lxml: two named, pre-colored objects that import into Bambu Studio already split into a white base and a black tag. STL pairs are written too.
+
+```
 Outputs, written to --out-dir:
-robot_tag.3mf         two objects (white base + black tag), pre-colored
-robot_tag_white.stl   base only
-robot_tag_black.stl   tag only
+    robot_tag.3mf         two objects (white base + black tag), pre-colored
+    robot_tag_white.stl   base only
+    robot_tag_black.stl   tag only
+```
 
+```
 Usage:
-source scripts/activate_python.sh
-python playground/calibration/make_robot_tag_3d.py --out-dir playground/calibration/print_3d
+    source scripts/activate_python.sh
+    python playground/calibration/make_robot_tag_3d.py --out-dir playground/calibration/print_3d
+```
 
-Default: id 0, 130 mm tag, 2 mm white base, 0.6 mm raised black, 16 mm white margin (a ~1-cell quiet
-zone). The plate is 162 x 162 mm, well within a 256 mm Bambu bed. Bambu Studio: import
-robot_tag.3mf, confirm the tag object is black filament and the base is white, then slice. Use
-0.1-0.2 mm layers and a base thickness that is a clean multiple of the layer height. Note its
-physical edge (--tag-size) and heading offset for apriltag_track.py --tag-size / --yaw-offset-deg.
+Default: id 0, 130 mm tag, 2 mm white base, 0.6 mm raised black, 16 mm white margin (a ~1-cell quiet zone). The plate is 162 x 162 mm, well within a 256 mm Bambu bed. Bambu Studio: import robot_tag.3mf, confirm the tag object is black filament and the base is white, then slice. Use 0.1-0.2 mm layers and a base thickness that is a clean multiple of the layer height. Note its physical edge (--tag-size) and heading offset for apriltag_track.py --tag-size / --yaw-offset-deg.
 
-mm.
+`black_cell_boxes`:
 
-Consecutive black cells in a row are merged into one box to keep the mesh small and free of
-internal coplanar faces.
+Boxes for the black cells, raised on top of the base. origin is the tag's (x0, y0) corner in mm.
+
+Consecutive black cells in a row are merged into one box to keep the mesh small and free of internal coplanar faces.
 
 ### `playground/calibration/plot_sysid_bundle.py`
+
+`plot_sysid_bundle.py`:
+
+Plot a smoothed sysid bundle so each smoothing check can be judged by eye.
 
 Reads a bundle written by ``smooth_tag_poses.py`` and writes, under ``<bundle>/plots/``:
 
 - ``overview.png``: the whole session on one time axis. Which source fixed the pose at each
-moment (tag, YOLO, neither); the smoothed yaw rate against the robot IMU's on a log scale,
-with the 50 rad/s line no real drive crosses; pitch against the flat band the window gate
-uses; x and y against the box the near-rail gate assumes; and the fit windows, by kind.
+  moment (tag, YOLO, neither); the smoothed yaw rate against the robot IMU's on a log scale,
+  with the 50 rad/s line no real drive crosses; pitch against the flat band the window gate
+  uses; x and y against the box the near-rail gate assumes; and the fit windows, by kind.
 - ``floor.png``: top-down, every tag and YOLO fix, the smoothed path, the box, and where each
-fit window starts.
+  fit window starts.
 - ``dropouts.png``: one top-down panel per tag dropout longer than ``--min-gap-s`` in which the
-robot stayed upright, 0.5 s either side. ``--compare`` overlays a second bundle of the same
-recording (for example one smoothed without ``--yolo``).
+  robot stayed upright, 0.5 s either side. ``--compare`` overlays a second bundle of the same
+  recording (for example one smoothed without ``--yolo``).
 
-python playground/calibration/plot_sysid_bundle.py \
-playground/calibration/out/mujoco_sysid/<session>_yolo \
---compare playground/calibration/out/mujoco_sysid/<session>_tag
+```
+    python playground/calibration/plot_sysid_bundle.py \
+        playground/calibration/out/mujoco_sysid/<session>_yolo \
+        --compare playground/calibration/out/mujoco_sysid/<session>_tag
+```
 
-- heading is clockwise (at `sign = -float(agreement.get("measured_sign") or 1.0)`)
+- `_imu_yaw_rate`: Heading is clockwise.
 
 ### `playground/calibration/render_mujoco_overlay.py`
 
-- Video stamps sit this far off the tag image clock (the YOLO calibration measures it). (at `self.video_offset_ns = int(round(float(cal.get("offset_ms", 0.0)) * 1e`)
+- `Scene.__init__`: Video stamps sit this far off the tag image clock (the YOLO calibration measures it).
 
 ### `playground/calibration/smooth_tag_poses.py`
 
-- Position and heading only; the 2D keypoints carry no height or tilt. (at `fixes = result.yolo_fixes.assign(`)
-- The video frames YOLO filled in count as camera frames for window coverage, so a dropout the fixes cover reads as covered and a rejected fix still counts against it. (at `frame_stamps = result.frame_stamps_ns`)
+- `main`: Position and heading only; the 2D keypoints carry no height or tilt.
+- `main`: The video frames YOLO filled in count as camera frames for window coverage, so a dropout the fixes cover reads as covered and a rejected fix still counts against it.
 
 ### `playground/calibration/sysid_coverage.py`
 
-- Unpaced replays advance on recording time, so a fast replay closes the same windows as a live run would. (at `due = (`)
-
+- `run`: Unpaced replays advance on recording time, so a fast replay closes the same windows as a live run would.

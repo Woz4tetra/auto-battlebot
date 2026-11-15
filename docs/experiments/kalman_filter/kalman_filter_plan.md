@@ -768,58 +768,74 @@ Remember `cmake -S . -B build` after adding source files; the source glob is not
    "what to collect next" table before planning the rest.
 5. Run the first excitation session and report the M0-M4 ladder.
 
-## Notes moved from code comments (2026-11-15)
+## Filter script notes
 
 ### `playground/calibration/fit_process_noise.py`
 
-Takes the plant parameters from `fit_jig_plant.py` and the same session data, runs the model open
-loop over sliding windows on the held-out runs, and turns the residuals into a covariance the EKF
-can use. The point is getting the covariance *right*, not small: a confident wrong estimate is
-worse in a match than an honestly wide one.
+`fit_process_noise.py`:
+
+Fit the process noise model from velocity jig validation runs.
+
+Takes the plant parameters from `fit_jig_plant.py` and the same session data, runs the model open loop over sliding windows on the held-out runs, and turns the residuals into a covariance the EKF can use. The point is getting the covariance *right*, not small: a confident wrong estimate is worse in a match than an honestly wide one.
 
 Method, following the plan's part 1.7:
 
+```
 1. Collect body-frame residuals (along-track, cross-track, heading) per window start and horizon,
-with the conditioning variables that might explain them (speed, yaw rate).
+   with the conditioning variables that might explain them (speed, yaw rate).
 2. Fit the growth law `sigma^2(h) = a*h + b*h^2 + c*h^3` per axis. Each coefficient is a
-mechanism, so the fit says which mechanism dominates instead of just drawing a curve:
-- `c*h^3` is white-noise acceleration with PSD q, giving sigma_p^2 = q h^3 / 3.
-- `b*h^2` is a velocity scale-factor error: a constant fractional speed error eps gives
-sigma_p = |v| h eps.
-- `a*h`   is a random walk, which is how gyro angle random walk reaches cross-track error.
-- a constant term, if the fit demands one, is delay jitter: sigma_p ~ v * sigma_delay.
+   mechanism, so the fit says which mechanism dominates instead of just drawing a curve:
+     - `c*h^3` is white-noise acceleration with PSD q, giving sigma_p^2 = q h^3 / 3.
+     - `b*h^2` is a velocity scale-factor error: a constant fractional speed error eps gives
+       sigma_p = |v| h eps.
+     - `a*h`   is a random walk, which is how gyro angle random walk reaches cross-track error.
+     - a constant term, if the fit demands one, is delay jitter: sigma_p ~ v * sigma_delay.
 3. Map the coefficients into a continuous-time Q, so the runtime covariance is derived rather
-than hand-tuned.
+   than hand-tuned.
 4. Test consistency: coverage at 68/95/99, mean NEES against its chi-square band, and the tail
-behaviour a coverage number hides.
+   behaviour a coverage number hides.
+```
 
+```
 Usage:
-source scripts/activate_python.sh
-python playground/calibration/fit_process_noise.py \
-playground/calibration/out/session_A.json \
---calibration playground/calibration/out/jig_calibration.toml \
---params playground/calibration/out/plant_params.toml \
---out playground/calibration/out/process_noise.toml
+    source scripts/activate_python.sh
+    python playground/calibration/fit_process_noise.py \
+        playground/calibration/out/session_A.json \
+        --calibration playground/calibration/out/jig_calibration.toml \
+        --params playground/calibration/out/plant_params.toml \
+        --out playground/calibration/out/process_noise.toml
+```
 
-- Horizon grid for the noise model. Denser than the fit grid because the covariance has to be honest at every horizon the filter coasts over, not only at the ones the fit optimized. (at `NOISE_HORIZONS = (0.033, 0.066, 0.100, 0.150, 0.200, 0.300, 0.400, 0.5`)
-- Speed bins for the conditional fits. The scale-factor term should dominate at high speed and the acceleration term near zero, and binning is what shows whether it does. (at `SPEED_BINS = (0.0, 0.5, 1.5, 3.0, 10.0)`)
-- 95% of a 2D Gaussian sits inside 2.448 sigma, not 2. Getting this wrong is the most common way a "within 2 sigma" claim turns out to mean 86.5% coverage. (at `CHI2_2D_95 = float(np.sqrt(chi2.ppf(0.95, df=2)))`)
+- `NOISE_HORIZONS`: Horizon grid for the noise model. Denser than the fit grid because the covariance has to be honest at every horizon the filter coasts over, not only at the ones the fit optimized.
+- `SPEED_BINS`: Speed bins for the conditional fits. The scale-factor term should dominate at high speed and the acceleration term near zero, and binning is what shows whether it does.
+- `CHI2_2D_95`: 95% of a 2D Gaussian sits inside 2.448 sigma, not 2. Getting this wrong is the most common way a "within 2 sigma" claim turns out to mean 86.5% coverage.
 
-The along-track and cross-track white-noise acceleration PSDs are kept separate: they come
-from different mechanisms (speed error along track, heading error across it) and forcing them
-equal would inflate one to cover the other.
+`ProcessNoise`:
 
+Continuous-time process noise for the our-robot EKF, derived from the growth law.
+
+The along-track and cross-track white-noise acceleration PSDs are kept separate: they come from different mechanisms (speed error along track, heading error across it) and forcing them equal would inflate one to cover the other.
+
+`build_q`:
+
+Map the fitted coefficients onto the EKF's continuous-time noise terms.
+
+```
 sigma_p^2 = q h^3 / 3 is the standard position variance under white-noise acceleration, so
 q = 3c. The scale-factor terms are state dependent (they grow with speed and yaw rate), so
 they are stored as fractions and applied at runtime as |v| h eps and |w| h eps rather than
 folded into q here. The heading b term is the dominant heading mechanism at 400 ms; dropping
 it would understate heading sigma about 4x, a confidently wrong covariance.
+```
 
-NEES is the normalized estimation error squared: with the covariance right it averages the
-state dimension (2 here) and its sample mean over N windows sits inside a chi-square band.
-Coverage alone can look fine while the tails are wrong, which is why both are reported.
+`coverage`:
 
-Combat means getting hit, and an impact produces accelerations far outside the Gaussian body.
-Those belong in a separate line of the report, not inside a Q large enough to cover them,
-which would ruin the estimate everywhere else.
+Empirical coverage and mean NEES per horizon bin, for the 2D position error.
 
+NEES is the normalized estimation error squared: with the covariance right it averages the state dimension (2 here) and its sample mean over N windows sits inside a chi-square band. Coverage alone can look fine while the tails are wrong, which is why both are reported.
+
+`tail_report`:
+
+p99 and p99.9 position error per horizon.
+
+Combat means getting hit, and an impact produces accelerations far outside the Gaussian body. Those belong in a separate line of the report, not inside a Q large enough to cover them, which would ruin the estimate everywhere else.

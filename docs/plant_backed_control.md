@@ -174,170 +174,157 @@ bool rather than a second copy of the number.
 - Pass the plant fit's acceptance criteria so production configs can move our robot off
   dead reckoning onto the EKF arm.
 
-## Notes moved from code comments (2026-11-15)
+## Plant fit and distillation details
 
 ### `playground/calibration/distill_mujoco_plant.py`
 
-The app's EKF and MotionProfileNavigation both run JigPlantModel: first-order lag, deadzones,
-delay, and steer-brake coupling, with stick commands in. The MuJoCo fit (fit_mujoco_plant.py) has
-motor, contact, and inertia terms the app cannot run. This drives the fitted MuJoCo model through
-ClosedLoopSim with stick tapes shaped like the velocity jig protocol (deadzone staircases, steps
-with coasts, reversals, a steer/brake grid), fits the M4 grey-box model to the result the way
-fit_jig_plant.py fits jig data, and scores it on random stick tapes the fit never saw.
+`distill_mujoco_plant.py`:
 
-Stick tapes go into ClosedLoopSim, which runs the firmware mixer and auto-steer, the drivetrain
-delay, and command shaping. That matches what the app's plant is fed: CommandFeedback is the
-transmitter's stick readback, after its slew limit and deadzone. The radio link delay is not in
-ClosedLoopSim, so it comes from the sessions' clock alignment and is added to the fitted delay
-afterwards. A pure shift adds exactly.
+Distill a fitted MuJoCo plant into the app's grey-box [plant] table for Mr Stabs Mk2.
 
-Samples after the chassis pitches more than --pitch-gate-deg off its rest pitch are dropped, and
-stay dropped for the rest of that tape. The grey-box model is flat and cannot represent a wheelie
-or a flip, so the table only covers the command range the robot stays down in. The report lists
-which tapes lost samples.
+The app's EKF and MotionProfileNavigation both run JigPlantModel: first-order lag, deadzones, delay, and steer-brake coupling, with stick commands in. The MuJoCo fit (fit_mujoco_plant.py) has motor, contact, and inertia terms the app cannot run. This drives the fitted MuJoCo model through ClosedLoopSim with stick tapes shaped like the velocity jig protocol (deadzone staircases, steps with coasts, reversals, a steer/brake grid), fits the M4 grey-box model to the result the way fit_jig_plant.py fits jig data, and scores it on random stick tapes the fit never saw.
 
-Every restart within --loss-ratio of the best MuJoCo loss is distilled too. The spread across those
-tables is the parameter spread the plan hands to the learned sim, and shows which grey-box terms
-the MuJoCo data pins.
+Stick tapes go into ClosedLoopSim, which runs the firmware mixer and auto-steer, the drivetrain delay, and command shaping. That matches what the app's plant is fed: CommandFeedback is the transmitter's stick readback, after its slew limit and deadzone. The radio link delay is not in ClosedLoopSim, so it comes from the sessions' clock alignment and is added to the fitted delay afterwards. A pure shift adds exactly.
 
-python playground/calibration/distill_mujoco_plant.py \
-playground/calibration/out/mujoco_sysid/fit_<ts> \
---holdout playground/calibration/out/mujoco_sysid/s04
+Samples after the chassis pitches more than --pitch-gate-deg off its rest pitch are dropped, and stay dropped for the rest of that tape. The grey-box model is flat and cannot represent a wheelie or a flip, so the table only covers the command range the robot stays down in. The report lists which tapes lost samples.
 
-Writes <fit_dir>/distilled/plant.toml (the best run's [plant] table, radio delay included),
-distill.json (every run's table, sim and session scores, spread, masked tapes) and
-plant_steps.png (step-and-release responses and steady-state speed against stick, the distilled
-table against the one the profiles carry now).
+Every restart within --loss-ratio of the best MuJoCo loss is distilled too. The spread across those tables is the parameter spread the plan hands to the learned sim, and shows which grey-box terms the MuJoCo data pins.
 
-- The table the app runs today, scored alongside so the report shows what the swap buys. (at `CURRENT_TABLE = REPO_ROOT / "config" / "mr_stabs_mk2_aer_zed_box.toml"`)
-- The jig fit's horizons: C1 is stated at 100 ms, C2 and C3 at 400 ms. (at `HORIZONS = (0.033, 0.066, 0.100, 0.200, 0.300, 0.400, 0.500)`)
-- Mrs Buff's jig fit landed c_sb at 2.70, past PARAM_BOUNDS' 1.5, so the bound is widened rather than left to decide the answer. (at `BOUNDS = {"c_sb": (-0.5, 4.0), "c_ad": (-0.5, 2.0)}`)
-- Latched: once the robot has pitched up it lands somewhere the flat model never predicted. (at `valid = np.cumsum(tilted) == 0`)
-- mixer the direct grey-box fit uses. Errors in multiples of each session's noise floor.
-- A stick move cannot reach the ESP32 before it is sent: a negative lag is a clock fit or stamping error (2026-10-15 measured -9.5 ms), and added to the drivetrain delay it would write a negative delay_s. (at `print(`)
-- The app's delay runs from stick readback to motion: radio link plus drivetrain. (at `final = table.replace(delay_s=table.delay_s + radio)`)
+```
+    python playground/calibration/distill_mujoco_plant.py \
+        playground/calibration/out/mujoco_sysid/fit_<ts> \
+        --holdout playground/calibration/out/mujoco_sysid/s04
+```
+
+Writes <fit_dir>/distilled/plant.toml (the best run's [plant] table, radio delay included), distill.json (every run's table, sim and session scores, spread, masked tapes) and plant_steps.png (step-and-release responses and steady-state speed against stick, the distilled table against the one the profiles carry now).
+
+- `CURRENT_TABLE`: The table the app runs today, scored alongside so the report shows what the swap buys.
+- `HORIZONS`: The jig fit's horizons: C1 is stated at 100 ms, C2 and C3 at 400 ms.
+- `BOUNDS`: Mrs Buff's jig fit landed c_sb at 2.70, past PARAM_BOUNDS' 1.5, so the bound is widened rather than left to decide the answer.
+- `simulate_tape`: Latched: once the robot has pitched up it lands somewhere the flat model never predicted.
+
+`score_sessions`:
+
+Every table on the held-out flat windows, through the same per-motor tape and inverse mixer the direct grey-box fit uses. Errors in multiples of each session's noise floor.
+
+- `main`: A stick move cannot reach the ESP32 before it is sent: a negative lag is a clock fit or stamping error (2026-10-15 measured -9.5 ms), and added to the drivetrain delay it would write a negative delay_s.
+- `main`: The app's delay runs from stick readback to motion: radio link plus drivetrain.
 
 ### `playground/calibration/fit_jig_plant.py`
 
-- The plan's objective horizons, plus 400 ms because that is where acceptance criteria C2 and C3 are stated and a table should measure the horizon it reports. (at `horizons = (0.033, 0.066, 0.100, 0.200, 0.300, 0.400, 0.500)`)
+- `main`: The plan's objective horizons, plus 400 ms because that is where acceptance criteria C2 and C3 are stated and a table should measure the horizon it reports.
 
 ### `playground/calibration/fit_mrs_buff_mk3_interim_plant.py`
 
-Mr Stabs Mk2's MuJoCo plant was fit to hand-driven sessions with AprilTags (fit_mujoco_plant.py).
-Mrs Buff Mk3 has no such session, only the velocity jig's M4 grey-box fit
-(playground/calibration/out/plant_stageA.toml: speeds, lags, deadzones, steer-brake and angular
-droop, measured on the floor with the guard plates on). This drives the M4 model with jig-shaped
-command tapes, treats its poses as measurements, and fits the MuJoCo plant to them with the same
-staged CMA-ES and loss the session fit uses. M4 is flat, so this pins drive and scrub, not
-tipping; with the weapon off she does not tip.
+`fit_mrs_buff_mk3_interim_plant.py`:
 
+Fit Mrs Buff Mk3's MuJoCo plant to her jig-fitted grey-box plant, until a tagged session exists.
+
+Mr Stabs Mk2's MuJoCo plant was fit to hand-driven sessions with AprilTags (fit_mujoco_plant.py). Mrs Buff Mk3 has no such session, only the velocity jig's M4 grey-box fit (playground/calibration/out/plant_stageA.toml: speeds, lags, deadzones, steer-brake and angular droop, measured on the floor with the guard plates on). This drives the M4 model with jig-shaped command tapes, treats its poses as measurements, and fits the MuJoCo plant to them with the same staged CMA-ES and loss the session fit uses. M4 is flat, so this pins drive and scrub, not tipping; with the weapon off she does not tip.
+
+```
 Commands are what the app sends: `DifferentialDriveProcessor` output (angular priority, the zero
 deadzone), linear and angular in [-1, 1]. The radio mixes them per motor as left = linear -
 angular, right = linear + angular (positive angular turns counterclockwise, the inverse
 `greybox.predict` uses). Her ESCs run open loop: there is no eRPM feedback and no onboard yaw
 loop, so the voltage-source actuator model is the whole command chain after the delay.
+```
 
-python playground/calibration/fit_mrs_buff_mk3_interim_plant.py \
---out playground/calibration/out/mujoco_sysid/mk3_interim
+```
+    python playground/calibration/fit_mrs_buff_mk3_interim_plant.py \
+        --out playground/calibration/out/mujoco_sysid/mk3_interim
+```
 
-Writes fit.json (load_fit_params reads it), holdout.json (per-horizon errors and response
-checks against M4) and fit.log.
+Writes fit.json (load_fit_params reads it), holdout.json (per-horizon errors and response checks against M4) and fit.log.
 
-- Capped at 0.02 s: the same contact softness applies to walls and opponents, and a softer contact lets the hull sink into them in a collision. M4 is flat, so the floor alone would happily trade stiffness away. (at `ParamSpec("solref_timeconst", 0.004, 0.02, log=True),`)
-- The ESC's current limit caps acceleration. The datasheet gives 10.4 A stall at 12 V; without this term the fit pinned the rotor inertia at 3x to slow the launch. (at `ParamSpec("current_limit_a", 3.0, 40.0, log=True),`)
+- `fit_mrs_buff_mk3_interim_plant.py`: Capped at 0.02 s: the same contact softness applies to walls and opponents, and a softer contact lets the hull sink into them in a collision. M4 is flat, so the floor alone would happily trade stiffness away.
+- `fit_mrs_buff_mk3_interim_plant.py`: The ESC's current limit caps acceleration. The datasheet gives 10.4 A stall at 12 V; without this term the fit pinned the rotor inertia at 3x to slow the launch.
 
 ### `playground/calibration/make_plant_golden_fixture.py`
 
-Steps the Python reference plant (auto_battlebot/control/plant.py, `Plant` class: zero-order-hold
-command buffer, 2 ms substeps) over a scenario that exercises every term, and writes the
-commands plus expected states as a C++ header. The C++ test replays the same commands
-through JigPlantModel::propagate and must match: both sides are double precision with the
-same substep, so the tolerance can sit at 1e-9.
+`make_plant_golden_fixture.py`:
 
-The scenario covers: quiet start (zero command before the delay elapses), a forward step, a
-reversal through the deadzone (decel then accel tau), a pure spin, a combined command that
-drives the steer-brake factor into its zero clamp (c_sb 2.70 crosses zero at |u_ang_eff|
-0.37), sub-deadzone commands, and a final coast.
+Generate the golden-vector fixture for the C++ JigPlantModel test.
 
+Steps the Python reference plant (auto_battlebot/control/plant.py, `Plant` class: zero-order-hold command buffer, 2 ms substeps) over a scenario that exercises every term, and writes the commands plus expected states as a C++ header. The C++ test replays the same commands through JigPlantModel::propagate and must match: both sides are double precision with the same substep, so the tolerance can sit at 1e-9.
+
+The scenario covers: quiet start (zero command before the delay elapses), a forward step, a reversal through the deadzone (decel then accel tau), a pure spin, a combined command that drives the steer-brake factor into its zero clamp (c_sb 2.70 crosses zero at |u_ang_eff| 0.37), sub-deadzone commands, and a final coast.
+
+```
 Usage:
-source scripts/activate_python.sh
-python playground/calibration/make_plant_golden_fixture.py
+    source scripts/activate_python.sh
+    python playground/calibration/make_plant_golden_fixture.py
+```
 
 Paths are resolved from the repo root, so the working directory does not matter.
 
 ### `playground/calibration/sim_stop_test.py`
 
-The last check before a distilled [plant] table goes on the robot. The app plans its brake
-schedule and feedforward from the [plant] table while the sim moves the robot with the fitted
-MuJoCo model, so every error in the table shows up as a stop that lands short, overshoots, or
-oscillates. Each arm is one [plant] table, and every arm drives the same goals.
+`sim_stop_test.py`:
 
-Each run is the real binary (build/auto_battlebot) against kinematic_sim_server.py, headless,
-one goal per run: a static "opponent" at the goal, attack mode with a zero terminal speed, so the
-controller drives there and stops within stop_distance. Scored from the sim's own per-tick
-trace, which is ground truth:
+Closed-loop stop test: MotionProfileNavigation on Mr Stabs Mk2 against the MuJoCo plant.
+
+The last check before a distilled [plant] table goes on the robot. The app plans its brake schedule and feedforward from the [plant] table while the sim moves the robot with the fitted MuJoCo model, so every error in the table shows up as a stop that lands short, overshoots, or oscillates. Each arm is one [plant] table, and every arm drives the same goals.
+
+Each run is the real binary (build/auto_battlebot) against kinematic_sim_server.py, headless, one goal per run: a static "opponent" at the goal, attack mode with a zero terminal speed, so the controller drives there and stops within stop_distance. Scored from the sim's own per-tick trace, which is ground truth:
 
 - stop_along_m: where the robot came to rest, along the final approach, relative to the goal.
-Negative is short. Anything in [-stop_distance, +stop_distance] counts as a stop on target.
+  Negative is short. Anything in [-stop_distance, +stop_distance] counts as a stop on target.
 - peak_along_m: furthest past the goal it got on the way. Overshoot that it later backed out of
-shows here and not in stop_along_m.
+  shows here and not in stop_along_m.
 - arrive_s: first time inside stop_distance. settle_s: from then until speed stays under 0.05 m/s.
 - reentries: how many times it left the stop circle again after arriving (oscillation).
 - flipped: pitch left its rest value by more than 60 deg. Nothing else in the row means anything
-then. The flat [plant] table cannot predict a backflip, so a flipping arm needs a lower
---max-linear-command, not a better table.
+  then. The flat [plant] table cannot predict a backflip, so a flipping arm needs a lower
+  --max-linear-command, not a better table.
 
-python playground/calibration/sim_stop_test.py \
---fit-file playground/calibration/out/mujoco_sysid/fit_<ts>/fit.json \
---arm current=config/mr_stabs_mk2_aer_zed_box.toml \
---arm distilled=playground/calibration/out/mujoco_sysid/fit_<ts>/distilled/plant.toml
+```
+    python playground/calibration/sim_stop_test.py \
+        --fit-file playground/calibration/out/mujoco_sysid/fit_<ts>/fit.json \
+        --arm current=config/mr_stabs_mk2_aer_zed_box.toml \
+        --arm distilled=playground/calibration/out/mujoco_sysid/fit_<ts>/distilled/plant.toml
+```
 
-Build first (scripts/build.sh). Runs are sequential: the C++ side has the sim port hard-coded.
-Writes <out>/results.csv and one trace and log per run; --out defaults next to the fit file.
+Build first (scripts/build.sh). Runs are sequential: the C++ side has the sim port hard-coded. Writes <out>/results.csv and one trace and log per run; --out defaults next to the fit file.
 
-- The MuJoCo plant holds the drivetrain delay itself; the sim's own buffer is the radio part. (at `cfg["latency"]["command_ms"] = radio_ms`)
-- The base config runs the RL environment's 2 ms step; the fit and its checks run at 1 ms. (at `robot["mujoco"]["timestep"] = 1e-3`)
-- Same type as the base, so these merge key by key: arrive stopped at the goal. (at `nav: dict[str, Any] = {`)
+- `write_sim_config`: The MuJoCo plant holds the drivetrain delay itself; the sim's own buffer is the radio part.
+- `write_sim_config`: The base config runs the RL environment's 2 ms step; the fit and its checks run at 1 ms.
+- `write_cpp_overlay`: Same type as the base, so these merge key by key: arrive stopped at the goal.
 
 ### `playground/calibration/write_plant_configs.py`
 
-The plant numbers have three homes: the fit (`playground/calibration/out/plant_stageA.toml`), the
-kinematic sim (`simulation/sim_mrs_buff_mk3.toml`), and the C++ config chain's `[plant]` table
-(`config/_common.toml`). Only the first is authored. They drifted apart once already, which is how
-MotionProfileNavigation ended up running Mr Stabs Mk2's time constants on Mrs Buff Mk3, so this
-script makes the other two derived.
+`write_plant_configs.py`:
 
-The `[plant]` table is read by both the our-robot EKF and MotionProfileNavigation, so there is one
-C++-side target rather than one per consumer.
+Push the fitted plant numbers from plant_stageA.toml into every consumer that hard-codes them.
 
-It rewrites the numeric literal of each mapped field in place and touches nothing else. The
-hand-written doc comments around those fields explain what each number does and why, which a
-block regenerator would flatten, so they are left alone. That also means adding a field to the
-fit does not automatically give it a home here: add it to the tables below and write the comment
-by hand.
+The plant numbers have three homes: the fit (`playground/calibration/out/plant_stageA.toml`), the kinematic sim (`simulation/sim_mrs_buff_mk3.toml`), and the C++ config chain's `[plant]` table (`config/_common.toml`). Only the first is authored. They drifted apart once already, which is how MotionProfileNavigation ended up running Mr Stabs Mk2's time constants on Mrs Buff Mk3, so this script makes the other two derived.
 
-`--check` rewrites nothing and exits 1 if any consumer disagrees with the fit. Run it after a
-refit, and in CI if the fit ever starts changing on its own.
+The `[plant]` table is read by both the our-robot EKF and MotionProfileNavigation, so there is one C++-side target rather than one per consumer.
 
+It rewrites the numeric literal of each mapped field in place and touches nothing else. The hand-written doc comments around those fields explain what each number does and why, which a block regenerator would flatten, so they are left alone. That also means adding a field to the fit does not automatically give it a home here: add it to the tables below and write the comment by hand.
+
+`--check` rewrites nothing and exits 1 if any consumer disagrees with the fit. Run it after a refit, and in CI if the fit ever starts changing on its own.
+
+```
 Usage:
-source scripts/activate_python.sh
-python playground/calibration/write_plant_configs.py           # rewrite
-python playground/calibration/write_plant_configs.py --check   # report drift, change nothing
+    source scripts/activate_python.sh
+    python playground/calibration/write_plant_configs.py           # rewrite
+    python playground/calibration/write_plant_configs.py --check   # report drift, change nothing
+```
 
-Mr Stabs Mk2 has no jig fit. Its table comes from the MuJoCo fit through distill_mujoco_plant.py and
-goes into its own profiles' [plant] tables only; its sim config keeps the MuJoCo plant, so no sim
-fields are written:
+Mr Stabs Mk2 has no jig fit. Its table comes from the MuJoCo fit through distill_mujoco_plant.py and goes into its own profiles' [plant] tables only; its sim config keeps the MuJoCo plant, so no sim fields are written:
 
-python playground/calibration/write_plant_configs.py --robot mr_stabs_mk2         --fit playground/calibration/out/mujoco_sysid/fit_<ts>/distilled/plant.toml
+```
+    python playground/calibration/write_plant_configs.py --robot mr_stabs_mk2         --fit playground/calibration/out/mujoco_sysid/fit_<ts>/distilled/plant.toml
+```
 
-- Every Mr Stabs Mk2 profile restates [plant] in full rather than inheriting Mrs Buff's. (at `MR_STABS_PLANT_CONFIGS = tuple(`)
-- The controller inverts the plant, so it takes the same terms under its own names.  `angular_droop_coeff` is absent on purpose. The plant does droop (c_ad = 0.463) but compensating for it measured worse: on a 90-degree turning approach it took terminal error from 0.008 m to 0.067 m and time-to-goal from 1.10 s to 2.83 s, because the harder turn it commands is exactly what the steer-brake term then charges forward speed for. The controller default stays 0.0 and is not derived from the fit. `c_drift`/`c_drift_bias` are absent because model M4 disables them. The [plant] table uses the fit's own names, so this mapping is the identity. Listed explicitly so a field added to the fit does not silently skip the table. (at `PLANT_FIELDS = {`)
+- `MR_STABS_PLANT_CONFIGS`: Every Mr Stabs Mk2 profile restates [plant] in full rather than inheriting Mrs Buff's.
+- `PLANT_FIELDS`: The controller inverts the plant, so it takes the same terms under its own names. `angular_droop_coeff` is absent on purpose. The plant does droop (c_ad = 0.463) but compensating for it measured worse: on a 90-degree turning approach it took terminal error from 0.008 m to 0.067 m and time-to-goal from 1.10 s to 2.83 s, because the harder turn it commands is exactly what the steer-brake term then charges forward speed for. The controller default stays 0.0 and is not derived from the fit. `c_drift`/`c_drift_bias` are absent because model M4 disables them. The [plant] table uses the fit's own names, so this mapping is the identity. Listed explicitly so a field added to the fit does not silently skip the table.
 
 ### `simulation/plants/kinematic.py`
 
-- Internal integration substep. Mirrors auto_battlebot/control/plant.py. At the calibrated 31.7 rad/s top yaw rate this is 0.06 rad of rotation per substep; a whole 33 ms tick is 1.05 rad, where straight-line integration of an arc is wrong by tens of degrees of heading. (at `SUBSTEP_S = 0.002`)
-- The pose is the centre of the disc. The fits behind this plant tracked the keypoint midpoint, which sits within 2 mm of the footprint centre. (at `return 0.0, 0.0`)
-- Coupling multiplies the steady-state target, not the achieved speed: turning costs a fraction of the forward command's authority and driving costs a fraction of the turn's, but neither brakes a robot that is already coasting. (at `v_target *= max(0.0, 1.0 - cfg.steer_brake_coeff * abs(ac))`)
-- Pose uses the velocity at the start of the substep, so the arc is exact for the v and w actually held over it. (at `next_yaw = self.yaw + self.w * dt`)
-- Accel or decel is decided per channel by whether the target is further from zero than the current speed. Braking into a reversal uses the decel constant until the sign flips, as the drivetrain does: friction first, then torque. (at `tau_lin = tau_l_acc if abs(v_target) > abs(self.v) else tau_l_dec`)
-
+- `SUBSTEP_S`: Internal integration substep. Mirrors auto_battlebot/control/plant.py. At the calibrated 31.7 rad/s top yaw rate this is 0.06 rad of rotation per substep; a whole 33 ms tick is 1.05 rad, where straight-line integration of an arc is wrong by tens of degrees of heading.
+- `KinematicPlant.footprint_center_offset`: The pose is the centre of the disc. The fits behind this plant tracked the keypoint midpoint, which sits within 2 mm of the footprint centre.
+- `KinematicPlant.step`: Coupling multiplies the steady-state target, not the achieved speed: turning costs a fraction of the forward command's authority and driving costs a fraction of the turn's, but neither brakes a robot that is already coasting.
+- `KinematicPlant._substep`: Pose uses the velocity at the start of the substep, so the arc is exact for the v and w actually held over it.
+- `KinematicPlant._substep`: Accel or decel is decided per channel by whether the target is further from zero than the current speed. Braking into a reversal uses the decel constant until the sign flips, as the drivetrain does: friction first, then torque.
