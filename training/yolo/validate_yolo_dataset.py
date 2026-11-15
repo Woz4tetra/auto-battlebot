@@ -208,10 +208,6 @@ class YOLODatasetValidator:
         self.rows = 1
         self.cells: List[Dict] = []
 
-        # Thumbnails are decoded off the main thread and cached, so paging stays
-        # snappy. The PhotoImage cache is separate because those must be built on
-        # the main thread; keeping them lets a redraw skip cells whose picture has
-        # not changed.
         self.thumb_cache: "OrderedDict[Tuple, Image.Image]" = OrderedDict()
         self.cache_limit = 800
         self.photo_cache: "OrderedDict[Tuple, ImageTk.PhotoImage]" = OrderedDict()
@@ -876,7 +872,8 @@ class YOLODatasetValidator:
         return thumb
 
     def photo_for(self, index: int) -> Tuple[Tuple, ImageTk.PhotoImage]:
-        """Return the cached (key, PhotoImage) pair for `index`."""
+        """Return the cached (key, PhotoImage) pair for `index`; tk thread only."""
+        assert threading.current_thread() is threading.main_thread()
         key = self.thumb_key(index)
         photo = self.photo_cache.get(key)
         if photo is None:

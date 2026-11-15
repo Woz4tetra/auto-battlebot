@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import fnmatch
 from pathlib import Path
+from typing import NamedTuple
 
 from PIL import Image
 
@@ -16,13 +17,16 @@ class UnsupportedRowError(ValueError):
     """A label row that is neither a detect nor a pose row (e.g. a seg polygon)."""
 
 
+class CropRowResult(NamedTuple):
+    row: str | None
+    was_clipped: bool
+    kpts_zeroed: int
+
+
 def crop_row(
     parts: list[str], src_w: int, src_h: int, rect: tuple[int, int, int, int], min_box_px: float
-) -> tuple[str | None, bool, int]:
-    """Crop one detect/pose row. Returns (row or None if dropped, was_clipped, kpts_zeroed).
-
-    Coordinates come in normalized to the source image and go out normalized to the crop.
-    """
+) -> CropRowResult:
+    """Crop one detect/pose row; coordinates go from source-normalized to crop-normalized."""
     if len(parts) < 5 or (len(parts) - 5) % 3 != 0:
         raise UnsupportedRowError(" ".join(parts))
     try:
@@ -40,7 +44,7 @@ def crop_row(
     clipped_x1, clipped_x2 = max(x1, 0.0), min(x2, float(crop_w))
     clipped_y1, clipped_y2 = max(y1, 0.0), min(y2, float(crop_h))
     if clipped_x2 - clipped_x1 < min_box_px or clipped_y2 - clipped_y1 < min_box_px:
-        return None, False, 0
+        return CropRowResult(None, False, 0)
     was_clipped = (clipped_x1, clipped_x2, clipped_y1, clipped_y2) != (x1, x2, y1, y2)
 
     row = (
@@ -60,7 +64,7 @@ def crop_row(
             zeroed += visibility != 0
         else:
             row += f" {kx / crop_w:.6f} {ky / crop_h:.6f} {visibility:g}"
-    return row, was_clipped, zeroed
+    return CropRowResult(row, was_clipped, zeroed)
 
 
 def crop_label_text(

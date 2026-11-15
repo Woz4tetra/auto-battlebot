@@ -162,7 +162,6 @@ def process_label_file(label_path_str: str) -> dict[str, object]:
     if filtered:
         dest.write_text("\n".join(filtered) + "\n")
     else:
-        # Keep empty labels so paired images become negative examples.
         dest.write_text("")
     result["written"] = True
 

@@ -5,6 +5,7 @@ import os
 import shutil
 from pathlib import Path
 from random import Random
+from typing import NamedTuple
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp"}
 DERIVED_EXTS = {".npy", ".cache"}
@@ -62,6 +63,11 @@ def prepare_output(out: Path, overwrite: bool) -> tuple[Path, Path]:
     return out_images, out_labels
 
 
+class LinkResult(NamedTuple):
+    linked: int
+    skipped_no_label: int
+
+
 def link_pairs(
     frames: list[Path],
     images_dir: Path,
@@ -70,11 +76,8 @@ def link_pairs(
     out_images: Path,
     out_labels: Path,
     prefix: str,
-) -> tuple[int, int]:
-    """Hardlink each frame's image + .txt label into the output tree with a source prefix.
-
-    Returns (linked, skipped_no_label).
-    """
+) -> LinkResult:
+    """Hardlink each frame's image + .txt label into the output tree with a source prefix."""
     flat = images_dir == labels_dir
     linked = 0
     skipped = 0
@@ -93,7 +96,7 @@ def link_pairs(
         for label in labels:
             hardlink(label, out_labels / f"{prefix}__{label.name}")
         linked += 1
-    return linked, skipped
+    return LinkResult(linked, skipped)
 
 
 def hardlink(src: Path, dst: Path) -> None:

@@ -10,6 +10,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import NamedTuple
 
 import yaml
 
@@ -32,14 +33,19 @@ MONTHS = {
 }  # fmt: skip
 
 
+class LabelledFrame(NamedTuple):
+    image: Path
+    label: Path
+
+
 @dataclass
 class Scene:
     """One source recording: its frames, class histogram, and inferred date."""
 
     key: str
-    frames: list[tuple[Path, Path]] = field(default_factory=list)  # (image, label)
+    frames: list[LabelledFrame] = field(default_factory=list)
     classes: Counter = field(default_factory=Counter)
-    period: str | None = None  # "YYYY-MM", or None when undated
+    period: str | None = None
 
     @property
     def n_frames(self) -> int:
@@ -100,7 +106,7 @@ def scan_split(
             continue
 
         scene = scenes.setdefault(key, Scene(key=key, period=scene_period(key)))
-        scene.frames.append((image, Path(entry.path)))
+        scene.frames.append(LabelledFrame(image, Path(entry.path)))
         for line in Path(entry.path).read_text().splitlines():
             if line.strip():
                 scene.classes[int(line.split()[0])] += 1

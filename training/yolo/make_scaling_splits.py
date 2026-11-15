@@ -1,31 +1,4 @@
-"""Build the data-scaling arms: one shared val set, plus nested scene- and frame-sampled subsets.
-
-Answers "how much labelled data do I need, and does it matter whether it comes from more scenes or
-more frames" -- annotation cost is per frame, acquisition cost is per fight.
-
-Three properties this enforces, each of which a naive split gets wrong:
-
-* **The val set is scene-disjoint and shared.** Consecutive frames of a recording are
-  near-duplicates, so a frame-level val split measures memorisation. One val set is carved once and
-  used by every arm, so the val curves are directly comparable.
-* **Scene- and frame-sampled arms are matched on frame count.** Scene sizes here run 9 to 1,363
-  frames, so "50 % of scenes" could be anywhere from 7.9 k to 23.5 k frames. Matching frame count
-  and
-  varying only how many scenes it is drawn from is what isolates the value of scene diversity.
-* **Arms are nested.** ``scene50 ⊂ scene75 ⊂ base100`` and likewise for the random arms, built as
-  prefixes of one fixed shuffle. Each step only *adds* data, so a drop in accuracy cannot be blamed
-  on which scenes happened to be drawn.
-
-Output is **image-list .txt files**, not copied or linked frames. Ultralytics accepts a ``.txt`` of
-image paths for ``train``/``val``, so the arms cost kilobytes, share one ``cache="disk"`` ``.npy``
-set
-next to the original images, and cannot drift out of sync with the source dataset.
-
-Usage:
-  python training/yolo/make_scaling_splits.py \
-      --src training/data/nhrl_robots_bbox_2class \
-      --out training/data/datascale_2026-07-27
-"""
+"""Build the data-scaling arms: one shared val set, plus nested scene- and frame-sampled subsets."""
 
 from __future__ import annotations
 
@@ -38,6 +11,10 @@ from pathlib import Path
 
 import yaml
 
+USAGE = (
+    "python training/yolo/make_scaling_splits.py --src training/data/nhrl_robots_bbox_2class "
+    "--out training/data/datascale_2026-07-27"
+)
 SCENE_RE = re.compile(r"^(?P<scene>.*)_yolo_seg__frame_\d+$")
 FRACTIONS = (0.75, 0.50)
 
@@ -143,7 +120,9 @@ def summarize(name: str, frames: list[Path], classes: dict[str, Counter]) -> dic
 
 def build_arg_parser() -> argparse.ArgumentParser:
     """Construct the command line argument parser."""
-    parser = argparse.ArgumentParser(description=__doc__.split("\n", maxsplit=1)[0])
+    parser = argparse.ArgumentParser(
+        description=__doc__, epilog=USAGE, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--src", type=Path, required=True, help="Validated 2-class dataset root")
     parser.add_argument("--out", type=Path, required=True, help="Output dir for lists and yamls")
     parser.add_argument("--val-frac", type=float, default=0.15, help="Val share of frames")

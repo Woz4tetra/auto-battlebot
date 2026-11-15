@@ -58,15 +58,7 @@ def find_image(images_dir: Path, stem: str) -> Path | None:
 def convert_rows(
     text: str, index_map: dict[int, int], to_bbox: bool, min_side: float = 0.0
 ) -> list[str]:
-    """Remap and optionally box-ify one label file's rows. Dropped classes vanish.
-
-    With ``to_bbox`` this emits **one box per source class**, from that class's largest connected
-    contours (``seg_to_bbox.top_contours_bbox``). Grouping by *source* class is what makes this
-    correct: the archived vocabulary is per-robot-instance, so one box per source class is one box
-    per robot -- even though several of those classes collapse into the same target afterwards.
-
-    ``min_side`` drops boxes whose smaller side is below that fraction of the image.
-    """
+    """Remap and optionally box-ify one label file's rows. Dropped classes vanish."""
     out: list[str] = []
     by_class: dict[int, list[list[float]]] = defaultdict(list)
     for raw in text.splitlines():

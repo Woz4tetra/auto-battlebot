@@ -6,6 +6,7 @@ import json
 import multiprocessing as mp
 import shutil
 from pathlib import Path
+from typing import NamedTuple
 
 import yaml
 from tqdm import tqdm
@@ -117,13 +118,13 @@ def remap_label_line(line: str, old_id_to_new: dict[int, int]) -> str | None:
     return " ".join(parts)
 
 
-def process_pair_task(task: dict) -> tuple[bool, bool]:
-    """
-    Process one (image, label) pair task.
+class PairResult(NamedTuple):
+    copied: bool
+    skipped_no_label: bool
 
-    Returns:
-      (copied, skipped_no_label)
-    """
+
+def process_pair_task(task: dict) -> PairResult:
+    """Process one (image, label) pair task."""
     img_path = Path(task["img_path"])
     label_path = Path(task["label_path"])
     out_img = Path(task["out_img"])
@@ -138,13 +139,13 @@ def process_pair_task(task: dict) -> tuple[bool, bool]:
                 remapped_lines.append(remapped)
 
     if not remapped_lines:
-        return False, True
+        return PairResult(copied=False, skipped_no_label=True)
 
     out_img.parent.mkdir(parents=True, exist_ok=True)
     out_lbl.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(img_path, out_img)
     out_lbl.write_text("\n".join(remapped_lines) + "\n")
-    return True, False
+    return PairResult(copied=True, skipped_no_label=False)
 
 
 def is_image_passing(
@@ -154,11 +155,9 @@ def is_image_passing(
     include_unvalidated: bool,
 ) -> bool:
     """Return True if an image should be included in the merged dataset."""
-    # None means no validation_state.json exists — skip everything
     if validation_state is None:
         return False
 
-    # Key format used by validate_yolo_dataset.py: relative to dataset root
     rel_key = str(img_path.relative_to(dataset_root))
 
     status = validation_state.get(rel_key)

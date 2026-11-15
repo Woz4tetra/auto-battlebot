@@ -469,7 +469,6 @@ def to_yolo_seg_line(class_id: int, polygon: Polygon) -> str | None:
     coords = list(polygon.exterior.coords)
     if len(coords) < 4:
         return None
-    # Last coord repeats first; YOLO polygon rows should not include duplicate closure.
     coords = coords[:-1]
     if len(coords) < 3:
         return None
@@ -536,8 +535,6 @@ def _build_floor_minus_obstacle_mask(
         return None
     cv2.fillPoly(floor_mask, floor_cv, 255)
 
-    # Subtract all non-floor rows as obstacles. We include both repaired shapely
-    # polygons and raw rows to avoid dropping invalid robot polygons.
     obstacle_cv = [
         arr for p in obstacle_polys if (arr := _polygon_to_cv_poly(p, max_idx)) is not None
     ]
@@ -604,8 +601,6 @@ def _pieces_from_mask(mask: np.ndarray, max_idx: int, min_area: float) -> list[P
     if not contours or hierarchy is None:
         return []
 
-    # Build polygons with hole hierarchy first, then decompose holes into
-    # hole-free polygons so robot cutouts are not filled back in.
     pieces: list[Polygon] = []
     hierarchy_data = hierarchy[0]
     for idx, contour in enumerate(contours):

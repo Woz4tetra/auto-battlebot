@@ -31,6 +31,13 @@ def collect(root: Path) -> tuple[dict[str, str], int, int]:
     return merged, files, dropped
 
 
+def apply_existing(merged: dict[str, str], existing: dict[str, str]) -> int:
+    """Overlay the existing root verdicts onto `merged`; returns how many changed a verdict."""
+    overridden = sum(1 for k, v in existing.items() if merged.get(k) not in (None, v))
+    merged.update(existing)
+    return overridden
+
+
 def main() -> None:
     """Merge every per-export validation state under the root into a root-level one."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n", maxsplit=1)[0])
@@ -50,12 +57,9 @@ def main() -> None:
     if dropped:
         print(f"  {dropped} verdict(s) dropped: image no longer on disk")
 
-    # An existing root state is the newer judgement -- it was made against these keys, while the
-    # per-export files predate the merge. Keep it on top rather than reverting it.
     if out.is_file():
         existing = json.loads(out.read_text())
-        overridden = sum(1 for k, v in existing.items() if merged.get(k) not in (None, v))
-        merged.update(existing)
+        overridden = apply_existing(merged, existing)
         print(f"  {len(existing)} verdict(s) already in {out.name} kept ({overridden} differed)")
 
     if args.dry_run:

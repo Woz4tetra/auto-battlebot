@@ -1,41 +1,4 @@
-"""Build the domain-mix arms: randomized and cage-domain synthetic at set counts, as image lists.
-
-Step 4 of docs/experiments/perception_performance/synthetic_domain_mix_plan_2026-09-12.md. Every
-arm is the corpus's 452 real frames, a prefix of the randomized pool, and a prefix of the domain
-render, written as an image-list ``.txt`` plus a ``.yml`` that pairs it with the corpus's own val
-split. Like ``make_scaling_splits.py`` the arms cost kilobytes and cannot drift from the source
-datasets, but that script splits one dataset by scene; this one draws from several.
-
-Two properties, both asserted before anything is written:
-
-* **Arms nest.** Each source is drawn in one fixed order, so the 10k domain arm is a prefix of the
-  20k one and a drop in accuracy cannot be blamed on which frames were picked.
-* **The domain order is balanced at every prefix.** Each (venue, view) group is shuffled on its own,
-  the views are interleaved within a venue and the venues interleaved after that, so any prefix is
-  split evenly between the venues to within a frame and a third per view to within a frame per
-  venue, which is how the render lands. Filters (one venue, one view, damage-free frames only)
-  re-derive the order over what they keep.
-
-An arm with no venue filter draws from the two cage renders alone, whatever else ``--domain`` holds.
-The grid was trained that way, and a third venue in the interleave would otherwise move every list
-it trained on. The pose-only arms (pose_only_perception_plan_2026-09-19.md) name all three venues
-and take every frame, and carry the hand-corrected cage-high frames as a second real source through
-``--extra-real``.
-
-Usage:
-  venv/bin/python training/yolo/make_domain_mix_arms.py \\
-      --corpus training/data/all_robot_keypoints \\
-      --domain training/data/synth_cage_nhrl_2026-09-13 training/data/synth_cage_massd_2026-09-13 \\
-      --out training/data/domain_mix_arms_2026-09-13
-
-  # The pose-only arms: a third render and the cage-high frames marked `pass`.
-  venv/bin/python training/yolo/make_domain_mix_arms.py \\
-      --corpus training/data/all_robot_keypoints \\
-      --domain training/data/synth_cage_nhrl_2026-09-13_v2 \\
-          training/data/synth_cage_massd_2026-09-13 training/data/synth_cage_basement_2026-09-19 \\
-      --extra-real training/data/cage_high_x50_conf044 \\
-      --out training/data/domain_mix_arms_2026-09-19
-"""
+"""Build the domain-mix arms: randomized and cage-domain synthetic at set counts, as image lists."""
 
 from __future__ import annotations
 
@@ -49,6 +12,12 @@ from pathlib import Path
 
 import yaml
 
+USAGE = (
+    "venv/bin/python training/yolo/make_domain_mix_arms.py "
+    "--corpus training/data/all_robot_keypoints "
+    "--domain training/data/synth_cage_nhrl_2026-09-13 training/data/synth_cage_massd_2026-09-13 "
+    "--out training/data/domain_mix_arms_2026-09-13"
+)
 NAMES = ["mr_stabs_mk2", "mrs_buff_mk3", "nhrl_robot", "house_bot"]
 RANDOMIZED_PREFIX = "synthetic__"
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png"}
@@ -113,9 +82,6 @@ ARMS = (
     Arm("d50000_cagehigh", None, 50000, venues=ALL_VENUES, extra_real=True),
     Arm("d40000_cagehigh", None, 40000, extra_real=True),
     Arm("swap_half_cagehigh", 10000, 10000, extra_real=True),
-    # `d50000_cagehigh` without the cage-high frames, pose_model_size_ladder_plan_2026-09-24.md.
-    # Those frames are broadcast views of the same May 2026 fights nhrl_keypoints_eval_test scores,
-    # so no `_cagehigh` arm can be measured on it.
     Arm("d50000", None, 50000, venues=ALL_VENUES),
 )
 NESTED = (
@@ -297,7 +263,9 @@ def write_arm(out: Path, name: str, frames: list[Path], val_list: Path) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n", maxsplit=1)[0])
+    parser = argparse.ArgumentParser(
+        description=__doc__, epilog=USAGE, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--corpus", type=Path, required=True, help="all_robot_keypoints root")
     parser.add_argument(
         "--domain",

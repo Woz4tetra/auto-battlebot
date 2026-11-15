@@ -8,6 +8,7 @@ import shutil
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import NamedTuple
 
 from tqdm import tqdm
 
@@ -88,19 +89,19 @@ def find_paired_image(label_path: Path, dataset_dir: Path, labels_root: Path) ->
     return None
 
 
+class RemapResult(NamedTuple):
+    lines: list[str]
+    classes_before: set[int]
+    classes_after: set[int]
+    malformed: int
+
+
 def remap_label_lines(
     lines: list[str],
     label_map: dict[int, int],
     unmapped_classes: set[int],
-) -> tuple[list[str], set[int], set[int], int]:
-    """Remap YOLO label lines.
-
-    Returns:
-      - remapped lines
-      - classes seen before remap
-      - classes seen after remap
-      - malformed line count
-    """
+) -> RemapResult:
+    """Remap YOLO label lines."""
     remapped_lines: list[str] = []
     classes_before: set[int] = set()
     classes_after: set[int] = set()
@@ -126,7 +127,7 @@ def remap_label_lines(
         parts[0] = str(dst_cls)
         remapped_lines.append(" ".join(parts))
 
-    return remapped_lines, classes_before, classes_after, malformed_count
+    return RemapResult(remapped_lines, classes_before, classes_after, malformed_count)
 
 
 def init_worker(
@@ -177,7 +178,6 @@ def process_label_file(label_path_str: str) -> dict[str, object]:
         "dry_run_action": None,
     }
 
-    # If a .txt file has no valid YOLO lines, skip it (e.g. classes.txt).
     if not classes_before:
         return result
 

@@ -142,7 +142,7 @@ def _make_calibrator(int8: Int8Config, input_h: int, input_w: int) -> Any:
             return 1
 
         def get_batch(self, names: list[str]) -> list[int] | None:
-            del names  # single-input network; the address order is the network's own
+            assert len(names) == 1, f"calibrator expects one network input, got {names}"
             if self.index >= len(int8.frames):
                 return None
             path = int8.frames[self.index]
