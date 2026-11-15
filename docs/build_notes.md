@@ -13,3 +13,7 @@ The source glob in `CMakeLists.txt` is recursive, so `BUILD_WITH_ZED=OFF` filter
 ## PCL
 
 PCL is only reachable from `PointCloudFieldFilter` and `data_structures/point_cloud.hpp`. It stays unconditional while `FieldDescriptionWithInlierPoints` carries a cloud. It goes when the depth field filter does.
+
+## Web dashboard
+
+`scripts/build.sh` builds the web dashboard that `viz_relay` serves, through `scripts/build_web.sh`. It is optional. Without Node the build skips it and the relay answers 503 with a note.

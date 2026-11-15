@@ -164,17 +164,19 @@ if [ -s "$SKIP_LIST" ]; then
     sed 's|^|    |' "$SKIP_LIST"
 fi
 
-# Select remote paths whose basename is not present locally, one per basename.
-awk -v svo_out="$SVO_LIST" -v mcap_out="$MCAP_LIST" '
-    NR == FNR { have[$0] = 1; next }
-    { name = $0; sub(/.*\//, "", name) }
-    name in have || name in seen { next }
-    {
-        seen[name] = 1
-        if (name ~ /\.svo2$/) print > svo_out
-        else if (name ~ /\.mcap$/) print > mcap_out
-    }
-' "$LOCAL_INDEX" "$REMOTE_LIST"
+select_missing_remote_paths() {
+    awk -v svo_out="$SVO_LIST" -v mcap_out="$MCAP_LIST" '
+        NR == FNR { have[$0] = 1; next }
+        { name = $0; sub(/.*\//, "", name) }
+        name in have || name in seen { next }
+        {
+            seen[name] = 1
+            if (name ~ /\.svo2$/) print > svo_out
+            else if (name ~ /\.mcap$/) print > mcap_out
+        }
+    ' "$LOCAL_INDEX" "$REMOTE_LIST"
+}
+select_missing_remote_paths
 
 if [ "$AUTONOMY_ONLY" -eq 1 ] && [ -s "$MCAP_LIST" ]; then
     echo "Checking $(wc -l < "$MCAP_LIST") MCAP(s) for autonomous activity ..."
