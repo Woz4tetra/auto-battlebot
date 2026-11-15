@@ -1,41 +1,26 @@
 #!/bin/bash
-# Serve the web dashboard at http://<hostname>.local over the Ethernet cable. The box keeps the
-# hostname it already has; this script never renames it.
-#
-# The iPad plugs into the box with a USB-C Ethernet dongle. Nothing on that link hands out
-# addresses: the box takes the fixed address 10.42.42.1/24, and the iPad is set by hand to
-# 10.42.42.2/24 with no router (Settings > Ethernet > the dongle > Configure IP > Manual). A DHCP
-# server would save that step, but it would hand out addresses to a whole shop LAN the day the
-# box is plugged into a router.
-#
-# The cable used to be link-local (169.254.42.1/16). iOS routes link-local traffic out its
-# primary interface, which is Wi-Fi whenever the iPad has both, so after a replug Safari sent
-# the dashboard requests over Wi-Fi, where the firewall below drops them. Only the cable has a
-# route to 10.42.42.0/24. Keep this subnet in sync with include/host/dashboard_network.hpp.
-#
-# The name is the box's hostname, published by Avahi over mDNS. Avahi answers a hostname query on
-# each interface with that interface's own address, so the iPad on the cable and a phone on Wi-Fi
-# both resolve it to an address they can reach.
-#
-# The dashboard ports (80 and Foxglove's 8765) are cable-only by default: an nftables table accepts
-# them on loopback and the Ethernet port and drops them everywhere else. The app opens them on
-# Wi-Fi when someone turns on "Allow on Wi-Fi" in the System tab, by starting
-# dashboard-wifi.service, which a polkit rule lets the app user do for that one
-# unit only.
-#
-# Usage (also sourced by scripts/install_jetson.sh):
-#   install/install_dashboard_network.sh [--interface <dev>] [--wifi-interface <dev>]
-#                                        [--tailscale-interface <dev>] [--allow-all-interfaces]
-#
-#   --interface <dev>         Ethernet port the iPad uses. Default: first ethernet device nmcli
-#                             lists.
-#   --wifi-interface <dev>    Interface the Wi-Fi access toggle opens. Default: first wifi device.
-#   --tailscale-interface <dev>
-#                             Tailscale interface, always allowed. Default: tailscale0. The rule
-#                             matches by name, so it works whether or not tailscaled is up yet.
-#   --allow-all-interfaces    No firewall table: the dashboard and Foxglove are open on every
-#                             interface all the time. Removes the table, units, and polkit rule an
-#                             earlier run installed.
+
+dashboard_network_usage() {
+    cat <<'EOF'
+Serve the web dashboard at http://<hostname>.local over the Ethernet cable.
+The box keeps the hostname it already has; this script never renames it.
+See docs/dashboard_network.md for the addressing and firewall design.
+
+Usage (also sourced by scripts/install_jetson.sh):
+  install/install_dashboard_network.sh [--interface <dev>] [--wifi-interface <dev>]
+                                       [--tailscale-interface <dev>] [--allow-all-interfaces]
+
+  --interface <dev>         Ethernet port the iPad uses. Default: first ethernet device nmcli
+                            lists.
+  --wifi-interface <dev>    Interface the Wi-Fi access toggle opens. Default: first wifi device.
+  --tailscale-interface <dev>
+                            Tailscale interface, always allowed. Default: tailscale0. The rule
+                            matches by name, so it works whether or not tailscaled is up yet.
+  --allow-all-interfaces    No firewall table: the dashboard and Foxglove are open on every
+                            interface all the time. Removes the table, units, and polkit rule an
+                            earlier run installed.
+EOF
+}
 
 check_dashboard_network_prereqs() {
     if ! command -v nmcli >/dev/null 2>&1; then
@@ -187,6 +172,10 @@ install_dashboard_network() {
     local allow_all=false
     while [ $# -gt 0 ]; do
         case "$1" in
+            -h | --help)
+                dashboard_network_usage
+                return 0
+                ;;
             --interface)
                 iface="$2"
                 shift 2

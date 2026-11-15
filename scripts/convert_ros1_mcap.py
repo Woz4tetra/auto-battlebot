@@ -795,15 +795,14 @@ _INT_PATTERN = re.compile(r"^[+-]?\d+$")
 
 
 def coerce_value(value: Any) -> Any:
-    """The legacy string-to-number rule, one value at a time.
-
-    Legacy recordings stringified every diagnostic value (``std::to_string``), so an integer
-    became ``"1"`` and a double ``"12.500000"``. The C++ stack now emits typed values; this is
-    the same judgement applied to old bytes: an integer literal becomes ``int``, anything
-    ``float()`` accepts becomes ``float`` (``nan``/``inf`` included), and everything else stays
-    a string. Already-typed values pass through untouched.
-    """
+    """The legacy string-to-number rule, one value at a time."""
     if not isinstance(value, str):
+        return value
+    if re.fullmatch(r"[+-]?\d+", value):
+        return int(value)
+    try:
+        return float(value)
+    except ValueError:
         return value
 
 

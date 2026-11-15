@@ -75,12 +75,7 @@ def download(args: argparse.Namespace, into: Path) -> None:
 
 
 def source_videos(source_dir: Path) -> list[Path]:
-    """Top-level clips only.
-
-    ``annotated/`` holds detection-overlay renders from the background-subtraction work. Those are
-    derived pictures with boxes burned into them, not camera frames, and converting one would put a
-    previous model's opinion into a recording the pipeline is supposed to form its own.
-    """
+    """Top-level clips only."""
     return sorted(source_dir.glob("*.mp4"))
 
 

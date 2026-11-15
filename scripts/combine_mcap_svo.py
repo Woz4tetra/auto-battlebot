@@ -14,7 +14,7 @@ import sys
 import tempfile
 from contextlib import ExitStack, closing, contextmanager, suppress
 from pathlib import Path
-from typing import Any, Iterator, List, Optional, Tuple
+from typing import Any, Iterator, List, NamedTuple, NewType, Optional, Tuple
 
 from mcap.exceptions import McapError
 from mcap.reader import make_reader
@@ -42,13 +42,20 @@ SVO_FRAME_JSON_SCHEMA = (
 RECOVERED_SUBDIR = "recovered"
 RECOVERY_LIBRARY = "combine_mcap_svo recover"
 
+RepairedMcap = NewType("RepairedMcap", Path)
+
+
+class CombineResult(NamedTuple):
+    written_mcaps: int
+    unusable_svos: int
+
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_SEARCH_DIRS = [
     PROJECT_ROOT / "data" / "svo",
     PROJECT_ROOT / "data" / "temp_svo",
 ]
 
-# spdlog::info("Resolved SVO path: {}", ...) and "SVO recording started: {}".
 SVO_PATH_REGEX = re.compile(r"(?:Resolved SVO path|SVO recording started):\s+(\S+\.svo2)")
 
 
@@ -69,16 +76,7 @@ def _frame_meta_svo_path(data: bytes) -> Optional[Path]:
 
 
 def extract_svo_paths(mcap_path: Path) -> List[Path]:
-    """Return the SVO paths this recording used, in first-seen order.
-
-    Both /log and /camera/frame_meta are read, because neither is complete
-    on its own. /log logs the SVO the recorder opened but not the ones it
-    rotates to mid-run: auto_battlebot_..._2026-08-28_20-57-33 logs only
-    2026-08-28T20-57-35.svo2 and never mentions the 2026-08-28T21-03-09.svo2
-    that holds all but the first 123 of its frames. /camera/frame_meta names
-    the file per frame, so it catches the rotations, but only recordings from
-    2026-08 on publish it.
-    """
+    """Return the SVO paths this recording used, in first-seen order."""
     seen: "dict[Path, None]" = {}
     for topic, _log_time, data in mcap_io.iter_messages(mcap_path, [LOG_TOPIC, FRAME_META_TOPIC]):
         if topic == FRAME_META_TOPIC:
@@ -92,12 +90,7 @@ def extract_svo_paths(mcap_path: Path) -> List[Path]:
 
 
 def _has_data(path: Path) -> bool:
-    """True when `path` is a file with content.
-
-    A recorder that opens an SVO and rotates away from it can leave a 0-byte
-    file behind (data/svo/2026-08-28/2026-08-28T20-57-35.svo2). It looks like
-    a hit but holds no MCAP magic, so it must not win the search.
-    """
+    """True when `path` is a file with content."""
     if not path.is_file():
         return False
     if path.stat().st_size > 0:
@@ -107,13 +100,7 @@ def _has_data(path: Path) -> bool:
 
 
 def resolve_svo_path(referenced: Path, search_dirs: List[Path]) -> Optional[Path]:
-    """Locate the SVO file on disk, falling back to basename matches.
-
-    Search dirs are walked recursively, because the recording logs the path
-    the Jetson wrote to while the files are filed here into per-date
-    subdirectories (data/svo/2026-08-23/...). Directories are tried in order,
-    each one shallow-first, so an earlier search dir always wins.
-    """
+    """Locate the SVO file on disk, falling back to basename matches."""
     if referenced.is_absolute():
         if _has_data(referenced):
             return referenced.resolve()
@@ -142,12 +129,7 @@ def resolve_svo_path(referenced: Path, search_dirs: List[Path]) -> Optional[Path
 
 
 def read_svo_time_range(svo_path: Path, topic: str) -> Tuple[int, int]:
-    """Return (start_ns, end_ns) spanned by the SVO's frames.
-
-    Taken from the frame timestamps, never from the MCAP summary statistics:
-    svo_header and svo_footer carry log_times unrelated to the recording's own
-    timeline, which stretches the summary range by months.
-    """
+    """Return (start_ns, end_ns) spanned by the SVO's frames."""
     stamps = svo2.read_frame_stamps(svo_path, topic)
     if not stamps:
         raise RuntimeError(f"SVO has no frames on {topic}: {svo_path}")
@@ -303,11 +285,7 @@ def _load_retimed_originals(
     start_ns: int,
     end_ns: int,
 ) -> List[Tuple[int, int, object, object, object]]:
-    """Load original messages, retime their log_times, and filter to [start, end].
-
-    We over-fetch by max_abs_offset so we don't drop messages whose retimed time
-    lands inside the window, then re-sort before the merge.
-    """
+    """Load original messages, retime their log_times, and filter to [start, end]."""
     if retimer:
         margin_ns = retimer.offset_stats_ns[1]
     else:
@@ -571,20 +549,17 @@ def process_mcap(
     dry_run: bool,
     ffmpeg_bin: str,
     ignore_missing_svo: bool,
-) -> Tuple[int, int]:
-    """Process one input MCAP, repairing it first if it does not read cleanly.
-
-    Returns (number of combined MCAPs written, number of referenced SVOs unusable).
-    """
+) -> CombineResult:
+    """Process one input MCAP, repairing it first if it does not read cleanly."""
     if not input_mcap.exists():
         logger.error("Input MCAP not found: %s", input_mcap)
-        return 0, 0
+        return CombineResult(0, 0)
 
     out_dir = output_dir if output_dir is not None else input_mcap.parent
     damage = _describe_damage(input_mcap)
     if damage is None:
         return _combine_svos(
-            input_mcap,
+            RepairedMcap(input_mcap),
             out_dir,
             search_dirs,
             overwrite=overwrite,
@@ -597,9 +572,9 @@ def process_mcap(
     with _recovered_copy(input_mcap, out_dir, keep=not dry_run) as recovered:
         if recovered is None:
             logger.error("Nothing readable in %s; skipping it.", input_mcap)
-            return 0, 0
+            return CombineResult(0, 0)
         return _combine_svos(
-            recovered,
+            RepairedMcap(recovered),
             out_dir,
             search_dirs,
             overwrite=overwrite,
@@ -610,7 +585,7 @@ def process_mcap(
 
 
 def _combine_svos(
-    input_mcap: Path,
+    input_mcap: RepairedMcap,
     out_dir: Path,
     search_dirs: List[Path],
     *,
@@ -618,16 +593,12 @@ def _combine_svos(
     dry_run: bool,
     ffmpeg_bin: str,
     ignore_missing_svo: bool,
-) -> Tuple[int, int]:
-    """Write one combined MCAP per SVO `input_mcap` references.
-
-    `input_mcap` has to read cleanly by this point; process_mcap repairs it first
-    if it does not.
-    """
+) -> CombineResult:
+    """Write one combined MCAP per SVO `input_mcap` references."""
     referenced = extract_svo_paths(input_mcap)
     if not referenced:
         logger.warning("No SVO paths found in %s", input_mcap)
-        return 0, 0
+        return CombineResult(0, 0)
 
     profile = get_input_profile(input_mcap)
     if profile == "ros1":
@@ -636,12 +607,9 @@ def _combine_svos(
             "scripts/convert_ros1_mcap.py first",
             input_mcap,
         )
-        return 0, 0
+        return CombineResult(0, 0)
     written = 0
     missing = 0
-    # Two references can name one file (/rosout and /camera/frame_meta spell the
-    # same path, or two spellings resolve to the same file by basename), and a
-    # second pass over it would just rewrite the same output.
     done: "dict[Path, None]" = {}
 
     svo_iter = tqdm(
@@ -721,7 +689,7 @@ def _combine_svos(
         logger.info("Wrote %s", combined_path)
         written += 1
 
-    return written, missing
+    return CombineResult(written, missing)
 
 
 def main() -> int:

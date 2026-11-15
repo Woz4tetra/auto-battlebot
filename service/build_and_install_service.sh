@@ -22,7 +22,6 @@ REAL_USER="${SUDO_USER:-$USER}"
 # system unit even with User= set, which sent dconf to /run/user/0 and broke the kiosk setup.
 REAL_UID="$(id -u "$REAL_USER")"
 
-# Same test as with_display.sh: a display manager is enabled and the box boots graphical.target.
 boots_a_desktop() {
     systemctl is-enabled display-manager.service >/dev/null 2>&1 &&
         [ "$(systemctl get-default 2>/dev/null || true)" = "graphical.target" ]

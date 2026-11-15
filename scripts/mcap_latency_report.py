@@ -43,8 +43,6 @@ class LatencySamples:
     window_note: str | None = None
 
 
-# First stage of the initialized tick path. Its first sample is published by the tick that
-# ran the field initialization itself, so the window starts strictly after that tick.
 FIELD_INIT_STAGE = "runner.field_filter.track_field"
 
 
@@ -135,7 +133,7 @@ class StageStats:
     median_ms: float
     p95_ms: float
     max_ms: float
-    pct_tick: float | None  # share of the runner.tick mean; None where meaningless
+    pct_of_tick_mean: float | None
 
 
 def aggregate(samples: LatencySamples, stage_filter: list[str] | None) -> list[StageStats]:
@@ -149,9 +147,9 @@ def aggregate(samples: LatencySamples, stage_filter: list[str] | None) -> list[S
         if stage_filter and not any(f in stage for f in stage_filter):
             continue
         arr = np.asarray(values, dtype=np.float64)
-        pct_tick: float | None = None
+        pct_of_tick_mean: float | None = None
         if tick_mean is not None and tick_mean > 0 and stage != PIPELINE_STAGE:
-            pct_tick = 100.0 * float(arr.mean()) / tick_mean
+            pct_of_tick_mean = 100.0 * float(arr.mean()) / tick_mean
         stats.append(
             StageStats(
                 stage=stage,
@@ -160,7 +158,7 @@ def aggregate(samples: LatencySamples, stage_filter: list[str] | None) -> list[S
                 median_ms=float(np.median(arr)),
                 p95_ms=float(np.percentile(arr, 95)),
                 max_ms=float(arr.max()),
-                pct_tick=pct_tick,
+                pct_of_tick_mean=pct_of_tick_mean,
             )
         )
     stats.sort(key=lambda s: s.mean_ms, reverse=True)
@@ -170,7 +168,7 @@ def aggregate(samples: LatencySamples, stage_filter: list[str] | None) -> list[S
 def _table_rows(stats: list[StageStats]) -> list[tuple[str, str, str, str, str, str, str]]:
     rows = []
     for s in stats:
-        pct = f"{s.pct_tick:.1f}%" if s.pct_tick is not None else "-"
+        pct = f"{s.pct_of_tick_mean:.1f}%" if s.pct_of_tick_mean is not None else "-"
         rows.append(
             (
                 s.stage,
@@ -256,9 +254,9 @@ def write_markdown_report(
 
 
 def write_csv(csv_path: Path, stats: list[StageStats]) -> None:
-    lines = ["stage,count,mean_ms,median_ms,p95_ms,max_ms,pct_tick"]
+    lines = ["stage,count,mean_ms,median_ms,p95_ms,max_ms,pct_of_tick_mean"]
     for s in stats:
-        pct = f"{s.pct_tick:.3f}" if s.pct_tick is not None else ""
+        pct = f"{s.pct_of_tick_mean:.3f}" if s.pct_of_tick_mean is not None else ""
         lines.append(
             f"{s.stage},{s.count},{s.mean_ms:.3f},{s.median_ms:.3f},"
             f"{s.p95_ms:.3f},{s.max_ms:.3f},{pct}"

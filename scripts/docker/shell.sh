@@ -27,8 +27,6 @@ esac
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Parsed before sourcing docker_common.sh, which reads AUTO_BATTLEBOT_NO_DISPLAY when it
-# decides what to do with DISPLAY.
 COMMAND_ARGS=()
 for arg in "$@"; do
     if [ "${arg}" = "--no-display" ]; then

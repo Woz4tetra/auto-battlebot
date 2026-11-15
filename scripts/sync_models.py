@@ -1,16 +1,5 @@
 #!/usr/bin/env python3
-"""
-Sync model files from a public Google Drive folder using gdown.
-
-This script downloads all files from the configured public Drive folder into
-the local models directory, but never overwrites existing local files.
-
-Usage:
-    python scripts/sync_models.py                # Download missing models
-    python scripts/sync_models.py --dry-run      # Preview without copying files
-    python scripts/sync_models.py -o ./custom    # Download to custom directory
-    python scripts/sync_models.py --url URL      # Override Drive folder URL
-"""
+"""Sync model files from a public Google Drive folder using gdown."""
 
 import argparse
 import platform
@@ -164,11 +153,7 @@ def print_platform_tag_matches(models_dir: Path) -> None:
 
 
 def engine_path_with_platform_tag(path: Path) -> Path:
-    """Append platform + GPU compute capability tag so incompatible engines are distinct.
-
-    Produces filenames like ``model_x86_64_sm89.engine`` - the ``sm`` tag
-    prevents silently loading an engine built for a different GPU architecture.
-    """
+    """Append platform + GPU compute capability tag so incompatible engines are distinct."""
     tag = get_platform_compute_tag()
     suffix = path.suffix if path.suffix else ".engine"
     return path.parent / f"{path.stem}_{tag}{suffix}"
@@ -176,7 +161,10 @@ def engine_path_with_platform_tag(path: Path) -> Path:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Sync model files from a public Google Drive folder using gdown",
+        description=(
+            "Download the files in the configured public Drive folder into the local models "
+            "directory. Existing local files are never overwritten."
+        ),
     )
     parser.add_argument(
         "-o",

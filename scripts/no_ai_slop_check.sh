@@ -8,13 +8,10 @@ file=$(jq -r '.tool_response.filePath // .tool_input.file_path // empty' <<<"${p
 [ -n "${file}" ] && [ -f "${file}" ] || exit 0
 
 case "${file}" in
-    # CLAUDE.md and the skill files quote the banned words as examples, and
-    # data/ is off limits. Scanning either is a guaranteed false positive.
     */CLAUDE.md | */.claude/* | */data/* | */venv/* | */build*/*) exit 0 ;;
 esac
 
 case "${file}" in
-    # Every branch yields "<line>:<text>" so reported hits carry file line numbers.
     *.md | *.txt | *.rst) subject=$(grep -n '' "${file}") ;;
     *.cpp | *.hpp | *.h | *.cc | *.cu | *.cuh) subject=$(grep -nE '^[[:space:]]*(//|/\*|\*)' "${file}") ;;
     *.py | *.sh | *.toml | *.cmake | */CMakeLists.txt) subject=$(grep -nE '^[[:space:]]*#' "${file}") ;;
