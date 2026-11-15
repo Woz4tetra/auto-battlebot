@@ -113,15 +113,16 @@
           <button
             class="leader value"
             class:plotted={v.key === plotKey}
-            class:held={v.heldMs !== null}
+            class:held={v.repeatedAgeMs !== null}
             disabled={!numeric}
             title={numeric ? "Plot this value" : undefined}
             onclick={() => (plotKeys = { ...plotKeys, [selected.id]: v.key })}
           >
             <span class="k mono">{v.key}</span><span class="dots"
-            ></span>{#if v.heldMs !== null}<span
+            ></span>{#if v.repeatedAgeMs !== null}<span
                 class="age mono"
-                title="Not logged since the last message">{(v.heldMs / 1000).toFixed(1)} s</span
+                title="Not logged since the last message"
+                >{(v.repeatedAgeMs / 1000).toFixed(1)} s</span
               >{/if}<span class="v">{show(v.value)}</span>
           </button>
         {/each}
