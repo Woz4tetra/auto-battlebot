@@ -51,7 +51,6 @@ def _body(b: MassBody) -> dict[str, Any]:
     return {
         "mass_kg": round(b.mass, 7),
         "com_m": [round(float(v), 7) for v in b.com],
-        # MuJoCo fullinertia order: Ixx Iyy Izz Ixy Ixz Iyz, about the COM, body axes.
         "fullinertia_kg_m2": [
             float(f"{v:.5e}") for v in (i[0, 0], i[1, 1], i[2, 2], i[0, 1], i[0, 2], i[1, 2])
         ],

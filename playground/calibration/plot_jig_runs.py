@@ -94,8 +94,6 @@ def excluded_regions(
     if pauses:
         out["operator pause"] = [(p.t_start + offset, p.t_end + offset) for p in pauses]
 
-    # A pause looks motionless once the robot is back down, so those stretches are not still
-    # holds. Same rule the fit uses.
     stills = [
         seg
         for seg in find_still_segments(log)
@@ -383,7 +381,6 @@ def _radio_channels(record: RunRecord) -> tuple[np.ndarray | None, np.ndarray | 
         return a, b
     if record.command_source != "measured":
         return None, None
-    # from_channels gave lin = (a+b)/2 and ang = -(a-b)/2, so a = lin - ang, b = lin + ang.
     return record.cmd_lin - record.cmd_ang, record.cmd_lin + record.cmd_ang
 
 
@@ -418,8 +415,6 @@ def saturated_mask(
     mask = np.zeros(len(log.t), dtype=bool)
     clock = clock or ClockFit.identity()
     keep = ~pause_mask(clock.host_seconds(log.t), pauses)
-    # Accel uses the header-derived limit, gyro the raw rail. Same split as JigLog.saturation,
-    # so what is drawn is exactly what the sidecar counted.
     limits = [
         (prefix, raw, limit)
         for prefix, raw, limit in (

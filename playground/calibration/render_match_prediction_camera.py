@@ -119,6 +119,11 @@ def project_points(
     return out
 
 
+def grid_slots(stamp_ns: np.ndarray, t0_ns: int, dt: float, count: int) -> np.ndarray:
+    slots = np.round((stamp_ns - t0_ns) / (dt * 1e9)).astype(int)
+    return np.clip(slots, 0, count - 1)
+
+
 def _robot_footprint(x: float, y: float, theta: float) -> np.ndarray:
     c, s = np.cos(theta), np.sin(theta)
     rot = np.array([[c, -s], [s, c]])
@@ -210,9 +215,7 @@ def main() -> None:
         if "17-42-20" in name:
             holdout_from_s = float(run.t[int(len(run.t) * (1 - args.holdout_fraction))])
 
-        # Tick -> grid slot, by the same rounding the grid was built with.
-        slots = np.round((cam.stamp_ns - run.t0_ns) / (run.dt * 1e9)).astype(int)
-        slots = np.clip(slots, 0, len(run.t) - 1)
+        slots = grid_slots(cam.stamp_ns, run.t0_ns, run.dt, len(run.t))
 
         first_idx = int(cam.svo_index[0])
         last_idx = int(cam.svo_index[-1])

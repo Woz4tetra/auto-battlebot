@@ -59,9 +59,6 @@ def black_cell_boxes(
                 c += 1
             run = c - run_start
             cx = origin[0] + cell * (run_start + run / 2.0)
-            # Image row r counts from the top, world +y points up: row 0 must land at the high-y
-            # edge so a top- down camera sees the tag, not its vertical mirror. (A reflected 36h11
-            # tag never decodes.)
             cy = origin[1] + cell * (side - 1 - r + 0.5)
             box = trimesh.creation.box(extents=[cell * run, cell, tag_h])
             box.apply_translation([cx, cy, base_h + tag_h / 2.0])

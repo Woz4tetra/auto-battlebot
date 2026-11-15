@@ -34,8 +34,6 @@ def floor_grid_pdf(
     out: Path,
 ) -> None:
     dictionary = cv2.aruco.getPredefinedDictionary(DICTIONARY)
-    # Match the manufactured board: ids run right-to-left within each row (see
-    # apriltag_track.make_floor_board).
     ids = np.arange(first_id, first_id + cols * rows).reshape(rows, cols)[:, ::-1].reshape(-1)
     board = cv2.aruco.GridBoard((cols, rows), marker_m, sep_m, dictionary, ids)
     board_w_mm = (cols * marker_m + (cols - 1) * sep_m) * 1000.0
@@ -73,7 +71,6 @@ def main() -> None:
     p.add_argument(
         "--quiet-mm", type=float, default=20.0, help="white border around tags/board (mm)"
     )
-    # Floor grid (must match apriltag_track.py --floor-* defaults; mirrors the manufactured board).
     p.add_argument("--floor-cols", type=int, default=3)
     p.add_argument("--floor-rows", type=int, default=5)
     p.add_argument("--floor-marker-size", type=float, default=0.065, help="floor marker edge (m)")
@@ -81,7 +78,6 @@ def main() -> None:
         "--floor-marker-sep", type=float, default=0.015, help="gap between floor markers (m)"
     )
     p.add_argument("--floor-first-id", type=int, default=160)
-    # Robot tag (id off the floor's 160..174 range).
     p.add_argument("--robot-tag-id", type=int, default=20)
     p.add_argument("--robot-tag-size", type=float, default=0.13, help="robot tag edge (m)")
     p.add_argument(
