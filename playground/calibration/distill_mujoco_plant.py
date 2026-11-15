@@ -290,7 +290,7 @@ def distill_run(job: dict[str, Any]) -> dict[str, Any]:
 def score_sessions(
     paths: list[Path], doc: dict[str, Any], tables: dict[str, plant.PlantParams]
 ) -> dict[str, Any]:
-    """Every table on the held-out flat windows, through the same per-motor tape and inverse"""
+    """Score every table on the held-out flat windows."""
     mp, _ = _model()
     batch = build_batch(
         [load_session(p) for p in paths],

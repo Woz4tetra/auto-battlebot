@@ -162,7 +162,7 @@ def check_camera(stamps: np.ndarray, rep: Report) -> None:
 
 
 def check_field(path: Path, rep: Report, counts: dict[str, int]) -> None:
-    """Each field init redefines the field frame, so a session is a run of locks. The smoother"""
+    """Summarize the field-frame locks in a session, since each field init redefines the frame."""
     series = load_field_from_camera(path)
     reinits = counts.get("/command/reinit_field", 0)
     if len(series) == 0:
@@ -307,7 +307,7 @@ def check_esp32(esp: pd.DataFrame, rep: Report) -> bool:
 
 
 def sticks_from_telemetry(esp: pd.DataFrame) -> pd.DataFrame:
-    """The handset sticks as the robot saw them, in the radio channel frame's columns. With"""
+    """The handset sticks as the robot saw them, as radio channel columns."""
     return pd.DataFrame(
         {
             "stamp_ns": esp["log_time_ns"].to_numpy(np.int64),
@@ -318,7 +318,7 @@ def sticks_from_telemetry(esp: pd.DataFrame) -> pd.DataFrame:
 
 
 def stick_centers(sticks: pd.DataFrame) -> tuple[float, float]:
-    """Resting value of each stick channel: the value held longest. A trimmed or worn gimbal"""
+    """Resting value of each stick channel: the value held longest."""
     t = sticks["stamp_ns"].to_numpy(np.int64)
     held = np.diff(np.concatenate([t, [t[-1]]]))
     out = []
@@ -334,7 +334,7 @@ def stick_centers(sticks: pd.DataFrame) -> tuple[float, float]:
 
 
 def stick_at(sticks: pd.DataFrame, stamps_ns: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Linear and angular stick fraction held at each stamp (channels log only on change),"""
+    """Linear and angular stick fraction held at each stamp."""
     t = sticks["stamp_ns"].to_numpy(np.int64)
     c_lin, c_ang = stick_centers(sticks)
     idx = np.clip(np.searchsorted(t, stamps_ns, side="right") - 1, 0, len(t) - 1)

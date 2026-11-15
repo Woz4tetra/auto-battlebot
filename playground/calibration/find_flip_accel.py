@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Find the max forward acceleration a robot tolerates before it flips (trainer link ONLY, no"""
+"""Find the max forward acceleration a robot tolerates before it flips."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Mr Stabs Mk2 rigid-body plant (auto_battlebot.mujoco_sim.closed_loop) behind the sim's"""
+"""Mr Stabs Mk2 rigid-body plant (`closed_loop`) behind the sim's plant interface."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ FOOTPRINT_SEGMENTS = 32
 
 
 def _geom_points(model: mujoco.MjModel, geom: int) -> np.ndarray | None:
-    """Points in the geom's own frame whose convex hull is the shape, or None for a type the"""
+    """Points in the geom's own frame whose convex hull is the shape, or None for unknown types."""
     kind = model.geom_type[geom]
     size = np.asarray(model.geom_size[geom], dtype=float)
     theta = np.linspace(0.0, 2.0 * math.pi, FOOTPRINT_SEGMENTS, endpoint=False)

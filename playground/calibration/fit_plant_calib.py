@@ -353,7 +353,7 @@ class LatencyDiag:
 
 
 def _latency_stack(s: Session) -> LatencyDiag:
-    """Pool every clean command edge and stack the acceleration that follows it to time the"""
+    """Pool clean command edges and stack the acceleration after each to time the transport lag."""
     pre = 4  # samples kept before each edge to measure the pre-onset baseline
     max_lag = max(5, round(0.24 / s.dt))  # search transport delays out to 240 ms
     win = pre + max_lag + 1

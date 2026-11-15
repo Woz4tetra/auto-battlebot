@@ -50,6 +50,29 @@ MEAS_HEADER_SIZE: int = struct.calcsize(MEAS_HEADER_FMT)
 MEAS_POSE_FMT: str = "<dddd"
 MEAS_POSE_SIZE: int = struct.calcsize(MEAS_POSE_FMT)
 
+
+def unpack_request(data: bytes) -> Request:
+    return Request._make(struct.unpack(REQUEST_FMT, data))
+
+
+def pack_response_header(header: ResponseHeader) -> bytes:
+    return struct.pack(
+        RESPONSE_HEADER_FMT,
+        header.width,
+        header.height,
+        *header.tf_matrix,
+        header.fx,
+        header.fy,
+        header.cx,
+        header.cy,
+        header.sim_time,
+    )
+
+
+def pack_meas_pose(pose: MeasPose) -> bytes:
+    return struct.pack(MEAS_POSE_FMT, *pose)
+
+
 _SOCK_BUF_SIZE: int = 4 * 1024 * 1024
 
 

@@ -1,4 +1,4 @@
-"""Convert between output-shaft acceleration (RPM/s) and wheel-surface linear"""
+"""Convert between output-shaft acceleration (RPM/s) and wheel-surface linear acceleration."""
 
 from __future__ import annotations
 

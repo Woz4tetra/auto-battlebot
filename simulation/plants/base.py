@@ -12,7 +12,7 @@ Pose = tuple[float, float, float]  # x, y, yaw in the field frame
 
 
 class PlantInterface(Protocol):
-    """Our robot's drivetrain. The server applies actuation latency before `step`; the viewer"""
+    """Our robot's drivetrain, as the server and viewer use it."""
 
     @property
     def v(self) -> float: ...  # forward speed, m/s
@@ -50,7 +50,7 @@ class PlantInterface(Protocol):
     def pose(self) -> Pose: ...
 
     def collision_outlines(self) -> list[np.ndarray]:
-        """Top-down outline of each shape our robot collides with the moving blocks through, as"""
+        """Top-down outline of each shape our robot collides with the moving blocks through."""
         ...
 
 

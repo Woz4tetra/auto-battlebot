@@ -63,7 +63,7 @@ class KinematicPlant:
         self._moving_blocks = blocks
 
     def collision_outlines(self) -> list[np.ndarray]:
-        """A disc of [our_robot] radius against a disc of each block's hazard_radius: the"""
+        """A disc of [our_robot] radius against a disc of each block's hazard_radius."""
         outlines = [disc_outline(self.x, self.y, self._cfg.radius)]
         outlines += [disc_outline(x, y, r) for x, y, _, r in self._moving_blocks]
         return outlines

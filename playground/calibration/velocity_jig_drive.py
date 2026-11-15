@@ -796,7 +796,7 @@ def gates(
     hold_s: float,
     contamination: float,
 ) -> list[Gate]:
-    """Capture-time gates. The offline ones (bias drift, saturation, encoder slip) need the"""
+    """Capture-time gates checked on the live session."""
     out: list[Gate] = []
     if dropped:
         out.append(Gate(f"dropped={dropped} samples on the SD path"))

@@ -49,7 +49,7 @@ def _resolve(path: str) -> Path:
 
 
 class SpriteSet:
-    """Sprites plus the two conventions the runtime depends on, both read from sprites.json:"""
+    """Sprites plus the two conventions the runtime reads from sprites.json."""
 
     def __init__(self, sprites_dir: str) -> None:
         self._sprites: dict[str, tuple[np.ndarray, float]] = {}
@@ -102,7 +102,7 @@ class Viewer:
         )
 
     def _load_background(self, path: str) -> np.ndarray:
-        """Scale the arena texture once at startup and keep the result; blitting a pre-scaled"""
+        """Scale the arena texture once at startup and keep the result."""
         image = cv2.imread(str(_resolve(path)), cv2.IMREAD_COLOR)
         if image is None:
             return np.full((self._size, self._size, 3), 30, dtype=np.uint8)
@@ -175,7 +175,7 @@ class Viewer:
         ).astype(np.uint8)
 
     def _draw_collision(self, canvas: np.ndarray, plant: Any) -> None:
-        """What the plant actually collides with, over the sprites: the two differ, and a scrape"""
+        """Draw what the plant actually collides with over the sprites."""
         polygons = [
             np.column_stack(
                 [

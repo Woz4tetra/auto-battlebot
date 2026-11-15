@@ -315,7 +315,7 @@ def conditioned_table(
 
 
 def replay_flips(tracks: list[Track]) -> dict[str, Any]:
-    """Heading jumps past FLIP_RAD between contiguous measurements. A jump reversed by another"""
+    """Heading jumps past FLIP_RAD between contiguous measurements, with flipped and normal runs."""
     flipped_s: list[float] = []
     measured_s = 0.0
     jump_count = 0
@@ -340,7 +340,7 @@ def replay_flips(tracks: list[Track]) -> dict[str, Any]:
 
 
 def flip_runs_table(flipped_s: list[float], onset_per_s: float) -> dict[str, Any]:
-    """Bursty flip tables: flipped-run quantiles from data, normal runs exponential with the"""
+    """Bursty flip tables: flipped-run quantiles from data, normal runs exponential."""
     mean_normal = 1.0 / onset_per_s
     q = np.array(QUANTILES)
     normal = -np.log(1.0 - np.minimum(q, 0.999)) * mean_normal

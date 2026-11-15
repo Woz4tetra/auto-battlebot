@@ -72,7 +72,7 @@ def score(row: dict[str, float]) -> float:
 
 
 def rank(row: dict[str, float]) -> tuple[bool, float, float]:
-    """Best variant per cell: beaten first, then strike rate, then strikes less hits taken. On"""
+    """Sort key for the best variant per cell: beaten, then strike rate, then net strikes."""
     return beaten(row), row["success"], score(row)
 
 

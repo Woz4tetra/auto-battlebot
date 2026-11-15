@@ -35,13 +35,15 @@ from protocol import (
     GT_COUNT_FMT,
     GT_POSE_FMT,
     MEAS_HEADER_FMT,
-    MEAS_POSE_FMT,
-    REQUEST_FMT,
     REQUEST_SIZE,
-    RESPONSE_HEADER_FMT,
+    MeasPose,
+    ResponseHeader,
     configure_socket,
+    pack_meas_pose,
+    pack_response_header,
     recv_all,
     send_all,
+    unpack_request,
 )
 from viewer import Viewer
 
@@ -161,7 +163,7 @@ class Opponent:
         self.x, self.y = self._push_out(self.x, self.y)
 
     def place(self, x: float, y: float) -> None:
-        """Put the opponent somewhere directly (viewer drag). Re-seeds the parameterised"""
+        """Put the opponent somewhere directly (viewer drag)."""
         if self.policy is not None:
             return
         self.x, self.y = x, y
@@ -257,7 +259,7 @@ class Frame:
 
 
 class Perception:
-    """Degrades true poses into what perception delivers: the sensing model's measurement stream"""
+    """Degrade true poses into what perception delivers, using the sensing model."""
 
     def __init__(self, cfg: KinematicSimConfig) -> None:
         self._cfg = cfg.perception
@@ -328,14 +330,15 @@ class KinematicServer:
         cam = cfg.camera
         fx, fy, cx, cy = fov_to_intrinsics(cam.fov, cam.res_width, cam.res_height)
         tf_matrix = camera_view_matrix(cam.pos, cam.lookat)
-        self._header_const: tuple[float, ...] = (
+        self._header_const = ResponseHeader(
             cam.res_width,
             cam.res_height,
-            *tf_matrix.flatten().tolist(),
+            tuple(tf_matrix.flatten().tolist()),
             fx,
             fy,
             cx,
             cy,
+            0.0,
         )
         self._obstacles = load_hazards(cfg.obstacles_file) if cfg.obstacles_file else []
         if self._obstacles:
@@ -463,13 +466,13 @@ class KinematicServer:
 
     def _send_frame(self, conn: socket.socket, truth: list[Pose], frame: Frame) -> None:
         self._render_camera()
-        header = struct.pack(RESPONSE_HEADER_FMT, *self._header_const, self._sim_time)
+        header = pack_response_header(self._header_const._replace(sim_time=self._sim_time))
         gt = struct.pack(GT_COUNT_FMT, len(truth))
         for pose in truth:
             gt += struct.pack(GT_POSE_FMT, *pose)
         meas = struct.pack(MEAS_HEADER_FMT, float(frame.delivered), frame.capture_time)
         for measured, pose in zip(frame.measured, frame.poses):
-            meas += struct.pack(MEAS_POSE_FMT, float(measured), *pose)
+            meas += pack_meas_pose(MeasPose(float(measured), *pose))
         send_all(conn, header)
         send_all(conn, self._rgb.data)
         send_all(conn, self._depth.data)
@@ -490,9 +493,9 @@ class KinematicServer:
         cfg = self._cfg
         while cfg.sim.max_ticks == 0 or self._tick < cfg.sim.max_ticks:
             data = recv_all(conn, REQUEST_SIZE)
-            linear_x, _linear_y, angular_z = struct.unpack(REQUEST_FMT, data)
+            request = unpack_request(data)
 
-            self._cmd_buf.append((linear_x, angular_z))
+            self._cmd_buf.append((request.linear_x, request.angular_z))
             applied = self._cmd_buf[0]
             self._plant.set_moving_blocks(
                 [
@@ -551,7 +554,7 @@ class KinematicServer:
         )
 
     def _report(self, outcome: str) -> None:
-        """One machine-readable line per episode. sim_sweep greps it for the hazard columns;"""
+        """Print one machine-readable line per episode."""
         clearance = self._plant.min_hazard_clearance
         clearance_str = "nan" if clearance == float("inf") else f"{clearance:.4f}"
         print(
