@@ -37,48 +37,7 @@
 #                             interface all the time. Removes the table, units, and polkit rule an
 #                             earlier run installed.
 
-install_dashboard_network() {
-    local hostname
-    hostname=$(hostname)
-    local profile="auto-battlebot-dashboard"
-    local address="10.42.42.1/24"
-    local table="auto_battlebot_dashboard"
-    local nft_file="/etc/auto-battlebot/dashboard.nft"
-    local firewall_unit="dashboard-firewall.service"
-    local wifi_unit="dashboard-wifi.service"
-    local polkit_rule="/etc/polkit-1/rules.d/50-auto-battlebot-dashboard.rules"
-    local app_user="${SUDO_USER:-$USER}"
-
-    local iface=""
-    local wifi_iface=""
-    local tailscale_iface="tailscale0"
-    local allow_all=false
-    while [ $# -gt 0 ]; do
-        case "$1" in
-            --interface)
-                iface="$2"
-                shift 2
-                ;;
-            --wifi-interface)
-                wifi_iface="$2"
-                shift 2
-                ;;
-            --tailscale-interface)
-                tailscale_iface="$2"
-                shift 2
-                ;;
-            --allow-all-interfaces)
-                allow_all=true
-                shift
-                ;;
-            *)
-                echo "Unknown option: $1" >&2
-                return 2
-                ;;
-        esac
-    done
-
-    # ---- 1. Checks ----
+check_dashboard_network_prereqs() {
     if ! command -v nmcli >/dev/null 2>&1; then
         echo "Error: nmcli not found. The dashboard network needs NetworkManager." >&2
         return 1
@@ -102,21 +61,9 @@ install_dashboard_network() {
     echo "Dashboard cable port: $iface"
     echo "Wi-Fi access interface: ${wifi_iface:-none}"
     echo "Tailscale interface (always allowed): $tailscale_iface"
+}
 
-    sudo apt-get install -y avahi-daemon avahi-utils nftables
-
-    # ---- 3. NetworkManager profile ----
-    # Deleted and re-added, so rerunning is safe. mdns off keeps systemd-resolved off port 5353
-    # for Avahi. Priority 100 beats the distro's "Wired connection 1" at 0.
-    sudo nmcli connection delete "$profile" >/dev/null 2>&1 || true
-    sudo nmcli connection add type ethernet ifname "$iface" con-name "$profile" \
-        ipv4.method manual ipv4.addresses "$address" ipv4.never-default yes \
-        ipv6.method link-local connection.mdns no \
-        connection.autoconnect yes connection.autoconnect-priority 100
-    sudo nmcli connection up "$profile" >/dev/null 2>&1 ||
-        echo "No carrier on $iface yet; the profile comes up when the cable goes in."
-
-    # ---- 4. Avahi ----
+configure_avahi() {
     sudo systemctl enable --now avahi-daemon
     local allow_line
     allow_line=$(grep -E '^\s*allow-interfaces\s*=' /etc/avahi/avahi-daemon.conf 2>/dev/null || true)
@@ -127,8 +74,9 @@ install_dashboard_network() {
                 "or ${wifi_iface:-the Wi-Fi}. Not editing it; add both for the name to resolve."
         fi
     fi
+}
 
-    # ---- 5. Firewall ----
+install_dashboard_firewall() {
     if [ "$allow_all" = true ]; then
         echo "--allow-all-interfaces: removing the dashboard firewall"
         sudo systemctl disable --now "$wifi_unit" >/dev/null 2>&1 || true
@@ -201,16 +149,18 @@ EOF
             echo "No Wi-Fi interface: skipping the Wi-Fi access unit."
         fi
     fi
+}
 
-    # ---- 6. Enable and restart ----
+enable_dashboard_network_units() {
     sudo systemctl daemon-reload
     if [ "$allow_all" != true ]; then
         sudo systemctl enable "$firewall_unit"
         sudo systemctl restart "$firewall_unit"
     fi
     sudo systemctl restart avahi-daemon
+}
 
-    # ---- 7. Verification ----
+verify_dashboard_network() {
     echo ""
     echo "Dashboard network setup complete. Dashboard: http://$hostname.local"
     echo "Verification:"
@@ -222,6 +172,71 @@ EOF
     fi
     echo "  - On the iPad: Settings > Ethernet > Configure IP > Manual, 10.42.42.2 / 255.255.255.0,"
     echo "    no router; Safari opens http://10.42.42.1"
+}
+
+install_dashboard_network() {
+    local hostname
+    hostname=$(hostname)
+    local profile="auto-battlebot-dashboard"
+    local address="10.42.42.1/24"
+    local table="auto_battlebot_dashboard"
+    local nft_file="/etc/auto-battlebot/dashboard.nft"
+    local firewall_unit="dashboard-firewall.service"
+    local wifi_unit="dashboard-wifi.service"
+    local polkit_rule="/etc/polkit-1/rules.d/50-auto-battlebot-dashboard.rules"
+    local app_user="${SUDO_USER:-$USER}"
+
+    local iface=""
+    local wifi_iface=""
+    local tailscale_iface="tailscale0"
+    local allow_all=false
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --interface)
+                iface="$2"
+                shift 2
+                ;;
+            --wifi-interface)
+                wifi_iface="$2"
+                shift 2
+                ;;
+            --tailscale-interface)
+                tailscale_iface="$2"
+                shift 2
+                ;;
+            --allow-all-interfaces)
+                allow_all=true
+                shift
+                ;;
+            *)
+                echo "Unknown option: $1" >&2
+                return 2
+                ;;
+        esac
+    done
+
+    check_dashboard_network_prereqs || return $?
+
+    sudo apt-get install -y avahi-daemon avahi-utils nftables
+
+    # ---- 3. NetworkManager profile ----
+    # Deleted and re-added, so rerunning is safe. mdns off keeps systemd-resolved off port 5353
+    # for Avahi. Priority 100 beats the distro's "Wired connection 1" at 0.
+    sudo nmcli connection delete "$profile" >/dev/null 2>&1 || true
+    sudo nmcli connection add type ethernet ifname "$iface" con-name "$profile" \
+        ipv4.method manual ipv4.addresses "$address" ipv4.never-default yes \
+        ipv6.method link-local connection.mdns no \
+        connection.autoconnect yes connection.autoconnect-priority 100
+    sudo nmcli connection up "$profile" >/dev/null 2>&1 ||
+        echo "No carrier on $iface yet; the profile comes up when the cable goes in."
+
+    configure_avahi
+
+    install_dashboard_firewall
+
+    enable_dashboard_network_units
+
+    verify_dashboard_network
 }
 
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then

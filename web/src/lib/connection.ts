@@ -24,8 +24,7 @@ export type ConnectionState = "connecting" | "open" | "closed";
 export interface RawMessage {
   channel: Channel;
   data: Uint8Array;
-  /** Relay log time in nanoseconds. */
-  timestamp: bigint;
+  logTimeNs: bigint;
 }
 export type RawListener = (message: RawMessage) => void;
 
@@ -303,7 +302,7 @@ class Connection {
       const message: RawMessage = {
         channel,
         data: new Uint8Array(view.buffer, view.byteOffset, view.byteLength),
-        timestamp: event.timestamp,
+        logTimeNs: event.timestamp,
       };
       for (const cb of listeners) {
         try {

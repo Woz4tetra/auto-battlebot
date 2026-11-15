@@ -3,7 +3,7 @@
   import { status } from "../lib/status.svelte";
 
   const VISIBLE_MS = 6000;
-  const visible = $derived(status.notice !== null && status.now - status.notice.at < VISIBLE_MS);
+  const visible = $derived(status.notice !== null && status.nowMs - status.notice.at < VISIBLE_MS);
 </script>
 
 {#if visible && status.notice}

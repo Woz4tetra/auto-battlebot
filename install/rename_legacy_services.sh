@@ -25,20 +25,7 @@ RENAMES=(
     "auto-battlebot-uvcvideo-rt.service uvcvideo-rt.service"
 )
 
-rename_legacy_services() {
-    local unit_dir="/etc/systemd/system"
-    local polkit_rule="/etc/polkit-1/rules.d/50-auto-battlebot-dashboard.rules"
-    local pair old new
-
-    local sed_args=()
-    for pair in "${RENAMES[@]}"; do
-        read -r old new <<<"$pair"
-        sed_args+=(-e "s/${old//./\\.}/${new}/g")
-    done
-
-    # 1. Record states before stopping anything. Stopping the firewall unit also stops the Wi-Fi
-    #    unit that Requires= it, so reading states during the renames would lose that one.
-    local present=() to_enable=() to_start=()
+record_unit_states() {
     for pair in "${RENAMES[@]}"; do
         read -r old new <<<"$pair"
         [ -f "$unit_dir/$old" ] || continue
@@ -46,19 +33,17 @@ rename_legacy_services() {
         [ "$(systemctl is-enabled "$old" 2>/dev/null)" = "enabled" ] && to_enable+=("$new")
         systemctl is-active --quiet "$old" 2>/dev/null && to_start+=("$new")
     done
-    if [ ${#present[@]} -eq 0 ]; then
-        return 0
-    fi
-    echo "Renaming ${#present[@]} legacy systemd unit(s)..."
+}
 
-    # 2. Stop and disable every old unit.
+stop_legacy_units() {
     for pair in "${present[@]}"; do
         read -r old new <<<"$pair"
         sudo systemctl stop "$old" 2>/dev/null || true
         sudo systemctl disable "$old" >/dev/null 2>&1 || true
     done
+}
 
-    # 3. Copy each file to its new name with the references rewritten, then remove the old one.
+copy_units_with_new_names() {
     for pair in "${present[@]}"; do
         read -r old new <<<"$pair"
         echo "  $old -> $new"
@@ -76,9 +61,9 @@ rename_legacy_services() {
         sudo sed -i "${sed_args[@]}" "$polkit_rule"
     fi
     sudo systemctl daemon-reload
+}
 
-    # 4. Restore the recorded states. RENAMES lists the firewall before the Wi-Fi unit and the
-    #    relay before the app, so starting in this order satisfies Requires= and After=.
+restore_unit_states() {
     local unit
     for unit in "${to_enable[@]}"; do
         sudo systemctl enable "$unit" >/dev/null 2>&1
@@ -88,6 +73,29 @@ rename_legacy_services() {
     done
     echo "Enabled: ${to_enable[*]:-none}"
     echo "Started: ${to_start[*]:-none}"
+}
+
+rename_legacy_services() {
+    local unit_dir="/etc/systemd/system"
+    local polkit_rule="/etc/polkit-1/rules.d/50-auto-battlebot-dashboard.rules"
+    local pair old new
+
+    local sed_args=()
+    for pair in "${RENAMES[@]}"; do
+        read -r old new <<<"$pair"
+        sed_args+=(-e "s/${old//./\\.}/${new}/g")
+    done
+
+    local present=() to_enable=() to_start=()
+    record_unit_states
+    if [ ${#present[@]} -eq 0 ]; then
+        return 0
+    fi
+    echo "Renaming ${#present[@]} legacy systemd unit(s)..."
+
+    stop_legacy_units
+    copy_units_with_new_names
+    restore_unit_states
 
     local leftovers
     leftovers=$(sudo grep -rlE "auto_battlebot\.service|viz_relay\.service|dashboard_kiosk\.service|auto-battlebot-[a-z0-9-]+\.service" \

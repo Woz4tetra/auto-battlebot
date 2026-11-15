@@ -119,3 +119,14 @@ This increases the maximum RAM a process from a given user can use.
     root hard stack 8192
     root soft stack 8192
     ```
+
+## Deploying with deploy_to_jetson.sh
+
+`scripts/deploy_to_jetson.sh --help` lists the options and the `JETSON_*` environment variables.
+
+### What gets synced
+
+- Code: `rsync --delete` with a `--filter` that reads each `.gitignore` it meets during traversal, so every gitignored path is excluded. `/data` is excluded by the root `.gitignore`, so `--delete` never touches it on the remote. `.git/` is excluded explicitly.
+- `.deployignore` adds excludes on top of that.
+- `data/models/` is gitignored, so it is not in the code pass. The script syncs it in a second rsync.
+- The Jetson has no git repo (`.git` is excluded), so the script stamps the version into `.build_version` for the build to read as a fallback. It uses the same rule as `cmake/git_version.cmake`: short hash, plus `-dirty` for tracked modifications.

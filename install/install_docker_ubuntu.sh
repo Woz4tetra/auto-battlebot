@@ -5,6 +5,10 @@
 # "(root) Additional property include is not allowed".
 MIN_COMPOSE_VERSION="2.20"
 
+version_at_least() {
+    [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -1)" = "$2" ]
+}
+
 # Verifies the Compose plugin is new enough and points at the fix when it is not.
 #
 # The usual cause of an old version is a stale manually-installed plugin shadowing the
@@ -21,9 +25,7 @@ check_docker_compose_version() {
         return 1
     fi
 
-    # sort -V puts the lower version first, so if the minimum sorts first we are fine.
-    # This also handles the 5.x numbering shipped with recent Docker Engine releases.
-    if [ "$(printf '%s\n%s\n' "$MIN_COMPOSE_VERSION" "$version" | sort -V | head -1)" != "$MIN_COMPOSE_VERSION" ]; then
+    if ! version_at_least "$version" "$MIN_COMPOSE_VERSION"; then
         echo "Error: docker compose $version is too old; $MIN_COMPOSE_VERSION or newer is required."
         echo ""
         echo "Check for a stale plugin shadowing the packaged one:"

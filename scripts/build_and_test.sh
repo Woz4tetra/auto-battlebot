@@ -1,33 +1,36 @@
 #!/bin/bash
 
-# Script to run unit tests for auto_battlebot
-#
-# This script builds the project with testing enabled and runs the test suite.
-# All arguments are passed directly to the Google Test executable.
-#
-# Options:
-#   --valgrind                     Run tests under Valgrind memory analyzer
-#   --help-gtest                   Show GTest options (instead of running tests)
-#
-# Common GTest arguments:
-#   --gtest_filter=PATTERN         Run only tests matching the pattern
-#                                  Examples: --gtest_filter=KeypointTest.*
-#                                           --gtest_filter=*RobotDescription*
-#                                           --gtest_filter=KeypointTest.DefaultConstruction
-#   --gtest_list_tests             List all available tests without running them
-#   --gtest_repeat=N               Run tests N times
-#   --gtest_shuffle                Randomize test execution order
-#   --gtest_brief=1                Brief output (only show failures)
-#   --help                         Show all GTest options
-#
-# Examples:
-#   ./scripts/build_and_test.sh                                    # Run all tests
-#   ./scripts/build_and_test.sh --gtest_filter=KeypointTest.*      # Run only Keypoint tests
-#   ./scripts/build_and_test.sh --gtest_list_tests                 # List all tests
-#   ./scripts/build_and_test.sh --valgrind                         # Run all tests under Valgrind
-#   ./scripts/build_and_test.sh --valgrind --gtest_filter=*Camera* # Run Camera tests under Valgrind
-
 set -e
+
+usage() {
+    cat <<'EOF'
+Usage: scripts/build_and_test.sh [--valgrind] [GTEST_ARGS...]
+
+Build the project with testing enabled and run the auto_battlebot unit tests.
+All arguments except --valgrind are passed to the Google Test executable.
+
+Options:
+  --valgrind    Run tests under the Valgrind memory analyzer
+  -h, --help    Show this help; use --gtest_help to show all GTest options
+
+Common GTest arguments:
+  --gtest_filter=PATTERN   Run only tests matching the pattern
+                           Examples: --gtest_filter=KeypointTest.*
+                                     --gtest_filter=*RobotDescription*
+                                     --gtest_filter=KeypointTest.DefaultConstruction
+  --gtest_list_tests       List all available tests without running them
+  --gtest_repeat=N         Run tests N times
+  --gtest_shuffle          Randomize test execution order
+  --gtest_brief=1          Brief output (only show failures)
+
+Examples:
+  ./scripts/build_and_test.sh                                     Run all tests
+  ./scripts/build_and_test.sh --gtest_filter=KeypointTest.*       Run only Keypoint tests
+  ./scripts/build_and_test.sh --gtest_list_tests                  List all tests
+  ./scripts/build_and_test.sh --valgrind                          Run all tests under Valgrind
+  ./scripts/build_and_test.sh --valgrind --gtest_filter=*Camera*  Run Camera tests under Valgrind
+EOF
+}
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
@@ -36,7 +39,10 @@ USE_VALGRIND=false
 
 GTEST_ARGS=()
 for arg in "$@"; do
-    if [ "$arg" = "--valgrind" ]; then
+    if [ "$arg" = "-h" ] || [ "$arg" = "--help" ]; then
+        usage
+        exit 0
+    elif [ "$arg" = "--valgrind" ]; then
         USE_VALGRIND=true
     else
         GTEST_ARGS+=("$arg")

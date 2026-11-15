@@ -20,7 +20,7 @@
   const recTime = $derived.by(() => {
     const since = status.mcapFileSince ?? status.recordingSince;
     if (!status.recording || since === null) return "OFF";
-    const s = Math.max(0, Math.floor((status.now - since) / 1000));
+    const s = Math.max(0, Math.floor((status.nowMs - since) / 1000));
     const mm = Math.floor(s / 60);
     return `${String(mm).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
   });

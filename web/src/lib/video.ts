@@ -56,8 +56,8 @@ function sameBytes(a: Uint8Array | null, b: Uint8Array): boolean {
   return true;
 }
 
-/** More queued chunks than this means decode is falling behind; drop to the next keyframe. */
-const MAX_QUEUE = 8;
+const MAX_QUEUED_CHUNKS_BEFORE_KEYFRAME_SKIP = 8;
+const TIMESTAMP_STEP_US = 33_333;
 
 export class H264Decoder {
   #decoder: VideoDecoder | null = null;
@@ -80,13 +80,12 @@ export class H264Decoder {
     const decoder = this.#decoder;
     if (!decoder || decoder.state !== "configured") return;
     if (this.#waitForKeyframe && !unit.keyframe) return;
-    if (decoder.decodeQueueSize > MAX_QUEUE && !unit.keyframe) {
+    if (decoder.decodeQueueSize > MAX_QUEUED_CHUNKS_BEFORE_KEYFRAME_SKIP && !unit.keyframe) {
       this.#waitForKeyframe = true;
       return;
     }
     this.#waitForKeyframe = false;
-    // Timestamps only need to increase; 33 ms steps keep them readable in a debugger.
-    this.#timestampUs += 33_333;
+    this.#timestampUs += TIMESTAMP_STEP_US;
     try {
       decoder.decode(
         new EncodedVideoChunk({

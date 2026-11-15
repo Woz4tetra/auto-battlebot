@@ -8,7 +8,7 @@
     CONTROLS,
     DEFAULT_PROFILE,
     applyProfile,
-    blurMm,
+    motionBlurMm,
     summary,
   } from "../lib/camera";
   import { status } from "../lib/status.svelte";
@@ -157,7 +157,7 @@
         </div>
       {/if}
       {#if range.supported}
-        {@const locked = c.auto !== undefined && shown[c.auto]}
+        {@const locked = c.autoSwitchKey !== undefined && shown[c.autoSwitchKey]}
         <label class="control" class:locked>
           <span class="control-head">
             <span class="label">{c.label}</span>
@@ -193,7 +193,7 @@
       </div>
     {/if}
     <div class="readout mono muted">
-      {summary(shown)} · BLUR AT 3 M/S {blurMm(shown.exposure_us)} MM
+      {summary(shown)} · BLUR AT 3 M/S {motionBlurMm(shown.exposure_us)} MM
     </div>
   {/if}
 

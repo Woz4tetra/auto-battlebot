@@ -67,6 +67,8 @@ SVO_FRAME_SCHEMA = (
     '"svo_frame_index":{"type":"integer"},"svo_stamp_ns":{"type":"integer"}}}',
 )
 GENERIC_JSON_SCHEMA = ("auto_battlebot.Json", '{"type":"object"}')
+NO_VIDEO_FRAME_INDEX = -1
+QUAT_180_ABOUT_Z = (0.0, 0.0, 1.0, 0.0)
 
 
 class ConversionError(RuntimeError):
@@ -144,8 +146,7 @@ def _convert_frame_meta(
     payload = json.loads(_ros1_decode_string(data))
     before = int(payload["image_stamp_ns"])
     payload["image_stamp_ns"] = str(before)
-    # ROS1 bags predate both the SVO join and the video channel, so the index is -1 either way.
-    index = payload.pop("svo_frame_index", payload.get("video_frame_index", -1))
+    index = payload.pop("svo_frame_index", payload.get("video_frame_index", NO_VIDEO_FRAME_INDEX))
     payload.pop("svo_path", None)
     payload["video_frame_index"] = int(index)
     if int(payload["image_stamp_ns"]) != before:
@@ -153,10 +154,15 @@ def _convert_frame_meta(
     writer.log_json(topic, payload, log_time)
 
 
+def _assert_contract_json(text: str) -> None:
+    """Raise if the payload is not valid JSON."""
+    json.loads(text)
+
+
 def _convert_string(writer: mcap_write.McapWriter, topic: str, data: bytes, log_time: int) -> None:
     text = _ros1_decode_string(data)
     if topic in mcap_write.JSON_TOPIC_SCHEMAS:
-        json.loads(text)  # the payload must already be the contract JSON
+        _assert_contract_json(text)
         writer.log_json(topic, text, log_time)
         return
     schema = SVO_FRAME_SCHEMA if topic == SVO_FRAME_TOPIC else GENERIC_JSON_SCHEMA
@@ -517,7 +523,7 @@ def _rotation_x_onto(direction: np.ndarray) -> tuple[float, float, float, float]
     x_axis = np.array([1.0, 0.0, 0.0])
     dot = float(np.dot(x_axis, d))
     if dot < -1.0 + 1e-9:
-        return (0.0, 0.0, 1.0, 0.0)  # 180 degrees about z
+        return QUAT_180_ABOUT_Z
     axis = np.cross(x_axis, d)
     w = 1.0 + dot
     q = np.array([axis[0], axis[1], axis[2], w])
@@ -620,6 +626,11 @@ def _ros1_read_string(data: bytes, offset: int) -> tuple[str, int]:
     return s, offset + length
 
 
+def _ros1_skip_bool_field(offset: int, field_name: str) -> int:
+    """Skip a one-byte ROS1 bool field; field_name records which one."""
+    return offset + 1
+
+
 def _ros1_read_uint32(data: bytes, offset: int) -> tuple[int, int]:
     (v,) = struct.unpack_from("<I", data, offset)
     return v, offset + 4
@@ -684,7 +695,7 @@ def _ros1_decode_raw_image_bytes(data: bytes) -> tuple[int, str, np.ndarray, str
     height, off = _ros1_read_uint32(data, off)
     width, off = _ros1_read_uint32(data, off)
     encoding, off = _ros1_read_string(data, off)
-    off += 1  # is_bigendian
+    off = _ros1_skip_bool_field(off, "is_bigendian")
     step, off = _ros1_read_uint32(data, off)
     length, off = _ros1_read_uint32(data, off)
     channels = max(step // max(width, 1), 1)
@@ -766,7 +777,7 @@ def _ros1_decode_marker_array(data: bytes) -> list[Marker]:
         off += 16 * color_count
         text, off = _ros1_read_string(data, off)
         _mesh_resource, off = _ros1_read_string(data, off)
-        off += 1  # mesh_use_embedded_materials
+        off = _ros1_skip_bool_field(off, "mesh_use_embedded_materials")
         markers.append(
             Marker(
                 stamp_ns=stamp_ns,

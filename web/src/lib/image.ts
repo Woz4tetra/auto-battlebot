@@ -9,8 +9,7 @@ import "protobufjs/ext/descriptor";
 import type { Channel } from "@foxglove/ws-protocol";
 
 export interface CompressedMessage {
-  /** Capture time in seconds. */
-  stamp: number;
+  captureTimeS: number;
   frame_id: string;
   data: Uint8Array;
   format: string;
@@ -57,7 +56,7 @@ export function decodeCompressed(channel: Channel, bytes: Uint8Array): Compresse
   const msg = protobufType(channel).decode(bytes) as unknown as RawCompressed;
   const ts = msg.timestamp;
   return {
-    stamp: toNumber(ts?.seconds) + (ts?.nanos ?? 0) * 1e-9,
+    captureTimeS: toNumber(ts?.seconds) + (ts?.nanos ?? 0) * 1e-9,
     frame_id: msg.frame_id ?? "",
     data: msg.data ?? new Uint8Array(),
     format: msg.format ?? "",

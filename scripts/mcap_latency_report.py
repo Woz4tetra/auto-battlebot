@@ -1,21 +1,5 @@
 #!/usr/bin/env python3
-"""Produce a pipeline latency report from an MCAP recording.
-
-Reads /diagnostics messages: per-stage FunctionTimer timings (elapsed_ms), the
-runner's end-to-end pipeline latency (camera frame stamp to command send), and
-the loop rate. Prints a per-stage timing table plus an end-to-end summary
-checked against the 60 ms latency budget. Writes a markdown report and a plot
-to docs/experiments/ by default.
-
-Startup is trimmed: the report covers the ticks strictly after field
-initialization, so the one-shot field computation does not skew the stats. Pass
---include-field-init to report the whole recording.
-
-Usage (inside the venv, see scripts/activate_python.sh):
-    python scripts/mcap_latency_report.py data/recordings/<file>.mcap
-
-Dependencies: mcap, matplotlib, numpy
-"""
+"""Produce a pipeline latency report from an MCAP recording."""
 
 from __future__ import annotations
 
@@ -25,6 +9,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -33,6 +18,9 @@ from auto_battlebot.recording.mcap_io import (
     decode_diagnostic_array,
     iter_messages,
 )
+
+if TYPE_CHECKING:
+    from matplotlib.axes import Axes
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUT_DIR = REPO_ROOT / "docs" / "experiments"
@@ -48,7 +36,6 @@ BUDGET_MS = 60.0
 class LatencySamples:
     """Per-stage timing samples pulled from /diagnostics."""
 
-    # stage -> parallel lists of (time since start [s], duration [ms])
     stage_t_s: dict[str, list[float]]
     stage_ms: dict[str, list[float]]
     rate_hz: list[float]
@@ -281,23 +268,7 @@ def write_csv(csv_path: Path, stats: list[StageStats]) -> None:
     print(f"Wrote CSV to {csv_path}")
 
 
-def plot_latency(
-    samples: LatencySamples,
-    stats: list[StageStats],
-    save_path: Path,
-    show: bool,
-    title: str,
-) -> None:
-    import matplotlib
-
-    if not show:
-        matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    fig, (ax_time, ax_box) = plt.subplots(2, 1, figsize=(14, 9), constrained_layout=True)
-    fig.suptitle(title, fontsize=13)
-
-    # -- 1. End-to-end latency over time vs budget ------------------------
+def plot_end_to_end_latency(ax_time: Axes, samples: LatencySamples) -> None:
     if PIPELINE_STAGE in samples.stage_ms:
         t = samples.stage_t_s[PIPELINE_STAGE]
         v = samples.stage_ms[PIPELINE_STAGE]
@@ -321,7 +292,8 @@ def plot_latency(
     ax_time.set_title("End-to-end pipeline latency (camera stamp -> command)")
     ax_time.grid(True, alpha=0.3)
 
-    # -- 2. Per-stage distribution, slowest at the top --------------------
+
+def plot_stage_distributions(ax_box: Any, samples: LatencySamples, stats: list[StageStats]) -> None:
     box_stats = [s for s in stats if s.stage != PIPELINE_STAGE]
     box_stats.reverse()  # horizontal boxplots draw bottom-up
     if box_stats:
@@ -341,6 +313,26 @@ def plot_latency(
     ax_box.set_title("Per-stage timing distribution (outliers hidden)")
     ax_box.grid(True, axis="x", alpha=0.3)
 
+
+def plot_latency(
+    samples: LatencySamples,
+    stats: list[StageStats],
+    save_path: Path,
+    show: bool,
+    title: str,
+) -> None:
+    import matplotlib
+
+    if not show:
+        matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig, (ax_time, ax_box) = plt.subplots(2, 1, figsize=(14, 9), constrained_layout=True)
+    fig.suptitle(title, fontsize=13)
+
+    plot_end_to_end_latency(ax_time, samples)
+    plot_stage_distributions(ax_box, samples, stats)
+
     fig.savefig(save_path, dpi=150)
     print(f"Saved plot to {save_path}")
     if show:
@@ -350,7 +342,19 @@ def plot_latency(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Report per-stage timing and end-to-end latency from an MCAP recording."
+        description=(
+            "Produce a pipeline latency report from an MCAP recording.\n\n"
+            "Reads /diagnostics messages: per-stage FunctionTimer timings (elapsed_ms), the "
+            "runner's end-to-end pipeline latency (camera frame stamp to command send), and "
+            "the loop rate. Prints a per-stage timing table plus an end-to-end summary "
+            "checked against the 60 ms latency budget. Writes a markdown report and a plot "
+            "to docs/experiments/ by default.\n\n"
+            "Startup is trimmed: the report covers the ticks strictly after field "
+            "initialization, so the one-shot field computation does not skew the stats. Pass "
+            "--include-field-init to report the whole recording.\n\n"
+            "Run inside the venv (scripts/activate_python.sh). Needs mcap, matplotlib, numpy."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("file", type=Path, help="Path to MCAP recording")
     parser.add_argument(

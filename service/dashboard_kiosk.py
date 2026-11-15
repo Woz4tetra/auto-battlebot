@@ -88,8 +88,11 @@ def main() -> int:
 
     view.connect("load-failed", on_load_failed)
     view.connect("web-process-terminated", on_web_process_terminated)
-    # A long press on the touchscreen would otherwise open WebKit's Back/Reload menu.
-    view.connect("context-menu", lambda *_: True)
+
+    def suppress_long_press_menu(*_: object) -> bool:
+        return True
+
+    view.connect("context-menu", suppress_long_press_menu)
 
     def hide_cursor(widget: Gtk.Widget) -> None:
         gdk_window = widget.get_window()

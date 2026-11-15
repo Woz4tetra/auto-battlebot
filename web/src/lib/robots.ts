@@ -11,8 +11,7 @@ import { status } from "./status.svelte";
 
 const FALLBACK = ["#ec4899", "#14b8a6", "#eab308", "#6366f1", "#84cc16", "#f97316", "#8b5cf6"];
 
-function hash(text: string): number {
-  // FNV-1a, 32 bit.
+function fnv1a32(text: string): number {
   let h = 0x811c9dc5;
   for (let i = 0; i < text.length; i++) {
     h ^= text.charCodeAt(i);
@@ -31,7 +30,7 @@ export function robotColor(label: string): string {
   const used = new Set(status.app?.label_colors.map((c) => c.color.toLowerCase()) ?? []);
   const free = FALLBACK.filter((c) => !used.has(c));
   const pool = free.length ? free : FALLBACK;
-  return pool[hash(label) % pool.length];
+  return pool[fnv1a32(label) % pool.length];
 }
 
 function lighten(color: string, amount: number): string {

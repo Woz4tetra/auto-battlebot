@@ -18,9 +18,8 @@ get_cuda_version() {
         ver=$(ls -d /usr/local/cuda-[0-9]*.[0-9]* 2>/dev/null | sort -V | tail -1 | grep -oP 'cuda-\K[0-9]+\.[0-9]+')
     fi
     if [ -z "$ver" ]; then
-        # Guessing here is worse than stopping: the CUDA version picks the wheel index,
-        # and a wrong guess installs a torch that fails at the first kernel launch.
         echo "Error: could not detect the CUDA version (no nvcc, no /usr/local/cuda-*)." >&2
+        echo "The CUDA version picks the wheel index, and a wrong guess installs a torch that fails at the first kernel launch." >&2
         return 1
     fi
     echo "$ver"

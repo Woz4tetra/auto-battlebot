@@ -55,7 +55,7 @@
           : v.toFixed(3)
         : v;
   const ago = (m: DiagModule) =>
-    `${Math.max(0, (status.now - m.updatedAt) / 1000).toFixed(1)} s ago`;
+    `${Math.max(0, (status.nowMs - m.updatedAt) / 1000).toFixed(1)} s ago`;
 </script>
 
 <div class="diag" class:wide>

@@ -30,19 +30,7 @@ if [ ! -r "${XAUTHORITY:-}" ]; then
 fi
 export XAUTHORITY
 
-# Set by the --no-display flag in run_playback.sh and shell.sh. Blanking DISPLAY is what
-# actually stops the container reaching an X server; the socket and cookie stay mounted
-# because compose has no conditional mounts, and they are inert without DISPLAY.
-if [ -n "${AUTO_BATTLEBOT_NO_DISPLAY:-}" ]; then
-    export DISPLAY=""
-    echo "--no-display: X11 forwarding off, running headless." >&2
-else
-    export DISPLAY="${DISPLAY:-}"
-
-    # A terminal can easily end up without DISPLAY even while a perfectly good X server
-    # is running: tmux and screen sessions outliving a login, or a shell started outside
-    # the graphical session. GUI tools run from shell.sh need one, so adopt the local
-    # display when there is exactly one and it is unambiguous.
+adopt_local_display() {
     if [ -z "${DISPLAY}" ]; then
         x_sockets=()
         for socket in /tmp/.X11-unix/X*; do
@@ -63,6 +51,18 @@ else
             echo "      recording are unaffected. Pass --no-display to silence this." >&2
         fi
     fi
+}
+
+# Set by the --no-display flag in run_playback.sh and shell.sh. Blanking DISPLAY is what
+# actually stops the container reaching an X server; the socket and cookie stay mounted
+# because compose has no conditional mounts, and they are inert without DISPLAY.
+if [ -n "${AUTO_BATTLEBOT_NO_DISPLAY:-}" ]; then
+    export DISPLAY=""
+    echo "--no-display: X11 forwarding off, running headless." >&2
+else
+    export DISPLAY="${DISPLAY:-}"
+
+    adopt_local_display
 fi
 
 # docker-compose.playback.yml uses the `include:` key, added in Compose v2.20. Older

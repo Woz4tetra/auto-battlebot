@@ -1,14 +1,4 @@
 #!/usr/bin/env bash
-# Download SVO and MCAP recordings from the Jetson that we do not already have.
-#
-# A recording counts as "already have it" if a file with the same basename exists
-# anywhere under data/svo, data/temp_svo, data/recordings, or data/saved_recordings.
-# Everything else is pulled down: .svo2 into data/svo, .mcap into data/recordings.
-#
-# SSH key and user are resolved the same way as scripts/deploy_to_jetson.sh: the key
-# defaults to ~/.ssh/<host> (domain stripped) if it exists, and without a user the
-# script probes the ~/.ssh/config user (else the local username), then `ben`, then
-# `user` (the ZED Box Mini factory login), keeping the first that logs in with the key.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -17,14 +7,12 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 JETSON_HOST="${JETSON_HOST:-jetson}"
 JETSON_PATH="${JETSON_PATH:-auto-battlebot}"
 
-# Directories searched on both ends, relative to the project root.
-SEARCH_DIRS=(data/svo data/temp_svo data/recordings data/saved_recordings)
+RECORDING_SEARCH_DIRS=(data/svo data/temp_svo data/recordings data/saved_recordings)
 
 SVO_DEST="$PROJECT_ROOT/data/svo"
 MCAP_DEST="$PROJECT_ROOT/data/recordings"
 
-# Only consider remote recordings modified within this many hours. 0 means no limit.
-HOURS="${HOURS:-24}"
+MAX_AGE_HOURS="${HOURS:-24}"
 
 DRY_RUN=0
 LIST_ONLY=0
@@ -33,6 +21,17 @@ AUTONOMY_ONLY=0
 usage() {
     cat <<'EOF'
 Usage: scripts/download_recordings.sh [[USER@]HOST] [options]
+
+Download SVO and MCAP recordings from the Jetson that we do not already have.
+
+A recording counts as "already have it" if a file with the same basename exists
+anywhere under data/svo, data/temp_svo, data/recordings, or data/saved_recordings.
+Everything else is pulled down: .svo2 into data/svo, .mcap into data/recordings.
+
+SSH key and user are resolved the same way as scripts/deploy_to_jetson.sh: the key
+defaults to ~/.ssh/<host> (domain stripped) if it exists, and without a user the
+script probes the ~/.ssh/config user (else the local username), then `ben`, then
+`user` (the ZED Box Mini factory login), keeping the first that logs in with the key.
 
 Options:
   -H, --hours N   Only consider recordings modified in the last N hours
@@ -59,8 +58,8 @@ while [ "$#" -gt 0 ]; do
     case "$1" in
         -H|--hours)
             [ "$#" -ge 2 ] || { echo "$1 requires a value" >&2; exit 1; }
-            HOURS="$2"; shift ;;
-        --hours=*) HOURS="${1#*=}" ;;
+            MAX_AGE_HOURS="$2"; shift ;;
+        --hours=*) MAX_AGE_HOURS="${1#*=}" ;;
         -n|--dry-run) DRY_RUN=1 ;;
         -l|--list) LIST_ONLY=1 ;;
         --autonomy-only) AUTONOMY_ONLY=1 ;;
@@ -72,10 +71,10 @@ while [ "$#" -gt 0 ]; do
     shift
 done
 
-case "$HOURS" in
-    ''|*[!0-9]*) echo "--hours must be a non-negative integer, got: $HOURS" >&2; exit 1 ;;
+case "$MAX_AGE_HOURS" in
+    ''|*[!0-9]*) echo "--hours must be a non-negative integer, got: $MAX_AGE_HOURS" >&2; exit 1 ;;
 esac
-MAX_AGE_MIN=$((HOURS * 60))
+MAX_AGE_MIN=$((MAX_AGE_HOURS * 60))
 
 if [ -z "${JETSON_KEY:-}" ] && [ -f "$HOME/.ssh/${JETSON_HOST%%.*}" ]; then
     JETSON_KEY="$HOME/.ssh/${JETSON_HOST%%.*}"
@@ -115,7 +114,7 @@ MCAP_LIST="$(mktemp)"
 trap 'rm -f "$LOCAL_INDEX" "$RAW_LIST" "$REMOTE_LIST" "$SKIP_LIST" "$SVO_LIST" "$MCAP_LIST"' EXIT
 
 local_dirs=()
-for dir in "${SEARCH_DIRS[@]}"; do
+for dir in "${RECORDING_SEARCH_DIRS[@]}"; do
     [ -d "$PROJECT_ROOT/$dir" ] && local_dirs+=("$PROJECT_ROOT/$dir")
 done
 
@@ -126,13 +125,13 @@ fi
 echo "  $(wc -l < "$LOCAL_INDEX") local recording(s) already present"
 
 if [ "$MAX_AGE_MIN" -gt 0 ]; then
-    echo "Listing recordings on ${REMOTE}:${JETSON_PATH} from the last ${HOURS}h ..."
+    echo "Listing recordings on ${REMOTE}:${JETSON_PATH} from the last ${MAX_AGE_HOURS}h ..."
 else
     echo "Listing recordings on ${REMOTE}:${JETSON_PATH} (no time limit) ..."
 fi
 # Runs remotely: skip search directories that do not exist there, so a missing
 # one does not make find exit non-zero and abort this script under pipefail.
-ssh "${SSH_OPTS[@]}" "$REMOTE" "sh -s '${JETSON_PATH}' '${MAX_AGE_MIN}' ${SEARCH_DIRS[*]}" <<'REMOTE_EOF' | sort > "$RAW_LIST"
+ssh "${SSH_OPTS[@]}" "$REMOTE" "sh -s '${JETSON_PATH}' '${MAX_AGE_MIN}' ${RECORDING_SEARCH_DIRS[*]}" <<'REMOTE_EOF' | sort > "$RAW_LIST"
 root=$1; shift
 max_age=$1; shift
 cd "$root" || { echo "ERROR: remote path '$root' not found" >&2; exit 3; }

@@ -124,9 +124,8 @@ install_python_environment() {
             fi
         done
         if [ -z "$SYS_PYTHON_PATH" ]; then
-            # Continuing here leaves every `import tensorrt` in the venv broken, which
-            # surfaces much later as a model-load failure. Fail where the cause is visible.
             echo "Error: no dist-packages directory contains the TensorRT bindings."
+            echo "Continuing would leave every 'import tensorrt' in the venv broken, which shows up later as a model-load failure."
             echo "Install python3-libnvinfer (it is in install/jetson_packages.txt) and re-run."
             return 1
         fi

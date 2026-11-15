@@ -60,11 +60,11 @@ def _collect_topic_stats(path: Path) -> TopicStats:
             size = message.data_length if hasattr(message, "data_length") else len(message.data)
             topic_bytes[topic] += size
 
-            t = message.log_time  # nanoseconds
-            if topic not in topic_min_ns or t < topic_min_ns[topic]:
-                topic_min_ns[topic] = t
-            if topic not in topic_max_ns or t > topic_max_ns[topic]:
-                topic_max_ns[topic] = t
+            log_time_ns = message.log_time
+            if topic not in topic_min_ns or log_time_ns < topic_min_ns[topic]:
+                topic_min_ns[topic] = log_time_ns
+            if topic not in topic_max_ns or log_time_ns > topic_max_ns[topic]:
+                topic_max_ns[topic] = log_time_ns
 
             if topic not in topic_type and schema:
                 topic_type[topic] = schema.name

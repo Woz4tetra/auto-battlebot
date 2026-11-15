@@ -1,15 +1,27 @@
 #!/bin/bash
 
-# Build the C++ application and launch it alongside the simulation server.
-# The sim server starts first (in the background), then the C++ binary connects to it.
-# Ctrl-C kills both processes.
-#
-# Usage:
-#   ./scripts/run_simulation.sh                                          # defaults
-#   ./scripts/run_simulation.sh path/to/sim_config.toml                  # custom sim config
-#   ./scripts/run_simulation.sh path/to/sim_config.toml config/myexp.toml # custom sim + C++ config
-
 set -e
+
+usage() {
+    cat <<'EOF'
+Usage: ./scripts/run_simulation.sh [SIM_CONFIG [CPP_CONFIG]]
+
+Build the C++ application and launch it alongside the simulation server.
+The sim server starts first (in the background), then the C++ binary connects to it.
+Ctrl-C kills both processes.
+
+  ./scripts/run_simulation.sh                                           defaults
+  ./scripts/run_simulation.sh path/to/sim_config.toml                   custom sim config
+  ./scripts/run_simulation.sh path/to/sim_config.toml config/myexp.toml custom sim and C++ config
+EOF
+}
+
+case "${1:-}" in
+    -h | --help)
+        usage
+        exit 0
+        ;;
+esac
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"

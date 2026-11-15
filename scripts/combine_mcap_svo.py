@@ -68,14 +68,11 @@ TARGET_LEFT_IMAGE_TOPIC = "/camera/image"
 # nearest-timestamp matching silently costs up to a frame there; join on the index, or on
 # "pipeline stamp within [svo_stamp, next_svo_stamp)".
 SVO_FRAME_TOPIC = "/camera/svo_frame"
-# Topic in the original MCAP whose header.frame_id we copy onto the cropped
-# image messages so all camera-frame data lines up.
-CAMERA_INFO_TOPIC = "/camera/camera_info"
+FRAME_ID_SOURCE_TOPIC = "/camera/camera_info"
 FRAME_META_TOPIC = "/camera/frame_meta"
 LOG_TOPIC = "/log"
 
-# JSON schema of the per-frame provenance message on SVO_FRAME_TOPIC.
-SVO_FRAME_SCHEMA = (
+SVO_FRAME_JSON_SCHEMA = (
     "auto_battlebot.SvoFrame",
     '{"type":"object","title":"auto_battlebot.SvoFrame","properties":{"svo_file":{"type":"string"},'
     '"svo_frame_index":{"type":"integer"},"svo_stamp_ns":{"type":"integer"}}}',
@@ -238,7 +235,7 @@ def read_first_header_frame_id(mcap_path: Path, topic: str) -> Optional[str]:
 
 
 def read_header_stamp_samples(
-    mcap_path: Path, topic: str = CAMERA_INFO_TOPIC
+    mcap_path: Path, topic: str = FRAME_ID_SOURCE_TOPIC
 ) -> List[Tuple[int, int]]:
     """Return sorted list of (log_time_ns, header_stamp_ns) for `topic`.
 
@@ -314,12 +311,12 @@ def _log_frame_id_resolution(camera_frame_id: Optional[str], original_path: Path
         logger.info(
             "Using camera frame_id %r from %s for /camera/image",
             camera_frame_id,
-            CAMERA_INFO_TOPIC,
+            FRAME_ID_SOURCE_TOPIC,
         )
     else:
         logger.warning(
             "Could not find frame_id on %s in %s; leaving SVO frame_id intact",
-            CAMERA_INFO_TOPIC,
+            FRAME_ID_SOURCE_TOPIC,
             original_path,
         )
 
@@ -332,14 +329,14 @@ def _log_retimer_stats(retimer: HeaderStampRetimer, original_path: Path) -> None
             "Retiming original MCAP via %d %s samples"
             " (avg log_time-stamp offset %.2f ms, max abs %.2f ms)",
             retimer.sample_count,
-            CAMERA_INFO_TOPIC,
+            FRAME_ID_SOURCE_TOPIC,
             avg_offset_ns / 1e6,
             max_abs_offset_ns / 1e6,
         )
     else:
         logger.warning(
             "No %s samples in %s; original log_times will not be retimed",
-            CAMERA_INFO_TOPIC,
+            FRAME_ID_SOURCE_TOPIC,
             original_path,
         )
 
@@ -390,7 +387,7 @@ def merge_mcaps(
     start_ns, end_ns = time_range_ns
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    camera_frame_id = read_first_header_frame_id(original_path, CAMERA_INFO_TOPIC)
+    camera_frame_id = read_first_header_frame_id(original_path, FRAME_ID_SOURCE_TOPIC)
     _log_frame_id_resolution(camera_frame_id, original_path)
 
     retimer = HeaderStampRetimer(read_header_stamp_samples(original_path))
@@ -451,7 +448,7 @@ def merge_mcaps(
                         SVO_FRAME_TOPIC,
                         _make_svo_frame_payload(svo_name, frame_index, log_time),
                         log_time,
-                        schema=SVO_FRAME_SCHEMA,
+                        schema=SVO_FRAME_JSON_SCHEMA,
                     )
                     frame_index += 1
                     merge_bar.update(1)

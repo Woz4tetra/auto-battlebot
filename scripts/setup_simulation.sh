@@ -11,8 +11,6 @@ REQUIREMENTS="$SIM_DIR/requirements.txt"
 REQUIRED_MAJOR=3
 REQUIRED_MINOR=10
 
-# --- Find a suitable Python ---------------------------------------------------
-
 find_python() {
     local cmd
     for cmd in python3 "python${REQUIRED_MAJOR}.${REQUIRED_MINOR}"; do
@@ -37,41 +35,43 @@ PYTHON_CMD=$(find_python) || {
 }
 echo "Using $($PYTHON_CMD --version)"
 
-# --- Handle existing venv -----------------------------------------------------
+handle_existing_venv() {
+    RECREATE=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --recreate|-y) RECREATE=yes; shift ;;
+            --no-recreate|-n) RECREATE=no; shift ;;
+            *) shift ;;
+        esac
+    done
 
-RECREATE=""
-while [ $# -gt 0 ]; do
-    case "$1" in
-        --recreate|-y) RECREATE=yes; shift ;;
-        --no-recreate|-n) RECREATE=no; shift ;;
-        *) shift ;;
-    esac
-done
-
-if [ -d "$VENV_DIR" ]; then
-    echo "Simulation venv already exists at $VENV_DIR"
-    if [ "$RECREATE" = "yes" ]; then
-        echo "Removing existing venv (--recreate)."
-        rm -rf "$VENV_DIR"
-    elif [ "$RECREATE" = "no" ]; then
-        echo "Using existing venv (--no-recreate)."
-    else
-        read -p "Recreate it? (y/N): " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
+    if [ -d "$VENV_DIR" ]; then
+        echo "Simulation venv already exists at $VENV_DIR"
+        if [ "$RECREATE" = "yes" ]; then
+            echo "Removing existing venv (--recreate)."
             rm -rf "$VENV_DIR"
+        elif [ "$RECREATE" = "no" ]; then
+            echo "Using existing venv (--no-recreate)."
         else
-            echo "Using existing venv."
+            read -p "Recreate it? (y/N): " -n 1 -r
+            echo
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                rm -rf "$VENV_DIR"
+            else
+                echo "Using existing venv."
+            fi
         fi
     fi
-fi
+}
+handle_existing_venv "$@"
 
-# --- Create & populate --------------------------------------------------------
-
-if [ ! -d "$VENV_DIR" ]; then
-    echo "Creating simulation venv at $VENV_DIR ..."
-    $PYTHON_CMD -m venv "$VENV_DIR"
-fi
+create_venv() {
+    if [ ! -d "$VENV_DIR" ]; then
+        echo "Creating simulation venv at $VENV_DIR ..."
+        $PYTHON_CMD -m venv "$VENV_DIR"
+    fi
+}
+create_venv
 
 source "$VENV_DIR/bin/activate"
 
