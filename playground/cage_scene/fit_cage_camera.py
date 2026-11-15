@@ -55,8 +55,7 @@ DEFAULT_SEED_PRIOR = PRIOR_DIR / "nhrl_cage_2.toml"
 LINE_FIT_ROUNDS = 3
 # The undistorted hull polygon lands a few pixels inside the frame where the mat ran off it.
 BORDER_MARGIN_PX = 6
-# A fitted side this close to, and parallel with, an image edge is the sensor border, not the mat.
-BORDER_LINE_PX = 14.0
+SENSOR_BORDER_LINE_PX = 14.0
 # NHRL squares the camera to the mat; a fit yawed past this followed something other than the mat.
 YAW_LIMIT_DEG = 10.0
 HEIGHT_RANGE_M = (1.0, 2.0)
@@ -117,10 +116,10 @@ def drop_border_lines(
         on_border = False
         if ny > 0.97:
             y = offset / float(normal[1])
-            on_border = min(abs(y), abs(height - 1 - y)) < BORDER_LINE_PX
+            on_border = min(abs(y), abs(height - 1 - y)) < SENSOR_BORDER_LINE_PX
         elif nx > 0.97:
             x = offset / float(normal[0])
-            on_border = min(abs(x), abs(width - 1 - x)) < BORDER_LINE_PX
+            on_border = min(abs(x), abs(width - 1 - x)) < SENSOR_BORDER_LINE_PX
         out.append(None if on_border else line)
     return out
 

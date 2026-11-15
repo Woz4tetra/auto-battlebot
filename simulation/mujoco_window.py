@@ -20,10 +20,8 @@ from plants import PlantInterface
 from plants.mujoco_plant import MujocoPlant
 
 from auto_battlebot.mujoco_sim.closed_loop import BLOCK_PREFIX, MOVING_BLOCK_PREFIX
+from auto_battlebot.mujoco_sim.mjcf import HULL_GEOM_GROUP
 
-# The hull meshes are collision-only geoms in group 3 (auto_battlebot/mujoco_sim/mjcf.py), which
-# the viewer hides by default.
-HULL_GEOM_GROUP = 3
 OPPONENT_RGBA = (1.0, 0.45, 0.1, 0.6)
 WALL_BLOCK_RGBA = (0.6, 0.6, 0.6, 0.8)
 

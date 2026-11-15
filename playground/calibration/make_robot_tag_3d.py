@@ -62,7 +62,8 @@ RELS = (
 def bit_grid(dictionary: cv2.aruco.Dictionary, tag_id: int, side_bits: int) -> np.ndarray:
     """Return a side_bits x side_bits bool array, True where the tag cell is black."""
     img = dictionary.generateImageMarker(tag_id, side_bits, borderBits=BORDER_BITS)
-    return img < 128  # row r, col c -> black?
+    is_black_cell = img < 128
+    return is_black_cell
 
 
 def black_cell_boxes(

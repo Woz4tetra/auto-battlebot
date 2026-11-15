@@ -44,8 +44,8 @@ ARC_HALF_RAD = math.radians(60.0)
 DANGER_MARGIN_M = 0.10
 ENGAGEMENT_GAP_S = 0.5
 STILL_SPEED_MPS = 0.2
-MAX_DT_S = 0.2  # cap on one track sample's weight, so a recording gap adds no time
-SOURCE_FPS = 60.0  # /camera/video rate on the ZED Box profiles
+MAX_SAMPLE_WEIGHT_S = 0.2
+VIDEO_FPS = 60.0
 CLIP_SPEED = 0.5
 CLIP_PRE_S = 1.5
 CLIP_POST_S = 1.5
@@ -57,10 +57,10 @@ FONT = cv2.FONT_HERSHEY_SIMPLEX
 @dataclass
 class Event:
     kind: str  # "strike" or "hit"
-    t0: float  # first and last contact sample, wall clock seconds
+    t0: float
     t1: float
-    elapsed_s: float  # t0 from the recording's first message
-    dist_m: float  # at closest approach, as are both bearings
+    elapsed_from_first_message_s: float
+    closest_dist_m: float
     our_bearing_deg: float
     their_bearing_deg: float
 
@@ -131,17 +131,17 @@ def score(path: Path, a: np.ndarray, contact_m: float, wedge_half_rad: float) ->
 
     dx, dy = a[:, 4] - a[:, 1], a[:, 5] - a[:, 2]
     dist = np.hypot(dx, dy)
-    bearing_us = np.abs(wrap(np.arctan2(dy, dx) - a[:, 3]))  # opponent off our heading
-    bearing_opp = np.abs(wrap(np.arctan2(-dy, -dx) - a[:, 6]))  # us off the opponent's heading
-    in_arc = bearing_opp < ARC_HALF_RAD
+    opponent_off_our_heading = np.abs(wrap(np.arctan2(dy, dx) - a[:, 3]))
+    us_off_opponent_heading = np.abs(wrap(np.arctan2(-dy, -dx) - a[:, 6]))
+    in_arc = us_off_opponent_heading < ARC_HALF_RAD
     contact = dist < contact_m
-    dt = np.minimum(np.diff(t, append=t[-1]), MAX_DT_S)
+    dt = np.minimum(np.diff(t, append=t[-1]), MAX_SAMPLE_WEIGHT_S)
     speed = np.hypot(np.gradient(a[:, 1], t), np.gradient(a[:, 2], t))
 
     m = on & both
     auto_s = float(np.sum(dt[on]))
     tm = t[m]
-    strikes = event_spans(tm, (contact & (bearing_us < wedge_half_rad) & ~in_arc)[m])
+    strikes = event_spans(tm, (contact & (opponent_off_our_heading < wedge_half_rad) & ~in_arc)[m])
     hits = event_spans(tm, (contact & in_arc)[m])
     danger = m & (dist < contact_m + DANGER_MARGIN_M) & in_arc
     still = m & ~contact & (speed < STILL_SPEED_MPS)
@@ -159,13 +159,21 @@ def score(path: Path, a: np.ndarray, contact_m: float, wedge_half_rad: float) ->
     print(f"  danger time         {pct(danger):.0f}%")
     print(f"  still (no contact)  {pct(still):.0f}%")
     print(f"  median distance     {np.median(dist[m]):.2f} m")
-    print(f"  pointed at opp      {100 * np.mean(bearing_us[m] < wedge_half_rad):.0f}%")
-    print(f"  behind opp (>120d)  {100 * np.mean(bearing_opp[m] > 2 * math.pi / 3):.0f}%")
+    print(
+        f"  pointed at opp      {100 * np.mean(opponent_off_our_heading[m] < wedge_half_rad):.0f}%"
+    )
+    print(
+        f"  behind opp (>120d)  {100 * np.mean(us_off_opponent_heading[m] > 2 * math.pi / 3):.0f}%"
+    )
     print(f"  first strike        {first_strike:.1f} s after first engage")
 
     # Elapsed is from the recording's first message, which Foxglove's elapsed time also uses.
     start = recording_start_s(path)
-    dist_m, us_deg, opp_deg = dist[m], np.degrees(bearing_us[m]), np.degrees(bearing_opp[m])
+    dist_m, us_deg, opp_deg = (
+        dist[m],
+        np.degrees(opponent_off_our_heading[m]),
+        np.degrees(us_off_opponent_heading[m]),
+    )
     events = []
     for kind, spans in (("strike", strikes), ("hit", hits)):
         for i0, i1 in spans:
@@ -186,8 +194,8 @@ def score(path: Path, a: np.ndarray, contact_m: float, wedge_half_rad: float) ->
     for e in events:
         wall = datetime.fromtimestamp(e.t0).strftime("%H:%M:%S.%f")[:-3]
         print(
-            f"  {e.kind:<6}  {e.elapsed_s:9.2f}  {wall}  {e.t1 - e.t0:5.2f}"
-            f"  {e.dist_m:10.2f}  {e.our_bearing_deg:10.0f}d  {e.their_bearing_deg:12.0f}d"
+            f"  {e.kind:<6}  {e.elapsed_from_first_message_s:9.2f}  {wall}  {e.t1 - e.t0:5.2f}"
+            f"  {e.closest_dist_m:10.2f}  {e.our_bearing_deg:10.0f}d  {e.their_bearing_deg:12.0f}d"
         )
     return events
 
@@ -195,7 +203,7 @@ def score(path: Path, a: np.ndarray, contact_m: float, wedge_half_rad: float) ->
 def render_clips(path: Path, a: np.ndarray, events: list[Event], out_dir: Path) -> None:
     """Write one slowed, cropped clip per event plus review.csv."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    clips = [(e, out_dir / f"{e.kind}_{e.elapsed_s:07.2f}s.mp4") for e in events]
+    clips = [(e, out_dir / f"{e.kind}_{e.elapsed_from_first_message_s:07.2f}s.mp4") for e in events]
     last_t = max(e.t1 for e in events) + CLIP_POST_S
     encoders: dict[int, subprocess.Popen] = {}
     crops: dict[int, tuple[int, int]] = {}
@@ -230,8 +238,9 @@ def render_clips(path: Path, a: np.ndarray, events: list[Event], out_dir: Path) 
             if e.t0 <= t <= e.t1:
                 cv2.rectangle(img, (0, 0), (w - 1, h - 1), (0, 0, 255), 8)
             label = (
-                f"{e.kind.upper()}  elapsed {e.elapsed_s:.2f}s  t {t - e.t0:+.2f}s  "
-                f"dist {e.dist_m:.2f}m  their bearing {e.their_bearing_deg:.0f}d  "
+                f"{e.kind.upper()}  elapsed {e.elapsed_from_first_message_s:.2f}s  "
+                f"t {t - e.t0:+.2f}s  "
+                f"dist {e.closest_dist_m:.2f}m  their bearing {e.their_bearing_deg:.0f}d  "
                 f"{CLIP_SPEED:g}x"
             )
             cv2.rectangle(img, (0, 0), (w, 30), (0, 0, 0), -1)
@@ -253,8 +262,8 @@ def render_clips(path: Path, a: np.ndarray, events: list[Event], out_dir: Path) 
                 [
                     clip_path.name,
                     e.kind,
-                    f"{e.elapsed_s:.2f}",
-                    f"{e.dist_m:.2f}",
+                    f"{e.elapsed_from_first_message_s:.2f}",
+                    f"{e.closest_dist_m:.2f}",
                     f"{e.their_bearing_deg:.0f}",
                     "",
                     "",
@@ -277,7 +286,7 @@ def crop_origin(a: np.ndarray, t: float, fw: int, fh: int) -> tuple[int, int]:
 
 def open_encoder(path: Path, width: int, height: int) -> subprocess.Popen:
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "rawvideo"]
-    cmd += ["-pix_fmt", "bgr24", "-s", f"{width}x{height}", "-r", f"{SOURCE_FPS * CLIP_SPEED:g}"]
+    cmd += ["-pix_fmt", "bgr24", "-s", f"{width}x{height}", "-r", f"{VIDEO_FPS * CLIP_SPEED:g}"]
     cmd += ["-i", "pipe:0", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20"]
     cmd += ["-pix_fmt", "yuv420p", str(path)]
     return subprocess.Popen(cmd, stdin=subprocess.PIPE)

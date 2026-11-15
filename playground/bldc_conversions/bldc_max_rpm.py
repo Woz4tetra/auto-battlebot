@@ -23,8 +23,8 @@ Usage:
 
 from __future__ import annotations
 
-MOTOR_KV = 2300.0  # rpm per volt, Repeat Compact 1806
-GEAR_RATIO = 22.6  # motor turns per output-shaft turn
+REPEAT_1806_KV_RPM_PER_V = 2300.0
+GEAR_RATIO_MOTOR_PER_OUTPUT = 22.6
 
 # GNB LiHV cell. LiHV charges to 4.35 V/cell (vs 4.20 for a plain LiPo) and
 # sags to ~3.8 V/cell nominal.
@@ -36,12 +36,16 @@ CELLS_PER_PACK = 2
 SERIES_CELLS = PACKS_IN_SERIES * CELLS_PER_PACK
 
 
-def motor_rpm(voltage: float, kv: float = MOTOR_KV) -> float:
+def motor_rpm(voltage: float, kv: float = REPEAT_1806_KV_RPM_PER_V) -> float:
     """No-load motor-shaft rpm at a given bus voltage."""
     return kv * voltage
 
 
-def output_rpm(voltage: float, kv: float = MOTOR_KV, gear_ratio: float = GEAR_RATIO) -> float:
+def output_rpm(
+    voltage: float,
+    kv: float = REPEAT_1806_KV_RPM_PER_V,
+    gear_ratio: float = GEAR_RATIO_MOTOR_PER_OUTPUT,
+) -> float:
     """No-load output-shaft rpm (after the gearbox)."""
     return motor_rpm(voltage, kv) / gear_ratio
 
@@ -56,7 +60,10 @@ def _report(label: str, cell_v: float) -> None:
 
 
 def main() -> None:
-    print(f"Repeat Compact 1806, {MOTOR_KV:.0f} Kv, {GEAR_RATIO}:1 gearbox")
+    print(
+        f"Repeat Compact 1806, {REPEAT_1806_KV_RPM_PER_V:.0f} Kv, "
+        f"{GEAR_RATIO_MOTOR_PER_OUTPUT}:1 gearbox"
+    )
     print(f"Battery: {PACKS_IN_SERIES}x {CELLS_PER_PACK}S LiHV in series = {SERIES_CELLS}S\n")
 
     _report("Nominal", CELL_NOMINAL_V)

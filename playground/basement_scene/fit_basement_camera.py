@@ -49,9 +49,11 @@ from auto_battlebot.perception.cage_calibration import (
     save_cage_calibration,
 )
 
-MAT_SIZE_M = 1.524  # 5 ft
-RAIL_HEIGHT_M = 0.0889  # 2x4 on edge, 3.5 in
-RAIL_THICKNESS_M = 0.0381  # 1.5 in
+FT_M = 0.3048
+INCH_M = 0.0254
+MAT_SIZE_M = 5 * FT_M
+RAIL_HEIGHT_M = 3.5 * INCH_M
+RAIL_THICKNESS_M = 1.5 * INCH_M
 PLANE_INLIER_M = 0.005
 RAIL_TOP_BAND_M = (0.078, 0.100)
 EDGE_CLIP_PX = 15.0

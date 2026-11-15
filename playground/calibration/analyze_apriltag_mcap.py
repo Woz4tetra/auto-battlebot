@@ -196,12 +196,15 @@ def print_summary(rows: list[dict], tag_id: int) -> None:
     print(f"  yaw [{yaw_deg.min():+.1f}, {yaw_deg.max():+.1f}] deg")
 
 
+HITCH_GAP_FACTOR = 1.5
+
+
 def print_timing(rows: list[dict]) -> None:
     """Report frame-rate consistency over every recorded frame, to surface recording hitches.
 
     Uses all frame timestamps (not just solved ones), since hitches are a camera/recording issue
-    independent of whether the tag was detected. A "hitch" is a gap longer than 1.5x the median
-    period; dropped frames are estimated by how many nominal periods each gap overran.
+    independent of whether the tag was detected. A "hitch" is a gap over HITCH_GAP_FACTOR times
+    the median period; dropped frames are estimated by how many nominal periods each gap overran.
     """
     ts = np.array([r["t"] for r in rows], dtype=np.float64)
     if len(ts) < 2:
@@ -212,7 +215,7 @@ def print_timing(rows: list[dict]) -> None:
         return
     med = float(np.median(dt))
     dropped = int(np.maximum(0, np.round(dt / med).astype(int) - 1).sum())
-    hitches = int(np.count_nonzero(dt > 1.5 * med))
+    hitches = int(np.count_nonzero(dt > HITCH_GAP_FACTOR * med))
     worst_i = int(np.argmax(dt))
     worst_dt = float(dt[worst_i])
     print(f"frame timing: {len(ts)} frames over {ts[-1] - ts[0]:.1f} s")
@@ -236,7 +239,7 @@ def print_timing(rows: list[dict]) -> None:
             f"(~{int(round(worst_dt / med)) - 1} frames skipped)"
         )
     else:
-        print("  no hitches (every gap within 1.5x median)")
+        print(f"  no hitches (every gap within {HITCH_GAP_FACTOR}x median)")
 
 
 def save_plot(path: Path, rows: list[dict], tag_id: int) -> None:

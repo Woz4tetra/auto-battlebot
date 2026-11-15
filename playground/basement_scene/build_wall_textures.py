@@ -52,8 +52,8 @@ from auto_battlebot.perception.texture_fill import largest_seen_rectangle, offse
 FAR_REGION = {"axis": 1, "min": 0.78, "max": 1.2, "along": (-0.7, 0.7)}
 RIGHT_REGION = {"axis": 0, "min": 0.82, "max": 1.3, "along": (-0.5, 0.65)}
 MIN_HEIGHT_M = 0.12
-# Height above the mat below which nothing counts as wall: the rail tops are at 0.088 m.
-SEEN_ABOVE_M = 0.11
+RAIL_TOP_M = 0.088
+SEEN_ABOVE_RAIL_M = 0.11
 FEATHER_PX = 9
 # Scale of the photo's lighting divided out of the seen texels, metres. The scene's own tubes
 # light the wall; left in, the real hot spot shows as a bright patch against the tiled fill.
@@ -200,7 +200,7 @@ def main() -> None:
             target, h_img_from_tex, size, flags=cv2.INTER_LANCZOS4 | cv2.WARP_INVERSE_MAP
         )
         close = (distance_to[wall.name](xyz_w) < args.wall_tolerance) & (
-            xyz_w[..., 2] > SEEN_ABOVE_M
+            xyz_w[..., 2] > SEEN_ABOVE_RAIL_M
         )
         on_wall = close.astype(np.uint8) * 255
         on_wall = cv2.morphologyEx(on_wall, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))

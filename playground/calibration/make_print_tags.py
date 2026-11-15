@@ -86,8 +86,8 @@ def robot_tag_pdf(tag_id: int, tag_m: float, quiet_mm: float, px_per_mm: float, 
 
 def cam_px(marker_m: float, mount_m: float, hfov_deg: float, width_px: int) -> float:
     """Estimated marker size in pixels at the camera (ground sampling from an overhead mount)."""
-    gsd = (2.0 * mount_m * math.tan(math.radians(hfov_deg) / 2.0)) / width_px  # m / px
-    return marker_m / gsd
+    gsd_m_per_px = (2.0 * mount_m * math.tan(math.radians(hfov_deg) / 2.0)) / width_px
+    return marker_m / gsd_m_per_px
 
 
 def main() -> None:

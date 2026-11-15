@@ -7,11 +7,37 @@ from __future__ import annotations
 
 import socket
 import struct
+from typing import NamedTuple
 
-REQUEST_FMT: str = "<ddd"  # linear_x, linear_y, angular_z (3 x float64 = 24 bytes)
+
+class Request(NamedTuple):
+    linear_x: float
+    linear_y: float
+    angular_z: float
+
+
+class ResponseHeader(NamedTuple):
+    width: int
+    height: int
+    tf_matrix: tuple[float, ...]
+    fx: float
+    fy: float
+    cx: float
+    cy: float
+    sim_time: float
+
+
+class MeasPose(NamedTuple):
+    measured: float
+    x: float
+    y: float
+    yaw: float
+
+
+REQUEST_FMT: str = "<ddd"
 REQUEST_SIZE: int = struct.calcsize(REQUEST_FMT)
 
-RESPONSE_HEADER_FMT: str = "<II16d4dd"  # width, height, tf_matrix[16], fx/fy/cx/cy, sim_time
+RESPONSE_HEADER_FMT: str = "<II16d4dd"
 RESPONSE_HEADER_SIZE: int = struct.calcsize(RESPONSE_HEADER_FMT)
 
 # Ground truth poses appended after depth buffer:
@@ -27,7 +53,7 @@ GT_COUNT_SIZE: int = struct.calcsize(GT_COUNT_FMT)
 # the same order. Flags travel as 0.0 / 1.0 so the block stays all float64 like the rest.
 MEAS_HEADER_FMT: str = "<dd"  # delivered, capture_time (sim seconds)
 MEAS_HEADER_SIZE: int = struct.calcsize(MEAS_HEADER_FMT)
-MEAS_POSE_FMT: str = "<dddd"  # measured, x, y, yaw
+MEAS_POSE_FMT: str = "<dddd"
 MEAS_POSE_SIZE: int = struct.calcsize(MEAS_POSE_FMT)
 
 _SOCK_BUF_SIZE: int = 4 * 1024 * 1024

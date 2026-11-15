@@ -778,7 +778,7 @@ def section_coverage(loaded: Loaded, params: PlantParams) -> Section:
         ang_eff = effective_command(ang, params.dz_ang_l, params.dz_ang_r)
         edges = np.linspace(-1, 1, 12)
         grid, _, _ = np.histogram2d(lin_eff, ang_eff, bins=[edges, edges])
-        grid *= dt  # seconds held, which is what the fit weighs by
+        grid *= dt
         fig, ax = plt.subplots(figsize=(5.6, 4.4))
         masked = np.ma.masked_where(grid <= 0, grid)
         cmap = plt.get_cmap("viridis").copy()

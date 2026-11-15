@@ -87,7 +87,7 @@ TELEMETRY_HZ = 100.0
 # with b_percent (radio delay correlations, mujoco_sysid/s01_2026-10-15/session.json).
 PERCENT_TO_CHANNEL = STICK_FULL / 100.0
 ESP32_GAP_S = 0.05
-VBAT_MIN_V = 9.0  # anything below this on a 4S pack is a bad reading, not a flat pack
+VBAT_PLAUSIBLE_MIN_V = 9.0
 
 # Session totals worth aiming for before calling a recording day enough. Rough: enough repeats
 # per stage of the staged fit to hold a session out and still fit on the rest.
@@ -331,7 +331,7 @@ def check_esp32(esp: pd.DataFrame, rep: Report) -> bool:
         f" longest {np.nanmax(rgaps) * 1e3 if len(rgaps) else math.nan:.0f} ms",
     )
     vbat = esp["vbat"].to_numpy(float) if "vbat" in esp else np.array([])
-    good = vbat[np.isfinite(vbat) & (vbat > VBAT_MIN_V)]
+    good = vbat[np.isfinite(vbat) & (vbat > VBAT_PLAUSIBLE_MIN_V)]
     if len(good) == 0:
         rep.add("pack voltage", "FAIL", "vbat missing or NaN: the fit falls back to 15.2 V")
     else:

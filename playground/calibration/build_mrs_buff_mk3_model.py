@@ -75,6 +75,7 @@ R_BODY_ASM = np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
 ORIGIN_ASM_M = np.array([0.0, 0.08029, -0.0305])
 
 MM = 1e-3
+CONNECTOR_TO_BODY_AXES = np.array([[1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 1.0, 0.0]])
 KG_MM2 = 1e-6
 
 
@@ -115,16 +116,14 @@ WHEEL_CONNECTOR_TENSOR = np.array(
 WHEEL_COM_BACK_RIGHT_MM = np.array([-71.918, -97.009, 0.028])
 
 
-def wheel_bodies(axle_x: float, follower_x: float) -> dict[str, MassBody]:
+def wheel_bodies(driven_axle_x_m: float, follower_x: float) -> dict[str, MassBody]:
     tensor = WHEEL_CONNECTOR_TENSOR * KG_MM2 - _shift(WHEEL_MASS, WHEEL_CONNECTOR_COM_MM * MM)
-    # Connector axes (x, y, axle) to body axes (x, axle = body y, z): swap the last two.
-    swap = np.array([[1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 1.0, 0.0]])
-    inertia = swap @ tensor @ swap.T
+    inertia = CONNECTOR_TO_BODY_AXES @ tensor @ CONNECTOR_TO_BODY_AXES.T
     lateral = abs(WHEEL_COM_BACK_RIGHT_MM[1]) * MM
     out = {}
     for name, x, y in (
-        ("back_left", axle_x, lateral),
-        ("back_right", axle_x, -lateral),
+        ("back_left", driven_axle_x_m, lateral),
+        ("back_right", driven_axle_x_m, -lateral),
         ("front_left", follower_x, lateral),
         ("front_right", follower_x, -lateral),
     ):
@@ -166,7 +165,7 @@ def geometry(assembly: UrdfAssembly) -> dict[str, float]:
     if len(xs) != 2:
         raise ValueError(f"expected two axles, found tread centres at x = {xs}")
     return {
-        "axle_x_m": round(float(xs.min()), 5),  # driven: the back pair
+        "axle_x_m": round(float(xs.min()), 5),
         "follower_axle_x_m": round(float(xs.max()), 5),
         "track_half_width_m": round(float(np.abs(centres[:, 1]).mean()), 5),
         "wheel_radius_m": round(float(sizes[:, 2].mean() / 2), 5),

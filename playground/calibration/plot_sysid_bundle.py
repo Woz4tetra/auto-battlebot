@@ -32,7 +32,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 TAG, YOLO, SMOOTH, OTHER, IMU = "#2a78d6", "#eda100", "#1baf7a", "#eb6834", "#6250d6"
 INK, MUTED, SURF, GRID = "#0b0b0b", "#52514e", "#fcfcfb", "#e6e5e1"
-ALIAS_RATE = 50.0  # rad/s: well past any real spin; a smoothed rate above it is an alias
+ALIAS_RATE_RAD_S = 50.0
 
 
 def _style() -> None:
@@ -115,20 +115,20 @@ def overview(d: dict, out: Path) -> None:
     ax[1].semilogy(
         s["t"], np.abs(s["yaw_rate"]) + 1e-3, color=SMOOTH, lw=0.6, label="|smoothed yaw rate|"
     )
-    ax[1].axhline(ALIAS_RATE, color=OTHER, ls="--", lw=0.8)
+    ax[1].axhline(ALIAS_RATE_RAD_S, color=OTHER, ls="--", lw=0.8)
     ax[1].text(
         s["t"].iloc[0],
-        ALIAS_RATE * 1.3,
-        f"{ALIAS_RATE:.0f} rad/s: above this is an alias",
+        ALIAS_RATE_RAD_S * 1.3,
+        f"{ALIAS_RATE_RAD_S:.0f} rad/s: above this is an alias",
         color=OTHER,
         fontsize=7,
     )
-    above = float((s["yaw_rate"].abs() > ALIAS_RATE).mean())
+    above = float((s["yaw_rate"].abs() > ALIAS_RATE_RAD_S).mean())
     ax[1].set_ylim(1e-2, 1e3)
     ax[1].set_ylabel("rad/s")
     ax[1].set_title(
         f"B. Yaw rate. Smoothed should trace the IMU; {above:.1%} of samples above "
-        f"{ALIAS_RATE:.0f} rad/s",
+        f"{ALIAS_RATE_RAD_S:.0f} rad/s",
         loc="left",
     )
     ax[1].legend(loc="upper right", frameon=False, ncol=2)

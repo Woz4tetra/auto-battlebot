@@ -47,8 +47,8 @@ from auto_battlebot.recording.mcap_io import (
 )
 from playground.calibration.render_match_prediction import ROBOT_HALF_M, predict_track
 
-BLUE = (200, 100, 30)  # BGR
-ORANGE = (30, 140, 240)
+BLUE_BGR = (200, 100, 30)
+ORANGE_BGR = (30, 140, 240)
 RED = (60, 60, 230)
 WHITE = (240, 240, 240)
 
@@ -277,10 +277,10 @@ def main() -> None:
                     trail = np.stack([run.x[lo : k + 1], run.y[lo : k + 1]], axis=1)
                     trail = trail[np.isfinite(trail).all(axis=1)]
                     if len(trail) >= 2:
-                        _poly(img, prj(trail), BLUE, 2, closed=False)
+                        _poly(img, prj(trail), BLUE_BGR, 2, closed=False)
                     if meas_ok:
                         corners = _robot_footprint(run.x[k], run.y[k], run.theta[k])
-                        _poly(img, prj(corners), BLUE, 3)
+                        _poly(img, prj(corners), BLUE_BGR, 3)
                         head = np.array(
                             [
                                 [run.x[k], run.y[k]],
@@ -290,12 +290,12 @@ def main() -> None:
                                 ],
                             ]
                         )
-                        _poly(img, prj(head), BLUE, 3, closed=False)
+                        _poly(img, prj(head), BLUE_BGR, 3, closed=False)
 
                     seg = predicted.segment[k]
                     if seg >= 0:
                         px, py, pth = predicted.pose[k]
-                        _poly(img, prj(_robot_footprint(px, py, pth)), ORANGE, 3)
+                        _poly(img, prj(_robot_footprint(px, py, pth)), ORANGE_BGR, 3)
                         head = np.array(
                             [
                                 [px, py],
@@ -305,9 +305,9 @@ def main() -> None:
                                 ],
                             ]
                         )
-                        _poly(img, prj(head), ORANGE, 3, closed=False)
+                        _poly(img, prj(head), ORANGE_BGR, 3, closed=False)
                         sel = np.flatnonzero(predicted.segment[: k + 1] == seg)
-                        _poly(img, prj(predicted.pose[sel, :2]), ORANGE, 2, closed=False)
+                        _poly(img, prj(predicted.pose[sel, :2]), ORANGE_BGR, 2, closed=False)
                         since_reset = (k - sel[0]) * run.dt
                         if meas_ok:
                             _poly(
@@ -373,7 +373,7 @@ def main() -> None:
                 bh = int(24 * hud_scale)
                 for row, (value, color, label) in enumerate(
                     (
-                        (float(run.cmd_lin[k]), BLUE, "lin"),
+                        (float(run.cmd_lin[k]), BLUE_BGR, "lin"),
                         (float(run.cmd_ang[k]), (60, 180, 60), "ang"),
                     )
                 ):

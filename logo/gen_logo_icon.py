@@ -25,13 +25,13 @@ from PIL import Image
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 SUPERSAMPLE = 4
+MIN_STROKE_PX = 1
 
 
 def render_icon(svg_path: Path, height: int) -> Image.Image:
     """Composite the final splash frame (settled logo) on a transparent canvas."""
-    radius_ss = (height * SUPERSAMPLE) // 2  # logo height = disc diameter
-    # The reference stroke (r/30) is sub-pixel at icon sizes; keep it >= 1 output px.
-    stroke_ss = max(SUPERSAMPLE, round(radius_ss / splash.REF_RADIUS))
+    radius_ss = (height * SUPERSAMPLE) // 2
+    stroke_ss = max(MIN_STROKE_PX * SUPERSAMPLE, round(radius_ss / splash.REF_RADIUS))
     sprites = splash.HalfDiscSprites(radius_ss, stroke_ss)
     pill = splash.render_pill_layer(svg_path, float(radius_ss))
 

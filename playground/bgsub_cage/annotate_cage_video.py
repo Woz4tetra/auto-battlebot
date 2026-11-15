@@ -40,10 +40,10 @@ from auto_battlebot.segmentation.field_hull import (
     save_hull,
 )
 
-HULL_COLOR = (255, 220, 60)  # BGR cyan-ish
-KEPT_COLORS = [(90, 230, 90), (60, 200, 255)]  # robot green, house_bot amber
-DROPPED_COLOR = (120, 120, 120)  # off-field: no overlap with the hull at all
-WALL_COLOR = (80, 140, 235)  # dropped but overlapping the hull, so pinned at the wall
+HULL_COLOR = (255, 220, 60)
+KEPT_COLORS = [(90, 230, 90), (60, 200, 255)]
+DROPPED_OFF_FIELD_COLOR = (120, 120, 120)
+DROPPED_AT_WALL_COLOR = (80, 140, 235)
 
 # A dropped box with at least this much of its area inside the hull is a robot against
 # the cage wall, not something outside the cage.
@@ -177,7 +177,7 @@ def draw_frame(
             cv2.putText(canvas, label, (x1, max(14, y1 - 6)), FONT, 0.5, color, 2, cv2.LINE_AA)
         else:
             at_wall = detection["overlap"] >= WALL_OVERLAP_MIN
-            color = WALL_COLOR if at_wall else DROPPED_COLOR
+            color = DROPPED_AT_WALL_COLOR if at_wall else DROPPED_OFF_FIELD_COLOR
             dashed_rectangle(canvas, (x1, y1, x2, y2), color)
             suffix = " wall" if at_wall else " off-field"
             cv2.putText(

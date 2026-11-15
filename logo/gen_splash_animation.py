@@ -82,9 +82,9 @@ FINAL_HALF_GAP = 0.270
 GIF_FINAL_HALF_GAP = 0.35
 SPLIT_RESCALE = FINAL_HALF_GAP / GIF_FINAL_HALF_GAP
 
-# SVG element ids: pill body and "BW" text outlines (kept for the pill layer),
-# everything else (canvas rect, half-discs, outline) is dropped.
-PILL_KEEP_IDS = {"path20", "path24"}
+PILL_BODY_ID = "path20"
+PILL_TEXT_ID = "path24"
+PILL_KEEP_IDS = {PILL_BODY_ID, PILL_TEXT_ID}
 
 # Per-frame motion, measured from bwbots_splash_160x128.gif.
 #   left_off / right_off: signed offset of each half-disc's flat edge from the
