@@ -1,10 +1,4 @@
-"""Drop-reason taxonomy and run statistics.
-
-Every path that discards a frame or skips an annotation maps to exactly one enum
-member, so the end-of-run summary can account for every image that was rendered
-but not written. Logging and in-memory counters only; ``RunStats.record`` is the
-seam where a file sink could be added later.
-"""
+"""Drop-reason taxonomy and run statistics."""
 
 import enum
 from collections import Counter

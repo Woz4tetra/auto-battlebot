@@ -75,3 +75,14 @@ class TestSummaryLines:
         joined = "\n".join(lines)
         assert "KP_PROMINENT_ROBOT_UNLABELED: 1" in joined
         assert "RUN_SHORTFALL: 1" in joined
+
+
+def test_drop_reasons_reconcile_totals() -> None:
+    stats = RunStats()
+    for reason in DropReason:
+        stats.record(_dropped(reason))
+    stats.record(_written(0, 0))
+    assert sum(stats.drop_counts.values()) == stats.frames_dropped == len(DropReason)
+    lines = stats.summary_lines(requested=len(DropReason) + 1, written=1, scenes=1)
+    assert f"{len(DropReason)} frames dropped" in lines[0]
+    assert "0 short" not in lines[0]

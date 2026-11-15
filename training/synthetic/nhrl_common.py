@@ -1,9 +1,4 @@
-"""Shared helpers for the NHRL robot distractor pipeline.
-
-Used by ``download_nhrl_bots.py``, ``generate_nhrl_meshes.py``, and
-``compute_nhrl_keypoints.py``.  Kept to pure Python + numpy so it imports
-cleanly under both the project venv and BlenderProc's bundled interpreter.
-"""
+"""Shared helpers for the NHRL robot distractor pipeline."""
 
 from __future__ import annotations
 
@@ -245,8 +240,6 @@ def footprint_axes(
         return None
     u1 = u1 / norm
 
-    # Orient u1 deterministically (prefer +X, tie-break +Z) so pre-review output
-    # is reproducible regardless of the eigensolver's sign convention.
     if u1[0] < -1e-12 or (abs(u1[0]) <= 1e-12 and u1[1] < 0.0):
         u1 = -u1
     u2 = np.array([-u1[1], u1[0]], dtype=float)
@@ -257,18 +250,7 @@ def footprint_axes(
 def keypoints_along_axis(
     base_xz: np.ndarray, axis_u: np.ndarray, points: np.ndarray, y_ground: float
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Project *points* onto *axis_u* and return centered front/back extremes.
-
-    *points* is an ``(N, 3)`` array whose ``(X, Z)`` columns are projected onto
-    the line ``{base_xz + t * axis_u}``.  The extreme projections become
-    ``front`` (the ``+axis_u`` end) and ``back``, placed back on that line at
-    height *y_ground*, so both lie exactly on the centerline.  Flipping the sign
-    of *axis_u* swaps front and back.
-
-    Pass the *full* mesh vertices, not just the ground slice: the extent should
-    reach the robot's true top-down silhouette, otherwise front/back collapse
-    toward the wheel-contact patch that dominates the lowest slice.
-    """
+    """Project *points* onto *axis_u* and return centered front/back extremes."""
     xz = points[:, [0, 2]].astype(float)
     t = (xz - base_xz) @ axis_u
     t_max = float(t.max())
@@ -296,13 +278,7 @@ def compute_bottom_slice_keypoints(
 
 
 def convex_hull_2d(points_xz: np.ndarray) -> np.ndarray:
-    """Convex hull of 2D ``(N, 2)`` points (Andrew's monotone chain, numpy-only).
-
-    Returns the hull vertices as an ``(K, 2)`` array in counter-clockwise order.
-    Kept dependency-free (no scipy) so it runs under BlenderProc's Python.  The
-    hull is a faithful stand-in for the full point set when finding the extreme
-    projection along any direction: those extremes are always hull vertices.
-    """
+    """Convex hull of 2D ``(N, 2)`` points (Andrew's monotone chain, numpy-only)."""
     pts = np.unique(np.asarray(points_xz, dtype=float), axis=0)
     if len(pts) <= 2:
         return pts
