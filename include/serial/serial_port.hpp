@@ -7,7 +7,6 @@
 
 namespace auto_battlebot {
 
-/** Minimal POSIX serial port wrapper (115200 8N1, non-blocking reads). */
 class SerialPort {
    public:
     SerialPort() = default;
@@ -23,7 +22,6 @@ class SerialPort {
     bool write(const std::string& data);
     bool write(const uint8_t* data, size_t length);
 
-    /** Read all currently available bytes (non-blocking). Returns empty on error/no data. */
     std::vector<uint8_t> read_available();
 
    private:

@@ -60,7 +60,6 @@ class CommandRingBuffer {
             const TimedCommand &entry = at(i);
             if (entry.stamp > end_stamp) break;
             if (entry.stamp <= start_stamp) {
-                // Keep only the newest entry at or before the window start.
                 if (!out.empty() && out.back().stamp <= start_stamp) {
                     out.back() = entry;
                 } else {

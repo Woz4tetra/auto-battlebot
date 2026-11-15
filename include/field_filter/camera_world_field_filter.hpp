@@ -33,7 +33,6 @@ class CameraWorldFieldFilter : public FieldFilterInterface {
         TransformStamped tf_visodom_from_camera,
         std::shared_ptr<FieldDescriptionWithInlierPoints> initial_description) override {
         if (tf_visodom_from_cameraworld_.header.frame_id == FrameId::EMPTY) {
-            // filter isn't initialized
             return FieldDescription{};
         }
         Eigen::MatrixXd tf_cameraworld_from_camera =

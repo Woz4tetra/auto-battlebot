@@ -20,7 +20,6 @@ class CrsfParser {
    public:
     CrsfParser() = default;
 
-    /** Append data to internal buffer, extract and return all complete valid packets. */
     std::vector<CrsfParseResult> parse(const uint8_t* data, size_t length);
     std::vector<CrsfParseResult> parse(const std::vector<uint8_t>& data);
 

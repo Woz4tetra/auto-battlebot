@@ -21,7 +21,6 @@ namespace auto_battlebot::remote {
 
 enum class Latch : bool { NO = false, YES = true };
 
-/** App -> clients. `max_rate_hz` throttles StatusBus; 0 publishes every call. */
 template <typename Message>
 struct StatusTopic {
     using message_type = Message;
@@ -30,7 +29,6 @@ struct StatusTopic {
     double max_rate_hz;
 };
 
-/** Clients -> app. The payload struct is also the command's type in RemoteCommand. */
 template <typename Payload>
 struct CommandTopic {
     using payload_type = Payload;
@@ -121,7 +119,6 @@ constexpr bool topics_unique() {
 using StatusRows = std::remove_cvref_t<decltype(RemoteTopics::status)>;
 using CommandRows = std::remove_cvref_t<decltype(RemoteTopics::commands)>;
 
-/** One alternative per command payload, derived from RemoteTopics::commands. */
 using RemoteCommand = typename detail::command_variant<CommandRows>::type;
 
 static_assert(detail::topics_unique(), "every remote topic string must be unique");
@@ -134,19 +131,16 @@ static_assert(detail::all_prefixed(detail::topic_names(RemoteTopics::status), "/
 static_assert(detail::all_prefixed(detail::topic_names(RemoteTopics::commands), "/command/"),
               "command topics start with /command/");
 
-/** The status row for a message type. */
 template <typename Message>
 constexpr const StatusTopic<Message>& status_topic() {
     return std::get<StatusTopic<Message>>(RemoteTopics::status);
 }
 
-/** The command row for a payload type. */
 template <typename Payload>
 constexpr const CommandTopic<Payload>& command_topic() {
     return std::get<CommandTopic<Payload>>(RemoteTopics::commands);
 }
 
-/** Topic of whichever command the variant holds. */
 inline std::string_view command_topic_of(const RemoteCommand& command) {
     return std::visit(
         [](const auto& payload) {
@@ -165,7 +159,6 @@ constexpr void for_each_command_topic(F&& f) {
     std::apply([&](const auto&... row) { (f(row), ...); }, RemoteTopics::commands);
 }
 
-/** std::visit helper: one lambda per alternative. */
 template <typename... Fs>
 struct overloaded : Fs... {
     using Fs::operator()...;

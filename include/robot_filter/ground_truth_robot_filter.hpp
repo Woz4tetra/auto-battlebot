@@ -11,10 +11,6 @@
 
 namespace auto_battlebot {
 
-/**
- * Robot filter that bypasses the perception pipeline and uses the poses the simulation's
- * perception delivered, in ground-truth slot order. Reads them from SimConnection.
- */
 class GroundTruthRobotFilter : public RobotFilterInterface {
    public:
     explicit GroundTruthRobotFilter(std::shared_ptr<ClockInterface> clock, int neutral_count = 0)
@@ -24,7 +20,6 @@ class GroundTruthRobotFilter : public RobotFilterInterface {
 
     bool initialize(int opponent_count) override;
 
-    /** Reads the latest delivered poses from SimConnection. Perception inputs are ignored. */
     void correct(ModelResultStamped keypoints, FieldDescription field, CameraInfo camera_info,
                  ModelResultStamped robot_blob_keypoints) override;
 
@@ -49,7 +44,6 @@ class GroundTruthRobotFilter : public RobotFilterInterface {
      */
     Velocity2D velocity_from_delta(FrameId frame_id, const Pose2D &pose, double now);
 
-    /** True when an elapsed time is a plausible measurement-to-measurement interval. */
     static bool interval_usable(double interval);
 
     static double normalize_angle(double angle);
@@ -61,9 +55,7 @@ class GroundTruthRobotFilter : public RobotFilterInterface {
     int neutral_count_ = 0;
     std::shared_ptr<SimConnection> connection_;
     std::shared_ptr<ClockInterface> clock_;
-    /** Ground truth needs no propagation, so this only changes on correct(). */
     RobotDescriptionsStamped state_;
-    /** Best current estimate per track: the measurement, or the coast propagated from it. */
     std::map<FrameId, Pose2D> prev_poses_;
     /** Last actual measurement and its stamp. Never written by the coast branch, so a returning
      * frame differences against real data instead of against the propagated pose it just made. */

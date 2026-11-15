@@ -31,7 +31,6 @@ class StatusBus;
  */
 class HostServices {
    public:
-    /** Runs `systemctl <verb> <unit>`; returns the exit code. Replaced in tests. */
     using SystemctlRunner = std::function<int(const std::string& verb, const std::string& unit)>;
 
     struct Options {
@@ -50,7 +49,6 @@ class HostServices {
     /** Never blocks on the subprocess. */
     void set_wifi_access(bool enabled);
 
-    /** The last applied setting. */
     bool wifi_access() const;
 
     remote::NetworkMessage network() const;
@@ -63,9 +61,6 @@ class HostServices {
      *  prompting on a terminal. */
     static int run_systemctl_command(const std::string& verb, const std::string& unit);
 
-    /** Reads interface addresses with getifaddrs(): the first address on the dashboard cable
-     *  subnet is the cable, and the first interface with /sys/class/net/<name>/wireless is the
-     * Wi-Fi. */
     static remote::NetworkMessage read_network();
 
    private:

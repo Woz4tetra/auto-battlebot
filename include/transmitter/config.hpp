@@ -21,9 +21,7 @@ struct TransmitterConfiguration {
 struct NoopTransmitterConfiguration : public TransmitterConfiguration {
     NoopTransmitterConfiguration() { type = "NoopTransmitter"; }
 
-    PARSE_CONFIG_FIELDS(
-        // No additional fields
-    )
+    PARSE_CONFIG_FIELDS()
 };
 
 struct PlaybackTransmitterConfiguration : public TransmitterConfiguration {
@@ -212,7 +210,6 @@ struct CompositeTransmitterConfiguration : public TransmitterConfiguration {
 
     CompositeTransmitterConfiguration() { type = "CompositeTransmitter"; }
 
-    /** Defined in config.cpp: recurses through parse_transmitter_config. */
     void parse_fields(ConfigParser &parser) override;
 };
 

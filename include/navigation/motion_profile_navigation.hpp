@@ -54,20 +54,11 @@ class MotionProfileNavigation : public NavigationInterface {
         return last_visualization_;
     }
 
-    // Pure functions of their arguments, public so the plant algebra can be tested directly
-    // instead of inferred from a whole update() call.
-
-    /**
-     * @brief Divide out a coupling loss of the form (1 - coeff*|effect|), floored. Returns the
-     * command scaled back up to the size the plant will actually deliver.
-     */
     static double compensate_coupling(double command, double effect, double coeff, double floor);
 
    private:
-    /** @brief Find our robot in the robot descriptions. */
     std::optional<RobotDescription> find_our_robot(const RobotDescriptionsStamped &robots) const;
 
-    /** @brief Compute the velocity command that tracks the goal. */
     VelocityCommand compute_command(const Pose2D &our_pose, const Pose2D &target_pose,
                                     const FieldDescription &field,
                                     std::optional<double> measured_speed, BehaviorMode mode);
@@ -88,41 +79,20 @@ class MotionProfileNavigation : public NavigationInterface {
     std::optional<double> measure_forward_speed(const RobotDescription &robot,
                                                 const Pose2D &our_pose) const;
 
-    /**
-     * @brief Reference forward speed (m/s) from the distance-to-go coast-aware brake schedule,
-     * rate-limited on ramp-up. Read-only (uses prev_v_ref_ as last tick's reference).
-     */
     double compute_reference_speed(double distance, double dt, double terminal_velocity) const;
 
-    /**
-     * @brief Map a reference speed (m/s) to a normalized linear command via inverse-plant
-     * feedforward (steady-state + tau_accel*dvdt lag term) plus speed feedback, then apply
-     * inverse-deadzone. Updates the speed integrator.
-     */
     double compute_linear_command(double v_ref, double dvdt, double v_actual, double dt,
                                   bool speed_is_measured);
 
-    /** @brief Turn-direction hysteresis on the raw heading error (see PursuitNavigation). */
     double apply_hysteresis(double angle_error);
 
-    /**
-     * @brief Yaw-rate reference (rad/s) from the capped PD on heading error. Read-only apart from
-     * the derivative state.
-     */
     double compute_yaw_reference(double angle_error, double now_s);
 
-    /**
-     * @brief Map a yaw-rate reference to a normalized turn command: inverse-plant feedforward
-     * through max_angular_speed with the regime tau, then divide out the angular droop the
-     * current linear command is causing.
-     */
     double compute_angular_command(double w_ref, double dt);
 
-    /** @brief If close to and facing a wall, override cmd.linear_x with a reverse command. */
     void apply_wall_reverse(const Pose2D &our_pose, const FieldDescription &field,
                             VelocityCommand &cmd) const;
 
-    /** @brief Clamp a position to stay within the field boundaries (minus boundary_margin). */
     Pose2D clamp_to_field(const Pose2D &pose, const FieldDescription &field) const;
 
     static double distance_to_nearest_wall(const Pose2D &pose, const FieldDescription &field);
@@ -140,7 +110,6 @@ class MotionProfileNavigation : public NavigationInterface {
      */
     void reset_trajectory_state();
 
-    // Plant parameters.
     double max_linear_speed_fwd_;
     double max_linear_speed_rev_;
     double tau_accel_;
@@ -153,17 +122,14 @@ class MotionProfileNavigation : public NavigationInterface {
     double angular_deadzone_left_;
     double angular_deadzone_right_;
 
-    // Trajectory.
     double attack_terminal_speed_fraction_;
     double run_away_terminal_speed_fraction_;
     double stop_distance_;
     HazardAvoidance hazards_;
 
-    // Speed feedback.
     double speed_kp_;
     double speed_ki_;
 
-    // Angular control.
     double max_angular_speed_;
     double tau_angular_accel_;
     double tau_angular_decel_;
@@ -176,7 +142,6 @@ class MotionProfileNavigation : public NavigationInterface {
     double max_angular_command_;
     bool enable_hysteresis_;
 
-    // Misc / safety.
     double boundary_margin_;
     double max_linear_command_;
     double wall_reverse_distance_;
@@ -186,7 +151,6 @@ class MotionProfileNavigation : public NavigationInterface {
     std::shared_ptr<DiagnosticsModuleLogger> logger_;
     std::shared_ptr<ClockInterface> clock_;
 
-    // Per-tick state.
     int committed_turn_sign_ = 0;
     double prev_angle_error_ = 0.0;
     double prev_angular_timestamp_ = 0.0;

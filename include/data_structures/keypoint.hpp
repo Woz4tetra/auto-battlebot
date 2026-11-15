@@ -14,9 +14,7 @@ struct Keypoint {
     KeypointLabel keypoint_label = KeypointLabel::EMPTY;
     double x = 0.0f;
     double y = 0.0f;
-    /** Detection confidence (e.g. from YOLO row[4]). Used to sort and keep top-N per label. */
     double confidence = 1.0;
-    /** Index of the detection this keypoint belongs to (for grouping keypoints by instance). */
     int detection_index = 0;
     /** Height above the field plane in metres, measured from depth by KeypointHeightGate. NaN
      *  when nothing measured it, in which case consumers fall back to the configured per-label
@@ -31,7 +29,6 @@ struct Keypoint {
     double reference_offset_m = 0.0;
 };
 
-/** Detection box in original-image pixels. */
 struct BoundingBox {
     double x1 = 0.0;
     double y1 = 0.0;
@@ -44,7 +41,6 @@ struct BoundingBox {
     double center_y() const { return 0.5 * (y1 + y2); }
 };
 
-/** One model's output for one frame: the keypoints it produced and the boxes they came from. */
 struct ModelResultStamped {
     Header header;
     std::vector<Keypoint> keypoints;
@@ -53,7 +49,6 @@ struct ModelResultStamped {
      *  stays aligned with what the detector emitted. */
     std::vector<BoundingBox> boxes;
 
-    /** Box for a keypoint's detection, or nullptr when this model carries none. */
     const BoundingBox *box_for(int detection_index) const {
         if (detection_index < 0 || static_cast<size_t>(detection_index) >= boxes.size()) {
             return nullptr;

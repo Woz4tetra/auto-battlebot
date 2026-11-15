@@ -6,8 +6,6 @@
 #include "enums/label.hpp"
 
 namespace auto_battlebot {
-// One model keypoint (e.g. front/back) in original-image pixels, ordered per the
-// model's kpt layout.
 struct DetectionKeypoint {
     double x = 0.0;
     double y = 0.0;
@@ -24,7 +22,7 @@ struct Detection2D {
     double confidence = 0.0;
     int class_id = 0;
     Label label = Label::EMPTY;
-    std::vector<DetectionKeypoint> keypoints;  // empty for box-only models
+    std::vector<DetectionKeypoint> keypoints;
 };
 
 struct DetectionsStamped {

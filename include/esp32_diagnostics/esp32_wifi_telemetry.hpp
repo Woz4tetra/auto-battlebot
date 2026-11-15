@@ -23,28 +23,21 @@ struct Esp32WifiTelemetryOptions {
     /** Time between polls while caught up. The ring holds two minutes, so this only sets how
      *  stale the newest row is when it lands, not whether rows are lost. */
     std::chrono::milliseconds poll_period{100};
-    /** Wait after a failed poll before the next one. */
     std::chrono::milliseconds retry_period{1000};
 };
 
 struct Esp32WifiTelemetryStats {
-    /** The last poll got a valid reply. */
     bool connected = false;
     uint64_t polls = 0;
-    /** Polls that timed out, were refused, or answered non-2xx. */
     uint64_t poll_failures = 0;
-    /** Replies that did not decode: wrong magic, version, record size, or length. */
     uint64_t parse_errors = 0;
     uint64_t events = 0;
-    /** Events marked backfill: everything except the newest row of a poll that caught up. */
     uint64_t backfilled = 0;
     /** Records overwritten in the ring before a poll reached them. */
     uint64_t lost_records = 0;
     /** Times the robot's boot id changed, so seqs restarted. */
     uint64_t reboots = 0;
-    /** Events discarded because the queue was full (the caller stopped draining). */
     uint64_t dropped_events = 0;
-    /** Records still waiting in the ring after the last poll. */
     uint32_t lag_records = 0;
     uint32_t ring_capacity = 0;
 };
@@ -69,18 +62,13 @@ class Esp32WifiTelemetry {
     Esp32WifiTelemetry(const Esp32WifiTelemetry &) = delete;
     Esp32WifiTelemetry &operator=(const Esp32WifiTelemetry &) = delete;
 
-    /** Start the worker. Idempotent. */
     void start();
-    /** Stop the worker and join it. Bounded by the request timeout, about a second. */
     void stop();
-    /** Move every queued event out, oldest first. */
     std::vector<Esp32DiagnosticsEvent> drain();
     Esp32WifiTelemetryStats stats() const;
 
    private:
     void run();
-    /** Returns false when the poll failed and the worker should back off. Sets `more` when the
-     *  ring still holds records past this reply. */
     bool poll_once(bool &more);
     std::optional<std::string> http_get(const std::string &path);
     void wait_for(std::chrono::milliseconds duration);
@@ -95,7 +83,6 @@ class Esp32WifiTelemetry {
     std::deque<Esp32DiagnosticsEvent> queue_;
     Esp32WifiTelemetryStats stats_;
 
-    // Worker-only state.
     std::optional<uint32_t> boot_id_;
     uint32_t next_seq_ = 0;
 };

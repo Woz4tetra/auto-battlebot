@@ -35,7 +35,6 @@ struct LabelToKeypointMapConfiguration {
                 throw ConfigValidationError("Each entry in '" + field_name + "' must be a table");
             }
 
-            // Get label
             auto label_node = entry->get("label");
             if (!label_node) {
                 throw ConfigValidationError("Missing 'label' field in " + field_name + " entry");
@@ -51,7 +50,6 @@ struct LabelToKeypointMapConfiguration {
             }
             Label label = label_opt.value();
 
-            // Get keypoints array
             auto keypoints_node = entry->get("keypoints");
             if (!keypoints_node) {
                 throw ConfigValidationError("Missing 'keypoints' field for label " + *label_str);
@@ -78,7 +76,6 @@ struct LabelToKeypointMapConfiguration {
         }
     }
 
-    // Helper to get keypoint labels for a given object label
     const std::vector<KeypointLabel> &get_keypoint_labels(Label label) const {
         static const std::vector<KeypointLabel> empty;
         for (const auto &[l, kps] : label_to_keypoints) {
@@ -89,7 +86,6 @@ struct LabelToKeypointMapConfiguration {
         return empty;
     }
 
-    // Get label at a specific index
     Label get_label_at_index(size_t index) const {
         if (index < label_to_keypoints.size()) {
             return label_to_keypoints[index].first;

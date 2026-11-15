@@ -5,9 +5,6 @@
 
 namespace auto_battlebot {
 
-/** Schema attached to a channel, owned as strings so it can be sent over the relay socket and
- *  handed to the MCAP writer alike. `data` is the serialized schema: a protobuf
- *  FileDescriptorSet for `protobuf`, jsonschema text for `jsonschema`. */
 struct VizSchema {
     std::string name;
     std::string encoding;

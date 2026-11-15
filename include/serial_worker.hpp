@@ -9,10 +9,7 @@
 
 namespace auto_battlebot {
 
-/**
- * Runs posted jobs one at a time, in post order, on its own thread. For slow work the caller
- * must not wait on, where the order of the jobs still matters.
- */
+/** Runs posted jobs in order on its own thread. */
 class SerialWorker {
    public:
     SerialWorker() : thread_([this] { run(); }) {}

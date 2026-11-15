@@ -32,7 +32,6 @@ class GpuLetterbox {
     bool enqueue(const cv::Mat &image, int tensor_width, int tensor_height, float padding,
                  float *tensor, void *stream);
 
-    /** True if the last enqueue read the frame in place rather than copying it. */
     bool last_was_zero_copy() const { return last_was_zero_copy_; }
 
    private:

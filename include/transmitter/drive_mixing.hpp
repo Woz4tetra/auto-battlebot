@@ -27,7 +27,6 @@ BodyVelocity saturate_velocity(double linear, double angular, double saturation_
  */
 WheelPair mix_to_wheels(BodyVelocity body);
 
-/** Recover the body-frame command that produced the given wheel pair. */
 BodyVelocity inverse_mix_from_wheels(WheelPair wheels);
 
 /**

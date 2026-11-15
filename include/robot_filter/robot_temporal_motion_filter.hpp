@@ -13,11 +13,8 @@ namespace auto_battlebot {
 
 class RobotTemporalMotionFilter {
    public:
-    /** No default constructor: the fitted gains are the only thing that gives a normalized stick
-     *  command a physical meaning, so there is nothing sensible to default them to. */
     explicit RobotTemporalMotionFilter(const JigPlantParams &plant) : plant_(plant) {}
 
-    /** Clears all tracked robot state. Call before starting a new match. */
     void reset();
 
     /**

@@ -53,9 +53,7 @@ struct FieldFilterConfiguration {
 struct NoopFieldFilterConfiguration : public FieldFilterConfiguration {
     NoopFieldFilterConfiguration() { type = "NoopFieldFilter"; }
 
-    PARSE_CONFIG_FIELDS(
-        // No additional fields
-    )
+    PARSE_CONFIG_FIELDS()
 };
 
 struct FixedFieldFilterConfiguration : public FieldFilterConfiguration {

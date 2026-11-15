@@ -17,11 +17,6 @@
 
 namespace auto_battlebot {
 
-/**
- * Publishes pipeline output as Foxglove schemas to the live relay (via VizSink) and the MCAP
- * recorder. Each message is encoded once and fanned out by OutputChannel. Either sink may be
- * null: with no relay the app still records, with no recorder it still streams.
- */
 class FoxglovePublisher : public PublisherInterface {
    public:
     FoxglovePublisher(std::shared_ptr<VizSink> sink, std::shared_ptr<McapRecorder> mcap_recorder,
@@ -44,8 +39,6 @@ class FoxglovePublisher : public PublisherInterface {
     // Shared impl for /blob_detections and /keypoint_detections plus their annotation topics.
     void publish_detections_on(OutputChannel &json_channel, OutputChannel &annotations_channel,
                                const DetectionsStamped &detections);
-    /** Loop-side half of /camera/preview and /camera/preview_video: rate limit, then one resize
-     *  into a fresh buffer shared by both. */
     void submit_previews(const RgbImage &rgb, uint64_t log_time);
     cv::Mat resize_for_preview(const cv::Mat &image) const;
     void submit_preview_video(const cv::Mat &frame, uint64_t log_time);

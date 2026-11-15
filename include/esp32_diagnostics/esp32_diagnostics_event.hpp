@@ -7,7 +7,6 @@
 
 namespace auto_battlebot {
 
-/** Motor stall guard state (firmware lib/motor_guard), as the telemetry record carries it. */
 struct Esp32MotorGuard {
     /** Winding temperature rise above ambient from the thermal model, C. */
     double motor_rise_left = 0.0;
@@ -18,9 +17,7 @@ struct Esp32MotorGuard {
     /** Estimated winding current, A. */
     double motor_amps_left = 0.0;
     double motor_amps_right = 0.0;
-    /** Command scale: 1 passes commands through, below 1 is limiting. */
     double guard_scale = 1.0;
-    /** Shunt correction gain on the model current. */
     double guard_gain = 1.0;
     /** motor_guard::State: 0 OFF, 1 NOMINAL, 2 HOT, 3 LIMITING, 4 TRIPPED. */
     int guard_state = 0;
@@ -62,18 +59,13 @@ struct Esp32DiagnosticsEvent {
     double orientation_z = 0.0;
     double pid_setpoint = 0.0;
     double pid_output = 0.0;
-    /** Pack voltage from the INA228, volts. Empty on firmware that predates the field and when
-     *  the firmware prints `nan` because the INA228 is missing or a read failed. */
     std::optional<double> vbat;
-    /** Pack current from the INA228, amps, positive while discharging. Empty under the same
-     *  conditions as `vbat`. */
     std::optional<double> ibat;
     /** Gyro yaw rate, deg/s clockwise. Empty on firmware that predates the field. */
     std::optional<double> yaw_rate;
     /** Rate the yaw loop commands, deg/s clockwise. Empty when the loop is not running (the
      *  firmware prints `nan`) and on firmware that predates the field. */
     std::optional<double> yaw_rate_cmd;
-    /** Motor stall guard columns. Empty on firmware that predates them. */
     std::optional<Esp32MotorGuard> guard;
     /** Firmware row counter, +1 per row sent. A gap means rows were dropped between the robot and
      *  the host. Empty on firmware that predates the field. */
@@ -85,15 +77,10 @@ struct Esp32DiagnosticsEvent {
     std::optional<bool> backfill;
 };
 
-/** Field count before the firmware added `vbat`. */
 constexpr int kEsp32DiagnosticsFieldsWithoutVbat = 20;
-/** Field count with `vbat` appended. */
 constexpr int kEsp32DiagnosticsFieldsWithVbat = 21;
-/** Field count with `ibat` appended after `vbat`. */
 constexpr int kEsp32DiagnosticsFieldsWithIbat = 22;
-/** Field count with `yaw_rate` and `yaw_rate_cmd` appended after `ibat`. */
 constexpr int kEsp32DiagnosticsFieldsWithYawRate = 24;
-/** Field count with the 12 motor guard columns and then `seq` appended after `yaw_rate_cmd`. */
 constexpr int kEsp32DiagnosticsFieldsWithGuard = 37;
 
 /**

@@ -8,15 +8,11 @@
 
 namespace auto_battlebot::rl_policy {
 
-/** Name and shape of one float tensor a network reads or writes, as the bundle manifest lists
- * it. */
 struct TensorSpec {
     std::string name;
     std::vector<int> shape;
 
-    /** Number of floats: the product of the shape. */
     size_t size() const;
-    /** "obs.vector [138]", for error messages. */
     std::string to_string() const;
 
     bool operator==(const TensorSpec &other) const = default;
@@ -40,7 +36,6 @@ class TensorSet {
     TensorSet() = default;
     explicit TensorSet(const std::vector<TensorSpec> &specs);
 
-    /** Null when no tensor has this name. */
     Tensor *find(std::string_view name);
     const Tensor *find(std::string_view name) const;
 
@@ -56,7 +51,6 @@ class TensorSet {
     std::vector<Tensor> tensors_;
 };
 
-/** "a [4], b [2, 3]", for error messages. */
 std::string specs_to_string(const std::vector<TensorSpec> &specs);
 
 }  // namespace auto_battlebot::rl_policy

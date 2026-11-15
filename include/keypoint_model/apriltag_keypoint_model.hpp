@@ -18,23 +18,18 @@
 
 namespace auto_battlebot {
 
-/** One PnP solution: rvec and tvec map the marker frame into the camera frame. */
 struct TagPoseSolution {
     cv::Vec3d rvec;
     cv::Vec3d tvec;
     double reprojection_error_px = 0.0;
 };
 
-/** Both SOLVEPNP_IPPE_SQUARE solutions for one tag, sorted by reprojection error ascending.
- *  `corners` are in OpenCV aruco order, clockwise from the marker's top-left. Empty on failure. */
 std::vector<TagPoseSolution> solve_tag_pose(const std::array<cv::Point2f, 4> &corners,
                                             double tag_size_m, const cv::Mat &intrinsics,
                                             const cv::Mat &distortion);
 
-/** One robot tag's mounting, resolved from its config entry. */
 struct TagMount {
     int id = 0;
-    /** Marker frame to body frame (FLU at the axle midpoint). */
     cv::Matx33d rotation_body_tag = cv::Matx33d::eye();
     cv::Vec3d translation_body_tag{0.0, 0.0, 0.0};
     /** True when the printed face points up the body z axis, so the camera above sees it with
@@ -48,8 +43,6 @@ struct TagMount {
 
 TagMount make_tag_mount(const AprilTagMountConfiguration &config, double rest_pitch_rad);
 
-/** The floor's up direction in the camera frame implied by one tag pose, assuming the robot
- *  rests on the floor. */
 cv::Vec3d floor_up_from_tag_pose(const TagPoseSolution &solution, const TagMount &mount);
 
 /** True when the pose puts the camera above the floor through the robot's axle. The planar flip
@@ -81,9 +74,7 @@ size_t select_ippe_solution(const std::vector<TagPoseSolution> &solutions, const
  */
 class FloorNormalEstimator {
    public:
-    /** Before the estimate locks: record one frame's candidates. */
     void add_frame(const std::vector<cv::Vec3d> &candidates);
-    /** After the estimate locks: nudge it toward the chosen candidate if it is close. */
     void refine(const cv::Vec3d &chosen);
     const std::optional<cv::Vec3d> &estimate() const { return estimate_; }
 
@@ -114,9 +105,7 @@ class AprilTagKeypointModel : public KeypointModelInterface {
     ModelResultStamped update(RgbImage image, const CameraInfo &camera_info) override;
     DetectionsStamped last_detections() const override { return last_detections_; }
 
-    /** Window the next frame will search first; empty means the full frame. */
     const std::optional<cv::Rect> &search_roi() const { return roi_; }
-    /** The last `/apriltag/robot_tags` payload. */
     const std::string &last_tags_json() const { return last_tags_json_; }
     const FloorNormalEstimator &floor_estimator() const { return floor_estimator_; }
 

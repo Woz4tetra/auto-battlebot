@@ -7,8 +7,6 @@
 namespace auto_battlebot {
 namespace foxglove_adapters {
 
-/** JPEG-encode an RGB image into a foxglove.CompressedImage. An empty image yields an empty
- *  payload with the header filled in. */
 foxglove::schemas::CompressedImage to_compressed_image(const RgbImage &rgb_image);
 
 }  // namespace foxglove_adapters

@@ -14,8 +14,6 @@
 
 namespace auto_battlebot {
 
-// Result of one parallel perception tick: both model outputs plus the per-model wall
-// times measured inside the workers, so the caller can still attribute latency per model.
 struct BatchResult {
     ModelResultStamped keypoints;
     ModelResultStamped robot_blob_keypoints;

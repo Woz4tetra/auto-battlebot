@@ -38,10 +38,9 @@ inline constexpr double kYawRateScale = 15.0;
 inline constexpr double kAgeScaleS = 0.5;
 inline constexpr double kPositionScaleM = 2.0;
 inline constexpr double kPositionSigmaScaleM = 0.1;
-inline constexpr double kHeadingSigmaScaleRad = 1.5707963267948966;  // pi / 2
+inline constexpr double kHeadingSigmaScaleRad = 1.5707963267948966;
 inline constexpr double kFootprintScaleM = 0.2;
 inline constexpr double kHazardRadiusScaleM = 0.3;
-/** The network input tensor's name in the bundle manifest. */
 inline constexpr const char *kTensorName = "obs.vector";
 }  // namespace obs_v1
 
@@ -68,7 +67,6 @@ struct ObservationInputsV1 {
     double our_age_s = 0.0;
     bool our_stale = false;
     bool run_away = false;
-    /** Newest first: linear, angular per step. */
     std::array<double, 2 * obs_v1::kHistory> hist_action{};
     std::array<double, obs_v1::kHistory> hist_speed{};
     std::array<double, obs_v1::kHistory> hist_yaw_rate{};
@@ -88,7 +86,6 @@ struct ObservationInputsV1 {
     /** Half the field rectangle's size. */
     double field_half_x = 0.0;
     double field_half_y = 0.0;
-    /** Any number of discs; the builder picks the 4 nearest by edge distance. */
     std::span<const ObservationHazardV1> hazards;
 };
 
@@ -97,18 +94,9 @@ struct ObservationInputsV1 {
 void build_observation_v1(const ObservationInputsV1 &inputs,
                           std::span<double, obs_v1::kSize> observation);
 
-/**
- * Fill ObservationInputsV1 from the navigation's view of the world. Our forward speed is the
- * filter's field velocity projected on our heading; ages are RobotDescription::measurement_age_s;
- * the opponent's sigmas come from its PoseUncertainty and its half-diagonal from its size. Every
- * FieldHazard becomes a disc of its object_radius. `hazard_storage` backs `inputs.hazards` and is
- * reused across calls.
- */
 ObservationInputsV1 observation_inputs_v1(const ObservationContext &context,
                                           std::vector<ObservationHazardV1> &hazard_storage);
 
-/** ObservationBuilderInterface for spec v1: the adapter, then the pure builder, into one
- * float tensor `obs.vector [138]`. */
 class ObservationBuilderV1 : public ObservationBuilderInterface {
    public:
     int spec_version() const override { return obs_v1::kSpecVersion; }

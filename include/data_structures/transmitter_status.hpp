@@ -18,7 +18,6 @@ struct TransmitterStatus {
     /** The radio has a switch that hands the wheels to autonomy (OpenTX's trainer switch).
      *  Playback and sim have none. */
     bool has_autonomy_switch = false;
-    /** That switch is on and the channel stream is live, so what we send reaches the wheels. */
     bool autonomy_switch_on = false;
 };
 

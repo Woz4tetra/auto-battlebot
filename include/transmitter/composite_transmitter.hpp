@@ -50,7 +50,6 @@ class CompositeTransmitter : public TransmitterInterface {
     std::vector<std::shared_ptr<TransmitterInterface>> children_;
     /** Zero for an uncapped child. */
     std::vector<std::chrono::steady_clock::duration> transmit_period_;
-    /** Empty until a child's first send, which always goes through. */
     std::vector<std::optional<std::chrono::steady_clock::time_point>> last_send_;
     /** A command a capped child skipped, still owed to it. */
     std::vector<std::optional<VelocityCommand>> pending_;

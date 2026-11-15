@@ -5,8 +5,6 @@
 
 namespace auto_battlebot::rl_policy {
 
-/** What one policy step leaves in the history: the action it took and our forward speed and yaw
- * rate as measured at that step. */
 struct HistoryEntry {
     double action_linear = 0.0;
     double action_angular = 0.0;

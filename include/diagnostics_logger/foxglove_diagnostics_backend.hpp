@@ -30,7 +30,6 @@ class FoxgloveDiagnosticsBackend : public DiagnosticsBackend {
     std::map<std::string, std::unique_ptr<OutputChannel>> channels_;
 };
 
-/** Build the `/diagnostics/<module>` JSON payload from the snapshots of one module. */
 std::string diagnostics_module_json(const std::string &module,
                                     const std::vector<const DiagnosticStatusSnapshot *> &snapshots);
 }  // namespace auto_battlebot

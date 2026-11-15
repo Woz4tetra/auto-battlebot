@@ -38,13 +38,9 @@ class ControlLoopInterface {
      */
     virtual void pump_input() {}
 
-    /**
-     * Run cycles until logical time reaches `until`. Stepped drivers only; threaded drivers pace
-     * themselves and ignore this.
-     */
+    /** Run cycles until logical time reaches until. */
     virtual void advance_to([[maybe_unused]] double until) {}
 
-    /** False when the driver has missed its deadline by more than the configured watchdog. */
     virtual bool is_healthy() const { return true; }
 
     // The rest of the loop's surface, forwarded so callers deal with one object rather than
@@ -65,7 +61,6 @@ class ControlLoopInterface {
    protected:
     explicit ControlLoopInterface(std::shared_ptr<ControlLoop> loop) : loop_(std::move(loop)) {}
 
-    /** Begin cycling. Spawns the thread for threaded drivers, does nothing for stepped ones. */
     virtual void start_driver() = 0;
 
     std::shared_ptr<ControlLoop> loop_;

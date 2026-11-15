@@ -11,7 +11,6 @@ namespace foxglove_adapters {
  *  than 3x4 yields the identity. */
 foxglove::schemas::FrameTransform to_frame_transform(const TransformStamped &transform);
 
-/** Wrap one transform in a foxglove.FrameTransforms message. */
 foxglove::schemas::FrameTransforms to_frame_transforms(const TransformStamped &transform);
 
 }  // namespace foxglove_adapters

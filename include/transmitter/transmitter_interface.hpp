@@ -12,11 +12,8 @@ class TransmitterInterface {
     virtual CommandFeedback update() = 0;
     virtual void send(VelocityCommand command) = 0;
     virtual bool did_init_button_press() = 0;
-    /** Transport and stream health. Defaults to fully disconnected. */
     virtual TransmitterStatus get_status() const { return {}; }
-    /** Enable autonomy: start sending commands to hardware/sim. */
     virtual void enable() {}
-    /** Disable autonomy: stop sending commands to hardware/sim. */
     virtual void disable() {}
 };
 

@@ -28,7 +28,6 @@ class SimConnection {
     bool step_and_receive(CameraData &data);
 
     const std::vector<Pose2D> &last_ground_truth_poses() const { return last_gt_poses_; }
-    /** What simulated perception delivered on the last tick. */
     const SimMeasurementFrame &last_measurements() const { return last_measurements_; }
     /** Camera-from-field transform of the last tick: the sim's world origin is the field centre. */
     const Eigen::Matrix4d &last_camera_from_field() const { return last_camera_from_field_; }

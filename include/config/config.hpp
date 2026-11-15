@@ -43,8 +43,6 @@
 
 namespace auto_battlebot {
 struct ClassConfiguration {
-    /** The shared jig fit from [plant]. Both the our-robot EKF and MotionProfileNavigation are
-     * handed this after their own sections parse; see PlantConfiguration. */
     PlantConfiguration plant;
     std::unique_ptr<RgbdCameraConfiguration> camera;
     std::unique_ptr<MaskModelConfiguration> field_model;
@@ -66,9 +64,6 @@ struct ClassConfiguration {
     std::unique_ptr<ClockConfiguration> clock;
 };
 
-// Configuration loading functions.
-// `extends` values inside configs are resolved relative to `config_root`; when empty it defaults
-// to get_config_dir(). Tests pass an explicit root so they can stay hermetic.
 ClassConfiguration load_classes_from_config(const std::filesystem::path &path = {},
                                             const std::filesystem::path &config_root = {});
 

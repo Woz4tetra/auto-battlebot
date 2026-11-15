@@ -18,25 +18,19 @@ struct ClockConfiguration {
 struct SystemClockConfiguration : public ClockConfiguration {
     SystemClockConfiguration() { type = "SystemClock"; }
 
-    PARSE_CONFIG_FIELDS(
-        // No additional fields
-    )
+    PARSE_CONFIG_FIELDS()
 };
 
 struct ManualClockConfiguration : public ClockConfiguration {
     ManualClockConfiguration() { type = "ManualClock"; }
 
-    PARSE_CONFIG_FIELDS(
-        // No additional fields
-    )
+    PARSE_CONFIG_FIELDS()
 };
 
 struct CameraFollowingClockConfiguration : public ClockConfiguration {
     CameraFollowingClockConfiguration() { type = "CameraFollowingClock"; }
 
-    PARSE_CONFIG_FIELDS(
-        // No additional fields
-    )
+    PARSE_CONFIG_FIELDS()
 };
 
 std::shared_ptr<ClockInterface> make_clock(const ClockConfiguration &config);

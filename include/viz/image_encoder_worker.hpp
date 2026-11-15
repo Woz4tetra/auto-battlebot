@@ -28,7 +28,6 @@ class ImageEncoderWorker {
         Header header;
         uint64_t log_time_ns = 0;
     };
-    /** Encodes and logs one frame on the worker thread. */
     using Process = std::function<void(const Job &job)>;
 
     struct Stats {

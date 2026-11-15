@@ -21,9 +21,7 @@ struct RgbdCameraConfiguration {
 struct NoopRgbdCameraConfiguration : public RgbdCameraConfiguration {
     NoopRgbdCameraConfiguration() { type = "NoopRgbdCamera"; }
 
-    PARSE_CONFIG_FIELDS(
-        // No additional fields
-    )
+    PARSE_CONFIG_FIELDS()
 };
 
 struct ZedRgbdCameraConfiguration : public RgbdCameraConfiguration {
@@ -196,8 +194,6 @@ struct SimRgbdCameraConfiguration : public RgbdCameraConfiguration {
  *  and pointing the output at the input would corrupt the source. */
 void reserve_camera_input_paths(const RgbdCameraConfiguration &config);
 
-/** The RGB camera writes /camera/video straight to the recorder, so the factory needs it.
- *  Null when recording is off. */
 std::shared_ptr<RgbdCameraInterface> make_rgbd_camera(const RgbdCameraConfiguration &config,
                                                       std::shared_ptr<McapRecorder> mcap_recorder);
 std::unique_ptr<RgbdCameraConfiguration> parse_rgbd_camera_config(ConfigParser &parser);

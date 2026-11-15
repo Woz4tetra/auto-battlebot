@@ -14,17 +14,13 @@ struct TargetSelectorConfiguration {
 struct NearestTargetConfiguration : public TargetSelectorConfiguration {
     NearestTargetConfiguration() { type = "NearestTarget"; }
 
-    PARSE_CONFIG_FIELDS(
-        // No additional fields
-    )
+    PARSE_CONFIG_FIELDS()
 };
 
 struct NoopTargetConfiguration : public TargetSelectorConfiguration {
     NoopTargetConfiguration() { type = "NoopTarget"; }
 
-    PARSE_CONFIG_FIELDS(
-        // No additional fields
-    )
+    PARSE_CONFIG_FIELDS()
 };
 
 struct SafestPointTargetConfiguration : public TargetSelectorConfiguration {

@@ -36,8 +36,6 @@ struct RobotDescription {
      * to the `detected_size` diagnostics channel instead of being carried here. */
     bool is_stale = false;
     PoseUncertainty uncertainty;
-    /** Seconds from the track's last accepted measurement to the time this estimate was rendered.
-     * 0 on a fresh frame. Filters that do not track it leave 0. */
     double measurement_age_s = 0.0;
     /** Centre of the robot's footprint in its body frame (x forward, y left), in metres from
      *  `pose`. `pose` is the point control tracks, our robot's axle; hazard and clearance checks

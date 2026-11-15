@@ -4,8 +4,6 @@
 
 namespace auto_battlebot::rl_policy {
 
-/** Returns the bundle's `[constant] action` every step and reads no observation. For the bench
- * and the lockstep sim before a trained bundle exists; see PolicyBundle for the manifest. */
 class ConstantPolicy : public PolicyInterface {
    public:
     void load(const PolicyBundle &bundle) override;

@@ -8,10 +8,8 @@
 #include "diagnostics_logger/diagnostics_backend_interface.hpp"
 
 namespace auto_battlebot {
-// Forward declaration for recursive type
 struct DiagnosticsValue;
 
-// Type to represent nested data structures
 using DiagnosticsData = std::map<std::string, DiagnosticsValue>;
 
 struct DiagnosticsValue

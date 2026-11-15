@@ -17,32 +17,25 @@ namespace auto_battlebot::rl_policy {
 /** The manifest format this loader reads. auto_battlebot/rl/export/bundle.py FORMAT_VERSION. */
 inline constexpr int kPolicyBundleFormatVersion = 1;
 
-/** A bundle that cannot be used. The message names the bundle and the mismatch. */
 class PolicyBundleError : public std::runtime_error {
    public:
     explicit PolicyBundleError(const std::string &message) : std::runtime_error(message) {}
 };
 
-/** One `[[networks]]` entry. */
 struct NetworkSpec {
     std::string name;
     NetworkRuntimeKind runtime = NetworkRuntimeKind::RTNEURAL;
-    /** Absolute path to the network file. */
     std::filesystem::path file;
     std::vector<TensorSpec> inputs;
     std::vector<TensorSpec> outputs;
 };
 
-/** The `[decoder]` table. */
 struct DecoderSpec {
     ActionDecoderKind kind = ActionDecoderKind::SQUASHED;
-    /** Multiplies each decoded action dimension. */
     std::vector<double> scale;
 };
 
-/** The `[selftest]` table. */
 struct SelftestSpec {
-    /** Absolute path to selftest.bin. */
     std::filesystem::path file;
     double tolerance = 1e-4;
 };

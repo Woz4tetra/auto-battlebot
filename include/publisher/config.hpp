@@ -18,7 +18,6 @@ struct PublisherConfiguration {
     std::string type;
     virtual ~PublisherConfiguration() = default;
     virtual void parse_fields([[maybe_unused]] ConfigParser &parser) {}
-    /** True when the publisher streams to the viz relay and needs a VizSink constructed. */
     virtual bool uses_viz() const { return false; }
 };
 
@@ -51,7 +50,6 @@ struct FoxglovePublisherConfiguration : public PublisherConfiguration {
 std::shared_ptr<PublisherInterface> make_publisher(
     const PublisherConfiguration &config, std::shared_ptr<VizSink> sink,
     std::shared_ptr<McapRecorder> mcap_recorder = nullptr);
-/** Create the viz sink for a publisher config, or nullptr when it does not stream. */
 std::shared_ptr<VizSink> make_viz_sink(const PublisherConfiguration &config);
 std::unique_ptr<PublisherConfiguration> parse_publisher_config(ConfigParser &parser);
 std::unique_ptr<PublisherConfiguration> load_publisher_from_toml(

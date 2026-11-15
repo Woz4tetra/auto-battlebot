@@ -9,8 +9,6 @@
 
 namespace auto_battlebot {
 
-/** Result of a largest-empty-circle solve: the circle center, its radius, how many
- *  candidate evaluations the solver spent, and which constraint family won. */
 struct EmptyCircle {
     Pose2D center{};
     double radius = 0.0;
@@ -35,7 +33,6 @@ double empty_circle_radius(const Size &field, double x, double y,
                            const std::vector<Pose2D> &opponents,
                            const std::vector<FieldHazard> &hazards);
 
-/** Overload for callers with no hazards to model. */
 double empty_circle_radius(const Size &field, double x, double y,
                            const std::vector<Pose2D> &opponents);
 
@@ -64,7 +61,6 @@ EmptyCircle solve_exact(const Size &field, const std::vector<Pose2D> &opponents,
                         const std::vector<FieldHazard> &hazards,
                         const std::optional<Pose2D> &tie_break_near = std::nullopt);
 
-/** Overload for callers with no hazards to model. */
 EmptyCircle solve_exact(const Size &field, const std::vector<Pose2D> &opponents,
                         const std::optional<Pose2D> &tie_break_near = std::nullopt);
 

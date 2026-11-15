@@ -9,31 +9,6 @@
 #include "diagnostics_logger/diagnostics_module_logger.hpp"
 
 namespace auto_battlebot {
-/**
- * @brief RAII timer class that measures function execution time and logs to diagnostics.
- *
- * Example usage:
- *     auto logger = DiagnosticsLogger::get_logger("my_module");
- *
- *     // Basic usage - logs on destruction
- *     {
- *         FunctionTimer timer(logger, "process_frame");
- *         // ... do work ...
- *     } // Automatically logs elapsed time
- *
- *     // Manual stop and log
- *     FunctionTimer timer(logger, "computation");
- *     // ... do work ...
- *     timer.stop(); // Logs elapsed time
- *
- *     // With warning threshold
- *     FunctionTimer timer(logger, "critical_task", 50.0); // Warn if > 50ms
- *
- *     // Check elapsed time without stopping
- *     FunctionTimer timer(logger, "task");
- *     // ... do work ...
- *     double elapsed = timer.elapsed_ms();
- */
 class FunctionTimer {
    public:
     /**
@@ -48,16 +23,11 @@ class FunctionTimer {
     FunctionTimer(std::shared_ptr<DiagnosticsModuleLogger> logger,
                   const std::string &timer_name = "timer", double warn_threshold_ms = -1.0);
 
-    /**
-     * @brief Destructor - automatically logs if not already stopped
-     */
     ~FunctionTimer();
 
-    // Disable copying
     FunctionTimer(const FunctionTimer &) = delete;
     FunctionTimer &operator=(const FunctionTimer &) = delete;
 
-    // Allow moving
     FunctionTimer(FunctionTimer &&) = default;
     FunctionTimer &operator=(FunctionTimer &&) = default;
 
@@ -69,18 +39,8 @@ class FunctionTimer {
      */
     void stop();
 
-    /**
-     * @brief Get elapsed time in milliseconds without stopping the timer
-     *
-     * @return double Elapsed time in milliseconds
-     */
     double elapsed_ms() const;
 
-    /**
-     * @brief Get elapsed time in seconds without stopping the timer
-     *
-     * @return double Elapsed time in seconds
-     */
     double elapsed_s() const;
 
    private:
@@ -90,9 +50,6 @@ class FunctionTimer {
     std::chrono::steady_clock::time_point start_time_;
     bool stopped_;
 
-    /**
-     * @brief Internal method to log the timing information
-     */
     void log_elapsed_time();
 };
 

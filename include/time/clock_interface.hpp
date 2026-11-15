@@ -16,11 +16,8 @@ class ClockInterface {
    public:
     virtual ~ClockInterface() = default;
 
-    /** Current logical time, seconds since epoch. */
     virtual double now() const = 0;
 
-    /** Adopt an external time (e.g. the camera frame stamp). No-op for clocks that source their
-     * own. */
     virtual void set([[maybe_unused]] double seconds) {}
 };
 

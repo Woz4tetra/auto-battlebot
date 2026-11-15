@@ -1,6 +1,5 @@
 #pragma once
 
-// Convenience header that includes all data structure types
 #include "data_structures/camera.hpp"
 #include "data_structures/command_feedback.hpp"
 #include "data_structures/detection.hpp"

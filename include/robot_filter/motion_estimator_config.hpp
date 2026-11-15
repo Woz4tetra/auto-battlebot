@@ -224,11 +224,6 @@ struct KalmanMotionEstimatorConfiguration : public MotionEstimatorConfiguration 
         parser.validate_no_extra_fields();
     }
 
-    /**
-     * Both our-robot modes need the fit: EKF propagates through JigPlantModel, DEAD_RECKONING
-     * scales stick to body velocity with k_fwd/k_rev/k_ang. The check lives here rather than in
-     * parse_fields because the plant is a top-level section this config's parser cannot see.
-     */
     void apply_plant(const PlantConfiguration &plant_config) override {
         plant = plant_config.params;
         plant_noise = plant_config.noise;

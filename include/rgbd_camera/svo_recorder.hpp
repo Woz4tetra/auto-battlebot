@@ -26,10 +26,8 @@ class SvoRecorder {
     SvoRecorder(sl::Camera &camera, std::filesystem::path holding_dir, uint64_t max_size_bytes,
                 uint64_t holding_dir_max_size_bytes);
 
-    /// Set the desired recording state (used before the camera is open).
     void set_desired(bool enabled);
 
-    /// Desired recording state.
     bool desired() const;
 
     /**
@@ -40,16 +38,12 @@ class SvoRecorder {
      */
     bool start();
 
-    /// Stop recording if active.
     void stop();
 
-    /// True when actively writing a file and recording is desired.
     bool is_recording() const;
 
-    /// Path of the file currently being written, or "" if not recording.
     std::string current_path() const;
 
-    /// Identifies one recorded SVO frame. Empty path and index -1 when recording is off.
     struct FrameRef {
         std::string path;
         int64_t index = -1;
@@ -84,7 +78,6 @@ class SvoRecorder {
     std::filesystem::path current_path_;
     /** Capture thread only. */
     uint64_t frames_since_size_check_ = 0;
-    /// Index of the last frame written to current_path_; -1 before the first frame of a file.
     int64_t frame_index_ = -1;
 };
 

@@ -18,7 +18,6 @@ namespace auto_battlebot {
  */
 class H264Backend {
    public:
-    /** pts is the frame ordinal VideoEncoder assigned in encode(). */
     using PacketSink =
         std::function<void(const std::byte *data, size_t len, int64_t pts, bool keyframe)>;
 
@@ -31,7 +30,6 @@ class H264Backend {
     virtual const std::string &name() const = 0;
 };
 
-/** nullptr when FFmpeg does not register `codec` or it fails to open. */
 std::unique_ptr<H264Backend> open_ffmpeg_h264(const std::string &codec,
                                               const VideoEncoderOptions &options,
                                               H264Backend::PacketSink sink);

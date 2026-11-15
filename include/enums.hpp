@@ -1,6 +1,5 @@
 #pragma once
 
-// Convenience header that includes all enum types
 #include "enums/action_decoder_kind.hpp"
 #include "enums/anti_banding.hpp"
 #include "enums/battery_source.hpp"

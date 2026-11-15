@@ -34,9 +34,6 @@ struct SizeStamped {
     Size size;
 };
 
-/** Where a hazard came from. Decides how it decays and how diagnostics read it: a STATIC hazard
- * is arena geometry known before the match and never disappears, a TRACKED one is a live robot
- * track and can go stale. */
 enum class HazardSource { STATIC, TRACKED };
 
 /** A region to keep out of, in the field frame. Discs regardless of the real shape: every
@@ -68,7 +65,6 @@ struct FieldHazard {
     double hard_radius = 0.0;
     Velocity2D velocity;
     HazardSource source = HazardSource::STATIC;
-    /** What the disc is: a hole or wall block from the geometry file, or a tracked robot. */
     HazardKind kind = HazardKind::HOLE;
 };
 
@@ -77,8 +73,6 @@ struct FieldDescription {
     FrameId child_frame_id = FrameId::EMPTY;
     Transform tf_camera_from_fieldcenter;
     SizeStamped size;
-    /** Keep-out discs for this cycle, assembled from config geometry and live neutral tracks.
-     * Empty on a field with nothing to avoid. */
     std::vector<FieldHazard> hazards;
 };
 

@@ -12,11 +12,6 @@
 
 namespace auto_battlebot {
 
-/**
- * Per-update inputs the estimator needs beyond the associated measurements themselves.
- * Carries the camera geometry so an estimator can build a range-dependent measurement
- * covariance in camera coordinates and rotate it into the field frame.
- */
 struct MotionEstimatorContext {
     Eigen::Matrix4d tf_fieldcenter_from_camera = Eigen::Matrix4d::Identity();
     CameraInfo camera_info;
@@ -37,29 +32,16 @@ class MotionEstimatorInterface {
    public:
     virtual ~MotionEstimatorInterface() = default;
 
-    /** Clears all per-track state. Called on filter initialize(). */
     virtual void reset() = 0;
 
-    /** Control-rate tick: record the command and advance internal state to `now`. */
     virtual void predict(double now, const CommandFeedback &command_feedback) = 0;
 
-    /**
-     * Perception-rate: fold in this frame's associated measurements (FrameId already assigned)
-     * and return one description per live track. Unmeasured tracks are propagated or held per
-     * the implementation and flagged is_stale. `timestamp` is the measurement capture time.
-     */
     virtual std::vector<RobotDescription> update(std::vector<RobotDescription> measurements,
                                                  double timestamp,
                                                  FrameIdAssigner &frame_id_assigner,
                                                  const FieldDescription &field,
                                                  const MotionEstimatorContext &context) = 0;
 
-    /**
-     * Descriptions advanced to `now + render_lead_s()` without folding a measurement, for
-     * control-rate coasting between perception frames. Returns nullopt when the estimator's
-     * output only moves on measurements (dead reckoning), in which case the caller keeps the
-     * last update() result.
-     */
     virtual std::optional<std::vector<RobotDescription>> coast([[maybe_unused]] double now) {
         return std::nullopt;
     }

@@ -53,11 +53,8 @@ class RlPolicyNavigation : public NavigationInterface {
     }
 
    private:
-    /** The bundle load and every startup check. Throws. */
     void load();
 
-    /** ATTACK: the opponent track nearest the selected target. RUN_AWAY: the opponent track
-     * nearest our robot. Null when there is no opponent track. */
     static const RobotDescription *find_target_opponent(const RobotDescriptionsStamped &robots,
                                                         const RobotDescription &our_robot,
                                                         const TargetSelection &target);
@@ -69,7 +66,6 @@ class RlPolicyNavigation : public NavigationInterface {
     RlPolicyNavigationConfiguration config_;
     std::shared_ptr<ClockInterface> clock_;
     std::shared_ptr<DiagnosticsModuleLogger> logger_;
-    /** Set when hazard_barrier_enable is on. */
     std::optional<HazardAvoidance> hazards_;
 
     std::unique_ptr<rl_policy::PolicyInterface> policy_;

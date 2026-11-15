@@ -24,11 +24,6 @@ struct NavigationConfiguration {
      */
     virtual void apply_plant([[maybe_unused]] const PlantConfiguration &plant) {}
 
-    /**
-     * Hand over the parsed [robot_filter] config, after parse_fields, for a navigation that
-     * depends on how the filter renders robots. Only RlPolicyNavigation does; the rest keep the
-     * no-op.
-     */
     virtual void apply_robot_filter([[maybe_unused]] const RobotFilterConfiguration &robot_filter) {
     }
 };
@@ -36,9 +31,7 @@ struct NavigationConfiguration {
 struct NoopNavigationConfiguration : public NavigationConfiguration {
     NoopNavigationConfiguration() { type = "NoopNavigation"; }
 
-    PARSE_CONFIG_FIELDS(
-        // No additional fields
-    )
+    PARSE_CONFIG_FIELDS()
 };
 
 struct PursuitNavigationConfiguration : public NavigationConfiguration {
@@ -229,8 +222,6 @@ struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
      * plant, so the compensation saturates here instead of extrapolating into a singularity. */
     double steer_brake_floor = 0.3;
 
-    // --- Trajectory ---
-
     // Commanded terminal speed at the goal, one per behavior mode: the driver's switch decides
     // whether the mission is to hit something or to get away from it, and those want opposite
     // arrivals. Both are a fraction of the plant's k_fwd, clamped to [0, 1]: 0 is a precise
@@ -247,8 +238,6 @@ struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
     /** Distance (m) at which a zero-velocity mission is complete and the command is cut. Only used
      * when the active terminal velocity is 0 (a drive-through mission never stops). */
     double stop_distance = 0.15;
-
-    // --- Speed feedback (closes the loop on plant-model error) ---
 
     /** Proportional gain mapping speed error (v_ref - v_actual, m/s) to a normalized command. */
     double speed_kp = 0.15;
@@ -298,8 +287,6 @@ struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
 
     /** Enable turn-direction hysteresis to prevent dithering when the target is behind. */
     bool enable_hysteresis = true;
-
-    // --- Misc / safety ---
 
     /** Minimum distance maintained from field boundaries (m). */
     double boundary_margin = 0.1;
@@ -410,7 +397,6 @@ struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
 };
 
 struct RlPolicyNavigationConfiguration : public NavigationConfiguration {
-    /** The [navigation.policy] table: which model bundle to run. */
     rl_policy::RlPolicyConfiguration policy;
 
     /**
@@ -420,7 +406,6 @@ struct RlPolicyNavigationConfiguration : public NavigationConfiguration {
      * this is KALMAN.
      */
     std::optional<OpponentMode> opponent_mode;
-    /** What apply_robot_filter found, for the refusal message: the filter or estimator type. */
     std::string opponent_mode_source = "no [robot_filter] config was applied";
 
     /** Seconds without a measurement of our robot before RlPolicyNavigation commands zero. Above

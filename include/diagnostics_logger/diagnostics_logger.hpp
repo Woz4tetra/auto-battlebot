@@ -33,31 +33,14 @@ namespace auto_battlebot {
  */
 class DiagnosticsLogger {
    public:
-    /**
-     * @brief Initialize the diagnostics logger system with backends
-     *
-     * @param backends List of backends to receive diagnostic snapshots (e.g. UI, Foxglove)
-     */
     static void initialize(std::vector<std::shared_ptr<DiagnosticsBackend>> backends);
 
-    /**
-     * @brief Check if the diagnostics logger has been initialized
-     */
     static bool is_initialized();
 
-    /**
-     * @brief Get or create a logger for a specific module
-     */
     static std::shared_ptr<DiagnosticsModuleLogger> get_logger(const std::string &name);
 
-    /**
-     * @brief Remove a logger
-     */
     static void remove_logger(const std::string &name);
 
-    /**
-     * @brief Gather snapshots from all loggers, clear them, and pass to each backend
-     */
     static void publish();
 
    protected:
@@ -66,7 +49,7 @@ class DiagnosticsLogger {
     static std::map<std::string, std::shared_ptr<DiagnosticsModuleLogger>> loggers_;
     static std::vector<std::shared_ptr<DiagnosticsBackend>> backends_;
     static bool initialized_;
-    static bool test_mode_;  // When true, skip calling backends (for unit tests)
+    static bool test_mode_;
 };
 
 }  // namespace auto_battlebot

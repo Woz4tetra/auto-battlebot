@@ -22,10 +22,9 @@ using DiagnosticScalar = std::variant<int, double, std::string>;
 
 std::string diagnostic_scalar_to_string(const DiagnosticScalar &value);
 
-/** Snapshot of one diagnostic status for backend consumption. */
 struct DiagnosticStatusSnapshot {
-    std::string name;       /** Logger / category name */
-    std::string subsection; /** Subsection within the logger (e.g. "tick", "camera.get") */
+    std::string name;
+    std::string subsection;
     int8_t level = DiagnosticLevel::OK;
     std::map<std::string, DiagnosticScalar> values;
     std::string message;
@@ -35,7 +34,6 @@ struct DiagnosticStatusSnapshot {
     bool held = false;
 };
 
-/** Interface for diagnostics backends (e.g. UI, Foxglove). */
 class DiagnosticsBackend {
    public:
     virtual ~DiagnosticsBackend() = default;

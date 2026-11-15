@@ -6,11 +6,8 @@
 #include <string_view>
 #include <system_error>
 
-// Static file serving for the web dashboard in viz_relay. Header-only because viz_relay does not
-// link auto_battlebot_lib and the tests do.
 namespace auto_battlebot::viz {
 
-/** Decodes %XX escapes. Returns nullopt on a malformed escape or an encoded NUL. */
 inline std::optional<std::string> percent_decode(std::string_view text) {
     std::string out;
     out.reserve(text.size());
@@ -80,7 +77,6 @@ inline std::optional<std::filesystem::path> resolve_static_path(const std::files
     return real;
 }
 
-/** Content-Type for the files Vite emits. */
 inline std::string_view content_type_for(const std::filesystem::path &path) {
     const std::string ext = path.extension().string();
     if (ext == ".html") return "text/html; charset=utf-8";

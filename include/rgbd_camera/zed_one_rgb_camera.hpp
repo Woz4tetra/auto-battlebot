@@ -56,9 +56,7 @@ class ZedOneRgbCamera : public RgbdCameraInterface {
     CameraSettings read_settings(const CameraSettings &known);
     CameraSettingLimits read_limits();
     void apply_settings(const CameraSettings &settings);
-    /** Capture thread, between grabs: apply a queued request, and refresh the read-back. */
     void service_settings();
-    /** Reads the rectified intrinsics into camera_info and calibration_. */
     void read_calibration();
     bool start_encoder();
     void capture_thread_loop();

@@ -15,7 +15,6 @@
 namespace auto_battlebot {
 class H264Backend;
 
-/** Pixel layout of the frames passed to VideoEncoder::submit(). */
 enum class VideoInputFormat { BGR, BGRA, UYVY };
 
 struct VideoEncoderOptions {
@@ -56,24 +55,19 @@ struct VideoEncoderOptions {
  */
 class VideoEncoder {
    public:
-    /** One encoded access unit, with the capture time of the frame it came from. */
     using PacketSink =
         std::function<void(const std::byte *data, size_t len, uint64_t log_time_ns, bool keyframe)>;
 
-    // Out of line, with the destructor: unique_ptr<H264Backend> needs the complete type.
     VideoEncoder();
     ~VideoEncoder();
     VideoEncoder(const VideoEncoder &) = delete;
     VideoEncoder &operator=(const VideoEncoder &) = delete;
 
-    /** Backend output: one access unit, its frame ordinal, and whether it is an IDR. */
     using BackendSink =
         std::function<void(const std::byte *data, size_t len, int64_t pts, bool keyframe)>;
-    /** Opens a backend in place of the candidate list. For tests. */
     using BackendFactory = std::function<std::unique_ptr<H264Backend>(
         const VideoEncoderOptions &options, BackendSink sink)>;
 
-    /** False when no candidate opened. Callers recording on purpose treat that as fatal. */
     bool start(const VideoEncoderOptions &options, PacketSink sink,
                const BackendFactory &factory = nullptr);
     /** Flushes the encoder, so the last frames submitted still reach the sink. */
@@ -87,8 +81,6 @@ class VideoEncoder {
      *  packets, so a count kept anywhere else drifts the first time one is dropped. */
     int64_t submit(const cv::Mat &frame, uint64_t log_time_ns);
 
-    /** Makes the next submitted frame an IDR, so a viewer that just subscribed can start decoding
-     *  within one frame instead of waiting for the next scheduled keyframe. */
     void request_keyframe() { keyframe_requested_.store(true); }
 
     /** True when a hardware candidate is installed (FFmpeg h264_nvenc or h264_nvv4l2m2m, or
@@ -96,11 +88,8 @@ class VideoEncoder {
      *  the encoder opens. */
     static bool hardware_encoder_available();
 
-    /** True when FFmpeg's libx264 or GStreamer's x264enc is installed: the fallback a
-     *  `software_preview` encoder can use. */
     static bool software_encoder_available();
 
-    /** Every candidate start() tries on this build, in order, for error messages. */
     static std::string candidate_names();
 
     /** The backend refused a frame that was already numbered. From then on submit() takes
@@ -120,7 +109,6 @@ class VideoEncoder {
     };
 
     void encode_loop();
-    /** Backend output. Runs on the encode thread (FFmpeg) or GStreamer's streaming thread. */
     void deliver(const std::byte *data, size_t len, int64_t pts, bool keyframe);
 
     VideoEncoderOptions options_;

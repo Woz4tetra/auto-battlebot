@@ -8,8 +8,6 @@
 
 namespace auto_battlebot {
 
-/** Settings for the hazard layers, copied out of whichever navigation config owns them so
- *  both controllers run the identical behaviour. */
 struct HazardAvoidanceSettings {
     bool tangent_enable = true;
     int tangent_max_iterations = 3;
@@ -34,12 +32,8 @@ struct HazardAvoidanceSettings {
     double barrier_delay_s = 0.0;
 };
 
-/** What the barrier did to this tick's command, for diagnostics. */
 struct HazardBarrierResult {
-    /** The barrier changed linear_x this tick. */
     bool engaged = false;
-    /** The measured approach speed exceeded the stopping envelope somewhere, so the change was
-     * an active brake or reverse rather than a clip of the requested thrust. */
     bool braking = false;
     /** Tightest approach-speed bound (m/s) any hazard imposed. Negative means the robot is
      * inside a hard radius and must retreat. Infinity when nothing constrained. */
@@ -64,11 +58,8 @@ class HazardAvoidance {
    public:
     explicit HazardAvoidance(HazardAvoidanceSettings settings);
 
-    /** Clear the latch. Call wherever the controller resets its own trajectory state. */
     void reset();
 
-    /** Substitute a tangent waypoint when the straight run to `goal` enters a hazard.
-     *  Returns `goal` unchanged when the run is clear or no tangent exists. */
     Pose2D steer_around(const Pose2D &our_pose, const Pose2D &goal, const FieldDescription &field);
 
     /** The velocity barrier: clamp `command.linear_x` so the commanded and measured approach
@@ -96,14 +87,9 @@ class HazardAvoidance {
     HazardBarrierResult limit_command(const Pose2D &our_pose, const FieldDescription &field,
                                       double v_actual, VelocityCommand &command) const;
 
-    /** Last-ditch fixed reverse. Overrides `command.linear_x` when the robot is inside
-     * `reverse_distance` of a hazard edge and pointed at it. Returns true when it fired.
-     * PursuitNavigation only: the barrier supersedes this on the motion profile. */
     bool apply_reverse(const Pose2D &our_pose, const FieldDescription &field,
                        VelocityCommand &command) const;
 
-    /** Whether the tangent layer substituted a waypoint on the last steer_around call, and
-     *  which side it committed to. For diagnostics. */
     bool last_substituted() const { return last_substituted_; }
     int committed_side() const { return committed_side_; }
 

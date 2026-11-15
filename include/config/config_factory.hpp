@@ -9,9 +9,6 @@
 #include "config/config_parser.hpp"
 
 namespace auto_battlebot {
-/**
- * Generic factory for configuration types with automatic registration
- */
 template <typename BaseConfig>
 class ConfigFactory {
    public:
@@ -57,9 +54,6 @@ class ConfigFactory {
     std::unordered_map<std::string, Parser> parsers_;
 };
 
-/**
- * Helper class for automatic registration at static initialization time
- */
 template <typename BaseConfig, typename DerivedConfig>
 class ConfigRegistrar {
    public:
@@ -76,24 +70,9 @@ class ConfigRegistrar {
 
 }  // namespace auto_battlebot
 
-/**
- * Macro to simplify configuration registration
- * Usage: REGISTER_CONFIG(BaseType, DerivedType, "TypeName")
- */
 #define REGISTER_CONFIG(BaseType, DerivedType, TypeName) \
     static auto_battlebot::ConfigRegistrar<BaseType, DerivedType> registrar_##DerivedType(TypeName);
 
-/**
- * Macro to define the parse_fields method with automatic field parsing
- * Usage in derived config struct:
- *
- * struct ZedRgbdCameraConfiguration : public RgbdCameraConfiguration {
- *     int camera_fps = 30;
- *     PARSE_CONFIG_FIELDS(
- *         PARSE_FIELD(camera_fps)
- *     )
- * };
- */
 #define PARSE_CONFIG_FIELDS(...) \
     void parse_fields([[maybe_unused]] auto_battlebot::ConfigParser &parser) { __VA_ARGS__ }
 
@@ -117,15 +96,6 @@ class ConfigRegistrar {
 
 #define PARSE_FIELD_BOOL_REQUIRED(field_name) field_name = parser.get_required_bool(#field_name);
 
-/**
- * Enum parsing macros using magic_enum for automatic string conversion
- * Enums are represented as strings in TOML and automatically converted
- * No manual string conversion functions needed!
- *
- * Usage:
- * PARSE_ENUM(robot_label, Label)
- * PARSE_ENUM_REQUIRED(robot_group, Group)
- */
 #define PARSE_ENUM(field_name, EnumType)                                         \
     {                                                                            \
         auto default_str = std::string(magic_enum::enum_name(field_name));       \

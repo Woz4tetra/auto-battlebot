@@ -14,9 +14,6 @@ class ConfigValidationError : public std::runtime_error {
     explicit ConfigValidationError(const std::string &message) : std::runtime_error(message) {}
 };
 
-/**
- * Validate that a TOML table only contains expected sections
- */
 inline void validate_no_extra_sections(const toml::table &toml_data,
                                        const std::vector<std::string> &expected_sections,
                                        const std::string &config_name) {
@@ -42,17 +39,11 @@ inline void validate_no_extra_sections(const toml::table &toml_data,
     }
 }
 
-/**
- * Helper class for parsing and validating TOML configuration sections
- */
 class ConfigParser {
    public:
     ConfigParser(const toml::table &table, const std::string &section_name)
         : table_(table), section_name_(section_name) {}
 
-    /**
-     * Get a required string field
-     */
     std::string get_required_string(const std::string &key) {
         mark_accessed(key);
         auto value = table_[key].value<std::string>();
@@ -63,17 +54,11 @@ class ConfigParser {
         return *value;
     }
 
-    /**
-     * Get an optional string field with default value
-     */
     std::string get_optional_string(const std::string &key, const std::string &default_value) {
         mark_accessed(key);
         return table_[key].value_or(default_value);
     }
 
-    /**
-     * Get a required integer field
-     */
     int64_t get_required_int(const std::string &key) {
         mark_accessed(key);
         auto value = table_[key].value<int64_t>();
@@ -84,17 +69,11 @@ class ConfigParser {
         return *value;
     }
 
-    /**
-     * Get an optional integer field with default value
-     */
     int64_t get_optional_int(const std::string &key, int64_t default_value) {
         mark_accessed(key);
         return table_[key].value_or(default_value);
     }
 
-    /**
-     * Get a required double field
-     */
     double get_required_double(const std::string &key) {
         mark_accessed(key);
         auto value = table_[key].value<double>();
@@ -105,17 +84,11 @@ class ConfigParser {
         return *value;
     }
 
-    /**
-     * Get an optional double field with default value
-     */
     double get_optional_double(const std::string &key, double default_value) {
         mark_accessed(key);
         return table_[key].value_or(default_value);
     }
 
-    /**
-     * Get a required boolean field
-     */
     bool get_required_bool(const std::string &key) {
         mark_accessed(key);
         auto value = table_[key].value<bool>();
@@ -126,18 +99,11 @@ class ConfigParser {
         return *value;
     }
 
-    /**
-     * Get an optional boolean field with default value
-     */
     bool get_optional_bool(const std::string &key, bool default_value) {
         mark_accessed(key);
         return table_[key].value_or(default_value);
     }
 
-    /**
-     * Get a required array field as std::vector<T>.
-     * Each array element must be convertible to T (e.g. string, int64_t, double).
-     */
     template <typename T>
     std::vector<T> get_required_vector(const std::string &key) {
         mark_accessed(key);
@@ -160,9 +126,6 @@ class ConfigParser {
         return result;
     }
 
-    /**
-     * Get an optional array field as std::vector<T>, or default_value if missing/not array.
-     */
     template <typename T>
     std::vector<T> get_optional_vector(const std::string &key, std::vector<T> default_value = {}) {
         mark_accessed(key);
@@ -184,26 +147,16 @@ class ConfigParser {
         return result;
     }
 
-    /**
-     * Get a nested table (for nested configuration sections)
-     */
     const toml::table *get_table(const std::string &key) {
         mark_accessed(key);
         return table_[key].as_table();
     }
 
-    /**
-     * Get a nested array
-     */
     const toml::array *get_array(const std::string &key) {
         mark_accessed(key);
         return table_[key].as_array();
     }
 
-    /**
-     * Check if all fields in the table were accessed
-     * Throws if there are unrecognized fields
-     */
     void validate_no_extra_fields() {
         std::vector<std::string> extra_fields;
         for (const auto &[key, value] : table_) {

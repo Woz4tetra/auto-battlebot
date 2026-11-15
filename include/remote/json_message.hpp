@@ -31,7 +31,6 @@ concept Message = requires(SchemaFields& f) { T::describe(f); };
 
 std::string lowercase(std::string_view text);
 
-/** Every supported field kind, checked once here so encode, decode, and schema_of agree. */
 template <typename T>
 constexpr void check_field_type() {
     if constexpr (is_optional<T>::value || is_vector<T>::value) {
@@ -124,11 +123,9 @@ void read_field(const nlohmann::json& j, const char* name, T& value) {
 
 }  // namespace detail
 
-/** JSON Schema for one field type. Mirrors detail::encode. */
 template <typename T>
 nlohmann::json schema_of();
 
-/** Collects one message's properties for its JSON Schema; filled by the struct's describe(). */
 class SchemaFields {
    public:
     template <typename T>
@@ -175,7 +172,6 @@ nlohmann::json schema_of() {
     }
 }
 
-/** Schema text as a channel advertises it. */
 template <detail::Message T>
 std::string schema_for() {
     return schema_of<T>().dump();
@@ -216,7 +212,6 @@ std::string to_json_string(const T& message) {
         NLOHMANN_JSON_EXPAND(NLOHMANN_JSON_PASTE(AB_JSON_DETAIL_DESCRIBE, __VA_ARGS__)) \
     }
 
-/** A message with no fields. Writes `{}` and accepts any object. */
 #define AB_JSON_EMPTY_MESSAGE(Type, schema_name)                                     \
     static constexpr std::string_view kSchemaName = schema_name;                     \
     friend void to_json(nlohmann::json& ab_json_j, const Type&) {                    \

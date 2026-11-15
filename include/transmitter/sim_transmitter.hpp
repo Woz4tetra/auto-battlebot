@@ -37,7 +37,6 @@ class SimTransmitter : public TransmitterInterface {
     bool enabled_ = false;
     std::shared_ptr<ClockInterface> clock_;
     std::shared_ptr<SimConnection> connection_;
-    // Queued commands with their logical enqueue time, for the artificial actuation delay.
     std::deque<std::pair<double, VelocityCommand>> command_queue_;
     /** Last command issued through send() (post-saturation, normalized stick space), reported
      *  back as CommandFeedback. Cleared on disable(): with autonomy cut nothing reaches the

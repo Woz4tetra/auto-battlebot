@@ -27,8 +27,7 @@ class StatusBus;
  */
 class BatteryMonitor {
    public:
-    /** Fills `sample` and returns true, or returns false when the read failed. Replaced in tests.
-     */
+    /** Read one battery sample; false on failure. */
     using SampleReader = std::function<bool(BatterySample& sample)>;
 
     BatteryMonitor(BatteryOptions options, SampleReader reader,
@@ -39,7 +38,6 @@ class BatteryMonitor {
     BatteryMonitor(const BatteryMonitor&) = delete;
     BatteryMonitor& operator=(const BatteryMonitor&) = delete;
 
-    /** The last message published; empty before the first read. */
     std::optional<remote::BatteryMessage> latest() const;
 
    private:
@@ -59,7 +57,6 @@ class BatteryMonitor {
     std::thread thread_;
 };
 
-/** A monitor for `config.source`, or nullptr for NONE. */
 std::unique_ptr<BatteryMonitor> make_battery_monitor(const BatteryConfiguration& config,
                                                      std::shared_ptr<remote::StatusBus> status_bus);
 

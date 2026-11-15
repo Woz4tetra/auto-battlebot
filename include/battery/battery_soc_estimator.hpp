@@ -42,7 +42,6 @@ class BatterySocEstimator {
     double debug_soc_percent() const;
     double debug_table_soc(size_t idx, BatteryFlowDirection direction) const;
 
-    /** $HOME/.local/state/auto_battlebot/battery_soc_state.txt. */
     static std::string default_state_path();
 
    private:

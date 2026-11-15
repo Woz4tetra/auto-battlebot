@@ -36,14 +36,6 @@ class StaticDetectionGate {
 
     explicit StaticDetectionGate(const StaticDetectionGateConfiguration &config);
 
-    /**
-     * @brief Drop keypoint groups sitting on a cluster that has not moved.
-     * @param model_results Robot-blob keypoint groups for this frame
-     * @param camera_info Intrinsics used to project keypoints onto the field plane
-     * @param field Field description supplying the camera-to-field transform
-     * @param stamp Frame timestamp in seconds, driving dwell and forget timing
-     * @return The surviving keypoints
-     */
     ModelResultStamped filter(const ModelResultStamped &model_results,
                               const CameraInfo &camera_info, const FieldDescription &field,
                               double stamp);
@@ -66,7 +58,6 @@ class StaticDetectionGate {
          *  so a robot parking on a logo can still move the verdict after thousands of frames. */
         double mean_deviation = 0.0;
 
-        /** Fold one observation in, after the suppression decision has been taken. */
         void observe(const Eigen::Vector2d &position,
                      const StaticDetectionGateConfiguration &config, double stamp);
         bool is_static(const StaticDetectionGateConfiguration &config, double now) const;

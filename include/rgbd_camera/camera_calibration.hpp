@@ -20,7 +20,6 @@ namespace auto_battlebot {
  * reprojection residual will ever show it.
  */
 struct CameraCalibration {
-    /** Recorded in MCAP metadata, so a recording says which calibration rectified it. */
     std::string calibration_id;
     int width = 0;
     int height = 0;
@@ -40,13 +39,10 @@ struct CameraCalibration {
  *  recording replays without a sidecar file. */
 inline constexpr const char *kCameraCalibrationMetadataKey = "camera_calibration";
 
-/** Load from `config/cameras/<serial>.toml`, resolved absolute or relative to the project root. */
 CameraCalibration load_camera_calibration(const std::string &path);
 void save_camera_calibration(const std::string &path, const CameraCalibration &calibration);
 
-/** The TOML text save_camera_calibration writes. */
 std::string camera_calibration_to_toml(const CameraCalibration &calibration);
-/** Parse that text back. `source` names where it came from in error messages. */
 CameraCalibration parse_camera_calibration(const std::string &toml_text, const std::string &source);
 
 /**
@@ -66,7 +62,6 @@ class Rectifier {
     bool ready() const { return !map_x_.empty(); }
     void apply(const cv::Mat &source, cv::Mat &destination) const;
 
-    /** Intrinsics after rectification, with distortion zeroed. */
     CameraInfo camera_info() const;
 
    private:

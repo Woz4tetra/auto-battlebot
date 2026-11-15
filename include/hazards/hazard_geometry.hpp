@@ -27,8 +27,6 @@ inline double half_diagonal(const Size &size) {
     return 0.5 * std::sqrt(size.x * size.x + size.y * size.y);
 }
 
-/** Where a robot at `pose` has its footprint centre, `offset` metres away in its body frame. The
- *  yaw is the pose's. Hazard and clearance checks measure from here; control tracks the pose. */
 inline Pose2D footprint_center(const Pose2D &pose, const Position2D &offset) {
     const double c = std::cos(pose.yaw);
     const double s = std::sin(pose.yaw);

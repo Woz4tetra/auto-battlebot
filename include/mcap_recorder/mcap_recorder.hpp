@@ -70,7 +70,6 @@ class McapRecorder {
     /** Stops recording, writes out everything queued, and joins the writer thread. Final: a late
      *  UI toggle after shutdown cannot start a new file. */
     void close();
-    /** Blocks until everything queued before the call is written, including a queued close. */
     void flush();
     /** The current file has reached max_size_gb. The runner rolls over by turning recording off
      *  and on, so the camera's encoder restarts with it: the new file opens on an IDR with frame
@@ -94,15 +93,11 @@ class McapRecorder {
      *  one merge away from being wrong. */
     static void reserve_input_path(const std::filesystem::path& path);
 
-    /** The file recording goes to, or last went to. Set as soon as set_enabled(true) returns,
-     *  before the writer thread has created it. */
     std::filesystem::path file_path() const;
 
     /** Messages write() refused because the queue was at its cap. */
     uint64_t dropped_messages() const;
 
-    /** Seconds since the current file started, or empty while recording is off. A rollover
-     *  starts a new file, so this restarts from 0. */
     std::optional<double> file_age_s() const;
 
    private:
@@ -125,7 +120,6 @@ class McapRecorder {
     };
     using Op = std::variant<OpenOp, CloseOp, WriteOp, MetadataOp>;
 
-    /** What each channel was opened with, so each new file can re-create it. */
     struct ChannelSpec {
         std::string topic;
         std::string message_encoding;
@@ -168,7 +162,6 @@ class McapRecorder {
     bool enabled_ = false;
     /** Mirrors enabled_ so write() can skip the copy without the lock while recording is off. */
     std::atomic<bool> enabled_hint_{false};
-    /** Set by close(): shutdown, after which a late UI toggle must not start a new file. */
     bool closed_for_good_ = false;
     /** Tests only: the writer thread takes no batch while set, like a disk that stopped. */
     bool writer_held_ = false;

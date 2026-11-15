@@ -27,7 +27,6 @@ namespace auto_battlebot {
  */
 class NvjpgJpegEncoder : public JpegEncoderInterface {
    public:
-    /** nullptr when the plugin does not load or the engine does not open. */
     static std::unique_ptr<NvjpgJpegEncoder> create();
     ~NvjpgJpegEncoder() override;
 
@@ -40,7 +39,6 @@ class NvjpgJpegEncoder : public JpegEncoderInterface {
         AutoBattlebotNvjpgDestroy destroy = nullptr;
         AutoBattlebotNvjpgEncode encode = nullptr;
     };
-    /** Loads the plugin on first use and keeps it for the life of the process. */
     static const Plugin *plugin();
 
     NvjpgJpegEncoder(const Plugin &plugin, void *encoder) : plugin_(plugin), encoder_(encoder) {}

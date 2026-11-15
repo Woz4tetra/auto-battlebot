@@ -11,7 +11,6 @@ namespace auto_battlebot {
 struct FieldPoseResult {
     bool ok = false;
     std::string failure;
-    /** Field centre expressed in camera coordinates. */
     Eigen::Matrix4d tf_camera_from_fieldcenter = Eigen::Matrix4d::Identity();
     /** Mean reprojection residual, in pixels.
      *
@@ -29,7 +28,6 @@ struct FieldPoseResult {
     double residual_px = 0.0;
 };
 
-/** Object corners in the field frame, wound to match FieldOutline::corners. */
 std::array<cv::Point2d, 4> field_object_corners(double size_x, double size_y);
 
 /** Pose from four image corners and the known metric field size.
@@ -72,16 +70,12 @@ FieldPoseResult pose_from_three_lines(const std::array<cv::Vec3d, 4> &lines,
 Eigen::Matrix4d align_field_x_with_camera_x(const Eigen::Matrix4d &tf_camera_from_fieldcenter,
                                             double size_x, double size_y);
 
-/** Whichever of the two solves the outline supports, with +x aligned to the camera's x. */
 FieldPoseResult pose_from_outline(const FieldOutline &outline, double size_x, double size_y,
                                   const Eigen::Matrix3d &intrinsics);
 
-/** Project the field corners back into the image through a recovered pose. Used for the overlay
- *  and for the seating check, and it is the only way to get corners for a clipped outline. */
 std::array<cv::Point2d, 4> project_field_corners(const Eigen::Matrix4d &tf_camera_from_fieldcenter,
                                                  double size_x, double size_y,
                                                  const Eigen::Matrix3d &intrinsics);
 
-/** Intrinsics as Eigen, from the CameraInfo matrix. Returns false when the matrix is not 3x3. */
 bool intrinsics_to_eigen(const cv::Mat &intrinsics, Eigen::Matrix3d &out);
 }  // namespace auto_battlebot

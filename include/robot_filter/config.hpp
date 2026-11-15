@@ -16,17 +16,13 @@ struct RobotFilterConfiguration {
     virtual ~RobotFilterConfiguration() = default;
     virtual void parse_fields([[maybe_unused]] ConfigParser &parser) {}
 
-    /** Hand over the shared [plant] table, after parse_fields. Filters that hold a motion
-     * estimator forward it there; the rest keep the no-op. */
     virtual void apply_plant([[maybe_unused]] const PlantConfiguration &plant) {}
 };
 
 struct NoopRobotFilterConfiguration : public RobotFilterConfiguration {
     NoopRobotFilterConfiguration() { type = "NoopRobotFilter"; }
 
-    PARSE_CONFIG_FIELDS(
-        // No additional fields
-    )
+    PARSE_CONFIG_FIELDS()
 };
 
 struct GroundTruthRobotFilterConfiguration : public RobotFilterConfiguration {
@@ -240,14 +236,12 @@ struct RobotFrontBackFilterConfiguration : public RobotFilterConfiguration {
         for (const auto &[key, value] : table) {
             std::string label_str(key.str());
 
-            // Parse the label
             auto label_opt = magic_enum::enum_cast<Label>(label_str);
             if (!label_opt.has_value()) {
                 throw ConfigValidationError("Invalid Label: " + label_str);
             }
             Label label = label_opt.value();
 
-            // Parse the array of frame IDs
             auto frame_id_array = value.as_array();
             if (!frame_id_array) {
                 throw ConfigValidationError("Value for '" + label_str + "' must be an array");

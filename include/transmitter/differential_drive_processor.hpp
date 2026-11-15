@@ -24,7 +24,6 @@ class DifferentialDriveProcessor : public DriveProcessorInterface {
     /** channel_a is the linear command, channel_b is the angular command. */
     Channels process(VelocityCommand command) const override;
 
-    /** The channels are already body-frame axes, so this only undoes the reversals. */
     BodyVelocity to_body_velocity(Channels channels) const override;
 
    private:

@@ -39,7 +39,6 @@ struct SelftestResult {
     double tolerance = 0.0;
     bool passed = false;
 
-    /** "16 pairs, worst error 3.1e-07 at pair 4 action 1 (tolerance 1e-4)". */
     std::string summary() const;
 };
 

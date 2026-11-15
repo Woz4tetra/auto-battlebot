@@ -9,8 +9,6 @@
 
 namespace auto_battlebot::remote {
 
-/** One field-frame point on the floor (z = 0) in the camera image, as fractions of its size;
- *  nullopt when it is behind the camera or the field or intrinsics are missing. */
 std::optional<ImagePoint> project_field_point(const FieldDescription &field,
                                               const CameraInfo &camera_info, double x, double y);
 

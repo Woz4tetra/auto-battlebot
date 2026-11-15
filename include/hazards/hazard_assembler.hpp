@@ -44,7 +44,6 @@ class HazardAssembler {
     HazardAssembler(HazardAssemblerConfig config, std::vector<StaticHazardConfig> static_hazards,
                     std::shared_ptr<ClockInterface> clock);
 
-    /** Assemble this cycle's hazards and stamp them into `field`. */
     void assemble(const RobotDescriptionsStamped &robots, FieldDescription &field);
 
    private:

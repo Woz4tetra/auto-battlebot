@@ -30,7 +30,6 @@ struct CameraSettings {
                     gamma, sharpness, anti_banding)
 };
 
-/** One control's range as the open camera reports it. Unsupported controls are hidden. */
 struct CameraSettingRange {
     bool supported = false;
     int min = 0;
@@ -55,7 +54,6 @@ struct CameraSettingLimits {
                     anti_banding)
 };
 
-/** What the camera last read back, and the limits it opened with. */
 struct CameraSettingsState {
     CameraSettings settings;
     CameraSettingLimits limits;

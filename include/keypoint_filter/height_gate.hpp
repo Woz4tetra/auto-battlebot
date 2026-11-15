@@ -44,29 +44,19 @@ class KeypointHeightGate {
     struct Stats {
         int groups_in = 0;
         int groups_passed = 0;
-        int rejected_low = 0;   //< below the band: flat on the field
-        int rejected_high = 0;  //< above the band: not a robot on the floor
-        int abstained = 0;      //< depth unusable, group passed through unmeasured
+        int rejected_low = 0;
+        int rejected_high = 0;
+        int abstained = 0;
     };
 
     explicit KeypointHeightGate(const KeypointHeightGateConfiguration &config);
 
-    /**
-     * @brief Annotate `model_results` with measured heights, rejecting groups outside the band when
-     *        rejection is enabled.
-     * @param model_results Keypoint groups, grouped by (label, detection_index)
-     * @param depth Depth image for this frame, in metres along the optical axis. May be empty
-     * @param camera_info Intrinsics matching the depth image
-     * @param field Field description supplying the plane via tf_camera_from_fieldcenter
-     * @return The surviving keypoints, with `height_above_plane` set where it was measured
-     */
     ModelResultStamped filter(const ModelResultStamped &model_results, const DepthImage &depth,
                               const CameraInfo &camera_info, const FieldDescription &field);
 
     const Stats &last_stats() const { return stats_; }
 
    private:
-    /** Plane geometry for one frame, resolved once rather than per keypoint. */
     struct Plane {
         Eigen::Vector3d center;
         Eigen::Vector3d normal;
@@ -76,7 +66,6 @@ class KeypointHeightGate {
         double orientation;
     };
 
-    /** What one detection's depth says about it. */
     struct Relief {
         /** Top of the detection above the field plane, in metres. NaN when unmeasurable. */
         double top = 0.0;
@@ -85,7 +74,6 @@ class KeypointHeightGate {
         bool valid = false;
     };
 
-    /** Height of the surface imaged at one pixel, or NaN when depth there is unusable. */
     double height_at(const cv::Mat &depth, const CameraInfo &camera_info, const Plane &plane,
                      int col, int row) const;
 
@@ -95,8 +83,6 @@ class KeypointHeightGate {
     double height_at_keypoint(const cv::Mat &depth, const CameraInfo &camera_info,
                               const Plane &plane, double x, double y) const;
 
-    /** Top and local relief for the group's detection box, sampling its inscribed circle and the
-     *  floor ring around it in one pass. */
     Relief measure_relief(const cv::Mat &depth, const CameraInfo &camera_info, const Plane &plane,
                           const ModelResultStamped &model_results,
                           const std::vector<size_t> &indices) const;

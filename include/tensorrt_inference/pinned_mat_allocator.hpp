@@ -35,7 +35,6 @@ class PinnedMatAllocator : public cv::MatAllocator {
                   cv::UMatUsageFlags usage_flags) const override;
     void deallocate(cv::UMatData *data) const override;
 
-    /** Buffers held for reuse across all sizes. */
     size_t pooled_buffers() const;
 
    private:

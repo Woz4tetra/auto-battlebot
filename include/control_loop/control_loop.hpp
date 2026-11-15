@@ -19,7 +19,6 @@
 
 namespace auto_battlebot {
 
-/** One perception result handed from the camera thread to the control loop. */
 struct ControlMeasurement {
     ModelResultStamped keypoints;
     ModelResultStamped robot_blob_keypoints;
@@ -27,7 +26,6 @@ struct ControlMeasurement {
     CameraInfo camera_info;
 };
 
-/** Snapshot of the most recent control cycle, for publishing and UI. */
 struct ControlOutput {
     bool valid = false;
     RobotDescriptionsStamped robots;
@@ -83,7 +81,6 @@ class ControlLoop {
      */
     void pump_input();
 
-    /** Consumes the latched init-button edge. */
     bool take_init_button_press();
 
     /** Hand over one perception result. The next cycle corrects with it; later cycles predict
@@ -91,7 +88,6 @@ class ControlLoop {
      *  backlog in all at once. */
     void submit_measurement(ControlMeasurement measurement);
 
-    /** Runs filter, target selection, navigation, and transmit once. */
     void run_cycle();
 
     ControlOutput latest_output() const;

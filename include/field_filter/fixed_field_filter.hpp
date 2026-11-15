@@ -36,8 +36,6 @@ class FixedFieldFilter : public FieldFilterInterface {
         std::shared_ptr<FieldDescriptionWithInlierPoints> initial_description) override {
         FieldDescription description;
         description.child_frame_id = FrameId::FIELD;
-        // The sim's world origin is the field centre, so the camera pose it ships is already
-        // camera-from-fieldcenter and needs no composition.
         description.tf_camera_from_fieldcenter = tf_visodom_from_camera.transform;
         description.header = tf_visodom_from_camera.header;
         if (initial_description) {

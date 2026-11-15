@@ -20,8 +20,6 @@ class HealthLogger {
 
     /** Most-recently collected Jetson SoC temperature (degrees C). 0 = not yet available. */
     double get_last_temp_c() const { return last_temp_c_; }
-    /** Most-recently collected nvpmodel compute mode string (e.g. "MAXN"). Empty = not available.
-     */
     const std::string& get_last_compute_mode() const { return last_compute_mode_; }
 
    private:

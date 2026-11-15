@@ -11,7 +11,6 @@
 
 namespace auto_battlebot {
 
-/** One `GET /telemetry` reply from the Mr Stabs Mk2 firmware's telemetry ring. */
 struct Esp32TelemetryBatch {
     espnow_protocol::TelemetryBatchHeader header{};
     std::vector<espnow_protocol::TelemetryPayload> records;

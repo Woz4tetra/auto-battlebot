@@ -6,14 +6,6 @@
 
 namespace auto_battlebot::rl_policy {
 
-/**
- * NetworkRuntimeInterface on RTNeural's dynamic model, loaded with
- * `RTNeural::json_parser::parseJson<float>` from the JSON auto_battlebot/rl/export/rtneural.py
- * writes. A sequential stack of the layers RTNeural supports, one input tensor and one output
- * tensor.
- *
- * This header does not include RTNeural; rtneural_runtime.cpp is the only file that does.
- */
 class RtNeuralRuntime : public NetworkRuntimeInterface {
    public:
     RtNeuralRuntime();

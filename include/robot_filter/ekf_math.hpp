@@ -14,13 +14,11 @@ using Mat = Eigen::Matrix<double, Rows, Cols>;
 /** Wraps an angle into (-pi, pi]. */
 inline double wrap_angle(double angle) { return std::atan2(std::sin(angle), std::cos(angle)); }
 
-/** Forces exact symmetry; floating-point drift otherwise accumulates over thousands of ticks. */
 template <int N>
 void symmetrize(Mat<N, N> &covariance) {
     covariance = ((covariance + covariance.transpose()) * 0.5).eval();
 }
 
-/** Floors the diagonal so the covariance cannot collapse and lock out measurements. */
 template <int N>
 void floor_diagonal(Mat<N, N> &covariance, double floor) {
     for (int i = 0; i < N; ++i) {
@@ -28,7 +26,6 @@ void floor_diagonal(Mat<N, N> &covariance, double floor) {
     }
 }
 
-/** P <- F P F^T + Q, symmetrized. */
 template <int N>
 void propagate_covariance(Mat<N, N> &covariance, const Mat<N, N> &transition,
                           const Mat<N, N> &process_noise) {
@@ -39,7 +36,6 @@ void propagate_covariance(Mat<N, N> &covariance, const Mat<N, N> &transition,
 struct UpdateOutcome {
     /** False when the gate rejected the measurement; state and covariance are then untouched. */
     bool accepted = false;
-    /** Normalized innovation squared, chi-square distributed with M DOF when consistent. */
     double nis = 0.0;
 };
 

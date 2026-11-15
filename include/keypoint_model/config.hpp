@@ -31,9 +31,7 @@ struct KeypointModelConfiguration {
 struct NoopKeypointModelConfiguration : public KeypointModelConfiguration {
     NoopKeypointModelConfiguration() { type = "NoopKeypointModel"; }
 
-    PARSE_CONFIG_FIELDS(
-        // No additional fields
-    )
+    PARSE_CONFIG_FIELDS()
 };
 
 struct YoloKeypointModelConfiguration : public KeypointModelConfiguration {
@@ -78,7 +76,7 @@ struct YoloKeypointModelConfiguration : public KeypointModelConfiguration {
     void parse_reference_offsets(ConfigParser &parser) {
         const toml::table *table_ptr = parser.get_table("reference_offset_m_per_label");
         if (!table_ptr) {
-            return;  // Optional; every label's reference point is its keypoint midpoint.
+            return;
         }
         for (const auto &[key, value] : *table_ptr) {
             const std::string label_str(key.str());
@@ -108,7 +106,6 @@ struct SimKeypointModelConfiguration : public KeypointModelConfiguration {
 
     SimKeypointModelConfiguration() { type = "SimKeypointModel"; }
 
-    /** The front and back keypoint labels of a robot label, or nullopt when it has none. */
     static std::optional<std::pair<KeypointLabel, KeypointLabel>> front_back_labels(Label label) {
         const std::string name{magic_enum::enum_name(label)};
         const auto front = magic_enum::enum_cast<KeypointLabel>(name + "_FRONT");

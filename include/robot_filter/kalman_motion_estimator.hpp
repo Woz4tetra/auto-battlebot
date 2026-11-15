@@ -67,15 +67,12 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
      */
     double render_lead_s() const override { return config_.plant->delay_s; }
 
-    /** Committed state of one Kalman opponent track, for the parity test against the Python
-     * mirror. */
     struct OpponentFilterState {
         ekf::Vec<6> state;
         ekf::Mat<6, 6> covariance;
         double stamp = 0.0;
         bool heading_initialized = false;
     };
-    /** nullopt when the frame id has no Kalman opponent track. */
     std::optional<OpponentFilterState> opponent_filter_state(FrameId frame_id) const;
 
    private:
@@ -109,7 +106,6 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
         bool heading_initialized = false;
     };
 
-    /** One non-OURS robot: state [px, py, vx, vy, theta, omega] in the field frame. */
     struct OpponentTrack {
         OpponentVec state = OpponentVec::Zero();
         OpponentMat covariance = OpponentMat::Zero();
@@ -122,8 +118,6 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
         double stamp = 0.0;
         double last_measured_stamp = 0.0;
         int consecutive_rejects = 0;
-        /** is_stale emitted for this track by the most recent update(); coast() reuses it so
-         * the flag keeps its measured-at-last-perception-frame meaning between frames. */
         bool output_stale = false;
         /** Non-kinematic fields (label, group, size, rotation, z) of the latest accepted
          * measurement, used as the output template. */
@@ -133,9 +127,6 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
         size_t snapshot_count = 0;
     };
 
-    /** A track output straight from its stored description: the dead-reckoned our robot
-     * (pose advanced by the last command, exactly like RobotTemporalMotionFilter) and
-     * hold-mode opponents (pose pinned at the last measurement). */
     struct HeldTrack {
         RobotDescription description;
         /** Time of the last update() that touched this track; dead-reckoning dt spans from
@@ -145,7 +136,6 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
         bool output_stale = false;
     };
 
-    /** Our robot in EKF mode: 5-state [x, y, theta, v, w] propagated by the plant model. */
     struct OurEkfTrack {
         PlantState state;
         ekf::Mat<5, 5> covariance = ekf::Mat<5, 5>::Zero();
@@ -155,9 +145,6 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
         bool output_stale = false;
         /** Non-kinematic fields of the latest accepted measurement, the output template. */
         RobotDescription description;
-        /** Earlier accepted pose the forward-speed observation differences against, held until
-         * the baseline reaches speed_measurement_min_dt_s. Stored as plain components so the
-         * header does not need the pose types. */
         double speed_ref_x = 0.0;
         double speed_ref_y = 0.0;
         double speed_ref_yaw = 0.0;
@@ -165,16 +152,13 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
         bool has_speed_ref = false;
     };
 
-    /** Propagates the track to target_stamp (no-op when not ahead) and stores a snapshot. */
     void advance_opponent(OpponentTrack &track, double target_stamp);
     /** Propagates the our-robot EKF track through the plant model to target_stamp. Pose
      * integration stops once the unmeasured age crosses max_coast_s; covariance keeps
      * growing over the whole step either way. */
     void advance_our_ekf(OurEkfTrack &track, double target_stamp);
-    /** Resets the track to this measurement with a fresh large covariance. */
     void init_our_ekf(OurEkfTrack &track, const RobotDescription &measurement, double stamp,
                       double position_variance);
-    /** Builds the output description from the track's current state. */
     RobotDescription render_our_ekf(const OurEkfTrack &track, const PlantState &state,
                                     bool stale) const;
     void push_snapshot(OpponentTrack &track);
@@ -184,18 +168,12 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
      * measurement is folded in at the track's current state instead.
      */
     bool rewind_opponent(OpponentTrack &track, double target_stamp);
-    /** Resets the track to this measurement with a fresh large covariance. */
     void init_opponent(OpponentTrack &track, const RobotDescription &measurement, double stamp,
                        double position_variance);
-    /** Resets theta to `yaw` and omega to zero with fresh variances, decoupled from translation. */
     void init_opponent_heading(OpponentTrack &track, double yaw) const;
-    /** True for a keypoint pose whose label is not heading-blind. */
     bool measures_heading(const RobotDescription &measurement) const;
-    /** Isotropic position noise: base sigma by measurement type (blob, our keypoint pose,
-     * opponent keypoint pose) plus the configured growth per meter of camera range. */
     ekf::Mat<2, 2> measurement_noise_for(const RobotDescription &measurement,
                                          const MotionEstimatorContext &context) const;
-    /** Builds the output description from the track's current state. */
     RobotDescription render_opponent(const OpponentTrack &track, const FieldDescription &field,
                                      bool stale) const;
 
@@ -203,7 +181,6 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
 
     std::map<FrameId, OpponentTrack> opponent_tracks_;
-    /** Opponents in OpponentMode::HOLD: last measured description, no prediction. */
     std::map<FrameId, HeldTrack> held_opponent_tracks_;
     std::map<FrameId, HeldTrack> our_tracks_;
     std::map<FrameId, OurEkfTrack> our_ekf_tracks_;
@@ -217,11 +194,8 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
      * requires the table for both modes. */
     JigPlantParams our_dr_plant_;
 
-    /** Latest control input, for dead-reckoning our robot and coast extrapolation. */
     CommandFeedback command_feedback_;
-    /** Issued-command history for the future plant-model prediction (read at t - delay). */
     CommandRingBuffer command_history_;
-    /** Last field seen by update(), for clipping coasted positions to bounds. */
     FieldDescription last_field_;
     bool has_field_ = false;
     double last_field_margin_ = 0.0;

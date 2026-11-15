@@ -8,9 +8,6 @@
 #include "enums/frame_id.hpp"
 
 namespace auto_battlebot {
-/**
- * @brief RGB color struct with normalized float values [0.0, 1.0]
- */
 struct ColorRGBf {
     float r = 0.0f;
     float g = 0.0f;
@@ -23,21 +20,10 @@ struct ColorRGBf {
         return {b * 255.0f, g * 255.0f, r * 255.0f};
     }
 
-    /**
-     * @brief Get color as RGB tuple (0-1 range)
-     */
     inline auto to_rgb_1() const -> std::tuple<float, float, float> { return {r, g, b}; }
 };
 
-/**
- * @brief Generate a distinct color for an index using HSV color wheel
- * Uses golden angle distribution for visually distinct colors
- * @param index The index to generate a color for
- * @return ColorRGBf with normalized RGB values
- */
 inline ColorRGBf get_color_for_index(int index) {
-    // Use HSV color wheel for distinct colors
-    float hue = std::fmod(index * 137.5f, 360.0f);  // Golden angle for good distribution
     float sat = 0.8f;
     float val = 0.9f;
 
@@ -101,15 +87,9 @@ inline std::string get_short_name(const std::string &enum_name) {
     if (last_underscore != std::string::npos && last_underscore + 1 < enum_name.size()) {
         return enum_name.substr(last_underscore + 1);
     }
-    // If no underscore or at end, return first 4 chars
     return enum_name.substr(0, std::min(size_t(4), enum_name.size()));
 }
 
-/**
- * @brief Extract short name from Label enum directly
- * @param label The label enum value
- * @return Short name (e.g., "RED")
- */
 inline std::string get_short_name(Label label) {
     std::string full_name = enum_to_string_lower(label);
     size_t last_underscore = full_name.rfind('_');

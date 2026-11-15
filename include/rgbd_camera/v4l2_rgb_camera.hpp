@@ -47,7 +47,6 @@ class V4l2RgbCamera : public RgbdCameraInterface {
     bool recording_needs_restart() const override { return encoder_.broken(); }
 
    private:
-    /** Opens /camera/video and starts the encoder; false when no encoder opens. */
     bool start_encoder();
     struct MappedBuffer {
         void *start = nullptr;

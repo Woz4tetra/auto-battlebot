@@ -16,8 +16,6 @@
 // web/src/generated/protocol.ts.
 namespace auto_battlebot::remote {
 
-// ---- Status: app -> clients ----
-
 struct SystemStatusMessage {
     bool camera_ok = false;
     bool transmitter_connected = false;
@@ -32,15 +30,12 @@ struct SystemStatusMessage {
     std::string compute_mode;
     /** Seconds since the app started. */
     double uptime_s = 0.0;
-    /** The transmitter's autonomy (trainer) switch; absent when the transmitter has none. */
     std::optional<bool> autonomy_switch_on;
     /** Seconds since that switch last went on; absent while it is off. */
     std::optional<double> autonomy_on_s;
     /** Seconds since the current MCAP file started; absent while MCAP recording is off. */
     std::optional<double> mcap_file_s;
     BehaviorMode behavior_mode = BehaviorMode::ATTACK;
-    /** The target selector picks the target. Off, navigation steers to the dashboard's held
-     *  point, which /status/tracks reports as a manual target. */
     bool auto_tracking = true;
     AB_JSON_MESSAGE(SystemStatusMessage, "auto_battlebot.status.System", camera_ok,
                     transmitter_connected, transmitter_receiving, loop_rate_hz, initialized,
@@ -49,7 +44,6 @@ struct SystemStatusMessage {
                     mcap_file_s, behavior_mode, auto_tracking)
 };
 
-/** A model label and the color it is drawn in, from [ui.label_colors]. */
 struct LabelColor {
     std::string label;
     /** "#rrggbb". */
@@ -64,7 +58,6 @@ struct AppInfoMessage {
     double rate_fail_threshold = 0.0;
     double rate_fail_duration_sec = 0.0;
     std::vector<LabelColor> label_colors;
-    /** Short git hash of the build, "-dirty" for uncommitted changes; "unknown" without a stamp. */
     std::string version;
     AB_JSON_MESSAGE(AppInfoMessage, "auto_battlebot.status.App", available_profiles,
                     current_profile, max_loop_rate_hz, rate_fail_threshold, rate_fail_duration_sec,
@@ -85,16 +78,13 @@ struct ImagePoint {
     AB_JSON_MESSAGE(ImagePoint, "auto_battlebot.status.ImagePoint", u, v)
 };
 
-/** A point on the field floor in the field frame, meters, origin at the field center. */
 struct FieldPoint {
     double x = 0.0;
     double y = 0.0;
     AB_JSON_MESSAGE(FieldPoint, "auto_battlebot.status.FieldPoint", x, y)
 };
 
-/** One tracked robot in the field frame (meters, radians). */
 struct TrackedRobot {
-    /** Track slot, e.g. `their_robot_2`. Unique per robot even when two share a label. */
     std::string id;
     std::string label;
     bool ours = false;
@@ -102,7 +92,6 @@ struct TrackedRobot {
     double x = 0.0;
     double y = 0.0;
     double yaw = 0.0;
-    /** Where the robot sits in the camera image; absent when it projects behind the camera. */
     std::optional<ImagePoint> image;
     AB_JSON_MESSAGE(TrackedRobot, "auto_battlebot.status.TrackedRobot", id, label, ours, stale, x,
                     y, yaw, image)
@@ -117,7 +106,6 @@ struct TargetMessage {
     std::optional<ImagePoint> from_image;
     double x = 0.0;
     double y = 0.0;
-    /** The targeted robot's label; empty for a point that is not a robot. */
     std::string label;
     BehaviorMode mode = BehaviorMode::ATTACK;
     std::optional<ImagePoint> image;
@@ -134,13 +122,8 @@ struct TracksMessage {
     double field_x = 0.0;
     double field_y = 0.0;
     std::vector<TrackedRobot> robots;
-    /** The field border projected into the camera image: polylines of ImagePoint, split where
-     *  the border passes behind the camera. Empty before init. */
     std::vector<std::vector<ImagePoint>> field_outline;
-    /** The top-down view's camera triangle projected into the image: tip, then base corners.
-     *  Empty when any corner is behind the camera or before init. */
     std::vector<ImagePoint> camera_marker;
-    /** Absent before navigation has a target. */
     std::optional<TargetMessage> target;
     AB_JSON_MESSAGE(TracksMessage, "auto_battlebot.status.Tracks", our_robot_seen, opponents_seen,
                     field_x, field_y, robots, field_outline, camera_marker, target)
@@ -157,7 +140,6 @@ struct CommandAckMessage {
 
 struct NetworkMessage {
     std::string hostname;
-    /** Address on the dashboard cable subnet (10.42.42.0/24), empty when no port has one. */
     std::string cable_address;
     std::string wifi_interface;
     std::optional<std::string> wifi_address;
@@ -166,13 +148,11 @@ struct NetworkMessage {
                     wifi_interface, wifi_address, wifi_access)
 };
 
-/** The robot computer's own battery, from [battery]. Never published when the source is NONE. */
 struct BatteryMessage {
     /** False until the first good read, and again after `invalid_read_grace` failed reads. */
     bool valid = false;
     /** Estimated state of charge, 0 to 100. */
     double percent = 0.0;
-    /** The last read's measurements; absent when that read failed. */
     std::optional<double> bus_voltage_v;
     std::optional<double> current_a;
     /** Current is flowing into the battery. */
@@ -181,8 +161,6 @@ struct BatteryMessage {
                     current_a, charging)
 };
 
-/** Camera profiles and the camera's live image controls. Published when anything changes and
- *  every few seconds; `supported` is false on cameras without live controls. */
 struct CameraSettingsMessage {
     bool supported = false;
     /** DEFAULT first, then the saved profiles. */
@@ -195,8 +173,6 @@ struct CameraSettingsMessage {
     AB_JSON_MESSAGE(CameraSettingsMessage, "auto_battlebot.status.CameraSettings", supported,
                     profiles, active_profile, modified, settings, limits)
 };
-
-// ---- Commands: clients -> app ----
 
 struct ReinitFieldCommand {
     AB_JSON_EMPTY_MESSAGE(ReinitFieldCommand, "auto_battlebot.command.ReinitField")
@@ -233,13 +209,11 @@ struct SetManualTargetCommand {
     AB_JSON_MESSAGE(SetManualTargetCommand, "auto_battlebot.command.SetManualTarget", field, image)
 };
 
-/** Turns camera (SVO or H.264) and MCAP recording on or off together. */
 struct SetRecordingCommand {
     bool enabled = false;
     AB_JSON_MESSAGE(SetRecordingCommand, "auto_battlebot.command.SetRecording", enabled)
 };
 
-/** Picks the profile for the next launch. */
 struct SelectProfileCommand {
     std::string name;
     AB_JSON_MESSAGE(SelectProfileCommand, "auto_battlebot.command.SelectProfile", name)
@@ -250,13 +224,11 @@ struct SystemActionCommand {
     AB_JSON_MESSAGE(SystemActionCommand, "auto_battlebot.command.SystemAction", action)
 };
 
-/** Opens or closes the dashboard ports on the Wi-Fi interface. */
 struct SetWifiAccessCommand {
     bool enabled = false;
     AB_JSON_MESSAGE(SetWifiAccessCommand, "auto_battlebot.command.SetWifiAccess", enabled)
 };
 
-/** Changes the camera's live controls. The saved profile is untouched until a SAVE. */
 struct SetCameraSettingsCommand {
     CameraSettings settings;
     AB_JSON_MESSAGE(SetCameraSettingsCommand, "auto_battlebot.command.SetCameraSettings", settings)

@@ -22,13 +22,10 @@ class OpenTxTransmitter : public TransmitterInterface {
     OpenTxTransmitter(const OpenTxTransmitterConfiguration& config,
                       std::shared_ptr<ClockInterface> clock);
 
-    /** Find and open the serial port, then enable telemetry and channel streaming. */
     bool initialize() override;
 
-    /** Read available serial data, parse CRSF telemetry and channel updates. */
     CommandFeedback update() override;
 
-    /** Convert velocity command (m/s, rad/s) to trainer channels via the configured processor. */
     void send(VelocityCommand command) override;
 
     /**
@@ -60,8 +57,6 @@ class OpenTxTransmitter : public TransmitterInterface {
 
     std::optional<std::array<int16_t, kMaxChannels>> latest_channels_;
     bool init_button_was_pressed_ = false;
-    /** Decoded (autonomy_enabled, init_button) flags as last written to the
-     *  switch_states log entry; empty until the first channel frame is logged. */
     std::optional<std::tuple<bool, bool>> last_logged_switch_states_;
     bool enabled_ = false;
     std::chrono::steady_clock::time_point next_reconnect_attempt_ =
@@ -97,13 +92,8 @@ class OpenTxTransmitter : public TransmitterInterface {
     void handle_packet(const CrsfAttitude& pkt);
     void handle_packet(const CrsfFlightMode& pkt);
 
-    /** Scale and clamp a normalized [-1, 1] value to the trainer range [-1000, 1000]. */
     static int to_trainer_value(double normalized);
 
-    /**
-     * Return the latest value for an RC channel, clamped to the trainer range [-1000, 1000].
-     * Returns 0 if no channel data has been received yet or the index is out of range.
-     */
     int get_channel_value(int channel_idx) const;
 };
 

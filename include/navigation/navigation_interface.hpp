@@ -9,13 +9,11 @@
 #include "data_structures/velocity.hpp"
 
 namespace auto_battlebot {
-/** 2D path segment for debug visualization (field frame). */
 struct NavigationPathSegment {
     double our_x = 0.0, our_y = 0.0;
     double target_x = 0.0, target_y = 0.0;
 };
 
-/** Bundled navigation state for visualization. */
 struct NavigationVisualization {
     Header header;
     std::optional<NavigationPathSegment> path;
@@ -30,7 +28,6 @@ class NavigationInterface {
     virtual VelocityCommand update(RobotDescriptionsStamped robots, FieldDescription field,
                                    const TargetSelection &target) = 0;
 
-    /** Snapshot of the last navigation tick (header, robots, command, path) for publishing. */
     virtual const NavigationVisualization &get_last_visualization() const = 0;
 };
 

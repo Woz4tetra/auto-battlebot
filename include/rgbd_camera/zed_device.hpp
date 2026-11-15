@@ -68,8 +68,6 @@ inline sl::DEPTH_MODE get_zed_depth_mode(DepthMode depth_mode) {
  */
 class ZedDevice {
    public:
-    /** Separates end of file from a real failure. The two owners treat them oppositely: replay
-     *  finishes normally at EndOfFile, a live camera can never see one. */
     enum class GrabStatus { Ok, TransientError, EndOfFile, Fatal };
 
     enum class OpenResult { Opened, Cancelled, Failed, Leaked };
@@ -88,15 +86,12 @@ class ZedDevice {
      */
     OpenResult open(const std::atomic<bool> &cancel);
 
-    /** Waits for an in-flight open, leaking the future on hard timeout. False means leaked. */
     bool await_or_leak_open(const char *context, const char *validation_label);
     bool has_pending_open() const { return pending_open_.valid(); }
     void close() { zed_.close(); }
 
     void set_tracking_enabled(bool enabled) { tracking_enabled_ = enabled; }
     bool tracking_enabled() const { return tracking_enabled_; }
-    /** Enables positional tracking when configured. Closes the handle and returns false on
-     *  failure, matching what a caller would otherwise have to do itself. */
     bool enable_tracking();
 
     /** Intrinsics and resolution, valid once open() has succeeded. */
@@ -124,10 +119,8 @@ class ZedDevice {
     int svo_position() { return zed_.getSVOPosition(); }
     void set_svo_position(int frame) { zed_.setSVOPosition(frame); }
 
-    /** For SvoRecorder, which needs the raw handle. */
     sl::Camera &handle() { return zed_; }
 
-    /** Resets per-run logging state so a re-open does not inherit the old tracking state. */
     void reset_runtime_state() { prev_tracking_state_ = sl::POSITIONAL_TRACKING_STATE::LAST; }
 
    private:

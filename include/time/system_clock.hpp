@@ -4,12 +4,7 @@
 #include "time_utils.hpp"
 
 namespace auto_battlebot {
-/**
- * @brief Wall-clock time source (std::chrono::system_clock).
- *
- * The default when no [clock] section is configured, so hardware/playback behavior is unchanged.
- * set() is ignored; time always reflects the real wall clock.
- */
+/** Wall-clock time source; set() is ignored. */
 class SystemClock : public ClockInterface {
    public:
     double now() const override { return auto_battlebot::now(); }

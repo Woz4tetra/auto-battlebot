@@ -9,15 +9,6 @@
 #include "time/clock_interface.hpp"
 
 namespace auto_battlebot {
-/**
- * @brief Navigation that pursues opponent robots
- *
- * Implements pure pursuit-style navigation that:
- * 1. Identifies our robot and opponent robots from descriptions
- * 2. Predicts opponent position using velocity
- * 3. Computes velocity commands to intercept the opponent
- * 4. Respects field boundaries
- */
 class PursuitNavigation : public NavigationInterface {
    public:
     PursuitNavigation(const PursuitNavigationConfiguration &config,
@@ -33,14 +24,8 @@ class PursuitNavigation : public NavigationInterface {
     }
 
    private:
-    /**
-     * @brief Find our robot from the robot descriptions
-     */
     std::optional<RobotDescription> find_our_robot(const RobotDescriptionsStamped &robots) const;
 
-    /**
-     * @brief Compute velocity command to pursue the target
-     */
     VelocityCommand compute_pursuit_command(const Pose2D &our_pose, const Pose2D &target_pose,
                                             const FieldDescription &field);
 
@@ -77,29 +62,14 @@ class PursuitNavigation : public NavigationInterface {
     void apply_wall_reverse(const Pose2D &our_pose, const FieldDescription &field,
                             VelocityCommand &cmd);
 
-    /**
-     * @brief Clamp position to stay within field boundaries
-     */
     Pose2D clamp_to_field(const Pose2D &pose, const FieldDescription &field) const;
 
-    /**
-     * @brief Distance from pose to the nearest field wall (ignoring boundary_margin)
-     */
     static double distance_to_nearest_wall(const Pose2D &pose, const FieldDescription &field);
 
-    /**
-     * @brief Angle (rad) pointing from pose toward the nearest field wall
-     */
     static double wall_facing_angle(const Pose2D &pose, const FieldDescription &field);
 
-    /**
-     * @brief Normalize angle to [-pi, pi]
-     */
     static double normalize_angle(double angle);
 
-    /**
-     * @brief Compute distance between two 2D positions
-     */
     static double distance_2d(const Pose2D &a, const Pose2D &b);
 
     double stop_distance_;

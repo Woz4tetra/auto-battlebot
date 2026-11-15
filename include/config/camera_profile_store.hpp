@@ -33,16 +33,11 @@ class CameraProfileStore {
      *  never costs the profiles in it. */
     void load();
 
-    /** DEFAULT, then the saved profiles in file order. */
     std::vector<std::string> names() const;
     bool contains(const std::string &name) const;
-    /** Saved settings for `name`; nullopt for DEFAULT and unknown names. */
     std::optional<CameraSettings> settings(const std::string &name) const;
 
-    /** Create or overwrite `name` and write the file. Throws std::runtime_error with a message
-     *  fit for the dashboard on a bad name, DEFAULT, an unloadable file, or a failed write. */
     void save(const std::string &name, const CameraSettings &settings);
-    /** Delete `name` and write the file. Throws like save(), and on an unknown name. */
     void remove(const std::string &name);
 
     const std::filesystem::path &path() const { return path_; }
@@ -56,10 +51,8 @@ class CameraProfileStore {
     std::string load_error_;
 };
 
-/** Parse a camera profiles file's text. Throws ConfigValidationError on any bad field. */
 std::vector<CameraProfile> parse_camera_profiles(const std::string &toml_text,
                                                  const std::string &source_name);
-/** Serialize profiles in the format parse_camera_profiles reads. */
 std::string format_camera_profiles(const std::vector<CameraProfile> &profiles);
 
 }  // namespace auto_battlebot

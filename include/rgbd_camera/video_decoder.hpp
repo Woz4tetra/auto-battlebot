@@ -29,11 +29,8 @@ class VideoDecoder {
     void close();
     bool is_open() const { return context_ != nullptr; }
 
-    /** Decode one access unit. Returns false when the packet produced no frame yet, which is
-     *  normal for the first packets of a stream. */
     bool decode(const std::byte *data, size_t len, cv::Mat &bgr);
 
-    /** Drop decoder state at a seek, so the next IDR starts clean. */
     void flush();
 
    private:
@@ -46,6 +43,5 @@ class VideoDecoder {
     int scaler_format_ = -1;
 };
 
-/** True when an Annex-B access unit contains an IDR NAL, so a decoder can start from it. */
 bool is_keyframe_access_unit(const std::byte *data, size_t len);
 }  // namespace auto_battlebot

@@ -42,11 +42,9 @@ class ZedRgbdCamera : public RgbdCameraInterface {
     bool wait_for_new_frame(std::unique_lock<std::mutex> &lock, int &wait_loops,
                             const std::function<bool()> &frame_ready);
 
-    // Asynchronous open() handling.
     std::atomic<bool> cancel_open_{false};
     std::atomic<bool> capture_thread_done_{false};
 
-    // The SDK handle and single-frame capture, shared with the SVO playback camera.
     ZedDevice device_;
     CameraData latest_data_;
     mutable std::mutex data_mutex_;

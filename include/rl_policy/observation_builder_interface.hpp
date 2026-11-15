@@ -11,11 +11,8 @@
 
 namespace auto_battlebot::rl_policy {
 
-/** Everything an observation is built from on one policy step. The navigation picks the two
- * robots; the builder reads them, the field and the history. */
 struct ObservationContext {
     const RobotDescription &our_robot;
-    /** Null when there is no target opponent. */
     const RobotDescription *target_opponent = nullptr;
     const FieldDescription &field;
     const TargetSelection &target;
@@ -33,7 +30,6 @@ class ObservationBuilderInterface {
 
     virtual int spec_version() const = 0;
 
-    /** The tensors build() writes, by name and shape. */
     virtual std::vector<TensorSpec> output_specs() const = 0;
 
     /** Policy steps of history the spec reads. */
@@ -44,7 +40,6 @@ class ObservationBuilderInterface {
     virtual void build(const ObservationContext &context, TensorSet &observation) = 0;
 };
 
-/** The builder for `obs_spec_version`, or null when this build has none. */
 std::unique_ptr<ObservationBuilderInterface> make_observation_builder(int obs_spec_version);
 
 }  // namespace auto_battlebot::rl_policy

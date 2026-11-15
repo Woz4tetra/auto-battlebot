@@ -24,7 +24,6 @@ namespace auto_battlebot {
  */
 class EngineSelector {
    public:
-    // `owner` names the model in log output, e.g. "YoloKeypointModel".
     EngineSelector(EngineSelectorConfiguration config, std::string owner);
 
     // Loads the first candidate that deserializes on this device into `engine` and

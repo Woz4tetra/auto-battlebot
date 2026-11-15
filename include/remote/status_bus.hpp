@@ -66,8 +66,6 @@ class StatusBus {
     std::array<Slot, std::tuple_size_v<StatusRows>> slots_;
 };
 
-/** Records every drained command to MCAP on its own command topic. Recorder only: the relay
- *  already has these topics as client channels, so the app never advertises them. */
 class CommandLog {
    public:
     explicit CommandLog(std::shared_ptr<McapRecorder> recorder);

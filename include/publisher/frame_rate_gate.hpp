@@ -29,7 +29,6 @@ class FrameRateGate {
                                 : Clock::duration::zero()),
           early_(period_ / 2) {}
 
-    /** Whether the frame arriving at `now` goes through. */
     bool admit(Clock::time_point now) {
         if (period_ == Clock::duration::zero()) return true;
         if (started_ && now < next_due_ - early_) return false;

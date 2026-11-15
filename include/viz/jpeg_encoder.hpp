@@ -12,12 +12,10 @@ namespace auto_battlebot {
 class JpegEncoderInterface {
    public:
     virtual ~JpegEncoderInterface() = default;
-    /** Called only from the owning thread. Returns false and leaves `out` empty on failure. */
     virtual bool encode(const cv::Mat &bgr, int quality, std::vector<std::byte> &out) = 0;
     virtual std::string_view name() const = 0;
 };
 
-/** cv::imencode on the CPU. The fallback on the desktop and wherever NVJPG fails to open. */
 class OpenCvJpegEncoder : public JpegEncoderInterface {
    public:
     bool encode(const cv::Mat &bgr, int quality, std::vector<std::byte> &out) override;

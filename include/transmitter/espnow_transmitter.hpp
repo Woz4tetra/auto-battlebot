@@ -104,8 +104,6 @@ DriveProcessorInterface::Channels espnow_telemetry_channels(
  *  telemetry echo of it share. */
 uint32_t espnow_monotonic_us();
 
-/** The /robot/espnow_telemetry JSON for one frame. Non-finite floats become null.
- *  round_trip_us is null until the robot has accepted a command. */
 std::string to_espnow_telemetry_json(const espnow_protocol::TelemetryPayload &telemetry,
                                      uint64_t host_receive_ns,
                                      std::optional<int64_t> round_trip_us);

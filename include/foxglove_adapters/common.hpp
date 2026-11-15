@@ -8,10 +8,6 @@
 #include "enum_to_string_lower.hpp"
 #include "label_utils.hpp"
 
-// Small conversions shared by every adapter. The rules here (stamp splitting, frame id
-// spelling, color widening) are part of the recording format; see
-// docs/foxglove_recording_format.md.
-
 namespace auto_battlebot {
 namespace foxglove_adapters {
 
@@ -49,8 +45,6 @@ foxglove::schemas::Pose to_pose(const Pose &pose);
 foxglove::schemas::Pose identity_pose();
 foxglove::schemas::Pose pose_at(double x, double y, double z);
 
-/** Escape a string for inclusion inside a JSON string literal (quotes, backslashes, control
- *  characters). */
 std::string json_escape(const std::string &value);
 
 /** Shortest round-trip decimal for a double, or `null` for NaN/inf, which JSON cannot carry. */

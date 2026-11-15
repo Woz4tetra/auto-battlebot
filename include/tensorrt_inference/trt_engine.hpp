@@ -8,9 +8,6 @@
 #include <vector>
 
 namespace auto_battlebot {
-// Shared TensorRT inference helper for loading a serialized .engine and running
-// inference. Supports exactly one input and one output tensor (float32).
-// Used by DeepLab and YOLO model implementations.
 class TrtEngine {
    public:
     struct OutputTensorInfo {
@@ -56,21 +53,16 @@ class TrtEngine {
     // Every failure path leaves the object clean, so a caller may try another path.
     bool load(const std::string& engine_path);
 
-    // Return true if an engine is loaded and ready for inference.
     bool isLoaded() const { return context_ != nullptr; }
 
-    // Shape of the input tensor (e.g. [1, 3, H, W] for NCHW).
     std::vector<int64_t> getInputShape() const;
 
-    // Shape of the output tensor.
     std::vector<int64_t> getOutputShape() const;
 
-    // Number of float elements for input/output.
     int64_t getInputNumElements() const { return input_num_elements_; }
     int64_t getOutputNumElements() const { return output_num_elements_; }
     const std::vector<OutputTensorInfo>& getOutputTensorInfos() const { return output_infos_; }
 
-    // Size in bytes (input/output are float32).
     size_t getInputSizeBytes() const {
         return static_cast<size_t>(input_num_elements_) * sizeof(float);
     }
@@ -93,7 +85,6 @@ class TrtEngine {
     // buffer, valid until the next call, or nullptr on failure.
     const float* execute_device_input();
 
-    // Device buffer TensorRT reads its input from. Write it on stream().
     float* device_input() const { return static_cast<float*>(d_input_); }
     // This engine's CUDA stream, as a cudaStream_t.
     void* stream() const { return stream_; }
@@ -104,9 +95,7 @@ class TrtEngine {
 
    private:
     bool upload_input(const float* host_input);
-    // enqueueV3 plus every output's copy back to pinned memory, on stream_.
     bool enqueue_direct();
-    // enqueue_direct, replayed from the CUDA graph once one is captured.
     bool enqueue_network();
     bool run_and_wait(std::chrono::steady_clock::time_point exec_start, const char* caller);
     void capture_graph();

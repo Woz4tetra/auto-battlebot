@@ -20,21 +20,16 @@ class NetworkRuntimeInterface {
    public:
     virtual ~NetworkRuntimeInterface() = default;
 
-    /** Load the network and check it against the spec's input and output sizes. Throws
-     * PolicyBundleError naming the mismatch. */
     virtual void load(const NetworkSpec &spec) = 0;
 
     virtual TensorSet &inputs() = 0;
     virtual const TensorSet &outputs() const = 0;
 
-    /** inputs() to outputs(). Never allocates. */
     virtual void run() = 0;
 
-    /** Zero any recurrent state. */
     virtual void reset() = 0;
 };
 
-/** The runtime for `kind`, not yet loaded. */
 std::unique_ptr<NetworkRuntimeInterface> make_network_runtime(NetworkRuntimeKind kind);
 
 }  // namespace auto_battlebot::rl_policy

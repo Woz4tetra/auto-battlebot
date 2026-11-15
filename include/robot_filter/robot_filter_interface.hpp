@@ -16,14 +16,6 @@ class RobotFilterInterface {
     virtual ~RobotFilterInterface() = default;
     virtual bool initialize(int opponent_count) = 0;
 
-    /**
-     * Advance every track to `now`, using the commanded velocity as the control input.
-     *
-     * Defaults to a no-op, so filters whose state only moves when a measurement arrives need no
-     * implementation. RobotFrontBackFilter forwards this to its motion estimator: the
-     * dead-reckoning estimator only records the control input for correct() to consume, while
-     * the Kalman estimator also advances state() to `now` so the output coasts between frames.
-     */
     virtual void predict([[maybe_unused]] double now,
                          [[maybe_unused]] CommandFeedback command_feedback) {}
 
@@ -34,7 +26,6 @@ class RobotFilterInterface {
     virtual void correct(ModelResultStamped keypoints, FieldDescription field,
                          CameraInfo camera_info, ModelResultStamped robot_blob_keypoints) = 0;
 
-    /** Best estimate as of the most recent predict() or correct(), whichever ran last. */
     virtual RobotDescriptionsStamped state() const = 0;
 
     /**

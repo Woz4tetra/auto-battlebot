@@ -8,7 +8,6 @@
 
 namespace auto_battlebot {
 
-/** One hazard as it appears in a shared geometry file, before inflation. */
 struct StaticHazardConfig {
     /** HOLE or WALL_BLOCK, written "hole" or "wall_block" in the file. HazardAvoidance treats
      * both the same way; RlPolicyNavigation's observation tells them apart. ROBOT is never read

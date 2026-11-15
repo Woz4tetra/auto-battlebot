@@ -5,21 +5,15 @@
 #include <cstddef>
 #include <cstdint>
 
-// Shared by the .cu kernel and C++ callers, so this header includes neither OpenCV nor CUDA.
-
 namespace auto_battlebot {
 
-// Where a source image lands inside a YOLO input tensor: scaled to fit, centred, the rest padded.
 struct LetterboxGeometry {
     int tensor_width = 0;
     int tensor_height = 0;
-    // The scaled image's size and its offset inside the tensor.
     int resized_width = 0;
     int resized_height = 0;
     int left = 0;
     int top = 0;
-    // False when the rounded padding does not add up to the tensor size. The CPU letterbox
-    // reported that as an input size mismatch.
     bool fills_tensor = true;
 };
 

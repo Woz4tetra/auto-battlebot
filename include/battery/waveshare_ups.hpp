@@ -5,8 +5,7 @@
 
 namespace auto_battlebot {
 
-/** Reads the Waveshare UPS's INA219 over /dev/i2c-<options.i2c_bus>. Returns false, leaving
- *  `sample_out` invalid, when the bus or the chip does not answer. */
+/** Read the Waveshare UPS INA219 battery sample. */
 bool read_waveshare_ups_sample(const BatteryOptions &options, BatterySample &sample_out);
 
 }  // namespace auto_battlebot

@@ -14,11 +14,6 @@ namespace foxglove_adapters {
  */
 std::string to_detections_json(const DetectionsStamped &detections);
 
-/**
- * The same detections drawn on the Image panel: a LINE_LOOP box per detection, a circle per
- * keypoint, a label with confidence at the box top-left. Live only, never recorded; the JSON
- * channel is the structured truth.
- */
 foxglove::schemas::ImageAnnotations to_image_annotations(const DetectionsStamped &detections);
 
 }  // namespace foxglove_adapters

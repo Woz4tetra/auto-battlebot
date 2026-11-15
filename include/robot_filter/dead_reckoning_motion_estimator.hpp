@@ -29,7 +29,6 @@ class DeadReckoningMotionEstimator : public MotionEstimatorInterface {
 
    private:
     RobotTemporalMotionFilter temporal_motion_filter_;
-    /** Control input recorded by predict(), consumed by the next update(). */
     CommandFeedback command_feedback_;
 };
 

@@ -37,7 +37,6 @@ class RobotDescriptionsCache {
 
     void reset();
 
-    /** Update cache with `current` if it is critical, otherwise substitute the cached set. */
     Resolved resolve(const RobotDescriptionsStamped &current);
 
    private:

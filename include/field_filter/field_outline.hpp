@@ -5,8 +5,6 @@
 #include <string>
 
 namespace auto_battlebot {
-/** Largest external contour of a mask, filled. Shared by every filter that works off the field
- *  mask so there is one definition of "the field blob". */
 cv::Mat find_largest_contour_mask(const cv::Mat &mask);
 
 struct FieldOutlineParams {
@@ -17,7 +15,6 @@ struct FieldOutlineParams {
     int refine_iterations = 4;
     /** Fraction of each side dropped at both ends, as belonging to the mat's rounded corners. */
     double corner_skip_fraction = 0.20;
-    /** A side with fewer surviving points than this is unsupported: no fit, no constraint. */
     int min_side_points = 20;
 };
 

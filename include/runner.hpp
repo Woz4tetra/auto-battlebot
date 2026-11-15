@@ -50,9 +50,7 @@ struct RunnerRemote {
     std::shared_ptr<remote::CommandQueue> commands = std::make_shared<remote::CommandQueue>();
     std::shared_ptr<remote::StatusBus> status;
     std::shared_ptr<HostServices> host;
-    /** Saved camera profiles. Null: only DEFAULT is offered. */
     std::shared_ptr<CameraProfileStore> camera_profiles;
-    /** Republished on /status/app; the Runner fills in nothing, main.cpp builds it. */
     remote::AppInfoMessage app_info;
 };
 
@@ -84,9 +82,7 @@ class Runner : public Quittable {
     void initialize_field(const CameraData &camera_data);
     int run();
     bool tick();
-    /** The /status/system message the last tick built, whether or not a status bus exists. */
     const remote::SystemStatusMessage &system_status() const { return last_status_; }
-    /** /status/camera_settings as it would publish now. */
     remote::CameraSettingsMessage camera_settings_status() const;
 
     // Called from the SIGINT/SIGTERM handler, so it only sets a flag the loop polls.
@@ -97,16 +93,12 @@ class Runner : public Quittable {
    private:
     std::atomic<bool> quit_requested_{false};
 
-    /** Drains the command queue and runs each command. Sets `should_reinit_field` when one asked
-     *  for a field reinit. Returns false when one stopped the loop (reboot or power off). */
     bool handle_commands(bool &should_reinit_field);
     void set_opponent_count(int count);
     void set_autonomy(bool enabled);
     void set_behavior_mode(BehaviorMode mode);
     void set_auto_tracking(bool enabled);
-    /** Returns the ack message and sets `accepted` false on a refusal. */
     std::string set_manual_target(const remote::SetManualTargetCommand &command, bool &accepted);
-    /** Posts the toggle to recording_worker_ and returns. */
     void set_recording(bool enabled) const;
     /** The toggle itself. `from_worker` is false only during shutdown, which runs on the tick's
      *  own thread once the worker has stopped, so there is no tick in flight to wait for. */
@@ -117,14 +109,12 @@ class Runner : public Quittable {
     std::atomic<uint64_t> ticks_started_{0};
     std::string select_profile(const std::string &name);
     void run_system_action(SystemAction action);
-    /** Each returns the ack message and sets `accepted` false on a refusal. */
     std::string set_camera_settings(const CameraSettings &settings, bool &accepted);
     std::string run_camera_profile(CameraProfileAction action, const std::string &name,
                                    bool &accepted);
     /** /status/camera_settings: right after a camera command, otherwise twice a second so the
      *  auto-exposure read-back stays current. */
     void publish_camera_settings(bool now);
-    /** The app always starts on DEFAULT; nothing remembers the last profile across restarts. */
     std::string active_camera_profile_ = CameraProfileStore::kDefaultName;
     /** What the dashboard last asked the camera for; nullopt while on DEFAULT. SAVE stores this
      *  rather than the read-back, which can trail a request by a frame. */
@@ -139,11 +129,8 @@ class Runner : public Quittable {
     std::shared_ptr<RobotBlobModelInterface> robot_mask_model_;
     std::shared_ptr<FieldFilterInterface> field_filter_;
     std::shared_ptr<KeypointModelInterface> keypoint_model_;
-    // Depth-based height gate, applied to both keypoint streams; static-position gate, applied to
-    // robot blobs only. Both sit between perception and the control loop.
     std::shared_ptr<KeypointHeightGate> height_gate_;
     std::shared_ptr<StaticDetectionGate> static_gate_;
-    // Runs keypoint_model_ and robot_mask_model_ in parallel each tick.
     std::shared_ptr<ParallelModelBatch> perception_batch_;
     /** Owns the filter/target/navigation/transmit half. The Runner reaches the transmitter through
      *  it once running, since a threaded driver owns it on another thread. */
@@ -160,7 +147,6 @@ class Runner : public Quittable {
     int runtime_opponent_count_;
 
     bool initialized_;
-    /** Frames left in the current field-init attempt. See handle_tick. */
     int field_init_attempts_remaining_ = 0;
     /** One second at 60 Hz. Long enough for a fiducial board to accumulate, short enough that a
      *  request with no board in frame stops running the mask model. */
@@ -168,8 +154,6 @@ class Runner : public Quittable {
     bool autonomy_enabled_;
     BehaviorMode behavior_mode_;
     bool auto_tracking_;
-    /** The last tick's field and camera, for projecting a camera-view tap onto the floor. Empty
-     *  until the field is initialized. */
     std::optional<FieldDescription> projection_field_;
     CameraInfo projection_camera_info_;
     std::shared_ptr<FieldDescriptionWithInlierPoints> initial_field_description_;
@@ -182,19 +166,15 @@ class Runner : public Quittable {
     /** When the transmitter's autonomy switch last went on; empty while it is off. */
     std::optional<std::chrono::steady_clock::time_point> autonomy_switch_since_;
 
-    /** Builds /status/system, keeps it for system_status(), and publishes it. */
     void publish_system_status(bool camera_ok, double loop_rate_hz);
     remote::SystemStatusMessage last_status_;
     void publish_tracks(const RobotDescriptionsStamped &robots, const FieldDescription &field,
                         const CameraInfo &camera_info, const TargetSelection &target,
                         bool manual_target) const;
-    /** Starts or clears the autonomy-switch timer from the transmitter, and logs both timers. */
     void update_timers();
     double uptime_s() const;
     std::optional<double> autonomy_on_s() const;
     void stop_recordings_for_shutdown() const;
-    /** Turns recording off and on when the MCAP passes max_size_gb, or when the camera's
-     *  encoder stopped taking frames. */
     void roll_over_recording_if_full();
     std::chrono::steady_clock::time_point last_size_check_{};
     bool recover_camera_after_failure();
@@ -204,7 +184,6 @@ class Runner : public Quittable {
     /** Held by apply_recording and by camera reinitialization, which both start and stop the
      *  camera's encoder or SVO recorder. */
     mutable std::mutex recording_mutex_;
-    /** A rollover is posted and not yet done. */
     std::atomic<bool> rollover_pending_{false};
     /** The control loop has missed its watchdog, and since when. Loop thread only. */
     bool control_loop_stalled_ = false;

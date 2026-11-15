@@ -31,17 +31,11 @@ ProfileSelectorConfig load_profile_selector(const std::filesystem::path &config_
 std::vector<std::string> list_available_profiles(const std::filesystem::path &config_dir,
                                                  const std::string &pattern);
 
-/** Read the persisted selection (trimmed single line), or nullopt if the file is absent/empty. */
 std::optional<std::string> read_selection_file(const ProfileSelectorConfig &selector);
 
 /** Read config/default_profile (trimmed single line). Returns empty string if absent/empty. */
 std::string read_default_profile(const std::filesystem::path &config_dir);
 
-/**
- * Resolve the profile to launch: the persisted selection if it is present in the available set,
- * otherwise the default profile. Throws ConfigValidationError if neither resolves to an existing
- * config file.
- */
 std::string resolve_active_profile(const std::filesystem::path &config_dir,
                                    const ProfileSelectorConfig &selector);
 
@@ -53,7 +47,6 @@ std::string resolve_active_profile(const std::filesystem::path &config_dir,
  */
 std::filesystem::path expand_home(const std::string &raw);
 
-/** Persist `profile_name` to the selection file, creating parent directories as needed. */
 void write_selection_file(const ProfileSelectorConfig &selector, const std::string &profile_name);
 
 }  // namespace auto_battlebot

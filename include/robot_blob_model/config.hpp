@@ -20,9 +20,7 @@ struct RobotBlobModelConfiguration {
 struct NoopRobotBlobModelConfiguration : public RobotBlobModelConfiguration {
     NoopRobotBlobModelConfiguration() { type = "NoopRobotBlobModel"; }
 
-    PARSE_CONFIG_FIELDS(
-        // No additional fields
-    )
+    PARSE_CONFIG_FIELDS()
 };
 
 struct YoloBboxRobotBlobModelConfiguration : public RobotBlobModelConfiguration {

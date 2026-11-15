@@ -16,7 +16,6 @@ namespace auto_battlebot {
 struct FrontBackAssignment {
     Eigen::Vector3d front = Eigen::Vector3d::Zero();
     Eigen::Vector3d back = Eigen::Vector3d::Zero();
-    /** The keypoints' Keypoint::reference_offset_m. */
     double reference_offset_m = 0.0;
 };
 
@@ -26,20 +25,10 @@ struct FrontBackKeypointConverterConfig {
     KeypointHeights keypoint_heights;
 };
 
-/**
- * @brief Converts 2D keypoints to 3D front/back assignments by projecting onto a plane
- */
 class FrontBackKeypointConverter {
    public:
     explicit FrontBackKeypointConverter(const FrontBackKeypointConverterConfig &config);
 
-    /**
-     * @brief Convert keypoints to front/back 3D positions in camera frame
-     * @param model_results Input 2D keypoints (grouped by label and detection_index)
-     * @param field Field description with plane transform
-     * @param camera_info Camera intrinsics
-     * @return Map of label to list of (front/back assignment, confidence) per instance
-     */
     std::map<Label, std::vector<std::pair<FrontBackAssignment, double>>> convert(
         const ModelResultStamped &model_results, const FieldDescription &field,
         const CameraInfo &camera_info);
