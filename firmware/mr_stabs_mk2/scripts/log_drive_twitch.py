@@ -69,7 +69,7 @@ OPTIONAL_COLUMNS = {"yaw_rate", "yaw_rate_cmd", "seq", *GUARD_COLUMNS}
 FLIP_SWITCH_DOWN = 0  # crsf_bridge::DOWN, the auto upside-down and heading-hold position
 UPSIDE_DOWN_BELOW = -1.0  # updown_sensor.h thresholds on the gravity z the diag reports
 RIGHT_SIDE_UP_ABOVE = 1.0
-TURN_THRESHOLD = 1.0  # |b_percent| above this is a manual turn, below it heading hold drives
+MANUAL_TURN_THRESHOLD_PCT = 1.0
 
 Row = dict[str, float]
 
@@ -179,17 +179,16 @@ def check_upside_down(rows: list[Row], flip_window: float) -> bool:
         print("  not exercised: flip switch was never DOWN while armed")
         return False
 
-    # Distance from the threshold that would flip the current state, in m/s^2.
-    margins = [
+    flip_margins_mps2 = [
         row["accel_z"] - UPSIDE_DOWN_BELOW
         if row["is_upside_down"] == 0
         else RIGHT_SIDE_UP_ABOVE - row["accel_z"]
         for row in auto
     ]
-    close = sum(1 for margin in margins if margin < 3.0)
+    close = sum(1 for margin in flip_margins_mps2 if margin < 3.0)
     print(
         f"  {len(auto)} rows with the switch DOWN; smallest margin to the flip threshold "
-        f"{min(margins):.1f} m/s^2, {100 * close / len(auto):.1f}% of rows within 3 m/s^2"
+        f"{min(flip_margins_mps2):.1f} m/s^2, {100 * close / len(auto):.1f}% of rows within 3 m/s^2"
     )
 
     flips: list[tuple[Row, Row]] = []
@@ -241,7 +240,7 @@ def wheel_sign(command: float, deadzone: float) -> int:
 def driver_mix(row: Row, wheel: str) -> float:
     """The wheel command from the sticks alone, as mix_motor_outputs builds it without the PID."""
     turn = row["b_percent"]
-    if row["flip_switch"] == FLIP_SWITCH_DOWN and abs(turn) <= TURN_THRESHOLD:
+    if row["flip_switch"] == FLIP_SWITCH_DOWN and abs(turn) <= MANUAL_TURN_THRESHOLD_PCT:
         turn = 0.0
     sign = 1.0 if wheel == "left" else -1.0
     return -row["a_percent"] + sign * turn

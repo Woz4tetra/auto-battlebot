@@ -51,10 +51,8 @@ class YawController {
 
     void reset(float heading);
 
-    // One BNO055 sample. turn_percent is the turn stick (-100..100), throttle the drive command
-    // in percent, positive driving tail-first (the unstable direction), dt the seconds since
-    // the previous sample. Returns the differential in percent, clamped to +-100.
-    float update(float turn_percent, float throttle, float heading, float rate, float dt);
+    float update(float turn_pct, float throttle_pct_tail_first_positive, float heading_deg,
+                 float rate_cw_dps, float dt_s);
 
     float output() const { return _output; }
     float rate_command() const { return _rate_command; }
@@ -62,6 +60,7 @@ class YawController {
     bool capturing() const { return _capturing; }
 
    private:
+    void update_capture(float rate_cw_dps, float heading_deg, float dt_s);
     Config _config;
     float _setpoint = 0.0f;
     bool _capturing = false;

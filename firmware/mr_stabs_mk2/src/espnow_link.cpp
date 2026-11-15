@@ -19,8 +19,7 @@ struct RxFrame {
 const UBaseType_t RX_QUEUE_DEPTH = 40;
 QueueHandle_t rx_queue = nullptr;
 
-// Telemetry send results, newest in bit 0, for a sliding-window link quality.
-volatile uint32_t send_history = 0;
+volatile uint32_t send_ack_history_newest_lsb = 0;
 volatile uint8_t send_history_count = 0;
 
 // Diagnostics counters written by the WiFi task callbacks. Single 32-bit writes; the page only
@@ -126,7 +125,8 @@ void EspNowLink::on_recv(const uint8_t *mac, const uint8_t *data, int length) {
 
 void EspNowLink::on_sent(const uint8_t *mac, esp_now_send_status_t status) {
     (void)mac;
-    send_history = (send_history << 1) | (status == ESP_NOW_SEND_SUCCESS ? 1u : 0u);
+    send_ack_history_newest_lsb =
+        (send_ack_history_newest_lsb << 1) | (status == ESP_NOW_SEND_SUCCESS ? 1u : 0u);
     if (send_history_count < 32) send_history_count = send_history_count + 1;
     if (status == ESP_NOW_SEND_SUCCESS) {
         tx_ok = tx_ok + 1;
@@ -360,12 +360,13 @@ void EspNowLink::service_sweep(uint32_t now_ms) {
     if (now_ms - sweep_dwell_start_ms_ < CHANNEL_DWELL_MS) return;
     sweep_dwell_start_ms_ = now_ms;
     sweep_index_ = (sweep_index_ + 1) % (sizeof(CHANNEL_CANDIDATES) + 1);
-    // Index 0 is the last-known-good channel, then the fixed candidates.
-    const uint8_t next = sweep_index_ == 0 && last_good_channel_ != 0
-                             ? last_good_channel_
-                             : CHANNEL_CANDIDATES[(sweep_index_ + sizeof(CHANNEL_CANDIDATES) - 1) %
-                                                  sizeof(CHANNEL_CANDIDATES)];
-    set_channel(next);
+    set_channel(next_sweep_channel());
+}
+
+uint8_t EspNowLink::next_sweep_channel() const {
+    if (sweep_index_ == 0 && last_good_channel_ != 0) return last_good_channel_;
+    return CHANNEL_CANDIDATES[(sweep_index_ + sizeof(CHANNEL_CANDIDATES) - 1) %
+                              sizeof(CHANNEL_CANDIDATES)];
 }
 
 void EspNowLink::send_telemetry(TelemetryPayload &telemetry, uint32_t now_ms) {
@@ -381,7 +382,8 @@ void EspNowLink::send_telemetry(TelemetryPayload &telemetry, uint32_t now_ms) {
     const uint32_t mask = count >= 32 ? 0xFFFFFFFFu : ((1u << count) - 1u);
     telemetry.espnow_lq =
         count == 0 ? 0
-                   : static_cast<uint8_t>(100 * __builtin_popcount(send_history & mask) / count);
+                   : static_cast<uint8_t>(
+                         100 * __builtin_popcount(send_ack_history_newest_lsb & mask) / count);
     telemetry.telemetry_seq = telemetry_seq_++;
     tx_telemetry_++;
     send_frame(reply_mac_, MSG_TELEMETRY, &telemetry, sizeof(telemetry));
@@ -457,33 +459,33 @@ uint8_t EspNowLink::unpair(const uint8_t *mac, bool armed) {
 }
 
 void EspNowLink::fill_status(espnow_status_t &out, uint32_t now_ms) const {
-    out.begin_ok = begin_ok_;
+    out.esp_now_init_ok = begin_ok_;
     out.channel = channel_;
     out.sweeping = sweeping_;
     out.last_good_channel = last_good_channel_;
     out.heard_dongle = heard_dongle_;
     memcpy(out.dongle_mac, reply_mac_, 6);
-    out.last_frame_ms = last_valid_frame_ms_;
-    out.rx_frames = rx_frames_;
+    out.last_allowed_frame_ms = last_valid_frame_ms_;
+    out.rx_allowed_frames = rx_frames_;
     out.rx_commands_new = rx_commands_new_;
     out.rx_commands_repeat = rx_commands_repeat_;
-    out.rx_commands_old = rx_commands_old_;
+    out.rx_commands_late_dropped = rx_commands_old_;
     out.rx_pings = rx_pings_;
     out.rx_tunables = rx_tunables_;
     out.rx_ota = rx_ota_;
-    out.rx_size_errors = rx_size_errors_;
-    out.rx_rejected = rx_rejected;
+    out.rx_wrong_length = rx_size_errors_;
+    out.rx_unpaired_mac = rx_rejected;
     memcpy(out.rejected_mac, rejected_mac, 6);
-    out.rx_queue_full = rx_queue_full;
+    out.rx_queue_full_drops = rx_queue_full;
     out.tx_telemetry = tx_telemetry_;
-    out.tx_ok = tx_ok;
-    out.tx_fail = tx_fail;
-    out.tx_errors = tx_errors;
+    out.tx_acked = tx_ok;
+    out.tx_no_ack = tx_fail;
+    out.tx_send_refused = tx_errors;
     const uint8_t count = send_history_count;
     const uint32_t mask = count >= 32 ? 0xFFFFFFFFu : ((1u << count) - 1u);
-    out.lq = count == 0
-                 ? 0
-                 : static_cast<uint8_t>(100 * __builtin_popcount(send_history & mask) / count);
+    out.lq = count == 0 ? 0
+                        : static_cast<uint8_t>(
+                              100 * __builtin_popcount(send_ack_history_newest_lsb & mask) / count);
     out.command_fresh = tracker_.fresh(now_ms);
     out.command_seq = tracker_.latest().seq;
     out.command_age_ms = tracker_.age_ms(now_ms);

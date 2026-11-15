@@ -11,10 +11,9 @@ static const uint8_t BOOT_INIT[] = {0,   0,   0,   0,   0,   0,   0,    0,   0x0
 // The passthrough's InterfaceGetVersion, 20.0.05.
 static const uint8_t INTERFACE_VERSION[] = {200, 5};
 // The passthrough's retry count for the steps of a write.
-static const uint8_t WRITE_TRIES = 3;
 static const uint8_t READ_TRIES = 3;  // a read changes nothing, so it can repeat
-static const uint8_t INIT_TRIES = 3;
 static const uint32_t REBOOT_SETTLE_MS = 500;
+static const uint32_t PROG_FLASH_ACK_TIMEOUT_MS = 400;
 static const size_t INIT_REPLY_SIZE = 9;
 
 bool write_allowed(uint16_t address, size_t length) {
@@ -172,7 +171,7 @@ bool Server::handshake(uint8_t *signature) {
 // REBOOT_SETTLE_MS of quiet high line before the handshake is tried again.
 uint8_t Server::init_flash(uint8_t esc, uint8_t *signature) {
     _link.select(esc);
-    _esc = esc;
+    _handshake_esc = esc;
     if (handshake(signature)) return ACK_OK;
     _reboots++;
     reset_esc(esc);
@@ -207,10 +206,10 @@ uint8_t Server::read(uint16_t address, size_t length, uint8_t *data) {
         if (read_once(address, length, data) == ACK_OK) return ACK_OK;
         if (attempt == 0) memcpy(_first_read_failure, _failure, sizeof(_failure));
     }
-    if (_esc < 0) return ACK_GENERAL_ERROR;
+    if (_handshake_esc < 0) return ACK_GENERAL_ERROR;
     _resyncs++;
     uint8_t signature[4];
-    _link.select(static_cast<uint8_t>(_esc));
+    _link.select(static_cast<uint8_t>(_handshake_esc));
     if (!handshake(signature)) return ACK_GENERAL_ERROR;
     for (uint8_t attempt = 0; attempt < READ_TRIES; attempt++) {
         if (read_once(address, length, data) == ACK_OK) return ACK_OK;
@@ -240,7 +239,7 @@ uint8_t Server::write(uint16_t address, const uint8_t *data, size_t length) {
     for (uint8_t attempt = 0; attempt < WRITE_TRIES && !ok; attempt++) {
         if (attempt > 0) _link.delay_ms(30);
         send_boot(prog_cmd, sizeof(prog_cmd));
-        ok = boot_ack(400, "program flash");  // the result waits for the flash commit
+        ok = boot_ack(PROG_FLASH_ACK_TIMEOUT_MS, "program flash");
     }
     if (!ok) return ACK_GENERAL_ERROR;
     _failure[0] = '\0';

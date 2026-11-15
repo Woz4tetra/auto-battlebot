@@ -14,13 +14,13 @@ Pid::Pid(const PidConfig &config)
       continuous(config.continuous),
       min_input(config.min_input),
       max_input(config.max_input),
-      i_accum(0.0),
+      i_accum_error_s(0.0),
       prev_error(0.0),
       has_prev_error(false),
       error(0.0) {}
 
 void Pid::reset() {
-    i_accum = 0.0;
+    i_accum_error_s = 0.0;
     prev_error = 0.0;
     error = 0.0;
     has_prev_error = false;
@@ -61,17 +61,17 @@ float Pid::_calculate_i(float error, float dt) {
 
     if (i_zone < 0.0) {
         // No i_zone limit (equivalent to Python's None)
-        i_accum += error * dt;
+        i_accum_error_s += error * dt;
     } else if (fabs(error) < i_zone) {
-        i_accum += error * dt;
+        i_accum_error_s += error * dt;
     }
 
     if (i_max != 0.0) {
         float max_i_accum = fabs(i_max / ki);
-        i_accum = fmax(fmin(i_accum, max_i_accum), -max_i_accum);
+        i_accum_error_s = fmax(fmin(i_accum_error_s, max_i_accum), -max_i_accum);
     }
 
-    return ki * i_accum;
+    return ki * i_accum_error_s;
 }
 
 float Pid::_calculate_d(float error, float dt) {

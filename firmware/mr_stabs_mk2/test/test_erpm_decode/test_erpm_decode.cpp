@@ -1,11 +1,14 @@
 #include <erpm_decode.h>
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <vector>
 
 namespace {
-// RMT ticks per reply bit at DShot300: 2667 ns at 25 ns per tick.
-const float kBitTicks = 106.7f;
+const float kReplyBitTicksDshot300 = 2667.0f / 25.0f;
+const uint32_t kPayloadStopped = 511;
+const float kFullSpeedErpm = 2300.0f * 16.8f * 7.0f;
+const uint32_t kFullSpeedPeriodUs = static_cast<uint32_t>(std::lround(60e6f / kFullSpeedErpm));
 
 uint32_t reply_bits(uint16_t payload) {
     uint32_t value = payload & 0xFFFu;
@@ -24,7 +27,8 @@ std::vector<uint32_t> runs_for(uint32_t bits, uint32_t tail_ticks, float stretch
     for (int bit = 20; bit >= 0; bit--) {
         if ((bits >> bit) & 1u) {
             if (last_edge >= 0) {
-                runs.push_back(static_cast<uint32_t>((last_edge - bit) * kBitTicks * stretch));
+                runs.push_back(
+                    static_cast<uint32_t>((last_edge - bit) * kReplyBitTicksDshot300 * stretch));
             }
             last_edge = bit;
         }
@@ -40,7 +44,7 @@ uint16_t payload_for_period(uint32_t period_us) {
 }
 
 bool decode_runs(const std::vector<uint32_t> &runs, uint32_t &erpm) {
-    return erpm_decode::decode(runs.data(), runs.size(), kBitTicks, erpm);
+    return erpm_decode::decode(runs.data(), runs.size(), kReplyBitTicksDshot300, erpm);
 }
 }  // namespace
 
@@ -58,16 +62,14 @@ TEST(ErpmDecode, StoppedCodeReadsZero) {
 }
 
 TEST(ErpmDecode, FloorPeriod) {
-    // 511 << 7 is the stopped code, so 510 << 7 = 65280 us is the slowest real reading.
     uint32_t erpm = 0;
-    ASSERT_TRUE(decode_runs(runs_for(reply_bits((7 << 9) | 510), 0), erpm));
+    ASSERT_TRUE(decode_runs(runs_for(reply_bits((7 << 9) | (kPayloadStopped - 1)), 0), erpm));
     EXPECT_EQ(erpm, 919u);
 }
 
 TEST(ErpmDecode, FullSpeed) {
-    // 2300 KV x 16.8 V x 7 pole pairs is about 270k eRPM, a 222 us period.
     uint32_t erpm = 0;
-    ASSERT_TRUE(decode_runs(runs_for(reply_bits(payload_for_period(222)), 0), erpm));
+    ASSERT_TRUE(decode_runs(runs_for(reply_bits(payload_for_period(kFullSpeedPeriodUs)), 0), erpm));
     EXPECT_EQ(erpm, 270270u);
 }
 
@@ -98,7 +100,8 @@ TEST(ErpmDecode, MeasuredBitHandlesAFastEscClock) {
         for (float stretch : {0.75f, 0.89f, 1.2f}) {
             const std::vector<uint32_t> runs = runs_for(reply_bits(payload), 0, stretch);
             uint32_t erpm = 0;
-            ASSERT_TRUE(erpm_decode::decode_measured(runs.data(), runs.size(), kBitTicks, erpm))
+            ASSERT_TRUE(erpm_decode::decode_measured(runs.data(), runs.size(),
+                                                     kReplyBitTicksDshot300, erpm))
                 << "period " << period << " stretch " << stretch;
             EXPECT_EQ(erpm, expected);
         }
@@ -115,11 +118,11 @@ TEST(ErpmDecode, FlippedBitFailsCrcOrGcr) {
 
 TEST(ErpmDecode, RejectsMalformedTrains) {
     uint32_t erpm = 0;
-    EXPECT_FALSE(erpm_decode::decode(nullptr, 0, kBitTicks, erpm));
+    EXPECT_FALSE(erpm_decode::decode(nullptr, 0, kReplyBitTicksDshot300, erpm));
     std::vector<uint32_t> runs = runs_for(reply_bits(payload_for_period(1000)), 0);
-    runs[1] = 30 * static_cast<uint32_t>(kBitTicks);
+    runs[1] = 30 * static_cast<uint32_t>(kReplyBitTicksDshot300);
     EXPECT_FALSE(decode_runs(runs, erpm));
-    const std::vector<uint32_t> short_train = {static_cast<uint32_t>(kBitTicks), 0};
+    const std::vector<uint32_t> short_train = {static_cast<uint32_t>(kReplyBitTicksDshot300), 0};
     EXPECT_FALSE(decode_runs(short_train, erpm));
 }
 

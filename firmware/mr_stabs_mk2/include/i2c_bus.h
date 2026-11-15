@@ -7,7 +7,7 @@ const uint8_t MAX_FOUND = 16;
 
 typedef struct {
     bool scanned;
-    uint32_t scan_ms;  // millis() when the scan ran
+    uint32_t scanned_at_ms;
     uint8_t count;
     uint8_t addresses[MAX_FOUND];
 } scan_t;

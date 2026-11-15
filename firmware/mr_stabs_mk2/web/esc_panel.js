@@ -7,11 +7,12 @@
     { esc: 0, side: "RIGHT", pin: "A2" },
   ];
   const SIDE = { 0: "right", 1: "left" };
+  const PWM_BY_RPM = 129;
   // lib/erpm_decode and esc.h assume bidirectional 3D mode.
   const DIRECTIONS_3D = [3, 4];
 
   let layout = null;
-  let tuning = null; // last GET /esc/status
+  let lastEscStatus = null;
   let busy = false;
   let review = null; // {title, items: [{esc, payload, changes, warnings}]}
   // Per ESC: snap read this tuning session, edit = the form's payload, bad = key -> message.
@@ -123,7 +124,7 @@
 
   function renderTuning() {
     const btn = $("escTuneBtn");
-    const t = tuning;
+    const t = lastEscStatus;
     if (!t) {
       btn.disabled = true;
       btn.textContent = "TUNING MODE";
@@ -161,15 +162,15 @@
 
   async function pollTuning() {
     try {
-      tuning = await (await fetch("/esc/status", { cache: "no-store" })).json();
+      lastEscStatus = await (await fetch("/esc/status", { cache: "no-store" })).json();
     } catch (e) {
-      tuning = null;
+      lastEscStatus = null;
     }
     renderTuning();
   }
 
   $("escTuneBtn").onclick = () => {
-    const enter = !tuning || tuning.state !== "tuning";
+    const enter = !lastEscStatus || lastEscStatus.state !== "tuning";
     post("/esc/tuning", { enter: enter ? "1" : "0" })
       .then(() => setTimeout(pollTuning, 200))
       .catch((e) => flash("escTuneStatus", e.message));
@@ -380,10 +381,9 @@
       else if (f.key === "name") el.value = layout.text(f, e.edit).replace(/ +$/, "");
       else el.value = layout.read(f, e.edit);
       if (f.key === "pwm_frequency_low" || f.key === "pwm_frequency_high") {
-        // Frequencies this ESC's hardware cannot run are disabled. 129 is By RPM.
         for (const opt of el.options || []) {
           const v = Number(opt.value);
-          opt.disabled = v !== 129 && (v < hwMin || v > hwMax);
+          opt.disabled = v !== PWM_BY_RPM && (v < hwMin || v > hwMax);
         }
         if (f.kind === "int") {
           el.min = hwMin;
@@ -403,7 +403,7 @@
         const v = Number(el.value);
         if (f.key === "pwm_frequency_low" || f.key === "pwm_frequency_high") {
           const [hwMin, hwMax] = hwPwmBounds(esc);
-          if (v !== 129 && (v < hwMin || v > hwMax)) {
+          if (v !== PWM_BY_RPM && (v < hwMin || v > hwMax)) {
             throw new Error(`this ESC runs ${hwMin}-${hwMax} kHz`);
           }
         }

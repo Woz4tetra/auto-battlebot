@@ -31,7 +31,7 @@ RESPONSE_TIMEOUT_S = 15.0
 # Answers are held for at most about 3 s while an ESC exchange runs.
 GET_TIMEOUT_S = 4.5
 GET_TRIES = 3
-SLOW_S = 2.0  # requests slower than this are noted in the log
+SLOW_REQUEST_LOG_S = 2.0
 
 
 class DamagedFrameError(Exception):
@@ -186,7 +186,7 @@ def fetch(bridge: Bridge, request: bytes, what: str, timeout_s: float) -> bytes 
     finally:
         bridge.close(stream_id)
     elapsed = time.monotonic() - started
-    if elapsed > SLOW_S:
+    if elapsed > SLOW_REQUEST_LOG_S:
         bridge.note(f"{stream_id} {what}: took {elapsed:.1f} s")
     if not response:
         bridge.note(f"{stream_id} {what}: empty response")

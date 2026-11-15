@@ -67,8 +67,7 @@ class Pid {
     float min_input;
     float max_input;
 
-    // State variables
-    float i_accum;  // integral of error over time, error * seconds
+    float i_accum_error_s;
     float prev_error;
     bool has_prev_error;
     float error;

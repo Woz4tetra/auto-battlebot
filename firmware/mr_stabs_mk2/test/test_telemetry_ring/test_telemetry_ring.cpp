@@ -40,9 +40,9 @@ TEST(TelemetryRing, ReadsBackInOrderWithSeq) {
     Record out[8];
     const auto r = ring.read(0, out, 8);
     EXPECT_EQ(r.first_seq, 0u);
-    EXPECT_EQ(r.count, 5u);
-    EXPECT_EQ(r.head, 5u);
-    EXPECT_EQ(r.oldest, 0u);
+    EXPECT_EQ(r.copied, 5u);
+    EXPECT_EQ(r.next_seq, 5u);
+    EXPECT_EQ(r.oldest_seq_at_start, 0u);
     for (uint32_t i = 0; i < 5; i++) {
         EXPECT_EQ(out[i].telemetry_seq, i);
         EXPECT_EQ(out[i].value, 100 + i);
@@ -58,15 +58,15 @@ TEST(TelemetryRing, ResumesFromSeqAndCapsAtMax) {
     Record out[16];
     auto r = ring.read(4, out, 3);
     EXPECT_EQ(r.first_seq, 4u);
-    EXPECT_EQ(r.count, 3u);
+    EXPECT_EQ(r.copied, 3u);
     EXPECT_EQ(out[0].value, 4u);
     EXPECT_EQ(out[2].value, 6u);
 
     r = ring.read(10, out, 16);
-    EXPECT_EQ(r.count, 0u);
+    EXPECT_EQ(r.copied, 0u);
     EXPECT_EQ(r.first_seq, 10u);
     r = ring.read(50, out, 16);
-    EXPECT_EQ(r.count, 0u);
+    EXPECT_EQ(r.copied, 0u);
     EXPECT_EQ(r.first_seq, 10u);
 }
 
@@ -78,9 +78,9 @@ TEST(TelemetryRing, OverwrittenRecordsSkipToOldest) {
 
     Record out[4];
     const auto r = ring.read(2, out, 4);
-    EXPECT_EQ(r.oldest, 6u);
+    EXPECT_EQ(r.oldest_seq_at_start, 6u);
     EXPECT_EQ(r.first_seq, 6u);
-    EXPECT_EQ(r.count, 4u);
+    EXPECT_EQ(r.copied, 4u);
     EXPECT_EQ(out[0].value, 6u);
     EXPECT_EQ(out[3].value, 9u);
 }
@@ -91,8 +91,8 @@ TEST(TelemetryRing, ZeroCapacityIsInert) {
     ring.push(make(1));
     Record out[1];
     const auto r = ring.read(0, out, 1);
-    EXPECT_EQ(r.count, 0u);
-    EXPECT_EQ(r.head, 0u);
+    EXPECT_EQ(r.copied, 0u);
+    EXPECT_EQ(r.next_seq, 0u);
 }
 
 TEST(TelemetryRing, ConcurrentReaderNeverSeesTornRecords) {
@@ -113,14 +113,14 @@ TEST(TelemetryRing, ConcurrentReaderNeverSeesTornRecords) {
     Record out[kCapacity];
     while (!done.load() || next < ring.head()) {
         const auto r = ring.read(next, out, kCapacity);
-        for (uint32_t i = 0; i < r.count; i++) {
+        for (uint32_t i = 0; i < r.copied; i++) {
             ASSERT_TRUE(consistent(out[i])) << "torn record at seq " << r.first_seq + i;
             ASSERT_EQ(out[i].telemetry_seq, r.first_seq + i);
             ASSERT_EQ(out[i].value, r.first_seq + i);
         }
         ASSERT_GE(r.first_seq, next);
-        next = r.first_seq + r.count;
-        kept += r.count;
+        next = r.first_seq + r.copied;
+        kept += r.copied;
     }
     writer.join();
     EXPECT_GT(kept, 0u);

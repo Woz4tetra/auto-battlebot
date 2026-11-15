@@ -20,8 +20,7 @@ CONTENT_TYPES = {
     ".woff2": "font/woff2",
 }
 
-# Fonts never change between builds; everything else ships with the firmware it belongs to.
-CACHEABLE = {".woff2"}
+IMMUTABLE_ASSET_SUFFIXES = {".woff2"}
 
 
 def c_name(rel: Path) -> str:
@@ -60,7 +59,7 @@ def render(web_dir: Path) -> str:
             lines.append("    " + ",".join(str(b) for b in data[i : i + 20]) + ",")
         lines.append("};")
         url = "/" if rel.as_posix() == "index.html" else "/" + rel.as_posix()
-        cacheable = "true" if path.suffix in CACHEABLE else "false"
+        cacheable = "true" if path.suffix in IMMUTABLE_ASSET_SUFFIXES else "false"
         entries.append(
             f'    {{"{url}", "{CONTENT_TYPES[path.suffix]}", {name}, sizeof({name}), {cacheable}}},'
         )

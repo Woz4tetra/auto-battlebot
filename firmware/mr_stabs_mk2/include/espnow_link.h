@@ -74,6 +74,7 @@ class EspNowLink {
     void service_sweep(uint32_t now_ms);
     void set_channel(uint8_t channel);
     void service_validation(uint32_t now_ms);
+    uint8_t next_sweep_channel() const;
     void send_frame(const uint8_t *mac, uint8_t type, const void *payload, size_t length);
     void load_paired();
     void store_paired();

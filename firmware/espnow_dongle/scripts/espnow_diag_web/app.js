@@ -2,6 +2,7 @@
 
 const $ = (id) => document.getElementById(id);
 const NONE = "--";
+const HEARTBEAT_PERIOD_MS = 100;
 
 const num = (v, digits = 1, unit = "") =>
   v === null || v === undefined ? NONE : v.toFixed(digits) + (unit ? " " + unit : "");
@@ -367,8 +368,7 @@ function renderRobotState(s) {
   ]);
 }
 
-// What the dongle's LED should be showing, by the rules in espnow_dongle/src/main.cpp.
-function renderLed(s) {
+function expectedDongleLed(s) {
   let color = "off";
   let swatch = "transparent";
   if (s.link && s.port.state === "OPEN") {
@@ -578,8 +578,7 @@ window.addEventListener("keyup", (e) => e.code === "Space" && e.preventDefault()
 // A hidden tab may stop running timers; drop to neutral rather than rely on the server deadman.
 document.addEventListener("visibilitychange", () => document.hidden && setNeutral());
 
-// Heartbeat: the tool returns to neutral if it hears nothing for 0.3 s.
-setInterval(pushValues, 100);
+setInterval(pushValues, HEARTBEAT_PERIOD_MS);
 $("capBtn").onclick = async () => {
   await post("/api/capture", { on: !(latest && latest.capture.active) });
   refreshFiles();
@@ -611,7 +610,7 @@ async function poll() {
     renderTiming(s);
     renderCommand(s);
     renderRobotState(s);
-    renderLed(s);
+    expectedDongleLed(s);
     renderTypes(s);
     renderOta(s);
     renderLogs(s);

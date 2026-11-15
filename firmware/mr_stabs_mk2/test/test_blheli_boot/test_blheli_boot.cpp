@@ -7,6 +7,8 @@
 using namespace blheli_boot;
 
 namespace {
+const size_t kHandshakeBytes = 15;
+const size_t kCrcBytes = 2;
 using Bytes = std::vector<uint8_t>;
 
 Bytes request(uint8_t cmd, uint16_t address, const Bytes &params) {
@@ -135,7 +137,7 @@ TEST(BlheliBootServer, GuardRefusesOtherWritesAndErases) {
     EXPECT_EQ(run(server, request(DEVICE_WRITE, 0xF800, Bytes(16, 0))).ack, ACK_INVALID_PARAM);
     EXPECT_EQ(run(server, request(DEVICE_PAGE_ERASE, 0, {0x3E})).ack, ACK_INVALID_PARAM);
     EXPECT_EQ(run(server, request(DEVICE_ERASE_ALL, 0, {0x00})).ack, ACK_INVALID_PARAM);
-    EXPECT_EQ(server.guard_refusals(), 7u);
+    EXPECT_EQ(server.guard_refusals_since_boot(), 7u);
     EXPECT_TRUE(link.sent.empty());
 }
 
@@ -170,7 +172,7 @@ TEST(BlheliBootServer, InitFlashReturnsTheSignature) {
     EXPECT_EQ(r.params, (Bytes{0x06, 0x47, 0x6D, 0x04}));
     EXPECT_EQ(link.selected.back(), 1);
     ASSERT_EQ(link.sent.size(), 1u);
-    EXPECT_EQ(link.sent[0].size(), 17u);  // the handshake goes out with its own CRC
+    EXPECT_EQ(link.sent[0].size(), kHandshakeBytes + kCrcBytes);
 }
 
 TEST(BlheliBootServer, InitFlashRetriesAGarbledHandshake) {
@@ -193,9 +195,8 @@ TEST(BlheliBootServer, InitFlashRestartsAnEscThatDoesNotAnswer) {
     Server server(link);
     EXPECT_EQ(run(server, request(DEVICE_INIT_FLASH, 0, {1})).ack, ACK_OK);
     EXPECT_EQ(link.low_ms, 300u);
-    EXPECT_EQ(server.reboots(), 1u);
-    // 3 handshakes, the restart command, 1 more handshake.
-    ASSERT_EQ(link.sent.size(), 5u);
+    EXPECT_EQ(server.handshake_restarts(), 1u);
+    ASSERT_EQ(link.sent.size(), INIT_TRIES + 2u);
     EXPECT_EQ(link.sent[3], with_boot_crc({BOOT_RESTART, 0x00}));
     EXPECT_EQ(link.selected.back(), 1);
 }
@@ -279,7 +280,7 @@ TEST(BlheliBootServer, ReadRedoesTheHandshakeAfterThreeBadReads) {
     Reply r = run(server, request(DEVICE_READ, 0xFA00, {16}));
     EXPECT_EQ(r.ack, ACK_OK);
     EXPECT_EQ(r.params, data);
-    EXPECT_EQ(server.resyncs(), 1u);
+    EXPECT_EQ(server.handshake_resyncs(), 1u);
     EXPECT_EQ(link.selected.back(), 1);
 }
 
@@ -323,8 +324,7 @@ TEST(BlheliBootServer, WriteNeverProgramsDataTheEscDidNotAcknowledge) {
     link.replies = {{}, {BOOT_SUCCESS}};
     Server server(link);
     EXPECT_EQ(run(server, request(DEVICE_WRITE, 0xF800, page_bytes())).ack, ACK_GENERAL_ERROR);
-    // 2 address tries, set buffer, 3 data tries, and no ProgFlash.
-    ASSERT_EQ(link.sent.size(), 6u);
+    ASSERT_EQ(link.sent.size(), 2u + 1u + WRITE_TRIES);
     for (const Bytes &sent : link.sent) EXPECT_NE(sent, with_boot_crc({BOOT_PROG_FLASH, 0x01}));
 }
 
@@ -332,7 +332,7 @@ TEST(BlheliBootServer, WriteStopsWhenTheAddressFails) {
     FakeLink link;
     Server server(link);
     EXPECT_EQ(run(server, request(DEVICE_WRITE, 0xF800, page_bytes())).ack, ACK_GENERAL_ERROR);
-    EXPECT_EQ(link.sent.size(), 3u);  // the 3 address tries only
+    EXPECT_EQ(link.sent.size(), WRITE_TRIES);
 }
 
 TEST(BlheliBootServer, WriteRetriesTheProgramCommand) {

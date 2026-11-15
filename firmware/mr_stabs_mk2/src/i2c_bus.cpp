@@ -14,7 +14,7 @@ void scan(TwoWire *wire, scan_t *result) {
         }
     }
     result->scanned = true;
-    result->scan_ms = millis();
+    result->scanned_at_ms = millis();
 }
 
 lines_t read_lines(uint8_t sda_pin, uint8_t scl_pin) {

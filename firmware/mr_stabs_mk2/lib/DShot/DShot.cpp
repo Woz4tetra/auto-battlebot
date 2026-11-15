@@ -19,7 +19,10 @@ static const uint32_t DSHOT_BIT_NS[] = {
     1667,  // DSHOT600
 };
 
-static const uint32_t TICK_NS = 25;  // 80 MHz APB / 2
+static const uint32_t APB_HZ = 80000000;
+static const uint32_t RMT_CLK_DIV = 2;
+static const uint32_t TICK_NS = 1000000000 / (APB_HZ / RMT_CLK_DIV);
+static const float REPLY_BIT_RATE_RATIO = 5.0f / 4.0f;
 // The S3's RX-only channels are 4 to 7; their matrix signals count from RMT_SIG_IN0_IDX.
 static const int RMT_FIRST_RX_CHANNEL = 4;
 // The receiver arms before the frame and records frame, gap, and reply as one reception, so it
@@ -29,8 +32,7 @@ static const uint16_t RX_IDLE_TICKS = 80000 / TICK_NS;
 // A high run this long is the gap between our frame and the reply. The frame's longest high run
 // is 2.1 us and the reply's is 8 us at DShot300.
 static const uint32_t GAP_TICKS = 12000 / TICK_NS;
-// Glitch filter in APB cycles: 0.5 us, a fifth of a reply bit at DShot300.
-static const uint8_t RX_FILTER_APB_CYCLES = 40;
+static const uint8_t RX_FILTER_APB_CYCLES_0_5US = 40;
 static const size_t RX_RING_BYTES = 1024;
 static const size_t START_TRIES = 3;
 static const size_t MAX_RUNS = 96;  // the RX memory block's 48 items
@@ -66,7 +68,7 @@ bool DShot::begin() {
     config.rmt_mode = RMT_MODE_TX;
     config.channel = _channel;
     config.gpio_num = _pin;
-    config.clk_div = 2;  // 80 MHz APB / 2 = 40 MHz => 25 ns/tick
+    config.clk_div = RMT_CLK_DIV;
     config.mem_block_num = 1;
     config.tx_config.carrier_en = false;
     config.tx_config.loop_en = false;
@@ -83,10 +85,10 @@ bool DShot::begin() {
     rx.rmt_mode = RMT_MODE_RX;
     rx.channel = _rx_channel;
     rx.gpio_num = _pin;
-    rx.clk_div = 2;
+    rx.clk_div = RMT_CLK_DIV;
     rx.mem_block_num = 1;
     rx.rx_config.filter_en = true;
-    rx.rx_config.filter_ticks_thresh = RX_FILTER_APB_CYCLES;
+    rx.rx_config.filter_ticks_thresh = RX_FILTER_APB_CYCLES_0_5US;
     rx.rx_config.idle_threshold = RX_IDLE_TICKS;
 
     err = rmt_config(&rx);
@@ -111,8 +113,7 @@ bool DShot::begin() {
     _t1l_ticks = total_ticks - _t1h_ticks;
     _t0h_ticks = (total_ticks * 3) / 8;
     _t0l_ticks = total_ticks - _t0h_ticks;
-    // The reply runs at 5/4 of the frame's bit rate.
-    _reply_bit_ticks = bit_ns * 4.0f / 5.0f / TICK_NS;
+    _reply_bit_ticks = bit_ns / REPLY_BIT_RATE_RATIO / TICK_NS;
 
     _installed = true;
     return true;
@@ -141,17 +142,17 @@ uint16_t DShot::build_packet(uint16_t throttle, bool telemetry) {
 }
 
 void DShot::encode_frame(uint16_t packet) {
-    for (int i = 0; i < 16; i++) {
+    for (int i = 0; i < FRAME_BITS; i++) {
         bool bit = (packet >> (15 - i)) & 1;
         _items[i].level0 = 0;
         _items[i].duration0 = bit ? _t1h_ticks : _t0h_ticks;
         _items[i].level1 = 1;
         _items[i].duration1 = bit ? _t1l_ticks : _t0l_ticks;
     }
-    _items[16].level0 = 1;
-    _items[16].duration0 = 0;
-    _items[16].level1 = 1;
-    _items[16].duration1 = 0;
+    _items[FRAME_BITS].level0 = 1;
+    _items[FRAME_BITS].duration0 = 0;
+    _items[FRAME_BITS].level1 = 1;
+    _items[FRAME_BITS].duration1 = 0;
 }
 
 void DShot::set_output(bool enabled) {

@@ -7,8 +7,7 @@ namespace wifi_manager {
 
 static const char *PREFS_NAMESPACE = "wifi";
 static const uint32_t TASK_PERIOD_MS = 250;
-// Lets the page's HTTP reply leave before an apply takes its network down.
-static const uint32_t APPLY_DELAY_MS = 500;
+static const uint32_t APPLY_AFTER_REPLY_DELAY_MS = 500;
 
 // Fields the task refreshes for snapshot(), so the web server's task never calls into WiFi.
 static char cached_ip[16] = "";
@@ -33,7 +32,7 @@ void WifiManager::begin(const char *hostname, const char *ap_ssid, const char *a
     // write stalls the control loop. The settings live in our own NVS namespace instead.
     WiFi.persistent(false);
     WiFi.setHostname(_hostname);
-    start();
+    start_from_saved();
 
     xTaskCreatePinnedToCore(task_entry, "wifi_manager", 4096, this, 1, nullptr, 0);
 }
@@ -43,9 +42,9 @@ void WifiManager::task_entry(void *arg) { static_cast<WifiManager *>(arg)->run()
 void WifiManager::run() {
     for (;;) {
         if (_apply_requested) {
-            vTaskDelay(pdMS_TO_TICKS(APPLY_DELAY_MS));
+            vTaskDelay(pdMS_TO_TICKS(APPLY_AFTER_REPLY_DELAY_MS));
             _apply_requested = false;
-            start();
+            start_from_saved();
         }
 
         const bool connected = WiFi.status() == WL_CONNECTED;
@@ -95,7 +94,7 @@ void WifiManager::run() {
     }
 }
 
-void WifiManager::start() {
+void WifiManager::start_from_saved() {
     network_t net = {};
     bool client = false;
     xSemaphoreTake(_lock, portMAX_DELAY);
@@ -146,7 +145,7 @@ snapshot_t WifiManager::snapshot() {
     for (uint8_t i = 0; i < _settings.count; i++) {
         copy_str(s.networks[i], _settings.networks[i].ssid, sizeof(s.networks[i]));
     }
-    copy_str(s.ssid, _joining, sizeof(s.ssid));
+    copy_str(s.joining_ssid, _joining, sizeof(s.joining_ssid));
     copy_str(s.ip, cached_ip, sizeof(s.ip));
     s.rssi = cached_rssi;
     if (_state == link_state_t::CONNECTING) {

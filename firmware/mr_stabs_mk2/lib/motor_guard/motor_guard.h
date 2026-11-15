@@ -74,35 +74,48 @@ class MotorGuard {
     float rise_c(int motor) const { return _rise_c[motor]; }  // 0 left, 1 right
     float amps_estimate(int motor) const { return _amps[motor]; }
     float amps_allowed(int motor) const { return _allowed[motor]; }
-    float speed_rad_s(int motor) const { return _speed[motor]; }  // signed, motor shaft
+    float motor_shaft_speed_signed_rad_s(int motor) const { return _speed[motor]; }
     bool stalled(int motor) const { return _stalled[motor]; }
-    float gain() const { return _gain; }  // g
+    float shunt_gain() const { return _gain; }
     State state() const;
     Sensors sensors() const { return _sensors; }
-    float continuous_amps() const { return _continuous_amps; }
+    float continuous_amps() const { return _continuous_amps_at_rise_max; }
     void restore(float left_rise_c, float right_rise_c);
 
    private:
+    void select_sensors(bool shunt_ok, const bool (&speed_ok)[NUM_MOTORS]);
+    void model_currents_from_speed(const bool (&speed_ok)[NUM_MOTORS],
+                                   const float (&duty)[NUM_MOTORS], const float (&erpm)[NUM_MOTORS],
+                                   float v, float (&model)[NUM_MOTORS]);
+    void resolve_contested_reversal(const float (&duty)[NUM_MOTORS],
+                                    const float (&erpm)[NUM_MOTORS], float amps, float v,
+                                    float (&model)[NUM_MOTORS]);
+    void bound_motors_without_erpm(const bool (&speed_ok)[NUM_MOTORS], bool shunt_ok,
+                                   const float (&duty)[NUM_MOTORS], float measured_remainder,
+                                   float v);
+    void update_stall_flags(const bool (&speed_ok)[NUM_MOTORS], const float (&erpm)[NUM_MOTORS],
+                            const float (&duty)[NUM_MOTORS], float dt_s);
+    void update_thermal_model(float dt_s);
     Config _config;
-    float _continuous_amps;  // I_cont: holds a motor at rise_max_c forever
+    float _continuous_amps_at_rise_max;
     float _rise_c[NUM_MOTORS] = {0.0f, 0.0f};
     float _amps[NUM_MOTORS] = {0.0f, 0.0f};
-    float _limit_amps[NUM_MOTORS] = {0.0f, 0.0f};  // |I_hat| low-passed for the limiter
+    float _limiter_amps_filtered[NUM_MOTORS] = {0.0f, 0.0f};
     float _last_speed[NUM_MOTORS] = {0.0f, 0.0f};
     float _last_duty[NUM_MOTORS] = {0.0f, 0.0f};
-    int _steady_samples = 0;  // updates in a row with speed and duty both steady
+    int _steady_updates = 0;
     float _allowed[NUM_MOTORS];
     float _speed[NUM_MOTORS] = {0.0f, 0.0f};
-    float _sign[NUM_MOTORS] = {1.0f, 1.0f};  // sigma_k, direction of rotation
+    float _rotation_sign[NUM_MOTORS] = {1.0f, 1.0f};
     float _last_erpm[NUM_MOTORS] = {0.0f, 0.0f};
-    int _contradictions = 0;  // samples the shunt rejected the held sign
+    int _shunt_sign_rejections = 0;
     bool _stalled[NUM_MOTORS] = {false, false};
     float _stall_s[NUM_MOTORS] = {0.0f, 0.0f};
     float _gain = 1.0f;
     float _log_scale = 0.0f;
     float _scale = 1.0f;
     bool _tripped = false;
-    float _volts = 0.0f;  // last INA238 voltage
+    float _last_ina238_volts = 0.0f;
     float _volts_age_s = 1e9f;
     Sensors _sensors = Sensors::NONE;
 

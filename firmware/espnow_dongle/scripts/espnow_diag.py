@@ -41,8 +41,7 @@ import serial
 SCRIPT_DIR = Path(__file__).resolve().parent
 WEB_DIR = SCRIPT_DIR / "espnow_diag_web"
 FIRMWARE_DIR = SCRIPT_DIR.parent.parent
-# The robot's diagnostics page holds the shared stylesheet and the embedded fonts.
-ROBOT_WEB_DIR = FIRMWARE_DIR / "mr_stabs_mk2" / "web"
+SHARED_WEB_ASSETS_DIR = FIRMWARE_DIR / "mr_stabs_mk2" / "web"
 SERVICE = "auto-battlebot"
 
 # ---- wire format: firmware/shared/espnow_protocol/src/espnow_protocol.h -------------------------
@@ -299,7 +298,17 @@ class Diagnostics:
         self.started_s = time.monotonic()
         self.reset_counters()
 
-        # Port state survives a counter reset.
+        self._init_port_state()
+
+        self.events: deque[dict[str, Any]] = deque(maxlen=500)
+        self.text_lines: deque[dict[str, Any]] = deque(maxlen=200)
+        self.ring: deque[dict[str, Any]] = deque()
+        self.capture_file: Any = None
+        self.capture_path: Path | None = None
+        self.capture_records = 0
+
+    def _init_port_state(self) -> None:
+        """Port state that survives a counter reset."""
         self.banner: dict[str, Any] | None = None
         self.port: serial.Serial | None = None
         self.port_state = "CLOSED"
@@ -308,12 +317,13 @@ class Diagnostics:
         self.opens = 0
         self.reset_requested = False
 
-        self.events: deque[dict[str, Any]] = deque(maxlen=500)
-        self.text_lines: deque[dict[str, Any]] = deque(maxlen=200)
-        self.ring: deque[dict[str, Any]] = deque()
-        self.capture_file: Any = None
-        self.capture_path: Path | None = None
-        self.capture_records = 0
+    def _update_robot_clock_drift(self, offset_ms: float) -> None:
+        """Track the minimum robot-to-host offset, the fastest delivery seen."""
+        if self.robot_clock_offset_ms is None or offset_ms < self.robot_clock_offset_ms:
+            if self.robot_clock_offset_ms is None:
+                self.robot_clock_drift_ms = 0.0
+            self.robot_clock_offset_ms = offset_ms
+        self.robot_clock_drift_ms = offset_ms - self.robot_clock_offset_ms
 
     def reset_counters(self) -> None:
         self.parser = FrameParser()
@@ -345,17 +355,17 @@ class Diagnostics:
         self.ota_s = 0.0
 
         self.sending = False
-        self.cmd_a = 0.0  # channel_a, ch0: linear under DifferentialDriveProcessor
-        self.cmd_b = 0.0  # channel_b, ch1: angular
+        self.cmd_linear = 0.0
+        self.cmd_angular = 0.0
         self.cmd_set_s = 0.0
         self.cmd_seq = 0
         self.cmd_sent = 0
         self.cmd_write_errors = 0
         self.cmd_next_s = 0.0
-        self.cmd_tx: dict[int, int] = {}  # seq -> tx_us, recent sends only
+        self.tx_us_by_seq: dict[int, int] = {}
         self.cmd_last_robot_seq = 0
         self.cmd_seq_jumps = 0
-        self.cmd_foreign_echo = 0
+        self.foreign_command_echoes = 0
         self.rtt: deque[tuple[float, float]] = deque()
 
         self.series: dict[str, deque[float | None]] = {}
@@ -540,14 +550,7 @@ class Diagnostics:
         self.tlm_dropped += lost
         self.tlm_window.append((now, lost))
 
-        # Robot clock against host clock. The minimum offset tracks the fastest delivery, so its
-        # change over time is clock drift plus any growth in the transport floor.
-        offset = now * 1000 - t["timestamp_ms"]
-        if self.robot_clock_offset_ms is None or offset < self.robot_clock_offset_ms:
-            if self.robot_clock_offset_ms is None:
-                self.robot_clock_drift_ms = 0.0
-            self.robot_clock_offset_ms = offset
-        self.robot_clock_drift_ms = offset - self.robot_clock_offset_ms
+        self._update_robot_clock_drift(now * 1000 - t["timestamp_ms"])
 
         self.on_command_echo(t, now)
         self.telemetry = t
@@ -562,10 +565,9 @@ class Diagnostics:
         if self.cmd_last_robot_seq and robot_seq > self.cmd_last_robot_seq + 1:
             self.cmd_seq_jumps += robot_seq - self.cmd_last_robot_seq - 1
         self.cmd_last_robot_seq = robot_seq
-        tx_us = self.cmd_tx.get(robot_seq)
+        tx_us = self.tx_us_by_seq.get(robot_seq)
         if tx_us is None or tx_us != t["jetson_tx_us"]:
-            # Not one of ours: the app ran before us, or another host commands this robot.
-            self.cmd_foreign_echo += 1
+            self.foreign_command_echoes += 1
             return
         rtt_ms = ((monotonic_us() - tx_us) & UINT32_MAX) / 1000
         self.rtt.append((now, rtt_ms))
@@ -576,22 +578,22 @@ class Diagnostics:
         if not self.sending or now < self.cmd_next_s:
             return None
         self.cmd_next_s = max(self.cmd_next_s + self.command_period_s, now)
-        if (self.cmd_a or self.cmd_b) and now - self.cmd_set_s > COMMAND_DEADMAN_S:
-            self.cmd_a = self.cmd_b = 0.0
+        if (self.cmd_linear or self.cmd_angular) and now - self.cmd_set_s > COMMAND_DEADMAN_S:
+            self.cmd_linear = self.cmd_angular = 0.0
             self.event("warn", "slider values went stale: back to neutral")
         self.cmd_seq += 1
         tx_us = monotonic_us()
-        self.cmd_tx[self.cmd_seq] = tx_us
-        self.cmd_tx.pop(self.cmd_seq - 1000, None)
-        payload = COMMAND.pack(self.cmd_seq, tx_us, self.cmd_a, self.cmd_b)
+        self.tx_us_by_seq[self.cmd_seq] = tx_us
+        self.tx_us_by_seq.pop(self.cmd_seq - 1000, None)
+        payload = COMMAND.pack(self.cmd_seq, tx_us, self.cmd_linear, self.cmd_angular)
         self.record(
             {
                 "kind": "sent",
                 "type": MSG_COMMAND,
                 "seq": self.cmd_seq,
                 "tx_us": tx_us,
-                "a": self.cmd_a,
-                "b": self.cmd_b,
+                "a": self.cmd_linear,
+                "b": self.cmd_angular,
             }
         )
         return encode_frame(MSG_COMMAND, payload)
@@ -879,8 +881,8 @@ class Diagnostics:
             },
             "command": {
                 "sending": self.sending,
-                "a": self.cmd_a,
-                "b": self.cmd_b,
+                "a": self.cmd_linear,
+                "b": self.cmd_angular,
                 "hz": 1.0 / self.command_period_s,
                 "seq": self.cmd_seq,
                 "sent": self.cmd_sent,
@@ -888,7 +890,7 @@ class Diagnostics:
                 "robot_seq": self.telemetry["espnow_seq"] if self.telemetry else None,
                 "robot_age_ms": self.telemetry["espnow_age_ms"] if self.telemetry else None,
                 "seq_jumps": self.cmd_seq_jumps,
-                "foreign_echo": self.cmd_foreign_echo,
+                "foreign_echo": self.foreign_command_echoes,
                 "rtt_ms": m["rtt_ms"],
             },
             "ota": self.ota,
@@ -1020,11 +1022,11 @@ def add_page_routes(app: Flask, diag: Diagnostics) -> None:
 
     @app.get("/style.css")
     def shared_style() -> Response:
-        return send_from_directory(ROBOT_WEB_DIR, "style.css")
+        return send_from_directory(SHARED_WEB_ASSETS_DIR, "style.css")
 
     @app.get("/fonts/<path:name>")
     def fonts(name: str) -> Response:
-        return send_from_directory(ROBOT_WEB_DIR / "fonts", name)
+        return send_from_directory(SHARED_WEB_ASSETS_DIR / "fonts", name)
 
     @app.get("/<any('app.js', 'diag.css'):name>")
     def assets(name: str) -> Response:
@@ -1068,7 +1070,7 @@ def add_command_routes(app: Flask, diag: Diagnostics) -> None:
                 abort(409, "port not open")
             if on != diag.sending:
                 diag.sending = on
-                diag.cmd_a = diag.cmd_b = 0.0
+                diag.cmd_linear = diag.cmd_angular = 0.0
                 diag.cmd_next_s = time.monotonic()
                 diag.rtt.clear()
                 diag.event("info", "SEND COMMANDS on, neutral" if on else "SEND COMMANDS off")
@@ -1087,10 +1089,10 @@ def add_command_routes(app: Flask, diag: Diagnostics) -> None:
         with diag.lock:
             if not diag.sending:
                 abort(409, "not sending")
-            diag.cmd_a = max(-1.0, min(1.0, a))
-            diag.cmd_b = max(-1.0, min(1.0, b))
+            diag.cmd_linear = max(-1.0, min(1.0, a))
+            diag.cmd_angular = max(-1.0, min(1.0, b))
             diag.cmd_set_s = time.monotonic()
-            return jsonify({"a": diag.cmd_a, "b": diag.cmd_b})
+            return jsonify({"a": diag.cmd_linear, "b": diag.cmd_angular})
 
 
 def add_control_routes(app: Flask, diag: Diagnostics) -> None:

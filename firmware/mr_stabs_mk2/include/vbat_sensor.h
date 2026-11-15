@@ -48,12 +48,9 @@ class VbatSensor {
 
     void update();
 
-    // Pack volts. NaN when the chip was absent at boot or the last read failed.
-    float get_volts() const { return last_volts; }
+    float get_pack_volts() const { return last_volts; }
 
-    // Pack amps, positive while discharging. NaN when the chip was absent at boot or the
-    // last read failed.
-    float get_amps() const { return last_amps; }
+    float get_pack_amps_discharge() const { return last_amps; }
 
     const status_t &get_status() const { return status; }
 

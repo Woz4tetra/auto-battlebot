@@ -51,16 +51,16 @@ def main():
 
     t_us = data[:, 0]
     count = data[:, 1]
-    gyro = data[:, 2:5] * gyro_scale  # dps
-    accel = data[:, 5:8] * accel_scale  # g
-    t = (t_us - t_us[0]) / 1e6  # seconds
+    gyro_dps = data[:, 2:5] * gyro_scale
+    accel_g = data[:, 5:8] * accel_scale
+    t_s = (t_us - t_us[0]) / 1e6
 
-    n = len(t)
-    dur = t[-1]
-    dt = np.diff(t_us) / 1e6  # seconds
-    rate = 1.0 / dt.mean() if dt.mean() > 0 else 0.0
-    gmag = np.linalg.norm(gyro, axis=1)
-    amag = np.linalg.norm(accel, axis=1)
+    n = len(t_s)
+    dur = t_s[-1]
+    dt_s = np.diff(t_us) / 1e6
+    rate = 1.0 / dt_s.mean() if dt_s.mean() > 0 else 0.0
+    gmag = np.linalg.norm(gyro_dps, axis=1)
+    amag = np.linalg.norm(accel_g, axis=1)
 
     def row(label, a, fmt):
         print(("  %-4s " + fmt * 4) % (label, a.mean(), a.std(), a.min(), a.max()))
@@ -69,8 +69,8 @@ def main():
     print("samples      : %d" % n)
     print("duration     : %.3f s" % dur)
     print("sample rate  : %.1f Hz (header %s)" % (rate, hdr_rate))
-    gap = "   <- GAP" if dt.max() > 3 * dt.mean() else ""
-    print("dt mean/max  : %.3f / %.3f ms%s" % (dt.mean() * 1e3, dt.max() * 1e3, gap))
+    gap = "   <- GAP" if dt_s.max() > 3 * dt_s.mean() else ""
+    print("dt mean/max  : %.3f / %.3f ms%s" % (dt_s.mean() * 1e3, dt_s.max() * 1e3, gap))
     const = "   (constant - encoder likely unplugged)" if np.ptp(count) == 0 else ""
     print(
         "encoder count: start %.0f  end %.0f  delta %.0f  range [%.0f, %.0f]%s"
@@ -79,11 +79,11 @@ def main():
 
     print("\n  axis      mean      std      min      max   (gyro, dps)")
     for i, ax in enumerate("xyz"):
-        row("g" + ax, gyro[:, i], "%9.2f")
+        row("g" + ax, gyro_dps[:, i], "%9.2f")
     row("|w|", gmag, "%9.2f")
     print("\n  axis      mean      std      min      max   (accel, g)")
     for i, ax in enumerate("xyz"):
-        row("a" + ax, accel[:, i], "%9.3f")
+        row("a" + ax, accel_g[:, i], "%9.3f")
     row("|a|", amag, "%9.3f")
     print("  (|a| at rest should be ~1.0 g)")
 
@@ -95,17 +95,17 @@ def main():
 
     fig, (a1, a2, a3) = plt.subplots(3, 1, sharex=True, figsize=(11, 8))
     for i, ax in enumerate("xyz"):
-        a1.plot(t, gyro[:, i], lw=0.7, label="g" + ax)
+        a1.plot(t_s, gyro_dps[:, i], lw=0.7, label="g" + ax)
     a1.set_ylabel("gyro (dps)")
     a1.legend(loc="upper right", ncol=3)
     a1.grid(alpha=0.3)
     a1.set_title(os.path.basename(args.file))
     for i, ax in enumerate("xyz"):
-        a2.plot(t, accel[:, i], lw=0.7, label="a" + ax)
+        a2.plot(t_s, accel_g[:, i], lw=0.7, label="a" + ax)
     a2.set_ylabel("accel (g)")
     a2.legend(loc="upper right", ncol=3)
     a2.grid(alpha=0.3)
-    a3.plot(t, count, lw=0.8, color="tab:purple")
+    a3.plot(t_s, count, lw=0.8, color="tab:purple")
     a3.set_ylabel("enc count")
     a3.set_xlabel("time (s)")
     a3.grid(alpha=0.3)

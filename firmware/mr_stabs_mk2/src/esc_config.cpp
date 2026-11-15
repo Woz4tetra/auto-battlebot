@@ -6,6 +6,7 @@
 #include <soc/uart_periph.h>
 
 namespace esc_config {
+const uint32_t REPLY_GAP_MS = 10;
 
 const char *state_name(State state) {
     switch (state) {
@@ -60,7 +61,7 @@ class EscConfig::SerialLink : public blheli_boot::EscLink {
         esp_rom_gpio_connect_out_signal(pin, UART_PERIPH_SIGNAL(PORT, SOC_UART_TX_PIN_IDX), false,
                                         false);
         uart_flush_input(PORT);
-        _echo = 0;
+        _echo_bytes_pending = 0;
     }
 
     void send(const uint8_t *data, size_t size) override {
@@ -68,28 +69,28 @@ class EscConfig::SerialLink : public blheli_boot::EscLink {
         // Anything still in the receiver belongs to an earlier exchange.
         uart_flush_input(PORT);
         uart_write_bytes(PORT, reinterpret_cast<const char *>(data), size);
-        _echo = size;
+        _echo_bytes_pending = size;
     }
 
     size_t receive(uint8_t *buf, size_t max, size_t expect, uint32_t first_ms) override {
         if (_current < 0) return 0;
         // Our own bytes come back first. 256 of them take 135 ms on the wire.
-        while (_echo > 0) {
+        while (_echo_bytes_pending > 0) {
             uint8_t sink[64];
-            const size_t want = _echo < sizeof(sink) ? _echo : sizeof(sink);
+            const size_t want =
+                _echo_bytes_pending < sizeof(sink) ? _echo_bytes_pending : sizeof(sink);
             const int got = uart_read_bytes(PORT, sink, want, pdMS_TO_TICKS(200));
             if (got <= 0) {
-                _echo = 0;
+                _echo_bytes_pending = 0;
                 break;
             }
-            _echo -= got;
+            _echo_bytes_pending -= got;
         }
         int got = uart_read_bytes(PORT, buf, 1, pdMS_TO_TICKS(first_ms));
         if (got <= 0) return 0;
         size_t n = 1;
         while (n < max && (expect == 0 || n < expect)) {
-            // A gap of 10 ms ends the reply, as in the passthrough.
-            got = uart_read_bytes(PORT, buf + n, 1, pdMS_TO_TICKS(10));
+            got = uart_read_bytes(PORT, buf + n, 1, pdMS_TO_TICKS(REPLY_GAP_MS));
             if (got <= 0) break;
             n += got;
         }
@@ -140,16 +141,17 @@ class EscConfig::SerialLink : public blheli_boot::EscLink {
 
     uint8_t _pins[2];
     int8_t _current = -1;
-    size_t _echo = 0;  // bytes sent that the receiver has not given back yet
+    size_t _echo_bytes_pending = 0;
     bool _installed = false;
 };
 
 EscConfig::EscConfig() { _mux = portMUX_INITIALIZER_UNLOCKED; }
 
-void EscConfig::begin(esc::Esc *right, esc::Esc *left, uint8_t right_pin, uint8_t left_pin) {
-    _escs[0] = right;
-    _escs[1] = left;
-    _link = new SerialLink(right_pin, left_pin);
+void EscConfig::begin(esc::Esc *esc0_right, esc::Esc *esc1_left, uint8_t esc0_pin,
+                      uint8_t esc1_pin) {
+    _escs[0] = esc0_right;
+    _escs[1] = esc1_left;
+    _link = new SerialLink(esc0_pin, esc1_pin);
     _server = new blheli_boot::Server(*_link);
 }
 
@@ -204,16 +206,16 @@ Poll EscConfig::poll(uint32_t &id, uint8_t *out, size_t &size) {
 status_t EscConfig::status() {
     status_t s = {};
     s.state = _state;
-    s.idle_ms = _state == State::TUNING ? millis() - _last_activity_ms : 0;
-    s.released = _released;
-    s.guard_refusals = _server ? _server->guard_refusals() : 0;
+    s.idle_ms_in_tuning = _state == State::TUNING ? millis() - _last_activity_ms : 0;
+    s.idle_released = _released;
+    s.guard_refusals = _server ? _server->guard_refusals_since_boot() : 0;
     portENTER_CRITICAL(&_mux);
-    s.error = _error;
-    s.frames = _frames;
-    s.pending = _slot_state == Poll::PENDING;
-    s.armed = _armed;
-    s.driving = _driving;
-    memcpy(s.failure, _failure, sizeof(s.failure));
+    s.last_error = _error;
+    s.frames_relayed = _frames;
+    s.frame_pending = _slot_state == Poll::PENDING;
+    s.armed_last_update = _armed;
+    s.espnow_driving = _driving;
+    memcpy(s.last_failure, _failure, sizeof(s.last_failure));
     portEXIT_CRITICAL(&_mux);
     return s;
 }
@@ -290,13 +292,13 @@ void EscConfig::update(uint32_t now_ms, bool armed, bool driving, bool button_pr
                     Serial.printf("esc tuning: read 0x%02x%02x retried after %s\n", frame[2],
                                   frame[3], _server->first_read_failure());
                 }
-                if (_server->resyncs() != _logged_resyncs) {
-                    _logged_resyncs = _server->resyncs();
+                if (_server->handshake_resyncs() != _logged_resyncs) {
+                    _logged_resyncs = _server->handshake_resyncs();
                     Serial.printf("esc tuning: redid the handshake to finish a read (%lu so far)\n",
                                   (unsigned long)_logged_resyncs);
                 }
-                if (_server->reboots() != _logged_reboots) {
-                    _logged_reboots = _server->reboots();
+                if (_server->handshake_restarts() != _logged_reboots) {
+                    _logged_reboots = _server->handshake_restarts();
                     Serial.printf(
                         "esc tuning: restarted ESC %u to reach its bootloader (%lu so far)\n",
                         frame[5], (unsigned long)_logged_reboots);
@@ -322,7 +324,7 @@ void EscConfig::update(uint32_t now_ms, bool armed, bool driving, bool button_pr
             // Checked after the frame, so a write always finishes before the pins change hands.
             if (requested == 0 || button_edge) {
                 start_exit(now_ms);
-            } else if (!_released && millis() - _last_activity_ms >= IDLE_RELEASE_MS) {
+            } else if (!_released && millis() - _last_activity_ms >= IDLE_BOOTLOADER_RELEASE_MS) {
                 _server->reset_esc(0);
                 _server->reset_esc(1);
                 _released = true;
@@ -331,7 +333,7 @@ void EscConfig::update(uint32_t now_ms, bool armed, bool driving, bool button_pr
         }
 
         case State::EXITING:
-            if (now_ms - _exit_started_ms >= WAKE_MS) {
+            if (now_ms - _exit_started_ms >= ESC_WAKE_MS) {
                 _combat_since_ms = now_ms;
                 _state = State::COMBAT;
             }

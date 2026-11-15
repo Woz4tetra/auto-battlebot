@@ -5,16 +5,15 @@ static constexpr uint8_t PIN_I2C_SDA = 2;
 static constexpr uint8_t PIN_I2C_SCL = 3;
 static constexpr uint8_t OLED_ADDR = 0x3C;
 
-// Buttons (active low, INPUT_PULLUP)
-static constexpr uint8_t PIN_BTN_A = 9;  // start recording
-static constexpr uint8_t PIN_BTN_B = 6;  // stop recording
-static constexpr uint8_t PIN_BTN_C = 5;  // live diagnostics readout
+static constexpr uint8_t PIN_BTN_START_REC = 9;
+static constexpr uint8_t PIN_BTN_STOP_REC = 6;
+static constexpr uint8_t PIN_BTN_DIAGNOSTICS = 5;
 
 static constexpr uint8_t PIN_IMU_SCK = 14;
 static constexpr uint8_t PIN_IMU_MOSI = 15;
 static constexpr uint8_t PIN_IMU_MISO = 8;
 static constexpr uint8_t PIN_IMU_CS = 10;
-static constexpr uint8_t PIN_IMU_INT1 = 12;  // data-ready interrupt
+static constexpr uint8_t PIN_IMU_DATA_READY = 12;
 
 static constexpr uint8_t PIN_SD_SCK = 18;
 static constexpr uint8_t PIN_SD_MOSI = 19;
@@ -33,6 +32,20 @@ static constexpr uint8_t PIN_STATUS_LED = 13;
 // (no dependency on the IMU INT1 wire). The IMU runs faster internally, so each
 // poll returns a fresh, BDU-coherent sample. 1 kHz is plenty for velocity.
 static constexpr uint32_t SAMPLE_RATE_HZ = 1000;
+static constexpr int64_t STRICT_SAMPLE_PERIOD_US = -(int64_t)(1000000UL / SAMPLE_RATE_HZ);
+static constexpr uint32_t STREAM_PERIOD_MS = 100;
+static constexpr uint32_t OLED_I2C_HZ = 400000;
+static constexpr uint32_t I2C_TIMEOUT_MS = 50;
+
+static constexpr uint8_t SPI_WRITE_MASK = 0x7F;
+static constexpr uint8_t SPI_READ_BIT = 0x80;
+static constexpr uint8_t REG_WHO_AM_I = 0x0F;
+static constexpr uint8_t REG_CTRL3_C = 0x12;
+static constexpr uint8_t REG_OUTX_L_G = 0x22;
+static constexpr uint8_t REG_OUTX_L_A = 0x28;
+static constexpr uint8_t ISM330DHCX_WHO_AM_I = 0x6B;
+static constexpr uint8_t CTRL3_C_BDU = 0x40;
+static constexpr uint8_t CTRL3_C_IF_INC = 0x04;
 
 // IMU output data rate (the sensor's internal rate; kept above SAMPLE_RATE_HZ so
 // every poll has fresh data). 1.66 kHz is a good default over SPI.

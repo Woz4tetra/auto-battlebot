@@ -9,6 +9,9 @@ const Blheli = (() => {
   };
   const PAGE_ADDRESS = 0xf800;
   const PAGE_SIZE = 256;
+  const ZIP_VERSION_2_0 = 20;
+  const ZIP_FLAG_UTF8 = 0x0800;
+  const ZIP_METHOD_STORED = 0;
   const STATS_ADDRESS = 0xfa00;
   const INFO_ADDRESS = 0xfd90;
 
@@ -417,11 +420,10 @@ const Blheli = (() => {
       const name = new TextEncoder().encode(f.name);
       const crc = crc32(f.data);
       const n = f.data.length;
-      // version 2.0, flag 0x0800 = UTF-8 name, method 0 = stored
       const common = [
-        [20, 2],
-        [0x0800, 2],
-        [0, 2],
+        [ZIP_VERSION_2_0, 2],
+        [ZIP_FLAG_UTF8, 2],
+        [ZIP_METHOD_STORED, 2],
         [time, 2],
         [day, 2],
         [crc, 4],

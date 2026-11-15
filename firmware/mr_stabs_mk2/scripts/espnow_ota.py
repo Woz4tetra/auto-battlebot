@@ -45,7 +45,9 @@ CHUNK = 240  # espnow_protocol::OTA_CHUNK_DATA
 WINDOW = 16  # chunks in flight past the last acknowledged offset
 PROGRESS_TIMEOUT_S = 0.5  # above a ~150 ms block erase, which stalls acknowledgements
 MAX_TIMEOUTS = 10
-VALIDATE_TIMEOUT_S = 30.0  # reboot plus the robot's 10 s validation hold
+ROBOT_VALIDATION_HOLD_S = 10.0
+REBOOT_MARGIN_S = 20.0
+VALIDATE_TIMEOUT_S = ROBOT_VALIDATION_HOLD_S + REBOOT_MARGIN_S
 SERVICE = "auto-battlebot"
 
 

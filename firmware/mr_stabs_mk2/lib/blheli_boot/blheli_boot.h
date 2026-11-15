@@ -13,6 +13,8 @@ namespace blheli_boot {
 // 2E cmd addr_hi addr_lo n params[n] ack crc_hi crc_lo. n = 0 means 256. CRC16-XMODEM.
 const uint8_t REQUEST_START = 0x2F;
 const uint8_t RESPONSE_START = 0x2E;
+const uint8_t WRITE_TRIES = 3;
+const uint8_t INIT_TRIES = 3;
 const size_t MAX_REQUEST = 5 + 256 + 2;
 const size_t MAX_RESPONSE = 5 + 256 + 3;
 
@@ -96,15 +98,12 @@ class Server {
     explicit Server(EscLink &link) : _link(link) {}
     size_t handle(const uint8_t *frame, size_t size, uint8_t *out);
     void reset_esc(uint8_t esc);
-    // Writes and erases the guard refused, from boot.
-    uint32_t guard_refusals() const { return _guard_refusals; }
+    uint32_t guard_refusals_since_boot() const { return _guard_refusals; }
     const char *failure() const { return _failure; }
     const char *init_reply() const { return _init_reply; }
-    // Reads that needed the handshake redone, from boot.
-    uint32_t resyncs() const { return _resyncs; }
+    uint32_t handshake_resyncs() const { return _resyncs; }
     const char *first_read_failure() const { return _first_read_failure; }
-    // Handshakes that needed the ESC restarted first, from boot.
-    uint32_t reboots() const { return _reboots; }
+    uint32_t handshake_restarts() const { return _reboots; }
 
    private:
     EscLink &_link;
@@ -113,7 +112,7 @@ class Server {
     char _failure[96] = "";
     char _init_reply[96] = "";
     char _first_read_failure[96] = "";
-    int8_t _esc = -1;  // the ESC of the latest handshake
+    int8_t _handshake_esc = -1;
     uint32_t _resyncs = 0;
     uint32_t _reboots = 0;
 

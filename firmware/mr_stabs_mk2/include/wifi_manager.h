@@ -51,7 +51,7 @@ struct snapshot_t {
     char selected[SSID_LEN + 1];
     uint8_t count;
     char networks[MAX_NETWORKS][SSID_LEN + 1];
-    char ssid[SSID_LEN + 1];  // the network joined or being joined
+    char joining_ssid[SSID_LEN + 1];
     char ip[16];
     int8_t rssi;
     uint32_t connect_ms_left;
@@ -80,7 +80,7 @@ class WifiManager {
    private:
     static void task_entry(void *arg);
     void run();
-    void start();  // from the saved settings
+    void start_from_saved();
     void start_ap(link_state_t state);
     void load();
     void store();

@@ -72,13 +72,12 @@ from dataclasses import dataclass
 # --- file/struct layout (PCBX9D, EEPROM_VER 219) ---------------------------
 FOURCC = b"otx3"  # 'otx' + board byte '3' == Taranis X9D family (incl. X9D+ 2019)
 EEPROM_VER = 219
-HDR = 8  # fourcc(4) + ver(1) + 'M'(1) + size(uint16)
-MODEL_STRUCT_SIZE = 6604  # sizeof(ModelData) for this board/version (uncompressed)
+HEADER_SIZE = 8
+MODEL_DATA_SIZE_X9D_V219 = 6604
 
-# struct-relative offsets; file offset = HDR + these
-MIX_OFF, MIX_SZ, MIX_N = 76, 20, 64
-LIM_OFF, LIM_SZ, LIM_N = 1356, 13, 32
-EXP_OFF, EXP_SZ, EXP_N = 1772, 17, 64
+MIX_STRUCT_OFF, MIX_SZ, MIX_N = 76, 20, 64
+LIM_STRUCT_OFF, LIM_SZ, LIM_N = 1356, 13, 32
+EXP_STRUCT_OFF, EXP_SZ, EXP_N = 1772, 17, 64
 
 # CurveRef.type
 CURVE_REF_DIFF, CURVE_REF_EXPO, CURVE_REF_FUNC, CURVE_REF_CUSTOM = 0, 1, 2, 3
@@ -109,9 +108,11 @@ TRIM_ON, TRIM_OFF = 0, 1
 MIXSRC_FIRST_INPUT = 1  # I1..I32
 MIXSRC_FIRST_STICK = 75  # Rud,Ele,Thr,Ail
 MIXSRC_FIRST_POT = 79
-MIXSRC_FIRST_SWITCH = 92  # SA..SI (9 switches)
+NUM_SWITCHES = 9
+MIXSRC_FIRST_SWITCH = 92
 MIXSRC_FIRST_LOGICAL_SWITCH = 101
-MIXSRC_FIRST_TRAINER = 165  # TR1..TR16
+NUM_TRAINER_CHANNELS = 16
+MIXSRC_FIRST_TRAINER = 165
 STICK_NAMES = ["Rud", "Ele", "Thr", "Ail"]
 POT_NAMES = ["S1", "S2", "S3", "LS", "RS"]
 SWITCH_LETTERS = "ABCDEFGHI"
@@ -230,7 +231,7 @@ EXP_SPECS = [
 ]
 
 
-def _s8(v):  # signed byte helper
+def _signed_byte(v):
     return v - 256 if v > 127 else v
 
 
@@ -318,7 +319,7 @@ class Mix:
         return cls(
             **f,
             curve_type=b[8],
-            curve_value=_s8(b[9]),
+            curve_value=_signed_byte(b[9]),
             delay_up=b[10],
             delay_down=b[11],
             speed_up=b[12],
@@ -380,7 +381,11 @@ class Expo:
     def from_bytes(cls, b: bytes) -> "Expo":
         f = _decode_bits(b[:8], EXP_SPECS)
         return cls(
-            **f, name=bytes(b[8:14]), offset=_s8(b[14]), curve_type=b[15], curve_value=_s8(b[16])
+            **f,
+            name=bytes(b[8:14]),
+            offset=_signed_byte(b[14]),
+            curve_type=b[15],
+            curve_value=_signed_byte(b[16]),
         )
 
     def to_bytes(self) -> bytes:
@@ -425,33 +430,33 @@ class Model:
                 f"/{chr(self.raw[5])}; tool targets v{EEPROM_VER}"
             )
         self.mixes = [
-            Mix.from_bytes(self._slice(MIX_OFF + i * MIX_SZ, MIX_SZ)) for i in range(MIX_N)
+            Mix.from_bytes(self._slice(MIX_STRUCT_OFF + i * MIX_SZ, MIX_SZ)) for i in range(MIX_N)
         ]
         self.expos = [
-            Expo.from_bytes(self._slice(EXP_OFF + i * EXP_SZ, EXP_SZ)) for i in range(EXP_N)
+            Expo.from_bytes(self._slice(EXP_STRUCT_OFF + i * EXP_SZ, EXP_SZ)) for i in range(EXP_N)
         ]
         self._self_check()
 
     def _slice(self, struct_off: int, n: int) -> bytes:
-        a = HDR + struct_off
+        a = HEADER_SIZE + struct_off
         return bytes(self.raw[a : a + n])
 
     def _self_check(self):
         """Re-encode parsed entries; they must reproduce the original bytes."""
         for i, m in enumerate(self.mixes):
-            if m.to_bytes() != self._slice(MIX_OFF + i * MIX_SZ, MIX_SZ):
+            if m.to_bytes() != self._slice(MIX_STRUCT_OFF + i * MIX_SZ, MIX_SZ):
                 raise AssertionError(
                     f"{self.name_in_zip}: mix[{i}] codec mismatch (layout wrong, refusing)"
                 )
         for i, e in enumerate(self.expos):
-            if e.to_bytes() != self._slice(EXP_OFF + i * EXP_SZ, EXP_SZ):
+            if e.to_bytes() != self._slice(EXP_STRUCT_OFF + i * EXP_SZ, EXP_SZ):
                 raise AssertionError(
                     f"{self.name_in_zip}: expo[{i}] codec mismatch (layout wrong, refusing)"
                 )
 
     @property
     def model_name(self) -> str:
-        return self.raw[HDR : HDR + 12].split(b"\x00")[0].decode("latin1")
+        return self.raw[HEADER_SIZE : HEADER_SIZE + 12].split(b"\x00")[0].decode("latin1")
 
     def set_input_expo(self, chn: int, value: int) -> int:
         """Set EXPO curve on every input line for input `chn` (0-based). Returns count."""
@@ -515,10 +520,10 @@ class Model:
     def serialize(self) -> bytes:
         """Write mix/expo arrays back into raw; all other bytes untouched."""
         for i, m in enumerate(self.mixes):
-            a = HDR + MIX_OFF + i * MIX_SZ
+            a = HEADER_SIZE + MIX_STRUCT_OFF + i * MIX_SZ
             self.raw[a : a + MIX_SZ] = m.to_bytes()
         for i, e in enumerate(self.expos):
-            a = HDR + EXP_OFF + i * EXP_SZ
+            a = HEADER_SIZE + EXP_STRUCT_OFF + i * EXP_SZ
             self.raw[a : a + EXP_SZ] = e.to_bytes()
         return bytes(self.raw)
 
@@ -571,19 +576,19 @@ class SdBin:
         self._orig = raw
         size = int.from_bytes(raw[6:8], "little")
         body = raw[8:]
-        if size == MODEL_STRUCT_SIZE and len(body) >= MODEL_STRUCT_SIZE:
+        if size == MODEL_DATA_SIZE_X9D_V219 and len(body) >= MODEL_DATA_SIZE_X9D_V219:
             self.compressed = False
-            struct = body[:MODEL_STRUCT_SIZE]
+            struct = body[:MODEL_DATA_SIZE_X9D_V219]
         else:
             self.compressed = True
-            struct = rlc_decompress(body, MODEL_STRUCT_SIZE)
-        self.models = [Model(raw[:HDR] + struct, os.path.basename(path))]
+            struct = rlc_decompress(body, MODEL_DATA_SIZE_X9D_V219)
+        self.models = [Model(raw[:HEADER_SIZE] + struct, os.path.basename(path))]
 
     def save(self, out_path: str):
         m = self.models[0]
-        struct = m.serialize()[HDR : HDR + MODEL_STRUCT_SIZE]
+        struct = m.serialize()[HEADER_SIZE : HEADER_SIZE + MODEL_DATA_SIZE_X9D_V219]
         body = rlc_compress(struct) if self.compressed else struct
-        hdr = bytearray(m.raw[:HDR])
+        hdr = bytearray(m.raw[:HEADER_SIZE])
         hdr[6:8] = len(body).to_bytes(2, "little")
         with open(out_path, "wb") as f:
             f.write(bytes(hdr) + body)
@@ -593,8 +598,8 @@ class SdBin:
         if m.serialize() != bytes(m.raw):
             raise AssertionError("model not stable under serialize")
         if self.compressed:
-            struct = m.serialize()[HDR : HDR + MODEL_STRUCT_SIZE]
-            if rlc_compress(struct) != self._orig[HDR:]:
+            struct = m.serialize()[HEADER_SIZE : HEADER_SIZE + MODEL_DATA_SIZE_X9D_V219]
+            if rlc_compress(struct) != self._orig[HEADER_SIZE:]:
                 raise AssertionError("RLE recompression does not match original bytes")
         return f"1 model ({'RLE' if self.compressed else 'raw'}), codec + RLE round-trip passed"
 

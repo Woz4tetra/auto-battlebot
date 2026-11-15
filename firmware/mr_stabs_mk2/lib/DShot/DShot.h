@@ -11,6 +11,8 @@ enum dshot_mode_t {
 
 // Bidirectional DShot: inverted frames out, and the ESC's eRPM reply read back on the same pin
 // through an RX channel. BLHeli_32 sees the inverted signal and switches modes on its own.
+static const int FRAME_BITS = 16;
+
 class DShot {
    public:
     DShot(gpio_num_t pin, rmt_channel_t tx_channel, rmt_channel_t rx_channel,
@@ -43,7 +45,7 @@ class DShot {
     uint32_t _decode_errors;
     float _reply_bit_ticks;
 
-    rmt_item32_t _items[17];  // 16 data bits + 1 end marker
+    rmt_item32_t _items[FRAME_BITS + 1];
     uint16_t _t1h_ticks;
     uint16_t _t1l_ticks;
     uint16_t _t0h_ticks;

@@ -7,10 +7,10 @@
 namespace telemetry_ring {
 
 struct read_result_t {
-    uint32_t first_seq;  // seq of out[0]
-    uint32_t count;      // records copied
-    uint32_t head;       // seq the next push gets; head - 1 is the newest record
-    uint32_t oldest;     // oldest seq still in the ring when the read started
+    uint32_t first_seq;
+    uint32_t copied;
+    uint32_t next_seq;
+    uint32_t oldest_seq_at_start;
 };
 
 // Fixed-size ring of records, one writer and any number of readers on other tasks or cores.

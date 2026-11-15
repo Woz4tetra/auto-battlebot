@@ -232,7 +232,7 @@ function flash(id, text) {
   }, 4000);
 }
 
-let tuning = null; // last GET /tuning reply
+let lastTuningReply = null;
 
 function tuningStamp(date = new Date()) {
   const p = (n) => String(n).padStart(2, "0");
@@ -243,7 +243,7 @@ function tuningStamp(date = new Date()) {
 }
 
 function showTuning(reply) {
-  tuning = reply;
+  lastTuningReply = reply;
   const box = $("tuningFields");
   for (const [key, f] of Object.entries(reply.fields)) {
     let row = box.querySelector(`[data-key="${key}"]`);
@@ -258,7 +258,7 @@ function showTuning(reply) {
       row.querySelector("label").textContent = key.toUpperCase();
       row.querySelector("button").onclick = () =>
         postTuning({ [key]: $(`tn_${key}`).value })
-          .then(() => flash(`tn_${key}S`, `set to ${tuning.fields[key].value} ${f.unit}`))
+          .then(() => flash(`tn_${key}S`, `set to ${lastTuningReply.fields[key].value} ${f.unit}`))
           .catch((e) => flash(`tn_${key}S`, e.message));
       box.append(row);
     }
@@ -283,13 +283,15 @@ function loadTuning() {
 }
 
 $("tuningDownload").onclick = () => {
-  if (!tuning) return flash("tuningStatus", "not loaded yet");
+  if (!lastTuningReply) return flash("tuningStatus", "not loaded yet");
   const doc = {
     kind: "mr_stabs_tuning",
     read_at: new Date().toISOString(),
-    saved: tuning.saved,
-    settings: Object.fromEntries(Object.entries(tuning.fields).map(([k, f]) => [k, f.value])),
-    units: Object.fromEntries(Object.entries(tuning.fields).map(([k, f]) => [k, f.unit])),
+    saved: lastTuningReply.saved,
+    settings: Object.fromEntries(
+      Object.entries(lastTuningReply.fields).map(([k, f]) => [k, f.value]),
+    ),
+    units: Object.fromEntries(Object.entries(lastTuningReply.fields).map(([k, f]) => [k, f.unit])),
   };
   const a = document.createElement("a");
   a.href = URL.createObjectURL(
@@ -310,7 +312,7 @@ $("tuningFile").onchange = async () => {
     if (doc.kind !== "mr_stabs_tuning" || typeof doc.settings !== "object") {
       throw new Error("not a tuning download");
     }
-    const known = tuning ? Object.keys(tuning.fields) : [];
+    const known = lastTuningReply ? Object.keys(lastTuningReply.fields) : [];
     const values = Object.fromEntries(
       Object.entries(doc.settings).filter(([k]) => known.includes(k)),
     );
@@ -327,7 +329,7 @@ $("tuningFile").onchange = async () => {
 };
 
 let wifi = null;
-let pendingMode = null; // the operator's unapplied choice; null follows the robot
+let unappliedMode = null;
 let pendingSelected = null;
 
 function post(url, fields) {
@@ -349,7 +351,7 @@ const STATE_TEXT = {
 
 function renderWifi() {
   if (!wifi) return;
-  const mode = pendingMode ?? wifi.mode;
+  const mode = unappliedMode ?? wifi.mode;
   const selected = pendingSelected ?? wifi.selected;
 
   const locked = wifi.forced_ap;
@@ -448,7 +450,7 @@ function pollWifi() {
 
 for (const b of $("modeSeg").children) {
   b.onclick = () => {
-    pendingMode = b.dataset.mode;
+    unappliedMode = b.dataset.mode;
     renderWifi();
   };
 }
@@ -458,11 +460,11 @@ $("netSelect").onchange = () => {
 
 $("applyBtn").onclick = () => {
   if (!wifi) return;
-  const mode = pendingMode ?? wifi.mode;
+  const mode = unappliedMode ?? wifi.mode;
   const selected = $("netSelect").value;
   post("/wifi/config", { mode, selected })
     .then(() => {
-      pendingMode = pendingSelected = null;
+      unappliedMode = pendingSelected = null;
       const leaving = mode === "client" || wifi.state !== "ap";
       $("applyStatus").textContent = leaving
         ? "saved; the robot is switching networks and this page will lose its connection"
@@ -647,11 +649,10 @@ function renderStatus(s) {
   if (s.boot) renderBoot(s.boot);
 }
 
-// Reset reasons that mean the firmware failed rather than someone rebooting it.
-const BAD_RESETS = ["PANIC", "TASK_WDT", "INT_WDT", "OTHER_WDT", "BROWNOUT"];
+const FIRMWARE_FAILURE_RESETS = ["PANIC", "TASK_WDT", "INT_WDT", "OTHER_WDT", "BROWNOUT"];
 
 function renderBoot(b) {
-  const rows = [["Reset reason", b.reset_reason, BAD_RESETS.includes(b.reset_reason)]];
+  const rows = [["Reset reason", b.reset_reason, FIRMWARE_FAILURE_RESETS.includes(b.reset_reason)]];
   if (!b.has_dump) {
     rows.push(["Core dump", "none"]);
   } else if (!b.dump_valid) {

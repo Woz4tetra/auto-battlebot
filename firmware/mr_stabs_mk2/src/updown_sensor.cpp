@@ -12,7 +12,7 @@ UpdownSensor::UpdownSensor() {
     orientation = init_vector3(0.0, 0.0, 0.0);
     gyro_vec = init_vector3(0.0, 0.0, 0.0);
     linear_accel = init_vector3(0.0, 0.0, 0.0);
-    status.last_error = I2C_NOT_TRIED;
+    status.chip_id_read_error = I2C_NOT_TRIED;
     status.details_error = I2C_NOT_TRIED;
 }
 
@@ -68,9 +68,10 @@ void UpdownSensor::check_gyro_sign(float heading, uint32_t now_us) {
     if (has_prev_heading && now_us != prev_heading_us) {
         float change = heading - prev_heading;
         change -= 360.0f * floorf((change + 180.0f) / 360.0f);
-        heading_rate = change / ((now_us - prev_heading_us) / 1000000.0f);
-        if (fabsf(heading_rate) > SIGN_CHECK_MIN_RATE && fabsf(yaw_rate) > SIGN_CHECK_MIN_RATE) {
-            if ((heading_rate > 0.0f) == (yaw_rate > 0.0f))
+        heading_rate_cw_dps = change / ((now_us - prev_heading_us) / 1000000.0f);
+        if (fabsf(heading_rate_cw_dps) > SIGN_CHECK_MIN_RATE_DPS &&
+            fabsf(yaw_rate_cw_dps) > SIGN_CHECK_MIN_RATE_DPS) {
+            if ((heading_rate_cw_dps > 0.0f) == (yaw_rate_cw_dps > 0.0f))
                 status.gyro_agree++;
             else
                 status.gyro_disagree++;
@@ -83,9 +84,9 @@ void UpdownSensor::check_gyro_sign(float heading, uint32_t now_us) {
 
 bool UpdownSensor::check_chip_id() {
     uint8_t chip_id = 0;
-    status.last_error = read_registers(REG_CHIP_ID, &chip_id, 1);
-    status.chip_id = chip_id;
-    return status.last_error == 0 && chip_id == BNO055_CHIP_ID_VALUE;
+    status.chip_id_read_error = read_registers(REG_CHIP_ID, &chip_id, 1);
+    status.last_chip_id = chip_id;
+    return status.chip_id_read_error == 0 && chip_id == BNO055_CHIP_ID_VALUE;
 }
 
 void UpdownSensor::refresh_details() {
@@ -122,8 +123,8 @@ vector3_t *UpdownSensor::init_vector3(float x, float y, float z) {
     return vec;
 }
 
-bool UpdownSensor::get_is_upside_down(bool allow_reconnect) {
-    if (!update_sensor(allow_reconnect)) return is_upside_down;
+bool UpdownSensor::get_is_upside_down(bool allow_blocking_reconnect) {
+    if (!update_sensor(allow_blocking_reconnect)) return is_upside_down;
 
     float z = -1 * grav_vec->z;
 
@@ -134,14 +135,14 @@ bool UpdownSensor::get_is_upside_down(bool allow_reconnect) {
     return is_upside_down;
 }
 
-bool UpdownSensor::update_sensor(bool allow_reconnect) {
+bool UpdownSensor::update_sensor(bool allow_blocking_reconnect) {
     // An absent or unplugged sensor is never read: each failed read blocks the loop for
     // milliseconds, and at the 10 ms sample interval that starved the ESCs of DShot frames.
     // begin() blocks for over a second, so it is only retried when the caller allows it. main.cpp
     // never does, so a sensor that drops out stays off, and heading hold with it, until the next
     // reboot.
     if (!initialized) {
-        if (allow_reconnect && millis() - reconnect_timer > RECONNECT_INTERVAL) {
+        if (allow_blocking_reconnect && millis() - reconnect_timer > RECONNECT_INTERVAL) {
             begin();
             reconnect_timer = millis();
         }
@@ -158,7 +159,7 @@ bool UpdownSensor::update_sensor(bool allow_reconnect) {
     if (!check_chip_id()) {
         initialized = false;
         status.initialized = false;
-        status.lost_count++;
+        status.samples_lost_after_begin++;
         return false;
     }
     uint32_t start_time = now;
@@ -172,7 +173,7 @@ bool UpdownSensor::update_sensor(bool allow_reconnect) {
     if (end_time - start_time > 250) {
         initialized = false;
         status.initialized = false;
-        status.lost_count++;
+        status.samples_lost_after_begin++;
         return false;
     }
 
@@ -203,15 +204,15 @@ bool UpdownSensor::update_sensor(bool allow_reconnect) {
     float gravity =
         sqrtf(grav_vec->x * grav_vec->x + grav_vec->y * grav_vec->y + grav_vec->z * grav_vec->z);
     float up_rate;
-    if (gravity > MIN_GRAVITY_FOR_UP) {
+    if (gravity > MIN_GRAVITY_FOR_UP_MPS2) {
         up_rate =
             (gyro_vec->x * grav_vec->x + gyro_vec->y * grav_vec->y + gyro_vec->z * grav_vec->z) /
             gravity;
-        up_sign = grav_vec->z >= 0.0f ? 1.0f : -1.0f;
+        up_sign_fallback = grav_vec->z >= 0.0f ? 1.0f : -1.0f;
     } else {
-        up_rate = up_sign * gyro_vec->z;
+        up_rate = up_sign_fallback * gyro_vec->z;
     }
-    yaw_rate = YAW_RATE_SIGN * up_rate * RAD_TO_DEG;
+    yaw_rate_cw_dps = YAW_RATE_SIGN * up_rate * RAD_TO_DEG;
     check_gyro_sign(orientation->x, sample_us);
     status.samples++;
     status.last_sample_ms = millis();

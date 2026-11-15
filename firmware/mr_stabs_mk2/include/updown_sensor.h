@@ -29,19 +29,17 @@ const uint8_t I2C_NOT_TRIED = 255;
 // heading change on 100% of fast samples upright and on 0% inverted. check_gyro_sign() verifies it
 // live.
 const float YAW_RATE_SIGN = -1.0f;
-// Below this gravity magnitude (m/s^2) the up direction is unreliable; assume the last one.
-const float MIN_GRAVITY_FOR_UP = 3.0f;
-// Both rates must exceed this for a sample to vote on whether their signs agree.
-const float SIGN_CHECK_MIN_RATE = 60.0f;
+const float MIN_GRAVITY_FOR_UP_MPS2 = 3.0f;
+const float SIGN_CHECK_MIN_RATE_DPS = 60.0f;
 const uint32_t SIGN_CHECK_MIN_DISAGREE = 10;
 
 typedef struct {
     bool initialized;
     uint32_t begin_attempts;
     uint32_t begin_failures;
-    uint8_t chip_id;      // last CHIP_ID read: BNO055_CHIP_ID_VALUE when healthy, 0 if unread
-    uint8_t last_error;   // error code of the last CHIP_ID read
-    uint32_t lost_count;  // samples whose CHIP_ID check failed after a good begin()
+    uint8_t last_chip_id;
+    uint8_t chip_id_read_error;
+    uint32_t samples_lost_after_begin;
     uint32_t samples;
     uint32_t last_sample_ms;
     uint32_t details_ms;
@@ -74,14 +72,14 @@ class UpdownSensor {
     uint32_t sample_timer = 0;
     uint32_t sample_us = 0;
     status_t status = {};
-    float yaw_rate = 0.0f;      // deg/s clockwise, from the gyro
-    float heading_rate = 0.0f;  // deg/s clockwise, from consecutive headings
-    float up_sign = 1.0f;       // +1 chip face up, -1 face down, for when gravity is unreliable
+    float yaw_rate_cw_dps = 0.0f;
+    float heading_rate_cw_dps = 0.0f;
+    float up_sign_fallback = 1.0f;
     float prev_heading = 0.0f;
     uint32_t prev_heading_us = 0;
     bool has_prev_heading = false;
     vector3_t *make_unit_vector(float x, float y, float z);
-    bool update_sensor(bool allow_reconnect);
+    bool update_sensor(bool allow_blocking_reconnect);
     vector3_t *init_vector3(float x, float y, float z);
     uint8_t read_registers(uint8_t reg, uint8_t *buffer, uint8_t length);
     bool check_chip_id();
@@ -90,27 +88,23 @@ class UpdownSensor {
    public:
     UpdownSensor();
     bool begin();
-    /** Samples the BNO055 (rate-limited) and returns the debounced upside-down state.
-     *  allow_reconnect retries begin() on a lost sensor, which blocks for over a second. */
-    bool get_is_upside_down(bool allow_reconnect);
+    bool get_is_upside_down(bool allow_blocking_reconnect);
     vector3_t *get() { return grav_vec; }
     vector3_t *get_max() { return max_grav_vec; }
     vector3_t *get_min() { return min_grav_vec; }
     vector3_t *get_orientation() { return orientation; }
-    vector3_t *get_gyro() { return gyro_vec; }  // rad/s, chip frame
-    // Fused acceleration with gravity removed, m/s^2, chip frame.
-    vector3_t *get_linear_accel() { return linear_accel; }
+    vector3_t *get_gyro_rad_s_chip() { return gyro_vec; }
+    vector3_t *get_linear_accel_mps2_chip() { return linear_accel; }
     uint32_t get_sample_us() { return sample_us; }
     // Rereads the status registers if DETAILS_INTERVAL has passed and the sensor is up. Two
     // short I2C reads. Every sample calls it, so CALIB_STAT stays fresh for telemetry; the
     // diagnostics page also calls it, for while the link is down and samples stop.
     void refresh_details();
     const status_t &get_status() { return status; }
-    // Yaw rate in deg/s, clockwise-positive like the heading, from the last sample's gyro.
-    float get_yaw_rate() { return yaw_rate; }
+    float get_yaw_rate_cw_dps() { return yaw_rate_cw_dps; }
     // The same rate from the change in heading between the last two samples. Laggier and
     // coarser than the gyro; kept to check the gyro's sign.
-    float get_heading_rate() { return heading_rate; }
+    float get_heading_rate_cw_dps() { return heading_rate_cw_dps; }
     // True once the gyro and the heading change have disagreed in sign more often than they
     // agreed, at least SIGN_CHECK_MIN_DISAGREE times: YAW_RATE_SIGN is wrong for this
     // mounting, and closing a loop on the gyro would spin the robot.

@@ -10,8 +10,8 @@ namespace usb_bridge {
 
 static const char FRAME_START = 0x1e;
 static const size_t MAX_CONNECTIONS = 6;
-static const size_t MAX_LINE = 4096;  // a base64 request: the largest is a 4-way frame POST
-static const size_t CHUNK = 384;      // response bytes per frame
+static const size_t MAX_REQUEST_LINE = 4096;
+static const size_t RESPONSE_CHUNK_BYTES = 384;
 
 struct Connection {
     uint32_t id = 0;
@@ -38,16 +38,16 @@ static bool write_whole(const char *data, size_t size) {
 // let the bridge task write whole lines between frames.
 static const size_t LOG_RING = 2048;
 static char log_ring[LOG_RING];
-static size_t log_head = 0;  // next write
-static size_t log_tail = 0;  // next read
+static size_t log_write_index = 0;
+static size_t log_read_index = 0;
 static portMUX_TYPE log_mux = portMUX_INITIALIZER_UNLOCKED;
 
 static void IRAM_ATTR log_putc(char c) {
     portENTER_CRITICAL_SAFE(&log_mux);
-    const size_t next = (log_head + 1) % LOG_RING;
-    if (next != log_tail) {
-        log_ring[log_head] = c;
-        log_head = next;
+    const size_t next = (log_write_index + 1) % LOG_RING;
+    if (next != log_read_index) {
+        log_ring[log_write_index] = c;
+        log_write_index = next;
     }
     portEXIT_CRITICAL_SAFE(&log_mux);
 }
@@ -57,18 +57,18 @@ static void flush_log() {
     size_t n = 0;
     portENTER_CRITICAL(&log_mux);
     size_t last_line = 0;
-    for (size_t i = log_tail; i != log_head; i = (i + 1) % LOG_RING) {
+    for (size_t i = log_read_index; i != log_write_index; i = (i + 1) % LOG_RING) {
         out[n++] = log_ring[i];
         if (log_ring[i] == '\n') last_line = n;
     }
     // A full ring with no newline would never drain: write it all.
     if (last_line == 0 && n >= LOG_RING - 1) last_line = n;
-    log_tail = (log_tail + last_line) % LOG_RING;
+    log_read_index = (log_read_index + last_line) % LOG_RING;
     portEXIT_CRITICAL(&log_mux);
     if (last_line > 0) write_whole(out, last_line);
 }
 
-static char line[MAX_LINE];
+static char line[MAX_REQUEST_LINE];
 static size_t line_size = 0;
 static bool line_overflow = false;
 
@@ -99,7 +99,7 @@ static bool peer_closed(WiFiClient &client) {
 }
 
 static void open_connection(uint32_t id, const char *encoded) {
-    static uint8_t request[MAX_LINE];
+    static uint8_t request[MAX_REQUEST_LINE];
     size_t size = 0;
     if (mbedtls_base64_decode(request, sizeof(request), &size,
                               reinterpret_cast<const uint8_t *>(encoded), strlen(encoded)) != 0) {
@@ -159,7 +159,7 @@ static void read_serial() {
             if (!line_overflow) handle_line();
             line_size = 0;
             line_overflow = false;
-        } else if (line_size < MAX_LINE - 1) {
+        } else if (line_size < MAX_REQUEST_LINE - 1) {
             line[line_size++] = static_cast<char>(b);
         } else {
             line_overflow = true;
@@ -168,14 +168,15 @@ static void read_serial() {
 }
 
 static bool pump_connections() {
-    static uint8_t data[CHUNK];
-    static char out[16 + 4 * ((CHUNK + 2) / 3) + 12];
+    static uint8_t data[RESPONSE_CHUNK_BYTES];
+    static char out[16 + 4 * ((RESPONSE_CHUNK_BYTES + 2) / 3) + 12];
     bool moved = false;
     for (Connection &c : connections) {
         if (!c.open) continue;
         const int available = c.client.available();
         if (available > 0) {
-            const int n = c.client.read(data, available < (int)CHUNK ? available : CHUNK);
+            const int n = c.client.read(
+                data, available < (int)RESPONSE_CHUNK_BYTES ? available : RESPONSE_CHUNK_BYTES);
             if (n > 0) {
                 int at = snprintf(out, sizeof(out), "%cD %lu ", FRAME_START, (unsigned long)c.id);
                 size_t written = 0;

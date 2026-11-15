@@ -49,9 +49,8 @@ motor_guard::MotorGuard guard{motor_guard::Config()};
 const uint32_t GUARD_PERIOD_US = 10000;
 uint32_t last_guard_us = 0;
 uint32_t last_guard_reads = 0;
-// Duties last sent to the ESCs, after the guard's scaling. Every stop_escs() zeroes them.
-float last_left_duty = 0.0f;
-float last_right_duty = 0.0f;
+float last_left_scaled_duty = 0.0f;
+float last_right_scaled_duty = 0.0f;
 
 // The thermal state survives a watchdog, panic, or software reset, so a reset mid-match resumes
 // the estimate. A power-on starts cold. Whether it survives a brownout reset is untested.
@@ -72,9 +71,11 @@ telemetry_ring::TelemetryRing<espnow_protocol::TelemetryPayload> telemetry_ring_
 uint32_t last_ring_push_ms = 0;
 i2c_bus::scan_t bus_scan = {};
 uint32_t last_status_ms = 0;
-const uint32_t STATUS_INTERVAL_MS = 1000;  // sensor panel refresh on the diagnostics page
-bool last_espnow_active = false;           // for the diagnostics page's ESP-NOW panel
-crash_report::report_t boot_report = {};   // why this boot happened, for the page
+void request_status_refresh() { last_status_ms = 0; }
+const uint32_t SENSOR_PANEL_REFRESH_MS = 1000;
+const size_t USB_BRIDGE_RX_BUFFER_BYTES = 4096;
+bool last_espnow_driving = false;
+crash_report::report_t boot_reset_report = {};
 
 const int NUM_PIXELS = 1;
 Adafruit_NeoPixel pixels(NUM_PIXELS, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800);
@@ -91,10 +92,10 @@ uint32_t prev_loop_us = 0;
 // for HEADING_STALE_US, or the gyro failed its sign check) and while inverted, the turn stick
 // passes straight through, as in MIDDLE.
 yaw_control::YawController *yaw_controller;
-float steer_output = 0.0f;  // differential percent: added to the left wheel, taken off the right
+float steer_differential_pct = 0.0f;
 bool yaw_loop_active = false;
 bool was_upside_down = false;
-const float TURN_DEADBAND_PERCENT = 1.0f;  // passthrough steering, same as the yaw loop's
+const float TURN_DEADBAND_PERCENT = yaw_control::Config{}.turn_threshold;
 const uint32_t HEADING_STALE_US = 100000;
 uint32_t last_heading_sample_us = 0;
 
@@ -162,27 +163,32 @@ void apply_tuning(bool armed) {
 
 void stop_escs() {
     esc::Esc::stop_pair(*left_esc, *right_esc);
-    last_left_duty = 0.0f;
-    last_right_duty = 0.0f;
+    last_left_scaled_duty = 0.0f;
+    last_right_scaled_duty = 0.0f;
     set_led_intensity(0);
+}
+
+void advance_fixed_rate_schedule(uint32_t &last_ms, uint32_t period_ms, uint32_t now_ms) {
+    last_ms += period_ms;
+    if (now_ms - last_ms >= period_ms) last_ms = now_ms;
 }
 
 void publish_diag(diag_data_t &diag, bool autonomy_enabled, bool espnow_active, uint32_t now_ms) {
     diag.motor_rise_left = guard.rise_c(0);
     diag.motor_rise_right = guard.rise_c(1);
-    diag.motor_speed_left = guard.speed_rad_s(0);
-    diag.motor_speed_right = guard.speed_rad_s(1);
+    diag.motor_speed_left = guard.motor_shaft_speed_signed_rad_s(0);
+    diag.motor_speed_right = guard.motor_shaft_speed_signed_rad_s(1);
     diag.motor_amps_left = guard.amps_estimate(0);
     diag.motor_amps_right = guard.amps_estimate(1);
     diag.guard_scale = guard.scale();
-    diag.guard_gain = guard.gain();
+    diag.guard_gain = guard.shunt_gain();
     diag.guard_state = (uint8_t)guard.state();
     diag.guard_sensors = (uint8_t)guard.sensors();
     diag.stall_flags = (guard.stalled(0) ? 1 : 0) | (guard.stalled(1) ? 2 : 0);
-    diag.erpm_crc_errors =
-        (uint16_t)min<uint32_t>(left_esc->crc_errors() + right_esc->crc_errors(), UINT16_MAX);
+    diag.erpm_crc_errors = (uint16_t)min<uint32_t>(
+        left_esc->reply_decode_errors() + right_esc->reply_decode_errors(), UINT16_MAX);
     diag_server.update(&diag);
-    last_espnow_active = espnow_active;
+    last_espnow_driving = espnow_active;
     const bool ring_due = now_ms - last_ring_push_ms >= espnow_link::TELEMETRY_PERIOD_MS;
     if (!ring_due && !ESPNOW_ENABLED) return;
     espnow_protocol::TelemetryPayload telemetry = {};
@@ -204,11 +210,11 @@ void publish_diag(diag_data_t &diag, bool autonomy_enabled, bool espnow_active, 
     telemetry.ibat = diag.ibat;
     telemetry.yaw_rate = diag.yaw_rate;
     telemetry.yaw_rate_cmd = diag.yaw_rate_cmd;
-    updown_sensor::vector3_t *linear_accel = accel->get_linear_accel();
+    updown_sensor::vector3_t *linear_accel = accel->get_linear_accel_mps2_chip();
     telemetry.linear_accel_x = linear_accel->x;
     telemetry.linear_accel_y = linear_accel->y;
     telemetry.linear_accel_z = linear_accel->z;
-    updown_sensor::vector3_t *gyro = accel->get_gyro();
+    updown_sensor::vector3_t *gyro = accel->get_gyro_rad_s_chip();
     telemetry.gyro_x = gyro->x * RAD_TO_DEG;
     telemetry.gyro_y = gyro->y * RAD_TO_DEG;
     telemetry.imu_calibration = accel->get_status().calibration;
@@ -232,12 +238,7 @@ void publish_diag(diag_data_t &diag, bool autonomy_enabled, bool espnow_active, 
     telemetry.stall_flags = diag.stall_flags;
     telemetry.erpm_crc_errors = diag.erpm_crc_errors;
     if (ring_due) {
-        // Step the schedule by exactly one period so the ring averages 100 Hz however the loop
-        // ticks land. After a stall longer than a period, restart from now instead of bursting.
-        last_ring_push_ms += espnow_link::TELEMETRY_PERIOD_MS;
-        if (now_ms - last_ring_push_ms >= espnow_link::TELEMETRY_PERIOD_MS) {
-            last_ring_push_ms = now_ms;
-        }
+        advance_fixed_rate_schedule(last_ring_push_ms, espnow_link::TELEMETRY_PERIOD_MS, now_ms);
         telemetry_ring_buffer.push(telemetry);
     }
     if (ESPNOW_ENABLED) espnow.send_telemetry(telemetry, now_ms);
@@ -258,14 +259,14 @@ void setup_telemetry_ring() {
 }
 
 void publish_sensor_status(bool armed) {
-    if (!diag_server.has_clients()) return;
+    if (!diag_server.page_open()) return;
     if (diag_server.scan_requested() && !armed) {
         i2c_bus::scan(&Wire1, &bus_scan);
         diag_server.clear_scan_request();
-        last_status_ms = 0;
+        request_status_refresh();
     }
     uint32_t now = millis();
-    if (last_status_ms != 0 && now - last_status_ms < STATUS_INTERVAL_MS) return;
+    if (last_status_ms != 0 && now - last_status_ms < SENSOR_PANEL_REFRESH_MS) return;
     last_status_ms = now;
 
     accel->refresh_details();
@@ -276,15 +277,15 @@ void publish_sensor_status(bool armed) {
     status.lines = i2c_bus::read_lines(SDA1, SCL1);
     status.sda_pin = SDA1;
     status.scl_pin = SCL1;
-    status.snapshot_ms = millis();
-    status.yaw_rate = accel->get_yaw_rate();
-    status.heading_rate = accel->get_heading_rate();
+    status.snapshot_taken_ms = millis();
+    status.yaw_rate = accel->get_yaw_rate_cw_dps();
+    status.heading_rate = accel->get_heading_rate_cw_dps();
     status.gyro_sign_suspect = accel->gyro_sign_suspect();
-    if (ESPNOW_ENABLED) espnow.fill_status(status.espnow, status.snapshot_ms);
+    if (ESPNOW_ENABLED) espnow.fill_status(status.espnow, status.snapshot_taken_ms);
     status.espnow.enabled = ESPNOW_ENABLED;
-    status.espnow.substitution = ESPNOW_COMMAND_SUBSTITUTION;
-    status.espnow.driving = last_espnow_active;
-    status.boot = boot_report;
+    status.espnow.command_substitution = ESPNOW_COMMAND_SUBSTITUTION;
+    status.espnow.driving = last_espnow_driving;
+    status.boot = boot_reset_report;
     diag_server.set_status(status);
 }
 
@@ -311,12 +312,13 @@ void update_motor_guard(uint32_t now_us) {
     const float dt_s = (now_us - last_guard_us) / 1000000.0f;
     last_guard_us = now_us;
     last_guard_reads = reads;
-    const float volts = fresh ? vbat_sensor_ina238.get_volts() : NAN;
-    const float amps = fresh ? vbat_sensor_ina238.get_amps() : NAN;
+    const float volts = fresh ? vbat_sensor_ina238.get_pack_volts() : NAN;
+    const float amps = fresh ? vbat_sensor_ina238.get_pack_amps_discharge() : NAN;
     const float left_erpm = left_esc->erpm_valid() ? (float)left_esc->erpm() : -1.0f;
     const float right_erpm = right_esc->erpm_valid() ? (float)right_esc->erpm() : -1.0f;
     const bool was_tripped = guard.tripped();
-    guard.update(dt_s, volts, amps, last_left_duty, last_right_duty, left_erpm, right_erpm);
+    guard.update(dt_s, volts, amps, last_left_scaled_duty, last_right_scaled_duty, left_erpm,
+                 right_erpm);
     guard_rtc.rise_c[0] = guard.rise_c(0);
     guard_rtc.rise_c[1] = guard.rise_c(1);
     if (guard.tripped() && !was_tripped) {
@@ -327,7 +329,7 @@ void update_motor_guard(uint32_t now_us) {
 
 void reset_steering(float sensed_angle_z) {
     yaw_controller->reset(sensed_angle_z);
-    steer_output = 0.0f;
+    steer_differential_pct = 0.0f;
     yaw_loop_active = false;
 }
 
@@ -354,7 +356,7 @@ void mix_motor_outputs(crsf_bridge::radio_data_t *radio_data, float sensed_angle
     bool yaw_usable = auto_steer_enabled && !heading_stale && !accel->gyro_sign_suspect();
     if (!yaw_usable) {
         // The stick's resting trim (about 1% on this transmitter) would otherwise creep a wheel.
-        steer_output = fabs(b_percent) > TURN_DEADBAND_PERCENT ? b_percent : 0.0f;
+        steer_differential_pct = fabs(b_percent) > TURN_DEADBAND_PERCENT ? b_percent : 0.0f;
         yaw_loop_active = false;
     } else {
         if (!yaw_loop_active || is_upside_down != was_upside_down) {
@@ -362,14 +364,15 @@ void mix_motor_outputs(crsf_bridge::radio_data_t *radio_data, float sensed_angle
             yaw_loop_active = true;
         }
         if (fresh_heading) {
-            steer_output = yaw_controller->update(b_percent, tail_first_throttle, sensed_angle_z,
-                                                  accel->get_yaw_rate(), heading_dt);
+            steer_differential_pct =
+                yaw_controller->update(b_percent, tail_first_throttle, sensed_angle_z,
+                                       accel->get_yaw_rate_cw_dps(), heading_dt);
         }
     }
     was_upside_down = is_upside_down;
 
-    left_command = -1 * a_percent + steer_output;
-    right_command = -1 * a_percent - steer_output;
+    left_command = -1 * a_percent + steer_differential_pct;
+    right_command = -1 * a_percent - steer_differential_pct;
     float max_command = max(abs(left_command), abs(right_command));
     if (max_command > 100.0) {
         left_command = left_command / max_command * 100.0;
@@ -400,11 +403,11 @@ void stop_setup_frames() {
 }
 
 void setup() {
-    Serial.setRxBufferSize(4096);  // usb_bridge requests arrive as whole lines
+    Serial.setRxBufferSize(USB_BRIDGE_RX_BUFFER_BYTES);
     Serial.setTxBufferSize(4096);
     Serial.begin(115200);
-    crash_report::read(boot_report);
-    crash_report::print(boot_report);
+    crash_report::read(boot_reset_report);
+    crash_report::print(boot_reset_report);
 
 #if defined(NEOPIXEL_POWER)
     pinMode(NEOPIXEL_POWER, OUTPUT);
@@ -467,7 +470,7 @@ void setup() {
     // the timer, the 2.4 s of IMU and WiFi setup left the line idle, and a reset of the ESP32 alone
     // made the running ESCs play their wake-up jingle twice. A pack power-on still plays it twice:
     // the ESCs sample the line before any firmware can drive it (measured 212 ms after reset).
-    while (millis() - esc_start_ms < 2000) delay(5);
+    while (millis() - esc_start_ms < esc_config::ESC_WAKE_MS) delay(5);
     stop_setup_frames();
 
     // A loop() pass that takes over CONFIG_ESP_TASK_WDT_TIMEOUT_S (5 s) panics: the core dump goes
@@ -486,7 +489,7 @@ void loop() {
     prev_loop_us = now_us;
 
     // No firmware upload in tuning mode: the ESC pins belong to the bootloader link.
-    if (!esc_tuning.active()) ArduinoOTA.handle();
+    if (!esc_tuning.owns_escs()) ArduinoOTA.handle();
     if (is_loading_firmware) {
         return;
     }
@@ -496,15 +499,15 @@ void loop() {
 
     // Before the ESP-NOW OTA return, so the guard's model keeps cooling during a transfer.
     vbat_sensor_ina238.update();
-    float vbat = vbat_sensor_ina238.get_volts();
-    float ibat = vbat_sensor_ina238.get_amps();
+    float vbat = vbat_sensor_ina238.get_pack_volts();
+    float ibat = vbat_sensor_ina238.get_pack_amps_discharge();
     update_motor_guard(micros());
 
     // An ESP-NOW firmware transfer owns the loop: motors stopped, no control, same as ArduinoOTA.
     // It only starts disarmed, and arming aborts it inside update(). Tuning mode counts as armed
     // here, so no transfer starts while the ESC pins belong to the bootloader link.
     if (ESPNOW_ENABLED) {
-        espnow.update(now_ms, (radio_ok && radio_data->armed) || esc_tuning.active());
+        espnow.update(now_ms, (radio_ok && radio_data->armed) || esc_tuning.owns_escs());
         if (espnow.ota_in_progress()) {
             stop_escs();
             return;
@@ -514,8 +517,8 @@ void loop() {
     // Erasing the core dump writes flash, so it waits for the loop and refuses while armed.
     if (diag_server.take_erase_dump_request() && !(radio_ok && radio_data->armed)) {
         if (crash_report::erase_dump()) {
-            boot_report.has_dump = false;
-            last_status_ms = 0;
+            boot_reset_report.has_dump = false;
+            request_status_refresh();
         }
     }
     apply_tuning(radio_ok && radio_data->armed);
@@ -526,9 +529,9 @@ void loop() {
         } else {
             espnow.unpair(pair_request.mac, armed);
         }
-        last_status_ms = 0;  // show the result on the next status poll
+        request_status_refresh();
     }
-    esc_tuning.update(now_ms, radio_ok && radio_data->armed, last_espnow_active,
+    esc_tuning.update(now_ms, radio_ok && radio_data->armed, last_espnow_driving,
                       radio_ok && radio_data->button_state);
 
     // Read the IMU every loop whatever the radio is doing, so heading stays fresh for the PID and
@@ -548,7 +551,7 @@ void loop() {
 
     if (now_ms - last_led_ms >= 20) {
         last_led_ms = now_ms;
-        if (esc_tuning.active()) {
+        if (esc_tuning.owns_escs()) {
             breathe_blue_led(now_ms);
         } else {
             cycle_rainbow_led(rainbow_tick, led_intensity);
@@ -585,17 +588,17 @@ void loop() {
             .orientation_y = ori ? ori->y : 0,
             .orientation_z = ori ? ori->z : 0,
             .pid_setpoint = yaw_controller->setpoint(),
-            .pid_output = steer_output,
+            .pid_output = steer_differential_pct,
             .vbat = vbat,
             .ibat = ibat,
-            .yaw_rate = accel->get_yaw_rate(),
+            .yaw_rate = accel->get_yaw_rate_cw_dps(),
             .yaw_rate_cmd = yaw_loop_active ? yaw_controller->rate_command() : NAN,
         };
         publish_diag(diag, radio_data->autonomy_enabled, false, now_ms);
         return;
     }
 
-    if (!radio_data->armed || esc_tuning.active()) {
+    if (!radio_data->armed || esc_tuning.owns_escs()) {
         // Disarm is the only way out of a thermal trip. A link loss keeps it latched.
         if (!radio_data->armed) guard.clear_trip();
         stop_escs();
@@ -623,10 +626,10 @@ void loop() {
             .orientation_y = ori ? ori->y : 0,
             .orientation_z = ori ? ori->z : 0,
             .pid_setpoint = yaw_controller->setpoint(),
-            .pid_output = steer_output,
+            .pid_output = steer_differential_pct,
             .vbat = vbat,
             .ibat = ibat,
-            .yaw_rate = accel->get_yaw_rate(),
+            .yaw_rate = accel->get_yaw_rate_cw_dps(),
             .yaw_rate_cmd = yaw_loop_active ? yaw_controller->rate_command() : NAN,
         };
         publish_diag(diag, radio_data->autonomy_enabled, false, now_ms);
@@ -678,8 +681,8 @@ void loop() {
     // After the mixer, so it covers both the trainer and ESP-NOW command sources.
     guard.apply(left_command, right_command);
     esc::Esc::write_pair(*left_esc, left_command, *right_esc, right_command);
-    last_left_duty = left_esc->duty(left_command);
-    last_right_duty = right_esc->duty(right_command);
+    last_left_scaled_duty = left_esc->duty(left_command);
+    last_right_scaled_duty = right_esc->duty(right_command);
 
     updown_sensor::vector3_t *av = accel->get();
     diag_data_t diag = {
@@ -702,10 +705,10 @@ void loop() {
         .orientation_y = orientation ? orientation->y : 0,
         .orientation_z = orientation ? orientation->z : 0,
         .pid_setpoint = yaw_controller->setpoint(),
-        .pid_output = steer_output,
+        .pid_output = steer_differential_pct,
         .vbat = vbat,
         .ibat = ibat,
-        .yaw_rate = accel->get_yaw_rate(),
+        .yaw_rate = accel->get_yaw_rate_cw_dps(),
         .yaw_rate_cmd = yaw_loop_active ? yaw_controller->rate_command() : NAN,
     };
     publish_diag(diag, radio_data->autonomy_enabled, espnow_active, now_ms);

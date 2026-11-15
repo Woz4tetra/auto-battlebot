@@ -35,8 +35,7 @@ class Esc {
     float duty(float signed_percent) const;
     uint32_t erpm() const { return last_erpm; }
     bool erpm_valid() const;
-    // Replies that failed the GCR or CRC check, from boot.
-    uint32_t crc_errors() const;
+    uint32_t reply_decode_errors() const;
 };
 
 }  // namespace esc

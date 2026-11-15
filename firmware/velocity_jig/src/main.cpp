@@ -50,24 +50,24 @@ static SdFs g_sd;
 static FsFile g_file;
 
 struct Sample {
-    uint64_t t_us;  // capture time, microseconds since boot (time_us_64)
-    int32_t count;  // quadrature count
-    int16_t g[3];   // raw gyro x,y,z
-    int16_t a[3];   // raw accel x,y,z
+    uint64_t t_us_since_boot;
+    int32_t encoder_count;
+    int16_t gyro_raw[3];
+    int16_t accel_raw[3];
 };
 
 // SPSC ring buffer. Producer = IMU ISR, consumer = loop(). Single core, so the
 // ISR atomically preempts the loop; volatile 32-bit indices are sufficient.
 static Sample g_ring[RING_SLOTS];
 static constexpr uint32_t RING_MASK = RING_SLOTS - 1;
-static volatile uint32_t g_head = 0;      // producer writes
-static volatile uint32_t g_tail = 0;      // consumer writes
-static volatile uint32_t g_overflow = 0;  // dropped samples (ring full)
-static volatile uint32_t g_produced = 0;  // samples captured this run
+static volatile uint32_t g_ring_write = 0;
+static volatile uint32_t g_ring_read = 0;
+static volatile uint32_t g_dropped_samples = 0;
+static volatile uint32_t g_captured_samples = 0;
 
 static bool g_recording = false;
 static char g_curName[24] = {0};
-static bool g_menuSummary = false;  // show last-run stats on the menu footer
+static bool g_showLastRunSummary = false;
 
 static volatile int32_t g_encCount = 0;
 static volatile uint8_t g_encState = 0;
@@ -78,15 +78,15 @@ static char g_wbuf[WBUF_SIZE];
 static uint32_t g_wlen = 0;
 
 static inline void ringPush(const Sample& s) {
-    uint32_t h = g_head;
+    uint32_t h = g_ring_write;
     uint32_t n = (h + 1) & RING_MASK;
-    if (n == g_tail) {
-        g_overflow++;
+    if (n == g_ring_read) {
+        g_dropped_samples++;
         return;
     }
     g_ring[h] = s;
-    g_head = n;  // publish
-    g_produced++;
+    g_ring_write = n;  // publish
+    g_captured_samples++;
 }
 
 // ---------------------------------------------------------------------------
@@ -96,7 +96,7 @@ static inline void ringPush(const Sample& s) {
 static void imuWriteReg(uint8_t reg, uint8_t val) {
     SPI1.beginTransaction(SPISettings(8000000, MSBFIRST, SPI_MODE0));
     digitalWrite(PIN_IMU_CS, LOW);
-    SPI1.transfer(reg & 0x7F);  // write: MSB clear
+    SPI1.transfer(reg & SPI_WRITE_MASK);
     SPI1.transfer(val);
     digitalWrite(PIN_IMU_CS, HIGH);
     SPI1.endTransaction();
@@ -106,7 +106,7 @@ static void imuWriteReg(uint8_t reg, uint8_t val) {
 static uint8_t imuReadReg(uint8_t reg) {
     SPI1.beginTransaction(SPISettings(8000000, MSBFIRST, SPI_MODE0));
     digitalWrite(PIN_IMU_CS, LOW);
-    SPI1.transfer(0x80 | reg);  // read: MSB set
+    SPI1.transfer(SPI_READ_BIT | reg);
     uint8_t v = SPI1.transfer(0x00);
     digitalWrite(PIN_IMU_CS, HIGH);
     SPI1.endTransaction();
@@ -114,12 +114,11 @@ static uint8_t imuReadReg(uint8_t reg) {
 }
 #endif
 
-// Burst-read gyro (0x22..0x27) then accel (0x28..0x2D), little-endian int16.
 static inline void imuReadRaw(int16_t* g, int16_t* a) {
     uint8_t b[12];
     SPI1.beginTransaction(SPISettings(8000000, MSBFIRST, SPI_MODE0));
     digitalWrite(PIN_IMU_CS, LOW);
-    SPI1.transfer(0x80 | 0x22);  // read, auto-increment from OUTX_L_G
+    SPI1.transfer(SPI_READ_BIT | REG_OUTX_L_G);
     for (int i = 0; i < 12; i++) b[i] = SPI1.transfer(0x00);
     digitalWrite(PIN_IMU_CS, HIGH);
     SPI1.endTransaction();
@@ -141,9 +140,9 @@ static void encISR() {
 
 static bool sampleTimerCb(repeating_timer_t*) {
     Sample s;
-    s.t_us = time_us_64();
-    s.count = g_encCount;
-    imuReadRaw(s.g, s.a);
+    s.t_us_since_boot = time_us_64();
+    s.encoder_count = g_encCount;
+    imuReadRaw(s.gyro_raw, s.accel_raw);
     ringPush(s);
     return true;
 }
@@ -192,32 +191,32 @@ static void wputStr(const char* s) {
 }
 
 static inline void emitRow(const Sample& s) {
-    wputU64(s.t_us);
+    wputU64(s.t_us_since_boot);
     wputc(',');
-    wputI32(s.count);
+    wputI32(s.encoder_count);
     for (int i = 0; i < 3; i++) {
         wputc(',');
-        wputI32(s.g[i]);
+        wputI32(s.gyro_raw[i]);
     }
     for (int i = 0; i < 3; i++) {
         wputc(',');
-        wputI32(s.a[i]);
+        wputI32(s.accel_raw[i]);
     }
     wputc('\n');
 }
 
 static void drainToSD() {
-    uint32_t head = g_head;  // snapshot
+    uint32_t head = g_ring_write;  // snapshot
     uint32_t processed = 0;
-    while (g_tail != head && processed < DRAIN_CAP) {
-        emitRow(g_ring[g_tail]);
-        g_tail = (g_tail + 1) & RING_MASK;
+    while (g_ring_read != head && processed < DRAIN_CAP) {
+        emitRow(g_ring[g_ring_read]);
+        g_ring_read = (g_ring_read + 1) & RING_MASK;
         processed++;
     }
 }
 
 static void drainAll() {
-    while (g_tail != g_head) drainToSD();
+    while (g_ring_read != g_ring_write) drainToSD();
 }
 
 static void drawSplash() {
@@ -256,8 +255,8 @@ static void drawMenu(bool withSummary) {
     if (withSummary && g_curName[0]) {
         g_display.print(g_curName);
         g_display.print(" n=");
-        g_display.print(g_produced);
-        if (g_overflow) {
+        g_display.print(g_captured_samples);
+        if (g_dropped_samples) {
             g_display.setCursor(104, 54);
             g_display.print("DROP");
         }
@@ -397,18 +396,16 @@ static void startRecording() {
     g_curName[sizeof(g_curName) - 1] = 0;
 
     g_wlen = 0;
-    g_head = g_tail = 0;
-    g_overflow = 0;
-    g_produced = 0;
+    g_ring_write = g_ring_read = 0;
+    g_dropped_samples = 0;
+    g_captured_samples = 0;
     noInterrupts();
     g_encCount = 0;
     interrupts();
     writeHeader();
 
     g_recording = true;
-    // Capture on a fixed-rate timer (negative period = strict period from start).
-    add_repeating_timer_us(-(int64_t)(1000000UL / SAMPLE_RATE_HZ), sampleTimerCb, nullptr,
-                           &g_sampleTimer);
+    add_repeating_timer_us(STRICT_SAMPLE_PERIOD_US, sampleTimerCb, nullptr, &g_sampleTimer);
     drawRecording(name);
     Serial.print("recording ");
     Serial.println(name);
@@ -425,11 +422,11 @@ static void stopRecording() {
     g_file.close();
 
     Serial.print("stopped, n=");
-    Serial.print(g_produced);
+    Serial.print(g_captured_samples);
     Serial.print(" dropped=");
-    Serial.println(g_overflow);
+    Serial.println(g_dropped_samples);
 
-    g_menuSummary = true;
+    g_showLastRunSummary = true;
     drawMenu(true);
 }
 
@@ -440,9 +437,9 @@ struct Btn {
     uint32_t lastChange;
 };
 
-static Btn g_btnA{PIN_BTN_A, false, false, 0};
-static Btn g_btnB{PIN_BTN_B, false, false, 0};
-static Btn g_btnC{PIN_BTN_C, false, false, 0};
+static Btn g_btnA{PIN_BTN_START_REC, false, false, 0};
+static Btn g_btnB{PIN_BTN_STOP_REC, false, false, 0};
+static Btn g_btnC{PIN_BTN_DIAGNOSTICS, false, false, 0};
 
 static bool justPressed(Btn& b) {
     bool raw = (digitalRead(b.pin) == LOW);
@@ -466,13 +463,17 @@ static bool justPressed(Btn& b) {
 // normally instead of leaving the host console hanging.
 // ---------------------------------------------------------------------------
 
+static bool pollExitButtons() {
+    const bool exitB = justPressed(g_btnB);
+    const bool exitC = justPressed(g_btnC);
+    return exitB || exitC;
+}
+
 static void runDiagnostics() {
     Serial.println("diagnostics");
     uint32_t last = 0;
     for (;;) {
-        bool exitB = justPressed(g_btnB);  // no short-circuit: both need polling
-        bool exitC = justPressed(g_btnC);
-        if (exitB || exitC) break;
+        if (pollExitButtons()) break;
         if (Serial.available()) break;
         if (last == 0 || millis() - last >= DIAG_REFRESH_MS) {
             last = millis();
@@ -481,7 +482,7 @@ static void runDiagnostics() {
         delay(2);  // services USB while idling between refreshes
     }
     Serial.println("diagnostics end");
-    drawMenu(g_menuSummary);
+    drawMenu(g_showLastRunSummary);
 }
 
 // ---------------------------------------------------------------------------
@@ -590,24 +591,24 @@ static void cmdStream() {
             return;
         }
         Sample s;
-        s.t_us = time_us_64();
-        s.count = g_encCount;
-        imuReadRaw(s.g, s.a);
+        s.t_us_since_boot = time_us_64();
+        s.encoder_count = g_encCount;
+        imuReadRaw(s.gyro_raw, s.accel_raw);
         Serial.print("S ");
-        Serial.print(s.t_us);
+        Serial.print(s.t_us_since_boot);
         Serial.print(',');
-        Serial.print(s.count);
+        Serial.print(s.encoder_count);
         for (int i = 0; i < 3; i++) {
             Serial.print(',');
-            Serial.print(s.g[i]);
+            Serial.print(s.gyro_raw[i]);
         }
         for (int i = 0; i < 3; i++) {
             Serial.print(',');
-            Serial.print(s.a[i]);
+            Serial.print(s.accel_raw[i]);
         }
         Serial.println();
-        uint32_t t = millis();  // ~10 Hz, staying responsive to input/button
-        while (millis() - t < 100) {
+        uint32_t t = millis();
+        while (millis() - t < STREAM_PERIOD_MS) {
             if (Serial.available()) break;
             delay(2);
         }
@@ -680,10 +681,11 @@ static void imuInit() {
     pinMode(PIN_IMU_CS, OUTPUT);
     digitalWrite(PIN_IMU_CS, HIGH);
 #if VJIG_DEBUG
-    uint8_t who = imuReadReg(0x0F);  // WHO_AM_I, expect 0x6B
+    uint8_t who = imuReadReg(REG_WHO_AM_I);
     Serial.print("[dbg] IMU WHO_AM_I=0x");
     Serial.print(who, HEX);
-    Serial.println(who == 0x6B ? " (ISM330DHCX ok)" : " (want 0x6B; check SPI1 wiring/CS)");
+    Serial.println(who == ISM330DHCX_WHO_AM_I ? " (ISM330DHCX ok)"
+                                              : " (want 0x6B; check SPI1 wiring/CS)");
     Serial.flush();
 #endif
     DBG("[dbg] imu.begin_SPI... ");
@@ -696,9 +698,9 @@ static void imuInit() {
     g_imu.setGyroRange(IMU_GYRO_RANGE);
     g_imu.setAccelDataRate(IMU_ODR);
     g_imu.setGyroDataRate(IMU_ODR);
-    g_imu.configInt1(false, false, true);  // route accel data-ready to INT1
-    imuWriteReg(0x12, 0x44);               // CTRL3_C: BDU=1, IF_INC=1
-    pinMode(PIN_IMU_INT1, INPUT);
+    g_imu.configInt1(false, false, true);
+    imuWriteReg(REG_CTRL3_C, CTRL3_C_BDU | CTRL3_C_IF_INC);
+    pinMode(PIN_IMU_DATA_READY, INPUT);
 }
 
 static void sdInit() {
@@ -712,6 +714,18 @@ static void sdInit() {
         fatal("SD init failed");
     }
     DBGLN("OK");
+}
+
+[[noreturn]] static void fatalWithoutDisplay() {
+    uint32_t last = 0;
+    for (;;) {
+        digitalWrite(PIN_STATUS_LED, (millis() / 300) & 1);
+        if (millis() - last >= 1000) {
+            last = millis();
+            Serial.println("FATAL: OLED not found on I2C1 @0x3C (check GP2/GP3 wiring)");
+        }
+        delay(10);
+    }
 }
 
 static void encoderInit() {
@@ -733,9 +747,9 @@ void setup() {
     DBGLN("");
     DBGLN("=== velocity jig bring-up ===");
 
-    pinMode(PIN_BTN_A, INPUT_PULLUP);
-    pinMode(PIN_BTN_B, INPUT_PULLUP);
-    pinMode(PIN_BTN_C, INPUT_PULLUP);
+    pinMode(PIN_BTN_START_REC, INPUT_PULLUP);
+    pinMode(PIN_BTN_STOP_REC, INPUT_PULLUP);
+    pinMode(PIN_BTN_DIAGNOSTICS, INPUT_PULLUP);
 
     // OLED on I2C1 (GP2/GP3). First a non-blocking bus-idle check: with internal
     // pull-ups both lines should read high when idle. A line stuck low means it
@@ -773,13 +787,13 @@ void setup() {
     Wire.setSCL(PIN_I2C_SCL);
     DBGLN("[dbg]   setSCL ok");
     DBGFLUSH();
-    Wire.setClock(400000);  // fast OLED refresh (splash animation + UI)
+    Wire.setClock(OLED_I2C_HZ);
     DBGLN("[dbg]   setClock ok");
     DBGFLUSH();
     Wire.begin();
     DBGLN("[dbg]   begin ok");
     DBGFLUSH();
-    Wire.setTimeout(50, true);  // bound I2C so a bad bus reports instead of hanging
+    Wire.setTimeout(I2C_TIMEOUT_MS, true);
     DBGLN("[dbg]   setTimeout ok");
     DBGFLUSH();
     dbgI2CScan(Wire);
@@ -788,16 +802,7 @@ void setup() {
     DBGFLUSH();
     if (!g_display.begin(OLED_ADDR, true)) {
         DBGLN("FAIL");
-        // The display is what fatal() draws on, so report over serial + LED only.
-        uint32_t last = 0;
-        for (;;) {
-            digitalWrite(PIN_STATUS_LED, (millis() / 300) & 1);
-            if (millis() - last >= 1000) {
-                last = millis();
-                Serial.println("FATAL: OLED not found on I2C1 @0x3C (check GP2/GP3 wiring)");
-            }
-            delay(10);
-        }
+        fatalWithoutDisplay();
     }
     DBGLN("OK");
     g_display.setRotation(1);
