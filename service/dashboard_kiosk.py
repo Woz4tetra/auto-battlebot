@@ -21,7 +21,6 @@ import time
 import urllib.error
 import urllib.request
 
-# service/viz-relay.service serves the dashboard on port 80.
 DASHBOARD_URL = "http://127.0.0.1/"
 RETRY_SECONDS = 2.0
 

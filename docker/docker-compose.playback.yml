@@ -32,9 +32,6 @@ services:
 
         environment:
             HOME: /home/dev
-            # install/build_cpp_project.sh reads this. Keeps the container's
-            # CMakeCache.txt, which records container compiler and dependency paths,
-            # from colliding with the host build/.
             AUTO_BATTLEBOT_BUILD_DIR: build-docker
             DISPLAY: "${DISPLAY}"
             XAUTHORITY: "${XAUTHORITY}"
@@ -87,8 +84,6 @@ services:
         # binary's own SIGINT handler (src/main.cpp) still runs.
         init: true
 
-        # PLAYBACK_CONFIG is exported by scripts/docker/docker_common.sh, which is where
-        # the default profile is defined.
         command: ["./scripts/docker/container_entrypoint.sh", "-c", "${PLAYBACK_CONFIG}"]
 
 volumes:

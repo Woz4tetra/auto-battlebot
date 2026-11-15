@@ -102,7 +102,6 @@ if [ -z "${JETSON_USER:-}" ]; then
     fi
 fi
 REMOTE="${JETSON_USER}@${JETSON_HOST}"
-# rsync takes the remote shell as one string.
 RSYNC_SSH="ssh${JETSON_KEY:+ -i '${JETSON_KEY}' -o IdentitiesOnly=yes}"
 echo "Downloading as ${REMOTE}"
 

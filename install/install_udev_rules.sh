@@ -76,7 +76,6 @@ EOF
         echo "cdc_acm" | sudo tee "$MODULES_FILE" > /dev/null
     fi
 
-    # Load the module now if it isn't already
     if ! lsmod | grep -q "^cdc_acm"; then
         echo "Loading cdc_acm kernel module..."
         sudo modprobe cdc_acm
@@ -84,9 +83,6 @@ EOF
         echo "cdc_acm module already loaded"
     fi
 
-    # -------------------------------------------------------------------------
-    # 4. Reload udev and re-trigger devices
-    # -------------------------------------------------------------------------
     echo "Reloading udev rules..."
     sudo udevadm control --reload-rules
     sudo udevadm trigger --subsystem-match=tty

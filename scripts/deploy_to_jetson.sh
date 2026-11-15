@@ -92,7 +92,6 @@ if [ -z "${JETSON_USER:-}" ]; then
 fi
 SSH_TARGET="${JETSON_USER}@${JETSON_HOST}"
 REMOTE_DEST="${SSH_TARGET}:${JETSON_PATH}"
-# rsync takes the remote shell as one string.
 RSYNC_SSH="ssh${JETSON_KEY:+ -i '${JETSON_KEY}' -o IdentitiesOnly=yes}"
 echo "Deploying as ${SSH_TARGET}"
 

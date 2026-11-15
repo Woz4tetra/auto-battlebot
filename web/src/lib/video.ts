@@ -16,7 +16,6 @@ interface AccessUnit {
   sps: Uint8Array | null;
 }
 
-/** Walks Annex-B start codes (00 00 01 or 00 00 00 01) and reads the NAL unit types. */
 export function scanAccessUnit(data: Uint8Array): AccessUnit {
   let keyframe = false;
   let sps: Uint8Array | null = null;
@@ -46,7 +45,6 @@ export function scanAccessUnit(data: Uint8Array): AccessUnit {
   return { keyframe, sps };
 }
 
-/** avc1.PPCCLL from the SPS profile_idc, constraint flags, and level_idc bytes. */
 export function codecFromSps(sps: Uint8Array): string {
   const hex = (b: number) => b.toString(16).padStart(2, "0");
   return `avc1.${hex(sps[1])}${hex(sps[2])}${hex(sps[3])}`;

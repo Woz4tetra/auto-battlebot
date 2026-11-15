@@ -1,10 +1,5 @@
 #!/bin/bash
 
-# Configure crash-survivable debugging on Jetson:
-# - pstore/ramoops kernel support checks
-# - panic/sysrq sysctls
-# - persistent journald storage
-# - systemd-pstore service (if available)
 install_pstore_ramoops() {
     local sysctl_file="/etc/sysctl.d/99-auto-battlebot-crash-debug.conf"
     local journald_dir="/etc/systemd/journald.conf.d"

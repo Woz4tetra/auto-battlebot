@@ -29,7 +29,6 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SLOP_HOOK="${REPO_ROOT}/scripts/no_ai_slop_check.sh"
 
 SKILL_REPO="https://github.com/petergyang/no-ai-slop"
-# The three files the skill needs; the upstream repo keeps them at its root.
 SKILL_FILES=(SKILL.md eval.md LICENSE)
 SKILL_DIR="${CLAUDE_CONFIG_DIR:-${HOME}/.claude}/skills/no-ai-slop"
 
@@ -76,7 +75,6 @@ else
         done
         echo "  installed ${SKILL_FILES[*]} to ${SKILL_DIR}"
     else
-        # Not fatal: CLAUDE.md and the hook enforce the rules without the skill.
         echo "Warning: could not fetch the no-ai-slop skill from ${SKILL_REPO}." >&2
         echo "         The writing rules in CLAUDE.md and the wording hook still" >&2
         echo "         apply; only the /no-ai-slop command is unavailable." >&2

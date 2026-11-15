@@ -127,7 +127,6 @@ class Connection {
     } finally {
       this.#probing = false;
     }
-    // Still the same socket, and still silent after the probe.
     if (!dead || this.#client !== client || !client) return;
     if (performance.now() - this.#lastMessageAt < SILENCE_MS) return;
     console.warn("relay socket silent; reconnecting");
@@ -148,7 +147,6 @@ class Connection {
     return () => this.#channelListeners.delete(cb);
   }
 
-  /** Typed subscription to a status topic. Payloads are JSON. */
   subscribe<T extends StatusTopic>(topic: T, cb: (m: StatusMessages[T]) => void): () => void {
     return this.#listen(topic, (m) => {
       const parsed = this.#parse<StatusMessages[T]>(m);
@@ -156,12 +154,10 @@ class Connection {
     });
   }
 
-  /** Subscription to any topic, delivering the raw payload bytes. */
   subscribeRaw(topic: string, cb: RawListener): () => void {
     return this.#listen(topic, cb);
   }
 
-  /** Subscription to any JSON topic. Messages that fail to parse are dropped. */
   subscribeJson<T>(topic: string, cb: (m: T, raw: RawMessage) => void): () => void {
     return this.#listen(topic, (m) => {
       const parsed = this.#parse<T>(m);
@@ -169,7 +165,6 @@ class Connection {
     });
   }
 
-  /** Publishes a command. Resolves on its ack, or rejects with "not delivered" after 1 s. */
   send<T extends CommandTopic>(topic: T, payload: CommandPayloads[T]): Promise<CommandAck> {
     const channelId = this.#clientChannels.get(topic);
     if (!this.#client || this.#state !== "open") {
@@ -224,7 +219,6 @@ class Connection {
     }
   }
 
-  /** Subscribes or unsubscribes one topic so it matches the listener set and the channel list. */
   #syncSubscription(topic: string): void {
     const client = this.#client;
     if (!client || this.#state !== "open") return;

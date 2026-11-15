@@ -34,7 +34,6 @@ export function robotColor(label: string): string {
   return pool[hash(label) % pool.length];
 }
 
-/** Mixes a "#rrggbb" color toward white by `amount` (0 to 1). */
 function lighten(color: string, amount: number): string {
   const n = parseInt(color.slice(1), 16);
   const mix = (c: number) => Math.round(c + (255 - c) * amount);
@@ -42,7 +41,6 @@ function lighten(color: string, amount: number): string {
   return `#${((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1)}`;
 }
 
-/** Top-down color: the label's color, lightened for each earlier track that shares the label. */
 export function trackColor(
   robot: { id: string; label: string },
   all: { id: string; label: string }[],
@@ -53,7 +51,6 @@ export function trackColor(
   return index === 0 ? robotColor(robot.label) : lighten(robotColor(robot.label), 0.35 * index);
 }
 
-/** On-screen name: underscores become spaces so a label can wrap and reads faster. */
 export function displayLabel(label: string): string {
   return label.replace(/_/g, " ");
 }

@@ -1,8 +1,5 @@
 #!/bin/bash
 
-# Install Foxglove C++ SDK (pre-built binary) into third_party/foxglove/
-# Supports x86_64 and aarch64 Linux targets.
-
 install_foxglove_sdk() {
     local SCRIPT_DIR
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

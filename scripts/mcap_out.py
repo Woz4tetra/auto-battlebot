@@ -1,12 +1,5 @@
 #!/usr/bin/env python3
-"""
-Print /log messages from an MCAP file in journalctl-style format.
-
-Reads the ``foxglove.Log`` channel on ``/log``.
-
-Output format mirrors journalctl --no-pager:
-  MMM DD HH:MM:SS.mmm <node> [LEVEL]: <message>
-"""
+"""Print /log messages from an MCAP in journalctl style."""
 
 import argparse
 import sys
@@ -17,7 +10,6 @@ from auto_battlebot.recording.mcap_io import decode_log, iter_messages
 
 _LEVEL_RANK = {"DEBUG": 0, "INFO": 1, "WARN": 2, "ERROR": 3, "FATAL": 4}
 
-# ANSI colour codes (disabled when not a tty)
 _COLOURS = {
     "DEBUG": "\033[37m",  # grey
     "INFO": "",  # default

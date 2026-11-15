@@ -22,7 +22,6 @@ interface Subsection {
 type Payload = Record<string, Subsection>;
 
 export interface DiagValue {
-  /** `subsection/key`, or just `key` for the module's own subsection. */
   key: string;
   value: Value;
   /** Age in ms when the module repeated this value without logging it again, else null. */
@@ -96,7 +95,6 @@ class DiagnosticsStore {
     setInterval(() => this.#flush(), REFRESH_MS);
   }
 
-  /** Worst module first, then by name. */
   get sorted(): DiagModule[] {
     return [...this.modules].sort(
       (a, b) => severity(b.level) - severity(a.level) || a.id.localeCompare(b.id),
@@ -121,7 +119,6 @@ class DiagnosticsStore {
       this.#history.set(id, perKey);
     }
     for (const { key, value, heldMs } of module.values) {
-      // A held value is a repeat, not a new sample.
       if (heldMs !== null) continue;
       if (typeof value !== "number" || !Number.isFinite(value)) continue;
       let series = perKey.get(key);

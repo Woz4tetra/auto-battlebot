@@ -1,5 +1,3 @@
-# FindTensorRT.cmake - Find TensorRT runtime (nvinfer) for loading and running .engine files.
-# Supports system install (e.g. libnvinfer-dev on Ubuntu/Jetson) and TENSORRT_ROOT.
 
 if(TensorRT_FOUND)
     return()
@@ -23,7 +21,6 @@ if(TensorRT_ROOT)
 endif()
 list(APPEND _TensorRT_SEARCH_PATHS "/usr" "/usr/local")
 
-# Find NvInfer.h (runtime API)
 find_path(TensorRT_INCLUDE_DIR
     NAMES NvInfer.h NvInferRuntime.h
     PATHS ${_TensorRT_SEARCH_PATHS}
@@ -37,7 +34,6 @@ if(NOT TensorRT_INCLUDE_DIR)
     )
 endif()
 
-# Find nvinfer library (runtime only; no nvonnxparser needed for .engine)
 find_library(TensorRT_LIBRARY
     NAMES nvinfer
     PATHS ${_TensorRT_SEARCH_PATHS}

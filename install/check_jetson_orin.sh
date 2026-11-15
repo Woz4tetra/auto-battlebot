@@ -1,6 +1,5 @@
 #!/bin/bash
 
-# Check if device is a Jetson Orin (Nano or NX)
 check_jetson_orin() {
     if [ ! -f /etc/nv_tegra_release ]; then
         echo "Error: This is not a NVIDIA Jetson device"

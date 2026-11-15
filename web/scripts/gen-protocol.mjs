@@ -78,7 +78,6 @@ const compileOptions = {
   enableConstEnums: false,
 };
 
-/** Splits json2ts output into `export ...` declarations keyed by name, keeping the first copy. */
 function collect(ts, decls) {
   for (const block of ts.split(/^(?=export )/m)) {
     const match = block.match(/^export (?:interface|type) (\w+)/);

@@ -71,9 +71,7 @@ SVO_FRAME_TOPIC = "/camera/svo_frame"
 # Topic in the original MCAP whose header.frame_id we copy onto the cropped
 # image messages so all camera-frame data lines up.
 CAMERA_INFO_TOPIC = "/camera/camera_info"
-# Written per frame by the pipeline with the SVO file and index it came from.
 FRAME_META_TOPIC = "/camera/frame_meta"
-# Where the pipeline logs the SVO path it opened.
 LOG_TOPIC = "/log"
 
 # JSON schema of the per-frame provenance message on SVO_FRAME_TOPIC.
@@ -83,7 +81,6 @@ SVO_FRAME_SCHEMA = (
     '"svo_frame_index":{"type":"integer"},"svo_stamp_ns":{"type":"integer"}}}',
 )
 
-# Where a repaired copy of a damaged input MCAP lands, under the output directory.
 RECOVERED_SUBDIR = "recovered"
 RECOVERY_LIBRARY = "combine_mcap_svo recover"
 
@@ -108,7 +105,7 @@ def _frame_meta_svo_path(data: bytes) -> Optional[Path]:
         raw = str(mcap_io.decode_json(data).get("svo_path", ""))
     except (json.JSONDecodeError, UnicodeDecodeError, AttributeError, KeyError, ValueError):
         return None
-    if not raw:  # live-camera frames carry an empty path
+    if not raw:
         return None
     return Path(raw)
 
@@ -225,11 +222,7 @@ def _make_left_image(jpeg: bytes, stamp_ns: int, frame_id: Optional[str]) -> Any
 
 
 def _make_svo_frame_payload(svo_name: str, frame_index: int, stamp_ns: int) -> str:
-    """One /camera/svo_frame message: which SVO file and frame the image beside it came from.
-
-    `svo_frame_index` counts frames from zero in file order, which is the index the SDK reports
-    to the pipeline and the pipeline writes to /camera/frame_meta, so the two join directly.
-    """
+    """One /camera/svo_frame message naming the source SVO file and frame."""
     return json.dumps(
         {"svo_file": svo_name, "svo_frame_index": frame_index, "svo_stamp_ns": stamp_ns},
         separators=(",", ":"),
@@ -261,13 +254,7 @@ def read_header_stamp_samples(
 
 
 class HeaderStampRetimer:
-    """Linear-interpolate a `log_time -> header.stamp` mapping from samples.
-
-    For log_times outside the sample range, the boundary offset is
-    extrapolated as a constant (i.e. the first/last (log_time - stamp)
-    delta is reused). Returns the original log_time unchanged when no
-    samples are available.
-    """
+    """Linear-interpolate a log_time to header.stamp mapping from samples."""
 
     def __init__(self, samples: List[Tuple[int, int]]):
         self._log_times: List[int] = [s[0] for s in samples]
@@ -409,9 +396,6 @@ def merge_mcaps(
     retimer = HeaderStampRetimer(read_header_stamp_samples(original_path))
     _log_retimer_stats(retimer, original_path)
 
-    # Total is an upper bound: the original count is pre-time-slice, so the
-    # bar may finish slightly before 100% on recordings that extend past the
-    # SVO's time range. tqdm handles that gracefully.
     total_messages = _summary_message_count(original_path) + frame_count
 
     metadata = {}
@@ -419,16 +403,12 @@ def merge_mcaps(
         for record in make_reader(f).iter_metadata():
             metadata[record.name] = dict(record.metadata)
 
-    # JPEG-heavy: zstd chunks, as the mcap Writer default this script used before.
     with mcap_write.McapWriter(
         output_path, allow_overwrite=True, compression="zstd", metadata=metadata
     ) as writer:
         svo_name = svo_path.stem
         frame_index = 0
 
-        # When retiming, we have to load the original messages, shift their
-        # log_times to camera-frame time, filter to the SVO range, and re-sort
-        # before the merge.
         original_buffer = _load_retimed_originals(original_path, retimer, start_ns, end_ns)
 
         original_iter = iter(original_buffer)
@@ -518,7 +498,6 @@ def _describe_damage(mcap_path: Path) -> Optional[str]:
     Scanning is cheap next to the combine itself: 0.06 s for a 36 MB recording.
     """
     if mcap_path.stat().st_size == 0:
-        # The recorder opened the file and never wrote to it. Nothing to recover.
         return "the file is empty"
     try:
         with open(mcap_path, "rb") as f:
@@ -540,12 +519,7 @@ def _copy_record(
     schema_ids: "dict[int, int]",
     channel_ids: "dict[int, int]",
 ) -> int:
-    """Write one parsed record through to `writer`. Returns 1 if it was a message.
-
-    Schema and channel ids are reassigned by the writer, so the originals are mapped
-    on the way through. A message whose channel was never declared is dropped: that
-    only happens when the channel record itself was lost.
-    """
+    """Write one parsed record through to writer; returns 1 for a message."""
     if isinstance(record, Schema):
         schema_ids[record.id] = writer.register_schema(
             name=record.name, encoding=record.encoding, data=record.data
@@ -583,13 +557,7 @@ def _copy_record(
 
 
 def recover_mcap(source: Path, dest: Path) -> int:
-    """Copy every record that still parses out of `source` into a fresh MCAP at `dest`.
-
-    Returns the number of messages copied. Reading stops at the first record that
-    fails to parse, so a recording torn off mid-write keeps everything before the
-    tear. The output goes through the same writer as the combined outputs, so it
-    comes back chunked, indexed, and with a summary.
-    """
+    """Copy every record that still parses from source into a fresh MCAP."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     schema_ids: "dict[int, int]" = {}
     channel_ids: "dict[int, int]" = {}
@@ -604,7 +572,6 @@ def recover_mcap(source: Path, dest: Path) -> int:
                     started = True
                     continue
                 if not started:
-                    # The header itself was lost. Everything after it still reads.
                     writer.start(library=RECOVERY_LIBRARY)
                     started = True
                 messages += _copy_record(writer, record, schema_ids, channel_ids)
@@ -628,7 +595,7 @@ def _recover_into(source: Path, dest_dir: Path) -> Optional[Path]:
     if messages == 0:
         dest.unlink(missing_ok=True)
         with suppress(OSError):
-            dest_dir.rmdir()  # Only succeeds while it is empty.
+            dest_dir.rmdir()
         return None
     logger.info("Recovered %d message(s) from %s into %s", messages, source.name, dest)
     return dest
@@ -636,11 +603,7 @@ def _recover_into(source: Path, dest_dir: Path) -> Optional[Path]:
 
 @contextmanager
 def _recovered_copy(source: Path, out_dir: Path, *, keep: bool) -> Iterator[Optional[Path]]:
-    """Yield a repaired copy of `source`, or None when nothing could be read out of it.
-
-    `keep` is False for a dry run, which puts the copy in a temporary directory and
-    deletes it on the way out.
-    """
+    """Yield a repaired copy of source, or None when nothing reads."""
     with ExitStack() as stack:
         if keep:
             dest_dir = out_dir / RECOVERED_SUBDIR
@@ -801,7 +764,6 @@ def _combine_svos(
             svo_topic, frame_count = svo2.find_side_by_side_topic(svo_source)
             start_ns, end_ns = read_svo_time_range(svo_source, svo_topic)
         except (McapError, RuntimeError, ValueError, OSError) as exc:
-            # Damage recovery cannot undo, such as an SVO whose frames are all gone.
             logger.error("Skipping unreadable SVO %s: %s", svo_path, exc)
             missing += 1
             continue

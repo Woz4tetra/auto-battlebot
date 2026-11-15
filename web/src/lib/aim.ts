@@ -9,7 +9,6 @@ const SEND_INTERVAL_MS = 100;
 
 export interface AimParams {
   enabled: boolean;
-  /** The target for a pointer position, or null when it is outside the drawn view. */
   point: (e: PointerEvent) => SetManualTargetCommand | null;
 }
 

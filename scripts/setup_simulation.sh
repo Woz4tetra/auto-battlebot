@@ -1,8 +1,5 @@
 #!/bin/bash
 
-# Set up a dedicated Python virtual environment for the Genesis simulation server.
-# The venv lives at simulation/venv, separate from the main project venv.
-
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

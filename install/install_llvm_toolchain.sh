@@ -47,8 +47,6 @@ install_llvm_toolchain() {
     sudo apt install -y "clang-format-$version" "clang-tidy-$version" "clangd-$version"
 }
 
-# Also runnable directly, so the toolchain can be repaired without redoing a
-# full platform install (scripts/lint points here when the pin is missing).
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
     set -e
     install_llvm_toolchain

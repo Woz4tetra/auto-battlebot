@@ -56,7 +56,6 @@ export const ANTI_BANDING = [
   { value: "hz_60", label: "60" },
 ] as const;
 
-/** One-line summary of the exposure, gain, and white balance a profile runs. */
 export function summary(s: CameraSettings): string {
   const exposure = s.auto_exposure
     ? "AUTO EXP"

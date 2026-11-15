@@ -29,8 +29,6 @@ if(Git_FOUND)
     if(_hash_result EQUAL 0 AND NOT _git_hash STREQUAL "")
         set(_git_version "${_git_hash}")
 
-        # --untracked-files=no: only tracked modifications count as dirty,
-        # matching the conventional `-dirty` suffix semantics.
         execute_process(
             COMMAND ${GIT_EXECUTABLE} status --porcelain --untracked-files=no
             WORKING_DIRECTORY ${GIT_SOURCE_DIR}
@@ -44,7 +42,6 @@ if(Git_FOUND)
     endif()
 endif()
 
-# Fallback for no-repo machines: read the version stamped in at deploy time.
 if(_git_version STREQUAL "" AND EXISTS "${GIT_SOURCE_DIR}/.build_version")
     file(READ "${GIT_SOURCE_DIR}/.build_version" _git_version)
     string(STRIP "${_git_version}" _git_version)
@@ -56,7 +53,6 @@ endif()
 
 set(_content "${_git_version}\n")
 
-# Only rewrite when the value changed, so the file's mtime stays meaningful.
 set(_existing "")
 if(EXISTS ${GIT_OUTPUT})
     file(READ ${GIT_OUTPUT} _existing)

@@ -1,8 +1,4 @@
 #!/bin/bash
-# Build the web dashboard into web/dist/, which viz_relay serves over HTTP.
-#
-# Runs `npm ci` when package-lock.json is newer than node_modules (or node_modules is missing),
-# then `npm run build`. Needs Node 20.19 or newer: install/install_node.sh sets it up.
 
 set -e
 

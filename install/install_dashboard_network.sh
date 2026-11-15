@@ -103,7 +103,6 @@ install_dashboard_network() {
     echo "Wi-Fi access interface: ${wifi_iface:-none}"
     echo "Tailscale interface (always allowed): $tailscale_iface"
 
-    # ---- 2. Packages ----
     sudo apt-get install -y avahi-daemon avahi-utils nftables
 
     # ---- 3. NetworkManager profile ----
@@ -114,7 +113,6 @@ install_dashboard_network() {
         ipv4.method manual ipv4.addresses "$address" ipv4.never-default yes \
         ipv6.method link-local connection.mdns no \
         connection.autoconnect yes connection.autoconnect-priority 100
-    # Fails with no cable plugged in, which is fine: NetworkManager brings it up on carrier.
     sudo nmcli connection up "$profile" >/dev/null 2>&1 ||
         echo "No carrier on $iface yet; the profile comes up when the cable goes in."
 

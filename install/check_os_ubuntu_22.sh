@@ -1,6 +1,5 @@
 #!/bin/bash
 
-# Check if running on Ubuntu 22
 check_os_ubuntu_22() {
     if [ -f /etc/os-release ]; then
         . /etc/os-release

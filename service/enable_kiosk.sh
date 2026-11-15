@@ -1,6 +1,4 @@
 #!/bin/bash
-# Enable kiosk mode: disable screen blanking, screensaver, and the GNOME
-# on-screen keyboard so the UI stays visible and unobstructed.
 
 set -e
 
@@ -23,7 +21,6 @@ else
     echo "  gsettings not found; skipping"
 fi
 
-# Disable X screen blanking and power management (run in X session)
 if command -v xset &>/dev/null; then
     xset s off
     xset -dpms

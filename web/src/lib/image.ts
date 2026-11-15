@@ -25,7 +25,6 @@ function base64ToBytes(b64: string): Uint8Array {
   return out;
 }
 
-/** Looks up (and caches) the message type for a protobuf channel. */
 export function protobufType(channel: Channel): protobuf.Type {
   const key = `${channel.schemaName}\n${channel.schema}`;
   let type = typeCache.get(key);
@@ -54,7 +53,6 @@ function toNumber(v: number | { toNumber(): number } | undefined): number {
   return typeof v === "number" ? v : v.toNumber();
 }
 
-/** Decodes a CompressedImage or CompressedVideo; both share these four fields. */
 export function decodeCompressed(channel: Channel, bytes: Uint8Array): CompressedMessage {
   const msg = protobufType(channel).decode(bytes) as unknown as RawCompressed;
   const ts = msg.timestamp;
@@ -66,7 +64,6 @@ export function decodeCompressed(channel: Channel, bytes: Uint8Array): Compresse
   };
 }
 
-/** CompressedImage payload -> ImageBitmap. */
 export async function decodeImage(channel: Channel, bytes: Uint8Array): Promise<ImageBitmap> {
   const msg = decodeCompressed(channel, bytes);
   const format = msg.format.toLowerCase();

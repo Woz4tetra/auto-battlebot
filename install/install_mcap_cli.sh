@@ -21,8 +21,6 @@ install_mcap_cli() {
     esac
 
     echo "Installing mcap CLI ($asset)..."
-    # A fresh flash has no ~/.local/bin, and curl -o fails with "Failure writing output to
-    # destination" rather than saying the directory is missing.
     mkdir -p "$install_dir"
     local url="https://github.com/foxglove/mcap/releases/download/releases%2Fmcap-cli%2Fv0.0.62/${asset}"
     curl -fsSL "$url" -o "$binary_path"

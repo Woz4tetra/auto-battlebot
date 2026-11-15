@@ -83,11 +83,6 @@ class Stats:
     skipped_schemas: Counter = field(default_factory=Counter)
 
 
-# ---------------------------------------------------------------------------
-# Per-message transforms
-# ---------------------------------------------------------------------------
-
-
 def _convert_field_markers(
     writer: mcap_write.McapWriter, topic: str, data: bytes, log_time: int, stats: Stats
 ) -> None:
@@ -245,11 +240,6 @@ def _convert_message(  # noqa: C901
         raise ConversionError(f"{topic}: no conversion for schema {schema_name!r}")
     stats.topics_out[topic] += 1
     stats.messages_out += 1
-
-
-# ---------------------------------------------------------------------------
-# Files
-# ---------------------------------------------------------------------------
 
 
 def input_profile(path: Path) -> str:
@@ -536,10 +526,7 @@ def _rotation_x_onto(direction: np.ndarray) -> tuple[float, float, float, float]
 
 
 def marker_to_scene_entity(marker: Marker) -> SceneEntity | SceneEntityDeletion | None:
-    """The marker-to-entity rules from ``docs/foxglove_recording_format.md``.
-
-    Returns None for ``POINTS`` markers, which have no SceneEntity form.
-    """
+    """Marker-to-entity rules from docs/foxglove_recording_format.md."""
     entity_id = f"{marker.ns}/{marker.id}"
     if marker.action == MARKER_ACTION_DELETEALL:
         return SceneEntityDeletion(type="ALL", id="", stamp_ns=marker.stamp_ns)

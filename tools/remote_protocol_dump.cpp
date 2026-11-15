@@ -1,6 +1,3 @@
-// Prints the remote protocol table (include/remote/protocol.hpp) as JSON:
-//   {"status": [{topic, schema_name, schema, latch, max_rate_hz}], "commands": [{topic, ...}]}
-// web/scripts/gen-protocol.mjs reads it to generate web/src/generated/protocol.ts.
 
 #include <iostream>
 

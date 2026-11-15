@@ -8,7 +8,6 @@
 
 set -e
 
-# Detect installed CUDA version (e.g. 12.6). Uses nvcc --version, else version.txt, else default.
 get_cuda_version() {
     local ver
     ver=$(nvcc --version 2>/dev/null | grep -oP 'release \K[0-9]+\.[0-9]+' | head -1)
@@ -27,7 +26,6 @@ get_cuda_version() {
     echo "$ver"
 }
 
-# L4T major version from /etc/nv_tegra_release, e.g. 36 for JetPack 6, 39 for JetPack 7.2.
 get_l4t_major() {
     local first_line
     first_line=$(head -n 1 /etc/nv_tegra_release 2>/dev/null || true)
@@ -38,14 +36,10 @@ get_l4t_major() {
     fi
 }
 
-# The system python's major.minor: 3.10 on JetPack 6, 3.12 on JetPack 7. The venv, the OpenCV
-# bindings, and the NVIDIA torch wheel all have to match it, because apt builds
-# python3-libnvinfer for this interpreter and no other.
 get_jetson_python_version() {
     /usr/bin/python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")'
 }
 
-# Compute TORCH_INSTALL URL for current JetPack (no side effects). Sets TORCH_INSTALL if empty.
 get_jetson_torch_install_url() {
     if [ -n "${TORCH_INSTALL:-}" ]; then
         return 0
@@ -75,8 +69,6 @@ get_jetson_torch_install_url() {
     TORCH_INSTALL="https://developer.download.nvidia.com/compute/redist/jp/${JP_PREFIX}/pytorch/${WHEEL_NAME}"
 }
 
-# Install Jetson PyTorch wheel into the currently activated venv (no apt/cusparselt).
-# Call this from setup_python when on Jetson so torch is present before pip install -e .
 ensure_jetson_torch_in_venv() {
     if [ ! -f /etc/nv_tegra_release ]; then
         return 0
@@ -125,7 +117,6 @@ install_pytorch_jetson() {
     PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
     local VENV_DIR="$PROJECT_ROOT/venv"
 
-    # Check whether PyTorch is already importable in the project venv (or system python).
     local _python="${VENV_DIR}/bin/python"
     if [ ! -x "$_python" ]; then
         _python="python3"
@@ -142,7 +133,6 @@ install_pytorch_jetson() {
     local L4T_MAJOR
     L4T_MAJOR=$(get_l4t_major)
 
-    # 1. System packages required by PyTorch (per NVIDIA doc)
     echo "Installing PyTorch prerequisites (python3-pip, libopenblas-dev)..."
     sudo apt-get -y update
     sudo apt-get install -y python3-pip libopenblas-dev
@@ -171,7 +161,6 @@ install_pytorch_jetson() {
         rm -rf "$CUSPARSELT_TMP"
     fi
 
-    # 3. Use project venv (create if missing)
     if [ ! -d "$VENV_DIR" ]; then
         echo "Creating project venv at $VENV_DIR (python${PY_VER})..."
         if ! command -v "python${PY_VER}" &>/dev/null; then
@@ -179,7 +168,6 @@ install_pytorch_jetson() {
             exit 1
         fi
         "python${PY_VER}" -m venv "$VENV_DIR"
-        # Make system TensorRT visible in venv (Jetson)
         local SITE_PACKAGES="$VENV_DIR/lib/python${PY_VER}/site-packages"
         local SYS_PYTHON_PATH="/usr/lib/python${PY_VER}/dist-packages"
         if [ -d "$SYS_PYTHON_PATH" ]; then

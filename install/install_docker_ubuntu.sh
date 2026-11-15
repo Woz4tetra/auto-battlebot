@@ -49,18 +49,15 @@ install_docker_ubuntu() {
         return $?
     fi
 
-    # Update your system's package list
     sudo apt-get update
 
-    # Download and run the Docker installation script
     curl https://get.docker.com | sh && sudo systemctl --now enable docker
 
-    # Add your user to the 'docker' group to run commands without sudo
     sudo usermod -aG docker "${USER}"
-    newgrp docker # Apply group changes immediately
+    newgrp docker
     sudo setfacl --modify user:"${USER}":rw /var/run/docker.sock
 
-    docker run hello-world  # test docker installation
+    docker run hello-world
 
     check_docker_compose_version
 }

@@ -6,7 +6,6 @@ build_cpp_project() {
     local SCRIPT_DIR
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     
-    # Parse command line arguments
     local BUILD_TESTING_FLAG
     local BUILD_TYPE
     BUILD_TESTING_FLAG="OFF"

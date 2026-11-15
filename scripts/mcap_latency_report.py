@@ -44,11 +44,6 @@ TICK_STAGE = "runner.tick"
 BUDGET_MS = 60.0
 
 
-# ---------------------------------------------------------------------------
-# Extraction
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class LatencySamples:
     """Per-stage timing samples pulled from /diagnostics."""
@@ -74,13 +69,7 @@ def _window_after_field_init(
     rate_hz: list[float],
     first_ns: int,
 ) -> tuple[int, list[float], str | None]:
-    """Trim samples to those strictly after the first field-init sample, in place.
-
-    The first field-init sample belongs to the tick that ran the field computation, so its
-    own timings (inflated by that computation) are excluded along with everything before it.
-    Returns (t0, trimmed rate_hz, window note). Leaves the samples untouched and returns no
-    note if the field never initialized, so a recording without a field still reports.
-    """
+    """Trim samples to those strictly after the first field-init sample."""
     if not stage_t_ns.get(FIELD_INIT_STAGE):
         print(
             f"No {FIELD_INIT_STAGE} samples in {path}: the field never initialized, "
@@ -152,11 +141,6 @@ def extract_latency_samples(path: Path, include_field_init: bool = False) -> Lat
     )
 
 
-# ---------------------------------------------------------------------------
-# Aggregation
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class StageStats:
     stage: str
@@ -195,11 +179,6 @@ def aggregate(samples: LatencySamples, stage_filter: list[str] | None) -> list[S
         )
     stats.sort(key=lambda s: s.mean_ms, reverse=True)
     return stats
-
-
-# ---------------------------------------------------------------------------
-# Report
-# ---------------------------------------------------------------------------
 
 
 def _table_rows(stats: list[StageStats]) -> list[tuple[str, str, str, str, str, str, str]]:
@@ -302,11 +281,6 @@ def write_csv(csv_path: Path, stats: list[StageStats]) -> None:
     print(f"Wrote CSV to {csv_path}")
 
 
-# ---------------------------------------------------------------------------
-# Plot
-# ---------------------------------------------------------------------------
-
-
 def plot_latency(
     samples: LatencySamples,
     stats: list[StageStats],
@@ -372,11 +346,6 @@ def plot_latency(
     if show:
         plt.show()
     plt.close(fig)
-
-
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
 
 
 def main() -> None:

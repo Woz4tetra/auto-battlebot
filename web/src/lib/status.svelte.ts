@@ -1,5 +1,3 @@
-// Reactive state for every status topic, the connection, and the relay's /healthz.
-
 import { connection, type CommandAck, type ConnectionState } from "./connection";
 import type {
   AppStatus,
@@ -31,19 +29,15 @@ class StatusStore {
   sticks = $state.raw<SticksStatus | null>(null);
   tracks = $state.raw<TracksStatus | null>(null);
   network = $state.raw<NetworkStatus | null>(null);
-  /** Null on a box with no [battery] source: the app never publishes it there. */
   battery = $state.raw<BatteryStatus | null>(null);
   camera = $state.raw<CameraSettingsStatus | null>(null);
   health = $state.raw<Health | null>(null);
-  /** Last ack that carried a message, shown as a notice. */
   notice = $state.raw<{ text: string; ok: boolean; at: number } | null>(null);
 
   systemAt = $state(0);
   /** Wall clock in ms, ticking twice a second, for "time since" displays. */
   now = $state(Date.now());
-  /** When recording was first seen on: the header timer's fallback while only the camera records. */
   recordingSince = $state<number | null>(null);
-  /** Local time the current MCAP file started, from the app's mcap_file_s. */
   mcapFileSince = $state<number | null>(null);
 
   appUp = $derived(this.connection === "open" && this.now - this.systemAt < APP_TIMEOUT_MS);
@@ -89,7 +83,6 @@ class StatusStore {
     setInterval(() => void this.#pollHealth(), HEALTH_PERIOD_MS);
   }
 
-  /** Sends a command and records the ack message (or the failure) as the notice. */
   async command<T extends CommandTopic>(
     topic: T,
     payload: CommandPayloads[T],

@@ -1,5 +1,4 @@
 #!/bin/bash
-# Build, install, and restart the auto-battlebot systemd service (if present).
 
 set -e
 
@@ -9,9 +8,6 @@ SERVICE_NAME="auto-battlebot"
 JOURNALD_DIR="/etc/systemd/journald.conf.d"
 JOURNALD_FILE="${JOURNALD_DIR}/99-auto-battlebot-persistent.conf"
 
-# Before anything else: a box still on the old unit names (auto_battlebot.service,
-# auto-battlebot-dashboard-wifi.service, ...) has them renamed in place, so the old and new app
-# units never run side by side.
 "$PROJECT_ROOT/install/rename_legacy_services.sh"
 
 if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
@@ -21,7 +17,6 @@ fi
 
 "$PROJECT_ROOT/scripts/build_and_install.sh" "$@"
 
-# Resolve the real user even when the script is invoked with sudo.
 REAL_USER="${SUDO_USER:-$USER}"
 # The unit needs the numeric uid for XDG_RUNTIME_DIR. systemd's %U specifier resolves to 0 in a
 # system unit even with User= set, which sent dconf to /run/user/0 and broke the kiosk setup.
@@ -78,7 +73,6 @@ fi
 STATE_DIR="$(getent passwd "$REAL_USER" | cut -d: -f6)/.local/state/auto_battlebot"
 sudo -u "$REAL_USER" mkdir -p "$STATE_DIR"
 
-# Ensure journald keeps logs on disk so service logs survive reboot.
 if [ ! -f "$JOURNALD_FILE" ] || ! rg -q '^Storage=persistent$' "$JOURNALD_FILE"; then
     echo "Configuring persistent journald storage..."
     sudo mkdir -p "$JOURNALD_DIR"
