@@ -27,18 +27,6 @@ U, S = 2, 3
 SUBSTEP_S = 0.01
 
 
-def rotate_body_velocity(self, rows, yaw, mask):
-    old = self.x[rows, THETA]
-    new = wrap_angle(yaw[rows])
-    u, s = self.x[rows, U], self.x[rows, S]
-    vx = u * torch.cos(old) - s * torch.sin(old)
-    vy = u * torch.sin(old) + s * torch.cos(old)
-    known = self.heading_initialized[rows]
-    self.x[rows, U] = torch.where(known, vx * torch.cos(new) + vy * torch.sin(new), u)
-    self.x[rows, S] = torch.where(known, -vx * torch.sin(new) + vy * torch.cos(new), s)
-    super()._init_heading(mask, yaw)
-
-
 class BodyFrameFilter(OpponentFilter):
     """Phase 2: body-frame velocity, coupled to heading in prediction."""
 
@@ -123,11 +111,22 @@ class BodyFrameFilter(OpponentFilter):
         self.stamp = torch.where(active, target, self.stamp)
         self._push_snapshot(active)
 
+    def _rotate_body_velocity(self, rows: torch.Tensor, yaw: torch.Tensor) -> None:
+        old = self.x[rows, THETA]
+        new = wrap_angle(yaw[rows])
+        u, s = self.x[rows, U], self.x[rows, S]
+        vx = u * torch.cos(old) - s * torch.sin(old)
+        vy = u * torch.sin(old) + s * torch.cos(old)
+        known = self.heading_initialized[rows]
+        self.x[rows, U] = torch.where(known, vx * torch.cos(new) + vy * torch.sin(new), u)
+        self.x[rows, S] = torch.where(known, -vx * torch.sin(new) + vy * torch.cos(new), s)
+
     def _init_heading(self, mask: torch.Tensor, yaw: torch.Tensor) -> None:
         rows = mask.nonzero(as_tuple=True)[0]
         if rows.numel() == 0:
             return
-        rotate_body_velocity(self, rows, yaw, mask)
+        self._rotate_body_velocity(rows, yaw)
+        super()._init_heading(mask, yaw)
 
     def render(self, stale: torch.Tensor) -> RenderedEstimate:
         out = super().render(stale)

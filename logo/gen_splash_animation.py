@@ -186,21 +186,11 @@ def interpolate(
     return tuple(av + (bv - av) * f for av, bv in zip(a, b))  # type: ignore[return-value]
 
 
-def center_crop_to_aspect(frame, ref_aspect, orig, errors, i, cols, rw, pad, rh, sheet):
-    crop_w = min(frame.width, int(round(frame.height * ref_aspect)))
-    crop_h = min(frame.height, int(round(frame.width / ref_aspect)))
+def center_crop_to_aspect(frame: Image.Image, aspect: float) -> Image.Image:
+    crop_w = min(frame.width, int(round(frame.height * aspect)))
+    crop_h = min(frame.height, int(round(frame.width / aspect)))
     x0, y0 = (frame.width - crop_w) // 2, (frame.height - crop_h) // 2
-    cropped = frame.crop((x0, y0, x0 + crop_w, y0 + crop_h))
-    ours_img = cropped.resize(REF_SIZE, Image.Resampling.LANCZOS)
-    ours = np.asarray(ours_img, dtype=np.int16)
-    diff = np.abs(orig - ours)
-    errors.append(float(diff.mean()))
-    x = (i % cols) * (rw + pad)
-    y = (i // cols) * 3 * (rh + pad)
-    sheet.paste(Image.fromarray(orig.astype(np.uint8)), (x, y))
-    sheet.paste(ours_img, (x, y + rh + pad))
-    sheet.paste(Image.fromarray(diff.astype(np.uint8)), (x, y + 2 * (rh + pad)))
-    return crop_w, crop_h, x0, y0, cropped, ours_img, ours, diff, x, y
+    return frame.crop((x0, y0, x0 + crop_w, y0 + crop_h))
 
 
 def verify(rendered: list[Image.Image], fps_mult: int, ref_gif: Path, preview_path: Path) -> float:
@@ -216,9 +206,17 @@ def verify(rendered: list[Image.Image], fps_mult: int, ref_gif: Path, preview_pa
         ref.seek(i)
         orig = np.asarray(ref.convert("L"), dtype=np.int16)
         frame = rendered[i * fps_mult]
-        crop_w, crop_h, x0, y0, cropped, ours_img, ours, diff, x, y = center_crop_to_aspect(
-            frame, ref_aspect, orig, errors, i, cols, rw, pad, rh, sheet
+        ours_img = center_crop_to_aspect(frame, ref_aspect).resize(
+            REF_SIZE, Image.Resampling.LANCZOS
         )
+        ours = np.asarray(ours_img, dtype=np.int16)
+        diff = np.abs(orig - ours)
+        errors.append(float(diff.mean()))
+        x = (i % cols) * (rw + pad)
+        y = (i // cols) * 3 * (rh + pad)
+        sheet.paste(Image.fromarray(orig.astype(np.uint8)), (x, y))
+        sheet.paste(ours_img, (x, y + rh + pad))
+        sheet.paste(Image.fromarray(diff.astype(np.uint8)), (x, y + 2 * (rh + pad)))
     sheet.save(preview_path)
 
     print("frame :", " ".join(f"{i:5d}" for i in range(n_ref)))

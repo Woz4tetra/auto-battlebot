@@ -240,7 +240,8 @@ def robot_regions(
     return {"robot": box, "shadow_ring": ring, "mat_rest": mat_rest}
 
 
-def robot_footprint_overlap(regions, robot_mask, rows, name, r_gray, t_gray):
+def robot_footprint_overlap(regions, robot_mask, name, r_gray, t_gray) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
     box = regions["robot"]
     inter = ((robot_mask > 0) & box).sum()
     union = ((robot_mask > 0) | box).sum()
@@ -276,7 +277,7 @@ def robot_footprint_overlap(regions, robot_mask, rows, name, r_gray, t_gray):
             "value": float(t_gray[box].mean()),
         }
     )
-    return box, inter, union
+    return rows
 
 
 def grade_robot_frames(args: argparse.Namespace) -> None:
@@ -335,9 +336,7 @@ def grade_robot_frames(args: argparse.Namespace) -> None:
                     }
                 )
         if robot_mask is not None:
-            box, inter, union = robot_footprint_overlap(
-                regions, robot_mask, rows, name, r_gray, t_gray
-            )
+            rows.extend(robot_footprint_overlap(regions, robot_mask, name, r_gray, t_gray))
         x0, y0, x1, y1 = [int(round(v)) for v in pose["box_rect"]]
         pad = int(0.6 * max(x1 - x0, y1 - y0)) + 40
         crop = (

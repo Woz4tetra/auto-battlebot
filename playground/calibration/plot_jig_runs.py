@@ -159,7 +159,6 @@ def plot_radio_panel(axes, record, have_cmd, t0):
             color="0.5",
         )
         ax.set_ylabel("radio reported", fontsize=9)
-    return ax
 
 
 def plot_accel_panel(axes, log, t):
@@ -260,7 +259,7 @@ def plot_run(
         )
         ax.set_ylabel("commanded", fontsize=9)
 
-    ax = plot_radio_panel(axes, record, have_cmd, t0)
+    plot_radio_panel(axes, record, have_cmd, t0)
 
     # 3 and 4. Measured against commanded.
     req_lin, req_ang = _requested(record) if have_cmd else (None, None)

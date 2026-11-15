@@ -35,22 +35,28 @@ def solve_floor(metadata: dict, path: Path, detector, k: np.ndarray, d: np.ndarr
     return ad.solve_floor_extrinsic(frames, detector, board, k, d)
 
 
-def join_channels_by_frame_t(path):
-    channels_by_t = amcap.read_channels(path)
-    return channels_by_t
-
-
-def zoh_commands_onto_frames(path):
-    commands = amcap.read_commands(path)
-    cmd_t = np.array([c["t"] for c in commands], dtype=np.float64)
-    return commands, cmd_t
-
-
-def tag_field_height(pose, r_fc, t_fc, t):
+def tag_field_height(pose, r_fc, t_fc) -> float:
     tvec = np.asarray(pose[4], dtype=np.float64).reshape(3)
-    z = float((r_fc.T @ (tvec - t_fc))[2])
-    row = {"t": t, "x": pose[0], "y": pose[1], "yaw": pose[2], "z": z, "visible": 1}
-    return tvec, z, row
+    return float((r_fc.T @ (tvec - t_fc))[2])
+
+
+def attach_sticks(row: dict, channels_by_t: dict, t: float) -> None:
+    tx = channels_by_t.get(t)
+    if tx is not None:
+        row["sample_t"] = tx["sample_t"]
+        row["channels"] = tx["channels"]
+
+
+def attach_zoh_command(row: dict, commands: list, cmd_t, t: float) -> None:
+    if cmd_t.size:
+        ci = int(np.searchsorted(cmd_t, t, side="right")) - 1
+        if ci >= 0:
+            c = commands[ci]
+            row["cmd_lin"] = c["cmd_lin"]
+            row["cmd_ang"] = c["cmd_ang"]
+            row["trainer_lin"] = c["trainer_lin"]
+            row["trainer_ang"] = c["trainer_ang"]
+            row["label"] = c["label"]
 
 
 def solve_poses(metadata: dict, path: Path, tag_id: int, yaw_offset: float):
@@ -61,9 +67,9 @@ def solve_poses(metadata: dict, path: Path, tag_id: int, yaw_offset: float):
     r_fc, t_fc = solve_floor(metadata, path, detector, k, d)
     obj = ad.tag_object_points(float(metadata["tag_size"]))
 
-    channels_by_t = join_channels_by_frame_t(path)
-
-    commands, cmd_t = zoh_commands_onto_frames(path)
+    channels_by_t = amcap.read_channels(path)
+    commands = amcap.read_commands(path)
+    cmd_t = np.array([c["t"] for c in commands], dtype=np.float64)
 
     rows: list[dict] = []
     for t, frame in amcap.iter_images(path, amcap.TOPIC_CAMERA_IMAGE):
@@ -73,22 +79,12 @@ def solve_poses(metadata: dict, path: Path, tag_id: int, yaw_offset: float):
             idx = int(np.where(ids.flatten() == tag_id)[0][0])
             pose = ad.tag_pose_field(corners[idx], obj, k, d, r_fc, t_fc, yaw_offset)
         if pose is not None:
-            tvec, z, row = tag_field_height(pose, r_fc, t_fc, t)
+            z = tag_field_height(pose, r_fc, t_fc)
+            row = {"t": t, "x": pose[0], "y": pose[1], "yaw": pose[2], "z": z, "visible": 1}
         else:
             row = {"t": t, "x": None, "y": None, "yaw": None, "z": None, "visible": 0}
-        tx = channels_by_t.get(t)
-        if tx is not None:
-            row["sample_t"] = tx["sample_t"]
-            row["channels"] = tx["channels"]
-        if cmd_t.size:
-            ci = int(np.searchsorted(cmd_t, t, side="right")) - 1
-            if ci >= 0:
-                c = commands[ci]
-                row["cmd_lin"] = c["cmd_lin"]
-                row["cmd_ang"] = c["cmd_ang"]
-                row["trainer_lin"] = c["trainer_lin"]
-                row["trainer_ang"] = c["trainer_ang"]
-                row["label"] = c["label"]
+        attach_sticks(row, channels_by_t, t)
+        attach_zoh_command(row, commands, cmd_t, t)
         rows.append(row)
     return rows, r_fc, t_fc
 

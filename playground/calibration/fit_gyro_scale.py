@@ -122,7 +122,6 @@ def plot_measured_vs_true(fig, gs, turns, scale):
     ax.set_ylabel("gyro integral (deg)", fontsize=9)
     ax.set_title("Measured against true", fontsize=10)
     ax.legend(fontsize=8)
-    return ax
 
 
 def plot_per_run_error(fig, gs, turns):
@@ -179,7 +178,7 @@ def make_plot(path: Path, turns: list[Turn], scale: float) -> None:
     )
     ax.legend(fontsize=8)
 
-    ax = plot_measured_vs_true(fig, gs, turns, scale)
+    plot_measured_vs_true(fig, gs, turns, scale)
 
     plot_per_run_error(fig, gs, turns)
 
