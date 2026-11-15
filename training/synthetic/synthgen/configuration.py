@@ -32,14 +32,7 @@ class ConfigError(ValueError):
 
 
 class PathResolver:
-    """Resolve relative config paths the way the original script did.
-
-    Candidates are tried in order: config directory, launch CWD (BlenderProc
-    re-executes the script from a temp dir, so the real CWD arrives via the
-    ``BLENDERPROC_CWD`` environment variable), then the project root. The first
-    existing candidate wins; if none exist, the first candidate is returned so
-    error messages show the most likely intended location.
-    """
+    """Resolve relative config paths the way the original script did."""
 
     def __init__(self, config_dir: Path, launch_cwd: Path, project_root: Path) -> None:
         self.config_dir = config_dir
@@ -256,16 +249,8 @@ class CageConfig:
 def choose_cage(
     cages: Sequence[CageConfig], images_written: int, images_per_cage: Sequence[int]
 ) -> int | None:
-    """Index of the cage the next scene belongs to, or None for the HDRI arena.
-
-    The split is tracked rather than coin-flipped: a scene goes to whichever cage is furthest
-    behind its share of the images written so far, so even a 100-image run lands on the
-    configured ratios instead of somewhere in their binomial spread. When no cage is behind,
-    the scene goes to the arena, which is what is left over.
-    """
+    """Index of the cage the next scene belongs to, or None for the HDRI arena."""
     behind = [
-        # Ties go to the larger share, which matters on the first scene of a run where every
-        # cage is equally (and entirely) behind.
         (cage.probability * images_written - own, cage.probability, index)
         for index, (cage, own) in enumerate(zip(cages, images_per_cage))
         if cage.is_behind(images_written, own)
@@ -862,17 +847,7 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
 
 
 def _load_raw(config_path: Path, seen: tuple[Path, ...] = ()) -> dict[str, Any]:
-    """Parse a config file, following ``extends`` so a variant need not copy the whole thing.
-
-    A per-venue config is three keys different from the shared one, so it says what differs
-    and inherits the rest. Tables merge key by key, so a variant can override
-    ``[output].num_images`` without restating ``[output]``; arrays, including arrays of
-    tables like ``[[robots]]``, replace wholesale, because half-merging a robot list by
-    index would be a trap.
-
-    Raises:
-        ConfigError: On a cycle, a missing parent, or a parent in another directory.
-    """
+    """Parse a config file, following ``extends`` so a variant need not copy the whole thing."""
     resolved = config_path.resolve()
     if resolved in seen:
         chain = " -> ".join(p.name for p in (*seen, resolved))

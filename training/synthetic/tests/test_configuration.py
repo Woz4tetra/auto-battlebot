@@ -163,6 +163,13 @@ class TestRealConfig:
                 counts[chosen] += 1
         assert counts == [100, 50]
 
+    def test_first_scene_goes_to_the_largest_share_cage(self) -> None:
+        cages = [
+            CageConfig(name="small", enabled=True, probability=0.2),
+            CageConfig(name="large", enabled=True, probability=0.8),
+        ]
+        assert choose_cage(cages, 0, [0, 0]) == 1
+
     def test_cage_split_is_off_when_disabled_or_zero(self) -> None:
         assert choose_cage([CageConfig(enabled=False, probability=1.0)], 0, [0]) is None
         assert choose_cage([CageConfig(enabled=True, probability=0.0)], 0, [0]) is None
