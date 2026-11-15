@@ -72,11 +72,7 @@ class Session:
         return EscSnapshot(esc, signature, page, cipher.decode_page(page), stats, info)
 
     def write(self, esc: int, payload: bytes, expect_current: bytes | None = None) -> EscSnapshot:
-        """Write a 192-byte payload to one ESC and verify it by reading it back.
-
-        expect_current, when given, must equal what the ESC holds now: the edit was made from
-        that read, so anything else means the backup is stale or names the wrong ESC.
-        """
+        """Write a payload to one ESC and verify by reading back."""
         layout.check_layout(payload)
         page = cipher.encode_page(payload)
         self.link.init_esc(esc)

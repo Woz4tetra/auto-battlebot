@@ -54,9 +54,6 @@ ACCEL_SATURATION_G = 15.0
 
 AXIS_NAMES = ("x", "y", "z")
 
-# What a run played, in the terms the fit routes on. Replaces the old runbook experiment
-# ids: a waveform is declared in a TOML catalog, so the fit cannot key on a fixed list of
-# experiments without a code change every time a new excitation is tried.
 WAVEFORM_KINDS = (
     "step",
     "staircase",
@@ -77,11 +74,6 @@ ROLES = ("fit", "holdout")
 # Sidecar metadata format. Checked on load: reading a future file as if it were this
 # version is how a silently wrong fit happens.
 SIDECAR_SCHEMA = 1
-
-
-# ---------------------------------------------------------------------------
-# Log file
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -142,8 +134,6 @@ class JigLog:
     gyro_raw: np.ndarray  # (N, 3) int16 as written
     accel_raw: np.ndarray  # (N, 3) int16 as written
     malformed_rows: int = 0
-    # Of `malformed_rows`, how many were the truncated final line rather than damage inside
-    # the stream. A reset during the last write leaves one; real corruption does not.
     malformed_tail: int = 0
 
     @property
@@ -288,11 +278,6 @@ def read_jig_log(path: Path | str) -> JigLog:
     )
 
 
-# ---------------------------------------------------------------------------
-# Still holds: bias, gravity axis, drift
-# ---------------------------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class StillSegment:
     """A stationary stretch, from the 10 s holds that open and close every run card."""
@@ -421,18 +406,9 @@ def still_stats(log: JigLog, seg: StillSegment) -> StillStats:
 
 
 def bias_drift_dps(pre: StillStats, post: StillStats, up: np.ndarray | None = None) -> float:
-    """Yaw-axis bias difference between the two holds, in deg/s.
-
-    This is the run's in-run drift bound. The runbook discards a run above 0.05 deg/s, which over
-    a 30 s run is 1.5 deg of accumulated heading error.
-    """
+    """Yaw-axis bias difference between the two holds, in deg/s."""
     axis = pre.up if up is None else up
     return float(abs(np.dot(post.bias - pre.bias, axis)) / DEG_TO_RAD)
-
-
-# ---------------------------------------------------------------------------
-# Calibration constants (E3, E4, E5)
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -495,11 +471,6 @@ scale = 1.0               # E3, integrated gyro angle vs 3600 deg
 [imu]
 r_imu = 0.0               # E5, lateral accel vs yaw rate squared slope, meters
 """
-
-
-# ---------------------------------------------------------------------------
-# Clock alignment (E1)
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -599,11 +570,6 @@ class ClockFit:
         rate = 1.0 + self.skew_ppm * 1e-6
         jig_ms = (host_ms - self.offset_ms + self.skew_ppm * 1e-6 * self.ref_jig_ms) / rate
         return jig_ms * 1e-3
-
-
-# ---------------------------------------------------------------------------
-# Session directory (sidecar TOML written by velocity_jig_drive.py)
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -763,11 +729,7 @@ class WaveformSpec:
 
     @property
     def band_hz(self) -> tuple[float, float] | None:
-        """Excitation band, for comparing command energy against the plant corner.
-
-        A step battery has almost no energy above 1/(2*hold), and the plant corner sits
-        near 2.7 Hz, so this is usually the number that explains a weak time constant.
-        """
+        """Excitation band, for comparing command energy against the plant corner."""
         p = self.params
         if self.kind == "chirp":
             return float(p.get("f0_hz", 0.2)), float(p.get("f1_hz", 8.0))
@@ -808,8 +770,6 @@ class RunRecord:
     hold_pre: tuple[float, float] | None  # host seconds
     hold_post: tuple[float, float] | None
     segments: list[ProtocolSegment]
-    # Operator stops, in host seconds. Empty for a straight-through run, and derived from
-    # the command stream for a sidecar written before the windows themselves were recorded.
     pauses: list[PauseWindow]
     cmd_t: np.ndarray  # host seconds
     cmd_lin: np.ndarray
@@ -827,8 +787,6 @@ class RunRecord:
     meas_ch_a: np.ndarray | None = None
     meas_ch_b: np.ndarray | None = None
     provenance: dict[str, Any] = field(default_factory=dict)
-    # Operator waiver for the still-hold requirement, set per run in the sidecar. See
-    # `RunQuality.still_holds_waived` for what it costs.
     waive_still_holds: bool = False
 
     @property
@@ -1020,9 +978,6 @@ def load_run_record(
         cmd_t = cols["t_host_s"]
         ch_a = cols.get("meas_ch_a")
         ch_b = cols.get("meas_ch_b")
-        # Prefer what the radio reported sending. Trainer mode adds the human's sticks to
-        # the scripted command, so the mixer output is the only record of what the robot
-        # actually received, and for a hand-driven run it is the only command signal there is.
         use_measured = commands != "requested"
         if use_measured and "meas_linear" in cols and np.any(np.isfinite(cols["meas_linear"])):
             cmd_lin = cols["meas_linear"]
@@ -1069,11 +1024,7 @@ def load_run_record(
 
 
 def load_session_dir(path: Path | str, *, commands: str = "measured") -> Session:
-    """Load a capture directory written by `velocity_jig_drive.py`.
-
-    Reads `session.toml` when present, then every `LOG-*.toml` beside it. A log with no
-    sidecar goes to `Session.orphans` rather than being skipped silently.
-    """
+    """Load a capture directory written by velocity_jig_drive.py."""
     path = Path(path)
     if not path.is_dir():
         raise ValueError(f"{path}: not a session directory")
@@ -1124,11 +1075,6 @@ def load_session_dir(path: Path | str, *, commands: str = "measured") -> Session
 
 def load_sessions(paths: Sequence[Path | str], *, commands: str = "measured") -> list[Session]:
     return [load_session_dir(p, commands=commands) for p in paths]
-
-
-# ---------------------------------------------------------------------------
-# Ground truth
-# ---------------------------------------------------------------------------
 
 
 def _moving_average(a: np.ndarray, window: int) -> np.ndarray:
@@ -1226,10 +1172,6 @@ def solve_ground_truth(
         ds = np.diff(log.count.astype(float), prepend=float(log.count[0])) * calib.meters_per_count
         rate = ds / np.maximum(dt, 1e-9)
         v = _moving_average(rate, window) - w * calib.r_enc_perp
-        # A second, barely smoothed copy for motion-onset timing. Smoothing a first-order rise
-        # moves the peak of dv/dt later by about half the window, which would inflate the
-        # transport delay by 10 ms at the 20 ms smoothing the rest of the fit needs. The light
-        # window still divides the encoder's quantization noise by sqrt(5).
         v_raw = _moving_average(rate, onset_window) - w * calib.r_enc_perp
     else:
         # Detached encoder. Heading is still measured; forward speed is not, and the caller has
@@ -1260,11 +1202,6 @@ def solve_ground_truth(
     )
 
 
-# ---------------------------------------------------------------------------
-# Uniform-rate run assembly
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class RunQuality:
     """Everything that decides whether a run is fit for fitting, in one place."""
@@ -1290,8 +1227,6 @@ class RunQuality:
     still_holds: int
     encoder_valid: bool
     saturated_samples: int = 0
-    # Of `malformed_rows`, how many were the truncated final line. A reset during the last
-    # write leaves one; damage inside the stream does not.
     malformed_tail: int = 0
     # Set per run in the sidecar. The post hold exists to bracket gyro bias drift, and
     # without it `solve_ground_truth` holds the pre-hold bias constant instead of ramping it.
@@ -1301,21 +1236,11 @@ class RunQuality:
     # 0.0155 deg/s, is only about 0.5 deg over 60 s. Waive it when a run is worth more than
     # that, and never on a run whose still holds failed because the robot was being handled.
     still_holds_waived: bool = False
-    # Accel clipping, reported and never gated. The model has no acceleration state: the fit
-    # reads speed from the encoder and yaw from the gyro, and the accelerometer is used only
-    # to find the gravity axis during a still hold. A clipped sample mid-run says an impact
-    # happened, which is worth seeing on the plot, but it does not corrupt anything fitted.
     accel_clip_axes: list[str] = field(default_factory=list)
     accel_clip_samples: int = 0
     accel_peak_g: float = 0.0
-    # How much of the run the fit can actually use. Nothing computed this before, so a run
-    # that was mostly uncommanded counted the same as a fully driven one when deciding
-    # whether an experiment had enough data.
     duration_s: float = 0.0
     commanded_s: float = 0.0
-    # Seconds of each commanded still hold that the log does not show as motionless. Large
-    # means the jig and the CLI disagree about when the run started, which otherwise surfaces
-    # only as a mysteriously bad fit.
     hold_pre_gap_s: float = 0.0
     hold_post_gap_s: float = 0.0
     command_source: str = "commanded"
@@ -1344,7 +1269,6 @@ class RunQuality:
             out.append("capture-time verdict: discard")
         if self.dropped:
             out.append(f"dropped={self.dropped} samples on the SD path")
-        # A truncated final row is a reset during the last write, not damage to the stream.
         interior = self.malformed_rows - self.malformed_tail
         if interior:
             out.append(f"{interior} malformed rows")
@@ -1444,8 +1368,6 @@ class Run:
 
     @property
     def name(self) -> str:
-        # The session id is part of the name because two sessions both start at LOG-0, and
-        # a report that lists them both would otherwise show two rows with one label.
         log = self.record.log_file or self.record.run_id
         return f"{self.record.session_id}/{log} [{self.waveform}#{self.record.rep}]"
 
@@ -1571,7 +1493,6 @@ def load_run(
     else:
         commanded = np.zeros(len(grid), dtype=bool)
 
-    # Noise floors come from the still holds, which are the only stretches known to be motionless.
     idle = np.zeros(len(grid), dtype=bool)
     for seg in stills:
         t0, t1 = clock.host_seconds(np.array([seg.t0, seg.t1]))
@@ -1579,13 +1500,10 @@ def load_run(
     v_noise = float(np.std(v[idle])) if np.count_nonzero(idle) > 10 else 0.0
     w_noise = float(np.std(w[idle])) if np.count_nonzero(idle) > 10 else 0.0
 
-    # Usable seconds, which is what the report ranks waveforms by when deciding what to
-    # collect more of. A run that was mostly still holds contributes far less than its length.
     commanded_s = float(dt * np.count_nonzero(commanded))
     hold_pre_gap = _hold_uncovered_s(record.hold_pre, stills, clock)
     hold_post_gap = _hold_uncovered_s(record.hold_post, stills, clock)
 
-    # Split by sensor: the gyro half gates the run, the accel half is only reported.
     sat = log.saturation(keep=~log_pause)
     gyro_sat = [a for a in sat if a.name.startswith("g")]
     accel_sat = [a for a in sat if a.name.startswith("a")]

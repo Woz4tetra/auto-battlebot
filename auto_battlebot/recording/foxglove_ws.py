@@ -48,11 +48,7 @@ class _Channel:
 
 
 class FoxgloveSubscriber:
-    """Connects, subscribes to ``topics`` as they are advertised, and yields their messages.
-
-    ``messages`` reconnects forever with a backoff; stop it by breaking out of the loop or
-    calling ``close``.
-    """
+    """Connect, subscribe to topics as advertised, and yield their messages."""
 
     def __init__(self, url: str, topics: list[str], open_timeout_s: float = 3.0) -> None:
         self.url = url

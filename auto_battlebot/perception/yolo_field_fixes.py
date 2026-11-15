@@ -93,7 +93,7 @@ def _project(
 
     ``up_from_camera`` is (N, 4, 4).
     """
-    rays_cam = k_inv @ np.vstack([u, v, np.ones_like(u)])  # (3, N)
+    rays_cam = k_inv @ np.vstack([u, v, np.ones_like(u)])
     rays = np.einsum("nij,jn->ni", up_from_camera[:, :3, :3], rays_cam)
     origin = up_from_camera[:, :3, 3]
     scale = (height - origin[:, 2]) / rays[:, 2]
@@ -192,7 +192,6 @@ def calibrate(
             coarse = (result[0], off_ms * 1_000_000)
     if coarse is None:
         raise ValueError("too few frames where both the tag and YOLO see the robot")
-    # Snap to the stamp offset of frames both streams carry.
     d = nearest_tag(stamps + coarse[1])
     offset_ns = coarse[1] + int(np.median(d[np.abs(d) < HALF_FRAME_NS]))
     final = fit_at(offset_ns)

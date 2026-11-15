@@ -71,12 +71,8 @@ STEP_KINDS = ("step",)
 # angular steps.
 COAST_KINDS = ("step", "coast")
 GRID_KINDS = ("grid",)
-# Straight-line drift is read from runs that drive the linear channel with no commanded
-# turn, which is every linear-channel kind that holds a level long enough to settle.
 DRIFT_KINDS = ("step", "staircase", "coast", "trim")
 
-# Which excitation actually constrains each parameter. The report ranks "collect more of X"
-# off this table, so it is data rather than a comment. "*" means any channel.
 PARAM_SOURCES: dict[str, tuple[tuple[str, str], ...]] = {
     "dz_lin_fwd": (("staircase", "linear"),),
     "dz_lin_rev": (("staircase", "linear"),),
@@ -95,11 +91,6 @@ PARAM_SOURCES: dict[str, tuple[tuple[str, str], ...]] = {
     "c_drift_bias": (("step", "linear"), ("grid", "combined")),
     "delay_s": (("step", "*"), ("staircase", "*"), ("grid", "combined"), ("prbs", "*")),
 }
-
-
-# ---------------------------------------------------------------------------
-# Loading
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -178,11 +169,6 @@ def load_all(
     return out
 
 
-# ---------------------------------------------------------------------------
-# Stage A: segment extraction
-# ---------------------------------------------------------------------------
-
-
 def _runs_of(mask: np.ndarray) -> list[tuple[int, int]]:
     idx = np.flatnonzero(mask)
     if len(idx) == 0:
@@ -259,7 +245,6 @@ def held_segments(run: Run, channel: str, min_level: float = 0.0) -> list[HeldSe
     min_hold = max(5, int(round(MIN_HOLD_S / run.dt)))
 
     active = np.abs(cmd) > max(1e-3, min_level)
-    # Split on any command change, so a staircase is many segments rather than one.
     changed = np.concatenate([[False], np.abs(np.diff(cmd)) > 1e-4])
     seg_id = np.cumsum(changed)
     out: list[HeldSegment] = []
@@ -306,7 +291,7 @@ def coast_taus(run: Run, channel: str) -> list[float]:
         if n < max(4, int(round(0.2 / run.dt))):
             continue
         mv = np.abs(vel[a:b])
-        if mv[0] < 5 * eps:  # already stopped, nothing to decay
+        if mv[0] < 5 * eps:
             continue
         k = 0
         while k < n and mv[k] > max(3 * eps, 0.1 * mv[0]):
@@ -320,18 +305,9 @@ def coast_taus(run: Run, channel: str) -> list[float]:
     return out
 
 
-# ---------------------------------------------------------------------------
-# Stage A: parameter fits
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class Estimate:
-    """A parameter with the spread it was measured over.
-
-    Spread comparable to the value means the parameter is not measured, and the report says so
-    rather than printing a confident number, the way stage 2 printed `nan`.
-    """
+    """A parameter with the spread it was measured over."""
 
     value: float
     spread: float = float("nan")
@@ -414,8 +390,6 @@ def fit_deadzone(runs: Sequence[Run], channel: str, sign: float) -> Estimate:
         if speed > thresh:
             if speed <= prev_speed:
                 return Estimate(level, note="non-monotone staircase")
-            # Linear interpolation between the last still level and the first moving one puts
-            # the estimate between staircase steps instead of on one.
             frac = (thresh - prev_speed) / (speed - prev_speed)
             return Estimate(
                 prev_level + frac * (level - prev_level),
@@ -430,12 +404,7 @@ def fit_deadzone(runs: Sequence[Run], channel: str, sign: float) -> Estimate:
 def fit_gain(
     segs: Sequence[HeldSegment], dz_pos: float, dz_neg: float, sign: float
 ) -> tuple[Estimate, list[HeldSegment]]:
-    """Max speed from steady state against effective command, through the origin.
-
-    With the jig this is interpolation rather than extrapolation: the robot can hold full command
-    without driving out of the camera's field of view, which is what forced stage 2 to
-    extrapolate its max speeds from partial steps.
-    """
+    """Max speed from steady state against effective command, through the origin."""
     used: list[HeldSegment] = []
     for seg in segs:
         if np.sign(seg.level) != sign or seg.other > 0.02:
@@ -473,9 +442,6 @@ def _coupling_cells(
                 cells.append((lin_eff, 0.0, seg.v_ss, 0.0, 0.0))
                 continue
             ang_eff = float(effective_command(np.array(seg.other_signed), p.dz_ang_l, p.dz_ang_r))
-            # The angular steady state over the same window, from the run's yaw rate.
-            # Signed, not absolute: the sign is what separates angular droop from
-            # straight-line drift, since droop flips with the turn and drift does not.
             mask = (run.t >= seg.t0) & (run.t < seg.t0 + seg.n * run.dt)
             w_ss = float(np.median(run.w[mask])) if np.count_nonzero(mask) else 0.0
             cells.append((lin_eff, ang_eff, seg.v_ss, w_ss, float(seg.other_signed)))
@@ -536,7 +502,6 @@ def fit_coupling(
         y = np.array(ys)
         slope = float(np.sum(x * y) / np.sum(x * x))
         resid = y - slope * x
-        # Standard error of a through-origin slope.
         se = float(np.sqrt(np.sum(resid**2) / max(len(x) - 1, 1) / np.sum(x**2)))
         note = "consistent with zero" if abs(slope) < 2 * se else ""
         return Estimate(slope, se, len(x), note)
@@ -615,7 +580,7 @@ def fit_drift(runs: Sequence[Run], p: PlantParams) -> tuple[Estimate, Estimate, 
     for run in runs:
         for seg in held_segments(run, "lin"):
             if seg.other > 0.02:
-                continue  # a commanded turn, so not a straight run
+                continue
             lin_eff = float(effective_command(np.array(seg.level), p.dz_lin_fwd, p.dz_lin_rev))
             if abs(lin_eff) < 1e-3:
                 continue
@@ -706,7 +671,6 @@ def fit_delay(runs: Sequence[Run]) -> DelayStack:
                     continue
                 if max(abs(cmd[e]), abs(cmd[e - 1])) < 0.1:
                     continue
-                # Sign-flip by the step direction so accels and decels add rather than cancel.
                 stack += np.sign(dcmd[i]) * accel[lo:hi] / scale
                 count += 1
 
@@ -823,8 +787,6 @@ def stage_a(loaded: Loaded, prior: PlantParams) -> StageA:
         c_ad=0.0 if c_ad.note else _value(c_ad, 0.0),
     )
 
-    # Straight-line drift. Fitted after the deadzones and gains it depends on, and before
-    # the delay stack, which pools every command edge regardless of channel.
     drift_runs = loaded.select(kinds=DRIFT_KINDS, channels=("linear",), roles=("fit",))
     c_drift, c_drift_bias, drift_points = fit_drift(drift_runs, p)
     est["c_drift"] = c_drift
@@ -852,11 +814,6 @@ def stage_a(loaded: Loaded, prior: PlantParams) -> StageA:
 
 def _value(est: Estimate, fallback: float) -> float:
     return fallback if math.isnan(est.value) else est.value
-
-
-# ---------------------------------------------------------------------------
-# Stage B: joint fit by simulation error
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -1033,11 +990,6 @@ def profile_delay(
     )
 
 
-# ---------------------------------------------------------------------------
-# Validation
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class HorizonReport:
     horizons: np.ndarray
@@ -1091,11 +1043,6 @@ def residual_autocorrelation(err: WindowErrors, lag: int = 1) -> float:
     b = series[lag:] - series.mean()
     denom = float(np.sqrt(np.sum(a**2) * np.sum(b**2)))
     return float(np.sum(a * b) / denom) if denom > 0 else float("nan")
-
-
-# ---------------------------------------------------------------------------
-# Report
-# ---------------------------------------------------------------------------
 
 
 def print_stage_a(stage: StageA) -> None:

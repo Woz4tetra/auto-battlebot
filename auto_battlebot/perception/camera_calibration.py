@@ -30,7 +30,7 @@ class CameraCalibration:
     distortion: tuple[float, float, float, float, float]  # k1 k2 p1 p2 k3
 
     @property
-    def K(self) -> np.ndarray:  # noqa: N802 - conventional name for the camera matrix
+    def K(self) -> np.ndarray:  # noqa: N802
         return np.array([[self.fx, 0.0, self.cx], [0.0, self.fy, self.cy], [0.0, 0.0, 1.0]])
 
     @property

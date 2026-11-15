@@ -71,11 +71,6 @@ ANG_ACCEL_LIMIT = 400.0  # rad/s^2
 MANEUVER_CLASSES = ("straight", "arc", "spin", "reversal", "stop", "mixed", "idle")
 
 
-# ---------------------------------------------------------------------------
-# Replay side: pose track keyed by SVO frame index
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class ReplayTrack:
     """Per-SVO-frame pose track from one replay mcap, on the original clock."""
@@ -90,7 +85,7 @@ class ReplayTrack:
     opp_x: np.ndarray  # nan when no opponent track this frame
     opp_y: np.ndarray
     field_size: tuple[float, float] | None
-    rebase_offset_std_ns: float  # join self-check, see load_replay_track
+    rebase_offset_std_ns: float
 
 
 def _quat_yaw(qx: float, qy: float, qz: float, qw: float) -> float:
@@ -236,17 +231,12 @@ def load_replay_track(replay_path: Path | str) -> ReplayTrack:
     )
 
 
-# ---------------------------------------------------------------------------
-# Original side: transmitted commands
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class CommandLog:
     """Transmitted commands from the original mcap, on the original clock."""
 
-    t_ns: np.ndarray  # (M,) log time of each channels entry
-    lin: np.ndarray  # normalized, jig convention
+    t_ns: np.ndarray
+    lin: np.ndarray
     ang: np.ndarray
     auto: np.ndarray  # bool, auto switch up (forward-filled; latched physical state)
 
@@ -289,11 +279,6 @@ def load_commands(original_path: Path | str) -> CommandLog:
     )
 
 
-# ---------------------------------------------------------------------------
-# Grid assembly
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class MatchRun:
     """One recording resampled onto its SVO frame grid, jig-Run-shaped.
@@ -308,7 +293,7 @@ class MatchRun:
     role: str  # "fit" or "holdout" or "validation"
     t: np.ndarray  # seconds from grid start, uniform
     dt: float
-    t0_ns: int  # original-clock stamp of grid index 0
+    t0_ns: int
     x: np.ndarray
     y: np.ndarray
     theta: np.ndarray
@@ -316,9 +301,9 @@ class MatchRun:
     w: np.ndarray  # yaw rate
     cmd_lin: np.ndarray
     cmd_ang: np.ndarray
-    valid: np.ndarray  # bool, usable for windows (pose + auto + command + no contact)
-    contact: np.ndarray  # bool, gated by wall/opponent/accel (subset of ~valid)
-    auto: np.ndarray  # bool
+    valid: np.ndarray
+    contact: np.ndarray
+    auto: np.ndarray
 
     def stamp_of(self, index: int | np.ndarray) -> np.ndarray:
         """Original-clock nanosecond stamp of a grid index."""
@@ -541,17 +526,12 @@ def split_run(run: MatchRun, fraction: float) -> tuple[MatchRun, MatchRun]:
     return _piece(slice(0, cut), "fit", "train"), _piece(slice(cut, None), "holdout", "holdout")
 
 
-# ---------------------------------------------------------------------------
-# Windows
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class MatchWindows:
     """A WindowSet plus the per-window metadata the match analysis needs."""
 
     windows: WindowSet
-    run_index: np.ndarray  # (W,) index into the runs list passed to build
+    run_index: np.ndarray
     runs: list[MatchRun] = field(repr=False, default_factory=list)
 
     def start_stamps_ns(self) -> np.ndarray:
@@ -600,11 +580,7 @@ def build_match_windows(
     max_windows: int,
     drop_stamps_ns: Sequence[tuple[int, int]] = (),
 ) -> MatchWindows | None:
-    """Cut windows from every run and stack them, mirroring jig build_windows.
-
-    `drop_stamps_ns` carries (start, end) original-clock spans to exclude, which
-    is how the radio-dropout gate removes flagged windows before the final fit.
-    """
+    """Cut windows from every run and stack them."""
     sets = []
     run_indices = []
     for index, run in enumerate(runs):

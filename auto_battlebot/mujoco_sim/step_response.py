@@ -88,7 +88,7 @@ class ArmatureFit:
     rms_error_deg: float
     grid: list[float]
     rms_by_scale: list[float]
-    sim_lift_by_scale: list[list[float]]  # [scale][step]
+    sim_lift_by_scale: list[list[float]]
 
 
 def fit_armature(

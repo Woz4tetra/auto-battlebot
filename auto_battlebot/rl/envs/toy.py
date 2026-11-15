@@ -1,18 +1,4 @@
-"""The toy environment: the viability test for RL navigation (plan step 1).
-
-The grey-box plant (`torch_plant`) drives Mr Stabs Mk2 in a square box against one opponent that
-never moves. Robots are discs. Contact is classified once per engagement by where it lands:
-
-- inside the opponent's front arc (60 degrees either side of its heading): a hit taken
-- outside it, on our wedge (contact normal within `wedge_half_angle_deg` of our heading): a strike,
-  worth more the closer it is to dead rear
-- anywhere else: nothing
-
-That is all of the plan's section 7 reward that needs no contact geometry, plus wall events and
-command smoothing. With `sensing` on, the policy sees our robot through `OurEkfErrorModel` and the
-opponent through `MeasurementModel` and the opponent filter mirror, the same estimators the Warp
-environment and the robot use.
-"""
+"""Toy RL environment: grey-box plant against one static opponent in a square box."""
 
 from __future__ import annotations
 
@@ -207,12 +193,8 @@ class ToyEnv:
             )
             self.measure_every = max(1, int(round(cfg.measurement_period_s / cfg.substep_s)))
 
-    # ------------------------------------------------------------------ randomness
-
     def _rand(self, *shape: int) -> torch.Tensor:
         return torch.rand(*shape, generator=self.gen, device=self.device, dtype=self.dtype)
-
-    # ------------------------------------------------------------------ episodes
 
     def reset(self, seed: int | None = None) -> tuple[torch.Tensor, torch.Tensor]:
         if seed is not None:
@@ -232,8 +214,6 @@ class ToyEnv:
         n = self.num_worlds
         reach = cfg.arena_half_m - cfg.opp_radius_m - 0.05
         opp_xy = (self._rand(n, 2) * 2.0 - 1.0) * reach
-        # Our start: rejection-free, a random direction at a random distance from the opponent,
-        # clamped into the box. Clamping can shorten the separation, so retry a few times.
         our_reach = cfg.arena_half_m - cfg.our_radius_m - 0.05
         our_xy = (self._rand(n, 2) * 2.0 - 1.0) * our_reach
         for _ in range(8):
@@ -285,8 +265,6 @@ class ToyEnv:
         f.snap_start = torch.where(mask, zero, f.snap_start)
         f.stamp = torch.where(mask, now, f.stamp)
         f.last_measured = torch.where(mask, now - 1.0, f.last_measured)
-
-    # ------------------------------------------------------------------ physics
 
     def _resolve(self) -> torch.Tensor:
         """Push our disc out of the opponent and the walls. Returns the wall-contact mask."""
@@ -423,8 +401,6 @@ class ToyEnv:
         stage = self.opp_xy - self.cfg.stage_offset_m * back
         potential: torch.Tensor = -(self.our[:, :2] - stage).norm(dim=1)
         return potential
-
-    # ------------------------------------------------------------------ observation
 
     def _our_last_delivery(self) -> torch.Tensor:
         """When our robot's last measurement reached the filter: its capture stamp plus the

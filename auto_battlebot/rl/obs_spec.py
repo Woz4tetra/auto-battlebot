@@ -166,9 +166,9 @@ def ray_discs(
 ) -> torch.Tensor:
     """Nearest hit [W, R] of each ray on any masked disc ([W, H]); inf when none. A ray whose
     origin is inside a disc hits it at 0."""
-    m = origin[:, None, :] - centre  # [W, H, 2]
-    b = (m[:, None, :, :] * direction[:, :, None, :]).sum(-1)  # [W, R, H]
-    c = (m * m).sum(-1) - radius * radius  # [W, H]
+    m = origin[:, None, :] - centre
+    b = (m[:, None, :, :] * direction[:, :, None, :]).sum(-1)
+    c = (m * m).sum(-1) - radius * radius
     c = c[:, None, :].expand_as(b)
     disc = b * b - c
     inside = c <= 0.0
@@ -254,7 +254,7 @@ def build_v1(inp: ObsInputs) -> torch.Tensor:
     )
 
     angles = inp.our_yaw[:, None] + ray_angles(dtype, device)[None, :]
-    direction = torch.stack([torch.cos(angles), torch.sin(angles)], dim=-1)  # [W, R, 2]
+    direction = torch.stack([torch.cos(angles), torch.sin(angles)], dim=-1)
     walls = ray_box(inp.our_xy, direction, inp.field_half)
     present = inp.hazard_present
     solid_mask = present & (inp.hazard_kind != HOLE)

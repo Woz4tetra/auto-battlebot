@@ -27,7 +27,6 @@ from auto_battlebot.compat import tomllib
 
 OVERRIDES_PATH = Path(__file__).with_name("field_overrides.toml")
 
-# Frames whose arena cannot be read off the filename. Kept and reported, never a probe.
 UNCLASSIFIED = "unclassified"
 
 # A merge artifact: merge_segmask_datasets.py re-imported a tree that was already
@@ -46,7 +45,6 @@ _SKYCAM_RE = re.compile(r"(?:^|[_-])SkyCam-([A-Z])(?:[_-]|$)")
 
 _ZED_RE = re.compile(r"^zed_(\d{4})-")
 _MINI_BOT_RE = re.compile(r"^mini_bot_")
-# Our own recordings are named by capture time and nothing else.
 _OWN_RECENT_RE = re.compile(r"^(\d{4})-(\d{2})-\d{2}[T_]\d{2}-\d{2}-\d{2}")
 
 # Frame-index tails, in the two conventions the corpus uses. Stripping them collapses
@@ -117,11 +115,7 @@ def parse_scene(stem: str) -> str:
 
 @lru_cache(maxsize=1)
 def scene_overrides() -> dict[str, str]:
-    """Scene -> field corrections found by the Phase-0 spot-check.
-
-    The parser only sees the filename, and for a handful of recordings the filename is
-    wrong about the arena. See field_overrides.toml for what was corrected and why.
-    """
+    """Scene to field corrections from field_overrides.toml."""
     if not OVERRIDES_PATH.exists():
         return {}
     return dict(tomllib.loads(OVERRIDES_PATH.read_text()).get("scenes", {}))

@@ -307,7 +307,7 @@ def parse_end2end_detections(
     if prediction.shape == (num_features, num_predictions):
         rows = prediction.T
     else:
-        rows = prediction  # already (num_predictions, num_features)
+        rows = prediction
 
     num_kpt_vals = max(0, num_features - 6)  # 4 bbox + 1 conf + 1 class_id
     num_keypoints = num_kpt_vals // 3
@@ -338,11 +338,7 @@ def scale_detections_to_frame(
     input_h: int = 0,
     scale_y: float | None = None,
 ) -> list[DetectionTuple]:
-    """Map box and keypoint coords from input space back to the original frame.
-
-    `scale` is the x scale; `scale_y` defaults to it, which is the letterbox case. A
-    stretched input has two different scales and needs both.
-    If input_w/input_h are set and box coords are in [0,1], scale from normalized to pixel first."""
+    """Map box and keypoint coords from input space back to the original frame."""
     if not detections:
         return []
     scale_x = scale
@@ -435,7 +431,6 @@ def resolve_model_layout(
     else:
         num_features, num_predictions = dim1, dim2
     if is_end2end:
-        # Post-NMS layout: [x1,y1,x2,y2, conf, class_id, kp0_x, kp0_y, kp0_vis, ...]
         num_keypoints = max(0, (num_features - 6)) // 3
         num_classes = -1  # not used for end2end path
     elif num_classes <= 0 or num_keypoints < 0:
@@ -444,12 +439,7 @@ def resolve_model_layout(
 
 
 class TrtYoloModel:
-    """A loaded TensorRT YOLO engine with preprocessing, inference, and decode.
-
-    Handles single-output pose/detect engines and multi-output seg engines (the 3-dim
-    detection head is used; mask prototype outputs are ignored). `infer` returns
-    detections in original frame pixel coordinates.
-    """
+    """A loaded TensorRT YOLO engine with preprocessing, inference, and decode."""
 
     def __init__(
         self,
@@ -487,7 +477,6 @@ class TrtYoloModel:
                     raise RuntimeError("Engine must have exactly one input")
                 input_name = name
             elif output_name is None and len(self.context.get_tensor_shape(name)) == 3:
-                # Detection head. Seg engines also expose 4-dim mask prototypes; skip them.
                 output_name = name
         if input_name is None or output_name is None:
             raise RuntimeError("Engine must have one input and one 3-dim detection output")

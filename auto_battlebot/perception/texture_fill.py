@@ -52,22 +52,7 @@ def _mirror_pass(image: np.ndarray, unseen: np.ndarray) -> np.ndarray:
 
 
 def mirror_fill(image: np.ndarray, unseen: np.ndarray, max_passes: int = 8) -> np.ndarray:
-    """Fill `unseen` pixels of `image` by reflection, repeating until the hole is closed.
-
-    A pass reflects each hole pixel across its nearest seen pixel and takes the value there
-    if that point was seen. A hole deeper than the seen band beside it is not closed in one
-    pass, so later passes reflect what earlier ones filled: a strip of wall 0.8 m tall ends
-    up tiled, flipped, down a 2 m wall. Pixels still unseen after `max_passes` keep their
-    value.
-
-    Args:
-        image: HxW or HxWxC texture; not modified.
-        unseen: HxW bool, True where the photo saw nothing.
-        max_passes: upper bound on reflection passes.
-
-    Returns:
-        The filled copy of `image`.
-    """
+    """Fill unseen pixels of image by repeated reflection across the nearest seen pixel."""
     out: np.ndarray = image.copy()
     remaining = unseen.copy()
     for _ in range(max_passes):
@@ -81,11 +66,7 @@ def mirror_fill(image: np.ndarray, unseen: np.ndarray, max_passes: int = 8) -> n
 
 
 def largest_seen_rectangle(seen: np.ndarray, step: int = 4) -> tuple[int, int, int, int]:
-    """The largest axis-aligned rectangle of seen pixels, as (row0, row1, col0, col1).
-
-    Maximal rectangle over the histogram of seen runs, row by row, on a `step`-downsampled
-    mask; the bounds are shrunk to the downsampled cells that are wholly seen.
-    """
+    """Largest axis-aligned rectangle of seen pixels as (row0, row1, col0, col1)."""
     height, width = seen.shape
     cells = seen[: height // step * step, : width // step * step]
     cells = np.asarray(cells.reshape(height // step, step, width // step, step).all(axis=(1, 3)))
@@ -122,13 +103,7 @@ def flatten_luminance(image: np.ndarray, sigma_px: float) -> np.ndarray:
 def offset_tile(
     patch: np.ndarray, shape: tuple[int, int], overlap: float = 0.25, seed: int = 0
 ) -> np.ndarray:
-    """Cover an image of `shape` with copies of `patch`, blended where they overlap.
-
-    Copies step by the patch size less `overlap` of it, each row of copies shifted by a
-    random fraction of a step, and overlaps are cross-faded with linear ramps. The patch's
-    low-frequency brightness is flattened first (`flatten_luminance`) so the fade does not
-    have to hide a lighting step.
-    """
+    """Cover an image of shape with blended copies of patch."""
     height, width = shape
     tile_h, tile_w = patch.shape[:2]
     flat = flatten_luminance(patch, min(tile_h, tile_w) / 4).astype(np.float32)

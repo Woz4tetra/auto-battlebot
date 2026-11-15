@@ -78,7 +78,6 @@ class ModelIndex:
     rotor_bodies: np.ndarray
     rotor_dofs: np.ndarray
     rotor_qpos: np.ndarray
-    # Belt-driven wheels, in WHEEL_JOINTS order; empty on a two-wheeled robot.
     follower_dofs: np.ndarray
     follower_qpos: np.ndarray
 

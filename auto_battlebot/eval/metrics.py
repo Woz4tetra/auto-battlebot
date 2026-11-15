@@ -18,7 +18,7 @@ PCK_FRACTION = 0.1
 FRONT_IDX = 0
 BACK_IDX = 1
 HEADING_THRESHOLD_DEG = 10.0
-HEADING_MIN_VECTOR_PX = 1e-6  # skip when front/back coincide; angle is undefined
+HEADING_MIN_VECTOR_PX = 1e-6
 HEADING_ACC_KEY = f"kp_heading_acc@{HEADING_THRESHOLD_DEG:g}deg"
 PCK_KEY = f"kp_pck@{PCK_FRACTION:g}"
 
@@ -113,10 +113,7 @@ def match_frame(frame: Frame, taxonomy: Taxonomy, level: str, iou_threshold: flo
 def pr_per_frame(
     frames: list[Frame], taxonomy: Taxonomy, level: str, iou_threshold: float
 ) -> tuple[dict[str, np.ndarray], dict[tuple[str, str], int]]:
-    """Per-frame TP/FP/FN/wrong-class count arrays (length = #frames) plus confusion.
-
-    Keeping the counts per frame lets the bootstrap resample frames and re-sum, rather
-    than recomputing matches on every resample."""
+    """Per-frame TP/FP/FN/wrong-class counts plus confusion."""
     n = len(frames)
     tp = np.zeros(n)
     fp = np.zeros(n)
@@ -160,10 +157,7 @@ def pr_from_counts(counts: dict[str, np.ndarray]) -> dict[str, float]:
 
 
 def _heading_error_deg(gt_kps: np.ndarray, pred_kps: np.ndarray) -> float | None:
-    """Absolute angle (degrees) between GT and predicted front->back vectors.
-
-    Returns None when the pair can't define a heading: fewer than two keypoints, front
-    or back not visible in GT, or either vector shorter than HEADING_MIN_VECTOR_PX."""
+    """Absolute angle in degrees between GT and predicted front-to-back vectors."""
     if len(gt_kps) <= max(FRONT_IDX, BACK_IDX):
         return None
     if gt_kps[FRONT_IDX, 2] <= 0 or gt_kps[BACK_IDX, 2] <= 0:
@@ -178,11 +172,7 @@ def _heading_error_deg(gt_kps: np.ndarray, pred_kps: np.ndarray) -> float | None
 
 
 def keypoint_per_frame(frames: list[Frame], iou_threshold: float) -> dict[str, np.ndarray]:
-    """Per-frame keypoint sufficient statistics over IoU-matched box pairs.
-
-    Returns count/sum arrays (length = #frames) so the bootstrap can resample frames and
-    re-sum. Pixel error and PCK are per visible keypoint; heading is per matched box.
-    Matching is class-blind, so these are label-level independent."""
+    """Per-frame keypoint sufficient statistics over IoU-matched box pairs."""
     n = len(frames)
     stats = {
         key: np.zeros(n)

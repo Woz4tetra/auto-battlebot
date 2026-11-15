@@ -122,11 +122,6 @@ def sticks(a_percent: Any, b_percent: Any) -> tuple[np.ndarray, np.ndarray]:
     )
 
 
-# ---------------------------------------------------------------------------
-# Live robot clock
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class ClockStatus:
     offset_ms: float

@@ -41,12 +41,7 @@ NOMINAL_FIELD_SIZE_M = 2.4384
 
 
 class CameraGeometry(Protocol):
-    """Intrinsics plus a field-frame camera pose.
-
-    `FrameGeometry` reads one from an exported sidecar; `floor_background.PoseGeometry`
-    builds one from a pose matrix recovered off a recording's tf chain. The projection
-    helpers here and the floor warps in `floor_background` take either.
-    """
+    """Intrinsics plus a field-frame camera pose."""
 
     fx: float
     fy: float
@@ -97,9 +92,7 @@ def load_camera_info(subdataset: Path) -> tuple[float, float, float, float] | No
 def load_frame_geometry(
     image_path: Path, methods: tuple[str, ...] = USABLE_METHODS
 ) -> FrameGeometry | None:
-    """Geometry for one eval image, or None when the pose is missing or untrustworthy.
-
-    `image_path` is <subdataset>/images/<stamp_ns>.png, which locates both sidecars."""
+    """Geometry for one eval image, or None when the pose is missing or untrustworthy."""
     subdataset = image_path.parent.parent
     intrinsics = load_camera_info(subdataset)
     if intrinsics is None:
@@ -130,10 +123,7 @@ def load_frame_geometry(
 def pixels_to_floor(
     points_px: np.ndarray, geometry: FrameGeometry, plane_height_m: float = 0.0
 ) -> np.ndarray:
-    """(N, 2) pixels to (N, 3) field-frame points on the plane z = plane_height_m.
-
-    Rows that do not intersect the plane in front of the camera come back as NaN, which is
-    what a pixel above the horizon does."""
+    """Project (N, 2) pixels onto the plane z = plane_height_m; NaN where the ray misses."""
     points = np.asarray(points_px, dtype=np.float64).reshape(-1, 2)
     out = np.full((len(points), 3), np.nan)
     if len(points) == 0:
@@ -151,7 +141,6 @@ def pixels_to_floor(
     rays_field = rays_camera @ geometry.tf_field_from_camera[:3, :3].T
     origin = geometry.camera_position
 
-    # Intersect with the horizontal plane; only descending rays reach it.
     denominator = rays_field[:, 2]
     with np.errstate(divide="ignore", invalid="ignore"):
         distances = (plane_height_m - origin[2]) / denominator

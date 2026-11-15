@@ -192,17 +192,13 @@ def tag_pose_field(
     t_fc: np.ndarray,
     yaw_offset: float,
 ) -> tuple[float, float, float, np.ndarray, np.ndarray] | None:
-    """Solve the tag pose and express its (x, y, yaw) in the floor frame. None if PnP fails.
-
-    Also returns the raw camera-frame (rvec, tvec) so callers can draw the tag axes in a preview.
-    """
+    """Solve the tag pose and express its (x, y, yaw) in the floor frame."""
     corners = np.asarray(corners, dtype=np.float64).reshape(-1, 2)
     ok, rvec, tvec = cv2.solvePnP(obj, corners, k, d, flags=cv2.SOLVEPNP_IPPE_SQUARE)
     if not ok:
         return None
     r_ct, _ = cv2.Rodrigues(rvec)
     pos_cam = tvec.reshape(3)
-    # Floor coords: X_f = R_fc^T (X_c - t_fc).
     pos_field = r_fc.T @ (pos_cam - t_fc)
     xaxis_field = r_fc.T @ (r_ct @ np.array([1.0, 0.0, 0.0]))
     yaw = math.atan2(xaxis_field[1], xaxis_field[0]) + yaw_offset

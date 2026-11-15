@@ -66,8 +66,7 @@ class Sidestep:
         self.back_off = torch.zeros(worlds, device=device)
 
     def __call__(self, tr: dict[str, torch.Tensor]) -> torch.Tensor:
-        """[W, 2] actions from `WarpNavEnv.truth()` plus `reach`, the centre distance at which
-        the two footprints touch along the line between them ([W])."""
+        """Actions from WarpNavEnv.truth() plus reach."""
         cfg = self.cfg
         xy, yaw, opp_xy, opp_yaw = tr["xy"], tr["yaw"], tr["opp_xy"], tr["opp_yaw"]
         rel = xy - opp_xy
@@ -75,7 +74,6 @@ class Sidestep:
         phi = wrap(bearing - opp_yaw)
         switch = math.radians(cfg.switch_deg)
         self.side = torch.where(phi > switch, 1.0, torch.where(phi < -switch, -1.0, self.side))
-        # Round the circle away from its nose: the side we are on, towards its rear.
         aim = bearing + self.side * math.radians(cfg.orbit_lead_deg)
         waypoint = opp_xy + cfg.orbit_m * torch.stack([torch.cos(aim), torch.sin(aim)], 1)
         behind = phi.abs() > math.radians(cfg.attack_deg)

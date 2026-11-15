@@ -101,8 +101,7 @@ def motor_polarity(session: Session) -> float:
 
 @dataclass
 class WindowBatch:
-    """Windows ready for rollout. All tape arrays share one grid: `dt`, `pad` steps of history
-    before the window start, then `steps` steps of rollout."""
+    """Windows ready to roll out on one shared tape grid."""
 
     dt: float
     steps: int
@@ -120,13 +119,12 @@ class WindowBatch:
     firmware: np.ndarray = field(default_factory=lambda: np.zeros((0, 0, 6)))
     # Per window: +1 if a positive logged motor command drives forward (see motor_polarity).
     polarity: np.ndarray = field(default_factory=lambda: np.zeros(0))
-    # Per window, raw measurements inside (0, horizon]: time since start and values.
     meas_t: list[np.ndarray] = field(default_factory=list)
     meas_x: list[np.ndarray] = field(default_factory=list)
     meas_y: list[np.ndarray] = field(default_factory=list)
     meas_yaw: list[np.ndarray] = field(default_factory=list)
     meas_pitch: list[np.ndarray] = field(default_factory=list)
-    noise_xy: np.ndarray = field(default_factory=lambda: np.zeros(0))  # (N,)
+    noise_xy: np.ndarray = field(default_factory=lambda: np.zeros(0))
     noise_yaw: np.ndarray = field(default_factory=lambda: np.zeros(0))
     noise_pitch: np.ndarray = field(default_factory=lambda: np.zeros(0))
     # Per window, one sigma per measurement. Tag fixes carry the session noise floor; a YOLO fix
@@ -179,7 +177,6 @@ class WindowBatch:
         gain_l, gain_r = side_gains(np.array([p.lr_gain_ratio for p in plist]))
         volts = np.empty((n, self.steps, 2))
         zero = np.empty((n, self.steps, 2))
-        # Delay per unique value (candidates share it across their windows).
         for d in np.unique(delay):
             rows = np.nonzero(delay == d)[0]
             shifted = delay_tape(np.moveaxis(self.u_raw[rows], 1, 2), self.dt, float(d))
@@ -242,7 +239,6 @@ def build_batch(
         if "rejected" in meas_df:
             meas_df = meas_df[~meas_df["rejected"].astype(bool)]
         m_t = meas_df["stamp_ns"].to_numpy(np.int64)
-        # Rows from a second source (source != "tag") keep their own sigma; tag rows use the floor.
         tag_row = (
             (meas_df["source"] == "tag").to_numpy()
             if "source" in meas_df
@@ -257,7 +253,6 @@ def build_batch(
                 continue
             start = int(win["start_ns"])
             grid = start + ((np.arange(-pad, steps) * dt) * 1e9).astype(np.int64)
-            # Zero-order hold of the latest event at or before each grid time.
             at = np.searchsorted(cmd_t, grid, side="right") - 1
             valid = at >= 0
             at = np.clip(at, 0, len(cmd_t) - 1)

@@ -91,11 +91,6 @@ class WaveformDecl:
     motion: bool = True
 
 
-# ---------------------------------------------------------------------------
-# Segment assembly
-# ---------------------------------------------------------------------------
-
-
 class _Builder:
     """Accumulates held cells into a piecewise program."""
 
@@ -160,11 +155,6 @@ def cap_amplitudes(amplitudes: Sequence[float], cap: float | None) -> list[float
     return [round(a * scale, 3) for a in values]
 
 
-# ---------------------------------------------------------------------------
-# Generators
-# ---------------------------------------------------------------------------
-
-
 def _build_step(d: WaveformDecl) -> Program:
     """Ladder of held commands, each returning to zero, optionally shuttling direction.
 
@@ -180,7 +170,6 @@ def _build_step(d: WaveformDecl) -> Program:
     """
     p = d.params
     amps = cap_amplitudes(p.get("amplitudes", [0.25, 0.5, 0.75, 1.0]), p.get("cap"))
-    # Same rung count either way, so shuttle still pairs each forward step with a reverse one.
     rev_amps = cap_amplitudes(amps, p.get("reverse_cap"))
     secondary = float(p.get("secondary", 0.0))
     hold = max(float(p.get("hold_s", MIN_HOLD_S)), MIN_HOLD_S)
@@ -191,8 +180,6 @@ def _build_step(d: WaveformDecl) -> Program:
         cells = ((1.0, amp), (-1.0, rev)) if shuttle else ((1.0, amp),)
         for sign, mag in cells:
             lin, ang = _axes(d.channel, sign * mag, sign * secondary)
-            # Signed label. The two directions of a rung no longer share a magnitude, so a
-            # label naming only the forward one would misreport the reverse cell.
             b.hold(hold, lin, ang, f"step_{sign * mag:+g}")
             b.coast(coast, "coast")
     return _finish(d, b)
@@ -424,11 +411,6 @@ def _finish(d: WaveformDecl, b: _Builder) -> Program:
     )
 
 
-# ---------------------------------------------------------------------------
-# Cell boundaries
-# ---------------------------------------------------------------------------
-
-
 def _is_rest(seg: ProtocolSegment) -> bool:
     return abs(seg.linear) < 1e-6 and abs(seg.angular) < 1e-6
 
@@ -488,10 +470,6 @@ def build(decl: WaveformDecl) -> Program:
         raise ValueError(f"{decl.name}: no builder for kind {decl.kind!r}") from None
     return builder(decl)
 
-
-# ---------------------------------------------------------------------------
-# Catalog
-# ---------------------------------------------------------------------------
 
 _META_KEYS = {"kind", "channel", "role", "label", "trim", "motion"}
 

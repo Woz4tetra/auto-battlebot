@@ -178,7 +178,6 @@ class BatchedMixer:
         b = np.asarray(b_percent, dtype=float)
         auto = np.asarray(auto_steer, dtype=bool)
 
-        # Engaging: hold the heading the robot has now.
         engage = auto & ~s.active
         s.setpoint = np.where(engage, heading_deg, s.setpoint)
         for name in ("capture_time", "integral", "output", "rate_command"):

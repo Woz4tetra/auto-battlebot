@@ -290,7 +290,6 @@ def closed_loop_replay(
             offset = fw[0, 5] - heading_from_yaw(float(batch.state.yaw[i]))
             rate = gyro_from_yaw_rate(float(batch.state.yaw_rate[i]))
             mixer.resume(fw[0, 0], fw[0, 1], fw[0, 5], rate, fw[0, 2])
-        # Commands already in flight at the window start are the logged ones.
         queue = [tuple(batch.u_raw[i, batch.pad - delay + k]) for k in range(delay)]
         for t in range(batch.steps):
             if t % record_every == 0:

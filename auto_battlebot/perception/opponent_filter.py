@@ -147,8 +147,6 @@ class OpponentFilter:
         self.consecutive_flips = torch.zeros(b, dtype=torch.long, device=self.device)
         self.consecutive_rejects = torch.zeros(b, dtype=torch.long, device=self.device)
         self.output_stale = torch.zeros(b, dtype=torch.bool, device=self.device)
-        # Yaw of the latest accepted measurement's rotation: what the C++ keeps in
-        # track.description and renders when the heading is unknown.
         self.measured_yaw = torch.zeros(b, device=self.device, dtype=dtype)
 
         c = SNAPSHOT_CAPACITY
@@ -158,8 +156,6 @@ class OpponentFilter:
         self.snap_heading = torch.zeros(b, c, dtype=torch.bool, device=self.device)
         self.snap_start = torch.zeros(b, dtype=torch.long, device=self.device)
         self.snap_count = torch.zeros(b, dtype=torch.long, device=self.device)
-
-    # ---------------------------------------------------------------- helpers
 
     def _rows(self, value: float | torch.Tensor) -> torch.Tensor:
         return torch.as_tensor(value, device=self.device, dtype=self.dtype).expand(self.batch)
@@ -189,7 +185,6 @@ class OpponentFilter:
         stamps = torch.gather(self.snap_stamp, 1, order)
         valid = offsets[None, :] < self.snap_count[:, None]
         ok = valid & (stamps <= target[:, None])
-        # Snapshots are time ordered, and the C++ scan stops at the first one past the target.
         leading = torch.cumprod(ok.long(), dim=1).sum(dim=1)
         rewound = mask & (leading > 0)
         rows = rewound.nonzero(as_tuple=True)[0]
@@ -211,15 +206,12 @@ class OpponentFilter:
             return
         dt = torch.clamp(dt_total, max=MAX_INTEGRATION_STEP_S)
         age = self.stamp - self.last_measured
-        # Only the part of the step before the coast horizon moves the state.
         move_dt = torch.where(
             dt_total > MAX_INTEGRATION_STEP_S,
             torch.zeros_like(dt),
             torch.minimum(dt, torch.clamp(self.opponent_max_coast_s - age, min=0.0)),
         )
 
-        # The state holds past the horizon; the covariance always propagates through the full
-        # transition, so the position sigma keeps growing with the velocity uncertainty.
         f = torch.eye(N, device=self.device, dtype=self.dtype).repeat(self.batch, 1, 1)
         f[:, PX, VX] = dt
         f[:, PY, VY] = dt
@@ -244,7 +236,6 @@ class OpponentFilter:
         x[:, THETA] = self.x[:, THETA] + move_dt * self.x[:, OMEGA]
         x[:, THETA] = torch.where(move_dt > 0.0, wrap_angle(x[:, THETA]), self.x[:, THETA])
         p = _symmetrize(f @ self.p @ f.transpose(1, 2) + q)
-        # Caps, in the C++ order: velocity, heading, yaw rate. A row and its column scale together.
         velocity_cap = self.initial_velocity_sigma**2
         yaw_rate_cap = self.initial_yaw_rate_sigma**2
         heading_cap = torch.full_like(velocity_cap, MAX_HEADING_VARIANCE)
@@ -352,8 +343,6 @@ class OpponentFilter:
         self.snap_start[rows] = 0
         self.snap_count[rows] = 0
         self._push_snapshot(mask)
-
-    # ---------------------------------------------------------------- public API
 
     def update(
         self,

@@ -110,7 +110,6 @@ def _add_static_geoms(
         half_w, half_h = arena[0] / 2.0, arena[1] / 2.0
         t = WALL_THICKNESS_M / 2.0
         z = WALL_HEIGHT_M / 2.0
-        # Inner faces sit on the arena boundary.
         walls = (
             ([half_w + t, 0.0, z], [t, half_h + 2 * t, z]),
             ([-half_w - t, 0.0, z], [t, half_h + 2 * t, z]),
@@ -134,7 +133,6 @@ def _add_static_geoms(
             **common,
         )
     for i, block in enumerate(moving_blocks):
-        # Resting on the floor: set_moving_blocks moves x, y and yaw, never the height.
         height = BLOCK_HEIGHT_M if block.box is None else block.box[2]
         body = spec.worldbody.add_body(
             name=f"{MOVING_BLOCK_PREFIX}{i}",
@@ -257,10 +255,7 @@ class ClosedLoopSim:
         dt: float,
         on_substep: Callable[[float, float], bool] | None = None,
     ) -> None:
-        """Hold the stick for dt. `on_substep(x, y)` returning True ends the tick early.
-
-        wall_contact and block_contact report whether any substep of this tick touched one.
-        """
+        """Hold the stick for dt; on_substep returning True ends the tick early."""
         a_percent = -100.0 * float(np.clip(linear, -1.0, 1.0))
         b_percent = -100.0 * float(np.clip(angular, -1.0, 1.0))
         self.wall_contact = False
@@ -293,8 +288,7 @@ class ClosedLoopSim:
 
     @property
     def up_z(self) -> float:
-        """The z component of the chassis +Z axis in the field frame, 1 - 2(x^2 + y^2) for a wxyz
-        quaternion, read straight off the free joint: 1 upright, -1 on its back."""
+        """Z component of the chassis +Z axis in the field frame."""
         _, qx, qy, _ = self.data.qpos[3:7]
         return float(1.0 - 2.0 * (qx * qx + qy * qy))
 

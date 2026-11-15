@@ -50,7 +50,6 @@ FRONT_FACE_MARGIN_M = 0.01
 SWEEP_MARGIN_M = 0.005
 SWEEP_ANGLES = 16
 
-# Firmware state columns, one row per world.
 FW_SETPOINT = 0
 FW_CAPTURING = 1
 FW_CAPTURE_TIME = 2
@@ -141,8 +140,7 @@ def firmware_mix(
     dt: float,
     upside: int,
 ) -> wp.vec2:
-    """main.cpp: invert throttle when upside down, run the yaw loop on fresh BNO055 samples, mix.
-    `a_percent` is the CRSF value before the inversion. Returns (left, right) percent."""
+    """main.cpp loop: invert when upside down, yaw loop on fresh samples, mix."""
     a = a_percent
     if upside == 1:
         a = -a
@@ -300,7 +298,7 @@ def move_mocap(
     body = moving[i]
     p = mocap_pos[w, body]
     mocap_pos[w, body] = wp.vec3(p[0] + velocity[w, i, 0] * dt, p[1] + velocity[w, i, 1] * dt, p[2])
-    q = mocap_quat[w, body]  # MuJoCo order (w, x, y, z) stored in warp's quat slots
+    q = mocap_quat[w, body]
     yaw = wp.atan2(2.0 * (q[0] * q[3] + q[1] * q[2]), 1.0 - 2.0 * (q[2] * q[2] + q[3] * q[3]))
     yaw = yaw + velocity[w, i, 2] * dt
     mocap_quat[w, body] = wp.quat(wp.cos(0.5 * yaw), 0.0, 0.0, wp.sin(0.5 * yaw))

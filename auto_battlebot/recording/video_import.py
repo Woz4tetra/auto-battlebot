@@ -153,8 +153,7 @@ def iter_access_units(
 
 
 def camera_calibration(width: int, height: int, focal_px: float, stamp_ns: int) -> Any:
-    """A pinhole model with no distortion, which is all we can honestly claim for footage whose
-    lens we never measured."""
+    """A pinhole model with no distortion for footage with an unmeasured lens."""
     k = [focal_px, 0.0, width / 2.0, 0.0, focal_px, height / 2.0, 0.0, 0.0, 1.0]
     return fg.CameraCalibration(
         timestamp=fg.Timestamp(sec=stamp_ns // _NS, nsec=stamp_ns % _NS),

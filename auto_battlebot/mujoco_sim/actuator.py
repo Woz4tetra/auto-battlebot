@@ -83,12 +83,7 @@ class MotorConstants:
 def shape_command(
     u: np.ndarray, deadzone: float | np.ndarray, curve: float | np.ndarray
 ) -> np.ndarray:
-    """Per-motor command in [-1, 1] to the fraction of pack voltage applied.
-
-    Commands inside the deadzone map to exactly zero, which the rollout reads as the zero-command
-    state (brake or coast). Outside it the command is rescaled to start from zero and bent by
-    the one-term curve, which keeps g(0) = 0 and g(1) = 1.
-    """
+    """Map per-motor command in [-1, 1] to the fraction of pack voltage applied."""
     u = np.clip(np.asarray(u, dtype=float), -1.0, 1.0)
     dz = np.asarray(deadzone, dtype=float)
     mag = np.clip((np.abs(u) - dz) / (1.0 - dz), 0.0, 1.0)

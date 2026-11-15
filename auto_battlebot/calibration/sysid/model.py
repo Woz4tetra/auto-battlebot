@@ -118,7 +118,6 @@ STEPS = np.array([p.step for p in PARAMS])
 LO = np.array([PARAM_BOUNDS[n][0] for n in NAMES])
 HI = np.array([PARAM_BOUNDS[n][1] for n in NAMES])
 
-# The free parameters of each ladder rung, delay included when the rung uses it.
 RUNG_FREE: dict[str, list[str]] = {
     s.name: s.free_names() + (["delay_s"] if s.use_delay else []) for s in MODEL_LADDER
 }
@@ -131,11 +130,6 @@ def params_of(theta: np.ndarray) -> PlantParams:
 def fills_of(std: np.ndarray) -> np.ndarray:
     out: np.ndarray = np.minimum(1.0, TARGET_SD / np.maximum(std, 1e-12))
     return out
-
-
-# ---------------------------------------------------------------------------
-# Sub-windows
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -159,7 +153,7 @@ class SubWindow:
     b_percent: np.ndarray
     auto_steer: np.ndarray  # bool (SUB_N,)
     loop_seed: dict[str, float] = field(default_factory=dict)
-    end_xy: np.ndarray | None = None  # measured position at the end, for the holdout score
+    end_xy: np.ndarray | None = None
 
 
 @dataclass
@@ -376,11 +370,6 @@ def correlation(cov: np.ndarray) -> np.ndarray:
     return out
 
 
-# ---------------------------------------------------------------------------
-# Fit
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class FitResult:
     theta: np.ndarray
@@ -446,11 +435,6 @@ def fit(
     return FitResult(theta, information(j), scale, worst, n)
 
 
-# ---------------------------------------------------------------------------
-# Closed-loop prediction: holdout and ghosts
-# ---------------------------------------------------------------------------
-
-
 def _loop_seed(subs: Sequence[SubWindow]) -> LoopState:
     def col(key: str, default: float = 0.0) -> np.ndarray:
         return np.array([float(s.loop_seed.get(key, default)) for s in subs])
@@ -502,11 +486,6 @@ def holdout_error(
     end = np.stack([s.end_xy for s in scored if s.end_xy is not None])
     err = np.hypot(out["x"][:, -1] - end[:, 0], out["y"][:, -1] - end[:, 1])
     return float(np.sqrt(np.mean(err**2)))
-
-
-# ---------------------------------------------------------------------------
-# Suggestions
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)

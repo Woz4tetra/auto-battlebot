@@ -174,14 +174,12 @@ def window_errors(batch: WindowBatch, qpos: np.ndarray, record_dt: float) -> Win
             yaw_sigma[i, j] = batch.meas_sigma_yaw[i][k] if own else batch.noise_yaw[i]
             pos_err[i, j] = float(np.hypot(px[k] - batch.meas_x[i][k], py[k] - batch.meas_y[i][k]))
             terms.append(float(_huber(np.asarray(pos_err[i, j] / pos_sigma[i, j]))))
-            # A source without heading (NaN yaw) scores position only.
             if np.isfinite(batch.meas_yaw[i][k]) and np.isfinite(yaw_sigma[i, j]):
                 yaw_err[i, j] = float(_wrap(np.asarray(pyaw[k] - batch.meas_yaw[i][k])))
                 terms.append(float(_huber(np.asarray(yaw_err[i, j] / yaw_sigma[i, j]))))
         has_pitch = np.isfinite(batch.meas_pitch[i])
         if batch.kind[i] == "nose_lift" and has_pitch.any():
             pp = np.interp(mt[has_pitch], sample_t, pose["pitch"][i])
-            # Both are the rotation about body +y (FLU), so nose-down is positive in each.
             diff = pp - batch.meas_pitch[i][has_pitch]
             pitch_rms[i] = float(np.sqrt(np.mean(diff**2)))
             resid = diff / batch.noise_pitch[i]
@@ -340,8 +338,7 @@ def params_dict(params: PlantParams) -> dict[str, float | bool]:
 
 
 def restart_spread(results: list[FitResult]) -> dict[str, dict[str, float]]:
-    """Per parameter, spread of the restarts' best values in unit-cube terms, to judge
-    whether the fit identifies it (plan validation check 6)."""
+    """Per-parameter spread of restart best values in unit-cube terms."""
     out = {}
     for spec in PARAM_SPECS:
         units = np.array([spec.to_unit(getattr(r.best, spec.name)) for r in results])
@@ -358,8 +355,7 @@ def restart_spread(results: list[FitResult]) -> dict[str, dict[str, float]]:
 def tradeoff_pairs(
     results: list[FitResult], threshold: float = 0.8
 ) -> list[tuple[str, str, float]]:
-    """Parameter pairs whose restart values correlate past `threshold`: candidates to pin one
-    of from an outside measurement."""
+    """Parameter pairs whose restart values correlate past threshold."""
     if len(results) < 3:
         return []
     units = np.array([[s.to_unit(getattr(r.best, s.name)) for s in PARAM_SPECS] for r in results])

@@ -94,8 +94,7 @@ class PolicyOpponents:
             net.load_state_dict(state)
 
     def draw(self, mask: torch.Tensor, probability: float, gen: torch.Generator) -> None:
-        """Pick each reset world's driver: scripted, or with `probability` one of the policies
-        that has a network, uniformly."""
+        """Pick each reset world's driver: scripted or one of the networked policies."""
         ready = [k + 1 for k, net in enumerate(self.nets) if net is not None]
         if not ready or probability <= 0.0:
             self.driver = torch.where(mask, torch.zeros_like(self.driver), self.driver)
@@ -145,7 +144,6 @@ class PolicyOpponents:
         self.hist_speed = torch.cat([inp.our_speed[:, None], self.hist_speed[:, :-1]], 1)
         self.hist_rate = torch.cat([inp.our_yaw_rate[:, None], self.hist_rate[:, :-1]], 1)
 
-        # Command delay at the policy step: ring slot 0 is this step's command.
         self.ring = torch.cat([saturate(action)[:, None], self.ring[:, :-1]], 1)
         lin = torch.zeros(self.w, device=self.device, dtype=self.dtype)
         ang = torch.zeros_like(lin)

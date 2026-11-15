@@ -30,10 +30,6 @@ from typing import Any
 
 import numpy as np
 
-# ---------------------------------------------------------------------------
-# Live segmentation
-# ---------------------------------------------------------------------------
-
 PLATEAU_TOL = 0.06
 HOLD_S = 0.5
 SNAP_S = 0.08
@@ -63,8 +59,8 @@ EDGE_ROWS = (
 
 @dataclass
 class Plateau:
-    start: int  # grid index, inclusive
-    end: int  # exclusive
+    start: int
+    end: int
     mean: float
     other_mean: float  # the other channel's mean over the same samples
     loop_frac: float  # fraction of samples with the yaw loop on
@@ -136,7 +132,6 @@ class ManeuverSegmenter:
         self.k = 0
         self.ch = [_Channel(), _Channel()]
         self.history: deque[tuple[float, float]] = deque(maxlen=int(round(6.0 / dt)))
-        # 2-D plateau for the coverage map's "held" rings.
         self._held_start = 0
         self._held_ref = (0.0, 0.0)
         self._held_loop = 0.0
@@ -172,8 +167,6 @@ class ManeuverSegmenter:
         self.history.append(u)
         self.k = k + 1
         return events
-
-    # -- plateaus, holds, edges ---------------------------------------------------------
 
     def _plateau(self, c: int, end: int) -> Plateau:
         ch = self.ch[c]
@@ -307,8 +300,6 @@ class ManeuverSegmenter:
             informs=informs,
         )
 
-    # -- 2-D held cells and creeps ------------------------------------------------------
-
     def _held(self, k: int, u: tuple[float, float], loop_on: bool) -> list[Event]:
         ref = self._held_ref
         if abs(u[0] - ref[0]) <= PLATEAU_TOL and abs(u[1] - ref[1]) <= PLATEAU_TOL:
@@ -386,10 +377,6 @@ def edges_of(
         out += seg.push(float(throttle[-1]), float(steer[-1]), bool(loop_on[-1]))
     return [e for e in out if e.kind == "edge"]
 
-
-# ---------------------------------------------------------------------------
-# Offline session menu (check_sysid_recordings.py)
-# ---------------------------------------------------------------------------
 
 MOVING = 0.05  # |stick| above this counts as driving
 HOLD_TOL = 0.03

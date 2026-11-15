@@ -1,9 +1,4 @@
-"""Run one candidate engine over a GT dataset and reduce it to summary rows.
-
-This is the seam the CLI drives: loading, inference, metrics, and plots each live in
-their own module, and the paired bootstrap consumes the stats returned here. The command
-line is `training/model_eval/score.py`.
-"""
+"""Run one candidate engine over a GT dataset and reduce it to summary rows."""
 
 from __future__ import annotations
 

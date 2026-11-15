@@ -89,8 +89,7 @@ class TrainedOpponent:
     def observe_us(
         self, xy: tuple[float, float], velocity: tuple[float, float], yaw: float
     ) -> None:
-        """Our robot's pose and world-frame velocity this tick: pursuit aims at it, corner turns
-        to face it, and every behaviour stops at contact with our footprint."""
+        """Set our robot's pose and world-frame velocity for this tick."""
         self._us_xy[0, 0], self._us_xy[0, 1] = xy
         self._us_v[0, 0], self._us_v[0, 1] = velocity
         self._us_yaw[0] = yaw

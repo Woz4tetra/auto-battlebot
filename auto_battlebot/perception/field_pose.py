@@ -32,8 +32,6 @@ RANSAC_MAX_ITERATIONS = 1000
 RANSAC_PROBABILITY = 0.999
 # transform_from_plane's default up_vector in the C++ header.
 UP_VECTOR = np.array([0.0, 0.0, -1.0])
-# Mask-area / quad-area above this means the outline is not the quadrilateral the
-# homography assumes, so its corners are not the field's corners.
 QUAD_COVERAGE_TOLERANCE = 1.05
 
 
@@ -53,9 +51,6 @@ class FieldResult:
     @property
     def ok(self) -> bool:
         return self.tf_camera_from_field is not None
-
-
-# --------------------------------------------------------------------------- shared
 
 
 def largest_contour_mask(mask: np.ndarray) -> np.ndarray:
@@ -137,7 +132,6 @@ def transform_from_plane(
     dot = float(np.clip(np.dot(a, b), -1.0, 1.0))
     axis_norm = float(np.linalg.norm(axis))
     if axis_norm < 1e-12:
-        # Parallel or antiparallel: identity, or a pi rotation about any perpendicular axis.
         if dot > 0:
             return out
         perp = np.array([1.0, 0.0, 0.0])
@@ -152,9 +146,6 @@ def transform_from_plane(
     rotation, _ = cv2.Rodrigues(axis * math.atan2(axis_norm, dot))
     out[:3, :3] = rotation
     return out
-
-
-# ------------------------------------------------------------------- depth + plane
 
 
 def point_cloud_from_depth(
@@ -215,7 +206,6 @@ def fit_plane_ransac(
                 iterations = min(max_iterations, int(math.log(1.0 - probability) / denom) + 1)
 
     if len(best_inliers) >= 3:
-        # Least-squares refit on the inliers, as PCL does after the RANSAC vote.
         inlier_points = points[best_inliers]
         centroid = inlier_points.mean(axis=0)
         _, _, vh = np.linalg.svd(inlier_points - centroid, full_matrices=False)
@@ -280,9 +270,6 @@ def depth_plane_field(
     )
 
 
-# ----------------------------------------------------------------------- homography
-
-
 def touches_border(mask: np.ndarray, margin: int = 2) -> bool:
     """True when the mask reaches the image edge, so the field is cut off.
 
@@ -310,7 +297,7 @@ def order_corners(corners: np.ndarray) -> np.ndarray:
     centre = corners.mean(axis=0)
     angles = np.arctan2(corners[:, 1] - centre[1], corners[:, 0] - centre[0])
     ordered = corners[np.argsort(angles)]
-    start = int(np.argmin(ordered.sum(axis=1)))  # smallest x+y is top-left
+    start = int(np.argmin(ordered.sum(axis=1)))
     return np.roll(ordered, -start, axis=0)
 
 
@@ -337,7 +324,6 @@ def _fit_side_lines(
         units.append(edge / length)
         lengths.append(length)
 
-    # Perpendicular distance to each edge's infinite line, and position along it.
     perp = np.empty((len(points), 4))
     along = np.empty((len(points), 4))
     for i, (a, _) in enumerate(edges):
@@ -474,7 +460,7 @@ def pose_from_corners(
     # corner noise than trusting either alone.
     lambda_ = 2.0 / (np.linalg.norm(h[:, 0]) + np.linalg.norm(h[:, 1]))
     r1, r2, t = h[:, 0] * lambda_, h[:, 1] * lambda_, h[:, 2] * lambda_
-    if t[2] < 0:  # field must sit in front of the camera
+    if t[2] < 0:
         r1, r2, t = -r1, -r2, -t
     r3 = np.cross(r1, r2)
     u, _, vh = np.linalg.svd(np.stack([r1, r2, r3], axis=1))
@@ -486,7 +472,6 @@ def pose_from_corners(
     tf[:3, :3] = rotation
     tf[:3, 3] = t
 
-    # z = 0 plane, so the homography columns apply directly.
     projected = homography @ np.c_[object_corners, np.ones(4)].T
     projected = (projected[:2] / projected[2]).T
     reprojection_px = float(np.linalg.norm(projected - image_corners, axis=1).mean())
@@ -545,11 +530,7 @@ def homography_field(
     intrinsics: np.ndarray,
     field_size_xy: tuple[float, float],
 ) -> FieldResult:
-    """Pose from the field outline in RGB plus known metric dimensions. No depth.
-
-    The mask's outline gives four image corners; the known field size gives the matching
-    object corners; `pose_from_corners` does the decomposition.
-    """
+    """Pose from the field outline in RGB plus known metric dimensions."""
     contour_mask = largest_contour_mask(mask)
     if not contour_mask.any():
         return FieldResult("homography", None, None, notes="empty field mask")
@@ -566,8 +547,6 @@ def homography_field(
         coverage = float((contour_mask > 0).sum()) / max(1.0, quad_area)
     fallback = False
     if quad is None:
-        # No clean four-sided outline. The bounding rectangle is a poor stand-in under
-        # tilt, so the result is returned but flagged.
         points = cv2.findNonZero(contour_mask)
         if points is None or len(points) < 4:
             return FieldResult("homography", None, None, notes="mask too small")
@@ -608,15 +587,8 @@ def homography_field(
     )
 
 
-# ------------------------------------------------------------------ partial outlines
-
-
 def contour_points_off_border(mask: np.ndarray, border_margin_px: int = 4) -> np.ndarray:
-    """Dense outline points of the largest blob, minus those lying along the image border.
-
-    Where the field runs off the frame the contour follows the image edge, and those points
-    describe the sensor, not the field. Dropping them leaves only real edge support.
-    """
+    """Dense outline points of the largest blob, minus those along the image border."""
     binary = (mask > 0).astype(np.uint8)
     contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
     if not contours:
@@ -731,7 +703,7 @@ def pose_from_lines(
     x0 = np.r_[rvec0.ravel(), tf_init[:3, 3]]
     solution = least_squares(residuals, x0, method="trf", x_scale="jac", max_nfev=2000)
     tf = np.asarray(unpack(solution.x))
-    if tf[2, 3] <= 0:  # field centre behind the camera
+    if tf[2, 3] <= 0:
         return None
     rms = float(np.sqrt(np.mean(solution.fun**2)))
     return tf, rms
@@ -763,16 +735,8 @@ def pixels_to_field_plane(
     return out
 
 
-# ----------------------------------------------------------------------- comparison
-
-
 def yaw_difference_deg(tf_a: np.ndarray, tf_b: np.ndarray, square: bool) -> float:
-    """Yaw difference folded into the field rectangle's own symmetry.
-
-    A bare rectangle is 180-degree symmetric, and a square is 90-degree symmetric, so a
-    raw yaw difference of 90 or 180 degrees means the two methods agree on the field and
-    disagree only on which corner they called first.
-    """
+    """Yaw difference folded into the field rectangle's symmetry."""
     relative = np.linalg.inv(tf_a[:3, :3]) @ tf_b[:3, :3]
     yaw = math.degrees(math.atan2(relative[1, 0], relative[0, 0]))
     period = 90.0 if square else 180.0

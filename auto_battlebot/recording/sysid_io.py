@@ -89,11 +89,6 @@ ESP32_FIELDS: tuple[tuple[str, str], ...] = (
 )
 
 
-# ---------------------------------------------------------------------------
-# /apriltag/robot_tags
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class TagCamera:
     fx: float
@@ -216,11 +211,6 @@ def load_robot_tags(path: Path | str) -> list[RobotTagsFrame]:
     ]
 
 
-# ---------------------------------------------------------------------------
-# /robot/espnow_telemetry and /robot/esp32_diagnostics
-# ---------------------------------------------------------------------------
-
-
 def _esp32_value(value: Any, dtype: str) -> Any:
     if dtype == "float64":
         return math.nan if value is None else float(value)
@@ -232,10 +222,7 @@ def _esp32_value(value: Any, dtype: str) -> Any:
 
 
 def esp32_events_frame(events: list[dict[str, Any]]) -> pd.DataFrame:
-    """Typed DataFrame from decoded ESP32 event dicts, one row each, in ``ESP32_FIELDS`` order.
-
-    A missing or null float (``vbat`` or ``ibat`` without an INA228 reading) becomes NaN.
-    """
+    """Typed DataFrame from decoded ESP32 event dicts in ESP32_FIELDS order."""
     columns: dict[str, list[Any]] = {name: [] for name, _ in ESP32_FIELDS}
     for event in events:
         for name, dtype in ESP32_FIELDS:
@@ -246,11 +233,7 @@ def esp32_events_frame(events: list[dict[str, Any]]) -> pd.DataFrame:
 
 
 def load_robot_telemetry(path: Path | str) -> pd.DataFrame:
-    """Every robot telemetry event, in log order, plus the MCAP ``log_time_ns``.
-
-    Reads ``/robot/espnow_telemetry`` when the recording has any, else ``/robot/esp32_diagnostics``.
-    Empty when it has neither.
-    """
+    """Every robot telemetry event in log order, plus the MCAP log_time_ns."""
     by_topic: dict[str, tuple[list[dict[str, Any]], list[int]]] = {
         ESPNOW_TELEMETRY_TOPIC: ([], []),
         ESP32_DIAGNOSTICS_TOPIC: ([], []),
@@ -267,11 +250,6 @@ def load_robot_telemetry(path: Path | str) -> pd.DataFrame:
     df = esp32_events_frame(events)
     df.insert(0, "log_time_ns", pd.Series(log_times, dtype="int64"))
     return df
-
-
-# ---------------------------------------------------------------------------
-# /diagnostics/opentx_transmitter -> stick channels
-# ---------------------------------------------------------------------------
 
 
 def load_transmitter_channels(path: Path | str) -> pd.DataFrame:
@@ -296,11 +274,6 @@ def load_transmitter_channels(path: Path | str) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=columns)
 
 
-# ---------------------------------------------------------------------------
-# /tf -> camera pose in the field frame
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class FieldFromCamera:
     """Time series of T_field_camera (4x4, maps OpenCV camera points into the field frame)."""
@@ -319,11 +292,7 @@ class FieldFromCamera:
 
 
 def load_field_from_camera(path: Path | str) -> FieldFromCamera:
-    """T_field_camera = T(field <- camera_world) @ T(camera_world <- camera), per /tf tick.
-
-    ``field -> camera_world`` is taken from either ``/tf`` or ``/tf_static``, whichever carried
-    it most recently; each ``camera_world -> camera`` then yields one sample.
-    """
+    """Camera pose in the field frame per /tf tick."""
     field_from_world: np.ndarray | None = None
     stamps: list[int] = []
     mats: list[np.ndarray] = []

@@ -30,11 +30,7 @@ VALID_DECODERS = ("v3", "v3plus")
 
 
 class SegModelWrapper(nn.Module):
-    """Normalizes output to a plain tensor regardless of backend.
-
-    Torchvision DeepLabV3 returns ``{"out": tensor, ...}`` while SMP returns a
-    plain tensor.  Wrapping at build time keeps all downstream code uniform.
-    """
+    """Normalize model output to a plain tensor regardless of backend."""
 
     def __init__(self, model: nn.Module, dict_output: bool) -> None:
         super().__init__()

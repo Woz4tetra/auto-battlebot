@@ -151,8 +151,6 @@ class CommandSample:
     trim: float
     channel_a: int
     channel_b: int
-    # As reported by the radio. The channels are the measurement; linear and angular are
-    # derived from them through the mix, and are kept only for convenience.
     meas_ch_a: float = float("nan")
     meas_ch_b: float = float("nan")
     meas_linear: float = float("nan")
@@ -166,8 +164,7 @@ class CommandSample:
 
 
 class _ChannelDecoder:
-    """Frames the radio's channel stream. Silent on corruption: a noisy link should not
-    spam the console during a run."""
+    """Frames the radio's channel stream."""
 
     def __init__(self) -> None:
         self._buf = bytearray()
@@ -189,7 +186,7 @@ class _ChannelDecoder:
             phase = self._buf[len(_SYNC)]
             length = self._buf[len(_SYNC) + 1]
             if length != _PACKET_LEN:
-                del self._buf[:1]  # bad framing; resync on the next sync word
+                del self._buf[:1]
                 continue
             start = len(_SYNC) + 2
             payload = bytes(self._buf[start : start + _PACKET_LEN])
@@ -230,7 +227,7 @@ class TrainerLink:
     """Serial link to the radio. Writes trainer commands, decodes the channel stream."""
 
     def __init__(self, port: str, mix: MixConfig | None = None, *, read_back: bool = True):
-        import serial  # lazy so --dry-run needs no pyserial
+        import serial
 
         self.mix = mix or MixConfig()
         self._serial = serial.Serial(port, baudrate=115200, timeout=0.1)
@@ -281,13 +278,7 @@ class TrainerLink:
         return [v / scale for v in raw]
 
     def measured(self) -> Measured:
-        """Latest named channels from the radio, normalized.
-
-        Deliberately the raw channels rather than body units. The radio measures channels;
-        linear and angular are an interpretation that depends on the mix and the per-channel
-        signs, and getting those wrong should be fixable offline rather than costing a
-        re-record. `to_body()` applies the interpretation when one is wanted.
-        """
+        """Latest named channels from the radio, normalized."""
         with self._lock:
             if self._packets == 0:
                 return Measured()

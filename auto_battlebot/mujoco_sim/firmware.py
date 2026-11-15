@@ -42,9 +42,7 @@ UPDOWN_THRESHOLD_UP_Z = 1.0 / STANDARD_GRAVITY
 
 
 class FlipSwitch(str, Enum):
-    """The transmitter's flip switch (CRSF ch7), as `loop()` in
-    firmware/mr_stabs_mk2/src/main.cpp reads it. Inverted means the throttle is negated before the
-    mixer, so the stick drives wedge-first whichever side is up."""
+    """Transmitter flip switch (CRSF ch7) position."""
 
     DOWN = "down"  # power-on default: heading hold on, inverted while the IMU reads upside down
     MIDDLE = "middle"  # heading hold off, never inverted
@@ -57,8 +55,7 @@ class FlipSwitch(str, Enum):
 
 @dataclass
 class UpdownSensor:
-    """`UpdownSensor::get_is_upside_down`: the chassis up axis's z component in, with the
-    firmware's hysteresis, so a robot balanced on its edge keeps its last reading."""
+    """Mirror of UpdownSensor::get_is_upside_down with its hysteresis."""
 
     upside_down: bool = False
 

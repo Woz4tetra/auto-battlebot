@@ -69,8 +69,7 @@ class RefitReply:
 
 
 def _hint_cells(motion: model.Motion) -> list[list[int]]:
-    """Coverage-map cells a motion holds for at least HOLD_S, or sweeps through if it holds
-    none (a creep)."""
+    """Coverage-map cells a motion holds for at least HOLD_S, or sweeps through."""
     thr, st = motion.throttle, motion.steer
     n_hold = int(round(HOLD_S / model.DT))
     cells: set[tuple[int, int]] = set()

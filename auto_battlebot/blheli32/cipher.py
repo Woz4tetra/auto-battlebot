@@ -22,7 +22,7 @@ PAGE_ADDRESS = 0xF800
 PAGE_SIZE = 256
 BLOCK = 8
 PAYLOAD_PER_BLOCK = 6
-PAYLOAD_SIZE = PAGE_SIZE // BLOCK * PAYLOAD_PER_BLOCK  # 192
+PAYLOAD_SIZE = PAGE_SIZE // BLOCK * PAYLOAD_PER_BLOCK
 TWEAK_64K = 0xF800
 
 _KEY = (0x81FBC617, 0x9E81C901, 0x29A1FA54, 0x318234B4)
@@ -80,10 +80,7 @@ def esc_style_nonces(seed: bytes | None = None) -> Callable[[int], bytes]:
 def encode_page(
     payload: bytes, tweak: int = TWEAK_64K, nonce: Callable[[int], bytes] | None = None
 ) -> bytes:
-    """192-byte settings payload -> encrypted 256-byte page. nonce(block_index) gives 2 bytes.
-
-    The default draws 2 random bytes per block, as BLHeliSuite's Write Setup does.
-    """
+    """Encrypt a 192-byte settings payload into a 256-byte page."""
     nonce = nonce or (lambda _: os.urandom(2))
     if len(payload) != PAYLOAD_SIZE:
         raise PageError(f"payload is {len(payload)} bytes, expected {PAYLOAD_SIZE}")

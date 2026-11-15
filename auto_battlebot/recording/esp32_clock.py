@@ -99,7 +99,6 @@ def _lower_envelope_line(x: np.ndarray, y: np.ndarray) -> tuple[float, float]:
         return float(y[0]), 0.0
     order = np.argsort(x, kind="stable")
     xs, ys = x[order], y[order]
-    # Duplicate x: keep the lowest y, the only one the envelope can touch.
     keep = np.ones(xs.shape[0], dtype=bool)
     keep[1:] = xs[1:] != xs[:-1]
     first = np.flatnonzero(keep)
@@ -164,11 +163,6 @@ def fit_robot_clock(timestamp_ms: np.ndarray, host_receive_ns: np.ndarray) -> Cl
     return ClockFit(segments=segments, stamp_ns=stamp, residual_ms=residual)
 
 
-# ---------------------------------------------------------------------------
-# Cross-correlation
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class LagEstimate:
     lag_s: float  # b lags a by this much (positive: b happens later)
@@ -226,12 +220,7 @@ def cross_correlation_delay(
     max_lag_s: float,
     allow_sign_flip: bool = True,
 ) -> LagEstimate:
-    """Lag of ``b`` behind ``a``, two signals on the same uniform grid (NaN where missing).
-
-    Normalised correlation at each integer lag over the samples both signals have, a parabola
-    through the peak for the sub-sample lag. With ``allow_sign_flip`` the peak of |r| wins and the
-    sign is reported, which covers an inverted channel.
-    """
+    """Lag of b behind a, two signals on the same uniform grid."""
     a = np.asarray(a, dtype=np.float64)
     b = np.asarray(b, dtype=np.float64)
     max_lag = int(round(max_lag_s / grid_dt_s))
@@ -240,7 +229,6 @@ def cross_correlation_delay(
     counts = np.zeros(lags.shape, dtype=np.int64)
     n = a.shape[0]
     for i, lag in enumerate(lags):
-        # b[k + lag] against a[k]
         lo = max(0, -lag)
         hi = min(n, n - lag)
         if hi - lo < 10:

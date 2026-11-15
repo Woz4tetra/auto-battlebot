@@ -118,7 +118,7 @@ class EpisodeScore:
     run_away: float = 0.0
     behaviour: float = 0.0
     seconds: float = 0.0
-    episode_s: float = 20.0  # the time limit, so a scorer can fill "never struck" with it
+    episode_s: float = 20.0
     outcome: str = "TIMEOUT"
     extra: dict[str, Any] = field(default_factory=dict)
 
@@ -310,8 +310,6 @@ class LockstepWorld:
         self.opponents.history[:, :, 1] = y
         self.opp_vel = np.zeros(3)
 
-    # ------------------------------------------------------------------ truth
-
     def pose(self) -> tuple[float, float, float]:
         pq = pose_from_qpos(self.data.qpos[:7])
         return float(pq["x"]), float(pq["y"]), float(pq["yaw"])
@@ -349,14 +347,11 @@ class LockstepWorld:
         p = self.data.mocap_pos[HOUSE_MOCAP]
         return float(p[0]), float(p[1]), 0.0
 
-    # ------------------------------------------------------------------ stepping
-
     def _wheel_volts(self, left: float, right: float) -> np.ndarray:
         u = np.array([left, right]) / 100.0
         shaped = shape_command(u, self.deadzone, self.fit.curve)
         volts = shaped * NOMINAL_PACK_V * self.side_gain
         if not self.fit.brake_on_zero:
-            # Coast: a zero command lets the wheel freewheel, the back-EMF voltage.
             emf = self.motor.back_emf_volts(self.data.qvel[self.index.wheel_dofs])
             volts = np.where(shaped == 0.0, emf, volts)
         return np.asarray(volts)
@@ -474,7 +469,6 @@ class LockstepWorld:
             self.transport.append((a_percent, b_percent))
             a, b = self.transport.popleft()
             if self.direct:
-                # The radio's mix: left = linear - angular, right = linear + angular.
                 self.drive.append((-a + b, -a - b))
                 wheel = -a
                 self.data.ctrl[:] = self._wheel_volts(*self.drive.popleft())

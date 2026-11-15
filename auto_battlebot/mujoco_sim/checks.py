@@ -1,11 +1,4 @@
-"""Sanity checks on the Mr Stabs Mk2 MJCF, run on CPU MuJoCo before any fitting.
-
-1. Nose lift under a slow torque ramp lands on the analytic threshold (momentum form).
-2. Top speed at a set voltage (no friction) matches KV x V / N at the wheel.
-3. Zero-command decel tau is reachable with a plausible winding resistance.
-
-Plus the timestep study: halve dt until the flip threshold and the tau stop moving.
-"""
+"""Sanity checks on the Mr Stabs Mk2 MJCF, run on CPU MuJoCo before any fitting."""
 
 from __future__ import annotations
 
@@ -193,11 +186,7 @@ def simulated_decel_tau(
 
 
 def resistance_for_tau(mp: MassProperties, params: PlantParams, target_tau: float) -> float:
-    """Winding resistance that gives `target_tau` in brake mode, ignoring joint friction.
-
-    Per wheel the back-EMF brake is eta N^2 Kt^2 / R against the inertia it decelerates: wheel,
-    reflected rotor, and half the robot's mass at the wheel radius.
-    """
+    """Winding resistance that gives `target_tau` in brake mode."""
     j_eff = (
         mp.reflected_inertia * params.armature_scale
         + mp.wheel_left.fullinertia[1]

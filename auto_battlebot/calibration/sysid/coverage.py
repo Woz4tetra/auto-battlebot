@@ -187,8 +187,6 @@ class CoverageSession:
         self._rate_marks: deque[tuple[int, int, int]] = deque()  # (host ns, tele, frames)
         self._push_history(0.0, math.nan, {})
 
-    # -- inputs ------------------------------------------------------------------------
-
     def feed_telemetry(self, row: dict[str, Any], log_time_ns: int) -> None:
         robot_ms = int(row["timestamp_ms"])
         host_ns = int(row.get("host_receive_ns") or log_time_ns)
@@ -198,7 +196,7 @@ class CoverageSession:
                 self._tele_ptr = 0
                 self._last_seq = None
             else:
-                return  # duplicate or reordered frame
+                return
         seq = row.get("telemetry_seq")
         if seq is not None and self._last_seq is not None and int(seq) != self._last_seq + 1:
             lost = max(int(seq) - self._last_seq - 1, 0)
@@ -224,8 +222,6 @@ class CoverageSession:
         self.poses.push_frame(frame)
         self._frames_seen += 1
 
-    # -- time ----------------------------------------------------------------------------
-
     def _session_s(self, t_ns: int) -> float:
         return 0.0 if self.t_origin_ns is None else (t_ns - self.t_origin_ns) / _NS
 
@@ -236,8 +232,6 @@ class CoverageSession:
         if self.poses.has_field and self.poses.newest_frame_ns:
             newest = min(newest, self.poses.newest_frame_ns)
         return newest - int(LAG_S * _NS)
-
-    # -- main step ---------------------------------------------------------------------
 
     def advance(self) -> None:
         """Process every grid sample older than ``LAG_S``, close windows, start refits."""
@@ -278,7 +272,7 @@ class CoverageSession:
             return None
         cur = tele[self._tele_ptr]
         cur_ns = int(self.clock.to_host_ns(cur.robot_ms))
-        gap = cur_ns > t_ns  # before the stream starts
+        gap = cur_ns > t_ns
         if self._tele_ptr + 1 < len(tele):
             nxt = tele[self._tele_ptr + 1]
             gap = gap or (nxt.robot_ms - cur.robot_ms) / 1000.0 > GAP_S
@@ -323,8 +317,6 @@ class CoverageSession:
             self.jetson_seen = True
         for ev in self.segmenter.push(float(thr), float(st), row.auto):
             self._pending_events.append(ev)
-
-    # -- windows -------------------------------------------------------------------------
 
     def _rows_between(self, t0_ns: int, t1_ns: int) -> list[GridRow]:
         return [r for r in self.grid if t0_ns <= r.t_ns < t1_ns]
@@ -374,7 +366,6 @@ class CoverageSession:
             inside = [inside[i] for i in pick]
         tau = np.array([(p.stamp_ns - start_ns) / _NS for p in inside])
         yaw_meas = np.array([p.yaw for p in inside])
-        # Unwrap the measured headings onto the start heading so a residual never jumps by 2 pi.
         yaw_meas = est.theta + np.unwrap(np.concatenate([[0.0], yaw_meas - est.theta]))[1:]
         body = rows[model.HIST_N :]
         gyro = np.array([r.gyro_dps for r in body])[
@@ -503,8 +494,6 @@ class CoverageSession:
         if len(self.events) > 80:
             del self.events[: len(self.events) - 80]
 
-    # -- refit -----------------------------------------------------------------------------
-
     def _poll_refit(self) -> None:
         reply = self.engine.poll()
         if reply is not None:
@@ -586,8 +575,6 @@ class CoverageSession:
             }
         )
 
-    # -- ghosts ----------------------------------------------------------------------------
-
     def _make_ghosts(self) -> None:
         if self._ghost_next_ns is None or not self.grid:
             return
@@ -628,8 +615,6 @@ class CoverageSession:
         if horizon_ms is not None:
             while self._seq_gaps and self._seq_gaps[0][1] < horizon_ms:
                 self._seq_gaps.popleft()
-
-    # -- snapshot --------------------------------------------------------------------------
 
     def snapshot(self) -> dict[str, Any]:
         cov = self._covariance()

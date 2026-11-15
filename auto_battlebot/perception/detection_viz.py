@@ -21,10 +21,7 @@ BOX_COLORS = [
 
 
 def load_class_names(spec: str) -> list[str] | None:
-    """Resolve class names from a data.yaml/yml path or a comma-separated list.
-
-    Used to label boxes with real class names (e.g. per-robot names) instead of class_N.
-    """
+    """Resolve class names from a data.yaml path or a comma-separated list."""
     if not spec:
         return None
     path = Path(spec)

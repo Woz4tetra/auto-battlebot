@@ -93,9 +93,6 @@ def save_cage_calibration(path: Path, calibration: CageCalibration, header: str 
     path.write_text("\n".join(lines))
 
 
-# ------------------------------------------------------------------------------ frames
-
-
 def world_from_camera(tf_camera_from_fieldcenter: np.ndarray) -> np.ndarray:
     """T_W<-cam_cv: the OpenCV camera pose in the W frame."""
     return np.asarray(WORLD_FROM_HFIELD @ np.linalg.inv(tf_camera_from_fieldcenter))

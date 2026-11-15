@@ -128,7 +128,7 @@ class Opponents:
             worlds, DELAY_SLOTS, 5, device=device, dtype=dtype
         )  # our x, y, vx, vy, yaw
         self.head = 0
-        self.replay: ReplayTracks | None = None  # set when the environment loads replay tracks
+        self.replay: ReplayTracks | None = None
         self.replay_index = zl.clone()
         self.replay_t = z.clone()
         self.pursuit_level = 1.0
@@ -239,7 +239,6 @@ class Opponents:
         omega = torch.zeros_like(yaw)
         lim = arena_half - footprint[:, None]
 
-        # straight: reflect the heading when the next step would leave the arena.
         heading = torch.stack([torch.cos(yaw), torch.sin(yaw)], 1)
         ahead = xy + heading * (p.speed[:, None] * dt * 5.0)
         out_x = ahead[:, 0].abs() > lim[:, 0]
@@ -277,8 +276,6 @@ class Opponents:
         cap = p.turn_rate
         chase = p.speed * torch.cos(err).clamp(min=0.0)
         if p.grip is not None:
-            # Traction: speed changes by at most grip x dt per step, and speed x yaw rate (the
-            # sideways acceleration) stays under grip, so a fast pursuer runs wide and overshoots.
             step = p.grip * dt
             chase = self.forward + (chase - self.forward).clamp(min=-step, max=step)
             cap = torch.minimum(cap, p.grip / chase.abs().clamp(min=1e-3))
@@ -291,7 +288,6 @@ class Opponents:
         spot = torch.stack([sx, sy], 1) * (lim - 0.05)
         to_spot = spot - xy
         dist = to_spot.norm(dim=1)
-        # Back in: the rear points at the corner, so the heading points away from it.
         away = torch.atan2(-to_spot[:, 1], -to_spot[:, 0])
         backing = dist > 0.08
         face_us = torch.atan2(
@@ -321,7 +317,6 @@ class Opponents:
         v = torch.where(rep[:, None], world, v)
         if override is not None:
             v = torch.where(override[0][:, None], override[1], v)
-        # Wall stop: no velocity component into a wall the opponent is touching.
         stop_x = ((xy[:, 0] >= lim[:, 0]) & (v[:, 0] > 0)) | (
             (xy[:, 0] <= -lim[:, 0]) & (v[:, 0] < 0)
         )

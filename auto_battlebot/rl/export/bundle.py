@@ -67,8 +67,7 @@ def spec_from_policy(
     sample_obs: torch.Tensor,
     count: int = 16,
 ) -> BundleSpec:
-    """Fold the frozen normalization into the actor and take `count` self-test pairs from
-    `sample_obs` (real observations, so the test exercises the inputs the policy will see)."""
+    """Fold frozen normalization into the actor and take self-test pairs from real observations."""
     norm = policy.norm
     layers = fold_normalization(
         dense_layers(policy.actor),

@@ -39,7 +39,7 @@ class FieldSegmenter:
             import torch
 
             from auto_battlebot.segmentation.load_deeplabv3 import common_transforms, load_model
-        except ImportError as error:  # pragma: no cover - environment problem, not logic
+        except ImportError as error:
             raise ImportError(
                 "DeepLab helpers not importable. Install the project with "
                 f"`pip install -e .` so auto_battlebot resolves. Original error: {error}"
@@ -93,12 +93,7 @@ def largest_component_hull(mask: np.ndarray) -> tuple[np.ndarray, np.ndarray | N
 
 
 def median_frame(video_path: Path, samples: int = MEDIAN_SAMPLES) -> np.ndarray:
-    """Per-pixel median over frames spread evenly across the clip.
-
-    Robots move, so any given pixel shows bare floor in most samples and the median
-    is the empty cage. This is also the background model the report's first candidate
-    method is built on.
-    """
+    """Per-pixel median over frames spread evenly across the clip."""
     capture = cv2.VideoCapture(str(video_path))
     if not capture.isOpened():
         raise RuntimeError(f"Cannot open {video_path}")

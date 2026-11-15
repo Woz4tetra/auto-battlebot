@@ -1,8 +1,4 @@
-"""Paired bootstrap: does a candidate actually differ from the baseline?
-
-Every candidate is scored on the same GT frames, so resampling frames paired cancels the
-"this frame is just hard" variance and a few hundred frames can resolve real differences.
-"""
+"""Paired bootstrap of candidates against the baseline."""
 
 from __future__ import annotations
 
@@ -27,7 +23,6 @@ HIGHER_IS_BETTER = {
     HEADING_ACC_KEY,
 }
 
-# Detection metrics tested per taxonomy level; keypoint metrics are level-independent.
 DETECTION_METRICS = ("recall", "precision", "f1", "localization_recall")
 KEYPOINT_METRICS = ("kp_err_px", PCK_KEY, "kp_heading_err_deg", HEADING_ACC_KEY)
 
@@ -42,9 +37,7 @@ def _resample_ratio(num: np.ndarray, den: np.ndarray, idx: np.ndarray) -> np.nda
 
 
 def _metric_samples(stats: dict, metric: str, level: str, idx: np.ndarray) -> np.ndarray:
-    """Bootstrap distribution (length B) of `metric`, recomputed on each resample in idx.
-
-    Pass a (1, n_frames) arange for the full-sample point estimate."""
+    """Bootstrap distribution of metric over the resamples in idx."""
     if metric in DETECTION_METRICS:
         c = stats["pr"][level]
         tp, fp, fn, wr = c["tp"], c["fp"], c["fn"], c["wrong"]
@@ -54,7 +47,6 @@ def _metric_samples(stats: dict, metric: str, level: str, idx: np.ndarray) -> np
             return _resample_ratio(tp, tp + wr + fp, idx)
         if metric == "localization_recall":
             return _resample_ratio(tp + wr, tp + wr + fn, idx)
-        # f1 from precision and recall on the same resample
         p = _resample_ratio(tp, tp + wr + fp, idx)
         r = _resample_ratio(tp, tp + wr + fn, idx)
         s = p + r
@@ -74,10 +66,7 @@ def _metric_samples(stats: dict, metric: str, level: str, idx: np.ndarray) -> np
 def run_significance(
     stats_by_candidate: dict[str, dict], baseline: str, args: argparse.Namespace
 ) -> pd.DataFrame:
-    """Paired-bootstrap each candidate against the baseline on the same resampled frames.
-
-    Reports delta (candidate - baseline) with an (1 - alpha) CI and a verdict: "better"/
-    "worse" when the CI excludes 0 (direction from metric polarity), "ns" otherwise."""
+    """Paired-bootstrap each candidate against the baseline on the same resampled frames."""
     n = stats_by_candidate[baseline]["n_frames"]
     rng = np.random.default_rng(args.seed)
     idx = rng.integers(0, n, size=(args.bootstrap, n))
@@ -85,7 +74,6 @@ def run_significance(
     lo_pct, hi_pct = 100 * args.alpha / 2, 100 * (1 - args.alpha / 2)
 
     plan = [(m, level) for level in LEVELS for m in DETECTION_METRICS]
-    # Keypoint metrics exist when the baseline engine carries keypoints and boxes matched.
     available = keypoint_metrics_from_stats(stats_by_candidate[baseline]["kp"])
     plan += [(m, "-") for m in KEYPOINT_METRICS if m in available]
 

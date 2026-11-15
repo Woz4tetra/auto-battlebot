@@ -52,11 +52,6 @@ def toml_float(value: float) -> str:
     return text
 
 
-# ---------------------------------------------------------------------------
-# Parameters
-# ---------------------------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class PlantParams:
     """The parameter vector, with stage 2 values as priors.
@@ -121,8 +116,6 @@ class PlantParams:
         return "\n".join(lines) + "\n"
 
 
-# Sensible bounds for the joint fit. They are wide enough not to shape the answer and tight
-# enough that a diverging fit fails visibly instead of wandering into nonsense.
 PARAM_BOUNDS: dict[str, tuple[float, float]] = {
     "dz_lin_fwd": (0.0, 0.25),
     "dz_lin_rev": (0.0, 0.25),
@@ -211,11 +204,6 @@ MODEL_LADDER: tuple[ModelStructure, ...] = (
 FULL_MODEL = MODEL_LADDER[-1]
 
 
-# ---------------------------------------------------------------------------
-# Static input map and steady state
-# ---------------------------------------------------------------------------
-
-
 def effective_command(u: np.ndarray, dz_pos: float, dz_neg: float) -> np.ndarray:
     """Deadzone removal and rescale, per sign.
 
@@ -247,9 +235,6 @@ def steady_state(u_lin: np.ndarray, u_ang: np.ndarray, p: PlantParams) -> tuple[
         v_target = v_target * np.clip(1.0 - p.c_sb * np.abs(ang_eff), 0.0, None)
     if p.c_ad:
         w_target = w_target * np.clip(1.0 - p.c_ad * np.abs(lin_eff), 0.0, None)
-    # Drift is additive, not multiplicative: it does not scale the commanded yaw, it adds
-    # yaw the driver never asked for. That is also what separates it from c_ad, which
-    # flips with the turn direction while drift does not.
     if p.c_drift:
         w_target = w_target + p.c_drift * lin_eff
     if p.c_drift_bias:
@@ -261,11 +246,6 @@ def _lag_alpha(dt: float, tau: Any) -> Any:
     """Exact first-order discretization over dt. tau = 0 means no lag (the M0/M1 rungs)."""
     tau = np.asarray(tau, dtype=float)
     return np.where(tau > 1e-9, np.exp(-dt / np.maximum(tau, 1e-9)), 0.0)
-
-
-# ---------------------------------------------------------------------------
-# Simulation
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -373,8 +353,6 @@ def simulate(
         state = state.copy()
 
     if not structure.use_lag:
-        # No actuator dynamics: velocity equals its target the instant the delayed command
-        # arrives. Substepping is then pointless, so it is skipped.
         substeps = 1
         sub_dt = dt
     else:
@@ -476,11 +454,6 @@ class Plant:
         return self.state
 
 
-# ---------------------------------------------------------------------------
-# Command sampling and delay
-# ---------------------------------------------------------------------------
-
-
 def delayed_commands(
     t: np.ndarray,
     cmd_lin: np.ndarray,
@@ -510,11 +483,6 @@ def delayed_commands(
     out_lin = np.where(pre, 0.0, out_lin)
     out_ang = np.where(pre, 0.0, out_ang)
     return out_lin, out_ang
-
-
-# ---------------------------------------------------------------------------
-# Windowed open-loop prediction
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -715,11 +683,7 @@ def predict_windows(
     structure: ModelStructure = FULL_MODEL,
     substep_s: float = SUBSTEP_S,
 ) -> WindowErrors:
-    """Run every window open loop and return the body-frame error at each horizon.
-
-    All windows step together as one batched simulation, so cost scales with the longest horizon
-    rather than with the number of windows times their length.
-    """
+    """Run every window open loop and return body-frame error at each horizon."""
     final, traj = simulate(
         windows.u_lin,
         windows.u_ang,

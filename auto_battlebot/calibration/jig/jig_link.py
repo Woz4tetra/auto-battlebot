@@ -48,7 +48,7 @@ JIG_USB_IDS = frozenset(
         (0x2E8A, 0x000A),  # Raspberry Pi vendor id, generic RP2040 CDC
     }
 )
-TRANSMITTER_USB_IDS = frozenset({(0x0483, 0x5740)})  # OpenTX/EdgeTX radio
+TRANSMITTER_USB_IDS = frozenset({(0x0483, 0x5740)})
 
 JIG_BAUD = 921600
 GYRO_DPS_PER_LSB = 0.070
@@ -168,8 +168,6 @@ class JigLink:
         self._latched_stopped: tuple[int, int] | None = None
         self.recording = False
 
-    # -- plumbing ----------------------------------------------------------
-
     def close(self) -> None:
         try:
             self._serial.close()
@@ -186,7 +184,7 @@ class JigLink:
         """Drain the port into whole lines, routing unsolicited ones to their latches."""
         try:
             waiting = self._serial.in_waiting
-        except OSError as err:  # the cable was pulled
+        except OSError as err:
             raise ConnectionError(f"{self.port}: {err}") from err
         data = self._serial.read(waiting or 1)
         if not data:
@@ -227,8 +225,6 @@ class JigLink:
         if line == "BUSY":
             raise JigBusyError(f"{cmd!r} refused: the jig is recording")
         return line
-
-    # -- console commands --------------------------------------------------
 
     def list_files(self, timeout: float = 4.0) -> list[tuple[str, int]]:
         self._send("LIST")
@@ -322,8 +318,6 @@ class JigLink:
             # starts a recording, so keep pumping until the latches settle.
             if self._read_line(0.3) == "END":
                 return
-
-    # -- button handshakes -------------------------------------------------
 
     def take_recording(self) -> str | None:
         self._pump()

@@ -154,9 +154,7 @@ class CaptureWriter:
         self._meta_written = False
 
     def set_metadata(self, meta: dict) -> None:
-        """Stash the metadata (everything except image_width/image_height, which are filled per
-        frame).
-        """
+        """Stash the metadata; image size is filled from the first frame."""
         self._meta = dict(meta)
 
     def _ensure_metadata(self, t: float, frame: np.ndarray) -> None:
@@ -242,19 +240,13 @@ def read_metadata(path: Path) -> dict:
 
 
 def iter_images(path: Path, topic: str) -> Iterator[tuple[float, np.ndarray]]:
-    """Yield (t_seconds, bgr_frame) for each image on `topic`, in recorded order.
-
-    Handles both formats: the frame decodes from JPEG or raw bgr8 based on the message's schema, so
-    analysis never needs to know how the recording was captured.
-    """
+    """Yield (t_seconds, bgr_frame) for each image on topic, in recorded order."""
     for _topic, log_time, data in mcap_io.iter_messages(path, [topic]):
         yield log_time / 1e9, _decode_image(data)
 
 
 def read_floor_frames(path: Path) -> list[np.ndarray]:
-    """Load every floor-lock frame (the board-visible burst) into memory for the one-time extrinsic
-    solve.
-    """
+    """Load every floor-lock frame into memory."""
     return [frame for _t, frame in iter_images(path, TOPIC_FLOOR_IMAGE)]
 
 
@@ -274,13 +266,7 @@ def read_channels(path: Path) -> dict[float, dict]:
 
 
 def read_commands(path: Path) -> list[dict]:
-    """Read the scripted excitation commands (--drive recordings), sorted by send time.
-
-    Each entry is the decoded payload {cmd_lin, cmd_ang, trainer_lin, trainer_ang, label} plus a "t"
-    key holding its CLOCK_MONOTONIC send time (log_time / 1e9). Commands run at ~50 Hz on their own
-    clock, so analysis zero-order-holds them onto the camera frame times. Returns [] for recordings
-    with no command topic (read-only stick captures, or older recordings).
-    """
+    """Read the scripted excitation commands, sorted by send time."""
     out: list[dict] = []
     for _topic, log_time, data in mcap_io.iter_messages(path, [TOPIC_COMMAND]):
         payload = mcap_io.decode_json(data)
@@ -358,18 +344,8 @@ def _line_entity(
 
 
 class OverlayWriter:
-    """Writes a Foxglove-viewable overlay MCAP: camera frames + CameraCalibration + TF + pose
-    markers.
+    """Writes a Foxglove overlay MCAP: frames, calibration, TF, pose markers."""
 
-    Geometry inputs use the same convention as apriltag_detect.solve_floor_extrinsic: (r_fc, t_fc)
-    maps a field point into the camera frame (X_c = r_fc @ X_f + t_fc), and each pose row is (x, y,
-    yaw) on the field plane.
-    """
-
-    # Robot body box (m) and heading arrow (m); tuned for a Mrs-Buff-sized bot, purely cosmetic. Two
-    # sets are drawn: a "3d" set at the tag's true height (sits on the tag in the image) and a
-    # "floor" set flattened to z=0 (the ground track, registered to the plywood). The floor set is
-    # dimmer.
     _BODY = (0.16, 0.16, 0.05)
     _ARROW = (0.22, 0.02, 0.04)  # length, shaft diameter, head diameter
     _BODY_COLOR = (0.10, 0.80, 0.30, 0.6)
@@ -396,23 +372,12 @@ class OverlayWriter:
         self._writer = mcap_write.McapWriter(path, allow_overwrite=True, compression="zstd")
 
     def write_static_tf(self, t: float, r_fc: np.ndarray, t_fc: np.ndarray) -> None:
-        """The two fixed transforms, on /tf_static. Foxglove's 3D panel keeps every transform it
-        has seen, so one message at the start of the file is enough for the whole timeline:
-
-        world -> field : orients the field so the camera renders above the floor (Foxglove is
-                         z-up). The calibration field frame's z can point either way depending
-                         on board orientation,
-                         so this is identity or a 180deg-about-x flip chosen from the camera's z.
-        field -> camera: the locked extrinsic (camera pose in the field frame).
-        """
+        """Publish the fixed world->field and field->camera transforms on /tf_static."""
         r_fc = np.asarray(r_fc, dtype=np.float64).reshape(3, 3)
         t_fc = np.asarray(t_fc, dtype=np.float64).reshape(3)
-        # Pose of the camera in the field frame: rotation r_fc^T, origin -r_fc^T @ t_fc.
         r_cf = r_fc.T
         cam_in_field = -r_cf @ t_fc
         quat = _quat_from_matrix(r_cf)
-        # If the camera sits on the -z side of the field, flip 180deg about x so it shows above the
-        # floor.
         flip = (0.0, 0.0, 0.0, 1.0) if cam_in_field[2] >= 0.0 else (1.0, 0.0, 0.0, 0.0)
         stamp_ns = _ns(t)
         self._writer.log(
@@ -431,11 +396,7 @@ class OverlayWriter:
         )
 
     def write_trajectory(self, t: float, rows: list[dict]) -> None:
-        """Full solved path, drawn for the whole timeline as two field-frame line strips:
-
-        trajectory_3d   : tag's true field height (z), so it overlays the tag in the image.
-        trajectory_floor: flattened to z=0, the ground track registered to the floor plane.
-        """
+        """Draw the full solved path as 3d and floor line strips."""
         pts_3d = [
             (float(r["x"]), float(r["y"]), float(r.get("z") or 0.0)) for r in rows if r["visible"]
         ]
@@ -465,8 +426,6 @@ class OverlayWriter:
         )
 
     def write_camera_info(self, t: float) -> None:
-        # Zero distortion: the frames are already rectified, so the overlay is a pure pinhole
-        # projection.
         stamp_ns = _ns(t)
         self._writer.log(
             TOPIC_CAMERA_INFO,
@@ -487,8 +446,7 @@ class OverlayWriter:
         body_color: tuple,
         arrow_color: tuple,
     ) -> list[mcap_io.SceneEntity]:
-        """A body cube (``<ns>/0``) + heading arrow (``<ns>/1``) at (x, y, z) with the given yaw
-        quaternion."""
+        """Body cube and heading arrow at (x, y, z) with the given yaw."""
         pose = mcap_io.Pose(position=(x, y, z), orientation=tuple(quat))
         length, shaft_diameter, head_diameter = self._ARROW
         return [
@@ -522,16 +480,11 @@ class OverlayWriter:
         ]
 
     def write_pose(self, t: float, row: dict) -> None:
-        """field -> robot TF and the robot markers for one frame: a "robot_3d" set at the tag's true
-        height and a "robot_floor" set flattened to z=0. Both are deleted when the tag is not
-        visible.
-        """
+        """field->robot TF and robot markers for one frame."""
         stamp_ns = _ns(t)
         if row["visible"]:
             x, y, yaw = float(row["x"]), float(row["y"]), float(row["yaw"])
-            z = float(
-                row.get("z") or 0.0
-            )  # tag's true field height, so the 3d marker sits on the tag
+            z = float(row.get("z") or 0.0)
             quat = _quat_from_yaw(yaw)
             self._writer.log(
                 TOPIC_TF,
@@ -571,9 +524,7 @@ class OverlayWriter:
         self._writer.log(TOPIC_MARKERS, mcap_write.scene_update(update), stamp_ns)
 
     def write_channels(self, t: float, sample_t: float, channels: list[int]) -> None:
-        """Copy one frame's transmitter stick axes into the overlay, stamped with the frame time `t`
-        (same as the image) so they line up on the Foxglove timeline for plotting (Plot panel path
-        /transmitter/channels.channels[N])."""
+        """Copy one frame's transmitter stick axes into the overlay."""
         payload = {"sample_t": sample_t, "channels": [int(c) for c in channels]}
         self._writer.log_json(TOPIC_TRANSMITTER, payload, _ns(t), schema=CHANNELS_JSON_SCHEMA)
 

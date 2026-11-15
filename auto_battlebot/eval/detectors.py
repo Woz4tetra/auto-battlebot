@@ -1,8 +1,4 @@
-"""Detector variants and the inference loop that turns GT images into scored frames.
-
-All three detectors are duck-typed on detect() and describe(): a TensorRT engine, the
-same engine run over a field crop, and a replay of predictions computed earlier.
-"""
+"""Detector variants and the inference loop over GT images."""
 
 from __future__ import annotations
 

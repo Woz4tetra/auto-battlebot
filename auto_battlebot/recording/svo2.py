@@ -77,12 +77,7 @@ def sample_fps(path: Path | str, topic: str) -> float:
 
 
 def read_frame_stamps(path: Path | str, topic: str) -> list[int]:
-    """Return every frame timestamp on `topic`, in file order.
-
-    Reads ``svo_footer``'s per-topic index when it is present, which costs one
-    message instead of a pass over the recording, and falls back to scanning
-    the topic when the footer is missing (a truncated or interrupted file).
-    """
+    """Every frame timestamp on topic, in file order."""
     stamps = _read_footer_stamps(path, topic)
     if stamps:
         return stamps
@@ -204,7 +199,6 @@ def _feed_access_units(stdin: IO[bytes], path: Path | str, topic: str) -> None:
             stdin.write(access_unit)
         stdin.close()
     except (BrokenPipeError, ValueError):
-        # The consumer stopped early and ffmpeg was killed; nothing to do.
         pass
 
 

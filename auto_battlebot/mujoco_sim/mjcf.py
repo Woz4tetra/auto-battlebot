@@ -47,7 +47,7 @@ ROTOR_MASS_KG = 1e-4
 GEAR_SOLREF = (0.002, 1.0)
 SKID_GEOM = "nose_skid"
 CHASSIS_GEOM_PREFIX = "chassis_hull_"
-ROBOT_CONTYPE = 2  # robot geoms touch the floor but not each other
+ROBOT_CONTYPE = 2
 FLOOR_CONTYPE = 1
 
 

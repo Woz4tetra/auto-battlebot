@@ -1,13 +1,4 @@
-"""Shared MCAP reading utilities.
-
-Recordings follow ``docs/foxglove_recording_format.md``: ``protobuf`` channels carrying Foxglove
-schemas and ``json`` channels carrying the project's own payloads. The C++ stack writes them with
-the Foxglove SDK; ``auto_battlebot.recording.mcap_write`` writes them from Python.
-
-``iter_messages`` tags every payload it yields with the channel's message encoding, schema name
-and topic, and every ``decode_*`` function dispatches on that tag. Recordings from before the
-Foxglove migration are refused; ``scripts/convert_ros1_mcap.py`` rewrites them into this layout.
-"""
+"""Shared MCAP reading utilities for the docs/foxglove_recording_format.md layout."""
 
 from __future__ import annotations
 
@@ -44,11 +35,7 @@ _NS = 1_000_000_000
 
 
 class MessageBytes(bytes):
-    """Raw message payload tagged with how to decode it.
-
-    ``iter_messages`` yields these; the tag is what lets one ``decode_*`` call serve both the
-    protobuf and the JSON channels.
-    """
+    """Raw message payload tagged with how to decode it."""
 
     encoding: str
     schema_name: str
@@ -110,11 +97,7 @@ def _proto(data: bytes) -> Any:
 
 
 def _expand_topics(reader: Any, topics: list[str] | None) -> list[str] | None:
-    """Map requested topics onto the channels a file has.
-
-    ``/diagnostics`` selects every per-module ``/diagnostics/<module>`` channel, so callers keep
-    one name.
-    """
+    """Map requested topics onto the channels the file has (/diagnostics expands per module)."""
     if topics is None:
         return None
     summary = reader.get_summary()
@@ -184,11 +167,6 @@ def read_active_profile(path: Path | str) -> str | None:
     return None
 
 
-# ---------------------------------------------------------------------------
-# Timestamps
-# ---------------------------------------------------------------------------
-
-
 def _proto_stamp_ns(stamp: Any) -> int:
     return int(stamp.seconds) * _NS + int(stamp.nanos)
 
@@ -199,11 +177,6 @@ def stamp_to_ns(stamp_seconds: float) -> int:
     nsec = int(round((stamp_seconds - sec) * 1e9))
     nsec = min(max(nsec, 0), _NS - 1)
     return sec * _NS + nsec
-
-
-# ---------------------------------------------------------------------------
-# Strings and JSON payloads
-# ---------------------------------------------------------------------------
 
 
 def decode_string(data: bytes) -> str:
@@ -239,11 +212,6 @@ def decode_frame_meta(data: bytes) -> FrameMeta:
     )
 
 
-# ---------------------------------------------------------------------------
-# Diagnostics
-# ---------------------------------------------------------------------------
-
-
 def decode_diagnostic_array(data: bytes) -> list[dict]:
     """One dict per diagnostic status: ``{level, name, message, hardware_id, values}``.
 
@@ -269,11 +237,6 @@ def decode_diagnostic_array(data: bytes) -> list[dict]:
     ]
 
 
-# ---------------------------------------------------------------------------
-# Compressed images
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class CompressedImage:
     stamp_ns: int
@@ -283,11 +246,7 @@ class CompressedImage:
 
 
 def decode_image_stamp_ns(data: bytes) -> int:
-    """Only the header stamp of a compressed image (no JPEG decode).
-
-    The recorded log_time is wall clock; the header stamp is the frame stamp. Use this to align
-    images with detections without decoding every frame.
-    """
+    """Only the header stamp of a compressed image, without JPEG decode."""
     _require_current_format(data)
     return _proto_stamp_ns(_proto(data).timestamp)
 
@@ -325,11 +284,6 @@ def decode_compressed_image(data: bytes) -> CompressedImage:
     if image is None:
         raise ValueError(f"Failed to decode compressed image (format={fmt!r})")
     return CompressedImage(stamp_ns=stamp_ns, frame_id=frame_id, format=fmt, image=image)
-
-
-# ---------------------------------------------------------------------------
-# Compressed video
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -417,11 +371,6 @@ def iter_camera_frames(
         yield image.stamp_ns, image.image
 
 
-# ---------------------------------------------------------------------------
-# Camera calibration
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class CameraInfo:
     stamp_ns: int
@@ -452,11 +401,6 @@ def decode_camera_info(data: bytes) -> CameraInfo:
         projection=p.reshape(3, 4) if p.size == 12 else np.zeros((3, 4)),
         rectification=r.reshape(3, 3) if r.size == 9 else np.eye(3),
     )
-
-
-# ---------------------------------------------------------------------------
-# Frame transforms
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -511,11 +455,6 @@ def decode_tf_message(data: bytes) -> list[Transform]:
         )
         for tf in msg.transforms
     ]
-
-
-# ---------------------------------------------------------------------------
-# Detections
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -580,10 +519,6 @@ def read_detections(path: Path | str, topic: str = BLOB_DETECTIONS_TOPIC) -> lis
     return [decode_detections(data) for _topic, _ts, data in iter_messages(path, [topic])]
 
 
-# ---------------------------------------------------------------------------
-# Point clouds
-# ---------------------------------------------------------------------------
-
 _POINT_FIELD_DTYPES = {
     1: np.uint8,
     2: np.int8,
@@ -616,11 +551,6 @@ def decode_point_cloud(data: bytes) -> np.ndarray:
         )
         columns.append(view.astype(np.float32))
     return np.stack(columns, axis=1)
-
-
-# ---------------------------------------------------------------------------
-# Scene updates (and legacy marker arrays mapped onto the same shape)
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -820,11 +750,6 @@ def decode_scene_update(data: bytes) -> SceneUpdate:
     return update
 
 
-# ---------------------------------------------------------------------------
-# Logs
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class LogMessage:
     stamp_ns: int
@@ -850,11 +775,6 @@ def decode_log(data: bytes) -> LogMessage:
         file=str(msg.file),
         line=int(msg.line),
     )
-
-
-# ---------------------------------------------------------------------------
-# Stamp alignment
-# ---------------------------------------------------------------------------
 
 
 def match_stamps(

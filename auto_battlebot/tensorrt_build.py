@@ -1,10 +1,4 @@
-"""TensorRT builder scaffolding shared by the YOLO and DeepLab export CLIs.
-
-Both converters name engines the same way and reuse the same tactic timing cache, so the
-platform tag and cache handling live here rather than being copied into each. The
-conversion CLIs are `training/yolo/convert_to_tensorrt.py` and
-`training/deeplab/convert_to_tensorrt.py`.
-"""
+"""TensorRT builder scaffolding shared by the YOLO and DeepLab export CLIs."""
 
 from __future__ import annotations
 

@@ -1,15 +1,4 @@
-"""Detector scoring: run candidate engines on a labeled dataset and compare them.
-
-dataset       label taxonomy, frame records, and loading GT from disk
-detectors     detector variants and the inference loop over GT images
-metrics       detection and keypoint metrics over matched frames
-significance  paired bootstrap over frame-decomposable metrics
-plots         summary figures
-scoring       score_candidate, the per-candidate orchestrator
-
-The names below are the public surface; the command line over them is
-`training/model_eval/score.py`.
-"""
+"""Detector scoring; the CLI is training/model_eval/score.py."""
 
 from auto_battlebot.eval.dataset import (
     AGNOSTIC_LABEL,

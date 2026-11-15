@@ -20,13 +20,10 @@ import numpy as np
 import trimesh
 from scipy.spatial.transform import Rotation
 
-# Assembly frame -> body frame rotation: x = -Y_asm, y = +X_asm, z = +Z_asm.
 R_BODY_ASM = np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
 
-# Wheels spin on these joints; everything below them in the tree turns with the wheel.
 WHEEL_JOINTS = ("cylindrical_1_1", "cylindrical_2_1")
 
-# Structural parts whose meshes make the chassis collision shape.
 STRUCTURAL_LINKS = ("mr_stabs_mk2_chassis", "mr_stabs_mk2_top_plate", "mr_stabs_mk2_bottom_plate")
 
 
@@ -258,7 +255,6 @@ def extract_tag_frame(
     on_face = np.all(np.abs(tris @ normal - top) < 0.5e-3, axis=1)
     tris, shade = tris[on_face], shade[on_face]
 
-    # Camera looking along -normal: image u = e1, image v (down) = e2, e1 x e2 = -normal.
     e1 = np.cross(normal, [0.0, 0.0, 1.0] if abs(normal[2]) < 0.9 else [1.0, 0.0, 0.0])
     e1 /= np.linalg.norm(e1)
     e2 = np.cross(-normal, e1)
@@ -286,7 +282,6 @@ def extract_tag_frame(
     found = corners[[int(i) for i in ids.flatten()].index(tag_id)].reshape(4, 2).astype(float)
     if mirrored:
         found[:, 0] = size_px - 1 - found[:, 0]
-    # Back to 3D on the face plane.
     uv_m = found / px_per_m - extent
     pts3 = center + uv_m[:, :1] * e1 + uv_m[:, 1:] * e2
     tag_center = pts3.mean(axis=0)

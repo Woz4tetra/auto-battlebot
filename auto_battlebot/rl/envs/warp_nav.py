@@ -111,8 +111,6 @@ class RobotProfile:
     command: str
     weapon: str
     opponents: tuple[str, ...]
-    # Opponents driven by trained policies (`policy_opponents.py`), drawn in a stage's
-    # `policy` share of episodes.
     drivers: tuple[PolicyDriver, ...] = ()
     # Which contacts are hits taken (`warp_kernels.in_opponent_arc`): "angle", anywhere in the
     # opponent's front arc, or "front_face", only its front face inside the arc.
@@ -191,8 +189,6 @@ STAGES = {
     # runs the fit as it is, plays the same robot. Pair with `holdout=True` for the held-out
     # pursuit corner and replay tracks.
     "EVAL": Stage(BEHAVIOURS, 3, False, True, 0.0, (1.5, 2.5), 0.2, 0.5, 0.3),
-    # Pursuit only, attack only, open arena, nominal plant: the pursuit difficulty map and the
-    # pursuit evaluation set (playground/rl/pursuit_map.py).
     "PURSUIT": Stage(("pursuit",), 0, True, True, 0.0, (1.5, 2.5), 0.0, 0.0),
     # Diagnostics for a stalled stage C: stage B's opponents and hazards with sensing on, and
     # stage C's opponents and hazards with sensing off.
@@ -313,8 +309,7 @@ FLANK_RANGE_M = 0.8
 
 
 def flank_potential(rel: torch.Tensor, opp_yaw: torch.Tensor, arc: float) -> torch.Tensor:
-    """0 to 1: how far our bearing from the opponent's heading is outside half its arc, at most
-    when beside or behind it, times how close we are (1 at its centre, 0 past FLANK_RANGE_M)."""
+    """Flank score from 0 to 1: bearing outside the half arc times closeness."""
     phi = wrap(torch.atan2(rel[:, 1], rel[:, 0]) - opp_yaw).abs()
     side = smoothstep((phi - 0.5 * arc) / (0.5 * math.pi - 0.5 * arc))
     near = (1.0 - rel.norm(dim=1) / FLANK_RANGE_M).clamp(0.0, 1.0)
@@ -472,7 +467,7 @@ class WarpNavEnv:
         self.mocap_quat = t(self.d.mocap_quat)
         self.geom_size = t(self.m.geom_size)
         self.geom_rbound = t(self.m.geom_rbound)
-        self.geom_aabb = t(self.m.geom_aabb)  # [W, ngeom, 2 (center, half size), 3]
+        self.geom_aabb = t(self.m.geom_aabb)
         self.geom_friction = t(self.m.geom_friction)
         self.body_pos = t(self.m.body_pos)
         self.body_ipos = t(self.m.body_ipos)
@@ -597,7 +592,7 @@ class WarpNavEnv:
         self.house_present = zb.clone()
         self.house_vel = torch.zeros(w, 2, device=dev, dtype=dt)
         self.opp_half = torch.tensor(OPP_SIZE_M[:2], device=dev, dtype=dt).repeat(w, 1) / 2
-        self.opp_model = torch.zeros(w, dtype=torch.long, device=dev)  # index into opponents
+        self.opp_model = torch.zeros(w, dtype=torch.long, device=dev)
         self.run_away = zb.clone()
         self.t = z.clone()
         self.steps = torch.zeros(w, dtype=torch.long, device=dev)
@@ -665,8 +660,6 @@ class WarpNavEnv:
         )
         self.set_stage(cfg.stage)
 
-    # ------------------------------------------------------------------ curriculum
-
     def set_stage(self, stage: str) -> None:
         self.stage = stage
         self.stage_index = list(STAGES).index(stage)
@@ -718,15 +711,11 @@ class WarpNavEnv:
     def pursuit_success_rate(self) -> float:
         return float(np.mean(self.pursuit_window)) if self.pursuit_window else 0.0
 
-    # ------------------------------------------------------------------ randomness
-
     def _rand(self, *shape: int) -> torch.Tensor:
         return torch.rand(*shape, generator=self.gen, device=self.device, dtype=self.dtype)
 
     def _uniform(self, lo: float, hi: float, *shape: int) -> torch.Tensor:
         return lo + (hi - lo) * self._rand(*(shape or (self.num_worlds,)))
-
-    # ------------------------------------------------------------------ episodes
 
     def reset(self, seed: int | None = None) -> tuple[torch.Tensor, torch.Tensor]:
         if seed is not None:
@@ -751,8 +740,7 @@ class WarpNavEnv:
         self._reset_bookkeeping(mask, xy)
 
     def _sync_bounds(self) -> None:
-        """Broadphase bounds of the resized scene geoms, from their current sizes, as MuJoCo
-        compiles them: a box's half sizes, a cylinder's (r, r, half height), each centred."""
+        """Broadphase bounds of the resized scene geoms."""
         for geoms, cylinder in (
             (self.wall_geoms, False),
             (self.block_geoms, True),
@@ -836,7 +824,6 @@ class WarpNavEnv:
         n = self.num_worlds
         m1 = mask[:, None]
         sc = self.stage_cfg
-        # Up to N_SLOTS holes or wall blocks, clear of the opponent's start.
         count = torch.randint(0, int(sc.hazards) + 1, (n,), generator=self.gen, device=self.device)
         present = torch.arange(N_SLOTS, device=self.device)[None] < count[:, None]
         kind = torch.where(self._rand(n, N_SLOTS) < 0.5, obs_spec.HOLE, obs_spec.WALL_BLOCK)
@@ -897,7 +884,6 @@ class WarpNavEnv:
     ) -> torch.Tensor:
         n = self.num_worlds
         m1 = mask[:, None]
-        # Clear of the opponent, hazards and house bot, by rejection with a few retries.
         our_reach = self.arena_half - self.our_half_diag - 0.05
         xy = (self._rand(n, 2) * 2 - 1) * our_reach
         for _ in range(12):
@@ -1142,8 +1128,6 @@ class WarpNavEnv:
             )
         return out
 
-    # ------------------------------------------------------------------ truth
-
     def truth(self) -> dict[str, torch.Tensor]:
         q = self.qpos
         w_, x_, y_, z_ = q[:, 3], q[:, 4], q[:, 5], q[:, 6]
@@ -1151,7 +1135,6 @@ class WarpNavEnv:
         pitch = torch.asin((2 * (w_ * y_ - z_ * x_)).clamp(-1.0, 1.0))
         up_z = 1 - 2 * (x_ * x_ + y_ * y_)
         vx, vy = self.qvel[:, 0], self.qvel[:, 1]
-        # World yaw rate: rotate the body angular velocity; its z row is the third row of R.
         r20 = 2 * (x_ * z_ - w_ * y_)
         r21 = 2 * (y_ * z_ + w_ * x_)
         r22 = 1 - 2 * (x_ * x_ + y_ * y_)
@@ -1175,8 +1158,7 @@ class WarpNavEnv:
         }
 
     def expert_view(self) -> dict[str, torch.Tensor]:
-        """`truth()` plus `reach`: the centre distance at which our footprint and the opponent's
-        touch along the line between them. The scripted sidestep controller reads this."""
+        """truth() plus reach, the centre distance at which footprints touch."""
         tr = self.truth()
         rel = tr["xy"] - tr["opp_xy"]
         normal = rel / rel.norm(dim=1, keepdim=True).clamp(min=1e-6)
@@ -1185,8 +1167,6 @@ class WarpNavEnv:
             normal, tr["yaw"], ours.expand(self.num_worlds, 2)
         )
         return tr
-
-    # ------------------------------------------------------------------ stepping
 
     def _substeps(self) -> None:
         wp, mjw, kern = self._wp, self._mjw, self._k
@@ -1277,7 +1257,6 @@ class WarpNavEnv:
         cfg, rw = self.cfg, self.cfg.reward
         dt = cfg.policy_dt_s
         action = action.to(self.device, self.dtype).clamp(-1.0, 1.0)
-        # History: this step's action with the speed and yaw rate the policy saw when choosing it.
         self.hist_action = torch.cat([action[:, None], self.hist_action[:, :-1]], 1)
         self.hist_speed = torch.cat([self.last_speed[:, None], self.hist_speed[:, :-1]], 1)
         self.hist_rate = torch.cat([self.last_rate[:, None], self.hist_rate[:, :-1]], 1)
@@ -1375,7 +1354,6 @@ class WarpNavEnv:
         flipped = self.flip_s >= cfg.flip_hold_s
         reward += torch.where(flipped, rw["flip"], 0.0)
         self.stats["flips"] += flipped.float()
-        # Pitch is positive nose-down (rollout.py), so a lifted nose reads negative.
         lift = tr["pitch"] < -math.radians(30)
         reward += torch.where(lift, rw["nose_lift_per_s"] * dt, 0.0)
         self.stats["nose_lift_s"] += lift.float() * dt
@@ -1506,8 +1484,6 @@ class WarpNavEnv:
         )
         flee = (tr["xy"] - front).norm(dim=1).clamp(max=1.5)
         return torch.where(self.run_away, flee, attack)
-
-    # ------------------------------------------------------------------ observation
 
     def _our_last_delivery(self) -> torch.Tensor:
         """When our robot's last measurement reached the filter: its capture stamp plus the
