@@ -50,17 +50,10 @@ def _pose_toward(cam_pos: np.ndarray, target: np.ndarray) -> np.ndarray:
     return np.asarray(bproc.math.build_transformation_mat(cam_pos, rotation))
 
 
-def target_in_frame(
+def move_camera_and_check_point_in_written_view(
     cam2world: np.ndarray, point: list[float], lens: LensView | None = None
 ) -> bool:
-    """True when *point* projects inside the camera frame for this pose.
-
-    With a warped *lens* the scene camera is the wide render, so the test is whether the view
-    written from it sees the point, not whether the render does.
-
-    Moves the scene camera to *cam2world* as a side effect; callers that care about the
-    camera's pose afterwards set it themselves.
-    """
+    """True when *point* projects inside the camera frame for this pose."""
     camera = bpy.context.scene.camera
     camera.matrix_world = mathutils.Matrix(cam2world.tolist())
     bpy.context.view_layer.update()
@@ -128,7 +121,7 @@ def sample_camera_pose(
                 ]
             )
             cam2world = _pose_toward(cam_pos, target)
-            if target_in_frame(cam2world, robot_center):
+            if move_camera_and_check_point_in_written_view(cam2world, robot_center):
                 return cam2world, False
 
     cam2world = _pose_toward(cam_pos, np.array(robot_center, dtype=float))
@@ -138,8 +131,10 @@ def sample_camera_pose(
 def camera_min_fov() -> float:
     """Smaller of the horizontal/vertical camera field of view, in radians."""
     scene = bpy.context.scene
-    sensor_fov = float(scene.camera.data.angle)  # FOV along the longer image dimension
-    return narrow_fov(sensor_fov, int(scene.render.resolution_x), int(scene.render.resolution_y))
+    longer_side_fov = float(scene.camera.data.angle)
+    return narrow_fov(
+        longer_side_fov, int(scene.render.resolution_x), int(scene.render.resolution_y)
+    )
 
 
 def scene_bounding_radius(scene_robots: list[RobotInstance], centroid: list[float]) -> float:

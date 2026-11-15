@@ -40,6 +40,7 @@ import numpy as np
 import pandas as pd
 
 from auto_battlebot.eval import BACK_IDX, FRONT_IDX, Frame, Taxonomy, load_gt, match_indices
+from auto_battlebot.eval.metrics import PCK_FRACTION
 from auto_battlebot.perception.camera_geometry import (
     ground_range_m,
     height_for_label,
@@ -51,9 +52,7 @@ SERIES_COLORS = ("#2a78d6", "#eb6834", "#1baf7a")
 GRID_COLOR = "#c9c8c2"
 TEXT_SECONDARY = "#52514e"
 
-# Offset thresholds reported as "fraction of detections within", as a share of the box's
-# longer side. 0.1 matches score.py's PCK_FRACTION.
-NEAR_THRESHOLDS = (0.02, 0.05, 0.1)
+NEAR_THRESHOLDS = (0.02, 0.05, PCK_FRACTION)
 
 MASK_BINARY_THRESHOLD = 0.5
 

@@ -21,6 +21,12 @@ from synthgen.asset_index import (
 from synthgen.configuration import DistractorsConfig, RandomizationConfig
 from synthgen.constants import DISTRACTOR_OFFSCREEN_LOCATION
 from synthgen.logsetup import get_logger
+from synthgen.mesh_bytes import (
+    COLOR_BYTES,
+    UV_BYTES,
+    estimate_geometry_bytes,
+    estimate_mip_chain_bytes,
+)
 
 logger = get_logger(__name__)
 
@@ -172,8 +178,7 @@ def _estimate_image_gpu_bytes(img: bpy.types.Image) -> int:
     channels = max(1, channels)
     bytes_per_channel = 4 if getattr(img, "is_float", False) else 1
     base_level = w * h * channels * bytes_per_channel
-    # Include an approximate full mip chain cost.
-    return int(base_level * (4.0 / 3.0))
+    return estimate_mip_chain_bytes(base_level)
 
 
 def estimate_distractor_gpu_mb(distractor: DistractorInstance) -> float:
@@ -193,12 +198,12 @@ def estimate_distractor_gpu_mb(distractor: DistractorInstance) -> float:
                 vertex_count = len(mesh_data.vertices)
                 tri_count = len(mesh_data.loop_triangles)
 
-                # Approximate attribute payload per vertex.
-                uv_bytes = 8 if mesh_data.uv_layers else 0
-                color_bytes = 4 if (mesh_data.color_attributes or mesh_data.vertex_colors) else 0
-                total_bytes += vertex_count * (12 + 12 + uv_bytes + color_bytes)
-                # 3 uint32 indices per triangle.
-                total_bytes += tri_count * 12
+                uv_bytes = UV_BYTES if mesh_data.uv_layers else 0
+                has_color = mesh_data.color_attributes or mesh_data.vertex_colors
+                color_bytes = COLOR_BYTES if has_color else 0
+                total_bytes += estimate_geometry_bytes(
+                    vertex_count, tri_count, uv_bytes=uv_bytes, color_bytes=color_bytes
+                )
 
         for slot in obj.material_slots:
             mat = slot.material

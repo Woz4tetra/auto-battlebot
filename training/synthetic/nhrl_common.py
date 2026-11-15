@@ -260,9 +260,8 @@ def footprint_axes(
     centroid_xz = xz.mean(axis=0)
     centered = xz - centroid_xz
     cov = centered.T @ centered / max(len(centered) - 1, 1)
-    # eigh returns eigenvalues ascending; the last eigenvector is the principal.
-    _, eigvecs = np.linalg.eigh(cov)
-    u1 = np.asarray(eigvecs[:, -1], dtype=float)
+    eigvals, eigvecs = np.linalg.eigh(cov)
+    u1 = np.asarray(eigvecs[:, np.argmax(eigvals)], dtype=float)
     norm = float(np.linalg.norm(u1))
     if norm < 1e-12:
         return None

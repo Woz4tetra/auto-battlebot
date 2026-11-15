@@ -167,7 +167,7 @@ class PreviewRenderer:
         scene.render.resolution_percentage = 2
         self._render_to(PREVIEW_PATH)
         scene.render.resolution_percentage = was
-        self._applied = None  # force a full property write on the first real frame
+        self._invalidate_applied_settings()
         return time.monotonic() - started
 
     def render_preview(
@@ -204,6 +204,9 @@ class PreviewRenderer:
         _assert_no_keyframes(camera)
         camera.matrix_world = mathutils.Matrix(np.asarray(cam2world, dtype=np.float64).tolist())
         bpy.context.view_layer.update()
+
+    def _invalidate_applied_settings(self) -> None:
+        self._applied = None
 
     def _apply(self, view: str, preview: bool, alpha: float) -> ViewSetup:
         # The distorted view is the raw sensor frame, which no rectification alpha touches, so it

@@ -47,7 +47,7 @@ from synthgen.cage_mount import (
     sample_cage_mount,
 )
 from synthgen.cage_spec import PANEL_WALLS, CageSceneSpec, all_tubes, load_cage_spec
-from synthgen.camera import target_in_frame
+from synthgen.camera import move_camera_and_check_point_in_written_view
 from synthgen.configuration import CageConfig, EnvironmentConfig, OutputConfig
 from synthgen.constants import (
     BACKGROUND_CATEGORY_ID,
@@ -63,10 +63,8 @@ from synthgen.render_settings import set_denoiser
 logger = get_logger(__name__)
 
 CAGE_COLLECTION_PREFIX = "cage_"
-# Mounts resampled before a scene settles for one that frames the robots anyway.
 MOUNT_FRAMING_RETRIES = 40
-# Lights the cage owns but that live outside its mesh collection as Blender lights.
-CAGE_LIGHT_PREFIXES = ("wash_", "house_bot_fill")
+CAGE_LIGHTS_OUTSIDE_COLLECTION_PREFIXES = ("wash_", "house_bot_fill")
 
 
 @dataclass(frozen=True)
@@ -236,7 +234,7 @@ class CageStage:
         self._lights = [
             (obj, float(obj.data.energy))
             for obj in collection.objects
-            if obj.type == "LIGHT" and obj.name.startswith(CAGE_LIGHT_PREFIXES)
+            if obj.type == "LIGHT" and obj.name.startswith(CAGE_LIGHTS_OUTSIDE_COLLECTION_PREFIXES)
         ]
 
     def apply_one_way_glass(self, cam2worlds: list[np.ndarray]) -> None:
@@ -384,7 +382,7 @@ class CageStage:
         mount = sample_cage_mount(self._cfg.mount, self.wall_half)
         cam2world = mount_cam2world(mount, self.wall_half)
         for _ in range(MOUNT_FRAMING_RETRIES):
-            if target_in_frame(cam2world, look_at, self.lens):
+            if move_camera_and_check_point_in_written_view(cam2world, look_at, self.lens):
                 return mount, cam2world, True
             mount = sample_cage_mount(self._cfg.mount, self.wall_half)
             cam2world = mount_cam2world(mount, self.wall_half)

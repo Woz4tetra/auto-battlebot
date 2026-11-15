@@ -22,8 +22,8 @@ import cv2
 import mathutils
 import numpy as np
 
-_FRONT_COLOR = (0.9, 0.05, 0.05)  # red
-_BACK_COLOR = (0.05, 0.15, 0.9)  # blue
+_FRONT_MARKER_RED = (0.9, 0.05, 0.05)
+_BACK_MARKER_BLUE = (0.05, 0.15, 0.9)
 _VIEW_ANGLES = [
     (0, 15, "Front"),
     (180, 15, "Back"),
@@ -175,8 +175,8 @@ def main() -> None:
             print("  No keypoints in sidecar (missing or degenerate)")
         else:
             front, back = keypoints
-            _add_marker(front, _FRONT_COLOR, marker_radius)
-            _add_marker(back, _BACK_COLOR, marker_radius)
+            _add_marker(front, _FRONT_MARKER_RED, marker_radius)
+            _add_marker(back, _BACK_MARKER_BLUE, marker_radius)
 
         render_grid(meshes, output_dir / f"{glb_path.stem}.jpg")
 

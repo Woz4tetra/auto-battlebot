@@ -21,7 +21,6 @@ class HouseBotPose:
     x_m: float
     y_m: float
     yaw_deg: float
-    # Smallest centre distance to a robot minus the required one; negative when no draw fit.
     clearance_margin_m: float
 
 

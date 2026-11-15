@@ -41,6 +41,7 @@ from auto_battlebot.rl.learners.ppo import Ppo, PpoConfig
 from auto_battlebot.rl.policies.mlp import MlpGaussianPolicy
 
 REPO = Path(__file__).resolve().parents[2]
+LEGACY_CHECKPOINT_ROBOT = "mr_stabs_mk2"
 ORDER = ["A", "B", "C", "D"]
 CHOICES = list(STAGES)
 
@@ -97,8 +98,7 @@ def load_resume(args: argparse.Namespace) -> tuple[dict | None, str]:
         return None, stage
     if not args.force_stage:
         stage = resume.get("stage", stage)
-    # Checkpoints from before the robot was recorded are all Mr Stabs Mk2.
-    trained = resume.get("robot", "mr_stabs_mk2")
+    trained = resume.get("robot", LEGACY_CHECKPOINT_ROBOT)
     if trained != args.robot:
         raise SystemExit(f"{args.resume} trained {trained}, not {args.robot}")
     return resume, stage

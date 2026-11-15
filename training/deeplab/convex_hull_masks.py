@@ -57,10 +57,10 @@ STATE_FILENAME = "validation_state.json"
 
 PANEL_WIDTH = 960
 OVERLAY_ALPHA = 0.45
-ORIGINAL_COLOR = (0, 255, 0)  # BGR: green, pixels labelled in the source mask
-ADDED_COLOR = (0, 0, 255)  # BGR: red, pixels the hull added
-DROPPED_COLOR = (255, 0, 0)  # BGR: blue, pixels of blobs removed as specks
-HULL_OUTLINE_COLOR = (0, 255, 255)  # BGR: yellow
+ORIGINAL_COLOR_BGR = (0, 255, 0)
+ADDED_COLOR_BGR = (0, 0, 255)
+DROPPED_COLOR_BGR = (255, 0, 0)
+HULL_OUTLINE_COLOR_BGR = (0, 255, 255)
 
 
 @dataclass
@@ -227,18 +227,18 @@ def render_sample(image_path: Path, original: np.ndarray, hulled: np.ndarray, de
         )
 
     before = image.copy()
-    overlay(before, original != 0, ORIGINAL_COLOR)
+    overlay(before, original != 0, ORIGINAL_COLOR_BGR)
 
     after = image.copy()
-    overlay(after, (hulled != 0) & (original != 0), ORIGINAL_COLOR)
-    overlay(after, (hulled != 0) & (original == 0), ADDED_COLOR)
-    overlay(after, (hulled == 0) & (original != 0), DROPPED_COLOR)
+    overlay(after, (hulled != 0) & (original != 0), ORIGINAL_COLOR_BGR)
+    overlay(after, (hulled != 0) & (original == 0), ADDED_COLOR_BGR)
+    overlay(after, (hulled == 0) & (original != 0), DROPPED_COLOR_BGR)
     for class_id in np.unique(hulled):
         if class_id == 0:
             continue
         binary = (hulled == class_id).astype(np.uint8)
         contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        cv2.drawContours(after, contours, -1, HULL_OUTLINE_COLOR, 2)
+        cv2.drawContours(after, contours, -1, HULL_OUTLINE_COLOR_BGR, 2)
 
     scale = PANEL_WIDTH / before.shape[1]
     size = (PANEL_WIDTH, max(1, int(round(before.shape[0] * scale))))

@@ -27,6 +27,7 @@ from dataclasses import dataclass, replace
 import numpy as np
 
 from synthgen.cage_mount import (
+    NEAR_VERTICAL_AXIS_COS,
     WALLS,
     CageMount,
     CageMountRanges,
@@ -38,9 +39,6 @@ from synthgen.cage_mount import (
 # Straight up or straight down leaves yaw and roll expressing the same rotation, so the client
 # never gets to send either.
 PITCH_LIMIT_DEG = 89.9
-# Matches `cage_mount._DEGENERATE_COS`: within this of vertical, heading no longer follows from the
-# optical axis and has to come from the camera's own up axis instead.
-_DEGENERATE_COS = 0.999
 
 
 @dataclass(frozen=True)
@@ -109,7 +107,7 @@ def freefly_from_cam2world(cam2world: np.ndarray) -> FreeflyPose:
     forward = -matrix[:3, 2]
     up = matrix[:3, 1]
 
-    if abs(float(forward[2])) > _DEGENERATE_COS:
+    if abs(float(forward[2])) > NEAR_VERTICAL_AXIS_COS:
         heading = _unit_horizontal(up)
         yaw_deg = math.degrees(math.atan2(heading[0], heading[1]))
     else:
@@ -148,7 +146,7 @@ def mount_from_cam2world(
     normal, along = wall_axes(wall)
 
     tilt_deg = math.degrees(math.acos(float(np.clip(-forward[2], -1.0, 1.0))))
-    if abs(float(forward[2])) > _DEGENERATE_COS:
+    if abs(float(forward[2])) > NEAR_VERTICAL_AXIS_COS:
         heading = _unit_horizontal(matrix[:3, 1])
     else:
         heading = _unit_horizontal(forward)

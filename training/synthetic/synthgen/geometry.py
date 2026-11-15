@@ -21,28 +21,15 @@ def narrow_fov(sensor_fov: float, width_px: int, height_px: int) -> float:
 
 
 def min_distance_for_frame_fraction(
-    radius: float, min_fov: float, max_frame_fraction: float
+    radius: float, min_fov: float, max_half_frame_fraction: float
 ) -> float:
-    """Closest camera distance that keeps a *radius* sphere within *max_frame_fraction*.
-
-    Limits the projected silhouette of the robots' bounding sphere to
-    *max_frame_fraction* of the narrower image dimension so a robot can never
-    completely fill the frame, regardless of its size or the camera height.
-
-    Args:
-        radius: Bounding-sphere radius (meters).
-        min_fov: Narrower camera field of view (radians).
-        max_frame_fraction: Fraction of the half-frame the silhouette may fill.
-
-    Returns:
-        The minimum camera distance in meters (0.0 for degenerate inputs).
-    """
-    if radius <= 0.0 or min_fov <= 0.0 or max_frame_fraction <= 0.0:
+    """Closest camera distance, in meters, that keeps a *radius* sphere within the fraction."""
+    if radius <= 0.0 or min_fov <= 0.0 or max_half_frame_fraction <= 0.0:
         return 0.0
     # On the image plane a point at angle theta lands at tan(theta)/tan(fov/2) of
-    # the half-frame. Solving tan(theta) = max_frame_fraction * tan(fov/2) for the
+    # the half-frame. Solving tan(theta) = max_half_frame_fraction * tan(fov/2) for the
     # sphere silhouette (sin(theta) = radius/distance) gives this closed form.
-    k = max_frame_fraction * math.tan(min_fov / 2.0)
+    k = max_half_frame_fraction * math.tan(min_fov / 2.0)
     if k <= 0.0:
         return 0.0
     return radius * math.sqrt(1.0 + k * k) / k

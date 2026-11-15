@@ -40,6 +40,7 @@ import json
 import re
 from glob import glob
 from pathlib import Path
+from typing import NamedTuple
 
 import matplotlib
 
@@ -55,7 +56,7 @@ from tqdm import tqdm
 from auto_battlebot.segmentation.field_labels import UNCLASSIFIED
 from auto_battlebot.segmentation.load_deeplabv3 import common_transforms, load_model
 
-FIELD_CLASS = 1  # channel 1 of the model head is the field; channel 0 is background
+FIELD_CHANNEL = 1
 UNKNOWN_FIELD = "unknown"
 EPOCH_RE = re.compile(r"_ep(\d+)$")
 
@@ -139,9 +140,16 @@ def boundary(mask: np.ndarray) -> np.ndarray:
     return mask ^ eroded
 
 
+class BoundaryCounts(NamedTuple):
+    precision_hits: float
+    pred_total: float
+    recall_hits: float
+    truth_total: float
+
+
 def frame_stats(
     pred: np.ndarray, truth: np.ndarray, tolerances: list[int]
-) -> tuple[float, float, dict[int, tuple[float, float, float, float]]]:
+) -> tuple[float, float, dict[int, BoundaryCounts]]:
     """Per-frame sufficient statistics: (intersection, union, {tol: boundary counts}).
 
     Kept as counts rather than ratios so the bootstrap can resample frames and re-sum
@@ -161,11 +169,11 @@ def frame_stats(
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size))
         near_truth = cv2.dilate(truth_edge, kernel, borderType=cv2.BORDER_CONSTANT, borderValue=0)
         near_pred = cv2.dilate(pred_edge, kernel, borderType=cv2.BORDER_CONSTANT, borderValue=0)
-        counts[tol] = (
-            float(np.count_nonzero(pred_edge & near_truth)),  # precision numerator
-            pred_total,
-            float(np.count_nonzero(truth_edge & near_pred)),  # recall numerator
-            truth_total,
+        counts[tol] = BoundaryCounts(
+            precision_hits=float(np.count_nonzero(pred_edge & near_truth)),
+            pred_total=pred_total,
+            recall_hits=float(np.count_nonzero(truth_edge & near_pred)),
+            truth_total=truth_total,
         )
     return intersection, union, counts
 
@@ -215,7 +223,7 @@ def score_candidate(
             predicted = torch.argmax(logits, dim=1)
             if pad:
                 predicted = predicted[:, pad:-pad, pad:-pad]
-            predicted = (predicted == FIELD_CLASS).to(torch.uint8).cpu().numpy()
+            predicted = (predicted == FIELD_CHANNEL).to(torch.uint8).cpu().numpy()
             truth = batch_masks.numpy().astype(np.uint8)
 
             for i in range(len(predicted)):

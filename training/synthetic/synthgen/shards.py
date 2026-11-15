@@ -28,10 +28,8 @@ IMAGE_SUFFIX = ".jpg"
 LABEL_SUFFIX = ".txt"
 MANIFEST_NAME = "manifest.jsonl"
 DATA_YML_NAME = "data.yml"
-# The one data.yml line that differs between runs: each run records its own directory.
-_DATA_YML_PATH_KEY = "path:"
-# Manifest rows written before the view field existed.
-UNRECORDED_VIEW = "unrecorded"
+_RUN_SPECIFIC_YML_KEY = "path:"
+VIEW_FOR_ROWS_BEFORE_VIEW_FIELD = "unrecorded"
 
 
 @dataclass(frozen=True)
@@ -156,11 +154,11 @@ def merge_parts(parts: Sequence[Path], out: Path) -> MergeSummary:
             os.link(source, target)
         for line, row in content.rows:
             lines.append(line)
-            per_view[str(row.get("view", UNRECORDED_VIEW))] += 1
+            per_view[str(row.get("view", VIEW_FOR_ROWS_BEFORE_VIEW_FIELD))] += 1
             per_venue[str(row.get("venue"))] += 1
     (out / MANIFEST_NAME).write_text("".join(f"{line}\n" for line in lines), encoding="utf-8")
     if first_body is not None:
-        yml = [f"{_DATA_YML_PATH_KEY} {out.resolve()}", *first_body]
+        yml = [f"{_RUN_SPECIFIC_YML_KEY} {out.resolve()}", *first_body]
         (out / DATA_YML_NAME).write_text("\n".join(yml) + "\n", encoding="utf-8")
     return MergeSummary(len(seen), dict(sorted(per_view.items())), dict(sorted(per_venue.items())))
 
@@ -225,4 +223,4 @@ def _data_yml_body(path: Path) -> list[str]:
     if not path.is_file():
         raise ValueError(f"{path} is missing")
     lines = path.read_text(encoding="utf-8").splitlines()
-    return [line for line in lines if not line.startswith(_DATA_YML_PATH_KEY)]
+    return [line for line in lines if not line.startswith(_RUN_SPECIFIC_YML_KEY)]

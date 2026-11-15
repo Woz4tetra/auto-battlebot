@@ -32,9 +32,7 @@ WALLS: tuple[str, ...] = ("near", "far", "left", "right")
 
 _UP = np.array([0.0, 0.0, 1.0])
 _DOWN = np.array([0.0, 0.0, -1.0])
-# Above this |cos| between the optical axis and world z, the axis is too close to straight
-# down for world up to orient the image, and the inward heading is used instead.
-_DEGENERATE_COS = 0.999
+NEAR_VERTICAL_AXIS_COS = 0.999
 
 
 @dataclass(frozen=True)
@@ -197,13 +195,13 @@ def camera_basis_cam2world(
     """A 4x4 cam2world for a Blender camera (-z forward, +y up) at *position* facing *forward*.
 
     *heading* is the horizontal direction the image's up axis falls back to when the optical axis
-    is within `_DEGENERATE_COS` of vertical, where world up cannot define the image axes. A cage
-    camera looking near-straight-down hits that case, so the fallback is not academic.
+    is within `NEAR_VERTICAL_AXIS_COS` of vertical, where world up cannot define the image axes. A
+    cage     camera looking near-straight-down hits that case, so the fallback is not academic.
 
     `synthgen.freefly` calls this too, which is what keeps a flown pose and a `CageMount` pose on
     one convention.
     """
-    reference = heading if abs(float(np.dot(_UP, forward))) > _DEGENERATE_COS else _UP
+    reference = heading if abs(float(np.dot(_UP, forward))) > NEAR_VERTICAL_AXIS_COS else _UP
     up = _unit(reference - float(np.dot(reference, forward)) * forward)
     right = _unit(np.cross(up, -forward))
     right, up = _roll(right, up, forward, roll_rad)

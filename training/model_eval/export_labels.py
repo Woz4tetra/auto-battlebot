@@ -34,6 +34,7 @@ import shutil
 from pathlib import Path
 
 import cv2
+import numpy as np
 import yaml
 from tqdm import tqdm
 
@@ -120,11 +121,15 @@ def yolo_rows(dets: Detections) -> list[str]:
     return rows
 
 
+def left_eye_if_side_by_side(image: np.ndarray, image_width: int) -> np.ndarray:
+    if image.shape[1] == 2 * image_width:
+        return image[:, :image_width]
+    return image
+
+
 def write_image(image_data: bytes, image_width: int, out_path: Path) -> None:
     image = decode_compressed_image(image_data).image
-    # ZED side-by-side exports are twice the pipeline width; keep the left eye.
-    if image.shape[1] == 2 * image_width:
-        image = image[:, :image_width]
+    image = left_eye_if_side_by_side(image, image_width)
     cv2.imwrite(str(out_path), image)
 
 

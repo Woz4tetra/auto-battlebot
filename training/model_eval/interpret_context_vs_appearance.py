@@ -49,6 +49,7 @@ from sklearn.model_selection import cross_val_score
 from sklearn.preprocessing import StandardScaler
 from ultralytics import YOLO
 
+MIN_EXPLAINED_SCORE = 0.15
 IMGSZ = 640
 # Head channels that mean "opponent", set from --opp-channels. Default (0, 1) is the 5-class
 # vocabulary's `object` + `robot`; a 2-class model means just (0,) -- channel 1 is house_bot there,
@@ -255,7 +256,7 @@ def rise(model: Model, frames: list[dict], n_masks: int, grid: int) -> dict:
     for fi, fr in enumerate(frames):
         box = fr["boxes"][0]
         base = model.box_score([fr["img"]], box)[0]
-        if base < 0.15:  # only explain boxes the model actually detects
+        if base < MIN_EXPLAINED_SCORE:
             continue
         masks = (RNG.random((n_masks, grid, grid)) < 0.5).astype(np.float32)
         sal = np.zeros((IMGSZ, IMGSZ), np.float32)

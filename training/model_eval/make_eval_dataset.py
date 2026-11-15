@@ -51,9 +51,7 @@ _REPO = _HERE.parent.parent
 DEFAULT_OUTPUT_DIR = _HERE.parent / "data" / "nhrl_keypoints_eval_test"
 DEFAULT_CLASS_SOURCE = _HERE.parent / "data" / "our_robot_keypoints" / "data.yml"
 DEFAULT_PLAYBACK_CONFIG = _REPO / "config" / "playback" / "_playback.toml"
-# Aspect ratio above which a frame is treated as a ZED side-by-side pair (keep left eye).
-# 16:9 single eye is 1.78; a side-by-side pair is 3.56.
-SIDE_BY_SIDE_ASPECT = 2.6
+SIDE_BY_SIDE_MIN_ASPECT = (16 / 9 + 32 / 9) / 2
 EXTRA_COLORS = ["#22c55e", "#f59e0b", "#a855f7", "#14b8a6", "#f43f5e"]
 
 
@@ -138,7 +136,7 @@ def selected_indices(start: int, count: int, n_pick: int) -> list[int]:
 def left_eye(image: np.ndarray) -> np.ndarray:
     """Keep the left half when the frame is a ZED side-by-side pair; else pass through."""
     height, width = image.shape[:2]
-    if width > height * SIDE_BY_SIDE_ASPECT:
+    if width > height * SIDE_BY_SIDE_MIN_ASPECT:
         return image[:, : width // 2]
     return image
 

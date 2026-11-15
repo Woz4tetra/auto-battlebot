@@ -38,8 +38,8 @@ TILE = 224
 CAPTION_H = 22
 ROW_LABEL_W = 170
 PAD = 6
-CONTEXT = 0.2  # fraction of the box added around it on each side
-SHARPNESS_EDGE = 160  # crop's longer side when sharpness is measured
+CONTEXT_FRACTION_PER_SIDE = 0.2
+SHARPNESS_EDGE_PX = 160
 MIN_SIDE_PX = 24
 EDGE_MARGIN_PX = 2
 FONT = cv2.FONT_HERSHEY_SIMPLEX
@@ -62,14 +62,14 @@ class Capture:
     stamp: int
     recording: str
     image_path: Path
-    box: np.ndarray  # xyxy pixels
+    box_xyxy_px: np.ndarray
     sharpness: float
-    seconds: float  # since the recording's first GT frame
+    seconds_since_first_gt: float
 
 
 def sharpness_of(crop: np.ndarray) -> float:
     height, width = crop.shape[:2]
-    scale = SHARPNESS_EDGE / max(height, width)
+    scale = SHARPNESS_EDGE_PX / max(height, width)
     interp = cv2.INTER_AREA if scale < 1 else cv2.INTER_LINEAR
     resized = cv2.resize(
         crop, (max(1, int(width * scale)), max(1, int(height * scale))), interpolation=interp
@@ -149,8 +149,8 @@ def collect(
 
 def tile_of(capture: Capture, image: np.ndarray) -> np.ndarray:
     height, width = image.shape[:2]
-    x1, y1, x2, y2 = capture.box
-    side = max(x2 - x1, y2 - y1) * (1 + 2 * CONTEXT)
+    x1, y1, x2, y2 = capture.box_xyxy_px
+    side = max(x2 - x1, y2 - y1) * (1 + 2 * CONTEXT_FRACTION_PER_SIDE)
     cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
     left, top = int(round(cx - side / 2)), int(round(cy - side / 2))
     right, bottom = int(round(cx + side / 2)), int(round(cy + side / 2))
@@ -160,7 +160,8 @@ def tile_of(capture: Capture, image: np.ndarray) -> np.ndarray:
     interp = cv2.INTER_AREA if canvas.shape[0] > TILE else cv2.INTER_LINEAR
     tile = np.full((TILE + CAPTION_H, TILE, 3), SURFACE, dtype=np.uint8)
     tile[:TILE] = cv2.resize(canvas, (TILE, TILE), interpolation=interp)
-    caption = f"{short_recording(capture.recording)} +{capture.seconds:.0f}s  {int(x2 - x1)}px"
+    seconds = capture.seconds_since_first_gt
+    caption = f"{short_recording(capture.recording)} +{seconds:.0f}s  {int(x2 - x1)}px"
     cv2.putText(tile, caption, (4, TILE + 15), FONT, 0.42, MUTED, 1, cv2.LINE_AA)
     return tile
 
@@ -224,7 +225,8 @@ def main() -> None:
     print(f"{'robot':<14}{'GT':>5}{'usable':>8}  shown (recording sharpness/box px)")
     for name, captures in picks.items():
         shown = ", ".join(
-            f"{short_recording(c.recording)} {c.sharpness:.0f}/{int(c.box[2] - c.box[0])}"
+            f"{short_recording(c.recording)} {c.sharpness:.0f}/"
+            f"{int(c.box_xyxy_px[2] - c.box_xyxy_px[0])}"
             for c in captures
         )
         print(f"{name:<14}{seen[name]:>5}{len(ranked[name]):>8}  {shown}")

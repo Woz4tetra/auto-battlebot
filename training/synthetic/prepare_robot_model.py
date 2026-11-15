@@ -146,6 +146,7 @@ def _ansi_fg_xterm256(idx: int) -> str:
     return f"\033[38;5;{idx}m"
 
 
+CAD_COLOR_FALLBACK_MAX_DIST = 45.0
 _ANSI_RESET = "\033[0m"
 
 
@@ -235,11 +236,7 @@ def match_material_type(
     if best_match is not None:
         return best_match, best_dist, False
 
-    # CAD exports sometimes introduce tiny color variants for what is
-    # semantically the same material.  Keep this conservative to avoid
-    # accidentally remapping unrelated colors.
-    fallback_max_dist = 45.0
-    if nearest_match is not None and nearest_dist <= fallback_max_dist:
+    if nearest_match is not None and nearest_dist <= CAD_COLOR_FALLBACK_MAX_DIST:
         return nearest_match, nearest_dist, True
 
     return None, nearest_dist, False

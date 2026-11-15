@@ -59,6 +59,7 @@ from synthgen.camera import (
     setup_scene_cameras,
 )
 from synthgen.configuration import (
+    ARENA_VENUE,
     ConfigError,
     RenderConfig,
     apply_damage_mode,
@@ -175,8 +176,7 @@ class SceneState:
     active_distractors: list[DistractorInstance]
     cam_count: int
     house_bot: HouseBot | None = None
-    # Which arena the scene rendered in, for the manifest. "arena" is the HDRI half.
-    venue: str = "arena"
+    venue: str = ARENA_VENUE
     # One mount per camera pose, aligned by frame index. Empty for the HDRI half, whose
     # cameras come off a sampled shell rather than a wall.
     mounts: tuple[CageMount, ...] = ()
@@ -777,7 +777,7 @@ def render_scene(
             active_distractors=active_distractors,
             cam_count=cam_count,
             house_bot=None if cage is None else cage.house_bot,
-            venue="arena" if cage is None else cage.name,
+            venue=ARENA_VENUE if cage is None else cage.name,
             mounts=mounts,
             damage=tuple(instance_damage),
             lens=None if cage is None else cage.lens,
@@ -792,7 +792,7 @@ def render_scene(
             logger.info(
                 "Scene %d in the %s (%s) — %d/%d images generated",
                 completed,
-                cage.name if cage is not None else "arena",
+                cage.name if cage is not None else ARENA_VENUE,
                 names,
                 global_idx + written - budget.start_index,
                 budget.num_images,

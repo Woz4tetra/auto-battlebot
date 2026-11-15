@@ -438,7 +438,8 @@ def make_textured_material(
                 gate = mat.new_node("ShaderNodeMath")
                 gate.operation = "GREATER_THAN"
                 gate.inputs[1].default_value = LED_SATURATION_THRESHOLD
-                mat.link(hsv.outputs["Green"], gate.inputs[0])  # saturation
+                saturation = hsv.outputs["Green"]
+                mat.link(saturation, gate.inputs[0])
                 strength = mat.new_node("ShaderNodeMath")
                 strength.name = LED_STRENGTH_NODE
                 strength.operation = "MULTIPLY"

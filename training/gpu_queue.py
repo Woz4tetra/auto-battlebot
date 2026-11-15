@@ -66,8 +66,8 @@ POLL_SECONDS = 10
 YIELD_DIR = Path.home() / ".config" / "gpu_queue" / "yield.d"
 # A pause can sit through a container's full stop grace period (60 s for vLLM).
 HOOK_TIMEOUT = 300
-# When to resume the tenants if the worker never exits (--idle-exit 0).
-YIELD_RESUME_SECONDS = 600
+YIELD_RESUME_IDLE_SECONDS = 600
+LEGACY_JOB_DEVICES = (0, 1, 2)
 TERMINAL_STATES = ("done", "failed", "cancelled")
 ACTIVE_STATES = ("running", "claimed")
 # Ultralytics' epoch counter ("  46/100      12.7G  ...") and its batch bar
@@ -75,10 +75,8 @@ ACTIVE_STATES = ("running", "claimed")
 EPOCH_RE = re.compile(r"\s(\d+)/(\d+)\s+[\d.]+G\s")
 BATCH_RE = re.compile(r"(\d+)/(\d+)\s+[\d.]+it/s")
 LOG_TAIL_BYTES = 256 * 1024
-# How far up the parent chain to look when deciding which job owns a GPU process.
-PROC_DEPTH = 12
-# Fraction of a job that must be done before its own log beats the historical estimate.
-PROGRESS_TRUST = 0.15
+OWNER_SEARCH_PARENT_DEPTH = 12
+LOG_PROGRESS_TRUST_FRACTION = 0.15
 # A run this short is a smoke test or an export, not a training arm to learn from.
 MIN_HISTORY_SECONDS = 300
 SMOKE_EPOCHS = 10
@@ -309,8 +307,7 @@ def run_job(job: dict[str, Any]) -> None:
 
 
 def job_devices(job: dict[str, Any]) -> list[int]:
-    # Jobs queued before devices were recorded ran on all three.
-    return list(job.get("devices") or [0, 1, 2])
+    return list(job.get("devices") or LEGACY_JOB_DEVICES)
 
 
 def wait_for_gpus(job_id: int) -> bool:
@@ -385,7 +382,7 @@ def idle_tick(args: argparse.Namespace, idle: float, yielded: bool) -> bool:
     worker if its idle timeout has passed -- resume first, never after: a worker
     that is gone cannot give the GPUs back.
     """
-    if yielded and idle > (args.idle_exit or YIELD_RESUME_SECONDS):
+    if yielded and idle > (args.idle_exit or YIELD_RESUME_IDLE_SECONDS):
         run_yield_hooks("resume")
         yielded = False
     if args.idle_exit and idle > args.idle_exit:
@@ -458,7 +455,7 @@ def process_ancestry(pid: int) -> set[int]:
     torchrun, which puts one child per GPU two levels below the pid the queue recorded.
     """
     seen = {pid}
-    for _ in range(PROC_DEPTH):
+    for _ in range(OWNER_SEARCH_PARENT_DEPTH):
         pid = parent_pid(pid)
         if pid <= 1:
             break
@@ -802,7 +799,7 @@ def forecast(state: dict[str, Any], ref: datetime) -> dict[int, dict[str, Any]]:
             # The first epochs carry the dataset scan and warmup, so extrapolating from
             # them overshoots badly: F_s_stretch read 3h13m at epoch 3, against the 1h53m
             # its sibling arm took. Past runs win until a job's own rate has settled.
-            if fraction >= PROGRESS_TRUST or (history is None and fraction > 0.02):
+            if fraction >= LOG_PROGRESS_TRUST_FRACTION or (history is None and fraction > 0.02):
                 seconds, measured, basis = elapsed / fraction, True, ""
             if seconds is not None:
                 seconds = max(seconds, elapsed)

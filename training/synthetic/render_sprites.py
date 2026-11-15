@@ -62,6 +62,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 # Sky-only outdoor HDRI. Sun plus blue-sky fill lights a top-down view evenly; the three-area-lamp
 # rig this replaced left the flat upper surfaces that dominate a top-down sprite reading as
 # near-black.
+SPRITE_MARGIN = 1.08
 HDRI = REPO_ROOT / "training/data/hdris/table_mountain_1_puresky_2k.hdr"
 
 
@@ -228,8 +229,7 @@ def render_sprite(
     center = (lo + hi) / 2.0
     extent_x = hi.x - lo.x
     extent_y = hi.y - lo.y
-    # A little air around the silhouette so rotation in the viewer never clips a corner.
-    span = max(extent_x, extent_y) * 1.08
+    span = max(extent_x, extent_y) * SPRITE_MARGIN
 
     camera_data = bpy.data.cameras.new("sprite_cam")
     camera_data.type = "ORTHO"

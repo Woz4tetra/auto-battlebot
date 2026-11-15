@@ -106,15 +106,14 @@ def test_unknown_wall_is_rejected() -> None:
         wall_axes("ceiling")
 
 
-# The basement's two stone walls and its committed mount block (config.toml, meatball_basement).
-_BASEMENT_WALLS = [
+_MEATBALL_BASEMENT_WALLS = [
     ("far", (0.871, 0.825), (-1.729, 0.825)),
     ("right", (0.871, -1.775), (0.871, 0.825)),
 ]
-_BASEMENT_HALF = 0.8001
+_MEATBALL_BASEMENT_HALF = 0.8001
 
 
-def _basement_ranges(**overrides: object) -> CageMountRanges:
+def _meatball_basement_ranges(**overrides: object) -> CageMountRanges:
     values: dict[str, object] = {
         "walls": ("near", "left"),
         "along_m": (-0.40, 0.40),
@@ -125,19 +124,26 @@ def _basement_ranges(**overrides: object) -> CageMountRanges:
 
 
 def test_basement_mounts_clear_both_stone_walls() -> None:
-    assert mounts_behind_walls(_basement_ranges(), _BASEMENT_HALF, _BASEMENT_WALLS) == []
+    assert (
+        mounts_behind_walls(
+            _meatball_basement_ranges(), _MEATBALL_BASEMENT_HALF, _MEATBALL_BASEMENT_WALLS
+        )
+        == []
+    )
 
 
 @pytest.mark.parametrize("wall", ["far", "right"])
 def test_mount_on_a_walled_side_is_rejected(wall: str) -> None:
-    blocked = mounts_behind_walls(_basement_ranges(walls=(wall,)), _BASEMENT_HALF, _BASEMENT_WALLS)
+    blocked = mounts_behind_walls(
+        _meatball_basement_ranges(walls=(wall,)), _MEATBALL_BASEMENT_HALF, _MEATBALL_BASEMENT_WALLS
+    )
     assert blocked
     assert all(f"venue wall {wall!r}" in message for message in blocked)
 
 
 def test_mount_sliding_past_a_wall_is_rejected() -> None:
-    wide = _basement_ranges(walls=("left",), along_m=(-1.0, 1.0))
-    blocked = mounts_behind_walls(wide, _BASEMENT_HALF, _BASEMENT_WALLS)
+    wide = _meatball_basement_ranges(walls=("left",), along_m=(-1.0, 1.0))
+    blocked = mounts_behind_walls(wide, _MEATBALL_BASEMENT_HALF, _MEATBALL_BASEMENT_WALLS)
     assert any("venue wall 'far'" in message for message in blocked)
 
 

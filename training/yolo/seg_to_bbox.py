@@ -30,10 +30,10 @@ IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp")
 SPLITS = ("train", "val", "test")
 
 
-RASTER = (
+CONTOUR_RASTER_SIZE_PX = (
     720,
     1280,
-)  # canvas for contour extraction; ~2x the 640 train size, sub-pixel is noise here
+)
 
 
 def polygon_to_bbox(coords: list[float]) -> tuple[float, float, float, float] | None:
@@ -105,7 +105,7 @@ def top_contours_bbox(
     arena rather than a detached blade), enclosing it re-inflates the box. ``top_n`` is a parameter
     so that balance can be retuned without touching callers.
     """
-    h, w = RASTER
+    h, w = CONTOUR_RASTER_SIZE_PX
     mask = np.zeros((h, w), dtype=np.uint8)
     drawn = False
     for coords in polygons:

@@ -191,14 +191,19 @@ DEFAULT_CLASS_COLORS = [
 ]
 
 
+def ceil_div(numerator: int, denominator: int) -> int:
+    return -(-numerator // denominator)
+
+
 class SegmaskDatasetValidator:
     """Contact-sheet validator: page through a grid of thumbnails, judge with the keyboard."""
 
-    # How many frames a page holds. The thumbnail size follows from this and the
-    # window size, so the scale control is really "how many fit on screen".
-    PAGE_STEPS = [1, 2, 4, 6, 9, 12, 16, 20, 30, 42, 56]
-    DEFAULT_PAGE = 9
+    FRAMES_PER_PAGE_STEPS = [1, 2, 4, 6, 9, 12, 16, 20, 30, 42, 56]
+    DEFAULT_FRAMES_PER_PAGE = 9
     MIN_THUMB = 80
+    CELL_PAD_W_PX = 14
+    CELL_CAPTION_H_PX = 34
+    THUMB_QUANTUM_PX = 8
 
     PASS_COLOR = "#2E7D32"
     FAIL_COLOR = "#C62828"
@@ -217,7 +222,7 @@ class SegmaskDatasetValidator:
         self.show_overlay = True
         self.overlay_alpha = 0.45
 
-        self.page_step = self.PAGE_STEPS.index(self.DEFAULT_PAGE)
+        self.page_step = self.FRAMES_PER_PAGE_STEPS.index(self.DEFAULT_FRAMES_PER_PAGE)
         self.thumb_px = 260
         self.selected_index = 0
         self.page_start = 0
@@ -349,11 +354,10 @@ class SegmaskDatasetValidator:
             return self.class_info[class_id]["name"]
         return f"Class {class_id}"
 
-    def compose(self, index: int, box: Tuple[int, int], legend: bool) -> Image.Image:
-        """Composite image + mask overlay, decoded no larger than `box`.
-
-        Runs on worker threads, so it must not touch tkinter.
-        """
+    def compose_off_main_thread(
+        self, index: int, box: Tuple[int, int], legend: bool
+    ) -> Image.Image:
+        """Composite image + mask overlay, decoded no larger than `box`."""
         img_path, mask_path = self.image_mask_pairs[index]
 
         image = Image.open(img_path)
@@ -438,7 +442,7 @@ class SegmaskDatasetValidator:
                 self.thumb_cache.move_to_end(cache_key)
                 return hit
 
-        fitted = self.compose(index, box, legend=False)
+        fitted = self.compose_off_main_thread(index, box, legend=False)
         thumb = Image.new("RGB", box, (0, 0, 0))
         thumb.paste(fitted, ((box[0] - fitted.width) // 2, (box[1] - fitted.height) // 2))
 
@@ -467,7 +471,7 @@ class SegmaskDatasetValidator:
 
     @property
     def page_size(self) -> int:
-        return self.PAGE_STEPS[self.page_step]
+        return self.FRAMES_PER_PAGE_STEPS[self.page_step]
 
     def setup_ui(self):
         """Create the user interface."""
@@ -548,7 +552,7 @@ class SegmaskDatasetValidator:
         self.size_scale = ttk.Scale(
             options_section,
             from_=0,
-            to=len(self.PAGE_STEPS) - 1,
+            to=len(self.FRAMES_PER_PAGE_STEPS) - 1,
             orient=tk.HORIZONTAL,
             value=self.page_step,
             command=self._on_size_change,
@@ -656,13 +660,12 @@ class SegmaskDatasetValidator:
         avail_w = max(self.grid_frame.winfo_width(), 320)
         avail_h = max(self.grid_frame.winfo_height(), 240)
 
-        # Each cell is a 16:9 thumbnail plus padding and a caption strip.
-        pad_w, pad_h = 14, 34
+        pad_w, pad_h = self.CELL_PAD_W_PX, self.CELL_CAPTION_H_PX
 
         size, columns, rows = float(self.MIN_THUMB), target, 1
         best_score = (0.0, 0)
         for candidate_columns in range(1, target + 1):
-            candidate_rows = -(-target // candidate_columns)  # ceil
+            candidate_rows = ceil_div(target, candidate_columns)
             width = avail_w / candidate_columns - pad_w
             height = avail_h / candidate_rows - pad_h
             candidate = min(width, height * 16 / 9)
@@ -673,8 +676,7 @@ class SegmaskDatasetValidator:
                 best_score = score
                 size, columns, rows = candidate, candidate_columns, candidate_rows
 
-        # Quantize so a few pixels of window resize does not churn the whole grid
-        thumb_px = max(self.MIN_THUMB, int(size) // 8 * 8)
+        thumb_px = max(self.MIN_THUMB, int(size) // self.THUMB_QUANTUM_PX * self.THUMB_QUANTUM_PX)
 
         if (columns, rows) != (self.columns, self.rows):
             self.columns, self.rows, self.thumb_px = columns, rows, thumb_px
@@ -952,7 +954,7 @@ class SegmaskDatasetValidator:
         self.set_page_step(self.page_step - delta, sync_scale=True)
 
     def set_page_step(self, step: int, sync_scale: bool = False):
-        step = min(max(step, 0), len(self.PAGE_STEPS) - 1)
+        step = min(max(step, 0), len(self.FRAMES_PER_PAGE_STEPS) - 1)
         if step == self.page_step:
             return
         self.page_step = step
@@ -992,7 +994,7 @@ class SegmaskDatasetValidator:
 
         max_w = int(self.root.winfo_screenwidth() * 0.9)
         max_h = int(self.root.winfo_screenheight() * 0.85)
-        image = self.compose(self.selected_index, (max_w, max_h), legend=True)
+        image = self.compose_off_main_thread(self.selected_index, (max_w, max_h), legend=True)
 
         self.zoom_photo = ImageTk.PhotoImage(image)
         if self.zoom_label is not None:

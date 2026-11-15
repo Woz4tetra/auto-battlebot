@@ -8,6 +8,9 @@ from pathlib import Path
 
 import objaverse
 import trimesh
+from synthgen.mesh_bytes import estimate_geometry_bytes, estimate_mip_chain_bytes
+
+RGBA8_BYTES_PER_PX = 4
 
 DEFAULT_TAGS = [
     "robot",
@@ -213,8 +216,7 @@ def estimate_model_gpu_row(model_path: Path, source: str) -> dict:
         vert_total += v
         face_total += fcount
 
-        # Approximate per-vertex attrs + index buffer.
-        geom_bytes += v * (12 + 12 + 8 + 4) + fcount * 12
+        geom_bytes += estimate_geometry_bytes(v, fcount)
 
         visual = getattr(g, "visual", None)
         mat = getattr(visual, "material", None)
@@ -242,8 +244,7 @@ def estimate_model_gpu_row(model_path: Path, source: str) -> dict:
                 w, h = img.size
                 max_tex_dim = max(max_tex_dim, w, h)
                 tex_count += 1
-                # RGBA8 with full mip chain approximation.
-                tex_bytes += int(w * h * 4 * (4.0 / 3.0))
+                tex_bytes += estimate_mip_chain_bytes(w * h * RGBA8_BYTES_PER_PX)
             except Exception:
                 continue
 

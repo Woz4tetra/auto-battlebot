@@ -82,7 +82,10 @@ def _setup_scene(samples: int) -> None:
     bg = world.node_tree.nodes.get("Background")
     if bg is not None:
         bg.inputs[0].default_value = (0.16, 0.16, 0.16, 1.0)
-        bg.inputs[1].default_value = 0.7  # ambient fill so dark bodies aren't black
+        bg.inputs[1].default_value = AMBIENT_FILL_STRENGTH
+
+
+AMBIENT_FILL_STRENGTH = 0.7
 
 
 def _add_lights(center: np.ndarray, radius: float) -> list:

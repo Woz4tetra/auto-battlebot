@@ -46,6 +46,7 @@ from typing import Any
 
 import nhrl_common as nc
 
+_NO_KEY = 255
 _THUMB_REVIEWED_KEY = "thumbnail_reviewed"
 _REJECTED_DIRNAME = "rejected_thumbnails"
 
@@ -267,7 +268,7 @@ def _run_interactive(
 
         cv2.imshow(window, _compose_frame(img, entry, clean_name, index, len(names)))
         key = cv2.waitKey(20) & 0xFF
-        if key == 255:  # no key this tick
+        if key == _NO_KEY:
             continue
         index, quit_now = _apply_thumb_key(
             key,

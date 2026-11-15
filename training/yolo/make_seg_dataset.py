@@ -17,6 +17,7 @@ from shapely.errors import GEOSException
 from shapely.geometry import GeometryCollection, LineString, MultiPolygon, Polygon
 from shapely.ops import nearest_points, unary_union
 
+HIERARCHY_PARENT = 3
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
 
 
@@ -610,8 +611,7 @@ def _pieces_from_mask(mask: np.ndarray, max_idx: int, min_area: float) -> list[P
     pieces: list[Polygon] = []
     hierarchy_data = hierarchy[0]
     for idx, contour in enumerate(contours):
-        # Parent == -1 means outer contour.
-        if hierarchy_data[idx][3] != -1:
+        if hierarchy_data[idx][HIERARCHY_PARENT] != -1:
             continue
         if len(contour) < 3:
             continue

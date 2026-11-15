@@ -56,8 +56,7 @@ from synthgen.robots import RobotInstance
 logger = get_logger(__name__)
 
 CUTTER_NAME_PREFIX = "damage_cutter"
-# Unit primitives, scaled per use: a cube of half-extent 1 and a sphere of radius 1.
-_CUTTER_UNIT_SIZE = 2.0
+_CUTTER_UNIT_DIAMETER = 2.0
 # The faces a boolean cut opens take the cutter's material (material_mode TRANSFER). With
 # no material they took slot 0 of the target through the primitive's own UVs and rendered
 # near white, which no real robot's torn-open interior looks like. Dark, rough and slightly
@@ -70,15 +69,11 @@ _CUT_INTERIOR_METALLIC = 0.4
 
 @dataclass(frozen=True)
 class DamageTarget:
-    """One thing damage can happen to: its parent, its meshes, and its keypoints.
-
-    Robots and robot-like distractors differ in type but not in what damage needs from
-    them, so both arrive here. Keypoints are in the parent frame, as modelled.
-    """
+    """One thing damage can happen to: its parent, its meshes, and its keypoints."""
 
     parent: bpy.types.Object
     meshes: list[bpy.types.Object]
-    keypoints: tuple[np.ndarray | None, ...]
+    keypoints_parent_frame: tuple[np.ndarray | None, ...]
     named_parts: tuple[RemovablePart, ...] = ()
     named_pieces: dict[str, list[list[bpy.types.Object]]] = field(default_factory=dict)
 
@@ -150,7 +145,7 @@ def build_cutter_pool(size: int) -> CutterPool:
     for index in range(max(size, 0)):
         shape = CUTTER_CUBE if index % 2 == 0 else CUTTER_ICOSPHERE
         if shape == CUTTER_CUBE:
-            bpy.ops.mesh.primitive_cube_add(size=_CUTTER_UNIT_SIZE)
+            bpy.ops.mesh.primitive_cube_add(size=_CUTTER_UNIT_DIAMETER)
         else:
             bpy.ops.mesh.primitive_ico_sphere_add(radius=1.0, subdivisions=2)
         cutter = bpy.context.active_object
@@ -325,7 +320,7 @@ def _damage_instance(
         part_draw = draw_part_damage(
             [_parent_corners(instance.parent, obj) for obj in meshes],
             [obj.name for obj in meshes],
-            _parent_keypoints(*instance.keypoints),
+            _parent_keypoints(*instance.keypoints_parent_frame),
             cfg.part_severity,
             cfg.protected_name_patterns,
             cfg.max_part_volume_fraction,
@@ -341,7 +336,7 @@ def _damage_instance(
     chunk_draw = draw_chunk_damage(
         _world_vertices(target),
         _world_corners(target),
-        _world_keypoints(instance.parent, *instance.keypoints),
+        _world_keypoints(instance.parent, *instance.keypoints_parent_frame),
         cfg.chunk_volume_fraction,
         cfg.cutter_shapes,
         cfg.keypoint_clearance_m,
@@ -398,11 +393,11 @@ def apply_scene_damage(
             DamageTarget(
                 parent=robot.parent,
                 meshes=[m.blender_obj for m in robot.meshes],
-                keypoints=(robot.kp_front, robot.kp_back),
+                keypoints_parent_frame=(robot.kp_front, robot.kp_back),
                 named_parts=tuple(
                     RemovablePart(
                         name=part.name,
-                        pieces=len(robot.damage_pieces.get(part.name, [])),
+                        split_piece_count=len(robot.damage_pieces.get(part.name, [])),
                         subset=part.subset,
                         includes=part.includes,
                         count_weights=part.count_weights,
@@ -421,7 +416,7 @@ def apply_scene_damage(
             DamageTarget(
                 parent=distractor.parent,
                 meshes=[m.blender_obj for m in distractor.meshes],
-                keypoints=(distractor.kp_front, distractor.kp_back),
+                keypoints_parent_frame=(distractor.kp_front, distractor.kp_back),
             ),
         )
         for distractor in distractors

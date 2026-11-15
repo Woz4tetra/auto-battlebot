@@ -38,8 +38,7 @@ from auto_battlebot.segmentation.model_config import (
 
 matplotlib.use("agg")
 
-# Field-mask class layout: channel 0 is background, channel 1 is the field.
-FIELD_CLASS = 1
+FIELD_CHANNEL = 1
 FIELD_INDEX_NAME = "field_index.json"
 AMP_DTYPES = {"off": None, "bf16": torch.bfloat16}
 
@@ -352,8 +351,8 @@ class FieldIoU:
 
     def update(self, predictions: torch.Tensor, targets: torch.Tensor) -> None:
         pad = self.pad_size
-        predicted = torch.argmax(predictions, dim=1) == FIELD_CLASS
-        truth = targets[:, FIELD_CLASS] > 0.5
+        predicted = torch.argmax(predictions, dim=1) == FIELD_CHANNEL
+        truth = targets[:, FIELD_CHANNEL] > 0.5
         if pad:
             predicted = predicted[:, pad:-pad, pad:-pad]
             truth = truth[:, pad:-pad, pad:-pad]

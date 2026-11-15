@@ -47,9 +47,9 @@ from PIL import Image, ImageTk
 
 HANDLE_PX = 8
 MIN_BOX_PX = 4
-DRAG_THRESHOLD_PX = 4  # press-to-release travel above this counts as a drag, not a click
-MAX_DATA_YAML_DEPTH = 3  # how far below the opened dir a subdataset's data.yaml may sit
-SHIFT_MASK = 0x0001  # tk event.state bit for Shift
+DRAG_THRESHOLD_PX = 4
+MAX_SUBDATASET_YAML_DEPTH = 3
+TK_SHIFT_STATE_BIT = 0x0001
 KP_VISIBLE = 2.0
 KP_OCCLUDED = 1.0
 
@@ -137,7 +137,7 @@ def _find_data_yaml(dataset_path: Path) -> Path | None:
     if not dataset_path.is_dir():
         return None
     level = [dataset_path]
-    for _ in range(MAX_DATA_YAML_DEPTH):
+    for _ in range(MAX_SUBDATASET_YAML_DEPTH):
         children = [child for parent in level for child in _child_dirs(parent)]
         for child in children:
             for name in names:
@@ -618,7 +618,7 @@ class LabelEditor:
             return
         box = self.boxes[self.selected]
         ix, iy = self._to_image(event.x, event.y)
-        visibility = KP_OCCLUDED if event.state & SHIFT_MASK else KP_VISIBLE
+        visibility = KP_OCCLUDED if event.state & TK_SHIFT_STATE_BIT else KP_VISIBLE
         while len(box.keypoints) <= self.kp_next:
             box.keypoints.append([ix, iy, visibility])
         box.keypoints[self.kp_next] = [ix, iy, visibility]

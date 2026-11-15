@@ -60,6 +60,10 @@ class TestBboxFromSegmap:
         assert bbox_from_category_segmap(seg, 1, 20, 10) is not None
 
 
+EXACT_DEPTH_M = 2.5
+EXACT_TOLERANCE_M = 0.5
+
+
 class TestKeypointVisibility:
     DEPTH = np.full((10, 20), 2.0, dtype=np.float32)
 
@@ -74,9 +78,12 @@ class TestKeypointVisibility:
         assert check_keypoint_visibility(0.5, 0.5, 3.0, self.DEPTH, 20, 10) == 1
 
     def test_tolerance_boundary_is_occluded(self) -> None:
-        # abs(diff) < tolerance is strict: exactly at tolerance counts occluded.
-        # 2.5 and 0.5 are exactly representable, so the comparison is exact.
-        assert check_keypoint_visibility(0.5, 0.5, 2.5, self.DEPTH, 20, 10, tolerance=0.5) == 1
+        assert (
+            check_keypoint_visibility(
+                0.5, 0.5, EXACT_DEPTH_M, self.DEPTH, 20, 10, tolerance=EXACT_TOLERANCE_M
+            )
+            == 1
+        )
 
     def test_ignore_occlusion_in_frame(self) -> None:
         assert (

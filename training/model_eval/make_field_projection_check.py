@@ -41,11 +41,12 @@ TILE_W, TILE_H = 640, 360
 PAD = 6
 LEGEND_H = 52
 CAPTION_H = 42
+MAX_PROJECTED_COORD_PX = 20_000
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 
-GRID_BGR = (214, 120, 42)  # blue: the floor grid
-ARENA_BGR = (52, 104, 235)  # orange: the nominal arena square
-RING_BGR = (122, 175, 27)  # aqua: range rings
+FLOOR_GRID_BGR = (214, 120, 42)
+NOMINAL_ARENA_BGR = (52, 104, 235)
+RANGE_RING_BGR = (122, 175, 27)
 INK = (238, 238, 238)
 SURFACE = (26, 26, 26)
 
@@ -63,8 +64,7 @@ def draw_polyline(tile, points_field, geometry, color, scale, thickness=1, close
     for a, b in zip(pixels[:-1], pixels[1:]):
         if not (np.all(np.isfinite(a)) and np.all(np.isfinite(b))):
             continue
-        # Clip absurd coordinates; a near-horizon ray projects to millions of pixels.
-        if max(abs(a[0]), abs(a[1]), abs(b[0]), abs(b[1])) > 20_000:
+        if max(abs(a[0]), abs(a[1]), abs(b[0]), abs(b[1])) > MAX_PROJECTED_COORD_PX:
             continue
         cv2.line(
             tile, (int(a[0]), int(a[1])), (int(b[0]), int(b[1])), color, thickness, cv2.LINE_AA
@@ -85,14 +85,14 @@ def draw_floor(tile, geometry, scale):
             tile,
             line_points([value, -GRID_EXTENT_M, 0.0], [value, GRID_EXTENT_M, 0.0]),
             geometry,
-            GRID_BGR,
+            FLOOR_GRID_BGR,
             scale,
         )
         draw_polyline(
             tile,
             line_points([-GRID_EXTENT_M, value, 0.0], [GRID_EXTENT_M, value, 0.0]),
             geometry,
-            GRID_BGR,
+            FLOOR_GRID_BGR,
             scale,
         )
 
@@ -101,7 +101,7 @@ def draw_floor(tile, geometry, scale):
     square = np.vstack(
         [line_points([*corners[i], 0.0], [*corners[(i + 1) % 4], 0.0]) for i in range(4)]
     )
-    draw_polyline(tile, square, geometry, ARENA_BGR, scale, thickness=2, closed=True)
+    draw_polyline(tile, square, geometry, NOMINAL_ARENA_BGR, scale, thickness=2, closed=True)
 
     nadir = geometry.camera_position[:2]
     angles = np.linspace(0, 2 * np.pi, 128)
@@ -114,7 +114,7 @@ def draw_floor(tile, geometry, scale):
             ],
             axis=1,
         )
-        draw_polyline(tile, ring, geometry, RING_BGR, scale, closed=True)
+        draw_polyline(tile, ring, geometry, RANGE_RING_BGR, scale, closed=True)
 
 
 def draw_round_trip(tile, geometry, gt_boxes, gt_labels, gt_keypoints, scale):
@@ -137,7 +137,7 @@ def draw_round_trip(tile, geometry, gt_boxes, gt_labels, gt_keypoints, scale):
         returned = (back * scale).astype(int)
         cv2.circle(tile, tuple(original), 7, SURFACE, -1, cv2.LINE_AA)
         cv2.circle(tile, tuple(original), 6, INK, 1, cv2.LINE_AA)
-        cv2.drawMarker(tile, tuple(returned), RING_BGR, cv2.MARKER_CROSS, 11, 2, cv2.LINE_AA)
+        cv2.drawMarker(tile, tuple(returned), RANGE_RING_BGR, cv2.MARKER_CROSS, 11, 2, cv2.LINE_AA)
         _ = gt_boxes
     return worst
 
@@ -152,9 +152,9 @@ def caption(tile, lines):
 def legend(width):
     strip = np.full((LEGEND_H, width, 3), SURFACE, dtype=np.uint8)
     entries = [
-        (f"nominal {NOMINAL_FIELD_SIZE_M:.2f} m arena square", ARENA_BGR),
-        (f"{GRID_STEP_M:g} m floor grid", GRID_BGR),
-        ("1/2/3 m range rings + round-trip cross", RING_BGR),
+        (f"nominal {NOMINAL_FIELD_SIZE_M:.2f} m arena square", NOMINAL_ARENA_BGR),
+        (f"{GRID_STEP_M:g} m floor grid", FLOOR_GRID_BGR),
+        ("1/2/3 m range rings + round-trip cross", RANGE_RING_BGR),
     ]
     x = 16
     for text, color in entries:

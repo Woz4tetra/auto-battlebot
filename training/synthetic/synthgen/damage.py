@@ -52,8 +52,7 @@ CUTTER_CUBE = "cube"
 CUTTER_ICOSPHERE = "icosphere"
 CUTTER_SHAPES = (CUTTER_CUBE, CUTTER_ICOSPHERE)
 
-# Tries at seeding a cutter away from every keypoint before giving up on this instance.
-CHUNK_PLACEMENT_RETRIES = 12
+CUTTER_SEED_RETRIES = 12
 # Surface vertices sampled as candidate cutter seeds. A fused Meshy mesh can carry 100k
 # vertices and the draw only needs a handful of candidates.
 SURFACE_SAMPLE_LIMIT = 64
@@ -129,15 +128,10 @@ class ChunkDraw:
 
 @dataclass(frozen=True)
 class RemovablePart:
-    """One named assembly a robot can lose, as the draw sees it.
-
-    ``pieces`` counts the separate pieces the load-time split produced for it: one for an
-    assembly that goes whole, one per box for a ``subset`` part such as the four wheels,
-    where a draw takes 1..pieces of them.
-    """
+    """One named assembly a robot can lose, as the draw sees it."""
 
     name: str
-    pieces: int
+    split_piece_count: int
     subset: bool = False
     includes: tuple[str, ...] = ()
     count_weights: tuple[float, ...] = ()
@@ -225,7 +219,7 @@ def assign_faces_to_pieces(
 
 def piece_count(part: RemovablePart) -> int:
     """How many of a subset part's pieces one draw removes, from ``count_weights``."""
-    counts = list(range(1, part.pieces + 1))
+    counts = list(range(1, part.split_piece_count + 1))
     if not part.count_weights:
         return random.choice(counts)
     weights = [
@@ -242,7 +236,7 @@ def draw_named_part_damage(
     count_range: tuple[int, int],
 ) -> NamedPartDraw | None:
     """Pick 1..n of the allowed named parts to remove, or None when none is allowed."""
-    by_name = {part.name: part for part in parts if part.pieces > 0}
+    by_name = {part.name: part for part in parts if part.split_piece_count > 0}
     candidates = [
         name for name in by_name if by_name[name].selectable and (not allowed or name in allowed)
     ]
@@ -254,14 +248,16 @@ def draw_named_part_damage(
     for name in random.sample(candidates, random.randint(low, high)):
         part = by_name[name]
         if part.subset:
-            chosen = random.sample(range(part.pieces), piece_count(part))
+            chosen = random.sample(range(part.split_piece_count), piece_count(part))
             removed.setdefault(name, set()).update(chosen)
         else:
-            removed.setdefault(name, set()).update(range(part.pieces))
+            removed.setdefault(name, set()).update(range(part.split_piece_count))
         for included in part.includes:
             if included in by_name:
-                removed.setdefault(included, set()).update(range(by_name[included].pieces))
-    total = sum(part.pieces for part in by_name.values())
+                removed.setdefault(included, set()).update(
+                    range(by_name[included].split_piece_count)
+                )
+    total = sum(part.split_piece_count for part in by_name.values())
     return NamedPartDraw(
         removed=tuple((name, tuple(sorted(indices))) for name, indices in removed.items()),
         damage=sum(len(indices) for indices in removed.values()) / total,
@@ -393,7 +389,7 @@ def draw_chunk_damage(
     volume = bbox_corner_volume(bbox_corners)
     if volume <= 0.0:
         return None
-    for _ in range(CHUNK_PLACEMENT_RETRIES):
+    for _ in range(CUTTER_SEED_RETRIES):
         shape = random.choice(list(shapes))
         fraction = random.uniform(*fraction_range)
         radius = cutter_radius_m(volume, fraction, shape)

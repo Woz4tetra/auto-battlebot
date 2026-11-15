@@ -47,6 +47,9 @@ def box(centre, half):
     )
 
 
+PROBE_SCENES = 10
+
+
 class TestBoxHelpers:
     def test_volume_is_the_spanned_box(self):
         assert bbox_corner_volume(box((0, 0, 0), 0.5)) == pytest.approx(1.0)
@@ -207,10 +210,8 @@ class TestDamageBudget:
         assert all(budget.take(1.0) for _ in range(20))
 
     def test_short_runs_are_not_a_lottery(self):
-        # Ten scenes is what a 100-frame probe renders; a coin flip put one in ten on the
-        # damaged side, which is what this replaces.
         budget = DamageBudget()
-        assert sum(budget.take(0.5) for _ in range(10)) == 5
+        assert sum(budget.take(0.5) for _ in range(PROBE_SCENES)) == PROBE_SCENES // 2
 
 
 class TestNamedParts:

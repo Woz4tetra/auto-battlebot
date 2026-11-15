@@ -145,6 +145,12 @@ def warp_targets(
     return per_event, half_xy, cage_name
 
 
+def nanmedian_over_seen_frames(stack: np.ndarray) -> np.ndarray:
+    with np.errstate(all="ignore"), warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        return np.nanmedian(stack, axis=0)
+
+
 def combine_clips(clips: list[WarpedClip]) -> tuple[np.ndarray, np.ndarray]:
     """Median the clips of one event into an albedo; returns it and the mask no clip saw."""
     stack = []
@@ -157,9 +163,7 @@ def combine_clips(clips: list[WarpedClip]) -> tuple[np.ndarray, np.ndarray]:
         scaled = np.clip(clip.texture.astype(np.float32) * gain, 0, 255)
         scaled[~valid] = np.nan
         stack.append(scaled)
-    with np.errstate(all="ignore"), warnings.catch_warnings():
-        warnings.simplefilter("ignore", RuntimeWarning)  # all-NaN columns are the unseen strip
-        median = np.nanmedian(np.stack(stack), axis=0)
+    median = nanmedian_over_seen_frames(np.stack(stack))
     unseen = np.isnan(median[:, :, 0])
     # Restore the event's mean colour so the albedo carries the real mat tint, and fill what no
     # clip saw (the near strip the camera cuts off) with that mean.
