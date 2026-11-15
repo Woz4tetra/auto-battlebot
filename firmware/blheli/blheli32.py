@@ -168,8 +168,6 @@ def cmd_write(args: argparse.Namespace) -> None:
             f"{args.file} was read from ESC {doc.get('esc')}, not {args.esc}. Settings such as "
             "direction differ per ESC: back up this ESC and edit that file instead."
         )
-    # An edit made with `set` must land on the settings it was made from. A plain backup is a
-    # restore and overwrites whatever the ESC holds.
     base = bytes.fromhex(doc["base_payload_hex"]) if "base_payload_hex" in doc else None
     session, close = open_session(args)
     try:

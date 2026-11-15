@@ -11,7 +11,9 @@ const size_t AIR_HEADER_SIZE = sizeof(AIR_MAGIC) + 1;
 // ESP_NOW_MAX_DATA_LEN on IDF 4.4. ESP-NOW v2 needs IDF 5.4.
 const size_t AIR_MAX_FRAME = 250;
 const size_t AIR_MAX_PAYLOAD = AIR_MAX_FRAME - AIR_HEADER_SIZE;
-const size_t SERIAL_OVERHEAD = 6;  // magic, type, length, crc
+const size_t SERIAL_OVERHEAD = 6;
+static_assert(SERIAL_OVERHEAD == sizeof(SERIAL_MAGIC) + 1 + 1 + 2,
+              "serial frame is magic, type, length, crc");
 const size_t SERIAL_MAX_FRAME = SERIAL_OVERHEAD + 255;
 
 const uint8_t CHANNEL_OVERRIDE = 1;

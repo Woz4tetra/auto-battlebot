@@ -27,7 +27,6 @@ FIRMWARE_DIR = SCRIPT_DIR.parent.parent
 SHARED_WEB_ASSETS_DIR = FIRMWARE_DIR / "mr_stabs_mk2" / "web"
 SERVICE = "auto-battlebot"
 
-# ---- wire format: firmware/shared/espnow_protocol/src/espnow_protocol.h -------------------------
 
 SERIAL_MAGIC = b"\x7b\xb0"
 SERIAL_OVERHEAD = 6
@@ -87,8 +86,8 @@ OTA_ERRORS = {
 }
 
 UINT32_MAX = 0xFFFFFFFF
-TELEMETRY_PERIOD_MS = 10  # mr_stabs_mk2 espnow_link.h
-LINK_STATS_PERIOD_MS = 100  # espnow_dongle main.cpp
+TELEMETRY_PERIOD_MS = 10
+LINK_STATS_PERIOD_MS = 100
 
 RING_SECONDS = 120.0
 SERIES_SECONDS = 60.0
@@ -218,7 +217,6 @@ class FrameParser:
         while True:
             start = self.buffer.find(SERIAL_MAGIC)
             if start < 0:
-                # Keep a trailing first magic byte; it may be the start of the next frame.
                 keep = 1 if self.buffer.endswith(SERIAL_MAGIC[:1]) else 0
                 self._skip(len(self.buffer) - keep, lines)
                 break
@@ -903,7 +901,7 @@ def open_port(path: str) -> serial.Serial:
 
 
 def reset_dongle(port: serial.Serial) -> None:
-    """One chip reset through the USB-Serial/JTAG lines: DTR low with RTS high holds EN low, then."""
+    """Reset the chip once through the USB-Serial/JTAG DTR and RTS lines."""
     port.dtr = False
     time.sleep(0.2)
     port.rts = False

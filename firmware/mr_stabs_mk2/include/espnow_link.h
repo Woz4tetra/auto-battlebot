@@ -18,10 +18,9 @@ const uint32_t CHANNEL_DWELL_MS = 25;
 
 const uint32_t TELEMETRY_PERIOD_MS = 10;
 
-// Dongles allowed to command, tune, and flash this robot, by the STA MAC each dongle prints at
-// boot. Paired from the diagnostics page and kept in NVS, so none are built into the firmware.
-// ESP-NOW allows 20 unencrypted peers.
 const uint8_t MAX_PAIRED_DONGLES = 8;
+static_assert(MAX_PAIRED_DONGLES + 1 <= ESP_NOW_MAX_TOTAL_PEER_NUM,
+              "paired dongles plus broadcast must fit the ESP-NOW peer table");
 
 const uint32_t OTA_SILENCE_MS = 5000;
 

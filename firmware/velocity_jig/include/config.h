@@ -43,10 +43,9 @@ static constexpr uint8_t ISM330DHCX_WHO_AM_I = 0x6B;
 static constexpr uint8_t CTRL3_C_BDU = 0x40;
 static constexpr uint8_t CTRL3_C_IF_INC = 0x04;
 
-// IMU output data rate (the sensor's internal rate; kept above SAMPLE_RATE_HZ so
-// every poll has fresh data). 1.66 kHz is a good default over SPI.
 #define IMU_ODR LSM6DS_RATE_1_66K_HZ
 static constexpr uint32_t IMU_ODR_HZ = 1660;
+static_assert(IMU_ODR_HZ > SAMPLE_RATE_HZ, "every poll needs fresh IMU data");
 
 #define IMU_ACCEL_RANGE LSM6DS_ACCEL_RANGE_16_G
 #define IMU_GYRO_RANGE ISM330DHCX_GYRO_RANGE_4000_DPS
@@ -59,9 +58,8 @@ static constexpr uint32_t SD_SCK_MHZ_VAL = 24;
 
 static constexpr uint64_t PREALLOC_BYTES = 32ULL * 1024 * 1024;
 
-// Capture ring buffer. Producer = ISR, consumer = main loop. Sized to absorb
-// worst-case SD write stalls (~100 ms) many times over. Must be a power of two.
-static constexpr uint32_t RING_SLOTS = 4096;  // 4096 * 24 B ~= 96 KB
+static constexpr uint32_t RING_SLOTS = 4096;
+static_assert((RING_SLOTS & (RING_SLOTS - 1)) == 0, "ring indices wrap with a mask");
 
 static constexpr uint32_t WBUF_SIZE = 8192;
 
