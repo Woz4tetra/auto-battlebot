@@ -38,17 +38,17 @@ class GrowthFit:
     """One axis's variance growth law, with each term named by its mechanism."""
 
     axis: str
-    const: float  # m^2 or rad^2, delay jitter
-    a: float  # per second, random walk
-    b: float  # per second^2, scale-factor error
-    c: float  # per second^3, white-noise acceleration
+    const_var: float
+    a_per_s: float
+    b_per_s2: float
+    c_per_s3: float
     horizons: np.ndarray
     measured_var: np.ndarray
     n: int
 
     def variance(self, h: np.ndarray | float) -> np.ndarray:
         h = np.asarray(h, dtype=float)
-        return self.const + self.a * h + self.b * h**2 + self.c * h**3
+        return self.const_var + self.a_per_s * h + self.b_per_s2 * h**2 + self.c_per_s3 * h**3
 
     def sigma(self, h: np.ndarray | float) -> np.ndarray:
         return np.sqrt(np.maximum(self.variance(h), 0.0))
@@ -57,10 +57,10 @@ class GrowthFit:
         """Which mechanism carries the variance at 400 ms, the horizon that matters most."""
         h = 0.4
         terms = {
-            "delay jitter": self.const,
-            "random walk": self.a * h,
-            "scale factor": self.b * h**2,
-            "white-noise accel": self.c * h**3,
+            "delay jitter": self.const_var,
+            "random walk": self.a_per_s * h,
+            "scale factor": self.b_per_s2 * h**2,
+            "white-noise accel": self.c_per_s3 * h**3,
         }
         return max(terms.items(), key=lambda kv: kv[1])[0]
 
@@ -81,10 +81,10 @@ def fit_growth(axis: str, horizons: np.ndarray, residuals: np.ndarray) -> Growth
     coeff, _ = nnls(basis, var)
     return GrowthFit(
         axis=axis,
-        const=float(coeff[0]),
-        a=float(coeff[1]),
-        b=float(coeff[2]),
-        c=float(coeff[3]),
+        const_var=float(coeff[0]),
+        a_per_s=float(coeff[1]),
+        b_per_s2=float(coeff[2]),
+        c_per_s3=float(coeff[3]),
         horizons=horizons,
         measured_var=var,
         n=residuals.shape[0],
@@ -95,13 +95,13 @@ def fit_growth(axis: str, horizons: np.ndarray, residuals: np.ndarray) -> Growth
 class ProcessNoise:
     """Continuous-time process noise for the our-robot EKF, derived from the growth law."""
 
-    q_along: float  # (m/s^2)^2 / Hz, from c_along = q/3
+    q_along_m2_s3: float
     q_cross: float
-    q_heading: float  # (rad/s^2)^2 / Hz
-    scale_factor: float  # fractional speed error, dimensionless
-    heading_scale_factor: float  # fractional yaw-rate error, dimensionless
-    heading_rw: float  # rad^2/s, angle random walk feeding cross-track
-    delay_jitter_s: float  # s, from the constant term at the median speed
+    q_heading_rad2_s3: float
+    scale_factor_frac: float
+    heading_scale_factor_frac: float
+    heading_rw_rad2_per_s: float
+    delay_jitter_s: float
     median_speed: float
     median_yaw_rate: float
 
@@ -110,12 +110,13 @@ class ProcessNoise:
             f"[{table}]",
             "# Derived from windowed open-loop residuals, not hand-tuned. See",
             "# playground/calibration/fit_process_noise.py.",
-            f"q_along = {toml_float(self.q_along)}  # (m/s^2)^2/Hz, sigma_p^2 = q h^3 / 3",
+            f"q_along = {toml_float(self.q_along_m2_s3)}  # (m/s^2)^2/Hz, sigma_p^2 = q h^3 / 3",
             f"q_cross = {toml_float(self.q_cross)}",
-            f"q_heading = {toml_float(self.q_heading)}  # (rad/s^2)^2/Hz",
-            f"scale_factor = {toml_float(self.scale_factor)}  # sigma = |v| h eps",
-            f"heading_scale_factor = {toml_float(self.heading_scale_factor)}  # sigma = |w| h eps",
-            f"heading_random_walk = {toml_float(self.heading_rw)}  # rad^2/s",
+            f"q_heading = {toml_float(self.q_heading_rad2_s3)}  # (rad/s^2)^2/Hz",
+            f"scale_factor = {toml_float(self.scale_factor_frac)}  # sigma = |v| h eps",
+            "heading_scale_factor = "
+            f"{toml_float(self.heading_scale_factor_frac)}  # sigma = |w| h eps",
+            f"heading_random_walk = {toml_float(self.heading_rw_rad2_per_s)}  # rad^2/s",
             f"delay_jitter_s = {toml_float(self.delay_jitter_s)}",
         ]
         return "\n".join(lines) + "\n"
@@ -128,16 +129,16 @@ def build_q(
     along = fits["along"]
     cross = fits["cross"]
     heading = fits["heading"]
-    eps = float(np.sqrt(along.b)) / max(median_speed, 1e-6)
-    eps_heading = float(np.sqrt(heading.b)) / max(median_yaw_rate, 1e-6)
-    jitter = float(np.sqrt(along.const)) / max(median_speed, 1e-6)
+    eps = float(np.sqrt(along.b_per_s2)) / max(median_speed, 1e-6)
+    eps_heading = float(np.sqrt(heading.b_per_s2)) / max(median_yaw_rate, 1e-6)
+    jitter = float(np.sqrt(along.const_var)) / max(median_speed, 1e-6)
     return ProcessNoise(
-        q_along=3.0 * along.c,
-        q_cross=3.0 * cross.c,
-        q_heading=3.0 * heading.c,
-        scale_factor=eps,
-        heading_scale_factor=eps_heading,
-        heading_rw=heading.a,
+        q_along_m2_s3=3.0 * along.c_per_s3,
+        q_cross=3.0 * cross.c_per_s3,
+        q_heading_rad2_s3=3.0 * heading.c_per_s3,
+        scale_factor_frac=eps,
+        heading_scale_factor_frac=eps_heading,
+        heading_rw_rad2_per_s=heading.a_per_s,
         delay_jitter_s=jitter,
         median_speed=median_speed,
         median_yaw_rate=median_yaw_rate,
@@ -195,13 +196,14 @@ def print_growth(fit: GrowthFit) -> None:
     unit, label = (np.degrees(1.0) * 1e3, "mdeg") if heading else (1e3, "mm")
     print(f"\n  {fit.axis} (n={fit.n} windows, sigma in {label})")
     print(
-        f"    const {fit.const:.3e}   a {fit.a:.3e}   b {fit.b:.3e}   c {fit.c:.3e}"
+        f"    const {fit.const_var:.3e}   a {fit.a_per_s:.3e}"
+        f"   b {fit.b_per_s2:.3e}   c {fit.c_per_s3:.3e}"
         f"   dominant at 400 ms: {fit.dominant()}"
     )
     print("    horizon ms |" + "".join(f"{h * 1e3:10.0f}" for h in fit.horizons))
     print("    measured   |" + "".join(f"{np.sqrt(v) * unit:10.3g}" for v in fit.measured_var))
     print("    modelled   |" + "".join(f"{s * unit:10.3g}" for s in fit.sigma(fit.horizons)))
-    if fit.const == 0.0 and fit.a == 0.0 and fit.b == 0.0 and fit.c == 0.0:
+    if fit.const_var == 0.0 and fit.a_per_s == 0.0 and fit.b_per_s2 == 0.0 and fit.c_per_s3 == 0.0:
         print(
             "    WARNING: every coefficient fit to zero, so this axis has no covariance growth"
             " at all.\n             Do not ship that: check the residuals before using this Q."
@@ -321,7 +323,7 @@ def main() -> None:
             continue
         binned = fit_growth("along", err.horizons, err.along[sel])
         print(
-            f"  {lo:.1f}-{hi:.1f} m/s: n={n}, b {binned.b:.3e}, c {binned.c:.3e},"
+            f"  {lo:.1f}-{hi:.1f} m/s: n={n}, b {binned.b_per_s2:.3e}, c {binned.c_per_s3:.3e},"
             f" dominant {binned.dominant()}"
         )
 
@@ -331,15 +333,18 @@ def main() -> None:
     )
     noise = build_q(fits, median_speed, median_yaw_rate)
     print("\n=== Process noise ===")
-    print(f"  q_along        {noise.q_along:.4g} (m/s^2)^2/Hz")
+    print(f"  q_along        {noise.q_along_m2_s3:.4g} (m/s^2)^2/Hz")
     print(f"  q_cross        {noise.q_cross:.4g} (m/s^2)^2/Hz")
-    print(f"  q_heading      {noise.q_heading:.4g} (rad/s^2)^2/Hz")
-    print(f"  scale factor   {noise.scale_factor:.4g} ({noise.scale_factor * 100:.2f}% of speed)")
+    print(f"  q_heading      {noise.q_heading_rad2_s3:.4g} (rad/s^2)^2/Hz")
     print(
-        f"  heading scale  {noise.heading_scale_factor:.4g}"
-        f" ({noise.heading_scale_factor * 100:.2f}% of yaw rate)"
+        f"  scale factor   {noise.scale_factor_frac:.4g}"
+        f" ({noise.scale_factor_frac * 100:.2f}% of speed)"
     )
-    print(f"  heading RW     {noise.heading_rw:.4g} rad^2/s")
+    print(
+        f"  heading scale  {noise.heading_scale_factor_frac:.4g}"
+        f" ({noise.heading_scale_factor_frac * 100:.2f}% of yaw rate)"
+    )
+    print(f"  heading RW     {noise.heading_rw_rad2_per_s:.4g} rad^2/s")
     print(f"  delay jitter   {noise.delay_jitter_s * 1e3:.2f} ms at {median_speed:.2f} m/s")
 
     rows = coverage(err, fits["along"], fits["cross"])
