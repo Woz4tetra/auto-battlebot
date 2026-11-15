@@ -6,6 +6,7 @@ import math
 import random
 from collections.abc import Sequence
 from dataclasses import dataclass
+from enum import Enum
 
 import numpy as np
 
@@ -14,6 +15,11 @@ WALLS: tuple[str, ...] = ("near", "far", "left", "right")
 _UP = np.array([0.0, 0.0, 1.0])
 _DOWN = np.array([0.0, 0.0, -1.0])
 NEAR_VERTICAL_AXIS_COS = 0.999
+
+
+class MountAim(str, Enum):
+    FIXED = "fixed"
+    CENTRE = "centre"
 
 
 @dataclass(frozen=True)
@@ -49,7 +55,7 @@ class CageMountRanges:
     # "fixed" samples `tilt_deg` directly. "centre" derives tilt so the optical axis meets the
     # field centre and samples `tilt_offset_deg` on top, which keeps tilt tied to how far out
     # and how high the mount landed instead of drawing the three independently.
-    aim: str = "fixed"
+    aim: MountAim = MountAim.FIXED
     tilt_deg: tuple[float, float] = (26.0, 42.0)
     tilt_offset_deg: tuple[float, float] = (0.0, 0.0)
     yaw_deg: tuple[float, float] = (-9.0, 9.0)
@@ -76,17 +82,11 @@ def aim_tilt_deg(height_m: float, distance_m: float) -> float:
 
 
 def sample_cage_mount(ranges: CageMountRanges, wall_half_m: float) -> CageMount:
-    """Draw one mount, uniform in every range and in the wall choice.
-
-    `wall_half_m` is half the cage interior, needed only when `aim` is "centre": the tilt then
-    follows from how far the drawn mount ended up from the field centre.
-    """
-    if ranges.aim not in ("fixed", "centre"):
-        raise ValueError(f"mount aim is {ranges.aim!r}; use 'fixed' or 'centre'")
+    """Draw one mount, uniform in every range and in the wall choice."""
     along = random.uniform(*ranges.along_m)
     height = random.uniform(*ranges.height_m)
     inset = random.uniform(*ranges.inset_m)
-    if ranges.aim == "centre":
+    if ranges.aim is MountAim.CENTRE:
         distance = math.hypot(wall_half_m - inset, along)
         tilt = aim_tilt_deg(height, distance) + random.uniform(*ranges.tilt_offset_deg)
     else:
@@ -162,15 +162,7 @@ def mount_forward(mount: CageMount) -> np.ndarray:
 def camera_basis_cam2world(
     position: np.ndarray, forward: np.ndarray, heading: np.ndarray, roll_rad: float
 ) -> np.ndarray:
-    """A 4x4 cam2world for a Blender camera (-z forward, +y up) at *position* facing *forward*.
-
-    *heading* is the horizontal direction the image's up axis falls back to when the optical axis
-    is within `NEAR_VERTICAL_AXIS_COS` of vertical, where world up cannot define the image axes. A
-    cage     camera looking near-straight-down hits that case, so the fallback is not academic.
-
-    `synthgen.freefly` calls this too, which is what keeps a flown pose and a `CageMount` pose on
-    one convention.
-    """
+    """A 4x4 cam2world for a Blender camera (-z forward, +y up) at *position* facing *forward*."""
     reference = heading if abs(float(np.dot(_UP, forward))) > NEAR_VERTICAL_AXIS_COS else _UP
     up = _unit(reference - float(np.dot(reference, forward)) * forward)
     right = _unit(np.cross(up, -forward))

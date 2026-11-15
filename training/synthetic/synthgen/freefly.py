@@ -12,6 +12,7 @@ from synthgen.cage_mount import (
     WALLS,
     CageMount,
     CageMountRanges,
+    MountAim,
     camera_basis_cam2world,
     mount_cam2world,
     wall_axes,
@@ -171,7 +172,7 @@ def ranges_covering(
     walls = tuple(wall for wall in WALLS if any(mount.wall == wall for mount in mounts))
     return CageMountRanges(
         walls=walls,
-        aim="fixed",
+        aim=MountAim.FIXED,
         along_m=_span([m.along_m for m in mounts], pad_m),
         height_m=_span([m.height_m for m in mounts], pad_m),
         inset_m=_span([m.inset_m for m in mounts], pad_m),
@@ -187,7 +188,7 @@ def format_mount_ranges_toml(ranges: CageMountRanges, header: str = "") -> str:
     lines = [f"# {line}" if line else "#" for line in header.splitlines()]
     lines.append("[cages.mount]")
     lines.append("walls = [" + ", ".join(f'"{wall}"' for wall in ranges.walls) + "]")
-    lines.append(f'aim = "{ranges.aim}"')
+    lines.append(f'aim = "{ranges.aim.value}"')
     for field in ("along_m", "height_m", "inset_m", "tilt_deg", "yaw_deg", "roll_deg"):
         low, high = getattr(ranges, field)
         lines.append(f"{field} = [{low:.4f}, {high:.4f}]")

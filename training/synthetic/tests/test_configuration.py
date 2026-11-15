@@ -4,6 +4,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from synthgen.cage_mount import MountAim
 from synthgen.configuration import (
     CageConfig,
     ConfigError,
@@ -531,6 +532,18 @@ pieces = [[[0.0, 0.0, 0.0, 0.1, 0.1, 0.1]]]
         )
         with pytest.raises(ConfigError, match="subset"):
             load_render_config(_write_config(tmp_path, toml))
+
+
+class TestMountAim:
+    def test_unknown_aim_is_an_error(self, tmp_path: Path) -> None:
+        toml = MINIMAL_TOML + '\n[[cages]]\nname = "a"\n[cages.mount]\naim = "middle"\n'
+        with pytest.raises(ConfigError, match="aim"):
+            load_render_config(_write_config(tmp_path, toml))
+
+    def test_aim_parses_to_the_enum(self, tmp_path: Path) -> None:
+        toml = MINIMAL_TOML + '\n[[cages]]\nname = "a"\n[cages.mount]\naim = "centre"\n'
+        (cage,) = load_render_config(_write_config(tmp_path, toml)).cages
+        assert cage.mount.aim is MountAim.CENTRE
 
 
 class TestCageViews:

@@ -10,7 +10,7 @@ from typing import Any
 import numpy as np
 
 from synthgen.annotations import normalize_annotation_mode
-from synthgen.cage_mount import WALLS, CageMountRanges
+from synthgen.cage_mount import WALLS, CageMountRanges, MountAim
 from synthgen.colorspec import ColorMappingEntry
 from synthgen.constants import ANNOTATION_MODE_SEGMENTATION_BBOX, VIEWS
 from synthgen.damage import CUTTER_SHAPES
@@ -642,9 +642,13 @@ def _parse_mount(section: dict[str, Any], parent_context: str = "[[cages]]") -> 
     unknown = [w for w in walls if w not in WALLS]
     if unknown:
         raise ConfigError(f"{context}.walls: unknown {unknown}; valid walls are {list(WALLS)}")
-    aim = str(section.get("aim", defaults.aim))
-    if aim not in ("fixed", "centre"):
-        raise ConfigError(f"{context}.aim: expected 'fixed' or 'centre', got {aim!r}")
+    aim_text = str(section.get("aim", defaults.aim.value))
+    try:
+        aim = MountAim(aim_text)
+    except ValueError:
+        raise ConfigError(
+            f"{context}.aim: expected one of {[a.value for a in MountAim]}, got {aim_text!r}"
+        ) from None
     return CageMountRanges(
         walls=walls,
         aim=aim,

@@ -7,10 +7,13 @@ import random
 
 import numpy as np
 import pytest
+from synthgen import freefly
 from synthgen.cage_mount import (
+    NEAR_VERTICAL_AXIS_COS,
     WALLS,
     CageMount,
     CageMountRanges,
+    camera_basis_cam2world,
     mount_cam2world,
     mount_forward,
     mount_position,
@@ -158,3 +161,21 @@ def test_wall_axes_handedness() -> None:
     for wall in WALLS:
         normal, along = wall_axes(wall)
         assert np.cross(along, normal)[2] == pytest.approx(1.0)
+
+
+def test_near_vertical_axis_takes_its_up_from_the_heading() -> None:
+    heading = np.array([1.0, 0.0, 0.0])
+    down = np.array([0.0, 0.0, -1.0])
+    position = np.zeros(3)
+    straight = camera_basis_cam2world(position, down, heading, 0.0)
+    assert np.allclose(straight[:3, 1], heading, atol=1e-9)
+    lean = math.acos(NEAR_VERTICAL_AXIS_COS) * 0.5
+    nearly = np.array([0.0, math.sin(lean), -math.cos(lean)])
+    assert np.allclose(camera_basis_cam2world(position, nearly, heading, 0.0)[:3, 1], heading)
+    tilted = math.acos(NEAR_VERTICAL_AXIS_COS) * 2.0
+    off_axis = np.array([0.0, math.sin(tilted), -math.cos(tilted)])
+    assert camera_basis_cam2world(position, off_axis, heading, 0.0)[2, 1] > 0.0
+
+
+def test_freefly_and_mounts_share_one_camera_basis() -> None:
+    assert freefly.camera_basis_cam2world is camera_basis_cam2world
