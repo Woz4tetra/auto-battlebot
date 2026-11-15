@@ -1,7 +1,4 @@
-"""Binary protocol shared between the Genesis server and the C++ client.
-
-Wire format must stay in sync with include/simulation/sim_connection.hpp.
-"""
+"""Binary protocol shared between the Genesis server and the C++ client."""
 
 from __future__ import annotations
 

@@ -10,9 +10,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 PARAMS_TOML = REPO_ROOT / "playground/calibration/out/plant_stageA.toml"
 OUT_HEADER = REPO_ROOT / "tests/plant/plant_golden_data.hpp"
 
-DT = 0.002  # step at the substep size, so each step is exactly one substep on both sides
-CMD_TICK_S = 0.02  # command rate, matching the drive CLI
-RECORD_STRIDE = 5  # record every 10 ms
+DT = 0.002
+CMD_TICK_S = 0.02
+RECORD_STRIDE = 5
 
 # (duration_s, u_lin, u_ang) held segments.
 SCENARIO = [

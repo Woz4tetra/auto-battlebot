@@ -89,7 +89,7 @@ def errors(mcap: Path, bundle: Path) -> pd.DataFrame:
     return out[out["theta"].abs() < np.pi / 2]
 
 
-TICK_S = 0.02  # simulation/rl_eval_server.py
+TICK_S = 0.02
 
 
 def lockstep_errors(mcap: Path) -> pd.DataFrame:

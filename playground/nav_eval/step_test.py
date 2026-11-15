@@ -36,7 +36,6 @@ PRE_S = 0.3  # rest pitch is the median over this long before the step
 POST_S = 0.5  # the window runs this long past the hold, to catch a late peak
 MAX_WINDOW_S = 2.5
 ARMATURE_GRID = tuple(float(x) for x in np.geomspace(0.3, 2.0, 15))
-# config/mr_stabs_mk2_fid_zed_box.toml: max_motor_rpm, to turn a normalized rate into RPM/s.
 MAX_MOTOR_RPM = 1500.0
 SLEW_RATES = (1.0, 1.33, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 10.0, 12.0, 16.0, 24.0, 0.0)
 

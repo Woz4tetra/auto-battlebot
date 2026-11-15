@@ -1,8 +1,10 @@
+import re
 import struct
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "simulation"))
+REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_ROOT / "simulation"))
 
 import protocol  # noqa: E402
 
@@ -22,3 +24,30 @@ def test_response_header_matches_wire_size() -> None:
 def test_meas_pose_matches_wire_size() -> None:
     packed = protocol.pack_meas_pose(protocol.MeasPose(1.0, 0.2, 0.3, 0.4))
     assert len(packed) == protocol.MEAS_POSE_SIZE
+
+
+def _cpp_struct_doubles(source: str, name: str) -> int:
+    body = re.search(rf"struct {name} \{{(.*?)\}};", source, re.S).group(1)
+    total = 0
+    for line in body.split(";"):
+        line = line.split("//")[0].strip()
+        match = re.match(r"(uint32_t|double)\s+(.*)", line)
+        if not match:
+            continue
+        for declarator in match.group(2).split(","):
+            count = re.search(r"\[(\d+)\]", declarator)
+            size = 4 if match.group(1) == "uint32_t" else 8
+            total += size * (int(count.group(1)) if count else 1)
+    return total
+
+
+def test_formats_match_cpp_header() -> None:
+    source = (REPO_ROOT / "src" / "simulation" / "sim_connection.cpp").read_text()
+    assert protocol.REQUEST_SIZE == _cpp_struct_doubles(source, "SimRequest")
+    assert protocol.RESPONSE_HEADER_SIZE == _cpp_struct_doubles(source, "SimResponseHeader")
+    assert protocol.GT_POSE_SIZE == 3 * 8
+    assert protocol.MEAS_HEADER_SIZE == 2 * 8
+    assert protocol.MEAS_POSE_SIZE == 4 * 8
+    assert "double x, y, yaw;" in source
+    assert "double delivered, capture_time;" in source
+    assert "double measured, x, y, yaw;" in source

@@ -151,7 +151,7 @@ def main() -> None:
         else:
             print(f"\nNo flip up to {args.max_accel:.2f}/s; robot tolerated the full escalation.")
     finally:
-        link.close()  # zeroes the channels and disarms
+        link.close()
 
     print("\n=== result ===")
     if flipped_at is not None:

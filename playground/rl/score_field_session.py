@@ -21,7 +21,6 @@ from auto_battlebot.recording.mcap_io import iter_messages, iter_video_frames
 REPO = Path(__file__).resolve().parents[2]
 TRACKS_TOPIC = "/status/tracks"
 OPPONENT_LABELS = ("mrs_buff_mk3", "opponent")
-# Mirrors of WarpNavConfig defaults, so field and sim numbers share definitions.
 ARC_HALF_RAD = math.radians(60.0)
 DANGER_MARGIN_M = 0.10
 ENGAGEMENT_GAP_S = 0.5

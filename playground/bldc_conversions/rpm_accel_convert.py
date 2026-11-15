@@ -5,8 +5,6 @@ from __future__ import annotations
 import argparse
 import math
 
-# --- Defaults (match config/_common.toml [transmitter]) -------------------
-
 DEFAULT_WHEEL_DIAMETER_M = 0.05
 SLIP_FLIP_LIMIT_MPS2 = 8.5
 

@@ -59,9 +59,6 @@ from hazards import load_hazards
 if TYPE_CHECKING:
     from mujoco_window import MujocoWindow
 
-# Footprint radius for an opponent with no hazard_radius: the half-diagonal of the 0.15 x 0.15 m
-# box GroundTruthRobotFilter reports for every robot. Feeds the sensing model's robot-distance
-# context only.
 DEFAULT_OPPONENT_RADIUS_M = 0.106
 
 TRACE_HEADER = (

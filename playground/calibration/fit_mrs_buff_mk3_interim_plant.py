@@ -39,7 +39,7 @@ MEAS_HZ = 60.0
 NOISE_XY = 0.01
 NOISE_YAW = 0.05
 PACK_V = 15.2
-ZERO_DEADZONE = 0.02  # DifferentialDriveProcessor
+ZERO_DEADZONE = 0.02
 
 SPECS = {
     s.name: s
@@ -129,11 +129,10 @@ def build_windows(m4: plant.PlantParams, count: int, seed: int) -> WindowBatch:
     ang = np.empty((count, n_plant))
     for i in range(count):
         lin[i], ang[i] = command_tape(rng, n_plant)
-    # The app's commands pass the delay, then M4. Shift on the plant grid, as greybox.predict does.
     lin_d = delay_tape(lin, PLANT_DT, m4.delay_s)
     ang_d = delay_tape(ang, PLANT_DT, m4.delay_s)
     _, traj = plant.simulate(lin_d, ang_d, PLANT_DT, m4)
-    start = int(round(PREROLL_S / PLANT_DT)) - 1  # the state after this step starts the window
+    start = int(round(PREROLL_S / PLANT_DT)) - 1
     x0, y0, th0 = traj["x"][:, start], traj["y"][:, start], traj["theta"][:, start]
     v0, w0 = traj["v"][:, start], traj["w"][:, start]
 
@@ -160,7 +159,7 @@ def build_windows(m4: plant.PlantParams, count: int, seed: int) -> WindowBatch:
     )
     meas_k = np.arange(1, int(WINDOW_S * MEAS_HZ) + 1)
     meas_t = meas_k / MEAS_HZ
-    plant_t = np.arange(1, n_plant - start) * PLANT_DT  # sample k: state after step start + k
+    plant_t = np.arange(1, n_plant - start) * PLANT_DT
     meas = {"x": [], "y": [], "yaw": []}
     for i in range(count):
         for key, src in (("x", "x"), ("y", "y"), ("yaw", "theta")):

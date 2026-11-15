@@ -33,8 +33,8 @@ from auto_battlebot.control.plant import (
     wrap_angle,
 )
 
-ROBOT_HALF_M = 0.11  # matches sim_mrs_buff_mk3 radius
-SUBSTEP_S = 0.005  # coarser than the fit's 2 ms; invisible at video scale
+ROBOT_HALF_M = 0.11
+SUBSTEP_S = 0.005
 
 
 @dataclass

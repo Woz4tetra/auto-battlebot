@@ -30,8 +30,6 @@ DROPPED_AT_WALL_COLOR = (80, 140, 235)
 
 WALL_OVERLAP_MIN = 0.10
 
-# Keypoint order is [front, back], matching auto_battlebot/eval/scoring.py. The heading
-# vector is drawn back -> front so the arrow points where the robot faces.
 FRONT_IDX = 0
 BACK_IDX = 1
 POSE_COLOR = (235, 100, 235)

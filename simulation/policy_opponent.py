@@ -17,12 +17,11 @@ from auto_battlebot.rl.torch_plant import saturate
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
-# The RL environment's policy step. The policy holds its action between steps at a finer [sim] dt.
 POLICY_PERIOD_S = 0.02
 
 HAZARD_KINDS = {"hole": obs_spec.HOLE, "wall_block": obs_spec.WALL_BLOCK}
 
-MR_STABS_MK2_SIZE_M = (0.137, 0.16, 0.0703)  # length, width, height
+MR_STABS_MK2_SIZE_M = (0.137, 0.16, 0.0703)
 MR_STABS_MK2_HALF_DIAGONAL_M = 0.5 * math.hypot(MR_STABS_MK2_SIZE_M[0], MR_STABS_MK2_SIZE_M[1])
 
 

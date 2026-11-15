@@ -28,7 +28,7 @@ from auto_battlebot.perception.opponent_filter import (
 )
 from auto_battlebot.perception.sysid_sessions import OUT, REPO_ROOT, SessionData, load_session
 
-LATENCY_S = 0.063  # measured perception latency (kalman_motion_estimator.hpp)
+LATENCY_S = 0.063
 TICK_S = 0.01
 LEGACY_MIN_HEADING_SPEED = 0.3
 T0_S = 100.0

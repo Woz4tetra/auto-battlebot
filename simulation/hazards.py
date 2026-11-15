@@ -13,9 +13,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def load_hazards(path: Path | str) -> list[ObstacleConfig]:
-    """Parse a shared hazard TOML into obstacle configs. Missing file is an error, not an
-    empty list: a typo in the path would otherwise silently remove the hazard from the sim
-    while the controller still steered around it."""
+    """Parse a shared hazard TOML into obstacle configs; a missing file raises."""
     path = Path(path)
     if not path.is_absolute():
         path = REPO_ROOT / path

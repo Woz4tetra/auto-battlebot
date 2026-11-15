@@ -17,7 +17,7 @@ RECORDINGS = tuple(
 BUNDLE = REPO / "data/models/nav_policies/rl_nav_p4"
 FIELD_SLEW_PER_S = 2000.0 / 1500.0
 FIELD_GUARD_SCALE = 0.48
-TICK_S = 0.02  # simulation/rl_eval_server.py
+TICK_S = 0.02
 ARM_NAMES = ("both", "slew", "guard", "neither")
 
 

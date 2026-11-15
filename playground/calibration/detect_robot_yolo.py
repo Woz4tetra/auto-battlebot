@@ -13,7 +13,6 @@ from auto_battlebot.perception.trt_yolo import TrtYoloModel
 from auto_battlebot.recording.mcap_io import iter_video_frames
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-# Same candidates and class order as config/_desktop.toml [keypoint_model].
 ENGINE_CANDIDATES = [
     "data/models/yolo26l-pose_all_keypoints_2026-09-25_rect416x640_x86_64_sm89.engine",
     "data/models/yolo26l-pose_all_keypoints_2026-09-25_rect416x640_x86_64_sm86.engine",

@@ -93,17 +93,7 @@ CMD_COLUMNS = ["cmd_lin", "cmd_ang", "trainer_lin", "trainer_ang", "label"]
 
 
 def write_csv(path: Path, rows: list[dict]) -> None:
-    """Write the truth CSV in fit_plant_calib.py's expected (t, x, y, yaw, visible) format.
-
-    When the recording carried transmitter data, extra columns are appended per frame
-    (fit_plant_calib.py
-    reads by column name) and omitted entirely if absent:
-      - read-only stick capture: the driver's stick axes (tx_sample_t, ch0..chN).
-      - --drive excitation: the scripted command active at that frame (cmd_lin, cmd_ang,
-        trainer_lin, trainer_ang, label), zero-order-held onto the frame time. fit_plant_calib.py
-        fits from these.
-    The two are mutually exclusive (a recording is either driven or read-only).
-    """
+    """Write the truth CSV in the column format fit_plant_calib.py reads by name."""
     n_ch = max((len(r["channels"]) for r in rows if "channels" in r), default=0)
     has_cmd = any("cmd_lin" in r for r in rows)
     path.parent.mkdir(parents=True, exist_ok=True)

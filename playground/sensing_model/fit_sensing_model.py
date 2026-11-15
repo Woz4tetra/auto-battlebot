@@ -35,9 +35,6 @@ JITTER_HALF = 3
 FLIP_RAD = math.radians(150.0)
 MAX_FLIPPED_RUN_S = 1.0
 MIN_ROLE_JUMPS = 10
-# Footprint radius per tracked label, for edge-to-edge distance: half the mean of the x and y
-# extents in config/_common.toml robot_size_meters_per_label. The generic opponent has no size;
-# 0.12 m is a 3 lb robot.
 RADIUS_BY_LABEL = {"mrs_buff_mk3": 0.119, "mr_stabs_mk2": 0.074, "house_bot": 0.146}
 DEFAULT_RADIUS_M = 0.12
 RANDOMIZATION = {

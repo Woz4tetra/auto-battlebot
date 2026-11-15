@@ -24,7 +24,6 @@ from auto_battlebot.mujoco_sim.session import WindowBatch, build_batch, load_ses
 from auto_battlebot.recording.mcap_io import iter_video_frames
 from auto_battlebot.recording.sysid_io import load_field_from_camera, load_robot_tags
 
-# BGR, matching auto_battlebot/mujoco_sim/plots.py: MEAS #2a78d6, MUJOCO #1baf7a.
 MEAS = (214, 120, 42)
 MUJOCO = (122, 175, 27)
 ERR = (52, 52, 220)
