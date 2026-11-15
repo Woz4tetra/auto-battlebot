@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import NamedTuple
 
 import cv2
 import numpy as np
 
 from auto_battlebot.perception.camera_calibration import CameraCalibration, rectify_maps
-from synthgen.constants import VIEW_DISTORTED, VIEW_PINHOLE, VIEW_RECTIFIED, VIEWS
+from synthgen.constants import VIEWS, View
 
 EXTENT_SAMPLES = 65
 RENDER_MARGIN_PX = 2
@@ -17,11 +18,16 @@ _UNDISTORT_CRITERIA = (cv2.TERM_CRITERIA_COUNT | cv2.TERM_CRITERIA_EPS, 100, 1e-
 _REMAP_DTYPES = (np.uint8, np.uint16, np.int16, np.float32, np.float64)
 
 
+class OutputPoints(NamedTuple):
+    output_uv: np.ndarray
+    in_view: np.ndarray
+
+
 @dataclass(frozen=True, eq=False)
 class LensView:
     """One view at one output size: the camera Blender renders with, and how to warp its frames."""
 
-    view: str
+    view: View
     alpha: float
     size: tuple[int, int]
     render_k: np.ndarray
@@ -41,15 +47,16 @@ class LensView:
 
 
 def build_lens_view(
-    calibration: CameraCalibration, size: tuple[int, int], view: str, alpha: float = 1.0
+    calibration: CameraCalibration, size: tuple[int, int], view: View | str, alpha: float = 1.0
 ) -> LensView:
     """The render camera and warp maps for view at output size."""
     if view not in VIEWS:
         raise ValueError(f"unknown view {view!r}; valid views are {list(VIEWS)}")
+    view = View(view)
     width, height = size
     cal = calibration.scaled(width, height)
     rect_map_x, rect_map_y, rect_k = rectify_maps(calibration, size, alpha)
-    if view == VIEW_PINHOLE:
+    if view is View.PINHOLE:
         return LensView(view, alpha, size, rect_k, size, cal.K, cal.D, rect_k)
 
     sensor_norm = _undistort_pixels(cal, _pixel_grid(width, height))
@@ -61,7 +68,7 @@ def build_lens_view(
     )
     rectify_map = None
     valid = None
-    if view == VIEW_RECTIFIED:
+    if view is View.RECTIFIED:
         rectify_map = (rect_map_x, rect_map_y)
         valid = cv2.remap(
             np.ones((height, width), dtype=np.uint8),
@@ -90,12 +97,11 @@ def build_lens_view(
 def wide_render_camera(
     calibration: CameraCalibration, size: tuple[int, int]
 ) -> tuple[np.ndarray, tuple[int, int]]:
-    """A pinhole camera that sees every ray the sensor does, at the sensor's own focal length.
-
-    *calibration* must already be scaled to *size*. The render keeps the sensor's focal length so
-    the image centre, where distortion is weakest, renders at sensor resolution; the edges, which a
-    wide lens compresses, come out oversampled rather than starved.
-    """
+    """A pinhole camera that sees every ray the sensor does, at the sensor's own focal length."""
+    if (calibration.width, calibration.height) != tuple(size):
+        raise ValueError(
+            f"calibration is {calibration.width}x{calibration.height}, not scaled to {size}"
+        )
     width, height = size
     xs = np.linspace(-0.5, width - 0.5, EXTENT_SAMPLES)
     ys = np.linspace(-0.5, height - 0.5, EXTENT_SAMPLES)
@@ -125,23 +131,18 @@ def warp_label(lens: LensView, label: np.ndarray) -> np.ndarray:
     return _warp(lens, label, cv2.INTER_NEAREST)
 
 
-def render_points_to_output(lens: LensView, render_uv: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Render-frame pixels (n, 2) to output-frame pixels, and which of them the view sees.
-
-    Returns:
-        ``(output_uv, in_view)``: OpenCV pixel coordinates in the output frame, and a mask that is
-        False for points outside the frame, beyond the sensor, or in the rectified black border.
-    """
+def render_points_to_output(lens: LensView, render_uv: np.ndarray) -> OutputPoints:
+    """Render-frame pixels (n, 2) to output-frame pixels, and which of them the view sees."""
     uv = np.asarray(render_uv, dtype=np.float64).reshape(-1, 2)
     width, height = lens.size
-    if lens.view == VIEW_PINHOLE:
+    if lens.view is View.PINHOLE:
         out = uv.copy()
         in_view = np.ones(len(uv), dtype=bool)
     else:
         k = lens.render_k
         norm = np.column_stack(((uv[:, 0] - k[0, 2]) / k[0, 0], (uv[:, 1] - k[1, 2]) / k[1, 1]))
         in_view = np.linalg.norm(norm, axis=1) <= lens.max_radius + 1e-9
-        if lens.view == VIEW_DISTORTED:
+        if lens.view is View.DISTORTED:
             rays = np.column_stack((norm, np.ones(len(norm))))
             projected, _ = cv2.projectPoints(
                 rays, np.zeros(3), np.zeros(3), lens.sensor_k, lens.distortion
@@ -160,7 +161,7 @@ def render_points_to_output(lens: LensView, render_uv: np.ndarray) -> tuple[np.n
         px = np.clip(np.rint(out[:, 0]).astype(int), 0, width - 1)
         py = np.clip(np.rint(out[:, 1]).astype(int), 0, height - 1)
         in_view &= lens.valid[py, px]
-    return out, in_view
+    return OutputPoints(out, in_view)
 
 
 def render_normalized_to_output(

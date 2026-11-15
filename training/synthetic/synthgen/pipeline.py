@@ -78,7 +78,7 @@ from synthgen.constants import (
     NHRL_ROBOT_CLASS_NAME,
     PROGRESS_LOG_SCENE_INTERVAL,
     SEG_FLOOR_CLASS_ID,
-    VIEW_PINHOLE,
+    View,
 )
 from synthgen.damage import DamageBudget, InstanceDamage
 from synthgen.damage_scene import CutterPool, apply_scene_damage, build_cutter_pool
@@ -264,7 +264,7 @@ def _append_manifest_row(
     row = {
         "image": f"{frame_name}.jpg",
         "venue": scene.venue,
-        "view": VIEW_PINHOLE if scene.lens is None else scene.lens.view,
+        "view": View.PINHOLE if scene.lens is None else scene.lens.view,
         "scene": scene.scene_idx,
         "mount": None if mount is None else asdict(mount),
         "instances": [d.as_row() for d in scene.damage],

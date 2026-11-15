@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from synthgen.annotations import (
+    KeypointVisibility,
     bbox_from_category_segmap,
     build_names_list,
     check_keypoint_visibility,
@@ -42,6 +43,13 @@ class TestBboxFromSegmap:
         assert cy == pytest.approx(5 / 10)
         assert w == pytest.approx(0.0)
         assert h == pytest.approx(0.0)
+
+    def test_box_fields_are_named(self) -> None:
+        seg = np.zeros((10, 20), dtype=np.int32)
+        seg[2:5, 4:10] = 1
+        bbox = bbox_from_category_segmap(seg, 1, 20, 10)
+        assert bbox is not None
+        assert (bbox.cx, bbox.cy, bbox.w, bbox.h) == tuple(bbox)
 
     def test_rectangle(self) -> None:
         seg = np.zeros((100, 200), dtype=np.int32)
@@ -90,6 +98,12 @@ class TestKeypointVisibility:
             check_keypoint_visibility(0.5, 0.5, 99.0, self.DEPTH, 20, 10, ignore_occlusion=True)
             == 2
         )
+
+    def test_flags_are_named_and_write_as_yolo_integers(self) -> None:
+        flag = check_keypoint_visibility(0.5, 0.5, 3.0, self.DEPTH, 20, 10)
+        assert flag is KeypointVisibility.OCCLUDED
+        assert [int(v) for v in KeypointVisibility] == [0, 1, 2]
+        assert f"{flag}" == "1"
 
     def test_ignore_occlusion_still_flags_out_of_frame(self) -> None:
         assert (
@@ -198,7 +212,7 @@ def test_label_writers_golden_bytes(tmp_path) -> None:
         write_yolo_labels,
         write_yolo_seg_labels,
     )
-    from synthgen.constants import ANNOTATION_MODE_KEYPOINTS_BBOX
+    from synthgen.constants import AnnotationMode
 
     labels = tmp_path / "a.txt"
     write_yolo_labels(
@@ -216,7 +230,7 @@ def test_label_writers_golden_bytes(tmp_path) -> None:
     assert index.read_text() == "0:a\n2:b\n"
     assert build_names_list({2: "b", 0: "a"}) == ["a", "unknown_1", "b"]
     data = tmp_path / "data.yml"
-    write_data_yml(data, tmp_path, ["a", "b"], ANNOTATION_MODE_KEYPOINTS_BBOX)
+    write_data_yml(data, tmp_path, ["a", "b"], AnnotationMode.KEYPOINTS_BBOX)
     assert data.read_text() == (
         f"path: {tmp_path.resolve()}\ntrain: images\nval: images\nnc: 2\n"
         "names: ['a', 'b']\nkpt_shape: [2, 3]\nflip_idx: [0, 1]\n"

@@ -14,7 +14,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from synthgen.constants import VIEW_DISTORTED, VIEW_PINHOLE, VIEW_RECTIFIED, VIEWS
+from synthgen.constants import VIEWS, View
 from synthgen.shards import (
     ShardRun,
     existing_frames,
@@ -26,7 +26,7 @@ from synthgen.shards import (
 SYNTHETIC_DIR = Path(__file__).resolve().parent
 RUN_SYNTHETIC = SYNTHETIC_DIR / "docker" / "run_synthetic.sh"
 DEFAULT_IMAGE = "auto-battlebot-synthetic"
-DEFAULT_VIEW_ORDER = (VIEW_PINHOLE, VIEW_RECTIFIED, VIEW_DISTORTED)
+DEFAULT_VIEW_ORDER = (View.PINHOLE.value, View.RECTIFIED.value, View.DISTORTED.value)
 # A resumed run reseeds so it does not replay the scenes its first attempt already drew. The
 # stride keeps resumed seeds clear of every run's base seed.
 RESUME_SEED_STRIDE = 100_000

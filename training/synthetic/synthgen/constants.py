@@ -1,7 +1,12 @@
 """Shared constants: category ids, class naming, and tuning thresholds."""
 
-ANNOTATION_MODE_KEYPOINTS_BBOX = "keypoints_bbox"
-ANNOTATION_MODE_SEGMENTATION_BBOX = "segmentation_bbox"
+from enum import Enum
+
+
+class AnnotationMode(str, Enum):
+    KEYPOINTS_BBOX = "keypoints_bbox"
+    SEGMENTATION_BBOX = "segmentation_bbox"
+
 
 BACKGROUND_CATEGORY_ID = 0
 ROBOT_CATEGORY_ID = 1
@@ -39,11 +44,12 @@ PROGRESS_LOG_SCENE_INTERVAL = 50
 
 ARENA_DENOISER = "OPTIX"
 
-# Camera views a cage frame can be written in; see synthgen.lens. `pinhole` renders at the
-# rectified matrix, `distorted` is the raw sensor frame, `rectified` is that frame put back
-# through the C++ Rectifier's maps.
-VIEW_PINHOLE = "pinhole"
-VIEW_DISTORTED = "distorted"
-VIEW_RECTIFIED = "rectified"
-VIEWS: tuple[str, ...] = (VIEW_PINHOLE, VIEW_DISTORTED, VIEW_RECTIFIED)
+
+class View(str, Enum):
+    PINHOLE = "pinhole"
+    DISTORTED = "distorted"
+    RECTIFIED = "rectified"
+
+
+VIEWS: tuple[str, ...] = tuple(view.value for view in View)
 ALPHAS: tuple[float, ...] = (1.0, 0.0)

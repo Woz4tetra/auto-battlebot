@@ -39,6 +39,8 @@ sys.path.insert(0, str(_SCRIPT_DIR))
 sys.path.insert(0, str(_SCRIPT_DIR.parents[1]))
 
 from synthgen import logsetup  # noqa: E402
+from synthgen.configuration import DamageMode  # noqa: E402
+from synthgen.constants import VIEWS  # noqa: E402
 
 
 def _parse_render_args() -> argparse.Namespace:
@@ -87,7 +89,7 @@ def _parse_render_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--damage",
-        choices=("config", "off", "all"),
+        choices=[mode.value for mode in DamageMode],
         default="config",
         help=(
             "Battle damage: 'config' keeps the [damage] split, 'off' disables it, 'all'"
@@ -96,7 +98,7 @@ def _parse_render_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--view",
-        choices=("pinhole", "distorted", "rectified"),
+        choices=VIEWS,
         default=None,
         help=(
             "Frame every cage scene writes: 'pinhole' at the rectified matrix, 'distorted' as the"

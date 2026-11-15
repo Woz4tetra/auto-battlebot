@@ -4,6 +4,7 @@ import os
 import tomllib
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -12,7 +13,7 @@ import numpy as np
 from synthgen.annotations import normalize_annotation_mode
 from synthgen.cage_mount import WALLS, CageMountRanges, MountAim
 from synthgen.colorspec import ColorMappingEntry
-from synthgen.constants import ANNOTATION_MODE_SEGMENTATION_BBOX, VIEWS
+from synthgen.constants import AnnotationMode, View
 from synthgen.damage import CUTTER_SHAPES
 from synthgen.geometry import model_to_blender_local
 
@@ -53,7 +54,7 @@ class OutputConfig:
     image_dir: Path
     label_dir: Path
     num_images: int
-    annotation_mode: str = "keypoints_bbox"
+    annotation_mode: AnnotationMode = AnnotationMode.KEYPOINTS_BBOX
     image_width: int = 1280
     image_height: int = 720
     images_per_scene: int = 5
@@ -65,7 +66,7 @@ class OutputConfig:
     @property
     def is_segmentation_mode(self) -> bool:
         """True when producing YOLO segmentation polygons instead of keypoints."""
-        return self.annotation_mode == ANNOTATION_MODE_SEGMENTATION_BBOX
+        return self.annotation_mode is AnnotationMode.SEGMENTATION_BBOX
 
 
 @dataclass(frozen=True, eq=False)
@@ -216,7 +217,7 @@ class CageConfig:
     mount: CageMountRanges = CageMountRanges()
     # The frame this cage writes: `pinhole` at the rectified matrix, `distorted` as the sensor
     # sees it, or `rectified` through the C++ Rectifier's maps. See synthgen.lens.
-    view: str = "pinhole"
+    view: View = View.PINHOLE
     # getOptimalNewCameraMatrix alpha behind the rectified matrix; 1.0 keeps every sensor pixel.
     rectify_alpha: float = 1.0
     # Draw a new house bot position and heading every scene (synthgen.house_bot_pose). False
@@ -361,7 +362,7 @@ def _parse_output(section: dict[str, Any]) -> OutputConfig:
     context = "[output]"
     try:
         annotation_mode = normalize_annotation_mode(
-            str(section.get("annotation_mode", "keypoints_bbox"))
+            str(section.get("annotation_mode", AnnotationMode.KEYPOINTS_BBOX.value))
         )
     except ValueError as e:
         raise ConfigError(str(e)) from e
@@ -691,9 +692,7 @@ def _parse_cage(section: dict[str, Any]) -> CageConfig:
     if not 0.0 <= probability <= 1.0:
         raise ConfigError(f"{context}.probability: expected 0.0 to 1.0, got {probability}")
     render_samples = section.get("render_samples")
-    view = str(section.get("view", defaults.view))
-    if view not in VIEWS:
-        raise ConfigError(f"{context}.view: unknown {view!r}; valid are {list(VIEWS)}")
+    view = _parse_view(str(section.get("view", defaults.view.value)), f"{context}.view")
     rectify_alpha = _as_float(
         section.get("rectify_alpha", defaults.rectify_alpha), f"{context}.rectify_alpha"
     )
@@ -881,7 +880,12 @@ def _apply_only_cage(cages: tuple[CageConfig, ...], name: Any) -> tuple[CageConf
 
 
 ARENA_VENUE = "arena"
-DAMAGE_MODES = ("config", "off", "all")
+
+
+class DamageMode(str, Enum):
+    CONFIG = "config"
+    OFF = "off"
+    ALL = "all"
 
 
 def apply_venue(cfg: RenderConfig, venue: str | None) -> RenderConfig:
@@ -894,39 +898,37 @@ def apply_venue(cfg: RenderConfig, venue: str | None) -> RenderConfig:
 
 
 def apply_damage_mode(cfg: RenderConfig, mode: str) -> RenderConfig:
-    """Override the ``[damage]`` split from the command line.
-
-    ``"config"`` keeps the file's values. ``"off"`` disables damage. ``"all"`` damages every
-    scene and rolls every instance, for a set that is meant to show damage rather than
-    the run's tracked mix.
-
-    Raises:
-        ConfigError: When *mode* is not one of ``DAMAGE_MODES``.
-    """
-    if mode == "config":
+    """Override the ``[damage]`` split from the command line."""
+    try:
+        parsed = DamageMode(mode)
+    except ValueError:
+        raise ConfigError(
+            f"damage mode must be one of {[m.value for m in DamageMode]}, got {mode!r}"
+        ) from None
+    if parsed is DamageMode.CONFIG:
         return cfg
-    if mode == "off":
+    if parsed is DamageMode.OFF:
         return replace(cfg, damage=replace(cfg.damage, enabled=False))
-    if mode == "all":
-        return replace(
-            cfg, damage=replace(cfg.damage, enabled=True, scene_probability=1.0, probability=1.0)
-        )
-    raise ConfigError(f"damage mode must be one of {DAMAGE_MODES}, got {mode!r}")
+    return replace(
+        cfg, damage=replace(cfg.damage, enabled=True, scene_probability=1.0, probability=1.0)
+    )
 
 
 def apply_view(cfg: RenderConfig, view: str | None) -> RenderConfig:
-    """Write every cage's frames in *view* from the command line. None keeps each cage's own.
-
-    The HDRI arena half has no lens model, so it stays pinhole whatever the view.
-
-    Raises:
-        ConfigError: When *view* is not one of ``VIEWS``.
-    """
+    """Write every cage's frames in *view* from the command line. None keeps each cage's own."""
     if view is None:
         return cfg
-    if view not in VIEWS:
-        raise ConfigError(f"--view: unknown {view!r}; valid are {list(VIEWS)}")
-    return replace(cfg, cages=tuple(replace(cage, view=view) for cage in cfg.cages))
+    parsed = _parse_view(view, "--view")
+    return replace(cfg, cages=tuple(replace(cage, view=parsed) for cage in cfg.cages))
+
+
+def _parse_view(text: str, context: str) -> View:
+    try:
+        return View(text)
+    except ValueError:
+        raise ConfigError(
+            f"{context}: unknown {text!r}; valid are {[v.value for v in View]}"
+        ) from None
 
 
 def apply_damage_parts(cfg: RenderConfig, names: list[str] | None) -> RenderConfig:

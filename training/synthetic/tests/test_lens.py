@@ -5,12 +5,14 @@ from pathlib import Path
 import cv2
 import numpy as np
 import pytest
+from synthgen.constants import View
 from synthgen.lens import (
     build_lens_view,
     render_normalized_to_output,
     render_points_to_output,
     warp_image,
     warp_label,
+    wide_render_camera,
 )
 
 from auto_battlebot.perception.camera_calibration import (
@@ -140,3 +142,18 @@ def test_colour_warp_is_the_distortion_remap(distorted):
     image = cv2.merge([gradient, gradient, gradient]).astype(np.uint8)
     warped = warp_image(distorted, image)
     assert warped.shape == (SIZE[1], SIZE[0], 3) and warped.dtype == np.uint8
+
+
+def test_wide_render_camera_rejects_an_unscaled_calibration(ecam25) -> None:
+    with pytest.raises(ValueError, match="not scaled"):
+        wide_render_camera(ecam25, SIZE)
+    wide_render_camera(ecam25.scaled(*SIZE), SIZE)
+
+
+def test_unknown_view_is_rejected(ecam25) -> None:
+    with pytest.raises(ValueError, match="unknown view"):
+        build_lens_view(ecam25, SIZE, "fisheye")
+
+
+def test_view_is_the_enum_whichever_way_it_is_asked_for(ecam25) -> None:
+    assert build_lens_view(ecam25, SIZE, "pinhole").view is View.PINHOLE
