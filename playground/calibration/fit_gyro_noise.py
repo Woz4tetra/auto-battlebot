@@ -117,6 +117,14 @@ def yaw_rate(log: JigLog) -> np.ndarray:
     return np.asarray((log.gyro @ up) * 180.0 / np.pi, dtype=float)
 
 
+def draw_slope_guides(curves, ax):
+    ref = curves[0]
+    c = _read_at(ref.tau, ref.sigma, 1.0, -0.5)
+    guide = c * ref.tau**-0.5
+    ax.loglog(ref.tau, guide, "--", color="0.6", lw=0.9)
+    ax.annotate("-1/2  angle random walk", (ref.tau[2], guide[2]), color="0.4", fontsize=8)
+
+
 def make_plot(path: Path, curves: list[AllanCurve], duration_s: float) -> None:
     import matplotlib
 
@@ -135,12 +143,7 @@ def make_plot(path: Path, curves: list[AllanCurve], duration_s: float) -> None:
             mfc="none",
         )
 
-    # Slope guides, placed off the first curve so they sit on the data rather than floating.
-    ref = curves[0]
-    c = _read_at(ref.tau, ref.sigma, 1.0, -0.5)
-    guide = c * ref.tau**-0.5
-    ax.loglog(ref.tau, guide, "--", color="0.6", lw=0.9)
-    ax.annotate("-1/2  angle random walk", (ref.tau[2], guide[2]), color="0.4", fontsize=8)
+    draw_slope_guides(curves, ax)
 
     rise = next((c for c in curves if np.isfinite(c.rrw_deg_per_s_sqrt_s)), None)
     if rise is not None:

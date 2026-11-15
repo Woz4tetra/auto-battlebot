@@ -37,6 +37,16 @@ from auto_battlebot.calibration.jig.jig_fit import (
 )
 
 
+def weight_sensitivity(windows, params, structure):
+    alt, _ = joint_fit(windows, params, structure, FitWeights(0.05, 0.025))
+    moved = {
+        n: abs(getattr(alt, n) - getattr(params, n)) / max(abs(getattr(params, n)), 1e-9)
+        for n in structure.free_names()
+    }
+    worst = max(moved.items(), key=lambda kv: kv[1])
+    print(f"  weight check (heading weight 2x): largest move {worst[0]} {worst[1]:.1%}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -238,16 +248,7 @@ def main() -> None:
             print(f"  final cost {cost:.4f}")
             reports["train"] = score(predict_windows(windows, params, structure))
 
-            # Weight sensitivity: the fit should not depend much on how position and heading
-            # residuals are traded off. A parameter that moves a lot here is being set by the
-            # weighting rather than by the data.
-            alt, _ = joint_fit(windows, params, structure, FitWeights(0.05, 0.025))
-            moved = {
-                n: abs(getattr(alt, n) - getattr(params, n)) / max(abs(getattr(params, n)), 1e-9)
-                for n in structure.free_names()
-            }
-            worst = max(moved.items(), key=lambda kv: kv[1])
-            print(f"  weight check (heading weight 2x): largest move {worst[0]} {worst[1]:.1%}")
+            weight_sensitivity(windows, params, structure)
 
     if test_runs:
         test_windows = build_windows(

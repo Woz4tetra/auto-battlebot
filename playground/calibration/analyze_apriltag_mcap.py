@@ -35,6 +35,24 @@ def solve_floor(metadata: dict, path: Path, detector, k: np.ndarray, d: np.ndarr
     return ad.solve_floor_extrinsic(frames, detector, board, k, d)
 
 
+def join_channels_by_frame_t(path):
+    channels_by_t = amcap.read_channels(path)
+    return channels_by_t
+
+
+def zoh_commands_onto_frames(path):
+    commands = amcap.read_commands(path)
+    cmd_t = np.array([c["t"] for c in commands], dtype=np.float64)
+    return commands, cmd_t
+
+
+def tag_field_height(pose, r_fc, t_fc, t):
+    tvec = np.asarray(pose[4], dtype=np.float64).reshape(3)
+    z = float((r_fc.T @ (tvec - t_fc))[2])
+    row = {"t": t, "x": pose[0], "y": pose[1], "yaw": pose[2], "z": z, "visible": 1}
+    return tvec, z, row
+
+
 def solve_poses(metadata: dict, path: Path, tag_id: int, yaw_offset: float):
     """Detect the robot tag per frame and solve its field-plane pose."""
     k = np.asarray(metadata["camera_matrix"], dtype=np.float64).reshape(3, 3)
@@ -43,18 +61,9 @@ def solve_poses(metadata: dict, path: Path, tag_id: int, yaw_offset: float):
     r_fc, t_fc = solve_floor(metadata, path, detector, k, d)
     obj = ad.tag_object_points(float(metadata["tag_size"]))
 
-    # Carry the driver's stick axes through to the truth CSV. apriltag_track.py stamped each
-    # channels message with its frame's time, so this joins back onto the frame by the exact same
-    # `t`. Empty when the recording has no transmitter topic; per-frame None when the radio had not
-    # yet streamed a packet.
-    channels_by_t = amcap.read_channels(path)
+    channels_by_t = join_channels_by_frame_t(path)
 
-    # Carry the scripted excitation commands through to the truth CSV (--drive recordings). Commands
-    # run on their own ~50 Hz clock, so zero-order-hold them onto each frame: the active command is
-    # the most recent one sent at or before the frame's time. Empty when the recording has no
-    # command topic.
-    commands = amcap.read_commands(path)
-    cmd_t = np.array([c["t"] for c in commands], dtype=np.float64)
+    commands, cmd_t = zoh_commands_onto_frames(path)
 
     rows: list[dict] = []
     for t, frame in amcap.iter_images(path, amcap.TOPIC_CAMERA_IMAGE):
@@ -64,13 +73,7 @@ def solve_poses(metadata: dict, path: Path, tag_id: int, yaw_offset: float):
             idx = int(np.where(ids.flatten() == tag_id)[0][0])
             pose = ad.tag_pose_field(corners[idx], obj, k, d, r_fc, t_fc, yaw_offset)
         if pose is not None:
-            # pose is (x, y, yaw, rvec, tvec); recover the tag's field-frame height (z) from tvec so
-            # the overlay can draw markers at the tag's true 3D position instead of flat on z=0. z
-            # is not written to the truth CSV (write_csv only emits x, y, yaw), only used by the
-            # overlay.
-            tvec = np.asarray(pose[4], dtype=np.float64).reshape(3)
-            z = float((r_fc.T @ (tvec - t_fc))[2])
-            row = {"t": t, "x": pose[0], "y": pose[1], "yaw": pose[2], "z": z, "visible": 1}
+            tvec, z, row = tag_field_height(pose, r_fc, t_fc, t)
         else:
             row = {"t": t, "x": None, "y": None, "yaw": None, "z": None, "visible": 0}
         tx = channels_by_t.get(t)

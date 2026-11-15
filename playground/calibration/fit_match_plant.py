@@ -412,6 +412,38 @@ def parse_pair(text: str) -> tuple[Path, Path]:
     return Path(replay), Path(original)
 
 
+def final_fit(train_run, delay, stride_s, args, spans, fitted, structure, weights, bounds):
+    print("\n=== Final fit (flagged spans excluded) ===")
+    train_w = build_match_windows([train_run], delay, HORIZONS, stride_s, args.max_windows, spans)
+    assert train_w is not None
+    final_params, cost = joint_fit(
+        train_w.windows,
+        fitted,
+        structure,
+        weights,
+        max_nfev=args.max_nfev,
+        bounds=bounds,
+    )
+    final_params = final_params.replace(delay_s=delay)
+    print(f"  {train_w.windows.count()} windows, final cost {cost:.2f}")
+    for name, value in final_params.to_dict().items():
+        print(f"  {name:12} {value:.6g}")
+    return final_params
+
+
+def report_gain_drift(score_sets, final_params, structure, summary):
+    print("\n=== Gain drift over recording (obs/pred displacement at 400 ms) ===")
+    for set_name, mw in score_sets.items():
+        drift = gain_drift(mw, final_params, structure)
+        if drift:
+            print(
+                f"  {set_name}: slope {drift['slope_per_min']:+.3f}/min, "
+                f"first third {drift['first_third_median']:.3f} -> "
+                f"last third {drift['last_third_median']:.3f} (n={drift['n']})"
+            )
+            summary.setdefault("gain_drift", {})[set_name] = drift
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--fit", type=parse_pair, required=True, metavar="REPLAY:ORIGINAL")
@@ -590,22 +622,9 @@ def main() -> None:
             writer.writerows(csv_rows)
         print(f"  wrote {report_dir / 'nonresponsive_windows.csv'}")
 
-    # --- final fit without flagged spans ---
-    print("\n=== Final fit (flagged spans excluded) ===")
-    train_w = build_match_windows([train_run], delay, HORIZONS, stride_s, args.max_windows, spans)
-    assert train_w is not None
-    final_params, cost = joint_fit(
-        train_w.windows,
-        fitted,
-        structure,
-        weights,
-        max_nfev=args.max_nfev,
-        bounds=bounds,
+    final_params = final_fit(
+        train_run, delay, stride_s, args, spans, fitted, structure, weights, bounds
     )
-    final_params = final_params.replace(delay_s=delay)
-    print(f"  {train_w.windows.count()} windows, final cost {cost:.2f}")
-    for name, value in final_params.to_dict().items():
-        print(f"  {name:12} {value:.6g}")
 
     plants = {
         "A_jig_seed": (seed, pinned_structure(MODEL_LADDER[4])),
@@ -687,17 +706,7 @@ def main() -> None:
             if b_pos > 1.2 * a_pos:
                 print(f"    class {label} regressed: B {b_pos:.1f} mm vs A {a_pos:.1f} mm (n={n})")
 
-    # --- gain drift over each recording ---
-    print("\n=== Gain drift over recording (obs/pred displacement at 400 ms) ===")
-    for set_name, mw in score_sets.items():
-        drift = gain_drift(mw, final_params, structure)
-        if drift:
-            print(
-                f"  {set_name}: slope {drift['slope_per_min']:+.3f}/min, "
-                f"first third {drift['first_third_median']:.3f} -> "
-                f"last third {drift['last_third_median']:.3f} (n={drift['n']})"
-            )
-            summary.setdefault("gain_drift", {})[set_name] = drift
+    report_gain_drift(score_sets, final_params, structure, summary)
 
     if report_dir is not None:
         summary["params"] = final_params.to_dict()

@@ -240,6 +240,45 @@ def robot_regions(
     return {"robot": box, "shadow_ring": ring, "mat_rest": mat_rest}
 
 
+def robot_footprint_overlap(regions, robot_mask, rows, name, r_gray, t_gray):
+    box = regions["robot"]
+    inter = ((robot_mask > 0) & box).sum()
+    union = ((robot_mask > 0) | box).sum()
+    rows.append(
+        {
+            "clip": name,
+            "render": name,
+            "region": "robot",
+            "metric": "robot_box_iou",
+            "source": "render",
+            "value": float(inter / union) if union else float("nan"),
+        }
+    )
+    rows.append(
+        {
+            "clip": name,
+            "render": name,
+            "region": "robot",
+            "metric": "robot_gray_render",
+            "source": "render",
+            "value": float(r_gray[robot_mask > 0].mean())
+            if (robot_mask > 0).any()
+            else float("nan"),
+        }
+    )
+    rows.append(
+        {
+            "clip": name,
+            "render": name,
+            "region": "robot",
+            "metric": "robot_gray_target",
+            "source": "target",
+            "value": float(t_gray[box].mean()),
+        }
+    )
+    return box, inter, union
+
+
 def grade_robot_frames(args: argparse.Namespace) -> None:
     """Score renders of MRS BUFF at recovered poses against the real frames they mimic."""
     args.out.mkdir(parents=True, exist_ok=True)
@@ -296,41 +335,8 @@ def grade_robot_frames(args: argparse.Namespace) -> None:
                     }
                 )
         if robot_mask is not None:
-            # Robot footprint overlap: is the rendered robot where the detector saw the real one?
-            box = regions["robot"]
-            inter = ((robot_mask > 0) & box).sum()
-            union = ((robot_mask > 0) | box).sum()
-            rows.append(
-                {
-                    "clip": name,
-                    "render": name,
-                    "region": "robot",
-                    "metric": "robot_box_iou",
-                    "source": "render",
-                    "value": float(inter / union) if union else float("nan"),
-                }
-            )
-            rows.append(
-                {
-                    "clip": name,
-                    "render": name,
-                    "region": "robot",
-                    "metric": "robot_gray_render",
-                    "source": "render",
-                    "value": float(r_gray[robot_mask > 0].mean())
-                    if (robot_mask > 0).any()
-                    else float("nan"),
-                }
-            )
-            rows.append(
-                {
-                    "clip": name,
-                    "render": name,
-                    "region": "robot",
-                    "metric": "robot_gray_target",
-                    "source": "target",
-                    "value": float(t_gray[box].mean()),
-                }
+            box, inter, union = robot_footprint_overlap(
+                regions, robot_mask, rows, name, r_gray, t_gray
             )
         x0, y0, x1, y1 = [int(round(v)) for v in pose["box_rect"]]
         pad = int(0.6 * max(x1 - x0, y1 - y0)) + 40

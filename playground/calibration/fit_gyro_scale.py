@@ -45,6 +45,23 @@ class Turn:
         return self.measured_deg - self.reference_deg
 
 
+def ramped_bias(post, pre, log):
+    span = max(post.t_mid - pre.t_mid, 1e-9)
+    frac = np.clip((log.t - pre.t_mid) / span, 0.0, 1.0)[:, None]
+    bias = pre.bias[None, :] * (1.0 - frac) + post.bias[None, :] * frac
+    drift = float(np.degrees(np.linalg.norm(post.bias - pre.bias)))
+    return bias, drift
+
+
+def turn_span(yaw, path, angle):
+    moving = np.abs(yaw) > TURN_EPS_DPS
+    if not moving.any():
+        raise ValueError(f"{path.name}: nothing turned faster than {TURN_EPS_DPS} deg/s")
+    lo, hi = int(np.argmax(moving)), int(len(moving) - np.argmax(moving[::-1]) - 1)
+    measured = float(angle[hi] - angle[lo])
+    return lo, hi, measured
+
+
 def solve_turn(path: Path, reference_deg: float) -> Turn:
     log = read_jig_log(path)
     stills = find_still_segments(log)
@@ -55,12 +72,7 @@ def solve_turn(path: Path, reference_deg: float) -> Turn:
     up = pre.up
     if len(stills) > 1:
         post = still_stats(log, stills[-1])
-        # Ramp the bias between the two holds. Gyro bias drifts, mostly thermally, and a
-        # constant taken from the start leaves the drift integrated over the whole turn.
-        span = max(post.t_mid - pre.t_mid, 1e-9)
-        frac = np.clip((log.t - pre.t_mid) / span, 0.0, 1.0)[:, None]
-        bias = pre.bias[None, :] * (1.0 - frac) + post.bias[None, :] * frac
-        drift = float(np.degrees(np.linalg.norm(post.bias - pre.bias)))
+        bias, drift = ramped_bias(post, pre, log)
     else:
         bias = pre.bias[None, :]
         drift = float("nan")
@@ -71,13 +83,7 @@ def solve_turn(path: Path, reference_deg: float) -> Turn:
     yaw = np.degrees((log.gyro - bias) @ up)
     angle = np.concatenate([[0.0], np.cumsum(0.5 * (yaw[1:] + yaw[:-1]) * np.diff(log.t))])
 
-    # The turn is the stretch between the holds that brackets it. Integrating the whole log
-    # would fold both holds' residual bias into the answer.
-    moving = np.abs(yaw) > TURN_EPS_DPS
-    if not moving.any():
-        raise ValueError(f"{path.name}: nothing turned faster than {TURN_EPS_DPS} deg/s")
-    lo, hi = int(np.argmax(moving)), int(len(moving) - np.argmax(moving[::-1]) - 1)
-    measured = float(angle[hi] - angle[lo])
+    lo, hi, measured = turn_span(yaw, path, angle)
 
     return Turn(
         path=path,
@@ -98,6 +104,44 @@ def solve_turn(path: Path, reference_deg: float) -> Turn:
 
 def _fmt(value: float, digits: int = 2) -> str:
     return "n/a" if not np.isfinite(value) else f"{value:.{digits}f}"
+
+
+def plot_measured_vs_true(fig, gs, turns, scale):
+    ax = fig.add_subplot(gs[1, 0])
+    x = np.array([t.reference_deg for t in turns])
+    y = np.array([t.measured_deg for t in turns])
+    for i, turn in enumerate(turns):
+        ax.plot([turn.reference_deg], [turn.measured_deg], "o", ms=8, color=f"C{i}")
+    lim = max(np.abs(np.concatenate([x, y]))) * 1.15
+    xs = np.linspace(-lim, lim, 10)
+    ax.plot(xs, xs, "--", lw=1.0, color="0.6", label="perfect gyro")
+    ax.plot(xs, xs / scale, "-", lw=1.4, color="0.2", label=f"fitted scale {scale:.4f}")
+    ax.axhline(0.0, color="0.7", lw=0.8)
+    ax.axvline(0.0, color="0.7", lw=0.8)
+    ax.set_xlabel("true rotation (deg)", fontsize=9)
+    ax.set_ylabel("gyro integral (deg)", fontsize=9)
+    ax.set_title("Measured against true", fontsize=10)
+    ax.legend(fontsize=8)
+    return ax
+
+
+def plot_per_run_error(fig, gs, turns):
+    ax = fig.add_subplot(gs[1, 1])
+    names = [t.path.name for t in turns]
+    errs = [t.error / abs(t.reference_deg) * 100.0 for t in turns]
+    colours = [f"C{i}" for i in range(len(turns))]
+    ax.bar(range(len(turns)), errs, color=colours)
+    ax.axhline(0.0, color="0.4", lw=1.0)
+    ax.axhspan(-1.0, 1.0, color="0.88", zorder=0, label="1% pass bar")
+    ax.set_xticks(range(len(turns)))
+    ax.set_xticklabels(
+        [f"{n}\n{t.reference_deg:+.0f} deg" for n, t in zip(names, turns)], fontsize=8
+    )
+    ax.set_ylabel("gyro error (%)", fontsize=9)
+    ax.set_title(
+        "Error per run. A difference between directions is a sign problem, not a scale.", fontsize=9
+    )
+    ax.legend(fontsize=8)
 
 
 def make_plot(path: Path, turns: list[Turn], scale: float) -> None:
@@ -135,40 +179,9 @@ def make_plot(path: Path, turns: list[Turn], scale: float) -> None:
     )
     ax.legend(fontsize=8)
 
-    # Measured against true, with the fitted scale through the origin.
-    ax = fig.add_subplot(gs[1, 0])
-    x = np.array([t.reference_deg for t in turns])
-    y = np.array([t.measured_deg for t in turns])
-    for i, turn in enumerate(turns):
-        ax.plot([turn.reference_deg], [turn.measured_deg], "o", ms=8, color=f"C{i}")
-    lim = max(np.abs(np.concatenate([x, y]))) * 1.15
-    xs = np.linspace(-lim, lim, 10)
-    ax.plot(xs, xs, "--", lw=1.0, color="0.6", label="perfect gyro")
-    ax.plot(xs, xs / scale, "-", lw=1.4, color="0.2", label=f"fitted scale {scale:.4f}")
-    ax.axhline(0.0, color="0.7", lw=0.8)
-    ax.axvline(0.0, color="0.7", lw=0.8)
-    ax.set_xlabel("true rotation (deg)", fontsize=9)
-    ax.set_ylabel("gyro integral (deg)", fontsize=9)
-    ax.set_title("Measured against true", fontsize=10)
-    ax.legend(fontsize=8)
+    ax = plot_measured_vs_true(fig, gs, turns, scale)
 
-    # Per-run error, so a direction-dependent difference is obvious.
-    ax = fig.add_subplot(gs[1, 1])
-    names = [t.path.name for t in turns]
-    errs = [t.error / abs(t.reference_deg) * 100.0 for t in turns]
-    colours = [f"C{i}" for i in range(len(turns))]
-    ax.bar(range(len(turns)), errs, color=colours)
-    ax.axhline(0.0, color="0.4", lw=1.0)
-    ax.axhspan(-1.0, 1.0, color="0.88", zorder=0, label="1% pass bar")
-    ax.set_xticks(range(len(turns)))
-    ax.set_xticklabels(
-        [f"{n}\n{t.reference_deg:+.0f} deg" for n, t in zip(names, turns)], fontsize=8
-    )
-    ax.set_ylabel("gyro error (%)", fontsize=9)
-    ax.set_title(
-        "Error per run. A difference between directions is a sign problem, not a scale.", fontsize=9
-    )
-    ax.legend(fontsize=8)
+    plot_per_run_error(fig, gs, turns)
 
     fig.suptitle(f"Gyro scale: {scale:.4f}  ({len(turns)} rotations)", fontsize=12)
     fig.savefig(path, dpi=110, bbox_inches="tight")

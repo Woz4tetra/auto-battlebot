@@ -47,6 +47,24 @@ def camera_view_matrix(
     return rotation
 
 
+def pixel_rays_camera(width, height, cx, fx, cy, fy):
+    u = np.arange(width, dtype=np.float64)
+    v = np.arange(height, dtype=np.float64)
+    uu, vv = np.meshgrid(u, v)
+    dirs_cam = np.stack([(uu - cx) / fx, -(vv - cy) / fy, np.ones_like(uu)], axis=-1)
+    dirs_cam /= np.linalg.norm(dirs_cam, axis=-1, keepdims=True)
+    return dirs_cam
+
+
+def direction_to_equirect_uv(dirs_world):
+    dx = dirs_world[..., 0]
+    dy = dirs_world[..., 1]
+    dz = dirs_world[..., 2]
+    lon = np.arctan2(dy, dx)
+    lat = np.arcsin(np.clip(dz, -1, 1))
+    return lon, lat
+
+
 def project_panorama(
     pano_bgr: npt.NDArray[np.uint8],
     cam_pos: Sequence[float],
@@ -75,21 +93,11 @@ def project_panorama(
 
     fx, fy, cx, cy = fov_to_intrinsics(fov_deg, width, height)
 
-    # Pixel grid -> normalised camera-space ray directions
-    u = np.arange(width, dtype=np.float64)
-    v = np.arange(height, dtype=np.float64)
-    uu, vv = np.meshgrid(u, v)
-    dirs_cam = np.stack([(uu - cx) / fx, -(vv - cy) / fy, np.ones_like(uu)], axis=-1)
-    dirs_cam /= np.linalg.norm(dirs_cam, axis=-1, keepdims=True)
+    dirs_cam = pixel_rays_camera(width, height, cx, fx, cy, fy)
 
     dirs_world: npt.NDArray[np.float64] = dirs_cam @ rotation_c2w.T
 
-    # World-space direction -> equirectangular UV
-    dx = dirs_world[..., 0]
-    dy = dirs_world[..., 1]
-    dz = dirs_world[..., 2]
-    lon = np.arctan2(dy, dx)
-    lat = np.arcsin(np.clip(dz, -1, 1))
+    lon, lat = direction_to_equirect_uv(dirs_world)
 
     pano_h, pano_w = pano_bgr.shape[:2]
     pano_u = ((lon / (2.0 * np.pi)) + 0.5) * (pano_w - 1)

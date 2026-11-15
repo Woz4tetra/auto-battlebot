@@ -93,6 +93,18 @@ def _robot_corners(x: float, y: float, theta: float) -> np.ndarray:
     return square @ rot.T + (x, y)
 
 
+def draw_stick_bars(ax):
+    bar_ax = ax.inset_axes((0.70, 0.015, 0.28, 0.10))
+    bar_ax.set_xlim(-1, 1)
+    bar_ax.set_ylim(-0.5, 1.5)
+    bar_ax.axvline(0.0, color="0.7", linewidth=0.8)
+    bar_ax.set_yticks([0, 1], labels=["ang", "lin"], fontsize=7)
+    bar_ax.set_xticks([-1, 0, 1], labels=["-1", "cmd", "+1"], fontsize=7)
+    lin_bar = bar_ax.barh(1, 0.0, height=0.6, color="tab:blue")[0]
+    ang_bar = bar_ax.barh(0, 0.0, height=0.6, color="tab:green")[0]
+    return lin_bar, ang_bar
+
+
 def render_video(
     run: MatchRun,
     predicted: PredictedTrack,
@@ -175,15 +187,7 @@ def render_video(
         bbox={"facecolor": "white", "alpha": 0.8, "edgecolor": "none"},
     )
 
-    # Stick readout: two horizontal bars, linear and angular in [-1, 1].
-    bar_ax = ax.inset_axes((0.70, 0.015, 0.28, 0.10))
-    bar_ax.set_xlim(-1, 1)
-    bar_ax.set_ylim(-0.5, 1.5)
-    bar_ax.axvline(0.0, color="0.7", linewidth=0.8)
-    bar_ax.set_yticks([0, 1], labels=["ang", "lin"], fontsize=7)
-    bar_ax.set_xticks([-1, 0, 1], labels=["-1", "cmd", "+1"], fontsize=7)
-    lin_bar = bar_ax.barh(1, 0.0, height=0.6, color="tab:blue")[0]
-    ang_bar = bar_ax.barh(0, 0.0, height=0.6, color="tab:green")[0]
+    lin_bar, ang_bar = draw_stick_bars(ax)
 
     trail_steps = max(1, int(round(reset_s / run.dt)))
 

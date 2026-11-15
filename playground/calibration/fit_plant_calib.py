@@ -62,6 +62,14 @@ def _zoh(src_t: np.ndarray, src_v: np.ndarray, dst_t: np.ndarray) -> np.ndarray:
     return src_v[idx]
 
 
+def truth_gap_mask(tru_t, grid):
+    truth_dt = float(np.median(np.diff(tru_t)))
+    pos = np.clip(np.searchsorted(tru_t, grid), 1, len(tru_t) - 1)
+    nearest = np.minimum(grid - tru_t[pos - 1], tru_t[pos] - grid)
+    gap = nearest > max(GAP_MIN_S, GAP_MIN_TRUTH_FRAMES * truth_dt)
+    return truth_dt, gap
+
+
 def load_session(session_path: Path) -> Session:
     """Load one CSV from analyze_apriltag_mcap.py (a --drive recording) into a fitting Session."""
     data = _read_csv(session_path)
@@ -107,15 +115,7 @@ def load_session(session_path: Path) -> Session:
     w = np.gradient(_smooth(yawg, win), dt)
     w_raw = np.gradient(yawg, dt)
 
-    # Mark grid samples that fall inside a truth dropout. `grid` was interpolated across the gappy
-    # truth times, so a sample far from any real truth frame is a straight-line guess, not measured
-    # motion. This is how a flip or a drive out of frame shows up: seconds of interpolated velocity.
-    # The lag fit rejects any onset whose response window overlaps a gap, so those segments cannot
-    # corrupt the estimate.
-    truth_dt = float(np.median(np.diff(tru_t)))
-    pos = np.clip(np.searchsorted(tru_t, grid), 1, len(tru_t) - 1)
-    nearest = np.minimum(grid - tru_t[pos - 1], tru_t[pos] - grid)
-    gap = nearest > max(GAP_MIN_S, GAP_MIN_TRUTH_FRAMES * truth_dt)
+    truth_dt, gap = truth_gap_mask(tru_t, grid)
 
     cmd_lin_g = _zoh(cmd_t, cmd_lin, grid)
     cmd_ang_g = _zoh(cmd_t, cmd_ang, grid)

@@ -166,6 +166,34 @@ def fit_scale(passes: list[Pass]) -> Fit:
     return Fit(k, se, slope, slope_se, intercept, intercept_se, len(x), len(set(x)))
 
 
+def plot_residuals(fig, gs, fit, x, y, distances, mark_error_mm):
+    ax = fig.add_subplot(gs[1, 1])
+    model = (
+        fit.slope_counts_per_m * x + fit.intercept_counts
+        if fit.intercept_real
+        else fit.counts_per_m * x
+    )
+    resid_mm = (y - model) * fit.meters_per_count * 1e3
+    for i, dist in enumerate(distances):
+        sel = x == dist
+        ax.plot(x[sel], resid_mm[sel], "o", ms=6, color=f"C{i}")
+    ax.axhline(0.0, color="0.5", lw=1.0)
+    ax.axhspan(
+        -mark_error_mm,
+        mark_error_mm,
+        color="0.85",
+        zorder=0,
+        label=f"+/-{mark_error_mm:g} mm marking error",
+    )
+    ax.set_xlabel("marked distance (m)", fontsize=9)
+    ax.set_ylabel("residual (mm)", fontsize=9)
+    ax.legend(fontsize=8)
+    ax.set_title(
+        "Residual from the " + ("offset fit" if fit.intercept_real else "through-origin fit"),
+        fontsize=10,
+    )
+
+
 def make_plot(path: Path, passes: list[Pass], fit: Fit, mark_error_mm: float) -> None:
     import matplotlib
 
@@ -264,32 +292,7 @@ def make_plot(path: Path, passes: list[Pass], fit: Fit, mark_error_mm: float) ->
     ax.legend(fontsize=8)
     ax.set_title("Counts against distance, through the origin", fontsize=10)
 
-    # Residuals in millimetres, against the marking error that bounds them.
-    ax = fig.add_subplot(gs[1, 1])
-    model = (
-        fit.slope_counts_per_m * x + fit.intercept_counts
-        if fit.intercept_real
-        else fit.counts_per_m * x
-    )
-    resid_mm = (y - model) * fit.meters_per_count * 1e3
-    for i, dist in enumerate(distances):
-        sel = x == dist
-        ax.plot(x[sel], resid_mm[sel], "o", ms=6, color=f"C{i}")
-    ax.axhline(0.0, color="0.5", lw=1.0)
-    ax.axhspan(
-        -mark_error_mm,
-        mark_error_mm,
-        color="0.85",
-        zorder=0,
-        label=f"+/-{mark_error_mm:g} mm marking error",
-    )
-    ax.set_xlabel("marked distance (m)", fontsize=9)
-    ax.set_ylabel("residual (mm)", fontsize=9)
-    ax.legend(fontsize=8)
-    ax.set_title(
-        "Residual from the " + ("offset fit" if fit.intercept_real else "through-origin fit"),
-        fontsize=10,
-    )
+    plot_residuals(fig, gs, fit, x, y, distances, mark_error_mm)
 
     fig.suptitle(
         f"Encoder scale: meters_per_count = {fit.meters_per_count:.6e} "

@@ -124,6 +124,90 @@ def excluded_regions(
     return out
 
 
+def plot_radio_panel(axes, record, have_cmd, t0):
+    ax = axes[1]
+    ch_a, ch_b = _radio_channels(record) if have_cmd else (None, None)
+    if ch_a is not None:
+        names = ("left", "right") if _is_tank(record) else ("channel A", "channel B")
+        ct, ca, cb = from_rest(record.cmd_t - t0, ch_a, ch_b)
+        ax.step(ct, ca, where="post", lw=1.2, color="C2", label=names[0])
+        ax.step(ct, cb, where="post", lw=1.2, color="C3", label=names[1])
+        ax.set_ylim(-1.05, 1.05)
+        ax.legend(fontsize=8, ncol=2, loc="upper right")
+        ax.set_ylabel("radio reported", fontsize=9)
+        inverted = bool(record.provenance.get("read_invert_a")) or bool(
+            record.provenance.get("read_invert_b")
+        )
+        if _channels_opposed(ch_a, ch_b) and not inverted:
+            ax.text(
+                0.01,
+                0.06,
+                "channels move opposite while a straight command is held: one is reversed "
+                "on the radio (see --check-radio)",
+                transform=ax.transAxes,
+                fontsize=7.5,
+                color="C3",
+            )
+    else:
+        ax.text(
+            0.5,
+            0.5,
+            "no radio readback in this run",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+            color="0.5",
+        )
+        ax.set_ylabel("radio reported", fontsize=9)
+    return ax
+
+
+def plot_accel_panel(axes, log, t):
+    ax = axes[4]
+    limit = log.header.accel_raw_limit * log.header.accel_g_per_lsb
+    for i, axis in enumerate(("x", "y", "z")):
+        ax.plot(t, log.accel[:, i] / G_MPS2, lw=0.7, label=f"a{axis}")
+    ax.axhline(limit, color="C3", ls="--", lw=0.9)
+    ax.axhline(-limit, color="C3", ls="--", lw=0.9, label=f"clip at +/-{limit:.1f} g")
+    ax.set_ylabel("accel (g)", fontsize=9)
+    return ax
+
+
+def plot_dead_reckoning_panel(axes, calib, log, t, have_cmd):
+    ax = axes[5]
+    if calib is not None:
+        distance = log.count.astype(float) * calib.meters_per_count
+        ax.plot(t, distance, lw=1.0, color="C4", label="distance")
+        ax.set_ylabel("distance (m)", fontsize=9)
+    else:
+        ax.plot(t, log.count, lw=1.0, color="C4", label="encoder count")
+        ax.set_ylabel("enc count", fontsize=9)
+    ax.axhline(0.0, color="0.55", lw=1.0, zorder=1)
+    ax.set_xlabel(
+        "time (s, from the first command)" if have_cmd else "time (s, jig clock)", fontsize=10
+    )
+    return ax
+
+
+def shade_excluded_regions(regions, axes, fig):
+    handles = []
+    for name, windows in regions.items():
+        colour, alpha = REGION_STYLE[name]
+        for lo, hi in windows:
+            for a in axes:
+                a.axvspan(lo, hi, color=colour, alpha=alpha, lw=0, zorder=0)
+        handles.append(Patch(facecolor=colour, alpha=alpha, label=f"{name} (not fitted)"))
+    if handles:
+        fig.legend(
+            handles=handles,
+            loc="lower center",
+            ncol=len(handles),
+            fontsize=8,
+            frameon=False,
+            bbox_to_anchor=(0.5, 0.0),
+        )
+
+
 def plot_run(
     log_path: Path,
     out_path: Path,
@@ -176,44 +260,7 @@ def plot_run(
         )
         ax.set_ylabel("commanded", fontsize=9)
 
-    # 2. The radio's own report, in the units it actually measures. For a tank robot the two
-    # trainer signals are the left and right motor, so a straight command is two equal
-    # channels and a spin is two opposite ones. Reading it here rather than after the mix
-    # means a wrong mix shows up as a mislabelled axis instead of a fictional command.
-    ax = axes[1]
-    ch_a, ch_b = _radio_channels(record) if have_cmd else (None, None)
-    if ch_a is not None:
-        names = ("left", "right") if _is_tank(record) else ("channel A", "channel B")
-        ct, ca, cb = from_rest(record.cmd_t - t0, ch_a, ch_b)
-        ax.step(ct, ca, where="post", lw=1.2, color="C2", label=names[0])
-        ax.step(ct, cb, where="post", lw=1.2, color="C3", label=names[1])
-        ax.set_ylim(-1.05, 1.05)
-        ax.legend(fontsize=8, ncol=2, loc="upper right")
-        ax.set_ylabel("radio reported", fontsize=9)
-        inverted = bool(record.provenance.get("read_invert_a")) or bool(
-            record.provenance.get("read_invert_b")
-        )
-        if _channels_opposed(ch_a, ch_b) and not inverted:
-            ax.text(
-                0.01,
-                0.06,
-                "channels move opposite while a straight command is held: one is reversed "
-                "on the radio (see --check-radio)",
-                transform=ax.transAxes,
-                fontsize=7.5,
-                color="C3",
-            )
-    else:
-        ax.text(
-            0.5,
-            0.5,
-            "no radio readback in this run",
-            ha="center",
-            va="center",
-            transform=ax.transAxes,
-            color="0.5",
-        )
-        ax.set_ylabel("radio reported", fontsize=9)
+    ax = plot_radio_panel(axes, record, have_cmd, t0)
 
     # 3 and 4. Measured against commanded.
     req_lin, req_ang = _requested(record) if have_cmd else (None, None)
@@ -233,17 +280,7 @@ def plot_run(
             align_zero(ax, twin)
         ax.legend(fontsize=8, loc="upper left")
 
-    # 5. Accelerometer, with the clipping limit drawn. A clipped channel reads as a plateau
-    # against that line. This panel is the only place clipping is reported, and it is a
-    # notice rather than a verdict: nothing in the plant model reads acceleration, so the
-    # fit keeps the run either way.
-    ax = axes[4]
-    limit = log.header.accel_raw_limit * log.header.accel_g_per_lsb
-    for i, axis in enumerate(("x", "y", "z")):
-        ax.plot(t, log.accel[:, i] / G_MPS2, lw=0.7, label=f"a{axis}")
-    ax.axhline(limit, color="C3", ls="--", lw=0.9)
-    ax.axhline(-limit, color="C3", ls="--", lw=0.9, label=f"clip at +/-{limit:.1f} g")
-    ax.set_ylabel("accel (g)", fontsize=9)
+    ax = plot_accel_panel(axes, log, t)
 
     clip, clip_axes = saturated_mask(
         log, record.pauses if record is not None else [], clock, sensors="a"
@@ -275,21 +312,7 @@ def plot_run(
         )
     ax.legend(fontsize=7, ncol=4, loc="upper right")
 
-    # 6. The two dead-reckoned quantities together: how far it went and how much it turned.
-    # Both are integrals, so both accumulate whatever the rate signals got wrong, and reading
-    # them side by side is how a run that looks fine sample by sample gives itself away.
-    ax = axes[5]
-    if calib is not None:
-        distance = log.count.astype(float) * calib.meters_per_count
-        ax.plot(t, distance, lw=1.0, color="C4", label="distance")
-        ax.set_ylabel("distance (m)", fontsize=9)
-    else:
-        ax.plot(t, log.count, lw=1.0, color="C4", label="encoder count")
-        ax.set_ylabel("enc count", fontsize=9)
-    ax.axhline(0.0, color="0.55", lw=1.0, zorder=1)
-    ax.set_xlabel(
-        "time (s, from the first command)" if have_cmd else "time (s, jig clock)", fontsize=10
-    )
+    ax = plot_dead_reckoning_panel(axes, calib, log, t, have_cmd)
 
     heading = integrate_deg(yaw, t)
     zero = int(np.searchsorted(t, 0.0)) if have_cmd else 0
@@ -316,24 +339,7 @@ def plot_run(
     lines = ax.get_lines()[:1] + twin.get_lines()[:1]
     ax.legend(lines, [ln.get_label() for ln in lines], fontsize=8, loc="upper left")
 
-    # Shading goes on last so every panel has its final limits, and on all panels so the
-    # excluded stretches line up vertically wherever the eye happens to be.
-    handles = []
-    for name, windows in regions.items():
-        colour, alpha = REGION_STYLE[name]
-        for lo, hi in windows:
-            for a in axes:
-                a.axvspan(lo, hi, color=colour, alpha=alpha, lw=0, zorder=0)
-        handles.append(Patch(facecolor=colour, alpha=alpha, label=f"{name} (not fitted)"))
-    if handles:
-        fig.legend(
-            handles=handles,
-            loc="lower center",
-            ncol=len(handles),
-            fontsize=8,
-            frameon=False,
-            bbox_to_anchor=(0.5, 0.0),
-        )
+    shade_excluded_regions(regions, axes, fig)
 
     title = log_path.name
     if record is not None:

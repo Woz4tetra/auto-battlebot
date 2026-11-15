@@ -134,14 +134,7 @@ def run_arms(
     return traces, window
 
 
-def plot_sample(data: SessionData, start_ns: int, gap_s: float, path: Path) -> dict:
-    traces, window = run_arms(data, start_ns, gap_s)
-    fig, axes = plt.subplots(2, 2, figsize=(13, 9))
-    ax_xy, ax_err, ax_yaw, ax_w = axes[0, 0], axes[0, 1], axes[1, 0], axes[1, 1]
-    end_ns = start_ns + int(gap_s * 1e9)
-    show = (start_ns - int(0.6e9), end_ns + int(0.6e9))
-
-    # Truth path and the measurements, the withheld ones hollow.
+def plot_truth_and_measurements(show, data, ax_xy, start_ns, end_ns):
     grid = np.arange(show[0], show[1], int(0.01e9))
     tr = data.truth_at(grid)
     ax_xy.plot(tr["x"], tr["y"], color=COLORS["truth"], lw=1.6, label="truth")
@@ -160,6 +153,17 @@ def plot_sample(data: SessionData, start_ns: int, gap_s: float, path: Path) -> d
         edgecolors=COLORS["meas"],
         label="withheld",
     )
+    return grid, tr, shown
+
+
+def plot_sample(data: SessionData, start_ns: int, gap_s: float, path: Path) -> dict:
+    traces, window = run_arms(data, start_ns, gap_s)
+    fig, axes = plt.subplots(2, 2, figsize=(13, 9))
+    ax_xy, ax_err, ax_yaw, ax_w = axes[0, 0], axes[0, 1], axes[1, 0], axes[1, 1]
+    end_ns = start_ns + int(gap_s * 1e9)
+    show = (start_ns - int(0.6e9), end_ns + int(0.6e9))
+
+    grid, tr, shown = plot_truth_and_measurements(show, data, ax_xy, start_ns, end_ns)
 
     summary: dict = {"start_s": (start_ns - data.meas_stamp_ns[0]) / 1e9, "gap_s": gap_s}
     worst = 0.0

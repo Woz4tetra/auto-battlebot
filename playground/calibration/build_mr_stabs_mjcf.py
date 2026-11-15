@@ -53,6 +53,13 @@ def rest_contact(vertices: np.ndarray, wheel_radius: float) -> tuple[np.ndarray,
     return best_vertex, best_theta
 
 
+def relativize_mesh_paths(mp, collision):
+    xml = build_mjcf(mp, PlantParams(), collision).replace(str(COLLISION_DIR) + "/", "collision/")
+    out = mass_properties.ASSET_DIR / "mr_stabs_mk2.xml"
+    out.write_text(xml)
+    print(f"wrote {out}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument(
@@ -94,11 +101,7 @@ def main() -> None:
     (COLLISION_DIR / "collision.toml").write_text(tomli_w.dumps(meta))
 
     collision = CollisionSet.load()
-    # Mesh paths relative to the XML so the file is portable.
-    xml = build_mjcf(mp, PlantParams(), collision).replace(str(COLLISION_DIR) + "/", "collision/")
-    out = mass_properties.ASSET_DIR / "mr_stabs_mk2.xml"
-    out.write_text(xml)
-    print(f"wrote {out}")
+    relativize_mesh_paths(mp, collision)
 
 
 if __name__ == "__main__":

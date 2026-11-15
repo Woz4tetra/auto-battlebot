@@ -8,6 +8,12 @@ from pathlib import Path
 from auto_battlebot.recording.diag_io import iter_diagnostic_statuses
 
 
+def match_window(last_switch_to_manual_ts, last_auto_ts, first_auto_ts):
+    match_end = last_switch_to_manual_ts if last_switch_to_manual_ts is not None else last_auto_ts
+    duration_s = (match_end - first_auto_ts) if (first_auto_ts and match_end) else 0.0
+    return match_end, duration_s
+
+
 def analyze(path: Path) -> None:
     raw: list[tuple[float, bool]] = []
 
@@ -35,9 +41,7 @@ def analyze(path: Path) -> None:
         if raw[i - 1][1] and not raw[i][1]:
             last_switch_to_manual_ts = raw[i][0]
 
-    # Match window: first auto -> last switch to manual (or last auto if still in auto at end).
-    match_end = last_switch_to_manual_ts if last_switch_to_manual_ts is not None else last_auto_ts
-    duration_s = (match_end - first_auto_ts) if (first_auto_ts and match_end) else 0.0
+    match_end, duration_s = match_window(last_switch_to_manual_ts, last_auto_ts, first_auto_ts)
 
     match_samples = [
         (t, a)
