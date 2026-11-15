@@ -317,9 +317,7 @@ class Connection {
       this.#teardown();
       this.#scheduleReconnect();
     });
-    client.on("error", () => {
-      // "close" always follows, and it does the cleanup.
-    });
+    client.on("error", () => {});
   }
 
   #advertiseCommands(client: FoxgloveClient): void {

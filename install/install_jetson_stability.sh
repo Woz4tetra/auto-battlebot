@@ -70,8 +70,6 @@ install_jetson_service_masks() {
     local system_services=(
         bluetooth.service
     )
-    # User-level GNOME / GVFS services that are not needed on a kiosk and
-    # contribute to background cgroup churn.
     local user_services=(
         evolution-addressbook-factory.service
         evolution-calendar-factory.service

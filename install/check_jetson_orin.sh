@@ -21,9 +21,6 @@ check_jetson_orin() {
         exit 1
     fi
 
-    # The install path branches on the L4T major for the PyTorch wheel source and expects
-    # the Python version JetPack ships. Without this, a JetPack older than 6 is accepted
-    # here and fails much later, at wheel install or engine load.
     local l4t_line l4t_major
     l4t_line=$(head -n 1 /etc/nv_tegra_release 2>/dev/null || true)
     if [[ "$l4t_line" =~ R([0-9]+) ]]; then

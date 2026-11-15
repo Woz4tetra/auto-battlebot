@@ -75,11 +75,6 @@ install_python_environment() {
 
     if [ -d "$VENV_DIR" ]; then
         echo "Virtual environment already exists at $VENV_DIR"
-        # A venv built against a different Python minor cannot be reused: its
-        # lib/pythonX.Y/ tree, the TensorRT .pth written below, and the CUDA block
-        # appended to bin/activate all encode the old version, and the append is
-        # guarded by a grep that will not rewrite it. This is what a JetPack 6 ->
-        # 7 upgrade in place hits, where install_jetson.sh passes --no-recreate.
         local EXISTING_MINOR=""
         if [ -x "$VENV_DIR/bin/python" ]; then
             EXISTING_MINOR=$("$VENV_DIR/bin/python" -c 'import sys; print(sys.version_info.minor)' 2>/dev/null || true)
@@ -131,7 +126,6 @@ install_python_environment() {
         fi
         echo "Jetson: adding $SYS_PYTHON_PATH to venv for TensorRT..."
         echo "$SYS_PYTHON_PATH" > "$SITE_PACKAGES/jetson_system_packages.pth"
-        # So venv PyTorch finds CUDA/cuDNN (host has these in LD_LIBRARY_PATH; venv does not)
         local ACTIVATE_SH="$VENV_DIR/bin/activate"
         if ! grep -q 'jetson.*LD_LIBRARY_PATH' "$ACTIVATE_SH" 2>/dev/null; then
             echo "Jetson: adding CUDA library path to venv activate script..."

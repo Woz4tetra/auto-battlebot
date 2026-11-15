@@ -1,30 +1,5 @@
 #!/usr/bin/env python3
-"""Combine an MCAP recording with the SVO2 files it references.
-
-For every SVO2 file an input MCAP references (in /log or /camera/frame_meta),
-produce one combined MCAP <input_mcap_stem>__<svo_stem>.mcap that contains:
-
-  * One cropped left-eye image per SVO frame, decoded straight out of the
-    .svo2 (which is itself an MCAP container of H.264 frames).
-  * The slice of the original MCAP messages whose log_time falls inside that
-    SVO's [start, end] time range (intersect mode).
-
-An input that does not read cleanly is repaired first: every record that still
-parses is copied into <output dir>/recovered/<same name> and the run continues
-from that copy. This covers the input MCAP and the .svo2 files it references,
-which are MCAPs as well, so a killed recorder or a Jetson that lost power, which
-tears off the recording and the SVO it was filling at the same moment, still
-yields everything written before the tear.
-
-Requires `ffmpeg` on PATH and the Python `mcap` package. Neither the ZED SDK
-nor `pyzed` is used.
-
-The SVO's IMU data is dropped. It lives on the `sensors` /
-`integrated_sensors` topics as an opaque base64 blob that only the SDK
-decodes, and nothing downstream of these combined MCAPs reads it: the
-model_eval and model_compare tools use /camera/image and /camera/camera_info
-only. Use `ZED_SVO_Editor -export-to-mcap` if you ever need those channels.
-"""
+"""Combine an MCAP recording with the SVO2 files it references."""
 
 from __future__ import annotations
 
@@ -52,21 +27,7 @@ from auto_battlebot.recording import mcap_io, mcap_write, svo2
 
 logger = logging.getLogger("combine_mcap_svo")
 
-# The SVO stores a horizontally concatenated [left | right] H.264 frame. We
-# decode it, crop to the left half, and publish it as a foxglove.CompressedImage
-# on TARGET_LEFT_IMAGE_TOPIC, stamped with the frame's own time.
 TARGET_LEFT_IMAGE_TOPIC = "/camera/image"
-# One message per frame, alongside the image it describes, carrying where that image came
-# from. It is the export-side companion to /camera/frame_meta, which the pipeline itself
-# writes with the SVO frame index straight from the SDK.
-#
-# How well stamps alone identify a frame depends on when the recording was made. On the
-# 2026-08-23 and 2026-08-28 Jetson recordings the pipeline's stamps equal the SVO frame
-# stamp exactly (0.00 ms over 9521 frames, both /camera/frame_meta.image_stamp_ns and
-# /camera/camera_info), so stamp and index joins agree. On the 2026-05-02 NHRL recordings
-# the pipeline stamp lands 0.45 to 0.79 of the way through the SVO frame interval, so
-# nearest-timestamp matching silently costs up to a frame there; join on the index, or on
-# "pipeline stamp within [svo_stamp, next_svo_stamp)".
 SVO_FRAME_TOPIC = "/camera/svo_frame"
 FRAME_ID_SOURCE_TOPIC = "/camera/camera_info"
 FRAME_META_TOPIC = "/camera/frame_meta"
@@ -237,12 +198,7 @@ def read_first_header_frame_id(mcap_path: Path, topic: str) -> Optional[str]:
 def read_header_stamp_samples(
     mcap_path: Path, topic: str = FRAME_ID_SOURCE_TOPIC
 ) -> List[Tuple[int, int]]:
-    """Return sorted list of (log_time_ns, header_stamp_ns) for `topic`.
-
-    Used to map the original MCAP's wall-clock-stamped log_times back to the
-    camera-frame-stamped timeline that the SVO MCAP uses, fixing the ~50 ms
-    lag between capture and the recorder write in the C++ publisher.
-    """
+    """Return sorted (log_time_ns, header_stamp_ns) pairs for `topic`."""
     samples: List[Tuple[int, int]] = []
     for _topic, log_time, data in mcap_io.iter_messages(mcap_path, [topic]):
         samples.append((log_time, mcap_io.decode_camera_info(data).stamp_ns))
@@ -484,16 +440,7 @@ def get_input_profile(mcap_path: Path) -> str:
 
 
 def _describe_damage(mcap_path: Path) -> Optional[str]:
-    """Return a description of the first fault in `mcap_path`, or None if it reads clean.
-
-    Two checks, because they fail on different damage. The summary lookup needs the
-    footer at the end of the file, which a recording that never finalized does not
-    have. The record scan then reads the body from the front and stops wherever the
-    bytes stop making sense, which catches a torn final chunk and mid-file corruption
-    that an intact footer would otherwise hide.
-
-    Scanning is cheap next to the combine itself: 0.06 s for a 36 MB recording.
-    """
+    """Return a description of the first fault in `mcap_path`, or None if it reads clean."""
     if mcap_path.stat().st_size == 0:
         return "the file is empty"
     try:
@@ -581,12 +528,7 @@ def recover_mcap(source: Path, dest: Path) -> int:
 
 
 def _recover_into(source: Path, dest_dir: Path) -> Optional[Path]:
-    """Recover `source` into `dest_dir` under the same name, or None if nothing reads.
-
-    Keeping the name means every output named after this file, combined MCAPs and
-    the svo_file field on /camera/svo_frame alike, comes out the same as it would
-    have for an undamaged input.
-    """
+    """Recover `source` into `dest_dir` under the same name, or None if nothing reads."""
     dest = dest_dir / source.name
     messages = recover_mcap(source, dest)
     if messages == 0:
@@ -612,12 +554,7 @@ def _recovered_copy(source: Path, out_dir: Path, *, keep: bool) -> Iterator[Opti
 
 
 def _readable_svo(svo_path: Path, out_dir: Path) -> Optional[Path]:
-    """Return an SVO that reads cleanly, recovering a damaged one first.
-
-    A .svo2 is an MCAP too, so the same repair applies: the recorder that was killed
-    mid-write left the recording and the SVO it was filling both torn off. Returns
-    None when nothing at all can be read out of it.
-    """
+    """Return an SVO that reads cleanly, recovering a damaged one first."""
     damage = _describe_damage(svo_path)
     if damage is None:
         return svo_path
@@ -790,8 +727,10 @@ def _combine_svos(
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Combine an MCAP recording with the SVO2 files it references "
-            "(via /rosout). Produces one combined MCAP per SVO."
+            "Combine an MCAP recording with the SVO2 files it references (in /log or "
+            "/camera/frame_meta). Produces one combined MCAP per SVO with the cropped "
+            "left-eye image per frame and the original messages inside the SVO's time range. "
+            "Needs ffmpeg on PATH and the Python mcap package."
         )
     )
     parser.add_argument(

@@ -1,10 +1,5 @@
 #!/bin/bash
 
-# Install a systemd oneshot unit that runs `jetson_clocks` at boot, lifting
-# DVFS gating so the CPU/GPU/EMC stay at their max frequency. RemainAfterExit
-# keeps the unit "active" after the script returns so the kept settings are
-# clearly attributed to this service.
-
 install_jetson_clocks() {
     local service_name="jetson-clocks.service"
     local service_file="/etc/systemd/system/${service_name}"

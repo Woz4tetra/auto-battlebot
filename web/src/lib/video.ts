@@ -1,9 +1,3 @@
-// H.264 preview decode with WebCodecs.
-//
-// Each /camera/preview_video message is one Annex-B access unit. Keyframes carry SPS and PPS in
-// band, so the decoder needs no `description`: it is configured from the SPS of the first
-// keyframe, and reconfigured if a later keyframe carries a different SPS.
-
 export function videoDecodeSupported(): boolean {
   return typeof VideoDecoder !== "undefined" && typeof EncodedVideoChunk !== "undefined";
 }
@@ -36,7 +30,6 @@ export function scanAccessUnit(data: Uint8Array): AccessUnit {
     const type = data[start] & 0x1f;
     if (type === NAL_IDR) keyframe = true;
     if (type === NAL_SPS && !sps) {
-      // The NAL ends at the next start code; trailing zero bytes belong to that start code.
       let end = k + 1 < nalStarts.length ? nalStarts[k + 1] - 3 : n;
       while (end > start && data[end - 1] === 0) end--;
       sps = data.subarray(start, end);

@@ -111,11 +111,6 @@ stamp_build_version() {
 }
 stamp_build_version
 
-# ── Deploy excludes ────────────────────────────────────────────────────────────────
-# .deployignore lists paths that stay off the Jetson even though they are
-# tracked in git. Syntax matches .gitignore, including "!pattern" to re-include.
-# The rules become an rsync filter file applied before the .gitignore merge, so
-# a "!pattern" here can also pull back a gitignored path.
 DEPLOY_IGNORE="$PROJECT_ROOT/.deployignore"
 DEPLOY_FILTER_OPTS=()
 if [ -f "$DEPLOY_IGNORE" ]; then
@@ -212,12 +207,6 @@ if [ -n "$PROFILE_PATTERN" ]; then
     fi
 fi
 
-# ── Camera profile backup ────────────────────────────────────────────────────
-# The dashboard saves camera profiles on the box, outside the repo
-# (CameraProfileStore::kDefaultPath). Each deploy copies them back to
-# data/camera_profiles/<hostname>.toml so they live in git; data/ is gitignored, so
-# a new backup is force-added (staged, not committed). A box with no profiles yet
-# is offered one of the existing backups.
 CAMERA_PROFILES_REMOTE='$HOME/.local/state/auto_battlebot/camera_profiles.toml'
 CAMERA_BACKUP_DIR="$PROJECT_ROOT/data/camera_profiles"
 REMOTE_HOSTNAME="$(ssh "${SSH_OPTS[@]}" "$SSH_TARGET" hostname 2>/dev/null | tr -d '[:space:]')"

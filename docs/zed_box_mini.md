@@ -190,3 +190,8 @@ if that changes.
 - [ZED Box Mini flash docs](https://docs.stereolabs.com/docs/products/embedded/zed-box-mini/reset-update)
 - [ZED Box Mini product docs](https://docs.stereolabs.com/docs/products/embedded/zed-box-mini)
 - [Stereolabs forum: Box Mini JetPack upgrade](https://community.stereolabs.com/t/jetpack-zed-sdk-upgrade-for-zed-box-mini-carrier-board/11542)
+
+## Headless service facts
+
+- The ZED Box has no display. Booting to `graphical.target` makes `service/with_display.sh` wait 60 s for an X session on every service start, and GDM plus Xorg hold memory for nothing. `scripts/install_zed_box.sh` sets `multi-user.target`, which takes effect on the next boot.
+- `service/build_and_install_service.sh` installs `dashboard-kiosk.service` on every box but enables it only where a desktop boots. A headless box (the ZED Box) gets the unit file and not the enable. After adding a display, run `sudo systemctl set-default graphical.target` and `sudo systemctl enable --now dashboard-kiosk`.

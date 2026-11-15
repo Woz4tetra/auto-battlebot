@@ -1,25 +1,4 @@
 #!/bin/bash
-# setup_claude_code.sh: wire up this repo's Claude Code integration -- the
-# clangd-lsp plugin and the no-ai-slop wording hook.
-#
-# For normal interactive use you do NOT need this script for the plugin:
-# .claude/settings.json already declares the `claude-plugins-official`
-# marketplace and enables `clangd-lsp`, so Claude Code offers to install it on
-# first launch after you trust the workspace. Run this only for headless /
-# non-interactive setups (CI, remote boxes) where that prompt never fires.
-#
-# The wording hook needs no installation either -- .claude/settings.json points
-# PostToolUse at scripts/no_ai_slop_check.sh. This script only checks that its
-# dependencies are in place, since a hook that cannot run fails silently.
-#
-# The no-ai-slop skill is a user-level install (~/.claude/skills/), not part of
-# this repo, so a fresh machine does not have it. This script clones it when it
-# is missing. The repo still works without it: CLAUDE.md carries the writing
-# rules and the hook carries the wordlist. The skill adds the /no-ai-slop
-# command for editing a draft on demand.
-#
-# The clangd binary itself is installed separately by the OS setup
-# (install/base_packages.txt lists `clangd`); this script only wires the plugin.
 
 set -e
 

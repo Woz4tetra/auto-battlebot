@@ -27,8 +27,6 @@ install_mcap_cli() {
     chmod +x "$binary_path"
     echo "mcap CLI installed to ${binary_path}"
     if ! command -v mcap &>/dev/null; then
-        # Ubuntu's ~/.profile only adds ~/.local/bin to PATH when it exists at login, so on a
-        # fresh flash the directory we just created is not on PATH until the next login.
         echo "Note: ${install_dir} is not on PATH yet. Log out and back in, or run:"
         echo "  export PATH=\"${install_dir}:\$PATH\""
     fi

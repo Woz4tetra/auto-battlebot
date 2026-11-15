@@ -1,6 +1,5 @@
 #!/bin/bash
 
-# Repo root, exported because compose mounts it at the same path inside the container.
 REPO="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)"
 export REPO
 
@@ -65,9 +64,6 @@ else
     adopt_local_display
 fi
 
-# docker-compose.playback.yml uses the `include:` key, added in Compose v2.20. Older
-# versions reject the file with "(root) Additional property include is not allowed",
-# which does not hint at the cause. Fail with something actionable instead.
 require_compose_version() {
     local min="2.20"
     local version

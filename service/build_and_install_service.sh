@@ -54,22 +54,14 @@ install_unit() {
     rm -f "$staged_file"
 }
 
-# The relay owns the Foxglove WebSocket server and restarts on its own; the app unit only
-# orders After= it and never waits on it.
 install_unit viz-relay
 install_unit "$SERVICE_NAME"
-# The dashboard on the box's own screen. Enabled only on a box that boots a desktop. A headless
-# box (the ZED Box) gets the unit file but not the enable; after adding a display there, run
-# `sudo systemctl set-default graphical.target` and `sudo systemctl enable --now dashboard-kiosk`.
 if boots_a_desktop; then
     install_unit dashboard-kiosk
 else
     install_unit dashboard-kiosk --no-enable
 fi
 
-# Persisted UI state (selected_profile, wifi_access). Created as the service user so it can
-# write there; the directory must exist before first boot to hand-write selected_profile when
-# the default profile's camera is absent and the UI never comes up.
 STATE_DIR="$(getent passwd "$REAL_USER" | cut -d: -f6)/.local/state/auto_battlebot"
 sudo -u "$REAL_USER" mkdir -p "$STATE_DIR"
 

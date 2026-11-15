@@ -64,8 +64,6 @@ FetchContent_Declare(
     SOURCE_SUBDIR asio/include
 )
 
-# MCAP reader. The Foxglove SDK writes but does not read, and VideoPlaybackCamera has to read
-# /camera/video back out of a recording.
 FetchContent_Declare(
     mcap
     GIT_REPOSITORY https://github.com/foxglove/mcap.git
@@ -125,12 +123,6 @@ target_link_libraries(mcap_reader PUBLIC PkgConfig::LZ4 PkgConfig::ZSTD)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 find_package(Threads REQUIRED)
-# 4.10 asserted, not preferred: cv::aruco moved from contrib into core opencv_objdetect at 4.7
-# and the API changed with it, so FiducialFieldFilter needs 4.7+ everywhere or it needs version
-# guards it would never shed. apt ships 4.5.4 on jammy and 4.6.0 on noble, both too old;
-# install/install_opencv.sh builds 4.10.0 into /usr/local on every platform, which is what the
-# Jetson already ran. If this fails after that install, build/CMakeCache.txt still pins the old
-# OpenCV_DIR: run ./scripts/clean_build.sh.
 find_package(OpenCV 4.10 REQUIRED COMPONENTS core imgproc highgui dnn objdetect calib3d)
 find_package(Eigen3 REQUIRED)
 
@@ -157,16 +149,10 @@ target_compile_definitions(rtneural INTERFACE
     RTNEURAL_NAMESPACE=RTNeural
 )
 target_link_libraries(rtneural INTERFACE Eigen3::Eigen)
-# PCL is only reachable from PointCloudFieldFilter and data_structures/point_cloud.hpp. It stays
-# unconditional while FieldDescriptionWithInlierPoints carries a cloud; it goes when the depth
-# field filter does.
 find_package(PCL REQUIRED COMPONENTS common sample_consensus)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET libavcodec libavutil libswscale)
-# GStreamer reaches the Jetson's hardware encoder (nvv4l2h264enc), which stock L4T FFmpeg cannot:
-# its h264_nvenc needs libnvidia-encode, which no Jetson has. Optional, so the desktop builds
-# without the dev packages; a Jetson recording video needs it (install/jetson_packages.txt).
 pkg_check_modules(GST IMPORTED_TARGET gstreamer-1.0 gstreamer-app-1.0)
 
 find_package(ZED 5 QUIET)
@@ -187,8 +173,6 @@ if(NOT CMAKE_CUDA_COMPILER)
     set(CMAKE_CUDA_COMPILER "${CUDA_TOOLKIT_ROOT_DIR}/bin/nvcc")
 endif()
 set(CMAKE_CUDA_RUNTIME_LIBRARY Static)
-# Set before enable_language, which otherwise probes a default that CUDA 13 no longer supports.
-# Orin is sm87; the dev laptop is sm89 and megamind's A6000s are sm86.
 if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
     if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
         set(CMAKE_CUDA_ARCHITECTURES 87)
@@ -248,9 +232,6 @@ file(GLOB_RECURSE AUTO_BATTLEBOT_SOURCES CONFIGURE_DEPENDS
 )
 list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*main\\.cpp$")
 list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*/rgbd_camera/mcap_impl\\.cpp$")
-# The glob is recursive, so dropping the ZED backends means filtering them out here rather than
-# wrapping an explicit list. PointCloudFieldFilter goes with them: it needs a depth image, and
-# outside simulation the ZED is the only camera that produces one.
 if(NOT BUILD_WITH_ZED)
     list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*/rgbd_camera/zed_.*\\.cpp$")
     list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*/rgbd_camera/svo_recorder\\.cpp$")
@@ -431,8 +412,6 @@ target_link_libraries(auto_battlebot
 )
 add_dependencies(auto_battlebot generate_git_version)
 
-# Foxglove relay: owns the WebSocket server so Foxglove stays connected across app restarts.
-# Links only the SDK and CLI11, never auto_battlebot_lib, so it starts without the ZED SDK.
 add_executable(viz_relay
     src/viz_relay/main.cpp
 )

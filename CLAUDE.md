@@ -234,6 +234,9 @@ pinned and installed by `install/install_clang_tidy_cache.sh` to
 `~/.local/share/ctcache`. It hashes the preprocessed translation unit and replays
 stored diagnostics on a hit, so a full run drops from ~50s to ~7s; comment- and
 whitespace-only edits stay cache hits. Entries live in `~/.cache/ctcache`.
+`scripts/lint` sets `CTCACHE_SAVE_OUTPUT=1`, so translation units that emit warnings are cached too
+(without it only clean ones are, and anything warning re-runs every time). It sets `CTCACHE_DIR` to
+`~/.cache/ctcache` because the default `/tmp/ctcache-$USER` is wiped by a reboot.
 
 ```bash
 rm -rf ~/.cache/ctcache        # drop the cache

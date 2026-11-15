@@ -86,9 +86,6 @@ install_dashboard_firewall() {
         sudo nft delete table inet "$table" >/dev/null 2>&1 || true
     else
         sudo mkdir -p "$(dirname "$nft_file")"
-        # Declare-then-delete, so loading it again replaces the table instead of failing on the
-        # one that exists. Its own table, so no other ruleset is touched. service/viz-relay.service
-        # serves the dashboard on 80.
         sudo tee "$nft_file" >/dev/null <<EOF
 table inet $table
 delete table inet $table
@@ -120,7 +117,6 @@ ExecStop=/usr/sbin/nft delete table inet $table
 WantedBy=multi-user.target
 EOF
         if [ -n "$wifi_iface" ]; then
-            # Not enabled: the app starts it at boot when the saved setting says so.
             sudo tee "/etc/systemd/system/$wifi_unit" >/dev/null <<EOF
 [Unit]
 Description=Allow the auto_battlebot dashboard on Wi-Fi ($wifi_iface)
@@ -133,7 +129,6 @@ RemainAfterExit=yes
 ExecStart=/usr/sbin/nft 'add element inet $table allowed_ifaces { "$wifi_iface" }'
 ExecStop=-/usr/sbin/nft 'delete element inet $table allowed_ifaces { "$wifi_iface" }'
 EOF
-            # Ubuntu 24.04's polkit reads JavaScript rules. Start and stop on this unit only.
             sudo tee "$polkit_rule" >/dev/null <<EOF
 // Installed by auto-battlebot install/install_dashboard_network.sh.
 polkit.addRule(function (action, subject) {

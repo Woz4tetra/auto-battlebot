@@ -1,15 +1,4 @@
 #!/bin/bash
-# no_ai_slop_check.sh: PostToolUse(Write|Edit) hook. Flags AI-slop wording in
-# prose files and in the comment lines of source files.
-#
-# Wired up by .claude/settings.json. Reads the hook payload on stdin, scans the
-# file that was just written, and on a hit prints the offending lines and exits
-# 2, which feeds them back to Claude as an error to fix before it continues.
-#
-# Rules come from the no-ai-slop skill (~/.claude/skills/no-ai-slop/SKILL.md),
-# whose wording section is also inlined in CLAUDE.md. Only the flat wordlist is
-# enforced here; the structural patterns (colon reveals, binary contrasts,
-# kicker endings) are not greppable and are left to CLAUDE.md.
 
 set -u
 
@@ -34,8 +23,6 @@ esac
 
 [ -n "${subject}" ] || exit 0
 
-# "robust" and "harness" are on the skill's banned list but are legitimate here
-# (robust estimator, wiring harness, test harness), so they are omitted.
 words='delve|delving|foster|fosters|leverage|leverages|leveraging|utilize|utilizes|utilizing'
 words="${words}|facilitate|facilitates|empower|empowers|streamline|streamlines|cutting-edge"
 words="${words}|paradigm shift|game changer|tapestry|realm|beacon|multifaceted|meticulous"

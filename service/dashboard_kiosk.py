@@ -1,17 +1,5 @@
 #!/usr/bin/python3 -I
-"""Show the web dashboard full screen on the robot computer's own display.
-
-One GTK window holding one WebKit view: no tabs, address bar, or browser profile. WebKitGTK and
-its GObject bindings ship with the Ubuntu desktop, so this runs on the system python, not the
-venv (python3-gi is built for /usr/bin/python3 only).
-
-Run by dashboard-kiosk.service through with_display.sh. With no display it exits 0, so the unit
-stays stopped on a headless box instead of restarting forever.
-
-The dashboard's own page reconnects when the app or the relay restarts. This script only covers
-what the page cannot: the relay not being up yet at boot, a failed page load, and a crashed web
-process.
-"""
+"""Show the web dashboard full screen on the robot computer's own display."""
 
 from __future__ import annotations
 

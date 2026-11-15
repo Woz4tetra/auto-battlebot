@@ -112,11 +112,7 @@ configure_ctcache() {
         # The wrapper execs this path directly and defaults to /usr/bin/clang-tidy,
         # so it needs the resolved binary, not the bare name.
         export CTCACHE_CLANG_TIDY="$(command -v "$CLANG_TIDY")"
-        # Cache translation units that emit warnings too, and store their output for
-        # replay. Without this only clean TUs are cached, so anything currently
-        # warning is re-analysed on every run.
         export CTCACHE_SAVE_OUTPUT=1
-        # Default is /tmp/ctcache-$USER, which a reboot wipes.
         export CTCACHE_DIR="${CTCACHE_DIR:-$HOME/.cache/ctcache}"
         TIDY_BINARY="$CTCACHE_WRAPPER"
     else

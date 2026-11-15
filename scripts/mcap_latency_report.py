@@ -94,7 +94,6 @@ def extract_latency_samples(path: Path, include_field_init: bool = False) -> Lat
             hw_id = status["hardware_id"]
             name = status["name"]
             values = status["values"]
-            # No subsection: the backend sets name = hardware_id. Avoid "x.x" stages.
             stage = hw_id if name == hw_id else f"{hw_id}.{name}"
 
             if "elapsed_ms" in values:

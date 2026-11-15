@@ -1,9 +1,4 @@
 #!/bin/bash
-# Install Node.js 22 from NodeSource, for building the web dashboard (scripts/build_web.sh).
-#
-# Ubuntu 24.04's apt ships Node 18 and current Vite needs 20.19 or newer. NodeSource publishes
-# amd64 and arm64, so the dev boxes and the Jetson build the page the same way. A node already on
-# PATH at 20.19 or newer (nvm, say) is left alone.
 
 install_node() {
     local major=22

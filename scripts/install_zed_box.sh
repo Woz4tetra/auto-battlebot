@@ -41,9 +41,6 @@ install_pstore_ramoops
 install_jetson_stability
 install_jetson_clocks
 install_dashboard_network || echo "Dashboard network not set up; see the message above."
-# The ZED Box has no display. Booting to graphical.target makes service/with_display.sh wait
-# 60s for an X session on every service start, and GDM + Xorg hold memory for nothing.
-# Takes effect on the next boot.
 sudo systemctl set-default multi-user.target
 
 build_cpp_project "$@"

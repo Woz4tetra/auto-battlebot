@@ -1,18 +1,4 @@
 #!/bin/bash
-# Renames the systemd units earlier installs created under their old names. Each unit keeps its
-# enabled and running state, and the old and new app units never run side by side.
-#
-# Idempotent: on a box with no old unit it does nothing. service/build_and_install_service.sh runs
-# it before installing anything, so a deploy migrates a box on its own. Delete it once no box has
-# an old name left.
-#
-# A unit file is copied with every old unit name in it rewritten (dashboard-wifi Requires= the
-# firewall unit, the kiosk orders After= the relay), and the polkit rule that lets the app start
-# the Wi-Fi unit is rewritten the same way. The viz_relay port 80 drop-in is deleted, not moved:
-# service/viz-relay.service carries --http-port 80 itself now. Helper scripts under
-# /usr/local/sbin keep their names; only units were renamed.
-#
-# Usage: install/rename_legacy_services.sh
 
 RENAMES=(
     "auto_battlebot.service auto-battlebot.service"

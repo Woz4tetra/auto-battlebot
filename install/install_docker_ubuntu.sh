@@ -1,21 +1,11 @@
 #!/bin/bash
 
-# docker/docker-compose.playback.yml uses the `include:` key, added in Compose v2.20.
-# Older versions reject the whole file with the unhelpful message
-# "(root) Additional property include is not allowed".
 MIN_COMPOSE_VERSION="2.20"
 
 version_at_least() {
     [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -1)" = "$2" ]
 }
 
-# Verifies the Compose plugin is new enough and points at the fix when it is not.
-#
-# The usual cause of an old version is a stale manually-installed plugin shadowing the
-# apt one: docker searches /usr/local/lib/docker/cli-plugins before
-# /usr/libexec/docker/cli-plugins, so a leftover binary in the former wins even after
-# docker-compose-plugin is upgraded. That is exactly what happened on megamind, which
-# reported 2.11.2 while the apt package on disk was current.
 check_docker_compose_version() {
     local version
     version=$(docker compose version --short 2>/dev/null | sed 's/^v//')

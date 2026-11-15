@@ -1,12 +1,3 @@
-# x86_64 SVO playback environment.
-#
-# Driven by scripts/docker/run_playback.sh and shell.sh, which export the REPO,
-# HOST_UID, HOST_GID, DISPLAY, and XAUTHORITY variables this file interpolates. Running
-# `docker compose -f docker/docker-compose.playback.yml ...` directly will fail on the
-# empty interpolations, so go through the scripts.
-#
-# The image is toolchain-only. Source, build tree, and data are bind-mounted, so editing
-# code never rebuilds the image. See docs/docker_playback.md.
 
 name: auto-battlebot
 
@@ -16,17 +7,10 @@ services:
         build:
             context: ..
             dockerfile: docker/playback.Dockerfile
-        # Host networking exposes the viz_relay WebSocket (ws://0.0.0.0:8765, started by
-        # container_entrypoint.sh) with no port mapping, and avoids docker-in-docker.
         network_mode: "host"
 
-        # Shared IPC covers two things: X shared memory for GUI tools run from shell.sh, and
-        # the host /dev/shm size, which the default 64 MB would not satisfy.
         ipc: "host"
 
-        # Run as the invoking user so artifacts written into the bind-mounted
-        # build-docker/ are owned by them, not root. The passwd and group mounts give
-        # that UID a name inside the container, which the ZED SDK expects.
         user: "${HOST_UID}:${HOST_GID}"
         working_dir: "${REPO}"
 
@@ -40,23 +24,12 @@ services:
             - /etc/passwd:/etc/passwd:ro
             - /etc/group:/etc/group:ro
 
-            # Named, not bind. Compose seeds a fresh named volume from the image
-            # directory it covers, including permissions, so these inherit what the
-            # Dockerfile set. A bind mount would hide what the image ships.
             - auto-battlebot-home:/home/dev
 
-            # ZED_NEURAL_LIGHT (include/rgbd_camera/config.hpp) GPU-optimizes a depth
-            # model into this directory on first run. Persisting it means that cost is
-            # paid once rather than on every start.
             - auto-battlebot-zed-resources:/usr/local/zed/resources
 
-            # Per-serial camera calibration (SNxxxxxxxx.conf). The SDK downloads it the
-            # first time it opens a given camera or SVO and fails with CALIBRATION FILE
-            # NOT AVAILABLE otherwise. Persisted so the download happens once.
             - auto-battlebot-zed-settings:/usr/local/zed/settings
 
-            # Mounted at the host path so compile_commands.json, clangd, and stack
-            # traces resolve identically inside and outside the container.
             - "${REPO}:${REPO}"
 
             - /tmp/.X11-unix:/tmp/.X11-unix:ro

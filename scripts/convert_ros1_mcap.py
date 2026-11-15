@@ -1,29 +1,5 @@
 #!/usr/bin/env python3
-"""Convert a legacy ROS 1 recording into the Foxglove layout of docs/foxglove_recording_format.md.
-
-    python scripts/convert_ros1_mcap.py <input.mcap> <output.mcap> [--check]
-    python scripts/convert_ros1_mcap.py <input_dir> <output_dir> [--check]
-
-Never writes in place and never deletes anything. With a directory pair every ``*.mcap`` under
-the input tree is converted to the mirrored path under the output tree; outputs that already
-exist are skipped unless ``--overwrite`` is given. Files that are not ``profile: ros1`` are
-reported and skipped.
-
-Payload bytes that are already the right thing (JPEGs, the detections JSON) pass through
-untouched. ``log_time`` and ``publish_time`` are preserved, and the ``auto_battlebot`` metadata
-record (with ``active_profile``) is copied. Four topics change shape on the way through, as the
-C++ stack's own output did:
-
-- ``/field_markers`` splits into the border ``SceneUpdate`` and a ``/field_points`` float32
-  ``PointCloud``. Every coordinate is asserted to round-trip through float32 unchanged.
-- ``/diagnostics`` splits into one JSON channel per module with typed values, using the same
-  string-to-number rule ``diag_io`` applied to legacy recordings.
-- ``/camera/frame_meta`` re-emits ``image_stamp_ns`` as a decimal string (asserted equal).
-- ``/blob_detections`` and ``/keypoint_detections`` lose the ``std_msgs/String`` wrapper.
-
-``--check`` re-reads input and output and compares per-topic message counts (accounting for
-the splits) and first/last log times.
-"""
+"""Convert a legacy ROS 1 recording into the Foxglove recording layout."""
 
 from __future__ import annotations
 
@@ -265,8 +241,6 @@ def convert_file(src: Path, dst: Path, *, overwrite: bool = False) -> Stats:
     with open(src, "rb") as handle:
         reader = make_reader(handle)
         metadata = {record.name: dict(record.metadata) for record in reader.iter_metadata()}
-        # Keep the source's chunk compression: the C++ recorder writes none, the JPEG-heavy
-        # Python-written captures use zstd chunks, and rewriting those uncompressed would grow them.
         compression = mcap_write.read_chunk_compression(src)
         with mcap_write.McapWriter(partial, compression=compression, metadata=metadata) as writer:
             for schema, channel, message in reader.iter_messages(log_time_order=True):
@@ -276,8 +250,6 @@ def convert_file(src: Path, dst: Path, *, overwrite: bool = False) -> Stats:
                         "Foxglove writer cannot reproduce"
                     )
                 if channel.message_encoding != "ros1":
-                    # Already a Foxglove-readable channel (the calibration recordings mix JSON
-                    # channels with ros1 images): copy it through unchanged.
                     writer.log_raw(
                         channel.topic,
                         channel.message_encoding,
@@ -438,7 +410,17 @@ def convert_one(src: Path, dst: Path, *, check: bool, overwrite: bool) -> tuple[
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+        description=(
+            "Convert a legacy ROS 1 recording into the Foxglove layout of "
+            "docs/foxglove_recording_format.md.\n\n"
+            "  convert_ros1_mcap.py <input.mcap> <output.mcap> [--check]\n"
+            "  convert_ros1_mcap.py <input_dir> <output_dir> [--check]\n\n"
+            "Never writes in place and never deletes anything. With a directory pair every "
+            "*.mcap under the input tree is converted to the mirrored path under the output "
+            "tree; outputs that already exist are skipped unless --overwrite is given. Files "
+            "that are not `profile: ros1` are reported and skipped."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("input", type=Path, help="legacy .mcap file or a directory of them")
     parser.add_argument("output", type=Path, help="output .mcap file or mirrored output directory")
@@ -469,17 +451,6 @@ def main() -> int:
         f"{_human(bytes_in)} -> {_human(bytes_out)}"
     )
     return 1 if counts["failed"] else 0
-
-
-# ===========================================================================
-# Legacy ROS 1 wire format
-#
-# Everything below decodes the recordings the C++ stack wrote before the Foxglove migration.
-# This script is the only consumer left; the readers in ``auto_battlebot`` refuse legacy input.
-#
-# All little-endian. Header: uint32 seq, uint32 stamp_secs, uint32 stamp_nsecs, string frame_id.
-# string: uint32 length + raw bytes (no null terminator).
-# ===========================================================================
 
 
 @dataclass

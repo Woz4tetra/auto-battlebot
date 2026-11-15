@@ -1,9 +1,3 @@
-// Protobuf decode for foxglove.CompressedImage and foxglove.CompressedVideo.
-//
-// The relay advertises protobuf channels with a base64 FileDescriptorSet as the schema. The type
-// is built from that at runtime, the same way Foxglove Studio does it, so the page never ships
-// its own copy of the .proto files.
-
 import protobuf from "protobufjs";
 import "protobufjs/ext/descriptor";
 import type { Channel } from "@foxglove/ws-protocol";

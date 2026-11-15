@@ -1,12 +1,3 @@
-// One color per robot, shared by the camera view and the top-down view.
-//
-// Colors come from [ui.label_colors] in config/_common.toml (the class colors training uses),
-// delivered on /status/app. A label with no configured color gets one from FALLBACK, picked by a
-// hash of the label so every device agrees, and skipping colors the config already uses.
-//
-// Detections carry a label and no track id, so the camera view colors by label. In the top-down
-// view, a second or third track with the same label (two generic "opponent"s) gets a lighter
-// shade of that color so the two can be told apart.
 import { status } from "./status.svelte";
 
 const FALLBACK = ["#ec4899", "#14b8a6", "#eab308", "#6366f1", "#84cc16", "#f97316", "#8b5cf6"];

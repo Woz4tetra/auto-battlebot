@@ -34,7 +34,6 @@ install_foxglove_sdk() {
 
     echo "Extracting to $FOXGLOVE_DIR..."
     mkdir -p "$PROJECT_ROOT/third_party"
-    # The zip contains a top-level "foxglove/" directory; extract directly into third_party/
     unzip -q "$TMP_ZIP" -d "$PROJECT_ROOT/third_party"
     rm -f "$TMP_ZIP"
 

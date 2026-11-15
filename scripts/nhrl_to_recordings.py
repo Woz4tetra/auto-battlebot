@@ -1,30 +1,4 @@
-"""Turn NHRL fixed-cage fight video into a replayable recording set.
-
-One command for the whole flow: fetch the fights (optional), re-wrap each clip as a recording the
-RGB camera could have written, land them in ``data/saved_recordings/<set>/``, and write the
-playback config that points at them.
-
-NHRL's ``Cage-N-Overhead-High`` is the one angle that does not move, which makes it the closest
-thing to the RGB camera that exists before the camera does: one fixed 1080p view, no depth, no
-visual odometry. Every other recording in the repo is a moving ZED.
-
-    # fights you have already downloaded
-    venv/bin/python scripts/nhrl_to_recordings.py --from-dir data/downloads/mrsbuff_may26
-
-    # fetch and convert in one pass
-    venv/bin/python scripts/nhrl_to_recordings.py --bot "MRS BUFF" --since 2026-06-01 --limit 6
-
-    # name the set explicitly rather than taking it from the source directory
-    venv/bin/python scripts/nhrl_to_recordings.py --from-dir dir/ --name BrettZone_2026-06-14
-
-Re-running skips clips already converted, so adding fights to a set costs only the new ones.
-
-**Two things this footage is not.** The intrinsics in ``config/cameras/brettzone_cage_high.toml``
-are backed out of NHRL's stated field of view rather than measured, and the homography field fit
-inherits that error linearly, so ranges off these recordings are indicative rather than trusted.
-And the detectors were trained on ZED frames at a different mount, so detections here report
-transfer rather than accuracy.
-"""
+"""Turn NHRL fixed-cage fight video into a replayable recording set."""
 
 from __future__ import annotations
 
@@ -50,8 +24,6 @@ from auto_battlebot.recording.video_import import (
 _NS = 1_000_000_000
 DOWNLOADER = Path("playground/bgsub_cage/download_cage_video.py")
 DEFAULT_CALIBRATION_ID = "brettzone_cage_high"
-# NHRL shoots this angle with an iPhone Pro at 1x, about 71.6 degrees horizontal, which at 1920 px
-# wide backs out to 960 / tan(35.8 deg). An estimate, not a calibration.
 DEFAULT_FOCAL_PX = 1331.0
 SAVED_RECORDINGS = Path("data/saved_recordings")
 DOWNLOADS = Path("data/downloads")
@@ -75,13 +47,7 @@ MONTHS = {
 
 
 def infer_set_name(source_dir: Path) -> str:
-    """A set name from the clips themselves, so a fetched batch names itself.
-
-    BrettZone exports are ``BZ-<tournament>-<p1>-<p2>-<game>-Cage-<n>-Overhead-High.mp4`` and the
-    tournament id carries the event month: ``nhrl_may26`` is NHRL May 2026, not the 26th. Sibling
-    sets in data/saved_recordings are named ``<Venue>_<date>``, so this produces
-    ``BrettZone_2026-05`` rather than reproducing NHRL's own shorthand.
-    """
+    """A set name from the clips themselves, so a fetched batch names itself."""
     for video in sorted(source_dir.glob("*.mp4")):
         match = re.match(r"^BZ-nhrl_([a-z]{3})(\d{2})_", video.name)
         if match and match.group(1) in MONTHS:
@@ -121,11 +87,7 @@ def source_videos(source_dir: Path) -> list[Path]:
 def write_manifest(
     output_dir: Path, source_dir: Path, results: list[ConversionResult], args: argparse.Namespace
 ) -> None:
-    """Provenance next to the recordings.
-
-    ``data/`` is gitignored, so this file is the only place that says where these came from and
-    what was assumed about the camera. Without it a recording set is anonymous in six months.
-    """
+    """Provenance next to the recordings."""
     total = sum(result.bytes_written for result in results)
     lines = [
         f"# {output_dir.name}",
@@ -158,11 +120,7 @@ def write_manifest(
 def write_playback_config(
     output_dir: Path, results: list[ConversionResult], args: argparse.Namespace
 ) -> Path:
-    """A playback config with every recording listed, the first live and the rest commented out.
-
-    Same shape as `config/playback/_playback.toml`'s SVO list, so switching clips is uncommenting a
-    line rather than pasting a path.
-    """
+    """A playback config with every recording listed, the first live and the rest commented out."""
     path = PLAYBACK_CONFIG_DIR / f"{args.calibration_id}.toml"
     names = sorted(result.output for result in results)
     entries = []
@@ -208,7 +166,19 @@ field_size_y = 2.35
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+        description=(
+            "Turn NHRL fixed-cage fight video into a replayable recording set: fetch the "
+            "fights (optional), re-wrap each clip as a recording the RGB camera could have "
+            "written, land them in data/saved_recordings/<set>/, and write the playback "
+            "config that points at them. Re-running skips clips already converted.\n\n"
+            "  nhrl_to_recordings.py --from-dir data/downloads/mrsbuff_may26\n"
+            '  nhrl_to_recordings.py --bot "MRS BUFF" --since 2026-06-01 --limit 6\n'
+            "  nhrl_to_recordings.py --from-dir dir/ --name BrettZone_2026-06-14\n\n"
+            "The intrinsics are backed out of NHRL's stated field of view and the detectors "
+            "were trained on ZED frames, so treat ranges and detections as indicative. See "
+            "docs/experiments/perception_performance/brettzone_cage_high_recordings.md."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     source = parser.add_argument_group("where the clips come from")
     source.add_argument("--from-dir", type=Path, help="directory of already-downloaded .mp4 clips")
@@ -265,8 +235,6 @@ def main() -> int:
     for video in videos:
         output = output_dir / f"{video.stem}.mcap"
         if output.exists() and not args.force:
-            # Counted from the existing recording's summary rather than assumed, so the manifest
-            # says the same thing whether a clip was converted now or last week.
             existing = message_counts(output).get(VIDEO_TOPIC, 0)
             print(f"{output.name}: already converted ({existing} frames), skipping")
             results.append(

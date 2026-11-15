@@ -79,8 +79,6 @@ MAX_AGE_MIN=$((MAX_AGE_HOURS * 60))
 if [ -z "${JETSON_KEY:-}" ] && [ -f "$HOME/.ssh/${JETSON_HOST%%.*}" ]; then
     JETSON_KEY="$HOME/.ssh/${JETSON_HOST%%.*}"
 fi
-# With a key, ssh offers only that key. Without it, the agent offers every key it holds
-# and sshd disconnects after MaxAuthTries (6) before reaching a password prompt.
 SSH_OPTS=()
 if [ -n "${JETSON_KEY:-}" ]; then
     SSH_OPTS=(-i "$JETSON_KEY" -o IdentitiesOnly=yes)
@@ -182,8 +180,6 @@ if [ "$AUTONOMY_ONLY" -eq 1 ] && [ -s "$MCAP_LIST" ]; then
     echo "Checking $(wc -l < "$MCAP_LIST") MCAP(s) for autonomous activity ..."
     AUTONOMY_LIST="$(mktemp)"
     trap 'rm -f "$LOCAL_INDEX" "$RAW_LIST" "$REMOTE_LIST" "$SKIP_LIST" "$SVO_LIST" "$MCAP_LIST" "$AUTONOMY_LIST"' EXIT
-    # Prints "A <seconds> <path>" for MCAPs with autonomy on, "N 0.0 <path>" without.
-    # /status/system is 10 Hz, so seconds = messages / 10.
     ssh "${SSH_OPTS[@]}" "$REMOTE" \
         "cd '${JETSON_PATH}' && venv/bin/python -I -c '$(cat <<'PY_EOF'
 import json
