@@ -53,8 +53,8 @@ WALL_OVERLAP_MIN = 0.10
 # vector is drawn back -> front so the arrow points where the robot faces.
 FRONT_IDX = 0
 BACK_IDX = 1
-POSE_COLOR = (235, 100, 235)  # magenta, any posed robot
-TARGET_COLOR = (80, 255, 255)  # yellow, the class named by --pose-target
+POSE_COLOR = (235, 100, 235)
+TARGET_COLOR = (80, 255, 255)
 KEYPOINT_MIN_CONF = 0.25
 # Arrow drawn past the front keypoint so a short front-back span is still readable.
 HEADING_EXTEND = 1.6
@@ -118,7 +118,6 @@ def parse_poses(result: Any, target_name: str | None) -> list[dict[str, Any]]:
                 dx = front[0] - back[0]
                 dy = front[1] - back[1]
                 if abs(dx) > 1e-6 or abs(dy) > 1e-6:
-                    # Screen y grows downward, so negate to report a normal CCW angle.
                     entry["heading_deg"] = float(np.degrees(np.arctan2(-dy, dx)))
         poses.append(entry)
     return poses
@@ -332,11 +331,7 @@ def summarize_frame(detections: list[dict[str, Any]], class_count: int) -> Frame
 def maybe_dump(
     box_dump: list[dict[str, Any]], frame_index: int, detections: list[dict[str, Any]]
 ) -> None:
-    """Record full box geometry every BOX_DUMP_STRIDE frames.
-
-    Per-frame counts cover every frame; this keeps a readable sample of actual boxes
-    without a 20 MB JSON per clip.
-    """
+    """Record full box geometry every BOX_DUMP_STRIDE frames."""
     if frame_index % BOX_DUMP_STRIDE:
         return
     box_dump.append(
@@ -443,8 +438,6 @@ def annotate(
             class_totals.update(dict(enumerate(summary.per_class)))
             maybe_dump(box_dump, source_index, detections)
 
-            # A pose model passed as the detector supplies its own keypoints, so the
-            # arrows come free with the boxes instead of costing a second forward pass.
             if pose_model is not None:
                 poses = parse_poses(pose_results[local], args.pose_target)
             elif result.keypoints is not None:

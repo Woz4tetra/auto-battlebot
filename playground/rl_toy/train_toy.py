@@ -1,13 +1,4 @@
-"""Train or evaluate one arm of the RL toy viability test (plan step 1).
-
-One TOML per arm picks a source, a policy and a learner by registry name. A config with no
-`[learner]` table only evaluates its policy (the scripted baselines). Output goes to
-`runs/rl_toy/<name>_s<seed>_<timestamp>/`: `metrics.jsonl` (training and evaluation rows),
-`checkpoint.pt` and `final_eval.json`.
-
-    source scripts/activate_python.sh
-    python playground/rl_toy/train_toy.py playground/rl_toy/configs/ppo_static.toml --seed 0
-"""
+"""Train or evaluate one arm of the RL toy viability test."""
 
 from __future__ import annotations
 

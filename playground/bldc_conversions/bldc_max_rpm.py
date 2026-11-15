@@ -23,8 +23,6 @@ Usage:
 
 from __future__ import annotations
 
-# --- Hardware constants ---------------------------------------------------
-
 MOTOR_KV = 2300.0  # rpm per volt, Repeat Compact 1806
 GEAR_RATIO = 22.6  # motor turns per output-shaft turn
 
@@ -33,10 +31,9 @@ GEAR_RATIO = 22.6  # motor turns per output-shaft turn
 CELL_NOMINAL_V = 3.8
 CELL_CHARGED_V = 4.35
 
-# Two 2S packs in series.
 PACKS_IN_SERIES = 2
 CELLS_PER_PACK = 2
-SERIES_CELLS = PACKS_IN_SERIES * CELLS_PER_PACK  # 4S
+SERIES_CELLS = PACKS_IN_SERIES * CELLS_PER_PACK
 
 
 def motor_rpm(voltage: float, kv: float = MOTOR_KV) -> float:

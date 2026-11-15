@@ -46,7 +46,6 @@ from auto_battlebot.calibration.jig.velocity_jig import JigLog, read_jig_log
 # is enough to keep a reader from over-reading the right-hand tail.
 MAX_CLUSTER_FRACTION = 0.1
 
-# Points per decade on the tau axis. Log-spaced, because that is how the curve is read.
 POINTS_PER_DECADE = 12
 
 
@@ -126,7 +125,6 @@ def _read_at(
         band = (tau >= lo) & (tau <= hi)
     if np.count_nonzero(band) < 2:
         band = np.argsort(np.abs(np.log(tau / target)))[:3]
-    # log(sigma) = log(c) + slope * log(tau), only the intercept is free.
     c = np.mean(np.log(sigma[band]) - slope * np.log(tau[band]))
     return float(np.exp(c + slope * np.log(target)))
 

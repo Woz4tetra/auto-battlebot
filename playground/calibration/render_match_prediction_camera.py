@@ -57,11 +57,11 @@ WHITE = (240, 240, 240)
 class CameraTrack:
     """Per-tick projection data pulled from a replay mcap."""
 
-    svo_index: np.ndarray  # (M,) per tick with a valid frame
+    svo_index: np.ndarray
     stamp_ns: np.ndarray
-    cam_from_field: np.ndarray  # (M, 4, 4), nan rows where no transform yet
-    intrinsics: np.ndarray  # 3x3 K
-    width: int  # frame size; the recordings vary (1080p practice, 720p fights)
+    cam_from_field: np.ndarray
+    intrinsics: np.ndarray
+    width: int
     height: int
     svo_path: Path
 
@@ -255,7 +255,7 @@ def main() -> None:
                     break
                 tick = index_to_tick.get(svo_index)
                 if tick is None:
-                    continue  # frame the replay never delivered; keep timing by skipping
+                    continue
                 img = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
                 if img is None or img.shape != (cam.height, cam.width, 3):
                     # The stream tail can yield one truncated JPEG; skip it

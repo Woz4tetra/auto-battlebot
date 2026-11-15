@@ -56,10 +56,6 @@ from auto_battlebot.calibration.jig.jig_fit import (
     write_params,
 )
 
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
-
 
 def main() -> None:
     parser = argparse.ArgumentParser(

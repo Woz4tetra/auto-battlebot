@@ -1,16 +1,5 @@
 #!/usr/bin/env python3
-"""
-Convert a Roboflow COCO export into a YOLO keypoints dataset.
-
-Expected COCO structure:
-  - <root>/train/_annotations.coco.json (and optionally valid/test)
-  - image files inside each split directory
-
-Usage:
-  python3 playground/roboflow_coco_to_yolo_keypoints.py \
-    --input ~/Downloads/auto-battlebots.coco \
-    --output ~/Downloads/auto-battlebots.yolo
-"""
+"""Convert a Roboflow COCO export into a YOLO keypoints dataset."""
 
 from __future__ import annotations
 
@@ -40,7 +29,6 @@ def discover_splits(input_dir: Path, requested_splits: list[str]) -> dict[str, t
     if split_paths:
         return split_paths
 
-    # Allow passing a single split folder directly (e.g. .../train).
     root_ann = input_dir / "_annotations.coco.json"
     if root_ann.exists():
         split_name = input_dir.name.lower()
@@ -58,7 +46,6 @@ def discover_splits(input_dir: Path, requested_splits: list[str]) -> dict[str, t
 def build_class_mapping(
     categories: list[dict], keep_classes: list[str] | None
 ) -> tuple[dict[int, int], list[str]]:
-    # Roboflow COCO exports category ids; keep deterministic order by category id.
     categories_sorted = sorted(categories, key=lambda c: int(c["id"]))
 
     if keep_classes:
@@ -143,7 +130,6 @@ def convert_split(
         for ann in anns:
             class_id = old_to_new_class[int(ann["category_id"])]
 
-            # COCO bbox format: x_min, y_min, width, height
             x_min, y_min, box_w, box_h = (_to_float(v) for v in ann["bbox"])
             x_center = _clamp01((x_min + (box_w / 2.0)) / image_w)
             y_center = _clamp01((y_min + (box_h / 2.0)) / image_h)

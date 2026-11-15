@@ -106,11 +106,6 @@ summary { cursor:pointer; font-size:13.5px; }
 """
 
 
-# ---------------------------------------------------------------------------
-# Plumbing
-# ---------------------------------------------------------------------------
-
-
 def figure_uri(fig, fmt: str = "png", dpi: int = 110) -> str:
     """Render a figure to a data: URI. SVG for line plots, PNG where SVG would balloon."""
     buf = io.BytesIO()
@@ -196,11 +191,6 @@ def render_page(path: Path, title: str, sections: Sequence[Section], lede: str) 
     print(f"wrote {path}")
 
 
-# ---------------------------------------------------------------------------
-# 0. What to collect next
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class ParamStatus:
     name: str
@@ -261,7 +251,7 @@ def param_status(loaded: Loaded, stage) -> list[ParamStatus]:
     for name, est in stage.estimates.items():
         sources = PARAM_SOURCES.get(name)
         if sources is None:
-            continue  # a derived diagnostic like k_ang_left, not a model parameter
+            continue
         runs: list[Run] = []
         for kind, channel in sources:
             for (k, c), rs in by_kc.items():
@@ -349,11 +339,6 @@ def section_next(statuses: Sequence[ParamStatus], curves: dict[str, float]) -> S
             )
         )
     return sec
-
-
-# ---------------------------------------------------------------------------
-# 1-3. Inventory, quality, parameters
-# ---------------------------------------------------------------------------
 
 
 def section_inventory(loaded: Loaded, window_counts: dict[str, int]) -> Section:
@@ -470,11 +455,6 @@ def section_params(stage, params: PlantParams, statuses: Sequence[ParamStatus]) 
         )
     )
     return sec
-
-
-# ---------------------------------------------------------------------------
-# 4. Stage A evidence
-# ---------------------------------------------------------------------------
 
 
 def section_evidence(stage, params: PlantParams, profile) -> Section:
@@ -621,11 +601,6 @@ def section_evidence(stage, params: PlantParams, profile) -> Section:
             )
         sec.add(figure_html(fig, caption))
     return sec
-
-
-# ---------------------------------------------------------------------------
-# 5. Convergence
-# ---------------------------------------------------------------------------
 
 
 def jackknife(
@@ -784,11 +759,6 @@ def section_convergence(
     return sec, slopes
 
 
-# ---------------------------------------------------------------------------
-# 6. Input coverage
-# ---------------------------------------------------------------------------
-
-
 def section_coverage(loaded: Loaded, params: PlantParams) -> Section:
     sec = Section("coverage", "6. Input coverage")
     sec.body = (
@@ -897,11 +867,6 @@ def section_coverage(loaded: Loaded, params: PlantParams) -> Section:
     if rows:
         sec.add(table_html(["waveform", "declared amplitudes", "coverage"], rows))
     return sec
-
-
-# ---------------------------------------------------------------------------
-# 7-8. Horizon quality and residual diagnostics
-# ---------------------------------------------------------------------------
 
 
 def section_horizons(reports: dict) -> Section:
@@ -1084,11 +1049,6 @@ def section_residuals(err: WindowErrors | None, runs: Sequence[Run]) -> Section:
     return sec
 
 
-# ---------------------------------------------------------------------------
-# 9-10. Per run, excluded, provenance
-# ---------------------------------------------------------------------------
-
-
 def run_trace_figure(run: Run, params: PlantParams, structure: ModelStructure, reinit_s: float):
     """Commands, measured against predicted, and the residual.
 
@@ -1205,11 +1165,6 @@ def section_tail(loaded: Loaded, params: PlantParams, extra: Sequence[str]) -> S
     sec.add("<h3>Fitted parameters</h3>")
     sec.add(f"<pre>{esc(params.to_toml('plant'))}</pre>")
     return sec
-
-
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
 
 
 def render_report(

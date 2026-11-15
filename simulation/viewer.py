@@ -92,8 +92,6 @@ class Viewer:
         # exercised without a display.
         self._window_open = False
 
-    # -- coordinates -------------------------------------------------------
-
     def _to_px(self, x: float, y: float) -> tuple[int, int]:
         """Field frame (x right, y up, origin at centre) to image pixels (y down)."""
         return (
@@ -106,8 +104,6 @@ class Viewer:
             (px - self._size / 2) / self._px_per_m,
             (self._size / 2 - py) / self._px_per_m,
         )
-
-    # -- layers ------------------------------------------------------------
 
     def _load_background(self, path: str) -> np.ndarray:
         """Scale the arena texture once at startup and keep the result; blitting a pre-scaled
@@ -151,7 +147,6 @@ class Viewer:
             center = self._to_px(x, y)
             cv2.circle(canvas, center, int(round(r * self._px_per_m)), color, -1, cv2.LINE_AA)
             if upside_down:
-                # No underside render to show it, so ring the disc instead.
                 radius_px = int(round(r * self._px_per_m))
                 cv2.circle(canvas, center, radius_px, FLIPPED_BGR, 3, cv2.LINE_AA)
             nose = self._to_px(x + r * math.cos(yaw), y + r * math.sin(yaw))
@@ -159,8 +154,6 @@ class Viewer:
             return
         image, px_per_m = entry
         scale = self._px_per_m / px_per_m
-        # Sprites are rendered with the robot front along +X, so this is a plain rotation by yaw.
-        # Image y runs down, hence the sign flip.
         matrix = cv2.getRotationMatrix2D(
             (image.shape[1] / 2, image.shape[0] / 2), math.degrees(yaw), scale
         )
@@ -253,8 +246,6 @@ class Viewer:
                 cv2.LINE_AA,
             )
 
-    # -- mouse -------------------------------------------------------------
-
     def _on_mouse(self, event: int, px: int, py: int, _flags: int, _param: Any) -> None:
         if event == cv2.EVENT_LBUTTONDOWN:
             wx, wy = self._to_world(px, py)
@@ -282,8 +273,6 @@ class Viewer:
         if not opponents:
             return "mrs_buff_mk2"
         return str(opponents[min(index, len(opponents) - 1)].sprite)
-
-    # -- entry point -------------------------------------------------------
 
     def compose_world(self, plant: Any, opponents: list[Any]) -> np.ndarray:
         """Top-down arena: floor, hazards, robots. No HUD.

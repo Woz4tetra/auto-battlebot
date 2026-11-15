@@ -48,7 +48,7 @@ class ChannelStreamingParser:
             "phase_1_packets": 0,
         }
         self.last_channels = [0] * self.max_channels
-        self.partial_channels = [None, None]  # Store partial channel sets
+        self.partial_channels = [None, None]
 
     def process_data(self, data: bytes) -> List[List[int]]:
         """Process incoming serial data and return list of channel arrays"""
@@ -57,8 +57,7 @@ class ChannelStreamingParser:
 
         channel_updates = []
 
-        while len(self.buffer) >= len(self.sync_sequence) + 2:  # Minimum packet size
-            # Look for sync sequence (0xA3 0xA4 0xA5)
+        while len(self.buffer) >= len(self.sync_sequence) + 2:
             sync_index = -1
             for i in range(len(self.buffer) - len(self.sync_sequence) + 1):
                 if self.buffer[i : i + len(self.sync_sequence)] == self.sync_sequence:
@@ -66,39 +65,31 @@ class ChannelStreamingParser:
                     break
 
             if sync_index == -1:
-                # No sync sequence found, check for CRSF and clear buffer
                 self._check_crsf_data(bytes(self.buffer))
                 self.buffer.clear()
                 break
 
-            # Remove data before sync sequence
             if sync_index > 0:
                 discarded = self.buffer[:sync_index]
                 self.buffer = self.buffer[sync_index:]
                 self._check_crsf_data(discarded)
 
-            # Check if we have enough data for phase and length bytes
             if len(self.buffer) < len(self.sync_sequence) + 2:
                 break
 
             phase = self.buffer[len(self.sync_sequence)]
             packet_length = self.buffer[len(self.sync_sequence) + 1]
 
-            # Check if we have the complete packet
             total_packet_size = len(self.sync_sequence) + 2 + packet_length
             if len(self.buffer) < total_packet_size:
                 break
 
-            # Extract packet data (phase + length + data + checksum)
             packet_data = self.buffer[len(self.sync_sequence) : total_packet_size]
 
-            # Remove processed packet from buffer
             self.buffer = self.buffer[total_packet_size:]
 
-            # Parse the channel packet
             channels = self._parse_channel_packet_phase(packet_data)
             if channels is not None:
-                # Check if we have a complete set of channels
                 complete_channels = self._update_channels_from_phase(phase, channels)
                 if complete_channels is not None:
                     channel_updates.append(complete_channels)
@@ -114,13 +105,12 @@ class ChannelStreamingParser:
 
     def _parse_channel_packet_phase(self, packet_data: bytes) -> Optional[List[int]]:
         """Parse phase-based channel data packet"""
-        if len(packet_data) < 4:  # phase + length + at least 2 bytes data
+        if len(packet_data) < 4:
             return None
 
         phase = packet_data[0]
         length = packet_data[1]
 
-        # Expected: 16 channels * 2 bytes + 1 checksum = 33 bytes
         expected_length = (self.channels_per_packet * 2) + 1
         if length != expected_length:
             print(
@@ -131,7 +121,6 @@ class ChannelStreamingParser:
         if len(packet_data) < 2 + length:
             return None
 
-        # Calculate expected checksum (phase XOR length XOR all data bytes)
         expected_checksum = phase ^ length
         for i in range(2, len(packet_data) - 1):
             expected_checksum ^= packet_data[i]
@@ -145,7 +134,6 @@ class ChannelStreamingParser:
             )
             return None
 
-        # Extract channel data (skip phase, length, and checksum)
         channel_data = packet_data[2:-1]
 
         if len(channel_data) != self.channels_per_packet * 2:
@@ -155,7 +143,6 @@ class ChannelStreamingParser:
             )
             return None
 
-        # Unpack 16-bit little-endian signed integers
         channels = []
         for i in range(0, len(channel_data), 2):
             value = struct.unpack("<h", channel_data[i : i + 2])[0]
@@ -173,10 +160,8 @@ class ChannelStreamingParser:
             print(f"Invalid phase: {phase}")
             return None
 
-        # Check if we have both phases
         if self.partial_channels[0] is not None and self.partial_channels[1] is not None:
             complete_channels = self.partial_channels[0] + self.partial_channels[1]
-            # Reset partial channels for next cycle
             self.partial_channels = [None, None]
             return complete_channels
 
@@ -207,7 +192,6 @@ def display_channels(channels: List[int], show_all: bool = False):
     print("=" * 80)
 
     if show_all:
-        # Show all channels in a grid
         for row in range(8):
             line = ""
             for col in range(4):
@@ -218,7 +202,6 @@ def display_channels(channels: List[int], show_all: bool = False):
                     line += f"CH{ch_num + 1:2d}: {format_channel_value(0)}  "
             print(line)
     else:
-        # Show only first 8 channels
         for i in range(min(8, len(channels))):
             print(f"CH{i + 1:2d}: {format_channel_value(channels[i])}")
 
@@ -252,21 +235,17 @@ def main():
 
     try:
         while True:
-            # Read available data
             if ser.in_waiting > 0:
                 data = ser.read(ser.in_waiting)
 
                 if args.raw:
                     print(f"Raw data ({len(data)} bytes): {data.hex()}")
 
-                # Process data
                 channel_updates = parser.process_data(data)
 
-                # Display each channel update
                 for channels in channel_updates:
                     display_channels(channels, args.show_all)
 
-            # Display statistics periodically
             current_time = time.time()
             if current_time - last_stats_time >= args.stats_interval:
                 stats = parser.get_stats()
@@ -279,7 +258,7 @@ def main():
                 )
                 last_stats_time = current_time
 
-            time.sleep(0.01)  # Small delay to prevent CPU spinning
+            time.sleep(0.01)
 
     except KeyboardInterrupt:
         print("\nExiting...")
@@ -288,7 +267,6 @@ def main():
     finally:
         ser.close()
 
-        # Final statistics
         stats = parser.get_stats()
         print("\nFinal Statistics:")
         print(f"  Channel packets received: {stats['packets_received']}")

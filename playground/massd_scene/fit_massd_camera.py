@@ -207,13 +207,11 @@ def build_pose(
     if up @ corner_ray > 0:  # up must point back toward the camera
         up = -up
 
-    # Signs: from the far corner the mat runs toward the floor the camera actually sees.
     inside_ray = k_inv @ np.array([*inside_px, 1.0])
     inside_offset = inside_ray * ((corner_ray @ up) / (inside_ray @ up)) - corner_ray
     axis_a = axis_a * np.sign(inside_offset @ axis_a)
     axis_b = axis_b * np.sign(inside_offset @ axis_b)
 
-    # Range: the mat is `mat_size` across, and `extent_units` across at unit range.
     scale = mat_size / extent_units
     corner_cam = corner_ray * scale
     centre_cam = corner_cam + (axis_a + axis_b) * (mat_size / 2)
@@ -303,7 +301,6 @@ def main() -> None:
         if not edges["a"] or not edges["b"]:
             raise SystemExit(f"{meta['clip']}: could not find a mat edge for both axes")
 
-        # The far edges are the high ones; the near edge opposite the far "a" edge sets range.
         far_a = fit_edge(edges["a"][0], vp_a)
         far_b = fit_edge(edges["b"][0], vp_b)
         near_a = fit_edge(edges["a"][-1], vp_a) if len(edges["a"]) > 1 else None

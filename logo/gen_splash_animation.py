@@ -55,7 +55,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-ASSETS_DIR = SCRIPT_DIR  # assets live next to this script in logo/
+ASSETS_DIR = SCRIPT_DIR
 
 # Reference GIF geometry (the motion table is normalized against these).
 REF_SIZE = (160, 128)
@@ -128,9 +128,7 @@ SUPERSAMPLE = 3
 
 
 def render_pill_layer(svg_path: Path, radius_px: float) -> Image.Image:
-    """Rasterize only the pill + BW text from the SVG, scaled so the logo's
-    half-discs would have the given radius. Returns an RGBA image cropped to
-    the pill's bounding box."""
+    """Rasterize the pill and BW text from the SVG, cropped to its bounding box."""
     tree = ET.parse(svg_path)
     root = tree.getroot()
     parents = {child: parent for parent in root.iter() for child in parent}
@@ -167,10 +165,7 @@ def render_pill_layer(svg_path: Path, radius_px: float) -> Image.Image:
 
 
 class HalfDiscSprites:
-    """Supersampled sprites for the two half-discs and the assembled disc.
-
-    Each sprite is a square RGBA image of side `size` whose center is the disc
-    center; the flat edges of both halves pass through that center."""
+    """Supersampled half-disc and full-disc sprites centered on the disc center."""
 
     def __init__(self, radius_ss: int, stroke_ss: int) -> None:
         self.size = 2 * (radius_ss + stroke_ss) + 1
@@ -179,11 +174,9 @@ class HalfDiscSprites:
         box = (c - r, c - r, c + r, c + r)
         white = (255, 255, 255, 255)
 
-        # Right half: plain white fill (the logo's white half).
         self.filled = Image.new("RGBA", (self.size, self.size), (0, 0, 0, 0))
         ImageDraw.Draw(self.filled).pieslice(box, -90, 90, fill=white)
 
-        # Left half: white outline only (the logo's black half, on black bg).
         self.outline = Image.new("RGBA", (self.size, self.size), (0, 0, 0, 0))
         draw = ImageDraw.Draw(self.outline)
         draw.arc(box, 90, 270, fill=white, width=stroke_ss)
@@ -325,7 +318,7 @@ def main() -> int:
 
     radius = RADIUS_FRAC * height
     radius_ss = int(round(radius * SUPERSAMPLE))
-    stroke_ss = max(1, int(round(radius_ss / REF_RADIUS)))  # ~1 px at reference scale
+    stroke_ss = max(1, int(round(radius_ss / REF_RADIUS)))
     canvas_ss = (width * SUPERSAMPLE, height * SUPERSAMPLE)
 
     sprites = HalfDiscSprites(radius_ss, stroke_ss)

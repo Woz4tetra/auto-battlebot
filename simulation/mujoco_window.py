@@ -50,15 +50,12 @@ class MujocoWindow:
         self._model = model
         with self._handle.lock():
             self._handle.opt.geomgroup[HULL_GEOM_GROUP] = 1
-            # The blocks are floor grey by default and show only as shadows from above. Colour
-            # is render-only, so this does not touch the contacts the plant steps.
             for i in range(model.ngeom):
                 name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, i) or ""
                 if name.startswith(MOVING_BLOCK_PREFIX):
                     model.geom_rgba[i] = OPPONENT_RGBA
                 elif name.startswith(BLOCK_PREFIX):
                     model.geom_rgba[i] = WALL_BLOCK_RGBA
-            # Top down with +x right and +y up, the OpenCV window's orientation.
             cam = self._handle.cam
             cam.lookat[:] = (0.0, 0.0, 0.0)
             cam.distance = 1.4 * max(self._arena)
@@ -72,7 +69,6 @@ class MujocoWindow:
         if self._closed:
             return
         if self._handle is not None and not self._handle.is_running():
-            # Closed by hand: stay closed rather than reopening on the next respawn.
             self._closed = True
             return
         if model is not self._model:

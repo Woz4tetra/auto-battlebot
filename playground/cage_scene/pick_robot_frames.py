@@ -1,20 +1,5 @@
 #!/usr/bin/env python3
-"""Real frames with MRS BUFF MK3 on the mat, with its pose recovered for re-rendering.
-
-Walks each Cage 2 clip that has a fitted camera pose, runs the yolo26x pose model on every
---stride-th frame, and keeps frames where exactly one `mrs_buff_mk3` is detected with both
-keypoints confident, clear of every other robot, and inside the mat hull. Each kept frame is
-rectified like the targets and its keypoints are undistorted and projected through the clip's
-camera onto the mat plane, which gives the robot's W-frame position and heading.
-
-    <out>/robot_frames/<clip>_f<frame>/frame.png      rectified real frame
-    <out>/robot_frames/<clip>_f<frame>/pose.json      x_m, y_m, yaw_deg, box, keypoints, pose toml
-    <out>/robot_frames/<clip>_f<frame>/overlay.png    box, keypoints and projected heading
-
-Usage:
-    venv/bin/python playground/cage_scene/pick_robot_frames.py runs/cage_scene \\
-        data/downloads/mrsbuff_may26 --per-clip 3 --stride 90
-"""
+"""Pick real frames with MRS BUFF MK3 on the mat and recover its pose."""
 
 from __future__ import annotations
 

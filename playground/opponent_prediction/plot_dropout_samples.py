@@ -62,9 +62,6 @@ LABELS = {
 }
 
 
-# --------------------------------------------------------------------------------- sources
-
-
 def replay_session(mcap: Path, frame_id: str = "THEIR_ROBOT_1") -> SessionData:
     """Opponent measurements from a replay's estimator diagnostics, as their own truth."""
     rows = []
@@ -113,9 +110,6 @@ def _find(node: object, key: str) -> dict | None:
             if found is not None:
                 return found
     return None
-
-
-# --------------------------------------------------------------------------------- samples
 
 
 def pick_samples(data: SessionData, gap_s: float, count: int) -> list[int]:
@@ -226,7 +220,6 @@ def plot_sample(data: SessionData, start_ns: int, gap_s: float, path: Path) -> d
             ax_err.plot(
                 t_rel[sel], 2e3 * sig, color=COLORS[arm], lw=1.0, ls="--", label="6-state 2σ"
             )
-            # 2-sigma rings at a few points through the gap.
             for frac in np.linspace(0.0, 1.0, 5):
                 k = np.argmin(np.abs(t_rel[sel] - frac * gap_s))
                 circle = plt.Circle(
@@ -253,7 +246,6 @@ def plot_sample(data: SessionData, start_ns: int, gap_s: float, path: Path) -> d
 
     t_truth = (grid - start_ns) / 1e9
     yaw_truth = np.where(tr["valid"], np.degrees(np.unwrap(tr["yaw"])), np.nan)
-    # Put truth on the filter's branch of the unwrap so the curves overlay.
     ax_yaw.plot(t_truth, yaw_truth, color=COLORS["truth"], lw=1.6, label="truth")
     ax_w.plot(
         t_truth,
@@ -298,9 +290,6 @@ def plot_sample(data: SessionData, start_ns: int, gap_s: float, path: Path) -> d
     fig.savefig(path, dpi=110)
     plt.close(fig)
     return summary
-
-
-# --------------------------------------------------------------------------------- summary
 
 
 def plot_summary(data: SessionData, path: Path) -> dict:

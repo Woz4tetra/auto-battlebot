@@ -58,8 +58,7 @@ def arms(guard_scale: float = FIELD_GUARD_SCALE) -> dict[str, tuple[float, float
 
 @dataclass
 class Windows:
-    """Reverse windows from one recording or one episode: per window, its wheel samples and
-    its commanded and sent linear commands."""
+    """Reverse windows with wheel samples and commanded and sent linear commands."""
 
     seconds: list[float]
     wheel: list[np.ndarray]
@@ -152,9 +151,6 @@ def summarize(w: Windows, resamples: int = 2000, seed: int = 0) -> dict[str, flo
     }
 
 
-# ------------------------------------------------------------------ field
-
-
 def field_windows(path: Path) -> tuple[Windows, float]:
     """The reverse windows in one recording, and the median guard scale inside them."""
     from auto_battlebot.recording.diag_io import iter_diagnostic_statuses
@@ -203,9 +199,6 @@ def run_field(out_dir: Path) -> None:
     rows["pooled"] = summarize(pooled)
     print("pooled", json.dumps(rows["pooled"]))
     (out_dir / "field.json").write_text(json.dumps(rows, indent=1))
-
-
-# ------------------------------------------------------------------ sim
 
 
 def run_sim(

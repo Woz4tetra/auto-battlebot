@@ -91,7 +91,6 @@ def rank(row: dict[str, float]) -> tuple[bool, float, float]:
     return beaten(row), row["success"], score(row)
 
 
-# The controller settings swept per cell; the best per cell is kept.
 SWEEP = {"orbit_m": (0.3, 0.4), "max_lateral_mps2": (9.0, 12.0), "attack_deg": (75.0, 100.0)}
 
 

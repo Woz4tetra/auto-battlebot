@@ -178,7 +178,7 @@ def main() -> None:
         if server is not None:
             print("page still up; Ctrl-C to write the session and exit")
             while True:
-                session.advance()  # applies the refits still in flight
+                session.advance()
                 server.publish(clean(session.snapshot()))
                 time.sleep(0.5)
     except KeyboardInterrupt:

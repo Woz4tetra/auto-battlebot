@@ -114,7 +114,6 @@ def match_scores(mcap: Path) -> dict:
         arm: {s: ev.score_trace(data, trace, r) for r, s in enumerate(ev.SCENARIOS)}
         for arm, trace in traces.items()
     }
-    # Position NIS against the measurement sigma, natural stream only.
     sig = torch.tensor(SIGMAS_M, dtype=torch.float64)
     nis_keep = np.tile(keep[0], (len(SIGMAS_M), 1))
     trace = ev.simulate_filter(

@@ -50,7 +50,7 @@ CLIP_SPEED = 0.5
 CLIP_PRE_S = 1.5
 CLIP_POST_S = 1.5
 CLIP_WIDTH = 960
-CLIP_CROP = 0.5  # crop width and height as a fraction of the frame, centered on the contact
+CLIP_CROP = 0.5
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 
 
@@ -193,12 +193,7 @@ def score(path: Path, a: np.ndarray, contact_m: float, wedge_half_rad: float) ->
 
 
 def render_clips(path: Path, a: np.ndarray, events: list[Event], out_dir: Path) -> None:
-    """One clip per event, slowed to CLIP_SPEED, plus review.csv to mark each one.
-
-    Each clip is cropped to half the frame around the contact. Our robot is circled red and the
-    opponent blue, at their latest tracked image position.
-    A red border marks the frames inside the contact. The recording decodes once, in order.
-    """
+    """Write one slowed, cropped clip per event plus review.csv."""
     out_dir.mkdir(parents=True, exist_ok=True)
     clips = [(e, out_dir / f"{e.kind}_{e.elapsed_s:07.2f}s.mp4") for e in events]
     last_t = max(e.t1 for e in events) + CLIP_POST_S

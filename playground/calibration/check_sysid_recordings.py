@@ -71,7 +71,6 @@ ANGULAR_CH = 1
 STICK_FULL = 1024.0
 GRID_S = 0.01
 
-# Thresholds.
 CAMERA_FPS_PASS = 55.0
 CAMERA_GAP_WARN_S = 0.1
 CAMERA_GAP_FAIL_S = 1.0  # a stall this long splits the session for the smoother anyway
@@ -128,11 +127,6 @@ class Report:
             if any(c.level == level for c in self.checks):
                 return level
         return "INFO"
-
-
-# ---------------------------------------------------------------------------
-# Individual checks
-# ---------------------------------------------------------------------------
 
 
 def check_file(path: Path, rep: Report) -> dict[str, int] | None:
@@ -355,11 +349,6 @@ def check_esp32(esp: pd.DataFrame, rep: Report) -> bool:
     return True
 
 
-# ---------------------------------------------------------------------------
-# Sticks and the maneuver menu
-# ---------------------------------------------------------------------------
-
-
 def sticks_from_telemetry(esp: pd.DataFrame) -> pd.DataFrame:
     """The handset sticks as the robot saw them, in the radio channel frame's columns. With
     autonomy off the telemetry's arbitrated a_percent/b_percent are the handset's."""
@@ -437,11 +426,6 @@ def check_sticks(sticks: pd.DataFrame, rep: Report) -> None:
         )
 
 
-# ---------------------------------------------------------------------------
-# SVO pairing
-# ---------------------------------------------------------------------------
-
-
 def svo_spans(svo_dir: Path) -> list[tuple[Path, int, int, int]]:
     """(path, first stamp, last stamp, frames) for every .svo2 under svo_dir."""
     out = []
@@ -487,11 +471,6 @@ def check_svo(
         "PASS" if covered >= 0.98 else "WARN",
         f"{svo.name}: {n} frames, covers {covered:.0%} of the MCAP's camera span",
     )
-
-
-# ---------------------------------------------------------------------------
-# Plots
-# ---------------------------------------------------------------------------
 
 
 def plot(rep: Report, sticks: pd.DataFrame, ours: pd.DataFrame, out_dir: Path) -> Path:
@@ -542,11 +521,6 @@ def plot(rep: Report, sticks: pd.DataFrame, ours: pd.DataFrame, out_dir: Path) -
     fig.savefig(png, dpi=90)
     plt.close(fig)
     return png
-
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
 
 
 def check_recording(

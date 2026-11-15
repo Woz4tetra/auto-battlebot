@@ -55,11 +55,6 @@ ROBOT_HALF_M = 0.11  # matches sim_mrs_buff_mk3 radius
 SUBSTEP_S = 0.005  # coarser than the fit's 2 ms; invisible at video scale
 
 
-# ---------------------------------------------------------------------------
-# Prediction
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class PredictedTrack:
     pose: np.ndarray  # (N, 3) x, y, theta; nan where no prediction runs
@@ -86,7 +81,6 @@ def predict_track(
     next_reset = 0
     for k in range(n):
         if not run.auto[k]:
-            # Logged channels were not driving the robot; nothing to predict.
             state = None
             next_reset = k + 1
             continue
@@ -110,11 +104,6 @@ def predict_track(
     return PredictedTrack(pose=pose, segment=segment)
 
 
-# ---------------------------------------------------------------------------
-# Rendering
-# ---------------------------------------------------------------------------
-
-
 def _robot_corners(x: float, y: float, theta: float) -> np.ndarray:
     c, s = np.cos(theta), np.sin(theta)
     rot = np.array([[c, -s], [s, c]])
@@ -125,7 +114,7 @@ def _robot_corners(x: float, y: float, theta: float) -> np.ndarray:
 def render_video(
     run: MatchRun,
     predicted: PredictedTrack,
-    opp: np.ndarray,  # (N, 2), nan when absent
+    opp: np.ndarray,
     out_path: Path,
     *,
     title: str,
@@ -286,11 +275,6 @@ def render_video(
     anim.save(str(out_path), writer=writer, dpi=110)
     plt.close(fig)
     print(f"wrote {out_path} ({n} frames at {fps:.1f} fps, {n * run.dt:.0f} s)")
-
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
 
 
 def parse_triple(text: str) -> tuple[Path, Path, str]:

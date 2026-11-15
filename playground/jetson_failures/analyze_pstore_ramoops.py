@@ -1,12 +1,5 @@
 #!/usr/bin/env python3
-"""Analyze pstore/ramoops crash logs and summarize likely failure cause.
-
-Examples:
-  python3 playground/analyze_pstore_ramoops.py
-  python3 playground/analyze_pstore_ramoops.py /sys/fs/pstore
-  python3 playground/analyze_pstore_ramoops.py /var/lib/systemd/pstore
-  python3 playground/analyze_pstore_ramoops.py /tmp/pstore_dump/*
-"""
+"""Summarize pstore/ramoops crash logs and the likely failure cause."""
 
 from __future__ import annotations
 
@@ -171,7 +164,6 @@ def summarize(findings: list[Finding], traces: dict[Path, list[str]]) -> int:
         if trace:
             print(f"  call_trace_top: {', '.join(trace[:6])}")
 
-    # Global related signatures
     print("\nRelated signatures")
     print("-" * 18)
     seen: set[tuple[str, Path]] = set()

@@ -25,7 +25,7 @@ class PlantInterface(Protocol):
     def fell_in(self) -> bool: ...
 
     @property
-    def upside_down(self) -> bool: ...  # chassis top faces the floor; the viewer draws the belly
+    def upside_down(self) -> bool: ...
 
     @property
     def footprint_center_offset(self) -> tuple[float, float]:

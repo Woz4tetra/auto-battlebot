@@ -56,7 +56,6 @@ class KinematicPlant:
 
     @property
     def upside_down(self) -> bool:
-        # Planar model: it has no roll or pitch to flip over with.
         return False
 
     @property
@@ -66,7 +65,6 @@ class KinematicPlant:
         return 0.0, 0.0
 
     def set_moving_blocks(self, blocks: list[tuple[float, float, float, float]]) -> None:
-        # Same treatment as a static block: the chassis is pushed out and the clearance is scored.
         self._hazards.set_moving_blocks(blocks)
         self._moving_blocks = blocks
 
@@ -132,8 +130,7 @@ class KinematicPlant:
                 break
 
     def _resolve_obstacles(self, nx: float, ny: float) -> tuple[float, float, bool]:
-        """Push the chassis out of any block, record the closest a hazard came, and latch a
-        fall-in. Returns the corrected position and whether a block was hit."""
+        """Push the chassis out of blocks and latch a fall-in."""
         blocked = False
         # A block is a wall with a curved face: push the chassis back out along the radius, which
         # is what the rectangle clamp does for the arena walls.
@@ -160,8 +157,7 @@ class KinematicPlant:
         tau_a_acc: float,
         tau_a_dec: float,
     ) -> bool:
-        """Advance one substep: pose along the arc, then the velocity update. Returns True on a
-        wall hit, which ends the tick."""
+        """Advance one substep, returning True on a wall hit."""
         # Pose uses the velocity at the start of the substep, so the arc is exact for the v and w
         # actually held over it.
         next_yaw = self.yaw + self.w * dt
@@ -200,7 +196,7 @@ class KinematicPlant:
         self.v += a_lin * (v_target - self.v)
         self.w += a_ang * (w_target - self.w)
         if hit:
-            self.v = 0.0  # wall stops forward motion
+            self.v = 0.0
         return hit
 
     def pose(self) -> Pose:

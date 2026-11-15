@@ -80,11 +80,6 @@ DEFAULT_HOLD_S = 5.0
 DEFAULT_PROBES = 200
 
 
-# ---------------------------------------------------------------------------
-# Operator console
-# ---------------------------------------------------------------------------
-
-
 def say(msg: str = "") -> None:
     print(msg, flush=True)
 
@@ -114,7 +109,7 @@ def drain_stdin(settle_s: float = SETTLE_S) -> None:
         return
     try:
         import termios
-    except ImportError:  # not POSIX
+    except ImportError:
         return
     deadline = time.monotonic() + settle_s
     while True:
@@ -209,8 +204,6 @@ def preview(program: ex.Program, pause_at: Sequence[float], index: int) -> list[
     """The 'about to send' lines, for a piecewise or a continuous program."""
     cells = upcoming(program, pause_at, index)
     if not cells:
-        # No segments at all means a continuous program. Segments that exist but do not
-        # match means this pause is the last one and nothing follows it.
         return [] if program.segments else [describe_continuous(program)]
 
     def fmt(seg: Any) -> str:
@@ -281,11 +274,6 @@ def countdown(seconds: float, msg: str) -> tuple[float, float]:
         time.sleep(min(0.1, remaining))
     print(f"\r      {msg}: done      ", flush=True)
     return start, time.monotonic()
-
-
-# ---------------------------------------------------------------------------
-# Dry run
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -359,11 +347,6 @@ def do_dry_run(programs: Sequence[ex.Program], params: PlantParams, half_width_m
                 f"  WARNING: lateral excursion {fp.lateral_m:.2f} m exceeds the "
                 f"{half_width_m:.2f} m half-width. Trim it, or shorten the holds."
             )
-
-
-# ---------------------------------------------------------------------------
-# Sidecar output
-# ---------------------------------------------------------------------------
 
 
 def _toml_scalar(value: Any) -> str:
@@ -527,11 +510,6 @@ def git_sha() -> str:
         return ""
 
 
-# ---------------------------------------------------------------------------
-# The run card
-# ---------------------------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class Gate:
     """One thing a gate found.
@@ -605,7 +583,7 @@ def run_one(
     # The B press became its own step when it moved ahead of the replug.
     total = 12 if decl.motion else 9
     if decl.motion and not ends_at_rest(program):
-        total += 1  # the coast-to-a-stop step
+        total += 1
     n = 0
     say(f"\n{'=' * 70}")
     say(f"RUN  {program.name}#{rep}  ({program.kind}/{program.channel}, {program.role})")
@@ -647,8 +625,6 @@ def run_one(
         pause_at = [] if (args.no_pause or args.no_prompt) else ex.pause_points(program)
         if pause_at:
             say(f"      stopping {len(pause_at)} times to reset the robot's position")
-        # The first cell has no pause in front of it, so it is the one the operator would
-        # otherwise arm into blind.
         first = preview(program, [0.0] + list(pause_at), 1)
         if first:
             say("      about to send:")
@@ -679,7 +655,6 @@ def run_one(
                 f"{contamination:.3f}. The driver's sticks were not centered."
             )
     elif trainer is not None:
-        # Hand-driven. Nothing is sent; the radio's own mixer output is the command log.
         say(f"      drive the robot for {program.duration_s:.0f} s. Recording the radio.")
         for sample in dp.stream_measured(trainer, program.duration_s, args.rate):
             commands.append(replace(sample, label=program.kind))
@@ -965,11 +940,6 @@ def gates(
     return out
 
 
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -1141,7 +1111,6 @@ def do_check_radio(link: dp.TrainerLink, amplitude: float = 0.5) -> None:
 
     a_ch, _, a_lin, a_ang = responders[0]
     b_ch, _, b_lin, b_ang = responders[1]
-    # Under tank, both channels carry the linear command; under direct they split it.
     tank = abs(a_lin) > 0.05 and abs(b_lin) > 0.05
     mode = "tank" if tank else "direct"
     scale = max(abs(a_lin), abs(a_ang), abs(b_lin), abs(b_ang))
@@ -1244,7 +1213,6 @@ def main() -> None:
 
     provenance = {
         "drive_cli_sha": git_sha(),
-        # Repo-relative so the session file stays readable after the tree moves.
         "waveform_toml": str(_repo_relative(args.waveforms)),
         # How the radio's channels were read. Recorded because meas_linear/meas_angular are
         # these settings applied to the raw channels, so reinterpreting a run later needs to
@@ -1289,7 +1257,6 @@ def main() -> None:
     except KeyboardInterrupt:
         say("\n\naborted by Ctrl-C")
     finally:
-        # Every exit path lands here: normal return, exception, and Ctrl-C.
         if trainer is not None:
             trainer.close()
             say("transmitter disarmed")

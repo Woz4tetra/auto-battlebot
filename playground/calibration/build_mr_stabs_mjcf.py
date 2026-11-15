@@ -1,13 +1,4 @@
-"""Build the Mr Stabs Mk2 MJCF: CoACD collision pieces, the nose skid, and the model XML.
-
-Reads the Onshape export and mass_properties.toml (from lump_mr_stabs_mass_properties.py) and
-writes, under simulation/assets/robots/mr_stabs_mk2/:
-    collision/hull_*.obj       convex pieces of the chassis and plates, body frame
-    collision/collision.toml   piece list, nose skid point, rest pitch
-    mr_stabs_mk2.xml           the model at the nominal PlantParams
-
-    python playground/calibration/build_mr_stabs_mjcf.py
-"""
+"""Build the Mr Stabs Mk2 MJCF, collision pieces and nose skid."""
 
 from __future__ import annotations
 
@@ -45,11 +36,7 @@ def structural_mesh(export_dir: Path) -> trimesh.Trimesh:
 
 
 def rest_contact(vertices: np.ndarray, wheel_radius: float) -> tuple[np.ndarray, float]:
-    """First vertex to touch the floor as the robot pitches nose-down about the axle.
-
-    Axle at height `wheel_radius`, floor at z = -wheel_radius in the body frame. A positive
-    rotation about +y lowers points ahead of the axle.
-    """
+    """First vertex to touch the floor as the robot pitches nose-down."""
     front = vertices[vertices[:, 0] > 0.0]
     best_theta, best_vertex = np.inf, front[0]
     for x, _, z in front:

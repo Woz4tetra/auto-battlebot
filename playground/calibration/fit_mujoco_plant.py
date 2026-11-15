@@ -156,7 +156,6 @@ def cmd_fit(args: argparse.Namespace) -> None:
             names = [s.name for s in PARAM_SPECS]
             start = PlantParams(brake_on_zero=mode == "brake")
             if r > 0:
-                # Restarts begin from random points in the middle half of every range.
                 start = with_values(start, names, rng.uniform(0.25, 0.75, len(names)))
             seed = args.seed + 1000 * r
             print(f"--- zero mode {mode}, restart {r + 1}/{args.restarts}")

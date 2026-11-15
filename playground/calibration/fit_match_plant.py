@@ -1,23 +1,4 @@
-"""Fit the drivetrain plant from NHRL match driving instead of jig protocols.
-
-Implements docs/experiments/control_improvement/match_plant_fit_plan.md: join the
-original transmitted commands to regenerated replay poses, cut open-loop windows,
-climb the model ladder from the jig stage A seed, and score three plants (jig
-seed, match fit, current sim values) on identical windows.
-
-The loader lives in `auto_battlebot/calibration/match/match_windows.py` next to the jig
-loader; the fit
-machinery is shared with the jig fit (`plant.predict_windows`, `jig_fit.joint_fit`
-with match bounds, `jig_fit.score`).
-
-Usage:
-    source scripts/activate_python.sh
-    python playground/calibration/fit_match_plant.py \\
-        --fit data/recordings/<replay>.mcap:data/saved_recordings/.../<original>.mcap \\
-        --validate <replay>.mcap:<original>.mcap \\
-        --out playground/calibration/out/plant_match.toml \\
-        --report-dir playground/calibration/out/match_fit
-"""
+"""Fit the drivetrain plant from NHRL match driving."""
 
 from __future__ import annotations
 
@@ -74,11 +55,6 @@ NONRESP_MIN_CMD = 0.30
 NONRESP_RATIO = 0.25
 NONRESP_MIN_PRED_M = 0.08
 NONRESP_MIN_PRED_RAD = 0.5
-
-
-# ---------------------------------------------------------------------------
-# Seed and bounds from the jig stage A output
-# ---------------------------------------------------------------------------
 
 
 def load_seed(path: Path, widen: float) -> tuple[PlantParams, dict[str, tuple[float, float]]]:
@@ -155,11 +131,6 @@ def load_sim_plant(path: Path) -> PlantParams:
     )
 
 
-# ---------------------------------------------------------------------------
-# Fit
-# ---------------------------------------------------------------------------
-
-
 def pinned_structure(structure: ModelStructure) -> ModelStructure:
     return dataclasses.replace(structure, pinned=PINNED_DEADZONES)
 
@@ -222,11 +193,6 @@ def subset_errors(err: WindowErrors, mask: np.ndarray) -> WindowErrors:
         u_ang0=None if err.u_ang0 is None else err.u_ang0[mask],
         origin=None if err.origin is None else err.origin[mask],
     )
-
-
-# ---------------------------------------------------------------------------
-# Diagnostics on windows
-# ---------------------------------------------------------------------------
 
 
 def observed_and_predicted(
@@ -347,7 +313,7 @@ def noise_floor(
     m = len(pick)
     for i0 in range(0, m, block):
         i1 = min(i0 + block, m)
-        du = np.sqrt(np.mean((u[i0:i1, None, :] - u[None, :, :]) ** 2, axis=2))  # (b, m)
+        du = np.sqrt(np.mean((u[i0:i1, None, :] - u[None, :, :]) ** 2, axis=2))
         okay = (
             (du < cmd_tol)
             & (np.abs(v0[i0:i1, None] - v0[None, :]) < v_tol)
@@ -359,7 +325,6 @@ def noise_floor(
             runs[i0:i1, None] != runs[None, :]
         )
         okay &= sep
-        # Upper triangle in global index so each pair counts once.
         okay &= (np.arange(i0, i1)[:, None]) < np.arange(m)[None, :]
         ii, jj = np.nonzero(okay)
         if len(ii) == 0:
@@ -379,11 +344,6 @@ def noise_floor(
         "head_rmse_deg": np.degrees(np.sqrt(np.mean(head, axis=0) / 2.0)),
         "horizons": ws.horizons,
     }
-
-
-# ---------------------------------------------------------------------------
-# Reporting helpers
-# ---------------------------------------------------------------------------
 
 
 def report_row(report: HorizonReport, name: str, horizon: float) -> float:
@@ -481,11 +441,6 @@ def write_match_params(
             lines.append(f'{name} = "{toml_float(value)} fit by match windows (wide bounds)"')
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"\nwrote {path}")
-
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
 
 
 def parse_pair(text: str) -> tuple[Path, Path]:
@@ -700,7 +655,7 @@ def main() -> None:
     # the match-profiled delay to separate the timeline artifact from the
     # physical gains and time constants.
     plants = {
-        "A_jig_seed": (seed, pinned_structure(MODEL_LADDER[4])),  # M4, the jig model
+        "A_jig_seed": (seed, pinned_structure(MODEL_LADDER[4])),
         "A_seed_at_fit_delay": (seed.replace(delay_s=delay), pinned_structure(MODEL_LADDER[4])),
         "B_match_fit": (final_params, structure),
         "C_sim_values": (sim_params, pinned_structure(MODEL_LADDER[4])),
@@ -731,7 +686,7 @@ def main() -> None:
                 built = build_match_windows(
                     score_runs[set_name], plant_delay, HORIZONS, stride_s, 0, spans
                 )
-                assert built is not None  # same valid mask as mw, so same starts
+                assert built is not None
                 per_delay_cache[plant_delay] = built
             err = predict_windows(per_delay_cache[plant_delay].windows, params, plant_structure)
             rep = score(err)

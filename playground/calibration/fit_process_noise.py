@@ -69,11 +69,6 @@ SPEED_BINS = (0.0, 0.5, 1.5, 3.0, 10.0)
 CHI2_2D_95 = float(np.sqrt(chi2.ppf(0.95, df=2)))
 
 
-# ---------------------------------------------------------------------------
-# Growth law
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class GrowthFit:
     """One axis's variance growth law, with each term named by its mechanism."""
@@ -130,11 +125,6 @@ def fit_growth(axis: str, horizons: np.ndarray, residuals: np.ndarray) -> Growth
         measured_var=var,
         n=residuals.shape[0],
     )
-
-
-# ---------------------------------------------------------------------------
-# Q
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -202,11 +192,6 @@ def build_q(
     )
 
 
-# ---------------------------------------------------------------------------
-# Consistency
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class CoverageRow:
     horizon: float
@@ -261,11 +246,6 @@ def tail_report(err: WindowErrors) -> list[tuple[float, float, float]]:
         pos = err.position[:, i] * 1e3
         out.append((float(h), float(np.percentile(pos, 99)), float(np.percentile(pos, 99.9))))
     return out
-
-
-# ---------------------------------------------------------------------------
-# Report
-# ---------------------------------------------------------------------------
 
 
 def print_growth(fit: GrowthFit) -> None:
@@ -328,11 +308,6 @@ def make_plot(path: Path, fits: dict[str, GrowthFit], rows: Sequence[CoverageRow
     fig.savefig(path, dpi=110, bbox_inches="tight")
     plt.close(fig)
     print(f"wrote {path}")
-
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
 
 
 def main() -> None:

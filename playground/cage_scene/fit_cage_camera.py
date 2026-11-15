@@ -115,7 +115,7 @@ def drop_border_lines(
         normal, offset = line
         nx, ny = abs(float(normal[0])), abs(float(normal[1]))
         on_border = False
-        if ny > 0.97:  # horizontal line: y = offset / normal_y
+        if ny > 0.97:
             y = offset / float(normal[1])
             on_border = min(abs(y), abs(height - 1 - y)) < BORDER_LINE_PX
         elif nx > 0.97:
@@ -213,8 +213,6 @@ def main() -> None:
         row["clipped"] = touches_border(mask)
         points = contour_points_off_border(mask, border_margin_px=BORDER_MARGIN_PX)
 
-        # The hull's own four-vertex outline assigns contour points to sides even when the
-        # near edge is the image border; the border side is rejected below.
         quad = quad_from_mask(mask)
         seed_quad = order_corners(quad) if quad is not None else None
         tf_cam_from_hfield: np.ndarray | None = None

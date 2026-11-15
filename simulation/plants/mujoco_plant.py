@@ -71,8 +71,7 @@ def _geom_points(model: mujoco.MjModel, geom: int) -> np.ndarray | None:
 
 
 class _Footprints:
-    """Top-down convex outline of every contact geom except the floor, the arena walls and the
-    static blocks: our robot's hull pieces, wheels and skid, and the moving blocks."""
+    """Top-down outline of every contact geom except floor, walls and static blocks."""
 
     def __init__(self, model: mujoco.MjModel) -> None:
         self._geoms: list[tuple[int, np.ndarray]] = []

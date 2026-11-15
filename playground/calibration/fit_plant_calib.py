@@ -41,11 +41,6 @@ MOTION_EPS_ANG = 0.15  # rad/s floor
 ONSET_SIGMA = 5.0  # deadzone motion threshold = this many idle-noise sigmas above zero
 
 
-# ---------------------------------------------------------------------------
-# Load + align
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class Session:
     t: np.ndarray  # common time grid (s)
@@ -174,11 +169,6 @@ def load_session(session_path: Path) -> Session:
         w_noise=w_noise,
         truth_dt=truth_dt,
     )
-
-
-# ---------------------------------------------------------------------------
-# Per-parameter fits
-# ---------------------------------------------------------------------------
 
 
 def _mask(s: Session, prefix: str) -> np.ndarray:
@@ -336,7 +326,7 @@ def _decay_segments(
         if n < max(4, round(0.3 / s.dt)):
             continue
         mv = np.abs(vel[a:b])
-        if mv[0] < 5 * eps:  # must actually be coasting down from motion
+        if mv[0] < 5 * eps:
             continue
         k = 0
         while k < n and mv[k] > max(3 * eps, 0.1 * mv[0]):
@@ -354,9 +344,7 @@ def _decay_segments(
 def fit_decay_tau(
     s: Session, cmd: np.ndarray, vel: np.ndarray, mask: np.ndarray, eps: float
 ) -> float:
-    """Coast (decel) time constant from the zero-command tails after each step: |v| = V0
-    exp(-t/tau).
-    """
+    """Coast time constant from the zero-command tails after each step."""
     taus = [d.tau for d in _decay_segments(s, cmd, vel, mask, eps) if not math.isnan(d.tau)]
     return float(np.median(taus)) if taus else float("nan")
 
@@ -458,13 +446,13 @@ def _latency_stack(s: Session) -> LatencyDiag:
             pol = -1.0 if corr < 0 else 1.0
         dcmd = np.diff(cmd)
         for i in np.flatnonzero(np.abs(dcmd) > 0.15):
-            e = i + 1  # first accel sample at or after the edge
+            e = i + 1
             lo, hi = e - pre, e + max_lag + 1
             if lo < 0 or hi > len(accel):
                 continue
-            if s.gap[lo:hi].any():  # response window is interpolated, not measured
+            if s.gap[lo:hi].any():
                 continue
-            if max(abs(cmd[e]), abs(cmd[e - 1])) < 0.1:  # both sides idle: no motion to time
+            if max(abs(cmd[e]), abs(cmd[e - 1])) < 0.1:
                 continue
             curve = pol * np.sign(dcmd[i]) * accel[lo:hi] / scale
             stack += curve
@@ -472,9 +460,7 @@ def _latency_stack(s: Session) -> LatencyDiag:
     count = len(windows)
     if count < 6:
         return LatencyDiag(pre, s.dt, lags_ms, stack, stack, windows, count, 0.0, 0, float("nan"))
-    stack = stack / count - float(
-        np.mean(stack[:pre] / count)
-    )  # remove the pre-edge baseline offset
+    stack = stack / count - float(np.mean(stack[:pre] / count))
     smooth = np.convolve(stack, np.array([0.25, 0.5, 0.25]), mode="same")
     causal = smooth[pre:]
     peak_i = int(np.argmax(causal))
@@ -495,11 +481,6 @@ def fit_actuation_lag(s: Session) -> tuple[float, int, float]:
     """Transport lag (ms), the number of in-frame onsets it used, and an SNR confidence gauge."""
     d = _latency_stack(s)
     return d.lag_ms, d.count, d.snr
-
-
-# ---------------------------------------------------------------------------
-# Report
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -566,7 +547,6 @@ def fit_all(s: Session) -> dict[str, float]:
     dz_ang_l, dz_ang_r = c.dz_ang_l, c.dz_ang_r
 
     gf, gr, tf, tr = fit_drive_segments(s, s.cmd_lin, s.v, c.lin, dz_lin_fwd, dz_lin_rev, c.eps_lin)
-    # Angular: buckets by sign (left/right); combine both for a single symmetric max_angular_speed.
     ga_l, ga_r, ta_l, ta_r = fit_drive_segments(
         s, s.cmd_ang, s.w, c.ang, dz_ang_l, dz_ang_r, c.eps_ang
     )
@@ -679,13 +659,7 @@ def _phase_spans(s: Session) -> list[tuple[float, float, str]]:
 
 
 def _panel_timeline(ax, s, cmd, vel, vel_label, cmd_color, annotate):  # type: ignore[no-untyped-def]
-    """One drive channel over the whole session: measured velocity (left axis) vs command (right
-    axis).
-
-    Truth dropouts are shaded red (velocity there is interpolation, not measurement) and every
-    protocol phase gets a light band, so it is obvious which experiment produced which stretch of
-    data.
-    """
+    """Plot one drive channel's velocity against command with dropouts and phases shaded."""
     gap_runs = _runs(s.gap)
     for k, (a, b) in enumerate(gap_runs):
         ax.axvspan(
@@ -775,16 +749,14 @@ def _panel_gain(ax, segs, fits, unit):  # type: ignore[no-untyped-def]
 
 
 def _panel_rise(ax, segs, tau, unit):  # type: ignore[no-untyped-def]
-    """Normalized rise curves per held segment, overlaid with the first-order model at the fitted
-    tau.
-    """
+    """Normalized rise curves overlaid with the fitted first-order model."""
     tmax = 0.0
     drawn = 0
     for seg in segs:
         if math.isnan(seg.tau) or seg.vss <= 0:
             continue
         color = "C0" if seg.sign > 0 else "C1"
-        y = np.where(seg.gap, np.nan, seg.mv / seg.vss)  # break the line across dropouts
+        y = np.where(seg.gap, np.nan, seg.mv / seg.vss)
         ax.plot(seg.t, y, color=color, lw=0.7, alpha=0.5)
         tmax = max(tmax, float(seg.t[-1]))
         drawn += 1
@@ -826,12 +798,10 @@ def _panel_decay(ax, decays, tau):  # type: ignore[no-untyped-def]
 
 
 def _panel_latency(ax, diag):  # type: ignore[no-untyped-def]
-    """The pooled onset stack: faint per-onset accel windows, the averaged pulse, and the picked
-    lag.
-    """
+    """Plot the pooled onset stack and picked lag."""
     for w in diag.windows:
         ax.plot(diag.lags_ms, w - float(np.mean(w[: diag.pre])), color="gray", lw=0.5, alpha=0.15)
-    ax.axvspan(diag.lags_ms[0], 0.0, color="gray", alpha=0.06, lw=0)  # pre-edge baseline region
+    ax.axvspan(diag.lags_ms[0], 0.0, color="gray", alpha=0.06, lw=0)
     ax.axvline(0.0, color="k", lw=0.9)
     if diag.count >= 6:
         ax.plot(diag.lags_ms, diag.stack, color="C0", lw=2.0, label="mean accel (normalized)")

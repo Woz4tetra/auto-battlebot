@@ -211,7 +211,6 @@ def main() -> None:
         texture = flatten_seen_shading(texture, seen, SHADING_SIGMA_M * args.px_per_m)
         row0, row1, col0, col1 = largest_seen_rectangle(seen)
         tiled = offset_tile(texture[row0:row1, col0:col1], seen.shape, seed=len(blocks))
-        # The tile is flattened to its mean; bring that mean to the seen texels' own.
         tiled = np.clip(
             tiled * (texture[seen].mean(axis=0) / np.maximum(tiled.reshape(-1, 3).mean(axis=0), 1)),
             0,

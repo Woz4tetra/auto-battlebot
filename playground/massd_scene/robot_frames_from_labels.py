@@ -1,24 +1,5 @@
 #!/usr/bin/env python3
-"""Robot-lighting frames for the MassD arena, from hand labels instead of a pose model.
-
-`playground/cage_scene/pick_robot_frames.py` runs a keypoint model over NHRL clips to find
-frames where MRS BUFF is clean. This clip already has hand-drawn ground truth in
-`training/data/nhrl_cage_high_eval/<clip>/`, so the frames come straight from there: pick the
-labelled frames where MRS BUFF has both keypoints and no other robot overlaps its box, crop
-the banners off the same way the target was cropped, and project the keypoints through the
-fitted camera onto the floor plane. Position is the midpoint, heading is back to front.
-
-The output is the layout `render_cage_view.py --robot-frames` and
-`grade_render.py --robot-frames` read:
-
-    <out>/robot_frames/<clip>_f<frame>/frame.png     banner-cropped real frame
-    <out>/robot_frames/<clip>_f<frame>/pose.json     x_m, y_m, yaw_deg, box, keypoints
-    <out>/robot_frames/<clip>_f<frame>/overlay.png   box and keypoints drawn on
-
-Usage:
-    venv/bin/python playground/massd_scene/robot_frames_from_labels.py runs/massd_scene \\
-        training/data/nhrl_cage_high_eval/r1_beeroll_vs_mrsbuff
-"""
+"""Robot-lighting frames for the MassD arena from hand labels."""
 
 from __future__ import annotations
 

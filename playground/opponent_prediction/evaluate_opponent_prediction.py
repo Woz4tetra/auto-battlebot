@@ -81,9 +81,6 @@ def opponent_max_coast_s() -> float:
     return float(est.get("opponent_max_coast_s", OpponentFilterConfig.opponent_max_coast_s))
 
 
-# ------------------------------------------------------------------------------------- arms
-
-
 class LegacyOpponentFilter(OpponentFilter):
     """The 4-state arm the plan replaces, built on the mirror so gating and rewind are shared.
 
@@ -144,7 +141,7 @@ class Trace:
     target_ns: np.ndarray  # (T,) render time on the session clock
     since_arrival_s: np.ndarray  # (T, B) time since the last measurement this row accepted arrived
     values: dict[str, np.ndarray]
-    update_stats: dict[str, np.ndarray] = field(default_factory=dict)  # (M, B)
+    update_stats: dict[str, np.ndarray] = field(default_factory=dict)
 
 
 def _rel_s(stamp_ns: np.ndarray, t0_ns: int) -> np.ndarray:
@@ -251,7 +248,6 @@ def simulate_hold(
     deliver = t_meas + LATENCY_S
     b = keep.shape[0]
     ticks = np.arange(t_meas[0], deliver[-1] + 0.5, TICK_S)[::record_stride]
-    # Index of the newest kept measurement delivered by each tick, per row.
     last = np.full((len(ticks), b), -1)
     for r in range(b):
         kept = np.nonzero(keep[r, idx])[0]
@@ -283,9 +279,6 @@ def simulate_hold(
     )
 
 
-# ---------------------------------------------------------------------------------- dropouts
-
-
 def periodic_gaps(
     stamps_ns: np.ndarray, gap_s: float, period_s: float, phase_s: float = 1.0
 ) -> np.ndarray:
@@ -294,9 +287,6 @@ def periodic_gaps(
         return np.ones(len(stamps_ns), dtype=bool)
     t = (stamps_ns - stamps_ns[0]) / 1e9 - phase_s
     return ~((t >= 0.0) & (np.mod(t, period_s) < gap_s))
-
-
-# ----------------------------------------------------------------------------------- scoring
 
 
 def motion_class(speed: np.ndarray, yaw_rate: np.ndarray) -> np.ndarray:
@@ -375,8 +365,6 @@ def wrap_np(a: np.ndarray) -> np.ndarray:
     return np.asarray(np.angle(np.exp(1j * a)))
 
 
-# ----------------------------------------------------------------------------------- tuning
-
 GRID = {
     "opponent_accel_psd": [3.0, 10.0, 30.0, 100.0, 300.0, 1000.0],
     "opponent_yaw_accel_psd": [10.0, 30.0, 100.0, 300.0, 1000.0],
@@ -430,15 +418,12 @@ def run_grid(train: SessionData) -> list[dict]:
     return rows
 
 
-# ----------------------------------------------------------------------------------- report
-
 SCENARIOS = {"natural": 0.0, "gap_0.2": 0.2, "gap_1": 1.0, "gap_3": 3.0}
 SCENARIO_PERIOD_S = 8.0
 
 
 def tuned_config() -> tuple[OpponentFilterConfig, float]:
-    """The opponent fields from config/_common.toml as the C++ loads them, and the opponent
-    keypoint position sigma (the mirror takes the measurement variance per call)."""
+    """Opponent filter fields from config/_common.toml as the C++ loads them."""
     est = common_config()["robot_filter"]["motion_estimator"]
     cfg = OpponentFilterConfig(opponent_max_coast_s=opponent_max_coast_s(), render_lead_s=lead_s())
     for key in ("opponent_accel_psd", "opponent_yaw_accel_psd", "opponent_heading_sigma_rad"):

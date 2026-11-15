@@ -82,11 +82,6 @@ COARSE_DELAYS = np.arange(0.0, 0.1001, 0.01)
 ACCEPT = {"C1_pos_100ms_mm": 15.0, "C2_pos_400ms_mm": 80.0, "C3_head_400ms_deg": 8.0}
 
 
-# ---------------------------------------------------------------------------
-# Stick tapes
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class Tape:
     name: str
@@ -136,11 +131,6 @@ def random_tapes(count: int, seed: int, seconds: float = 6.0) -> list[Tape]:
             total += hold
         tapes.append(_tape(f"random_{i:02d}", "random", segments))
     return tapes
-
-
-# ---------------------------------------------------------------------------
-# MuJoCo rollouts
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -211,11 +201,6 @@ def simulate_tape(
         np.concatenate([[0.0], tape.ang]),
         valid,
     )
-
-
-# ---------------------------------------------------------------------------
-# Grey-box fit
-# ---------------------------------------------------------------------------
 
 
 def build_windows(traces: list[Trace], delay_s: float, limit: int) -> WindowSet | None:
@@ -339,11 +324,6 @@ def distill_run(job: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-# ---------------------------------------------------------------------------
-# Real sessions
-# ---------------------------------------------------------------------------
-
-
 def score_sessions(
     paths: list[Path], doc: dict[str, Any], tables: dict[str, plant.PlantParams]
 ) -> dict[str, Any]:
@@ -387,11 +367,6 @@ def session_stat(paths: list[Path], what: str) -> float | None:
     return float(np.median(values)) if values else None
 
 
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
-
-
 def _print_table(results: list[dict[str, Any]]) -> None:
     names = list(results[0]["table"])
     print(f"\n{'':14}" + "".join(f"{r['label']:>11}" for r in results))
@@ -427,7 +402,7 @@ def plot_plant_steps(tables: dict[str, plant.PlantParams], out: Path) -> None:
     colors = ("#2a78d6", "#1baf7a", "#eda100", "#eb6834")
     fig, ax = plt.subplots(2, 2, figsize=(12, 7.5), constrained_layout=True)
     for name, p in tables.items():
-        lag = max(0, int(round(p.delay_s / dt)))  # a negative delay plots as none
+        lag = max(0, int(round(p.delay_s / dt)))
         for level, color in zip(levels, colors):
             u = np.where((t >= on) & (t < off), level, 0.0)
             u_delayed = np.r_[np.zeros(lag), u][: t.size]

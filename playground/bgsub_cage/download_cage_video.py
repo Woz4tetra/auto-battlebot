@@ -492,7 +492,6 @@ def main() -> int:
         if not candidates:
             print("No fights matched. Check the cleanName with /search?q=<name>.")
             return 1
-        # Every one of them is wanted, so the caps that shape a random sample do not apply.
         args.limit = len(candidates)
         args.per_tournament = len(candidates)
     else:

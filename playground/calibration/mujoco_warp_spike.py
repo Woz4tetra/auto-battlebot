@@ -1,15 +1,4 @@
-"""Step 2 spike for the Mr Stabs Mk2 MuJoCo model: sanity checks, timestep study, throughput.
-
-1. The three sanity checks (nose lift vs the analytic threshold, top speed vs KV x V / N, decel
-   tau and the resistance it implies) at each timestep in --dts.
-2. Which fitted fields MuJoCo Warp batches per world (from the Model field specs).
-3. World-steps per second of the captured rollout at each size in --worlds.
-
-Writes playground/calibration/out/mujoco_sysid/spike.json and prints a summary.
-
-    python playground/calibration/mujoco_warp_spike.py
-    python playground/calibration/mujoco_warp_spike.py --worlds 1024 8192 --dts 1e-3 5e-4
-"""
+"""Sanity checks, timestep study and throughput for the Mr Stabs Mk2 MuJoCo model."""
 
 from __future__ import annotations
 
@@ -66,7 +55,7 @@ def throughput(
         wheel_left=zeros,
         wheel_right=zeros,
     )
-    rollout.run(state)  # compile and capture
+    rollout.run(state)
     start = time.perf_counter()
     rollout.run(state)
     return nworld * steps / (time.perf_counter() - start)

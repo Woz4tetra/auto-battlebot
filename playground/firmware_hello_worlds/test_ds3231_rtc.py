@@ -1,12 +1,5 @@
 #!/usr/bin/env python3
-"""Basic DS3231 RTC hardware test for Jetson.
-
-Usage examples:
-    python playground/test_ds3231_rtc.py
-    python playground/test_ds3231_rtc.py --i2c-bus 7 --i2c-address 0x68
-    python playground/test_ds3231_rtc.py --set-now
-    python playground/test_ds3231_rtc.py --compare-system-seconds 10
-"""
+"""Basic DS3231 RTC hardware test for Jetson."""
 
 from __future__ import annotations
 
@@ -40,12 +33,10 @@ def decode_datetime_utc(regs: list[int]) -> datetime:
 
     hour_raw = regs[2]
     if hour_raw & 0x40:
-        # 12-hour mode
         hour = bcd_to_int(hour_raw & 0x1F)
         pm = bool(hour_raw & 0x20)
         hour = (hour % 12) + (12 if pm else 0)
     else:
-        # 24-hour mode
         hour = bcd_to_int(hour_raw & 0x3F)
 
     day_of_month = bcd_to_int(regs[4] & 0x3F)
@@ -57,11 +48,11 @@ def decode_datetime_utc(regs: list[int]) -> datetime:
 
 
 def encode_datetime_utc(now_utc: datetime) -> list[int]:
-    weekday = now_utc.isoweekday()  # 1..7 (Mon..Sun), accepted by DS3231 DOW register
+    weekday = now_utc.isoweekday()
     return [
         int_to_bcd(now_utc.second),
         int_to_bcd(now_utc.minute),
-        int_to_bcd(now_utc.hour),  # 24-hour mode
+        int_to_bcd(now_utc.hour),
         int_to_bcd(weekday),
         int_to_bcd(now_utc.day),
         int_to_bcd(now_utc.month),
@@ -105,7 +96,6 @@ def main() -> int:
 
     try:
         with SMBus(args.i2c_bus) as bus:
-            # Probe basic communication by reading seconds register.
             _ = bus.read_byte_data(args.i2c_address, 0x00)
             print("I2C ACK: OK")
 
@@ -133,7 +123,6 @@ def main() -> int:
                     )
                     return 1
 
-            # Always check ticking behavior in read-only manner.
             before = decode_datetime_utc(read_registers(bus, args.i2c_address, 0x00, 7))
             time.sleep(2.0)
             after = decode_datetime_utc(read_registers(bus, args.i2c_address, 0x00, 7))

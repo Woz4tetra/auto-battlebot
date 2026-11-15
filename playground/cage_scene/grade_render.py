@@ -306,7 +306,6 @@ def grade_robot_frames(args: argparse.Namespace) -> None:
         r_gray = cv2.cvtColor(render, cv2.COLOR_BGR2GRAY).astype(float)
         for source, gray in (("render", r_gray), ("target", t_gray)):
             rest, ring = gray[regions["mat_rest"]].mean(), gray[regions["shadow_ring"]].mean()
-            # Drop in grey levels, and the exposure-free ratio of ring to the rest of the mat.
             for metric, value in (
                 ("shadow_drop_gray", rest - ring),
                 ("shadow_ratio", ring / max(rest, 1.0)),

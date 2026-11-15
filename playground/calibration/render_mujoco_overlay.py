@@ -282,7 +282,6 @@ class Scene:
         self.order = order
         self.starts = self.batch.start_ns[order]
         if stop is not None:
-            # Each segment ends where the next reset starts.
             ends = np.r_[self.starts[1:], self.starts[-1] + self.horizon_ns]
             self.ends = np.empty_like(ends)
             self.ends[order] = ends

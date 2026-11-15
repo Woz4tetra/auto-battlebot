@@ -65,7 +65,6 @@ GAP_MIN_FRAMES = 2.5
 # Jitter fit: this many contiguous neighbours on each side of a measurement, 0.1 s at 30 Hz.
 JITTER_HALF = 3
 FLIP_RAD = math.radians(150.0)
-# A heading jump and its reversal within this long bound one flipped run.
 MAX_FLIPPED_RUN_S = 1.0
 # A role with fewer heading jumps than this takes the onset rate pooled over both roles.
 MIN_ROLE_JUMPS = 10
@@ -99,14 +98,8 @@ def _r(x: float, digits: int = 5) -> float:
     return round(float(x), digits)
 
 
-# ---------------------------------------------------------------------------
-# Jitter noise
-# ---------------------------------------------------------------------------
-
-
 def _windows(t: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Measurements with JITTER_HALF contiguous neighbours on each side, and those neighbours'
-    indices, one row per centre."""
+    """Measurements with JITTER_HALF contiguous neighbours on each side."""
     k = JITTER_HALF
     offsets = np.concatenate([np.arange(-k, 0), np.arange(1, k + 1)])
     if t.size < 2 * k + 1:
@@ -205,11 +198,6 @@ def jitter_noise(tracks: list[Track]) -> tuple[dict[str, Any], dict[str, Any]]:
     return {"position": position, "heading_sigma_rad": sigma_rad}, report
 
 
-# ---------------------------------------------------------------------------
-# Match replays
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class Track:
     """One robot's measurement stream in one replay."""
@@ -228,11 +216,11 @@ class Track:
 class Scene:
     """Rendered robot positions and field size over one replay, for the dropout context."""
 
-    stamps: np.ndarray  # [T]
+    stamps: np.ndarray
     ids: list[str]
-    xy: np.ndarray  # [T, robots, 2], NaN where a robot is absent
-    radius: np.ndarray  # [robots]
-    half_extent: np.ndarray  # [T, 2]
+    xy: np.ndarray
+    radius: np.ndarray
+    half_extent: np.ndarray
 
     def context(self, track_id: str, t: float) -> tuple[float, float]:
         """Edge-to-edge distance to the nearest other robot and distance to the nearest wall."""
@@ -412,11 +400,6 @@ def flip_runs_table(flipped_s: list[float], onset_per_s: float) -> dict[str, Any
         "normal_s": [_r(x, 4) for x in np.maximum.accumulate(np.maximum(normal, FRAME_S))],
         "flipped_s": [_r(x, 4) for x in np.quantile(flipped_s, QUANTILES)],
     }
-
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
 
 
 def main() -> None:

@@ -59,12 +59,7 @@ def project_panorama(
     width: int,
     height: int,
 ) -> npt.NDArray[np.uint8]:
-    """Project an equirectangular panorama to a perspective image (BGR).
-
-    Builds a camera-to-world rotation from `cam_pos`/`lookat`, then for every
-    output pixel computes the corresponding world-space ray direction, converts
-    it to equirectangular (lon, lat) UVs, and samples the panorama.
-    """
+    """Project an equirectangular panorama to a perspective BGR image."""
     cam_pos_arr = np.array(cam_pos, dtype=np.float64)
     lookat_arr = np.array(lookat, dtype=np.float64)
 
@@ -80,31 +75,29 @@ def project_panorama(
     right /= right_norm
     up = np.cross(right, forward)
 
-    # camera-to-world rotation: columns are right, up, forward
-    rotation_c2w = np.column_stack([right, up, forward])  # (3, 3)
+    rotation_c2w = np.column_stack([right, up, forward])
 
     fx, fy, cx, cy = fov_to_intrinsics(fov_deg, width, height)
 
     # Pixel grid -> normalised camera-space ray directions
     u = np.arange(width, dtype=np.float64)
     v = np.arange(height, dtype=np.float64)
-    uu, vv = np.meshgrid(u, v)  # (H, W)
-    dirs_cam = np.stack([(uu - cx) / fx, -(vv - cy) / fy, np.ones_like(uu)], axis=-1)  # (H, W, 3)
+    uu, vv = np.meshgrid(u, v)
+    dirs_cam = np.stack([(uu - cx) / fx, -(vv - cy) / fy, np.ones_like(uu)], axis=-1)
     dirs_cam /= np.linalg.norm(dirs_cam, axis=-1, keepdims=True)
 
-    # Transform to world space
-    dirs_world: npt.NDArray[np.float64] = dirs_cam @ rotation_c2w.T  # (H, W, 3)
+    dirs_world: npt.NDArray[np.float64] = dirs_cam @ rotation_c2w.T
 
     # World-space direction -> equirectangular UV
     dx = dirs_world[..., 0]
     dy = dirs_world[..., 1]
     dz = dirs_world[..., 2]
-    lon = np.arctan2(dy, dx)  # [-pi, pi]
-    lat = np.arcsin(np.clip(dz, -1, 1))  # [-pi/2, pi/2]
+    lon = np.arctan2(dy, dx)
+    lat = np.arcsin(np.clip(dz, -1, 1))
 
     pano_h, pano_w = pano_bgr.shape[:2]
-    pano_u = ((lon / (2.0 * np.pi)) + 0.5) * (pano_w - 1)  # [0, W-1]
-    pano_v = (0.5 - lat / np.pi) * (pano_h - 1)  # [0, H-1]
+    pano_u = ((lon / (2.0 * np.pi)) + 0.5) * (pano_w - 1)
+    pano_v = (0.5 - lat / np.pi) * (pano_h - 1)
 
     result = cv2.remap(
         pano_bgr,
@@ -140,8 +133,6 @@ def ground_plane_homography(
     fx, fy, cx, cy = intrinsics
     camera_matrix = np.array([[fx, 0.0, cx], [0.0, fy, cy], [0.0, 0.0, 1.0]], dtype=np.float64)
 
-    # The floor is z = 0, so the third column of the rotation drops out and world-to-image
-    # collapses from 3x4 to 3x3.
     rotation = view_matrix[:3, :3]
     translation = view_matrix[:3, 3]
     world_to_image = camera_matrix @ np.column_stack([rotation[:, 0], rotation[:, 1], translation])
@@ -174,9 +165,8 @@ def ground_plane_depth(
 
     u, v = np.meshgrid(np.arange(width, dtype=np.float64), np.arange(height, dtype=np.float64))
     rays_camera = np.stack([(u - cx) / fx, (v - cy) / fy, np.ones_like(u)], axis=-1)
-    rays_world = rays_camera @ rotation  # rotation.T applied per row
+    rays_world = rays_camera @ rotation
 
-    # Distance along the ray to z = 0, then converted to depth along the optical axis.
     with np.errstate(divide="ignore", invalid="ignore"):
         t = -camera_position[2] / rays_world[..., 2]
     depth = np.where(t > 0.0, t, np.nan) / np.linalg.norm(rays_camera, axis=-1)

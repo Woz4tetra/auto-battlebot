@@ -117,9 +117,6 @@ SCENES = {
 }
 
 
-# ------------------------------------------------------------------------------- frames
-
-
 @dataclass
 class FrameSource:
     """Frames on the session clock with the camera_from_field transform for each."""
@@ -197,9 +194,6 @@ def replay_last_index(scene: Scene, end_ns: int) -> int:
     return int(cam.svo_index[after[0]]) if after.size else int(cam.svo_index[-1])
 
 
-# ------------------------------------------------------------------------------- drawing
-
-
 def project(cam_from_field: np.ndarray, k: np.ndarray, pts: np.ndarray) -> np.ndarray:
     pts = np.asarray(pts, dtype=float)
     if pts.shape[1] == 2:
@@ -263,9 +257,6 @@ def legend(img, scale, has_truth) -> None:
         cv2.rectangle(img, (14, y - int(18 * scale)), (14 + int(22 * scale), y), color, -1)
         label(img, text, (14 + int(32 * scale), y), 0.6 * scale)
         y += int(34 * scale)
-
-
-# ------------------------------------------------------------------------------- segments
 
 
 @dataclass
@@ -361,7 +352,6 @@ def render_frame(img, t_ns, cff, k, data, seg: Segment, scene: Scene, scale: flo
             ]
             size = int(INSET_CROP * INSET_SCALE)
             inset = cv2.resize(crop, (size, size), interpolation=cv2.INTER_LINEAR)
-            # Opposite side from the robot, so the inset never covers the real one.
             x0 = 12 if c[0] > w / 2 else w - size - 12
             y0 = int(130 * scale)
             if y0 + size < h:
@@ -417,9 +407,6 @@ def title_card(shape, scene: Scene, gap: float) -> np.ndarray:
             img, text, ((w - tw) // 2, y), cv2.FONT_HERSHEY_SIMPLEX, size, WHITE, 2, cv2.LINE_AA
         )
     return img
-
-
-# ------------------------------------------------------------------------------- main
 
 
 def render_scene(scene: Scene) -> Path:

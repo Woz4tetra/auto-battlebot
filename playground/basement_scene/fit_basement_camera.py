@@ -55,7 +55,6 @@ RAIL_THICKNESS_M = 0.0381  # 1.5 in
 PLANE_INLIER_M = 0.005
 RAIL_TOP_BAND_M = (0.078, 0.100)
 EDGE_CLIP_PX = 15.0
-# Plywood in HSV (OpenCV ranges): the pixels the floor plane is fitted to.
 PLYWOOD_HSV = ((8, 40, 120), (30, 200, 255))
 
 
@@ -108,7 +107,7 @@ def fit_plane(xyz: np.ndarray, floor: np.ndarray, seed: int) -> Plane:
     x_axis = np.array([1.0, 0.0, 0.0]) - normal[0] * normal
     x_axis /= np.linalg.norm(x_axis)
     y_axis = np.cross(normal, x_axis)
-    if y_axis[2] < 0:  # +y runs away from the camera
+    if y_axis[2] < 0:
         x_axis, y_axis = -x_axis, -y_axis
     rms = float(np.sqrt((((fitted - origin) @ normal) ** 2).mean()))
     return Plane(origin, np.c_[x_axis, y_axis, normal], rms, int(best.sum()))

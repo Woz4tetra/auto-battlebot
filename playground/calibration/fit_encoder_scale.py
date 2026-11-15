@@ -198,7 +198,6 @@ def fit_scale(passes: list[Pass]) -> Fit:
         cov = np.linalg.inv(design.T @ design) * float(r2 @ r2) / max(len(x) - 2, 1)
         slope_se, intercept_se = float(np.sqrt(cov[0, 0])), float(np.sqrt(cov[1, 1]))
     else:
-        # One distance cannot separate a scale from an offset, so there is nothing to test.
         slope, intercept = k, 0.0
         slope_se, intercept_se = se, float("nan")
     return Fit(k, se, slope, slope_se, intercept, intercept_se, len(x), len(set(x)))

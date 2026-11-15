@@ -98,8 +98,6 @@ def forward_speed(log: JigLog, calib: JigCalibration | None) -> tuple[np.ndarray
     return v, "encoder rate (counts/s)"
 
 
-# Shaded regions, in draw order. Each is (label, colour, alpha) and the legend at the bottom
-# of the figure explains them once rather than once per panel.
 REGION_STYLE = {
     "still hold": ("#cfe3cf", 0.55),
     "not commanded": ("#d9d9d9", 0.55),
@@ -157,8 +155,6 @@ def excluded_regions(
         ]
 
     if record is not None and record.has_commands:
-        # Plot time is already anchored at the first command, so the command bounds have to
-        # be shifted the same way before they can be compared against it.
         anchor = float(record.cmd_t[0])
         lo = 0.0
         hi = float(record.cmd_t[-1]) + 2.0 - anchor
@@ -190,8 +186,6 @@ def plot_run(
     # no sidecar this is the identity and the axis is jig seconds; the title says so.
     t = clock.host_seconds(log.t)
     have_cmd = record is not None and record.has_commands
-    # Anchor at the first command so the interesting part starts near zero instead of at
-    # whatever the host clock happened to read.
     t0 = float(record.cmd_t[0]) if have_cmd else float(t[0])
     t = t - t0
 
@@ -334,8 +328,6 @@ def plot_run(
             zorder=5,
         )
         peak = float(np.max(np.abs(log.accel[clip])) / G_MPS2)
-        # Boxed and off the axis floor, so it does not read as struck through by the
-        # clip line it sits next to.
         ax.annotate(
             f"clipped on {', '.join(clip_axes)}: {int(clip.sum())} samples, peak {peak:.1f} g"
             "   (not a discard, and not excluded from the fit)",
@@ -363,8 +355,6 @@ def plot_run(
         "time (s, from the first command)" if have_cmd else "time (s, jig clock)", fontsize=10
     )
 
-    # Heading, zeroed at the first command so the run's own net rotation reads straight off
-    # the axis rather than having to be subtracted from wherever the log happened to start.
     heading = integrate_deg(yaw, t)
     zero = int(np.searchsorted(t, 0.0)) if have_cmd else 0
     heading = heading - heading[min(zero, len(heading) - 1)]
@@ -374,7 +364,6 @@ def plot_run(
     twin.tick_params(axis="y", labelcolor="C5", labelsize=8)
     aligned = align_zero(ax, twin, lo=float(heading.min()) * 1.05, hi=float(heading.max()) * 1.05)
     if not aligned:
-        # The shared line is not zero for heading here, so heading gets its own marker.
         twin.axhline(0.0, color="C5", ls=":", lw=1.0)
 
     if have_cmd:
@@ -600,7 +589,6 @@ def align_zero(
     del lo, hi
     want_hi = span if data_hi is None else max(data_hi, 0.0)
     want_lo = -span if data_lo is None else min(data_lo, 0.0)
-    # Grow whichever side needs it, keeping zero at `frac` of the height.
     total = max(
         want_hi / (1.0 - frac) if want_hi > 0 else 0.0,
         -want_lo / frac if want_lo < 0 else 0.0,
@@ -680,8 +668,6 @@ def main() -> None:
     if not logs:
         raise SystemExit("no LOG-*.TXT files found")
 
-    # Sidecars are read per directory so a run's commands and clock are found without
-    # reloading the session once per log.
     records: dict[Path, RunRecord] = {}
     for directory in {p.parent for p in logs}:
         try:

@@ -40,11 +40,7 @@ class _TrialTimeoutError(Exception):
 def run_ramp(
     link: dp.TrainerLink, rate_hz: float, target: float, accel: float, hold_s: float
 ) -> bool:
-    """Ramp forward command 0 -> target at `accel` (command/s), hold `hold_s`, then cut to zero.
-
-    Returns True if the trial completed, False if interrupted (Ctrl-C or the hard-timeout backstop).
-    The link is disarmed on the way out either way.
-    """
+    """Ramp forward command to target at accel, hold, then cut; disarm on exit."""
     dt = 1.0 / rate_hz
     ramp_time = target / accel
     try:

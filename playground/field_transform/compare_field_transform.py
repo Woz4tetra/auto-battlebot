@@ -1,15 +1,4 @@
-"""Compare the depth+plane camera<->field transform against an RGB-only homography.
-
-Reads a ROS1-profile MCAP (convert a .bag with `mcap convert in.bag out.mcap`), picks
-frames where the camera is holding still on its tripod, and runs both methods on the same
-DeepLab field mask so the only difference is how the pose is derived.
-
-`depth_plane` is the shipped C++ path and measures the field size. `homography` uses the
-RGB outline plus the field size you supply, and needs no depth at all.
-
-Usage:
-    python compare_field_transform.py RUN.mcap --field-size 2.4384 2.4384 -o out/
-"""
+"""Compare the depth-plane field transform against an RGB-only homography."""
 
 from __future__ import annotations
 
@@ -104,8 +93,6 @@ def load_frames(path: Path, args: argparse.Namespace) -> tuple[list[dict], dict]
             print(f"  topics present: {topics}")
             raise SystemExit(f"no camera_info topic in {path.name}")
 
-        # Separate image and depth streams when they were recorded; otherwise fall back to
-        # an organized registered cloud, which carries both.
         use_cloud = (rgb_topic is None or depth_topic is None) and cloud_topic is not None
         if not use_cloud and (rgb_topic is None or depth_topic is None):
             print(f"  topics present: {topics}")

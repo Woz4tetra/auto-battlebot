@@ -1,36 +1,4 @@
-"""Smooth one Mr Stabs Mk2 sysid session into the bundle the MuJoCo fit reads.
-
-Reads an MCAP recorded with the ``mr_stabs_mk2_sysid_zed_box`` profile (``/apriltag/robot_tags``,
-the robot telemetry (``/robot/espnow_telemetry``, or ``/robot/esp32_diagnostics`` before
-2026-10-25), the transmitter channels when the radio was on USB, ``/tf``) and writes, under
-``playground/calibration/out/mujoco_sysid/<session_name>/``:
-
-- ``smoothed.csv``: RTS-smoothed axle-center pose on a 5 ms grid
-- ``measurements.csv``: one row per robot tag detection, raw pose and gating provenance
-- ``commands.csv``: one row per ESP32 event, stamped on the app clock by the clock fit
-- ``windows.csv``: gated 1 to 2 s fit windows with their initial state
-- ``session.json``: noise floor, process noise and its cross-validation curve, clock fit,
-  radio delay, IMU agreement, IPPE close calls, rejections, window counts and drop reasons
-
-Conventions (details in ``auto_battlebot/perception/tag_pose_smoother.py``):
-
-- Frame: the field frame with z up. ``FiducialFieldFilter`` records field z into the floor; that
-  frame is turned 180 degrees about field x (y and z negated) so the output is right-handed with
-  z up. ``session.json`` ``output_frame`` says whether the turn was applied.
-- Pose: the axle midpoint, FLU body frame. ``yaw`` is counter-clockwise about field +z,
-  unwrapped. ``pitch`` and ``roll`` are ZYX Euler angles: pitch about body +y (nose down is
-  positive, an upright robot at rest reads about +0.198 rad), roll about body +x. With
-  ``upside_down`` set they are relative to the inverted rest pose instead (body turned 180
-  degrees about x), so they read near zero when it drives inverted.
-- Units: metres, radians, seconds; stamps are app-clock nanoseconds. Wheel speeds in
-  ``windows.csv`` are rad/s, positive rolling forward, from the no-slip relation.
-- ``sigma_xy`` in ``measurements.csv`` is the RMS of the along-view and across-view sigmas; the
-  split and its gains are in ``session.json`` ``noise_model``.
-
-Usage:
-    source scripts/activate_python.sh
-    python playground/calibration/smooth_tag_poses.py path/to/session.mcap --plots
-"""
+"""Smooth one Mr Stabs Mk2 sysid session into the MuJoCo fit bundle."""
 
 from __future__ import annotations
 

@@ -40,7 +40,7 @@ import numpy as np
 import trimesh
 
 DICTIONARY = cv2.aruco.DICT_APRILTAG_36h11
-BORDER_BITS = 1  # AprilTag 36h11: 6 data bits + 1 black border ring per side -> 8 bits across.
+BORDER_BITS = 1
 WHITE = (235, 235, 235, 255)
 BLACK = (20, 20, 20, 255)
 CONTENT_TYPES = (
@@ -144,9 +144,7 @@ def write_3mf(path: Path, white: trimesh.Trimesh, black: trimesh.Trimesh) -> Non
 
 
 def verify(grid: np.ndarray, tag_id: int, tag_mm: float, ppm: float) -> None:
-    """Rasterize the black cells top-down with a quiet zone and re-detect, confirming id and
-    orientation.
-    """
+    """Rasterize the black cells and re-detect id and orientation."""
     side = grid.shape[0]
     cell = tag_mm / side
     pad = tag_mm * 0.25

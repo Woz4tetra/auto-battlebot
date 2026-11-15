@@ -15,8 +15,6 @@ from auto_battlebot.recording.diag_io import iter_diagnostic_statuses
 
 
 def analyze(path: Path) -> None:
-    # Collect all (timestamp_float, is_auto) channel samples from the file.
-    # We need the full list before we can determine the match window boundaries.
     raw: list[tuple[float, bool]] = []
 
     try:
@@ -35,7 +33,6 @@ def analyze(path: Path) -> None:
         print("  no opentx_transmitter/channels diagnostics found")
         return
 
-    # Determine match boundaries.
     first_auto_ts = next((t for t, a in raw if a), None)
     last_auto_ts = next((t for t, a in reversed(raw) if a), None)
 
@@ -48,7 +45,6 @@ def analyze(path: Path) -> None:
     match_end = last_switch_to_manual_ts if last_switch_to_manual_ts is not None else last_auto_ts
     duration_s = (match_end - first_auto_ts) if (first_auto_ts and match_end) else 0.0
 
-    # Count only samples inside the match window for the percentage.
     match_samples = [
         (t, a)
         for t, a in raw

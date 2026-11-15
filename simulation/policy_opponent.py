@@ -56,8 +56,7 @@ class PolicyOpponent:
         latency_ticks: int,
         dt: float,
     ) -> None:
-        """`us` is our robot as a contact box; `others` the remaining opponents with a
-        hazard_radius, in the order `observe` hands their poses over."""
+        """Build the opponent plant against our robot and other opponents."""
         plant_cfg = PlantConfig(
             plant=PlantType.MUJOCO,
             mujoco=our_robot.mujoco,
@@ -88,8 +87,7 @@ class PolicyOpponent:
         self._others_velocity: list[tuple[float, float]] = []
 
     def observe(self, us: Pose, us_yaw_rate: float, others: list[Pose]) -> None:
-        """Our robot's footprint-centre pose and yaw rate, and the other opponents' poses, this
-        tick. Velocities come from the change since the last call."""
+        """Hand over this tick's poses of our robot and the other opponents."""
 
         def velocity(new: Pose, old: Pose | None) -> tuple[float, float]:
             if old is None:

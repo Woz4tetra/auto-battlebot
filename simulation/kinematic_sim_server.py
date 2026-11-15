@@ -102,10 +102,6 @@ TRACE_HEADER = (
     "goal_y",
 )
 
-# ---------------------------------------------------------------------------
-# Opponents
-# ---------------------------------------------------------------------------
-
 
 class Opponent:
     def __init__(
@@ -164,8 +160,7 @@ class Opponent:
         return any(math.hypot(x - hx, y - hy) < hr for hx, hy, hr in self._keep_out)
 
     def _push_out(self, x: float, y: float) -> tuple[float, float]:
-        """Nudge a position to the nearest hazard boundary. Used for spawns and for the
-        drag handler, where a caller can put the opponent anywhere."""
+        """Nudge a position to the nearest hazard boundary."""
         for hx, hy, hr in self._keep_out:
             dx, dy = x - hx, y - hy
             dist = math.hypot(dx, dy)
@@ -204,7 +199,6 @@ class Opponent:
 
     def step(self, dt: float) -> None:
         if self.policy is not None:
-            # The plant keeps driving while the viewer holds the opponent: place() ignores it.
             self.policy.step(dt)
             self.x, self.y, self.yaw = self.policy.pose()
             return
@@ -264,9 +258,7 @@ class Opponent:
 
 
 def _footprint_half_extent(cfg: OpponentConfig) -> tuple[float, float]:
-    """The opponent's footprint as half length and half width, which the trained behaviours keep
-    off the walls and stop at contact with our robot: the collision box when set, else a square
-    with the hazard radius as half-diagonal, else the Mrs Buff Mk3 footprint."""
+    """Opponent footprint half length and half width."""
     if len(cfg.collision_box) >= 2:
         return 0.5 * cfg.collision_box[0], 0.5 * cfg.collision_box[1]
     if cfg.hazard_radius > 0.0:
@@ -283,11 +275,6 @@ def _load_replay_csv(path: Path) -> list[Pose]:
         for row in reader:
             rows.append((float(row["x"]), float(row["y"]), float(row.get("yaw", 0.0))))
     return rows
-
-
-# ---------------------------------------------------------------------------
-# Perception emulation
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -370,18 +357,12 @@ class Perception:
         )
 
 
-# ---------------------------------------------------------------------------
-# Server
-# ---------------------------------------------------------------------------
-
-
 class KinematicServer:
     def __init__(self, cfg: KinematicSimConfig) -> None:
         self._cfg = cfg
         cam = cfg.camera
         fx, fy, cx, cy = fov_to_intrinsics(cam.fov, cam.res_width, cam.res_height)
         tf_matrix = camera_view_matrix(cam.pos, cam.lookat)
-        # Constant header fields; sim_time is appended per frame in _send_frame.
         self._header_const: tuple[float, ...] = (
             cam.res_width,
             cam.res_height,
@@ -418,7 +399,6 @@ class KinematicServer:
         self._homography = ground_plane_homography(
             tf_matrix, (fx, fy, cx, cy), self._world.metres_per_pixel(), cfg.viewer.window_px
         )
-        # Constant: the camera does not move and the floor does not either.
         self._depth = ground_plane_depth(tf_matrix, (fx, fy, cx, cy), cam.res_width, cam.res_height)
         self._rgb = np.zeros((cam.res_height, cam.res_width, 3), dtype=np.uint8)
 
@@ -556,7 +536,6 @@ class KinematicServer:
             data = recv_all(conn, REQUEST_SIZE)
             linear_x, _linear_y, angular_z = struct.unpack(REQUEST_FMT, data)
 
-            # Actuation latency: apply the command issued command_latency ago.
             self._cmd_buf.append((linear_x, angular_z))
             applied = self._cmd_buf[0]
             self._plant.set_moving_blocks(

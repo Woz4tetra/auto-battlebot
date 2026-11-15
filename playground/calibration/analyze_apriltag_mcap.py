@@ -43,7 +43,6 @@ import numpy as np
 from auto_battlebot.calibration.apriltag import apriltag_detect as ad
 from auto_battlebot.calibration.apriltag import apriltag_mcap as amcap
 
-# Sentinel for --overlay-mcap given with no argument: write next to the recording.
 OVERLAY_DEFAULT = object()
 
 # Upsample factor for robot-tag detection. The tag is ~40 px at 1080p and drops out during fast
@@ -70,12 +69,7 @@ def solve_floor(metadata: dict, path: Path, detector, k: np.ndarray, d: np.ndarr
 
 
 def solve_poses(metadata: dict, path: Path, tag_id: int, yaw_offset: float):
-    """Detect the robot tag in each /camera/image frame and solve its field-plane (t, x, y, yaw,
-    visible).
-
-    Returns (rows, r_fc, t_fc): the per-frame poses plus the floor extrinsic, which the overlay
-    writer needs to place the camera in the field frame.
-    """
+    """Detect the robot tag per frame and solve its field-plane pose."""
     k = np.asarray(metadata["camera_matrix"], dtype=np.float64).reshape(3, 3)
     d = np.asarray(metadata["dist_coeffs"], dtype=np.float64).reshape(-1, 1)
     detector = ad.make_detector()
@@ -112,14 +106,10 @@ def solve_poses(metadata: dict, path: Path, tag_id: int, yaw_offset: float):
             row = {"t": t, "x": pose[0], "y": pose[1], "yaw": pose[2], "z": z, "visible": 1}
         else:
             row = {"t": t, "x": None, "y": None, "yaw": None, "z": None, "visible": 0}
-        # Sticks are valid whether or not the tag was solved this frame, so attach them on every
-        # row.
         tx = channels_by_t.get(t)
         if tx is not None:
             row["sample_t"] = tx["sample_t"]
             row["channels"] = tx["channels"]
-        # The active --drive command is the most recent one sent at or before this frame (ZOH).
-        # Frames before the first command (the brief gap at recording start) get none.
         if cmd_t.size:
             ci = int(np.searchsorted(cmd_t, t, side="right")) - 1
             if ci >= 0:
@@ -168,7 +158,7 @@ def write_csv(path: Path, rows: list[dict]) -> None:
                 if "channels" in r:
                     row += [f"{r['sample_t']:.4f}"] + [str(c) for c in r["channels"]]
                 else:
-                    row += [""] * (1 + n_ch)  # frame predates the radio's first packet
+                    row += [""] * (1 + n_ch)
             if has_cmd:
                 if "cmd_lin" in r:
                     row += [
@@ -179,7 +169,7 @@ def write_csv(path: Path, rows: list[dict]) -> None:
                         r["label"],
                     ]
                 else:
-                    row += [""] * len(CMD_COLUMNS)  # frame predates the first issued command
+                    row += [""] * len(CMD_COLUMNS)
             writer.writerow(row)
 
 
@@ -217,7 +207,7 @@ def print_timing(rows: list[dict]) -> None:
     if len(ts) < 2:
         return
     dt = np.diff(ts)
-    dt = dt[dt > 0.0]  # guard against duplicate / non-monotonic stamps
+    dt = dt[dt > 0.0]
     if dt.size == 0:
         return
     med = float(np.median(dt))

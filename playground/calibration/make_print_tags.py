@@ -42,7 +42,7 @@ def save_pdf(img_gray: np.ndarray, px_per_mm: float, out: Path) -> None:
     lossless (no JPEG softening of the marker edges), and the file stays small.
     """
     dpi = px_per_mm * 25.4
-    pil = Image.fromarray(img_gray > 127)  # bool array -> mode "1", crisp and lossless
+    pil = Image.fromarray(img_gray > 127)
     out.parent.mkdir(parents=True, exist_ok=True)
     pil.save(out, "PDF", resolution=dpi)
     w_mm, h_mm = img_gray.shape[1] / px_per_mm, img_gray.shape[0] / px_per_mm

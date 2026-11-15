@@ -1,11 +1,4 @@
-"""Lump the Mr Stabs Mk2 Onshape export into three bodies and write mass_properties.toml.
-
-Chassis, left wheel and right wheel, in the FLU body frame at the axle midpoint, plus the
-tag-to-body transforms for tags 41 and 76 and the drivetrain constants. The MJCF builder and
-the tag pose smoother both read the output.
-
-    python playground/calibration/lump_mr_stabs_mass_properties.py
-"""
+"""Lump the Mr Stabs Mk2 Onshape export into three bodies."""
 
 from __future__ import annotations
 
@@ -85,7 +78,7 @@ def main() -> None:
     wheels = [
         assembly.lumped(assembly.wheel_links(j)).transformed(rot, trans) for j in WHEEL_JOINTS
     ]
-    wheels.sort(key=lambda w: -w.com[1])  # left (+y) first
+    wheels.sort(key=lambda w: -w.com[1])
     total_asm = MassBody(
         mass=ONSHAPE_MASS_G * 1e-3,
         com=np.array(ONSHAPE_COM_MM) * 1e-3,

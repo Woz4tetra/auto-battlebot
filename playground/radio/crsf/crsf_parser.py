@@ -33,7 +33,7 @@ class CrsfParser:
             if not (2 <= frame_length <= 64):
                 buffer = buffer[1:]
                 continue
-            frame_length += 2  # Add 2 bytes for CRC
+            frame_length += 2
             if len(buffer) < frame_length:
                 break
             if result := self._parse_single_packet(buffer[:frame_length]):

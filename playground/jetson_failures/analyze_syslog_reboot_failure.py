@@ -1,12 +1,5 @@
 #!/usr/bin/env python3
-"""Analyze syslog and extract possible failure events before reboot.
-
-Designed for cases where a lockup required power cycling:
-it detects reboot markers, then inspects the pre-reboot window for clues.
-
-Example:
-  python3 playground/analyze_syslog_reboot_failure.py ~/Desktop/syslog_dump
-"""
+"""Extract likely failure events before each reboot in a syslog dump."""
 
 from __future__ import annotations
 

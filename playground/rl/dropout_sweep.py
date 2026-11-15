@@ -32,7 +32,7 @@ def run(checkpoint: Path, roles: tuple[int, ...], stretch: float, worlds: int, s
     env = WarpNavEnv(WarpNavConfig(worlds=worlds, stage="EVAL"), "cuda", seed=seed)
     measure = env.measure
     for sampler in measure._samplers:
-        if hasattr(sampler, "dropout_enabled"):  # sensing files that can switch dropouts off
+        if hasattr(sampler, "dropout_enabled"):
             sampler.dropout_enabled = True
     advance = measure._advance_dropout
 

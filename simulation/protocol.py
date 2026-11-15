@@ -19,7 +19,7 @@ RESPONSE_HEADER_SIZE: int = struct.calcsize(RESPONSE_HEADER_FMT)
 #   First entry = our robot, rest = opponents in config order.
 GT_POSE_FMT: str = "<ddd"  # x, y, yaw per robot (3 x float64 = 24 bytes)
 GT_POSE_SIZE: int = struct.calcsize(GT_POSE_FMT)
-GT_COUNT_FMT: str = "<I"  # uint32 num_robots
+GT_COUNT_FMT: str = "<I"
 GT_COUNT_SIZE: int = struct.calcsize(GT_COUNT_FMT)
 
 # After the ground truth: what perception delivered this tick, from the sensing model
@@ -30,7 +30,7 @@ MEAS_HEADER_SIZE: int = struct.calcsize(MEAS_HEADER_FMT)
 MEAS_POSE_FMT: str = "<dddd"  # measured, x, y, yaw
 MEAS_POSE_SIZE: int = struct.calcsize(MEAS_POSE_FMT)
 
-_SOCK_BUF_SIZE: int = 4 * 1024 * 1024  # 4 MiB
+_SOCK_BUF_SIZE: int = 4 * 1024 * 1024
 
 
 def configure_socket(sock: socket.socket) -> None:
