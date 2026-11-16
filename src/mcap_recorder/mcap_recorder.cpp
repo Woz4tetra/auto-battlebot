@@ -159,8 +159,6 @@ bool McapRecorder::past_size_limit() const {
         path = file_path_;
         max_size_bytes = max_size_bytes_;
     }
-    // Outside the lock: a stat is I/O. The writer thread may not have created a new file yet, so
-    // a missing file reads as under the limit.
     std::error_code ec;
     const auto size = std::filesystem::file_size(path, ec);
     return !ec && size >= max_size_bytes;
@@ -211,8 +209,6 @@ void McapRecorder::write(ChannelId channel, const std::byte* data, size_t len,
         if (ignored_topics_.count(channel_specs_[channel - 1].topic) != 0) return;
         const size_t cap = len > kLargeMessageBytes ? kMaxQueuedLargeBytes : kMaxQueuedBytes;
         if (queued_bytes_ + len > cap) {
-            // Counted here and reported by the writer thread. write() runs inside the log sink,
-            // so it must never log.
             ++dropped_messages_;
             return;
         }
@@ -253,8 +249,6 @@ void McapRecorder::writer_loop() {
             work_cv_.wait(lock, [this] { return stop_ || (!queue_.empty() && !paused_for_test_); });
             if (queue_.empty()) break;
             batch.swap(queue_);
-            // queued_bytes_ keeps counting the batch until it is written, so the cap bounds
-            // everything in memory, not only what is waiting.
             batch_bytes = queued_bytes_;
             batch_seq = queued_seq_;
         }
@@ -297,7 +291,6 @@ void McapRecorder::handle(OpenOp& op) {
     if (!writer.has_value()) {
         {
             std::lock_guard<std::mutex> lock(mutex_);
-            // Only if no later toggle has already moved recording on to another file.
             if (file_path_ == op.path && enabled_) {
                 enabled_ = false;
                 enabled_hint_.store(false);
@@ -406,8 +399,6 @@ void McapRecorder::enforce_holding_dir_size(const std::filesystem::path& directo
     std::error_code ec;
     if (!std::filesystem::exists(directory, ec)) return;
 
-    // error_code overloads throughout: this runs on the writer thread, where an exception from a
-    // file vanishing mid-scan would terminate the app.
     struct Entry {
         std::filesystem::path path;
         std::filesystem::file_time_type mtime;

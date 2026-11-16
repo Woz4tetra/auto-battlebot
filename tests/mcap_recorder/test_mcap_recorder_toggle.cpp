@@ -9,9 +9,11 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <future>
 #include <map>
 #include <mcap/reader.hpp>
+#include <memory>
 #include <set>
 #include <string>
 #include <thread>
@@ -62,6 +64,33 @@ VizSchema empty_json_schema() {
     schema.data = "{}";
     return schema;
 }
+
+class HookSink : public spdlog::sinks::sink {
+   public:
+    explicit HookSink(std::function<void(const std::string &)> hook) : hook_(std::move(hook)) {}
+    void log(const spdlog::details::log_msg &msg) override {
+        hook_(std::string(msg.payload.data(), msg.payload.size()));
+    }
+    void flush() override {}
+    void set_pattern(const std::string &) override {}
+    void set_formatter(std::unique_ptr<spdlog::formatter>) override {}
+
+   private:
+    std::function<void(const std::string &)> hook_;
+};
+
+class ScopedHookLogger {
+   public:
+    explicit ScopedHookLogger(std::function<void(const std::string &)> hook)
+        : previous_(spdlog::default_logger()) {
+        spdlog::set_default_logger(
+            std::make_shared<spdlog::logger>("hook", std::make_shared<HookSink>(std::move(hook))));
+    }
+    ~ScopedHookLogger() { spdlog::set_default_logger(previous_); }
+
+   private:
+    std::shared_ptr<spdlog::logger> previous_;
+};
 
 }  // namespace
 
@@ -317,6 +346,107 @@ TEST_F(McapRecorderToggleTest, FullQueueDropsVideoAndKeepsStatus) {
     FileContents contents = read_file(path);
     EXPECT_EQ(contents.count_by_topic["/camera/video"], static_cast<int>(frames_that_fit));
     EXPECT_EQ(contents.count_by_topic["/status/system"], kFrames * kStatusPerFrame);
+    recorder.close();
+}
+
+TEST_F(McapRecorderToggleTest, PastSizeLimitIsFalseWhileTheNewFileIsNotCreatedYet) {
+    McapRecorder recorder("toggle_limit_test");
+    recorder.set_size_limits(1, 0);
+    recorder.set_enabled(false);
+    recorder.flush();
+    McapRecorderTestAccess::hold_writer(recorder, true);
+    recorder.set_enabled(true);
+    paths_.push_back(recorder.file_path());
+    EXPECT_FALSE(std::filesystem::exists(recorder.file_path()));
+    EXPECT_FALSE(recorder.past_size_limit());
+    McapRecorderTestAccess::hold_writer(recorder, false);
+    recorder.close();
+}
+
+TEST_F(McapRecorderToggleTest, DroppingAMessageNeverLogs) {
+    McapRecorder recorder("toggle_drop_log_test");
+    const auto video = recorder.open_channel("/camera/video", "json", empty_json_schema());
+    paths_.push_back(recorder.file_path());
+    recorder.flush();
+    McapRecorderTestAccess::hold_writer(recorder, true);
+    std::atomic<int> logged{0};
+    {
+        ScopedHookLogger hook([&logged](const std::string &) { ++logged; });
+        const std::vector<std::byte> frame(1 << 20, std::byte{0x11});
+        for (int i = 0; i < 200; ++i) recorder.write(video, frame.data(), frame.size(), 1 + i);
+        EXPECT_GT(recorder.dropped_messages(), 0u);
+        EXPECT_EQ(logged.load(), 0);
+    }
+    McapRecorderTestAccess::hold_writer(recorder, false);
+    recorder.close();
+}
+
+TEST_F(McapRecorderToggleTest, QueueCapCountsBytesUntilTheBatchIsWritten) {
+    McapRecorder recorder("toggle_inflight_test");
+    const auto video = recorder.open_channel("/camera/video", "json", empty_json_schema());
+    recorder.set_enabled(false);
+    recorder.flush();
+    McapRecorderTestAccess::hold_writer(recorder, true);
+    recorder.set_enabled(true);
+    paths_.push_back(recorder.file_path());
+
+    const std::vector<std::byte> frame(1 << 20, std::byte{0x11});
+    for (int i = 0; i < 100; ++i) recorder.write(video, frame.data(), frame.size(), 1 + i);
+    ASSERT_EQ(recorder.dropped_messages(), 0u);
+
+    std::promise<void> writer_inside_batch;
+    std::promise<void> release_writer;
+    std::atomic<bool> blocked{false};
+    auto release = release_writer.get_future().share();
+    {
+        ScopedHookLogger hook([&](const std::string &message) {
+            if (message.find("Recording to") == std::string::npos || blocked.exchange(true)) return;
+            writer_inside_batch.set_value();
+            release.wait();
+        });
+        auto inside = writer_inside_batch.get_future();
+        McapRecorderTestAccess::hold_writer(recorder, false);
+        ASSERT_EQ(inside.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+        for (int i = 0; i < 100; ++i) recorder.write(video, frame.data(), frame.size(), 200 + i);
+        EXPECT_GT(recorder.dropped_messages(), 0u);
+        release_writer.set_value();
+        recorder.flush();
+    }
+    recorder.close();
+}
+
+TEST_F(McapRecorderToggleTest, AFailedOpenOfAnOlderFileLeavesTheNewerRecordingOn) {
+    McapRecorder recorder("toggle_late_failure_test");
+    recorder.set_enabled(false);
+    recorder.flush();
+    McapRecorderTestAccess::hold_writer(recorder, true);
+    recorder.set_enabled(true);
+    const std::filesystem::path doomed = recorder.file_path();
+    std::filesystem::create_directories(doomed);
+    paths_.push_back(doomed);
+    recorder.set_enabled(false);
+    recorder.set_enabled(true);
+    ASSERT_NE(recorder.file_path(), doomed);
+    paths_.push_back(recorder.file_path());
+    McapRecorderTestAccess::hold_writer(recorder, false);
+    recorder.flush();
+    EXPECT_TRUE(recorder.is_enabled());
+    recorder.close();
+}
+
+TEST_F(McapRecorderToggleTest, HoldingDirectoryScanSurvivesAnUnreadableEntry) {
+    McapRecorder recorder("toggle_scan_test");
+    const std::filesystem::path loop = recorder.file_path().parent_path() / "zz_symlink_loop.mcap";
+    std::error_code ec;
+    std::filesystem::create_symlink(loop.filename(), loop, ec);
+    ASSERT_FALSE(ec);
+    paths_.push_back(loop);
+    recorder.set_size_limits(0, 1);
+    recorder.set_enabled(false);
+    recorder.set_enabled(true);
+    paths_.push_back(recorder.file_path());
+    recorder.flush();
+    EXPECT_TRUE(recorder.is_enabled());
     recorder.close();
 }
 
