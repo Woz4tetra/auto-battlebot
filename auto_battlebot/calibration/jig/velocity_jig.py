@@ -16,10 +16,6 @@ DEG_TO_RAD = np.pi / 180.0
 
 RAW_SATURATION = 32000
 
-# Accelerometer gate, in g rather than raw counts. A raw threshold means a different physical
-# acceleration on every range the firmware runs: 32000 counts is 7.81 g on the 8 g range and
-# 15.62 g on the 16 g one, so the same number silently changed what the gate meant when the
-# range went up. Anything past 15 g on this robot is an impact or a hard landing.
 ACCEL_SATURATION_G = 15.0
 
 AXIS_NAMES = ("x", "y", "z")
@@ -39,19 +35,12 @@ WAVEFORM_KINDS = (
 CHANNELS = ("linear", "angular", "combined")
 ROLES = ("fit", "holdout")
 
-# Sidecar metadata format. Checked on load: reading a future file as if it were this
-# version is how a silently wrong fit happens.
 SIDECAR_SCHEMA = 1
 
 
 @dataclass(frozen=True)
 class JigHeader:
-    """Scale factors the firmware wrote into the log header.
-
-    Defaults match `firmware/velocity_jig/include/config.h` at the time of writing. A log that
-    carries its own header always wins: the ranges change (2000 -> 4000 dps for the spin runs)
-    and a stale default would rescale every sample by 2x without complaining.
-    """
+    """Scale factors the firmware wrote into the log header."""
 
     sample_rate_hz: float = 1000.0
     gyro_dps_per_lsb: float = 0.070
@@ -67,13 +56,7 @@ class JigHeader:
 
     @property
     def accel_raw_limit(self) -> float:
-        """Raw count past which an accel sample is not worth fitting through.
-
-        `ACCEL_SATURATION_G` where the range can reach it, the rail otherwise. On the 8 g range
-        15 g sits at 61475 counts, past int16, so a bare conversion would produce a gate that
-        can never fire. Falling back to `RAW_SATURATION` keeps clip detection on those logs,
-        which is the only thing an 8 g recording can tell you about a 15 g event anyway.
-        """
+        """Raw count past which an accel sample is not worth fitting through."""
         return min(ACCEL_SATURATION_G / self.accel_g_per_lsb, RAW_SATURATION)
 
 
@@ -174,12 +157,7 @@ def _parse_header(lines: Iterable[str]) -> JigHeader:
 
 
 def read_jig_log(path: Path | str) -> JigLog:
-    """Read one jig log into physical units.
-
-    Rows that do not parse are counted and dropped rather than raising. A log whose tail was
-    truncated by a power cut is still worth the 30 seconds before the cut, and the count shows up
-    in the run report so a partially unreadable file cannot pass as a clean one.
-    """
+    """Read one jig log into physical units."""
     path = Path(path)
     header_lines: list[str] = []
     rows: list[list[int]] = []
@@ -217,11 +195,6 @@ def read_jig_log(path: Path | str) -> JigLog:
     malformed += interior_bad
     data = data[good]
 
-    # A single bad row at the very end is a half-written line, not corruption: the board lost
-    # power or reset between the write and the flush, and the card kept the sector with a NUL
-    # tail. Everything before it parsed. Separating the two lets the run gate on real damage
-    # without throwing away a complete recording over its last millisecond. LOG-119 was
-    # discarded for exactly one such row out of 239,647.
     tail_only = malformed == 1 and interior_bad == 0 and last_bad == index
 
     return JigLog(
@@ -284,8 +257,6 @@ def _bridge_blips(mask: np.ndarray, max_run: int) -> np.ndarray:
     starts = np.concatenate([[idx[0]], idx[breaks + 1]])
     stops = np.concatenate([idx[breaks], [idx[-1]]]) + 1
     for a, b in zip(starts.tolist(), stops.tolist()):
-        # Only interior runs. A leading or trailing violation is the boundary of the hold,
-        # not a blip inside it, and bridging it would extend the segment into real motion.
         if b - a <= max_run and a > 0 and b < len(mask):
             out[a:b] = True
     return np.asarray(out, dtype=bool)
@@ -445,9 +416,7 @@ class ClockFit:
 
     @classmethod
     def identity(cls) -> ClockFit:
-        """No probe available. Jig time is used as host time, so the fitted delay absorbs the
-        offset. Callers must report this: a delay fit on an identity clock is not a measurement
-        of transport delay."""
+        """No probe available. Jig time is used as host time."""
         return cls(offset_ms=0.0, measured=False)
 
     @classmethod
@@ -533,13 +502,7 @@ class PauseWindow:
 def pause_windows_from_commands(
     cmd_t: np.ndarray, program_t: Sequence[float] = (), min_gap_s: float = 0.5
 ) -> list[PauseWindow]:
-    """Recover pause windows from a gap in the command stream.
-
-    The runner stops sending while the operator resets the robot, so a pause is a hole in
-    the command timestamps an order of magnitude wider than the 20 ms tick. This is the only
-    way to place the pauses of a run captured before the windows were written out, and it
-    agrees with the recorded hold times to within a tick.
-    """
+    """Recover pause windows from a gap in the command stream."""
     if len(cmd_t) < 2:
         return []
     gaps = np.flatnonzero(np.diff(np.asarray(cmd_t, dtype=float)) > min_gap_s)
@@ -603,13 +566,7 @@ class WaveformSpec:
         channels: Sequence[str] | None = None,
         roles: Sequence[str] | None = None,
     ) -> bool:
-        """None means any. Channel matching is exact on purpose.
-
-        A combined grid run is not a linear run. Letting one through would feed coupled
-        segments to the linear deadzone fit, which reads the first command level that
-        produces motion and would find it early because the angular channel was also
-        pushing.
-        """
+        """None means any. Channel matching is exact."""
         if kinds is not None and self.kind not in kinds:
             return False
         if channels is not None and self.channel not in channels:
@@ -728,10 +685,6 @@ class Session:
     encoder_rate_limit: float | None = None
     provenance: dict[str, Any] = field(default_factory=dict)
     runs: list[RunRecord] = field(default_factory=list)
-    # Logs the drive CLI downloaded but never annotated, usually because it crashed or was
-    # interrupted between the download and the sidecar write. Reported rather than dropped:
-    # the data is recoverable by hand and a silently vanishing run is how a session ends up
-    # short without anyone noticing.
     orphans: list[str] = field(default_factory=list)
 
     def select(
@@ -749,11 +702,7 @@ class Session:
 
 
 def _read_command_rows(path: Path) -> tuple[list[str], list[list[float]]]:
-    """Column names from the `# columns:` header, and every well-formed numeric row.
-
-    Rows whose width or contents do not match the header are skipped rather than raised on:
-    a run killed mid-write leaves a torn final line, and that should not lose the run.
-    """
+    """Column names from the `# columns:` header, and every well-formed numeric row."""
     names: list[str] = []
     rows: list[list[float]] = []
     with open(path, "r", encoding="utf-8") as handle:
@@ -792,8 +741,6 @@ def read_command_log(path: Path | str) -> dict[str, np.ndarray]:
     data = np.array(rows, dtype=float)
     out = {name: data[:, i] for i, name in enumerate(names)}
 
-    # A host clock can step backwards; jig microseconds cannot. A stepped command log
-    # misaligns every window in the run, and it does so quietly, so refuse it here.
     t = out.get("t_host_s")
     if t is None:
         raise ValueError(f"{path}: no t_host_s column")
@@ -968,8 +915,6 @@ def _moving_average(a: np.ndarray, window: int) -> np.ndarray:
     if window < 2 or len(a) < window:
         return a
     kernel = np.ones(window) / window
-    # Edge-pad so the ends are not pulled toward zero, which would fake a decel at both ends of
-    # every run.
     pad = window // 2
     padded = np.concatenate([np.full(pad, a[0]), a, np.full(window - 1 - pad, a[-1])])
     return np.convolve(padded, kernel, mode="valid")
@@ -992,11 +937,7 @@ class GroundTruth:
     clock: ClockFit
 
     def closure_error(self) -> tuple[float, float]:
-        """(position error, path length) between the run's start and end, both meters.
-
-        The runbook excludes a run whose closure error exceeds 1% of path length. Only meaningful
-        on E19 loops that were driven back to the same tape mark.
-        """
+        """(position error, path length) between the run start and end, both meters."""
         ds = np.abs(self.v[:-1]) * np.diff(self.t)
         path_len = float(np.sum(ds))
         err = float(np.hypot(self.x[-1] - self.x[0], self.y[-1] - self.y[0]))
@@ -1042,8 +983,6 @@ def solve_ground_truth(
         v = _moving_average(rate, window) - w * calib.r_enc_perp
         v_raw = _moving_average(rate, onset_window) - w * calib.r_enc_perp
     else:
-        # Detached encoder. Heading is still measured; forward speed is not, and the caller has
-        # to treat this run as angular-only rather than as a run that stood still.
         v = np.zeros(n)
 
     x = np.concatenate([[0.0], np.cumsum(0.5 * (v[1:] + v[:-1]) * np.cos(theta[:-1]) * dt[1:])])
@@ -1221,13 +1160,7 @@ class Run:
 
 
 def zoh(src_t: np.ndarray, src_v: np.ndarray, dst_t: np.ndarray) -> np.ndarray:
-    """Zero-order-hold resample. Commands are piecewise constant, so this is exact for them.
-
-    Outside the command log the value is zero, not the nearest command held forever. Before the
-    first command the robot is idle, and after the last one the runner has zeroed the channels
-    and disarmed. Holding the last command through the closing still hold would tell the fit the
-    robot was being driven at full command while it sat on the floor.
-    """
+    """Zero-order-hold resample, zero outside the command log."""
     if len(src_t) == 0:
         return np.zeros(len(dst_t))
     idx = np.clip(np.searchsorted(src_t, dst_t, side="right") - 1, 0, len(src_v) - 1)

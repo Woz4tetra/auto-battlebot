@@ -13,7 +13,6 @@ from serial.tools.list_ports import comports
 
 from auto_battlebot.calibration.jig.velocity_jig import PauseWindow
 
-# Matches kChannelMax / kTrainerMax in opentx_transmitter.cpp.
 TRAINER_MAX = 500
 OPENTX_VID = 0x0483
 OPENTX_PID = 0x5740
@@ -42,13 +41,7 @@ def to_trainer(value: float) -> int:
 
 @dataclass(frozen=True)
 class MixConfig:
-    """How body command maps onto the two trainer channels, and how to read it back.
-
-    `mode` is "tank" when the robot runs TankDriveProcessor and the radio must carry left
-    and right wheel, or "direct" when the robot's own processor mixes and the channels carry
-    linear and angular. Getting this backwards makes the robot arc on a straight command and
-    spin on a turn, which is why the polarity check exists as a session abort gate.
-    """
+    """How a body command maps onto the two trainer channels, and how to read it back."""
 
     mode: str = "tank"
     reverse_angular: bool = True
@@ -73,27 +66,13 @@ class MixConfig:
         ang = -angular if self.reverse_angular else angular
         if self.mode != "tank":
             return to_trainer(linear), to_trainer(ang)
-        # Angular has priority: saturate it first, then give the forward command whatever
-        # authority is left. A turn that gets clipped instead is a turn the fit sees as
-        # commanded but never delivered.
         ang = max(-1.0, min(1.0, ang))
         room = 1.0 - abs(ang)
         lin = max(-room, min(room, linear))
         return to_trainer(lin + ang), to_trainer(lin - ang)
 
     def deliverable(self, linear: float, angular: float) -> tuple[float, float]:
-        """What `to_channels` will actually send, back in body units.
-
-        `to_channels` clips before it mixes: angular gets priority and linear is left with
-        `1 - |angular|` of authority. A cell that asks for more than that comes back short
-        through no fault of the driver, so the contamination check has to compare the
-        readback against this rather than against the request. It cost LOG-71: every cell
-        over the bar had `tgt_lin = 1.0` against the 0.24 angular cap, so the mix sent 0.76
-        and the check read the 0.24 clip as a leaning stick.
-
-        Sign does not enter it. `to_channels` negates angular under `reverse_angular` before
-        clipping, and the clip depends only on the magnitude.
-        """
+        """What `to_channels` will actually send, back in body units."""
         ang = max(-1.0, min(1.0, angular))
         if self.mode != "tank":
             return max(-1.0, min(1.0, linear)), ang
@@ -146,7 +125,6 @@ class _ChannelDecoder:
         while True:
             i = self._buf.find(_SYNC)
             if i < 0:
-                # Keep the last two bytes: a three-byte sync can straddle two reads.
                 if len(self._buf) > 2:
                     del self._buf[: len(self._buf) - 2]
                 break
@@ -234,11 +212,7 @@ class TrainerLink:
             return self._packets
 
     def measured_raw(self) -> list[float]:
-        """Every channel, normalized by channel_scale and otherwise untouched.
-
-        `measured()` applies the mix and the read inversions; this is what they are inferred
-        from, so it must stay raw.
-        """
+        """Every channel, normalized by channel_scale and otherwise untouched."""
         with self._lock:
             if self._packets == 0:
                 return []
@@ -304,10 +278,6 @@ class PlayResult:
     # only what it was asked for. Optional so an old caller still builds a usable result,
     # with the pre-2026-08-23 behaviour of comparing against the raw request.
     mix: MixConfig | None = None
-    # True for a hand-driven run. The contamination check asks whether the radio sent
-    # something other than what was scripted, and on a manual run nothing is scripted: the
-    # divergence between the zero target and the human's sticks IS the recording. Checking it
-    # reports 1.000 every time and discards the one run that tests real driving.
     manual: bool = False
 
     # Ticks to ignore after the command changes. The radio reports its mixer output on its
@@ -317,20 +287,7 @@ class PlayResult:
 
     @property
     def contamination(self) -> float:
-        """How far the radio's own report of what it sent diverges from what we asked for.
-
-        Trainer mode sums the scripted command with the human's sticks, so a persistent gap
-        means a second, unlogged input is in the run. Anything above roughly 0.05 is worth
-        discarding over.
-
-        Measured over held stretches only, and reported as a high percentile rather than the
-        maximum. Both matter: comparing sample-by-sample across a step edge measures the
-        radio's reporting lag, and a single outlying tick is not evidence of a leaning stick.
-
-        The comparison is against what the mix could deliver, not against what was asked for.
-        A grid cell that asks for more authority than the mix has left gets clipped on the
-        way out, and calling that clip a leaning stick discarded LOG-71 on 2026-08-20.
-        """
+        """How far the radio report of what it sent diverges from what we asked for."""
         if self.manual:
             return 0.0
         diffs = []
@@ -367,22 +324,7 @@ def play(
     pause_at: Sequence[float] | None = None,
     on_pause: Callable[[int, int], None] | None = None,
 ) -> PlayResult:
-    """Play one excitation program, logging every tick on CLOCK_MONOTONIC.
-
-    `trim` is added to the angular channel and recorded in its own column. It is never a
-    hidden offset: a trimmed straight run is a two-input excitation, and a fit that does not
-    know about the second input attributes its effect to the first.
-
-    `pause_at` lists program times to stop at, and `on_pause(index, count)` blocks there
-    until the operator is done. The channels are zeroed first, the program clock and the
-    timeout both stop for the duration, and the excitation resumes on the exact command it
-    was about to send. Nothing is logged while stopped, so the command log has a gap that a
-    zero-order hold reads as the zero command it was: the last tick before a pause always
-    lands in a rest cell.
-
-    The caller owns disarm. This returns on completion, on `stop_event`, or on the hard
-    timeout, and in every case the last thing it sends is a zero command.
-    """
+    """Play one excitation program, logging every tick on CLOCK_MONOTONIC."""
     result = PlayResult(mix=link.mix)
     period = 1.0 / rate_hz
     pending = sorted(float(p) for p in pause_at) if (pause_at and on_pause) else []
@@ -404,9 +346,6 @@ def play(
                 break
             if on_pause is not None and pending and elapsed >= pending[0]:
                 at = pending.pop(0)
-                # Zero the channels before anyone walks up to the robot. The check sits ahead
-                # of the send below, so the cell after the pause has not started yet and no
-                # drive command reaches the robot while a hand is on it.
                 link.disarm()
                 held = time.monotonic()
                 on_pause(count - len(pending), count)
@@ -454,12 +393,7 @@ def _label_at(program: Any, t: float) -> str:
 
 
 class Armed:
-    """Context manager that guarantees a disarm.
-
-    Every exit path goes through __exit__: normal return, exception, and Ctrl-C, since
-    KeyboardInterrupt is an exception. The runbook asks the operator to verify this once per
-    session with a deliberate Ctrl-C before trusting the rest of the day.
-    """
+    """Context manager that guarantees a disarm."""
 
     def __init__(self, link: TrainerLink) -> None:
         self._link = link
