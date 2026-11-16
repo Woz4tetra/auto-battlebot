@@ -86,7 +86,6 @@ class RecordingTransmitter : public TransmitterInterface {
     int update_calls = 0;
 };
 
-/** Records the mode each get_target() call received; selects nothing. */
 class RecordingTargetSelector : public TargetSelectorInterface {
    public:
     std::optional<TargetSelection> get_target(const RobotDescriptionsStamped &,
@@ -206,7 +205,6 @@ void expect_robots_equal(const RobotDescriptionsStamped &a, const RobotDescripti
 TEST(ControlLoopTest, SteppedZeroRateMatchesInlineSequence) {
     const auto measurements = make_measurements(200);
 
-    // Reference: the single-threaded order, written out inline.
     std::vector<VelocityCommand> reference_commands;
     std::vector<RobotDescriptionsStamped> reference_robots;
     {
@@ -231,7 +229,6 @@ TEST(ControlLoopTest, SteppedZeroRateMatchesInlineSequence) {
         reference_commands = transmitter.sent;
     }
 
-    // Under test: the same components driven through the control loop at rate_hz = 0.
     std::vector<VelocityCommand> loop_commands;
     std::vector<RobotDescriptionsStamped> loop_robots;
     {
@@ -339,7 +336,6 @@ TEST(ControlLoopTest, MeasurementIsCorrectedExactlyOnce) {
     driver.advance_to(measurements[0].keypoints.header.stamp);
     const auto after_first = loop->latest_output().robots;
 
-    // No new measurement: further cycles predict only and must not refold the last correction.
     driver.advance_to(measurements[0].keypoints.header.stamp);
     driver.advance_to(measurements[0].keypoints.header.stamp);
     const auto after_extra_cycles = loop->latest_output().robots;
@@ -450,7 +446,6 @@ TEST(ControlLoopTest, TargetOverrideBypassesSelectorUntilCleared) {
     EXPECT_DOUBLE_EQ(held.target.pose.x, 0.4);
     EXPECT_DOUBLE_EQ(held.target.pose.y, -0.3);
     EXPECT_EQ(held.target.label, Label::EMPTY);
-    // The held point still carries the mode navigation steers under.
     EXPECT_EQ(held.target.mode, BehaviorMode::RUN_AWAY);
 
     loop->set_target_override(std::nullopt);

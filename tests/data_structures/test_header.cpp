@@ -5,7 +5,6 @@
 namespace auto_battlebot {
 TEST(HeaderTest, DefaultConstruction) {
     Header header;
-    // Test that we can construct a Header
     EXPECT_EQ(header.stamp, 0.0);
     EXPECT_EQ(header.frame_id, FrameId::EMPTY);
 }

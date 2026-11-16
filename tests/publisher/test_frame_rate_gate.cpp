@@ -11,7 +11,6 @@ using Clock = FrameRateGate::Clock;
 using std::chrono::duration;
 using std::chrono::duration_cast;
 
-/** Frames let through out of `seconds` of a source at `source_hz`. */
 int admitted(FrameRateGate &gate, double source_hz, double seconds, Clock::time_point start = {}) {
     int count = 0;
     const int frames = static_cast<int>(source_hz * seconds);

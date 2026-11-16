@@ -243,7 +243,7 @@ def test_reverse_uses_its_own_along_bias() -> None:
     pos["bias_along_reverse_m"] = [0.0, 0.013]
     model = MeasurementModel(_spec(d), ["opponent"], worlds=2, randomize=False)
     truth = _truth(2, 1, speed=1.0)
-    truth.velocity[1] *= -1.0  # world 1 drives backwards along its heading
+    truth.velocity[1] *= -1.0
     xy = model._noisy_pose(model._samplers[0], truth, 0, torch.zeros(2, dtype=torch.bool))[0]
     torch.testing.assert_close(
         xy[:, 0] - truth.xy[:, 0, 0], torch.tensor([0.004, 0.013], dtype=torch.float64)

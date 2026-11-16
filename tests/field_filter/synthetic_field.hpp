@@ -53,7 +53,6 @@ inline Eigen::Matrix4d camera_pose(double range, double tilt_deg, double yaw_deg
     rotation_field_from_camera.col(1) = down;
     rotation_field_from_camera.col(2) = forward;
 
-    // Spin the field about its own vertical, so the rectangle is not axis-aligned in the image.
     const double yaw = yaw_deg * M_PI / 180.0;
     Eigen::Matrix3d spin = Eigen::Matrix3d::Identity();
     spin(0, 0) = std::cos(yaw);
@@ -98,7 +97,6 @@ inline std::vector<Eigen::Vector3d> field_outline_points(double size_x, double s
     return points;
 }
 
-/** Project field-plane points into the image. */
 inline std::vector<cv::Point> project(const std::vector<Eigen::Vector3d> &points,
                                       const Eigen::Matrix4d &tf_camera_from_fieldcenter,
                                       const Eigen::Matrix3d &intrinsics) {
@@ -115,7 +113,6 @@ inline std::vector<cv::Point> project(const std::vector<Eigen::Vector3d> &points
     return projected;
 }
 
-/** A filled field mask as the segmentation model would produce it. */
 inline cv::Mat render_field_mask(const Eigen::Matrix4d &tf_camera_from_fieldcenter,
                                  const Eigen::Matrix3d &intrinsics, cv::Size image_size,
                                  double size_x, double size_y, double corner_radius = 0.0) {

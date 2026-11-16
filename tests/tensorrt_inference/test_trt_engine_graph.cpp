@@ -24,8 +24,6 @@ std::filesystem::path find_engine() {
     return {};
 }
 
-// The CUDA graph must reproduce the plain enqueue exactly, and the device-input path must match
-// the host-input path, or inference changes silently when the graph takes over.
 TEST(TrtEngineGraphTest, GraphAndDeviceInputMatchPlainExecute) {
     const std::filesystem::path engine_path = find_engine();
     if (engine_path.empty()) GTEST_SKIP() << "no keypoint engine for this machine";
@@ -41,7 +39,6 @@ TEST(TrtEngineGraphTest, GraphAndDeviceInputMatchPlainExecute) {
     std::uniform_real_distribution<float> dist(0.0f, 1.0f);
     for (float &v : input) v = dist(rng);
 
-    // First run is plain enqueue; the graph is captured right after it.
     std::vector<float> plain(static_cast<size_t>(engine.getOutputNumElements()));
     ASSERT_TRUE(engine.execute(input.data(), plain.data()));
     EXPECT_TRUE(engine.uses_cuda_graph());

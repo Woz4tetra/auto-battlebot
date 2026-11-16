@@ -21,7 +21,6 @@
 namespace auto_battlebot {
 namespace {
 
-// Minimal stand-in for the relay: one listening unix socket, one accepted client.
 class FakeRelay {
    public:
     explicit FakeRelay(const std::string& path) : path_(path) {
@@ -48,7 +47,6 @@ class FakeRelay {
         return client_fd_ >= 0;
     }
 
-    // Reads one full frame (body without the length prefix).
     bool read_frame(std::vector<std::byte>& body, std::chrono::milliseconds timeout) {
         timeval tv{};
         tv.tv_sec = static_cast<long>(timeout.count() / 1000);
@@ -77,7 +75,6 @@ class FakeRelay {
         client_fd_ = -1;
     }
 
-    /** Accepts and closes connections until `duration` passes. Returns how many came in. */
     int refuse_for(std::chrono::milliseconds duration) {
         int accepted = 0;
         const auto deadline = std::chrono::steady_clock::now() + duration;
@@ -229,8 +226,6 @@ TEST(VizSinkTest, DeliversClientMessagesToHandler) {
     EXPECT_EQ(topic, "/reinit_field");
 }
 
-// A relay that stops reading fills the socket. Commands coming the other way must still arrive,
-// the sink must still shut down, and after the stall timeout it drops the connection.
 TEST(VizSinkTest, StalledRelayStillDeliversCommandsAndLetsGo) {
     const auto path = test_socket_path();
     FakeRelay relay(path);
@@ -276,7 +271,6 @@ TEST(VizSinkTest, ShutsDownWhileTheRelayIsStalled) {
     EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::milliseconds(300));
 }
 
-// Status published after a backlog of camera frames goes out ahead of them.
 TEST(VizSinkTest, StatusIsSentAheadOfQueuedImages) {
     const auto path = test_socket_path();
     FakeRelay relay(path);
@@ -336,8 +330,6 @@ TEST(VizSinkTest, ConnectedIsLoggedOnlyOnceTheRelayReads) {
     spdlog::set_default_logger(previous_logger);
 }
 
-// A relay that accepts and at once closes (another app holds it) is retried once a second, not
-// in a busy loop.
 TEST(VizSinkTest, RefusingRelayIsRetriedOncePerSecond) {
     const auto path = test_socket_path();
     FakeRelay relay(path);

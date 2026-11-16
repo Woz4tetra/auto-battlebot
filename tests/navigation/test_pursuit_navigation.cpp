@@ -7,7 +7,6 @@
 #include "transform_utils.hpp"
 
 namespace auto_battlebot {
-// Helper to create a robot at a given position with yaw
 RobotDescription make_robot(Label label, double x, double y, double yaw) {
     RobotDescription robot;
     robot.label = label;
@@ -27,7 +26,6 @@ RobotDescription make_robot_with_frame(Label label, FrameId frame_id, Group grou
     return robot;
 }
 
-// Helper to create a field description
 FieldDescription make_field(double width, double height) {
     FieldDescription field;
     field.size.size.x = width;
@@ -44,7 +42,6 @@ TargetSelection make_target(double x, double y, Label label = Label::OPPONENT) {
     return target;
 }
 
-// Helper to create default config
 PursuitNavigationConfiguration make_default_config() { return PursuitNavigationConfiguration{}; }
 
 class PursuitNavigationTest : public ::testing::Test {
@@ -60,8 +57,6 @@ class PursuitNavigationTest : public ::testing::Test {
     std::shared_ptr<ManualClock> clock_;
     std::unique_ptr<PursuitNavigation> nav_;
 };
-
-// ==================== Configuration Tests ====================
 
 TEST(PursuitNavigationConfigTest, DefaultValues) {
     PursuitNavigationConfiguration config;
@@ -91,15 +86,11 @@ TEST(PursuitNavigationConfigTest, CustomValues) {
     EXPECT_TRUE(nav.initialize());
 }
 
-// ==================== Initialization Tests ====================
-
 TEST_F(PursuitNavigationTest, InitializeReturnsTrue) {
     PursuitNavigationConfiguration config;
     PursuitNavigation nav(config, std::make_shared<ManualClock>());
     EXPECT_TRUE(nav.initialize());
 }
-
-// ==================== No Robots Tests ====================
 
 TEST_F(PursuitNavigationTest, NoRobotsReturnsZeroCommand) {
     RobotDescriptionsStamped robots;
@@ -112,8 +103,6 @@ TEST_F(PursuitNavigationTest, NoRobotsReturnsZeroCommand) {
     EXPECT_DOUBLE_EQ(cmd.angular_z, 0.0);
 }
 
-// The PD derivative must use the injected (logical) clock's dt, not wall-clock. With a ManualClock
-// we control dt exactly, so the derivative output is deterministic: kd * d(angle_error) / dt.
 TEST_F(PursuitNavigationTest, DerivativeTermUsesLogicalClockDt) {
     PursuitNavigationConfiguration config = make_default_config();
     config.angular_kp = 0.0;  // isolate the derivative term
@@ -144,7 +133,6 @@ TEST_F(PursuitNavigationTest, DerivativeTermUsesLogicalClockDt) {
 
 TEST_F(PursuitNavigationTest, NoOurRobotReturnsZeroCommand) {
     RobotDescriptionsStamped robots;
-    // Only opponent, no "our" robot
     robots.descriptions.push_back(make_robot(Label::OPPONENT, 1.0, 0.0, 0.0));
     FieldDescription field = make_field(2.0, 2.0);
 
@@ -192,7 +180,6 @@ TEST_F(PursuitNavigationTest, MissingOurRobotWithoutCacheStillReturnsZeroCommand
 
 TEST_F(PursuitNavigationTest, NoTargetReturnsZeroCommand) {
     RobotDescriptionsStamped robots;
-    // Only our robot, no opponent
     robots.descriptions.push_back(make_robot(Label::MR_STABS_MK1, 0.0, 0.0, 0.0));
     FieldDescription field = make_field(2.0, 2.0);
 
@@ -203,8 +190,6 @@ TEST_F(PursuitNavigationTest, NoTargetReturnsZeroCommand) {
     EXPECT_DOUBLE_EQ(cmd.angular_z, 0.0);
 }
 
-// ==================== Robot Detection Tests ====================
-
 TEST_F(PursuitNavigationTest, FindsOurRobotMrStabsMk1) {
     RobotDescriptionsStamped robots;
     robots.descriptions.push_back(make_robot_with_frame(Label::MR_STABS_MK1, FrameId::OUR_ROBOT_1,
@@ -214,7 +199,6 @@ TEST_F(PursuitNavigationTest, FindsOurRobotMrStabsMk1) {
 
     VelocityCommand cmd = nav_->update(robots, field, make_target(1.0, 0.0));
 
-    // Should produce non-zero command since target exists
     EXPECT_TRUE(cmd.linear_x != 0.0 || cmd.angular_z != 0.0);
 }
 
@@ -286,11 +270,8 @@ TEST_F(PursuitNavigationTest, TargetsClosestOpponent) {
 
     VelocityCommand cmd = nav_->update(robots, field, make_target(0.5, 0.0));
 
-    // Should be moving forward toward the closer target
     EXPECT_GT(cmd.linear_x, 0.0);
 }
-
-// ==================== Movement Tests ====================
 
 TEST_F(PursuitNavigationTest, MovesForwardWhenFacingTarget) {
     RobotDescriptionsStamped robots;
@@ -304,7 +285,7 @@ TEST_F(PursuitNavigationTest, MovesForwardWhenFacingTarget) {
     VelocityCommand cmd = nav_->update(robots, field, make_target(1.0, 0.0));
 
     EXPECT_GT(cmd.linear_x, 0.0);
-    EXPECT_NEAR(cmd.angular_z, 0.0, 0.1);  // Should be nearly zero rotation
+    EXPECT_NEAR(cmd.angular_z, 0.0, 0.1);
 }
 
 TEST_F(PursuitNavigationTest, TurnsWhenTargetToLeft) {
@@ -318,7 +299,6 @@ TEST_F(PursuitNavigationTest, TurnsWhenTargetToLeft) {
 
     VelocityCommand cmd = nav_->update(robots, field, make_target(0.0, 1.0));
 
-    // Should turn left (positive angular velocity in standard convention)
     EXPECT_GT(cmd.angular_z, 0.0);
 }
 
@@ -333,7 +313,6 @@ TEST_F(PursuitNavigationTest, TurnsWhenTargetToRight) {
 
     VelocityCommand cmd = nav_->update(robots, field, make_target(0.0, -1.0));
 
-    // Should turn right (negative angular velocity)
     EXPECT_LT(cmd.angular_z, 0.0);
 }
 
@@ -367,7 +346,6 @@ TEST_F(PursuitNavigationTest, StopsAtTarget) {
 }
 
 TEST_F(PursuitNavigationTest, VelocityRampReducesSpeedAtFarDistance) {
-    // At distances beyond velocity_ramp_far_distance, speed_scale == velocity_ramp_min_scale
     PursuitNavigationConfiguration config;
     config.velocity_ramp_far_distance = 1.0;
     config.velocity_ramp_near_distance = 0.3;
@@ -412,8 +390,6 @@ TEST_F(PursuitNavigationTest, VelocityRampFullSpeedBelowNearDistance) {
     EXPECT_GT(cmd.linear_x, 0.9);
 }
 
-// ==================== Velocity Limits Tests ====================
-
 TEST_F(PursuitNavigationTest, ForwardVelocityIsBoundedByControllerScaling) {
     PursuitNavigationConfiguration config;
     PursuitNavigation nav(config, std::make_shared<ManualClock>());
@@ -447,8 +423,6 @@ TEST_F(PursuitNavigationTest, AngularVelocityUsesRealUnits) {
     EXPECT_GT(std::abs(cmd.angular_z), 1.0);
 }
 
-// ==================== Target Prediction Tests ====================
-
 TEST_F(PursuitNavigationTest, NavigatesWithLookaheadTimeConfigured) {
     PursuitNavigationConfiguration config;
     config.lookahead_time = 1.0;
@@ -469,11 +443,8 @@ TEST_F(PursuitNavigationTest, NavigatesWithLookaheadTimeConfigured) {
 
     VelocityCommand cmd = nav.update(robots, field, make_target(1.0, 0.0));
 
-    // Target is at (1, 0), robot faces +X: drives forward
     EXPECT_GT(cmd.linear_x, 0.0);
 }
-
-// ==================== Boundary Tests ====================
 
 TEST_F(PursuitNavigationTest, ClampsTargetToFieldBoundary) {
     PursuitNavigationConfiguration config;
@@ -491,14 +462,10 @@ TEST_F(PursuitNavigationTest, ClampsTargetToFieldBoundary) {
 
     VelocityCommand cmd = nav.update(robots, field, make_target(10.0, 0.0));
 
-    // Should still produce valid command (toward clamped position)
     EXPECT_TRUE(cmd.linear_x >= 0.0 || cmd.angular_z != 0.0);
 }
 
-// ==================== Wall Reverse Tests ====================
-
 TEST_F(PursuitNavigationTest, WallReverseDisabledByDefault) {
-    // Default wall_reverse_distance = 0 - no reversal even when hugging a wall
     RobotDescriptionsStamped robots;
     // Robot near the wall (x = 0.9 on a 2m-wide field, wall at x = 1.0)
     robots.descriptions.push_back(make_robot_with_frame(Label::MR_STABS_MK1, FrameId::OUR_ROBOT_1,
@@ -547,8 +514,6 @@ TEST_F(PursuitNavigationTest, WallReverseDoesNotEngageWhenFarFromWall) {
     EXPECT_GT(cmd.linear_x, 0.0);
 }
 
-// ==================== Linear Y Velocity Tests ====================
-
 TEST_F(PursuitNavigationTest, LinearYIsAlwaysZero) {
     RobotDescriptionsStamped robots;
     robots.descriptions.push_back(make_robot(Label::MR_STABS_MK1, 0.0, 0.0, 0.0));
@@ -557,7 +522,6 @@ TEST_F(PursuitNavigationTest, LinearYIsAlwaysZero) {
 
     VelocityCommand cmd = nav_->update(robots, field, make_target(1.0, 1.0));
 
-    // This is a differential drive robot - no lateral movement
     EXPECT_DOUBLE_EQ(cmd.linear_y, 0.0);
 }
 

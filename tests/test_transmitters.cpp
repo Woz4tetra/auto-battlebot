@@ -39,8 +39,6 @@ TEST(PlaybackTransmitterTest, NoFeedbackBeforeFirstSend) {
     EXPECT_TRUE(feedback.stick_commands.empty());
 }
 
-/** The sim plant consumes normalized stick directly, so feedback fills only the stick map.
- * Before this stream existed the command-driven prediction path was inert in simulation. */
 TEST(SimTransmitterTest, FeedbackReportsLastSentStickCommand) {
     SimTransmitterConfiguration config;
     config.init_delay_seconds = 0.0;

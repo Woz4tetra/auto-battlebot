@@ -6,7 +6,6 @@ namespace auto_battlebot {
 TEST(RobotConfigTest, DefaultConstruction) {
     RobotConfig config;
 
-    // Verify default values are set
     EXPECT_EQ(config.label, Label::MR_STABS_MK1);
     EXPECT_EQ(config.group, Group::OURS);
 }
@@ -23,7 +22,6 @@ TEST(RobotConfigTest, ValueAssignment) {
 TEST(RobotDescriptionTest, DefaultConstruction) {
     RobotDescription desc;
 
-    // Verify default values are set
     EXPECT_EQ(desc.label, Label::EMPTY);
     EXPECT_EQ(desc.frame_id, FrameId::EMPTY);
     EXPECT_EQ(desc.pose.position.x, 0.0);

@@ -18,8 +18,6 @@ bool wait_for(const std::function<bool()> &done) {
     return false;
 }
 
-// The worker frees each job's frame after encoding it. A pinned frame's free can be slow, and the
-// tick's next submit must not wait behind it.
 TEST(ImageEncoderWorkerTest, SubmitDoesNotWaitForAFrameBeingFreed) {
     SlowFreeAllocator allocator(std::chrono::milliseconds(300));
     std::atomic<int> processed{0};

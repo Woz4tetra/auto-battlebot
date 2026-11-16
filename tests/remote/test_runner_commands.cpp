@@ -200,7 +200,6 @@ TEST_F(RunnerCommandsTest, SlowRecordingToggleDoesNotBlockTheTick) {
     EXPECT_TRUE(camera_recording_reaches(true));
 }
 
-// An off then on from the UI is how a file gets cut; both must apply, in order.
 TEST_F(RunnerCommandsTest, OffThenOnBothApply) {
     camera_->recording = true;
     camera_->toggle_delay_ms = 20;
@@ -214,7 +213,6 @@ TEST_F(RunnerCommandsTest, OffThenOnBothApply) {
     EXPECT_EQ(camera_->toggles(), (std::vector<bool>{false, true}));
 }
 
-// A camera whose encoder stopped taking frames gets its recording turned off and on.
 TEST_F(RunnerCommandsTest, StoppedEncoderRestartsTheRecording) {
     camera_->recording = true;
     camera_->needs_restart = true;
@@ -241,7 +239,6 @@ TEST_F(RunnerCommandsTest, SystemActionStopsTheLoop) {
     EXPECT_FALSE(camera_->recording);
 }
 
-/** Runs one tick on a thread with the camera lost, and waits until it is stuck re-opening. */
 class LostCameraTick {
    public:
     LostCameraTick(Runner &runner, RecordingCamera &camera) {
@@ -268,7 +265,6 @@ class LostCameraTick {
     std::chrono::steady_clock::time_point start_;
 };
 
-// A re-open of a missing camera can take 30 s, and SIGTERM must not wait for it.
 TEST_F(RunnerCommandsTest, QuitCancelsACameraReopen) {
     LostCameraTick tick(*runner_, *camera_);
     runner_->quit_from_signal_handler();
@@ -276,7 +272,6 @@ TEST_F(RunnerCommandsTest, QuitCancelsACameraReopen) {
     EXPECT_FALSE(tick.result());
 }
 
-// A reboot from the web page during a re-open cancels it, and still reboots.
 TEST_F(RunnerCommandsTest, RebootCancelsACameraReopenAndStillRuns) {
     camera_->recording = true;
     LostCameraTick tick(*runner_, *camera_);

@@ -42,8 +42,6 @@ TEST(FoxglovePublisherTest, PublishesWithoutSinks) {
     EXPECT_NO_THROW(publisher.publish_navigation(nav));
 }
 
-// With a recorder attached, the annotation topics never land in the file but the JSON
-// detections do.
 TEST(FoxglovePublisherTest, AnnotationsAreLiveOnly) {
     if (!DiagnosticsLogger::is_initialized()) DiagnosticsLogger::initialize({});
     const auto cwd = std::filesystem::current_path();

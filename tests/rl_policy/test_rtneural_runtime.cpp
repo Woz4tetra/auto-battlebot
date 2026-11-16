@@ -1,5 +1,3 @@
-// RtNeuralRuntime against hand-computed values, its load checks, and the rule that run() never
-// allocates: it runs on the 250 Hz control thread.
 
 #include <gtest/gtest.h>
 
@@ -112,7 +110,6 @@ TEST(RtNeuralRuntimeTest, AnEmptyActivationMeansNone) {
 }
 
 TEST(RtNeuralRuntimeTest, LoadsTheExportedTinyMlp) {
-    // The Python exporter's own layout, ELU and an empty activation included.
     RtNeuralRuntime runtime;
     runtime.load(spec_for(rl_test::tiny_mlp_bundle() / "actor.rtneural.json", 4, 2));
     EXPECT_EQ(runtime.inputs()[0].spec, (TensorSpec{"obs.vector", {4}}));

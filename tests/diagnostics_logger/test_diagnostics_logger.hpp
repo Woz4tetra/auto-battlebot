@@ -5,10 +5,6 @@
 #include "diagnostics_logger/diagnostics_logger.hpp"
 
 namespace auto_battlebot {
-/**
- * @brief Backend that records every snapshot batch it receives, for verifying the logger fans
- * out without a relay or recorder.
- */
 class RecordingBackend : public DiagnosticsBackend {
    public:
     void receive(const std::vector<DiagnosticStatusSnapshot> &snapshots) override {
@@ -34,12 +30,6 @@ class RecordingBackend : public DiagnosticsBackend {
  */
 class TestDiagnosticsLogger : public DiagnosticsLogger {
    public:
-    /**
-     * @brief Reset the singleton state for testing
-     *
-     * Clears all loggers and resets the initialization state.
-     * This allows tests to start with a clean slate.
-     */
     static void reset() {
         loggers_.clear();
         backends_.clear();
@@ -47,9 +37,6 @@ class TestDiagnosticsLogger : public DiagnosticsLogger {
         test_mode_ = false;
     }
 
-    /**
-     * @brief Enable test mode to skip calling backends
-     */
     static void enable_test_mode() { test_mode_ = true; }
 };
 

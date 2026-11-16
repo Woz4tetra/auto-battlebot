@@ -8,10 +8,6 @@
 
 namespace auto_battlebot {
 namespace {
-/**
- * Runs one full filter cycle the way the Runner does: predict, then correct, then read state.
- * Tests exercise that sequence rather than a shortcut so they cover the real call pattern.
- */
 RobotDescriptionsStamped run_filter(RobotFrontBackFilter &filter, ModelResultStamped keypoints,
                                     const FieldDescription &field, const CameraInfo &camera_info,
                                     ModelResultStamped robot_blob_keypoints,
@@ -114,7 +110,6 @@ ModelResultStamped make_opponent_blob(double stamp, double front_x, double back_
     return blob;
 }
 
-// Config where MRS_BUFF_MK3 keypoints are our robot (OUR_ROBOT_1) and OPPONENT slots are theirs.
 RobotFrontBackFilterConfiguration make_our_robot_config() {
     RobotFrontBackFilterConfiguration config;
     config.front_keypoints = {KeypointLabel::OPPONENT_FRONT, KeypointLabel::MRS_BUFF_MK3_FRONT};
@@ -198,7 +193,6 @@ TEST(RobotFrontBackFilterTest, BlobFallbackToOpponentRelabelsToOpponent) {
     const FieldDescription field = make_field();
     const CommandFeedback command_feedback;
 
-    // OPPONENT keypoint claims THEIR_ROBOT_1 (the only slot MRS_BUFF_MK1 is configured for).
     const ModelResultStamped opponent_keypoints = make_opponent_keypoints(1.0, 280.0, 320.0);
 
     // MRS_BUFF_MK1 blob, spatially separated from the keypoint detection so it survives the
@@ -223,23 +217,13 @@ TEST(RobotFrontBackFilterTest, BlobFallbackToOpponentRelabelsToOpponent) {
     ASSERT_NE(kp_meas, nullptr);
     ASSERT_NE(blob_meas, nullptr);
 
-    // Keypoint detection: original OPPONENT label, kept as-is.
     EXPECT_EQ(kp_meas->label, Label::OPPONENT);
     EXPECT_EQ(kp_meas->group, Group::THEIRS);
 
-    // Blob detection: fed in as MRS_BUFF_MK1, assigned to THEIR_ROBOT_2 via fallback. The 4b
-    // fix re-labels it to OPPONENT so label and frame_id agree.
     EXPECT_EQ(blob_meas->label, Label::OPPONENT);
     EXPECT_EQ(blob_meas->group, Group::THEIRS);
 }
 
-// 4a regression: the per-label loop over std::map<Label, ...> previously let Label enum order
-// decide which label got first claim on shared OPPONENT FrameId slots. With OPPONENT (enum 7)
-// sorting before MRS_BUFF_MK3 (enum 8), two generic-OPPONENT blobs could grab THEIR_ROBOT_1
-// and THEIR_ROBOT_2 first, leaving the more-specific MRS_BUFF_MK3 blob with nothing -- even
-// though MRS_BUFF_MK3 is configured to own THEIR_ROBOT_2 outright. The new global assignment
-// honors per-measurement allowed-FrameId constraints in a single call, so the specific-label
-// blob keeps its slot regardless of enum order.
 TEST(RobotFrontBackFilterTest, GlobalAssignmentDoesNotDropSpecificLabelBlob) {
     RobotFrontBackFilterConfiguration config;
     config.front_keypoints = {KeypointLabel::OPPONENT_FRONT, KeypointLabel::MRS_BUFF_MK3_FRONT};
@@ -264,7 +248,6 @@ TEST(RobotFrontBackFilterTest, GlobalAssignmentDoesNotDropSpecificLabelBlob) {
     ModelResultStamped blob_keypoints;
     blob_keypoints.header.frame_id = FrameId::CAMERA;
     blob_keypoints.header.stamp = 1.0;
-    // Two generic OPPONENT blobs (could each take any of {THEIR_ROBOT_1, THEIR_ROBOT_2}).
     append_keypoint_pair(blob_keypoints, Label::OPPONENT, KeypointLabel::OPPONENT_FRONT,
                          KeypointLabel::OPPONENT_BACK, 1, 200.0, 240.0, 240.0, 0.7);
     append_keypoint_pair(blob_keypoints, Label::OPPONENT, KeypointLabel::OPPONENT_FRONT,
@@ -277,8 +260,6 @@ TEST(RobotFrontBackFilterTest, GlobalAssignmentDoesNotDropSpecificLabelBlob) {
     const auto result =
         run_filter(filter, empty_keypoints, field, camera_info, blob_keypoints, command_feedback);
 
-    // Two slots, three blobs -- one blob is dropped. The MRS_BUFF_MK3 blob must keep its
-    // configured slot and label; the higher-confidence OPPONENT blob takes the remaining slot.
     ASSERT_EQ(result.descriptions.size(), 2u);
 
     const RobotDescription *mk3_meas = nullptr;
@@ -290,18 +271,13 @@ TEST(RobotFrontBackFilterTest, GlobalAssignmentDoesNotDropSpecificLabelBlob) {
     ASSERT_NE(mk3_meas, nullptr);
     ASSERT_NE(opponent_meas, nullptr);
 
-    // MRS_BUFF_MK3 was assigned to its own configured FrameId, no fallback used, label kept.
     EXPECT_EQ(mk3_meas->label, Label::MRS_BUFF_MK3);
     EXPECT_EQ(mk3_meas->group, Group::THEIRS);
 
-    // Remaining OPPONENT blob lands in THEIR_ROBOT_1, label unchanged.
     EXPECT_EQ(opponent_meas->label, Label::OPPONENT);
     EXPECT_EQ(opponent_meas->group, Group::THEIRS);
 }
 
-// Leak-opportunity flag (see docs/robot_filter_decay_plan.md): after our robot has been
-// tracked, a frame where its keypoint drops out but a blob coincides with its held pose is the
-// exact tick the identity decay would fix. The filter must flag it.
 TEST(RobotFrontBackFilterTest, FlagsLeakOpportunityOnKeypointMiss) {
     RobotFrontBackFilterConfiguration config = make_our_robot_config();
     RobotFrontBackFilter filter(config);
@@ -312,7 +288,6 @@ TEST(RobotFrontBackFilterTest, FlagsLeakOpportunityOnKeypointMiss) {
     const ModelResultStamped no_blob;
     const CommandFeedback command_feedback;
 
-    // Frame 1: our robot measured by keypoints, no blob. Establishes the held pose; not a leak.
     const auto first = run_filter(filter, make_our_keypoints(1.0, 300.0, 340.0, 220.0), field,
                                   camera_info, no_blob, command_feedback);
     ASSERT_EQ(first.descriptions.size(), 1u);
@@ -327,7 +302,6 @@ TEST(RobotFrontBackFilterTest, FlagsLeakOpportunityOnKeypointMiss) {
     (void)second;
 }
 
-// A blob far from our robot's held pose is a genuine opponent, not a leak.
 TEST(RobotFrontBackFilterTest, NoLeakFlagWhenBlobFarFromHeldPose) {
     RobotFrontBackFilterConfiguration config = make_our_robot_config();
     RobotFrontBackFilter filter(config);
@@ -348,7 +322,6 @@ TEST(RobotFrontBackFilterTest, NoLeakFlagWhenBlobFarFromHeldPose) {
     EXPECT_FALSE(filter.last_suppressed_own_blob());
 }
 
-// When our keypoint is present the blob is suppressed / double-counts, so it is never a leak.
 TEST(RobotFrontBackFilterTest, NoLeakFlagWhenOurKeypointPresent) {
     RobotFrontBackFilterConfiguration config = make_our_robot_config();
     RobotFrontBackFilter filter(config);
@@ -368,10 +341,6 @@ TEST(RobotFrontBackFilterTest, NoLeakFlagWhenOurKeypointPresent) {
     EXPECT_FALSE(filter.last_suppressed_own_blob());
 }
 
-// Stale-identity decay (docs/robot_filter_decay_plan.md): an our-robot track whose keypoints drop
-// out is held (predicted forward, is_stale) only up to our_robot_hold_window_s. Within the window
-// it is still emitted; once the window elapses without a fresh keypoint it is dropped entirely,
-// rather than lingering as a ghost after our robot has genuinely departed.
 TEST(RobotFrontBackFilterTest, DecaysStaleOurRobotAfterHoldWindow) {
     RobotFrontBackFilterConfiguration config = make_our_robot_config();
     config.our_robot_hold_window_s = 0.15;
@@ -383,7 +352,6 @@ TEST(RobotFrontBackFilterTest, DecaysStaleOurRobotAfterHoldWindow) {
     const ModelResultStamped no_blob;
     const CommandFeedback command_feedback;
 
-    // Frame 1: our robot measured by keypoints -> OUR_ROBOT_1 tracked.
     const auto first = run_filter(filter, make_our_keypoints(1.0, 300.0, 340.0, 220.0), field,
                                   camera_info, no_blob, command_feedback);
     ASSERT_EQ(first.descriptions.size(), 1u);
@@ -403,7 +371,6 @@ TEST(RobotFrontBackFilterTest, DecaysStaleOurRobotAfterHoldWindow) {
     EXPECT_TRUE(expired.descriptions.empty());
 }
 
-// A window <= 0 disables the decay: the our-robot track is held indefinitely (legacy behavior).
 TEST(RobotFrontBackFilterTest, HoldsStaleOurRobotWhenDecayDisabled) {
     RobotFrontBackFilterConfiguration config = make_our_robot_config();
     config.our_robot_hold_window_s = 0.0;
@@ -427,7 +394,6 @@ TEST(RobotFrontBackFilterTest, HoldsStaleOurRobotWhenDecayDisabled) {
 }
 
 namespace {
-/** Returns the description carrying `frame_id`, or nullptr when it is absent. */
 const RobotDescription *find_frame_id(const RobotDescriptionsStamped &result, FrameId frame_id) {
     for (const auto &description : result.descriptions) {
         if (description.frame_id == frame_id) return &description;
@@ -448,7 +414,6 @@ TEST(RobotFrontBackFilterTest, SuppressesBlobOnOurHeldPoseDuringKeypointDropout)
     const ModelResultStamped no_blob;
     const CommandFeedback command_feedback;
 
-    // Frame 1: keypoints see our robot, establishing the held pose.
     run_filter(filter, make_our_keypoints(1.0, 300.0, 340.0, 220.0), field, camera_info, no_blob,
                command_feedback);
 
@@ -484,8 +449,6 @@ TEST(RobotFrontBackFilterTest, EmitsBlobOnOurHeldPoseAfterWindowExpires) {
     EXPECT_NE(find_frame_id(result, FrameId::THEIR_ROBOT_1), nullptr);
 }
 
-// Suppression is confined to the configured radius: a real opponent elsewhere on the field is
-// still tracked normally while our keypoints are missing.
 TEST(RobotFrontBackFilterTest, KeepsBlobOutsideRadiusDuringKeypointDropout) {
     RobotFrontBackFilterConfiguration config = make_our_robot_config();
     RobotFrontBackFilter filter(config);
@@ -507,7 +470,6 @@ TEST(RobotFrontBackFilterTest, KeepsBlobOutsideRadiusDuringKeypointDropout) {
     EXPECT_NE(find_frame_id(result, FrameId::THEIR_ROBOT_1), nullptr);
 }
 
-// A zero radius turns the feature off, restoring the pre-suppression behaviour.
 TEST(RobotFrontBackFilterTest, ZeroRadiusDisablesDropoutSuppression) {
     RobotFrontBackFilterConfiguration config = make_our_robot_config();
     config.our_keypoint_dropout_blob_radius_meters = 0.0;

@@ -37,7 +37,6 @@ class SlowFreeAllocator : public cv::MatAllocator {
     cv::MatAllocator *std_ = cv::Mat::getStdAllocator();
 };
 
-/** A Mat whose buffer comes from `allocator`. */
 inline cv::Mat slow_free_mat(SlowFreeAllocator &allocator) {
     cv::Mat mat;
     mat.allocator = &allocator;

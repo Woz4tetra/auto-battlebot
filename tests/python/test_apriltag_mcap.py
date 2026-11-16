@@ -1,6 +1,3 @@
-"""Write and read back the AprilTag calibration recordings in both image formats, then the
-overlay the analysis emits from them."""
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -101,7 +98,6 @@ def test_overlay(tmp_path: Path) -> None:
     statics = mcap_io.decode_tf_message(topics[amcap.TOPIC_TF_STATIC][0])
     assert [tf.key for tf in statics] == [("world", "field"), ("field", "camera")]
     cam = statics[1].matrix
-    # Camera pose in the field frame is the inverse of (r_fc, t_fc).
     np.testing.assert_allclose(cam[:3, :3], r_fc.T, atol=1e-12)
     np.testing.assert_allclose(cam[:3, 3], -r_fc.T @ t_fc, atol=1e-12)
 

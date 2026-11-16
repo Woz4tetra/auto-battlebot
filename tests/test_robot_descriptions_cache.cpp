@@ -1,4 +1,3 @@
-// RobotDescriptionsCache: substitutes the last set with both sides, but only for a short gap.
 
 #include <gtest/gtest.h>
 
@@ -57,7 +56,6 @@ TEST(RobotDescriptionsCacheTest, PassesTheCurrentSetThroughOnceTheGapOutlastsThe
     ASSERT_EQ(resolved.robots.descriptions.size(), 1U);
     EXPECT_EQ(resolved.robots.descriptions[0].frame_id, FrameId::THEIR_ROBOT_1);
 
-    // A fresh full set refills the cache.
     const auto again = both_sides(2.0);
     cache.resolve(again);
     EXPECT_TRUE(cache.resolve(opponent_only(2.1)).using_previous);

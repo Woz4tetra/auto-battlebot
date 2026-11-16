@@ -1,7 +1,5 @@
 #pragma once
 
-// Writes small policy bundles into temporary directories for the rl_policy and navigation tests.
-
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -30,7 +28,6 @@ inline std::filesystem::path tiny_mlp_bundle() { return test_bundles() / "tiny_m
 
 inline std::filesystem::path constant_bundle() { return test_bundles() / "constant_forward"; }
 
-/** A fresh, empty directory under $TMPDIR, unique per test name. */
 inline std::filesystem::path fresh_dir(const std::string &name) {
     const char *tmp = std::getenv("TMPDIR");
     const std::filesystem::path dir =
@@ -40,7 +37,6 @@ inline std::filesystem::path fresh_dir(const std::string &name) {
     return dir;
 }
 
-/** Copy a bundle directory so a test can break one file of it. */
 inline std::filesystem::path copy_bundle(const std::filesystem::path &source,
                                          const std::string &name) {
     const std::filesystem::path dir = fresh_dir(name);
@@ -62,7 +58,6 @@ inline void write_text(const std::filesystem::path &path, const std::string &tex
     file << text;
 }
 
-/** Replace the first occurrence of `from` in a text file. */
 inline void replace_in_file(const std::filesystem::path &path, const std::string &from,
                             const std::string &to) {
     std::string text = read_text(path);
@@ -80,7 +75,6 @@ inline std::string json_numbers(const std::vector<double> &values) {
     return text.str();
 }
 
-/** RTNeural's JSON model format, the layout auto_battlebot/rl/export/rtneural.py writes. */
 inline void write_dense_json(const std::filesystem::path &path, int input_size,
                              const std::vector<DenseLayer> &layers) {
     std::ostringstream json;

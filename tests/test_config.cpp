@@ -24,14 +24,12 @@ class ConfigTest : public ::testing::Test {
     std::filesystem::path temp_config_file;
 
     void SetUp() override {
-        // Create a temporary directory for test configs
         temp_dir = std::filesystem::temp_directory_path() / "auto_battlebot_test_configs";
         std::filesystem::create_directories(temp_dir);
         temp_config_file = temp_dir / "test_config.toml";
     }
 
     void TearDown() override {
-        // Clean up temporary directory
         if (std::filesystem::exists(temp_dir)) {
             std::filesystem::remove_all(temp_dir);
         }
@@ -43,8 +41,6 @@ class ConfigTest : public ::testing::Test {
         file.close();
     }
 
-    // Write a named config file in temp_dir and return its path. Used for inheritance tests, which
-    // pass temp_dir as the config root so `extends` targets resolve against it.
     std::filesystem::path write_named_config(const std::string &name, const std::string &content) {
         std::filesystem::path path = temp_dir / name;
         std::ofstream file(path);
@@ -54,8 +50,6 @@ class ConfigTest : public ::testing::Test {
     }
 };
 
-// Full valid config with every section set to a Noop/Zed implementation. Inheritance tests use this
-// as a base and layer small overrides on top.
 static const char *kBaseConfig = R"(
 [rgbd_camera]
 type = "ZedRgbdCamera"
@@ -89,7 +83,6 @@ type = "NoopTransmitter"
 type = "NoopPublisher"
 )";
 
-// Test NoopRgbdCamera configuration
 TEST_F(ConfigTest, NoopRgbdCameraConfiguration) {
     write_config_file(R"(
 [rgbd_camera]
@@ -127,12 +120,10 @@ type = "NoopPublisher"
     ASSERT_NE(config.camera, nullptr);
     EXPECT_EQ(config.camera->type, "NoopRgbdCamera");
 
-    // Verify it's the correct derived type
     auto *noop_config = dynamic_cast<NoopRgbdCameraConfiguration *>(config.camera.get());
     ASSERT_NE(noop_config, nullptr);
 }
 
-// Test ZedRgbdCamera configuration with default values
 TEST_F(ConfigTest, ZedRgbdCameraConfigurationDefaults) {
     write_config_file(R"(
 [rgbd_camera]
@@ -173,13 +164,11 @@ type = "NoopPublisher"
     auto *zed_config = dynamic_cast<ZedRgbdCameraConfiguration *>(config.camera.get());
     ASSERT_NE(zed_config, nullptr);
 
-    // Check default values
     EXPECT_EQ(zed_config->camera_fps, 30);
     EXPECT_EQ(zed_config->camera_resolution, Resolution::RES_1280x720);
     EXPECT_EQ(zed_config->depth_mode, DepthMode::ZED_NEURAL_LIGHT);
 }
 
-// Test ZedRgbdCamera configuration with custom values
 TEST_F(ConfigTest, ZedRgbdCameraConfigurationCustomValues) {
     write_config_file(R"(
 [rgbd_camera]
@@ -222,13 +211,11 @@ type = "NoopPublisher"
     auto *zed_config = dynamic_cast<ZedRgbdCameraConfiguration *>(config.camera.get());
     ASSERT_NE(zed_config, nullptr);
 
-    // Check custom values
     EXPECT_EQ(zed_config->camera_fps, 60);
     EXPECT_EQ(zed_config->camera_resolution, Resolution::RES_1920x1080);
     EXPECT_EQ(zed_config->depth_mode, DepthMode::ZED_ULTRA);
 }
 
-// Test ZedRgbdCamera configuration with partial custom values
 TEST_F(ConfigTest, ZedRgbdCameraConfigurationPartialCustom) {
     write_config_file(R"(
 [rgbd_camera]
@@ -267,7 +254,6 @@ type = "NoopPublisher"
     auto *zed_config = dynamic_cast<ZedRgbdCameraConfiguration *>(config.camera.get());
     ASSERT_NE(zed_config, nullptr);
 
-    // Only camera_fps should be custom, others should be defaults
     EXPECT_EQ(zed_config->camera_fps, 90);
     EXPECT_EQ(zed_config->camera_resolution, Resolution::RES_1280x720);  // default
     EXPECT_EQ(zed_config->depth_mode, DepthMode::ZED_NEURAL_LIGHT);      // default
@@ -319,7 +305,6 @@ type = "NoopPublisher"
     EXPECT_EQ(zed_one_config->video_bitrate_kbps, 15000);  // default
 }
 
-// Test unknown camera type
 TEST_F(ConfigTest, UnknownCameraType) {
     write_config_file(R"(
 [rgbd_camera]
@@ -365,7 +350,6 @@ type = "NoopPublisher"
         std::invalid_argument);
 }
 
-// Test extra unknown field in config
 TEST_F(ConfigTest, UnknownFieldInConfig) {
     write_config_file(R"(
 [rgbd_camera]
@@ -415,7 +399,6 @@ type = "NoopPublisher"
         ConfigValidationError);
 }
 
-// Test missing required section
 TEST_F(ConfigTest, MissingRequiredSection) {
     write_config_file(R"(
 [rgbd_camera]
@@ -424,12 +407,10 @@ type = "NoopRgbdCamera"
 [field_model]
 type = "NoopMaskModel"
 )");
-    // Missing other required sections
 
     EXPECT_THROW({ load_classes_from_config(temp_config_file.string()); }, ConfigValidationError);
 }
 
-// Test all interface types can be loaded
 TEST_F(ConfigTest, AllInterfacesLoaded) {
     write_config_file(R"(
 [rgbd_camera]
@@ -685,12 +666,10 @@ camera_fps = 90
 
     auto config = load_classes_from_config(child.string(), temp_dir);
 
-    // Overridden scalar wins.
     auto *zed = dynamic_cast<ZedRgbdCameraConfiguration *>(config.camera.get());
     ASSERT_NE(zed, nullptr);
     EXPECT_EQ(zed->camera_fps, 90);
 
-    // Sections only present in the base are inherited.
     ASSERT_NE(config.navigation, nullptr);
     EXPECT_EQ(config.navigation->type, "NoopNavigation");
     ASSERT_NE(config.publisher, nullptr);
@@ -715,7 +694,6 @@ type = "NoopRgbdCamera"
     EXPECT_EQ(config.camera->type, "NoopRgbdCamera");
 }
 
-// Extending a base that does not exist fails with a clear error.
 TEST_F(ConfigTest, ExtendsMissingBaseThrows) {
     auto child = write_named_config("child.toml", R"(
 extends = "does_not_exist"
@@ -734,7 +712,6 @@ extends = "does_not_exist"
         ConfigValidationError);
 }
 
-// A cycle in the extends chain is detected rather than recursing forever.
 TEST_F(ConfigTest, ExtendsCycleThrows) {
     write_named_config("a.toml", "extends = \"b\"\n");
     auto b = write_named_config("b.toml", "extends = \"a\"\n");
@@ -752,7 +729,6 @@ TEST_F(ConfigTest, ExtendsCycleThrows) {
         ConfigValidationError);
 }
 
-// Inheritance chains more than one level deep resolve correctly (grandchild -> child -> base).
 TEST_F(ConfigTest, ExtendsMultiLevelChain) {
     write_named_config("base.toml", kBaseConfig);
     write_named_config("mid.toml", R"(
@@ -775,7 +751,6 @@ type = "NoopTransmitter"
     EXPECT_EQ(zed->camera_fps, 45);  // inherited from mid, which overrode base's 60
 }
 
-// Test ConfigParser directly
 TEST(ConfigParserTest, GetRequiredString) {
     toml::table table = toml::parse(R"(
 key = "value"
@@ -881,7 +856,6 @@ extra = "should cause error"
 
     parser.get_required_string("key1");
     parser.get_required_string("key2");
-    // extra is not accessed
 
     EXPECT_THROW(
         {
@@ -910,14 +884,13 @@ key2 = "value2"
     EXPECT_NO_THROW(parser.validate_no_extra_fields());
 }
 
-// Test enum parsing with PARSE_ENUM macro using magic_enum
 TEST(ConfigParserTest, ParseEnumWithDefault) {
     toml::table table = toml::parse(R"(
 robot_label = "MR_STABS_MK1"
 )");
     ConfigParser parser(table, "test_section");
 
-    Label robot_label = Label::OPPONENT;  // default value
+    Label robot_label = Label::OPPONENT;
     PARSE_ENUM(robot_label, Label)
 
     EXPECT_EQ(robot_label, Label::MR_STABS_MK1);
@@ -929,10 +902,10 @@ other_field = "value"
 )");
     ConfigParser parser(table, "test_section");
 
-    Label robot_label = Label::HOUSE_BOT;  // default value
+    Label robot_label = Label::HOUSE_BOT;
     PARSE_ENUM(robot_label, Label)
 
-    EXPECT_EQ(robot_label, Label::HOUSE_BOT);  // Should keep default
+    EXPECT_EQ(robot_label, Label::HOUSE_BOT);
 }
 
 TEST(ConfigParserTest, ParseEnumRequired) {
@@ -975,33 +948,30 @@ robot_label = "INVALID_LABEL"
         std::invalid_argument);
 }
 
-// Test with Group enum using magic_enum
 TEST(ConfigParserTest, ParseGroupEnum) {
     toml::table table = toml::parse(R"(
 team = "THEIRS"
 )");
     ConfigParser parser(table, "test_section");
 
-    Group team = Group::OURS;  // default
+    Group team = Group::OURS;
     PARSE_ENUM(team, Group)
 
     EXPECT_EQ(team, Group::THEIRS);
 }
 
-// Test with DepthMode enum
 TEST(ConfigParserTest, ParseDepthModeEnum) {
     toml::table table = toml::parse(R"(
 depth_mode = "ZED_ULTRA"
 )");
     ConfigParser parser(table, "test_section");
 
-    DepthMode depth_mode = DepthMode::ZED_NEURAL;  // default
+    DepthMode depth_mode = DepthMode::ZED_NEURAL;
     PARSE_ENUM(depth_mode, DepthMode)
 
     EXPECT_EQ(depth_mode, DepthMode::ZED_ULTRA);
 }
 
-// Test NoopPublisher configuration
 TEST_F(ConfigTest, NoopPublisherConfiguration) {
     write_config_file(R"(
 [rgbd_camera]
@@ -1039,12 +1009,10 @@ type = "NoopPublisher"
     ASSERT_NE(config.publisher, nullptr);
     EXPECT_EQ(config.publisher->type, "NoopPublisher");
 
-    // Verify it's the correct derived type
     auto *noop_config = dynamic_cast<NoopPublisherConfiguration *>(config.publisher.get());
     ASSERT_NE(noop_config, nullptr);
 }
 
-// Test unknown publisher type
 TEST_F(ConfigTest, UnknownPublisherType) {
     write_config_file(R"(
 [rgbd_camera]
@@ -1083,7 +1051,6 @@ type = "UnknownPublisher"
             try {
                 load_classes_from_config(temp_config_file.string());
             } catch (const std::invalid_argument &e) {
-                // The error message comes from the config parser, not the factory
                 EXPECT_TRUE(std::string(e.what()).find("UnknownPublisher") != std::string::npos);
                 throw;
             }
@@ -1091,7 +1058,6 @@ type = "UnknownPublisher"
         std::invalid_argument);
 }
 
-// Profile selection: regex filtering and selection/default resolution, all hermetic in a temp dir.
 class ProfileSelectionTest : public ::testing::Test {
    protected:
     std::filesystem::path config_dir;
@@ -1115,7 +1081,6 @@ class ProfileSelectionTest : public ::testing::Test {
         file << content;
     }
 
-    // A minimal set of profile files plus base/aux files that a jetson regex should exclude.
     void write_profiles() {
         write_file("_common.toml", "");
         write_file("_jetson.toml", "");
@@ -1131,7 +1096,6 @@ TEST_F(ProfileSelectionTest, ListAvailableProfilesFiltersByRegex) {
     // The leading [^_] excludes the _jetson base, which ".*_jetson$" would otherwise match.
     auto profiles = list_available_profiles(config_dir, "[^_].*_jetson$");
     ASSERT_EQ(profiles.size(), 2u);
-    // Sorted, path-relative ids without the .toml extension.
     EXPECT_EQ(profiles[0], "mr_stab_mk2_jetson");
     EXPECT_EQ(profiles[1], "mrs_buff_mk3_jetson");
 }
@@ -1186,7 +1150,6 @@ TEST_F(ProfileSelectionTest, ResolveFallsBackWhenSelectionNoLongerAvailable) {
     ProfileSelectorConfig selector;
     selector.pattern = ".*_jetson$";
     selector.selection_file = config_dir / "state" / "selected_profile";
-    // A desktop profile no longer matches the jetson regex -> fall back to default.
     write_selection_file(selector, "mrs_buff_mk3_desktop");
 
     EXPECT_EQ(resolve_active_profile(config_dir, selector), "mr_stab_mk2_jetson");
@@ -1215,9 +1178,9 @@ selection_file = "/tmp/auto_battlebot_profile_test_sel"
 }
 
 TEST_F(ProfileSelectionTest, LoadSelectorMissingFileDegradesGracefully) {
-    ProfileSelectorConfig selector = load_profile_selector(config_dir);  // no profiles.toml
+    ProfileSelectorConfig selector = load_profile_selector(config_dir);
     EXPECT_TRUE(selector.pattern.empty());
-    EXPECT_FALSE(selector.selection_file.empty());  // default path
+    EXPECT_FALSE(selector.selection_file.empty());
 }
 
 namespace {
@@ -1300,7 +1263,6 @@ type = "NoopPublisher"
     const KeypointHeights &heights = filter_config->robot_keypoint_tracker_config.keypoint_heights;
     EXPECT_DOUBLE_EQ(heights.default_meters, 0.05);
     EXPECT_DOUBLE_EQ(heights.height_for(Label::OPPONENT), 0.09);
-    // Labels without a per-label entry fall back to the default.
     EXPECT_DOUBLE_EQ(heights.height_for(Label::HOUSE_BOT), 0.05);
 
     const auto &offsets = filter_config->footprint_center_offset_per_label;
@@ -1454,7 +1416,6 @@ heading_random_walk = 0.5
     EXPECT_DOUBLE_EQ(kalman_config->plant->delay_s, 0.0522094);
     EXPECT_DOUBLE_EQ(kalman_config->plant->c_sb, 2.70197);
     EXPECT_DOUBLE_EQ(kalman_config->plant->c_drift, 0.0);
-    // Overridden noise field takes, the rest keep the baked-in fit values.
     EXPECT_DOUBLE_EQ(kalman_config->plant_noise.heading_random_walk, 0.5);
     EXPECT_DOUBLE_EQ(kalman_config->plant_noise.q_along, JigPlantNoiseParams{}.q_along);
 }
@@ -1560,8 +1521,6 @@ TEST_F(ConfigTest, MotionProfileNavigationReadsTheSharedPlantTable) {
     EXPECT_DOUBLE_EQ(nav->plant.tau_lin_d, 0.123461);
     EXPECT_DOUBLE_EQ(nav->plant.delay_s, 0.0522094);
     EXPECT_DOUBLE_EQ(nav->plant.c_ad, 0.463423);
-    // The coefficient arrives from the fit; compensating it is off by default because doing so
-    // measures worse. See MotionProfileNavigationConfiguration::compensate_angular_droop.
     EXPECT_FALSE(nav->compensate_angular_droop);
 }
 
@@ -1582,7 +1541,6 @@ TEST_F(ConfigTest, MotionProfileNavigationWithoutPlantTableThrows) {
 }
 
 namespace {
-/** Minimal full config with a parameterizable [transmitter] block. */
 std::string config_with_transmitter(const std::string &transmitter_toml) {
     return R"(
 [rgbd_camera]
@@ -1671,7 +1629,6 @@ default_behavior_mode = "FLEE"
 }
 
 TEST_F(ConfigTest, TransmitterBehaviorModeKeyIsRejected) {
-    // The dashboard sets the mode now; a leftover key must fail rather than silently do nothing.
     write_config_file(config_with_transmitter(R"(
 [transmitter]
 type = "PlaybackTransmitter"
@@ -1729,7 +1686,6 @@ esp32_hostname = "robot"
 }
 
 namespace {
-/** Minimal full config with a parameterizable [keypoint_model] block. */
 std::string config_with_keypoint_model(const std::string &keypoint_model_toml) {
     return R"(
 [rgbd_camera]

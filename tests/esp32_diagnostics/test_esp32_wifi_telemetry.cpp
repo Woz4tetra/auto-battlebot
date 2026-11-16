@@ -262,7 +262,6 @@ TEST(Esp32WifiTelemetryTest, StartsAtHeadThenReadsEverythingNew) {
     ASSERT_EQ(events.size(), 45u);
     for (size_t i = 0; i < events.size(); i++) EXPECT_EQ(events[i].seq, 30 + i);
 
-    // Only the newest row of the poll that caught up is a clock sample.
     EXPECT_EQ(events.back().backfill, false);
     for (size_t i = 0; i + 1 < events.size(); i++) EXPECT_EQ(events[i].backfill, true) << i;
     const Esp32WifiTelemetryStats stats = telemetry.stats();

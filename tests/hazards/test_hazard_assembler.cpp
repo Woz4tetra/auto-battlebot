@@ -190,8 +190,6 @@ TEST(HazardAssemblerTest, ADetectorOutageDoesNotDeleteTheStaticHole) {
     EXPECT_EQ(outage.hazards[0].source, HazardSource::STATIC);
 }
 
-// --- shared geometry file ---------------------------------------------------------------------
-
 std::string write_temp_hazards(const std::string &contents, const std::string &name) {
     const std::string path =
         std::string(std::getenv("TMPDIR") ? std::getenv("TMPDIR") : "/tmp") + "/" + name + ".toml";
@@ -297,8 +295,6 @@ TEST(HazardAssemblerTest, CarriesTheGeometryAlongsideTheKeepOut) {
             EXPECT_NEAR(hazard.object_radius, their_own, 1e-9);
             EXPECT_NEAR(hazard.inflated_radius_m, their_own + ours + 0.05, 1e-9);
         }
-        // The gap between the two rings is exactly the inflation, which is the point of drawing
-        // both.
         EXPECT_GT(hazard.inflated_radius_m, hazard.object_radius);
     }
 }

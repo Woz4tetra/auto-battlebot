@@ -186,7 +186,6 @@ TEST(JigPlantModelTest, EffectiveCommandDeadzoneAndRescale) {
     EXPECT_DOUBLE_EQ(
         plant_effective_command(params.dz_lin_fwd * 0.9, params.dz_lin_fwd, params.dz_lin_rev),
         0.0);
-    // Full command maps to full effect: the rescale keeps the gain equal to the max speed.
     EXPECT_DOUBLE_EQ(plant_effective_command(1.0, params.dz_lin_fwd, params.dz_lin_rev), 1.0);
     EXPECT_DOUBLE_EQ(plant_effective_command(-1.0, params.dz_lin_fwd, params.dz_lin_rev), -1.0);
     const double expected = (0.5 - params.dz_lin_fwd) / (1.0 - params.dz_lin_fwd);
@@ -206,7 +205,6 @@ TEST(JigPlantModelTest, SteadyStateSteerBrakeClampsToZero) {
     plant_steady_state(0.5, 0.5, params, v_target, w_target);
     EXPECT_DOUBLE_EQ(v_target, 0.0);
     EXPECT_GT(w_target, 1.0);
-    // A pure forward command keeps its full gain.
     plant_steady_state(0.5, 0.0, params, v_target, w_target);
     const double lin_eff = plant_effective_command(0.5, params.dz_lin_fwd, params.dz_lin_rev);
     EXPECT_DOUBLE_EQ(v_target, params.k_fwd * lin_eff);
@@ -310,12 +308,9 @@ TEST(PlantStickToBodyVelocityTest, AppliesGainsPerDirection) {
     const VelocityCommand yaw = plant_stick_to_body_velocity({0.0, 0.0, -0.25}, params);
     EXPECT_NEAR(yaw.angular_z, -2.5, 1e-12);
 
-    // A differential drive has no lateral axis, so linear_y stays zero whatever comes in.
     EXPECT_NEAR(plant_stick_to_body_velocity({0.5, 0.7, 0.0}, params).linear_y, 0.0, 1e-12);
 }
 
-/** No deadzone removal here, unlike plant_steady_state(): a stick inside the fitted deadzone
- * still produces motion. Pinned because the two converters must stay visibly different. */
 TEST(PlantStickToBodyVelocityTest, IgnoresDeadzones) {
     JigPlantParams params = mrs_buff_mk3_plant();
     const double inside_deadzone = params.dz_lin_fwd * 0.5;

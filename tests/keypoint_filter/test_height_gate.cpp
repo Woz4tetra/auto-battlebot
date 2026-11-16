@@ -80,7 +80,6 @@ class KeypointHeightGateTest : public ::testing::Test {
         return keypoints;
     }
 
-    /** Flat floor across the whole image, at zero height above the plane. */
     DepthImage make_floor() const {
         DepthImage image;
         image.header.frame_id = FrameId::CAMERA;
@@ -89,7 +88,6 @@ class KeypointHeightGateTest : public ::testing::Test {
         return image;
     }
 
-    /** Raise a disc `height` metres above whatever it is drawn on. */
     static void raise_disc(DepthImage &depth, int x, int y, int radius, double height) {
         cv::circle(depth.image, cv::Point(x, y), radius, cv::Scalar(kCameraHeight - height),
                    cv::FILLED);
@@ -97,7 +95,6 @@ class KeypointHeightGateTest : public ::testing::Test {
 };
 
 TEST_F(KeypointHeightGateTest, RejectsDetectionFlatOnTheField) {
-    // Nothing stands proud of its surroundings: a painted logo.
     KeypointHeightGate gate(config_);
     const auto result =
         gate.filter(make_pair(300.0, 240.0, 340.0, 240.0), make_floor(), camera_info_, field_);
@@ -192,7 +189,6 @@ TEST_F(KeypointHeightGateTest, RejectionDisabledPassesEverythingButStillMeasures
     const auto result =
         gate.filter(make_pair(300.0, 240.0, 340.0, 240.0), make_floor(), camera_info_, field_);
 
-    // Flat on the field, but rejection is off, so it survives carrying its measured height.
     ASSERT_EQ(result.keypoints.size(), 2u);
     for (const Keypoint &kp : result.keypoints) {
         EXPECT_NEAR(kp.height_above_plane, 0.0, 1e-6);

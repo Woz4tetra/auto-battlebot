@@ -154,9 +154,6 @@ def test_shape_and_delay() -> None:
     assert shifted[59] == 0.0 and shifted[60] == 1.0
 
 
-# --------------------------------------------------------------------------- end to end
-
-
 def _synthetic_bundle(
     tmp: Path, mp: mass_properties.MassProperties, collision: CollisionSet, truth: PlantParams
 ) -> Path:
@@ -545,8 +542,6 @@ def test_yaw_loop_scales_with_reverse_throttle() -> None:
 
 
 def test_mixer_resume_reproduces_the_logged_output() -> None:
-    """A window starting mid-turn picks the yaw loop up where the robot had it: the next sample
-    with the same stick and gyro gives back the logged output, feedforward counted once."""
     for throttle, turn, rate, logged in ((-40.0, 20.0, 380.0, 16.0), (30.0, 0.0, -5.0, -8.0)):
         mixer = FirmwareMixer()
         mixer.resume(throttle, turn, 90.0, rate, logged)

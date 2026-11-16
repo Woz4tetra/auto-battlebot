@@ -19,7 +19,6 @@ cv::Mat gradient(int width, int height) {
     return image;
 }
 
-// Whichever encoder make_jpeg_encoder() picks: NVJPG on the Jetson, OpenCV on the desktop.
 TEST(JpegEncoderTest, RoundTripsAtInputSizeWithLowError) {
     auto encoder = make_jpeg_encoder();
     const cv::Mat input = gradient(640, 360);

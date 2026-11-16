@@ -5,7 +5,6 @@
 namespace auto_battlebot {
 TEST(TransformTest, DefaultConstruction) {
     Transform tf;
-    // Eigen::MatrixXd should be constructible
     EXPECT_EQ(tf.tf.size(), 16);
 }
 

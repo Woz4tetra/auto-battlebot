@@ -1,6 +1,3 @@
-// Hand-checkable geometry for the hazard layers, plus the degenerate cases the plan calls out:
-// both sides blocked, a goal wedged between overlapping discs, and a hazard that has to be
-// predicted forward rather than tested where it currently sits.
 
 #include <gtest/gtest.h>
 
@@ -44,8 +41,6 @@ FieldDescription field_with(std::vector<FieldHazard> hazards, double size = 2.4)
     field.hazards = std::move(hazards);
     return field;
 }
-
-// --- push_out_of_hazards ---------------------------------------------------------------------
 
 TEST(HazardGeometryTest, PushOutLeavesALegalPointAlone) {
     const std::vector<FieldHazard> hazards = {hazard(0.0, 0.0, 0.3)};
@@ -91,8 +86,6 @@ TEST(HazardGeometryTest, PushOutSettlesBetweenOverlappingDiscs) {
     EXPECT_LE(std::abs(result.y), 1.1 + kTol);
 }
 
-// --- first_blocking_hazard -------------------------------------------------------------------
-
 TEST(HazardGeometryTest, ClearRunFindsNoBlocker) {
     const std::vector<FieldHazard> hazards = {hazard(0.0, 1.0, 0.2)};
     EXPECT_FALSE(first_blocking_hazard(pose(-1.0, 0.0), pose(1.0, 0.0), hazards, 0.0).has_value());
@@ -119,8 +112,6 @@ TEST(HazardGeometryTest, StaticHazardIgnoresItsVelocityField) {
         hazard(0.0, 0.6, 0.2, HazardSource::STATIC, 0.0, -2.0)};
     EXPECT_FALSE(first_blocking_hazard(pose(-1.0, 0.0), pose(1.0, 0.0), statics, 0.3).has_value());
 }
-
-// --- tangent_waypoint ------------------------------------------------------------------------
 
 TEST(HazardGeometryTest, TangentPointSitsOnTheCircle) {
     // Start at the origin, circle of radius 1 centred at (2, 0): half-angle asin(1/2) = 30 deg,
@@ -160,8 +151,6 @@ TEST(HazardGeometryTest, InsideTheCircleTheWaypointPointsStraightOut) {
     EXPECT_NEAR(waypoint.point.x, 1.0, kTol);
     EXPECT_NEAR(waypoint.point.y, 0.0, kTol);
 }
-
-// --- HazardAvoidance layers ------------------------------------------------------------------
 
 HazardAvoidanceSettings default_settings() {
     HazardAvoidanceSettings settings;
@@ -240,7 +229,6 @@ TEST(HazardAvoidanceTest, ResetClearsTheLatchedSide) {
 }
 
 TEST(HazardAvoidanceTest, NoHazardsIsAPassThrough) {
-    // The whole feature has to be invisible on a field with nothing to avoid.
     HazardAvoidance avoidance(default_settings());
     const FieldDescription field = field_with({});
     const Pose2D goal = pose(0.7, -0.3);
@@ -394,12 +382,7 @@ TEST(HazardBarrierTest, DisabledIsAPassThrough) {
     EXPECT_NEAR(cmd.linear_x, 1.0, kTol);
 }
 
-// --- the display contract -------------------------------------------------------------------
-
 TEST(HazardDisplayTest, ATrackedRingIsBothRobotCirclesPlusTheMargin) {
-    // What the UI draws has to add up to what the assembler inflates by, or the picture teaches
-    // the wrong thing. The overlay draws half_diagonal(size) per robot; a tracked ring is the
-    // hazard's circle plus ours plus the margin.
     const Size house_bot{0.254, 0.3302, 0.1};
     const Size ours{0.2225, 0.2535, 0.1};
     const double margin = 0.05;

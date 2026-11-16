@@ -14,7 +14,6 @@
 namespace auto_battlebot {
 namespace {
 
-// Records the stamp of every call it receives and the thread it ran on.
 class RecordingPublisher : public PublisherInterface {
    public:
     void publish_camera_data(const CameraData &data) override { record(data.rgb.header.stamp); }

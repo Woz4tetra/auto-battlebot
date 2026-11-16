@@ -31,9 +31,6 @@ def profile() -> Any:
     return load_profile()
 
 
-# -- firmware mirror ---------------------------------------------------------------------
-
-
 @pytest.mark.parametrize("auto", [False, True])
 def test_batched_mixer_matches_scalar_mirror(auto: bool) -> None:
     rng = np.random.default_rng(3)
@@ -55,8 +52,6 @@ def test_batched_mixer_matches_scalar_mirror(auto: bool) -> None:
 
 
 def test_mirror_reproduces_recorded_pid_output(profile: Any) -> None:
-    """The scalar mirror, run on a session's recorded sticks, heading and gyro, gives back the
-    steer output the robot reported. On a real recording this pins the mirror to the firmware."""
     sim = synthetic.simulate_session(profile, seconds=20.0, seed=4, loop_on_from_s=5.0)
     mixer = FirmwareMixer(auto_steer=False)
     worst = 0.0
@@ -74,9 +69,6 @@ def test_mirror_reproduces_recorded_pid_output(profile: Any) -> None:
     assert worst < 1.0
 
 
-# -- telemetry and profile ---------------------------------------------------------------
-
-
 def test_telemetry_columns_follow_the_schema(tmp_path: Path) -> None:
     schema = json.loads(mcap_write.ESPNOW_TELEMETRY_JSON_SCHEMA)["properties"]
     assert [name for name, _ in telemetry.TELEMETRY_COLUMNS] == list(schema)
@@ -88,10 +80,7 @@ def test_telemetry_columns_follow_the_schema(tmp_path: Path) -> None:
     df = telemetry.load_telemetry(path)
     assert len(df) == 3
     assert df["a_percent"].isna().all()
-    assert df["telemetry_seq"].isna().all()  # nullable, absent in this payload
-
-
-# -- segmenter ---------------------------------------------------------------------------
+    assert df["telemetry_seq"].isna().all()
 
 
 def test_segmenter_labels_snap_hold_release_and_creep() -> None:
@@ -108,9 +97,6 @@ def test_segmenter_labels_snap_hold_release_and_creep() -> None:
     assert any(k == "creep" and "steer creep left" in t for k, t in kinds)
     snap = next(e for e in events if e.text == "Throttle snap to 50% forward")
     assert snap.edge_cell == (0, 1)
-
-
-# -- fit ---------------------------------------------------------------------------------
 
 
 def test_fit_recovers_truth_within_reported_sigma() -> None:
@@ -131,9 +117,6 @@ def test_fit_recovers_truth_within_reported_sigma() -> None:
     sd = np.sqrt(np.diag(model.covariance(result.fisher, result.scale)))
     z = (result.theta - truth) / sd
     assert np.max(np.abs(z)) < 4.0, dict(zip(model.NAMES, np.round(z, 2)))
-
-
-# -- session -----------------------------------------------------------------------------
 
 
 def _feed(session: CoverageSession, sim: synthetic.Session) -> None:
@@ -219,9 +202,6 @@ def test_replay_from_mcap_matches_direct_feed(profile: Any, tmp_path: Path) -> N
     snap = session.snapshot()
     assert snap["link"]["field"]
     assert snap["windows"]["used"] + snap["windows"]["holdout"] >= 3
-
-
-# -- websocket client --------------------------------------------------------------------
 
 
 def test_subscriber_only_subscribes() -> None:
@@ -323,7 +303,6 @@ def test_ring_backfill_matches_live_delivery(profile: Any) -> None:
     _feed(ring, sim)
 
     a, b = direct.snapshot(), ring.snapshot()
-    # The 3 s outage loses nothing: same frame drops, same link gaps, same windows used.
     assert ring.seq_drops == direct.seq_drops
     assert b["windows"]["link"] == a["windows"]["link"]
     assert abs(b["windows"]["used"] - a["windows"]["used"]) <= 1, (a["windows"], b["windows"])

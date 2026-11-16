@@ -23,7 +23,7 @@ ModelResultStamped make_tagged_result(double tag) {
 class FakeKeypointModel : public KeypointModelInterface {
    public:
     bool initialize() override { return true; }
-    ModelResultStamped update(RgbImage /*image*/, const CameraInfo &camera_info) override {
+    ModelResultStamped update(RgbImage, const CameraInfo &camera_info) override {
         ++call_count;
         last_camera_width = camera_info.width;
         if (on_update) on_update();
@@ -39,7 +39,7 @@ class FakeKeypointModel : public KeypointModelInterface {
 class FakeRobotBlobModel : public RobotBlobModelInterface {
    public:
     bool initialize() override { return true; }
-    ModelResultStamped update(RgbImage /*image*/) override {
+    ModelResultStamped update(RgbImage) override {
         ++call_count;
         if (on_update) on_update();
         return make_tagged_result(kBlobTag);
@@ -96,8 +96,6 @@ TEST_F(ParallelModelBatchTest, ReusesWorkersAcrossTicks) {
 }
 
 TEST_F(ParallelModelBatchTest, RunsModelsConcurrently) {
-    // Each model waits until the other has entered update(). If the batch ran them
-    // sequentially, the first model would time out waiting and saw_both stays false.
     std::atomic<int> entered{0};
     std::atomic<bool> keypoint_saw_both{false};
     std::atomic<bool> blob_saw_both{false};
@@ -150,7 +148,6 @@ TEST_F(ParallelModelBatchTest, TimedOutModelYieldsEmptyResultThenRecovers) {
     EXPECT_EQ(recovered.robot_blob_keypoints.keypoints.size(), 1u);
 }
 
-// An exception from a model used to escape the worker thread and std::terminate the app.
 TEST_F(ParallelModelBatchTest, ThrowingModelYieldsEmptyResultWithoutWaitingOrDying) {
     std::atomic<bool> throw_once{true};
     keypoint_model_->on_update = [&throw_once] {

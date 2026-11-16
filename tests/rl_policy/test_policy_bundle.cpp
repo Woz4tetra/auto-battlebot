@@ -1,5 +1,3 @@
-// Manifest parsing and the checks that need no network library. Every bad bundle must fail with
-// an error that names what is wrong, so a bad bundle stops the app at startup with a reason.
 
 #include <gtest/gtest.h>
 
@@ -17,7 +15,6 @@ using rl_test::copy_bundle;
 using rl_test::replace_in_file;
 using rl_test::tiny_mlp_bundle;
 
-/** The error load_policy_bundle throws for `dir`, or "" when it loads. */
 std::string load_error(const std::filesystem::path &dir) {
     try {
         load_policy_bundle(dir);

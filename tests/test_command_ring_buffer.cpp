@@ -36,7 +36,6 @@ TEST(CommandRingBufferTest, WrapAroundDropsOldestKeepsOrder) {
     }
     EXPECT_EQ(buffer.size(), CommandRingBuffer::kCapacity);
 
-    // The oldest surviving entry is total - kCapacity; anything before it is gone.
     const double oldest = static_cast<double>(total - CommandRingBuffer::kCapacity);
     EXPECT_EQ(buffer.latest_at(oldest - 0.5), nullptr);
     ASSERT_NE(buffer.latest_at(oldest), nullptr);

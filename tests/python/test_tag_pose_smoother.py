@@ -148,11 +148,6 @@ def detect(
     }
 
 
-# ---------------------------------------------------------------------------
-# Synthetic session
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class Truth:
     t: np.ndarray  # seconds, 1 kHz
@@ -209,7 +204,7 @@ def make_truth(duration: float = 13.0) -> Truth:
 @dataclass
 class Session:
     truth: Truth
-    frames: list[dict[str, Any]]  # robot_tags payloads with their log time
+    frames: list[dict[str, Any]]
     frame_log_ns: list[int]
     esp32: list[dict[str, Any]]
     host_true_ns: np.ndarray  # true app-clock instant of each ESP32 event
@@ -402,11 +397,6 @@ def smoothed(session: Session) -> tps.SessionSmoothing:
     )
 
 
-# ---------------------------------------------------------------------------
-# Readers
-# ---------------------------------------------------------------------------
-
-
 def test_reader_round_trip(session: Session, tmp_path: Path) -> None:
     path = write_mcap(session, tmp_path / "session.mcap")
 
@@ -429,7 +419,7 @@ def test_reader_round_trip(session: Session, tmp_path: Path) -> None:
         )
         rot, _ = cv2.Rodrigues(det.solutions[0].rvec)
         np.testing.assert_allclose(det.solutions[0].transform[:3, :3], rot, atol=1e-12)
-    assert sum(1 for f in frames if not f.detections) > 0  # empty frames are kept
+    assert sum(1 for f in frames if not f.detections) > 0
 
     esp = sysid_io.load_robot_telemetry(path)
     assert len(esp) == len(session.esp32)
@@ -459,11 +449,6 @@ def test_rodrigues_matches_opencv() -> None:
         np.testing.assert_allclose(sysid_io.rodrigues(rvec), expected, atol=1e-12)
 
 
-# ---------------------------------------------------------------------------
-# IPPE selection
-# ---------------------------------------------------------------------------
-
-
 def _single_frame(det: dict[str, Any], stamp: int) -> sysid_io.RobotTagsFrame:
     payload = {
         "image_stamp_ns": stamp,
@@ -485,8 +470,6 @@ def _single_frame(det: dict[str, Any], stamp: int) -> sysid_io.RobotTagsFrame:
 
 @pytest.mark.parametrize("upside_down", [False, True])
 def test_ippe_selection_on_tilted_tag(upside_down: bool) -> None:
-    """Across headings and positions, the chosen solution is the true pose whenever the call
-    is clear, and the wrong IPPE solution really is wrong (so the test exercises the choice)."""
     rng = np.random.default_rng(5)
     m = mounts()
     mount = m[BOTTOM_ID if upside_down else TOP_ID]
@@ -541,17 +524,11 @@ def test_ippe_close_call_uses_neighbours() -> None:
     cands.n_solutions[:] = 2
     ippe = tps.select_ippe(cands, close_margin_deg=360.0)
     assert ippe.close_calls == len(cands)
-    # Nothing is clear, so the chain starts from the tilt test and follows it.
     for i, truth in enumerate(truths):
         errs = [
             sysid_io.rotation_angle(truth[:3, :3].T @ cands.t_up_body[i, s, :3, :3]) for s in (0, 1)
         ]
         assert ippe.choice[i] == int(np.argmin(errs))
-
-
-# ---------------------------------------------------------------------------
-# Smoother
-# ---------------------------------------------------------------------------
 
 
 def _truth_at_measurements(truth: Truth, stamps: np.ndarray) -> dict[str, np.ndarray]:
@@ -609,7 +586,6 @@ def test_noise_calibration_and_checks(smoothed: tps.SessionSmoothing) -> None:
     # One white-jerk q has to cover stills and punches, so the innovations cannot be white
     # everywhere; the cross-validated pick lands slightly over-responsive (negative lag 1).
     assert -0.5 < white["across_innovation"]["lag1"] < 0.1
-    # Process noise came from the hold-out curve, and the pick is not at the edge of the grid.
     for cv, group in ((smoothed.cv_planar, "xy"), (smoothed.cv_planar, "yaw")):
         k = int(np.nanargmin(cv.score[group]))
         assert 0 < k < cv.score[group].size - 1, (group, cv.score[group])
@@ -710,11 +686,6 @@ def test_smoother_bridges_a_dropout_without_lag() -> None:
     assert np.sqrt(cov[gap, 0, 0, 0]).min() > np.sqrt(cov[(tg > 0.5) & (tg < 0.9), 0, 0, 0]).max()
 
 
-# ---------------------------------------------------------------------------
-# Clock alignment
-# ---------------------------------------------------------------------------
-
-
 def test_clock_fit_recovers_offset_and_drift() -> None:
     rng = np.random.default_rng(4)
     t = np.arange(0.0, 600.0, 0.01)
@@ -762,11 +733,6 @@ def test_radio_delay_from_sticks(session: Session, tmp_path: Path) -> None:
     assert lag.correlation > 0.8
     # The stick log's 10 ms hold hides half a tick, so allow for it.
     assert lag.lag_s == pytest.approx(RADIO_DELAY_S - 0.005 + 0.002, abs=0.006)
-
-
-# ---------------------------------------------------------------------------
-# Windows
-# ---------------------------------------------------------------------------
 
 
 def _grid(duration: float, dt: float = 0.005) -> pd.DataFrame:
@@ -846,11 +812,6 @@ def test_wheel_speeds_inverted() -> None:
     )
     # Inverted, a counter-clockwise turn seen from above is clockwise about body z.
     assert left[0] > 0.0 > right[0]
-
-
-# ---------------------------------------------------------------------------
-# CLI bundle and mass properties
-# ---------------------------------------------------------------------------
 
 
 def _write_mass_properties(path: Path) -> Path:
@@ -935,7 +896,6 @@ def test_loads_mass_properties_file() -> None:
     for mount in mounts_.values():
         r = mount.t_body_tag[:3, :3]
         np.testing.assert_allclose(r @ r.T, np.eye(3), atol=1e-4)
-        # The flag agrees with where the tag normal points in the body.
         assert mount.upside_down == (r[2, 2] < 0.0)
         tilt = math.degrees(math.acos(abs(r[2, 2])))
         assert 5.0 < tilt < 15.0

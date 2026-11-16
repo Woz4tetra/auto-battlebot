@@ -1,9 +1,3 @@
-"""Round-trip every topic of docs/foxglove_recording_format.md through the Python writer and
-readers.
-
-Run with ``venv/bin/pytest tests/python``.
-"""
-
 from __future__ import annotations
 
 import json

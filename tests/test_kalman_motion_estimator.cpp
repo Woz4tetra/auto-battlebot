@@ -111,7 +111,6 @@ TEST(KalmanMotionEstimatorTest, ConvergesToConstantVelocityAndPredictsAhead) {
     EXPECT_FALSE((*coasted)[0].is_stale);
     EXPECT_NEAR((*coasted)[0].velocity.vx, vx, 0.2);
     EXPECT_NEAR((*coasted)[0].velocity.vy, vy, 0.2);
-    // Rendered at the measurement stamp, the output already leads it by the transport delay.
     EXPECT_NEAR((*coasted)[0].pose.position.x, x + vx * kLead, 0.05);
     EXPECT_NEAR((*coasted)[0].pose.position.y, y + vy * kLead, 0.05);
 
@@ -135,8 +134,6 @@ TEST(KalmanMotionEstimatorTest, CoastLeadsTheMeasurementByTheTransportDelay) {
     const double last_t =
         run_constant_velocity(estimator, assigner, field, context, 60, x, y, vx, 0.0);
 
-    // The whole point of the lead: at the instant the measurement lands, the emitted state is
-    // already ahead of it, because the command it feeds will not reach the wheels until later.
     estimator.predict(last_t, CommandFeedback{});
     auto outputs =
         estimator.update({make_opponent_measurement(x, y)}, last_t, assigner, field, context);
@@ -176,7 +173,6 @@ TEST(KalmanMotionEstimatorTest, CoastHoldsPositionPastMaxCoast) {
         if (std::abs(offset - 0.5) < 1e-9) position_at_half_second = position;
         final_position = position;
         if (offset < 0.1) {
-            // Between-frame coasting right after a measurement still reads as fresh.
             EXPECT_FALSE((*coasted)[0].is_stale) << "offset " << offset;
         } else if (offset > 0.15) {
             // A track unmeasured for several frame periods reads as stale even though
@@ -185,7 +181,6 @@ TEST(KalmanMotionEstimatorTest, CoastHoldsPositionPastMaxCoast) {
         }
     }
 
-    // Position moved with the estimated velocity up to the horizon, then froze.
     EXPECT_GT(position_at_half_second, x + vx * 0.3);
     EXPECT_NEAR(final_position, position_at_half_second, 1e-9);
 }
@@ -249,7 +244,6 @@ TEST(KalmanMotionEstimatorTest, LateMeasurementRetrodictsInsteadOfCorruptingTrac
     EXPECT_NEAR(outputs[0].pose.position.x, measurement_x, 0.05);
     EXPECT_NEAR(outputs[0].pose.position.y, y, 0.05);
 
-    // The next coast picks up from the corrected state and keeps tracking.
     auto coasted = estimator.coast(last_t + 0.1);
     ASSERT_TRUE(coasted.has_value());
     EXPECT_NEAR((*coasted)[0].pose.position.x, x + vx * (0.1 + kLead), 0.06);
@@ -366,7 +360,6 @@ TEST(KalmanMotionEstimatorTest, OurRobotDropsAfterHoldWindow) {
     ASSERT_EQ(outputs.size(), 1u);
     EXPECT_TRUE(outputs[0].is_stale);
 
-    // Past the hold window the stale our-robot track decays away instead of being held forever.
     outputs = estimator.update({}, t0 + 0.2, assigner, field, context);
     EXPECT_TRUE(outputs.empty());
 }
@@ -411,8 +404,6 @@ RobotDescription make_our_pose_measurement(const PlantState &truth) {
     return description;
 }
 
-/** Runs `steps` measured frames at 30 Hz with a constant command, generating the measurement
- * from a truth plant driven by the same command history the estimator sees. */
 double run_ekf_measured_phase(KalmanMotionEstimator &estimator, JigPlantModel &truth_model,
                               PlantState &truth, std::vector<TimedCommand> &truth_history,
                               const VelocityCommand &command, FrameIdAssigner &assigner,
@@ -497,7 +488,6 @@ TEST(KalmanMotionEstimatorTest, OurRobotEkfHeadingFlipCorrectsPositionOnly) {
     double t = run_ekf_measured_phase(estimator, truth_model, truth, truth_history, command,
                                       assigner, field, context, 40);
 
-    // The front/back converter mislabels: heading arrives flipped by pi, position correct.
     t += kDt;
     CommandFeedback feedback;
     feedback.stick_commands[FrameId::OUR_ROBOT_1] = command;
@@ -509,7 +499,6 @@ TEST(KalmanMotionEstimatorTest, OurRobotEkfHeadingFlipCorrectsPositionOnly) {
     auto outputs =
         estimator.update({make_our_pose_measurement(flipped)}, t, assigner, field, context);
     ASSERT_EQ(outputs.size(), 1u);
-    // Position folded in, heading kept: the estimate must not spin toward the flip.
     EXPECT_FALSE(outputs[0].is_stale);
     EXPECT_NEAR(outputs[0].pose.position.x, truth.x, 0.03);
     const double yaw = pose_to_pose2d(outputs[0].pose).yaw;
@@ -530,8 +519,6 @@ TEST(KalmanMotionEstimatorTest, HoldModePinsOpponentAtLastMeasurement) {
     const double last_t =
         run_constant_velocity(estimator, assigner, field, context, 30, x, y, 1.5, 0.0);
 
-    // Dropout: the output stays pinned at the last measured pose, no extrapolation, and
-    // coast() holds the same pose between frames.
     double t = last_t;
     for (int i = 0; i < 6; ++i) {
         t += kDt;
@@ -642,7 +629,6 @@ TEST(KalmanMotionEstimatorTest, OpponentSingleHeadingFlipCorrectsPositionOnly) {
         << "the flipped heading must not move the estimate";
     EXPECT_GT(outputs[0].pose.position.x, truth.x + 0.01) << "position still corrected";
 
-    // A correct heading next frame resets the flip run.
     t += kDt;
     truth.step(kDt);
     estimator.predict(t, CommandFeedback{});
@@ -663,7 +649,6 @@ TEST(KalmanMotionEstimatorTest, OpponentConsecutiveFlipsReinitializeHeadingOnly)
     truth.omega = 0.0;
     double t = run_turning(estimator, assigner, field, context, 40, truth);
 
-    // The track had the front wrong: from here on every measurement says the other way.
     std::vector<RobotDescription> outputs;
     for (int flip = 1; flip <= 3; ++flip) {
         t += kDt;
@@ -682,7 +667,6 @@ TEST(KalmanMotionEstimatorTest, OpponentConsecutiveFlipsReinitializeHeadingOnly)
     EXPECT_NEAR(angle_error(yaw_of(outputs[0]), truth.yaw + M_PI), 0.0, 1e-9);
     EXPECT_NEAR(outputs[0].velocity.omega, 0.0, 1e-9);
     EXPECT_NEAR(outputs[0].uncertainty.heading_sigma_rad, config.opponent_heading_sigma_rad, 1e-9);
-    // Translation velocity survives the heading reinit.
     EXPECT_NEAR(outputs[0].velocity.vx, truth.vx, 0.2);
 }
 
@@ -726,8 +710,6 @@ TEST(KalmanMotionEstimatorTest, OpponentBlobBornTrackHasUnknownHeadingUntilKeypo
     EXPECT_EQ((*coasted)[0].velocity.omega, 0.0);
     EXPECT_TRUE(std::isfinite((*coasted)[0].uncertainty.position_sigma_major_axis_m));
 
-    // The first keypoint heading initializes the block whatever its value: there is no prior to
-    // call it a flip against.
     t += kDt;
     x += 0.5 * kDt;
     estimator.predict(t, CommandFeedback{});
@@ -754,7 +736,6 @@ TEST(KalmanMotionEstimatorTest, OpponentHeadingBlindLabelNeverCorrectsHeading) {
     EXPECT_TRUE(std::isinf((*coasted)[0].uncertainty.heading_sigma_rad));
     EXPECT_TRUE(std::isinf((*coasted)[0].uncertainty.yaw_rate_sigma_rad_s));
     EXPECT_EQ((*coasted)[0].velocity.omega, 0.0);
-    // Position still tracks.
     EXPECT_NEAR((*coasted)[0].pose.position.x, truth.x + truth.vx * kLead, 0.05);
 }
 
@@ -847,7 +828,6 @@ TEST(KalmanMotionEstimatorTest, OpponentCoastingIntoWallRendersStopped) {
     field.size.size.y = 2.0;
     const MotionEstimatorContext context;
 
-    // Driving at the +x wall (x = 1.0) at 1.5 m/s and still sliding along y.
     double x = 0.2;
     double y = 0.0;
     const double last_t =
@@ -860,8 +840,6 @@ TEST(KalmanMotionEstimatorTest, OpponentCoastingIntoWallRendersStopped) {
     EXPECT_NEAR((*coasted)[0].velocity.vy, 0.3, 0.1) << "velocity along the wall survives";
 }
 
-/** Replays the scripted opponent from make_opponent_filter_golden_fixture.py and holds the C++
- * arm to the Python mirror (auto_battlebot/perception/opponent_filter.py) that produced it. */
 TEST(KalmanMotionEstimatorTest, OpponentArmMatchesPythonMirrorGoldenFixture) {
     namespace golden = opponent_filter_golden;
     constexpr double kTol = 1e-6;
@@ -962,8 +940,6 @@ TEST(KalmanMotionEstimatorTest, ResetClearsTracks) {
 }
 
 TEST(KalmanMotionEstimatorTest, RendersSecondsSinceTheLastMeasurement) {
-    // RlPolicyNavigation reads this as the observation's measurement age: 0 on a fresh frame,
-    // then growing on the wall clock between frames, for our track and opponent tracks alike.
     KalmanMotionEstimator estimator{kalman_opponents_config()};
     FrameIdAssigner assigner(10.0, 5);
     const FieldDescription field = make_field();

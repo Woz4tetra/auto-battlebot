@@ -73,8 +73,6 @@ TEST(PlantEffectiveCommand, NoDeadzoneIsIdentity) {
     }
 }
 
-// --- compensate_coupling: divide out the loss the plant is about to apply ---
-
 TEST(MotionProfileCompensateCoupling, DisabledCoefficientIsIdentity) {
     // angular_droop_coeff ships at 0.0, so this is the shipped path for that channel.
     EXPECT_DOUBLE_EQ(Nav::compensate_coupling(0.6, 0.5, 0.0, kSteerBrakeFloor), 0.6);
@@ -82,12 +80,10 @@ TEST(MotionProfileCompensateCoupling, DisabledCoefficientIsIdentity) {
 }
 
 TEST(MotionProfileCompensateCoupling, NoCouplingEffectLeavesCommandAlone) {
-    // Driving straight: no angular command, so no steer-brake loss to undo.
     EXPECT_DOUBLE_EQ(Nav::compensate_coupling(0.6, 0.0, kSteerBrake, kSteerBrakeFloor), 0.6);
 }
 
 TEST(MotionProfileCompensateCoupling, UndoesTheModelledLossExactly) {
-    // The point of the whole term: command x, plant multiplies by (1 - c_sb*|u_ang|), robot gets x.
     const double command = 0.5;
     const double effect = 0.1;
     const double authority = 1.0 - kSteerBrake * effect;
@@ -100,7 +96,6 @@ TEST(MotionProfileCompensateCoupling, UndoesTheModelledLossExactly) {
 }
 
 TEST(MotionProfileCompensateCoupling, IsSymmetricInTheSignOfTheEffect) {
-    // Turning left and right cost the same forward speed; the loss is on |u_ang|.
     EXPECT_DOUBLE_EQ(Nav::compensate_coupling(0.5, 0.1, kSteerBrake, kSteerBrakeFloor),
                      Nav::compensate_coupling(0.5, -0.1, kSteerBrake, kSteerBrakeFloor));
 }
@@ -135,8 +130,6 @@ TEST(MotionProfileCompensateCoupling, GrowsMonotonicallyUpToTheFloor) {
         previous = compensated;
     }
 }
-
-// --- the two composed, which is how compute_command uses them ---
 
 TEST(MotionProfilePlantAlgebra, DeadzoneKeepsTinyTurnsFromCostingForwardSpeed) {
     // A turn command below the plant's angular deadzone produces no yaw, so it must not trigger

@@ -21,7 +21,6 @@
 namespace auto_battlebot {
 namespace {
 
-/** Records what the composite does to it, and reports whatever the test sets. */
 class FakeTransmitter : public TransmitterInterface {
    public:
     bool init_result = true;
@@ -176,7 +175,6 @@ TEST(CompositeTransmitterConfigTest, ParsesChildrenInOrder) {
 
 TEST(CompositeTransmitterConfigTest, RefusesProcessorSettingsThatDisagree) {
     std::string text = kCompositeToml;
-    // Drop the ESP-NOW child's reversal: the transports would disagree on the turn direction.
     const std::string line = "reverse_angular_channel = true\n";
     text.erase(text.rfind(line), line.size());
     EXPECT_THROW(parse(text), ConfigValidationError);
@@ -186,7 +184,7 @@ TEST(CompositeTransmitterConfigTest, DriveProcessorDefaultsToDifferentialAndMust
     std::string text = kCompositeToml;
     const std::string line = "drive_processor = \"DifferentialDriveProcessor\"\n";
     text.erase(text.rfind(line), line.size());
-    const auto config = parse(text);  // the default matches the OpenTX child
+    const auto config = parse(text);
     const auto &composite = static_cast<const CompositeTransmitterConfiguration &>(*config);
     EXPECT_EQ(
         static_cast<const EspNowTransmitterConfiguration &>(*composite.children[1]).drive_processor,
@@ -252,7 +250,6 @@ TEST(EspNowTelemetryJsonTest, NonFiniteFloatsAndMissingCommandBecomeNull) {
     EXPECT_EQ(json.back(), '}');
 }
 
-/** End to end through a pseudo-terminal standing in for the dongle's USB serial port. */
 class EspNowTransmitterPtyTest : public ::testing::Test {
    protected:
     void SetUp() override {
@@ -305,7 +302,7 @@ TEST_F(EspNowTransmitterPtyTest, SendsProcessedCommandsWithIncreasingSeqOnlyWhil
     ASSERT_TRUE(transmitter.initialize());
 
     transmitter.send({0.5, 0.0, 0.25});
-    EXPECT_TRUE(read_master().empty());  // disabled: nothing on the wire
+    EXPECT_TRUE(read_master().empty());
 
     transmitter.enable();
     transmitter.send({0.5, 0.0, 0.25});
@@ -335,8 +332,6 @@ bool logged_silent_reconnect() {
     return false;
 }
 
-// A dongle that re-enumerates leaves the old fd open and reading empty forever. Silence past one
-// reconnect interval must drop and reopen the port; link stats arriving must not.
 TEST_F(EspNowTransmitterPtyTest, ReopensTheDongleOnlyAfterItGoesSilent) {
     EspNowTransmitterConfiguration config;
     config.dongle_serial_path = path_;
@@ -424,7 +419,6 @@ TEST_F(EspNowTransmitterPtyTest, SlewLimitsLinearOnlyWhileAutonomyIsOn) {
         std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
     commands = read_commands(read_master());
     ASSERT_EQ(commands.size(), 1u);
-    // Ramps from the standstill baseline held while SA was off.
     EXPECT_GT(commands[0].channel_a, 0.0f);
     EXPECT_LE(commands[0].channel_a, elapsed_s + 1e-3);
 }
@@ -452,7 +446,6 @@ TEST_F(EspNowTransmitterPtyTest, NoFeedbackOrSwitchBeforeTelemetry) {
     EspNowTransmitter transmitter(config, nullptr, nullptr);
     ASSERT_TRUE(transmitter.initialize());
 
-    // The boot banner is plain text between frames and must be skipped.
     const char *text = "\nespnow_dongle mac=d8:3b channel=1\n";
     ASSERT_GT(write(master_, text, std::strlen(text)), 0);
     usleep(5000);
@@ -480,7 +473,6 @@ TEST_F(EspNowTransmitterPtyTest, FeedbackAndSwitchComeFromTelemetry) {
     write_telemetry(master_, telemetry);
     usleep(5000);
 
-    // Feedback is the channel pair mapped back through the same processor send() uses.
     const auto processor = make_drive_processor(
         config.drive_processor, {.reverse_angular = config.reverse_angular_channel},
         DiagnosticsLogger::get_logger("espnow_feedback_test"));
@@ -496,7 +488,6 @@ TEST_F(EspNowTransmitterPtyTest, FeedbackAndSwitchComeFromTelemetry) {
     EXPECT_TRUE(transmitter.get_status().receiving_channels);
     EXPECT_TRUE(transmitter.get_status().autonomy_switch_on);
 
-    // SA off on the handset: still receiving, switch off.
     telemetry.autonomy_enabled = 0;
     write_telemetry(master_, telemetry);
     usleep(5000);
@@ -504,7 +495,6 @@ TEST_F(EspNowTransmitterPtyTest, FeedbackAndSwitchComeFromTelemetry) {
     EXPECT_TRUE(transmitter.get_status().receiving_channels);
     EXPECT_FALSE(transmitter.get_status().autonomy_switch_on);
 
-    // The robot lost its handset: not receiving, so the switch cannot count as on.
     telemetry.autonomy_enabled = 1;
     telemetry.radio_connected = 0;
     write_telemetry(master_, telemetry);
@@ -513,7 +503,6 @@ TEST_F(EspNowTransmitterPtyTest, FeedbackAndSwitchComeFromTelemetry) {
     EXPECT_FALSE(transmitter.get_status().receiving_channels);
     EXPECT_FALSE(transmitter.get_status().autonomy_switch_on);
 
-    // Telemetry stops: feedback and status go stale together.
     usleep(std::chrono::duration_cast<std::chrono::microseconds>(kTelemetryStale).count() + 20000);
     EXPECT_TRUE(transmitter.update().stick_commands.empty());
     EXPECT_FALSE(transmitter.get_status().receiving_channels);

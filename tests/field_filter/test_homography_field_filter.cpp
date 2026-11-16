@@ -48,7 +48,6 @@ Eigen::Matrix3d fit_frame(const Eigen::Matrix4d &tf_camera_from_fieldcenter, int
            Eigen::AngleAxisd(quarters * M_PI / 2.0, Eigen::Vector3d::UnitZ()).matrix();
 }
 
-/** Camera range implied by a recovered pose: the field centre's distance from the camera. */
 double range_of(const Eigen::Matrix4d &tf_camera_from_fieldcenter) {
     return tf_camera_from_fieldcenter.block<3, 1>(0, 3).norm();
 }
@@ -173,8 +172,6 @@ TEST_F(HomographyFieldFilterTest, SolvesAClippedFieldFromThreeEdges) {
 }
 
 TEST_F(HomographyFieldFilterTest, ThreeEdgesAgreeWithFourCornersOnTheSameOutline) {
-    // Same outline, both solvers. Dropping a side that is actually visible must not move the
-    // answer, or the clipped path is measuring something different from the well-framed one.
     const Eigen::Matrix4d truth = testing_support::camera_pose(3.5, 30.0, 15.0);
     const cv::Mat mask = testing_support::render_field_mask(
         truth, testing_support::test_intrinsics(), kImageSize, kFieldSize, kFieldSize);

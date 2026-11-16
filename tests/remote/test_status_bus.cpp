@@ -6,7 +6,6 @@ namespace auto_battlebot::remote {
 namespace {
 
 TEST(StatusBusTest, ThrottlesInsideTheRateWindow) {
-    // No sink and no recorder: the channels exist and publish is a no-op past the throttle.
     StatusBus bus(nullptr, nullptr);
     SystemStatusMessage message;
     EXPECT_TRUE(bus.publish(message));

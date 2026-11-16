@@ -150,7 +150,6 @@ TEST(EmptyCircleSolverTest, OpponentAgainstWallDoesNotStraddleIt) {
 }
 
 TEST(EmptyCircleSolverTest, CoincidentTracksMatchSingleOpponentAnswer) {
-    // Two filter tracks landing on one robot must not perturb the solver.
     const Size field = make_field(2.44, 2.44);
     const EmptyCircle one = solve_exact(field, {make_pose(0.4, -0.3)});
     const EmptyCircle two = solve_exact(field, {make_pose(0.4, -0.3), make_pose(0.4, -0.3)});
@@ -179,8 +178,6 @@ TEST(EmptyCircleSolverTest, ExactMatchesBruteForceOnRandomConfigurations) {
         }
         const EmptyCircle exact = solve_exact(field, opponents);
         const double brute = brute_force_radius(field, opponents, brute_resolution);
-        // Exact must never fall below the sampled optimum, and the sample can only trail
-        // the true optimum by its grid bound.
         EXPECT_GE(exact.radius, brute - kTol) << "trial " << trial;
         EXPECT_LE(exact.radius, brute + brute_bound + kTol) << "trial " << trial;
     }
@@ -192,12 +189,9 @@ TEST(EmptyCircleSolverTest, ReportsWinningConstraintFamily) {
     const EmptyCircle square = solve_exact(make_field(4.0, 4.0), {});
     EXPECT_TRUE(square.source == "three_wall" || square.source == "field_center") << square.source;
 
-    // One opponent dead center pushes the answer to a corner, which two perpendicular walls
-    // and the opponent pin.
     const EmptyCircle pushed = solve_exact(make_field(4.0, 4.0), {make_pose(0.0, 0.0)});
     EXPECT_EQ(pushed.source, "perpendicular_walls_point");
 
-    // A degenerate field still leaves the field marked, never an empty string.
     const EmptyCircle degenerate = solve_exact(make_field(0.0, 0.0), {});
     EXPECT_FALSE(degenerate.source.empty());
 }
@@ -219,8 +213,6 @@ TEST(EmptyCircleSolverTest, HazardAtCentreSolvesTheWeightedCornerCase) {
 }
 
 TEST(EmptyCircleSolverTest, GoalIsPushedOffAHazardSittingOnTheBestPoint) {
-    // Without the hazard the safest point is the field center. Dropping a hazard on it has to
-    // move the goal out of the disc entirely, not merely reduce the reported radius.
     const Size field = make_field(2.4, 2.4);
     const std::vector<FieldHazard> hazards = {make_hazard(0.0, 0.0, 0.4)};
     const EmptyCircle result = solve_exact(field, {}, hazards);
@@ -239,8 +231,6 @@ TEST(EmptyCircleSolverTest, HazardCoveringTheFieldReportsNegativeRadius) {
 }
 
 TEST(EmptyCircleSolverTest, MixedOpponentAndHazardMatchesBruteForce) {
-    // The families that mix a point site and a weighted site are the ones the closed forms had
-    // to grow a radius term for. Brute force is the only check that covers all of them.
     std::mt19937 rng(20260824);
     std::uniform_real_distribution<double> coord(-1.15, 1.15);
     std::uniform_real_distribution<double> hazard_radius(0.05, 0.45);

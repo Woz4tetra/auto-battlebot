@@ -1,6 +1,3 @@
-// Behavior tests for SafestPointTarget: attack delegation, run-away targeting through the
-// exact solver, held-target hysteresis, and mode transitions. Geometric ground truth for
-// the solver itself lives in test_empty_circle_solver.cpp.
 
 #include <gtest/gtest.h>
 
@@ -42,10 +39,8 @@ void add_opponent(RobotDescriptionsStamped &robots, double x, double y) {
     robots.descriptions.push_back(make_robot(FrameId::THEIR_ROBOT_1, Group::THEIRS, x, y));
 }
 
-/** Config default, retarget_improvement_m = 0.0: the held target only survives an exact tie. */
 SafestPointTarget make_selector() { return SafestPointTarget(SafestPointTargetConfiguration{}); }
 
-/** Selector with retarget hysteresis on, for the tests that exercise the threshold itself. */
 SafestPointTarget make_selector_with_hysteresis(double retarget_improvement_m) {
     SafestPointTargetConfiguration config;
     config.retarget_improvement_m = retarget_improvement_m;
@@ -121,9 +116,6 @@ TEST(SafestPointTargetTest, HeldTargetSurvivesSmallOpponentMove) {
 }
 
 TEST(SafestPointTargetTest, DefaultThresholdRetargetsOnAnyImprovement) {
-    // The 0.0 default is the deliberate setting: every improvement is taken, and only an
-    // exact tie holds. Same 5 cm opponent shift that HeldTargetSurvivesSmallOpponentMove
-    // pins in place at 0.15.
     auto selector = make_selector();
     const FieldDescription field = make_field(2.44, 2.44);
     auto robots = our_robot_at(0.5, 0.5);
@@ -185,11 +177,8 @@ TEST(SafestPointTargetTest, MissingOurPoseStillAnswersRunAwayButNotAttack) {
     RobotDescriptionsStamped robots;
     add_opponent(robots, 0.6, 0.0);
 
-    // Run-away is exactly the moment to keep producing answers; only the tie-break
-    // degrades without our pose.
     const auto run_away = selector.get_target(robots, field, BehaviorMode::RUN_AWAY);
     EXPECT_TRUE(run_away.has_value());
-    // Attack delegates to NearestTarget, which cannot rank opponents without us.
     const auto attack = selector.get_target(robots, field, BehaviorMode::ATTACK);
     EXPECT_FALSE(attack.has_value());
 }
@@ -213,7 +202,6 @@ TEST(SafestPointTargetTest, LogsSolverSourceForTheChosenPoint) {
     }
 
     ASSERT_FALSE(solver_values.empty()) << "no solver subsection in the selector diagnostics";
-    // A centered opponent puts the answer in a corner, pinned by two walls and the opponent.
     EXPECT_EQ(solver_values["source"], "perpendicular_walls_point");
     EXPECT_EQ(solver_values["n_opponents"], "1");
     EXPECT_EQ(solver_values["tie_break"], "1");

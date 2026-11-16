@@ -137,7 +137,6 @@ TEST_F(GpuLetterboxTest, BgraMatchesBgr) {
     expect_close(gpu_letterbox(bgra), cpu_letterbox(bgr));
 }
 
-// A ROI has a row step wider than its pixels, on both the copy and the in-place path.
 TEST_F(GpuLetterboxTest, RoiUsesRowStep) {
     const cv::Mat full = random_image(2000, 1300, CV_8UC3);
     const cv::Rect roi(40, 50, 1920, 1200);
@@ -154,7 +153,6 @@ TEST_F(GpuLetterboxTest, RoiUsesRowStep) {
     expect_close(gpu, cpu_letterbox(pinned_roi.clone()));
 }
 
-// At the tensor's own size there is no resize, so the result is exact.
 TEST_F(GpuLetterboxTest, TensorSizedImageIsExact) {
     const cv::Mat image = random_image(kTensorWidth, kTensorHeight, CV_8UC3);
     const std::vector<float> gpu = gpu_letterbox(image);

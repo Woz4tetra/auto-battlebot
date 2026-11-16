@@ -81,7 +81,6 @@ Pose camera_from_floor(double height, double tilt) {
     return Pose{rot_x(tilt), cv::Vec3d(0, 0, 0)} * overhead;
 }
 
-/** Robot resting on the floor at (x, y) with heading yaw, upright or on its back. */
 Pose floor_from_body(double x, double y, double yaw, bool upside_down) {
     if (upside_down) {
         return {rot_z(yaw) * rot_x(M_PI), cv::Vec3d(x, y, kAxleHeight)};
@@ -127,7 +126,6 @@ std::array<cv::Point2f, 4> tag_corners(const Pose &camera_from_tag) {
     return corners;
 }
 
-/** A grey frame with the 36h11 marker warped to where the pose puts it. */
 cv::Mat render_tag(int id, const Pose &camera_from_tag) {
     constexpr int kMarkerPx = 400;
     constexpr int kPad = 100;
@@ -184,7 +182,6 @@ TEST(AprilTagKeypointModelTest, DetectsRenderedTagAndRecoversPose) {
     AprilTagKeypointModel model(model_config(), nullptr, nullptr);
     const ModelResultStamped result = model.update(make_image(frame, 1788011445.25), camera_info());
 
-    // The raw measurement.
     const std::string &json = model.last_tags_json();
     EXPECT_NE(json.find("\"id\":76"), std::string::npos) << json;
     EXPECT_NE(json.find("\"roi\":null"), std::string::npos);
@@ -192,7 +189,6 @@ TEST(AprilTagKeypointModelTest, DetectsRenderedTagAndRecoversPose) {
     EXPECT_NE(json.find("\"frame_id\":\"camera\""), std::string::npos);
     EXPECT_NE(json.find("\"tag_size_m\":0.064"), std::string::npos);
 
-    // Detection corners against the rendered ones, through a fresh solve.
     const auto truth_corners = tag_corners(camera_tag);
     const auto solutions =
         solve_tag_pose(truth_corners, kTagSize, intrinsics(), cv::Mat::zeros(1, 5, CV_64F));

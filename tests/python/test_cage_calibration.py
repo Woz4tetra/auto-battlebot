@@ -77,12 +77,10 @@ def test_pose_from_corners_recovers_the_camera_and_keeps_field_z_up(
     r3, t = tf_cam_from_hfield[:3, 2], tf_cam_from_hfield[:3, 3]
     assert float(r3 @ t) < 0
 
-    # The chain lands back on the synthetic camera, so WORLD_FROM_HFIELD is right.
     recovered = world_from_camera(tf_cam_from_hfield)
     assert np.allclose(recovered, near_wall_camera, atol=1e-6)
     assert np.allclose(camera_from_world(recovered), tf_cam_from_hfield, atol=1e-6)
 
-    # Projecting the field corners through the solved pose reproduces the pixels.
     assert np.allclose(project_field_corners(tf_cam_from_hfield, MAT, K), pixels, atol=1e-3)
 
 
@@ -194,7 +192,7 @@ def test_pixels_to_field_plane_inverts_projection(near_wall_camera: np.ndarray) 
 
     tf = camera_from_world(near_wall_camera)
     points = np.array([[0.3, -0.4, 0.0], [-0.8, 0.9, 0.0], [0.0, 0.0, 0.0]])
-    pixels = project_field_corners(tf, MAT, K)  # any pixels work; use the corners plus these
+    pixels = project_field_corners(tf, MAT, K)
     from auto_battlebot.perception.field_pose import project_points
 
     pixels = project_points(tf, points, K)

@@ -25,8 +25,6 @@ FiducialFieldFilterConfiguration make_config() {
     return config;
 }
 
-/** Render the board as the camera would see it, by warping a generated board image onto the
- *  field plane through the pose under test. */
 cv::Mat render_board(const Eigen::Matrix4d &tf_camera_from_fieldcenter,
                      const Eigen::Matrix4d &tf_fieldcenter_from_board) {
     const cv::aruco::Dictionary dictionary =

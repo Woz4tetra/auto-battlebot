@@ -125,8 +125,6 @@ TEST(VideoEncoderTest, SubmitIndexIsThePacketPositionInEachSession) {
     }
 }
 
-// After the backend refuses a numbered frame, no index may point at the wrong packet: every index
-// handed out is either its packet's position or past the last packet.
 TEST(VideoEncoderTest, RefusedFrameStopsTheSessionInsteadOfShiftingIndices) {
     VideoEncoderOptions options;
     options.width = 32;

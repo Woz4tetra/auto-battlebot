@@ -1,5 +1,3 @@
-// ObservationBuilderV1 against auto_battlebot/rl/obs_spec.py (plan gate G3), and the adapter
-// that fills its inputs from the navigation's robots, field and target.
 
 #include <gtest/gtest.h>
 
@@ -17,7 +15,6 @@ namespace {
 
 constexpr double kTolerance = 1e-5;
 
-// Block offsets in the 138 floats.
 constexpr int kOur = 0;
 constexpr int kHistory = 6;
 constexpr int kOpponent = 38;
@@ -77,8 +74,6 @@ TEST(ObservationV1GoldenTest, MatchesObsSpecPyOnEveryCase) {
         }
     }
 }
-
-// --- Adapter -------------------------------------------------------------------------------
 
 RobotDescription robot_at(FrameId frame_id, double x, double y, double yaw) {
     RobotDescription robot;
@@ -149,7 +144,6 @@ TEST(ObservationV1AdapterTest, AStaleTargetWithUnknownHeadingReadsTheCaps) {
     opponent.size = Size{0.3, 0.4, 0.1};
     opponent.velocity = Velocity2D{-0.5, 0.25, 0.0};
     opponent.uncertainty.position_sigma_major_axis_m = 0.03;
-    // Heading and yaw-rate sigmas stay infinite: the heading was never measured.
     world.opponent = opponent;
 
     const Observation out = world.observe();

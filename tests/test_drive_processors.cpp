@@ -77,7 +77,6 @@ TEST(DriveProcessorTest, ReadbackUndoesTheReversals) {
             const DifferentialDriveProcessor plain(plain_config, make_logger());
 
             for (const auto& cmd : kCommands) {
-                // Saturation and deadzones still shape the command; only the sign must match.
                 const auto expected = plain.process(cmd);
                 for (const DriveProcessorInterface* processor :
                      {static_cast<const DriveProcessorInterface*>(&differential),
@@ -105,7 +104,6 @@ TEST(DriveProcessorTest, TankSplitsCommandIntoWheelChannels) {
     EXPECT_NEAR(straight.channel_a, 0.5, 1e-12);
     EXPECT_NEAR(straight.channel_b, 0.5, 1e-12);
 
-    // Spinning in place drives the wheels in opposite directions: left forward, right reverse.
     const auto spin = tank.process(command(0.0, 0.4));
     EXPECT_NEAR(spin.channel_a, 0.4, 1e-12);
     EXPECT_NEAR(spin.channel_b, -0.4, 1e-12);
@@ -134,8 +132,6 @@ TEST(DriveProcessorTest, TankAppliesDeadzonesPerWheel) {
     EXPECT_GE(std::abs(small.channel_b), 0.1);
 }
 
-// Angular has priority over linear: with the budget at 1.0, a full-scale turn leaves no headroom
-// for forward motion, so the wheels end up at +/-1.
 TEST(DriveProcessorTest, TankSaturationGivesAngularPriority) {
     const TankDriveProcessor tank({.velocity_saturation_limit = 1.0, .zero_deadzone_percent = 0.0},
                                   make_logger());

@@ -1,5 +1,3 @@
-// RlPolicyNavigation: the startup checks that refuse a bad bundle or a HOLD opponent filter, the
-// no_robot path, the policy schedule, and which opponent it hands the policy.
 
 #include <gtest/gtest.h>
 
@@ -20,7 +18,6 @@ namespace {
 
 using rl_policy::PolicyBundleError;
 
-// Observation v1 indices the test networks read.
 constexpr int kOurSpeed = 0;
 constexpr int kOurYawRate = 1;
 constexpr int kOpponentX = 38;
@@ -58,7 +55,6 @@ FieldDescription field() {
     return field;
 }
 
-/** Message of the exception `initialize()` throws, or "" when it starts. */
 template <typename Error>
 std::string start_error(const RlPolicyNavigationConfiguration &config) {
     auto nav = make_nav(config);
@@ -114,7 +110,6 @@ TEST(RlPolicyNavigationTest, AnUnmeasuredRobotCommandsZero) {
 }
 
 TEST(RlPolicyNavigationTest, AFrozenSnapshotAgesOnTheControlClock) {
-    // The cache hands back a snapshot whose measurement_age_s stopped growing when it was cached.
     auto clock = std::make_shared<ManualClock>();
     RlPolicyNavigation nav(config_for(rl_test::constant_bundle()), clock);
     ASSERT_TRUE(nav.initialize());

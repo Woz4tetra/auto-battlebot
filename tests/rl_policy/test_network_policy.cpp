@@ -1,5 +1,3 @@
-// NetworkPolicy: the self-test gate at load, act() through runtime and decoder, and reset().
-// ConstantPolicy rides along: it is the other policy kind built now.
 
 #include <gtest/gtest.h>
 
@@ -78,8 +76,6 @@ TEST(NetworkPolicyTest, ASelftestOfTheWrongSizeIsNamed) {
     }
 }
 
-/** A recurrent actor: GRU(2 -> 2) then Dense(2 -> 2). Its output depends on the steps before,
- * which is what reset() has to clear. */
 std::filesystem::path write_gru_bundle() {
     const auto dir = rl_test::fresh_dir("gru_bundle");
     rl_test::write_text(
@@ -120,7 +116,6 @@ TEST(NetworkPolicyTest, ResetClearsRecurrentState) {
 
     const ActionCommand first = policy.act(observation);
     const ActionCommand second = policy.act(observation);
-    // Same input, different output: the GRU carried state from the first step.
     EXPECT_GT(std::abs(second.linear - first.linear) + std::abs(second.angular - first.angular),
               1e-3);
 
@@ -131,7 +126,6 @@ TEST(NetworkPolicyTest, ResetClearsRecurrentState) {
 }
 
 TEST(NetworkPolicyTest, LoadLeavesTheStateReset) {
-    // The self-test runs pairs through the network; none of that may leak into the first act().
     NetworkPolicy policy;
     const auto dir = write_gru_bundle();
     policy.load(load_policy_bundle(dir));

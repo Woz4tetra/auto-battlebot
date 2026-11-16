@@ -45,13 +45,11 @@ TEST_F(PlaneHeightOffsetTest, ExactlyInvertsForwardProjectionOnTiltedPlane) {
     const Eigen::Vector3d plane_normal = Eigen::Vector3d(0.2, -0.1, -1.0).normalized();
     const double keypoint_height = 0.06;
 
-    // Build a ground point on the plane, then the physical keypoint sitting above it.
     const Eigen::Vector3d u = plane_normal.unitOrthogonal();
     const Eigen::Vector3d v = plane_normal.cross(u);
     const Eigen::Vector3d ground_point = plane_center + 0.8 * u - 0.4 * v;
     const Eigen::Vector3d physical_keypoint = ground_point + keypoint_height * plane_normal;
 
-    // Forward-project the physical keypoint onto the plane along the camera ray.
     const double t = plane_normal.dot(plane_center) / plane_normal.dot(physical_keypoint);
     const Eigen::Vector3d plane_point = t * physical_keypoint;
 
@@ -71,7 +69,6 @@ TEST_F(PlaneHeightOffsetTest, ZeroHeightIsNoOp) {
 }
 
 TEST_F(PlaneHeightOffsetTest, DegenerateCameraAtPlaneIsNoOp) {
-    // Plane passes through the camera origin: camera height is zero.
     const Eigen::Vector3d plane_point(1.0, 0.5, 0.0);
     const Eigen::Vector3d corrected =
         correct_plane_height_offset(plane_point, Eigen::Vector3d::Zero(), plane_normal_, 0.06);
@@ -103,7 +100,6 @@ TEST_F(PlaneHeightOffsetTest, ProjectionOverloadMatchesBaseThenCorrects) {
     ASSERT_TRUE(project_keypoint_onto_plane(keypoint, plane_center_, plane_normal_, camera_info_,
                                             0.06, corrected));
 
-    // The corrected point moves inward: closer to the nadir than the uncorrected projection.
     const Eigen::Vector3d nadir(0.0, 0.0, 3.0);
     EXPECT_LT((corrected - nadir).norm(), (uncorrected - nadir).norm());
     EXPECT_EQ(corrected,

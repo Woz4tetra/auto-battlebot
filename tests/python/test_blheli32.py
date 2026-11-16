@@ -349,7 +349,7 @@ def robot() -> Iterator[FakeRobot]:
 def test_session_over_http_relay(robot: FakeRobot) -> None:
     port = HttpPort(robot.url, poll_s=0.001)
     assert port.enter_tuning() is True
-    assert port.enter_tuning() is False  # already in it
+    assert port.enter_tuning() is False
     session = Session(port, switch_from_msp=False)
     session.open()
     before = session.read(0).decrypted_payload

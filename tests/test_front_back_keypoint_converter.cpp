@@ -91,7 +91,6 @@ TEST_F(FrontBackKeypointConverterTest, PoseSitsAtReferenceOffsetAlongHeading) {
     EXPECT_NEAR(tf.tf(0, 3), 0.2, 1e-12);
     EXPECT_NEAR(tf.tf(1, 3), 0.0, 1e-12);
 
-    // Facing +Y the shift follows the heading, not the field axes.
     ASSERT_TRUE(converter.get_pose_from_points(Eigen::Vector3d(0.0, 1.0, 0.0),
                                                Eigen::Vector3d::Zero(), 0.25, tf));
     EXPECT_NEAR(tf.tf(0, 3), 0.0, 1e-12);

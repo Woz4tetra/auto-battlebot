@@ -86,8 +86,6 @@ class McapRecorderToggleTest : public ::testing::Test {
     std::vector<std::filesystem::path> paths_;
 };
 
-// Turning recording off finishes the file (summary written, readable while the app runs); turning
-// it back on starts a new one in which the channel ids producers already hold still record.
 TEST_F(McapRecorderToggleTest, OffClosesTheFileAndOnStartsANewOne) {
     McapRecorder recorder("toggle_test");
     recorder.write_metadata("camera_calibration", "calibration");
@@ -120,10 +118,8 @@ TEST_F(McapRecorderToggleTest, OffClosesTheFileAndOnStartsANewOne) {
     EXPECT_TRUE(reopened.has_summary);
     EXPECT_EQ(reopened.count_by_topic["/early"], 1);
     EXPECT_EQ(reopened.count_by_topic["/late"], 1);
-    // Replay needs the calibration from the file itself, so every file carries it.
     EXPECT_EQ(reopened.metadata["camera_calibration"], "calibration");
     EXPECT_EQ(reopened.metadata["active_profile"], "toggle_test");
-    // The first file is untouched by the second.
     EXPECT_EQ(read_file(first).count_by_topic["/early"], 1);
 }
 
@@ -167,7 +163,7 @@ TEST_F(McapRecorderToggleTest, LoggingFromAnotherThreadWhileTogglingDoesNotDeadl
     const auto previous_logger = spdlog::default_logger();
     auto recorder = std::make_shared<McapRecorder>("toggle_abba_test");
     setup_logging(recorder);
-    spdlog::default_logger()->sinks().front()->set_level(spdlog::level::off);  // quiet console
+    spdlog::default_logger()->sinks().front()->set_level(spdlog::level::off);
 
     auto stop = std::make_shared<std::atomic<bool>>(false);
     std::thread([stop] {

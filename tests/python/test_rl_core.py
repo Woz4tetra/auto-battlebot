@@ -1,9 +1,3 @@
-"""RL navigation: PPO on a two-state toy, the bundle export round trip, plant and spec checks.
-
-Everything here runs on the CPU in a few seconds; the GPU environments are exercised by
-`playground/rl/` and the training runs.
-"""
-
 from __future__ import annotations
 
 import math
@@ -371,8 +365,6 @@ def test_standing_still_costs_reward_and_driving_does_not() -> None:
 
 
 def test_trained_opponent_draws_and_drives_each_behaviour() -> None:
-    """Every training behaviour runs as a single sim opponent, inside the arena; pursuit closes
-    on us and replay starts on its track."""
     from auto_battlebot.rl.envs.trained_opponent import TRAINED_BEHAVIOURS, TrainedOpponent
 
     with pytest.raises(ValueError, match="valid"):
@@ -438,8 +430,6 @@ def test_pursuit_turns_proportionally_without_chatter() -> None:
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="WarpNavEnv runs on CUDA")
 def test_pinned_in_the_arc_keeps_costing_hits() -> None:
-    """A static opponent parked nose-on against a robot that does nothing charges a hit about
-    every arc_rehit_s, and the parked robot also pays the standing-still rate."""
     from auto_battlebot.rl.envs.warp_nav import OPP_MOCAP, WarpNavConfig, WarpNavEnv
 
     worlds = 16
@@ -469,8 +459,6 @@ def test_pinned_in_the_arc_keeps_costing_hits() -> None:
 
 
 def test_still_penalty_exempts_only_wedge_pushing() -> None:
-    """Standing still is free only while our wedge is on the opponent from outside its arc;
-    pinned inside its arc it costs both a hit every arc_rehit_s and the standing-still rate."""
     import json
 
     from auto_battlebot.rl.lockstep_world import LockstepWorld
@@ -508,8 +496,6 @@ def _pursuers(level: float) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
 
 
 def test_pursuit_level_scales_pursuer_draws() -> None:
-    """Pursuit level 0 draws only the easiest pursuer; level 1 reaches the hard end of each range,
-    with the delay shrinking as the pursuer gets harder."""
     from auto_battlebot.rl.envs.opponents import PURSUIT, PURSUIT_EASY, PURSUIT_HARD, Opponents
 
     n = 4096
@@ -561,8 +547,6 @@ def test_anchor_loss_counts_only_masked_samples_in_std_units() -> None:
 
 
 def test_pursuer_grip_limits_braking_and_turn_rate_at_speed() -> None:
-    """A gripped pursuer at full speed whose target swings behind it cannot stop in one step,
-    and turns no faster than grip / speed; without grip it stops and turns at its full rate."""
     from auto_battlebot.rl.envs.opponents import DELAY_SLOTS, PURSUIT, Opponents
 
     dt = 0.02
@@ -593,8 +577,6 @@ def test_pursuer_grip_limits_braking_and_turn_rate_at_speed() -> None:
 
 
 def test_lockstep_slew_and_guard_stages() -> None:
-    """The scenario's slew limit ramps the linear command at its rate (the first command passes
-    through), and the guard scale multiplies the mixer's wheel commands. Both off by default."""
     import json
 
     from auto_battlebot.rl.lockstep_world import LockstepWorld
@@ -610,7 +592,7 @@ def test_lockstep_slew_and_guard_stages() -> None:
         return np.asarray(world.score.extra["trace"])
 
     neither = run()
-    np.testing.assert_allclose(neither[:, 1], neither[:, 0])  # sent == commanded
+    np.testing.assert_allclose(neither[:, 1], neither[:, 0])
     slew = run(slew_per_s=1.0)
     np.testing.assert_allclose(slew[1:6, 1], [-0.02, -0.04, -0.06, -0.08, -0.10], atol=1e-9)
     guard = run(guard_scale=0.5)

@@ -87,8 +87,6 @@ class MotionProfileModeTest : public ::testing::Test {
     std::shared_ptr<ManualClock> clock_ = std::make_shared<ManualClock>();
 };
 
-// --- what each mode does on arrival ---
-
 TEST_F(MotionProfileModeTest, RunAwayCutsTheCommandInsideStopDistance) {
     // Zero terminal velocity is a precise stop: at the safe point the robot holds, it does not
     // creep through and give the ground back.
@@ -145,8 +143,6 @@ TEST_F(MotionProfileModeTest, BrakeScheduleDoesNotSubtractALatencyLead) {
     EXPECT_DOUBLE_EQ(moving_cmd, stationary_cmd);
 }
 
-// --- how the configured numbers are read ---
-
 TEST_F(MotionProfileModeTest, TerminalSpeedFractionScalesWithTheTopSpeed) {
     // Half throttle at the goal has to mean half of whatever the fit says the drivetrain does, so
     // a refit rescales the mission instead of leaving a hand-copied m/s stale. Checked by halving
@@ -194,8 +190,6 @@ TEST_F(MotionProfileModeTest, TerminalSpeedFractionIsClampedToTheUnitInterval) {
 }
 
 TEST_F(MotionProfileModeTest, RunAwayTerminalSpeedFractionIsConfigurable) {
-    // Nothing pins RUN_AWAY to zero in the code; it is a config value like any other. A positive
-    // one turns the safe point into a waypoint the robot drives through.
     MotionProfileNavigationConfiguration driving_config = config_;
     driving_config.run_away_terminal_speed_fraction = 0.4;  // ~2.0 m/s
 
@@ -213,7 +207,6 @@ TEST_F(MotionProfileModeTest, RunAwayTerminalSpeedFractionIsConfigurable) {
 }
 
 TEST_F(MotionProfileModeTest, AttackTerminalSpeedFractionIsConfigurable) {
-    // A finite attack speed is the ram-tuning knob playground/control_stage0 sweeps.
     MotionProfileNavigationConfiguration slow = config_;
     slow.attack_terminal_speed_fraction = 0.1;  // ~0.5 m/s
     MotionProfileNavigationConfiguration fast = config_;
@@ -228,8 +221,6 @@ TEST_F(MotionProfileModeTest, AttackTerminalSpeedFractionIsConfigurable) {
     EXPECT_GT(tick(*fast_nav, distance, BehaviorMode::ATTACK, 1.0).linear_x,
               tick(*slow_nav, distance, BehaviorMode::ATTACK, 1.0).linear_x);
 }
-
-// --- the flip itself ---
 
 TEST_F(MotionProfileModeTest, ModeFlipResetsTheTrajectory) {
     // A switch flip is a new mission: the goal jumps from the opponent to the safe point and the
