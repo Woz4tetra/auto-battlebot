@@ -40,7 +40,7 @@ Phase 1 done the same day:
 
 Phase 2 partly done, 2026-11-15. All eight area branches and a scripted `tests/` DELETE pass are
 merged on `comment-purge-p2`. Build, gtest (752 pass), mypy, the Python tests, and the firmware
-builds pass there. The baseline is 9,249 lines. Rows still open (approximate: a row counts as open
+builds pass there. The baseline is 9,157 lines. Rows still open (approximate: a row counts as open
 while any line of its original text is still in the file):
 
 | Verdict | Open | Total |
@@ -577,6 +577,7 @@ Rules from here:
 
 | Date | Batch | Rows | Done | Turns | Tokens | Per row |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-11-15 | `src/` TEST, 6 files, one Sonnet agent | 50 | 33 tested, 15 ledgered, 2 rejected | 91 | 12.5M cache read, 0.26M cache write, 79k out; peak context 210k; 21 min | 0.25M cache read, 1.6k out |
 
 ## Risks
 
