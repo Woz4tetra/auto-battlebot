@@ -22,11 +22,6 @@ void clip_to_field_bounds(auto_battlebot::Position &position,
     position.y = std::clamp(position.y, -half_y, half_y);
 }
 
-/**
- * Zeroes the velocity components pointing into a wall the unclipped center has reached. Same
- * bounds and margin as clip_to_field_bounds, so the two agree on where the wall is: an opponent
- * pinned on a wall renders as stopped instead of still driving into it.
- */
 void stop_at_field_bounds(const auto_battlebot::Position &position, double &vx, double &vy,
                           const auto_battlebot::FieldDescription &field, double margin_meters) {
     const double width = field.size.size.x;
@@ -90,9 +85,6 @@ KalmanMotionEstimator::opponent_filter_state(FrameId frame_id) const {
 
 void KalmanMotionEstimator::predict(double now, const CommandFeedback &command_feedback) {
     command_feedback_ = command_feedback;
-    // The plant model consumes the normalized [-1, 1] stick command directly: it applies the
-    // fitted gains itself, so anything pre-scaled to m/s would apply them twice (a 40x yaw-rate
-    // error at the Mrs Buff Mk3 scaling).
     const auto cmd_it = command_feedback.stick_commands.find(FrameId::OUR_ROBOT_1);
     if (cmd_it != command_feedback.stick_commands.end()) {
         command_history_.push(TimedCommand{now, cmd_it->second});
@@ -135,14 +127,6 @@ void KalmanMotionEstimator::advance_opponent(OpponentTrack &track, double target
     if (dt_total <= 0.0) return;
     const double dt = std::min(dt_total, kMaxIntegrationStepS);
 
-    // Past the coast horizon (or across an absurd clock gap) hold position and heading:
-    // predicting a multi-second gap with a constant-rate model is fiction. A step that crosses the
-    // horizon integrates only its part before it; the first coast after a measurement spans the
-    // whole perception latency plus the render lead, so deciding per step would overshoot any
-    // horizon shorter than that. The covariance still propagates through the full transition, so
-    // the position sigma keeps growing with the velocity uncertainty. Holding it too would leave a
-    // sigma of centimetres on a track a second stale, and the gate would then reject the
-    // reacquisition until reinit_after_rejects ran out.
     const double age = track.stamp - track.last_measured_stamp;
     const double move = dt_total > kMaxIntegrationStepS
                             ? 0.0
@@ -175,10 +159,6 @@ void KalmanMotionEstimator::advance_opponent(OpponentTrack &track, double target
         track.state(kTheta) = ekf::wrap_angle(track.state(kTheta));
     }
     ekf::propagate_covariance<kOpponentStates>(track.covariance, transition, process_noise);
-    // Caps: past pi the heading is unknown, and an unmeasured track's velocity and yaw rate are
-    // no less known than a newborn track's. Without the rate caps the position variance of a track
-    // unseen for minutes grows with t^3. Scaling a row and its column together keeps P positive
-    // semidefinite.
     const double velocity_cap = config_.initial_velocity_sigma * config_.initial_velocity_sigma;
     const double yaw_rate_cap = config_.initial_yaw_rate_sigma * config_.initial_yaw_rate_sigma;
     for (const auto &[index, cap] :
@@ -397,9 +377,6 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
             state_vec << track.state.x, track.state.y, track.state.theta, track.state.v,
                 track.state.w;
 
-            // Blob centroids carry no heading, and a keypoint heading flipped past pi/2 is
-            // the front/back converter mislabeling, not the robot teleporting: both correct
-            // the position rows only.
             const bool has_heading =
                 !input.keypoints.empty() &&
                 std::abs(ekf::wrap_angle(measured_pose.yaw - track.state.theta)) <= M_PI / 2.0;
@@ -432,9 +409,6 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
                 } else if (speed_dt >= config_.speed_measurement_min_dt_s) {
                     const double dx = measured_pose.x - track.speed_ref_x;
                     const double dy = measured_pose.y - track.speed_ref_y;
-                    // Project onto the heading halfway through the baseline. Over an arc the
-                    // endpoint heading points off the chord, and this drivetrain turns fast
-                    // enough for that to bias the projection.
                     const double mid_yaw =
                         track.speed_ref_yaw +
                         0.5 * ekf::wrap_angle(measured_pose.yaw - track.speed_ref_yaw);
@@ -554,10 +528,6 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
             continue;
         }
 
-        // A measurement stamped before the track state (perception latency behind the control
-        // clock) is folded in at its own time: rewind to a snapshot, correct, and let the next
-        // coast() re-propagate. Without an old-enough snapshot the correction happens at the
-        // track's current state instead, which biases against the direction of motion; count it.
         if (timestamp < track.stamp && !rewind_opponent(track, timestamp)) {
             ++num_rewind_missed;
         }
@@ -573,12 +543,6 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
             measurement_noise, config_.gate_nis, {false, false}, kOpponentWrappedAngleStates,
             config_.covariance_floor);
 
-        // The heading row of the [px, py, theta] update. The translation and heading blocks
-        // never correlate (block-diagonal F, Q, initial P, and every observation touches one
-        // block), so correcting them in sequence is the joint 3-row update. Applied separately so
-        // the chi-square gate stays on position: a keypoint heading off by 60 degrees must not
-        // cost the track its position fix. The flip test at pi/2 is the heading's gate, applied
-        // only while the heading is known well enough to call a flip (kFlipTestMaxVariance).
         if (outcome.accepted && measures_heading(input)) {
             const double measured_yaw = pose_to_pose2d(input.pose).yaw;
             if (!track.heading_initialized) {
@@ -680,8 +644,6 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
         }
     }
 
-    // Stale-identity decay for our robot, matching RobotTemporalMotionFilter: drop the track
-    // once its last confirmation is older than the hold window instead of predicting forever.
     if (context.our_robot_hold_window_s > 0.0) {
         for (auto it = our_tracks_.begin(); it != our_tracks_.end();) {
             const bool expired =
@@ -755,8 +717,6 @@ std::optional<std::vector<RobotDescription>> KalmanMotionEstimator::coast(double
 
     const double target = now + render_lead_s();
     double worst_span = std::numeric_limits<double>::infinity();
-    // Staleness stays on the wall clock: it answers "how long since a real measurement", which
-    // the lead does not change.
     const auto is_stale = [&](double last_measured_stamp) {
         return (now - last_measured_stamp) > kCoastStaleAgeS;
     };

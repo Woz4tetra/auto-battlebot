@@ -958,5 +958,99 @@ TEST(KalmanMotionEstimatorTest, RendersSecondsSinceTheLastMeasurement) {
     for (const auto &robot : *coasted) EXPECT_NEAR(robot.measurement_age_s, 0.25, 1e-12);
 }
 
+double position_sigma_after_coasting(KalmanMotionEstimator &estimator, double now) {
+    const auto coasted = estimator.coast(now);
+    EXPECT_TRUE(coasted.has_value());
+    return (*coasted)[0].uncertainty.position_sigma_major_axis_m;
+}
+
+TEST(KalmanMotionEstimatorTest, OpponentPositionSigmaKeepsGrowingPastTheCoastHorizon) {
+    KalmanMotionEstimator estimator{kalman_opponents_config()};
+    FrameIdAssigner assigner(10.0, 5);
+    const FieldDescription field = make_field();
+    const MotionEstimatorContext context;
+    double x = 1.0;
+    double y = 2.0;
+    const double last_t =
+        run_constant_velocity(estimator, assigner, field, context, 60, x, y, 0.5, 0.0);
+    const double measured_sigma = position_sigma_after_coasting(estimator, last_t);
+    const double held_sigma = position_sigma_after_coasting(estimator, last_t + 3.0);
+    EXPECT_GT(held_sigma, 3.0 * measured_sigma);
+}
+
+TEST(KalmanMotionEstimatorTest, OpponentPositionSigmaOfALongUnseenTrackGrowsNoFasterThanLinearly) {
+    const KalmanMotionEstimatorConfiguration config = kalman_opponents_config();
+    KalmanMotionEstimator estimator{config};
+    FrameIdAssigner assigner(10.0, 5);
+    const FieldDescription field = make_field();
+    const MotionEstimatorContext context;
+    double x = 1.0;
+    double y = 2.0;
+    const double last_t =
+        run_constant_velocity(estimator, assigner, field, context, 60, x, y, 0.5, 0.0);
+    double t = last_t;
+    for (int i = 0; i < 600; ++i) {
+        t += 0.5;
+        estimator.predict(t, CommandFeedback{});
+        estimator.update({}, t, assigner, field, context);
+    }
+    const double sigma = position_sigma_after_coasting(estimator, t);
+    EXPECT_LT(sigma, 2.0 * config.initial_velocity_sigma * (t - last_t));
+}
+
+TEST(KalmanMotionEstimatorTest, OpponentPositionFixSurvivesAKeypointHeadingOff60Degrees) {
+    KalmanMotionEstimator estimator{kalman_opponents_config()};
+    FrameIdAssigner assigner(10.0, 5);
+    const FieldDescription field = make_field();
+    const MotionEstimatorContext context;
+    TurningTruth truth;
+    truth.omega = 0.0;
+    truth.vx = 0.0;
+    truth.vy = 0.0;
+    const double last_t = run_turning(estimator, assigner, field, context, 90, truth);
+    const double t = last_t + kDt;
+    estimator.predict(t, CommandFeedback{});
+    const auto outputs = estimator.update(
+        {make_opponent_pose_measurement(truth.x + 0.05, truth.y, truth.yaw + M_PI / 3.0)}, t,
+        assigner, field, context);
+    ASSERT_EQ(outputs.size(), 1u);
+    EXPECT_FALSE(outputs[0].is_stale);
+    EXPECT_DOUBLE_EQ(outputs[0].measurement_age_s, 0.0);
+    EXPECT_GT(outputs[0].pose.position.x, truth.x + 0.01);
+}
+
+TEST(KalmanMotionEstimatorTest, OurRobotSpeedProjectsOntoTheMidBaselineHeading) {
+    KalmanMotionEstimatorConfiguration config = ekf_config();
+    config.keypoint_heading_sigma_rad = 2.0;
+    config.speed_sigma_floor_mps = 0.01;
+    config.speed_position_sigma_m = 0.001;
+    config.speed_gate_nis = 1e9;
+    config.gate_nis = 1e9;
+    KalmanMotionEstimator estimator{config};
+    FrameIdAssigner assigner(10.0, 5);
+    const FieldDescription field = make_field();
+    const MotionEstimatorContext context;
+    const double speed = 1.0;
+    const double omega = 10.0;
+    const double dt = 0.1;
+    const double turned = omega * dt;
+    const double chord = 2.0 * speed / omega * std::sin(turned / 2.0);
+
+    PlantState start;
+    estimator.predict(kStartTime, CommandFeedback{});
+    estimator.update({make_our_pose_measurement(start)}, kStartTime, assigner, field, context);
+
+    PlantState end;
+    end.theta = turned;
+    end.x = chord * std::cos(turned / 2.0);
+    end.y = chord * std::sin(turned / 2.0);
+    estimator.predict(kStartTime + dt, CommandFeedback{});
+    const auto outputs = estimator.update({make_our_pose_measurement(end)}, kStartTime + dt,
+                                          assigner, field, context);
+    ASSERT_EQ(outputs.size(), 1u);
+    const double measured_speed = std::hypot(outputs[0].velocity.vx, outputs[0].velocity.vy);
+    EXPECT_NEAR(measured_speed, chord / dt, 0.03);
+}
+
 }  // namespace
 }  // namespace auto_battlebot
