@@ -1,16 +1,4 @@
-"""TPS54202 loop gain: crossover and phase margin, with and without the feed-forward cap.
-
-    ~/.local/share/pcba-design/venv/bin/python sim/buck_loop.py   -> sim/buck_loop.{png,json}
-
-TI does not publish the internal compensation, so the model is built from what the datasheet
-does give:
-- Crossover without C6, equation 14 (p.16): fo = 3.95 / (VOUT x COUT), a -1 slope through fo.
-- C6 across R2 adds a zero at 1 / (2 pi R2 C6) and a pole at 1 / (2 pi (R2 || R3) C6).
-- Peak current mode's sampling double pole at fsw / 2 (500 kHz typical, p.5), Q = 2 / pi.
-Effective COUT is the board's three 22 uF 25 V X5R 0805 after DC bias at 5.6 V (about 10 uF each,
-from datasheets.json U2), the previous two, and TI's 44 uF for comparison. This is a small-signal
-estimate, not TI's transistor model: it says whether the margin is comfortable, not its exact value.
-"""
+"""TPS54202 loop gain estimate with and without feed-forward."""
 
 import json
 import math

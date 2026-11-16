@@ -1,30 +1,4 @@
-"""Camera range check: sweeps the ZED X One S through the SmallRig 2948 ball head's whole
-range and measures how close it comes to everything fixed around it.
-
-    PYTHONPATH=$SKILL/scripts ~/.local/share/build123d-part/venv/bin/python camera_range.py
-
-$SKILL is the build123d-part skill's directory: the part files import its recipe.py.
-
-What moves: the camera body, the bracket, the front mount and the FAKRA plug in the
-camera's back, as points sampled off their tessellated surfaces (0.5 mm tolerance), carried
-by the head's pose. The GMSL cable is not swept; it hangs slack.
-
-Three checks, from the head's range (smallrig_2948_ball_head._check_pose):
-- mount: the camera and bracket spun all the way round on the stud at the default pan and
-  tilt, plug off, as when screwing the camera on. Must clear.
-- aim: pan and spin all the way round (15° steps), the neck tilted up to the socket's 20°
-  in eight directions, plug on, keeping the poses that look into the cage: the optical
-  axis within AIM_CONE of the glass normal. Must clear. (Spun to look away from the glass,
-  the plug in the camera's back swings into the glass; nobody aims it there.)
-- notch: the neck dropped into the notch, 15° steps to 90°, at every pan and spin, plug
-  on. Reported as the deepest drop that clears at each pan; not a pass/fail check, since
-  a full 90° drop folds the camera back through the wall or the glass at most pans.
-
-Fixed: the glass, the tray and lid (one box), the shield's flange, hood and ribs, and the
-three RP-SMA antennas on the +X wall (boxes round each hinge and whip). Each is a box; the
-clearance is the smallest distance from any sampled point to it over all poses, negative
-inside it. Exits 1 when any clearance is under MIN_CLEAR.
-"""
+"""Sweep the camera through the ball head range and report clearances."""
 
 import sys
 from functools import cache
@@ -33,8 +7,8 @@ import cage_layout as cl
 import numpy as np
 from build123d import Location, Pos
 
-MIN_CLEAR = 2.0  # mm
-AIM_CONE = 60.0  # degrees off the glass normal (-Z)
+MIN_CLEAR_MM = 2.0
+AIM_CONE_DEG_FROM_GLASS_NORMAL = 60.0
 
 
 def _matrix(loc: Location) -> np.ndarray:
@@ -84,7 +58,7 @@ def poses(mode: str):
     if mode == "mount":
         b = a.BALL
         for spin in steps:
-            yield _pose(pan=b.pan, tilt=b.tilt, tilt_dir=b.tilt_dir, spin=spin)
+            yield _pose(pan=b.pan, tilt=b.tilt, tilt_dir=b.tilt_dir, platform_spin_deg=spin)
         return
     if mode == "aim":
         tilts = [(0.0, 0.0)] + [(20.0, d) for d in range(0, 360, 45)]
@@ -93,9 +67,10 @@ def poses(mode: str):
     for pan in steps:
         for spin in steps:
             for tilt, tdir in tilts:
-                if tilt == 0 and pan:  # with the neck straight, pan + spin is one rotation
+                duplicate_of_spin = tilt == 0 and pan
+                if duplicate_of_spin:
                     continue
-                yield _pose(pan=pan, tilt=tilt, tilt_dir=tdir, spin=spin)
+                yield _pose(pan=pan, tilt=tilt, tilt_dir=tdir, platform_spin_deg=spin)
 
 
 def obstacles() -> dict[str, tuple[tuple, tuple]]:
@@ -112,7 +87,7 @@ def obstacles() -> dict[str, tuple[tuple, tuple]]:
         ),
     }
     out.update(sh.keep_out())
-    for name, (y, z) in cl.ANTENNAS.items():
+    for name, (y, z) in cl.ANTENNAS_YZ.items():
         out[f"antenna {name}"] = ((x1, y - 6.0, z - 6.0), (x1 + 22.0, y + 54.0, z + 6.0))
     return out
 
@@ -143,6 +118,10 @@ def _notch(clear_at: dict[tuple, bool]) -> dict[float, float]:
     return notch
 
 
+def _looks_away_from_cage(m: np.ndarray) -> bool:
+    return -m[2, 1] < np.cos(np.radians(AIM_CONE_DEG_FROM_GLASS_NORMAL))
+
+
 def sweep(mode: str) -> dict:
     pts = moving_points(plug=mode != "mount")
     boxes = obstacles()
@@ -153,8 +132,8 @@ def sweep(mode: str) -> dict:
     notch: dict[float, float] = {}
     clear_at: dict[tuple, bool] = {}
     for p, m in poses(mode):
-        if mode != "mount" and -m[2, 1] < np.cos(np.radians(AIM_CONE)):
-            continue  # bracket +Y is the optical axis; this pose looks away from the cage
+        if mode != "mount" and _looks_away_from_cage(m):
+            continue
         w = (m @ pts.T).T[:, :3]
         env_lo, env_hi = np.minimum(env_lo, w.min(0)), np.maximum(env_hi, w.max(0))
         d = _clearances(w, lo, hi)
@@ -162,7 +141,7 @@ def sweep(mode: str) -> dict:
             if v < best[k][0]:
                 best[k] = (float(v), p)
         if mode == "notch":
-            clear_at[(p.pan, p.spin, p.tilt)] = bool(d.min() >= MIN_CLEAR)
+            clear_at[(p.pan, p.platform_spin_deg, p.tilt)] = bool(d.min() >= MIN_CLEAR_MM)
     if mode == "notch":
         notch = _notch(clear_at)
     return {"clearance": best, "envelope": (env_lo, env_hi), "notch": notch}
@@ -176,9 +155,12 @@ def main() -> int:
         print(f"[{mode}] swept envelope x {lo[0]:.1f}..{hi[0]:.1f}  y {lo[1]:.1f}..{hi[1]:.1f}"
               f"  z {lo[2]:.1f}..{hi[2]:.1f}")  # fmt: skip
         for k, (v, p) in r["clearance"].items():
-            ok = v >= MIN_CLEAR
+            ok = v >= MIN_CLEAR_MM
             fails += not ok
-            pose = f"pan {p.pan:.0f} spin {p.spin:.0f} tilt {p.tilt:.0f} toward {p.tilt_dir:.0f}"
+            pose = (
+                f"pan {p.pan:.0f} spin {p.platform_spin_deg:.0f} tilt {p.tilt:.0f} "
+                f"toward {p.tilt_dir:.0f}"
+            )
             print(f"  {'PASS' if ok else 'FAIL'}  {k:22s} {v:7.1f} mm  ({pose})")
     r = sweep("notch")
     print("[notch] deepest clear drop by pan (deg): "

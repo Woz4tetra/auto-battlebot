@@ -1,13 +1,4 @@
-"""TX16S HR10 handle clamp on the carry-handle bar, radio frame.
-
-Both halves of tx16s_hr10_handle_clamp.py placed back on the bar, the receptacle and a
-mated plug, and the two M3 x 14 screws into heat-set inserts in the bottom half.
-
-Spec
-- Halves: each part file's print frame shifted back by its radio_to_part() offset.
-- Fasteners: M3 x 14 SHCS, head on the counterbore floor (ear_top - cbore_depth), into
-  5.7 mm M3 heat-set inserts. Engagement must reach 75% of the insert (fasteners.md).
-"""
+"""TX16S HR10 handle clamp assembly on the carry-handle bar."""
 
 import importlib.util
 from pathlib import Path
@@ -78,9 +69,7 @@ def fasteners():
 
 
 EXPECT = {
-    # The bore is 0.2 mm clear of the scanned bar; the receptacle sits on the panel.
     "gap": {("top", "bottom"): P.gap - 0.05},
-    # Solid envelopes of a mated pair: the plug's coupling sleeve goes over the receptacle.
     "allow_interference": [("receptacle", "plug")],
 }
 

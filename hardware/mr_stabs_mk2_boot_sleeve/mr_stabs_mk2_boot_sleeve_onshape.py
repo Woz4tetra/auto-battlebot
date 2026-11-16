@@ -1,7 +1,4 @@
-"""Onshape push of the Mk2 BOOT/RST sleeve on its own (build123d-part onshape skill).
-
-The sleeve defines features(), so it goes up as 10 native Part Studio features.
-"""
+"""Onshape push of the Mk2 BOOT/RST sleeve."""
 
 TITLE = "MR STABS MK2 BOOT SLEEVE"
 

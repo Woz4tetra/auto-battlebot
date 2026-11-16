@@ -1,18 +1,12 @@
-"""ZED Box Mini on an INNOREL CP10 cheese plate through the printed adapter.
+"""ZED Box Mini on an INNOREL CP10 cheese plate through the printed adapter."""
 
-- Cheese plate: innorel_cp10.py, top face at z = 0.
-- Adapter: zed_cheese_plate_adapter.py on the plate, top face at z = 6.7.
-- ZED Box Mini: Stereolabs STEP as placed by the previous 12 mm adapter (sheet at z = 12),
-  dropped 6 mm onto the new top face.
-- 4 x M3 x 6 heat-set inserts in the adapter, 4 x M3 x 6 SHCS through the ZED ears.
-- 4 x 1/4-20 x 1/2" flanged button heads (80/20 3342) in counterbores under the ZED body.
-"""
-
+import zed_cheese_plate_adapter as adapter
 from build123d import Align, Cylinder, Pos
 from zed_cheese_plate_adapter import Params
 
-TITLE = "ZED BOX MINI MOUNT"  # Onshape document and assembly name
+TITLE = "ZED BOX MINI MOUNT"
 
+M3_MINOR_DIA = 2.5
 P = Params()
 T = P.thickness
 C_MAX = (Align.CENTER, Align.CENTER, Align.MAX)
@@ -24,11 +18,19 @@ def components():
     inserts = None
     for x, y in ZED_XY:
         ins = Pos(x, y, T) * Cylinder(P.insert_od / 2, P.insert_len, align=C_MAX)
-        ins -= Pos(x, y, T) * Cylinder(2.5 / 2, P.insert_len, align=C_MAX)  # M3 minor dia
+        ins -= Pos(x, y, T) * Cylinder(M3_MINOR_DIA / 2, P.insert_len, align=C_MAX)
         inserts = ins if inserts is None else inserts + ins
     return {
-        "plate": {"part": "innorel_cp10.py", "title": "INNOREL CP10 CHEESE PLATE", "description": "INNOREL CP10 cheese plate"},
-        "adapter": {"part": "zed_cheese_plate_adapter.py", "title": "ZED BOX MINI ADAPTER PLATE", "description": "Printed PLA, 6 mm"},
+        "plate": {
+            "part": "innorel_cp10.py",
+            "title": "INNOREL CP10 CHEESE PLATE",
+            "description": "INNOREL CP10 cheese plate",
+        },
+        "adapter": {
+            "part": "zed_cheese_plate_adapter.py",
+            "title": "ZED BOX MINI ADAPTER PLATE",
+            "description": "Printed PLA, 6 mm",
+        },
         "zed": {
             "step": "out/step/zed_box_mini.step",
             "min_volume": 200,
@@ -56,7 +58,7 @@ def fasteners():
             "length": 6,
             "head": "shcs",
             "dir": "-Z",
-            "at": [(x, y, T + 1.0) for x, y in ZED_XY],  # on the 1 mm ear
+            "at": [(x, y, T + adapter.ZED_SHEET_T) for x, y in ZED_XY],
             "into": "inserts",
             "thread": "insert",
             "insert_len": P.insert_len,
@@ -68,7 +70,7 @@ def fasteners():
             "length": 12.7,
             "head": "button",
             "dir": "-Z",
-            "at": [(x, y, T - P.cbore_depth) for x, y in BOLT_XY],  # counterbore floor
+            "at": [(x, y, T - P.cbore_depth) for x, y in BOLT_XY],
             "into": "plate",
             "thread": "tapped",
         },

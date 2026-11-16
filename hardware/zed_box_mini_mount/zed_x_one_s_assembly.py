@@ -1,65 +1,32 @@
-"""ZED Box Mini on the INNOREL CP10 cheese plate, with the ZED X One S on a ball head.
-
-Extends the ZED Box Mini stack (zed_cheese_plate_adapter.py, assembly_page.py) with the
-camera: ZED X One S -> Stereolabs front mount (ACC-151300) -> printed bracket
-(zed_x_one_s_bracket.py) -> SmallRig 2948 ball head -> any 1/4-20 hole on the cheese plate.
-
-The ball head takes a 1/4-20 x 1/2" set screw (McMaster 92311A537) as a double-ended stud:
-6.35 mm into the plate's tapped hole, 6.35 mm into the head's bottom thread. Every option
-below uses a hole the adapter and ZED Box Mini leave open. Pick one with MOUNT_OPTION:
-
-| Option | Hole | Head | Camera |
-| --- | --- | --- | --- |
-| top_end (default) | top face, (-88.25, 0) | upright, 15° tilt | upright, looking -X, 15° down |
-| underside | bottom face, (88.25, 0) | hanging, 30° into the notch | inverted, +X, 30° down |
-| long_edge | long edge, x = 90, tapped 8 mm deep | 80° into the notch | upright, +Y, 10° down |
-| short_edge | short edge, y = 13.95, 8 mm deep | 70° into the notch | upright, +X, 20° down |
-
-The underside option images upside down; set the camera's flip in the ZED SDK.
-
-top_end sits at the -X end: on the +X hole the head's body runs into the ZED Box Mini's
-GMSL jacks, which stick 9.75 mm out of that end (check_assembly catches it by sampling).
-
-    MOUNT_OPTION=long_edge scripts/run check_assembly.py zed_x_one_s_assembly.py \
-        --out out/assembly_long_edge
-
-Coordinates: the adapter frame, the same as assembly_page.py. Origin at the center of the
-cheese plate's top face, X along its 200 mm length, +Z up toward the ZED Box Mini.
-
-The ZED Box Mini comes from out/step/zed_box_mini.step, which assembly_page.py writes in
-this frame from Stereolabs' 85 MB STEP (kept out of git). The adapter's own screws and
-inserts are checked on that page and left out here.
-
-Ball head poses come from solving pan and spin numerically so the camera points where the
-table says; `pan` also keeps the wing knob off the adapter and ZED Box Mini.
-"""
+"""ZED Box Mini on the CP10 with the ZED X One S on a ball head."""
 
 import os
 
+import innorel_cp10
 import smallrig_2948_ball_head as ballhead
 import zed_cheese_plate_adapter as adapter
 import zed_x_one_s_bracket as bracket
 from build123d import Align, Cylinder, Location, Pos, Rot
 
 INCH = 25.4
-PLATE_T = 10.0  # innorel_cp10.Params.thickness
+PLATE_T = innorel_cp10.Params().thickness
 
 OPTIONS = {
     "top_end": (
         Pos(-88.25, 0, 0) * Rot(0, 0, 180),
-        ballhead.Params(pan=180, tilt=15, tilt_dir=180, spin=90),
+        ballhead.Params(pan=180, tilt=15, tilt_dir=180, platform_spin_deg=90),
     ),
     "underside": (
         Pos(88.25, 0, -PLATE_T) * Rot(180, 0, 0),
-        ballhead.Params(pan=180, tilt=30, spin=90),
+        ballhead.Params(pan=180, tilt=30, platform_spin_deg=90),
     ),
     "long_edge": (
         Pos(90.0, 50.0, -PLATE_T / 2) * Rot(-90, 0, 0),
-        ballhead.Params(pan=270, tilt=80, spin=90),
+        ballhead.Params(pan=270, tilt=80, platform_spin_deg=90),
     ),
     "short_edge": (
         Pos(100.0, 13.95, -PLATE_T / 2) * Rot(0, 90, 0),
-        ballhead.Params(pan=180, tilt=70, spin=90),
+        ballhead.Params(pan=180, tilt=70, platform_spin_deg=90),
     ),
 }
 OPTION = os.environ.get("MOUNT_OPTION", "top_end")
@@ -199,7 +166,6 @@ EXPECT = {
         ("quarter_insert", "bracket"),
         ("set_screw", "cheese_plate"),
         ("set_screw", "ball_head"),
-        # The stud is 1/4-20 major diameter; the insert is modeled at its minor bore.
         ("quarter_insert", "ball_head"),
     ],
 }

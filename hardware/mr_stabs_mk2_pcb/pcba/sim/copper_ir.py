@@ -1,19 +1,4 @@
-"""DC current flow through each high-current net, every copper layer at once.
-
-    ~/.local/share/pcba-design/venv/bin/python sim/copper_ir.py    (after export_geometry.py)
-
-Finite volume on a 0.15 mm grid per layer: each cell couples to its neighbours by 1 / R_sheet;
-each via or plated hole couples the cells it passes through on every layer by the barrel
-resistance between those layers. A wire pad is a terminal: its cells are tied to one node (the
-wire and its solder are far better conductors than the board). Current enters and leaves at
-the terminals, split evenly between the ESCs. Reports, per net and load: the voltage drop,
-the copper loss, the busiest via's current, and the 99.9th-percentile current density;
-writes sim/copper_ir.json and sim/copper_ir_<NET>.png (20 A).
-
-Copper: 2 oz outer (as ordered), 0.5 oz inner (JLCPCB's 4-layer default; this design does not
-order 1 oz). Stack positions for a 1.6 mm JLCPCB 4-layer board: F 0, In1 0.21, In2 1.39, B 1.6.
-This is DC and electrical only: no temperature.
-"""
+"""DC current flow through each high-current net."""
 
 import json
 import math
@@ -35,7 +20,7 @@ PLATING = 20e-6
 H = 0.15
 OZ = {"F": 2.0, "In1": 0.5, "In2": 0.5, "B": 2.0}
 Z = {"F": 0.0, "In1": 0.21e-3, "In2": 1.39e-3, "B": 1.6e-3}
-TIE = 1e4  # S per cell, terminal cells to their node
+TIE_S_PER_CELL = 1e4
 
 
 def barrel_g(drill_mm, length_m):
@@ -93,8 +78,7 @@ class Network:
                 self.couple(a[m], b[m], np.full(int(m.sum()), gs))
 
     def cell_at(self, name, x, y, reach=0.6):
-        """The copper cell nearest (x, y) on a layer within reach (a via sits in its own
-        clearance hole on planes of other nets), or -1."""
+        """Nearest copper cell within reach (vias sit in other-net clearance holes), or -1."""
         ix = self.idx.get(name)
         if ix is None:
             return -1
@@ -125,7 +109,9 @@ class Network:
             ix = self.idx[spec["layer"]]
             m = shapely.contains_xy(poly_union(spec["poly"]), self.gx, self.gy) & (ix >= 0)
             cells = ix[m]
-            self.couple(cells, np.full(cells.size, self.node[t]), np.full(cells.size, TIE))
+            self.couple(
+                cells, np.full(cells.size, self.node[t]), np.full(cells.size, TIE_S_PER_CELL)
+            )
 
     def solve(self, currents):
         """Node voltages for currents injected at the terminals; the first terminal is 0 V."""
@@ -154,7 +140,8 @@ class Network:
             dvy, dvx = np.gradient(vg, H * 1e-3)
             gs = 1.0 / (RHO / (OZ[name] * 35e-6))
             loss += float(np.nansum((dvx**2 + dvy**2) * gs * (H * 1e-3) ** 2))
-            dens[name] = np.hypot(dvx, dvy) * gs * 1e-3  # A per mm of width
+            dens_a_per_mm = np.hypot(dvx, dvy) * gs * 1e-3
+            dens[name] = dens_a_per_mm
         iv = {}
         for c1, c2, g, vi in self.via_links:
             iv[vi] = max(iv.get(vi, 0.0), abs((v[c1] - v[c2]) * g))

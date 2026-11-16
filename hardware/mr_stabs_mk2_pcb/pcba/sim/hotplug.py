@@ -1,13 +1,4 @@
-"""Hot-plug transient in ngspice: peak VBATT when a charged pack closes onto the board.
-
-    SKILL/scripts/kicad python3 sim/hotplug.py      -> sim/hotplug.json, sim/hotplug_*.csv
-
-Pack 17.4 V (4S LiHV full), 40 mohm internal. Leads: two 10 cm 12 AWG pigtails plus the
-switch loop, taken as 0.4 uH and 15 mohm. Board VBATT ceramics: 2 x 10 uF 25 V X5R 0805 at about
-3 uF each under 17 V DC bias, plus 100 nF. With bulk: the 100 uF 35 V Rubycon TZV, ESR taken as
-its 0.34 ohm maximum impedance at 100 kHz (a lower real ESR damps less), 3 nH ESL. The ESCs' own
-input caps are left out, the worst case for the board. TPS54202 absolute maximum VIN is 30 V.
-"""
+"""Hot-plug transient sim of VBATT in ngspice."""
 
 import json
 import os

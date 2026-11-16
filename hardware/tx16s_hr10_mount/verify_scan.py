@@ -1,12 +1,4 @@
-"""Check the HR10 mount and a mated plug against the raw TX16S scan, not the height map.
-
-check.py measures against a smoothed slab of the top surface, which cannot hold the
-handle arm, the toggle levers, or anything the plug passes. This places the block and the
-plug envelope in the radio frame and measures every scan vertex near them.
-
-    ~/.local/share/build123d-part/venv/bin/python hardware/tx16s_hr10_mount/verify_scan.py \
-        ~/Downloads/radiomaster-tx16-1.snapshot.2.zip
-"""
+"""Check the HR10 mount and plug against the raw TX16S scan."""
 
 import argparse
 import importlib.util
@@ -16,6 +8,7 @@ import numpy as np
 import pyvista as pv
 
 HERE = Path(__file__).resolve().parent
+BOND_BAND_MM = 2.5
 
 
 def _load(name: str):
@@ -69,15 +62,14 @@ def main() -> None:
         where = np.round(near[i], 1)
         print(f"{name}: min gap {g[i]:.2f} mm at radio {where}, {inside} vertices inside")
 
-    # Bond line: scan points within 2.5 mm of the block are the ones under the base; their
-    # gap is what the tape fills.
     g = signed_gaps(block, near)
-    under = near[(g > 0) & (g < 2.5)]
-    gu = g[(g > 0) & (g < 2.5)]
+    under_base = (g > 0) & (g < BOND_BAND_MM)
+    under = near[under_base]
+    gu = g[under_base]
     if len(under):
         q = np.percentile(gu, [1, 50, 99])
         gaps = f"p1 {q[0]:.2f} p50 {q[1]:.2f} p99 {q[2]:.2f}"
-        print(f"bond line: {len(under)} scan vertices within 2.5 mm, gap {gaps}")
+        print(f"bond line: {len(under)} scan vertices within {BOND_BAND_MM} mm, gap {gaps}")
 
 
 if __name__ == "__main__":

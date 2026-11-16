@@ -1,14 +1,4 @@
-"""TX16S HR10 rod clamp on the bare handle rod, radio frame.
-
-Both halves of tx16s_hr10_rod_clamp.py placed back on the rod's right corner, the
-receptacle and a mated plug, and three M3 x 8 screws into hex nuts in the bottom half.
-
-Spec
-- Halves: each part file's print frame mapped back by radio_to_part().inverse().
-- Rod: the nominal path from the part file (run halfway along its slot, 5 mm bend).
-- Fasteners: M3 x 8 SHCS along -n, head on the counterbore floor (t - cbore_depth), into
-  M3 nuts sunk 1.0 into the bottom half's underside (fasteners.md).
-"""
+"""TX16S HR10 rod clamp assembly on the bare handle rod."""
 
 import importlib.util
 from pathlib import Path
@@ -78,7 +68,6 @@ def fasteners():
 
 EXPECT = {
     "gap": {("top", "bottom"): P.gap - 0.05},
-    # Solid envelopes of a mated pair: the plug's coupling sleeve goes over the receptacle.
     "allow_interference": [("receptacle", "plug")],
 }
 

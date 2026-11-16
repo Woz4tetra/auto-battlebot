@@ -1,13 +1,4 @@
-"""Render the HR10 rod clamp, receptacle and mated plug on the full scanned TX16S.
-
-Writes context_*.png into the check_assembly.py output directory and adds them to its
-report.json, so page_assembly.py embeds them with the other drawings. Run
-check_assembly.py first.
-
-    ~/.local/share/build123d-part/venv/bin/python \
-        hardware/tx16s_hr10_rod_clamp/render_context.py \
-        ~/Downloads/radiomaster-tx16-1.snapshot.2.zip
-"""
+"""Render the rod clamp on the scanned TX16S for the assembly report."""
 
 import argparse
 import importlib.util
@@ -55,11 +46,10 @@ def main() -> None:
     receptacle = mount_render.to_mesh(clamp.receptacle_radio(p))
     plug = mount_render.to_mesh(clamp.plug_radio(p))
     radio = mount_render.radio_mesh(args.scan_zip)
-    # The scan still has the handle sheath; cut it away and show the bare rod instead.
     o, u, v, n = clamp.rod_axes()
     w = (np.asarray(radio.points) - o) @ np.stack([u, v, n], axis=1)
-    run_end = p.run_len + 8  # where the drawn rod stops; the sheath stays on past it
-    flat = (np.abs(w[:, 2]) < 7.5) & (w[:, 0] > -3.5) & (w[:, 0] < run_end)
+    drawn_rod_end_u = p.run_len + 8
+    flat = (np.abs(w[:, 2]) < 7.5) & (w[:, 0] > -3.5) & (w[:, 0] < drawn_rod_end_u)
     sheath = flat & (((w[:, 1] > -7.5) & (w[:, 1] < 13)) | ((w[:, 1] <= 17) & (w[:, 0] < 7)))
     radio = radio.extract_points(~sheath, adjacent_cells=False).extract_surface(
         algorithm="dataset_surface"

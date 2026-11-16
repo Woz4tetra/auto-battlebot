@@ -1,10 +1,4 @@
-"""Region pick points for recipe extrudes: one point well inside each face of a 2D shape.
-
-A recipe extrude picks sketch regions by a point inside each (recipe.py). Where crossing
-profiles split a region into many cells (a lip broken by boss notches, pocket cells cut
-round lands), the cells are built here in build123d and one point is taken inside each, as
-far from its edges as a grid search finds.
-"""
+"""Region pick points for recipe extrudes where crossing profiles split a region into many cells."""
 
 from build123d import Face, Vector
 
@@ -28,8 +22,7 @@ def width(face: Face, grid: int = 24) -> float:
 
 
 def _from_edges(face: Face) -> tuple[tuple[float, float] | None, float]:
-    """A thin strip (a 1.6 mm lip round a 200 mm lid) falls between grid points: step in
-    from the middle of each edge, both ways, and keep the point furthest from all edges."""
+    """Pick point for strips too thin for the grid: step in from each edge midpoint."""
     best, score = None, 0.0
     for e in face.edges():
         mid, t = e.position_at(0.5), e.tangent_at(0.5)
@@ -96,8 +89,7 @@ def cells(profiles: list[dict]) -> list[Face]:
 
 
 def cell_points(profiles: list[dict], target) -> list[tuple[float, float]]:
-    """A point in every arrangement cell of the sketch that lies inside `target`, a 2D shape:
-    the regions an extrude must pick to make that shape from the sketch."""
+    """Pick points for every sketch cell inside target."""
     pts = []
     for c in cells(profiles):
         common = c & target

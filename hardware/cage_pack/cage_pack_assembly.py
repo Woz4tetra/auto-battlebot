@@ -1,41 +1,4 @@
-"""Cage pack: ZED Box Mini, battery and PCBA in a printed PETG enclosure on two SmallRig
-4122C suction cups on an NHRL cage wall.
-
-    scripts/run check_assembly.py cage_pack_assembly.py      (build123d-part skill)
-
-The box is printed on a Bambu P1S. It shades the camera, takes a fall, and is the one part
-carrying every load to the cups.
-
-Frame: cage_layout.py. Z = 0 on the outer polycarbonate face, +Z out of the cage, +Y up.
-
-Load path: every part is screwed to the enclosure tray (enclosure.py). Two printed arms
-(cup_arm.py) screw to the panel's underside, two M3 each, and carry the cups beside the
-side walls, one 3/8-16 screw each. Nothing else bears on the glass except the two cup faces.
-
-What goes where
-- Cups beside the -X and +X walls at y = -70, 45 past each wall, pump knobs pointing
-  outward. Each cup's rim, and so its release tabs, is outside the tray.
-- ZED Box Mini across the top on 8 mm printed bosses, over the upper CP10 tripod hole.
-- Lower left: four P30B cells in an MPD BK-18650-PC8 holder on a carrier PCB that wires
-  them in series (no spot welding), held by battery_clamp.py, under the OpenUPS.
-- Lower middle: the custom PCBA (ESP32-S3-WROOM-1U).
-- Lid, lower right: a Waveshare 2.8" capacitive touch display (SPI + I2C) for boot
-  progress, faults and stats, glass on the lid's underside behind a window, clamped by
-  display_bracket.py. A GH 13-pin lead runs down the -X side of it to the PCBA's J7.
-- -X wall: HR10 transmitter port, GX12 DC input to the OpenUPS
-  VIN, from a Mean Well GST120A24 (24 V 5 A) whose barrel plug is swapped for a GX12 plug.
-- Bottom wall: latching power button (CIT AH1LBBG12), signal only, wired to the PCBA (J5),
-  and beside it the RJ45 panel coupler (iPad), both reachable from below on the glass.
-  The battery stays on the OpenUPS through the 10 A fuse. The PCBA (J6) presses the OpenUPS
-  J8 to start or stop it and reads J10's off pulse; with OPENUPSMODE = 1, DC input charges
-  the battery without starting the output, so the pack charges when off and runs and
-  charges when on. See pcba_cage.py.
-- +X wall: three RP-SMA bulkheads, two for the ZED's AX210 WiFi, one for the ESP32.
-- Outside the +X wall: the ZED X One S on a SmallRig 2948 ball head, nothing round it but
-  air, so it spins onto the head's stud and reaches the head's full range with the lid on.
-  camera_shield.py hoods its back against light from behind the camera.
-- Safety tether: 1/8" steel lanyard from the top wall's -X hole to the cage frame.
-"""
+"""Cage pack assembly: enclosure, electronics, camera and cables."""
 
 import importlib.util
 import math
@@ -77,7 +40,13 @@ C_MIN = (Align.CENTER, Align.CENTER, Align.MIN)
 C_MAX = (Align.CENTER, Align.CENTER, Align.MAX)
 CC = (Align.CENTER, Align.CENTER, Align.CENTER)
 INCH = 25.4
-HEAD_SCREW_PN = "91251A542"  # 1/4-20 x 1" socket head
+CAM_HEAD_SCREW_1_4_20_X1_SHCS_PN = "91251A542"
+RPSMA_THREAD_R = 3.15
+BATTERY_LEAD_RISE = 16.0
+GX12_CUPS_INNER_X = 12.75
+WIFI_PLUG_ENVELOPE = (9.0, 12.0, 9.0)
+GH_HOUSING_PROTRUSION = 6.5
+DISP_PLUG_T = 3.0
 
 
 def _sibling(name: str):
@@ -95,27 +64,22 @@ def _sibling(name: str):
 ballhead = _sibling("smallrig_2948_ball_head")
 bracket = _sibling("zed_x_one_s_bracket")
 BRP = bracket.Params()
-# Ball head on the shield's spacer boss outside the +X wall, axis +X; its knob (head -X)
-# faces +Z, toward the viewer, and its drop notch the glass. Neck straight out (tilt 0);
-# the platform's spin sets the aim.
 HEAD = Location(
     Plane(origin=(cl.HEAD_SEAT_X, cl.CAM_Y, cl.CAM_AXIS_Z), x_dir=(0, 0, -1), z_dir=(1, 0, 0))
 )
-BALL = ballhead.Params(pan=0, tilt=0, tilt_dir=0, spin=cl.CAM_SPIN)
+BALL = ballhead.Params(pan=0, tilt=0, tilt_dir=0, platform_spin_deg=cl.CAM_SPIN)
 BRACKET_AT = HEAD * ballhead.top_location(BALL)
 CAMERA_AT = BRACKET_AT * bracket.camera_location(BRP)
 UPS_LOC = Location(Plane(origin=cl.ups(0.0, 0.0, 0.0), x_dir=(-1, 0, 0), z_dir=(0, 1, 0)))
 
-# OpenUPS connectors (STEP solid centres, inspect_step.py), on the board's top face.
-UPS_TOP = cl.UPS_Z0 + 1.6
+UPS_TOP = cl.UPS_BOARD_Z0 + 1.6
 UPS_VOUT = cl.ups(61.89, 0.0, 88.49)[:2]
 UPS_VIN = cl.ups(-27.50, 0.0, 97.43)[:2]
 UPS_BAT = cl.ups(-27.71, 0.0, 118.79)[:2]
-UPS_USB = cl.ups(-31.44, 0.0, 87.68)[:2]  # mini-B mouth
-WALL_OUT_X = cl.X_OUT  # outer faces of the -X and +X walls
+UPS_USB_MINI_B_MOUTH = cl.ups(-31.44, 0.0, 87.68)[:2]
 
 
-TITLE = "CAGE PACK"  # Onshape document and assembly name
+TITLE = "CAGE PACK"
 
 
 def _world(loc: Location, v) -> tuple[float, float, float]:
@@ -128,30 +92,20 @@ def _world_dir(loc: Location, v) -> tuple[float, float, float]:
     return (d.X, d.Y, d.Z)
 
 
-# FAKRA plug (Rosenberger 59Z114-000Z): 26 long from its nose, which sits FAKRA_ENGAGE back
-# from the jack's tip, so the cable leaves 26 - FAKRA_ENGAGE past the tip.
 FAKRA_PLUG_LEN = 26.0
 FAKRA_ENGAGE = 9.0
-# The STEP is the housing alone, bored Ø6.70 through; the cable's crimp ferrule sits this far
-# inside its back end.
 FAKRA_CABLE_IN = 6.0
-# ZED X One S FAKRA jack in the camera STEP's frame (inspect_step.py, solid 6): axis along
-# the STEP's +Y (away from the lens) at (x, z) = (3.30, -23.75), 2.8 and 6.1 off the lens
-# axis, tip at y = -42.72, 13.3 behind the body's back face.
 CAM_FAKRA_TIP = (3.30, -42.72, -23.75)
 
 
 def fakra_cam():
-    """Camera FAKRA plug seat: the plug's nose on the jack's axis, FAKRA_ENGAGE back from its
-    tip, and the cable direction (away from the lens)."""
+    """Camera FAKRA plug seat point and cable direction."""
     tip = Vector(*_world(CAMERA_AT, CAM_FAKRA_TIP))
     d = Vector(*_world_dir(CAMERA_AT, (0, 1, 0)))
     seat = tip - d * FAKRA_ENGAGE
     return (seat.X, seat.Y, seat.Z), (d.X, d.Y, d.Z)
 
 
-# MPD's STEP has the cells along its X, height along Y from the pin tips (holder base at
-# Y = 3.2), across the cells along Z. Placed with the cells along Y, base on the carrier.
 HOLDER_AT = Location(
     Plane(
         (cl.BRICK_XC, cl.BRICK_YC, cl.HOLDER_Z0 - cl.HOLDER_PIN),
@@ -170,7 +124,7 @@ def _holder_solids():
 
 def _holder():
     """BK-18650-PC8 body and its eight contacts, PC pins clipped 1.0 below the carrier."""
-    keep = Pos(0, 0, cl.BRICK_Z0 - 1.0) * Box(600, 600, 200, align=C_MIN)
+    keep = Pos(0, 0, cl.CARRIER_Z0 - 1.0) * Box(600, 600, 200, align=C_MIN)
     return Compound([s & keep for s in _holder_solids()])
 
 
@@ -198,22 +152,21 @@ def _carrier():
     """Bare 1.6 mm PCB: series links, B-, B1-B3, B+ pads on the +X tab, holes for the pins."""
     cx, cy = cl.CARRIER
     (tx0, ty0), (tx1, ty1) = cl.CARRIER_TAB
-    board = Pos(cl.BRICK_XC, cl.BRICK_YC, cl.BRICK_Z0) * Box(cx, cy, cl.CARRIER_T, align=C_MIN)
+    board = Pos(cl.BRICK_XC, cl.BRICK_YC, cl.CARRIER_Z0) * Box(cx, cy, cl.CARRIER_T, align=C_MIN)
     lo = (Align.MIN, Align.MIN, Align.MIN)
-    board += Pos(tx0 - 1.0, ty0, cl.BRICK_Z0) * Box(
+    board += Pos(tx0 - 1.0, ty0, cl.CARRIER_Z0) * Box(
         tx1 - tx0 + 1.0, ty1 - ty0, cl.CARRIER_T, align=lo
     )
     for x, y in _pins():
-        board -= Pos(x, y, cl.BRICK_Z0 - 1) * Cylinder(0.8, cl.CARRIER_T + 2, align=C_MIN)
+        board -= Pos(x, y, cl.CARRIER_Z0 - 1) * Cylinder(0.8, cl.CARRIER_T + 2, align=C_MIN)
     return board
 
 
 def _tray_inserts():
-    """M3 x 6.4 heat-set inserts in the tray's bosses, flush with each boss top, and the cup
-    arms' four, flush with the panel's glass side."""
+    """Heat-set inserts in the tray bosses and the cup arm screws."""
     tops = [(xy, cl.PANEL_Z1 + cl.BOSS_H) for xy in cl.ZED_EAR_HOLES + pcba_cage.holes()]
     tops += [(xy, cl.CLAMP_Z0) for xy in cl.UPS_HOLES]
-    tops += [(xy, cl.WALL_EDGE_Z) for xy in enclosure.lid_screws()]
+    tops += [(xy, cl.LID_UNDERSIDE_Z) for xy in enclosure.lid_screws()]
     ins = Cylinder(2.3, cl.INSERT_LEN, align=C_MAX) - Cylinder(1.25, cl.INSERT_LEN, align=C_MAX)
     up = Cylinder(2.3, cl.INSERT_LEN, align=C_MIN) - Cylinder(1.25, cl.INSERT_LEN, align=C_MIN)
     out = [Pos(x, y, z) * ins for (x, y), z in tops]
@@ -224,7 +177,7 @@ def _tray_inserts():
 def _lid_inserts():
     """M3 x 6.4 heat-set inserts in the lid's display bosses, flush with each boss's end."""
     ins = Cylinder(2.3, cl.INSERT_LEN, align=C_MIN) - Cylinder(1.25, cl.INSERT_LEN, align=C_MIN)
-    pts = [(cl.DISP_X + dx, cl.DISP_Y + dy) for dx, dy in cl.DISP_EARS]
+    pts = [(cl.DISP_TOUCH_X + dx, cl.DISP_TOUCH_Y + dy) for dx, dy in cl.DISP_EARS]
     return Compound([Pos(x, y, cl.DISP_BACK_Z) * ins for x, y in pts])
 
 
@@ -251,12 +204,11 @@ def _shield_insert():
 
 
 def _sma_bulkhead(y: float, z: float):
-    """RP-SMA female bulkhead (1/4-36, nut on each side) through the +X wall: the pigtail's
-    or extension's panel end."""
-    x = WALL_OUT_X[1]
+    """RP-SMA female bulkhead through the +X wall."""
+    x = cl.X_OUT[1]
     inner = Pos(x - cl.WALL_T, y, z) * Rot(0, -90, 0) * Cylinder(4.0, 9.0, align=C_MIN)
     outer = Pos(x, y, z) * Rot(0, 90, 0) * Cylinder(4.0, 10.0, align=C_MIN)
-    thread = Pos(x, y, z) * Rot(0, -90, 0) * Cylinder(3.15, cl.WALL_T, align=C_MIN)  # 1/4-36
+    thread = Pos(x, y, z) * Rot(0, -90, 0) * Cylinder(RPSMA_THREAD_R, cl.WALL_T, align=C_MIN)
     return inner + thread + outer
 
 
@@ -268,17 +220,12 @@ def _vendor_solids(rel: str) -> tuple:
 
 
 def _vendor(rel: str, origin, x_dir, z_dir, keep=None) -> Compound:
-    """A vendor STEP re-framed: `origin`, `x_dir` and `z_dir`, given in the STEP's own
-    coordinates, become the local origin and axes. `keep` filters solids by bounding box."""
+    """Vendor STEP re-framed so origin, x_dir, z_dir (STEP coords) become the local frame."""
     inv = Location(Plane(origin, x_dir=x_dir, z_dir=z_dir)).inverse()
     return Compound([inv * s for s in _vendor_solids(rel) if keep is None or keep(s)])
 
 
-# GrabCAD "GX12 Aviation Connectors" (Nelson Stoldt), axis along the STEP's X, mating
-# toward -X. connectors.py frame: origin on the wall's outer face, +Z outward.
 def _gx12_jack() -> Compound:
-    """GX12-2 panel jack: front shroud and flange outside, nut and solder cups inside. The
-    model's gasket face (x = 1.0) sits on the wall; its nut leaves a 2.0 panel gap."""
     return _vendor("grabcad/gx12_2_jack.step", (1.0, 0, 0), (0, 1, 0), (-1, 0, 0))
 
 
@@ -287,7 +234,7 @@ def _gx12_plug() -> Compound:
     return _vendor("grabcad/gx12_2_plug.step", (2.5, 0, 0), (0, 1, 0), (-1, 0, 0))
 
 
-GX12_PLUG_LEN = 33.0  # wall face -> the plug's cable clamp end
+GX12_PLUG_WALL_TO_CLAMP = 33.0
 
 
 def _hr10_plug() -> Compound:
@@ -300,77 +247,60 @@ def _hr10_plug() -> Compound:
         (0, 0, 4.28),
         (1, 0, 0),
         (0, 0, 1),
-        keep=lambda s: s.bounding_box().max.Z < 0.0,  # the body, behind the nose
+        keep=lambda s: s.bounding_box().max.Z < 0.0,
     )
     cable = Pos(0, 0, -25.8) * Cylinder(2.5, 40.0, align=C_MAX)
     return Compound([*body.solids(), cable])
 
 
-# ModDIY panel jack (GrabCAD "Panel Mount RJ45", traced from their CAB105): STEP axis X,
-# jack mouth toward +X, flange back face at x = -11.55, cable stub out to x = -44.5.
 RJ45_FLANGE_BACK = -11.55
-RJ45_STUB = 44.5 + RJ45_FLANGE_BACK  # flange back face -> end of the moulded cable stub
+RJ45_FLANGE_TO_STUB_END = 44.5 + RJ45_FLANGE_BACK
 
 
 def _rj45_coupler():
-    """ModDIY panel-mount RJ45 jack: 7 mm flange outside the bottom wall, 21.4 x 22 body and
-    the cable's moulded stub inside, two screws at 27.5 along X."""
     x, z = cl.RJ45_AT
     o = (x, cl.Y_OUT[0] + RJ45_FLANGE_BACK, z)
-    at = Location(Plane(o, x_dir=(0, -1, 0), z_dir=(0, 0, -1)))  # mouth -Y, out of the wall
+    at = Location(Plane(o, x_dir=(0, -1, 0), z_dir=(0, 0, -1)))
     return Compound([at * s for s in _vendor_solids("grabcad/rj45_moddiy_cab105.step")])
 
 
 def _minifit(rel: str) -> Compound:
-    """Molex Mini-Fit Jr receptacle housing (Molex's STEP): mating face at its z = -10.8,
-    cavities centred on y = -5.0, latch +Y. connectors.minifit_plug frame: origin on the
-    header's base, +Z off the board, housing from 3.0 up."""
     return _vendor(rel, (0, -5.0, -13.8), (1, 0, 0), (0, 0, 1))
 
 
 def _tbp_plug() -> Compound:
-    """Same Sky TBP01P1W-508-02GR (Same Sky's STEP): mates along its +X (pin end at
-    x = 17.5), poles along its Z at 0 and 5.08, 15 tall along Y. connectors.tbp_plug_2p
-    frame: X along the poles, Y height, mating face at z = -8."""
     return _vendor(
         "samesky/Same_Sky_TBP01P1W-508-02GR.step", (9.5, 7.5, 2.54), (0, 0, 1), (-1, 0, 0)
     )
 
 
 def _fakra_plug() -> Compound:
-    """Rosenberger 59Z114-000Z FAKRA Z-code plug housing (Rosenberger's STEP), 26 long,
-    coded nose at its z = -0.2. connectors.fakra_plug frame: +Z outward from the jack."""
     return _vendor(
         "fakra/Rosenberger_59Z114-000Z_housing_plug.step", (0, 0, -0.2), (1, 0, 0), (0, 0, -1)
     )
 
 
 def _antenna(x: float, y: float, z: float) -> Compound:
-    """L-com HG2402RD-RSF tilt-swivel RP-SMA antenna (L-com's STEP), plug onto the bulkhead
-    4 mm past the wall, whip folded 90° to +Y at its hinge (STEP x = 36.25)."""
     solids = _vendor_solids("rf/Lcom_HG2402RD-RSF_3D.step")
     tip, hinge = 61.89, 36.25
-    at = Pos(x + 4.0 + tip, y, z) * Rot(0, 0, 180)  # STEP -X (toward the whip) -> +X
+    at = Pos(x + 4.0 + tip, y, z) * Rot(0, 0, 180)
     fold = Pos(x + 4.0 + tip - hinge, y, z) * Rot(0, 0, 90) * Pos(-(x + 4.0 + tip - hinge), -y, -z)
     out = []
     for sol in solids:
         placed = at * sol
-        whip = sol.bounding_box().min.X < 0  # the whip reaches back past the hinge
+        whip = sol.bounding_box().min.X < 0
         out.append(fold * placed if whip else placed)
     return Compound(out)
 
 
+def _is_rj45_head(solid) -> bool:
+    return solid.bounding_box().min.Z > -0.1
+
+
 def _rj45_plug():
-    """The extension's 90° plug in the ZED's jack: GrabCAD "RJ45_Ethernet_Plug" head (22.17
-    long, mouth at its z = 22.17, latch +Y), 15 in the jack with the latch up, plus the
-    moulded right-angle boot turning the cable +Z."""
-    rx, ry, rz = cl.ZED_RJ45
+    rx, ry, rz = cl.ZED_RJ45_MOUTH
     at = Location(Plane((rx + 15.0 - 22.17, ry, rz), x_dir=(0, 1, 0), z_dir=(1, 0, 0)))
-    head = [
-        at * s
-        for s in _vendor_solids("grabcad/rj45_plug.step")
-        if s.bounding_box().min.Z > -0.1  # head and contacts, not the flat cable
-    ]
+    head = [at * s for s in _vendor_solids("grabcad/rj45_plug.step") if _is_rj45_head(s)]
     boot = Pos(rx - 7.17, ry, rz) * Box(
         14.8, 11.7, 13.5, align=(Align.MAX, Align.CENTER, Align.CENTER)
     )
@@ -378,24 +308,17 @@ def _rj45_plug():
     return Compound([*head, boot])
 
 
-# Power button: bezel on the bottom wall's outer face, tabs inside, ending at BUTTON_TABS_Y.
 SWITCH_AT = (cl.SWITCH_X, cl.Y_OUT[0], cl.SWITCH_Z)
 BUTTON_TABS_Y = cl.Y_OUT[0] + cl.SWITCH_DEPTH
-# OpenUPS J10 (motherboard on/off) and J8 (start/stop) 2-pin headers, located from Mini-Box's
-# connection diagram against the J5 and J7 connectors in the STEP (about +-1 mm).
 UPS_J10 = cl.ups(6.2, 0.0, 77.5)[:2]
 UPS_J8 = cl.ups(32.5, 0.0, 77.5)[:2]
 DUPONT_TOP = UPS_TOP + 16.5
-# Charger: Mean Well GST120A24-P1M, 167 x 67 x 35, lying outside the -X wall.
 CHARGER = (167.0, 67.0, 35.0)
-CHARGER_AT = (cl.X_OUT[0] - 230.0, cl.PORTS["gx12"][0], 5.0)  # +X end's centre, underside
+CHARGER_CORD_END_AT = (cl.X_OUT[0] - 230.0, cl.SERVICE_PORTS_YZ["gx12"][0], 5.0)
 
 
 def _charger():
-    """Mean Well GST120A (Mean Well's GS-120 case STEP): case x 65.53 to 233.11 in the
-    STEP, DC cord end at +X, 67 x 35. The STEP's 100 mm cord stub is cut off at the case;
-    charger_cord carries on from there."""
-    x1, y, z0 = CHARGER_AT
+    x1, y, z0 = CHARGER_CORD_END_AT
     keep = Pos(233.3, 0, 0) * Box(400, 400, 400, align=(Align.MAX, Align.CENTER, Align.CENTER))
     at = Pos(x1 - 233.11, y - 4.5, z0 - 9.14)
     out = []
@@ -407,39 +330,35 @@ def _charger():
 
 def _plugs() -> dict:
     out = {}
-    out["tbp_plug"] = cn.place(Rot(0, 0, 90) * _tbp_plug(), cl.ZED_POWER, (-1, 0, 0), (0, 0, 1))
-    # Head along +X, cable leaving -Y (away from the FAKRA plug above it).
+    out["tbp_plug"] = cn.place(
+        Rot(0, 0, 90) * _tbp_plug(), cl.ZED_POWER_MOUTH, (-1, 0, 0), (0, 0, 1)
+    )
     out["usb_a_plug"] = cn.place(cn.usb_a_plug_90(), cl.ZED_USB_A, (1, 0, 0), (0, -1, 0))
-    fx, fy, fz = cl.ZED_FAKRA_A
+    fx, fy, fz = cl.ZED_FAKRA_A_TIP
     out["fakra_plug_zed"] = cn.place(
         _fakra_plug(), (fx - FAKRA_ENGAGE, fy, fz), (1, 0, 0), (0, 1, 0)
     )
     p, d = fakra_cam()
     out["fakra_plug_cam"] = cn.place(_fakra_plug(), p, d, (1, 0, 0))
-    # Internal RJ45: 90° plug, 22 mm body into the ZED's jack, cable leaving +Z (up, to run
-    # down the -X side above the power cables).
     out["rj45_plug"] = _rj45_plug()
     out["rj45_coupler"] = _rj45_coupler()
     out_dir = (-1.0, 0.0, 0.0)
-    ox = WALL_OUT_X[0]
-    gy, gz = cl.PORTS["gx12"]
+    ox = cl.X_OUT[0]
+    gy, gz = cl.SERVICE_PORTS_YZ["gx12"]
     out["gx12_dc_in"] = cn.place(_gx12_jack(), (ox, gy, gz), out_dir, (0, 1, 0))
     out["gx12_charger_plug"] = cn.place(_gx12_plug(), (ox, gy, gz), out_dir, (0, 1, 0))
     out["power_button"] = cn.place(cn.cit_ah_button(cl.WALL_T), SWITCH_AT, (0, -1, 0), (1, 0, 0))
-    hy, hz = cl.PORTS["hr10"]
+    hy, hz = cl.SERVICE_PORTS_YZ["hr10"]
     out["hr10_rcpt"] = cn.place(
         hr10.receptacle(cl.HR10_PANEL_T), (ox, hy, hz), (1, 0, 0), (0, 1, 0)
     )
     out["hr10_tx_plug"] = cn.place(_hr10_plug(), (ox, hy, hz), (1, 0, 0), (0, 1, 0))
-    # RP-SMA bulkheads, one per antenna, then each antenna screwed onto its bulkhead and
-    # folded up: the same part three times, so Onshape holds one antenna model.
-    out["sma_bulkheads"] = Compound([_sma_bulkhead(y, z) for y, z in cl.ANTENNAS.values()])
-    for name, (y, z) in cl.ANTENNAS.items():
-        out[f"antenna_{name}"] = _antenna(WALL_OUT_X[1], y, z)
-    # 90° RP-SMA plugs on the ZED's WiFi jacks: 12 out from the jack's tip, 9 x 9 body.
+    out["sma_bulkheads"] = Compound([_sma_bulkhead(y, z) for y, z in cl.ANTENNAS_YZ.values()])
+    for name, (y, z) in cl.ANTENNAS_YZ.items():
+        out[f"antenna_{name}"] = _antenna(cl.X_OUT[1], y, z)
     out["wifi_plugs"] = Compound(
-        [Pos(x, y, z) * Box(9.0, 12.0, 9.0, align=(Align.CENTER, Align.MIN, Align.CENTER))
-         for x, y, z in cl.ZED_SMA]
+        [Pos(x, y, z) * Box(*WIFI_PLUG_ENVELOPE, align=(Align.CENTER, Align.MIN, Align.CENTER))
+         for x, y, z in cl.ZED_WIFI_SMA_JACKS]
     )  # fmt: skip
     up = (0.0, 0.0, 1.0)
     m22, m12 = _minifit("molex/39012040.stp"), _minifit("molex/39012020.stp")
@@ -449,7 +368,10 @@ def _plugs() -> dict:
     for name, (x, y) in (("dupont_J10", UPS_J10), ("dupont_J8", UPS_J8)):
         out[name] = Pos(x, y, UPS_TOP) * cn.dupont_2p()
     out["mini_b_plug"] = cn.place(
-        cn.mini_b_plug_90(), (UPS_USB[0], UPS_USB[1], UPS_TOP + 2.0), (1, 0, 0), (0, 0, 1)
+        cn.mini_b_plug_90(),
+        (UPS_USB_MINI_B_MOUTH[0], UPS_USB_MINI_B_MOUTH[1], UPS_TOP + 2.0),
+        (1, 0, 0),
+        (0, 0, 1),
     )
     top = pcba_cage.TOP
     jx, jy = pcba_cage.PLACEMENT["J1_usb_c"][2:]
@@ -470,16 +392,15 @@ def _plugs() -> dict:
     return out
 
 
-DISP_PLUG_Z = (cl.DISP_BACK_Z, cl.DISP_BACK_Z + 3.0)  # under the module's 7.0 glass + LCD stack
-DISP_PLUG_END_X = cl.DISP_X + cl.DISP_GH_MOUTH_X - 6.5  # GHR housing, 6.5 out of the mouth
+DISP_PLUG_Z = (cl.DISP_BACK_Z, cl.DISP_BACK_Z + DISP_PLUG_T)
+DISP_PLUG_END_X = cl.DISP_TOUCH_X + cl.DISP_GH_MOUTH_X - GH_HOUSING_PROTRUSION
 
 
 def _gh_display_plug():
-    """GHR-13V-S housing in the display's horizontal GH: 18.0 wide (cn.gh_plug's rule),
-    6.5 out of the mouth along -X, 3.0 thick, cable leaving -X."""
-    x1 = cl.DISP_X + cl.DISP_GH_MOUTH_X
+    """GHR-13V-S housing in the display GH socket."""
+    x1 = cl.DISP_TOUCH_X + cl.DISP_GH_MOUTH_X
     z0, z1 = DISP_PLUG_Z
-    return Pos((DISP_PLUG_END_X + x1) / 2, cl.DISP_Y + cl.DISP_GH[1], z0) * Box(
+    return Pos((DISP_PLUG_END_X + x1) / 2, cl.DISP_TOUCH_Y + cl.DISP_GH[1], z0) * Box(
         x1 - DISP_PLUG_END_X, 13 * 1.25 + 1.75, z1 - z0, align=C_MIN
     )
 
@@ -505,6 +426,10 @@ CABLES = {
 }
 
 
+def _fillet_setback(r: float, turn: float) -> float:
+    return r * math.tan(turn / 2)
+
+
 def _run(kind: str, points: list[tuple[float, float, float]]):
     """A cable centreline through `points` with every corner at the cable's minimum bend
     radius. Unlike cn.tube it never shrinks the radius to fit: a corner too tight for it
@@ -512,11 +437,10 @@ def _run(kind: str, points: list[tuple[float, float, float]]):
     d, r, _ = CABLES[kind]
     pts = [Vector(*q) for q in points]
     segs = [(b - a).length for a, b in zip(pts, pts[1:], strict=False)]
-    # Each corner's fillet takes R tan(turn / 2) off both segments it joins.
     take = [0.0]
     for a, b, c in zip(pts, pts[1:], pts[2:], strict=False):
         turn = math.acos(max(-1.0, min(1.0, (b - a).normalized().dot((c - b).normalized()))))
-        take.append(r * math.tan(turn / 2))
+        take.append(_fillet_setback(r, turn))
     take.append(0.0)
     for i, seg in enumerate(segs):
         # + 0.5: OCC cannot build a path whose straight run between fillets is zero long.
@@ -535,173 +459,257 @@ def _run(kind: str, points: list[tuple[float, float, float]]):
     return tube, path.length
 
 
-@cache
-def _cable_runs() -> dict:
-    out = {}
-    # OpenUPS VOUT (Mini-Fit plug, wires out its top) over the OpenUPS and along the -X
-    # side to the ZED's TBP power plug, whose wires leave it toward -X.
+MINIFIT_PLUG_TOP = 16.6
+TBP_PLUG_BACK = 10.0
+GH_PLUG_TOP = 4.2 + 6.5
+
+
+def _route_zed_power(plug_top: float) -> dict:
     vx, vy = UPS_VOUT
-    zx, zy, zz = cl.ZED_POWER
-    plug_top = UPS_TOP + 16.6  # Mini-Fit plug's top face, connectors.minifit_plug
-    tbp_back = zx - 10.0  # tbp_plug's back face
-    out["c4_zed_power"] = _run("power", [
-        (vx, vy, plug_top),
-        (vx, vy, plug_top + 11.0),
-        (tbp_back - 12.0, zy, plug_top + 11.0),
-        (tbp_back - 12.0, zy, zz),
-        (tbp_back, zy, zz),
-    ])  # fmt: skip
-    # Battery: the carrier's pad tab, past the OpenUPS's +X edge, up and back onto its BAT.
-    # The inline 10 A fuse holder sits in this run (not modelled).
-    bx1 = cl.CARRIER_TAB[1][0] - 7.0  # B+ and B- pads on the carrier's tab
+    zx, zy, zz = cl.ZED_POWER_MOUTH
+    tbp_back = zx - TBP_PLUG_BACK
+    return {
+        "c4_zed_power": _run(
+            "power",
+            [
+                (vx, vy, plug_top),
+                (vx, vy, plug_top + 11.0),
+                (tbp_back - 12.0, zy, plug_top + 11.0),
+                (tbp_back - 12.0, zy, zz),
+                (tbp_back, zy, zz),
+            ],
+        )  # fmt: skip
+    }
+
+
+def _route_battery_lead(plug_top: float) -> dict:
+    bx1 = cl.CARRIER_TAB[1][0] - 7.0
     bz = cl.HOLDER_Z0 + 2.6
     by = UPS_BAT[1]
-    over = cl.BRICK_Z0 + 16.0  # clear of the tray's x = 0 rib; R10.4 bend needs the rise
-    out["battery_lead"] = _run("battery", [
-        (bx1, by, bz),
-        (bx1, by, over),
-        (10.0, by, over),
-        (10.0, by, plug_top + 11.0),
-        (UPS_BAT[0], by, plug_top + 11.0),
-        (UPS_BAT[0], by, plug_top),
-    ])  # fmt: skip
-    # Power button: off its solder tabs (+Y), over the PCBA, down into J5.
-    gh_top = pcba_cage.TOP + 4.2 + 6.5  # cn.gh_plug's top face
+    over = cl.CARRIER_Z0 + BATTERY_LEAD_RISE
+    return {
+        "battery_lead": _run(
+            "battery",
+            [
+                (bx1, by, bz),
+                (bx1, by, over),
+                (10.0, by, over),
+                (10.0, by, plug_top + 11.0),
+                (UPS_BAT[0], by, plug_top + 11.0),
+                (UPS_BAT[0], by, plug_top),
+            ],
+        )  # fmt: skip
+    }
+
+
+def _route_button_lead(gh_top: float) -> dict:
     j5x, j5y = pcba_cage.PLACEMENT["J5_gh4_button"][2:]
-    out["button_lead"] = _run("signal", [
-        (cl.SWITCH_X, BUTTON_TABS_Y, cl.SWITCH_Z),
-        (cl.SWITCH_X, j5y - 12.0, cl.SWITCH_Z),
-        (j5x, j5y - 12.0, cl.SWITCH_Z),
-        (j5x, j5y, cl.SWITCH_Z),
-        (j5x, j5y, gh_top),
-    ])  # fmt: skip
-    # OpenUPS control: up off J6, low across to x = -2 (under the display's -X end and
-    # clear of it), up beside the OpenUPS's Mini-Fit plugs, toward -Y along the bottom wall
-    # and over the OpenUPS to J8, with the J10 pair dropping off on the way. VBAT and GND
-    # are spliced into the battery lead at the fuse (not modelled).
+    return {
+        "button_lead": _run(
+            "signal",
+            [
+                (cl.SWITCH_X, BUTTON_TABS_Y, cl.SWITCH_Z),
+                (cl.SWITCH_X, j5y - 12.0, cl.SWITCH_Z),
+                (j5x, j5y - 12.0, cl.SWITCH_Z),
+                (j5x, j5y, cl.SWITCH_Z),
+                (j5x, j5y, gh_top),
+            ],
+        )  # fmt: skip
+    }
+
+
+def _route_ups_ctrl_lead(gh_top: float) -> dict:
     j6x, j6y = pcba_cage.PLACEMENT["J6_gh6_ups_ctrl"][2:]
     cz = 110.0
     lo, side = 90.0, -2.0
-    out["ups_ctrl_lead"] = _run("signal", [
-        (j6x, j6y, gh_top),
-        (j6x, j6y, lo),
-        (side, j6y, lo),
-        (side, j6y, cz),
-        (side, UPS_J8[1], cz),
-        (UPS_J8[0], UPS_J8[1], cz),
-        (UPS_J8[0], UPS_J8[1], DUPONT_TOP),
-    ])  # fmt: skip
-    out["ups_ctrl_j10"] = _run("signal", [
-        (UPS_J10[0], UPS_J10[1], cz),
-        (UPS_J10[0], UPS_J10[1], DUPONT_TOP),
-    ])  # fmt: skip
-    # DC input: GX12's solder cups inside the -X wall, beside the ZED, over the OpenUPS to
-    # its VIN Mini-Fit.
-    gy, gz = cl.PORTS["gx12"]
-    gx = cl.X_OUT[0] + 12.75  # GX12 jack's solder cups' inner end
+    return {
+        "ups_ctrl_lead": _run(
+            "signal",
+            [
+                (j6x, j6y, gh_top),
+                (j6x, j6y, lo),
+                (side, j6y, lo),
+                (side, j6y, cz),
+                (side, UPS_J8[1], cz),
+                (UPS_J8[0], UPS_J8[1], cz),
+                (UPS_J8[0], UPS_J8[1], DUPONT_TOP),
+            ],
+        ),  # fmt: skip
+        "ups_ctrl_j10": _run(
+            "signal",
+            [
+                (UPS_J10[0], UPS_J10[1], cz),
+                (UPS_J10[0], UPS_J10[1], DUPONT_TOP),
+            ],
+        ),  # fmt: skip
+    }
+
+
+def _route_charge_lead(plug_top: float) -> dict:
+    gy, gz = cl.SERVICE_PORTS_YZ["gx12"]
+    gx = cl.X_OUT[0] + GX12_CUPS_INNER_X
     hx = -80.0
-    out["charge_lead"] = _run("power", [
-        (gx, gy, gz),
-        (hx, gy, gz),
-        (hx, gy, plug_top + 11.0),
-        (hx, UPS_VIN[1], plug_top + 11.0),
-        (UPS_VIN[0], UPS_VIN[1], plug_top + 11.0),
-        (UPS_VIN[0], UPS_VIN[1], plug_top),
-    ])  # fmt: skip
-    # Charger cord: GX12 plug's boot, out over the -X cup and its pump, and down to the
-    # supply's +X end.
-    cx1, cy, cz0 = CHARGER_AT
-    tail = cl.X_OUT[0] - GX12_PLUG_LEN
+    return {
+        "charge_lead": _run(
+            "power",
+            [
+                (gx, gy, gz),
+                (hx, gy, gz),
+                (hx, gy, plug_top + 11.0),
+                (hx, UPS_VIN[1], plug_top + 11.0),
+                (UPS_VIN[0], UPS_VIN[1], plug_top + 11.0),
+                (UPS_VIN[0], UPS_VIN[1], plug_top),
+            ],
+        )  # fmt: skip
+    }
+
+
+def _route_charger_cord() -> dict:
+    gy, gz = cl.SERVICE_PORTS_YZ["gx12"]
+    cx1, cy, cz0 = CHARGER_CORD_END_AT
+    tail = cl.X_OUT[0] - GX12_PLUG_WALL_TO_CLAMP
     drop = cl.CUP_X[0] - cl.CUP_REACH - 25.0
-    out["charger_cord"] = _run("dc", [
-        (tail, gy, gz),
-        (drop, gy, gz),
-        (drop, gy, cz0 + CHARGER[2] / 2),
-        (cx1, gy, cz0 + CHARGER[2] / 2),
-    ])  # fmt: skip
-    # ZED USB-A (cable leaving -Y) down the +X side, under the ZED, to the PCBA's USB-C
-    # (cable leaving +Y).
+    return {
+        "charger_cord": _run(
+            "dc",
+            [
+                (tail, gy, gz),
+                (drop, gy, gz),
+                (drop, gy, cz0 + CHARGER[2] / 2),
+                (cx1, gy, cz0 + CHARGER[2] / 2),
+            ],
+        )  # fmt: skip
+    }
+
+
+def _route_usb() -> dict:
     ux, uy, uz = cl.ZED_USB_A
     jx, jy = pcba_cage.PLACEMENT["J1_usb_c"][2:]
     ex, ey, ez = jx + 5.2, jy + 6.0, pcba_cage.TOP + 1.6
-    out["c6_usb"] = _run("usb", [
-        (ux + 16.0, uy - 8.0, uz),
-        (cl.X_IN[1] - 4.0, ey + 17.0, ez + 33.6),
-        (ex, ey + 17.0, ez + 33.6),
-        (ex, ey + 17.0, ez),
-        (ex, ey, ez),
-    ])  # fmt: skip
-    # GMSL: straight out of the ZED's FAKRA jack through the +X wall, up and over toward
-    # the camera under the shield's hood, and into the plug on the camera's back, which
-    # points up (+Z) and +Y at the default aim. About 90 mm of the 0.3 m cable is slack
-    # for re-aiming.
-    fx, fy, fz = cl.ZED_FAKRA_A
+    return {
+        "c6_usb": _run(
+            "usb",
+            [
+                (ux + 16.0, uy - 8.0, uz),
+                (cl.X_IN[1] - 4.0, ey + 17.0, ez + 33.6),
+                (ex, ey + 17.0, ez + 33.6),
+                (ex, ey + 17.0, ez),
+                (ex, ey, ez),
+            ],
+        )  # fmt: skip
+    }
+
+
+def _route_gmsl() -> dict:
+    fx, fy, fz = cl.ZED_FAKRA_A_TIP
     p, d = fakra_cam()
     pv, dv = Vector(*p), Vector(*d)
-    g0 = fx - FAKRA_ENGAGE + FAKRA_PLUG_LEN - FAKRA_CABLE_IN  # inside the ZED plug's back
-    g4 = pv + dv * (FAKRA_PLUG_LEN - FAKRA_CABLE_IN)  # inside the camera plug's back
-    g3 = g4 + dv * (14.0 + FAKRA_CABLE_IN)
-    out["c11_gmsl"] = _run("gmsl", [
-        (g0, fy, fz),
-        (g0 + 18.0 + FAKRA_CABLE_IN, fy, fz),
-        (g3.X - 6.4, fy - 32.0, g3.Z),
-        (g3.X, g3.Y, g3.Z),
-        (g4.X, g4.Y, g4.Z),
-    ])  # fmt: skip
-    # Panel coupler's tail: up off the ZED's RJ45 plug, down the -X side at z = 100 (over the
-    # TBP plug and the GX12 lead, inboard of the ZED power lead's riser), across under the
-    # ZED's -Y edge (between it and the OpenUPS), then down over the PCBA, above the J6 and
-    # button leads, into the coupler on the bottom wall.
-    rx, ry, rz = cl.ZED_RJ45
+    gmsl_start_x = fx - FAKRA_ENGAGE + FAKRA_PLUG_LEN - FAKRA_CABLE_IN
+    gmsl_end = pv + dv * (FAKRA_PLUG_LEN - FAKRA_CABLE_IN)
+    g3 = gmsl_end + dv * (14.0 + FAKRA_CABLE_IN)
+    return {
+        "c11_gmsl": _run(
+            "gmsl",
+            [
+                (gmsl_start_x, fy, fz),
+                (gmsl_start_x + 18.0 + FAKRA_CABLE_IN, fy, fz),
+                (g3.X - 6.4, fy - 32.0, g3.Z),
+                (g3.X, g3.Y, g3.Z),
+                (gmsl_end.X, gmsl_end.Y, gmsl_end.Z),
+            ],
+        )  # fmt: skip
+    }
+
+
+def _route_lan_tail() -> dict:
+    rx, ry, rz = cl.ZED_RJ45_MOUTH
     cx, cz = cl.RJ45_AT
-    tail = cl.Y_OUT[0] + RJ45_STUB  # end of the coupler's moulded cable stub
+    coupler_stub_end_y = cl.Y_OUT[0] + RJ45_FLANGE_TO_STUB_END
     hi, lane, across = 100.0, -86.0, -108.0
-    out["lan_tail"] = _run("lan", [
-        (rx - 18.4, ry, rz + 6.75),
-        (rx - 18.4, ry, hi),
-        (lane, -66.0, hi),
-        (lane, across, hi),
-        (cx, across, hi),
-        (cx, -130.0, hi),
-        (cx, -140.0, cz),
-        (cx, tail, cz),
-    ])  # fmt: skip
-    # ESP32 pigtail: up off the PCBA, under the display bracket, along the corridor between
-    # the ZED and the +X wall, above the USB cable, down to its bulkhead.
+    return {
+        "lan_tail": _run(
+            "lan",
+            [
+                (rx - 18.4, ry, rz + 6.75),
+                (rx - 18.4, ry, hi),
+                (lane, -66.0, hi),
+                (lane, across, hi),
+                (cx, across, hi),
+                (cx, -130.0, hi),
+                (cx, -140.0, cz),
+                (cx, coupler_stub_end_y, cz),
+            ],
+        )  # fmt: skip
+    }
+
+
+def _route_esp_pigtail() -> dict:
     ux_, uy_, uz_ = ufl_point()
-    ay, az = cl.ANTENNAS["esp32"]
-    xc = 82.5  # clear of the ZED's FAKRA jacks, which reach X = 81.25
-    ez_ = 101.0  # under the bracket screws' heads (102.2), over the USB cable (98.8)
-    out["esp_pigtail"] = _run("esp", [
-        (ux_, uy_, uz_),
-        (ux_, uy_, ez_),
-        (xc, -112.0, ez_),
-        (xc, ay, ez_),
-        (xc, ay, az),
-        (cl.X_IN[1] - 7.0, ay, az),  # into the bulkhead's inner body
-    ])  # fmt: skip
-    # Display: out of the module's GH toward -X, down past its -X end, along y = -107.5
-    # beside the ZED and over the PCBA's +Y edge into J7.
+    ay, az = cl.ANTENNAS_YZ["esp32"]
+    xc = cl.ZED_FAKRA_A_TIP[0] + 1.25
+    ez_ = 101.0
+    return {
+        "esp_pigtail": _run(
+            "esp",
+            [
+                (ux_, uy_, uz_),
+                (ux_, uy_, ez_),
+                (xc, -112.0, ez_),
+                (xc, ay, ez_),
+                (xc, ay, az),
+                (cl.X_IN[1] - 7.0, ay, az),
+            ],
+        )  # fmt: skip
+    }
+
+
+def _route_display_lead(gh_top: float) -> dict:
     j7x, j7y = pcba_cage.PLACEMENT["J7_gh13_display"][2:]
-    dy, dz = cl.DISP_Y + cl.DISP_GH[1], sum(DISP_PLUG_Z) / 2
+    dy, dz = cl.DISP_TOUCH_Y + cl.DISP_GH[1], sum(DISP_PLUG_Z) / 2
     dx, run_z = 2.0, 82.0
-    out["display_lead"] = _run("display", [
-        (DISP_PLUG_END_X, dy, dz),
-        (dx, dy, dz),
-        (dx, dy, run_z),
-        (dx, j7y, run_z),
-        (j7x, j7y, run_z),
-        (j7x, j7y, gh_top),
-    ])  # fmt: skip
-    # WiFi: 90° plugs on the ZED's jacks; jack 1's cable leaves up (+Z), jack 2's +X.
-    (s1x, s1y, s1z), (s2x, s2y, s2z) = cl.ZED_SMA
-    w1y, w1z = cl.ANTENNAS["zed_wifi_1"]
-    w2y, w2z = cl.ANTENNAS["zed_wifi_2"]
+    return {
+        "display_lead": _run(
+            "display",
+            [
+                (DISP_PLUG_END_X, dy, dz),
+                (dx, dy, dz),
+                (dx, dy, run_z),
+                (dx, j7y, run_z),
+                (j7x, j7y, run_z),
+                (j7x, j7y, gh_top),
+            ],
+        )  # fmt: skip
+    }
+
+
+def _route_wifi_pigtails() -> dict:
+    (s1x, s1y, s1z), (s2x, s2y, s2z) = cl.ZED_WIFI_SMA_JACKS
+    w1y, w1z = cl.ANTENNAS_YZ["zed_wifi_1"]
+    w2y, w2z = cl.ANTENNAS_YZ["zed_wifi_2"]
     inner = cl.X_IN[1] - 9.0
     w1, l1 = _run("wifi", [(s1x, w1y, s1z + 4.5), (s1x, w1y, w1z), (inner, w1y, w1z)])
     w2, l2 = _run("wifi", [(s2x + 4.5, w2y, s2z), (inner, w2y, w2z)])
-    out["wifi_pigtails"] = (Compound([w1, w2]), l1 + l2)
-    return out
+    return {"wifi_pigtails": (Compound([w1, w2]), l1 + l2)}
+
+
+@cache
+def _cable_runs() -> dict:
+    plug_top = UPS_TOP + MINIFIT_PLUG_TOP
+    gh_top = pcba_cage.TOP + GH_PLUG_TOP
+    return {
+        **_route_zed_power(plug_top),
+        **_route_battery_lead(plug_top),
+        **_route_button_lead(gh_top),
+        **_route_ups_ctrl_lead(gh_top),
+        **_route_charge_lead(plug_top),
+        **_route_charger_cord(),
+        **_route_usb(),
+        **_route_gmsl(),
+        **_route_lan_tail(),
+        **_route_esp_pigtail(),
+        **_route_display_lead(gh_top),
+        **_route_wifi_pigtails(),
+    }
 
 
 def cables() -> dict:
@@ -746,12 +754,12 @@ def _glass():
     w, h = 600.0, 500.0
     outer = Pos(0, top - h / 2, 0) * Box(w, h, cl.GLASS_T, align=C_MAX)
     inner = Pos(0, top - h / 2, -cl.GLASS_T - cl.GLASS_GAP) * Box(w, h, cl.GLASS_T, align=C_MAX)
-    retainer = Pos(0, top + 25.0, 0) * Box(w, 75.0, 3.0, align=C_MIN)  # steel flat, assumed
+    retainer = Pos(0, top + 25.0, 0) * Box(w, 75.0, 3.0, align=C_MIN)
     return outer, inner, retainer
 
 
 def _bd(key: str) -> dict:
-    d = dict(bd.COMPONENTS[key])
+    d = dict(bd.COMPONENTS_BY_ASSEMBLY_NAME[key])
     if "note" in d and d["note"].startswith("Owned"):
         d["owned"] = True
     return d
@@ -773,7 +781,7 @@ def components():
             "shape": Pos(x, cl.CUP_Y, 0) * Rot(0, 0, rot) * cup.build(),
             "color": "#2b2f36",
             "material": "al6061",
-            **bd.COMPONENTS["cup"],
+            **bd.COMPONENTS_BY_ASSEMBLY_NAME["cup"],
         }
     for side, wall in (("left", "-x"), ("right", "+x")):
         comps[f"cup_arm_{side}"] = {
@@ -795,7 +803,7 @@ def components():
             },
             "enclosure_lid": {
                 "part": "enclosure_lid.py",
-                "at": enclosure_lid.ASSEMBLY_AT,
+                "at": enclosure_lid.PRINT_TO_ASSEMBLY,
                 "color": "#4a4e55",
                 "material": "petg",
                 "name": "Enclosure lid, black PETG print",
@@ -808,7 +816,7 @@ def components():
             },
             "camera_shield": {
                 "part": "camera_shield.py",
-                "at": camera_shield.ASSEMBLY_AT,
+                "at": camera_shield.PRINT_TO_ASSEMBLY,
                 "color": "#2a2a2a",
                 "material": "petg",
                 "name": "Camera light shield, black PETG print",
@@ -871,9 +879,9 @@ def components():
             "display": {
                 "step": str(cl.DISP_STEP),
                 "min_volume": 1,
-                "at": Pos(cl.DISP_X, cl.DISP_Y, cl.DISP_FRONT_Z - 0.7) * Rot(0, 0, -90),
+                "at": Pos(cl.DISP_TOUCH_X, cl.DISP_TOUCH_Y, cl.DISP_FRONT_Z - 0.7) * Rot(0, 0, -90),
                 "color": "#1d2229",
-                "material": "brass",  # the M2.5 standoffs' threads
+                "material": "brass",
                 **_bd("display"),
             },
             "display_bracket": {
@@ -893,7 +901,7 @@ def components():
                 "shape": pcba_cage.parts_compound(),
                 "color": "#b0b6bd",
                 "name": "PCBA parts",
-                "bom": False,  # priced with the board: bom_data.PCBA
+                "bom": False,
             },
             "charger": {
                 "shape": _charger(),
@@ -903,8 +911,8 @@ def components():
             "ball_head": {
                 "shape": HEAD * ballhead.build(BALL),
                 "color": "#2b2f36",
-                "material": "al6061",  # aluminium head: 1.5 D thread rule
-                **bd.COMPONENTS["ball_head"],
+                "material": "al6061",
+                **bd.COMPONENTS_BY_ASSEMBLY_NAME["ball_head"],
             },
             "camera_bracket": {
                 "part": str(cl.ZED_MOUNT / "zed_x_one_s_bracket.py"),
@@ -959,8 +967,6 @@ def components():
             },
         }
     )
-    # Plugs, panel parts and cable runs are envelopes for clearance; what is bought for them
-    # is in bom_extra() (the kits, wire and connectors they are made from).
     for name, shape in _plugs().items():
         comps[name] = {
             "shape": shape,
@@ -979,12 +985,6 @@ def components():
     return comps
 
 
-# Onshape (the onshape skill): what each component is fastened to, on a pair of coaxial hole
-# edges the two share, so it follows that part when a dimension changes. The tray is the
-# fixed root. Anything not listed is inserted fixed where it is modelled: the glass, the
-# cells and their holder, the charger, the cables and most plugs share no hole with what
-# they sit on.
-# Onshape names and part properties, and which parts get their own document.
 ONSHAPE_PARTS = onshape_catalog.PARTS
 
 ONSHAPE_MATES = {
@@ -1018,13 +1018,13 @@ ONSHAPE_MATES = {
     "power_button": "enclosure",
     "hr10_rcpt": "enclosure",
     "sma_bulkheads": "enclosure",
-    **{f"antenna_{name}": "sma_bulkheads" for name in cl.ANTENNAS},
+    **{f"antenna_{name}": "sma_bulkheads" for name in cl.ANTENNAS_YZ},
     "wifi_pigtails": "sma_bulkheads",
 }
 
 
 def bom_extra() -> list[dict]:
-    rows = [dict(r) for r in bd.EXTRAS]
+    rows = [dict(r) for r in bd.UNMODELED_EXTRAS]
     rows += [
         {
             "name": "ModDIY CO905 right-angle RJ45 extension, panel mount, 30 cm",
@@ -1137,7 +1137,10 @@ def fasteners():
             "length": 8,
             "head": "shcs",
             "dir": "+Z",
-            "at": [(cl.DISP_X + x, cl.DISP_Y + y, display_bracket.Z0) for x, y in cl.DISP_EARS],
+            "at": [
+                (cl.DISP_TOUCH_X + x, cl.DISP_TOUCH_Y + y, display_bracket.Z0)
+                for x, y in cl.DISP_EARS
+            ],
             "into": "lid_inserts",
             "thread": "insert",
             "insert_len": cl.INSERT_LEN,
@@ -1150,7 +1153,8 @@ def fasteners():
             "head": "shcs",
             "dir": "+Z",
             "at": [
-                (cl.DISP_X + x, cl.DISP_Y + y, display_bracket.Z0) for x, y in cl.DISP_STANDOFFS
+                (cl.DISP_TOUCH_X + x, cl.DISP_TOUCH_Y + y, display_bracket.Z0)
+                for x, y in cl.DISP_STANDOFFS
             ],
             "into": "display",
             "thread": "tapped",
@@ -1170,7 +1174,7 @@ def fasteners():
             "thread": "tapped",
             "material": "al6061",
             "description": '1/4-20 x 1" socket head, 18-8: tray pad + shield into the head',
-            **_mc(HEAD_SCREW_PN),
+            **_mc(CAM_HEAD_SCREW_1_4_20_X1_SHCS_PN),
         },
         {
             "name": "m3_shield",
@@ -1206,9 +1210,9 @@ def sections():
         f"y={cl.CUP_Y}",
         f"y={cl.arm_screws()[0][1]}",
         f"y={cl.CAM_Y}",
-        f"y={cl.ZED_RJ45[1]:.1f}",
+        f"y={cl.ZED_RJ45_MOUTH[1]:.1f}",
         f"y={cl.UPS_YC}",
-        f"y={cl.DISP_Y}",
+        f"y={cl.DISP_TOUCH_Y}",
     ]
 
 
@@ -1216,10 +1220,10 @@ EXPECT = {
     "allow_interference": [
         ("cup_left", "glass_outer"),
         ("cup_right", "glass_outer"),
-        ("quarter_inserts", "ball_head"),  # the bracket's insert threads onto the head's stud
+        ("quarter_inserts", "ball_head"),
         ("tray_inserts", "enclosure"),
-        ("battery_clamp", "openups"),  # board seated on the clamp's tubes
-        ("battery", "battery_holder"),  # contact springs drawn uncompressed, cradle snap lips
+        ("battery_clamp", "openups"),
+        ("battery", "battery_holder"),
         ("quarter_inserts", "camera_bracket"),
         ("shield_insert", "enclosure"),
         ("shield_insert", "camera_shield"),
@@ -1250,7 +1254,7 @@ EXPECT = {
         ("hr10_rcpt", "enclosure"),
         ("hr10_rcpt", "hr10_tx_plug"),
         ("sma_bulkheads", "enclosure"),
-        *[(f"antenna_{name}", "sma_bulkheads") for name in cl.ANTENNAS],
+        *[(f"antenna_{name}", "sma_bulkheads") for name in cl.ANTENNAS_YZ],
         ("minifit_vout", "openups"),
         ("minifit_vin", "openups"),
         ("minifit_bat", "openups"),
@@ -1281,7 +1285,7 @@ EXPECT = {
         ("tether", "glass_outer"),
         ("lid_inserts", "enclosure_lid"),
         ("gh_J7", "pcba_parts"),
-        ("gh_display", "display"),  # the housing sits in the module's GH socket
+        ("gh_display", "display"),
         ("display_lead", "gh_display"),
         ("display_lead", "gh_J7"),
     ],

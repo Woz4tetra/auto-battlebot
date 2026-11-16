@@ -1,49 +1,4 @@
-"""TX16S MK2 HR10 rod clamp: holds an HR10A-7R-4S receptacle on the bare handle rod.
-
-Variant of ../tx16s_hr10_handle_clamp for the handle with its plastic sheath removed. Two
-printed halves close on the bare Ø5 rod around the handle's right corner, so they grip the
-end of the back run and the top of the right arm at once. The two legs point in different
-directions, so the clamp cannot turn about either one: it is located by the bend, and the
-screws only have to hold it closed. A tower on the top half stands the receptacle with its
-axis vertical, as on the other two mounts.
-
-Spec
-- Process: FDM PLA. Top half prints on its split face, bottom half on its underside; both
-  are built in the rod plane, so neither needs flipping.
-- Rod frame (u, v, n): origin on the arm axis at the corner, u along the run (pilot's
-  left, radio -X), v down the arm toward the pilot, n normal to the rod plane (up, tilted
-  20.6 deg toward the pilot). Radio frame as ../tx16s_hr10_mount/scan_patch.py.
-- Rod: Ø5.00, cylinder fit to the bare arm in the scan (4087 vertices, 0.11 RMS, y 32..42).
-  The fitted arm axis, run up to the back run, meets the run sheath's centre height within
-  0.15 mm, so the rod bends in one plane (n = 0).
-- Bore: Ø5.2 (FDM close fit, dfm/fdm.md: holes print 0.1-0.2 under) with the halves 0.8
-  apart, so the screws close each half 0.1 onto the rod and still leave 0.6 of squeeze.
-- Run position: unknown inside the old sheath. Centred it would sit at v +0.2; flush with
-  the sheath's back face, as the arm sat flush with its outer face, at v -3.1. The run's
-  groove is a slot from v -3.4 to +0.5, tight in n only.
-- Bend radius: unknown, it was inside the sheath. The corner is a pocket clear of the rod
-  for any centreline radius up to 10 mm; the grips start 10 mm from the corner on each leg.
-  check.py passes mate.rod with the rod at both ends of the slot and bend radii 2.6 and 10
-  (--params '{"rod_v": -3.4, "rod_bend_r": 2.6}' and so on).
-- Fasteners: 3 x M3 x 8 SHCS along -n, counterbored in the top half, into M3 hex nuts in
-  pockets on the bottom half's underside (fasteners.md). One beside the run, one beside the
-  arm, one outside the corner, so each groove has a screw on either side of it.
-- Receptacle: M8x0.5 nut in a 10.1 AF hex cavity under a 2.0 panel (catalog max), Ø8.3
-  hole with a Ø10.6 x 0.8 key-tab counterbore, as the other mounts. The cavity opens to
-  pilot's right (+X) as a slot the nut slides in through; the pigtail leaves by the same
-  slot and drops down outside the arm.
-
-Assembly
-1. Slide the M8 nut into the tower's side slot, thread the receptacle down into it from
-   the top until the flange seats, medium threadlocker on the thread.
-2. Solder the pigtail and lead it out of the slot.
-3. Drop the three M3 nuts into the bottom half's pockets, close both halves on the corner,
-   screw up evenly until the halves stop rocking on the rod.
-
-Open questions
-- Run position and bend radius (above). If the halves bottom out on the rod, check the
-  run sits inside the slot; if the clamp slides along the arm, shim the slot.
-"""
+"""TX16S MK2 HR10 rod clamp on the bare handle rod corner."""
 
 from dataclasses import dataclass
 from functools import lru_cache
@@ -74,59 +29,54 @@ MATERIAL = "pla"
 C_MIN = (Align.CENTER, Align.CENTER, Align.MIN)
 C_MAX = (Align.CENTER, Align.CENTER, Align.MAX)
 
-# Cylinder fit to the bare arm (see docstring): a point on its axis and its direction.
 ARM_POINT = np.array([85.552, 37.0, -34.645])
 ARM_DIR = np.array([0.01683, 1.0, 0.37518])
-CORNER_Y = 57.7  # rod frame origin: the arm axis at the back run's sheath centre
+ROD_FRAME_ORIGIN_Y = 57.7
+M3_NUT_AF = 5.5
+M3_NUT_T = 2.4
+THREAD_LEN = 7.7
 
 
 @dataclass
 class Params:
-    half: str = "top"  # "top" or "bottom"
-    rod_d: float = 5.0  # scan fit
-    bore_d: float = 5.2  # rod + 0.2, FDM close fit
-    gap: float = 0.8  # between halves on the rod
-    t: float = 6.0  # each half's outer face from the rod plane: 3.4 over the bore
-    # Run slot: rod centre anywhere from flush-back to centred (docstring)
+    half: str = "top"
+    rod_d: float = 5.0
+    bore_d: float = 5.2
+    gap: float = 0.8
+    t: float = 6.0
     run_v_lo: float = -3.4
     run_v_hi: float = 0.5
-    bend_max: float = 10.0  # corner pocket clears centreline radii up to this
-    run_len: float = 27.0  # grip on the run ends at u 27 (radio x 59)
-    arm_len: float = 26.0  # grip on the arm ends at v 26 (radio y 33, clear of the body)
-    wall: float = 3.0  # outside the bore, in plane
-    # Screws, rod frame (u, v)
+    bend_max: float = 10.0
+    run_len: float = 27.0
+    arm_len: float = 26.0
+    wall: float = 3.0
     screws: tuple = ((17.0, 8.5), (8.5, 17.0), (-7.5, -10.5))
-    clearance_d: float = 3.4  # M3 normal clearance, fasteners.md
-    cbore_d: float = 6.5  # M3 SHCS counterbore, fasteners.md
+    m3_clearance_dia: float = 3.4
+    m3_cbore_dia: float = 6.5
     cbore_depth: float = 3.3
-    nut_af: float = 5.7  # M3 nut 5.5 AF + 0.2, fasteners.md
-    nut_depth: float = 3.4  # nut 2.4, sunk 1.0 so an M3 x 8 runs through it
-    boss_r: float = 4.5  # outline around each screw: counterbore + 1.25
-    # Receptacle tower, radio frame
-    tower_u: float = 4.0  # over the corner, rod frame
-    tower_v: float = 4.0
-    tower_half_x: float = 7.5  # hex corner 5.83 + 1.67; the +X side is the open slot
-    tower_half_y: float = 7.55  # hex flat 5.05 + 2.5
-    floor_skin: float = 1.2  # cavity floor over the bore (dfm/fdm.md min wall)
-    cavity_depth: float = 9.7  # panel underside to cavity floor: 7.7 behind panel + 2
-    panel_t: float = 2.0  # catalog max
+    nut_af: float = M3_NUT_AF + 0.2
+    nut_depth: float = M3_NUT_T + 1.0
+    boss_r: float = 6.5 / 2 + 1.25
+    tower_over_corner_u_rod_frame: float = 4.0
+    tower_over_corner_v_rod_frame: float = 4.0
+    tower_half_x: float = 7.5
+    tower_half_y: float = 7.55
+    cavity_floor_over_bore_t: float = 1.2
+    cavity_depth: float = THREAD_LEN + 2.0
+    panel_t: float = 2.0
     hole_d: float = 8.3
     key_d: float = 10.6
     key_depth: float = 0.8
     m8_af: float = 10.1
-    # Rod shown in the mates, rod frame (unknowns: any value inside the ranges above)
     rod_v: float = -1.45
     rod_bend_r: float = 5.0
-
-
-# ----------------------------------------------------------------------------- frames
 
 
 @lru_cache(maxsize=1)
 def rod_axes() -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Origin, u, v, n of the rod frame in radio coordinates."""
     d = ARM_DIR / np.linalg.norm(ARM_DIR)
-    origin = ARM_POINT + d * (CORNER_Y - ARM_POINT[1]) / d[1]
+    origin = ARM_POINT + d * (ROD_FRAME_ORIGIN_Y - ARM_POINT[1]) / d[1]
     v = -d
     u = np.array([-1.0, 0, 0]) - np.dot([-1.0, 0, 0], v) * v
     u /= np.linalg.norm(u)
@@ -154,11 +104,8 @@ def radio_to_part(p: Params, half: str | None = None) -> Location:
 def tower_xy() -> tuple[float, float]:
     o, u, v, _ = rod_axes()
     p = Params()
-    c = o + p.tower_u * u + p.tower_v * v
+    c = o + p.tower_over_corner_u_rod_frame * u + p.tower_over_corner_v_rod_frame * v
     return float(c[0]), float(c[1])
-
-
-# ------------------------------------------------------------------------------- rod
 
 
 def rod(p: Params) -> Solid:
@@ -179,11 +126,23 @@ def rod(p: Params) -> Solid:
     return run + Solid.sweep(profile, Wire([arc])) + arm
 
 
-# ------------------------------------------------------------------------------ halves
-
-
 def _cross2(a: np.ndarray, b: np.ndarray) -> float:
     return float(a[0] * b[1] - a[1] * b[0])
+
+
+def _convex_hull(pts: np.ndarray) -> np.ndarray:
+    pts = pts[np.lexsort((pts[:, 1], pts[:, 0]))]
+
+    def half_hull(seq):
+        out: list = []
+        for q in seq:
+            while len(out) >= 2 and _cross2(out[-1] - out[-2], q - out[-2]) <= 0:
+                out.pop()
+            out.append(q)
+        return out
+
+    lower, upper = half_hull(pts), half_hull(pts[::-1])
+    return np.array(lower[:-1] + upper[:-1])
 
 
 def _outline_points(p: Params) -> np.ndarray:
@@ -203,19 +162,7 @@ def _outline_points(p: Params) -> np.ndarray:
     pts = [np.array(c) + 1.5 * ring for c in corners]
     pts += [np.array(s) + p.boss_r * ring for s in p.screws]
     pts = np.vstack(pts)
-    # Monotone-chain convex hull
-    pts = pts[np.lexsort((pts[:, 1], pts[:, 0]))]
-
-    def half_hull(seq):
-        out: list = []
-        for q in seq:
-            while len(out) >= 2 and _cross2(out[-1] - out[-2], q - out[-2]) <= 0:
-                out.pop()
-            out.append(q)
-        return out
-
-    lower, upper = half_hull(pts), half_hull(pts[::-1])
-    return np.array(lower[:-1] + upper[:-1])
+    return _convex_hull(pts)
 
 
 def _slab(p: Params, n_lo: float, n_hi: float) -> Solid:
@@ -229,7 +176,7 @@ def _rod_space(p: Params) -> Solid:
     rb = p.bore_d / 2
     run_v = (p.run_v_lo + p.run_v_hi) / 2
     slot = SlotCenterToCenter(p.run_v_hi - p.run_v_lo, p.bore_d)
-    run = Plane.YZ.offset(-1) * Pos(run_v, 0) * extrude(slot, p.run_len + 5)  # along +u
+    run = Plane.YZ.offset(-1) * Pos(run_v, 0) * extrude(slot, p.run_len + 5)
     arm = Pos(0, -1, 0) * Rot(-90, 0, 0) * Cylinder(rb, p.arm_len + 5, align=C_MIN)
     lo = p.run_v_lo - rb
     pocket = Pos(-rb, lo, -rb) * Box(
@@ -241,9 +188,9 @@ def _rod_space(p: Params) -> Solid:
 def _screw_cuts(p: Params, top: bool) -> Solid:
     cuts = None
     for su, sv in p.screws:
-        c = Pos(su, sv, -p.t - 1) * Cylinder(p.clearance_d / 2, 2 * p.t + 2, align=C_MIN)
+        c = Pos(su, sv, -p.t - 1) * Cylinder(p.m3_clearance_dia / 2, 2 * p.t + 2, align=C_MIN)
         if top:
-            c += Pos(su, sv, p.t + 1) * Cylinder(p.cbore_d / 2, p.cbore_depth + 1, align=C_MAX)
+            c += Pos(su, sv, p.t + 1) * Cylinder(p.m3_cbore_dia / 2, p.cbore_depth + 1, align=C_MAX)
         else:
             hexagon = RegularPolygon(p.nut_af / 2, 6, major_radius=False)
             c += Pos(su, sv, -p.t - 1) * extrude(hexagon, p.nut_depth + 1)
@@ -263,15 +210,14 @@ def nuts_rod(p: Params) -> Solid:
 
 
 def _cavity_floor(p: Params) -> float:
-    """Lowest radio z for the cavity floor: floor_skin over the bore across its footprint."""
+    """Lowest radio z for the cavity floor, cavity_floor_over_bore_t over the bore."""
     o, u, v, n = rod_axes()
     tx, ty = tower_xy()
-    n_min = p.bore_d / 2 + p.floor_skin
+    n_min = p.bore_d / 2 + p.cavity_floor_over_bore_t
     h = p.m8_af / 2
     zs = []
     for x in (tx - h / np.cos(np.pi / 6), tx + p.tower_half_x + 2):
         for y in (ty - h, ty + h):
-            # point (x, y, z) with n-coordinate n_min: solve for z
             rel = np.array([x - o[0], y - o[1], 0.0])
             zs.append(o[2] + (n_min - np.dot(rel, n)) / n[2])
     return float(max(zs))
@@ -336,9 +282,6 @@ def sections(p: Params) -> list[str]:
     return [f"x={p.run_len - 8}", f"y={p.arm_len - 6}", f"x={s1[0]}", f"y={s2[1]}", f"z={off}"]
 
 
-# -------------------------------------------------------------------------- receptacle
-
-
 def receptacle_radio(p: Params) -> Solid:
     """HR10A-7R-4S envelope standing on the panel, radio frame (catalog; flange, nut assumed)."""
     flange_t, nut_t = 1.5, 2.0
@@ -377,9 +320,9 @@ def expect(p: Params) -> dict:
         "min_wall": 1.2,
     }
     if p.half == "top":
-        common["holes"] = {p.hole_d: 1, p.key_d: 1, p.clearance_d: 3, p.cbore_d: 3}
+        common["holes"] = {p.hole_d: 1, p.key_d: 1, p.m3_clearance_dia: 3, p.m3_cbore_dia: 3}
         common["clearance"]["plug"] = 0.5
         return common
-    common["holes"] = {p.clearance_d: 3}
+    common["holes"] = {p.m3_clearance_dia: 3}
     common["bbox"] = (None, None, p.t - p.gap / 2)
     return common

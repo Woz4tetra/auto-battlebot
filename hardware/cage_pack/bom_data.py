@@ -1,21 +1,12 @@
-"""Purchase data for the cage pack BOM: names, links and unit prices, checked 2026-11-08.
+"""Purchase data for the cage pack BOM."""
 
-Prices are USD, quantity 1 unless the note says otherwise. Pack items (McMaster screws,
-Amazon kits) carry the per-unit price so the BOM subtotal counts only what the build uses;
-the note gives the pack size and pack price, which is what the order actually costs.
-Owned parts have no price, so the BOM total is the cost to buy what is missing.
-
-Sources: Digi-Key and McMaster product pages, 18650BatteryStore, Stereolabs store, Amazon
-search results (first relevant listing; Amazon prices move daily). Mouser blocks automated
-browsing and Mini-Box shows no OpenUPS price without a cart, so neither is priced here.
-"""
+from typing import NamedTuple
 
 AMZ = "https://www.amazon.com/dp/"
 DK = "https://www.digikey.com/en/products/detail/"
 MC = "https://www.mcmaster.com/"
 
-# Keyed by assembly component name.
-COMPONENTS: dict[str, dict] = {
+COMPONENTS_BY_ASSEMBLY_NAME: dict[str, dict] = {
     "cup": {
         "name": 'SmallRig 4122C Suction Cup Camera Mount (4")',
         "vendor": "B&H",
@@ -115,8 +106,7 @@ COMPONENTS: dict[str, dict] = {
     },
 }
 
-# Cabling and panel parts that have no solid of their own in the assembly.
-EXTRAS: list[dict] = [
+UNMODELED_EXTRAS: list[dict] = [
     {
         "name": "Inline ATC fuse holder 16 AWG, 4-pack with fuses (fit 10 A)",
         "vendor": "Amazon",
@@ -230,11 +220,6 @@ EXTRAS: list[dict] = [
     },
 ]
 
-# The custom PCBA as one line, priced from the last JLCPCB order rather than part by part:
-# the Mr Stabs Mk2 board (W2026100921070917, 2026-10-09) cost $452.79 delivered for 5 bare
-# PCBs with 2 assembled ($289.78 boards and assembly, $39.46 DHL, $105.43 duty, $18.12 tax),
-# about $226 per assembled board. That board had 30 BOM lines; this one has about 20, so
-# expect a little less. Re-quote at JLCPCB once the board is laid out.
 PCBA: dict = {
     "name": "Custom PCBA, 4-layer, assembled (JLCPCB), estimate",
     "vendor": "JLCPCB",
@@ -243,33 +228,44 @@ PCBA: dict = {
     "note": "Estimate: one of two assembled boards from the Mk2 order's $452.79 total",
 }
 
-# McMaster, keyed by part number: (per-unit price, pack size, pack price).
-MCMASTER: dict[str, tuple[float, int, float]] = {
-    "91255A619": (18.43 / 50, 50, 18.43),  # 3/8-16 x 1/2" alloy button head, black oxide
-    "92311A537": (13.28 / 100, 100, 13.28),  # 1/4-20 x 1/2" 18-8 cup-point set screw
-    "91292A111": (11.58 / 100, 100, 11.58),  # M3 x 6 18-8 SHCS
-    "91292A112": (6.46 / 100, 100, 6.46),  # M3 x 8 18-8 SHCS
-    "91292A115": (8.44 / 100, 100, 8.44),  # M3 x 16 18-8 SHCS
-    "92095A181": (8.80 / 100, 100, 8.80),  # M3 x 8 18-8 button head
-    "92095A182": (8.64 / 100, 100, 8.64),  # M3 x 10 18-8 button head
-    "94180A331": (20.44 / 100, 100, 20.44),  # M3 brass tapered heat-set, 3.8 mm
-    "94180A333": (27.84 / 100, 100, 27.84),  # M3 brass tapered heat-set, 6.4 mm
-    "93365A160": (15.76 / 25, 25, 15.76),  # 1/4-20 brass tapered heat-set, 0.300"
-    "92141A051": (9.25 / 100, 100, 9.25),  # 3/8" 18-8 oversized washer, 1" OD, 0.040-0.060"
+
+class McMasterPrice(NamedTuple):
+    unit: float
+    pack: int
+    pack_price: float
+    description: str
+
+
+MCMASTER: dict[str, McMasterPrice] = {
+    "91255A619": McMasterPrice(
+        18.43 / 50, 50, 18.43, '3/8-16 x 1/2" alloy button head, black oxide'
+    ),
+    "92311A537": McMasterPrice(13.28 / 100, 100, 13.28, '1/4-20 x 1/2" 18-8 cup-point set screw'),
+    "91292A111": McMasterPrice(11.58 / 100, 100, 11.58, "M3 x 6 18-8 SHCS"),
+    "91292A112": McMasterPrice(6.46 / 100, 100, 6.46, "M3 x 8 18-8 SHCS"),
+    "91292A115": McMasterPrice(8.44 / 100, 100, 8.44, "M3 x 16 18-8 SHCS"),
+    "92095A181": McMasterPrice(8.80 / 100, 100, 8.80, "M3 x 8 18-8 button head"),
+    "92095A182": McMasterPrice(8.64 / 100, 100, 8.64, "M3 x 10 18-8 button head"),
+    "94180A331": McMasterPrice(20.44 / 100, 100, 20.44, "M3 brass tapered heat-set, 3.8 mm"),
+    "94180A333": McMasterPrice(27.84 / 100, 100, 27.84, "M3 brass tapered heat-set, 6.4 mm"),
+    "93365A160": McMasterPrice(15.76 / 25, 25, 15.76, '1/4-20 brass tapered heat-set, 0.300"'),
+    "92141A051": McMasterPrice(
+        9.25 / 100, 100, 9.25, '3/8" 18-8 oversized washer, 1" OD, 0.040-0.060"'
+    ),
 }
 
 
 def mcmaster(pn: str) -> dict:
     """BOM keys for a McMaster item placed as a component (a component's own "mcmaster" key
     would make the skill load its STEP instead)."""
-    if pn not in MCMASTER:  # not priced yet
+    if pn not in MCMASTER:
         return {
             "vendor": "McMaster-Carr",
             "part_number": pn,
             "url": MC + pn,
             "note": "Price not checked",
         }
-    unit, pack, pack_price = MCMASTER[pn]
+    unit, pack, pack_price, _ = MCMASTER[pn]
     return {
         "vendor": "McMaster-Carr",
         "part_number": pn,

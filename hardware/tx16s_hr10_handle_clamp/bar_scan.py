@@ -1,16 +1,4 @@
-"""Cut cross-sections of the TX16S MK2 carry-handle bar out of the full-radio scan.
-
-The bar's front (pilot side) bulges toward the middle, so its section changes along X.
-This writes closed (y, z) loops at fixed X stations, radio frame (scan_patch.py in
-../tx16s_hr10_mount), for the clamp to loft its bore through.
-
-Each loop is the scan points within 0.2 mm of the station, binned by angle about the
-section centroid (5 deg bins, median radius, then a 3-bin circular mean).
-
-    ~/.local/share/build123d-part/venv/bin/python \
-        hardware/tx16s_hr10_handle_clamp/bar_scan.py \
-        ~/Downloads/radiomaster-tx16-1.snapshot.2.zip
-"""
+"""Cut TX16S carry-handle bar sections out of the radio scan."""
 
 import argparse
 import importlib.util
@@ -19,8 +7,8 @@ from pathlib import Path
 import numpy as np
 
 HERE = Path(__file__).resolve().parent
-STATIONS = np.arange(58.0, 80.01, 2.0)  # straight run of the right end; the corner bends from x 80
-BAR_Y_MIN = 40.0  # bar lies behind the radio body (back face y ~ 22)
+STATIONS = np.arange(58.0, 80.01, 2.0)
+BAR_Y_MIN = 40.0
 BAR_Z_MIN = -40.0
 SLAB = 0.2
 BINS = 72

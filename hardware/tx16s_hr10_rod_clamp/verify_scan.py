@@ -1,15 +1,4 @@
-"""Check the rod clamp halves, the plug and a hex driver against the raw TX16S scan.
-
-The scan still has the handle sheath on, so vertices inside the sheath's envelope (rod
-frame: the run within v -6..10.5, the arm above v 16, both within 5.6 of the rod plane)
-are dropped; everything else (the bare arm, the radio body) must stay outside the parts.
-The driver is a 2.5 hex bit (Ø2.5) in each counterbore and a Ø7 x 80 shaft up the screw
-axis from the top face, which must miss the tower and the radio.
-
-    ~/.local/share/build123d-part/venv/bin/python \
-        hardware/tx16s_hr10_rod_clamp/verify_scan.py \
-        ~/Downloads/radiomaster-tx16-1.snapshot.2.zip
-"""
+"""Check the rod clamp, plug and hex driver against the raw TX16S scan."""
 
 import argparse
 import importlib.util

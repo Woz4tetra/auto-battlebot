@@ -1,26 +1,4 @@
-"""INNOREL CP10 cheese plate (Amazon B0DRYFL595): 200 x 100 x 10 mm 6061-T6 plate.
-
-A reference model for the adapter assembly, not a part to make. Hole positions were measured
-from INNOREL's dimensioned drawing (Amazon image 71V4ad30vkL), scaled to the 200 x 100
-outline at 6.13 px/mm, then made symmetric about both axes. After symmetrizing, the counts
-match the drawing exactly: 106 x 1/4-20, 27 x 3/8-16, 44 locating holes.
-
-Dimensions printed on the drawing, which the model uses directly: slot width 6.4, slot
-counterbore 10.3, center slot pitch 24.7 / 74.3 (so center slots at x = ±49.5), center slot
-rows 42.3 apart, end slots 27 long on centers 23.5 + 27 apart, edge 3/8-16 holes at 0 and
-±76.7, edge hole pitch 9.
-
-Coordinates: origin at the center of the top face, X along the 200 mm length, +Z up. Threaded
-holes are modeled at their tap drill size (1/4-20: Ø5.1, 3/8-16: Ø8.4).
-
-Open questions
-- The slot counterbore depth is not on the drawing; INNOREL's store has the same drawing
-  (Size-details-of-CP10.jpg) and no datasheet or CAD turned up. 6.5 mm comes from the close-up
-  photo (Amazon image 71aXTwjp85L), where the counterbore wall is about twice the height of the
-  through lip below it. Measure it with a caliper's depth rod.
-- Edge hole depth (8.0) and corner radius (5.0) are not on the drawing either.
-- Positions without a printed dimension carry about ±0.3 mm of image-scaling error.
-"""
+"""INNOREL CP10 cheese plate reference model."""
 
 from dataclasses import dataclass
 
@@ -40,13 +18,12 @@ from build123d import (
 PROCESS = "none"
 MATERIAL = "al6061"
 
-TAP_1_4_20 = 5.1  # #7 drill, fasteners.md
-TAP_3_8_16 = 8.4  # 5/16" drill
-LOCATING = 4.0  # measured from the drawing
-EDGE_SMALL = 3.8  # unlabeled on the drawing, measured
+TAP_1_4_20 = 5.1
+TAP_3_8_16 = 8.4
+LOCATING = 4.0
+EDGE_SMALL = 3.8
 
-# First-quadrant hole centers (x, y) in mm; each mirrors about both axes.
-QUARTER_20 = [
+QUARTER_20_Q1 = [
     (5.5, 10.0), (5.5, 18.45), (5.5, 26.95), (5.5, 35.45), (5.5, 44.15),
     (10.25, 0.0),
     (27.5, 0.0), (27.5, 9.95), (27.5, 18.45), (27.5, 26.9), (27.5, 35.45), (27.5, 44.15),
@@ -86,20 +63,20 @@ def mirrored_1d(edge: list[tuple[float, str]]) -> list[tuple[float, str]]:
 
 @dataclass
 class Params:
-    length: float = 200.0  # drawing
-    width: float = 100.0  # drawing
-    thickness: float = 10.0  # drawing
-    corner_r: float = 5.0  # not on the drawing
-    slot_w: float = 6.4  # drawing
-    slot_cbore_w: float = 10.3  # drawing
-    slot_cbore_depth: float = 6.5  # estimated from photo 71aXTwjp85L, leaves a 3.5 mm lip
-    center_slot_x: float = 49.5  # drawing: 74.3 / 2 + 24.7 / 2
-    center_slot_pitch: float = 24.7  # drawing
-    center_slot_row: float = 42.3  # drawing
-    end_slot_x: float = 92.3  # measured
-    end_slot_y: float = 25.25  # drawing: 23.5 / 2 + 27 / 2
-    end_slot_pitch: float = 27.0  # drawing
-    edge_hole_depth: float = 8.0  # not on the drawing
+    length: float = 200.0
+    width: float = 100.0
+    thickness: float = 10.0
+    corner_r: float = 5.0
+    slot_w: float = 6.4
+    slot_cbore_w: float = 10.3
+    slot_cbore_depth: float = 6.5
+    center_slot_x: float = 49.5
+    center_slot_pitch: float = 24.7
+    center_slot_row: float = 42.3
+    end_slot_x: float = 92.3
+    end_slot_y: float = 25.25
+    end_slot_pitch: float = 27.0
+    edge_hole_depth: float = 8.0
 
 
 def _slot(
@@ -120,7 +97,7 @@ def build(p: Params) -> Part:
         return Cylinder(d / 2, t, align=(Align.CENTER, Align.CENTER, Align.MAX))
 
     for pts, d in (
-        (QUARTER_20, TAP_1_4_20),
+        (QUARTER_20_Q1, TAP_1_4_20),
         (THREE_EIGHTHS_16, TAP_3_8_16),
         (LOCATING_HOLES, LOCATING),
     ):
@@ -144,14 +121,12 @@ def build(p: Params) -> Part:
             hole = Cylinder(
                 EDGE_DIA[k] / 2, p.edge_hole_depth, align=(Align.CENTER, Align.CENTER, Align.MAX)
             )
-            # Rot(-90, 0, 0) maps +Z to +Y, so the hole runs inward from the +Y edge.
             part -= Pos(v, sy * p.width / 2, zc) * Rot(-90 * sy, 0, 0) * hole
     for v, k in mirrored_1d(SHORT_EDGE):
         for sx in (-1, 1):
             hole = Cylinder(
                 EDGE_DIA[k] / 2, p.edge_hole_depth, align=(Align.CENTER, Align.CENTER, Align.MAX)
             )
-            # Rot(0, 90, 0) maps +Z to +X.
             part -= Pos(sx * p.length / 2, v, zc) * Rot(0, 90 * sx, 0) * hole
     return part
 

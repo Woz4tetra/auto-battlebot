@@ -1,20 +1,4 @@
-"""Cut the TX16S MK2 top-right height map out of the full-radio scan.
-
-The scan is a 3MF (mm) of the whole radio, 3.0M vertices, posed upside down and rolled in
-the scanner frame. This rotates it into the radio frame the mount uses and writes the top
-surface over the right shoulder block as a 0.5 mm height map.
-
-Radio frame: +X the pilot's right, +Y away from the pilot (the front face normal is -Y),
-+Z up. Origin is the scanner's, so only directions mean anything.
-
-Frame fit, done once on the full scan:
-- Front face normal: area-weighted mean of face normals within 4 deg of the screen plane.
-- Up: the four side walls cluster at 73.5 / 163.5 / 253.5 / 343.5 deg in the scanner YZ
-  plane; 253.5 deg points out of the top (the handle side).
-
-    venv/bin/python hardware/tx16s_hr10_mount/scan_patch.py \
-        ~/Downloads/radiomaster-tx16-1.snapshot.2.zip
-"""
+"""Cut the TX16S top-right height map from the radio scan."""
 
 import argparse
 import re
@@ -24,10 +8,8 @@ from pathlib import Path
 import numpy as np
 from scipy.ndimage import distance_transform_edt, median_filter
 
-FRONT_NORMAL = np.array([0.99840818, 0.05007949, -0.02594522])  # scanner frame
-UP_ROLL_DEG = 253.5  # side-wall cluster pointing out of the top, scanner YZ plane
-# Top-right block window, radio frame (mm). Covers the mount footprint, the two outer
-# toggles, the handle hinge and the back edge drop.
+FRONT_NORMAL = np.array([0.99840818, 0.05007949, -0.02594522])
+UP_ROLL_DEG = 253.5
 WINDOW_X = (80.0, 116.0)
 WINDOW_Y = (-34.0, 16.0)
 CELL = 0.5
