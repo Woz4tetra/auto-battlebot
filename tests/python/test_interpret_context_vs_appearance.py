@@ -11,6 +11,7 @@ import pytest
 
 @pytest.fixture(scope="module")
 def interpret(load_training):
+    added = []
     for name in (
         "sklearn",
         "sklearn.linear_model",
@@ -22,7 +23,10 @@ def interpret(load_training):
             stub.__spec__ = importlib.machinery.ModuleSpec(name, None)
             stub.LogisticRegression = stub.cross_val_score = stub.StandardScaler = object
             sys.modules[name] = stub
-    return load_training("training/model_eval/interpret_context_vs_appearance.py")
+            added.append(name)
+    yield load_training("training/model_eval/interpret_context_vs_appearance.py")
+    for name in added:
+        del sys.modules[name]
 
 
 def _frames(boxes: list[list[list[float]]]) -> list[dict]:
