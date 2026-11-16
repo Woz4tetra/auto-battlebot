@@ -1,3 +1,4 @@
+# noqa: INP001
 """PlatformIO pre-build step: gzip web/ into a C header the diagnostics server serves."""
 
 import gzip
