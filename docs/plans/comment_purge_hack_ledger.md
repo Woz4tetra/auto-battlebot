@@ -434,3 +434,11 @@ These are defects in code, not workarounds. None were fixed.
 | `src/rgbd_camera/zed_one_rgb_camera.cpp:241` | `camera_info.header` copied from the image header | Foxglove image panels reject a calibration whose frame differs from the image's | unverified: needs a ZED camera | none known |
 | `src/robot_filter/kalman_motion_estimator.cpp:516` | Our-robot forward speed corrects in a second `ekf_update` with its own gate | Sharing the gate lets one noisy finite-difference speed discard the position fix that arrived with it | unverified: the failing arm is a structural change (a joint 4-row update), so there is no one-line mutation, and a gated speed row needs a hand-tuned scenario | build the joint-update arm behind a test-only switch and compare |
 | `src/robot_filter/kalman_motion_estimator.cpp:717` | Opponent diagnostics omit infinite heading and yaw-rate sigmas | A heading-blind track would write inf into the diagnostics stream | unverified: `DiagnosticsLogger` is a process-global with no capture backend in the test binary | a capturing `DiagnosticsBackend` fixture |
+
+## TEST rows deferred
+
+Rows from the `TEST` verdict batches that could not get a test in a headless build. The comment stays.
+
+| Location | What the code does | What the comment claims would break | Verified? | Root-cause fix |
+| --- | --- | --- | --- | --- |
+| `src/navigation/hazard_avoidance.cpp:52` | `handled.push_back(*blocking)` excludes a hazard already routed around from the next pass | The new segment is tangent to the hazard, so re-testing it loops on substitution | no: removing it changed no waypoint in a test with zero clearance or with the robot inside the hazard; the tangent point sits outside the inflated radius, so the loop needs numerical tangency | none known |
