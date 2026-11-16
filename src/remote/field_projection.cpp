@@ -10,8 +10,7 @@ namespace auto_battlebot::remote {
 
 namespace {
 
-/** Closer than this to the camera plane, a point projects to a meaningless far-away pixel. */
-constexpr double kMinDepthM = 0.05;
+constexpr double kNearPlaneDepthM = 0.05;
 
 std::optional<ImagePoint> project(const FieldDescription &field, const CameraInfo &camera_info,
                                   double x, double y) {
@@ -19,7 +18,7 @@ std::optional<ImagePoint> project(const FieldDescription &field, const CameraInf
     const double cx = tf(0, 0) * x + tf(0, 1) * y + tf(0, 3);
     const double cy = tf(1, 0) * x + tf(1, 1) * y + tf(1, 3);
     const double cz = tf(2, 0) * x + tf(2, 1) * y + tf(2, 3);
-    if (cz < kMinDepthM) return std::nullopt;
+    if (cz < kNearPlaneDepthM) return std::nullopt;
     const cv::Mat &k = camera_info.intrinsics;
     const double u = k.at<double>(0, 0) * (cx / cz) + k.at<double>(0, 2);
     const double v = k.at<double>(1, 1) * (cy / cz) + k.at<double>(1, 2);
@@ -52,7 +51,6 @@ std::optional<FieldPoint> unproject_image_point(const FieldDescription &field,
     const Eigen::Vector3d ray_camera(
         (point.u * camera_info.width - k.at<double>(0, 2)) / k.at<double>(0, 0),
         (point.v * camera_info.height - k.at<double>(1, 2)) / k.at<double>(1, 1), 1.0);
-    // Camera center and ray direction in the field frame, then the ray's z = 0 crossing.
     const Eigen::Vector3d origin = -rotation_t * tf.topRightCorner<3, 1>();
     const Eigen::Vector3d direction = rotation_t * ray_camera;
     if (std::abs(direction.z()) < 1e-9) return std::nullopt;
@@ -80,7 +78,6 @@ std::vector<std::vector<ImagePoint>> project_field_outline(const FieldDescriptio
         if (run.size() >= 2) out.push_back(std::move(run));
         run.clear();
     };
-    // Walk the closed loop once, ending back on the first corner.
     for (size_t side = 0; side < corners.size(); ++side) {
         const auto &a = corners[side];
         const auto &b = corners[(side + 1) % corners.size()];

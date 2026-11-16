@@ -21,18 +21,10 @@ struct VideoPlaybackCamera::ReaderState {
 
 namespace {
 constexpr const char *kVideoTopic = "/camera/video";
-// How far behind real time playback will try to make up. Beyond this the deadline is re-anchored,
-// so a process that was suspended or stopped at a breakpoint resumes instead of fast-forwarding
-// through everything it owes.
-constexpr auto kMaxCatchUp = std::chrono::milliseconds(500);
+constexpr auto kMaxPlaybackCatchUpBeforeReanchor = std::chrono::milliseconds(500);
 constexpr const char *kFrameMetaTopic = "/camera/frame_meta";
 constexpr const char *kImageTopic = "/camera/image";
 
-/** The `data` field of a foxglove.CompressedVideo, without linking protobuf.
- *
- * The message is four fields: timestamp(1), frame_id(2), data(3), format(4). Pulling one
- * length-delimited field out of a wire-format message is a dozen lines; a protobuf dependency for
- * it would be the larger thing to maintain. */
 bool compressed_video_payload(const std::byte *message, size_t len, const std::byte *&out,
                               size_t &out_len) {
     size_t offset = 0;
@@ -83,8 +75,6 @@ bool compressed_video_payload(const std::byte *message, size_t len, const std::b
     return false;
 }
 
-/** One number out of the FrameMeta JSON we write ourselves. Fixed shape, so a parser is more
- *  machinery than the job needs. */
 bool frame_meta_number(std::string_view json, std::string_view key, int64_t &out) {
     const size_t start = json.find(key);
     if (start == std::string_view::npos) {
@@ -134,9 +124,7 @@ VideoPlaybackCamera::~VideoPlaybackCamera() {
 }
 
 bool VideoPlaybackCamera::scan_file() {
-    // Metadata first: the recording carries the calibration its video needs. Older recordings
-    // only name a calibration_id, resolved against config/cameras/.
-    {
+    const auto read_recorded_calibration_metadata = [this]() {
         std::ifstream stream(video_file_path_, std::ios::binary);
         mcap::FileStreamReader data_source(stream);
         mcap::TypedRecordReader record_reader(data_source, 8);
@@ -155,7 +143,8 @@ bool VideoPlaybackCamera::scan_file() {
                 break;
             }
         }
-    }
+    };
+    read_recorded_calibration_metadata();
     if (!recorded_calibration_toml_.empty()) {
         recorded_calibration_id_ =
             parse_camera_calibration(recorded_calibration_toml_, video_file_path_ + " metadata")
@@ -185,8 +174,6 @@ bool VideoPlaybackCamera::scan_file() {
         }
     }
     if (!has_video) {
-        // Name the missing channel. A recording that carries only /camera/image starts fine and
-        // then produces nothing, which reads as a broken camera rather than the wrong recording.
         spdlog::error(
             "[VideoPlaybackCamera] {} has no {} channel{}. Playback needs the recorded video "
             "stream, not the JPEG debug topic.",
@@ -275,8 +262,6 @@ bool VideoPlaybackCamera::initialize() {
         return false;
     }
 
-    // Decode forward from the last keyframe at or before the target, then discard until it. With
-    // an IDR every 30 frames the worst case is 29 discarded frames.
     int64_t seek_ordinal = 0;
     for (int64_t i = config_.start_frame; i >= 0; --i) {
         if (frame_index_[static_cast<size_t>(i)].keyframe) {
@@ -284,10 +269,6 @@ bool VideoPlaybackCamera::initialize() {
             break;
         }
     }
-    // Video only from here. The stamps are already indexed, and camera_info is not read at all:
-    // the recording is pre-rectification, so its camera_info describes a rectified stream that
-    // playback regenerates from the calibration file rather than replays. Everything else in the
-    // file is the previous run's output, which replay exists to regenerate.
     mcap::ReadMessageOptions options;
     options.topicFilter = [](std::string_view topic) { return topic == kVideoTopic; };
     options.startTime = frame_index_[static_cast<size_t>(seek_ordinal)].log_time_ns;
@@ -353,10 +334,7 @@ void VideoPlaybackCamera::pace(double stamp_seconds) {
         std::this_thread::sleep_until(target);
         return;
     }
-    if (now - target > kMaxCatchUp) {
-        // Too far behind to make up. Re-anchor rather than sprint through what is owed: a box that
-        // cannot keep up should play as fast as it can, and a replay held at a breakpoint should
-        // resume rather than fast-forward.
+    if (now - target > kMaxPlaybackCatchUpBeforeReanchor) {
         pace_anchor_ = now;
         pace_anchor_stamp_s_ = stamp_seconds;
     }
@@ -407,7 +385,6 @@ bool VideoPlaybackCamera::get(CameraData &data) {
     data.rgb.image = rectified;
     data.rgb.header.stamp = stamp;
     data.rgb.header.frame_id = FrameId::CAMERA;
-    // depth stays empty; the RGB camera has none and playback must not invent one.
     data.pose_tracking_ready = true;
     data.tf_visodom_from_camera.header.stamp = stamp;
     data.tf_visodom_from_camera.header.frame_id = FrameId::VISUAL_ODOMETRY;

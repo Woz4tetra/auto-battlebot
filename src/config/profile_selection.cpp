@@ -19,8 +19,6 @@ constexpr const char *kProfilesFileName = "profiles.toml";
 constexpr const char *kDefaultProfileFileName = "default_profile";
 constexpr const char *kDefaultSelectionFile = "$HOME/.local/state/auto_battlebot/selected_profile";
 
-// Resolve the current user's home directory: $HOME if set, otherwise the passwd entry for the
-// current uid. Returns empty only if both are unavailable (should never happen on a real system).
 std::filesystem::path resolve_home() {
     const char *home = std::getenv("HOME");
     if (home != nullptr && *home != '\0') {
@@ -60,7 +58,6 @@ std::string trim(const std::string &s) {
     return s.substr(begin, end - begin + 1);
 }
 
-// Read the first non-empty, trimmed line of a file, or nullopt if the file is absent/empty.
 std::optional<std::string> read_first_line(const std::filesystem::path &path) {
     std::ifstream file(path);
     if (!file) return std::nullopt;
@@ -72,7 +69,6 @@ std::optional<std::string> read_first_line(const std::filesystem::path &path) {
     return std::nullopt;
 }
 
-// Profile identifier: path relative to config_dir, without .toml, '/'-separated.
 std::string profile_id(const std::filesystem::path &config_dir, const std::filesystem::path &file) {
     std::filesystem::path rel = std::filesystem::relative(file, config_dir);
     rel.replace_extension();

@@ -7,8 +7,6 @@
 
 namespace auto_battlebot {
 namespace {
-/** Total-least-squares line through points, as a homogeneous line (a, b, c) with a^2 + b^2 = 1
- *  and a*x + b*y + c = 0. */
 cv::Vec3d fit_line(const std::vector<cv::Point2d> &points) {
     cv::Point2d centroid(0.0, 0.0);
     for (const auto &point : points) {
@@ -25,7 +23,6 @@ cv::Vec3d fit_line(const std::vector<cv::Point2d> &points) {
     cv::Mat u;
     cv::Mat vt;
     cv::SVD::compute(centered, w, u, vt, cv::SVD::MODIFY_A);
-    // Largest singular vector is the direction; the normal is perpendicular to it.
     const double dx = vt.at<double>(0, 0);
     const double dy = vt.at<double>(0, 1);
     const cv::Vec2d normal(-dy, dx);
@@ -36,7 +33,6 @@ double point_line_distance(const cv::Vec3d &line, const cv::Point2d &point) {
     return std::abs(line[0] * point.x + line[1] * point.y + line[2]);
 }
 
-/** Intersection of two homogeneous lines, or nullopt when they are parallel. */
 bool intersect_lines(const cv::Vec3d &first, const cv::Vec3d &second, cv::Point2d &out) {
     const cv::Vec3d point = first.cross(second);
     if (std::abs(point[2]) < 1e-9) {
@@ -89,7 +85,6 @@ std::array<cv::Point2d, 4> order_corners(std::array<cv::Point2d, 4> corners) {
     return ordered;
 }
 
-/** Dense boundary of the largest contour, with points near the frame edge removed. */
 std::vector<cv::Point2d> boundary_points(const cv::Mat &binary, int border_margin_px) {
     std::vector<std::vector<cv::Point>> contours;
     cv::findContours(binary, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_NONE);
@@ -114,11 +109,6 @@ std::vector<cv::Point2d> boundary_points(const cv::Mat &binary, int border_margi
     return points;
 }
 
-/** Four seed corners from the convex hull, loosening approxPolyDP until exactly four survive.
- *
- * Under perspective a rectangle projects to a general quadrilateral, not a rotated rectangle, so
- * minAreaRect is wrong here: it returns the bounding box of the quad and the error grows with
- * camera tilt. */
 bool seed_quad(const cv::Mat &binary, std::array<cv::Point2d, 4> &out) {
     std::vector<std::vector<cv::Point>> contours;
     cv::findContours(binary, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
@@ -149,6 +139,35 @@ bool seed_quad(const cv::Mat &binary, std::array<cv::Point2d, 4> &out) {
     }
     return false;
 }
+std::vector<cv::Point2d> refit_line_rejecting_outliers(const std::vector<cv::Point2d> &points,
+                                                       const cv::Vec3d &line) {
+    std::vector<double> residuals;
+    residuals.reserve(points.size());
+    for (const auto &point : points) {
+        residuals.push_back(point_line_distance(line, point));
+    }
+    std::vector<double> sorted = residuals;
+    std::nth_element(sorted.begin(), sorted.begin() + sorted.size() / 2, sorted.end());
+    const double limit = std::max(2.0, 2.5 * sorted[sorted.size() / 2]);
+    std::vector<cv::Point2d> kept;
+    kept.reserve(points.size());
+    for (size_t p = 0; p < points.size(); ++p) {
+        if (residuals[p] <= limit) {
+            kept.push_back(points[p]);
+        }
+    }
+    return kept;
+}
+
+double side_rms_about_line(const cv::Vec3d &line, const std::vector<cv::Point2d> &kept) {
+    double sum_squares = 0.0;
+    for (const auto &point : kept) {
+        const double distance = point_line_distance(line, point);
+        sum_squares += distance * distance;
+    }
+    return kept.empty() ? 0.0 : std::sqrt(sum_squares / static_cast<double>(kept.size()));
+}
+
 }  // namespace
 
 cv::Mat find_largest_contour_mask(const cv::Mat &mask) {
@@ -218,10 +237,6 @@ FieldOutline extract_field_outline(const cv::Mat &contour_mask, const FieldOutli
             units[i] = edge * (1.0 / lengths[i]);
         }
 
-        // Assign each boundary point to whichever side it is nearest, then keep the straight
-        // middle stretch. approxPolyDP can only return vertices lying on the outline, so where
-        // the mat has rounded corners its quad chords across them and comes out short; fitting
-        // the middle of each side and intersecting extrapolates back to the real corners.
         std::array<std::vector<cv::Point2d>, 4> owned;
         for (const auto &point : points) {
             size_t owner = 0;
@@ -246,49 +261,21 @@ FieldOutline extract_field_outline(const cv::Mat &contour_mask, const FieldOutli
 
         for (size_t i = 0; i < 4; ++i) {
             if (owned[i].size() < static_cast<size_t>(params.min_side_points)) {
-                // No support. Keep the seed line so the quad stays closed, and let the pose
-                // solver work from the sides that do have support.
                 supported[i] = false;
                 continue;
             }
             cv::Vec3d line = fit_line(owned[i]);
-            // One robust pass, so a robot resting on the field edge cannot pull the line in.
-            std::vector<double> residuals;
-            residuals.reserve(owned[i].size());
-            for (const auto &point : owned[i]) {
-                residuals.push_back(point_line_distance(line, point));
-            }
-            std::vector<double> sorted = residuals;
-            std::nth_element(sorted.begin(), sorted.begin() + sorted.size() / 2, sorted.end());
-            const double limit = std::max(2.0, 2.5 * sorted[sorted.size() / 2]);
-            std::vector<cv::Point2d> kept;
-            kept.reserve(owned[i].size());
-            for (size_t p = 0; p < owned[i].size(); ++p) {
-                if (residuals[p] <= limit) {
-                    kept.push_back(owned[i][p]);
-                }
-            }
+            const std::vector<cv::Point2d> kept = refit_line_rejecting_outliers(owned[i], line);
             if (kept.size() >= static_cast<size_t>(params.min_side_points)) {
                 line = fit_line(kept);
             }
-            // How straight this side actually is, about its own fitted line. A curved boundary
-            // still produces a line fit and still counts hundreds of points; only the scatter
-            // says the line is not an edge.
-            double sum_squares = 0.0;
-            for (const auto &point : kept) {
-                const double distance = point_line_distance(line, point);
-                sum_squares += distance * distance;
-            }
-            const double rms =
-                kept.empty() ? 0.0 : std::sqrt(sum_squares / static_cast<double>(kept.size()));
-            rms_px[i] = rms;
+            rms_px[i] = side_rms_about_line(line, kept);
             lines[i] = line;
             supported[i] = true;
         }
 
         std::array<cv::Point2d, 4> next{};
         for (size_t i = 0; i < 4; ++i) {
-            // Intersections land in edge order, so corner i sits between sides i-1 and i.
             if (!intersect_lines(lines[(i + 3) % 4], lines[i], next[i])) {
                 outline.failure = "field outline sides do not intersect";
                 return outline;

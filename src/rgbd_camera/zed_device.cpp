@@ -121,11 +121,11 @@ CameraInfo ZedDevice::read_camera_info() const {
     info.intrinsics.at<double>(1, 2) = calibration.left_cam.cy;
 
     info.distortion = cv::Mat::zeros(1, 5, CV_64F);
-    info.distortion.at<double>(0, 0) = calibration.left_cam.disto[0];  // k1
-    info.distortion.at<double>(0, 1) = calibration.left_cam.disto[1];  // k2
-    info.distortion.at<double>(0, 2) = calibration.left_cam.disto[2];  // p1
-    info.distortion.at<double>(0, 3) = calibration.left_cam.disto[3];  // p2
-    info.distortion.at<double>(0, 4) = calibration.left_cam.disto[4];  // k3
+    info.distortion.at<double>(0, 0) = calibration.left_cam.disto[0];
+    info.distortion.at<double>(0, 1) = calibration.left_cam.disto[1];
+    info.distortion.at<double>(0, 2) = calibration.left_cam.disto[2];
+    info.distortion.at<double>(0, 3) = calibration.left_cam.disto[3];
+    info.distortion.at<double>(0, 4) = calibration.left_cam.disto[4];
     return info;
 }
 

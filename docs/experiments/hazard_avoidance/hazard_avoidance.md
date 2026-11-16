@@ -307,3 +307,31 @@ parks near the middle.
   may hand away the match. Today both modes get the same treatment, and the goal is pushed to the
   hazard boundary rather than abandoned, so attack closes to the nearest legal point instead of
   giving up.
+
+## Notes moved from `src/` comments (2026-11-15)
+
+Each entry names the file and the code it described.
+
+### `src/hazards/hazard_config.cpp`
+
+Beside `std::filesystem::path resolve(const std::string &value) {`:
+
+Hazard paths are written repo-relative ("config/hazards/one_hole.toml") so the same string works in the C++ config and in the sim's, which have no directory in common. Each side resolves it against the project root itself. Unlike `extends`, this is a plain file path: no implied directory and no implied extension.
+
+### `src/navigation/hazard_avoidance.cpp`
+
+Beside `const TangentWaypoint tangent = tangent_waypoint(`:
+
+Tangent to a circle a little wider than the keep-out, so arriving at the waypoint leaves real clearance and the run from there to the goal is unblocked against the keep-out itself. Tangent to the keep-out exactly would put the waypoint on the rim.
+
+### `src/navigation/hazard_avoidance.cpp`
+
+Beside `constexpr double kExcessGain = 1.5;`:
+
+Gain from measured excess approach speed (m/s) to an opposing normalized command. 1.5 recovers the 2026-08-28 recorded push-into-hole coast with margin in the counterfactual sim; the envelope decides where braking starts, this only decides how hard the recovery pulls once the envelope is already violated.
+
+### `src/navigation/hazard_avoidance.cpp`
+
+Beside `const double bound = (gap - std::max(v_approach, 0.0) * settings_.barrier_delay_s) /`:
+
+The approach speed a first-order plant can still shed by the hard rim, with the same latency lead the goal brake schedule uses: the command bites delay_s late, after the robot has already closed v*delay of the gap.

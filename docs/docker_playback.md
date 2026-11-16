@@ -190,3 +190,13 @@ Do this after any Dockerfile change that touches `/usr/local/zed`. The same appl
 into `/usr/local/zed/settings` the first time it opens a given SVO, which needs both
 network access and a writable directory. If the machine is offline, copy the file from a
 working install into the `auto-battlebot-zed-settings` volume.
+
+## Notes moved from `src/` comments (2026-11-15)
+
+Each entry names the file and the code it described.
+
+### `src/rgbd_camera/zed_svo_playback_camera.cpp`
+
+Beside `if (!rebase_stamps_) {`:
+
+Both of these change what the replay measures, and neither shows up as an error. Say so at startup so a replay run is not read as if it reproduced field timing. Without rebasing, frame stamps stay on the recording's clock while the control loop reads the wall clock, so everything that compares the two degrades quietly: the filter's latency compensation holds every prediction instead of leading, and the pipeline latency diagnostic reports the age of the recording rather than the age of the frame.

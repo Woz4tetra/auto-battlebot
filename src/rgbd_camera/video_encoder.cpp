@@ -8,11 +8,7 @@
 
 namespace auto_battlebot {
 namespace {
-// In preference order. FFmpeg's names are tried before GStreamer's because the desktop's NVENC
-// lives there; on the Jetsons the GStreamer element is the one that opens.
 constexpr const char *kFfmpegHardware[] = {"h264_nvenc", "h264_nvv4l2m2m"};
-// Software. On the Orin it cannot hold a recording's 60 fps and takes the cores perception needs,
-// so there it is only for the preview (VideoEncoderOptions::software_preview).
 constexpr const char *kFfmpegSoftware = "libx264";
 
 bool software_allowed(const VideoEncoderOptions &options) {
@@ -154,8 +150,6 @@ int64_t VideoEncoder::submit(const cv::Mat &frame, uint64_t log_time_ns) {
             return -1;
         }
         if (queue_.size() >= options_.queue_depth) {
-            // Counted, not silent. Frame loss discovered months later against ground truth is
-            // exactly the failure this counter exists to prevent.
             dropped_frames_.fetch_add(1);
             return -1;
         }
@@ -209,7 +203,6 @@ void VideoEncoder::encode_loop() {
                 codec_name_, pts, discarded);
         }
     }
-    // Flush, so the frames the encoder was still holding reach the recording.
     backend_->finish();
 }
 

@@ -6,6 +6,9 @@
 #include <filesystem>
 
 namespace auto_battlebot {
+namespace {
+constexpr double kUpdateWarnMs = 1000.0;
+}  // namespace
 DeepLabMaskModel::DeepLabMaskModel(DeepLabMaskModelConfiguration& config,
                                    std::shared_ptr<EngineSelector> engine_selector)
     : model_type_(config.model_type),
@@ -46,8 +49,6 @@ bool DeepLabMaskModel::load_model_config() {
 }
 
 bool DeepLabMaskModel::initialize() {
-    // Select before load_model_config: the sidecar .toml path is derived from the engine
-    // path, which is not known until a candidate has been chosen.
     const std::optional<std::string> selected = engine_selector_->select(engine_);
     if (!selected) {
         return false;
@@ -73,7 +74,7 @@ bool DeepLabMaskModel::initialize() {
 }
 
 MaskStamped DeepLabMaskModel::update(RgbImage image) {
-    FunctionTimer timer(diagnostics_logger_, "update", 1000.0);  // Warn if > 1000ms
+    FunctionTimer timer(diagnostics_logger_, "update", kUpdateWarnMs);
 
     if (!initialized_) {
         diagnostics_logger_->error({}, "Model not initialized");
@@ -145,7 +146,6 @@ void DeepLabMaskModel::preprocess_image(const cv::Mat& image, std::vector<float>
     }
     cv::merge(channels, float_image);
 
-    // NCHW: 1 * 3 * H * W - size must match engine input
     const int64_t num_elements = engine_.getInputNumElements();
     buffer.resize(static_cast<size_t>(num_elements));
     float* ptr = buffer.data();

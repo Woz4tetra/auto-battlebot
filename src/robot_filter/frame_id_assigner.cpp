@@ -95,20 +95,20 @@ std::vector<RobotDescription> FrameIdAssigner::assign(
         if (!any_pair_found) break;
 
         if (best_dist == no_previous && !best_has_previous) {
-            // No FrameId has a previous position; pick the first allowed unassigned pair.
-            bool fallback_found = false;
-            for (size_t m = 0; m < valid_measurements.size() && !fallback_found; m++) {
-                if (meas_assigned[m]) continue;
-                for (size_t f = 0; f < frame_ids.size(); f++) {
-                    if (frame_id_assigned[f]) continue;
-                    if (!is_allowed(m, f)) continue;
-                    best_meas = m;
-                    best_fid = f;
-                    fallback_found = true;
-                    break;
+            const auto assign_first_allowed_unassigned_pair = [&]() {
+                for (size_t m = 0; m < valid_measurements.size(); m++) {
+                    if (meas_assigned[m]) continue;
+                    for (size_t f = 0; f < frame_ids.size(); f++) {
+                        if (frame_id_assigned[f]) continue;
+                        if (!is_allowed(m, f)) continue;
+                        best_meas = m;
+                        best_fid = f;
+                        return true;
+                    }
                 }
-            }
-            if (!fallback_found) break;
+                return false;
+            };
+            if (!assign_first_allowed_unassigned_pair()) break;
         }
 
         meas_assigned[best_meas] = true;

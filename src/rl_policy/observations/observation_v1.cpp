@@ -30,7 +30,6 @@ double wrap(double a) {
     return r - M_PI;
 }
 
-/** torch.minimum: NaN if either side is. */
 double nan_min(double a, double b) {
     if (std::isnan(a) || std::isnan(b)) return kNaN;
     return std::min(a, b);
@@ -39,7 +38,6 @@ double nan_min(double a, double b) {
 struct Body {
     double c;
     double s;
-    /** A field-frame vector into our body frame (obs_spec build_v1's `body`). */
     void rotate(double vx, double vy, double &bx, double &by) const {
         bx = c * vx + s * vy;
         by = -s * vx + c * vy;
@@ -90,7 +88,6 @@ void build_observation_v1(const ObservationInputsV1 &in, std::span<double, obs_v
     const Body body{std::cos(in.our_yaw), std::sin(in.our_yaw)};
     size_t n = 0;
 
-    // Our robot.
     out[n++] = in.our_speed / kSpeedScale;
     out[n++] = in.our_yaw_rate / kYawRateScale;
     out[n++] = cap(in.our_age_s / kAgeScaleS);
@@ -98,7 +95,6 @@ void build_observation_v1(const ObservationInputsV1 &in, std::span<double, obs_v
     out[n++] = in.run_away ? 0.0 : 1.0;
     out[n++] = in.run_away ? 1.0 : 0.0;
 
-    // History, newest first: the actions, then the measured speed and yaw rate.
     for (double value : in.hist_action) out[n++] = value;
     for (int k = 0; k < kHistory; ++k) {
         out[n++] = in.hist_speed[k] / kSpeedScale;
@@ -133,8 +129,6 @@ void build_observation_v1(const ObservationInputsV1 &in, std::span<double, obs_v
     out[n++] = in.opp_present ? cap(in.opp_age_s / kAgeScaleS) : 1.0;
     out[n++] = in.opp_present ? (in.opp_stale ? 1.0 : 0.0) : 1.0;
 
-    // Range rays from heading 0 counter-clockwise. Solid sees walls, wall blocks and tracked
-    // robots; hole sees holes.
     const auto solid_kind = [](HazardKind kind) { return kind != HazardKind::HOLE; };
     const auto hole_kind = [](HazardKind kind) { return kind == HazardKind::HOLE; };
     for (int r = 0; r < kNumRays; ++r) {
@@ -170,11 +164,12 @@ void build_observation_v1(const ObservationInputsV1 &in, std::span<double, obs_v
         return i < j;
     };
 
-    size_t previous = count;  // none yet
+    const size_t kNoPrevious = count;
+    size_t previous = kNoPrevious;
     for (int k = 0; k < kMaxHazards; ++k) {
         size_t best = count;
         for (size_t i = 0; i < count; ++i) {
-            if (previous != count && !before(previous, i)) continue;
+            if (previous != kNoPrevious && !before(previous, i)) continue;
             if (best == count || before(i, best)) best = i;
         }
         if (best == count) {

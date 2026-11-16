@@ -170,8 +170,6 @@ void RobotFrontBackFilter::correct(ModelResultStamped keypoints, FieldDescriptio
         motion_estimator_->update(std::move(all_measurements), result.header.stamp,
                                   frame_id_assigner_, field, estimator_context);
 
-    // Anchor the held OUR_ROBOT_1 pose from this frame's output (measured or predicted) so the next
-    // frame's blob suppression has a reference even when our keypoint drops out.
     update_our_position_anchor(result.descriptions, result.header.stamp);
 
     diagnostics_logger_->debug(
@@ -187,8 +185,6 @@ void RobotFrontBackFilter::correct(ModelResultStamped keypoints, FieldDescriptio
 }
 
 void RobotFrontBackFilter::apply_known_geometry(std::vector<RobotDescription> &descriptions) const {
-    // Where each footprint sits relative to its pose. The pose is the reference point control
-    // tracks (our robot's axle); hazards are measured from the footprint centre.
     for (auto &description : descriptions) {
         const auto offset = footprint_center_offsets_.find(description.label);
         if (offset != footprint_center_offsets_.end()) {
@@ -219,14 +215,6 @@ void RobotFrontBackFilter::apply_known_geometry(std::vector<RobotDescription> &d
 bool RobotFrontBackFilter::is_blob_suppressed_by_keypoint(
     const RobotKeypointDetection &blob,
     const std::vector<RobotDescription> &keypoint_measurements) const {
-    // Keypoint detections are higher quality than blob detections. When a blob overlaps a
-    // keypoint measurement we drop the blob to avoid double-counting the same robot.
-    //
-    // The suppression radius adapts to the sizes of both detections so that large robots have
-    // a larger exclusion zone. A minimum distance prevents suppression from collapsing to zero
-    // when both size estimates are small or zero.
-    //
-    //   radius = max(min_distance, size_scale * (blob.size.x + keypoint.size.x))
     return std::any_of(keypoint_measurements.begin(), keypoint_measurements.end(),
                        [this, &blob](const RobotDescription &keypoint_measurement) {
                            const double overwrite_radius =
@@ -250,11 +238,8 @@ int RobotFrontBackFilter::suppress_blobs_near_our_anchor(
     double stamp, const std::vector<RobotDescription> &keypoint_measurements,
     std::vector<RobotKeypointDetection> &blobs) const {
     if (our_keypoint_dropout_blob_radius_meters_ <= 0.0) return 0;
-    // Needs a recent held pose for our robot; without one there is nothing to suppress against.
     if (!is_our_anchor_fresh(stamp)) return 0;
 
-    // Only a tick where our robot's keypoint is missing can leak. When the keypoint is present,
-    // is_blob_suppressed_by_keypoint has already handled any blob sitting on top of it.
     const bool our_keypoint_present =
         std::any_of(keypoint_measurements.begin(), keypoint_measurements.end(),
                     [](const RobotDescription &measurement) {
@@ -262,8 +247,6 @@ int RobotFrontBackFilter::suppress_blobs_near_our_anchor(
                     });
     if (our_keypoint_present) return 0;
 
-    // The blob model has no class for our robot, so a blob here would be assigned an opponent
-    // FrameId at our own position. Drop it rather than let target selection steer into us.
     const auto removed_begin =
         std::remove_if(blobs.begin(), blobs.end(), [this](const RobotKeypointDetection &blob) {
             return position_distance(blob.description.pose.position, last_our_position_) <=
@@ -285,10 +268,6 @@ void RobotFrontBackFilter::update_our_position_anchor(
             return;
         }
     }
-    // Our robot is no longer tracked, but the anchor is kept on purpose: our_robot_hold_window_s_
-    // drops the track well before a typical keypoint dropout ends, and suppression still needs a
-    // position to work from. is_our_anchor_fresh() ages it out instead, freezing the zone at the
-    // last held pose rather than clearing it here.
 }
 
 std::vector<FrameId> RobotFrontBackFilter::get_assignment_frame_ids(
@@ -303,8 +282,6 @@ std::vector<FrameId> RobotFrontBackFilter::get_assignment_frame_ids(
         if (!is_used(fid)) assignment_fids.push_back(fid);
     }
 
-    // If a specific THEIRS label has no free ids (e.g. mapped only to THEIR_ROBOT_1),
-    // allow remaining blob detections to use free OPPONENT ids.
     if (assignment_fids.empty() && label != Label::OPPONENT &&
         group_for_label(label, robot_configs_) == Group::THEIRS) {
         for (const auto &fid : get_frame_ids_for_label(Label::OPPONENT)) {
@@ -324,13 +301,15 @@ void RobotFrontBackFilter::merge_blob_detections(
         robot_keypoint_tracker_.detect_with_confidence(robot_blob_keypoints, field, camera_info);
     const int blob_candidates_before_overwrite = static_cast<int>(blob_detections.size());
 
-    // Convert blob detections from camera to map
-    for (auto &blob_detection : blob_detections) {
-        auto blob_pos = blob_detection.description.pose.position;
-        const Eigen::Vector3d blob_center_camera(blob_pos.x, blob_pos.y, blob_pos.z);
-        blob_detection.description.pose.position =
-            vector_to_position(transform_point(tf_fieldcenter_from_camera, blob_center_camera));
-    }
+    const auto transform_blobs_to_field = [&]() {
+        for (auto &blob_detection : blob_detections) {
+            auto blob_pos = blob_detection.description.pose.position;
+            const Eigen::Vector3d blob_center_camera(blob_pos.x, blob_pos.y, blob_pos.z);
+            blob_detection.description.pose.position =
+                vector_to_position(transform_point(tf_fieldcenter_from_camera, blob_center_camera));
+        }
+    };
+    transform_blobs_to_field();
 
     erase_out_of_field(blob_detections, field, field_bounds_margin_meters_);
 
@@ -341,9 +320,6 @@ void RobotFrontBackFilter::merge_blob_detections(
                        }),
         blob_detections.end());
 
-    // Our robot is invisible to the blob model, so while its keypoints are missing any blob on
-    // our held pose is almost certainly us. Drop those before FrameId assignment can hand them
-    // an opponent slot at our own position.
     const int num_blobs_suppressed_near_us =
         suppress_blobs_near_our_anchor(stamp, keypoint_measurements, blob_detections);
     our_blob_present_no_keypoint_ = num_blobs_suppressed_near_us > 0;
@@ -363,12 +339,6 @@ void RobotFrontBackFilter::merge_blob_detections(
     diagnostics_logger_->debug(
         {{"num_blob_labels_with_candidates", static_cast<int>(grouped_blob_measurements.size())}});
 
-    // Pool every blob measurement into a single global assignment. For each measurement we
-    // record its allowed FrameIds (its label's own configured slots, with THEIRS-fallback to
-    // OPPONENT slots), then call the assigner once. Iteration order across labels no longer
-    // affects the result -- a previous per-label loop let label enum order decide which label
-    // got first claim on shared OPPONENT slots, silently dropping detections whose label
-    // happened to sort last.
     std::vector<MeasurementWithConfidence> pool;
     std::vector<std::vector<FrameId>> pool_allowed_fids;
     std::set<FrameId> available_fids_set;
@@ -417,13 +387,7 @@ void RobotFrontBackFilter::merge_blob_detections(
                                 {"num_assigned", static_cast<int>(assigned.size())}});
 
     for (auto &a : assigned) {
-        // Orientation from blob rectangles is intentionally non-semantic. Keep identity.
         a.pose.rotation = Rotation{1.0, 0.0, 0.0, 0.0};
-        // If this measurement got a FrameId outside its label's own configured slots, the
-        // THEIRS-fallback to OPPONENT slots fired. Re-label to OPPONENT so (label, frame_id,
-        // group) stay consistent -- otherwise downstream consumers that key off `label` see a
-        // specific-model description sitting in a generic opponent slot, and the label flips
-        // back to its specific value the next tick a "proper" slot frees up (an ID swap).
         const std::vector<FrameId> own_fids = get_frame_ids_for_label(a.label);
         const bool used_fallback =
             std::find(own_fids.begin(), own_fids.end(), a.frame_id) == own_fids.end();
@@ -441,16 +405,18 @@ std::vector<RobotDescription> RobotFrontBackFilter::convert_keypoints_to_measure
     diagnostics_logger_->debug(
         {{"num_labels_with_front_back_assignments", static_cast<int>(front_back_mapping.size())}});
 
-    // Clear stale last_position for single-FrameId labels that have no detections this frame,
-    // so when they reappear we assign without bias from an old position.
-    int cleared_single_label_positions = 0;
-    for (const auto &[label, frame_ids] : label_to_frame_ids_) {
-        if (frame_ids.size() != 1) continue;
-        if (front_back_mapping.count(label) == 0) {
-            frame_id_assigner_.clear_last_position(frame_ids[0]);
-            ++cleared_single_label_positions;
+    const auto clear_absent_single_slot_positions = [&]() {
+        int cleared = 0;
+        for (const auto &[label, frame_ids] : label_to_frame_ids_) {
+            if (frame_ids.size() != 1) continue;
+            if (front_back_mapping.count(label) == 0) {
+                frame_id_assigner_.clear_last_position(frame_ids[0]);
+                ++cleared;
+            }
         }
-    }
+        return cleared;
+    };
+    const int cleared_single_label_positions = clear_absent_single_slot_positions();
     diagnostics_logger_->debug(
         {{"num_cleared_single_label_last_positions", cleared_single_label_positions}});
 

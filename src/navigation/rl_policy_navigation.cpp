@@ -40,7 +40,6 @@ struct SpeedAndYawRate {
     double yaw_rate;
 };
 
-/** Our forward speed along our heading and yaw rate, from the filter's field-frame velocity. */
 SpeedAndYawRate measured_speed_and_yaw_rate(const RobotDescription &our_robot) {
     const double yaw = pose_to_pose2d(our_robot.pose).yaw;
     const double speed =
@@ -56,8 +55,6 @@ RlPolicyNavigation::RlPolicyNavigation(const RlPolicyNavigationConfiguration &co
       clock_(std::move(clock)),
       logger_(DiagnosticsLogger::get_logger("rl_policy_nav")) {
     if (config_.hazard_barrier_enable && config_.plant.has_value()) {
-        // The same envelope MotionProfileNavigation builds from the fit. Only the barrier: the
-        // tangent layer steers a goal and the policy has none.
         HazardAvoidanceSettings settings;
         settings.tangent_enable = false;
         settings.reverse_distance = 0.0;

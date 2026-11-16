@@ -8,8 +8,6 @@
 namespace auto_battlebot {
 namespace {
 
-// The device address for `pointer` if the GPU can read it where it is: device or managed memory,
-// or pinned host memory mapped into the device's address space. nullptr for pageable memory.
 const uint8_t *device_readable(const void *pointer) {
     cudaPointerAttributes attributes{};
     if (cudaPointerGetAttributes(&attributes, pointer) != cudaSuccess) {
@@ -66,7 +64,6 @@ bool GpuLetterbox::enqueue(const cv::Mat &image, int tensor_width, int tensor_he
             }
             staging_bytes_ = bytes;
         }
-        // From pageable memory the copy has finished reading `image` by the time it returns.
         const cudaError_t err =
             cudaMemcpy2DAsync(staging_, row_bytes, image.data, image.step[0], row_bytes,
                               static_cast<size_t>(image.rows), cudaMemcpyHostToDevice,

@@ -11,6 +11,10 @@
 #include "transform_utils.hpp"
 
 namespace auto_battlebot {
+namespace {
+constexpr double kMinUsableIntervalS = 1e-3;
+constexpr double kMaxUsableIntervalS = 0.5;
+}  // namespace
 
 bool GroundTruthRobotFilter::initialize(int opponent_count) {
     if (opponent_count < 1 || opponent_count > 3) return false;
@@ -46,9 +50,6 @@ void GroundTruthRobotFilter::correct([[maybe_unused]] ModelResultStamped keypoin
     result.header.frame_id = FrameId::FIELD;
     result.header.stamp = clock_->now();
 
-    // What the sim's perception delivered, not its ground truth. A robot perception missed, or a
-    // tick that carried no frame, becomes a NaN slot, which describe() turns into a held, stale
-    // pose. With no sensing model on the sim side every slot is measured every tick.
     const SimMeasurementFrame &frame = connection_->last_measurements();
     constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
     std::vector<Pose2D> gt;
@@ -61,9 +62,6 @@ void GroundTruthRobotFilter::correct([[maybe_unused]] ModelResultStamped keypoin
         return;
     }
 
-    // Field-frame velocity from the pose delta since the last frame. Consumers that close a loop
-    // on speed (MotionProfileNavigation) read velocity rather than differencing poses themselves,
-    // because only the filter knows whether a pose is a fresh measurement or a propagated one.
     const double now = result.header.stamp;
     const double dt = prev_stamp_ > 0.0 ? now - prev_stamp_ : 0.0;
 
@@ -136,9 +134,7 @@ std::optional<RobotDescription> GroundTruthRobotFilter::describe(FrameId frame_i
 }
 
 bool GroundTruthRobotFilter::interval_usable(double interval) {
-    // A real frame interval at 30 Hz is 33 ms. Anything under a millisecond is a repeated stamp,
-    // and anything over half a second is long enough that a constant-velocity delta is meaningless.
-    return interval > 1e-3 && interval < 0.5;
+    return interval > kMinUsableIntervalS && interval < kMaxUsableIntervalS;
 }
 
 double GroundTruthRobotFilter::normalize_angle(double angle) {

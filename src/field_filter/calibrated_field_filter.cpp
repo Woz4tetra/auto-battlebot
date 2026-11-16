@@ -48,9 +48,6 @@ void CalibratedFieldFilter::run_seating_check(const CameraData &camera_data,
         return;
     }
 
-    // Compare where the stored calibration says the corners are against where the live fit puts
-    // them. Corners rather than a pose difference, because pixels are the units the failure shows
-    // up in and a few pixels of corner error is the threshold an operator can reason about.
     const auto expected =
         project_field_corners(calibration_.tf_camera_from_fieldcenter, calibration_.field_size_x,
                               calibration_.field_size_y, intrinsics);

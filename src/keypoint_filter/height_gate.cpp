@@ -22,6 +22,16 @@ double percentile_of(std::vector<double> &values, double fraction) {
     std::nth_element(values.begin(), values.begin() + static_cast<long>(index), values.end());
     return values[index];
 }
+
+double inscribed_circle_radius(const BoundingBox &box) {
+    return 0.5 * std::min(box.width(), box.height());
+}
+
+int sample_stride_for_budget(long area, int max_circle_samples, double ring_outer_scale) {
+    const double budget =
+        static_cast<double>(max_circle_samples) * (ring_outer_scale * ring_outer_scale);
+    return std::max(1, static_cast<int>(std::sqrt(static_cast<double>(area) / budget)));
+}
 }  // namespace
 
 KeypointHeightGate::KeypointHeightGate(const KeypointHeightGateConfiguration &config)
@@ -36,8 +46,6 @@ double KeypointHeightGate::height_at(const cv::Mat &depth, const CameraInfo &cam
     if (!pixel_to_camera_ray(camera_info, col, row, ray)) {
         return std::numeric_limits<double>::quiet_NaN();
     }
-    // DEPTH measures distance along the optical axis, so the ray (which has z = 1) scales straight
-    // by z to reach the surface point.
     const Eigen::Vector3d point = ray * static_cast<double>(z);
     return plane.orientation * (point - plane.center).dot(plane.normal);
 }
@@ -77,15 +85,11 @@ KeypointHeightGate::Relief KeypointHeightGate::measure_relief(
         model_results.box_for(model_results.keypoints[indices[0]].detection_index);
     if (box == nullptr) return relief;
 
-    // The largest circle that fits inside the detection box. The box corners sit on the floor
-    // beside a robot; its inscribed circle is over the body.
-    const double radius = 0.5 * std::min(box->width(), box->height());
+    const double radius = inscribed_circle_radius(*box);
     if (!(radius > 0.0)) return relief;
     const double centre_x = box->center_x();
     const double centre_y = box->center_y();
 
-    // The floor reference is a ring outside the circle, with a gap so a robot spilling past its
-    // inscribed circle does not contaminate its own reference.
     const double ring_inner = radius * config_.ring_inner_scale;
     const double ring_outer = radius * config_.ring_outer_scale;
 
@@ -95,12 +99,9 @@ KeypointHeightGate::Relief KeypointHeightGate::measure_relief(
     const int y1 = std::min(depth.rows - 1, static_cast<int>(std::ceil(centre_y + ring_outer)));
     if (x0 > x1 || y0 > y1) return relief;
 
-    // Stride so a close, large detection costs no more than a distant one. The budget covers the
-    // circle and the ring together, which is why it scales off the full sampled square.
     const long area = static_cast<long>(x1 - x0 + 1) * static_cast<long>(y1 - y0 + 1);
-    const double budget = static_cast<double>(config_.max_circle_samples) *
-                          (config_.ring_outer_scale * config_.ring_outer_scale);
-    const int stride = std::max(1, static_cast<int>(std::sqrt(static_cast<double>(area) / budget)));
+    const int stride =
+        sample_stride_for_budget(area, config_.max_circle_samples, config_.ring_outer_scale);
 
     const double inner_squared = radius * radius;
     const double ring_inner_squared = ring_inner * ring_inner;
@@ -116,7 +117,7 @@ KeypointHeightGate::Relief KeypointHeightGate::measure_relief(
             if (distance_squared > ring_outer_squared) continue;
             const bool in_circle = distance_squared <= inner_squared;
             const bool in_ring = distance_squared >= ring_inner_squared;
-            if (!in_circle && !in_ring) continue;  // the gap
+            if (!in_circle && !in_ring) continue;
             const double height = height_at(depth, camera_info, plane, col, row);
             if (!std::isfinite(height)) continue;
             (in_circle ? inside : around).push_back(height);
@@ -173,9 +174,6 @@ ModelResultStamped KeypointHeightGate::filter(const ModelResultStamped &model_re
     for (const auto &[group_key, indices] : groups) {
         stats_.groups_in++;
 
-        // Two different questions, two different measurements. The gate asks "does anything in
-        // this detection stand up", answered over the detection circle. Projection asks "how far
-        // above the plane is this pixel's surface", answered at the pixel.
         const Relief relief =
             measure_relief(depth.image, camera_info, plane, model_results, indices);
 
@@ -200,8 +198,6 @@ ModelResultStamped KeypointHeightGate::filter(const ModelResultStamped &model_re
             continue;
         }
 
-        // Low is judged on relief against the surrounding floor; high on absolute height above
-        // the field plane, because a wall's elevation over its own surroundings says nothing.
         const bool too_low = relief.elevation < config_.min_elevation_meters;
         const bool too_high = relief.top > config_.max_height_meters;
         if (config_.reject_enable && (too_low || too_high)) {

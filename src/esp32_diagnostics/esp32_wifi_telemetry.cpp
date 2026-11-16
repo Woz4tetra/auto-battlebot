@@ -19,10 +19,10 @@ namespace auto_battlebot {
 namespace {
 constexpr auto kPollSlice = std::chrono::milliseconds(100);
 constexpr auto kRequestTimeout = std::chrono::milliseconds(1000);
-/** A full reply is 32 + 256 * 118 bytes; anything much past that is not ours. */
-constexpr size_t kMaxReplyBytes = 64 * 1024;
-/** Ten seconds of records. The transmitter drains every app tick, so this only fills when the
- *  app stalls. */
+constexpr size_t kBatchHeaderBytes = 32;
+constexpr size_t kMaxRecordsPerReply = 256;
+constexpr size_t kRecordBytes = 118;
+constexpr size_t kMaxReplyBytes = 2 * (kBatchHeaderBytes + kMaxRecordsPerReply * kRecordBytes);
 constexpr size_t kMaxQueuedEvents = 1000;
 
 uint64_t system_clock_ns() {
@@ -45,7 +45,6 @@ class SocketGuard {
     int fd_;
 };
 
-/** Waits for fd to become ready for events, in slices so a stop request is seen. */
 bool wait_ready(int fd, short events, std::chrono::steady_clock::time_point deadline,
                 const std::atomic<bool> &stop) {
     while (!stop.load() && std::chrono::steady_clock::now() < deadline) {
@@ -209,7 +208,6 @@ std::optional<std::string> Esp32WifiTelemetry::http_get(const std::string &path)
         }
     }
 
-    // Read until the body is complete by Content-Length, or the server closes.
     std::string reply;
     std::optional<size_t> body_start;
     std::optional<size_t> content_length;
@@ -229,7 +227,6 @@ std::optional<std::string> Esp32WifiTelemetry::http_get(const std::string &path)
             const size_t end = reply.find("\r\n\r\n");
             if (end == std::string::npos) continue;
             body_start = end + 4;
-            // "HTTP/1.1 200 OK"
             if (reply.rfind("HTTP/", 0) != 0 || reply.size() < 12 || reply[9] != '2') {
                 return std::nullopt;
             }

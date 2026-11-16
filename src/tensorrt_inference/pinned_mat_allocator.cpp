@@ -13,13 +13,11 @@ PinnedMatAllocator *PinnedMatAllocator::instance() {
 cv::UMatData *PinnedMatAllocator::allocate(int dims, const int *sizes, int type, void *data,
                                            size_t *step, cv::AccessFlag flags,
                                            cv::UMatUsageFlags usage_flags) const {
-    // Wrapping caller-owned memory: nothing to pin, so let the standard allocator track it.
     if (data) {
         return cv::Mat::getStdAllocator()->allocate(dims, sizes, type, data, step, flags,
                                                     usage_flags);
     }
 
-    // Dense layout, the same as OpenCV's standard allocator.
     size_t total = CV_ELEM_SIZE(type);
     for (int i = dims - 1; i >= 0; --i) {
         if (step) step[i] = total;
@@ -36,8 +34,6 @@ cv::UMatData *PinnedMatAllocator::allocate(int dims, const int *sizes, int type,
         }
     }
     if (!buffer) {
-        // Portable and mapped: readable from the device at a pointer cudaPointerGetAttributes
-        // reports, on any context.
         const cudaError_t err =
             cudaHostAlloc(&buffer, total, cudaHostAllocPortable | cudaHostAllocMapped);
         if (err != cudaSuccess) {
@@ -58,8 +54,7 @@ cv::UMatData *PinnedMatAllocator::allocate(int dims, const int *sizes, int type,
     return u;
 }
 
-bool PinnedMatAllocator::allocate(cv::UMatData *data, cv::AccessFlag /*access_flags*/,
-                                  cv::UMatUsageFlags /*usage_flags*/) const {
+bool PinnedMatAllocator::allocate(cv::UMatData *data, cv::AccessFlag, cv::UMatUsageFlags) const {
     return data != nullptr;
 }
 

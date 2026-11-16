@@ -8,9 +8,7 @@
 namespace auto_battlebot {
 namespace {
 
-// Below this, the INA219 current is noise around zero and the battery is neither charging nor
-// discharging in any way worth showing.
-constexpr double kChargingCurrentA = 0.05;
+constexpr double kIna219CurrentNoiseFloorA = 0.05;
 
 }  // namespace
 
@@ -57,7 +55,7 @@ void BatteryMonitor::poll_once() {
         message.current_a = sample.current_a;
         const double discharge_a =
             options_.discharge_current_positive ? sample.current_a : -sample.current_a;
-        message.charging = discharge_a < -kChargingCurrentA;
+        message.charging = discharge_a < -kIna219CurrentNoiseFloorA;
     }
     {
         std::lock_guard<std::mutex> lock(mutex_);

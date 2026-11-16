@@ -27,6 +27,11 @@ std::string describe_cuda_device() {
            std::to_string(props.minor) + ")";
 }
 
+static bool try_load_quietly(TrtEngine &engine, const std::string &candidate) {
+    TrtEngine::ScopedQuietLogging quiet;
+    return engine.load(candidate);
+}
+
 EngineSelector::EngineSelector(EngineSelectorConfiguration config, std::string owner)
     : config_(std::move(config)), owner_(std::move(owner)) {}
 
@@ -34,21 +39,12 @@ std::optional<std::string> EngineSelector::select(TrtEngine &engine) {
     std::vector<std::string> rejections;
 
     for (const std::string &candidate : config_.candidates) {
-        // Cheapest filter first. Engine files are synced per architecture, so on any
-        // given machine most candidates simply are not present and cost nothing to skip.
         if (!std::filesystem::exists(candidate)) {
             rejections.push_back(candidate + " -> not present on this machine");
             continue;
         }
 
-        // TensorRT reports a rejected candidate as an error. That is the misleading
-        // message this class replaces, and it is an expected outcome here, so keep it
-        // out of the error stream while probing.
-        bool loaded = false;
-        {
-            TrtEngine::ScopedQuietLogging quiet;
-            loaded = engine.load(candidate);
-        }
+        const bool loaded = try_load_quietly(engine, candidate);
 
         if (loaded) {
             spdlog::info("EngineSelector[{}]: loaded {} on {}", owner_, candidate,

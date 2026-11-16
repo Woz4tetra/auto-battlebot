@@ -12,7 +12,6 @@
 #include "robot_filter/config.hpp"
 
 namespace auto_battlebot {
-// Automatic registration of config types
 REGISTER_CONFIG(NavigationConfiguration, NoopNavigationConfiguration, "NoopNavigation")
 REGISTER_CONFIG(NavigationConfiguration, PursuitNavigationConfiguration, "PursuitNavigation")
 REGISTER_CONFIG(NavigationConfiguration, MotionProfileNavigationConfiguration,

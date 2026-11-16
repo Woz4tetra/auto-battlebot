@@ -98,27 +98,23 @@ bool FrontBackKeypointConverter::get_pose_from_points(const Eigen::Vector3d &fro
                                                       Transform &out_transform) {
     constexpr double EPSILON = 1e-6;
     Eigen::Vector3d origin_vec(1.0, 0.0, 0.0);
-    // Pose +X points toward front: direction from back to front
     Eigen::Vector3d offset_vector = front_point - back_point;
     double magnitude = offset_vector.norm();
     if (magnitude <= EPSILON) {
         return false;
     }
     Eigen::Vector3d direction = offset_vector / magnitude;
-    // The reference point, shifted from the midpoint along the heading
     Eigen::Vector3d center = 0.5 * (front_point + back_point) + reference_offset_m * direction;
     // Compute rotation matrix that aligns origin_vec to direction
 #ifndef __clang__
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #endif
-    // Use Eigen's Quaternion for rotation between two vectors
     Eigen::Quaterniond q = Eigen::Quaterniond::FromTwoVectors(origin_vec, direction);
 #ifndef __clang__
 #pragma GCC diagnostic pop
 #endif
     Eigen::Matrix3d rot = q.toRotationMatrix();
-    // Build 4x4 transform matrix
     Eigen::Matrix4d tf = Eigen::Matrix4d::Identity();
     tf.block<3, 3>(0, 0) = rot;
     tf.block<3, 1>(0, 3) = center;

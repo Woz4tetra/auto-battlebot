@@ -141,3 +141,91 @@ Keypoint heights correct the radial bias of flat-plane projection. Heights are p
 ## Fiducial accumulation window
 
 The Runner keeps the mask model running for 60 frames (one second at 60 Hz) on a field-filter request. That is long enough for a fiducial board to accumulate and short enough that a request with no board in frame stops running the mask model.
+
+## Notes moved from `src/` comments (2026-11-15)
+
+Each entry names the file and the code it described.
+
+### `src/keypoint_filter/static_gate.cpp`
+
+Beside `const double weight =`:
+
+Cap the averaging weight so both statistics keep tracking instead of going numb. Below the window this is an exact running mean; above it, an exponential one with that time constant.
+
+### `src/keypoint_filter/static_gate.cpp`
+
+Beside `Eigen::Vector3d sum = Eigen::Vector3d::Zero();`:
+
+The group's field position is the centroid of its model_results projected onto the plane. Using the measured height where the height gate supplied one keeps a tall robot's footprint from being pushed outward by the flat-plane assumption.
+
+### `src/main.cpp`
+
+Beside `auto hazard_assembler = make_hazard_assembler(*class_config.field_filter, clock);`:
+
+The control loop owns the filter/target/navigation/transmit half. A threaded driver runs it on its own thread, so nothing else may touch those components after Runner::initialize().
+
+### `src/robot_filter/ground_truth_robot_filter.cpp`
+
+Beside `const double now = result.header.stamp;`:
+
+Field-frame velocity from the pose delta since the last frame. Consumers that close a loop on speed (MotionProfileNavigation) read velocity rather than differencing poses themselves, because only the filter knows whether a pose is a fresh measurement or a propagated one.
+
+### `src/robot_filter/kalman_motion_estimator.cpp`
+
+Beside `constexpr double kFlipTestMaxVariance = (M_PI / 4.0) * (M_PI / 4.0);`:
+
+The flip test only means something while the heading's own 2-sigma is inside its pi/2: past that, a measurement more than pi/2 away is as likely a turn the track did not see as a flip.
+
+### `src/robot_filter/kalman_motion_estimator.cpp`
+
+Beside `ekf::propagate_covariance<5>(track.covariance, jacobian,`:
+
+Process noise covers the whole step, held or not: time passing without measurements is uncertainty regardless of whether the pose is allowed to move.
+
+### `src/robot_filter/kalman_motion_estimator.cpp`
+
+Beside `track.covariance(4, 4) = config_.plant->k_ang * config_.plant->k_ang;`:
+
+Full-stick yaw rate as the initial yaw-rate sigma: the fitted gain is the scale of what the drivetrain can be doing while unobserved.
+
+### `src/robot_filter/kalman_motion_estimator.cpp`
+
+Beside `if (!input.keypoints.empty()) {`:
+
+Heading is the input the motion profile brakes on: a rejected keypoint yaw leaves theta running on the plant model alone, so record the state and the innovation that was thrown away. Without both sides here a diverged theta is indistinguishable from a bad measurement.
+
+### `src/robot_filter/kalman_motion_estimator.cpp`
+
+Beside `double speed_measurement = 0.0;`:
+
+Forward speed differenced against an earlier accepted pose. The state's v row is otherwise unobserved, so it tracks the plant model rather than the robot, and the motion profile brakes on that number. Only attempted alongside an accepted heading: the difference has to be projected onto a direction, and a rejected yaw is not one.
+
+### `src/robot_filter/kalman_motion_estimator.cpp`
+
+Beside `const double floor_var =`:
+
+Independent position noise at both ends, propagated through the divide, held above a floor for the part that is common-mode.
+
+### `src/robot_filter/kalman_motion_estimator.cpp`
+
+Beside `if (has_speed || !track.has_speed_ref) {`:
+
+Only move the reference once its baseline has been spent, or when there is none to spend. Advancing every frame would pin the baseline at one frame and put the speed row back in the noise it was widened to escape.
+
+### `src/robot_filter/kalman_motion_estimator.cpp`
+
+Beside `const double target = now + render_lead_s();`:
+
+Two lags separate the shutter from the wheels, and the render has to cover both. `now` is already past the frame stamp by the perception latency, and a command computed from this render bites another plant.delay_s later. Rendering at `now + delay_s` puts every track where it will be when the command lands, which is the only state target selection and navigation can steer by without aiming at the past. The extra span is not extrapolation into unknown commands: JigPlantModel reads each substep's command at t - delay_s, so integrating to now + delay_s consumes exactly the commands already issued up to `now`, the ones in flight.
+
+### `src/robot_filter/kalman_motion_estimator.cpp`
+
+Beside `double worst_span = std::numeric_limits<double>::infinity();`:
+
+The smallest span any track is propagated over. Both failure modes below emit an estimate frozen at the shutter while looking exactly like a healthy filter that is not moving, so this is worth naming rather than inferring: a span past kMaxIntegrationStepS short-circuits to "hold position", and a non-positive span propagates nothing at all. Both mean the control clock and the frame stamps are not on the same timeline, which is what SVO playback does under SystemClock. The minimum is the right reducer for that question, and it goes out in update()'s diagnostics so a recording answers "did anything propagate, and by how much" without needing a rebuild. It is not the render lead: opponent tracks commit every control tick and so report one tick, while the our-robot track only commits in update() and so reports a whole frame period plus the lead.
+
+### `src/robot_filter/kalman_motion_estimator.cpp`
+
+Beside `for (const auto &[frame_id, track] : our_ekf_tracks_) {`:
+
+Rendered on a copy, like the dead-reckoning arm: the committed state only advances in update(), so measurements always fold in at or after the track stamp and the our-robot arm needs no snapshot rewind. propagate_unwrapped skips the finite-difference Jacobian (10 extra plant integrations) that a covariance-free render never uses.

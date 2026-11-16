@@ -16,7 +16,6 @@
 #endif
 
 namespace auto_battlebot {
-// Automatic registration of config types
 REGISTER_CONFIG(FieldFilterConfiguration, NoopFieldFilterConfiguration, "NoopFieldFilter")
 REGISTER_CONFIG(FieldFilterConfiguration, FixedFieldFilterConfiguration, "FixedFieldFilter")
 REGISTER_CONFIG(FieldFilterConfiguration, HomographyFieldFilterConfiguration,
@@ -25,8 +24,6 @@ REGISTER_CONFIG(FieldFilterConfiguration, CalibratedFieldFilterConfiguration,
                 "CalibratedFieldFilter")
 REGISTER_CONFIG(FieldFilterConfiguration, FiducialFieldFilterConfiguration, "FiducialFieldFilter")
 #ifdef BUILD_WITH_ZED
-// The depth path goes with the ZED: outside simulation it is the only camera that produces a
-// depth image for it to fit a plane to.
 REGISTER_CONFIG(FieldFilterConfiguration, PointCloudFieldFilterConfiguration,
                 "PointCloudFieldFilter")
 #endif

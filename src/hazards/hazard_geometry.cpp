@@ -17,8 +17,6 @@ double normalize_angle(double angle) {
     return angle;
 }
 
-/** Squared distance from `point` to the segment [a, b], plus where along it the foot lands
- *  (0 at a, 1 at b). */
 double segment_distance(const Pose2D &a, const Pose2D &b, const Pose2D &point, double &t_out) {
     const double dx = b.x - a.x;
     const double dy = b.y - a.y;
@@ -105,7 +103,6 @@ TangentWaypoint tangent_waypoint(const Pose2D &start, const Pose2D &center, doub
     }
 
     if (distance <= radius) {
-        // Inside the circle. Straight out along the radius is the shortest way to stop being.
         waypoint.inside = true;
         waypoint.point.x = center.x - dx / distance * radius;
         waypoint.point.y = center.y - dy / distance * radius;
@@ -118,7 +115,6 @@ TangentWaypoint tangent_waypoint(const Pose2D &start, const Pose2D &center, doub
 
     int side = committed_side;
     if (side == 0) {
-        // Cheaper side = the tangent that costs less heading change from where we point now.
         const double left = std::abs(normalize_angle(to_center + half_angle - heading));
         const double right = std::abs(normalize_angle(to_center - half_angle - heading));
         side = (left <= right) ? 1 : -1;

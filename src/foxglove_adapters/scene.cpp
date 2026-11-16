@@ -59,8 +59,6 @@ fg::SceneEntityDeletion make_deletion(const Header &header, const std::string &n
     return deletion;
 }
 
-// Pose-form arrow: sits at `pose`, points along its +x, `length` long. Same split of shaft and
-// head as the converter uses for legacy pose-form markers.
 fg::ArrowPrimitive make_pose_arrow(const fg::Pose &pose, double length, double shaft_diameter,
                                    double head_diameter, const fg::Color &color) {
     fg::ArrowPrimitive arrow;
@@ -73,7 +71,6 @@ fg::ArrowPrimitive make_pose_arrow(const fg::Pose &pose, double length, double s
     return arrow;
 }
 
-// Two-point arrow from `start` to `end`: the pose rotates +x onto the direction vector.
 fg::ArrowPrimitive make_segment_arrow(const Eigen::Vector3d &start, const Eigen::Vector3d &end,
                                       double shaft_diameter, double head_diameter,
                                       double head_length, const fg::Color &color) {
@@ -84,9 +81,9 @@ fg::ArrowPrimitive make_segment_arrow(const Eigen::Vector3d &start, const Eigen:
     Eigen::Quaterniond rotation = Eigen::Quaterniond::Identity();
     if (length > 1e-9) {
         const Eigen::Vector3d dir = delta / length;
-        const double dot = dir.x();  // UnitX . dir
+        const double dot = dir.x();
         if (dot < -1.0 + 1e-9) {
-            rotation = Eigen::Quaterniond(0.0, 0.0, 0.0, 1.0);  // 180 degrees about z
+            rotation = Eigen::Quaterniond(0.0, 0.0, 0.0, 1.0);
         } else {
             const Eigen::Vector3d axis = Eigen::Vector3d::UnitX().cross(dir);
             rotation = Eigen::Quaterniond(1.0 + dot, axis.x(), axis.y(), axis.z()).normalized();
@@ -113,8 +110,6 @@ fg::SceneUpdate to_field_scene(const FieldDescriptionWithInlierPoints &field) {
     fg::LinePrimitive line =
         make_line(fg::LinePrimitive::LineType::LINE_STRIP, 0.01, to_color(0.0f, 1.0f, 0.0f, 1.0f));
 
-    // Four corners in field-center-local coordinates, transformed into the camera frame with
-    // tf_camera_from_fieldcenter, then closed back onto the first corner.
     const auto &tf = field.tf_camera_from_fieldcenter.tf;
     if (tf.rows() >= 3 && tf.cols() >= 4) {
         const double hx = field.size.size.x / 2.0;
@@ -153,7 +148,6 @@ std::optional<fg::PointCloud> to_field_point_cloud(const FieldDescriptionWithInl
         f.type = fg::PackedElementField::NumericType::FLOAT32;
         cloud.fields.push_back(std::move(f));
     }
-    // The PCL points are float32 already; this is a straight copy at 12 bytes per point.
     const auto &points = field.inlier_points.cloud->points;
     cloud.data.resize(points.size() * 12);
     std::byte *out = cloud.data.data();
@@ -168,17 +162,10 @@ std::optional<fg::PointCloud> to_field_point_cloud(const FieldDescriptionWithInl
 fg::SceneUpdate to_hazard_scene(const FieldDescription &field) {
     constexpr int kRingSegments = 48;
     fg::SceneUpdate update;
-    // Entities persist in the 3D panel until deleted, so each update starts by clearing the
-    // previous cycle's rings: a hazard that aged out must not linger on the overlay as
-    // something the controller is still avoiding. Also keeps the message non-empty when there
-    // are no hazards, which the SDK would otherwise refuse to log.
     update.deletions.push_back(make_delete_all(field.header));
     const auto &tf = field.tf_camera_from_fieldcenter.tf;
     if (tf.rows() < 3 || tf.cols() < 4) return update;
 
-    // One ring per hazard, at the hazard's own size. The keep-out it inflates to sits our robot's
-    // half-diagonal plus the margin further out; drawing that too was clutter, and the robot
-    // markers already give the eye the scale to judge it.
     for (size_t i = 0; i < field.hazards.size(); ++i) {
         const FieldHazard &hazard = field.hazards[i];
         const bool is_static = hazard.source == HazardSource::STATIC;
@@ -202,8 +189,6 @@ fg::SceneUpdate to_hazard_scene(const FieldDescription &field) {
 
 fg::SceneUpdate to_robot_scene(const RobotDescriptionsStamped &robots) {
     fg::SceneUpdate update;
-    // Same clear-then-draw rule as the hazards: a robot that dropped out of the filter must
-    // not keep its last box on screen.
     update.deletions.push_back(make_delete_all(robots.header));
     int keypoint_counter = 0;
     for (size_t i = 0; i < robots.descriptions.size(); ++i) {
@@ -213,11 +198,9 @@ fg::SceneUpdate to_robot_scene(const RobotDescriptionsStamped &robots) {
         const fg::Color robot_color = to_color(get_color_for_index(robot.group), 0.7f);
         const fg::Color solid_color = to_color(get_color_for_index(robot.group), 1.0f);
 
-        // Body
         {
             fg::SceneEntity entity = make_entity(robots.header, "robot_bounds", robot_id);
             fg::CubePrimitive cube;
-            // The box is the body, centred on the footprint rather than on the pose.
             Pose body = robot.pose;
             const Pose2D center = footprint_center(robot);
             body.position.x = center.x;
@@ -229,7 +212,6 @@ fg::SceneUpdate to_robot_scene(const RobotDescriptionsStamped &robots) {
             update.entities.push_back(std::move(entity));
         }
 
-        // Heading arrow along the robot's x-axis, 1.5x the body length, fixed diameter.
         {
             fg::SceneEntity entity = make_entity(robots.header, "robot_poses", robot_id);
             entity.arrows.push_back(make_pose_arrow(to_pose(robot.pose), robot.size.x * 1.5, 0.015,
@@ -237,7 +219,6 @@ fg::SceneUpdate to_robot_scene(const RobotDescriptionsStamped &robots) {
             update.entities.push_back(std::move(entity));
         }
 
-        // Label above the robot
         {
             fg::SceneEntity entity = make_entity(robots.header, "robot_labels", robot_id);
             fg::TextPrimitive text;
@@ -258,7 +239,6 @@ fg::SceneUpdate to_robot_scene(const RobotDescriptionsStamped &robots) {
             update.entities.push_back(std::move(entity));
         }
 
-        // Two-sigma position ring, only where the estimator reports one.
         if (std::isfinite(robot.uncertainty.position_sigma_major_axis_m)) {
             constexpr int kRingSegments = 32;
             const double radius = 2.0 * robot.uncertainty.position_sigma_major_axis_m;
@@ -313,7 +293,6 @@ fg::SceneUpdate to_navigation_scene(const NavigationVisualization &nav) {
         }
     }
 
-    // Pursuit line from our robot to the target, and a crosshair on the target.
     if (nav.path.has_value()) {
         const auto &path = nav.path.value();
         {
@@ -345,7 +324,6 @@ fg::SceneUpdate to_navigation_scene(const NavigationVisualization &nav) {
         const double cos_yaw = std::cos(pose.yaw);
         const double sin_yaw = std::sin(pose.yaw);
 
-        // Commanded linear velocity, rotated into the field frame and scaled for display.
         {
             const double vx_field = nav.command.linear_x * cos_yaw - nav.command.linear_y * sin_yaw;
             const double vy_field = nav.command.linear_x * sin_yaw + nav.command.linear_y * cos_yaw;
@@ -362,7 +340,6 @@ fg::SceneUpdate to_navigation_scene(const NavigationVisualization &nav) {
             }
         }
 
-        // Commanded angular velocity as an arc with an arrowhead at its tip.
         {
             const double omega = nav.command.angular_z;
             if (std::abs(omega) > 0.05) {

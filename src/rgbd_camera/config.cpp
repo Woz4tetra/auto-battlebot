@@ -18,7 +18,6 @@
 #endif
 
 namespace auto_battlebot {
-// Automatic registration of config types
 REGISTER_CONFIG(RgbdCameraConfiguration, NoopRgbdCameraConfiguration, "NoopRgbdCamera")
 REGISTER_CONFIG(RgbdCameraConfiguration, SimRgbdCameraConfiguration, "SimRgbdCamera")
 REGISTER_CONFIG(RgbdCameraConfiguration, V4l2RgbCameraConfiguration, "V4l2RgbCamera")

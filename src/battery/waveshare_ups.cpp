@@ -13,26 +13,21 @@
 namespace auto_battlebot {
 namespace {
 
-// INA219 register addresses from datasheet.
+// DATASHEET: INA219 SBOS448G rev G, 8.6: register pointers CONFIG 0x00, BUS 0x02, POWER 0x03,
+// CURRENT 0x04, CALIBRATION 0x05
 constexpr uint8_t INA219_REG_CONFIG = 0x00;
 constexpr uint8_t INA219_REG_BUSVOLTAGE = 0x02;
 constexpr uint8_t INA219_REG_POWER = 0x03;
 constexpr uint8_t INA219_REG_CURRENT = 0x04;
 constexpr uint8_t INA219_REG_CALIBRATION = 0x05;
-// Calibration register value for the selected profile (16V bus range, up to ~5A expected current).
-// Derived with Cal = trunc(0.04096 / (Current_LSB * Rshunt)).
+// DATASHEET: INA219 SBOS448G rev G, 8.5.1: Cal = trunc(0.04096 / (Current_LSB * Rshunt))
 constexpr uint16_t INA219_CALIBRATION_16V_5A = 26868;
-// Config register bits matching the Waveshare reference setup (16V range, gain/ADC, continuous
-// mode).
 constexpr uint16_t INA219_CONFIG_16V_5A_CONTINUOUS = 0x0EEF;
-// Datasheet constant used in the INA219 calibration equation.
 constexpr double INA219_CALIBRATION_NUMERATOR = 0.04096;
-// Shunt resistor value on the UPS board; used with calibration to convert raw current counts.
 constexpr double INA219_SHUNT_RESISTANCE_OHM = 0.01;
-// Current LSB derived from calibration: Current_LSB = 0.04096 / (Cal * Rshunt).
 constexpr double INA219_CURRENT_LSB_A =
     INA219_CALIBRATION_NUMERATOR / (INA219_CALIBRATION_16V_5A * INA219_SHUNT_RESISTANCE_OHM);
-// INA219 power register uses Power_LSB = 20 * Current_LSB.
+// DATASHEET: INA219 SBOS448G rev G, 8.5.1: Power_LSB = 20 * Current_LSB
 constexpr double INA219_POWER_CURRENT_LSB_MULTIPLIER = 20.0;
 constexpr double INA219_POWER_LSB_W = INA219_POWER_CURRENT_LSB_MULTIPLIER * INA219_CURRENT_LSB_A;
 constexpr double kBatteryReadWarnMs = 30.0;

@@ -26,7 +26,6 @@ void plant_steady_state(double u_lin, double u_ang, const JigPlantParams &params
     if (params.c_ad != 0.0) {
         w_target *= std::max(0.0, 1.0 - params.c_ad * std::abs(lin_eff));
     }
-    // Drift is additive: yaw the driver never asked for, not a scaling of the commanded yaw.
     if (params.c_drift != 0.0) {
         w_target += params.c_drift * lin_eff;
     }

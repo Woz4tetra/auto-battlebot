@@ -39,11 +39,9 @@ VizSchema json_schema(const char *name, const char *text) {
 
 constexpr bool kLatched = true;
 constexpr bool kUnlatched = false;
-/** OpenCV's default, which /camera/image used before it moved to the worker. */
 constexpr int kFullImageJpegQuality = 95;
 constexpr int kPreviewVideoFps = 30;
 
-/** A worker that JPEG-encodes on its own thread with its own encoder and logs the result. */
 std::unique_ptr<ImageEncoderWorker> make_jpeg_worker(std::string name, OutputChannel &channel,
                                                      int quality) {
     std::shared_ptr<JpegEncoderInterface> encoder;
@@ -173,7 +171,6 @@ void FoxglovePublisher::submit_previews(const RgbImage &rgb, uint64_t log_time) 
     bool want_video = false;
     if (preview_video_ && !preview_video_failed_) {
         const uint32_t subscribers = preview_video_->num_subscribers();
-        // A viewer that just subscribed cannot decode until the next IDR; ask for one now.
         if (subscribers > preview_video_subscribers_) preview_video_encoder_.request_keyframe();
         preview_video_subscribers_ = subscribers;
         want_video = subscribers > 0 && preview_video_gate_.admit(now);
@@ -205,9 +202,6 @@ void FoxglovePublisher::publish_camera_data(const CameraData &data) {
     FunctionTimer timer(diagnostics_logger_, "publish_camera_data");
     const uint64_t log_time = wall_time_ns();
 
-    // JPEG compression is ~10 ms of CPU on the Jetson, so it runs on worker threads, and only
-    // when a client subscribed or the recorder records the topic. The loop pays one copy of the
-    // frame, or one resize for the preview.
     if (rgb_image_.has_consumers() && !data.rgb.image.empty()) {
         image_worker_->submit({data.rgb.image.clone(), data.rgb.header, log_time});
     }
@@ -250,7 +244,6 @@ void FoxglovePublisher::publish_field_mask(const MaskStamped &field_mask, const 
     mask_as_image.header = field_mask.header;
     mask_as_image.header.frame_id = FrameId::CAMERA_WORLD;
     mask_as_image.image = overlay;
-    // Once per field fit, so it encodes inline, but on the same encoder the workers use.
     CompressedImage mask_message;
     mask_message.timestamp = foxglove_adapters::to_timestamp(mask_as_image.header.stamp);
     mask_message.frame_id = foxglove_adapters::frame_id_string(mask_as_image.header.frame_id);

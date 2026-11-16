@@ -31,7 +31,6 @@ std::string reservation_key(const std::filesystem::path& path) {
     return (ec ? path : canonical).string();
 }
 
-/** Drops are reported at most this often, so a disk that stays behind does not flood the log. */
 constexpr auto kDropReportInterval = std::chrono::seconds(1);
 }  // namespace
 
@@ -196,8 +195,6 @@ McapRecorder::ChannelId McapRecorder::open_channel(const std::string& topic,
     if (auto it = channel_by_topic_.find(topic); it != channel_by_topic_.end()) {
         return it->second;
     }
-    // The writer thread creates the channel in the current file on its first message, and in
-    // every later file from this spec.
     channel_specs_.push_back(ChannelSpec{topic, message_encoding, schema});
     const ChannelId id = static_cast<ChannelId>(channel_specs_.size());
     channel_by_topic_[topic] = id;
@@ -207,7 +204,6 @@ McapRecorder::ChannelId McapRecorder::open_channel(const std::string& topic,
 void McapRecorder::write(ChannelId channel, const std::byte* data, size_t len,
                          uint64_t log_time_ns) {
     if (len == 0 || !enabled_hint_.load(std::memory_order_relaxed)) return;
-    // Copied before taking the lock, so the lock is held only for the push.
     WriteOp op{channel, log_time_ns, std::vector<std::byte>(data, data + len)};
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -296,7 +292,6 @@ void McapRecorder::handle(OpenOp& op) {
     foxglove::McapWriterOptions opts;
     opts.context = context_;
     opts.path = path_string;
-    // No compression: the Jetson writes this at 60 Hz next to the control loop.
     opts.compression = foxglove::McapCompression::None;
     auto writer = foxglove::McapWriter::create(opts);
     if (!writer.has_value()) {
@@ -326,7 +321,7 @@ void McapRecorder::handle(OpenOp& op) {
                  active_profile_.empty() ? "<none>" : active_profile_);
 }
 
-void McapRecorder::handle(CloseOp& /*op*/) {
+void McapRecorder::handle(CloseOp&) {
     if (writer_) close_file();
 }
 

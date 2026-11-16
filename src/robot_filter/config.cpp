@@ -12,7 +12,6 @@
 #include "robot_filter/robot_front_back_filter.hpp"
 
 namespace auto_battlebot {
-// Automatic registration of config types
 REGISTER_CONFIG(RobotFilterConfiguration, NoopRobotFilterConfiguration, "NoopRobotFilter")
 REGISTER_CONFIG(RobotFilterConfiguration, GroundTruthRobotFilterConfiguration,
                 "GroundTruthRobotFilter")

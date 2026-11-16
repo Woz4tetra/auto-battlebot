@@ -42,7 +42,6 @@ MaskStamped FreeRoamMaskModel::update(RgbImage image) {
         cv::Mat lab_image;
         cv::cvtColor(image.image, lab_image, cv::COLOR_BGR2Lab);
 
-        // Median, not mean: a robot or debris overlapping the seed patch must not skew the seed.
         seed_rect = centered_rect(image.image.size(), seed_patch_fraction_);
         cv::Vec3b seed = median_color(lab_image(seed_rect));
 
@@ -51,8 +50,6 @@ MaskStamped FreeRoamMaskModel::update(RgbImage image) {
         cv::inRange(lab_image, lower, upper, color_mask);
 
         cv::bitwise_and(mask, color_mask, mask);
-        // Close small speckle holes; the largest-contour pass downstream discards islands, so the
-        // mask only needs one solid field region.
         cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(5, 5));
         cv::morphologyEx(mask, mask, cv::MORPH_CLOSE, kernel);
 

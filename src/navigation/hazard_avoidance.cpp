@@ -46,9 +46,6 @@ Pose2D HazardAvoidance::steer_around(const Pose2D &our_pose, const Pose2D &goal,
         // The latch belongs to one hazard. Rounding a different one is a fresh decision.
         const int side =
             (last_substituted_ || latched_hazard_index_ != *blocking) ? 0 : committed_side_;
-        // Tangent to a circle a little wider than the keep-out, so arriving at the waypoint
-        // leaves real clearance and the run from there to the goal is unblocked against the
-        // keep-out itself. Tangent to the keep-out exactly would put the waypoint on the rim.
         const TangentWaypoint tangent = tangent_waypoint(
             our_pose, center, hazard.inflated_radius_m + settings_.waypoint_clearance_m,
             our_pose.yaw, side);
@@ -86,10 +83,6 @@ HazardBarrierResult HazardAvoidance::limit_command(const Pose2D &our_pose,
     if (!settings_.barrier_enable || field.hazards.empty()) return result;
     if (settings_.max_linear_speed_fwd <= 0.0 || settings_.barrier_horizon_s <= 0.0) return result;
 
-    // Gain from measured excess approach speed (m/s) to an opposing normalized command. 1.5
-    // recovers the 2026-08-28 recorded push-into-hole coast with margin in the counterfactual
-    // sim; the envelope decides where braking starts, this only decides how hard the recovery
-    // pulls once the envelope is already violated.
     constexpr double kExcessGain = 1.5;
     constexpr double kEps = 1e-6;
 
@@ -103,17 +96,12 @@ HazardBarrierResult HazardAvoidance::limit_command(const Pose2D &our_pose,
         const double dx = center.x - our_pose.x;
         const double dy = center.y - our_pose.y;
         const double distance = std::hypot(dx, dy);
-        if (distance < kEps) continue;  // dead centre: no direction to limit against
+        if (distance < kEps) continue;
         const double gap = distance - hazard.hard_radius;
-        // Fraction of forward motion that approaches this hazard: +1 dead ahead, -1 dead
-        // behind. A diff drive only translates along its heading, so this is the whole story.
         const double toward = (cos_yaw * dx + sin_yaw * dy) / distance;
-        if (std::abs(toward) < kEps) continue;  // passing abeam costs nothing
+        if (std::abs(toward) < kEps) continue;
 
         const double v_approach = v_actual * toward;
-        // The approach speed a first-order plant can still shed by the hard rim, with the same
-        // latency lead the goal brake schedule uses: the command bites delay_s late, after the
-        // robot has already closed v*delay of the gap.
         const double bound = (gap - std::max(v_approach, 0.0) * settings_.barrier_delay_s) /
                              settings_.barrier_horizon_s;
         const double excess = v_approach - bound;

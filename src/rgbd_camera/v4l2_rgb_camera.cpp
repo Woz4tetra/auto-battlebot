@@ -22,6 +22,7 @@ namespace {
 constexpr auto kGrabErrorWindow = std::chrono::seconds(10);
 constexpr double kGrabErrorExitThreshold = 0.70;
 constexpr auto kGetWaitTimeout = std::chrono::milliseconds(100);
+constexpr int kV4l2ExposureUnitUs = 100;
 constexpr const char *kVideoTopic = "/camera/video";
 
 std::pair<int, int> resolution_size(Resolution resolution) {
@@ -48,7 +49,16 @@ std::pair<int, int> resolution_size(Resolution resolution) {
     return {1920, 1200};
 }
 
-/** ioctl retried through EINTR, which V4L2 hands back routinely. */
+int xioctl(int fd, unsigned long request, void *argument);
+
+void requeue_buffer(int fd, uint32_t index) {
+    v4l2_buffer stale{};
+    stale.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    stale.memory = V4L2_MEMORY_MMAP;
+    stale.index = index;
+    xioctl(fd, VIDIOC_QBUF, &stale);
+}
+
 int xioctl(int fd, unsigned long request, void *argument) {
     int result = 0;
     do {
@@ -119,8 +129,6 @@ bool V4l2RgbCamera::negotiate_format() {
     format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     format.fmt.pix.width = static_cast<uint32_t>(width_);
     format.fmt.pix.height = static_cast<uint32_t>(height_);
-    // The sensor emits UYVY and we encode H.264, so both are hard-coded. There is one correct
-    // behaviour and one consumer; a second capture format is when this becomes an enum.
     format.fmt.pix.pixelformat = V4L2_PIX_FMT_UYVY;
     format.fmt.pix.field = V4L2_FIELD_NONE;
     if (xioctl(fd_, VIDIOC_S_FMT, &format) == -1) {
@@ -151,12 +159,9 @@ bool V4l2RgbCamera::negotiate_format() {
 }
 
 bool V4l2RgbCamera::apply_controls() {
-    // Auto-exposure hunting between a lit arena and a dark robot is a plausible source of
-    // frame-to-frame detector instability, so pinning these matters. Zero keeps the driver default.
     if (config_.exposure_us > 0) {
         set_control(fd_, V4L2_CID_EXPOSURE_AUTO, V4L2_EXPOSURE_MANUAL, "exposure_auto");
-        // V4L2 exposure_absolute is in 100 us units.
-        set_control(fd_, V4L2_CID_EXPOSURE_ABSOLUTE, config_.exposure_us / 100,
+        set_control(fd_, V4L2_CID_EXPOSURE_ABSOLUTE, config_.exposure_us / kV4l2ExposureUnitUs,
                     "exposure_absolute");
     }
     if (config_.gain > 0) {
@@ -273,8 +278,6 @@ bool V4l2RgbCamera::initialize() {
     latest_data_.pose_tracking_ready = true;
 
     if (mcap_recorder_) {
-        // The video is pre-rectification, so replay needs this calibration. Embedded, a recording
-        // replays without the file, and a revised one can still override it through config.
         mcap_recorder_->write_metadata(kCameraCalibrationMetadataKey,
                                        camera_calibration_to_toml(calibration_));
     }
@@ -308,12 +311,7 @@ int V4l2RgbCamera::dequeue_newest(uint64_t &capture_time_ns) {
             return -1;
         }
         if (newest >= 0) {
-            // An older frame the pipeline never reached. Give the buffer straight back.
-            v4l2_buffer stale{};
-            stale.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-            stale.memory = V4L2_MEMORY_MMAP;
-            stale.index = static_cast<uint32_t>(newest);
-            xioctl(fd_, VIDIOC_QBUF, &stale);
+            requeue_buffer(fd_, static_cast<uint32_t>(newest));
         }
         newest = static_cast<int>(buffer.index);
         // V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC: the kernel's capture instant on CLOCK_MONOTONIC.
@@ -355,10 +353,6 @@ bool V4l2RgbCamera::capture_frame() {
 
     const cv::Mat uyvy(height_, width_, CV_8UC2, buffers_[static_cast<size_t>(index)].start);
 
-    // The recording is pre-rectification on purpose: a calibration can be revised later and
-    // re-applied to footage already shot.
-    // The encoder numbers the frames it takes; frame_meta carries that number, so it matches the
-    // video packet in whichever file the frame lands in. -1 when it took none.
     const int64_t video_frame_index = encoder_.submit(uyvy, wall_time_ns());
 
     // Pinned, so the keypoint model's GPU preprocess reads the frame in place. Both Mats take the
@@ -379,9 +373,6 @@ bool V4l2RgbCamera::capture_frame() {
         latest_data_.camera_info.header = latest_data_.rgb.header;
         latest_data_.depth.image = cv::Mat();
         latest_data_.pose_tracking_ready = true;
-        // A clamped camera does not move, so there is no visual odometry and no camera-world
-        // rebase to do. The field filter's rebase becomes a no-op, which removes the class of bug
-        // that scripts/fix_field_mask_frames.py exists to repair offline.
         latest_data_.tf_visodom_from_camera.header.stamp = latest_data_.rgb.header.stamp;
         latest_data_.tf_visodom_from_camera.header.frame_id = FrameId::VISUAL_ODOMETRY;
         latest_data_.tf_visodom_from_camera.child_frame_id = FrameId::CAMERA;
@@ -431,8 +422,6 @@ bool V4l2RgbCamera::get(CameraData &data) {
 
     const uint64_t drops = encoder_.dropped_frames();
     if (drops != reported_drops_) {
-        // Never silent. A recording quietly missing frames is discovered months later against
-        // ground truth, if at all.
         spdlog::warn("[V4l2RgbCamera] Encoder has dropped {} frame(s); it is behind the capture",
                      drops);
         diagnostics_logger_->log(1, "video_encoder", {{"dropped_frames", std::to_string(drops)}});
@@ -451,17 +440,17 @@ bool V4l2RgbCamera::start_encoder() {
     encoder_options.fps = config_.camera_fps;
     encoder_options.bitrate = config_.video_bitrate_kbps * 1000;
     encoder_options.input_format = VideoInputFormat::UYVY;
-    if (!encoder_.start(encoder_options, [this](const std::byte *data, size_t len,
-                                                uint64_t log_time_ns, bool /*keyframe*/) {
-            foxglove::schemas::CompressedVideo message;
-            // Foxglove's decoder rejects a frame whose timestamp is not after the previous one.
-            message.timestamp =
-                foxglove_adapters::to_timestamp(static_cast<double>(log_time_ns) * 1e-9);
-            message.frame_id = "camera";
-            message.format = "h264";
-            message.data.assign(data, data + len);
-            video_channel_->log_message(message, log_time_ns);
-        })) {
+    if (!encoder_.start(
+            encoder_options, [this](const std::byte *data, size_t len, uint64_t log_time_ns, bool) {
+                foxglove::schemas::CompressedVideo message;
+                // Foxglove's decoder rejects a frame whose timestamp is not after the previous one.
+                message.timestamp =
+                    foxglove_adapters::to_timestamp(static_cast<double>(log_time_ns) * 1e-9);
+                message.frame_id = "camera";
+                message.format = "h264";
+                message.data.assign(data, data + len);
+                video_channel_->log_message(message, log_time_ns);
+            })) {
         video_channel_.reset();
         return false;
     }
@@ -480,8 +469,6 @@ bool V4l2RgbCamera::set_recording_enabled(bool enabled) {
     if (encoder_.running()) {
         return true;
     }
-    // A recording turned back on from the remote UI lands here and writes into the new file. Not
-    // fatal here: the UI reports the failed toggle, and killing a running match over it is worse.
     if (!mcap_recorder_ || !start_encoder()) {
         spdlog::error("[V4l2RgbCamera] Recording toggled on but no H.264 encoder opened");
         return false;

@@ -83,7 +83,7 @@ class TrtEngine {
     // Run inference on input the caller already wrote into device_input() on stream(),
     // skipping the host input copy. Returns the first output in this engine's pinned host
     // buffer, valid until the next call, or nullptr on failure.
-    const float* execute_device_input();
+    const float* execute_into_pinned_output();
 
     float* device_input() const { return static_cast<float*>(d_input_); }
     // This engine's CUDA stream, as a cudaStream_t.

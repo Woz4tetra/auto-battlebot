@@ -12,6 +12,9 @@
 namespace auto_battlebot {
 namespace {
 constexpr float kMinBoxEdge = 1.0f;
+constexpr bool kSwapRbToRgb = true;
+constexpr bool kCenterCrop = false;
+constexpr int kDetectHeadBoxFeatures = 4;
 }  // namespace
 
 YoloBboxRobotBlobModel::YoloBboxRobotBlobModel(YoloBboxRobotBlobModelConfiguration &config,
@@ -46,9 +49,6 @@ bool YoloBboxRobotBlobModel::initialize() {
         }
     }
     if (their_robot_labels_.empty() && neutral_robot_labels_.empty()) {
-        // Every detection is classified OTHER and dropped in append_detection_keypoints, so
-        // nothing reaches the filter however confident the model is. debug_visualization draws
-        // the raw detections, which makes this look like a filter bug rather than a config gap.
         spdlog::warn(
             "YoloBboxRobotBlobModel: their_robot_labels and neutral_robot_labels are both empty, "
             "so every detection will be dropped before it reaches the filter. Set "
@@ -118,9 +118,6 @@ ModelResultStamped YoloBboxRobotBlobModel::update(RgbImage image) {
 
     int detection_index = 0;
     for (const auto &det : detections) {
-        // Log the raw class before it is collapsed to OPPONENT/HOUSE_BOT (or dropped),
-        // so the mislabel/drop rate is visible in future recordings: e.g. an opponent
-        // classified as one of our robots falls to OTHER and is never targeted.
         if (det.class_id >= 0 && det.class_id < static_cast<int>(label_indices_.size())) {
             const Label raw_label = label_indices_[static_cast<size_t>(det.class_id)];
             diagnostics_logger_->info(
@@ -129,8 +126,6 @@ ModelResultStamped YoloBboxRobotBlobModel::update(RgbImage image) {
                  {"category", enum_to_string_lower(classify_category(raw_label))},
                  {"confidence", static_cast<double>(det.confidence)}});
 
-            // Keep the raw box (original-image pixels) so offline eval tools can score
-            // the detector itself, independent of the blob/keypoint collapse below.
             int box_x1 = 0;
             int box_y1 = 0;
             int box_x2 = 0;
@@ -243,10 +238,8 @@ void YoloBboxRobotBlobModel::preprocess_image(const cv::Mat &image, cv::Size inp
     cv::Mat resized;
     letterbox(bgr_image, resized, {input_size.height, input_size.width});
 
-    // blobFromImage does the 1/255 normalize, BGR->RGB swap, and CHW pack in vectorized
-    // code; the scalar per-pixel pack this replaces dominated preprocess time.
     cv::Mat blob = cv::dnn::blobFromImage(resized, 1.0 / 255.0, cv::Size(), cv::Scalar(),
-                                          /*swapRB=*/true, /*crop=*/false, CV_32F);
+                                          kSwapRbToRgb, kCenterCrop, CV_32F);
     buffer.resize(blob.total());
     std::memcpy(buffer.data(), blob.ptr<float>(), blob.total() * sizeof(float));
 }
@@ -287,9 +280,7 @@ std::vector<YoloBboxRobotBlobModel::Detection> YoloBboxRobotBlobModel::decode_de
     const int feature_dim = static_cast<int>(det_shape[1]);
     const int num_predictions = static_cast<int>(det_shape[2]);
     const int class_dim = static_cast<int>(label_indices_.size());
-    // Detect head is [1, 4 + num_classes, num_predictions]: 4 box coords then per-class scores,
-    // with no trailing mask coefficients (unlike the seg head).
-    if (feature_dim < 4 + class_dim) return detections;
+    if (feature_dim < kDetectHeadBoxFeatures + class_dim) return detections;
 
     auto read_feature = [&](int prediction_index, int feature_index) -> float {
         return det_output[static_cast<size_t>(feature_index) * num_predictions + prediction_index];
@@ -385,9 +376,6 @@ void YoloBboxRobotBlobModel::append_detection_keypoints(const Detection &det,
     const KeypointLabel b_label = (category == Category::THEIR) ? KeypointLabel::OPPONENT_BACK
                                                                 : KeypointLabel::HOUSE_BOT_BACK;
 
-    // No mask to fit a rotated rectangle to, so the midline comes straight from the
-    // detection box (long axis). Downstream target selection only needs the box center
-    // and a front/back axis, both of which the box supplies.
     const double gain = std::min(static_cast<double>(input_size.width) / original_size.width,
                                  static_cast<double>(input_size.height) / original_size.height);
     const double pad_w =

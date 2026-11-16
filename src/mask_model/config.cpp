@@ -28,7 +28,6 @@ void FreeRoamMaskModelConfiguration::parse_fields(ConfigParser &parser) {
     parser.validate_no_extra_fields();
 }
 
-// Automatic registration of config types
 REGISTER_CONFIG(MaskModelConfiguration, NoopMaskModelConfiguration, "NoopMaskModel")
 REGISTER_CONFIG(MaskModelConfiguration, FixedMaskModelConfiguration, "FixedMaskModel")
 REGISTER_CONFIG(MaskModelConfiguration, FreeRoamMaskModelConfiguration, "FreeRoamMaskModel")

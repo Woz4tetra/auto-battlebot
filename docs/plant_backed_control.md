@@ -94,6 +94,16 @@ reference across would feed the feedforward a `dv/dt` step the plant never asked
    capped at `v_term + max(0, d - |v|*latency) / tau_decel`. The brake point comes out of
    the measured plant instead of a hand-tuned brake distance. Ramp-up is rate-limited by
    `accel_limit`.
+   The distance needs no latency lead of its own: the motion estimator renders every track at
+   `now + plant.delay_s`, so the pose it measures from is already where the robot will be when the
+   command reaches the wheels. Subtracting `v*latency` as well double-counted the travel and
+   braked 10.4 cm early at 2 m/s, against the 0.15 m `stop_distance`
+   (`BrakeScheduleDoesNotSubtractALatencyLead` guards it). The horizon still adds `latency_` on
+   top of `tau_decel_`, which is the same argument one delay too many, since decay starts from
+   the state's own time and `tau_decel_` alone is the derived value. It stays as margin.
+   Dropping it takes the horizon from 0.252 s to 0.200 s and raises the reference speed 26% at
+   every distance. Nothing has measured that against a stop, so change it with a field or
+   replay check, not on the algebra.
 2. **Inverse-plant feedforward.** `u_ff = (v_ref + tau*dv/dt) / k_fwd`, with `tau`
    selected by the sign of `dv/dt` so a falling reference actually commands the brake.
    A negative command is rescaled by `k_fwd / k_rev` because reverse is the weaker
@@ -350,3 +360,37 @@ The droop term reads the linear command and the steer-brake term reads the turn 
 ## Transmitter acceleration limit
 
 `max_motor_rpm_per_sec` slew-limits the linear command so wheel surface acceleration stays below the slip and flip threshold. The measured limit is 8.5 m/s^2, which is 8.5 * 60 / (pi * 0.05) = about 3247 RPM/s for the 0.05 m wheel radius. 0 disables it, the default: no profile limits, so the plant is characterized and the RL policy trained without one.
+
+## Notes moved from `src/` comments (2026-11-15)
+
+Each entry names the file and the code it described.
+
+### `src/navigation/motion_profile_navigation.cpp`
+
+Beside `settings.barrier_enable = config.hazard_barrier_enable;`:
+
+The barrier's envelope is the plant fit itself: the same tau_lin_d + delay_s horizon the goal brake schedule inverts, so one refit moves both.
+
+### `src/navigation/motion_profile_navigation.cpp`
+
+Beside `const double authority = std::max(floor, 1.0 - coeff * std::abs(effect));`:
+
+The plant scales the channel by (1 - coeff*|effect|). Below the floor it delivers so little that dividing by the modelled multiplier is extrapolation, not compensation: for the steer-brake term the floor sits just under 1/c_sb, where the fitted linear loss reaches zero and the fit stops describing the plant. Saturating there keeps the command finite and stops the controller from believing it has authority it does not have.
+
+### `src/navigation/motion_profile_navigation.cpp`
+
+Beside `const double tau = (dvdt >= 0.0) ? tau_accel_ : tau_decel_;`:
+
+Inverse-plant feedforward: steady-state fraction plus the lag term tau * dv/dt, using BOTH signs of dv/dt and the regime-appropriate time constant. A rising reference (dv/dt > 0) adds thrust to overcome spin-up lag; a falling reference (dv/dt < 0) reduces throttle or commands reverse, which is what a first-order plant needs to actually track a deceleration instead of coasting past the goal.
+
+### `src/navigation/motion_profile_navigation.cpp`
+
+Beside `const double dwdt = (dt > 0.0) ? (w_ref - prev_w_ref_) / dt : 0.0;`:
+
+Same inverse-plant shape as the linear channel. The yaw spin-up constant is about twice the coast constant, so the feedforward has to know which way the reference is moving: a turn that is winding up needs extra command, a turn that is stopping needs the command pulled back early or the heading sails past.
+
+### `src/transmitter/tank_drive_processor.cpp`
+
+Beside `const auto wheels_in = mix_to_wheels(saturated);`:
+
+The static-friction barrier exists per wheel, not per body axis, so the lifted deadzone is applied in wheel space, which is also the space these channels are sent in.

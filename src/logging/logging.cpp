@@ -95,7 +95,6 @@ McapLogSink* g_mcap_log_sink = nullptr;
 namespace {
 constexpr const char* kLoggerName = "auto_battlebot";
 constexpr const char* kPattern = "[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] %v";
-/** Queued log lines. At the overrun policy below, a burst past this drops the oldest lines. */
 constexpr size_t kLogQueueSize = 8192;
 }  // namespace
 

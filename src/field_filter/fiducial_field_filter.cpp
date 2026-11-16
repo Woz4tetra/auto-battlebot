@@ -11,11 +11,6 @@
 #include "field_filter/field_pose.hpp"
 
 namespace auto_battlebot {
-/** Detector tuned for small, distant 36h11 tags. The hard limit is pixels on target: face on,
- *  36h11 decodes reliably only above about 18 px of edge and no parameter recovers a marker below
- *  about 15 px. Within that budget these settings buy margin. The adaptive-threshold window range
- *  is deliberately tight: windows above 21 px cost 33 ms per 1080p frame against 11 ms and added
- *  no detections once auto_gamma normalized brightness. */
 cv::aruco::DetectorParameters small_apriltag_detector_parameters() {
     cv::aruco::DetectorParameters parameters;
     parameters.adaptiveThreshWinSizeMin = 5;
@@ -31,12 +26,6 @@ cv::aruco::DetectorParameters small_apriltag_detector_parameters() {
 }
 
 namespace {
-/** The board is close and bright, and its white bleeds into each marker's black border. SUBPIX
- *  then lands every corner about 1.9 px inside the true square (markers detect 3.6% small), and
- *  the 65 mm board at 0.9 m reprojects at 2.5 px mean, 8 px max, against the 3 px gate. The
- *  AprilTag edge fit takes it to 0.55 px mean, 1.2 px max. OpenCV swaps in AprilTag's whole
- *  quad search for it, about 530 ms per 1920x1200 frame on the ZED Box against 56 ms, so it
- *  suits a detector that runs only for a field lock, not one that runs every frame. */
 cv::aruco::DetectorParameters board_detector_parameters() {
     cv::aruco::DetectorParameters parameters = small_apriltag_detector_parameters();
     parameters.cornerRefinementMethod = cv::aruco::CORNER_REFINE_APRILTAG;
@@ -189,8 +178,6 @@ std::shared_ptr<FieldDescriptionWithInlierPoints> FiducialFieldFilter::compute_f
         return failed;
     }
 
-    // The recording carries raw frames, so distortion has already been removed upstream by the
-    // camera's rectification and D is zero here.
     const cv::Mat distortion = camera_data.camera_info.distortion.empty()
                                    ? cv::Mat::zeros(1, 5, CV_64F)
                                    : camera_data.camera_info.distortion;
@@ -205,9 +192,6 @@ std::shared_ptr<FieldDescriptionWithInlierPoints> FiducialFieldFilter::compute_f
         return failed;
     }
 
-    // 15 markers give 60 correspondences against 6 unknowns, so this residual measures something,
-    // unlike the four-corner homography's. It catches a mis-measured marker_size, a board printed
-    // at "fit to page" rather than 100%, a mirrored id mapping, and a board that was not flat.
     std::vector<cv::Point2f> reprojected;
     cv::projectPoints(accumulated_object_, rotation_vector, translation_vector, intrinsics,
                       distortion, reprojected);

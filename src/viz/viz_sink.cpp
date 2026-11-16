@@ -20,11 +20,8 @@ namespace {
 constexpr size_t kMaxBulkBytes = 32u * 1024u * 1024u;
 constexpr size_t kMaxPriorityBytes = 4u * 1024u * 1024u;
 constexpr auto kReconnectInterval = std::chrono::seconds(1);
-/** A relay that takes nothing for this long is stuck. Its own poll loop runs every 20 ms. */
 constexpr auto kSendStallTimeout = std::chrono::seconds(2);
-/** A connection the relay closes sooner than this was refused, not lost. */
-constexpr auto kSettleTime = std::chrono::seconds(1);
-/** Upper bound on a poll() so stop and the stall timer are checked even when nothing happens. */
+constexpr auto kRefusedVsLostSettleTime = std::chrono::seconds(1);
 constexpr int kPollMs = 50;
 
 bool is_bulk_schema(const std::string& name) {
@@ -49,7 +46,6 @@ VizSink::~VizSink() {
 void VizSink::wake() {
     if (wake_fd_ < 0) return;
     const uint64_t one = 1;
-    // A full counter still leaves the fd readable, which is all the wake needs.
     [[maybe_unused]] const ssize_t n = ::write(wake_fd_, &one, sizeof(one));
 }
 
@@ -125,7 +121,6 @@ bool VizSink::try_connect() {
         return false;
     }
     std::strncpy(addr.sun_path, socket_path_.c_str(), sizeof(addr.sun_path) - 1);
-    // A blocking connect on a unix socket returns at once: the relay's backlog, or a refusal.
     if (::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
         ::close(fd);
         return false;
@@ -174,7 +169,6 @@ void VizSink::lose_connection(const char* reason, bool closed_by_relay) {
 }
 
 bool VizSink::relay_has_read() const {
-    // SIOCOUTQ on a unix socket counts sent bytes the peer has not read yet.
     int unread = 0;
     if (::ioctl(fd_, SIOCOUTQ, &unread) != 0) return true;
     return static_cast<size_t>(unread) < bytes_sent_;
@@ -309,7 +303,7 @@ void VizSink::run() {
         }
 
         const auto now = std::chrono::steady_clock::now();
-        if (!settled_ && now - connected_at_ >= kSettleTime && relay_has_read()) {
+        if (!settled_ && now - connected_at_ >= kRefusedVsLostSettleTime && relay_has_read()) {
             settled_ = true;
             if (lost_warned_) {
                 spdlog::info("[VizSink] Reconnected to viz_relay at {}", socket_path_);

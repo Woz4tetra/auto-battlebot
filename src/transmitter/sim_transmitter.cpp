@@ -64,8 +64,6 @@ void SimTransmitter::send(VelocityCommand command) {
     command.linear_x = saturated.linear;
     command.angular_z = saturated.angular;
 
-    // Recorded before the connection guard: the feedback stream mirrors what control issued,
-    // matching OpenTxTransmitter reading its own channels back.
     last_sent_ = command;
     if (!connection_) return;
 
@@ -97,7 +95,6 @@ bool SimTransmitter::did_init_button_press() {
 }
 
 TransmitterStatus SimTransmitter::get_status() const {
-    // Sim channels ride the same socket as the connection, so the two cannot diverge.
     const bool connected = connection_ && connection_->is_connected();
     return {.connected = connected, .receiving_channels = connected};
 }

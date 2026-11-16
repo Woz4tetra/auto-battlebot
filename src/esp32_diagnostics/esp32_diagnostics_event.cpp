@@ -82,7 +82,6 @@ void append_null(std::string &json, const char *key) {
     json += "\":null";
 }
 
-/** The 12 guard keys, each null when the event has no guard columns. */
 void append_guard(std::string &json, const std::optional<Esp32MotorGuard> &guard) {
     const std::pair<const char *, double Esp32MotorGuard::*> numbers[] = {
         {"motor_rise_left", &Esp32MotorGuard::motor_rise_left},

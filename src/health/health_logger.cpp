@@ -109,7 +109,6 @@ void HealthLogger::perform_sampling() {
         any_logged = collect_x86_health() || any_logged;
     }
 
-    // Self-detects availability (Jetson-only hwmon nodes); no-op on x86.
     any_logged = collect_jetson_power() || any_logged;
     any_logged = collect_disk_usage() || any_logged;
 
@@ -518,8 +517,6 @@ void HealthLogger::scan_power_hwmon() {
             continue;
         }
         if (name == "ina3221") {
-            // Find the channel labeled VDD_IN (module input rail); the channel number is
-            // board-specific.
             for (int channel = 1; channel <= 7; ++channel) {
                 const std::string prefix = "in" + std::to_string(channel);
                 std::string label;
@@ -571,10 +568,6 @@ bool HealthLogger::collect_jetson_power() {
     }
 
     if (!soctherm_oc_dir_.empty()) {
-        // OC1 = under-voltage, OC2 = VDD_IN average power over limit, OC3 = VDD_IN instant
-        // power over peak. Each event throttles clocks, so a nonzero delta means the supply
-        // hit a hardware limit since the last sample. The INA3221 samples too slowly to see
-        // these transients; the latched counters are the only reliable signal.
         bool have_all_counts = true;
         long long counts[3] = {0, 0, 0};
         for (int i = 0; i < 3; ++i) {
@@ -749,7 +742,6 @@ bool HealthLogger::collect_cpu_temp_sysfs_or_sensors() {
 }
 
 bool HealthLogger::collect_disk_usage() {
-    // The filesystem that data/recordings and data/temp_svo write to.
     const std::filesystem::path path = get_project_path("data");
     std::error_code ec;
     const std::filesystem::space_info space = std::filesystem::space(path, ec);
@@ -761,15 +753,14 @@ bool HealthLogger::collect_disk_usage() {
         return false;
     }
 
-    // `available` is what this process may write; `free` also counts root-reserved blocks.
     const double total_gb = static_cast<double>(space.capacity) / kBytesPerGb;
-    const double free_gb = static_cast<double>(space.available) / kBytesPerGb;
+    const double writable_gb = static_cast<double>(space.available) / kBytesPerGb;
     const double used_gb = static_cast<double>(space.capacity - space.free) / kBytesPerGb;
-    const double used_percent = 100.0 * used_gb / (used_gb + free_gb);
+    const double used_percent = 100.0 * used_gb / (used_gb + writable_gb);
     data["available"] = 1;
     data["total_gb"] = total_gb;
     data["used_gb"] = used_gb;
-    data["free_gb"] = free_gb;
+    data["free_gb"] = writable_gb;
     data["used_percent"] = used_percent;
     if (used_percent >= kDiskUsedWarnPercent) {
         logger_->warning("disk", data, fmt::format("disk {:.0f}% full", used_percent));

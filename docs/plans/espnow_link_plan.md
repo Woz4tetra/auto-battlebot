@@ -1168,3 +1168,13 @@ Remaining, in order:
 - The firmware applies no slew limit. `max_motor_rpm_per_sec > 0` rate-limits the linear command in the host transmitter, the same way `OpenTxTransmitter` does; 0 sends commands to the wheels unlimited.
 - ESP-NOW carries no arm authority. The firmware substitutes the two channel values only after every CRSF gate passes and only while SA (ch5) enables autonomy, and falls back to the handset channels when they go stale.
 - Telemetry older than ten missed 100 Hz frames means the robot is not hearing us or not answering: no feedback, and status reports the channels as not receiving.
+
+## Notes moved from `src/` comments (2026-11-15)
+
+Each entry names the file and the code it described.
+
+### `src/transmitter/espnow_transmitter.cpp`
+
+Beside `const bool receiving = fresh && latest_telemetry_->radio_connected != 0;`:
+
+receiving_channels: the robot hears its handset and we hear the robot. SA on with both means what send() writes reaches the wheels (with ESPNOW_COMMAND_SUBSTITUTION in the firmware).

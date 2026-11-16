@@ -10,7 +10,6 @@ SteppedControlLoop::SteppedControlLoop(std::shared_ptr<ControlLoop> loop, double
 
 void SteppedControlLoop::advance_to(double until) {
     if (period_ <= 0.0) {
-        // One cycle per perception frame, independent of frame timing.
         loop_->run_cycle();
         return;
     }
@@ -23,7 +22,7 @@ void SteppedControlLoop::advance_to(double until) {
     }
 
     const double dt = until - last_advance_;
-    if (dt <= 0.0) return;  // non-advancing clock: nothing to catch up on
+    if (dt <= 0.0) return;
 
     // Cap the catch-up so a long stall (a stopped debugger, a slow frame) cannot spend an
     // unbounded time replaying cycles that all see the same measurement anyway.

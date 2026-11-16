@@ -12,9 +12,7 @@ namespace {
 
 namespace fs = std::filesystem;
 
-/** Every action a policy emits is [linear, angular], the two normalized VelocityCommand
- * fields. */
-constexpr size_t kActionSize = 2;
+constexpr size_t kLinearAngularActionSize = 2;
 
 class ManifestReader {
    public:
@@ -176,7 +174,7 @@ void parse_network_bundle(const ManifestReader &reader, const toml::table &manif
         reader.fail("the actor (" + actor.name + ") has outputs " + specs_to_string(actor.outputs) +
                     "; it must have exactly one, the action");
     }
-    if (actor.outputs.front().size() != kActionSize) {
+    if (actor.outputs.front().size() != kLinearAngularActionSize) {
         reader.fail("the actor's output " + actor.outputs.front().to_string() +
                     " is not [linear, angular]: the action must have 2 values");
     }
@@ -207,7 +205,7 @@ void parse_constant_bundle(const ManifestReader &reader, const toml::table &mani
     const toml::table &constant = reader.require_table(manifest, "constant", "");
     reader.check_keys(constant, {"action"}, "constant.");
     std::vector<double> action = reader.require_numbers(constant, "action", "constant.");
-    if (action.size() != kActionSize) {
+    if (action.size() != kLinearAngularActionSize) {
         reader.fail("constant.action has " + std::to_string(action.size()) +
                     " values; it must be [linear, angular]");
     }

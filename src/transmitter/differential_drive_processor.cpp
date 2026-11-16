@@ -27,8 +27,6 @@ DifferentialDriveProcessor::Channels DifferentialDriveProcessor::process(
 
     auto out = inverse_mix_from_wheels(wheels_out);
 
-    // Compensate for the physical motor wiring on the robot. Applied last so the wheel-space math
-    // operates in a consistent body frame.
     if (config_.reverse_linear) out.linear = -out.linear;
     if (config_.reverse_angular) out.angular = -out.angular;
 

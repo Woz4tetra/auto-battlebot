@@ -57,8 +57,6 @@ void AsyncPublisher::run() {
         space_cv_.notify_one();
 
         call();
-        // Destroyed before relocking: the call holds frames, and the last reference to a pinned
-        // frame frees it, which can be slow. Under the lock, enqueue() on the tick waited for it.
         call = nullptr;
 
         lock.lock();
@@ -86,7 +84,6 @@ void AsyncPublisher::publish_initial_field_description(
 void AsyncPublisher::publish_field_description(
     const FieldDescription &field_description,
     const FieldDescriptionWithInlierPoints &initial_field_description) {
-    // The inlier cloud is held by shared pointer, so this per-tick copy does not copy points.
     enqueue([this, field_description, initial_field_description] {
         inner_->publish_field_description(field_description, initial_field_description);
     });

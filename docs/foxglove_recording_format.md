@@ -755,3 +755,85 @@ The AprilTag keypoint model searches a window around the last detection (the ful
 
 - Client channels are per-connection on the relay side, so a frame from a Foxglove client carries the topic rather than a channel id.
 - The default socket path is a fixed `/tmp` path rather than `$XDG_RUNTIME_DIR`, so the systemd unit for the relay and the one for the app agree without sharing environment, and so the docker playback container (which runs both) needs no extra mount.
+
+## Notes moved from `src/` comments (2026-11-15)
+
+Each entry names the file and the code it described.
+
+### `src/mcap_recorder/mcap_recorder.cpp`
+
+Beside `opts.compression = foxglove::McapCompression::None;`:
+
+No compression: the Jetson writes this at 60 Hz next to the control loop.
+
+### `src/publisher/foxglove_publisher.cpp`
+
+Beside `if (rgb_image_.has_consumers() && !data.rgb.image.empty()) {`:
+
+JPEG compression is ~10 ms of CPU on the Jetson, so it runs on worker threads, and only when a client subscribed or the recorder records the topic. The loop pays one copy of the frame, or one resize for the preview.
+
+### `src/rgbd_camera/gst_h264_backend.cpp`
+
+Beside `"insert-sps-pps", TRUE, "num-B-Frames", 0u, "maxperf-enable", TRUE,`:
+
+SPS/PPS in band ahead of every IDR: CompressedVideo needs it, and it is what makes a mid-file seek decode.
+
+### `src/rgbd_camera/gst_h264_backend.cpp`
+
+Beside `g_object_set(parse, "config-interval", -1, nullptr);`:
+
+x264enc writes SPS/PPS once; h264parse repeats them ahead of every IDR.
+
+### `src/rgbd_camera/v4l2_rgb_camera.cpp`
+
+Beside `mcap_recorder_->write_metadata(kCameraCalibrationMetadataKey,`:
+
+The video is pre-rectification, so replay needs this calibration. Embedded, a recording replays without the file, and a revised one can still override it through config.
+
+### `src/rgbd_camera/v4l2_rgb_camera.cpp`
+
+Beside `const int64_t video_frame_index = encoder_.submit(uyvy, wall_time_ns());`:
+
+The recording is pre-rectification on purpose: a calibration can be revised later and re-applied to footage already shot. The encoder numbers the frames it takes; frame_meta carries that number, so it matches the video packet in whichever file the frame lands in. -1 when it took none.
+
+### `src/rgbd_camera/video_playback_camera.cpp`
+
+Beside `bool compressed_video_payload(const std::byte *message, size_t len, const std::byte *&out,`:
+
+The `data` field of a foxglove.CompressedVideo, without linking protobuf. The message is four fields: timestamp(1), frame_id(2), data(3), format(4). Pulling one length-delimited field out of a wire-format message is a dozen lines; a protobuf dependency for it would be the larger thing to maintain.
+
+### `src/rgbd_camera/video_playback_camera.cpp`
+
+Beside `mcap::ReadMessageOptions options;`:
+
+Video only from here. The stamps are already indexed, and camera_info is not read at all: the recording is pre-rectification, so its camera_info describes a rectified stream that playback regenerates from the calibration file rather than replays. Everything else in the file is the previous run's output, which replay exists to regenerate.
+
+### `src/rgbd_camera/zed_one_rgb_camera.cpp`
+
+Beside `const int64_t video_frame_index = encoder_.submit(bgra, wall_time_ns());`:
+
+The encoder numbers the frames it takes; frame_meta carries that number, so it matches the video packet in whichever file the frame lands in. -1 when it took none. BGRA, not the BGR copy: the Jetson's nvvidconv takes 4-channel input directly.
+
+### `src/rgbd_camera/zed_one_rgb_camera.cpp`
+
+Beside `if (!mcap_recorder_ || !start_encoder()) {`:
+
+A recording started from the remote UI after launch lands here, not in initialize(). Not fatal here: the UI reports the failed toggle, and killing a running match over it is worse.
+
+### `src/rgbd_camera/zed_rgbd_camera.cpp`
+
+Beside `const SvoRecorder::FrameRef svo_frame = svo_recorder_->on_frame_grabbed();`:
+
+Roll the SVO file over if it has grown past the size cap. The return value says where this frame landed, which is what lets a recording be joined back to its SVO frames.
+
+### `src/robot_filter/kalman_motion_estimator.cpp`
+
+Beside `diagnostics_logger_->debug(`:
+
+Every opponent measurement as the estimator received it, in either mode, so a replay recording can be run back through the Python mirror offline.
+
+### `src/viz_relay/main.cpp`
+
+Beside `#include <arpa/inet.h>`:
+
+viz_relay: the process that owns the Foxglove WebSocket server. auto_battlebot connects over a unix socket and streams already-encoded messages; this process re-publishes them on ws://<host>:8765 with foxglove::WebSocketServer. Because the server lives here and not in the app, Foxglove stays connected across app restarts: channels are keyed by topic and reused when the app reconnects with the same schema, so panels never blink. It also latches: the last message on a topic advertised with latch=1 is re-sent whenever a new client subscribes, which is what lets Foxglove attach mid-run and still see the field border and inlier cloud that were published once at startup. It also serves the web dashboard (web/dist) over HTTP with Crow. Both servers live here because this process outlives app restarts: when the app crashes the page still loads and shows the app as down. Framing is in include/viz/frame.hpp; the layout is documented in docs/foxglove_recording_format.md.

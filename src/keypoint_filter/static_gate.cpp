@@ -19,8 +19,6 @@ void StaticDetectionGate::Cluster::observe(const Eigen::Vector2d &position,
                                            double stamp) {
     const double deviation = (mean - position).norm();
     observations++;
-    // Cap the averaging weight so both statistics keep tracking instead of going numb. Below the
-    // window this is an exact running mean; above it, an exponential one with that time constant.
     const double weight =
         1.0 / static_cast<double>(std::min(observations, config.responsiveness_window));
     mean_deviation += (deviation - mean_deviation) * weight;
@@ -87,9 +85,6 @@ ModelResultStamped StaticDetectionGate::filter(const ModelResultStamped &model_r
     for (const auto &[group_key, indices] : groups) {
         stats_.groups_in++;
 
-        // The group's field position is the centroid of its model_results projected onto the plane.
-        // Using the measured height where the height gate supplied one keeps a tall robot's
-        // footprint from being pushed outward by the flat-plane assumption.
         Eigen::Vector3d sum = Eigen::Vector3d::Zero();
         int projected = 0;
         for (size_t index : indices) {
@@ -115,7 +110,6 @@ ModelResultStamped StaticDetectionGate::filter(const ModelResultStamped &model_r
         const Eigen::Vector3d field_point = transform_point(tf_field_from_camera, camera_point);
         const Eigen::Vector2d position(field_point.x(), field_point.y());
 
-        // Match to the nearest tracked cluster within the match radius.
         Cluster *matched = nullptr;
         double best_distance = std::numeric_limits<double>::infinity();
         for (Cluster &cluster : clusters_) {

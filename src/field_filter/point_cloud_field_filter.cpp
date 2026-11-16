@@ -131,7 +131,6 @@ FieldDescription PointCloudFieldFilter::track_field(
     TransformStamped tf_visodom_from_camera,
     std::shared_ptr<FieldDescriptionWithInlierPoints> initial_description) {
     if (tf_visodom_from_cameraworld_.header.frame_id == FrameId::EMPTY) {
-        // filter isn't initialized
         return FieldDescription{};
     }
     Eigen::MatrixXd tf_cameraworld_from_camera =
@@ -149,7 +148,6 @@ FieldDescription PointCloudFieldFilter::track_field(
 
 cv::Mat PointCloudFieldFilter::find_largest_contour_mask(const cv::Mat &mask) const {
     FunctionTimer timer(diagnostics_logger_, "find_largest_contour_mask");
-    // Find all contours in the mask
     std::vector<std::vector<cv::Point>> contours;
     cv::findContours(mask.clone(), contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
 
@@ -157,7 +155,6 @@ cv::Mat PointCloudFieldFilter::find_largest_contour_mask(const cv::Mat &mask) co
         return cv::Mat::zeros(mask.size(), mask.type());
     }
 
-    // Find the contour with the largest area
     double max_area = 0.0;
     size_t max_area_idx = 0;
     for (size_t i = 0; i < contours.size(); ++i) {
@@ -168,7 +165,6 @@ cv::Mat PointCloudFieldFilter::find_largest_contour_mask(const cv::Mat &mask) co
         }
     }
 
-    // Create a new mask with only the largest contour
     cv::Mat result = cv::Mat::zeros(mask.size(), mask.type());
     cv::drawContours(result, contours, static_cast<int>(max_area_idx), cv::Scalar(255), cv::FILLED);
 
@@ -184,10 +180,8 @@ cv::Mat PointCloudFieldFilter::find_largest_contour_mask(const cv::Mat &mask) co
 cv::Mat PointCloudFieldFilter::mask_depth_image(const cv::Mat &depth_image,
                                                 const cv::Mat &mask) const {
     FunctionTimer timer(diagnostics_logger_, "mask_depth_image");
-    // Create a copy of the depth image
     cv::Mat masked_depth = depth_image.clone();
 
-    // Set depth to NaN where mask is zero using OpenCV operations
     masked_depth.setTo(std::numeric_limits<float>::quiet_NaN(), mask == 0);
 
     return masked_depth;
@@ -198,26 +192,21 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr PointCloudFieldFilter::create_point_cloud_fr
     FunctionTimer timer(diagnostics_logger_, "create_point_cloud_from_depth");
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
 
-    // Extract camera intrinsics (assuming 3x3 matrix)
     float fx = intrinsics.at<double>(0, 0);
     float fy = intrinsics.at<double>(1, 1);
     float cx = intrinsics.at<double>(0, 2);
     float cy = intrinsics.at<double>(1, 2);
 
-    // Reserve space for point cloud
     cloud->points.reserve(depth_image.rows * depth_image.cols);
 
-    // Convert depth image to point cloud
     for (int v = 0; v < depth_image.rows; ++v) {
         for (int u = 0; u < depth_image.cols; ++u) {
             double depth = (double)depth_image.at<float>(v, u) / depth_units_per_meter_;
 
-            // Skip invalid depth values
             if (std::isnan(depth) || depth <= 0.0f) {
                 continue;
             }
 
-            // Back-project pixel to 3D point
             pcl::PointXYZ point;
             point.z = depth;
             point.x = (u - cx) * depth / fx;
@@ -241,24 +230,19 @@ Eigen::Vector4f PointCloudFieldFilter::fit_plane_ransac(
     std::vector<int> *inliers) const {
     FunctionTimer timer(diagnostics_logger_, "fit_plane_ransac");
 
-    // Create the plane model
     pcl::SampleConsensusModelPlane<pcl::PointXYZ>::Ptr model(
         new pcl::SampleConsensusModelPlane<pcl::PointXYZ>(cloud));
 
-    // Create RANSAC object
     pcl::RandomSampleConsensus<pcl::PointXYZ> ransac(model);
     ransac.setDistanceThreshold(distance_threshold);
     ransac.setMaxIterations(ransac_max_iterations_);
     ransac.setProbability(ransac_probability_);
 
-    // Compute the model
     ransac.computeModel();
 
-    // Get the plane coefficients [a, b, c, d] where ax + by + cz + d = 0
     Eigen::VectorXf coefficients;
     ransac.getModelCoefficients(coefficients);
 
-    // Get inliers if requested
     if (inliers != nullptr) {
         ransac.getInliers(*inliers);
         diagnostics_logger_->debug({{"num_inliers", (int)inliers->size()}});
@@ -280,14 +264,10 @@ Eigen::Vector4f PointCloudFieldFilter::fit_plane_ransac(
 
 Eigen::Vector3f PointCloudFieldFilter::plane_normal_from_coefficients(
     const Eigen::Vector4f &coefficients) const {
-    // Extract normal vector from plane coefficients [a, b, c, d]
-    // For plane equation ax + by + cz + d = 0, the normal is [a, b, c]
     Eigen::Vector3f normal(coefficients[0], coefficients[1], coefficients[2]);
 
-    // Normalize the normal vector
     float magnitude = normal.norm();
     if (magnitude < 1e-6f) {
-        // Return default normal pointing toward camera (negative Z in camera frame)
         return Eigen::Vector3f(0.0f, 0.0f, -1.0f);
     }
 
@@ -309,7 +289,6 @@ Eigen::Vector3f PointCloudFieldFilter::plane_center_from_inliers(
 
     Eigen::Vector3f center(0.0f, 0.0f, 0.0f);
 
-    // Compute the centroid of inlier points
     for (const auto &point : inlier_cloud->points) {
         center.x() += point.x;
         center.y() += point.y;
@@ -323,10 +302,8 @@ Eigen::Vector3f PointCloudFieldFilter::plane_center_from_inliers(
 Eigen::Matrix4d PointCloudFieldFilter::transform_from_plane(
     const Eigen::Vector3f &plane_center, const Eigen::Vector3f &plane_normal,
     const Eigen::Vector3f &up_vector) const {
-    // Create identity transform matrix
     Eigen::Matrix4d transform = Eigen::Matrix4d::Identity();
 
-    // Compute rotation that aligns up_vector with plane_normal
     Eigen::Vector3d up = up_vector.cast<double>().normalized();
     Eigen::Vector3d normal = plane_normal.cast<double>().normalized();
 
@@ -338,16 +315,13 @@ Eigen::Matrix4d PointCloudFieldFilter::transform_from_plane(
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #endif
-    // Use Eigen's Quaternion to compute rotation from up to normal
     Eigen::Quaterniond rotation = Eigen::Quaterniond::FromTwoVectors(up, normal);
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop
 #endif
 
-    // Set rotation part of transform
     transform.block<3, 3>(0, 0) = rotation.toRotationMatrix();
 
-    // Set translation part of transform
     transform.block<3, 1>(0, 3) = plane_center.cast<double>();
 
     return transform;
@@ -355,21 +329,16 @@ Eigen::Matrix4d PointCloudFieldFilter::transform_from_plane(
 
 Eigen::Matrix4d PointCloudFieldFilter::transform_from_position_and_euler(
     const Eigen::Vector3f &position, double roll, double pitch, double yaw) const {
-    // Create identity transform matrix
     Eigen::Matrix4d transform = Eigen::Matrix4d::Identity();
 
-    // Create rotation matrix from Euler angles (ZYX convention: yaw-pitch-roll)
     Eigen::AngleAxisd rollAngle(roll, Eigen::Vector3d::UnitX());
     Eigen::AngleAxisd pitchAngle(pitch, Eigen::Vector3d::UnitY());
     Eigen::AngleAxisd yawAngle(yaw, Eigen::Vector3d::UnitZ());
 
-    // Combined rotation: R = Rz(yaw) * Ry(pitch) * Rx(roll)
     Eigen::Matrix3d rotation = (yawAngle * pitchAngle * rollAngle).toRotationMatrix();
 
-    // Set rotation part of transform
     transform.block<3, 3>(0, 0) = rotation;
 
-    // Set translation part of transform
     transform.block<3, 1>(0, 3) = position.cast<double>();
 
     return transform;
@@ -406,13 +375,10 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr PointCloudFieldFilter::transform_points(
     transformed_cloud->points.reserve(cloud->points.size());
 
     for (const auto &point : cloud->points) {
-        // Create homogeneous coordinates [x, y, z, 1]
         Eigen::Vector4d homogeneous_point(point.x, point.y, point.z, 1.0);
 
-        // Apply transformation
         Eigen::Vector4d transformed_homogeneous = transform * homogeneous_point;
 
-        // Convert back to 3D point
         pcl::PointXYZ transformed_point;
         transformed_point.x = static_cast<float>(transformed_homogeneous[0]);
         transformed_point.y = static_cast<float>(transformed_homogeneous[1]);
@@ -450,14 +416,12 @@ std::vector<Eigen::Vector2f> PointCloudFieldFilter::find_minimum_rectangle(
         return points;
     }
 
-    // Convert to OpenCV format for convex hull computation
     std::vector<cv::Point2f> cv_points;
     cv_points.reserve(points.size());
     for (const auto &p : points) {
         cv_points.emplace_back(p.x(), p.y());
     }
 
-    // Compute convex hull
     std::vector<cv::Point2f> hull;
     cv::convexHull(cv_points, hull);
 
@@ -469,7 +433,6 @@ std::vector<Eigen::Vector2f> PointCloudFieldFilter::find_minimum_rectangle(
         return result;
     }
 
-    // Calculate edge angles
     std::vector<float> angles;
     const float pi2 = M_PI / 2.0f;
 
@@ -482,23 +445,19 @@ std::vector<Eigen::Vector2f> PointCloudFieldFilter::find_minimum_rectangle(
         angles.push_back(angle);
     }
 
-    // Get unique angles
     std::sort(angles.begin(), angles.end());
     angles.erase(std::unique(angles.begin(), angles.end(),
                              [](float a, float b) { return std::abs(a - b) < 1e-6f; }),
                  angles.end());
 
-    // Find the rotation with minimum area
     float min_area = std::numeric_limits<float>::max();
     Eigen::Matrix2f best_rotation = Eigen::Matrix2f::Identity();
     float best_min_x = 0.0f, best_max_x = 0.0f, best_min_y = 0.0f, best_max_y = 0.0f;
 
     for (float angle : angles) {
-        // Create rotation matrix
         Eigen::Matrix2f rotation;
         rotation << std::cos(angle), -std::sin(angle), std::sin(angle), std::cos(angle);
 
-        // Rotate all hull points and find bounding box
         float min_x = std::numeric_limits<float>::max();
         float max_x = std::numeric_limits<float>::lowest();
         float min_y = std::numeric_limits<float>::max();
@@ -524,13 +483,11 @@ std::vector<Eigen::Vector2f> PointCloudFieldFilter::find_minimum_rectangle(
         }
     }
 
-    // Create the four corners of the rectangle in rotated space
     std::vector<Eigen::Vector2f> box_corners = {{best_max_x, best_min_y},
                                                 {best_min_x, best_min_y},
                                                 {best_min_x, best_max_y},
                                                 {best_max_x, best_max_y}};
 
-    // Rotate back to original space
     std::vector<Eigen::Vector2f> result;
     Eigen::Matrix2f inverse_rotation = best_rotation.transpose();
     for (const auto &corner : box_corners) {
@@ -557,7 +514,6 @@ Eigen::Vector2f PointCloudFieldFilter::get_rectangle_centroid(
         return Eigen::Vector2f(0.0f, 0.0f);
     }
 
-    // Compute the mean of all corner positions
     Eigen::Vector2f centroid(0.0f, 0.0f);
     for (const auto &corner : rectangle_corners) {
         centroid += corner;
@@ -569,7 +525,6 @@ Eigen::Vector2f PointCloudFieldFilter::get_rectangle_centroid(
 
 template <typename T>
 T PointCloudFieldFilter::input_modulus(T value, T min_value, T max_value) const {
-    // Bound the value between min_value and max_value, wrapping around if it goes over
     T modulus = max_value - min_value;
     value -= min_value;
     value = std::fmod(value, modulus);
@@ -581,7 +536,6 @@ T PointCloudFieldFilter::input_modulus(T value, T min_value, T max_value) const 
 }
 
 double PointCloudFieldFilter::normalize_angle(double angle) const {
-    // Normalize angle to [-pi, pi] using input_modulus
     return input_modulus(angle, -M_PI, M_PI);
 }
 
@@ -607,7 +561,6 @@ double PointCloudFieldFilter::get_rectangle_angle(
         midpoints.push_back((p0 + p1) / 2.0f);
     }
 
-    // Find the edge with the minimum y midpoint
     size_t min_y_index = 0;
     float min_y = midpoints[0].y();
     for (size_t i = 1; i < midpoints.size(); ++i) {

@@ -64,9 +64,6 @@ ModelResultStamped YoloKeypointModel::update(RgbImage image,
     const cv::Size input_image_size(static_cast<int>(in_shape[3]), static_cast<int>(in_shape[2]));
     const cv::Size original_image_size(image.image.cols, image.image.rows);
 
-    // Preprocess and inference share the engine's stream and synchronize once, at the end of
-    // inference. "preprocess" therefore times the frame upload (none for a pinned frame) and the
-    // kernel launch; the kernel's own GPU time lands in "inference".
     {
         FunctionTimer stage_timer(diagnostics_logger_, "preprocess");
         if (!letterbox_.enqueue(image.image, input_image_size.width, input_image_size.height,
@@ -76,11 +73,10 @@ ModelResultStamped YoloKeypointModel::update(RgbImage image,
         }
     }
 
-    // Points into the engine's pinned output buffer, valid until the next inference.
     const float *output = nullptr;
     {
         FunctionTimer stage_timer(diagnostics_logger_, "inference");
-        output = engine_.execute_device_input();
+        output = engine_.execute_into_pinned_output();
         if (!output) {
             diagnostics_logger_->error({}, "YOLO inference failed");
             return ModelResultStamped{};
@@ -296,7 +292,6 @@ void YoloKeypointModel::record_raw_detections(const std::vector<DetectionRow> &k
                               class_id,
                               label_indices_[static_cast<size_t>(class_id)],
                               {}};
-        // Keypoints are still in input-image coordinates (scale_boxes only maps the box).
         for (size_t kp_idx = 6; kp_idx + 2 < row.size(); kp_idx += 3) {
             const Keypoint scaled_kp = scale_keypoint(
                 Keypoint{Label::EMPTY, KeypointLabel::EMPTY, static_cast<double>(row[kp_idx]),

@@ -44,7 +44,6 @@ std::vector<RobotDescription> RobotTemporalMotionFilter::update_with_prediction(
 
         auto cmd_it = command_feedback.stick_commands.find(frame_id);
         if (cmd_it == command_feedback.stick_commands.end()) {
-            // Opponents (or ours without feedback): hold last known pose.
             continue;
         }
 
@@ -68,10 +67,6 @@ std::vector<RobotDescription> RobotTemporalMotionFilter::update_with_prediction(
         frame_id_assigner.set_last_position(frame_id, desc.pose.position);
     }
 
-    // Stale-identity decay: drop an our-robot track once its last keypoint confirmation is older
-    // than the hold window, instead of predicting it forward forever. Scoped to Group::OURS -- the
-    // decay exists to stop our robot leaking as a held ghost after a genuine departure/keypoint
-    // loss; opponents keep their hold-last-pose behavior. A window <= 0 disables the decay.
     if (our_robot_hold_window_s > 0.0) {
         for (auto it = last_description_per_frame_id_.begin();
              it != last_description_per_frame_id_.end();) {
@@ -97,7 +92,6 @@ std::vector<RobotDescription> RobotTemporalMotionFilter::update_with_prediction(
     for (const auto &[frame_id, desc] : last_description_per_frame_id_) {
         RobotDescription output = desc;
         output.is_stale = measured_frame_ids.count(frame_id) == 0;
-        // Refresh the per-robot timestamp so the next frame's dead-reckoning dt spans one frame.
         last_output_timestamp_per_frame_id_[frame_id] = timestamp;
         outputs.push_back(std::move(output));
     }

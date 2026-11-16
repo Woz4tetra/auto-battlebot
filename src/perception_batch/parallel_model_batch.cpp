@@ -9,15 +9,10 @@
 namespace auto_battlebot {
 
 namespace {
-// Bound on how long update() waits for both models. ~30x the worst per-model time seen in
-// latency reports; hitting it means a model is wedged, not slow.
 constexpr std::chrono::milliseconds kUpdateWaitTimeout(1000);
 constexpr std::chrono::seconds kJoinHardTimeout(2);
-// A model that throws every frame would log 60 lines a second.
 constexpr std::chrono::seconds kExceptionLogInterval(5);
 
-// Same pattern as ZedRgbdCamera: poll a done flag the worker sets on exit so shutdown can
-// give up on a thread wedged inside a model update instead of blocking forever in join().
 bool join_with_timeout(std::thread &thread, const std::atomic<bool> &exited_flag,
                        const char *context) {
     if (!thread.joinable()) return true;
@@ -49,12 +44,10 @@ ParallelModelBatch::ParallelModelBatch(std::shared_ptr<KeypointModelInterface> k
             keypoint_thread_exited_);
     });
     robot_blob_thread_ = std::thread([this] {
-        worker_loop(
-            [this](const RgbImage &image, const CameraInfo & /*camera_info*/) {
-                return robot_blob_model_->update(image);
-            },
-            robot_blob_done_id_, result_.robot_blob_keypoints, result_.robot_blob_model_elapsed_ms,
-            robot_blob_thread_exited_);
+        worker_loop([this](const RgbImage &image,
+                           const CameraInfo &) { return robot_blob_model_->update(image); },
+                    robot_blob_done_id_, result_.robot_blob_keypoints,
+                    result_.robot_blob_model_elapsed_ms, robot_blob_thread_exited_);
     });
 }
 

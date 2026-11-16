@@ -53,7 +53,7 @@ TEST(TrtEngineGraphTest, GraphAndDeviceInputMatchPlainExecute) {
     ASSERT_EQ(cudaMemcpyAsync(engine.device_input(), input.data(), engine.getInputSizeBytes(),
                               cudaMemcpyHostToDevice, static_cast<cudaStream_t>(engine.stream())),
               cudaSuccess);
-    const float *device_path = engine.execute_device_input();
+    const float *device_path = engine.execute_into_pinned_output();
     ASSERT_NE(device_path, nullptr);
     for (size_t i = 0; i < plain.size(); ++i) {
         ASSERT_FLOAT_EQ(device_path[i], plain[i]) << "at " << i;

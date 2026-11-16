@@ -12,9 +12,8 @@
 namespace auto_battlebot {
 namespace {
 constexpr auto kReconnectInterval = std::chrono::seconds(1);
-// The dongle sends link stats every 100 ms, so this much silence means the port is dead: the
-// dongle re-enumerated under an fd we still hold, or its firmware stopped writing.
-constexpr auto kDongleSilence = std::chrono::milliseconds(500);
+constexpr auto kDongleLinkStatsPeriod = std::chrono::milliseconds(100);
+constexpr auto kDongleSilence = 5 * kDongleLinkStatsPeriod;
 constexpr auto kHealthPeriod = std::chrono::seconds(1);
 constexpr const char *kTopic = "/robot/espnow_telemetry";
 
@@ -87,7 +86,6 @@ std::string to_espnow_telemetry_json(const espnow_protocol::TelemetryPayload &t,
     append_number(json, "linear_accel_z", t.linear_accel_z);
     append_number(json, "gyro_x", t.gyro_x);
     append_number(json, "gyro_y", t.gyro_y);
-    // CALIB_STAT packs four 0-3 levels: sys in bits 7-6, then gyro, accel, mag.
     append_integer(json, "imu_calib_sys", (t.imu_calibration >> 6) & 0x03);
     append_integer(json, "imu_calib_gyro", (t.imu_calibration >> 4) & 0x03);
     append_integer(json, "imu_calib_accel", (t.imu_calibration >> 2) & 0x03);
@@ -183,8 +181,6 @@ TransmitterStatus EspNowTransmitter::get_status() const {
     const bool connected = dongle_.is_open();
     const bool fresh = connected && latest_telemetry_ &&
                        std::chrono::steady_clock::now() - latest_telemetry_time_ <= kTelemetryStale;
-    // receiving_channels: the robot hears its handset and we hear the robot. SA on with both means
-    // what send() writes reaches the wheels (with ESPNOW_COMMAND_SUBSTITUTION in the firmware).
     const bool receiving = fresh && latest_telemetry_->radio_connected != 0;
     return {.connected = connected,
             .receiving_channels = receiving,
@@ -229,7 +225,6 @@ double EspNowTransmitter::limit_linear_acceleration(double linear_command) {
 
     const auto now = std::chrono::steady_clock::now();
     if (!get_status().autonomy_switch_on) {
-        // The robot drives from the sticks, so hold the baseline at a standstill.
         prev_linear_command_ = 0.0;
         last_send_time_ = now;
         return linear_command;
@@ -283,9 +278,6 @@ void EspNowTransmitter::handle_telemetry(const espnow_protocol::TelemetryPayload
     latest_telemetry_time_ = std::chrono::steady_clock::now();
     std::optional<int64_t> round_trip_us;
     if (telemetry.espnow_age_ms != UINT32_MAX && telemetry.espnow_seq != 0) {
-        // Unsigned subtraction wraps correctly across the 32-bit rollover. Each sample also holds
-        // the robot's wait for its next 10 ms telemetry slot, so the per-period minimum is the
-        // transport estimate.
         const int64_t sample = static_cast<int64_t>(espnow_monotonic_us() - telemetry.jetson_tx_us);
         round_trip_us = sample;
         if (!min_round_trip_us_since_health_log_ || sample < *min_round_trip_us_since_health_log_)
@@ -321,8 +313,6 @@ void EspNowTransmitter::log_health() {
         data["failed"] = static_cast<int>(link_stats_->failed);
         data["last_send_us"] = static_cast<int>(link_stats_->last_rtt_us);
         if (link_stats_at_last_log_) {
-            // ACK rate over the last period. Only meaningful once robot_known: broadcast frames
-            // report success with no ACK behind them.
             const uint32_t sent = link_stats_->sent - link_stats_at_last_log_->sent;
             const uint32_t acked = link_stats_->acked - link_stats_at_last_log_->acked;
             data["ack_percent"] = sent > 0 ? 100.0 * acked / sent : 0.0;
@@ -363,7 +353,6 @@ bool EspNowTransmitter::reconnect_if_needed() {
         return false;
     }
     logger_->info("dongle_opened", {{"path", config_.dongle_serial_path}});
-    // One silence window of grace for the first link stats frame.
     last_dongle_frame_time_ = now;
     parser_ = espnow_protocol::SerialFrameParser();
     link_stats_.reset();
