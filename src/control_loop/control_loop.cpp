@@ -81,13 +81,9 @@ TargetSelection ControlLoop::resolve_target(const RobotDescriptionsStamped &robo
                                             const FieldDescription &field_description,
                                             BehaviorMode mode,
                                             const std::optional<Pose2D> &target_override) {
-    // The selector's held target is left alone, so handing targeting back resumes from it.
     if (target_override) {
         return TargetSelection{.pose = *target_override, .label = Label::EMPTY, .mode = mode};
     }
-    // Stamp the mode on the way out rather than letting the selector set it. A selector that found
-    // nothing leaves the previous target in place, which still has to carry the mode navigation is
-    // steering under right now.
     if (target_selector_) {
         if (auto selected = target_selector_->get_target(robots, field_description, mode)) {
             previous_selected_target_ = *selected;
@@ -98,9 +94,6 @@ TargetSelection ControlLoop::resolve_target(const RobotDescriptionsStamped &robo
 }
 
 void ControlLoop::run_cycle() {
-    // Stamp on entry, not on completion. The watchdog asks "is the loop still turning", and a
-    // cycle that legitimately does nothing yet (no field, so nothing to steer by) is still a
-    // cycle. Stamping at the end made the watchdog fire during startup.
     last_cycle_us_.store(std::chrono::duration_cast<std::chrono::microseconds>(
                              std::chrono::steady_clock::now().time_since_epoch())
                              .count());
@@ -141,11 +134,6 @@ void ControlLoop::run_cycle() {
     RobotDescriptionsStamped robots;
     {
         FunctionTimer timer(diagnostics_logger_, "robot_filter.update");
-        // Correct first, predict second. correct() folds the measurement in at the shutter stamp
-        // and leaves the emitted state there; predict() is what carries it forward to the control
-        // clock and past it by the transport delay. Running predict first threw that lead away on
-        // every cycle that carried a measurement, which is every cycle the publisher samples, so
-        // the estimate rendered and steered by sat a full perception latency behind the field.
         if (measurement) {
             robot_filter_->correct(measurement->keypoints, measurement->field_description,
                                    measurement->camera_info, measurement->robot_blob_keypoints);

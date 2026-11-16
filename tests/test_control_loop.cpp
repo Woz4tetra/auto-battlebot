@@ -8,6 +8,7 @@
 #include <Eigen/Dense>
 #include <memory>
 #include <opencv2/core.hpp>
+#include <string>
 #include <vector>
 
 #include "control_loop/control_loop.hpp"
@@ -37,7 +38,7 @@ class RecordingNavigation : public NavigationInterface {
     VelocityCommand update(RobotDescriptionsStamped robots, FieldDescription field,
                            const TargetSelection &target) override {
         (void)field;
-        (void)target;
+        seen_targets.push_back(target);
         double sum_x = 0.0;
         double sum_y = 0.0;
         for (const auto &robot : robots.descriptions) {
@@ -57,6 +58,7 @@ class RecordingNavigation : public NavigationInterface {
     }
 
     std::vector<RobotDescriptionsStamped> seen_robots;
+    std::vector<TargetSelection> seen_targets;
     int initialize_calls = 0;
 
    private:
@@ -92,9 +94,21 @@ class RecordingTargetSelector : public TargetSelectorInterface {
                                               const FieldDescription &,
                                               BehaviorMode mode) override {
         seen_modes.push_back(mode);
-        return std::nullopt;
+        return next;
     }
     std::vector<BehaviorMode> seen_modes;
+    std::optional<TargetSelection> next;
+};
+
+class OrderRecordingFilter : public RobotFilterInterface {
+   public:
+    bool initialize(int) override { return true; }
+    void predict(double, CommandFeedback) override { calls.push_back("predict"); }
+    void correct(ModelResultStamped, FieldDescription, CameraInfo, ModelResultStamped) override {
+        calls.push_back("correct");
+    }
+    RobotDescriptionsStamped state() const override { return {}; }
+    std::vector<std::string> calls;
 };
 
 CameraInfo make_camera_info() {
@@ -452,6 +466,102 @@ TEST(ControlLoopTest, TargetOverrideBypassesSelectorUntilCleared) {
     step(measurements[1]);
     EXPECT_FALSE(selector->seen_modes.empty());
     EXPECT_FALSE(loop->latest_output().manual_target);
+}
+
+TEST(ControlLoopTest, HeldTargetResumesAfterAnOverrideClears) {
+    auto config = make_filter_config();
+    auto filter = std::make_shared<RobotFrontBackFilter>(config);
+    ASSERT_TRUE(filter->initialize(1));
+    auto navigation = std::make_shared<RecordingNavigation>();
+    auto selector = std::make_shared<RecordingTargetSelector>();
+    auto clock = std::make_shared<ManualClock>();
+    auto loop = std::make_shared<ControlLoop>(filter, selector, navigation,
+                                              std::make_shared<RecordingTransmitter>(), clock,
+                                              nullptr, kCacheMaxAgeS);
+    SteppedControlLoop driver(loop, 0.0);
+    driver.start();
+    const auto measurements = make_measurements(3);
+    auto step = [&](const ControlMeasurement &m) {
+        driver.pump_input();
+        clock->set(m.keypoints.header.stamp);
+        loop->submit_measurement(m);
+        driver.advance_to(m.keypoints.header.stamp);
+    };
+
+    selector->next = TargetSelection{.pose = Pose2D{.x = 0.5, .y = 0.1, .yaw = 0.0}};
+    step(measurements[0]);
+    loop->set_target_override(Pose2D{.x = -0.4, .y = 0.0, .yaw = 0.0});
+    step(measurements[1]);
+    loop->set_target_override(std::nullopt);
+    selector->next = std::nullopt;
+    step(measurements[2]);
+
+    ASSERT_FALSE(navigation->seen_targets.empty());
+    EXPECT_DOUBLE_EQ(navigation->seen_targets.back().pose.x, 0.5);
+}
+
+TEST(ControlLoopTest, ReusedTargetCarriesTheCurrentBehaviorMode) {
+    auto config = make_filter_config();
+    auto filter = std::make_shared<RobotFrontBackFilter>(config);
+    ASSERT_TRUE(filter->initialize(1));
+    auto navigation = std::make_shared<RecordingNavigation>();
+    auto selector = std::make_shared<RecordingTargetSelector>();
+    auto clock = std::make_shared<ManualClock>();
+    auto loop = std::make_shared<ControlLoop>(filter, selector, navigation,
+                                              std::make_shared<RecordingTransmitter>(), clock,
+                                              nullptr, kCacheMaxAgeS);
+    SteppedControlLoop driver(loop, 0.0);
+    driver.start();
+    const auto measurements = make_measurements(2);
+    auto step = [&](const ControlMeasurement &m) {
+        driver.pump_input();
+        clock->set(m.keypoints.header.stamp);
+        loop->submit_measurement(m);
+        driver.advance_to(m.keypoints.header.stamp);
+    };
+
+    selector->next = TargetSelection{.pose = Pose2D{.x = 0.5, .y = 0.1, .yaw = 0.0}};
+    step(measurements[0]);
+    selector->next = std::nullopt;
+    loop->set_behavior_mode(BehaviorMode::RUN_AWAY);
+    step(measurements[1]);
+
+    ASSERT_FALSE(navigation->seen_targets.empty());
+    EXPECT_DOUBLE_EQ(navigation->seen_targets.back().pose.x, 0.5);
+    EXPECT_EQ(navigation->seen_targets.back().mode, BehaviorMode::RUN_AWAY);
+}
+
+TEST(ControlLoopTest, WatchdogStampAdvancesWhileWaitingForTheField) {
+    auto config = make_filter_config();
+    auto filter = std::make_shared<RobotFrontBackFilter>(config);
+    ASSERT_TRUE(filter->initialize(1));
+    auto clock = std::make_shared<ManualClock>();
+    auto loop = std::make_shared<ControlLoop>(
+        filter, nullptr, std::make_shared<RecordingNavigation>(),
+        std::make_shared<RecordingTransmitter>(), clock, nullptr, kCacheMaxAgeS);
+    SteppedControlLoop driver(loop, 0.0);
+    driver.start();
+    const auto before = loop->last_cycle_time();
+    clock->set(1.0);
+    driver.advance_to(1.0);
+    EXPECT_GT(loop->last_cycle_time(), before);
+}
+
+TEST(ControlLoopTest, FilterCorrectsBeforeItPredicts) {
+    auto filter = std::make_shared<OrderRecordingFilter>();
+    auto clock = std::make_shared<ManualClock>();
+    auto loop = std::make_shared<ControlLoop>(
+        filter, nullptr, std::make_shared<RecordingNavigation>(),
+        std::make_shared<RecordingTransmitter>(), clock, nullptr, kCacheMaxAgeS);
+    SteppedControlLoop driver(loop, 0.0);
+    driver.start();
+    const auto measurements = make_measurements(1);
+    clock->set(measurements[0].keypoints.header.stamp);
+    loop->submit_measurement(measurements[0]);
+    driver.advance_to(measurements[0].keypoints.header.stamp);
+    ASSERT_GE(filter->calls.size(), 2u);
+    EXPECT_EQ(filter->calls[0], "correct");
+    EXPECT_EQ(filter->calls[1], "predict");
 }
 
 }  // namespace auto_battlebot
