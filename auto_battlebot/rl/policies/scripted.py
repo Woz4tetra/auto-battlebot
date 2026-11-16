@@ -48,7 +48,6 @@ class PursuitPolicy:
         known = obs[:, self.iknown] > 0.5
         error = torch.atan2(y, x)
         distance = torch.hypot(x, y)
-        # NaN marks a world with no previous error yet (episode start), as prev_timestamp_ = 0 does.
         prev = state["prev_error"] if state is not None else torch.full_like(error, math.nan)
         prev = torch.where(torch.isnan(prev), error, prev)
         d_term = c.angular_kd * (torch.remainder(error - prev + math.pi, 2 * math.pi) - math.pi)

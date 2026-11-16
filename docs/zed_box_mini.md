@@ -183,6 +183,36 @@ flash steps are on the
 [flash docs](https://docs.stereolabs.com/docs/products/embedded/zed-box-mini/reset-update) page
 if that changes.
 
+## Reading SVO2 files without the ZED SDK
+
+Notes on `auto_battlebot/recording/svo2.py`.
+
+### `recording/svo2.py`
+
+Read ZED ``.svo2`` recordings without the ZED SDK.
+
+A ``.svo2`` file is an MCAP container written by ``libmcap stereolabs``:
+
+  * ``<camera>/side_by_side`` (``zed_sdk_encoded``): one message per frame, an
+    8-byte length prefix followed by an Annex-B H.264 access unit holding the
+    ``[left | right]`` stereo pair. The message ``log_time`` is the camera
+    frame timestamp in epoch nanoseconds.
+  * ``<camera>/sensors`` and ``<camera>/integrated_sensors`` (JSON): IMU and
+    friends, carried as an opaque base64 blob that only the SDK decodes.
+  * ``svo_header`` / ``svo_footer`` (JSON): calibration, and an index listing
+    every message timestamp per topic. Both carry a ``log_time`` unrelated to
+    the recording's own timeline, so never take the time range from the MCAP
+    summary statistics.
+
+Depth is not available through this path: the SDK computes it on the device
+and it is not stored in the recording. Use ``training/svo_export.py`` (pyzed)
+if you need the depth channel.
+
+#### `_PAYLOAD_HEADER_BYTES`
+
+Each side_by_side payload is two 4-byte little-endian sizes followed by the
+Annex-B stream, which always opens on a 4-byte start code.
+
 ## Sources
 
 - [ZED SDK release page](https://www.stereolabs.com/developers/release)

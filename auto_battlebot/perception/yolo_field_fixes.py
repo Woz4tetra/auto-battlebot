@@ -1,34 +1,4 @@
-"""YOLO robot detections as field-frame position fixes for the sysid tag smoother.
-
-The overhead tag drops out while the robot sits flat and in full view: the camera looks down at
-an angle, so with the robot heading away from it the 11 degree nose-down tag foreshortens to about
-24 px and stops decoding. The deployed YOLO pose model still sees the robot in those frames. Its
-front and back keypoints, projected onto a horizontal plane, give the axle centre to about 8 mm,
-three times worse than the tag but far better than extrapolating through a second-long gap. Across
-40 withheld 1 s tag spans the smoothed position error fell from 95 mm to 8 mm (median). The
-keypoint heading (about 5 degrees) is worse than what the IMU yaw rate carries through a gap, so
-the smoother takes position only.
-
-Everything the projection needs is fitted per session against the tag, on frames where both see
-the robot:
-
-- ``offset_ns``: the video stamp runs ahead of the tag's image stamp by a frame and a half. The
-  robot's motion picks the frame; the stamps of frames both streams carry then pin it to the
-  stamp-level offset, so a video frame lands within about a millisecond of its camera frame.
-- ``plane_height_m``: the height of the plane the keypoints are projected onto. It absorbs where
-  the labelled keypoints sit on the chassis, so it need not be a physical height.
-- ``axle_offset_m``: from the keypoint midpoint to the axle centre, along the heading.
-- the noise, along and across the camera's view, and of the heading.
-- size gates. The model sometimes labels the floor marker board as the robot (a 380 px box
-  against the robot's 110 to 200 px, keypoints 0.24 to 0.30 m apart against 0.11 to 0.19 m), so a
-  detection outside the range the co-visible inliers span, widened by ``GATE_MARGIN``, is dropped.
-
-Fixes fill tag dropouts only: video frames between two tag detections more than
-``DROPOUT_MIN_NS`` apart. Between closer tag fixes YOLO adds little and is three times noisier, and
-a fit horizon would score against it instead of a tag a few milliseconds away. They are also used
-only while the robot is upright and flat by its own IMU: a wheelie or a flip moves the keypoints
-off the plane they are projected onto.
-"""
+"""YOLO robot detections as field-frame position fixes for the sysid tag smoother."""
 
 from __future__ import annotations
 
@@ -41,12 +11,12 @@ from scipy.optimize import least_squares
 
 GATE_MARGIN = 1.3
 MIN_CONF = 0.5
-INLIER_M = 0.03  # a co-visible detection within this of the tag defines the size gates
+SIZE_GATE_INLIER_RADIUS_M = 0.03
 OFFSETS_MS = tuple(range(-60, 61, 4))
-PAIR_MAX_NS = 20_000_000  # a detection pairs with tags no further than this from its stamp
+TAG_PAIR_MAX_OFFSET_NS = 20_000_000
 HALF_FRAME_NS = 8_400_000
-DROPOUT_MIN_NS = 100_000_000  # tag detections further apart than this bound a dropout
-FLAT_LIMIT_DEG = 15.0  # IMU pitch and roll off their upright medians
+TAG_DROPOUT_MIN_GAP_NS = 100_000_000
+UPRIGHT_TILT_LIMIT_DEG = 15.0
 
 
 @dataclass
@@ -93,7 +63,7 @@ def _project(
 
     ``up_from_camera`` is (N, 4, 4).
     """
-    rays_cam = k_inv @ np.vstack([u, v, np.ones_like(u)])  # (3, N)
+    rays_cam = k_inv @ np.vstack([u, v, np.ones_like(u)])
     rays = np.einsum("nij,jn->ni", up_from_camera[:, :3, :3], rays_cam)
     origin = up_from_camera[:, :3, 3]
     scale = (height - origin[:, 2]) / rays[:, 2]
@@ -171,7 +141,7 @@ def calibrate(
 
     def fit_at(offset_ns: int) -> tuple[float, np.ndarray, np.ndarray] | None:
         shifted = stamps + offset_ns
-        pair = np.abs(nearest_tag(shifted)) < PAIR_MAX_NS
+        pair = np.abs(nearest_tag(shifted)) < TAG_PAIR_MAX_OFFSET_NS
         if pair.sum() < 50:
             return None
         sub = best_per_frame[pair]
@@ -192,7 +162,6 @@ def calibrate(
             coarse = (result[0], off_ms * 1_000_000)
     if coarse is None:
         raise ValueError("too few frames where both the tag and YOLO see the robot")
-    # Snap to the stamp offset of frames both streams carry.
     d = nearest_tag(stamps + coarse[1])
     offset_ns = coarse[1] + int(np.median(d[np.abs(d) < HALF_FRAME_NS]))
     final = fit_at(offset_ns)
@@ -207,7 +176,7 @@ def calibrate(
     dyaw = _wrap(proj["yaw"] - np.interp(shifted, tag_stamp_ns, tag_yaw))
     err = np.hypot(dx, dy)
     c, s = np.cos(azimuth), np.sin(azimuth)
-    inl = err < INLIER_M
+    inl = err < SIZE_GATE_INLIER_RADIUS_M
     diag = _box_diag(sub)[inl]
     sep = proj["sep"][inl]
     confident = det[det["conf"] >= MIN_CONF]
@@ -247,14 +216,14 @@ def calibrate(
 
 
 def flat_mask(esp32: pd.DataFrame, stamp_ns: np.ndarray) -> np.ndarray:
-    """True where the robot's own IMU says it is upright and within ``FLAT_LIMIT_DEG`` of level."""
+    """True where the robot's own IMU says it is upright, within ``UPRIGHT_TILT_LIMIT_DEG``."""
     e = esp32.sort_values("stamp_ns")
     t = e["stamp_ns"].to_numpy(np.int64)
     upright = e["is_upside_down"].to_numpy() == 0
     pitch = e["orientation_y"].to_numpy(float)
     roll = e["orientation_z"].to_numpy(float)
-    ok = upright & (np.abs(pitch - np.median(pitch[upright])) < FLAT_LIMIT_DEG)
-    ok &= np.abs(roll - np.median(roll[upright])) < FLAT_LIMIT_DEG
+    ok = upright & (np.abs(pitch - np.median(pitch[upright])) < UPRIGHT_TILT_LIMIT_DEG)
+    ok &= np.abs(roll - np.median(roll[upright])) < UPRIGHT_TILT_LIMIT_DEG
     at = np.clip(np.searchsorted(t, stamp_ns, side="right") - 1, 0, len(t) - 1)
     return np.asarray(ok[at])
 
@@ -267,7 +236,7 @@ def select_fixes(
     tag_stamps_ns: np.ndarray,
     esp32: pd.DataFrame | None,
 ) -> tuple[pd.DataFrame, dict[str, int]]:
-    """One fix per video frame inside a tag dropout (see ``DROPOUT_MIN_NS``).
+    """One fix per video frame inside a tag dropout (see ``TAG_DROPOUT_MIN_GAP_NS``).
 
     Returns rows of ``stamp_ns`` (the video stamp moved onto the tag's image clock), ``x``, ``y``,
     ``yaw``, ``conf`` and the counts behind them.
@@ -288,8 +257,6 @@ def select_fixes(
     shifted = cand["stamp_ns"].to_numpy(np.int64) + cal.offset_ns
     report["video_frames"] = len(shifted)
 
-    # The app drops to about 12 fps once the tag is lost (the full-frame search is slow), so most
-    # video frames in a dropout were never processed at all; every one of them gets a fix.
     tags = np.unique(np.asarray(tag_stamps_ns, dtype=np.int64))
     if len(shifted) == 0 or tags.size < 2:
         report["fixes"] = 0
@@ -297,7 +264,7 @@ def select_fixes(
     j = np.searchsorted(tags, shifted)
     inside = (j > 0) & (j < tags.size)
     j = np.clip(j, 1, tags.size - 1)
-    keep = inside & (tags[j] - tags[j - 1] > DROPOUT_MIN_NS)
+    keep = inside & (tags[j] - tags[j - 1] > TAG_DROPOUT_MIN_GAP_NS)
     keep &= (tags[j] - shifted > HALF_FRAME_NS) & (shifted - tags[j - 1] > HALF_FRAME_NS)
     report["video_frames_in_dropouts"] = int(keep.sum())
     if esp32 is not None and len(esp32):

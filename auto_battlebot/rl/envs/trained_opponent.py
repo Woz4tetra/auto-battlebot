@@ -1,16 +1,4 @@
-"""The RL training opponents (`opponents.py`) as one opponent the kinematic sim can step.
-
-`simulation/kinematic_sim_server.py` uses it for `[[opponents]] behavior = "trained"`. It drives
-the opponent with the same code the policy trained
-against, one world at a time: `trained_behaviour` picks static, straight, circle, random_walk,
-pursuit, corner or replay ("any" draws one per reset, as stage D does), and the parameters (speed,
-radius, turn noise, pursuit lead and delay, corner, replay track and start time) are drawn the
-way the training environment draws them. The rule that stops an opponent pushing through our
-robot comes along too.
-
-Pursuit's reaction delay counts sim ticks of the 20 ms policy step it was trained at; at another
-[sim] dt it scales with the tick.
-"""
+"""The RL training opponents (`opponents.py`) as one opponent the kinematic sim can step."""
 
 from __future__ import annotations
 
@@ -61,9 +49,7 @@ class TrainedOpponent:
         return BEHAVIOURS[int(self._opp.p.behaviour[0])]
 
     def reset(self, us_xy: tuple[float, float]) -> tuple[float, float, float] | None:
-        """Draw a behaviour and its parameters. Returns the start pose a replay track sets, or
-        None to keep the configured start. The sim's robot start is fixed, so a replay start is
-        redrawn until it clears our robot by START_CLEARANCE_M (training places us instead)."""
+        """Draw a behaviour and its parameters."""
         self._opp.history[:, :, 0] = us_xy[0]
         self._opp.history[:, :, 1] = us_xy[1]
         self._opp.history[:, :, 2:] = 0.0
@@ -89,8 +75,7 @@ class TrainedOpponent:
     def observe_us(
         self, xy: tuple[float, float], velocity: tuple[float, float], yaw: float
     ) -> None:
-        """Our robot's pose and world-frame velocity this tick: pursuit aims at it, corner turns
-        to face it, and every behaviour stops at contact with our footprint."""
+        """Set our robot's pose and world-frame velocity for this tick."""
         self._us_xy[0, 0], self._us_xy[0, 1] = xy
         self._us_v[0, 0], self._us_v[0, 1] = velocity
         self._us_yaw[0] = yaw

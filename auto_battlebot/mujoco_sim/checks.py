@@ -1,11 +1,4 @@
-"""Sanity checks on the Mr Stabs Mk2 MJCF, run on CPU MuJoCo before any fitting.
-
-1. Nose lift under a slow torque ramp lands on the analytic threshold (momentum form).
-2. Top speed at a set voltage (no friction) matches KV x V / N at the wheel.
-3. Zero-command decel tau is reachable with a plausible winding resistance.
-
-Plus the timestep study: halve dt until the flip threshold and the tau stop moving.
-"""
+"""Sanity checks on the Mr Stabs Mk2 MJCF, run on CPU MuJoCo before any fitting."""
 
 from __future__ import annotations
 
@@ -48,19 +41,7 @@ def settle(model: mujoco.MjModel, data: mujoco.MjData, seconds: float = 2.0) -> 
 
 
 def analytic_lift_accel(mp: MassProperties, rest_pitch: float, rotor: str = "momentum") -> float:
-    """Forward acceleration (m/s^2) at which the skid unloads, from moments about the axle.
-
-    With the robot at its rest pitch: the drive reaction on the chassis, F r plus the spin-up
-    torque of whatever turns with the wheel, plus the chassis's own inertial load at its COM
-    height, against gravity at the COM's lever arm.
-
-    `rotor` picks the rotor's share of the spin-up torque:
-      "momentum"   N J_r alpha. The rotor's angular momentum is J_r N omega_wheel, and the
-                   gearbox housing reacts exactly its rate of change. This is the physics.
-      "reflected"  N^2 J_r alpha, the plan's first estimate (0.29 g). N^2 J_r is the inertia
-                   the motor pushes against at the wheel, not what the chassis reacts.
-      "none"       no rotor at all.
-    """
+    """Forward acceleration (m/s^2) at which the skid unloads, from moments about the axle."""
     c, s = np.cos(rest_pitch), np.sin(rest_pitch)
     x_c = mp.chassis.com[0] * c + mp.chassis.com[2] * s
     h_c = -mp.chassis.com[0] * s + mp.chassis.com[2] * c
@@ -96,18 +77,7 @@ def simulated_lift_accel(
     skid_mu: float = 0.01,
     lift_deg: float = 3.0,
 ) -> float:
-    """Ramp wheel torque until the nose unloads; return the forward accel it took.
-
-    The actuators are switched to pure torque (gain 1, no back-EMF) so the ramp is exact, and
-    the wheels get `wheel_mu` so they don't spin out before the nose can lift. The analytic
-    threshold assumes a frictionless nose, so the hull and skid get `skid_mu` near zero: with a
-    realistic 0.3 the sliding skid stick-slips, rocks the chassis, and trips the lift early by an
-    amount that depends on the timestep (0.64 g at 1 ms, 0.93 g at 0.25 ms against 1.20 g).
-    The nose counts as lifted once the pitch sits `lift_deg` above rest for 20 ms; the
-    acceleration is a line fit to the chassis speed over the 100 ms before that. The skid
-    contact force can't mark it: the sliding skid chatters on and off the floor well below
-    the threshold.
-    """
+    """Ramp wheel torque until the nose unloads; return the forward accel it took."""
     model.actuator_gainprm[:, 0] = 1.0
     model.actuator_biasprm[:, :] = 0.0
     model.actuator_forcerange[:, :] = [-10.0, 10.0]
@@ -143,11 +113,7 @@ def simulated_lift_accel(
 def simulated_top_speed(
     model: mujoco.MjModel, data: mujoco.MjData, volts: float, seconds: float = 4.0
 ) -> float:
-    """Forward speed after driving straight at `volts`; joint friction and damping zeroed.
-
-    The voltage ramps up over `seconds` and then holds for one more second: a step to full
-    voltage from rest wheelies the robot over, as the real one does.
-    """
+    """Forward speed after driving straight at `volts`; joint friction and damping zeroed."""
     for name in WHEEL_JOINTS:
         dof = model.joint(name).dofadr[0]
         model.dof_frictionloss[dof] = 0.0
@@ -193,11 +159,7 @@ def simulated_decel_tau(
 
 
 def resistance_for_tau(mp: MassProperties, params: PlantParams, target_tau: float) -> float:
-    """Winding resistance that gives `target_tau` in brake mode, ignoring joint friction.
-
-    Per wheel the back-EMF brake is eta N^2 Kt^2 / R against the inertia it decelerates: wheel,
-    reflected rotor, and half the robot's mass at the wheel radius.
-    """
+    """Winding resistance that gives `target_tau` in brake mode."""
     j_eff = (
         mp.reflected_inertia * params.armature_scale
         + mp.wheel_left.fullinertia[1]

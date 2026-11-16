@@ -59,10 +59,10 @@ from auto_battlebot.mujoco_sim.rollout import (
     rest_height,
 )
 
-WALL_HEIGHT_M = 0.3  # tall enough that a backflip lands inside the arena
+WALL_HEIGHT_M = 0.3
 WALL_THICKNESS_M = 0.05
 BLOCK_HEIGHT_M = 0.3
-PARKED_XY = (50.0, 50.0)  # moving blocks wait here until their first position arrives
+UNPLACED_BLOCK_XY = (50.0, 50.0)
 ARENA_WALL_PREFIX = "arena_wall_"
 BLOCK_PREFIX = "wall_block_"
 MOVING_BLOCK_PREFIX = "moving_block_"
@@ -103,14 +103,11 @@ def _add_static_geoms(
     blocks: Sequence[Disc],
     moving_blocks: Sequence[MovingBlock],
 ) -> None:
-    # Zero friction, like the floor: MuJoCo takes the max of the pair, so the robot's own geom
-    # friction governs every wall contact.
     common = {"contype": FLOOR_CONTYPE, "conaffinity": ROBOT_CONTYPE, "friction": [0.0, 0.0, 0.0]}
     if arena is not None:
         half_w, half_h = arena[0] / 2.0, arena[1] / 2.0
         t = WALL_THICKNESS_M / 2.0
         z = WALL_HEIGHT_M / 2.0
-        # Inner faces sit on the arena boundary.
         walls = (
             ([half_w + t, 0.0, z], [t, half_h + 2 * t, z]),
             ([-half_w - t, 0.0, z], [t, half_h + 2 * t, z]),
@@ -134,12 +131,11 @@ def _add_static_geoms(
             **common,
         )
     for i, block in enumerate(moving_blocks):
-        # Resting on the floor: set_moving_blocks moves x, y and yaw, never the height.
         height = BLOCK_HEIGHT_M if block.box is None else block.box[2]
         body = spec.worldbody.add_body(
             name=f"{MOVING_BLOCK_PREFIX}{i}",
             mocap=True,
-            pos=[*PARKED_XY, height / 2.0],
+            pos=[*UNPLACED_BLOCK_XY, height / 2.0],
         )
         if block.box is None:
             shape, size = mujoco.mjtGeom.mjGEOM_CYLINDER, [block.radius, height / 2.0, 0.0]
@@ -257,10 +253,7 @@ class ClosedLoopSim:
         dt: float,
         on_substep: Callable[[float, float], bool] | None = None,
     ) -> None:
-        """Hold the stick for dt. `on_substep(x, y)` returning True ends the tick early.
-
-        wall_contact and block_contact report whether any substep of this tick touched one.
-        """
+        """Hold the stick for dt; on_substep returning True ends the tick early."""
         a_percent = -100.0 * float(np.clip(linear, -1.0, 1.0))
         b_percent = -100.0 * float(np.clip(angular, -1.0, 1.0))
         self.wall_contact = False
@@ -293,8 +286,7 @@ class ClosedLoopSim:
 
     @property
     def up_z(self) -> float:
-        """The z component of the chassis +Z axis in the field frame, 1 - 2(x^2 + y^2) for a wxyz
-        quaternion, read straight off the free joint: 1 upright, -1 on its back."""
+        """Z component of the chassis +Z axis in the field frame."""
         _, qx, qy, _ = self.data.qpos[3:7]
         return float(1.0 - 2.0 * (qx * qx + qy * qy))
 

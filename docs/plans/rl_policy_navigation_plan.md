@@ -964,6 +964,205 @@ commands are the real ones:
   `opponent_mode = "KALMAN"`. Any later change to the filter, including the body-frame model
   prototyped in `phase2_body_frame.py`, means a retrain.
 
+## Implementation notes
+
+Notes on the environment, export and learner code that implements this plan.
+
+### `rl/env.py`
+
+The source seam: `VecEnv` and what it returns.
+
+Every environment is batched over worlds and auto-resets a world the step it finishes, so a
+learner never waits on a slow world. Observations are one flat vector per world whose layout is
+named in `EnvSpec.obs_names`; the privileged vector is the critic's extra input and never reaches
+the actor or the exported bundle.
+
+### `rl/envs/policy_opponents.py`
+
+Opponents driven by trained navigation policies, for the RL environment, batched in torch.
+
+A driver is a navigation policy on a robot: Mr Stabs Mk2 running a trained Mk2 bundle, or a copy
+of the robot in training (self-play, a frozen snapshot the trainer refreshes). Each policy step it
+builds the observation (`obs_spec.build_v1`) from the opponent's side of the arena, from true
+state: it sees us exactly, the way `simulation/policy_opponent.py` plays a mirror match. Its
+action goes through `DifferentialDriveProcessor`'s saturation, the robot's command delay and its
+grey-box plant (`torch_plant`), and comes out as the opponent mocap's velocity. The scripted
+opponents' wall and contact rules (`Opponents.command`) still apply.
+
+Driver 0 is the scripted opponents (`opponents.py`); drivers 1 and up are `PolicyDriver`s in the
+order given.
+
+### `rl/envs/replay_tracks.py`
+
+Human opponent tracks for the `replay` behaviour, sampled into each world's arena.
+
+`simulation/opponent_tracks/replay_tracks.npz` (written by `playground/rl/extract_replay_tracks.py`)
+holds positions as fractions of each recording's field half size, at 50 Hz, so a track replays
+in any arena by scaling. A world starts its track at a random offset and holds the last pose
+once the track ends.
+
+### `rl/envs/trained_opponent.py`
+
+The RL training opponents (`opponents.py`) as one opponent the kinematic sim can step.
+
+`simulation/kinematic_sim_server.py` uses it for `[[opponents]] behavior = "trained"`. It drives
+the opponent with the same code the policy trained
+against, one world at a time: `trained_behaviour` picks static, straight, circle, random_walk,
+pursuit, corner or replay ("any" draws one per reset, as stage D does), and the parameters (speed,
+radius, turn noise, pursuit lead and delay, corner, replay track and start time) are drawn the
+way the training environment draws them. The rule that stops an opponent pushing through our
+robot comes along too.
+
+Pursuit's reaction delay counts sim ticks of the 20 ms policy step it was trained at; at another
+[sim] dt it scales with the tick.
+
+### `rl/envs/warp_nav.py`
+
+The full RL training environment: a drive robot on MuJoCo Warp (plan sections 5 to 8).
+
+`WarpNavConfig.robot` picks the robot (`ROBOTS`): Mr Stabs Mk2 or Mrs Buff Mk3. Each world holds
+that robot's fitted MJCF, four arena walls, up to three wall blocks, a house
+bot and an opponent, all walls and robots other than ours as mocap bodies, so every world places
+its own arena per episode without per-world model geometry. Holes are not geometry: the chassis
+centre crossing a hole's radius ends the episode.
+
+One policy step is 20 ms: two launches of a captured graph of 10 ms of physics substeps, each
+substep running the robot's command chain in Warp (`warp_kernels.py`), then the sensing model
+between launches when it is on. Rewards, sensing, observations (`obs_spec.build_v1`), episode
+resets and domain randomization run in torch on the same GPU arrays.
+
+Curriculum stages (plan section 11):
+
+| Stage | Opponents | Hazards | Sensing | Randomization |
+| --- | --- | --- | --- | --- |
+| A | static | none, 2.5 m arena | true state | nominal plant |
+| B | adds straight, circle, random_walk | up to 1 hole | true state | half ranges |
+| C | adds pursuit, corner | full | sensing model | half ranges |
+| D | adds replay | full | sensing model | full ranges |
+
+#### `ROBOT_SIZE_M`
+
+Robot footprints are length, width, height in metres, from `robot_size_meters_per_label` in
+`config/_common.toml`. `OPP_SIZE_M` is the largest opponent footprint (Mrs Buff Mk3), used as the
+MJCF placeholder.
+
+#### `HOUSE_RADIUS_M`
+
+`HOUSE_RADIUS_M` (0.2083 m) is the HOUSE_BOT footprint half-diagonal from
+`config/_common.toml` (0.254 x 0.3302 m), the radius the C++ hazard assembler gives a tracked
+house bot.
+
+#### `RobotProfile`
+
+The sensing model is chosen per robot. Its `[robots.ours.ekf_error]` table is fitted per robot:
+the filter's error grows with speed, and Mrs Buff Mk3 drives faster than Mr Stabs Mk2.
+
+#### Evaluation stage
+
+The `EVAL` stage (gates G4, G5) uses stage D's mix on the nominal plant, so the lockstep sim,
+which runs the fit as it is, plays the same robot. Pair it with `holdout=True` for the held-out
+pursuit corner and replay tracks.
+
+### `rl/export/bundle.py`
+
+Write a model bundle directory for `RlPolicyNavigation` (plan section 12).
+
+    <dir>/manifest.toml        policy kind, observation spec, decoder, execution, networks
+    <dir>/actor.rtneural.json  the actor, input normalization folded into its first layer
+    <dir>/selftest.bin         observation and decoded-action pairs from PyTorch
+
+`selftest.bin` is little-endian: the bytes `RLST`, then uint32 format version (1), pair count N,
+observation size D and action size A, then N x D float32 observations, then N x A float32
+actions after the decoder (`scale * tanh(network output)`). The C++ loader runs every
+observation through its runtime and decoder and requires agreement within the manifest's
+tolerance.
+
+Before writing, the exporter evaluates the JSON it is about to write in numpy and compares it
+with PyTorch, so a layout mistake fails here rather than on the robot.
+
+### `rl/export/rtneural.py`
+
+PyTorch Dense stacks to RTNeural's JSON model format.
+
+RTNeural's `json_parser::parseJson` reads the TensorFlow-style layout its `python/model_utils.py`
+writes: `in_shape` whose last entry is the input size, then one entry per layer with `type`,
+`activation` (empty for none), `shape` (last entry the output size) and `weights`. A Dense
+layer's `weights` are `[kernel, bias]` with the kernel indexed `[input][output]`, the transpose of
+`torch.nn.Linear.weight`.
+
+Only `Linear` followed optionally by one activation is supported, which is all `mlp_gaussian`
+uses. The input normalization is folded into the first layer: `W' = W / std` per input column and
+`b' = b - W' @ mean`.
+
+### `rl/learners/fasttd3.py`
+
+`fasttd3`: TD3 for massively parallel simulation, after Seo et al. 2025 (FastTD3).
+
+What makes it fast, kept here: thousands of parallel worlds feeding a GPU replay buffer, a large
+batch, n-step returns, a distributional (C51) critic with clipped double Q, and per-world
+exploration noise drawn from a range so some worlds explore and some exploit. The actor is the
+same Dense/ELU stack as `mlp_gaussian` (its mean path), so it exports to RTNeural unchanged. No
+LayerNorm anywhere: RTNeural cannot run it (plan section 11), so this arm trains without it.
+
+The critic sees the privileged inputs, as PPO's does.
+
+### `rl/learners/ppo.py`
+
+`ppo`: proximal policy optimization for a tanh-squashed Gaussian actor (plan section 11).
+
+Clipped surrogate, generalized advantage estimation (lambda 0.95, gamma 0.99), 24 steps per world
+per update, a critic that also sees the environment's privileged inputs, and an adaptive learning
+rate that holds the per-update KL near a target, as rsl_rl does. Truncated episodes bootstrap from
+the critic's value of their final state. The ratio is taken on the pre-tanh sample, where the tanh
+Jacobian cancels.
+
+An optional anchor policy keeps behaviour already learned while fine-tuning on a narrower
+problem: on the samples `anchor_mask` selects, the loss adds `anchor_coef` times the squared
+distance from the anchor's mean action, in units of the student's own std. That is the KL from a
+Gaussian at the anchor's mean with the student's std, so it scales with exploration the way the
+surrogate does.
+
+### `rl/lockstep_world.py`
+
+One RL evaluation scenario on CPU MuJoCo, for the lockstep sim (plan gates G4 and G5).
+
+The Warp environment exports its held-out evaluation episodes as scenarios
+(`WarpNavEnv.export_scenarios`); this module plays one of them against whatever drives the
+robot, so the real C++ binary (`RlPolicyNavigation` or `MotionProfileNavigation`) runs the same
+episodes the Python evaluation scored:
+
+- the same model: `warp_nav.build_model` (fitted MJCF, mocap walls, blocks, house bot, opponent)
+- the same command chain, scalar: transport delay, `FirmwareMixer` (Mr Stabs Mk2) or the radio's
+  direct mix (Mrs Buff Mk3), drivetrain delay, shaping
+- the same opponent behaviours (`opponents.Opponents` with one world on the CPU), and the same
+  policy-driven opponents (`policy_opponents.PolicyOpponents`) for scenarios that drew one
+
+The robot is the scenario's (`robot`, Mr Stabs Mk2 when absent).
+- the same contact classification and episode scoring as `WarpNavEnv.step`, tick by tick
+
+Two field stages the Warp environment leaves out, both off unless the scenario sets them:
+
+- `slew_per_s`: the host transmitter's linear slew limit (`EspNowTransmitter`), in normalized
+  units per second, `max_motor_rpm_per_sec / max_motor_rpm`. 0 is off.
+- `guard_scale`: a fixed firmware motor guard scale on both wheel commands after the mixer
+  (`MotorGuard::apply`), Mr Stabs Mk2 only. 1 is off.
+
+`trace: true` records each tick's commanded linear, the linear after the slew limit, and the
+mean wheel command after the guard in `score.extra["trace"]`, in the field's units: the wheel
+command is the firmware's `left_cmd`/`right_cmd` mean, percent, positive forward.
+
+### `rl/policies/mlp.py`
+
+`mlp_gaussian`: an MLP actor with a tanh-squashed Gaussian head and input normalization.
+
+The network is a sequential stack of Dense layers with ELU, which RTNeural runs, and the running
+mean and std are folded into the first Dense layer at export, so the C++ side needs no
+normalization step (plan section 11).
+
+#### `__init__`
+
+The last layer is small: the policy starts near zero action instead of saturating the tanh.
+
 ## Next steps
 
 1. Step 12: build the scorer and export suite v1, then rescore the final stage D policy with it.

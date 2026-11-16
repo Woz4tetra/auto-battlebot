@@ -1,24 +1,5 @@
 #!/usr/bin/env python3
-"""Loaders for Stage 0 control metrics.
-
-Reuses the diagnostics decoder from the shared ``auto_battlebot.recording.mcap_io`` package and
-adds extraction of the extra subsections and topics Stage 0 needs:
-
-- runner/navigation/using_previous_robots  (reliability / dropout proxy)
-- runner/perception/*                      (future-run detection counts, when present)
-- runner stage FunctionTimers              (per-stage elapsed_ms)
-- /robot_markers                           (opponent presence + frame-id switches)
-- /field_markers                           (arena size, from corner edge lengths)
-- /tf + /tf_static                         (camera pose in the field frame)
-
-All data here comes straight from existing Jetson recordings; nothing requires
-re-running the stack (laptop results differ from the Jetson).
-
-Reads the per-module ``/diagnostics/<module>`` JSON channels with typed values
-(``docs/foxglove_recording_format.md``).
-
-Dependencies: mcap, numpy, pandas
-"""
+"""Loaders for control metrics from the /diagnostics and marker topics."""
 
 from __future__ import annotations
 
@@ -85,18 +66,8 @@ def group_of(name: str) -> str:
     return "OTHER"
 
 
-# ---------------------------------------------------------------------------
-# /diagnostics
-# ---------------------------------------------------------------------------
-
-
-# Runner sub-status name -> column prefix. Anything else the runner publishes with an
-# elapsed_ms is a FunctionTimer stage and is namespaced by its own name instead.
 _RUNNER_PREFIXES = {"pipeline": "pipeline", "navigation": "nav", "perception": "perc"}
 
-# Transmitter channel -> column. values/15 is the auto switch; values/0 and values/1 are the
-# actual transmitted drive command (post trainer-mode mix of navigation and driver sticks),
-# which is the true plant input.
 _TRANSMITTER_COLUMNS = (
     ("values/0", "ch_linear"),
     ("values/1", "ch_angular"),
@@ -123,7 +94,6 @@ def _merge_status(rows: dict[int, dict[str, Any]], ts: int, status: dict[str, An
             for key, value in kv.items():
                 rows[ts][f"{prefix}/{key}"] = value
         elif "elapsed_ms" in kv:
-            # FunctionTimer stage (tick, camera.get, robot_filter.update, ...)
             rows[ts][f"stage/{name}/elapsed_ms"] = kv["elapsed_ms"]
     elif hw == TRANSMITTER_HW_ID and name == "channels":
         for src, dst in _TRANSMITTER_COLUMNS:
@@ -142,9 +112,7 @@ def iter_diagnostic_statuses(path: Path | str) -> Iterator[tuple[int, dict[str, 
 
 
 def load_diagnostics(path: Path) -> pd.DataFrame:
-    """One row per tick (keyed on message log_time), columns drawn from
-    pursuit_nav, runner/pipeline, runner/navigation, runner/perception, the
-    runner stage timers, and the transmitter auto channel."""
+    """One row per tick keyed on message log_time."""
     rows: dict[int, dict[str, Any]] = defaultdict(dict)
 
     for log_time_ns, status in iter_diagnostic_statuses(path):
@@ -175,22 +143,8 @@ def _fill_latched_channels(df: pd.DataFrame) -> None:
             df[col] = pd.to_numeric(df[col], errors="coerce").ffill()
 
 
-# ---------------------------------------------------------------------------
-# /field_markers -> arena size (field-center frame)
-# ---------------------------------------------------------------------------
-
-
 def load_field_size(path: Path) -> tuple[float, float] | None:
-    """Arena (width, height) in metres, recovered from the field border marker.
-
-    The C++ encoder builds the four corners as (+-size.x/2, +-size.y/2) in the
-    field-center frame and then rigid-transforms them, so the rectangle edge
-    lengths recover the true size regardless of the frame they are expressed in.
-
-    The field is published a few times (initial + re-inits) and early detections
-    can be bad. The arena is fixed, so the largest-area detection is the best
-    estimate; return that.
-    """
+    """Arena (width, height) in metres, recovered from the field border marker."""
     best: tuple[float, float] | None = None
     best_area = -1.0
     for _topic, _ts, data in iter_messages(path, [FIELD_MARKERS_TOPIC]):
@@ -207,11 +161,6 @@ def load_field_size(path: Path) -> tuple[float, float] | None:
                 best_area = width * height
                 best = (width, height)
     return best
-
-
-# ---------------------------------------------------------------------------
-# /robot_markers -> opponent track presence and frame-id switches
-# ---------------------------------------------------------------------------
 
 
 def load_robot_tracks(path: Path) -> pd.DataFrame:
@@ -247,12 +196,7 @@ def load_robot_tracks(path: Path) -> pd.DataFrame:
 
 
 def load_robot_positions(path: Path) -> pd.DataFrame:
-    """One row per robot per /robot_markers message: where each robot was that tick.
-
-    Sibling of load_robot_tracks: same CUBE body markers (ns == "robot_bounds",
-    marker.id -> FrameId enum index), but keeps the marker pose instead of only
-    presence. Positions are in the marker's own frame (field-center for these
-    recordings). Columns: timestamp_ns, frame, group, x, y."""
+    """One row per robot per /robot_markers message with its marker pose."""
     records = []
     for _topic, ts, data in iter_messages(path, [ROBOT_MARKERS_TOPIC]):
         for entity in decode_scene_update(data).entities:
@@ -272,19 +216,8 @@ def load_robot_positions(path: Path) -> pd.DataFrame:
     return pd.DataFrame(records)
 
 
-# ---------------------------------------------------------------------------
-# /tf + /tf_static -> camera position in the field frame
-# ---------------------------------------------------------------------------
-
-
 def load_camera_in_field(path: Path) -> pd.DataFrame:
-    """Per-tick camera optical-centre position in the field frame.
-
-    Frame chain (header -> child): static field -> camera_world, dynamic
-    camera_world -> camera. Camera-in-field = T(field<-camera_world) @
-    T(camera_world<-camera); the translation is the camera origin in field
-    coordinates. Returns columns timestamp_ns, cam_x, cam_y, cam_z.
-    """
+    """Per-tick camera optical-centre position in the field frame."""
     field_from_world: np.ndarray | None = None
     for _topic, _ts, data in iter_messages(path, [TF_STATIC_TOPIC]):
         for tr in decode_tf_message(data):

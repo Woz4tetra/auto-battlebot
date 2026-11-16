@@ -405,7 +405,7 @@ def section_quality(loaded: Loaded) -> Section:
                 f"{q.duration_s:.0f}",
                 q.dropped if q.dropped is not None else "-",
                 q.malformed_rows,
-                f"{q.worst_saturation:.2%}",
+                f"{q.worst_gyro_saturation:.2%}",
                 fmt(q.bias_drift_dps, 4),
                 fmt(q.clock_residual_ms, 2),
                 f"{q.commanded_s:.1f}",

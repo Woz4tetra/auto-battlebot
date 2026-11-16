@@ -1,29 +1,4 @@
-"""Readers for the drivetrain sysid topics: robot AprilTags, robot telemetry, sticks, field pose.
-
-Contracts (written by the C++ app, see ``docs/plans/mujoco_warp_mr_stabs_plan.md``):
-
-- ``/apriltag/robot_tags`` (JSON): one message per camera frame, frames without detections
-  included. Each detection carries its four corners in OpenCV aruco order and every IPPE
-  solution as (rvec, tvec, reprojection error). rvec/tvec map marker-frame points (origin at the
-  tag center, x right, y up in the printed image, z out of the face) into the OpenCV camera
-  frame (x right, y down, z forward).
-- ``/robot/espnow_telemetry`` (JSON): one flat object per 10 ms telemetry frame over the ESP-NOW
-  dongle. ``host_receive_ns`` is the app clock at receipt (also the MCAP log_time);
-  ``timestamp_ms`` is the robot clock.
-- ``/robot/esp32_diagnostics`` (JSON): the same drive fields polled over WiFi, in recordings made
-  before the sysid profile moved to ESP-NOW (2026-10-25). Its ``seq`` is ESP-NOW's
-  ``telemetry_seq``.
-- ``/diagnostics/opentx_transmitter``, subsection ``channels``: the 16 stick channels the radio
-  echoes over USB, as ``values/0`` .. ``values/15``. Logged on every channels frame since
-  2026-10-13, only when they changed before that.
-- ``/tf`` and ``/tf_static``: ``field -> camera_world`` and ``camera_world -> camera``. The app
-  republishes both on ``/tf`` every cycle; older recordings put the first on ``/tf_static``.
-  ``diag_io.load_camera_in_field`` reads only ``/tf_static`` for it and returns an empty frame on
-  current recordings, and it keeps only the translation, so this module has its own loader that
-  returns the full transform.
-
-Dependencies: mcap, numpy, pandas
-"""
+"""Readers for the drivetrain sysid topics: robot AprilTags, robot telemetry, sticks, field pose."""
 
 from __future__ import annotations
 
@@ -49,13 +24,6 @@ CAMERA_FRAME = "camera"
 
 NUM_TRANSMITTER_CHANNELS = 16
 
-# Field order of one robot telemetry event, with the pandas dtype each column gets. ESP-NOW
-# frames carry more fields than these; the extras are dropped, and wifi_clients reads as 0.
-# Booleans stay bool; vbat and ibat are float with NaN where the firmware had no INA228 reading
-# (null, or a recording older than the field). yaw_rate, yaw_rate_cmd, and the gyro_x/gyro_y chip
-# rates (deg/s, ESP-NOW telemetry only) are NaN when absent, and
-# seq is a nullable integer, <NA> in recordings older than the field. backfill is False on
-# event-stream rows and in recordings older than the telemetry ring.
 ESP32_FIELDS: tuple[tuple[str, str], ...] = (
     ("host_receive_ns", "int64"),
     ("timestamp_ms", "int64"),
@@ -87,11 +55,6 @@ ESP32_FIELDS: tuple[tuple[str, str], ...] = (
     ("seq", "Int64"),
     ("backfill", "bool"),
 )
-
-
-# ---------------------------------------------------------------------------
-# /apriltag/robot_tags
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -216,11 +179,6 @@ def load_robot_tags(path: Path | str) -> list[RobotTagsFrame]:
     ]
 
 
-# ---------------------------------------------------------------------------
-# /robot/espnow_telemetry and /robot/esp32_diagnostics
-# ---------------------------------------------------------------------------
-
-
 def _esp32_value(value: Any, dtype: str) -> Any:
     if dtype == "float64":
         return math.nan if value is None else float(value)
@@ -232,10 +190,7 @@ def _esp32_value(value: Any, dtype: str) -> Any:
 
 
 def esp32_events_frame(events: list[dict[str, Any]]) -> pd.DataFrame:
-    """Typed DataFrame from decoded ESP32 event dicts, one row each, in ``ESP32_FIELDS`` order.
-
-    A missing or null float (``vbat`` or ``ibat`` without an INA228 reading) becomes NaN.
-    """
+    """Typed DataFrame from decoded ESP32 event dicts in ESP32_FIELDS order."""
     columns: dict[str, list[Any]] = {name: [] for name, _ in ESP32_FIELDS}
     for event in events:
         for name, dtype in ESP32_FIELDS:
@@ -246,11 +201,7 @@ def esp32_events_frame(events: list[dict[str, Any]]) -> pd.DataFrame:
 
 
 def load_robot_telemetry(path: Path | str) -> pd.DataFrame:
-    """Every robot telemetry event, in log order, plus the MCAP ``log_time_ns``.
-
-    Reads ``/robot/espnow_telemetry`` when the recording has any, else ``/robot/esp32_diagnostics``.
-    Empty when it has neither.
-    """
+    """Every robot telemetry event in log order, plus the MCAP log_time_ns."""
     by_topic: dict[str, tuple[list[dict[str, Any]], list[int]]] = {
         ESPNOW_TELEMETRY_TOPIC: ([], []),
         ESP32_DIAGNOSTICS_TOPIC: ([], []),
@@ -269,19 +220,8 @@ def load_robot_telemetry(path: Path | str) -> pd.DataFrame:
     return df
 
 
-# ---------------------------------------------------------------------------
-# /diagnostics/opentx_transmitter -> stick channels
-# ---------------------------------------------------------------------------
-
-
 def load_transmitter_channels(path: Path | str) -> pd.DataFrame:
-    """Stick channels as the radio reported them: one row per diagnostics publish tick that read
-    a channels frame, columns ``stamp_ns, ch0 .. ch15`` (raw CRSF units, 172..1811, center 992).
-
-    Recordings before 2026-10-13 log channels only when they change, so hold each row until the
-    next one. The stamp is the diagnostics publish tick, which trails the serial read by up to one
-    tick.
-    """
+    """Stick channels as the radio reported them, one row per diagnostics tick."""
     rows = []
     for log_time_ns, status in iter_diagnostic_statuses(path):
         if status["hardware_id"] != TRANSMITTER_HW_ID or status["name"] != "channels":
@@ -294,11 +234,6 @@ def load_transmitter_channels(path: Path | str) -> pd.DataFrame:
         rows.append(row)
     columns = ["stamp_ns"] + [f"ch{ch}" for ch in range(NUM_TRANSMITTER_CHANNELS)]
     return pd.DataFrame(rows, columns=columns)
-
-
-# ---------------------------------------------------------------------------
-# /tf -> camera pose in the field frame
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -319,11 +254,7 @@ class FieldFromCamera:
 
 
 def load_field_from_camera(path: Path | str) -> FieldFromCamera:
-    """T_field_camera = T(field <- camera_world) @ T(camera_world <- camera), per /tf tick.
-
-    ``field -> camera_world`` is taken from either ``/tf`` or ``/tf_static``, whichever carried
-    it most recently; each ``camera_world -> camera`` then yields one sample.
-    """
+    """Camera pose in the field frame per /tf tick."""
     field_from_world: np.ndarray | None = None
     stamps: list[int] = []
     mats: list[np.ndarray] = []
@@ -353,11 +284,7 @@ def rotation_angle(r: np.ndarray) -> float:
 
 
 def field_transform_constancy(series: FieldFromCamera) -> dict[str, float]:
-    """How far the camera pose wanders from its median over the session.
-
-    The tripod does not move, so anything above a millimetre or two means a field re-init or a
-    bumped tripod, and the session needs a look before its poses are used.
-    """
+    """How far the camera pose wanders from its median over the session."""
     if len(series) == 0:
         return {"samples": 0, "max_translation_m": math.nan, "max_rotation_deg": math.nan}
     t = series.matrices[:, :3, 3]

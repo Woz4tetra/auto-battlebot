@@ -1,24 +1,4 @@
-"""Robot pose from the overhead AprilTag recordings: IPPE choice, body pose, RTS smoothing.
-
-Implements "Robot pose recording" in ``docs/plans/mujoco_warp_mr_stabs_plan.md``. The input is
-the ``/apriltag/robot_tags`` stream (every IPPE solution per detection) and the camera pose in the
-field frame; the output is the axle-center pose on a uniform grid plus one row per detection.
-
-Frames:
-
-- **Recorded field frame.** Whatever ``/tf`` carries. ``FiducialFieldFilter`` puts field z into
-  the floor, the homography fit puts it toward the camera.
-- **Output frame ("field up").** The recorded field frame when its z points up. When it points
-  into the floor the output is that frame turned 180 degrees about field x (y and z negated), so
-  it is always right-handed with z up and a counter-clockwise turn seen from above is a positive
-  yaw rate, the convention MuJoCo and the FLU body frame share. The camera's height sign decides.
-- **Body frame.** FLU at the axle midpoint. Yaw is the heading of body x in the output frame.
-  Pitch and roll are ZYX Euler angles, so a nose lift is a negative pitch. On an upside-down
-  robot they are taken relative to the upside-down rest pose (body turned 180 degrees about its
-  x axis), so both read near zero when it drives inverted.
-
-Dependencies: numpy, pandas, scipy
-"""
+"""Robot pose from the overhead AprilTag recordings: IPPE choice, body pose, RTS smoothing."""
 
 from __future__ import annotations
 
@@ -37,7 +17,7 @@ from auto_battlebot.recording.esp32_clock import cross_correlation_delay, resamp
 from auto_battlebot.recording.sysid_io import FieldFromCamera, RobotTagsFrame, rotation_angle
 
 _NS = 1_000_000_000
-_FLIP_X = np.diag([1.0, -1.0, -1.0, 1.0])  # 180 degrees about x: rest pose of an inverted body
+_ROT_180_ABOUT_X = np.diag([1.0, -1.0, -1.0, 1.0])
 
 KIND_NONE = 0
 KIND_POSITION = 1
@@ -47,11 +27,6 @@ OUTCOME_NONE = 0
 OUTCOME_ACCEPTED = 1
 OUTCOME_REJECTED = 2
 OUTCOME_RESET = 3  # gated, but the filter had lost track, so accepted with inflated covariance
-
-
-# ---------------------------------------------------------------------------
-# Robot description
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -120,11 +95,6 @@ def load_mass_properties(path: Path | str) -> tuple[dict[int, TagMount], RobotGe
     return mounts, geometry
 
 
-# ---------------------------------------------------------------------------
-# Frames and angles
-# ---------------------------------------------------------------------------
-
-
 def up_from_field(field_from_camera: FieldFromCamera) -> tuple[np.ndarray, bool]:
     """(t_up_field, flipped). Flipped when the camera sits at negative field z, i.e. field z
     points into the floor."""
@@ -132,13 +102,13 @@ def up_from_field(field_from_camera: FieldFromCamera) -> tuple[np.ndarray, bool]
         raise ValueError("no camera -> field transform in the recording (run field init)")
     cam_z = float(np.median(field_from_camera.matrices[:, 2, 3]))
     if cam_z < 0.0:
-        return _FLIP_X.copy(), True
+        return _ROT_180_ABOUT_X.copy(), True
     return np.eye(4), False
 
 
 def rest_rotation(r_up_body: np.ndarray, upside_down: bool) -> np.ndarray:
     """Body rotation relative to its rest pose: the identity for an upright robot sitting flat."""
-    return r_up_body @ _FLIP_X[:3, :3] if upside_down else r_up_body
+    return r_up_body @ _ROT_180_ABOUT_X[:3, :3] if upside_down else r_up_body
 
 
 def euler_zyx(r: np.ndarray) -> tuple[float, float, float]:
@@ -150,23 +120,13 @@ def euler_zyx(r: np.ndarray) -> tuple[float, float, float]:
 
 
 def attitude_error(r_up_body: np.ndarray, upside_down: bool, rest_pitch_rad: float) -> float:
-    """How far a body attitude sits from resting flat on the floor, in radians.
-
-    ``hypot(pitch - rest_pitch, roll)`` with pitch and roll taken relative to the rest pose
-    (``rest_rotation``). The robot rests nose-down on its wedge tip, so the rest pitch is not
-    zero (0.198 rad per CAD, ``collision.toml``).
-    """
+    """How far a body attitude sits from resting flat on the floor, in radians."""
     _yaw, pitch, roll = euler_zyx(rest_rotation(r_up_body, upside_down))
     return math.hypot(pitch - rest_pitch_rad, roll)
 
 
 def wrap_angle(a: np.ndarray | float) -> Any:
     return (np.asarray(a) + np.pi) % (2.0 * np.pi) - np.pi
-
-
-# ---------------------------------------------------------------------------
-# Detections -> candidate body poses -> IPPE choice
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -195,11 +155,7 @@ def build_candidates(
     rest_pitch_rad: float = 0.0,
     rest_pitch_upside_down_rad: float = 0.0,
 ) -> Candidates:
-    """Map every IPPE solution of every robot tag detection into a body pose in the up frame.
-
-    Detections of ids not in ``mounts`` are skipped. When a frame carries more than one robot tag
-    (never expected: the two sit on opposite faces) each becomes its own measurement.
-    """
+    """Map every IPPE solution of every robot tag detection into a body pose."""
     stamps: list[int] = []
     frame_idx: list[int] = []
     ids: list[int] = []
@@ -263,23 +219,13 @@ class IppeChoice:
     choice: np.ndarray  # (N,) 0 or 1
     close_call: np.ndarray  # (N,) bool: tilts within the margin, decided by neighbours
     close_calls: int
-    unresolved_close_calls: int  # close calls with no neighbour in reach, left to the tilt test
+    close_calls_left_to_tilt: int
 
 
 def select_ippe(
     cands: Candidates, close_margin_deg: float = 4.0, neighbour_window_s: float = 0.25
 ) -> IppeChoice:
-    """Pick one IPPE solution per detection.
-
-    The right solution leaves the body close to its rest attitude (resting nose-down on the
-    wedge, upright or inverted), since the tag's own ~9.6 degree tilt comes out when its mount is
-    removed; ``Candidates.tilt`` holds that attitude error. The solution with the smaller error
-    wins. When the two are within ``close_margin_deg`` (tag facing the camera nearly head-on,
-    or the body pitched away from rest while driving) the solution
-    whose body rotation sits closest to the neighbouring choices wins instead: the nearest
-    earlier decision (clear or already resolved) and the nearest later clear one, each within
-    ``neighbour_window_s``.
-    """
+    """Pick one IPPE solution per detection."""
     n = len(cands)
     choice = np.argmin(cands.tilt, axis=1).astype(np.int64) if n else np.zeros(0, np.int64)
     margin = math.radians(close_margin_deg)
@@ -313,7 +259,7 @@ def select_ippe(
         choice=choice,
         close_call=close,
         close_calls=int(close.sum()),
-        unresolved_close_calls=unresolved,
+        close_calls_left_to_tilt=unresolved,
     )
 
 
@@ -340,28 +286,9 @@ def chosen_poses(cands: Candidates, ippe: IppeChoice) -> RawPoses:
     return RawPoses(cands.stamp_ns.copy(), *[out[:, k].copy() for k in range(6)])
 
 
-# ---------------------------------------------------------------------------
-# Measurement noise
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class NoiseModel:
-    """Per-detection measurement noise: sigma = k * g, g = hypot(reprojection error, e0) / size.
-
-    Position error from PnP grows with corner noise times distance over focal length, and the
-    tag's pixel size is focal length times tag size over distance, so noise over size is the
-    per-detection factor for the across-view position and the in-plane angle. Depth error grows
-    with distance squared, so the along-view position gets a second ``size_ref_px / size``
-    factor. The reprojection error stands in for corner noise and ``e0_px`` keeps a sharp
-    detection from claiming zero noise.
-
-    "Along" and "across" are the floor directions along and across the camera's horizontal view
-    direction (``view_azimuth_rad`` in the output frame). A tilted camera measures depth several
-    times worse than lateral position, so a single isotropic sigma would either drown the good
-    axis or trust the bad one. The view direction to the robot changes across the box; using the
-    optical axis for all of it is an approximation.
-    """
+    """Per-detection measurement noise: sigma = k * g, g = hypot(reprojection error, e0) / size."""
 
     k_along: float = 0.4
     k_across: float = 0.07
@@ -371,7 +298,7 @@ class NoiseModel:
     size_ref_px: float = 50.0
     view_azimuth_rad: float = 0.0
     calibrated: bool = False
-    still_segments: int = 0
+    noise_calibration_segments: int = 0
     still_detections: int = 0
 
     def factor(self, reprojection_error_px: np.ndarray, size_px: np.ndarray) -> np.ndarray:
@@ -403,7 +330,7 @@ class NoiseModel:
             "size_ref_px": self.size_ref_px,
             "view_azimuth_rad": self.view_azimuth_rad,
             "calibrated": self.calibrated,
-            "still_segments": self.still_segments,
+            "still_segments": self.noise_calibration_segments,
             "still_detections": self.still_detections,
         }
 
@@ -436,8 +363,7 @@ def idle_mask(
     threshold_percent: float = 1.0,
     settle_s: float = 0.3,
 ) -> np.ndarray:
-    """Per detection: inside the ESP32 stream, and both motor commands have been under
-    ``threshold_percent`` for at least ``settle_s`` (so the robot has coasted to a stop)."""
+    """Per detection: inside the ESP32 stream with both motor commands settled."""
     t = np.asarray(esp32_stamp_ns, dtype=np.int64)
     order = np.argsort(t, kind="stable")
     t = t[order]
@@ -466,13 +392,7 @@ def find_still_segments(
     yaw_span_rad: float = math.radians(5.0),
     idle: np.ndarray | None = None,
 ) -> list[tuple[int, int]]:
-    """(first, last) detection index ranges where the raw pose stays inside a small box.
-
-    Greedy: grow a run while the peak-to-peak spread of both position components and yaw stays
-    under the limits, keep it if it lasts ``min_duration_s`` with ``min_count`` detections.
-    ``idle`` (per detection, optional) additionally requires settled zero motor commands; with
-    it the spread limits only catch the robot being pushed.
-    """
+    """Detection index ranges where the raw pose stays inside a small box."""
     n = stamp_ns.shape[0]
     segments: list[tuple[int, int]] = []
     yaw_u = np.unwrap(yaw) if n else yaw
@@ -509,11 +429,7 @@ def calibrate_noise(
     segments: list[tuple[int, int]],
     azimuth: float,
 ) -> NoiseModel:
-    """Fit the four gains to the scatter about each still segment's median.
-
-    Without still segments the defaults stand (``calibrated`` false), which were measured on a
-    synthetic 0.3 px corner-noise camera and are only a starting point.
-    """
+    """Fit the four gains to the scatter about each still segment's median."""
     model = NoiseModel(
         size_ref_px=float(np.median(size_px)) if size_px.size else 50.0,
         view_azimuth_rad=azimuth,
@@ -547,14 +463,9 @@ def calibrate_noise(
     model.k_yaw = k["yaw"]
     model.k_tilt = k["tilt"]
     model.calibrated = True
-    model.still_segments = len(segments)
+    model.noise_calibration_segments = len(segments)
     model.still_detections = detections
     return model
-
-
-# ---------------------------------------------------------------------------
-# Batched Kalman filter + RTS smoother, constant-acceleration model per axis
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -625,28 +536,13 @@ def run_smoother(
     active: np.ndarray | None = None,
     gate_exempt: np.ndarray | None = None,
 ) -> SmootherRun:
-    """Forward Kalman filter with chi-square gating, then the RTS backward pass.
-
-    ``q`` is (B, A): white-jerk spectral density per batch entry and axis. ``active`` (B, K, A)
-    masks measurements out per batch entry (cross-validation hold-outs). Axes never interact
-    except through the joint gate: a knot's measurements pass or fail together, against the
-    chi-square quantile for as many degrees of freedom as axes measured.
-
-    A gated position fix is still taken, with the prediction covariance inflated to the prior,
-    once ``reacquire_s`` has passed without an accepted fix or after ``max_consecutive_rejects``
-    rejections in a row. That covers the filter losing the robot across a long dropout, where
-    every later fix would otherwise fail the gate. The inflation enters ``p_pred``, so the RTS
-    pass sees it as extra process noise on that step and stays consistent.
-
-    ``gate_exempt`` (K,) lets knots through the gate unconditionally; ``smooth_with_recheck``
-    uses it for fixes the smoothed track vouches for.
-    """
+    """Forward Kalman filter with chi-square gating, then the RTS backward pass."""
     q = np.atleast_2d(np.asarray(q, dtype=np.float64))
     b_count, a_count = q.shape
     k_count = knots.t_s.shape[0]
     if a_count != knots.n_axes:
         raise ValueError("q has a different axis count than the knots")
-    has = knots.kind != KIND_NONE  # (K, A) any measurement
+    has = knots.kind != KIND_NONE
     if active is None:
         use = np.broadcast_to(has, (b_count, k_count, a_count)).copy()
     else:
@@ -700,7 +596,6 @@ class _ForwardState:
         self.nis_out = np.full((b_count, k_count), np.nan)
         self.innov_out = np.full((b_count, k_count, a_count), np.nan)
 
-        # Start from the first position measurement of each axis.
         self.m = np.zeros((b_count, a_count, 3))
         for a in range(a_count):
             first = np.flatnonzero(knots.kind[:, a] == KIND_POSITION)
@@ -711,7 +606,6 @@ class _ForwardState:
         self.rejects_in_row = np.zeros(b_count, dtype=np.int64)
         self.prev_t = float(knots.t_s[0]) if k_count else 0.0
         self.exempt = np.zeros(k_count, dtype=bool)
-        # Angle and rate at each axis's last accepted position fix, for the branch reference.
         self.fix_state = self.m[:, :, :2].copy()
         self.fix_t = np.full((b_count, a_count), -np.inf)
 
@@ -750,14 +644,14 @@ class _ForwardState:
         ref = np.where(gap > self.options.branch_gap_s, carried, hx)
         angle = self.angular[None, :] & (self.knots.kind[k] == KIND_POSITION)[None, :]
         resid = np.where(angle, ref + wrap_angle(z - ref) - hx, z - hx)
-        hp = np.einsum("aj,bajk->bak", h, self.cov)  # (B, A, 3)
+        hp = np.einsum("aj,bajk->bak", h, self.cov)
         s = np.einsum("bak,ak->ba", hp, h) + self.knots.r[k][None, :]
         return resid, hp, s
 
     def update(self, k: int, u: np.ndarray) -> None:
         """Gate and apply knot ``k``'s measurements; ``u`` (B, A) says which axes are in use."""
         kind_k = self.knots.kind[k]
-        h = self.h_rows[kind_k]  # (A, 3)
+        h = self.h_rows[kind_k]
         t = float(self.knots.t_s[k])
         resid, hp, s = self._innovation(k, h)
         nis = np.where(u, resid * resid / s, 0.0).sum(axis=1)
@@ -784,7 +678,7 @@ class _ForwardState:
             resid, hp, s = self._innovation(k, h)
         take = measured & (passed | reset)
         ut = u & take[:, None]
-        gain = hp / s[:, :, None]  # (B, A, 3)
+        gain = hp / s[:, :, None]
         self.m = self.m + np.where(ut[:, :, None], gain * resid[:, :, None], 0.0)
         self.cov = self.cov - np.where(
             ut[:, :, None, None], gain[:, :, :, None] * hp[:, :, None, :], 0.0
@@ -846,7 +740,7 @@ def smooth_with_recheck(
         if not rejected.any():
             break
         idx = np.flatnonzero(rejected)
-        pos = knots.kind[idx] == KIND_POSITION  # (R, A)
+        pos = knots.kind[idx] == KIND_POSITION
         resid = knots.z[idx] - run.m_smooth[0, idx, :, 0]
         resid = np.where(angular[None, :], wrap_angle(resid), resid)
         var = run.p_smooth[0, idx, :, 0, 0] + knots.r[idx]
@@ -880,7 +774,7 @@ def interpolate_smoothed(
     last = idx == k_count - 1
     tau = np.where(last, 0.0, tau)
 
-    mf = run.m_filt[batch][idx]  # (G, A, 3)
+    mf = run.m_filt[batch][idx]
     pf = run.p_filt[batch][idx]
     f_tau = np.zeros((t.shape[0], 3, 3))
     q_tau = np.zeros((t.shape[0], 3, 3))
@@ -900,15 +794,9 @@ def interpolate_smoothed(
     diff_p = run.p_smooth[batch][nxt] - run.p_pred[batch][nxt]
     m_out = m_t + np.einsum("gaij,gaj->gai", gain, diff_m)
     p_out = p_t + gain @ diff_p @ np.swapaxes(gain, -1, -2)
-    # At the last knot the smoothed state is the filtered one; take it directly.
     m_out[last] = run.m_smooth[batch][idx[last]]
     p_out[last] = run.p_smooth[batch][idx[last]]
     return m_out, p_out
-
-
-# ---------------------------------------------------------------------------
-# Cross-validated process noise
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -938,15 +826,7 @@ def cross_validate_q(
     hold_every: int = 5,
     clip: float = 25.0,
 ) -> CrossValidation:
-    """Pick each group's process noise by hold-out: drop every ``hold_every``-th position fix,
-    smooth the rest once per candidate, score the smoothed state against the dropped fixes.
-
-    All groups step through their candidate lists together in one batch (entry b uses the b-th
-    candidate of every group), and each group is scored on its own axes. The groups are
-    independent in the model, so this equals a separate sweep per group except for the joint
-    gate. The score is the mean squared held-out residual over its variance, clipped at
-    ``clip`` so an outlier fix cannot choose q.
-    """
+    """Pick each group's process noise by hold-out on dropped position fixes."""
     n_cand = {len(v) for v in candidates.values()}
     if len(n_cand) != 1:
         raise ValueError("every group needs the same number of candidates")
@@ -979,11 +859,6 @@ def cross_validate_q(
     return CrossValidation(groups, candidates, score, chosen, int(held.size))
 
 
-# ---------------------------------------------------------------------------
-# BNO055 yaw rate
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class ImuYawRate:
     stamp_ns: np.ndarray  # uniform grid on the app clock
@@ -998,17 +873,7 @@ def bno055_yaw_rate(
     grid_dt_s: float = 0.01,
     heading_sign: float = -1.0,
 ) -> ImuYawRate:
-    """Yaw rate from the BNO055 Euler heading (``orientation_x``).
-
-    Assumption, not yet checked on the robot: the heading is compass-style, in degrees on
-    [0, 360) and increasing clockwise seen from above with the sensor upright, so the
-    counter-clockwise yaw rate is ``-d(heading)/dt`` (``heading_sign = -1``). The session checks
-    measure the sign against tag yaw rate and report it. Samples logged while the firmware says
-    the robot is upside down are marked invalid, since the sensor's sense of rotation flips.
-
-    The heading updates at 100 Hz with 1/16 degree steps, so it is resampled onto a 10 ms grid
-    and differentiated over five samples; a per-loop difference would be mostly quantisation.
-    """
+    """Yaw rate from the BNO055 Euler heading (``orientation_x``)."""
     t = np.asarray(stamp_ns, dtype=np.int64)
     if t.size < 5:
         return ImuYawRate(np.zeros(0, np.int64), np.zeros(0), np.zeros(0, bool))
@@ -1033,15 +898,7 @@ def bno055_yaw_rate(
 def gyro_yaw_rate(
     stamp_ns: np.ndarray, yaw_rate_deg_s: np.ndarray, heading: ImuYawRate
 ) -> ImuYawRate:
-    """Yaw rate from the firmware's gyro ``yaw_rate``, on ``heading``'s grid.
-
-    The firmware projects the gyro onto the gravity vector (``updown_sensor.cpp``), so the rate
-    is about the field's up axis whichever side is up, and it is not differentiated, so it carries
-    none of the heading's five-sample smoothing. It is clockwise in deg/s; this flips it to
-    counter-clockwise, the heading rate's sign. Firmware before ecc27961 wrapped the gyro past
-    2000 deg/s, which reads about 70 rad/s off, so samples that far from an upright heading rate
-    are dropped.
-    """
+    """Yaw rate from the firmware's gyro ``yaw_rate``, on ``heading``'s grid."""
     if heading.stamp_ns.size == 0:
         return heading
     t = np.asarray(stamp_ns, dtype=np.int64)
@@ -1052,16 +909,9 @@ def gyro_yaw_rate(
     return ImuYawRate(heading.stamp_ns, rate, np.isfinite(rate) & ~wrapped)
 
 
-# ---------------------------------------------------------------------------
-# Session pipeline
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class SmootherOptions:
     grid_dt_s: float = 0.005
-    # Resting pitch, nose-down on the wedge tip (CAD, collision.toml rest_pitch_rad). The
-    # inverted rest pitch is unmeasured; 0 until a session shows otherwise.
     rest_pitch_rad: float = 0.198
     rest_pitch_upside_down_rad: float = 0.0
     close_margin_deg: float = 4.0
@@ -1095,7 +945,9 @@ class SessionSmoothing:
     imu_lag: dict[str, Any] | None
     residual_acf: np.ndarray
     innovation_acf: np.ndarray
-    still_segments: list[tuple[int, int]]  # detection index ranges the noise model came from
+    noise_calibration_segments: list[
+        tuple[int, int]
+    ]  # detection index ranges the noise model came from
     # YOLO position fixes on frames the tag missed (stamp, x, y, yaw, sigmas, rejected), or None.
     yolo_fixes: pd.DataFrame | None = None
     yolo_calibration: yolo_field_fixes.YoloCalibration | None = None
@@ -1119,12 +971,10 @@ class _AxisFit:
 
 IMU_SRC = -1
 EXTRA_SRC = -2
-IMU_GAIN_MAX_RATE = 25.0  # rad/s: fit the BNO055 gain below its clipping
-IMU_MAX_RATE = 30.0  # rad/s: no IMU knot above this
-GYRO_WRAP_TOLERANCE = 10.0  # rad/s: gyro vs heading rate gap that marks a wrapped gyro reading
-# The pitch gyro's sigma: its noise floor, not the chassis vibration it also reports.
-GYRO_PITCH_SIGMA = 0.1  # rad/s
-# 0.5 s pitch changes over 3 degrees, tag against integrated gyro: s05 2026-10-25 correlates 0.84.
+IMU_GAIN_MAX_RATE = 25.0
+IMU_MAX_RATE = 30.0
+GYRO_WRAP_TOLERANCE = 10.0
+GYRO_PITCH_SIGMA = 0.1
 GYRO_PITCH_MIN_CORRELATION = 0.3
 
 _PLANAR_OPTIONS = {
@@ -1257,13 +1107,7 @@ def smooth_session(
     esp32: pd.DataFrame | None = None,
     yolo: pd.DataFrame | None = None,
 ) -> SessionSmoothing:
-    """The whole "Robot pose recording" pass for one session.
-
-    ``esp32`` (optional) is the ESP32 event table with ``stamp_ns`` already on the app clock
-    (``esp32_clock.fit_robot_clock``). It picks still stretches (settled zero commands) for the
-    noise calibration, feeds the IMU agreement check and, with ``options.fuse_imu``, the
-    yaw-rate fusion.
-    """
+    """The whole "Robot pose recording" pass for one session."""
     opts = options or SmootherOptions()
     t_up_field, flipped = up_from_field(field_from_camera)
     cands = build_candidates(
@@ -1418,7 +1262,7 @@ def smooth_session(
         imu_lag=imu_lag,
         residual_acf=residual_acf,
         innovation_acf=innovation_acf,
-        still_segments=segments,
+        noise_calibration_segments=segments,
         yolo_fixes=yolo_fixes,
         yolo_calibration=yolo_cal,
     )
@@ -1435,11 +1279,7 @@ def _fuse_imu(
     checks: dict[str, Any],
     opts: SmootherOptions,
 ) -> _AxisFit | None:
-    """Rerun the planar smoother with BNO055 yaw rate as a measurement of the yaw-rate state.
-
-    The IMU is shifted by its measured lag and multiplied by its measured sign first, and only
-    used when it correlates with tag yaw rate at ``imu_min_correlation`` or better.
-    """
+    """Rerun the planar smoother with BNO055 yaw rate measuring the yaw-rate state."""
     fused = _imu_knot_input(imu, checks, opts)
     if fused is None:
         checks["imu_fused"] = False
@@ -1478,11 +1318,7 @@ def _gyro_pitch_agreement(
     step_s: float = 0.1,
     min_change_deg: float = 3.0,
 ) -> dict[str, Any]:
-    """Sign and fit of the integrated pitch gyro against tag pitch changes over ``interval_s``.
-
-    Each tag end is the median of the fixes within 30 ms. Only intervals where the tags move more
-    than ``min_change_deg`` score the sign: a flat robot's tag pitch is mostly noise.
-    """
+    """Sign and fit of the integrated pitch gyro against tag pitch changes over ``interval_s``."""
     integral = np.concatenate([[0.0], np.cumsum(np.nan_to_num(rate[1:]) * np.diff(et) / _NS)])
     pitch = np.unwrap(raw.pitch)
 
@@ -1496,7 +1332,6 @@ def _gyro_pitch_agreement(
     ends = starts + span
     d_tag = tag_at(ends) - tag_at(starts)
     d_gyro = np.interp(ends, et, integral) - np.interp(starts, et, integral)
-    # Upright for the whole interval: inverted, the gyro's sense of pitch flips.
     flips = np.concatenate([[0], np.cumsum(~upright)])
     clean = flips[np.searchsorted(et, ends)] == flips[np.searchsorted(et, starts)]
     big = np.isfinite(d_tag) & clean & (np.abs(d_tag) > math.radians(min_change_deg))
@@ -1522,21 +1357,7 @@ def _fuse_imu_tilt(
     checks: dict[str, Any],
     fuse_gyro: bool,
 ) -> _AxisFit | None:
-    """Rerun the tilt smoother with the robot IMU's tilt; None when there is nothing to add.
-
-    Pitch: the gyro's pitch rate (``gyro_y``, the chip axis along the axle, which picks up no yaw)
-    at every upright telemetry sample, so the tags only pin its bias. The BNO055's fused Euler
-    pitch is not used where the gyro is: on 2026-10-25 hard spins pulled it up to 18 degrees off
-    while the tags and the gyro read the robot flat. The gyro's sign is measured against tag pitch
-    changes and the fusion skipped when they do not agree.
-
-    Roll, and pitch without the gyro: YOLO fixes carry no tilt, and across a long dropout the tilt
-    state wanders far enough to mark a robot sitting flat as lifting its nose. At each YOLO fix the
-    BNO055 Euler angle is mapped onto the tag angle by a straight line fitted on upright tag
-    detections; its residual (about 2 degrees, mostly tag noise) is the sigma.
-
-    The IMU lag is the one the yaw-rate check measured.
-    """
+    """Rerun the tilt smoother with the robot IMU's tilt; None when there is nothing to add."""
     lag_ns = int(round(float((checks.get("imu_yaw_rate") or {}).get("lag_s") or 0.0) * _NS))
     e = esp32.sort_values("stamp_ns")
     et = e["stamp_ns"].to_numpy(np.int64)
@@ -1582,7 +1403,7 @@ def _fuse_imu_tilt(
         report[col] = {"gain": float(coef[0]), "offset": float(coef[1]), "sigma": sigma[a]}
     yolo_kind = np.full((m, 2), KIND_POSITION, dtype=np.int8)
     if len(gyro_stamps):
-        yolo_kind[:, 0] = KIND_NONE  # the gyro carries pitch across the dropout
+        yolo_kind[:, 0] = KIND_NONE
     g = len(gyro_stamps)
     gyro_kind = np.tile(np.array([KIND_RATE, KIND_NONE], dtype=np.int8), (g, 1))
     gyro_z = np.stack([gyro_rate, np.zeros(g)], axis=1)
@@ -1605,14 +1426,7 @@ def _fuse_imu_tilt(
 
 
 def _with_rate(options: FilterOptions) -> FilterOptions:
-    """Options for a run with IMU rate knots: unwrap yaw onto the prediction's branch always.
-
-    Without a rate measurement a dropout leaves only the last fix's rate to carry the angle
-    forward, which is what ``branch_gap_s`` falls back to. With the IMU the prediction is the
-    better reference: carrying a 3 rad/s rate from the last fix across a 1 s gap lands more than
-    half a turn off and picks the wrong branch. Across 40 withheld 1 s tag spans the carried
-    reference flipped the heading by half a turn in 9 of them; the prediction flipped none.
-    """
+    """Options for a run with IMU rate knots: unwrap yaw onto the prediction's branch always."""
     return replace(options, branch_gap_s=math.inf)
 
 
@@ -1630,13 +1444,8 @@ def _imu_knot_input(
     if not 0.5 < gain < 1.5:
         gain = 1.0
     rate = imu.rate * sign / gain
-    # Near the gyro's range the rate clips; a clipped knot would drag a fast spin's rate down.
     valid = imu.valid & (np.abs(rate) < IMU_MAX_RATE)
     shifted = ImuYawRate(imu.stamp_ns - int(round(lag_s * _NS)), rate, valid)
-    # Still-period noise alone understates the IMU's error mid-spin, where a too-tight sigma gates
-    # out good tag fixes; the spin residual after the gain correction (which includes some
-    # tag-rate noise) covers it. Before the correction, the 0.84 gain of clipped spins inflated
-    # it to about 3 rad/s, loose enough that a dropout could hide a whole extra turn.
     spin = agreement.get("linear_rms_rad_s", agreement.get("spin_rms_rad_s"))
     sigmas = [agreement.get("still_rate_std"), spin, 0.05]
     return shifted, max(float(v) for v in sigmas if v is not None)
@@ -1659,10 +1468,7 @@ def _fuse_yolo(
     checks: dict[str, Any],
     opts: SmootherOptions,
 ) -> tuple[_AxisFit, pd.DataFrame, yolo_field_fixes.YoloCalibration] | None:
-    """Rerun the planar smoother with YOLO position fixes on the frames the tag missed.
-
-    See ``yolo_field_fixes`` for the projection, its calibration against the tag, and the gates.
-    """
+    """Rerun the planar smoother with YOLO position fixes on frames the tag missed."""
 
     def up_from_camera_at(stamps_ns: np.ndarray) -> np.ndarray:
         return np.asarray(t_up_field @ field_from_camera.at(np.asarray(stamps_ns, np.int64)))
@@ -1697,8 +1503,6 @@ def _fuse_yolo(
     if fixes.empty:
         return None
     along, across = to_view(fixes["x"].to_numpy(), fixes["y"].to_numpy(), azimuth)
-    # Position only. Across 40 withheld 1 s tag spans the keypoint heading was worse (4.1 deg
-    # median) than the heading the IMU yaw rate carries through the gap (1.8 deg), so it is out.
     ez = np.stack([along, across, np.full(len(fixes), np.nan)], axis=1)
     esig = np.tile([cal.sigma_along_m, cal.sigma_across_m, 1.0], (len(fixes), 1))
     fused = _imu_knot_input(imu, checks, opts) if imu is not None else None
@@ -1793,8 +1597,7 @@ def _session_checks(
     ippe: IppeChoice,
     checks: dict[str, Any],
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Noise floor, residual whiteness, IPPE and gating counts. Returns the across-view residual
-    and innovation autocorrelations for plotting."""
+    """Noise floor, residual whiteness, IPPE and gating counts."""
     use = ~meas["rejected"].to_numpy()
     still = np.zeros(len(meas), dtype=bool)
     for i0, i1 in segments:
@@ -1816,7 +1619,7 @@ def _session_checks(
     }
     checks["ippe"] = {
         "close_calls": ippe.close_calls,
-        "unresolved_close_calls": ippe.unresolved_close_calls,
+        "unresolved_close_calls": ippe.close_calls_left_to_tilt,
         "detections": int(len(meas)),
     }
     checks["gating"] = {
@@ -1870,10 +1673,7 @@ def _grid_frame(
 
 
 def _noise_floor(meas: pd.DataFrame, still: np.ndarray) -> dict[str, Any]:
-    """Scatter of raw poses about the smoothed pose on the still segments (per detection mask).
-
-    The fit reports its errors as multiples of these numbers.
-    """
+    """Scatter of raw poses about the smoothed pose on the still segments."""
     use = still & ~meas["rejected"].to_numpy()
     if not use.any():
         return {"detections": 0}
@@ -1899,11 +1699,7 @@ def _noise_floor(meas: pd.DataFrame, still: np.ndarray) -> dict[str, Any]:
 def _raw_tag_yaw_rate(
     stamp_ns: np.ndarray, yaw: np.ndarray, grid_ns: np.ndarray, span_s: float = 0.1
 ) -> np.ndarray:
-    """Yaw rate from the raw tag detections on ``grid_ns``, NaN across detection gaps.
-
-    A central difference over ``span_s`` of the resampled raw yaw. It stays independent of the
-    smoother, so it can vet the IMU even when the smoothed yaw rate has aliased.
-    """
+    """Yaw rate from the raw tag detections on ``grid_ns``, NaN across detection gaps."""
     order = np.argsort(stamp_ns, kind="stable")
     yaw_on_grid = resample_linear(
         stamp_ns[order], np.unwrap(np.asarray(yaw)[order]), grid_ns, max_gap_s=0.05
@@ -1937,7 +1733,6 @@ def _imu_agreement(
     aligned = aligned * lag.sign
     spin = np.abs(tag_rate) > opts.spin_rate
     ok = spin & np.isfinite(aligned)
-    # Rate noise wherever the tag track says the robot is not turning (it may still drive).
     still = (np.abs(tag_rate) < opts.still_yaw_rate) & np.isfinite(imu_on_grid)
     agreement: dict[str, Any] = {
         "heading_sign_assumed": -1,
@@ -1953,8 +1748,6 @@ def _imu_agreement(
         agreement["spin_gain"] = float(
             np.dot(aligned[ok], tag_rate[ok]) / max(np.dot(tag_rate[ok], tag_rate[ok]), 1e-9)
         )
-        # Scale and residual below the gyro's range only: the BNO055 clips near 35 rad/s
-        # (2000 deg/s), which drags a gain fitted over full-stick spins down.
         lin = ok & (np.abs(tag_rate) < IMU_GAIN_MAX_RATE)
         if lin.sum() >= 10:
             gain = float(

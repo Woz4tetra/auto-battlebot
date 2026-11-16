@@ -1,15 +1,4 @@
-"""Batched open-loop rollouts of the Mr Stabs Mk2 MJCF on MuJoCo Warp, with a CPU reference.
-
-One world per (candidate, window) pair. Every parameter the fit moves either lives in a Model
-field that MuJoCo Warp batches per world (friction, solref, solimp, joint damping and
-frictionloss, rotor inertia, actuator gain, bias and force limit) or is folded into the voltage
-tape on the host (delay, deadzone, throttle curve, left/right ratio, pack voltage). The
-zero-command mode is a per-world flag the control kernel reads each step.
-
-A step is: write ctrl from the tape (the back-EMF voltage on coast steps), mjw.step, record the
-chassis pose every `record_every` steps. The whole step is captured once as a CUDA graph and
-replayed, which is 3 to 5x faster than launching it from Python.
-"""
+"""Batched open-loop rollouts of the Mr Stabs Mk2 MJCF on MuJoCo Warp, with a CPU reference."""
 
 from __future__ import annotations
 
@@ -78,7 +67,6 @@ class ModelIndex:
     rotor_bodies: np.ndarray
     rotor_dofs: np.ndarray
     rotor_qpos: np.ndarray
-    # Belt-driven wheels, in WHEEL_JOINTS order; empty on a two-wheeled robot.
     follower_dofs: np.ndarray
     follower_qpos: np.ndarray
 

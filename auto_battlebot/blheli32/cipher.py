@@ -1,16 +1,4 @@
-"""BLHeli_32 settings page encryption.
-
-The ESC stores its 256-byte settings page at 0xF800 and returns it encrypted over the bootloader.
-Each 8-byte block is XTEA (32 rounds) with a tweak added into every round key: the page base
-BLHeliSuite passes (0xF800 on 64 KB parts, 0x7C00 on 32 KB parts) plus 8 per block. The key is
-BLHeliSuite32xl 1.0.4.4's, at VA 0xdd4e2c in the Linux binary.
-
-A decrypted block is a 2-byte nonce and 6 payload bytes. The ESC draws a fresh nonce for every
-block on every read, so two reads of the same settings never match as ciphertext. The nonce
-carries no check: a wrong key shows up as a payload whose firmware and layout bytes are wrong
-(layout.check_layout), and transport errors are caught by the 4-way CRC. 32 blocks carry 192
-payload bytes, which is the settings record `layout.py` describes.
-"""
+"""BLHeli_32 settings page encryption."""
 
 from __future__ import annotations
 
@@ -22,7 +10,7 @@ PAGE_ADDRESS = 0xF800
 PAGE_SIZE = 256
 BLOCK = 8
 PAYLOAD_PER_BLOCK = 6
-PAYLOAD_SIZE = PAGE_SIZE // BLOCK * PAYLOAD_PER_BLOCK  # 192
+PAYLOAD_SIZE = PAGE_SIZE // BLOCK * PAYLOAD_PER_BLOCK
 TWEAK_64K = 0xF800
 
 _KEY = (0x81FBC617, 0x9E81C901, 0x29A1FA54, 0x318234B4)
@@ -80,10 +68,7 @@ def esc_style_nonces(seed: bytes | None = None) -> Callable[[int], bytes]:
 def encode_page(
     payload: bytes, tweak: int = TWEAK_64K, nonce: Callable[[int], bytes] | None = None
 ) -> bytes:
-    """192-byte settings payload -> encrypted 256-byte page. nonce(block_index) gives 2 bytes.
-
-    The default draws 2 random bytes per block, as BLHeliSuite's Write Setup does.
-    """
+    """Encrypt a 192-byte settings payload into a 256-byte page."""
     nonce = nonce or (lambda _: os.urandom(2))
     if len(payload) != PAYLOAD_SIZE:
         raise PageError(f"payload is {len(payload)} bytes, expected {PAYLOAD_SIZE}")

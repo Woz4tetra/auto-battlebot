@@ -1,18 +1,4 @@
-"""Write a model bundle directory for `RlPolicyNavigation` (plan section 12).
-
-    <dir>/manifest.toml        policy kind, observation spec, decoder, execution, networks
-    <dir>/actor.rtneural.json  the actor, input normalization folded into its first layer
-    <dir>/selftest.bin         observation and decoded-action pairs from PyTorch
-
-`selftest.bin` is little-endian: the bytes `RLST`, then uint32 format version (1), pair count N,
-observation size D and action size A, then N x D float32 observations, then N x A float32
-actions after the decoder (`scale * tanh(network output)`). The C++ loader runs every
-observation through its runtime and decoder and requires agreement within the manifest's
-tolerance.
-
-Before writing, the exporter evaluates the JSON it is about to write in numpy and compares it
-with PyTorch, so a layout mistake fails here rather than on the robot.
-"""
+"""Write a model bundle directory for `RlPolicyNavigation` (plan section 12)."""
 
 from __future__ import annotations
 
@@ -67,8 +53,7 @@ def spec_from_policy(
     sample_obs: torch.Tensor,
     count: int = 16,
 ) -> BundleSpec:
-    """Fold the frozen normalization into the actor and take `count` self-test pairs from
-    `sample_obs` (real observations, so the test exercises the inputs the policy will see)."""
+    """Fold frozen normalization into the actor and take self-test pairs from real observations."""
     norm = policy.norm
     layers = fold_normalization(
         dense_layers(policy.actor),

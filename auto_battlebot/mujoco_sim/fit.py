@@ -1,24 +1,4 @@
-"""Staged CMA-ES fit of the Mr Stabs Mk2 MuJoCo plant against hand-driven windows.
-
-Each generation scores every candidate on every window at once: one world per (candidate,
-window) pair. CMA-ES is gradient-free, so the delay (a tape shift) and the chaotic contact
-don't need special handling. Parameters live on a unit cube (log scale where the range spans
-decades) and are released in stages so each group is fit on the data that identifies it:
-
-1. flat windows: delay, deadzones, throttle curve, R, efficiency, gearbox friction
-2. flat windows: skid and torsional friction, left/right ratio, wheel sliding friction
-3. nose-lift windows: armature scale and wheel traction, everything else frozen
-4. all windows: every continuous parameter, starting from the staged result
-
-The zero-command mode (brake or coast) is discrete; `fit` runs once per mode asked for.
-
-`specs` overrides the parameter bounds for another robot (Mrs Buff Mk3's motor and four-wheel
-scrub sit outside Mr Stabs Mk2's ranges); the default is PARAM_SPECS.
-
-Loss: at each horizon, the raw measurement nearest to it (within 20 ms) against the prediction
-at that measurement's time. Position and heading errors are divided by the session noise floor
-and Huber-weighted; nose-lift windows add a pitch term over every measurement in the window.
-"""
+"""Staged CMA-ES fit of the Mr Stabs Mk2 MuJoCo plant against hand-driven windows."""
 
 from __future__ import annotations
 
@@ -32,7 +12,7 @@ from auto_battlebot.mujoco_sim.actuator import PlantParams
 from auto_battlebot.mujoco_sim.rollout import pose_from_qpos
 from auto_battlebot.mujoco_sim.session import HORIZON_TOLERANCE_S, WindowBatch
 
-HUBER_DELTA = 3.0  # noise-floor multiples
+HUBER_DELTA_NOISE_MULTIPLES = 3.0
 
 
 @dataclass(frozen=True)
@@ -54,7 +34,6 @@ class ParamSpec:
         return self.lo + u * (self.hi - self.lo)
 
 
-# Bounds from the plan's parameter table; "wide" ones span what the robot could physically be.
 PARAM_SPECS: tuple[ParamSpec, ...] = (
     ParamSpec("delay_s", 0.0, 0.06),
     ParamSpec("deadzone_left", 0.0, 0.06),
@@ -123,7 +102,7 @@ def unit_of(
     return np.array([specs[n].to_unit(getattr(params, n)) for n in names])
 
 
-def _huber(r: np.ndarray, delta: float = HUBER_DELTA) -> np.ndarray:
+def _huber(r: np.ndarray, delta: float = HUBER_DELTA_NOISE_MULTIPLES) -> np.ndarray:
     a = np.abs(r)
     return np.asarray(np.where(a <= delta, 0.5 * a**2, delta * (a - 0.5 * delta)))
 
@@ -174,14 +153,12 @@ def window_errors(batch: WindowBatch, qpos: np.ndarray, record_dt: float) -> Win
             yaw_sigma[i, j] = batch.meas_sigma_yaw[i][k] if own else batch.noise_yaw[i]
             pos_err[i, j] = float(np.hypot(px[k] - batch.meas_x[i][k], py[k] - batch.meas_y[i][k]))
             terms.append(float(_huber(np.asarray(pos_err[i, j] / pos_sigma[i, j]))))
-            # A source without heading (NaN yaw) scores position only.
             if np.isfinite(batch.meas_yaw[i][k]) and np.isfinite(yaw_sigma[i, j]):
                 yaw_err[i, j] = float(_wrap(np.asarray(pyaw[k] - batch.meas_yaw[i][k])))
                 terms.append(float(_huber(np.asarray(yaw_err[i, j] / yaw_sigma[i, j]))))
         has_pitch = np.isfinite(batch.meas_pitch[i])
         if batch.kind[i] == "nose_lift" and has_pitch.any():
             pp = np.interp(mt[has_pitch], sample_t, pose["pitch"][i])
-            # Both are the rotation about body +y (FLU), so nose-down is positive in each.
             diff = pp - batch.meas_pitch[i][has_pitch]
             pitch_rms[i] = float(np.sqrt(np.mean(diff**2)))
             resid = diff / batch.noise_pitch[i]
@@ -340,8 +317,7 @@ def params_dict(params: PlantParams) -> dict[str, float | bool]:
 
 
 def restart_spread(results: list[FitResult]) -> dict[str, dict[str, float]]:
-    """Per parameter, spread of the restarts' best values in unit-cube terms, to judge
-    whether the fit identifies it (plan validation check 6)."""
+    """Per-parameter spread of restart best values in unit-cube terms."""
     out = {}
     for spec in PARAM_SPECS:
         units = np.array([spec.to_unit(getattr(r.best, spec.name)) for r in results])
@@ -358,8 +334,7 @@ def restart_spread(results: list[FitResult]) -> dict[str, dict[str, float]]:
 def tradeoff_pairs(
     results: list[FitResult], threshold: float = 0.8
 ) -> list[tuple[str, str, float]]:
-    """Parameter pairs whose restart values correlate past `threshold`: candidates to pin one
-    of from an outside measurement."""
+    """Parameter pairs whose restart values correlate past threshold."""
     if len(results) < 3:
         return []
     units = np.array([[s.to_unit(getattr(r.best, s.name)) for s in PARAM_SPECS] for r in results])

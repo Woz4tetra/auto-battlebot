@@ -47,7 +47,7 @@ import numpy as np
 import pandas as pd
 from mcap.reader import make_reader
 
-from auto_battlebot.calibration.sysid.maneuvers import MOVING, menu_from_grid
+from auto_battlebot.calibration.sysid.maneuvers import MOVING_STICK, menu_from_grid
 from auto_battlebot.recording import diag_io
 from auto_battlebot.recording.mcap_io import (
     CAMERA_VIDEO_TOPIC,
@@ -267,7 +267,7 @@ def check_tags(path: Path, rep: Report, cam_stamps: np.ndarray, sticks: pd.DataF
     moving_cov = math.nan
     if not sticks.empty:
         lin, ang = stick_at(sticks, stamps)
-        moving = (np.abs(lin) > MOVING) | (np.abs(ang) > MOVING)
+        moving = (np.abs(lin) > MOVING_STICK) | (np.abs(ang) > MOVING_STICK)
         if moving.any():
             moving_cov = float(seen[moving].mean())
     small = float(np.mean(np.asarray(sizes) < TAG_MIN_PX)) if sizes else math.nan

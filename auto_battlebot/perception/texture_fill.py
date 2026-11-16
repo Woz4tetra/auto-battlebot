@@ -1,20 +1,4 @@
-"""Fill the unseen part of a texture warped from one photo, by reflecting what was seen.
-
-A floor or wall texture built from a single fixed camera has holes: the strip hidden behind a
-rail, the wall below the box, anything past the frame edge. A flat mean colour in there reads
-as a painted band from any other viewpoint. Reflecting the seen texture across the edge of
-the hole carries the grain, the stone pattern and the lighting gradient on into it instead.
-
-`mirror_fill` suits a narrow hole beside a large seen area (the floor strip behind a rail).
-A hole larger than what was seen, like a wall seen only in a band above a box, comes out
-kaleidoscopic from it: reflections of reflections fan out from every concave corner. There
-`largest_seen_rectangle` and `offset_tile` cover the texture with shifted, overlapping copies
-of one clean seen rectangle instead. Flipped copies would match at every seam but stack into
-mirror axes the eye picks out at once; shifted ones with blended overlaps do not.
-
-Used by `training/synthetic/build_cage_floor_texture.py` (floor albedo) and
-`playground/basement_scene/build_wall_textures.py` (wall albedo).
-"""
+"""Fill the unseen part of a texture warped from one photo, by reflecting what was seen."""
 
 from __future__ import annotations
 
@@ -52,22 +36,7 @@ def _mirror_pass(image: np.ndarray, unseen: np.ndarray) -> np.ndarray:
 
 
 def mirror_fill(image: np.ndarray, unseen: np.ndarray, max_passes: int = 8) -> np.ndarray:
-    """Fill `unseen` pixels of `image` by reflection, repeating until the hole is closed.
-
-    A pass reflects each hole pixel across its nearest seen pixel and takes the value there
-    if that point was seen. A hole deeper than the seen band beside it is not closed in one
-    pass, so later passes reflect what earlier ones filled: a strip of wall 0.8 m tall ends
-    up tiled, flipped, down a 2 m wall. Pixels still unseen after `max_passes` keep their
-    value.
-
-    Args:
-        image: HxW or HxWxC texture; not modified.
-        unseen: HxW bool, True where the photo saw nothing.
-        max_passes: upper bound on reflection passes.
-
-    Returns:
-        The filled copy of `image`.
-    """
+    """Fill unseen pixels of image by repeated reflection across the nearest seen pixel."""
     out: np.ndarray = image.copy()
     remaining = unseen.copy()
     for _ in range(max_passes):
@@ -81,11 +50,7 @@ def mirror_fill(image: np.ndarray, unseen: np.ndarray, max_passes: int = 8) -> n
 
 
 def largest_seen_rectangle(seen: np.ndarray, step: int = 4) -> tuple[int, int, int, int]:
-    """The largest axis-aligned rectangle of seen pixels, as (row0, row1, col0, col1).
-
-    Maximal rectangle over the histogram of seen runs, row by row, on a `step`-downsampled
-    mask; the bounds are shrunk to the downsampled cells that are wholly seen.
-    """
+    """Largest axis-aligned rectangle of seen pixels as (row0, row1, col0, col1)."""
     height, width = seen.shape
     cells = seen[: height // step * step, : width // step * step]
     cells = np.asarray(cells.reshape(height // step, step, width // step, step).all(axis=(1, 3)))
@@ -108,11 +73,7 @@ def largest_seen_rectangle(seen: np.ndarray, step: int = 4) -> tuple[int, int, i
 
 
 def flatten_luminance(image: np.ndarray, sigma_px: float) -> np.ndarray:
-    """Divide out the low-frequency brightness of a BGR image, keeping its mean.
-
-    A seen patch carries the photo's lighting gradient; copies of it laid side by side would
-    show that gradient as a step at every seam.
-    """
+    """Divide out the low-frequency brightness of a BGR image, keeping its mean."""
     lab = cv2.cvtColor(image, cv2.COLOR_BGR2Lab).astype(np.float32)
     low = cv2.GaussianBlur(lab[:, :, 0], (0, 0), sigma_px)
     lab[:, :, 0] = np.clip(lab[:, :, 0] / np.maximum(low, 1.0) * float(lab[:, :, 0].mean()), 0, 255)
@@ -122,13 +83,7 @@ def flatten_luminance(image: np.ndarray, sigma_px: float) -> np.ndarray:
 def offset_tile(
     patch: np.ndarray, shape: tuple[int, int], overlap: float = 0.25, seed: int = 0
 ) -> np.ndarray:
-    """Cover an image of `shape` with copies of `patch`, blended where they overlap.
-
-    Copies step by the patch size less `overlap` of it, each row of copies shifted by a
-    random fraction of a step, and overlaps are cross-faded with linear ramps. The patch's
-    low-frequency brightness is flattened first (`flatten_luminance`) so the fade does not
-    have to hide a lighting step.
-    """
+    """Cover an image of shape with blended copies of patch."""
     height, width = shape
     tile_h, tile_w = patch.shape[:2]
     flat = flatten_luminance(patch, min(tile_h, tile_w) / 4).astype(np.float32)

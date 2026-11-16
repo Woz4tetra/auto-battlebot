@@ -1,19 +1,4 @@
-"""Put ESP32 events on the app clock and measure the delays around them.
-
-The app stamps every ESP32 event with its receive time, which carries WiFi jitter: a few
-milliseconds typically and tens of milliseconds when the link retries. The robot's
-``timestamp_ms`` has no jitter but runs on its own crystal. ``fit_robot_clock`` maps one onto
-the other with a line (offset and drift). Receive delay is never negative, so the line is the
-lower envelope of (robot time, receive time): it rests on the fastest deliveries, which a least
-squares line would not. The minimum transport latency stays inside the offset; nothing in the
-data can separate it.
-
-A reboot resets ``timestamp_ms``, so each run of increasing robot time gets its own line.
-
-``cross_correlation_delay`` estimates the lag between two signals on the app clock. It serves the
-two checks in the plan: stick channels against the ESP32's ``a_percent``/``b_percent`` (the radio
-link delay) and BNO055 yaw rate against tag yaw rate.
-"""
+"""Put ESP32 events on the app clock and measure the delays around them."""
 
 from __future__ import annotations
 
@@ -30,11 +15,11 @@ class ClockSegment:
     """host_ns = host_ref_ns + offset_s * 1e9 + (1 + drift) * (robot_ms - robot_ref_ms) * 1e6"""
 
     first_index: int
-    last_index: int  # inclusive
+    last_index_inclusive: int
     robot_ref_ms: int
     host_ref_ns: int
     offset_s: float
-    drift: float  # fractional: +1e-6 means the robot clock runs 1 ppm slow against the app
+    drift: float
     residual_ms_percentiles: dict[str, float] = field(default_factory=dict)
 
     @property
@@ -89,17 +74,11 @@ def _lower_hull(x: np.ndarray, y: np.ndarray) -> np.ndarray:
 
 
 def _lower_envelope_line(x: np.ndarray, y: np.ndarray) -> tuple[float, float]:
-    """(intercept, slope) of the line under every point that minimises the summed gap.
-
-    Minimising sum(y - a - b x) subject to y >= a + b x is a two-variable linear program whose
-    optimum is the lower-hull edge spanning mean(x) (Moon, Skelly and Towsley 1999, skew
-    estimation for network delay measurements).
-    """
+    """(intercept, slope) of the line under every point that minimises the summed gap."""
     if x.shape[0] == 1:
         return float(y[0]), 0.0
     order = np.argsort(x, kind="stable")
     xs, ys = x[order], y[order]
-    # Duplicate x: keep the lowest y, the only one the envelope can touch.
     keep = np.ones(xs.shape[0], dtype=bool)
     keep[1:] = xs[1:] != xs[:-1]
     first = np.flatnonzero(keep)
@@ -144,13 +123,11 @@ def fit_robot_clock(timestamp_ms: np.ndarray, host_receive_ns: np.ndarray) -> Cl
         robot_ref = int(r[0])
         host_ref = int(h[0])
         x = (r - robot_ref).astype(np.float64) / 1e3
-        # Receive time minus robot time, so the slope is the drift and stays near zero; fitting
-        # host against robot directly loses the ppm-level slope to rounding.
         y = (h - host_ref).astype(np.float64) / 1e9 - x
         intercept, slope = _lower_envelope_line(x, y)
         seg = ClockSegment(
             first_index=first,
-            last_index=last,
+            last_index_inclusive=last,
             robot_ref_ms=robot_ref,
             host_ref_ns=host_ref,
             offset_s=intercept,
@@ -162,11 +139,6 @@ def fit_robot_clock(timestamp_ms: np.ndarray, host_receive_ns: np.ndarray) -> Cl
         segments.append(seg)
     residual = (host - stamp).astype(np.float64) / 1e6
     return ClockFit(segments=segments, stamp_ns=stamp, residual_ms=residual)
-
-
-# ---------------------------------------------------------------------------
-# Cross-correlation
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -226,12 +198,7 @@ def cross_correlation_delay(
     max_lag_s: float,
     allow_sign_flip: bool = True,
 ) -> LagEstimate:
-    """Lag of ``b`` behind ``a``, two signals on the same uniform grid (NaN where missing).
-
-    Normalised correlation at each integer lag over the samples both signals have, a parabola
-    through the peak for the sub-sample lag. With ``allow_sign_flip`` the peak of |r| wins and the
-    sign is reported, which covers an inverted channel.
-    """
+    """Lag of b behind a, two signals on the same uniform grid."""
     a = np.asarray(a, dtype=np.float64)
     b = np.asarray(b, dtype=np.float64)
     max_lag = int(round(max_lag_s / grid_dt_s))
@@ -240,7 +207,6 @@ def cross_correlation_delay(
     counts = np.zeros(lags.shape, dtype=np.int64)
     n = a.shape[0]
     for i, lag in enumerate(lags):
-        # b[k + lag] against a[k]
         lo = max(0, -lag)
         hi = min(n, n - lag)
         if hi - lo < 10:
@@ -290,11 +256,7 @@ def radio_link_delay(
     max_lag_s: float = 0.25,
     smooth_s: float = 0.006,
 ) -> LagEstimate:
-    """How long a stick move takes to show up in the ESP32's ``a_percent``/``b_percent``.
-
-    Both signals are held between samples (the stick is logged only on change) and correlated
-    on their first differences, so the slow drift of a held stick does not dominate the peak.
-    """
+    """How long a stick move takes to show up in the ESP32's ``a_percent``/``b_percent``."""
     if len(stick_stamp_ns) < 2 or len(esp32_stamp_ns) < 2:
         return LagEstimate(math.nan, math.nan, 1, 0, np.zeros(0), np.zeros(0))
     start = max(int(stick_stamp_ns[0]), int(esp32_stamp_ns[0]))
@@ -309,8 +271,7 @@ def radio_link_delay(
 
 
 def _smooth(x: np.ndarray, sigma_samples: float) -> np.ndarray:
-    """Gaussian blur that treats NaN as zero. Widens single-sample steps into a peak the
-    parabolic refinement can fit."""
+    """Gaussian blur that treats NaN as zero."""
     if sigma_samples <= 0.0:
         return x
     half = int(math.ceil(3.0 * sigma_samples))

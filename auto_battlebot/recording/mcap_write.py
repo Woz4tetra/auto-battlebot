@@ -46,7 +46,6 @@ ESPNOW_TELEMETRY_JSON_SCHEMA = """{"type":"object","title":"auto_battlebot.EspNo
 
 APRILTAG_ROBOT_TAGS_JSON_SCHEMA = """{"type":"object","title":"auto_battlebot.AprilTagRobotTags","description":"Robot AprilTag detections for one frame, with both IPPE PnP solutions","properties":{"image_stamp_ns":{"type":"integer","description":"Frame image stamp, ns"},"frame_id":{"type":"string"},"camera":{"type":"object","properties":{"fx":{"type":"number"},"fy":{"type":"number"},"cx":{"type":"number"},"cy":{"type":"number"},"width":{"type":"integer"},"height":{"type":"integer"}},"required":["fx","fy","cx","cy","width","height"]},"tag_size_m":{"type":"number"},"roi":{"type":["array","null"],"description":"[x, y, w, h] searched, null when the full frame was searched","items":{"type":"integer"}},"detections":{"type":"array","items":{"type":"object","properties":{"id":{"type":"integer"},"corners":{"type":"array","description":"[u, v] pixels, OpenCV aruco order: clockwise from the marker's top-left","items":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},"minItems":4,"maxItems":4},"decision_margin":{"type":["number","null"]},"solutions":{"type":"array","description":"solvePnPGeneric IPPE_SQUARE, sorted by reprojection error ascending; rvec/tvec map tag to camera","items":{"type":"object","properties":{"rvec":{"type":"array","items":{"type":"number"}},"tvec":{"type":"array","items":{"type":"number"}},"reprojection_error_px":{"type":"number"}},"required":["rvec","tvec","reprojection_error_px"]}}},"required":["id","corners","decision_margin","solutions"]}}},"required":["image_stamp_ns","frame_id","camera","tag_size_m","roi","detections"]}"""  # noqa: E501
 
-# Topics whose payloads are JSON, with their schema. Everything else is a Foxglove protobuf.
 JSON_TOPIC_SCHEMAS: dict[str, tuple[str, str]] = {
     mcap_io.FRAME_META_TOPIC: (FRAME_META_SCHEMA_NAME, FRAME_META_JSON_SCHEMA),
     mcap_io.BLOB_DETECTIONS_TOPIC: (DETECTIONS_SCHEMA_NAME, DETECTIONS_JSON_SCHEMA),
@@ -70,7 +69,6 @@ LATCHED_TOPICS = frozenset(
 )
 
 
-# Chunk compression names as they appear in an MCAP summary's chunk indexes.
 _COMPRESSION = {"": None, "none": None, "zstd": MCAPCompression.Zstd, "lz4": MCAPCompression.Lz4}
 
 
@@ -91,11 +89,6 @@ def read_chunk_compression(path: Path | str) -> str:
     if summary is None or not summary.chunk_indexes:
         return ""
     return str(summary.chunk_indexes[0].compression or "")
-
-
-# ---------------------------------------------------------------------------
-# Value conversions
-# ---------------------------------------------------------------------------
 
 
 def timestamp_from_ns(stamp_ns: int) -> fg.Timestamp:
@@ -386,10 +379,6 @@ def json_number(value: Any) -> Any:
         return None if math.isnan(f) or math.isinf(f) else f
     return value
 
-
-# ---------------------------------------------------------------------------
-# Writer
-# ---------------------------------------------------------------------------
 
 _PROTOBUF_CHANNEL_CLASSES: dict[str, Callable[..., Any]] = {
     "foxglove.CompressedImage": fg_channels.CompressedImageChannel,

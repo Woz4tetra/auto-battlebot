@@ -79,13 +79,7 @@ def letterbox(
 
 
 def stretch(image: np.ndarray, target_h: int, target_w: int) -> tuple[np.ndarray, float, float]:
-    """Resize to the target ignoring aspect ratio. Returns (resized, scale_x, scale_y).
-
-    The alternative to letterboxing. Squeezing 16:9 into a square costs 0.5x horizontally
-    but only 0.89x vertically, so a robot lands 1.33x larger than a letterbox puts it at
-    the same tensor size, and no pixels go to padding. Detections come back through two
-    scales instead of one.
-    """
+    """Resize to the target ignoring aspect ratio."""
     height, width = image.shape[:2]
     resized = cv2.resize(image, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
     return resized, target_w / width, target_h / height
@@ -126,14 +120,14 @@ def sigmoid(x: np.ndarray) -> np.ndarray:
     return cast(np.ndarray, result)
 
 
-def xywh2xyxy(boxes: np.ndarray, half_wh: bool = False) -> None:
+def xywh2xyxy(boxes: np.ndarray, wh_are_half_extents: bool = False) -> None:
     """In-place: (cx, cy, w, h) -> (x1, y1, x2, y2).
 
-    If half_wh, 3rd/4th are half-width/half-height (no /2).
+    If wh_are_half_extents, 3rd/4th are half-width/half-height (no /2).
     """
     cx, cy = boxes[:, 0].copy(), boxes[:, 1].copy()
     w, h = boxes[:, 2].copy(), boxes[:, 3].copy()
-    if half_wh:
+    if wh_are_half_extents:
         boxes[:, 0] = cx - w
         boxes[:, 1] = cy - h
         boxes[:, 2] = cx + w
@@ -285,7 +279,7 @@ def non_max_suppression(
     kp_data = transposed[mask, 4 + num_classes : 4 + num_classes + num_keypoint_vals].copy()
     _activate_keypoint_visibility(kp_data)
     if not bbox_xyxy:
-        xywh2xyxy(boxes_xywh, half_wh=bbox_half_wh)
+        xywh2xyxy(boxes_xywh, wh_are_half_extents=bbox_half_wh)
     all_keep = _per_class_nms(boxes_xywh, scores, cls_ids, num_classes, iou_thres)
     all_keep = all_keep[np.argsort(-scores[all_keep])[:max_det]]
     return _build_detections(all_keep, boxes_xywh, scores, cls_ids, kp_data, num_keypoints)
@@ -307,7 +301,7 @@ def parse_end2end_detections(
     if prediction.shape == (num_features, num_predictions):
         rows = prediction.T
     else:
-        rows = prediction  # already (num_predictions, num_features)
+        rows = prediction
 
     num_kpt_vals = max(0, num_features - 6)  # 4 bbox + 1 conf + 1 class_id
     num_keypoints = num_kpt_vals // 3
@@ -338,11 +332,7 @@ def scale_detections_to_frame(
     input_h: int = 0,
     scale_y: float | None = None,
 ) -> list[DetectionTuple]:
-    """Map box and keypoint coords from input space back to the original frame.
-
-    `scale` is the x scale; `scale_y` defaults to it, which is the letterbox case. A
-    stretched input has two different scales and needs both.
-    If input_w/input_h are set and box coords are in [0,1], scale from normalized to pixel first."""
+    """Map box and keypoint coords from input space back to the original frame."""
     if not detections:
         return []
     scale_x = scale
@@ -435,7 +425,6 @@ def resolve_model_layout(
     else:
         num_features, num_predictions = dim1, dim2
     if is_end2end:
-        # Post-NMS layout: [x1,y1,x2,y2, conf, class_id, kp0_x, kp0_y, kp0_vis, ...]
         num_keypoints = max(0, (num_features - 6)) // 3
         num_classes = -1  # not used for end2end path
     elif num_classes <= 0 or num_keypoints < 0:
@@ -444,12 +433,7 @@ def resolve_model_layout(
 
 
 class TrtYoloModel:
-    """A loaded TensorRT YOLO engine with preprocessing, inference, and decode.
-
-    Handles single-output pose/detect engines and multi-output seg engines (the 3-dim
-    detection head is used; mask prototype outputs are ignored). `infer` returns
-    detections in original frame pixel coordinates.
-    """
+    """A loaded TensorRT YOLO engine with preprocessing, inference, and decode."""
 
     def __init__(
         self,
@@ -487,7 +471,6 @@ class TrtYoloModel:
                     raise RuntimeError("Engine must have exactly one input")
                 input_name = name
             elif output_name is None and len(self.context.get_tensor_shape(name)) == 3:
-                # Detection head. Seg engines also expose 4-dim mask prototypes; skip them.
                 output_name = name
         if input_name is None or output_name is None:
             raise RuntimeError("Engine must have one input and one 3-dim detection output")
@@ -509,20 +492,27 @@ class TrtYoloModel:
             self.num_keypoints,
         ) = resolve_model_layout(dim1, dim2, num_classes, num_keypoints)
 
-        # Bind all IO tensors; unused outputs (mask prototypes) still need an address.
-        self._buffers = []
+        self._buffers, self._d_input, self._d_output = self._bind_all_io_tensors(
+            input_name, output_name
+        )
+        self.stream = cuda.Stream()
+
+    def _bind_all_io_tensors(self, input_name: str, output_name: str) -> tuple[list[Any], Any, Any]:
+        """Bind every IO tensor; unused outputs (mask prototypes) still need an address."""
+        buffers = []
+        d_input = d_output = None
         for i in range(self.engine.num_io_tensors):
             name = self.engine.get_tensor_name(i)
             shape = self.context.get_tensor_shape(name)
             nbytes = int(np.prod([int(d) for d in shape])) * 4
-            buf = cuda.mem_alloc(nbytes)
-            self._buffers.append(buf)
+            buf = self._cuda.mem_alloc(nbytes)
+            buffers.append(buf)
             self.context.set_tensor_address(name, int(buf))
             if name == input_name:
-                self._d_input = buf
+                d_input = buf
             elif name == output_name:
-                self._d_output = buf
-        self.stream = cuda.Stream()
+                d_output = buf
+        return buffers, d_input, d_output
 
     def describe(self) -> str:
         """One-line human-readable layout summary."""

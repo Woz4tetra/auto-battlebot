@@ -1,13 +1,4 @@
-"""Refits for the sysid monitor, off the session's thread.
-
-``RefitState`` keeps every usable window's sub-windows and turns a ``RefitJob`` into a
-``RefitReply``: a warm-started fit, the Fisher matrix over every fit window, the contact gate,
-the holdout score, every third time the model ladder, and the ranked suggestions.
-
-Two engines run it. ``InlineEngine`` calls it on ``submit``, which keeps tests and replays
-deterministic. ``ProcessEngine`` runs it in a spawned process so a live session keeps labeling
-while a refit takes a few seconds.
-"""
+"""Refits for the sysid monitor, off the session's thread."""
 
 from __future__ import annotations
 
@@ -69,8 +60,7 @@ class RefitReply:
 
 
 def _hint_cells(motion: model.Motion) -> list[list[int]]:
-    """Coverage-map cells a motion holds for at least HOLD_S, or sweeps through if it holds
-    none (a creep)."""
+    """Coverage-map cells a motion holds for at least HOLD_S, or sweeps through."""
     thr, st = motion.throttle, motion.steer
     n_hold = int(round(HOLD_S / model.DT))
     cells: set[tuple[int, int]] = set()
@@ -125,12 +115,12 @@ class RefitState:
             scale = float(np.sum(r0[mask] ** 2) / max(n, 1))
             if job.refit_index >= CONTACT_AFTER_REFITS and len(ids) >= CONTACT_AFTER_WINDOWS:
                 limit = CONTACT_SIGMA * math.sqrt(max(scale, 1.0))
-                tag_cols = 3 * model.MAX_TAGS
+                tag_cols = 3 * model.MAX_TAG_FIXES_PER_SUB
                 worst = np.max(np.abs(r0[:, :tag_cols]), axis=1)
-                bad = {int(full.owner[i]) for i in np.flatnonzero(worst > limit)}
+                bad = {int(full.owner_window_index[i]) for i in np.flatnonzero(worst > limit)}
                 contact = sorted(bad)
                 self.contact |= bad
-                keep = ~np.isin(full.owner, list(bad))
+                keep = ~np.isin(full.owner_window_index, list(bad))
                 jac = jac[keep]
                 r0 = r0[keep]
                 mask = mask[keep]

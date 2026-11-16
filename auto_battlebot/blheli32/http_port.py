@@ -1,14 +1,4 @@
-"""4-way transport over the Mk2 robot's ESC tuning mode (firmware/mr_stabs_mk2, /esc/ routes).
-
-HttpPort satisfies fourway.SerialPort, so esc.Session runs over WiFi unchanged: write() posts one
-4-way request frame and waits for the robot to relay it, and read() serves the response bytes.
-Pass msp=False to Session; the relay speaks 4-way from the start.
-
-    POST /esc/tuning  enter=1|0      enter or leave tuning mode (409 while armed)
-    GET  /esc/status                 {"state": "combat"|"tuning"|"exiting", "error": ...}
-    POST /esc/4way    frame=<hex>    queue one request frame -> {"id": n}
-    GET  /esc/4way                   {"id": n, "state": "none"|"pending"|"done", "frame": <hex>}
-"""
+"""4-way transport over the Mk2 robot's ESC tuning mode (firmware/mr_stabs_mk2, /esc/ routes)."""
 
 from __future__ import annotations
 
@@ -18,6 +8,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any
+
+TUNING_EXIT_HOLD_TIMEOUT_S = 8.0
 
 
 class RelayError(RuntimeError):
@@ -64,8 +56,7 @@ class HttpPort:
         if self.status()["state"] == "tuning":
             return False
         self._call("/esc/tuning", {"enter": "1"})
-        # The robot holds entry for up to 3 s after leaving tuning mode, while the ESCs restart.
-        self._wait_for("tuning", 8.0)
+        self._wait_for("tuning", TUNING_EXIT_HOLD_TIMEOUT_S)
         return True
 
     def exit_tuning(self) -> None:

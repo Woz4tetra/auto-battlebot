@@ -400,6 +400,272 @@ Live only. Per detection: a `PointsAnnotation` of type `LINE_LOOP` with the four
 `/camera/image`. Numeric fields of a detection are never copied into `metadata`; the structured
 channel carries them.
 
+## Python readers and the AprilTag capture format
+
+Notes on the Python code that reads these recordings, and on the separate MCAP layout the AprilTag ground-truth tools write.
+
+### `calibration/apriltag/apriltag_mcap.py`
+
+MCAP layout for the AprilTag ground-truth pipeline: raw camera images in, poses out (offline).
+
+apriltag_track.py records the camera images here; analyze_apriltag_mcap.py replays them, re-runs the
+AprilTag detection, and solves the field-plane pose. Recording images instead of detections means
+the floor lock, the detector tuning, the intrinsics, and the yaw offset can all be corrected and re-
+run offline without re-driving the robot.
+
+A recording holds:
+  - /calibration/metadata : one JSON message (intrinsics, image size, robot tag + floor board
+    params).
+  - /floor/image          : the frames captured during the one-time floor-board lock (board
+    visible).
+  - /camera/image         : the driving frames to track the robot tag in.
+  - /transmitter/channels : one JSON message per driving frame, stamped with that frame's time,
+    holding the transmitter stick axes the driver was commanding (read-only; present only when the
+    OpenTX radio is connected).
+  - /drive/command        : one JSON message per issued command (~50 Hz), stamped with its send
+    time, holding the scripted excitation command (present only when run with --drive).
+
+Images are stored either as foxglove.CompressedImage (JPEG, the default) or foxglove.RawImage
+(uncompressed bgr8, lossless) depending on the capture format; both open in Foxglove. JPEG is lossy
+at the marker edges the subpixel corner refinement keys on, so its stored corners differ slightly
+from the live frame; raw is bit-identical to what the camera produced. MCAP chunk compression is
+chosen per format: JPEG uses ZSTD (frames are already small, so it is cheap and shrinks them
+further), while raw uses no compression. Compressing 6 MB raw frames per frame is the capture
+bottleneck (ZSTD ~26 ms, LZ4 ~13 ms, both cap fps below 60 and barely shrink noisy sensor data), so
+raw stores uncompressed (~3.6 ms/frame) and relies on the NVMe.
+
+Timestamps are CLOCK_MONOTONIC seconds; each frame's monotonic time is the MCAP log_time, and
+analysis reads the pose timestamps straight back from it. With --drive the issued commands share
+that same clock (one process), so the command log and the solved poses align with no time
+correction.
+
+#### `CHANNELS_SCHEMA`
+
+The JSON schema for the transmitter stick axes recorded per driving frame. The MCAP log_time is
+the image timestamp (for alignment); sample_t is when the snapshot was actually decoded off the
+radio, so analysis can tell how stale the sticks are relative to the frame. channels holds the raw
+OpenTX values.
+
+#### `COMMAND_SCHEMA`
+
+JSON schema for the scripted excitation command issued per send (~50 Hz) in a run with --drive.
+The MCAP log_time is the command's CLOCK_MONOTONIC send time. cmd_lin/cmd_ang are the normalized
+[-1, 1] commands; trainer_lin/trainer_ang are the integer [-500, 500] values actually written to
+the trainer link; label tags the protocol phase so the fitter can slice the run.
+
+#### `CaptureWriter`
+
+Writes the calibration metadata and the floor / camera image streams to an MCAP file.
+
+Metadata is written lazily, just before the first image, so its image_width/image_height come
+straight from a real frame rather than from possibly-unreliable capture properties. Call
+set_metadata() once before recording any frames.
+
+#### `write_channels`
+
+Record the driver's stick axes for one frame, stamped (log_time) with image time
+`image_t`.
+
+`sample_t` is when the snapshot was decoded off the radio; its difference from `image_t` is
+the staleness of the sticks relative to the frame. No metadata gate: channels only ever
+accompany the /camera/image frames, which write the metadata first.
+
+#### `write_command`
+
+Record one scripted excitation command (--drive), stamped (log_time) with its send time
+`t`.
+
+Commands run on their own ~50 Hz clock independent of the camera; analysis zero-order-holds
+them onto the frame times. No metadata gate: commands only ever accompany the /camera/image
+frames, which write the metadata first.
+
+#### Foxglove overlay recording
+
+`analyze_apriltag_mcap.py` can emit a second MCAP that overlays the solved poses on the camera
+frames, so the geometry can be checked by eye in Foxglove. It carries everything Foxglove needs to
+project the 3D scene onto the image in the 3D panel: the camera frames (copied verbatim from the
+source), a CameraCalibration so the projection is calibrated, a TF tree (field to camera fixed,
+field to robot per frame), and scene geometry (a body cube and heading arrow at the robot, plus
+the full trajectory line).
+
+All frames use the OpenCV camera convention, so there is no extra optical rotation:
+
+- `field`: the floor GridBoard frame, z = 0 on the floor. The fixed world frame.
+- `camera`: the camera optical frame (x right, y down, z forward).
+- `robot`: the robot tag projected onto the field plane (x, y, 0) and rotated by yaw about field z.
+
+Everything is a Foxglove schema (foxglove.FrameTransforms, foxglove.CameraCalibration,
+foxglove.SceneUpdate), the same ones the live stack records.
+
+#### `WORLD_FRAME`
+
+The calibration field frame (the GridBoard frame) can have +z pointing either way depending on
+board orientation; when it points toward the floor the camera renders below the field in
+Foxglove's z-up world. WORLD is a display-only root that flips the field (identity or 180deg about
+x, chosen from the camera's z) so the rig shows upright. It does not affect the image overlay,
+which depends only on the field -> camera relative transform.
+
+#### Overlay camera calibration
+
+The overlay writer undistorts frames before writing, and the published calibration carries zero
+distortion, so Foxglove's pinhole projection of the 3D markers lands exactly on the (now
+rectified) image. The ZED's full distortion model has too many coefficients for Foxglove to
+apply, so the writer bakes it out instead. Keeping the same K as the new camera matrix preserves
+focal length and centre.
+
+### `recording/diag_io.py`
+
+#### `_TRANSMITTER_COLUMNS`
+
+`_TRANSMITTER_COLUMNS` maps each transmitter channel to a column. values/15 is the auto switch; values/0 and values/1 are the
+actual transmitted drive command (post trainer-mode mix of navigation and driver sticks),
+which is the true plant input.
+
+#### `load_field_size`
+
+Arena (width, height) in metres, recovered from the field border marker.
+
+The C++ encoder builds the four corners as (+-size.x/2, +-size.y/2) in the
+field-center frame and then rigid-transforms them, so the rectangle edge
+lengths recover the true size regardless of the frame they are expressed in.
+
+The field is published a few times (initial + re-inits) and early detections
+can be bad. The arena is fixed, so the largest-area detection is the best
+estimate; return that.
+
+### `recording/foxglove_ws.py`
+
+Subscribe-only client for the Foxglove WebSocket protocol, as ``viz_relay`` serves it.
+
+Yields the same ``(topic, log_time_ns, MessageBytes)`` tuples as ``mcap_io.iter_messages``, so
+one consumer serves a live relay and a recording. The relay advertises channels with their
+schemas; protobuf schemas are registered with ``mcap_io`` so ``decode_tf_message`` and friends
+work on live payloads unchanged.
+
+There is no publish path: the client never advertises a client channel and never sends a
+message frame. It sends ``subscribe`` and ``unsubscribe`` and nothing else.
+
+Wire format (foxglove.websocket.v1, which the SDK's ``foxglove.sdk.v1`` shares):
+
+- server text frames: JSON ``{"op": "serverInfo" | "advertise" | "unadvertise" | ...}``
+- client text frames: ``{"op": "subscribe", "subscriptions": [{"id", "channelId"}]}``
+- server binary frames, opcode 0x01: ``u8 opcode, u32 subscription id, u64 log time ns``
+  (little endian), then the payload.
+
+### `recording/mcap_io.py`
+
+#### `_PROTO_DECODERS`
+
+`_PROTO_DECODERS` holds protobuf decoders keyed by schema name, filled from the schema records of every file read
+through ``iter_messages``. Foxglove schema names are stable, so a decoder learned from one
+recording serves any other.
+
+#### `decode_frame_meta`
+
+This decodes ``/camera/frame_meta``. ``image_stamp_ns`` is a decimal string on the wire (it is above
+2^53); the legacy bare-number form is accepted too.
+
+Recordings written before video moved into the MCAP carry ``svo_frame_index`` and ``svo_path``
+instead. The index reads back as ``video_frame_index``, which is what it always was: the
+ordinal of the frame in whatever video stream the run was writing. The path is dropped, since
+with one file there is no second file to join to.
+
+#### `decode_diagnostic_array`
+
+One dict per diagnostic status: ``{level, name, message, hardware_id, values}``.
+
+For a ``/diagnostics/<module>`` JSON message ``hardware_id`` is the module (from the topic),
+``name`` is the section key and ``values`` are typed. Held sections, which repeat values
+logged before this message, are skipped, so each logged value is read once.
+
+#### `iter_camera_frames`
+
+Frames from whichever camera topic the recording carries.
+
+A label run records ``/camera/image`` because its config clears ``ignored_topics``; an ordinary
+match recording carries ``/camera/video`` and no JPEG at all. Tools that used to need
+``scripts/combine_mcap_svo.py`` to reach match frames can point straight at the recording.
+
+#### `match_stamps`
+
+Match each reference stamp to the nearest candidate stamp within tolerance.
+
+Playback replays of the same SVO produce identical frame stamps, but the stamp reaches
+different topics through different double->ns conversions, so allow a small tolerance
+(default 1 ms; frames are more than 15 ms apart). It returns {reference_stamp: candidate_stamp}.
+
+### `recording/sysid_io.py`
+
+Readers for the drivetrain sysid topics: robot AprilTags, robot telemetry, sticks, field pose.
+
+Contracts (written by the C++ app, see ``docs/plans/mujoco_warp_mr_stabs_plan.md``):
+
+- ``/apriltag/robot_tags`` (JSON): one message per camera frame, frames without detections
+  included. Each detection carries its four corners in OpenCV aruco order and every IPPE
+  solution as (rvec, tvec, reprojection error). rvec/tvec map marker-frame points (origin at the
+  tag center, x right, y up in the printed image, z out of the face) into the OpenCV camera
+  frame (x right, y down, z forward).
+- ``/robot/espnow_telemetry`` (JSON): one flat object per 10 ms telemetry frame over the ESP-NOW
+  dongle. ``host_receive_ns`` is the app clock at receipt (also the MCAP log_time);
+  ``timestamp_ms`` is the robot clock.
+- ``/robot/esp32_diagnostics`` (JSON): the same drive fields polled over WiFi, in recordings made
+  before the sysid profile moved to ESP-NOW (2026-10-25). Its ``seq`` is ESP-NOW's
+  ``telemetry_seq``.
+- ``/diagnostics/opentx_transmitter``, subsection ``channels``: the 16 stick channels the radio
+  echoes over USB, as ``values/0`` .. ``values/15``. Logged on every channels frame since
+  2026-10-13, only when they changed before that.
+- ``/tf`` and ``/tf_static``: ``field -> camera_world`` and ``camera_world -> camera``. The app
+  republishes both on ``/tf`` every cycle; older recordings put the first on ``/tf_static``.
+  ``diag_io.load_camera_in_field`` reads only ``/tf_static`` for it and returns an empty frame on
+  current recordings, and it keeps only the translation, so this module has its own loader that
+  returns the full transform.
+
+#### `ESP32_FIELDS`
+
+Field order of one robot telemetry event, with the pandas dtype each column gets. ESP-NOW
+frames carry more fields than these; the extras are dropped, and wifi_clients reads as 0.
+Booleans stay bool; vbat and ibat are float with NaN where the firmware had no INA228 reading
+(null, or a recording older than the field). yaw_rate, yaw_rate_cmd, and the gyro_x/gyro_y chip
+rates (deg/s, ESP-NOW telemetry only) are NaN when absent, and
+seq is a nullable integer, <NA> in recordings older than the field. backfill is False on
+event-stream rows and in recordings older than the telemetry ring.
+
+#### `load_transmitter_channels`
+
+Stick channels as the radio reported them: one row per diagnostics publish tick that read
+a channels frame, columns ``stamp_ns, ch0 .. ch15`` (raw CRSF units, 172..1811, center 992).
+
+Recordings before 2026-10-13 log channels only when they change, so hold each row until the
+next one. The stamp is the diagnostics publish tick, which trails the serial read by up to one
+tick.
+
+### `recording/video_import.py`
+
+Wrap a plain video file into a recording shaped like the RGB camera's.
+
+The camera records H.264 on ``/camera/video`` inside the same MCAP as the pipeline output
+(``docs/foxglove_recording_format.md``). Fixed-camera footage from elsewhere, such as NHRL's
+``Cage-N-Overhead-High`` feed, is the same shape of data from a different sensor, so re-wrapping it
+gives ``VideoPlaybackCamera`` something to replay before the camera hardware exists.
+
+What comes out is a recording, not a match: it carries the three camera channels and nothing else,
+because everything else in a real file is pipeline *output* and replay exists to regenerate it.
+
+The video is re-encoded rather than remuxed. A general MP4 uses B-frames and whatever GOP its
+encoder chose; the camera writes ``max_b_frames = 0`` and an IDR every 30 frames, and both
+``start_frame`` seeking and reading the nth message as the nth captured frame depend on that.
+
+Two CLIs sit on this: ``scripts/video_to_mcap.py`` converts videos you already have, and
+``scripts/nhrl_to_recordings.py`` runs the whole NHRL flow from fight to replayable recording set.
+
+#### `iter_access_units`
+
+Annex-B access units, one per frame, re-encoded to the camera's constraints.
+
+ffmpeg writes a raw H.264 elementary stream to stdout and libavcodec's own parser splits it
+back into one packet per coded picture. Hand-rolling that split from start codes gets the
+SPS-before-IDR case wrong in ways that only show up as a frame count that is quietly short.
+
 ## Relay socket framing (app to `viz_relay`)
 
 Not part of the recording, but the same encoded bytes flow here. `SOCK_STREAM` unix socket at

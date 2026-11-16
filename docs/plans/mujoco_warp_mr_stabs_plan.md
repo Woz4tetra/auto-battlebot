@@ -570,6 +570,147 @@ The spread of parameter sets that pass becomes the randomization range for the s
 10. **Validation and report.** One day.
 11. **Hand-off**: the passing parameter spread goes into the learned-sim randomization ranges.
 
+## Implementation notes
+
+Notes on the fit, validation and tag pose smoothing code that implements this plan.
+
+### `mujoco_sim/fit.py`
+
+Staged CMA-ES fit of the Mr Stabs Mk2 MuJoCo plant against hand-driven windows.
+
+Each generation scores every candidate on every window at once: one world per (candidate,
+window) pair. CMA-ES is gradient-free, so the delay (a tape shift) and the chaotic contact
+don't need special handling. Parameters live on a unit cube (log scale where the range spans
+decades) and are released in stages so each group is fit on the data that identifies it:
+
+1. flat windows: delay, deadzones, throttle curve, R, efficiency, gearbox friction
+2. flat windows: skid and torsional friction, left/right ratio, wheel sliding friction
+3. nose-lift windows: armature scale and wheel traction, everything else frozen
+4. all windows: every continuous parameter, starting from the staged result
+
+The zero-command mode (brake or coast) is discrete; `fit` runs once per mode asked for.
+
+`specs` overrides the parameter bounds for another robot (Mrs Buff Mk3's motor and four-wheel
+scrub sit outside Mr Stabs Mk2's ranges); the default is PARAM_SPECS.
+
+Loss: at each horizon, the raw measurement nearest to it (within 20 ms) against the prediction
+at that measurement's time. Position and heading errors are divided by the session noise floor
+and Huber-weighted; nose-lift windows add a pitch term over every measurement in the window.
+
+#### `PARAM_SPECS`
+
+Bounds from the plan's parameter table; "wide" ones span what the robot could physically be.
+
+### `mujoco_sim/validate.py`
+
+Held-out validation of a MuJoCo plant fit against the plan's acceptance checks.
+
+1. MuJoCo beats or matches the grey-box plant at 0.4 and 1.0 s on flat windows.
+2. Errors as multiples of the noise floor.
+3. Physical numbers inside physical ranges; coast tau near the measured 0.078 s.
+4. Nose lift on the same held-out windows as the real robot, and not on the others.
+5. The firmware layer in closed loop tracks the logged pid_output and per-motor commands on
+   straight holds.
+6. Restart agreement and the parameter pairs that trade off.
+7. Errors per drive direction, open loop and with the firmware yaw loop closed around the sim.
+
+Every function returns plain dicts so the CLI can dump them to JSON.
+
+### `perception/tag_pose_smoother.py`
+
+Robot pose from the overhead AprilTag recordings: IPPE choice, body pose, RTS smoothing.
+
+Implements "Robot pose recording" in ``docs/plans/mujoco_warp_mr_stabs_plan.md``. The input is
+the ``/apriltag/robot_tags`` stream (every IPPE solution per detection) and the camera pose in the
+field frame; the output is the axle-center pose on a uniform grid plus one row per detection.
+
+Frames:
+
+- **Recorded field frame.** Whatever ``/tf`` carries. ``FiducialFieldFilter`` puts field z into
+  the floor, the homography fit puts it toward the camera.
+- **Output frame ("field up").** The recorded field frame when its z points up. When it points
+  into the floor the output is that frame turned 180 degrees about field x (y and z negated), so
+  it is always right-handed with z up and a counter-clockwise turn seen from above is a positive
+  yaw rate, the convention MuJoCo and the FLU body frame share. The camera's height sign decides.
+- **Body frame.** FLU at the axle midpoint. Yaw is the heading of body x in the output frame.
+  Pitch and roll are ZYX Euler angles, so a nose lift is a negative pitch. On an upside-down
+  robot they are taken relative to the upside-down rest pose (body turned 180 degrees about its
+  x axis), so both read near zero when it drives inverted.
+
+#### `attitude_error`
+
+How far a body attitude sits from resting flat on the floor, in radians.
+
+``hypot(pitch - rest_pitch, roll)`` with pitch and roll taken relative to the rest pose
+(``rest_rotation``). The robot rests nose-down on its wedge tip, so the rest pitch is not
+zero (0.198 rad per CAD, ``collision.toml``).
+
+#### `select_ippe`
+
+Pick one IPPE solution per detection.
+
+The right solution leaves the body close to its rest attitude (resting nose-down on the
+wedge, upright or inverted), since the tag's own ~9.6 degree tilt comes out when its mount is
+removed; ``Candidates.tilt`` holds that attitude error. The solution with the smaller error
+wins. When the two are within ``close_margin_deg`` (tag facing the camera nearly head-on,
+or the body pitched away from rest while driving) the solution
+whose body rotation sits closest to the neighbouring choices wins instead: the nearest
+earlier decision (clear or already resolved) and the nearest later clear one, each within
+``neighbour_window_s``.
+
+#### `NoiseModel`
+
+`NoiseModel` sets per-detection measurement noise: sigma = k * g, g = hypot(reprojection error, e0) / size.
+
+Position error from PnP grows with corner noise times distance over focal length, and the
+tag's pixel size is focal length times tag size over distance, so noise over size is the
+per-detection factor for the across-view position and the in-plane angle. Depth error grows
+with distance squared, so the along-view position gets a second ``size_ref_px / size``
+factor. The reprojection error stands in for corner noise and ``e0_px`` keeps a sharp
+detection from claiming zero noise.
+
+"Along" and "across" are the floor directions along and across the camera's horizontal view
+direction (``view_azimuth_rad`` in the output frame). A tilted camera measures depth several
+times worse than lateral position, so a single isotropic sigma would either drown the good
+axis or trust the bad one. The view direction to the robot changes across the box; using the
+optical axis for all of it is an approximation.
+
+#### `calibrate_noise`
+
+Fit the four gains to the scatter about each still segment's median.
+
+Without still segments the defaults stand (``calibrated`` false), which were measured on a
+synthetic 0.3 px corner-noise camera and are only a starting point.
+
+#### `bno055_yaw_rate`
+
+Yaw rate from the BNO055 Euler heading (``orientation_x``).
+
+Assumption, not yet checked on the robot: the heading is compass-style, in degrees on
+[0, 360) and increasing clockwise seen from above with the sensor upright, so the
+counter-clockwise yaw rate is ``-d(heading)/dt`` (``heading_sign = -1``). The session checks
+measure the sign against tag yaw rate and report it. Samples logged while the firmware says
+the robot is upside down are marked invalid, since the sensor's sense of rotation flips.
+
+The heading updates at 100 Hz with 1/16 degree steps, so it is resampled onto a 10 ms grid
+and differentiated over five samples; a per-loop difference would be mostly quantisation.
+
+#### `gyro_yaw_rate`
+
+Yaw rate from the firmware's gyro ``yaw_rate``, on ``heading``'s grid.
+
+The firmware projects the gyro onto the gravity vector (``updown_sensor.cpp``), so the rate
+is about the field's up axis whichever side is up, and it is not differentiated, so it carries
+none of the heading's five-sample smoothing. It is clockwise in deg/s; this flips it to
+counter-clockwise, the heading rate's sign. Firmware before ecc27961 wrapped the gyro past
+2000 deg/s, which reads about 70 rad/s off, so samples that far from an upright heading rate
+are dropped.
+
+#### `SmootherOptions`
+
+The rest pitch is nose-down on the wedge tip (CAD, `collision.toml` `rest_pitch_rad`). The
+inverted rest pitch is unmeasured and stays 0 until a session shows otherwise.
+
 ## Risks and open questions
 
 - **Box size.** At 1.52 m, a robot that reaches 3 m/s crosses the box in half a second. Straight

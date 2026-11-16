@@ -1,15 +1,4 @@
-"""Read and write BLHeli_32 settings through the 4-way passthrough.
-
-The read sequence is BLHeliSuite32xl's, from a usbmon capture: per ESC, DeviceReset(n),
-DeviceInitFlash(n), read 256 bytes at 0xF800 (settings), 16 at 0xFA00 (input frame counters),
-16 at 0xFD90, then DeviceReset(n) to release it.
-
-Write Setup, from a capture against a passthrough that acknowledged writes without forwarding
-them: DeviceReset(n), DeviceInitFlash(n), read the three regions, one DeviceWrite of the
-256-byte encrypted page at 0xF800 (no DevicePageErase; the bootloader erases), read the three
-regions back to verify, DeviceReset(n). Every payload byte BLHeliSuite does not edit, reserved
-ones included, is written back exactly as read.
-"""
+"""Read and write BLHeli_32 settings through the 4-way passthrough."""
 
 from __future__ import annotations
 
@@ -27,13 +16,11 @@ INFO_ADDRESS = 0xFD90
 class EscSnapshot:
     index: int
     signature: bytes
-    page: bytes  # encrypted, exactly as read
-    payload: bytes  # decrypted 192-byte record
+    encrypted_page: bytes
+    decrypted_payload: bytes
     stats: bytes
     info: bytes
 
-    # 0xFA00 stats: byte 3 is the detected input protocol (5 on DShot; other codes unmapped),
-    # then good and bad input frame counters as little-endian u32.
     @property
     def input_protocol(self) -> int:
         return self.stats[3]
@@ -52,8 +39,8 @@ class VerifyError(RuntimeError):
 
 
 class Session:
-    def __init__(self, port: SerialPort, msp: bool = True) -> None:
-        self.link = FourWay(port, msp=msp)
+    def __init__(self, port: SerialPort, switch_from_msp: bool = True) -> None:
+        self.link = FourWay(port, switch_from_msp=switch_from_msp)
 
     def open(self) -> str:
         self.link.enter()
@@ -72,11 +59,7 @@ class Session:
         return EscSnapshot(esc, signature, page, cipher.decode_page(page), stats, info)
 
     def write(self, esc: int, payload: bytes, expect_current: bytes | None = None) -> EscSnapshot:
-        """Write a 192-byte payload to one ESC and verify it by reading it back.
-
-        expect_current, when given, must equal what the ESC holds now: the edit was made from
-        that read, so anything else means the backup is stale or names the wrong ESC.
-        """
+        """Write a payload to one ESC and verify by reading back."""
         layout.check_layout(payload)
         page = cipher.encode_page(payload)
         self.link.init_esc(esc)

@@ -1,23 +1,4 @@
-"""Excitation waveforms for velocity jig runs, declared in TOML.
-
-This replaces the web tool's `excitation.js` plus its hard-coded 21-entry experiment
-catalog. The catalog was the runbook compiled into JavaScript, so changing an amplitude or
-trying a new excitation meant editing code. Here a waveform is a TOML table:
-
-    [waveform.lin_step_full]
-    kind = "step"
-    channel = "linear"
-    role = "fit"
-    amplitudes = [0.25, 0.5, 0.75, 1.0]
-    hold_s = 2.0
-
-`kind`, `channel` and `role` are also what the fit routes on, so a new waveform reaches the
-right fit without touching the fitter.
-
-Commands are normalized to [-1, 1] and dimensionless. Mapping to the radio's integer range
-is the transmitter link's job, and deadzone compensation is deliberately not applied
-anywhere: the physical deadzone is one of the things being measured.
-"""
+"""Excitation waveforms for velocity jig runs, declared in TOML."""
 
 from __future__ import annotations
 
@@ -35,9 +16,6 @@ from auto_battlebot.calibration.jig.velocity_jig import (
 )
 from auto_battlebot.compat import tomllib
 
-# A held command shorter than this cannot show a plateau to read a steady state off. Stage 2
-# held roughly a fifth of a second, which sat under the rise, and no maximum speed could be
-# read from it. The floor is applied to every generated hold rather than trusted to config.
 MIN_HOLD_S = 0.5
 # Time to let the robot come to rest between cells, so each step's decay is measured from a
 # standstill rather than from whatever the previous cell left behind.
@@ -48,13 +26,7 @@ DEFAULT_RATE_HZ = 50.0
 
 @dataclass
 class Program:
-    """A playable excitation.
-
-    `segments` is present for piecewise programs and None for continuous ones (chirp, sine,
-    triangle, PRBS, manual), where there is no cell structure to slice by. `at(t)` is the
-    authority either way: the player samples it, and segments exist so the fit can label
-    samples by phase.
-    """
+    """A playable excitation."""
 
     name: str
     kind: str
@@ -89,11 +61,6 @@ class WaveformDecl:
     label: str = ""
     trim: bool = False
     motion: bool = True
-
-
-# ---------------------------------------------------------------------------
-# Segment assembly
-# ---------------------------------------------------------------------------
 
 
 class _Builder:
@@ -160,27 +127,10 @@ def cap_amplitudes(amplitudes: Sequence[float], cap: float | None) -> list[float
     return [round(a * scale, 3) for a in values]
 
 
-# ---------------------------------------------------------------------------
-# Generators
-# ---------------------------------------------------------------------------
-
-
 def _build_step(d: WaveformDecl) -> Program:
-    """Ladder of held commands, each returning to zero, optionally shuttling direction.
-
-    `reverse_cap` scales the reverse half of the ladder down independently. The robot is not
-    required to behave the same both ways, and this one does not: above 0.5 reverse it breaks
-    into an uncommanded spin. A spun hold is not a straight-line steady state, and nothing
-    downstream rejects it, because `held_segments` gates on the commanded angular channel,
-    which is zero throughout a linear run. So the spun rungs enter `k_rev`, the pooled
-    `tau_lin_a`, and both straight-line drift terms as if they were clean.
-
-    Scaling rather than clipping, for the reason `cap_amplitudes` gives: the gain fit reads a
-    slope, and clipping collapses the top rungs onto one value.
-    """
+    """Ladder of held commands, each returning to zero, optionally shuttling direction."""
     p = d.params
     amps = cap_amplitudes(p.get("amplitudes", [0.25, 0.5, 0.75, 1.0]), p.get("cap"))
-    # Same rung count either way, so shuttle still pairs each forward step with a reverse one.
     rev_amps = cap_amplitudes(amps, p.get("reverse_cap"))
     secondary = float(p.get("secondary", 0.0))
     hold = max(float(p.get("hold_s", MIN_HOLD_S)), MIN_HOLD_S)
@@ -191,20 +141,13 @@ def _build_step(d: WaveformDecl) -> Program:
         cells = ((1.0, amp), (-1.0, rev)) if shuttle else ((1.0, amp),)
         for sign, mag in cells:
             lin, ang = _axes(d.channel, sign * mag, sign * secondary)
-            # Signed label. The two directions of a rung no longer share a magnitude, so a
-            # label naming only the forward one would misreport the reverse cell.
             b.hold(hold, lin, ang, f"step_{sign * mag:+g}")
             b.coast(coast, "coast")
     return _finish(d, b)
 
 
 def _build_staircase(d: WaveformDecl) -> Program:
-    """Creep the command up until the wheels break static friction.
-
-    Stage 2 reported a deadzone of 0.04 because 0.04 was the smallest command it tested and
-    the robot already moved there. Starting at 0.01 is the point: several rungs must sit
-    below the motion threshold or the crossing is an extrapolation.
-    """
+    """Creep the command up until the wheels break static friction."""
     p = d.params
     start = float(p.get("from", 0.01))
     stop = float(p.get("to", 0.10))
@@ -222,15 +165,7 @@ def _build_staircase(d: WaveformDecl) -> Program:
 
 
 def _build_coast(d: WaveformDecl) -> Program:
-    """Accelerate, hold, then drop to zero instantly and let the robot roll to a stop.
-
-    The drop must be instantaneous. A ramp down is a second input and the decel constant
-    fitted through it is the ramp's, not the robot's.
-
-    `reverse_cap` lowers the entry speed of the reverse repetitions only, same reason as in
-    `_build_step`: the tail has to decay from a straight-line steady state, and a robot that
-    spun up during the entry is scrubbing the encoder wheel sideways for the whole tail.
-    """
+    """Accelerate, hold, then drop to zero instantly and let the robot roll to a stop."""
     p = d.params
     amp = float(p.get("amplitude", 0.6))
     rev_amp = cap_amplitudes([amp], p.get("reverse_cap"))[0]
@@ -249,12 +184,7 @@ def _build_coast(d: WaveformDecl) -> Program:
 
 
 def _build_grid(d: WaveformDecl) -> Program:
-    """Cross linear against angular to separate the coupling terms.
-
-    The angular list must span both signs. Steer-brake and angular droop flip with the turn
-    direction while straight-line drift does not, so a grid that only turns one way cannot
-    tell them apart and will fold the drift into the droop coefficient.
-    """
+    """Cross linear against angular to separate the coupling terms."""
     p = d.params
     lins = [float(v) for v in p.get("linear", [0.25, 0.5, 0.75, 1.0])]
     angs = cap_amplitudes(
@@ -323,11 +253,7 @@ def _build_prbs(d: WaveformDecl) -> Program:
 
 
 def _build_chirp(d: WaveformDecl) -> Program:
-    """Swept sine, logarithmic by default.
-
-    A first-order model with tau 58 ms puts its corner near 2.7 Hz. A sweep through that
-    corner is the frequency-domain cross-check on a time-constant fitted from steps.
-    """
+    """Swept sine, logarithmic by default."""
     p = d.params
     f0 = float(p.get("f0_hz", 0.2))
     f1 = float(p.get("f1_hz", 8.0))
@@ -373,8 +299,6 @@ def _build_sine(d: WaveformDecl) -> Program:
 
 
 def _build_triangle(d: WaveformDecl) -> Program:
-    # Constant slew between the peaks, so unlike a sine it excites the rate limit evenly
-    # rather than concentrating the fastest command changes at the zero crossings.
     return _periodic(d, lambda cycles: 4.0 * abs(((cycles - 0.25) % 1.0) - 0.5) - 1.0)
 
 
@@ -395,12 +319,7 @@ def _build_manual(d: WaveformDecl) -> Program:
 
 
 def _build_trim(d: WaveformDecl) -> Program:
-    """Low-amplitude straight drive used to measure the arc, not to fit anything.
-
-    Run before a session to find out whether a straight run will stay on the board, and to
-    seed the drift parameter before any fit exists. Driven open loop here; the closed-loop
-    correction lives in the CLI, which can see the jig's live stream.
-    """
+    """Low-amplitude straight drive used to measure the arc, not to fit anything."""
     p = d.params
     amp = float(p.get("amplitude", 0.15))
     duration = float(p.get("duration_s", 5.0))
@@ -422,11 +341,6 @@ def _finish(d: WaveformDecl, b: _Builder) -> Program:
         label=d.label,
         params=dict(d.params),
     )
-
-
-# ---------------------------------------------------------------------------
-# Cell boundaries
-# ---------------------------------------------------------------------------
 
 
 def _is_rest(seg: ProtocolSegment) -> bool:
@@ -488,10 +402,6 @@ def build(decl: WaveformDecl) -> Program:
         raise ValueError(f"{decl.name}: no builder for kind {decl.kind!r}") from None
     return builder(decl)
 
-
-# ---------------------------------------------------------------------------
-# Catalog
-# ---------------------------------------------------------------------------
 
 _META_KEYS = {"kind", "channel", "role", "label", "trim", "motion"}
 

@@ -1,22 +1,4 @@
-"""Batched sensing model: what perception gets wrong, for the RL environment and the lockstep sim.
-
-`docs/plans/sensing_model_plan.md` holds the design. Two pieces:
-
-- `MeasurementModel` turns true poses into the measurement stream the filters receive: a frame
-  clock with frame drops, a semi-Markov dropout process per robot conditioned on the distance to
-  the nearest robot and wall, body-frame position noise and bias by speed, heading noise with
-  180 degree flips, a per-episode field offset, and a capture-to-delivery latency.
-- `OurEkfErrorModel` stands in for the rendered our-robot EKF output, which has no Python mirror:
-  truth plus an AR(1) error per component, coasting at constant velocity and turn rate through a
-  measurement gap and holding at `max_coast_s`.
-
-Both are vectorized over worlds in torch, so the RL environment runs one per world on the GPU and
-the sim server runs one world on the CPU. Each instance owns its `torch.Generator`, so a seed
-reproduces a run on the same device and batch shape.
-
-The fitted parameters live in `simulation/sensing_models/<venue>.toml`, written by
-`playground/sensing_model/fit_sensing_model.py`.
-"""
+"""Batched sensing model for the RL environment and the lockstep sim."""
 
 from __future__ import annotations
 
@@ -34,8 +16,6 @@ from auto_battlebot.compat import tomllib
 
 SPEC_VERSION = 1
 EKF_COMPONENTS = ("along", "cross", "theta", "v", "omega")
-# A gap in our robot's measurements starts once the last one is this many frame periods old;
-# shorter waits are the normal spacing between frames and are part of the fitted EKF error.
 GAP_MIN_FRAMES = 2.5
 CLOCK_EPS_S = 1e-6
 
@@ -86,12 +66,7 @@ def _range(value: Any, where: str) -> tuple[float, float]:
 
 @dataclass(frozen=True)
 class DurationTable:
-    """Inverse CDFs of a state's duration, one row per context cell.
-
-    `quantiles` runs from 0 to 1 inclusive, so the first and last columns are the observed minimum
-    and maximum and a draw never leaves the observed range. Sampling interpolates in log duration,
-    which keeps the heavy tail between p95 and p99 from being drawn as a straight line.
-    """
+    """Inverse CDFs of a state's duration, one row per context cell."""
 
     quantiles: np.ndarray
     values_s: np.ndarray
@@ -301,11 +276,6 @@ def _parse_robot(d: Mapping[str, Any], where: str) -> RobotSpec:
     )
 
 
-# ---------------------------------------------------------------------------
-# Inputs and outputs
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class TruePoses:
     """True state of every robot slot, field frame. Shapes [W, R, ...]."""
@@ -395,11 +365,6 @@ def keypoint_position_variance(
         dz = torch.full_like(sigma, z_m - float(cam[2]))
         sigma = sigma + sigma_per_meter * torch.sqrt(((xy - cam[:2]) ** 2).sum(-1) + dz**2)
     return sigma * sigma
-
-
-# ---------------------------------------------------------------------------
-# Samplers
-# ---------------------------------------------------------------------------
 
 
 def _wrap(a: torch.Tensor) -> torch.Tensor:
@@ -557,9 +522,7 @@ class MeasurementModel:
         now: float | torch.Tensor,
         labels: Sequence[Sequence[str]] | None = None,
     ) -> None:
-        """Start new episodes in the `mask` worlds at time `now`: draw their parameters, clear
-        their delivery queues and restart the dropout and flip processes. `labels[r]` names each
-        world's label in robot slot r, for the per-label flip scale; None keeps a scale of 1."""
+        """Start new episodes in the mask worlds at time now."""
         mask = mask.to(self.device)
         t = self._times(now)
         w = self.worlds
@@ -612,7 +575,6 @@ class MeasurementModel:
             self.last_measured_stamp = t[:, None].expand(-1, self.robots).clone()
             return Deliveries(delivered, t.clone(), measured, truth.xy.clone(), truth.yaw.clone())
 
-        # The tolerance keeps a tick that lands on the frame time from missing it to rounding.
         capture = t >= self.next_capture - CLOCK_EPS_S
         period = self.params.frame_period_s
         upcoming = self.next_capture + period
@@ -721,8 +683,6 @@ class MeasurementModel:
         scale = self.params.error_scale
         n = self._randn(self.worlds, 3)
         c, s = torch.cos(theta), torch.sin(theta)
-        # The along-track bias differs by direction of travel: on the 2026-10-15 sysid sessions
-        # it is +4 mm forward and +13 mm in reverse above 1.5 m/s.
         velocity = truth.velocity[:, r].to(self.dtype)
         reversing = velocity[:, 0] * c + velocity[:, 1] * s < 0.0
         bias_along = torch.where(reversing, sampler.bias_along_reverse[b], sampler.bias_along[b])
@@ -735,15 +695,7 @@ class MeasurementModel:
 
 
 class OurEkfErrorModel:
-    """Rendered our-robot EKF output: truth plus AR(1) error, coasting through measurement gaps.
-
-    Each component of `EKF_COMPONENTS` follows
-    `e_k = rho * e_{k-1} + sigma(v) * sqrt(1 - rho^2) * n`, `rho = exp(-dt / tau)`, so its
-    long-run std is `sigma(v)` whatever `tau` is. Along and cross errors rotate with the true
-    heading. Once the last delivered measurement is `GAP_MIN_FRAMES` frame periods old, the
-    rendered pose coasts at its last forward speed and yaw rate until it is `max_coast_s` old,
-    then holds and reads stale, as `KalmanMotionEstimator` does.
-    """
+    """Rendered our-robot EKF output: truth plus AR(1) error, coasting through measurement gaps."""
 
     def __init__(
         self,
@@ -861,7 +813,6 @@ class OurEkfErrorModel:
         self._origin_t = torch.where(starting, t, self._origin_t)
         self.coasting = in_gap
 
-        # Coast from the origin until the measurement is max_coast_s old, then hold.
         origin_age = self._origin_t - last_measured_stamp.to(self.dtype)
         span = torch.minimum(t - self._origin_t, (self.max_coast_s - origin_age).clamp(min=0.0))
         coast_xy, coast_yaw = _unicycle(

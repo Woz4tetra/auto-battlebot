@@ -1,29 +1,4 @@
-"""USB console client for the velocity jig (`firmware/velocity_jig`).
-
-The jig is a Feather RP2040 Adalogger that rides on the robot and logs a wheel encoder plus
-an ISM330DHCX IMU to microSD at 1 kHz. It speaks a line protocol over native USB CDC:
-
-    LIST            -> "F <name> <size>" per file, then "END"
-    GET <name>      -> "SIZE <n>", exactly n raw bytes, then "\\nEND\\n"
-    DEL <name>      -> "OK" or "ERR"
-    TIME            -> "TIME <rx_us> <tx_us>"
-    STREAM          -> "STREAM", then "S t_us,count,gx,gy,gz,ax,ay,az" at 10 Hz until any
-                       byte arrives, then "END"
-
-Three firmware behaviors shape this client:
-
-1. **Blind during recording.** Every command except `TIME` answers `BUSY`. `TIME` is the
-   exception on purpose: it touches neither the SD card nor the capture path, so a mid-run
-   probe measures skew across the run window instead of extrapolating into it.
-2. **Recording starts and stops on physical buttons.** There is no `START`. Button A emits
-   an unsolicited `recording <name>` and button B a `stopped, n=... dropped=...`, so the
-   client latches those lines as they arrive rather than only while something is waiting.
-   Operators press A during the clock probe burst, and an unlatched press hangs the CLI.
-3. **`STREAM` stops on any byte** and can exit into a recording: pressing A mid-stream
-   prints `END` and then `recording <name>`, so `END` is not necessarily terminal.
-
-Baud is nominal. This is native USB CDC, so transfers run at USB Full Speed regardless.
-"""
+"""USB console client for the velocity jig (`firmware/velocity_jig`)."""
 
 from __future__ import annotations
 
@@ -48,7 +23,7 @@ JIG_USB_IDS = frozenset(
         (0x2E8A, 0x000A),  # Raspberry Pi vendor id, generic RP2040 CDC
     }
 )
-TRANSMITTER_USB_IDS = frozenset({(0x0483, 0x5740)})  # OpenTX/EdgeTX radio
+TRANSMITTER_USB_IDS = frozenset({(0x0483, 0x5740)})
 
 JIG_BAUD = 921600
 GYRO_DPS_PER_LSB = 0.070
@@ -88,12 +63,7 @@ def list_ports() -> list[PortInfo]:
 
 
 def find_jig_port(preferred: str | None = None) -> PortInfo | None:
-    """Locate the jig, never the transmitter.
-
-    Exact USB id match first. Falling back to "any ACM port that is not the radio" keeps the
-    tool usable before JIG_USB_IDS has been confirmed, but it warns through the caller so
-    the constant gets fixed rather than quietly relied on.
-    """
+    """Locate the jig, never the transmitter."""
     ports = list_ports()
     if preferred:
         for p in ports:
@@ -113,12 +83,7 @@ def find_jig_port(preferred: str | None = None) -> PortInfo | None:
 
 
 def find_port_by_serial(serial_number: str) -> PortInfo | None:
-    """Re-find a port after a replug.
-
-    Matching on the device path does not survive a replug: /dev/ttyACM0 can come back as
-    ttyACM1 if anything else enumerated in between. The RP2040's serial number is its flash
-    id, so it is stable across the unplug the run card asks for.
-    """
+    """Re-find a port after a replug."""
     for p in list_ports():
         if p.serial_number and p.serial_number == serial_number:
             return p
@@ -168,8 +133,6 @@ class JigLink:
         self._latched_stopped: tuple[int, int] | None = None
         self.recording = False
 
-    # -- plumbing ----------------------------------------------------------
-
     def close(self) -> None:
         try:
             self._serial.close()
@@ -186,7 +149,7 @@ class JigLink:
         """Drain the port into whole lines, routing unsolicited ones to their latches."""
         try:
             waiting = self._serial.in_waiting
-        except OSError as err:  # the cable was pulled
+        except OSError as err:
             raise ConnectionError(f"{self.port}: {err}") from err
         data = self._serial.read(waiting or 1)
         if not data:
@@ -227,8 +190,6 @@ class JigLink:
         if line == "BUSY":
             raise JigBusyError(f"{cmd!r} refused: the jig is recording")
         return line
-
-    # -- console commands --------------------------------------------------
 
     def list_files(self, timeout: float = 4.0) -> list[tuple[str, int]]:
         self._send("LIST")
@@ -323,8 +284,6 @@ class JigLink:
             if self._read_line(0.3) == "END":
                 return
 
-    # -- button handshakes -------------------------------------------------
-
     def take_recording(self) -> str | None:
         self._pump()
         name, self._latched_recording = self._latched_recording, None
@@ -350,11 +309,7 @@ class JigLink:
     def wait_stopped(
         self, timeout: float = 300.0, tick: Callable[[], None] | None = None
     ) -> tuple[int, int]:
-        """Block until button B is pressed. Returns (samples, dropped).
-
-        Must be called with the cable plugged in: the stop summary goes to the wire
-        unbuffered, so a press while unplugged loses the counts for good.
-        """
+        """Block until button B is pressed."""
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             got = self.take_stopped()
@@ -394,17 +349,7 @@ def _parse_stream_row(line: str) -> StreamRow | None:
 
 
 def probe_clock(link: JigLink, n: int = 200, *, min_kept: int = 8) -> ClockProbe:
-    """Fit the host-to-jig clock offset from a burst of TIME round trips.
-
-    The jig counts microseconds since its own boot, so cross-correlating command edges
-    against measured acceleration only ever recovers `clock_offset + transport_delay`.
-    Measuring the offset separately is what makes the fitted transport delay a real number
-    rather than a real number plus however far apart the two clocks happen to be.
-
-    Only the fastest decile is kept. USB Full Speed polls in 1 ms frames, so most of the
-    spread is host scheduling; the fastest round trips are the ones whose transport was
-    most nearly symmetric, which is the assumption the midpoint pairing rests on.
-    """
+    """Fit the host-to-jig clock offset from a burst of TIME round trips."""
     samples = [s for s in (link.time_probe() for _ in range(n)) if s is not None]
     if len(samples) < min_kept:
         raise OSError(f"clock probe: only {len(samples)} of {n} probes answered")

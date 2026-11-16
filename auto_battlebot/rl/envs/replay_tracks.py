@@ -1,10 +1,4 @@
-"""Human opponent tracks for the `replay` behaviour, sampled into each world's arena.
-
-`simulation/opponent_tracks/replay_tracks.npz` (written by `playground/rl/extract_replay_tracks.py`)
-holds positions as fractions of each recording's field half size, at 50 Hz, so a track replays
-in any arena by scaling. A world starts its track at a random offset and holds the last pose
-once the track ends.
-"""
+"""Human opponent tracks for the `replay` behaviour, sampled into each world's arena."""
 
 from __future__ import annotations
 

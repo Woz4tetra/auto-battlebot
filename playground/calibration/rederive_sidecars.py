@@ -79,7 +79,7 @@ def commands_from_csv(path: Path, mix: dp.MixConfig) -> list[dp.CommandSample]:
         )
         out.append(
             dp.CommandSample(
-                t=float(t[i]),
+                t_monotonic_s=float(t[i]),
                 linear=float(cols["linear"][i]),
                 angular=float(cols["angular"][i]),
                 trim=float(cols["trim"][i]) if "trim" in cols else 0.0,
@@ -89,10 +89,12 @@ def commands_from_csv(path: Path, mix: dp.MixConfig) -> list[dp.CommandSample]:
                 meas_ch_b=ch_b,
                 meas_linear=lin,
                 meas_angular=ang,
-                meas_weapon=(
+                meas_weapon_throttle_ch3=(
                     float(cols["meas_weapon"][i]) if "meas_weapon" in cols else float("nan")
                 ),
-                meas_arm=float(cols["meas_arm"][i]) if "meas_arm" in cols else float("nan"),
+                meas_weapon_arm_ch5=float(cols["meas_arm"][i])
+                if "meas_arm" in cols
+                else float("nan"),
             )
         )
     return out

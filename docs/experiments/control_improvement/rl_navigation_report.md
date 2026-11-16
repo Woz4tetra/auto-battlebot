@@ -370,6 +370,160 @@ footprint and pries it; stopping 5 mm short instead (0.069 flips) or pressing 5 
 barely changes that. Fixing it needs the true box-to-box distance (separating axes) instead of
 the centre-line extents.
 
+## Environment and metric details
+
+Details of the opponent models, curriculum presets and metrics behind these results.
+
+### `rl/envs/opponents.py`
+
+Opponent behaviours for the RL environments (plan section 6), batched over worlds in torch.
+
+Every behaviour drives a unicycle: a forward speed along the opponent's heading (negative backs
+up) and a yaw rate, which the Warp environment hands to its `move_mocap` kernel each policy
+step. Every behaviour has a heading, so the front arc is always exercised. Positions are kept
+inside the arena by stopping the velocity component that points into a wall.
+
+| Behaviour | Parameters drawn per episode |
+| --- | --- |
+| static | pose |
+| straight | speed 0.3 to 1.5 m/s; reflects off walls |
+| circle | speed 0.3 to 1.5 m/s, radius 0.2 to 0.6 m, direction |
+| random_walk | speed 0.2 to 1.2 m/s, turn-rate noise 1 to 4 rad/s |
+| pursuit | lead 0 to 0.3 s, delay 50 to 250 ms, top speed 0.8 to 2.5 m/s, turn 4 to 10 rad/s |
+| corner | a corner; backs into it, then turns to face us |
+| replay | a human opponent track (`replay_tracks.py`) |
+
+The evaluation holds out the fastest, shortest-delay corner of `pursuit` (top speed above
+2.3 m/s with a delay under 70 ms): training never draws it.
+
+Pursuit difficulty is a level from 0 to 1 (`Opponents.pursuit_level`). Level 0 draws only the
+easiest pursuer (`PURSUIT_EASY`: 0.8 m/s, 4 rad/s, 250 ms delay); level 1 draws the whole range up
+to `pursuit_hard`. `pursuit_fixed` pins every world's pursuer instead, for the beatable-range map.
+
+A pursuer has traction: each episode draws a grip limit from `PURSUIT_GRIP_MPS2`, which caps how
+fast its forward speed changes and caps its turn rate at grip / speed. Without it the pursuer was
+a mocap body that stopped dead from 2.5 m/s and pivoted at 10 rad/s, so it never overshot and
+nothing beat the 8 to 10 rad/s pursuers (2026-10-18: `rl_nav_p4` struck in 4.5% of episodes
+against 5 to 7 rad/s pursuers at level 1). Scenarios exported before grip existed carry none and
+replay the old pursuer.
+
+#### `PURSUIT_GRIP_MPS2`
+
+Pursuer traction is 8 to 16 m/s^2: 0.8 to 1.6 g, rubber wheels to very grippy ones. At 2.5 m/s that
+caps the turn rate at 3.2 to 6.4 rad/s.
+
+#### Opponent contact constants
+
+- `DELAY_SLOTS` is the pursuit reaction-delay ring, in policy steps: 16 steps of 20 ms cover the
+  250 ms maximum delay.
+- `OUR_HALF_DIAGONAL_M` (0.106) and `OUR_HALF_EXTENT_M` (0.0685, 0.08) are Mr Stabs Mk2's
+  0.137 x 0.16 m footprint, as half diagonal and as half length and half width.
+- `CONTACT_PRESS_M` is how far an opponent may press into our footprint along the line between
+  centres. 0 stops it at contact. Against an idle robot, pursuit still registers 7 hits per
+  episode at 0 (the boxes' corners meet before their centre-line extents do) and flips it 0.06
+  times per episode, against 0.09 at 5 mm. The corner overlap, not this depth, is what pries it.
+
+#### `command`
+
+The pursuer turns proportionally: the rate that closes the error in one step, capped at
+`turn_rate`. The old `clamp(err / dt, -1, 1) * turn_rate` saturated past 1 degree of error and
+turned bang-bang, overshooting and reversing every 20 ms step.
+
+### `rl/envs/toy.py`
+
+#### `desynchronize`
+
+Spread the worlds' truncation steps over one episode, so training batches do not all
+reset on the same step. Evaluation skips this: every scenario plays a full episode.
+
+### `rl/envs/trained_opponent.py`
+
+#### `reset`
+
+`reset` draws a behaviour and its parameters. It returns the start pose a replay track sets, or
+None to keep the configured start. The sim's robot start is fixed, so a replay start is
+redrawn until it clears our robot by START_CLEARANCE_M (training places us instead).
+
+### `rl/envs/warp_kernels.py`
+
+#### `ARC_ANGLE`
+
+A contact is a hit taken when it is inside the opponent's front arc (ARC_ANGLE, Mr Stabs Mk2's
+training), or, for a robot as wide as Mrs Buff Mk3, only on the opponent's front face
+(ARC_FRONT_FACE): her front spans an opponent's front corners when she rams its side, which
+the angle alone counts as a hit.
+
+### `rl/envs/warp_nav.py`
+
+#### Curriculum stage presets
+
+- `P` (pursuit focus): stage D with half the episodes against a pursuer, so the rest of the mix
+  is still trained while pursuit gets enough episodes to learn from. Pair it with the pursuit
+  difficulty curriculum in `train_nav_policy.py`.
+- `P3`: three quarters pursuit (16 of 22 draws), for runs with `--anchor` holding the rest of the
+  mix. At half, pursuit success stalled at 0.22 to 0.31 on level 0.4 for 1,500 iterations.
+- `DIAG_SENSE` and `DIAG_OPP` diagnose a stalled stage C. `DIAG_SENSE` is stage B's opponents and
+  hazards with sensing on. `DIAG_OPP` is stage C's opponents and hazards with sensing off.
+
+### `rl/export/bundle_policy.py`
+
+Run an exported policy bundle in Python, the way `RlPolicyNavigation` runs it on the robot.
+
+`simulation/kinematic_sim_server.py` drives `[[opponents]] behavior = "policy"` with it, so the
+opponent can run the same bundle as our robot. It reads the manifest, evaluates the RTNeural actor
+in numpy (`rtneural.run_json`), decodes with `scale * tanh`, and keeps the 8-step action and speed
+history the observation carries, pushed after each step as the C++ node pushes it. Loading runs
+the bundle's self-test, as the C++ loader does.
+
+The caller hands it ground truth: the target's sigmas, ages and stale flags read 0, which is the
+observation the training environment builds with sensing off (`WarpNavEnv._observe`).
+
+### `rl/learners/fasttd3.py`
+
+#### `_collect`
+
+The collector draws uniform actions until learning starts, as TD3 does. a buffer filled by the untrained
+actor plus small noise holds one action sign per state, and the critic then cannot
+see what the other sign earns.
+
+### `rl/learners/ppo.py`
+
+#### `_anchor_loss`
+
+The loss clamps the pre-tanh value at +-2.5: past it the action is within 1.3% of full and the
+gap is moot.
+
+### `rl/metrics.py`
+
+Episode metrics shared by the evaluator, the training logs and the lockstep recordings.
+
+Hits landed per hit taken is the primary score (plan requirement 1). It is a ratio of totals over
+the scenario set, not a mean of per-episode ratios, so an episode with no contact counts for
+nothing instead of dividing by zero.
+
+#### `EpisodeMetrics`
+
+`median_time_to_first_strike_s` counts an episode with no strike as the episode length.
+
+### `rl/sidestep.py`
+
+A scripted controller that beats a pursuer by out-turning it, on true state, batched in torch.
+
+It circles the opponent at `orbit_m`, aiming `orbit_lead_deg` further round towards its rear on
+the side we are already on. A pursuer turns to keep us in front of it, at 4 to 10 rad/s; Mr Stabs
+Mk2 turns at up to 37 rad/s in the Warp plant, so on a small circle we can get round faster than
+the pursuer turns. Once our bearing from its heading passes `attack_deg` it drives at the
+opponent's centre for the strike. Commands are slew-limited: a step from 0 to full throttle
+wheelies the chassis over.
+
+It plays the expert for the pursuit beatable-range map (`playground/rl/pursuit_map.py`) and the
+behaviour-cloning warm start (`training/rl/pretrain_sidestep.py`). Actions are the policy's:
+(linear, angular) in [-1, 1], positive angular turning counter-clockwise.
+
+#### `__call__`
+
+Full linear action is about 2.6 m/s and full angular about 37 rad/s.
+
 ## Flip risk without the slew limit
 
 From a standstill in open floor, the fitted sim robot wheelies over backwards on a held forward

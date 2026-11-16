@@ -1,9 +1,4 @@
-"""Episode metrics shared by the evaluator, the training logs and the lockstep recordings.
-
-Hits landed per hit taken is the primary score (plan requirement 1). It is a ratio of totals over
-the scenario set, not a mean of per-episode ratios, so an episode with no contact counts for
-nothing instead of dividing by zero.
-"""
+"""Episode metrics shared by the evaluator, the training logs and the lockstep recordings."""
 
 from __future__ import annotations
 
@@ -21,7 +16,7 @@ class EpisodeMetrics:
     rear_strikes_per_episode: float
     hits_taken_per_episode: float
     hits_per_hit_taken: float
-    median_time_to_first_strike_s: float  # episodes with no strike count as the episode length
+    median_time_to_first_strike_s: float
     danger_s_per_episode: float
     wall_events_per_episode: float
     holes_per_episode: float = 0.0

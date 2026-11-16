@@ -20,13 +20,10 @@ import numpy as np
 import trimesh
 from scipy.spatial.transform import Rotation
 
-# Assembly frame -> body frame rotation: x = -Y_asm, y = +X_asm, z = +Z_asm.
 R_BODY_ASM = np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
 
-# Wheels spin on these joints; everything below them in the tree turns with the wheel.
 WHEEL_JOINTS = ("cylindrical_1_1", "cylindrical_2_1")
 
-# Structural parts whose meshes make the chassis collision shape.
 STRUCTURAL_LINKS = ("mr_stabs_mk2_chassis", "mr_stabs_mk2_top_plate", "mr_stabs_mk2_bottom_plate")
 
 
@@ -168,11 +165,7 @@ def _require(node: ET.Element | None) -> ET.Element:
 
 
 def body_from_root(assembly: UrdfAssembly) -> tuple[np.ndarray, np.ndarray]:
-    """Rotation and translation taking root-frame points into the body frame.
-
-    The origin is the axle midpoint: the wheel joints sit on the axle line, and the midpoint
-    along it is halfway between the two lumped wheel COMs.
-    """
+    """Rotation and translation taking root-frame points into the body frame."""
     wheel_coms = [assembly.lumped(assembly.wheel_links(j)).com for j in WHEEL_JOINTS]
     joint_points = [assembly.link_pose(assembly.wheel_links(j)[0])[:3, 3] for j in WHEEL_JOINTS]
     axle_mid = 0.5 * (joint_points[0] + joint_points[1])
@@ -204,12 +197,7 @@ def load_mesh_in_root(
 
 @dataclass
 class TagFrame:
-    """A tag's marker frame in the body frame.
-
-    `rotation` and `translation` form T_body_tag, mapping points in the OpenCV marker frame
-    (origin at the tag center, x right and y up in the printed image, z out of the face; the
-    object points solvePnP IPPE_SQUARE expects) into the body frame.
-    """
+    """A tag's marker frame in the body frame."""
 
     tag_id: int
     rotation: np.ndarray
@@ -225,13 +213,7 @@ def extract_tag_frame(
     outward: np.ndarray,
     px_per_m: float = 20000.0,
 ) -> TagFrame:
-    """Find a tag's marker frame by rendering its CAD face and running the aruco detector.
-
-    The export does not say which in-plane direction is the printed image's "up", so the face
-    is rasterized as seen from outside (looking along -normal) and decoded; the detected corner
-    order then fixes the frame. The face is the set of triangles facing `outward` that lie on
-    the outermost plane.
-    """
+    """Find a tag's marker frame by rendering its CAD face and running the aruco detector."""
     triangles: list[np.ndarray] = []
     shades: list[float] = []
     for mesh, color in meshes_in_body:
@@ -258,7 +240,6 @@ def extract_tag_frame(
     on_face = np.all(np.abs(tris @ normal - top) < 0.5e-3, axis=1)
     tris, shade = tris[on_face], shade[on_face]
 
-    # Camera looking along -normal: image u = e1, image v (down) = e2, e1 x e2 = -normal.
     e1 = np.cross(normal, [0.0, 0.0, 1.0] if abs(normal[2]) < 0.9 else [1.0, 0.0, 0.0])
     e1 /= np.linalg.norm(e1)
     e2 = np.cross(-normal, e1)
@@ -286,7 +267,6 @@ def extract_tag_frame(
     found = corners[[int(i) for i in ids.flatten()].index(tag_id)].reshape(4, 2).astype(float)
     if mirrored:
         found[:, 0] = size_px - 1 - found[:, 0]
-    # Back to 3D on the face plane.
     uv_m = found / px_per_m - extent
     pts3 = center + uv_m[:, :1] * e1 + uv_m[:, 1:] * e2
     tag_center = pts3.mean(axis=0)
@@ -326,12 +306,7 @@ def onshape_inertia_to_tensor(
 def chassis_from_assembly(
     assembly_total: MassBody, wheels: list[MassBody], scale_mass: float
 ) -> tuple[MassBody, MassBody]:
-    """Chassis = Onshape whole assembly minus the wheels, then topped up to the scale.
-
-    Returns (chassis at CAD mass, chassis at scale mass). The unmodeled difference between the
-    scale and CAD (wire, glue, solder) is spread like the rest of the chassis: added at its COM
-    with the inertia scaled by the mass ratio.
-    """
+    """Chassis = Onshape whole assembly minus the wheels, then topped up to the scale."""
     cad = subtract(assembly_total, wheels)
     extra = scale_mass - assembly_total.mass
     ratio = (cad.mass + extra) / cad.mass

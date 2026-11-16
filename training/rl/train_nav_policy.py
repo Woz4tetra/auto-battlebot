@@ -76,7 +76,7 @@ def set_anchor(learner: Ppo, env: WarpNavEnv, path: Path) -> None:
 
 
 def raise_pursuit_level(env: WarpNavEnv, advance_at: float, env_steps: int) -> None:
-    if env.opponents.pursuit_level >= 1.0 or len(env.pursuit_window) < 500:
+    if env.opponents.pursuit_level >= 1.0 or len(env.pursuit_attack_success_window) < 500:
         return
     if env.pursuit_success_rate < advance_at:
         return
@@ -86,7 +86,7 @@ def raise_pursuit_level(env: WarpNavEnv, advance_at: float, env_steps: int) -> N
         f"(success {env.pursuit_success_rate:.3f})",
         flush=True,
     )
-    env.pursuit_window = []
+    env.pursuit_attack_success_window = []
 
 
 def load_resume(args: argparse.Namespace) -> tuple[dict | None, str]:

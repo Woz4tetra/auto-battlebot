@@ -1,14 +1,4 @@
-"""Run an exported policy bundle in Python, the way `RlPolicyNavigation` runs it on the robot.
-
-`simulation/kinematic_sim_server.py` drives `[[opponents]] behavior = "policy"` with it, so the
-opponent can run the same bundle as our robot. It reads the manifest, evaluates the RTNeural actor
-in numpy (`rtneural.run_json`), decodes with `scale * tanh`, and keeps the 8-step action and speed
-history the observation carries, pushed after each step as the C++ node pushes it. Loading runs
-the bundle's self-test, as the C++ loader does.
-
-The caller hands it ground truth: the target's sigmas, ages and stale flags read 0, which is the
-observation the training environment builds with sensing off (`WarpNavEnv._observe`).
-"""
+"""Run an exported policy bundle in Python, the way `RlPolicyNavigation` runs it on the robot."""
 
 from __future__ import annotations
 

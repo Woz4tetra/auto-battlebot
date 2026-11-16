@@ -1,25 +1,4 @@
-"""Robot telemetry for the sysid monitor: the frame schema, the plant inputs, the robot clock.
-
-``/robot/espnow_telemetry`` is the source. The column list is read from the JSON schema the
-recorder writes (``mcap_write.ESPNOW_TELEMETRY_JSON_SCHEMA``), so a field added there shows up
-here with no edit and a renamed one fails loudly where it is used instead of reading as NaN.
-Integers load as nullable ``Int64`` (``telemetry_seq`` is <NA> in recordings older than it),
-numbers as float with NaN for null, booleans as bool.
-
-Without ESP-NOW telemetry the source is ``/robot/esp32_diagnostics``, the robot's telemetry
-ring polled over WiFi (older recordings: its event stream), with the same drive fields.
-``from_diagnostics`` renames its ``seq`` to ``telemetry_seq`` so drops count the same way; the
-columns it lacks (``espnow_active``, ``autonomy_enabled``) read as False. Its ``backfill`` rows
-waited in the ring, so their ``host_receive_ns`` is late and the live clock skips them.
-
-Plant inputs:
-
-- fit input: ``left_cmd``/``right_cmd``, what the ESCs got after the deadband and the yaw loop,
-  through ``firmware_mixer.motor_to_plant``.
-- prediction input and stick display: ``a_percent``/``b_percent``, the arbitrated sticks before
-  the mixer. ``throttle = -a / 100`` (forward positive) and ``steer = -b / 100`` (left positive),
-  the plant's sign convention.
-"""
+"""Robot telemetry for the sysid monitor: the frame schema, the plant inputs, the robot clock."""
 
 from __future__ import annotations
 
@@ -120,11 +99,6 @@ def sticks(a_percent: Any, b_percent: Any) -> tuple[np.ndarray, np.ndarray]:
         -np.asarray(a_percent, dtype=float) / 100.0,
         -np.asarray(b_percent, dtype=float) / 100.0,
     )
-
-
-# ---------------------------------------------------------------------------
-# Live robot clock
-# ---------------------------------------------------------------------------
 
 
 @dataclass

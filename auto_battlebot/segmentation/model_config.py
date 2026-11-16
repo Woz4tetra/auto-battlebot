@@ -64,10 +64,7 @@ def load_model_config(model_path: Path) -> ModelConfig:
 
 
 def save_model_config(model_path: Path, config: ModelConfig) -> Path:
-    """Write a ModelConfig as a .toml file next to *model_path*.
-
-    Returns the path to the written file.
-    """
+    """Write a ModelConfig as a .toml file next to model_path."""
     toml_path = config_path_for(model_path)
     data = {"model": dataclasses.asdict(config)}
     toml_path.write_bytes(tomli_w.dumps(data).encode())

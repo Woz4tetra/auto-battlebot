@@ -1,38 +1,4 @@
-"""The live coverage session: telemetry and tags in, labeled motions and plant coverage out.
-
-``CoverageSession`` is pure and deterministic: a source feeds it decoded messages in log order
-(``feed_telemetry``, ``feed_tags``, ``feed_field``), ``advance`` processes everything older than
-``LAG_S``, and ``snapshot`` returns the page's JSON. It does no IO; the refit runs through a
-``RefitEngine`` (``worker.py``), inline for tests and replay or in a process when live.
-
-Pipeline per 10 ms grid sample, once the tags around it have arrived:
-
-1. Telemetry is put on the host clock (``telemetry.LiveClock``). Commands are held to the grid;
-   the gyro is interpolated. The clock map rests on the fastest deliveries, so the minimum
-   radio latency stays in it and every telemetry stamp reads that much late. The fit's delay
-   absorbs it for the commands; for the gyro it is a millisecond or two against the tags.
-2. ``maneuvers.ManeuverSegmenter`` labels the sticks.
-3. Every ``model.WINDOW_S`` the window closes: gates, three sub-windows from the tag poses,
-   Fisher information at the current estimate, and a status.
-4. A refit runs every ``REFIT_S`` of driving when new windows closed.
-
-Gates, first match wins:
-
-- jetson: ``espnow_active`` or ``autonomy_enabled`` anywhere in the window. The sysid profile
-  never commands, so this is a banner as well as a gate.
-- link: telemetry missing for over ``GAP_S``, counted from ``telemetry_seq`` (frames lost) or
-  from ``timestamp_ms`` (frames late). A frame or two lost is held over and costs nothing.
-- tags: accepted tag fixes cover under ``TAG_COVERAGE_MIN`` of the camera frames.
-- flip: the robot is upside down, or the running median of ``PITCH_MEDIAN_N`` tag poses is
-  pitched more than ``PITCH_LIMIT_DEG`` off the rest pose.
-- wall: the axle center within ``ROBOT_LENGTH_M`` of a rail (``sysid_windows.near_rail``), or,
-  once the fit has settled, a tag residual over ``CONTACT_SIGMA`` (marked by the refit).
-- disarmed: ``armed`` false.
-- idle: no motor command over ``IDLE_CMD`` and no tag speed.
-
-Every fifth usable window is held out: it scores the closed-loop prediction and never enters
-the fit.
-"""
+"""The live coverage session: telemetry and tags in, labeled motions and plant coverage out."""
 
 from __future__ import annotations
 
@@ -66,8 +32,6 @@ LAG_S = 0.5
 GAP_S = 0.05
 TAG_COVERAGE_MIN = 0.7
 PITCH_LIMIT_DEG = 4.0
-# Poses in the running median the pitch gate tests. Single-frame tag pitch spikes reach 8 deg on
-# a flat spin (frame-to-frame sd 1.7 deg); a real nose lift lasts far longer than 7 frames.
 PITCH_MEDIAN_N = 7
 ROBOT_LENGTH_M = 0.15
 IDLE_CMD = 0.02
@@ -132,6 +96,11 @@ def _pitched(poses: list[TagPose]) -> bool:
     return bool(np.median(runs, axis=1).max() > math.radians(PITCH_LIMIT_DEG))
 
 
+def straight_run_room_m(diag: float) -> float:
+    """Room for a straight run: the diagonal less a robot length and a stop at each end."""
+    return max(diag - 0.6, 0.0)
+
+
 class CoverageSession:
     def __init__(self, profile: SysidProfile, engine: RefitEngine) -> None:
         self.profile = profile
@@ -141,8 +110,7 @@ class CoverageSession:
         self.segmenter = ManeuverSegmenter(model.DT)
         self.half_extent = profile.half_extent_m
         diag = math.hypot(profile.field_size_x_m, profile.field_size_y_m)
-        # Room for a straight run: the diagonal less a robot length and a stop at each end.
-        self.floor_run_m = max(diag - 0.6, 0.0)
+        self.floor_run_m = straight_run_room_m(diag)
 
         self._tele: deque[_Telemetry] = deque()
         self._tele_ptr = 0
@@ -159,11 +127,11 @@ class CoverageSession:
         self.usable_count = 0
         self.theta = model.PRIOR_VECTOR.copy()
         self.ladder = {s.name: model.PRIOR_VECTOR.copy() for s in MODEL_LADDER}
-        self.fisher_fit = np.zeros((model.NP, model.NP))  # at the last refit
-        self.fisher_new = np.zeros((model.NP, model.NP))  # windows since
+        self.fisher_at_last_refit = np.zeros((model.NP, model.NP))
+        self.fisher_since_refit = np.zeros((model.NP, model.NP))
         self.scale = 1.0
         self.refits = 0
-        self._refit_upto = -1  # last window id in the newest applied refit
+        self._last_refit_window_id = -1
         self._sent_upto = -1
         self._last_refit_t = 0.0
         self._pending_refit = False
@@ -187,8 +155,6 @@ class CoverageSession:
         self._rate_marks: deque[tuple[int, int, int]] = deque()  # (host ns, tele, frames)
         self._push_history(0.0, math.nan, {})
 
-    # -- inputs ------------------------------------------------------------------------
-
     def feed_telemetry(self, row: dict[str, Any], log_time_ns: int) -> None:
         robot_ms = int(row["timestamp_ms"])
         host_ns = int(row.get("host_receive_ns") or log_time_ns)
@@ -198,7 +164,7 @@ class CoverageSession:
                 self._tele_ptr = 0
                 self._last_seq = None
             else:
-                return  # duplicate or reordered frame
+                return
         seq = row.get("telemetry_seq")
         if seq is not None and self._last_seq is not None and int(seq) != self._last_seq + 1:
             lost = max(int(seq) - self._last_seq - 1, 0)
@@ -224,8 +190,6 @@ class CoverageSession:
         self.poses.push_frame(frame)
         self._frames_seen += 1
 
-    # -- time ----------------------------------------------------------------------------
-
     def _session_s(self, t_ns: int) -> float:
         return 0.0 if self.t_origin_ns is None else (t_ns - self.t_origin_ns) / _NS
 
@@ -236,8 +200,6 @@ class CoverageSession:
         if self.poses.has_field and self.poses.newest_frame_ns:
             newest = min(newest, self.poses.newest_frame_ns)
         return newest - int(LAG_S * _NS)
-
-    # -- main step ---------------------------------------------------------------------
 
     def advance(self) -> None:
         """Process every grid sample older than ``LAG_S``, close windows, start refits."""
@@ -278,7 +240,7 @@ class CoverageSession:
             return None
         cur = tele[self._tele_ptr]
         cur_ns = int(self.clock.to_host_ns(cur.robot_ms))
-        gap = cur_ns > t_ns  # before the stream starts
+        gap = cur_ns > t_ns
         if self._tele_ptr + 1 < len(tele):
             nxt = tele[self._tele_ptr + 1]
             gap = gap or (nxt.robot_ms - cur.robot_ms) / 1000.0 > GAP_S
@@ -324,8 +286,6 @@ class CoverageSession:
         for ev in self.segmenter.push(float(thr), float(st), row.auto):
             self._pending_events.append(ev)
 
-    # -- windows -------------------------------------------------------------------------
-
     def _rows_between(self, t0_ns: int, t1_ns: int) -> list[GridRow]:
         return [r for r in self.grid if t0_ns <= r.t_ns < t1_ns]
 
@@ -369,29 +329,29 @@ class CoverageSession:
         inside = [p for p in poses if start_ns < p.stamp_ns <= end_ns]
         if len(inside) < 4:
             return None
-        if len(inside) > model.MAX_TAGS:
-            pick = np.linspace(0, len(inside) - 1, model.MAX_TAGS).round().astype(int)
+        if len(inside) > model.MAX_TAG_FIXES_PER_SUB:
+            pick = np.linspace(0, len(inside) - 1, model.MAX_TAG_FIXES_PER_SUB).round().astype(int)
             inside = [inside[i] for i in pick]
         tau = np.array([(p.stamp_ns - start_ns) / _NS for p in inside])
         yaw_meas = np.array([p.yaw for p in inside])
-        # Unwrap the measured headings onto the start heading so a residual never jumps by 2 pi.
         yaw_meas = est.theta + np.unwrap(np.concatenate([[0.0], yaw_meas - est.theta]))[1:]
         body = rows[model.HIST_N :]
         gyro = np.array([r.gyro_dps for r in body])[
-            model.GYRO_EVERY : model.GYRO_EVERY * (model.GYRO_N + 1) : model.GYRO_EVERY
+            model.GYRO_STRIDE_SAMPLES : model.GYRO_STRIDE_SAMPLES
+            * (model.GYRO_N + 1) : model.GYRO_STRIDE_SAMPLES
         ]
         end = state_at(poses, end_ns)
         return model.SubWindow(
             state0=np.array([est.x, est.y, est.theta, est.v, w0]),
             cmd_lin=lin,
             cmd_ang=ang,
-            tag_tau=tau,
+            tag_tau_s=tau,
             tag_x=np.array([p.x for p in inside]),
             tag_y=np.array([p.y for p in inside]),
             tag_yaw=yaw_meas,
-            tag_sa=np.array([p.sigma_along for p in inside]),
-            tag_sc=np.array([p.sigma_across for p in inside]),
-            tag_sy=np.array([p.sigma_yaw for p in inside]),
+            tag_sigma_along_m=np.array([p.sigma_along for p in inside]),
+            tag_sigma_across_m=np.array([p.sigma_across for p in inside]),
+            tag_sigma_yaw_rad=np.array([p.sigma_yaw for p in inside]),
             gyro=-np.radians(gyro),
             gyro_ok=np.isfinite(gyro),
             a_percent=np.nan_to_num(np.array([r.a for r in body])),
@@ -443,7 +403,7 @@ class CoverageSession:
                     rec.subs, [rec.id] * len(rec.subs), self.poses.noise.view_azimuth_rad
                 )
                 _r, jac = model.jacobian(self.theta, batch)
-                self.fisher_new += model.information(jac)
+                self.fisher_since_refit += model.information(jac)
             self._add_coverage(rows, poses)
         self.windows.append(rec)
         self._resolve_events()
@@ -503,8 +463,6 @@ class CoverageSession:
         if len(self.events) > 80:
             del self.events[: len(self.events) - 80]
 
-    # -- refit -----------------------------------------------------------------------------
-
     def _poll_refit(self) -> None:
         reply = self.engine.poll()
         if reply is not None:
@@ -548,10 +506,10 @@ class CoverageSession:
             if w.status == "used":
                 w.status = "wall"
                 w.reason = "contact"
-        self._refit_upto = reply.upto
-        self.fisher_fit = reply.fisher
+        self._last_refit_window_id = reply.upto
+        self.fisher_at_last_refit = reply.fisher
         # Windows that closed while the refit ran, at the new estimate.
-        self.fisher_new = np.zeros((model.NP, model.NP))
+        self.fisher_since_refit = np.zeros((model.NP, model.NP))
         late = [w for w in self.windows if w.id > reply.upto and w.status == "used"]
         if late:
             subs, owners = [], []
@@ -560,14 +518,14 @@ class CoverageSession:
                 owners += [w.id] * len(w.subs)
             batch = model.stack(subs, owners, self.poses.noise.view_azimuth_rad)
             _r, jac = model.jacobian(self.theta, batch)
-            self.fisher_new = model.information(jac)
+            self.fisher_since_refit = model.information(jac)
         self.candidates = reply.candidates
         self.floor_limited = np.asarray(reply.floor_limited, dtype=bool)
         self.ladder_holdout = reply.ladder_holdout
         self._push_history(reply.driving_s, reply.holdout, reply.ladder_holdout)
 
     def _covariance(self) -> np.ndarray:
-        return model.covariance(self.fisher_fit + self.fisher_new, self.scale)
+        return model.covariance(self.fisher_at_last_refit + self.fisher_since_refit, self.scale)
 
     def _push_history(self, t: float, hold: float, ladder: dict[str, float]) -> None:
         cov = self._covariance()
@@ -585,8 +543,6 @@ class CoverageSession:
                 "used": sum(1 for w in self.windows if w.status == "used"),
             }
         )
-
-    # -- ghosts ----------------------------------------------------------------------------
 
     def _make_ghosts(self) -> None:
         if self._ghost_next_ns is None or not self.grid:
@@ -628,8 +584,6 @@ class CoverageSession:
         if horizon_ms is not None:
             while self._seq_gaps and self._seq_gaps[0][1] < horizon_ms:
                 self._seq_gaps.popleft()
-
-    # -- snapshot --------------------------------------------------------------------------
 
     def snapshot(self) -> dict[str, Any]:
         cov = self._covariance()

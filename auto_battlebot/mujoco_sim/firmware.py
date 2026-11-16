@@ -29,8 +29,8 @@ import math
 from dataclasses import dataclass, field
 from enum import Enum
 
-TURNING_COOLDOWN_TIME = 0.25  # legacy only
-ANGULAR_SCALE = 1.0  # legacy only
+LEGACY_TURNING_COOLDOWN_S = 0.25
+LEGACY_ANGULAR_SCALE = 1.0
 TURN_THRESHOLD_PERCENT = 1.0
 SAMPLE_PERIOD_S = 0.01  # updown_sensor::SAMPLE_INTERVAL
 GYRO_RANGE_DPS = 2000.0  # BNO055 gyro full scale in its fusion modes
@@ -42,13 +42,11 @@ UPDOWN_THRESHOLD_UP_Z = 1.0 / STANDARD_GRAVITY
 
 
 class FlipSwitch(str, Enum):
-    """The transmitter's flip switch (CRSF ch7), as `loop()` in
-    firmware/mr_stabs_mk2/src/main.cpp reads it. Inverted means the throttle is negated before the
-    mixer, so the stick drives wedge-first whichever side is up."""
+    """Transmitter flip switch (CRSF ch7) position."""
 
-    DOWN = "down"  # power-on default: heading hold on, inverted while the IMU reads upside down
-    MIDDLE = "middle"  # heading hold off, never inverted
-    UP = "up"  # heading hold off, always inverted
+    DOWN = "down"
+    MIDDLE = "middle"
+    UP = "up"
 
     @classmethod
     def _missing_(cls, value: object) -> FlipSwitch:
@@ -57,8 +55,7 @@ class FlipSwitch(str, Enum):
 
 @dataclass
 class UpdownSensor:
-    """`UpdownSensor::get_is_upside_down`: the chassis up axis's z component in, with the
-    firmware's hysteresis, so a robot balanced on its edge keeps its last reading."""
+    """Mirror of UpdownSensor::get_is_upside_down with its hysteresis."""
 
     upside_down: bool = False
 
@@ -237,13 +234,24 @@ class YawController:
 
 
 @dataclass
-class FirmwareMixer:
-    """Stick percents, the sensed heading and gyro rate in, per-motor percents out.
+class LegacyHoldState:
+    angle_setpoint: float = 0.0
+    was_turning: bool = False
+    cooldown_timer: float = 0.0
+    was_auto_steer: bool = False
 
-    `step` is one control loop. In the current firmware the heading and gyro only change when a
-    BNO055 sample lands, every `sample_period`, and the yaw loop runs on those samples alone.
-    `pid_output` is the differential the mixer adds to the left wheel and takes off the right.
-    """
+
+@dataclass
+class YawLoopState:
+    active: bool = False
+    was_upside_down: bool = False
+    held: tuple[float, float] | None = None
+    since_sample: float = 0.0
+
+
+@dataclass
+class FirmwareMixer:
+    """Stick percents, the sensed heading and gyro rate in, per-motor percents out."""
 
     auto_steer: bool = True
     legacy: bool = False
@@ -251,55 +259,47 @@ class FirmwareMixer:
     yaw: YawController = field(default_factory=YawController)
     sample_period: float = SAMPLE_PERIOD_S
     pid_output: float = 0.0
-    # legacy heading-hold state
-    angle_setpoint: float = 0.0
-    was_turning: bool = False
-    cooldown_timer: float = 0.0
-    _was_auto_steer: bool = False
-    # current firmware state
-    yaw_loop_active: bool = False
-    _was_upside_down: bool = field(default=False, repr=False)
-    _held: tuple[float, float] | None = field(default=None, repr=False)
-    _since_sample: float = field(default=0.0, repr=False)
+    hold: LegacyHoldState = field(default_factory=LegacyHoldState)
+    loop: YawLoopState = field(default_factory=YawLoopState)
 
     def reset_angle_pid(self, heading_deg: float) -> None:
         """Legacy heading-hold reset."""
         self.pid.reset()
-        self.angle_setpoint = heading_deg
+        self.hold.angle_setpoint = heading_deg
         self.pid_output = 0.0
-        self.was_turning = False
-        self.cooldown_timer = 0.0
+        self.hold.was_turning = False
+        self.hold.cooldown_timer = 0.0
 
     def _legacy_angular(self, b_percent: float, heading_deg: float, dt: float) -> float:
-        angular = b_percent * ANGULAR_SCALE
+        angular = b_percent * LEGACY_ANGULAR_SCALE
         if abs(angular) > TURN_THRESHOLD_PERCENT:
-            self.angle_setpoint = heading_deg
-            self.was_turning = True
-            self.cooldown_timer = TURNING_COOLDOWN_TIME
+            self.hold.angle_setpoint = heading_deg
+            self.hold.was_turning = True
+            self.hold.cooldown_timer = LEGACY_TURNING_COOLDOWN_S
             return angular
-        if self.was_turning:
-            self.cooldown_timer -= dt
-            if self.cooldown_timer <= 0.0:
+        if self.hold.was_turning:
+            self.hold.cooldown_timer -= dt
+            if self.hold.cooldown_timer <= 0.0:
                 self.reset_angle_pid(heading_deg)
-        if self.was_turning:
+        if self.hold.was_turning:
             return 0.0
-        return self.pid.update(self.angle_setpoint, heading_deg, dt)
+        return self.pid.update(self.hold.angle_setpoint, heading_deg, dt)
 
     def _sample(self, heading_deg: float, rate_dps: float, dt: float) -> tuple[float, float, bool]:
         """The heading and gyro rate the firmware sees this loop, and whether they are new."""
-        self._since_sample += dt
-        if self._held is None or self._since_sample >= self.sample_period - 1e-9:
-            self._held = (heading_deg, rate_dps)
-            self._since_sample = 0.0
+        self.loop.since_sample += dt
+        if self.loop.held is None or self.loop.since_sample >= self.sample_period - 1e-9:
+            self.loop.held = (heading_deg, rate_dps)
+            self.loop.since_sample = 0.0
             return heading_deg, rate_dps, True
-        return self._held[0], self._held[1], False
+        return self.loop.held[0], self.loop.held[1], False
 
     def _legacy_step(
         self, a_percent: float, b_percent: float, heading_deg: float, dt: float
     ) -> None:
-        if self.auto_steer and not self._was_auto_steer:
+        if self.auto_steer and not self.hold.was_auto_steer:
             self.reset_angle_pid(heading_deg)
-        self._was_auto_steer = self.auto_steer
+        self.hold.was_auto_steer = self.auto_steer
         if self.auto_steer:
             self.pid_output = self._legacy_angular(b_percent, heading_deg, dt)
         else:
@@ -319,16 +319,16 @@ class FirmwareMixer:
         tail_first_throttle = -a_percent if upside_down else a_percent
         if not self.auto_steer:
             self.pid_output = b_percent if abs(b_percent) > TURN_THRESHOLD_PERCENT else 0.0
-            self.yaw_loop_active = False
+            self.loop.active = False
             return
-        if not self.yaw_loop_active or upside_down != self._was_upside_down:
+        if not self.loop.active or upside_down != self.loop.was_upside_down:
             self.yaw.reset(heading)
-            self.yaw_loop_active = True
+            self.loop.active = True
         if fresh:
             self.pid_output = self.yaw.update(
                 b_percent, tail_first_throttle, heading, rate, self.sample_period
             )
-        self._was_upside_down = upside_down
+        self.loop.was_upside_down = upside_down
 
     def resume(
         self,
@@ -344,7 +344,7 @@ class FirmwareMixer:
         feedforward in a turn: a 2026-10-15 spin then ran 40% faster than the robot did."""
         c = self.yaw.config
         self.yaw.reset(heading_deg)
-        self.yaw_loop_active = True
+        self.loop.active = True
         turning = abs(b_percent) > c.turn_threshold
         rate_command = b_percent / 100.0 * c.max_rate if turning else 0.0
         reverse = min(max(a_percent / 100.0, 0.0), 1.0)

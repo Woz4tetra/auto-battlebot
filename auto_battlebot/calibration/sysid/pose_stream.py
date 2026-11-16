@@ -1,21 +1,4 @@
-"""Causal robot pose from the AprilTag stream, for the live sysid monitor.
-
-The offline path (``tag_pose_smoother.smooth_session``) runs a two-pass RTS smoother over the
-whole session. The live monitor only needs two things from the tags, and neither needs the
-future past a short lag:
-
-- one body pose per detection, for the fit residual and the gates. Each frame goes through the
-  offline ``build_candidates`` and ``select_ippe``; ``select_ippe`` looks ahead up to its
-  ``neighbour_window_s`` on close calls, so a detection is final once it is that much older
-  than the newest frame.
-- the state each fit window starts from. ``state_at`` fits a weighted quadratic in time to the
-  poses within ``STATE_HALF_SPAN_S`` either side of the start, which is a fixed-lag smoother of
-  that one instant. Velocity is its slope projected on the heading; yaw rate comes from the
-  gyro, which the caller passes in.
-
-Frames follow ``tag_pose_smoother``: the output frame is the recorded field frame turned so z
-points up, the body frame is FLU at the axle midpoint, and yaw is counter-clockwise.
-"""
+"""Causal robot pose from the AprilTag stream, for the live sysid monitor."""
 
 from __future__ import annotations
 

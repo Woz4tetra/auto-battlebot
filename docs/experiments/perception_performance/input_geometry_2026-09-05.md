@@ -653,6 +653,19 @@ That sequence is the methodological point of this report. D against A was a real
 governs the decision is against the arm you would otherwise ship, not against the arm you
 happen to be running today.
 
+## Stretch preprocessing
+
+Notes on `perception/trt_yolo.py`.
+
+### `perception/trt_yolo.py`
+
+#### `stretch`
+
+`stretch` resizes to the target ignoring aspect ratio and returns (resized, scale_x, scale_y). The
+alternative is letterboxing. Squeezing 16:9 into a square costs 0.5x horizontally but only
+0.89x vertically, so the robot lands 1.33x larger than letterboxing at the same tensor size,
+and no pixels go to padding. Detections come back through two scales instead of one.
+
 ## What is still missing
 
 - **Jetson latency: measured 2026-09-06, gap closed.** B cuts

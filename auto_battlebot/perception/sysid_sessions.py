@@ -101,7 +101,6 @@ def _measurements(name: str) -> pd.DataFrame:
     cand = cand.drop_duplicates("stamp_ns", keep="first")
     cand["stamp_ns"] = cand["stamp_ns"].to_numpy(np.int64) + int(round(cal["offset_ms"] * 1e6))
 
-    # The video runs at about 60 fps; perception runs at 30 Hz. Keep the first frame per 30 Hz slot.
     slot = ((cand["stamp_ns"] - cand["stamp_ns"].iloc[0]) * PERCEPTION_HZ // 1_000_000_000).astype(
         np.int64
     )

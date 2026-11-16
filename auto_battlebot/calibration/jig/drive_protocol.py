@@ -1,32 +1,8 @@
-"""Trainer link to the OpenTX/EdgeTX radio: writes commands, reads back what was sent.
-
-Mirrors the trainer protocol in `src/transmitter/opentx_transmitter.cpp`. The radio is a USB
-CDC device (VID 0x0483, PID 0x5740) primed once with `telemetry on` + `channels on`, then
-driven with `trainer <channel> <value>` at 50 Hz, value in [-500, 500].
-
-**One port, both directions.** The same serial port that accepts `trainer` writes also
-streams the radio's mixer output back once primed. Reading that back matters because
-trainer mode *adds* to the human driver's sticks: the mixer output is the command the robot
-actually received, not the one this process asked for. Two consequences:
-
-- A hand-driven run has a real command log. Without the readback it has a column of zeros
-  and is unusable for fitting.
-- A scripted run gets a contamination check. If the driver's stick is not centered, measured
-  diverges from commanded and the run can be flagged instead of quietly poisoning the fit.
-
-Commands are sent RAW. The deployed transmitter applies `DifferentialDriveProcessor`'s
-lifted and zero deadzones; this does not, because the physical deadzone is exactly what is
-being measured and pre-compensating it here would measure the compensation.
-
-SAFETY
-- The robot moves fast. Run in a clear, bounded space with guard plates on.
-- Keep the human driver's sticks centered: in trainer mode the radio ADDS stick input.
-- Zero the channels and disarm on every exit path: normal return, Ctrl-C, exception, and a
-  hard wall-clock timeout. `Armed()` is a context manager that does this.
-"""
+"""Trainer link to the OpenTX/EdgeTX radio: writes commands, reads back what was sent."""
 
 from __future__ import annotations
 
+import math
 import struct
 import threading
 import time
@@ -43,13 +19,9 @@ OPENTX_VID = 0x0483
 OPENTX_PID = 0x5740
 TRANSMITTER_USB_IDS = frozenset({(OPENTX_VID, OPENTX_PID)})
 
-# The two trainer channels this writes. What they MEAN depends on the mix: under "direct"
-# they are linear and angular, under "tank" they are left and right wheel.
-CHANNEL_A = 0
-CHANNEL_B = 1
+TRAINER_CHANNEL_0 = 0
+TRAINER_CHANNEL_1 = 1
 
-# Radio channel-stream framing: sync, phase byte (0 = channels 1..16, 1 = 17..32), length
-# byte, 16 little-endian int16, then a checksum equal to phase ^ length ^ every data byte.
 _SYNC = bytes([0xA3, 0xA4, 0xA5])
 _CHANNELS_PER_PACKET = 16
 _NUM_CHANNELS = 32
@@ -145,29 +117,25 @@ class MixConfig:
 class CommandSample:
     """One tick: what was asked for, what was sent, and what the radio said it sent."""
 
-    t: float  # time.monotonic()
+    t_monotonic_s: float
     linear: float
     angular: float
     trim: float
     channel_a: int
     channel_b: int
-    # As reported by the radio. The channels are the measurement; linear and angular are
-    # derived from them through the mix, and are kept only for convenience.
     meas_ch_a: float = float("nan")
     meas_ch_b: float = float("nan")
     meas_linear: float = float("nan")
     meas_angular: float = float("nan")
     # Weapon throttle and the weapon arm switch, CH3 and CH5 on the radio. Neither drives
     # the plant, and both explain a run: the arm says whether the bot was live, and the
-    # throttle says whether the disc was spun up when the gyro saw something it should not.
-    meas_weapon: float = float("nan")
-    meas_arm: float = float("nan")
+    meas_weapon_throttle_ch3: float = float("nan")
+    meas_weapon_arm_ch5: float = float("nan")
     label: str = ""
 
 
 class _ChannelDecoder:
-    """Frames the radio's channel stream. Silent on corruption: a noisy link should not
-    spam the console during a run."""
+    """Frames the radio's channel stream."""
 
     def __init__(self) -> None:
         self._buf = bytearray()
@@ -189,7 +157,7 @@ class _ChannelDecoder:
             phase = self._buf[len(_SYNC)]
             length = self._buf[len(_SYNC) + 1]
             if length != _PACKET_LEN:
-                del self._buf[:1]  # bad framing; resync on the next sync word
+                del self._buf[:1]
                 continue
             start = len(_SYNC) + 2
             payload = bytes(self._buf[start : start + _PACKET_LEN])
@@ -213,12 +181,7 @@ class _ChannelDecoder:
 
 @dataclass(frozen=True)
 class Measured:
-    """One tick of the named channels, as the radio reported them.
-
-    A record rather than a tuple: this is unpacked at three call sites and the drive pair
-    reads the same as any other pair of floats, so a widening tuple is a silent reordering
-    waiting to happen.
-    """
+    """One tick of the named channels, as the radio reported them."""
 
     ch_a: float = float("nan")
     ch_b: float = float("nan")
@@ -230,7 +193,7 @@ class TrainerLink:
     """Serial link to the radio. Writes trainer commands, decodes the channel stream."""
 
     def __init__(self, port: str, mix: MixConfig | None = None, *, read_back: bool = True):
-        import serial  # lazy so --dry-run needs no pyserial
+        import serial
 
         self.mix = mix or MixConfig()
         self._serial = serial.Serial(port, baudrate=115200, timeout=0.1)
@@ -238,13 +201,16 @@ class TrainerLink:
         self._packets = 0
         self._lock = threading.Lock()
         self._stop = threading.Event()
-        # Re-prime, same as OpenTxTransmitter::initialize().
-        self._serial.write(b"telemetry on\r\n")
-        self._serial.write(b"channels on\r\n")
+        self._prime_radio()
         self._reader: threading.Thread | None = None
         if read_back:
             self._reader = threading.Thread(target=self._run, name="trainer-reader", daemon=True)
             self._reader.start()
+
+    def _prime_radio(self) -> None:
+        """Enable telemetry and the channel stream, as OpenTxTransmitter::initialize() does."""
+        self._serial.write(b"telemetry on\r\n")
+        self._serial.write(b"channels on\r\n")
 
     def _run(self) -> None:
         decoder = _ChannelDecoder()
@@ -281,13 +247,7 @@ class TrainerLink:
         return [v / scale for v in raw]
 
     def measured(self) -> Measured:
-        """Latest named channels from the radio, normalized.
-
-        Deliberately the raw channels rather than body units. The radio measures channels;
-        linear and angular are an interpretation that depends on the mix and the per-channel
-        signs, and getting those wrong should be fixable offline rather than costing a
-        re-record. `to_body()` applies the interpretation when one is wanted.
-        """
+        """Latest named channels from the radio, normalized."""
         with self._lock:
             if self._packets == 0:
                 return Measured()
@@ -302,20 +262,20 @@ class TrainerLink:
 
     def to_body(self, a: float, b: float) -> tuple[float, float]:
         """Two drive channels to (linear, angular), under the configured mix."""
-        if a != a or b != b:  # NaN in, NaN out
+        if math.isnan(a) or math.isnan(b):
             return float("nan"), float("nan")
         return self.mix.from_channels(a, b)
 
     def send(self, linear: float, angular: float) -> tuple[int, int]:
         a, b = self.mix.to_channels(linear, angular)
-        self._serial.write(f"trainer {CHANNEL_A} {a}\r\n".encode())
-        self._serial.write(f"trainer {CHANNEL_B} {b}\r\n".encode())
+        self._serial.write(f"trainer {TRAINER_CHANNEL_0} {a}\r\n".encode())
+        self._serial.write(f"trainer {TRAINER_CHANNEL_1} {b}\r\n".encode())
         return a, b
 
     def disarm(self) -> None:
         try:
-            self._serial.write(f"trainer {CHANNEL_A} 0\r\n".encode())
-            self._serial.write(f"trainer {CHANNEL_B} 0\r\n".encode())
+            self._serial.write(f"trainer {TRAINER_CHANNEL_0} 0\r\n".encode())
+            self._serial.write(f"trainer {TRAINER_CHANNEL_1} 0\r\n".encode())
             self._serial.flush()
         except Exception:
             pass
@@ -385,7 +345,7 @@ class PlayResult:
             if settle > 0:
                 settle -= 1
                 continue
-            if c.meas_linear != c.meas_linear:  # NaN: no readback yet
+            if math.isnan(c.meas_linear):
                 continue
             diffs.append(max(abs(c.meas_linear - target[0]), abs(c.meas_angular - target[1])))
         if not diffs:
@@ -461,7 +421,7 @@ def play(
             m = link.measured()
             meas_lin, meas_ang = link.to_body(m.ch_a, m.ch_b)
             sample = CommandSample(
-                t=now,
+                t_monotonic_s=now,
                 linear=linear,
                 angular=angular,
                 trim=trim,
@@ -471,8 +431,8 @@ def play(
                 meas_ch_b=m.ch_b,
                 meas_linear=meas_lin,
                 meas_angular=meas_ang,
-                meas_weapon=m.weapon,
-                meas_arm=m.arm,
+                meas_weapon_throttle_ch3=m.weapon,
+                meas_weapon_arm_ch5=m.arm,
                 label=_label_at(program, elapsed),
             )
             result.commands.append(sample)
@@ -514,13 +474,7 @@ class Armed:
 def stream_measured(
     link: TrainerLink, seconds: float, rate_hz: float = 50.0
 ) -> Iterator[CommandSample]:
-    """Ticks from the radio alone, nothing commanded.
-
-    This is how a hand-driven run gets a command log: the tool sends nothing, the operator
-    drives, and the radio reports what it sent. `linear` and `angular` stay zero because
-    nothing was asked for; the measured channels are the whole record of the run, which is
-    why the weapon pair rides along with the drive pair here.
-    """
+    """Ticks from the radio alone, nothing commanded."""
     period = 1.0 / rate_hz
     t0 = time.monotonic()
     while True:
@@ -530,7 +484,7 @@ def stream_measured(
         m = link.measured()
         lin, ang = link.to_body(m.ch_a, m.ch_b)
         yield CommandSample(
-            t=now,
+            t_monotonic_s=now,
             linear=0.0,
             angular=0.0,
             trim=0.0,
@@ -540,7 +494,7 @@ def stream_measured(
             meas_ch_b=m.ch_b,
             meas_linear=lin,
             meas_angular=ang,
-            meas_weapon=m.weapon,
-            meas_arm=m.arm,
+            meas_weapon_throttle_ch3=m.weapon,
+            meas_weapon_arm_ch5=m.arm,
         )
         time.sleep(max(0.0, period - (time.monotonic() - now)))

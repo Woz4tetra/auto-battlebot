@@ -1,26 +1,4 @@
-"""What the driver did with the sticks: holds, edges, creeps, arcs, spins.
-
-Two consumers:
-
-- ``ManeuverSegmenter`` labels the stick stream as it arrives for the live coverage monitor. It
-  works on the uniform 10 ms grid the monitor builds, with sticks as fractions, throttle forward
-  positive and steer left positive.
-- ``menu_from_grid`` is the offline session summary that
-  ``playground/calibration/check_sysid_recordings.py`` prints against its ``MENU_TARGETS``. It
-  moved here unchanged when the live monitor became its second caller.
-
-Live definitions, ported from the prototype page:
-
-- Plateau: a maximal run where a channel stays within ``PLATEAU_TOL`` of every other sample in
-  it, the jitter of a held thumb.
-- Hold: a plateau of ``HOLD_S`` or longer away from zero. A throttle hold with the steer mean
-  under ``ARC_STEER`` is straight, with more it is an arc; a steer hold with the throttle mean
-  under ``ARC_STEER`` is a spin.
-- Edge: the move between two long plateaus (rest counts at any length) that differ by at least
-  ``EDGE_MIN``. Clean when it took ``SNAP_S`` or less. Only clean edges count toward delay and
-  lag; a slower one is a slew.
-- Creep: a monotonic climb out of zero past ``CREEP_PAST`` that took ``CREEP_MIN_S`` or longer.
-"""
+"""What the driver did with the sticks: holds, edges, creeps, arcs, spins."""
 
 from __future__ import annotations
 
@@ -29,10 +7,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
-
-# ---------------------------------------------------------------------------
-# Live segmentation
-# ---------------------------------------------------------------------------
 
 PLATEAU_TOL = 0.06
 HOLD_S = 0.5
@@ -43,14 +17,11 @@ REST = 0.03
 CREEP_PAST = 0.12
 CREEP_FROM = 0.02
 CREEP_MIN_S = 0.8
-HANDS_OFF = 0.03  # steer under this for a whole straight hold reads as hands off
+HANDS_OFF_STEER = 0.03
 
 CHANNELS = ("Throttle", "Steer")
-# Coverage map bins, stick fractions: finer near zero, where the deadzones are.
 BINS = (-1.0, -0.75, -0.5, -0.25, -0.1, -0.05, 0.0, 0.05, 0.1, 0.25, 0.5, 0.75, 1.0)
 AMPS = (0.25, 0.5, 0.75, 1.0)
-# Rows of the transition table. The loop rows are steer edges with the flip switch down, where
-# the firmware yaw loop answers instead of the open-loop drivetrain.
 EDGE_ROWS = (
     "Forward",
     "Reverse",
@@ -63,11 +34,11 @@ EDGE_ROWS = (
 
 @dataclass
 class Plateau:
-    start: int  # grid index, inclusive
-    end: int  # exclusive
+    start: int
+    end: int
     mean: float
-    other_mean: float  # the other channel's mean over the same samples
-    loop_frac: float  # fraction of samples with the yaw loop on
+    other_mean: float
+    yaw_loop_on_frac: float
 
     def seconds(self, dt: float) -> float:
         return (self.end - self.start) * dt
@@ -124,7 +95,7 @@ class _Channel:
         self.other_sum = 0.0
         self.loop_sum = 0.0
         self.last_long: Plateau | None = None
-        self.edge_pending = True  # the open plateau has not yet emitted its edge
+        self.open_plateau_edge_pending = True
 
 
 class ManeuverSegmenter:
@@ -136,7 +107,6 @@ class ManeuverSegmenter:
         self.k = 0
         self.ch = [_Channel(), _Channel()]
         self.history: deque[tuple[float, float]] = deque(maxlen=int(round(6.0 / dt)))
-        # 2-D plateau for the coverage map's "held" rings.
         self._held_start = 0
         self._held_ref = (0.0, 0.0)
         self._held_loop = 0.0
@@ -160,7 +130,7 @@ class ManeuverSegmenter:
                     ch.lo = ch.hi = ch.sum = u[c]
                     ch.other_sum = u[1 - c]
                     ch.loop_sum = float(loop_on)
-                    ch.edge_pending = True
+                    ch.open_plateau_edge_pending = True
                 else:
                     ch.lo, ch.hi = lo, hi
                     ch.sum += u[c]
@@ -172,8 +142,6 @@ class ManeuverSegmenter:
         self.history.append(u)
         self.k = k + 1
         return events
-
-    # -- plateaus, holds, edges ---------------------------------------------------------
 
     def _plateau(self, c: int, end: int) -> Plateau:
         ch = self.ch[c]
@@ -198,9 +166,9 @@ class ManeuverSegmenter:
     def _maybe_edge(self, c: int, end: int) -> list[Event]:
         """Emit the edge into the open plateau once it is long enough to count as the target."""
         ch = self.ch[c]
-        if not ch.edge_pending or ch.last_long is None or end - ch.start < self.hold_n:
+        if not ch.open_plateau_edge_pending or ch.last_long is None or end - ch.start < self.hold_n:
             return []
-        ch.edge_pending = False
+        ch.open_plateau_edge_pending = False
         a, b = ch.last_long, self._plateau(c, end)
         if abs(b.mean - a.mean) < EDGE_MIN:
             return []
@@ -220,7 +188,7 @@ class ManeuverSegmenter:
             what = f"{CHANNELS[c]} {describe(a.mean, c)} to {describe(b.mean, c)}"
         val = b.mean if accel else a.mean
         cell: tuple[int, int] | None = None
-        loop = b.loop_frac > 0.5 if accel else a.loop_frac > 0.5
+        loop = b.yaw_loop_on_frac > 0.5 if accel else a.yaw_loop_on_frac > 0.5
         if abs(val) >= 0.15:
             col = (0 if accel else 4) + amp_index(abs(val))
             if c == 0:
@@ -263,9 +231,9 @@ class ManeuverSegmenter:
         dt = self.dt
         dur = f"{p.seconds(dt):.1f} s"
         om = p.other_mean
-        loop = " with the yaw loop on" if p.loop_frac > 0.5 else ""
+        loop = " with the yaw loop on" if p.yaw_loop_on_frac > 0.5 else ""
         if c == 0 and abs(om) < ARC_STEER:
-            hands_off = p.seconds(dt) >= 1.0 and abs(om) < HANDS_OFF
+            hands_off = p.seconds(dt) >= 1.0 and abs(om) < HANDS_OFF_STEER
             informs = ["forward gain" if p.mean > 0 else "reverse gain"]
             if hands_off:
                 informs.append("drift")
@@ -306,8 +274,6 @@ class ManeuverSegmenter:
             text=text,
             informs=informs,
         )
-
-    # -- 2-D held cells and creeps ------------------------------------------------------
 
     def _held(self, k: int, u: tuple[float, float], loop_on: bool) -> list[Event]:
         ref = self._held_ref
@@ -387,11 +353,7 @@ def edges_of(
     return [e for e in out if e.kind == "edge"]
 
 
-# ---------------------------------------------------------------------------
-# Offline session menu (check_sysid_recordings.py)
-# ---------------------------------------------------------------------------
-
-MOVING = 0.05  # |stick| above this counts as driving
+MOVING_STICK = 0.05
 HOLD_TOL = 0.03
 HOLD_MIN_S = 0.5
 CREEP_MAX = 0.08
@@ -426,9 +388,9 @@ def held_segments(u: np.ndarray, gate: np.ndarray, grid_s: float) -> list[tuple[
 def menu_from_grid(lin: np.ndarray, ang: np.ndarray, grid_s: float) -> dict[str, Any]:
     """Session totals from linear and angular stick fractions on a uniform grid."""
     alin, aang = np.abs(lin), np.abs(ang)
-    straight = (alin > MOVING) & (aang < HOLD_TOL)
-    spin = (aang > MOVING) & (alin < HOLD_TOL)
-    arc = (alin > MOVING) & (aang > MOVING)
+    straight = (alin > MOVING_STICK) & (aang < HOLD_TOL)
+    spin = (aang > MOVING_STICK) & (alin < HOLD_TOL)
+    arc = (alin > MOVING_STICK) & (aang > MOVING_STICK)
 
     holds = held_segments(lin, straight, grid_s)
     levels: dict[str, float] = {}
@@ -443,7 +405,7 @@ def menu_from_grid(lin: np.ndarray, ang: np.ndarray, grid_s: float) -> dict[str,
     punches = int(
         np.sum(
             (alin[rise:] > PUNCH_LEVEL)
-            & (alin[:-rise] < MOVING)
+            & (alin[:-rise] < MOVING_STICK)
             & (alin[rise - 1 : -1] <= PUNCH_LEVEL)
         )
     )
@@ -463,7 +425,7 @@ def menu_from_grid(lin: np.ndarray, ang: np.ndarray, grid_s: float) -> dict[str,
     near_center = float(np.sum((alin > 0.005) & (alin < 0.02)) * grid_s)
 
     return {
-        "driving_s": float(np.sum((alin > MOVING) | (aang > MOVING)) * grid_s),
+        "driving_s": float(np.sum((alin > MOVING_STICK) | (aang > MOVING_STICK)) * grid_s),
         "total_s": len(lin) * grid_s,
         "hold_s_fwd": float(sum((b - a) * grid_s for a, b, v in holds if v > 0)),
         "hold_s_rev": float(sum((b - a) * grid_s for a, b, v in holds if v < 0)),

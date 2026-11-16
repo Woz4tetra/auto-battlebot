@@ -1,18 +1,4 @@
-"""A simulated hand-driven sysid session, written in the recorder's formats.
-
-Stands in for a recorded session until one exists: tests replay it, and
-``playground/calibration/sysid_coverage.py --synthetic`` writes it to an MCAP for the page.
-
-- Robot: ``plant.Plant`` with invented "true" parameters behind the batched firmware mixer, so
-  the flip switch down runs the same yaw loop the firmware does. Wall contact clamps the pose
-  and kills most of the speed.
-- Driver: a simple one that turns toward open floor, then does held steps, arcs, spins, creeps
-  and snaps at amplitudes the 1.52 m box allows, and lets go when a rail comes up.
-- Telemetry: every ``/robot/espnow_telemetry`` schema field at 100 Hz on a robot clock with an
-  offset, plus receive jitter on the host clock and an occasional dropped frame.
-- Tags: ``/apriltag/robot_tags`` at 60 Hz from a fixed camera, one IPPE solution per detection,
-  pose noise of a few millimetres, frames dropped more often the faster the robot spins.
-"""
+"""A simulated hand-driven sysid session, written in the recorder's formats."""
 
 from __future__ import annotations
 
@@ -224,7 +210,6 @@ def simulate_session(
         plant.push_command(t, float(u_lin), float(u_ang))
         loop = mixer.s
         seq += 1
-        # Serial delivery keeps the order; the radio loses an occasional frame.
         late = 0.004 + rng.exponential(0.002) if receive_jitter else 0.0
         receive_ns = max(T0_NS + int(round((t + late) * 1e9)), last_rx + 1000)
         if rng.random() > 0.002:

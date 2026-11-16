@@ -291,6 +291,46 @@ its PBR set), and the albedo builder with them, as
 1331 while the measured calibration is 876.5; a pose fitted through their MCAP
 `camera_info` would be about 50% off in range.
 
+## Calibration prior and texture fill
+
+Notes on `perception/cage_calibration.py` and `perception/texture_fill.py`.
+
+### `perception/cage_calibration.py`
+
+#### `prior_from_position_rpy`
+
+`prior_from_position_rpy` returns T_W<-cam_cv from a true_battlebot `metrics_tool/nhrl_cage_*.toml` camera block.
+
+Those files store `tf_map_from_camera` as position plus roll/pitch/yaw in degrees under
+the 'sxyz' convention, with the map frame equal to W and the camera in OpenCV
+convention. Roll near -150 deg is a camera looking down and across toward +y.
+
+### `perception/texture_fill.py`
+
+Fill the unseen part of a texture warped from one photo, by reflecting what was seen.
+
+A floor or wall texture built from a single fixed camera has holes: the strip hidden behind a
+rail, the wall below the box, anything past the frame edge. A flat mean colour in there reads
+as a painted band from any other viewpoint. Reflecting the seen texture across the edge of
+the hole carries the grain, the stone pattern and the lighting gradient on into it instead.
+
+`mirror_fill` suits a narrow hole beside a large seen area (the floor strip behind a rail).
+A hole larger than what was seen, like a wall seen only in a band above a box, comes out
+kaleidoscopic from it: reflections of reflections fan out from every concave corner. There
+`largest_seen_rectangle` and `offset_tile` cover the texture with shifted, overlapping copies
+of one clean seen rectangle instead. Flipped copies would match at every seam but stack into
+mirror axes the eye picks out at once; shifted ones with blended overlaps do not.
+
+Used by `training/synthetic/build_cage_floor_texture.py` (floor albedo) and
+`playground/basement_scene/build_wall_textures.py` (wall albedo).
+
+#### `flatten_luminance`
+
+Divide out the low-frequency brightness of a BGR image, keeping its mean.
+
+A seen patch carries the photo's lighting gradient; copies of it laid side by side would
+show that gradient as a step at every seam.
+
 ## Next steps
 
 1. Split the albedo into base mat and per-event decals so June's DAZN / Pro Tour layout

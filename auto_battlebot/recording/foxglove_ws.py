@@ -1,20 +1,4 @@
-"""Subscribe-only client for the Foxglove WebSocket protocol, as ``viz_relay`` serves it.
-
-Yields the same ``(topic, log_time_ns, MessageBytes)`` tuples as ``mcap_io.iter_messages``, so
-one consumer serves a live relay and a recording. The relay advertises channels with their
-schemas; protobuf schemas are registered with ``mcap_io`` so ``decode_tf_message`` and friends
-work on live payloads unchanged.
-
-There is no publish path: the client never advertises a client channel and never sends a
-message frame. It sends ``subscribe`` and ``unsubscribe`` and nothing else.
-
-Wire format (foxglove.websocket.v1, which the SDK's ``foxglove.sdk.v1`` shares):
-
-- server text frames: JSON ``{"op": "serverInfo" | "advertise" | "unadvertise" | ...}``
-- client text frames: ``{"op": "subscribe", "subscriptions": [{"id", "channelId"}]}``
-- server binary frames, opcode 0x01: ``u8 opcode, u32 subscription id, u64 log time ns``
-  (little endian), then the payload.
-"""
+"""Subscribe-only client for the Foxglove WebSocket protocol, as ``viz_relay`` serves it."""
 
 from __future__ import annotations
 
@@ -48,11 +32,7 @@ class _Channel:
 
 
 class FoxgloveSubscriber:
-    """Connects, subscribes to ``topics`` as they are advertised, and yields their messages.
-
-    ``messages`` reconnects forever with a backoff; stop it by breaking out of the loop or
-    calling ``close``.
-    """
+    """Connect, subscribe to topics as advertised, and yield their messages."""
 
     def __init__(self, url: str, topics: list[str], open_timeout_s: float = 3.0) -> None:
         self.url = url

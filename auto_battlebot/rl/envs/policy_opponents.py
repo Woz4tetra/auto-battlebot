@@ -1,16 +1,4 @@
-"""Opponents driven by trained navigation policies, for the RL environment, batched in torch.
-
-A driver is a navigation policy on a robot: Mr Stabs Mk2 running a trained Mk2 bundle, or a copy
-of the robot in training (self-play, a frozen snapshot the trainer refreshes). Each policy step it
-builds the observation (`obs_spec.build_v1`) from the opponent's side of the arena, from true
-state: it sees us exactly, the way `simulation/policy_opponent.py` plays a mirror match. Its
-action goes through `DifferentialDriveProcessor`'s saturation, the robot's command delay and its
-grey-box plant (`torch_plant`), and comes out as the opponent mocap's velocity. The scripted
-opponents' wall and contact rules (`Opponents.command`) still apply.
-
-Driver 0 is the scripted opponents (`opponents.py`); drivers 1 and up are `PolicyDriver`s in the
-order given.
-"""
+"""Opponents driven by trained navigation policies, for the RL environment, batched in torch."""
 
 from __future__ import annotations
 
@@ -94,8 +82,7 @@ class PolicyOpponents:
             net.load_state_dict(state)
 
     def draw(self, mask: torch.Tensor, probability: float, gen: torch.Generator) -> None:
-        """Pick each reset world's driver: scripted, or with `probability` one of the policies
-        that has a network, uniformly."""
+        """Pick each reset world's driver: scripted or one of the networked policies."""
         ready = [k + 1 for k, net in enumerate(self.nets) if net is not None]
         if not ready or probability <= 0.0:
             self.driver = torch.where(mask, torch.zeros_like(self.driver), self.driver)
@@ -145,7 +132,6 @@ class PolicyOpponents:
         self.hist_speed = torch.cat([inp.our_speed[:, None], self.hist_speed[:, :-1]], 1)
         self.hist_rate = torch.cat([inp.our_yaw_rate[:, None], self.hist_rate[:, :-1]], 1)
 
-        # Command delay at the policy step: ring slot 0 is this step's command.
         self.ring = torch.cat([saturate(action)[:, None], self.ring[:, :-1]], 1)
         lin = torch.zeros(self.w, device=self.device, dtype=self.dtype)
         ang = torch.zeros_like(lin)

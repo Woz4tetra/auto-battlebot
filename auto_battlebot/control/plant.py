@@ -1,25 +1,4 @@
-"""Grey-box drivetrain plant model: command in, pose out.
-
-One implementation, used by the plant fit, by the process-noise fit, and (mirrored exactly) by
-the C++ filter and the kinematic sim. Every term is a physical effect with a parameter that can
-be defended, and each is separately excitable by one phase of the jig drive protocol:
-
-    1. Static input map   deadzone and per-sign gain           (E7, E10 deadzone; E8, E11 gain)
-    2. Transport delay    command issue to wheel response      (every command edge)
-    3. Actuator lag       first-order, accel and decel apart   (E8, E9, E11)
-    4. Cross-coupling     steer-brake and angular droop        (E13 grid)
-    5. Kinematics         exact arc integration, 2 ms substeps
-
-Structure is switchable through `ModelStructure` so the model ladder in the plan (M0 static map,
-M1 plus delay, M2 plus symmetric lag, M3 plus asymmetry, M4 plus coupling) is the same code path
-with terms turned off, not five separate models that could disagree for uninteresting reasons.
-
-The prediction the Kalman filter actually depends on is multi-step, not one-step, so this module
-also owns the windowed open-loop prediction used to score it (`predict_windows`). One-step error
-can be faked by any model with a delay term; 500 ms of open-loop coast cannot.
-
-See `docs/experiments/kalman_filter/kalman_filter_plan.md` part 1.
-"""
+"""Grey-box drivetrain plant model: command in, pose out."""
 
 from __future__ import annotations
 
@@ -31,12 +10,8 @@ import numpy as np
 
 from auto_battlebot.compat import tomllib
 
-# Substep for the internal integration. At the calibrated 61.5 rad/s top yaw rate this is
-# 0.12 rad of rotation per substep, where holding v and w constant costs well under a millimeter.
 SUBSTEP_S = 0.002
 
-# Below this yaw rate the arc integration divides by ~0, so it falls back to the straight-line
-# form. 1e-6 rad/s over a 500 ms horizon is 5e-7 rad of heading, far below anything measurable.
 STRAIGHT_W = 1e-6
 
 
@@ -52,20 +27,9 @@ def toml_float(value: float) -> str:
     return text
 
 
-# ---------------------------------------------------------------------------
-# Parameters
-# ---------------------------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class PlantParams:
-    """The parameter vector, with stage 2 values as priors.
-
-    Priors come from the 2026-07-03 AprilTag calibration (run `175805`,
-    `docs/experiments/control_improvement/stage2_mr_stabs_mk2_calibration.md`). Only the
-    actuation lag is trusted; the rest are starting points for the jig fit. Deadzones are floored
-    at 0.04 there because that was the smallest command tested, not because motion started there.
-    """
+    """The parameter vector, with stage 2 values as priors."""
 
     dz_lin_fwd: float = 0.04
     dz_lin_rev: float = 0.04
@@ -73,23 +37,16 @@ class PlantParams:
     dz_ang_r: float = 0.04
     k_fwd: float = 5.60  # m/s at full command
     k_rev: float = 4.84
-    k_ang: float = 61.5  # rad/s, camera-derived and possibly inflated by yaw keypoint flips
+    k_ang: float = 61.5
     tau_lin_a: float = 0.058
     tau_lin_d: float = 0.078
     tau_ang_a: float = 0.066
-    tau_ang_d: float = 0.078  # unmeasured in stage 2; seeded from the linear decel constant
+    tau_ang_d: float = 0.078
     delay_s: float = 0.059
-    c_sb: float = 0.0  # steer-brake: fraction of forward speed lost per unit |angular command|
-    c_ad: float = 0.0  # angular droop: fraction of yaw rate lost per unit |linear command|
-    # Straight-line drift. The robot arcs under a pure forward command because the guard
-    # plates drag asymmetrically on the floor. Two candidate mechanisms with different
-    # shapes, both zero by default so an unfitted parameter set behaves as before:
-    #   c_drift      left/right gain mismatch, so yaw scales with the linear command
-    #   c_drift_bias asymmetric drag torque, so yaw is constant while sliding
-    # Both flip sign in reverse. Which one is real is a model-ladder question (M5, M6),
-    # not something to assume: fit both and let the holdout choose.
-    c_drift: float = 0.0  # rad/s per unit effective linear command
-    c_drift_bias: float = 0.0  # rad/s while moving, signed by the linear command
+    c_sb: float = 0.0
+    c_ad: float = 0.0
+    c_drift: float = 0.0
+    c_drift_bias: float = 0.0
 
     def replace(self, **kwargs: float) -> PlantParams:
         return replace(self, **kwargs)
@@ -121,8 +78,6 @@ class PlantParams:
         return "\n".join(lines) + "\n"
 
 
-# Sensible bounds for the joint fit. They are wide enough not to shape the answer and tight
-# enough that a diverging fit fails visibly instead of wandering into nonsense.
 PARAM_BOUNDS: dict[str, tuple[float, float]] = {
     "dz_lin_fwd": (0.0, 0.25),
     "dz_lin_rev": (0.0, 0.25),
@@ -211,20 +166,8 @@ MODEL_LADDER: tuple[ModelStructure, ...] = (
 FULL_MODEL = MODEL_LADDER[-1]
 
 
-# ---------------------------------------------------------------------------
-# Static input map and steady state
-# ---------------------------------------------------------------------------
-
-
 def effective_command(u: np.ndarray, dz_pos: float, dz_neg: float) -> np.ndarray:
-    """Deadzone removal and rescale, per sign.
-
-        u_eff = 0                                  if |u| <= dz
-        u_eff = sign(u) * (|u| - dz) / (1 - dz)    otherwise
-
-    The rescale keeps full command mapping to full effect, so the gain stays the max speed rather
-    than becoming max speed divided by (1 - dz).
-    """
+    """Deadzone removal and rescale, per sign."""
     u = np.asarray(u, dtype=float)
     dz = np.where(u >= 0.0, dz_pos, dz_neg)
     dz = np.clip(dz, 0.0, 0.95)
@@ -234,11 +177,7 @@ def effective_command(u: np.ndarray, dz_pos: float, dz_neg: float) -> np.ndarray
 
 
 def steady_state(u_lin: np.ndarray, u_ang: np.ndarray, p: PlantParams) -> tuple[Any, Any]:
-    """Target body speed and yaw rate for a held command, coupling included.
-
-    Coupling is multiplicative on the target, not on the achieved speed: turning costs a fraction
-    of the forward command's authority, it does not brake a robot that is already coasting.
-    """
+    """Target body speed and yaw rate for a held command, coupling included."""
     lin_eff = effective_command(u_lin, p.dz_lin_fwd, p.dz_lin_rev)
     ang_eff = effective_command(u_ang, p.dz_ang_l, p.dz_ang_r)
     v_target = np.where(lin_eff >= 0.0, p.k_fwd, p.k_rev) * lin_eff
@@ -247,9 +186,6 @@ def steady_state(u_lin: np.ndarray, u_ang: np.ndarray, p: PlantParams) -> tuple[
         v_target = v_target * np.clip(1.0 - p.c_sb * np.abs(ang_eff), 0.0, None)
     if p.c_ad:
         w_target = w_target * np.clip(1.0 - p.c_ad * np.abs(lin_eff), 0.0, None)
-    # Drift is additive, not multiplicative: it does not scale the commanded yaw, it adds
-    # yaw the driver never asked for. That is also what separates it from c_ad, which
-    # flips with the turn direction while drift does not.
     if p.c_drift:
         w_target = w_target + p.c_drift * lin_eff
     if p.c_drift_bias:
@@ -261,11 +197,6 @@ def _lag_alpha(dt: float, tau: Any) -> Any:
     """Exact first-order discretization over dt. tau = 0 means no lag (the M0/M1 rungs)."""
     tau = np.asarray(tau, dtype=float)
     return np.where(tau > 1e-9, np.exp(-dt / np.maximum(tau, 1e-9)), 0.0)
-
-
-# ---------------------------------------------------------------------------
-# Simulation
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -324,9 +255,6 @@ def integrate_step(
     dx = np.where(turning, radius * (np.sin(theta_next) - np.sin(theta)), v * dt * np.cos(theta))
     dy = np.where(turning, -radius * (np.cos(theta_next) - np.cos(theta)), v * dt * np.sin(theta))
 
-    # Accel or decel is decided per channel by whether the target is further from zero than the
-    # current speed. Braking into a reversal uses the decel constant until the sign flips, which
-    # is what the drivetrain does: friction first, then torque.
     tau_lin = np.where(np.abs(v_target) > np.abs(v), p.tau_lin_a, p.tau_lin_d)
     tau_ang = np.where(np.abs(w_target) > np.abs(w), p.tau_ang_a, p.tau_ang_d)
     a_lin = _lag_alpha(dt, tau_lin)
@@ -350,16 +278,7 @@ def simulate(
     structure: ModelStructure = FULL_MODEL,
     substep_s: float = SUBSTEP_S,
 ) -> tuple[PlantState, dict[str, np.ndarray]]:
-    """Run the plant over a command timeline. Vectorized over leading dimensions.
-
-    `u_lin` and `u_ang` are shaped (..., N) and already delayed (see `delayed_commands`), so this
-    function has no notion of transport delay. Keeping the delay in the command sampling rather
-    than in a ring buffer is what makes a fractional delay exact and the batch case cheap: a pure
-    delay is a shift of the command timeline and nothing more.
-
-    Returns the final state and the per-sample trajectory, so the same call serves both the
-    windowed error (final state only) and plotting (trajectory).
-    """
+    """Run the plant over a command timeline."""
     p = structure.apply(p)
     u_lin = np.asarray(u_lin, dtype=float)
     u_ang = np.asarray(u_ang, dtype=float)
@@ -373,8 +292,6 @@ def simulate(
         state = state.copy()
 
     if not structure.use_lag:
-        # No actuator dynamics: velocity equals its target the instant the delayed command
-        # arrives. Substepping is then pointless, so it is skipped.
         substeps = 1
         sub_dt = dt
     else:
@@ -476,11 +393,6 @@ class Plant:
         return self.state
 
 
-# ---------------------------------------------------------------------------
-# Command sampling and delay
-# ---------------------------------------------------------------------------
-
-
 def delayed_commands(
     t: np.ndarray,
     cmd_lin: np.ndarray,
@@ -488,13 +400,7 @@ def delayed_commands(
     delay_s: float,
     dt: float,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Shift a uniformly sampled command timeline back by `delay_s`.
-
-    The shift is fractional and interpolated linearly between samples. At the fit grid rate the
-    command is already a staircase sampled finely, so interpolating between two samples of it is
-    a sub-grid-step approximation to the true edge time, which is what makes the delay profile
-    smooth enough to search on a 2 ms grid.
-    """
+    """Shift a uniformly sampled command timeline back by `delay_s`."""
     if delay_s <= 0.0:
         return cmd_lin, cmd_ang
     shift = delay_s / dt
@@ -512,19 +418,9 @@ def delayed_commands(
     return out_lin, out_ang
 
 
-# ---------------------------------------------------------------------------
-# Windowed open-loop prediction
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class WindowSet:
-    """Open-loop windows cut out of one run.
-
-    Each window reinitializes the model from ground truth at its start and runs open loop to each
-    horizon. That is exactly what the filter does between camera corrections, so it is what the
-    fit optimizes and what the noise model characterizes.
-    """
+    """Open-loop windows cut out of one run."""
 
     starts: np.ndarray  # sample index of each window start
     horizons: np.ndarray  # seconds, snapped to the grid (steps * dt), not as requested
@@ -544,12 +440,7 @@ class WindowSet:
         return len(self.starts)
 
     def subsample(self, limit: int) -> WindowSet:
-        """Thin the window set to at most `limit` windows, evenly across the run.
-
-        Windows overlap heavily at a 50 ms stride, so thinning costs far less information than
-        the count suggests, and it is the knob that keeps a delay profile search over 60 grid
-        points to minutes instead of an hour.
-        """
+        """Thin the window set to at most `limit` windows, evenly across the run."""
         if limit <= 0 or self.count() <= limit:
             return self
         pick = np.linspace(0, self.count() - 1, limit).astype(int)
@@ -666,12 +557,7 @@ def make_windows(
 
 @dataclass
 class WindowErrors:
-    """Open-loop error at each horizon, decomposed in the body frame at the window start.
-
-    The decomposition matters because the error sources differ: along-track error comes from
-    speed and delay errors, cross-track error comes mostly from heading error and grows faster.
-    A Euclidean position error hides which of the two is broken.
-    """
+    """Open-loop error at each horizon, decomposed in the body frame at the window start."""
 
     along: np.ndarray  # (W, H) meters
     cross: np.ndarray  # (W, H) meters
@@ -715,11 +601,7 @@ def predict_windows(
     structure: ModelStructure = FULL_MODEL,
     substep_s: float = SUBSTEP_S,
 ) -> WindowErrors:
-    """Run every window open loop and return the body-frame error at each horizon.
-
-    All windows step together as one batched simulation, so cost scales with the longest horizon
-    rather than with the number of windows times their length.
-    """
+    """Run every window open loop and return body-frame error at each horizon."""
     final, traj = simulate(
         windows.u_lin,
         windows.u_ang,

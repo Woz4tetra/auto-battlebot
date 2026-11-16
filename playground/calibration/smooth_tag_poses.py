@@ -319,8 +319,8 @@ def write_plots(out_dir: Path, result: SessionSmoothing) -> list[str]:
     grid = result.grid
 
     # Raw vs smoothed on the longest still segment the noise model was calibrated on.
-    if result.still_segments:
-        i0, i1 = max(result.still_segments, key=lambda seg: seg[1] - seg[0])
+    if result.noise_calibration_segments:
+        i0, i1 = max(result.noise_calibration_segments, key=lambda seg: seg[1] - seg[0])
         t0 = int(meas["stamp_ns"].iloc[i0])
         t1 = int(meas["stamp_ns"].iloc[i1])
         g = grid[(grid["stamp_ns"] >= t0) & (grid["stamp_ns"] <= t1)]

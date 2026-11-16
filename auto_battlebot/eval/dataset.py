@@ -1,14 +1,4 @@
-"""Ground-truth datasets: label taxonomy, frame records, and loading from disk.
-
-The GT argument to the scorer is either a single dataset dir (data.yaml + images/ +
-labels/) or a root containing such subdatasets. If a validation_state.json is present,
-only frames it marks `pass` are loaded; failing that, an edit_labels.py .edit_state.json
-is used the same way.
-
-Frames are identified by FrameKey, which pairs the subdataset with the frame stamp. The
-stamp alone is not unique across subdatasets: a set sampled from video restarts at 0 in
-every recording, so keying by stamp silently collapsed same-numbered frames.
-"""
+"""Ground-truth datasets: label taxonomy, frame records, loading from disk."""
 
 from __future__ import annotations
 
@@ -25,18 +15,7 @@ AGNOSTIC_LABEL = "robot"
 
 
 class FrameKey(NamedTuple):
-    """Which frame this is: the subdataset it came from, and its stamp.
-
-    Keying by stamp alone loses frames whenever two subdatasets number a frame the same.
-    That is the normal case for a set built from video, where every recording starts at
-    stamp 0: cage_high_x50_conf044 loaded 571 of its 636 frames, the nine recordings'
-    frame 0 collapsing into one. Sets sampled from SVO recordings carry stamps unique
-    across recordings and were never affected.
-
-    dataset is the subdataset's path relative to the GT root, "." for a single dataset.
-    stamp_ns stays available for the consumers that have to align GT against something
-    else timestamped, such as compare_cpp_python.py against a C++ MCAP.
-    """
+    """Which frame this is: the subdataset it came from, and its stamp."""
 
     dataset: str
     stamp_ns: int
@@ -114,7 +93,6 @@ def reviewed_frames(root: Path) -> set[tuple[str, str]] | None:
     label file present."""
 
     def identity(rel: str) -> tuple[str, str]:
-        # <subdataset>/images/<stem>.png, or images/<stem>.png for a single dataset.
         path = Path(rel)
         return str(path.parent.parent), path.stem
 

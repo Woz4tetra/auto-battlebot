@@ -600,7 +600,7 @@ def test_rts_recovers_trajectory_better_than_raw(
 
 def test_noise_calibration_and_checks(smoothed: tps.SessionSmoothing) -> None:
     assert smoothed.noise.calibrated
-    assert smoothed.noise.still_segments >= 3
+    assert smoothed.noise.noise_calibration_segments >= 3
     floor = smoothed.checks["noise_floor"]
     assert floor["detections"] > 100
     assert 0.0 < floor["sigma_x"] < 0.005

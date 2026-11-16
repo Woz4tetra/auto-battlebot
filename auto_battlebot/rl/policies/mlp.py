@@ -1,9 +1,4 @@
-"""`mlp_gaussian`: an MLP actor with a tanh-squashed Gaussian head and input normalization.
-
-The network is a sequential stack of Dense layers with ELU, which RTNeural runs, and the running
-mean and std are folded into the first Dense layer at export, so the C++ side needs no
-normalization step (plan section 11).
-"""
+"""`mlp_gaussian`: an MLP actor with a tanh-squashed Gaussian head and input normalization."""
 
 from __future__ import annotations
 
@@ -79,7 +74,6 @@ class MlpGaussianPolicy(nn.Module):
         self.spec = spec
         self.norm: RunningNorm = RunningNorm(spec.obs_dim)
         self.actor: nn.Sequential = mlp([spec.obs_dim, *cfg.hidden, spec.action_dim])
-        # Small last layer: the policy starts near zero action instead of saturating the tanh.
         last = self.actor[-1]
         assert isinstance(last, nn.Linear)
         nn.init.uniform_(last.weight, -1e-3, 1e-3)

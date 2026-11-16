@@ -1,9 +1,4 @@
-"""Detection and keypoint metrics over matched GT/prediction frames.
-
-Detection metrics are frame-decomposable (recall, precision, F1, localization recall) so
-the paired bootstrap in `significance.py` can resample them. mAP is dataset-level and
-stays a point estimate. Keypoint metrics are level-independent.
-"""
+"""Detection and keypoint metrics over matched GT/prediction frames."""
 
 from __future__ import annotations
 
@@ -18,9 +13,12 @@ PCK_FRACTION = 0.1
 FRONT_IDX = 0
 BACK_IDX = 1
 HEADING_THRESHOLD_DEG = 10.0
-HEADING_MIN_VECTOR_PX = 1e-6  # skip when front/back coincide; angle is undefined
+HEADING_MIN_VECTOR_PX = 1e-6
 HEADING_ACC_KEY = f"kp_heading_acc@{HEADING_THRESHOLD_DEG:g}deg"
 PCK_KEY = f"kp_pck@{PCK_FRACTION:g}"
+
+
+VISIBILITY_UNLABELED = 0
 
 
 def iou_matrix(a: np.ndarray, b: np.ndarray) -> np.ndarray:
@@ -113,10 +111,7 @@ def match_frame(frame: Frame, taxonomy: Taxonomy, level: str, iou_threshold: flo
 def pr_per_frame(
     frames: list[Frame], taxonomy: Taxonomy, level: str, iou_threshold: float
 ) -> tuple[dict[str, np.ndarray], dict[tuple[str, str], int]]:
-    """Per-frame TP/FP/FN/wrong-class count arrays (length = #frames) plus confusion.
-
-    Keeping the counts per frame lets the bootstrap resample frames and re-sum, rather
-    than recomputing matches on every resample."""
+    """Per-frame TP/FP/FN/wrong-class counts plus confusion."""
     n = len(frames)
     tp = np.zeros(n)
     fp = np.zeros(n)
@@ -144,7 +139,7 @@ def pr_from_counts(counts: dict[str, np.ndarray]) -> dict[str, float]:
     fp = float(counts["fp"].sum())
     fn = float(counts["fn"].sum())
     wrong_class = float(counts["wrong"].sum())
-    localized = tp + wrong_class  # right box regardless of name
+    localized_any_class = tp + wrong_class
     total_gt = tp + wrong_class + fn
     total_pred = tp + wrong_class + fp
     precision = tp / total_pred if total_pred else 0.0
@@ -154,16 +149,13 @@ def pr_from_counts(counts: dict[str, np.ndarray]) -> dict[str, float]:
         "precision": precision,
         "recall": recall,
         "f1": f1,
-        "localization_recall": localized / total_gt if total_gt else 0.0,
-        "wrong_class_rate": wrong_class / localized if localized else 0.0,
+        "localization_recall": localized_any_class / total_gt if total_gt else 0.0,
+        "wrong_class_rate": wrong_class / localized_any_class if localized_any_class else 0.0,
     }
 
 
 def _heading_error_deg(gt_kps: np.ndarray, pred_kps: np.ndarray) -> float | None:
-    """Absolute angle (degrees) between GT and predicted front->back vectors.
-
-    Returns None when the pair can't define a heading: fewer than two keypoints, front
-    or back not visible in GT, or either vector shorter than HEADING_MIN_VECTOR_PX."""
+    """Absolute angle in degrees between GT and predicted front-to-back vectors."""
     if len(gt_kps) <= max(FRONT_IDX, BACK_IDX):
         return None
     if gt_kps[FRONT_IDX, 2] <= 0 or gt_kps[BACK_IDX, 2] <= 0:
@@ -178,11 +170,7 @@ def _heading_error_deg(gt_kps: np.ndarray, pred_kps: np.ndarray) -> float | None
 
 
 def keypoint_per_frame(frames: list[Frame], iou_threshold: float) -> dict[str, np.ndarray]:
-    """Per-frame keypoint sufficient statistics over IoU-matched box pairs.
-
-    Returns count/sum arrays (length = #frames) so the bootstrap can resample frames and
-    re-sum. Pixel error and PCK are per visible keypoint; heading is per matched box.
-    Matching is class-blind, so these are label-level independent."""
+    """Per-frame keypoint sufficient statistics over IoU-matched box pairs."""
     n = len(frames)
     stats = {
         key: np.zeros(n)
@@ -199,7 +187,7 @@ def keypoint_per_frame(frames: list[Frame], iou_threshold: float) -> dict[str, n
             box = frame.gt_boxes[g]
             norm = max(box[2] - box[0], box[3] - box[1])
             for k in range(len(gt_kps)):
-                if gt_kps[k, 2] <= 0:  # visibility 0 = not labeled
+                if gt_kps[k, 2] <= VISIBILITY_UNLABELED:
                     continue
                 err = float(np.hypot(*(gt_kps[k, :2] - pred_kps[k, :2])))
                 stats["err_sum"][fi] += err
@@ -228,10 +216,6 @@ def keypoint_metrics_from_stats(stats: dict[str, np.ndarray]) -> dict[str, float
     if head_cnt > 0:
         metrics["kp_heading_err_deg"] = float(stats["head_err_sum"].sum()) / head_cnt
         metrics[HEADING_ACC_KEY] = float(stats["head_correct"].sum()) / head_cnt
-    # Sample sizes behind the ratios above. On an eval set where only a few classes carry
-    # keypoints these are small enough to decide whether a delta is worth believing, so
-    # they are reported next to the metric rather than left in the stats dict. Excluded
-    # from KEYPOINT_METRICS: they are counts, not scores, and are not bootstrapped.
     metrics["kp_matched_kps"] = err_cnt
     metrics["kp_matched_boxes"] = head_cnt
     return metrics

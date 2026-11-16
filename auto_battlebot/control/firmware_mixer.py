@@ -72,6 +72,38 @@ def motor_to_plant(left_cmd: Any, right_cmd: Any) -> tuple[np.ndarray, np.ndarra
     return (left + right) / 200.0, (right - left) / 200.0
 
 
+def _capturing_mask(
+    active: np.ndarray,
+    turning: np.ndarray,
+    idle: np.ndarray,
+    rate_cmd: np.ndarray,
+    offset: np.ndarray,
+) -> np.ndarray:
+    """A released turn with the rate command at zero is still braking, not holding heading."""
+    mask: np.ndarray = active & ~turning & ~idle & (rate_cmd == 0.0) & (np.abs(offset) > 0.5)
+    return mask
+
+
+def _update_capture(
+    s: LoopState,
+    c: YawConfig,
+    turning: np.ndarray,
+    idle: np.ndarray,
+    rate_dps: np.ndarray,
+    heading_deg: np.ndarray,
+    dt: float,
+) -> None:
+    """Brake a released turn at zero rate until slow or timed out, then hold where it stopped."""
+    releasing = ~turning & s.capturing
+    s.capture_time = np.where(releasing, s.capture_time + dt, s.capture_time)
+    captured = releasing & (
+        (np.abs(rate_dps) < c.capture_rate) | (s.capture_time >= c.capture_timeout)
+    )
+    s.setpoint = np.where(captured | idle, heading_deg, s.setpoint)
+    s.capturing = np.where(turning, True, np.where(captured | idle, False, s.capturing))
+    s.capture_time = np.where(turning, 0.0, s.capture_time)
+
+
 @dataclass
 class LoopState:
     """Per-window YawController state, plus whether the loop is running. All shaped (B,)."""
@@ -111,13 +143,7 @@ class LoopState:
         a_percent: Any,
         config: YawConfig | None = None,
     ) -> LoopState:
-        """Seed the loop from the telemetry sample at a window start.
-
-        The setpoint is carried over as an offset from the recorded heading, so it lands in the
-        simulated heading frame whatever the BNO055's absolute heading is. The integral is what
-        is left of the recorded output once the feedforward and proportional terms come off;
-        the firmware does not report it, but it reports everything else in that sum.
-        """
+        """Seed the loop from the telemetry sample at a window start."""
         c = config or YawConfig()
         active = np.asarray(active, dtype=bool)
         heading0 = np.asarray(heading0_deg, dtype=float)
@@ -133,10 +159,8 @@ class LoopState:
             np.asarray(pid_output, dtype=float) - ff_term - p_term, -c.i_max, c.i_max
         )
         integral = np.where(active, np.nan_to_num(integral), 0.0)
-        # A released turn with the rate command at zero is still braking (capturing): a heading
-        # hold would be commanding k_heading times a nonzero error instead.
         idle = ~turning & (np.abs(np.asarray(a_percent, dtype=float)) < c.idle_throttle)
-        capturing = active & ~turning & ~idle & (rate_cmd == 0.0) & (np.abs(offset) > 0.5)
+        capturing = _capturing_mask(active, turning, idle, rate_cmd, offset)
         return cls(
             active=active,
             setpoint=np.where(active, np.mod(heading0 + offset, 360.0), heading0),
@@ -152,12 +176,7 @@ class LoopState:
 
 
 class BatchedMixer:
-    """`mix_motor_outputs` plus `YawController`, stepped once per BNO055 sample.
-
-    The firmware runs the yaw loop only when a fresh IMU sample lands (every 10 ms), and the
-    steer output it computes holds until the next one. Stepping the whole mixer at that period
-    keeps the loop exact and costs at most one control loop of stick latency in passthrough.
-    """
+    """`mix_motor_outputs` plus `YawController`, stepped once per BNO055 sample."""
 
     def __init__(self, state: LoopState, config: YawConfig | None = None) -> None:
         self.c = config or YawConfig()
@@ -178,7 +197,6 @@ class BatchedMixer:
         b = np.asarray(b_percent, dtype=float)
         auto = np.asarray(auto_steer, dtype=bool)
 
-        # Engaging: hold the heading the robot has now.
         engage = auto & ~s.active
         s.setpoint = np.where(engage, heading_deg, s.setpoint)
         for name in ("capture_time", "integral", "output", "rate_command"):
@@ -189,15 +207,7 @@ class BatchedMixer:
         turning = np.abs(b) > c.turn_threshold
         idle = ~turning & (np.abs(a) < c.idle_throttle)
 
-        # Released turn: brake at zero rate until slow or timed out, then hold where it stopped.
-        releasing = ~turning & s.capturing
-        s.capture_time = np.where(releasing, s.capture_time + dt, s.capture_time)
-        captured = releasing & (
-            (np.abs(rate_dps) < c.capture_rate) | (s.capture_time >= c.capture_timeout)
-        )
-        s.setpoint = np.where(captured | idle, heading_deg, s.setpoint)
-        s.capturing = np.where(turning, True, np.where(captured | idle, False, s.capturing))
-        s.capture_time = np.where(turning, 0.0, s.capture_time)
+        _update_capture(s, c, turning, idle, rate_dps, heading_deg, dt)
 
         hold = np.clip(
             c.k_heading * wrap_degrees(s.setpoint - heading_deg), -c.hold_rate_max, c.hold_rate_max

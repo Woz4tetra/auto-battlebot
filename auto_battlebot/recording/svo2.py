@@ -1,22 +1,4 @@
-"""Read ZED ``.svo2`` recordings without the ZED SDK.
-
-A ``.svo2`` file is an MCAP container written by ``libmcap stereolabs``:
-
-  * ``<camera>/side_by_side`` (``zed_sdk_encoded``): one message per frame, an
-    8-byte length prefix followed by an Annex-B H.264 access unit holding the
-    ``[left | right]`` stereo pair. The message ``log_time`` is the camera
-    frame timestamp in epoch nanoseconds.
-  * ``<camera>/sensors`` and ``<camera>/integrated_sensors`` (JSON): IMU and
-    friends, carried as an opaque base64 blob that only the SDK decodes.
-  * ``svo_header`` / ``svo_footer`` (JSON): calibration, and an index listing
-    every message timestamp per topic. Both carry a ``log_time`` unrelated to
-    the recording's own timeline, so never take the time range from the MCAP
-    summary statistics.
-
-Depth is not available through this path: the SDK computes it on the device
-and it is not stored in the recording. Use ``training/svo_export.py`` (pyzed)
-if you need the depth channel.
-"""
+"""Read ZED ``.svo2`` recordings without the ZED SDK."""
 
 from __future__ import annotations
 
@@ -34,8 +16,6 @@ from auto_battlebot.recording.mcap_io import iter_messages
 SIDE_BY_SIDE_SUFFIX = "/side_by_side"
 FOOTER_TOPIC = "svo_footer"
 
-# Each side_by_side payload is two 4-byte little-endian sizes followed by the
-# Annex-B stream, which always opens on a 4-byte start code.
 _PAYLOAD_HEADER_BYTES = 8
 _ANNEX_B_START_CODE = b"\x00\x00\x00\x01"
 
@@ -77,12 +57,7 @@ def sample_fps(path: Path | str, topic: str) -> float:
 
 
 def read_frame_stamps(path: Path | str, topic: str) -> list[int]:
-    """Return every frame timestamp on `topic`, in file order.
-
-    Reads ``svo_footer``'s per-topic index when it is present, which costs one
-    message instead of a pass over the recording, and falls back to scanning
-    the topic when the footer is missing (a truncated or interrupted file).
-    """
+    """Every frame timestamp on topic, in file order."""
     stamps = _read_footer_stamps(path, topic)
     if stamps:
         return stamps
@@ -204,7 +179,6 @@ def _feed_access_units(stdin: IO[bytes], path: Path | str, topic: str) -> None:
             stdin.write(access_unit)
         stdin.close()
     except (BrokenPipeError, ValueError):
-        # The consumer stopped early and ffmpeg was killed; nothing to do.
         pass
 
 
@@ -224,9 +198,7 @@ def _iter_jpegs(stream: IO[bytes]) -> Iterator[bytes]:
     an image.
     """
     buffer = bytearray()
-    # Where the next SOI search starts. Everything before it has been checked,
-    # apart from a short overlap so a marker split across two reads is found.
-    scan = 0
+    next_soi_search_start = 0
     header_checked = False
     while True:
         chunk = stream.read(_READ_CHUNK)
@@ -238,13 +210,13 @@ def _iter_jpegs(stream: IO[bytes]) -> Iterator[bytes]:
                 raise RuntimeError("ffmpeg output does not start with a JPEG marker")
             header_checked = True
         while True:
-            index = buffer.find(_JPEG_SOI, scan)
+            index = buffer.find(_JPEG_SOI, next_soi_search_start)
             if index < 0:
-                scan = max(0, len(buffer) - len(_JPEG_SOI) + 1)
+                next_soi_search_start = max(0, len(buffer) - len(_JPEG_SOI) + 1)
                 break
             if index > 0:
                 yield bytes(buffer[:index])
                 del buffer[:index]
-            scan = len(_JPEG_SOI)
+            next_soi_search_start = len(_JPEG_SOI)
     if buffer:
         yield bytes(buffer)

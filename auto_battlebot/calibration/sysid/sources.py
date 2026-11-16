@@ -1,8 +1,4 @@
-"""Where the sysid monitor's messages come from: a recording, or the live relay.
-
-Both yield ``(topic, log_time_ns, MessageBytes)`` in log order. ``Dispatcher`` decodes them
-into the ``CoverageSession`` inputs.
-"""
+"""Where the sysid monitor's messages come from: a recording or the live relay."""
 
 from __future__ import annotations
 

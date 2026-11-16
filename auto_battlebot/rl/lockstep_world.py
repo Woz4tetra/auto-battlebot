@@ -1,30 +1,4 @@
-"""One RL evaluation scenario on CPU MuJoCo, for the lockstep sim (plan gates G4 and G5).
-
-The Warp environment exports its held-out evaluation episodes as scenarios
-(`WarpNavEnv.export_scenarios`); this module plays one of them against whatever drives the
-robot, so the real C++ binary (`RlPolicyNavigation` or `MotionProfileNavigation`) runs the same
-episodes the Python evaluation scored:
-
-- the same model: `warp_nav.build_model` (fitted MJCF, mocap walls, blocks, house bot, opponent)
-- the same command chain, scalar: transport delay, `FirmwareMixer` (Mr Stabs Mk2) or the radio's
-  direct mix (Mrs Buff Mk3), drivetrain delay, shaping
-- the same opponent behaviours (`opponents.Opponents` with one world on the CPU), and the same
-  policy-driven opponents (`policy_opponents.PolicyOpponents`) for scenarios that drew one
-
-The robot is the scenario's (`robot`, Mr Stabs Mk2 when absent).
-- the same contact classification and episode scoring as `WarpNavEnv.step`, tick by tick
-
-Two field stages the Warp environment leaves out, both off unless the scenario sets them:
-
-- `slew_per_s`: the host transmitter's linear slew limit (`EspNowTransmitter`), in normalized
-  units per second, `max_motor_rpm_per_sec / max_motor_rpm`. 0 is off.
-- `guard_scale`: a fixed firmware motor guard scale on both wheel commands after the mixer
-  (`MotorGuard::apply`), Mr Stabs Mk2 only. 1 is off.
-
-`trace: true` records each tick's commanded linear, the linear after the slew limit, and the
-mean wheel command after the guard in `score.extra["trace"]`, in the field's units: the wheel
-command is the firmware's `left_cmd`/`right_cmd` mean, percent, positive forward.
-"""
+"""One RL evaluation scenario on CPU MuJoCo, for the lockstep sim (plan gates G4 and G5)."""
 
 from __future__ import annotations
 
@@ -118,7 +92,7 @@ class EpisodeScore:
     run_away: float = 0.0
     behaviour: float = 0.0
     seconds: float = 0.0
-    episode_s: float = 20.0  # the time limit, so a scorer can fill "never struck" with it
+    episode_s: float = 20.0
     outcome: str = "TIMEOUT"
     extra: dict[str, Any] = field(default_factory=dict)
 
@@ -167,7 +141,7 @@ class LockstepWorld:
         self.t = 0.0
         self.engaged = self.struck = self.prev_arc = self.prev_wall = self.prev_block = False
         self.apart_s = 0.0
-        self.arc_s = 0.0
+        self.arc_contact_s = 0.0
         self.flip_s = 0.0
         self.done = False
         self.arc = math.radians(self.cfg.arc_half_angle_deg)
@@ -237,7 +211,7 @@ class LockstepWorld:
             raise ValueError(
                 "guard_scale models the Mr Stabs Mk2 firmware guard; this robot has none"
             )
-        self.sent_linear: float | None = None  # the slew limiter's last output
+        self.slew_last_linear: float | None = None
         self.trace: list[tuple[float, float, float]] | None = (
             [] if scenario.get("trace", False) else None
         )
@@ -246,10 +220,10 @@ class LockstepWorld:
         """`EspNowTransmitter::limit_linear_acceleration`: the first command passes through."""
         if self.slew_per_s <= 0.0:
             return linear
-        if self.sent_linear is not None:
+        if self.slew_last_linear is not None:
             step = self.slew_per_s * dt
-            linear = min(max(linear, self.sent_linear - step), self.sent_linear + step)
-        self.sent_linear = linear
+            linear = min(max(linear, self.slew_last_linear - step), self.slew_last_linear + step)
+        self.slew_last_linear = linear
         return linear
 
     def _init_opponent(self, scenario: dict[str, Any]) -> None:
@@ -310,8 +284,6 @@ class LockstepWorld:
         self.opponents.history[:, :, 1] = y
         self.opp_vel = np.zeros(3)
 
-    # ------------------------------------------------------------------ truth
-
     def pose(self) -> tuple[float, float, float]:
         pq = pose_from_qpos(self.data.qpos[:7])
         return float(pq["x"]), float(pq["y"]), float(pq["yaw"])
@@ -349,14 +321,11 @@ class LockstepWorld:
         p = self.data.mocap_pos[HOUSE_MOCAP]
         return float(p[0]), float(p[1]), 0.0
 
-    # ------------------------------------------------------------------ stepping
-
     def _wheel_volts(self, left: float, right: float) -> np.ndarray:
         u = np.array([left, right]) / 100.0
         shaped = shape_command(u, self.deadzone, self.fit.curve)
         volts = shaped * NOMINAL_PACK_V * self.side_gain
         if not self.fit.brake_on_zero:
-            # Coast: a zero command lets the wheel freewheel, the back-EMF voltage.
             emf = self.motor.back_emf_volts(self.data.qvel[self.index.wheel_dofs])
             volts = np.where(shaped == 0.0, emf, volts)
         return np.asarray(volts)
@@ -474,7 +443,6 @@ class LockstepWorld:
             self.transport.append((a_percent, b_percent))
             a, b = self.transport.popleft()
             if self.direct:
-                # The radio's mix: left = linear - angular, right = linear + angular.
                 self.drive.append((-a + b, -a - b))
                 wheel = -a
                 self.data.ctrl[:] = self._wheel_volts(*self.drive.popleft())
@@ -639,9 +607,9 @@ class LockstepWorld:
             s.strikes += 1
             s.rear_strikes += float(f[3] > 2 * math.pi / 3)
             s.first_strike_s = min(s.first_strike_s, self.t)
-        self.arc_s = self.arc_s + dt if arc else 0.0
-        if arc and (not self.prev_arc or self.arc_s >= cfg.arc_rehit_s):
-            self.arc_s = 0.0
+        self.arc_contact_s = self.arc_contact_s + dt if arc else 0.0
+        if arc and (not self.prev_arc or self.arc_contact_s >= cfg.arc_rehit_s):
+            self.arc_contact_s = 0.0
             r += rw["hit_taken"]
             s.hits_taken += 1
             s.first_hit_s = min(s.first_hit_s, self.t)
