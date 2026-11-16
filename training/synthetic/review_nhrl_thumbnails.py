@@ -15,11 +15,7 @@ _REJECTED_DIRNAME = "rejected_thumbnails"
 
 
 def clean_name_from_token(token: str) -> str:
-    """Normalize a pasted token to a bot clean name.
-
-    Accepts bare names (``yeschef``), filenames (``yeschef.png``), and URIs
-    (``trash:///yeschef.png``, ``file:///path/yeschef.png``); returns the stem.
-    """
+    """Normalize a pasted token to a bot clean name."""
     token = token.strip()
     if not token:
         return ""
@@ -45,7 +41,6 @@ def set_rejected(
     entry[nc.STATE_REJECTED_KEY] = bool(rejected)
     src = _thumbnail_path(thumb_dir, entry, clean_name)
     if rejected:
-        # Move the PNG out of the pool so a stray glob never picks it up.
         if src.exists():
             rejected_dir.mkdir(parents=True, exist_ok=True)
             src.replace(rejected_dir / src.name)
