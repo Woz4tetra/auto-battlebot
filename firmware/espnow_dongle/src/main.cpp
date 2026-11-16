@@ -1,6 +1,3 @@
-// ESP-NOW dongle for mr_stabs_mk2. Bridges framed USB serial from the Jetson to ESP-NOW and back.
-// Holds no authority: it forwards what the Jetson sends, repeats the latest command so one lost
-// packet is covered in 4 ms, and never invents a command. See docs/plans/espnow_link_plan.md.
 #include <Arduino.h>
 #include <WiFi.h>
 #include <esp_now.h>
@@ -12,7 +9,6 @@ using namespace espnow_protocol;
 
 namespace {
 
-// Re-send the latest command at 250 Hz so a lost packet is covered quickly.
 const uint32_t REPEAT_PERIOD_US = 4000;
 // Stop repeating once the Jetson has been quiet this long. Without it the dongle would re-send a
 // dead process's last command forever, and the robot would treat it as live.
@@ -22,10 +18,9 @@ const uint32_t LINK_STATS_PERIOD_MS = 100;
 // a few ms; this only covers a driver hiccup.
 const uint32_t SEND_CALLBACK_TIMEOUT_MS = 50;
 const uint32_t SCAN_DWELL_MS = 150;
-// Robot frames older than this turn the LED red.
-const uint32_t ROBOT_SILENCE_MS = 500;
+const uint32_t ROBOT_SILENCE_LED_RED_MS = 500;
 const uint32_t LED_PERIOD_MS = 50;
-// NeoPixel levels out of 255. Full brightness is blinding at arm's length.
+const uint32_t ACK_DEGRADED_PERCENT = 90;
 const uint8_t LED_BRIGHT = 48;
 const uint8_t LED_DIM = 6;
 
@@ -37,11 +32,8 @@ struct AirFrame {
     uint8_t data[AIR_MAX_FRAME];
 };
 
-// Received air frames, handed from the WiFi task to loop().
-QueueHandle_t rx_queue;
+QueueHandle_t wifi_task_rx_queue;
 
-// Frames waiting for the radio. Commands do not queue here: only the newest command matters, so
-// it lives in its own slot and jumps the queue.
 const size_t TX_QUEUE_LEN = 24;
 AirFrame tx_queue[TX_QUEUE_LEN];
 size_t tx_head = 0;
@@ -69,8 +61,7 @@ uint32_t last_send_ms = 0;
 uint32_t last_stats_ms = 0;
 
 uint32_t last_robot_rx_ms = 0;
-// Unicast ACK rate over the last link stats period, for the LED.
-bool ack_ok = true;
+bool led_ack_rate_ok = true;
 uint32_t window_sent = 0;
 uint32_t window_acked = 0;
 uint32_t last_led_color = UINT32_MAX;
@@ -78,8 +69,7 @@ uint32_t last_led_ms = 0;
 
 SerialFrameParser parser;
 
-// Promiscuous scan accumulators, indexed by channel.
-volatile uint32_t scan_bytes[14];
+volatile uint32_t scan_bytes_by_channel[14];
 volatile uint8_t scan_channel = 0;
 
 void on_sent(const uint8_t *mac, esp_now_send_status_t status) {
@@ -94,24 +84,20 @@ void on_sent(const uint8_t *mac, esp_now_send_status_t status) {
 }
 
 void on_recv(const uint8_t *mac, const uint8_t *data, int length) {
-    // WiFi task context: copy and return. Everything else happens in loop().
     if (!is_air_frame(data, static_cast<size_t>(length))) return;
     AirFrame frame;
     memcpy(frame.mac, mac, 6);
     frame.length = static_cast<uint8_t>(length);
     memcpy(frame.data, data, length);
-    xQueueSend(rx_queue, &frame, 0);
+    xQueueSend(wifi_task_rx_queue, &frame, 0);
 }
 
 void on_promiscuous(void *buffer, wifi_promiscuous_pkt_type_t type) {
     (void)type;
     const auto *packet = static_cast<const wifi_promiscuous_pkt_t *>(buffer);
-    if (scan_channel < 14) scan_bytes[scan_channel] += packet->rx_ctrl.sig_len;
+    if (scan_channel < 14) scan_bytes_by_channel[scan_channel] += packet->rx_ctrl.sig_len;
 }
 
-// Scores every channel by bytes heard and picks the quietest of 1, 6, and 11, counting energy
-// from overlapping neighbors. Bytes heard is a proxy for airtime: it misses non-WiFi interferers
-// (other teams' control links, video TX), which nothing in a WiFi scan can see.
 uint8_t pick_channel() {
     if (CHANNEL_OVERRIDE != 0) return CHANNEL_OVERRIDE;
 
@@ -119,7 +105,7 @@ uint8_t pick_channel() {
     esp_wifi_set_promiscuous(true);
     for (uint8_t ch = 1; ch <= 13; ch++) {
         scan_channel = ch;
-        scan_bytes[ch] = 0;
+        scan_bytes_by_channel[ch] = 0;
         esp_wifi_set_channel(ch, WIFI_SECOND_CHAN_NONE);
         delay(SCAN_DWELL_MS);
     }
@@ -127,7 +113,7 @@ uint8_t pick_channel() {
     esp_wifi_set_promiscuous(false);
 
     const uint8_t candidates[] = {1, 6, 11};
-    const float weights[] = {1.0f, 0.7f, 0.3f};  // by channel distance 0, 1, 2
+    const float weight_by_channel_distance[] = {1.0f, 0.7f, 0.3f};
     uint8_t best = 1;
     float best_score = 0.0f;
     for (size_t i = 0; i < sizeof(candidates); i++) {
@@ -135,7 +121,8 @@ uint8_t pick_channel() {
         float score = 0.0f;
         for (int d = -2; d <= 2; d++) {
             const int ch = c + d;
-            if (ch >= 1 && ch <= 13) score += weights[abs(d)] * scan_bytes[ch];
+            if (ch >= 1 && ch <= 13)
+                score += weight_by_channel_distance[abs(d)] * scan_bytes_by_channel[ch];
         }
         if (i == 0 || score < best_score) {
             best = static_cast<uint8_t>(c);
@@ -161,7 +148,6 @@ void add_peer(const uint8_t *mac) {
 void write_serial_frame(uint8_t type, const uint8_t *payload, uint8_t length) {
     uint8_t out[SERIAL_MAX_FRAME];
     const size_t size = encode_serial_frame(type, payload, length, out);
-    // Never block on the host. With no reader the frame is dropped, which is what we want.
     if (Serial.availableForWrite() >= static_cast<int>(size)) {
         Serial.write(out, size);
         return;
@@ -189,16 +175,12 @@ void on_serial_frame(void *context, uint8_t type, const uint8_t *payload, uint8_
     (void)context;
     if (type == MSG_COMMAND) {
         if (length != sizeof(CommandPayload)) return;
-        // Forward on arrival: the new command takes the slot and goes out at the next free radio
-        // slot, never waiting for the repeat timer.
         command_frame_len = encode_air_frame(type, payload, length, command_frame);
         command_pending = true;
         last_command_serial_ms = millis();
         last_repeat_us = micros();
         return;
     }
-    // Everything else goes out once. OTA retries are the host's job; a repeated chunk would only
-    // be dropped by the robot as out of order.
     queue_frame(type, payload, length);
 }
 
@@ -229,8 +211,6 @@ void service_radio() {
     }
     last_send_ms = millis();
 
-    // Broadcast until the robot is heard from. Broadcast gets no MAC-layer ACK or retry, so the
-    // link stats only mean something once robot_known is set.
     const uint8_t *dest = robot_known ? robot_mac : BROADCAST_MAC;
     send_started_us = micros();
     send_started_ms = millis();
@@ -255,9 +235,8 @@ void service_repeat() {
 
 void service_receive() {
     AirFrame frame;
-    while (xQueueReceive(rx_queue, &frame, 0) == pdTRUE) {
+    while (xQueueReceive(wifi_task_rx_queue, &frame, 0) == pdTRUE) {
         const uint8_t type = frame.data[sizeof(AIR_MAGIC)];
-        // Only the robot sends these types, so the first one names the robot.
         if ((type == MSG_TELEMETRY || type == MSG_OTA_STATUS) &&
             (!robot_known || memcmp(frame.mac, robot_mac, 6) != 0)) {
             memcpy(robot_mac, frame.mac, 6);
@@ -271,6 +250,16 @@ void service_receive() {
     }
 }
 
+void update_ack_window() {
+    const uint32_t sent = sent_count;
+    const uint32_t acked = acked_count;
+    const uint32_t d_sent = sent - window_sent;
+    const uint32_t d_acked = acked - window_acked;
+    window_sent = sent;
+    window_acked = acked;
+    if (d_sent > 0) led_ack_rate_ok = d_acked * 100 >= d_sent * ACK_DEGRADED_PERCENT;
+}
+
 void service_link_stats() {
     const uint32_t now = millis();
     if (now - last_stats_ms < LINK_STATS_PERIOD_MS) return;
@@ -279,15 +268,7 @@ void service_link_stats() {
                                     last_rtt_us, channel,     static_cast<uint8_t>(robot_known)};
     write_serial_frame(MSG_LINK_STATS, reinterpret_cast<const uint8_t *>(&stats), sizeof(stats));
 
-    // Below 90% over the period counts as degraded. Counters are read once: the send callback
-    // runs on the WiFi task.
-    const uint32_t sent = sent_count;
-    const uint32_t acked = acked_count;
-    const uint32_t d_sent = sent - window_sent;
-    const uint32_t d_acked = acked - window_acked;
-    window_sent = sent;
-    window_acked = acked;
-    if (d_sent > 0) ack_ok = d_acked * 10 >= d_sent * 9;
+    update_ack_window();
 }
 
 void set_led(uint8_t r, uint8_t g, uint8_t b) {
@@ -303,12 +284,6 @@ void set_led(uint8_t r, uint8_t g, uint8_t b) {
 #endif
 }
 
-// Color is the link, brightness is the Jetson:
-//   blue blinking  broadcasting, the robot has never answered
-//   red            robot heard before, nothing from it for ROBOT_SILENCE_MS
-//   amber          robot answering, unicast ACK rate under 90% over the last 100 ms
-//   green          robot answering, ACKs healthy
-// Bright while the Jetson is commanding (a command inside COMMAND_SILENCE_MS), dim otherwise.
 void service_led() {
     const uint32_t now = millis();
     if (now - last_led_ms < LED_PERIOD_MS) return;
@@ -319,9 +294,9 @@ void service_led() {
     if (!robot_known) {
         const bool on = (now / 250) % 2 == 0;
         set_led(0, 0, on ? level : 0);
-    } else if (now - last_robot_rx_ms > ROBOT_SILENCE_MS) {
+    } else if (now - last_robot_rx_ms > ROBOT_SILENCE_LED_RED_MS) {
         set_led(level, 0, 0);
-    } else if (!ack_ok) {
+    } else if (!led_ack_rate_ok) {
         set_led(level, level / 2, 0);
     } else {
         set_led(0, level, 0);
@@ -331,19 +306,16 @@ void service_led() {
 }  // namespace
 
 void setup() {
-    // The default 256-byte RX buffer overflows on the OTA host's 16-chunk (~4 KB) window and the
-    // HWCDC ISR drops the excess, so every chunk after the first fails its CRC. Two windows.
     Serial.setRxBufferSize(8192);
     Serial.begin(921600);
     Serial.setTxTimeoutMs(0);
 
-    rx_queue = xQueueCreate(32, sizeof(AirFrame));
+    wifi_task_rx_queue = xQueueCreate(32, sizeof(AirFrame));
 
 #ifdef NEOPIXEL_POWER
     pinMode(NEOPIXEL_POWER, OUTPUT);
     digitalWrite(NEOPIXEL_POWER, NEOPIXEL_POWER_ON);
 #endif
-    // Solid blue through the channel scan, which takes ~2 s when it runs.
     set_led(0, 0, LED_DIM);
 
     WiFi.mode(WIFI_STA);
@@ -357,7 +329,6 @@ void setup() {
     esp_now_register_send_cb(on_sent);
     esp_now_register_recv_cb(on_recv);
     add_peer(BROADCAST_MAC);
-    // After esp_wifi_start(), which WiFi.mode() ran. The 1 Mbps default costs ~1.2 ms a frame.
     esp_wifi_config_espnow_rate(WIFI_IF_STA, WIFI_PHY_RATE_6M);
 
     // Plain text, once. The Jetson's parser skips anything that is not a framed message.

@@ -1,13 +1,5 @@
 #!/usr/bin/env python3
-"""Simulated ESP-NOW dongle on a pty, for running espnow_diag.py without hardware.
-
-Speaks the dongle's serial side: the boot banner, MSG_LINK_STATS every 100 ms, and robot
-telemetry at 100 Hz, echoing the seq and jetson_tx_us of the last MSG_COMMAND it reads. Flags
-inject the faults the diagnostics page should catch.
-
-    venv/bin/python firmware/espnow_dongle/scripts/fake_dongle.py /tmp/fake_dongle &
-    venv/bin/python firmware/espnow_dongle/scripts/espnow_diag.py --port /tmp/fake_dongle
-"""
+"""Simulated ESP-NOW dongle on a pty, for running espnow_diag.py without hardware."""
 
 from __future__ import annotations
 
@@ -34,13 +26,19 @@ from espnow_diag import (
     encode_frame,
 )
 
+COMMAND_FRESH_MS = 60
+GUARD_STATE_NOMINAL = 1
+COMMAND_RATE_HZ = 250
+PING_RATE_HZ = 100
+STATS_PERIOD_S = 0.1
+
 
 def telemetry(
     t_ms: int, seq: int, args: argparse.Namespace, cmd: tuple[int, int, int, float, float]
 ) -> bytes:
     cmd_seq, cmd_tx_us, cmd_age_ms, cmd_a, cmd_b = cmd
-    # Substitution as the firmware does it: SA on and a fresh command drive the robot.
-    driving = args.autonomy and cmd_age_ms < 60
+    command_fresh = cmd_age_ms < COMMAND_FRESH_MS
+    driving = args.autonomy and command_fresh
     phase = t_ms / 1000
     fields: dict[str, float | int] = {name: 0 for name in TELEMETRY_FIELDS}
     fields.update(
@@ -66,7 +64,7 @@ def telemetry(
         telemetry_seq=seq,
         guard_scale=1.0,
         guard_gain=1.0,
-        guard_state=1,  # NOMINAL
+        guard_state=GUARD_STATE_NOMINAL,
     )
     return encode_frame(
         MSG_TELEMETRY,
@@ -111,11 +109,9 @@ class FakeDongle:
     def link_stats(self, now: float) -> bytes:
         if now < self.next_stats:
             return b""
-        self.next_stats += 0.1
-        # Commands repeat at 250 Hz while the host commands; pings fill 100 Hz otherwise.
-        # Broadcast frames report success with no ACK behind them.
+        self.next_stats += STATS_PERIOD_S
         commanding = self.cmd_s is not None and now - self.cmd_s < 0.1
-        count = 25 if commanding else 10
+        count = round((COMMAND_RATE_HZ if commanding else PING_RATE_HZ) * STATS_PERIOD_S)
         self.sent += count
         if self.robot_known:
             self.acked += sum(random.random() < self.args.ack for _ in range(count))
@@ -196,7 +192,7 @@ def main() -> int:
                 try:
                     os.write(master, out)
                 except (BlockingIOError, OSError):
-                    pass  # No reader: drop, as the dongle does.
+                    pass
             time.sleep(0.001)
     except KeyboardInterrupt:
         pass

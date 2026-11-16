@@ -49,35 +49,33 @@ typedef struct {
     uint16_t erpm_crc_errors;  // both ESCs summed, from boot
 } diag_data_t;
 
-// ESP-NOW link health for the page's ESP-NOW panel. Counters run from boot; the page turns them
-// into rates. Filled by espnow_link::EspNowLink::fill_status().
 struct espnow_status_t {
-    bool enabled;       // ESPNOW_ENABLED
-    bool substitution;  // ESPNOW_COMMAND_SUBSTITUTION: drives from ESP-NOW, not shadow mode
-    bool begin_ok;      // esp_now_init() succeeded
-    bool driving;       // this tick's drive command came from ESP-NOW
+    bool enabled;
+    bool command_substitution;
+    bool esp_now_init_ok;
+    bool driving;
     uint8_t channel;
     bool sweeping;
     uint8_t last_good_channel;
     bool heard_dongle;
     uint8_t dongle_mac[6];
-    uint32_t last_frame_ms;  // millis() of the last frame from an allowed dongle
-    uint32_t rx_frames;      // from allowed dongles, any type
+    uint32_t last_allowed_frame_ms;
+    uint32_t rx_allowed_frames;
     uint32_t rx_commands_new;
     uint32_t rx_commands_repeat;
-    uint32_t rx_commands_old;  // late frames the tracker dropped
+    uint32_t rx_commands_late_dropped;
     uint32_t rx_pings;
     uint32_t rx_tunables;
     uint32_t rx_ota;
-    uint32_t rx_size_errors;  // known type, wrong length: mismatched builds
-    uint32_t rx_rejected;     // session magic from a MAC not in the allowed list
+    uint32_t rx_wrong_length;
+    uint32_t rx_unpaired_mac;
     uint8_t rejected_mac[6];
-    uint32_t rx_queue_full;  // dropped because loop() fell behind the WiFi task
+    uint32_t rx_queue_full_drops;
     uint32_t tx_telemetry;
-    uint32_t tx_ok;      // send callback ACKed, all frame types
-    uint32_t tx_fail;    // send callback reported no ACK after retries
-    uint32_t tx_errors;  // esp_now_send() refused the frame
-    uint8_t lq;          // the telemetry espnow_lq: ACK percent over the last 32 sends
+    uint32_t tx_acked;
+    uint32_t tx_no_ack;
+    uint32_t tx_send_refused;
+    uint8_t lq;
     bool command_fresh;
     uint32_t command_seq;
     uint32_t command_age_ms;  // UINT32_MAX before the first command
@@ -107,7 +105,6 @@ struct pair_request_t {
     uint8_t mac[6];
 };
 
-// Sensor and I2C bus health, served as JSON at /status for the page's sensor panel.
 struct sensor_status_t {
     updown_sensor::status_t imu;
     vbat_sensor::status_t ina;
@@ -115,12 +112,10 @@ struct sensor_status_t {
     i2c_bus::lines_t lines;
     uint8_t sda_pin;
     uint8_t scl_pin;
-    // millis() when the loop took this snapshot. Ages on the page are measured to this moment,
-    // not to when the request arrives, since the snapshot is refreshed only once a second.
-    uint32_t snapshot_ms;
-    float yaw_rate;          // deg/s clockwise from the gyro, at snapshot time
-    float heading_rate;      // deg/s clockwise from the heading change, at snapshot time
-    bool gyro_sign_suspect;  // the yaw loop is locked out
+    uint32_t snapshot_taken_ms;
+    float yaw_rate;
+    float heading_rate;
+    bool gyro_sign_suspect;
     espnow_status_t espnow;
     crash_report::report_t boot;
 };
@@ -131,15 +126,10 @@ using telemetry_ring_t = telemetry_ring::TelemetryRing<espnow_protocol::Telemetr
 
 class DiagnosticsServer {
    public:
-    // Serves the page from web/ (embedded at build time by scripts/embed_web.py), the WiFi
-    // settings endpoints, which edit wifi's saved networks, and GET /telemetry, which reads ring.
-    // boot_id goes out with every /telemetry reply so a client can tell a reboot restarted seqs.
-    // esc_tuning backs the /esc/ routes: tuning mode and the 4-way frame relay.
     void begin(wifi_manager::WifiManager *wifi, const telemetry_ring_t *ring, uint32_t boot_id,
                TuningStore *tuning = nullptr, esc_config::EscConfig *esc_tuning = nullptr);
     void update(const diag_data_t *data);
-    // True while a browser has the page open. Gate optional diagnostic work on this.
-    bool has_clients();
+    bool page_open();
     // Copies the snapshot for the /status handler, which runs on the network task.
     void set_status(const sensor_status_t &status);
     // Set by the page's Rescan button. The loop runs the scan, since it owns the bus.
@@ -158,7 +148,7 @@ class DiagnosticsServer {
    private:
     bool _recording = false;
     uint32_t _last_send_ms = 0;
-    uint32_t _seq = 0;  // +1 per row sent, so a gap in a recording shows dropped rows
+    uint32_t _seq = 0;
     TuningStore *_tuning = nullptr;
     volatile bool _scan_requested = false;
     pair_request_t _pair_request = {};

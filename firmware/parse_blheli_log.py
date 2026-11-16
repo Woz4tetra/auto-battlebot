@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""Parse BLHeliSuite32 .xlg binary log files into JSON Lines format.
-
-Usage:
-    python3 parse_blheli_log.py <input.xlg>
-    python3 parse_blheli_log.py <input.xlg> -o <output.jsonl>
-"""
+"""Parse BLHeliSuite32 .xlg binary log files into JSON Lines."""
 
 import argparse
 import json
@@ -38,11 +33,7 @@ def _try_record(data: bytes, lpos: int, length: int):
 
 
 def extract_strings(data: bytes) -> list[dict]:
-    """Extract length-prefixed text records from xlg binary data.
-
-    The xlg format embeds strings after 0xFF delimiters as:
-        FF [00|80] [00|FF] FF <4-byte LE length> <string bytes>
-    """
+    """Extract length-prefixed text records from xlg binary data."""
     entries = []
     pos = 0
     length = len(data)
@@ -140,10 +131,7 @@ def _colon_field(text, entries, i, n, cumulative_ms, offset):
 
 
 def group_entries(entries: list[dict]) -> list[dict]:
-    """Coalesce adjacent label+value entries into structured records.
-
-    Tracks cumulative time from 'Time elapsed (ms)' entries to stamp each record.
-    """
+    """Coalesce adjacent label+value entries into records stamped with cumulative time."""
     output = []
     i = 0
     n = len(entries)

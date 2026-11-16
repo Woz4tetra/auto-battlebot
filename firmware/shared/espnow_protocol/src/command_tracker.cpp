@@ -15,8 +15,6 @@ CommandTracker::Result CommandTracker::on_command(const CommandPayload &command,
         return DROPPED_OLD;
     }
 
-    // A gap longer than the stale window breaks the streak, so re-entry always takes
-    // FRESH_STREAK_REQUIRED frames in a row.
     if (!has_command_ || silence_ms > COMMAND_STALE_MS) {
         streak_ = 1;
     } else if (streak_ < FRESH_STREAK_REQUIRED) {

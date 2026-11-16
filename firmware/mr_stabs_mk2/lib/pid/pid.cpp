@@ -14,13 +14,13 @@ Pid::Pid(const PidConfig &config)
       continuous(config.continuous),
       min_input(config.min_input),
       max_input(config.max_input),
-      i_accum(0.0),
+      i_accum_error_s(0.0),
       prev_error(0.0),
       has_prev_error(false),
       error(0.0) {}
 
 void Pid::reset() {
-    i_accum = 0.0;
+    i_accum_error_s = 0.0;
     prev_error = 0.0;
     error = 0.0;
     has_prev_error = false;
@@ -29,19 +29,14 @@ void Pid::reset() {
 float Pid::update(float setpoint, float measurement, float dt, float pd_scale) {
     error = setpoint - measurement;
 
-    // Handle continuous input (angle wrapping)
     if (continuous) {
         error = _wrap_error(error);
     }
 
     if (dt <= 0.0) {
-        // In embedded systems, we might prefer to return 0 or last output
-        // instead of throwing an exception
         return 0.0;
     }
 
-    // Every term runs before the tolerance check, so prev_error and the integral stay current
-    // while the output is held at zero inside the band.
     float output = 0.0;
     output += pd_scale * _calculate_p(error);
     output += _calculate_i(error, dt);
@@ -64,21 +59,19 @@ float Pid::_calculate_i(float error, float dt) {
         return 0.0;
     }
 
-    // Check integral zone
     if (i_zone < 0.0) {
         // No i_zone limit (equivalent to Python's None)
-        i_accum += error * dt;
+        i_accum_error_s += error * dt;
     } else if (fabs(error) < i_zone) {
-        i_accum += error * dt;
+        i_accum_error_s += error * dt;
     }
 
-    // Apply integral windup protection: clamp so |ki * i_accum| <= i_max
     if (i_max != 0.0) {
         float max_i_accum = fabs(i_max / ki);
-        i_accum = fmax(fmin(i_accum, max_i_accum), -max_i_accum);
+        i_accum_error_s = fmax(fmin(i_accum_error_s, max_i_accum), -max_i_accum);
     }
 
-    return ki * i_accum;
+    return ki * i_accum_error_s;
 }
 
 float Pid::_calculate_d(float error, float dt) {
@@ -89,12 +82,11 @@ float Pid::_calculate_d(float error, float dt) {
     if (!has_prev_error) {
         prev_error = error;
         has_prev_error = true;
-        return 0.0;  // No derivative on first call
+        return 0.0;
     }
 
     float derivative_error = error - prev_error;
 
-    // Handle continuous input for derivative term
     if (continuous) {
         derivative_error = _wrap_error(derivative_error);
     }
@@ -112,7 +104,6 @@ float Pid::_calculate_f(float setpoint) {
 }
 
 float Pid::_repeat(float value, float length) {
-    // Loops the value, so it's never larger than length and never smaller than 0
     if (length <= 0.0f) return 0.0f;
 
     return value - floor(value / length) * length;
@@ -129,12 +120,9 @@ float Pid::_input_modulus(float value, float min_value, float max_value) {
 }
 
 float Pid::_wrap_error(float error) {
-    // For angle errors, we want the shortest path
-    // Convert error to range [-input_range/2, input_range/2]
     float input_range = max_input - min_input;
     float half_range = input_range / 2.0f;
 
-    // Use input_modulus to wrap to [0, input_range), then shift to [-half_range, half_range)
     float wrapped = _input_modulus(error + half_range, 0.0f, input_range) - half_range;
 
     return wrapped;

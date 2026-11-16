@@ -13,25 +13,17 @@
 
 namespace espnow_link {
 
-// The sweep's candidates. Last-known-good is tried ahead of these.
 const uint8_t CHANNEL_CANDIDATES[] = {1, 6, 11};
-const uint32_t CHANNEL_DWELL_MS = 25;  // ~6 dongle repeats at 250 Hz, plus switch settling
+const uint32_t CHANNEL_DWELL_MS = 25;
 
-// The control loop runs at ~1 kHz. Telemetry at that rate would hold the channel ~35% of the
-// time at 6 Mbps, so it is sent at 100 Hz, which still resolves every 10 ms control tick.
 const uint32_t TELEMETRY_PERIOD_MS = 10;
 
-// Dongles allowed to command, tune, and flash this robot, by the STA MAC each dongle prints at
-// boot. Paired from the diagnostics page and kept in NVS, so none are built into the firmware.
-// ESP-NOW allows 20 unencrypted peers.
 const uint8_t MAX_PAIRED_DONGLES = 8;
+static_assert(MAX_PAIRED_DONGLES + 1 <= ESP_NOW_MAX_TOTAL_PEER_NUM,
+              "paired dongles plus broadcast must fit the ESP-NOW peer table");
 
-// OTA transfer gives up after this long without a valid OTA frame. The running image is untouched
-// until Update.end() switches the boot slot, so an abort always leaves the old firmware running.
 const uint32_t OTA_SILENCE_MS = 5000;
 
-// Every boot reports OTA_VALIDATED, with its MD5, once it has run this long and heard a dongle.
-// The flasher waits for it as proof the new image runs.
 const uint32_t VALIDATE_AFTER_MS = 10000;
 
 class EspNowLink {
@@ -44,13 +36,11 @@ class EspNowLink {
      *  loop(), after crsf->update() so armed is current. Arming aborts an OTA transfer. */
     void update(uint32_t now_ms, bool armed);
 
-    /** True while an OTA transfer owns the loop. main.cpp stops the ESCs and skips control. */
     bool ota_in_progress() const { return ota_.active(); }
 
     bool fresh(uint32_t now_ms) const { return tracker_.fresh(now_ms); }
     const espnow_protocol::CommandPayload &latest() const { return tracker_.latest(); }
 
-    /** Fills in the link fields and sends at most every TELEMETRY_PERIOD_MS. */
     void send_telemetry(espnow_protocol::TelemetryPayload &telemetry, uint32_t now_ms);
 
     /** Link health for the diagnostics page. Leaves enabled, substitution, and driving to the
@@ -60,7 +50,6 @@ class EspNowLink {
     /** Adds a dongle to the paired list in NVS. Disarmed only: the NVS write stalls both cores
      *  for a few ms. Returns a pair_result_t. */
     uint8_t pair(const uint8_t *mac, bool armed);
-    /** Removes a paired dongle. */
     uint8_t unpair(const uint8_t *mac, bool armed);
 
    private:
@@ -78,6 +67,7 @@ class EspNowLink {
     void service_sweep(uint32_t now_ms);
     void set_channel(uint8_t channel);
     void service_validation(uint32_t now_ms);
+    uint8_t next_sweep_channel() const;
     void send_frame(const uint8_t *mac, uint8_t type, const void *payload, size_t length);
     void load_paired();
     void store_paired();
@@ -110,7 +100,6 @@ class EspNowLink {
     uint32_t last_telemetry_ms_ = 0;
     uint32_t telemetry_seq_ = 0;
 
-    // Channel: pinned, or swept until a dongle frame arrives.
     bool sweeping_ = false;
     uint8_t channel_ = 0;
     uint8_t last_good_channel_ = 0;

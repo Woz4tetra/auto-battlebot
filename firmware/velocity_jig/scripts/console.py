@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""USB-serial TUI for the velocity jig: list / download / delete / live-stream.
-
-Talks to the firmware's idle-only console, so nothing here can run while the jig
-is recording (commands sent during a recording return BUSY). Run via the
-`console` wrapper, or: venv/bin/python console.py [-p PORT] [-o OUTDIR]
-"""
+"""USB-serial TUI for the velocity jig: list, download, delete, live-stream."""
 
 import argparse
 import glob
@@ -17,7 +12,7 @@ from serial.tools import list_ports
 
 import serial
 
-BAUD = 921600  # nominal only; USB CDC ignores baud (transfers run at USB speed)
+BAUD = 921600
 GYRO_DPS_PER_LSB = 0.070
 ACCEL_G_PER_LSB = 0.000244
 

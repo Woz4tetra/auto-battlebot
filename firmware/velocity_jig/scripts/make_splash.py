@@ -1,12 +1,5 @@
 #!/usr/bin/env python3
-"""Bake the BWBots splash GIF into a 1-bit OLED animation header.
-
-Uses the pre-cropped 128x64 GIF as-is (no crop, scale, or filtering). The source
-has 3 gray levels: 0 maps to black; 204 (the gray outline) and 255 map to white.
-
-Writes include/splash_anim.h. Add --preview <png> for a montage.
-Regenerate with: scripts/make_splash.py
-"""
+"""Bake the BWBots splash GIF into a 1-bit OLED animation header."""
 
 import os
 import sys
@@ -15,7 +8,7 @@ from PIL import Image
 
 GIF = "/home/ben/Downloads/bwbots_splash_crop.gif"
 W, H = 128, 64
-THRESH = 204  # 0 -> black; 204 (gray outline) and 255 -> white
+THRESH = 204
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_H = os.path.join(HERE, "..", "include", "splash_anim.h")
 
@@ -39,8 +32,6 @@ def main():
     im = Image.open(GIF)
     n = im.n_frames
 
-    # Source is already cropped to the display; use each frame as-is (centered if
-    # it happens to be smaller than 128x64).
     ox, oy = (W - im.size[0]) // 2, (H - im.size[1]) // 2
 
     frames, packed = [], []

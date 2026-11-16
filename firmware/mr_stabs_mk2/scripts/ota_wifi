@@ -1,7 +1,4 @@
 #!/bin/bash
-# Flash over WiFi with ArduinoOTA. With no argument it targets the robot's own access point
-# (join MR-STABS first). In client mode pass the address the router gave it, or mr-stabs.local:
-#   ./scripts/ota_wifi 192.168.50.40
 BASE_DIR=$(realpath "$(dirname $0)")
 cd ${BASE_DIR}/..
 platformio run --target upload -e ota --upload-port "${1:-192.168.4.1}"

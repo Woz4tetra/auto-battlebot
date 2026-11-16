@@ -1,16 +1,5 @@
 #pragma once
 
-// Wire format for the ESP-NOW link between the Jetson, the USB dongle, and mr_stabs_mk2.
-// See docs/plans/espnow_link_plan.md. Plain C++17 with no Arduino dependency: the robot firmware,
-// the dongle firmware, the native unit tests, and the Jetson app all compile this one header, so
-// the three ends cannot disagree about a field.
-//
-// Two hops:
-//   Jetson <--serial frame--> dongle <--air frame--> robot
-// Serial frame: magic:u16 (0xB07B, little endian), type:u8, length:u8, payload, crc16:u16 over
-//               type, length, and payload.
-// Air frame:    session magic:u8[4], type:u8, payload. Length is the ESP-NOW frame length.
-
 #include <stddef.h>
 #include <stdint.h>
 
@@ -22,32 +11,27 @@ const size_t AIR_HEADER_SIZE = sizeof(AIR_MAGIC) + 1;
 // ESP_NOW_MAX_DATA_LEN on IDF 4.4. ESP-NOW v2 needs IDF 5.4.
 const size_t AIR_MAX_FRAME = 250;
 const size_t AIR_MAX_PAYLOAD = AIR_MAX_FRAME - AIR_HEADER_SIZE;
-const size_t SERIAL_OVERHEAD = 6;  // magic, type, length, crc
+const size_t SERIAL_OVERHEAD = 6;
+static_assert(SERIAL_OVERHEAD == sizeof(SERIAL_MAGIC) + 1 + 1 + 2,
+              "serial frame is magic, type, length, crc");
 const size_t SERIAL_MAX_FRAME = SERIAL_OVERHEAD + 255;
 
-// Nonzero pins both ends to this channel: the dongle skips its boot scan and the robot skips its
-// sweep. Phase 1 of the plan runs pinned, since the robot's SoftAP still shares the radio and a
-// sweep would drag it across channels. 0 selects the scan and the sweep.
 const uint8_t CHANNEL_OVERRIDE = 1;
 
 enum MessageType : uint8_t {
-    MSG_COMMAND = 0x01,      // Jetson to robot, CommandPayload
-    MSG_TELEMETRY = 0x02,    // robot to Jetson, TelemetryPayload
-    MSG_TUNABLE_SET = 0x03,  // Jetson to robot, TunableSetPayload
-    MSG_LINK_STATS = 0x04,   // dongle to Jetson, LinkStatsPayload
-    MSG_PING = 0x05,         // dongle to robot, no payload: keepalive, see PING_PERIOD_MS
-    MSG_OTA_BEGIN = 0x10,    // host to robot, OtaBeginPayload
-    MSG_OTA_CHUNK = 0x11,    // host to robot, OtaChunkHeader then data
-    MSG_OTA_END = 0x12,      // host to robot, no payload
-    MSG_OTA_ABORT = 0x13,    // host to robot, no payload
-    MSG_OTA_STATUS = 0x14,   // robot to host, OtaStatusPayload
+    MSG_COMMAND = 0x01,
+    MSG_TELEMETRY = 0x02,
+    MSG_TUNABLE_SET = 0x03,
+    MSG_LINK_STATS = 0x04,
+    MSG_PING = 0x05,
+    MSG_OTA_BEGIN = 0x10,
+    MSG_OTA_CHUNK = 0x11,
+    MSG_OTA_END = 0x12,
+    MSG_OTA_ABORT = 0x13,
+    MSG_OTA_STATUS = 0x14,
 };
 
 #pragma pack(push, 1)
-// The two values the Jetson's drive processor would write to the trainer channels, normalized to
-// [-1, 1]: linear and angular under DifferentialDriveProcessor, left and right wheel under
-// TankDriveProcessor. The firmware puts them where ch0 and ch1 land, so the mixing is whatever the
-// trainer path would have done.
 struct CommandPayload {
     uint32_t seq;
     uint32_t jetson_tx_us;
@@ -58,7 +42,7 @@ struct CommandPayload {
 struct TelemetryPayload {
     uint32_t timestamp_ms;
     uint32_t loop_us;
-    float a_percent;  // arbitrated drive command, after the flip
+    float a_percent;
     float b_percent;
     float left_cmd;
     float right_cmd;
@@ -116,7 +100,7 @@ struct LinkStatsPayload {
     uint32_t failed;
     uint32_t last_rtt_us;  // esp_now_send to send callback for the newest unicast frame
     uint8_t channel;
-    uint8_t robot_known;  // 0 while the dongle broadcasts, 1 once it has learned the robot MAC
+    uint8_t robot_known;
 };
 
 struct OtaBeginPayload {
@@ -134,10 +118,6 @@ struct OtaStatusPayload {
     uint8_t error;  // OtaError
     uint8_t running_md5[16];
 };
-// Body of the robot's `GET /telemetry?from=<seq>&max=<n>` over WiFi: this header, then `count`
-// TelemetryPayload records, oldest first. The firmware fills a ring of them at the ESP-NOW
-// telemetry rate whether or not anyone reads it, so a client that loses the link catches up on
-// everything still in the ring once it is back. telemetry_seq in each record is the ring's seq.
 struct TelemetryBatchHeader {
     uint32_t magic;        // TELEMETRY_BATCH_MAGIC
     uint16_t version;      // TELEMETRY_BATCH_VERSION
@@ -152,34 +132,30 @@ struct TelemetryBatchHeader {
 
 #pragma pack(pop)
 
-const uint32_t TELEMETRY_BATCH_MAGIC = 0x4D525442;  // "BTRM" little-endian
+const uint32_t TELEMETRY_BATCH_MAGIC = 0x4D525442;
 const uint16_t TELEMETRY_BATCH_VERSION = 2;
 // Records per response at most. The client asks again at once when a response comes back full.
 const uint32_t TELEMETRY_BATCH_MAX = 256;
 
 const size_t OTA_CHUNK_DATA = 240;
 
-// The dongle sends MSG_PING whenever the radio has been idle this long. Without it the dongle is
-// silent unless the Jetson is commanding, and then the robot cannot sweep onto its channel, has
-// nowhere to send telemetry, and cannot validate a freshly flashed image (rollback needs to hear a
-// dongle). 10 ms puts two pings inside every 25 ms sweep dwell, at ~1% of the channel.
 const uint32_t PING_PERIOD_MS = 10;
 
 enum OtaState : uint8_t {
     OTA_IDLE = 0,
     OTA_RECEIVING = 1,
-    OTA_DONE = 2,       // image accepted, rebooting
-    OTA_VALIDATED = 3,  // sent after reboot once the new image marked itself valid
+    OTA_DONE = 2,
+    OTA_VALIDATED = 3,
     OTA_ERROR = 4,
 };
 
 enum OtaError : uint8_t {
     OTA_OK = 0,
     OTA_ERR_ARMED = 1,
-    OTA_ERR_BEGIN = 2,  // Update.begin refused: size does not fit the slot
+    OTA_ERR_BEGIN = 2,
     OTA_ERR_WRITE = 3,
-    OTA_ERR_VERIFY = 4,   // MD5 or image check failed in Update.end
-    OTA_ERR_ABORTED = 5,  // host abort, arming, or silence
+    OTA_ERR_VERIFY = 4,
+    OTA_ERR_ABORTED = 5,
     OTA_ERR_NOT_ACTIVE = 6,
 };
 
@@ -192,7 +168,6 @@ static_assert(sizeof(TelemetryPayload) <= AIR_MAX_PAYLOAD, "telemetry must fit o
 static_assert(sizeof(OtaChunkHeader) + OTA_CHUNK_DATA <= AIR_MAX_PAYLOAD,
               "OTA chunk must fit one air frame");
 
-/** CRC-16/CCITT-FALSE: poly 0x1021, init 0xFFFF. */
 uint16_t crc16_ccitt(const uint8_t *data, size_t length);
 
 /** Writes a serial frame into out, which must hold SERIAL_OVERHEAD + length bytes. Returns the
@@ -203,14 +178,8 @@ size_t encode_serial_frame(uint8_t type, const uint8_t *payload, uint8_t length,
  *  frame size, or 0 when the payload does not fit AIR_MAX_PAYLOAD. */
 size_t encode_air_frame(uint8_t type, const uint8_t *payload, size_t length, uint8_t *out);
 
-/** True when frame starts with the session magic and has a type byte. */
 bool is_air_frame(const uint8_t *frame, size_t length);
 
-/**
- * Streaming serial frame parser. Feed bytes as they arrive, in any split. Every complete frame with
- * a valid CRC is handed to the handler once. Garbage and CRC failures are skipped by dropping one
- * byte and rescanning for the magic, so a corrupted frame cannot hide a good one behind it.
- */
 class SerialFrameParser {
    public:
     using Handler = void (*)(void *context, uint8_t type, const uint8_t *payload, uint8_t length);

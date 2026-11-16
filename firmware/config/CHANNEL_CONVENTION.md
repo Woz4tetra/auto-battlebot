@@ -88,3 +88,24 @@ From `config/_common.toml` (`[transmitter]`):
   SB flip mix on ch7. It needs a rebuild to match this table before flying the
   new firmware (which reads flip on ch7 and button on ch9).
 - No model maps the ch9 button yet.
+
+## Notes moved from code comments
+
+### General
+
+- `mr_stabs_mk2/include/crsf_bridge.h`: ch5 (SA) down: the handset mixes the Jetson's trainer inputs into ch0/ch1. Also the only gate on ESP-NOW command substitution. Not the flip switch: that is ch7 (SB).
+- `mr_stabs_mk2/src/main.cpp`: Same place the trainer path lands: the Jetson's two channel values go into ch0/ch1 at full scale, and crsf_bridge negates ch0 into a_percent.
+- `mr_stabs_mk2/src/main.cpp`: this is the default position when the transmitter powers on
+- `shared/espnow_protocol/src/espnow_protocol.h`: The two values the Jetson's drive processor would write to the trainer channels, normalized to [-1, 1]: linear and angular under DifferentialDriveProcessor, left and right wheel under TankDriveProcessor. The firmware puts them where ch0 and ch1 land, so the mixing is whatever the trainer path would have done.
+
+### CRSF framing
+
+- `mr_stabs_mk2/scripts/capture_crsf_telemetry.py`: A CRSF frame is [address][length][type][payload][crc]; length covers type..crc.
+
+### CRSF telemetry frames
+
+- `mr_stabs_mk2/src/crsf_bridge.cpp`: Radians x 10000 in an int16, so every angle must be within +-3.27 rad. Heading is wrapped from 0..360 to +-180 degrees first.
+
+### receiver failsafe setting
+
+- `mr_stabs_mk2/src/main.cpp`: The only link failsafe: isLinkUp() drops 300 ms after the last channel packet. That catches a lost handset only while the receiver's failsafe is set to send nothing; a receiver set to hold its last frame keeps the robot armed on stale values.

@@ -1,16 +1,9 @@
-# noqa: INP001  (PlatformIO extra script: SCons execs it, nothing imports it)
-"""PlatformIO pre-build step: gzip web/ into a C header the diagnostics server serves.
-
-Writes web_assets.h into the build directory and puts that directory on the include path, so
-nothing generated lands in the source tree. The header is rewritten only when its content
-changes, so an untouched web/ does not trigger a recompile. gzip runs with mtime 0 to keep the
-output byte-identical between builds.
-"""
+"""PlatformIO pre-build step: gzip web/ into a C header the diagnostics server serves."""
 
 import gzip
 from pathlib import Path
 
-Import("env")  # noqa: F821  (SCons builtin)
+Import("env")  # noqa: F821
 
 CONTENT_TYPES = {
     ".html": "text/html",
@@ -21,8 +14,7 @@ CONTENT_TYPES = {
     ".woff2": "font/woff2",
 }
 
-# Fonts never change between builds; everything else ships with the firmware it belongs to.
-CACHEABLE = {".woff2"}
+IMMUTABLE_ASSET_SUFFIXES = {".woff2"}
 
 
 def c_name(rel: Path) -> str:
@@ -61,7 +53,7 @@ def render(web_dir: Path) -> str:
             lines.append("    " + ",".join(str(b) for b in data[i : i + 20]) + ",")
         lines.append("};")
         url = "/" if rel.as_posix() == "index.html" else "/" + rel.as_posix()
-        cacheable = "true" if path.suffix in CACHEABLE else "false"
+        cacheable = "true" if path.suffix in IMMUTABLE_ASSET_SUFFIXES else "false"
         entries.append(
             f'    {{"{url}", "{CONTENT_TYPES[path.suffix]}", {name}, sizeof({name}), {cacheable}}},'
         )

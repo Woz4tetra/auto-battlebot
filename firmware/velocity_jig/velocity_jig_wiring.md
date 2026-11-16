@@ -119,3 +119,9 @@ interrupts).
    5V, run it off USB or add a boost converter. Wire to 3V only if it accepts 3.3V.
 5. **No I2C address conflict:** the IMU is off I2C entirely; the OLED owns the bus
    at `0x3C`.
+
+## Notes moved from code comments
+
+### General
+
+- `velocity_jig/include/config.h`: Encoder (quadrature) on A0/A1. Consecutive pins -> PIO/ISR quadrature decode.

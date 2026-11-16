@@ -15,12 +15,10 @@ struct RxFrame {
     uint8_t data[AIR_MAX_FRAME];
 };
 
-// Deep enough to hold the host's 16-chunk OTA window while a 64 KB block erase stalls loop().
 const UBaseType_t RX_QUEUE_DEPTH = 40;
 QueueHandle_t rx_queue = nullptr;
 
-// Telemetry send results, newest in bit 0, for a sliding-window link quality.
-volatile uint32_t send_history = 0;
+volatile uint32_t send_ack_history_newest_lsb = 0;
 volatile uint8_t send_history_count = 0;
 
 // Diagnostics counters written by the WiFi task callbacks. Single 32-bit writes; the page only
@@ -100,7 +98,6 @@ bool EspNowLink::begin(wifi_interface_t ifidx, uint8_t channel, TuningStore *tun
 }
 
 void EspNowLink::set_channel(uint8_t channel) {
-    // Pinned with the SoftAP up, the AP already owns this channel and this is a no-op.
     esp_wifi_set_channel(channel, WIFI_SECOND_CHAN_NONE);
     channel_ = channel;
     // Peers and the rate do not survive a channel change, so redo both every time.
@@ -110,10 +107,8 @@ void EspNowLink::set_channel(uint8_t channel) {
 }
 
 void EspNowLink::on_recv(const uint8_t *mac, const uint8_t *data, int length) {
-    // WiFi task context: filter, copy, and return. Never touch ESCs or flash here.
     if (rx_queue == nullptr || !is_air_frame(data, static_cast<size_t>(length))) return;
     if (!is_dongle(mac)) {
-        // Our session magic from a MAC that is not paired: usually a new dongle nobody paired.
         memcpy(rejected_mac, mac, 6);
         rx_rejected = rx_rejected + 1;
         return;
@@ -127,7 +122,8 @@ void EspNowLink::on_recv(const uint8_t *mac, const uint8_t *data, int length) {
 
 void EspNowLink::on_sent(const uint8_t *mac, esp_now_send_status_t status) {
     (void)mac;
-    send_history = (send_history << 1) | (status == ESP_NOW_SEND_SUCCESS ? 1u : 0u);
+    send_ack_history_newest_lsb =
+        (send_ack_history_newest_lsb << 1) | (status == ESP_NOW_SEND_SUCCESS ? 1u : 0u);
     if (send_history_count < 32) send_history_count = send_history_count + 1;
     if (status == ESP_NOW_SEND_SUCCESS) {
         tx_ok = tx_ok + 1;
@@ -144,7 +140,6 @@ void EspNowLink::update(uint32_t now_ms, bool armed) {
     }
 
     if (ota_.active()) {
-        // Crossfire keeps authority: arming hands the robot straight back to the pilot.
         if (armed) {
             ota_abort(OTA_ERR_ABORTED);
         } else if (now_ms - last_ota_frame_ms_ > OTA_SILENCE_MS) {
@@ -218,7 +213,6 @@ void EspNowLink::handle_frame(const uint8_t *mac, uint8_t type, const uint8_t *p
             break;
         case MSG_PING:
             rx_pings_++;
-            // Nothing beyond the bookkeeping above: it names the dongle and proves the channel.
             break;
         default:
             break;
@@ -265,8 +259,6 @@ void EspNowLink::ota_chunk(const uint8_t *payload, size_t length, uint32_t now_m
     const uint32_t data_length = static_cast<uint32_t>(length - sizeof(header));
 
     if (ota_.on_chunk(header.offset, data_length) == OtaSequencer::DROP) {
-        // Tell the host where to resume right away rather than waiting for its timeout, but at
-        // most every 20 ms: a lost chunk drops the rest of the window, one status per chunk.
         if (now_ms - last_drop_status_ms_ >= 20) {
             last_drop_status_ms_ = now_ms;
             send_ota_status(OTA_RECEIVING, OTA_OK);
@@ -286,11 +278,9 @@ void EspNowLink::ota_end() {
         return;
     }
     if (!ota_.complete()) {
-        // Host is ahead of us; the status tells it where to resume.
         send_ota_status(OTA_RECEIVING, OTA_OK);
         return;
     }
-    // Checks the MD5 and the image header and SHA-256, then switches the boot slot.
     if (!Update.end()) {
         ota_.reset();
         send_ota_status(OTA_ERROR, OTA_ERR_VERIFY);
@@ -323,16 +313,11 @@ void EspNowLink::send_ota_status(uint8_t state, uint8_t error) {
 
 void EspNowLink::service_validation(uint32_t now_ms) {
     if (!validated_) {
-        // The Arduino bootloader is built without rollback, so nothing here reverts a bad image:
-        // this is the flasher's proof that the new image runs, for 10 s, with the radio working.
-        // A bad image is rescued over USB (scripts/upload).
         if (now_ms < VALIDATE_AFTER_MS || !heard_dongle_) return;
         validated_ = true;
         validated_reports_left_ = 10;
         memcpy(ota_mac_, reply_mac_, 6);
     }
-    // The flasher waits for this to confirm the new image is the one running. Repeated over 5 s
-    // because a single frame can be lost.
     if (validated_reports_left_ > 0 && now_ms - last_validated_report_ms_ >= 500) {
         last_validated_report_ms_ = now_ms;
         validated_reports_left_--;
@@ -364,12 +349,13 @@ void EspNowLink::service_sweep(uint32_t now_ms) {
     if (now_ms - sweep_dwell_start_ms_ < CHANNEL_DWELL_MS) return;
     sweep_dwell_start_ms_ = now_ms;
     sweep_index_ = (sweep_index_ + 1) % (sizeof(CHANNEL_CANDIDATES) + 1);
-    // Index 0 is the last-known-good channel, then the fixed candidates.
-    const uint8_t next = sweep_index_ == 0 && last_good_channel_ != 0
-                             ? last_good_channel_
-                             : CHANNEL_CANDIDATES[(sweep_index_ + sizeof(CHANNEL_CANDIDATES) - 1) %
-                                                  sizeof(CHANNEL_CANDIDATES)];
-    set_channel(next);
+    set_channel(next_sweep_channel());
+}
+
+uint8_t EspNowLink::next_sweep_channel() const {
+    if (sweep_index_ == 0 && last_good_channel_ != 0) return last_good_channel_;
+    return CHANNEL_CANDIDATES[(sweep_index_ + sizeof(CHANNEL_CANDIDATES) - 1) %
+                              sizeof(CHANNEL_CANDIDATES)];
 }
 
 void EspNowLink::send_telemetry(TelemetryPayload &telemetry, uint32_t now_ms) {
@@ -385,7 +371,8 @@ void EspNowLink::send_telemetry(TelemetryPayload &telemetry, uint32_t now_ms) {
     const uint32_t mask = count >= 32 ? 0xFFFFFFFFu : ((1u << count) - 1u);
     telemetry.espnow_lq =
         count == 0 ? 0
-                   : static_cast<uint8_t>(100 * __builtin_popcount(send_history & mask) / count);
+                   : static_cast<uint8_t>(
+                         100 * __builtin_popcount(send_ack_history_newest_lsb & mask) / count);
     telemetry.telemetry_seq = telemetry_seq_++;
     tx_telemetry_++;
     send_frame(reply_mac_, MSG_TELEMETRY, &telemetry, sizeof(telemetry));
@@ -393,7 +380,6 @@ void EspNowLink::send_telemetry(TelemetryPayload &telemetry, uint32_t now_ms) {
 
 void EspNowLink::load_paired() {
     Preferences prefs;
-    // Fails before the first pair, when the namespace does not exist yet.
     if (prefs.begin("espnow_pair", true)) {
         const uint8_t count = prefs.getUChar("count", 0);
         if (count <= MAX_PAIRED_DONGLES &&
@@ -425,7 +411,7 @@ uint8_t EspNowLink::pair(const uint8_t *mac, bool armed) {
     if (armed) {
         result = PAIR_ARMED;
     } else if ((mac[0] & 0x01) != 0) {
-        result = PAIR_BAD_MAC;  // multicast or broadcast: never a dongle's own address
+        result = PAIR_BAD_MAC;
     } else if (is_dongle(mac)) {
         result = PAIR_EXISTS;
     } else if (paired_count_ >= MAX_PAIRED_DONGLES) {
@@ -462,33 +448,33 @@ uint8_t EspNowLink::unpair(const uint8_t *mac, bool armed) {
 }
 
 void EspNowLink::fill_status(espnow_status_t &out, uint32_t now_ms) const {
-    out.begin_ok = begin_ok_;
+    out.esp_now_init_ok = begin_ok_;
     out.channel = channel_;
     out.sweeping = sweeping_;
     out.last_good_channel = last_good_channel_;
     out.heard_dongle = heard_dongle_;
     memcpy(out.dongle_mac, reply_mac_, 6);
-    out.last_frame_ms = last_valid_frame_ms_;
-    out.rx_frames = rx_frames_;
+    out.last_allowed_frame_ms = last_valid_frame_ms_;
+    out.rx_allowed_frames = rx_frames_;
     out.rx_commands_new = rx_commands_new_;
     out.rx_commands_repeat = rx_commands_repeat_;
-    out.rx_commands_old = rx_commands_old_;
+    out.rx_commands_late_dropped = rx_commands_old_;
     out.rx_pings = rx_pings_;
     out.rx_tunables = rx_tunables_;
     out.rx_ota = rx_ota_;
-    out.rx_size_errors = rx_size_errors_;
-    out.rx_rejected = rx_rejected;
+    out.rx_wrong_length = rx_size_errors_;
+    out.rx_unpaired_mac = rx_rejected;
     memcpy(out.rejected_mac, rejected_mac, 6);
-    out.rx_queue_full = rx_queue_full;
+    out.rx_queue_full_drops = rx_queue_full;
     out.tx_telemetry = tx_telemetry_;
-    out.tx_ok = tx_ok;
-    out.tx_fail = tx_fail;
-    out.tx_errors = tx_errors;
+    out.tx_acked = tx_ok;
+    out.tx_no_ack = tx_fail;
+    out.tx_send_refused = tx_errors;
     const uint8_t count = send_history_count;
     const uint32_t mask = count >= 32 ? 0xFFFFFFFFu : ((1u << count) - 1u);
-    out.lq = count == 0
-                 ? 0
-                 : static_cast<uint8_t>(100 * __builtin_popcount(send_history & mask) / count);
+    out.lq = count == 0 ? 0
+                        : static_cast<uint8_t>(
+                              100 * __builtin_popcount(send_ack_history_newest_lsb & mask) / count);
     out.command_fresh = tracker_.fresh(now_ms);
     out.command_seq = tracker_.latest().seq;
     out.command_age_ms = tracker_.age_ms(now_ms);

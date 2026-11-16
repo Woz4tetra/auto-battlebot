@@ -2,17 +2,12 @@
 #include <cstddef>
 #include <cstdint>
 
-// BLHeli 4-way interface server and BLHeli_32 bootloader client. Tuning mode relays 4-way
-// request frames from HTTP (the diagnostics page, or firmware/blheli/blheli32.py --url) to the
-// ESC signal wires. Ported from firmware/BlHeli-Passthrough/ESP32/4Way.cpp and ESC_Serial.cpp,
-// minus MSP, with reads that end on the expected length instead of fixed delays, and with an
-// address guard. Protocol and settings layout: firmware/blheli/README.md.
 namespace blheli_boot {
 
-// 4-way framing: request 2F cmd addr_hi addr_lo n params[n] crc_hi crc_lo, response
-// 2E cmd addr_hi addr_lo n params[n] ack crc_hi crc_lo. n = 0 means 256. CRC16-XMODEM.
 const uint8_t REQUEST_START = 0x2F;
 const uint8_t RESPONSE_START = 0x2E;
+const uint8_t WRITE_TRIES = 3;
+const uint8_t INIT_TRIES = 3;
 const size_t MAX_REQUEST = 5 + 256 + 2;
 const size_t MAX_RESPONSE = 5 + 256 + 3;
 
@@ -36,7 +31,7 @@ enum Ack : uint8_t {
     ACK_INVALID_CMD = 0x02,
     ACK_INVALID_CRC = 0x03,
     ACK_INVALID_CHANNEL = 0x08,
-    ACK_INVALID_PARAM = 0x09,  // also what the address guard answers
+    ACK_INVALID_PARAM = 0x09,
     ACK_GENERAL_ERROR = 0x0F,
 };
 
@@ -44,15 +39,10 @@ const uint8_t MODE_ARM_BLB = 0x04;
 const uint8_t PROTOCOL_VERSION = 108;
 const char INTERFACE_NAME[] = "MrStabsMk2";
 
-// The settings page is the only flash a write may touch. BLHeliSuite's Write Setup is one
-// 256-byte DeviceWrite here and no page erase, so anything else is refused: a bad page can
-// corrupt settings (restored from a backup) but never the ESC's application or bootloader.
 const uint16_t SETTINGS_ADDRESS = 0xF800;
 const uint16_t SETTINGS_SIZE = 256;
 bool write_allowed(uint16_t address, size_t length);
 
-// Bootloader link: 19200 8N1 half duplex on the signal wire, CRC16 poly 0xA001 (reflected,
-// init 0), sent low byte first. Replies end in a result byte.
 const uint8_t BOOT_SUCCESS = 0x30;
 const uint8_t BOOT_RESTART = 0x00;
 const uint8_t BOOT_PROG_FLASH = 0x01;
@@ -75,21 +65,16 @@ enum class ParseResult : uint8_t { OK, SHORT, BAD_START, BAD_LENGTH, BAD_CRC };
 ParseResult parse_request(const uint8_t *frame, size_t size, Request &out);
 const char *parse_result_name(ParseResult result);
 
-// Writes a response frame into out (MAX_RESPONSE bytes) and returns its size. length is 1..256.
 size_t build_response(uint8_t cmd, uint16_t address, const uint8_t *params, size_t length,
                       uint8_t ack, uint8_t *out);
 
-// The one-wire serial link to the ESCs, by passthrough index (0 = A2, 1 = A3).
 class EscLink {
    public:
     virtual ~EscLink() = default;
     virtual uint8_t count() const = 0;
     virtual void select(uint8_t esc) = 0;
     virtual void send(const uint8_t *data, size_t size) = 0;
-    // Reads until expect bytes have arrived (0: no length known), a 10 ms gap after the first
-    // byte, max bytes, or nothing at all for first_ms. Returns the count read.
     virtual size_t receive(uint8_t *buf, size_t max, size_t expect, uint32_t first_ms) = 0;
-    // Drives the selected line low for ms, then high.
     virtual void hold_low(uint32_t ms) = 0;
     virtual void delay_ms(uint32_t ms) = 0;
 };
@@ -97,25 +82,14 @@ class EscLink {
 class Server {
    public:
     explicit Server(EscLink &link) : _link(link) {}
-    // One request frame in, one response frame out. Returns the response size, 0 when the frame
-    // is too short to answer.
     size_t handle(const uint8_t *frame, size_t size, uint8_t *out);
-    // Restarts the ESC: the restart command, then the line low for 300 ms, as the passthrough's
-    // DeviceReset does. The ESC boots its application.
     void reset_esc(uint8_t esc);
-    // Writes and erases the guard refused, from boot.
-    uint32_t guard_refusals() const { return _guard_refusals; }
-    // Why the latest bootloader exchange failed ("" after a success): the step, the bytes
-    // received against those expected, and the first few received.
+    uint32_t guard_refusals_since_boot() const { return _guard_refusals; }
     const char *failure() const { return _failure; }
-    // The latest DeviceInitFlash reply as received, for diagnosing bootloader entry.
     const char *init_reply() const { return _init_reply; }
-    // Reads that needed the handshake redone, from boot.
-    uint32_t resyncs() const { return _resyncs; }
-    // The first failed attempt of the latest read, "" when it succeeded at once.
+    uint32_t handshake_resyncs() const { return _resyncs; }
     const char *first_read_failure() const { return _first_read_failure; }
-    // Handshakes that needed the ESC restarted first, from boot.
-    uint32_t reboots() const { return _reboots; }
+    uint32_t handshake_restarts() const { return _reboots; }
 
    private:
     EscLink &_link;
@@ -124,13 +98,11 @@ class Server {
     char _failure[96] = "";
     char _init_reply[96] = "";
     char _first_read_failure[96] = "";
-    int8_t _esc = -1;  // the ESC of the latest handshake
+    int8_t _handshake_esc = -1;
     uint32_t _resyncs = 0;
     uint32_t _reboots = 0;
 
-    // Formats the step, the bytes received against those expected (0: unknown), and the first few.
     void describe(char *out, size_t size, const char *step, size_t received, size_t expected) const;
-    // Records a failed step and returns ACK_GENERAL_ERROR.
     uint8_t fail(const char *step, size_t received, size_t expected);
 
     void send_boot(const uint8_t *data, size_t size);

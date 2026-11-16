@@ -1,15 +1,8 @@
 #pragma once
 #include <cstdint>
 
-// Keeps a stalled drive motor from cooking itself. Estimates each motor's winding current from
-// eRPM and the INA238 pack current, runs a one-node thermal model per motor, and scales both drive
-// commands down when a motor's current exceeds what its temperature allows.
-// docs/plans/motor_stall_protection_plan.md has the derivation; section numbers below refer to it.
 namespace motor_guard {
 
-// Step 0 of the plan was deferred, so every value here is a placeholder chosen to err toward
-// limiting early: R_cold below the MuJoCo fit (overestimates current) and dT_max 20 C under the
-// plan's 70 C.
 struct Config {
     float r_cold_ohm = 0.40f;          // effective circuit resistance, cold (fit says 0.453)
     float ke_v_s_per_rad = 4.152e-3f;  // back-EMF constant, 2300 KV
@@ -33,30 +26,17 @@ struct Config {
                                      // and while neither motor's speed moved more per update
     float gain_min_load = 0.4f;      // and above this fraction of the draw with no back-EMF
     float gain_tau_s = 0.5f;
-    // g only raises the model. Over-estimates (a high R, or BLHeli holding duty back while it
-    // restarts a motor) are capped by the shunt bound instead: a duty clamp drove g to 0.8 on
-    // the 2026-10-23 bench run, which would have under-read every later stall.
     float gain_min = 1.0f;
     float gain_max = 1.5f;
     float stall_duty = 0.3f;  // stall flag: |d| above this with eRPM 0
     float stall_hold_s = 0.1f;
     float fallback_volts = 15.2f;  // V once the last INA238 voltage is volts_hold_s old
     float volts_hold_s = 1.0f;
-    float min_amps = 0.1f;  // estimates below this do not drive the limiter
-    // The limiter acts on |I_hat| low-passed at this time constant. Launches and full-stick
-    // reversals draw stall to plugging current (up to about 47 A) for about 30 ms while back-EMF
-    // builds and eRPM catches up a loop late. Acting on the raw estimate cut a full-stick launch
-    // to 76% on the 2026-10-23 bench run. At 0.1 s a dual stall at full stick still crosses
-    // I_peak within about 60 ms. The thermal model integrates the raw estimate either way.
+    float min_amps = 0.1f;
     float limit_filter_s = 0.1f;
-    // Hard trip: a motor's estimated rise at or above this cuts drive until disarm. It protects the
-    // motors while the scaling limits above are loosened for test-box sessions. Placeholder: set it
-    // from a motor can temperature measured after a 3 minute driven session against the logged
-    // motor_rise_left/right (docs/plans/nav_scoring_and_rl_v2_plan.md, section 0.3).
     float trip_rise_c = 70.0f;
 };
 
-// TRIPPED outranks every other state: the trip latches whatever the sensors do afterward.
 enum class State : uint8_t { OFF, NOMINAL, HOT, LIMITING, TRIPPED };
 enum class Sensors : uint8_t { FUSED, SHUNT_ONLY, ERPM_ONLY, NONE };
 
@@ -72,46 +52,55 @@ class MotorGuard {
     // still cools the model.
     void update(float dt_s, float volts, float amps, float left_duty, float right_duty,
                 float left_erpm, float right_erpm);
-    // Call every control loop. Scales both percent commands by the held scale, or zeroes them
-    // while tripped.
     void apply(float &left_percent, float &right_percent) const;
-    // Call on disarm. A motor still at or above trip_rise_c trips again on the next update.
     void clear_trip() { _tripped = false; }
     bool tripped() const { return _tripped; }
     float scale() const { return _scale; }
     float rise_c(int motor) const { return _rise_c[motor]; }  // 0 left, 1 right
     float amps_estimate(int motor) const { return _amps[motor]; }
     float amps_allowed(int motor) const { return _allowed[motor]; }
-    float speed_rad_s(int motor) const { return _speed[motor]; }  // signed, motor shaft
+    float motor_shaft_speed_signed_rad_s(int motor) const { return _speed[motor]; }
     bool stalled(int motor) const { return _stalled[motor]; }
-    float gain() const { return _gain; }  // g
+    float shunt_gain() const { return _gain; }
     State state() const;
     Sensors sensors() const { return _sensors; }
-    float continuous_amps() const { return _continuous_amps; }
-    // Restores heat after a warm reset (RTC_NOINIT values); clamps to [0, rise_max_c * 2].
+    float continuous_amps() const { return _continuous_amps_at_rise_max; }
     void restore(float left_rise_c, float right_rise_c);
 
    private:
+    void select_sensors(bool shunt_ok, const bool (&speed_ok)[NUM_MOTORS]);
+    void model_currents_from_speed(const bool (&speed_ok)[NUM_MOTORS],
+                                   const float (&duty)[NUM_MOTORS], const float (&erpm)[NUM_MOTORS],
+                                   float v, float (&model)[NUM_MOTORS]);
+    void resolve_contested_reversal(const float (&duty)[NUM_MOTORS],
+                                    const float (&erpm)[NUM_MOTORS], float amps, float v,
+                                    float (&model)[NUM_MOTORS]);
+    void bound_motors_without_erpm(const bool (&speed_ok)[NUM_MOTORS], bool shunt_ok,
+                                   const float (&duty)[NUM_MOTORS], float measured_remainder,
+                                   float v);
+    void update_stall_flags(const bool (&speed_ok)[NUM_MOTORS], const float (&erpm)[NUM_MOTORS],
+                            const float (&duty)[NUM_MOTORS], float dt_s);
+    void update_thermal_model(float dt_s);
     Config _config;
-    float _continuous_amps;  // I_cont: holds a motor at rise_max_c forever
+    float _continuous_amps_at_rise_max;
     float _rise_c[NUM_MOTORS] = {0.0f, 0.0f};
     float _amps[NUM_MOTORS] = {0.0f, 0.0f};
-    float _limit_amps[NUM_MOTORS] = {0.0f, 0.0f};  // |I_hat| low-passed for the limiter
+    float _limiter_amps_filtered[NUM_MOTORS] = {0.0f, 0.0f};
     float _last_speed[NUM_MOTORS] = {0.0f, 0.0f};
     float _last_duty[NUM_MOTORS] = {0.0f, 0.0f};
-    int _steady_samples = 0;  // updates in a row with speed and duty both steady
+    int _steady_updates = 0;
     float _allowed[NUM_MOTORS];
     float _speed[NUM_MOTORS] = {0.0f, 0.0f};
-    float _sign[NUM_MOTORS] = {1.0f, 1.0f};  // sigma_k, direction of rotation
+    float _rotation_sign[NUM_MOTORS] = {1.0f, 1.0f};
     float _last_erpm[NUM_MOTORS] = {0.0f, 0.0f};
-    int _contradictions = 0;  // samples the shunt rejected the held sign
+    int _shunt_sign_rejections = 0;
     bool _stalled[NUM_MOTORS] = {false, false};
     float _stall_s[NUM_MOTORS] = {0.0f, 0.0f};
     float _gain = 1.0f;
-    float _log_scale = 0.0f;  // u = ln(scale)
+    float _log_scale = 0.0f;
     float _scale = 1.0f;
     bool _tripped = false;
-    float _volts = 0.0f;  // last INA238 voltage
+    float _last_ina238_volts = 0.0f;
     float _volts_age_s = 1e9f;
     Sensors _sensors = Sensors::NONE;
 

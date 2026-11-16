@@ -5,16 +5,12 @@
 
 namespace blheli_boot {
 
-// The passthrough's DeviceInitFlash handshake. It carries its own CRC, so it goes out raw.
 static const uint8_t BOOT_INIT[] = {0,   0,   0,   0,   0,   0,   0,    0,   0x0D,
                                     'B', 'L', 'H', 'e', 'l', 'i', 0xF4, 0x7D};
-// The passthrough's InterfaceGetVersion, 20.0.05.
 static const uint8_t INTERFACE_VERSION[] = {200, 5};
-// The passthrough's retry count for the steps of a write.
-static const uint8_t WRITE_TRIES = 3;
-static const uint8_t READ_TRIES = 3;  // a read changes nothing, so it can repeat
-static const uint8_t INIT_TRIES = 3;
+static const uint8_t READ_TRIES = 3;
 static const uint32_t REBOOT_SETTLE_MS = 500;
+static const uint32_t PROG_FLASH_ACK_TIMEOUT_MS = 400;
 static const size_t INIT_REPLY_SIZE = 9;
 
 bool write_allowed(uint16_t address, size_t length) {
@@ -140,8 +136,6 @@ bool Server::set_address(uint16_t address, uint8_t tries) {
     return false;
 }
 
-// The handshake reply is "471", the signature, boot version and pages, then 0x30:
-// 34 37 31 6d 47 06 07 04 30 on these ESCs.
 bool Server::handshake(uint8_t *signature) {
     static const uint16_t RETRY_DELAY_MS[INIT_TRIES] = {0, 100, 250};
     for (uint8_t attempt = 0; attempt < INIT_TRIES; attempt++) {
@@ -160,7 +154,6 @@ bool Server::handshake(uint8_t *signature) {
             continue;
         }
         _failure[0] = '\0';
-        // The passthrough's order, which is what BLHeliSuite reads: 06 47 6d 04 here.
         signature[0] = reply[5];
         signature[1] = reply[4];
         signature[2] = reply[3];
@@ -170,12 +163,9 @@ bool Server::handshake(uint8_t *signature) {
     return false;
 }
 
-// Tuning mode puts the ESCs in their bootloader by stopping DShot, so the handshake normally
-// answers at once. If it does not, the ESC is restarted the passthrough's way and given
-// REBOOT_SETTLE_MS of quiet high line before the handshake is tried again.
 uint8_t Server::init_flash(uint8_t esc, uint8_t *signature) {
     _link.select(esc);
-    _esc = esc;
+    _handshake_esc = esc;
     if (handshake(signature)) return ACK_OK;
     _reboots++;
     reset_esc(esc);
@@ -188,7 +178,6 @@ uint8_t Server::read_once(uint16_t address, size_t length, uint8_t *data) {
     if (!set_address(address, 1)) return ACK_GENERAL_ERROR;
     const uint8_t cmd[] = {BOOT_READ_FLASH, static_cast<uint8_t>(length & 0xFF)};
     send_boot(cmd, sizeof(cmd));
-    // Data, CRC low and high, result. 256 bytes take 135 ms on the wire at 19200.
     const size_t expect = length + 3;
     const size_t n = _link.receive(_rx, sizeof(_rx), 0, 500);
     if (n < expect) return fail("read flash", n, expect);
@@ -210,10 +199,10 @@ uint8_t Server::read(uint16_t address, size_t length, uint8_t *data) {
         if (read_once(address, length, data) == ACK_OK) return ACK_OK;
         if (attempt == 0) memcpy(_first_read_failure, _failure, sizeof(_failure));
     }
-    if (_esc < 0) return ACK_GENERAL_ERROR;
+    if (_handshake_esc < 0) return ACK_GENERAL_ERROR;
     _resyncs++;
     uint8_t signature[4];
-    _link.select(static_cast<uint8_t>(_esc));
+    _link.select(static_cast<uint8_t>(_handshake_esc));
     if (!handshake(signature)) return ACK_GENERAL_ERROR;
     for (uint8_t attempt = 0; attempt < READ_TRIES; attempt++) {
         if (read_once(address, length, data) == ACK_OK) return ACK_OK;
@@ -222,10 +211,6 @@ uint8_t Server::read(uint16_t address, size_t length, uint8_t *data) {
     return ACK_GENERAL_ERROR;
 }
 
-// The passthrough's write and retries, which wrote and verified a page on these ESCs on
-// 2026-10-23, except that it stops when the address or the data is not acknowledged: the
-// passthrough sends ProgFlash anyway, which could commit a buffer that never arrived intact.
-// SetBuffer has no reply; the ESC answers after the data.
 uint8_t Server::write(uint16_t address, const uint8_t *data, size_t length) {
     if (!set_address(address, WRITE_TRIES)) return ACK_GENERAL_ERROR;
 
@@ -247,7 +232,7 @@ uint8_t Server::write(uint16_t address, const uint8_t *data, size_t length) {
     for (uint8_t attempt = 0; attempt < WRITE_TRIES && !ok; attempt++) {
         if (attempt > 0) _link.delay_ms(30);
         send_boot(prog_cmd, sizeof(prog_cmd));
-        ok = boot_ack(400, "program flash");  // the result waits for the flash commit
+        ok = boot_ack(PROG_FLASH_ACK_TIMEOUT_MS, "program flash");
     }
     if (!ok) return ACK_GENERAL_ERROR;
     _failure[0] = '\0';
@@ -258,7 +243,6 @@ void Server::reset_esc(uint8_t esc) {
     _link.select(esc);
     const uint8_t cmd[] = {BOOT_RESTART, 0x00};
     send_boot(cmd, sizeof(cmd));
-    // Betaflight's sequence: line low 300 ms, then high. No reply; drain whatever comes.
     _link.hold_low(300);
     _link.receive(_rx, sizeof(_rx), 0, 50);
 }
@@ -288,10 +272,8 @@ size_t Server::handle(const uint8_t *frame, size_t size, uint8_t *out) {
             return build_response(req.cmd, req.address, &zero, 1,
                                   param == MODE_ARM_BLB ? ACK_OK : ACK_INVALID_PARAM, out);
         case INTERFACE_EXIT:
-            // Tuning mode owns the pins; leaving it is POST /esc/tuning.
             return build_response(req.cmd, req.address, &zero, 1, ACK_OK, out);
         case TEST_ALIVE: {
-            // Answered OK whatever the ESC says, as the passthrough does.
             const uint8_t cmd[] = {BOOT_KEEP_ALIVE, 0x00};
             send_boot(cmd, sizeof(cmd));
             _link.receive(_rx, sizeof(_rx), 1, 200);
@@ -318,7 +300,6 @@ size_t Server::handle(const uint8_t *frame, size_t size, uint8_t *out) {
             return build_response(req.cmd, req.address, signature, 4, ack, out);
         }
         case DEVICE_READ: {
-            // Read straight into the response's parameter bytes.
             const size_t length = param == 0 ? 256 : param;
             const uint8_t ack = read(req.address, length, out + 5);
             if (ack != ACK_OK) return build_response(req.cmd, req.address, &zero, 1, ack, out);

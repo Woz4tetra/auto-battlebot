@@ -1,13 +1,5 @@
 #!/usr/bin/env python3
-"""Serve the robot's diagnostics page on localhost over USB serial.
-
-Every browser request goes down the USB cable to the robot, which replays it against its own web
-server (src/usb_bridge.cpp) and streams the raw response back. The robot's log lines print here,
-and to --log when given. Nothing on the robot needs WiFi.
-
-    venv/bin/python firmware/mr_stabs_mk2/scripts/usb_dashboard.py
-    # then open http://localhost:8080
-"""
+"""Serve the robot's diagnostics page on localhost over USB serial."""
 
 import argparse
 import base64
@@ -31,7 +23,7 @@ RESPONSE_TIMEOUT_S = 15.0
 # Answers are held for at most about 3 s while an ESC exchange runs.
 GET_TIMEOUT_S = 4.5
 GET_TRIES = 3
-SLOW_S = 2.0  # requests slower than this are noted in the log
+SLOW_REQUEST_LOG_S = 2.0
 
 
 class DamagedFrameError(Exception):
@@ -186,7 +178,7 @@ def fetch(bridge: Bridge, request: bytes, what: str, timeout_s: float) -> bytes 
     finally:
         bridge.close(stream_id)
     elapsed = time.monotonic() - started
-    if elapsed > SLOW_S:
+    if elapsed > SLOW_REQUEST_LOG_S:
         bridge.note(f"{stream_id} {what}: took {elapsed:.1f} s")
     if not response:
         bridge.note(f"{stream_id} {what}: empty response")

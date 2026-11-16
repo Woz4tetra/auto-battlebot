@@ -1,17 +1,5 @@
 #!/usr/bin/env python3
-"""Log Mr Stabs over the diagnostics stream and check two causes of twitching while driving.
-
-1. Spurious upside-down flips. With the flip switch DOWN, the firmware takes is_upside_down from
-   the BNO055 gravity vector and negates the throttle when it changes. It flips upside down below
-   accel_z = -1 m/s^2 and back above +1 m/s^2. A flip that reverts within --flip-window while the
-   switch did not move is a false detection: the drive reversed under the driver.
-2. DShot 3D reversals. A wheel command crossing from one side of the ESC deadzone to the other is
-   a direction reversal, which the ESC handles with a stall. A reversal is blamed on heading hold
-   when the driver's own stick mix for that wheel kept its sign.
-
-Join the MR-STABS WiFi, arm, and drive. Ctrl-C stops the capture early. --csv analyzes a file
-from an earlier capture or from the dashboard's Download CSV button instead.
-"""
+"""Log Mr Stabs over the diagnostics stream and check two causes of twitching while driving."""
 
 import argparse
 import csv
@@ -49,7 +37,6 @@ COLUMNS = [
     "yaw_rate",
     "yaw_rate_cmd",
 ]
-# The motor stall guard's columns, inserted before seq.
 GUARD_COLUMNS = [
     "motor_rise_left",
     "motor_rise_right",
@@ -65,13 +52,12 @@ GUARD_COLUMNS = [
     "erpm_crc_errors",
 ]
 COLUMNS = COLUMNS + GUARD_COLUMNS + ["seq"]
-# Columns added after the first logs were taken; older CSVs read them as NaN.
 OPTIONAL_COLUMNS = {"yaw_rate", "yaw_rate_cmd", "seq", *GUARD_COLUMNS}
 
 FLIP_SWITCH_DOWN = 0  # crsf_bridge::DOWN, the auto upside-down and heading-hold position
 UPSIDE_DOWN_BELOW = -1.0  # updown_sensor.h thresholds on the gravity z the diag reports
 RIGHT_SIDE_UP_ABOVE = 1.0
-TURN_THRESHOLD = 1.0  # |b_percent| above this is a manual turn, below it heading hold drives
+MANUAL_TURN_THRESHOLD_PCT = 1.0
 
 Row = dict[str, float]
 
@@ -103,7 +89,6 @@ def capture(host: str, seconds: float, out: Path) -> None:
                 if time.monotonic() > end:
                     break
                 line = raw.decode(errors="replace").strip()
-                # The connect greeting is also a data line; only full diag rows have every column.
                 if not line.startswith("data:"):
                     continue
                 data = line[len("data:") :].strip()
@@ -181,17 +166,16 @@ def check_upside_down(rows: list[Row], flip_window: float) -> bool:
         print("  not exercised: flip switch was never DOWN while armed")
         return False
 
-    # Distance from the threshold that would flip the current state, in m/s^2.
-    margins = [
+    flip_margins_mps2 = [
         row["accel_z"] - UPSIDE_DOWN_BELOW
         if row["is_upside_down"] == 0
         else RIGHT_SIDE_UP_ABOVE - row["accel_z"]
         for row in auto
     ]
-    close = sum(1 for margin in margins if margin < 3.0)
+    close = sum(1 for margin in flip_margins_mps2 if margin < 3.0)
     print(
         f"  {len(auto)} rows with the switch DOWN; smallest margin to the flip threshold "
-        f"{min(margins):.1f} m/s^2, {100 * close / len(auto):.1f}% of rows within 3 m/s^2"
+        f"{min(flip_margins_mps2):.1f} m/s^2, {100 * close / len(auto):.1f}% of rows within 3 m/s^2"
     )
 
     flips: list[tuple[Row, Row]] = []
@@ -243,7 +227,7 @@ def wheel_sign(command: float, deadzone: float) -> int:
 def driver_mix(row: Row, wheel: str) -> float:
     """The wheel command from the sticks alone, as mix_motor_outputs builds it without the PID."""
     turn = row["b_percent"]
-    if row["flip_switch"] == FLIP_SWITCH_DOWN and abs(turn) <= TURN_THRESHOLD:
+    if row["flip_switch"] == FLIP_SWITCH_DOWN and abs(turn) <= MANUAL_TURN_THRESHOLD_PCT:
         turn = 0.0
     sign = 1.0 if wheel == "left" else -1.0
     return -row["a_percent"] + sign * turn

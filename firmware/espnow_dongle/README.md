@@ -108,3 +108,78 @@ hardware. Flags inject faults: `--no-robot`, `--ack`, `--drop`, `--robot-channel
 venv/bin/python firmware/espnow_dongle/scripts/fake_dongle.py /tmp/fake_dongle --autonomy &
 venv/bin/python firmware/espnow_dongle/scripts/espnow_diag.py --port /tmp/fake_dongle
 ```
+
+## Notes moved from code comments
+
+### General
+
+- `espnow_dongle/platformio.ini`: Hardware USB-Serial/JTAG CDC: enumerates as 303a:1001 with the MAC as its USB serial number, which the udev rule keys on, and needs no TinyUSB stack.
+- `espnow_dongle/scripts/fake_dongle.py`: Simulated ESP-NOW dongle on a pty, for running espnow_diag.py without hardware. Speaks the dongle's serial side: the boot banner, MSG_LINK_STATS every 100 ms, and robot telemetry at 100 Hz, echoing the seq and jetson_tx_us of the last MSG_COMMAND it reads. Flags inject the faults the diagnostics page should catch. venv/bin/python firmware/espnow_dongle/scripts/fake_dongle.py /tmp/fake_dongle & venv/bin/python firmware/espnow_dongle/scripts/espnow_diag.py --port /tmp/fake_dongle
+- `shared/espnow_protocol/src/espnow_protocol.h`: MD5 or image check failed in Update.end host abort, arming, or silence
+
+### espnow_diag section
+
+- `espnow_dongle/scripts/espnow_diag.py`: ESP-NOW link diagnostics: reads the dongle's serial stream and serves a live page. Decodes every serial frame the dongle forwards (link stats, robot telemetry, OTA status, and any frame some other host put on the channel), tracks ACK rate, telemetry drops, arrival gaps, and command round trip, and runs a checklist that names the likely fault. Every frame lands in a 2-minute ring that can be saved after the fact, and CAPTURE writes the whole stream to JSONL. The dongle allows one reader. Stop the app first, or pass --manage-service: venv/bin/python firmware/espnow_dongle/scripts/espnow_diag.py --manage-service # then open http://<host>:8090 SEND COMMANDS streams commands at --command-hz so the command path, sequence numbers, and round trip can be measured. They start neutral (channel_a = channel_b = 0); the page's sliders set them, and the space bar returns both to neutral. The page refreshes the values every 100 ms; after COMMAND_DEADMAN_S without a refresh (tab closed, laptop asleep, network gone) they fall back to neutral. The robot only drives from them while armed with SA on, so the handset keeps authority.
+
+### Diagnostics page
+
+- `espnow_dongle/scripts/espnow_diag.py`: The dongle forwards every air frame carrying the session magic, whoever sent it. Only these two come from the robot; anything else read back from the air is another dongle or host on this channel.
+- `espnow_dongle/scripts/espnow_diag.py`: Same command echoed again: its second sample also holds a 10 ms slot wait.
+- `espnow_dongle/scripts/espnow_diag_web/app.js`: Checks after the first error are not shown by the server; list them greyed so the shape of the checklist stays put.
+
+### resetting the dongle
+
+- `espnow_dongle/scripts/espnow_diag.py`: One chip reset through the USB-Serial/JTAG lines: DTR low with RTS high holds EN low, then RTS low releases it with GPIO0 free, so the dongle boots its firmware and prints the banner. One pulse only: two resets inside ~500 ms drop an Adafruit board into TinyUF2.
+
+### command repeat
+
+- `espnow_dongle/src/main.cpp`: Re-send the latest command at 250 Hz so a lost packet is covered quickly.
+
+### status LED
+
+- `espnow_dongle/src/main.cpp`: NeoPixel levels out of 255. Full brightness is blinding at arm's length.
+
+### command slot
+
+- `espnow_dongle/src/main.cpp`: Frames waiting for the radio. Commands do not queue here: only the newest command matters, so it lives in its own slot and jumps the queue.
+
+### channel selection
+
+- `espnow_dongle/src/main.cpp`: Scores every channel by bytes heard and picks the quietest of 1, 6, and 11, counting energy from overlapping neighbors. Bytes heard is a proxy for airtime: it misses non-WiFi interferers (other teams' control links, video TX), which nothing in a WiFi scan can see.
+
+### USB serial
+
+- `espnow_dongle/src/main.cpp`: Never block on the host. With no reader the frame is dropped, which is what we want.
+
+### OTA path
+
+- `espnow_dongle/src/main.cpp`: Everything else goes out once. OTA retries are the host's job; a repeated chunk would only be dropped by the robot as out of order.
+
+### link stats
+
+- `espnow_dongle/src/main.cpp`: Broadcast until the robot is heard from. Broadcast gets no MAC-layer ACK or retry, so the link stats only mean something once robot_known is set.
+
+### robot discovery
+
+- `espnow_dongle/src/main.cpp`: Only the robot sends these types, so the first one names the robot.
+
+### OTA serial buffer
+
+- `espnow_dongle/src/main.cpp`: The default 256-byte RX buffer overflows on the OTA host's 16-chunk (~4 KB) window and the HWCDC ISR drops the excess, so every chunk after the first fails its CRC. Two windows.
+
+### PHY rate
+
+- `espnow_dongle/src/main.cpp`: After esp_wifi_start(), which WiFi.mode() ran. The 1 Mbps default costs ~1.2 ms a frame.
+
+### wire format
+
+- `shared/espnow_protocol/src/espnow_protocol.h`: Wire format for the ESP-NOW link between the Jetson, the USB dongle, and mr_stabs_mk2. See docs/plans/espnow_link_plan.md. Plain C++17 with no Arduino dependency: the robot firmware, the dongle firmware, the native unit tests, and the Jetson app all compile this one header, so the three ends cannot disagree about a field. Two hops: Jetson <--serial frame--> dongle <--air frame--> robot Serial frame: magic:u16 (0xB07B, little endian), type:u8, length:u8, payload, crc16:u16 over type, length, and payload. Air frame: session magic:u8[4], type:u8, payload. Length is the ESP-NOW frame length.
+- `shared/espnow_protocol/src/espnow_protocol.h`: Jetson to robot, CommandPayload robot to Jetson, TelemetryPayload Jetson to robot, TunableSetPayload dongle to Jetson, LinkStatsPayload dongle to robot, no payload: keepalive, see PING_PERIOD_MS host to robot, OtaBeginPayload host to robot, OtaChunkHeader then data host to robot, no payload host to robot, no payload robot to host, OtaStatusPayload
+
+### threading
+
+- `src/main.cpp`: The receive callback runs in WiFi task context. It copies the frame into the queue and returns. Everything else happens in `loop()`.
+
+### LED states
+
+- `src/main.cpp`: Color is the link, brightness is the Jetson. Blue blinking: broadcasting, the robot has never answered. Red: robot heard before, nothing from it for `ROBOT_SILENCE_LED_RED_MS`. Amber: robot answering, unicast ACK rate under 90% over the last 100 ms. Green: robot answering, ACKs healthy. Bright while the Jetson is commanding (a command inside `COMMAND_SILENCE_MS`), dim otherwise.

@@ -1,20 +1,17 @@
 "use strict";
 
-// ESC SETTINGS panel: tuning mode, backup and restore, and the side-by-side settings editor
-// (docs/plans/esc_settings_dashboard_plan.md). The codec and 4-way client are in esc.js; the
-// robot only relays frames. Uses $, post and flash from app.js.
 (() => {
-  // Left to right as seen from behind the robot. ESC numbers follow the passthrough.
   const COLUMNS = [
     { esc: 1, side: "LEFT", pin: "A3" },
     { esc: 0, side: "RIGHT", pin: "A2" },
   ];
   const SIDE = { 0: "right", 1: "left" };
+  const PWM_BY_RPM = 129;
   // lib/erpm_decode and esc.h assume bidirectional 3D mode.
   const DIRECTIONS_3D = [3, 4];
 
   let layout = null;
-  let tuning = null; // last GET /esc/status
+  let lastEscStatus = null;
   let busy = false;
   let review = null; // {title, items: [{esc, payload, changes, warnings}]}
   // Per ESC: snap read this tuning session, edit = the form's payload, bad = key -> message.
@@ -42,11 +39,6 @@
       .replace("Sbus", "SBUS")
       .replace("Sport", "S.Port");
 
-  // ---- backup history ----------------------------------------------------------------------
-
-  // Every read and write lands here, in this browser only: nothing is stored on the robot, and
-  // nothing downloads until DOWNLOAD CURRENT or DOWNLOAD HISTORY. localStorage is per origin, so
-  // mr-stabs.local and 192.168.4.1 keep separate histories.
   const HISTORY_KEY = "escBackupHistory";
   let history = []; // [{name, doc}], oldest first, docs in blheli32.py's backup format
   let historyError = "";
@@ -66,7 +58,6 @@
     renderHistory();
   }
 
-  // Newest backup of each ESC: what it held when the page last read or wrote it.
   function currentBackups() {
     const latest = {};
     for (const h of history) latest[h.doc.esc] = h;
@@ -104,8 +95,6 @@
     renderHistory();
   };
 
-  // ---- transport ---------------------------------------------------------------------------
-
   async function transact(frame) {
     const sent = JSON.parse(await post("/esc/4way", { frame: Blheli.hex(frame) }));
     const deadline = performance.now() + 15000;
@@ -120,8 +109,6 @@
   }
   const client = new Blheli.Client(transact);
 
-  // ---- tuning mode -------------------------------------------------------------------------
-
   function clearSession() {
     for (const e of Object.values(escs)) {
       e.snap = e.edit = null;
@@ -133,7 +120,7 @@
 
   function renderTuning() {
     const btn = $("escTuneBtn");
-    const t = tuning;
+    const t = lastEscStatus;
     if (!t) {
       btn.disabled = true;
       btn.textContent = "TUNING MODE";
@@ -143,7 +130,6 @@
     }
     const inTuning = t.state === "tuning";
     if (!inTuning && (escs[0].snap || escs[1].snap)) {
-      // A new tuning session starts from fresh reads.
       clearSession();
       renderAll();
     }
@@ -172,21 +158,19 @@
 
   async function pollTuning() {
     try {
-      tuning = await (await fetch("/esc/status", { cache: "no-store" })).json();
+      lastEscStatus = await (await fetch("/esc/status", { cache: "no-store" })).json();
     } catch (e) {
-      tuning = null;
+      lastEscStatus = null;
     }
     renderTuning();
   }
 
   $("escTuneBtn").onclick = () => {
-    const enter = !tuning || tuning.state !== "tuning";
+    const enter = !lastEscStatus || lastEscStatus.state !== "tuning";
     post("/esc/tuning", { enter: enter ? "1" : "0" })
       .then(() => setTimeout(pollTuning, 200))
       .catch((e) => flash("escTuneStatus", e.message));
   };
-
-  // ---- reading -----------------------------------------------------------------------------
 
   function setNote(esc, text) {
     escs[esc].note = text;
@@ -227,7 +211,6 @@
     }
   }
 
-  // backupJson decodes the settings; a page from another layout gets an empty decode instead.
   function layoutOrRaw() {
     return {
       decode: (p) => {
@@ -250,8 +233,6 @@
       return false;
     }
   };
-
-  // ---- editor table ------------------------------------------------------------------------
 
   function hwPwmBounds(esc) {
     const e = escs[esc];
@@ -333,7 +314,6 @@
         if (i === 0) row.appendChild(copy);
       }
       if (editable) {
-        // → copies the left column's value to the right, ← the reverse.
         const toRight = document.createElement("button");
         toRight.className = "btn small";
         toRight.textContent = "→";
@@ -351,8 +331,6 @@
     }
   }
 
-  // The payload bytes a change writes, e.g. "byte 20: fe → c8". Wide fields (name, music) list
-  // only the bytes that change.
   function rawChange(f, before, after) {
     const h = (b) => b.toString(16).padStart(2, "0");
     if (f.width <= 2) {
@@ -393,15 +371,14 @@
         continue;
       }
       el.disabled = !editable;
-      if (e.bad.has(f.key)) continue; // keep what the operator typed
+      if (e.bad.has(f.key)) continue;
       if (f.kind === "music") el.value = layout.decodeMusic(e.edit);
       else if (f.key === "name") el.value = layout.text(f, e.edit).replace(/ +$/, "");
       else el.value = layout.read(f, e.edit);
       if (f.key === "pwm_frequency_low" || f.key === "pwm_frequency_high") {
-        // Frequencies this ESC's hardware cannot run are disabled. 129 is By RPM.
         for (const opt of el.options || []) {
           const v = Number(opt.value);
-          opt.disabled = v !== 129 && (v < hwMin || v > hwMax);
+          opt.disabled = v !== PWM_BY_RPM && (v < hwMin || v > hwMax);
         }
         if (f.kind === "int") {
           el.min = hwMin;
@@ -421,7 +398,7 @@
         const v = Number(el.value);
         if (f.key === "pwm_frequency_low" || f.key === "pwm_frequency_high") {
           const [hwMin, hwMax] = hwPwmBounds(esc);
-          if (v !== 129 && (v < hwMin || v > hwMax)) {
+          if (v !== PWM_BY_RPM && (v < hwMin || v > hwMax)) {
             throw new Error(`this ESC runs ${hwMin}-${hwMax} kHz`);
           }
         }
@@ -445,8 +422,6 @@
     renderAll();
   }
 
-  // Two separate highlights: a row whose left and right differ, and a cell edited away from what
-  // its ESC holds.
   function renderHighlights() {
     const both = escs[0].edit && escs[1].edit;
     const diffOnly = $("escDiffOnly").checked;
@@ -474,8 +449,6 @@
         : `${differ} fields differ between left and right`
       : "read both ESCs to compare";
   }
-
-  // ---- per-ESC columns ---------------------------------------------------------------------
 
   function changesFor(esc) {
     const e = escs[esc];
@@ -535,8 +508,6 @@
       );
     $("escRevert").disabled = busy;
   }
-
-  // ---- review and write --------------------------------------------------------------------
 
   function warningsFor(esc, payload, changes) {
     const warnings = [];
@@ -629,7 +600,6 @@
         remember(Blheli.backupName(`esc${item.esc}_after_write`), Blheli.backupJson(snap, layout));
       } catch (err) {
         e.note = "write failed: " + err.message;
-        // Show what the ESC holds now; the edits stay in the form.
         try {
           const now = await client.readEsc(item.esc);
           e.snap = now;
@@ -640,8 +610,6 @@
       }
     }
   }
-
-  // ---- wiring ------------------------------------------------------------------------------
 
   function wireColumn(col) {
     const esc = col.esc;

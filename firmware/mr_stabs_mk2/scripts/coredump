@@ -1,12 +1,4 @@
 #!/bin/bash
-# Read the core dump from the robot over USB and decode it: the exception, registers, and every
-# task's backtrace. After a task watchdog reset, find the stuck task in the thread list (the
-# summary names whatever ran on the core that took the watchdog interrupt).
-#
-# Pass the ELF of the build that crashed; the diagnostics page shows its SHA-256 prefix to compare.
-# Reading resets the robot.
-#
-# Usage: scripts/coredump [PORT] [ELF]
 BASE_DIR=$(realpath "$(dirname "$0")")
 cd "${BASE_DIR}/.." || exit 1
 PORT="${1:-}"

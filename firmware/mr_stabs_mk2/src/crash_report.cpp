@@ -40,13 +40,12 @@ void read(report_t &out) {
     if (esp_core_dump_image_get(&addr, &size) != ESP_OK || size == 0) return;
     out.has_dump = true;
     out.dump_size = size;
-    out.dump_valid = esp_core_dump_image_check() == ESP_OK;
-    if (!out.dump_valid) return;
+    out.dump_checksum_ok = esp_core_dump_image_check() == ESP_OK;
+    if (!out.dump_checksum_ok) return;
 
-    // The summary is large for the stack; it is read once, at boot.
     static esp_core_dump_summary_t summary;
     if (esp_core_dump_get_summary(&summary) != ESP_OK) return;
-    strncpy(out.task, summary.exc_task, sizeof(out.task) - 1);
+    strncpy(out.crashing_task_name, summary.exc_task, sizeof(out.crashing_task_name) - 1);
     out.pc = summary.exc_pc;
     out.exc_cause = summary.ex_info.exc_cause;
     out.exc_vaddr = summary.ex_info.exc_vaddr;
@@ -54,7 +53,7 @@ void read(report_t &out) {
     for (uint32_t i = 0; i < depth; i++) out.backtrace[i] = summary.exc_bt_info.bt[i];
     out.depth = static_cast<uint8_t>(depth);
     out.backtrace_corrupted = summary.exc_bt_info.corrupted;
-    memcpy(out.elf_sha256, summary.app_elf_sha256, sizeof(out.elf_sha256) - 1);
+    memcpy(out.elf_sha256_prefix, summary.app_elf_sha256, sizeof(out.elf_sha256_prefix) - 1);
 }
 
 void print(const report_t &report) {
@@ -63,13 +62,13 @@ void print(const report_t &report) {
         Serial.println("core dump: none");
         return;
     }
-    if (!report.dump_valid) {
+    if (!report.dump_checksum_ok) {
         Serial.printf("core dump: %u bytes, checksum FAILED\n", report.dump_size);
         return;
     }
     Serial.printf("core dump: %u bytes, task %s, pc 0x%08x, cause %u, vaddr 0x%08x, elf %s\n",
-                  report.dump_size, report.task, report.pc, report.exc_cause, report.exc_vaddr,
-                  report.elf_sha256);
+                  report.dump_size, report.crashing_task_name, report.pc, report.exc_cause,
+                  report.exc_vaddr, report.elf_sha256_prefix);
     Serial.print("backtrace:");
     for (uint8_t i = 0; i < report.depth; i++) Serial.printf(" 0x%08x", report.backtrace[i]);
     Serial.println(report.backtrace_corrupted ? " (corrupted)" : "");

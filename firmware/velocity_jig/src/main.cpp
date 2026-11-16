@@ -1,23 +1,3 @@
-// auto-battlebot velocity jig firmware
-//
-// Feather RP2040 Adalogger. Logs encoder count and IMU (accel + gyro) together
-// to the microSD card, one row per IMU sample. For an angular-only run, just
-// unplug the encoder: its inputs are pulled up, so the count column stays
-// constant instead of drifting.
-//
-// OLED menu: A = start recording, B = stop, C = live diagnostics readout.
-//
-// Gap-free design:
-//   - Every sample is captured in the IMU INT1 data-ready ISR, so SD write
-//     latency never delays a capture. Captures land in a RAM ring buffer.
-//   - The main loop drains the ring to SD in large blocks. A long SD stall just
-//     lets the ring fill; the ISR keeps sampling. An overflow counter flags any
-//     loss (it should stay 0).
-//   - Files are preallocated contiguous to avoid FAT-growth latency, and the
-//     card is on its own SPI peripheral (SPI0), separate from the IMU (SPI1).
-//   - The screen is drawn once at record start and left untouched until stop.
-//
-// Wiring and pin map: docs/velocity_jig_wiring.md and include/config.h
 
 #include <Adafruit_ISM330DHCX.h>
 #include <Adafruit_SH110X.h>
@@ -31,7 +11,6 @@
 #include "pico/time.h"
 #include "splash_anim.h"
 
-// --- Debug bring-up instrumentation (set -DVJIG_DEBUG=1 in platformio.ini) ---
 #ifndef VJIG_DEBUG
 #define VJIG_DEBUG 0
 #endif
@@ -45,71 +24,53 @@
 #define DBGFLUSH() ((void)0)
 #endif
 
-// ---------------------------------------------------------------------------
-// Globals
-// ---------------------------------------------------------------------------
-
 static Adafruit_ISM330DHCX g_imu;
 static Adafruit_SH1107 g_display(64, 128, &Wire);
 static SdFs g_sd;
 static FsFile g_file;
 
-// One row: IMU sample plus the encoder count captured at the same instant.
 struct Sample {
-    uint64_t t_us;  // capture time, microseconds since boot (time_us_64)
-    int32_t count;  // quadrature count
-    int16_t g[3];   // raw gyro x,y,z
-    int16_t a[3];   // raw accel x,y,z
+    uint64_t t_us_since_boot;
+    int32_t encoder_count;
+    int16_t gyro_raw[3];
+    int16_t accel_raw[3];
 };
 
-// SPSC ring buffer. Producer = IMU ISR, consumer = loop(). Single core, so the
-// ISR atomically preempts the loop; volatile 32-bit indices are sufficient.
 static Sample g_ring[RING_SLOTS];
 static constexpr uint32_t RING_MASK = RING_SLOTS - 1;
-static volatile uint32_t g_head = 0;      // producer writes
-static volatile uint32_t g_tail = 0;      // consumer writes
-static volatile uint32_t g_overflow = 0;  // dropped samples (ring full)
-static volatile uint32_t g_produced = 0;  // samples captured this run
+static volatile uint32_t g_ring_write = 0;
+static volatile uint32_t g_ring_read = 0;
+static volatile uint32_t g_dropped_samples = 0;
+static volatile uint32_t g_captured_samples = 0;
 
 static bool g_recording = false;
 static char g_curName[24] = {0};
-static bool g_menuSummary = false;  // show last-run stats on the menu footer
+static bool g_showLastRunSummary = false;
 
-// Encoder quadrature state, maintained continuously by edge interrupts.
 static volatile int32_t g_encCount = 0;
 static volatile uint8_t g_encState = 0;
 
-// Fixed-rate capture timer (the recording producer).
 static repeating_timer_t g_sampleTimer;
 
-// SD write staging buffer.
 static char g_wbuf[WBUF_SIZE];
 static uint32_t g_wlen = 0;
 
-// ---------------------------------------------------------------------------
-// Ring buffer
-// ---------------------------------------------------------------------------
-
 static inline void ringPush(const Sample& s) {
-    uint32_t h = g_head;
+    uint32_t h = g_ring_write;
     uint32_t n = (h + 1) & RING_MASK;
-    if (n == g_tail) {  // full
-        g_overflow++;
+    if (n == g_ring_read) {
+        g_dropped_samples++;
         return;
     }
     g_ring[h] = s;
-    g_head = n;  // publish
-    g_produced++;
+    g_ring_write = n;  // publish
+    g_captured_samples++;
 }
-
-// ---------------------------------------------------------------------------
-// IMU raw access (fast burst read, bypasses the library for per-sample reads)
-// ---------------------------------------------------------------------------
 
 static void imuWriteReg(uint8_t reg, uint8_t val) {
     SPI1.beginTransaction(SPISettings(8000000, MSBFIRST, SPI_MODE0));
     digitalWrite(PIN_IMU_CS, LOW);
-    SPI1.transfer(reg & 0x7F);  // write: MSB clear
+    SPI1.transfer(reg & SPI_WRITE_MASK);
     SPI1.transfer(val);
     digitalWrite(PIN_IMU_CS, HIGH);
     SPI1.endTransaction();
@@ -119,7 +80,7 @@ static void imuWriteReg(uint8_t reg, uint8_t val) {
 static uint8_t imuReadReg(uint8_t reg) {
     SPI1.beginTransaction(SPISettings(8000000, MSBFIRST, SPI_MODE0));
     digitalWrite(PIN_IMU_CS, LOW);
-    SPI1.transfer(0x80 | reg);  // read: MSB set
+    SPI1.transfer(SPI_READ_BIT | reg);
     uint8_t v = SPI1.transfer(0x00);
     digitalWrite(PIN_IMU_CS, HIGH);
     SPI1.endTransaction();
@@ -127,12 +88,11 @@ static uint8_t imuReadReg(uint8_t reg) {
 }
 #endif
 
-// Burst-read gyro (0x22..0x27) then accel (0x28..0x2D), little-endian int16.
 static inline void imuReadRaw(int16_t* g, int16_t* a) {
     uint8_t b[12];
     SPI1.beginTransaction(SPISettings(8000000, MSBFIRST, SPI_MODE0));
     digitalWrite(PIN_IMU_CS, LOW);
-    SPI1.transfer(0x80 | 0x22);  // read, auto-increment from OUTX_L_G
+    SPI1.transfer(SPI_READ_BIT | REG_OUTX_L_G);
     for (int i = 0; i < 12; i++) b[i] = SPI1.transfer(0x00);
     digitalWrite(PIN_IMU_CS, HIGH);
     SPI1.endTransaction();
@@ -144,11 +104,6 @@ static inline void imuReadRaw(int16_t* g, int16_t* a) {
     a[2] = (int16_t)(b[10] | (b[11] << 8));
 }
 
-// ---------------------------------------------------------------------------
-// Capture ISRs
-// ---------------------------------------------------------------------------
-
-// 4x quadrature decode table indexed by (prev_state << 2) | new_state.
 static const int8_t QDEC[16] = {0, -1, 1, 0, 1, 0, 0, -1, -1, 0, 0, 1, 0, 1, -1, 0};
 
 static void encISR() {
@@ -157,21 +112,14 @@ static void encISR() {
     g_encState = s;
 }
 
-// Fixed-rate capture (hardware timer). Reads the IMU and latches the encoder
-// count together, then queues one row. Timer-driven, so it does not depend on
-// the IMU INT1 wire being connected.
 static bool sampleTimerCb(repeating_timer_t*) {
     Sample s;
-    s.t_us = time_us_64();
-    s.count = g_encCount;
-    imuReadRaw(s.g, s.a);
+    s.t_us_since_boot = time_us_64();
+    s.encoder_count = g_encCount;
+    imuReadRaw(s.gyro_raw, s.accel_raw);
     ringPush(s);
-    return true;  // keep firing
+    return true;
 }
-
-// ---------------------------------------------------------------------------
-// SD write staging (integer-only formatting -> light CPU load)
-// ---------------------------------------------------------------------------
 
 static inline void wflush() {
     if (g_wlen) {
@@ -213,40 +161,34 @@ static void wputStr(const char* s) {
 }
 
 static inline void emitRow(const Sample& s) {
-    wputU64(s.t_us);
+    wputU64(s.t_us_since_boot);
     wputc(',');
-    wputI32(s.count);
+    wputI32(s.encoder_count);
     for (int i = 0; i < 3; i++) {
         wputc(',');
-        wputI32(s.g[i]);
+        wputI32(s.gyro_raw[i]);
     }
     for (int i = 0; i < 3; i++) {
         wputc(',');
-        wputI32(s.a[i]);
+        wputI32(s.accel_raw[i]);
     }
     wputc('\n');
 }
 
-// Drain up to DRAIN_CAP records to the staging buffer.
 static void drainToSD() {
-    uint32_t head = g_head;  // snapshot
+    uint32_t head = g_ring_write;  // snapshot
     uint32_t processed = 0;
-    while (g_tail != head && processed < DRAIN_CAP) {
-        emitRow(g_ring[g_tail]);
-        g_tail = (g_tail + 1) & RING_MASK;
+    while (g_ring_read != head && processed < DRAIN_CAP) {
+        emitRow(g_ring[g_ring_read]);
+        g_ring_read = (g_ring_read + 1) & RING_MASK;
         processed++;
     }
 }
 
 static void drainAll() {
-    while (g_tail != g_head) drainToSD();
+    while (g_ring_read != g_ring_write) drainToSD();
 }
 
-// ---------------------------------------------------------------------------
-// OLED
-// ---------------------------------------------------------------------------
-
-// Animated BWBots splash, then a short hold on the finished logo.
 static void drawSplash() {
     for (uint8_t i = 0; i < SPLASH_FRAMES; i++) {
         g_display.clearDisplay();
@@ -262,22 +204,18 @@ static void drawMenu(bool withSummary) {
     g_display.clearDisplay();
     g_display.setTextSize(1);
 
-    // Title bar (inverted).
     g_display.fillRect(0, 0, 128, 13, SH110X_WHITE);
     g_display.setTextColor(SH110X_BLACK);
     g_display.setCursor(4, 3);
     g_display.print("VELOCITY JIG");
     g_display.setTextColor(SH110X_WHITE);
 
-    // Start option: record-dot icon.
     g_display.fillCircle(9, 21, 4, SH110X_WHITE);
     g_display.setCursor(20, 17);
     g_display.print("A  Start rec");
-    // Stop option: stop-square icon.
     g_display.fillRect(5, 28, 8, 8, SH110X_WHITE);
     g_display.setCursor(20, 28);
     g_display.print("B  Stop");
-    // Diagnostics option: triangle icon.
     g_display.fillTriangle(9, 39, 14, 47, 4, 47, SH110X_WHITE);
     g_display.setCursor(20, 39);
     g_display.print("C  Diagnostics");
@@ -287,8 +225,8 @@ static void drawMenu(bool withSummary) {
     if (withSummary && g_curName[0]) {
         g_display.print(g_curName);
         g_display.print(" n=");
-        g_display.print(g_produced);
-        if (g_overflow) {
+        g_display.print(g_captured_samples);
+        if (g_dropped_samples) {
             g_display.setCursor(104, 54);
             g_display.print("DROP");
         }
@@ -303,7 +241,7 @@ static void drawRecording(const char* name) {
     g_display.drawRect(0, 0, 128, 64, SH110X_WHITE);
     g_display.setTextColor(SH110X_WHITE);
 
-    g_display.fillCircle(14, 16, 6, SH110X_WHITE);  // REC dot
+    g_display.fillCircle(14, 16, 6, SH110X_WHITE);
     g_display.setTextSize(2);
     g_display.setCursor(30, 9);
     g_display.print("REC");
@@ -317,9 +255,6 @@ static void drawRecording(const char* name) {
     g_display.display();
 }
 
-// Live encoder + IMU readout, converted to physical units. Idle mode only,
-// nothing is recorded. Raw counts are scaled here (floats are fine off the
-// capture path) so a wiggle test reads directly in dps and g.
 static void drawDiagnostics() {
     int16_t g[3], a[3];
     imuReadRaw(g, a);
@@ -330,15 +265,12 @@ static void drawDiagnostics() {
     g_display.clearDisplay();
     g_display.setTextSize(1);
 
-    // Title bar (inverted).
     g_display.fillRect(0, 0, 128, 13, SH110X_WHITE);
     g_display.setTextColor(SH110X_BLACK);
     g_display.setCursor(4, 3);
     g_display.print("DIAGNOSTICS");
     g_display.setTextColor(SH110X_WHITE);
 
-    // Encoder: count plus the raw A/B levels, so an unplugged or miswired
-    // encoder is visible even when the count is not moving.
     g_display.setCursor(0, 17);
     g_display.print("ENC ");
     g_display.print(count);
@@ -347,19 +279,18 @@ static void drawDiagnostics() {
     g_display.print(encA);
     g_display.print(encB);
 
-    // IMU rows, one column per axis.
     static const uint8_t COL[3] = {8, 48, 88};
     g_display.setCursor(0, 30);
     g_display.print("G");
     for (int i = 0; i < 3; i++) {
         g_display.setCursor(COL[i], 30);
-        g_display.print((float)g[i] * GYRO_DPS_PER_LSB, 0);  // dps, whole numbers
+        g_display.print((float)g[i] * GYRO_DPS_PER_LSB, 0);
     }
     g_display.setCursor(0, 42);
     g_display.print("A");
     for (int i = 0; i < 3; i++) {
         g_display.setCursor(COL[i], 42);
-        g_display.print((float)a[i] * ACCEL_G_PER_LSB, 2);  // g
+        g_display.print((float)a[i] * ACCEL_G_PER_LSB, 2);
     }
 
     g_display.drawFastHLine(0, 53, 128, SH110X_WHITE);
@@ -370,7 +301,6 @@ static void drawDiagnostics() {
     g_display.display();
 }
 
-// Fatal error: show a message and blink the LED forever.
 static void fatal(const char* msg) {
     g_display.clearDisplay();
     g_display.setTextSize(1);
@@ -388,17 +318,13 @@ static void fatal(const char* msg) {
         delay(120);
         digitalWrite(PIN_STATUS_LED, LOW);
         delay(120);
-        if (millis() - last >= 1000) {  // re-emit so a late-attached monitor sees it
+        if (millis() - last >= 1000) {
             last = millis();
             Serial.print("FATAL: ");
             Serial.println(msg);
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// File naming and header
-// ---------------------------------------------------------------------------
 
 static bool nextName(char* out, size_t n) {
     for (uint32_t i = 0; i < 100000; i++) {
@@ -418,10 +344,6 @@ static void writeHeader() {
     wputStr(line);
 }
 
-// ---------------------------------------------------------------------------
-// Record start/stop
-// ---------------------------------------------------------------------------
-
 static void startRecording() {
     char name[24];
     if (!nextName(name, sizeof(name))) {
@@ -433,52 +355,45 @@ static void startRecording() {
         drawMenu(false);
         return;
     }
-    g_file.preAllocate(PREALLOC_BYTES);  // best effort; avoids FAT-growth stalls
+    g_file.preAllocate(PREALLOC_BYTES);
 
     strncpy(g_curName, name, sizeof(g_curName) - 1);
     g_curName[sizeof(g_curName) - 1] = 0;
 
-    // Reset buffers/counters before enabling the capture ISR.
     g_wlen = 0;
-    g_head = g_tail = 0;
-    g_overflow = 0;
-    g_produced = 0;
+    g_ring_write = g_ring_read = 0;
+    g_dropped_samples = 0;
+    g_captured_samples = 0;
     noInterrupts();
-    g_encCount = 0;  // each file starts its count at 0
+    g_encCount = 0;
     interrupts();
     writeHeader();
 
     g_recording = true;
-    // Capture on a fixed-rate timer (negative period = strict period from start).
-    add_repeating_timer_us(-(int64_t)(1000000UL / SAMPLE_RATE_HZ), sampleTimerCb, nullptr,
-                           &g_sampleTimer);
-    drawRecording(name);  // last screen update until STOP
+    add_repeating_timer_us(STRICT_SAMPLE_PERIOD_US, sampleTimerCb, nullptr, &g_sampleTimer);
+    drawRecording(name);
     Serial.print("recording ");
     Serial.println(name);
 }
 
 static void stopRecording() {
-    cancel_repeating_timer(&g_sampleTimer);  // stop capture first
+    cancel_repeating_timer(&g_sampleTimer);
     g_recording = false;
 
     drainAll();
     wflush();
-    g_file.truncate();  // drop the unused preallocated tail (else file stays 32 MB)
+    g_file.truncate();
     g_file.sync();
     g_file.close();
 
     Serial.print("stopped, n=");
-    Serial.print(g_produced);
+    Serial.print(g_captured_samples);
     Serial.print(" dropped=");
-    Serial.println(g_overflow);
+    Serial.println(g_dropped_samples);
 
-    g_menuSummary = true;
+    g_showLastRunSummary = true;
     drawMenu(true);
 }
-
-// ---------------------------------------------------------------------------
-// Buttons (debounced, active low)
-// ---------------------------------------------------------------------------
 
 struct Btn {
     uint8_t pin;
@@ -487,9 +402,9 @@ struct Btn {
     uint32_t lastChange;
 };
 
-static Btn g_btnA{PIN_BTN_A, false, false, 0};
-static Btn g_btnB{PIN_BTN_B, false, false, 0};
-static Btn g_btnC{PIN_BTN_C, false, false, 0};
+static Btn g_btnA{PIN_BTN_START_REC, false, false, 0};
+static Btn g_btnB{PIN_BTN_STOP_REC, false, false, 0};
+static Btn g_btnC{PIN_BTN_DIAGNOSTICS, false, false, 0};
 
 static bool justPressed(Btn& b) {
     bool raw = (digitalRead(b.pin) == LOW);
@@ -505,21 +420,17 @@ static bool justPressed(Btn& b) {
     return false;
 }
 
-// ---------------------------------------------------------------------------
-// Diagnostics mode (idle only)
-//
-// Refreshes the live readout until B or C is pressed. Serial input also breaks
-// out, without being consumed, so the next loop() pass answers the command
-// normally instead of leaving the host console hanging.
-// ---------------------------------------------------------------------------
+static bool pollExitButtons() {
+    const bool exitB = justPressed(g_btnB);
+    const bool exitC = justPressed(g_btnC);
+    return exitB || exitC;
+}
 
 static void runDiagnostics() {
     Serial.println("diagnostics");
     uint32_t last = 0;
     for (;;) {
-        bool exitB = justPressed(g_btnB);  // no short-circuit: both need polling
-        bool exitC = justPressed(g_btnC);
-        if (exitB || exitC) break;
+        if (pollExitButtons()) break;
         if (Serial.available()) break;
         if (last == 0 || millis() - last >= DIAG_REFRESH_MS) {
             last = millis();
@@ -528,27 +439,14 @@ static void runDiagnostics() {
         delay(2);  // services USB while idling between refreshes
     }
     Serial.println("diagnostics end");
-    drawMenu(g_menuSummary);
+    drawMenu(g_showLastRunSummary);
 }
-
-// ---------------------------------------------------------------------------
-// USB serial console (idle only): LIST / GET / DEL / STREAM / TIME
-//
-// A host-side TUI (scripts/console) drives this. It runs only from the idle
-// branch of loop(), so it never touches the SD card or the capture path while
-// recording. During recording, commands are answered with "BUSY", except TIME,
-// which is answered normally because it touches neither.
-// ---------------------------------------------------------------------------
 
 static char g_cmd[64];
 static uint8_t g_cmdLen = 0;
 
-// Capture clock at the instant the terminating newline was consumed. TIME
-// reports this rather than sampling inside the handler, so dispatch overhead
-// does not land inside the host's round-trip measurement.
 static uint64_t g_cmdRxUs = 0;
 
-// Non-blocking line reader. Returns true when a full line sits in g_cmd.
 static bool serialReadLine() {
     while (Serial.available()) {
         char c = (char)Serial.read();
@@ -604,19 +502,6 @@ static void cmdGet(const char* name) {
 
 static void cmdDel(const char* name) { Serial.println(g_sd.remove(name) ? "OK" : "ERR"); }
 
-// Clock probe for aligning the jig's log timestamps with a host clock.
-//
-// Replies "TIME <rx_us> <tx_us>", both from the same time_us_64() base the log
-// rows use. rx_us is when the request line completed, tx_us is sampled just
-// before the reply is pushed out, so the pair brackets the jig-side processing
-// span. The host times the round trip, keeps the lowest-RTT probes, and pairs
-// the midpoint of (t_send, t_recv) with the midpoint of (rx_us, tx_us). Probing
-// before and after a recording gives offset and skew; the RP2040 crystal drifts
-// ~30 ppm, which is ~0.9 ms over a 30 s run.
-//
-// Runs during recording too. It touches neither the SD card nor the capture
-// path, and a mid-run probe measures skew over the run window instead of
-// extrapolating into it.
 static void cmdTime() {
     Serial.print("TIME ");
     Serial.print(g_cmdRxUs);
@@ -628,34 +513,34 @@ static void cmdTime() {
 static void cmdStream() {
     Serial.println("STREAM");
     for (;;) {
-        if (Serial.available()) {  // any input stops the stream
+        if (Serial.available()) {
             while (Serial.available()) Serial.read();
             break;
         }
-        if (justPressed(g_btnA)) {  // physical start-record exits the stream
+        if (justPressed(g_btnA)) {
             Serial.println("END");
             startRecording();
             return;
         }
         Sample s;
-        s.t_us = time_us_64();
-        s.count = g_encCount;
-        imuReadRaw(s.g, s.a);
+        s.t_us_since_boot = time_us_64();
+        s.encoder_count = g_encCount;
+        imuReadRaw(s.gyro_raw, s.accel_raw);
         Serial.print("S ");
-        Serial.print(s.t_us);
+        Serial.print(s.t_us_since_boot);
         Serial.print(',');
-        Serial.print(s.count);
+        Serial.print(s.encoder_count);
         for (int i = 0; i < 3; i++) {
             Serial.print(',');
-            Serial.print(s.g[i]);
+            Serial.print(s.gyro_raw[i]);
         }
         for (int i = 0; i < 3; i++) {
             Serial.print(',');
-            Serial.print(s.a[i]);
+            Serial.print(s.accel_raw[i]);
         }
         Serial.println();
-        uint32_t t = millis();  // ~10 Hz, staying responsive to input/button
-        while (millis() - t < 100) {
+        uint32_t t = millis();
+        while (millis() - t < STREAM_PERIOD_MS) {
             if (Serial.available()) break;
             delay(2);
         }
@@ -679,15 +564,11 @@ static void handleCommand() {
         Serial.println("REBOOTING to bootloader");
         Serial.flush();
         delay(50);
-        reset_usb_boot(0, 0);  // reboot into the UF2 bootloader, no button needed
+        reset_usb_boot(0, 0);
     } else if (c[0]) {
         Serial.println("ERR unknown");
     }
 }
-
-// ---------------------------------------------------------------------------
-// Debug helpers (compiled out when VJIG_DEBUG == 0)
-// ---------------------------------------------------------------------------
 
 // Pump the USB stack and wait (bounded) for the serial monitor to attach. This
 // is the key fix: delay() services USB, so the CDC port enumerates here even if
@@ -705,7 +586,6 @@ static void dbgWaitForHost(uint32_t timeout_ms) {
 #endif
 }
 
-// Scan an I2C bus and print every responding address.
 static void dbgI2CScan(TwoWire& w) {
 #if VJIG_DEBUG
     Serial.print("[dbg] I2C scan:");
@@ -725,10 +605,6 @@ static void dbgI2CScan(TwoWire& w) {
 #endif
 }
 
-// ---------------------------------------------------------------------------
-// Setup / loop
-// ---------------------------------------------------------------------------
-
 static void imuInit() {
     SPI1.setSCK(PIN_IMU_SCK);
     SPI1.setTX(PIN_IMU_MOSI);
@@ -737,10 +613,11 @@ static void imuInit() {
     pinMode(PIN_IMU_CS, OUTPUT);
     digitalWrite(PIN_IMU_CS, HIGH);
 #if VJIG_DEBUG
-    uint8_t who = imuReadReg(0x0F);  // WHO_AM_I, expect 0x6B
+    uint8_t who = imuReadReg(REG_WHO_AM_I);
     Serial.print("[dbg] IMU WHO_AM_I=0x");
     Serial.print(who, HEX);
-    Serial.println(who == 0x6B ? " (ISM330DHCX ok)" : " (want 0x6B; check SPI1 wiring/CS)");
+    Serial.println(who == ISM330DHCX_WHO_AM_I ? " (ISM330DHCX ok)"
+                                              : " (want 0x6B; check SPI1 wiring/CS)");
     Serial.flush();
 #endif
     DBG("[dbg] imu.begin_SPI... ");
@@ -753,9 +630,9 @@ static void imuInit() {
     g_imu.setGyroRange(IMU_GYRO_RANGE);
     g_imu.setAccelDataRate(IMU_ODR);
     g_imu.setGyroDataRate(IMU_ODR);
-    g_imu.configInt1(false, false, true);  // route accel data-ready to INT1
-    imuWriteReg(0x12, 0x44);               // CTRL3_C: BDU=1, IF_INC=1
-    pinMode(PIN_IMU_INT1, INPUT);
+    g_imu.configInt1(false, false, true);
+    imuWriteReg(REG_CTRL3_C, CTRL3_C_BDU | CTRL3_C_IF_INC);
+    pinMode(PIN_IMU_DATA_READY, INPUT);
 }
 
 static void sdInit() {
@@ -764,16 +641,25 @@ static void sdInit() {
     SPI.setRX(PIN_SD_MISO);
     DBG("[dbg] sd.begin (SPI0 GP18/19/20 CS23)... ");
     DBGFLUSH();
-    // Dedicated SPI: the card owns SPI0, so SdFat keeps CS optimizations.
     if (!g_sd.begin(SdSpiConfig(PIN_SD_CS, DEDICATED_SPI, SD_SCK_MHZ(SD_SCK_MHZ_VAL), &SPI))) {
         fatal("SD init failed");
     }
     DBGLN("OK");
 }
 
+[[noreturn]] static void fatalWithoutDisplay() {
+    uint32_t last = 0;
+    for (;;) {
+        digitalWrite(PIN_STATUS_LED, (millis() / 300) & 1);
+        if (millis() - last >= 1000) {
+            last = millis();
+            Serial.println("FATAL: OLED not found on I2C1 @0x3C (check GP2/GP3 wiring)");
+        }
+        delay(10);
+    }
+}
+
 static void encoderInit() {
-    // Pull-ups so a disconnected encoder reads a stable level (no phantom
-    // counts). The count column then stays constant during angular-only runs.
     pinMode(PIN_ENC_A, INPUT_PULLUP);
     pinMode(PIN_ENC_B, INPUT_PULLUP);
     g_encState = (uint8_t)((digitalRead(PIN_ENC_A) << 1) | digitalRead(PIN_ENC_B));
@@ -782,26 +668,18 @@ static void encoderInit() {
 }
 
 void setup() {
-    // 921600 is nominal only: this is native USB CDC, so the baud is ignored and
-    // transfers run at USB Full Speed regardless. Kept in sync with the host.
     Serial.begin(921600);
     pinMode(PIN_STATUS_LED, OUTPUT);
     digitalWrite(PIN_STATUS_LED, LOW);
 
-    // Pump USB and wait (bounded) for the monitor before touching hardware, so
-    // the serial port always enumerates even if a later init call hangs.
     dbgWaitForHost(8000);
     DBGLN("");
     DBGLN("=== velocity jig bring-up ===");
 
-    pinMode(PIN_BTN_A, INPUT_PULLUP);
-    pinMode(PIN_BTN_B, INPUT_PULLUP);
-    pinMode(PIN_BTN_C, INPUT_PULLUP);
+    pinMode(PIN_BTN_START_REC, INPUT_PULLUP);
+    pinMode(PIN_BTN_STOP_REC, INPUT_PULLUP);
+    pinMode(PIN_BTN_DIAGNOSTICS, INPUT_PULLUP);
 
-    // OLED on I2C1 (GP2/GP3). First a non-blocking bus-idle check: with internal
-    // pull-ups both lines should read high when idle. A line stuck low means it
-    // is held down (short, bad connection, or a device holding the bus), which is
-    // exactly what hangs the first I2C transaction. Report instead of hanging.
     pinMode(PIN_I2C_SDA, INPUT_PULLUP);
     pinMode(PIN_I2C_SCL, INPUT_PULLUP);
     delay(5);
@@ -834,13 +712,13 @@ void setup() {
     Wire.setSCL(PIN_I2C_SCL);
     DBGLN("[dbg]   setSCL ok");
     DBGFLUSH();
-    Wire.setClock(400000);  // fast OLED refresh (splash animation + UI)
+    Wire.setClock(OLED_I2C_HZ);
     DBGLN("[dbg]   setClock ok");
     DBGFLUSH();
     Wire.begin();
     DBGLN("[dbg]   begin ok");
     DBGFLUSH();
-    Wire.setTimeout(50, true);  // bound I2C so a bad bus reports instead of hanging
+    Wire.setTimeout(I2C_TIMEOUT_MS, true);
     DBGLN("[dbg]   setTimeout ok");
     DBGFLUSH();
     dbgI2CScan(Wire);
@@ -849,26 +727,17 @@ void setup() {
     DBGFLUSH();
     if (!g_display.begin(OLED_ADDR, true)) {
         DBGLN("FAIL");
-        // The display is what fatal() draws on, so report over serial + LED only.
-        uint32_t last = 0;
-        for (;;) {
-            digitalWrite(PIN_STATUS_LED, (millis() / 300) & 1);
-            if (millis() - last >= 1000) {
-                last = millis();
-                Serial.println("FATAL: OLED not found on I2C1 @0x3C (check GP2/GP3 wiring)");
-            }
-            delay(10);
-        }
+        fatalWithoutDisplay();
     }
     DBGLN("OK");
     g_display.setRotation(1);
     g_display.clearDisplay();
     g_display.display();
-    drawSplash();  // animated BWBots logo
+    drawSplash();
 
     imuInit();
     sdInit();
-    encoderInit();  // encoder tracks continuously, independent of recording
+    encoderInit();
 
     DBGLN("[dbg] ready -> menu");
     drawMenu(false);
@@ -878,9 +747,6 @@ void loop() {
     if (g_recording) {
         drainToSD();
         if (justPressed(g_btnB)) stopRecording();
-        // Answer the console without touching the SD or capture path. TIME is
-        // served for real so the host can probe the clock mid-run; everything
-        // else gets BUSY.
         if (serialReadLine()) {
             if (!strncmp(g_cmd, "TIME", 4)) {
                 cmdTime();

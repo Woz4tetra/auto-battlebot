@@ -828,3 +828,9 @@ table says where the plan now differs from them and why. Strike any row to resto
 | A18 | Q21, Q52, Q53 | The bake-off models the ESC floor, randomizes latency for direct wheels, and repairs the yaw loop first | Racing the broken 10/25 loop decides the result before it runs |
 | A19 | Q26 | "Scripted demonstrations" means the PPO anchor term on scripted teachers, decayed to 0 | PPO has no replay buffer to seed |
 | A20 | Q37 | A dedicated Mk3 driving session supplies the held-out split | Three sessions from one evening is not a holdout |
+
+## Notes moved from code comments
+
+### General
+
+- `mr_stabs_mk2/lib/motor_guard/motor_guard.h`: Hard trip: a motor's estimated rise at or above this cuts drive until disarm. It protects the motors while the scaling limits above are loosened for test-box sessions. Placeholder: set it from a motor can temperature measured after a 3 minute driven session against the logged motor_rise_left/right (docs/plans/nav_scoring_and_rl_v2_plan.md, section 0.3).

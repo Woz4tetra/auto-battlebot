@@ -2,8 +2,7 @@
 
 const $ = (id) => document.getElementById(id);
 const NONE = "--";
-
-// ---- formatting --------------------------------------------------------------------------
+const HEARTBEAT_PERIOD_MS = 100;
 
 const num = (v, digits = 1, unit = "") =>
   v === null || v === undefined ? NONE : v.toFixed(digits) + (unit ? " " + unit : "");
@@ -30,8 +29,6 @@ const esc = (s) =>
     (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c],
   );
 
-// ---- leader rows -------------------------------------------------------------------------
-
 // Rows: [label, value, tone] where tone is "bad", "warn", "good", or falsy.
 function fillRows(id, rows) {
   const el = $(id);
@@ -55,8 +52,6 @@ function fillRows(id, rows) {
 const pctTone = (v, good, bad) =>
   v === null || v === undefined ? "" : v >= good ? "good" : v < bad ? "bad" : "warn";
 
-// ---- theme -------------------------------------------------------------------------------
-
 const SUN =
   '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square"><circle cx="12" cy="12" r="4.5"/><path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3M4.6 4.6l2.1 2.1M17.3 17.3l2.1 2.1M4.6 19.4l2.1-2.1M17.3 6.7l2.1-2.1"/></svg>';
 const MOON =
@@ -76,8 +71,6 @@ $("darkBtn").onclick = () => {
   renderTheme();
 };
 renderTheme();
-
-// ---- header ------------------------------------------------------------------------------
 
 function setPill(id, text, color) {
   const pill = $(id);
@@ -126,11 +119,7 @@ function renderHeader(s, live) {
     .join("");
 }
 
-// ---- sections ----------------------------------------------------------------------------
-
 function renderChecks(s) {
-  // Checks after the first error are not shown by the server; list them greyed so the shape of
-  // the checklist stays put.
   const ALL = [
     "Serial port",
     "Dongle link stats",
@@ -377,8 +366,7 @@ function renderRobotState(s) {
   ]);
 }
 
-// What the dongle's LED should be showing, by the rules in espnow_dongle/src/main.cpp.
-function renderLed(s) {
+function expectedDongleLed(s) {
   let color = "off";
   let swatch = "transparent";
   if (s.link && s.port.state === "OPEN") {
@@ -471,8 +459,6 @@ async function refreshFiles() {
   } catch (e) {}
 }
 
-// ---- plots -------------------------------------------------------------------------------
-
 const PLOTS = [
   ["ack_pct", "DONGLE ACK %"],
   ["delivery_pct", "TELEMETRY DELIVERY %"],
@@ -533,8 +519,6 @@ async function refreshSeries() {
   }
 }
 
-// ---- controls ----------------------------------------------------------------------------
-
 let latest = null;
 
 const post = (url, body) =>
@@ -545,8 +529,6 @@ const post = (url, body) =>
   });
 
 $("sendBtn").onclick = () => post("/api/command", { on: !(latest && latest.command.sending) });
-
-// ---- command sliders ---------------------------------------------------------------------
 
 let sending = false;
 
@@ -594,8 +576,7 @@ window.addEventListener("keyup", (e) => e.code === "Space" && e.preventDefault()
 // A hidden tab may stop running timers; drop to neutral rather than rely on the server deadman.
 document.addEventListener("visibilitychange", () => document.hidden && setNeutral());
 
-// Heartbeat: the tool returns to neutral if it hears nothing for 0.3 s.
-setInterval(pushValues, 100);
+setInterval(pushValues, HEARTBEAT_PERIOD_MS);
 $("capBtn").onclick = async () => {
   await post("/api/capture", { on: !(latest && latest.capture.active) });
   refreshFiles();
@@ -607,8 +588,6 @@ $("ringBtn").onclick = async () => {
 };
 $("resetBtn").onclick = () => post("/api/reset_dongle");
 $("clearBtn").onclick = () => post("/api/clear");
-
-// ---- polling -----------------------------------------------------------------------------
 
 let lastOk = 0;
 
@@ -629,7 +608,7 @@ async function poll() {
     renderTiming(s);
     renderCommand(s);
     renderRobotState(s);
-    renderLed(s);
+    expectedDongleLed(s);
     renderTypes(s);
     renderOta(s);
     renderLogs(s);

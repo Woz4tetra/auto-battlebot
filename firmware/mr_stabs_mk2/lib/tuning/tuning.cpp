@@ -4,7 +4,6 @@
 #include <cstring>
 
 namespace tuning {
-// Ranges only catch typos and torn writes; the defaults in yaw_control.h say what is sensible.
 const Field FIELDS[] = {
     {"left_deadzone", "%", 0.0f, 50.0f, [](Settings &s) { return &s.left_deadzone; }},
     {"right_deadzone", "%", 0.0f, 50.0f, [](Settings &s) { return &s.right_deadzone; }},

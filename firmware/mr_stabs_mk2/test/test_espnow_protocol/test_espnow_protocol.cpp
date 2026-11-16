@@ -76,10 +76,11 @@ TEST(SerialFrameParser, SkipsLeadingTextAndStrayMagicBytes) {
 
 TEST(SerialFrameParser, CorruptFrameDoesNotHideTheNextOne) {
     auto bad = serial_frame(MSG_COMMAND, {1, 2, 3, 4});
-    bad[5] ^= 0xFF;  // corrupt the payload so the CRC fails
+    bad[5] ^= 0xFF;
     const auto good = serial_frame(MSG_TELEMETRY, {7});
-    // Truncate the bad frame so the good frame starts inside its claimed length.
-    std::vector<uint8_t> stream(bad.begin(), bad.begin() + 6);
+    const size_t kCutInsideClaimedLength = 6;
+    std::vector<uint8_t> truncated_bad(bad.begin(), bad.begin() + kCutInsideClaimedLength);
+    std::vector<uint8_t> stream = truncated_bad;
     stream.insert(stream.end(), good.begin(), good.end());
     stream.insert(stream.end(), good.begin(), good.end());
 
@@ -178,9 +179,9 @@ TEST(OtaSequencer, AcceptsOnlyTheNextOffset) {
     ota.begin(500);
     EXPECT_EQ(ota.on_chunk(240, 240), OtaSequencer::DROP);
     EXPECT_EQ(ota.on_chunk(0, 240), OtaSequencer::ACCEPT);
-    EXPECT_EQ(ota.on_chunk(0, 240), OtaSequencer::DROP);  // duplicate
+    EXPECT_EQ(ota.on_chunk(0, 240), OtaSequencer::DROP);
     EXPECT_EQ(ota.on_chunk(240, 240), OtaSequencer::ACCEPT);
-    EXPECT_EQ(ota.on_chunk(480, 40), OtaSequencer::DROP);  // runs past the end
+    EXPECT_EQ(ota.on_chunk(480, 40), OtaSequencer::DROP);
     EXPECT_EQ(ota.on_chunk(480, 20), OtaSequencer::ACCEPT);
     EXPECT_TRUE(ota.complete());
 }

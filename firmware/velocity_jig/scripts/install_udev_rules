@@ -1,11 +1,4 @@
 #!/bin/bash
-# Install PlatformIO's udev rules so picotool (./scripts/upload) can access the
-# RP2040 over USB without root, and reload udev. Run once:
-#
-#   ./scripts/install_udev_rules
-#
-# Needs sudo (it will prompt for your password). After it runs, unplug and
-# replug the board so the new rules apply.
 set -euo pipefail
 
 RULES_URL="https://raw.githubusercontent.com/platformio/platformio-core/master/platformio/assets/system/99-platformio-udev.rules"

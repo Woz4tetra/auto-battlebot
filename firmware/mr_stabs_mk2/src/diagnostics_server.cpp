@@ -15,7 +15,6 @@ static portMUX_TYPE status_mux = portMUX_INITIALIZER_UNLOCKED;
 static portMUX_TYPE pair_mux = portMUX_INITIALIZER_UNLOCKED;
 static sensor_status_t shared_status = {};
 
-// Every runtime setting with its range and unit, and whether NVS holds the current values.
 static String tuning_json(TuningStore *store) {
     JsonDocument doc;
     const tuning::Settings now = store->get();
@@ -34,7 +33,6 @@ static String tuning_json(TuningStore *store) {
     return out;
 }
 
-// Age in ms of a millis() stamp at snapshot time, or JSON null when it never happened.
 static String age_or_null(bool happened, uint32_t stamp_ms, uint32_t snapshot_ms) {
     return happened ? String(snapshot_ms - stamp_ms) : String("null");
 }
@@ -48,8 +46,8 @@ static String mac_string(const uint8_t *mac) {
 
 static void espnow_json(JsonObject out, const espnow_status_t &e, uint32_t snapshot_ms) {
     out["enabled"] = e.enabled;
-    out["substitution"] = e.substitution;
-    out["begin_ok"] = e.begin_ok;
+    out["substitution"] = e.command_substitution;
+    out["begin_ok"] = e.esp_now_init_ok;
     out["driving"] = e.driving;
     out["channel"] = e.channel;
     out["sweeping"] = e.sweeping;
@@ -57,25 +55,25 @@ static void espnow_json(JsonObject out, const espnow_status_t &e, uint32_t snaps
     out["heard_dongle"] = e.heard_dongle;
     out["dongle_mac"] = mac_string(e.dongle_mac);
     if (e.heard_dongle) {
-        out["frame_age_ms"] = snapshot_ms - e.last_frame_ms;
+        out["frame_age_ms"] = snapshot_ms - e.last_allowed_frame_ms;
     } else {
         out["frame_age_ms"] = nullptr;
     }
-    out["rx_frames"] = e.rx_frames;
+    out["rx_frames"] = e.rx_allowed_frames;
     out["rx_commands_new"] = e.rx_commands_new;
     out["rx_commands_repeat"] = e.rx_commands_repeat;
-    out["rx_commands_old"] = e.rx_commands_old;
+    out["rx_commands_old"] = e.rx_commands_late_dropped;
     out["rx_pings"] = e.rx_pings;
     out["rx_tunables"] = e.rx_tunables;
     out["rx_ota"] = e.rx_ota;
-    out["rx_size_errors"] = e.rx_size_errors;
-    out["rx_rejected"] = e.rx_rejected;
+    out["rx_size_errors"] = e.rx_wrong_length;
+    out["rx_rejected"] = e.rx_unpaired_mac;
     out["rejected_mac"] = mac_string(e.rejected_mac);
-    out["rx_queue_full"] = e.rx_queue_full;
+    out["rx_queue_full"] = e.rx_queue_full_drops;
     out["tx_telemetry"] = e.tx_telemetry;
-    out["tx_ok"] = e.tx_ok;
-    out["tx_fail"] = e.tx_fail;
-    out["tx_errors"] = e.tx_errors;
+    out["tx_ok"] = e.tx_acked;
+    out["tx_fail"] = e.tx_no_ack;
+    out["tx_errors"] = e.tx_send_refused;
     out["lq"] = e.lq;
     out["command_fresh"] = e.command_fresh;
     out["command_seq"] = e.command_seq;
@@ -107,9 +105,9 @@ static void boot_json(JsonObject out, const crash_report::report_t &b) {
     out["reset_reason"] = crash_report::reset_reason_name(b.reset_reason);
     out["has_dump"] = b.has_dump;
     if (!b.has_dump) return;
-    out["dump_valid"] = b.dump_valid;
+    out["dump_valid"] = b.dump_checksum_ok;
     out["dump_size"] = b.dump_size;
-    out["task"] = b.task;
+    out["task"] = b.crashing_task_name;
     char hex[11];
     snprintf(hex, sizeof(hex), "0x%08x", b.pc);
     out["pc"] = hex;
@@ -122,7 +120,7 @@ static void boot_json(JsonObject out, const crash_report::report_t &b) {
         bt.add(hex);
     }
     out["backtrace_corrupted"] = b.backtrace_corrupted;
-    out["elf_sha256"] = b.elf_sha256;
+    out["elf_sha256"] = b.elf_sha256_prefix;
 }
 
 static String status_json(const sensor_status_t &s, bool scan_pending) {
@@ -148,25 +146,26 @@ static String status_json(const sensor_status_t &s, bool scan_pending) {
              "\"heading_rate\":%.1f,\"gyro_sign_suspect\":%s},"
              "\"ina\":{\"present\":%s,\"device_id\":%u,\"last_error\":%u,\"reads\":%lu,"
              "\"read_failures\":%lu,\"last_ok_age_ms\":%s}}",
-             (unsigned long)s.snapshot_ms, s.sda_pin, s.scl_pin,
+             (unsigned long)s.snapshot_taken_ms, s.sda_pin, s.scl_pin,
              s.lines.sda_high ? "true" : "false", s.lines.scl_high ? "true" : "false",
              s.scan.scanned ? "true" : "false",
-             age_or_null(s.scan.scanned, s.scan.scan_ms, s.snapshot_ms).c_str(),
+             age_or_null(s.scan.scanned, s.scan.scanned_at_ms, s.snapshot_taken_ms).c_str(),
              scan_pending ? "true" : "false", found.c_str(), m.initialized ? "true" : "false",
-             (unsigned long)m.begin_attempts, (unsigned long)m.begin_failures, m.chip_id,
-             m.last_error, (unsigned long)m.lost_count, (unsigned long)m.samples,
-             age_or_null(m.samples > 0, m.last_sample_ms, s.snapshot_ms).c_str(),
-             age_or_null(m.details_ms != 0, m.details_ms, s.snapshot_ms).c_str(), m.details_error,
-             m.operation_mode, m.sys_status, m.self_test, m.sys_error, m.calibration,
-             (unsigned long)m.gyro_agree, (unsigned long)m.gyro_disagree, s.yaw_rate,
+             (unsigned long)m.begin_attempts, (unsigned long)m.begin_failures, m.last_chip_id,
+             m.chip_id_read_error, (unsigned long)m.samples_lost_after_begin,
+             (unsigned long)m.samples,
+             age_or_null(m.samples > 0, m.last_sample_ms, s.snapshot_taken_ms).c_str(),
+             age_or_null(m.details_ms != 0, m.details_ms, s.snapshot_taken_ms).c_str(),
+             m.details_error, m.operation_mode, m.sys_status, m.self_test, m.sys_error,
+             m.calibration, (unsigned long)m.gyro_agree, (unsigned long)m.gyro_disagree, s.yaw_rate,
              s.heading_rate, s.gyro_sign_suspect ? "true" : "false", n.present ? "true" : "false",
              n.device_id, n.last_error, (unsigned long)n.reads, (unsigned long)n.read_failures,
-             age_or_null(n.last_ok_ms != 0, n.last_ok_ms, s.snapshot_ms).c_str());
+             age_or_null(n.last_ok_ms != 0, n.last_ok_ms, s.snapshot_taken_ms).c_str());
 
     // The ESP-NOW block goes in through ArduinoJson and is spliced in before the closing brace.
     // Serialized into its own String: ArduinoJson 7 clears a String before writing to it.
     JsonDocument doc;
-    espnow_json(doc.to<JsonObject>(), s.espnow, s.snapshot_ms);
+    espnow_json(doc.to<JsonObject>(), s.espnow, s.snapshot_taken_ms);
     String espnow;
     serializeJson(doc, espnow);
     JsonDocument boot_doc;
@@ -194,7 +193,7 @@ static String wifi_json(wifi_manager::WifiManager *wifi) {
     doc["selected"] = s.selected;
     JsonArray networks = doc["networks"].to<JsonArray>();
     for (uint8_t i = 0; i < s.count; i++) networks.add(s.networks[i]);
-    doc["ssid"] = s.ssid;
+    doc["ssid"] = s.joining_ssid;
     doc["ip"] = s.ip;
     doc["rssi"] = s.rssi;
     doc["connect_s_left"] = (s.connect_ms_left + 999) / 1000;
@@ -207,8 +206,6 @@ static String wifi_json(wifi_manager::WifiManager *wifi) {
     return out;
 }
 
-// Records go out exactly as the ring holds them, after a TelemetryBatchHeader. No `from` returns
-// just the header, which tells a new client where head is without replaying the whole ring.
 static void handle_telemetry(AsyncWebServerRequest *request, const telemetry_ring_t *ring,
                              uint32_t boot_id) {
     using espnow_protocol::TelemetryBatchHeader;
@@ -224,7 +221,6 @@ static void handle_telemetry(AsyncWebServerRequest *request, const telemetry_rin
     if (!has_from) max = 0;
 
     const size_t capacity_bytes = sizeof(TelemetryBatchHeader) + max * sizeof(TelemetryPayload);
-    // PSRAM first: a full batch is 30 KB, too much to ask of fragmented internal RAM.
     uint8_t *raw = static_cast<uint8_t *>(psramFound() ? ps_malloc(capacity_bytes) : nullptr);
     if (!raw) raw = static_cast<uint8_t *>(malloc(capacity_bytes));
     if (!raw) return request->send(503, "text/plain", "out of memory");
@@ -240,13 +236,13 @@ static void handle_telemetry(AsyncWebServerRequest *request, const telemetry_rin
     header.record_size = sizeof(TelemetryPayload);
     header.boot_id = boot_id;
     header.capacity = ring->capacity();
-    header.head = r.head;
-    header.oldest = r.oldest;
+    header.head = r.next_seq;
+    header.oldest = r.oldest_seq_at_start;
     header.first_seq = r.first_seq;
-    header.count = r.count;
+    header.count = r.copied;
     memcpy(raw, &header, sizeof(header));
 
-    const size_t length = sizeof(TelemetryBatchHeader) + r.count * sizeof(TelemetryPayload);
+    const size_t length = sizeof(TelemetryBatchHeader) + r.copied * sizeof(TelemetryPayload);
     AsyncWebServerResponse *response = request->beginResponse(
         "application/octet-stream", length,
         [body, length](uint8_t *out, size_t max_len, size_t index) -> size_t {
@@ -269,7 +265,6 @@ static int hex_digit(char c) {
     return -1;
 }
 
-// Hex text to bytes. False on an odd length, a non-hex character, or more than max bytes.
 static bool parse_hex(const String &text, uint8_t *out, size_t max, size_t &size) {
     if (text.length() % 2 != 0 || text.length() / 2 > max) return false;
     size = text.length() / 2;
@@ -285,23 +280,21 @@ static bool parse_hex(const String &text, uint8_t *out, size_t max, size_t &size
 static String esc_status_json(const esc_config::status_t &s) {
     JsonDocument doc;
     doc["state"] = esc_config::state_name(s.state);
-    doc["error"] = s.error;
-    doc["frames"] = s.frames;
+    doc["error"] = s.last_error;
+    doc["frames"] = s.frames_relayed;
     doc["guard_refusals"] = s.guard_refusals;
-    doc["idle_s"] = s.idle_ms / 1000;
-    doc["idle_release_s"] = esc_config::IDLE_RELEASE_MS / 1000;
-    doc["released"] = s.released;
-    doc["pending"] = s.pending;
-    doc["armed"] = s.armed;
-    doc["driving"] = s.driving;
-    doc["failure"] = s.failure;
+    doc["idle_s"] = s.idle_ms_in_tuning / 1000;
+    doc["idle_release_s"] = esc_config::IDLE_BOOTLOADER_RELEASE_MS / 1000;
+    doc["released"] = s.idle_released;
+    doc["pending"] = s.frame_pending;
+    doc["armed"] = s.armed_last_update;
+    doc["driving"] = s.espnow_driving;
+    doc["failure"] = s.last_failure;
     String out;
     serializeJson(doc, out);
     return out;
 }
 
-// The 4-way relay for tuning mode (docs/plans/esc_settings_dashboard_plan.md). The loop runs one
-// frame at a time: POST queues it and returns an id, GET reports it pending or done.
 static void setup_esc_routes(AsyncWebServer &server, esc_config::EscConfig *esc,
                              volatile bool *armed) {
     server.on("/esc/status", HTTP_GET, [esc](AsyncWebServerRequest *request) {
@@ -510,7 +503,7 @@ void DiagnosticsServer::begin(wifi_manager::WifiManager *wifi, const telemetry_r
     server_started = true;
 }
 
-bool DiagnosticsServer::has_clients() { return server_started && events.count() > 0; }
+bool DiagnosticsServer::page_open() { return server_started && events.count() > 0; }
 
 bool DiagnosticsServer::take_pair_request(pair_request_t &out) {
     portENTER_CRITICAL(&pair_mux);

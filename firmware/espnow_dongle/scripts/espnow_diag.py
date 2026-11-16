@@ -1,22 +1,5 @@
 #!/usr/bin/env python3
-"""ESP-NOW link diagnostics: reads the dongle's serial stream and serves a live page.
-
-Decodes every serial frame the dongle forwards (link stats, robot telemetry, OTA status, and any
-frame some other host put on the channel), tracks ACK rate, telemetry drops, arrival gaps, and
-command round trip, and runs a checklist that names the likely fault. Every frame lands in a
-2-minute ring that can be saved after the fact, and CAPTURE writes the whole stream to JSONL.
-
-The dongle allows one reader. Stop the app first, or pass --manage-service:
-
-    venv/bin/python firmware/espnow_dongle/scripts/espnow_diag.py --manage-service
-    # then open http://<host>:8090
-
-SEND COMMANDS streams commands at --command-hz so the command path, sequence numbers, and round
-trip can be measured. They start neutral (channel_a = channel_b = 0); the page's sliders set them,
-and the space bar returns both to neutral. The page refreshes the values every 100 ms; after
-COMMAND_DEADMAN_S without a refresh (tab closed, laptop asleep, network gone) they fall back to
-neutral. The robot only drives from them while armed with SA on, so the handset keeps authority.
-"""
+"""ESP-NOW link diagnostics: reads the dongle's serial stream and serves a live page."""
 
 from __future__ import annotations
 
@@ -41,11 +24,9 @@ import serial
 SCRIPT_DIR = Path(__file__).resolve().parent
 WEB_DIR = SCRIPT_DIR / "espnow_diag_web"
 FIRMWARE_DIR = SCRIPT_DIR.parent.parent
-# The robot's diagnostics page holds the shared stylesheet and the embedded fonts.
-ROBOT_WEB_DIR = FIRMWARE_DIR / "mr_stabs_mk2" / "web"
+SHARED_WEB_ASSETS_DIR = FIRMWARE_DIR / "mr_stabs_mk2" / "web"
 SERVICE = "auto-battlebot"
 
-# ---- wire format: firmware/shared/espnow_protocol/src/espnow_protocol.h -------------------------
 
 SERIAL_MAGIC = b"\x7b\xb0"
 SERIAL_OVERHEAD = 6
@@ -75,9 +56,6 @@ MESSAGE_TYPES: dict[int, tuple[str, str, int | None]] = {
     MSG_OTA_ABORT: ("OTA_ABORT", "host", 0),
     MSG_OTA_STATUS: ("OTA_STATUS", "robot", 22),
 }
-# The dongle forwards every air frame carrying the session magic, whoever sent it. Only these
-# two come from the robot; anything else read back from the air is another dongle or host on
-# this channel.
 ROBOT_TYPES = {MSG_TELEMETRY, MSG_OTA_STATUS}
 
 COMMAND = struct.Struct("<IIff")
@@ -108,8 +86,8 @@ OTA_ERRORS = {
 }
 
 UINT32_MAX = 0xFFFFFFFF
-TELEMETRY_PERIOD_MS = 10  # mr_stabs_mk2 espnow_link.h
-LINK_STATS_PERIOD_MS = 100  # espnow_dongle main.cpp
+TELEMETRY_PERIOD_MS = 10
+LINK_STATS_PERIOD_MS = 100
 
 RING_SECONDS = 120.0
 SERIES_SECONDS = 60.0
@@ -239,7 +217,6 @@ class FrameParser:
         while True:
             start = self.buffer.find(SERIAL_MAGIC)
             if start < 0:
-                # Keep a trailing first magic byte; it may be the start of the next frame.
                 keep = 1 if self.buffer.endswith(SERIAL_MAGIC[:1]) else 0
                 self._skip(len(self.buffer) - keep, lines)
                 break
@@ -299,7 +276,17 @@ class Diagnostics:
         self.started_s = time.monotonic()
         self.reset_counters()
 
-        # Port state survives a counter reset.
+        self._init_port_state()
+
+        self.events: deque[dict[str, Any]] = deque(maxlen=500)
+        self.text_lines: deque[dict[str, Any]] = deque(maxlen=200)
+        self.ring: deque[dict[str, Any]] = deque()
+        self.capture_file: Any = None
+        self.capture_path: Path | None = None
+        self.capture_records = 0
+
+    def _init_port_state(self) -> None:
+        """Port state that survives a counter reset."""
         self.banner: dict[str, Any] | None = None
         self.port: serial.Serial | None = None
         self.port_state = "CLOSED"
@@ -308,12 +295,13 @@ class Diagnostics:
         self.opens = 0
         self.reset_requested = False
 
-        self.events: deque[dict[str, Any]] = deque(maxlen=500)
-        self.text_lines: deque[dict[str, Any]] = deque(maxlen=200)
-        self.ring: deque[dict[str, Any]] = deque()
-        self.capture_file: Any = None
-        self.capture_path: Path | None = None
-        self.capture_records = 0
+    def _update_robot_clock_drift(self, offset_ms: float) -> None:
+        """Track the minimum robot-to-host offset, the fastest delivery seen."""
+        if self.robot_clock_offset_ms is None or offset_ms < self.robot_clock_offset_ms:
+            if self.robot_clock_offset_ms is None:
+                self.robot_clock_drift_ms = 0.0
+            self.robot_clock_offset_ms = offset_ms
+        self.robot_clock_drift_ms = offset_ms - self.robot_clock_offset_ms
 
     def reset_counters(self) -> None:
         self.parser = FrameParser()
@@ -345,17 +333,17 @@ class Diagnostics:
         self.ota_s = 0.0
 
         self.sending = False
-        self.cmd_a = 0.0  # channel_a, ch0: linear under DifferentialDriveProcessor
-        self.cmd_b = 0.0  # channel_b, ch1: angular
+        self.cmd_linear = 0.0
+        self.cmd_angular = 0.0
         self.cmd_set_s = 0.0
         self.cmd_seq = 0
         self.cmd_sent = 0
         self.cmd_write_errors = 0
         self.cmd_next_s = 0.0
-        self.cmd_tx: dict[int, int] = {}  # seq -> tx_us, recent sends only
+        self.tx_us_by_seq: dict[int, int] = {}
         self.cmd_last_robot_seq = 0
         self.cmd_seq_jumps = 0
-        self.cmd_foreign_echo = 0
+        self.foreign_command_echoes = 0
         self.rtt: deque[tuple[float, float]] = deque()
 
         self.series: dict[str, deque[float | None]] = {}
@@ -363,8 +351,6 @@ class Diagnostics:
         self.series_next_s = 0.0
         self.interval_gap_ms = 0.0
         self.interval_rtt_ms: float | None = None
-
-    # ---- events and capture ----------------------------------------------------------------
 
     def event(self, level: str, text: str) -> None:
         record = {"t": time.time(), "level": level, "text": text}
@@ -416,8 +402,6 @@ class Diagnostics:
             "banner": self.banner,
             "telemetry_fields": TELEMETRY_FIELDS,
         }
-
-    # ---- frame handling --------------------------------------------------------------------
 
     def on_bytes(self, data: bytes, now: float) -> None:
         self.rx_bytes += len(data)
@@ -544,14 +528,7 @@ class Diagnostics:
         self.tlm_dropped += lost
         self.tlm_window.append((now, lost))
 
-        # Robot clock against host clock. The minimum offset tracks the fastest delivery, so its
-        # change over time is clock drift plus any growth in the transport floor.
-        offset = now * 1000 - t["timestamp_ms"]
-        if self.robot_clock_offset_ms is None or offset < self.robot_clock_offset_ms:
-            if self.robot_clock_offset_ms is None:
-                self.robot_clock_drift_ms = 0.0
-            self.robot_clock_offset_ms = offset
-        self.robot_clock_drift_ms = offset - self.robot_clock_offset_ms
+        self._update_robot_clock_drift(now * 1000 - t["timestamp_ms"])
 
         self.on_command_echo(t, now)
         self.telemetry = t
@@ -562,42 +539,39 @@ class Diagnostics:
         if t["espnow_age_ms"] == UINT32_MAX or robot_seq == 0:
             return
         if robot_seq == self.cmd_last_robot_seq:
-            return  # Same command echoed again: its second sample also holds a 10 ms slot wait.
+            return
         if self.cmd_last_robot_seq and robot_seq > self.cmd_last_robot_seq + 1:
             self.cmd_seq_jumps += robot_seq - self.cmd_last_robot_seq - 1
         self.cmd_last_robot_seq = robot_seq
-        tx_us = self.cmd_tx.get(robot_seq)
+        tx_us = self.tx_us_by_seq.get(robot_seq)
         if tx_us is None or tx_us != t["jetson_tx_us"]:
-            # Not one of ours: the app ran before us, or another host commands this robot.
-            self.cmd_foreign_echo += 1
+            self.foreign_command_echoes += 1
             return
         rtt_ms = ((monotonic_us() - tx_us) & UINT32_MAX) / 1000
         self.rtt.append((now, rtt_ms))
         if self.interval_rtt_ms is None or rtt_ms < self.interval_rtt_ms:
             self.interval_rtt_ms = rtt_ms
 
-    # ---- periodic work ---------------------------------------------------------------------
-
     def next_command(self, now: float) -> bytes | None:
         if not self.sending or now < self.cmd_next_s:
             return None
         self.cmd_next_s = max(self.cmd_next_s + self.command_period_s, now)
-        if (self.cmd_a or self.cmd_b) and now - self.cmd_set_s > COMMAND_DEADMAN_S:
-            self.cmd_a = self.cmd_b = 0.0
+        if (self.cmd_linear or self.cmd_angular) and now - self.cmd_set_s > COMMAND_DEADMAN_S:
+            self.cmd_linear = self.cmd_angular = 0.0
             self.event("warn", "slider values went stale: back to neutral")
         self.cmd_seq += 1
         tx_us = monotonic_us()
-        self.cmd_tx[self.cmd_seq] = tx_us
-        self.cmd_tx.pop(self.cmd_seq - 1000, None)
-        payload = COMMAND.pack(self.cmd_seq, tx_us, self.cmd_a, self.cmd_b)
+        self.tx_us_by_seq[self.cmd_seq] = tx_us
+        self.tx_us_by_seq.pop(self.cmd_seq - 1000, None)
+        payload = COMMAND.pack(self.cmd_seq, tx_us, self.cmd_linear, self.cmd_angular)
         self.record(
             {
                 "kind": "sent",
                 "type": MSG_COMMAND,
                 "seq": self.cmd_seq,
                 "tx_us": tx_us,
-                "a": self.cmd_a,
-                "b": self.cmd_b,
+                "a": self.cmd_linear,
+                "b": self.cmd_angular,
             }
         )
         return encode_frame(MSG_COMMAND, payload)
@@ -642,8 +616,6 @@ class Diagnostics:
             self.series_t.popleft()
             for values in self.series.values():
                 values.popleft()
-
-    # ---- derived numbers -------------------------------------------------------------------
 
     def metrics(self, now: float) -> dict[str, Any]:
         m: dict[str, Any] = {}
@@ -709,8 +681,7 @@ class Diagnostics:
         return m
 
     def checks(self, now: float, m: dict[str, Any]) -> list[dict[str, str]]:
-        """Ordered link checklist. Each later check assumes the earlier ones pass, so the list
-        stops at the first check that rules out the rest."""
+        """Ordered link checklist that stops at the first failing check."""
         out: list[dict[str, str]] = []
         if self._check_reach(out, m):
             self._check_telemetry(out, m)
@@ -888,8 +859,8 @@ class Diagnostics:
             },
             "command": {
                 "sending": self.sending,
-                "a": self.cmd_a,
-                "b": self.cmd_b,
+                "a": self.cmd_linear,
+                "b": self.cmd_angular,
                 "hz": 1.0 / self.command_period_s,
                 "seq": self.cmd_seq,
                 "sent": self.cmd_sent,
@@ -897,7 +868,7 @@ class Diagnostics:
                 "robot_seq": self.telemetry["espnow_seq"] if self.telemetry else None,
                 "robot_age_ms": self.telemetry["espnow_age_ms"] if self.telemetry else None,
                 "seq_jumps": self.cmd_seq_jumps,
-                "foreign_echo": self.cmd_foreign_echo,
+                "foreign_echo": self.foreign_command_echoes,
                 "rtt_ms": m["rtt_ms"],
             },
             "ota": self.ota,
@@ -917,9 +888,6 @@ class Diagnostics:
         }
 
 
-# ---- serial thread ---------------------------------------------------------------------------
-
-
 def open_port(path: str) -> serial.Serial:
     # DTR and RTS go high before the open, as in espnow_ota.py: setting them low one at a time
     # passes through DTR low RTS high, which resets an ESP32-S3 on its USB-Serial/JTAG port.
@@ -933,9 +901,7 @@ def open_port(path: str) -> serial.Serial:
 
 
 def reset_dongle(port: serial.Serial) -> None:
-    """One chip reset through the USB-Serial/JTAG lines: DTR low with RTS high holds EN low, then
-    RTS low releases it with GPIO0 free, so the dongle boots its firmware and prints the banner.
-    One pulse only: two resets inside ~500 ms drop an Adafruit board into TinyUF2."""
+    """Reset the chip once through the USB-Serial/JTAG DTR and RTS lines."""
     port.dtr = False
     time.sleep(0.2)
     port.rts = False
@@ -1016,9 +982,6 @@ def serial_loop(diag: Diagnostics, stop: threading.Event) -> None:
         diag.stop_capture()
 
 
-# ---- web -------------------------------------------------------------------------------------
-
-
 def make_app(diag: Diagnostics) -> Flask:
     app = Flask(__name__, static_folder=None)
     add_page_routes(app, diag)
@@ -1035,11 +998,11 @@ def add_page_routes(app: Flask, diag: Diagnostics) -> None:
 
     @app.get("/style.css")
     def shared_style() -> Response:
-        return send_from_directory(ROBOT_WEB_DIR, "style.css")
+        return send_from_directory(SHARED_WEB_ASSETS_DIR, "style.css")
 
     @app.get("/fonts/<path:name>")
     def fonts(name: str) -> Response:
-        return send_from_directory(ROBOT_WEB_DIR / "fonts", name)
+        return send_from_directory(SHARED_WEB_ASSETS_DIR / "fonts", name)
 
     @app.get("/<any('app.js', 'diag.css'):name>")
     def assets(name: str) -> Response:
@@ -1083,7 +1046,7 @@ def add_command_routes(app: Flask, diag: Diagnostics) -> None:
                 abort(409, "port not open")
             if on != diag.sending:
                 diag.sending = on
-                diag.cmd_a = diag.cmd_b = 0.0
+                diag.cmd_linear = diag.cmd_angular = 0.0
                 diag.cmd_next_s = time.monotonic()
                 diag.rtt.clear()
                 diag.event("info", "SEND COMMANDS on, neutral" if on else "SEND COMMANDS off")
@@ -1102,10 +1065,10 @@ def add_command_routes(app: Flask, diag: Diagnostics) -> None:
         with diag.lock:
             if not diag.sending:
                 abort(409, "not sending")
-            diag.cmd_a = max(-1.0, min(1.0, a))
-            diag.cmd_b = max(-1.0, min(1.0, b))
+            diag.cmd_linear = max(-1.0, min(1.0, a))
+            diag.cmd_angular = max(-1.0, min(1.0, b))
             diag.cmd_set_s = time.monotonic()
-            return jsonify({"a": diag.cmd_a, "b": diag.cmd_b})
+            return jsonify({"a": diag.cmd_linear, "b": diag.cmd_angular})
 
 
 def add_control_routes(app: Flask, diag: Diagnostics) -> None:

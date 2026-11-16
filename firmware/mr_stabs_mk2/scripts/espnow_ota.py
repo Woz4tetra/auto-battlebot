@@ -1,13 +1,5 @@
 #!/usr/bin/env python3
-"""Flash mr_stabs_mk2 over ESP-NOW through the USB dongle.
-
-Run it on the machine the dongle is plugged into, normally the ZED Box (scripts/ota does that over
-ssh). The robot must be disarmed. The transfer is go-back-N over the 0x10-0x14 messages in
-docs/plans/espnow_link_plan.md, then the script waits for the rebooted robot to report the new
-image valid and checks its MD5.
-
-    venv/bin/python firmware/mr_stabs_mk2/scripts/espnow_ota.py firmware.bin --manage-service
-"""
+"""Flash mr_stabs_mk2 over ESP-NOW through the USB dongle."""
 
 from __future__ import annotations
 
@@ -45,7 +37,9 @@ CHUNK = 240  # espnow_protocol::OTA_CHUNK_DATA
 WINDOW = 16  # chunks in flight past the last acknowledged offset
 PROGRESS_TIMEOUT_S = 0.5  # above a ~150 ms block erase, which stalls acknowledgements
 MAX_TIMEOUTS = 10
-VALIDATE_TIMEOUT_S = 30.0  # reboot plus the robot's 10 s validation hold
+ROBOT_VALIDATION_HOLD_S = 10.0
+REBOOT_MARGIN_S = 20.0
+VALIDATE_TIMEOUT_S = ROBOT_VALIDATION_HOLD_S + REBOOT_MARGIN_S
 SERVICE = "auto-battlebot"
 
 
@@ -260,7 +254,7 @@ def main() -> int:
         port.baudrate = 921600
         port.dtr = True
         port.rts = True
-        with port:  # opens it
+        with port:
             flash(port, image)
     except OtaError as error:
         print(f"OTA failed: {error}", file=sys.stderr)

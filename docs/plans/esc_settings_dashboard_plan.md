@@ -301,3 +301,10 @@ reads of both ESCs (more than 150), and a page write of both ESCs verified by a 
 - Importing or exporting BLHeliSuite `.ini` / `.ixi` files. The backup JSON is the record, and
   `blheli32.py show` prints it.
 - Changing settings while armed or between matches without a bench.
+
+## Notes moved from code comments
+
+### General
+
+- `mr_stabs_mk2/include/diagnostics_server.h`: Serves the page from web/ (embedded at build time by scripts/embed_web.py), the WiFi settings endpoints, which edit wifi's saved networks, and GET /telemetry, which reads ring. boot_id goes out with every /telemetry reply so a client can tell a reboot restarted seqs. esc_tuning backs the /esc/ routes: tuning mode and the 4-way frame relay.
+- `mr_stabs_mk2/include/esc_config.h`: boot counts as the start of COMBAT

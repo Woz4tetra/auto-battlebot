@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""Capture INA219 discharge data and generate a static OCV table.
-
-Example:
-  python scripts/build_battery_ocv_table.py --i2c-bus 7 --i2c-address 0x41 \\
-      --cutoff-voltage 9.0 --sample-interval 2.0
-"""
+"""Capture INA219 discharge data and generate a static OCV table."""
 
 from __future__ import annotations
 
@@ -128,8 +123,8 @@ def compute_soc_trace(
         if mode == "discharge":
             transfer_current = max(discharge_current, 0.0)
         else:
-            # In charge mode, positive transfer means charging into the pack.
-            transfer_current = max(-discharge_current, 0.0)
+            charge_current = -discharge_current
+            transfer_current = max(charge_current, 0.0)
         total_transferred_ah += transfer_current * dt_h
         transferred_ah.append(total_transferred_ah)
 

@@ -2,9 +2,6 @@
 
 const $ = (id) => document.getElementById(id);
 
-// ---- leader rows -------------------------------------------------------------------------
-
-// Builds "Label ..... value" rows into a container and returns {key: value span}.
 function leaderRows(containerId, rows) {
   const spans = {};
   $(containerId).innerHTML = "";
@@ -39,8 +36,6 @@ function fillRows(containerId, rows) {
   rows.forEach((r, i) => setValue(spans[i], r[1], r[2]));
 }
 
-// ---- theme -------------------------------------------------------------------------------
-
 const SUN =
   '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square"><circle cx="12" cy="12" r="4.5"/><path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3M4.6 4.6l2.1 2.1M17.3 17.3l2.1 2.1M4.6 19.4l2.1-2.1M17.3 6.7l2.1-2.1"/></svg>';
 const MOON =
@@ -60,8 +55,6 @@ $("darkBtn").onclick = () => {
   renderTheme();
 };
 renderTheme();
-
-// ---- live stream -------------------------------------------------------------------------
 
 // Column order of the /events CSV rows. The Jetson's Esp32WifiDiagnostics and
 // scripts/log_drive_twitch.py parse the same order. New columns go just before seq.
@@ -198,12 +191,8 @@ function connect() {
   };
 }
 
-// While recording the robot sends every loop tick, so the DOM updates once per frame instead
-// of once per message.
 requestAnimationFrame(render);
 connect();
-
-// ---- recording ---------------------------------------------------------------------------
 
 $("recBtn").onclick = () => {
   recording = !recording;
@@ -234,8 +223,6 @@ $("dlBtn").onclick = () => {
   URL.revokeObjectURL(a.href);
 };
 
-// ---- Tuning ----------------------------------------------------------------------------
-
 function flash(id, text) {
   $(id).textContent = text;
   setTimeout(() => {
@@ -243,7 +230,7 @@ function flash(id, text) {
   }, 4000);
 }
 
-let tuning = null; // last GET /tuning reply
+let lastTuningReply = null;
 
 function tuningStamp(date = new Date()) {
   const p = (n) => String(n).padStart(2, "0");
@@ -254,7 +241,7 @@ function tuningStamp(date = new Date()) {
 }
 
 function showTuning(reply) {
-  tuning = reply;
+  lastTuningReply = reply;
   const box = $("tuningFields");
   for (const [key, f] of Object.entries(reply.fields)) {
     let row = box.querySelector(`[data-key="${key}"]`);
@@ -269,7 +256,7 @@ function showTuning(reply) {
       row.querySelector("label").textContent = key.toUpperCase();
       row.querySelector("button").onclick = () =>
         postTuning({ [key]: $(`tn_${key}`).value })
-          .then(() => flash(`tn_${key}S`, `set to ${tuning.fields[key].value} ${f.unit}`))
+          .then(() => flash(`tn_${key}S`, `set to ${lastTuningReply.fields[key].value} ${f.unit}`))
           .catch((e) => flash(`tn_${key}S`, e.message));
       box.append(row);
     }
@@ -294,13 +281,15 @@ function loadTuning() {
 }
 
 $("tuningDownload").onclick = () => {
-  if (!tuning) return flash("tuningStatus", "not loaded yet");
+  if (!lastTuningReply) return flash("tuningStatus", "not loaded yet");
   const doc = {
     kind: "mr_stabs_tuning",
     read_at: new Date().toISOString(),
-    saved: tuning.saved,
-    settings: Object.fromEntries(Object.entries(tuning.fields).map(([k, f]) => [k, f.value])),
-    units: Object.fromEntries(Object.entries(tuning.fields).map(([k, f]) => [k, f.unit])),
+    saved: lastTuningReply.saved,
+    settings: Object.fromEntries(
+      Object.entries(lastTuningReply.fields).map(([k, f]) => [k, f.value]),
+    ),
+    units: Object.fromEntries(Object.entries(lastTuningReply.fields).map(([k, f]) => [k, f.unit])),
   };
   const a = document.createElement("a");
   a.href = URL.createObjectURL(
@@ -321,7 +310,7 @@ $("tuningFile").onchange = async () => {
     if (doc.kind !== "mr_stabs_tuning" || typeof doc.settings !== "object") {
       throw new Error("not a tuning download");
     }
-    const known = tuning ? Object.keys(tuning.fields) : [];
+    const known = lastTuningReply ? Object.keys(lastTuningReply.fields) : [];
     const values = Object.fromEntries(
       Object.entries(doc.settings).filter(([k]) => known.includes(k)),
     );
@@ -337,10 +326,8 @@ $("tuningFile").onchange = async () => {
   }
 };
 
-// ---- WiFi --------------------------------------------------------------------------------
-
 let wifi = null;
-let pendingMode = null; // the operator's unapplied choice; null follows the robot
+let unappliedMode = null;
 let pendingSelected = null;
 
 function post(url, fields) {
@@ -362,10 +349,9 @@ const STATE_TEXT = {
 
 function renderWifi() {
   if (!wifi) return;
-  const mode = pendingMode ?? wifi.mode;
+  const mode = unappliedMode ?? wifi.mode;
   const selected = pendingSelected ?? wifi.selected;
 
-  // ESP-NOW pins the robot to its access point, so client mode cannot be chosen.
   const locked = wifi.forced_ap;
   $("espnowLockout").hidden = !locked;
   $("lockoutSsid").textContent = wifi.ap_ssid;
@@ -376,7 +362,6 @@ function renderWifi() {
   }
   $("netSelect").disabled = locked;
 
-  // Rebuilt only when the list changes, so a poll does not close a dropdown the operator has open.
   const select = $("netSelect");
   const key = wifi.networks.join("\n");
   if (select.dataset.key !== key) {
@@ -397,7 +382,6 @@ function renderWifi() {
   select.value = wifi.networks.includes(selected) ? selected : wifi.networks[0] || "";
   $("selectField").hidden = mode !== "client";
 
-  // The lockout box above explains forced AP mode; the note would only repeat it.
   $("modeNote").hidden = locked;
   $("modeNote").textContent =
     mode === "ap"
@@ -462,7 +446,7 @@ function pollWifi() {
 
 for (const b of $("modeSeg").children) {
   b.onclick = () => {
-    pendingMode = b.dataset.mode;
+    unappliedMode = b.dataset.mode;
     renderWifi();
   };
 }
@@ -472,11 +456,11 @@ $("netSelect").onchange = () => {
 
 $("applyBtn").onclick = () => {
   if (!wifi) return;
-  const mode = pendingMode ?? wifi.mode;
+  const mode = unappliedMode ?? wifi.mode;
   const selected = $("netSelect").value;
   post("/wifi/config", { mode, selected })
     .then(() => {
-      pendingMode = pendingSelected = null;
+      unappliedMode = pendingSelected = null;
       const leaving = mode === "client" || wifi.state !== "ap";
       $("applyStatus").textContent = leaving
         ? "saved; the robot is switching networks and this page will lose its connection"
@@ -502,8 +486,6 @@ setInterval(pollWifi, 2000);
 loadTuning();
 setInterval(loadTuning, 2000);
 pollWifi();
-
-// ---- sensor status -----------------------------------------------------------------------
 
 const I2C_ERR = {
   0: "ok",
@@ -663,13 +645,10 @@ function renderStatus(s) {
   if (s.boot) renderBoot(s.boot);
 }
 
-// ---- last reboot -------------------------------------------------------------------------
-
-// Reset reasons that mean the firmware failed rather than someone rebooting it.
-const BAD_RESETS = ["PANIC", "TASK_WDT", "INT_WDT", "OTHER_WDT", "BROWNOUT"];
+const FIRMWARE_FAILURE_RESETS = ["PANIC", "TASK_WDT", "INT_WDT", "OTHER_WDT", "BROWNOUT"];
 
 function renderBoot(b) {
-  const rows = [["Reset reason", b.reset_reason, BAD_RESETS.includes(b.reset_reason)]];
+  const rows = [["Reset reason", b.reset_reason, FIRMWARE_FAILURE_RESETS.includes(b.reset_reason)]];
   if (!b.has_dump) {
     rows.push(["Core dump", "none"]);
   } else if (!b.dump_valid) {
@@ -677,8 +656,6 @@ function renderBoot(b) {
   } else {
     rows.push(
       ["Core dump", b.dump_size + " B", true],
-      // A task watchdog aborts from its interrupt on core 0, so the summary names whatever ran
-      // there. The stuck task is in the full decode (scripts/coredump).
       [
         b.reset_reason === "TASK_WDT" ? "Task interrupted (not the stuck one)" : "Task",
         b.task || "--",
@@ -697,8 +674,6 @@ $("eraseDumpBtn").onclick = () =>
   post("/crash/erase", {})
     .then(() => flash("eraseDumpStatus", "erasing..."))
     .catch((e) => flash("eraseDumpStatus", e.message));
-
-// ---- ESP-NOW -----------------------------------------------------------------------------
 
 const OTA_STATES = ["idle", "receiving", "done", "validated", "error"];
 const PAIR_RESULTS = [
@@ -725,7 +700,6 @@ let lastPairResult = 0;
 let lastDongleList = "";
 
 function renderDongles(e) {
-  // A refused dongle is the one to offer, unless it was paired since.
   const offer = e.rx_rejected > 0 && !e.allowed.includes(e.rejected_mac) ? e.rejected_mac : null;
   $("pairOffer").hidden = !offer;
   if (offer) $("pairOfferMac").textContent = offer;
@@ -735,7 +709,6 @@ function renderDongles(e) {
     if (PAIR_RESULTS[e.pair_result]) flash("pairStatus", PAIR_RESULTS[e.pair_result]);
   }
 
-  // Rebuilt only when the list changes, so a button is never replaced under a click.
   const key = e.allowed.join(",") + "|" + e.dongle_mac;
   if (key === lastDongleList) return;
   lastDongleList = key;
@@ -748,7 +721,6 @@ function renderDongles(e) {
     list.appendChild(li);
   }
   for (const mac of e.allowed) {
-    // MAC on its own line and the state under it, so neither is cut off in a narrow column.
     const li = document.createElement("li");
     li.innerHTML =
       '<span class="ssid dongle"><span></span><span class="muted"></span></span>' +
@@ -763,7 +735,6 @@ function renderDongles(e) {
 }
 let prevEspNow = null;
 
-// Per-second rates from the change since the previous status poll.
 function espnowRates(e, snapshotMs) {
   const p = prevEspNow;
   prevEspNow = { t: snapshotMs, e };

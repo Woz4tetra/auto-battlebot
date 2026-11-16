@@ -1,6 +1,3 @@
-// esc.js against the pages read from Mr Stabs Mk2's ESCs. Run with `node --test` (pytest runs it
-// too, from tests/python/test_blheli32.py). The expected values are the ones the Python tests
-// check, so the page and the CLI decode the same.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -21,7 +18,6 @@ const capture = (esc, addr = "f800") =>
       path.join(here, "../../blheli/captures", `mr_stabs_mk2_esc${esc}_${addr}_2026-10-23.bin`),
     ),
   );
-// Reads a zip on stdin with Python's zipfile (which checks every CRC) and prints each entry.
 const PY_UNZIP = `
 import io, sys, zipfile
 z = zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read()))
@@ -31,7 +27,6 @@ for i in z.infolist():
 `;
 const diff = (a, b) => [...a.keys()].filter((i) => a[i] !== b[i]);
 
-// What BLHeliSuite32xl showed for ESC 1 after Read Setup on 2026-10-23.
 const BLHELISUITE_ESC1 = {
   direction: 3,
   rampup_power: 100,
@@ -97,7 +92,6 @@ test("encode changes only the field bytes", () => {
   const after = layout.encode(before, { demag_compensation: 4, beacon_delay: 1200 });
   assert.deepEqual(diff(before, after), [7, 22, 23]);
   assert.equal(layout.decode(after).beacon_delay, 1200);
-  // BLHeliSuite's own Write Setup with PWM low 16 / high 48 changed bytes 5 and 34 only.
   const pwm = layout.encode(before, { pwm_frequency_low: 16, pwm_frequency_high: 48 });
   assert.deepEqual(diff(before, pwm), [5, 34]);
 });
@@ -165,13 +159,10 @@ test("name is space padded", () => {
 });
 
 test("request framing matches fourway.py", () => {
-  // build_request(0x3A, 0xF800, b"\x00")
   assert.equal(Blheli.hex(Blheli.buildRequest(0x3a, 0xf800, [0])), "2f3af800010093f4");
   assert.equal(Blheli.crc16xmodem(new TextEncoder().encode("123456789")), 0x31c3);
 });
 
-// Answers 4-way frames like the robot's relay and an ESC, from the captured ESC 1 pages. Every
-// read re-encrypts with fresh nonces, as the ESC does.
 class FakeEsc {
   constructor({ dropWrites = false } = {}) {
     this.settings = Blheli.decodePage(capture(1));

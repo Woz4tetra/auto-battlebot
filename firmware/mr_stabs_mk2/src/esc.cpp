@@ -68,7 +68,7 @@ bool Esc::erpm_valid() const {
     return initialized && have_erpm && millis() - last_erpm_ms < ERPM_VALID_MS;
 }
 
-uint32_t Esc::crc_errors() const { return motor ? motor->decode_errors() : 0; }
+uint32_t Esc::reply_decode_errors() const { return motor ? motor->decode_errors() : 0; }
 
 float Esc::duty(float signed_percent) const {
     return esc_map::duty(signed_percent, stop_threshold);

@@ -2,25 +2,14 @@
 #include <cstddef>
 #include <cstdint>
 
-// Decodes a bidirectional DShot eRPM reply from the RMT's run lengths. Pure C++, so the native
-// env tests it against hand-built pulse trains. The DShot driver lives in lib/DShot, which needs
-// the Arduino core.
-//
-// The ESC answers each inverted DShot frame with 21 bits at 5/4 of the DShot bit rate. The line
-// idles high and the first falling edge is the start bit. Every edge is a 1 and every bit period
-// without an edge is a 0, so a run of n bit periods between edges decodes to a 1 followed by
-// n - 1 zeros. The 20 bits after the start bit are four 5-bit GCR groups, one per nibble of
-// eeem mmmm mmmm cccc: a period of m << e us and a 4-bit CRC.
 namespace erpm_decode {
 
 const uint32_t REPLY_BITS = 21;
-const uint16_t PAYLOAD_STOPPED = 0x0FFF;  // the longest period the reply encodes
+const uint16_t PAYLOAD_STOPPED = 0x0FFF;
 
-// GCR group for each nibble.
 const uint8_t GCR_ENCODE[16] = {0x19, 0x1B, 0x12, 0x13, 0x1D, 0x15, 0x16, 0x17,
                                 0x1A, 0x09, 0x0A, 0x0B, 0x1E, 0x0D, 0x0E, 0x0F};
 
-// Nibble for each GCR group, 0xFF for the 16 groups that are not codes.
 inline uint8_t gcr_decode(uint32_t group) {
     for (uint8_t nibble = 0; nibble < 16; nibble++) {
         if (GCR_ENCODE[nibble] == group) return nibble;
@@ -28,9 +17,6 @@ inline uint8_t gcr_decode(uint32_t group) {
     return 0xFF;
 }
 
-// Turns run lengths in ticks into the 21 reply bits, start bit first in bit 20. runs[0] is the
-// low start run. The last high run merges into the idle line, so its length is whatever is left
-// of the 21 bits. False when the runs do not add up to a reply.
 inline bool runs_to_bits(const uint32_t *runs, size_t count, float bit_ticks, uint32_t &bits) {
     if (count == 0 || bit_ticks <= 0.0f) return false;
     uint32_t value = 0;
@@ -40,7 +26,6 @@ inline bool runs_to_bits(const uint32_t *runs, size_t count, float bit_ticks, ui
         if (len == 0) len = 1;
         const bool last = i + 1 == count;
         if (total + len > REPLY_BITS) {
-            // Only the final run may spill into the idle line; a long run mid-reply is noise.
             if (!last) return false;
             len = REPLY_BITS - total;
         } else if (last) {
@@ -54,7 +39,6 @@ inline bool runs_to_bits(const uint32_t *runs, size_t count, float bit_ticks, ui
     return true;
 }
 
-// Undoes the GCR and checks the CRC. payload gets the 12-bit eeem mmmm mmmm.
 inline bool bits_to_payload(uint32_t bits, uint16_t &payload) {
     uint32_t value = 0;
     for (int group = 3; group >= 0; group--) {
@@ -68,7 +52,6 @@ inline bool bits_to_payload(uint32_t bits, uint16_t &payload) {
     return true;
 }
 
-// eRPM for a payload: 60e6 / period, 0 for the stopped code. False for a zero period.
 inline bool payload_to_erpm(uint16_t payload, uint32_t &erpm) {
     if (payload == PAYLOAD_STOPPED) {
         erpm = 0;
@@ -87,9 +70,6 @@ inline bool decode(const uint32_t *runs, size_t count, float bit_ticks, uint32_t
            payload_to_erpm(payload, erpm);
 }
 
-// The ESC's reply clock is its own: BLHeli_32 on Mr Stabs sends bits at 95 ticks against the
-// nominal 107, which leaves a 3-bit run at 2.66 bits, close to rounding down. Measure the bit
-// from the reply's single-bit runs (within 35% of nominal) and decode with that.
 inline float measured_bit_ticks(const uint32_t *runs, size_t count, float nominal_ticks) {
     float sum = 0.0f;
     int n = 0;

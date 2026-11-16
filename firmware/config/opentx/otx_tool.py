@@ -1,63 +1,5 @@
 #!/usr/bin/env python3
-"""otx_tool.py - read and edit OpenTX model files (Taranis X9D+ 2019, EEPROM v219).
-
-Board note
-----------
-This targets the Taranis **X9D+ 2019** (firmware BOARD_NAME=x9d+2019), which has 9
-switches SA..SI. The plain X9D has 8 (SA..SH) and the same 'otx3' fourcc, so the
-file does not reveal the board; the firmware build does. The extra switch shifts
-trainer/logical-switch source numbers (see MIXSRC_* below). Getting this wrong
-silently points a mix at the wrong source, so the numbering here is board-locked.
-
-Two file formats are supported
-------------------------------
-1. .otx  - a ZIP (Companion / desktop) containing:
-     RADIO/radio.bin, RADIO/models.txt, MODELS/modelN.bin (uncompressed dumps)
-2. .bin  - a single radio SD-card model file (MODELS/<name>.bin). On an EEPROM_RLC
-     build these are RLE-compressed (8-byte header + compressed stream). The tool
-     decompresses on load and recompresses on save (compressor is byte-exact with
-     the radio's own output).
-
-Each modelN.bin is an 8-byte header followed by a raw memory dump of the
-firmware's `ModelData` struct (sizeof(g_model) bytes). There is no text and no
-checksum: the bytes are the packed C struct exactly as it sits in radio RAM.
-
-This tool decodes the two arrays we usually want to touch, the mixer table
-(`mixData`) and the input/expo table (`expoData`), lets you edit them, and writes
-the file back byte-for-byte except for the bytes you actually change.
-
-How the layout was obtained (do not "eyeball" these numbers)
-------------------------------------------------------------
-The struct is full of board/version #ifdefs, so the offsets were taken from the
-compiler, not by hand. For PCBX9D (LCD_W==212) at EEPROM_VER==219:
-
-    sizeof(ModelHeader)=24  TimerData=16  MixData=20  LimitData=13  ExpoData=17
-    offsetof(mixData)=76    offsetof(limitData)=1356  offsetof(expoData)=1772
-
-Source numbering (sticks / inputs / trainer / switches) was computed from the
-real `dataconstants.h` MixSources enum and cross-checked against a known-good
-profile (sticks decoded as Rud=75..Ail=78, mixes referencing I1..I4).
-
-Safety
-------
-Format is board/version specific. On load the tool:
-  1. checks the 'otx' fourcc, board byte '3' (X9D) and version 219, and
-  2. self-checks: it re-encodes every mix/expo entry it parsed and asserts the
-     bytes equal the original. If your bitfield model were wrong this fails loudly
-     instead of silently corrupting a model that flies (or drives) hardware.
-If either check fails the tool refuses to operate on the file.
-
-CLI
----
-    otx_tool.py dump      file.otx [--model N]
-    otx_tool.py verify    file.otx
-    otx_tool.py set-expo  file.otx --chn C --value V [--model N] [-o out|--in-place]
-    otx_tool.py add-mix   file.otx --ch CH --src SRC [--weight W] [--mltpx add]
-                          [--switch S] [--trim-off] [--model N] [-o out|--in-place]
-
-`src`/`switch` accept either a raw number or a name ("TR1", "I4", "Ele", "SA").
-In-place edits write a .bak backup first.
-"""
+"""otx_tool.py - read and edit OpenTX model files (Taranis X9D+ 2019, EEPROM v219)."""
 
 from __future__ import annotations
 
@@ -69,16 +11,14 @@ import sys
 import zipfile
 from dataclasses import dataclass
 
-# --- file/struct layout (PCBX9D, EEPROM_VER 219) ---------------------------
-FOURCC = b"otx3"  # 'otx' + board byte '3' == Taranis X9D family (incl. X9D+ 2019)
+FOURCC = b"otx3"
 EEPROM_VER = 219
-HDR = 8  # fourcc(4) + ver(1) + 'M'(1) + size(uint16)
-MODEL_STRUCT_SIZE = 6604  # sizeof(ModelData) for this board/version (uncompressed)
+HEADER_SIZE = 8
+MODEL_DATA_SIZE_X9D_V219 = 6604
 
-# struct-relative offsets; file offset = HDR + these
-MIX_OFF, MIX_SZ, MIX_N = 76, 20, 64
-LIM_OFF, LIM_SZ, LIM_N = 1356, 13, 32
-EXP_OFF, EXP_SZ, EXP_N = 1772, 17, 64
+MIX_STRUCT_OFF, MIX_SZ, MIX_N = 76, 20, 64
+LIM_STRUCT_OFF, LIM_SZ, LIM_N = 1356, 13, 32
+EXP_STRUCT_OFF, EXP_SZ, EXP_N = 1772, 17, 64
 
 # CurveRef.type
 CURVE_REF_DIFF, CURVE_REF_EXPO, CURVE_REF_FUNC, CURVE_REF_CUSTOM = 0, 1, 2, 3
@@ -109,9 +49,11 @@ TRIM_ON, TRIM_OFF = 0, 1
 MIXSRC_FIRST_INPUT = 1  # I1..I32
 MIXSRC_FIRST_STICK = 75  # Rud,Ele,Thr,Ail
 MIXSRC_FIRST_POT = 79
-MIXSRC_FIRST_SWITCH = 92  # SA..SI (9 switches)
+NUM_SWITCHES = 9
+MIXSRC_FIRST_SWITCH = 92
 MIXSRC_FIRST_LOGICAL_SWITCH = 101
-MIXSRC_FIRST_TRAINER = 165  # TR1..TR16
+NUM_TRAINER_CHANNELS = 16
+MIXSRC_FIRST_TRAINER = 165
 STICK_NAMES = ["Rud", "Ele", "Thr", "Ail"]
 POT_NAMES = ["S1", "S2", "S3", "LS", "RS"]
 SWITCH_LETTERS = "ABCDEFGHI"
@@ -176,12 +118,6 @@ def src_value(token) -> int:
     return v
 
 
-# --- packed little-endian bitfield codec -----------------------------------
-# Both MixData and ExpoData begin with exactly 64 bits of bitfields (a whole
-# 8-byte run) followed by byte-aligned members. GCC packs bitfields LSB-first on
-# little-endian, so the first declared field is the least significant bits.
-
-
 def _decode_bits(b8: bytes, specs):
     val = int.from_bytes(b8, "little")
     out, pos = {}, 0
@@ -230,16 +166,8 @@ EXP_SPECS = [
 ]
 
 
-def _s8(v):  # signed byte helper
+def _signed_byte(v):
     return v - 256 if v > 127 else v
-
-
-# --- OpenTX RLE (RLC) codec for radio SD-card model files -------------------
-# Mirrors radio/src/storage/eeprom_rlc.cpp (readRlc / nextRlcWriteStep). Control
-# byte: 0x80 set -> (bits4-6)=zeros then (bits0-3)=literal count; 0x40 set ->
-# (bits0-5)=zero count; otherwise -> literal count (1..0x3f). A 0x00 control byte
-# ends the stream (the rest of the struct is zeros). The compressor reproduces
-# the radio's exact output (verified byte-for-byte on a real SD model).
 
 
 def rlc_decompress(data: bytes, out_len: int) -> bytes:
@@ -267,7 +195,7 @@ def rlc_decompress(data: bytes, out_len: int) -> bytes:
 def rlc_compress(data: bytes) -> bytes:
     out = bytearray()
     end = len(data)
-    while end > 0 and data[end - 1] == 0:  # radio stores only up to last nonzero
+    while end > 0 and data[end - 1] == 0:
         end -= 1
     i, pend = 0, 0
     while i < end:
@@ -318,7 +246,7 @@ class Mix:
         return cls(
             **f,
             curve_type=b[8],
-            curve_value=_s8(b[9]),
+            curve_value=_signed_byte(b[9]),
             delay_up=b[10],
             delay_down=b[11],
             speed_up=b[12],
@@ -380,7 +308,11 @@ class Expo:
     def from_bytes(cls, b: bytes) -> "Expo":
         f = _decode_bits(b[:8], EXP_SPECS)
         return cls(
-            **f, name=bytes(b[8:14]), offset=_s8(b[14]), curve_type=b[15], curve_value=_s8(b[16])
+            **f,
+            name=bytes(b[8:14]),
+            offset=_signed_byte(b[14]),
+            curve_type=b[15],
+            curve_value=_signed_byte(b[16]),
         )
 
     def to_bytes(self) -> bytes:
@@ -425,35 +357,34 @@ class Model:
                 f"/{chr(self.raw[5])}; tool targets v{EEPROM_VER}"
             )
         self.mixes = [
-            Mix.from_bytes(self._slice(MIX_OFF + i * MIX_SZ, MIX_SZ)) for i in range(MIX_N)
+            Mix.from_bytes(self._slice(MIX_STRUCT_OFF + i * MIX_SZ, MIX_SZ)) for i in range(MIX_N)
         ]
         self.expos = [
-            Expo.from_bytes(self._slice(EXP_OFF + i * EXP_SZ, EXP_SZ)) for i in range(EXP_N)
+            Expo.from_bytes(self._slice(EXP_STRUCT_OFF + i * EXP_SZ, EXP_SZ)) for i in range(EXP_N)
         ]
         self._self_check()
 
     def _slice(self, struct_off: int, n: int) -> bytes:
-        a = HDR + struct_off
+        a = HEADER_SIZE + struct_off
         return bytes(self.raw[a : a + n])
 
     def _self_check(self):
         """Re-encode parsed entries; they must reproduce the original bytes."""
         for i, m in enumerate(self.mixes):
-            if m.to_bytes() != self._slice(MIX_OFF + i * MIX_SZ, MIX_SZ):
+            if m.to_bytes() != self._slice(MIX_STRUCT_OFF + i * MIX_SZ, MIX_SZ):
                 raise AssertionError(
                     f"{self.name_in_zip}: mix[{i}] codec mismatch (layout wrong, refusing)"
                 )
         for i, e in enumerate(self.expos):
-            if e.to_bytes() != self._slice(EXP_OFF + i * EXP_SZ, EXP_SZ):
+            if e.to_bytes() != self._slice(EXP_STRUCT_OFF + i * EXP_SZ, EXP_SZ):
                 raise AssertionError(
                     f"{self.name_in_zip}: expo[{i}] codec mismatch (layout wrong, refusing)"
                 )
 
     @property
     def model_name(self) -> str:
-        return self.raw[HDR : HDR + 12].split(b"\x00")[0].decode("latin1")
+        return self.raw[HEADER_SIZE : HEADER_SIZE + 12].split(b"\x00")[0].decode("latin1")
 
-    # --- editing ---
     def set_input_expo(self, chn: int, value: int) -> int:
         """Set EXPO curve on every input line for input `chn` (0-based). Returns count."""
         n = 0
@@ -467,8 +398,7 @@ class Model:
         return n
 
     def set_mix_src(self, ch: int, new_src: int, old_src=None) -> int:
-        """Repoint mix line(s) on channel `ch` (0-based) to `new_src`. If
-        `old_src` is given, only lines currently using it are changed. Returns count."""
+        """Repoint mix lines on channel `ch` to `new_src`; returns the count."""
         n = 0
         for m in self.mixes:
             if not m.empty() and m.dest_ch == ch and (old_src is None or m.src_raw == old_src):
@@ -494,8 +424,7 @@ class Model:
         switch: int = 0,
         trim_off: bool = True,
     ) -> int:
-        """Insert a mix line on channel `ch` (0-based), after that channel's last
-        existing line, shifting subsequent mixes down. Returns the insert index."""
+        """Insert a mix line after channel `ch`'s last line; returns the index."""
         if self._mix_count() >= MIX_N:
             raise ValueError("mix table full")
         last = -1
@@ -518,10 +447,10 @@ class Model:
     def serialize(self) -> bytes:
         """Write mix/expo arrays back into raw; all other bytes untouched."""
         for i, m in enumerate(self.mixes):
-            a = HDR + MIX_OFF + i * MIX_SZ
+            a = HEADER_SIZE + MIX_STRUCT_OFF + i * MIX_SZ
             self.raw[a : a + MIX_SZ] = m.to_bytes()
         for i, e in enumerate(self.expos):
-            a = HDR + EXP_OFF + i * EXP_SZ
+            a = HEADER_SIZE + EXP_STRUCT_OFF + i * EXP_SZ
             self.raw[a : a + EXP_SZ] = e.to_bytes()
         return bytes(self.raw)
 
@@ -560,11 +489,7 @@ class Otx:
 
 
 class SdBin:
-    """A single radio SD-card model .bin file (MODELS/<name>.bin).
-
-    On EEPROM_RLC builds the body is RLE-compressed; on EEPROM_SDCARD builds it is
-    a raw struct dump. We discriminate on the header size field (== full struct
-    size means uncompressed). Decompress on load, recompress on save."""
+    """A single radio SD-card model .bin file (MODELS/<name>.bin)."""
 
     def __init__(self, path: str):
         self.path = path
@@ -574,19 +499,19 @@ class SdBin:
         self._orig = raw
         size = int.from_bytes(raw[6:8], "little")
         body = raw[8:]
-        if size == MODEL_STRUCT_SIZE and len(body) >= MODEL_STRUCT_SIZE:
+        if size == MODEL_DATA_SIZE_X9D_V219 and len(body) >= MODEL_DATA_SIZE_X9D_V219:
             self.compressed = False
-            struct = body[:MODEL_STRUCT_SIZE]
+            struct = body[:MODEL_DATA_SIZE_X9D_V219]
         else:
             self.compressed = True
-            struct = rlc_decompress(body, MODEL_STRUCT_SIZE)
-        self.models = [Model(raw[:HDR] + struct, os.path.basename(path))]
+            struct = rlc_decompress(body, MODEL_DATA_SIZE_X9D_V219)
+        self.models = [Model(raw[:HEADER_SIZE] + struct, os.path.basename(path))]
 
     def save(self, out_path: str):
         m = self.models[0]
-        struct = m.serialize()[HDR : HDR + MODEL_STRUCT_SIZE]
+        struct = m.serialize()[HEADER_SIZE : HEADER_SIZE + MODEL_DATA_SIZE_X9D_V219]
         body = rlc_compress(struct) if self.compressed else struct
-        hdr = bytearray(m.raw[:HDR])
+        hdr = bytearray(m.raw[:HEADER_SIZE])
         hdr[6:8] = len(body).to_bytes(2, "little")
         with open(out_path, "wb") as f:
             f.write(bytes(hdr) + body)
@@ -596,9 +521,8 @@ class SdBin:
         if m.serialize() != bytes(m.raw):
             raise AssertionError("model not stable under serialize")
         if self.compressed:
-            # the RLE codec must reproduce the radio's exact stored bytes
-            struct = m.serialize()[HDR : HDR + MODEL_STRUCT_SIZE]
-            if rlc_compress(struct) != self._orig[HDR:]:
+            struct = m.serialize()[HEADER_SIZE : HEADER_SIZE + MODEL_DATA_SIZE_X9D_V219]
+            if rlc_compress(struct) != self._orig[HEADER_SIZE:]:
                 raise AssertionError("RLE recompression does not match original bytes")
         return f"1 model ({'RLE' if self.compressed else 'raw'}), codec + RLE round-trip passed"
 
@@ -610,7 +534,6 @@ def open_container(path: str):
     return SdBin(path)
 
 
-# --- CLI -------------------------------------------------------------------
 def _pick(otx: Otx, idx):
     if idx is None:
         if len(otx.models) == 1:
@@ -639,7 +562,7 @@ def cmd_dump(args):
 
 
 def cmd_verify(args):
-    c = open_container(args.file)  # construction self-checks every model
+    c = open_container(args.file)
     print(f"OK: {args.file} - fourcc/version valid, {c.self_test()}")
     return 0
 

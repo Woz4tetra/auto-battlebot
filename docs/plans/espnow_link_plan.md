@@ -1178,3 +1178,24 @@ Each entry names the file and the code it described.
 Beside `const bool receiving = fresh && latest_telemetry_->radio_connected != 0;`:
 
 receiving_channels: the robot hears its handset and we hear the robot. SA on with both means what send() writes reaches the wheels (with ESPNOW_COMMAND_SUBSTITUTION in the firmware).
+
+## Notes moved from code comments
+
+### General
+
+- `mr_stabs_mk2/include/diagnostics_server.h`: ESP-NOW link health for the page's ESP-NOW panel. Counters run from boot; the page turns them into rates. Filled by espnow_link::EspNowLink::fill_status().
+- `mr_stabs_mk2/src/espnow_link.cpp`: Nothing beyond the bookkeeping above: it names the dongle and proves the channel.
+
+### command freshness
+
+- `shared/espnow_protocol/src/command_tracker.h`: 15 missed packets at the dongle's 250 Hz repeat rate. Kept generous on purpose: falling back to the trainer path costs ~5 ms, so a window that drops out on transient loss works against the latency goal. Tighten only if stale commands prove to be a real hazard.
+- `shared/espnow_protocol/src/command_tracker.h`: 3, not 5: at 250 Hz that is a 12 ms recovery instead of 20 ms. Re-enter the fast path sooner and accept slightly more switching at the edge of range. Both paths carry the same command, so a switch steps the wheels only by what the command changed across the latency difference.
+- `shared/espnow_protocol/src/command_tracker.h`: Well above COMMAND_STALE_MS. Silence this long re-baselines the sequence number (an app restart starts again from 0) and, when the channel is not pinned, starts the robot's channel sweep.
+
+### channel selection
+
+- `shared/espnow_protocol/src/espnow_protocol.h`: Nonzero pins both ends to this channel: the dongle skips its boot scan and the robot skips its sweep. Phase 1 of the plan runs pinned, since the robot's SoftAP still shares the radio and a sweep would drag it across channels. 0 selects the scan and the sweep.
+
+### keepalive
+
+- `shared/espnow_protocol/src/espnow_protocol.h`: The dongle sends MSG_PING whenever the radio has been idle this long. Without it the dongle is silent unless the Jetson is commanding, and then the robot cannot sweep onto its channel, has nowhere to send telemetry, and cannot validate a freshly flashed image (rollback needs to hear a dongle). 10 ms puts two pings inside every 25 ms sweep dwell, at ~1% of the channel.
