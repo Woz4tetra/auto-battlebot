@@ -192,16 +192,7 @@ def _runs(mask: np.ndarray) -> list[tuple[int, int]]:
 
 
 def _rise_tau(mv: np.ndarray, vss: float, dt: float, eps: float, gap: np.ndarray) -> float:
-    """First-order rise time constant from the contiguous leading rise: slope of ln(Vss - |v|) vs t.
-
-    The log-linear fit is correct for a first-order rise, but it must see only the rise. Selecting
-    the 15-90% amplitude band over the whole hold also catches late steady-state samples where noise
-    dips back into the band. One such point at large t has a small (Vss - |v|), which flattens the
-    slope and inflates tau by 10x or more: a genuine ~55 ms rise gets reported as 1.1 s. Restricting
-    the fit to the first contiguous in-band run fixes that. Gapped samples (tag out of frame, so
-    velocity is interpolation, not measurement) are dropped, so a dropout mid-rise cannot corrupt
-    the fit either.
-    """
+    """First-order rise time constant from the first contiguous in-band run."""
     inband = (mv > 0.15 * vss) & (mv < 0.9 * vss) & ((vss - mv) > 0.5 * eps) & ~gap
     runs = _runs(inband)
     if not runs:
@@ -389,9 +380,6 @@ def _latency_stack(s: Session) -> LatencyDiag:
     stack = np.zeros(win)
     windows: list[np.ndarray] = []
     for cmd, vel in ((s.cmd_lin_norm, s.v_raw_mps), (s.cmd_ang, s.w_raw_radps)):
-        # Causal backward difference, not np.gradient: a centered difference leaks the response one
-        # sample before the edge, which would bias a transport-delay estimate earlier than
-        # physically possible.
         accel = np.concatenate([[0.0], np.diff(vel)]) / s.dt_s
         scale = float(np.std(accel))
         if scale < 1e-9:

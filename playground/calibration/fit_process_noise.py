@@ -70,12 +70,7 @@ class GrowthFit:
 
 
 def fit_growth(axis: str, horizons: np.ndarray, residuals: np.ndarray) -> GrowthFit:
-    """Fit `sigma^2(h) = const + a h + b h^2 + c h^3` with non-negative coefficients.
-
-    Non-negativity is not a convenience. A negative coefficient would mean a mechanism that
-    removes variance as the horizon grows, which no term here can do, and an unconstrained fit
-    will happily produce one and then predict negative variance somewhere.
-    """
+    """Fit `sigma^2(h) = const + a h + b h^2 + c h^3` with non-negative coefficients."""
     var = np.var(residuals, axis=0)
     basis = np.stack([np.ones_like(horizons), horizons, horizons**2, horizons**3], axis=1)
     coeff, _ = nnls(basis, var)

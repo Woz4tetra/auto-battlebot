@@ -179,13 +179,7 @@ class ParamStatus:
 
     @property
     def rel(self) -> float:
-        """Spread relative to the value, or to the bound width when the value is near zero.
-
-        A coupling coefficient of 0.02 +/- 0.04 has an infinite relative spread by the naive
-        definition, which would sort it above everything else forever. Scaling by the
-        parameter's own bound width keeps "we cannot tell this from zero" comparable to
-        "this gain is known to 3%".
-        """
+        """Spread relative to the value, or to the bound width when the value is near zero."""
         if not np.isfinite(self.value) or not np.isfinite(self.spread):
             return float("inf")
         scale = abs(self.value)
@@ -262,9 +256,6 @@ def section_next(statuses: Sequence[ParamStatus], curves: dict[str, float]) -> S
             continue
         need = s.runs_needed()
         slope = curves.get(s.name)
-        # A slope flat enough to be indistinguishable from zero says more data of this kind
-        # buys nothing, and extrapolating through it overflows: the exponent 1/slope runs to
-        # hundreds and the base is below 1. Fall back to the root-N estimate there.
         usable_slope = bool(slope) and slope < -1e-3
         if usable_slope and np.isfinite(s.rel) and s.rel > TARGET_REL:
             need = max(

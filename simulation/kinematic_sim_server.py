@@ -95,8 +95,6 @@ class Opponent:
         self._half_x = arena_w / 2.0 - 0.11
         self._half_y = arena_h / 2.0 - 0.11
         self._rng = rng
-        # Opponents keep out of hazards too, or a run starts with one standing in the hole and
-        # the safest-point solver spends the match routing around a target that cannot exist.
         self._keep_out = [(o.center[0], o.center[1], o.radius + 0.11) for o in (obstacles or [])]
         self.dragged = False
         self.hazard_radius = cfg.hazard_radius
@@ -418,9 +416,6 @@ class KinematicServer:
     def _render_camera(self) -> None:
         """Warp the top-down arena into the camera's view."""
         cam = self._cfg.camera
-        # Write into the existing buffer rather than rebinding it: _send_frame ships
-        # `self._rgb.data` straight down the socket, so it has to stay the contiguous array the
-        # C++ side reads as BGR.
         self._rgb[:] = cv2.warpPerspective(
             self._world.compose_world(self._plant, self._opponents),
             self._homography,
@@ -438,13 +433,7 @@ class KinematicServer:
         return deque([(0.0, 0.0)] * delay, maxlen=delay + 1)
 
     def _respawn(self) -> None:
-        """Put our robot back at its start pose, leaving everything else alone.
-
-        Deliberately not `_reset`: that rewinds tick and sim_time, and the C++ side drives its
-        ManualClock off sim_time. Time going backwards mid-connection desynchronises the filter in
-        ways that read as control bugs. Opponents keep where they are, including where they were
-        dragged to, because the point of continuing is to retry against the same situation.
-        """
+        """Put our robot back at its start pose, leaving everything else alone."""
         self._plant = self._make_plant()
         self._cmd_buf = self._empty_command_buffer()
 

@@ -21,3 +21,47 @@ def test_default_opponent_radius() -> None:
     assert kinematic_sim_server.DEFAULT_OPPONENT_RADIUS_M == pytest.approx(
         0.5 * math.hypot(length, width), abs=5e-4
     )
+
+
+def _server():
+    from config.kinematic import KinematicSimConfig, OpponentConfig
+
+    cfg = KinematicSimConfig()
+    cfg.opponents = [OpponentConfig(behavior="static", start_pos=[0.5, 0.5])]
+    server = kinematic_sim_server.KinematicServer(cfg)
+    server._reset()
+    return server
+
+
+def test_opponent_spawned_in_hazard_is_pushed_out() -> None:
+    import numpy as np
+    from config.kinematic import ObstacleConfig, OpponentConfig
+
+    hole = ObstacleConfig(kind="hole", center=[0.5, 0.5], radius=0.25)
+    opponent = kinematic_sim_server.Opponent(
+        OpponentConfig(behavior="static", start_pos=[0.5, 0.5]),
+        2.0,
+        2.0,
+        np.random.default_rng(0),
+        obstacles=[hole],
+    )
+    assert math.hypot(opponent.x - 0.5, opponent.y - 0.5) >= 0.25 + 0.11 - 1e-6
+
+
+def test_respawn_keeps_time_and_opponents() -> None:
+    server = _server()
+    server._sim_time = 12.5
+    server._tick = 250
+    server._opponents[0].x = -0.3
+    server._respawn()
+    assert server._sim_time == 12.5
+    assert server._tick == 250
+    assert server._opponents[0].x == -0.3
+
+
+def test_render_camera_keeps_buffer_identity() -> None:
+    server = _server()
+    buffer = server._rgb
+    server._render_camera()
+    assert server._rgb is buffer
+    assert server._rgb.flags["C_CONTIGUOUS"]

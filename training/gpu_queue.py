@@ -340,8 +340,6 @@ def cmd_worker(args: argparse.Namespace) -> int:
             time.sleep(POLL_SECONDS)
             continue
         idle_since = time.monotonic()
-        # Every job, not once per sweep: a tenant restarted by hand mid-sweep would
-        # otherwise hold the GPUs and park the queue in wait_for_gpus indefinitely.
         run_yield_hooks("pause", job_devices(job))
         yielded = True
         if not wait_for_gpus(job["id"]):
@@ -356,9 +354,6 @@ def cmd_worker(args: argparse.Namespace) -> int:
             record["state"] = "claimed"
         print(f"[{now()}] job {job['id']} ({job['name']}) starting", flush=True)
         run_job(job)
-        # Idle time counts from the end of the last job, not its start. Otherwise the
-        # worker exits (and resumes the tenants) the moment a long job finishes, and an
-        # agent that resubmits a minute later pays for a full model reload.
         idle_since = time.monotonic()
         final = find_job(read_state(), job["id"])
         print(f"[{now()}] job {job['id']} {final['state'] if final else 'gone'}", flush=True)

@@ -282,3 +282,63 @@ class TestSubmitHints:
         )
         queue.cmd_submit(args)
         assert state["jobs"][0]["hint"] == {}
+
+
+class TestWorkerLoop:
+    def _run(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> dict[str, Any]:
+        import json
+        import types
+
+        monkeypatch.setattr(queue, "QUEUE_DIR", tmp_path)
+        monkeypatch.setattr(queue, "LOG_DIR", tmp_path / "logs")
+        monkeypatch.setattr(queue, "STATE_PATH", tmp_path / "state.json")
+        monkeypatch.setattr(queue, "STATE_LOCK", tmp_path / "state.lock")
+        monkeypatch.setattr(queue, "WORKER_LOCK", tmp_path / "worker.lock")
+        state = {
+            "next_id": 3,
+            "jobs": [
+                make_job(1, ["true"]) | {"cancel_requested": False},
+                make_job(2, ["true"]) | {"cancel_requested": False},
+            ],
+            "worker_stop": False,
+        }
+        queue.STATE_PATH.write_text(json.dumps(state))
+        clock = [0.0]
+        seen: dict[str, Any] = {"hooks": [], "idle": []}
+
+        def run_job(job: dict[str, Any]) -> None:
+            clock[0] += 1000.0
+            with queue.locked_state() as fresh:
+                queue.find_job(fresh, job["id"])["state"] = "done"
+
+        def idle_tick(_args: argparse.Namespace, idle: float, yielded: bool) -> bool:
+            seen["idle"].append(idle)
+            return yielded
+
+        def sleep(seconds: float) -> None:
+            clock[0] += seconds
+            with queue.locked_state() as fresh:
+                fresh["worker_stop"] = True
+
+        fake_time = types.SimpleNamespace(monotonic=lambda: clock[0], sleep=sleep)
+        monkeypatch.setattr(queue, "time", fake_time)
+        monkeypatch.setattr(queue, "run_job", run_job)
+        monkeypatch.setattr(queue, "idle_tick", idle_tick)
+        monkeypatch.setattr(queue, "wait_for_gpus", lambda _job_id: True)
+        monkeypatch.setattr(
+            queue, "run_yield_hooks", lambda action, devices=None: seen["hooks"].append(action)
+        )
+        assert queue.cmd_worker(argparse.Namespace(idle_exit=0.0)) == 0
+        return seen
+
+    def test_tenants_pause_before_every_job(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        seen = self._run(monkeypatch, tmp_path)
+        assert seen["hooks"].count("pause") == 2
+
+    def test_idle_time_counts_from_end_of_last_job(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        seen = self._run(monkeypatch, tmp_path)
+        assert seen["idle"] == [0.0]
