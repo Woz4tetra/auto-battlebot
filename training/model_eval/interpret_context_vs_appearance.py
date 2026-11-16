@@ -262,15 +262,7 @@ def _batch_box_score(model: Model, imgs: list[np.ndarray], box: list[float]) -> 
 
 
 def donor_index(frames: list[dict], fi: int, rect: list[float]) -> int:
-    """Index of the arena `fi`'s crop gets pasted onto: another frame, clear at `rect`.
-
-    Must not be `fi` itself - pasting a crop back at its own coordinates on its own
-    frame rebuilds the original image, which measures nothing. Donors whose own labeled
-    robots sit under the paste rect are skipped too, so the swap does not bury a second
-    robot. The search starts half the list away because frames are ordered by recording,
-    and a donor from a different fight is a stronger context swap than the next frame of
-    the same one.
-    """
+    """Index of the arena frame `fi`'s crop gets pasted onto."""
     n = len(frames)
     for offset in range(n // 2, n // 2 + n):
         cand = (fi + offset) % n
