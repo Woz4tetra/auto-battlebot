@@ -44,7 +44,7 @@ FieldHazard make_hazard(double x, double y, double hard_radius, double inflated_
     hazard.center.x = x;
     hazard.center.y = y;
     hazard.hard_radius = hard_radius;
-    hazard.inflated_radius = inflated_radius;
+    hazard.inflated_radius_m = inflated_radius;
     hazard.object_radius = hard_radius;
     return hazard;
 }
