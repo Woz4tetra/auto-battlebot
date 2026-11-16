@@ -1,8 +1,12 @@
 #include <gtest/gtest.h>
+#include <spdlog/sinks/callback_sink.h>
+#include <spdlog/spdlog.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -11,9 +15,11 @@
 #include <vector>
 
 #include "control_loop/stepped_control_loop.hpp"
+#include "diagnostics_logger/diagnostics_logger.hpp"
 #include "field_filter/noop_field_filter.hpp"
 #include "keypoint_model/noop_keypoint_model.hpp"
 #include "mask_model/noop_mask_model.hpp"
+#include "mcap_recorder/mcap_recorder.hpp"
 #include "navigation/noop_navigation.hpp"
 #include "publisher/noop_publisher.hpp"
 #include "rgbd_camera/noop_rgbd_camera.hpp"
@@ -34,6 +40,8 @@ class RecordingCamera : public NoopRgbdCamera {
    public:
     bool set_recording_enabled(bool enabled) override {
         std::this_thread::sleep_for(std::chrono::milliseconds(toggle_delay_ms.load()));
+        if (opening.load()) overlapped_open = true;
+        if (on_toggle) on_toggle(enabled);
         recording = enabled;
         // Like VideoEncoder: a restart clears a stopped encoder.
         if (enabled) needs_restart = false;
@@ -48,6 +56,8 @@ class RecordingCamera : public NoopRgbdCamera {
     bool is_recording_enabled() const override { return recording; }
     bool recording_encoder_stalled() const override { return needs_restart; }
     std::atomic<bool> needs_restart{false};
+    std::atomic<bool> overlapped_open{false};
+    std::function<void(bool)> on_toggle;
 
     // With lost_ set, get() fails and a re-open blocks like a ZED that is not there, until
     // cancel_initialize() or 10 s.
@@ -412,6 +422,177 @@ TEST_F(CameraSettingsCommandsTest, DeletingTheActiveProfileFallsBackToDefaultLab
     // The camera still runs cage's values, which differ from DEFAULT's.
     EXPECT_TRUE(status.modified);
     EXPECT_EQ(status.profiles, std::vector<std::string>{"DEFAULT"});
+}
+
+class FlushRecordingPublisher : public NoopPublisher {
+   public:
+    void flush() override {
+        if (on_flush) on_flush();
+    }
+    std::function<void()> on_flush;
+};
+
+class StalledControlLoop : public SteppedControlLoop {
+   public:
+    using SteppedControlLoop::SteppedControlLoop;
+    bool is_healthy() const override { return false; }
+};
+
+class RunnerRecordingOrderTest : public ::testing::Test {
+   protected:
+    void SetUp() override {
+        camera_ = std::make_shared<RecordingCamera>();
+        publisher_ = std::make_shared<FlushRecordingPublisher>();
+        recorder_ = std::make_shared<McapRecorder>("runner_order_test");
+        paths_.push_back(recorder_->file_path());
+        camera_->on_toggle = [this](bool enabled) {
+            note(std::string(enabled ? "svo_on" : "svo_off") +
+                 (recorder_->is_enabled() ? "_mcap_on" : "_mcap_off"));
+        };
+        publisher_->on_flush = [this] {
+            note(std::string("flush") + (recorder_->is_enabled() ? "_mcap_on" : "_mcap_off"));
+        };
+        auto keypoint_model = std::make_shared<NoopKeypointModel>();
+        auto blob_model = std::make_shared<NoopRobotBlobModel>();
+        auto loop = std::make_shared<ControlLoop>(
+            std::make_shared<NoopRobotFilter>(), std::make_shared<NoopTarget>(),
+            std::make_shared<NoopNavigation>(), std::make_shared<NoopTransmitter>(), nullptr,
+            nullptr, kCacheMaxAgeS);
+        RunnerRemote remote;
+        commands_ = remote.commands;
+        runner_ = std::make_unique<Runner>(
+            RunnerConfiguration{}, camera_, std::make_shared<HealthLogger>(HealthConfiguration{}),
+            std::make_shared<NoopMaskModel>(), blob_model, std::make_shared<NoopFieldFilter>(),
+            keypoint_model, std::make_shared<KeypointHeightGate>(KeypointHeightGateConfiguration{}),
+            std::make_shared<StaticDetectionGate>(StaticDetectionGateConfiguration{}),
+            std::make_shared<ParallelModelBatch>(keypoint_model, blob_model),
+            std::make_shared<SteppedControlLoop>(loop, 0.0), publisher_, [](SystemAction) {},
+            nullptr, recorder_, nullptr, std::move(remote));
+    }
+
+    void TearDown() override {
+        recorder_->close();
+        std::error_code ec;
+        for (const auto &path : paths_) std::filesystem::remove(path, ec);
+    }
+
+    void note(const std::string &event) {
+        std::lock_guard<std::mutex> lock(events_mutex_);
+        events_.push_back(event);
+    }
+
+    std::vector<std::string> events() {
+        std::lock_guard<std::mutex> lock(events_mutex_);
+        return events_;
+    }
+
+    bool tick_until_events(size_t count) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+        while (std::chrono::steady_clock::now() < deadline) {
+            EXPECT_TRUE(runner_->tick());
+            if (events().size() >= count) return true;
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        return false;
+    }
+
+    std::shared_ptr<RecordingCamera> camera_;
+    std::shared_ptr<FlushRecordingPublisher> publisher_;
+    std::shared_ptr<McapRecorder> recorder_;
+    std::shared_ptr<remote::CommandQueue> commands_;
+    std::unique_ptr<Runner> runner_;
+    std::vector<std::filesystem::path> paths_;
+    std::mutex events_mutex_;
+    std::vector<std::string> events_;
+};
+
+TEST_F(RunnerRecordingOrderTest, RecordingOnOpensMcapBeforeTheEncoderStarts) {
+    recorder_->set_enabled(false);
+    commands_->post(remote::SetRecordingCommand{.enabled = true});
+    ASSERT_TRUE(tick_until_events(1));
+    EXPECT_EQ(events(), (std::vector<std::string>{"svo_on_mcap_on"}));
+    paths_.push_back(recorder_->file_path());
+}
+
+TEST_F(RunnerRecordingOrderTest, RecordingOffStopsTheEncoderThenDrainsThePublisherThenClosesMcap) {
+    commands_->post(remote::SetRecordingCommand{.enabled = false});
+    ASSERT_TRUE(tick_until_events(2));
+    EXPECT_EQ(events(), (std::vector<std::string>{"svo_off_mcap_on", "flush_mcap_on"}));
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (recorder_->is_enabled() && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    EXPECT_FALSE(recorder_->is_enabled());
+}
+
+TEST_F(RunnerRecordingOrderTest, SystemActionFlushesThePublisherBeforeClosingMcap) {
+    commands_->post(remote::SystemActionCommand{.action = SystemAction::REBOOT_HOST});
+    EXPECT_FALSE(runner_->tick());
+    const auto recorded = events();
+    ASSERT_FALSE(recorded.empty());
+    EXPECT_EQ(recorded.front(), "svo_off_mcap_on");
+    EXPECT_NE(std::find(recorded.begin(), recorded.end(), "flush_mcap_on"), recorded.end());
+    EXPECT_FALSE(recorder_->is_enabled());
+}
+
+TEST_F(RunnerRecordingOrderTest, ShutdownWaitsForAToggleAlreadyPosted) {
+    camera_->toggle_delay_ms = 200;
+    commands_->post(remote::SetRecordingCommand{.enabled = true});
+    EXPECT_TRUE(runner_->tick());
+    commands_->post(remote::SystemActionCommand{.action = SystemAction::POWEROFF_HOST});
+    EXPECT_FALSE(runner_->tick());
+    EXPECT_EQ(camera_->toggles(), (std::vector<bool>{true, false}));
+    EXPECT_FALSE(camera_->recording);
+}
+
+TEST_F(RunnerRecordingOrderTest, RecordingToggleWaitsOutACameraReopen) {
+    camera_->toggle_delay_ms = 400;
+    commands_->post(remote::SetRecordingCommand{.enabled = true});
+    EXPECT_TRUE(runner_->tick());
+    camera_->lost_ = true;
+    std::atomic<bool> result{true};
+    std::thread tick([&] { result = runner_->tick(); });
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    while (camera_->toggles().empty() && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    runner_->quit_from_signal_handler();
+    tick.join();
+    EXPECT_FALSE(camera_->overlapped_open.load());
+}
+
+TEST_F(RunnerCommandsTest, StalledControlLoopCutsAutonomyAndLogsOnce) {
+    if (!DiagnosticsLogger::is_initialized()) DiagnosticsLogger::initialize({});
+    auto keypoint_model = std::make_shared<NoopKeypointModel>();
+    auto blob_model = std::make_shared<NoopRobotBlobModel>();
+    auto loop = std::make_shared<ControlLoop>(
+        std::make_shared<NoopRobotFilter>(), std::make_shared<NoopTarget>(),
+        std::make_shared<NoopNavigation>(), std::make_shared<NoopTransmitter>(), nullptr, nullptr,
+        kCacheMaxAgeS);
+    Runner stalled(
+        RunnerConfiguration{}, camera_, std::make_shared<HealthLogger>(HealthConfiguration{}),
+        std::make_shared<NoopMaskModel>(), blob_model, std::make_shared<NoopFieldFilter>(),
+        keypoint_model, std::make_shared<KeypointHeightGate>(KeypointHeightGateConfiguration{}),
+        std::make_shared<StaticDetectionGate>(StaticDetectionGateConfiguration{}),
+        std::make_shared<ParallelModelBatch>(keypoint_model, blob_model),
+        std::make_shared<StalledControlLoop>(loop, 0.0), std::make_shared<NoopPublisher>(),
+        [](SystemAction) {}, nullptr, nullptr, nullptr, RunnerRemote{});
+
+    std::atomic<int> errors{0};
+    const auto previous = spdlog::default_logger();
+    spdlog::set_default_logger(std::make_shared<spdlog::logger>(
+        "stalled", std::make_shared<spdlog::sinks::callback_sink_mt>(
+                       [&errors](const spdlog::details::log_msg &msg) {
+                           if (msg.level == spdlog::level::err) ++errors;
+                       })));
+    std::thread runner_thread([&] { stalled.run(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    stalled.quit_from_signal_handler();
+    runner_thread.join();
+    spdlog::set_default_logger(previous);
+
+    EXPECT_FALSE(stalled.system_status().autonomy_enabled);
+    EXPECT_EQ(errors.load(), 1);
 }
 
 }  // namespace

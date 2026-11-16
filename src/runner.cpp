@@ -172,14 +172,12 @@ void Runner::publish_tracks(const RobotDescriptionsStamped &robots, const FieldD
 }
 
 void Runner::stop_recordings_for_shutdown() const {
-    // Let a toggle or rollover already posted finish first, so this off is the last word.
     recording_worker_->stop();
     std::lock_guard<std::mutex> lock(recording_mutex_);
     if (!camera_->set_recording_enabled(false)) {
         spdlog::warn("Failed to disable SVO recording during shutdown.");
     }
     if (mcap_recorder_) {
-        // Publishing runs on its own thread; let it catch up so the last frames are recorded.
         publisher_->flush();
         spdlog::default_logger()->flush();
         mcap_recorder_->set_enabled(false);
@@ -263,9 +261,6 @@ std::string Runner::set_manual_target(const remote::SetManualTargetCommand &comm
 }
 
 void Runner::set_recording(bool enabled) const {
-    // Off stops the camera's video encoder, which flushes the pipeline and can take a second or
-    // more on a stalled one. The worker does it so the tick keeps running, in post order, so an
-    // off then on from the UI still cuts a file.
     recording_worker_->post([this, enabled] { apply_recording(enabled, true); });
 }
 
@@ -287,9 +282,6 @@ void Runner::wait_for_frames_in_flight() const {
 
 void Runner::apply_recording(bool enabled, bool from_worker) const {
     std::lock_guard<std::mutex> lock(recording_mutex_);
-    // Open the MCAP gate before the camera starts its video encoder and close it after the encoder
-    // has flushed, so the first IDR and the last packets both land in the file. Off closes the
-    // file, so the frames in flight and the publisher's queue are drained into it first.
     const auto set_mcap = [this, enabled, from_worker] {
         if (!enabled && from_worker) wait_for_frames_in_flight();
         if (!enabled && mcap_recorder_) publisher_->flush();
@@ -313,8 +305,6 @@ std::string Runner::select_profile(const std::string &name) {
 
 void Runner::run_system_action(SystemAction action) {
     spdlog::warn("Runner received system action request: {}", magic_enum::enum_name(action));
-    // Finalize recordings before the host reboots/powers off, otherwise the MCAP
-    // writer is never closed and the file is left corrupted.
     stop_recordings_for_shutdown();
     if (system_action_callback_) system_action_callback_(action);
 }
@@ -461,10 +451,6 @@ bool Runner::handle_commands(bool &should_reinit_field) {
                 [&](const remote::SelectProfileCommand &c) { message = select_profile(c.name); },
                 [&](const remote::SystemActionCommand &c) {
                     run_system_action(c.action);
-                    // Every action here reboots or powers off the host, so stop the loop instead
-                    // of ticking on. The host teardown kills the X server and the Argus camera
-                    // daemon, and a loop still driving the UI and the camera through that dies
-                    // on the dead connections.
                     keep_running = false;
                 },
                 [&](const remote::SetWifiAccessCommand &c) {
@@ -516,14 +502,11 @@ bool Runner::recover_camera_after_failure() {
         }
         bool reinitialized = false;
         {
-            // The camera's encoder or SVO recorder must not be toggled mid-initialize.
             std::lock_guard<std::mutex> lock(recording_mutex_);
             reinitialized = camera_->initialize();
         }
         if (reinitialized) break;
 
-        // A reboot or power-off that cancelled the open is still in the queue. Run it, or the
-        // process exits and the host never reboots.
         handle_commands(unused_reinit);
         spdlog::warn("Camera reinitialize attempt failed. Exiting.");
         return false;
@@ -616,15 +599,10 @@ int Runner::run() {
         if (!tick()) {
             spdlog::warn("Runner::tick requested shutdown; runner loop exiting.");
             control_loop_->stop();
-            // Quit and reboot already closed them; a camera failure had not. Every component
-            // destructor after this may run on a dying camera, so the files are finished first.
             stop_recordings_for_shutdown();
             return 0;
         }
         if (!control_loop_->is_healthy()) {
-            // A stalled control loop leaves the robot executing its last command. Cut autonomy
-            // rather than trusting a loop that has missed its deadline. Logged on the change
-            // only: once per tick put 60 errors a second into the MCAP's /log.
             if (!control_loop_stalled_) {
                 spdlog::error("Control loop missed its watchdog deadline; disabling autonomy.");
                 control_loop_stalled_ = true;
