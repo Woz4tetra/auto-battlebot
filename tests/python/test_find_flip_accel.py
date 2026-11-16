@@ -33,5 +33,5 @@ def _link() -> tuple[dp.TrainerLink, _FakeSerial]:
 def test_close_zeroes_both_channels() -> None:
     link, serial = _link()
     link.close()
-    assert f"trainer {dp.CHANNEL_A} 0\r\n" in serial.writes
-    assert f"trainer {dp.CHANNEL_B} 0\r\n" in serial.writes
+    assert f"trainer {dp.TRAINER_CHANNEL_0} 0\r\n" in serial.writes
+    assert f"trainer {dp.TRAINER_CHANNEL_1} 0\r\n" in serial.writes

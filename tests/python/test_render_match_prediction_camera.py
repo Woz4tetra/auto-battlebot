@@ -24,7 +24,7 @@ def test_slots_follow_cumulative_rounding() -> None:
         x=zeros,
         y=zeros,
         theta=zeros,
-        live=np.ones(len(stamps), bool),
+        our_live_fresh=np.ones(len(stamps), bool),
         opp_x=zeros,
         opp_y=zeros,
         field_size=None,

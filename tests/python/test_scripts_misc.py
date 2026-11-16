@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import importlib.util
+import ipaddress
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -248,8 +250,15 @@ def test_installer_and_with_display_agree_on_desktop_detection() -> None:
 def test_dashboard_subnet_matches_between_installer_and_host_header() -> None:
     script = (REPO / "install" / "install_dashboard_network.sh").read_text()
     header = (REPO / "include" / "host" / "dashboard_network.hpp").read_text()
-    assert 'local address="10.42.42.1/24"' in script
-    assert "10.42.42.0/24" in header and "10.42.42.1" in header
+    address = re.search(r'local address="([0-9.]+/[0-9]+)"', script)
+    net = re.search(r"kDashboardCableNet = (0x[0-9A-Fa-f]+);", header)
+    mask = re.search(r"kDashboardCableMask = (0x[0-9A-Fa-f]+);", header)
+    assert address and net and mask
+    interface = ipaddress.ip_interface(address.group(1))
+    header_net = ipaddress.ip_network(
+        (int(net.group(1), 16), bin(int(mask.group(1), 16)).count("1"))
+    )
+    assert interface.network == header_net
 
 
 def test_clang_tidy_step_promotes_warnings_to_errors() -> None:
