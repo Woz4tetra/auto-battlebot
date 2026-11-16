@@ -38,8 +38,9 @@ from auto_battlebot.segmentation.model_config import (
 
 matplotlib.use("agg")
 
-# Field-mask class layout: channel 0 is background, channel 1 is the field.
-FIELD_CLASS = 1
+FIELD_CHANNEL = 1
+LogitsBCHW = torch.Tensor
+OneHotBCHW = torch.Tensor
 FIELD_INDEX_NAME = "field_index.json"
 AMP_DTYPES = {"off": None, "bf16": torch.bfloat16}
 
@@ -128,7 +129,6 @@ class SegDataset(Dataset):
 
     @staticmethod
     def _augment(image: Image.Image, mask: Image.Image) -> tuple[Image.Image, Image.Image]:
-        # Photometric (image only)
         image = tv_functional.adjust_brightness(image, pyrandom.uniform(0.7, 1.3))
         image = tv_functional.adjust_contrast(image, pyrandom.uniform(0.7, 1.3))
         image = tv_functional.adjust_saturation(image, pyrandom.uniform(0.7, 1.3))
@@ -136,7 +136,6 @@ class SegDataset(Dataset):
         if pyrandom.random() < 0.3:
             image = tv_functional.gaussian_blur(image, kernel_size=5)
 
-        # Geometric (image + mask together)
         if pyrandom.random() < 0.5:
             image = tv_functional.hflip(image)
             mask = tv_functional.hflip(mask)
@@ -167,11 +166,7 @@ def get_training_set_paths(data_directory: Path) -> tuple[list[Path], list[Path]
 
 
 def paths_from_list(list_path: Path, dataset_root: Path) -> tuple[list[Path], list[Path]]:
-    """Read an arm's image list. Relative entries resolve against the corpus root.
-
-    Arms are lists rather than directories of copies because the Phase-B ladder is 18
-    arms over ~29 k images; physical copies would be ~350 GB against 282 GB free.
-    """
+    """Read an arm's image list. Relative entries resolve against the corpus root."""
     if not list_path.exists():
         raise SystemExit(f"Image list not found: {list_path}")
     paths = []
@@ -184,11 +179,7 @@ def paths_from_list(list_path: Path, dataset_root: Path) -> tuple[list[Path], li
 
 
 def load_field_index(dataset_root: Path, override: Path | None) -> dict[str, str]:
-    """Image name -> field type, written by make_field_splits.py.
-
-    Absent, training still works but model selection falls back to the global mean IoU,
-    which on this corpus is roughly a Cage-6 score.
-    """
+    """Image name -> field type, written by make_field_splits.py."""
     path = override or (dataset_root / FIELD_INDEX_NAME)
     if not path.exists():
         return {}
@@ -238,7 +229,6 @@ def get_dataset(
         pin_memory=True,
         worker_init_fn=seed_worker,
     )
-    # Validation must not shuffle: FieldIoU pairs each sample with its field by position.
     valid_loader = DataLoader(
         valid_ds,
         batch_size=batch_size,
@@ -257,26 +247,18 @@ def intermediate_metric_calculation(
     smooth: float = 1e-6,
     dims: tuple[int, int] = (2, 3),
 ) -> torch.Tensor:
-    # dims corresponding to image height and width: [B, C, H, W].
 
-    # Intersection: |G ∩ P|. Shape: (batch_size, num_classes)
     intersection = (predictions * targets).sum(dim=dims)
 
-    # Summation: |G| + |P|. Shape: (batch_size, num_classes).
     summation = predictions.sum(dim=dims) + targets.sum(dim=dims)
 
     if use_dice:
-        # Dice Shape: (batch_size, num_classes)
         metric = (2.0 * intersection + smooth) / (summation + smooth)
     else:
-        # Union. Shape: (batch_size, num_classes)
         union = summation - intersection
 
-        # IoU Shape: (batch_size, num_classes)
         metric = (intersection + smooth) / (union + smooth)
 
-    # Compute the mean over the remaining axes (batch and classes).
-    # Shape: Scalar
     total = metric.mean()
 
     return total
@@ -288,11 +270,7 @@ class Loss(nn.Module):
         self.smooth = smooth
         self.use_dice = use_dice
 
-    def forward(self, predictions: torch.Tensor, targets: torch.Tensor) -> Any:
-        # predictions --> (B, #C, H, W) unnormalized (logits)
-        # targets     --> (B, #C, H, W) one-hot encoded
-
-        # Numerically stable BCE that fuses sigmoid + log internally
+    def forward(self, predictions: LogitsBCHW, targets: OneHotBCHW) -> Any:
         pixel_loss = functional.binary_cross_entropy_with_logits(
             predictions, targets, reduction="mean"
         )
@@ -307,9 +285,7 @@ class Loss(nn.Module):
 
 
 def convert_2_onehot(matrix: torch.Tensor, num_classes: int = 3) -> torch.Tensor:
-    """
-    Perform one-hot encoding across the channel dimension.
-    """
+    """Perform one-hot encoding across the channel dimension."""
     matrix = matrix.permute(0, 2, 3, 1)
     matrix = torch.argmax(matrix, dim=-1)
     matrix = functional.one_hot(matrix, num_classes=num_classes)
@@ -325,34 +301,18 @@ class Metric(nn.Module):
         self.smooth = smooth
         self.use_dice = use_dice
 
-    def forward(self, predictions: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-        # predictions  --> (B, #C, H, W) unnormalized
-        # targets      --> (B, #C, H, W) one-hot encoded
-
-        # Converting unnormalized predictions into one-hot encoded across channels.
-        # Shape: (B, #C, H, W)
-        predictions = convert_2_onehot(predictions, num_classes=self.num_classes)  # one hot encoded
+    def forward(self, predictions: LogitsBCHW, targets: OneHotBCHW) -> torch.Tensor:
+        predictions = convert_2_onehot(predictions, num_classes=self.num_classes)
 
         metric = intermediate_metric_calculation(
             predictions, targets, use_dice=self.use_dice, smooth=self.smooth
         )
 
-        # Compute the mean over the remaining axes (batch and classes). Shape: Scalar
         return metric
 
 
 class FieldIoU:
-    """Per-field validation IoU, accumulated in dataset order.
-
-    Cage-6 is a third of the corpus, so the global mean this script has always selected
-    on is roughly a Cage-6 score -- the checkpoint that maximises it can be regressing
-    Cage-3 and Cage-4 the whole way. Selecting on the macro-average across field types
-    gives every arena one vote regardless of how much footage of it exists.
-
-    The pad border is cropped before scoring so this matches score_masks.py, which grades
-    the checkpoints afterwards; selecting on one definition and grading on another would
-    make the Phase-A ladder disagree with its own stopping rule.
-    """
+    """Per-field validation IoU, accumulated in dataset order."""
 
     def __init__(self, fields: list[str], pad_size: int) -> None:
         self.fields = fields
@@ -368,8 +328,8 @@ class FieldIoU:
 
     def update(self, predictions: torch.Tensor, targets: torch.Tensor) -> None:
         pad = self.pad_size
-        predicted = torch.argmax(predictions, dim=1) == FIELD_CLASS
-        truth = targets[:, FIELD_CLASS] > 0.5
+        predicted = torch.argmax(predictions, dim=1) == FIELD_CHANNEL
+        truth = targets[:, FIELD_CHANNEL] > 0.5
         if pad:
             predicted = predicted[:, pad:-pad, pad:-pad]
             truth = truth[:, pad:-pad, pad:-pad]
@@ -430,11 +390,7 @@ class TrainingStepInterface:
         self.amp_dtype = amp_dtype
 
     def autocast(self) -> ContextManager[Any]:
-        """bf16 autocast is ~1.67x on an A6000 at this resolution and needs no GradScaler.
-
-        Verify it is loss-neutral before spending a full budget on it -- run the same
-        seed both ways for 20 epochs and compare (Phase A's amp_check arms).
-        """
+        """bf16 autocast is ~1.67x on an A6000 at this resolution and needs no GradScaler."""
         if self.amp_dtype is None:
             return nullcontext()
         return torch.autocast(device_type="cuda", dtype=self.amp_dtype)
@@ -525,11 +481,7 @@ def log_epoch(
     losses: tuple[Any, Any, Any, Any],
     field_summary: dict[str, float],
 ) -> "csv.DictWriter":
-    """Append one row to metrics.csv, writing the header on the first call.
-
-    score_masks.py grades the checkpoint ladder properly afterwards; this row is what
-    keeps an interrupted or ungraded run readable.
-    """
+    """Append one row to metrics.csv, writing the header on the first call."""
     train_loss, train_metric, valid_loss, valid_metric = losses
     row = {
         "epoch": epoch,
@@ -900,8 +852,6 @@ def main() -> None:
         if args.save_period and epoch % args.save_period == 0:
             save_checkpoint(output / f"ckpt_ep{epoch:03d}.pth")
 
-        # Without a field index there is no per-field summary, so this falls back to the
-        # legacy class-mean IoU rather than silently selecting on nothing.
         selected = field_summary.get(select_metric, float(valid_metric))
         if np.isfinite(selected) and selected >= best_metric:
             print(f"Saving model. {select_metric} {selected:0.4f} >= {best_metric:0.4f}")

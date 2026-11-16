@@ -380,3 +380,53 @@ real-only training (34.6 % of the train split is synthetic renders, including a 
 real-only bbox substrate (`nhrl_robots_bbox_real`, derived from `nhrl_robots_indiv`), hold out whole
 recordings so "new data" is genuinely unseen, and train every arm real-only so the synthetic axis is
 measured separately instead of being silently baked in.
+
+## Notes moved from code comments (2026-11-15)
+
+- `training/yolo/pool_datasets.py`:
+
+  ```text
+  Pool a full real dataset with a fraction of a synthetic dataset into one flat YOLO tree.
+
+  Recipe C (see docs/experiments/perception_performance/experiment_runbook.md) has no committed
+  script; this is it, written for the data_epoch_min experiment's Phase B synthetic scene-variation
+  probe. Every real frame is always included; synthetic frames are subsampled by --synth-fraction,
+  selected either in image-numbered (filename) order or randomly. Filenames carry a
+  "...T17-01-18-000050..." timestamp + frame index, so filename order IS render-sequence order:
+  --synth-order sequential is scene-correlated, --synth-order random spreads scene coverage. The gap
+  between the two accuracy-vs-fraction curves at a fixed real count answers "how much synthetic scene
+  variation do I need".
+
+  Output is a flat images/+labels/ tree ready for:
+      split_yolo_dataset.py  ->  validate_yolo_integrity.py --strict
+
+  Keep synthetic out of val: pool into the train split only, and build a real-only val split
+  separately (grade always on the external eval, never same-corpus val).
+
+  Only the image (.jpg/.png/...) and its stem-matched .txt label are linked. Any .npy / labels.cache
+  next to the images are ultralytics cache="disk" artifacts (derived) and are skipped; training
+  regenerates them.
+
+  Example:
+      python pool_datasets.py         --real ../data/real_our_robots         --synth ../data/all_robot_keypoints/train         --out ../data/phaseB_r100_s25_seq         --synth-fraction 0.25 --synth-order sequential
+  ```
+
+- `training/yolo/train.py`, `main` (`above "yolo26n": {`):
+
+  ```text
+  Detect head. `imgsz` matches yolo26n-seg so a seg-vs-bbox box-quality comparison
+  varies the head type rather than the input size; `batch` and `epochs` have since
+  diverged for the reasons below, so that comparison is no longer apples-to-apples
+  without overriding them back.
+
+  epochs 100, not 500: data_scaling_2026-07-27 found every arm on
+  nhrl_robots_bbox_2class peaked on val between ep63 and ep90 with none still
+  rising at ep100, and category_addition_2026-07-25 found fully-annealed
+  150-epoch endpoints failed the eval parity gate outright. 500 anneals far past
+  the point where this data generalizes.
+
+  cache "ram", not "disk": the disk cache writes one full-res .npy per image, which
+  on this corpus is ~200 GB against 12 GB of JPEGs, the blowup described in
+  reclaim_stale_caches. The resized RAM cache is ~17 GB per DDP process instead.
+  ```
+

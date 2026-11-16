@@ -1,23 +1,5 @@
 #!/usr/bin/env python3
-"""Compare the C++ and Python inference paths for one detector on the same GT frames.
-
-The C++ path is detections the perception stack recorded during playback
-(/blob_detections or /keypoint_detections in one or more MCAPs). The Python path is
-direct TensorRT inference on the GT images (auto_battlebot.perception.trt_yolo, as score.py uses).
-Both are scored with score.py's machinery on exactly the GT frames the recordings cover,
-so the two columns are frame-for-frame comparable.
-
-Beyond the metric table, matched C++/Python detection pairs are compared directly:
-box center offset, and a linear fit of C++ keypoint coordinates against Python's
-(slope != 1 means a scale error somewhere in the C++ path, intercept != 0 a translation).
-
-Usage:
-    python training/model_eval/compare_cpp_python.py training/data/nhrl_keypoints_eval_test \
-        --engine data/models/yolo26n-pose_our_robots_2026-05-01_x86_64_sm89.engine \
-        --labels mr_stabs_mk2,mrs_buff_mk3 --topic keypoint --conf 0.5 \
-        --taxonomy training/model_eval/taxonomy_keypoint.yaml \
-        --cpp-mcap 'data/recordings/auto_battlebot_experiments_eval_smoke_*.mcap'
-"""
+"""Compare the C++ and Python inference paths for one detector on the same GT frames."""
 
 from __future__ import annotations
 
@@ -212,8 +194,6 @@ def main() -> None:
     print(f"GT: {len(gt_frames)} frames, classes: {names}")
 
     cpp_by_stamp = read_cpp_detections(args.cpp_mcap, TOPICS[args.topic])
-    # GT frames carry a subdataset alongside the stamp; the C++ recordings are keyed by
-    # stamp alone, so the match runs over stamps and the result is read back per frame.
     matches = match_stamps(
         sorted(key.stamp_ns for key in gt_frames), sorted(cpp_by_stamp), STAMP_TOLERANCE_NS
     )

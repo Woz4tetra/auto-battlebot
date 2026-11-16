@@ -1,9 +1,4 @@
-"""Split a flat images/ + labels/ pair into train/val/test directories.
-
-Note this is a **frame-level random** split. For anything graded on generalization, prefer
-``split_by_scene.py``: consecutive frames of one recording are near-duplicates, so a random split
-puts near-copies of the training frames into val and val stops measuring anything useful.
-"""
+"""Split a flat images/ + labels/ pair into train/val/test directories."""
 
 import argparse
 import random
@@ -23,13 +18,7 @@ def make_split_structure(dataset_root: Path, splits: tuple[str, ...]) -> None:
 
 
 def split_counts(total: int, train: float, val: float, test: float) -> dict[str, int]:
-    """Frame counts per split that sum to exactly ``total``.
-
-    ``int()`` truncates, so ``int(0.9 * N) + int(0.1 * N)`` can fall one short of ``N`` (it does for
-    N = 31,465). The old code handed that remainder to whatever was left over, which put a stray
-    image in test even when no test split was asked for. Here the remainder goes to **train** --
-    never silently into a split the caller sized at zero.
-    """
+    """Frame counts per split that sum to exactly ``total``."""
     counts = {
         "train": int(train * total),
         "val": int(val * total),

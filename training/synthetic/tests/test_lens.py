@@ -5,12 +5,14 @@ from pathlib import Path
 import cv2
 import numpy as np
 import pytest
+from synthgen.constants import View
 from synthgen.lens import (
     build_lens_view,
     render_normalized_to_output,
     render_points_to_output,
     warp_image,
     warp_label,
+    wide_render_camera,
 )
 
 from auto_battlebot.perception.camera_calibration import (
@@ -66,7 +68,6 @@ def test_render_centre_keeps_sensor_resolution(ecam25, distorted):
 
 
 def test_pixels_and_points_follow_one_model(distorted):
-    # A render pixel the map samples for sensor pixel p must project back onto p.
     map_x, map_y = distorted.distortion_map
     ys, xs = np.mgrid[0 : SIZE[1] : 7, 0 : SIZE[0] : 11]
     render_uv = np.column_stack((map_x[ys, xs].ravel(), map_y[ys, xs].ravel()))
@@ -76,7 +77,6 @@ def test_pixels_and_points_follow_one_model(distorted):
 
 
 def test_rectified_points_land_on_the_rectified_matrix(rectified):
-    # The centre of the render is the optical axis, which the rectified matrix puts at its centre.
     k = rectified.render_k
     out, in_view = render_points_to_output(rectified, np.array([[k[0, 2], k[1, 2]]]))
     assert in_view[0]
@@ -84,15 +84,12 @@ def test_rectified_points_land_on_the_rectified_matrix(rectified):
 
 
 def test_rectified_border_matches_the_rectifier(ecam25, rectified):
-    # 36 percent of an alpha 1.0 frame from this lens is black; alpha 0.0 has no border.
     assert 1.0 - rectified.valid.mean() == pytest.approx(0.363, abs=0.02)
     cropped = build_lens_view(ecam25, SIZE, "rectified", alpha=0.0)
     assert cropped.valid.mean() > 0.99
 
 
 def test_points_in_the_black_border_are_unseen(rectified):
-    # A barrel lens at alpha 1.0 keeps its corners and loses the middle of each edge, so take a
-    # border pixel from the mask rather than assuming where one is.
     py, px = np.argwhere(~rectified.valid)[0]
     border = np.array([[float(px), float(py)]])
     k, r = rectified.render_k, rectified.rect_k
@@ -145,3 +142,18 @@ def test_colour_warp_is_the_distortion_remap(distorted):
     image = cv2.merge([gradient, gradient, gradient]).astype(np.uint8)
     warped = warp_image(distorted, image)
     assert warped.shape == (SIZE[1], SIZE[0], 3) and warped.dtype == np.uint8
+
+
+def test_wide_render_camera_rejects_an_unscaled_calibration(ecam25) -> None:
+    with pytest.raises(ValueError, match="not scaled"):
+        wide_render_camera(ecam25, SIZE)
+    wide_render_camera(ecam25.scaled(*SIZE), SIZE)
+
+
+def test_unknown_view_is_rejected(ecam25) -> None:
+    with pytest.raises(ValueError, match="unknown view"):
+        build_lens_view(ecam25, SIZE, "fisheye")
+
+
+def test_view_is_the_enum_whichever_way_it_is_asked_for(ecam25) -> None:
+    assert build_lens_view(ecam25, SIZE, "pinhole").view is View.PINHOLE

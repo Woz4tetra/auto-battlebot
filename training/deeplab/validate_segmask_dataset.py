@@ -1,16 +1,5 @@
 #!/usr/bin/env python3
-"""
-Segmentation Mask Dataset Validation UI
-
-This script provides a GUI for manually validating segmentation mask dataset
-annotations. Images are shown as a page of thumbnails with their mask
-overlays; arrow keys move the selection, y/n pass or fail it, and t/b judge
-every image on screen at once. Press Z to zoom the selected frame.
-The validation state is saved and can be resumed later.
-
-Mask convention: each image foo.jpg has a corresponding foo_mask.png where
-pixel values are integer class IDs (same format used by semantic_train.py).
-"""
+"""Segmentation Mask Dataset Validation UI."""
 
 import argparse
 import json
@@ -22,7 +11,7 @@ from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Literal, Optional, Tuple, TypedDict
 
 import numpy as np
 import yaml
@@ -30,15 +19,12 @@ from natsort import natsorted
 from PIL import Image, ImageDraw, ImageFont, ImageTk
 
 NAMED_COLORS: Dict[str, List[int]] = {
-    # Primary colors
     "red": [255, 0, 0],
     "green": [0, 255, 0],
     "blue": [0, 0, 255],
-    # Secondary colors
     "yellow": [255, 255, 0],
     "cyan": [0, 255, 255],
     "magenta": [255, 0, 255],
-    # Common colors
     "orange": [255, 165, 0],
     "pink": [255, 192, 203],
     "purple": [128, 0, 128],
@@ -49,7 +35,6 @@ NAMED_COLORS: Dict[str, List[int]] = {
     "olive": [128, 128, 0],
     "aqua": [0, 255, 255],
     "fuchsia": [255, 0, 255],
-    # Grayscale
     "white": [255, 255, 255],
     "gray": [128, 128, 128],
     "grey": [128, 128, 128],
@@ -60,7 +45,6 @@ NAMED_COLORS: Dict[str, List[int]] = {
     "darkgrey": [169, 169, 169],
     "dimgray": [105, 105, 105],
     "dimgrey": [105, 105, 105],
-    # Light variants
     "lightred": [255, 102, 102],
     "lightblue": [173, 216, 230],
     "lightgreen": [144, 238, 144],
@@ -74,7 +58,6 @@ NAMED_COLORS: Dict[str, List[int]] = {
     "lightseagreen": [32, 178, 170],
     "lightskyblue": [135, 206, 250],
     "lightsteelblue": [176, 196, 222],
-    # Dark variants
     "darkred": [139, 0, 0],
     "darkgreen": [0, 100, 0],
     "darkblue": [0, 0, 139],
@@ -91,7 +74,6 @@ NAMED_COLORS: Dict[str, List[int]] = {
     "darkolivegreen": [85, 107, 47],
     "darkorchid": [153, 50, 204],
     "darkkhaki": [189, 183, 107],
-    # Reds and pinks
     "crimson": [220, 20, 60],
     "firebrick": [178, 34, 34],
     "indianred": [205, 92, 92],
@@ -101,7 +83,6 @@ NAMED_COLORS: Dict[str, List[int]] = {
     "mediumvioletred": [199, 21, 133],
     "palevioletred": [219, 112, 147],
     "rosybrown": [188, 143, 143],
-    # Oranges and yellows
     "gold": [255, 215, 0],
     "coral": [255, 127, 80],
     "salmon": [250, 128, 114],
@@ -112,7 +93,6 @@ NAMED_COLORS: Dict[str, List[int]] = {
     "khaki": [240, 230, 140],
     "palegoldenrod": [238, 232, 170],
     "goldenrod": [218, 165, 32],
-    # Greens
     "limegreen": [50, 205, 50],
     "forestgreen": [34, 139, 34],
     "seagreen": [46, 139, 87],
@@ -125,7 +105,6 @@ NAMED_COLORS: Dict[str, List[int]] = {
     "lawngreen": [124, 252, 0],
     "olivedrab": [107, 142, 35],
     "yellowgreen": [154, 205, 50],
-    # Blues and cyans
     "skyblue": [135, 206, 235],
     "deepskyblue": [0, 191, 255],
     "dodgerblue": [30, 144, 255],
@@ -143,7 +122,6 @@ NAMED_COLORS: Dict[str, List[int]] = {
     "turquoise": [64, 224, 208],
     "mediumturquoise": [72, 209, 204],
     "paleturquoise": [175, 238, 238],
-    # Purples and violets
     "violet": [238, 130, 238],
     "indigo": [75, 0, 130],
     "blueviolet": [138, 43, 226],
@@ -153,7 +131,6 @@ NAMED_COLORS: Dict[str, List[int]] = {
     "mediumpurple": [147, 112, 219],
     "thistle": [216, 191, 216],
     "lavender": [230, 230, 250],
-    # Browns and neutrals
     "brown": [139, 69, 19],
     "saddlebrown": [139, 69, 19],
     "sienna": [160, 82, 45],
@@ -189,7 +166,6 @@ NAMED_COLORS: Dict[str, List[int]] = {
     "slategrey": [112, 128, 144],
 }
 
-# Default fallback colors for classes when no config is provided
 DEFAULT_CLASS_COLORS = [
     [255, 0, 0],
     [0, 255, 0],
@@ -204,14 +180,27 @@ DEFAULT_CLASS_COLORS = [
 ]
 
 
+def ceil_div(numerator: int, denominator: int) -> int:
+    return -(-numerator // denominator)
+
+
+Verdict = Literal["pass", "fail"]
+
+
+class ClassInfo(TypedDict):
+    name: str
+    color: str
+
+
 class SegmaskDatasetValidator:
     """Contact-sheet validator: page through a grid of thumbnails, judge with the keyboard."""
 
-    # How many frames a page holds. The thumbnail size follows from this and the
-    # window size, so the scale control is really "how many fit on screen".
-    PAGE_STEPS = [1, 2, 4, 6, 9, 12, 16, 20, 30, 42, 56]
-    DEFAULT_PAGE = 9
+    FRAMES_PER_PAGE_STEPS = [1, 2, 4, 6, 9, 12, 16, 20, 30, 42, 56]
+    DEFAULT_FRAMES_PER_PAGE = 9
     MIN_THUMB = 80
+    CELL_PAD_W_PX = 14
+    CELL_CAPTION_H_PX = 34
+    THUMB_QUANTUM_PX = 8
 
     PASS_COLOR = "#2E7D32"
     FAIL_COLOR = "#C62828"
@@ -224,15 +213,13 @@ class SegmaskDatasetValidator:
         self.state_file = self.dataset_path / "validation_state.json"
         self.class_labels_path = class_labels_path
 
-        # Data structures
         self.image_mask_pairs: List[Tuple[Path, Path]] = []
-        self.validation_state: Dict[str, str] = {}  # path -> 'pass'/'fail'
-        self.class_info: Dict[int, Dict] = {}  # class_id -> {name, color}
+        self.validation_state: Dict[str, Verdict] = {}
+        self.class_info: Dict[int, ClassInfo] = {}
         self.show_overlay = True
         self.overlay_alpha = 0.45
 
-        # Grid state
-        self.page_step = self.PAGE_STEPS.index(self.DEFAULT_PAGE)
+        self.page_step = self.FRAMES_PER_PAGE_STEPS.index(self.DEFAULT_FRAMES_PER_PAGE)
         self.thumb_px = 260
         self.selected_index = 0
         self.page_start = 0
@@ -240,9 +227,6 @@ class SegmaskDatasetValidator:
         self.rows = 1
         self.cells: List[Dict] = []
 
-        # Thumbnails are decoded off the main thread and cached, so paging stays snappy.
-        # The PhotoImage cache is separate because those must be built on the main
-        # thread; keeping them lets a redraw skip cells whose picture has not changed.
         self.thumb_cache: "OrderedDict[Tuple, Image.Image]" = OrderedDict()
         self.cache_limit = 800
         self.photo_cache: "OrderedDict[Tuple, ImageTk.PhotoImage]" = OrderedDict()
@@ -251,30 +235,24 @@ class SegmaskDatasetValidator:
         self.executor = ThreadPoolExecutor(max_workers=min(8, (os.cpu_count() or 4)))
         self._layout_job: Optional[str] = None
 
-        # Zoom overlay
         self.zoom_window: Optional[tk.Toplevel] = None
         self.zoom_label: Optional[tk.Label] = None
         self.zoom_photo: Optional[ImageTk.PhotoImage] = None
 
-        # UI components
         self.root = tk.Tk()
         self.root.title("Segmentation Mask Dataset Validator")
         self.root.geometry("1600x1000")
 
-        # Status
         self.status_var = tk.StringVar()
         self.page_info_var = tk.StringVar()
         self.selection_var = tk.StringVar()
         self.show_overlay_var = tk.BooleanVar(value=True)
 
-        # Initialize
         self.load_dataset()
         self.load_class_info(self.class_labels_path)
         self.load_state()
         self.setup_ui()
         self.jump_to_next_unvalidated()
-
-    # ------------------------------------------------------------------ data
 
     def load_dataset(self):
         """Recursively find all image and mask pairs in the dataset."""
@@ -285,7 +263,6 @@ class SegmaskDatasetValidator:
         image_files = []
         for ext in image_extensions:
             for p in self.dataset_path.rglob(f"*{ext}"):
-                # Exclude mask files themselves
                 if "_mask" not in p.stem:
                     image_files.append(p)
             for p in self.dataset_path.rglob(f"*{ext.upper()}"):
@@ -338,7 +315,6 @@ class SegmaskDatasetValidator:
         tmp = self.state_file.with_suffix(".json.tmp")
         with open(tmp, "w") as f:
             json.dump(self.validation_state, f, indent=2)
-        # Atomic replace so an interrupted write cannot truncate existing work
         tmp.replace(self.state_file)
 
     def key_for(self, index: int) -> str:
@@ -347,8 +323,6 @@ class SegmaskDatasetValidator:
 
     def status_of(self, index: int) -> str:
         return self.validation_state.get(self.key_for(index), "unvalidated")
-
-    # -------------------------------------------------------------- rendering
 
     def color_name_to_rgb(self, color: str) -> Tuple[int, int, int]:
         """Convert a color name or hex string to an (R, G, B) tuple."""
@@ -373,16 +347,13 @@ class SegmaskDatasetValidator:
             return self.class_info[class_id]["name"]
         return f"Class {class_id}"
 
-    def compose(self, index: int, box: Tuple[int, int], legend: bool) -> Image.Image:
-        """Composite image + mask overlay, decoded no larger than `box`.
-
-        Runs on worker threads, so it must not touch tkinter.
-        """
+    def compose_off_main_thread(
+        self, index: int, box: Tuple[int, int], legend: bool
+    ) -> Image.Image:
+        """Composite image + mask overlay, decoded no larger than `box`."""
         img_path, mask_path = self.image_mask_pairs[index]
 
         image = Image.open(img_path)
-        # draft() lets libjpeg decode at a reduced DCT scale: the single biggest
-        # win for grid paging, since full 1080p decodes dominate otherwise.
         image.draft("RGB", box)
         image = image.convert("RGB")
         image.thumbnail(box, Image.Resampling.BILINEAR)
@@ -447,12 +418,7 @@ class SegmaskDatasetValidator:
         return (index, self.thumb_box(), round(self.overlay_alpha, 3), self.show_overlay)
 
     def render_thumb(self, index: int) -> Image.Image:
-        """Return a cached thumbnail for `index`, rendering it if needed.
-
-        Every thumbnail is letterboxed to the identical `thumb_box()` size. Cells
-        then never change shape when a new image lands in them, which is what made
-        the grid jump around while a page was loading.
-        """
+        """Return a cached thumbnail for `index`, rendering it if needed."""
         box = self.thumb_box()
         cache_key = self.thumb_key(index)
 
@@ -462,7 +428,7 @@ class SegmaskDatasetValidator:
                 self.thumb_cache.move_to_end(cache_key)
                 return hit
 
-        fitted = self.compose(index, box, legend=False)
+        fitted = self.compose_off_main_thread(index, box, legend=False)
         thumb = Image.new("RGB", box, (0, 0, 0))
         thumb.paste(fitted, ((box[0] - fitted.width) // 2, (box[1] - fitted.height) // 2))
 
@@ -473,11 +439,7 @@ class SegmaskDatasetValidator:
         return thumb
 
     def photo_for(self, index: int) -> Tuple[Tuple, ImageTk.PhotoImage]:
-        """Return (cache key, PhotoImage) for `index`, reusing the last upload.
-
-        Reusing the PhotoImage is what keeps arrow-key navigation quiet: moving the
-        selection only recolors borders, it does not re-upload nine images to X.
-        """
+        """Return (cache key, PhotoImage) for `index`, reusing the last upload."""
         key = self.thumb_key(index)
         photo = self.photo_cache.get(key)
         if photo is None:
@@ -489,11 +451,9 @@ class SegmaskDatasetValidator:
             self.photo_cache.move_to_end(key)
         return key, photo
 
-    # ------------------------------------------------------------------- grid
-
     @property
     def page_size(self) -> int:
-        return self.PAGE_STEPS[self.page_step]
+        return self.FRAMES_PER_PAGE_STEPS[self.page_step]
 
     def setup_ui(self):
         """Create the user interface."""
@@ -507,7 +467,6 @@ class SegmaskDatasetValidator:
         sidebar = ttk.Frame(main_container, relief=tk.RIDGE, borderwidth=2)
         sidebar.pack(side=tk.RIGHT, fill=tk.Y, padx=(0, 8), pady=8)
 
-        # === PAGE SECTION ===
         page_section = ttk.LabelFrame(sidebar, text="Page", padding="12")
         page_section.pack(fill=tk.X, padx=10, pady=(10, 5))
 
@@ -537,7 +496,6 @@ class SegmaskDatasetValidator:
             page_section, text="⏩ Next Unvalidated (U)", command=self.jump_to_next_unvalidated
         ).pack(fill=tk.X, pady=(6, 0))
 
-        # === VALIDATION SECTION ===
         validation_section = ttk.LabelFrame(sidebar, text="Validate", padding="12")
         validation_section.pack(fill=tk.X, padx=10, pady=5)
 
@@ -565,7 +523,6 @@ class SegmaskDatasetValidator:
             validation_section, text="↺ Clear selected (C)", command=lambda: self.validate(None)
         ).pack(fill=tk.X, pady=(8, 2))
 
-        # === DISPLAY OPTIONS SECTION ===
         options_section = ttk.LabelFrame(sidebar, text="Display Options", padding="12")
         options_section.pack(fill=tk.X, padx=10, pady=5)
 
@@ -577,7 +534,7 @@ class SegmaskDatasetValidator:
         self.size_scale = ttk.Scale(
             options_section,
             from_=0,
-            to=len(self.PAGE_STEPS) - 1,
+            to=len(self.FRAMES_PER_PAGE_STEPS) - 1,
             orient=tk.HORIZONTAL,
             value=self.page_step,
             command=self._on_size_change,
@@ -602,7 +559,6 @@ class SegmaskDatasetValidator:
         )
         self.alpha_scale.pack(fill=tk.X, pady=(0, 5))
 
-        # === JUMP SECTION ===
         jump_section = ttk.LabelFrame(sidebar, text="Jump to Frame", padding="12")
         jump_section.pack(fill=tk.X, padx=10, pady=5)
         jump_frame = ttk.Frame(jump_section)
@@ -611,7 +567,6 @@ class SegmaskDatasetValidator:
         self.jump_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
         ttk.Button(jump_frame, text="Go", command=self._submit_jump, width=5).pack(side=tk.RIGHT)
 
-        # === KEYBOARD SHORTCUTS SECTION ===
         shortcuts_section = ttk.LabelFrame(sidebar, text="Keyboard Shortcuts", padding="12")
         shortcuts_section.pack(fill=tk.X, padx=10, pady=5)
 
@@ -631,12 +586,10 @@ class SegmaskDatasetValidator:
             shortcuts_section, text=shortcuts_text, font=("Courier", 9), justify=tk.LEFT
         ).pack(anchor=tk.W)
 
-        # Status bar at bottom
         status_frame = ttk.Frame(self.root)
         status_frame.pack(side=tk.BOTTOM, fill=tk.X)
         ttk.Label(status_frame, textvariable=self.status_var, relief=tk.SUNKEN).pack(fill=tk.X)
 
-        # Keyboard bindings
         self.bind_key("<Left>", lambda: self.move_selection(-1))
         self.bind_key("<Right>", lambda: self.move_selection(1))
         self.bind_key("<Up>", lambda: self.move_selection(-self.columns))
@@ -658,7 +611,6 @@ class SegmaskDatasetValidator:
         self.bind_key("<equal>", lambda: self.change_thumb_size(1))
         self.bind_key("<minus>", lambda: self.change_thumb_size(-1))
 
-        # Typing in the jump box must not trigger shortcuts; Enter submits it.
         self.jump_entry.bind("<Return>", self._submit_jump)
 
     def bind_key(self, sequence: str, action):
@@ -690,26 +642,23 @@ class SegmaskDatasetValidator:
         avail_w = max(self.grid_frame.winfo_width(), 320)
         avail_h = max(self.grid_frame.winfo_height(), 240)
 
-        # Each cell is a 16:9 thumbnail plus padding and a caption strip.
-        pad_w, pad_h = 14, 34
+        pad_w, pad_h = self.CELL_PAD_W_PX, self.CELL_CAPTION_H_PX
 
         size, columns, rows = float(self.MIN_THUMB), target, 1
         best_score = (0.0, 0)
         for candidate_columns in range(1, target + 1):
-            candidate_rows = -(-target // candidate_columns)  # ceil
+            candidate_rows = ceil_div(target, candidate_columns)
             width = avail_w / candidate_columns - pad_w
             height = avail_h / candidate_rows - pad_h
             candidate = min(width, height * 16 / 9)
             if candidate <= 0:
                 continue
-            # Prefer the biggest thumbnail; break ties toward fewer empty slots.
             score = (candidate, -(candidate_columns * candidate_rows - target))
             if score > best_score:
                 best_score = score
                 size, columns, rows = candidate, candidate_columns, candidate_rows
 
-        # Quantize so a few pixels of window resize does not churn the whole grid
-        thumb_px = max(self.MIN_THUMB, int(size) // 8 * 8)
+        thumb_px = max(self.MIN_THUMB, int(size) // self.THUMB_QUANTUM_PX * self.THUMB_QUANTUM_PX)
 
         if (columns, rows) != (self.columns, self.rows):
             self.columns, self.rows, self.thumb_px = columns, rows, thumb_px
@@ -750,11 +699,8 @@ class SegmaskDatasetValidator:
                 highlightcolor=self.IDLE_COLOR,
             )
             frame.grid(row=row, column=col, padx=2, pady=2)
-            # Fixed pixel size: the label must not resize itself around whatever
-            # image it is handed, or every cell reflows as a page loads.
             image_label = tk.Label(frame, bd=0, bg="#000000", width=width, height=height)
             image_label.pack(padx=3, pady=(3, 0))
-            # width=1 char keeps a long filename from widening the cell
             caption = tk.Label(
                 frame,
                 text="",
@@ -802,7 +748,6 @@ class SegmaskDatasetValidator:
 
         indices = [i for i in range(self.page_start, min(self.page_start + len(self.cells), total))]
 
-        # Decode everything missing from the cache in parallel before touching tk.
         pending = [i for i in indices if self._cached(i) is None]
         if pending:
             list(self.executor.map(self.render_thumb, pending))
@@ -837,11 +782,7 @@ class SegmaskDatasetValidator:
         self.refresh_zoom()
 
     def paint_cell(self, cell: Dict, index: int):
-        """Push `index` into `cell`, touching only the widget options that changed.
-
-        Every config() call repaints, so a blind rewrite of all nine cells on every
-        keystroke is what the flicker was.
-        """
+        """Push `index` into `cell`, touching only the widget options that changed."""
         key, photo = self.photo_for(index)
         if cell["photo_key"] != key:
             cell["photo"] = photo  # keep a strong reference; tk does not
@@ -881,8 +822,6 @@ class SegmaskDatasetValidator:
         for index in range(start, end):
             if self._cached(index) is None:
                 self.executor.submit(self.render_thumb, index)
-
-    # ------------------------------------------------------------ interaction
 
     def move_selection(self, delta: int):
         total = len(self.image_mask_pairs)
@@ -990,15 +929,13 @@ class SegmaskDatasetValidator:
         self.set_page_step(self.page_step - delta, sync_scale=True)
 
     def set_page_step(self, step: int, sync_scale: bool = False):
-        step = min(max(step, 0), len(self.PAGE_STEPS) - 1)
+        step = min(max(step, 0), len(self.FRAMES_PER_PAGE_STEPS) - 1)
         if step == self.page_step:
             return
         self.page_step = step
         if sync_scale:
             self.size_scale.set(step)
         self.relayout()
-
-    # ------------------------------------------------------------------ zoom
 
     def open_zoom(self):
         """Show the selected frame full size in its own window."""
@@ -1032,7 +969,7 @@ class SegmaskDatasetValidator:
 
         max_w = int(self.root.winfo_screenwidth() * 0.9)
         max_h = int(self.root.winfo_screenheight() * 0.85)
-        image = self.compose(self.selected_index, (max_w, max_h), legend=True)
+        image = self.compose_off_main_thread(self.selected_index, (max_w, max_h), legend=True)
 
         self.zoom_photo = ImageTk.PhotoImage(image)
         if self.zoom_label is not None:

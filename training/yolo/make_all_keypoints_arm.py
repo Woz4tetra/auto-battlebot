@@ -46,11 +46,7 @@ def fix_row(line: str) -> tuple[str, int]:
 
 
 def eval_frames(root: Path, out: Path, dropped: Counter, unlabelled: Counter) -> list[Path]:
-    """The `pass` frames of one eval set, as image paths whose sibling labels fit `NAMES`.
-
-    Raises:
-        SystemExit: When a passed frame lacks its image or label.
-    """
+    """The pass frames of one eval set, as image paths with sibling labels that fit NAMES."""
     state = json.loads((root / REVIEW_STATE).read_text(encoding="utf-8"))
     frames = []
     for key, verdict in sorted(state.items()):
@@ -74,8 +70,6 @@ def eval_frames(root: Path, out: Path, dropped: Counter, unlabelled: Counter) ->
             continue
         dropped[root.name] += len(rows) - len(kept)
         unlabelled[root.name] += fixed
-        # <out>/eval_labels/<set>/<key's dirs>/images/<file> links the image, labels/ holds the
-        # rewritten rows.
         link = out / "eval_labels" / root.name / key
         link.parent.mkdir(parents=True, exist_ok=True)
         if link.is_symlink():

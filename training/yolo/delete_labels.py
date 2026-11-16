@@ -1,12 +1,5 @@
 #!/usr/bin/env python3
-"""Remove class IDs from YOLO label files.
-
-This tool removes annotation lines whose class ID matches any provided
-`label_ids`. It does not remap remaining classes.
-
-Usage:
-    python delete_labels.py /path/to/dataset 39 40 --output /path/to/output
-"""
+"""Remove annotation lines with the given class IDs from YOLO label files."""
 
 import argparse
 import multiprocessing as mp
@@ -169,7 +162,6 @@ def process_label_file(label_path_str: str) -> dict[str, object]:
     if filtered:
         dest.write_text("\n".join(filtered) + "\n")
     else:
-        # Keep empty labels so paired images become negative examples.
         dest.write_text("")
     result["written"] = True
 

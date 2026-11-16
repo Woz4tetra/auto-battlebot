@@ -1,10 +1,4 @@
-"""Material inspection, mapping, and PBR application (requires Blender).
-
-Robot GLTF exports carry flat part colors; these are matched against the
-config's color mapping (pure logic in ``synthgen.colorspec``) and replaced with
-PBR materials: tiling CC textures, UV-mapped texture directories, or scalar
-metallic/roughness values.
-"""
+"""Material inspection, mapping, and PBR application (requires Blender)."""
 
 import random
 from pathlib import Path
@@ -60,16 +54,11 @@ def get_material_base_color(mat: bpy.types.Material) -> Rgb | None:
     if source_color is not None:
         return source_color
 
-    # Non-constant source (image texture, procedural, etc.) — the material has
-    # intentional visual content that shouldn't be remapped.
     return None
 
 
 def tint_material_albedo(bpy_mat: bpy.types.Material, color_rgb: "list[int] | Rgb") -> None:
-    """Tint a material's albedo by multiplying its Base Color texture with a color.
-
-    If no texture is connected, sets the Base Color directly.
-    """
+    """Tint a material's albedo by multiplying its Base Color with a color."""
     if not bpy_mat.use_nodes:
         return
 
@@ -241,12 +230,7 @@ def _wire_displacement_channel(tree: bpy.types.NodeTree, texture_dir: "Path") ->
 
 
 def _apply_pbr_textures(bpy_mat: bpy.types.Material, texture_dir: "Path") -> None:
-    """Load PBR image textures from *texture_dir* and wire them into the material.
-
-    Scans for files containing standard PBR suffixes (Color, Roughness,
-    Metalness, NormalGL, Displacement) and connects them to the corresponding
-    Principled BSDF inputs.  Uses the model's existing UV mapping.
-    """
+    """Load PBR image textures from texture_dir and wire them into the material."""
     if not bpy_mat.use_nodes:
         bpy_mat.use_nodes = True
     tree = bpy_mat.node_tree

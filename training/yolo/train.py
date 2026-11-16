@@ -15,24 +15,11 @@ from ultralytics import YOLO
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_ROOT = Path(BASE_DIR).resolve().parents[0] / "data"
 CACHE_MAX_AGE_DAYS = 7.0
-# Image cache for models whose config does not set one, and when --cache is not passed.
 DEFAULT_CACHE = "disk"
 
 
 def reclaim_stale_caches(dataset_yaml: str, max_age_days: float) -> None:
-    """Delete ultralytics disk caches unused for ``max_age_days``, before training starts.
-
-    ``cache="disk"`` writes one ``.npy`` per image and never prunes them: on megamind a single
-    corpus grew to 196 GB of cache against 12 GB of images, and a stale set from an abandoned
-    dataset can fill the NVMe and stall an unrelated run. Deleting is safe -- ultralytics rebuilds
-    what it needs -- so the only cost of being wrong is re-caching time.
-
-    The dataset about to be trained on is protected explicitly. ``busy_datasets`` skips this process
-    and its ancestors (so that a shell mentioning a path does not pin it), which means it cannot see
-    that *we* are the ones about to use this data.
-
-    Never fatal: a failure here must not take down a multi-hour training run.
-    """
+    """Delete ultralytics disk caches unused for ``max_age_days``, before training starts."""
     protect: set[Path] = set()
     try:
         meta = yaml.safe_load(Path(dataset_yaml).read_text())
@@ -116,35 +103,12 @@ def main() -> None:
             "epochs": 500,
             "imgsz": 640,
         },
-        # Detect head. `imgsz` matches yolo26n-seg so a seg-vs-bbox box-quality comparison
-        # varies the head type rather than the input size; `batch` and `epochs` have since
-        # diverged for the reasons below, so that comparison is no longer apples-to-apples
-        # without overriding them back.
-        #
-        # epochs 100, not 500: data_scaling_2026-07-27 found every arm on
-        # nhrl_robots_bbox_2class peaked on val between ep63 and ep90 with none still
-        # rising at ep100, and category_addition_2026-07-25 found fully-annealed
-        # 150-epoch endpoints failed the eval parity gate outright. 500 anneals far past
-        # the point where this data generalizes.
-        #
-        # cache "ram", not "disk": the disk cache writes one full-res .npy per image, which
-        # on this corpus is ~200 GB against 12 GB of JPEGs -- the blowup described in
-        # reclaim_stale_caches. The resized RAM cache is ~17 GB per DDP process instead.
         "yolo26n": {
             "batch": 128,
             "epochs": 100,
             "imgsz": 640,
             "cache": "ram",
         },
-        # Size-sweep arms (model_size_2026-09-04). The sweep held batch at 96 via `--batch`,
-        # not the 64 below: 96 splits evenly over 3 GPUs (32/GPU, measured at 32.4 GB for
-        # yolo26x) while 64 and 128 do not. 64 is the safe per-model default for a single-GPU
-        # run -- yolo26x at 96 on one GPU needs ~93 GB and yolo26m/l do not fit either. Same
-        # epochs and `cache: "ram"` rationale as yolo26n above.
-        #
-        # Batch also silently scales weight decay (trainer.py: wd * batch * accumulate / nbs,
-        # nbs=64), so changing it changes regularization: 0.0005 at batch 64, 0.00075 at 96,
-        # 0.0010 at the deployed yolo26n's 128.
         "yolo26s": {"batch": 64, "epochs": 100, "imgsz": 640, "cache": "ram"},
         "yolo26m": {"batch": 64, "epochs": 100, "imgsz": 640, "cache": "ram"},
         "yolo26l": {"batch": 64, "epochs": 100, "imgsz": 640, "cache": "ram"},
@@ -314,7 +278,6 @@ def main() -> None:
     checkpoint_path = args.checkpoint
     devices = tuple(args.devices)
     workers = args.workers
-    # None means "not passed" -- each model's own config then decides. Resolved per model below.
     cache_override = False if args.cache == "false" else args.cache
     save_period = args.save_period
     fraction = args.fraction
@@ -330,7 +293,6 @@ def main() -> None:
     if not args.no_clear_cache:
         reclaim_stale_caches(dataset, args.cache_max_age)
 
-    # One timestamp per script run so all models in this session share the same date.
     session_date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
     hyper_params = dict(
@@ -386,10 +348,8 @@ def main() -> None:
         model_cache = settings.pop("cache", DEFAULT_CACHE)
         cache = model_cache if cache_override is None else cache_override
 
-        # Load the model.
         model = YOLO(checkpoint_path if checkpoint_path else model_key)
 
-        # Training in a new folder per session (date + time so same-day runs don't overwrite).
         run_name = f"auto_battlebots_{session_date}_{model_key}"
         model.train(
             data=dataset,

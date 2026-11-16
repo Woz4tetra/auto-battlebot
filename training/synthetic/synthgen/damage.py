@@ -1,45 +1,11 @@
-"""Battle damage as a per-instance random variable: what to remove, decided without Blender.
-
-A real robot two minutes into a match is missing parts. Every synthetic robot so far is
-factory fresh, so the detector never sees a chewed one until the match does. This module
-draws the damage; ``synthgen.damage_scene`` applies it to the Blender scene and undoes it.
-
-Three mechanisms, chosen by what the robot's config and mesh structure allow:
-
-* **Named part removal**, for a robot whose ``[[robots.damage_parts]]`` names its real
-  assemblies (wheels, weapon disk, top plate). A CAD export grouped by material colour has
-  no part structure to hide, so ``synthgen.robots.split_damage_parts`` cuts the model into
-  those named pieces once at load, and a draw removes whole assemblies. The random-fraction
-  mechanism below hid a few bolts at a time, which never looked like a robot that lost a
-  fight. Named removal skips the keypoint protection: the batch asked for those parts gone.
-
-* **Part removal**, for the CAD robots. ``import_gltf_as_robot`` returns the GLB's mesh
-  objects, so those robots arrive already split into parts and a subset can simply go.
-* **Chunk removal**, for the Meshy opponents. Those GLBs are usually one fused textured
-  mesh, where part removal would either do nothing or delete the whole robot, so a cutter
-  primitive seeded on the surface takes a bite out instead.
-
-Three things are protected, because damage must not turn a label into a lie:
-
-* a part whose bounding box contains a keypoint, since ``[robots.keypoints]`` are
-  model-frame offsets and deleting what one sits on leaves it floating in mid-air;
-* a part big enough that removing it removes most of the robot;
-* anything matching a configured name pattern, for cases the geometry misses.
-
-``damage`` in the manifest means the fraction of the robot's mesh parts removed for the
-parts mechanism, and the fraction of bounding volume the cutter was sized to take for the
-chunk mechanism. They are not the same scale and are not comparable across mechanisms;
-``mechanism`` is recorded beside the number so an arm can separate them.
-
-Draws use the module-level ``random`` like the rest of the pipeline, so ``--seed`` covers
-damage too.
-"""
+"""Battle damage as a per-instance random variable: what to remove, decided without Blender."""
 
 from __future__ import annotations
 
 import math
 import random
 from dataclasses import dataclass
+from typing import NamedTuple
 
 import numpy as np
 
@@ -52,11 +18,22 @@ CUTTER_CUBE = "cube"
 CUTTER_ICOSPHERE = "icosphere"
 CUTTER_SHAPES = (CUTTER_CUBE, CUTTER_ICOSPHERE)
 
-# Tries at seeding a cutter away from every keypoint before giving up on this instance.
-CHUNK_PLACEMENT_RETRIES = 12
-# Surface vertices sampled as candidate cutter seeds. A fused Meshy mesh can carry 100k
-# vertices and the draw only needs a handful of candidates.
+CUTTER_SEED_RETRIES = 12
 SURFACE_SAMPLE_LIMIT = 64
+
+
+class NamedPartRemoval(NamedTuple):
+    part_name: str
+    piece_indices: tuple[int, ...]
+
+
+class Aabb(NamedTuple):
+    x_min: float
+    y_min: float
+    z_min: float
+    x_max: float
+    y_max: float
+    z_max: float
 
 
 @dataclass(frozen=True)
@@ -66,8 +43,7 @@ class InstanceDamage:
     class_name: str
     damage: float
     mechanism: str
-    # Named removal only: (part name, removed piece indices), in draw order.
-    parts: tuple[tuple[str, tuple[int, ...]], ...] = ()
+    parts: tuple[NamedPartRemoval, ...] = ()
 
     @property
     def is_damaged(self) -> bool:
@@ -88,14 +64,7 @@ class InstanceDamage:
 
 @dataclass
 class DamageBudget:
-    """Tracks the damaged/clean scene split so a short run still lands on the ratio.
-
-    Damage is drawn per scene, so a run is a handful of draws, not thousands: a 100-frame
-    probe at ten frames per scene is ten of them. A coin flip at 0.5 put one scene in ten
-    on the damaged side on 2026-09-12, which is inside its binomial spread and useless as
-    a clean pool. This tracks the split the way ``choose_cage`` tracks the scene mix: each
-    scene goes to whichever side is behind its share, so the ratio holds at any length.
-    """
+    """Tracks the damaged/clean scene split so a short run still lands on the ratio."""
 
     scenes: int = 0
     damaged: int = 0
@@ -103,8 +72,6 @@ class DamageBudget:
     def take(self, scene_probability: float) -> bool:
         """Whether the next scene is a damaged one, and record the decision."""
         wanted = scene_probability * (self.scenes + 1)
-        # The half-step is the usual rounding tracker: it keeps the running count on the
-        # nearer side of the target share instead of always damaging the first scene.
         decision = self.damaged + 0.5 < wanted
         self.scenes += 1
         self.damaged += int(decision)
@@ -131,22 +98,13 @@ class ChunkDraw:
 
 @dataclass(frozen=True)
 class RemovablePart:
-    """One named assembly a robot can lose, as the draw sees it.
-
-    ``pieces`` counts the separate pieces the load-time split produced for it: one for an
-    assembly that goes whole, one per box for a ``subset`` part such as the four wheels,
-    where a draw takes 1..pieces of them.
-    """
+    """One named assembly a robot can lose, as the draw sees it."""
 
     name: str
-    pieces: int
+    split_piece_count: int
     subset: bool = False
-    # Parts that go with this one, e.g. the weapon disk with the weapon module it hangs on.
     includes: tuple[str, ...] = ()
-    # Subset parts: relative odds of losing 1, 2, ... pieces. Empty means every count is
-    # equally likely; a wheel usually comes off alone, so the wheels weight one heavily.
     count_weights: tuple[float, ...] = ()
-    # False for a part that only goes with another (a decal with its plate): never drawn alone.
     selectable: bool = True
 
 
@@ -154,33 +112,23 @@ class RemovablePart:
 class NamedPartDraw:
     """Which pieces of which named parts to hide, and what fraction of all pieces that is."""
 
-    removed: tuple[tuple[str, tuple[int, ...]], ...]
+    removed: tuple[NamedPartRemoval, ...]
     damage: float
 
 
 @dataclass(frozen=True)
 class FacePiece:
-    """Where one piece of a named part is, for assigning mesh faces to it at load.
+    """Where one piece of a named part is, for assigning mesh faces to it at load."""
 
-    Boxes are ``(x_min, y_min, z_min, x_max, y_max, z_max)`` in the robot's parent frame.
-    ``objects`` and ``exclude_objects`` filter on the Blender object name, matched by
-    ``object_name_matches``; for a GLB grouped by colour that name is the material colour.
-    """
-
-    boxes: tuple[tuple[float, float, float, float, float, float], ...]
+    boxes: tuple[Aabb, ...]
     objects: tuple[str, ...] = ()
     exclude_objects: tuple[str, ...] = ()
 
 
-def model_box_to_blender_local(
-    box: tuple[float, float, float, float, float, float],
-) -> tuple[float, float, float, float, float, float]:
-    """A model-frame (glTF, Y-up) box in Blender local axes, the conversion keypoints get.
-
-    ``(x, y, z)`` maps to ``(x, -z, y)``, so the z bounds swap and negate into y.
-    """
+def model_box_to_blender_local(box: Aabb) -> Aabb:
+    """A model-frame (glTF, Y-up) box in Blender local axes, the conversion keypoints get."""
     x0, y0, z0, x1, y1, z1 = box
-    return (x0, -z1, y0, x1, -z0, y1)
+    return Aabb(x0, -z1, y0, x1, -z0, y1)
 
 
 def base_object_name(name: str) -> str:
@@ -190,11 +138,7 @@ def base_object_name(name: str) -> str:
 
 
 def object_name_matches(name: str, pattern: str) -> bool:
-    """Whether Blender object *name* is *pattern*, or *pattern* plus a ``_N`` index.
-
-    A Blender glTF export splits one colour into ``mat_128_128_128``, ``mat_128_128_128_1``,
-    and so on, and a second import appends ``.001``; all of them are the pattern's colour.
-    """
+    """Whether Blender object *name* is *pattern*, or *pattern* plus a ``_N`` index."""
     base = base_object_name(name)
     if base == pattern:
         return True
@@ -205,16 +149,7 @@ def object_name_matches(name: str, pattern: str) -> bool:
 def assign_faces_to_pieces(
     centres: np.ndarray, object_name: str, pieces: list[FacePiece]
 ) -> np.ndarray:
-    """Per face, the index of the first piece whose boxes hold its centre, or -1.
-
-    First match wins, so config order settles faces two parts' boxes both hold: the weapon
-    disk is listed before the weapon module that surrounds it.
-
-    Args:
-        centres: ``(n, 3)`` face centres in the parent frame.
-        object_name: The Blender object the faces belong to.
-        pieces: Every piece of every named part, in config order.
-    """
+    """Per face, the index of the first piece whose boxes hold its centre, or -1."""
     pts = np.asarray(centres, dtype=np.float64).reshape(-1, 3)
     assign = np.full(len(pts), -1, dtype=np.int64)
     for index, piece in enumerate(pieces):
@@ -230,12 +165,8 @@ def assign_faces_to_pieces(
 
 
 def piece_count(part: RemovablePart) -> int:
-    """How many of a subset part's pieces one draw removes, from ``count_weights``.
-
-    Weights past the part's piece count are ignored and missing ones count as zero, so a
-    wheels part that lost a box to an empty split still draws from the counts it can reach.
-    """
-    counts = list(range(1, part.pieces + 1))
+    """How many of a subset part's pieces one draw removes, from ``count_weights``."""
+    counts = list(range(1, part.split_piece_count + 1))
     if not part.count_weights:
         return random.choice(counts)
     weights = [
@@ -251,14 +182,8 @@ def draw_named_part_damage(
     allowed: tuple[str, ...],
     count_range: tuple[int, int],
 ) -> NamedPartDraw | None:
-    """Pick 1..n of the allowed named parts to remove, or None when none is allowed.
-
-    Args:
-        parts: The robot's named parts, in config order. Parts with no pieces are skipped.
-        allowed: The batch's ``[damage].removable_parts``; empty allows every part.
-        count_range: How many distinct parts one draw removes, clamped to what is allowed.
-    """
-    by_name = {part.name: part for part in parts if part.pieces > 0}
+    """Pick 1..n of the allowed named parts to remove, or None when none is allowed."""
+    by_name = {part.name: part for part in parts if part.split_piece_count > 0}
     candidates = [
         name for name in by_name if by_name[name].selectable and (not allowed or name in allowed)
     ]
@@ -270,16 +195,20 @@ def draw_named_part_damage(
     for name in random.sample(candidates, random.randint(low, high)):
         part = by_name[name]
         if part.subset:
-            chosen = random.sample(range(part.pieces), piece_count(part))
+            chosen = random.sample(range(part.split_piece_count), piece_count(part))
             removed.setdefault(name, set()).update(chosen)
         else:
-            removed.setdefault(name, set()).update(range(part.pieces))
+            removed.setdefault(name, set()).update(range(part.split_piece_count))
         for included in part.includes:
             if included in by_name:
-                removed.setdefault(included, set()).update(range(by_name[included].pieces))
-    total = sum(part.pieces for part in by_name.values())
+                removed.setdefault(included, set()).update(
+                    range(by_name[included].split_piece_count)
+                )
+    total = sum(part.split_piece_count for part in by_name.values())
     return NamedPartDraw(
-        removed=tuple((name, tuple(sorted(indices))) for name, indices in removed.items()),
+        removed=tuple(
+            NamedPartRemoval(name, tuple(sorted(indices))) for name, indices in removed.items()
+        ),
         damage=sum(len(indices) for indices in removed.values()) / total,
     )
 
@@ -312,23 +241,7 @@ def protected_part_indices(
     max_volume_fraction: float,
     keypoint_clearance_m: float,
 ) -> set[int]:
-    """Parts that must survive: keypoint anchors, oversized parts, and named patterns.
-
-    Args:
-        part_corners: Per part, an ``(n, 3)`` array of points in the robot's parent frame.
-        part_names: Per part, its Blender object name.
-        keypoints: Keypoint positions in the same parent frame.
-        name_patterns: Lowercase substrings; a part whose name contains one is protected.
-        max_volume_fraction: Parts holding more than this share of the summed part
-            bounding volumes are protected, so one draw cannot take most of the robot.
-            Summed rather than the robot's own box, so the test needs nothing but the
-            parts themselves; overlapping boxes make it a little conservative, which is
-            the safe direction for a protection rule.
-        keypoint_clearance_m: Bounding boxes are grown by this before the keypoint test.
-
-    Returns:
-        Indices into *part_corners* that may not be removed.
-    """
+    """Parts that must survive: keypoint anchors, oversized parts, and named patterns."""
     total = sum(bbox_corner_volume(c) for c in part_corners)
     protected: set[int] = set()
     for index, corners in enumerate(part_corners):
@@ -374,15 +287,7 @@ def draw_part_damage(
 
 
 def cutter_radius_m(bbox_volume_m3: float, volume_fraction: float, shape: str) -> float:
-    """Half-extent (cube) or radius (icosphere) that removes *volume_fraction* of a box.
-
-    The cutter is seeded on the surface rather than buried in the middle, so in practice
-    roughly half of it overlaps the mesh; the fraction is what the cutter was sized for,
-    not a measured loss.
-
-    Raises:
-        ValueError: When *shape* is not a known cutter shape.
-    """
+    """Half-extent (cube) or radius (icosphere) that removes *volume_fraction* of a box."""
     target = max(bbox_volume_m3, 0.0) * max(volume_fraction, 0.0)
     if shape == CUTTER_CUBE:
         return float((target / 8.0) ** (1.0 / 3.0))
@@ -399,17 +304,13 @@ def draw_chunk_damage(
     shapes: tuple[str, ...],
     keypoint_clearance_m: float,
 ) -> ChunkDraw | None:
-    """Seed a cutter on the surface, clear of every keypoint, or None if no seed is clear.
-
-    A cutter that swallows a keypoint would leave the annotation pointing at a hole, so
-    candidate seeds within the cutter's own reach of a keypoint are rejected and redrawn.
-    """
+    """Seed a cutter on the surface, clear of every keypoint, or None if no seed is clear."""
     if not surface_points:
         return None
     volume = bbox_corner_volume(bbox_corners)
     if volume <= 0.0:
         return None
-    for _ in range(CHUNK_PLACEMENT_RETRIES):
+    for _ in range(CUTTER_SEED_RETRIES):
         shape = random.choice(list(shapes))
         fraction = random.uniform(*fraction_range)
         radius = cutter_radius_m(volume, fraction, shape)

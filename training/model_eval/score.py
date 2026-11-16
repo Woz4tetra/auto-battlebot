@@ -1,43 +1,5 @@
 #!/usr/bin/env python3
-"""Score candidate TensorRT detector engines against a YOLO ground-truth dataset.
-
-Each candidate engine runs inference directly on the GT images (no playback, no stamp
-alignment), matching the C++ pipeline's preprocessing and NMS. Predictions are compared
-against the labels at three label levels:
-
-    agnostic   every label collapses to "robot": pure localization (did it find the robot)
-    archetype  labels map through taxonomy.yaml: NHRL archetype naming
-    instance   labels as-is: per-robot-instance naming
-
-The gap between agnostic recall and class-aware mAP is the cost of splitting the
-OPPONENT category. Outputs a summary table (stdout + summary.csv) and plots.
-
-The GT argument is either a single dataset dir (data.yaml + images/ + labels/) or a root
-containing such subdatasets (e.g. training/data/nhrl_keypoints_eval_test). If a
-validation_state.json is present, only frames it marks `pass` are scored; failing that, an
-edit_labels.py .edit_state.json is used the same way.
-
---labels maps engine class indices to GT label names, in class order (mirrors the C++
-label_indices config). When the engine head carries keypoints (YOLO-pose), keypoint
-metrics are added over IoU-matched boxes: mean pixel error, PCK@0.1 of the GT box's
-longer side, and heading error (angle of the front->back keypoint vector, mean degrees
-and accuracy within 10 degrees).
-
-With two or more candidates, a paired bootstrap reports whether each candidate differs
-significantly from the baseline (the first candidate, or --baseline NAME). Because every
-candidate is scored on the same GT frames, resampling frames paired cancels the
-"this frame is just hard" variance, so a few hundred frames can resolve real differences.
-mAP is dataset-level and left as a point estimate; the detection questions are covered by
-the recall / precision / localization tests, which are frame-decomposable.
-
-Usage:
-    python training/model_eval/score.py training/data/nhrl_keypoints_eval_test \
-        --candidate deployed=data/models/<model>_x86_64_sm89.engine \
-        --labels opponent,opponent,house_bot,mr_stabs_mk2,mrs_buff_mk3 \
-        [--taxonomy training/model_eval/taxonomy.yaml] [--conf 0.5] [--nms-iou 0.45] \
-        [--iou 0.5] [--baseline NAME] [--bootstrap 1000] [--seed 0] [--alpha 0.05] \
-        [--output <dir>]
-"""
+"""Score candidate TensorRT detector engines against a YOLO ground-truth dataset."""
 
 from __future__ import annotations
 

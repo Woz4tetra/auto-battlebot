@@ -11,6 +11,7 @@ from synthgen.damage import (
     MECHANISM_NAMED,
     MECHANISM_NONE,
     MECHANISM_PARTS,
+    Aabb,
     DamageBudget,
     FacePiece,
     InstanceDamage,
@@ -47,6 +48,9 @@ def box(centre, half):
     )
 
 
+PROBE_SCENES = 10
+
+
 class TestBoxHelpers:
     def test_volume_is_the_spanned_box(self):
         assert bbox_corner_volume(box((0, 0, 0), 0.5)) == pytest.approx(1.0)
@@ -68,7 +72,6 @@ class TestProtection:
         assert protected_part_indices(parts, ["a", "b"], keypoints, (), 1.0, 0.0) == {0}
 
     def test_oversized_part_is_protected(self):
-        # One part holds 8^3 = 512 times the volume of the other, so it is nearly all of it.
         parts = [box((0, 0, 0), 0.4), box((1.0, 0, 0), 0.05)]
         assert protected_part_indices(parts, ["big", "small"], [], (), 0.45, 0.0) == {0}
 
@@ -197,7 +200,6 @@ class TestDamageBudget:
         budget = DamageBudget()
         n = 200
         taken = sum(budget.take(probability) for _ in range(n))
-        # A tracked split is never more than one scene off its share.
         assert abs(taken - probability * n) <= 1
 
     def test_never_damages_at_zero(self):
@@ -209,10 +211,8 @@ class TestDamageBudget:
         assert all(budget.take(1.0) for _ in range(20))
 
     def test_short_runs_are_not_a_lottery(self):
-        # Ten scenes is what a 100-frame probe renders; a coin flip put one in ten on the
-        # damaged side, which is what this replaces.
         budget = DamageBudget()
-        assert sum(budget.take(0.5) for _ in range(10)) == 5
+        assert sum(budget.take(0.5) for _ in range(PROBE_SCENES)) == PROBE_SCENES // 2
 
 
 class TestNamedParts:
@@ -292,6 +292,18 @@ class TestNamedParts:
         assert draw is not None
         assert {name for name, _ in draw.removed} == {"top_plate", "weapon_disk"}
 
+    def test_removals_and_boxes_have_named_fields(self):
+        random.seed(3)
+        draw = draw_named_part_damage(self.PARTS, ("weapon_module",), (1, 1))
+        assert draw is not None
+        assert {r.part_name: r.piece_indices for r in draw.removed} == {
+            "weapon_module": (0,),
+            "weapon_disk": (0,),
+        }
+        box = model_box_to_blender_local(Aabb(-0.1, 0.02, -0.05, 0.2, 0.18, 0.01))
+        assert (box.x_min, box.y_min, box.z_min) == (-0.1, -0.01, 0.02)
+        assert (box.x_max, box.y_max, box.z_max) == (0.2, 0.05, 0.18)
+
     def test_manifest_row_lists_the_parts(self):
         row = InstanceDamage(
             "mrs_buff_mk3", 0.5, MECHANISM_NAMED, parts=(("wheels", (0, 2)), ("top_plate", (0,)))
@@ -329,3 +341,46 @@ class TestNamedParts:
         draw = draw_named_part_damage(parts, (), (1, 2))
         assert draw is not None
         assert dict(draw.removed) == {"top_plate": (0,), "top_sticker": (0,)}
+
+
+def test_model_box_to_blender_local() -> None:
+    assert model_box_to_blender_local((0.0, 1.0, 2.0, 3.0, 4.0, 5.0)) == (
+        0.0,
+        -5.0,
+        1.0,
+        3.0,
+        -2.0,
+        4.0,
+    )
+
+
+def test_object_name_matches_suffixes() -> None:
+    assert object_name_matches("mat_128_128_128", "mat_128_128_128")
+    assert object_name_matches("mat_128_128_128_3", "mat_128_128_128")
+    assert object_name_matches("mat_128_128_128_3.001", "mat_128_128_128")
+    assert object_name_matches("mat_128_128_128.001", "mat_128_128_128")
+    assert not object_name_matches("mat_128_128_129", "mat_128_128_128")
+    assert not object_name_matches("mat_128_128_128_x", "mat_128_128_128")
+
+
+def test_face_piece_first_match_wins() -> None:
+    disk = FacePiece(boxes=((-1.0, -1.0, -1.0, 1.0, 1.0, 1.0),))
+    module = FacePiece(boxes=((-5.0, -5.0, -5.0, 5.0, 5.0, 5.0),))
+    centres = np.array([[0.0, 0.0, 0.0], [3.0, 0.0, 0.0], [9.0, 0.0, 0.0]])
+    assert assign_faces_to_pieces(centres, "obj", [disk, module]).tolist() == [0, 1, -1]
+    assert assign_faces_to_pieces(centres, "obj", [module, disk]).tolist() == [0, 0, -1]
+
+
+def test_chunk_seed_clear_of_keypoints() -> None:
+    surface = [np.array([0.0, 0.0, 0.0]), np.array([1.0, 0.0, 0.0])]
+    corners = np.array([[-1.0, -1.0, -1.0], [2.0, 1.0, 1.0]])
+    keypoints = [np.array([0.0, 0.0, 0.0])]
+    for seed in range(20):
+        random.seed(seed)
+        draw = draw_chunk_damage(surface, corners, keypoints, (0.01, 0.02), (CUTTER_CUBE,), 0.0)
+        assert draw is not None
+        assert draw.centre == (1.0, 0.0, 0.0)
+    assert (
+        draw_chunk_damage(surface[:1], corners, keypoints, (0.01, 0.02), (CUTTER_CUBE,), 0.0)
+        is None
+    )

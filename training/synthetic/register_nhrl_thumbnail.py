@@ -1,31 +1,4 @@
-"""Register a manually-downloaded NHRL robot thumbnail into the generation state.
-
-Use this when you drop a thumbnail PNG into ``<output_dir>/thumbnails/`` yourself
-(bypassing ``download_nhrl_bots.py``, e.g. for a specific opponent) and want a proper
-state entry so ``generate_nhrl_meshes.py`` can pick it up, without hand-editing
-``.nhrl_generation_state.json``.
-
-The clean_name is derived from the display name the same way BrettZone does it:
-lowercase, then strip every non-alphanumeric character. ``Iron Warrior`` -> ``ironwarrior``.
-The thumbnail is expected at ``<output_dir>/thumbnails/<clean_name>.png`` unless
-``--thumbnail`` overrides it.
-
-Usage:
-  venv/bin/python training/synthetic/register_nhrl_thumbnail.py \
-      training/data/distractor_models/robots "Iron Warrior"
-
-  # several at once
-  venv/bin/python training/synthetic/register_nhrl_thumbnail.py \
-      training/data/distractor_models/robots "Sphinx" "Wreck Creation" "Iron Warrior"
-
-  # override the derived clean_name / thumbnail file (single robot only)
-  venv/bin/python training/synthetic/register_nhrl_thumbnail.py \
-      training/data/distractor_models/robots "M.C.B." --clean-name mcb --thumbnail mcb.png
-
-Then generate just those with:
-  venv/bin/python training/synthetic/generate_nhrl_meshes.py \
-      training/data/distractor_models/robots --only ironwarrior sphinx wreckcreation --limit 3
-"""
+"""Register a manually-downloaded NHRL robot thumbnail into the generation state."""
 
 from __future__ import annotations
 

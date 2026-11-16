@@ -837,3 +837,97 @@ Every opponent measurement as the estimator received it, in either mode, so a re
 Beside `#include <arpa/inet.h>`:
 
 viz_relay: the process that owns the Foxglove WebSocket server. auto_battlebot connects over a unix socket and streams already-encoded messages; this process re-publishes them on ws://<host>:8765 with foxglove::WebSocketServer. Because the server lives here and not in the app, Foxglove stays connected across app restarts: channels are keyed by topic and reused when the app reconnects with the same schema, so panels never blink. It also latches: the last message on a topic advertised with latch=1 is re-sent whenever a new client subscribes, which is what lets Foxglove attach mid-run and still see the field border and inlier cloud that were published once at startup. It also serves the web dashboard (web/dist) over HTTP with Crow. Both servers live here because this process outlives app restarts: when the app crashes the page still loads and shows the app as down. Framing is in include/viz/frame.hpp; the layout is documented in docs/foxglove_recording_format.md.
+
+## Notes moved from code comments (2026-11-15)
+
+- `training/model_eval/export_camera_transforms.py`, `read_recording` (`above field_from_cameraworld.append((tf.stamp_ns, tf.matrix))`):
+  Recordings made before the edge moved carry it once on /tf_static; newer ones repeat it on /tf every cycle. Both land here.
+- `training/model_eval/export_camera_transforms.py`:
+
+  ```text
+  Export camera intrinsics and per-image camera->field transforms for the eval dataset.
+
+  Reads each sub dataset's `data.yaml` for its `source_mcap`, then writes alongside the
+  existing `images/` and `labels/` (neither is modified):
+
+      <sub-dataset>/camera_info.json                  intrinsics, constant over the recording
+      <sub-dataset>/camera_transforms/<stamp_ns>.json  one per image
+
+  The transform is `tf_field_from_camera`: multiply a point in the camera frame by it to get
+  that point in the field frame. It is the composition of two recorded transforms:
+
+      tf_field_from_camera = tf_field_from_cameraworld @ tf_cameraworld_from_camera
+
+  Both edges come from `/tf`, published once per frame the perception loop actually processed.
+  `field -> camera_world` only changes on a field re-init but is restamped every cycle, so the
+  applicable one is the latest at or before the image. Recordings made before that edge moved
+  carry it once on `/tf_static`; those are read the same way.
+
+  Frame association
+  -----------------
+  Dataset images are named by `/camera/image` header stamp, which the SVO recorder wrote.
+  `/tf` and `/camera/camera_info` carry the perception pipeline's own stamps, and the two
+  differ: a pipeline stamp lands roughly 0.4 to 0.9 of the way through the SVO frame interval
+  it belongs to, a stable sub-frame capture lag rather than clock skew. It never crosses an
+  interval boundary, so "the pipeline stamp inside [svo_stamp, next_svo_stamp)" identifies the
+  frame exactly. Each image and each `/tf` sample is resolved to a position in the
+  `/camera/image` stream that way, and the two are matched on that position. It is a position
+  within this mcap, not a .svo2 frame index; ZED_SVO_Editor drops a few frames per file, so the
+  two differ by a small offset. That offset is the same for both sides here, so it cancels.
+
+  The pipeline ran slower than the camera (~25 fps against 30 fps), so it skipped frames. For a
+  skipped frame no live transform was ever computed and the result is interpolated from the
+  neighbouring processed frames. Every image gets a file; the `method` field says which case it
+  was, so a consumer can filter on it:
+
+      exact         one processed frame owns this image's frame index
+      interpolated  frame was skipped; slerp/lerp between the nearest processed frames
+      ambiguous     two processed frames claim this index (only the 05-01 recording)
+      unavailable   no field frame yet, or no processed frame to interpolate from
+
+  Usage:
+      python training/model_eval/export_camera_transforms.py [--dataset-dir <dir>] [--dry-run]
+  ```
+
+- `training/svo_rgb_extract.py`:
+
+  ```text
+  Extract left/right RGB video from a ZED ``.svo2`` recording without the ZED SDK.
+
+  A ``.svo2`` file is an MCAP container holding H.264-encoded side-by-side stereo
+  frames on the ``<camera>/side_by_side`` topic. Each message is one access unit:
+  an 8-byte length prefix followed by an Annex-B H.264 stream. This script reads
+  those frames with the ``mcap`` library, crops the requested eye, and pipes the
+  raw H.264 straight into ffmpeg to write an MP4. No ``pyzed`` / CUDA required.
+
+  Depth is NOT available through this path. The ZED SDK computes depth from the
+  stereo pair on the device and it is not stored in the recording; use the SDK
+  (``svo_export.py``) if you need the depth channel.
+
+  Usage:
+      python training/svo_rgb_extract.py recording.svo2                 # left eye
+      python training/svo_rgb_extract.py recording.svo2 --channel 1     # right eye
+      python training/svo_rgb_extract.py a.svo2 b.svo2 --output out.mp4
+  ```
+
+- `training/video_mcap_extract.py`, `to_frames` (`above cv2.imwrite(str(out_dir / f"{index:06d}_{stamp_ns}.png"), image)`):
+  Index first so the filenames sort in capture order; the stamp is there so a frame can be tied back to the pipeline messages around it.
+- `training/video_mcap_extract.py`:
+
+  ```text
+  Extract the camera video from a pipeline recording, as MP4 or as still frames.
+
+  The video-MCAP counterpart to ``svo_rgb_extract.py``. A recording made with the RGB camera carries
+  one Annex-B H.264 access unit per frame on ``/camera/video``, in the same file as the pipeline
+  output, so there is no second file to find and no join to do. Frames come out pre-rectification,
+  which is what makes a revised lens calibration applicable to footage already shot.
+
+  The MP4 path pipes the raw access units straight into ffmpeg without decoding, which is fast and
+  lossless. The frames path decodes and writes PNGs, for labelling.
+
+  Usage:
+      venv/bin/python training/video_mcap_extract.py recording.mcap
+      venv/bin/python training/video_mcap_extract.py recording.mcap --frames out_dir/
+      venv/bin/python training/video_mcap_extract.py recording.mcap --frames out_dir/ --stride 10
+  ```
+

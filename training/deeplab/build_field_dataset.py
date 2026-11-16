@@ -1,26 +1,5 @@
 #!/usr/bin/env python3
-"""Assemble a segmask tree into one train/val field-segmentation dataset.
-
-`merge_segmask_datasets.py` + `split_segmask_dataset.py` would also produce a merged dataset, but
-`split_segmask_dataset.py` shuffles at frame level. Every corpus here is video-derived at a fixed
-stride, so a frame-level shuffle puts near-identical neighbours on both sides of the split and the
-val score stops measuring generalisation. This tool splits at the level of the source video
-instead, and never splits one video across train and val.
-
-It also refuses to reshuffle a corpus that is already split. A source subtree holding its own
-`train/` and `val/` is treated as settled: its frames keep the side they are already on. That
-keeps a previously published split, and any anchor scores computed against it, still comparable
-after new material is folded in. Only the unsplit material gets an assignment, sized to match the
-held corpus's val fraction.
-
-Masks are assumed to already share one label space; the tool checks this rather than remapping,
-since a remap needs per-source class names that flat segmask exports do not carry.
-
-Usage:
-    python training/deeplab/build_field_dataset.py \
-        --src ~/Desktop/deeplab_field_2026-07-29 \
-        --out ~/Desktop/deeplab_field_merged_2026-07-29
-"""
+"""Assemble a segmask tree into one train/val field-segmentation dataset."""
 
 from __future__ import annotations
 
@@ -40,8 +19,6 @@ from PIL import Image
 IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png")
 MASK_SUFFIX = "_mask.png"
 SPLITS = ("train", "val")
-# SegmentFlow names an export after the video it was cut from, and a YouTube id is 11 characters.
-# Slices of one video differ only after that prefix, so the prefix is the video identity.
 YOUTUBE_ID_LEN = 11
 
 
@@ -69,13 +46,7 @@ def held_corpora(src: Path) -> List[Path]:
 
 
 def video_key(rel: Path) -> str:
-    """Identify the source video a frame came from.
-
-    Two naming schemes are in play. Clips cut locally are `<video>__<offset>_segmask`, so the
-    offset is dropped. SegmentFlow exports lead with the video id, so the id is taken directly.
-    Anything else falls back to its top-level directory, which at worst splits one video into
-    several groups -- conservative, since it can only ever over-separate, never leak.
-    """
+    """Identify the source video a frame came from."""
     parts = rel.parts
     top = parts[0]
     if len(parts) > 1 and re.search(r"__\d+_segmask$", parts[1]):
@@ -86,11 +57,7 @@ def video_key(rel: Path) -> str:
 
 
 def scene_stem(rel: Path) -> str:
-    """A collision-proof output name for a frame at `rel` within its source root.
-
-    Sub-exports reuse frame numbers heavily -- one corpus here carries 1,407 frames over 90
-    distinct basenames -- so the directory path has to survive into the filename.
-    """
+    """A collision-proof output name for a frame at `rel` within its source root."""
     slug = re.sub(r"[^A-Za-z0-9._-]+", "_", "__".join(rel.parts[:-1]))
     return f"{slug}__{rel.stem}" if slug else rel.stem
 
@@ -121,12 +88,7 @@ def check_label_space(frames: List[Path], expected: int, sample: int = 40) -> se
 def assign_videos(
     groups: Dict[str, List[Tuple[Path, Path]]], val_frac: float, seed: int
 ) -> Dict[str, str]:
-    """Assign whole videos to train or val, filling val up to `val_frac` by frame count.
-
-    Videos are taken in a seeded random order and only while they still fit under the target, so
-    val never overshoots. Overshooting is the worse error in both directions: it starves training
-    of material, and one oversized video would dominate the val score with a single venue.
-    """
+    """Assign whole videos to train or val, filling val up to `val_frac` by frame count."""
     total = sum(len(v) for v in groups.values())
     target = total * val_frac
     order = sorted(groups)

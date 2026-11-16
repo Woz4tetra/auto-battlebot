@@ -1,9 +1,4 @@
-"""Shared helpers for the NHRL robot distractor pipeline.
-
-Used by ``download_nhrl_bots.py``, ``generate_nhrl_meshes.py``, and
-``compute_nhrl_keypoints.py``.  Kept to pure Python + numpy so it imports
-cleanly under both the project venv and BlenderProc's bundled interpreter.
-"""
+"""Shared helpers for the NHRL robot distractor pipeline."""
 
 from __future__ import annotations
 
@@ -16,17 +11,14 @@ from typing import Any
 
 import numpy as np
 
-# --- Endpoints ---
 BRETTZONE_API_BASE = "https://brettzone.nhrl.io/brettZone/api.php"
 BRETTZONE_THUMB_BASE = "https://brettzone.nhrl.io/robots-thumb"
 MESHY_API_BASE = "https://api.meshy.ai/openapi/v1"
 
-# --- Sidecar schema constants ---
 SIDECAR_SCHEMA_VERSION = 3
 KEYPOINT_FRAME = "gltf_model"
 KEYPOINT_METHOD = "pca_centerline_v1"
 
-# --- State file statuses ---
 STATUS_SKIPPED_NO_THUMBNAIL = "skipped_no_thumbnail"
 STATUS_SUBMITTED = "submitted"
 STATUS_SUCCEEDED = "succeeded"
@@ -95,13 +87,7 @@ def select_bots(
     min_fights: int,
     oversample: float = 0.2,
 ) -> list[dict[str, Any]]:
-    """Filter, rank, and truncate the BrettZone bot list.
-
-    Drops bracket/bye placeholders and bots below ``min_fights``, sorts by
-    total fights descending (name as a deterministic tie-break), and returns
-    up to ``ceil(limit * (1 + oversample))`` entries so downstream thumbnail
-    404s still leave ``limit`` usable bots.
-    """
+    """Filter, rank, and truncate the BrettZone bot list."""
     keep: list[dict[str, Any]] = []
     for bot in bots:
         clean_name = str(bot.get("cleanName", "")).strip()
@@ -116,11 +102,6 @@ def select_bots(
     keep.sort(key=lambda b: (-int(b.get("totalFights", 0)), str(b.get("cleanName", ""))))
     take = max(0, int(np.ceil(limit * (1.0 + oversample))))
     return keep[:take]
-
-
-# ---------------------------------------------------------------------------
-# JSON / state persistence
-# ---------------------------------------------------------------------------
 
 
 def atomic_write_json(path: Path, obj: Any) -> None:
@@ -162,11 +143,6 @@ def save_state(state_path: Path, state: dict[str, Any]) -> None:
 def is_rejected(entry: dict[str, Any]) -> bool:
     """True if a state entry was human-rejected (skip download + meshing)."""
     return bool(entry.get(STATE_REJECTED_KEY))
-
-
-# ---------------------------------------------------------------------------
-# Sidecar schema
-# ---------------------------------------------------------------------------
 
 
 def build_sidecar(
@@ -223,31 +199,10 @@ def sidecar_path_for(model_path: Path) -> Path:
     return model_path.with_suffix(".json")
 
 
-# ---------------------------------------------------------------------------
-# Keypoint geometry
-# ---------------------------------------------------------------------------
-
-
 def footprint_axes(
     vertices: np.ndarray, slice_fraction: float = 0.05
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, float] | None:
-    """Derive the horizontal principal axes of a mesh's ground footprint.
-
-    *vertices* is an ``(N, 3)`` array in the GLTF-native frame (Y is up).  The
-    bottom ``slice_fraction`` of the height is taken to isolate the footprint,
-    then grown until it holds enough points and spans at least half the model's
-    larger horizontal extent (so a sparse lowest-point cluster does not skew the
-    axes).  2D PCA over the slice's ``(X, Z)`` coordinates yields the forward
-    axis ``u1`` (largest variance, rotation-invariant) and the perpendicular
-    lateral axis ``u2``.  ``u1`` is oriented deterministically so repeated runs
-    are reproducible; which physical end is "front" is still arbitrary and is
-    resolved by the human review pass.
-
-    Returns ``(centroid_xz, u1, u2, slice_pts, y_ground)`` where ``centroid_xz``
-    and the unit axes are 2D ``(X, Z)`` vectors, ``slice_pts`` is the ``(M, 3)``
-    footprint slice, and ``y_ground`` is the slice's lowest Y.  Returns ``None``
-    for a degenerate mesh (empty, flat, or no horizontal extent).
-    """
+    """Derive the horizontal principal axes of a mesh's ground footprint."""
     if vertices.ndim != 2 or vertices.shape[0] < 3 or vertices.shape[1] != 3:
         return None
 
@@ -263,8 +218,6 @@ def footprint_axes(
     if max_horiz_full < 1e-5:
         return None
 
-    # Grow the bottom slice until it holds enough points and spans at least half
-    # the model's larger horizontal extent, else fall back to the whole model.
     slice_pts = vertices
     for frac in (slice_fraction, 0.10, 0.25, 0.5, 1.0):
         pts = vertices[y <= y_min + frac * height]
@@ -280,20 +233,15 @@ def footprint_axes(
     centroid_xz = xz.mean(axis=0)
     centered = xz - centroid_xz
     cov = centered.T @ centered / max(len(centered) - 1, 1)
-    # eigh returns eigenvalues ascending; the last eigenvector is the principal.
-    _, eigvecs = np.linalg.eigh(cov)
-    u1 = np.asarray(eigvecs[:, -1], dtype=float)
+    eigvals, eigvecs = np.linalg.eigh(cov)
+    u1 = np.asarray(eigvecs[:, np.argmax(eigvals)], dtype=float)
     norm = float(np.linalg.norm(u1))
     if norm < 1e-12:
         return None
     u1 = u1 / norm
 
-    # Orient u1 deterministically (prefer +X, tie-break +Z) so pre-review output
-    # is reproducible regardless of the eigensolver's sign convention.
     if u1[0] < -1e-12 or (abs(u1[0]) <= 1e-12 and u1[1] < 0.0):
         u1 = -u1
-    # Lateral axis = u1 rotated +90 degrees in the (X, Z) plane; guaranteed unit
-    # and perpendicular. Its sign is arbitrary (front/back is chosen downstream).
     u2 = np.array([-u1[1], u1[0]], dtype=float)
 
     return centroid_xz, u1, u2, slice_pts, y_min
@@ -302,18 +250,7 @@ def footprint_axes(
 def keypoints_along_axis(
     base_xz: np.ndarray, axis_u: np.ndarray, points: np.ndarray, y_ground: float
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Project *points* onto *axis_u* and return centered front/back extremes.
-
-    *points* is an ``(N, 3)`` array whose ``(X, Z)`` columns are projected onto
-    the line ``{base_xz + t * axis_u}``.  The extreme projections become
-    ``front`` (the ``+axis_u`` end) and ``back``, placed back on that line at
-    height *y_ground*, so both lie exactly on the centerline.  Flipping the sign
-    of *axis_u* swaps front and back.
-
-    Pass the *full* mesh vertices, not just the ground slice: the extent should
-    reach the robot's true top-down silhouette, otherwise front/back collapse
-    toward the wheel-contact patch that dominates the lowest slice.
-    """
+    """Project *points* onto *axis_u* and return centered front/back extremes."""
     xz = points[:, [0, 2]].astype(float)
     t = (xz - base_xz) @ axis_u
     t_max = float(t.max())
@@ -330,38 +267,18 @@ def keypoints_along_axis(
 def compute_bottom_slice_keypoints(
     vertices: np.ndarray, slice_fraction: float = 0.05
 ) -> tuple[np.ndarray, np.ndarray] | None:
-    """Derive centered front/back keypoints for a Y-up mesh.
-
-    The forward axis and lateral center come from the ground footprint's
-    principal axis (see `footprint_axes`); the front/back extent is the full
-    mesh's silhouette projected onto that axis, so the points reach the robot's
-    true ends rather than the wheel-contact patch.  Returns the centerline
-    ``(front, back)`` in the GLTF-native frame.  Front/back orientation is
-    arbitrary for an unknown robot and is resolved by the human review pass.
-
-    Returns ``None`` for a degenerate mesh (empty, flat, or no horizontal
-    extent).
-    """
+    """Derive centered front/back keypoints for a Y-up mesh."""
     axes = footprint_axes(vertices, slice_fraction)
     if axes is None:
         return None
     _centroid_xz, u1, _u2, _slice_pts, y_ground = axes
-    # Axis comes from the footprint PCA; the centerline is based on the full
-    # mesh's bounding-box center so it stays in the model's middle at any
-    # orientation, and the extent reaches the true silhouette ends.
     xz = vertices[:, [0, 2]]
     base_xz = 0.5 * (xz.min(axis=0) + xz.max(axis=0))
     return keypoints_along_axis(base_xz, u1, vertices, y_ground)
 
 
 def convex_hull_2d(points_xz: np.ndarray) -> np.ndarray:
-    """Convex hull of 2D ``(N, 2)`` points (Andrew's monotone chain, numpy-only).
-
-    Returns the hull vertices as an ``(K, 2)`` array in counter-clockwise order.
-    Kept dependency-free (no scipy) so it runs under BlenderProc's Python.  The
-    hull is a faithful stand-in for the full point set when finding the extreme
-    projection along any direction: those extremes are always hull vertices.
-    """
+    """Convex hull of 2D ``(N, 2)`` points (Andrew's monotone chain, numpy-only)."""
     pts = np.unique(np.asarray(points_xz, dtype=float), axis=0)
     if len(pts) <= 2:
         return pts

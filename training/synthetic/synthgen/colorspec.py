@@ -1,17 +1,19 @@
-"""Color parsing and color -> material-type matching (no Blender imports).
-
-Robot GLTF exports encode part colors either in Principled BSDF inputs (read on
-the Blender side) or in material names like ``0.501961_0.501961_0.501961_...``;
-this module holds the pure matching logic against the config's color mapping.
-"""
+"""Color parsing and color-to-material matching (no Blender imports)."""
 
 from dataclasses import dataclass
+from typing import NamedTuple
 
 import numpy as np
 
 from synthgen.constants import COLOR_MATCH_FALLBACK_MAX_DIST
 
 Rgb = tuple[int, int, int]
+
+
+class MaterialMatch(NamedTuple):
+    material: str | None
+    distance: float
+    used_fallback: bool
 
 
 @dataclass(frozen=True)
@@ -24,14 +26,7 @@ class ColorMappingEntry:
 
 
 def color_from_material_name(name: str) -> Rgb | None:
-    """Parse RGB from material names like ``0.501961_0.501961_0.501961_...``.
-
-    Args:
-        name: Blender material name.
-
-    Returns:
-        The 0-255 RGB triple, or None when the name is not color-encoded.
-    """
+    """Parse RGB from material names like 0.501961_0.501961_0.501961_."""
     parts = name.split("_")
     if len(parts) >= 3:
         try:
@@ -50,21 +45,8 @@ def color_distance(c1: Rgb, c2: Rgb) -> float:
 
 def match_material_type(
     color: Rgb, color_mapping: "tuple[ColorMappingEntry, ...] | list[ColorMappingEntry]"
-) -> tuple[str | None, float, bool]:
-    """Return the best material for a color.
-
-    Strategy:
-    1) Exact/near match within configured tolerance (inclusive).
-    2) Conservative nearest-color fallback when nothing matches tolerance.
-
-    Args:
-        color: The part color to match (0-255 RGB).
-        color_mapping: Configured color -> material entries.
-
-    Returns:
-        ``(material_name, distance, used_fallback)``; material_name is None when
-        no entry is close enough even for the fallback.
-    """
+) -> MaterialMatch:
+    """Best material for *color*: in tolerance first, else nearest under the fallback cap."""
     best_match: str | None = None
     best_dist = float("inf")
     nearest_match: str | None = None
@@ -78,9 +60,8 @@ def match_material_type(
             best_dist = dist
             best_match = entry.material
     if best_match is not None:
-        return best_match, best_dist, False
+        return MaterialMatch(best_match, best_dist, False)
 
-    # CAD exports can introduce close shade variants for the same part color.
     if nearest_match is not None and nearest_dist <= COLOR_MATCH_FALLBACK_MAX_DIST:
-        return nearest_match, nearest_dist, True
-    return None, nearest_dist, False
+        return MaterialMatch(nearest_match, nearest_dist, True)
+    return MaterialMatch(None, nearest_dist, False)

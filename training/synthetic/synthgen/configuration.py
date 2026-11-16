@@ -1,27 +1,20 @@
-"""Typed configuration parsed from config.toml (no Blender imports).
-
-Every default that used to live in a scattered ``dict.get(key, default)`` call
-is centralized here, with the same values the original code used. The TOML
-schema itself is a frozen contract: keys are neither added nor renamed, and
-unknown keys (e.g. ``randomization.light_color_temp_range``,
-``environment.ground_textures``) are tolerated because sibling scripts consume
-them.
-"""
+"""Typed configuration parsed from config.toml (no Blender imports)."""
 
 import os
 import tomllib
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
 from synthgen.annotations import normalize_annotation_mode
-from synthgen.cage_mount import WALLS, CageMountRanges
+from synthgen.cage_mount import WALLS, CageMountRanges, MountAim
 from synthgen.colorspec import ColorMappingEntry
-from synthgen.constants import ANNOTATION_MODE_SEGMENTATION_BBOX, VIEWS
-from synthgen.damage import CUTTER_SHAPES
+from synthgen.constants import AnnotationMode, View
+from synthgen.damage import CUTTER_SHAPES, Aabb
 from synthgen.geometry import model_to_blender_local
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -32,14 +25,7 @@ class ConfigError(ValueError):
 
 
 class PathResolver:
-    """Resolve relative config paths the way the original script did.
-
-    Candidates are tried in order: config directory, launch CWD (BlenderProc
-    re-executes the script from a temp dir, so the real CWD arrives via the
-    ``BLENDERPROC_CWD`` environment variable), then the project root. The first
-    existing candidate wins; if none exist, the first candidate is returned so
-    error messages show the most likely intended location.
-    """
+    """Resolve relative config paths the way the original script did."""
 
     def __init__(self, config_dir: Path, launch_cwd: Path, project_root: Path) -> None:
         self.config_dir = config_dir
@@ -68,7 +54,7 @@ class OutputConfig:
     image_dir: Path
     label_dir: Path
     num_images: int
-    annotation_mode: str = "keypoints_bbox"
+    annotation_mode: AnnotationMode = AnnotationMode.KEYPOINTS_BBOX
     image_width: int = 1280
     image_height: int = 720
     images_per_scene: int = 5
@@ -80,7 +66,7 @@ class OutputConfig:
     @property
     def is_segmentation_mode(self) -> bool:
         """True when producing YOLO segmentation polygons instead of keypoints."""
-        return self.annotation_mode == ANNOTATION_MODE_SEGMENTATION_BBOX
+        return self.annotation_mode is AnnotationMode.SEGMENTATION_BBOX
 
 
 @dataclass(frozen=True, eq=False)
@@ -103,7 +89,7 @@ class DamagePartConfig:
     name: str
     # Each piece is boxes, [x_min, y_min, z_min, x_max, y_max, z_max] in the model's native
     # frame like keypoints. A plain part is one piece; a subset part loses 1..n of them.
-    pieces: tuple[tuple[tuple[float, float, float, float, float, float], ...], ...]
+    pieces: tuple[tuple[Aabb, ...], ...]
     # Only faces of these Blender objects (``.001`` suffix ignored). Empty means any object.
     objects: tuple[str, ...] = ()
     exclude_objects: tuple[str, ...] = ()
@@ -231,7 +217,7 @@ class CageConfig:
     mount: CageMountRanges = CageMountRanges()
     # The frame this cage writes: `pinhole` at the rectified matrix, `distorted` as the sensor
     # sees it, or `rectified` through the C++ Rectifier's maps. See synthgen.lens.
-    view: str = "pinhole"
+    view: View = View.PINHOLE
     # getOptimalNewCameraMatrix alpha behind the rectified matrix; 1.0 keeps every sensor pixel.
     rectify_alpha: float = 1.0
     # Draw a new house bot position and heading every scene (synthgen.house_bot_pose). False
@@ -256,16 +242,8 @@ class CageConfig:
 def choose_cage(
     cages: Sequence[CageConfig], images_written: int, images_per_cage: Sequence[int]
 ) -> int | None:
-    """Index of the cage the next scene belongs to, or None for the HDRI arena.
-
-    The split is tracked rather than coin-flipped: a scene goes to whichever cage is furthest
-    behind its share of the images written so far, so even a 100-image run lands on the
-    configured ratios instead of somewhere in their binomial spread. When no cage is behind,
-    the scene goes to the arena, which is what is left over.
-    """
+    """Index of the cage the next scene belongs to, or None for the HDRI arena."""
     behind = [
-        # Ties go to the larger share, which matters on the first scene of a run where every
-        # cage is equally (and entirely) behind.
         (cage.probability * images_written - own, cage.probability, index)
         for index, (cage, own) in enumerate(zip(cages, images_per_cage))
         if cage.is_behind(images_written, own)
@@ -384,7 +362,7 @@ def _parse_output(section: dict[str, Any]) -> OutputConfig:
     context = "[output]"
     try:
         annotation_mode = normalize_annotation_mode(
-            str(section.get("annotation_mode", "keypoints_bbox"))
+            str(section.get("annotation_mode", AnnotationMode.KEYPOINTS_BBOX.value))
         )
     except ValueError as e:
         raise ConfigError(str(e)) from e
@@ -459,7 +437,7 @@ def _parse_robot(section: dict[str, Any], index: int) -> RobotConfig:
     )
 
 
-def _as_box(value: Any, context: str) -> tuple[float, float, float, float, float, float]:
+def _as_box(value: Any, context: str) -> Aabb:
     try:
         x0, y0, z0, x1, y1, z1 = (float(v) for v in value)
     except (TypeError, ValueError) as e:
@@ -468,7 +446,7 @@ def _as_box(value: Any, context: str) -> tuple[float, float, float, float, float
         ) from e
     if x0 > x1 or y0 > y1 or z0 > z1:
         raise ConfigError(f"{context}: a min bound exceeds its max in {value!r}")
-    return (x0, y0, z0, x1, y1, z1)
+    return Aabb(x0, y0, z0, x1, y1, z1)
 
 
 def _as_count_weights(entry: dict[str, Any], piece_count: int, context: str) -> tuple[float, ...]:
@@ -486,9 +464,7 @@ def _as_count_weights(entry: dict[str, Any], piece_count: int, context: str) -> 
     return weights
 
 
-def _parse_part_pieces(
-    entry: dict[str, Any], context: str
-) -> tuple[tuple[tuple[float, float, float, float, float, float], ...], ...]:
+def _parse_part_pieces(entry: dict[str, Any], context: str) -> tuple[tuple[Aabb, ...], ...]:
     """A part's pieces: ``pieces`` as given, or ``boxes`` as one piece or one per box.
 
     ``boxes`` on a subset part makes each box its own piece, which suits a wheel. A piece
@@ -665,9 +641,13 @@ def _parse_mount(section: dict[str, Any], parent_context: str = "[[cages]]") -> 
     unknown = [w for w in walls if w not in WALLS]
     if unknown:
         raise ConfigError(f"{context}.walls: unknown {unknown}; valid walls are {list(WALLS)}")
-    aim = str(section.get("aim", defaults.aim))
-    if aim not in ("fixed", "centre"):
-        raise ConfigError(f"{context}.aim: expected 'fixed' or 'centre', got {aim!r}")
+    aim_text = str(section.get("aim", defaults.aim.value))
+    try:
+        aim = MountAim(aim_text)
+    except ValueError:
+        raise ConfigError(
+            f"{context}.aim: expected one of {[a.value for a in MountAim]}, got {aim_text!r}"
+        ) from None
     return CageMountRanges(
         walls=walls,
         aim=aim,
@@ -710,9 +690,7 @@ def _parse_cage(section: dict[str, Any]) -> CageConfig:
     if not 0.0 <= probability <= 1.0:
         raise ConfigError(f"{context}.probability: expected 0.0 to 1.0, got {probability}")
     render_samples = section.get("render_samples")
-    view = str(section.get("view", defaults.view))
-    if view not in VIEWS:
-        raise ConfigError(f"{context}.view: unknown {view!r}; valid are {list(VIEWS)}")
+    view = _parse_view(str(section.get("view", defaults.view.value)), f"{context}.view")
     rectify_alpha = _as_float(
         section.get("rectify_alpha", defaults.rectify_alpha), f"{context}.rectify_alpha"
     )
@@ -862,17 +840,7 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
 
 
 def _load_raw(config_path: Path, seen: tuple[Path, ...] = ()) -> dict[str, Any]:
-    """Parse a config file, following ``extends`` so a variant need not copy the whole thing.
-
-    A per-venue config is three keys different from the shared one, so it says what differs
-    and inherits the rest. Tables merge key by key, so a variant can override
-    ``[output].num_images`` without restating ``[output]``; arrays, including arrays of
-    tables like ``[[robots]]``, replace wholesale, because half-merging a robot list by
-    index would be a trap.
-
-    Raises:
-        ConfigError: On a cycle, a missing parent, or a parent in another directory.
-    """
+    """Parse a config file, following ``extends`` so a variant need not copy the whole thing."""
     resolved = config_path.resolve()
     if resolved in seen:
         chain = " -> ".join(p.name for p in (*seen, resolved))
@@ -894,15 +862,7 @@ def _load_raw(config_path: Path, seen: tuple[Path, ...] = ()) -> dict[str, Any]:
 
 
 def _apply_only_cage(cages: tuple[CageConfig, ...], name: Any) -> tuple[CageConfig, ...]:
-    """Narrow the scene mix to one cage, which then takes every scene.
-
-    This is how a per-venue render is pinned in a file rather than on the command line:
-    the named cage goes to probability 1.0 and every other cage is disabled, so no scene
-    lands in the HDRI arena or the other venue.
-
-    Raises:
-        ConfigError: When no ``[[cages]]`` entry carries *name*.
-    """
+    """Narrow the scene mix to one cage, which then takes every scene."""
     if name is None:
         return cages
     wanted = str(name)
@@ -918,18 +878,16 @@ def _apply_only_cage(cages: tuple[CageConfig, ...], name: Any) -> tuple[CageConf
 
 
 ARENA_VENUE = "arena"
-DAMAGE_MODES = ("config", "off", "all")
+
+
+class DamageMode(str, Enum):
+    CONFIG = "config"
+    OFF = "off"
+    ALL = "all"
 
 
 def apply_venue(cfg: RenderConfig, venue: str | None) -> RenderConfig:
-    """Pin every scene to one venue from the command line, the way ``only_cage`` does in a file.
-
-    ``venue`` is a ``[[cages]]`` name, or ``"arena"`` for the HDRI arena alone, which drops
-    every cage. None leaves the config's own mix.
-
-    Raises:
-        ConfigError: When *venue* names neither a cage nor the arena.
-    """
+    """Pin every scene to one venue from the command line, the way ``only_cage`` does in a file."""
     if venue is None:
         return cfg
     if venue == ARENA_VENUE:
@@ -938,49 +896,41 @@ def apply_venue(cfg: RenderConfig, venue: str | None) -> RenderConfig:
 
 
 def apply_damage_mode(cfg: RenderConfig, mode: str) -> RenderConfig:
-    """Override the ``[damage]`` split from the command line.
-
-    ``"config"`` keeps the file's values. ``"off"`` disables damage. ``"all"`` damages every
-    scene and rolls every instance, for a set that is meant to show damage rather than
-    the run's tracked mix.
-
-    Raises:
-        ConfigError: When *mode* is not one of ``DAMAGE_MODES``.
-    """
-    if mode == "config":
+    """Override the ``[damage]`` split from the command line."""
+    try:
+        parsed = DamageMode(mode)
+    except ValueError:
+        raise ConfigError(
+            f"damage mode must be one of {[m.value for m in DamageMode]}, got {mode!r}"
+        ) from None
+    if parsed is DamageMode.CONFIG:
         return cfg
-    if mode == "off":
+    if parsed is DamageMode.OFF:
         return replace(cfg, damage=replace(cfg.damage, enabled=False))
-    if mode == "all":
-        return replace(
-            cfg, damage=replace(cfg.damage, enabled=True, scene_probability=1.0, probability=1.0)
-        )
-    raise ConfigError(f"damage mode must be one of {DAMAGE_MODES}, got {mode!r}")
+    return replace(
+        cfg, damage=replace(cfg.damage, enabled=True, scene_probability=1.0, probability=1.0)
+    )
 
 
 def apply_view(cfg: RenderConfig, view: str | None) -> RenderConfig:
-    """Write every cage's frames in *view* from the command line. None keeps each cage's own.
-
-    The HDRI arena half has no lens model, so it stays pinhole whatever the view.
-
-    Raises:
-        ConfigError: When *view* is not one of ``VIEWS``.
-    """
+    """Write every cage's frames in *view* from the command line. None keeps each cage's own."""
     if view is None:
         return cfg
-    if view not in VIEWS:
-        raise ConfigError(f"--view: unknown {view!r}; valid are {list(VIEWS)}")
-    return replace(cfg, cages=tuple(replace(cage, view=view) for cage in cfg.cages))
+    parsed = _parse_view(view, "--view")
+    return replace(cfg, cages=tuple(replace(cage, view=parsed) for cage in cfg.cages))
+
+
+def _parse_view(text: str, context: str) -> View:
+    try:
+        return View(text)
+    except ValueError:
+        raise ConfigError(
+            f"{context}: unknown {text!r}; valid are {[v.value for v in View]}"
+        ) from None
 
 
 def apply_damage_parts(cfg: RenderConfig, names: list[str] | None) -> RenderConfig:
-    """Pin the named parts this batch may remove from the command line.
-
-    None keeps ``[damage].removable_parts``.
-
-    Raises:
-        ConfigError: When a name is not a ``[[robots.damage_parts]]`` entry of any robot.
-    """
+    """Pin the named parts this batch may remove from the command line."""
     if names is None:
         return cfg
     _check_removable_parts(cfg.robots, tuple(names), "--damage-parts")
@@ -992,21 +942,7 @@ def load_render_config(
     launch_cwd: Path | None = None,
     project_root: Path | None = None,
 ) -> RenderConfig:
-    """Load and validate config.toml into typed dataclasses.
-
-    Args:
-        config_path: Path to config.toml (resolved against launch CWD and
-            project root when relative).
-        launch_cwd: Override for the launch working directory (defaults to
-            ``BLENDERPROC_CWD`` or the process CWD).
-        project_root: Override for the repository root.
-
-    Returns:
-        The fully parsed configuration.
-
-    Raises:
-        ConfigError: When a required key is missing or a value is malformed.
-    """
+    """Load and validate config.toml into typed dataclasses."""
     if launch_cwd is None:
         launch_cwd = Path(os.environ.get("BLENDERPROC_CWD", os.getcwd()))
     if project_root is None:

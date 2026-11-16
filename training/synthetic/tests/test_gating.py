@@ -58,7 +58,6 @@ class TestRobotGate:
         assert verdict.frame_fatal is False
 
     def test_tiny_robot_skipped_but_frame_kept(self) -> None:
-        # A small distant robot: below the bbox minimum and below prominence.
         verdict = evaluate_robot_gate(
             make_stats(
                 visible_px=PROMINENT_UNLABELED_ROBOT_MIN_PX - 1,
@@ -81,7 +80,6 @@ class TestRobotGate:
         assert evaluate_robot_gate(below, 0.10, False).skip_reason is RobotSkipReason.BBOX_TOO_SMALL
 
     def test_prominent_skipped_robot_is_fatal(self) -> None:
-        # Short-edge bbox: fails the min-edge check yet is plenty visible.
         verdict = evaluate_robot_gate(
             make_stats(
                 visible_px=PROMINENT_UNLABELED_ROBOT_MIN_PX,
@@ -105,18 +103,15 @@ class TestRobotGate:
         assert below.frame_fatal is False
 
     def test_low_visibility_skip(self) -> None:
-        # Below the visibility threshold but below prominence: skip, keep the frame.
         verdict = evaluate_robot_gate(
             make_stats(visible_px=PROMINENT_UNLABELED_ROBOT_MIN_PX - 1, unobstructed_px=5000),
             0.10,
             False,
         )
         assert verdict.skip_reason is RobotSkipReason.LOW_VISIBILITY
-        assert verdict.frame_fatal is False  # below prominence
+        assert verdict.frame_fatal is False
 
     def test_low_visibility_prominent_is_fatal(self) -> None:
-        # Heavily occluded but still large on screen: labeling through the
-        # occluder is wrong and not labeling is a false negative, so drop.
         verdict = evaluate_robot_gate(
             make_stats(visible_px=2000, unobstructed_px=50000), 0.10, False
         )
@@ -132,7 +127,6 @@ class TestRobotGate:
         assert verdict.skip_reason is RobotSkipReason.NO_CLEAN_PIXELS
 
     def test_pixel_fraction_fallback_without_clean_pass(self) -> None:
-        # 100x100 bbox but only 500 visible pixels: 5% < 10% minimum.
         verdict = evaluate_robot_gate(make_stats(visible_px=500, unobstructed_px=None), 0.10, False)
         assert verdict.skip_reason is RobotSkipReason.LOW_PIXEL_FRACTION_FALLBACK
 

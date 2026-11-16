@@ -1,20 +1,4 @@
-"""Run YOLO pose inference on a video using a TensorRT engine file.
-
-Thin CLI around auto_battlebot.perception.trt_yolo (shared with training/model_eval/score.py).
-Matches the C++ YoloKeypointModel pipeline: same preprocessing (letterbox, BGR->RGB,
-normalize), same output layout [1, num_features, num_predictions], and same NMS/postprocess.
-
-Expects engines built from ONNX models exported with end2end disabled (the default
-in convert_to_onnx.py). The model output has sigmoid already applied to class scores
-and keypoint visibility, and bboxes are in xyxy format. If raw logits are detected
-(values outside [0,1]), sigmoid is applied as a fallback.
-
-Usage:
-  python training/yolo/test_tensorrt_video.py path/to/model.engine path/to/video.mp4 -o out.mp4
-  python training/yolo/test_tensorrt_video.py model.engine video.mp4 --show --conf 0.5
-
-Requires: tensorrt, pycuda, opencv-python, numpy, tqdm
-"""
+"""Run YOLO pose inference on a video using a TensorRT engine file."""
 
 from __future__ import annotations
 
@@ -27,7 +11,7 @@ import numpy as np
 from tqdm import tqdm
 
 from auto_battlebot.perception.detection_viz import draw_detections, load_class_names
-from auto_battlebot.perception.trt_yolo import TrtYoloModel
+from auto_battlebot.perception.trt_yolo import TrtYoloModel, resolve_num_classes
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -71,7 +55,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--num-keypoints",
-        default=0,
+        default=None,
         type=int,
         help="Number of keypoints per detection (default: inferred)",
     )
@@ -207,14 +191,7 @@ def main() -> None:
     if class_names is not None:
         print(f"Labeling boxes with {len(class_names)} class names from --names")
 
-    # Determine the class count before building the model. An explicit --num-classes wins;
-    # otherwise fall back to the number of names from --names. A raw multi-class pose head
-    # ([1, 4 + nc + 3*nk, anchors]) cannot be split correctly without it: the layout
-    # inference would guess a single class, misread the extra class scores as keypoint
-    # coordinates, and drop nearly every detection.
-    resolved_num_classes = (
-        args.num_classes if args.num_classes > 0 else (len(class_names) if class_names else 0)
-    )
+    resolved_num_classes = resolve_num_classes(args.num_classes, class_names)
 
     print("Loading engine...")
     model = TrtYoloModel(
@@ -222,9 +199,7 @@ def main() -> None:
         conf_threshold=args.conf,
         nms_iou_threshold=args.iou,
         num_classes=resolved_num_classes,
-        # CLI 0 means "infer from the engine layout"; the library sentinel for that is -1
-        # (0 there means "no keypoints", used for seg engines).
-        num_keypoints=args.num_keypoints if args.num_keypoints > 0 else -1,
+        num_keypoints=args.num_keypoints if (args.num_keypoints or 0) > 0 else -1,
         letterbox_padding=0.0,
         bbox_half_wh=args.bbox_half_wh,
         swap_wh=args.swap_wh,

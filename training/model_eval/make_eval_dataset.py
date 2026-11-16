@@ -1,31 +1,5 @@
 #!/usr/bin/env python3
-"""Build a hand-labeling eval dataset from /camera/image frames in MCAP recordings.
-
-Unlike export_labels.py (which needs detection topics to write model pre-labels), this
-samples raw frames from recordings that carry no detections, writing empty label files
-for labeling from scratch in edit_labels.py. One subdataset per recording:
-
-    <output-dir>/<recording>/images/<stamp_ns>.png   (left-eye frame)
-    <output-dir>/<recording>/labels/<stamp_ns>.txt    (empty, ready to label)
-    <output-dir>/<recording>/data.yaml                (names/colors/kpt_shape/flip_idx)
-
-Frames are named by the /camera/image header stamp_ns, which is the SVO frame stamp. That
-is how score.py aligns this ground truth to a later candidate playback run over the same
-SVO, so the dataset is scorable without any AVI/frame-index bookkeeping.
-
-Frames before each video's svo_start_frame (from the playback config) are skipped, then a
-fixed number are sampled evenly across the rest (decorrelated, not consecutive). The MCAP
-/camera/image stream is the SVO frames in order, so svo_start_frame applies as an index
-into that stream. Class names/colors and the keypoint schema are seeded from a source
-dataset (default: our_robot_keypoints) and can be extended with --extra-classes for robots
-absent from the training set (opponents, house).
-
-Usage:
-    python training/model_eval/make_eval_dataset.py data/recordings/*.mcap \
-        [--output-dir <dir>] [--per-video 100] \
-        [--playback-config config/playback/_playback.toml] \
-        [--extra-classes opponent house_bot]
-"""
+"""Build a hand-labeling eval dataset from /camera/image frames in MCAP recordings."""
 
 from __future__ import annotations
 
@@ -51,10 +25,7 @@ _REPO = _HERE.parent.parent
 DEFAULT_OUTPUT_DIR = _HERE.parent / "data" / "nhrl_keypoints_eval_test"
 DEFAULT_CLASS_SOURCE = _HERE.parent / "data" / "our_robot_keypoints" / "data.yml"
 DEFAULT_PLAYBACK_CONFIG = _REPO / "config" / "playback" / "_playback.toml"
-# Aspect ratio above which a frame is treated as a ZED side-by-side pair (keep left eye).
-# 16:9 single eye is 1.78; a side-by-side pair is 3.56.
-SIDE_BY_SIDE_ASPECT = 2.6
-# Distinct editor colors for classes added via --extra-classes, in order.
+SIDE_BY_SIDE_MIN_ASPECT = (16 / 9 + 32 / 9) / 2
 EXTRA_COLORS = ["#22c55e", "#f59e0b", "#a855f7", "#14b8a6", "#f43f5e"]
 
 
@@ -139,7 +110,7 @@ def selected_indices(start: int, count: int, n_pick: int) -> list[int]:
 def left_eye(image: np.ndarray) -> np.ndarray:
     """Keep the left half when the frame is a ZED side-by-side pair; else pass through."""
     height, width = image.shape[:2]
-    if width > height * SIDE_BY_SIDE_ASPECT:
+    if width > height * SIDE_BY_SIDE_MIN_ASPECT:
         return image[:, : width // 2]
     return image
 
@@ -182,7 +153,6 @@ def write_recording(
     dataset_dir = output_dir / recording_name(mcap_path)
     images_dir = dataset_dir / "images"
     labels_dir = dataset_dir / "labels"
-    # Clear any prior extraction so re-runs don't mix old and new samples.
     for stale in (images_dir, labels_dir):
         if stale.is_dir():
             for old in stale.iterdir():
@@ -200,7 +170,7 @@ def write_recording(
         frame = decode_compressed_image(data)
         stem = f"{frame.stamp_ns:019d}"
         cv2.imwrite(str(images_dir / f"{stem}.png"), left_eye(frame.image))
-        (labels_dir / f"{stem}.txt").write_text("")  # empty: label from scratch
+        (labels_dir / f"{stem}.txt").write_text("")
         written += 1
 
     (dataset_dir / "data.yaml").write_text(

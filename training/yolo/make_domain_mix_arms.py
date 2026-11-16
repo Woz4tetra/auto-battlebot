@@ -1,41 +1,4 @@
-"""Build the domain-mix arms: randomized and cage-domain synthetic at set counts, as image lists.
-
-Step 4 of docs/experiments/perception_performance/synthetic_domain_mix_plan_2026-09-12.md. Every
-arm is the corpus's 452 real frames, a prefix of the randomized pool, and a prefix of the domain
-render, written as an image-list ``.txt`` plus a ``.yml`` that pairs it with the corpus's own val
-split. Like ``make_scaling_splits.py`` the arms cost kilobytes and cannot drift from the source
-datasets, but that script splits one dataset by scene; this one draws from several.
-
-Two properties, both asserted before anything is written:
-
-* **Arms nest.** Each source is drawn in one fixed order, so the 10k domain arm is a prefix of the
-  20k one and a drop in accuracy cannot be blamed on which frames were picked.
-* **The domain order is balanced at every prefix.** Each (venue, view) group is shuffled on its own,
-  the views are interleaved within a venue and the venues interleaved after that, so any prefix is
-  split evenly between the venues to within a frame and a third per view to within a frame per
-  venue, which is how the render lands. Filters (one venue, one view, damage-free frames only)
-  re-derive the order over what they keep.
-
-An arm with no venue filter draws from the two cage renders alone, whatever else ``--domain`` holds.
-The grid was trained that way, and a third venue in the interleave would otherwise move every list
-it trained on. The pose-only arms (pose_only_perception_plan_2026-09-19.md) name all three venues
-and take every frame, and carry the hand-corrected cage-high frames as a second real source through
-``--extra-real``.
-
-Usage:
-  venv/bin/python training/yolo/make_domain_mix_arms.py \\
-      --corpus training/data/all_robot_keypoints \\
-      --domain training/data/synth_cage_nhrl_2026-09-13 training/data/synth_cage_massd_2026-09-13 \\
-      --out training/data/domain_mix_arms_2026-09-13
-
-  # The pose-only arms: a third render and the cage-high frames marked `pass`.
-  venv/bin/python training/yolo/make_domain_mix_arms.py \\
-      --corpus training/data/all_robot_keypoints \\
-      --domain training/data/synth_cage_nhrl_2026-09-13_v2 \\
-          training/data/synth_cage_massd_2026-09-13 training/data/synth_cage_basement_2026-09-19 \\
-      --extra-real training/data/cage_high_x50_conf044 \\
-      --out training/data/domain_mix_arms_2026-09-19
-"""
+"""Build the domain-mix arms: randomized and cage-domain synthetic at set counts, as image lists."""
 
 from __future__ import annotations
 
@@ -49,13 +12,18 @@ from pathlib import Path
 
 import yaml
 
+USAGE = (
+    "venv/bin/python training/yolo/make_domain_mix_arms.py "
+    "--corpus training/data/all_robot_keypoints "
+    "--domain training/data/synth_cage_nhrl_2026-09-13 training/data/synth_cage_massd_2026-09-13 "
+    "--out training/data/domain_mix_arms_2026-09-13"
+)
 NAMES = ["mr_stabs_mk2", "mrs_buff_mk3", "nhrl_robot", "house_bot"]
 RANDOMIZED_PREFIX = "synthetic__"
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png"}
 NHRL = "nhrl_cage"
 MASSD = "massd_arena"
 BASEMENT = "meatball_basement"
-# What an arm with no venue filter draws from: the two renders the 2026-09-13 grid was built over.
 CAGE_VENUES = (NHRL, MASSD)
 ALL_VENUES = (NHRL, MASSD, BASEMENT)
 REVIEW_STATE = "validation_state.json"
@@ -92,9 +60,6 @@ class Arm:
     extra_real: bool = False
 
 
-# The step 4 grid. `nodamage` is "best mix" in the plan, which is not known until the Q1 to Q3 arms
-# are scored, so a candidate is built for each plausible mix and the one matching the winner gets
-# trained. `swap_half` led the 2026-09-16 scoring, which is why its damage-free twin is here.
 ARMS = (
     Arm("base", None, 0),
     Arm("d2500", None, 2500),
@@ -109,26 +74,16 @@ ARMS = (
     Arm("nodamage_d20000", None, 20000, clean_only=True),
     Arm("nodamage_swap_all", 0, 20000, clean_only=True),
     Arm("nodamage_swap_half", 10000, 10000, clean_only=True),
-    # `d40000`'s frames with the real ones written three times, so the real share holds at 2.28
-    # percent instead of falling to 0.77. Tests whether diluting the 452 real frames is what costs
-    # `d40000` its small-robot recall, against the training schedule as the other candidate.
     Arm("d40000_real3x", None, 40000, real_repeat=3),
     Arm("view_pinhole", 0, 13333, views=("pinhole",)),
     Arm("view_rectified", 0, 13333, views=("rectified",)),
     Arm("view_distorted", 0, 13333, views=("distorted",)),
     Arm("view_mixed", 0, 13333),
-    # Pose-only arms, pose_only_perception_plan_2026-09-19.md step 1b. `d50000` is both cage
-    # renders and the 10,000 basement frames; with unequal venues an even interleave runs out of
-    # basement frames at 30,000, so it takes every frame and is not a prefix of anything.
     Arm("d50000_cagehigh", None, 50000, venues=ALL_VENUES, extra_real=True),
     Arm("d40000_cagehigh", None, 40000, extra_real=True),
     Arm("swap_half_cagehigh", 10000, 10000, extra_real=True),
-    # `d50000_cagehigh` without the cage-high frames, pose_model_size_ladder_plan_2026-09-24.md.
-    # Those frames are broadcast views of the same May 2026 fights nhrl_keypoints_eval_test scores,
-    # so no `_cagehigh` arm can be measured on it.
     Arm("d50000", None, 50000, venues=ALL_VENUES),
 )
-# (smaller, larger) pairs whose training lists must nest.
 NESTED = (
     ("base", "d2500"),
     ("d2500", "d5000"),
@@ -146,11 +101,7 @@ NESTED = (
 
 
 def selected_arms(only: Sequence[str] | None, scale: float) -> list[Arm]:
-    """The grid, or the named subset of it, with every set count multiplied by *scale*.
-
-    Raises:
-        SystemExit: When *only* names an arm the grid does not have.
-    """
+    """The grid, or a named subset of it, with every set count multiplied by scale."""
     names = {arm.name for arm in ARMS}
     unknown = sorted(set(only or ()) - names)
     if unknown:
@@ -167,11 +118,7 @@ def selected_arms(only: Sequence[str] | None, scale: float) -> list[Arm]:
 
 
 def load_domain(dataset: Path) -> list[DomainFrame]:
-    """Every frame in a merged render, from its manifest.
-
-    Raises:
-        SystemExit: When a row has no view; the view arms cannot be built from such a render.
-    """
+    """Every frame in a merged render, from its manifest."""
     frames = []
     for line in (dataset / "manifest.jsonl").read_text(encoding="utf-8").splitlines():
         if not line.strip():
@@ -186,15 +133,7 @@ def load_domain(dataset: Path) -> list[DomainFrame]:
 
 
 def load_extra_real(root: Path) -> list[Path]:
-    """The frames of a hand-labelled dataset that its review state marks `pass`.
-
-    `validation_state.json` is the authority on what was reviewed; `.edit_state.json` drops whole
-    recordings and is never read. Keys are image paths relative to *root*.
-
-    Raises:
-        SystemExit: When the review state is missing, or a passed frame lacks its image or label,
-            or a label names a class outside `NAMES`.
-    """
+    """The frames a hand-labelled dataset's validation_state.json marks pass."""
     state_path = root / REVIEW_STATE
     if not state_path.is_file():
         raise SystemExit(f"{root}: no {REVIEW_STATE}, so nothing says which frames were reviewed")
@@ -274,11 +213,7 @@ def build_arm(
     seed: int,
     extra_real: Sequence[Path] = (),
 ) -> tuple[list[Path], dict]:
-    """One arm's training frames and its row for manifest.json.
-
-    Raises:
-        SystemExit: When a source holds fewer frames than the arm asks for.
-    """
+    """One arm's training frames and its row in manifest.json."""
     count = len(randomized) if arm.randomized is None else arm.randomized
     if count > len(randomized):
         raise SystemExit(f"{arm.name}: wants {count} randomized frames, pool has {len(randomized)}")
@@ -328,7 +263,9 @@ def write_arm(out: Path, name: str, frames: list[Path], val_list: Path) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n", maxsplit=1)[0])
+    parser = argparse.ArgumentParser(
+        description=__doc__, epilog=USAGE, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--corpus", type=Path, required=True, help="all_robot_keypoints root")
     parser.add_argument(
         "--domain",
@@ -368,8 +305,6 @@ def main() -> None:
     built: list[tuple[str, list[Path]]] = []
     for arm in selected_arms(args.only, args.scale):
         frames, row = build_arm(arm, real, randomized, domain, args.seed, extra_real)
-        # Oversampled real frames are the only intended repeats, so the unique count has to drop by
-        # exactly the copies asked for. Anything else is a source drawn twice.
         if len(set(frames)) != len(frames) - len(real) * (arm.real_repeat - 1):
             raise SystemExit(f"{arm.name}: a frame appears twice")
         lists[arm.name] = set(frames)

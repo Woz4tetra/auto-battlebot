@@ -1,33 +1,4 @@
-"""Delete ultralytics ``cache="disk"`` image caches, keeping recently-used ones.
-
-Training with ``cache="disk"`` writes one ``.npy`` per image next to it. These are pure
-derived data -- ultralytics regenerates them on the next run -- but they dwarf the images
-themselves: on megamind 297 GB of ``.npy`` sat next to 24 GB of actual unique data, and
-filled the NVMe to 97 %.
-
-Deleting them is safe but not free: the next training run on that dataset re-caches, which
-costs a few minutes of IO. So this tool skips caches that were *used* recently.
-
-**Age is measured from access time by default, not modification time.** A cache is written
-once and then read by every subsequent run, so mtime says "when was this dataset first
-trained on" -- a cache generated months ago and used daily looks ancient by mtime. atime
-answers the question that matters: when was this last actually read. The root filesystem is
-mounted ``relatime``, which updates atime on read once a day, so day-granularity ages are
-accurate. On a ``noatime`` mount atime is frozen and this tool says so rather than silently
-deleting a hot cache.
-
-Datasets referenced by a running process are never touched, whatever their age.
-
-Usage:
-  # what would go, using the default 7-day floor
-  python training/yolo/clear_image_cache.py --dry-run
-
-  # actually delete caches unused for 14+ days
-  python training/yolo/clear_image_cache.py --older-than 14
-
-  # aggressive: everything not currently in use
-  python training/yolo/clear_image_cache.py --older-than 0
-"""
+"""Delete ultralytics ``cache="disk"`` image caches, keeping recently-used ones."""
 
 from __future__ import annotations
 
@@ -39,7 +10,6 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# Datasets live here. `data/` at the repo root holds MCAP/SVO/engines and is off limits.
 DEFAULT_ROOT = Path("training/data")
 PROTECTED = ("data/recordings", "data/models")
 
@@ -70,29 +40,18 @@ def relatime_enabled() -> bool:
 
 
 def dataset_root_for(npy: Path, scan_root: Path) -> Path:
-    """The dataset directory a cache file belongs to.
-
-    Walks up from the ``.npy`` to the child of ``scan_root`` -- i.e. groups
-    ``<root>/<dataset>/<split>/images/x.npy`` under ``<root>/<dataset>``.
-    """
+    """The dataset directory a cache file belongs to."""
     rel = npy.relative_to(scan_root)
     return scan_root / rel.parts[0]
 
 
 def own_process_chain() -> set[int]:
-    """This process and its ancestors.
-
-    They must be excluded from the in-use scan: the shell that invoked this tool very often
-    has the dataset name in its own command line (``rm -rf .../old_dataset``, a prior
-    ``find``), which would otherwise mark every dataset you just typed about as busy.
-    """
+    """This process and its ancestors."""
     chain: set[int] = set()
     pid = os.getpid()
     while pid > 1 and pid not in chain:
         chain.add(pid)
         try:
-            # /proc/<pid>/stat field 4 is PPid; comm (field 2) may contain spaces or parens,
-            # so split after the trailing ')'.
             stat = Path(f"/proc/{pid}/stat").read_text()
             pid = int(stat[stat.rindex(")") + 1 :].split()[1])
         except (OSError, ValueError, IndexError):
@@ -111,26 +70,7 @@ def describe_process(proc: Path) -> str:
 
 
 def busy_datasets(candidates: list[Path]) -> dict[Path, dict[int, str]]:
-    """Which candidate datasets are being used by a live process, and by which PIDs.
-
-    Returns ``{dataset: {pid: "<command> (<signal>)"}}`` for every busy dataset.
-
-    Two signals:
-
-    * an **open file descriptor** resolving inside the dataset -- exact, but only catches a
-      run at the instant it holds a file open, and ultralytics closes each ``.npy`` right
-      after reading it;
-    * a **python** process whose command line mentions the dataset, by absolute path *or* by
-      directory name. The name is needed because training is launched from ``training/yolo``
-      with a relative dataset path (``../data/scenesplit_2026-07-25/old+new.yml``), which an
-      absolute-path match silently misses -- the exact way an earlier version of this tool
-      offered to delete the cache out from under a live 3-hour run.
-
-    Restricting the command-line signal to *python* processes, and skipping this process and
-    its ancestors, is what keeps the loose name match from firing on the shell you are typing
-    in. Erring toward "busy" is deliberate: a false positive costs disk, a false negative
-    costs a training run.
-    """
+    """Which candidate datasets are being used by a live process, and by which PIDs."""
     resolved = {c: (str(c.resolve()), c.name) for c in candidates}
     skip = own_process_chain()
     busy: dict[Path, dict[int, str]] = {}
@@ -158,8 +98,6 @@ def cmdline_matches(proc: Path, resolved: dict[Path, tuple[str, str]]) -> list[t
         if path in cmdline:
             matches.append((dataset, "path in command line"))
         elif name in GENERIC_SPLIT_NAMES:
-            # A split is named by its dataset: `train` alone is in every `training/...` path
-            # and `val` in every `validate_*.py`, which held caches no process was using.
             if dataset.parent.name in components:
                 matches.append((dataset, f"name {dataset.parent.name!r} in command line"))
         elif name in components:
@@ -167,7 +105,6 @@ def cmdline_matches(proc: Path, resolved: dict[Path, tuple[str, str]]) -> list[t
     return matches
 
 
-# Directory names every dataset has. Matched on their own they say nothing about which dataset.
 GENERIC_SPLIT_NAMES = frozenset({"train", "val", "valid", "test", "images", "labels"})
 
 
@@ -320,13 +257,7 @@ def validate(args: argparse.Namespace) -> bool:
 def sweep(
     root: Path, older_than: float, *, use_atime: bool = True, protect: set[Path] | None = None
 ) -> tuple[int, int]:
-    """Delete stale caches under ``root``. Returns (bytes freed, files removed).
-
-    The importable entry point, used by ``train.py`` to reclaim disk before a run. ``protect`` names
-    datasets to spare regardless of age: ``busy_datasets`` skips this process and its ancestors, so
-    a caller about to train on a dataset must name it explicitly or risk deleting its own cache
-    (harmless -- it regenerates -- but a slow way to start a run).
-    """
+    """Delete stale caches under ``root``. Returns (bytes freed, files removed)."""
     groups = collect(root, use_atime)
     if not groups:
         return 0, 0

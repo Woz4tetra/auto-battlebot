@@ -1,30 +1,11 @@
 #!/usr/bin/env python3
-"""Agnostic recall split by ground-truth object size, for two or more engines.
-
-`score.py` reports one recall over the whole eval set, which answers whether an arm is
-better but not where it differs. Quantization is expected to fail unevenly: a distant robot
-produces low-amplitude activations, and if a tensor's INT8 scale is set wide those
-activations round to zero before they reach the head, while a close robot survives. That is
-a claim about the size distribution of the misses, and a single recall number cannot
-confirm or refute it.
-
-Boxes are binned by sqrt(area) in source pixels, the same measure COCO's small/medium/large
-split uses (32 px and 96 px), so a bin edge means the same thing here as it does there.
-Matching is `score.py`'s own class-blind greedy IoU matcher at the same threshold, so the
-totals in the last row reproduce that report's agnostic recall.
-
-Usage:
-    venv/bin/python training/model_eval/recall_by_size.py training/data/nhrl_keypoints_eval_test \
-        --candidate B16=data/models/<fp16>.engine \
-        --candidate B8=data/models/<int8>.engine \
-        --labels "opponent,house_bot" --taxonomy training/model_eval/taxonomy_merged.yaml \
-        --conf 0.5 --baseline B16 --output <dir>
-"""
+"""Agnostic recall split by ground-truth object size, for two or more engines."""
 
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from typing import NamedTuple
 
 import matplotlib
 
@@ -53,10 +34,13 @@ def bin_labels(edges: list[float]) -> list[str]:
     return names
 
 
-def per_frame_counts(
-    frames: list, edges: list[float], iou_threshold: float
-) -> tuple[np.ndarray, np.ndarray]:
-    """(hits, totals) arrays of shape (num_frames, num_bins), GT boxes binned by sqrt-area.
+class SizeBinCounts(NamedTuple):
+    hits: np.ndarray
+    totals: np.ndarray
+
+
+def per_frame_counts(frames: list, edges: list[float], iou_threshold: float) -> SizeBinCounts:
+    """Hits and totals of shape (num_frames, num_bins), GT boxes binned by sqrt-area.
 
     Kept per frame rather than summed so the bootstrap can resample frames and re-sum, which
     is what makes the resampling paired across candidates.
@@ -70,8 +54,6 @@ def per_frame_counts(
         widths = frame.gt_boxes[:, 2] - frame.gt_boxes[:, 0]
         heights = frame.gt_boxes[:, 3] - frame.gt_boxes[:, 1]
         which = np.digitize(np.sqrt(np.clip(widths * heights, 0, None)), edges)
-        # match_indices reports an unmatched GT box as (g, None), so both halves must be
-        # present for it to count as found.
         matched = {
             g for g, p in match_indices(frame, iou_threshold) if g is not None and p is not None
         }
@@ -79,7 +61,7 @@ def per_frame_counts(
             totals[index, bin_index] += 1
             if gt_index in matched:
                 hits[index, bin_index] += 1
-    return hits, totals
+    return SizeBinCounts(hits, totals)
 
 
 def bootstrap_delta(

@@ -56,12 +56,7 @@ from synthgen.robots import RobotInstance
 logger = get_logger(__name__)
 
 CUTTER_NAME_PREFIX = "damage_cutter"
-# Unit primitives, scaled per use: a cube of half-extent 1 and a sphere of radius 1.
-_CUTTER_UNIT_SIZE = 2.0
-# The faces a boolean cut opens take the cutter's material (material_mode TRANSFER). With
-# no material they took slot 0 of the target through the primitive's own UVs and rendered
-# near white, which no real robot's torn-open interior looks like. Dark, rough and slightly
-# metallic reads as exposed internals and frame at 34 to 70 px.
+_CUTTER_UNIT_DIAMETER = 2.0
 CUT_INTERIOR_MATERIAL_NAME = "damage_cut_interior"
 _CUT_INTERIOR_BASE_COLOR = (0.035, 0.035, 0.04, 1.0)
 _CUT_INTERIOR_ROUGHNESS = 0.7
@@ -70,16 +65,11 @@ _CUT_INTERIOR_METALLIC = 0.4
 
 @dataclass(frozen=True)
 class DamageTarget:
-    """One thing damage can happen to: its parent, its meshes, and its keypoints.
-
-    Robots and robot-like distractors differ in type but not in what damage needs from
-    them, so both arrive here. Keypoints are in the parent frame, as modelled.
-    """
+    """One thing damage can happen to: its parent, its meshes, and its keypoints."""
 
     parent: bpy.types.Object
     meshes: list[bpy.types.Object]
-    keypoints: tuple[np.ndarray | None, ...]
-    # Named parts, for a robot with [[robots.damage_parts]]: their draw specs and pieces.
+    keypoints_parent_frame: tuple[np.ndarray | None, ...]
     named_parts: tuple[RemovablePart, ...] = ()
     named_pieces: dict[str, list[list[bpy.types.Object]]] = field(default_factory=dict)
 
@@ -123,11 +113,7 @@ class CutterPool:
         self._next = 0
 
     def acquire(self, shape: str) -> bpy.types.Object | None:
-        """The next free cutter of *shape*, or None when the pool is exhausted.
-
-        Cutters alternate shapes, so this scans forward for the first match and swaps it
-        to the front of the free range rather than keeping a queue per shape.
-        """
+        """The next free cutter of *shape*, or None when the pool is exhausted."""
         for index in range(self._next, len(self._cutters)):
             cutter = self._cutters[index]
             if cutter.get("cutter_shape") == shape:
@@ -151,7 +137,7 @@ def build_cutter_pool(size: int) -> CutterPool:
     for index in range(max(size, 0)):
         shape = CUTTER_CUBE if index % 2 == 0 else CUTTER_ICOSPHERE
         if shape == CUTTER_CUBE:
-            bpy.ops.mesh.primitive_cube_add(size=_CUTTER_UNIT_SIZE)
+            bpy.ops.mesh.primitive_cube_add(size=_CUTTER_UNIT_DIAMETER)
         else:
             bpy.ops.mesh.primitive_ico_sphere_add(radius=1.0, subdivisions=2)
         cutter = bpy.context.active_object
@@ -176,22 +162,6 @@ def _cut_interior_material() -> bpy.types.Material:
         bsdf.inputs["Roughness"].default_value = _CUT_INTERIOR_ROUGHNESS
         bsdf.inputs["Metallic"].default_value = _CUT_INTERIOR_METALLIC
     return material
-
-
-# The two mechanisms work in different frames, on purpose.
-#
-# Chunk removal works in WORLD space, because the cutter is an unparented world object: a
-# distractor's parent carries a per-scene scale (place_scene_distractors resizes each Meshy
-# model to the 3 lb class), so a radius measured in the parent frame and applied in the
-# world comes out wrong by that scale factor.
-#
-# Part removal works in the robot's PARENT frame, because that is the frame the parts and
-# the keypoints were modelled in. Bounding boxes there are axis-aligned to the robot, so
-# which parts are protected does not depend on which way the robot happens to be facing;
-# measured over three poses on 2026-09-12, the same robot's protected set held at 9 and 36
-# parts in its own frame while world-space boxes wobbled between 6 and 71 as it rotated.
-# The one length that does not survive the frame change is keypoint_clearance_m, which the
-# caller divides by the parent's scale to keep it a clearance in metres.
 
 
 def _world_corners(obj: bpy.types.Object) -> np.ndarray:
@@ -277,18 +247,14 @@ def _apply_chunk_draw(
     cutter = pool.acquire(draw.shape)
     if cutter is None:
         return False
-    # The draw is already in world space, and the cutter is an unparented world object, so
-    # its location and scale are the drawn numbers with no frame conversion.
     cutter.location = mathutils.Vector(draw.centre)
     cutter.scale = (draw.radius_m, draw.radius_m, draw.radius_m)
-    # Random orientation so a cube cutter leaves a different facet shape each time.
     cutter.rotation_euler = tuple(random.uniform(0.0, 2.0 * math.pi) for _ in range(3))
     name = f"damage_{cutter.name}"
     modifier = target.modifiers.new(name=name, type="BOOLEAN")
     modifier.operation = "DIFFERENCE"
     # EXACT copes with the non-manifold Meshy meshes; FAST silently returns the input on them.
     modifier.solver = "EXACT"
-    # The cut faces take the cutter's dark interior material instead of the target's slot 0.
     modifier.material_mode = "TRANSFER"
     modifier.object = cutter
     session.modifiers.append((target, name))
@@ -310,8 +276,6 @@ def _damage_instance(
         return undamaged
 
     if instance.named_parts:
-        # A robot that names its parts loses whole assemblies. The random-fraction path
-        # below is what they replace, so a batch that allows none of them leaves it clean.
         named_draw = draw_named_part_damage(
             list(instance.named_parts), cfg.removable_parts, cfg.part_count
         )
@@ -329,7 +293,7 @@ def _damage_instance(
         part_draw = draw_part_damage(
             [_parent_corners(instance.parent, obj) for obj in meshes],
             [obj.name for obj in meshes],
-            _parent_keypoints(*instance.keypoints),
+            _parent_keypoints(*instance.keypoints_parent_frame),
             cfg.part_severity,
             cfg.protected_name_patterns,
             cfg.max_part_volume_fraction,
@@ -341,12 +305,11 @@ def _damage_instance(
                 class_name=class_name, damage=part_draw.damage, mechanism=MECHANISM_PARTS
             )
 
-    # One fused mesh, or a part robot where everything is protected: take a bite instead.
     target = max(meshes, key=lambda o: len(getattr(o.data, "vertices", ()) or ()))
     chunk_draw = draw_chunk_damage(
         _world_vertices(target),
         _world_corners(target),
-        _world_keypoints(instance.parent, *instance.keypoints),
+        _world_keypoints(instance.parent, *instance.keypoints_parent_frame),
         cfg.chunk_volume_fraction,
         cfg.cutter_shapes,
         cfg.keypoint_clearance_m,
@@ -390,11 +353,6 @@ def apply_scene_damage(
     if not cfg.enabled:
         return session, recorded
 
-    # Whole scenes are clean or not, which is what keeps the clean pool the size the arms
-    # need. Rolling only per instance would not: a scene carries several robot-like
-    # instances, so a frame with every one of them clean measured 15 percent of frames at
-    # probability 0.35, not the half a damage-off arm has to draw from. The split is
-    # tracked rather than flipped, because a run is only a handful of scenes.
     scene_damaged = budget.take(cfg.scene_probability)
     pool.reset()
     targets: list[tuple[str, DamageTarget]] = [
@@ -403,11 +361,11 @@ def apply_scene_damage(
             DamageTarget(
                 parent=robot.parent,
                 meshes=[m.blender_obj for m in robot.meshes],
-                keypoints=(robot.kp_front, robot.kp_back),
+                keypoints_parent_frame=(robot.kp_front, robot.kp_back),
                 named_parts=tuple(
                     RemovablePart(
                         name=part.name,
-                        pieces=len(robot.damage_pieces.get(part.name, [])),
+                        split_piece_count=len(robot.damage_pieces.get(part.name, [])),
                         subset=part.subset,
                         includes=part.includes,
                         count_weights=part.count_weights,
@@ -426,7 +384,7 @@ def apply_scene_damage(
             DamageTarget(
                 parent=distractor.parent,
                 meshes=[m.blender_obj for m in distractor.meshes],
-                keypoints=(distractor.kp_front, distractor.kp_back),
+                keypoints_parent_frame=(distractor.kp_front, distractor.kp_back),
             ),
         )
         for distractor in distractors

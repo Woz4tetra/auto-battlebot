@@ -1,30 +1,5 @@
 #!/usr/bin/env python3
-"""Drop, prune, rename, and renumber classes in a YOLO dataset.
-
-Unlike remap_labels.py (which applies an explicit source->target ID map and cannot delete
-annotations), this removes whole classes: it deletes their annotation lines, renumbers the
-surviving classes to a contiguous 0..N-1 range, applies renames, and rewrites data.yml. Use
-it to strip a dominant non-target class (e.g. an arena "Floor" mask) or to prune classes
-that ended up with zero instances after a merge.
-
-Works for detection and segmentation label files (class id followed by box or polygon
-coords); the geometry columns are preserved verbatim. Keypoint kpt_shape/flip_idx in
-data.yml are carried through.
-
-A frame whose only annotations were dropped keeps its image with an empty label file, i.e.
-a background negative. Pass --drop-empty-images to remove those image/label pairs instead.
-
-Layouts supported: split dirs (train/ val/ test/, each with images/ + labels/) or a single
-flat images/ + labels/ pair at the dataset root.
-
-Usage:
-    # in place: drop the Floor class and every zero-instance class, renumber survivors
-    python edit_yolo_classes.py training/data/nhrl_robots_indiv --drop Floor --drop-unused
-
-    # write to a new dir, also renaming a class
-    python edit_yolo_classes.py <dataset> --drop Floor --drop-unused \
-        --rename 'Púca=Puca' --output <dataset>_clean
-"""
+"""Drop, prune, rename, and renumber classes in a YOLO dataset."""
 
 from __future__ import annotations
 
@@ -290,7 +265,6 @@ def main() -> None:
         yaml.safe_dump(new_meta, sort_keys=False, allow_unicode=True)
     )
 
-    # Sanity: every surviving label id is in range.
     max_id = -1
     for _images, labels in find_split_dirs(out_root):
         for label_path in labels.glob("*.txt"):

@@ -1,28 +1,4 @@
-"""Merge per-scene YOLO datasets into one, remapping classes **by name**.
-
-`remap_labels.py` applies a single source-index -> target-index map. That is unusable when the
-scenes do not share a vocabulary, which is exactly the case for the archived
-`nhrl_seg_indiv_labeled`: 50 scenes declare 105 classes and 6 declare 111, and the indices are
-shifted between them (`Floor` 36 vs 39, `House Bot` 41 vs 44, `Mrs Buff MK2` 67 vs 70). Applying
-one index map there produces a silently mislabelled corpus -- the same failure mode that left
-`Mrs Buff MK2` labelled as our own robot for months.
-
-This tool reads each scene's own `data.yml`, maps source class *names* to the target vocabulary,
-drops the names told to drop, and writes one flat dataset. Images are **copied**, not linked, so the
-output is standalone and survives the source being archived or moved to another filesystem.
-
-Names with no explicit rule fall through to the config's `default` target and are **all printed**,
-so a new non-robot class appearing upstream is visible rather than silently folded in.
-
-With ``--to-bbox`` the polygon geometry is converted to axis-aligned boxes in the same pass (reusing
-``seg_to_bbox.polygon_to_bbox``), avoiding a full intermediate copy of the corpus.
-
-Usage:
-  python training/yolo/remap_labels_by_name.py \
-      --src /media/storage/auto-battlebots-archive/nhrl_seg_indiv_labeled \
-      --config training/yolo/remap_config_3class.toml \
-      --out training/data/nhrl_robots_bbox_3class --to-bbox
-"""
+"""Merge per-scene YOLO datasets into one, remapping classes **by name**."""
 
 from __future__ import annotations
 
@@ -59,12 +35,7 @@ def scene_dirs(src: Path) -> list[Path]:
 
 
 def passing_frames(scene: Path) -> set[str] | None:
-    """Image stems marked `pass` in the scene's validation_state.json, or None if untracked.
-
-    These datasets carry a human review verdict per frame from validate_yolo_dataset.py. Ignoring
-    it silently pulls in frames a person already rejected -- 1,680 of them across the 56 archived
-    scenes, 4.7 % of the corpus.
-    """
+    """Image stems marked `pass` in the scene's validation_state.json, or None if untracked."""
     state = scene / "validation_state.json"
     if not state.is_file():
         return None
@@ -87,15 +58,7 @@ def find_image(images_dir: Path, stem: str) -> Path | None:
 def convert_rows(
     text: str, index_map: dict[int, int], to_bbox: bool, min_side: float = 0.0
 ) -> list[str]:
-    """Remap and optionally box-ify one label file's rows. Dropped classes vanish.
-
-    With ``to_bbox`` this emits **one box per source class**, from that class's largest connected
-    contours (``seg_to_bbox.top_contours_bbox``). Grouping by *source* class is what makes this
-    correct: the archived vocabulary is per-robot-instance, so one box per source class is one box
-    per robot -- even though several of those classes collapse into the same target afterwards.
-
-    ``min_side`` drops boxes whose smaller side is below that fraction of the image.
-    """
+    """Remap and optionally box-ify one label file's rows. Dropped classes vanish."""
     out: list[str] = []
     by_class: dict[int, list[list[float]]] = defaultdict(list)
     for raw in text.splitlines():
@@ -108,7 +71,7 @@ def convert_rows(
         except ValueError:
             continue
         dst = index_map.get(src_cls)
-        if dst is None:  # dropped class
+        if dst is None:
             continue
         if not to_bbox or len(coords) == 4:
             out.append(" ".join([str(dst), *(f"{c:.6f}" for c in coords)]))
@@ -230,8 +193,6 @@ def main() -> None:
     defaulted: set[str] = set()
     frames = missing = rejected = 0
 
-    # Written under train/ because split_by_scene.py and validate_yolo_integrity.py both expect
-    # split subdirectories; the scene split downstream re-partitions this anyway.
     out_images = args.out / "train" / "images"
     out_labels = args.out / "train" / "labels"
     if not args.dry_run:

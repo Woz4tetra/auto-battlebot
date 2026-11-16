@@ -1,36 +1,4 @@
-"""Interactively confirm front/back keypoint direction for NHRL robot models.
-
-Step 3.5 of the NHRL robot distractor pipeline, run on the HOST after
-``compute_nhrl_keypoints.py`` (which renders each robot's full-material
-orthographic top-down and records the model->pixel affine in the sidecar).
-Which end is *front* (thrust/weapon direction), and even which axis, cannot be
-recovered from a static mesh, so this shows the render and lets an operator
-**draw the centerline**: drag across the robot to set the forward axis at any
-angle (front = the end you drag toward).  Front/back snap to the footprint's
-extremes along that direction, centered on the body.  Confirmed sidecars are
-marked ``reviewed: true`` so recompute never clobbers them.  Bad meshes can be
-marked ``rejected: true``; ``archive_rejected_nhrl.py`` then moves them out of
-the pool so they never render.
-
-The review starts on the first model that is neither reviewed nor rejected, so
-re-running the tool resumes where the last pass left off.
-
-This tool loads only the sidecar PNG + JSON (no mesh, no trimesh, no rendering),
-so it is light and host-only, but it needs a GUI display.  Run in a root project
-venv (needs ``opencv-python`` + ``numpy``):
-
-    venv/bin/python training/synthetic/review_nhrl_keypoints.py \
-        training/data/distractor_models/robots
-
-Controls:
-    drag       draw the centerline direction (front = drag end)
-    f          flip front/back
-    a / space  accept (mark reviewed) and go to next
-    r          reject the model (mark rejected) and go to next
-    n / .      next        p / ,      previous
-    u          reset to geometry default (clears reviewed/rejected)
-    q / esc    quit
-"""
+"""Interactively confirm front/back keypoint direction for NHRL robot models."""
 
 from __future__ import annotations
 
@@ -46,10 +14,11 @@ import numpy as np
 
 _HUD_H = 96
 _MIN_DRAG_PX = 8
-_FRONT_BGR = (60, 60, 235)  # red   (matches preview red = front)
-_BACK_BGR = (235, 60, 60)  # blue  (matches preview blue = back)
-_AXIS_BGR = (0, 220, 220)  # yellow centerline
-_DRAW_BGR = (0, 230, 0)  # green rubber-band while drawing
+_FRONT_RED_BGR = (60, 60, 235)
+_BACK_BLUE_BGR = (235, 60, 60)
+_AXIS_YELLOW_BGR = (0, 220, 220)
+_DRAG_GREEN_BGR = (0, 230, 0)
+_NO_KEY = 255
 _WINDOW = "NHRL keypoint direction review"
 
 
@@ -178,9 +147,9 @@ def _compose(model: Model, index: int, total: int) -> np.ndarray:
     front, back = model.keypoints()
     fpx = model.to_pixel(front[[0, 2]])
     bpx = model.to_pixel(back[[0, 2]])
-    cv2.arrowedLine(panel, bpx, fpx, _AXIS_BGR, 2, cv2.LINE_AA, tipLength=0.16)
-    cv2.circle(panel, bpx, 9, _BACK_BGR, -1, cv2.LINE_AA)
-    cv2.circle(panel, fpx, 9, _FRONT_BGR, -1, cv2.LINE_AA)
+    cv2.arrowedLine(panel, bpx, fpx, _AXIS_YELLOW_BGR, 2, cv2.LINE_AA, tipLength=0.16)
+    cv2.circle(panel, bpx, 9, _BACK_BLUE_BGR, -1, cv2.LINE_AA)
+    cv2.circle(panel, fpx, 9, _FRONT_RED_BGR, -1, cv2.LINE_AA)
     _text(panel, "drag to draw centerline (front = red)", 10, model.h - 14, 0.5)
 
     hud = np.full((_HUD_H, model.w, 3), 18, dtype=np.uint8)
@@ -250,10 +219,10 @@ def _handle_key(models: list[Model], index: int, key: int, ui: dict[str, Any]) -
         model.save(reviewed=True)
     elif key in (ord("a"), ord(" "), 13, 10):
         model.save(reviewed=True)
-        index += 1  # advancing past the last model ends the review loop
+        index += 1
     elif key == ord("r"):
         model.reject()
-        index += 1  # advancing past the last model ends the review loop
+        index += 1
     elif key == ord("u"):
         model.reset_axis()
         model.save(reviewed=False)
@@ -276,7 +245,6 @@ def main() -> None:
     if not models:
         raise SystemExit(f"No reviewable models matched {args.models} in {models_dir}")
 
-    # Resume on the first model that has not been reviewed or rejected yet.
     start_index = next((i for i, m in enumerate(models) if not m.reviewed and not m.rejected), 0)
 
     print(
@@ -301,13 +269,13 @@ def main() -> None:
             img = _compose(model, index, len(models))
             if ui["dragging"] and ui["start"] and ui["cur"]:
                 cv2.arrowedLine(
-                    img, ui["start"], ui["cur"], _DRAW_BGR, 2, cv2.LINE_AA, tipLength=0.15
+                    img, ui["start"], ui["cur"], _DRAG_GREEN_BGR, 2, cv2.LINE_AA, tipLength=0.15
                 )
             cv2.imshow(_WINDOW, img)
             ui["dirty"] = False
 
         key = cv2.waitKey(20) & 0xFF
-        if key != 255:  # 255 = no key this tick
+        if key != _NO_KEY:
             index, quit_now = _handle_key(models, index, key, ui)
             if quit_now:
                 break

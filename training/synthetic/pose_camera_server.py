@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import blenderproc as bproc  # noqa: F401  # isort: skip  (blenderproc must be imported first)
 
-# BlenderProc insists its import is the first statement, so the module docstring follows it.
 DESCRIPTION = """Fly a camera around the built cage with WASD and a mouse, and save where it landed.
 
 Runs under `blenderproc run` inside the auto-battlebot-synthetic image, and serves a page the host
@@ -105,9 +104,7 @@ logger = logsetup.get_logger("pose_camera_server")
 
 DEFAULT_CC_TEXTURES = REPO_ROOT / "training/data/cc_textures"
 PAGE_PATH = SCRIPT_DIR / "web/pose_camera.html"
-# MRS BUFF MK3 is a 3 lb bot; its two keypoints sit 0.1528 m apart front to back, and the shell
-# overhangs both. These are the box the pixel-width overlay projects, not a measured hull.
-DEFAULT_ROBOT_SIZE = (0.21, 0.18, 0.09)  # length, width, height in meters
+DEFAULT_ROBOT_SIZE = (0.21, 0.18, 0.09)
 IDLE_SLEEP_S = 0.002
 
 
@@ -158,12 +155,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def resolve_under(root: Path, path: Path) -> Path:
-    """Relative paths are read against *root*, which for every flag here is `training/synthetic`.
-
-    That is also the container's working directory, so the paths on the command line in this
-    module's docstring mean the same thing whether they are typed for the container or for a
-    checkout on the host.
-    """
+    """Relative paths are read against *root*, which for every flag here is `training/synthetic`."""
     return path if path.is_absolute() else (root / path).resolve()
 
 
@@ -171,7 +163,7 @@ def find_mount_ranges(config_path: Path, cage_name: str) -> CageMountRanges:
     """The `[cages.mount]` ranges the live readout is judged against."""
     try:
         config = load_render_config(config_path)
-    except Exception as error:  # noqa: BLE001 - a bad config must not stop the tool from flying
+    except Exception as error:
         logger.warning(
             "could not read %s (%s); falling back to default mount ranges", config_path, error
         )
@@ -217,13 +209,7 @@ def starting_pose(ranges: CageMountRanges, wall_half_m: float) -> FreeflyPose:
 
 
 class RobotToggle:
-    """MRS BUFF MK3 on the mat, loaded the first time it is asked for.
-
-    One import, then linked duplicates at every mat sample point, so a single toggle shows how a
-    robot reads at the center and at all eight compass directions at once. The import takes a few
-    seconds, which is why it does not happen at startup: the tool is usable long before anyone
-    wants to check a silhouette.
-    """
+    """MRS BUFF MK3 on the mat, loaded the first time it is asked for."""
 
     def __init__(self, config_path: Path, mat_size_m: float) -> None:
         self._config_path = config_path
@@ -306,8 +292,6 @@ def write_camera_rect(
 def render_command(args: argparse.Namespace, out_dir: Path, pose_path: Path) -> str:
     """The exact command line that reproduces the full artifact set for a saved pose."""
     spec = resolve_under(SCRIPT_DIR, args.spec)
-    # Paths are absolute container paths: run_synthetic.sh runs with the working directory set to
-    # /workspace/training/synthetic, so a repo-relative script path would not resolve.
     return (
         "training/synthetic/docker/run_synthetic.sh --gpu auto-battlebot-synthetic blenderproc "
         f"run {_workspace(SCRIPT_DIR / 'render_cage_view.py')} -- "
@@ -419,7 +403,7 @@ def render_loop(
             jpeg, elapsed_ms, size = renderer.render_preview(
                 freefly_cam2world(request.pose), request.view, request.alpha
             )
-        except Exception as error:  # noqa: BLE001 - one bad frame must not end the session
+        except Exception as error:
             logger.exception("preview render failed: %s", error)
             mailbox.set_status(f"render failed: {error}")
             time.sleep(0.25)
@@ -455,8 +439,6 @@ def handle_command(
         mailbox.set_status("rendering at full quality...")
         glass.update(cam2world[:3, 3])
         name = str(command.payload.get("name", "full")) or "full"
-        # Timestamped, so repeated renders of the same name accumulate instead of overwriting each
-        # other. Same format the training scripts use for session directories.
         stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         path, elapsed_ms = renderer.render_full(
             cam2world,
@@ -487,8 +469,6 @@ def save_outputs(
     pad_deg = float(command.payload.get("pad_deg", 1.0))
 
     pose_path = write_pose(out_dir, name, current.pose, scene.mat_size_m)
-    # The rectified K written here is the alpha that was on screen, so a re-render reproduces the
-    # framing that was actually being judged.
     write_camera_rect(out_dir, renderer.k_rect(current.alpha), renderer.render_size, current.alpha)
     shutil.copy(scene.calibration_path, out_dir / f"{name}_camera.toml")
 

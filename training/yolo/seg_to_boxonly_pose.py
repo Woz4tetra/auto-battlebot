@@ -40,12 +40,12 @@ def find_paired_image(label_path: Path) -> Path | None:
     """Find the paired image (mirror the label's nearest ``labels`` path segment to ``images``)."""
     parts = label_path.parts
     if "labels" in parts:
-        idx = len(parts) - 1 - parts[::-1].index("labels")  # nearest 'labels' segment
+        idx = len(parts) - 1 - parts[::-1].index("labels")
         stem = Path(*parts[idx + 1 :]).name
         stem = stem[: -len(".txt")] if stem.endswith(".txt") else stem
         base_dir = Path(*parts[:idx]) / "images" / Path(*parts[idx + 1 : -1])
         for ext in IMAGE_EXTENSIONS:
-            candidate = base_dir / (stem + ext)  # append ext; names contain dots, so no with_suffix
+            candidate = base_dir / (stem + ext)
             if candidate.is_file():
                 return candidate
     for ext in IMAGE_EXTENSIONS:
@@ -83,7 +83,7 @@ def convert_label(
         except ValueError:
             continue
         if cls in exclude:
-            return None  # excluded class present -> drop the whole frame
+            return None
         if cls != keep_class:
             continue
         try:

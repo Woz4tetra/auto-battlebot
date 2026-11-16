@@ -1,41 +1,4 @@
-"""Review NHRL bot thumbnails and reject the ones unfit for Meshy image-to-3D.
-
-Step 1.5 of the NHRL robot distractor pipeline, run on the HOST after
-``download_nhrl_bots.py`` and BEFORE ``generate_nhrl_meshes.py`` so no Meshy
-credits are spent on bad source images (busy backgrounds, multiple bots, tiny/
-side-on shots, logos).  Decisions are recorded in the shared state file
-(``.nhrl_generation_state.json``) as a ``rejected`` flag on each bot entry.  A
-rejected bot is skipped by both ``generate_nhrl_meshes.py`` (never meshed) and
-``download_nhrl_bots.py`` (never re-downloaded, even after its thumbnail is
-deleted), so the veto is sticky across re-runs.
-
-Two ways to use it:
-
-1. Interactive review (needs a GUI display + ``opencv-python``):
-
-       ../../venv/bin/python review_nhrl_thumbnails.py ../data/distractor_models/robots
-
-   Shows each downloaded thumbnail; ``a``/space accepts, ``r`` rejects (and moves
-   the PNG to ``rejected_thumbnails/``), ``n``/``p`` navigate, ``u`` clears the
-   decision, ``q`` quits.  Resumes on the first un-reviewed thumbnail.
-
-2. Bulk reject from a list (no GUI), for names you have already triaged
-   elsewhere.  Tokens may be bare clean names, ``<name>.png``, or ``trash:///``
-   URIs; pass them as arguments, from a file, or on stdin:
-
-       ../../venv/bin/python review_nhrl_thumbnails.py ../data/distractor_models/robots \
-           --reject yeschef mako apex
-       ../../venv/bin/python review_nhrl_thumbnails.py ../data/distractor_models/robots \
-           --reject-file rejected.txt
-       cat rejected.txt | review_nhrl_thumbnails.py ../data/distractor_models/robots --reject -
-
-Controls (interactive):
-    a / space  accept and go to next
-    r          reject (move PNG out of the pool) and go to next
-    n / .      next        p / ,      previous
-    u          clear the decision (un-review, un-reject)
-    q / esc    quit
-"""
+"""Review NHRL bot thumbnails and reject the ones unfit for Meshy image-to-3D."""
 
 from __future__ import annotations
 
@@ -46,6 +9,7 @@ from typing import Any
 
 import nhrl_common as nc
 
+_NO_KEY = 255
 _THUMB_REVIEWED_KEY = "thumbnail_reviewed"
 _REJECTED_DIRNAME = "rejected_thumbnails"
 
@@ -59,8 +23,8 @@ def clean_name_from_token(token: str) -> str:
     token = token.strip()
     if not token:
         return ""
-    token = token.rsplit("/", 1)[-1]  # drop any scheme/directory prefix
-    return Path(token).stem  # drop the .png extension
+    token = token.rsplit("/", 1)[-1]
+    return Path(token).stem
 
 
 def _thumbnail_path(thumb_dir: Path, entry: dict[str, Any], clean_name: str) -> Path:
@@ -86,7 +50,6 @@ def set_rejected(
             rejected_dir.mkdir(parents=True, exist_ok=True)
             src.replace(rejected_dir / src.name)
     else:
-        # Restore a previously-rejected PNG if it is sitting in the archive.
         archived = rejected_dir / src.name
         if archived.exists() and not src.exists():
             src.parent.mkdir(parents=True, exist_ok=True)
@@ -101,11 +64,6 @@ def clear_decision(
         entry, False, thumb_dir=thumb_dir, rejected_dir=rejected_dir, clean_name=clean_name
     )
     entry[_THUMB_REVIEWED_KEY] = False
-
-
-# ---------------------------------------------------------------------------
-# Bulk (non-interactive) reject
-# ---------------------------------------------------------------------------
 
 
 def _gather_tokens(args: argparse.Namespace) -> list[str]:
@@ -146,11 +104,6 @@ def _bulk_reject(
     print(f"\nFlagged {rejected} bot(s) as rejected. State written to {state_path}.")
     if unknown:
         print(f"{len(unknown)} name(s) not found in state (ignored): {', '.join(unknown)}")
-
-
-# ---------------------------------------------------------------------------
-# Interactive review
-# ---------------------------------------------------------------------------
 
 
 def _reviewable_bots(state: dict[str, Any], thumb_dir: Path) -> list[str]:
@@ -268,7 +221,7 @@ def _run_interactive(
         clean_name = names[index]
         entry = state[clean_name]
         src = _thumbnail_path(thumb_dir, entry, clean_name)
-        if not src.exists():  # rejected PNGs live in the archive dir
+        if not src.exists():
             src = rejected_dir / src.name
         img = _load_thumb(src)
         if img is None:
@@ -278,7 +231,7 @@ def _run_interactive(
 
         cv2.imshow(window, _compose_frame(img, entry, clean_name, index, len(names)))
         key = cv2.waitKey(20) & 0xFF
-        if key == 255:  # no key this tick
+        if key == _NO_KEY:
             continue
         index, quit_now = _apply_thumb_key(
             key,

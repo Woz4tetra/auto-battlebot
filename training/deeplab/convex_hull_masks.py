@@ -1,39 +1,4 @@
-"""Regenerate a segmask dataset with every mask blob replaced by its convex hull.
-
-Each `*_mask.png` is read as class IDs (0 = background). For every non-background
-class, each connected blob is replaced by the convex hull of that blob, so a
-mask with three separate blobs of one class comes out as three separate hulls.
-
-Speck blobs are dropped before hulling: any blob whose pixel area is at or below
-`--min-blob-fraction` of the largest blob of its class in that image is deleted
-outright rather than hulled. Otherwise a stray handful of pixels would survive as
-its own hull.
-
-That relative test alone deletes real regions when an occluder splits the field
-into uneven pieces: a robot across the middle of the frame can leave one side at
-9% of the other, which is a genuine half of the field, not a speck. So a blob also
-survives if it covers at least `--min-blob-image-fraction` of the whole image
-regardless of how it compares to the largest blob. Measured on the field corpus,
-runner-up blobs that survive the relative test start around 0.36% of the image,
-while the median dropped one is 0.08%, so the absolute floor separates the two
-cleanly.
-
-Hulls are painted largest-area first, so a small hull that lands inside a big one
-stays visible. Pixels from the surviving original blobs are stamped back on top
-afterwards, so hull expansion can only ever claim background pixels, never
-overwrite an existing annotation.
-
-Everything else in the dataset is reproduced as-is: source images are hardlinked
-(copied if the output lands on another filesystem), metadata files are copied,
-symlinks are recreated as symlinks.
-
-Usage:
-    python convex_hull_masks.py /path/to/dataset -o /path/to/output
-    python convex_hull_masks.py /path/to/dataset -o /path/to/output --samples 500
-
-Samples are before/after comparison renders written outside the output dataset
-(default `<output>_samples`) so they do not pollute the dataset tree.
-"""
+"""Regenerate a segmask dataset with every mask blob replaced by its convex hull."""
 
 from __future__ import annotations
 
@@ -57,10 +22,10 @@ STATE_FILENAME = "validation_state.json"
 
 PANEL_WIDTH = 960
 OVERLAY_ALPHA = 0.45
-ORIGINAL_COLOR = (0, 255, 0)  # BGR: green, pixels labelled in the source mask
-ADDED_COLOR = (0, 0, 255)  # BGR: red, pixels the hull added
-DROPPED_COLOR = (255, 0, 0)  # BGR: blue, pixels of blobs removed as specks
-HULL_OUTLINE_COLOR = (0, 255, 255)  # BGR: yellow
+ORIGINAL_COLOR_BGR = (0, 255, 0)
+ADDED_COLOR_BGR = (0, 0, 255)
+DROPPED_COLOR_BGR = (255, 0, 0)
+HULL_OUTLINE_COLOR_BGR = (0, 255, 255)
 
 
 @dataclass
@@ -138,13 +103,7 @@ def prepare_samples(
 def convex_hull_mask(
     mask: np.ndarray, min_blob_fraction: float, min_blob_image_fraction: float
 ) -> tuple[np.ndarray, MaskStats]:
-    """Drop speck blobs, then replace each surviving blob with its convex hull.
-
-    A blob is dropped when its pixel area is at or below `min_blob_fraction` of the
-    largest blob of the same class in this mask AND it covers less than
-    `min_blob_image_fraction` of the image. The second test keeps the smaller side
-    of a field that an occluder has split unevenly.
-    """
+    """Drop speck blobs, then replace each surviving blob with its convex hull."""
     hulls: list[tuple[float, int, np.ndarray]] = []
     kept = np.zeros(mask.shape, dtype=bool)
     blobs_dropped = 0
@@ -168,8 +127,6 @@ def convex_hull_mask(
                     continue
                 blobs_rescued += 1
 
-            # Crop to the blob's bounding box before extracting points; comparing
-            # the full label image per blob is the slow way to do this.
             x = stats[index, cv2.CC_STAT_LEFT]
             y = stats[index, cv2.CC_STAT_TOP]
             w = stats[index, cv2.CC_STAT_WIDTH]
@@ -229,18 +186,18 @@ def render_sample(image_path: Path, original: np.ndarray, hulled: np.ndarray, de
         )
 
     before = image.copy()
-    overlay(before, original != 0, ORIGINAL_COLOR)
+    overlay(before, original != 0, ORIGINAL_COLOR_BGR)
 
     after = image.copy()
-    overlay(after, (hulled != 0) & (original != 0), ORIGINAL_COLOR)
-    overlay(after, (hulled != 0) & (original == 0), ADDED_COLOR)
-    overlay(after, (hulled == 0) & (original != 0), DROPPED_COLOR)
+    overlay(after, (hulled != 0) & (original != 0), ORIGINAL_COLOR_BGR)
+    overlay(after, (hulled != 0) & (original == 0), ADDED_COLOR_BGR)
+    overlay(after, (hulled == 0) & (original != 0), DROPPED_COLOR_BGR)
     for class_id in np.unique(hulled):
         if class_id == 0:
             continue
         binary = (hulled == class_id).astype(np.uint8)
         contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        cv2.drawContours(after, contours, -1, HULL_OUTLINE_COLOR, 2)
+        cv2.drawContours(after, contours, -1, HULL_OUTLINE_COLOR_BGR, 2)
 
     scale = PANEL_WIDTH / before.shape[1]
     size = (PANEL_WIDTH, max(1, int(round(before.shape[0] * scale))))
@@ -310,9 +267,6 @@ def replicate_entry(source: Path, dest: Path) -> None:
         os.symlink(os.readlink(source), dest)
         return
 
-    # Images are never rewritten in place by the tooling, so sharing an inode is
-    # safe and free. Metadata files (validation_state.json and friends) do get
-    # rewritten, so they must be real copies.
     if source.suffix.lower() in IMAGE_SUFFIXES:
         try:
             os.link(source, dest)

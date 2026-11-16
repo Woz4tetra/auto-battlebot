@@ -1,26 +1,4 @@
 #!/usr/bin/env bash
-# Train one domain-mix arm, keep its checkpoints under the arm's name, and build its engines.
-#
-# Step 4 of docs/experiments/perception_performance/synthetic_domain_mix_plan_2026-09-12.md and
-# step 2 of pose_only_perception_plan_2026-09-19.md. One queue job per arm, so the queue's
-# ordering and time estimates see each arm separately:
-#
-#   venv/bin/python training/gpu_queue.py submit --name dm_s_base --by <agent> -d 0 1 2 \
-#     --work 1844700 --profile yolo26s-pose@640 -- \
-#     bash training/yolo/run_domain_mix_arm.sh training/data/domain_mix_arms_2026-09-13 base yolo26s-pose
-#
-# --work is the arm's frames times its epochs, read off manifest.json in the arms directory
-# (`base` is 18,447 x 100). The queue cannot see either number here: epochs arrive positionally
-# rather than as -e, and the frame count lives in the arm list. Without --work every arm of every
-# size predicts the same wall time.
-#
-# train.py names every run by date and model key alone, so the run directory is found as the one
-# this job created, and the weights are copied to data/models/<model>_<arm>_<date>_<ckpt>.pt with
-# the --save-period checkpoints alongside last.pt for the matched-step reads. Two engines are
-# built from last.pt: the square one at the training size, the geometry every earlier pose arm was
-# scored at, and a rectangular one at --export-shape, which is what the deployed model runs
-# (pose_only_report_2026-09-19.md: 384x640 costs 19.94 ms on the Orin NX against 32.92 ms square).
-# The epoch checkpoints stay .pt until a matched-step table needs them.
 set -euo pipefail
 
 usage() {
@@ -73,7 +51,6 @@ done
 EXPORT_H=${EXPORT_SHAPE%x*}
 EXPORT_W=${EXPORT_SHAPE#*x}
 
-# Stamped before training, not after, so an arm that runs past midnight keeps one date.
 DATE=${ARM_DATE:-$(date +%F)}
 
 REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)

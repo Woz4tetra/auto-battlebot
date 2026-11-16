@@ -1,10 +1,4 @@
-"""Distractor model loading, placement, and pool management (requires Blender).
-
-Distractors are decoy objects (Objaverse props and CAD NHRL robots) placed
-around the target robots. The pool is loaded within an approximate VRAM budget
-and periodically re-rolled; CAD distractors can carry keypoint sidecars that
-turn into ``nhrl_robot`` annotations in keypoint mode.
-"""
+"""Distractor model loading, placement, and pool management (requires Blender)."""
 
 import math
 import random
@@ -20,6 +14,7 @@ import numpy as np
 from synthgen.asset_index import (
     DistractorClassIdAssigner,
     PathResolveFn,
+    VramMb,
     compute_source_budgets,
     discover_model_files,
     load_sidecar_keypoints,
@@ -27,6 +22,12 @@ from synthgen.asset_index import (
 from synthgen.configuration import DistractorsConfig, RandomizationConfig
 from synthgen.constants import DISTRACTOR_OFFSCREEN_LOCATION
 from synthgen.logsetup import get_logger
+from synthgen.mesh_bytes import (
+    COLOR_BYTES,
+    UV_BYTES,
+    estimate_geometry_bytes,
+    estimate_mip_chain_bytes,
+)
 
 logger = get_logger(__name__)
 
@@ -104,13 +105,7 @@ def load_distractor(
     instance_id: int = 0,
     keypoints: tuple[np.ndarray, np.ndarray] | None = None,
 ) -> DistractorInstance | None:
-    """Load a single distractor model under a parent empty.
-
-    Returns the loaded instance, or None on failure. The parent empty controls
-    transform for the whole group so sub-parts keep their relative positions.
-    When *keypoints* is given (CAD distractors in keypoint mode), the front/back
-    positions and *instance_id* are kept for later annotation extraction.
-    """
+    """Load a single distractor model under a parent empty, or None on failure."""
     try:
         suffix = file_path.suffix.lower()
         if suffix in (".glb", ".gltf"):
@@ -170,8 +165,6 @@ def load_distractor(
             kp_back=keypoints[1] if keypoints is not None else None,
         )
     except Exception as e:
-        # Model files come from the wild (Objaverse, mesh reconstruction) and
-        # can fail import in arbitrary ways; a bad file must not kill the run.
         logger.warning("Failed to load distractor %s: %s", file_path.name, e)
         return None
 
@@ -186,8 +179,7 @@ def _estimate_image_gpu_bytes(img: bpy.types.Image) -> int:
     channels = max(1, channels)
     bytes_per_channel = 4 if getattr(img, "is_float", False) else 1
     base_level = w * h * channels * bytes_per_channel
-    # Include an approximate full mip chain cost.
-    return int(base_level * (4.0 / 3.0))
+    return estimate_mip_chain_bytes(base_level)
 
 
 def estimate_distractor_gpu_mb(distractor: DistractorInstance) -> float:
@@ -207,12 +199,12 @@ def estimate_distractor_gpu_mb(distractor: DistractorInstance) -> float:
                 vertex_count = len(mesh_data.vertices)
                 tri_count = len(mesh_data.loop_triangles)
 
-                # Approximate attribute payload per vertex.
-                uv_bytes = 8 if mesh_data.uv_layers else 0
-                color_bytes = 4 if (mesh_data.color_attributes or mesh_data.vertex_colors) else 0
-                total_bytes += vertex_count * (12 + 12 + uv_bytes + color_bytes)
-                # 3 uint32 indices per triangle.
-                total_bytes += tri_count * 12
+                uv_bytes = UV_BYTES if mesh_data.uv_layers else 0
+                has_color = mesh_data.color_attributes or mesh_data.vertex_colors
+                color_bytes = COLOR_BYTES if has_color else 0
+                total_bytes += estimate_geometry_bytes(
+                    vertex_count, tri_count, uv_bytes=uv_bytes, color_bytes=color_bytes
+                )
 
         for slot in obj.material_slots:
             mat = slot.material
@@ -247,12 +239,7 @@ def unload_distractor_pool(pool: list[DistractorInstance]) -> None:
 
 
 def hide_distractor(distractor: DistractorInstance) -> None:
-    """Take a distractor out of the render: hidden, and parked far off-screen via its parent.
-
-    Hiding is what saves the time. A parked-but-visible pool still syncs into every pass
-    (5.5M polygons and 850 MB of textures for a five-model pool), while a hidden one costs
-    nothing. The park keeps it clear of the ray casts in ``clear_blocking_distractors``.
-    """
+    """Take a distractor out of the render: hidden, and parked far off-screen via its parent."""
     for mesh in distractor.meshes:
         mesh.blender_obj.hide_render = True
         mesh.blender_obj.hide_viewport = True
@@ -274,20 +261,7 @@ def place_distractor(
     air_probability: float,
     air_height_range: tuple[float, float],
 ) -> None:
-    """Place a distractor at a random position within the arena.
-
-    ``scale_range`` is interpreted as multiples of ``base_size`` (the fixed 3 lb
-    weight-class reference dimension), so [0.5, 2.0] means the distractor will be
-    between half and twice the 3 lb base size regardless of its native
-    dimensions.  The parent empty is used for transform so sub-parts keep their
-    relative arrangement.
-
-    With probability ``air_probability`` the object floats above the ground
-    with a fully random tumbling orientation.  Otherwise it sits on the
-    ground: generic objects keep a fully random orientation, while robot-like
-    (CAD robot) distractors sit flat with a random yaw and a 50% chance of
-    being inverted, mirroring the target robots' ground poses.
-    """
+    """Place a distractor at a random position within the arena."""
     show_distractor(distractor)
     parent = distractor.parent
     desired_size = base_size * random.uniform(scale_range[0], scale_range[1])
@@ -296,8 +270,6 @@ def place_distractor(
 
     airborne = random.random() < air_probability
     if distractor.is_robot_like and not airborne:
-        # Grounded robot pose: flat on the field, random yaw, 50% inverted.
-        # GLB import is Z-up, so identity roll/pitch sits the model upright.
         roll = math.pi if random.random() < 0.5 else 0.0
         rot = (roll, 0.0, random.uniform(0, 2 * math.pi))
     else:
@@ -343,8 +315,6 @@ def place_scene_distractors(
         hide_distractor(distractor)
     default_air_prob = rand_cfg.air_probability
     default_air_range = rand_cfg.air_height_range
-    # Distractor robots are all treated as the 3 lb weight class; scale off this
-    # fixed base rather than whichever robot happens to be in the scene.
     for distractor in active:
         if distractor.is_robot_like:
             air_prob = (
@@ -377,11 +347,7 @@ def _ray_hits_distractor(
     origin: mathutils.Vector,
     target: mathutils.Vector,
 ) -> bpy.types.Object | None:
-    """Cast a ray from *origin* toward *target*.
-
-    Returns the first distractor object hit between the two points, or
-    *None* if the path is clear (or hits a non-distractor).
-    """
+    """Cast a ray from origin toward target; return the first distractor hit or None."""
     direction = target - origin
     dist = direction.length
     direction.normalize()
@@ -398,13 +364,7 @@ def clear_blocking_distractors(
     keypoints_world: list[mathutils.Vector],
     active_distractors: list[DistractorInstance],
 ) -> None:
-    """Hide distractors that block the camera's view of every robot keypoint.
-
-    For each camera pose, rays are cast toward each keypoint.  A distractor
-    is only hidden when it blocks *all* keypoints from a given camera — if at
-    least one keypoint is reachable the distractor is kept.  The process
-    repeats until every camera can see at least one keypoint.
-    """
+    """Hide distractors that block the camera's view of every robot keypoint."""
     bpy.context.view_layer.update()
     scene = bpy.context.scene
     hidden: set[int] = set()
@@ -453,7 +413,7 @@ class DistractorPoolManager:
         resolve: PathResolveFn,
         load_keypoints: bool,
         enable_segmentation: Callable[[], None],
-        vram_estimates: dict[Path, float],
+        vram_estimates: dict[Path, VramMb],
     ) -> None:
         self._cfg = dist_cfg
         self._assigner = assigner
@@ -493,8 +453,6 @@ class DistractorPoolManager:
             )
         for distractor in self.pool:
             hide_distractor(distractor)
-        # Segmentation pass indices are assigned at call time only. Refreshing
-        # distractors creates new meshes, so we must re-run this assignment.
         self._enable_segmentation()
         self.images_since_shuffle = 0
 

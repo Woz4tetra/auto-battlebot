@@ -1,15 +1,4 @@
-"""Download PBR textures from ambientCG for use with BlenderProc.
-
-Downloads zip files, extracts them into the cc_textures folder structure
-that BlenderProc's load_ccmaterials() expects, and removes files that
-BlenderProc doesn't use.
-
-Usage:
-    python download_ambientcg.py data/cc_textures Plastic007 Metal012 Rubber001
-    python download_ambientcg.py data/cc_textures "https://ambientcg.com/get?file=Plastic007_2K-JPG.zip"
-    python download_ambientcg.py data/cc_textures --from-config config.toml
-    python download_ambientcg.py data/cc_textures --list-random 20
-"""
+"""Download PBR textures from ambientCG for BlenderProc's cc_textures layout."""
 
 import argparse
 import json
@@ -25,7 +14,6 @@ from urllib.parse import parse_qs, urlparse
 AMBIENTCG_URL_TEMPLATE = "https://ambientcg.com/get?file={asset}_2K-JPG.zip"
 AMBIENTCG_ASSETS_API = "https://ambientcg.com/api/v3/assets"
 
-# BlenderProc only uses these texture map suffixes (from CCMaterialLoader source).
 KEEP_SUFFIXES = {
     "_Color",
     "_AmbientOcclusion",
@@ -57,10 +45,7 @@ def download_url(url: str) -> str:
 
 
 def resolve_input(value: str) -> tuple[str, str]:
-    """Resolve a CLI argument into (download_url, asset_name).
-
-    Accepts either a full ambientCG URL or a bare asset name like 'Plastic007'.
-    """
+    """Resolve a CLI argument (URL or bare asset name) into (download_url, asset_name)."""
     if value.startswith("http://") or value.startswith("https://"):
         return value, parse_asset_from_url(value)
     asset = value
@@ -91,7 +76,6 @@ def download_and_extract(url: str, asset_name: str, output_dir: Path) -> Path:
         with zipfile.ZipFile(zip_path) as zf:
             zf.extractall(asset_dir)
 
-    # Remove files BlenderProc doesn't need
     removed = 0
     kept = 0
     for f in sorted(asset_dir.iterdir()):
@@ -110,11 +94,7 @@ def download_and_extract(url: str, asset_name: str, output_dir: Path) -> Path:
 
 
 def assets_from_config(config_path: Path) -> list[str]:
-    """Read cc_texture asset names from config.toml.
-
-    Collects from both [materials.*].cc_texture entries (robot PBR textures)
-    and [environment].ground_textures (ground plane randomization).
-    """
+    """Read cc_texture asset names from config.toml."""
     with open(config_path, "rb") as f:
         config = tomllib.load(f)
 
@@ -146,12 +126,10 @@ def list_random_assets(count: int, seed: int) -> list[str]:
     assets = first_page.get("assets", [])
     ids = [a.get("id") for a in assets if a.get("id")]
 
-    # Fetch remaining pages (if any).
     for offset in range(page_size, total, page_size):
         page = fetch_asset_page(limit=page_size, offset=offset)
         ids.extend(a.get("id") for a in page.get("assets", []) if a.get("id"))
 
-    # De-duplicate while preserving order.
     unique_ids = list(dict.fromkeys(ids))
     if not unique_ids:
         return []
@@ -229,7 +207,6 @@ def main() -> None:
     if args.list_random < 0:
         parser.error("--list-random must be >= 0")
 
-    # List mode: print a random set of assets without downloading.
     if args.list_random > 0:
         _handle_list_random(args, parser)
         return
@@ -241,7 +218,6 @@ def main() -> None:
     if not inputs:
         parser.error("Provide asset names/URLs as arguments or use --from-config")
 
-    # Override URL template if non-default resolution
     global AMBIENTCG_URL_TEMPLATE
     AMBIENTCG_URL_TEMPLATE = f"https://ambientcg.com/get?file={{asset}}_{args.resolution}.zip"
 

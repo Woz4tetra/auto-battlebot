@@ -834,3 +834,25 @@ table says where the plan now differs from them and why. Strike any row to resto
 ### General
 
 - `mr_stabs_mk2/lib/motor_guard/motor_guard.h`: Hard trip: a motor's estimated rise at or above this cuts drive until disarm. It protects the motors while the scaling limits above are loosened for test-box sessions. Placeholder: set it from a motor can temperature measured after a 3 minute driven session against the logged motor_rise_left/right (docs/plans/nav_scoring_and_rl_v2_plan.md, section 0.3).
+
+## Notes moved from code comments (2026-11-15)
+
+- `training/rl/pretrain_sidestep.py`:
+
+  ```text
+  Warm-start the navigation policy on the scripted sidestep controller before PPO (DAgger).
+
+  Runs stage P (half the episodes against a pursuer) from a trained checkpoint. In attack episodes
+  against a pursuer the label is the sidestep controller's action on true state
+  (`auto_battlebot/rl/sidestep.py`); everywhere else the label is the starting policy's own
+  deterministic action, so the other behaviours are kept rather than forgotten. Each round rolls
+  out a mix of expert and student actions (the expert's share falls from 1 to 0 across rounds),
+  adds the observations and labels to the data set, and fits the actor mean to the labels. The
+  critic and observation normalization are left as they are. The output is a checkpoint in the
+  training format, for `train_nav_policy.py --resume`.
+
+      source scripts/activate_python.sh
+      python training/rl/pretrain_sidestep.py runs/rl_nav/<run>/checkpoint.pt \
+          --out runs/rl_nav/sidestep_bc/checkpoint.pt --expert '{"flank_m": 0.4}'
+  ```
+

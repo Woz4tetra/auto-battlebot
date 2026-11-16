@@ -1,90 +1,93 @@
 #!/usr/bin/env python3
-"""
-Plot YOLO training results from a results.csv file.
-
-Usage:
-    python3 plot_results.py results.csv
-    python3 plot_results.py results.csv --output training_plot.png
-    python3 plot_results.py results.csv --show
-"""
+"""Plot YOLO training results from a results.csv file."""
 
 import argparse
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import pandas as pd
 
-# Column groups to plot, each as (display_title, [(col_suffix, legend_label), ...])
+
+class Series(NamedTuple):
+    col_suffix: str
+    label: str
+
+
+class PanelGroup(NamedTuple):
+    title: str
+    series: list[Series]
+
+
 PANEL_GROUPS = [
-    (
+    PanelGroup(
         "Train Losses",
         [
-            ("train/box_loss", "box"),
-            ("train/seg_loss", "seg"),
-            ("train/cls_loss", "cls"),
-            ("train/dfl_loss", "dfl"),
-            ("train/pose_loss", "pose"),
-            ("train/kobj_loss", "kobj"),
-            ("train/rle_loss", "rle"),
+            Series("train/box_loss", "box"),
+            Series("train/seg_loss", "seg"),
+            Series("train/cls_loss", "cls"),
+            Series("train/dfl_loss", "dfl"),
+            Series("train/pose_loss", "pose"),
+            Series("train/kobj_loss", "kobj"),
+            Series("train/rle_loss", "rle"),
         ],
     ),
-    (
+    PanelGroup(
         "Val Losses",
         [
-            ("val/box_loss", "box"),
-            ("val/seg_loss", "seg"),
-            ("val/cls_loss", "cls"),
-            ("val/dfl_loss", "dfl"),
-            ("val/pose_loss", "pose"),
-            ("val/kobj_loss", "kobj"),
-            ("val/rle_loss", "rle"),
+            Series("val/box_loss", "box"),
+            Series("val/seg_loss", "seg"),
+            Series("val/cls_loss", "cls"),
+            Series("val/dfl_loss", "dfl"),
+            Series("val/pose_loss", "pose"),
+            Series("val/kobj_loss", "kobj"),
+            Series("val/rle_loss", "rle"),
         ],
     ),
-    (
+    PanelGroup(
         "Detection Metrics (B)",
         [
-            ("metrics/mAP50(B)", "mAP50"),
-            ("metrics/mAP50-95(B)", "mAP50-95"),
-            ("metrics/precision(B)", "precision"),
-            ("metrics/recall(B)", "recall"),
+            Series("metrics/mAP50(B)", "mAP50"),
+            Series("metrics/mAP50-95(B)", "mAP50-95"),
+            Series("metrics/precision(B)", "precision"),
+            Series("metrics/recall(B)", "recall"),
         ],
     ),
-    (
+    PanelGroup(
         "Segmentation Metrics (M)",
         [
-            ("metrics/mAP50(M)", "mAP50"),
-            ("metrics/mAP50-95(M)", "mAP50-95"),
-            ("metrics/precision(M)", "precision"),
-            ("metrics/recall(M)", "recall"),
+            Series("metrics/mAP50(M)", "mAP50"),
+            Series("metrics/mAP50-95(M)", "mAP50-95"),
+            Series("metrics/precision(M)", "precision"),
+            Series("metrics/recall(M)", "recall"),
         ],
     ),
-    (
+    PanelGroup(
         "Pose Metrics (P)",
         [
-            ("metrics/mAP50(P)", "mAP50"),
-            ("metrics/mAP50-95(P)", "mAP50-95"),
-            ("metrics/precision(P)", "precision"),
-            ("metrics/recall(P)", "recall"),
+            Series("metrics/mAP50(P)", "mAP50"),
+            Series("metrics/mAP50-95(P)", "mAP50-95"),
+            Series("metrics/precision(P)", "precision"),
+            Series("metrics/recall(P)", "recall"),
         ],
     ),
-    (
+    PanelGroup(
         "Learning Rates",
         [
-            ("lr/pg0", "pg0"),
-            ("lr/pg1", "pg1"),
-            ("lr/pg2", "pg2"),
-            ("lr/pg3", "pg3"),
-            ("lr/pg4", "pg4"),
-            ("lr/pg5", "pg5"),
-            ("lr/pg6", "pg6"),
-            ("lr/pg7", "pg7"),
+            Series("lr/pg0", "pg0"),
+            Series("lr/pg1", "pg1"),
+            Series("lr/pg2", "pg2"),
+            Series("lr/pg3", "pg3"),
+            Series("lr/pg4", "pg4"),
+            Series("lr/pg5", "pg5"),
+            Series("lr/pg6", "pg6"),
+            Series("lr/pg7", "pg7"),
         ],
     ),
 ]
 
-# Distinct colors for lines within each panel
 LINE_COLORS = [
     "#E74C3C",
     "#3498DB",
@@ -109,7 +112,7 @@ def is_nonzero(series: pd.Series) -> bool:
     return bool((series.dropna() != 0).any())
 
 
-def plot_panel(ax: plt.Axes, df: pd.DataFrame, title: str, series_specs: list):
+def plot_panel(ax: plt.Axes, df: pd.DataFrame, title: str, series_specs: list[Series]):
     """Plot one panel onto the given axes."""
     plotted = 0
     for col, label in series_specs:
@@ -173,7 +176,6 @@ def make_figure(df: pd.DataFrame, csv_path: Path) -> plt.Figure:
         ax = fig.add_subplot(gs[row, col])
         plot_panel(ax, df, title, series_specs)
 
-    # If odd number of panels, hide the last empty cell
     if n_panels % n_cols != 0:
         ax_empty = fig.add_subplot(gs[n_rows - 1, n_cols - 1])
         ax_empty.set_visible(False)

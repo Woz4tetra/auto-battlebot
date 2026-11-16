@@ -1,28 +1,5 @@
 #!/usr/bin/env python3
-"""Find the confidence threshold whose detection count matches what a dataset should hold.
-
-A pre-label run at a fixed confidence over-detects on purpose, so the box count says as much about
-the threshold as about the model. This runs each candidate once at a low floor, keeps every
-detection's confidence, and then sweeps thresholds offline: one inference pass answers "what
-threshold would have produced the expected count", for every threshold at once.
-
-The expectation is a per-frame box rate, measured from a labelled set rather than assumed. For NHRL
-cage footage `nhrl_keypoints_eval_test` gives 2.81 boxes per frame over its 590 NHRL frames
-(mrs_buff_mk3 0.98, opponent 1.14, house_bot 0.68), which is below the nominal two robots plus a
-house bot because the house bot is only in frame 68 percent of the time.
-
-Matching the count is necessary, not sufficient: an arm can hit the right number of boxes with them
-in the wrong places, and a class the footage never contains (Mr Stabs, in Mrs Buff's matches) is a
-false positive at every threshold. The per-class table is printed for that reason.
-
-Detections are cached per candidate under --cache, so re-sweeping against a different expectation
-costs nothing.
-
-Usage:
-    venv/bin/python training/model_eval/conf_sweep.py training/data/nhrl_cage_high_eval \\
-        --candidate base=data/models/yolo26s-pose_base_2026-09-13_last.pt \\
-        --map nhrl_robot=opponent --expected-per-frame 2.81 --device 0
-"""
+"""Find the confidence threshold whose detection count matches what a dataset should hold."""
 
 from __future__ import annotations
 
@@ -77,7 +54,7 @@ def parse_pairs(pairs: list[str], what: str) -> dict[str, str]:
 
 def detect(model_path: Path, frames: list[Path], renames: dict[str, str], args) -> list[list]:
     """``[class_name, confidence]`` for every detection at or above the floor."""
-    from ultralytics import YOLO  # deferred: slow import, and --help should not pay it
+    from ultralytics import YOLO
 
     model = YOLO(str(model_path))
     names = {index: renames.get(name, name) for index, name in model.names.items()}

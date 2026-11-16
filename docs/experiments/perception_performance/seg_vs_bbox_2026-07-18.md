@@ -93,3 +93,36 @@ The seg head supervises boxes with mask information, which tightens localization
 - Scores: `training/data/nhrl_keypoints_eval_test/scores_bbox_vs_seg/{summary.csv, significance.csv, headline.png, confusion_*.png}`
 - Training run: megamind `runs/projects/auto_battlebots_2026-07-16_20-50-57_yolo26n` (500 epochs, batch 128)
 - Dataset: `training/data/nhrl_robots_bbox` (local + megamind), built by `training/yolo/seg_to_bbox.py`
+
+## Notes moved from code comments (2026-11-15)
+
+- `training/yolo/seg_to_bbox.py`, `top_contours_bbox`:
+
+  ```text
+  One box for one label: enclosing the label's **``top_n`` largest connected contours**.
+
+  Per-polygon min/max produces two visible defects on this corpus:
+
+  * **Boxes covering most of the frame.** A single label *row* can hold several disjoint contours
+    concatenated together (23.6 % of sampled polygons contain a >3 % coordinate jump). Taking
+    min/max across all of them spans the gaps, one Bee-Roll row rendered as a 26 %-of-frame box
+    whose largest real contour was 23 %, and worse cases span the arena.
+  * **Small boxes nested inside a bigger one.** A shattered mask emits a row per fragment, so one
+    robot became ~270 separate targets strewn across the crowd while the robot itself sat unboxed.
+
+  Rasterising every polygon for the label into one mask and taking connected contours fixes both,
+  without a coordinate-jump threshold: touching fragments merge into one contour, distant debris
+  ranks below the real body. The source vocabulary is per-robot-instance, so one box per label is
+  one box per robot.
+
+  **Why ``top_n`` = 3 rather than 1.** Taking only the single largest contour undersized the
+  boxes: a robot's mask routinely splits into a few genuine pieces, a spinner blade detached by
+  motion blur, a wedge split by an occluder, and keeping only the biggest clipped the rest out
+  of the box. Enclosing the three largest contours recovers those parts while still ignoring the
+  long tail of speckle that caused the original over-sized boxes.
+
+  The trade-off is real: where a label's second contour is genuinely distant (debris across the
+  arena rather than a detached blade), enclosing it re-inflates the box. ``top_n`` is a parameter
+  so that balance can be retuned without touching callers.
+  ```
+

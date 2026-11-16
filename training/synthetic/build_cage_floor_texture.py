@@ -1,21 +1,5 @@
 #!/usr/bin/env python3
-"""Orthographic mat albedo from the rectified cage-high targets.
-
-Each target is warped onto the mat plane through its fitted pose (the inverse of the
-homography K [r1 r2 t]) into a square texture over the mat, then the clips of one event are
-combined by a per-pixel median after normalising each clip to its own mat-region mean, so
-exposure drift between fights does not vote. The texture is in the hfield frame: pixel x
-runs along hfield +x, pixel y along hfield +y, origin at (-half, -half).
-
-Outputs `<out>/cage2_<event>_albedo.png` with a `.json` sidecar (px per metre, extent,
-clips used) and a downscaled `_preview.png`. The default `--out` is the cage environment
-directory the Blender spec reads the albedo from.
-
-Usage:
-    venv/bin/python training/synthetic/build_cage_floor_texture.py runs/cage_scene --px-per-m 1024
-    venv/bin/python training/synthetic/build_cage_floor_texture.py runs/cage_scene \
-        --source target_4k.png
-"""
+"""Orthographic mat albedo from the rectified cage-high targets."""
 
 from __future__ import annotations
 
@@ -145,6 +129,12 @@ def warp_targets(
     return per_event, half_xy, cage_name
 
 
+def nanmedian_over_seen_frames(stack: np.ndarray) -> np.ndarray:
+    with np.errstate(all="ignore"), warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        return np.nanmedian(stack, axis=0)
+
+
 def combine_clips(clips: list[WarpedClip]) -> tuple[np.ndarray, np.ndarray]:
     """Median the clips of one event into an albedo; returns it and the mask no clip saw."""
     stack = []
@@ -155,14 +145,10 @@ def combine_clips(clips: list[WarpedClip]) -> tuple[np.ndarray, np.ndarray]:
         mean = clip.texture[valid].reshape(-1, 3).mean(axis=0)
         gain = 128.0 / np.maximum(mean, 1.0)
         scaled = np.clip(clip.texture.astype(np.float32) * gain, 0, 255)
-        scaled[~valid] = np.nan  # the frame did not see this part of the mat
+        scaled[~valid] = np.nan
         stack.append(scaled)
-    with np.errstate(all="ignore"), warnings.catch_warnings():
-        warnings.simplefilter("ignore", RuntimeWarning)  # all-NaN columns are the unseen strip
-        median = np.nanmedian(np.stack(stack), axis=0)
+    median = nanmedian_over_seen_frames(np.stack(stack))
     unseen = np.isnan(median[:, :, 0])
-    # Restore the event's mean colour so the albedo carries the real mat tint, and fill what no
-    # clip saw (the near strip the camera cuts off) with that mean.
     target_mean = np.mean(
         [c.texture[c.mask > 127].reshape(-1, 3).mean(axis=0) for c in clips], axis=0
     )

@@ -1,11 +1,4 @@
-"""Cycles device and denoiser choices, and the cheap settings for the occlusion-only pass.
-
-Measured on 2026-09-12 (one NHRL cage scene, 10 frames at 1280x720, one A6000): BlenderProc's
-default Intel denoiser runs as a compositor node on the CPU and cost 6 s per scene, and the
-occlusion-free re-render was a full-quality colour render that only ever had its instance
-segmap read, 28 s per scene. Together with the CPU sitting in the Cycles device list next
-to the GPUs, these were half of the scene time. Everything here requires Blender.
-"""
+"""Cycles device and denoiser choices, and the cheap settings for the occlusion-only pass."""
 
 from __future__ import annotations
 
@@ -19,7 +12,6 @@ from synthgen.logsetup import get_logger
 
 logger = get_logger(__name__)
 
-# The Cycles denoiser names the cage spec's ``render.denoiser`` accepts, plus "none".
 _CYCLES_DENOISERS = {
     "OPTIX": "OPTIX",
     "INTEL": "OPENIMAGEDENOISE",
@@ -32,13 +24,7 @@ def _cycles_preferences() -> bpy.types.AddonPreferences:
 
 
 def use_gpu_only() -> None:
-    """Take the CPU out of the Cycles device list whenever a GPU is rendering.
-
-    BlenderProc's init enables every device of the chosen type, and Blender lists the CPU
-    among the OptiX devices. A 1280x720 frame is small enough that the CPU's tiles finish
-    after the GPU's, so it adds wall time (50 s versus 48 s per scene on three A6000s). A
-    CPU-only run keeps the CPU, since it is the only device there is.
-    """
+    """Take the CPU out of the Cycles device list whenever a GPU is rendering."""
     devices = list(_cycles_preferences().devices)
     if not any(device.use and device.type != "CPU" for device in devices):
         return
@@ -89,13 +75,7 @@ _BOUNCE_FIELDS = (
 
 @contextmanager
 def occlusion_pass() -> Iterator[None]:
-    """Render settings for a pass whose only output that gets read is the segmap.
-
-    One sample, no adaptive sampling, no denoiser and camera rays only: the object-index pass
-    the segmap comes from is decided by the first hit, so none of the colour work changes it.
-    Measured 3.9 s instead of 28 s for ten frames, with byte-identical labels. Everything is
-    put back on exit so the next colour pass renders as configured.
-    """
+    """Render settings for a pass whose only output that gets read is the segmap."""
     scene = bpy.context.scene
     cycles = scene.cycles
     view_layer = bpy.context.view_layer

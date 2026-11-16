@@ -9,6 +9,7 @@ from synthgen.cage_spec import (
     CageSceneSpec,
     MatSpec,
     PitSpec,
+    VenueSpec,
     WallSpec,
     all_tubes,
     block_boxes,
@@ -38,7 +39,6 @@ def test_spec_loads_and_overrides_apply() -> None:
     assert spec.lights.grid.rows == 2 and spec.lights.grid.cols == 2
     assert len(all_tubes(spec)) == 4 and len(spec.lights.wash) == 2
     assert spec.cage.side_posts == (0.0,)
-    # The grid is centred: opposite corners of the rig are mirror images.
     first, last = all_tubes(spec)[0].position, all_tubes(spec)[-1].position
     assert first[0] == pytest.approx(-last[0]) and first[1] == pytest.approx(-last[1])
     assert spec_to_dict(spec)["mat"]["size"] == 2.30
@@ -101,11 +101,9 @@ def test_mat_image_uv_matches_the_hfield_texture_layout() -> None:
     from synthgen.cage_spec import mat_image_uv
 
     size = 2.35
-    # hfield (+1.0, 0) is W (0, -1.0): column fraction (1 + 1.175) / 2.35, middle row.
     u, v = mat_image_uv(0.0, -1.0, size)
     assert u == pytest.approx((1.0 + 1.175) / 2.35)
     assert v == pytest.approx(0.5)
-    # hfield (0, +1.0) is W (+1.0, 0): middle column, row fraction 0.9255 -> v near the bottom.
     u, v = mat_image_uv(1.0, 0.0, size)
     assert u == pytest.approx(0.5)
     assert v == pytest.approx(1.0 - (1.0 + 1.175) / 2.35)
@@ -125,7 +123,6 @@ def test_pits_cut_the_mat_and_the_riser_without_losing_area() -> None:
     boxes = mat_boxes(spec)
     kept = sum(box.size[0] * box.size[1] for box in boxes)
     assert kept == pytest.approx(2.26**2 - 0.43 * 0.43 - 0.3 * 0.5)
-    # No piece overlaps a pit opening.
     for box in boxes:
         for pit in spec.pits:
             gap_x = abs(box.center[0] - pit.center[0]) - (box.size[0] + pit.size[0]) / 2
@@ -151,12 +148,27 @@ def test_pit_walls_close_the_hole_below_the_mat() -> None:
     }
     thickness = CageSceneSpec().mat.thickness
     for name in ("pit0_wall_near", "pit0_wall_left"):
-        # Hangs from the mat underside so no face is coplanar with the mat's top.
         top = boxes[name].center[2] + boxes[name].size[2] / 2
         bottom = boxes[name].center[2] - boxes[name].size[2] / 2
         assert top == pytest.approx(-thickness)
         assert bottom < -0.13
     assert boxes["pit0_floor"].center[2] < -0.13
+    floor_bottom = boxes["pit0_floor"].center[2] - boxes["pit0_floor"].size[2] / 2
+    wall_bottom = boxes["pit0_wall_near"].center[2] - boxes["pit0_wall_near"].size[2] / 2
+    assert wall_bottom < floor_bottom
+
+
+def test_riser_clears_pit_walls_by_margin() -> None:
+    spec = CageSceneSpec(
+        pits=(PitSpec(center=(0.5, -0.2), size=(0.4, 0.4), depth=0.13, wall_thickness=0.02),),
+        venue=VenueSpec(riser=True),
+    )
+    walls = [box for box in pit_boxes(spec) if "wall" in box.name]
+    for riser in stage_riser_boxes(spec):
+        for wall in walls:
+            gap_x = abs(riser.center[0] - wall.center[0]) - (riser.size[0] + wall.size[0]) / 2
+            gap_y = abs(riser.center[1] - wall.center[1]) - (riser.size[1] + wall.size[1]) / 2
+            assert max(gap_x, gap_y) > 1e-6
 
 
 def test_bolts_can_be_driven_through_the_inner_rail_face() -> None:
@@ -180,41 +192,32 @@ def test_panel_walls_can_be_left_out() -> None:
 def test_one_way_glass_hides_only_the_walls_the_camera_is_behind() -> None:
     spec = load_cage_spec(SPEC, [])
     half = spec.cage.interior / 2
-    # Inside the cage nothing is hidden: panes seen across the arena are what the real
-    # picture shows on the far side.
     assert panels_outside_camera(spec, (0.0, 0.0)) == ()
     assert panels_outside_camera(spec, (half - 0.01, half - 0.01)) == ()
-    # Past a wall plane, that wall's pane sits between the camera and the mat.
     assert panels_outside_camera(spec, (0.0, -half - 0.5)) == ("near",)
     assert panels_outside_camera(spec, (0.0, half + 0.5)) == ("far",)
     assert panels_outside_camera(spec, (-half - 0.5, 0.0)) == ("left",)
     assert panels_outside_camera(spec, (half + 0.5, 0.0)) == ("right",)
-    # A corner mount is outside two of them at once, always in wall order.
     assert panels_outside_camera(spec, (half + 0.5, -half - 0.5)) == ("near", "right")
 
 
 def test_one_way_glass_covers_the_broadcast_camera_and_the_picked_mounts() -> None:
     spec = load_cage_spec(MASSD_SPEC, [])
-    # The fitted MassD broadcast camera sits past the near wall but inside the left one.
     assert panels_outside_camera(spec, (-1.132, -1.621)) == ("near",)
-    # The mount distances picked off the sweep are all outside the near wall.
     for distance in (1.49, 1.71, 1.93):
         assert panels_outside_camera(spec, (0.0, -distance)) == ("near",)
 
 
 def test_basement_box_is_an_open_frame_on_legs_in_a_walled_corner() -> None:
     spec = load_cage_spec(BASEMENT_SPEC)
-    # No corner posts, no glass, no riser: an open box standing on its own legs.
     assert posts(spec) == [] and panels(spec) == [] and stage_riser_boxes(spec) == []
     assert bolt_positions(spec) == []
     rails = {box.name: box for box in frame_rails(spec)}
     far = rails["rail_far"]
     rail_back = far.center[1] + far.size[1] / 2
-    # Both stone walls stand behind the rails, never through them.
     quads = {quad.name: quad for quad in wall_quads(spec)}
     assert quads["wall_far"].corners[0][1] > rail_back
     assert quads["wall_right"].corners[0][0] > rail_back
-    # The legs reach from the venue floor to the mat's underside.
     for leg in block_boxes(spec):
         assert leg.center[2] - leg.size[2] / 2 == pytest.approx(-spec.venue.floor_drop)
         assert leg.center[2] + leg.size[2] / 2 == pytest.approx(-spec.mat.thickness)

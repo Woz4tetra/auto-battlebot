@@ -1,31 +1,11 @@
-"""Crop a YOLO dataset's images and annotations to a pixel rectangle, in place.
-
-Broadcast footage carries banners the camera never sees: the MassDestruction streams put
-a scoreboard above the cage view and a ticker below it. Training or scoring on those rows
-teaches the detector about graphics. This crops the images and moves the labels with them,
-so a hand-labeled set stays usable without relabeling.
-
-Boxes are shifted into the crop and clipped to it; a box left thinner than --min-box-px on
-either axis is dropped. Keypoints that land outside the crop are written as
-``0.000000 0.000000 0`` (visibility 0 = out-of-frame, the convention in
-training/synthetic/synthgen/annotations.py); the rest keep their visibility flag. Rows that
-are neither detect (5 values) nor pose (5 + 3k) abort the run before anything is written,
-since a polygon cannot be clipped this way.
-
-Each recording's data.yaml gains a ``crop``/``source_size`` record, which also makes the
-pass idempotent: an image already at the crop size is left alone rather than cropped twice.
-
-Usage:
-  # one recording, or a root of subdatasets filtered by directory name
-  python training/yolo/crop_yolo_dataset.py training/data/cage_high_x50_conf044 \
-      --rect 0 94 1920 895 --match 'r[123]_*' --dry-run
-"""
+"""Crop a YOLO dataset's images and annotations to a pixel rectangle, in place."""
 
 from __future__ import annotations
 
 import argparse
 import fnmatch
 from pathlib import Path
+from typing import NamedTuple
 
 from PIL import Image
 
@@ -37,13 +17,16 @@ class UnsupportedRowError(ValueError):
     """A label row that is neither a detect nor a pose row (e.g. a seg polygon)."""
 
 
+class CropRowResult(NamedTuple):
+    row: str | None
+    was_clipped: bool
+    kpts_zeroed: int
+
+
 def crop_row(
     parts: list[str], src_w: int, src_h: int, rect: tuple[int, int, int, int], min_box_px: float
-) -> tuple[str | None, bool, int]:
-    """Crop one detect/pose row. Returns (row or None if dropped, was_clipped, kpts_zeroed).
-
-    Coordinates come in normalized to the source image and go out normalized to the crop.
-    """
+) -> CropRowResult:
+    """Crop one detect/pose row; coordinates go from source-normalized to crop-normalized."""
     if len(parts) < 5 or (len(parts) - 5) % 3 != 0:
         raise UnsupportedRowError(" ".join(parts))
     try:
@@ -61,7 +44,7 @@ def crop_row(
     clipped_x1, clipped_x2 = max(x1, 0.0), min(x2, float(crop_w))
     clipped_y1, clipped_y2 = max(y1, 0.0), min(y2, float(crop_h))
     if clipped_x2 - clipped_x1 < min_box_px or clipped_y2 - clipped_y1 < min_box_px:
-        return None, False, 0
+        return CropRowResult(None, False, 0)
     was_clipped = (clipped_x1, clipped_x2, clipped_y1, clipped_y2) != (x1, x2, y1, y2)
 
     row = (
@@ -81,7 +64,7 @@ def crop_row(
             zeroed += visibility != 0
         else:
             row += f" {kx / crop_w:.6f} {ky / crop_h:.6f} {visibility:g}"
-    return row, was_clipped, zeroed
+    return CropRowResult(row, was_clipped, zeroed)
 
 
 def crop_label_text(
@@ -149,8 +132,7 @@ def record_crop(
 def plan_crop(
     recordings: list[Path], rect: tuple[int, int, int, int], min_box_px: float
 ) -> tuple[list[tuple[Path, list[Path]]], int]:
-    """Check every image and label before anything is written, since a crop that fails
-    halfway leaves a dataset of mixed sizes. Returns (work, images already cropped)."""
+    """Check every image and label before anything is written; returns (work, already cropped)."""
     x0, y0, crop_w, crop_h = rect
     work: list[tuple[Path, list[Path]]] = []
     skipped = 0

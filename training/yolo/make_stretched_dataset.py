@@ -1,21 +1,4 @@
-"""Build an anisotropically-resized copy of a YOLO dataset, for the stretch arm.
-
-Arm D of `input_resolution_plan.md` fills the input tensor by ignoring aspect ratio
-instead of padding to preserve it. Squeezing 16:9 into a square costs 0.5x horizontally
-but only 0.89x vertically, so a robot lands at sqrt(0.5 * 0.89) = 0.67 of its source size
-against 0.50 for a letterbox: 1.33x more robot at the same 409,600 tensor pixels and no
-padding.
-
-Normalized YOLO labels need no change. `cx cy w h` are fractions of width and height, so
-an anisotropic resize leaves every one of them identical; the label files are copied as
-symlinks. Only the images are rewritten.
-
-Training then runs at `imgsz=640` with `rect=False`, where ultralytics' letterbox is a
-no-op on already-square images.
-
-    python training/yolo/make_stretched_dataset.py \
-        training/data/nhrl_robots_bbox_2class training/data/nhrl_robots_bbox_2class_stretch
-"""
+"""Build an anisotropically-resized copy of a YOLO dataset, for the stretch arm."""
 
 import argparse
 from concurrent.futures import ProcessPoolExecutor

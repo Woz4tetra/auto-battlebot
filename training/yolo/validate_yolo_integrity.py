@@ -1,28 +1,5 @@
 #!/usr/bin/env python3
-"""Check that a YOLO dataset is internally consistent and safe to train on.
-
-Runs a batch of read-only integrity checks and prints a report:
-
-- data.yml fields valid for YOLO: names present and non-empty, nc (if given) matches
-  len(names), kpt_shape/flip_idx well formed for pose sets. Extra fields (colors,
-  source_mcap, path, ...) are ignored.
-- Every annotation's class id is in range 0..len(names)-1 (the core check).
-- Every row is a well formed detect box, pose row, or seg polygon, with normalized
-  coordinates in [0, 1] and positive box sizes.
-- Image/label pairing: labels that reference a missing image are flagged; images with
-  no label file are counted as background negatives.
-- Health signals: per-class instance counts, classes with zero instances, duplicate
-  class names, empty label files.
-
-Layouts supported: split dirs (train/ val/ test/, each with images/ + labels/) or a
-single flat images/ + labels/ pair at the dataset root.
-
-Exit code is 0 when no errors are found, 1 otherwise. With --strict, warnings also fail.
-
-Usage:
-    python validate_yolo_integrity.py training/data/nhrl_seg/nhrl_robots
-    python validate_yolo_integrity.py training/data/synthetic --check-images --strict
-"""
+"""Check that a YOLO dataset is internally consistent and safe to train on."""
 
 from __future__ import annotations
 
@@ -35,11 +12,8 @@ import yaml
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp")
 SPLIT_NAMES = ("train", "val", "test")
 
-# Normalized coordinates should live in [0, 1]; allow a little slack for rounding.
 COORD_EPS = 1e-3
-# Keypoint visibility flags per the YOLO pose spec.
 VISIBILITY_FLAGS = {0, 1, 2}
-# Cap stored examples per issue so the report stays readable on large datasets.
 MAX_EXAMPLES = 10
 
 
@@ -217,7 +191,6 @@ def validate_polygon(coords: list[float], where: str, report: Report) -> None:
 def validate_pose_row(coords: list[float], kpt_shape: list, where: str, report: Report) -> None:
     num_kpts, dims = int(kpt_shape[0]), int(kpt_shape[1])
     ncoord = len(coords)
-    # A pose row is either a bare box (keypoints omitted) or box + num_kpts * dims.
     if ncoord != 4 and ncoord != 4 + num_kpts * dims:
         report.error(f"pose row has {ncoord} values (expected 4 or {4 + num_kpts * dims})", where)
         return

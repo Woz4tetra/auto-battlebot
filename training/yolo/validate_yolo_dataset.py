@@ -1,13 +1,5 @@
 #!/usr/bin/env python3
-"""
-YOLO Dataset Validation UI
-
-This script provides a GUI for manually validating YOLO dataset annotations.
-Images are shown as a page of grid thumbnails with their bounding boxes,
-polygons and keypoints drawn on. Verdicts are keyboard-driven, one image at a
-time or a whole page at once. The validation state is saved and can be resumed
-later.
-"""
+"""GUI for reviewing YOLO annotations one page of thumbnails at a time."""
 
 import argparse
 import json
@@ -18,25 +10,21 @@ from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Literal, Optional, Tuple, TypedDict
 
 import yaml
 from natsort import natsorted
 from PIL import Image, ImageDraw, ImageFont, ImageTk
 
-# Directory remove_failed_annotations.py moves failed pairs into. Kept out of the scan.
 BACKUP_DIR_NAME = "validation_backup"
 
 NAMED_COLORS: Dict[str, List[int]] = {
-    # Primary colors
     "red": [255, 0, 0],
     "green": [0, 255, 0],
     "blue": [0, 0, 255],
-    # Secondary colors
     "yellow": [255, 255, 0],
     "cyan": [0, 255, 255],
     "magenta": [255, 0, 255],
-    # Common colors
     "orange": [255, 165, 0],
     "pink": [255, 192, 203],
     "purple": [128, 0, 128],
@@ -47,7 +35,6 @@ NAMED_COLORS: Dict[str, List[int]] = {
     "olive": [128, 128, 0],
     "aqua": [0, 255, 255],
     "fuchsia": [255, 0, 255],
-    # Grayscale
     "white": [255, 255, 255],
     "gray": [128, 128, 128],
     "grey": [128, 128, 128],
@@ -58,7 +45,6 @@ NAMED_COLORS: Dict[str, List[int]] = {
     "darkgrey": [169, 169, 169],
     "dimgray": [105, 105, 105],
     "dimgrey": [105, 105, 105],
-    # Light variants
     "lightred": [255, 102, 102],
     "lightblue": [173, 216, 230],
     "lightgreen": [144, 238, 144],
@@ -72,7 +58,6 @@ NAMED_COLORS: Dict[str, List[int]] = {
     "lightseagreen": [32, 178, 170],
     "lightskyblue": [135, 206, 250],
     "lightsteelblue": [176, 196, 222],
-    # Dark variants
     "darkred": [139, 0, 0],
     "darkgreen": [0, 100, 0],
     "darkblue": [0, 0, 139],
@@ -89,7 +74,6 @@ NAMED_COLORS: Dict[str, List[int]] = {
     "darkolivegreen": [85, 107, 47],
     "darkorchid": [153, 50, 204],
     "darkkhaki": [189, 183, 107],
-    # Reds and pinks
     "crimson": [220, 20, 60],
     "firebrick": [178, 34, 34],
     "indianred": [205, 92, 92],
@@ -99,7 +83,6 @@ NAMED_COLORS: Dict[str, List[int]] = {
     "mediumvioletred": [199, 21, 133],
     "palevioletred": [219, 112, 147],
     "rosybrown": [188, 143, 143],
-    # Oranges and yellows
     "gold": [255, 215, 0],
     "coral": [255, 127, 80],
     "salmon": [250, 128, 114],
@@ -110,7 +93,6 @@ NAMED_COLORS: Dict[str, List[int]] = {
     "khaki": [240, 230, 140],
     "palegoldenrod": [238, 232, 170],
     "goldenrod": [218, 165, 32],
-    # Greens
     "limegreen": [50, 205, 50],
     "forestgreen": [34, 139, 34],
     "seagreen": [46, 139, 87],
@@ -123,7 +105,6 @@ NAMED_COLORS: Dict[str, List[int]] = {
     "lawngreen": [124, 252, 0],
     "olivedrab": [107, 142, 35],
     "yellowgreen": [154, 205, 50],
-    # Blues and cyans
     "skyblue": [135, 206, 235],
     "deepskyblue": [0, 191, 255],
     "dodgerblue": [30, 144, 255],
@@ -141,7 +122,6 @@ NAMED_COLORS: Dict[str, List[int]] = {
     "turquoise": [64, 224, 208],
     "mediumturquoise": [72, 209, 204],
     "paleturquoise": [175, 238, 238],
-    # Purples and violets
     "violet": [238, 130, 238],
     "indigo": [75, 0, 130],
     "blueviolet": [138, 43, 226],
@@ -151,7 +131,6 @@ NAMED_COLORS: Dict[str, List[int]] = {
     "mediumpurple": [147, 112, 219],
     "thistle": [216, 191, 216],
     "lavender": [230, 230, 250],
-    # Browns and neutrals
     "brown": [139, 69, 19],
     "saddlebrown": [139, 69, 19],
     "sienna": [160, 82, 45],
@@ -188,6 +167,14 @@ NAMED_COLORS: Dict[str, List[int]] = {
 }
 
 
+Verdict = Literal["pass", "fail"]
+
+
+class ClassInfo(TypedDict):
+    name: str
+    color: str
+
+
 class YOLODatasetValidator:
     """Contact-sheet validator: page through grid thumbnails, judge from the keyboard."""
 
@@ -208,13 +195,11 @@ class YOLODatasetValidator:
         self.state_file = self.dataset_path / "validation_state.json"
         self.class_labels_path = class_labels_path
 
-        # Data structures
         self.image_annotation_pairs: List[Tuple[Path, Path]] = []
-        self.validation_state: Dict[str, str] = {}  # path -> 'pass'/'fail'
-        self.class_info: Dict[int, Dict] = {}  # class_id -> {name, color}
+        self.validation_state: Dict[str, Verdict] = {}
+        self.class_info: Dict[int, ClassInfo] = {}
         self.show_labels = True
 
-        # Grid state
         self.page_step = self.PAGE_STEPS.index(self.DEFAULT_PAGE)
         self.thumb_px = 400
         self.selected_index = 0
@@ -223,10 +208,6 @@ class YOLODatasetValidator:
         self.rows = 1
         self.cells: List[Dict] = []
 
-        # Thumbnails are decoded off the main thread and cached, so paging stays
-        # snappy. The PhotoImage cache is separate because those must be built on
-        # the main thread; keeping them lets a redraw skip cells whose picture has
-        # not changed.
         self.thumb_cache: "OrderedDict[Tuple, Image.Image]" = OrderedDict()
         self.cache_limit = 800
         self.photo_cache: "OrderedDict[Tuple, ImageTk.PhotoImage]" = OrderedDict()
@@ -235,17 +216,14 @@ class YOLODatasetValidator:
         self.executor = ThreadPoolExecutor(max_workers=min(8, (os.cpu_count() or 4)))
         self._layout_job: Optional[str] = None
 
-        # Zoom overlay
         self.zoom_window: Optional[tk.Toplevel] = None
         self.zoom_label: Optional[tk.Label] = None
         self.zoom_photo: Optional[ImageTk.PhotoImage] = None
 
-        # UI components
         self.root = tk.Tk()
         self.root.title("YOLO Dataset Validator")
         self.root.geometry("1600x1000")
 
-        # Status
         self.status_var = tk.StringVar()
         self.page_info_var = tk.StringVar()
         self.selection_var = tk.StringVar()
@@ -265,50 +243,37 @@ class YOLODatasetValidator:
             "#FFC0CB",
         ]
 
-        # Initialize
         self.load_dataset()
         self.load_class_info(self.class_labels_path)
         self.load_state()
         self.setup_ui()
         self.jump_to_next_unvalidated()
 
-    # ------------------------------------------------------------------ data
-
     def load_dataset(self):
         """Recursively find all image and annotation pairs in the dataset."""
         print(f"Loading dataset from {self.dataset_path}")
 
-        # Common image extensions
         image_extensions = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
 
-        # Find all images
         image_files = []
         for ext in image_extensions:
             image_files.extend(self.dataset_path.rglob(f"*{ext}"))
             image_files.extend(self.dataset_path.rglob(f"*{ext.upper()}"))
 
-        # Drop anything remove_failed_annotations.py set aside. Those pairs already
-        # failed validation, and their backup paths do not match the state keys, so
-        # they would come back as fresh unvalidated entries.
         image_files = [
             img_path
             for img_path in image_files
             if BACKUP_DIR_NAME not in img_path.relative_to(self.dataset_path).parts
         ]
 
-        # Match with annotation files
         for img_path in natsorted(image_files):
-            # Try to find corresponding label file
-            # YOLO convention: images/xxx.jpg -> labels/xxx.txt
             img_str = str(img_path)
 
-            # Check if in an 'images' directory
             if "/images/" in img_str or "\\images\\" in img_str:
                 label_str = img_str.replace("/images/", "/labels/").replace(
                     "\\images\\", "\\labels\\"
                 )
             else:
-                # Assume labels are in same directory or parallel structure
                 label_str = img_str
 
             label_path = Path(label_str).with_suffix(".txt")
@@ -339,7 +304,6 @@ class YOLODatasetValidator:
             colors_data = data.get("colors", [])
 
             if isinstance(names_data, dict):
-                # YOLO can store names as {0: "a", 1: "b", ...}
                 normalized_names = []
                 for key in sorted(names_data.keys(), key=lambda x: int(x)):
                     normalized_names.append(str(names_data[key]))
@@ -382,7 +346,6 @@ class YOLODatasetValidator:
         tmp = self.state_file.with_suffix(".json.tmp")
         with open(tmp, "w") as f:
             json.dump(self.validation_state, f, indent=2)
-        # Atomic replace so an interrupted write cannot truncate existing work
         tmp.replace(self.state_file)
 
     def key_for(self, index: int) -> str:
@@ -391,8 +354,6 @@ class YOLODatasetValidator:
 
     def status_of(self, index: int) -> str:
         return self.validation_state.get(self.key_for(index), "unvalidated")
-
-    # ------------------------------------------------------------------- grid
 
     @property
     def page_size(self) -> int:
@@ -410,7 +371,6 @@ class YOLODatasetValidator:
         sidebar = ttk.Frame(main_container, relief=tk.RIDGE, borderwidth=2)
         sidebar.pack(side=tk.RIGHT, fill=tk.Y, padx=(0, 8), pady=8)
 
-        # === PAGE SECTION ===
         page_section = ttk.LabelFrame(sidebar, text="Page", padding="12")
         page_section.pack(fill=tk.X, padx=10, pady=(10, 5))
 
@@ -440,7 +400,6 @@ class YOLODatasetValidator:
             page_section, text="⏩ Next Unvalidated (U)", command=self.jump_to_next_unvalidated
         ).pack(fill=tk.X, pady=(6, 0))
 
-        # === VALIDATION SECTION ===
         validation_section = ttk.LabelFrame(sidebar, text="Validate", padding="12")
         validation_section.pack(fill=tk.X, padx=10, pady=5)
 
@@ -468,7 +427,6 @@ class YOLODatasetValidator:
             validation_section, text="↺ Clear selected (C)", command=lambda: self.validate(None)
         ).pack(fill=tk.X, pady=(8, 2))
 
-        # === DISPLAY OPTIONS SECTION ===
         options_section = ttk.LabelFrame(sidebar, text="Display Options", padding="12")
         options_section.pack(fill=tk.X, padx=10, pady=5)
 
@@ -494,7 +452,6 @@ class YOLODatasetValidator:
             command=self.toggle_labels,
         ).pack(anchor=tk.W)
 
-        # === JUMP SECTION ===
         jump_section = ttk.LabelFrame(sidebar, text="Jump to Frame", padding="12")
         jump_section.pack(fill=tk.X, padx=10, pady=5)
         jump_frame = ttk.Frame(jump_section)
@@ -503,7 +460,6 @@ class YOLODatasetValidator:
         self.jump_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
         ttk.Button(jump_frame, text="Go", command=self._submit_jump, width=5).pack(side=tk.RIGHT)
 
-        # === KEYBOARD SHORTCUTS SECTION ===
         shortcuts_section = ttk.LabelFrame(sidebar, text="Keyboard Shortcuts", padding="12")
         shortcuts_section.pack(fill=tk.X, padx=10, pady=5)
 
@@ -523,12 +479,10 @@ class YOLODatasetValidator:
             shortcuts_section, text=shortcuts_text, font=("Courier", 9), justify=tk.LEFT
         ).pack(anchor=tk.W)
 
-        # Status bar at bottom
         status_frame = ttk.Frame(self.root)
         status_frame.pack(side=tk.BOTTOM, fill=tk.X)
         ttk.Label(status_frame, textvariable=self.status_var, relief=tk.SUNKEN).pack(fill=tk.X)
 
-        # Keyboard bindings
         self.bind_key("<Left>", lambda: self.move_selection(-1))
         self.bind_key("<Right>", lambda: self.move_selection(1))
         self.bind_key("<Up>", lambda: self.move_selection(-self.columns))
@@ -550,7 +504,6 @@ class YOLODatasetValidator:
         self.bind_key("<equal>", lambda: self.change_thumb_size(1))
         self.bind_key("<minus>", lambda: self.change_thumb_size(-1))
 
-        # Typing in the jump box must not trigger shortcuts; Enter submits it.
         self.jump_entry.bind("<Return>", self._submit_jump)
 
     def bind_key(self, sequence: str, action):
@@ -683,15 +636,11 @@ class YOLODatasetValidator:
         if zoom:
             self.open_zoom()
 
-    # --------------------------------------------------------------- drawing
-
     def color_name_to_hex(self, color_name: str) -> str:
         """Convert color name to hex code."""
-        # Check if already hex
         if color_name.startswith("#"):
             return color_name
 
-        # Convert to lowercase and return mapped color or default
         color_rgb = NAMED_COLORS.get(
             color_name.lower(), color_name if color_name.startswith("#") else (0, 0, 0)
         )
@@ -699,12 +648,7 @@ class YOLODatasetValidator:
 
     @staticmethod
     def _parse_detect_pose_row(class_id: int, values: List[float]) -> Optional[Dict]:
-        """Parse a standard YOLO detect/pose row into a bbox annotation.
-
-        Row layout: class cx cy w h [kpt_x kpt_y kpt_v]...
-        Returns None when the row is not a valid detect/pose row so the caller
-        can fall back to seg parsing.
-        """
+        """Parse a YOLO detect/pose row into a bbox annotation, or None."""
         if len(values) < 4:
             return None
 
@@ -732,11 +676,7 @@ class YOLODatasetValidator:
 
     @staticmethod
     def _parse_seg_row(class_id: int, values: List[float]) -> Optional[Dict]:
-        """Parse a YOLO-seg polygon row into a seg annotation.
-
-        Row layout: class x1 y1 x2 y2 ... xn yn
-        Returns None when the row does not form a valid polygon.
-        """
+        """Parse a YOLO-seg polygon row into a seg annotation, or None."""
         if len(values) < 6 or len(values) % 2 != 0:
             return None
 
@@ -778,13 +718,11 @@ class YOLODatasetValidator:
                 except ValueError:
                     continue
 
-                # Parse standard YOLO detect/pose rows first.
                 bbox = self._parse_detect_pose_row(class_id, values)
                 if bbox is not None:
                     annotations.append(bbox)
                     continue
 
-                # Fall back to YOLO-seg polygon rows.
                 seg = self._parse_seg_row(class_id, values)
                 if seg is not None:
                     annotations.append(seg)
@@ -809,8 +747,6 @@ class YOLODatasetValidator:
         img_path, label_path = self.image_annotation_pairs[index]
 
         image = Image.open(img_path)
-        # draft() lets libjpeg decode at a reduced DCT scale: the single biggest
-        # win for grid paging, since full 1080p decodes dominate otherwise.
         image.draft("RGB", box)
         image = image.convert("RGBA")
         image.thumbnail(box, Image.Resampling.BILINEAR)
@@ -876,7 +812,6 @@ class YOLODatasetValidator:
                         width=line_width,
                     )
             else:
-                # Always draw the bounding box for detect/pose annotations
                 draw.rectangle([x1, y1, x2, y2], outline=color, width=line_width)
 
             if draw_text:
@@ -891,7 +826,6 @@ class YOLODatasetValidator:
                 kx = kp["x"] * img_width
                 ky = kp["y"] * img_height
                 kp_color = kp_colors[kp_idx % len(kp_colors)]
-                # Filled circle with a dark outline
                 draw.ellipse(
                     [kx - radius - 1, ky - radius - 1, kx + radius + 1, ky + radius + 1],
                     fill="#000000",
@@ -917,12 +851,7 @@ class YOLODatasetValidator:
         return (index, self.thumb_box(), self.show_labels)
 
     def render_thumb(self, index: int) -> Image.Image:
-        """Return a cached thumbnail for `index`, rendering it if needed.
-
-        Every thumbnail is letterboxed to the identical `thumb_box()` size. Cells
-        then never change shape when a new image lands in them, which is what made
-        the grid jump around while a page was loading.
-        """
+        """Return a cached thumbnail for `index`, rendering it if needed."""
         box = self.thumb_box()
         cache_key = self.thumb_key(index)
 
@@ -943,11 +872,8 @@ class YOLODatasetValidator:
         return thumb
 
     def photo_for(self, index: int) -> Tuple[Tuple, ImageTk.PhotoImage]:
-        """Return the cached (key, PhotoImage) pair for `index`.
-
-        Reusing the PhotoImage is what keeps arrow-key navigation quiet: moving the
-        selection only recolors borders, it does not re-upload every image to X.
-        """
+        """Return the cached (key, PhotoImage) pair for `index`; tk thread only."""
+        assert threading.current_thread() is threading.main_thread()
         key = self.thumb_key(index)
         photo = self.photo_cache.get(key)
         if photo is None:
@@ -971,8 +897,6 @@ class YOLODatasetValidator:
             if self._cached(index) is None:
                 self.executor.submit(self.render_thumb, index)
 
-    # ------------------------------------------------------------ interaction
-
     def update_display(self):
         """Redraw the current page of thumbnails."""
         if not self.image_annotation_pairs or not self.cells:
@@ -984,7 +908,6 @@ class YOLODatasetValidator:
 
         indices = [i for i in range(self.page_start, min(self.page_start + len(self.cells), total))]
 
-        # Decode everything missing from the cache in parallel before touching tk.
         pending = [i for i in indices if self._cached(i) is None]
         if pending:
             list(self.executor.map(self.render_thumb, pending))
@@ -1162,8 +1085,6 @@ class YOLODatasetValidator:
         messagebox.showinfo("Complete", "All images have been validated!")
         self.update_display()
 
-    # ------------------------------------------------------------------ zoom
-
     def open_zoom(self):
         """Show the selected frame full size in its own window."""
         if self.zoom_window is not None and self.zoom_window.winfo_exists():
@@ -1222,13 +1143,7 @@ class YOLODatasetValidator:
 
 
 def find_class_yaml(dataset_path: Path) -> Optional[Path]:
-    """Locate the data yaml describing the dataset's classes.
-
-    The root is checked first, then the whole tree, because a tree of per-scene exports keeps one
-    yaml inside each export rather than a single one at the top. Those per-scene yamls only agree
-    when the scenes share a vocabulary; when they do not, a single class list would mislabel
-    everything drawn from the other scenes, so say so instead of picking one silently.
-    """
+    """Locate the data yaml describing the dataset's classes."""
     candidates = sorted(dataset_path.glob("*.y*ml")) or sorted(dataset_path.rglob("*.y*ml"))
     candidates = [p for p in candidates if p.suffix in (".yml", ".yaml")]
     if not candidates:
@@ -1263,7 +1178,6 @@ def main():
     if args.dataset_path:
         dataset_path_str = args.dataset_path
     else:
-        # Ask user to select directory
         root = tk.Tk()
         root.withdraw()
         dataset_path_str = filedialog.askdirectory(title="Select YOLO Dataset Directory")

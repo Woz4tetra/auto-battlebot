@@ -1,36 +1,4 @@
-"""Measure opponent-track reliability from a playback MCAP recording.
-
-Stage 0 instrumentation for the control-improvement plan. From a recording (a real Jetson SVO
-replayed in playback, or a live run), report how often a live (non-stale) opponent track is
-available and how long the track is lost at a time. This sets how hard the predictor must work:
-it coasts through the measured dropout gaps, so the gap-length distribution bounds the horizon.
-
-Source data is the `perception` diagnostics subsection the runner emits once per tick
-(their_count_total, their_count_live, our_present_live; src/runner.cpp), plus the `jump_reject`
-events the FrameId assigner logs. Any recording carrying `/diagnostics` (post 2026-06-19) works
-with no re-instrumentation. The message stamp is the camera frame stamp, so dropout durations
-are real time even under free-run playback.
-
-Metrics:
-  - opponent validity: % of ticks with a live (non-stale) opponent (their_count_live > 0)
-  - our-robot validity: % of ticks with a live OUR_ROBOT_1 (our_present_live > 0)
-  - opponent dropout gaps: run-lengths of consecutive ticks with no live opponent (frames + ms)
-  - our-robot dropout gaps: run-lengths of consecutive ticks with no live OUR_ROBOT_1 (frames + ms).
-    These bound the keypoint-override decay `hold_window` in docs/robot_filter_decay_plan.md:
-    if our-robot gaps are short, holding the "ours" identity across them is cheap.
-  - track churn: jump_reject events per second (the FrameId assigner refusing a far reassignment)
-
-Not yet measured: true track-ID-switch rate. The diagnostics carry opponent counts, not per-slot
-identity, so a physical robot swapping FrameId slots is not directly observable. jump_reject rate
-is the available proxy. Exact switch tracking needs a small addition to the perception diagnostics
-block (log the live THEIRS FrameId set); see docs.
-
-Usage:
-    source scripts/activate_python.sh
-    python training/model_eval/perception_reliability.py \
-        data/recordings/auto_battlebot_experiment_playback_2026-06-20_00-15-08.mcap \
-        --csv out/perception.csv --plot out/perception.png
-"""
+"""Measure opponent-track reliability from a playback MCAP recording."""
 
 from __future__ import annotations
 
@@ -51,51 +19,51 @@ from auto_battlebot.recording.mcap_io import (
 
 @dataclass
 class Frame:
-    t: float  # camera frame stamp (s)
-    their_total: int  # THEIRS descriptions present (live + coasting)
-    their_live: int  # THEIRS descriptions that are not stale this frame
-    our_live: int  # 1 if OUR_ROBOT_1 present and not stale
-    our_blob_no_keypoint: int  # 1 if our keypoint missed AND a blob coincided with our held pose
+    t_s: float
+    their_total: int
+    their_live: int
+    our_live_flag: int
+    our_blob_without_keypoint_flag: int
 
 
 @dataclass
 class Reliability:
     frames: list[Frame]
-    jump_rejects: int  # FrameId-assigner far-reassignment rejections over the run
-    has_leak_signal: bool  # whether the recording carries our_blob_present_no_keypoint (new build)
+    jump_reject_count: int
+    has_blob_no_keypoint_signal: bool
 
 
 def read_reliability(path: Path) -> Reliability:
-    """Read the per-tick perception diagnostics and count FrameId-assigner jump rejects.
-
-    Each /diagnostics message is one runner tick and carries at most one `perception` status. Ticks
-    before the filter initializes have no `perception` status and are skipped.
-    """
+    """Read the per-tick perception diagnostics and count FrameId-assigner jump rejects."""
     frames: list[Frame] = []
-    jump_rejects = 0
-    has_leak_signal = False
+    jump_reject_count = 0
+    has_blob_no_keypoint_signal = False
     for _topic, log_ns, data in iter_messages(path, [DIAGNOSTICS_TOPIC]):
         perc: dict[str, str] | None = None
         for status in decode_diagnostic_array(data):
             if status["name"] == "perception":
                 perc = status["values"]
             elif status["name"] == "jump_reject":
-                jump_rejects += 1
+                jump_reject_count += 1
         if perc is None:
             continue
         if "our_blob_present_no_keypoint" in perc:
-            has_leak_signal = True
+            has_blob_no_keypoint_signal = True
         frames.append(
             Frame(
-                t=log_ns * 1e-9,
+                t_s=log_ns * 1e-9,
                 their_total=int(perc.get("their_count_total", 0)),
                 their_live=int(perc.get("their_count_live", 0)),
-                our_live=int(perc.get("our_present_live", 0)),
-                our_blob_no_keypoint=int(perc.get("our_blob_present_no_keypoint", 0)),
+                our_live_flag=int(perc.get("our_present_live", 0)),
+                our_blob_without_keypoint_flag=int(perc.get("our_blob_present_no_keypoint", 0)),
             )
         )
-    frames.sort(key=lambda f: f.t)
-    return Reliability(frames=frames, jump_rejects=jump_rejects, has_leak_signal=has_leak_signal)
+    frames.sort(key=lambda f: f.t_s)
+    return Reliability(
+        frames=frames,
+        jump_reject_count=jump_reject_count,
+        has_blob_no_keypoint_signal=has_blob_no_keypoint_signal,
+    )
 
 
 def _false_runs(flags: np.ndarray) -> list[tuple[int, int]]:
@@ -112,24 +80,21 @@ def _false_runs(flags: np.ndarray) -> list[tuple[int, int]]:
 @dataclass
 class Gaps:
     count: int
-    frames: np.ndarray  # gap length in frames
-    ms: np.ndarray  # gap duration in milliseconds (first-missing to recovery)
+    gap_frames: np.ndarray
+    gap_ms: np.ndarray
 
 
 def _gaps(frames: list[Frame], live: np.ndarray) -> Gaps:
-    """Dropout gaps: maximal runs where `live` is False, in frames and real milliseconds.
-
-    `live` is a per-frame boolean mask aligned to `frames` (True = the track was live this tick).
-    """
-    t = np.array([f.t for f in frames])
+    """Dropout gaps: maximal runs where live is False, in frames and milliseconds."""
+    t = np.array([f.t_s for f in frames])
     n = len(frames)
     lens: list[int] = []
     durs: list[float] = []
     for a, b in _false_runs(live):
         lens.append(b - a)
-        end_t = t[b] if b < n else t[-1]  # recovery time, or end of recording
+        end_t = t[b] if b < n else t[-1]
         durs.append((end_t - t[a]) * 1e3)
-    return Gaps(count=len(lens), frames=np.array(lens), ms=np.array(durs))
+    return Gaps(count=len(lens), gap_frames=np.array(lens), gap_ms=np.array(durs))
 
 
 def opponent_gaps(frames: list[Frame]) -> Gaps:
@@ -138,28 +103,21 @@ def opponent_gaps(frames: list[Frame]) -> Gaps:
 
 
 def our_robot_gaps(frames: list[Frame]) -> Gaps:
-    """Dropout gaps: maximal runs with no live OUR_ROBOT_1, in frames and real milliseconds.
-
-    These are the our-robot keypoint-dropout gaps the robot-filter decay plan bounds: the proposed
-    `hold_window` should cover the typical gap (~p90) so the "ours" identity survives it.
-    """
-    return _gaps(frames, np.array([f.our_live > 0 for f in frames]))
+    """Dropout gaps with no live OUR_ROBOT_1."""
+    return _gaps(frames, np.array([f.our_live_flag > 0 for f in frames]))
 
 
 def _print_gap_block(label: str, gaps: Gaps, time_without_pct: float | None = None) -> None:
-    """Print a dropout-gap summary for one track (opponent or our-robot).
-
-    `time_without_pct` (% of ticks with no live track) is printed when given; it is omitted for a
-    pooled block across recordings, where a single live fraction is not meaningful.
-    """
+    """Print a dropout-gap summary for one track."""
     if gaps.count:
         print(
-            f"  {label} dropout gaps: {gaps.count}   frames [median {np.median(gaps.frames):.0f}, "
-            f"p90 {np.percentile(gaps.frames, 90):.0f}, max {int(gaps.frames.max())}]"
+            f"  {label} dropout gaps: {gaps.count}   "
+            f"frames [median {np.median(gaps.gap_frames):.0f}, "
+            f"p90 {np.percentile(gaps.gap_frames, 90):.0f}, max {int(gaps.gap_frames.max())}]"
         )
         print(
-            f"      {' ' * len(label)}          duration [median {np.median(gaps.ms):.0f} ms, "
-            f"p90 {np.percentile(gaps.ms, 90):.0f} ms, max {gaps.ms.max():.0f} ms]"
+            f"      {' ' * len(label)}          duration [median {np.median(gaps.gap_ms):.0f} ms, "
+            f"p90 {np.percentile(gaps.gap_ms, 90):.0f} ms, max {gaps.gap_ms.max():.0f} ms]"
         )
         if time_without_pct is not None:
             print(f"  time without a live {label}: {time_without_pct:.1f}%")
@@ -173,11 +131,11 @@ def print_summary(name: str, rel: Reliability) -> None:
     if n < 2:
         print(f"{name}: no perception frames (recording predates the perception diagnostics?)")
         return
-    t = np.array([f.t for f in frames])
+    t = np.array([f.t_s for f in frames])
     span = float(t[-1] - t[0])
     dt = float(np.median(np.diff(t)))
     live = np.array([f.their_live > 0 for f in frames])
-    our = np.array([f.our_live > 0 for f in frames])
+    our = np.array([f.our_live_flag > 0 for f in frames])
 
     present = 100.0 * float(np.mean([f.their_total > 0 for f in frames]))
     print(f"\n{name}: {n} frames over {span:.1f} s (~{1.0 / dt:.0f} fps)")
@@ -190,8 +148,8 @@ def print_summary(name: str, rel: Reliability) -> None:
     _print_gap_block("opponent", opponent_gaps(frames), 100.0 * (1.0 - live.mean()))
     _print_gap_block("our-robot", our_robot_gaps(frames), 100.0 * (1.0 - our.mean()))
 
-    if rel.has_leak_signal:
-        leak = np.array([f.our_blob_no_keypoint > 0 for f in frames])
+    if rel.has_blob_no_keypoint_signal:
+        leak = np.array([f.our_blob_without_keypoint_flag > 0 for f in frames])
         n_leak = int(leak.sum())
         n_dropout = int((~our).sum())
         of_dropout = (
@@ -208,19 +166,19 @@ def print_summary(name: str, rel: Reliability) -> None:
         )
 
     print(
-        f"  track churn: {rel.jump_rejects} jump_reject events "
-        f"({rel.jump_rejects / span:.2f}/s) [proxy for track-ID instability]"
+        f"  track churn: {rel.jump_reject_count} jump_reject events "
+        f"({rel.jump_reject_count / span:.2f}/s) [proxy for track-ID instability]"
     )
 
 
 def write_csv(path: Path, frames: list[Frame]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    t0 = frames[0].t if frames else 0.0
+    t0 = frames[0].t_s if frames else 0.0
     with open(path, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["t", "their_total", "their_live", "our_live"])
         for fr in frames:
-            writer.writerow([f"{fr.t - t0:.4f}", fr.their_total, fr.their_live, fr.our_live])
+            writer.writerow([f"{fr.t_s - t0:.4f}", fr.their_total, fr.their_live, fr.our_live_flag])
     print(f"wrote {path}")
 
 
@@ -230,7 +188,7 @@ def write_gap_csv(path: Path, gaps: Gaps) -> None:
     with open(path, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["gap_frames", "gap_ms"])
-        for n_frames, ms in zip(gaps.frames.tolist(), gaps.ms.tolist()):
+        for n_frames, ms in zip(gaps.gap_frames.tolist(), gaps.gap_ms.tolist()):
             writer.writerow([int(n_frames), f"{ms:.1f}"])
     print(f"wrote {path}")
 
@@ -247,22 +205,23 @@ def save_plot(path: Path, rel: Reliability) -> None:
     frames = rel.frames
     if len(frames) < 2:
         return
-    t = np.array([f.t for f in frames]) - frames[0].t
+    t = np.array([f.t_s for f in frames]) - frames[0].t_s
     live = np.array([f.their_live > 0 for f in frames])
-    our = np.array([f.our_live > 0 for f in frames])
+    our = np.array([f.our_live_flag > 0 for f in frames])
     opp_gaps = opponent_gaps(frames)
     our_gaps = our_robot_gaps(frames)
 
     def _hist(axis: Any, gaps: Gaps, color: str, title: str) -> None:
         if gaps.count:
-            axis.hist(gaps.ms, bins=30, color=color, alpha=0.8)
+            axis.hist(gaps.gap_ms, bins=30, color=color, alpha=0.8)
             axis.axvline(
-                float(np.median(gaps.ms)),
+                float(np.median(gaps.gap_ms)),
                 color="k",
                 ls="--",
                 lw=1,
                 label=(
-                    f"median {np.median(gaps.ms):.0f} ms, p90 {np.percentile(gaps.ms, 90):.0f} ms"
+                    f"median {np.median(gaps.gap_ms):.0f} ms, "
+                    f"p90 {np.percentile(gaps.gap_ms, 90):.0f} ms"
                 ),
             )
             axis.legend(fontsize=8)
@@ -328,14 +287,14 @@ def main() -> None:
         rel = read_reliability(path)
         print_summary(path.name, rel)
         g = our_robot_gaps(rel.frames)
-        pooled_our_frames.extend(g.frames.tolist())
-        pooled_our_ms.extend(g.ms.tolist())
+        pooled_our_frames.extend(g.gap_frames.tolist())
+        pooled_our_ms.extend(g.gap_ms.tolist())
         if len(rel.frames) >= 2:
             pooled_ticks += len(rel.frames)
-            pooled_span += rel.frames[-1].t - rel.frames[0].t
-            pooled_leak_ticks += sum(f.our_blob_no_keypoint > 0 for f in rel.frames)
-            pooled_dropout_ticks += sum(f.our_live == 0 for f in rel.frames)
-            pooled_has_leak = pooled_has_leak or rel.has_leak_signal
+            pooled_span += rel.frames[-1].t_s - rel.frames[0].t_s
+            pooled_leak_ticks += sum(f.our_blob_without_keypoint_flag > 0 for f in rel.frames)
+            pooled_dropout_ticks += sum(f.our_live_flag == 0 for f in rel.frames)
+            pooled_has_leak = pooled_has_leak or rel.has_blob_no_keypoint_signal
         if i == 0 and args.csv:
             write_csv(args.csv, rel.frames)
         if i == 0 and args.plot:
@@ -344,8 +303,8 @@ def main() -> None:
     if len(args.mcap) > 1 and pooled_our_ms:
         pooled = Gaps(
             count=len(pooled_our_frames),
-            frames=np.array(pooled_our_frames),
-            ms=np.array(pooled_our_ms),
+            gap_frames=np.array(pooled_our_frames),
+            gap_ms=np.array(pooled_our_ms),
         )
         print(f"\npooled across {len(args.mcap)} recordings:")
         _print_gap_block("our-robot", pooled)
@@ -363,8 +322,8 @@ def main() -> None:
     if args.our_gap_csv:
         pooled = Gaps(
             count=len(pooled_our_frames),
-            frames=np.array(pooled_our_frames),
-            ms=np.array(pooled_our_ms),
+            gap_frames=np.array(pooled_our_frames),
+            gap_ms=np.array(pooled_our_ms),
         )
         write_gap_csv(args.our_gap_csv, pooled)
 

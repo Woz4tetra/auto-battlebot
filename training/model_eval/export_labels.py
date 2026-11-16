@@ -1,30 +1,5 @@
 #!/usr/bin/env python3
-"""Export YOLO datasets with model pre-labels from label_playback MCAP recordings.
-
-Reads /camera/image, /blob_detections and /keypoint_detections from one or more MCAPs
-produced by `./scripts/build_and_run.sh -c config/label_playback.toml`, pairs them by
-frame stamp, and writes one dataset per model per recording. Images are written once at
-the recording top level and symlinked into each subdataset:
-
-    <output-dir>/<recording>/images/<stamp_ns>.png       (shared, real files)
-    <output-dir>/<recording>/blob/images   -> ../images  (symlink)
-    <output-dir>/<recording>/blob/labels/<stamp_ns>.txt  (class cx cy w h)
-    <output-dir>/<recording>/blob/data.yaml
-    <output-dir>/<recording>/keypoint/images -> ../images
-    <output-dir>/<recording>/keypoint/labels/<stamp_ns>.txt  (class cx cy w h kx ky v ...)
-    <output-dir>/<recording>/keypoint/data.yaml
-
-Accepts multiple MCAP paths or globs and writes each under --output-dir automatically,
-so `export_labels.py data/recordings/*.mcap` processes a whole batch. Both the blob
-detector (detect rows) and keypoint model (pose rows) are exported by default; restrict
-with --topics.
-
-Correct the pre-labels with edit_labels.py, then score candidate runs with score.py.
-
-Usage:
-    python training/model_eval/export_labels.py data/recordings/*.mcap \
-        [--output-dir <dir>] [--topics blob keypoint]
-"""
+"""Export YOLO datasets with model pre-labels from label_playback MCAP recordings."""
 
 from __future__ import annotations
 
@@ -32,8 +7,10 @@ import argparse
 import glob
 import shutil
 from pathlib import Path
+from typing import Literal, NewType
 
 import cv2
+import numpy as np
 import yaml
 from tqdm import tqdm
 
@@ -49,12 +26,11 @@ from auto_battlebot.recording.mcap_io import (
     match_stamps,
 )
 
-TOPICS = {"blob": BLOB_DETECTIONS_TOPIC, "keypoint": KEYPOINT_DETECTIONS_TOPIC}
-# Anchored to this script (training/model_eval/), so it resolves to training/data/model_eval
-# regardless of the working directory.
+StampNs = NewType("StampNs", int)
+TopicKey = Literal["blob", "keypoint"]
+TOPICS: dict[TopicKey, str] = {"blob": BLOB_DETECTIONS_TOPIC, "keypoint": KEYPOINT_DETECTIONS_TOPIC}
 DEFAULT_OUTPUT_DIR = Path(__file__).parent.parent / "data" / "model_eval"
 
-# Distinct editor colors, indexed by class id (wraps around).
 DEFAULT_COLORS = [
     "#FF0000",
     "#00FF00",
@@ -70,13 +46,11 @@ DEFAULT_COLORS = [
 
 
 def load_recording(
-    mcap_path: Path, topic_keys: list[str]
-) -> tuple[dict[str, dict[int, Detections]], dict[int, bytes]]:
-    """Read the requested detection topics and /camera/image in a single pass.
-
-    Returns ({topic_key: {stamp_ns: Detections}}, {stamp_ns: raw image bytes})."""
-    detections: dict[str, dict[int, Detections]] = {key: {} for key in topic_keys}
-    images: dict[int, bytes] = {}
+    mcap_path: Path, topic_keys: list[TopicKey]
+) -> tuple[dict[TopicKey, dict[StampNs, Detections]], dict[StampNs, bytes]]:
+    """Read the requested detection topics and /camera/image in a single pass."""
+    detections: dict[TopicKey, dict[StampNs, Detections]] = {key: {} for key in topic_keys}
+    images: dict[StampNs, bytes] = {}
     topic_lookup = {TOPICS[key]: key for key in topic_keys}
     messages = tqdm(
         iter_messages(mcap_path, [*topic_lookup, CAMERA_IMAGE_TOPIC]),
@@ -88,11 +62,9 @@ def load_recording(
         key = topic_lookup.get(topic)
         if key is not None:
             dets = decode_detections(data)
-            detections[key][dets.stamp_ns] = dets
+            detections[key][StampNs(dets.stamp_ns)] = dets
         elif topic == CAMERA_IMAGE_TOPIC:
-            # Key by the header (frame) stamp: log_time is wall clock in playback.
-            # Defer image decoding until we know which frames have detections to pair with.
-            images[decode_image_stamp_ns(data)] = data
+            images[StampNs(decode_image_stamp_ns(data))] = data
     return detections, images
 
 
@@ -125,11 +97,15 @@ def yolo_rows(dets: Detections) -> list[str]:
     return rows
 
 
+def left_eye_if_side_by_side(image: np.ndarray, image_width: int) -> np.ndarray:
+    if image.shape[1] == 2 * image_width:
+        return image[:, :image_width]
+    return image
+
+
 def write_image(image_data: bytes, image_width: int, out_path: Path) -> None:
     image = decode_compressed_image(image_data).image
-    # ZED side-by-side exports are twice the pipeline width; keep the left eye.
-    if image.shape[1] == 2 * image_width:
-        image = image[:, :image_width]
+    image = left_eye_if_side_by_side(image, image_width)
     cv2.imwrite(str(out_path), image)
 
 
@@ -215,7 +191,6 @@ def export_recording(mcap_path: Path, output_dir: Path, topic_keys: list[str]) -
     image_stamps = sorted(images)
     matches = {key: match_stamps(sorted(detections[key]), image_stamps) for key in present}
 
-    # Shared images: the union of frames any present model labels, written once.
     needed: dict[int, int] = {}
     for key in present:
         needed.update(matches[key])

@@ -1,18 +1,5 @@
 #!/usr/bin/env python3
-"""Merge per-export `validation_state.json` files into one at the dataset root.
-
-`validate_yolo_dataset.py` keys its verdicts on the image path relative to whatever directory it
-was opened on. Open a single export and the keys read `images/frame_000000.jpg`; open a tree of
-exports and the same frame is `<export>/images/frame_000000.jpg`. The verdicts are the same
-human review either way, but the keys do not match, so a tree opened at the root starts from
-zero even though every frame under it has already been judged.
-
-This rewrites the per-export keys to be root-relative and writes the union. Frames whose image is
-no longer on disk are dropped, since a verdict pointing at nothing only makes the counts lie.
-
-Usage:
-    python training/yolo/merge_validation_state.py <dataset_root>
-"""
+"""Merge per-export `validation_state.json` files into one at the dataset root."""
 
 from __future__ import annotations
 
@@ -44,6 +31,13 @@ def collect(root: Path) -> tuple[dict[str, str], int, int]:
     return merged, files, dropped
 
 
+def apply_existing(merged: dict[str, str], existing: dict[str, str]) -> int:
+    """Overlay the existing root verdicts onto `merged`; returns how many changed a verdict."""
+    overridden = sum(1 for k, v in existing.items() if merged.get(k) not in (None, v))
+    merged.update(existing)
+    return overridden
+
+
 def main() -> None:
     """Merge every per-export validation state under the root into a root-level one."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n", maxsplit=1)[0])
@@ -63,12 +57,9 @@ def main() -> None:
     if dropped:
         print(f"  {dropped} verdict(s) dropped: image no longer on disk")
 
-    # An existing root state is the newer judgement -- it was made against these keys, while the
-    # per-export files predate the merge. Keep it on top rather than reverting it.
     if out.is_file():
         existing = json.loads(out.read_text())
-        overridden = sum(1 for k, v in existing.items() if merged.get(k) not in (None, v))
-        merged.update(existing)
+        overridden = apply_existing(merged, existing)
         print(f"  {len(existing)} verdict(s) already in {out.name} kept ({overridden} differed)")
 
     if args.dry_run:

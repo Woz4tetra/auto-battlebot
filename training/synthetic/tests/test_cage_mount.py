@@ -1,10 +1,4 @@
-"""Cage-mount poses put the camera where the mount says, looking where it says.
-
-The cross-checks go through `auto_battlebot.perception.cage_calibration`, which owns the frame
-conventions: a pose built here, converted back to `T_W<-cam_cv` and summarised, must report the
-height, tilt and yaw that were asked for. That pins `cage_mount`'s hand-written Blender camera
-basis against the repo's own definition of those frames.
-"""
+"""Cage-mount poses put the camera where the mount says, looking where it says."""
 
 from __future__ import annotations
 
@@ -13,10 +7,13 @@ import random
 
 import numpy as np
 import pytest
+from synthgen import freefly
 from synthgen.cage_mount import (
+    NEAR_VERTICAL_AXIS_COS,
     WALLS,
     CageMount,
     CageMountRanges,
+    camera_basis_cam2world,
     mount_cam2world,
     mount_forward,
     mount_position,
@@ -28,8 +25,6 @@ from synthgen.cage_mount import (
 from auto_battlebot.perception.cage_calibration import OPENCV_TO_BLENDER_CAMERA, pose_summary
 
 WALL_HALF = 2.4384 / 2
-# The May 2026 fit: 1.16 m above the mat, 0.11 m inside the near wall, 31.9 deg off straight
-# down, square to the wall.
 FITTED = CageMount("near", 0.02, 1.16, 0.109, 31.9, 0.0, 0.0)
 
 
@@ -56,10 +51,9 @@ def test_every_wall_looks_inward_and_down(wall: str) -> None:
     position = mount_position(mount, WALL_HALF)
     forward = mount_forward(mount)
 
-    # Inside the cage, above the mat, and aimed across it and down.
     assert np.linalg.norm(position[:2]) < WALL_HALF * math.sqrt(2)
     assert position[2] == pytest.approx(1.2)
-    assert float(np.dot(position[:2], normal[:2])) < 0  # the wall is opposite the inward normal
+    assert float(np.dot(position[:2], normal[:2])) < 0
     assert float(np.dot(forward, normal)) > 0
     assert forward[2] < 0
     assert summarize(mount)["tilt_from_down_deg"] == pytest.approx(33.0)
@@ -67,7 +61,6 @@ def test_every_wall_looks_inward_and_down(wall: str) -> None:
 
 def test_yaw_turns_toward_the_along_axis() -> None:
     summary = summarize(CageMount("near", 0.0, 1.2, 0.1, 32.0, 7.0, 0.0))
-    # On the near wall the along axis is +x, and pose_summary's yaw is positive toward +x.
     assert summary["yaw_deg"] == pytest.approx(7.0)
 
 
@@ -82,8 +75,8 @@ def test_cam2world_is_a_right_handed_rotation() -> None:
 def test_roll_rotates_the_image_axes_only() -> None:
     upright = mount_cam2world(CageMount("far", 0.0, 1.2, 0.1, 32.0, 0.0, 0.0), WALL_HALF)
     rolled = mount_cam2world(CageMount("far", 0.0, 1.2, 0.1, 32.0, 0.0, 10.0), WALL_HALF)
-    assert np.allclose(upright[:3, 2], rolled[:3, 2], atol=1e-9)  # same optical axis
-    assert np.allclose(upright[:3, 3], rolled[:3, 3], atol=1e-9)  # same position
+    assert np.allclose(upright[:3, 2], rolled[:3, 2], atol=1e-9)
+    assert np.allclose(upright[:3, 3], rolled[:3, 3], atol=1e-9)
     angle = math.degrees(math.acos(float(np.clip(np.dot(upright[:3, 1], rolled[:3, 1]), -1, 1))))
     assert angle == pytest.approx(10.0, abs=1e-6)
 
@@ -91,7 +84,7 @@ def test_roll_rotates_the_image_axes_only() -> None:
 def test_straight_down_mount_still_builds_a_valid_basis() -> None:
     rotation = mount_cam2world(CageMount("near", 0.0, 1.4, 0.1, 0.0, 0.0, 0.0), WALL_HALF)[:3, :3]
     assert np.allclose(rotation.T @ rotation, np.eye(3), atol=1e-9)
-    assert np.allclose(rotation[:, 2], [0.0, 0.0, 1.0], atol=1e-9)  # -forward is +z
+    assert np.allclose(rotation[:, 2], [0.0, 0.0, 1.0], atol=1e-9)
 
 
 def test_samples_stay_inside_their_ranges() -> None:
@@ -116,15 +109,14 @@ def test_unknown_wall_is_rejected() -> None:
         wall_axes("ceiling")
 
 
-# The basement's two stone walls and its committed mount block (config.toml, meatball_basement).
-_BASEMENT_WALLS = [
+_MEATBALL_BASEMENT_WALLS = [
     ("far", (0.871, 0.825), (-1.729, 0.825)),
     ("right", (0.871, -1.775), (0.871, 0.825)),
 ]
-_BASEMENT_HALF = 0.8001
+_MEATBALL_BASEMENT_HALF = 0.8001
 
 
-def _basement_ranges(**overrides: object) -> CageMountRanges:
+def _meatball_basement_ranges(**overrides: object) -> CageMountRanges:
     values: dict[str, object] = {
         "walls": ("near", "left"),
         "along_m": (-0.40, 0.40),
@@ -135,21 +127,55 @@ def _basement_ranges(**overrides: object) -> CageMountRanges:
 
 
 def test_basement_mounts_clear_both_stone_walls() -> None:
-    assert mounts_behind_walls(_basement_ranges(), _BASEMENT_HALF, _BASEMENT_WALLS) == []
+    assert (
+        mounts_behind_walls(
+            _meatball_basement_ranges(), _MEATBALL_BASEMENT_HALF, _MEATBALL_BASEMENT_WALLS
+        )
+        == []
+    )
 
 
 @pytest.mark.parametrize("wall", ["far", "right"])
 def test_mount_on_a_walled_side_is_rejected(wall: str) -> None:
-    blocked = mounts_behind_walls(_basement_ranges(walls=(wall,)), _BASEMENT_HALF, _BASEMENT_WALLS)
+    blocked = mounts_behind_walls(
+        _meatball_basement_ranges(walls=(wall,)), _MEATBALL_BASEMENT_HALF, _MEATBALL_BASEMENT_WALLS
+    )
     assert blocked
     assert all(f"venue wall {wall!r}" in message for message in blocked)
 
 
 def test_mount_sliding_past_a_wall_is_rejected() -> None:
-    wide = _basement_ranges(walls=("left",), along_m=(-1.0, 1.0))
-    blocked = mounts_behind_walls(wide, _BASEMENT_HALF, _BASEMENT_WALLS)
+    wide = _meatball_basement_ranges(walls=("left",), along_m=(-1.0, 1.0))
+    blocked = mounts_behind_walls(wide, _MEATBALL_BASEMENT_HALF, _MEATBALL_BASEMENT_WALLS)
     assert any("venue wall 'far'" in message for message in blocked)
 
 
 def test_a_venue_without_walls_blocks_nothing() -> None:
     assert mounts_behind_walls(CageMountRanges(), 1.2, []) == []
+
+
+def test_wall_axes_handedness() -> None:
+    normal, along = wall_axes("near")
+    assert normal.tolist() == [0.0, 1.0, 0.0]
+    assert along.tolist() == [1.0, 0.0, 0.0]
+    for wall in WALLS:
+        normal, along = wall_axes(wall)
+        assert np.cross(along, normal)[2] == pytest.approx(1.0)
+
+
+def test_near_vertical_axis_takes_its_up_from_the_heading() -> None:
+    heading = np.array([1.0, 0.0, 0.0])
+    down = np.array([0.0, 0.0, -1.0])
+    position = np.zeros(3)
+    straight = camera_basis_cam2world(position, down, heading, 0.0)
+    assert np.allclose(straight[:3, 1], heading, atol=1e-9)
+    lean = math.acos(NEAR_VERTICAL_AXIS_COS) * 0.5
+    nearly = np.array([0.0, math.sin(lean), -math.cos(lean)])
+    assert np.allclose(camera_basis_cam2world(position, nearly, heading, 0.0)[:3, 1], heading)
+    tilted = math.acos(NEAR_VERTICAL_AXIS_COS) * 2.0
+    off_axis = np.array([0.0, math.sin(tilted), -math.cos(tilted)])
+    assert camera_basis_cam2world(position, off_axis, heading, 0.0)[2, 1] > 0.0
+
+
+def test_freefly_and_mounts_share_one_camera_basis() -> None:
+    assert freefly.camera_basis_cam2world is camera_basis_cam2world

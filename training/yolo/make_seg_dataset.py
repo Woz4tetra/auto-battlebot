@@ -1,16 +1,5 @@
 #!/usr/bin/env python3
-"""
-Build a flat YOLO-seg dataset from one or more segmentation datasets.
-
-For each image:
-- floor_only mode: keep floor polygons minus all non-floor polygons
-- merged_classes mode: remap source class IDs into configured class groups
-
-Output is a flat dataset:
-- <output>/images/*.jpg|png|...
-- <output>/labels/*.txt
-- <output>/data.yaml
-"""
+"""Build a flat YOLO-seg dataset from one or more segmentation datasets."""
 
 from __future__ import annotations
 
@@ -28,6 +17,7 @@ from shapely.errors import GEOSException
 from shapely.geometry import GeometryCollection, LineString, MultiPolygon, Polygon
 from shapely.ops import nearest_points, unary_union
 
+HIERARCHY_PARENT = 3
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
 
 
@@ -258,7 +248,6 @@ def parse_yolo_seg_rows(
         except ValueError:
             continue
 
-        # YOLO-seg: class x1 y1 ... xn yn
         if len(values) < 6 or len(values) % 2 != 0:
             continue
 
@@ -365,8 +354,6 @@ def robust_difference(floor_geom: object, obstacle_geom: object) -> object:
 
 
 def _build_hole_cut_buffers(polygon: Polygon, epsilon: float) -> list[Polygon]:
-    # Build tiny cuts from each hole to the exterior boundary. Removing those
-    # slits turns holey polygons into regular polygons without fan triangulation.
     cutters = []
     for ring in polygon.interiors:
         try:
@@ -482,7 +469,6 @@ def to_yolo_seg_line(class_id: int, polygon: Polygon) -> str | None:
     coords = list(polygon.exterior.coords)
     if len(coords) < 4:
         return None
-    # Last coord repeats first; YOLO polygon rows should not include duplicate closure.
     coords = coords[:-1]
     if len(coords) < 3:
         return None
@@ -549,8 +535,6 @@ def _build_floor_minus_obstacle_mask(
         return None
     cv2.fillPoly(floor_mask, floor_cv, 255)
 
-    # Subtract all non-floor rows as obstacles. We include both repaired shapely
-    # polygons and raw rows to avoid dropping invalid robot polygons.
     obstacle_cv = [
         arr for p in obstacle_polys if (arr := _polygon_to_cv_poly(p, max_idx)) is not None
     ]
@@ -617,13 +601,10 @@ def _pieces_from_mask(mask: np.ndarray, max_idx: int, min_area: float) -> list[P
     if not contours or hierarchy is None:
         return []
 
-    # Build polygons with hole hierarchy first, then decompose holes into
-    # hole-free polygons so robot cutouts are not filled back in.
     pieces: list[Polygon] = []
     hierarchy_data = hierarchy[0]
     for idx, contour in enumerate(contours):
-        # Parent == -1 means outer contour.
-        if hierarchy_data[idx][3] != -1:
+        if hierarchy_data[idx][HIERARCHY_PARENT] != -1:
             continue
         if len(contour) < 3:
             continue
@@ -659,7 +640,6 @@ def build_floor_rows(
     if not pieces:
         return []
 
-    # Keep only largest polygons to control output size.
     pieces = sorted(pieces, key=lambda p: p.area, reverse=True)[:max_polygons]
 
     out_rows: list[str] = []

@@ -39,7 +39,6 @@ class TestApplyObjectMotionBlur:
         blurred = apply_object_motion_blur(image, seg, 1, kernel_size=5, angle=0.0)
 
         assert blurred.shape == image.shape
-        # Far corners are well outside the 5px-dilated mask.
         np.testing.assert_array_equal(blurred[:10, :10], image[:10, :10])
         np.testing.assert_array_equal(blurred[-10:, -10:], image[-10:, -10:])
 

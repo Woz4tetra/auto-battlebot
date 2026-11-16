@@ -25,14 +25,12 @@ import shutil
 from pathlib import Path
 
 import nhrl_common as nc
-
-# Model container extensions the render pool globs (mirrors render_scenes.py).
-_MODEL_EXTENSIONS = (".glb", ".gltf", ".obj", ".ply")
+from synthgen.constants import MODEL_EXTENSIONS
 
 
 def _model_file_for(sidecar: Path) -> Path | None:
     """Sibling model file for a ``<stem>.json`` sidecar, or None if missing."""
-    for ext in _MODEL_EXTENSIONS:
+    for ext in sorted(MODEL_EXTENSIONS):
         candidate = sidecar.with_suffix(ext)
         if candidate.exists():
             return candidate
@@ -47,7 +45,6 @@ def _topdown_image_for(sidecar: Path, data: dict) -> Path | None:
         img = sidecar.parent / str(rel)
         if img.exists():
             return img
-    # Fall back to the conventional layout even if the sidecar lacks the field.
     fallback = sidecar.parent / "topdown" / f"{sidecar.stem}.png"
     return fallback if fallback.exists() else None
 

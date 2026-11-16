@@ -1,35 +1,10 @@
-"""Measure how far a YOLO-seg mask centroid sits from its own bounding-box center.
-
-The segmentation head emits a mask and a box for the same detection, but the pipeline
-only consumes a position. This script asks whether the mask centroid carries position
-information the box center does not:
-
-1. Per detection, the offset between the mask centroid and that detection's box center,
-   in pixels and as a fraction of the box's longer side (the same normalization
-   score.py uses for keypoint PCK).
-2. Over IoU-matched detections, how far each position estimate lands from the ground-truth
-   box center. A detect-only model can be passed as a third estimator so the mask
-   centroid, the seg box center, and a bbox-only model are graded on one scale.
-
-Inference runs through ultralytics on the .pt weights, not the TensorRT engine, because
-TrtYoloModel discards the mask coefficients. Detection metrics from this path differ
-slightly from score.py's engine numbers; the offsets measured here are self-consistent
-because centroid and box come from the same forward pass.
-
-Example:
-
-    python training/model_eval/mask_centroid_vs_box.py training/data/nhrl_keypoints_eval_test \
-        --seg-weights data/models_v2/yolo26n-seg_nhrl_robots_2026-04-27.pt \
-        --seg-labels opponent,opponent,house_bot,mr_stabs_mk2,mrs_buff_mk3 \
-        --bbox-weights data/models/yolo26n_nhrl_robots_bbox_2class_mixed_2026-07-31.pt \
-        --bbox-labels opponent,house_bot \
-        --taxonomy training/model_eval/taxonomy_merged.yaml --conf 0.5
-"""
+"""Measure how far a YOLO-seg mask centroid sits from its own bounding-box center."""
 
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from typing import NamedTuple
 
 import matplotlib
 
@@ -40,6 +15,7 @@ import numpy as np
 import pandas as pd
 
 from auto_battlebot.eval import BACK_IDX, FRONT_IDX, Frame, Taxonomy, load_gt, match_indices
+from auto_battlebot.eval.metrics import PCK_FRACTION
 from auto_battlebot.perception.camera_geometry import (
     ground_range_m,
     height_for_label,
@@ -47,25 +23,19 @@ from auto_battlebot.perception.camera_geometry import (
     pixels_to_floor,
 )
 
-# Categorical slots 1-3 of the validated default palette, in fixed order.
 SERIES_COLORS = ("#2a78d6", "#eb6834", "#1baf7a")
 GRID_COLOR = "#c9c8c2"
 TEXT_SECONDARY = "#52514e"
 
-# Offset thresholds reported as "fraction of detections within", as a share of the box's
-# longer side. 0.1 matches score.py's PCK_FRACTION.
-NEAR_THRESHOLDS = (0.02, 0.05, 0.1)
+NEAR_THRESHOLDS = (0.02, 0.05, PCK_FRACTION)
 
 MASK_BINARY_THRESHOLD = 0.5
 
-# The two points an estimate can be graded against. The GT box center is what the labels
-# encode; the keypoint midpoint is what the aim controller is steering at.
 REFERENCES = {
     "gtbox": "the GT box center",
     "kpmid": "the keypoint front/back midpoint",
 }
 
-# Display names, in the order they appear in tables and the plot.
 ESTIMATORS = {
     "centroid": "mask centroid",
     "seg_boxcenter": "seg box center",
@@ -81,9 +51,10 @@ COMPARISONS = (
     ("seg_boxcenter", "gt_boxcenter"),
 )
 
-# `gt_boxcenter` is the GT box center, so grading it against the `gtbox` reference is
-# identically zero. Report it only against the keypoint midpoint.
 DEGENERATE = {("gtbox", "gt_boxcenter")}
+
+
+PointsN2 = np.ndarray
 
 
 def box_centers(boxes: np.ndarray) -> np.ndarray:
@@ -222,10 +193,7 @@ def centroid_rows(
 
 
 def keypoint_midpoints(gt_keypoints: list[np.ndarray]) -> np.ndarray:
-    """(N, 2) front/back keypoint midpoint per GT box, NaN where either end is unlabeled.
-
-    This is the point the aim controller actually wants: the middle of the robot chassis
-    along its heading axis, which is not the same as the center of its bounding box."""
+    """(N, 2) front/back keypoint midpoint per GT box, NaN where either end is unlabeled."""
     mids = np.full((len(gt_keypoints), 2), np.nan)
     for i, kps in enumerate(gt_keypoints):
         if len(kps) <= max(FRONT_IDX, BACK_IDX):
@@ -240,17 +208,12 @@ def error_rows(
     stamp: int,
     gt_labels: list[str],
     gt_sides: np.ndarray,
-    references: dict[str, np.ndarray],
-    estimates: dict[str, np.ndarray],
+    references: dict[str, PointsN2],
+    estimates: dict[str, PointsN2],
     pairs: dict[str, dict[int, int]],
     geometry=None,
 ) -> list[dict]:
-    """One row per GT box: distance from each estimator to each reference point.
-
-    `references` holds an (N, 2) target per GT box (the GT box center, the keypoint
-    midpoint), `estimates` an (N, 2) position array per estimator, and `pairs` the
-    matching {gt index: prediction index}. Emits `err_<reference>_<estimator>_px`, left
-    empty when the estimator did not match that GT box or either point is NaN."""
+    """One row per GT box: distance from each estimator to each reference point."""
     rows = []
     for g in range(len(gt_labels)):
         row: dict = {
@@ -284,12 +247,7 @@ def floor_errors(
     estimates: dict[str, np.ndarray],
     pairs: dict[str, dict[int, int]],
 ) -> dict:
-    """The same errors again, but measured on the arena floor in millimetres.
-
-    Each estimate's pixel is projected onto the plane the robot sits on and the distance is
-    taken between floor points, not scaled from a pixel distance. Perspective means a pixel
-    is worth far more at the far wall than at the camera, so a single mm-per-pixel factor
-    would misstate both ends."""
+    """The same errors again, but measured on the arena floor in millimetres."""
     height = height_for_label(gt_label)
     row: dict = {}
     projected: dict[str, np.ndarray] = {}
@@ -314,10 +272,13 @@ def floor_errors(
     return row
 
 
-def collect(args: argparse.Namespace) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Run both models over the GT frames.
+class Collected(NamedTuple):
+    offsets: pd.DataFrame
+    matched: pd.DataFrame
 
-    Returns (per-detection offsets for the seg model, per-matched-GT-box position errors)."""
+
+def collect(args: argparse.Namespace) -> Collected:
+    """Run both models over the GT frames: per-detection seg offsets, per-matched-box errors."""
     from ultralytics import YOLO
 
     gt_frames, names, images = load_gt(args.gt)
@@ -355,7 +316,6 @@ def collect(args: argparse.Namespace) -> tuple[pd.DataFrame, pd.DataFrame]:
         rows, centroids = centroid_rows(key.stamp_ns, boxes, scores, labels, masks)
         offset_rows.extend(rows)
 
-        # Position error against the GT box center, over class-blind IoU matches.
         seg_pairs = gt_matches(gt_boxes, gt_labels, boxes, labels, scores, args.iou)
 
         bbox_pairs: dict[int, int] = {}
@@ -367,8 +327,6 @@ def collect(args: argparse.Namespace) -> tuple[pd.DataFrame, pd.DataFrame]:
             bbox_centers = box_centers(b_boxes)
             bbox_pairs = gt_matches(gt_boxes, gt_labels, b_boxes, b_labels, b_scores, args.iou)
 
-        # The GT box center is itself an estimator of the aim point, and the best any
-        # box-based method can do: it is the label, with no detection error in it.
         identity = dict(enumerate(range(len(gt_boxes))))
         matched_rows.extend(
             error_rows(
@@ -396,7 +354,7 @@ def collect(args: argparse.Namespace) -> tuple[pd.DataFrame, pd.DataFrame]:
     matched = pd.DataFrame(matched_rows)
     for column in [c for c in matched.columns if c.endswith("_px") and c.startswith("err_")]:
         matched[column.replace("_px", "_norm")] = matched[column] / matched["gt_longer_side_px"]
-    return offsets, matched
+    return Collected(offsets, matched)
 
 
 def describe(values: np.ndarray) -> dict[str, float]:
@@ -461,11 +419,7 @@ def summarize(
 
 
 def range_band_table(matched: pd.DataFrame, bands: int = 4) -> pd.DataFrame | None:
-    """Aim-point error in millimetres per estimator, split into equal-count range bands.
-
-    Bands are quantiles of the robot's ground range from the camera rather than fixed
-    distances, so each row carries the same weight instead of the far band holding a
-    handful of robots."""
+    """Aim-point error in millimetres per estimator, split into equal-count range bands."""
     if "camera_range_m" not in matched:
         return None
     usable = matched.dropna(subset=["camera_range_m"]).copy()
@@ -588,11 +542,7 @@ def plot(offsets: pd.DataFrame, matched: pd.DataFrame, output: Path) -> None:
 
 
 def plot_keypoint_reference(matched: pd.DataFrame, output: Path) -> None:
-    """Distance from each position estimate to the keypoint midpoint, the true aim point.
-
-    A dot plot rather than overlaid ECDFs: four categories against one measure reads
-    better as rows, and it keeps the series count inside the validated palette's
-    all-pairs cap."""
+    """Distance from each position estimate to the keypoint midpoint."""
     estimators = [e for e in ESTIMATORS if f"err_kpmid_{e}_norm" in matched]
     if not estimators:
         return

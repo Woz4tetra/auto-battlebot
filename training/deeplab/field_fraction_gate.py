@@ -1,39 +1,10 @@
-"""Go / no-go gate for the field-crop arm (arm E of input_resolution_plan.md).
-
-Arm E crops each frame to the field before the detector sees it, buying resolution where
-the robots are. That only closes the train/deploy domain gap if the field occupies a
-*similar* fraction of the frame in both corpora. NHRL's overhead cage cameras are framed on
-the cage, so the field may already fill the frame there, while the ZED shoots from inside
-the cage and sees much less. If the two fractions differ sharply, cropping teaches the
-detector a scale the deployment camera never delivers and arm E should be cut.
-
-Runs the trained DeepLab field model over a sample of both corpora and reports, per corpus,
-the fraction of the frame covered by the field mask and by its bounding box (the bbox is
-what a crop would actually use).
-
-With `--labels`, it also answers the question that decides the arm: how much margin the crop
-needs before it stops clipping annotated robots, and how much zoom survives that margin. A
-crop tight enough to zoom is a crop that cuts robots in half; a crop loose enough to keep
-them is a crop that covers the frame.
-
-With `--tensors`, it reports what the crop is worth once it is letterboxed into a real
-engine input, against not cropping at all. This is the version that decides the arm, because
-a letterbox scale is set by whichever axis binds first, and the field box spans nearly the
-full frame width on both corpora. Cropping removes rows the width-bound scale was going to
-apply anyway, so it buys no zoom at any tensor shape that is 16:9 or squarer -- it only
-spends the freed rows on padding.
-
-    python training/deeplab/field_fraction_gate.py \
-        --model data/models/field_deeplabv3p_r50_2026-07-29.pth \
-        --train-images training/data/nhrl_robots_bbox_2class/train/images \
-        --eval-root training/data/nhrl_keypoints_eval_test \
-        --sample 300 --device cpu
-"""
+"""Go / no-go gate for the field-crop arm (arm E of input_resolution_plan.md)."""
 
 import argparse
 import json
 import random
 from pathlib import Path
+from typing import NamedTuple, TypedDict
 
 import cv2
 import numpy as np
@@ -78,22 +49,23 @@ def field_box(mask: np.ndarray) -> tuple[float, float, float, float] | None:
     )
 
 
-def measure(mask: np.ndarray) -> tuple[float, float, float]:
-    """Return (mask fraction, bbox fraction, bbox aspect ratio) of the frame.
+class FieldMeasure(NamedTuple):
+    mask_frac: float
+    bbox_frac: float
+    bbox_aspect_mask: float
 
-    The mask is square because the model resizes anisotropically to a square input, so
-    fractions are scale-free and transfer back to the source frame. The aspect ratio is
-    reported in *source* terms by the caller, which knows the frame shape.
-    """
+
+def measure(mask: np.ndarray) -> FieldMeasure:
+    """Return the mask fraction, bbox fraction, and bbox aspect ratio in mask terms."""
     h, w = mask.shape
     area = float(h * w)
     covered = float(mask.sum())
     if covered == 0:
-        return 0.0, 0.0, 0.0
+        return FieldMeasure(0.0, 0.0, 0.0)
     ys, xs = np.nonzero(mask)
     bh = float(ys.max() - ys.min() + 1)
     bw = float(xs.max() - xs.min() + 1)
-    return covered / area, (bh * bw) / area, bw / bh
+    return FieldMeasure(covered / area, (bh * bw) / area, bw / bh)
 
 
 def read_boxes(label_path: Path) -> list[tuple[float, float, float, float]]:
@@ -110,16 +82,17 @@ def read_boxes(label_path: Path) -> list[tuple[float, float, float, float]]:
     return boxes
 
 
-def margin_retention(
-    rows: list[dict[str, float]], margins: tuple[float, ...]
-) -> list[dict[str, float]]:
-    """For each margin: share of labels surviving the crop, and the zoom the crop still buys.
+class MarginRow(TypedDict):
+    margin: float
+    kept: float
+    whole: float
+    zoom: float
+    n_labels: int
 
-    `kept` counts boxes retaining at least a quarter of their area (what the dataset builder
-    keeps); `whole` counts boxes entirely inside the crop. `zoom` is the linear scale gain on
-    the median frame, after the margin is clamped at the frame edge.
-    """
-    out = []
+
+def margin_retention(rows: list[dict[str, float]], margins: tuple[float, ...]) -> list[MarginRow]:
+    """For each margin: share of labels surviving the crop, and the zoom the crop still buys."""
+    out: list[MarginRow] = []
     for margin in margins:
         total = kept = whole = 0
         areas = []
@@ -171,12 +144,7 @@ def tensor_tradeoff(
     src_w: float = 1280.0,
     src_h: float = 720.0,
 ) -> list[dict[str, object]]:
-    """Zoom and padding for each engine input shape, cropped and uncropped.
-
-    Zoom is the letterbox scale relative to arm A's 640x640, which is what sets how many
-    pixels a robot lands on. The source resolution cancels out of that ratio for a 16:9
-    frame, so 1280x720 stands in for both corpora.
-    """
+    """Zoom and padding for each engine input shape, cropped and uncropped."""
     base = min(640.0 / src_h, 640.0 / src_w)
     boxes = [r["field_box"] for r in rows if r.get("field_box")]
     out: list[dict[str, object]] = []
@@ -348,8 +316,6 @@ def main() -> None:
     results.append(summary)
     per_frame["train"] = rows
 
-    # The eval set is several recordings with different framing; keep them separate so a
-    # single outlier recording cannot decide the gate.
     for rec in sorted(p for p in args.eval_root.iterdir() if (p / "images").is_dir()):
         images = sample_images(rec / "images", args.sample, rng)
         summary, rows = run_corpus(

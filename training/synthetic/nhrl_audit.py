@@ -1,11 +1,4 @@
-"""VRAM audit CSV helpers for distractor models (trimesh-based).
-
-Mirrors the ``distractor_gpu_audit.csv`` schema written by
-``download_objaverse.py`` so ``render_scenes.py``'s pre-import VRAM budget
-check works for generated NHRL robots.  Kept separate from
-``download_objaverse.py`` so the NHRL pipeline runs in the root venv without an
-``objaverse`` dependency.
-"""
+"""VRAM audit CSV helpers for distractor models (trimesh-based)."""
 
 from __future__ import annotations
 
@@ -14,6 +7,9 @@ from pathlib import Path
 from typing import Any
 
 import trimesh
+from synthgen.mesh_bytes import estimate_geometry_bytes, estimate_mip_chain_bytes
+
+RGBA8_BYTES_PER_PX = 4
 
 AUDIT_COLUMNS = [
     "source",
@@ -57,8 +53,7 @@ def estimate_model_gpu_row(model_path: Path, source: str) -> dict[str, Any]:
         fcount = len(geom.faces) if getattr(geom, "faces", None) is not None else 0
         vert_total += v
         face_total += fcount
-        # Approximate per-vertex attrs + index buffer.
-        geom_bytes += v * (12 + 12 + 8 + 4) + fcount * 12
+        geom_bytes += estimate_geometry_bytes(v, fcount)
 
         mat = getattr(getattr(geom, "visual", None), "material", None)
         if mat is None:
@@ -86,8 +81,7 @@ def estimate_model_gpu_row(model_path: Path, source: str) -> dict[str, Any]:
             seen_images.add(key)
             max_tex_dim = max(max_tex_dim, w, h)
             tex_count += 1
-            # RGBA8 with full mip chain approximation.
-            tex_bytes += int(w * h * 4 * (4.0 / 3.0))
+            tex_bytes += estimate_mip_chain_bytes(w * h * RGBA8_BYTES_PER_PX)
 
     total_bytes = geom_bytes + tex_bytes
     return {

@@ -1,9 +1,4 @@
-"""Build the NHRL cage in Blender from a `CageSceneSpec` (requires Blender).
-
-Geometry comes from `synthgen.cage_spec`; this module only turns boxes and cylinders into
-mesh objects, wires materials, places lights, and sets the camera from a fitted
-`CageCalibration`. The pure geometry stays testable without a renderer.
-"""
+"""Build the NHRL cage in Blender from a CageSceneSpec (requires Blender)."""
 
 from __future__ import annotations
 
@@ -49,7 +44,6 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 
 # Segmentation id for the mat, away from the robot/distractor ids in synthgen.constants.
 MAT_CATEGORY_ID = 7
-# HSV saturation above which a house bot texel counts as a lit LED rather than grey steel.
 LED_SATURATION_THRESHOLD = 0.35
 LED_SATURATION_BOOST = 1.6
 LED_STRENGTH_NODE = "led_strength"
@@ -249,11 +243,7 @@ def set_one_way_glass(
     panels_by_wall: dict[str, bproc.types.MeshObject],
     camera_positions: list[np.ndarray],
 ) -> None:
-    """Keyframe each pane out of the frames whose camera stands outside it.
-
-    Visibility has to be animated rather than set once: one scene renders several camera
-    poses in a single pass, and they can sit on different sides of the cage.
-    """
+    """Keyframe each pane out of the frames whose camera stands outside it."""
     for wall, obj in panels_by_wall.items():
         blender_obj = obj.blender_obj
         blender_obj.animation_data_clear()
@@ -367,7 +357,6 @@ def _add_backdrop(
     backdrop.set_scale([spec.backdrop.radius, spec.backdrop.radius, spec.backdrop.height / 2])
     backdrop.set_cp("category_id", 0)
     backdrop.replace_materials(backdrop_material)
-    # Drop the cap faces so the tubes above still light the scene.
     mesh = backdrop.blender_obj.data
     cap_polys = [p.index for p in mesh.polygons if abs(p.normal.z) > 0.9]
     if cap_polys:
@@ -409,11 +398,7 @@ def _find_texture(texture_dir: Path, suffix: str) -> Path | None:
 def make_textured_material(
     name: str, texture_dir: Path, albedo_gain: float = 1.0, led_emission: float = 0.0
 ) -> bproc.types.Material:
-    """Principled BSDF fed by an ambientCG-style set (Color, Roughness, Metalness, NormalGL).
-
-    `albedo_gain` scales the colour map. `led_emission` makes the saturated texels (the LED
-    eyes and mouth on the house bot) glow with their own colour; grey texels stay dark.
-    """
+    """Principled BSDF fed by an ambientCG-style set (Color, Roughness, Metalness, NormalGL)."""
     mat = bproc.material.create(name)
     bsdf = _principled(mat)
     for suffix, socket, non_color in (
@@ -442,18 +427,16 @@ def make_textured_material(
                 hsv = mat.new_node("ShaderNodeSeparateColor")
                 hsv.mode = "HSV"
                 mat.link(tex.outputs["Color"], hsv.inputs["Color"])
-                # The body texel is a slightly bluish grey (saturation ~0.1), the LEDs are
-                # 0.6 and up, so gate on saturation above a threshold before scaling.
                 gate = mat.new_node("ShaderNodeMath")
                 gate.operation = "GREATER_THAN"
                 gate.inputs[1].default_value = LED_SATURATION_THRESHOLD
-                mat.link(hsv.outputs["Green"], gate.inputs[0])  # saturation
+                saturation = hsv.outputs["Green"]
+                mat.link(saturation, gate.inputs[0])
                 strength = mat.new_node("ShaderNodeMath")
                 strength.name = LED_STRENGTH_NODE
                 strength.operation = "MULTIPLY"
                 strength.inputs[1].default_value = float(led_emission)
                 mat.link(gate.outputs["Value"], strength.inputs[0])
-                # Push the LED colour further from grey so it survives the exposure gain.
                 saturate = mat.new_node("ShaderNodeHueSaturation")
                 saturate.inputs["Saturation"].default_value = LED_SATURATION_BOOST
                 mat.link(tex.outputs["Color"], saturate.inputs["Color"])
@@ -476,11 +459,7 @@ def make_textured_material(
 def add_house_bot_model(
     spec: CageSceneSpec, repo_root: Path, category_id: int = HOUSE_BOT_CATEGORY_ID
 ) -> bproc.types.MeshObject | None:
-    """The textured house bot GLB on the mat, footprint scaled to the spec size.
-
-    Every mesh of the model carries *category_id* so the segmentation pass can box it as one
-    object; the annotation itself is built in the pipeline.
-    """
+    """The textured house bot GLB on the mat, footprint scaled to the spec size."""
     hb = spec.house_bot_box
     model_path = repo_root / hb.model if hb.model else None
     texture_dir = repo_root / hb.texture_dir if hb.texture_dir else None
@@ -533,8 +512,6 @@ def add_house_bot_model(
     )
     bpy.context.view_layer.update()
     if hb.front_fill > 0:
-        # The overhead tubes barely reach the box's vertical face; the real venue lights it
-        # from the crowd side. A small area light on the camera side stands in for that.
         light = bproc.types.Light()
         light.set_type("SPOT")
         light.set_name("house_bot_fill")
@@ -549,17 +526,7 @@ def add_house_bot_model(
 
 
 def house_bot_keypoints(parent: bpy.types.Object) -> tuple[np.ndarray, np.ndarray] | None:
-    """Front/back keypoints of the placed house bot, in its parent's local frame.
-
-    Same convention as every other robot in the set, the one
-    `nhrl_common.keypoints_along_axis` applies to the CAD distractors: both points sit on the
-    model's centerline at ground height, at the front and back extremes of its footprint. The
-    axis is not fitted here, it is known: the house bot's LED face is its own +x, so +x is the
-    front, the way `HouseBotBoxSpec.roll_deg` and `yaw_deg` already treat it.
-
-    Returns:
-        ``(front, back)`` in parent-local metres, or None when the model has no geometry.
-    """
+    """Front/back keypoints of the placed house bot, in its parent's local frame."""
     meshes = [child for child in parent.children_recursive if child.type == "MESH"]
     points = np.array(
         [
@@ -573,7 +540,7 @@ def house_bot_keypoints(parent: bpy.types.Object) -> tuple[np.ndarray, np.ndarra
 
     basis = parent.matrix_world.to_3x3()
     axis = np.array((basis @ mathutils.Vector((1.0, 0.0, 0.0))).normalized().to_tuple())
-    axis[2] = 0.0  # the model stands upright, so its front axis is horizontal
+    axis[2] = 0.0
     axis = axis / max(float(np.linalg.norm(axis)), 1e-9)
 
     center = (points.max(axis=0) + points.min(axis=0)) / 2
@@ -619,11 +586,7 @@ def set_world(
     color_gain: tuple[float, float, float] = (1.0, 1.0, 1.0),
     repo_root: Path = REPO_ROOT,
 ) -> None:
-    """Flat background colour, or the spec's panorama when `world.hdri` names one.
-
-    Both go through the one Background node: `set_world_background` unlinks any texture
-    feeding it, so switching from a panorama venue back to a flat one needs nothing extra.
-    """
+    """Flat background colour, or the spec's panorama when `world.hdri` names one."""
     if not spec.world.hdri:
         color = [float(c) * g for c, g in zip(spec.world.background_color, color_gain)]
         bproc.renderer.set_world_background(color, spec.world.ambient_strength)
@@ -642,8 +605,6 @@ def set_world(
         strength=float(spec.world.ambient_strength),
         rotation_euler=[0.0, 0.0, math.radians(spec.world.hdri_rotation_deg)],
     )
-    # Colour gain between the panorama and the Background node, so auto exposure can tint it
-    # the way it tints a flat background.
     background = tree.nodes["Background"]
     source = background.inputs["Color"].links[0].from_socket
     tint = tree.nodes.new("ShaderNodeVectorMath")
@@ -654,11 +615,7 @@ def set_world(
 
 
 def set_led_emission(spec: CageSceneSpec, exposure_gain: float) -> None:
-    """Scale the house bot LED emission by the inverse exposure gain.
-
-    `led_emission` is the LED brightness in output units: 1.0 puts the texel colour at full
-    scale after the view exposure, so pink stays pink instead of clipping to white.
-    """
+    """Scale the house bot LED emission by the inverse exposure gain."""
     for material in bpy.data.materials:
         if not material.use_nodes:
             continue
@@ -693,9 +650,6 @@ def set_camera(
     bproc.camera.set_resolution(width, height)
     bproc.camera.set_intrinsics_from_K_matrix(k_rect, width, height)
     return int(bproc.camera.add_camera_pose(cam2world, frame=frame))
-
-
-# ------------------------------------------------------------------ rendering helpers
 
 
 def render_poses(
@@ -780,7 +734,6 @@ def solve_exposure(
             )
             if target_bgr is None or target_mask is None:
                 continue
-            # A render without a mat category id (the sample renderer) falls back to the hull.
             common = ((mask > 0) & (target_mask > 0)) if (mask > 0).any() else (target_mask > 0)
             if common.sum() < 1000:
                 continue

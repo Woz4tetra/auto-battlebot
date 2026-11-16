@@ -1,24 +1,12 @@
 #!/usr/bin/env python3
-"""
-Merge multiple YOLO datasets into a single dataset.
-
-Discovers all YOLO datasets under a root directory (identified by a data.yaml/data.yml
-alongside images/ and labels/ directories), merges their class lists, remaps annotation
-class IDs, and copies only images/labels that pass validation (or are unvalidated).
-
-Usage:
-    python3 merge_yolo_datasets.py \
-        --search-dir /home/ben/auto-battlebot/training/data/exported_bounding_boxes \
-        --output-dir /home/ben/auto-battlebot/training/data/merged \
-        [--include-unvalidated]   # default: include unvalidated images
-        [--split train]           # output split name (default: train)
-"""
+"""Merge YOLO datasets found under a root, remapping class ids and keeping passing frames."""
 
 import argparse
 import json
 import multiprocessing as mp
 import shutil
 from pathlib import Path
+from typing import NamedTuple
 
 import yaml
 from tqdm import tqdm
@@ -52,14 +40,7 @@ def load_dataset_yaml(dataset_root: Path) -> dict:
 
 
 def extract_names(meta: dict) -> list[str]:
-    """
-    Extract class names from dataset metadata.
-
-    Supports common YOLO forms:
-      - names: [class_a, class_b, ...]
-      - names: {0: class_a, 1: class_b, ...}
-      - names: {"0": class_a, "1": class_b, ...}
-    """
+    """Extract class names from dataset metadata (list or int/str-keyed dict)."""
     raw_names = meta.get("names", [])
 
     if isinstance(raw_names, list):
@@ -90,7 +71,6 @@ def find_image_label_pairs(dataset_root: Path) -> list[tuple[Path, Path]]:
     for img_path in sorted(images_dir.rglob("*")):
         if img_path.suffix.lower() not in IMAGE_EXTENSIONS:
             continue
-        # Mirror the sub-path from images/ into labels/
         rel = img_path.relative_to(images_dir)
         label_path = (labels_dir / rel).with_suffix(".txt")
         if label_path.exists():
@@ -100,10 +80,7 @@ def find_image_label_pairs(dataset_root: Path) -> list[tuple[Path, Path]]:
 
 
 def load_validation_state(dataset_root: Path) -> dict[str, str] | None:
-    """
-    Load validation_state.json if present. Keys are relative to dataset root.
-    Returns None if the file does not exist.
-    """
+    """Load validation_state.json from a dataset root, or None if absent."""
     state_file = dataset_root / "validation_state.json"
     if state_file.exists():
         with open(state_file) as f:
@@ -112,12 +89,7 @@ def load_validation_state(dataset_root: Path) -> dict[str, str] | None:
 
 
 def build_merged_class_list(datasets_info: list[dict]) -> list[str]:
-    """
-    Build a merged class list from all datasets.
-    Starts with the dataset that has the most classes, then appends
-    any new names found in subsequent datasets (preserving insertion order).
-    """
-    # Sort datasets by number of classes descending so the largest set comes first
+    """Merged class list: the largest dataset's classes first, then new names in order."""
     sorted_info = sorted(datasets_info, key=lambda d: len(d["names"]), reverse=True)
 
     merged: list[str] = []
@@ -131,10 +103,7 @@ def build_merged_class_list(datasets_info: list[dict]) -> list[str]:
 
 
 def remap_label_line(line: str, old_id_to_new: dict[int, int]) -> str | None:
-    """
-    Remap the class ID in a YOLO label line.
-    Returns None if the class is not in old_id_to_new (should not happen in normal use).
-    """
+    """Remap the class ID in a YOLO label line, or None when unmapped."""
     parts = line.strip().split()
     if not parts:
         return None
@@ -149,13 +118,13 @@ def remap_label_line(line: str, old_id_to_new: dict[int, int]) -> str | None:
     return " ".join(parts)
 
 
-def process_pair_task(task: dict) -> tuple[bool, bool]:
-    """
-    Process one (image, label) pair task.
+class PairResult(NamedTuple):
+    copied: bool
+    skipped_no_label: bool
 
-    Returns:
-      (copied, skipped_no_label)
-    """
+
+def process_pair_task(task: dict) -> PairResult:
+    """Process one (image, label) pair task."""
     img_path = Path(task["img_path"])
     label_path = Path(task["label_path"])
     out_img = Path(task["out_img"])
@@ -170,13 +139,13 @@ def process_pair_task(task: dict) -> tuple[bool, bool]:
                 remapped_lines.append(remapped)
 
     if not remapped_lines:
-        return False, True
+        return PairResult(copied=False, skipped_no_label=True)
 
     out_img.parent.mkdir(parents=True, exist_ok=True)
     out_lbl.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(img_path, out_img)
     out_lbl.write_text("\n".join(remapped_lines) + "\n")
-    return True, False
+    return PairResult(copied=True, skipped_no_label=False)
 
 
 def is_image_passing(
@@ -186,11 +155,9 @@ def is_image_passing(
     include_unvalidated: bool,
 ) -> bool:
     """Return True if an image should be included in the merged dataset."""
-    # None means no validation_state.json exists — skip everything
     if validation_state is None:
         return False
 
-    # Key format used by validate_yolo_dataset.py: relative to dataset root
     rel_key = str(img_path.relative_to(dataset_root))
 
     status = validation_state.get(rel_key)
@@ -198,14 +165,11 @@ def is_image_passing(
         return False
     if status == "pass":
         return True
-    # Not in state file = unvalidated
     return include_unvalidated
 
 
 def safe_stem(dataset_root: Path, img_path: Path) -> str:
-    """
-    Build a collision-safe filename stem: <dataset_folder>__<original_stem>
-    """
+    """Build a collision-safe filename stem: <dataset_folder>__<original_stem>."""
     return f"{dataset_root.name}__{img_path.stem}"
 
 
@@ -277,7 +241,6 @@ def build_dataset_tasks(
     root = info["root"]
     names = info["names"]
 
-    # Build class ID remap for this dataset
     old_id_to_new = {i: merged_name_to_id[name] for i, name in enumerate(names)}
 
     validation_state = load_validation_state(root)
@@ -289,7 +252,6 @@ def build_dataset_tasks(
     candidate_pairs: list[tuple[Path, Path]] = []
 
     for img_path, label_path in pairs:
-        # Filter by validation state
         if not is_image_passing(img_path, root, validation_state, include_unvalidated):
             ds_fail += 1
             continue
@@ -367,7 +329,6 @@ def main():
     out_images.mkdir(parents=True, exist_ok=True)
     out_labels.mkdir(parents=True, exist_ok=True)
 
-    # ── 1. Discover datasets ──────────────────────────────────────────────────
     print(f"Searching for YOLO datasets under: {args.search_dir}")
     dataset_roots = find_yolo_datasets(args.search_dir)
     print(f"Found {len(dataset_roots)} dataset(s)\n")
@@ -376,10 +337,8 @@ def main():
         print("No datasets found. Exiting.")
         return
 
-    # ── 2. Load metadata from each dataset ───────────────────────────────────
     datasets_info = load_datasets_info(dataset_roots)
 
-    # ── 3. Build merged class list ────────────────────────────────────────────
     merged_names = build_merged_class_list(datasets_info)
     merged_name_to_id = {name: i for i, name in enumerate(merged_names)}
     print(f"Merged class list ({len(merged_names)} classes):")
@@ -387,14 +346,12 @@ def main():
         print(f"  {i:3d}  {name}")
     print()
 
-    # Determine output kpt_shape (use the first non-None one found)
     out_kpt_shape = None
     for info in datasets_info:
         if info["kpt_shape"] is not None:
             out_kpt_shape = info["kpt_shape"]
             break
 
-    # ── 4. Process each dataset ───────────────────────────────────────────────
     total_copied = 0
     total_skipped_fail = 0
     total_skipped_no_label = 0
@@ -420,7 +377,6 @@ def main():
         total_copied += ds_copied
         total_skipped_fail += ds_fail
 
-    # ── 5. Write data.yml ─────────────────────────────────────────────────────
     yaml_lines = [
         f"path: {args.output_dir.resolve()}",
         f"{args.split}: images/{args.split}",

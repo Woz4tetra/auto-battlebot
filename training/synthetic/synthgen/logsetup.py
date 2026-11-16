@@ -1,9 +1,4 @@
-"""Logging configuration for the synthgen package.
-
-Every module gets its logger via ``get_logger(__name__)``; the entry point calls
-``configure()`` once. BlenderProc/Blender write their own stdout noise, so the
-format stays terse and level names only appear for WARNING and above.
-"""
+"""Logging configuration for the synthgen package."""
 
 import logging
 
@@ -21,12 +16,7 @@ class _TerseFormatter(logging.Formatter):
 
 
 def configure(verbosity: int = 0) -> None:
-    """Configure the synthgen root logger once.
-
-    Args:
-        verbosity: -1 for quiet (WARNING+), 0 for normal (INFO), 1+ for
-            debug (DEBUG).
-    """
+    """Configure the synthgen root logger once (-1 quiet, 0 info, 1+ debug)."""
     root = logging.getLogger(_ROOT_LOGGER_NAME)
     if verbosity <= -1:
         level = logging.WARNING
@@ -43,11 +33,7 @@ def configure(verbosity: int = 0) -> None:
 
 
 def get_logger(module_name: str) -> logging.Logger:
-    """Return the logger for a synthgen module.
-
-    Args:
-        module_name: Usually ``__name__``; a bare name is also accepted.
-    """
+    """Return the logger for a synthgen module."""
     short = module_name.rsplit(".", 1)[-1]
     return logging.getLogger(f"{_ROOT_LOGGER_NAME}.{short}")
 

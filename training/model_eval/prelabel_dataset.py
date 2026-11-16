@@ -1,30 +1,5 @@
 #!/usr/bin/env python3
-"""Pre-label an eval dataset's empty frames with a pose model, for correction in edit_labels.py.
-
-Step 6 of docs/experiments/perception_performance/synthetic_domain_mix_plan_2026-09-12.md.
-``make_eval_dataset.py`` writes empty labels; this fills them with a model's detections so a
-labeller deletes spurious boxes instead of drawing every box and both keypoints from scratch.
-``export_labels.py`` cannot do this: it reads detection topics out of a label_playback MCAP, and
-sampled frames have none.
-
-Three rules keep pre-labels from poisoning the eval:
-
-* **Only empty label files are written.** A frame someone already labelled is never touched, so a
-  second round with a better model only reaches the frames nobody has reviewed.
-* **Nothing is marked reviewed.** A pre-labelled frame looks finished at a glance, so review state
-  stays with ``edit_labels.py``.
-* **A blind hold-out stays empty.** ``--holdout`` leaves a fixed fraction of frames unlabelled and
-  lists them in ``prelabel_holdout.json``, to be labelled from scratch. Box counts there against
-  the pre-labelled population are the measured bias the eval carries.
-
-Run at a low confidence (default 0.15): deleting a spurious box is one keypress, drawing a missed
-box plus two keypoints is a dozen actions.
-
-Usage:
-    venv/bin/python training/model_eval/prelabel_dataset.py <dataset_root> \\
-        --model data/models/yolo26x-pose_all_robot_keypoints_2026-09-05_last.pt \\
-        --map nhrl_robot=opponent --conf 0.15 --holdout 0.1 --device cpu
-"""
+"""Pre-label an eval dataset's empty frames with a pose model, for correction in edit_labels.py."""
 
 from __future__ import annotations
 
@@ -37,9 +12,12 @@ import yaml
 
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg"}
 HOLDOUT_NAME = "prelabel_holdout.json"
-# A keypoint the model is at least this sure of is labelled visible (2), the rest labelled but
-# not visible (1), matching how the eval set flags occluded keypoints.
 KEYPOINT_VISIBLE_CONF = 0.5
+USAGE = (
+    "venv/bin/python training/model_eval/prelabel_dataset.py <dataset_root> "
+    "--model data/models/yolo26x-pose_all_robot_keypoints_2026-09-05_last.pt "
+    "--map nhrl_robot=opponent --conf 0.15 --holdout 0.1 --device cpu"
+)
 
 
 def subdatasets(root: Path) -> list[Path]:
@@ -104,7 +82,9 @@ def label_rows(result, model_names: dict[int, str], class_ids: dict[str, int]) -
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n", maxsplit=1)[0])
+    parser = argparse.ArgumentParser(
+        description=__doc__, epilog=USAGE, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("dataset", type=Path, help="Eval dataset, or a root of subdatasets")
     parser.add_argument("--model", type=Path, required=True, help="Ultralytics pose .pt")
     parser.add_argument(
@@ -123,7 +103,7 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=0, help="Seed for the hold-out draw")
     args = parser.parse_args()
 
-    from ultralytics import YOLO  # deferred: slow import, and --help should not pay it
+    from ultralytics import YOLO
 
     model = YOLO(str(args.model))
     renames = parse_map(args.map)

@@ -59,6 +59,7 @@ from synthgen.camera import (
     setup_scene_cameras,
 )
 from synthgen.configuration import (
+    ARENA_VENUE,
     ConfigError,
     RenderConfig,
     apply_damage_mode,
@@ -77,7 +78,7 @@ from synthgen.constants import (
     NHRL_ROBOT_CLASS_NAME,
     PROGRESS_LOG_SCENE_INTERVAL,
     SEG_FLOOR_CLASS_ID,
-    VIEW_PINHOLE,
+    View,
 )
 from synthgen.damage import DamageBudget, InstanceDamage
 from synthgen.damage_scene import CutterPool, apply_scene_damage, build_cutter_pool
@@ -175,14 +176,11 @@ class SceneState:
     active_distractors: list[DistractorInstance]
     cam_count: int
     house_bot: HouseBot | None = None
-    # Which arena the scene rendered in, for the manifest. "arena" is the HDRI half.
-    venue: str = "arena"
+    venue: str = ARENA_VENUE
     # One mount per camera pose, aligned by frame index. Empty for the HDRI half, whose
     # cameras come off a sampled shell rather than a wall.
     mounts: tuple[CageMount, ...] = ()
-    # One entry per instance damage was rolled for, damaged or not.
     damage: tuple[InstanceDamage, ...] = ()
-    # The cage's view, which keypoints are projected through. None for the HDRI half.
     lens: LensView | None = None
 
 
@@ -195,20 +193,13 @@ class RenderResult:
 
 
 def build_annotation_scheme(cfg: RenderConfig) -> AnnotationScheme:
-    """Derive the class-id scheme from the config.
-
-    Raises:
-        ConfigError: In keypoint mode when a robot entry lacks ``class_id``.
-    """
+    """Derive the class-id scheme from the config."""
     is_segmentation = cfg.output.is_segmentation_mode
     seg_robot_class_ids, seg_label_names, next_seg_class_id = setup_segmentation_labels(
         cfg.robots, is_segmentation
     )
     assigner = DistractorClassIdAssigner(is_segmentation, next_seg_class_id)
 
-    # CAD (NHRL robot) distractors get keypoint annotations under a single
-    # generic class, but only in keypoint mode and only when a CAD distractor
-    # source is configured.
     nhrl_class_id: int | None = None
     house_bot_class_id: int | None = None
     if not is_segmentation:
@@ -223,7 +214,6 @@ def build_annotation_scheme(cfg: RenderConfig) -> AnnotationScheme:
         if cfg.distractors.has_cad_source():
             nhrl_class_id = next_class_id
             next_class_id += 1
-        # Only cage scenes contain a house bot, so the class exists only when they do.
         if any(cage.active for cage in cfg.cages):
             house_bot_class_id = next_class_id
 
@@ -269,19 +259,12 @@ def _write_keypoint_data_yml(
 def _append_manifest_row(
     layout: OutputLayout, scene: SceneState, frame_name: str, local_idx: int
 ) -> None:
-    """One JSON line per written frame: which arena, view, mount, and what was damaged.
-
-    This is what makes the damage arms a filter rather than a second render: a damage-off
-    arm keeps the frames whose every instance reports ``damage == 0``. The mount is here
-    too, so a frame can be traced back to the camera placement that produced it. The view
-    is the only record of which lens a frame went through once per-view runs are merged
-    into one directory; the HDRI half has no lens model and is always pinhole.
-    """
+    """One JSON line per written frame: which arena, view, mount, and what was damaged."""
     mount = scene.mounts[local_idx] if local_idx < len(scene.mounts) else None
     row = {
         "image": f"{frame_name}.jpg",
         "venue": scene.venue,
-        "view": VIEW_PINHOLE if scene.lens is None else scene.lens.view,
+        "view": View.PINHOLE if scene.lens is None else scene.lens.view,
         "scene": scene.scene_idx,
         "mount": None if mount is None else asdict(mount),
         "instances": [d.as_row() for d in scene.damage],
@@ -344,12 +327,7 @@ def _warp_render_data(lens: LensView | None, data: dict) -> dict:
 def _render_clean_inst_seg_maps(
     inst_seg_maps: Any, active_distractors: list[DistractorInstance], lens: LensView | None
 ) -> Any:
-    """Render an occlusion-free instance segmentation pass with distractors hidden.
-
-    Only the segmap is read from this pass, so it renders under ``occlusion_pass``: one
-    sample and camera rays only. Distractors that ``clear_blocking_distractors`` already
-    hid stay hidden afterwards, which is why visibility is saved alongside the transform.
-    """
+    """Render an occlusion-free instance segmentation pass with distractors hidden."""
     if inst_seg_maps is None:
         return None
     if not active_distractors:
@@ -389,7 +367,6 @@ def _compute_blur_category_ids(
             distractor_ids.add(int(distractor.meshes[0].blender_obj.get("category_id", -1)))
     robot_ids.discard(-1)
     distractor_ids.discard(-1)
-    # A category shared with a robot follows the robot blur probability.
     distractor_ids -= robot_ids
     return robot_ids, distractor_ids
 
@@ -448,8 +425,6 @@ def _extract_frame_annotations(
             int(v) for v in np.unique(cat_seg.squeeze()).tolist() if int(v) > BACKGROUND_CATEGORY_ID
         }
         annotated_category_ids: set[int] = set()
-        # Skip the (comparatively expensive) contour extraction for floor-only
-        # frames; decide_seg_frame reports them as SEG_FLOOR_ONLY regardless.
         if visible_category_ids != {SEG_FLOOR_CLASS_ID}:
             seg_annotations = segmentation_annotations_from_segmap(
                 cat_seg, img_w, img_h, min_bbox_dim=cfg.output.segmentation_min_bbox_dim
@@ -535,11 +510,7 @@ def _process_scene_frames(
     stats: RunStats,
     start_global_idx: int,
 ) -> int:
-    """Extract annotations, apply motion blur, and write images+labels.
-
-    Returns:
-        The number of frames written.
-    """
+    """Extract annotations, apply motion blur, and write images and labels."""
     colors = data["colors"]
     cat_seg_maps = data.get("category_id_segmaps", data.get("segmap"))
     if cat_seg_maps is None:
@@ -621,7 +592,6 @@ def _arrange_environment(cfg: RenderConfig, assets: SceneAssets, cage: CageStage
             stage.deactivate()
 
     if cage is not None:
-        # The mat is the floor, the cage rig is the lighting, and the arena is the mat.
         cage.activate(assets.lights)
         set_ground_visible(assets.ground, False)
         return cage.arena_radius
@@ -701,7 +671,6 @@ def render_scene(
     """Arrange, render, and write one scene."""
     bproc.utility.reset_keyframes()
 
-    # -- Per-scene randomized dimensions --
     arena_radius = _arrange_environment(cfg, assets, cage)
 
     scene_robots = select_and_show_robots(assets.robots, cfg.scene.max_robots_per_scene)
@@ -729,11 +698,6 @@ def render_scene(
             robot.meshes, cfg.randomization.roughness_jitter, cfg.randomization.hue_jitter_degrees
         )
 
-    # -- Battle damage, before anything renders --
-    # Damage goes on after posing and material jitter and comes off in the finally below,
-    # so both render passes see the same chewed silhouette and the next scene gets the
-    # model back whole. The annotations need no special handling: bboxes and keypoint
-    # visibility are computed from the segmentation of what actually rendered.
     damage_session, instance_damage = apply_scene_damage(
         cfg.damage,
         cutter_pool,
@@ -743,7 +707,6 @@ def render_scene(
         NHRL_ROBOT_CLASS_NAME,
     )
 
-    # -- Camera poses (look at centroid of all placed robots) --
     cam_poses, cam_count, fallback_count, mounts = _scene_camera_poses(
         cfg,
         cage,
@@ -756,14 +719,11 @@ def render_scene(
     try:
         _stage_cameras(cam_poses, cage, fallback_count, stats)
 
-        # Every map comes out of Blender at render resolution; everything below works in the
-        # written view, so the warp happens once, here, before anything reads a pixel.
         data = _warp_render_data(None if cage is None else cage.lens, bproc.renderer.render())
 
         if scene_idx == 0:
             _save_debug_frame(data, layout)
 
-        # Check for segmentation maps BEFORE the expensive clean second render.
         cat_seg_maps = data.get("category_id_segmaps", data.get("segmap"))
         if cat_seg_maps is None:
             logger.error("%s: no segmentation maps in render output", fmt_ctx(scene_idx))
@@ -778,9 +738,6 @@ def render_scene(
                 )
             return RenderResult(frames_written=0, render_failed=True)
 
-        # True occlusion metric: visible robot pixels (with distractors) divided
-        # by unobstructed robot pixels from a second pass with distractors hidden.
-        # Skipped entirely when obstructions are ignored (the gate is bypassed).
         inst_seg_maps = data.get("robot_instance_id_segmaps")
         clean_inst_seg_maps = (
             None
@@ -798,7 +755,7 @@ def render_scene(
             active_distractors=active_distractors,
             cam_count=cam_count,
             house_bot=None if cage is None else cage.house_bot,
-            venue="arena" if cage is None else cage.name,
+            venue=ARENA_VENUE if cage is None else cage.name,
             mounts=mounts,
             damage=tuple(instance_damage),
             lens=None if cage is None else cage.lens,
@@ -813,15 +770,13 @@ def render_scene(
             logger.info(
                 "Scene %d in the %s (%s) — %d/%d images generated",
                 completed,
-                cage.name if cage is not None else "arena",
+                cage.name if cage is not None else ARENA_VENUE,
                 names,
                 global_idx + written - budget.start_index,
                 budget.num_images,
             )
         return RenderResult(frames_written=written)
     finally:
-        # Put every hidden part back and drop every cutter, so the next scene starts
-        # from the undamaged models. The models are loaded once and reused forever.
         damage_session.revert()
 
 
@@ -904,16 +859,12 @@ def run(args: argparse.Namespace) -> None:
         max_scenes=math.ceil(num_images / cfg.output.images_per_scene) * MAX_SCENE_ATTEMPTS_FACTOR,
     )
 
-    # ------- Initialize BlenderProc -------
-
     bproc.init()
     use_gpu_only()
     set_denoiser(ARENA_DENOISER)
     bproc.camera.set_resolution(cfg.output.image_width, cfg.output.image_height)
     bproc.renderer.set_max_amount_of_samples(args.render_samples)
     bproc.renderer.enable_depth_output(activate_antialiasing=False)
-
-    # ------- Load target robots -------
 
     cc_materials = load_cc_materials(
         cfg.materials, cfg.environment.cc_textures_dir, cfg.resolver.resolve
@@ -937,15 +888,11 @@ def run(args: argparse.Namespace) -> None:
     if start_index == 0 and layout.manifest_path.exists():
         layout.manifest_path.unlink()
 
-    # ------- Load distractors and environment assets -------
-
     vram_estimates = load_distractor_vram_audit(
         cfg.distractors.vram_audit_csv, cfg.resolver.resolve
     )
     hdri_paths, cc_textures = load_environment_assets(cfg.environment, cfg.resolver.resolve)
     ground = create_ground_plane(scheme.is_segmentation)
-
-    # ------- The real arenas, for the cage share of the scene mix -------
 
     cages = _build_cages(cfg, scheme)
     warped_cages = [cage.name for cage in cages if cage.lens.warps]
@@ -959,17 +906,9 @@ def run(args: argparse.Namespace) -> None:
             100 * arena_share,
         )
 
-    # ------- Battle damage cutters -------
-
-    # Built here, before segmentation is armed, for the same reason the cages are: the
-    # arming assigns a pass index to every mesh that exists at call time, and a cutter
-    # conjured mid-run would miss it. They never render and carry the background
-    # category id, so neither pass ever sees them.
     cutter_pool = build_cutter_pool(cfg.damage.cutter_pool_size if cfg.damage.enabled else 0)
     damage_budget = DamageBudget()
 
-    # Enable segmentation AFTER all mesh objects are in the scene, because
-    # enable_segmentation_output assigns pass_index to every mesh at call time.
     _enable_segmentation()
 
     lights = create_lights(cfg.randomization.light_count_range[1])
@@ -992,8 +931,6 @@ def run(args: argparse.Namespace) -> None:
         vram_estimates=vram_estimates,
     )
     _refresh_pool(pool_mgr, scheme, layout)
-
-    # ------- Render loop -------
 
     stats = RunStats()
     global_idx = start_index

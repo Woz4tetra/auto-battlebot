@@ -1,36 +1,5 @@
 #!/usr/bin/env python3
-"""YOLO label editor for correcting model pre-labels into ground truth.
-
-Like training/yolo/validate_yolo_dataset.py, but edits annotations instead of
-pass/fail marking: move, resize, add, delete, and reclass boxes, and drag pose
-keypoints. Detect rows (class cx cy w h) and pose rows (class cx cy w h kx ky v ...)
-are editable; any other rows (seg) are preserved verbatim.
-
-Usage:
-    python training/model_eval/edit_labels.py data/eval/<svo_name>
-
-Editing is click-move-click (no dragging needed): one click grabs a handle, move
-the mouse to position it, and a second click drops it. A press-move-release drag
-still finishes in one gesture, so both styles work.
-
-Controls:
-    click empty space          start a new box (current class; inherits keypoint
-                               count from existing pose boxes, centered); move to
-                               size it, click to place
-    click a box body           pick it up; move to reposition, click to drop
-    click a corner handle      grab it; move to resize, click to release
-    click a keypoint circle    pick it up; move to reposition, click to drop
-    k                          keypoint mode on the selected box: each click places the
-                               next keypoint (shift+click marks it occluded); the mode
-                               ends once the box has a full set. Escape cancels
-    1-9, 0                     set class of selected box / current draw class
-    Delete or x                delete selected box
-    a/d or left/right          previous / next image (auto-saves)
-    space                      mark reviewed + jump to next unreviewed
-    n                          jump to next unreviewed (without marking)
-    +/- or ctrl+wheel          zoom in / out at the cursor; 0 (numpad) resets to fit
-    ctrl+s                     save
-"""
+"""YOLO label editor for correcting model pre-labels into ground truth."""
 
 from __future__ import annotations
 
@@ -47,9 +16,9 @@ from PIL import Image, ImageTk
 
 HANDLE_PX = 8
 MIN_BOX_PX = 4
-DRAG_THRESHOLD_PX = 4  # press-to-release travel above this counts as a drag, not a click
-MAX_DATA_YAML_DEPTH = 3  # how far below the opened dir a subdataset's data.yaml may sit
-SHIFT_MASK = 0x0001  # tk event.state bit for Shift
+DRAG_THRESHOLD_PX = 4
+MAX_SUBDATASET_YAML_DEPTH = 3
+TK_SHIFT_STATE_BIT = 0x0001
 KP_VISIBLE = 2.0
 KP_OCCLUDED = 1.0
 
@@ -125,11 +94,7 @@ def _child_dirs(path: Path) -> list[Path]:
 
 
 def _find_data_yaml(dataset_path: Path) -> Path | None:
-    """The dataset's data.yaml, or the shallowest one beneath it when dataset_path is a
-    parent holding subdatasets (opening the parent labels them all in one pass, and the
-    subdatasets share a schema). Prelabel output nests two deep, as
-    parent/<conf_dir>/<recording>/data.yaml, so checking only immediate children misses it
-    and every box falls back to a bare class index."""
+    """The dataset's data.yaml, or the shallowest one beneath a parent of subdatasets."""
     names = ("data.yaml", "data.yml")
     for name in names:
         if (dataset_path / name).exists():
@@ -137,7 +102,7 @@ def _find_data_yaml(dataset_path: Path) -> Path | None:
     if not dataset_path.is_dir():
         return None
     level = [dataset_path]
-    for _ in range(MAX_DATA_YAML_DEPTH):
+    for _ in range(MAX_SUBDATASET_YAML_DEPTH):
         children = [child for parent in level for child in _child_dirs(parent)]
         for child in children:
             for name in names:
@@ -170,7 +135,7 @@ def load_class_info(data: dict) -> tuple[list[str], list[str]]:
         "#FFC0CB",
     ]
     raw_names = data.get("names", [])
-    if isinstance(raw_names, dict):  # ultralytics also writes names as {0: name, 1: name}
+    if isinstance(raw_names, dict):
         names = [str(raw_names[key]) for key in sorted(raw_names, key=int)]
     else:
         names = [str(name) for name in raw_names]
@@ -181,10 +146,7 @@ def load_class_info(data: dict) -> tuple[list[str], list[str]]:
 
 
 def load_kpt_count(data: dict) -> int:
-    """Keypoints per box from data.yaml kpt_shape (0 if absent).
-
-    Lets a freshly drawn box get keypoints even when the dataset has no pose boxes yet,
-    which is the case when labeling a pose dataset from scratch."""
+    """Keypoints per box from data.yaml kpt_shape (0 if absent)."""
     shape = data.get("kpt_shape")
     if isinstance(shape, (list, tuple)) and shape:
         return int(shape[0])
@@ -192,11 +154,7 @@ def load_kpt_count(data: dict) -> int:
 
 
 def _label_path_for(img_path: Path) -> Path:
-    """Label file for an image: swap the nearest images/ path component for labels/.
-
-    Works for a single dataset (dataset/images/x.png -> dataset/labels/x.txt) and for a
-    parent of subdatasets (parent/rec/images/x.png -> parent/rec/labels/x.txt), so labels
-    always land in the labels/ dir score.py reads, not next to the image."""
+    """Label file for an image: swap the nearest images/ path component for labels/."""
     parts = img_path.parts
     for i in range(len(parts) - 1, -1, -1):
         if parts[i] == "images":
@@ -205,10 +163,7 @@ def _label_path_for(img_path: Path) -> Path:
 
 
 def find_image_label_pairs(dataset_path: Path) -> list[tuple[Path, Path]]:
-    """Pair each image with its labels/<stem>.txt, creating label paths as needed.
-
-    Searches recursively, so pointing at a parent of per-recording subdatasets labels them
-    all in one session."""
+    """Pair each image with its labels/<stem>.txt, creating label paths as needed."""
     image_extensions = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
     images_dir = dataset_path / "images"
     search_dir = images_dir if images_dir.is_dir() else dataset_path
@@ -247,9 +202,7 @@ class LabelEditor:
         self.active_mode: str | None = None
         self.drag_anchor = (0.0, 0.0)
         self.drawing_new = False
-        self.press_xy = (0.0, 0.0)  # canvas coords of the last press, for click-vs-drag
-        # Keypoint mode: the index of the keypoint the next click places on the selected
-        # box, or None when clicks grab handles as usual.
+        self.press_xy = (0.0, 0.0)
         self.kp_next: int | None = None
 
         self.root = tk.Tk()
@@ -259,12 +212,10 @@ class LabelEditor:
         self.canvas_image_id: int | None = None
         self.status_var = tk.StringVar()
         self._build_ui()
-        first_unreviewed = self._next_unreviewed_index(0)  # resume where labeling left off
+        first_unreviewed = self._next_unreviewed_index(0)
         if first_unreviewed is not None:
             self.index = first_unreviewed
         self._load_current()
-
-    # ------------------------------------------------------------------ state
 
     def _load_state(self) -> None:
         if self.state_file.exists():
@@ -276,8 +227,6 @@ class LabelEditor:
 
     def _image_key(self) -> str:
         return str(self.pairs[self.index][0].relative_to(self.dataset_path))
-
-    # ------------------------------------------------------------------ ui
 
     def _build_ui(self) -> None:
         main = ttk.Frame(self.root)
@@ -365,8 +314,6 @@ class LabelEditor:
             return self.class_names[class_id]
         return f"class_{class_id}"
 
-    # ------------------------------------------------------------------ io
-
     def _load_current(self) -> None:
         img_path, label_path = self.pairs[self.index]
         self.image = Image.open(img_path)
@@ -376,7 +323,7 @@ class LabelEditor:
         self.drawing_new = False
         self.kp_next = None
         self.dirty = False
-        self.zoom = 1.0  # reset to fit when moving to a new image
+        self.zoom = 1.0
         self._render()
         self.canvas.xview_moveto(0.0)
         self.canvas.yview_moveto(0.0)
@@ -401,8 +348,6 @@ class LabelEditor:
         self._save_state()
         self.root.destroy()
 
-    # ------------------------------------------------------------------ navigation
-
     def prev_image(self) -> None:
         self._autosave()
         if self.index > 0:
@@ -416,8 +361,7 @@ class LabelEditor:
             self._load_current()
 
     def _next_unreviewed_index(self, start_offset: int) -> int | None:
-        """Index of the next unreviewed image, scanning from self.index + start_offset and
-        wrapping. start_offset=0 includes the current image; 1 skips it."""
+        """Index of the next unreviewed image from self.index + start_offset, wrapping."""
         n = len(self.pairs)
         for offset in range(start_offset, start_offset + n):
             i = (self.index + offset) % n
@@ -444,8 +388,6 @@ class LabelEditor:
             return
         self.index = target
         self._load_current()
-
-    # ------------------------------------------------------------------ zoom + transforms
 
     def _fit_scale(self) -> float:
         assert self.image is not None
@@ -494,8 +436,6 @@ class LabelEditor:
         s = self._scale()
         return self.canvas.canvasx(cx) / s, self.canvas.canvasy(cy) / s
 
-    # ------------------------------------------------------------------ mouse editing
-
     def _hit_test(self, ix: float, iy: float) -> tuple[str, int] | None:
         """Return ('kp:<k>'|'corner:<which>'|'body', box index) for the hit box, if any."""
         handle = HANDLE_PX / self._scale()
@@ -526,13 +466,11 @@ class LabelEditor:
             self._place_keypoint(event)
             return
         if self.active_mode is not None:
-            # Something is already grabbed: this click drops it in place.
             self._commit_active()
             return
         ix, iy = self._to_image(event.x, event.y)
         hit = self._hit_test(ix, iy)
         if hit is None:
-            # Start a new box; it grows with the mouse until the next click.
             self.boxes.append(Box(self.current_class, ix, iy, ix, iy))
             self.selected = len(self.boxes) - 1
             self.active_mode = "corner:se"
@@ -581,8 +519,7 @@ class LabelEditor:
         self._render()
 
     def _on_release(self, event: tk.Event) -> None:
-        """End the interaction if this was a drag; a stationary click keeps the
-        grab so the mouse can be moved freely before the next click drops it."""
+        """End the interaction if this was a drag; a click keeps the grab."""
         if self.active_mode is None:
             return
         moved = (
@@ -593,11 +530,9 @@ class LabelEditor:
             self._commit_active()
 
     def _commit_active(self) -> None:
-        """Release the grabbed handle: normalize the box, drop a degenerate new
-        box, and seed keypoints on a freshly drawn one."""
+        """Release the grabbed handle and normalize the box."""
         if self.active_mode is not None and self.selected is not None:
             box = self.boxes[self.selected]
-            # Normalize corners and discard degenerate click-drawn boxes.
             box.x1, box.x2 = sorted((box.x1, box.x2))
             box.y1, box.y2 = sorted((box.y1, box.y2))
             if box.x2 - box.x1 < MIN_BOX_PX or box.y2 - box.y1 < MIN_BOX_PX:
@@ -611,14 +546,12 @@ class LabelEditor:
         self._render()
 
     def _target_kpt_count(self, box: Box) -> int:
-        """How many keypoints a box should carry: match its peers, or fall back to the
-        data.yaml schema when there are no pose peers yet (labeling a set from scratch)."""
+        """How many keypoints a box should carry."""
         peers = max((len(b.keypoints) for b in self.boxes if b is not box), default=0)
         return peers or self.default_kpt_count
 
     def _init_new_box_keypoints(self, box: Box) -> None:
-        """Pose datasets: give a freshly drawn box the same keypoint count as its peers,
-        spread along the box's vertical midline, ready to drag into place."""
+        """Seed a new box with its peers' keypoint count along the vertical midline."""
         count = self._target_kpt_count(box)
         if count == 0 or box.keypoints:
             return
@@ -627,13 +560,8 @@ class LabelEditor:
             ky = box.y1 + (box.y2 - box.y1) * (k + 1) / (count + 1)
             box.keypoints.append([cx, ky, KP_VISIBLE])
 
-    # ------------------------------------------------------------------ keypoint mode
-
     def start_keypoint_mode(self) -> None:
-        """Place the selected box's keypoints by clicking, starting at index 0.
-
-        Prelabels from a detect model arrive without keypoints, and a box drawn over one
-        needs them put where the robot's front and back are, not on the midline."""
+        """Place the selected box's keypoints by clicking, starting at index 0."""
         if self.selected is None:
             self._update_status("Select a box first, then press k")
             return
@@ -646,13 +574,12 @@ class LabelEditor:
         self._render()
 
     def _place_keypoint(self, event: tk.Event) -> None:
-        """Drop the next keypoint at the cursor; shift marks it occluded. The mode ends
-        once the box holds a full set."""
+        """Drop the next keypoint at the cursor; shift marks it occluded."""
         if self.kp_next is None or self.selected is None:
             return
         box = self.boxes[self.selected]
         ix, iy = self._to_image(event.x, event.y)
-        visibility = KP_OCCLUDED if event.state & SHIFT_MASK else KP_VISIBLE
+        visibility = KP_OCCLUDED if event.state & TK_SHIFT_STATE_BIT else KP_VISIBLE
         while len(box.keypoints) <= self.kp_next:
             box.keypoints.append([ix, iy, visibility])
         box.keypoints[self.kp_next] = [ix, iy, visibility]
@@ -670,8 +597,6 @@ class LabelEditor:
             self._update_status("Keypoint mode off")
         elif self.active_mode is not None:
             self._commit_active()
-
-    # ------------------------------------------------------------------ classes
 
     def _on_digit(self, event: tk.Event) -> None:
         class_id = (int(event.char) - 1) % 10
@@ -704,8 +629,6 @@ class LabelEditor:
             self.kp_next = None
             self.dirty = True
             self._render()
-
-    # ------------------------------------------------------------------ rendering
 
     def _render(self) -> None:
         if self.image is None:
@@ -743,8 +666,6 @@ class LabelEditor:
                 tags="box",
             )
             for k, (kx, ky, visibility) in enumerate(box.keypoints):
-                # Keypoint order follows the model's kpt layout (0=front, 1=back);
-                # dashed circles are the occluded ones.
                 self.canvas.create_oval(
                     kx * s - 5,
                     ky * s - 5,

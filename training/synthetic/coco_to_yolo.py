@@ -1,17 +1,5 @@
 #!/usr/bin/env python3
-"""
-Convert a COCO keypoint dataset to YOLO format, filtering to specific categories.
-
-Usage:
-    python3 coco_to_yolo.py \
-        --input-dir "/home/ben/Downloads/True Battlebots Keypoints.coco" \
-        --output-dir "/home/ben/Downloads/battlebots_yolo" \
-        --categories mr_stabs_mk2 referee
-
-Output YOLO label format (with keypoints):
-    class_id cx cy w h kp1_x kp1_y kp1_v kp2_x kp2_y kp2_v
-All values are normalized to [0, 1] except visibility flags.
-"""
+"""Convert a COCO keypoint dataset to YOLO pose format, filtering to specific categories."""
 
 import argparse
 import json
@@ -45,7 +33,6 @@ def _annotation_to_label_line(
     num_keypoints: int,
 ) -> str:
     """Convert one COCO annotation into a single YOLO label line."""
-    # COCO bbox: [x_min, y_min, width, height]
     bx, by, bw, bh = (float(v) for v in ann["bbox"])
     cx = (bx + bw / 2) / img_w
     cy = (by + bh / 2) / img_h
@@ -54,11 +41,9 @@ def _annotation_to_label_line(
 
     parts = [new_class_id, cx, cy, nw, nh]
 
-    # Keypoints: [x1, y1, v1, x2, y2, v2, ...]
     kps = ann.get("keypoints", [])
     expected_kp_values = num_keypoints * 3
     if kps:
-        # Pad or truncate to the expected length
         if len(kps) < expected_kp_values:
             kps = list(kps) + [0.0] * (expected_kp_values - len(kps))
         else:
@@ -88,13 +73,10 @@ def convert_split(
     with open(ann_path) as f:
         data = json.load(f)
 
-    # Build category name -> new class id mapping (only kept categories)
     old_id_to_new = _build_category_mapping(data, keep_categories)
 
-    # Build image_id -> image info
     images_by_id = {img["id"]: img for img in data["images"]}
 
-    # Group annotations by image_id
     anns_by_image = defaultdict(list)
     for ann in data["annotations"]:
         if ann["category_id"] in old_id_to_new:
@@ -130,12 +112,10 @@ def convert_split(
         if not label_lines:
             continue
 
-        # Copy image
         dst_image = images_dst_dir / filename
         if not dst_image.exists():
             shutil.copy2(src_image, dst_image)
 
-        # Write label file
         stem = Path(filename).stem
         label_file = labels_dst_dir / f"{stem}.txt"
         label_file.write_text("\n".join(label_lines) + "\n")
@@ -160,7 +140,6 @@ def _discover_split_paths(input_dir: Path) -> dict[str, tuple[Path, Path]]:
             found_splits.append(split)
 
     if not found_splits:
-        # Try root-level annotations
         ann_path = input_dir / "_annotations.coco.json"
         if ann_path.exists():
             found_splits = ["train"]
@@ -231,7 +210,6 @@ def main():
         if n > 0:
             yaml_splits[split] = f"images/{split}"
 
-    # Write data.yaml
     yaml_path = output_dir / "data.yaml"
     kp_shape = f"[{args.num_keypoints}, 3]"
     lines = []

@@ -1,17 +1,4 @@
-"""Generate 3D robot meshes from NHRL thumbnails via the Meshy image-to-3D API.
-
-Step 2 of the NHRL robot distractor pipeline.  Reads the state file written by
-``download_nhrl_bots.py``, submits Meshy image-to-3D tasks for bots that have a
-thumbnail, polls them, downloads the resulting GLBs, and appends VRAM audit
-rows.  Fully resumable: submitted tasks are never resubmitted, and progress is
-persisted after every state transition.
-
-Requires the ``MESHY_API_KEY`` environment variable.
-
-Usage:
-    MESHY_API_KEY=... python generate_nhrl_meshes.py ../data/distractor_models/robots --limit 10
-    python generate_nhrl_meshes.py ../data/distractor_models/robots --dry-run
-"""
+"""Generate 3D robot meshes from NHRL thumbnails via the Meshy image-to-3D API."""
 
 from __future__ import annotations
 
@@ -116,7 +103,7 @@ def _update_audit(dest: Path, audit_csv: Path) -> None:
         rows = load_audit_table(audit_csv)
         rows[str(dest.resolve())] = estimate_model_gpu_row(dest, source=dest.parent.name)
         write_audit_table(audit_csv, rows)
-    except Exception as e:  # noqa: BLE001 - audit is best-effort
+    except Exception as e:
         print(f"  Warning: failed to update audit for {dest.name}: {e}")
 
 

@@ -1,20 +1,4 @@
-"""The NHRL cage as one half of the scene mix (requires Blender).
-
-`synthgen.cage` builds the cage that `render_cage_view.py` grades against NHRL footage, from
-the fitted pose of their fixed `Cage-2-Overhead-High` phone. This module wraps the same build
-in what the generic pipeline needs to render cage scenes and HDRI-arena scenes in one run:
-
-- every cage object in one Blender collection, so the whole cage hides and shows at once;
-- a snapshot of the render settings the cage look depends on (Standard view transform with the
-  solved exposure gain, glass bounces, its own sample count and denoiser, the rectified camera
-  intrinsics), restored exactly when a generic scene renders;
-- camera poses sampled from `synthgen.cage_mount` instead of the fitted event poses, so the
-  mount varies the way ours would.
-
-The cage geometry, materials, lights and exposure are the spec's, unchanged: the numbers in
-`cage/cage2_overhead_high.toml` were fitted against footage and the match is only as good as
-they are.
-"""
+"""The NHRL cage as one half of the scene mix (requires Blender)."""
 
 from __future__ import annotations
 
@@ -47,7 +31,7 @@ from synthgen.cage_mount import (
     sample_cage_mount,
 )
 from synthgen.cage_spec import PANEL_WALLS, CageSceneSpec, all_tubes, load_cage_spec
-from synthgen.camera import target_in_frame
+from synthgen.camera import move_camera_and_check_point_in_written_view
 from synthgen.configuration import CageConfig, EnvironmentConfig, OutputConfig
 from synthgen.constants import (
     BACKGROUND_CATEGORY_ID,
@@ -63,10 +47,8 @@ from synthgen.render_settings import set_denoiser
 logger = get_logger(__name__)
 
 CAGE_COLLECTION_PREFIX = "cage_"
-# Mounts resampled before a scene settles for one that frames the robots anyway.
 MOUNT_FRAMING_RETRIES = 40
-# Lights the cage owns but that live outside its mesh collection as Blender lights.
-CAGE_LIGHT_PREFIXES = ("wash_", "house_bot_fill")
+CAGE_LIGHTS_OUTSIDE_COLLECTION_PREFIXES = ("wash_", "house_bot_fill")
 
 
 @dataclass(frozen=True)
@@ -210,7 +192,6 @@ class CageStage:
     ) -> None:
         self._cfg = cage_cfg
         self._spec = spec
-        # The view this cage writes, and the camera Blender renders it through.
         self.lens = lens
         self._width = width
         self._height = height
@@ -221,8 +202,6 @@ class CageStage:
         self._generic_state = generic_state
         self._tube_strengths = [_tube_strength(tube) for tube in tubes]
         self._footprint: tuple[float, float] | None = None
-        # The house bot's fill light and where it stands relative to the bot, kept so a
-        # randomized house bot can take its light with it.
         self._fill = next(
             (obj for obj in collection.objects if obj.name.startswith("house_bot_fill")), None
         )
@@ -237,7 +216,7 @@ class CageStage:
         self._lights = [
             (obj, float(obj.data.energy))
             for obj in collection.objects
-            if obj.type == "LIGHT" and obj.name.startswith(CAGE_LIGHT_PREFIXES)
+            if obj.type == "LIGHT" and obj.name.startswith(CAGE_LIGHTS_OUTSIDE_COLLECTION_PREFIXES)
         ]
 
     def apply_one_way_glass(self, cam2worlds: list[np.ndarray]) -> None:
@@ -281,7 +260,6 @@ class CageStage:
         if self._cfg.render_samples is not None:
             bproc.renderer.set_max_amount_of_samples(self._cfg.render_samples)
         set_denoiser(self._spec.render.denoiser)
-        # A warped view renders wider than the frame it writes; synthgen.pipeline warps it back.
         bproc.camera.set_intrinsics_from_K_matrix(self.lens.render_k, *self.lens.render_size)
 
     def deactivate(self) -> None:
@@ -293,13 +271,7 @@ class CageStage:
         restore_render_state(self._generic_state)
 
     def place_house_bot(self, robot_positions: Sequence[Sequence[float]]) -> HouseBotPose | None:
-        """Move the house bot to a fresh pose clear of the robots, if this cage randomizes it.
-
-        Only x, y and the heading change: the model was stood up and grounded at build time,
-        and a turn about z keeps it grounded. The keypoints ride along, since the annotation
-        reads them through the parent's live world matrix. The camera-side fill light moves
-        with it, keeping its offset, and is re-aimed.
-        """
+        """Move the house bot to a fresh pose clear of the robots, if this cage randomizes it."""
         if self.house_bot is None or not self._cfg.randomize_house_bot:
             return None
         spec = self._spec.house_bot_box
@@ -385,7 +357,7 @@ class CageStage:
         mount = sample_cage_mount(self._cfg.mount, self.wall_half)
         cam2world = mount_cam2world(mount, self.wall_half)
         for _ in range(MOUNT_FRAMING_RETRIES):
-            if target_in_frame(cam2world, look_at, self.lens):
+            if move_camera_and_check_point_in_written_view(cam2world, look_at, self.lens):
                 return mount, cam2world, True
             mount = sample_cage_mount(self._cfg.mount, self.wall_half)
             cam2world = mount_cam2world(mount, self.wall_half)
@@ -434,8 +406,6 @@ def build_cage_stage(
     )
 
     generic_state = snapshot_render_state()
-    # In keypoint mode the mat is background and the house bot is its own detector class; in
-    # segmentation mode the mat is the floor and the house bot is one more object on it.
     mat_category_id = SEG_FLOOR_CLASS_ID if is_segmentation_mode else BACKGROUND_CATEGORY_ID
     house_bot_category_id = SEG_OBJECT_CLASS_ID if is_segmentation_mode else HOUSE_BOT_CATEGORY_ID
     cc_dir = None if env_cfg.cc_textures_dir is None else resolve(env_cfg.cc_textures_dir)

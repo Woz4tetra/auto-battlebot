@@ -1,32 +1,4 @@
-"""Per-engine inference latency, reported the same way on the dev box and the Jetson.
-
-`trtexec` is not available everywhere -- on megamind TensorRT comes from the pip wheel,
-which ships no binary -- so this reuses `auto_battlebot.perception.trt_yolo.TrtYoloModel`, the same
-class `score.py` scores with. That also makes the numbers directly comparable to the
-accuracy run instead of measuring a differently-configured engine.
-
-Four levels are reported, because they answer different questions:
-
-  pre    `preprocess_frame` only: letterbox resize and the NCHW float blob. Pure CPU.
-  gpu    `_run` only: H2D copy, `execute_async_v3`, D2H copy, stream sync. Comparable to
-         `trtexec` with data transfers.
-  post   the residual, `total - pre - gpu`: NMS/decode and the coordinate rescale. Pure
-         CPU, and in Python rather than the C++ the app runs, so this is the level that
-         transfers worst. Derived from means, which are additive; medians are not.
-  total  `infer`: pre + gpu + post end to end. This is what the C++ `update()` call
-         actually costs, and it is the one the frame-period decision rests on --
-         `docs/experiments/parallel_yolo_batch/shared_preprocess_2026-07-24.md` found GPU
-         inference is 1-3 ms while a full per-model update is ~12 ms on the Jetson, so
-         quoting GPU time alone understates a bigger model by ~4x.
-
-The `pre`/`post` split matters on the Jetson specifically: its CPU is far slower relative
-to its GPU than the dev box's, so the CPU stages are a much larger share of the total and
-the Python-vs-C++ gap on those stages is what decides how much of a Python `total` the
-C++ app actually pays.
-
-Feed it a real eval frame (the default) rather than noise: NMS cost scales with the
-number of surviving boxes, and a noise image decodes to a degenerate detection count.
-"""
+"""Per-engine inference latency, reported the same way on the dev box and the Jetson."""
 
 import argparse
 import csv
@@ -63,8 +35,6 @@ def _time_loop(
 
 def _load_frame(path: str | None) -> np.ndarray:
     if path is None:
-        # 640x640 mid-grey: valid input, but detection counts are meaningless. Only used
-        # when no eval image is available; the printed banner says so.
         return np.full((640, 640, 3), 128, dtype=np.uint8)
     frame = cv2.imread(path)
     if frame is None:
@@ -167,8 +137,6 @@ def main() -> None:
                 f"{row['p90_ms']:>10.3f} {row['dets']!s:>6}"
             )
 
-        # Residual, not a timed loop: NMS/decode plus the coordinate rescale. Means are
-        # additive so this subtraction is valid; the same trick on medians would not be.
         post_mean = means["total"] - means["pre"] - means["gpu"]
         rows.append(
             {

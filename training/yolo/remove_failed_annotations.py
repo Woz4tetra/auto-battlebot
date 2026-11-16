@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""
-Remove Failed Annotations
-
-This script reads the validation state file created by validate_yolo_dataset.py
-and removes images and their corresponding annotation files that failed validation.
-"""
+"""Move or delete frames that validate_yolo_dataset.py marked fail."""
 
 import argparse
 import json
@@ -12,8 +7,6 @@ import shutil
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-# Directory failed pairs are moved into. validate_yolo_dataset.py skips it by name,
-# so keep the two in sync.
 BACKUP_DIR_NAME = "validation_backup"
 
 
@@ -27,11 +20,7 @@ def load_validation_state(state_file: Path) -> Dict[str, str]:
 
 
 def annotation_candidates(img_path: Path) -> List[Path]:
-    """Paths that could hold `img_path`'s annotation, most specific first.
-
-    Covers both layouts the validators produce: a YOLO export's `images/` + `labels/` pair, and a
-    segmask export where the annotation is a `<stem>_mask.png` sitting beside the frame.
-    """
+    """Paths that could hold `img_path`'s annotation, most specific first."""
     img_str = str(img_path)
     sibling_label = Path(
         img_str.replace("/images/", "/labels/").replace("\\images\\", "\\labels\\")
@@ -47,24 +36,19 @@ def find_image_annotation_pairs(dataset_path: Path) -> List[Tuple[Path, Path]]:
     """Recursively find all image and annotation pairs in the dataset."""
     image_extensions = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
 
-    # Find all images
     image_files = []
     for ext in image_extensions:
         image_files.extend(dataset_path.rglob(f"*{ext}"))
         image_files.extend(dataset_path.rglob(f"*{ext.upper()}"))
 
-    # Never re-process pairs an earlier run already set aside, or they get moved into
-    # a backup nested inside the backup.
     image_files = [
         img_path
         for img_path in image_files
         if BACKUP_DIR_NAME not in img_path.relative_to(dataset_path).parts
     ]
 
-    # Match with annotation files
     pairs = []
     for img_path in sorted(set(image_files)):
-        # A mask is an annotation, not a frame to be paired in its own right.
         if img_path.stem.endswith("_mask"):
             continue
         for label_path in annotation_candidates(img_path):
@@ -76,12 +60,7 @@ def find_image_annotation_pairs(dataset_path: Path) -> List[Tuple[Path, Path]]:
 
 
 def find_datasets_with_state(search_root: Path) -> List[Tuple[Path, Path]]:
-    """Recursively find dataset roots that have validation_state.json.
-
-    The root is wherever the state file sits, since validate_yolo_dataset.py writes it
-    at the root its keys are relative to. That root may hold `images/` and `labels/`
-    directly, or hold one subdirectory per recording with the pairs a level down.
-    """
+    """Recursively find dataset roots that have validation_state.json."""
     found: List[Tuple[Path, Path]] = []
     seen: set[Path] = set()
 
@@ -98,20 +77,10 @@ def find_datasets_with_state(search_root: Path) -> List[Tuple[Path, Path]]:
 def remove_failed_annotations(
     dataset_path: Path, state_file: Path, dry_run: bool = False, backup: bool = True
 ):
-    """
-    Remove image and annotation files that failed validation.
-
-    Args:
-        dataset_path: Root path of the YOLO dataset
-        state_file: Path to validation_state.json file
-        dry_run: If True, only print what would be deleted without actually deleting
-        backup: If True, move files to a backup directory instead of deleting
-    """
-    # Load validation state
+    """Remove image and annotation files that failed validation."""
     print(f"Loading validation state from {state_file}")
     validation_state = load_validation_state(state_file)
 
-    # Count statistics
     total_validated = len(validation_state)
     failed_count = sum(1 for v in validation_state.values() if v == "fail")
     passed_count = sum(1 for v in validation_state.values() if v == "pass")
@@ -121,26 +90,22 @@ def remove_failed_annotations(
     print(f"  Passed: {passed_count}")
     print(f"  Failed: {failed_count}")
 
-    # Find all image-annotation pairs
     print(f"\nScanning dataset at {dataset_path}")
     all_pairs = find_image_annotation_pairs(dataset_path)
     print(f"Found {len(all_pairs)} image-annotation pairs")
 
-    # Create backup directory if needed
     backup_dir = None
     if backup and not dry_run:
         backup_dir = dataset_path / BACKUP_DIR_NAME
         backup_dir.mkdir(exist_ok=True)
         print(f"\nCreated backup directory: {backup_dir}")
 
-    # Process failed images
     removed_images = []
     removed_labels = []
 
     for img_path, label_path in all_pairs:
         img_key = str(img_path.relative_to(dataset_path))
 
-        # Check if this image failed validation
         if validation_state.get(img_key) == "fail":
             removed_images.append(img_path)
             removed_labels.append(label_path)
@@ -151,15 +116,12 @@ def remove_failed_annotations(
                 print(f"  Label: {label_path}")
             else:
                 if backup:
-                    # Move to backup directory
                     backup_img_path = backup_dir / img_path.relative_to(dataset_path)
                     backup_label_path = backup_dir / label_path.relative_to(dataset_path)
 
-                    # Create parent directories
                     backup_img_path.parent.mkdir(parents=True, exist_ok=True)
                     backup_label_path.parent.mkdir(parents=True, exist_ok=True)
 
-                    # Move files
                     shutil.move(str(img_path), str(backup_img_path))
                     shutil.move(str(label_path), str(backup_label_path))
 
@@ -167,7 +129,6 @@ def remove_failed_annotations(
                     print(f"  Image: {img_path.name}")
                     print(f"  Label: {label_path.name}")
                 else:
-                    # Delete files
                     img_path.unlink()
                     label_path.unlink()
 
@@ -175,7 +136,6 @@ def remove_failed_annotations(
                     print(f"  Image: {img_path.name}")
                     print(f"  Label: {label_path.name}")
 
-    # Summary
     print(f"\n{'=' * 60}")
     print("Summary:")
     print(f"  Images {'that would be' if dry_run else ''} removed: {len(removed_images)}")
@@ -190,7 +150,6 @@ def remove_failed_annotations(
     else:
         print("\n✓ Removal complete!")
 
-        # Update state file to mark as processed
         processed_state_file = dataset_path / "validation_state_processed.json"
         with open(processed_state_file, "w") as f:
             json.dump(validation_state, f, indent=2)
@@ -245,7 +204,6 @@ def main():
 
     print(f"Found {len(targets)} dataset(s) to process.")
 
-    # Confirm before proceeding (unless dry run)
     if not args.dry_run:
         print("\n⚠ WARNING: This will remove or backup failed annotations from your dataset(s)!")
         print(f"   Search root: {dataset_path}")
@@ -264,7 +222,6 @@ def main():
             print("Cancelled.")
             return 0
 
-    # Perform removal for each discovered dataset
     for ds_root, state_file in targets:
         print(f"\n{'=' * 60}")
         print(f"Processing dataset: {ds_root}")

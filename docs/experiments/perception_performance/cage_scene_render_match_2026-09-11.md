@@ -339,3 +339,67 @@ show that gradient as a step at every seam.
    frame; the three-line solve cannot separate them.
 3. Grade the sample set with the domain probe in
    `training/model_eval/interpret_context_vs_appearance.py` against real cage crops.
+
+## Notes moved from code comments (2026-11-15)
+
+- `training/synthetic/synthgen/cage.py`, `solve_exposure` (`above common = ((mask > 0) & (target_mask > 0)) if (mask > 0).any() else (target_mask > 0)`):
+  A render without a mat category id (the sample renderer) falls back to the hull.
+- `training/synthetic/synthgen/cage.py`, `set_world` (`above background = tree.nodes["Background"]`):
+  Colour gain between the panorama and the Background node, so auto exposure can tint it the way it tints a flat background.
+- `training/synthetic/synthgen/cage.py`, `set_world`:
+  Flat background colour, or the spec's panorama when `world.hdri` names one.
+  Both go through the one Background node: `set_world_background` unlinks any texture feeding it, so switching from a panorama venue back to a flat one needs nothing extra.
+- `training/synthetic/synthgen/cage.py`, `house_bot_keypoints`:
+
+  ```text
+  Front/back keypoints of the placed house bot, in its parent's local frame.
+
+  Same convention as every other robot in the set, the one
+  `nhrl_common.keypoints_along_axis` applies to the CAD distractors: both points sit on the
+  model's centerline at ground height, at the front and back extremes of its footprint. The
+  axis is not fitted here, it is known: the house bot's LED face is its own +x, so +x is the
+  front, the way `HouseBotBoxSpec.roll_deg` and `yaw_deg` already treat it.
+
+  Returns:
+      ``(front, back)`` in parent-local metres, or None when the model has no geometry.
+  ```
+
+- `training/synthetic/synthgen/cage.py`, `add_house_bot_model`:
+  The textured house bot GLB on the mat, footprint scaled to the spec size.
+  Every mesh of the model carries *category_id* so the segmentation pass can box it as one object; the annotation itself is built in the pipeline.
+- `training/synthetic/synthgen/cage.py`, `make_textured_material` (`above saturate = mat.new_node("ShaderNodeHueSaturation")`):
+  Push the LED colour further from grey so it survives the exposure gain.
+- `training/synthetic/synthgen/cage.py`, `_add_backdrop` (`above mesh = backdrop.blender_obj.data`):
+  Drop the cap faces so the tubes above still light the scene.
+- `training/synthetic/synthgen/cage.py`, `set_one_way_glass`:
+  Keyframe each pane out of the frames whose camera stands outside it.
+  Visibility has to be animated rather than set once: one scene renders several camera poses in a single pass, and they can sit on different sides of the cage.
+- `training/synthetic/synthgen/cage_mount.py`:
+
+  ```text
+  Camera mounts on the NHRL cage: where a camera can plausibly sit, and the pose it sees.
+
+  Pure module (no Blender). `cage_scene.py` turns the poses returned here into BlenderProc
+  camera poses; tests check the geometry without a renderer.
+
+  A mount is five numbers and a wall, not a free pose: the camera is clamped high on one of the
+  four walls looking down and across the mat. `playground/cage_scene/fit_cage_camera.py` fits
+  NHRL's own `Cage-2-Overhead-High` phone that way across eleven clips and lands at 1.16 m above
+  the mat, 0.11 m inside the wall plane, 32 deg off straight down, within 1.7 deg of square to
+  the wall. The default ranges below bracket those fits, so a sampled mount is the same kind of
+  mount with mounting slop instead of one fitted pose.
+
+  Poses come out as the cam2world matrix `bproc.camera.add_camera_pose` wants, in the W frame
+  `auto_battlebot/perception/cage_calibration.py` documents: mat centre at the origin, z up, the
+  mat top surface at z = 0. The Blender camera looks down its own -z with +y up, which is the
+  one convention this module encodes by hand; `tests/test_cage_mount.py` pins it against
+  `cage_calibration`'s own helpers so the two cannot drift.
+  ```
+
+- `training/synthetic/synthgen/cage_scene.py`, `place_house_bot`:
+  Move the house bot to a fresh pose clear of the robots, if this cage randomizes it.
+  Only x, y and the heading change: the model was stood up and grounded at build time, and a turn about z keeps it grounded. The keypoints ride along, since the annotation reads them through the parent's live world matrix. The camera-side fill light moves with it, keeping its offset, and is re-aimed.
+- `training/synthetic/synthgen/cage_scene.py`, `activate` (`above bproc.camera.set_intrinsics_from_K_matrix(self.lens.render_k, *self.lens.render_s...`):
+  A warped view renders wider than the frame it writes; synthgen.pipeline warps it back.
+- `training/synthetic/synthgen/cage_scene.py`, `__init__` (`above self._fill = next(`):
+  The house bot's fill light and where it stands relative to the bot, kept so a randomized house bot can take its light with it.

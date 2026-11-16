@@ -1,27 +1,4 @@
-"""Convert a YOLO pose (keypoint) dataset into a detection (bbox-only) dataset.
-
-Preserves the train/val/test split structure exactly. Each pose label row
-``class cx cy w h  kx ky kv  kx ky kv ...`` becomes a box row ``class cx cy w h``:
-the keypoint columns are dropped, the box columns pass through verbatim. Rows already
-in box form (4 coords) pass through unchanged. Optionally remaps class ids so the
-output lands in a different class vocabulary (e.g. fold a synthetic pose dataset into
-a real detection dataset's classes). Images are hardlinked (fast, no copy) when the
-output is on the same filesystem, otherwise copied; ``.npy`` training caches are skipped.
-
-Unlike seg_to_bbox.py, this must NOT treat the extra columns as polygon coordinates:
-a pose row's keypoints are not box geometry. Only the first four coords are the box.
-
-Built for the synthetic+bbox experiment: turn the synthetic keypoint dataset
-``all_robot_keypoints`` into box-only labels remapped into the ``nhrl_robots_bbox``
-vocabulary, so it can be pooled with the real bbox set. See
-``docs/experiments/perception_performance/synthetic_plus_bbox_plan.md``.
-
-Usage:
-  python training/yolo/pose_to_bbox.py training/data/all_robot_keypoints \
-      -o training/data/synth_bbox_from_keypoints \
-      --class-map 2:1,0:3,1:4 \
-      --names-from training/data/nhrl_robots_bbox/data.yml
-"""
+"""Convert a YOLO pose (keypoint) dataset into a detection (bbox-only) dataset."""
 
 from __future__ import annotations
 
@@ -50,12 +27,7 @@ def parse_class_map(spec: str | None) -> dict[int, int]:
 
 
 def convert_label(text: str, class_map: dict[int, int]) -> tuple[list[str], int]:
-    """Convert one pose label file's rows to box rows. Returns (rows, malformed count).
-
-    Keeps ``class cx cy w h`` (first four coords), drops any keypoint columns, and
-    applies ``class_map`` (classes absent from the map are left unchanged). A row with
-    fewer than four coords is malformed (not a valid box) and is dropped and counted.
-    """
+    """Convert one pose label file's rows to box rows; returns (rows, malformed count)."""
     out_lines: list[str] = []
     malformed = 0
     for raw in text.splitlines():
@@ -71,7 +43,7 @@ def convert_label(text: str, class_map: dict[int, int]) -> tuple[list[str], int]
         if len(coords) < 4:
             malformed += 1
             continue
-        cx, cy, w, h = coords[:4]  # box only; drop keypoint columns
+        cx, cy, w, h = coords[:4]
         if w <= 0 or h <= 0:
             malformed += 1
             continue

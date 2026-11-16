@@ -4,6 +4,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from synthgen.cage_mount import MountAim
 from synthgen.configuration import (
     CageConfig,
     ConfigError,
@@ -66,7 +67,6 @@ class TestRealConfig:
         assert stabs.class_id == 0
         assert stabs.weight == pytest.approx(0.5)
         assert stabs.ground_roll_upright == pytest.approx(9.587585)
-        # Keypoints are converted to Blender axes: (x, y, z) -> (x, -z, y).
         np.testing.assert_allclose(stabs.keypoints.front, [0.1115, 0.00313, 0.0])
         assert buff.name == "mrs_buff_mk3"
         assert buff.class_id == 1
@@ -99,44 +99,28 @@ class TestRealConfig:
             "meatball_basement",
         ]
         nhrl, massd, basement = cfg.cages
-        # The NHRL house bot moves every scene; the other venues have none to move.
         assert nhrl.randomize_house_bot is True
         assert massd.randomize_house_bot is False
-        # The basement is off in the default mix; config_cage_meatball.toml pins a run to it.
         assert basement.enabled is False
-        # Its stone walls stand behind the far and right rails, so only two sides take mounts.
         assert basement.mount.walls == ("near", "left")
         assert nhrl.enabled is True
         assert nhrl.probability == pytest.approx(0.5)
-        # 64 with the spec's OptiX denoiser matched 128 with the compositor denoiser on
-        # 2026-09-12 (37.6 vs 39.9 dB PSNR against a 512-sample reference, crops alike).
         assert nhrl.render_samples == 64
         assert massd.render_samples == 64
         assert nhrl.mount.walls == ("near", "far", "left", "right")
         assert nhrl.mount.height_m == (0.60, 1.25)
         assert massd.probability == pytest.approx(0.25)
-        # Both mounts stand outside the wall, close to it, with tilt derived from where they
-        # land and aimed short of the field centre. NHRL's come from the 12 poses flown in
-        # pose_camera_server.py on 2026-09-12; MassD's come from the coverage sweeps, pulled
-        # in once the half moved to the wider e-CAM25 lens.
         for mount in (nhrl.mount, massd.mount):
             assert mount.aim == "centre"
-            # Strictly outside, so the pane the camera looks through is always hidden.
             assert mount.inset_m[0] < 0.0 and mount.inset_m[1] < 0.0
-            # Aimed short of the centre, never past it.
             assert mount.tilt_offset_deg[0] < 0.0 and mount.tilt_offset_deg[1] < 0.0
         assert nhrl.mount.inset_m == (-0.20, -0.08)
         assert nhrl.mount.tilt_offset_deg == (-22.0, -10.0)
         assert massd.mount.inset_m == (-0.25, -0.10)
         assert massd.mount.height_m == (0.45, 1.10)
-        # Both mounts stay clear of the glass. A camera within 0.055 m of the wall put an
-        # adjacent pane across a 118 degree frame edge-on, and the rough refraction cost 402
-        # seconds per render pass at 32 samples where a healthy scene takes 4 to 23 at 128.
         for mount in (nhrl.mount, massd.mount):
             assert mount.inset_m[1] <= -0.08
-        # Both halves stand in for our own camera, so both render through its lens.
         assert nhrl.camera_calibration == massd.camera_calibration
-        # Every spec and camera calibration resolves against the config directory.
         for cage in cfg.cages:
             assert cfg.resolver.resolve(cage.spec).exists()
             assert cfg.resolver.resolve(cage.camera_calibration).exists()
@@ -164,7 +148,6 @@ class TestRealConfig:
         assert every.enabled is True
         assert every.scene_probability == pytest.approx(1.0)
         assert every.probability == pytest.approx(1.0)
-        # Everything else about the draw is the config's.
         assert every.part_severity == cfg.damage.part_severity
         with pytest.raises(ConfigError, match="damage mode"):
             apply_damage_mode(cfg, "sometimes")
@@ -179,8 +162,14 @@ class TestRealConfig:
             chosen = choose_cage(cages, written, counts)
             if chosen is not None:
                 counts[chosen] += 1
-        # The leftover is the HDRI arena's share, and no cage steals from the other.
         assert counts == [100, 50]
+
+    def test_first_scene_goes_to_the_largest_share_cage(self) -> None:
+        cages = [
+            CageConfig(name="small", enabled=True, probability=0.2),
+            CageConfig(name="large", enabled=True, probability=0.8),
+        ]
+        assert choose_cage(cages, 0, [0, 0]) == 1
 
     def test_cage_split_is_off_when_disabled_or_zero(self) -> None:
         assert choose_cage([CageConfig(enabled=False, probability=1.0)], 0, [0]) is None
@@ -319,7 +308,6 @@ class TestPathResolver:
         resolver = PathResolver(config_dir, launch_cwd, project_root)
         assert resolver.resolve(Path("asset")) == (config_dir / "asset").resolve()
 
-        # Config-dir candidate missing: falls through to launch CWD.
         resolver2 = PathResolver(tmp_path / "missing", launch_cwd, project_root)
         assert resolver2.resolve(Path("asset")) == (launch_cwd / "asset").resolve()
 
@@ -336,7 +324,6 @@ class TestExtends:
         child = tmp_path / "variant.toml"
         child.write_text('extends = "config.toml"\n\n[output]\nnum_images = 250\n')
         cfg = load_render_config(child)
-        # Overridden key takes the child's value, the rest of [output] survives the merge.
         assert cfg.output.num_images == 250
         assert cfg.output.image_dir.name == "images"
         assert len(cfg.robots) == 1
@@ -375,14 +362,12 @@ class TestExtends:
             active = [cage for cage in cfg.cages if cage.active]
             assert [cage.name for cage in active] == [wanted]
             assert active[0].probability == pytest.approx(1.0)
-            # Inherited from config.toml rather than restated.
             assert [robot.name for robot in cfg.robots] == ["mr_stabs_mk2", "mrs_buff_mk3"]
             assert cfg.damage.enabled is True
 
 
 class TestOnlyCage:
     def test_unknown_name_is_an_error(self, tmp_path: Path) -> None:
-        # only_cage is a top-level key, so it goes before the first table header.
         toml = 'only_cage = "nope"\n' + MINIMAL_TOML + '\n[[cages]]\nname = "a"\n'
         with pytest.raises(ConfigError, match="no \\[\\[cages\\]\\] entry"):
             load_render_config(_write_config(tmp_path, toml))
@@ -409,7 +394,6 @@ class TestDamage:
         damage = load_render_config(REAL_CONFIG).damage
         assert damage.enabled is True
         assert damage.probability == pytest.approx(0.35)
-        # The clean pool a damage-off arm draws from is 1 - scene_probability.
         assert damage.scene_probability == pytest.approx(0.5)
         assert damage.part_severity == (0.05, 0.30)
         assert damage.chunk_volume_fraction == (0.03, 0.20)
@@ -454,10 +438,8 @@ class TestDamageParts:
             "bottom_plate",
         ]
         assert parts["wheels"].subset and len(parts["wheels"].pieces) == 4
-        # A guard is one printed piece per side, a side wall and a front arm.
         guards = parts["wheel_side_guards"]
         assert guards.subset and [len(piece) for piece in guards.pieces] == [2, 2]
-        # One wheel or one guard at a time is the usual loss.
         assert parts["wheels"].count_weights[0] == max(parts["wheels"].count_weights)
         assert guards.count_weights[0] > guards.count_weights[1]
         assert parts["weapon_module"].includes == ("weapon_disk",)
@@ -550,6 +532,18 @@ pieces = [[[0.0, 0.0, 0.0, 0.1, 0.1, 0.1]]]
         )
         with pytest.raises(ConfigError, match="subset"):
             load_render_config(_write_config(tmp_path, toml))
+
+
+class TestMountAim:
+    def test_unknown_aim_is_an_error(self, tmp_path: Path) -> None:
+        toml = MINIMAL_TOML + '\n[[cages]]\nname = "a"\n[cages.mount]\naim = "middle"\n'
+        with pytest.raises(ConfigError, match="aim"):
+            load_render_config(_write_config(tmp_path, toml))
+
+    def test_aim_parses_to_the_enum(self, tmp_path: Path) -> None:
+        toml = MINIMAL_TOML + '\n[[cages]]\nname = "a"\n[cages.mount]\naim = "centre"\n'
+        (cage,) = load_render_config(_write_config(tmp_path, toml)).cages
+        assert cage.mount.aim is MountAim.CENTRE
 
 
 class TestCageViews:

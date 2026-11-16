@@ -1,23 +1,5 @@
 import blenderproc as bproc  # isort: skip  # must be first import for blenderproc run
 
-# Compute front/back keypoints and render a top-down preview for robot meshes.
-#
-# Step 3 of the NHRL robot distractor pipeline.  Runs under BlenderProc so it can
-# render each robot with its real materials (the "sheen" a flat vertex-color bake
-# loses).  For every .glb it:
-#   - imports the mesh with bpy and reads world-space vertices,
-#   - derives centered front/back keypoints from the footprint (nhrl_common),
-#   - renders a full-material ORTHOGRAPHIC top-down PNG, and
-#   - writes a <stem>.json sidecar with the keypoints plus a "topdown" block
-#     (image path, model->pixel affine, footprint hull, y_ground, default axis)
-#     so review_nhrl_keypoints.py can overlay a draggable centerline that lines
-#     up exactly with the render, without loading the mesh itself.
-#
-# Usage (under BlenderProc; run from training/synthetic/ so nhrl_common is
-# importable — the docker wrapper run_synthetic.sh sets PYTHONPATH; for a manual
-# run prefix the command with PYTHONPATH="$PWD"):
-#     blenderproc run compute_nhrl_keypoints.py -- ../data/distractor_models/robots
-#     blenderproc run compute_nhrl_keypoints.py -- ../data/distractor_models/robots --overwrite
 
 import argparse
 from datetime import datetime, timezone
@@ -29,10 +11,6 @@ import mathutils
 import nhrl_common as nc
 import numpy as np
 from bpy_extras.object_utils import world_to_camera_view
-
-# nhrl_common is imported by top-level name. blenderproc runs this script under
-# its own Python (not the venv), so it must be launched with PYTHONPATH
-# including training/synthetic (set by the docker wrapper; see the docstring).
 
 
 def _clear_scene() -> None:
@@ -82,7 +60,10 @@ def _setup_scene(samples: int) -> None:
     bg = world.node_tree.nodes.get("Background")
     if bg is not None:
         bg.inputs[0].default_value = (0.16, 0.16, 0.16, 1.0)
-        bg.inputs[1].default_value = 0.7  # ambient fill so dark bodies aren't black
+        bg.inputs[1].default_value = AMBIENT_FILL_STRENGTH
+
+
+AMBIENT_FILL_STRENGTH = 0.7
 
 
 def _add_lights(center: np.ndarray, radius: float) -> list:
@@ -136,10 +117,8 @@ def _render_topdown(
     out_png.parent.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(str(out_png), bgr)
 
-    # Derive the affine [x, z, 1] -> [px, py]. Ortho top-down makes model (x,z)
-    # -> pixel exactly affine and independent of height, so 3 points define it.
     def _project(mx: float, mz: float) -> np.ndarray:
-        world = mathutils.Vector((mx, -mz, 0.0))  # model->blender world = [x,-z,y]
+        world = mathutils.Vector((mx, -mz, 0.0))
         co = world_to_camera_view(bpy.context.scene, cam_ob, world)
         return np.array([co.x * res, (1.0 - co.y) * res])
 

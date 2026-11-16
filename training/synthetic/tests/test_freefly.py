@@ -1,11 +1,4 @@
-"""Flying the camera off the wall and projecting it back must not change the convention.
-
-`freefly` is the only place a pose can leave `CageMount`'s five-numbers-and-a-wall shape, so these
-tests pin both directions: a mount pose survives a round trip through the free-flight
-parameterisation unchanged, and a free pose projects onto the mount that actually describes it,
-including on the wrong-sign case (a mount is on the wall *behind* the lens, not the one its optical
-axis points at) and the near-vertical case where yaw and roll collapse into one rotation.
-"""
+"""Flying the camera off the wall and projecting it back must not change the convention."""
 
 from __future__ import annotations
 
@@ -78,8 +71,6 @@ def test_the_wall_is_the_one_behind_the_lens_not_the_one_ahead() -> None:
         cam2world = mount_cam2world(mount, WALL_HALF)
         normal, _ = wall_axes(wall)
         forward = -cam2world[:3, 2]
-        # The camera sits against its wall and looks across the mat, so the optical axis points
-        # along the inward normal while the lens position sits against the opposite one.
         assert float(np.dot(forward, normal)) > 0
         assert float(np.dot(cam2world[:3, 3], normal)) < 0
         assert mount_from_cam2world(cam2world, WALL_HALF).wall == wall
@@ -94,7 +85,6 @@ def test_any_flown_pose_reads_back_as_an_exact_mount() -> None:
 
     assert residual.position_m == pytest.approx(0.0, abs=1e-12)
     assert residual.angle_deg == pytest.approx(0.0, abs=1e-9)
-    # Flown well inside the cage, so the mount says so with a large inset rather than by failing.
     assert mount.wall == "near"
     assert mount.inset_m == pytest.approx(WALL_HALF - 0.4)
 
@@ -107,10 +97,10 @@ def test_clamping_into_ranges_is_what_produces_a_real_residual() -> None:
     clamped = clamp_mount_to_ranges(mount, ranges)
     residual = mount_residual(cam2world, clamped, WALL_HALF)
 
-    assert clamped.inset_m == pytest.approx(ranges.inset_m[1])  # flown too far in, pulled back
-    assert clamped.height_m == pytest.approx(ranges.height_m[1])  # and too high
+    assert clamped.inset_m == pytest.approx(ranges.inset_m[1])
+    assert clamped.height_m == pytest.approx(ranges.height_m[1])
     assert residual.position_m > 0.5
-    assert residual.angle_deg == pytest.approx(0.0, abs=1e-9)  # tilt 40 deg is already in range
+    assert residual.angle_deg == pytest.approx(0.0, abs=1e-9)
 
 
 def test_clamping_a_mount_already_inside_the_ranges_changes_nothing() -> None:

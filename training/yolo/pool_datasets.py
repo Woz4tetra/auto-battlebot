@@ -1,40 +1,13 @@
-"""Pool a full real dataset with a fraction of a synthetic dataset into one flat YOLO tree.
-
-Recipe C (see docs/experiments/perception_performance/experiment_runbook.md) has no committed
-script; this is it, written for the data_epoch_min experiment's Phase B synthetic scene-variation
-probe. Every real frame is always included; synthetic frames are subsampled by --synth-fraction,
-selected either in image-numbered (filename) order or randomly. Filenames carry a
-"...T17-01-18-000050..." timestamp + frame index, so filename order IS render-sequence order:
---synth-order sequential is scene-correlated, --synth-order random spreads scene coverage. The gap
-between the two accuracy-vs-fraction curves at a fixed real count answers "how much synthetic scene
-variation do I need".
-
-Output is a flat images/+labels/ tree ready for:
-    split_yolo_dataset.py  ->  validate_yolo_integrity.py --strict
-
-Keep synthetic out of val: pool into the train split only, and build a real-only val split
-separately (grade always on the external eval, never same-corpus val).
-
-Only the image (.jpg/.png/...) and its stem-matched .txt label are linked. Any .npy / labels.cache
-next to the images are ultralytics cache="disk" artifacts (derived) and are skipped; training
-regenerates them.
-
-Example:
-    python pool_datasets.py \
-        --real ../data/real_our_robots \
-        --synth ../data/all_robot_keypoints/train \
-        --out ../data/phaseB_r100_s25_seq \
-        --synth-fraction 0.25 --synth-order sequential
-"""
+"""Pool a full real dataset with a fraction of a synthetic dataset into one flat YOLO tree."""
 
 import argparse
 import os
 import shutil
 from pathlib import Path
 from random import Random
+from typing import NamedTuple
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp"}
-# Derived files that sit next to images (ultralytics cache="disk"); never pooled.
 DERIVED_EXTS = {".npy", ".cache"}
 
 
@@ -69,7 +42,6 @@ def select_synth(frames: list[Path], fraction: float, order: str, seed: int) -> 
     keep = round(fraction * len(frames))
     if order == "sequential":
         return frames[:keep]
-    # random: seeded, reproducible, comparable to the sequential arm at the same fraction.
     shuffled = list(frames)
     Random(seed).shuffle(shuffled)
     return shuffled[:keep]
@@ -91,6 +63,11 @@ def prepare_output(out: Path, overwrite: bool) -> tuple[Path, Path]:
     return out_images, out_labels
 
 
+class LinkResult(NamedTuple):
+    linked: int
+    skipped_no_label: int
+
+
 def link_pairs(
     frames: list[Path],
     images_dir: Path,
@@ -99,11 +76,8 @@ def link_pairs(
     out_images: Path,
     out_labels: Path,
     prefix: str,
-) -> tuple[int, int]:
-    """Hardlink each frame's image + .txt label into the output tree with a source prefix.
-
-    Returns (linked, skipped_no_label).
-    """
+) -> LinkResult:
+    """Hardlink each frame's image + .txt label into the output tree with a source prefix."""
     flat = images_dir == labels_dir
     linked = 0
     skipped = 0
@@ -122,7 +96,7 @@ def link_pairs(
         for label in labels:
             hardlink(label, out_labels / f"{prefix}__{label.name}")
         linked += 1
-    return linked, skipped
+    return LinkResult(linked, skipped)
 
 
 def hardlink(src: Path, dst: Path) -> None:

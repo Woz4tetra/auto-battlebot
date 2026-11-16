@@ -39,7 +39,6 @@ require_gpu=0
 while [ $# -gt 0 ]; do
   case "${1:-}" in
     --port)
-      # Published on the loopback interface only: this is a dev tool, not a service.
       docker_port_args+=(-p "127.0.0.1:${2}:${2}")
       shift 2
       ;;
@@ -80,8 +79,6 @@ fi
 hf_cache_host="${HOME}/.cache/huggingface"
 mkdir -p "$hf_cache_host"
 
-# Resolve repository root from this script location so behavior is stable
-# regardless of the caller's current working directory.
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/../../.." && pwd)"
 
@@ -90,14 +87,8 @@ if [ -t 0 ] && [ -t 1 ]; then
   docker_tty_args=(-it)
 fi
 
-# Run as the host user so files created in the mounted repo are not owned by root.
-# The entrypoint reads these and drops privileges.
 docker_id_args=(-e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)")
 
-# blenderproc runs Blender's own Python (not the project venv), so the synthetic
-# scripts' sibling modules (synthgen, nhrl_common) are made importable via
-# PYTHONPATH here instead of an in-script sys.path hack. Matches the container
-# working directory (-w below).
 docker_env_args=(-e PYTHONPATH=/workspace/training/synthetic)
 
 # BlenderProc writes a scene's render passes to /dev/shm and reads them back after the render.
@@ -122,7 +113,6 @@ if [ "${#docker_gpu_args[@]}" -eq 0 ]; then
   exit $?
 fi
 
-# Probe GPU runtime support first to preserve interactive behavior and signals.
 set +e
 gpu_probe_output="$(docker run --rm --gpus "$gpu_selector" --entrypoint /bin/sh "$image_name" -c "exit 0" 2>&1)"
 gpu_probe_exit=$?

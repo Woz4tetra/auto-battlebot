@@ -1,33 +1,4 @@
 #!/usr/bin/env bash
-# Score domain-mix arms on nhrl_keypoints_eval_test: pooled, heading, per venue, per recording.
-#
-# Step 5 of docs/experiments/perception_performance/synthetic_domain_mix_plan_2026-09-12.md. Reads
-# each arm's square-640 engine at data/models/<model>_<arm>_<date>_<ckpt>_x86_64_<sm>.engine, the
-# name run_domain_mix_arm.sh gives it. The first arm is the baseline every other arm is bootstrapped
-# against.
-#
-#   bash training/model_eval/score_domain_mix.sh yolo26s-pose 2026-09-13 base d2500 d5000 d10000
-#
-# An arm may carry its own checkpoint as `arm:ckpt`, which overrides CKPT for that arm alone and
-# names it `arm_ckpt` in the output. The matched-presentation table needs this: each arm is read at
-# the checkpoint bracketing the baseline's frame-presentations, which is a different epoch per arm.
-#
-#   RUNS=opponent bash training/model_eval/score_domain_mix.sh yolo26s-pose 2026-09-13 \
-#       base d20000:epoch50 d40000:epoch25
-#
-# Output: training/data/nhrl_keypoints_eval_test/scores_domain_mix_<model>/
-#   pooled/        all 688 frames, taxonomy.yaml (every class scored together)
-#   opponent/      all 688 frames, taxonomy_opponent.yaml: the adoption metric
-#   heading/       all 688 frames, taxonomy_keypoint_ours.yaml (our robot's keypoints only)
-#   venue_nhrl/    the 590 NHRL May frames, opponents only
-#   venue_massd/   the 98 MassD August frames, opponents only
-#   rec_<name>/    one recording, which is one opponent, opponents only
-# Every run keeps the bootstrap. 98 MassD frames is where a point estimate misleads most.
-#
-# Environment: CKPT (default last), SM (default sm86, this box), OUT, CONF (default 0.5), and RUNS
-# (default all), a comma-separated subset of pooled, opponent, heading, venues and recordings. The
-# matched-presentation read wants `opponent` alone: twelve runs over ten candidates is an hour of
-# GPU for one column of one table.
 set -euo pipefail
 
 if [ $# -lt 3 ]; then
@@ -55,7 +26,6 @@ LABELS="mr_stabs_mk2,mrs_buff_mk3,opponent,house_bot"
 candidates=()
 BASELINE=""
 for arm in "${ARMS[@]}"; do
-    # `arm:ckpt` pins one arm to its own checkpoint; a bare arm takes CKPT.
     ckpt=${arm#*:}
     [ "$ckpt" = "$arm" ] && ckpt=$CKPT
     arm=${arm%%:*}

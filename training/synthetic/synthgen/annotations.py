@@ -1,25 +1,35 @@
-"""Annotation extraction math and YOLO label file writers (no Blender imports).
+"""Annotation extraction math and YOLO label file writers (no Blender imports)."""
 
-The byte format of every file written here (label lines, ``data.yml``,
-``label_index.txt``) is a frozen contract with the downstream dataset tooling in
-``training/yolo/`` and ``training/deeplab/``.
-"""
-
+from enum import IntEnum
 from pathlib import Path
+from typing import NamedTuple
 
 import cv2
 import numpy as np
 
 from synthgen.constants import (
-    ANNOTATION_MODE_KEYPOINTS_BBOX,
-    ANNOTATION_MODE_SEGMENTATION_BBOX,
     BACKGROUND_CATEGORY_ID,
     KEYPOINT_DEPTH_TOLERANCE_M,
+    AnnotationMode,
 )
+
+
+class KeypointVisibility(IntEnum):
+    OUT_OF_FRAME = 0
+    OCCLUDED = 1
+    VISIBLE = 2
+
+
+class YoloBox(NamedTuple):
+    cx: float
+    cy: float
+    w: float
+    h: float
+
 
 YoloAnnotation = tuple[
     int,
-    tuple[float, float, float, float],
+    YoloBox,
     list[tuple[float, float, int]],
 ]
 """(class_id, (cx, cy, w, h), [(kp_x, kp_y, vis), ...])"""
@@ -28,28 +38,15 @@ YoloSegAnnotation = tuple[int, list[tuple[float, float]]]
 """(class_id, [(x1, y1), (x2, y2), ...])"""
 
 
-def normalize_annotation_mode(mode: str) -> str:
-    """Validate and canonicalize the ``output.annotation_mode`` config value.
-
-    Args:
-        mode: Raw config string.
-
-    Returns:
-        The normalized mode.
-
-    Raises:
-        ValueError: If the mode is not a supported annotation mode.
-    """
-    mode_norm = mode.strip().lower()
-    valid_modes = {
-        ANNOTATION_MODE_KEYPOINTS_BBOX,
-        ANNOTATION_MODE_SEGMENTATION_BBOX,
-    }
-    if mode_norm not in valid_modes:
+def normalize_annotation_mode(mode: str) -> AnnotationMode:
+    """Parse the ``output.annotation_mode`` config value, ignoring case and padding."""
+    try:
+        return AnnotationMode(mode.strip().lower())
+    except ValueError:
         raise ValueError(
-            f"Unsupported output.annotation_mode='{mode}'. Expected one of: {sorted(valid_modes)}"
-        )
-    return mode_norm
+            f"Unsupported output.annotation_mode='{mode}'. "
+            f"Expected one of: {sorted(m.value for m in AnnotationMode)}"
+        ) from None
 
 
 def check_keypoint_visibility(
@@ -61,55 +58,27 @@ def check_keypoint_visibility(
     img_h: int,
     tolerance: float = KEYPOINT_DEPTH_TOLERANCE_M,
     ignore_occlusion: bool = False,
-) -> int:
-    """Determine keypoint visibility: 0=out-of-frame, 1=occluded, 2=visible.
-
-    When *ignore_occlusion* is set, any in-frame keypoint is reported as visible
-    (flag 2) without the depth test, so keypoints are annotated straight through
-    occluding objects.
-
-    Args:
-        x_norm: Normalized image x of the projected keypoint.
-        y_norm: Normalized image y (top-left origin).
-        kp_depth: Camera-space depth of the keypoint.
-        depth_map: Rendered depth map for the frame.
-        img_w: Image width in pixels.
-        img_h: Image height in pixels.
-        tolerance: Depth agreement (meters) for the keypoint to be visible.
-        ignore_occlusion: Skip the depth test entirely.
-
-    Returns:
-        YOLO visibility flag (0, 1, or 2).
-    """
+) -> KeypointVisibility:
+    """Visibility flag of a projected keypoint; *ignore_occlusion* skips the depth test."""
     if not (0 <= x_norm <= 1 and 0 <= y_norm <= 1):
-        return 0
+        return KeypointVisibility.OUT_OF_FRAME
 
     if ignore_occlusion:
-        return 2
+        return KeypointVisibility.VISIBLE
 
     px = min(int(x_norm * img_w), img_w - 1)
     py = min(int(y_norm * img_h), img_h - 1)
     rendered_depth = depth_map[py, px]
 
     if abs(rendered_depth - kp_depth) < tolerance:
-        return 2
-    return 1
+        return KeypointVisibility.VISIBLE
+    return KeypointVisibility.OCCLUDED
 
 
 def bbox_from_category_segmap(
     seg_map: np.ndarray, category_id: int, img_w: int, img_h: int
-) -> tuple[float, float, float, float] | None:
-    """Compute a YOLO-format bounding box from the segmentation map.
-
-    Args:
-        seg_map: Category- or instance-id segmentation map.
-        category_id: The id to bound.
-        img_w: Image width in pixels.
-        img_h: Image height in pixels.
-
-    Returns:
-        ``(cx, cy, w, h)`` normalized to [0, 1], or None if not visible.
-    """
+) -> YoloBox | None:
+    """Normalized box around *category_id*, or None when it is not in the map."""
     mask = seg_map.squeeze() == category_id
     if not np.any(mask):
         return None
@@ -122,7 +91,7 @@ def bbox_from_category_segmap(
     cy = (y_min + y_max) / 2.0 / img_h
     w = (x_max - x_min) / img_w
     h = (y_max - y_min) / img_h
-    return (cx, cy, w, h)
+    return YoloBox(cx, cy, w, h)
 
 
 def segmentation_annotations_from_segmap(
@@ -131,18 +100,7 @@ def segmentation_annotations_from_segmap(
     img_h: int,
     min_bbox_dim: int = 1,
 ) -> list[YoloSegAnnotation]:
-    """Convert a category-id segmentation map into YOLO-seg annotations.
-
-    Args:
-        seg_map: Category-id segmentation map.
-        img_w: Image width in pixels.
-        img_h: Image height in pixels.
-        min_bbox_dim: Contours whose bbox is smaller than this (either axis,
-            pixels) are dropped.
-
-    Returns:
-        One ``(class_id, polygon)`` entry per kept contour.
-    """
+    """Convert a category-id segmentation map into YOLO-seg annotations."""
     seg_2d = seg_map.squeeze()
     annotations: list[YoloSegAnnotation] = []
     for class_id in sorted(int(v) for v in np.unique(seg_2d).tolist()):
@@ -165,8 +123,6 @@ def segmentation_annotations_from_segmap(
             if contour.shape[0] >= 3:
                 polygon = [(float(x) / img_w, float(y) / img_h) for x, y in contour[:, 0, :]]
             else:
-                # Preserve tiny visible objects (e.g. heavily occluded or edge-clipped)
-                # by emitting a minimal rectangle polygon.
                 x_min = int(xs.min())
                 x_max = int(xs.max())
                 y_min = int(ys.min())
@@ -191,7 +147,7 @@ def write_yolo_labels(
             cx, cy, w, h = bbox
             parts = [f"{class_id} {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}"]
             for kp_x, kp_y, vis in keypoints:
-                if vis == 0:
+                if vis == KeypointVisibility.OUT_OF_FRAME:
                     parts.append("0.000000 0.000000 0")
                 else:
                     parts.append(f"{kp_x:.6f} {kp_y:.6f} {vis}")
@@ -238,7 +194,7 @@ def write_data_yml(
         f"nc: {len(names)}",
         f"names: {names}",
     ]
-    if annotation_mode == ANNOTATION_MODE_KEYPOINTS_BBOX:
+    if annotation_mode == AnnotationMode.KEYPOINTS_BBOX:
         lines.extend(
             [
                 "kpt_shape: [2, 3]",

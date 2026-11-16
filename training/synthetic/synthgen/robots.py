@@ -206,10 +206,7 @@ def _damage_face_pieces(
 
 
 def _parent_face_centres(obj: bpy.types.Object) -> np.ndarray:
-    """*obj*'s face centres in its parent's frame, as an ``(n, 3)`` array.
-
-    matrix_local is relative to robot_parent, which is the frame keypoints live in.
-    """
+    """*obj*'s face centres in its parent's frame, as an ``(n, 3)`` array."""
     count = len(obj.data.polygons)
     raw = np.empty(count * 3, dtype=np.float32)
     obj.data.polygons.foreach_get("center", raw)
@@ -220,18 +217,7 @@ def _parent_face_centres(obj: bpy.types.Object) -> np.ndarray:
 def split_damage_parts(
     meshes: list[bproc.types.MeshObject], parts: tuple[DamagePartConfig, ...]
 ) -> tuple[list[bproc.types.MeshObject], dict[str, list[list[bpy.types.Object]]]]:
-    """Cut a robot's meshes into the named pieces its ``damage_parts`` describe.
-
-    A CAD GLB grouped by material colour holds one object per colour, so the weapon disk
-    shares objects with every other part painted the same. Faces are assigned to pieces by
-    centre, and each piece's faces move into their own object, once, before materials and
-    segmentation ids go on, so the pieces render and label like any other robot mesh.
-    Battle damage then hides whole pieces and never edits mesh data mid-run.
-
-    Returns:
-        ``(meshes, pieces)``: the robot's mesh list with the pieces in it, and per part name
-        the pieces that received faces, each a list of objects.
-    """
+    """Cut a robot's meshes into the named pieces its ``damage_parts`` describe."""
     if not parts:
         return meshes, {}
     keys, face_pieces = _damage_face_pieces(parts)
@@ -282,8 +268,7 @@ def compute_ground_z(
     robot_parent: bpy.types.Object,
     rotation_euler: tuple,
 ) -> float:
-    """Place the robot at origin with the given rotation and return the z
-    offset that puts its lowest point exactly on the ground plane."""
+    """Place the robot at origin and return the z offset that grounds its lowest point."""
     robot_parent.location = mathutils.Vector((0, 0, 0))
     robot_parent.rotation_euler = mathutils.Euler(rotation_euler)
     bpy.context.view_layer.update()
@@ -317,22 +302,7 @@ def load_robots(
     seg_robot_class_ids: dict[int, int],
     resolve: PathResolveFn,
 ) -> list[RobotInstance]:
-    """Import each robot model, apply PBR materials, and build RobotInstance records.
-
-    Args:
-        robot_configs: Parsed ``[[robots]]`` entries.
-        materials_config: Parsed ``[materials.*]`` entries.
-        cc_materials: Preloaded CC materials by name.
-        is_segmentation_mode: Whether segmentation labels are being produced.
-        seg_robot_class_ids: Robot instance id -> segmentation class id.
-        resolve: Path resolver for model paths.
-
-    Returns:
-        One RobotInstance per config entry, instance ids starting at 1.
-
-    Raises:
-        ConfigError: In keypoint mode when a robot entry lacks ``class_id``.
-    """
+    """Import each robot model, apply PBR materials, and build RobotInstance records."""
     robots: list[RobotInstance] = []
     for ri, rcfg in enumerate(robot_configs, start=1):
         robot_category_id = seg_robot_class_ids[ri] if is_segmentation_mode else ROBOT_CATEGORY_ID
@@ -395,7 +365,6 @@ def pose_single_robot(
         air_range = rand_cfg.air_height_range
         robot_z = ground_z + random.uniform(air_range[0], air_range[1])
     elif rcfg.flat_ground:
-        # Z-up GLB (e.g. Meshy): sits flat at identity pitch; X-rotate pi for the 50% inverted case.
         flip = math.pi if random.random() < 0.5 else 0.0
         robot_rot = (flip, 0.0, random.uniform(0, 2 * math.pi))
         robot_z = compute_ground_z(robot.meshes, robot.parent, robot_rot)

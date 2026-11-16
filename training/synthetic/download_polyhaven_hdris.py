@@ -1,9 +1,4 @@
-"""Download a random set of HDRIs from Poly Haven.
-
-Usage:
-    python download_polyhaven_hdris.py ../data/hdris --count 20
-    python download_polyhaven_hdris.py ../data/hdris --count 30 --resolution 4k --format exr
-"""
+"""Download a random set of HDRIs from Poly Haven."""
 
 from __future__ import annotations
 
@@ -43,8 +38,6 @@ def existing_asset_ids(output_dir: Path) -> set[str]:
     for ext in ("*.hdr", "*.exr"):
         for file_path in output_dir.glob(ext):
             stem = file_path.stem
-            # Typical filenames are like "studio_small_08_2k.hdr".
-            # Strip a trailing resolution token when present.
             for suffix in ("_1k", "_2k", "_4k", "_8k", "_16k"):
                 if stem.endswith(suffix):
                     stem = stem.removesuffix(suffix)
@@ -234,7 +227,7 @@ def main() -> None:
             print(f"  Downloading {filename} ...")
             download_file(download_url, output_path)
             successes += 1
-        except Exception as exc:  # noqa: BLE001 - CLI script should continue on per-asset errors
+        except Exception as exc:
             print(f"  ERROR: {exc}")
 
     print(f"\nDone. Downloaded {successes}/{len(selected_ids)} HDRIs to {output_dir}")

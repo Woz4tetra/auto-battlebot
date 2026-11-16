@@ -1,10 +1,4 @@
-"""The mailbox coalesces, and the router answers without ever touching Blender.
-
-The render loop runs on the main thread and HTTP handlers run on their own, so the mailbox is the
-only shared state. Two things have to hold: a pose that arrives mid-render replaces the pending one
-rather than queueing behind it (otherwise releasing W plays back a backlog of stale frames), and
-commands do queue, because dropping a mark or a save would lose work.
-"""
+"""The mailbox coalesces, and the router answers without ever touching Blender."""
 
 from __future__ import annotations
 
@@ -72,7 +66,7 @@ def test_poses_coalesce_to_the_newest() -> None:
     taken = mailbox.take_pose()
     assert taken is not None
     assert taken.pose.z_m == pytest.approx(1.3)
-    assert mailbox.take_pose() is None  # the two older poses were dropped, not queued
+    assert mailbox.take_pose() is None
 
 
 def test_commands_queue_rather_than_coalesce() -> None:
@@ -164,10 +158,9 @@ def test_sample_points_cover_the_center_and_eight_compass_directions() -> None:
 
     offset = 2.35 / 2 - 0.20
     assert np.allclose(points["center"], [0.0, 0.0, 0.0])
-    assert np.allclose(points["N"], [0.0, offset, 0.0])  # north is +y, away from the near wall
+    assert np.allclose(points["N"], [0.0, offset, 0.0])
     assert np.allclose(points["E"], [offset, 0.0, 0.0])
     assert np.allclose(points["SW"], [-offset, -offset, 0.0])
-    # Every point stands on the mat, inside the margin the batch pipeline keeps clear.
     for point in points.values():
         assert point[2] == 0.0
         assert max(abs(point[0]), abs(point[1])) <= 2.35 / 2 - 0.20 + 1e-12
@@ -215,7 +208,6 @@ def test_without_a_spec_the_readout_claims_nothing_about_the_glass() -> None:
 
 def test_a_corner_behind_the_lens_has_no_pixel_instead_of_a_wrong_one() -> None:
     """A pinhole cannot project a point behind it; substituting a depth puts it somewhere wrong."""
-    # Low, level, aimed north: the two southern mat corners fall behind the lens.
     looking_north = FreeflyPose(0.0, 0.0, 0.15, yaw_deg=0.0, pitch_deg=0.0, roll_deg=0.0)
     overlay = overlay_geometry(looking_north, SCENE, alpha=1.0)
     corners = overlay["mat"]["corners"]
@@ -234,7 +226,6 @@ def test_the_outline_is_clipped_to_the_near_plane_not_drawn_through_bad_points()
     looking_north = FreeflyPose(0.0, 0.0, 0.15, yaw_deg=0.0, pitch_deg=0.0, roll_deg=0.0)
     outline = overlay_geometry(looking_north, SCENE, alpha=1.0)["mat"]["outline"]
 
-    # Two corners in front plus two near-plane crossings: a quad, not a quad with flung corners.
     assert len(outline) == 4
     assert all(math.isfinite(value) for point in outline for value in point)
 
@@ -261,7 +252,7 @@ def test_alpha_zero_crops_the_field_and_alpha_one_keeps_it() -> None:
     cropped = overlay_geometry(pose, SCENE, alpha=0.0)
 
     widths = {view["robots"][0]["width_px"] for view in (full, cropped)}
-    assert len(widths) == 2  # alpha 0.0 has the longer focal length, so the robot reads larger
+    assert len(widths) == 2
     assert cropped["robots"][0]["width_px"] > full["robots"][0]["width_px"]
 
 
@@ -283,3 +274,33 @@ def test_the_pose_reply_projects_through_the_alpha_it_was_given(router: Router) 
     full = json.loads(router.post("/pose", dict(FITTED, alpha=1.0)).body)
     cropped = json.loads(router.post("/pose", dict(FITTED, alpha=0.0)).body)
     assert cropped["overlay"]["robots"][0]["width_px"] > full["overlay"]["robots"][0]["width_px"]
+
+
+def test_project_world_points_behind_lens_is_nan() -> None:
+    from synthgen.preview_server import project_world_points
+
+    pose = FreeflyPose(0.0, -2.0, 1.2, 0.0, -30.0, 0.0)
+    behind = np.array([0.0, -6.0, 1.2])
+    ahead = np.array([0.0, 0.0, 0.0])
+    pixels, in_front = project_world_points(pose, SCENE.k_rect_full, np.stack([behind, ahead]))
+    assert in_front.tolist() == [False, True]
+    assert np.isnan(pixels[0]).all()
+    assert np.isfinite(pixels[1]).all()
+
+
+def test_mat_margin_matches_config_default() -> None:
+    from synthgen.configuration import CageConfig
+    from synthgen.preview_server import MAT_MARGIN_M
+
+    assert MAT_MARGIN_M == CageConfig.__dataclass_fields__["mat_margin_m"].default
+
+
+def test_download_cannot_escape_the_output_directory(tmp_path: Path) -> None:
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "a.png").write_bytes(b"png")
+    (tmp_path / "secret.txt").write_text("secret")
+    router = Router(Mailbox(), SCENE, CageMountRanges(), lambda: b"", out_dir=out)
+    assert router.download("a.png").code == 200
+    assert router.download("../secret.txt").code == 404
+    assert router.download(str(tmp_path / "secret.txt")).code == 404

@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import blenderproc as bproc  # noqa: F401  # isort: skip  (blenderproc must be imported first)
 
-# BlenderProc insists its import is the first statement, so the module docstring follows it.
 DESCRIPTION = """
 Render labelled robot samples inside the NHRL cage from the fixed cage-high camera.
 
@@ -93,8 +92,7 @@ logger = logsetup.get_logger("render_cage_samples")
 
 DEFAULT_CC_TEXTURES = REPO_ROOT / "training/data/cc_textures"
 MAX_SCENE_ATTEMPTS_FACTOR = 3
-# Redraws allowed before a scene is accepted with something standing over a pit.
-PLACEMENT_ATTEMPTS = 20
+PIT_PLACEMENT_REDRAWS = 20
 
 
 def parse_args() -> argparse.Namespace:
@@ -205,7 +203,7 @@ def _place_clear_of_pits(
 ) -> Any:
     """Redraw a placement until nothing stands over a hole, then take what it gave."""
     placed = place()
-    for _ in range(PLACEMENT_ATTEMPTS - 1):
+    for _ in range(PIT_PLACEMENT_REDRAWS - 1):
         if not _over_a_pit(parents_of(placed), keepouts):
             break
         placed = place()

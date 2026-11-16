@@ -1,43 +1,4 @@
-"""Split a YOLO dataset into scene-disjoint groups.
-
-A *scene* is one source recording. Frames within a scene are consecutive video frames
-of the same fight and are near-duplicates of each other, so any frame-level split leaks:
-the val half is then neighbouring frames of the train half, and val stops measuring
-generalization. This tool only ever moves whole scenes.
-
-Produces four groups::
-
-    old        what a "deployed" model trained on
-    new        footage that model has never seen
-    hold_old   scene-disjoint probe of the old distribution (retention)
-    hold_new   scene-disjoint probe of the new distribution (acquisition)
-
-Two ways to divide old from new:
-
-``--mode temporal`` (default)
-    Split on recording date at ``--cutoff``. This matches the operational question --
-    new footage arrives from a *later* event, so it genuinely differs in cage, lighting
-    and robot roster. Class balance across the halves is then whatever the calendar
-    gives; it is reported, not corrected.
-
-``--mode stratified``
-    Balance the halves on frame count and per-class box counts, ignoring date. Cleaner
-    numbers, but old and new end up the same distribution -- so there is nothing unique
-    for a new-data-only fine-tune to forget, and the retention probe measures little.
-
-The holdout carve inside each half is always stratified: a holdout is meant to be a
-faithful sample of its own half, not another distribution shift.
-
-Images and their stem-matched labels are hardlinked (no copy); ``.npy`` / ``labels.cache``
-files are ultralytics artifacts and are skipped -- training regenerates them.
-
-Usage:
-  python training/yolo/split_by_scene.py \
-      --src training/data/nhrl_robots_bbox_real \
-      --out training/data/scenesplit_2026-07-25 \
-      --mode temporal --cutoff 2025-11 --holdout-frac 0.2 \
-      --stratify-class robot,house_bot
-"""
+"""Split a YOLO dataset into scene-disjoint groups."""
 
 from __future__ import annotations
 
@@ -49,6 +10,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import NamedTuple
 
 import yaml
 
@@ -56,9 +18,6 @@ IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp")
 SPLITS = ("train", "val", "test")
 GROUPS = ("old", "new", "hold_old", "hold_new")
 
-# Three filename schemes live in the bbox corpora. NHRL fight frames carry the
-# recording stem before the frame index; frames cut from event-recap video carry an
-# `_export` stem instead; merged our-robot keypoint frames carry a roboflow hash suffix.
 SCENE_PATTERNS = (
     re.compile(r"^(?P<scene>our_robot_kp__.+?)-\d{6}_jpg\.rf\.[A-Za-z0-9]+$"),
     re.compile(r"^(?P<scene>.*)_yolo_seg__frame_\d+$"),
@@ -67,7 +26,6 @@ SCENE_PATTERNS = (
 
 DATE_RE = re.compile(r"(20\d{2})-(\d{2})-(\d{2})")
 TOURNAMENT_RE = re.compile(r"nhrl_([a-z]+)(\d{2})_")
-# Some early recordings are named by unix epoch seconds (e.g. "1729981569.1952372").
 EPOCH_RE = re.compile(r"(?<!\d)(1[5-9]\d{8})(?!\d)")
 MONTHS = {
     "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "june": 6, "jun": 6,
@@ -75,14 +33,19 @@ MONTHS = {
 }  # fmt: skip
 
 
+class LabelledFrame(NamedTuple):
+    image: Path
+    label: Path
+
+
 @dataclass
 class Scene:
     """One source recording: its frames, class histogram, and inferred date."""
 
     key: str
-    frames: list[tuple[Path, Path]] = field(default_factory=list)  # (image, label)
+    frames: list[LabelledFrame] = field(default_factory=list)
     classes: Counter = field(default_factory=Counter)
-    period: str | None = None  # "YYYY-MM", or None when undated
+    period: str | None = None
 
     @property
     def n_frames(self) -> int:
@@ -143,7 +106,7 @@ def scan_split(
             continue
 
         scene = scenes.setdefault(key, Scene(key=key, period=scene_period(key)))
-        scene.frames.append((image, Path(entry.path)))
+        scene.frames.append(LabelledFrame(image, Path(entry.path)))
         for line in Path(entry.path).read_text().splitlines():
             if line.strip():
                 scene.classes[int(line.split()[0])] += 1
@@ -176,13 +139,7 @@ def metrics_of(scene: Scene, stratify: list[int]) -> list[float]:
 def assign_stratified(
     scenes: list[Scene], shares: dict[str, float], stratify: list[int]
 ) -> dict[str, list[Scene]]:
-    """Greedily assign whole scenes to groups to match each group's target share.
-
-    Scenes are placed scarcest-first (largest share of any single metric), so the rare
-    classes get to pick their group before the bulk frames crowd the targets. Each scene
-    goes wherever it minimizes the summed squared deviation from every group's target --
-    across frame count and every stratified class at once.
-    """
+    """Greedily assign whole scenes to groups to match each group's target share."""
     totals = [sum(m) for m in zip(*(metrics_of(s, stratify) for s in scenes), strict=True)]
     totals = [t if t > 0 else 1.0 for t in totals]
 

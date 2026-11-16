@@ -1,33 +1,4 @@
-"""Context-vs-appearance interpretability for the synthetic+bbox opponent detectors.
-
-Tests the report's central claim: the opponent detector keys on *context* (arena / "not us,
-not house bot, on the floor") rather than the opponent's own *appearance*. Runs four probes on
-two models (real_bbox baseline, mix_all) over the independent eval, and prints metrics + saves
-figures:
-
-  1. RISE occlusion-saliency  - where does the evidence for an opponent box live? Inside the box
-     (appearance) or in the surrounding context? Metric: saliency concentration inside vs a
-     context ring vs background, normalized by area.
-  2. Cut-paste context swap   - opponent crop on a neutral gray canvas (appearance only) vs on a
-     different frame's real arena (appearance + swapped context) vs original. If the score
-     collapses without arena context, the model needs context, not the robot's pixels.
-  3. Feature-space check      - are real-opponent and synthetic-opponent crops separable in
-     backbone-embedding space (domain gap)? Linear-probe accuracy + centroid cosine distance,
-     per model. Also whether mix_all pulls the two closer.
-  4. Grad-CAM                 - gradient saliency at the P3 neck layer for the opponent score at
-     each GT box; corroborates RISE with the inside-box mass fraction.
-
-All probes define the target consistently as the max opponent class score (channels object+robot)
-among head anchors whose center falls inside the target box.
-
-Usage:
-  PYTHONPATH=. venv/bin/python training/model_eval/interpret_context_vs_appearance.py \
-      --eval training/data/nhrl_keypoints_eval_test \
-      --real data/models/yolo26n_nhrl_robots_bbox_2026-07-16.pt \
-      --mix  data/models/yolo26n_mix_all_2026-07-22.pt \
-      --synth training/data/synth_bbox_from_keypoints \
-      --out training/data/nhrl_keypoints_eval_test/scores_synth_plus_bbox/interpretability
-"""
+"""Context-vs-appearance interpretability for the synthetic+bbox opponent detectors."""
 
 from __future__ import annotations
 
@@ -49,6 +20,7 @@ from sklearn.model_selection import cross_val_score
 from sklearn.preprocessing import StandardScaler
 from ultralytics import YOLO
 
+MIN_EXPLAINED_SCORE = 0.15
 IMGSZ = 640
 # Head channels that mean "opponent", set from --opp-channels. Default (0, 1) is the 5-class
 # vocabulary's `object` + `robot`; a 2-class model means just (0,) -- channel 1 is house_bot there,
@@ -57,9 +29,6 @@ OPP_CHANNELS = (0, 1)
 STRIDES = (8, 16, 32)
 GEN = torch.Generator(device="cpu").manual_seed(0)
 RNG = np.random.default_rng(0)
-
-
-# ----------------------------- data -----------------------------
 
 
 def anchor_centers() -> np.ndarray:
@@ -138,9 +107,6 @@ def load_eval(root: Path, max_frames: int) -> list[dict]:
     return frames
 
 
-# ----------------------------- model -----------------------------
-
-
 class Model:
     """Wraps a YOLO .pt: raw opponent-score readout + backbone embedding + Grad-CAM at layer 16."""
 
@@ -212,7 +178,7 @@ class Model:
                         torch.sigmoid(cls_maps[j][0, OPP_CHANNELS]).amax(0).reshape(-1)
                         for j in range(3)
                     ]
-                )  # (8400,) opponent prob per anchor, matches anchor_centers order
+                )
                 cx, cy = self.anchors[:, 0], self.anchors[:, 1]
                 inside = (cx >= box[0]) & (cx <= box[2]) & (cy >= box[1]) & (cy <= box[3])
                 idx = np.where(inside)[0]
@@ -227,9 +193,6 @@ class Model:
             for h in handles:
                 h.remove()
         return cv2.resize(cam_np, (IMGSZ, IMGSZ))
-
-
-# ----------------------------- metrics -----------------------------
 
 
 def mass_fractions(sal: np.ndarray, box: list[float]) -> dict[str, float]:
@@ -257,9 +220,6 @@ def mass_fractions(sal: np.ndarray, box: list[float]) -> dict[str, float]:
     return out
 
 
-# ----------------------------- probes -----------------------------
-
-
 def rise(model: Model, frames: list[dict], n_masks: int, grid: int) -> dict:
     """RISE saliency; returns mean mass fractions/concentrations over sampled opponent boxes."""
     accum: list[dict] = []
@@ -267,7 +227,7 @@ def rise(model: Model, frames: list[dict], n_masks: int, grid: int) -> dict:
     for fi, fr in enumerate(frames):
         box = fr["boxes"][0]
         base = model.box_score([fr["img"]], box)[0]
-        if base < 0.15:  # only explain boxes the model actually detects
+        if base < MIN_EXPLAINED_SCORE:
             continue
         masks = (RNG.random((n_masks, grid, grid)) < 0.5).astype(np.float32)
         sal = np.zeros((IMGSZ, IMGSZ), np.float32)
@@ -389,9 +349,6 @@ def gradcam_probe(model: Model, frames: list[dict], k: int) -> dict:
     return {"agg": agg, "examples": examples}
 
 
-# ----------------------------- crops for feature space -----------------------------
-
-
 def opponent_crops(frames: list[dict], k: int) -> list[np.ndarray]:
     crops = []
     for fr in frames:
@@ -456,9 +413,6 @@ def _iou(a: list[float], b: list[float]) -> float:
     return inter / (ua + 1e-8)
 
 
-# ----------------------------- figures -----------------------------
-
-
 def save_overlays(examples: list, path: Path, title: str) -> None:
     if not examples:
         return
@@ -498,9 +452,6 @@ def save_embedding_scatter(feats: dict, path: Path, title: str) -> None:
     fig.tight_layout()
     fig.savefig(path, dpi=100)
     plt.close(fig)
-
-
-# ----------------------------- main -----------------------------
 
 
 PROBES = ("rise", "cut_paste", "feature_space", "gradcam")

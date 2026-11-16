@@ -1,23 +1,4 @@
-"""Free-flight camera poses, and their projection back onto a `CageMount`.
-
-Pure module (no Blender). `pose_camera_server.py` flies a camera around the cage with WASD and a
-mouse; `synthgen.cage_mount` describes the same camera as a wall, a place on it and an aim. This
-module is the bridge: `freefly_cam2world` builds the flown pose and `mount_from_cam2world` reads
-the equivalent `CageMount` straight back out.
-
-That read-back is exact, not a projection. `(along, height, inset)` spans position and
-`(tilt, yaw, roll)` spans orientation, so every pose a camera can fly to is some mount, including
-ones outside the cage. What a flown pose *can* fall outside is the sampling ranges the batch render
-will draw from, so `clamp_mount_to_ranges` is what pulls it back and `mount_residual` measures how
-far it had to move.
-
-Both directions go through `cage_mount.camera_basis_cam2world`, so a flown pose and a sampled mount
-can never drift onto different camera conventions.
-
-Angles follow `auto_battlebot.perception.cage_calibration.pose_summary`: `yaw_deg` is the heading of
-the optical axis projected on the floor, 0 along +y and positive toward +x. `pitch_deg` is its
-elevation above horizontal, so -90 looks straight down and a cage camera flies at roughly -58.
-"""
+"""Free-flight camera poses, and their projection back onto a `CageMount`."""
 
 from __future__ import annotations
 
@@ -27,20 +8,17 @@ from dataclasses import dataclass, replace
 import numpy as np
 
 from synthgen.cage_mount import (
+    NEAR_VERTICAL_AXIS_COS,
     WALLS,
     CageMount,
     CageMountRanges,
+    MountAim,
     camera_basis_cam2world,
     mount_cam2world,
     wall_axes,
 )
 
-# Straight up or straight down leaves yaw and roll expressing the same rotation, so the client
-# never gets to send either.
 PITCH_LIMIT_DEG = 89.9
-# Matches `cage_mount._DEGENERATE_COS`: within this of vertical, heading no longer follows from the
-# optical axis and has to come from the camera's own up axis instead.
-_DEGENERATE_COS = 0.999
 
 
 @dataclass(frozen=True)
@@ -109,9 +87,7 @@ def freefly_from_cam2world(cam2world: np.ndarray) -> FreeflyPose:
     forward = -matrix[:3, 2]
     up = matrix[:3, 1]
 
-    if abs(float(forward[2])) > _DEGENERATE_COS:
-        # Looking near-straight-down: the optical axis carries no heading, so take it from the
-        # image's own up axis and call the remaining rotation yaw rather than roll.
+    if abs(float(forward[2])) > NEAR_VERTICAL_AXIS_COS:
         heading = _unit_horizontal(up)
         yaw_deg = math.degrees(math.atan2(heading[0], heading[1]))
     else:
@@ -133,24 +109,17 @@ def freefly_from_cam2world(cam2world: np.ndarray) -> FreeflyPose:
 def mount_from_cam2world(
     cam2world: np.ndarray, wall_half_m: float, walls: tuple[str, ...] = WALLS
 ) -> CageMount:
-    """The `CageMount` that describes *cam2world* exactly, picking among *walls*.
-
-    Every pose is some mount, so nothing is lost here. The wall choice only decides which numbers
-    say so: pick a different wall and `along_m` and `inset_m` change to match.
-    """
+    """The `CageMount` that describes *cam2world* exactly, picking among *walls*."""
     matrix = np.asarray(cam2world, dtype=np.float64)
     position = matrix[:3, 3]
     forward = -matrix[:3, 2]
     horizontal = np.array([position[0], position[1], 0.0])
 
-    # The camera's own wall is the one whose inward normal points away from the lens, so the
-    # smallest normal-dot-position wins. Getting this sign backwards puts every mount on the
-    # opposite wall, and it costs a whole render run to notice.
     wall = min(walls, key=lambda name: float(np.dot(wall_axes(name)[0], horizontal)))
     normal, along = wall_axes(wall)
 
     tilt_deg = math.degrees(math.acos(float(np.clip(-forward[2], -1.0, 1.0))))
-    if abs(float(forward[2])) > _DEGENERATE_COS:
+    if abs(float(forward[2])) > NEAR_VERTICAL_AXIS_COS:
         heading = _unit_horizontal(matrix[:3, 1])
     else:
         heading = _unit_horizontal(forward)
@@ -172,28 +141,17 @@ def mount_from_cam2world(
 
 
 def mount_residual(cam2world: np.ndarray, mount: CageMount, wall_half_m: float) -> MountResidual:
-    """Meters and degrees between a flown pose and *mount*'s pose.
-
-    Against `mount_from_cam2world`'s own answer this reads zero and is a live self-check that the
-    two directions have not drifted. Against a clamped mount it is the real number: how far outside
-    the sampling ranges the camera has been flown.
-    """
+    """Meters and degrees between a flown pose and mount's pose."""
     flown = np.asarray(cam2world, dtype=np.float64)
     projected = mount_cam2world(mount, wall_half_m)
     position_m = float(np.linalg.norm(flown[:3, 3] - projected[:3, 3]))
-    # Angle of the rotation that takes one camera basis to the other.
     relative = projected[:3, :3].T @ flown[:3, :3]
     cosine = float(np.clip((np.trace(relative) - 1.0) / 2.0, -1.0, 1.0))
     return MountResidual(position_m=position_m, angle_deg=math.degrees(math.acos(cosine)))
 
 
 def clamp_mount_to_ranges(mount: CageMount, ranges: CageMountRanges) -> CageMount:
-    """The nearest mount the batch sampler could actually draw from *ranges*.
-
-    Every scalar is clamped into its range. The wall is kept if `ranges.walls` allows it; otherwise
-    the caller should re-read the mount with `walls=ranges.walls` first, since moving a camera to
-    another wall renames `along_m` and `inset_m` rather than clamping them.
-    """
+    """The nearest mount the batch sampler could actually draw from *ranges*."""
     return CageMount(
         wall=mount.wall if mount.wall in ranges.walls else ranges.walls[0],
         along_m=_clamp(mount.along_m, ranges.along_m),
@@ -208,17 +166,13 @@ def clamp_mount_to_ranges(mount: CageMount, ranges: CageMountRanges) -> CageMoun
 def ranges_covering(
     mounts: list[CageMount], pad_m: float = 0.0, pad_deg: float = 0.0
 ) -> CageMountRanges:
-    """The smallest `CageMountRanges` containing every mount in *mounts*, widened by the pads.
-
-    Lengths widen by *pad_m* on each side and angles by *pad_deg*, so one number cannot be applied
-    to two different units by accident.
-    """
+    """The smallest CageMountRanges containing every mount, widened by the pads."""
     if not mounts:
         raise ValueError("no mounts marked; fly to a pose and mark it before saving ranges")
     walls = tuple(wall for wall in WALLS if any(mount.wall == wall for mount in mounts))
     return CageMountRanges(
         walls=walls,
-        aim="fixed",
+        aim=MountAim.FIXED,
         along_m=_span([m.along_m for m in mounts], pad_m),
         height_m=_span([m.height_m for m in mounts], pad_m),
         inset_m=_span([m.inset_m for m in mounts], pad_m),
@@ -234,7 +188,7 @@ def format_mount_ranges_toml(ranges: CageMountRanges, header: str = "") -> str:
     lines = [f"# {line}" if line else "#" for line in header.splitlines()]
     lines.append("[cages.mount]")
     lines.append("walls = [" + ", ".join(f'"{wall}"' for wall in ranges.walls) + "]")
-    lines.append(f'aim = "{ranges.aim}"')
+    lines.append(f'aim = "{ranges.aim.value}"')
     for field in ("along_m", "height_m", "inset_m", "tilt_deg", "yaw_deg", "roll_deg"):
         low, high = getattr(ranges, field)
         lines.append(f"{field} = [{low:.4f}, {high:.4f}]")

@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from synthgen.annotations import (
+    KeypointVisibility,
     bbox_from_category_segmap,
     build_names_list,
     check_keypoint_visibility,
@@ -43,6 +44,13 @@ class TestBboxFromSegmap:
         assert w == pytest.approx(0.0)
         assert h == pytest.approx(0.0)
 
+    def test_box_fields_are_named(self) -> None:
+        seg = np.zeros((10, 20), dtype=np.int32)
+        seg[2:5, 4:10] = 1
+        bbox = bbox_from_category_segmap(seg, 1, 20, 10)
+        assert bbox is not None
+        assert (bbox.cx, bbox.cy, bbox.w, bbox.h) == tuple(bbox)
+
     def test_rectangle(self) -> None:
         seg = np.zeros((100, 200), dtype=np.int32)
         seg[20:41, 50:101] = 7
@@ -60,6 +68,10 @@ class TestBboxFromSegmap:
         assert bbox_from_category_segmap(seg, 1, 20, 10) is not None
 
 
+EXACT_DEPTH_M = 2.5
+EXACT_TOLERANCE_M = 0.5
+
+
 class TestKeypointVisibility:
     DEPTH = np.full((10, 20), 2.0, dtype=np.float32)
 
@@ -74,15 +86,24 @@ class TestKeypointVisibility:
         assert check_keypoint_visibility(0.5, 0.5, 3.0, self.DEPTH, 20, 10) == 1
 
     def test_tolerance_boundary_is_occluded(self) -> None:
-        # abs(diff) < tolerance is strict: exactly at tolerance counts occluded.
-        # 2.5 and 0.5 are exactly representable, so the comparison is exact.
-        assert check_keypoint_visibility(0.5, 0.5, 2.5, self.DEPTH, 20, 10, tolerance=0.5) == 1
+        assert (
+            check_keypoint_visibility(
+                0.5, 0.5, EXACT_DEPTH_M, self.DEPTH, 20, 10, tolerance=EXACT_TOLERANCE_M
+            )
+            == 1
+        )
 
     def test_ignore_occlusion_in_frame(self) -> None:
         assert (
             check_keypoint_visibility(0.5, 0.5, 99.0, self.DEPTH, 20, 10, ignore_occlusion=True)
             == 2
         )
+
+    def test_flags_are_named_and_write_as_yolo_integers(self) -> None:
+        flag = check_keypoint_visibility(0.5, 0.5, 3.0, self.DEPTH, 20, 10)
+        assert flag is KeypointVisibility.OCCLUDED
+        assert [int(v) for v in KeypointVisibility] == [0, 1, 2]
+        assert f"{flag}" == "1"
 
     def test_ignore_occlusion_still_flags_out_of_frame(self) -> None:
         assert (
@@ -107,7 +128,7 @@ class TestSegAnnotationsFromSegmap:
 
     def test_tiny_blob_becomes_rectangle(self) -> None:
         seg = np.zeros((20, 20), dtype=np.int32)
-        seg[10, 10] = 2  # single pixel -> contour with < 3 points
+        seg[10, 10] = 2
         annotations = segmentation_annotations_from_segmap(seg, 20, 20)
         assert len(annotations) == 1
         _, polygon = annotations[0]
@@ -181,3 +202,50 @@ class TestBuildNamesList:
 
     def test_gap_filling(self) -> None:
         assert build_names_list({0: "a", 3: "d"}) == ["a", "unknown_1", "unknown_2", "d"]
+
+
+def test_label_writers_golden_bytes(tmp_path) -> None:
+    from synthgen.annotations import (
+        build_names_list,
+        write_data_yml,
+        write_label_index,
+        write_yolo_labels,
+        write_yolo_seg_labels,
+    )
+    from synthgen.constants import AnnotationMode
+
+    labels = tmp_path / "a.txt"
+    write_yolo_labels(
+        labels,
+        [(1, (0.5, 0.25, 0.1, 0.2), [(0.4, 0.2, 2), (0.9, 0.9, 0)])],
+    )
+    assert labels.read_text() == (
+        "1 0.500000 0.250000 0.100000 0.200000 0.400000 0.200000 2 0.000000 0.000000 0\n"
+    )
+    seg = tmp_path / "s.txt"
+    write_yolo_seg_labels(seg, [(3, [(0.1, 0.2), (0.3, 0.4), (0.5, 0.6)])])
+    assert seg.read_text() == "3 0.100000 0.200000 0.300000 0.400000 0.500000 0.600000\n"
+    index = tmp_path / "label_index.txt"
+    write_label_index(index, {2: "b", 0: "a"})
+    assert index.read_text() == "0:a\n2:b\n"
+    assert build_names_list({2: "b", 0: "a"}) == ["a", "unknown_1", "b"]
+    data = tmp_path / "data.yml"
+    write_data_yml(data, tmp_path, ["a", "b"], AnnotationMode.KEYPOINTS_BBOX)
+    assert data.read_text() == (
+        f"path: {tmp_path.resolve()}\ntrain: images\nval: images\nnc: 2\n"
+        "names: ['a', 'b']\nkpt_shape: [2, 3]\nflip_idx: [0, 1]\n"
+    )
+
+
+def test_seg_class_ids_match_remap_configs() -> None:
+    from pathlib import Path
+
+    from synthgen.constants import SEG_FLOOR_CLASS_ID, SEG_OBJECT_CLASS_ID, SEG_ROBOT_CLASS_ID
+
+    from auto_battlebot.compat import tomllib
+
+    root = Path(__file__).resolve().parents[2]
+    config = tomllib.loads((root / "yolo" / "remap_config_synthetic.toml").read_text())
+    assert {SEG_FLOOR_CLASS_ID, SEG_OBJECT_CLASS_ID, SEG_ROBOT_CLASS_ID} <= {
+        int(key) for key in config["label_map"]
+    }

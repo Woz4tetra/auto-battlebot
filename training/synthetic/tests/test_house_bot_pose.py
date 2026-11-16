@@ -34,7 +34,6 @@ def test_keeps_clear_of_the_robots() -> None:
 def test_spreads_over_the_whole_mat() -> None:
     rng = random.Random(2)
     poses = [sample_house_bot_pose(MAT_HALF, RADIUS, [], 0.2, 0.05, rng) for _ in range(400)]
-    # Every quadrant is used, not one fitted corner.
     quadrants = {(p.x_m > 0, p.y_m > 0) for p in poses}
     assert len(quadrants) == 4
 
