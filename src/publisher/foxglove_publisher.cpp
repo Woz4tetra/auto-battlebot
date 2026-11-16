@@ -121,7 +121,6 @@ FoxglovePublisher::FoxglovePublisher(std::shared_ptr<VizSink> sink,
 }
 
 cv::Mat FoxglovePublisher::resize_for_preview(const cv::Mat &image) const {
-    // Even dimensions: the H.264 encoder needs them, and the JPEG preview shares the frame.
     const int width = std::min(config_.preview_width, image.cols) & ~1;
     const int height = static_cast<int>(std::lround(static_cast<double>(image.rows) * width /
                                                     static_cast<double>(image.cols))) &
@@ -236,10 +235,6 @@ void FoxglovePublisher::publish_field_mask(const MaskStamped &field_mask, const 
         overlay = colorized_mask;
     }
 
-    // The mask image is captured once at field init and stays on screen while the camera keeps
-    // moving. Stamp it and its camera info in CAMERA_WORLD (the camera pose at field init, held
-    // in the TF tree by publish_field_description) so image panels project 3D markers through
-    // that frozen pose instead of the live CAMERA frame.
     RgbImage mask_as_image;
     mask_as_image.header = field_mask.header;
     mask_as_image.header.frame_id = FrameId::CAMERA_WORLD;
@@ -287,9 +282,6 @@ void FoxglovePublisher::publish_field_description(
     tfstamped_cameraworld_from_camera.child_frame_id = field_description.header.frame_id;
     tfstamped_cameraworld_from_camera.transform.tf = tf_cameraworld_from_camera;
 
-    // field -> camera_world does not change between field initializations, but it is republished
-    // every cycle rather than latched once: a recording that starts (or resumes) after field init
-    // would otherwise never contain the edge every camera->field lookup needs.
     TransformStamped tfstamped_cameraworld_from_fieldcenter{};
     tfstamped_cameraworld_from_fieldcenter.header.stamp = field_description.header.stamp;
     tfstamped_cameraworld_from_fieldcenter.header.frame_id =
@@ -308,8 +300,6 @@ void FoxglovePublisher::publish_field_description(
 
 void FoxglovePublisher::publish_hazards(const FieldDescription &field_description) {
     FunctionTimer timer(diagnostics_logger_, "publish_hazards");
-    // Published even when there are no hazards: the update's delete-all clears last cycle's
-    // rings, and a replay has to be able to say what the controller knew.
     auto scene = foxglove_adapters::to_hazard_scene(field_description);
     hazard_markers_.log_message(scene, wall_time_ns());
 }
@@ -333,11 +323,8 @@ void FoxglovePublisher::publish_keypoint_detections(const DetectionsStamped &det
 void FoxglovePublisher::publish_detections_on(OutputChannel &json_channel,
                                               OutputChannel &annotations_channel,
                                               const DetectionsStamped &detections) {
-    // A default-constructed header means the model never populated detections
-    // (e.g. noop model); skip so recordings don't fill with stamp-zero messages.
     if (detections.header.frame_id == FrameId::EMPTY) return;
 
-    // Record with the frame stamp so runs of the same SVO align frame-exactly.
     const auto stamp_ns = static_cast<uint64_t>(detections.header.stamp * 1e9);
     json_channel.log(foxglove_adapters::to_detections_json(detections), stamp_ns);
 

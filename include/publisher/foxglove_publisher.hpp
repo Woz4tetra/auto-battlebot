@@ -36,6 +36,7 @@ class FoxglovePublisher : public PublisherInterface {
     void publish_navigation(const NavigationVisualization &nav) override;
 
    private:
+    friend struct FoxglovePublisherTestAccess;
     // Shared impl for /blob_detections and /keypoint_detections plus their annotation topics.
     void publish_detections_on(OutputChannel &json_channel, OutputChannel &annotations_channel,
                                const DetectionsStamped &detections);
