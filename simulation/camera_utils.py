@@ -47,7 +47,9 @@ def camera_view_matrix(
     return rotation
 
 
-def pixel_rays_camera(width, height, cx, fx, cy, fy):
+def pixel_rays_camera(
+    width: int, height: int, cx: float, fx: float, cy: float, fy: float
+) -> npt.NDArray[np.float64]:
     u = np.arange(width, dtype=np.float64)
     v = np.arange(height, dtype=np.float64)
     uu, vv = np.meshgrid(u, v)
@@ -56,7 +58,9 @@ def pixel_rays_camera(width, height, cx, fx, cy, fy):
     return dirs_cam
 
 
-def direction_to_equirect_uv(dirs_world):
+def direction_to_equirect_uv(
+    dirs_world: npt.NDArray[np.float64],
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     dx = dirs_world[..., 0]
     dy = dirs_world[..., 1]
     dz = dirs_world[..., 2]
