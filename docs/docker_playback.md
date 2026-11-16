@@ -200,3 +200,30 @@ Each entry names the file and the code it described.
 Beside `if (!rebase_stamps_) {`:
 
 Both of these change what the replay measures, and neither shows up as an error. Say so at startup so a replay run is not read as if it reproduced field timing. Without rebasing, frame stamps stay on the recording's clock while the control loop reads the wall clock, so everything that compares the two degrades quietly: the filter's latency compensation holds every prediction instead of leading, and the pipeline latency diagnostic reports the age of the recording rather than the age of the frame.
+## Compose file reference
+
+Each choice in `docker/docker-compose.playback.yml`:
+
+- `network_mode: host` exposes the `viz_relay` WebSocket (`ws://0.0.0.0:8765`, started by `container_entrypoint.sh`) with no port mapping, and avoids docker-in-docker.
+- `ipc: host` covers X shared memory for GUI tools run from `shell.sh`, and the host `/dev/shm` size, which the default 64 MB would not satisfy.
+- `user: "${HOST_UID}:${HOST_GID}"` makes artifacts in the bind-mounted `build-docker/` belong to you, not root. The `passwd` and `group` mounts give that UID a name inside the container, which the ZED SDK expects.
+- The `auto-battlebot-home` volume is named, not a bind mount. Compose seeds a fresh named volume from the image directory it covers, permissions included, so it inherits what the Dockerfile set. A bind mount would hide what the image ships.
+- The `auto-battlebot-zed-resources` volume (`/usr/local/zed/resources`) holds the depth model that `ZED_NEURAL_LIGHT` (`include/rgbd_camera/config.hpp`) GPU-optimizes on first run. Persisting it pays that cost once instead of on every start.
+- The `auto-battlebot-zed-settings` volume (`/usr/local/zed/settings`) holds the per-serial camera calibration (`SNxxxxxxxx.conf`). The SDK downloads it the first time it opens a given camera or SVO and fails with `CALIBRATION FILE NOT AVAILABLE` otherwise. Persisting it makes the download happen once.
+- The repo is mounted at the host path, so `compile_commands.json`, clangd, and stack traces resolve the same inside and outside the container.
+
+`scripts/docker/docker_common.sh` exports `REPO` because compose mounts the repo at that same path inside the container.
+
+## Container layout
+
+`scripts/docker/container_entrypoint.sh` runs inside the container. It is bind-mounted with the repo and never baked into the image, so editing it takes effect on the next run with no rebuild. It compiles into `build-docker/` (`AUTO_BATTLEBOT_BUILD_DIR` is set by `docker_common.sh`) and execs the binary, forwarding its arguments to `auto_battlebot`. The Foxglove relay runs inside this container next to the app, so no second container or docker socket is needed.
+
+`scripts/docker/build_image.sh` builds the toolchain image. The image holds build tools and system libraries only, so rebuilds should be rare. The triggers are the files listed under Design. Extra arguments go to `docker compose build`, so `--no-cache` and `--progress=plain` work.
+
+`AUTO_BATTLEBOT_BUILD_DIR` lets a caller pick its own build tree. The container sets it to `build-docker` so its `CMakeCache.txt`, which records container compiler and dependency paths, never collides with the host `build/`.
+
+## Compose version
+
+`docker/docker-compose.playback.yml` uses the `include:` key, added in Compose v2.20. Older versions reject the whole file with `(root) Additional property include is not allowed`, which does not hint at the cause. `install/install_docker_ubuntu.sh` and `scripts/docker/docker_common.sh` check for 2.20 and fail with a readable message.
+
+The usual cause of an old version is a stale manually installed plugin shadowing the apt one. Docker searches `/usr/local/lib/docker/cli-plugins` before `/usr/libexec/docker/cli-plugins`, so a leftover binary in the former wins even after `docker-compose-plugin` is upgraded. That happened on megamind, which reported 2.11.2 while the apt package on disk was current.

@@ -1,21 +1,32 @@
 #!/bin/bash
 
-# Interactive shell in the playback container, with the same mounts run_playback.sh
-# uses. The repo is at its host path and AUTO_BATTLEBOT_BUILD_DIR is already set, so
-# scripts/build.sh and scripts/lint work as they do on the host.
-#
-# Any arguments are run as a command instead of an interactive shell:
-#   scripts/docker/shell.sh ./scripts/build.sh
-#
-# --no-display drops X11 forwarding, for headless machines and SSH sessions:
-#   scripts/docker/shell.sh --no-display
-
 set -e
+
+usage() {
+    cat <<'EOF'
+Usage: scripts/docker/shell.sh [--no-display] [COMMAND...]
+
+Interactive shell in the playback container, with the same mounts run_playback.sh uses.
+The repo is at its host path and AUTO_BATTLEBOT_BUILD_DIR is already set, so
+scripts/build.sh and scripts/lint work as they do on the host.
+
+Any arguments are run as a command instead of an interactive shell:
+  scripts/docker/shell.sh ./scripts/build.sh
+
+--no-display drops X11 forwarding, for headless machines and SSH sessions:
+  scripts/docker/shell.sh --no-display
+EOF
+}
+
+case "${1:-}" in
+    -h | --help)
+        usage
+        exit 0
+        ;;
+esac
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Parsed before sourcing docker_common.sh, which reads AUTO_BATTLEBOT_NO_DISPLAY when it
-# decides what to do with DISPLAY.
 COMMAND_ARGS=()
 for arg in "$@"; do
     if [ "${arg}" = "--no-display" ]; then

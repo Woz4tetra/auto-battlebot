@@ -1,9 +1,3 @@
-// H.264 preview decode with WebCodecs.
-//
-// Each /camera/preview_video message is one Annex-B access unit. Keyframes carry SPS and PPS in
-// band, so the decoder needs no `description`: it is configured from the SPS of the first
-// keyframe, and reconfigured if a later keyframe carries a different SPS.
-
 export function videoDecodeSupported(): boolean {
   return typeof VideoDecoder !== "undefined" && typeof EncodedVideoChunk !== "undefined";
 }
@@ -16,7 +10,6 @@ interface AccessUnit {
   sps: Uint8Array | null;
 }
 
-/** Walks Annex-B start codes (00 00 01 or 00 00 00 01) and reads the NAL unit types. */
 export function scanAccessUnit(data: Uint8Array): AccessUnit {
   let keyframe = false;
   let sps: Uint8Array | null = null;
@@ -37,7 +30,6 @@ export function scanAccessUnit(data: Uint8Array): AccessUnit {
     const type = data[start] & 0x1f;
     if (type === NAL_IDR) keyframe = true;
     if (type === NAL_SPS && !sps) {
-      // The NAL ends at the next start code; trailing zero bytes belong to that start code.
       let end = k + 1 < nalStarts.length ? nalStarts[k + 1] - 3 : n;
       while (end > start && data[end - 1] === 0) end--;
       sps = data.subarray(start, end);
@@ -46,7 +38,6 @@ export function scanAccessUnit(data: Uint8Array): AccessUnit {
   return { keyframe, sps };
 }
 
-/** avc1.PPCCLL from the SPS profile_idc, constraint flags, and level_idc bytes. */
 export function codecFromSps(sps: Uint8Array): string {
   const hex = (b: number) => b.toString(16).padStart(2, "0");
   return `avc1.${hex(sps[1])}${hex(sps[2])}${hex(sps[3])}`;
@@ -58,8 +49,8 @@ function sameBytes(a: Uint8Array | null, b: Uint8Array): boolean {
   return true;
 }
 
-/** More queued chunks than this means decode is falling behind; drop to the next keyframe. */
-const MAX_QUEUE = 8;
+const MAX_QUEUED_CHUNKS_BEFORE_KEYFRAME_SKIP = 8;
+const TIMESTAMP_STEP_US = 33_333;
 
 export class H264Decoder {
   #decoder: VideoDecoder | null = null;
@@ -82,13 +73,12 @@ export class H264Decoder {
     const decoder = this.#decoder;
     if (!decoder || decoder.state !== "configured") return;
     if (this.#waitForKeyframe && !unit.keyframe) return;
-    if (decoder.decodeQueueSize > MAX_QUEUE && !unit.keyframe) {
+    if (decoder.decodeQueueSize > MAX_QUEUED_CHUNKS_BEFORE_KEYFRAME_SKIP && !unit.keyframe) {
       this.#waitForKeyframe = true;
       return;
     }
     this.#waitForKeyframe = false;
-    // Timestamps only need to increase; 33 ms steps keep them readable in a debugger.
-    this.#timestampUs += 33_333;
+    this.#timestampUs += TIMESTAMP_STEP_US;
     try {
       decoder.decode(
         new EncodedVideoChunk({

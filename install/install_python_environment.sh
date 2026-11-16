@@ -1,9 +1,5 @@
 #!/bin/bash
 
-# Script to initialize a Python virtual environment and install project dependencies
-# This script creates a venv in the project root and installs packages from pyproject.toml
-
-# Function to check Python version
 check_python_version() {
     local python_cmd=$1
     if ! command -v "$python_cmd" &> /dev/null; then
@@ -29,9 +25,8 @@ check_python_version() {
 }
 
 install_python_environment() {
-    set -e  # Exit on error
+    set -e
 
-    # Parse flags: --recreate / -y = yes, --no-recreate / -n = no (skip prompt when venv exists)
     local RECREATE_VENV=""
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -41,7 +36,6 @@ install_python_environment() {
         esac
     done
 
-    # Get the project root directory (parent of install/ directory)
     local SCRIPT_DIR
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     local PROJECT_ROOT
@@ -49,12 +43,8 @@ install_python_environment() {
 
     echo "Project root: $PROJECT_ROOT"
 
-    # Virtual environment directory
     local VENV_DIR="$PROJECT_ROOT/venv"
 
-    # Python version: the system python on Jetson, 3.11 elsewhere. JetPack builds TensorRT's
-    # bindings (python3-libnvinfer) for its own system python only: 3.10 on JetPack 6, 3.12
-    # on JetPack 7.
     local REQUIRED_MAJOR=3
     local REQUIRED_MINOR
     if [ -f /etc/nv_tegra_release ]; then
@@ -67,7 +57,6 @@ install_python_environment() {
         REQUIRED_MINOR=11
     fi
 
-    # Find appropriate Python executable
     local PYTHON_CMD
     
     if PYTHON_CMD=$(check_python_version "python3"); then
@@ -80,19 +69,12 @@ install_python_environment() {
         return 1
     fi
 
-    # Display Python version
     local PYTHON_VERSION
     PYTHON_VERSION=$($PYTHON_CMD --version)
     echo "Using $PYTHON_VERSION"
 
-    # Create virtual environment if it doesn't exist
     if [ -d "$VENV_DIR" ]; then
         echo "Virtual environment already exists at $VENV_DIR"
-        # A venv built against a different Python minor cannot be reused: its
-        # lib/pythonX.Y/ tree, the TensorRT .pth written below, and the CUDA block
-        # appended to bin/activate all encode the old version, and the append is
-        # guarded by a grep that will not rewrite it. This is what a JetPack 6 ->
-        # 7 upgrade in place hits, where install_jetson.sh passes --no-recreate.
         local EXISTING_MINOR=""
         if [ -x "$VENV_DIR/bin/python" ]; then
             EXISTING_MINOR=$("$VENV_DIR/bin/python" -c 'import sys; print(sys.version_info.minor)' 2>/dev/null || true)
@@ -122,7 +104,6 @@ install_python_environment() {
         $PYTHON_CMD -m venv "$VENV_DIR"
     fi
 
-    # On Jetson: make system-installed TensorRT (apt) visible and set LD_LIBRARY_PATH for PyTorch CUDA
     if [ -f /etc/nv_tegra_release ]; then
         local SITE_PACKAGES="$VENV_DIR/lib/python$REQUIRED_MAJOR.$REQUIRED_MINOR/site-packages"
         # apt installs python3-libnvinfer into the unversioned /usr/lib/python3/dist-packages
@@ -138,15 +119,13 @@ install_python_environment() {
             fi
         done
         if [ -z "$SYS_PYTHON_PATH" ]; then
-            # Continuing here leaves every `import tensorrt` in the venv broken, which
-            # surfaces much later as a model-load failure. Fail where the cause is visible.
             echo "Error: no dist-packages directory contains the TensorRT bindings."
+            echo "Continuing would leave every 'import tensorrt' in the venv broken, which shows up later as a model-load failure."
             echo "Install python3-libnvinfer (it is in install/jetson_packages.txt) and re-run."
             return 1
         fi
         echo "Jetson: adding $SYS_PYTHON_PATH to venv for TensorRT..."
         echo "$SYS_PYTHON_PATH" > "$SITE_PACKAGES/jetson_system_packages.pth"
-        # So venv PyTorch finds CUDA/cuDNN (host has these in LD_LIBRARY_PATH; venv does not)
         local ACTIVATE_SH="$VENV_DIR/bin/activate"
         if ! grep -q 'jetson.*LD_LIBRARY_PATH' "$ACTIVATE_SH" 2>/dev/null; then
             echo "Jetson: adding CUDA library path to venv activate script..."
@@ -168,28 +147,23 @@ JETSON_ACTIVATE_EOF
         fi
     fi
 
-    # Activate virtual environment
     echo "Activating virtual environment..."
     source "$VENV_DIR/bin/activate"
 
-    # Upgrade pip, setuptools, and wheel
     echo "Upgrading pip, setuptools, and wheel..."
     pip install --upgrade pip setuptools wheel
 
-    # On Jetson: install PyTorch wheel before pip install -e . so dependencies use it instead of pulling torch from PyPI
     if [ -f /etc/nv_tegra_release ]; then
         source "$SCRIPT_DIR/install_pytorch_jetson.sh"
         ensure_jetson_torch_in_venv
     fi
 
-    # Check if pyproject.toml exists
     local PYPROJECT_FILE="$PROJECT_ROOT/pyproject.toml"
     if [ ! -f "$PYPROJECT_FILE" ]; then
         echo "Error: pyproject.toml not found at $PYPROJECT_FILE"
         return 1
     fi
 
-    # Install project dependencies from pyproject.toml
     echo "Installing project dependencies from pyproject.toml..."
     if [ -f /etc/nv_tegra_release ]; then
         # Pin torch to the Jetson wheel so pip won't replace it with PyPI (CPU) build.

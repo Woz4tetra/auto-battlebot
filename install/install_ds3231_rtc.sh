@@ -1,11 +1,5 @@
 #!/bin/bash
 
-# Configure DS3231 RTC on Jetson so system time is restored on boot.
-# Usage:
-#   install_ds3231_rtc [i2c_bus] [i2c_address]
-# Example:
-#   install_ds3231_rtc 7 0x68
-
 install_ds3231_rtc() {
     local i2c_bus="${1:-7}"
     local i2c_address="${2:-0x68}"

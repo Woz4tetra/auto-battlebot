@@ -1,12 +1,5 @@
 #!/usr/bin/env python3
-"""
-Print /log messages from an MCAP file in journalctl-style format.
-
-Reads the ``foxglove.Log`` channel on ``/log``.
-
-Output format mirrors journalctl --no-pager:
-  MMM DD HH:MM:SS.mmm <node> [LEVEL]: <message>
-"""
+"""Print /log messages from an MCAP in journalctl style."""
 
 import argparse
 import sys
@@ -17,14 +10,18 @@ from auto_battlebot.recording.mcap_io import decode_log, iter_messages
 
 _LEVEL_RANK = {"DEBUG": 0, "INFO": 1, "WARN": 2, "ERROR": 3, "FATAL": 4}
 
-# ANSI colour codes (disabled when not a tty)
+ANSI_GREY = "\033[37m"
+ANSI_YELLOW = "\033[33m"
+ANSI_RED = "\033[31m"
+ANSI_BOLD_RED = "\033[1;31m"
+ANSI_RESET = "\033[0m"
+
 _COLOURS = {
-    "DEBUG": "\033[37m",  # grey
-    "INFO": "",  # default
-    "WARN": "\033[33m",  # yellow
-    "ERROR": "\033[31m",  # red
-    "FATAL": "\033[1;31m",  # bold red
-    "RESET": "\033[0m",
+    "DEBUG": ANSI_GREY,
+    "INFO": "",
+    "WARN": ANSI_YELLOW,
+    "ERROR": ANSI_RED,
+    "FATAL": ANSI_BOLD_RED,
 }
 
 
@@ -48,7 +45,7 @@ def print_log(path: Path, use_colour: bool, min_level: int) -> None:
 
             if use_colour:
                 colour = _COLOURS.get(level_name, "")
-                reset = _COLOURS["RESET"] if colour else ""
+                reset = ANSI_RESET if colour else ""
                 line = f"{colour}{line}{reset}"
 
             print(line)

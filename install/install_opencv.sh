@@ -1,25 +1,5 @@
 #!/bin/bash
-# Build and install OpenCV from source into /usr/local, with resume support.
-#
-# Every platform gets the same version: 4.14.0. cv::aruco moved from the contrib module
-# opencv_aruco into core opencv_objdetect at 4.7 and the API changed with it, so
-# FiducialFieldFilter needs 4.7 or newer everywhere or it needs version guards it would never
-# shed. apt ships 4.5.4 on jammy and 4.6.0 on noble, both on the wrong side of that break.
-#
-# 4.14.0 rather than the 4.10.0 JetPack 6 produced, because OpenCV only gained CUDA 13 support
-# in opencv#27636, merged after the 4.12.0 release, and JetPack 7 is CUDA 13.2.
-#
-# opencv_contrib is fetched only for CUDA builds. Nothing here compiles against a contrib
-# module, but cudev and the cuda* modules live there and WITH_CUDA=ON fails configure without
-# them.
-#
-# The apt runtime libraries stay installed: other packages link them and removing libopencv-dev
-# cascades. CMake searches /usr/local first, and CMakeLists.txt asserts the version, so the
-# source build wins without uninstalling anything.
-#
-# based on https://github.com/AastaNV/JEP/blob/master/script/install_opencv4.10.0_Jetpack6.1.sh
 
-# Version CMake would resolve at ${prefix}, or the pkg-config version, or empty.
 opencv_installed_version() {
     local prefix="${1:-/usr/local}"
     local version_config="${prefix}/lib/cmake/opencv4/OpenCVConfig-version.cmake"
@@ -30,25 +10,19 @@ opencv_installed_version() {
     pkg-config --modversion opencv4 2>/dev/null || true
 }
 
-# True when the OpenCV installed at ${1} exposes the CUDA modules. A CUDA build exports
-# opencv_cudaarithm as an imported target; a CPU-only build of the same version does not.
 opencv_has_cuda() {
     local prefix="${1:-/usr/local}"
     local modules="${prefix}/lib/cmake/opencv4/OpenCVModules.cmake"
     [[ -f "${modules}" ]] && grep -q 'opencv_cudaarithm' "${modules}"
 }
 
-# True when $1 is at least $2.
 opencv_version_at_least() {
     local have="$1" want="$2"
     [[ -n "${have}" ]] || return 1
     [[ "$(printf '%s\n%s\n' "${want}" "${have}" | sort -V | head -1)" == "${want}" ]]
 }
 
-# The body runs in a subshell so its `set -uo pipefail` and `cd` stay inside it.
 install_opencv() (
-    # 4.14.0, not 4.10.0: OpenCV gained CUDA 13 support in opencv#27636, merged 2025-08-11,
-    # after the 4.12.0 release, so 4.13.0 is the floor for a JetPack 7 (CUDA 13.2) CUDA build.
     local version="4.14.0"
     local build_folder="${HOME}/opencv_build"
     local with_cuda="OFF"
@@ -71,19 +45,12 @@ install_opencv() (
         esac
     done
 
-    set -uo pipefail  # subshell-scoped
+    set -uo pipefail
 
     echo "OpenCV setup: version=${version}, build_folder=${build_folder}, CUDA=${with_cuda}, gstreamer=${with_gstreamer}, python=${build_python}"
 
-    # Step 0: skip only when the installed version is new enough. Testing `pkg-config --exists
-    # opencv4` alone is true on any machine that ever had apt OpenCV, which is every desktop, so
-    # the upgrade would silently do nothing. It also let JetPack's 4.8.0 pre-empt the Jetson build.
     local existing_ver
     existing_ver="$(opencv_installed_version "${install_prefix}")"
-    # The version alone is not enough. JetPack 7 ships an OpenCV newer than the pinned version,
-    # which satisfies both this check and CMakeLists.txt's find_package(OpenCV) floor while
-    # having no CUDA modules at all, so the source build would be skipped and the CUDA loss
-    # would surface only at runtime. When CUDA is asked for, require it here too.
     if opencv_version_at_least "${existing_ver}" "${version}"; then
         if [[ "${with_cuda}" == "ON" ]] && ! opencv_has_cuda "${install_prefix}"; then
             echo "Found OpenCV ${existing_ver} at ${install_prefix} but it has no CUDA modules."
@@ -135,10 +102,6 @@ install_opencv() (
         echo "opencv-${version} already present; skipping download."
     fi
 
-    # opencv_contrib, for CUDA only. The core modules are all this project compiles against
-    # (aruco moved into core at 4.7), but cudev and every cuda* module live in contrib, and
-    # WITH_CUDA=ON without them fails configure with "OpenCV requires enabled 'cudev' module".
-    # A CPU build skips it and stays as lean as it was.
     if [[ "${with_cuda}" == "ON" ]]; then
         if [[ ! -d "${contrib_src_dir}" ]]; then
             echo "Fetching opencv_contrib-${version} sources (cudev and the cuda* modules)..."

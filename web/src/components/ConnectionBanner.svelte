@@ -1,13 +1,13 @@
 <script lang="ts">
   // Three states: relay unreachable, relay up but the app is silent, and connected (hidden).
-  import { APP_TIMEOUT_MS, status } from "../lib/status.svelte";
+  import { APP_DOWN_AFTER_MS, status } from "../lib/status.svelte";
   import { relayUrl } from "../lib/connection";
 
   const state = $derived(
     status.connection !== "open" ? "relay" : status.appUp ? "ok" : ("app" as const),
   );
   const since = $derived(
-    status.systemAt ? `${Math.round((status.now - status.systemAt) / 1000)} s ago` : "not yet",
+    status.systemAt ? `${Math.round((status.nowMs - status.systemAt) / 1000)} s ago` : "not yet",
   );
 </script>
 
@@ -22,7 +22,7 @@
   <div class="banner warn" role="alert">
     <span class="tag">APP DOWN</span>
     <span class="text"
-      >Relay is up, but the app has sent no status for {APP_TIMEOUT_MS / 1000} s. Last status:
+      >Relay is up, but the app has sent no status for {APP_DOWN_AFTER_MS / 1000} s. Last status:
       {since}.</span
     >
   </div>

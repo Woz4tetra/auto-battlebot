@@ -1,6 +1,4 @@
 #!/bin/bash
-# Disable kiosk mode: restore normal screen blanking, power management, and the
-# on-screen keyboard setting.
 
 set -e
 

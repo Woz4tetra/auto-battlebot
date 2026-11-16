@@ -250,3 +250,8 @@ Frames appsrc may hold. Past it encode() waits up to kStallTimeout for the pipel
 Beside `constexpr const char *kFfmpegHardware[] = {"h264_nvenc", "h264_nvv4l2m2m"};`:
 
 In preference order. FFmpeg's names are tried before GStreamer's because the desktop's NVENC lives there; on the Jetsons the GStreamer element is the one that opens.
+
+## Headless service facts
+
+- The ZED Box has no display. Booting to `graphical.target` makes `service/with_display.sh` wait 60 s for an X session on every service start, and GDM plus Xorg hold memory for nothing. `scripts/install_zed_box.sh` sets `multi-user.target`, which takes effect on the next boot.
+- `service/build_and_install_service.sh` installs `dashboard-kiosk.service` on every box but enables it only where a desktop boots. A headless box (the ZED Box) gets the unit file and not the enable. After adding a display, run `sudo systemctl set-default graphical.target` and `sudo systemctl enable --now dashboard-kiosk`.

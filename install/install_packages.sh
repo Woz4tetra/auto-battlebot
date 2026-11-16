@@ -1,6 +1,5 @@
 #!/bin/bash
 
-# Check and install required packages from a file
 install_packages() {
     local packages_file="${1:-packages.txt}"
     
@@ -9,7 +8,6 @@ install_packages() {
         exit 1
     fi
 
-    # Read packages from file (one per line, ignoring empty lines and comments)
     local package_entries
     package_entries=$(grep -v '^#' "$packages_file" | grep -v '^$')
 
@@ -18,14 +16,12 @@ install_packages() {
         return
     fi
 
-    # First pass: add any repositories
     local repos_added=false
     while IFS= read -r entry; do
         if [[ "$entry" == *@* ]]; then
             local pkg="${entry%%@*}"
             local repo="${entry#*@}"
             
-            # Check if repository is already added
             if ! grep -q "^deb .*${repo#ppa:}" /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null; then
                 echo "Adding repository: $repo"
                 sudo apt-add-repository -y "$repo"
@@ -36,18 +32,15 @@ install_packages() {
         fi
     done <<< "$package_entries"
 
-    # Update apt cache if any repositories were added
     if [ "$repos_added" = true ]; then
         echo "Updating package lists..."
         sudo apt update
     fi
 
-    # Second pass: check and install packages
     echo "Checking required packages..."
     local missing_packages=""
 
     while IFS= read -r entry; do
-        # Extract package name (remove @repo if present)
         local pkg="${entry%%@*}"
         
         if ! dpkg -s "$pkg" >/dev/null 2>&1; then

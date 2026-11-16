@@ -1,14 +1,7 @@
 #!/bin/bash
-# Install PyTorch on Jetson per NVIDIA docs:
-# https://docs.nvidia.com/deeplearning/frameworks/install-pytorch-jetson-platform/index.html
-#
-# Prerequisites: JetPack installed. Optional: run scripts/setup_python.sh first to
-# create the project venv; if the venv does not exist, this script creates it and
-# installs only PyTorch (then run setup_python.sh to install the rest of the project).
 
 set -e
 
-# Detect installed CUDA version (e.g. 12.6). Uses nvcc --version, else version.txt, else default.
 get_cuda_version() {
     local ver
     ver=$(nvcc --version 2>/dev/null | grep -oP 'release \K[0-9]+\.[0-9]+' | head -1)
@@ -19,15 +12,13 @@ get_cuda_version() {
         ver=$(ls -d /usr/local/cuda-[0-9]*.[0-9]* 2>/dev/null | sort -V | tail -1 | grep -oP 'cuda-\K[0-9]+\.[0-9]+')
     fi
     if [ -z "$ver" ]; then
-        # Guessing here is worse than stopping: the CUDA version picks the wheel index,
-        # and a wrong guess installs a torch that fails at the first kernel launch.
         echo "Error: could not detect the CUDA version (no nvcc, no /usr/local/cuda-*)." >&2
+        echo "The CUDA version picks the wheel index, and a wrong guess installs a torch that fails at the first kernel launch." >&2
         return 1
     fi
     echo "$ver"
 }
 
-# L4T major version from /etc/nv_tegra_release, e.g. 36 for JetPack 6, 39 for JetPack 7.2.
 get_l4t_major() {
     local first_line
     first_line=$(head -n 1 /etc/nv_tegra_release 2>/dev/null || true)
@@ -38,14 +29,10 @@ get_l4t_major() {
     fi
 }
 
-# The system python's major.minor: 3.10 on JetPack 6, 3.12 on JetPack 7. The venv, the OpenCV
-# bindings, and the NVIDIA torch wheel all have to match it, because apt builds
-# python3-libnvinfer for this interpreter and no other.
 get_jetson_python_version() {
     /usr/bin/python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")'
 }
 
-# Compute TORCH_INSTALL URL for current JetPack (no side effects). Sets TORCH_INSTALL if empty.
 get_jetson_torch_install_url() {
     if [ -n "${TORCH_INSTALL:-}" ]; then
         return 0
@@ -75,8 +62,6 @@ get_jetson_torch_install_url() {
     TORCH_INSTALL="https://developer.download.nvidia.com/compute/redist/jp/${JP_PREFIX}/pytorch/${WHEEL_NAME}"
 }
 
-# Install Jetson PyTorch wheel into the currently activated venv (no apt/cusparselt).
-# Call this from setup_python when on Jetson so torch is present before pip install -e .
 ensure_jetson_torch_in_venv() {
     if [ ! -f /etc/nv_tegra_release ]; then
         return 0
@@ -88,20 +73,11 @@ ensure_jetson_torch_in_venv() {
     local l4t_major
     l4t_major=$(get_l4t_major)
 
-    # JetPack 7 (L4T 39) and newer: NVIDIA publishes no Jetson wheel. There is no
-    # compute/redist/jp/v7x path and no jp7 index on pypi.jetson-ai-lab.io, and NVIDIA's
-    # own guidance for Orin on JetPack 7 is the upstream CUDA index. Those wheels are
-    # built for sm_80, and a cubin built for sm_8x runs on any sm_8y with y >= x, so
-    # Orin's sm_87 executes them without JIT. PyTorch still prints a compute-capability
-    # warning naming sm_90/sm_100/sm_120; it is cosmetic, not a failure.
     if [ -n "$l4t_major" ] && [ "$l4t_major" -ge 39 ]; then
         local cuda_ver index_url
         cuda_ver=$(get_cuda_version) || return 1
-        # 13.2 -> cu132. Derived, not tabled, so a 13.0 or 13.3 box picks its own index.
         index_url="https://download.pytorch.org/whl/cu${cuda_ver//./}"
         echo "Jetson: installing torch and torchvision from ${index_url} (CUDA ${cuda_ver})..."
-        # --index-url, not --extra-index-url: PyPI's aarch64 torch is a CPU-only build and
-        # wins resolution otherwise, leaving torch.cuda.is_available() false.
         pip install --no-cache-dir --index-url "$index_url" torch torchvision
         return 0
     fi
@@ -125,7 +101,6 @@ install_pytorch_jetson() {
     PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
     local VENV_DIR="$PROJECT_ROOT/venv"
 
-    # Check whether PyTorch is already importable in the project venv (or system python).
     local _python="${VENV_DIR}/bin/python"
     if [ ! -x "$_python" ]; then
         _python="python3"
@@ -142,14 +117,10 @@ install_pytorch_jetson() {
     local L4T_MAJOR
     L4T_MAJOR=$(get_l4t_major)
 
-    # 1. System packages required by PyTorch (per NVIDIA doc)
     echo "Installing PyTorch prerequisites (python3-pip, libopenblas-dev)..."
     sudo apt-get -y update
     sudo apt-get install -y python3-pip libopenblas-dev
 
-    # 2. cusparselt for PyTorch 24.06+ (per NVIDIA doc; run in /tmp so it creates dirs there).
-    # Only for the NVIDIA JetPack 6 wheels: the upstream CUDA-index wheels used on JetPack 7
-    # vendor their own CUDA dependencies.
     local CUDA_VER
     CUDA_VER=$(get_cuda_version) || return 1
     echo "Detected CUDA version: $CUDA_VER"
@@ -171,7 +142,6 @@ install_pytorch_jetson() {
         rm -rf "$CUSPARSELT_TMP"
     fi
 
-    # 3. Use project venv (create if missing)
     if [ ! -d "$VENV_DIR" ]; then
         echo "Creating project venv at $VENV_DIR (python${PY_VER})..."
         if ! command -v "python${PY_VER}" &>/dev/null; then
@@ -179,7 +149,6 @@ install_pytorch_jetson() {
             exit 1
         fi
         "python${PY_VER}" -m venv "$VENV_DIR"
-        # Make system TensorRT visible in venv (Jetson)
         local SITE_PACKAGES="$VENV_DIR/lib/python${PY_VER}/site-packages"
         local SYS_PYTHON_PATH="/usr/lib/python${PY_VER}/dist-packages"
         if [ -d "$SYS_PYTHON_PATH" ]; then
@@ -187,7 +156,6 @@ install_pytorch_jetson() {
         fi
     fi
 
-    # Ensure venv activate sets LD_LIBRARY_PATH for PyTorch CUDA (so torch.cuda.is_available() works)
     local ACTIVATE_SH="$VENV_DIR/bin/activate"
     if ! grep -q 'jetson.*LD_LIBRARY_PATH' "$ACTIVATE_SH" 2>/dev/null; then
         echo "Jetson: adding CUDA library path to venv activate script..."

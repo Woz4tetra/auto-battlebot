@@ -1,16 +1,3 @@
-# ctcache caches clang-tidy results, keyed on a hash of the preprocessed
-# translation unit. A full scripts/lint run re-analyses all of src/ from scratch
-# and takes ~48s; with a warm cache an unchanged run is ~11s.
-#
-# Upstream ships the wrapper we point run-clang-tidy at: a `clang-tidy` script at
-# the repo root that reads the real binary from CTCACHE_CLANG_TIDY and execs the
-# Python client beside it. The client is stdlib-only, so nothing is installed
-# into the venv; requirements.txt there covers the optional server mode, which we
-# do not use.
-#
-# Pinned to a commit rather than a tag: ctcache does not cut releases, and the
-# hash it computes is part of our cache key, so an unpinned upgrade would quietly
-# invalidate every entry.
 CTCACHE_COMMIT="0c7fee26e09ae8a393ed7d56164102da118ab23a"
 CTCACHE_REPO="https://github.com/matus-chochlik/ctcache.git"
 

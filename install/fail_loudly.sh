@@ -1,11 +1,4 @@
 #!/bin/bash
-# Source first from every install entry point. Any failing command then prints its file, line,
-# and text before the script exits, instead of `set -e` dropping back to the prompt in silence.
-#
-# -E carries the ERR trap into functions, sourced files, and command substitutions. The ERR trap
-# only records the location; the EXIT trap prints it, since EXIT fires on every exit path.
-# Install functions must not set their own traps or change shell options for the caller:
-# `scripts/lint` rejects both (see its "install scripts" step).
 
 set -eE
 _install_fail_where=""

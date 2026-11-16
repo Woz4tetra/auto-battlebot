@@ -13,7 +13,7 @@
   const WINDOW_MS = 60_000;
 
   const plot = $derived.by(() => {
-    void diagnostics.version;
+    void diagnostics.historyVersion;
     const series = diagnostics.history(module, valueKey);
     if (!series || series.v.length === 0) return null;
     let min = Math.min(...series.v);

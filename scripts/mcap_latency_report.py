@@ -1,21 +1,5 @@
 #!/usr/bin/env python3
-"""Produce a pipeline latency report from an MCAP recording.
-
-Reads /diagnostics messages: per-stage FunctionTimer timings (elapsed_ms), the
-runner's end-to-end pipeline latency (camera frame stamp to command send), and
-the loop rate. Prints a per-stage timing table plus an end-to-end summary
-checked against the 60 ms latency budget. Writes a markdown report and a plot
-to docs/experiments/ by default.
-
-Startup is trimmed: the report covers the ticks strictly after field
-initialization, so the one-shot field computation does not skew the stats. Pass
---include-field-init to report the whole recording.
-
-Usage (inside the venv, see scripts/activate_python.sh):
-    python scripts/mcap_latency_report.py data/recordings/<file>.mcap
-
-Dependencies: mcap, matplotlib, numpy
-"""
+"""Produce a pipeline latency report from an MCAP recording."""
 
 from __future__ import annotations
 
@@ -25,6 +9,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -33,6 +18,9 @@ from auto_battlebot.recording.mcap_io import (
     decode_diagnostic_array,
     iter_messages,
 )
+
+if TYPE_CHECKING:
+    from matplotlib.axes import Axes
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUT_DIR = REPO_ROOT / "docs" / "experiments"
@@ -44,16 +32,10 @@ TICK_STAGE = "runner.tick"
 BUDGET_MS = 60.0
 
 
-# ---------------------------------------------------------------------------
-# Extraction
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class LatencySamples:
     """Per-stage timing samples pulled from /diagnostics."""
 
-    # stage -> parallel lists of (time since start [s], duration [ms])
     stage_t_s: dict[str, list[float]]
     stage_ms: dict[str, list[float]]
     rate_hz: list[float]
@@ -61,8 +43,6 @@ class LatencySamples:
     window_note: str | None = None
 
 
-# First stage of the initialized tick path. Its first sample is published by the tick that
-# ran the field initialization itself, so the window starts strictly after that tick.
 FIELD_INIT_STAGE = "runner.field_filter.track_field"
 
 
@@ -74,13 +54,7 @@ def _window_after_field_init(
     rate_hz: list[float],
     first_ns: int,
 ) -> tuple[int, list[float], str | None]:
-    """Trim samples to those strictly after the first field-init sample, in place.
-
-    The first field-init sample belongs to the tick that ran the field computation, so its
-    own timings (inflated by that computation) are excluded along with everything before it.
-    Returns (t0, trimmed rate_hz, window note). Leaves the samples untouched and returns no
-    note if the field never initialized, so a recording without a field still reports.
-    """
+    """Trim samples to those strictly after the first field-init sample."""
     if not stage_t_ns.get(FIELD_INIT_STAGE):
         print(
             f"No {FIELD_INIT_STAGE} samples in {path}: the field never initialized, "
@@ -118,7 +92,6 @@ def extract_latency_samples(path: Path, include_field_init: bool = False) -> Lat
             hw_id = status["hardware_id"]
             name = status["name"]
             values = status["values"]
-            # No subsection: the backend sets name = hardware_id. Avoid "x.x" stages.
             stage = hw_id if name == hw_id else f"{hw_id}.{name}"
 
             if "elapsed_ms" in values:
@@ -152,11 +125,6 @@ def extract_latency_samples(path: Path, include_field_init: bool = False) -> Lat
     )
 
 
-# ---------------------------------------------------------------------------
-# Aggregation
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class StageStats:
     stage: str
@@ -165,7 +133,7 @@ class StageStats:
     median_ms: float
     p95_ms: float
     max_ms: float
-    pct_tick: float | None  # share of the runner.tick mean; None where meaningless
+    pct_of_tick_mean: float | None
 
 
 def aggregate(samples: LatencySamples, stage_filter: list[str] | None) -> list[StageStats]:
@@ -179,9 +147,9 @@ def aggregate(samples: LatencySamples, stage_filter: list[str] | None) -> list[S
         if stage_filter and not any(f in stage for f in stage_filter):
             continue
         arr = np.asarray(values, dtype=np.float64)
-        pct_tick: float | None = None
+        pct_of_tick_mean: float | None = None
         if tick_mean is not None and tick_mean > 0 and stage != PIPELINE_STAGE:
-            pct_tick = 100.0 * float(arr.mean()) / tick_mean
+            pct_of_tick_mean = 100.0 * float(arr.mean()) / tick_mean
         stats.append(
             StageStats(
                 stage=stage,
@@ -190,22 +158,17 @@ def aggregate(samples: LatencySamples, stage_filter: list[str] | None) -> list[S
                 median_ms=float(np.median(arr)),
                 p95_ms=float(np.percentile(arr, 95)),
                 max_ms=float(arr.max()),
-                pct_tick=pct_tick,
+                pct_of_tick_mean=pct_of_tick_mean,
             )
         )
     stats.sort(key=lambda s: s.mean_ms, reverse=True)
     return stats
 
 
-# ---------------------------------------------------------------------------
-# Report
-# ---------------------------------------------------------------------------
-
-
 def _table_rows(stats: list[StageStats]) -> list[tuple[str, str, str, str, str, str, str]]:
     rows = []
     for s in stats:
-        pct = f"{s.pct_tick:.1f}%" if s.pct_tick is not None else "-"
+        pct = f"{s.pct_of_tick_mean:.1f}%" if s.pct_of_tick_mean is not None else "-"
         rows.append(
             (
                 s.stage,
@@ -291,9 +254,9 @@ def write_markdown_report(
 
 
 def write_csv(csv_path: Path, stats: list[StageStats]) -> None:
-    lines = ["stage,count,mean_ms,median_ms,p95_ms,max_ms,pct_tick"]
+    lines = ["stage,count,mean_ms,median_ms,p95_ms,max_ms,pct_of_tick_mean"]
     for s in stats:
-        pct = f"{s.pct_tick:.3f}" if s.pct_tick is not None else ""
+        pct = f"{s.pct_of_tick_mean:.3f}" if s.pct_of_tick_mean is not None else ""
         lines.append(
             f"{s.stage},{s.count},{s.mean_ms:.3f},{s.median_ms:.3f},"
             f"{s.p95_ms:.3f},{s.max_ms:.3f},{pct}"
@@ -302,28 +265,7 @@ def write_csv(csv_path: Path, stats: list[StageStats]) -> None:
     print(f"Wrote CSV to {csv_path}")
 
 
-# ---------------------------------------------------------------------------
-# Plot
-# ---------------------------------------------------------------------------
-
-
-def plot_latency(
-    samples: LatencySamples,
-    stats: list[StageStats],
-    save_path: Path,
-    show: bool,
-    title: str,
-) -> None:
-    import matplotlib
-
-    if not show:
-        matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    fig, (ax_time, ax_box) = plt.subplots(2, 1, figsize=(14, 9), constrained_layout=True)
-    fig.suptitle(title, fontsize=13)
-
-    # -- 1. End-to-end latency over time vs budget ------------------------
+def plot_end_to_end_latency(ax_time: Axes, samples: LatencySamples) -> None:
     if PIPELINE_STAGE in samples.stage_ms:
         t = samples.stage_t_s[PIPELINE_STAGE]
         v = samples.stage_ms[PIPELINE_STAGE]
@@ -347,7 +289,8 @@ def plot_latency(
     ax_time.set_title("End-to-end pipeline latency (camera stamp -> command)")
     ax_time.grid(True, alpha=0.3)
 
-    # -- 2. Per-stage distribution, slowest at the top --------------------
+
+def plot_stage_distributions(ax_box: Any, samples: LatencySamples, stats: list[StageStats]) -> None:
     box_stats = [s for s in stats if s.stage != PIPELINE_STAGE]
     box_stats.reverse()  # horizontal boxplots draw bottom-up
     if box_stats:
@@ -367,6 +310,26 @@ def plot_latency(
     ax_box.set_title("Per-stage timing distribution (outliers hidden)")
     ax_box.grid(True, axis="x", alpha=0.3)
 
+
+def plot_latency(
+    samples: LatencySamples,
+    stats: list[StageStats],
+    save_path: Path,
+    show: bool,
+    title: str,
+) -> None:
+    import matplotlib
+
+    if not show:
+        matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig, (ax_time, ax_box) = plt.subplots(2, 1, figsize=(14, 9), constrained_layout=True)
+    fig.suptitle(title, fontsize=13)
+
+    plot_end_to_end_latency(ax_time, samples)
+    plot_stage_distributions(ax_box, samples, stats)
+
     fig.savefig(save_path, dpi=150)
     print(f"Saved plot to {save_path}")
     if show:
@@ -374,14 +337,21 @@ def plot_latency(
     plt.close(fig)
 
 
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Report per-stage timing and end-to-end latency from an MCAP recording."
+        description=(
+            "Produce a pipeline latency report from an MCAP recording.\n\n"
+            "Reads /diagnostics messages: per-stage FunctionTimer timings (elapsed_ms), the "
+            "runner's end-to-end pipeline latency (camera frame stamp to command send), and "
+            "the loop rate. Prints a per-stage timing table plus an end-to-end summary "
+            "checked against the 60 ms latency budget. Writes a markdown report and a plot "
+            "to docs/experiments/ by default.\n\n"
+            "Startup is trimmed: the report covers the ticks strictly after field "
+            "initialization, so the one-shot field computation does not skew the stats. Pass "
+            "--include-field-init to report the whole recording.\n\n"
+            "Run inside the venv (scripts/activate_python.sh). Needs mcap, matplotlib, numpy."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("file", type=Path, help="Path to MCAP recording")
     parser.add_argument(

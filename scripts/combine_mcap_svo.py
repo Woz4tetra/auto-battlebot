@@ -1,30 +1,5 @@
 #!/usr/bin/env python3
-"""Combine an MCAP recording with the SVO2 files it references.
-
-For every SVO2 file an input MCAP references (in /log or /camera/frame_meta),
-produce one combined MCAP <input_mcap_stem>__<svo_stem>.mcap that contains:
-
-  * One cropped left-eye image per SVO frame, decoded straight out of the
-    .svo2 (which is itself an MCAP container of H.264 frames).
-  * The slice of the original MCAP messages whose log_time falls inside that
-    SVO's [start, end] time range (intersect mode).
-
-An input that does not read cleanly is repaired first: every record that still
-parses is copied into <output dir>/recovered/<same name> and the run continues
-from that copy. This covers the input MCAP and the .svo2 files it references,
-which are MCAPs as well, so a killed recorder or a Jetson that lost power, which
-tears off the recording and the SVO it was filling at the same moment, still
-yields everything written before the tear.
-
-Requires `ffmpeg` on PATH and the Python `mcap` package. Neither the ZED SDK
-nor `pyzed` is used.
-
-The SVO's IMU data is dropped. It lives on the `sensors` /
-`integrated_sensors` topics as an opaque base64 blob that only the SDK
-decodes, and nothing downstream of these combined MCAPs reads it: the
-model_eval and model_compare tools use /camera/image and /camera/camera_info
-only. Use `ZED_SVO_Editor -export-to-mcap` if you ever need those channels.
-"""
+"""Combine an MCAP recording with the SVO2 files it references."""
 
 from __future__ import annotations
 
@@ -39,7 +14,7 @@ import sys
 import tempfile
 from contextlib import ExitStack, closing, contextmanager, suppress
 from pathlib import Path
-from typing import Any, Iterator, List, Optional, Tuple
+from typing import Any, Iterator, List, NamedTuple, NewType, Optional, Tuple
 
 from mcap.exceptions import McapError
 from mcap.reader import make_reader
@@ -52,40 +27,28 @@ from auto_battlebot.recording import mcap_io, mcap_write, svo2
 
 logger = logging.getLogger("combine_mcap_svo")
 
-# The SVO stores a horizontally concatenated [left | right] H.264 frame. We
-# decode it, crop to the left half, and publish it as a foxglove.CompressedImage
-# on TARGET_LEFT_IMAGE_TOPIC, stamped with the frame's own time.
 TARGET_LEFT_IMAGE_TOPIC = "/camera/image"
-# One message per frame, alongside the image it describes, carrying where that image came
-# from. It is the export-side companion to /camera/frame_meta, which the pipeline itself
-# writes with the SVO frame index straight from the SDK.
-#
-# How well stamps alone identify a frame depends on when the recording was made. On the
-# 2026-08-23 and 2026-08-28 Jetson recordings the pipeline's stamps equal the SVO frame
-# stamp exactly (0.00 ms over 9521 frames, both /camera/frame_meta.image_stamp_ns and
-# /camera/camera_info), so stamp and index joins agree. On the 2026-05-02 NHRL recordings
-# the pipeline stamp lands 0.45 to 0.79 of the way through the SVO frame interval, so
-# nearest-timestamp matching silently costs up to a frame there; join on the index, or on
-# "pipeline stamp within [svo_stamp, next_svo_stamp)".
 SVO_FRAME_TOPIC = "/camera/svo_frame"
-# Topic in the original MCAP whose header.frame_id we copy onto the cropped
-# image messages so all camera-frame data lines up.
-CAMERA_INFO_TOPIC = "/camera/camera_info"
-# Written per frame by the pipeline with the SVO file and index it came from.
+FRAME_ID_SOURCE_TOPIC = "/camera/camera_info"
 FRAME_META_TOPIC = "/camera/frame_meta"
-# Where the pipeline logs the SVO path it opened.
 LOG_TOPIC = "/log"
 
-# JSON schema of the per-frame provenance message on SVO_FRAME_TOPIC.
-SVO_FRAME_SCHEMA = (
+SVO_FRAME_JSON_SCHEMA = (
     "auto_battlebot.SvoFrame",
     '{"type":"object","title":"auto_battlebot.SvoFrame","properties":{"svo_file":{"type":"string"},'
     '"svo_frame_index":{"type":"integer"},"svo_stamp_ns":{"type":"integer"}}}',
 )
 
-# Where a repaired copy of a damaged input MCAP lands, under the output directory.
 RECOVERED_SUBDIR = "recovered"
 RECOVERY_LIBRARY = "combine_mcap_svo recover"
+
+RepairedMcap = NewType("RepairedMcap", Path)
+
+
+class CombineResult(NamedTuple):
+    written_mcaps: int
+    unusable_svos: int
+
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_SEARCH_DIRS = [
@@ -93,7 +56,6 @@ DEFAULT_SEARCH_DIRS = [
     PROJECT_ROOT / "data" / "temp_svo",
 ]
 
-# spdlog::info("Resolved SVO path: {}", ...) and "SVO recording started: {}".
 SVO_PATH_REGEX = re.compile(r"(?:Resolved SVO path|SVO recording started):\s+(\S+\.svo2)")
 
 
@@ -108,22 +70,13 @@ def _frame_meta_svo_path(data: bytes) -> Optional[Path]:
         raw = str(mcap_io.decode_json(data).get("svo_path", ""))
     except (json.JSONDecodeError, UnicodeDecodeError, AttributeError, KeyError, ValueError):
         return None
-    if not raw:  # live-camera frames carry an empty path
+    if not raw:
         return None
     return Path(raw)
 
 
 def extract_svo_paths(mcap_path: Path) -> List[Path]:
-    """Return the SVO paths this recording used, in first-seen order.
-
-    Both /log and /camera/frame_meta are read, because neither is complete
-    on its own. /log logs the SVO the recorder opened but not the ones it
-    rotates to mid-run: auto_battlebot_..._2026-08-28_20-57-33 logs only
-    2026-08-28T20-57-35.svo2 and never mentions the 2026-08-28T21-03-09.svo2
-    that holds all but the first 123 of its frames. /camera/frame_meta names
-    the file per frame, so it catches the rotations, but only recordings from
-    2026-08 on publish it.
-    """
+    """Return the SVO paths this recording used, in first-seen order."""
     seen: "dict[Path, None]" = {}
     for topic, _log_time, data in mcap_io.iter_messages(mcap_path, [LOG_TOPIC, FRAME_META_TOPIC]):
         if topic == FRAME_META_TOPIC:
@@ -137,12 +90,7 @@ def extract_svo_paths(mcap_path: Path) -> List[Path]:
 
 
 def _has_data(path: Path) -> bool:
-    """True when `path` is a file with content.
-
-    A recorder that opens an SVO and rotates away from it can leave a 0-byte
-    file behind (data/svo/2026-08-28/2026-08-28T20-57-35.svo2). It looks like
-    a hit but holds no MCAP magic, so it must not win the search.
-    """
+    """True when `path` is a file with content."""
     if not path.is_file():
         return False
     if path.stat().st_size > 0:
@@ -152,13 +100,7 @@ def _has_data(path: Path) -> bool:
 
 
 def resolve_svo_path(referenced: Path, search_dirs: List[Path]) -> Optional[Path]:
-    """Locate the SVO file on disk, falling back to basename matches.
-
-    Search dirs are walked recursively, because the recording logs the path
-    the Jetson wrote to while the files are filed here into per-date
-    subdirectories (data/svo/2026-08-23/...). Directories are tried in order,
-    each one shallow-first, so an earlier search dir always wins.
-    """
+    """Locate the SVO file on disk, falling back to basename matches."""
     if referenced.is_absolute():
         if _has_data(referenced):
             return referenced.resolve()
@@ -187,12 +129,7 @@ def resolve_svo_path(referenced: Path, search_dirs: List[Path]) -> Optional[Path
 
 
 def read_svo_time_range(svo_path: Path, topic: str) -> Tuple[int, int]:
-    """Return (start_ns, end_ns) spanned by the SVO's frames.
-
-    Taken from the frame timestamps, never from the MCAP summary statistics:
-    svo_header and svo_footer carry log_times unrelated to the recording's own
-    timeline, which stretches the summary range by months.
-    """
+    """Return (start_ns, end_ns) spanned by the SVO's frames."""
     stamps = svo2.read_frame_stamps(svo_path, topic)
     if not stamps:
         raise RuntimeError(f"SVO has no frames on {topic}: {svo_path}")
@@ -225,11 +162,7 @@ def _make_left_image(jpeg: bytes, stamp_ns: int, frame_id: Optional[str]) -> Any
 
 
 def _make_svo_frame_payload(svo_name: str, frame_index: int, stamp_ns: int) -> str:
-    """One /camera/svo_frame message: which SVO file and frame the image beside it came from.
-
-    `svo_frame_index` counts frames from zero in file order, which is the index the SDK reports
-    to the pipeline and the pipeline writes to /camera/frame_meta, so the two join directly.
-    """
+    """One /camera/svo_frame message naming the source SVO file and frame."""
     return json.dumps(
         {"svo_file": svo_name, "svo_frame_index": frame_index, "svo_stamp_ns": stamp_ns},
         separators=(",", ":"),
@@ -245,14 +178,9 @@ def read_first_header_frame_id(mcap_path: Path, topic: str) -> Optional[str]:
 
 
 def read_header_stamp_samples(
-    mcap_path: Path, topic: str = CAMERA_INFO_TOPIC
+    mcap_path: Path, topic: str = FRAME_ID_SOURCE_TOPIC
 ) -> List[Tuple[int, int]]:
-    """Return sorted list of (log_time_ns, header_stamp_ns) for `topic`.
-
-    Used to map the original MCAP's wall-clock-stamped log_times back to the
-    camera-frame-stamped timeline that the SVO MCAP uses, fixing the ~50 ms
-    lag between capture and the recorder write in the C++ publisher.
-    """
+    """Return sorted (log_time_ns, header_stamp_ns) pairs for `topic`."""
     samples: List[Tuple[int, int]] = []
     for _topic, log_time, data in mcap_io.iter_messages(mcap_path, [topic]):
         samples.append((log_time, mcap_io.decode_camera_info(data).stamp_ns))
@@ -261,13 +189,7 @@ def read_header_stamp_samples(
 
 
 class HeaderStampRetimer:
-    """Linear-interpolate a `log_time -> header.stamp` mapping from samples.
-
-    For log_times outside the sample range, the boundary offset is
-    extrapolated as a constant (i.e. the first/last (log_time - stamp)
-    delta is reused). Returns the original log_time unchanged when no
-    samples are available.
-    """
+    """Linear-interpolate a log_time to header.stamp mapping from samples."""
 
     def __init__(self, samples: List[Tuple[int, int]]):
         self._log_times: List[int] = [s[0] for s in samples]
@@ -327,12 +249,12 @@ def _log_frame_id_resolution(camera_frame_id: Optional[str], original_path: Path
         logger.info(
             "Using camera frame_id %r from %s for /camera/image",
             camera_frame_id,
-            CAMERA_INFO_TOPIC,
+            FRAME_ID_SOURCE_TOPIC,
         )
     else:
         logger.warning(
             "Could not find frame_id on %s in %s; leaving SVO frame_id intact",
-            CAMERA_INFO_TOPIC,
+            FRAME_ID_SOURCE_TOPIC,
             original_path,
         )
 
@@ -345,14 +267,14 @@ def _log_retimer_stats(retimer: HeaderStampRetimer, original_path: Path) -> None
             "Retiming original MCAP via %d %s samples"
             " (avg log_time-stamp offset %.2f ms, max abs %.2f ms)",
             retimer.sample_count,
-            CAMERA_INFO_TOPIC,
+            FRAME_ID_SOURCE_TOPIC,
             avg_offset_ns / 1e6,
             max_abs_offset_ns / 1e6,
         )
     else:
         logger.warning(
             "No %s samples in %s; original log_times will not be retimed",
-            CAMERA_INFO_TOPIC,
+            FRAME_ID_SOURCE_TOPIC,
             original_path,
         )
 
@@ -363,11 +285,7 @@ def _load_retimed_originals(
     start_ns: int,
     end_ns: int,
 ) -> List[Tuple[int, int, object, object, object]]:
-    """Load original messages, retime their log_times, and filter to [start, end].
-
-    We over-fetch by max_abs_offset so we don't drop messages whose retimed time
-    lands inside the window, then re-sort before the merge.
-    """
+    """Load original messages, retime their log_times, and filter to [start, end]."""
     if retimer:
         margin_ns = retimer.offset_stats_ns[1]
     else:
@@ -403,15 +321,12 @@ def merge_mcaps(
     start_ns, end_ns = time_range_ns
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    camera_frame_id = read_first_header_frame_id(original_path, CAMERA_INFO_TOPIC)
+    camera_frame_id = read_first_header_frame_id(original_path, FRAME_ID_SOURCE_TOPIC)
     _log_frame_id_resolution(camera_frame_id, original_path)
 
     retimer = HeaderStampRetimer(read_header_stamp_samples(original_path))
     _log_retimer_stats(retimer, original_path)
 
-    # Total is an upper bound: the original count is pre-time-slice, so the
-    # bar may finish slightly before 100% on recordings that extend past the
-    # SVO's time range. tqdm handles that gracefully.
     total_messages = _summary_message_count(original_path) + frame_count
 
     metadata = {}
@@ -419,16 +334,12 @@ def merge_mcaps(
         for record in make_reader(f).iter_metadata():
             metadata[record.name] = dict(record.metadata)
 
-    # JPEG-heavy: zstd chunks, as the mcap Writer default this script used before.
     with mcap_write.McapWriter(
         output_path, allow_overwrite=True, compression="zstd", metadata=metadata
     ) as writer:
         svo_name = svo_path.stem
         frame_index = 0
 
-        # When retiming, we have to load the original messages, shift their
-        # log_times to camera-frame time, filter to the SVO range, and re-sort
-        # before the merge.
         original_buffer = _load_retimed_originals(original_path, retimer, start_ns, end_ns)
 
         original_iter = iter(original_buffer)
@@ -471,7 +382,7 @@ def merge_mcaps(
                         SVO_FRAME_TOPIC,
                         _make_svo_frame_payload(svo_name, frame_index, log_time),
                         log_time,
-                        schema=SVO_FRAME_SCHEMA,
+                        schema=SVO_FRAME_JSON_SCHEMA,
                     )
                     frame_index += 1
                     merge_bar.update(1)
@@ -507,18 +418,8 @@ def get_input_profile(mcap_path: Path) -> str:
 
 
 def _describe_damage(mcap_path: Path) -> Optional[str]:
-    """Return a description of the first fault in `mcap_path`, or None if it reads clean.
-
-    Two checks, because they fail on different damage. The summary lookup needs the
-    footer at the end of the file, which a recording that never finalized does not
-    have. The record scan then reads the body from the front and stops wherever the
-    bytes stop making sense, which catches a torn final chunk and mid-file corruption
-    that an intact footer would otherwise hide.
-
-    Scanning is cheap next to the combine itself: 0.06 s for a 36 MB recording.
-    """
+    """Return a description of the first fault in `mcap_path`, or None if it reads clean."""
     if mcap_path.stat().st_size == 0:
-        # The recorder opened the file and never wrote to it. Nothing to recover.
         return "the file is empty"
     try:
         with open(mcap_path, "rb") as f:
@@ -540,12 +441,7 @@ def _copy_record(
     schema_ids: "dict[int, int]",
     channel_ids: "dict[int, int]",
 ) -> int:
-    """Write one parsed record through to `writer`. Returns 1 if it was a message.
-
-    Schema and channel ids are reassigned by the writer, so the originals are mapped
-    on the way through. A message whose channel was never declared is dropped: that
-    only happens when the channel record itself was lost.
-    """
+    """Write one parsed record through to writer; returns 1 for a message."""
     if isinstance(record, Schema):
         schema_ids[record.id] = writer.register_schema(
             name=record.name, encoding=record.encoding, data=record.data
@@ -583,13 +479,7 @@ def _copy_record(
 
 
 def recover_mcap(source: Path, dest: Path) -> int:
-    """Copy every record that still parses out of `source` into a fresh MCAP at `dest`.
-
-    Returns the number of messages copied. Reading stops at the first record that
-    fails to parse, so a recording torn off mid-write keeps everything before the
-    tear. The output goes through the same writer as the combined outputs, so it
-    comes back chunked, indexed, and with a summary.
-    """
+    """Copy every record that still parses from source into a fresh MCAP."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     schema_ids: "dict[int, int]" = {}
     channel_ids: "dict[int, int]" = {}
@@ -604,7 +494,6 @@ def recover_mcap(source: Path, dest: Path) -> int:
                     started = True
                     continue
                 if not started:
-                    # The header itself was lost. Everything after it still reads.
                     writer.start(library=RECOVERY_LIBRARY)
                     started = True
                 messages += _copy_record(writer, record, schema_ids, channel_ids)
@@ -617,18 +506,13 @@ def recover_mcap(source: Path, dest: Path) -> int:
 
 
 def _recover_into(source: Path, dest_dir: Path) -> Optional[Path]:
-    """Recover `source` into `dest_dir` under the same name, or None if nothing reads.
-
-    Keeping the name means every output named after this file, combined MCAPs and
-    the svo_file field on /camera/svo_frame alike, comes out the same as it would
-    have for an undamaged input.
-    """
+    """Recover `source` into `dest_dir` under the same name, or None if nothing reads."""
     dest = dest_dir / source.name
     messages = recover_mcap(source, dest)
     if messages == 0:
         dest.unlink(missing_ok=True)
         with suppress(OSError):
-            dest_dir.rmdir()  # Only succeeds while it is empty.
+            dest_dir.rmdir()
         return None
     logger.info("Recovered %d message(s) from %s into %s", messages, source.name, dest)
     return dest
@@ -636,11 +520,7 @@ def _recover_into(source: Path, dest_dir: Path) -> Optional[Path]:
 
 @contextmanager
 def _recovered_copy(source: Path, out_dir: Path, *, keep: bool) -> Iterator[Optional[Path]]:
-    """Yield a repaired copy of `source`, or None when nothing could be read out of it.
-
-    `keep` is False for a dry run, which puts the copy in a temporary directory and
-    deletes it on the way out.
-    """
+    """Yield a repaired copy of source, or None when nothing reads."""
     with ExitStack() as stack:
         if keep:
             dest_dir = out_dir / RECOVERED_SUBDIR
@@ -652,12 +532,7 @@ def _recovered_copy(source: Path, out_dir: Path, *, keep: bool) -> Iterator[Opti
 
 
 def _readable_svo(svo_path: Path, out_dir: Path) -> Optional[Path]:
-    """Return an SVO that reads cleanly, recovering a damaged one first.
-
-    A .svo2 is an MCAP too, so the same repair applies: the recorder that was killed
-    mid-write left the recording and the SVO it was filling both torn off. Returns
-    None when nothing at all can be read out of it.
-    """
+    """Return an SVO that reads cleanly, recovering a damaged one first."""
     damage = _describe_damage(svo_path)
     if damage is None:
         return svo_path
@@ -674,20 +549,17 @@ def process_mcap(
     dry_run: bool,
     ffmpeg_bin: str,
     ignore_missing_svo: bool,
-) -> Tuple[int, int]:
-    """Process one input MCAP, repairing it first if it does not read cleanly.
-
-    Returns (number of combined MCAPs written, number of referenced SVOs unusable).
-    """
+) -> CombineResult:
+    """Process one input MCAP, repairing it first if it does not read cleanly."""
     if not input_mcap.exists():
         logger.error("Input MCAP not found: %s", input_mcap)
-        return 0, 0
+        return CombineResult(0, 0)
 
     out_dir = output_dir if output_dir is not None else input_mcap.parent
     damage = _describe_damage(input_mcap)
     if damage is None:
         return _combine_svos(
-            input_mcap,
+            RepairedMcap(input_mcap),
             out_dir,
             search_dirs,
             overwrite=overwrite,
@@ -700,9 +572,9 @@ def process_mcap(
     with _recovered_copy(input_mcap, out_dir, keep=not dry_run) as recovered:
         if recovered is None:
             logger.error("Nothing readable in %s; skipping it.", input_mcap)
-            return 0, 0
+            return CombineResult(0, 0)
         return _combine_svos(
-            recovered,
+            RepairedMcap(recovered),
             out_dir,
             search_dirs,
             overwrite=overwrite,
@@ -713,7 +585,7 @@ def process_mcap(
 
 
 def _combine_svos(
-    input_mcap: Path,
+    input_mcap: RepairedMcap,
     out_dir: Path,
     search_dirs: List[Path],
     *,
@@ -721,16 +593,12 @@ def _combine_svos(
     dry_run: bool,
     ffmpeg_bin: str,
     ignore_missing_svo: bool,
-) -> Tuple[int, int]:
-    """Write one combined MCAP per SVO `input_mcap` references.
-
-    `input_mcap` has to read cleanly by this point; process_mcap repairs it first
-    if it does not.
-    """
+) -> CombineResult:
+    """Write one combined MCAP per SVO `input_mcap` references."""
     referenced = extract_svo_paths(input_mcap)
     if not referenced:
         logger.warning("No SVO paths found in %s", input_mcap)
-        return 0, 0
+        return CombineResult(0, 0)
 
     profile = get_input_profile(input_mcap)
     if profile == "ros1":
@@ -739,12 +607,9 @@ def _combine_svos(
             "scripts/convert_ros1_mcap.py first",
             input_mcap,
         )
-        return 0, 0
+        return CombineResult(0, 0)
     written = 0
     missing = 0
-    # Two references can name one file (/rosout and /camera/frame_meta spell the
-    # same path, or two spellings resolve to the same file by basename), and a
-    # second pass over it would just rewrite the same output.
     done: "dict[Path, None]" = {}
 
     svo_iter = tqdm(
@@ -801,7 +666,6 @@ def _combine_svos(
             svo_topic, frame_count = svo2.find_side_by_side_topic(svo_source)
             start_ns, end_ns = read_svo_time_range(svo_source, svo_topic)
         except (McapError, RuntimeError, ValueError, OSError) as exc:
-            # Damage recovery cannot undo, such as an SVO whose frames are all gone.
             logger.error("Skipping unreadable SVO %s: %s", svo_path, exc)
             missing += 1
             continue
@@ -825,14 +689,16 @@ def _combine_svos(
         logger.info("Wrote %s", combined_path)
         written += 1
 
-    return written, missing
+    return CombineResult(written, missing)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Combine an MCAP recording with the SVO2 files it references "
-            "(via /rosout). Produces one combined MCAP per SVO."
+            "Combine an MCAP recording with the SVO2 files it references (in /log or "
+            "/camera/frame_meta). Produces one combined MCAP per SVO with the cropped "
+            "left-eye image per frame and the original messages inside the SVO's time range. "
+            "Needs ffmpeg on PATH and the Python mcap package."
         )
     )
     parser.add_argument(

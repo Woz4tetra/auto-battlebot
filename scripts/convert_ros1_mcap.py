@@ -1,29 +1,5 @@
 #!/usr/bin/env python3
-"""Convert a legacy ROS 1 recording into the Foxglove layout of docs/foxglove_recording_format.md.
-
-    python scripts/convert_ros1_mcap.py <input.mcap> <output.mcap> [--check]
-    python scripts/convert_ros1_mcap.py <input_dir> <output_dir> [--check]
-
-Never writes in place and never deletes anything. With a directory pair every ``*.mcap`` under
-the input tree is converted to the mirrored path under the output tree; outputs that already
-exist are skipped unless ``--overwrite`` is given. Files that are not ``profile: ros1`` are
-reported and skipped.
-
-Payload bytes that are already the right thing (JPEGs, the detections JSON) pass through
-untouched. ``log_time`` and ``publish_time`` are preserved, and the ``auto_battlebot`` metadata
-record (with ``active_profile``) is copied. Four topics change shape on the way through, as the
-C++ stack's own output did:
-
-- ``/field_markers`` splits into the border ``SceneUpdate`` and a ``/field_points`` float32
-  ``PointCloud``. Every coordinate is asserted to round-trip through float32 unchanged.
-- ``/diagnostics`` splits into one JSON channel per module with typed values, using the same
-  string-to-number rule ``diag_io`` applied to legacy recordings.
-- ``/camera/frame_meta`` re-emits ``image_stamp_ns`` as a decimal string (asserted equal).
-- ``/blob_detections`` and ``/keypoint_detections`` lose the ``std_msgs/String`` wrapper.
-
-``--check`` re-reads input and output and compares per-topic message counts (accounting for
-the splits) and first/last log times.
-"""
+"""Convert a legacy ROS 1 recording into the Foxglove recording layout."""
 
 from __future__ import annotations
 
@@ -67,6 +43,8 @@ SVO_FRAME_SCHEMA = (
     '"svo_frame_index":{"type":"integer"},"svo_stamp_ns":{"type":"integer"}}}',
 )
 GENERIC_JSON_SCHEMA = ("auto_battlebot.Json", '{"type":"object"}')
+NO_VIDEO_FRAME_INDEX = -1
+QUAT_180_ABOUT_Z = (0.0, 0.0, 1.0, 0.0)
 
 
 class ConversionError(RuntimeError):
@@ -81,11 +59,6 @@ class Stats:
     topics_in: Counter = field(default_factory=Counter)
     topics_out: Counter = field(default_factory=Counter)
     skipped_schemas: Counter = field(default_factory=Counter)
-
-
-# ---------------------------------------------------------------------------
-# Per-message transforms
-# ---------------------------------------------------------------------------
 
 
 def _convert_field_markers(
@@ -149,8 +122,7 @@ def _convert_frame_meta(
     payload = json.loads(_ros1_decode_string(data))
     before = int(payload["image_stamp_ns"])
     payload["image_stamp_ns"] = str(before)
-    # ROS1 bags predate both the SVO join and the video channel, so the index is -1 either way.
-    index = payload.pop("svo_frame_index", payload.get("video_frame_index", -1))
+    index = payload.pop("svo_frame_index", payload.get("video_frame_index", NO_VIDEO_FRAME_INDEX))
     payload.pop("svo_path", None)
     payload["video_frame_index"] = int(index)
     if int(payload["image_stamp_ns"]) != before:
@@ -158,10 +130,15 @@ def _convert_frame_meta(
     writer.log_json(topic, payload, log_time)
 
 
+def _assert_contract_json(text: str) -> None:
+    """Raise if the payload is not valid JSON."""
+    json.loads(text)
+
+
 def _convert_string(writer: mcap_write.McapWriter, topic: str, data: bytes, log_time: int) -> None:
     text = _ros1_decode_string(data)
     if topic in mcap_write.JSON_TOPIC_SCHEMAS:
-        json.loads(text)  # the payload must already be the contract JSON
+        _assert_contract_json(text)
         writer.log_json(topic, text, log_time)
         return
     schema = SVO_FRAME_SCHEMA if topic == SVO_FRAME_TOPIC else GENERIC_JSON_SCHEMA
@@ -247,11 +224,6 @@ def _convert_message(  # noqa: C901
     stats.messages_out += 1
 
 
-# ---------------------------------------------------------------------------
-# Files
-# ---------------------------------------------------------------------------
-
-
 def input_profile(path: Path) -> str:
     with open(path, "rb") as handle:
         return make_reader(handle).get_header().profile
@@ -269,8 +241,6 @@ def convert_file(src: Path, dst: Path, *, overwrite: bool = False) -> Stats:
     with open(src, "rb") as handle:
         reader = make_reader(handle)
         metadata = {record.name: dict(record.metadata) for record in reader.iter_metadata()}
-        # Keep the source's chunk compression: the C++ recorder writes none, the JPEG-heavy
-        # Python-written captures use zstd chunks, and rewriting those uncompressed would grow them.
         compression = mcap_write.read_chunk_compression(src)
         with mcap_write.McapWriter(partial, compression=compression, metadata=metadata) as writer:
             for schema, channel, message in reader.iter_messages(log_time_order=True):
@@ -280,8 +250,6 @@ def convert_file(src: Path, dst: Path, *, overwrite: bool = False) -> Stats:
                         "Foxglove writer cannot reproduce"
                     )
                 if channel.message_encoding != "ros1":
-                    # Already a Foxglove-readable channel (the calibration recordings mix JSON
-                    # channels with ros1 images): copy it through unchanged.
                     writer.log_raw(
                         channel.topic,
                         channel.message_encoding,
@@ -442,7 +410,17 @@ def convert_one(src: Path, dst: Path, *, check: bool, overwrite: bool) -> tuple[
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+        description=(
+            "Convert a legacy ROS 1 recording into the Foxglove layout of "
+            "docs/foxglove_recording_format.md.\n\n"
+            "  convert_ros1_mcap.py <input.mcap> <output.mcap> [--check]\n"
+            "  convert_ros1_mcap.py <input_dir> <output_dir> [--check]\n\n"
+            "Never writes in place and never deletes anything. With a directory pair every "
+            "*.mcap under the input tree is converted to the mirrored path under the output "
+            "tree; outputs that already exist are skipped unless --overwrite is given. Files "
+            "that are not `profile: ros1` are reported and skipped."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("input", type=Path, help="legacy .mcap file or a directory of them")
     parser.add_argument("output", type=Path, help="output .mcap file or mirrored output directory")
@@ -473,17 +451,6 @@ def main() -> int:
         f"{_human(bytes_in)} -> {_human(bytes_out)}"
     )
     return 1 if counts["failed"] else 0
-
-
-# ===========================================================================
-# Legacy ROS 1 wire format
-#
-# Everything below decodes the recordings the C++ stack wrote before the Foxglove migration.
-# This script is the only consumer left; the readers in ``auto_battlebot`` refuse legacy input.
-#
-# All little-endian. Header: uint32 seq, uint32 stamp_secs, uint32 stamp_nsecs, string frame_id.
-# string: uint32 length + raw bytes (no null terminator).
-# ===========================================================================
 
 
 @dataclass
@@ -527,7 +494,7 @@ def _rotation_x_onto(direction: np.ndarray) -> tuple[float, float, float, float]
     x_axis = np.array([1.0, 0.0, 0.0])
     dot = float(np.dot(x_axis, d))
     if dot < -1.0 + 1e-9:
-        return (0.0, 0.0, 1.0, 0.0)  # 180 degrees about z
+        return QUAT_180_ABOUT_Z
     axis = np.cross(x_axis, d)
     w = 1.0 + dot
     q = np.array([axis[0], axis[1], axis[2], w])
@@ -536,10 +503,7 @@ def _rotation_x_onto(direction: np.ndarray) -> tuple[float, float, float, float]
 
 
 def marker_to_scene_entity(marker: Marker) -> SceneEntity | SceneEntityDeletion | None:
-    """The marker-to-entity rules from ``docs/foxglove_recording_format.md``.
-
-    Returns None for ``POINTS`` markers, which have no SceneEntity form.
-    """
+    """Marker-to-entity rules from docs/foxglove_recording_format.md."""
     entity_id = f"{marker.ns}/{marker.id}"
     if marker.action == MARKER_ACTION_DELETEALL:
         return SceneEntityDeletion(type="ALL", id="", stamp_ns=marker.stamp_ns)
@@ -633,6 +597,11 @@ def _ros1_read_string(data: bytes, offset: int) -> tuple[str, int]:
     return s, offset + length
 
 
+def _ros1_skip_bool_field(offset: int, field_name: str) -> int:
+    """Skip a one-byte ROS1 bool field; field_name records which one."""
+    return offset + 1
+
+
 def _ros1_read_uint32(data: bytes, offset: int) -> tuple[int, int]:
     (v,) = struct.unpack_from("<I", data, offset)
     return v, offset + 4
@@ -697,7 +666,7 @@ def _ros1_decode_raw_image_bytes(data: bytes) -> tuple[int, str, np.ndarray, str
     height, off = _ros1_read_uint32(data, off)
     width, off = _ros1_read_uint32(data, off)
     encoding, off = _ros1_read_string(data, off)
-    off += 1  # is_bigendian
+    off = _ros1_skip_bool_field(off, "is_bigendian")
     step, off = _ros1_read_uint32(data, off)
     length, off = _ros1_read_uint32(data, off)
     channels = max(step // max(width, 1), 1)
@@ -779,7 +748,7 @@ def _ros1_decode_marker_array(data: bytes) -> list[Marker]:
         off += 16 * color_count
         text, off = _ros1_read_string(data, off)
         _mesh_resource, off = _ros1_read_string(data, off)
-        off += 1  # mesh_use_embedded_materials
+        off = _ros1_skip_bool_field(off, "mesh_use_embedded_materials")
         markers.append(
             Marker(
                 stamp_ns=stamp_ns,
@@ -826,15 +795,14 @@ _INT_PATTERN = re.compile(r"^[+-]?\d+$")
 
 
 def coerce_value(value: Any) -> Any:
-    """The legacy string-to-number rule, one value at a time.
-
-    Legacy recordings stringified every diagnostic value (``std::to_string``), so an integer
-    became ``"1"`` and a double ``"12.500000"``. The C++ stack now emits typed values; this is
-    the same judgement applied to old bytes: an integer literal becomes ``int``, anything
-    ``float()`` accepts becomes ``float`` (``nan``/``inf`` included), and everything else stays
-    a string. Already-typed values pass through untouched.
-    """
+    """The legacy string-to-number rule, one value at a time."""
     if not isinstance(value, str):
+        return value
+    if re.fullmatch(r"[+-]?\d+", value):
+        return int(value)
+    try:
+        return float(value)
+    except ValueError:
         return value
 
 

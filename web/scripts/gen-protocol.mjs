@@ -1,14 +1,4 @@
 #!/usr/bin/env node
-// Generates src/generated/protocol.ts from the remote protocol table.
-//
-//   node scripts/gen-protocol.mjs [protocol.json]
-//
-// With no argument it runs ../build/remote_protocol_dump, then ../build-test/remote_protocol_dump.
-//
-// Type names come from the schema title `auto_battlebot.<kind>.<Name>`:
-//   top-level status schema   -> <Name>Status    (auto_battlebot.status.System -> SystemStatus)
-//   top-level command schema  -> <Name>Command   (auto_battlebot.command.SetAutonomy -> SetAutonomyCommand)
-//   nested object schema      -> <Name>          (auto_battlebot.status.TrackedRobot -> TrackedRobot)
 
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -40,11 +30,6 @@ function baseName(title) {
   return parts[parts.length - 1];
 }
 
-/**
- * Returns a copy of the schema with every title rewritten to its TypeScript name. Nested objects
- * with a title move to `definitions` and are referenced by `$ref`, so a struct used in several
- * places (ImagePoint) is declared once instead of as ImagePoint, ImagePoint1, ImagePoint2.
- */
 function renameTitles(schema, suffix) {
   const definitions = {};
   const walk = (node, top) => {
@@ -78,7 +63,6 @@ const compileOptions = {
   enableConstEnums: false,
 };
 
-/** Splits json2ts output into `export ...` declarations keyed by name, keeping the first copy. */
 function collect(ts, decls) {
   for (const block of ts.split(/^(?=export )/m)) {
     const match = block.match(/^export (?:interface|type) (\w+)/);

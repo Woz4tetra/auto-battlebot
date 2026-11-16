@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-"""
-Print the total size, average message size, and KB/s of each topic in an MCAP file.
-"""
+"""Print size, mean message size and KB/s per topic in an MCAP."""
 
 import argparse
 import sys
@@ -55,7 +53,6 @@ def _collect_topic_stats(path: Path) -> TopicStats:
                     ch = channels[channel_id]
                     topic_counts[ch.topic] += count
 
-        # Iterate messages to accumulate byte sizes and time spans
         f.seek(0)
         reader = make_reader(f)
         for schema, channel, message in reader.iter_messages():
@@ -63,15 +60,15 @@ def _collect_topic_stats(path: Path) -> TopicStats:
             size = message.data_length if hasattr(message, "data_length") else len(message.data)
             topic_bytes[topic] += size
 
-            t = message.log_time  # nanoseconds
-            if topic not in topic_min_ns or t < topic_min_ns[topic]:
-                topic_min_ns[topic] = t
-            if topic not in topic_max_ns or t > topic_max_ns[topic]:
-                topic_max_ns[topic] = t
+            log_time_ns = message.log_time
+            if topic not in topic_min_ns or log_time_ns < topic_min_ns[topic]:
+                topic_min_ns[topic] = log_time_ns
+            if topic not in topic_max_ns or log_time_ns > topic_max_ns[topic]:
+                topic_max_ns[topic] = log_time_ns
 
             if topic not in topic_type and schema:
                 topic_type[topic] = schema.name
-            topic_counts[topic]  # touch to ensure key exists
+            topic_counts[topic]
 
     return TopicStats(topic_bytes, topic_counts, topic_type, topic_min_ns, topic_max_ns)
 
@@ -102,12 +99,10 @@ def _print_topic_report(path: Path, stats: TopicStats) -> None:
     total_bytes = sum(stats.topic_bytes.values())
     total_msgs = sum(stats.topic_counts.values())
 
-    # Overall file time span (across all topics)
     all_min = min(stats.topic_min_ns.values()) if stats.topic_min_ns else 0
     all_max = max(stats.topic_max_ns.values()) if stats.topic_max_ns else 0
     total_duration_s = (all_max - all_min) / 1e9
 
-    # Sort by size descending
     sorted_topics = sorted(stats.topic_bytes.items(), key=lambda x: x[1], reverse=True)
 
     col_topic = max(len(t) for t, _ in sorted_topics)

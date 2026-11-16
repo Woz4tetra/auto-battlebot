@@ -1,5 +1,4 @@
 #!/bin/bash
-# Build, install, and restart the auto-battlebot systemd service (if present).
 
 set -e
 
@@ -9,9 +8,6 @@ SERVICE_NAME="auto-battlebot"
 JOURNALD_DIR="/etc/systemd/journald.conf.d"
 JOURNALD_FILE="${JOURNALD_DIR}/99-auto-battlebot-persistent.conf"
 
-# Before anything else: a box still on the old unit names (auto_battlebot.service,
-# auto-battlebot-dashboard-wifi.service, ...) has them renamed in place, so the old and new app
-# units never run side by side.
 "$PROJECT_ROOT/install/rename_legacy_services.sh"
 
 if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
@@ -21,13 +17,11 @@ fi
 
 "$PROJECT_ROOT/scripts/build_and_install.sh" "$@"
 
-# Resolve the real user even when the script is invoked with sudo.
 REAL_USER="${SUDO_USER:-$USER}"
 # The unit needs the numeric uid for XDG_RUNTIME_DIR. systemd's %U specifier resolves to 0 in a
 # system unit even with User= set, which sent dconf to /run/user/0 and broke the kiosk setup.
 REAL_UID="$(id -u "$REAL_USER")"
 
-# Same test as with_display.sh: a display manager is enabled and the box boots graphical.target.
 boots_a_desktop() {
     systemctl is-enabled display-manager.service >/dev/null 2>&1 &&
         [ "$(systemctl get-default 2>/dev/null || true)" = "graphical.target" ]
@@ -59,26 +53,17 @@ install_unit() {
     rm -f "$staged_file"
 }
 
-# The relay owns the Foxglove WebSocket server and restarts on its own; the app unit only
-# orders After= it and never waits on it.
 install_unit viz-relay
 install_unit "$SERVICE_NAME"
-# The dashboard on the box's own screen. Enabled only on a box that boots a desktop. A headless
-# box (the ZED Box) gets the unit file but not the enable; after adding a display there, run
-# `sudo systemctl set-default graphical.target` and `sudo systemctl enable --now dashboard-kiosk`.
 if boots_a_desktop; then
     install_unit dashboard-kiosk
 else
     install_unit dashboard-kiosk --no-enable
 fi
 
-# Persisted UI state (selected_profile, wifi_access). Created as the service user so it can
-# write there; the directory must exist before first boot to hand-write selected_profile when
-# the default profile's camera is absent and the UI never comes up.
 STATE_DIR="$(getent passwd "$REAL_USER" | cut -d: -f6)/.local/state/auto_battlebot"
 sudo -u "$REAL_USER" mkdir -p "$STATE_DIR"
 
-# Ensure journald keeps logs on disk so service logs survive reboot.
 if [ ! -f "$JOURNALD_FILE" ] || ! rg -q '^Storage=persistent$' "$JOURNALD_FILE"; then
     echo "Configuring persistent journald storage..."
     sudo mkdir -p "$JOURNALD_DIR"

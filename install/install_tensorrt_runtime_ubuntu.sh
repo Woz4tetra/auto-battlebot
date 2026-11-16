@@ -1,7 +1,4 @@
 #!/bin/bash
-# Step 0: Install TensorRT runtime (and dev headers) on Ubuntu 22.04 / 24.04.
-# Tries apt install first; if packages are missing, adds NVIDIA CUDA keyring and retries.
-# TensorRT is required for DeepLab and YOLO inference.
 
 set -e
 
@@ -18,7 +15,6 @@ install_tensorrt_runtime_ubuntu() {
         return 0
     fi
 
-    # Packages not in default repos; try adding NVIDIA CUDA keyring (may include TensorRT on some setups)
     local KEYRING_URL=""
     local KEYRING_DEB="/tmp/cuda-keyring.deb"
     if [ -f /etc/os-release ]; then

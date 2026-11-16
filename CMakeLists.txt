@@ -1,17 +1,13 @@
 cmake_minimum_required(VERSION 3.14)
 project(auto_battlebot)
 
-# Set C++ standard
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Generate compile_commands.json for IDE support
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Option to enable testing
 option(BUILD_TESTING "Build tests" OFF)
 
-# Option to enable debug build
 option(BUILD_DEBUG "Build with debug flags" OFF)
 
 if(BUILD_TESTING)
@@ -22,7 +18,6 @@ if(BUILD_DEBUG)
     message("Building with debug flags")
 endif()
 
-# Fetch external dependencies from git
 include(FetchContent)
 
 FetchContent_Declare(
@@ -30,7 +25,7 @@ FetchContent_Declare(
     GIT_REPOSITORY https://github.com/marzer/tomlplusplus.git
     GIT_TAG v3.4.0
     GIT_SHALLOW TRUE
-    UPDATE_DISCONNECTED TRUE # Don't try to update if already fetched
+    UPDATE_DISCONNECTED TRUE
 )
 
 FetchContent_Declare(
@@ -38,7 +33,7 @@ FetchContent_Declare(
     GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git
     GIT_TAG v2.4.1
     GIT_SHALLOW TRUE
-    UPDATE_DISCONNECTED TRUE # Don't try to update if already fetched
+    UPDATE_DISCONNECTED TRUE
 )
 
 FetchContent_Declare(
@@ -46,7 +41,7 @@ FetchContent_Declare(
     GIT_REPOSITORY https://github.com/Neargye/magic_enum.git
     GIT_TAG v0.9.6
     GIT_SHALLOW TRUE
-    UPDATE_DISCONNECTED TRUE # Don't try to update if already fetched
+    UPDATE_DISCONNECTED TRUE
 )
 
 # HTTP server for the web dashboard, linked to viz_relay only. Both are header-only; populating
@@ -69,8 +64,6 @@ FetchContent_Declare(
     SOURCE_SUBDIR asio/include
 )
 
-# MCAP reader. The Foxglove SDK writes but does not read, and VideoPlaybackCamera has to read
-# /camera/video back out of a recording.
 FetchContent_Declare(
     mcap
     GIT_REPOSITORY https://github.com/foxglove/mcap.git
@@ -102,18 +95,14 @@ FetchContent_Declare(
 )
 set(SPDLOG_BUILD_PIC ON CACHE BOOL "" FORCE)
 
-# Fetch googletest only if testing is enabled
 if(BUILD_TESTING)
     FetchContent_Declare(
         googletest
         GIT_REPOSITORY https://github.com/google/googletest.git
         GIT_TAG v1.14.0
         GIT_SHALLOW TRUE
-        UPDATE_DISCONNECTED TRUE # Don't try to update if already fetched
+        UPDATE_DISCONNECTED TRUE
     )
-
-    # For Windows: Prevent overriding the parent project's compiler/linker settings
-    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 
     FetchContent_MakeAvailable(tomlplusplus cli11 magic_enum spdlog nlohmann_json googletest)
 else()
@@ -132,15 +121,8 @@ pkg_check_modules(LZ4 REQUIRED IMPORTED_TARGET liblz4)
 pkg_check_modules(ZSTD REQUIRED IMPORTED_TARGET libzstd)
 target_link_libraries(mcap_reader PUBLIC PkgConfig::LZ4 PkgConfig::ZSTD)
 
-# Find required packages
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 find_package(Threads REQUIRED)
-# 4.10 asserted, not preferred: cv::aruco moved from contrib into core opencv_objdetect at 4.7
-# and the API changed with it, so FiducialFieldFilter needs 4.7+ everywhere or it needs version
-# guards it would never shed. apt ships 4.5.4 on jammy and 4.6.0 on noble, both too old;
-# install/install_opencv.sh builds 4.10.0 into /usr/local on every platform, which is what the
-# Jetson already ran. If this fails after that install, build/CMakeCache.txt still pins the old
-# OpenCV_DIR: run ./scripts/clean_build.sh.
 find_package(OpenCV 4.10 REQUIRED COMPONENTS core imgproc highgui dnn objdetect calib3d)
 find_package(Eigen3 REQUIRED)
 
@@ -167,24 +149,12 @@ target_compile_definitions(rtneural INTERFACE
     RTNEURAL_NAMESPACE=RTNeural
 )
 target_link_libraries(rtneural INTERFACE Eigen3::Eigen)
-# PCL is only reachable from PointCloudFieldFilter and data_structures/point_cloud.hpp. It stays
-# unconditional while FieldDescriptionWithInlierPoints carries a cloud; it goes when the depth
-# field filter does.
 find_package(PCL REQUIRED COMPONENTS common sample_consensus)
 
-# H.264 for /camera/video: encode on the RGB camera, decode on playback. FFmpeg covers h264_nvenc
-# on the desktop, libx264 as the x86 fallback, and the decoder everywhere.
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET libavcodec libavutil libswscale)
-# GStreamer reaches the Jetson's hardware encoder (nvv4l2h264enc), which stock L4T FFmpeg cannot:
-# its h264_nvenc needs libnvidia-encode, which no Jetson has. Optional, so the desktop builds
-# without the dev packages; a Jetson recording video needs it (install/jetson_packages.txt).
 pkg_check_modules(GST IMPORTED_TARGET gstreamer-1.0 gstreamer-app-1.0)
 
-# ZED SDK. The default follows whether the SDK is actually installed: on everywhere it is,
-# because every SVO in data/svo/, the keypoint corpora, and the eval ground truth are tied to
-# this path; off on the Jetson, which runs the RGB camera and has no SDK. Defaulting to ON
-# unconditionally aborted configure on the Jetson before the option could ever be read.
 find_package(ZED 5 QUIET)
 option(BUILD_WITH_ZED "Build the ZED camera and SVO playback backends" ${ZED_FOUND})
 if(BUILD_WITH_ZED AND NOT ZED_FOUND)
@@ -203,8 +173,6 @@ if(NOT CMAKE_CUDA_COMPILER)
     set(CMAKE_CUDA_COMPILER "${CUDA_TOOLKIT_ROOT_DIR}/bin/nvcc")
 endif()
 set(CMAKE_CUDA_RUNTIME_LIBRARY Static)
-# Set before enable_language, which otherwise probes a default that CUDA 13 no longer supports.
-# Orin is sm87; the dev laptop is sm89 and megamind's A6000s are sm86.
 if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
     if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
         set(CMAKE_CUDA_ARCHITECTURES 87)
@@ -216,7 +184,6 @@ enable_language(CUDA)
 set(CMAKE_CUDA_STANDARD 17)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
-# Mark SDK headers as system headers to suppress their warnings
 if(BUILD_WITH_ZED)
     include_directories(SYSTEM ${ZED_INCLUDE_DIRS})
 endif()
@@ -250,17 +217,13 @@ target_link_libraries(foxglove_sdk PUBLIC
     m
 )
 
-# Include directories
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
-# Note: tomlplusplus include directories are handled automatically by FetchContent
 
-# Link directories
 if(BUILD_WITH_ZED)
     link_directories(${ZED_LIBRARY_DIR})
 endif()
 link_directories(${CUDA_LIBRARY_DIRS})
 
-# Create shared library with core auto_battlebot functionality
 file(GLOB_RECURSE AUTO_BATTLEBOT_SOURCES CONFIGURE_DEPENDS
     "src/*.cpp"
     "src/**/*.cpp"
@@ -269,9 +232,6 @@ file(GLOB_RECURSE AUTO_BATTLEBOT_SOURCES CONFIGURE_DEPENDS
 )
 list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*main\\.cpp$")
 list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*/rgbd_camera/mcap_impl\\.cpp$")
-# The glob is recursive, so dropping the ZED backends means filtering them out here rather than
-# wrapping an explicit list. PointCloudFieldFilter goes with them: it needs a depth image, and
-# outside simulation the ZED is the only camera that produces one.
 if(NOT BUILD_WITH_ZED)
     list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*/rgbd_camera/zed_.*\\.cpp$")
     list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*/rgbd_camera/svo_recorder\\.cpp$")
@@ -289,7 +249,6 @@ find_library(L4T_NVJPEG_LIBRARY nvjpeg
     PATHS /usr/lib/aarch64-linux-gnu/nvidia /usr/lib/aarch64-linux-gnu/tegra NO_DEFAULT_PATH)
 find_library(L4T_NVBUFSURFACE_LIBRARY nvbufsurface
     PATHS /usr/lib/aarch64-linux-gnu/nvidia /usr/lib/aarch64-linux-gnu/tegra NO_DEFAULT_PATH)
-# The plugin is its own library, built below when HAVE_NVJPG.
 list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*/viz/nvjpg_plugin/.*")
 if(JETSON_MMAPI_INCLUDE_DIR AND L4T_NVJPEG_LIBRARY)
     set(HAVE_NVJPG ON)
@@ -334,7 +293,6 @@ if(HAVE_NVJPG)
     set_target_properties(auto_battlebot_nvjpg PROPERTIES
         CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
     target_include_directories(auto_battlebot_nvjpg PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
-    # NVIDIA's sample classes, not ours: system headers and no warnings.
     target_include_directories(auto_battlebot_nvjpg SYSTEM PRIVATE
         "${JETSON_MMAPI_INCLUDE_DIR}" "${JETSON_MMAPI_INCLUDE_DIR}/libjpeg-8b")
     set_source_files_properties(
@@ -353,9 +311,6 @@ if(HAVE_NVJPG)
         AUTO_BATTLEBOT_NVJPG_PLUGIN="$<TARGET_FILE_NAME:auto_battlebot_nvjpg>")
 endif()
 
-# Git version stamp, regenerated every build so the -dirty flag stays accurate.
-# Written next to the binary and read at startup (read_build_version in src/main.cpp), which
-# puts it on /status/app for the web System tab. A new commit never recompiles or relinks.
 add_custom_target(generate_git_version
     COMMAND ${CMAKE_COMMAND}
         -DGIT_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
@@ -364,19 +319,16 @@ add_custom_target(generate_git_version
     BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/git_version.txt
     COMMENT "Generating git version stamp"
 )
-# Set library properties
 set_target_properties(auto_battlebot_lib PROPERTIES
     OUTPUT_NAME auto_battlebot
     VERSION 1.0.0
     SOVERSION 1
 )
 
-# Include directories for the library
 target_include_directories(auto_battlebot_lib PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${ESPNOW_PROTOCOL_DIR}
 )
-# Link libraries to shared library
 target_link_libraries(auto_battlebot_lib PUBLIC
     foxglove_sdk
     tomlplusplus::tomlplusplus
@@ -395,7 +347,6 @@ target_link_libraries(auto_battlebot_lib PUBLIC
 )
 target_link_libraries(auto_battlebot_lib PRIVATE rtneural)
 
-# Common compiler flags
 set(COMMON_COMPILE_FLAGS
     -Wall
     -Wextra
@@ -425,7 +376,6 @@ set(CUDA_COMPILE_FLAGS
     --Werror=all-warnings
 )
 
-# Compiler flags for the library
 if(BUILD_DEBUG)
     target_compile_options(auto_battlebot_lib PRIVATE
         "$<$<COMPILE_LANGUAGE:CXX>:${COMMON_COMPILE_FLAGS};${DEBUG_COMPILE_FLAGS}>"
@@ -452,7 +402,6 @@ if(BUILD_DEBUG AND BUILD_WITH_ZED)
     )
 endif()
 
-# Create main executable
 add_executable(auto_battlebot
     src/main.cpp
 )
@@ -463,8 +412,6 @@ target_link_libraries(auto_battlebot
 )
 add_dependencies(auto_battlebot generate_git_version)
 
-# Foxglove relay: owns the WebSocket server so Foxglove stays connected across app restarts.
-# Links only the SDK and CLI11, never auto_battlebot_lib, so it starts without the ZED SDK.
 add_executable(viz_relay
     src/viz_relay/main.cpp
 )
@@ -481,15 +428,12 @@ target_link_libraries(viz_relay
     Threads::Threads
 )
 
-# Prints every remote status topic and command with its JSON Schema. web/scripts/gen-protocol.mjs
-# turns the output into web/src/generated/protocol.ts.
 add_executable(remote_protocol_dump
     tools/remote_protocol_dump.cpp
 )
 target_link_libraries(remote_protocol_dump auto_battlebot_lib)
 target_compile_options(remote_protocol_dump PRIVATE ${COMMON_COMPILE_FLAGS})
 
-# Compiler flags for executable
 if(BUILD_DEBUG)
     target_compile_options(auto_battlebot PRIVATE
         ${COMMON_COMPILE_FLAGS}
@@ -525,7 +469,6 @@ add_custom_target(copy_config_files ALL
 )
 add_dependencies(auto_battlebot copy_config_files)
 
-# Create symlink to data directory in build directory
 add_custom_command(TARGET auto_battlebot POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E create_symlink
     ${CMAKE_SOURCE_DIR}/data
@@ -533,13 +476,10 @@ add_custom_command(TARGET auto_battlebot POST_BUILD
     COMMENT "Creating symlink to data directory"
 )
 
-# So the installed executable finds libauto_battlebot.so in PREFIX/lib when run from PREFIX/bin
-# $ORIGIN = directory of the executable; escape $ so CMake passes it to the linker
 set(CMAKE_INSTALL_RPATH "\$ORIGIN/../lib;\$ORIGIN/../lib64")
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH FALSE)
 set_target_properties(auto_battlebot PROPERTIES INSTALL_RPATH "\$ORIGIN/../lib;\$ORIGIN/../lib64")
 
-# Install targets
 install(TARGETS auto_battlebot auto_battlebot_lib viz_relay
     RUNTIME DESTINATION bin
     LIBRARY DESTINATION lib
@@ -548,20 +488,14 @@ install(TARGETS auto_battlebot auto_battlebot_lib viz_relay
 if(HAVE_NVJPG)
     install(TARGETS auto_battlebot_nvjpg LIBRARY DESTINATION lib)
 endif()
-# The binary reads this at startup from its own directory (see read_build_version
-# in src/main.cpp), so it must land next to the installed executable.
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/git_version.txt DESTINATION bin)
-# Install config (used when running from system-wide install)
 install(DIRECTORY config/ DESTINATION share/auto_battlebot/config
     USE_SOURCE_PERMISSIONS
     FILES_MATCHING PATTERN "*.toml"
 )
 
-# The built web dashboard, next to viz_relay, which serves <exe_dir>/web. OPTIONAL: a machine
-# without Node still installs, and the relay answers 503 with a note.
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/web/dist/ DESTINATION bin/web OPTIONAL)
 
-# Conditionally enable testing
 if(BUILD_TESTING)
     enable_testing()
 
@@ -570,7 +504,6 @@ if(BUILD_TESTING)
         "tests/**/*.cpp"
     )
 
-    # Test executable for data structures
     add_executable(auto_battlebot_test
         ${AUTO_BATTLEBOT_TEST_SOURCES}
     )
@@ -580,8 +513,6 @@ if(BUILD_TESTING)
         auto_battlebot_lib
     )
 
-    # So shared test helpers can be included by module path, e.g.
-    # "engine_selector/make_test_selector.hpp".
     target_include_directories(auto_battlebot_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/tests
     )

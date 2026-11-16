@@ -1,8 +1,5 @@
 #!/bin/bash
 
-# Convenience script to activate the Python virtual environment
-# Usage: source ./activate.sh
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 VENV_DIR="$PROJECT_ROOT/venv"

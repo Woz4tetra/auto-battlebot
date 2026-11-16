@@ -1,30 +1,33 @@
 #!/bin/bash
-# lint: format the tree and run every lint / type check in one pass.
-#
-# This is the single entry point for formatting and static checks. It replaces
-# the former apply_formatting / check_cpp_format / check_cpp_lint /
-# check_python_lint scripts.
-#
-# Steps (in order):
-#   1. clang-format   C/C++ under src/ include/ tests/ firmware/  (apply, or --dry-run check)
-#   2. taplo          TOML under config/                  (apply, or --dry-run check)
-#   3. ruff format    Python under scripts/ etc.          (apply, or --dry-run check)
-#   4. ruff check     Python lint                         (report)
-#   5. protocol.ts    web/src/generated/protocol.ts from remote_protocol_dump (regenerate,
-#                     or --dry-run check; needs build/ and web/node_modules)
-#   6. prettier       web/src, firmware web pages         (apply, or --dry-run check)
-#   7. clang-tidy     C/C++ lint over src/  [cached]      (report; needs build/)
-#   8. mypy           Python type check (scope from mypy.ini)  [slow]
-#   9. svelte-check   web/ types  [slow]
-#
-# Options:
-#   --dry-run   Do not modify files: check formatting instead of applying it,
-#               so the run is a pure pass/fail gate (use in CI / hooks).
-#   --quick     Skip the slow checks (clang-tidy and mypy) for fast iteration.
-#   -h, --help  Show this help.
-#
-# Every step runs even if an earlier one fails; the script exits non-zero if any
-# check failed.
+
+usage() {
+    cat <<'EOF'
+lint: format the tree and run every lint / type check in one pass.
+
+This is the single entry point for formatting and static checks.
+
+Steps (in order):
+  1. clang-format   C/C++ under src/ include/ tests/ firmware/  (apply, or --dry-run check)
+  2. taplo          TOML under config/                  (apply, or --dry-run check)
+  3. ruff format    Python under scripts/ etc.          (apply, or --dry-run check)
+  4. ruff check     Python lint                         (report)
+  5. protocol.ts    web/src/generated/protocol.ts from remote_protocol_dump (regenerate,
+                    or --dry-run check; needs build/ and web/node_modules)
+  6. prettier       web/src, firmware web pages         (apply, or --dry-run check)
+  7. clang-tidy     C/C++ lint over src/  [cached]      (report; needs build/)
+  8. mypy           Python type check (scope from mypy.ini)  [slow]
+  9. svelte-check   web/ types  [slow]
+
+Options:
+  --dry-run   Do not modify files: check formatting instead of applying it,
+              so the run is a pure pass/fail gate (use in CI / hooks).
+  --quick     Skip the slow checks (clang-tidy and mypy) for fast iteration.
+  -h, --help  Show this help.
+
+Every step runs even if an earlier one fails; the script exits non-zero if any
+check failed.
+EOF
+}
 
 set -u
 
@@ -39,9 +42,7 @@ for arg in "$@"; do
         --dry-run) DRY_RUN=true ;;
         --quick) QUICK=true ;;
         -h | --help)
-            # Print only the leading comment block (skip shebang, stop at first
-            # non-comment line).
-            awk 'NR==1 {next} /^#/ {sub(/^# ?/, ""); print; next} {exit}' "$0"
+            usage
             exit 0
             ;;
         *)
@@ -62,7 +63,6 @@ NC='\033[0m'
 # real failure. Drop it to warnings unless the caller asked for more.
 export RUST_LOG="${RUST_LOG:-warn}"
 
-# Put the project venv on PATH so ruff / mypy resolve.
 VENV_BIN="$PROJECT_ROOT/venv/bin"
 if [ -d "$VENV_BIN" ]; then
     export PATH="$VENV_BIN:$PATH"
@@ -72,16 +72,12 @@ FAILED=()
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
-# ---- pinned LLVM tooling ----
-# clang-format's output is version-dependent (14 writes `override{}`, 18 writes
-# `override {}`), so an unpinned binary rewrites the tree differently on every
-# machine. Resolve the version in .llvm-version; install it with
-# install/install_llvm_toolchain.sh.
-LLVM_VERSION=$(tr -d '[:space:]' < "$PROJECT_ROOT/.llvm-version" 2>/dev/null || true)
+resolve_pinned_llvm() {
+    LLVM_VERSION=$(tr -d '[:space:]' < "$PROJECT_ROOT/.llvm-version" 2>/dev/null || true)
+}
+resolve_pinned_llvm
 
-# Echo the pinned binary for an LLVM tool: the versioned name if present, else
-# the unversioned one only when it already reports the pinned version.
-llvm_tool() {
+pinned_llvm_tool() {
     local name="$1"
     [ -n "$LLVM_VERSION" ] || return 1
     if have "$name-$LLVM_VERSION"; then
@@ -95,8 +91,8 @@ llvm_tool() {
     return 1
 }
 
-CLANG_FORMAT=$(llvm_tool clang-format || true)
-CLANG_TIDY=$(llvm_tool clang-tidy || true)
+CLANG_FORMAT=$(pinned_llvm_tool clang-format || true)
+CLANG_TIDY=$(pinned_llvm_tool clang-tidy || true)
 
 # run-clang-tidy is a driver script, not a compiler; it has no --version, so
 # take the versioned copy when it exists and pin the worker binary explicitly.
@@ -110,43 +106,33 @@ fi
 
 LLVM_HINT="run install/install_llvm_toolchain.sh"
 
-# ---- clang-tidy result cache (ctcache) ----
-# clang-tidy re-parses every translation unit from scratch, so a full pass over
-# src/ costs ~48s. ctcache keys on a hash of the preprocessed TU and replays the
-# stored diagnostics on a hit, which brings an unchanged run down to ~11s. The
-# hash is taken after preprocessing, so comment- and whitespace-only edits stay
-# cache hits.
-#
-# Upstream's wrapper takes the real binary from CTCACHE_CLANG_TIDY, which is how
-# the pinned clang-tidy still gets used. Install it with
-# install/install_clang_tidy_cache.sh; without it lint still runs, just uncached.
-CTCACHE_WRAPPER="$HOME/.local/share/ctcache/clang-tidy"
-if [ -n "$CLANG_TIDY" ] && [ -x "$CTCACHE_WRAPPER" ]; then
-    # The wrapper execs this path directly and defaults to /usr/bin/clang-tidy,
-    # so it needs the resolved binary, not the bare name.
-    export CTCACHE_CLANG_TIDY="$(command -v "$CLANG_TIDY")"
-    # Cache translation units that emit warnings too, and store their output for
-    # replay. Without this only clean TUs are cached, so anything currently
-    # warning is re-analysed on every run.
-    export CTCACHE_SAVE_OUTPUT=1
-    # Default is /tmp/ctcache-$USER, which a reboot wipes.
-    export CTCACHE_DIR="${CTCACHE_DIR:-$HOME/.cache/ctcache}"
-    TIDY_BINARY="$CTCACHE_WRAPPER"
-else
-    TIDY_BINARY="$CLANG_TIDY"
-fi
+configure_ctcache() {
+    CTCACHE_WRAPPER="$HOME/.local/share/ctcache/clang-tidy"
+    if [ -n "$CLANG_TIDY" ] && [ -x "$CTCACHE_WRAPPER" ]; then
+        # The wrapper execs this path directly and defaults to /usr/bin/clang-tidy,
+        # so it needs the resolved binary, not the bare name.
+        export CTCACHE_CLANG_TIDY="$(command -v "$CLANG_TIDY")"
+        export CTCACHE_SAVE_OUTPUT=1
+        export CTCACHE_DIR="${CTCACHE_DIR:-$HOME/.cache/ctcache}"
+        TIDY_BINARY="$CTCACHE_WRAPPER"
+    else
+        TIDY_BINARY="$CLANG_TIDY"
+    fi
+}
+configure_ctcache
 
-# mode-label: "check" under --dry-run, else "apply", for formatter headers.
-mode_label() { [ "$DRY_RUN" = true ] && echo "check" || echo "apply"; }
+FORMATTER_MODE=apply
+[ "$DRY_RUN" = true ] && FORMATTER_MODE=check
 
 header() { echo -e "${YELLOW}==> $1${NC}"; }
 
-record() { # $1 label, $2 exit-code
-    if [ "$2" -eq 0 ]; then
-        echo -e "${GREEN}    ✓ $1${NC}"
+record() {
+    local label=$1 exit_code=$2
+    if [ "$exit_code" -eq 0 ]; then
+        echo -e "${GREEN}    ✓ $label${NC}"
     else
-        echo -e "${RED}    ✗ $1${NC}"
-        FAILED+=("$1")
+        echo -e "${RED}    ✗ $label${NC}"
+        FAILED+=("$label")
     fi
 }
 
@@ -154,8 +140,6 @@ missing() { echo -e "${DIM}    - $1 (skipped: $2 not found)${NC}"; }
 
 skipped_quick() { echo -e "${DIM}    - $1 (skipped: --quick)${NC}"; }
 
-# Null-delimited list of C/C++ sources. firmware/ skips PlatformIO's .pio (downloaded libraries
-# and build output) and BlHeli-Passthrough, a vendored upstream library kept diffable against it.
 cpp_files() {
     find "$PROJECT_ROOT/src" "$PROJECT_ROOT/include" "$PROJECT_ROOT/tests" \
         \( -name '*.cpp' -o -name '*.hpp' -o -name '*.h' -o -name '*.c' -o -name '*.cu' \) -print0
@@ -164,16 +148,11 @@ cpp_files() {
         \( -name '*.cpp' -o -name '*.hpp' -o -name '*.h' -o -name '*.c' \) -print0
 }
 
-# The firmware's own web pages, served from the microcontrollers. Formatted with web/'s prettier
-# config. Generated files (esc_layout.json) are left alone.
 FIRMWARE_WEB_GLOBS=(
     "../firmware/mr_stabs_mk2/web/*.{js,mjs,css,html}"
     "../firmware/espnow_dongle/scripts/espnow_diag_web/*.{js,css,html}"
 )
 
-# Python dirs for ruff format / ruff check (mypy uses mypy.ini scope instead).
-# auto_battlebot/ and playground/ are installed packages; playground is linted and
-# formatted here but excluded from mypy (see pyproject.toml and mypy.ini).
 PY_FMT_DIRS=(
     "$PROJECT_ROOT/auto_battlebot"
     "$PROJECT_ROOT/playground"
@@ -183,67 +162,74 @@ PY_FMT_DIRS=(
     "$PROJECT_ROOT/firmware"
 )
 
-# ---- 1. clang-format ----
-header "clang-format ($(mode_label))"
-if [ -n "$CLANG_FORMAT" ]; then
-    if [ "$DRY_RUN" = true ]; then
-        cpp_files | xargs -0 -r "$CLANG_FORMAT" --dry-run --Werror
+run_clang_format() {
+    header "clang-format ($FORMATTER_MODE)"
+    if [ -n "$CLANG_FORMAT" ]; then
+        if [ "$DRY_RUN" = true ]; then
+            cpp_files | xargs -0 -r "$CLANG_FORMAT" --dry-run --Werror
+        else
+            cpp_files | xargs -0 -r "$CLANG_FORMAT" -i
+        fi
+        record "clang-format" $?
     else
-        cpp_files | xargs -0 -r "$CLANG_FORMAT" -i
+        missing "clang-format" "clang-format-$LLVM_VERSION ($LLVM_HINT)"
     fi
-    record "clang-format" $?
-else
-    missing "clang-format" "clang-format-$LLVM_VERSION ($LLVM_HINT)"
-fi
+}
+run_clang_format
 
-# ---- 2. taplo (TOML) ----
-header "taplo ($(mode_label))"
-if have taplo; then
-    if [ "$DRY_RUN" = true ]; then
-        find "$PROJECT_ROOT/config" -name '*.toml' -print0 | xargs -0 -r taplo format --check
+run_taplo() {
+    header "taplo ($FORMATTER_MODE)"
+    if have taplo; then
+        if [ "$DRY_RUN" = true ]; then
+            find "$PROJECT_ROOT/config" -name '*.toml' -print0 | xargs -0 -r taplo format --check
+        else
+            find "$PROJECT_ROOT/config" -name '*.toml' -print0 | xargs -0 -r taplo format
+        fi
+        record "taplo" $?
     else
-        find "$PROJECT_ROOT/config" -name '*.toml' -print0 | xargs -0 -r taplo format
+        missing "taplo" "taplo"
     fi
-    record "taplo" $?
-else
-    missing "taplo" "taplo"
-fi
+}
+run_taplo
 
-# ---- 3. ruff format ----
-# ruff excludes venv/.venv by default, so passing directories is safe.
-header "ruff format ($(mode_label))"
-if have ruff; then
-    if [ "$DRY_RUN" = true ]; then
-        ruff format --check "${PY_FMT_DIRS[@]}"
+run_ruff_format() {
+    header "ruff format ($FORMATTER_MODE)"
+    if have ruff; then
+        if [ "$DRY_RUN" = true ]; then
+            ruff format --check "${PY_FMT_DIRS[@]}"
+        else
+            ruff format "${PY_FMT_DIRS[@]}"
+        fi
+        record "ruff format" $?
     else
-        ruff format "${PY_FMT_DIRS[@]}"
+        missing "ruff format" "ruff"
     fi
-    record "ruff format" $?
-else
-    missing "ruff format" "ruff"
-fi
+}
+run_ruff_format
 
-# ---- 4. ruff check (Python lint) ----
-header "ruff check"
-if have ruff; then
-    ruff check "${PY_FMT_DIRS[@]}"
-    record "ruff check" $?
-else
-    missing "ruff check" "ruff"
-fi
+run_ruff_check() {
+    header "ruff check"
+    if have ruff; then
+        ruff check "${PY_FMT_DIRS[@]}"
+        record "ruff check" $?
+    else
+        missing "ruff check" "ruff"
+    fi
+}
+run_ruff_check
 
 # ---- 5. install scripts (shell option leaks) ----
 # Install helpers are sourced into one shell, so a `set -o pipefail` or `trap` inside a helper
 # silently changes every step after it. That is how a pipefail leaked from install_opencv
 # killed the Jetson venv step with no message. install/fail_loudly.sh owns the traps and
-# options; helpers may repeat `set -e`, and a subshell-bodied function may mark its own
-# `set` line `# subshell-scoped`.
+# options; helpers may repeat `set -e`, and install_opencv.sh has a subshell body, so its
+# options stay local.
 header "install scripts"
 install_leaks=$(grep -nE '^[[:space:]]*(set[[:space:]]+[-+]|trap[[:space:]])' \
     "$PROJECT_ROOT"/install/*.sh "$PROJECT_ROOT"/scripts/install_*.sh |
     grep -v '/install/fail_loudly.sh:' |
     grep -vE ':[0-9]+:[[:space:]]*set -e[[:space:]]*(#.*)?$' |
-    grep -v '# subshell-scoped')
+    grep -v '/install/install_opencv.sh:')
 if [ -n "$install_leaks" ]; then
     echo "$install_leaks"
     echo "Move the option or trap into install/fail_loudly.sh, or scope it in a subshell."
@@ -263,103 +249,105 @@ if [ $comment_rc -eq 0 ] && [ "$DRY_RUN" = false ]; then
 fi
 record "comment budget" $comment_rc
 
-# ---- 6. protocol.ts (web types generated from include/remote/protocol.hpp) ----
 WEB_DIR="$PROJECT_ROOT/web"
 PROTOCOL_TS="$WEB_DIR/src/generated/protocol.ts"
 PROTOCOL_DUMP="$BUILD_DIR/remote_protocol_dump"
 have_web() { have node && [ -d "$WEB_DIR/node_modules" ]; }
-header "protocol.ts ($(mode_label))"
-if ! have_web; then
-    missing "protocol.ts" "web/node_modules (run scripts/build_web.sh)"
-elif [ ! -x "$PROTOCOL_DUMP" ]; then
-    echo -e "${RED}    ✗ protocol.ts (no build/remote_protocol_dump; run scripts/build.sh)${NC}"
-    FAILED+=("protocol.ts")
-else
-    DUMP_JSON=$(mktemp)
-    "$PROTOCOL_DUMP" >"$DUMP_JSON"
-    if [ "$DRY_RUN" = true ]; then
-        BEFORE=$(mktemp)
-        cp "$PROTOCOL_TS" "$BEFORE" 2>/dev/null || : >"$BEFORE"
-        (cd "$WEB_DIR" && node scripts/gen-protocol.mjs "$DUMP_JSON" >/dev/null)
-        cmp -s "$BEFORE" "$PROTOCOL_TS"
-        rc=$?
-        cp "$BEFORE" "$PROTOCOL_TS"
-        rm -f "$BEFORE"
-        [ $rc -ne 0 ] && echo "    protocol.ts is stale; run scripts/lint to regenerate it"
-        record "protocol.ts" $rc
+run_protocol_codegen_check() {
+    header "protocol.ts ($FORMATTER_MODE)"
+    if ! have_web; then
+        missing "protocol.ts" "web/node_modules (run scripts/build_web.sh)"
+    elif [ ! -x "$PROTOCOL_DUMP" ]; then
+        echo -e "${RED}    ✗ protocol.ts (no build/remote_protocol_dump; run scripts/build.sh)${NC}"
+        FAILED+=("protocol.ts")
     else
-        (cd "$WEB_DIR" && node scripts/gen-protocol.mjs "$DUMP_JSON" >/dev/null)
-        record "protocol.ts" $?
+        DUMP_JSON=$(mktemp)
+        "$PROTOCOL_DUMP" >"$DUMP_JSON"
+        if [ "$DRY_RUN" = true ]; then
+            BEFORE=$(mktemp)
+            cp "$PROTOCOL_TS" "$BEFORE" 2>/dev/null || : >"$BEFORE"
+            (cd "$WEB_DIR" && node scripts/gen-protocol.mjs "$DUMP_JSON" >/dev/null)
+            cmp -s "$BEFORE" "$PROTOCOL_TS"
+            rc=$?
+            cp "$BEFORE" "$PROTOCOL_TS"
+            rm -f "$BEFORE"
+            [ $rc -ne 0 ] && echo "    protocol.ts is stale; run scripts/lint to regenerate it"
+            record "protocol.ts" $rc
+        else
+            (cd "$WEB_DIR" && node scripts/gen-protocol.mjs "$DUMP_JSON" >/dev/null)
+            record "protocol.ts" $?
+        fi
+        rm -f "$DUMP_JSON"
     fi
-    rm -f "$DUMP_JSON"
-fi
+}
+run_protocol_codegen_check
 
-# ---- 7. prettier (web/src) ----
-header "prettier ($(mode_label))"
-if have_web; then
-    if [ "$DRY_RUN" = true ]; then
-        (cd "$WEB_DIR" && npx --no-install prettier --check --config .prettierrc src \
-            "${FIRMWARE_WEB_GLOBS[@]}")
+run_prettier() {
+    header "prettier ($FORMATTER_MODE)"
+    if have_web; then
+        if [ "$DRY_RUN" = true ]; then
+            (cd "$WEB_DIR" && npx --no-install prettier --check --config .prettierrc src \
+                "${FIRMWARE_WEB_GLOBS[@]}")
+        else
+            (cd "$WEB_DIR" && npx --no-install prettier --write --log-level warn --config .prettierrc \
+                src "${FIRMWARE_WEB_GLOBS[@]}")
+        fi
+        record "prettier" $?
     else
-        (cd "$WEB_DIR" && npx --no-install prettier --write --log-level warn --config .prettierrc \
-            src "${FIRMWARE_WEB_GLOBS[@]}")
+        missing "prettier" "web/node_modules (run scripts/build_web.sh)"
     fi
-    record "prettier" $?
-else
-    missing "prettier" "web/node_modules (run scripts/build_web.sh)"
-fi
+}
+run_prettier
 
-# ---- 8. clang-tidy (C/C++ lint) — slow when the ctcache entries are cold ----
-header "clang-tidy"
-if [ "$QUICK" = true ]; then
-    skipped_quick "clang-tidy"
-elif [ -z "$RUN_CLANG_TIDY" ] || [ -z "$CLANG_TIDY" ]; then
-    missing "clang-tidy" "clang-tidy-$LLVM_VERSION ($LLVM_HINT)"
-elif [ ! -f "$BUILD_DIR/compile_commands.json" ]; then
-    echo -e "${RED}    ✗ clang-tidy (no build/compile_commands.json — run scripts/build.sh)${NC}"
-    FAILED+=("clang-tidy")
-else
-    # The source list comes from CONFIGURE_DEPENDS globs, which only re-run on a
-    # build, so a renamed .cpp leaves compile_commands.json pointing at a file
-    # that no longer exists and clang-tidy fails on it. Reconfiguring takes
-    # ~0.6s, keeps the cached options, and rebuilds nothing.
-    if ! cmake -S "$PROJECT_ROOT" -B "$BUILD_DIR" >/dev/null; then
-        echo -e "${RED}    ✗ cmake reconfigure of build/ failed${NC}"
+run_clang_tidy() {
+    header "clang-tidy"
+    if [ "$QUICK" = true ]; then
+        skipped_quick "clang-tidy"
+    elif [ -z "$RUN_CLANG_TIDY" ] || [ -z "$CLANG_TIDY" ]; then
+        missing "clang-tidy" "clang-tidy-$LLVM_VERSION ($LLVM_HINT)"
+    elif [ ! -f "$BUILD_DIR/compile_commands.json" ]; then
+        echo -e "${RED}    ✗ clang-tidy (no build/compile_commands.json — run scripts/build.sh)${NC}"
+        FAILED+=("clang-tidy")
+    else
+        # The source list comes from CONFIGURE_DEPENDS globs, which only re-run on a
+        # build, so a renamed .cpp leaves compile_commands.json pointing at a file
+        # that no longer exists and clang-tidy fails on it. Reconfiguring takes
+        # ~0.6s, keeps the cached options, and rebuilds nothing.
+        if ! cmake -S "$PROJECT_ROOT" -B "$BUILD_DIR" >/dev/null; then
+            echo -e "${RED}    ✗ cmake reconfigure of build/ failed${NC}"
+        fi
+        "$RUN_CLANG_TIDY" -p "$BUILD_DIR" -clang-tidy-binary "$TIDY_BINARY" \
+            -warnings-as-errors='*' "^${PROJECT_ROOT}/src/.*\.cpp$"
+        record "clang-tidy" $?
     fi
-    # clang-tidy exits 0 when it only reports warnings, so without
-    # -warnings-as-errors the step prints diagnostics and still scores a pass.
-    # Promoting every check to an error makes run-clang-tidy exit non-zero on
-    # any reported problem. The flag is part of the ctcache digest, so changing
-    # it costs one cold pass and then caches as before.
-    "$RUN_CLANG_TIDY" -p "$BUILD_DIR" -clang-tidy-binary "$TIDY_BINARY" \
-        -warnings-as-errors='*' "^${PROJECT_ROOT}/src/.*\.cpp$"
-    record "clang-tidy" $?
-fi
+}
+run_clang_tidy
 
-# ---- 9. mypy (Python types) — slow ----
-# Run bare from the project root so mypy.ini drives the scope (files= and
-# mypy_path). Passing directories here would override that config and break
-# local-module resolution.
-header "mypy"
-if [ "$QUICK" = true ]; then
-    skipped_quick "mypy"
-elif have mypy; then
-    (cd "$PROJECT_ROOT" && mypy)
-    record "mypy" $?
-else
-    missing "mypy" "mypy"
-fi
+run_mypy() {
+    header "mypy"
+    if [ "$QUICK" = true ]; then
+        skipped_quick "mypy"
+    elif have mypy; then
+        (cd "$PROJECT_ROOT" && mypy)
+        record "mypy" $?
+    else
+        missing "mypy" "mypy"
+    fi
+}
+run_mypy
 
-# ---- 10. svelte-check (web types), slow ----
-header "svelte-check"
-if [ "$QUICK" = true ]; then
-    skipped_quick "svelte-check"
-elif have_web; then
-    (cd "$WEB_DIR" && npx --no-install svelte-check --tsconfig ./tsconfig.json --fail-on-warnings)
-    record "svelte-check" $?
-else
-    missing "svelte-check" "web/node_modules (run scripts/build_web.sh)"
-fi
+run_svelte_check() {
+    header "svelte-check"
+    if [ "$QUICK" = true ]; then
+        skipped_quick "svelte-check"
+    elif have_web; then
+        (cd "$WEB_DIR" && npx --no-install svelte-check --tsconfig ./tsconfig.json --fail-on-warnings)
+        record "svelte-check" $?
+    else
+        missing "svelte-check" "web/node_modules (run scripts/build_web.sh)"
+    fi
+}
+run_svelte_check
 
 echo "========================================"
 if [ ${#FAILED[@]} -eq 0 ]; then

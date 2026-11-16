@@ -1,5 +1,3 @@
-// Page-level UI state: theme, layout width, and the selected tab.
-
 const THEME_KEY = "theme";
 const WIDE_QUERY = "(min-width: 1000px)";
 
@@ -18,9 +16,7 @@ class UiStore {
   dark = $state(false);
   wide = $state(false);
   tab = $state<Tab>("main");
-  /** Diagnostics module shown in the detail pane. */
   selectedModule = $state<string | null>(null);
-  /** Narrow layout only: which view the camera slot shows. */
   view = $state<"camera" | "topdown">("camera");
 
   start(): void {
@@ -40,9 +36,7 @@ class UiStore {
   setDark(dark: boolean): void {
     try {
       localStorage.setItem(THEME_KEY, dark ? "dark" : "light");
-    } catch {
-      // Private mode or blocked storage: the choice lasts for this page load only.
-    }
+    } catch {}
     this.#applyTheme(dark);
   }
 

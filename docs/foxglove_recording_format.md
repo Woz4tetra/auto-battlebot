@@ -991,3 +991,58 @@ Usage:
 
 - `GT_POSE_SIZE`: Ground truth poses appended after depth buffer: uint32 num_robots, then num_robots * (x, y, yaw) as float64. First entry = our robot, rest = opponents in config order. x, y, yaw per robot (3 x float64 = 24 bytes)
 - `MEAS_HEADER_SIZE`: After the ground truth: what perception delivered this tick, from the sensing model (auto_battlebot/perception/sensing_model.py). One header, then one pose per ground-truth slot in the same order. Flags travel as 0.0 / 1.0 so the block stays all float64 like the rest. delivered, capture_time (sim seconds)
+
+## Tooling notes
+
+### MCAP reader
+
+`CMakeLists.txt` fetches mcap because the Foxglove SDK writes MCAP but does not read it, and `VideoPlaybackCamera` has to read `/camera/video` back out of a recording.
+
+### Relay design
+
+`viz_relay` owns the Foxglove WebSocket server (`ws://0.0.0.0:8765`) and stays up across app restarts, so Foxglove keeps its connection while `auto_battlebot` restarts. The app never waits on the relay: with no relay it still drives and records, and it reconnects on its own. The relay links only the Foxglove SDK and CLI11, never `auto_battlebot_lib`, so it starts without the ZED SDK.
+
+`scripts/run_viz_relay.sh` starts `viz_relay` in the background if none is serving the default socket. It forwards its arguments to `viz_relay` (for example `--port 8766`). Set `AUTO_BATTLEBOT_BUILD_DIR` to pick a build tree other than `build/`.
+
+The relay unit owns the WebSocket server and restarts on its own. The app unit only orders `After=` it and never waits on it.
+
+### Diagnostics stage names
+
+The diagnostics backend sets `name = hardware_id` when a message has no subsection. `scripts/mcap_latency_report.py` builds stage names as `hw_id` in that case, and `hw_id.name` otherwise, to avoid `x.x` stages.
+
+### Browser decode of `/camera/video` and images
+
+`web/src/lib/image.ts` decodes `foxglove.CompressedImage` and `foxglove.CompressedVideo`. The relay advertises protobuf channels with a base64 `FileDescriptorSet` as the schema. The page builds the message type from that at runtime, the same way Foxglove Studio does, so it never ships its own copy of the `.proto` files.
+
+### Autonomy seconds
+
+`/status/system` publishes at 10 Hz, so `scripts/download_recordings.sh` computes autonomous seconds as messages with `autonomy_switch_on` divided by 10.
+
+### `scripts/combine_mcap_svo.py`
+
+Combines an MCAP recording with the SVO2 files it references (in `/log` or `/camera/frame_meta`). For each SVO2 it writes `<input_mcap_stem>__<svo_stem>.mcap` with one cropped left-eye image per SVO frame, decoded out of the `.svo2` (itself an MCAP container of H.264 frames), plus the slice of the original MCAP messages whose `log_time` falls inside that SVO's range (intersect mode). It needs `ffmpeg` on `PATH` and the Python `mcap` package. It uses neither the ZED SDK nor `pyzed`.
+
+- The SVO stores a horizontally concatenated `[left | right]` H.264 frame. The script decodes it, crops to the left half, and publishes it as `foxglove.CompressedImage` on `/camera/image`, stamped with the frame's own time.
+- An input that does not read cleanly is repaired first: every record that still parses is copied into `<output dir>/recovered/<same name>`, and the run continues from that copy. This covers the input MCAP and the `.svo2` files it references, which are MCAPs too, so a killed recorder or a Jetson that lost power, which tears off the recording and the SVO it was filling at the same moment, still yields everything written before the tear.
+- Damage detection runs two checks because they fail on different damage. The summary lookup needs the footer at the end of the file, which a recording that never finalized does not have. The record scan reads the body from the front and stops wherever the bytes stop making sense, which catches a torn final chunk and mid-file corruption that an intact footer would hide. The scan costs 0.06 s for a 36 MB recording.
+- The recovered copy keeps the source name, so every output named after the file, combined MCAPs and the `svo_file` field on `/camera/svo_frame` alike, comes out the same as for an undamaged input.
+- The SVO's IMU data is dropped. It lives on the `sensors` and `integrated_sensors` topics as an opaque base64 blob that only the SDK decodes, and nothing downstream of the combined MCAPs reads it: the model_eval and model_compare tools use `/camera/image` and `/camera/camera_info` only. Use `ZED_SVO_Editor -export-to-mcap` if you need those channels.
+- `/camera/svo_frame` carries one message per frame, alongside the image it describes, saying where that image came from. It is the export-side companion to `/camera/frame_meta`, which the pipeline writes with the SVO frame index straight from the SDK. See `docs/experiments/2026-08-28_svo_pipeline_stamp_offset.md` for when stamps alone identify a frame.
+- The log_time to header.stamp mapping corrects the roughly 50 ms lag between capture and the recorder write in the C++ publisher. The original MCAP's log_times are wall-clock-stamped, and the SVO MCAP uses the camera-frame-stamped timeline.
+
+### `scripts/convert_ros1_mcap.py`
+
+Converts a legacy ROS 1 recording into this layout. It never writes in place and never deletes anything. With a directory pair, every `*.mcap` under the input tree is converted to the mirrored path under the output tree. Existing outputs are skipped unless `--overwrite` is given. Files that are not `profile: ros1` are reported and skipped.
+
+Payload bytes that are already the right thing (JPEGs, the detections JSON) pass through untouched. `log_time` and `publish_time` are preserved, and the `auto_battlebot` metadata record (with `active_profile`) is copied. Four topics change shape, as the C++ stack's own output did:
+
+- `/field_markers` splits into the border `SceneUpdate` and a `/field_points` float32 `PointCloud`. Every coordinate is asserted to round-trip through float32 unchanged.
+- `/diagnostics` splits into one JSON channel per module with typed values, using the same string-to-number rule `diag_io` applied to legacy recordings.
+- `/camera/frame_meta` re-emits `image_stamp_ns` as a decimal string (asserted equal).
+- `/blob_detections` and `/keypoint_detections` lose the `std_msgs/String` wrapper.
+
+`--check` re-reads input and output and compares per-topic message counts (accounting for the splits) and first and last log times.
+
+Chunk compression is copied from the source: the C++ recorder writes none, the JPEG-heavy Python-written captures use zstd chunks, and rewriting those uncompressed would grow them. Channels that are already Foxglove-readable pass through unchanged, because the calibration recordings mix JSON channels with ROS 1 images.
+
+The ROS 1 wire format is little-endian. A header is `uint32 seq`, `uint32 stamp_secs`, `uint32 stamp_nsecs`, `string frame_id`. A string is `uint32 length` plus raw bytes, with no null terminator. This script is the only consumer left of the pre-migration format. The readers in `auto_battlebot` refuse legacy input.

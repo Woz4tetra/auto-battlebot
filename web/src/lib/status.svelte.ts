@@ -1,5 +1,3 @@
-// Reactive state for every status topic, the connection, and the relay's /healthz.
-
 import { connection, type CommandAck, type ConnectionState } from "./connection";
 import type {
   AppStatus,
@@ -13,9 +11,9 @@ import type {
   TracksStatus,
 } from "../generated/protocol";
 
-/** The app counts as down after this long without /status/system. */
-export const APP_TIMEOUT_MS = 2000;
+export const APP_DOWN_AFTER_MS = 2000;
 const HEALTH_PERIOD_MS = 5000;
+const NEW_FILE_JUMP_MS = 1000;
 
 export type LinkKind = "cable" | "wifi" | "local";
 
@@ -31,22 +29,17 @@ class StatusStore {
   sticks = $state.raw<SticksStatus | null>(null);
   tracks = $state.raw<TracksStatus | null>(null);
   network = $state.raw<NetworkStatus | null>(null);
-  /** Null on a box with no [battery] source: the app never publishes it there. */
   battery = $state.raw<BatteryStatus | null>(null);
   camera = $state.raw<CameraSettingsStatus | null>(null);
   health = $state.raw<Health | null>(null);
-  /** Last ack that carried a message, shown as a notice. */
   notice = $state.raw<{ text: string; ok: boolean; at: number } | null>(null);
 
   systemAt = $state(0);
-  /** Wall clock in ms, ticking twice a second, for "time since" displays. */
-  now = $state(Date.now());
-  /** When recording was first seen on: the header timer's fallback while only the camera records. */
+  nowMs = $state(Date.now());
   recordingSince = $state<number | null>(null);
-  /** Local time the current MCAP file started, from the app's mcap_file_s. */
   mcapFileSince = $state<number | null>(null);
 
-  appUp = $derived(this.connection === "open" && this.now - this.systemAt < APP_TIMEOUT_MS);
+  appUp = $derived(this.connection === "open" && this.nowMs - this.systemAt < APP_DOWN_AFTER_MS);
   recording = $derived(
     !!this.system && (this.system.camera_recording || this.system.mcap_recording),
   );
@@ -64,12 +57,11 @@ class StatusStore {
       const recording = m.camera_recording || m.mcap_recording;
       if (recording && this.recordingSince === null) this.recordingSince = Date.now();
       if (!recording) this.recordingSince = null;
-      // Latency jitter moves this by a few ms each message; only a new file moves it by more.
       const since = m.mcap_file_s == null ? null : Date.now() - m.mcap_file_s * 1000;
       if (
         since === null ||
         this.mcapFileSince === null ||
-        Math.abs(since - this.mcapFileSince) > 1000
+        Math.abs(since - this.mcapFileSince) > NEW_FILE_JUMP_MS
       ) {
         this.mcapFileSince = since;
       }
@@ -84,12 +76,11 @@ class StatusStore {
     connection.subscribe("/status/camera_settings", (m) => (this.camera = m));
     connection.start();
 
-    setInterval(() => (this.now = Date.now()), 500);
+    setInterval(() => (this.nowMs = Date.now()), 500);
     void this.#pollHealth();
     setInterval(() => void this.#pollHealth(), HEALTH_PERIOD_MS);
   }
 
-  /** Sends a command and records the ack message (or the failure) as the notice. */
   async command<T extends CommandTopic>(
     topic: T,
     payload: CommandPayloads[T],

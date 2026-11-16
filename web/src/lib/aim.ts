@@ -1,15 +1,10 @@
-// Tap or drag on a view to place the held target while auto tracking is off. Shared by the camera
-// view (image fractions) and the top-down view (field meters); the app projects an image point
-// onto the floor itself.
 import type { SetManualTargetCommand } from "../generated/protocol";
 import { status } from "./status.svelte";
 
-/** A drag sends at most this often; the lift always sends, so the target ends under the finger. */
-const SEND_INTERVAL_MS = 100;
+const DRAG_SEND_INTERVAL_MS = 100;
 
 export interface AimParams {
   enabled: boolean;
-  /** The target for a pointer position, or null when it is outside the drawn view. */
   point: (e: PointerEvent) => SetManualTargetCommand | null;
 }
 
@@ -30,7 +25,7 @@ export function aimDrag(node: HTMLElement | SVGElement, params: AimParams) {
     pending = null;
   };
   const throttled = (target: SetManualTargetCommand) => {
-    const wait = SEND_INTERVAL_MS - (Date.now() - lastSent);
+    const wait = DRAG_SEND_INTERVAL_MS - (Date.now() - lastSent);
     if (wait <= 0 && !timer) {
       send(target);
       return;

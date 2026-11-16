@@ -8,13 +8,7 @@
 # - Disables ModemManager probing of the transmitter (prevents CRSF frame corruption)
 # - Ensures the cdc_acm kernel module loads on boot
 
-install_udev_rules() {
-    local RULES_FILE="/etc/udev/rules.d/99-auto-battlebot.rules"
-    local MODULES_FILE="/etc/modules-load.d/cdc_acm.conf"
-
-    # -------------------------------------------------------------------------
-    # 1. dialout group membership
-    # -------------------------------------------------------------------------
+add_user_to_dialout() {
     if groups "$USER" | grep -qw dialout; then
         echo "User '$USER' is already in the dialout group"
     else
@@ -22,10 +16,9 @@ install_udev_rules() {
         sudo usermod -aG dialout "$USER"
         echo "  -> You must log out and back in (or reboot) for this to take effect"
     fi
+}
 
-    # -------------------------------------------------------------------------
-    # 2. udev rules
-    # -------------------------------------------------------------------------
+write_udev_rules() {
     echo "Writing udev rules to $RULES_FILE..."
     sudo tee "$RULES_FILE" > /dev/null <<'EOF'
 # auto-battlebot USB serial device rules
@@ -65,35 +58,18 @@ SUBSYSTEM=="tty", ATTRS{idVendor}=="303a", ATTRS{idProduct}=="1001", \
 SUBSYSTEM=="tty", KERNEL=="ttyACM[0-9]*", GROUP="dialout", MODE="0660"
 SUBSYSTEM=="tty", KERNEL=="ttyUSB[0-9]*", GROUP="dialout", MODE="0660"
 EOF
+}
 
-    # -------------------------------------------------------------------------
-    # 3. Ensure cdc_acm module loads on boot
-    # -------------------------------------------------------------------------
+enable_cdc_acm_on_boot() {
     if [ -f "$MODULES_FILE" ] && grep -q "^cdc_acm" "$MODULES_FILE"; then
         echo "cdc_acm already listed in $MODULES_FILE"
     else
         echo "Enabling cdc_acm module on boot ($MODULES_FILE)..."
         echo "cdc_acm" | sudo tee "$MODULES_FILE" > /dev/null
     fi
+}
 
-    # Load the module now if it isn't already
-    if ! lsmod | grep -q "^cdc_acm"; then
-        echo "Loading cdc_acm kernel module..."
-        sudo modprobe cdc_acm
-    else
-        echo "cdc_acm module already loaded"
-    fi
-
-    # -------------------------------------------------------------------------
-    # 4. Reload udev and re-trigger devices
-    # -------------------------------------------------------------------------
-    echo "Reloading udev rules..."
-    sudo udevadm control --reload-rules
-    sudo udevadm trigger --subsystem-match=tty
-
-    # -------------------------------------------------------------------------
-    # 5. Verify
-    # -------------------------------------------------------------------------
+verify_udev_symlinks() {
     echo ""
     echo "--- Verification ---"
     if [ -e /dev/opentx ]; then
@@ -111,4 +87,28 @@ EOF
     echo ""
     echo "udev rules installed successfully."
     echo "If you were just added to the dialout group, please log out and back in."
+}
+
+install_udev_rules() {
+    local RULES_FILE="/etc/udev/rules.d/99-auto-battlebot.rules"
+    local MODULES_FILE="/etc/modules-load.d/cdc_acm.conf"
+
+    add_user_to_dialout
+
+    write_udev_rules
+
+    enable_cdc_acm_on_boot
+
+    if ! lsmod | grep -q "^cdc_acm"; then
+        echo "Loading cdc_acm kernel module..."
+        sudo modprobe cdc_acm
+    else
+        echo "cdc_acm module already loaded"
+    fi
+
+    echo "Reloading udev rules..."
+    sudo udevadm control --reload-rules
+    sudo udevadm trigger --subsystem-match=tty
+
+    verify_udev_symlinks
 }

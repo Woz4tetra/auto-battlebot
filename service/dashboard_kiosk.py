@@ -1,17 +1,5 @@
 #!/usr/bin/python3 -I
-"""Show the web dashboard full screen on the robot computer's own display.
-
-One GTK window holding one WebKit view: no tabs, address bar, or browser profile. WebKitGTK and
-its GObject bindings ship with the Ubuntu desktop, so this runs on the system python, not the
-venv (python3-gi is built for /usr/bin/python3 only).
-
-Run by dashboard-kiosk.service through with_display.sh. With no display it exits 0, so the unit
-stays stopped on a headless box instead of restarting forever.
-
-The dashboard's own page reconnects when the app or the relay restarts. This script only covers
-what the page cannot: the relay not being up yet at boot, a failed page load, and a crashed web
-process.
-"""
+"""Show the web dashboard full screen on the robot computer's own display."""
 
 from __future__ import annotations
 
@@ -21,7 +9,6 @@ import time
 import urllib.error
 import urllib.request
 
-# service/viz-relay.service serves the dashboard on port 80.
 DASHBOARD_URL = "http://127.0.0.1/"
 RETRY_SECONDS = 2.0
 
@@ -89,8 +76,11 @@ def main() -> int:
 
     view.connect("load-failed", on_load_failed)
     view.connect("web-process-terminated", on_web_process_terminated)
-    # A long press on the touchscreen would otherwise open WebKit's Back/Reload menu.
-    view.connect("context-menu", lambda *_: True)
+
+    def suppress_long_press_menu(*_: object) -> bool:
+        return True
+
+    view.connect("context-menu", suppress_long_press_menu)
 
     def hide_cursor(widget: Gtk.Widget) -> None:
         gdk_window = widget.get_window()

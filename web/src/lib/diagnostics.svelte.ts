@@ -1,8 +1,3 @@
-// /diagnostics/<module> channels: latest payload per module and 60 s of numeric history.
-//
-// Messages can arrive faster than the page needs to redraw, so they land in plain maps and the
-// reactive `modules` list is rebuilt at most four times a second.
-
 import { connection } from "./connection";
 
 export type Level = 0 | 1 | 2 | 3;
@@ -13,7 +8,6 @@ type Value = number | string | null;
 interface Subsection {
   level: number;
   message: string;
-  /** Milliseconds since the subsection was last logged. */
   age_ms?: number;
   /** Not logged since the last message: the values are repeated. */
   held?: boolean;
@@ -22,11 +16,9 @@ interface Subsection {
 type Payload = Record<string, Subsection>;
 
 export interface DiagValue {
-  /** `subsection/key`, or just `key` for the module's own subsection. */
   key: string;
   value: Value;
-  /** Age in ms when the module repeated this value without logging it again, else null. */
-  heldMs: number | null;
+  repeatedAgeMs: number | null;
 }
 
 export interface DiagModule {
@@ -39,11 +31,12 @@ export interface DiagModule {
 
 const PREFIX = "/diagnostics/";
 const HISTORY_MS = 60_000;
-const REFRESH_MS = 250;
+const MODULES_REBUILD_HZ = 4;
 
-/** Sort order for "worst": ERROR, then WARN, then STALE, then OK. */
+const SEVERITY_BY_LEVEL: Record<Level, number> = { 0: 0, 1: 2, 2: 3, 3: 1 };
+
 export function severity(level: Level): number {
-  return [0, 2, 3, 1][level];
+  return SEVERITY_BY_LEVEL[level];
 }
 
 function flatten(id: string, payload: Payload): Omit<DiagModule, "updatedAt"> {
@@ -60,9 +53,9 @@ function flatten(id: string, payload: Payload): Omit<DiagModule, "updatedAt"> {
       message = sub.message;
     }
     const prefix = name === id ? "" : `${name}/`;
-    const heldMs = sub.held ? (sub.age_ms ?? 0) : null;
+    const repeatedAgeMs = sub.held ? (sub.age_ms ?? 0) : null;
     for (const [key, value] of Object.entries(sub.values ?? {})) {
-      values.push({ key: prefix + key, value, heldMs });
+      values.push({ key: prefix + key, value, repeatedAgeMs });
     }
   }
   return { id, level, message, values };
@@ -70,8 +63,7 @@ function flatten(id: string, payload: Payload): Omit<DiagModule, "updatedAt"> {
 
 class DiagnosticsStore {
   modules = $state.raw<DiagModule[]>([]);
-  /** Bumped when history changes, so plots re-read it. */
-  version = $state(0);
+  historyVersion = $state(0);
 
   #latest = new Map<string, DiagModule>();
   #history = new Map<string, Map<string, { t: number[]; v: number[] }>>();
@@ -93,10 +85,9 @@ class DiagnosticsStore {
         }
       }
     });
-    setInterval(() => this.#flush(), REFRESH_MS);
+    setInterval(() => this.#flush(), 1000 / MODULES_REBUILD_HZ);
   }
 
-  /** Worst module first, then by name. */
   get sorted(): DiagModule[] {
     return [...this.modules].sort(
       (a, b) => severity(b.level) - severity(a.level) || a.id.localeCompare(b.id),
@@ -120,9 +111,8 @@ class DiagnosticsStore {
       perKey = new Map();
       this.#history.set(id, perKey);
     }
-    for (const { key, value, heldMs } of module.values) {
-      // A held value is a repeat, not a new sample.
-      if (heldMs !== null) continue;
+    for (const { key, value, repeatedAgeMs } of module.values) {
+      if (repeatedAgeMs !== null) continue;
       if (typeof value !== "number" || !Number.isFinite(value)) continue;
       let series = perKey.get(key);
       if (!series) {
@@ -150,7 +140,7 @@ class DiagnosticsStore {
       }
     }
     this.modules = [...this.#latest.values()];
-    this.version += 1;
+    this.historyVersion += 1;
   }
 }
 

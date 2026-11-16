@@ -1,84 +1,28 @@
 #!/bin/bash
-# Serve the web dashboard at http://<hostname>.local over the Ethernet cable. The box keeps the
-# hostname it already has; this script never renames it.
-#
-# The iPad plugs into the box with a USB-C Ethernet dongle. Nothing on that link hands out
-# addresses: the box takes the fixed address 10.42.42.1/24, and the iPad is set by hand to
-# 10.42.42.2/24 with no router (Settings > Ethernet > the dongle > Configure IP > Manual). A DHCP
-# server would save that step, but it would hand out addresses to a whole shop LAN the day the
-# box is plugged into a router.
-#
-# The cable used to be link-local (169.254.42.1/16). iOS routes link-local traffic out its
-# primary interface, which is Wi-Fi whenever the iPad has both, so after a replug Safari sent
-# the dashboard requests over Wi-Fi, where the firewall below drops them. Only the cable has a
-# route to 10.42.42.0/24. Keep this subnet in sync with include/host/dashboard_network.hpp.
-#
-# The name is the box's hostname, published by Avahi over mDNS. Avahi answers a hostname query on
-# each interface with that interface's own address, so the iPad on the cable and a phone on Wi-Fi
-# both resolve it to an address they can reach.
-#
-# The dashboard ports (80 and Foxglove's 8765) are cable-only by default: an nftables table accepts
-# them on loopback and the Ethernet port and drops them everywhere else. The app opens them on
-# Wi-Fi when someone turns on "Allow on Wi-Fi" in the System tab, by starting
-# dashboard-wifi.service, which a polkit rule lets the app user do for that one
-# unit only.
-#
-# Usage (also sourced by scripts/install_jetson.sh):
-#   install/install_dashboard_network.sh [--interface <dev>] [--wifi-interface <dev>]
-#                                        [--tailscale-interface <dev>] [--allow-all-interfaces]
-#
-#   --interface <dev>         Ethernet port the iPad uses. Default: first ethernet device nmcli
-#                             lists.
-#   --wifi-interface <dev>    Interface the Wi-Fi access toggle opens. Default: first wifi device.
-#   --tailscale-interface <dev>
-#                             Tailscale interface, always allowed. Default: tailscale0. The rule
-#                             matches by name, so it works whether or not tailscaled is up yet.
-#   --allow-all-interfaces    No firewall table: the dashboard and Foxglove are open on every
-#                             interface all the time. Removes the table, units, and polkit rule an
-#                             earlier run installed.
 
-install_dashboard_network() {
-    local hostname
-    hostname=$(hostname)
-    local profile="auto-battlebot-dashboard"
-    local address="10.42.42.1/24"
-    local table="auto_battlebot_dashboard"
-    local nft_file="/etc/auto-battlebot/dashboard.nft"
-    local firewall_unit="dashboard-firewall.service"
-    local wifi_unit="dashboard-wifi.service"
-    local polkit_rule="/etc/polkit-1/rules.d/50-auto-battlebot-dashboard.rules"
-    local app_user="${SUDO_USER:-$USER}"
+dashboard_network_usage() {
+    cat <<'EOF'
+Serve the web dashboard at http://<hostname>.local over the Ethernet cable.
+The box keeps the hostname it already has; this script never renames it.
+See docs/dashboard_network.md for the addressing and firewall design.
 
-    local iface=""
-    local wifi_iface=""
-    local tailscale_iface="tailscale0"
-    local allow_all=false
-    while [ $# -gt 0 ]; do
-        case "$1" in
-            --interface)
-                iface="$2"
-                shift 2
-                ;;
-            --wifi-interface)
-                wifi_iface="$2"
-                shift 2
-                ;;
-            --tailscale-interface)
-                tailscale_iface="$2"
-                shift 2
-                ;;
-            --allow-all-interfaces)
-                allow_all=true
-                shift
-                ;;
-            *)
-                echo "Unknown option: $1" >&2
-                return 2
-                ;;
-        esac
-    done
+Usage (also sourced by scripts/install_jetson.sh):
+  install/install_dashboard_network.sh [--interface <dev>] [--wifi-interface <dev>]
+                                       [--tailscale-interface <dev>] [--allow-all-interfaces]
 
-    # ---- 1. Checks ----
+  --interface <dev>         Ethernet port the iPad uses. Default: first ethernet device nmcli
+                            lists.
+  --wifi-interface <dev>    Interface the Wi-Fi access toggle opens. Default: first wifi device.
+  --tailscale-interface <dev>
+                            Tailscale interface, always allowed. Default: tailscale0. The rule
+                            matches by name, so it works whether or not tailscaled is up yet.
+  --allow-all-interfaces    No firewall table: the dashboard and Foxglove are open on every
+                            interface all the time. Removes the table, units, and polkit rule an
+                            earlier run installed.
+EOF
+}
+
+check_dashboard_network_prereqs() {
     if ! command -v nmcli >/dev/null 2>&1; then
         echo "Error: nmcli not found. The dashboard network needs NetworkManager." >&2
         return 1
@@ -102,23 +46,9 @@ install_dashboard_network() {
     echo "Dashboard cable port: $iface"
     echo "Wi-Fi access interface: ${wifi_iface:-none}"
     echo "Tailscale interface (always allowed): $tailscale_iface"
+}
 
-    # ---- 2. Packages ----
-    sudo apt-get install -y avahi-daemon avahi-utils nftables
-
-    # ---- 3. NetworkManager profile ----
-    # Deleted and re-added, so rerunning is safe. mdns off keeps systemd-resolved off port 5353
-    # for Avahi. Priority 100 beats the distro's "Wired connection 1" at 0.
-    sudo nmcli connection delete "$profile" >/dev/null 2>&1 || true
-    sudo nmcli connection add type ethernet ifname "$iface" con-name "$profile" \
-        ipv4.method manual ipv4.addresses "$address" ipv4.never-default yes \
-        ipv6.method link-local connection.mdns no \
-        connection.autoconnect yes connection.autoconnect-priority 100
-    # Fails with no cable plugged in, which is fine: NetworkManager brings it up on carrier.
-    sudo nmcli connection up "$profile" >/dev/null 2>&1 ||
-        echo "No carrier on $iface yet; the profile comes up when the cable goes in."
-
-    # ---- 4. Avahi ----
+configure_avahi() {
     sudo systemctl enable --now avahi-daemon
     local allow_line
     allow_line=$(grep -E '^\s*allow-interfaces\s*=' /etc/avahi/avahi-daemon.conf 2>/dev/null || true)
@@ -129,8 +59,9 @@ install_dashboard_network() {
                 "or ${wifi_iface:-the Wi-Fi}. Not editing it; add both for the name to resolve."
         fi
     fi
+}
 
-    # ---- 5. Firewall ----
+install_dashboard_firewall() {
     if [ "$allow_all" = true ]; then
         echo "--allow-all-interfaces: removing the dashboard firewall"
         sudo systemctl disable --now "$wifi_unit" >/dev/null 2>&1 || true
@@ -140,9 +71,6 @@ install_dashboard_network() {
         sudo nft delete table inet "$table" >/dev/null 2>&1 || true
     else
         sudo mkdir -p "$(dirname "$nft_file")"
-        # Declare-then-delete, so loading it again replaces the table instead of failing on the
-        # one that exists. Its own table, so no other ruleset is touched. service/viz-relay.service
-        # serves the dashboard on 80.
         sudo tee "$nft_file" >/dev/null <<EOF
 table inet $table
 delete table inet $table
@@ -174,7 +102,6 @@ ExecStop=/usr/sbin/nft delete table inet $table
 WantedBy=multi-user.target
 EOF
         if [ -n "$wifi_iface" ]; then
-            # Not enabled: the app starts it at boot when the saved setting says so.
             sudo tee "/etc/systemd/system/$wifi_unit" >/dev/null <<EOF
 [Unit]
 Description=Allow the auto_battlebot dashboard on Wi-Fi ($wifi_iface)
@@ -187,7 +114,6 @@ RemainAfterExit=yes
 ExecStart=/usr/sbin/nft 'add element inet $table allowed_ifaces { "$wifi_iface" }'
 ExecStop=-/usr/sbin/nft 'delete element inet $table allowed_ifaces { "$wifi_iface" }'
 EOF
-            # Ubuntu 24.04's polkit reads JavaScript rules. Start and stop on this unit only.
             sudo tee "$polkit_rule" >/dev/null <<EOF
 // Installed by auto-battlebot install/install_dashboard_network.sh.
 polkit.addRule(function (action, subject) {
@@ -203,16 +129,18 @@ EOF
             echo "No Wi-Fi interface: skipping the Wi-Fi access unit."
         fi
     fi
+}
 
-    # ---- 6. Enable and restart ----
+enable_dashboard_network_units() {
     sudo systemctl daemon-reload
     if [ "$allow_all" != true ]; then
         sudo systemctl enable "$firewall_unit"
         sudo systemctl restart "$firewall_unit"
     fi
     sudo systemctl restart avahi-daemon
+}
 
-    # ---- 7. Verification ----
+verify_dashboard_network() {
     echo ""
     echo "Dashboard network setup complete. Dashboard: http://$hostname.local"
     echo "Verification:"
@@ -224,6 +152,75 @@ EOF
     fi
     echo "  - On the iPad: Settings > Ethernet > Configure IP > Manual, 10.42.42.2 / 255.255.255.0,"
     echo "    no router; Safari opens http://10.42.42.1"
+}
+
+install_dashboard_network() {
+    local hostname
+    hostname=$(hostname)
+    local profile="auto-battlebot-dashboard"
+    local address="10.42.42.1/24"
+    local table="auto_battlebot_dashboard"
+    local nft_file="/etc/auto-battlebot/dashboard.nft"
+    local firewall_unit="dashboard-firewall.service"
+    local wifi_unit="dashboard-wifi.service"
+    local polkit_rule="/etc/polkit-1/rules.d/50-auto-battlebot-dashboard.rules"
+    local app_user="${SUDO_USER:-$USER}"
+
+    local iface=""
+    local wifi_iface=""
+    local tailscale_iface="tailscale0"
+    local allow_all=false
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -h | --help)
+                dashboard_network_usage
+                return 0
+                ;;
+            --interface)
+                iface="$2"
+                shift 2
+                ;;
+            --wifi-interface)
+                wifi_iface="$2"
+                shift 2
+                ;;
+            --tailscale-interface)
+                tailscale_iface="$2"
+                shift 2
+                ;;
+            --allow-all-interfaces)
+                allow_all=true
+                shift
+                ;;
+            *)
+                echo "Unknown option: $1" >&2
+                return 2
+                ;;
+        esac
+    done
+
+    check_dashboard_network_prereqs || return $?
+
+    sudo apt-get install -y avahi-daemon avahi-utils nftables
+
+    # ---- 3. NetworkManager profile ----
+    # Deleted and re-added, so rerunning is safe. mdns off keeps systemd-resolved off port 5353
+    # for Avahi. Priority 100 beats the distro's "Wired connection 1" at 0.
+    sudo nmcli connection delete "$profile" >/dev/null 2>&1 || true
+    sudo nmcli connection add type ethernet ifname "$iface" con-name "$profile" \
+        ipv4.method manual ipv4.addresses "$address" ipv4.never-default yes \
+        ipv6.method link-local connection.mdns no \
+        connection.autoconnect yes connection.autoconnect-priority 100
+    sudo nmcli connection up "$profile" >/dev/null 2>&1 ||
+        echo "No carrier on $iface yet; the profile comes up when the cable goes in."
+
+    configure_avahi
+
+    install_dashboard_firewall
+
+    enable_dashboard_network_units
+
+    verify_dashboard_network
 }
 
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then

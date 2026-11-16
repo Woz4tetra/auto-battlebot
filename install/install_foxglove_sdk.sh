@@ -1,8 +1,5 @@
 #!/bin/bash
 
-# Install Foxglove C++ SDK (pre-built binary) into third_party/foxglove/
-# Supports x86_64 and aarch64 Linux targets.
-
 install_foxglove_sdk() {
     local SCRIPT_DIR
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -37,7 +34,6 @@ install_foxglove_sdk() {
 
     echo "Extracting to $FOXGLOVE_DIR..."
     mkdir -p "$PROJECT_ROOT/third_party"
-    # The zip contains a top-level "foxglove/" directory; extract directly into third_party/
     unzip -q "$TMP_ZIP" -d "$PROJECT_ROOT/third_party"
     rm -f "$TMP_ZIP"
 
