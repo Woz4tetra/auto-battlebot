@@ -931,3 +931,63 @@ viz_relay: the process that owns the Foxglove WebSocket server. auto_battlebot c
       venv/bin/python training/video_mcap_extract.py recording.mcap --frames out_dir/ --stride 10
   ```
 
+
+## Recording readers and exporters
+
+### `playground/calibration/check_sysid_recordings.py`
+
+`stick_at`:
+
+Linear and angular stick fraction held at each stamp (channels log only on change), with each channel's resting offset removed.
+
+### `playground/mcap_auto_percentage.py`
+
+`mcap_auto_percentage.py`:
+
+Report what percentage of a match recording the robot spent in autonomous mode.
+
+The match window runs from the first time values/15 == 1024 (auto engaged) to the last auto->manual transition. Auto mode is detected from the diagnostics: opentx_transmitter / channels / values/15 == 1024.
+
+### `playground/opponent_prediction/plot_dropout_samples.py`
+
+- `replay_session`: The diagnostics re-send a channel's last value with held = true; only fresh ones count.
+
+### `playground/opponent_prediction/render_dropout_videos.py`
+
+`replay_clock_offset_ns`:
+
+Rebased pipeline stamp minus the SVO image stamp.
+
+`/keypoint_detections` is logged at its own (rebased) stamp and each tick's `/camera/frame_meta` follows it by the camera grab time, so a detection pairs with the next frame_meta.
+
+### `playground/opponent_prediction/run_replays.py`
+
+- `run`: The recorder splits video into a second file; keep the main one (the diagnostics).
+
+### `playground/radio/channel_streaming.py`
+
+`channel_streaming.py`:
+
+OpenTX Channel Data Streaming Test Script This script connects to the OpenTX radio via USB serial and parses the custom channel data packets along with CRSF telemetry data.
+
+```
+Channel packet format:
+- Sync: 0xA5
+- Length: packet length excluding sync byte
+- Data: channel values as 16-bit signed integers (little-endian)
+- Checksum: XOR of all bytes excluding sync
+```
+
+```
+Usage:
+    python3 test_channel_streaming.py [--port /dev/ttyACM0] [--baudrate 115200]
+```
+
+### `playground/radio/crsf/crsf_link_statistics.py`
+
+- `CrsfLinkStatistics.up_rssi_ant1`: Uplink RSSI Antenna 1 (dBm * -1) Uplink RSSI Antenna 2 (dBm * -1) Uplink Package success rate / Link quality (%) Uplink SNR (dB) number of currently best antenna enum {4fps = 0 , 50fps, 150fps} enum {0mW = 0, 10mW, 25mW, 100mW, 500mW, 1000mW, 2000mW, 250mW, 50mW} Downlink RSSI (dBm * -1) Downlink Package success rate / Link quality (%) Downlink SNR (dB)
+
+### `simulation/protocol.py`
+
+- `GT_POSE_SIZE`: Ground truth poses appended after depth buffer: uint32 num_robots, then num_robots * (x, y, yaw) as float64. First entry = our robot, rest = opponents in config order. x, y, yaw per robot (3 x float64 = 24 bytes)
+- `MEAS_HEADER_SIZE`: After the ground truth: what perception delivered this tick, from the sensing model (auto_battlebot/perception/sensing_model.py). One header, then one pose per ground-truth slot in the same order. Flags travel as 0.0 / 1.0 so the block stays all float64 like the rest. delivered, capture_time (sim seconds)

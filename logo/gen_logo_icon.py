@@ -1,17 +1,5 @@
 #!/usr/bin/env python3
-"""Render the BWBots logo as a small transparent PNG for a dark top bar.
-
-Produces the dark-background variant used by the splash animation: the logo's
-black half-disc is drawn as a white outline (it would vanish against the dark
-bar), the white half is plain fill, and the BW pill comes from the SVG. The
-background is transparent so the icon sits directly on the bar.
-
-Requires: inkscape on PATH. Run inside the project venv (numpy, Pillow).
-
-Usage:
-    logo/gen_logo_icon.py                  # 24 px tall -> logo/bwbots_logo_dark_h24.png
-    logo/gen_logo_icon.py --height 48
-"""
+"""Render the BWBots logo as a small transparent PNG for a dark top bar."""
 
 from __future__ import annotations
 
@@ -25,13 +13,13 @@ from PIL import Image
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 SUPERSAMPLE = 4
+MIN_STROKE_PX = 1
 
 
 def render_icon(svg_path: Path, height: int) -> Image.Image:
     """Composite the final splash frame (settled logo) on a transparent canvas."""
-    radius_ss = (height * SUPERSAMPLE) // 2  # logo height = disc diameter
-    # The reference stroke (r/30) is sub-pixel at icon sizes; keep it >= 1 output px.
-    stroke_ss = max(SUPERSAMPLE, round(radius_ss / splash.REF_RADIUS))
+    radius_ss = (height * SUPERSAMPLE) // 2
+    stroke_ss = max(MIN_STROKE_PX * SUPERSAMPLE, round(radius_ss / splash.REF_RADIUS))
     sprites = splash.HalfDiscSprites(radius_ss, stroke_ss)
     pill = splash.render_pill_layer(svg_path, float(radius_ss))
 

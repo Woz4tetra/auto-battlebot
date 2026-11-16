@@ -1,30 +1,5 @@
 #!/usr/bin/env python3
-"""Grade cage renders against the robot-free target frames, per region.
-
-Each render `<stem>.png` under --renders is paired with the target frames it stands for: the
-clip of the same name, or every clip of the event an event pose (`cage2_<event>`) was fitted
-from. Metrics are computed on the full frame, inside the mat hull, and outside it, and are
-written in long form to `metrics.csv` with a `source` column so baselines sit beside the render:
-
-    render            the render under test
-    baseline_mean     the pixel mean of all targets, scored against each target (the
-                      clip-to-clip floor from exposure and mat wear)
-    baseline_flat     the target's own mat-mean colour painted everywhere
-    baseline_previous --baseline-render, another render directory, if given
-
-Metrics: l1_gray, l1_rgb (0..255, at --scale), ssim_gray (11x11 Gaussian, sigma 1.5),
-edge_chamfer_px (symmetric Canny edge distance, full resolution), lab_dmean_L/a/b,
-lab_dstd_L/a/b, mat_iou (overlap of the render's mat mask with the target hull, full-frame only).
-`report.md` holds the per-region means and a per-clip table, and `<stem>_sheet.png` shows
-target | render | abs diff | edge overlay.
-
-Usage:
-    venv/bin/python playground/cage_scene/grade_render.py \\
-        --renders runs/cage_scene/renders/r001 --targets runs/cage_scene/targets \\
-        --out runs/cage_scene/grades/r001
-    venv/bin/python playground/cage_scene/grade_render.py --compare runs/cage_scene/grades/r001 \\
-        runs/cage_scene/grades/r002
-"""
+"""Grade cage renders against the robot-free target frames, per region."""
 
 from __future__ import annotations
 
@@ -265,6 +240,67 @@ def robot_regions(
     return {"robot": box, "shadow_ring": ring, "mat_rest": mat_rest}
 
 
+def shadow_contrast_metrics(regions, name, r_gray, t_gray) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for source, gray in (("render", r_gray), ("target", t_gray)):
+        rest, ring = gray[regions["mat_rest"]].mean(), gray[regions["shadow_ring"]].mean()
+        for metric, value in (
+            ("shadow_drop_gray", rest - ring),
+            ("shadow_ratio", ring / max(rest, 1.0)),
+        ):
+            rows.append(
+                {
+                    "clip": name,
+                    "render": name,
+                    "region": "shadow_ring",
+                    "metric": metric,
+                    "source": source,
+                    "value": float(value),
+                }
+            )
+    return rows
+
+
+def robot_footprint_overlap(regions, robot_mask, name, r_gray, t_gray) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    box = regions["robot"]
+    inter = ((robot_mask > 0) & box).sum()
+    union = ((robot_mask > 0) | box).sum()
+    rows.append(
+        {
+            "clip": name,
+            "render": name,
+            "region": "robot",
+            "metric": "robot_box_iou",
+            "source": "render",
+            "value": float(inter / union) if union else float("nan"),
+        }
+    )
+    rows.append(
+        {
+            "clip": name,
+            "render": name,
+            "region": "robot",
+            "metric": "robot_gray_render",
+            "source": "render",
+            "value": float(r_gray[robot_mask > 0].mean())
+            if (robot_mask > 0).any()
+            else float("nan"),
+        }
+    )
+    rows.append(
+        {
+            "clip": name,
+            "render": name,
+            "region": "robot",
+            "metric": "robot_gray_target",
+            "source": "target",
+            "value": float(t_gray[box].mean()),
+        }
+    )
+    return rows
+
+
 def grade_robot_frames(args: argparse.Namespace) -> None:
     """Score renders of MRS BUFF at recovered poses against the real frames they mimic."""
     args.out.mkdir(parents=True, exist_ok=True)
@@ -301,63 +337,11 @@ def grade_robot_frames(args: argparse.Namespace) -> None:
                         "value": value,
                     }
                 )
-        # Shadow contrast: how much darker the ring is than the rest of the mat, target vs render.
         t_gray = cv2.cvtColor(target, cv2.COLOR_BGR2GRAY).astype(float)
         r_gray = cv2.cvtColor(render, cv2.COLOR_BGR2GRAY).astype(float)
-        for source, gray in (("render", r_gray), ("target", t_gray)):
-            rest, ring = gray[regions["mat_rest"]].mean(), gray[regions["shadow_ring"]].mean()
-            # Drop in grey levels, and the exposure-free ratio of ring to the rest of the mat.
-            for metric, value in (
-                ("shadow_drop_gray", rest - ring),
-                ("shadow_ratio", ring / max(rest, 1.0)),
-            ):
-                rows.append(
-                    {
-                        "clip": name,
-                        "render": name,
-                        "region": "shadow_ring",
-                        "metric": metric,
-                        "source": source,
-                        "value": float(value),
-                    }
-                )
+        rows.extend(shadow_contrast_metrics(regions, name, r_gray, t_gray))
         if robot_mask is not None:
-            # Robot footprint overlap: is the rendered robot where the detector saw the real one?
-            box = regions["robot"]
-            inter = ((robot_mask > 0) & box).sum()
-            union = ((robot_mask > 0) | box).sum()
-            rows.append(
-                {
-                    "clip": name,
-                    "render": name,
-                    "region": "robot",
-                    "metric": "robot_box_iou",
-                    "source": "render",
-                    "value": float(inter / union) if union else float("nan"),
-                }
-            )
-            rows.append(
-                {
-                    "clip": name,
-                    "render": name,
-                    "region": "robot",
-                    "metric": "robot_gray_render",
-                    "source": "render",
-                    "value": float(r_gray[robot_mask > 0].mean())
-                    if (robot_mask > 0).any()
-                    else float("nan"),
-                }
-            )
-            rows.append(
-                {
-                    "clip": name,
-                    "render": name,
-                    "region": "robot",
-                    "metric": "robot_gray_target",
-                    "source": "target",
-                    "value": float(t_gray[box].mean()),
-                }
-            )
+            rows.extend(robot_footprint_overlap(regions, robot_mask, name, r_gray, t_gray))
         x0, y0, x1, y1 = [int(round(v)) for v in pose["box_rect"]]
         pad = int(0.6 * max(x1 - x0, y1 - y0)) + 40
         crop = (

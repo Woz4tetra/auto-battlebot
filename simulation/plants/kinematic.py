@@ -9,11 +9,7 @@ from config.kinematic import ObstacleConfig, PlantConfig
 
 from plants.base import HazardMonitor, Pose, disc_outline
 
-# Internal integration substep. Mirrors auto_battlebot/control/plant.py. At the calibrated
-# 31.7 rad/s top yaw rate this is 0.06 rad of rotation per substep; a whole 33 ms tick is
-# 1.05 rad, where straight-line integration of an arc is wrong by tens of degrees of heading.
 SUBSTEP_S = 0.002
-# Below this yaw rate the arc radius v/w blows up, so fall back to the straight-line form.
 STRAIGHT_W = 1e-6
 
 
@@ -37,8 +33,8 @@ class KinematicPlant:
         self._cfg = cfg
         self.x, self.y = cfg.start_pos
         self.yaw = math.radians(cfg.start_yaw_deg)
-        self.v = 0.0
-        self.w = 0.0
+        self.v_mps = 0.0
+        self.w_radps = 0.0
         self._half_x = arena_w / 2.0 - cfg.radius
         self._half_y = arena_h / 2.0 - cfg.radius
         self._hazards = HazardMonitor(obstacles or [], cfg.radius)
@@ -56,23 +52,18 @@ class KinematicPlant:
 
     @property
     def upside_down(self) -> bool:
-        # Planar model: it has no roll or pitch to flip over with.
         return False
 
     @property
     def footprint_center_offset(self) -> tuple[float, float]:
-        # The pose is the centre of the disc. The fits behind this plant tracked the keypoint
-        # midpoint, which sits within 2 mm of the footprint centre.
         return 0.0, 0.0
 
     def set_moving_blocks(self, blocks: list[tuple[float, float, float, float]]) -> None:
-        # Same treatment as a static block: the chassis is pushed out and the clearance is scored.
         self._hazards.set_moving_blocks(blocks)
         self._moving_blocks = blocks
 
     def collision_outlines(self) -> list[np.ndarray]:
-        """A disc of [our_robot] radius against a disc of each block's hazard_radius: the
-        centre-clamp against blocks grown by our radius is the same contact."""
+        """A disc of [our_robot] radius against a disc of each block's hazard_radius."""
         outlines = [disc_outline(self.x, self.y, self._cfg.radius)]
         outlines += [disc_outline(x, y, r) for x, y, _, r in self._moving_blocks]
         return outlines
@@ -106,9 +97,6 @@ class KinematicPlant:
         fwd = cfg.max_linear_speed_fwd or cfg.max_linear_speed
         rev = cfg.max_linear_speed_rev or fwd
         v_target = lc * (fwd if lc >= 0.0 else rev)
-        # Coupling multiplies the steady-state target, not the achieved speed: turning costs a
-        # fraction of the forward command's authority and driving costs a fraction of the turn's,
-        # but neither brakes a robot that is already coasting.
         v_target *= max(0.0, 1.0 - cfg.steer_brake_coeff * abs(ac))
         w_target = ac * cfg.max_angular_speed
         w_target *= max(0.0, 1.0 - cfg.angular_droop_coeff * abs(lc))
@@ -127,16 +115,13 @@ class KinematicPlant:
             ):
                 break
             if self.fell_in:
-                self.v = 0.0
-                self.w = 0.0
+                self.v_mps = 0.0
+                self.w_radps = 0.0
                 break
 
     def _resolve_obstacles(self, nx: float, ny: float) -> tuple[float, float, bool]:
-        """Push the chassis out of any block, record the closest a hazard came, and latch a
-        fall-in. Returns the corrected position and whether a block was hit."""
+        """Push the chassis out of blocks and latch a fall-in."""
         blocked = False
-        # A block is a wall with a curved face: push the chassis back out along the radius, which
-        # is what the rectangle clamp does for the arena walls.
         for bx, by, br in self._hazards.blocks():
             ddx, ddy = nx - bx, ny - by
             dist = math.hypot(ddx, ddy)
@@ -160,24 +145,18 @@ class KinematicPlant:
         tau_a_acc: float,
         tau_a_dec: float,
     ) -> bool:
-        """Advance one substep: pose along the arc, then the velocity update. Returns True on a
-        wall hit, which ends the tick."""
-        # Pose uses the velocity at the start of the substep, so the arc is exact for the v and w
-        # actually held over it.
-        next_yaw = self.yaw + self.w * dt
-        if abs(self.w) > STRAIGHT_W:
-            radius = self.v / self.w
+        """Advance one substep, returning True on a wall hit."""
+        next_yaw = self.yaw + self.w_radps * dt
+        if abs(self.w_radps) > STRAIGHT_W:
+            radius = self.v_mps / self.w_radps
             dx = radius * (math.sin(next_yaw) - math.sin(self.yaw))
             dy = -radius * (math.cos(next_yaw) - math.cos(self.yaw))
         else:
-            dx = self.v * dt * math.cos(self.yaw)
-            dy = self.v * dt * math.sin(self.yaw)
+            dx = self.v_mps * dt * math.cos(self.yaw)
+            dy = self.v_mps * dt * math.sin(self.yaw)
 
-        # Accel or decel is decided per channel by whether the target is further from zero than
-        # the current speed. Braking into a reversal uses the decel constant until the sign flips,
-        # as the drivetrain does: friction first, then torque.
-        tau_lin = tau_l_acc if abs(v_target) > abs(self.v) else tau_l_dec
-        tau_ang = tau_a_acc if abs(w_target) > abs(self.w) else tau_a_dec
+        tau_lin = tau_l_acc if abs(v_target) > abs(self.v_mps) else tau_l_dec
+        tau_ang = tau_a_acc if abs(w_target) > abs(self.w_radps) else tau_a_dec
         a_lin = 1.0 - math.exp(-dt / max(tau_lin, 1e-4))
         a_ang = 1.0 - math.exp(-dt / max(tau_ang, 1e-4))
 
@@ -197,10 +176,10 @@ class KinematicPlant:
 
         self.x, self.y = nx, ny
         self.yaw = math.atan2(math.sin(next_yaw), math.cos(next_yaw))
-        self.v += a_lin * (v_target - self.v)
-        self.w += a_ang * (w_target - self.w)
+        self.v_mps += a_lin * (v_target - self.v_mps)
+        self.w_radps += a_ang * (w_target - self.w_radps)
         if hit:
-            self.v = 0.0  # wall stops forward motion
+            self.v_mps = 0.0
         return hit
 
     def pose(self) -> Pose:

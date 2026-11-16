@@ -1,11 +1,4 @@
-"""Lump the Mr Stabs Mk2 Onshape export into three bodies and write mass_properties.toml.
-
-Chassis, left wheel and right wheel, in the FLU body frame at the axle midpoint, plus the
-tag-to-body transforms for tags 41 and 76 and the drivetrain constants. The MJCF builder and
-the tag pose smoother both read the output.
-
-    python playground/calibration/lump_mr_stabs_mass_properties.py
-"""
+"""Lump the Mr Stabs Mk2 Onshape export into three bodies."""
 
 from __future__ import annotations
 
@@ -32,10 +25,6 @@ from auto_battlebot.mujoco_sim.onshape_export import (
 
 ASSET_DIR = Path(__file__).resolve().parents[2] / "simulation/assets/robots/mr_stabs_mk2"
 
-# Onshape "Mass and section properties" on the whole Mr Stabs Mk2 assembly, screenshot
-# 2026-09-25 23:10 (onshape_export/onshape_mass_properties_2026-09-25.png). Assembly frame, mm
-# and g mm^2, inertia about the COM. Unlike the URDF export, this includes the Onshape mass
-# overrides for the motors, ESCs, flight controller, batteries and switch.
 ONSHAPE_MASS_G = 494.22
 ONSHAPE_COM_MM = (0.004, -29.548, 0.798)
 ONSHAPE_INERTIA_G_MM2 = {
@@ -48,10 +37,8 @@ ONSHAPE_INERTIA_G_MM2 = {
 }
 SCALE_MASS_G = 495.9
 
-# Repeat Robotics Compact 1806 gearmotor (repeat-robotics.com/products/repeat-compact-1806).
 GEAR_RATIO = 22.6
 MOTOR_KV_RPM_PER_V = 2300.0
-# CAD integration of the rotor: steel flux ring, 14 N52 magnets, aluminum end cap, steel shaft.
 ROTOR_INERTIA_KG_M2 = 9.3e-7
 GEARMOTOR_MASS_KG = 0.0445
 WHEEL_RADIUS_M = 0.025
@@ -64,7 +51,6 @@ def _body(b: MassBody) -> dict[str, Any]:
     return {
         "mass_kg": round(b.mass, 7),
         "com_m": [round(float(v), 7) for v in b.com],
-        # MuJoCo fullinertia order: Ixx Iyy Izz Ixy Ixz Iyz, about the COM, body axes.
         "fullinertia_kg_m2": [
             float(f"{v:.5e}") for v in (i[0, 0], i[1, 1], i[2, 2], i[0, 1], i[0, 2], i[1, 2])
         ],
@@ -85,7 +71,7 @@ def main() -> None:
     wheels = [
         assembly.lumped(assembly.wheel_links(j)).transformed(rot, trans) for j in WHEEL_JOINTS
     ]
-    wheels.sort(key=lambda w: -w.com[1])  # left (+y) first
+    wheels.sort(key=lambda w: -w.com[1])
     total_asm = MassBody(
         mass=ONSHAPE_MASS_G * 1e-3,
         com=np.array(ONSHAPE_COM_MM) * 1e-3,

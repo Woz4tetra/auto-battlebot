@@ -1,19 +1,4 @@
-"""Extract human opponent tracks from the KALMAN match replays for the `replay` behaviour.
-
-Reads the filtered opponent poses (`/robot_markers`, THEIR_ROBOT_*) from the NHRL May and MassD
-match replays in `playground/opponent_prediction/out/replays/`, splits them into continuous
-segments (no gap over 0.25 s, at least 3 s long), resamples each to 50 Hz, and stores positions
-as fractions of the recording's field half size so the environment can scale them into any arena.
-
-Two whole recordings (one per venue) are the evaluation set, never trained on: the plan holds out
-20% of the replay tracks (section 6), and holding out recordings rather than segments keeps one
-driver's habits from leaking across the split.
-
-Output: `simulation/opponent_tracks/replay_tracks.npz`.
-
-    source scripts/activate_python.sh
-    python playground/rl/extract_replay_tracks.py
-"""
+"""Extract human opponent tracks from the KALMAN match replays for the `replay` behaviour."""
 
 from __future__ import annotations
 

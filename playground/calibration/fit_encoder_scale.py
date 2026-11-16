@@ -1,25 +1,4 @@
-"""Fit metres per encoder count from hand-pushed runs over measured distances (runbook E4).
-
-The encoder scale is the constant every linear measurement depends on, so it is measured
-rather than inferred from a top speed. Push the robot with the motors disarmed between two
-marked points, dwelling at each so the stops are unambiguous, and this reads the count at
-each dwell and fits counts against distance through the origin.
-
-    source scripts/activate_python.sh
-    python playground/calibration/fit_encoder_scale.py \\
-        --run 0.5  LOG-38.TXT LOG-39.TXT LOG-40.TXT \\
-        --run 0.75 LOG-42.TXT LOG-43.TXT LOG-44.TXT \\
-        --run 1.0  LOG-45.TXT LOG-46.TXT LOG-47.TXT \\
-        --plot out/encoder_scale.png
-
-Several distances beat one distance repeated. A fixed error (the marks, or the robot not
-quite stopping on them) is a constant offset in counts, so it bends a counts-against-distance
-line away from the origin. With one distance that offset is invisible and lands entirely in
-the scale; with three it shows up as an intercept, which this reports.
-
-An out-and-back is worth more than a one-way push, because returning to the start makes the
-closure error visible, and closure is the only check a single pass affords.
-"""
+"""Fit metres per encoder count from hand-pushed runs over measured distances (runbook E4)."""
 
 from __future__ import annotations
 
@@ -67,11 +46,7 @@ class Pass:
 def find_dwells(
     t: np.ndarray, count: np.ndarray, *, min_s: float = 0.75, tol_counts: float = 40.0
 ) -> list[Dwell]:
-    """Stretches where the count barely moves, which is where the marks are.
-
-    The tolerance is in counts rather than a velocity threshold: a hand push is slow, so a
-    velocity bar tight enough to exclude the push would also split every dwell in two.
-    """
+    """Stretches where the count barely moves, which is where the marks are."""
     dt = float(np.median(np.diff(t))) if len(t) > 1 else 0.001
     window = max(2, int(round(min_s / max(dt, 1e-9))))
     if len(count) < window:
@@ -97,6 +72,11 @@ def find_dwells(
     return out
 
 
+def far_mark_dwells(dwells: list[Dwell], origin: float, far_dwell: Dwell) -> list[float]:
+    span = abs(far_dwell.count - origin)
+    return [d.count for d in dwells if abs(abs(d.count - origin) - span) < 0.1 * span]
+
+
 def read_pass(path: Path, distance_m: float, *, min_s: float, tol: float) -> Pass:
     log = read_jig_log(path)
     if not log.encoder_moved:
@@ -112,10 +92,7 @@ def read_pass(path: Path, distance_m: float, *, min_s: float, tol: float) -> Pas
 
     origin = dwells[0].count
     far_dwell = max(dwells, key=lambda d: abs(d.count - origin))
-    # Dwells within a tenth of the span of the far one are all "at the far mark"; the spread
-    # among them is the wheel creeping while the robot sat still, which is a real error term.
-    span = abs(far_dwell.count - origin)
-    near_far = [d.count for d in dwells if abs(abs(d.count - origin) - span) < 0.1 * span]
+    near_far = far_mark_dwells(dwells, origin, far_dwell)
     return Pass(
         path=path,
         distance_m=distance_m,
@@ -131,13 +108,7 @@ def read_pass(path: Path, distance_m: float, *, min_s: float, tol: float) -> Pas
 
 @dataclass
 class Fit:
-    """Both fits, and which one to believe.
-
-    Through the origin is the model you want to be true: zero distance, zero counts. The
-    two-parameter fit exists to test it. When the intercept is real, the through-origin slope
-    is pulled up by a fixed per-pass error and overstates the scale, while the differential
-    slope is honest because a constant offset cancels out of it.
-    """
+    """Both fits, and which one to believe."""
 
     counts_per_m: float  # through the origin
     stderr: float
@@ -175,13 +146,7 @@ class Fit:
 
 
 def fit_scale(passes: list[Pass]) -> Fit:
-    """Counts against distance, through the origin, plus an intercept as a diagnostic.
-
-    Through the origin is the model: zero distance is zero counts. The intercept is fitted
-    separately only to check that assumption. An intercept far from zero means a fixed error
-    per pass, most likely the marks or where the robot actually came to rest, and it inflates
-    the scale fitted from short pushes.
-    """
+    """Counts against distance, through the origin, plus an intercept as a diagnostic."""
     x = np.array([p.distance_m for p in passes])
     y = np.array([p.span for p in passes])
 
@@ -198,31 +163,14 @@ def fit_scale(passes: list[Pass]) -> Fit:
         cov = np.linalg.inv(design.T @ design) * float(r2 @ r2) / max(len(x) - 2, 1)
         slope_se, intercept_se = float(np.sqrt(cov[0, 0])), float(np.sqrt(cov[1, 1]))
     else:
-        # One distance cannot separate a scale from an offset, so there is nothing to test.
         slope, intercept = k, 0.0
         slope_se, intercept_se = se, float("nan")
     return Fit(k, se, slope, slope_se, intercept, intercept_se, len(x), len(set(x)))
 
 
-def make_plot(path: Path, passes: list[Pass], fit: Fit, mark_error_mm: float) -> None:
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
+def plot_pass_timeline(fig, gs, by_distance, distances, fit):
     from matplotlib.lines import Line2D
 
-    by_distance: dict[float, list[Pass]] = {}
-    for p in passes:
-        by_distance.setdefault(p.distance_m, []).append(p)
-    distances = sorted(by_distance)
-
-    fig = plt.figure(figsize=(13, 8.5))
-    gs = fig.add_gridspec(2, 2, height_ratios=[1.25, 1.0], hspace=0.32, wspace=0.24)
-
-    # Every pass end to end, so a stall, a bounce or a bad dwell is visible rather than
-    # reduced to one number. Only two dwells per pass reach the fit, the start and the far
-    # mark, so they are drawn filled and every other dwell hollow: the difference between
-    # them is the whole reason a pass can look fine and still contribute a bad point.
     ax = fig.add_subplot(gs[0, :])
     for i, dist in enumerate(distances):
         for j, p in enumerate(by_distance[dist]):
@@ -271,7 +219,8 @@ def make_plot(path: Path, passes: list[Pass], fit: Fit, mark_error_mm: float) ->
     )
     ax.legend(handles=handles, labels=labels, fontsize=8, ncol=len(distances) + 2)
 
-    # The fit itself.
+
+def plot_fit(fig, gs, passes, fit, distances):
     ax = fig.add_subplot(gs[1, 0])
     x = np.array([p.distance_m for p in passes])
     y = np.array([p.span for p in passes])
@@ -302,7 +251,10 @@ def make_plot(path: Path, passes: list[Pass], fit: Fit, mark_error_mm: float) ->
     ax.legend(fontsize=8)
     ax.set_title("Counts against distance, through the origin", fontsize=10)
 
-    # Residuals in millimetres, against the marking error that bounds them.
+
+def plot_residuals(fig, gs, passes, fit, distances, mark_error_mm):
+    x = np.array([p.distance_m for p in passes])
+    y = np.array([p.span for p in passes])
     ax = fig.add_subplot(gs[1, 1])
     model = (
         fit.slope_counts_per_m * x + fit.intercept_counts
@@ -328,6 +280,26 @@ def make_plot(path: Path, passes: list[Pass], fit: Fit, mark_error_mm: float) ->
         "Residual from the " + ("offset fit" if fit.intercept_real else "through-origin fit"),
         fontsize=10,
     )
+
+
+def make_plot(path: Path, passes: list[Pass], fit: Fit, mark_error_mm: float) -> None:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    by_distance: dict[float, list[Pass]] = {}
+    for p in passes:
+        by_distance.setdefault(p.distance_m, []).append(p)
+    distances = sorted(by_distance)
+
+    fig = plt.figure(figsize=(13, 8.5))
+    gs = fig.add_gridspec(2, 2, height_ratios=[1.25, 1.0], hspace=0.32, wspace=0.24)
+
+    plot_pass_timeline(fig, gs, by_distance, distances, fit)
+
+    plot_fit(fig, gs, passes, fit, distances)
+    plot_residuals(fig, gs, passes, fit, distances, mark_error_mm)
 
     fig.suptitle(
         f"Encoder scale: meters_per_count = {fit.meters_per_count:.6e} "

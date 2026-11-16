@@ -1,33 +1,4 @@
-"""Generate a multi-material 3D-print file for the robot's AprilTag (Bambu Lab AMS).
-
-This is the 3D-print counterpart of make_print_tags.py for the tag that mounts on the robot top.
-Instead of a paper tag you tape down, it emits a printable plate: a white base with the black
-AprilTag cells raised on top as a second material. Two watertight objects share one coordinate
-frame, so in Bambu Studio you assign white to the base and black to the tag and slice.
-
-The black geometry comes straight from the cv2.aruco DICT_APRILTAG_36h11 bit pattern, so the printed
-tag is geometrically identical to what apriltag_track.py detects (id and orientation verified by re-
-detecting a top-down raster before writing). A white margin around the tag gives the quiet zone the
-detector needs.
-
-The 3MF is written directly (a zip of XML) so it needs no lxml: two named, pre-colored objects that
-import into Bambu Studio already split into a white base and a black tag. STL pairs are written too.
-
-Outputs, written to --out-dir:
-    robot_tag.3mf         two objects (white base + black tag), pre-colored
-    robot_tag_white.stl   base only
-    robot_tag_black.stl   tag only
-
-Usage:
-    source scripts/activate_python.sh
-    python playground/calibration/make_robot_tag_3d.py --out-dir playground/calibration/print_3d
-
-Default: id 0, 130 mm tag, 2 mm white base, 0.6 mm raised black, 16 mm white margin (a ~1-cell quiet
-zone). The plate is 162 x 162 mm, well within a 256 mm Bambu bed. Bambu Studio: import
-robot_tag.3mf, confirm the tag object is black filament and the base is white, then slice. Use
-0.1-0.2 mm layers and a base thickness that is a clean multiple of the layer height. Note its
-physical edge (--tag-size) and heading offset for apriltag_track.py --tag-size / --yaw-offset-deg.
-"""
+"""Generate a multi-material 3D-print file for the robot's AprilTag (Bambu Lab AMS)."""
 
 from __future__ import annotations
 
@@ -40,7 +11,7 @@ import numpy as np
 import trimesh
 
 DICTIONARY = cv2.aruco.DICT_APRILTAG_36h11
-BORDER_BITS = 1  # AprilTag 36h11: 6 data bits + 1 black border ring per side -> 8 bits across.
+BORDER_BITS = 1
 WHITE = (235, 235, 235, 255)
 BLACK = (20, 20, 20, 255)
 CONTENT_TYPES = (
@@ -62,7 +33,8 @@ RELS = (
 def bit_grid(dictionary: cv2.aruco.Dictionary, tag_id: int, side_bits: int) -> np.ndarray:
     """Return a side_bits x side_bits bool array, True where the tag cell is black."""
     img = dictionary.generateImageMarker(tag_id, side_bits, borderBits=BORDER_BITS)
-    return img < 128  # row r, col c -> black?
+    is_black_cell = img < 128
+    return is_black_cell
 
 
 def black_cell_boxes(
@@ -72,12 +44,7 @@ def black_cell_boxes(
     base_h: float,
     tag_h: float,
 ) -> list[trimesh.Trimesh]:
-    """Boxes for the black cells, raised on top of the base. origin is the tag's (x0, y0) corner in
-    mm.
-
-    Consecutive black cells in a row are merged into one box to keep the mesh small and free of
-    internal coplanar faces.
-    """
+    """Boxes for the black cells, raised on top of the base."""
     side = grid.shape[0]
     cell = tag_mm / side
     boxes: list[trimesh.Trimesh] = []
@@ -92,9 +59,6 @@ def black_cell_boxes(
                 c += 1
             run = c - run_start
             cx = origin[0] + cell * (run_start + run / 2.0)
-            # Image row r counts from the top, world +y points up: row 0 must land at the high-y
-            # edge so a top- down camera sees the tag, not its vertical mirror. (A reflected 36h11
-            # tag never decodes.)
             cy = origin[1] + cell * (side - 1 - r + 0.5)
             box = trimesh.creation.box(extents=[cell * run, cell, tag_h])
             box.apply_translation([cx, cy, base_h + tag_h / 2.0])
@@ -144,9 +108,7 @@ def write_3mf(path: Path, white: trimesh.Trimesh, black: trimesh.Trimesh) -> Non
 
 
 def verify(grid: np.ndarray, tag_id: int, tag_mm: float, ppm: float) -> None:
-    """Rasterize the black cells top-down with a quiet zone and re-detect, confirming id and
-    orientation.
-    """
+    """Rasterize the black cells and re-detect id and orientation."""
     side = grid.shape[0]
     cell = tag_mm / side
     pad = tag_mm * 0.25

@@ -1,42 +1,12 @@
-"""Convert between output-shaft acceleration (RPM/s) and wheel-surface linear
-acceleration (m/s^2).
-
-This is the same relation the OpenTxTransmitter uses to turn its
-`max_motor_rpm_per_sec` limit into a physical acceleration cap.
-
-The wheel contacts the ground at radius r = wheel_diameter / 2. A shaft turning
-at N rpm moves the contact patch at:
-
-    v = omega * r = (N / 60 * 2*pi) * (wheel_diameter / 2)
-      = N * pi * wheel_diameter / 60      [m/s]
-
-Differentiating (wheel diameter is constant) gives the acceleration pair:
-
-    a       = dRPM/dt * pi * wheel_diameter / 60      [m/s^2]
-    dRPM/dt = a * 60 / (pi * wheel_diameter)          [RPM/s]
-
-Note this is the OUTPUT-shaft rpm (after the gearbox), which is what
-`max_motor_rpm` / `max_motor_rpm_per_sec` in the transmitter config refer to.
-
-The measured slip/flip ceiling for this robot is 8.5 m/s^2. At the config
-default wheel_diameter of 0.05 m that works out to ~3247 RPM/s.
-
-Usage:
-    python playground/rpm_accel_convert.py                 # reference table
-    python playground/rpm_accel_convert.py --mps2 8.5      # m/s^2  -> RPM/s
-    python playground/rpm_accel_convert.py --rpm-per-sec 3000  # RPM/s -> m/s^2
-    python playground/rpm_accel_convert.py --mps2 8.5 --wheel-diameter 0.06
-"""
+"""Convert between output-shaft acceleration (RPM/s) and wheel-surface linear acceleration."""
 
 from __future__ import annotations
 
 import argparse
 import math
 
-# --- Defaults (match config/_common.toml [transmitter]) -------------------
-
-DEFAULT_WHEEL_DIAMETER_M = 0.05  # output-shaft wheel diameter, meters
-SLIP_FLIP_LIMIT_MPS2 = 8.5  # measured linear accel before slipping/flipping
+DEFAULT_WHEEL_DIAMETER_M = 0.05
+SLIP_FLIP_LIMIT_MPS2 = 8.5
 
 
 def rpm_per_sec_to_mps2(rpm_per_sec: float, wheel_diameter: float) -> float:

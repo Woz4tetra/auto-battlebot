@@ -1,20 +1,5 @@
 #!/usr/bin/env python3
-"""Real frames with MRS BUFF MK3 on the mat, with its pose recovered for re-rendering.
-
-Walks each Cage 2 clip that has a fitted camera pose, runs the yolo26x pose model on every
---stride-th frame, and keeps frames where exactly one `mrs_buff_mk3` is detected with both
-keypoints confident, clear of every other robot, and inside the mat hull. Each kept frame is
-rectified like the targets and its keypoints are undistorted and projected through the clip's
-camera onto the mat plane, which gives the robot's W-frame position and heading.
-
-    <out>/robot_frames/<clip>_f<frame>/frame.png      rectified real frame
-    <out>/robot_frames/<clip>_f<frame>/pose.json      x_m, y_m, yaw_deg, box, keypoints, pose toml
-    <out>/robot_frames/<clip>_f<frame>/overlay.png    box, keypoints and projected heading
-
-Usage:
-    venv/bin/python playground/cage_scene/pick_robot_frames.py runs/cage_scene \\
-        data/downloads/mrsbuff_may26 --per-clip 3 --stride 90
-"""
+"""Pick real frames with MRS BUFF MK3 on the mat and recover its pose."""
 
 from __future__ import annotations
 
@@ -43,6 +28,13 @@ MIN_KEYPOINT_CONF = 0.5
 MIN_BOX_CONF = 0.4
 MIN_SEPARATION_PX = 120.0
 HULL_MARGIN_PX = 40
+
+
+def spread_picks(candidates: list, count: int) -> list:
+    return [
+        candidates[int(round(i))]
+        for i in np.linspace(0, len(candidates) - 1, min(count, len(candidates)))
+    ]
 
 
 def load_statuses(scene_dir: Path) -> dict[str, str]:
@@ -150,11 +142,7 @@ def main() -> None:
         if not candidates:
             print(f"{video.stem}: no clean MRS BUFF frames")
             continue
-        # Spread the picks over the clip: first, last, and evenly between.
-        picks = [
-            candidates[int(round(i))]
-            for i in np.linspace(0, len(candidates) - 1, min(args.per_clip, len(candidates)))
-        ]
+        picks = spread_picks(candidates, args.per_clip)
         for frame_index, det, frame in picks:
             rectified = cv2.remap(frame, map_x, map_y, cv2.INTER_LINEAR)
             pts = undistort_points(np.array([det["front"], det["back"]]), calibration, k_rect)

@@ -171,3 +171,21 @@ the same commit, and a filter change after training means a retrain.
 - Add MassD 11-17's opponent to `heading_blind_labels` if it gets its own label.
 - Merge `sensing_model_opponent.toml` into the RL plan's `sensing_model.toml` when
   `fit_sensing_model.py` exists.
+
+## Evaluation script notes
+
+### `playground/opponent_prediction/phase2_body_frame.py`
+
+`phase2_body_frame.py`:
+
+Plan step 7 prototype: the body-frame opponent EKF, scored against phase 1 and the baselines.
+
+State `[x, y, u, s, theta, omega]`: forward speed `u` and lateral speed `s` in the body frame, so the predicted path bends with the yaw rate instead of running straight. The measurement rows (x, y, theta) sit at the same indices as phase 1, so gating, flips and rewind are the mirror's. Propagation is an EKF in 10 ms substeps. A heading re-initialization rotates (u, s) so the world velocity survives it. Lateral speed gets its own process noise (`lateral_accel_psd`), small for a two-wheel robot.
+
+The gate (fixed before running this): median rendered position error at the 0.1 s and 0.35 s bins below both `hold` and `kalman4`, on the held-out session, natural gaps and 1 s gaps.
+
+```
+Usage:
+    source scripts/activate_python.sh
+    python playground/opponent_prediction/phase2_body_frame.py
+```

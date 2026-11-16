@@ -1,32 +1,5 @@
 #!/usr/bin/env python3
-"""Fit the basement drive-test box camera from ZED depth and the rail edges, K known.
-
-The box is a 5 ft plywood floor inside 2x4 rails stood on edge, pushed into a corner of the
-basement's stone walls. The camera is our own ZED on a stand beside it, so unlike the MassD
-broadcast the intrinsics are known (`camera_rect.json`, read from the SVO) and the SVO has
-metric depth. Two steps:
-
-1. Floor plane from depth. RANSAC over the XYZ of the plywood-coloured pixels, refined by
-   SVD. This fixes camera height and tilt without assuming anything about the box.
-2. Box centre and yaw in that plane from the image. The rails give sharp edges: the floor
-   meeting the left, right and far rails, and the inner and outer top edges of all four.
-   Starting from the rail-top points in the depth, (x, y, yaw) is moved until those edges,
-   projected through K, sit on the Canny edges of the target (mean clipped distance). Depth
-   alone puts the right rail 5 cm off: the camera looks straight at its inner face and the
-   stereo smears it.
-
-Box size is an input (`--mat-size`, `--rail-height`, `--rail-thickness`), not a fit: the
-depth measured 1.515 x 1.530 m inside the rails and 0.0875 m rail height, which is a 5 ft
-square and a 3.5 in 2x4 to within the stereo's noise.
-
-Reads `<scene>/targets/<clip>/{target.png, xyz.npy, meta.json}` and `<scene>/camera_rect.json`.
-Writes `<scene>/poses/<clip>.toml` (CageCalibration, W frame: floor centre, z up, +y away
-from the camera), `<scene>/poses/<clip>_overlay.png`, `<scene>/poses/summary.csv`, and
-`<scene>/targets/<clip>/hull_mask.png`: the floor the camera sees, rails cut out.
-
-Usage:
-    venv/bin/python playground/basement_scene/fit_basement_camera.py runs/basement_scene
-"""
+"""Fit the basement drive-test box camera from ZED depth and the rail edges, K known."""
 
 from __future__ import annotations
 
@@ -36,7 +9,7 @@ import json
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import cv2
 import numpy as np
@@ -49,13 +22,14 @@ from auto_battlebot.perception.cage_calibration import (
     save_cage_calibration,
 )
 
-MAT_SIZE_M = 1.524  # 5 ft
-RAIL_HEIGHT_M = 0.0889  # 2x4 on edge, 3.5 in
-RAIL_THICKNESS_M = 0.0381  # 1.5 in
+FT_M = 0.3048
+INCH_M = 0.0254
+MAT_SIZE_M = 5 * FT_M
+RAIL_HEIGHT_M = 3.5 * INCH_M
+RAIL_THICKNESS_M = 1.5 * INCH_M
 PLANE_INLIER_M = 0.005
 RAIL_TOP_BAND_M = (0.078, 0.100)
 EDGE_CLIP_PX = 15.0
-# Plywood in HSV (OpenCV ranges): the pixels the floor plane is fitted to.
 PLYWOOD_HSV = ((8, 40, 120), (30, 200, 255))
 
 
@@ -86,6 +60,10 @@ def floor_pixels(target: np.ndarray) -> np.ndarray:
     return cv2.erode(floor, np.ones((25, 25), np.uint8)) > 0
 
 
+def orient_up_toward_camera(normal: np.ndarray, origin: np.ndarray) -> np.ndarray:
+    return -normal if normal @ -origin < 0 else normal
+
+
 def fit_plane(xyz: np.ndarray, floor: np.ndarray, seed: int) -> Plane:
     points = xyz[floor]
     points = points[np.isfinite(points).all(axis=1)]
@@ -103,12 +81,11 @@ def fit_plane(xyz: np.ndarray, floor: np.ndarray, seed: int) -> Plane:
     fitted = points[best]
     origin = fitted.mean(axis=0)
     normal = np.linalg.svd(fitted - origin)[2][2]
-    if normal @ -origin < 0:  # up points back toward the camera
-        normal = -normal
+    normal = orient_up_toward_camera(normal, origin)
     x_axis = np.array([1.0, 0.0, 0.0]) - normal[0] * normal
     x_axis /= np.linalg.norm(x_axis)
     y_axis = np.cross(normal, x_axis)
-    if y_axis[2] < 0:  # +y runs away from the camera
+    if y_axis[2] < 0:
         x_axis, y_axis = -x_axis, -y_axis
     rms = float(np.sqrt((((fitted - origin) @ normal) ** 2).mean()))
     return Plane(origin, np.c_[x_axis, y_axis, normal], rms, int(best.sum()))
@@ -140,11 +117,7 @@ def rail_top_start(xyz: np.ndarray, plane: Plane) -> np.ndarray:
 
 
 def _mid_between_peaks(values: np.ndarray) -> float:
-    """Midpoint of the densest 5 mm bin in each half: the two opposite rail tops.
-
-    Percentiles of the extent would not do: the stone wall stands at rail-top height just
-    outside two of the rails and drags them outward.
-    """
+    """Midpoint of the densest 5 mm bin in each half: the two opposite rail tops."""
     counts, edges = np.histogram(values, bins=np.arange(values.min(), values.max() + 0.005, 0.005))
     centres = (edges[:-1] + edges[1:]) / 2
     half = len(centres) // 2
@@ -250,6 +223,11 @@ def world_from_camera_pose(plane: Plane, params: np.ndarray) -> np.ndarray:
     return np.asarray(np.linalg.inv(camera_from_world))
 
 
+class RailBox(NamedTuple):
+    x_range: tuple[float, float]
+    y_range: tuple[float, float]
+
+
 def hull_mask(
     shape: tuple[int, int], k: np.ndarray, plane: Plane, params: np.ndarray, box: Box
 ) -> np.ndarray:
@@ -261,12 +239,13 @@ def hull_mask(
     floor = [box_point(plane, params, a * inner, b * inner, 0.0) for a, b in corners]
     cv2.fillPoly(mask, [np.round(project(k, np.array(floor))).astype(np.int32)], 255)
     rails = (
-        ((-outer, -inner), (-outer, outer)),  # left: x range, y range
-        ((inner, outer), (-outer, outer)),
-        ((-outer, outer), (inner, outer)),
-        ((-outer, outer), (-outer, -inner)),
+        RailBox((-outer, -inner), (-outer, outer)),
+        RailBox((inner, outer), (-outer, outer)),
+        RailBox((-outer, outer), (inner, outer)),
+        RailBox((-outer, outer), (-outer, -inner)),
     )
-    for (x0, x1), (y0, y1) in rails:
+    for rail in rails:
+        (x0, x1), (y0, y1) = rail.x_range, rail.y_range
         corners = [
             box_point(plane, params, x, y, z)
             for x in (x0, x1)

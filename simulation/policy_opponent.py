@@ -1,22 +1,4 @@
-"""An opponent driven by an RL navigation bundle on its own Mr Stabs Mk2 plant.
-
-`[[opponents]] behavior = "policy"` runs `policy_bundle` through `BundlePolicy` the way
-`RlPolicyNavigation` runs it on our robot, so a config can put the same policy on both robots.
-The opponent steps the MuJoCo plant our robot uses, with the fit and pack voltage from
-`[our_robot.mujoco]` and the same `[latency] command_ms`, and attacks our robot.
-
-Each plant carries the other robot as a moving box (`collision_box`), placed at its footprint
-centre every tick, which is the shape the RL environment gives its opponent. Two boxes pushed by
-two plants is not one contact solve: each robot feels the other as an immovable mocap body.
-
-The opponent sees ground truth: our footprint centre, its finite-difference velocity, no sigmas,
-ages or stale flags. That is the observation the policy trained on with sensing off. Our robot
-still sees the opponent through the sensing model and the C++ filter.
-
-`pose()` is the opponent's footprint centre, not its axle, so the C++ side, the viewer and our
-plant's contact box all see the robot where its footprint is, as the training opponent's pose is
-its box centre.
-"""
+"""An opponent driven by an RL navigation bundle on its own Mr Stabs Mk2 plant."""
 
 from __future__ import annotations
 
@@ -35,12 +17,11 @@ from auto_battlebot.rl.torch_plant import saturate
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
-# The RL environment's policy step. The policy holds its action between steps at a finer [sim] dt.
 POLICY_PERIOD_S = 0.02
 
 HAZARD_KINDS = {"hole": obs_spec.HOLE, "wall_block": obs_spec.WALL_BLOCK}
 
-MR_STABS_MK2_SIZE_M = (0.137, 0.16, 0.0703)  # length, width, height
+MR_STABS_MK2_SIZE_M = (0.137, 0.16, 0.0703)
 MR_STABS_MK2_HALF_DIAGONAL_M = 0.5 * math.hypot(MR_STABS_MK2_SIZE_M[0], MR_STABS_MK2_SIZE_M[1])
 
 
@@ -56,8 +37,7 @@ class PolicyOpponent:
         latency_ticks: int,
         dt: float,
     ) -> None:
-        """`us` is our robot as a contact box; `others` the remaining opponents with a
-        hazard_radius, in the order `observe` hands their poses over."""
+        """Build the opponent plant against our robot and other opponents."""
         plant_cfg = PlantConfig(
             plant=PlantType.MUJOCO,
             mujoco=our_robot.mujoco,
@@ -88,8 +68,7 @@ class PolicyOpponent:
         self._others_velocity: list[tuple[float, float]] = []
 
     def observe(self, us: Pose, us_yaw_rate: float, others: list[Pose]) -> None:
-        """Our robot's footprint-centre pose and yaw rate, and the other opponents' poses, this
-        tick. Velocities come from the change since the last call."""
+        """Hand over this tick's poses of our robot and the other opponents."""
 
         def velocity(new: Pose, old: Pose | None) -> tuple[float, float]:
             if old is None:
@@ -107,8 +86,6 @@ class PolicyOpponent:
         if self._target is None:
             raise RuntimeError("PolicyOpponent.step before observe")
         if self._ticks_until_step <= 0:
-            # The transmitter's drive processor sits between the policy and the robot, as
-            # SimTransmitter puts it in front of our plant and the RL environment trains with it.
             action = torch.tensor([self._policy.act(self._view())])
             self._action = tuple(saturate(action)[0].tolist())
             self._ticks_until_step = self._period
@@ -128,8 +105,8 @@ class PolicyOpponent:
         ]
         return PolicyView(
             our_pose=self._plant.pose(),
-            our_speed=self._plant.v,
-            our_yaw_rate=self._plant.w,
+            our_speed=self._plant.v_mps,
+            our_yaw_rate=self._plant.w_radps,
             target_pose=self._target,
             target_velocity=self._target_velocity,
             target_yaw_rate=self._target_yaw_rate,

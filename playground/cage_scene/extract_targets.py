@@ -1,25 +1,5 @@
 #!/usr/bin/env python3
-"""Robot-free, rectified target frames from the fixed cage-high clips.
-
-One target per clip: the per-pixel median over frames spread across the fight (robots move,
-so each pixel shows bare floor in most samples), remapped through the same rectification the
-C++ camera path applies, so a pinhole render at the rectified K lines up with it. The clip's
-cached hull polygon is undistorted the same way and rasterised beside it.
-
-Output layout:
-
-    <out>/camera_rect.json                 rectified K for every later stage
-    <out>/targets/<clip>/target.png        1920x1080 rectified median frame
-    <out>/targets/<clip>/hull_mask.png     255 inside the mat hull
-    <out>/targets/<clip>/meta.json         event, cage, game, source url, sample count
-    <out>/targets/<clip>/target_4k.png     with --fetch-4k: rectified median of N remote 4K frames
-
-Usage:
-    venv/bin/python playground/cage_scene/extract_targets.py \\
-        data/downloads/brettzone_cage_high --cage 2 --weight-class 3lb --out runs/cage_scene
-    venv/bin/python playground/cage_scene/extract_targets.py \\
-        data/downloads/mrsbuff_may26 --cage 2 --out runs/cage_scene
-"""
+"""Robot-free, rectified target frames from the fixed cage-high clips."""
 
 from __future__ import annotations
 
@@ -43,6 +23,10 @@ from auto_battlebot.segmentation.field_hull import hull_mask_from_polygon, load_
 
 DEFAULT_CALIBRATION = Path("config/cameras/brettzone_cage_high.toml")
 SOURCE_SIZE = (3840, 2160)
+
+
+def event_group_from_tournament_id(entry: dict[str, Any]) -> str:
+    return str(entry.get("tournament_id", "")).rsplit("_", 1)[0]
 
 
 def load_manifest(clip_dir: Path) -> dict[str, dict[str, Any]]:
@@ -180,8 +164,7 @@ def main() -> None:
             "clip": video.stem,
             "video": str(video),
             "event": entry.get("tournament_id"),
-            # Weight classes share a weekend and a camera mount, so they share an event group.
-            "event_group": str(entry.get("tournament_id", "")).rsplit("_", 1)[0],
+            "event_group": event_group_from_tournament_id(entry),
             "game_id": entry.get("game_id"),
             "cage": entry.get("cage"),
             "camera": entry.get("camera"),

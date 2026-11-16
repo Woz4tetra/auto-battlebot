@@ -169,3 +169,88 @@ stage 4 nav mapping with match-fit constants.
    overlaying regenerated poses on original-command timestamps for one known maneuver.
 3. Run the ladder fit from the Stage A seed, then the three-plant scoring, and write the
    report.
+
+## Match plant fit implementation notes
+
+### `playground/calibration/fit_match_plant.py`
+
+- `PINNED_DEADZONES`: Deadzones stay at the jig bracket midpoints: fights rarely dwell near the motion threshold, so match data cannot resolve them and the jig brackets stay the best available priors (plan step 4).
+- `HORIZONS`: The plan's objective horizons plus 400 ms, where the EKF acceptance criteria C2/C3 are stated. Same set as the jig CLI.
+
+`load_seed`:
+
+Stage A parameters plus per-parameter fit bounds.
+
+Gains and time constants get the jig error bars widened `widen`x (different floor, different battery). Coupling and drift terms keep the wide global bounds: the jig grid produced zero passing coupling runs, so match data owns them. Everything is clipped into PARAM_BOUNDS so a huge jig spread cannot unlock nonsense.
+
+- `load_seed`: No usable error bar: fall back to half the value, still clipped.
+- `load_seed`: The global c_sb cap of 1.5 predates the jig grid, which measured 2.70 +/- 0.106. The plan gives coupling terms wide bounds, so the cap must sit above what the jig saw, not below it.
+
+`profile_delay_match`:
+
+Grid-profile the transport delay for one rung. Returns (best_delay, costs).
+
+Resolution is bounded by the ~33 ms frame grid, so the profile answers "which third of a frame" at best; the curve going in the report matters more than the minimum (a flat profile means match excitation cannot see it).
+
+`flag_nonresponsive`:
+
+Windows where the command was large but the robot barely answered.
+
+The driver reported stretches where the robot did not respond to commands. Those windows would teach the fit that commands do nothing, so they are flagged, listed as a deliverable, and excluded from the final fit.
+
+`noise_floor`:
+
+Repeatability floor from matched-command window pairs.
+
+The driver repeats spins, charges, and reversals constantly, so pairs of non-overlapping windows with near-identical command tapes and initial velocity exist in bulk. How differently the robot answers the same command is the floor no model can beat; every gate is read relative to it.
+
+- `noise_floor`: A pair difference has twice the single-window variance.
+
+`gain_drift`:
+
+Observed-over-predicted displacement ratio against time into the recording.
+
+Battery state is not in the recordings, so voltage sag is absorbed into the fitted gains; a negative slope here is the evidence base for promoting battery telemetry to the diagnostics stream.
+
+- `main`: Prefer the lowest rung within 1% of the best: extra terms must earn their place.
+- `main`: --- three-plant scoring on identical windows --- Windows are identical in starts and truth; each plant's command tape is shifted by that plant's own delay, because the delay lives in the window command matrices, not in the simulator. The jig delay is measured on the send timeline while these commands sit on the readback-log timeline (which lags the RF frame by tens of ms), so the seed is also scored with the match-profiled delay to separate the timeline artifact from the physical gains and time constants.
+
+### `playground/calibration/render_match_prediction.py`
+
+`render_match_prediction.py`:
+
+Render open-loop prediction videos against the measured match track.
+
+For each joined recording, the plant model integrates forward from the measured pose for a fixed horizon (default 3 s), then resets to the measurement and goes again. The video shows where the model walks off and how fast: measured robot in blue, predicted ghost in orange, error readout in the corner.
+
+Prediction only runs while the auto switch was up (in manual segments the logged channels did not drive the robot, so there is nothing to predict from) and resets wait for a frame with a measured pose.
+
+```
+Usage:
+    source scripts/activate_python.sh
+    python playground/calibration/render_match_prediction.py \
+        --pair <replay>.mcap:<original>.mcap:2026-05-01_17-42-20 \
+        --params playground/calibration/out/plant_match.toml \
+        --cmd-lead-ms 40 \
+        --out-dir playground/calibration/out/match_fit/videos
+```
+
+### `playground/calibration/render_match_prediction_camera.py`
+
+`render_match_prediction_camera.py`:
+
+Render open-loop prediction videos reprojected into the camera view.
+
+Same content as `render_match_prediction.py` (plant integrates the transmitted commands open loop, resetting to the measured pose every few seconds) but drawn over the actual SVO RGB frames: measured footprint in blue, predicted ghost in orange, both projected onto the field plane through the replay's per-tick field->camera_world->camera transforms and camera intrinsics.
+
+The SVO file is taken from `/camera/frame_meta` (it records the path the replay played), and the Nth decoded left-eye JPEG is SVO frame N, so frames pair with ticks exactly. Projection uses the tick's own field->camera_world transform, so field re-initializations mid-replay cannot smear the overlay.
+
+```
+Usage:
+    source scripts/activate_python.sh
+    python playground/calibration/render_match_prediction_camera.py \
+        --pair <replay>.mcap:<original>.mcap:2026-05-01_17-42-20 \
+        --params playground/calibration/out/plant_match.toml \
+        --cmd-lead-ms 40 \
+        --out-dir playground/calibration/out/match_fit/videos
+```

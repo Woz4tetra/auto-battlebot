@@ -1,34 +1,4 @@
-"""Fit the gyro noise model from a long stationary recording (runbook E2).
-
-A bias estimate taken from a 10 s still hold is only good for as long as the bias stays
-put. The Allan deviation curve says how long that is: it falls while averaging still helps,
-bottoms out where bias instability takes over, and climbs once the bias itself is wandering.
-The tau at the minimum is the answer to "how often do the still holds need retaking", and
-the two slopes on either side are the process-noise terms the filter needs for heading.
-
-    source scripts/activate_python.sh
-    python playground/calibration/fit_gyro_noise.py \\
-        playground/calibration/out/gyro_bias/LOG-97.TXT \\
-        --plot playground/calibration/out/gyro_noise.png
-
-Runs on one log, so a 30 min recording of a robot doing nothing is the whole experiment.
-Longer is better: the curve is only trustworthy out to about a tenth of the record, because
-past that there are too few independent clusters left to average.
-
-Three axes plus yaw. Yaw is taken along measured gravity rather than off whichever gyro
-channel happens to point up, matching E0 and fit_gyro_scale.py: at rest the accelerometer
-reads +1 g on the axis pointing up, so the unit vector along it is the yaw axis whatever
-the mount looks like. That survives a tilted remount where a fixed channel would not.
-
-The estimators follow IEEE 952:
-
-    N  angle random walk    sigma = N / sqrt(tau)     slope -1/2, read at tau = 1 s
-    B  bias instability     sigma = 0.664 * B         slope 0, the floor of the curve
-    K  rate random walk     sigma = K * sqrt(tau / 3) slope +1/2, read at tau = 3 s
-
-Nothing here reads the encoder or the command log, so this is the one experiment that needs
-no radio and no clear floor.
-"""
+"""Fit the gyro noise model from a long stationary recording (runbook E2)."""
 
 from __future__ import annotations
 
@@ -40,13 +10,8 @@ import numpy as np
 
 from auto_battlebot.calibration.jig.velocity_jig import JigLog, read_jig_log
 
-# Clusters longer than this fraction of the record average too few independent samples to
-# mean anything: at tau = T/3 there are three clusters, and the curve turns into noise about
-# its own noise. IEEE 952 draws confidence bands instead; truncating is the blunt version and
-# is enough to keep a reader from over-reading the right-hand tail.
 MAX_CLUSTER_FRACTION = 0.1
 
-# Points per decade on the tau axis. Log-spaced, because that is how the curve is read.
 POINTS_PER_DECADE = 12
 
 
@@ -76,17 +41,7 @@ class AllanCurve:
 
 
 def overlapping_allan(rate: np.ndarray, dt: float) -> tuple[np.ndarray, np.ndarray]:
-    """Overlapping Allan deviation of a rate signal.
-
-    Works on the integrated angle, which turns the three-sample second difference into two
-    array slices and makes the whole sweep a handful of passes over the data instead of a
-    Python loop per cluster.
-
-        sigma^2(tau) = sum (theta[k+2m] - 2 theta[k+m] + theta[k])^2 / (2 tau^2 (n - 2m))
-
-    Overlapping rather than plain: every offset within a cluster contributes, which buys
-    roughly sqrt(3) tighter confidence for the same record at no extra cost here.
-    """
+    """Overlapping Allan deviation of a rate signal."""
     n = len(rate)
     theta = np.concatenate([[0.0], np.cumsum(rate) * dt])
     m_max = int(n * MAX_CLUSTER_FRACTION)
@@ -111,29 +66,16 @@ def _read_at(
     slope: float,
     band: np.ndarray | None = None,
 ) -> float:
-    """Value of the slope-`slope` asymptote at tau = `target`.
-
-    Reading a single point off a noisy curve throws away most of the record, so this fits the
-    line of the known slope through `band` and evaluates it at the target. `band` defaults to
-    the decade around the target, which keeps the fit inside the region where that slope
-    actually holds instead of dragging in the part of the curve governed by a different term.
-    Pass a band explicitly when the asymptote lives somewhere other than near the target,
-    which is the case for rate random walk on any record short enough that the +1/2 region
-    has not opened up by tau = 3 s.
-    """
+    """Value of the slope-`slope` asymptote at tau = `target`."""
     if band is None:
         lo, hi = target / np.sqrt(10.0), target * np.sqrt(10.0)
         band = (tau >= lo) & (tau <= hi)
     if np.count_nonzero(band) < 2:
         band = np.argsort(np.abs(np.log(tau / target)))[:3]
-    # log(sigma) = log(c) + slope * log(tau), only the intercept is free.
     c = np.mean(np.log(sigma[band]) - slope * np.log(tau[band]))
     return float(np.exp(c + slope * np.log(target)))
 
 
-# A record only measures rate random walk if its curve has actually turned up. Requiring the
-# far end to sit this far above the floor rejects a curve that merely stopped falling, where
-# fitting a +1/2 line would report the noise floor dressed up as a drift term.
 RRW_RISE_RATIO = 1.15
 
 
@@ -169,16 +111,18 @@ def fit_axis(name: str, rate_dps: np.ndarray, dt: float) -> AllanCurve:
 
 
 def yaw_rate(log: JigLog) -> np.ndarray:
-    """Gyro projected onto measured gravity, in deg/s.
-
-    The whole record is stationary, so the mean accelerometer vector is gravity and there is
-    no centripetal term to swamp it. A 20 mg accel bias tilts this by about 20 mrad, which
-    leaks 2% of the roll and pitch rates into yaw; on a robot sitting still that is 2% of
-    nothing.
-    """
+    """Gyro projected onto measured gravity, in deg/s."""
     up = log.accel.mean(axis=0)
     up = up / np.linalg.norm(up)
     return np.asarray((log.gyro @ up) * 180.0 / np.pi, dtype=float)
+
+
+def draw_slope_guides(curves, ax):
+    ref = curves[0]
+    c = _read_at(ref.tau, ref.sigma, 1.0, -0.5)
+    guide = c * ref.tau**-0.5
+    ax.loglog(ref.tau, guide, "--", color="0.6", lw=0.9)
+    ax.annotate("-1/2  angle random walk", (ref.tau[2], guide[2]), color="0.4", fontsize=8)
 
 
 def make_plot(path: Path, curves: list[AllanCurve], duration_s: float) -> None:
@@ -199,16 +143,8 @@ def make_plot(path: Path, curves: list[AllanCurve], duration_s: float) -> None:
             mfc="none",
         )
 
-    # Slope guides, placed off the first curve so they sit on the data rather than floating.
-    ref = curves[0]
-    c = _read_at(ref.tau, ref.sigma, 1.0, -0.5)
-    guide = c * ref.tau**-0.5
-    ax.loglog(ref.tau, guide, "--", color="0.6", lw=0.9)
-    ax.annotate("-1/2  angle random walk", (ref.tau[2], guide[2]), color="0.4", fontsize=8)
+    draw_slope_guides(curves, ax)
 
-    # The +1/2 guide is anchored in the region that actually rises, and only drawn over that
-    # region. Drawn across the whole axis from a tau = 3 s anchor it would sit a decade under
-    # the data and imply a drift term this record cannot see.
     rise = next((c for c in curves if np.isfinite(c.rrw_deg_per_s_sqrt_s)), None)
     if rise is not None:
         band = rising_band(rise.tau, rise.sigma)

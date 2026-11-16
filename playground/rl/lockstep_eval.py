@@ -1,27 +1,4 @@
-"""Score a C++ navigation on exported RL evaluation scenarios in the lockstep sim (gates G4, G5).
-
-For each scenario: write a hazards file and a C++ config overlay (arena size, hazards, measurement
-labels, behaviour mode, navigation), start `simulation/rl_eval_server.py` on its own port, run the
-release binary against it, and collect the episode score the server appends to the results file.
-Episodes run in parallel, one server and one binary per worker.
-
-    source scripts/activate_python.sh
-    # export 128 held-out evaluation scenarios from the Warp environment
-    python playground/rl/lockstep_eval.py export --count 128 --seed 2026 \\
-        --out playground/rl/out/scenarios.json
-    # score MotionProfileNavigation and a trained bundle on them
-    python playground/rl/lockstep_eval.py run playground/rl/out/scenarios.json --nav motion_profile
-    python playground/rl/lockstep_eval.py run playground/rl/out/scenarios.json --nav rl \\
-        --bundle <dir>
-
-`export --robot mrs_buff_mk3` exports Mrs Buff Mk3 episodes; `run` reads the robot from the
-scenarios and runs the binary on that robot's sim profile (`BASE_CONFIG`). Scenarios that drew
-a policy-driven opponent (`policy_opponents.py`) replay it.
-
-`--record <dir>` keeps each episode's work directory under `<dir>/ep<index>` and records an MCAP
-there. The binary writes recordings to `<cwd>/data/recordings`, so it runs from that directory
-with a `config` symlink, which keeps the recordings out of the repo's `data/`.
-"""
+"""Score a C++ navigation on exported RL scenarios in the lockstep sim."""
 
 from __future__ import annotations
 
@@ -60,8 +37,7 @@ max_angular_command = 1.0
 def export(
     count: int, seed: int, out: Path, episode_s: float, pursuit_grid: int, robot: str
 ) -> None:
-    """`pursuit_grid` > 0 exports that many pursuit-only attack episodes per cell of
-    `PURSUIT_GRID` instead of the `EVAL` mix."""
+    """Export evaluation scenarios, optionally a pursuit grid."""
     import torch
 
     from auto_battlebot.rl.envs.opponents import PURSUIT_GRID
@@ -233,15 +209,13 @@ def run(
     count = len(json.loads(scenarios.read_text()))
     indices = list(range(count if limit is None else min(count, limit)))
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.unlink(missing_ok=True)  # the server appends; a rerun must not stack on old results
-    # The binary runs from the record directory, so every path it is handed must be absolute.
+    out.unlink(missing_ok=True)
     record = record.resolve() if record is not None else None
     text = extra.read_text() if extra is not None else ""
     jobs = [
         (scenarios, i, nav, bundle, out, port_base + (i % workers), record, text, barrier)
         for i in indices
     ]
-    # Ports are reused by worker slot; a slot runs its jobs one after another.
     slots: list[list[Job]] = [[] for _ in range(workers)]
     for i, job in enumerate(jobs):
         slots[i % workers].append(job)

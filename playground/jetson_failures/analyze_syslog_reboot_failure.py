@@ -1,12 +1,5 @@
 #!/usr/bin/env python3
-"""Analyze syslog and extract possible failure events before reboot.
-
-Designed for cases where a lockup required power cycling:
-it detects reboot markers, then inspects the pre-reboot window for clues.
-
-Example:
-  python3 playground/analyze_syslog_reboot_failure.py ~/Desktop/syslog_dump
-"""
+"""Extract likely failure events before each reboot in a syslog dump."""
 
 from __future__ import annotations
 
@@ -135,6 +128,15 @@ def extract_ts_prefix(line: str) -> str | None:
     return f"{mon_s} {int(day_s):02d} {hh_s}:{mm_s}:{ss_s}"
 
 
+def roll_year_forward(
+    raw: str, dt: datetime | None, prev_dt: datetime | None, current_year: int
+) -> tuple[datetime | None, int]:
+    if dt is not None and prev_dt is not None and dt < prev_dt - timedelta(days=180):
+        current_year += 1
+        dt = parse_timestamp(raw, current_year)
+    return dt, current_year
+
+
 def load_lines(path: Path, base_year: int) -> list[LogLine]:
     lines: list[LogLine] = []
     current_year = base_year
@@ -145,10 +147,7 @@ def load_lines(path: Path, base_year: int) -> list[LogLine]:
             raw = raw.rstrip("\n")
             dt = parse_timestamp(raw, current_year)
 
-            # Handle year rollover for multi-month dumps without year in syslog prefix.
-            if dt is not None and prev_dt is not None and dt < prev_dt - timedelta(days=180):
-                current_year += 1
-                dt = parse_timestamp(raw, current_year)
+            dt, current_year = roll_year_forward(raw, dt, prev_dt, current_year)
 
             if dt is not None:
                 prev_dt = dt
@@ -162,18 +161,21 @@ def is_reboot_marker(raw: str, markers: list[re.Pattern[str]]) -> bool:
     return any(rx.search(raw) for rx in markers)
 
 
+def dedupe_reboot_markers(idxs: list[int]) -> list[int]:
+    deduped: list[int] = []
+    for i in idxs:
+        if not deduped or i - deduped[-1] > 200:
+            deduped.append(i)
+    return deduped
+
+
 def find_reboot_indices(lines: list[LogLine], markers: list[re.Pattern[str]]) -> list[int]:
     idxs: list[int] = []
     for i, ll in enumerate(lines):
         if is_reboot_marker(ll.raw, markers):
             idxs.append(i)
 
-    # Deduplicate nearby markers in same boot event cluster.
-    deduped: list[int] = []
-    for i in idxs:
-        if not deduped or i - deduped[-1] > 200:
-            deduped.append(i)
-    return deduped
+    return dedupe_reboot_markers(idxs)
 
 
 def find_failures(lines: list[LogLine]) -> list[Finding]:

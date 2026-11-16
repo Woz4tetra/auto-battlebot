@@ -1,30 +1,4 @@
-"""Render the opponent filter coasting through dropouts, drawn over the camera video.
-
-One video per scene, each with a 0.2 s, a 1 s and a 3 s dropout:
-
-- `apartment`: Mr Stabs Mk2 sysid session `2026-10-15_00-29-00`, with AprilTag truth. Frames come
-  from the recording's `/camera/video`; the camera pose from its `/tf`.
-- `nhrl`: NHRL May 17-26-14 KALMAN replay. Frames from the SVO, matched through
-  `/camera/frame_meta`.
-- `massd`: MassD 13-20-08 KALMAN replay, same way.
-
-For each dropout, every measurement inside the gap is withheld and the measurement stream runs
-through the filter mirror and through HOLD, rendered at each frame's own time with the 63 ms
-perception latency (no render lead, so the overlay lines up with the picture). Drawn in field
-coordinates and projected onto the floor:
-
-- truth (apartment only): green footprint and heading
-- measurements: white dot, hollow grey while withheld
-- HOLD: orange footprint
-- the 6-state filter: blue footprint, heading arrow and 2-sigma position ring
-
-Videos play at half speed. Output: `playground/opponent_prediction/out/videos/<scene>.mp4`.
-
-Usage:
-    source scripts/activate_python.sh
-    python playground/opponent_prediction/render_dropout_videos.py            # all scenes
-    python playground/opponent_prediction/render_dropout_videos.py --scene nhrl
-"""
+"""Render the opponent filter coasting through dropouts, drawn over the camera video."""
 
 from __future__ import annotations
 
@@ -35,6 +9,7 @@ import subprocess
 from collections.abc import Iterator
 from contextlib import closing
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
 
 import cv2
@@ -74,11 +49,16 @@ BLACK = (20, 20, 20)
 REPLAYS = OUT / "replays"
 
 
+class SceneKind(Enum):
+    SYSID = "sysid"
+    REPLAY = "replay"
+
+
 @dataclass
 class Scene:
     name: str
     title: str
-    kind: str  # "sysid" or "replay"
+    kind: SceneKind
     session: str = ""
     mcap: Path = field(default_factory=Path)
     svo: Path = field(default_factory=Path)
@@ -92,14 +72,14 @@ SCENES = {
     "apartment": Scene(
         "apartment",
         "Apartment floor, Mr Stabs Mk2 sysid (AprilTag truth)",
-        "sysid",
+        SceneKind.SYSID,
         session="2026-10-15_00-29-00",
         half_size_m=0.075,
     ),
     "nhrl": Scene(
         "nhrl",
         "NHRL May 2026, cage, 17-26-14 (no truth; withheld measurements shown)",
-        "replay",
+        SceneKind.REPLAY,
         mcap=REPLAYS / "2026-05-02T17-26-14_KALMAN.mcap",
         svo=REPO_ROOT / "data/svo/NHRL_2026-05-02/2026-05-02T17-26-14.svo2",
         half_size_m=0.11,
@@ -108,16 +88,13 @@ SCENES = {
     "massd": Scene(
         "massd",
         "MassD Aug 2026, arena, 13-20-08 (no truth; withheld measurements shown)",
-        "replay",
+        SceneKind.REPLAY,
         mcap=REPLAYS / "2026-08-29T13-20-08_KALMAN.mcap",
         svo=REPO_ROOT / "data/svo/MassD_2026-08-29/2026-08-29T13-20-08.svo2",
         half_size_m=0.11,
         plane_z_m=0.03,
     ),
 }
-
-
-# ------------------------------------------------------------------------------- frames
 
 
 @dataclass
@@ -148,12 +125,7 @@ def sysid_frames(session: str) -> FrameSource:
 
 
 def replay_clock_offset_ns(mcap: Path) -> int:
-    """Rebased pipeline stamp minus the SVO image stamp.
-
-    `/keypoint_detections` is logged at its own (rebased) stamp and each tick's
-    `/camera/frame_meta` follows it by the camera grab time, so a detection pairs with the next
-    frame_meta.
-    """
+    """Rebased pipeline stamp minus the SVO image stamp."""
     fm_log, fm_stamp = [], []
     for _t, ns, data in iter_messages(mcap, ["/camera/frame_meta"]):
         fm_log.append(ns)
@@ -195,9 +167,6 @@ def replay_last_index(scene: Scene, end_ns: int) -> int:
     offset_ns = replay_clock_offset_ns(scene.mcap)
     after = np.nonzero(cam.stamp_ns + offset_ns > end_ns)[0]
     return int(cam.svo_index[after[0]]) if after.size else int(cam.svo_index[-1])
-
-
-# ------------------------------------------------------------------------------- drawing
 
 
 def project(cam_from_field: np.ndarray, k: np.ndarray, pts: np.ndarray) -> np.ndarray:
@@ -265,9 +234,6 @@ def legend(img, scale, has_truth) -> None:
         y += int(34 * scale)
 
 
-# ------------------------------------------------------------------------------- segments
-
-
 @dataclass
 class Segment:
     gap_s: float
@@ -312,26 +278,94 @@ def state_at(trace: ev.Trace, t_ns: int) -> dict | None:
     return {name: float(v[k, 0]) for name, v in trace.values.items()}
 
 
-def render_frame(img, t_ns, cff, k, data, seg: Segment, scene: Scene, scale: float) -> np.ndarray:
-    # Lift the field points onto the measurement plane by shifting the camera down by its height.
+def lift_to_plane(cff: np.ndarray, plane_z_m: float) -> np.ndarray:
     lift = np.eye(4)
-    lift[2, 3] = scene.plane_z_m
-    cff = cff @ lift
-    out = img.copy()
-    has_truth = scene.kind == "sysid"
-    half = scene.half_size_m
+    lift[2, 3] = plane_z_m
+    return cff @ lift
+
+
+def newest_measurement(ms: np.ndarray, t_ns: int, max_age_ns: float) -> int:
+    j = int(np.searchsorted(ms, t_ns, side="right")) - 1
+    return j if j >= 0 and t_ns - ms[j] < max_age_ns else -1
+
+
+def draw_zoom_inset(out, est, cff, k, scale: float) -> None:
+    if est is not None:
+        c = project(cff, k, np.array([[est["x"], est["y"]]]))[0]
+        if np.isfinite(c).all():
+            h, w = out.shape[:2]
+            cx = int(np.clip(c[0], INSET_CROP // 2, w - INSET_CROP // 2))
+            cy = int(np.clip(c[1], INSET_CROP // 2, h - INSET_CROP // 2))
+            crop = out[
+                cy - INSET_CROP // 2 : cy + INSET_CROP // 2,
+                cx - INSET_CROP // 2 : cx + INSET_CROP // 2,
+            ]
+            size = int(INSET_CROP * INSET_SCALE)
+            inset = cv2.resize(crop, (size, size), interpolation=cv2.INTER_LINEAR)
+            x0 = 12 if c[0] > w / 2 else w - size - 12
+            y0 = int(130 * scale)
+            if y0 + size < h:
+                out[y0 : y0 + size, x0 : x0 + size] = inset
+                cv2.rectangle(out, (x0, y0), (x0 + size, y0 + size), WHITE, 2)
+
+
+def draw_banner(out, scene: Scene, seg: Segment, t_ns: int, scale: float) -> None:
     gap_end = seg.start_ns + int(seg.gap_s * 1e9)
     in_gap = seg.start_ns <= t_ns < gap_end
+    label(out, f"{scene.title}   [{SPEED:g}x speed]", (14, int(32 * scale)), 0.7 * scale)
+    if in_gap:
+        status = (
+            f"DROPOUT {seg.gap_s:g} s: measurements withheld   +{(t_ns - seg.start_ns) / 1e9:.2f} s"
+        )
+        color = (60, 60, 230)
+    elif t_ns >= gap_end:
+        status = f"measurements back after the {seg.gap_s:g} s dropout"
+        color = GREEN
+    else:
+        status = f"tracking; {seg.gap_s:g} s dropout in {(seg.start_ns - t_ns) / 1e9:.2f} s"
+        color = WHITE
+    label(out, status, (14, int(70 * scale)), 0.75 * scale, color)
+
+
+def draw_error_readout(out, data, est, hold, t_ns: int, has_truth: bool, scale: float) -> None:
+    ms = data.meas_stamp_ns
+    j = newest_measurement(ms, t_ns, 5e7)
+    if est is not None:
+        ref = None
+        if has_truth:
+            tr = data.truth_at(np.array([t_ns]))
+            if tr["valid"][0]:
+                ref = (tr["x"][0], tr["y"][0], "truth")
+        elif j >= 0:
+            ref = (data.meas_x[j], data.meas_y[j], "measurement")
+        sig = est["position_sigma_m"]
+        line = f"filter 2-sigma {200 * sig:.0f} cm" if np.isfinite(sig) else "filter 2-sigma -"
+        if ref is not None:
+            e_f = 1e3 * math.hypot(est["x"] - ref[0], est["y"] - ref[1])
+            line = f"error vs {ref[2]}: filter {e_f:.0f} mm"
+            if hold is not None:
+                e_h = 1e3 * math.hypot(hold["x"] - ref[0], hold["y"] - ref[1])
+                line += f", HOLD {e_h:.0f} mm"
+            if np.isfinite(sig):
+                line += f"   filter 2-sigma {200 * sig:.0f} cm"
+        label(out, line, (14, int(108 * scale)), 0.65 * scale)
+
+
+def render_frame(img, t_ns, cff, k, data, seg: Segment, scene: Scene, scale: float) -> np.ndarray:
+    cff = lift_to_plane(cff, scene.plane_z_m)
+    out = img.copy()
+    has_truth = scene.kind is SceneKind.SYSID
+    half = scene.half_size_m
+    gap_end = seg.start_ns + int(seg.gap_s * 1e9)
 
     if has_truth:
         tr = data.truth_at(np.array([t_ns]))
         if tr["valid"][0]:
             draw_robot(out, cff, k, tr["x"][0], tr["y"][0], tr["yaw"][0], half, GREEN, 2)
 
-    # The newest measurement taken by this frame time, from the last 0.1 s.
     ms = data.meas_stamp_ns
-    j = int(np.searchsorted(ms, t_ns, side="right")) - 1
-    if j >= 0 and t_ns - ms[j] < 1e8:
+    j = newest_measurement(ms, t_ns, 1e8)
+    if j >= 0:
         uv = project(cff, k, np.array([[data.meas_x[j], data.meas_y[j]]]))[0]
         if np.isfinite(uv).all():
             withheld = seg.start_ns <= ms[j] < gap_end
@@ -348,59 +382,10 @@ def render_frame(img, t_ns, cff, k, data, seg: Segment, scene: Scene, scale: flo
         draw_ring(out, cff, k, est["x"], est["y"], 2.0 * est["position_sigma_m"], BLUE)
         draw_robot(out, cff, k, est["x"], est["y"], est["yaw"], half, BLUE, 3)
 
-    # Zoomed inset around the filter estimate.
-    if est is not None:
-        c = project(cff, k, np.array([[est["x"], est["y"]]]))[0]
-        if np.isfinite(c).all():
-            h, w = out.shape[:2]
-            cx = int(np.clip(c[0], INSET_CROP // 2, w - INSET_CROP // 2))
-            cy = int(np.clip(c[1], INSET_CROP // 2, h - INSET_CROP // 2))
-            crop = out[
-                cy - INSET_CROP // 2 : cy + INSET_CROP // 2,
-                cx - INSET_CROP // 2 : cx + INSET_CROP // 2,
-            ]
-            size = int(INSET_CROP * INSET_SCALE)
-            inset = cv2.resize(crop, (size, size), interpolation=cv2.INTER_LINEAR)
-            # Opposite side from the robot, so the inset never covers the real one.
-            x0 = 12 if c[0] > w / 2 else w - size - 12
-            y0 = int(130 * scale)
-            if y0 + size < h:
-                out[y0 : y0 + size, x0 : x0 + size] = inset
-                cv2.rectangle(out, (x0, y0), (x0 + size, y0 + size), WHITE, 2)
+    draw_zoom_inset(out, est, cff, k, scale)
 
-    # Banner and status.
-    label(out, f"{scene.title}   [{SPEED:g}x speed]", (14, int(32 * scale)), 0.7 * scale)
-    if in_gap:
-        status = (
-            f"DROPOUT {seg.gap_s:g} s: measurements withheld   +{(t_ns - seg.start_ns) / 1e9:.2f} s"
-        )
-        color = (60, 60, 230)
-    elif t_ns >= gap_end:
-        status = f"measurements back after the {seg.gap_s:g} s dropout"
-        color = GREEN
-    else:
-        status = f"tracking; {seg.gap_s:g} s dropout in {(seg.start_ns - t_ns) / 1e9:.2f} s"
-        color = WHITE
-    label(out, status, (14, int(70 * scale)), 0.75 * scale, color)
-    if est is not None:
-        ref = None
-        if has_truth:
-            tr = data.truth_at(np.array([t_ns]))
-            if tr["valid"][0]:
-                ref = (tr["x"][0], tr["y"][0], "truth")
-        elif j >= 0 and t_ns - ms[j] < 5e7:
-            ref = (data.meas_x[j], data.meas_y[j], "measurement")
-        sig = est["position_sigma_m"]
-        line = f"filter 2-sigma {200 * sig:.0f} cm" if np.isfinite(sig) else "filter 2-sigma -"
-        if ref is not None:
-            e_f = 1e3 * math.hypot(est["x"] - ref[0], est["y"] - ref[1])
-            line = f"error vs {ref[2]}: filter {e_f:.0f} mm"
-            if hold is not None:
-                e_h = 1e3 * math.hypot(hold["x"] - ref[0], hold["y"] - ref[1])
-                line += f", HOLD {e_h:.0f} mm"
-            if np.isfinite(sig):
-                line += f"   filter 2-sigma {200 * sig:.0f} cm"
-        label(out, line, (14, int(108 * scale)), 0.65 * scale)
+    draw_banner(out, scene, seg, t_ns, scale)
+    draw_error_readout(out, data, est, hold, t_ns, has_truth, scale)
     legend(out, scale, has_truth)
     return out
 
@@ -419,17 +404,14 @@ def title_card(shape, scene: Scene, gap: float) -> np.ndarray:
     return img
 
 
-# ------------------------------------------------------------------------------- main
-
-
 def render_scene(scene: Scene) -> Path:
-    if scene.kind == "sysid":
+    if scene.kind is SceneKind.SYSID:
         data = load_session(scene.session)
     else:
         data = replay_session(scene.mcap)
     segments = pick_segments(data)
     last_ns = max(s.window[1] for s in segments)
-    if scene.kind == "sysid":
+    if scene.kind is SceneKind.SYSID:
         source = sysid_frames(scene.session)
     else:
         source = replay_frames(scene, replay_last_index(scene, last_ns))

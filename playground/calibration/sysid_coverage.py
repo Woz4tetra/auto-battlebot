@@ -97,8 +97,6 @@ def run(
     for topic, log_time_ns, data in messages:
         dispatch(topic, log_time_ns, data)
         now = time.monotonic()
-        # Unpaced replays advance on recording time, so a fast replay closes the same windows
-        # as a live run would.
         due = (
             now - last_advance >= ADVANCE_S
             if paced
@@ -178,7 +176,7 @@ def main() -> None:
         if server is not None:
             print("page still up; Ctrl-C to write the session and exit")
             while True:
-                session.advance()  # applies the refits still in flight
+                session.advance()
                 server.publish(clean(session.snapshot()))
                 time.sleep(0.5)
     except KeyboardInterrupt:

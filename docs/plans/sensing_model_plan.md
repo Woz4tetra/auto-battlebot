@@ -559,3 +559,132 @@ then holds and reads stale, as `KalmanMotionEstimator` does.
 1. Steps 6 and 7, which need no recordings.
 2. Record the test-box sessions (`rl_policy_navigation_plan.md` step 0) once the box is free,
    for step 5 and the gates.
+
+## Sensing model fit and simulator details
+
+### `playground/opponent_prediction/fit_opponent_sensing_model.py`
+
+`fit_opponent_sensing_model.py`:
+
+Fit the opponent keypoint measurement model the RL training environment injects.
+
+```
+From the Mr Stabs Mk2 sysid sessions against AprilTag truth (`sysid_data.py`):
+- position noise per axis, robust sigma and bias, by truth speed bin
+- heading noise (robust sigma, flips excluded) and the 180 degree flip rate, by speed bin
+- measured-run and dropout-gap lengths at the 30 Hz perception rate
+```
+
+```
+From the KALMAN playback replays of NHRL May and MassD (`run_replays.py`), which have no truth:
+- dropout-gap and measured-run lengths of the opponent track, which is what the policy sees
+  in a match and what the sysid data underrepresents (one robot, a clean floor)
+- the flip rate by label, counted as consecutive measurements under 0.1 s apart whose headings
+  differ by more than 150 degrees
+```
+
+Latency is not measurable offline; the nominal 63 ms is recorded with the RL plan's 40 to 80 ms range. Output: `playground/opponent_prediction/sensing_model_opponent.toml`, the opponent section of the RL plan's `sensing_model.toml`.
+
+```
+Usage:
+    source scripts/activate_python.sh
+    python playground/opponent_prediction/fit_opponent_sensing_model.py
+```
+
+### `playground/rl/fit_provisional_ekf_error.py`
+
+`fit_provisional_ekf_error.py`:
+
+Fit a provisional our-robot EKF error table and write a sensing model the RL toy can load.
+
+`OurEkfErrorModel` refuses a sensing model without `[robots.ours.ekf_error]`, and the sensing plan fits that table in step 5 from test-box sessions that are not recorded yet. Until then this script fits it from what exists: the real EKF on the 2026-10-15 sysid sessions, against the AprilTag truth bundles that `smooth_tag_poses.py` wrote.
+
+- theta, v, omega: the EKF's corrected state, logged on every heading update in
+  `/diagnostics/kalman_motion_estimator` (`our_heading`), compared with the smoothed truth at the
+  measurement stamp (log time minus `stamp_age_s`; both are on the camera clock).
+- along, cross: the EKF's position is not in the recording, so these take the measurement model's
+  own position sigmas, with a 0.1 s correlation time. An assumption, marked in the file.
+
+Sigmas are 1.4826 x MAD per speed bin, so stamp-misalignment tails during fast spins do not inflate them. The EKF in those sessions ran on AprilTag keypoints, which are cleaner than live YOLO, so the sigmas are a floor; the sensing model's `ekf_sigma_scale` randomization (0.5x to 1.5x) is wider.
+
+The dropout gap tables are replaced too. `provisional.toml` fits gaps between keypoint heading updates over whole replay recordings, including spans with a robot off the field (its table runs to the 20 s cap): our robot's gaps reach p90 2.15 s and spend 31% of the time over 0.5 s. The RL observation counts time since any measurement, which the six NHRL May fights measured directly (`docs/experiments/control_improvement/perception_reliability_may_fights.md`): p50 56 ms, p75 144 ms, p90 338 ms, p95 497 ms, p99 1.42 s, max 5.78 s. Every context cell of both roles takes that pooled table; the quantiles under p50, which the report does not list, run from a 40 ms minimum (1.5 frames at 37 fps). The measured-run tables stay as fitted.
+
+Output: `simulation/sensing_models/provisional_rl.toml`, a copy of `provisional.toml` with these two changes. Refit when the test-box sessions exist (sensing plan step 5).
+
+`--lockstep` takes the EKF error from the C++ binary in the lockstep sim instead (`playground/rl/lockstep_eval.py run --record`): the estimate `RlPolicyNavigation` read on each policy step (`/diagnostics/rl_policy_nav`) against the sim truth of the same tick (`/diagnostics/sim_camera`), all five components measured. That is the real filter's output at control time, latency compensation included, on the sensing model's simulated keypoints. The sysid fit compares the corrected state at the measurement stamp instead, and missed most of it: under the RL policy the lockstep heading error is several times the sysid table's. Ticks inside a measurement gap are left out, because `OurEkfErrorModel` coasts through those itself.
+
+```
+    source scripts/activate_python.sh
+    python playground/rl/fit_provisional_ekf_error.py
+    python playground/rl/fit_provisional_ekf_error.py --lockstep playground/rl/out/lockstep_record
+```
+
+- `errors`: The EKF can carry a 180 degree heading flip for a frame or two; that is the flip model's job, not the AR(1) error's.
+- `lockstep_errors`: The steady age is latency plus one frame; past 2.5 frames of delivery age is a gap.
+- `main`: Sparse fast bins borrow the next slower bin with data. Robust sigma: the tails are fast-spin moments where a few ms of stamp misalignment reads as heading error, and an AR(1) Gaussian cannot represent them anyway.
+
+### `playground/sensing_model/fit_sensing_model.py`
+
+`fit_sensing_model.py`:
+
+Fit the sensing model the RL environment and the lockstep sim sample from.
+
+`docs/plans/sensing_model_plan.md` section 8. Until the test-box sessions exist the model is provisional and fitted from the NHRL May and MassD KALMAN replays alone (`playground/opponent_prediction/run_replays.py --mode KALMAN`):
+
+- Dropouts conditioned on the distance to the nearest robot and wall, flip onsets and flipped-run
+  lengths.
+- Position and heading noise by speed bin, from the opponent measurements with no truth: each
+  measurement against a quadratic fit through its neighbours. That sees frame-to-frame jitter
+  only. Bias and slow errors (plane height, field lock, the laptop playback warp) are invisible
+  to it, so the bias tables are zero. Both roles get these numbers, so the opponents stand in for
+  Mr Stabs.
+
+The 2026-10-15 sysid sessions have tag truth but were shot on the apartment floor, which the detector never trained on (its synthetic scenes are NHRL, MassD and the AER test box), so they are not used.
+
+Output: `simulation/sensing_models/provisional.toml`, and `playground/sensing_model/out/ fit_report.json` with the per-cell sample counts, the holdout session's noise and the flip analysis.
+
+```
+Usage:
+    source scripts/activate_python.sh
+    python playground/sensing_model/fit_sensing_model.py
+```
+
+- `FRAME_HZ`: The replays measure at 30 Hz. The lockstep sim runs the model at the ZED Box camera rate.
+- `MAX_SPAN_S`: Spans are clipped to the RL episode length. A longer gap acts the same within one episode, and the few there are (a robot dead against a wall for 125 s in 14-12-27) would otherwise set the top quantiles alone.
+- `GAP_MIN_FRAMES`: A gap is a step longer than this many frames. Single missing frames are left out: laptop playback drops about one frame per 0.5 s for pacing, which is not the robot going unseen.
+- `JITTER_HALF`: Jitter fit: this many contiguous neighbours on each side of a measurement, 0.1 s at 30 Hz.
+- `MIN_ROLE_JUMPS`: A role with fewer heading jumps than this takes the onset rate pooled over both roles.
+
+`_fit`:
+
+Least-squares quadratic through each centre's neighbours (`values`, one row per centre).
+
+Returns the fit's value and slope at the centre, and the variance factor h: with white noise of sigma, measurement minus fit has variance sigma^2 (1 + h).
+
+`jitter_noise`:
+
+Body-frame position and heading jitter by speed bin, from the opponent measurements.
+
+A residual is a measurement minus the quadratic through its neighbours, scaled by 1 / sqrt(1 + h) to undo the fit's own noise. Speed is the fit's slope. A heading residual past pi / 2 is a flip and is left out, and so is a window that holds a heading jump past FLIP_RAD.
+
+- `jitter_noise`: Heading: neighbours taken relative to the centre, so the fit sees no 2 pi steps.
+
+`conditioned_table`:
+
+Quantile rows per (robot bin, wall bin) cell, row-major, with the borrowing rule.
+
+A cell with fewer than MIN_CELL_SAMPLES durations adds its wall-axis neighbours, then its robot-axis neighbours, then falls back to the pooled durations.
+
+`replay_flips`:
+
+Heading jumps past FLIP_RAD between contiguous measurements. A jump reversed by another within MAX_FLIPPED_RUN_S bounds a run of flipped frames. Each flip has an onset and an end, so the onset rate is half the jump rate.
+
+`flip_runs_table`:
+
+Bursty flip tables: flipped-run quantiles from data, normal runs exponential with the.
+
+```
+measured onset rate. The exponential's q = 1 point is its p99.9.
+```
+
+- `main`: Flipped-run lengths pool both roles: each alone has too few.

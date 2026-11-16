@@ -1,27 +1,4 @@
-"""Self-contained HTML report on a velocity jig plant fit.
-
-Answers two questions the fitted numbers alone do not: which excitation needs more runs, and
-how much more data is worth collecting. Everything is embedded, so the file opens with no
-network and can be copied around on its own.
-
-Sections, in reading order:
-
-  0  What to collect next    parameters ranked by confidence, mapped to the waveform that
-                             constrains them, with a run count to reach the target
-  1  Data inventory          per waveform: runs, usable seconds, windows contributed
-  2  Run quality             the capture and offline gates, per run
-  3  Parameters              stage A estimates with spread and provenance
-  4  Evidence                gain scatters, staircases, tau trends, coupling, drift, delay
-  5  Convergence             leave-one-run-out influence, and the learning curve
-  6  Coverage                what of the input space has actually been visited
-  7  Horizon quality         RMSE against the acceptance criteria
-  8  Residual diagnostics    what a missing model term would look like
-  9  Per run                 measured against predicted, with residuals
- 10  Excluded and provenance
-
-Imported by `fit_jig_plant.py --report`. It imports from `auto_battlebot.calibration`, never from a
-CLI.
-"""
+"""Self-contained HTML report on a velocity jig plant fit."""
 
 from __future__ import annotations
 
@@ -56,8 +33,6 @@ from auto_battlebot.control.plant import (
     predict_windows,
 )
 
-# Relative spread below which a parameter counts as measured. 10% is the point where the
-# parameter stops being the thing limiting the model.
 TARGET_REL = 0.10
 WEAK_REL = 0.30
 
@@ -104,11 +79,6 @@ summary { cursor:pointer; font-size:13.5px; }
           --bad:#ef6a60; }
 }
 """
-
-
-# ---------------------------------------------------------------------------
-# Plumbing
-# ---------------------------------------------------------------------------
 
 
 def figure_uri(fig, fmt: str = "png", dpi: int = 110) -> str:
@@ -196,11 +166,6 @@ def render_page(path: Path, title: str, sections: Sequence[Section], lede: str) 
     print(f"wrote {path}")
 
 
-# ---------------------------------------------------------------------------
-# 0. What to collect next
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class ParamStatus:
     name: str
@@ -244,12 +209,7 @@ class ParamStatus:
         return {"measured": "ok", "weak": "warn", "not measured": "bad"}[self.status]
 
     def runs_needed(self, target_rel: float = TARGET_REL) -> int:
-        """How many more runs to reach the target, by the root-N law.
-
-        Spread falls as 1/sqrt(N), so N scales as (rel_now / rel_target)^2. This is an
-        estimate from one point on the curve; the learning curve section measures the slope
-        instead of assuming it.
-        """
+        """How many more runs to reach the target, by the root-N law."""
         if self.runs_now < 1 or not np.isfinite(self.rel) or self.rel <= target_rel:
             return 0
         return max(1, int(np.ceil(self.runs_now * (self.rel / target_rel) ** 2)) - self.runs_now)
@@ -261,7 +221,7 @@ def param_status(loaded: Loaded, stage) -> list[ParamStatus]:
     for name, est in stage.estimates.items():
         sources = PARAM_SOURCES.get(name)
         if sources is None:
-            continue  # a derived diagnostic like k_ang_left, not a model parameter
+            continue
         runs: list[Run] = []
         for kind, channel in sources:
             for (k, c), rs in by_kc.items():
@@ -351,11 +311,6 @@ def section_next(statuses: Sequence[ParamStatus], curves: dict[str, float]) -> S
     return sec
 
 
-# ---------------------------------------------------------------------------
-# 1-3. Inventory, quality, parameters
-# ---------------------------------------------------------------------------
-
-
 def section_inventory(loaded: Loaded, window_counts: dict[str, int]) -> Section:
     sec = Section("inventory", "1. Data inventory")
     sec.body = (
@@ -393,8 +348,6 @@ def section_quality(loaded: Loaded) -> Section:
     for run in loaded.runs:
         q = run.quality
         problems = q.problems()
-        # Notices are not problems. They render as their own chip so a clipped accel reads as
-        # "look at this" rather than joining the reasons a run was dropped.
         chips = "".join(chip(p, "bad") for p in problems)
         chips += "".join(chip(n, "warn") for n in q.notices())
         chips = chips or chip("clean", "ok")
@@ -472,16 +425,7 @@ def section_params(stage, params: PlantParams, statuses: Sequence[ParamStatus]) 
     return sec
 
 
-# ---------------------------------------------------------------------------
-# 4. Stage A evidence
-# ---------------------------------------------------------------------------
-
-
-def section_evidence(stage, params: PlantParams, profile) -> Section:
-    sec = Section("evidence", "4. Evidence behind the fit")
-
-    # Gain scatters, each with the residual from its own fitted line underneath. A number
-    # alone cannot show a scatter that curves; a residual panel can.
+def gain_scatter_panels(sec: Section, stage, params) -> None:
     for segs, label, gains in (
         (
             stage.lin_segments,
@@ -520,8 +464,8 @@ def section_evidence(stage, params: PlantParams, profile) -> Section:
             )
         )
 
-    # Rise tau against level. A tau that trends with amplitude means the first-order lag is
-    # the wrong model shape, which is the cheapest structural check available.
+
+def rise_tau_panel(sec: Section, stage) -> None:
     for segs, label in ((stage.lin_segments, "linear"), (stage.ang_segments, "angular")):
         pts = [(abs(s.level), s.tau) for s in segs if np.isfinite(s.tau)]
         if len(pts) < 3:
@@ -538,7 +482,8 @@ def section_evidence(stage, params: PlantParams, profile) -> Section:
             )
         )
 
-    # Straight-line drift: the evidence for the arc, and which of the two forms fits it.
+
+def drift_panel(sec: Section, stage, params) -> None:
     if stage.drift_points:
         x = np.array([u for u, _ in stage.drift_points])
         y = np.array([w for _, w in stage.drift_points])
@@ -567,7 +512,8 @@ def section_evidence(stage, params: PlantParams, profile) -> Section:
             )
         )
 
-    # Coupling grid, with the mirror structure visible. Empty mirrors are the finding.
+
+def coupling_grid_panel(sec: Section, stage) -> None:
     if stage.coupling_cells:
         cells = [(a, b, v, w) for a, b, v, w, _cmd in stage.coupling_cells if abs(b) > 1e-3]
         if cells:
@@ -589,7 +535,8 @@ def section_evidence(stage, params: PlantParams, profile) -> Section:
                 caption += " THIS GRID HAS NO NEGATIVE ANGULAR CELLS, so c_ad is not identified."
             sec.add(figure_html(fig, caption))
 
-    # Delay: the onset stack and its profile likelihood.
+
+def delay_panel(sec: Section, stage, profile) -> None:
     delay = stage.delay
     if delay is not None and len(getattr(delay, "lags_ms", [])):
         fig, ax = plt.subplots(figsize=(6.5, 3.0))
@@ -620,12 +567,22 @@ def section_evidence(stage, params: PlantParams, profile) -> Section:
                 "That calls for high-frequency content: a chirp, or a shorter PRBS bit period."
             )
         sec.add(figure_html(fig, caption))
+
+
+def section_evidence(stage, params: PlantParams, profile) -> Section:
+    sec = Section("evidence", "4. Evidence behind the fit")
+
+    gain_scatter_panels(sec, stage, params)
+
+    rise_tau_panel(sec, stage)
+
+    drift_panel(sec, stage, params)
+
+    coupling_grid_panel(sec, stage)
+
+    delay_panel(sec, stage, profile)
+
     return sec
-
-
-# ---------------------------------------------------------------------------
-# 5. Convergence
-# ---------------------------------------------------------------------------
 
 
 def jackknife(
@@ -638,12 +595,7 @@ def jackknife(
     stride_s: float,
     max_windows: int,
 ) -> tuple[list[str], dict[str, np.ndarray]]:
-    """Refit with each run dropped in turn.
-
-    A parameter that moves more than its own spread when one run is dropped rests on that
-    single run. That is the sharpest possible "collect more of this", and unlike the
-    learning curve it costs one short refit per run rather than dozens.
-    """
+    """Refit with each run dropped in turn."""
     names = structure.free_names()
     shifts = {n: [] for n in names}
     labels: list[str] = []
@@ -678,12 +630,7 @@ def learning_curve(
     n_boot: int,
     seed: int = 12345,
 ) -> tuple[np.ndarray, dict[str, np.ndarray]]:
-    """Parameter spread against the number of runs included, by bootstrap over runs.
-
-    The point is the slope, not any single value. A curve still falling at the right edge
-    means more runs will keep helping; one that has flattened means the limit is the
-    excitation, not the sample count, and more of the same will not move it.
-    """
+    """Parameter spread against the number of runs included, by bootstrap over runs."""
     names = structure.free_names()
     rng = np.random.default_rng(seed)
     counts = [c for c in (2, 3, 5, 8, 12, 20) if c <= len(runs)]
@@ -784,50 +731,7 @@ def section_convergence(
     return sec, slopes
 
 
-# ---------------------------------------------------------------------------
-# 6. Input coverage
-# ---------------------------------------------------------------------------
-
-
-def section_coverage(loaded: Loaded, params: PlantParams) -> Section:
-    sec = Section("coverage", "6. Input coverage")
-    sec.body = (
-        '<p class="note">What of the input space has actually been driven. A gap here is a '
-        "waveform to add, not more repetitions of one already run.</p>"
-    )
-    runs = loaded.runs
-    if not runs:
-        return sec
-
-    lin = np.concatenate([r.cmd_lin[r.commanded] for r in runs]) if runs else np.array([])
-    ang = np.concatenate([r.cmd_ang[r.commanded] for r in runs]) if runs else np.array([])
-    dt = float(np.median([r.dt for r in runs]))
-
-    if len(lin) > 10:
-        lin_eff = effective_command(lin, params.dz_lin_fwd, params.dz_lin_rev)
-        ang_eff = effective_command(ang, params.dz_ang_l, params.dz_ang_r)
-        edges = np.linspace(-1, 1, 12)
-        grid, _, _ = np.histogram2d(lin_eff, ang_eff, bins=[edges, edges])
-        grid *= dt  # seconds held, which is what the fit weighs by
-        fig, ax = plt.subplots(figsize=(5.6, 4.4))
-        masked = np.ma.masked_where(grid <= 0, grid)
-        cmap = plt.get_cmap("viridis").copy()
-        cmap.set_bad("#d8d8d8")
-        im = ax.pcolormesh(edges, edges, masked.T, cmap=cmap)
-        fig.colorbar(im, ax=ax, label="seconds held")
-        ax.set_xlabel("effective linear command", fontsize=9)
-        ax.set_ylabel("effective angular command", fontsize=9)
-        empty = int(np.count_nonzero(grid <= 0))
-        sec.add(
-            figure_html(
-                fig,
-                f"Command occupancy, weighted by time held. {empty} of {grid.size} cells are "
-                "empty (grey). Empty cells off the axes are what a coupling grid fills.",
-            )
-        )
-
-    # Command spectrum against the model corner. This is the view that most often explains a
-    # weak time constant: a step battery has almost no energy where the plant rolls off.
+def command_spectrum_panel(sec: Section, params, runs, dt) -> None:
     try:
         from scipy.signal import welch
 
@@ -872,7 +776,8 @@ def section_coverage(loaded: Loaded, params: PlantParams) -> Section:
     except Exception:
         pass
 
-    # Declared amplitudes that were never actually reached.
+
+def unreached_amplitudes(sec: Section, loaded) -> None:
     rows = []
     for name, waveform_runs in sorted(loaded.by_waveform().items()):
         spec = waveform_runs[0].spec
@@ -896,12 +801,50 @@ def section_coverage(loaded: Loaded, params: PlantParams) -> Section:
         )
     if rows:
         sec.add(table_html(["waveform", "declared amplitudes", "coverage"], rows))
+
+
+def section_coverage(loaded: Loaded, params: PlantParams) -> Section:
+    sec = Section("coverage", "6. Input coverage")
+    sec.body = (
+        '<p class="note">What of the input space has actually been driven. A gap here is a '
+        "waveform to add, not more repetitions of one already run.</p>"
+    )
+    runs = loaded.runs
+    if not runs:
+        return sec
+
+    lin = np.concatenate([r.cmd_lin[r.commanded] for r in runs]) if runs else np.array([])
+    ang = np.concatenate([r.cmd_ang[r.commanded] for r in runs]) if runs else np.array([])
+    dt = float(np.median([r.dt for r in runs]))
+
+    if len(lin) > 10:
+        lin_eff = effective_command(lin, params.dz_lin_fwd, params.dz_lin_rev)
+        ang_eff = effective_command(ang, params.dz_ang_l, params.dz_ang_r)
+        edges = np.linspace(-1, 1, 12)
+        sample_counts, _, _ = np.histogram2d(lin_eff, ang_eff, bins=[edges, edges])
+        seconds_held = sample_counts * dt
+        fig, ax = plt.subplots(figsize=(5.6, 4.4))
+        masked = np.ma.masked_where(seconds_held <= 0, seconds_held)
+        cmap = plt.get_cmap("viridis").copy()
+        cmap.set_bad("#d8d8d8")
+        im = ax.pcolormesh(edges, edges, masked.T, cmap=cmap)
+        fig.colorbar(im, ax=ax, label="seconds held")
+        ax.set_xlabel("effective linear command", fontsize=9)
+        ax.set_ylabel("effective angular command", fontsize=9)
+        empty = int(np.count_nonzero(seconds_held <= 0))
+        sec.add(
+            figure_html(
+                fig,
+                f"Command occupancy, weighted by time held. {empty} of {seconds_held.size} "
+                "cells are empty (grey). Empty cells off the axes are what a coupling grid fills.",
+            )
+        )
+
+    command_spectrum_panel(sec, params, runs, dt)
+
+    unreached_amplitudes(sec, loaded)
+
     return sec
-
-
-# ---------------------------------------------------------------------------
-# 7-8. Horizon quality and residual diagnostics
-# ---------------------------------------------------------------------------
 
 
 def section_horizons(reports: dict) -> Section:
@@ -944,12 +887,7 @@ def section_horizons(reports: dict) -> Section:
 
 
 def residual_acf(err: WindowErrors, max_lag: int = 40, horizon_index: int = -1) -> np.ndarray:
-    """Autocorrelation of the position residual across window starts.
-
-    The scalar lag-1 version answers "is there structure"; the curve answers "how much and
-    over what scale". Structure lasting tens of lags is a missing model term, and no amount
-    of process-noise tuning covers that honestly.
-    """
+    """Autocorrelation of the position residual across window starts."""
     series = err.position[:, horizon_index]
     series = series - series.mean()
     denom = float(series @ series)
@@ -958,6 +896,61 @@ def residual_acf(err: WindowErrors, max_lag: int = 40, horizon_index: int = -1) 
     return np.array(
         [float(series[: len(series) - k] @ series[k:]) / denom for k in range(max_lag + 1)]
     )
+
+
+def drift_by_turn_direction_panel(sec: Section, err) -> None:
+    if err.u_ang0 is not None and err.u_lin0 is not None:
+        fig, ax = plt.subplots(figsize=(6.8, 3.2))
+        for sign, label, colour in ((1, "turning left", "C0"), (-1, "turning right", "C1")):
+            sel = np.sign(err.u_ang0) == sign
+            if np.count_nonzero(sel) < 20:
+                continue
+            x = err.u_lin0[sel]
+            y = err.heading[sel, -1] * 180 / np.pi
+            order = np.argsort(x)
+            ax.plot(x[order], y[order], ".", ms=2, alpha=0.3, color=colour)
+            if len(x) > 5:
+                coef = np.polyfit(x, y, 1)
+                xs = np.linspace(x.min(), x.max(), 20)
+                ax.plot(xs, np.polyval(coef, xs), "-", lw=1.6, color=colour, label=label)
+        ax.axhline(0.0, color="0.4", lw=1)
+        ax.set_xlabel("signed linear command at window start", fontsize=9)
+        ax.set_ylabel("heading error (deg)", fontsize=9)
+        ax.legend(fontsize=8)
+        sec.add(
+            figure_html(
+                fig,
+                "Heading residual against the linear command, split by turn direction. Two "
+                "parallel lines means drift the model has not absorbed; lines that diverge "
+                "with the turn direction means angular droop. This is the fastest read on "
+                "which drift rung should ship.",
+            )
+        )
+
+
+def residual_by_waveform_panel(sec: Section, err, runs) -> None:
+    if err.origin is not None and len(runs):
+        labels, values = [], []
+        for i, run in enumerate(runs):
+            sel = err.origin == i
+            if np.count_nonzero(sel) < 5:
+                continue
+            labels.append(f"{run.waveform}#{run.record.rep}")
+            values.append(float(np.sqrt(np.mean(err.position[sel, -1] ** 2)) * 1e3))
+        if labels:
+            fig, ax = plt.subplots(figsize=(min(11, 2 + 0.45 * len(labels)), 3.2))
+            ax.bar(range(len(labels)), values, color="C0")
+            ax.set_xticks(range(len(labels)))
+            ax.set_xticklabels(labels, rotation=60, ha="right", fontsize=7)
+            ax.set_ylabel("500 ms position RMSE (mm)", fontsize=9)
+            sec.add(
+                figure_html(
+                    fig,
+                    "Residual per run. A run far above the rest is either bad data or the "
+                    "regime the model misses, and the two are told apart by whether its "
+                    "siblings of the same waveform are also bad.",
+                )
+            )
 
 
 def section_residuals(err: WindowErrors | None, runs: Sequence[Run]) -> Section:
@@ -1028,75 +1021,15 @@ def section_residuals(err: WindowErrors | None, runs: Sequence[Run]) -> Section:
     else:
         sec.add("<p>" + chip("no conditioning variable shows a significant slope", "ok") + "</p>")
 
-    # The panel that adjudicates the drift model: split by turn direction. A slope common to
-    # both directions is unabsorbed drift; one that flips with direction is angular droop.
-    if err.u_ang0 is not None and err.u_lin0 is not None:
-        fig, ax = plt.subplots(figsize=(6.8, 3.2))
-        for sign, label, colour in ((1, "turning left", "C0"), (-1, "turning right", "C1")):
-            sel = np.sign(err.u_ang0) == sign
-            if np.count_nonzero(sel) < 20:
-                continue
-            x = err.u_lin0[sel]
-            y = err.heading[sel, -1] * 180 / np.pi
-            order = np.argsort(x)
-            ax.plot(x[order], y[order], ".", ms=2, alpha=0.3, color=colour)
-            if len(x) > 5:
-                coef = np.polyfit(x, y, 1)
-                xs = np.linspace(x.min(), x.max(), 20)
-                ax.plot(xs, np.polyval(coef, xs), "-", lw=1.6, color=colour, label=label)
-        ax.axhline(0.0, color="0.4", lw=1)
-        ax.set_xlabel("signed linear command at window start", fontsize=9)
-        ax.set_ylabel("heading error (deg)", fontsize=9)
-        ax.legend(fontsize=8)
-        sec.add(
-            figure_html(
-                fig,
-                "Heading residual against the linear command, split by turn direction. Two "
-                "parallel lines means drift the model has not absorbed; lines that diverge "
-                "with the turn direction means angular droop. This is the fastest read on "
-                "which drift rung should ship.",
-            )
-        )
+    drift_by_turn_direction_panel(sec, err)
 
-    # Which waveform the residuals come from. The single most decision-relevant plot here.
-    if err.origin is not None and len(runs):
-        labels, values = [], []
-        for i, run in enumerate(runs):
-            sel = err.origin == i
-            if np.count_nonzero(sel) < 5:
-                continue
-            labels.append(f"{run.waveform}#{run.record.rep}")
-            values.append(float(np.sqrt(np.mean(err.position[sel, -1] ** 2)) * 1e3))
-        if labels:
-            fig, ax = plt.subplots(figsize=(min(11, 2 + 0.45 * len(labels)), 3.2))
-            ax.bar(range(len(labels)), values, color="C0")
-            ax.set_xticks(range(len(labels)))
-            ax.set_xticklabels(labels, rotation=60, ha="right", fontsize=7)
-            ax.set_ylabel("500 ms position RMSE (mm)", fontsize=9)
-            sec.add(
-                figure_html(
-                    fig,
-                    "Residual per run. A run far above the rest is either bad data or the "
-                    "regime the model misses, and the two are told apart by whether its "
-                    "siblings of the same waveform are also bad.",
-                )
-            )
+    residual_by_waveform_panel(sec, err, runs)
+
     return sec
 
 
-# ---------------------------------------------------------------------------
-# 9-10. Per run, excluded, provenance
-# ---------------------------------------------------------------------------
-
-
 def run_trace_figure(run: Run, params: PlantParams, structure: ModelStructure, reinit_s: float):
-    """Commands, measured against predicted, and the residual.
-
-    Built on the same windowing the fit uses rather than a private integrator: a bespoke
-    plotting path that disagreed with the fit would be worse than no plot at all. The model
-    is reinitialized from truth every `reinit_s`, so a 30 s run stays readable instead of
-    diverging in the first second and telling you nothing after it.
-    """
+    """Commands, measured against predicted, and the residual."""
     ws = build_windows([run], window_delay(params, structure), (reinit_s,), reinit_s, 4000)
     if ws is None:
         return None
@@ -1126,8 +1059,6 @@ def run_trace_figure(run: Run, params: PlantParams, structure: ModelStructure, r
     axes[3].set_ylabel(f"|err| at {reinit_s * 1e3:.0f} ms (mm)", fontsize=8)
     axes[3].set_xlabel("time (s)", fontsize=9)
 
-    # Grey out what the fit ignores, so a run that looks bad because it was excluded is
-    # visibly different from one that is bad because the model is wrong.
     bad = ~run.commanded
     if np.any(bad):
         edges = np.flatnonzero(np.diff(bad.astype(int)) != 0) + 1
@@ -1205,11 +1136,6 @@ def section_tail(loaded: Loaded, params: PlantParams, extra: Sequence[str]) -> S
     sec.add("<h3>Fitted parameters</h3>")
     sec.add(f"<pre>{esc(params.to_toml('plant'))}</pre>")
     return sec
-
-
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
 
 
 def render_report(

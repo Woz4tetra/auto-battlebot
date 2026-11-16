@@ -1,36 +1,76 @@
-"""Binary protocol shared between the Genesis server and the C++ client.
-
-Wire format must stay in sync with include/simulation/sim_connection.hpp.
-"""
+"""Binary protocol shared between the Genesis server and the C++ client."""
 
 from __future__ import annotations
 
 import socket
 import struct
+from typing import NamedTuple
 
-REQUEST_FMT: str = "<ddd"  # linear_x, linear_y, angular_z (3 x float64 = 24 bytes)
+
+class Request(NamedTuple):
+    linear_x: float
+    linear_y: float
+    angular_z: float
+
+
+class ResponseHeader(NamedTuple):
+    width: int
+    height: int
+    tf_matrix: tuple[float, ...]
+    fx: float
+    fy: float
+    cx: float
+    cy: float
+    sim_time: float
+
+
+class MeasPose(NamedTuple):
+    measured: float
+    x: float
+    y: float
+    yaw: float
+
+
+REQUEST_FMT: str = "<ddd"
 REQUEST_SIZE: int = struct.calcsize(REQUEST_FMT)
 
-RESPONSE_HEADER_FMT: str = "<II16d4dd"  # width, height, tf_matrix[16], fx/fy/cx/cy, sim_time
+RESPONSE_HEADER_FMT: str = "<II16d4dd"
 RESPONSE_HEADER_SIZE: int = struct.calcsize(RESPONSE_HEADER_FMT)
 
-# Ground truth poses appended after depth buffer:
-#   uint32 num_robots, then num_robots * (x, y, yaw) as float64.
-#   First entry = our robot, rest = opponents in config order.
-GT_POSE_FMT: str = "<ddd"  # x, y, yaw per robot (3 x float64 = 24 bytes)
+GT_POSE_FMT: str = "<ddd"
 GT_POSE_SIZE: int = struct.calcsize(GT_POSE_FMT)
-GT_COUNT_FMT: str = "<I"  # uint32 num_robots
+GT_COUNT_FMT: str = "<I"
 GT_COUNT_SIZE: int = struct.calcsize(GT_COUNT_FMT)
 
-# After the ground truth: what perception delivered this tick, from the sensing model
-# (auto_battlebot/perception/sensing_model.py). One header, then one pose per ground-truth slot in
-# the same order. Flags travel as 0.0 / 1.0 so the block stays all float64 like the rest.
-MEAS_HEADER_FMT: str = "<dd"  # delivered, capture_time (sim seconds)
+MEAS_HEADER_FMT: str = "<dd"
 MEAS_HEADER_SIZE: int = struct.calcsize(MEAS_HEADER_FMT)
-MEAS_POSE_FMT: str = "<dddd"  # measured, x, y, yaw
+MEAS_POSE_FMT: str = "<dddd"
 MEAS_POSE_SIZE: int = struct.calcsize(MEAS_POSE_FMT)
 
-_SOCK_BUF_SIZE: int = 4 * 1024 * 1024  # 4 MiB
+
+def unpack_request(data: bytes) -> Request:
+    return Request._make(struct.unpack(REQUEST_FMT, data))
+
+
+def pack_response_header(header: ResponseHeader) -> bytes:
+    return struct.pack(
+        RESPONSE_HEADER_FMT,
+        header.width,
+        header.height,
+        *header.tf_matrix,
+        header.fx,
+        header.fy,
+        header.cx,
+        header.cy,
+        header.sim_time,
+    )
+
+
+def pack_meas_pose(pose: MeasPose) -> bytes:
+    return struct.pack(MEAS_POSE_FMT, *pose)
+
+
+_SOCK_BUF_SIZE: int = 4 * 1024 * 1024
 
 
 def configure_socket(sock: socket.socket) -> None:

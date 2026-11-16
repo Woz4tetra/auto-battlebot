@@ -1,12 +1,4 @@
-"""Write `tests/rl_policy/bundles/tiny_mlp/`, the 4-input bundle the C++ unit tests load.
-
-A Dense(4, 8, ELU) -> Dense(8, 2) actor with fixed seeded weights and a non-trivial input
-normalization, so the folding is exercised. Its manifest names obs spec version 0, which has no
-C++ builder: the bundle is for the runtime, policy and self-test tests, never for navigation.
-
-    source scripts/activate_python.sh
-    python playground/rl/make_tiny_test_bundle.py
-"""
+"""Write `tests/rl_policy/bundles/tiny_mlp/`, the 4-input bundle the C++ unit tests load."""
 
 from __future__ import annotations
 

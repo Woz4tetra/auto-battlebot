@@ -1,15 +1,4 @@
-"""Run the YOLO pose engine over a sysid recording's video and write our robot's detections.
-
-One row per ``MR_STABS_MK2`` detection: the box, its confidence, and the front and back keypoints
-in pixels. A frame can have several, because the model sometimes labels the floor marker board as
-the robot; ``smooth_tag_poses.py --yolo`` drops those with size gates and keeps the best survivor
-per frame, projects it onto the field, and uses it where the tag drops out. Kept as its own stage
-so the detections can be inspected, and so the smoother does not need TensorRT.
-
-    source scripts/activate_python.sh
-    python playground/calibration/detect_robot_yolo.py data/recordings/<session>.mcap \\
-        --out playground/calibration/out/mujoco_sysid/<session>/yolo.csv
-"""
+"""Run the YOLO pose engine over a sysid recording's video and write our robot's detections."""
 
 from __future__ import annotations
 
@@ -24,7 +13,6 @@ from auto_battlebot.perception.trt_yolo import TrtYoloModel
 from auto_battlebot.recording.mcap_io import iter_video_frames
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-# Same candidates and class order as config/_desktop.toml [keypoint_model].
 ENGINE_CANDIDATES = [
     "data/models/yolo26l-pose_all_keypoints_2026-09-25_rect416x640_x86_64_sm89.engine",
     "data/models/yolo26l-pose_all_keypoints_2026-09-25_rect416x640_x86_64_sm86.engine",

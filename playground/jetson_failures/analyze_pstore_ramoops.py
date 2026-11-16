@@ -1,12 +1,5 @@
 #!/usr/bin/env python3
-"""Analyze pstore/ramoops crash logs and summarize likely failure cause.
-
-Examples:
-  python3 playground/analyze_pstore_ramoops.py
-  python3 playground/analyze_pstore_ramoops.py /sys/fs/pstore
-  python3 playground/analyze_pstore_ramoops.py /var/lib/systemd/pstore
-  python3 playground/analyze_pstore_ramoops.py /tmp/pstore_dump/*
-"""
+"""Summarize pstore/ramoops crash logs and the likely failure cause."""
 
 from __future__ import annotations
 
@@ -90,6 +83,25 @@ def parse_timestamp(line: str) -> float | None:
         return None
 
 
+def call_trace_symbols(lines):
+    funcs: list[str] = []
+    for i, line in enumerate(lines):
+        if "Call Trace:" not in line:
+            continue
+        for j in range(i + 1, min(i + 40, len(lines))):
+            m = CALL_TRACE_RE.search(lines[j])
+            if not m:
+                continue
+            name = m.group(1)
+            if name not in funcs:
+                funcs.append(name)
+            if len(funcs) >= 10:
+                break
+        if funcs:
+            break
+    return funcs
+
+
 def analyze_file(path: Path) -> tuple[list[Finding], list[str]]:
     text = read_text(path)
     if not text:
@@ -112,22 +124,7 @@ def analyze_file(path: Path) -> tuple[list[Finding], list[str]]:
                     )
                 )
 
-    # Collect likely call trace symbols near first "Call Trace:".
-    funcs: list[str] = []
-    for i, line in enumerate(lines):
-        if "Call Trace:" not in line:
-            continue
-        for j in range(i + 1, min(i + 40, len(lines))):
-            m = CALL_TRACE_RE.search(lines[j])
-            if not m:
-                continue
-            name = m.group(1)
-            if name not in funcs:
-                funcs.append(name)
-            if len(funcs) >= 10:
-                break
-        if funcs:
-            break
+    funcs = call_trace_symbols(lines)
 
     return findings, funcs
 
@@ -171,7 +168,6 @@ def summarize(findings: list[Finding], traces: dict[Path, list[str]]) -> int:
         if trace:
             print(f"  call_trace_top: {', '.join(trace[:6])}")
 
-    # Global related signatures
     print("\nRelated signatures")
     print("-" * 18)
     seen: set[tuple[str, Path]] = set()

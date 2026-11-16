@@ -1,28 +1,4 @@
-"""Score the opponent filter against AprilTag ground truth on the Mr Stabs Mk2 sysid sessions.
-
-The filter is `auto_battlebot.perception.opponent_filter`, the parity-tested mirror of the C++
-opponent arm. Each session replays the way the app runs: a measurement arrives `LATENCY_S` after
-its shutter, coast() runs every `TICK_S` on the control clock, and the estimate is rendered at
-now + `LEAD_S`. Every rendered estimate is scored against the tag truth at its render time. See
-`auto_battlebot/perception/sysid_sessions.py` for where the measurements and the truth come from.
-
-Arms:
-- `hold`: the estimate is the last measurement (today's production `opponent_mode = HOLD`).
-- `kalman4`: the previous 4-state KALMAN arm: position filter only, past `max_coast_s` the
-  covariance freezes with the state, and heading is the last measured rotation, or the velocity
-  direction while stale and faster than 0.3 m/s.
-- `phase1`: the 6-state filter this plan adds.
-
-Dropout scenarios withhold every measurement inside periodic gaps, on top of the natural gaps
-YOLO already has. Errors are split by time since the last measurement arrived (0 means it arrived
-this tick) and by motion class.
-
-Usage:
-    source scripts/activate_python.sh
-    python playground/opponent_prediction/evaluate_opponent_prediction.py grid    # tune on train
-    python playground/opponent_prediction/evaluate_opponent_prediction.py report  # score both
-Output goes under playground/opponent_prediction/out/.
-"""
+"""Score the opponent filter against AprilTag ground truth on the Mr Stabs Mk2 sysid sessions."""
 
 from __future__ import annotations
 
@@ -52,7 +28,7 @@ from auto_battlebot.perception.opponent_filter import (
 )
 from auto_battlebot.perception.sysid_sessions import OUT, REPO_ROOT, SessionData, load_session
 
-LATENCY_S = 0.063  # measured perception latency (kalman_motion_estimator.hpp)
+LATENCY_S = 0.063
 TICK_S = 0.01
 LEGACY_MIN_HEADING_SPEED = 0.3
 T0_S = 100.0
@@ -81,20 +57,11 @@ def opponent_max_coast_s() -> float:
     return float(est.get("opponent_max_coast_s", OpponentFilterConfig.opponent_max_coast_s))
 
 
-# ------------------------------------------------------------------------------------- arms
-
-
 class LegacyOpponentFilter(OpponentFilter):
-    """The 4-state arm the plan replaces, built on the mirror so gating and rewind are shared.
-
-    Its translation block is identical to the 6-state filter's. Two things differ: past the coast
-    horizon it froze the covariance with the state (identity transition), and it rendered the
-    last measured rotation, or the velocity direction while stale and fast.
-    """
+    """The 4-state arm the plan replaces, built on the mirror so gating and rewind are shared."""
 
     def __init__(self, batch: int, config: OpponentFilterConfig) -> None:
         super().__init__(batch, config)
-        # It coasted opponents to the horizon it shared with our robot.
         self.opponent_max_coast_s = torch.full((batch,), max_coast_s(), dtype=torch.float64)
 
     def _advance(self, target: torch.Tensor, mask: torch.Tensor) -> None:
@@ -116,7 +83,7 @@ class LegacyOpponentFilter(OpponentFilter):
         q[:, PX, VX] = q[:, VX, PX] = qa * dt**2 / 2.0
         q[:, PY, VY] = q[:, VY, PY] = qa * dt**2 / 2.0
         q[:, VX, VX] = q[:, VY, VY] = qa * dt
-        q[:, THETA, THETA] = MAX_HEADING_VARIANCE  # heading unused; keep it inert
+        q[:, THETA, THETA] = MAX_HEADING_VARIANCE
         x = torch.einsum("bij,bj->bi", f, self.x)
         p = f @ self.p @ f.transpose(1, 2) + q
         p = (p + p.transpose(1, 2)) * 0.5
@@ -144,7 +111,7 @@ class Trace:
     target_ns: np.ndarray  # (T,) render time on the session clock
     since_arrival_s: np.ndarray  # (T, B) time since the last measurement this row accepted arrived
     values: dict[str, np.ndarray]
-    update_stats: dict[str, np.ndarray] = field(default_factory=dict)  # (M, B)
+    update_stats: dict[str, np.ndarray] = field(default_factory=dict)
 
 
 def _rel_s(stamp_ns: np.ndarray, t0_ns: int) -> np.ndarray:
@@ -251,7 +218,6 @@ def simulate_hold(
     deliver = t_meas + LATENCY_S
     b = keep.shape[0]
     ticks = np.arange(t_meas[0], deliver[-1] + 0.5, TICK_S)[::record_stride]
-    # Index of the newest kept measurement delivered by each tick, per row.
     last = np.full((len(ticks), b), -1)
     for r in range(b):
         kept = np.nonzero(keep[r, idx])[0]
@@ -283,9 +249,6 @@ def simulate_hold(
     )
 
 
-# ---------------------------------------------------------------------------------- dropouts
-
-
 def periodic_gaps(
     stamps_ns: np.ndarray, gap_s: float, period_s: float, phase_s: float = 1.0
 ) -> np.ndarray:
@@ -294,9 +257,6 @@ def periodic_gaps(
         return np.ones(len(stamps_ns), dtype=bool)
     t = (stamps_ns - stamps_ns[0]) / 1e9 - phase_s
     return ~((t >= 0.0) & (np.mod(t, period_s) < gap_s))
-
-
-# ----------------------------------------------------------------------------------- scoring
 
 
 def motion_class(speed: np.ndarray, yaw_rate: np.ndarray) -> np.ndarray:
@@ -375,8 +335,6 @@ def wrap_np(a: np.ndarray) -> np.ndarray:
     return np.asarray(np.angle(np.exp(1j * a)))
 
 
-# ----------------------------------------------------------------------------------- tuning
-
 GRID = {
     "opponent_accel_psd": [3.0, 10.0, 30.0, 100.0, 300.0, 1000.0],
     "opponent_yaw_accel_psd": [10.0, 30.0, 100.0, 300.0, 1000.0],
@@ -388,13 +346,7 @@ TUNE_PERIOD_S = 3.0
 
 
 def objective(s: dict) -> float:
-    """Lower is better.
-
-    Median and p90 position error fresh and at 0.35 s, normalized by 20 / 80 mm and
-    100 / 400 mm; median heading error normalized by 0.1 and 0.3 rad; the 2-sigma coverage miss on
-    position and heading, 0.05 of miss per unit; and the share of measurements the gate rejected,
-    1% per unit. A rejected measurement on a clean sysid stream is lost track, not an outlier.
-    """
+    """Lower is better."""
     fresh = s["by_gap"]["0"]
     late = s["by_gap"]["0.35"]
     every = s["all"]
@@ -430,15 +382,12 @@ def run_grid(train: SessionData) -> list[dict]:
     return rows
 
 
-# ----------------------------------------------------------------------------------- report
-
 SCENARIOS = {"natural": 0.0, "gap_0.2": 0.2, "gap_1": 1.0, "gap_3": 3.0}
 SCENARIO_PERIOD_S = 8.0
 
 
 def tuned_config() -> tuple[OpponentFilterConfig, float]:
-    """The opponent fields from config/_common.toml as the C++ loads them, and the opponent
-    keypoint position sigma (the mirror takes the measurement variance per call)."""
+    """Opponent filter fields from config/_common.toml as the C++ loads them."""
     est = common_config()["robot_filter"]["motion_estimator"]
     cfg = OpponentFilterConfig(opponent_max_coast_s=opponent_max_coast_s(), render_lead_s=lead_s())
     for key in ("opponent_accel_psd", "opponent_yaw_accel_psd", "opponent_heading_sigma_rad"):

@@ -1,15 +1,4 @@
-"""Compare the depth+plane camera<->field transform against an RGB-only homography.
-
-Reads a ROS1-profile MCAP (convert a .bag with `mcap convert in.bag out.mcap`), picks
-frames where the camera is holding still on its tripod, and runs both methods on the same
-DeepLab field mask so the only difference is how the pose is derived.
-
-`depth_plane` is the shipped C++ path and measures the field size. `homography` uses the
-RGB outline plus the field size you supply, and needs no depth at all.
-
-Usage:
-    python compare_field_transform.py RUN.mcap --field-size 2.4384 2.4384 -o out/
-"""
+"""Compare the depth-plane field transform against an RGB-only homography."""
 
 from __future__ import annotations
 
@@ -71,13 +60,7 @@ def pick_topic(available: list[str], hints: tuple[str, ...], override: str | Non
 
 
 def decode_organized_cloud(msg: Any) -> tuple[np.ndarray, np.ndarray]:
-    """An organized XYZ+BGRA PointCloud2 back into a BGR image and a metric depth image.
-
-    The 2024 competition bags never recorded the ZED image or depth streams; the only
-    per-pixel data is this cloud, published once when the field was initialised. It is in
-    the optical frame (verified: unprojecting z through K reproduces the cloud's own x and
-    y to 0.0000 m), so z is exactly the depth image the C++ path expects.
-    """
+    """An organized XYZ+BGRA PointCloud2 back into a BGR image and a metric depth image."""
     raw = np.frombuffer(bytes(msg.data), dtype=np.uint8).reshape(
         msg.height, msg.width, msg.point_step
     )
@@ -104,8 +87,6 @@ def load_frames(path: Path, args: argparse.Namespace) -> tuple[list[dict], dict]
             print(f"  topics present: {topics}")
             raise SystemExit(f"no camera_info topic in {path.name}")
 
-        # Separate image and depth streams when they were recorded; otherwise fall back to
-        # an organized registered cloud, which carries both.
         use_cloud = (rgb_topic is None or depth_topic is None) and cloud_topic is not None
         if not use_cloud and (rgb_topic is None or depth_topic is None):
             print(f"  topics present: {topics}")
@@ -151,12 +132,7 @@ def load_frames(path: Path, args: argparse.Namespace) -> tuple[list[dict], dict]
 
 
 def stillest_frames(frames: list[dict], count: int, stride: int) -> list[int]:
-    """Indices of the frames where the tripod is most settled.
-
-    Motion is measured by phase correlation against the previous sampled frame, the same
-    way the cage-camera stability check works. The camera is meant to be static, so this
-    is really a filter for someone bumping the tripod or walking through the shot.
-    """
+    """Indices of the frames where the tripod is most settled."""
     sampled = list(range(0, len(frames), max(1, stride)))
     scores = []
     previous = None

@@ -1,38 +1,4 @@
-"""Draw the fitted MuJoCo robot over a held-out sysid recording, in the camera's own view.
-
-Every held-out window is rolled out the way ``fit_mujoco_plant.py validate`` scores it: the model
-starts from the window's measured state and gets the logged motor commands for one second. Each
-video frame inside a window then shows two robot silhouettes, both made from the collision hulls
-the simulation uses and projected through the recording's camera intrinsics and its
-field -> camera transform:
-
-- blue: the measured robot (the smoothed track, with its pitch and roll)
-- green: the MuJoCo robot at the same instant, with the full 6-DoF pose the simulator produced
-
-Trails show where each has been since the window started. A red line joins the two axle centres.
-The sim resets to the measured pose at every window start, so the green ghost only ever has one
-second to drift.
-
-Writes ``overlay.mp4`` (every window in order, at ``--speed`` of real time) and
-``contact_sheet.png`` (best, median and worst windows by MuJoCo error, flat and nose-lift, each
-cropped around the robot with ghosts every 0.25 s).
-
-``--reset-on-stop`` drops the one-second windows and runs the model open loop through the whole
-session instead, snapping it to the measured pose only once the measured robot has sat still for
-``--stop-s`` (0.25 s). Each driving bout is then one rollout, as long as the driver kept moving.
-That mode writes ``overlay_reset_on_stop.mp4`` and ``error_reset_on_stop.png`` (position error
-against time, resets marked). Frames deep inside a stop are skipped.
-
-``--closed-loop`` replays the logged sticks through the firmware mixer with the yaw loop fed the
-sim's own heading and gyro (``validate.closed_loop_replay``, check 7), instead of the logged
-per-motor commands. Outputs get a ``_closed_loop`` suffix. Use it for reverse driving, where the
-logged heading-hold differential spins the open-loop sim.
-
-    source scripts/activate_python.sh
-    python playground/calibration/render_mujoco_overlay.py \\
-        playground/calibration/out/mujoco_sysid/fit_2026-10-15_yolo_brake \\
-        playground/calibration/out/mujoco_sysid/2026-10-15_00-20-58_yolo_box
-"""
+"""Draw the fitted MuJoCo robot over a held-out sysid recording, in the camera's own view."""
 
 from __future__ import annotations
 
@@ -58,7 +24,6 @@ from auto_battlebot.mujoco_sim.session import WindowBatch, build_batch, load_ses
 from auto_battlebot.recording.mcap_io import iter_video_frames
 from auto_battlebot.recording.sysid_io import load_field_from_camera, load_robot_tags
 
-# BGR, matching auto_battlebot/mujoco_sim/plots.py: MEAS #2a78d6, MUJOCO #1baf7a.
 MEAS = (214, 120, 42)
 MUJOCO = (122, 175, 27)
 ERR = (52, 52, 220)
@@ -245,7 +210,6 @@ class Scene:
         session = json.loads((bundle / "session.json").read_text())
         self.mcap = Path(session["mcap"])
         cal = (session.get("yolo") or {}).get("calibration") or {}
-        # Video stamps sit this far off the tag image clock (the YOLO calibration measures it).
         self.video_offset_ns = int(round(float(cal.get("offset_ms", 0.0)) * 1e6))
         t_up_field = np.asarray(session["output_frame"]["T_up_field"], dtype=float)
 
@@ -282,7 +246,6 @@ class Scene:
         self.order = order
         self.starts = self.batch.start_ns[order]
         if stop is not None:
-            # Each segment ends where the next reset starts.
             ends = np.r_[self.starts[1:], self.starts[-1] + self.horizon_ns]
             self.ends = np.empty_like(ends)
             self.ends[order] = ends

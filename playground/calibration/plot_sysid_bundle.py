@@ -1,21 +1,4 @@
-"""Plot a smoothed sysid bundle so each smoothing check can be judged by eye.
-
-Reads a bundle written by ``smooth_tag_poses.py`` and writes, under ``<bundle>/plots/``:
-
-- ``overview.png``: the whole session on one time axis. Which source fixed the pose at each
-  moment (tag, YOLO, neither); the smoothed yaw rate against the robot IMU's on a log scale,
-  with the 50 rad/s line no real drive crosses; pitch against the flat band the window gate
-  uses; x and y against the box the near-rail gate assumes; and the fit windows, by kind.
-- ``floor.png``: top-down, every tag and YOLO fix, the smoothed path, the box, and where each
-  fit window starts.
-- ``dropouts.png``: one top-down panel per tag dropout longer than ``--min-gap-s`` in which the
-  robot stayed upright, 0.5 s either side. ``--compare`` overlays a second bundle of the same
-  recording (for example one smoothed without ``--yolo``).
-
-    python playground/calibration/plot_sysid_bundle.py \\
-        playground/calibration/out/mujoco_sysid/<session>_yolo \\
-        --compare playground/calibration/out/mujoco_sysid/<session>_tag
-"""
+"""Plot a smoothed sysid bundle so each smoothing check can be judged by eye."""
 
 from __future__ import annotations
 
@@ -32,7 +15,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 TAG, YOLO, SMOOTH, OTHER, IMU = "#2a78d6", "#eda100", "#1baf7a", "#eb6834", "#6250d6"
 INK, MUTED, SURF, GRID = "#0b0b0b", "#52514e", "#fcfcfb", "#e6e5e1"
-ALIAS_RATE = 50.0  # rad/s: well past any real spin; a smoothed rate above it is an alias
+ALIAS_RATE_RAD_S = 50.0
 
 
 def _style() -> None:
@@ -76,7 +59,7 @@ def _imu_yaw_rate(cmd: pd.DataFrame, session: dict) -> tuple[np.ndarray, np.ndar
     """BNO055 yaw rate, counter-clockwise, shifted by the lag the smoother measured."""
     agreement = session.get("imu_yaw_rate") or {}
     lag = float(agreement.get("lag_s") or 0.0)
-    sign = -float(agreement.get("measured_sign") or 1.0)  # heading is clockwise
+    sign = -float(agreement.get("measured_sign") or 1.0)
     t = cmd["t"].to_numpy() - lag
     heading = np.unwrap(np.radians(cmd["orientation_x"].to_numpy()))
     grid = np.arange(t[0], t[-1], 0.01)
@@ -115,20 +98,20 @@ def overview(d: dict, out: Path) -> None:
     ax[1].semilogy(
         s["t"], np.abs(s["yaw_rate"]) + 1e-3, color=SMOOTH, lw=0.6, label="|smoothed yaw rate|"
     )
-    ax[1].axhline(ALIAS_RATE, color=OTHER, ls="--", lw=0.8)
+    ax[1].axhline(ALIAS_RATE_RAD_S, color=OTHER, ls="--", lw=0.8)
     ax[1].text(
         s["t"].iloc[0],
-        ALIAS_RATE * 1.3,
-        f"{ALIAS_RATE:.0f} rad/s: above this is an alias",
+        ALIAS_RATE_RAD_S * 1.3,
+        f"{ALIAS_RATE_RAD_S:.0f} rad/s: above this is an alias",
         color=OTHER,
         fontsize=7,
     )
-    above = float((s["yaw_rate"].abs() > ALIAS_RATE).mean())
+    above = float((s["yaw_rate"].abs() > ALIAS_RATE_RAD_S).mean())
     ax[1].set_ylim(1e-2, 1e3)
     ax[1].set_ylabel("rad/s")
     ax[1].set_title(
         f"B. Yaw rate. Smoothed should trace the IMU; {above:.1%} of samples above "
-        f"{ALIAS_RATE:.0f} rad/s",
+        f"{ALIAS_RATE_RAD_S:.0f} rad/s",
         loc="left",
     )
     ax[1].legend(loc="upper right", frameon=False, ncol=2)

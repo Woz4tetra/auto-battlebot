@@ -1,15 +1,4 @@
-"""Score policies against sensing dropouts: which robot drops out, and how long the gaps run.
-
-Runs one deterministic 20 s episode per world in the Warp environment's EVAL stage for each
-setting: dropouts off, then on for our robot, the opponent or both, with the sensing model's
-`dropout_stretch` pinned (gaps x stretch, measured runs / stretch; training draws 0.7 to 2.0).
-Each setting switches dropouts per robot by wrapping `MeasurementModel._advance_dropout`, so it
-ignores whatever the sensing file's dropout `enabled` flag says.
-
-    source scripts/activate_python.sh
-    python playground/rl/dropout_sweep.py runs/rl_nav/<run>/checkpoint.pt ... \\
-        --out playground/rl/out/dropout_sweep.json
-"""
+"""Score policies against sensing dropouts: which robot drops out, and how long the gaps run."""
 
 from __future__ import annotations
 
@@ -32,7 +21,7 @@ def run(checkpoint: Path, roles: tuple[int, ...], stretch: float, worlds: int, s
     env = WarpNavEnv(WarpNavConfig(worlds=worlds, stage="EVAL"), "cuda", seed=seed)
     measure = env.measure
     for sampler in measure._samplers:
-        if hasattr(sampler, "dropout_enabled"):  # sensing files that can switch dropouts off
+        if hasattr(sampler, "dropout_enabled"):
             sampler.dropout_enabled = True
     advance = measure._advance_dropout
 

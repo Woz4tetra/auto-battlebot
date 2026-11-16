@@ -12,11 +12,7 @@ T = TypeVar("T")
 
 
 def load_config(path: str | Path, data_class: type[T], strict: bool = True) -> T:
-    """Load a TOML file into a typed dataclass, validating via dacite.
-
-    With strict=True, unknown keys raise (catches config typos); pass strict=False to tolerate
-    extra keys. Enum fields are built from their string value, so a bad value fails here.
-    """
+    """Load a TOML file into a typed dataclass via dacite, strict by default."""
     with open(path, "rb") as f:
         raw = tomllib.load(f)
     parsed: T = dacite.from_dict(

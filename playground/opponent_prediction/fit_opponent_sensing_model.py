@@ -1,24 +1,4 @@
-"""Fit the opponent keypoint measurement model the RL training environment injects.
-
-From the Mr Stabs Mk2 sysid sessions against AprilTag truth (`sysid_data.py`):
-- position noise per axis, robust sigma and bias, by truth speed bin
-- heading noise (robust sigma, flips excluded) and the 180 degree flip rate, by speed bin
-- measured-run and dropout-gap lengths at the 30 Hz perception rate
-
-From the KALMAN playback replays of NHRL May and MassD (`run_replays.py`), which have no truth:
-- dropout-gap and measured-run lengths of the opponent track, which is what the policy sees
-  in a match and what the sysid data underrepresents (one robot, a clean floor)
-- the flip rate by label, counted as consecutive measurements under 0.1 s apart whose headings
-  differ by more than 150 degrees
-
-Latency is not measurable offline; the nominal 63 ms is recorded with the RL plan's 40 to 80 ms
-range. Output: `playground/opponent_prediction/sensing_model_opponent.toml`, the opponent section
-of the RL plan's `sensing_model.toml`.
-
-Usage:
-    source scripts/activate_python.sh
-    python playground/opponent_prediction/fit_opponent_sensing_model.py
-"""
+"""Fit the opponent keypoint measurement model the RL training environment injects."""
 
 from __future__ import annotations
 
@@ -50,12 +30,7 @@ def _wrap(a: np.ndarray) -> np.ndarray:
 
 
 def _runs(stamps_s: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Measured-run and gap durations (s) of a 30 Hz stream.
-
-    A gap is a step longer than `GAP_MIN_FRAMES` frames. Single missing frames are left out on
-    both sources: decimating the sysid video from 60 fps leaves 50 ms steps, and laptop playback
-    drops about one frame per 0.5 s for pacing, neither of which is the robot going unseen.
-    """
+    """Measured-run and gap durations (s) of a 30 Hz stream."""
     t = np.sort(stamps_s)
     d = np.diff(t)
     gap = d > GAP_MIN_FRAMES * FRAME_S

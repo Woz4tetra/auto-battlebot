@@ -1,19 +1,4 @@
-"""Plan step 7 prototype: the body-frame opponent EKF, scored against phase 1 and the baselines.
-
-State `[x, y, u, s, theta, omega]`: forward speed `u` and lateral speed `s` in the body frame, so
-the predicted path bends with the yaw rate instead of running straight. The measurement rows
-(x, y, theta) sit at the same indices as phase 1, so gating, flips and rewind are the mirror's.
-Propagation is an EKF in 10 ms substeps. A heading re-initialization rotates (u, s) so the world
-velocity survives it. Lateral speed gets its own process noise (`lateral_accel_psd`), small for a
-two-wheel robot.
-
-The gate (fixed before running this): median rendered position error at the 0.1 s and 0.35 s
-bins below both `hold` and `kalman4`, on the held-out session, natural gaps and 1 s gaps.
-
-Usage:
-    source scripts/activate_python.sh
-    python playground/opponent_prediction/phase2_body_frame.py
-"""
+"""Plan step 7 prototype: the body-frame opponent EKF, scored against phase 1 and the baselines."""
 
 from __future__ import annotations
 
@@ -126,11 +111,7 @@ class BodyFrameFilter(OpponentFilter):
         self.stamp = torch.where(active, target, self.stamp)
         self._push_snapshot(active)
 
-    def _init_heading(self, mask: torch.Tensor, yaw: torch.Tensor) -> None:
-        rows = mask.nonzero(as_tuple=True)[0]
-        if rows.numel() == 0:
-            return
-        # Keep the world velocity: rotate (u, s) from the old heading to the new one.
+    def _rotate_body_velocity(self, rows: torch.Tensor, yaw: torch.Tensor) -> None:
         old = self.x[rows, THETA]
         new = wrap_angle(yaw[rows])
         u, s = self.x[rows, U], self.x[rows, S]
@@ -139,6 +120,12 @@ class BodyFrameFilter(OpponentFilter):
         known = self.heading_initialized[rows]
         self.x[rows, U] = torch.where(known, vx * torch.cos(new) + vy * torch.sin(new), u)
         self.x[rows, S] = torch.where(known, -vx * torch.sin(new) + vy * torch.cos(new), s)
+
+    def _init_heading(self, mask: torch.Tensor, yaw: torch.Tensor) -> None:
+        rows = mask.nonzero(as_tuple=True)[0]
+        if rows.numel() == 0:
+            return
+        self._rotate_body_velocity(rows, yaw)
         super()._init_heading(mask, yaw)
 
     def render(self, stale: torch.Tensor) -> RenderedEstimate:

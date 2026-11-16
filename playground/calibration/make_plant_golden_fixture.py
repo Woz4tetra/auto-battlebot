@@ -1,26 +1,9 @@
-"""Generate the golden-vector fixture for the C++ JigPlantModel test.
-
-Steps the Python reference plant (auto_battlebot/control/plant.py, `Plant` class: zero-order-hold
-command buffer, 2 ms substeps) over a scenario that exercises every term, and writes the
-commands plus expected states as a C++ header. The C++ test replays the same commands
-through JigPlantModel::propagate and must match: both sides are double precision with the
-same substep, so the tolerance can sit at 1e-9.
-
-The scenario covers: quiet start (zero command before the delay elapses), a forward step, a
-reversal through the deadzone (decel then accel tau), a pure spin, a combined command that
-drives the steer-brake factor into its zero clamp (c_sb 2.70 crosses zero at |u_ang_eff|
-0.37), sub-deadzone commands, and a final coast.
-
-Usage:
-    source scripts/activate_python.sh
-    python playground/calibration/make_plant_golden_fixture.py
-
-Paths are resolved from the repo root, so the working directory does not matter.
-"""
+"""Generate the golden-vector fixture for the C++ JigPlantModel test."""
 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import NamedTuple
 
 from auto_battlebot.control.plant import Plant, PlantParams
 
@@ -28,19 +11,25 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 PARAMS_TOML = REPO_ROOT / "playground/calibration/out/plant_stageA.toml"
 OUT_HEADER = REPO_ROOT / "tests/plant/plant_golden_data.hpp"
 
-DT = 0.002  # step at the substep size, so each step is exactly one substep on both sides
-CMD_TICK_S = 0.02  # command rate, matching the drive CLI
-RECORD_STRIDE = 5  # record every 10 ms
+DT = 0.002
+CMD_TICK_S = 0.02
+RECORD_STRIDE = 5
 
-# (duration_s, u_lin, u_ang) held segments.
+
+class Segment(NamedTuple):
+    duration_s: float
+    u_lin: float
+    u_ang: float
+
+
 SCENARIO = [
-    (0.30, 0.0, 0.0),
-    (0.50, 0.5, 0.0),
-    (0.40, -0.6, 0.0),
-    (0.40, 0.0, 0.4),
-    (0.40, 0.5, 0.5),
-    (0.20, 0.005, 0.02),
-    (0.20, 0.0, 0.0),
+    Segment(0.30, 0.0, 0.0),
+    Segment(0.50, 0.5, 0.0),
+    Segment(0.40, -0.6, 0.0),
+    Segment(0.40, 0.0, 0.4),
+    Segment(0.40, 0.5, 0.5),
+    Segment(0.20, 0.005, 0.02),
+    Segment(0.20, 0.0, 0.0),
 ]
 
 PARAM_FIELDS = [

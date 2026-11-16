@@ -1,29 +1,5 @@
 #!/usr/bin/env python3
-"""Recompute the capture-time verdict of runs already on disk.
-
-A sidecar records what the gates decided at the bench, and the gates change. Two of them
-changed on 2026-08-20: operator pauses are now cut out before anything is counted, and the
-radio's channel B is now known to come back negated. Both of those turned a discard into a
-pass without a single sample of the recording being different, and the only honest way to
-carry that forward is to run the current gates over the runs that are already captured.
-
-What this rewrites, per run:
-
-- `[[pause]]` gains the host window it always described. Sidecars written before the runner
-  recorded it carry only the program time and the seconds held, so the window comes back
-  from the gap it left in the command stream.
-- `meas_linear`/`meas_angular` in the command CSV, re-derived from `meas_ch_a`/`meas_ch_b`
-  through the corrected mix. The channels are the measurement and are left alone; those two
-  columns were only ever an interpretation of them.
-- `contamination`, `gates` and `verdict`, recomputed from the above.
-
-An operator's own judgement is never overwritten. A run whose gate note starts with
-`operator:`, or whose notes say to discard it, keeps its verdict no matter what the gates
-now say: the tool cannot see the wall the robot hit.
-
-    ./rederive_sidecars.py out/2026-08-20            # show what would change
-    ./rederive_sidecars.py out/2026-08-20 --write    # apply it
-"""
+"""Recompute the capture-time verdict of runs already on disk."""
 
 from __future__ import annotations
 
@@ -101,12 +77,7 @@ def commands_from_csv(path: Path, mix: dp.MixConfig) -> list[dp.CommandSample]:
 
 
 def rewrite_command_csv(path: Path, samples: list[dp.CommandSample], note: str) -> None:
-    """Rewrite only the derived columns, keeping every recorded channel byte for byte.
-
-    The header is reissued from the current preamble rather than preserved, because a file
-    written before a column existed carries a `# columns:` line that no longer describes its
-    own rows. Channels the older run never recorded come back as nan, which is the truth.
-    """
+    """Rewrite only the derived columns, keeping every recorded channel byte for byte."""
     kept = ("# rate_hz=", "# meas_linear/meas_angular re-derived")
     meta = [line for line in path.read_text().splitlines() if line.startswith(kept)]
     lines = COMMAND_PREAMBLE + meta + [f"# {note}"] + [command_row(s) for s in samples]
@@ -150,9 +121,6 @@ def rederive(toml_path: Path, mix: dp.MixConfig, hold_s: float, write: bool) -> 
         if "start" in w and "end" in w
     }
     transfer = dict(data.get("transfer", {}))
-    # Recomputed from the probes rather than carried over. The stored value is only as good
-    # as the version of `skew_ppm` that wrote it, and the pre-2026-08-23 one divided across a
-    # reboot: LOG-119 carried -1048410 ppm, which nothing should ever apply.
     if clock_pre is not None and clock_post is not None:
         skew: float | None = jl.skew_ppm(clock_pre, clock_post)
     else:

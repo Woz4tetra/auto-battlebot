@@ -1,22 +1,4 @@
-"""Render open-loop prediction videos against the measured match track.
-
-For each joined recording, the plant model integrates forward from the measured
-pose for a fixed horizon (default 3 s), then resets to the measurement and goes
-again. The video shows where the model walks off and how fast: measured robot
-in blue, predicted ghost in orange, error readout in the corner.
-
-Prediction only runs while the auto switch was up (in manual segments the
-logged channels did not drive the robot, so there is nothing to predict from)
-and resets wait for a frame with a measured pose.
-
-Usage:
-    source scripts/activate_python.sh
-    python playground/calibration/render_match_prediction.py \\
-        --pair <replay>.mcap:<original>.mcap:2026-05-01_17-42-20 \\
-        --params playground/calibration/out/plant_match.toml \\
-        --cmd-lead-ms 40 \\
-        --out-dir playground/calibration/out/match_fit/videos
-"""
+"""Render open-loop prediction videos against the measured match track."""
 
 from __future__ import annotations
 
@@ -51,13 +33,8 @@ from auto_battlebot.control.plant import (
     wrap_angle,
 )
 
-ROBOT_HALF_M = 0.11  # matches sim_mrs_buff_mk3 radius
-SUBSTEP_S = 0.005  # coarser than the fit's 2 ms; invisible at video scale
-
-
-# ---------------------------------------------------------------------------
-# Prediction
-# ---------------------------------------------------------------------------
+ROBOT_HALF_M = 0.11
+SUBSTEP_S = 0.005
 
 
 @dataclass
@@ -86,7 +63,6 @@ def predict_track(
     next_reset = 0
     for k in range(n):
         if not run.auto[k]:
-            # Logged channels were not driving the robot; nothing to predict.
             state = None
             next_reset = k + 1
             continue
@@ -110,11 +86,6 @@ def predict_track(
     return PredictedTrack(pose=pose, segment=segment)
 
 
-# ---------------------------------------------------------------------------
-# Rendering
-# ---------------------------------------------------------------------------
-
-
 def _robot_corners(x: float, y: float, theta: float) -> np.ndarray:
     c, s = np.cos(theta), np.sin(theta)
     rot = np.array([[c, -s], [s, c]])
@@ -122,10 +93,22 @@ def _robot_corners(x: float, y: float, theta: float) -> np.ndarray:
     return square @ rot.T + (x, y)
 
 
+def draw_stick_bars(ax):
+    bar_ax = ax.inset_axes((0.70, 0.015, 0.28, 0.10))
+    bar_ax.set_xlim(-1, 1)
+    bar_ax.set_ylim(-0.5, 1.5)
+    bar_ax.axvline(0.0, color="0.7", linewidth=0.8)
+    bar_ax.set_yticks([0, 1], labels=["ang", "lin"], fontsize=7)
+    bar_ax.set_xticks([-1, 0, 1], labels=["-1", "cmd", "+1"], fontsize=7)
+    lin_bar = bar_ax.barh(1, 0.0, height=0.6, color="tab:blue")[0]
+    ang_bar = bar_ax.barh(0, 0.0, height=0.6, color="tab:green")[0]
+    return lin_bar, ang_bar
+
+
 def render_video(
     run: MatchRun,
     predicted: PredictedTrack,
-    opp: np.ndarray,  # (N, 2), nan when absent
+    opp: np.ndarray,
     out_path: Path,
     *,
     title: str,
@@ -204,15 +187,7 @@ def render_video(
         bbox={"facecolor": "white", "alpha": 0.8, "edgecolor": "none"},
     )
 
-    # Stick readout: two horizontal bars, linear and angular in [-1, 1].
-    bar_ax = ax.inset_axes((0.70, 0.015, 0.28, 0.10))
-    bar_ax.set_xlim(-1, 1)
-    bar_ax.set_ylim(-0.5, 1.5)
-    bar_ax.axvline(0.0, color="0.7", linewidth=0.8)
-    bar_ax.set_yticks([0, 1], labels=["ang", "lin"], fontsize=7)
-    bar_ax.set_xticks([-1, 0, 1], labels=["-1", "cmd", "+1"], fontsize=7)
-    lin_bar = bar_ax.barh(1, 0.0, height=0.6, color="tab:blue")[0]
-    ang_bar = bar_ax.barh(0, 0.0, height=0.6, color="tab:green")[0]
+    lin_bar, ang_bar = draw_stick_bars(ax)
 
     trail_steps = max(1, int(round(reset_s / run.dt)))
 
@@ -286,11 +261,6 @@ def render_video(
     anim.save(str(out_path), writer=writer, dpi=110)
     plt.close(fig)
     print(f"wrote {out_path} ({n} frames at {fps:.1f} fps, {n * run.dt:.0f} s)")
-
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
 
 
 def parse_triple(text: str) -> tuple[Path, Path, str]:

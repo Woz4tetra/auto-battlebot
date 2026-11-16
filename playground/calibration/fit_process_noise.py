@@ -1,34 +1,4 @@
-"""Fit the process noise model from velocity jig validation runs.
-
-Takes the plant parameters from `fit_jig_plant.py` and the same session data, runs the model open
-loop over sliding windows on the held-out runs, and turns the residuals into a covariance the EKF
-can use. The point is getting the covariance *right*, not small: a confident wrong estimate is
-worse in a match than an honestly wide one.
-
-Method, following the plan's part 1.7:
-
-1. Collect body-frame residuals (along-track, cross-track, heading) per window start and horizon,
-   with the conditioning variables that might explain them (speed, yaw rate).
-2. Fit the growth law `sigma^2(h) = a*h + b*h^2 + c*h^3` per axis. Each coefficient is a
-   mechanism, so the fit says which mechanism dominates instead of just drawing a curve:
-     - `c*h^3` is white-noise acceleration with PSD q, giving sigma_p^2 = q h^3 / 3.
-     - `b*h^2` is a velocity scale-factor error: a constant fractional speed error eps gives
-       sigma_p = |v| h eps.
-     - `a*h`   is a random walk, which is how gyro angle random walk reaches cross-track error.
-     - a constant term, if the fit demands one, is delay jitter: sigma_p ~ v * sigma_delay.
-3. Map the coefficients into a continuous-time Q, so the runtime covariance is derived rather
-   than hand-tuned.
-4. Test consistency: coverage at 68/95/99, mean NEES against its chi-square band, and the tail
-   behaviour a coverage number hides.
-
-Usage:
-    source scripts/activate_python.sh
-    python playground/calibration/fit_process_noise.py \\
-        playground/calibration/out/session_A.json \\
-        --calibration playground/calibration/out/jig_calibration.toml \\
-        --params playground/calibration/out/plant_params.toml \\
-        --out playground/calibration/out/process_noise.toml
-"""
+"""Fit the process noise model from velocity jig validation runs."""
 
 from __future__ import annotations
 
@@ -56,22 +26,11 @@ from auto_battlebot.control.plant import (
     toml_float,
 )
 
-# Horizon grid for the noise model. Denser than the fit grid because the covariance has to be
-# honest at every horizon the filter coasts over, not only at the ones the fit optimized.
 NOISE_HORIZONS = (0.033, 0.066, 0.100, 0.150, 0.200, 0.300, 0.400, 0.500)
 
-# Speed bins for the conditional fits. The scale-factor term should dominate at high speed and
-# the acceleration term near zero, and binning is what shows whether it does.
 SPEED_BINS = (0.0, 0.5, 1.5, 3.0, 10.0)
 
-# 95% of a 2D Gaussian sits inside 2.448 sigma, not 2. Getting this wrong is the most common way
-# a "within 2 sigma" claim turns out to mean 86.5% coverage.
 CHI2_2D_95 = float(np.sqrt(chi2.ppf(0.95, df=2)))
-
-
-# ---------------------------------------------------------------------------
-# Growth law
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -79,17 +38,17 @@ class GrowthFit:
     """One axis's variance growth law, with each term named by its mechanism."""
 
     axis: str
-    const: float  # m^2 or rad^2, delay jitter
-    a: float  # per second, random walk
-    b: float  # per second^2, scale-factor error
-    c: float  # per second^3, white-noise acceleration
+    const_var: float
+    a_per_s: float
+    b_per_s2: float
+    c_per_s3: float
     horizons: np.ndarray
     measured_var: np.ndarray
     n: int
 
     def variance(self, h: np.ndarray | float) -> np.ndarray:
         h = np.asarray(h, dtype=float)
-        return self.const + self.a * h + self.b * h**2 + self.c * h**3
+        return self.const_var + self.a_per_s * h + self.b_per_s2 * h**2 + self.c_per_s3 * h**3
 
     def sigma(self, h: np.ndarray | float) -> np.ndarray:
         return np.sqrt(np.maximum(self.variance(h), 0.0))
@@ -98,10 +57,10 @@ class GrowthFit:
         """Which mechanism carries the variance at 400 ms, the horizon that matters most."""
         h = 0.4
         terms = {
-            "delay jitter": self.const,
-            "random walk": self.a * h,
-            "scale factor": self.b * h**2,
-            "white-noise accel": self.c * h**3,
+            "delay jitter": self.const_var,
+            "random walk": self.a_per_s * h,
+            "scale factor": self.b_per_s2 * h**2,
+            "white-noise accel": self.c_per_s3 * h**3,
         }
         return max(terms.items(), key=lambda kv: kv[1])[0]
 
@@ -122,37 +81,27 @@ def fit_growth(axis: str, horizons: np.ndarray, residuals: np.ndarray) -> Growth
     coeff, _ = nnls(basis, var)
     return GrowthFit(
         axis=axis,
-        const=float(coeff[0]),
-        a=float(coeff[1]),
-        b=float(coeff[2]),
-        c=float(coeff[3]),
+        const_var=float(coeff[0]),
+        a_per_s=float(coeff[1]),
+        b_per_s2=float(coeff[2]),
+        c_per_s3=float(coeff[3]),
         horizons=horizons,
         measured_var=var,
         n=residuals.shape[0],
     )
 
 
-# ---------------------------------------------------------------------------
-# Q
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class ProcessNoise:
-    """Continuous-time process noise for the our-robot EKF, derived from the growth law.
+    """Continuous-time process noise for the our-robot EKF, derived from the growth law."""
 
-    The along-track and cross-track white-noise acceleration PSDs are kept separate: they come
-    from different mechanisms (speed error along track, heading error across it) and forcing them
-    equal would inflate one to cover the other.
-    """
-
-    q_along: float  # (m/s^2)^2 / Hz, from c_along = q/3
+    q_along_m2_s3: float
     q_cross: float
-    q_heading: float  # (rad/s^2)^2 / Hz
-    scale_factor: float  # fractional speed error, dimensionless
-    heading_scale_factor: float  # fractional yaw-rate error, dimensionless
-    heading_rw: float  # rad^2/s, angle random walk feeding cross-track
-    delay_jitter_s: float  # s, from the constant term at the median speed
+    q_heading_rad2_s3: float
+    scale_factor_frac: float
+    heading_scale_factor_frac: float
+    heading_rw_rad2_per_s: float
+    delay_jitter_s: float
     median_speed: float
     median_yaw_rate: float
 
@@ -161,12 +110,13 @@ class ProcessNoise:
             f"[{table}]",
             "# Derived from windowed open-loop residuals, not hand-tuned. See",
             "# playground/calibration/fit_process_noise.py.",
-            f"q_along = {toml_float(self.q_along)}  # (m/s^2)^2/Hz, sigma_p^2 = q h^3 / 3",
+            f"q_along = {toml_float(self.q_along_m2_s3)}  # (m/s^2)^2/Hz, sigma_p^2 = q h^3 / 3",
             f"q_cross = {toml_float(self.q_cross)}",
-            f"q_heading = {toml_float(self.q_heading)}  # (rad/s^2)^2/Hz",
-            f"scale_factor = {toml_float(self.scale_factor)}  # sigma = |v| h eps",
-            f"heading_scale_factor = {toml_float(self.heading_scale_factor)}  # sigma = |w| h eps",
-            f"heading_random_walk = {toml_float(self.heading_rw)}  # rad^2/s",
+            f"q_heading = {toml_float(self.q_heading_rad2_s3)}  # (rad/s^2)^2/Hz",
+            f"scale_factor = {toml_float(self.scale_factor_frac)}  # sigma = |v| h eps",
+            "heading_scale_factor = "
+            f"{toml_float(self.heading_scale_factor_frac)}  # sigma = |w| h eps",
+            f"heading_random_walk = {toml_float(self.heading_rw_rad2_per_s)}  # rad^2/s",
             f"delay_jitter_s = {toml_float(self.delay_jitter_s)}",
         ]
         return "\n".join(lines) + "\n"
@@ -175,36 +125,24 @@ class ProcessNoise:
 def build_q(
     fits: dict[str, GrowthFit], median_speed: float, median_yaw_rate: float
 ) -> ProcessNoise:
-    """Map the fitted coefficients onto the EKF's continuous-time noise terms.
-
-    sigma_p^2 = q h^3 / 3 is the standard position variance under white-noise acceleration, so
-    q = 3c. The scale-factor terms are state dependent (they grow with speed and yaw rate), so
-    they are stored as fractions and applied at runtime as |v| h eps and |w| h eps rather than
-    folded into q here. The heading b term is the dominant heading mechanism at 400 ms; dropping
-    it would understate heading sigma about 4x, a confidently wrong covariance.
-    """
+    """Map the fitted coefficients onto the EKF's continuous-time noise terms."""
     along = fits["along"]
     cross = fits["cross"]
     heading = fits["heading"]
-    eps = float(np.sqrt(along.b)) / max(median_speed, 1e-6)
-    eps_heading = float(np.sqrt(heading.b)) / max(median_yaw_rate, 1e-6)
-    jitter = float(np.sqrt(along.const)) / max(median_speed, 1e-6)
+    eps = float(np.sqrt(along.b_per_s2)) / max(median_speed, 1e-6)
+    eps_heading = float(np.sqrt(heading.b_per_s2)) / max(median_yaw_rate, 1e-6)
+    jitter = float(np.sqrt(along.const_var)) / max(median_speed, 1e-6)
     return ProcessNoise(
-        q_along=3.0 * along.c,
-        q_cross=3.0 * cross.c,
-        q_heading=3.0 * heading.c,
-        scale_factor=eps,
-        heading_scale_factor=eps_heading,
-        heading_rw=heading.a,
+        q_along_m2_s3=3.0 * along.c_per_s3,
+        q_cross=3.0 * cross.c_per_s3,
+        q_heading_rad2_s3=3.0 * heading.c_per_s3,
+        scale_factor_frac=eps,
+        heading_scale_factor_frac=eps_heading,
+        heading_rw_rad2_per_s=heading.a_per_s,
         delay_jitter_s=jitter,
         median_speed=median_speed,
         median_yaw_rate=median_yaw_rate,
     )
-
-
-# ---------------------------------------------------------------------------
-# Consistency
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -220,12 +158,7 @@ class CoverageRow:
 
 
 def coverage(err: WindowErrors, along: GrowthFit, cross: GrowthFit) -> list[CoverageRow]:
-    """Empirical coverage and mean NEES per horizon bin, for the 2D position error.
-
-    NEES is the normalized estimation error squared: with the covariance right it averages the
-    state dimension (2 here) and its sample mean over N windows sits inside a chi-square band.
-    Coverage alone can look fine while the tails are wrong, which is why both are reported.
-    """
+    """Empirical coverage and mean NEES per horizon bin, for the 2D position error."""
     rows: list[CoverageRow] = []
     for i, h in enumerate(err.horizons):
         s_along = float(along.sigma(h))
@@ -250,12 +183,7 @@ def coverage(err: WindowErrors, along: GrowthFit, cross: GrowthFit) -> list[Cove
 
 
 def tail_report(err: WindowErrors) -> list[tuple[float, float, float]]:
-    """p99 and p99.9 position error per horizon.
-
-    Combat means getting hit, and an impact produces accelerations far outside the Gaussian body.
-    Those belong in a separate line of the report, not inside a Q large enough to cover them,
-    which would ruin the estimate everywhere else.
-    """
+    """p99 and p99.9 position error per horizon."""
     out = []
     for i, h in enumerate(err.horizons):
         pos = err.position[:, i] * 1e3
@@ -263,23 +191,19 @@ def tail_report(err: WindowErrors) -> list[tuple[float, float, float]]:
     return out
 
 
-# ---------------------------------------------------------------------------
-# Report
-# ---------------------------------------------------------------------------
-
-
 def print_growth(fit: GrowthFit) -> None:
     heading = fit.axis == "heading"
     unit, label = (np.degrees(1.0) * 1e3, "mdeg") if heading else (1e3, "mm")
     print(f"\n  {fit.axis} (n={fit.n} windows, sigma in {label})")
     print(
-        f"    const {fit.const:.3e}   a {fit.a:.3e}   b {fit.b:.3e}   c {fit.c:.3e}"
+        f"    const {fit.const_var:.3e}   a {fit.a_per_s:.3e}"
+        f"   b {fit.b_per_s2:.3e}   c {fit.c_per_s3:.3e}"
         f"   dominant at 400 ms: {fit.dominant()}"
     )
     print("    horizon ms |" + "".join(f"{h * 1e3:10.0f}" for h in fit.horizons))
     print("    measured   |" + "".join(f"{np.sqrt(v) * unit:10.3g}" for v in fit.measured_var))
     print("    modelled   |" + "".join(f"{s * unit:10.3g}" for s in fit.sigma(fit.horizons)))
-    if fit.const == 0.0 and fit.a == 0.0 and fit.b == 0.0 and fit.c == 0.0:
+    if fit.const_var == 0.0 and fit.a_per_s == 0.0 and fit.b_per_s2 == 0.0 and fit.c_per_s3 == 0.0:
         print(
             "    WARNING: every coefficient fit to zero, so this axis has no covariance growth"
             " at all.\n             Do not ship that: check the residuals before using this Q."
@@ -328,11 +252,6 @@ def make_plot(path: Path, fits: dict[str, GrowthFit], rows: Sequence[CoverageRow
     fig.savefig(path, dpi=110, bbox_inches="tight")
     plt.close(fig)
     print(f"wrote {path}")
-
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
 
 
 def main() -> None:
@@ -404,7 +323,7 @@ def main() -> None:
             continue
         binned = fit_growth("along", err.horizons, err.along[sel])
         print(
-            f"  {lo:.1f}-{hi:.1f} m/s: n={n}, b {binned.b:.3e}, c {binned.c:.3e},"
+            f"  {lo:.1f}-{hi:.1f} m/s: n={n}, b {binned.b_per_s2:.3e}, c {binned.c_per_s3:.3e},"
             f" dominant {binned.dominant()}"
         )
 
@@ -414,15 +333,18 @@ def main() -> None:
     )
     noise = build_q(fits, median_speed, median_yaw_rate)
     print("\n=== Process noise ===")
-    print(f"  q_along        {noise.q_along:.4g} (m/s^2)^2/Hz")
+    print(f"  q_along        {noise.q_along_m2_s3:.4g} (m/s^2)^2/Hz")
     print(f"  q_cross        {noise.q_cross:.4g} (m/s^2)^2/Hz")
-    print(f"  q_heading      {noise.q_heading:.4g} (rad/s^2)^2/Hz")
-    print(f"  scale factor   {noise.scale_factor:.4g} ({noise.scale_factor * 100:.2f}% of speed)")
+    print(f"  q_heading      {noise.q_heading_rad2_s3:.4g} (rad/s^2)^2/Hz")
     print(
-        f"  heading scale  {noise.heading_scale_factor:.4g}"
-        f" ({noise.heading_scale_factor * 100:.2f}% of yaw rate)"
+        f"  scale factor   {noise.scale_factor_frac:.4g}"
+        f" ({noise.scale_factor_frac * 100:.2f}% of speed)"
     )
-    print(f"  heading RW     {noise.heading_rw:.4g} rad^2/s")
+    print(
+        f"  heading scale  {noise.heading_scale_factor_frac:.4g}"
+        f" ({noise.heading_scale_factor_frac * 100:.2f}% of yaw rate)"
+    )
+    print(f"  heading RW     {noise.heading_rw_rad2_per_s:.4g} rad^2/s")
     print(f"  delay jitter   {noise.delay_jitter_s * 1e3:.2f} ms at {median_speed:.2f} m/s")
 
     rows = coverage(err, fits["along"], fits["cross"])

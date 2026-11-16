@@ -12,20 +12,19 @@ Pose = tuple[float, float, float]  # x, y, yaw in the field frame
 
 
 class PlantInterface(Protocol):
-    """Our robot's drivetrain. The server applies actuation latency before `step`; the viewer
-    reads `v`, `w` and the hazard fields; the EPISODE line reads the counters."""
+    """Our robot's drivetrain, as the server and viewer use it."""
 
     @property
-    def v(self) -> float: ...  # forward speed, m/s
+    def v_mps(self) -> float: ...
 
     @property
-    def w(self) -> float: ...  # yaw rate, rad/s
+    def w_radps(self) -> float: ...
 
     @property
     def fell_in(self) -> bool: ...
 
     @property
-    def upside_down(self) -> bool: ...  # chassis top faces the floor; the viewer draws the belly
+    def upside_down(self) -> bool: ...
 
     @property
     def footprint_center_offset(self) -> tuple[float, float]:
@@ -51,9 +50,7 @@ class PlantInterface(Protocol):
     def pose(self) -> Pose: ...
 
     def collision_outlines(self) -> list[np.ndarray]:
-        """Top-down outline of each shape our robot collides with the moving blocks through, as
-        (N, 2) field-frame polygons for the viewer. Static blocks and arena walls are left out:
-        the viewer already draws those at their contact size."""
+        """Top-down outline of each shape our robot collides with the moving blocks through."""
         ...
 
 
@@ -70,11 +67,7 @@ def disc_outline(x: float, y: float, radius: float, points: int = 48) -> np.ndar
 
 
 class HazardMonitor:
-    """Hole fall-in and closest approach to any hazard, from the chassis centre.
-
-    Blocks are grown by the robot radius, the same way the kinematic plant grows the arena walls.
-    A hole swallows the robot when its centre crosses the lip, so holes are not grown.
-    """
+    """Hole fall-in and closest approach to any hazard, from the chassis centre."""
 
     def __init__(self, obstacles: list[ObstacleConfig], robot_radius: float) -> None:
         self._robot_radius = robot_radius
@@ -89,8 +82,6 @@ class HazardMonitor:
         self.min_clearance = float("inf")
 
     def set_moving_blocks(self, blocks: list[tuple[float, float, float, float]]) -> None:
-        # Discs of hazard_radius whatever shape the plant collides with: clearance is scored
-        # against the keep-out disc the controller plans around.
         self._moving_blocks = [(x, y, r + self._robot_radius) for x, y, _, r in blocks]
 
     def blocks(self) -> list[tuple[float, float, float]]:

@@ -1,36 +1,4 @@
-"""Smooth one Mr Stabs Mk2 sysid session into the bundle the MuJoCo fit reads.
-
-Reads an MCAP recorded with the ``mr_stabs_mk2_sysid_zed_box`` profile (``/apriltag/robot_tags``,
-the robot telemetry (``/robot/espnow_telemetry``, or ``/robot/esp32_diagnostics`` before
-2026-10-25), the transmitter channels when the radio was on USB, ``/tf``) and writes, under
-``playground/calibration/out/mujoco_sysid/<session_name>/``:
-
-- ``smoothed.csv``: RTS-smoothed axle-center pose on a 5 ms grid
-- ``measurements.csv``: one row per robot tag detection, raw pose and gating provenance
-- ``commands.csv``: one row per ESP32 event, stamped on the app clock by the clock fit
-- ``windows.csv``: gated 1 to 2 s fit windows with their initial state
-- ``session.json``: noise floor, process noise and its cross-validation curve, clock fit,
-  radio delay, IMU agreement, IPPE close calls, rejections, window counts and drop reasons
-
-Conventions (details in ``auto_battlebot/perception/tag_pose_smoother.py``):
-
-- Frame: the field frame with z up. ``FiducialFieldFilter`` records field z into the floor; that
-  frame is turned 180 degrees about field x (y and z negated) so the output is right-handed with
-  z up. ``session.json`` ``output_frame`` says whether the turn was applied.
-- Pose: the axle midpoint, FLU body frame. ``yaw`` is counter-clockwise about field +z,
-  unwrapped. ``pitch`` and ``roll`` are ZYX Euler angles: pitch about body +y (nose down is
-  positive, an upright robot at rest reads about +0.198 rad), roll about body +x. With
-  ``upside_down`` set they are relative to the inverted rest pose instead (body turned 180
-  degrees about x), so they read near zero when it drives inverted.
-- Units: metres, radians, seconds; stamps are app-clock nanoseconds. Wheel speeds in
-  ``windows.csv`` are rad/s, positive rolling forward, from the no-slip relation.
-- ``sigma_xy`` in ``measurements.csv`` is the RMS of the along-view and across-view sigmas; the
-  split and its gains are in ``session.json`` ``noise_model``.
-
-Usage:
-    source scripts/activate_python.sh
-    python playground/calibration/smooth_tag_poses.py path/to/session.mcap --plots
-"""
+"""Smooth one Mr Stabs Mk2 sysid session into the MuJoCo fit bundle."""
 
 from __future__ import annotations
 
@@ -273,6 +241,67 @@ def frames_summary(frames: list[Any], mounts: dict[int, Any]) -> dict[str, Any]:
     }
 
 
+def plot_yolo_projection(plt, out_dir: Path, cal) -> str:
+    fig, axes = plt.subplots(1, 3, figsize=(14, 4), constrained_layout=True)
+    for ax, key, gate, unit in (
+        (axes[0], "box_diag_px", cal.box_diag_px, "box diagonal, px"),
+        (axes[1], "keypoint_sep_m", cal.keypoint_sep_m, "front-back keypoint spacing, m"),
+    ):
+        v = cal.samples[key]
+        ax.hist(v, bins=120, color="#2a78d6")
+        for g in gate:
+            ax.axvline(g, color="#eb6834", ls="--", lw=1)
+        ax.set_yscale("log")
+        ax.set_xlabel(unit)
+        out = int(((v < gate[0]) | (v > gate[1])).sum())
+        ax.set_title(
+            f"{out} of {len(v)} detections outside the gates (dashed)\n"
+            "a cluster far right is the marker board",
+            loc="left",
+            fontsize=8,
+        )
+    err = 1e3 * cal.samples["pair_error_m"]
+    axes[2].hist(err[err < 80], bins=80, color="#1baf7a")
+    axes[2].set_xlabel("YOLO minus tag, mm (co-visible frames)")
+    axes[2].set_title(
+        f"offset {cal.offset_ns / 1e6:.1f} ms, plane {cal.plane_height_m * 1e3:.0f} mm, "
+        f"axle {cal.axle_offset_m * 1e3:.0f} mm\nsigma along {cal.sigma_along_m * 1e3:.1f}, "
+        f"across {cal.sigma_across_m * 1e3:.1f} mm; median {np.median(err):.1f} mm",
+        loc="left",
+        fontsize=8,
+    )
+    path = out_dir / "yolo_calibration.png"
+    fig.savefig(path, dpi=120)
+    plt.close(fig)
+    return path.name
+
+
+def plot_raw_vs_smoothed(plt, out_dir: Path, result: SessionSmoothing) -> str:
+    meas = result.measurements
+    grid = result.grid
+    i0, i1 = max(result.noise_calibration_segments, key=lambda seg: seg[1] - seg[0])
+    t0 = int(meas["stamp_ns"].iloc[i0])
+    t1 = int(meas["stamp_ns"].iloc[i1])
+    g = grid[(grid["stamp_ns"] >= t0) & (grid["stamp_ns"] <= t1)]
+    m = meas.iloc[i0 : i1 + 1]
+    fig, axes = plt.subplots(3, 1, figsize=(9, 7), sharex=True)
+    for ax, col, scale, unit in (
+        (axes[0], "x", 1e3, "mm"),
+        (axes[1], "y", 1e3, "mm"),
+        (axes[2], "yaw", math.degrees(1.0), "deg"),
+    ):
+        ax.plot((m["stamp_ns"] - t0) / 1e9, m[col] * scale, ".", ms=3, label="raw")
+        ax.plot((g["stamp_ns"] - t0) / 1e9, g[col] * scale, "-", lw=1.5, label="smoothed")
+        ax.set_ylabel(f"{col} ({unit})")
+    axes[0].legend()
+    axes[-1].set_xlabel("time in still segment (s)")
+    fig.tight_layout()
+    path = out_dir / "still_raw_vs_smoothed.png"
+    fig.savefig(path, dpi=110)
+    plt.close(fig)
+    return path.name
+
+
 def write_plots(out_dir: Path, result: SessionSmoothing) -> list[str]:
     import matplotlib
 
@@ -282,65 +311,12 @@ def write_plots(out_dir: Path, result: SessionSmoothing) -> list[str]:
     written = []
     cal = result.yolo_calibration
     if cal is not None and cal.samples:
-        # YOLO projection: what the size gates keep, and how far YOLO sits from the tag.
-        fig, axes = plt.subplots(1, 3, figsize=(14, 4), constrained_layout=True)
-        for ax, key, gate, unit in (
-            (axes[0], "box_diag_px", cal.box_diag_px, "box diagonal, px"),
-            (axes[1], "keypoint_sep_m", cal.keypoint_sep_m, "front-back keypoint spacing, m"),
-        ):
-            v = cal.samples[key]
-            ax.hist(v, bins=120, color="#2a78d6")
-            for g in gate:
-                ax.axvline(g, color="#eb6834", ls="--", lw=1)
-            ax.set_yscale("log")
-            ax.set_xlabel(unit)
-            out = int(((v < gate[0]) | (v > gate[1])).sum())
-            ax.set_title(
-                f"{out} of {len(v)} detections outside the gates (dashed)\n"
-                "a cluster far right is the marker board",
-                loc="left",
-                fontsize=8,
-            )
-        err = 1e3 * cal.samples["pair_error_m"]
-        axes[2].hist(err[err < 80], bins=80, color="#1baf7a")
-        axes[2].set_xlabel("YOLO minus tag, mm (co-visible frames)")
-        axes[2].set_title(
-            f"offset {cal.offset_ns / 1e6:.1f} ms, plane {cal.plane_height_m * 1e3:.0f} mm, "
-            f"axle {cal.axle_offset_m * 1e3:.0f} mm\nsigma along {cal.sigma_along_m * 1e3:.1f}, "
-            f"across {cal.sigma_across_m * 1e3:.1f} mm; median {np.median(err):.1f} mm",
-            loc="left",
-            fontsize=8,
-        )
-        path = out_dir / "yolo_calibration.png"
-        fig.savefig(path, dpi=120)
-        plt.close(fig)
-        written.append(path.name)
+        written.append(plot_yolo_projection(plt, out_dir, cal))
     meas = result.measurements
     grid = result.grid
 
-    # Raw vs smoothed on the longest still segment the noise model was calibrated on.
     if result.noise_calibration_segments:
-        i0, i1 = max(result.noise_calibration_segments, key=lambda seg: seg[1] - seg[0])
-        t0 = int(meas["stamp_ns"].iloc[i0])
-        t1 = int(meas["stamp_ns"].iloc[i1])
-        g = grid[(grid["stamp_ns"] >= t0) & (grid["stamp_ns"] <= t1)]
-        m = meas.iloc[i0 : i1 + 1]
-        fig, axes = plt.subplots(3, 1, figsize=(9, 7), sharex=True)
-        for ax, col, scale, unit in (
-            (axes[0], "x", 1e3, "mm"),
-            (axes[1], "y", 1e3, "mm"),
-            (axes[2], "yaw", math.degrees(1.0), "deg"),
-        ):
-            ax.plot((m["stamp_ns"] - t0) / 1e9, m[col] * scale, ".", ms=3, label="raw")
-            ax.plot((g["stamp_ns"] - t0) / 1e9, g[col] * scale, "-", lw=1.5, label="smoothed")
-            ax.set_ylabel(f"{col} ({unit})")
-        axes[0].legend()
-        axes[-1].set_xlabel("time in still segment (s)")
-        fig.tight_layout()
-        path = out_dir / "still_raw_vs_smoothed.png"
-        fig.savefig(path, dpi=110)
-        plt.close(fig)
-        written.append(path.name)
+        written.append(plot_raw_vs_smoothed(plt, out_dir, result))
 
     fig, ax = plt.subplots(figsize=(7, 4))
     lags = np.arange(result.residual_acf.size)
@@ -427,7 +403,6 @@ def main(argv: list[str] | None = None) -> Path:
     )
     meas = result.measurements.assign(source="tag")
     if result.yolo_fixes is not None:
-        # Position and heading only; the 2D keypoints carry no height or tilt.
         fixes = result.yolo_fixes.assign(
             tag_id=-1,
             z=np.nan,
@@ -440,8 +415,6 @@ def main(argv: list[str] | None = None) -> Path:
         )
         meas = pd.concat([meas, fixes[MEASUREMENT_COLUMNS]], ignore_index=True)
         meas = meas.sort_values("stamp_ns", kind="stable").reset_index(drop=True)
-    # The video frames YOLO filled in count as camera frames for window coverage, so a dropout the
-    # fixes cover reads as covered and a rejected fix still counts against it.
     frame_stamps = result.frame_stamps_ns
     if result.yolo_fixes is not None:
         frame_stamps = np.union1d(frame_stamps, result.yolo_fixes["stamp_ns"].to_numpy(np.int64))

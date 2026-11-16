@@ -1,18 +1,5 @@
 #!/usr/bin/env python3
-"""Render and grade a list of spec variants, then print one comparison table.
-
-Each variant is a name and a list of `section.key=value` overrides for
-`training/synthetic/render_cage_view.py`. Every variant renders the event poses through the
-synthetic Docker image into `renders/<prefix>_<name>/`, is graded with grade_render.py, and
-the render-vs-target means land side by side so a sweep reads as one table.
-
-Variants come from a JSON file: `{"name": ["frame.height_above_mat=0.03", ...], ...}`, or
-from --grid KEY V1 V2 ..., which sweeps one key.
-
-Usage:
-    venv/bin/python playground/cage_scene/sweep_spec.py runs/cage_scene --prefix h \\
-        --grid frame.height_above_mat 0.03 0.05 0.08 --samples 32
-"""
+"""Render and grade spec variants and print one comparison table."""
 
 from __future__ import annotations
 

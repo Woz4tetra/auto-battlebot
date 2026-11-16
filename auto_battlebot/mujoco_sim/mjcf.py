@@ -28,6 +28,7 @@ SKID_GEOM = "nose_skid"
 CHASSIS_GEOM_PREFIX = "chassis_hull_"
 ROBOT_CONTYPE = 2
 FLOOR_CONTYPE = 1
+HULL_GEOM_GROUP = 3
 
 
 @dataclass(frozen=True)
@@ -102,7 +103,7 @@ def build_mjcf(
             hull_geoms.append(
                 f'      <geom name="{CHASSIS_GEOM_PREFIX}{i}" type="mesh" mesh="hull_{i}" '
                 f'contype="{ROBOT_CONTYPE}" conaffinity="{FLOOR_CONTYPE}" condim="3" '
-                f'friction="{_vec(skid_friction(params))}" group="3"/>'
+                f'friction="{_vec(skid_friction(params))}" group="{HULL_GEOM_GROUP}"/>'
             )
         skid = (
             None

@@ -1,24 +1,4 @@
-"""Render open-loop prediction videos reprojected into the camera view.
-
-Same content as `render_match_prediction.py` (plant integrates the transmitted
-commands open loop, resetting to the measured pose every few seconds) but drawn
-over the actual SVO RGB frames: measured footprint in blue, predicted ghost in
-orange, both projected onto the field plane through the replay's per-tick
-field->camera_world->camera transforms and camera intrinsics.
-
-The SVO file is taken from `/camera/frame_meta` (it records the path the replay
-played), and the Nth decoded left-eye JPEG is SVO frame N, so frames pair with
-ticks exactly. Projection uses the tick's own field->camera_world transform, so
-field re-initializations mid-replay cannot smear the overlay.
-
-Usage:
-    source scripts/activate_python.sh
-    python playground/calibration/render_match_prediction_camera.py \\
-        --pair <replay>.mcap:<original>.mcap:2026-05-01_17-42-20 \\
-        --params playground/calibration/out/plant_match.toml \\
-        --cmd-lead-ms 40 \\
-        --out-dir playground/calibration/out/match_fit/videos
-"""
+"""Render open-loop prediction videos reprojected into the camera view."""
 
 from __future__ import annotations
 
@@ -47,8 +27,8 @@ from auto_battlebot.recording.mcap_io import (
 )
 from playground.calibration.render_match_prediction import ROBOT_HALF_M, predict_track
 
-BLUE = (200, 100, 30)  # BGR
-ORANGE = (30, 140, 240)
+BLUE_BGR = (200, 100, 30)
+ORANGE_BGR = (30, 140, 240)
 RED = (60, 60, 230)
 WHITE = (240, 240, 240)
 
@@ -57,11 +37,11 @@ WHITE = (240, 240, 240)
 class CameraTrack:
     """Per-tick projection data pulled from a replay mcap."""
 
-    svo_index: np.ndarray  # (M,) per tick with a valid frame
+    svo_index: np.ndarray
     stamp_ns: np.ndarray
-    cam_from_field: np.ndarray  # (M, 4, 4), nan rows where no transform yet
-    intrinsics: np.ndarray  # 3x3 K
-    width: int  # frame size; the recordings vary (1080p practice, 720p fights)
+    cam_from_field: np.ndarray
+    intrinsics: np.ndarray
+    width: int
     height: int
     svo_path: Path
 
@@ -139,6 +119,11 @@ def project_points(
     return out
 
 
+def grid_slots(stamp_ns: np.ndarray, t0_ns: int, dt: float, count: int) -> np.ndarray:
+    slots = np.round((stamp_ns - t0_ns) / (dt * 1e9)).astype(int)
+    return np.clip(slots, 0, count - 1)
+
+
 def _robot_footprint(x: float, y: float, theta: float) -> np.ndarray:
     c, s = np.cos(theta), np.sin(theta)
     rot = np.array([[c, -s], [s, c]])
@@ -152,6 +137,35 @@ def _poly(img: np.ndarray, uv: np.ndarray, color, thickness=2, closed=True) -> N
         return
     pts = np.clip(uv[keep], -1e5, 1e5).astype(np.int32)
     cv2.polylines(img, [pts], closed, color, thickness, lineType=cv2.LINE_AA)
+
+
+def draw_stick_bars(img, run, k, hud_scale) -> None:
+    bx = int(1560 * hud_scale)
+    by = int(1000 * hud_scale)
+    bw = int(300 * hud_scale)
+    bh = int(24 * hud_scale)
+    for row, (value, color, label) in enumerate(
+        (
+            (float(run.cmd_lin[k]), BLUE_BGR, "lin"),
+            (float(run.cmd_ang[k]), (60, 180, 60), "ang"),
+        )
+    ):
+        y0 = by + row * (bh + int(8 * hud_scale))
+        cv2.rectangle(img, (bx, y0), (bx + bw, y0 + bh), (30, 30, 30), -1)
+        mid = bx + bw // 2
+        cv2.line(img, (mid, y0), (mid, y0 + bh), (120, 120, 120), 1)
+        extent = int(np.clip(value, -1, 1) * (bw // 2))
+        cv2.rectangle(img, (mid, y0 + 3), (mid + extent, y0 + bh - 3), color, -1)
+        cv2.putText(
+            img,
+            label,
+            (bx - int(52 * hud_scale), y0 + bh - int(6 * hud_scale)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6 * hud_scale,
+            WHITE,
+            1,
+            cv2.LINE_AA,
+        )
 
 
 def main() -> None:
@@ -201,9 +215,7 @@ def main() -> None:
         if "17-42-20" in name:
             holdout_from_s = float(run.t[int(len(run.t) * (1 - args.holdout_fraction))])
 
-        # Tick -> grid slot, by the same rounding the grid was built with.
-        slots = np.round((cam.stamp_ns - run.t0_ns) / (run.dt * 1e9)).astype(int)
-        slots = np.clip(slots, 0, len(run.t) - 1)
+        slots = grid_slots(cam.stamp_ns, run.t0_ns, run.dt, len(run.t))
 
         first_idx = int(cam.svo_index[0])
         last_idx = int(cam.svo_index[-1])
@@ -255,7 +267,7 @@ def main() -> None:
                     break
                 tick = index_to_tick.get(svo_index)
                 if tick is None:
-                    continue  # frame the replay never delivered; keep timing by skipping
+                    continue
                 img = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
                 if img is None or img.shape != (cam.height, cam.width, 3):
                     # The stream tail can yield one truncated JPEG; skip it
@@ -277,10 +289,10 @@ def main() -> None:
                     trail = np.stack([run.x[lo : k + 1], run.y[lo : k + 1]], axis=1)
                     trail = trail[np.isfinite(trail).all(axis=1)]
                     if len(trail) >= 2:
-                        _poly(img, prj(trail), BLUE, 2, closed=False)
+                        _poly(img, prj(trail), BLUE_BGR, 2, closed=False)
                     if meas_ok:
                         corners = _robot_footprint(run.x[k], run.y[k], run.theta[k])
-                        _poly(img, prj(corners), BLUE, 3)
+                        _poly(img, prj(corners), BLUE_BGR, 3)
                         head = np.array(
                             [
                                 [run.x[k], run.y[k]],
@@ -290,12 +302,12 @@ def main() -> None:
                                 ],
                             ]
                         )
-                        _poly(img, prj(head), BLUE, 3, closed=False)
+                        _poly(img, prj(head), BLUE_BGR, 3, closed=False)
 
                     seg = predicted.segment[k]
                     if seg >= 0:
                         px, py, pth = predicted.pose[k]
-                        _poly(img, prj(_robot_footprint(px, py, pth)), ORANGE, 3)
+                        _poly(img, prj(_robot_footprint(px, py, pth)), ORANGE_BGR, 3)
                         head = np.array(
                             [
                                 [px, py],
@@ -305,9 +317,9 @@ def main() -> None:
                                 ],
                             ]
                         )
-                        _poly(img, prj(head), ORANGE, 3, closed=False)
+                        _poly(img, prj(head), ORANGE_BGR, 3, closed=False)
                         sel = np.flatnonzero(predicted.segment[: k + 1] == seg)
-                        _poly(img, prj(predicted.pose[sel, :2]), ORANGE, 2, closed=False)
+                        _poly(img, prj(predicted.pose[sel, :2]), ORANGE_BGR, 2, closed=False)
                         since_reset = (k - sel[0]) * run.dt
                         if meas_ok:
                             _poly(
@@ -366,33 +378,7 @@ def main() -> None:
                         cv2.LINE_AA,
                     )
 
-                # Stick bars, bottom right.
-                bx = int(1560 * hud_scale)
-                by = int(1000 * hud_scale)
-                bw = int(300 * hud_scale)
-                bh = int(24 * hud_scale)
-                for row, (value, color, label) in enumerate(
-                    (
-                        (float(run.cmd_lin[k]), BLUE, "lin"),
-                        (float(run.cmd_ang[k]), (60, 180, 60), "ang"),
-                    )
-                ):
-                    y0 = by + row * (bh + int(8 * hud_scale))
-                    cv2.rectangle(img, (bx, y0), (bx + bw, y0 + bh), (30, 30, 30), -1)
-                    mid = bx + bw // 2
-                    cv2.line(img, (mid, y0), (mid, y0 + bh), (120, 120, 120), 1)
-                    extent = int(np.clip(value, -1, 1) * (bw // 2))
-                    cv2.rectangle(img, (mid, y0 + 3), (mid + extent, y0 + bh - 3), color, -1)
-                    cv2.putText(
-                        img,
-                        label,
-                        (bx - int(52 * hud_scale), y0 + bh - int(6 * hud_scale)),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.6 * hud_scale,
-                        WHITE,
-                        1,
-                        cv2.LINE_AA,
-                    )
+                draw_stick_bars(img, run, k, hud_scale)
 
                 encoder.stdin.write(img.tobytes())
                 drawn += 1

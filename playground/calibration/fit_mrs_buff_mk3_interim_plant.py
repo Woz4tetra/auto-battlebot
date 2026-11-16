@@ -1,25 +1,4 @@
-"""Fit Mrs Buff Mk3's MuJoCo plant to her jig-fitted grey-box plant, until a tagged session exists.
-
-Mr Stabs Mk2's MuJoCo plant was fit to hand-driven sessions with AprilTags (fit_mujoco_plant.py).
-Mrs Buff Mk3 has no such session, only the velocity jig's M4 grey-box fit
-(playground/calibration/out/plant_stageA.toml: speeds, lags, deadzones, steer-brake and angular
-droop, measured on the floor with the guard plates on). This drives the M4 model with jig-shaped
-command tapes, treats its poses as measurements, and fits the MuJoCo plant to them with the same
-staged CMA-ES and loss the session fit uses. M4 is flat, so this pins drive and scrub, not
-tipping; with the weapon off she does not tip.
-
-Commands are what the app sends: `DifferentialDriveProcessor` output (angular priority, the zero
-deadzone), linear and angular in [-1, 1]. The radio mixes them per motor as left = linear -
-angular, right = linear + angular (positive angular turns counterclockwise, the inverse
-`greybox.predict` uses). Her ESCs run open loop: there is no eRPM feedback and no onboard yaw
-loop, so the voltage-source actuator model is the whole command chain after the delay.
-
-    python playground/calibration/fit_mrs_buff_mk3_interim_plant.py \\
-        --out playground/calibration/out/mujoco_sysid/mk3_interim
-
-Writes fit.json (load_fit_params reads it), holdout.json (per-horizon errors and response
-checks against M4) and fit.log.
-"""
+"""Fit Mrs Buff Mk3's MuJoCo plant to her jig-fitted grey-box plant."""
 
 from __future__ import annotations
 
@@ -28,6 +7,7 @@ import json
 import math
 import time
 from dataclasses import replace
+from enum import IntEnum
 from pathlib import Path
 
 import numpy as np
@@ -60,7 +40,7 @@ MEAS_HZ = 60.0
 NOISE_XY = 0.01
 NOISE_YAW = 0.05
 PACK_V = 15.2
-ZERO_DEADZONE = 0.02  # DifferentialDriveProcessor
+ZERO_DEADZONE = 0.02
 
 SPECS = {
     s.name: s
@@ -76,14 +56,9 @@ SPECS = {
         ParamSpec("joint_damping", 1e-6, 1e-3, log=True),
         ParamSpec("wheel_mu_slide", 0.1, 3.0, log=True),
         ParamSpec("wheel_mu_torsion", 1e-4, 5e-2, log=True),
-        # Capped at 0.02 s: the same contact softness applies to walls and opponents, and a
-        # softer contact lets the hull sink into them in a collision. M4 is flat, so the floor
-        # alone would happily trade stiffness away.
         ParamSpec("solref_timeconst", 0.004, 0.02, log=True),
         ParamSpec("solimp_dmax", 0.9, 0.9999),
         ParamSpec("armature_scale", 0.3, 3.0, log=True),
-        # The ESC's current limit caps acceleration. The datasheet gives 10.4 A stall at 12 V;
-        # without this term the fit pinned the rotor inertia at 3x to slow the launch.
         ParamSpec("current_limit_a", 3.0, 40.0, log=True),
     )
 }
@@ -122,31 +97,34 @@ def saturate(lin: np.ndarray, ang: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return 0.5 * (a + b), 0.5 * (a - b)
 
 
-def command_tape(rng: np.random.Generator, n: int) -> tuple[np.ndarray, np.ndarray]:
-    """One window's linear and angular commands on the PLANT_DT grid, piecewise constant.
+class Family(IntEnum):
+    STRAIGHT = 0
+    SPIN = 1
+    ARC = 2
+    STEER_BRAKE_ARC = 3
+    DEADZONE_STAIRCASE = 4
 
-    Each window draws one family, the way the jig protocol excites one term at a time: straight
-    steps and reversals, spins, arcs on the steer/brake grid, and staircases near the deadzone.
-    Holds end in zero about a third of the time, so the coast or brake decel is in the data.
-    """
+
+def command_tape(rng: np.random.Generator, n: int) -> tuple[np.ndarray, np.ndarray]:
+    """One window's linear and angular commands on the PLANT_DT grid, piecewise constant."""
     lin = np.zeros(n)
     ang = np.zeros(n)
-    family = rng.integers(0, 5)
+    family = Family(rng.integers(0, len(Family)))
     t = 0
     while t < n:
         hold = int(rng.uniform(0.15, 0.5) / PLANT_DT)
         if rng.random() < 0.3:
             v, w = 0.0, 0.0
-        elif family == 0:  # straight
+        elif family is Family.STRAIGHT:
             v, w = rng.choice([-1, 1]) * rng.uniform(0.05, 1.0), 0.0
-        elif family == 1:  # spin
+        elif family is Family.SPIN:
             v, w = 0.0, rng.choice([-1, 1]) * rng.uniform(0.05, 1.0)
-        elif family == 2:  # arc
+        elif family is Family.ARC:
             w = rng.uniform(-1.0, 1.0)
             v = rng.uniform(-1.0, 1.0) * (1.0 - abs(w))
-        elif family == 3:  # full-speed arc with a growing turn: the steer-brake grid
+        elif family is Family.STEER_BRAKE_ARC:
             v, w = rng.choice([-1, 1]) * 1.0, rng.uniform(-0.6, 0.6)
-        else:  # deadzone staircase
+        else:
             v, w = rng.uniform(-0.08, 0.08), rng.uniform(-0.08, 0.08)
         lin[t : t + hold], ang[t : t + hold] = v, w
         t += hold
@@ -160,11 +138,10 @@ def build_windows(m4: plant.PlantParams, count: int, seed: int) -> WindowBatch:
     ang = np.empty((count, n_plant))
     for i in range(count):
         lin[i], ang[i] = command_tape(rng, n_plant)
-    # The app's commands pass the delay, then M4. Shift on the plant grid, as greybox.predict does.
     lin_d = delay_tape(lin, PLANT_DT, m4.delay_s)
     ang_d = delay_tape(ang, PLANT_DT, m4.delay_s)
     _, traj = plant.simulate(lin_d, ang_d, PLANT_DT, m4)
-    start = int(round(PREROLL_S / PLANT_DT)) - 1  # the state after this step starts the window
+    start = int(round(PREROLL_S / PLANT_DT)) - 1
     x0, y0, th0 = traj["x"][:, start], traj["y"][:, start], traj["theta"][:, start]
     v0, w0 = traj["v"][:, start], traj["w"][:, start]
 
@@ -191,7 +168,7 @@ def build_windows(m4: plant.PlantParams, count: int, seed: int) -> WindowBatch:
     )
     meas_k = np.arange(1, int(WINDOW_S * MEAS_HZ) + 1)
     meas_t = meas_k / MEAS_HZ
-    plant_t = np.arange(1, n_plant - start) * PLANT_DT  # sample k: state after step start + k
+    plant_t = np.arange(1, n_plant - start) * PLANT_DT
     meas = {"x": [], "y": [], "yaw": []}
     for i in range(count):
         for key, src in (("x", "x"), ("y", "y"), ("yaw", "theta")):

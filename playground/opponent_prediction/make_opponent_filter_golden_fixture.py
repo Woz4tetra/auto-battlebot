@@ -1,22 +1,4 @@
-"""Generate the golden fixture that holds the C++ opponent filter to its Python mirror.
-
-Runs a scripted opponent through `auto_battlebot.perception.opponent_filter` the way the app
-drives KalmanMotionEstimator: coast() every 4 ms control tick, update() when a frame's detections
-arrive 63 ms after its shutter (so most measurements rewind). Writes the events and the mirror's
-outputs as a C++ header; `tests/test_kalman_motion_estimator.cpp` replays the events through the
-C++ estimator and must match to 1e-6, and `tests/python/test_opponent_filter.py` reruns the
-mirror against the same header.
-
-The scenario covers: a blob-born track (heading unknown), the first keypoint heading, arcs at
-both turn directions, a single heading flip, a run of three flips that re-initializes heading and
-the run back, a measurement late enough to miss the snapshot ring, a 0.5 s dropout past
-opponent_max_coast_s, a position jump the gate rejects until it re-initializes, and a final coast
-into the +x wall.
-
-Usage:
-    source scripts/activate_python.sh
-    python playground/opponent_prediction/make_opponent_filter_golden_fixture.py
-"""
+"""Generate the golden fixture that holds the C++ opponent filter to its Python mirror."""
 
 from __future__ import annotations
 
@@ -44,7 +26,7 @@ NUM_FRAMES = 108
 END_S = NUM_FRAMES * FRAME_DT + 0.45
 FIELD_SIZE = 4.0
 MARGIN = 0.2
-KEYPOINT_SIGMA = 0.03  # KalmanMotionEstimatorConfiguration defaults; per-meter term off
+KEYPOINT_SIGMA = 0.03
 BLOB_SIGMA = 0.10
 MAX_COAST_S = 0.2
 COAST_RECORD_STRIDE = 10

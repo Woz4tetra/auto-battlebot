@@ -1,27 +1,4 @@
-"""Reproduce the 2026-10-25 reverse freezes in lockstep (nav scoring plan, section 0.1).
-
-On 10/25 the policy's strong reverse commands reached the wheels as about -12% duty. Two stages
-on the field's command path could explain it, and the sim has neither: the host transmitter's
-linear slew limit and the firmware motor guard's scale. This runs `rl_nav_p4` in lockstep in four
-arms on the same scenarios (slew and guard, slew alone, guard alone, neither) and scores each arm
-with the statistic measured on the field recordings.
-
-The statistic: a reverse window is a run of policy ticks where the trailing 0.5 s mean of the
-policy's linear command is below -0.5, lasting at least 0.5 s, with autonomy on. The number is
-the median wheel command (mean of the firmware's left and right commands, percent, positive
-forward) over every sample inside those windows, pooled. The CI resamples windows.
-
-    source scripts/activate_python.sh
-    # the field number, from the three 10/25 recordings
-    python playground/nav_eval/repro_1025.py field --out-dir /tmp/repro_1025
-    # export the evaluation scenarios once, then run the four arms on them
-    python playground/rl/lockstep_eval.py export --count 128 --seed 2026 \\
-        --out /tmp/repro_1025/scenarios.json
-    python playground/nav_eval/repro_1025.py sim /tmp/repro_1025/scenarios.json \\
-        --out-dir /tmp/repro_1025
-    # the four-arm table against the field number
-    python playground/nav_eval/repro_1025.py report --out-dir /tmp/repro_1025
-"""
+"""Reproduce the 2026-10-25 reverse freezes in lockstep (nav scoring plan, section 0.1)."""
 
 from __future__ import annotations
 
@@ -38,11 +15,9 @@ RECORDINGS = tuple(
     for stamp in ("2026-10-25_22-09-22", "2026-10-26_00-28-40", "2026-10-26_00-49-06")
 )
 BUNDLE = REPO / "data/models/nav_policies/rl_nav_p4"
-# config/mr_stabs_mk2_fid_zed_box.toml on 10/25: max_motor_rpm_per_sec 2000 over max_motor_rpm
-# 1500. The guard scale is the median inside the field's reverse windows.
 FIELD_SLEW_PER_S = 2000.0 / 1500.0
 FIELD_GUARD_SCALE = 0.48
-TICK_S = 0.02  # simulation/rl_eval_server.py
+TICK_S = 0.02
 ARM_NAMES = ("both", "slew", "guard", "neither")
 
 
@@ -58,8 +33,7 @@ def arms(guard_scale: float = FIELD_GUARD_SCALE) -> dict[str, tuple[float, float
 
 @dataclass
 class Windows:
-    """Reverse windows from one recording or one episode: per window, its wheel samples and
-    its commanded and sent linear commands."""
+    """Reverse windows with wheel samples and commanded and sent linear commands."""
 
     seconds: list[float]
     wheel: list[np.ndarray]
@@ -146,13 +120,8 @@ def summarize(w: Windows, resamples: int = 2000, seed: int = 0) -> dict[str, flo
         "ci_high": float(hi),
         "mean_commanded": float(np.mean(np.concatenate(w.commanded))),
         "mean_sent": float(np.mean(np.concatenate(w.sent))),
-        # Chatter: the commanded linear's mean change per policy tick. A slew limiter only
-        # holds the sent command back while the command keeps moving.
         "chatter": float(np.mean(np.concatenate([np.abs(np.diff(c)) for c in w.commanded]))),
     }
-
-
-# ------------------------------------------------------------------ field
 
 
 def field_windows(path: Path) -> tuple[Windows, float]:
@@ -203,9 +172,6 @@ def run_field(out_dir: Path) -> None:
     rows["pooled"] = summarize(pooled)
     print("pooled", json.dumps(rows["pooled"]))
     (out_dir / "field.json").write_text(json.dumps(rows, indent=1))
-
-
-# ------------------------------------------------------------------ sim
 
 
 def run_sim(

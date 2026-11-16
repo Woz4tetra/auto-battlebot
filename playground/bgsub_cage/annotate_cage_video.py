@@ -1,21 +1,4 @@
-"""Annotate fixed-camera cage clips with YOLO detections, gated by the cage hull.
-
-Runs one or more ultralytics .pt models over each clip and writes an annotated mp4
-per model. Detections whose box centre falls inside the DeepLab convex hull draw
-solid; detections outside draw dim and dashed. Keeping both on screen is the point:
-without the dropped boxes you cannot tell "the hull deleted it" from "the network
-never found it".
-
-Also writes a compact per-clip stats JSON, which is where the write-up's numbers
-come from. Per-frame kept counts are what reliability is measured on: a 1v1 fight
-has two robots, so a frame with fewer than two kept `robot` boxes is a dropout.
-
-The DeepLab loader is imported from auto_battlebot.segmentation, so no PYTHONPATH is needed.
-
-Usage:
-    python annotate_cage_video.py CLIP_OR_DIR \
-        --models a.pt b.pt -o OUT_DIR
-"""
+"""Annotate fixed-camera cage clips with YOLO detections, gated by the cage hull."""
 
 from __future__ import annotations
 
@@ -40,29 +23,22 @@ from auto_battlebot.segmentation.field_hull import (
     save_hull,
 )
 
-HULL_COLOR = (255, 220, 60)  # BGR cyan-ish
-KEPT_COLORS = [(90, 230, 90), (60, 200, 255)]  # robot green, house_bot amber
-DROPPED_COLOR = (120, 120, 120)  # off-field: no overlap with the hull at all
-WALL_COLOR = (80, 140, 235)  # dropped but overlapping the hull, so pinned at the wall
+HULL_COLOR = (255, 220, 60)
+KEPT_COLORS = [(90, 230, 90), (60, 200, 255)]
+DROPPED_OFF_FIELD_COLOR = (120, 120, 120)
+DROPPED_AT_WALL_COLOR = (80, 140, 235)
 
-# A dropped box with at least this much of its area inside the hull is a robot against
-# the cage wall, not something outside the cage.
 WALL_OVERLAP_MIN = 0.10
 
-# Keypoint order is [front, back], matching auto_battlebot/eval/scoring.py. The heading
-# vector is drawn back -> front so the arrow points where the robot faces.
 FRONT_IDX = 0
 BACK_IDX = 1
-POSE_COLOR = (235, 100, 235)  # magenta, any posed robot
-TARGET_COLOR = (80, 255, 255)  # yellow, the class named by --pose-target
+POSE_COLOR = (235, 100, 235)
+TARGET_COLOR = (80, 255, 255)
 KEYPOINT_MIN_CONF = 0.25
-# Arrow drawn past the front keypoint so a short front-back span is still readable.
 HEADING_EXTEND = 1.6
 TEXT_COLOR = (245, 245, 245)
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 
-# Full box dumps every Nth frame. The per-frame count arrays cover every frame; this
-# keeps a readable sample of actual geometry without a 20 MB JSON per clip.
 BOX_DUMP_STRIDE = 10
 
 
@@ -79,12 +55,7 @@ def dashed_rectangle(
 
 
 def parse_poses(result: Any, target_name: str | None) -> list[dict[str, Any]]:
-    """Ultralytics pose output to boxes plus a back->front heading vector.
-
-    Keypoints come as (n, 2, 3): front then back, each x, y, conf. The heading is only
-    reported when both keypoints clear KEYPOINT_MIN_CONF, because a vector built from a
-    guessed keypoint points somewhere arbitrary and would be worse than drawing nothing.
-    """
+    """Ultralytics pose output to boxes plus a back->front heading vector."""
     poses: list[dict[str, Any]] = []
     boxes = result.boxes
     if boxes is None or not len(boxes):
@@ -118,18 +89,13 @@ def parse_poses(result: Any, target_name: str | None) -> list[dict[str, Any]]:
                 dx = front[0] - back[0]
                 dy = front[1] - back[1]
                 if abs(dx) > 1e-6 or abs(dy) > 1e-6:
-                    # Screen y grows downward, so negate to report a normal CCW angle.
                     entry["heading_deg"] = float(np.degrees(np.arctan2(-dy, dx)))
         poses.append(entry)
     return poses
 
 
 def draw_pose(canvas: np.ndarray, pose: dict[str, Any], box: bool = True) -> None:
-    """Box, keypoints and heading arrow for one posed robot.
-
-    `box` is off when the poses come from the same model as the detections: that box is
-    already on screen in its hull-gate colour, and drawing it twice hides the gate.
-    """
+    """Box, keypoints and heading arrow for one posed robot."""
     color = TARGET_COLOR if pose["is_target"] else POSE_COLOR
     x1, y1, x2, y2 = pose["box"]
     thickness = 3 if pose["is_target"] else 2
@@ -178,7 +144,7 @@ def draw_frame(
             cv2.putText(canvas, label, (x1, max(14, y1 - 6)), FONT, 0.5, color, 2, cv2.LINE_AA)
         else:
             at_wall = detection["overlap"] >= WALL_OVERLAP_MIN
-            color = WALL_COLOR if at_wall else DROPPED_COLOR
+            color = DROPPED_AT_WALL_COLOR if at_wall else DROPPED_OFF_FIELD_COLOR
             dashed_rectangle(canvas, (x1, y1, x2, y2), color)
             suffix = " wall" if at_wall else " off-field"
             cv2.putText(
@@ -243,17 +209,7 @@ def box_overlap(integral: np.ndarray, box: tuple[int, int, int, int]) -> float:
 def parse_detections(
     result: Any, hull_mask: np.ndarray, integral: np.ndarray, has_hull: bool
 ) -> list[dict[str, Any]]:
-    """Ultralytics boxes to plain dicts, each tagged against the cage hull.
-
-    `kept` is the gate: the box centre is inside the hull. Centre rather than full
-    containment, because a robot pinned against the cage wall has a box that spills
-    onto the barrier while the robot itself is still on the floor.
-
-    `overlap` records how much of the box is inside anyway, which separates the two
-    reasons a box gets dropped. A robot at the wall lands just outside the centre
-    test but still overlaps the hull; a person in the crowd overlaps nothing. Without
-    that split, a wall pin and a spectator look like the same failure.
-    """
+    """Ultralytics boxes to plain dicts, each tagged against the cage hull."""
     detections: list[dict[str, Any]] = []
     boxes = result.boxes
     if boxes is None or not len(boxes):
@@ -332,11 +288,7 @@ def summarize_frame(detections: list[dict[str, Any]], class_count: int) -> Frame
 def maybe_dump(
     box_dump: list[dict[str, Any]], frame_index: int, detections: list[dict[str, Any]]
 ) -> None:
-    """Record full box geometry every BOX_DUMP_STRIDE frames.
-
-    Per-frame counts cover every frame; this keeps a readable sample of actual boxes
-    without a 20 MB JSON per clip.
-    """
+    """Record full box geometry every BOX_DUMP_STRIDE frames."""
     if frame_index % BOX_DUMP_STRIDE:
         return
     box_dump.append(
@@ -443,8 +395,6 @@ def annotate(
             class_totals.update(dict(enumerate(summary.per_class)))
             maybe_dump(box_dump, source_index, detections)
 
-            # A pose model passed as the detector supplies its own keypoints, so the
-            # arrows come free with the boxes instead of costing a second forward pass.
             if pose_model is not None:
                 poses = parse_poses(pose_results[local], args.pose_target)
             elif result.keypoints is not None:
@@ -571,11 +521,7 @@ def build_stats(
     area_values: list[float],
     box_dump: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Per-clip record, counting the class a 1v1 fight always has two of.
-
-    That makes `both_robots_rate` a reliability measure with no hand labelling: any
-    frame holding fewer than two kept fighter boxes is a miss.
-    """
+    """Per-clip record, counting the class a 1v1 fight always has two of."""
     fighter = fighter_class_index(names)
     robot_counts = [counts[fighter] if len(counts) > fighter else 0 for counts in kept_per_class]
     frames = len(robot_counts)
@@ -704,8 +650,6 @@ def main() -> int:
     for video in videos:
         cache = video.with_suffix(".hull.json")
         preview = preview_dir / f"{video.stem}_hull.jpg"
-        # A cached hull still needs its preview drawn if the preview is missing, so a
-        # rerun into a fresh output directory does not silently skip the eyeball check.
         if cache.exists() and preview.exists() and not args.rebuild_hulls:
             hulls[video.name] = load_hull(cache)
             continue
@@ -736,8 +680,6 @@ def main() -> int:
             )
     stats: list[dict[str, Any]] = []
     for model_path in args.models:
-        # Full stem, not the leading token: four models of one family and date differ
-        # only in the middle of the name, and a shorter tag overwrites their outputs.
         tag = model_path.stem
         print(f"\n=== {tag} ({model_path.name}) ===")
         model = YOLO(str(model_path))

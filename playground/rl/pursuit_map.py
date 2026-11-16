@@ -1,18 +1,4 @@
-"""Map which pursuers can be beaten: a grid of pursuit top speed, turn rate and reaction delay.
-
-Every world runs one 20 s attack episode against a pursuer pinned to one grid cell, in the Warp
-environment's `PURSUIT` stage (pursuit only, open arena, nominal plant, sensing on). `sidestep`
-sweeps the scripted controller's settings (`auto_battlebot/rl/sidestep.py`) and keeps the best
-per cell; `policy` scores a training checkpoint, deterministic. `show` prints saved maps side by
-side. A cell counts as beaten when the episodes there land at least as many strikes as hits taken
-and strike in at least half of them.
-
-    source scripts/activate_python.sh
-    python playground/rl/pursuit_map.py sidestep --out playground/rl/out/pursuit_map_sidestep.json
-    python playground/rl/pursuit_map.py policy runs/rl_nav/<run>/checkpoint.pt \\
-        --out playground/rl/out/pursuit_map_policy.json
-    python playground/rl/pursuit_map.py show playground/rl/out/pursuit_map_*.json
-"""
+"""Map which pursuers can be beaten: a grid of pursuit top speed, turn rate and reaction delay."""
 
 from __future__ import annotations
 
@@ -86,12 +72,10 @@ def score(row: dict[str, float]) -> float:
 
 
 def rank(row: dict[str, float]) -> tuple[bool, float, float]:
-    """Best variant per cell: beaten first, then strike rate, then strikes less hits taken. On
-    the net score alone a variant that never strikes but is rarely hit wins."""
+    """Sort key for the best variant per cell: beaten, then strike rate, then net strikes."""
     return beaten(row), row["success"], score(row)
 
 
-# The controller settings swept per cell; the best per cell is kept.
 SWEEP = {"orbit_m": (0.3, 0.4), "max_lateral_mps2": (9.0, 12.0), "attack_deg": (75.0, 100.0)}
 
 

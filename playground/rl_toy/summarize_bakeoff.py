@@ -1,13 +1,4 @@
-"""Summarize the toy viability test runs (plan step 1, questions 1 to 4).
-
-Reads every `runs/rl_toy/<arm>_s<seed>_<stamp>/metrics.jsonl` and reports, per arm, the median
-and range over seeds (never the best run) of: the final evaluation, and the evaluation reached by
-matched budgets of environment steps and wall-clock time, read off each run's periodic
-evaluations (the last evaluation at or under the budget).
-
-    source scripts/activate_python.sh
-    python playground/rl_toy/summarize_bakeoff.py --steps 25e6 50e6 100e6 --minutes 5 10 15
-"""
+"""Summarize the toy viability test runs (plan step 1, questions 1 to 4)."""
 
 from __future__ import annotations
 

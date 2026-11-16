@@ -1,26 +1,4 @@
-"""Generate print-ready AprilTag PDFs for drivetrain calibration: a floor grid and a robot tag.
-
-The PDF export (pixels-per-mm -> DPI, so a 100%-scale print is dimensionally exact) is adapted from
-true_battlebot scripts/tags/tag_tools.py. The tags themselves are rendered with cv2.aruco
-(DICT_APRILTAG_36h11) so the printed geometry exactly matches the GridBoard model apriltag_track.py
-uses for pose. cv2.aruco's ids match the canonical AprilRobotics tag36h11 family (verified), so
-these are real AprilTags.
-
-Sizing keeps the camera resolution in mind. apriltag_track.py runs the OAK-1 W at 1080p (1920x1080 @
-60 fps); the script prints the estimated marker size in pixels at that resolution for the given
-mount height. Face-on, 36h11 needs ~18 px edge to decode, so aim well above that (>= ~30 px). If
-your mount is high and the estimate is small, increase --floor-marker-size / --robot-tag-size, lower
-the mount, or step up to 4K.
-
-Usage:
-    source scripts/activate_python.sh
-    python playground/calibration/make_print_tags.py --out-dir playground/calibration/print
-
-The floor grid is normally the manufactured board (3x5 of 65 mm markers, 15 mm gaps, ids 160..174
-numbered right-to-left per row); this script reproduces it only if you need a reprint. The robot tag
-(id 20, off the floor's 160..174 range) is the piece you actually print here. Defaults match
-apriltag_track.py. Print at 100% (no "fit to page"), tape the tag flat on the robot top.
-"""
+"""Generate print-ready AprilTag PDFs for drivetrain calibration: a floor grid and a robot tag."""
 
 from __future__ import annotations
 
@@ -36,13 +14,9 @@ DICTIONARY = cv2.aruco.DICT_APRILTAG_36h11
 
 
 def save_pdf(img_gray: np.ndarray, px_per_mm: float, out: Path) -> None:
-    """Save a grayscale image as a PDF whose page is dimensionally exact when printed at 100%.
-
-    The tags are pure black/white, so the image is stored bilevel (mode "1"): PDF keeps that
-    lossless (no JPEG softening of the marker edges), and the file stays small.
-    """
+    """Save a grayscale image as a PDF whose page is dimensionally exact when printed at 100%."""
     dpi = px_per_mm * 25.4
-    pil = Image.fromarray(img_gray > 127)  # bool array -> mode "1", crisp and lossless
+    pil = Image.fromarray(img_gray > 127)
     out.parent.mkdir(parents=True, exist_ok=True)
     pil.save(out, "PDF", resolution=dpi)
     w_mm, h_mm = img_gray.shape[1] / px_per_mm, img_gray.shape[0] / px_per_mm
@@ -60,8 +34,6 @@ def floor_grid_pdf(
     out: Path,
 ) -> None:
     dictionary = cv2.aruco.getPredefinedDictionary(DICTIONARY)
-    # Match the manufactured board: ids run right-to-left within each row (see
-    # apriltag_track.make_floor_board).
     ids = np.arange(first_id, first_id + cols * rows).reshape(rows, cols)[:, ::-1].reshape(-1)
     board = cv2.aruco.GridBoard((cols, rows), marker_m, sep_m, dictionary, ids)
     board_w_mm = (cols * marker_m + (cols - 1) * sep_m) * 1000.0
@@ -86,8 +58,8 @@ def robot_tag_pdf(tag_id: int, tag_m: float, quiet_mm: float, px_per_mm: float, 
 
 def cam_px(marker_m: float, mount_m: float, hfov_deg: float, width_px: int) -> float:
     """Estimated marker size in pixels at the camera (ground sampling from an overhead mount)."""
-    gsd = (2.0 * mount_m * math.tan(math.radians(hfov_deg) / 2.0)) / width_px  # m / px
-    return marker_m / gsd
+    gsd_m_per_px = (2.0 * mount_m * math.tan(math.radians(hfov_deg) / 2.0)) / width_px
+    return marker_m / gsd_m_per_px
 
 
 def main() -> None:
@@ -99,7 +71,6 @@ def main() -> None:
     p.add_argument(
         "--quiet-mm", type=float, default=20.0, help="white border around tags/board (mm)"
     )
-    # Floor grid (must match apriltag_track.py --floor-* defaults; mirrors the manufactured board).
     p.add_argument("--floor-cols", type=int, default=3)
     p.add_argument("--floor-rows", type=int, default=5)
     p.add_argument("--floor-marker-size", type=float, default=0.065, help="floor marker edge (m)")
@@ -107,10 +78,8 @@ def main() -> None:
         "--floor-marker-sep", type=float, default=0.015, help="gap between floor markers (m)"
     )
     p.add_argument("--floor-first-id", type=int, default=160)
-    # Robot tag (id off the floor's 160..174 range).
     p.add_argument("--robot-tag-id", type=int, default=20)
     p.add_argument("--robot-tag-size", type=float, default=0.13, help="robot tag edge (m)")
-    # Camera sizing estimate (defaults: OAK-1 W wide lens at 1080p).
     p.add_argument(
         "--mount-height", type=float, default=1.0, help="camera height above the floor (m)"
     )

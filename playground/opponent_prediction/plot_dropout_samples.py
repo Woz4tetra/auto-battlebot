@@ -1,27 +1,4 @@
-"""Plot the opponent filter coasting through 0.2 s, 1 s and 3 s dropouts.
-
-Two sources:
-
-- `sysid`: the Mr Stabs Mk2 sysid sessions, scored against AprilTag truth
-  (`auto_battlebot/perception/sysid_sessions.py`).
-- `replay`: an MCAP from a playback replay, which logs every opponent measurement the C++
-  estimator received (`kalman_motion_estimator` diagnostics, `opponent_measurement_<id>`). There is
-  no truth there, so the withheld measurements stand in for it: the dropout is scored against what
-  the camera saw while the filter was not allowed to.
-
-For each source and gap length the script picks samples spread across the recording where the
-robot is moving, withholds every measurement in the gap, and runs three arms over the same
-stream: the 6-state filter (`phase1`), the previous 4-state arm (`kalman4`), and HOLD. Each sample
-gets a figure: the top-down path, position error against time into the gap with the filter's own
-2-sigma, heading, and yaw rate. A summary figure per source gives the median error against time
-into the gap over every periodic gap in the recording.
-
-Usage:
-    source scripts/activate_python.sh
-    python playground/opponent_prediction/plot_dropout_samples.py sysid
-    python playground/opponent_prediction/plot_dropout_samples.py replay out/replays/<name>.mcap
-Figures go under playground/opponent_prediction/out/samples/.
-"""
+"""Plot the opponent filter coasting through 0.2 s, 1 s and 3 s dropouts."""
 
 from __future__ import annotations
 
@@ -62,16 +39,12 @@ LABELS = {
 }
 
 
-# --------------------------------------------------------------------------------- sources
-
-
 def replay_session(mcap: Path, frame_id: str = "THEIR_ROBOT_1") -> SessionData:
     """Opponent measurements from a replay's estimator diagnostics, as their own truth."""
     rows = []
     key = f"opponent_measurement_{frame_id}"
     for _topic, _log_ns, data in iter_messages(mcap, ["/diagnostics/kalman_motion_estimator"]):
         entry = _find(decode_json(data), key)
-        # The diagnostics re-send a channel's last value with held = true; only fresh ones count.
         if entry is not None and not entry.get("held", False):
             rows.append(entry["values"])
     if not rows:
@@ -113,9 +86,6 @@ def _find(node: object, key: str) -> dict | None:
             if found is not None:
                 return found
     return None
-
-
-# --------------------------------------------------------------------------------- samples
 
 
 def pick_samples(data: SessionData, gap_s: float, count: int) -> list[int]:
@@ -164,14 +134,7 @@ def run_arms(
     return traces, window
 
 
-def plot_sample(data: SessionData, start_ns: int, gap_s: float, path: Path) -> dict:
-    traces, window = run_arms(data, start_ns, gap_s)
-    fig, axes = plt.subplots(2, 2, figsize=(13, 9))
-    ax_xy, ax_err, ax_yaw, ax_w = axes[0, 0], axes[0, 1], axes[1, 0], axes[1, 1]
-    end_ns = start_ns + int(gap_s * 1e9)
-    show = (start_ns - int(0.6e9), end_ns + int(0.6e9))
-
-    # Truth path and the measurements, the withheld ones hollow.
+def plot_truth_and_measurements(show, data, ax_xy, start_ns, end_ns):
     grid = np.arange(show[0], show[1], int(0.01e9))
     tr = data.truth_at(grid)
     ax_xy.plot(tr["x"], tr["y"], color=COLORS["truth"], lw=1.6, label="truth")
@@ -190,6 +153,17 @@ def plot_sample(data: SessionData, start_ns: int, gap_s: float, path: Path) -> d
         edgecolors=COLORS["meas"],
         label="withheld",
     )
+    return grid, tr, shown
+
+
+def plot_sample(data: SessionData, start_ns: int, gap_s: float, path: Path) -> dict:
+    traces, window = run_arms(data, start_ns, gap_s)
+    fig, axes = plt.subplots(2, 2, figsize=(13, 9))
+    ax_xy, ax_err, ax_yaw, ax_w = axes[0, 0], axes[0, 1], axes[1, 0], axes[1, 1]
+    end_ns = start_ns + int(gap_s * 1e9)
+    show = (start_ns - int(0.6e9), end_ns + int(0.6e9))
+
+    grid, tr, shown = plot_truth_and_measurements(show, data, ax_xy, start_ns, end_ns)
 
     summary: dict = {"start_s": (start_ns - data.meas_stamp_ns[0]) / 1e9, "gap_s": gap_s}
     worst = 0.0
@@ -226,7 +200,6 @@ def plot_sample(data: SessionData, start_ns: int, gap_s: float, path: Path) -> d
             ax_err.plot(
                 t_rel[sel], 2e3 * sig, color=COLORS[arm], lw=1.0, ls="--", label="6-state 2σ"
             )
-            # 2-sigma rings at a few points through the gap.
             for frac in np.linspace(0.0, 1.0, 5):
                 k = np.argmin(np.abs(t_rel[sel] - frac * gap_s))
                 circle = plt.Circle(
@@ -253,7 +226,6 @@ def plot_sample(data: SessionData, start_ns: int, gap_s: float, path: Path) -> d
 
     t_truth = (grid - start_ns) / 1e9
     yaw_truth = np.where(tr["valid"], np.degrees(np.unwrap(tr["yaw"])), np.nan)
-    # Put truth on the filter's branch of the unwrap so the curves overlay.
     ax_yaw.plot(t_truth, yaw_truth, color=COLORS["truth"], lw=1.6, label="truth")
     ax_w.plot(
         t_truth,
@@ -268,7 +240,6 @@ def plot_sample(data: SessionData, start_ns: int, gap_s: float, path: Path) -> d
         ax.set_xlim((show[0] - start_ns) / 1e9, (show[1] - start_ns) / 1e9)
         ax.set_xlabel("time from dropout start (s)")
         ax.grid(alpha=0.3)
-    # Frame the path, not the rings: past the coast horizon the 2-sigma reaches metres.
     px = np.concatenate([tr["x"][tr["valid"]], data.meas_x[shown]])
     py = np.concatenate([tr["y"][tr["valid"]], data.meas_y[shown]])
     cx, cy = 0.5 * (px.min() + px.max()), 0.5 * (py.min() + py.max())
@@ -298,9 +269,6 @@ def plot_sample(data: SessionData, start_ns: int, gap_s: float, path: Path) -> d
     fig.savefig(path, dpi=110)
     plt.close(fig)
     return summary
-
-
-# --------------------------------------------------------------------------------- summary
 
 
 def plot_summary(data: SessionData, path: Path) -> dict:

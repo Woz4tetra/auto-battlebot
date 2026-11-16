@@ -11,11 +11,7 @@ import numpy.typing as npt
 
 
 def fov_to_intrinsics(fov_deg: float, width: int, height: int) -> tuple[float, float, float, float]:
-    """Derive (fx, fy, cx, cy) from a vertical FOV and resolution.
-
-    Camera FOV is vertical, so fy is computed from height.
-    fx = fy assumes square pixels.
-    """
+    """Derive (fx, fy, cx, cy) from a vertical FOV and resolution."""
     fov_rad = math.radians(fov_deg)
     fy = (height / 2.0) / math.tan(fov_rad / 2.0)
     fx = fy
@@ -51,6 +47,24 @@ def camera_view_matrix(
     return rotation
 
 
+def pixel_rays_camera(width, height, cx, fx, cy, fy):
+    u = np.arange(width, dtype=np.float64)
+    v = np.arange(height, dtype=np.float64)
+    uu, vv = np.meshgrid(u, v)
+    dirs_cam = np.stack([(uu - cx) / fx, -(vv - cy) / fy, np.ones_like(uu)], axis=-1)
+    dirs_cam /= np.linalg.norm(dirs_cam, axis=-1, keepdims=True)
+    return dirs_cam
+
+
+def direction_to_equirect_uv(dirs_world):
+    dx = dirs_world[..., 0]
+    dy = dirs_world[..., 1]
+    dz = dirs_world[..., 2]
+    lon = np.arctan2(dy, dx)
+    lat = np.arcsin(np.clip(dz, -1, 1))
+    return lon, lat
+
+
 def project_panorama(
     pano_bgr: npt.NDArray[np.uint8],
     cam_pos: Sequence[float],
@@ -59,12 +73,7 @@ def project_panorama(
     width: int,
     height: int,
 ) -> npt.NDArray[np.uint8]:
-    """Project an equirectangular panorama to a perspective image (BGR).
-
-    Builds a camera-to-world rotation from `cam_pos`/`lookat`, then for every
-    output pixel computes the corresponding world-space ray direction, converts
-    it to equirectangular (lon, lat) UVs, and samples the panorama.
-    """
+    """Project an equirectangular panorama to a perspective BGR image."""
     cam_pos_arr = np.array(cam_pos, dtype=np.float64)
     lookat_arr = np.array(lookat, dtype=np.float64)
 
@@ -80,31 +89,19 @@ def project_panorama(
     right /= right_norm
     up = np.cross(right, forward)
 
-    # camera-to-world rotation: columns are right, up, forward
-    rotation_c2w = np.column_stack([right, up, forward])  # (3, 3)
+    rotation_c2w = np.column_stack([right, up, forward])
 
     fx, fy, cx, cy = fov_to_intrinsics(fov_deg, width, height)
 
-    # Pixel grid -> normalised camera-space ray directions
-    u = np.arange(width, dtype=np.float64)
-    v = np.arange(height, dtype=np.float64)
-    uu, vv = np.meshgrid(u, v)  # (H, W)
-    dirs_cam = np.stack([(uu - cx) / fx, -(vv - cy) / fy, np.ones_like(uu)], axis=-1)  # (H, W, 3)
-    dirs_cam /= np.linalg.norm(dirs_cam, axis=-1, keepdims=True)
+    dirs_cam = pixel_rays_camera(width, height, cx, fx, cy, fy)
 
-    # Transform to world space
-    dirs_world: npt.NDArray[np.float64] = dirs_cam @ rotation_c2w.T  # (H, W, 3)
+    dirs_world: npt.NDArray[np.float64] = dirs_cam @ rotation_c2w.T
 
-    # World-space direction -> equirectangular UV
-    dx = dirs_world[..., 0]
-    dy = dirs_world[..., 1]
-    dz = dirs_world[..., 2]
-    lon = np.arctan2(dy, dx)  # [-pi, pi]
-    lat = np.arcsin(np.clip(dz, -1, 1))  # [-pi/2, pi/2]
+    lon, lat = direction_to_equirect_uv(dirs_world)
 
     pano_h, pano_w = pano_bgr.shape[:2]
-    pano_u = ((lon / (2.0 * np.pi)) + 0.5) * (pano_w - 1)  # [0, W-1]
-    pano_v = (0.5 - lat / np.pi) * (pano_h - 1)  # [0, H-1]
+    pano_u = ((lon / (2.0 * np.pi)) + 0.5) * (pano_w - 1)
+    pano_v = (0.5 - lat / np.pi) * (pano_h - 1)
 
     result = cv2.remap(
         pano_bgr,
@@ -122,31 +119,14 @@ def ground_plane_homography(
     metres_per_pixel: float,
     top_down_size: int,
 ) -> npt.NDArray[np.float64]:
-    """Homography taking top-down arena pixels to camera image pixels.
-
-    The arena floor is a plane, so its image is an exact homography of a top-down render of it --
-    no ray marching, no geometry. That is what lets the simulated camera reuse the viewer's
-    composition instead of rendering the world a second way.
-
-    Args:
-        view_matrix: 4x4 camera-from-world, as built by `camera_view_matrix`.
-        intrinsics: (fx, fy, cx, cy) for the output image.
-        metres_per_pixel: scale of the top-down render.
-        top_down_size: side length of the (square) top-down render, in pixels.
-
-    Returns:
-        A 3x3 matrix suitable for ``cv2.warpPerspective``.
-    """
+    """Homography taking top-down arena pixels to camera image pixels."""
     fx, fy, cx, cy = intrinsics
     camera_matrix = np.array([[fx, 0.0, cx], [0.0, fy, cy], [0.0, 0.0, 1.0]], dtype=np.float64)
 
-    # The floor is z = 0, so the third column of the rotation drops out and world-to-image
-    # collapses from 3x4 to 3x3.
     rotation = view_matrix[:3, :3]
     translation = view_matrix[:3, 3]
     world_to_image = camera_matrix @ np.column_stack([rotation[:, 0], rotation[:, 1], translation])
 
-    # Top-down pixels to field metres: x right, y up, origin at the centre of the render.
     half = top_down_size / 2.0
     scale = metres_per_pixel
     pixels_to_world = np.array(
@@ -162,11 +142,7 @@ def ground_plane_depth(
     width: int,
     height: int,
 ) -> npt.NDArray[np.float32]:
-    """Per-pixel depth of the floor plane, in metres along the optical axis.
-
-    Pixels whose ray points at or above the horizon get NaN, which is what a stereo camera reports
-    where it has no match.
-    """
+    """Per-pixel depth of the floor plane, in metres along the optical axis."""
     fx, fy, cx, cy = intrinsics
     rotation = view_matrix[:3, :3]
     translation = view_matrix[:3, 3]
@@ -174,9 +150,8 @@ def ground_plane_depth(
 
     u, v = np.meshgrid(np.arange(width, dtype=np.float64), np.arange(height, dtype=np.float64))
     rays_camera = np.stack([(u - cx) / fx, (v - cy) / fy, np.ones_like(u)], axis=-1)
-    rays_world = rays_camera @ rotation  # rotation.T applied per row
+    rays_world = rays_camera @ rotation
 
-    # Distance along the ray to z = 0, then converted to depth along the optical axis.
     with np.errstate(divide="ignore", invalid="ignore"):
         t = -camera_position[2] / rays_world[..., 2]
     depth = np.where(t > 0.0, t, np.nan) / np.linalg.norm(rays_camera, axis=-1)

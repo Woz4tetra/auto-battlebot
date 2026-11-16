@@ -1,27 +1,5 @@
 #!/usr/bin/env python3
-"""Find the max forward acceleration a robot tolerates before it flips (trainer link ONLY, no
-tracking).
-
-A torque-happy rammer (e.g. Mr Stabs) backflips when you slam the throttle from rest: it is the
-acceleration (how fast the command rises), not the top speed, that pitches it over. This ramps the
-forward command 0 -> target at an escalating slew rate and stops at the rate that flips it. Feed the
-result is the safe forward command slew rate, so scripted excitation and the deployed
-controller slew-limit every motion to stay upright, instead of blindly capping speed.
-
-No camera, no MCAP, no AprilTag. The measurement is operator-in-the-loop: you watch the robot and
-answer whether it flipped. Ctrl-C during a ramp aborts that trial and zeroes the link.
-
-SAFETY
-- Guard plates ON, competition battery, surface matched to the NHRL arena floor (plate friction is
-  part of the plant, see am32_tuning.md).
-- Clear, bounded lane several metres long: each trial ramps to full speed and coasts.
-- Driver sticks CENTERED: in trainer mode the radio ADDS stick input to the command.
-- The link is zeroed and disarmed on every exit (normal, Ctrl-C, exception, per-trial hard timeout).
-
-Usage:
-    source scripts/activate_python.sh
-    python playground/calibration/find_flip_accel.py --robot mr_stabs_mk2
-"""
+"""Find the max forward acceleration a robot tolerates before it flips."""
 
 from __future__ import annotations
 
@@ -40,11 +18,7 @@ class _TrialTimeoutError(Exception):
 def run_ramp(
     link: dp.TrainerLink, rate_hz: float, target: float, accel: float, hold_s: float
 ) -> bool:
-    """Ramp forward command 0 -> target at `accel` (command/s), hold `hold_s`, then cut to zero.
-
-    Returns True if the trial completed, False if interrupted (Ctrl-C or the hard-timeout backstop).
-    The link is disarmed on the way out either way.
-    """
+    """Ramp forward command to target at accel, hold, then cut; disarm on exit."""
     dt = 1.0 / rate_hz
     ramp_time = target / accel
     try:
@@ -124,7 +98,6 @@ def main() -> None:
     v_max = args.v_max
 
     def in_ms2(accel_cmd: float) -> str:
-        # d(speed)/dt = d(command)/dt * v_max, since speed ~= command * v_max (deadzone/lag aside).
         return f"  (~{accel_cmd * v_max:.1f} m/s^2)" if v_max is not None else ""
 
     tx_port = args.transmitter_port or dp.find_transmitter_port()
@@ -178,7 +151,7 @@ def main() -> None:
         else:
             print(f"\nNo flip up to {args.max_accel:.2f}/s; robot tolerated the full escalation.")
     finally:
-        link.close()  # zeroes the channels and disarms
+        link.close()
 
     print("\n=== result ===")
     if flipped_at is not None:

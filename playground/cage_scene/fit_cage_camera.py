@@ -1,23 +1,5 @@
 #!/usr/bin/env python3
-"""Fit the cage-high camera pose per clip from the rectified mat hull.
-
-For each `targets/<clip>/` written by extract_targets.py: fit straight lines to the mat
-outline where it is actually visible (the near edge runs off the bottom of the cage-high
-frame, so usually three sides), solve the pose against the known mat size at the rectified K
-by least squares from a seed pose, and check the answer is a camera above the mat at a
-plausible height and tilt. The seed is the true_battlebot Cage 2 prior when it exists, else
-the four-corner homography. A clip whose outline is fully in frame is solved from four
-corners first and refined on its four lines. Poses are written in the `config/cages/*.toml`
-format the C++ `CalibratedFieldFilter` reads, one per clip and, with --event-pose, one per
-event (median translation, chordal-mean rotation) for rendering sweeps.
-
-`--landmarks <json>` adds hand-picked correspondences `[{"image": [u, v], "field": [x, y, z]}]`
-in hfield metres (see `auto_battlebot.perception.cage_calibration`) and refines the
-homography pose with solvePnP. Use it only when the grading says the far edge is off.
-
-Usage:
-    venv/bin/python playground/cage_scene/fit_cage_camera.py runs/cage_scene --event-pose
-"""
+"""Fit the cage-high camera pose per clip from the rectified mat hull."""
 
 from __future__ import annotations
 
@@ -53,11 +35,8 @@ from auto_battlebot.perception.field_pose import (
 PRIOR_DIR = Path("~/Documents/true_battlebot/perception/configs/metrics_tool").expanduser()
 DEFAULT_SEED_PRIOR = PRIOR_DIR / "nhrl_cage_2.toml"
 LINE_FIT_ROUNDS = 3
-# The undistorted hull polygon lands a few pixels inside the frame where the mat ran off it.
 BORDER_MARGIN_PX = 6
-# A fitted side this close to, and parallel with, an image edge is the sensor border, not the mat.
-BORDER_LINE_PX = 14.0
-# NHRL squares the camera to the mat; a fit yawed past this followed something other than the mat.
+SENSOR_BORDER_LINE_PX = 14.0
 YAW_LIMIT_DEG = 10.0
 HEIGHT_RANGE_M = (1.0, 2.0)
 TILT_RANGE_DEG = (20.0, 40.0)
@@ -115,12 +94,12 @@ def drop_border_lines(
         normal, offset = line
         nx, ny = abs(float(normal[0])), abs(float(normal[1]))
         on_border = False
-        if ny > 0.97:  # horizontal line: y = offset / normal_y
+        if ny > 0.97:
             y = offset / float(normal[1])
-            on_border = min(abs(y), abs(height - 1 - y)) < BORDER_LINE_PX
+            on_border = min(abs(y), abs(height - 1 - y)) < SENSOR_BORDER_LINE_PX
         elif nx > 0.97:
             x = offset / float(normal[0])
-            on_border = min(abs(x), abs(width - 1 - x)) < BORDER_LINE_PX
+            on_border = min(abs(x), abs(width - 1 - x)) < SENSOR_BORDER_LINE_PX
         out.append(None if on_border else line)
     return out
 
@@ -131,6 +110,43 @@ def chordal_mean_rotation(rotations: list[np.ndarray]) -> np.ndarray:
     if np.linalg.det(rotation) < 0:
         rotation = u @ np.diag([1.0, 1.0, -1.0]) @ vh
     return np.asarray(rotation)
+
+
+def draw_world_axes(out: np.ndarray, tf_cam_from_hfield: np.ndarray, k_rect: np.ndarray) -> None:
+    tf_w_from_cam = world_from_camera(tf_cam_from_hfield)
+    tf_cam_from_w = np.linalg.inv(tf_w_from_cam)
+    axes_w = np.array(
+        [[0, 0, 0, 1], [0.5, 0, 0, 1], [0, 0.5, 0, 1], [0, 0, 0.5, 1]], dtype=np.float64
+    )
+    cam = (tf_cam_from_w @ axes_w.T)[:3]
+    px = k_rect @ cam
+    px = (px[:2] / px[2]).T
+    origin = tuple(np.round(px[0]).astype(int))
+    for end, color in zip(px[1:], [(0, 0, 255), (0, 255, 0), (255, 0, 0)]):
+        cv2.arrowedLine(out, origin, tuple(np.round(end).astype(int)), color, 3, tipLength=0.1)
+
+
+def refine_on_visible_edges(
+    tf_cam_from_hfield: np.ndarray,
+    seed_quad: np.ndarray | None,
+    points: np.ndarray,
+    image_shape: tuple[int, int],
+    mat: tuple[float, float],
+    k_rect: np.ndarray,
+) -> tuple[np.ndarray, int, float]:
+    supported = 0
+    line_rms = float("nan")
+    height, width = image_shape
+    for round_index in range(LINE_FIT_ROUNDS):
+        if seed_quad is None or round_index > 0:
+            seed_quad = project_field_corners(tf_cam_from_hfield, mat, k_rect)
+        lines = drop_border_lines(side_lines_from_points(points, seed_quad), width, height)
+        supported = sum(line is not None for line in lines)
+        refined = pose_from_lines(lines, mat, k_rect, tf_cam_from_hfield)
+        if refined is None:
+            break
+        tf_cam_from_hfield, line_rms = refined
+    return tf_cam_from_hfield, supported, line_rms
 
 
 def draw_overlay(
@@ -145,18 +161,7 @@ def draw_overlay(
     projected = project_field_corners(tf_cam_from_hfield, mat, k_rect)
     cv2.polylines(out, [np.round(quad).astype(np.int32)], True, (0, 255, 255), 2)
     cv2.polylines(out, [np.round(projected).astype(np.int32)], True, (255, 0, 255), 2)
-    # W axes from the mat centre: x red, y green, z blue, 0.5 m each.
-    tf_w_from_cam = world_from_camera(tf_cam_from_hfield)
-    tf_cam_from_w = np.linalg.inv(tf_w_from_cam)
-    axes_w = np.array(
-        [[0, 0, 0, 1], [0.5, 0, 0, 1], [0, 0.5, 0, 1], [0, 0, 0.5, 1]], dtype=np.float64
-    )
-    cam = (tf_cam_from_w @ axes_w.T)[:3]
-    px = k_rect @ cam
-    px = (px[:2] / px[2]).T
-    origin = tuple(np.round(px[0]).astype(int))
-    for end, color in zip(px[1:], [(0, 0, 255), (0, 255, 0), (255, 0, 0)]):
-        cv2.arrowedLine(out, origin, tuple(np.round(end).astype(int)), color, 3, tipLength=0.1)
+    draw_world_axes(out, tf_cam_from_hfield, k_rect)
     for i, line in enumerate(text):
         cv2.putText(out, line, (20, 40 + 32 * i), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 0), 4)
         cv2.putText(out, line, (20, 40 + 32 * i), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
@@ -213,8 +218,6 @@ def main() -> None:
         row["clipped"] = touches_border(mask)
         points = contour_points_off_border(mask, border_margin_px=BORDER_MARGIN_PX)
 
-        # The hull's own four-vertex outline assigns contour points to sides even when the
-        # near edge is the image border; the border side is rejected below.
         quad = quad_from_mask(mask)
         seed_quad = order_corners(quad) if quad is not None else None
         tf_cam_from_hfield: np.ndarray | None = None
@@ -234,19 +237,9 @@ def main() -> None:
                 continue
             tf_cam_from_hfield = seed_prior
 
-        # Refine on the visible edge lines, re-seeding the side assignment from each solution.
-        supported = 0
-        line_rms = float("nan")
-        height, width = mask.shape[:2]
-        for round_index in range(LINE_FIT_ROUNDS):
-            if seed_quad is None or round_index > 0:
-                seed_quad = project_field_corners(tf_cam_from_hfield, mat, k_rect)
-            lines = drop_border_lines(side_lines_from_points(points, seed_quad), width, height)
-            supported = sum(line is not None for line in lines)
-            refined = pose_from_lines(lines, mat, k_rect, tf_cam_from_hfield)
-            if refined is None:
-                break
-            tf_cam_from_hfield, line_rms = refined
+        tf_cam_from_hfield, supported, line_rms = refine_on_visible_edges(
+            tf_cam_from_hfield, seed_quad, points, mask.shape[:2], mat, k_rect
+        )
         row["sides_supported"] = supported
         row["line_rms_px"] = line_rms
         row["reprojection_px"] = reprojection_px

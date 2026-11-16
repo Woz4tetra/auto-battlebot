@@ -1,27 +1,4 @@
-"""Fast headless kinematic simulation server for control tuning.
-
-A lightweight alternative to the Genesis server (sim_server.py): same TCP protocol
-(simulation/protocol.py), but 2D kinematic physics instead of rendering. Pair it with
-config/headless_sim.toml on the C++ side (Noop perception + GroundTruthRobotFilter), so the real
-PursuitNavigation runs unchanged and the resulting MCAP is scored by
-playground/control_stage0/stage0_metrics.py exactly like a real fight.
-
-The sim owns logical time: it sends its accumulated sim_time in each response, and the C++ side
-adopts it (ManualClock), so the controller's dt is correct no matter how fast the loop free-runs.
-Runs are deterministic (seeded) and can go far faster than real time.
-
-Models the effects that actually drive overshoot:
-  - our robot's drivetrain, from the plant [our_robot] plant selects (simulation/plants/): the
-    first-order kinematic lag model, or the Mr Stabs Mk2 MuJoCo rigid body
-  - actuation latency (command ring buffer, in sim ticks)
-  - perception: the sensing model's latency, dropouts, noise and heading flips
-    (auto_battlebot/perception/sensing_model.py), plus the flat-plane projection bias
-  - square arena with walls
-
-Usage:
-    source scripts/activate_python.sh
-    python simulation/kinematic_sim_server.py simulation/kinematic_sim.toml
-"""
+"""Fast headless kinematic simulation server for control tuning."""
 
 from __future__ import annotations
 
@@ -58,13 +35,15 @@ from protocol import (
     GT_COUNT_FMT,
     GT_POSE_FMT,
     MEAS_HEADER_FMT,
-    MEAS_POSE_FMT,
-    REQUEST_FMT,
     REQUEST_SIZE,
-    RESPONSE_HEADER_FMT,
+    MeasPose,
+    ResponseHeader,
     configure_socket,
+    pack_meas_pose,
+    pack_response_header,
     recv_all,
     send_all,
+    unpack_request,
 )
 from viewer import Viewer
 
@@ -80,13 +59,8 @@ from hazards import load_hazards
 if TYPE_CHECKING:
     from mujoco_window import MujocoWindow
 
-# Footprint radius for an opponent with no hazard_radius: the half-diagonal of the 0.15 x 0.15 m
-# box GroundTruthRobotFilter reports for every robot. Feeds the sensing model's robot-distance
-# context only.
 DEFAULT_OPPONENT_RADIUS_M = 0.106
 
-# [sim] trace_csv columns. Poses are ground truth, not what perception reported; goal is the first
-# opponent, which a go-to-point mission drives to. Pitch is 0 on the kinematic plant.
 TRACE_HEADER = (
     "tick",
     "t",
@@ -101,10 +75,6 @@ TRACE_HEADER = (
     "goal_x",
     "goal_y",
 )
-
-# ---------------------------------------------------------------------------
-# Opponents
-# ---------------------------------------------------------------------------
 
 
 class Opponent:
@@ -164,8 +134,7 @@ class Opponent:
         return any(math.hypot(x - hx, y - hy) < hr for hx, hy, hr in self._keep_out)
 
     def _push_out(self, x: float, y: float) -> tuple[float, float]:
-        """Nudge a position to the nearest hazard boundary. Used for spawns and for the
-        drag handler, where a caller can put the opponent anywhere."""
+        """Nudge a position to the nearest hazard boundary."""
         for hx, hy, hr in self._keep_out:
             dx, dy = x - hx, y - hy
             dist = math.hypot(dx, dy)
@@ -183,7 +152,6 @@ class Opponent:
             )
             if not self._in_hazard(*candidate):
                 return candidate
-        # Hazards cover most of the reachable arena; fall back to the last draw pushed clear.
         return self._push_out(*candidate)
 
     def _clamp(self) -> None:
@@ -192,9 +160,7 @@ class Opponent:
         self.x, self.y = self._push_out(self.x, self.y)
 
     def place(self, x: float, y: float) -> None:
-        """Put the opponent somewhere directly (viewer drag). Re-seeds the parameterised
-        behaviours so a release resumes from the drop point rather than snapping back. A policy
-        opponent's plant owns its pose, so it cannot be dragged."""
+        """Put the opponent somewhere directly (viewer drag)."""
         if self.policy is not None:
             return
         self.x, self.y = x, y
@@ -204,7 +170,6 @@ class Opponent:
 
     def step(self, dt: float) -> None:
         if self.policy is not None:
-            # The plant keeps driving while the viewer holds the opponent: place() ignores it.
             self.policy.step(dt)
             self.x, self.y, self.yaw = self.policy.pose()
             return
@@ -229,9 +194,6 @@ class Opponent:
                 self.yaw = math.atan2(math.sin(self.yaw + math.pi), math.cos(self.yaw + math.pi))
             self._clamp()
             return
-        # A drive robot faces the way it moves, so circle and random_walk point their heading
-        # along their velocity. The RL environment's opponents are unicycles; a heading that never
-        # turned kept the weapon side facing one way while the robot slid around.
         if behavior == "circle":
             self._angle += (self._cfg.speed / max(self._cfg.radius, 0.01)) * dt
             self.x = self._cfg.radius * math.cos(self._angle)
@@ -264,9 +226,7 @@ class Opponent:
 
 
 def _footprint_half_extent(cfg: OpponentConfig) -> tuple[float, float]:
-    """The opponent's footprint as half length and half width, which the trained behaviours keep
-    off the walls and stop at contact with our robot: the collision box when set, else a square
-    with the hazard radius as half-diagonal, else the Mrs Buff Mk3 footprint."""
+    """Opponent footprint half length and half width."""
     if len(cfg.collision_box) >= 2:
         return 0.5 * cfg.collision_box[0], 0.5 * cfg.collision_box[1]
     if cfg.hazard_radius > 0.0:
@@ -285,11 +245,6 @@ def _load_replay_csv(path: Path) -> list[Pose]:
     return rows
 
 
-# ---------------------------------------------------------------------------
-# Perception emulation
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class Frame:
     """What perception delivered on one tick, one entry per ground-truth slot."""
@@ -301,11 +256,7 @@ class Frame:
 
 
 class Perception:
-    """Degrades true poses into what perception delivers: the sensing model's measurement stream
-    plus the flat-plane projection bias, or the true poses every tick when no model is set.
-
-    The sim captures one perception frame per tick, so the model's frame rate is the tick rate.
-    """
+    """Degrade true poses into what perception delivers, using the sensing model."""
 
     def __init__(self, cfg: KinematicSimConfig) -> None:
         self._cfg = cfg.perception
@@ -370,26 +321,21 @@ class Perception:
         )
 
 
-# ---------------------------------------------------------------------------
-# Server
-# ---------------------------------------------------------------------------
-
-
 class KinematicServer:
     def __init__(self, cfg: KinematicSimConfig) -> None:
         self._cfg = cfg
         cam = cfg.camera
         fx, fy, cx, cy = fov_to_intrinsics(cam.fov, cam.res_width, cam.res_height)
         tf_matrix = camera_view_matrix(cam.pos, cam.lookat)
-        # Constant header fields; sim_time is appended per frame in _send_frame.
-        self._header_const: tuple[float, ...] = (
+        self._header_const = ResponseHeader(
             cam.res_width,
             cam.res_height,
-            *tf_matrix.flatten().tolist(),
+            tuple(tf_matrix.flatten().tolist()),
             fx,
             fy,
             cx,
             cy,
+            0.0,
         )
         self._obstacles = load_hazards(cfg.obstacles_file) if cfg.obstacles_file else []
         if self._obstacles:
@@ -399,11 +345,6 @@ class KinematicServer:
             )
             print(f"Obstacles from {cfg.obstacles_file}: {summary}")
 
-        # One compositor, two consumers. The UI draws robot markers, the field border and hazard
-        # rings by projecting field points through the intrinsics above, so the frame it draws on
-        # has to be a plausible camera image or the whole overlay collapses into a few pixels. The
-        # floor is a plane, so the camera view is an exact homography of this top-down composition
-        # and needs no second renderer.
         self._world = Viewer(cfg, self._obstacles)
         self._viewer = self._world if cfg.viewer.enable else None
         self._mujoco_window: MujocoWindow | None = None
@@ -418,7 +359,6 @@ class KinematicServer:
         self._homography = ground_plane_homography(
             tf_matrix, (fx, fy, cx, cy), self._world.metres_per_pixel(), cfg.viewer.window_px
         )
-        # Constant: the camera does not move and the floor does not either.
         self._depth = ground_plane_depth(tf_matrix, (fx, fy, cx, cy), cam.res_width, cam.res_height)
         self._rgb = np.zeros((cam.res_height, cam.res_width, 3), dtype=np.uint8)
 
@@ -462,7 +402,7 @@ class KinematicServer:
         x, y, yaw = self._plant.pose()
         us = footprint_center((x, y, yaw), self._plant.footprint_center_offset)
         others = [o.pose() for o in self._opponents if o.hazard_radius > 0.0 and o is not opponent]
-        policy.observe((*us, yaw), self._plant.w, others)
+        policy.observe((*us, yaw), self._plant.w_radps, others)
 
     def _make_plant(self) -> PlantInterface:
         cfg = self._cfg
@@ -476,11 +416,7 @@ class KinematicServer:
         )
 
     def _render_camera(self) -> None:
-        """Warp the top-down arena into the camera's view.
-
-        Costs wall-clock time and nothing else: the sim owns logical time, so a slower render
-        makes the sim slower in real time and changes nothing the controller sees.
-        """
+        """Warp the top-down arena into the camera's view."""
         cam = self._cfg.camera
         # Write into the existing buffer rather than rebinding it: _send_frame ships
         # `self._rgb.data` straight down the socket, so it has to stay the contiguous array the
@@ -527,13 +463,13 @@ class KinematicServer:
 
     def _send_frame(self, conn: socket.socket, truth: list[Pose], frame: Frame) -> None:
         self._render_camera()
-        header = struct.pack(RESPONSE_HEADER_FMT, *self._header_const, self._sim_time)
+        header = pack_response_header(self._header_const._replace(sim_time=self._sim_time))
         gt = struct.pack(GT_COUNT_FMT, len(truth))
         for pose in truth:
             gt += struct.pack(GT_POSE_FMT, *pose)
         meas = struct.pack(MEAS_HEADER_FMT, float(frame.delivered), frame.capture_time)
         for measured, pose in zip(frame.measured, frame.poses):
-            meas += struct.pack(MEAS_POSE_FMT, float(measured), *pose)
+            meas += pack_meas_pose(MeasPose(float(measured), *pose))
         send_all(conn, header)
         send_all(conn, self._rgb.data)
         send_all(conn, self._depth.data)
@@ -554,10 +490,9 @@ class KinematicServer:
         cfg = self._cfg
         while cfg.sim.max_ticks == 0 or self._tick < cfg.sim.max_ticks:
             data = recv_all(conn, REQUEST_SIZE)
-            linear_x, _linear_y, angular_z = struct.unpack(REQUEST_FMT, data)
+            request = unpack_request(data)
 
-            # Actuation latency: apply the command issued command_latency ago.
-            self._cmd_buf.append((linear_x, angular_z))
+            self._cmd_buf.append((request.linear_x, request.angular_z))
             applied = self._cmd_buf[0]
             self._plant.set_moving_blocks(
                 [
@@ -568,7 +503,7 @@ class KinematicServer:
             )
             self._plant.step(applied[0], applied[1], cfg.sim.dt)
             x, y, yaw = self._plant.pose()
-            us_v = (self._plant.v * math.cos(yaw), self._plant.v * math.sin(yaw))
+            us_v = (self._plant.v_mps * math.cos(yaw), self._plant.v_mps * math.sin(yaw))
             for opponent in self._opponents:
                 opponent.observe_us((x, y, yaw), us_v)
                 if opponent.policy is not None:
@@ -586,8 +521,8 @@ class KinematicServer:
                         f"{x:.5f}",
                         f"{y:.5f}",
                         f"{yaw:.5f}",
-                        f"{self._plant.v:.5f}",
-                        f"{self._plant.w:.5f}",
+                        f"{self._plant.v_mps:.5f}",
+                        f"{self._plant.w_radps:.5f}",
                         f"{getattr(self._plant, 'pitch', 0.0):.5f}",
                         f"{goal[0]:.5f}",
                         f"{goal[1]:.5f}",
@@ -616,8 +551,7 @@ class KinematicServer:
         )
 
     def _report(self, outcome: str) -> None:
-        """One machine-readable line per episode. sim_sweep greps it for the hazard columns;
-        a metric derived from the MCAP alone could not see a fall-in, because the run ends there."""
+        """Print one machine-readable line per episode."""
         clearance = self._plant.min_hazard_clearance
         clearance_str = "nan" if clearance == float("inf") else f"{clearance:.4f}"
         print(
