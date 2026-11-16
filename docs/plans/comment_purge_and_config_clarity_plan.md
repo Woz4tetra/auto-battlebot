@@ -40,17 +40,17 @@ Phase 1 done the same day:
 
 Phase 2 partly done, 2026-11-15. All eight area branches and a scripted `tests/` DELETE pass are
 merged on `comment-purge-p2`. Build, gtest (752 pass), mypy, the Python tests, and the firmware
-builds pass there. The baseline is 9,157 lines. Rows still open (approximate: a row counts as open
-while any line of its original text is still in the file):
+builds pass there. The baseline is 9,157 lines. Rows still open (a row is open while all of its
+non-trivial original lines sit together in one comment block):
 
 | Verdict | Open | Total |
 | --- | --- | --- |
-| DELETE | 177 | 3,301 |
-| RENAME | 597 | 1,154 |
+| DELETE | 0 | 3,301 |
+| RENAME | 585 | 1,154 |
 | EXTRACT | 13 | 221 |
-| DOC | 456 | 1,834 |
-| TEST | 770 | 922 |
-| TYPE | 297 | 352 |
+| DOC | 184 | 1,834 |
+| TEST | 696 | 922 |
+| TYPE | 287 | 352 |
 | HACK, CONFIG | deferred | 1,254 |
 
 Phase 2 cost far more than planned. See [Agent budget](#agent-budget). The `src/` DOC pass left
