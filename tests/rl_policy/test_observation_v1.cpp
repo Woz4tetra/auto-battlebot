@@ -3,6 +3,7 @@
 
 #include <array>
 #include <cmath>
+#include <limits>
 #include <optional>
 #include <vector>
 
@@ -239,6 +240,76 @@ TEST(ObservationV1AdapterTest, BuilderWritesTheFloatTensor) {
     const Observation expected = world.observe();
     for (int i = 0; i < obs_v1::kSize; ++i) {
         EXPECT_FLOAT_EQ(observation[0].data[i], static_cast<float>(expected[i])) << i;
+    }
+}
+
+constexpr double kNan = std::numeric_limits<double>::quiet_NaN();
+constexpr double kInfinity = std::numeric_limits<double>::infinity();
+
+ObservationInputsV1 plain_inputs() {
+    ObservationInputsV1 in;
+    in.field_half_x = 0.9;
+    in.field_half_y = 0.9;
+    return in;
+}
+
+TEST(ObservationV1SpecTest, CapMapsNanAndPositiveInfinityToOneAndNegativeInfinityToZero) {
+    ObservationInputsV1 in = plain_inputs();
+    in.our_age_s = kNan;
+    EXPECT_EQ(build(in)[2], 1.0);
+    in.our_age_s = kInfinity;
+    EXPECT_EQ(build(in)[2], 1.0);
+    in.our_age_s = -kInfinity;
+    EXPECT_EQ(build(in)[2], 0.0);
+}
+
+TEST(ObservationV1SpecTest, WallRayFromOutsideOrOnTheWallReadsZero) {
+    ObservationInputsV1 in = plain_inputs();
+    in.our_x = 2.0;
+    EXPECT_EQ(build(in)[kRays], 0.0);
+    in.our_x = 0.9;
+    EXPECT_EQ(build(in)[kRays], 0.0);
+}
+
+TEST(ObservationV1SpecTest, HoleRayFromInsideADiscReadsZero) {
+    ObservationInputsV1 in = plain_inputs();
+    const std::vector<ObservationHazardV1> hazards = {
+        ObservationHazardV1{0.1, 0.0, 0.3, HazardKind::HOLE, 0.0, 0.0, true}};
+    in.hazards = hazards;
+    const Observation out = build(in);
+    EXPECT_EQ(out[kRays + 1], 0.0);
+    EXPECT_EQ(out[kRays + 2 * 12 + 1], 0.0);
+}
+
+TEST(ObservationV1SpecTest, AbsentOpponentReadsZerosExceptSigmasAgeAndStale) {
+    ObservationInputsV1 in = plain_inputs();
+    in.opp_present = false;
+    in.opp_x = 0.7;
+    in.opp_y = -0.4;
+    in.opp_yaw = 1.0;
+    in.opp_vx = 1.0;
+    in.opp_yaw_rate = 3.0;
+    in.opp_half_diagonal = 0.2;
+    const Observation out = build(in);
+    for (int i = 0; i < 10; ++i) EXPECT_EQ(out[kOpponent + i], 0.0) << i;
+    for (int i = 10; i < 13; ++i) EXPECT_EQ(out[kOpponent + i], 1.0) << i;
+    EXPECT_EQ(out[kOpponent + 13], 0.0);
+    EXPECT_EQ(out[kOpponent + 14], 1.0);
+    EXPECT_EQ(out[kOpponent + 15], 1.0);
+}
+
+TEST(ObservationV1SpecTest, HazardSlotsSortAscendingWithNanLastAndTiesInInputOrder) {
+    ObservationInputsV1 in = plain_inputs();
+    const std::vector<ObservationHazardV1> hazards = {
+        ObservationHazardV1{1.0, 0.0, 0.5, HazardKind::ROBOT, 0.0, 0.0, true},
+        ObservationHazardV1{kNan, 0.0, 0.0625, HazardKind::ROBOT, 0.0, 0.0, true},
+        ObservationHazardV1{0.75, 0.0, 0.25, HazardKind::ROBOT, 0.0, 0.0, true},
+        ObservationHazardV1{0.375, 0.0, 0.125, HazardKind::ROBOT, 0.0, 0.0, true}};
+    in.hazards = hazards;
+    const Observation out = build(in);
+    const double expected_radii[4] = {0.125, 0.5, 0.25, 0.0625};
+    for (int k = 0; k < 4; ++k) {
+        EXPECT_DOUBLE_EQ(out[kHazards + 9 * k + 2], expected_radii[k] / 0.3) << k;
     }
 }
 

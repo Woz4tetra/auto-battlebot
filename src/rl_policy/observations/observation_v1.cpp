@@ -14,8 +14,6 @@ using namespace obs_v1;
 constexpr double kInf = std::numeric_limits<double>::infinity();
 constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
 
-/** obs_spec._cap: torch.nan_to_num(x, nan=1, posinf=1) then clamp to [0, 1]. -inf becomes the
- * lowest finite double first, so it lands on 0. */
 double cap(double x) {
     if (std::isnan(x) || x == kInf) return 1.0;
     return std::clamp(x, 0.0, 1.0);
@@ -44,8 +42,6 @@ struct Body {
     }
 };
 
-/** obs_spec.ray_box: distance from the origin along the ray to the field wall, 0 for an origin
- * on or outside it. */
 double ray_box(double ox, double oy, double dx, double dy, double half_x, double half_y) {
     double t = kInf;
     const double origin[2] = {ox, oy};
@@ -60,8 +56,6 @@ double ray_box(double ox, double oy, double dx, double dy, double half_x, double
     return std::isnan(t) ? t : std::max(t, 0.0);
 }
 
-/** obs_spec.ray_discs for one ray: nearest hit on any disc `use(kind)` accepts, inf when none.
- * An origin inside a disc hits it at 0. */
 template <typename Use>
 double ray_discs(double ox, double oy, double dx, double dy,
                  std::span<const ObservationHazardV1> hazards, Use use) {
@@ -101,7 +95,6 @@ void build_observation_v1(const ObservationInputsV1 &in, std::span<double, obs_v
         out[n++] = in.hist_yaw_rate[k] / kYawRateScale;
     }
 
-    // Target opponent. Absent, it reads zeros except the sigmas, age and stale flag, which read 1.
     double rx = 0.0;
     double ry = 0.0;
     body.rotate(in.opp_x - in.our_x, in.opp_y - in.our_y, rx, ry);
@@ -153,7 +146,6 @@ void build_observation_v1(const ObservationInputsV1 &in, std::span<double, obs_v
         const double dy = hazard.y - in.our_y;
         return std::sqrt(dx * dx + dy * dy) - hazard.radius;
     };
-    // torch.sort(stable=True) order: ascending, NaN last, ties keep input order.
     const auto before = [&](size_t i, size_t j) {
         const double edge_i = edge_of(i);
         const double edge_j = edge_of(j);
