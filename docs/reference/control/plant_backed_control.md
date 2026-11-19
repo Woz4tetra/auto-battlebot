@@ -198,6 +198,7 @@ Fit stages, plant details, and distillation: `docs/reference/calibration/plant_f
 ## Plant parameters
 
 - `PlantParams` mirrors `PlantParams` in `auto_battlebot/plant.py` field for field. Values come from the jig fit (`fit_jig_plant.py`) copied into the `[plant]` table; the fit output stays the source of truth. Model structure selection happens fit-side: a ladder rung disables a term by writing it as zero, so the struct needs no ladder knowledge. Zero tau means no lag, zero delay means no delay.
+- `ekf::ekf_update` is a gated Joseph-form measurement update. The innovation rows flagged in `angle_rows` are wrapped into (-pi, pi] before gating, and the state rows flagged in `angle_states` are wrapped after the update, so angular quantities never see a 2-pi discontinuity. A gate-rejected measurement leaves state and covariance untouched. `gate_nis <= 0` disables the gate. The Joseph form `(I - KH) P (I - KH)^T + K R K^T` keeps the covariance positive semidefinite where the short form `P - KHP` does not under roundoff.
 - `PlantModelInterface` is the process model for the our-robot EKF: commands in, predicted state and Jacobian out. `JigPlantModel` mirrors `auto_battlebot/plant.py` exactly (deadzone, per-sign gain, transport delay, asymmetric first-order lag, arc integration with 2 ms substeps). `plant_model_` in `KalmanMotionEstimator` holds the concrete type so `coast()` can propagate a copy without paying for the finite-difference Jacobian.
 - Dead-reckoning arms use the fitted gains alone (`k_fwd`, `k_rev`, `k_ang`): no deadzone removal, no steer-brake or droop coupling, no drift, no lag. They hold one command flat across a single frame and carry no state, so the coupling terms would model a response the arm cannot represent. Use `plant_steady_state()` instead when the caller integrates a command history with lag, as `JigPlantModel` does for the EKF arm. `linear_y` is always zero: a differential drive has no lateral degree of freedom and every transmitter writes zero there.
 - `JigPlantModel` takes normalized [-1, 1] stick commands in `VelocityCommand` `linear_x` (forward)
@@ -206,6 +207,14 @@ Fit stages, plant details, and distillation: `docs/reference/calibration/plant_f
 - The command span must cover `[t0 - delay_s, t1]`; `CommandRingBuffer::gather` builds exactly
   that. The command is re-read every substep, zero-order held, and zero before the first entry,
   matching `Plant.command_at` in `plant.py`.
+- `CommandRingBuffer` is a fixed ring of 256 `TimedCommand`s, oldest overwritten first. At 30 Hz
+  that is 8 s, far past any transport delay or retrodiction window. `push()` never allocates, so
+  it is safe on the control path, and it requires nondecreasing stamps: `latest_at` and `gather`
+  stop at the first entry newer than the query. `latest_at(stamp)` returns the newest entry at or
+  before `stamp`, or null when the buffer is empty or every entry is newer. `gather(start, end,
+  out)` clears `out`, then copies, oldest first, the entry active at `start` (the newest at or
+  before it, if one exists) followed by every entry in `(start, end]`. Callers reuse one scratch
+  vector across ticks to avoid allocation.
 - `PlantModelInterface::propagate(state, commands, t0, t1, jacobian)` takes the command history oldest first and reads it at the model's own delay offset. It writes the state-transition Jacobian d(state at t1)/d(state at t0) for covariance propagation. A history that does not cover the span is not rejected: the missing part reads as zero command, which `ZeroCommandBeforeFirstEntry` pins.
 - The Jacobian is a central finite difference over the five states. The model is piecewise
   (deadzone, coupling clamp, sign-selected tau), so an analytic Jacobian would have to follow the

@@ -53,11 +53,29 @@ TEST(CommandRingBufferTest, GatherIncludesCommandActiveAtWindowStart) {
     std::vector<TimedCommand> history;
     buffer.gather(2.5, 3.5, history);
 
-    // The command issued at 2.0 is still active when the window opens at 2.5, then the 3.0
-    // entry lands inside the window; 4.0 is past the end.
     ASSERT_EQ(history.size(), 2u);
     EXPECT_DOUBLE_EQ(history[0].command.forward, 0.2);
     EXPECT_DOUBLE_EQ(history[1].command.forward, 0.3);
+}
+
+TEST(CommandRingBufferTest, GatherClearsOutputFirst) {
+    CommandRingBuffer buffer;
+    buffer.push(make_command(1.0, 0.1));
+    buffer.push(make_command(2.0, 0.2));
+
+    std::vector<TimedCommand> history = {make_command(9.0, 9.0), make_command(9.5, 9.5)};
+    buffer.gather(0.5, 2.5, history);
+
+    ASSERT_EQ(history.size(), 2u);
+    EXPECT_DOUBLE_EQ(history[0].command.forward, 0.1);
+    EXPECT_DOUBLE_EQ(history[1].command.forward, 0.2);
+}
+
+TEST(CommandRingBufferTest, LatestAtAllNewerIsNull) {
+    CommandRingBuffer buffer;
+    buffer.push(make_command(5.0, 0.5));
+    buffer.push(make_command(6.0, 0.6));
+    EXPECT_EQ(buffer.latest_at(4.9), nullptr);
 }
 
 TEST(CommandRingBufferTest, ClearEmptiesBuffer) {

@@ -26,11 +26,6 @@ struct NoopRobotFilterConfiguration : public RobotFilterConfiguration {
 };
 
 struct GroundTruthRobotFilterConfiguration : public RobotFilterConfiguration {
-    /** How many of the sim's ground-truth opponent slots are neutral robots rather than
-     * opponents. They come last: with `runner.default_opponent_count = 1` and `neutral_count = 1`
-     * the sim supplies two [[opponents]], the first arrives as THEIR_ROBOT_1 and the second as
-     * NEUTRAL_ROBOT_1. That is the house-bot path -- target selection ignores a NEUTRAL track and
-     * the hazard assembler turns it into a moving keep-out disc. */
     int neutral_count = 0;
 
     GroundTruthRobotFilterConfiguration() { type = "GroundTruthRobotFilter"; }
@@ -48,32 +43,10 @@ struct RobotFrontBackFilterConfiguration : public RobotFilterConfiguration {
     double blob_overwrite_min_distance_meters = 0.20;
     double blob_overwrite_size_scale = 0.5;
     double field_bounds_margin_meters = 0.2;
-    /**
-     * How long (seconds) an unmeasured our-robot track is held before it is dropped from the
-     * output. After this window without a keypoint confirmation the stale "ours" detection is
-     * decayed away instead of being predicted forward indefinitely. A value <= 0 disables the
-     * decay (legacy behavior: hold forever).
-     */
     double our_robot_hold_window_s = 0.15;
-    /**
-     * Radius (meters) around our robot's last held pose in which blob detections are discarded
-     * while the keypoint model is not detecting our robot. The blob model cannot identify our
-     * robot, so without this an undetected own robot is emitted as an opponent at our own
-     * position. A value <= 0 disables the suppression.
-     */
     double our_keypoint_dropout_blob_radius_meters = 0.4;
-    /**
-     * How long (seconds) after our robot's last keypoint-confirmed frame the suppression radius
-     * stays active. Outlives our_robot_hold_window_s on purpose: the track decays sooner than a
-     * typical keypoint dropout ends. A value <= 0 disables the suppression.
-     */
     double our_keypoint_dropout_blob_window_s = 1.0;
     RobotKeypointTrackerConfig robot_keypoint_tracker_config;
-    /**
-     * Propagation strategy behind the association front-end. Selected by the nested
-     * [robot_filter.motion_estimator] table; absent means dead reckoning, the historical
-     * behavior.
-     */
     std::shared_ptr<MotionEstimatorConfiguration> motion_estimator =
         std::make_shared<DeadReckoningMotionEstimatorConfiguration>();
 
@@ -111,7 +84,7 @@ struct RobotFrontBackFilterConfiguration : public RobotFilterConfiguration {
     void parse_motion_estimator(ConfigParser &parser) {
         const toml::table *table_ptr = parser.get_table("motion_estimator");
         if (!table_ptr) {
-            return;  // Optional; the default-constructed member selects dead reckoning.
+            return;
         }
         ConfigParser sub_parser(*table_ptr, "robot_filter.motion_estimator");
         motion_estimator =
@@ -135,18 +108,12 @@ struct RobotFrontBackFilterConfiguration : public RobotFilterConfiguration {
             "robot_blob_max_candidates", robot_keypoint_tracker_config.max_candidates));
     }
 
-    /** Known footprint per label, in metres, as [x, y, z], replacing the detector's box.
-     *
-     * The box measures pixels, not the robot; a loose one on the house bot inflates every keep-out
-     * built from it. These are the dimensions we already know. Labels absent here keep the
-     * measured box. The box that was measured is logged to the `detected_size` channel so a
-     * detector regression stays visible instead of being silently papered over. */
     std::map<Label, Size> robot_size_meters_per_label;
 
     void parse_robot_sizes_per_label(ConfigParser &parser, const std::string &field_name) {
         const toml::table *table_ptr = parser.get_table(field_name);
         if (!table_ptr) {
-            return;  // Optional; labels fall back to the measured bounding box.
+            return;
         }
         for (const auto &[key, value] : *table_ptr) {
             std::string label_str(key.str());
@@ -173,14 +140,12 @@ struct RobotFrontBackFilterConfiguration : public RobotFilterConfiguration {
         }
     }
 
-    /** RobotDescription::footprint_center_offset per label, as [x, y] in metres in the body frame.
-     *  Labels absent here have their footprint centred on the pose. */
     std::map<Label, Position2D> footprint_center_offset_per_label;
 
     void parse_footprint_center_offsets(ConfigParser &parser, const std::string &field_name) {
         const toml::table *table_ptr = parser.get_table(field_name);
         if (!table_ptr) {
-            return;  // Optional; every footprint is centred on its pose.
+            return;
         }
         for (const auto &[key, value] : *table_ptr) {
             const std::string label_str(key.str());
@@ -207,7 +172,7 @@ struct RobotFrontBackFilterConfiguration : public RobotFilterConfiguration {
     void parse_keypoint_heights_per_label(ConfigParser &parser, const std::string &field_name) {
         const toml::table *table_ptr = parser.get_table(field_name);
         if (!table_ptr) {
-            return;  // Optional; labels fall back to keypoint_height_meters.
+            return;
         }
 
         for (const auto &[key, value] : *table_ptr) {

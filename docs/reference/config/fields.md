@@ -195,6 +195,64 @@ Board geometry defaults match the manufactured board.
 | `accumulate_frames` | Correspondences are stacked across this many frames before the pose latches, so detection noise averages out. `reset` clears the stack |
 | `max_reprojection_error_px` | A real guard here, unlike the four-corner homography: 15 markers give 60 correspondences against 6 unknowns, so the residual measures something. It catches a mis-measured `marker_size`, a board printed at "fit to page", a mirrored id mapping, and a board that was not flat |
 
+## `[robot_filter]`
+
+### `GroundTruthRobotFilter`
+
+| Field | Meaning |
+| --- | --- |
+| `neutral_count` | How many of the sim's ground-truth opponent slots are neutral robots rather than opponents. They come last. With `runner.default_opponent_count = 1` and `neutral_count = 1` the sim supplies two `[[opponents]]`: the first arrives as `THEIR_ROBOT_1`, the second as `NEUTRAL_ROBOT_1`. That is the house-bot path: target selection ignores a `NEUTRAL` track and the hazard assembler turns it into a moving keep-out disc |
+
+### `RobotFrontBackFilter`
+
+| Field | Meaning |
+| --- | --- |
+| `our_robot_hold_window_s` | How long an unmeasured our-robot track is held before it is dropped from the output. Without it a stale "ours" detection is predicted forward indefinitely. 0 or below disables the decay and holds forever |
+| `our_keypoint_dropout_blob_radius_meters` | Radius around our robot's last held pose inside which blob detections are discarded while the keypoint model is not detecting our robot. The blob model cannot identify our robot, so without this an undetected own robot is emitted as an opponent at our own position. 0 or below disables the suppression |
+| `our_keypoint_dropout_blob_window_s` | How long after our robot's last keypoint-confirmed frame the suppression radius stays active. It outlives `our_robot_hold_window_s` on purpose: the track decays sooner than a typical keypoint dropout ends. 0 or below disables the suppression |
+| `[robot_filter.motion_estimator]` | Propagation strategy behind the association front-end. Absent selects dead reckoning |
+| `robot_size_meters_per_label` | Known footprint per label as `[x, y, z]` in metres, replacing the detector's box. The box measures pixels, not the robot, and a loose one on the house bot inflates every keep-out built from it. Labels absent here keep the measured box, which is logged to the `detected_size` channel so a detector regression stays visible |
+| `footprint_center_offset_per_label` | `RobotDescription::footprint_center_offset` per label as `[x, y]` in metres in the body frame. Labels absent here have their footprint centred on the pose |
+| `keypoint_height_meters_per_label` | Per-label keypoint height; labels absent here fall back to `keypoint_height_meters` |
+
+## `[robot_filter.motion_estimator]`
+
+`type` selects implementation. Both types take their plant gains from the top-level `[plant]` table, not from this section. `apply_plant` stamps them in and throws when the table is missing.
+
+### `DeadReckoningMotionEstimator`
+
+No fields. The estimator scales the normalized stick command to body velocity with `k_fwd`, `k_rev`, `k_ang` from `[plant]` and has no other source for what full stick means. Behavior lives in the outer `[robot_filter]` section.
+
+### `KalmanMotionEstimator`
+
+| Field | Meaning |
+| --- | --- |
+| `our_robot_mode` | `DEAD_RECKONING` applies the last commanded velocity directly, matching `DeadReckoningMotionEstimator` for that track. `EKF` runs the 5-state EKF with a `JigPlantModel` built from `[plant]` |
+| `opponent_mode` | `KALMAN` runs the 6-state filter (constant velocity plus an independent constant-yaw-rate heading) with innovation gating and coasts through dropout gaps. `HOLD` pins each opponent at its last measured pose with no prediction, matching `DeadReckoningMotionEstimator`'s opponent behavior |
+| `opponent_accel_psd` | Continuous white-noise acceleration PSD (m^2/s^3) for the opponent constant-velocity model |
+| `opponent_yaw_accel_psd` | Continuous white-noise yaw acceleration PSD (rad^2/s^3) for the opponent heading block, which runs a constant-yaw-rate model independent of the translation block |
+| `initial_yaw_rate_sigma` | Sigma (rad/s) on the opponent yaw rate when the heading block initializes |
+| `opponent_heading_sigma_rad` | Heading measurement sigma for opponent keypoint poses. Separate from `keypoint_heading_sigma_rad` because that one also tunes the our-robot EKF |
+| `opponent_position_sigma_m` | Position measurement sigma for opponent keypoint poses, before the per-meter range term. Separate from `keypoint_position_sigma_m`, which also tunes the our-robot EKF. Blob centroids keep `blob_position_sigma_m` |
+| `heading_flip_reinit_count` | Consecutive opponent heading measurements more than pi/2 from the track (flips) after which the heading block re-initializes at the measured heading. A run of consistent flips means the track had the front wrong, not the keypoint model |
+| `heading_blind_labels` | Labels whose heading is never measured: full-body spinners and robots the keypoint model cannot orient. Their heading sigma renders as infinite, which tells navigation the front is unknown |
+| `keypoint_position_sigma_m` | Position measurement sigma for keypoint-derived poses |
+| `blob_position_sigma_m` | Position measurement sigma for blob centroids |
+| `keypoint_heading_sigma_rad` | Heading measurement sigma for keypoint-derived poses, our-robot EKF only |
+| `position_sigma_per_meter` | Extra position sigma per meter of camera range, added on top of the base sigma. 0 disables range dependence |
+| `gate_nis` | Innovation gate on normalized innovation squared, chi-square with 2 DOF. 11.83 is the 99.7% quantile. Values <= 0 disable gating |
+| `reinit_after_rejects` | Consecutive gated-out measurements on one track before the track resets to the next accepted measurement |
+| `initial_velocity_sigma` | Sigma (m/s) on each velocity axis when a track initializes from its first measurement |
+| `covariance_floor` | Floor on the diagonal of P so the covariance cannot collapse and lock out measurements |
+| `max_coast_s` | Our-robot EKF pose integration stops once the unmeasured age crosses this. Covariance keeps growing over the whole step either way |
+| `opponent_max_coast_s` | Same cutoff for opponent tracks |
+| `coast_stale_age_s` | `coast()` flags a track `is_stale` once it has gone unmeasured this long, even though `correct()` never ran to say so. 0.1 is three 30 Hz frame periods, so between-frame coasting stays fresh and a real perception dropout reads stale |
+| `clock_gap_warn_period_s` | Throttle on the clock-gap warning, which would otherwise fire every tick once tripped |
+| `speed_measurement_max_dt_s` | Baseline age past which the held reference pose is dropped rather than differenced. A gap this long means dropped detections, and the robot's path between the two poses is no longer a straight line worth differentiating |
+| `speed_gate_nis` | Chi-square gate for the forward-speed update alone, deliberately looser than `gate_nis`. That gate protects a pose the track cannot recover without. This one guards a state whose fallback is the plant model's own guess, which the innovations say is worse than a noisy measurement. Sized to pass the innovations the current process noise makes look impossible |
+
+`plant` and `plant_noise` are not TOML keys. `plant` is the jig-fitted table from the top-level `[plant]` section, so sim, playback, and tests build `JigPlantModel` from the same config extends chain instead of a separate runtime file. `plant_noise` holds the process noise PSDs from `[plant.process_noise]`. Its fields are optional and default to the `fit_process_noise.py` output baked into `JigPlantNoiseParams`.
+
 ## `[keypoint_filter.height]`
 
 | Field | Meaning |

@@ -8,11 +8,6 @@
 
 namespace auto_battlebot {
 
-/**
- * Fixed-capacity history of issued commands, oldest overwritten first. 256 entries at 30 Hz
- * covers 8 s, far past any transport delay or retrodiction window, and push() never allocates,
- * so it is safe on the control path. Stamps must be pushed in nondecreasing order.
- */
 class CommandRingBuffer {
    public:
     static constexpr size_t kCapacity = 256;
@@ -34,10 +29,6 @@ class CommandRingBuffer {
         }
     }
 
-    /**
-     * The most recent command issued at or before `stamp`, or nullptr when the buffer is empty
-     * or every entry is newer than `stamp`.
-     */
     const TimedCommand *latest_at(double stamp) const {
         const TimedCommand *result = nullptr;
         for (size_t i = 0; i < size_; ++i) {
@@ -48,12 +39,6 @@ class CommandRingBuffer {
         return result;
     }
 
-    /**
-     * Copies, oldest first, the command active at `start_stamp` (the newest entry at or before
-     * it, when one exists) and every entry in (start_stamp, end_stamp] into `out`. `out` is
-     * cleared first; reuse one scratch vector across calls to avoid per-tick allocation. This is
-     * the history a delayed plant model consumes as a span.
-     */
     void gather(double start_stamp, double end_stamp, std::vector<TimedCommand> &out) const {
         out.clear();
         for (size_t i = 0; i < size_; ++i) {

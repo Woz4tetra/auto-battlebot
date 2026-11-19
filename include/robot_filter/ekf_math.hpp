@@ -34,20 +34,10 @@ void propagate_covariance(Mat<N, N> &covariance, const Mat<N, N> &transition,
 }
 
 struct UpdateOutcome {
-    /** False when the gate rejected the measurement; state and covariance are then untouched. */
     bool accepted = false;
     double nis = 0.0;
 };
 
-/**
- * Gated Joseph-form measurement update.
- *
- * The innovation rows flagged in `angle_rows` are wrapped into (-pi, pi] before gating, and the
- * state rows flagged in `angle_states` are wrapped after the update, so angular quantities never
- * see a 2-pi discontinuity. `gate_nis <= 0` disables the gate. The Joseph form
- * (I - KH) P (I - KH)^T + K R K^T keeps the covariance positive semidefinite where the short
- * form P - KHP does not under roundoff.
- */
 template <int N, int M>
 UpdateOutcome ekf_update(Vec<N> &state, Mat<N, N> &covariance, const Vec<M> &measurement,
                          const Vec<M> &predicted_measurement, const Mat<M, N> &observation,
