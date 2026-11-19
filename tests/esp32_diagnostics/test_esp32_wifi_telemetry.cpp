@@ -263,26 +263,29 @@ std::vector<Esp32DiagnosticsEvent> collect_at_least(Esp32WifiTelemetry &telemetr
     return events;
 }
 
-size_t thread_count() {
-    return static_cast<size_t>(std::distance(std::filesystem::directory_iterator("/proc/self/task"),
-                                             std::filesystem::directory_iterator()));
-}
-
 TEST(Esp32WifiTelemetryTest, StartingTwiceRunsOneWorker) {
     FakeRingServer server;
-    server.set(1, 30);
+    constexpr uint32_t kHead = 30;
+    constexpr uint32_t kNewRecords = 10;
+    server.set(1, kHead);
     Esp32WifiTelemetry telemetry(options_for(server));
-    const size_t before = thread_count();
+    telemetry.start();
+    telemetry.start();
     telemetry.start();
     ASSERT_TRUE(wait_until([&] { return telemetry.stats().connected; }, std::chrono::seconds(5)));
-    const size_t with_one_worker = thread_count();
-    EXPECT_EQ(with_one_worker, before + 1);
 
-    telemetry.start();
-    telemetry.start();
-    EXPECT_EQ(thread_count(), with_one_worker);
+    server.set(1, kHead + kNewRecords);
+    auto events = collect_at_least(telemetry, kNewRecords);
+    const bool got_duplicates = wait_until(
+        [&] {
+            for (auto &e : telemetry.drain()) events.push_back(e);
+            return events.size() > kNewRecords;
+        },
+        std::chrono::milliseconds(500));
     telemetry.stop();
-    EXPECT_EQ(thread_count(), before);
+    EXPECT_FALSE(got_duplicates) << "a second worker delivers every record twice";
+    ASSERT_EQ(events.size(), kNewRecords);
+    for (size_t i = 0; i < events.size(); i++) EXPECT_EQ(events[i].seq, kHead + i) << i;
 }
 
 TEST(Esp32WifiTelemetryTest, StartsAtHeadThenReadsEverythingNew) {
@@ -303,6 +306,9 @@ TEST(Esp32WifiTelemetryTest, StartsAtHeadThenReadsEverythingNew) {
 
     EXPECT_EQ(events.back().backfill, false);
     for (size_t i = 0; i + 1 < events.size(); i++) EXPECT_EQ(events[i].backfill, true) << i;
+    for (size_t i = 1; i < kBatchMax; i++)
+        EXPECT_EQ(events[i].host_receive_wall_ns, events[0].host_receive_wall_ns)
+            << "rows of one poll share its arrival stamp, " << i;
     const Esp32WifiTelemetryStats stats = telemetry.stats();
     EXPECT_EQ(stats.ring_overwritten_records, 0u);
     EXPECT_EQ(stats.lag_records, 0u);
