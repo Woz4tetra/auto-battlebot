@@ -1,3 +1,4 @@
+#include <ina238_id.h>
 #include <vbat_sensor.h>
 
 using namespace vbat_sensor;
@@ -7,11 +8,6 @@ const uint8_t REG_ADC_CONFIG = 0x01;
 const uint8_t REG_VSHUNT = 0x04;
 const uint8_t REG_VBUS = 0x05;
 const uint8_t REG_DEVICE_ID = 0x3F;
-
-// DEVICE_ID bits 15..4 are the die ID, bits 3..0 the revision. An INA228 (die 0x228) answers
-// at the same address with 24-bit VBUS and VSHUNT at different scales, so anything else is
-// rejected rather than misread.
-const uint16_t INA238_DIE_ID = 0x238;
 
 const uint16_t ADC_CONFIG_VALUE = 0xBB69;
 
@@ -27,7 +23,7 @@ bool VbatSensor::begin(TwoWire *wire_bus) {
     sample_timer_us = micros() - SAMPLE_INTERVAL_US;
 
     uint16_t device_id = 0;
-    present = read_register(REG_DEVICE_ID, &device_id) && (device_id >> 4) == INA238_DIE_ID;
+    present = read_register(REG_DEVICE_ID, &device_id) && ina238_id::is_ina238(device_id);
     status.device_id = device_id;
     status.present = present;
     if (!present) return false;

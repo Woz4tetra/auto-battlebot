@@ -13,6 +13,11 @@ float unwrap_gyro_rate(float raw, float previous) {
     return raw + GYRO_WRAP_RAD_S * roundf((previous - raw) / GYRO_WRAP_RAD_S);
 }
 
+float heading_dt_s(uint32_t sample_us, uint32_t last_sample_us, uint32_t max_gap_us) {
+    uint32_t gap_us = sample_us - last_sample_us;
+    return (gap_us < max_gap_us ? gap_us : max_gap_us) / 1000000.0f;
+}
+
 YawController::YawController(const Config &config) : _config(config) {}
 
 void YawController::reset(float heading) {

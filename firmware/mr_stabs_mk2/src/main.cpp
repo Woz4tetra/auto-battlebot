@@ -334,8 +334,8 @@ void mix_motor_outputs(crsf_bridge::radio_data_t *radio_data, float sensed_angle
 
     uint32_t sample_us = accel->get_sample_us();
     bool fresh_heading = sample_us != 0 && sample_us != last_heading_sample_us;
-    // Capped so the first sample after a gap does not integrate the whole gap.
-    float heading_dt = min(sample_us - last_heading_sample_us, HEADING_STALE_US) / 1000000.0f;
+    float heading_dt =
+        yaw_control::heading_dt_s(sample_us, last_heading_sample_us, HEADING_STALE_US);
     if (fresh_heading) last_heading_sample_us = sample_us;
     bool heading_stale = sample_us == 0 || now_us - sample_us > HEADING_STALE_US;
 

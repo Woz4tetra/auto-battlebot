@@ -88,7 +88,6 @@ TEST(BlheliBootCrc, BootCrcCheckValue) {
 }
 
 TEST(BlheliBootFrames, MatchesThePythonClient) {
-    // auto_battlebot.blheli32.fourway.build_request(0x3A, 0xF800, b"\x00")
     EXPECT_EQ(request(DEVICE_READ, 0xF800, {0x00}),
               (Bytes{0x2F, 0x3A, 0xF8, 0x00, 0x01, 0x00, 0x93, 0xF4}));
     Request req;

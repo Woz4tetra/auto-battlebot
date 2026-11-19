@@ -222,3 +222,8 @@ TEST(UnwrapGyroRate, PicksTheWrongAliasOnceTheStepPassesHalfAWrap) {
     const float beyond = yaw_control::unwrap_gyro_rate(-2040.0f * kDegToRad, 0.0f);
     EXPECT_NEAR(beyond / kDegToRad, -2040.0f, 0.1f) << "a 2056 deg/s step aliases to -2040";
 }
+
+TEST(HeadingDt, CappedAfterGap) {
+    EXPECT_NEAR(yaw_control::heading_dt_s(1010000, 1000000, 100000), 0.01f, kTol);
+    EXPECT_NEAR(yaw_control::heading_dt_s(9000000, 1000000, 100000), 0.1f, kTol);
+}

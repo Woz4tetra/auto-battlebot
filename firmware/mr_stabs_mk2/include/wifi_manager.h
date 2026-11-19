@@ -70,8 +70,8 @@ class WifiManager {
     void start_from_saved();
     void start_ap(link_state_t state);
     void load();
-    void store();
-    const network_t *find(const char *ssid) const;
+    void store_locked();
+    const network_t *find_locked(const char *ssid) const;
 
     SemaphoreHandle_t _lock = nullptr;
     settings_t _settings = {};

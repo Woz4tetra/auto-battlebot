@@ -374,3 +374,9 @@ def test_page_codec_passes_node_tests() -> None:
     test = REPO / "firmware/mr_stabs_mk2/web/esc.test.mjs"
     result = subprocess.run([node, "--test", str(test)], capture_output=True, text=True)
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_fourway_golden_matches_firmware() -> None:
+    assert build_request(CMD_DEVICE_READ, 0xF800, b"\x00") == bytes(
+        [0x2F, 0x3A, 0xF8, 0x00, 0x01, 0x00, 0x93, 0xF4]
+    )

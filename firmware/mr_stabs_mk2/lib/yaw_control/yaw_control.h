@@ -51,5 +51,7 @@ constexpr float GYRO_WRAP_RAD_S = 4096.0f * 3.14159265358979f / 180.0f;
 
 float unwrap_gyro_rate(float raw, float previous);
 
+float heading_dt_s(uint32_t sample_us, uint32_t last_sample_us, uint32_t max_gap_us);
+
 bool gyro_sign_suspect(uint32_t agree, uint32_t disagree, uint32_t min_disagree);
 }  // namespace yaw_control

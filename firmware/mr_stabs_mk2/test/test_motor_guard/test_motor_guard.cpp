@@ -154,8 +154,8 @@ TEST(MotorGuard, DualStallAtFullCommandNeverPassesMaxRise) {
     }
     EXPECT_LT(peak_rise, config.rise_max_c + 1.0f);
     EXPECT_GT(peak_rise, config.rise_max_c - kBudgetUseTolerance_c);
-    // Held at I_cont the duty is under stall_duty, so the stall flag has cleared by now.
-    EXPECT_EQ(sim.guard.state(), State::LIMITING);
+    EXPECT_EQ(sim.guard.state(), State::LIMITING)
+        << "held at I_cont the duty is under stall_duty, so the stall flag has cleared";
     EXPECT_FALSE(sim.guard.tripped());
 }
 

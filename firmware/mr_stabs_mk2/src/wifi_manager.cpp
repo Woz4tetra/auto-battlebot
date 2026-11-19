@@ -9,9 +9,8 @@ static const char *PREFS_NAMESPACE = "wifi";
 static const uint32_t TASK_PERIOD_MS = 250;
 static const uint32_t APPLY_AFTER_REPLY_DELAY_MS = 500;
 
-// Fields the task refreshes for snapshot(), so the web server's task never calls into WiFi.
-static char cached_ip[16] = "";
-static int8_t cached_rssi = 0;
+static char task_cached_ip[16] = "";
+static int8_t task_cached_rssi = 0;
 
 static void copy_str(char *dst, const char *src, size_t size) {
     strncpy(dst, src, size - 1);
@@ -83,11 +82,11 @@ void WifiManager::run() {
         const int8_t rssi = connected ? WiFi.RSSI() : 0;
         xSemaphoreTake(_lock, portMAX_DELAY);
         if (ip == IPAddress()) {
-            cached_ip[0] = '\0';
+            task_cached_ip[0] = '\0';
         } else {
-            copy_str(cached_ip, ip.toString().c_str(), sizeof(cached_ip));
+            copy_str(task_cached_ip, ip.toString().c_str(), sizeof(task_cached_ip));
         }
-        cached_rssi = rssi;
+        task_cached_rssi = rssi;
         xSemaphoreGive(_lock);
 
         vTaskDelay(pdMS_TO_TICKS(TASK_PERIOD_MS));
@@ -99,7 +98,7 @@ void WifiManager::start_from_saved() {
     bool client = false;
     xSemaphoreTake(_lock, portMAX_DELAY);
     if (!_force_ap && _settings.mode == link_mode_t::CLIENT) {
-        const network_t *found = find(_settings.selected);
+        const network_t *found = find_locked(_settings.selected);
         if (found) {
             net = *found;
             client = true;
@@ -145,8 +144,8 @@ snapshot_t WifiManager::snapshot() {
         copy_str(s.networks[i], _settings.networks[i].ssid, sizeof(s.networks[i]));
     }
     copy_str(s.joining_ssid, _joining, sizeof(s.joining_ssid));
-    copy_str(s.ip, cached_ip, sizeof(s.ip));
-    s.rssi = cached_rssi;
+    copy_str(s.ip, task_cached_ip, sizeof(s.ip));
+    s.rssi = task_cached_rssi;
     if (_state == link_state_t::CONNECTING) {
         const uint32_t elapsed = millis() - _connect_start_ms;
         s.connect_ms_left = elapsed < CONNECT_TIMEOUT_MS ? CONNECT_TIMEOUT_MS - elapsed : 0;
@@ -167,7 +166,7 @@ bool WifiManager::save_network(const char *ssid, const char *password, String &e
         return false;
     }
     xSemaphoreTake(_lock, portMAX_DELAY);
-    network_t *net = const_cast<network_t *>(find(ssid));
+    network_t *net = const_cast<network_t *>(find_locked(ssid));
     if (!net) {
         if (_settings.count >= MAX_NETWORKS) {
             xSemaphoreGive(_lock);
@@ -180,14 +179,14 @@ bool WifiManager::save_network(const char *ssid, const char *password, String &e
     copy_str(net->password, password, sizeof(net->password));
     if (_settings.selected[0] == '\0')
         copy_str(_settings.selected, ssid, sizeof(_settings.selected));
-    store();
+    store_locked();
     xSemaphoreGive(_lock);
     return true;
 }
 
 bool WifiManager::delete_network(const char *ssid, String &error) {
     xSemaphoreTake(_lock, portMAX_DELAY);
-    const network_t *net = find(ssid);
+    const network_t *net = find_locked(ssid);
     if (!net) {
         xSemaphoreGive(_lock);
         error = "no saved network with that SSID";
@@ -203,28 +202,27 @@ bool WifiManager::delete_network(const char *ssid, String &error) {
         copy_str(_settings.selected, _settings.count ? _settings.networks[0].ssid : "",
                  sizeof(_settings.selected));
     }
-    store();
+    store_locked();
     xSemaphoreGive(_lock);
     return true;
 }
 
 bool WifiManager::apply(link_mode_t mode, const char *selected, String &error) {
     xSemaphoreTake(_lock, portMAX_DELAY);
-    if (mode == link_mode_t::CLIENT && !find(selected)) {
+    if (mode == link_mode_t::CLIENT && !find_locked(selected)) {
         xSemaphoreGive(_lock);
         error = "pick a saved network for client mode";
         return false;
     }
     _settings.mode = mode;
-    if (find(selected)) copy_str(_settings.selected, selected, sizeof(_settings.selected));
-    store();
+    if (find_locked(selected)) copy_str(_settings.selected, selected, sizeof(_settings.selected));
+    store_locked();
     xSemaphoreGive(_lock);
     if (!_force_ap) _apply_requested = true;
     return true;
 }
 
-// Caller holds _lock.
-const network_t *WifiManager::find(const char *ssid) const {
+const network_t *WifiManager::find_locked(const char *ssid) const {
     if (ssid[0] == '\0') return nullptr;
     for (uint8_t i = 0; i < _settings.count; i++) {
         if (strcmp(_settings.networks[i].ssid, ssid) == 0) return &_settings.networks[i];
@@ -251,8 +249,7 @@ void WifiManager::load() {
     }
 }
 
-// Caller holds _lock.
-void WifiManager::store() {
+void WifiManager::store_locked() {
     Preferences prefs;
     prefs.begin(PREFS_NAMESPACE, false);
     prefs.putUChar("mode", static_cast<uint8_t>(_settings.mode));

@@ -5,6 +5,7 @@
 #include <lwip/sockets.h>
 #include <mbedtls/base64.h>
 #include <usb_bridge.h>
+#include <usb_framing.h>
 
 namespace usb_bridge {
 
@@ -56,13 +57,8 @@ static void flush_log() {
     static char out[LOG_RING];
     size_t n = 0;
     portENTER_CRITICAL(&log_mux);
-    size_t last_line = 0;
-    for (size_t i = log_read_index; i != log_write_index; i = (i + 1) % LOG_RING) {
-        out[n++] = log_ring[i];
-        if (log_ring[i] == '\n') last_line = n;
-    }
-    // A full ring with no newline would never drain: write it all.
-    if (last_line == 0 && n >= LOG_RING - 1) last_line = n;
+    const size_t last_line = usb_framing::copy_drainable_log(log_ring, LOG_RING, log_read_index,
+                                                             log_write_index, out, n);
     log_read_index = (log_read_index + last_line) % LOG_RING;
     portEXIT_CRITICAL(&log_mux);
     if (last_line > 0) write_whole(out, last_line);
