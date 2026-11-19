@@ -11,7 +11,7 @@ import cv2
 import numpy as np
 
 from auto_battlebot.eval.dataset import Frame, FrameKey, GtFrame, Taxonomy
-from auto_battlebot.perception.trt_yolo import TrtYoloModel
+from auto_battlebot.perception.trt_yolo import PreprocessMode, TrtYoloModel
 
 
 class EngineDetector:
@@ -194,7 +194,11 @@ def build_detector(
             conf_threshold=args.conf,
             nms_iou_threshold=args.nms_iou,
             num_classes=len(class_labels),
-            preprocess="stretch" if name in set(args.stretch or []) else "letterbox",
+            preprocess=(
+                PreprocessMode.STRETCH
+                if name in set(args.stretch or [])
+                else PreprocessMode.LETTERBOX
+            ),
         )
     )
     boxes = parse_candidates(args.field_boxes or []).get(name)

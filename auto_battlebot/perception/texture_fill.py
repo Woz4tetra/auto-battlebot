@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import NamedTuple
+
 import cv2
 import numpy as np
 
@@ -49,13 +51,21 @@ def mirror_fill(image: np.ndarray, unseen: np.ndarray, max_passes: int = 8) -> n
     return out
 
 
+class CellRect(NamedTuple):
+    area: int
+    row0: int
+    row1: int
+    col0: int
+    col1: int
+
+
 def largest_seen_rectangle(seen: np.ndarray, step: int = 4) -> tuple[int, int, int, int]:
     """Largest axis-aligned rectangle of seen pixels as (row0, row1, col0, col1)."""
     height, width = seen.shape
     cells = seen[: height // step * step, : width // step * step]
     cells = np.asarray(cells.reshape(height // step, step, width // step, step).all(axis=(1, 3)))
     runs = np.zeros(cells.shape[1], np.int64)
-    best = (0, 0, 0, 0, 0)  # area, row0, row1, col0, col1 in cells
+    best = CellRect(0, 0, 0, 0, 0)
     for row in range(cells.shape[0]):
         runs = np.where(cells[row], runs + 1, 0)
         stack: list[int] = []
@@ -66,10 +76,9 @@ def largest_seen_rectangle(seen: np.ndarray, step: int = 4) -> tuple[int, int, i
                 left = stack[-1] + 1 if stack else 0
                 area = int(runs[top]) * (col - left)
                 if area > best[0]:
-                    best = (area, row - int(runs[top]) + 1, row + 1, left, col)
+                    best = CellRect(area, row - int(runs[top]) + 1, row + 1, left, col)
             stack.append(col)
-    _, row0, row1, col0, col1 = best
-    return row0 * step, row1 * step, col0 * step, col1 * step
+    return best.row0 * step, best.row1 * step, best.col0 * step, best.col1 * step
 
 
 def flatten_luminance(image: np.ndarray, sigma_px: float) -> np.ndarray:

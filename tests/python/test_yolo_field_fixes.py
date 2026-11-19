@@ -93,6 +93,13 @@ def scene() -> dict:
     return {"det": det, "tag_t": tag_t, "truth": tr, "video": video}
 
 
+def test_projection_rejects_mismatched_pose_count() -> None:
+    stamps = np.array([1_000_000_000, 1_033_000_000], dtype=np.int64)
+    det = _detections(stamps, np.random.default_rng(0))
+    with pytest.raises(ValueError, match="up_from_camera must be"):
+        yff.project_detections(det, K, up_from_camera_at(stamps[:1]), PLANE_H, AXLE)
+
+
 def test_projection_round_trips() -> None:
     stamps = np.array([1_000_000_000], dtype=np.int64)
     det = _detections(stamps, np.random.default_rng(0))

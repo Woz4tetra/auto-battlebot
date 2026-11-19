@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -9,6 +10,7 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import least_squares
 
+FIX_COLUMNS = ["stamp_ns", "x", "y", "yaw", "conf"]
 GATE_MARGIN = 1.3
 MIN_CONF = 0.5
 SIZE_GATE_INLIER_RADIUS_M = 0.03
@@ -17,6 +19,9 @@ TAG_PAIR_MAX_OFFSET_NS = 20_000_000
 HALF_FRAME_NS = 8_400_000
 TAG_DROPOUT_MIN_GAP_NS = 100_000_000
 UPRIGHT_TILT_LIMIT_DEG = 15.0
+
+
+UpFromCameraAt = Callable[[np.ndarray], np.ndarray]
 
 
 @dataclass
@@ -32,9 +37,7 @@ class YoloCalibration:
     pairs: int
     position_error_mm: dict[str, float]
     yaw_error_deg: dict[str, float]
-    # For plots, not session.json: every confident detection's box diagonal and keypoint
-    # separation, and each co-visible pair's position error.
-    samples: dict[str, np.ndarray] = field(default_factory=dict, repr=False)
+    plot_samples: dict[str, np.ndarray] = field(default_factory=dict, repr=False)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -59,10 +62,9 @@ def _wrap(a: np.ndarray) -> np.ndarray:
 def _project(
     u: np.ndarray, v: np.ndarray, k_inv: np.ndarray, up_from_camera: np.ndarray, height: float
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Pixels (N,) onto the plane z = ``height`` of the up frame.
-
-    ``up_from_camera`` is (N, 4, 4).
-    """
+    """Pixels onto the plane z = ``height`` of the up frame, one camera pose per pixel."""
+    if up_from_camera.shape != (len(u), 4, 4):
+        raise ValueError(f"up_from_camera must be ({len(u)}, 4, 4), got {up_from_camera.shape}")
     rays_cam = k_inv @ np.vstack([u, v, np.ones_like(u)])
     rays = np.einsum("nij,jn->ni", up_from_camera[:, :3, :3], rays_cam)
     origin = up_from_camera[:, :3, 3]
@@ -122,13 +124,10 @@ def calibrate(
     tag_y: np.ndarray,
     tag_yaw: np.ndarray,
     camera_matrix: np.ndarray,
-    up_from_camera_at: Any,
+    up_from_camera_at: UpFromCameraAt,
     azimuth: float,
 ) -> YoloCalibration:
-    """Fit the projection against tag poses (sorted by stamp, yaw unwrapped) on co-visible frames.
-
-    ``up_from_camera_at(stamps_ns)`` returns the (N, 4, 4) camera pose in the up frame.
-    """
+    """Fit the projection against stamp-sorted, yaw-unwrapped tag poses on co-visible frames."""
     best_per_frame = _best_per_frame(det[det["conf"] >= MIN_CONF])
     stamps = best_per_frame["stamp_ns"].to_numpy(np.int64)
     pose = up_from_camera_at(stamps)
@@ -207,7 +206,7 @@ def calibrate(
         yaw_error_deg={
             f"p{q}": float(np.degrees(np.percentile(np.abs(dyaw), q))) for q in (50, 90, 99)
         },
-        samples={
+        plot_samples={
             "box_diag_px": _box_diag(confident),
             "keypoint_sep_m": every["sep"],
             "pair_error_m": err,
@@ -232,15 +231,11 @@ def select_fixes(
     det: pd.DataFrame,
     cal: YoloCalibration,
     camera_matrix: np.ndarray,
-    up_from_camera_at: Any,
+    up_from_camera_at: UpFromCameraAt,
     tag_stamps_ns: np.ndarray,
     esp32: pd.DataFrame | None,
 ) -> tuple[pd.DataFrame, dict[str, int]]:
-    """One fix per video frame inside a tag dropout (see ``TAG_DROPOUT_MIN_GAP_NS``).
-
-    Returns rows of ``stamp_ns`` (the video stamp moved onto the tag's image clock), ``x``, ``y``,
-    ``yaw``, ``conf`` and the counts behind them.
-    """
+    """One fix per frame in a tag dropout, stamped on the tag image clock, plus counts."""
     report: dict[str, int] = {"detections": len(det)}
     cand = det[det["conf"] >= MIN_CONF].reset_index(drop=True)
     report["confident"] = len(cand)
@@ -260,7 +255,7 @@ def select_fixes(
     tags = np.unique(np.asarray(tag_stamps_ns, dtype=np.int64))
     if len(shifted) == 0 or tags.size < 2:
         report["fixes"] = 0
-        return pd.DataFrame(columns=["stamp_ns", "x", "y", "yaw", "conf"]), report
+        return pd.DataFrame(columns=FIX_COLUMNS), report
     j = np.searchsorted(tags, shifted)
     inside = (j > 0) & (j < tags.size)
     j = np.clip(j, 1, tags.size - 1)

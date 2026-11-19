@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 
 from auto_battlebot.recording.mcap_io import (
+    DiagnosticStatus,
     decode_diagnostic_array,
     decode_scene_update,
     decode_tf_message,
@@ -25,15 +26,10 @@ TF_STATIC_TOPIC = "/tf_static"
 
 PURSUIT_NAV_HW_ID = "pursuit_nav"
 MOTION_PROFILE_NAV_HW_ID = "motion_profile_nav"
-# Navigation implementations log the same tick schema (our_x, target_x, distance, angle_error_deg,
-# facing_target, linear_x, angular_z, ...) under their own hardware_id. Only one nav runs per fight,
-# so any of these ids is "the navigation stage" for a given recording.
 NAV_HW_IDS = frozenset({PURSUIT_NAV_HW_ID, MOTION_PROFILE_NAV_HW_ID})
 RUNNER_HW_ID = "runner"
 TRANSMITTER_HW_ID = "opentx_transmitter"
 
-# FrameId enum order from include/enums/frame_id.hpp. Robot markers set
-# marker.id = enum_index(frame_id), so the index maps back to the name here.
 FRAME_IDS = [
     "EMPTY",
     "VISUAL_ODOMETRY",
@@ -75,13 +71,8 @@ _TRANSMITTER_COLUMNS = (
 )
 
 
-def _merge_status(rows: dict[int, dict[str, Any]], ts: int, status: dict[str, Any]) -> None:
-    """Fold one DiagnosticStatus into the row for its tick.
-
-    `rows` is a defaultdict, so it is indexed only where this status actually contributes a
-    column. Touching it unconditionally would mint an all-NaN row for every message that
-    carries nothing this loader wants.
-    """
+def _merge_status(rows: dict[int, dict[str, Any]], ts: int, status: DiagnosticStatus) -> None:
+    """Fold one DiagnosticStatus into the row for its tick."""
     hw = status["hardware_id"]
     name = status["name"]
     kv = status["values"]
@@ -101,11 +92,8 @@ def _merge_status(rows: dict[int, dict[str, Any]], ts: int, status: dict[str, An
                 rows[ts][dst] = kv[src]
 
 
-def iter_diagnostic_statuses(path: Path | str) -> Iterator[tuple[int, dict[str, Any]]]:
-    """Every diagnostic status in a recording as (log_time_ns, status dict), in log order.
-
-    Status dicts are ``{level, name, message, hardware_id, values}`` with typed values.
-    """
+def iter_diagnostic_statuses(path: Path | str) -> Iterator[tuple[int, DiagnosticStatus]]:
+    """Every diagnostic status in a recording as (log_time_ns, status), in log order."""
     for _topic, log_time_ns, data in iter_messages(path, [DIAGNOSTICS_TOPIC]):
         for status in decode_diagnostic_array(data):
             yield log_time_ns, status
@@ -130,11 +118,7 @@ def load_diagnostics(path: Path) -> pd.DataFrame:
 
 
 def _fill_latched_channels(df: pd.DataFrame) -> None:
-    """Forward-fill the transmitter channels, which are logged only on change.
-
-    They are latched physical state. Defaulting the gaps instead would invent spurious
-    auto<->manual transitions and zero-command ticks.
-    """
+    """Forward-fill the transmitter channels, which are logged only on change."""
     ch15 = df["ch15"].ffill() if "ch15" in df.columns else pd.Series(index=df.index, dtype=object)
     df["is_auto"] = pd.to_numeric(ch15, errors="coerce") == 1024
 
@@ -164,10 +148,7 @@ def load_field_size(path: Path) -> tuple[float, float] | None:
 
 
 def load_robot_tracks(path: Path) -> pd.DataFrame:
-    """One row per /robot_markers message: which robots were present that tick.
-
-    Uses the CUBE body markers (ns == "robot_bounds"); marker.id maps to the
-    FrameId enum index. Does not carry is_stale (markers do not encode it)."""
+    """One row per /robot_markers message: which robots were present that tick."""
     records = []
     for _topic, ts, data in iter_messages(path, [ROBOT_MARKERS_TOPIC]):
         their, ours, neutral = [], [], []

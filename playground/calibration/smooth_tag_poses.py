@@ -247,7 +247,7 @@ def plot_yolo_projection(plt, out_dir: Path, cal) -> str:
         (axes[0], "box_diag_px", cal.box_diag_px, "box diagonal, px"),
         (axes[1], "keypoint_sep_m", cal.keypoint_sep_m, "front-back keypoint spacing, m"),
     ):
-        v = cal.samples[key]
+        v = cal.plot_samples[key]
         ax.hist(v, bins=120, color="#2a78d6")
         for g in gate:
             ax.axvline(g, color="#eb6834", ls="--", lw=1)
@@ -260,7 +260,7 @@ def plot_yolo_projection(plt, out_dir: Path, cal) -> str:
             loc="left",
             fontsize=8,
         )
-    err = 1e3 * cal.samples["pair_error_m"]
+    err = 1e3 * cal.plot_samples["pair_error_m"]
     axes[2].hist(err[err < 80], bins=80, color="#1baf7a")
     axes[2].set_xlabel("YOLO minus tag, mm (co-visible frames)")
     axes[2].set_title(
@@ -310,7 +310,7 @@ def write_plots(out_dir: Path, result: SessionSmoothing) -> list[str]:
 
     written = []
     cal = result.yolo_calibration
-    if cal is not None and cal.samples:
+    if cal is not None and cal.plot_samples:
         written.append(plot_yolo_projection(plt, out_dir, cal))
     meas = result.detections_df
     grid = result.smoothed_grid_df

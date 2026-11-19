@@ -6,7 +6,7 @@ import json
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Iterator
+from typing import Any, Callable, Iterator, TypedDict
 
 import cv2
 import numpy as np
@@ -202,8 +202,16 @@ def decode_frame_meta(data: bytes) -> FrameMeta:
     )
 
 
-def decode_diagnostic_array(data: bytes) -> list[dict]:
-    """One dict per diagnostic status: ``{level, name, message, hardware_id, values}``."""
+class DiagnosticStatus(TypedDict):
+    level: int
+    name: str
+    message: str
+    hardware_id: str
+    values: dict[str, Any]
+
+
+def decode_diagnostic_array(data: bytes) -> list[DiagnosticStatus]:
+    """One status per diagnostic section that is not held."""
     topic = topic_of(data)
     module = (
         topic[len(DIAGNOSTICS_TOPIC_PREFIX) :] if topic.startswith(DIAGNOSTICS_TOPIC_PREFIX) else ""

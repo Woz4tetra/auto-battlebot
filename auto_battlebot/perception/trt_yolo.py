@@ -21,26 +21,44 @@ Requires: tensorrt, pycuda, opencv-python, numpy.
 
 from __future__ import annotations
 
-from typing import Any, cast
+from enum import Enum
+from typing import Any, NamedTuple, cast
 
 import cv2
 import numpy as np
 
 DetectionTuple = tuple[np.ndarray, float, int, np.ndarray]
 
-# C++ models nudge the letterbox split by 0.1 px (top gets round(pad - 0.1), bottom
-# round(pad + 0.1)), which biases odd padding to the bottom/right side.
 CPP_LETTERBOX_PADDING = 0.1
-
-# How a frame is fitted to the input tensor. Must match how the engine's weights were
-# trained: a stretch-trained engine fed a letterboxed frame sees the wrong aspect ratio.
-PREPROCESS_MODES = ("letterbox", "stretch")
+E2E_FIXED_COLUMNS = 6
 
 
-def check_preprocess_mode(mode: str) -> str:
-    if mode not in PREPROCESS_MODES:
-        raise ValueError(f"unknown preprocess mode {mode!r}, expected one of {PREPROCESS_MODES}")
-    return mode
+class PreprocessMode(Enum):
+    LETTERBOX = "letterbox"
+    STRETCH = "stretch"
+
+
+class Letterboxed(NamedTuple):
+    image: np.ndarray
+    scale: float
+    pad_left: float
+    pad_top: float
+
+
+class Preprocessed(NamedTuple):
+    blob: np.ndarray
+    scale_x: float
+    scale_y: float
+    pad_left: float
+    pad_top: float
+
+
+class ModelLayout(NamedTuple):
+    is_end2end: bool
+    num_predictions: int
+    num_features: int
+    num_classes: int | None
+    num_keypoints: int
 
 
 def letterbox(
@@ -49,20 +67,17 @@ def letterbox(
     target_w: int,
     pad_val: float = 114.0,
     padding: float = 0.0,
-) -> tuple[np.ndarray, float, float, float]:
-    """Resize with aspect ratio and pad to target size.
-
-    Returns (padded image, scale, pad_left, pad_top).
-    """
+) -> Letterboxed:
+    """Resize with aspect ratio and pad to target size."""
     h, w = image.shape[:2]
     scale = min(target_h / h, target_w / w)
     new_w = int(round(w * scale))
     new_h = int(round(h * scale))
     if new_w == target_w and new_h == target_h:
         if image.shape[0] == target_h and image.shape[1] == target_w:
-            return image, scale, 0.0, 0.0
+            return Letterboxed(image, scale, 0.0, 0.0)
         resized = cv2.resize(image, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
-        return resized, scale, 0.0, 0.0
+        return Letterboxed(resized, scale, 0.0, 0.0)
     resized = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
     left = int(round((target_w - new_w) / 2.0 - padding))
     top = int(round((target_h - new_h) / 2.0 - padding))
@@ -75,7 +90,7 @@ def letterbox(
     out = cv2.copyMakeBorder(
         resized, top, bottom, left, right, cv2.BORDER_CONSTANT, value=(pad_val,) * 3
     )
-    return out, scale, float(left), float(top)
+    return Letterboxed(out, scale, float(left), float(top))
 
 
 def stretch(image: np.ndarray, target_h: int, target_w: int) -> tuple[np.ndarray, float, float]:
@@ -90,28 +105,22 @@ def preprocess_frame(
     input_h: int,
     input_w: int,
     letterbox_padding: float,
-    mode: str = "letterbox",
-) -> tuple[np.ndarray, float, float, float, float]:
-    """BGR frame -> NCHW float32 [0,1] RGB, plus per-axis scale and pad for the inverse.
-
-    Returns (blob, scale_x, scale_y, pad_left, pad_top). The two scales are equal in
-    letterbox mode and differ in stretch mode, which is the whole point of the latter.
-    """
+    mode: PreprocessMode = PreprocessMode.LETTERBOX,
+) -> Preprocessed:
+    """BGR frame -> NCHW float32 [0,1] RGB, plus per-axis scale and pad for the inverse."""
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    if mode == "stretch":
+    if mode is PreprocessMode.STRETCH:
         fitted, scale_x, scale_y = stretch(rgb, input_h, input_w)
         pad_left = pad_top = 0.0
-    elif mode == "letterbox":
+    else:
         fitted, scale, pad_left, pad_top = letterbox(
             rgb, input_h, input_w, padding=letterbox_padding
         )
         scale_x = scale_y = scale
-    else:
-        raise ValueError(f"unknown preprocess mode {mode!r}, expected one of {PREPROCESS_MODES}")
     blob = fitted.astype(np.float32) / 255.0
     blob = np.transpose(blob, (2, 0, 1))
     blob = np.expand_dims(blob, axis=0)
-    return blob, scale_x, scale_y, pad_left, pad_top
+    return Preprocessed(blob, scale_x, scale_y, pad_left, pad_top)
 
 
 def sigmoid(x: np.ndarray) -> np.ndarray:
@@ -121,10 +130,7 @@ def sigmoid(x: np.ndarray) -> np.ndarray:
 
 
 def xywh2xyxy(boxes: np.ndarray, wh_are_half_extents: bool = False) -> None:
-    """In-place: (cx, cy, w, h) -> (x1, y1, x2, y2).
-
-    If wh_are_half_extents, 3rd/4th are half-width/half-height (no /2).
-    """
+    """In-place: (cx, cy, w, h) -> (x1, y1, x2, y2)."""
     cx, cy = boxes[:, 0].copy(), boxes[:, 1].copy()
     w, h = boxes[:, 2].copy(), boxes[:, 3].copy()
     if wh_are_half_extents:
@@ -249,14 +255,7 @@ def non_max_suppression(
     swap_wh: bool = False,
     bbox_xyxy: bool = False,
 ) -> list[DetectionTuple]:
-    """Apply per-class NMS to raw predictions.
-
-    prediction: (num_features, num_predictions) or (num_predictions, num_features).
-    Feature columns beyond 4 + num_classes + 3 * num_keypoints (e.g. YOLO-seg mask
-    coefficients) are ignored. Returns list of (xyxy, conf, class_id, keypoints (N, 3)).
-    Class scores and keypoint visibility are expected to be sigmoid-activated (values in
-    [0,1]); sigmoid is applied as fallback if raw logits are detected.
-    """
+    """Apply per-class NMS to raw predictions in either orientation."""
     num_keypoint_vals = num_keypoints * 3
     if num_classes <= 0 or num_predictions <= 0:
         return []
@@ -291,19 +290,13 @@ def parse_end2end_detections(
     num_features: int,
     conf_thres: float,
 ) -> list[DetectionTuple]:
-    """Parse post-NMS end-to-end output from YOLO26 Pose26 / v10Detect heads.
-
-    Per-row layout: [x1, y1, x2, y2, conf, class_id, kp0_x, kp0_y, kp0_vis, ...]
-    Box coords and keypoint xy are in letterbox input pixel space (not normalised).
-    conf is the winner-class probability; class_id is the integer class index stored
-    as a float.  Rows beyond the actual detection count are zero-padded.
-    """
+    """Parse post-NMS end-to-end output from YOLO26 Pose26 / v10Detect heads."""
     if prediction.shape == (num_features, num_predictions):
         rows = prediction.T
     else:
         rows = prediction
 
-    num_kpt_vals = max(0, num_features - 6)  # 4 bbox + 1 conf + 1 class_id
+    num_kpt_vals = max(0, num_features - E2E_FIXED_COLUMNS)
     num_keypoints = num_kpt_vals // 3
 
     out: list[DetectionTuple] = []
@@ -392,12 +385,7 @@ def load_engine(engine_path: str) -> tuple[Any, Any]:
 def _infer_raw_head_dims(
     num_features: int, num_classes: int, num_keypoints: int
 ) -> tuple[int, int]:
-    """Infer (num_classes, num_keypoints) for a raw pre-NMS head, honoring overrides.
-
-    num_classes > 0 is trusted; a remainder that is not a multiple of 3 is then extra
-    columns to ignore (YOLO-seg mask coefficients), not keypoints. Without an explicit
-    class count, fall back to the single-class pose guess. num_keypoints >= 0 overrides.
-    """
+    """Infer (num_classes, num_keypoints) for a raw pre-NMS head, honoring overrides."""
     if num_classes > 0:
         inferred_classes = num_classes
         remainder = num_features - 4 - inferred_classes
@@ -416,27 +404,24 @@ def _infer_raw_head_dims(
 
 def resolve_model_layout(
     dim1: int, dim2: int, num_classes: int = 0, num_keypoints: int = -1
-) -> tuple[bool, int, int, int, int]:
-    """Determine the output layout from the engine output dims.
-
-    num_classes / num_keypoints override inference when set (> 0 / >= 0).
-    Returns (is_end2end, num_predictions, num_features, num_classes, num_keypoints).
-    """
-    # End-to-end (post-NMS) models output [1, max_det, features] where max_det > features
-    # but max_det is small (e.g. 300).  Raw pre-NMS models output [1, features, anchors]
-    # where anchors >> features (e.g. 8400 vs 12).  The reliable distinguisher is that
-    # the larger dimension for pre-NMS is in the thousands, while for post-NMS it is not.
+) -> ModelLayout:
+    """Determine the output layout from the engine output dims."""
     is_end2end = dim1 > dim2
     if is_end2end:
         num_predictions, num_features = dim1, dim2
     else:
         num_features, num_predictions = dim1, dim2
     if is_end2end:
-        num_keypoints = max(0, (num_features - 6)) // 3
-        num_classes = -1  # not used for end2end path
-    elif num_classes <= 0 or num_keypoints < 0:
+        return ModelLayout(
+            True,
+            num_predictions,
+            num_features,
+            None,
+            max(0, num_features - E2E_FIXED_COLUMNS) // 3,
+        )
+    if num_classes <= 0 or num_keypoints < 0:
         num_classes, num_keypoints = _infer_raw_head_dims(num_features, num_classes, num_keypoints)
-    return is_end2end, num_predictions, num_features, num_classes, num_keypoints
+    return ModelLayout(False, num_predictions, num_features, num_classes, num_keypoints)
 
 
 class TrtYoloModel:
@@ -453,7 +438,7 @@ class TrtYoloModel:
         bbox_half_wh: bool = False,
         swap_wh: bool = False,
         bbox_xyxy: bool = False,
-        preprocess: str = "letterbox",
+        preprocess: PreprocessMode = PreprocessMode.LETTERBOX,
     ) -> None:
         import pycuda.autoinit  # noqa: F401
         import pycuda.driver as cuda
@@ -466,7 +451,7 @@ class TrtYoloModel:
         self.bbox_half_wh = bbox_half_wh
         self.swap_wh = swap_wh
         self.bbox_xyxy = bbox_xyxy
-        self.preprocess = check_preprocess_mode(preprocess)
+        self.preprocess = preprocess
 
         self.engine, self.context = load_engine(engine_path)
         input_name = None
@@ -528,7 +513,7 @@ class TrtYoloModel:
         if not self.is_end2end:
             detail += f", num_classes={self.num_classes}"
         return (
-            f"input [1, 3, {self.input_h}, {self.input_w}] ({self.preprocess}), "
+            f"input [1, 3, {self.input_h}, {self.input_w}] ({self.preprocess.value}), "
             f"output [1, {int(self.output_shape[1])}, {int(self.output_shape[2])}] ({fmt}), "
             f"{detail}"
         )
@@ -558,6 +543,7 @@ class TrtYoloModel:
                 prediction, self.num_predictions, self.num_features, self.conf_threshold
             )
         else:
+            assert self.num_classes is not None
             detections = non_max_suppression(
                 prediction,
                 self.num_features,
