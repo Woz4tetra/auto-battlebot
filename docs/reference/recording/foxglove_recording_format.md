@@ -767,6 +767,10 @@ The AprilTag keypoint model searches a window around the last detection (the ful
 - `enabled_hint_` mirrors `enabled_` so `write()` can skip the copy without the lock while recording is off.
 - Queue cap: queued bytes past which `write()` drops a message instead of growing the queue. Messages over `kLargeMessageBytes` (video, images) hit the lower cap, so a disk that falls behind costs frames before it costs status, state and log messages. At the ZED Box's 30 Mbps the lower cap is about 30 s of video.
 - Rollover: when the current file reaches `max_size_gb` the runner rolls over by turning recording off and on, so the camera's encoder restarts with it: the new file opens on an IDR with frame indices from zero. Switching files under a running encoder started mid-GOP.
+- Lock order: the app's logger copies every log line into the MCAP through `McapLogSink`. Toggling recording logs "Recording to ..." while the recorder's lock is held, and that line comes back into `write()`. On one thread it deadlocked the app on the ZED Box. Across threads it deadlocks when one thread logs (holding the sink's lock, waiting for the recorder's) while the runner toggles (holding the recorder's lock, logging). `TogglingWithTheMcapLogSinkDoesNotDeadlock` and `LoggingFromAnotherThreadWhileTogglingDoesNotDeadlock` cover both.
+- File names: two toggles inside one second both pick a file name before the writer thread creates either, so the second cannot rely on the first existing on disk to pick a new name. `QuickTogglesEachGetTheirOwnFile` covers it.
+- The queue cap counts every queued byte, status messages included, so one 1 MiB frame fewer than `kMaxQueuedLargeBytes / 1 MiB` fits. Video over `kLargeMessageBytes` stops at the lower cap and is dropped. Status and log messages fit under the higher cap and all arrive.
+- File age counts from the current file's start and restarts with each file, because the web page's recording timer shows it.
 - File-level metadata sits alongside `active_profile`. `calibration_id` says which calibration rectified a recording's frames so a revised one can be applied later.
 - MCAP metadata key (under the `auto_battlebot` record) holds the calibration a recording's `/camera/video` needs, as the same TOML text a `config/cameras/` file holds. With it the recording replays without a sidecar file.
 
@@ -782,6 +786,10 @@ A recording that carries only `/camera/image` opens fine and then produces nothi
 - `AsyncPublisher` runs another publisher's calls on one worker thread, in call order, so publishing stays off the Runner's tick. The inner publisher only ever sees the worker thread. Destroying it drains the queue before joining, so queued frames still reach the sinks. Each call copies its arguments into the queue. Camera frames are shallow `cv::Mat` copies, which is safe because every camera hands out a freshly allocated frame per grab. The queue holds 64 calls (`kMaxPendingCalls`). A full queue blocks the caller instead of dropping calls, so a recording never loses a message. The tick pays for publishing only when the worker has fallen a full queue behind, and the wait is logged as `blocked_ms`.
 - `PublisherInterface::flush()` returns once every earlier publish call has reached the sinks. Shutdown calls it before closing the recording, so a publisher that defers its work does not lose the last frames.
 - `FoxglovePublisher` declares its async workers last, so they stop before the channels they log to are destroyed.
+- The `AsyncPublisher` worker frees each call's frame when it is done with it. A pinned frame's free can be slow, so the tick's next enqueue must not wait behind it (`EnqueueDoesNotWaitForAFrameBeingFreed`).
+- A full `AsyncPublisher` queue makes the caller wait for the worker instead of dropping calls, so recordings stay complete.
+- The recording toggle flushes from its own thread while the tick keeps publishing. A flush that waited for an empty queue could wait as long as the tick kept up, so `flush()` waits only for the calls queued before it.
+- `FoxglovePublisher` with neither sink nor recorder accepts every publish. The app runs this way when the relay is down and recording is off.
 - `/camera/preview` is a downscaled JPEG for the web dashboard. Live only, never recorded.
 
 ### Status bus

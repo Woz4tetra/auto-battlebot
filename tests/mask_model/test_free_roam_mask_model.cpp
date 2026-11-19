@@ -8,8 +8,10 @@ namespace auto_battlebot {
 namespace {
 constexpr int kWidth = 100;
 constexpr int kHeight = 80;
-const cv::Scalar kFieldColor(120, 125, 130);  // BGR, neutral gray-ish field material
-const cv::Scalar kBlobColor(30, 30, 220);     // BGR, distinctly red
+const cv::Scalar kFieldColorBgr(120, 125, 130);
+const cv::Scalar kBlobColorBgr(30, 30, 220);
+const cv::Point kCenterPx(kWidth / 2, kHeight / 2);
+const cv::Point kFarCornerPx(kWidth - 1, kHeight - 1);
 
 RgbImage make_image(const cv::Scalar &fill) {
     RgbImage image;
@@ -30,7 +32,7 @@ TEST_F(FreeRoamMaskModelTest, RoiOnlyMasksCenteredRectangle) {
     config.roi_fraction = 0.5;
     FreeRoamMaskModel model(config);
 
-    RgbImage image = make_image(kFieldColor);
+    RgbImage image = make_image(kFieldColorBgr);
     MaskStamped result = model.update(image);
 
     ASSERT_EQ(result.mask.mask.rows, kHeight);
@@ -38,10 +40,9 @@ TEST_F(FreeRoamMaskModelTest, RoiOnlyMasksCenteredRectangle) {
     EXPECT_EQ(result.mask.label, Label::FIELD);
     EXPECT_DOUBLE_EQ(result.header.stamp, image.header.stamp);
 
-    // Center is inside the 50% ROI, corners are outside.
-    EXPECT_EQ(result.mask.mask.at<uchar>(kHeight / 2, kWidth / 2), 255);
+    EXPECT_EQ(result.mask.mask.at<uchar>(kCenterPx), 255);
     EXPECT_EQ(result.mask.mask.at<uchar>(0, 0), 0);
-    EXPECT_EQ(result.mask.mask.at<uchar>(kHeight - 1, kWidth - 1), 0);
+    EXPECT_EQ(result.mask.mask.at<uchar>(kFarCornerPx), 0);
     EXPECT_EQ(cv::countNonZero(result.mask.mask), (kWidth / 2) * (kHeight / 2));
 }
 
@@ -50,7 +51,7 @@ TEST_F(FreeRoamMaskModelTest, RoiFullFrameFillsEverything) {
     config.roi_fraction = 1.0;
     FreeRoamMaskModel model(config);
 
-    MaskStamped result = model.update(make_image(kFieldColor));
+    MaskStamped result = model.update(make_image(kFieldColorBgr));
 
     EXPECT_EQ(cv::countNonZero(result.mask.mask), kWidth * kHeight);
 }
@@ -65,24 +66,29 @@ TEST_F(FreeRoamMaskModelTest, EmptyImageReturnsEmptyMask) {
     EXPECT_TRUE(result.mask.mask.empty());
 }
 
-TEST_F(FreeRoamMaskModelTest, ColorMatchExcludesDistinctBlob) {
-    FreeRoamMaskModel model(config);  // defaults: full-frame ROI, color filter on
+TEST_F(FreeRoamMaskModelTest, DefaultsAreFullFrameRoiWithColorFilterOn) {
+    EXPECT_DOUBLE_EQ(config.roi_fraction, 1.0);
+    EXPECT_TRUE(config.color_filter);
+}
 
-    RgbImage image = make_image(kFieldColor);
-    // Off-center red blob, well away from the seed patch.
-    cv::rectangle(image.image, cv::Rect(5, 5, 20, 20), kBlobColor, cv::FILLED);
+TEST_F(FreeRoamMaskModelTest, ColorMatchExcludesDistinctBlob) {
+    FreeRoamMaskModel model(config);
+    const cv::Rect kOffCenterBlob(5, 5, 20, 20);
+    const cv::Point kBlobCenterPx(15, 15);
+    const cv::Point kFarFieldPx(kWidth - 5, kHeight - 5);
+
+    RgbImage image = make_image(kFieldColorBgr);
+    cv::rectangle(image.image, kOffCenterBlob, kBlobColorBgr, cv::FILLED);
     MaskStamped result = model.update(image);
 
-    EXPECT_EQ(result.mask.mask.at<uchar>(15, 15), 0);                     // blob center excluded
-    EXPECT_EQ(result.mask.mask.at<uchar>(kHeight / 2, kWidth / 2), 255);  // field included
-    EXPECT_EQ(result.mask.mask.at<uchar>(kHeight - 5, kWidth - 5), 255);  // far corner included
+    EXPECT_EQ(result.mask.mask.at<uchar>(kBlobCenterPx), 0);
+    EXPECT_EQ(result.mask.mask.at<uchar>(kCenterPx), 255);
+    EXPECT_EQ(result.mask.mask.at<uchar>(kFarFieldPx), 255);
 }
 
 TEST_F(FreeRoamMaskModelTest, LightingRampStaysInMask) {
     FreeRoamMaskModel model(config);
 
-    // Horizontal brightness ramp on gray material: 90 on the left to 160 on the right.
-    // This moves mostly L in Lab, which the loose tolerance_l must absorb.
     RgbImage image = make_image(cv::Scalar(0, 0, 0));
     for (int col = 0; col < kWidth; ++col) {
         int value = 90 + (160 - 90) * col / (kWidth - 1);
@@ -97,15 +103,16 @@ TEST_F(FreeRoamMaskModelTest, MedianSeedIgnoresBlobOverlappingPatch) {
     config.seed_patch_fraction = 0.2;
     FreeRoamMaskModel model(config);
 
-    RgbImage image = make_image(kFieldColor);
-    // Blob covering roughly the left 40% of the centered 20x16 seed patch.
-    cv::Rect patch(kWidth / 2 - 10, kHeight / 2 - 8, 20, 16);
-    cv::Rect blob(patch.x, patch.y, patch.width * 2 / 5, patch.height);
-    cv::rectangle(image.image, blob, kBlobColor, cv::FILLED);
+    RgbImage image = make_image(kFieldColorBgr);
+    const cv::Rect kSeedPatch(kWidth / 2 - 10, kHeight / 2 - 8, 20, 16);
+    constexpr double kBlobCoverage = 0.4;
+    cv::Rect blob(kSeedPatch.x, kSeedPatch.y, static_cast<int>(kSeedPatch.width * kBlobCoverage),
+                  kSeedPatch.height);
+    cv::rectangle(image.image, blob, kBlobColorBgr, cv::FILLED);
     MaskStamped result = model.update(image);
 
-    // Median seed is still field color: field pixels match, the blob does not.
-    EXPECT_EQ(result.mask.mask.at<uchar>(5, kWidth - 5), 255);
+    const cv::Point kFieldProbePx(kWidth - 5, 5);
+    EXPECT_EQ(result.mask.mask.at<uchar>(kFieldProbePx), 255);
     EXPECT_EQ(result.mask.mask.at<uchar>(blob.y + blob.height / 2, blob.x + 1), 0);
 }
 
@@ -113,12 +120,12 @@ TEST_F(FreeRoamMaskModelTest, RoiAndColorMustBothPass) {
     config.roi_fraction = 0.5;
     FreeRoamMaskModel model(config);
 
-    RgbImage image = make_image(kFieldColor);
+    RgbImage image = make_image(kFieldColorBgr);
     MaskStamped result = model.update(image);
 
-    // Field-colored pixel outside the ROI is excluded; inside is included.
-    EXPECT_EQ(result.mask.mask.at<uchar>(2, 2), 0);
-    EXPECT_EQ(result.mask.mask.at<uchar>(kHeight / 2, kWidth / 2), 255);
+    const cv::Point kOutsideRoiProbePx(2, 2);
+    EXPECT_EQ(result.mask.mask.at<uchar>(kOutsideRoiProbePx), 0);
+    EXPECT_EQ(result.mask.mask.at<uchar>(kCenterPx), 255);
 }
 
 }  // namespace auto_battlebot

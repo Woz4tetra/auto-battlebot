@@ -55,6 +55,8 @@ TargetSelection make_target(double x, double y, BehaviorMode mode) {
     return target;
 }
 
+constexpr double kDriveThroughFraction = 0.4;
+
 class MotionProfileModeTest : public ::testing::Test {
    protected:
     std::unique_ptr<MotionProfileNavigation> make_nav(
@@ -64,30 +66,27 @@ class MotionProfileModeTest : public ::testing::Test {
         return nav;
     }
 
-    // One tick with our robot at the origin facing +x and the target straight ahead.
-    VelocityCommand tick(MotionProfileNavigation &nav, double distance, BehaviorMode mode,
-                         double time_s, double vx = 0.0) {
+    VelocityCommand tick_target_straight_ahead(MotionProfileNavigation &nav, double distance,
+                                               BehaviorMode mode, double time_s, double vx = 0.0) {
         clock_->set(time_s);
         return nav.update(make_our_robot(0.0, 0.0, 0.0, vx), make_field(),
                           make_target(distance, 0.0, mode));
     }
 
-    // Nothing in C++ defaults to a fit any more: the plant arrives from the [plant] config
-    // table, so a test config has to ask for one or it drives a zero drivetrain.
-    MotionProfileNavigationConfiguration make_config() {
+    MotionProfileNavigationConfiguration make_config_with_plant_fit() {
         MotionProfileNavigationConfiguration config;
         config.plant = mrs_buff_mk3_plant();
         return config;
     }
 
-    MotionProfileNavigationConfiguration config_ = make_config();
+    MotionProfileNavigationConfiguration config_ = make_config_with_plant_fit();
     std::shared_ptr<ManualClock> clock_ = std::make_shared<ManualClock>();
 };
 
 TEST_F(MotionProfileModeTest, RunAwayCutsTheCommandInsideStopDistance) {
     auto nav = make_nav(config_);
-    const VelocityCommand cmd =
-        tick(*nav, config_.stop_distance_m * 0.5, BehaviorMode::RUN_AWAY, 1.0);
+    const VelocityCommand cmd = tick_target_straight_ahead(*nav, config_.stop_distance_m * 0.5,
+                                                           BehaviorMode::RUN_AWAY, 1.0);
 
     EXPECT_DOUBLE_EQ(cmd.forward_mps, 0.0);
     EXPECT_DOUBLE_EQ(cmd.yaw_rate_radps, 0.0);
@@ -96,7 +95,7 @@ TEST_F(MotionProfileModeTest, RunAwayCutsTheCommandInsideStopDistance) {
 TEST_F(MotionProfileModeTest, AttackKeepsDrivingInsideStopDistance) {
     auto nav = make_nav(config_);
     const VelocityCommand cmd =
-        tick(*nav, config_.stop_distance_m * 0.5, BehaviorMode::ATTACK, 1.0);
+        tick_target_straight_ahead(*nav, config_.stop_distance_m * 0.5, BehaviorMode::ATTACK, 1.0);
 
     EXPECT_GT(cmd.forward_mps, 0.0);
 }
@@ -106,11 +105,13 @@ TEST_F(MotionProfileModeTest, AttackDoesNotBrakeWhereRunAwayDoes) {
     auto run_away = make_nav(config_);
     const double distance = 0.3;
 
-    const double attack_cmd = tick(*attack, distance, BehaviorMode::ATTACK, 1.0).forward_mps;
-    const double run_away_cmd = tick(*run_away, distance, BehaviorMode::RUN_AWAY, 1.0).forward_mps;
+    const double attack_cmd =
+        tick_target_straight_ahead(*attack, distance, BehaviorMode::ATTACK, 1.0).forward_mps;
+    const double run_away_cmd =
+        tick_target_straight_ahead(*run_away, distance, BehaviorMode::RUN_AWAY, 1.0).forward_mps;
 
     EXPECT_GT(attack_cmd, run_away_cmd);
-    EXPECT_GT(run_away_cmd, 0.0);  // still approaching, just slower
+    EXPECT_GT(run_away_cmd, 0.0) << "run away still approaches the safe point, just slower";
 }
 
 TEST_F(MotionProfileModeTest, BrakeScheduleDoesNotSubtractALatencyLead) {
@@ -122,8 +123,10 @@ TEST_F(MotionProfileModeTest, BrakeScheduleDoesNotSubtractALatencyLead) {
     const double distance = 0.5;
 
     const double stationary_cmd =
-        tick(*stationary, distance, BehaviorMode::RUN_AWAY, 1.0, 0.0).forward_mps;
-    const double moving_cmd = tick(*moving, distance, BehaviorMode::RUN_AWAY, 1.0, 2.0).forward_mps;
+        tick_target_straight_ahead(*stationary, distance, BehaviorMode::RUN_AWAY, 1.0, 0.0)
+            .forward_mps;
+    const double moving_cmd =
+        tick_target_straight_ahead(*moving, distance, BehaviorMode::RUN_AWAY, 1.0, 2.0).forward_mps;
 
     EXPECT_GT(stationary_cmd, 0.0);
     EXPECT_DOUBLE_EQ(moving_cmd, stationary_cmd);
@@ -141,10 +144,12 @@ TEST_F(MotionProfileModeTest, TerminalSpeedFractionScalesWithTheTopSpeed) {
 
     auto fast_nav = make_nav(fast);
     auto slow_nav = make_nav(slow);
-    const double fast_cmd = tick(*fast_nav, 0.1, BehaviorMode::ATTACK, 1.0).forward_mps;
-    const double slow_cmd = tick(*slow_nav, 0.1, BehaviorMode::ATTACK, 1.0).forward_mps;
+    const double fast_cmd =
+        tick_target_straight_ahead(*fast_nav, 0.1, BehaviorMode::ATTACK, 1.0).forward_mps;
+    const double slow_cmd =
+        tick_target_straight_ahead(*slow_nav, 0.1, BehaviorMode::ATTACK, 1.0).forward_mps;
     EXPECT_GT(fast_cmd, 0.0);
-    EXPECT_GT(slow_cmd, fast_cmd);  // same m/s asked of half the drivetrain
+    EXPECT_GT(slow_cmd, fast_cmd) << "the same m/s asks half the drivetrain";
 }
 
 TEST_F(MotionProfileModeTest, TerminalSpeedFractionIsClampedToTheUnitInterval) {
@@ -155,58 +160,73 @@ TEST_F(MotionProfileModeTest, TerminalSpeedFractionIsClampedToTheUnitInterval) {
 
     auto over_nav = make_nav(over);
     auto full_nav = make_nav(full);
-    EXPECT_DOUBLE_EQ(tick(*over_nav, 0.5, BehaviorMode::ATTACK, 1.0).forward_mps,
-                     tick(*full_nav, 0.5, BehaviorMode::ATTACK, 1.0).forward_mps);
+    EXPECT_DOUBLE_EQ(
+        tick_target_straight_ahead(*over_nav, 0.5, BehaviorMode::ATTACK, 1.0).forward_mps,
+        tick_target_straight_ahead(*full_nav, 0.5, BehaviorMode::ATTACK, 1.0).forward_mps);
 
     MotionProfileNavigationConfiguration negative = config_;
     negative.run_away_terminal_speed_fraction = -2.0;
     auto negative_nav = make_nav(negative);
-    const VelocityCommand cmd =
-        tick(*negative_nav, config_.stop_distance_m * 0.5, BehaviorMode::RUN_AWAY, 1.0);
+    const VelocityCommand cmd = tick_target_straight_ahead(
+        *negative_nav, config_.stop_distance_m * 0.5, BehaviorMode::RUN_AWAY, 1.0);
     EXPECT_DOUBLE_EQ(cmd.forward_mps, 0.0);
     EXPECT_DOUBLE_EQ(cmd.yaw_rate_radps, 0.0);
 }
 
 TEST_F(MotionProfileModeTest, RunAwayTerminalSpeedFractionIsConfigurable) {
     MotionProfileNavigationConfiguration driving_config = config_;
-    driving_config.run_away_terminal_speed_fraction = 0.4;  // ~2.0 m/s
+    driving_config.run_away_terminal_speed_fraction = kDriveThroughFraction;
 
     auto stopping = make_nav(config_);
     auto driving = make_nav(driving_config);
     const double distance = 0.3;
 
-    const double stopping_cmd = tick(*stopping, distance, BehaviorMode::RUN_AWAY, 1.0).forward_mps;
-    const double driving_cmd = tick(*driving, distance, BehaviorMode::RUN_AWAY, 1.0).forward_mps;
+    const double stopping_cmd =
+        tick_target_straight_ahead(*stopping, distance, BehaviorMode::RUN_AWAY, 1.0).forward_mps;
+    const double driving_cmd =
+        tick_target_straight_ahead(*driving, distance, BehaviorMode::RUN_AWAY, 1.0).forward_mps;
 
     EXPECT_GT(driving_cmd, stopping_cmd);
-    // And the stop cut is gone, since a drive-through mission never arrives.
-    EXPECT_GT(
-        tick(*driving, config_.stop_distance_m * 0.5, BehaviorMode::RUN_AWAY, 1.05).forward_mps,
-        0.0);
+}
+
+TEST_F(MotionProfileModeTest, DriveThroughRunAwayHasNoStopCut) {
+    MotionProfileNavigationConfiguration driving_config = config_;
+    driving_config.run_away_terminal_speed_fraction = kDriveThroughFraction;
+    auto driving = make_nav(driving_config);
+    const double distance = 0.3;
+
+    tick_target_straight_ahead(*driving, distance, BehaviorMode::RUN_AWAY, 1.0);
+    EXPECT_GT(tick_target_straight_ahead(*driving, config_.stop_distance_m * 0.5,
+                                         BehaviorMode::RUN_AWAY, 1.05)
+                  .forward_mps,
+              0.0);
 }
 
 TEST_F(MotionProfileModeTest, AttackTerminalSpeedFractionIsConfigurable) {
     MotionProfileNavigationConfiguration slow = config_;
-    slow.attack_terminal_speed_fraction = 0.1;  // ~0.5 m/s
+    constexpr double kSlowRamFraction = 0.1;
+    slow.attack_terminal_speed_fraction = kSlowRamFraction;
     MotionProfileNavigationConfiguration fast = config_;
-    fast.attack_terminal_speed_fraction = 0.3;  // ~1.5 m/s
+    constexpr double kFastRamFraction = 0.3;
+    fast.attack_terminal_speed_fraction = kFastRamFraction;
 
     auto slow_nav = make_nav(slow);
     auto fast_nav = make_nav(fast);
-    // Close enough in that neither reference speed saturates the command; past ~0.23 m both ask
-    // for more than the drivetrain has and the clamp hides the difference.
-    const double distance = 0.1;
+    const double kUnsaturatedDistance = 0.1;
 
-    EXPECT_GT(tick(*fast_nav, distance, BehaviorMode::ATTACK, 1.0).forward_mps,
-              tick(*slow_nav, distance, BehaviorMode::ATTACK, 1.0).forward_mps);
+    EXPECT_GT(tick_target_straight_ahead(*fast_nav, kUnsaturatedDistance, BehaviorMode::ATTACK, 1.0)
+                  .forward_mps,
+              tick_target_straight_ahead(*slow_nav, kUnsaturatedDistance, BehaviorMode::ATTACK, 1.0)
+                  .forward_mps);
 }
 
 TEST_F(MotionProfileModeTest, ModeFlipResetsTheTrajectory) {
     auto held = make_nav(config_);
     auto flipped = make_nav(config_);
 
-    const double behind_left = M_PI - 0.05;      // +171 deg
-    const double behind_right = -(M_PI - 0.05);  // -171 deg
+    constexpr double kJustShortOfBehind = M_PI - 0.05;
+    const double behind_left = kJustShortOfBehind;
+    const double behind_right = -kJustShortOfBehind;
 
     for (auto *nav : {held.get(), flipped.get()}) {
         clock_->set(1.0);

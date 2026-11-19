@@ -133,9 +133,6 @@ TEST_F(McapRecorderToggleTest, OffClosesTheFileAndOnStartsANewOne) {
 
     ASSERT_TRUE(recorder.set_enabled(false));
     EXPECT_FALSE(recorder.is_enabled());
-    // Registered while off: it has to exist in the next file.
-    const auto late = recorder.open_channel("/late", "json", empty_json_schema());
-    EXPECT_NE(late, 0u);
     write_one(recorder, early, 2);  // dropped, recording is off
     recorder.flush();               // off only queues the close
 
@@ -148,16 +145,28 @@ TEST_F(McapRecorderToggleTest, OffClosesTheFileAndOnStartsANewOne) {
     paths_.push_back(second);
     EXPECT_NE(second, first) << "the new file reused the closed one's name";
     write_one(recorder, early, 3);
-    write_one(recorder, late, 4);
     recorder.close();
 
     FileContents reopened = read_file(second);
     EXPECT_TRUE(reopened.has_summary);
     EXPECT_EQ(reopened.count_by_topic["/early"], 1);
-    EXPECT_EQ(reopened.count_by_topic["/late"], 1);
     EXPECT_EQ(reopened.metadata["camera_calibration"], "calibration");
     EXPECT_EQ(reopened.metadata["active_profile"], "toggle_test");
     EXPECT_EQ(read_file(first).count_by_topic["/early"], 1);
+}
+
+TEST_F(McapRecorderToggleTest, ChannelOpenedWhileOffRecordsInTheNextFile) {
+    McapRecorder recorder("toggle_late_test");
+    ASSERT_TRUE(recorder.set_enabled(false));
+    paths_.push_back(recorder.file_path());
+    const auto late = recorder.open_channel("/late", "json", empty_json_schema());
+    EXPECT_NE(late, 0u);
+    ASSERT_TRUE(recorder.set_enabled(true));
+    paths_.push_back(recorder.file_path());
+    write_one(recorder, late, 1);
+    recorder.close();
+
+    EXPECT_EQ(read_file(paths_.back()).count_by_topic["/late"], 1);
 }
 
 // The app's logger copies every line into the MCAP. Toggling recording logs from inside the
@@ -192,10 +201,6 @@ TEST_F(McapRecorderToggleTest, TogglingWithTheMcapLogSinkDoesNotDeadlock) {
     EXPECT_GE(reopened.count_by_topic["/log"], 1) << "log lines stopped reaching the MCAP";
 }
 
-// The cross-thread version, seen on the ZED Box after the same-thread one was fixed: another
-// thread logs (holding McapLogSink's lock, waiting for the recorder's) while the runner toggles
-// (holding the recorder's lock, logging "Recording to ..."). Log from one thread and toggle from
-// another until a deadlock would have shown up.
 TEST_F(McapRecorderToggleTest, LoggingFromAnotherThreadWhileTogglingDoesNotDeadlock) {
     const auto previous_logger = spdlog::default_logger();
     auto recorder = std::make_shared<McapRecorder>("toggle_abba_test");
@@ -230,8 +235,6 @@ TEST_F(McapRecorderToggleTest, LoggingFromAnotherThreadWhileTogglingDoesNotDeadl
     EXPECT_GT(paths_.size(), 1u);
 }
 
-// Two toggles inside one second both name a file before the writer thread creates either, so
-// the second cannot rely on the first existing on disk to pick a new name.
 TEST_F(McapRecorderToggleTest, QuickTogglesEachGetTheirOwnFile) {
     McapRecorder recorder("toggle_quick_test");
     const auto id = recorder.open_channel("/topic", "json", empty_json_schema());
@@ -255,14 +258,12 @@ TEST_F(McapRecorderToggleTest, QuickTogglesEachGetTheirOwnFile) {
     }
 }
 
-// Toggling closes and opens files on the writer thread. A writer that holds the queue while it
-// does so would make every producer wait out each close.
 TEST_F(McapRecorderToggleTest, WritesDoNotWaitForTogglesToFinish) {
     McapRecorder recorder("toggle_nowait_test");
     const auto id = recorder.open_channel("/topic", "json", empty_json_schema());
     std::vector<std::filesystem::path> paths{recorder.file_path()};
-    // A megabyte a message, so each close has real data to write out.
-    const std::vector<std::byte> payload(1 << 20, std::byte{'x'});
+    constexpr size_t kCloseLoadBytes = 1 << 20;
+    const std::vector<std::byte> payload(kCloseLoadBytes, std::byte{'x'});
     double worst_ms = 0.0;
     for (int i = 0; i < 20; ++i) {
         recorder.set_enabled(false);
@@ -296,7 +297,6 @@ TEST_F(McapRecorderToggleTest, FlushWaitsForQueuedWrites) {
     recorder.close();
 }
 
-// The web page's recording timer shows this, so it counts from the current file's start.
 TEST_F(McapRecorderToggleTest, FileAgeRestartsWithEachFile) {
     McapRecorder recorder("toggle_test");
     paths_.push_back(recorder.file_path());
@@ -321,8 +321,6 @@ TEST_F(McapRecorderToggleTest, CloseIsFinal) {
     EXPECT_EQ(recorder.file_path(), paths_.front());
 }
 
-// A disk that falls behind fills the queue. Video (over kLargeMessageBytes) stops at its lower cap
-// and is dropped; status and log messages still fit under the higher one and all arrive.
 TEST_F(McapRecorderToggleTest, FullQueueDropsVideoAndKeepsStatus) {
     McapRecorder recorder("toggle_cap_test");
     const auto video = recorder.open_channel("/camera/video", "json", empty_json_schema());
@@ -343,16 +341,16 @@ TEST_F(McapRecorderToggleTest, FullQueueDropsVideoAndKeepsStatus) {
                            1 + i);
         }
     }
-    // The cap counts every queued byte, the status messages too, so one frame fewer than
-    // kMaxQueuedLargeBytes / 1 MiB fits.
-    const uint64_t frames_that_fit = McapRecorder::kMaxQueuedLargeBytes / frame.size() - 1;
-    EXPECT_EQ(recorder.dropped_messages(), kFrames - frames_that_fit);
+    const uint64_t kFramesThatFitBesideStatus =
+        McapRecorder::kMaxQueuedLargeBytes / frame.size() - 1;
+    EXPECT_EQ(recorder.dropped_messages(), kFrames - kFramesThatFitBesideStatus);
 
     McapRecorderTestAccess::hold_writer(recorder, false);
     recorder.set_enabled(false);
     recorder.flush();
     FileContents contents = read_file(path);
-    EXPECT_EQ(contents.count_by_topic["/camera/video"], static_cast<int>(frames_that_fit));
+    EXPECT_EQ(contents.count_by_topic["/camera/video"],
+              static_cast<int>(kFramesThatFitBesideStatus));
     EXPECT_EQ(contents.count_by_topic["/status/system"], kFrames * kStatusPerFrame);
     recorder.close();
 }
