@@ -87,15 +87,12 @@ void save_cage_calibration(const std::string &path, const CageCalibration &calib
         throw ConfigValidationError("cannot write calibration file: " + resolved.string());
     }
     out << std::setprecision(12);
-    out << "# Written by the cage calibration tool. One physical cage, camera fixture seated.\n";
     out << "calibration_id = \"" << calibration.calibration_id << "\"\n";
     out << "field_size_x = " << calibration.field_size_x << "\n";
     out << "field_size_y = " << calibration.field_size_y << "\n";
-    out << "# Field centre in camera coordinates.\n";
     out << "translation = [" << calibration.tf_camera_from_fieldcenter(0, 3) << ", "
         << calibration.tf_camera_from_fieldcenter(1, 3) << ", "
         << calibration.tf_camera_from_fieldcenter(2, 3) << "]\n";
-    out << "# Row-major 3x3.\n";
     out << "rotation = [";
     for (int row = 0; row < 3; ++row) {
         for (int col = 0; col < 3; ++col) {

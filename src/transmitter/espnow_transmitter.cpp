@@ -147,8 +147,8 @@ EspNowTransmitter::EspNowTransmitter(const EspNowTransmitterConfiguration &confi
                          VizSchema::jsonschema(foxglove_adapters::kEspNowTelemetrySchemaName,
                                                foxglove_adapters::kEspNowTelemetrySchema),
                          false, std::move(sink), std::move(mcap_recorder)) {
-    if (config_.max_motor_rpm_per_sec > 0.0 && config_.max_motor_rpm > 0.0) {
-        max_linear_rate_per_sec_ = config_.max_motor_rpm_per_sec / config_.max_motor_rpm;
+    if (config_.max_motor_rpm_per_s && config_.max_motor_rpm > 0.0) {
+        max_linear_rate_per_sec_ = *config_.max_motor_rpm_per_s / config_.max_motor_rpm;
     }
 }
 

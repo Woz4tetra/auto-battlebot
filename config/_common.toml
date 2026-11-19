@@ -1,13 +1,3 @@
-# Shared base for all profiles. Not run directly: every profile sets `extends = "_common"`
-# (directly or transitively) and overrides only its deltas. `model_path` is profile-specific
-# (architecture/date), so it lives in the profiles rather than here.
-#
-# Merge rules (see src/config/config.cpp):
-#   - scalars and arrays in a profile replace the value here
-#   - a section whose `type` differs from here is replaced wholesale (stale fields dropped)
-#   - sub-tables are merged by key. When overriding [robot_filter.label_mapping] a profile must
-#     restate every key it wants, since keys present here but omitted there would persist.
-
 [rgbd_camera]
 type = "ZedRgbdCamera"
 camera_fps = 30
@@ -26,10 +16,6 @@ type = "NoopRobotBlobModel"
 [keypoint_model]
 type = "YoloKeypointModel"
 label_indices = ["MR_STABS_MK2", "MRS_BUFF_MK3"]
-# The robot's reference point, ahead of its labelled front/back keypoint midpoint (m, along the
-# heading), from the CAD keypoints in training/synthetic/config.toml. Mr Stabs: the axle, the body
-# origin the MuJoCo plant and the RL policy use; the sysid YOLO fills measured 0.046-0.048 m.
-# Mrs Buff Mk3: the footprint centre, where the sim and the RL environment centre her box.
 reference_offset_m_per_label = { MR_STABS_MK2 = -0.0455, MRS_BUFF_MK3 = 0.0104 }
 
 [[keypoint_model.label_map]]
@@ -48,25 +34,6 @@ keypoints = ["HOUSE_BOT_FRONT", "HOUSE_BOT_BACK"]
 label = "OPPONENT"
 keypoints = ["OPPONENT_FRONT", "OPPONENT_BACK"]
 
-# Geometry gates between perception and the control loop. The static gate runs first, so it sees
-# every detection; the height gate runs after and annotates what survives.
-#
-# height: measures each detection's relief against the floor immediately around it, as the 90th
-# percentile of depth inside its box's inscribed circle minus the 25th percentile of a ring around
-# it. Local relief, not absolute height: comparing a detection with its own surroundings cancels
-# field-plane fit error, plane drift and depth bias. On the 2026-08-29 MassD recording that
-# separates arena-logo detections from moving ones at AUC 0.928, against 0.903 for absolute height.
-#
-# End-to-end sweep on that recording, scoring logo detections (persistent field-frame clusters)
-# against moving ones (logo removed / moving kept / frames with a detection kept):
-#   0.025 -> 71.0% / 95.2% / 96.0%
-#   0.030 -> 88.4% / 89.6% / 91.6%
-#   0.035 -> 91.1% / 89.8% / 91.1%   <- default; beats 0.030 on both axes
-#   0.040 -> 94.2% / 85.6% / 88.0%
-#   0.045 -> 96.4% / 75.3% / 79.8%
-#
-# Survivors carry their measured height, which replaces robot_filter.keypoint_height_meters when
-# projecting them onto the field. That measurement is always on and has no false-negative risk.
 [keypoint_filter.height]
 reject_enable = true
 min_elevation_meters = 0.035
@@ -79,19 +46,6 @@ sample_radius_px = 5
 min_valid_samples = 8
 max_circle_samples = 1024
 
-# static: suppresses robot-blob detections that hold the same field position. Off by default: on
-# this recording it is a worse trade than the height gate at every setting tried, and stacks badly
-# on top of it (adding it at 0.08 m / 4 s takes logo removal to 95.1% but drops moving detections
-# kept to 75.5%). Its own best standalone points are 57.5% removed / 89.3% kept at 0.06 m / 4 s,
-# and 34.7% / 95.9% at 0.05 m / 8 s.
-#
-# The radii come from the same recording: the two logo blobs sit a median 0.043 m and 0.049 m from
-# their own centre, while a moving detection travels 0.127 m over 4 s even at the 10th percentile.
-# static_radius_meters is compared against a cluster's mean deviation, not its worst frame.
-#
-# This gate cannot tell an immobilised robot from a painted one. A robot driving into a suppressed
-# cluster raises its spread and switches suppression off there until it leaves, which is the safe
-# direction to fail.
 [keypoint_filter.static]
 enable = false
 match_radius_meters = 0.20
@@ -125,65 +79,31 @@ robot_blob_max_candidates = 8
 blob_overwrite_min_distance_meters = 0.20
 blob_overwrite_size_scale = 0.5
 field_bounds_margin_meters = 0.2
-# Drop a stale (unmeasured) our-robot track after this long without a keypoint confirmation,
-# instead of predicting it forward indefinitely. Set <= 0 to hold forever (legacy behavior).
 our_robot_hold_window_s = 0.5
 
-# While the keypoint model is not detecting our robot, discard blob detections within this
-# radius of our last held pose. The blob model cannot tell our robot from an opponent, so an
-# unsuppressed blob here gets emitted as an opponent sitting on top of us. The window outlives
-# our_robot_hold_window_s deliberately: the track decays before a typical dropout ends.
 our_keypoint_dropout_blob_radius_meters = 0.4
 our_keypoint_dropout_blob_window_s = 1.0
 
-# Tracked keypoints sit this far above the field plane by default.
 keypoint_height_meters = 0.03
 
-# Propagation strategy between perception frames. Absent means DeadReckoningMotionEstimator
-# (last commanded velocity applied directly, opponents held at their last pose). The Kalman
-# arm runs opponents through a 6-state filter (constant velocity plus an independent heading and
-# yaw rate) with innovation gating, and coasts the output at control rate.
-# The jig-fitted plant parameters ride in the shared top-level [plant] table below.
 [robot_filter.motion_estimator]
 type = "KalmanMotionEstimator"
 our_robot_mode = "EKF"
-# 6-state opponent filter (heading, yaw rate, sigmas). It beats HOLD on heading and on position
-# up to 0.1 s; past that it overshoots robots that stop during a dropout (0.35 s median 50 against
-# 36 mm on the held-out sysid session). docs/experiments/control/kalman_filter/opponent_filter_evaluation.md
 opponent_mode = "KALMAN"
 max_coast_s = 0.2
-# Opponent heading block, grid-searched on the 2026-10-15 Mr Stabs Mk2 sysid sessions against
-# AprilTag truth (docs/experiments/control/kalman_filter/opponent_filter_evaluation.md). The heading values
-# are interior optima; opponent_accel_psd was flat across 3 to 1000 and keeps its default. The
-# coast horizon is the best trade between fresh error and overshoot at 0.35 s. The position sigma
-# is from the same sweep (8 to 12 mm tie); NHRL replays gate identically at 12 and 30 mm.
 opponent_yaw_accel_psd = 30.0
 opponent_heading_sigma_rad = 0.15
 opponent_max_coast_s = 0.1
 opponent_position_sigma_m = 0.012
 
-# Known footprint per label, in metres, as [x, y, z]. Measured off the CAD models with
-# training/synthetic/render_sprites.py's upright pose; the x/y values match the footprints in
-# simulation/assets/sprites/sprites.json.
-#
-# Without these, size comes from the detector's bounding box, which measures pixels rather than the
-# robot. A loose box on the house bot inflates the keep-out built from it, and the house bot is the
-# one robot on the field whose dimensions never change. Labels not listed here keep the measured
-# box. What the detector actually reported is logged to the `detected_size` diagnostics channel, so
-# a detector regression stays visible rather than being papered over here.
 [robot_filter.robot_size_meters_per_label]
 MRS_BUFF_MK3 = [0.2225, 0.2535, 0.0861]
 MR_STABS_MK2 = [0.137, 0.16, 0.0703]
 HOUSE_BOT = [0.254, 0.3302, 0.2309]
 
-# Footprint centre in the body frame [x forward, y left] (m), from the pose. The pose is the point
-# control tracks, which for Mr Stabs is the axle (keypoint_model.reference_offset_m_per_label);
-# keep-outs and wall checks measure from the footprint centre. Mr Stabs: the MuJoCo collision
-# hull runs 0.025 m behind the axle to 0.1105 m ahead. Labels not listed are centred on the pose.
 [robot_filter.footprint_center_offset_per_label]
 MR_STABS_MK2 = [0.043, 0.0]
 
-# Per-label keypoint height overrides; labels not listed use keypoint_height_meters.
 [robot_filter.keypoint_height_meters_per_label]
 HOUSE_BOT = 0.12
 MR_STABS_MK1 = 0.0
@@ -198,68 +118,26 @@ MRS_BUFF_MK3 = 0.0
 
 [target_selector]
 type = "SafestPointTarget"
-# The solver's plateau is flat: when no opponent constrains the circle the winning center drifts
-# by a few mm per tick, and with no hysteresis the goal was moving 10-13 times a second on the
-# 2026-08-23 recordings. A new candidate now has to beat the held one by this much to take over.
 retarget_improvement_m = 0.1
 
 [transmitter]
-type = "OpenTxTransmitter"
-# TankDriveProcessor sends left/right motor commands on the two output channels.
-# DifferentialDriveProcessor sends linear/angular for a radio model that mixes them itself.
-drive_processor = "TankDriveProcessor"
-# Channel mapping (0-based config index = radio channel label - 1).
-linear_channel = 0             # radio CH1
-angular_channel = 1            # radio CH2
-trainer_enable_channel = 5     # radio CH6
-init_button_channel = 31       # disabled; no transmitter maps a button, reinit is a touchscreen action
-max_motor_rpm = 1500           # RPM
-max_motor_rpm_per_sec = 0      # RPM/s; 0 = off
-lifted_deadzone_percent = 5
-zero_deadzone_percent = 2
-reverse_angular_channel = true
-# The Mrs Buff CRSFR model inverts CH2 (right motor) on output; undo it on the readback.
-invert_angular_channel_readback = true
-velocity_saturation_limit = 1.0        # 0 = disabled; e.g. 1.0 = |linear| + |angular| <= 1
+from = "transmitters/mrs_buff_mk3_opentx"
 
-# The measured drivetrain, read by two subsystems: the our-robot EKF propagates through it and
-# MotionProfileNavigation inverts it for the brake schedule and feedforward. One table, so a
-# refit lands in one place.
 [plant]
 from = "robots/mrs_buff_mk3"
 
 [control_loop]
-type = "ThreadedControlLoop" # SteppedControlLoop for reproducible playback, sim, and rollback
-rate_hz = 250.0              # 0 = one cycle per perception frame
-watchdog_timeout_ms = 20.0   # inert under SteppedControlLoop
+type = "ThreadedControlLoop"
+rate_hz = 250.0
+watchdog_timeout_ms = 20.0
 
-# Motion-profiled tracker: a distance-to-go brake schedule and inverse-plant feedforward, both
-# derived from the jig fit. See docs/reference/control/plant_backed_control.md. The plant terms come from the
-# [plant] table above, not from here, so only the mission and field settings live below.
-#
-# Mr Stabs Mk2 has no fit and stays on PursuitNavigation. Its profiles set `type` themselves,
-# which makes the merge replace this whole section rather than merge keys into it.
 [navigation]
-type = "MotionProfileNavigation"
-stop_distance = 0.15             # arrive stopped within this distance of the goal
-# Terminal speed at the goal, per driver switch position: hit it, or get away from it and
-# hold. A fraction of the plant's k_fwd, clamped to 0..1: 0 = arrive stopped, 1 = full
-# speed. Normalized rather than m/s so a refit rescales these instead of leaving a
-# hand-copied speed stale.
-attack_terminal_speed_fraction = 1.0   # full forward speed into the opponent
-run_away_terminal_speed_fraction = 0.0 # arrive stopped at the safe point
-wall_reverse_distance = 0.25           # set > 0 to reverse when within this distance of any wall
-wall_heading_threshold = 1.047         # ~60 deg; heading must point toward wall to trigger reversal
-wall_reverse_min_speed = 0.25
-max_linear_command = 0.8               # 0 = no limit
-max_angular_command = 1.0              # 0 = no limit
+from = "navigation/motion_profile"
 
 [publisher]
 type = "FoxglovePublisher"
 
 [ui.label_colors]
-# Web dashboard color per model label, matching the class colors in the training dataset YAMLs.
-# Labels not listed get a generated color.
 mr_stabs_mk2 = "#ea2e2e"
 mrs_buff_mk3 = "#0ea5e9"
 opponent = "#22c55e"
@@ -267,12 +145,11 @@ house_bot = "#f59e0b"
 object = "#a855f7"
 
 [runner]
-max_loop_rate = 60.0               # set to double of camera FPS
+max_loop_rate = 60.0
 default_opponent_count = 1
 autonomy_enabled_by_default = true
-default_behavior_mode = "ATTACK"   # ATTACK or RUN_AWAY at startup; the dashboard switches it live
-auto_tracking_by_default = true    # false starts with the target held at the field center
-# Run the keypoint and robot blob models on parallel worker threads. false = sequential.
+default_behavior_mode = "ATTACK"
+auto_tracking_by_default = true
 parallel_models = true
 
 [mcap]
@@ -282,5 +159,5 @@ ignored_topics = ["/camera/image"]
 [health]
 enable = true
 tegrastats_enable = false
-x86_tools_enable = true   # auto detects if system is x86
+x86_tools_enable = true
 sample_period_ms = 500

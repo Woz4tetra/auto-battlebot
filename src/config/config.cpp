@@ -2,6 +2,7 @@
 
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <string_view>
 #include <system_error>
@@ -9,39 +10,6 @@
 
 namespace auto_battlebot {
 namespace {
-void assign_copy(toml::table &dst, std::string_view key, const toml::node &src) {
-    src.visit([&](auto &&node) { dst.insert_or_assign(key, node); });
-}
-
-// Recursively merge `overlay` onto `base` in place.
-// - Tables whose `type` field differs are replaced wholesale (a different implementation has been
-//   selected, so the base section's fields are meaningless). This lets a variant swap e.g. a
-//   YoloKeypointModel for a NoopKeypointModel without inheriting stale fields.
-// - Otherwise tables are merged key-by-key; scalars and arrays from the overlay replace the base.
-void merge_into(toml::table &base, const toml::table &overlay) {
-    for (auto &&[key, value] : overlay) {
-        const toml::table *overlay_sub = value.as_table();
-        toml::node *base_node = base.get(key.str());
-        toml::table *base_sub = base_node ? base_node->as_table() : nullptr;
-
-        if (overlay_sub && base_sub) {
-            auto base_type = (*base_sub)["type"].value<std::string>();
-            auto overlay_type = (*overlay_sub)["type"].value<std::string>();
-            if (base_type && overlay_type && *base_type != *overlay_type) {
-                assign_copy(base, key.str(), value);
-            } else {
-                merge_into(*base_sub, *overlay_sub);
-            }
-        } else {
-            assign_copy(base, key.str(), value);
-        }
-    }
-}
-
-// Resolve an `extends` target to a concrete path via a single deterministic join against the
-// config root directory (never a recursive/name-based search), appending `.toml` if needed.
-// Extends values are always written relative to the config root, so a base like `_desktop` or
-// `playback/_playback` resolves the same way regardless of which subdirectory declares it.
 std::filesystem::path resolve_extends(const std::filesystem::path &config_root,
                                       const std::string &value) {
     std::filesystem::path resolved = config_root / value;
@@ -64,6 +32,33 @@ std::string section_name(const SectionPath &path) {
         name += part;
     }
     return name;
+}
+
+void move_into(toml::table &dst, std::string_view key, toml::node &src) {
+    src.visit([&](auto &&node) { dst.insert_or_assign(key, std::move(node)); });
+}
+
+bool selects_other_type(const toml::table &base, const toml::table &overlay) {
+    auto base_type = base["type"].value<std::string>();
+    auto overlay_type = overlay["type"].value<std::string>();
+    return base_type && overlay_type && *base_type != *overlay_type;
+}
+
+void merge_into(toml::table &base, toml::table &overlay, SectionPath &path,
+                const std::vector<SectionPath> &replaced) {
+    for (auto &&[key, value] : overlay) {
+        path.emplace_back(key.str());
+        toml::table *overlay_sub = value.as_table();
+        toml::node *base_node = base.get(key.str());
+        toml::table *base_sub = base_node ? base_node->as_table() : nullptr;
+        const bool replace = std::find(replaced.begin(), replaced.end(), path) != replaced.end();
+        if (overlay_sub && base_sub && !replace && !selects_other_type(*base_sub, *overlay_sub)) {
+            merge_into(*base_sub, *overlay_sub, path, replaced);
+        } else {
+            move_into(base, key.str(), value);
+        }
+        path.pop_back();
+    }
 }
 
 template <typename Table>
@@ -112,12 +107,12 @@ toml::table load_section_file(const std::filesystem::path &referrer, const Secti
         throw ConfigValidationError(where + ": " + file.string() +
                                     " uses `from`, which a section file may not");
     }
-    const toml::table *section = find_table(std::as_const(data), path);
+    toml::table *section = find_table(data, path);
     if (!section) {
         throw ConfigValidationError(where + ": " + file.string() + " has no [" +
                                     section_name(path) + "]");
     }
-    return *section;
+    return std::move(*section);
 }
 
 void expand_section_files(toml::table &table, SectionPath &path,
@@ -162,18 +157,6 @@ std::vector<SectionPath> expand_section_files(toml::table &data,
     return expanded;
 }
 
-void replace_expanded_sections(toml::table &merged, const toml::table &overlay,
-                               const std::vector<SectionPath> &expanded) {
-    for (const auto &path : expanded) {
-        SectionPath parent_path(path.begin(), path.end() - 1);
-        toml::table *parent = find_table(merged, parent_path);
-        const toml::table *section = find_table(overlay, path);
-        if (parent && section) {
-            parent->insert_or_assign(path.back(), *section);
-        }
-    }
-}
-
 toml::table load_and_merge_config(const std::filesystem::path &path,
                                   const std::filesystem::path &config_root,
                                   std::vector<std::filesystem::path> &chain) {
@@ -206,9 +189,9 @@ toml::table load_and_merge_config(const std::filesystem::path &path,
                                         base_path.string());
         }
         toml::table merged = load_and_merge_config(base_path, config_root, chain);
-        merge_into(merged, data);
-        replace_expanded_sections(merged, data, expanded);
-        merged.erase("extends");
+        data.erase("extends");
+        SectionPath section_path;
+        merge_into(merged, data, section_path, expanded);
         chain.pop_back();
         return merged;
     }
@@ -260,11 +243,14 @@ toml::table load_merged_config(const std::filesystem::path &path,
 }
 
 ClassConfiguration load_classes_from_config(const std::filesystem::path &path,
-                                            const std::filesystem::path &config_root) {
+                                            const std::filesystem::path &config_root,
+                                            ResolvedConfig *resolved) {
     ClassConfiguration config;
 
     try {
-        auto toml_data = load_merged_config(path, config_root);
+        const std::filesystem::path root = config_root.empty() ? get_config_dir() : config_root;
+        auto toml_data = load_merged_config(path, root);
+        ConfigDefaultsRecorder recorder;
 
         std::vector<std::string> parsed_sections;
 
@@ -290,6 +276,9 @@ ClassConfiguration load_classes_from_config(const std::filesystem::path &path,
         config.clock = load_clock_from_toml(toml_data, parsed_sections);
 
         validate_no_extra_sections(toml_data, parsed_sections, path.stem());
+        if (resolved) {
+            *resolved = recorder.resolve(toml_data, root);
+        }
     } catch (const toml::parse_error &e) {
         spdlog::error("Error parsing classes config file: {}", path.string());
         spdlog::error("{}", e.description());

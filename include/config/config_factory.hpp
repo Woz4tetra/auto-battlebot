@@ -86,6 +86,12 @@ class ConfigRegistrar {
 
 #define PARSE_FIELD_BOOL(field_name) field_name = parser.get_optional_bool(#field_name, field_name);
 
+#define PARSE_FIELD_NULLABLE_DOUBLE(field_name)                       \
+    field_name = parser.get_nullable_double(#field_name, field_name); \
+    require_positive_if_set(field_name, #field_name);
+
+#define PARSE_RENAMED(old_name, new_name) parser.reject_renamed(#old_name, #new_name);
+
 #define PARSE_FIELD_REQUIRED(field_name) field_name = parser.get_required_int(#field_name);
 
 #define PARSE_FIELD_STRING_REQUIRED(field_name) \

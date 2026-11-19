@@ -1,0 +1,40 @@
+[keypoint_model]
+type = "AprilTagKeypointModel"
+tag_size_m = 0.064
+robot_tag_ids = [41, 76]
+roi_margin_px = 80
+max_reprojection_error_px = 2.0
+front_keypoint_m = [0.05, 0.0, 0.0]
+back_keypoint_m = [-0.05, 0.0, 0.0]
+axle_height_m = 0.025
+rest_pitch_rad = 0.198025
+
+[[keypoint_model.tags]]
+id = 41
+translation_m = [0.035391, 1.9e-05, -0.012076]
+rotation = [
+  0.0,
+  -0.983904,
+  0.178696,
+  -1.0,
+  -3e-06,
+  -1.6e-05,
+  1.6e-05,
+  -0.178696,
+  -0.983904,
+]
+
+[[keypoint_model.tags]]
+id = 76
+translation_m = [0.035553, -1.1e-05, 0.014164]
+rotation = [
+  0.0,
+  -0.986029,
+  0.166572,
+  1.0,
+  -2e-06,
+  -1.1e-05,
+  1.1e-05,
+  0.166572,
+  0.986029,
+]

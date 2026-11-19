@@ -29,19 +29,17 @@ That writes `data/recordings/<raw>__<svo_stem>.mcap` and requires `ZED_SVO_Edito
 `ZED_SVO_Editor` prompts for its output path and defaults to a file next to its input, so if you
 run it by hand, pipe the path you want on stdin or it writes into `data/svo/`.
 
-## 2. Register the SVO in the playback config
+## 2. Record the start frame
 
-Add the recording to `config/playback/_playback.toml` under `[rgbd_camera]`, commented out
-alongside the others:
+Add the recording's SVO stem and first match frame to `config/playback/svo_start_frames.toml`:
 
 ```toml
-# svo_file_path = "data/svo/2026-05-02T10-06-06.svo2"
-# svo_start_frame = 8000
+[start_frames]
+"2026-05-02T10-06-06" = 8000
 ```
 
-`make_eval_dataset.py` parses this file for `svo_start_frame` and skips every frame before it,
-reading commented-out entries too. Do this before step 3. Without an entry the start frame is 0
-and you sample the pre-match setup footage instead of the fight.
+`make_eval_dataset.py` skips every frame before it. Do this before step 3. Without an entry the
+start frame is 0 and you sample the pre-match setup footage instead of the fight.
 
 Pick the start frame by scrubbing the SVO in playback until the match begins.
 
@@ -63,7 +61,7 @@ rename them.
 Two defaults are already right for NHRL and rarely need changing:
 
 - `--extra-classes opponent house_bot` adds the classes absent from the training set.
-- `--playback-config config/playback/_playback.toml` is what step 2 edited.
+- `--start-frames config/playback/svo_start_frames.toml` is what step 2 edited.
 
 ## 4. Label
 

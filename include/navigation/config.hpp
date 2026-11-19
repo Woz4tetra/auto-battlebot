@@ -1,5 +1,7 @@
 #pragma once
 
+#include <optional>
+
 #include "config/config_factory.hpp"
 #include "config/config_parser.hpp"
 #include "data_structures.hpp"
@@ -30,8 +32,7 @@ struct NoopNavigationConfiguration : public NavigationConfiguration {
 };
 
 struct PursuitNavigationConfiguration : public NavigationConfiguration {
-    /** Distance at which to stop in meters */
-    double stop_distance = 0.0;
+    double stop_distance_m = 0.0;
 
     /** Distance (m) at which velocity ramp begins. At this distance and beyond, speed is
      * velocity_ramp_min_scale * max. */
@@ -49,17 +50,16 @@ struct PursuitNavigationConfiguration : public NavigationConfiguration {
      * 0 disables (ram behavior: full speed into contact). */
     double brake_distance = 0.0;
 
-    /** Distance from any field wall at which linear_x is reversed to back away (m).
-     *  0 = disabled. */
-    double wall_reverse_distance = 0.0;
+    /** Distance from any field wall at which linear_x is reversed to back away. Unset turns the
+     *  reverse off. */
+    std::optional<double> wall_reverse_distance_m;
 
     /** Minimum speed (m/s) used when wall reverse engages and no forward drive was commanded.
      *  Ensures a meaningful reversal even when the robot was stationary or turning in place. */
     double wall_reverse_min_speed = 1.0;
 
-    /** Heading must be within this angle of the nearest wall normal to trigger reversal (rad).
-     *  Default ~60 deg. */
-    double wall_heading_threshold = M_PI / 3.0;
+    /** Heading must be within this angle of the nearest wall normal to trigger reversal. */
+    double wall_heading_threshold_rad = M_PI / 3.0;
 
     /** Proportional gain for angular control */
     double angular_kp = 3.0;
@@ -80,12 +80,12 @@ struct PursuitNavigationConfiguration : public NavigationConfiguration {
     bool enable_hysteresis = true;
 
     /** Cap on the magnitude of the normalized forward (linear_x) command (0..1, a fraction of full
-     * drive; the plant/transmitter scales it by max_linear_speed). 0 = no limit. */
-    double max_linear_command = 0.0;
+     * drive; the plant/transmitter scales it by max_linear_speed). Unset = no limit. */
+    std::optional<double> max_linear_command;
 
     /** Cap on the magnitude of the normalized turn (angular_z) command (0..1, a fraction of full
-     * turn; the plant/transmitter scales it by max_angular_speed). 0 = no limit. */
-    double max_angular_command = 0.0;
+     * turn; the plant/transmitter scales it by max_angular_speed). Unset = no limit. */
+    std::optional<double> max_angular_command;
 
     /** Steer at a tangent point on a blocking hazard's rim instead of at the true goal
      * (option 4, the primary response). Costs nothing in navigation: both controllers only ever
@@ -125,22 +125,25 @@ struct PursuitNavigationConfiguration : public NavigationConfiguration {
 
     // clang-format off
     PARSE_CONFIG_FIELDS(
-        PARSE_FIELD_DOUBLE(stop_distance)
+        PARSE_RENAMED(stop_distance, stop_distance_m)
+        PARSE_FIELD_DOUBLE(stop_distance_m)
         PARSE_FIELD_DOUBLE(velocity_ramp_far_distance)
         PARSE_FIELD_DOUBLE(velocity_ramp_near_distance)
         PARSE_FIELD_DOUBLE(velocity_ramp_min_scale)
         PARSE_FIELD_DOUBLE(brake_distance)
-        PARSE_FIELD_DOUBLE(wall_reverse_distance)
+        PARSE_RENAMED(wall_reverse_distance, wall_reverse_distance_m)
+        PARSE_FIELD_NULLABLE_DOUBLE(wall_reverse_distance_m)
         PARSE_FIELD_DOUBLE(wall_reverse_min_speed)
-        PARSE_FIELD_DOUBLE(wall_heading_threshold)
+        PARSE_RENAMED(wall_heading_threshold, wall_heading_threshold_rad)
+        PARSE_FIELD_DOUBLE(wall_heading_threshold_rad)
         PARSE_FIELD_DOUBLE(angular_kp)
         PARSE_FIELD_DOUBLE(angular_kd)
         PARSE_FIELD_DOUBLE(angle_threshold)
         PARSE_FIELD_DOUBLE(lookahead_time)
         PARSE_FIELD_DOUBLE(boundary_margin)
         PARSE_FIELD_BOOL(enable_hysteresis)
-        PARSE_FIELD_DOUBLE(max_linear_command)
-        PARSE_FIELD_DOUBLE(max_angular_command)
+        PARSE_FIELD_NULLABLE_DOUBLE(max_linear_command)
+        PARSE_FIELD_NULLABLE_DOUBLE(max_angular_command)
         PARSE_FIELD_BOOL(hazard_tangent_enable)
         PARSE_FIELD(hazard_tangent_max_iterations)
         PARSE_FIELD_DOUBLE(hazard_waypoint_clearance_m)
@@ -198,7 +201,7 @@ struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
 
     /** Distance (m) at which a zero-velocity mission is complete and the command is cut. Only used
      * when the active terminal velocity is 0 (a drive-through mission never stops). */
-    double stop_distance = 0.15;
+    double stop_distance_m = 0.15;
 
     /** Proportional gain mapping speed error (v_ref - v_actual, m/s) to a normalized command. */
     double speed_kp = 0.15;
@@ -223,9 +226,9 @@ struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
      * 30 Hz, 7.9 rad/s is 15 degrees per tick. */
     double max_yaw_rate = 7.93;
 
-    /** Cap on magnitude of the normalized turn (angular_z) command (0..1). 0 = no limit. This is
-     * the output-side safety clamp; max_yaw_rate is the one that shapes behaviour. */
-    double max_angular_command = 1.0;
+    /** Cap on magnitude of the normalized turn (angular_z) command (0..1). Unset = no limit. This
+     * is the output-side safety clamp; max_yaw_rate is the one that shapes behaviour. */
+    std::optional<double> max_angular_command = 1.0;
 
     /** Enable turn-direction hysteresis to prevent dithering when the target is behind. */
     bool enable_hysteresis = true;
@@ -233,17 +236,17 @@ struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
     /** Minimum distance maintained from field boundaries (m). */
     double boundary_margin = 0.1;
 
-    /** Cap on magnitude of the normalized forward (linear_x) command (0..1). 0 = no limit. */
-    double max_linear_command = 1.0;
+    /** Cap on magnitude of the normalized forward (linear_x) command (0..1). Unset = no limit. */
+    std::optional<double> max_linear_command = 1.0;
 
-    /** Distance to any wall (m) at which linear_x is reversed to back away. 0 = disabled. */
-    double wall_reverse_distance = 0.0;
+    /** Distance to any wall at which linear_x is reversed to back away. Unset turns it off. */
+    std::optional<double> wall_reverse_distance_m;
 
     /** Minimum reverse speed (normalized) used when wall reverse engages. */
     double wall_reverse_min_speed = 0.0;
 
-    /** Only reverse off a wall when heading is within this angle (rad) of facing it. */
-    double wall_heading_threshold = 0.6;
+    /** Only reverse off a wall when heading is within this angle of facing it. */
+    double wall_heading_threshold_rad = 0.6;
 
     /** Steer at a tangent point on a blocking hazard's rim instead of at the true goal
      * (option 4, the primary response). Costs nothing in navigation: both controllers only ever
@@ -295,7 +298,8 @@ struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
         PARSE_FIELD_DOUBLE(steer_brake_floor)
         PARSE_FIELD_DOUBLE(attack_terminal_speed_fraction)
         PARSE_FIELD_DOUBLE(run_away_terminal_speed_fraction)
-        PARSE_FIELD_DOUBLE(stop_distance)
+        PARSE_RENAMED(stop_distance, stop_distance_m)
+        PARSE_FIELD_DOUBLE(stop_distance_m)
         PARSE_FIELD_DOUBLE(speed_kp)
         PARSE_FIELD_DOUBLE(speed_ki)
         PARSE_FIELD_BOOL(compensate_angular_droop)
@@ -304,13 +308,15 @@ struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
         PARSE_FIELD_DOUBLE(angular_kd)
         PARSE_FIELD_DOUBLE(angle_threshold)
         PARSE_FIELD_DOUBLE(max_yaw_rate)
-        PARSE_FIELD_DOUBLE(max_angular_command)
+        PARSE_FIELD_NULLABLE_DOUBLE(max_angular_command)
         PARSE_FIELD_BOOL(enable_hysteresis)
         PARSE_FIELD_DOUBLE(boundary_margin)
-        PARSE_FIELD_DOUBLE(max_linear_command)
-        PARSE_FIELD_DOUBLE(wall_reverse_distance)
+        PARSE_FIELD_NULLABLE_DOUBLE(max_linear_command)
+        PARSE_RENAMED(wall_reverse_distance, wall_reverse_distance_m)
+        PARSE_FIELD_NULLABLE_DOUBLE(wall_reverse_distance_m)
         PARSE_FIELD_DOUBLE(wall_reverse_min_speed)
-        PARSE_FIELD_DOUBLE(wall_heading_threshold)
+        PARSE_RENAMED(wall_heading_threshold, wall_heading_threshold_rad)
+        PARSE_FIELD_DOUBLE(wall_heading_threshold_rad)
         PARSE_FIELD_BOOL(hazard_tangent_enable)
         PARSE_FIELD(hazard_tangent_max_iterations)
         PARSE_FIELD_DOUBLE(hazard_waypoint_clearance_m)

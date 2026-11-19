@@ -27,7 +27,7 @@ class PursuitConfig:
     velocity_ramp_far_distance: float = 1.5
     velocity_ramp_near_distance: float = 1.0
     velocity_ramp_min_scale: float = 0.35
-    stop_distance: float = 0.0
+    stop_distance_m: float = 0.0
 
 
 @POLICIES.register("pursuit")
@@ -71,7 +71,7 @@ class PursuitPolicy:
         )
         if c.max_linear_command > 0.0:
             linear = linear.clamp(-c.max_linear_command, c.max_linear_command)
-        stop = distance < c.stop_distance
+        stop = distance < c.stop_distance_m
         linear = torch.where(known & ~stop, linear, torch.zeros_like(linear))
         angular = torch.where(known & ~stop, angular, torch.zeros_like(angular))
         action = torch.stack([linear, angular], dim=1).clamp(-1.0, 1.0)

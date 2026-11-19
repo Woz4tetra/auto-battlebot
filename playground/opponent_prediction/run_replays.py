@@ -15,7 +15,7 @@ RECORDINGS_DIR = REPO_ROOT / "data/recordings"
 MAX_RUN_S = 300
 
 # (svo path, start frame). NHRL start frames are the ones that land field init on match state
-# (config/playback/_playback.toml); MassD replays from the top.
+# (config/playback/svo_start_frames.toml); MassD replays from the top.
 RECORDINGS = [
     ("data/svo/NHRL_2026-05-02/2026-05-02T14-12-27.svo2", 1540),
     ("data/svo/NHRL_2026-05-02/2026-05-02T11-45-08.svo2", 13000),

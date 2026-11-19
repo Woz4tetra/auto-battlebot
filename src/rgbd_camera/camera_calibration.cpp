@@ -108,9 +108,6 @@ void save_camera_calibration(const std::string &path, const CameraCalibration &c
     if (!out) {
         throw ConfigValidationError("cannot write calibration file: " + resolved.string());
     }
-    out << "# One physical camera and lens, shot through an offcut of the cage panel at the\n";
-    out << "# mounted standoff. Free-air numbers fold the panel's refraction into the field "
-           "pose.\n";
     out << camera_calibration_to_toml(calibration);
 }
 

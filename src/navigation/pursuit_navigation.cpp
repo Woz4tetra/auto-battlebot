@@ -33,14 +33,14 @@ namespace auto_battlebot {
 
 PursuitNavigation::PursuitNavigation(const PursuitNavigationConfiguration &config,
                                      std::shared_ptr<ClockInterface> clock)
-    : stop_distance_(config.stop_distance),
+    : stop_distance_m_(config.stop_distance_m),
       velocity_ramp_far_distance_(config.velocity_ramp_far_distance),
       velocity_ramp_near_distance_(config.velocity_ramp_near_distance),
       velocity_ramp_min_scale_(config.velocity_ramp_min_scale),
       brake_distance_(config.brake_distance),
-      wall_reverse_distance_(config.wall_reverse_distance),
+      wall_reverse_distance_m_(config.wall_reverse_distance_m),
       wall_reverse_min_speed_(config.wall_reverse_min_speed),
-      wall_heading_threshold_(config.wall_heading_threshold),
+      wall_heading_threshold_rad_(config.wall_heading_threshold_rad),
       max_linear_command_(config.max_linear_command),
       max_angular_command_(config.max_angular_command),
       angular_kp_(config.angular_kp),
@@ -130,7 +130,7 @@ VelocityCommand PursuitNavigation::compute_pursuit_command(const Pose2D &our_pos
     const double raw_angle_error = normalize_angle(angle_to_target - our_pose.yaw);
     const double angle_error = apply_hysteresis(raw_angle_error);
 
-    if (distance < stop_distance_) {
+    if (distance < stop_distance_m_) {
         committed_turn_sign_ = 0;
         prev_angle_error_ = 0.0;
         logger_->debug("pursuit",
@@ -146,11 +146,11 @@ VelocityCommand PursuitNavigation::compute_pursuit_command(const Pose2D &our_pos
     override_linear_with_wall_reverse(our_body, field, cmd);
     const bool hazard_reverse = hazards_.apply_reverse(our_body, field, cmd);
 
-    if (max_linear_command_ > 0.0) {
-        cmd.linear_x = std::clamp(cmd.linear_x, -max_linear_command_, max_linear_command_);
+    if (max_linear_command_) {
+        cmd.linear_x = std::clamp(cmd.linear_x, -*max_linear_command_, *max_linear_command_);
     }
-    if (max_angular_command_ > 0.0) {
-        cmd.angular_z = std::clamp(cmd.angular_z, -max_angular_command_, max_angular_command_);
+    if (max_angular_command_) {
+        cmd.angular_z = std::clamp(cmd.angular_z, -*max_angular_command_, *max_angular_command_);
     }
 
     logger_->debug("pursuit",
@@ -240,8 +240,8 @@ double PursuitNavigation::compute_linear_velocity(double angle_error, double dis
     // the legacy form but clamp it so a large angular command can never flip linear into reverse
     // thrust.
     double steer_brake;
-    if (max_angular_command_ > 0.0) {
-        steer_brake = 1.0 - 0.5 * std::min(1.0, std::abs(angular_z) / max_angular_command_);
+    if (max_angular_command_) {
+        steer_brake = 1.0 - 0.5 * std::min(1.0, std::abs(angular_z) / *max_angular_command_);
     } else {
         steer_brake = std::max(0.0, 1.0 - 0.5 * std::abs(angular_z));
     }
@@ -252,14 +252,14 @@ double PursuitNavigation::compute_linear_velocity(double angle_error, double dis
 void PursuitNavigation::override_linear_with_wall_reverse(const Pose2D &our_pose,
                                                           const FieldDescription &field,
                                                           VelocityCommand &cmd) {
-    if (wall_reverse_distance_ <= 0.0) return;
+    if (!wall_reverse_distance_m_) return;
 
     const double wall_dist = distance_to_nearest_wall(our_pose, field);
-    if (wall_dist >= wall_reverse_distance_) return;
+    if (wall_dist >= *wall_reverse_distance_m_) return;
 
     const double angle_to_wall = wall_facing_angle(our_pose, field);
     const double heading_err = std::abs(normalize_angle(angle_to_wall - our_pose.yaw));
-    if (heading_err >= wall_heading_threshold_) return;
+    if (heading_err >= wall_heading_threshold_rad_) return;
 
     cmd.linear_x = -std::max(std::abs(cmd.linear_x), wall_reverse_min_speed_);
     logger_->debug("wall_reverse", {{"wall_dist", wall_dist},

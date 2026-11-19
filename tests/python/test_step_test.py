@@ -2,14 +2,10 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
-from auto_battlebot.compat import tomllib
+from auto_battlebot.config_profile import load_profile_toml
 from playground.nav_eval import step_test
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_max_motor_rpm_matches_profile() -> None:
-    profile = tomllib.loads((REPO_ROOT / "config" / "mr_stabs_mk2_fid_zed_box.toml").read_text())
+    profile = load_profile_toml("mr_stabs_mk2_fid_zed_box")
     assert step_test.MAX_MOTOR_RPM == profile["transmitter"]["max_motor_rpm"]

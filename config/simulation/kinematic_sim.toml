@@ -1,10 +1,3 @@
-# Headless control-tuning config: pairs with simulation/kinematic_sim_server.py.
-# Perception is bypassed (Noop/Fixed everywhere) and ground-truth poses come from the kinematic sim,
-# so the real PursuitNavigation runs unchanged and the MCAP is scored by
-# playground/control_stage0/stage0_metrics.py exactly like a real fight.
-#
-# Extends simulation: every perception section below changes `type`, which replaces the inherited
-# section wholesale (dropping model paths, label maps, keypoint lists, etc.).
 extends = "simulation/_simulation"
 
 [field_model]
@@ -13,8 +6,6 @@ type = "FixedMaskModel"
 [robot_mask_model]
 type = "NoopRobotBlobModel"
 
-# Fixed arena: gives navigation wall bounds without a RANSAC field fit.
-# Keep size_x/size_y in sync with the kinematic sim [arena].
 [field_filter]
 type = "FixedFieldFilter"
 size_x = 2.4
@@ -24,13 +15,8 @@ size_y = 2.4
 type = "NoopKeypointModel"
 
 [robot_filter]
-# GroundTruthRobotFilter maps sim ground-truth poses by order (GT[0] -> OUR_ROBOT_1, GT[1..] -> THEIRS),
-# so it takes no label_mapping. A different filter type here replaces the inherited _common block
-# wholesale (merge drops the base section when `type` differs), which is why no keypoint fields are needed.
 type = "GroundTruthRobotFilter"
 
-# Match the real robot's tuning (main.toml) so the sim exercises the controller the robot runs.
-# simulation.toml no longer defines navigation, so the type is declared here.
 [navigation]
 type = "PursuitNavigation"
 angular_kp = 0.4
@@ -40,27 +26,18 @@ velocity_ramp_far_distance = 1.5
 velocity_ramp_near_distance = 0.5
 velocity_ramp_min_scale = 0.5
 max_linear_command = 1.0
-stop_distance = 0.0
-# Previously inherited from _common; `type` now differs there, so the merge no longer supplies
-# them and they have to be spelled out to keep this sim behaving as before.
-wall_reverse_distance = 0.25   # set > 0 to reverse when within this distance of any wall
-wall_heading_threshold = 1.047 # ~60 deg; heading must point toward wall to trigger reversal
-max_angular_command = 0.0      # 0 = no limit
+stop_distance_m = 0.0
+wall_reverse_distance_m = 0.25
+wall_heading_threshold_rad = 1.047
 
-# Actuation latency is modeled in sim-ticks by the kinematic server, so keep this at 0
-# (the SimTransmitter delay is wall-clock based and would not survive accelerated runs).
 [transmitter]
 init_delay_seconds = 0.0
 
-# Free-run (accelerated): logical time comes from the sim frame stamp via [clock] ManualClock, so the
-# controller's dt is correct regardless of loop speed. The loop is gated by the sim's lockstep protocol.
 [runner]
-max_loop_rate = 0.0 # free-run: pacing comes from lockstep with the sim server
+max_loop_rate = 0.0
 
 [mcap]
 enable = false
 
-# Logical time follows the sim frame stamp (sim_time), so the run is deterministic and the controller's
-# dt is correct even when the loop free-runs far faster than real time.
 [clock]
 type = "ManualClock"

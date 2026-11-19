@@ -57,7 +57,33 @@ Phase 2 cost far more than planned. See [Agent budget](#agent-budget). The `src/
 "Notes moved from `src/` comments" sections in six docs that anchor each fact to a code line;
 those need rewriting under topic headings.
 
-Next: a pilot TEST batch to price the remaining TEST rows, then P3a.
+Phase 3 except 3b done 2026-11-18. Baseline 8,443 lines.
+
+- 3a: `ConfigParser` records every optional field it reads, and the merge moves nodes so toml++
+  keeps each value's source line. `--print-config` prints every field with `file.toml:line` or
+  `default` (`include/config/config_provenance.hpp`, `tests/test_config_provenance.cpp`). Each MCAP
+  carries the same text as `resolved_config` in the `auto_battlebot` metadata record, and
+  `/status/config` feeds a read-only view on the dashboard's System tab
+- 3b: skipped
+- 3c: the `from` key does the job option A planned for fragments. Section files under
+  `config/transmitters/`, `config/navigation/`, `config/field_filters/` and
+  `config/keypoint_models/`; no section of 4+ keys appears verbatim in two files.
+  `max_motor_rpm_per_sec` became `max_motor_rpm_per_s`; `stop_distance` / `wall_reverse_distance` /
+  `wall_heading_threshold` gained `_m` / `_m` / `_rad`. The "0 = off" sentinels on
+  `max_motor_rpm_per_s`, `max_linear_command`, `max_angular_command`, `wall_reverse_distance_m` and
+  `init_button_channel` are now optional (unset = off, a set value must be > 0), and old names fail
+  at parse with "renamed to". All 24 profiles resolve to the same values under that rename map.
+  `tests/test_profile_pattern.cpp` pins the `profiles.toml` pattern
+- 3d: `config/` has zero counted comments; the facts moved to `docs/reference/config/profiles.md`
+  and `docs/reference/perception/camera_calibrations.md`. Start frames moved from commented TOML
+  lines to `config/playback/svo_start_frames.toml`, which unblocks the ledger row on
+  `make_eval_dataset.py`. Not done: the 234 C++ CONFIG rows (529 lines, 38 files) in
+  `include/**/config.hpp` and friends. `include/transmitter/config.hpp` is the pilot, moved to
+  `docs/reference/config/fields.md`. The 509 CONFIG rows outside `config/`, `include/` and `src/`
+  (training, playground, simulation, RL dataclasses) are not covered by the resolved view and stay
+  open
+
+Next: the remaining C++ CONFIG rows into `fields.md`, priced on the transmitter pilot first.
 
 ### Spot-check record
 
@@ -613,6 +639,11 @@ Rules from here:
    outside this repo?
 
 ## Decision log
+
+- 2026-11-18: Open question 1 resolved by `from` section files instead of fragments or
+  generated profiles. A section file replaces the inherited section outright.
+- 2026-11-18: Resolved config lands in MCAP file metadata rather than a one-shot topic message,
+  so every segment carries it.
 
 - 2026-11-15: Docstrings count toward the budget when they are longer than one line; one-line
   docstrings are free.

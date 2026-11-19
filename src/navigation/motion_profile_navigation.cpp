@@ -60,7 +60,7 @@ MotionProfileNavigation::MotionProfileNavigation(const MotionProfileNavigationCo
       angular_deadzone_right_(config.plant.dz_ang_r),
       attack_terminal_speed_fraction_(config.attack_terminal_speed_fraction),
       run_away_terminal_speed_fraction_(config.run_away_terminal_speed_fraction),
-      stop_distance_(config.stop_distance),
+      stop_distance_m_(config.stop_distance_m),
       hazards_(hazard_settings_from(config)),
       speed_kp_(config.speed_kp),
       speed_ki_(config.speed_ki),
@@ -77,9 +77,9 @@ MotionProfileNavigation::MotionProfileNavigation(const MotionProfileNavigationCo
       enable_hysteresis_(config.enable_hysteresis),
       boundary_margin_(config.boundary_margin),
       max_linear_command_(config.max_linear_command),
-      wall_reverse_distance_(config.wall_reverse_distance),
+      wall_reverse_distance_m_(config.wall_reverse_distance_m),
       wall_reverse_min_speed_(config.wall_reverse_min_speed),
-      wall_heading_threshold_(config.wall_heading_threshold),
+      wall_heading_threshold_rad_(config.wall_heading_threshold_rad),
       logger_(DiagnosticsLogger::get_logger("motion_profile_nav")),
       clock_(std::move(clock)) {}
 
@@ -215,7 +215,7 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
     if (speed_is_measured) last_measured_speed_ = *measured_speed;
     const double v_actual = last_measured_speed_;
 
-    if (terminal_velocity <= 0.0 && distance < stop_distance_) {
+    if (terminal_velocity <= 0.0 && distance < stop_distance_m_) {
         reset_trajectory_state();
         logger_->debug("stop", {{"distance", distance}}, "Reached goal; stopping");
         return VelocityCommand{0.0, 0.0, 0.0};
@@ -227,8 +227,8 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
     VelocityCommand cmd{0.0, 0.0, 0.0};
     const double w_ref = compute_yaw_reference(angle_error, now_s);
     cmd.angular_z = compute_angular_command(w_ref, dt);
-    if (max_angular_command_ > 0.0) {
-        cmd.angular_z = std::clamp(cmd.angular_z, -max_angular_command_, max_angular_command_);
+    if (max_angular_command_) {
+        cmd.angular_z = std::clamp(cmd.angular_z, -*max_angular_command_, *max_angular_command_);
     }
     prev_w_ref_ = w_ref;
 
@@ -243,8 +243,8 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
     override_linear_with_wall_reverse(our_body, field, cmd);
     const auto barrier = hazards_.limit_command(our_body, field, v_actual, cmd);
 
-    if (max_linear_command_ > 0.0) {
-        cmd.linear_x = std::clamp(cmd.linear_x, -max_linear_command_, max_linear_command_);
+    if (max_linear_command_) {
+        cmd.linear_x = std::clamp(cmd.linear_x, -*max_linear_command_, *max_linear_command_);
     }
 
     logger_->debug("profile",
@@ -388,14 +388,14 @@ double MotionProfileNavigation::compute_angular_command(double w_ref, double dt)
 void MotionProfileNavigation::override_linear_with_wall_reverse(const Pose2D &our_pose,
                                                                 const FieldDescription &field,
                                                                 VelocityCommand &cmd) const {
-    if (wall_reverse_distance_ <= 0.0) return;
+    if (!wall_reverse_distance_m_) return;
 
     const double wall_dist = distance_to_nearest_wall(our_pose, field);
-    if (wall_dist >= wall_reverse_distance_) return;
+    if (wall_dist >= *wall_reverse_distance_m_) return;
 
     const double angle_to_wall = wall_facing_angle(our_pose, field);
     const double heading_err = std::abs(normalize_angle(angle_to_wall - our_pose.yaw));
-    if (heading_err >= wall_heading_threshold_) return;
+    if (heading_err >= wall_heading_threshold_rad_) return;
 
     cmd.linear_x = -std::max(std::abs(cmd.linear_x), wall_reverse_min_speed_);
     logger_->debug("wall_reverse", {{"wall_dist", wall_dist},

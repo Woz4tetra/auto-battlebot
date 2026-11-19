@@ -54,7 +54,7 @@ class EspNowTransmitter : public TransmitterInterface {
     espnow_protocol::SerialFrameParser parser_;
     uint32_t seq_ = 0;
     bool enabled_ = false;
-    /** Normalized units per second: max_motor_rpm_per_sec / max_motor_rpm. 0 = off. */
+    /** Normalized units per second: max_motor_rpm_per_s / max_motor_rpm, 0 when that is unset. */
     double max_linear_rate_per_sec_ = 0.0;
     double prev_linear_command_ = 0.0;
     std::optional<std::chrono::steady_clock::time_point> last_send_time_;

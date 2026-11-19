@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from auto_battlebot.compat import tomllib
+from auto_battlebot.config_profile import load_profile_toml
 from auto_battlebot.control import plant
 from auto_battlebot.mujoco_sim import greybox
 from auto_battlebot.mujoco_sim.actuator import delay_tape
@@ -18,7 +18,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_zero_deadzone_matches_processor() -> None:
-    common = tomllib.loads((REPO_ROOT / "config" / "_common.toml").read_text())
+    common = load_profile_toml("_common")
     assert interim.ZERO_DEADZONE == common["transmitter"]["zero_deadzone_percent"] / 100.0
 
 

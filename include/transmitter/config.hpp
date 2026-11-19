@@ -1,6 +1,8 @@
 #pragma once
 
+#include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -47,52 +49,26 @@ struct PlaybackTransmitterConfiguration : public TransmitterConfiguration {
 };
 
 struct OpenTxTransmitterConfiguration : public TransmitterConfiguration {
-    /** Init button disabled. Neither the mrs_buff_mk3 transmitter nor mr_stabs_mk2
-     *  maps a button for it; field re-initialization is a touchscreen action. 31 is
-     *  the last array slot with nothing mapped there, so the threshold never trips. */
-    int init_button_channel = 31;
-    int init_button_threshold = 500;  // channel value above which = button pressed
-    /** Mixer that turns the body-frame command into the two output channels:
-     *  "TankDriveProcessor" sends left and right motor commands directly,
-     *  "DifferentialDriveProcessor" sends linear and angular for the radio-side mixer. */
+    std::optional<int64_t> init_button_channel;
+    int init_button_threshold = 500;
     std::string drive_processor = "TankDriveProcessor";
-    /** RC channel carrying the first mixer output: left wheel under tank drive, linear under
-     *  differential drive. */
     int linear_channel = 0;
-    /** RC channel carrying the second mixer output: right wheel under tank drive, angular under
-     *  differential drive. */
     int angular_channel = 1;
-    /** RC channel carrying the trainer enable switch (SG). Autonomous motion only reaches the
-     *  wheels while this switch is engaged, at which point the channel reads negative. The linear
-     *  acceleration limiter is held at standstill until then. Requires SG to be mapped to this
-     *  output channel (radio CH6) in the OpenTX model. */
     int trainer_enable_channel = 5;
     bool reverse_linear_channel = false;
     bool reverse_angular_channel = false;
-    /** The radio model inverts the angular channel's output after the trainer input is mixed in.
-     *  The Mrs Buff CRSFR model does this to its right-motor channel
-     *  (firmware/config/CHANNEL_CONVENTION.md). Sending is unaffected, since the trainer value
-     *  goes through the same inversion as the sticks. The channels read back are mixer outputs,
-     *  though, so the readback has to undo it. Left uninverted, the left and right wheels read back
-     *  with opposite signs, and forward stick reports as a spin. */
     bool invert_angular_channel_readback = false;
-    /** Minimum non-zero output magnitude (%) after zero deadzone is exceeded. */
     double lifted_deadzone_percent = 0.0;
-    /** Input magnitude (%) below which output is forced to zero. */
     double zero_deadzone_percent = 0.0;
     double max_motor_rpm = 1500.0;
-    double max_motor_rpm_per_sec = 0.0;
+    std::optional<double> max_motor_rpm_per_s;
 
-    /** Combined output budget: |linear| + |angular| <= limit.
-     *  Angular takes priority; linear fills remaining headroom.
-     *  0 = disabled (each channel clamped independently to [-1, 1]). */
     double velocity_saturation_limit = 1.0;
 
     OpenTxTransmitterConfiguration() { type = "OpenTxTransmitter"; }
 
     void parse_fields(ConfigParser &parser) override {
-        init_button_channel =
-            static_cast<int>(parser.get_optional_int("init_button_channel", init_button_channel));
+        init_button_channel = parser.get_nullable_int("init_button_channel", init_button_channel);
         init_button_threshold = static_cast<int>(
             parser.get_optional_int("init_button_threshold", init_button_threshold));
         drive_processor = parser.get_optional_string("drive_processor", drive_processor);
@@ -113,22 +89,17 @@ struct OpenTxTransmitterConfiguration : public TransmitterConfiguration {
         zero_deadzone_percent =
             parser.get_optional_double("zero_deadzone_percent", zero_deadzone_percent);
         max_motor_rpm = parser.get_optional_double("max_motor_rpm", max_motor_rpm);
-        max_motor_rpm_per_sec =
-            parser.get_optional_double("max_motor_rpm_per_sec", max_motor_rpm_per_sec);
+        parser.reject_renamed("max_motor_rpm_per_sec", "max_motor_rpm_per_s");
+        max_motor_rpm_per_s =
+            parser.get_nullable_double("max_motor_rpm_per_s", max_motor_rpm_per_s);
         velocity_saturation_limit =
             parser.get_optional_double("velocity_saturation_limit", velocity_saturation_limit);
     }
 };
 
-/** OpenTxTransmitter plus the Mr Stabs Mk2 firmware's telemetry ring, polled over WiFi and
- *  recorded on /robot/esp32_diagnostics. The radio half is unchanged. */
 struct Esp32DiagnosticsOpenTxTransmitterConfiguration : public OpenTxTransmitterConfiguration {
-    /** The robot's address, an IP literal. 192.168.4.1 is its access point; in client mode use
-     *  the address the router reserves for it. */
     std::string esp32_host = "192.168.4.1";
     int esp32_port = 80;
-    /** Wait after a failed poll before trying again. The ring holds two minutes of records, so
-     *  a poll that comes back within that loses nothing. */
     double reconnect_period_s = 1.0;
 
     Esp32DiagnosticsOpenTxTransmitterConfiguration() { type = "Esp32DiagnosticsOpenTxTransmitter"; }
@@ -147,31 +118,19 @@ struct Esp32DiagnosticsOpenTxTransmitterConfiguration : public OpenTxTransmitter
     }
 };
 
-/** Autonomous drive commands to Mr Stabs Mk2 over the ESP-NOW USB dongle, plus the robot's
- *  telemetry back. Carries no arm authority; see firmware/mr_stabs_mk2/README.md. */
 struct EspNowTransmitterConfiguration : public TransmitterConfiguration {
-    /** Serial device for the dongle. A udev symlink (install/install_udev_rules.sh), not
-     *  a raw ttyACM path: the handset also enumerates as ttyACM and the order is not stable. */
     std::string dongle_serial_path = "/dev/espnow_dongle";
 
-    /** "TankDriveProcessor" or "DifferentialDriveProcessor": what the two channel values carry.
-     *  The firmware puts them where ch0/ch1 land, so this must match how the handset model mixes,
-     *  same as the OpenTX child's drive_processor. */
     std::string drive_processor = "DifferentialDriveProcessor";
 
-    /** These six, drive_processor included, must match the OpenTX child of the same
-     * CompositeTransmitter, or the two transports disagree by a fixed offset.
-     * CompositeTransmitterConfiguration checks it at parse time. */
     double velocity_saturation_limit = 1.0;
     double zero_deadzone_percent = 0.0;
     double lifted_deadzone_percent = 0.0;
     bool reverse_linear_channel = false;
     bool reverse_angular_channel = false;
 
-    /** Linear slew limit, same meaning as OpenTxTransmitterConfiguration's: the normalized linear
-     *  command may change by at most max_motor_rpm_per_sec / max_motor_rpm per second. 0 = off. */
     double max_motor_rpm = 1500.0;
-    double max_motor_rpm_per_sec = 0.0;
+    std::optional<double> max_motor_rpm_per_s;
 
     EspNowTransmitterConfiguration() { type = "EspNowTransmitter"; }
 
@@ -189,19 +148,14 @@ struct EspNowTransmitterConfiguration : public TransmitterConfiguration {
         reverse_angular_channel =
             parser.get_optional_bool("reverse_angular_channel", reverse_angular_channel);
         max_motor_rpm = parser.get_optional_double("max_motor_rpm", max_motor_rpm);
-        max_motor_rpm_per_sec =
-            parser.get_optional_double("max_motor_rpm_per_sec", max_motor_rpm_per_sec);
+        parser.reject_renamed("max_motor_rpm_per_sec", "max_motor_rpm_per_s");
+        max_motor_rpm_per_s =
+            parser.get_nullable_double("max_motor_rpm_per_s", max_motor_rpm_per_s);
     }
 };
 
-/** Fans one command stream out to several transmitters. The first child is primary and owns
- *  everything read-side. */
 struct CompositeTransmitterConfiguration : public TransmitterConfiguration {
-    /** Children in priority order, as an array of tables ([[transmitter.children]]) so the order
-     *  is guaranteed. */
     std::vector<std::unique_ptr<TransmitterConfiguration>> children;
-    /** Per child, from each entry's optional `transmit_rate_hz` key: the most sends per second
-     *  that child gets. 0 (the default) passes every send through. */
     std::vector<double> transmit_rate_hz;
 
     CompositeTransmitterConfiguration() { type = "CompositeTransmitter"; }
@@ -211,12 +165,7 @@ struct CompositeTransmitterConfiguration : public TransmitterConfiguration {
 
 struct SimTransmitterConfiguration : public TransmitterConfiguration {
     double init_delay_seconds = 0.5;
-    /** Artificial command delay in milliseconds (0 = no delay). Used for lag experiments. */
     double command_delay_ms = 0.0;
-    /** Same meaning as the drive processors' field: angular gets priority and linear is clipped to
-     * (limit - |angular|). The sim has no drive processor, so without this the simulated robot
-     * keeps forward authority during a turn that the real one has already lost in the mixer.
-     * 0 = disabled. */
     double velocity_saturation_limit = 1.0;
 
     SimTransmitterConfiguration() { type = "SimTransmitter"; }
@@ -230,8 +179,6 @@ struct SimTransmitterConfiguration : public TransmitterConfiguration {
     // clang-format on
 };
 
-/** `sink` and `mcap_recorder` may be null; only transmitters that publish their own topics use
- *  them. */
 std::shared_ptr<TransmitterInterface> make_transmitter(const TransmitterConfiguration &config,
                                                        std::shared_ptr<ClockInterface> clock,
                                                        std::shared_ptr<VizSink> sink,

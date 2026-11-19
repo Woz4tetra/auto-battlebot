@@ -36,6 +36,18 @@ export interface LabelColor {
   label: string;
 }
 
+export interface ResolvedConfigStatus {
+  fields: ResolvedConfigField[];
+  profile: string;
+}
+
+export interface ResolvedConfigField {
+  key: string;
+  section: string;
+  source: string;
+  value: string;
+}
+
 export interface SticksStatus {
   angular: number;
   linear: number;
@@ -198,6 +210,7 @@ export interface CameraProfileCommand {
 export type StatusMessages = {
   "/status/system": SystemStatus;
   "/status/app": AppStatus;
+  "/status/config": ResolvedConfigStatus;
   "/status/sticks": SticksStatus;
   "/status/tracks": TracksStatus;
   "/status/command_ack": CommandAckStatus;
@@ -228,6 +241,7 @@ export type CommandTopic = keyof CommandPayloads;
 export const STATUS_SCHEMAS = {
   "/status/system": "auto_battlebot.status.System",
   "/status/app": "auto_battlebot.status.App",
+  "/status/config": "auto_battlebot.status.ResolvedConfig",
   "/status/sticks": "auto_battlebot.status.Sticks",
   "/status/tracks": "auto_battlebot.status.Tracks",
   "/status/command_ack": "auto_battlebot.status.CommandAck",
@@ -240,6 +254,7 @@ export const STATUS_SCHEMAS = {
 export const STATUS_LATCHED = {
   "/status/system": false,
   "/status/app": true,
+  "/status/config": true,
   "/status/sticks": false,
   "/status/tracks": false,
   "/status/command_ack": false,

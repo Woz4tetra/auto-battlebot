@@ -1,0 +1,8 @@
+[field_filter]
+type = "FiducialFieldFilter"
+corner = "NEG_X_NEG_Y"
+board_offset_x = 0.02
+board_offset_y = 0.02
+field_size_x = 1.5
+field_size_y = 1.5
+accumulate_frames = 1

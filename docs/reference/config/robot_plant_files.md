@@ -17,8 +17,9 @@ after.
 over the Mrs Buff file.
 
 Every file also carries `[plant.process_noise]`, because a `from` table replaces the inherited
-one outright. All three hold the Mrs Buff Mk3 noise fit. Mr Stabs Mk2 has no process noise fit of
-its own; it ran Mrs Buff's table through the merge before the move, and the copy keeps that.
+one outright. All three run the Mrs Buff Mk3 noise fit: `q_along = 10.0` is written out, and the
+other six terms equal the `JigPlantNoiseParams` defaults (`include/plant/plant_params.hpp`), which
+are that fit. Mr Stabs Mk2 has no process noise fit of its own.
 
 ## Mrs Buff Mk3
 

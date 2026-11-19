@@ -22,15 +22,7 @@ BASE_CONFIG = {
 }
 OUR_LABEL = {"mr_stabs_mk2": "MR_STABS_MK2", "mrs_buff_mk3": "MRS_BUFF_MK3"}
 MOTION_PROFILE = """[navigation]
-type = "MotionProfileNavigation"
-stop_distance = 0.15
-attack_terminal_speed_fraction = 1.0
-run_away_terminal_speed_fraction = 0.0
-wall_reverse_distance = 0.25
-wall_heading_threshold = 1.047
-wall_reverse_min_speed = 0.25
-max_linear_command = 0.8
-max_angular_command = 1.0
+from = "navigation/motion_profile"
 """
 
 

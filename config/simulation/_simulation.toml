@@ -1,17 +1,10 @@
-# Shared simulation base (not run directly): SimRgbdCamera over a socket, x86 engines, swapped team
-# mapping, sim transmitter. Navigation tuning and transmitter startup delay are NOT defined here so
-# they don't leak into every sim profile; leaf configs (headless_sim.toml) set their own.
 extends = "_desktop"
 
-# Type change -> replaces common's ZedRgbdCamera.
 [rgbd_camera]
 type = "SimRgbdCamera"
 sim_host = "127.0.0.1"
 sim_port = 14882
 
-# Type change -> replaces common's [control_loop]. SimConnection, ManualClock and the ground-truth
-# poses are not thread safe, and stepping also makes a run reproducible. 250 Hz keeps the cycle
-# rate the threaded loop ran at, now in sim time.
 [control_loop]
 type = "SteppedControlLoop"
 rate_hz = 250.0

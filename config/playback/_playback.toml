@@ -1,90 +1,16 @@
-# x86_64 SVO replay profile for desktop development and regression testing. Identical to main.toml
-# except for the x86 engines, the SVO source, the playback transmitter, and dev UI/mcap/health
-# toggles, so it extends main and declares only those deltas.
 extends = "_desktop"
 
 [rgbd_camera]
 type = "ZedSvoPlaybackCamera"
-# camera FPS setting is ignored for SVOs
-
-# svo_file_path = "data/svo/1729981242.4295187.svo2"
-
-# svo_file_path = "data/svo/2026-03-27T21-48-29.svo2"
-# svo_start_frame = 4100
-
-# svo_file_path = "data/svo/mini_bot_2024-10-26T13-29-41.svo2"
-# position_tracking = false
-
-# svo_file_path = "data/svo/tests/2026-04-20T18-02-50.svo2"
-# svo_file_path = "data/svo/tests/2026-04-19T17-01-18.svo2"
-# svo_file_path = "data/svo/tests/2026-04-26T20-21-45.svo2"
-# svo_file_path = "data/svo/tests/2026-04-26T20-22-08.svo2"
-
-# svo_file_path = "data/svo/tests/2026-05-01T09-35-26.svo2"
-# svo_file_path = "data/svo/tests/2026-05-01T09-40-36.svo2"
-# svo_file_path = "data/svo/tests/2026-05-01T09-47-40.svo2"
-# svo_file_path = "data/svo/tests/2026-05-01T11-22-34.svo2"  # field finding
-# svo_file_path = "data/svo/tests/2026-05-01T11-27-37.svo2"  # auto driving with eric
-# svo_file_path = "data/svo/tests/2026-05-01T14-17-26.svo2"  # 1080p foil safety cage
-# svo_file_path = "data/svo/tests/2026-05-01T17-42-24.svo2"
-
-# NHRL May 02 2026
-# svo_file_path = "data/svo/NHRL_2026-05-02/2026-05-02T10-06-06.svo2"
-# svo_start_frame = 8000
-
-# svo_file_path = "data/svo/NHRL_2026-05-02/2026-05-02T11-45-08.svo2"
-# svo_start_frame = 13000
-
-# svo_file_path = "data/svo/NHRL_2026-05-02/2026-05-02T14-12-27.svo2"
-# svo_start_frame = 3000
-
-# svo_file_path = "data/svo/NHRL_2026-05-02/2026-05-02T15-35-04.svo2"
-# svo_start_frame = 3000
-
-# svo_file_path = "data/svo/NHRL_2026-05-02/2026-05-02T16-18-07.svo2"
-# svo_start_frame = 3148
-
-# svo_file_path = "data/svo/NHRL_2026-05-02/2026-05-02T17-26-14.svo2"
-# svo_start_frame = 6400
-
-# Open Sauce data collection July 18 2026
-# svo_file_path = "data/svo/2026-07-18/2026-07-18T17-23-34.svo2"
-# svo_file_path = "data/svo/2026-07-18/2026-07-18T18-30-47.svo2"
-# svo_file_path = "data/svo/2026-07-18/2026-07-18T18-40-56.svo2"
-# svo_file_path = "data/svo/2026-07-18/2026-07-18T18-50-41.svo2"
-# svo_file_path = "data/svo/2026-07-18/2026-07-18T18-53-12.svo2"
-# svo_file_path = "data/svo/2026-07-18/2026-07-18T18-58-23.svo2"
-# svo_file_path = "data/svo/2026-07-18/2026-07-18T19-01-50.svo2"
-# svo_file_path = "data/svo/2026-07-18/2026-07-18T19-04-59.svo2"
-# svo_file_path = "data/svo/2026-07-18/2026-07-18T19-12-52.svo2"
-# svo_file_path = "data/svo/2026-07-18/2026-07-18T19-15-47.svo2"
-# svo_file_path = "data/svo/2026-07-18/2026-07-18T19-19-55.svo2"
-# svo_file_path = "data/svo/2026-07-18/2026-07-18T19-26-31.svo2"
-# svo_file_path = "data/svo/2026-07-18/2026-07-18T19-33-38.svo2"
-
-# svo_file_path = "data/svo/MassD_2026-08-29/2026-08-29T13-20-08.svo2"
-
-# svo_file_path = "data/svo/tests/2026-08-28/2026-08-28T22-24-24.svo2"
-
 svo_file_path = "data/svo/tests/2026-08-28/2026-08-28T22-21-16.svo2"
 svo_start_frame = 2000
-
 svo_real_time_mode = true
 
-# Type change -> replaces main's OpenTxTransmitter wholesale.
-# Playback frame stamps are not wall-clock, so the default SystemClock cannot say how old the
-# newest frame is: unrebased they sit on the recording's clock, and rebased they carry a fixed
-# offset captured during the startup transient. Either way the filter's forward propagation sees a
-# nonsense dt and holds every prediction. This clock anchors to each frame and advances with the
-# wall clock between them, so `now - frame_stamp` is the real processing age on this machine.
 [clock]
 type = "CameraFollowingClock"
 
 [transmitter]
-type = "PlaybackTransmitter"
-init_delay_seconds = 0.4
-lifted_deadzone_percent = 10
-zero_deadzone_percent = 2
+from = "transmitters/playback"
 
 [mcap]
 enable = false

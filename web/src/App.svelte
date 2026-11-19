@@ -10,6 +10,7 @@
   import Notice from "./components/Notice.svelte";
   import PhoneAccess from "./components/PhoneAccess.svelte";
   import ProfilePicker from "./components/ProfilePicker.svelte";
+  import ResolvedConfig from "./components/ResolvedConfig.svelte";
   import StatusList from "./components/StatusList.svelte";
   import SystemMenu from "./components/SystemMenu.svelte";
   import TopDown from "./components/TopDown.svelte";
@@ -54,6 +55,7 @@
           <HostInfo wide />
           <PhoneAccess />
           <Appearance wide />
+          <ResolvedConfig />
           <div class="grow"></div>
           <SystemMenu wide />
         </main>
@@ -81,6 +83,7 @@
         <HostInfo wide={false} />
         <ProfilePicker wide={false} />
         <Appearance wide={false} />
+        <ResolvedConfig />
         <SystemMenu wide={false} />
       </div>
     {/if}

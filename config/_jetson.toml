@@ -1,11 +1,4 @@
-# Jetson hardware profile (aarch64 TensorRT engines). Inherits the shared perception/filter stack
-# from common.toml and overrides the hardware-specific bits.
 extends = "_common"
-
-# Each model lists engine candidates instead of a single path. EngineSelector loads the
-# first one that deserializes on this machine's GPU. Candidates only ever list builds of
-# the same trained model: falling back to a different model would silently change
-# detection behavior between machines.
 
 [field_model]
 type = "DeepLabMaskModel"

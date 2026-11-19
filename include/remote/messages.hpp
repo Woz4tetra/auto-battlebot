@@ -64,6 +64,21 @@ struct AppInfoMessage {
                     label_colors, version)
 };
 
+struct ResolvedConfigField {
+    std::string section;
+    std::string key;
+    std::string value;
+    std::string source;
+    AB_JSON_MESSAGE(ResolvedConfigField, "auto_battlebot.status.ResolvedConfigField", section, key,
+                    value, source)
+};
+
+struct ResolvedConfigMessage {
+    std::string profile;
+    std::vector<ResolvedConfigField> fields;
+    AB_JSON_MESSAGE(ResolvedConfigMessage, "auto_battlebot.status.ResolvedConfig", profile, fields)
+};
+
 /** Our robot's sticks as the transmitter read them back, normalized [-1, 1]. */
 struct SticksMessage {
     double linear = 0.0;

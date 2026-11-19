@@ -2,7 +2,7 @@
 
 ## Effective config dump
 
-`load_merged_config(path)` (`include/config/config.hpp`) loads `path` and resolves its `extends` chain into one merged TOML table, which is exactly the data fed to every section parser. `--print-config` prints it. It reflects only values explicitly set by the config or its bases: defaults the parsers apply for omitted optional fields are not included. The Python mirror is `load_profile_toml(name)` in `auto_battlebot/config_profile.py`.
+`load_merged_config(path)` (`include/config/config.hpp`) loads `path` and resolves its `extends` chain into one merged TOML table, which is exactly the data fed to every section parser. `--print-config` parses it through every section parser and prints each field the parsers read, defaults included, tagged with the `file.toml:line` that set it or `default` (`include/config/config_provenance.hpp`). The Python mirror is `load_profile_toml(name)` in `auto_battlebot/config_profile.py`.
 
 ## Section files (`from`)
 
@@ -46,8 +46,9 @@ values.
 `PlantParams.from_toml` (`auto_battlebot/control/plant.py`) expands `from` too, so a profile path
 passed to it still yields the robot's plant instead of all-default parameters.
 
-Section files live in `config/robots/`. `docs/reference/config/robot_plant_files.md` lists which profile loads
-which plant file.
+Section files live in `config/robots/`, `config/transmitters/`, `config/navigation/`,
+`config/field_filters/` and `config/keypoint_models/`. `docs/reference/config/profiles.md` lists
+which profile loads which, and `docs/reference/config/robot_plant_files.md` covers the plant files.
 
 ## Label to keypoint mapping format
 

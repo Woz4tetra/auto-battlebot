@@ -1,0 +1,12 @@
+[transmitter]
+type = "OpenTxTransmitter"
+drive_processor = "TankDriveProcessor"
+linear_channel = 0
+angular_channel = 1
+trainer_enable_channel = 5
+max_motor_rpm = 1500
+lifted_deadzone_percent = 5
+zero_deadzone_percent = 2
+reverse_angular_channel = true
+invert_angular_channel_readback = true
+velocity_saturation_limit = 1.0

@@ -92,7 +92,7 @@ TEST_F(MotionProfileModeTest, RunAwayCutsTheCommandInsideStopDistance) {
     // creep through and give the ground back.
     auto nav = make_nav(config_);
     const VelocityCommand cmd =
-        tick(*nav, config_.stop_distance * 0.5, BehaviorMode::RUN_AWAY, 1.0);
+        tick(*nav, config_.stop_distance_m * 0.5, BehaviorMode::RUN_AWAY, 1.0);
 
     EXPECT_DOUBLE_EQ(cmd.linear_x, 0.0);
     EXPECT_DOUBLE_EQ(cmd.angular_z, 0.0);
@@ -102,7 +102,8 @@ TEST_F(MotionProfileModeTest, AttackKeepsDrivingInsideStopDistance) {
     // Same geometry, opposite mission. Stopping short of the opponent is the failure mode the
     // drive-through terminal velocity exists to prevent.
     auto nav = make_nav(config_);
-    const VelocityCommand cmd = tick(*nav, config_.stop_distance * 0.5, BehaviorMode::ATTACK, 1.0);
+    const VelocityCommand cmd =
+        tick(*nav, config_.stop_distance_m * 0.5, BehaviorMode::ATTACK, 1.0);
 
     EXPECT_GT(cmd.linear_x, 0.0);
 }
@@ -184,7 +185,7 @@ TEST_F(MotionProfileModeTest, TerminalSpeedFractionIsClampedToTheUnitInterval) {
     negative.run_away_terminal_speed_fraction = -2.0;
     auto negative_nav = make_nav(negative);
     const VelocityCommand cmd =
-        tick(*negative_nav, config_.stop_distance * 0.5, BehaviorMode::RUN_AWAY, 1.0);
+        tick(*negative_nav, config_.stop_distance_m * 0.5, BehaviorMode::RUN_AWAY, 1.0);
     EXPECT_DOUBLE_EQ(cmd.linear_x, 0.0);
     EXPECT_DOUBLE_EQ(cmd.angular_z, 0.0);
 }
@@ -202,7 +203,7 @@ TEST_F(MotionProfileModeTest, RunAwayTerminalSpeedFractionIsConfigurable) {
 
     EXPECT_GT(driving_cmd, stopping_cmd);
     // And the stop cut is gone, since a drive-through mission never arrives.
-    EXPECT_GT(tick(*driving, config_.stop_distance * 0.5, BehaviorMode::RUN_AWAY, 1.05).linear_x,
+    EXPECT_GT(tick(*driving, config_.stop_distance_m * 0.5, BehaviorMode::RUN_AWAY, 1.05).linear_x,
               0.0);
 }
 
@@ -312,7 +313,7 @@ TEST_F(MotionProfileGateTest, HeadingGateBleedsLinearState) {
 
 TEST_F(MotionProfileGateTest, BarrierClipsWallReverseTowardHole) {
     config_.hazard_tangent_enable = false;
-    config_.wall_reverse_distance = 0.5;
+    config_.wall_reverse_distance_m = 0.5;
     FieldDescription field = make_field();
     field.hazards.push_back(make_hazard(2.35, 0.0, 0.1, 0.15));
     auto nav = make_nav(config_);
@@ -387,8 +388,8 @@ TEST_F(MotionProfileGateTest, CouplingTermsReadUncompensatedCommands) {
     config_.angle_threshold = 3.0;
     config_.angular_kp = 20.0;
     config_.max_yaw_rate = 0.0;
-    config_.max_angular_command = 0.0;
-    config_.max_linear_command = 0.0;
+    config_.max_angular_command = std::nullopt;
+    config_.max_linear_command = std::nullopt;
     config_.accel_limit = 0.0;
     config_.speed_kp = 0.0;
     auto nav = make_nav(config_);

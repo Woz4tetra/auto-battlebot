@@ -18,9 +18,3 @@ c_drift_bias = 0.0
 
 [plant.process_noise]
 q_along = 10.0
-q_cross = 0.351167
-q_heading = 0.0
-scale_factor = 0.541056
-heading_scale_factor = 1.7783
-heading_random_walk = 0.0703417
-delay_jitter_s = 0.0

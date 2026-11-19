@@ -29,4 +29,4 @@ BrettZone exports are named `BZ-<tournament>-<p1>-<p2>-<game>-Cage-<n>-Overhead-
 
 ## Playback config
 
-The generated config lists every recording, with the first live and the rest commented out. It has the same shape as the SVO list in `config/playback/_playback.toml`, so switching clips is uncommenting a line instead of pasting a path.
+The generated config points at the first recording. `MANIFEST.md` next to the recordings lists the rest; switching clips is pasting one of those paths into `video_file_path`.

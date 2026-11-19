@@ -62,7 +62,7 @@ TEST(PursuitNavigationConfigTest, DefaultValues) {
     PursuitNavigationConfiguration config;
 
     EXPECT_EQ(config.type, "PursuitNavigation");
-    EXPECT_DOUBLE_EQ(config.stop_distance, 0.0);
+    EXPECT_DOUBLE_EQ(config.stop_distance_m, 0.0);
     EXPECT_DOUBLE_EQ(config.velocity_ramp_far_distance, 2.5);
     EXPECT_DOUBLE_EQ(config.velocity_ramp_near_distance, 1.0);
     EXPECT_DOUBLE_EQ(config.velocity_ramp_min_scale, 0.5);
@@ -76,7 +76,7 @@ TEST(PursuitNavigationConfigTest, CustomValues) {
     PursuitNavigationConfiguration config;
     config.velocity_ramp_far_distance = 2.0;
     config.velocity_ramp_near_distance = 0.5;
-    config.stop_distance = 0.2;
+    config.stop_distance_m = 0.2;
     config.angular_kp = 3.0;
     config.angle_threshold = 0.5;
     config.lookahead_time = 0.2;
@@ -107,8 +107,8 @@ TEST_F(PursuitNavigationTest, DerivativeTermUsesLogicalClockDt) {
     PursuitNavigationConfiguration config = make_default_config();
     config.angular_kp = 0.0;  // isolate the derivative term
     config.angular_kd = 0.1;
-    config.angle_threshold = M_PI;     // never gate on heading error
-    config.max_angular_command = 0.0;  // no output clamp
+    config.angle_threshold = M_PI;              // never gate on heading error
+    config.max_angular_command = std::nullopt;  // no output clamp
     config.enable_hysteresis = false;
     auto clock = std::make_shared<ManualClock>();
     PursuitNavigation nav(config, clock);
@@ -334,7 +334,7 @@ TEST_F(PursuitNavigationTest, TurnsWhenTargetBehind) {
 
 TEST_F(PursuitNavigationTest, StopsAtTarget) {
     RobotDescriptionsStamped robots;
-    // Our robot very close to target (within stop_distance = 0.1)
+    // Our robot very close to target (within stop_distance_m = 0.1)
     robots.descriptions.push_back(make_robot(Label::MR_STABS_MK1, 0.0, 0.0, 0.0));
     robots.descriptions.push_back(make_robot(Label::OPPONENT, 0.05, 0.0, 0.0));
     FieldDescription field = make_field(4.0, 4.0);
@@ -350,7 +350,7 @@ TEST_F(PursuitNavigationTest, VelocityRampReducesSpeedAtFarDistance) {
     config.velocity_ramp_far_distance = 1.0;
     config.velocity_ramp_near_distance = 0.3;
     config.velocity_ramp_min_scale = 0.5;
-    config.stop_distance = 0.05;
+    config.stop_distance_m = 0.05;
     PursuitNavigation nav(config, std::make_shared<ManualClock>());
     nav.initialize();
 
@@ -373,7 +373,7 @@ TEST_F(PursuitNavigationTest, VelocityRampFullSpeedBelowNearDistance) {
     config.velocity_ramp_far_distance = 2.0;
     config.velocity_ramp_near_distance = 1.0;
     config.velocity_ramp_min_scale = 0.5;
-    config.stop_distance = 0.05;
+    config.stop_distance_m = 0.05;
     PursuitNavigation nav(config, std::make_shared<ManualClock>());
     nav.initialize();
 
@@ -479,7 +479,7 @@ TEST_F(PursuitNavigationTest, WallReverseDisabledByDefault) {
 
 TEST_F(PursuitNavigationTest, WallReverseEngagesWhenTooClose) {
     PursuitNavigationConfiguration config;
-    config.wall_reverse_distance = 0.3;
+    config.wall_reverse_distance_m = 0.3;
     PursuitNavigation nav(config, std::make_shared<ManualClock>());
     nav.initialize();
 
@@ -498,7 +498,7 @@ TEST_F(PursuitNavigationTest, WallReverseEngagesWhenTooClose) {
 
 TEST_F(PursuitNavigationTest, WallReverseDoesNotEngageWhenFarFromWall) {
     PursuitNavigationConfiguration config;
-    config.wall_reverse_distance = 0.3;
+    config.wall_reverse_distance_m = 0.3;
     PursuitNavigation nav(config, std::make_shared<ManualClock>());
     nav.initialize();
 

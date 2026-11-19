@@ -4,8 +4,6 @@ extends = "playback/_playback"
 "MRS_BUFF_MK3" = ["THEIR_ROBOT_1"]
 "MR_STABS_MK2" = ["OUR_ROBOT_1"]
 
-# Mr Stabs Mk2 stays on pursuit, same as the hardware profiles. `type` differs from _common, so
-# the merge replaces the section wholesale: these are the values this profile used to inherit.
 [navigation]
 type = "PursuitNavigation"
 angular_kp = 0.2
@@ -14,14 +12,10 @@ angle_threshold = 1.7
 velocity_ramp_far_distance = 1.5
 velocity_ramp_near_distance = 1.0
 velocity_ramp_min_scale = 0.35
-wall_reverse_distance = 0.25      # set > 0 to reverse when within this distance of any wall
-wall_heading_threshold = 1.047    # ~60 deg; heading must point toward wall to trigger reversal
-max_linear_command = 1.0          # 0 = no limit
-max_angular_command = 0.0         # 0 = no limit
+wall_reverse_distance_m = 0.25
+wall_heading_threshold_rad = 1.047
+max_linear_command = 1.0
 
-# Match the hardware profiles: no jig fit for this drivetrain, so the EKF has no measured lag or
-# delay to propagate and dead reckoning is the honest choice. `type` differs from _common, so the
-# merge replaces the section wholesale.
 [robot_filter.motion_estimator]
 type = "DeadReckoningMotionEstimator"
 

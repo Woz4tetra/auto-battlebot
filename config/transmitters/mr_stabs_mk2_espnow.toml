@@ -1,0 +1,10 @@
+[transmitter]
+type = "EspNowTransmitter"
+dongle_serial_path = "/dev/espnow_dongle"
+drive_processor = "DifferentialDriveProcessor"
+lifted_deadzone_percent = 0
+zero_deadzone_percent = 2
+reverse_angular_channel = true
+velocity_saturation_limit = 1.0
+max_motor_rpm = 1500
+max_motor_rpm_per_s = 2000

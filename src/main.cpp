@@ -54,6 +54,7 @@ std::string read_build_version() {
 }
 
 int run_application(const auto_battlebot::ClassConfiguration& class_config,
+                    const auto_battlebot::ResolvedConfig& resolved_config,
                     const std::string& active_profile,
                     const std::vector<std::string>& available_profiles,
                     const auto_battlebot::ProfileSelectorConfig& profile_selector) {
@@ -65,6 +66,10 @@ int run_application(const auto_battlebot::ClassConfiguration& class_config,
     // is reading.
     reserve_camera_input_paths(*class_config.camera);
     auto mcap_recorder = make_mcap_recorder(class_config.mcap_recorder, active_profile);
+    if (mcap_recorder) {
+        mcap_recorder->write_metadata(kResolvedConfigMetadataKey,
+                                      format_resolved_toml(resolved_config));
+    }
     setup_logging(mcap_recorder);
 
     std::vector<std::shared_ptr<DiagnosticsBackend>> backends;
@@ -117,6 +122,13 @@ int run_application(const auto_battlebot::ClassConfiguration& class_config,
     remote.app_info.current_profile = active_profile;
     remote.app_info.max_loop_rate_hz = class_config.runner.max_loop_rate;
     remote.app_info.version = read_build_version();
+    remote.resolved_config.profile = active_profile;
+    for (const auto& field : resolved_config.fields) {
+        remote.resolved_config.fields.push_back({.section = field.section,
+                                                 .key = field.key,
+                                                 .value = field.value,
+                                                 .source = field.source});
+    }
     if (class_config.ui) {
         remote.app_info.rate_fail_threshold = class_config.ui->rate_fail_threshold;
         remote.app_info.rate_fail_duration_sec = class_config.ui->rate_fail_duration_sec;
@@ -181,8 +193,9 @@ int main(int argc, char** argv) {
     app.add_option("-c,--config", config_path_string,
                    "Path to config profile (e.g. config/playback.toml or config/playback)");
     bool print_config = false;
-    app.add_flag("--print-config", print_config,
-                 "Print the resolved config values (extends chain merged) and exit");
+    app.add_flag(
+        "--print-config", print_config,
+        "Print every config field with its value and source file:line or default, then exit");
 
     try {
         app.parse(argc, argv);
@@ -213,12 +226,10 @@ int main(int argc, char** argv) {
     }
     if (print_config) {
         try {
-            toml::table merged = load_merged_config(config_path);
-            std::cout << "# Resolved config for profile '" << active_profile << "'\n";
-            std::cout << "# Source: " << config_path.string() << "\n";
-            std::cout << "# Note: shows values set by the config and its extends bases; defaults\n";
-            std::cout << "#       applied in code for omitted optional fields are not shown.\n\n";
-            std::cout << merged << "\n";
+            ResolvedConfig resolved;
+            load_classes_from_config(config_path, {}, &resolved);
+            std::cout << "# Resolved config for profile '" << active_profile << "'\n\n";
+            std::cout << format_resolved_toml(resolved);
         } catch (const std::exception& e) {
             spdlog::error("Failed to load config '{}': {}", config_path.string(), e.what());
             return 1;
@@ -227,9 +238,11 @@ int main(int argc, char** argv) {
     }
 
     try {
-        ClassConfiguration class_config = load_classes_from_config(config_path);
-        const int result =
-            run_application(class_config, active_profile, available_profiles, profile_selector);
+        ResolvedConfig resolved_config;
+        ClassConfiguration class_config =
+            load_classes_from_config(config_path, {}, &resolved_config);
+        const int result = run_application(class_config, resolved_config, active_profile,
+                                           available_profiles, profile_selector);
         shutdown_logging();
         return result;
     } catch (const std::exception& e) {

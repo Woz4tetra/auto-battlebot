@@ -15,7 +15,9 @@ all written against this document. Change it here first.
   profile id (or empty when the app was run with an explicit `-c`), and, on RGB-camera
   recordings, `camera_calibration`: the calibration `/camera/video` needs, as the same TOML text
   a `config/cameras/<id>.toml` file holds. Recordings from before 2026-09-24 carry only
-  `calibration_id`, which playback resolves against `config/cameras/`.
+  `calibration_id`, which playback resolves against `config/cameras/`. Recordings from
+  2026-11-19 on also hold `resolved_config`: the `--print-config` text for the run, every field
+  with its value and the `file.toml:line` that set it or `default`.
 - The RGB camera rolls the file over past `mcap.max_size_gb`. Each segment repeats the metadata
   and re-creates every channel, so it is independently readable; segments after the first are
   named `..._partNN.mcap`.
@@ -50,6 +52,7 @@ all written against this document. Change it here first.
 | `/log` | `protobuf` | `foxglove.Log` | `protobuf` | yes |
 | `/status/system` | `json` | `auto_battlebot.status.System` | `jsonschema` | yes |
 | `/status/app` | `json` | `auto_battlebot.status.App` | `jsonschema` | yes |
+| `/status/config` | `json` | `auto_battlebot.status.ResolvedConfig` | `jsonschema` | yes |
 | `/status/sticks` | `json` | `auto_battlebot.status.Sticks` | `jsonschema` | yes |
 | `/status/tracks` | `json` | `auto_battlebot.status.Tracks` | `jsonschema` | yes |
 | `/status/command_ack` | `json` | `auto_battlebot.status.CommandAck` | `jsonschema` | yes |
@@ -77,6 +80,7 @@ channel's jsonschema is generated from the struct, so this doc does not repeat t
 | --- | --- | --- |
 | `/status/system` | 10 Hz | Camera, transmitter, loop rate, init, opponent count, autonomy, SVO and MCAP recording, temperature, compute mode, app uptime, the radio's autonomy switch and how long it has been on |
 | `/status/app` | every 5 s, latched | Profiles, current profile, loop rate target and fail thresholds |
+| `/status/config` | every 20 s, latched | Every config field the app parsed: `section`, `key`, `value` (TOML text), `source` (`file.toml:line` relative to `config/`, or `default`) |
 | `/status/sticks` | 20 Hz | Our robot's sticks read back from the transmitter, normalized [-1, 1] |
 | `/status/tracks` | 20 Hz | Field size, the field border projected into the camera image (fractions of width and height), each robot's track id, label, group, stale flag, field-frame `x`, `y`, `yaw`, and image point, and navigation's target segment |
 | `/status/command_ack` | per command | `seq`, `topic`, `accepted`, `message` |

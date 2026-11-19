@@ -52,6 +52,7 @@ struct RunnerRemote {
     std::shared_ptr<HostServices> host;
     std::shared_ptr<CameraProfileStore> camera_profiles;
     remote::AppInfoMessage app_info;
+    remote::ResolvedConfigMessage resolved_config;
 };
 
 // Quittable so SIGINT and SIGTERM can stop the run. The UI manager used to be the only

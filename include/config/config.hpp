@@ -11,6 +11,7 @@
 
 #include "battery/config.hpp"
 #include "config/config_parser.hpp"
+#include "config/config_provenance.hpp"
 #include "control_loop/config.hpp"
 #include "data_structures.hpp"
 #include "directories.hpp"
@@ -65,7 +66,8 @@ struct ClassConfiguration {
 };
 
 ClassConfiguration load_classes_from_config(const std::filesystem::path &path = {},
-                                            const std::filesystem::path &config_root = {});
+                                            const std::filesystem::path &config_root = {},
+                                            ResolvedConfig *resolved = nullptr);
 
 toml::table load_merged_config(const std::filesystem::path &path,
                                const std::filesystem::path &config_root = {});

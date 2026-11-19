@@ -318,7 +318,7 @@ so only 38 of its 100 images resolve exactly.
   absent from the training set (opponents, house).
 
   Usage:
-      python training/model_eval/make_eval_dataset.py data/recordings/*.mcap         [--output-dir <dir>] [--per-video 100]         [--playback-config config/playback/_playback.toml]         [--extra-classes opponent house_bot]
+      python training/model_eval/make_eval_dataset.py data/recordings/*.mcap         [--output-dir <dir>] [--per-video 100]         [--start-frames config/playback/svo_start_frames.toml]         [--extra-classes opponent house_bot]
   ```
 
 - `training/model_eval/make_field_projection_check.py`, `pick_frames`:

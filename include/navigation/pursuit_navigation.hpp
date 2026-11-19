@@ -63,16 +63,16 @@ class PursuitNavigation : public NavigationInterface {
 
     static double distance_2d(const Pose2D &a, const Pose2D &b);
 
-    double stop_distance_;
+    double stop_distance_m_;
     double velocity_ramp_far_distance_;
     double velocity_ramp_near_distance_;
     double velocity_ramp_min_scale_;
     double brake_distance_;
-    double wall_reverse_distance_;
+    std::optional<double> wall_reverse_distance_m_;
     double wall_reverse_min_speed_;
-    double wall_heading_threshold_;
-    double max_linear_command_;
-    double max_angular_command_;
+    double wall_heading_threshold_rad_;
+    std::optional<double> max_linear_command_;
+    std::optional<double> max_angular_command_;
     double angular_kp_;
     double angular_kd_;
     double angle_threshold_;

@@ -1,23 +1,14 @@
-# Mr Stabs Mk2 against the kinematic sim. Pairs with simulation/sim_mr_stabs_mk2.toml, which holds
-# the matching plant on the sim side.
-#
-# The base handles everything robot-agnostic: perception bypass, fixed arena, ground-truth robot
-# filter, ManualClock, sim transmitter. Only the two things that describe *this* robot live here.
 extends = "simulation/kinematic_sim"
 
-# The sim's second [[opponents]] entry is the house bot: report it as NEUTRAL_ROBOT_1 so the
-# hazard assembler turns it into a keep-out instead of a target.
 [robot_filter]
 type = "GroundTruthRobotFilter"
 neutral_count = 1
 
-# Same tuning as config/mr_stabs_mk2_desktop.toml. `type` matches the base, so this merges
-# key-by-key and the base's wall-reversal settings carry through.
 [navigation]
 type = "PursuitNavigation"
 angular_kp = 0.06
 angular_kd = 0.005
-max_linear_command = 0.25         # 0 = no limit
+max_linear_command = 0.25
 angle_threshold = 1.7
 velocity_ramp_far_distance = 1.5
 velocity_ramp_near_distance = 1.0

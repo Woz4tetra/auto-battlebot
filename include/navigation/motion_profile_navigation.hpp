@@ -82,7 +82,7 @@ class MotionProfileNavigation : public NavigationInterface {
 
     double attack_terminal_speed_fraction_;
     double run_away_terminal_speed_fraction_;
-    double stop_distance_;
+    double stop_distance_m_;
     HazardAvoidance hazards_;
 
     double speed_kp_;
@@ -97,14 +97,14 @@ class MotionProfileNavigation : public NavigationInterface {
     double angular_kd_;
     double angle_threshold_;
     double max_yaw_rate_;
-    double max_angular_command_;
+    std::optional<double> max_angular_command_;
     bool enable_hysteresis_;
 
     double boundary_margin_;
-    double max_linear_command_;
-    double wall_reverse_distance_;
+    std::optional<double> max_linear_command_;
+    std::optional<double> wall_reverse_distance_m_;
     double wall_reverse_min_speed_;
-    double wall_heading_threshold_;
+    double wall_heading_threshold_rad_;
 
     std::shared_ptr<DiagnosticsModuleLogger> logger_;
     std::shared_ptr<ClockInterface> clock_;

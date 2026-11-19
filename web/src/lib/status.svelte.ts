@@ -6,6 +6,7 @@ import type {
   CommandPayloads,
   CommandTopic,
   NetworkStatus,
+  ResolvedConfigStatus,
   SticksStatus,
   SystemStatus,
   TracksStatus,
@@ -26,6 +27,7 @@ class StatusStore {
   connection = $state<ConnectionState>("closed");
   system = $state.raw<SystemStatus | null>(null);
   app = $state.raw<AppStatus | null>(null);
+  config = $state.raw<ResolvedConfigStatus | null>(null);
   sticks = $state.raw<SticksStatus | null>(null);
   tracks = $state.raw<TracksStatus | null>(null);
   network = $state.raw<NetworkStatus | null>(null);
@@ -69,6 +71,7 @@ class StatusStore {
       this.systemAt = Date.now();
     });
     connection.subscribe("/status/app", (m) => (this.app = m));
+    connection.subscribe("/status/config", (m) => (this.config = m));
     connection.subscribe("/status/sticks", (m) => (this.sticks = m));
     connection.subscribe("/status/tracks", (m) => (this.tracks = m));
     connection.subscribe("/status/network", (m) => (this.network = m));

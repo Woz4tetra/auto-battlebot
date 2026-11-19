@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import glob
-import re
 from pathlib import Path
 
 import cv2
@@ -14,6 +13,7 @@ import yaml
 from mcap.reader import make_reader
 from tqdm import tqdm
 
+from auto_battlebot.compat import tomllib
 from auto_battlebot.recording.mcap_io import (
     CAMERA_IMAGE_TOPIC,
     decode_compressed_image,
@@ -24,7 +24,7 @@ _HERE = Path(__file__).parent
 _REPO = _HERE.parent.parent
 DEFAULT_OUTPUT_DIR = _HERE.parent / "data" / "nhrl_keypoints_eval_test"
 DEFAULT_CLASS_SOURCE = _HERE.parent / "data" / "our_robot_keypoints" / "data.yml"
-DEFAULT_PLAYBACK_CONFIG = _REPO / "config" / "playback" / "_playback.toml"
+DEFAULT_START_FRAMES = _REPO / "config" / "playback" / "svo_start_frames.toml"
 SIDE_BY_SIDE_MIN_ASPECT = (16 / 9 + 32 / 9) / 2
 EXTRA_COLORS = ["#22c55e", "#f59e0b", "#a855f7", "#14b8a6", "#f43f5e"]
 
@@ -68,27 +68,12 @@ def image_frame_count(mcap_path: Path) -> int:
     return summary.statistics.channel_message_counts.get(channel_id, 0)
 
 
-def parse_start_frames(config_path: Path) -> dict[str, int]:
-    """Map SVO basename (no dir, no .svo2) -> svo_start_frame from the playback config.
-
-    Entries are commented out in the config; a svo_start_frame binds to the svo_file_path
-    line above it. Videos with no svo_start_frame default to 0."""
-    starts: dict[str, int] = {}
-    current: str | None = None
-    if not config_path.exists():
-        print(f"Warning: playback config {config_path} not found; using start frame 0 for all")
-        return starts
-    for raw in config_path.read_text().splitlines():
-        line = raw.lstrip("#").strip()
-        path_match = re.match(r'svo_file_path\s*=\s*"([^"]+)"', line)
-        if path_match:
-            current = Path(path_match.group(1)).stem
-            starts.setdefault(current, 0)
-            continue
-        frame_match = re.match(r"svo_start_frame\s*=\s*(\d+)", line)
-        if frame_match and current is not None:
-            starts[current] = int(frame_match.group(1))
-    return starts
+def load_start_frames(path: Path) -> dict[str, int]:
+    """Map SVO basename (no dir, no .svo2) -> svo_start_frame; recordings not listed start at 0."""
+    if not path.exists():
+        print(f"Warning: start frame table {path} not found; using start frame 0 for all")
+        return {}
+    return {str(k): int(v) for k, v in tomllib.loads(path.read_text())["start_frames"].items()}
 
 
 def svo_key(mcap_path: Path) -> str:
@@ -196,10 +181,10 @@ def main() -> None:
         "--per-video", type=int, default=100, help="frames to sample from each recording"
     )
     parser.add_argument(
-        "--playback-config",
+        "--start-frames",
         type=Path,
-        default=DEFAULT_PLAYBACK_CONFIG,
-        help=f"config with svo_start_frame per video (default: {DEFAULT_PLAYBACK_CONFIG})",
+        default=DEFAULT_START_FRAMES,
+        help=f"[start_frames] table of SVO stem to first frame (default: {DEFAULT_START_FRAMES})",
     )
     parser.add_argument(
         "--class-source",
@@ -222,7 +207,7 @@ def main() -> None:
     schema = load_class_schema(args.class_source, args.extra_classes)
     print(f"Classes: {schema['names']}")
 
-    start_frames = parse_start_frames(args.playback_config)
+    start_frames = load_start_frames(args.start_frames)
 
     total = 0
     for mcap_path in mcaps:

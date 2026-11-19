@@ -29,8 +29,8 @@ OpenTxTransmitter::OpenTxTransmitter(const OpenTxTransmitterConfiguration& confi
                                    .reverse_angular = config.reverse_angular_channel,
                                },
                                logger_)) {
-    if (config_.max_motor_rpm_per_sec > 0.0 && config_.max_motor_rpm > 0.0) {
-        max_normalized_linear_rate_per_s_ = config_.max_motor_rpm_per_sec / config_.max_motor_rpm;
+    if (config_.max_motor_rpm_per_s && config_.max_motor_rpm > 0.0) {
+        max_normalized_linear_rate_per_s_ = *config_.max_motor_rpm_per_s / config_.max_motor_rpm;
     }
 }
 
@@ -193,7 +193,9 @@ void OpenTxTransmitter::log_switch_states() {
         return;
     }
     const int trainer_raw = get_channel_value(config_.trainer_enable_channel);
-    const int init_raw = get_channel_value(config_.init_button_channel);
+    const int init_raw = config_.init_button_channel
+                             ? get_channel_value(static_cast<int>(*config_.init_button_channel))
+                             : 0;
     const bool autonomy_enabled = trainer_mixed_in(trainer_raw);
     const bool init_pressed = init_raw > config_.init_button_threshold;
     const auto states = std::make_tuple(autonomy_enabled, init_pressed);
@@ -209,7 +211,8 @@ void OpenTxTransmitter::log_switch_states() {
 bool OpenTxTransmitter::did_init_button_press() {
     if (!latest_channels_) return false;
 
-    int channel_idx = config_.init_button_channel;
+    if (!config_.init_button_channel) return false;
+    const int64_t channel_idx = *config_.init_button_channel;
     if (channel_idx < 0 || channel_idx >= kMaxChannels) return false;
 
     bool is_pressed = (*latest_channels_)[channel_idx] > config_.init_button_threshold;

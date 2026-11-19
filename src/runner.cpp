@@ -98,6 +98,7 @@ void Runner::publish_system_status(bool camera_ok, double loop_rate_hz) {
     if (!remote_.status) return;
     remote_.status->publish(message);
     remote_.status->publish(remote_.app_info);
+    remote_.status->publish(remote_.resolved_config);
     publish_camera_settings(false);
 }
 

@@ -39,6 +39,7 @@ struct RemoteTopics {
     static constexpr auto status = std::tuple{
         StatusTopic<SystemStatusMessage>{"/status/system", Latch::NO, 10.0},
         StatusTopic<AppInfoMessage>{"/status/app", Latch::YES, 0.2},
+        StatusTopic<ResolvedConfigMessage>{"/status/config", Latch::YES, 0.05},
         StatusTopic<SticksMessage>{"/status/sticks", Latch::NO, 20.0},
         StatusTopic<TracksMessage>{"/status/tracks", Latch::NO, 20.0},
         StatusTopic<CommandAckMessage>{"/status/command_ack", Latch::NO, 0.0},

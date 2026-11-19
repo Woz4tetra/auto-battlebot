@@ -384,13 +384,13 @@ std::vector<espnow_protocol::CommandPayload> read_commands(const std::vector<uin
     return commands;
 }
 
-// With SA on, a linear step ramps at max_motor_rpm_per_sec / max_motor_rpm; with SA off it passes
+// With SA on, a linear step ramps at max_motor_rpm_per_s / max_motor_rpm; with SA off it passes
 // through so the robot never lags the sticks.
 TEST_F(EspNowTransmitterPtyTest, SlewLimitsLinearOnlyWhileAutonomyIsOn) {
     EspNowTransmitterConfiguration config;
     config.dongle_serial_path = path_;
     config.max_motor_rpm = 1500.0;
-    config.max_motor_rpm_per_sec = 1500.0;  // 1.0 normalized per second
+    config.max_motor_rpm_per_s = 1500.0;  // 1.0 normalized per second
     EspNowTransmitter transmitter(config, nullptr, nullptr);
     ASSERT_TRUE(transmitter.initialize());
     transmitter.enable();

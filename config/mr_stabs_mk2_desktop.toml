@@ -4,32 +4,20 @@ extends = "_desktop"
 "MRS_BUFF_MK3" = ["THEIR_ROBOT_1"]
 "MR_STABS_MK2" = ["OUR_ROBOT_1"]
 
-# Mr Stabs Mk2 has no jig plant fit, so it stays on the pre-Stage-4 pursuit controller. `type`
-# differs from _common, so the merge replaces that section wholesale: every field this controller
-# needs has to be listed here, not inherited.
 [navigation]
 type = "PursuitNavigation"
 angular_kp = 0.06
 angular_kd = 0.005
-max_linear_command = 0.25         # 0 = no limit
+max_linear_command = 0.25
 angle_threshold = 1.7
 velocity_ramp_far_distance = 1.5
 velocity_ramp_near_distance = 1.0
 velocity_ramp_min_scale = 0.35
-wall_reverse_distance = 0.25      # set > 0 to reverse when within this distance of any wall
-wall_heading_threshold = 1.047    # ~60 deg; heading must point toward wall to trigger reversal
-max_angular_command = 0.0         # 0 = no limit
+wall_reverse_distance_m = 0.25
+wall_heading_threshold_rad = 1.047
 
 [transmitter]
-# The radio model mixes linear/angular into the motor outputs, so send body axes.
-drive_processor = "DifferentialDriveProcessor"
-max_motor_rpm = 1500                           # RPM
-max_motor_rpm_per_sec = 0                      # RPM/s; off, nothing rate-limits the command on the way to the wheels
-lifted_deadzone_percent = 0
-zero_deadzone_percent = 2
-reverse_angular_channel = true
-invert_angular_channel_readback = false        # the Mr Stabs radio model sends raw Ele/Ail
-velocity_saturation_limit = 1.0                # 0 = disabled; e.g. 1.0 = |linear| + |angular| <= 1
+from = "transmitters/mr_stabs_mk2_opentx"
 
 [plant]
 from = "robots/mr_stabs_mk2"

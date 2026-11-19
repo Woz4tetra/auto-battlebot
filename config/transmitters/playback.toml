@@ -1,0 +1,5 @@
+[transmitter]
+type = "PlaybackTransmitter"
+init_delay_seconds = 0.4
+lifted_deadzone_percent = 10
+zero_deadzone_percent = 2

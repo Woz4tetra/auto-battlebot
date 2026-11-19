@@ -65,18 +65,11 @@ void CompositeTransmitterConfiguration::parse_fields(ConfigParser &parser) {
         if (!entry) {
             throw ConfigValidationError("Each entry in [transmitter] 'children' must be a table");
         }
-        // transmit_rate_hz belongs to the composite, not the child, so take it out before the child
-        // parser checks for unknown fields.
-        toml::table child_table = *entry;
-        double rate_hz = 0.0;
-        if (const auto rate = child_table["transmit_rate_hz"].value<double>()) {
-            rate_hz = *rate;
-            child_table.erase("transmit_rate_hz");
-        }
+        ConfigParser child_parser(*entry, "transmitter.children");
+        const double rate_hz = child_parser.get_optional_double("transmit_rate_hz", 0.0);
         if (rate_hz < 0.0) {
             throw ConfigValidationError("[[transmitter.children]] transmit_rate_hz must be >= 0");
         }
-        ConfigParser child_parser(child_table, "transmitter.children");
         auto child = parse_transmitter_config(child_parser);
         if (child->type == "CompositeTransmitter") {
             throw ConfigValidationError("CompositeTransmitter cannot nest inside itself");
