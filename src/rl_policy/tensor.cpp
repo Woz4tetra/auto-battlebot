@@ -20,7 +20,7 @@ std::string TensorSpec::to_string() const {
     return text + "]";
 }
 
-Tensor::Tensor(TensorSpec tensor_spec) : spec(std::move(tensor_spec)), data(spec.size(), 0.0f) {}
+Tensor::Tensor(TensorSpec tensor_spec) : spec(std::move(tensor_spec)), data_(spec.size(), 0.0f) {}
 
 TensorSet::TensorSet(const std::vector<TensorSpec> &specs) {
     tensors_.reserve(specs.size());
@@ -49,7 +49,7 @@ std::vector<TensorSpec> TensorSet::specs() const {
 }
 
 void TensorSet::fill(float value) {
-    for (auto &tensor : tensors_) std::fill(tensor.data.begin(), tensor.data.end(), value);
+    for (auto &tensor : tensors_) std::ranges::fill(tensor.values(), value);
 }
 
 std::string specs_to_string(const std::vector<TensorSpec> &specs) {

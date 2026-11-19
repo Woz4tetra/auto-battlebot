@@ -142,11 +142,11 @@ void RtNeuralRuntime::load(const NetworkSpec &spec) {
 }
 
 void RtNeuralRuntime::run() {
-    const std::vector<float> &in = inputs_[0].data;
+    const std::span<const float> in = inputs_[0].values();
     std::copy(in.begin(), in.end(), model_->input.begin());
     model_->network->forward(model_->input.data());
     const float *out = model_->network->getOutputs();
-    std::vector<float> &dst = outputs_[0].data;
+    const std::span<float> dst = outputs_[0].values();
     std::copy(out, out + dst.size(), dst.begin());
 }
 

@@ -9,11 +9,6 @@
 
 namespace auto_battlebot::rl_policy {
 
-/**
- * The bundle's actor network run through its runtime, then its decoder. load() loads the network,
- * builds the decoder, runs the self-test and throws if it fails, naming the worst pair and its
- * error.
- */
 class NetworkPolicy : public PolicyInterface {
    public:
     void load(const PolicyBundle &bundle) override;

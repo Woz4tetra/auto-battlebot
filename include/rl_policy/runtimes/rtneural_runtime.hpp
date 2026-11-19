@@ -11,9 +11,6 @@ class RtNeuralRuntime : public NetworkRuntimeInterface {
     RtNeuralRuntime();
     ~RtNeuralRuntime() override;
 
-    /** Throws PolicyBundleError when the file does not parse, uses a layer type or activation
-     * RTNeural would skip or crash on, has Dense weights of the wrong shape, or has input and
-     * output sizes other than the spec's. */
     void load(const NetworkSpec &spec) override;
 
     TensorSet &inputs() override { return inputs_; }

@@ -146,10 +146,10 @@ void parse_network_bundle(const ManifestReader &reader, const toml::table &manif
 
     const toml::table &decoder = reader.require_table(manifest, "decoder", "");
     reader.check_keys(decoder, {"kind", "scale"}, "decoder.");
-    DecoderSpec decoder_spec;
+    NetworkBundle network_bundle;
+    DecoderSpec &decoder_spec = network_bundle.decoder;
     decoder_spec.kind = reader.require_enum<ActionDecoderKind>(decoder, "kind", "decoder.");
     decoder_spec.scale = reader.require_numbers(decoder, "scale", "decoder.");
-    bundle.decoder = decoder_spec;
 
     const toml::array *networks = manifest["networks"].as_array();
     if (networks == nullptr || networks->empty()) {
@@ -166,10 +166,10 @@ void parse_network_bundle(const ManifestReader &reader, const toml::table &manif
         network.file = reader.require_file(*entry, "file", at);
         network.inputs = reader.require_tensors(*entry, "inputs", at);
         network.outputs = reader.require_tensors(*entry, "outputs", at);
-        bundle.networks.push_back(std::move(network));
+        network_bundle.networks.push_back(std::move(network));
     }
 
-    const NetworkSpec &actor = bundle.networks.front();
+    const NetworkSpec &actor = network_bundle.actor();
     if (actor.outputs.size() != 1) {
         reader.fail("the actor (" + actor.name + ") has outputs " + specs_to_string(actor.outputs) +
                     "; it must have exactly one, the action");
@@ -186,11 +186,11 @@ void parse_network_bundle(const ManifestReader &reader, const toml::table &manif
 
     const toml::table &selftest = reader.require_table(manifest, "selftest", "");
     reader.check_keys(selftest, {"file", "tolerance"}, "selftest.");
-    SelftestSpec selftest_spec;
+    SelftestSpec &selftest_spec = network_bundle.selftest;
     selftest_spec.file = reader.require_file(selftest, "file", "selftest.");
     selftest_spec.tolerance = reader.require_number(selftest, "tolerance", "selftest.");
     if (!(selftest_spec.tolerance > 0.0)) reader.fail("selftest.tolerance must be > 0");
-    bundle.selftest = selftest_spec;
+    bundle.policy = std::move(network_bundle);
 }
 
 void parse_constant_bundle(const ManifestReader &reader, const toml::table &manifest,
@@ -214,7 +214,7 @@ void parse_constant_bundle(const ManifestReader &reader, const toml::table &mani
             reader.fail("constant.action values must be normalized commands in [-1, 1]");
         }
     }
-    bundle.constant_action = std::move(action);
+    bundle.policy = ConstantBundle{action[0], action[1]};
 }
 
 }  // namespace
@@ -250,9 +250,9 @@ PolicyBundle load_policy_bundle(const std::filesystem::path &directory) {
     bundle.obs_spec_version =
         static_cast<int>(reader.require_int(manifest, "obs_spec_version", ""));
     bundle.execution = reader.require_enum<PolicyExecution>(manifest, "execution", "");
-    bundle.policy_period_ticks =
+    bundle.policy_period_control_ticks =
         static_cast<int>(reader.require_int(manifest, "policy_period_ticks", ""));
-    if (bundle.policy_period_ticks < 1) reader.fail("policy_period_ticks must be >= 1");
+    if (bundle.policy_period_control_ticks < 1) reader.fail("policy_period_ticks must be >= 1");
 
     switch (bundle.policy_kind) {
         case PolicyKind::NETWORK:

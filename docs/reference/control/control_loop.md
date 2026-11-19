@@ -30,3 +30,11 @@ The transmitter reports its health each cycle. The control loop samples it once 
 ## Watchdog stamp
 
 `last_cycle_wall_time` is the wall-clock stamp of the last cycle's start. `ThreadedControlLoop::is_healthy` compares it against `watchdog_timeout_ms`.
+
+## Robot descriptions cache
+
+`RobotDescriptionsCache` keeps the most recent navigation-critical robot set (our robot and an opposing robot) and substitutes it when the current frame lacks either side. `Runner` owns it so target selection and navigation read the same resolved set within a tick. Without it, target selection would flap to the previous selection while navigation operated on a stale cache.
+
+- The substitute expires `robot_cache_max_age_s` after its own stamp (`[control_loop]`). Past that the current set goes through as is, so a navigator sees our robot is gone and runs its no-robot path.
+- Replaying the frozen snapshot forever kept `RlPolicyNavigation` feeding the policy one unchanging observation, and it held a full-rate spin that kept the robot invisible to the camera.
+- `resolve()` returns a `Resolved` whose `robots` reference points at either the `current` argument or the cache's snapshot. It is valid until the next `resolve()` or `reset()`, and for the `current` branch only as long as the caller's argument.

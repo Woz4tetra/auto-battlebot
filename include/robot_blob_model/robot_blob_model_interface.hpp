@@ -8,8 +8,6 @@ class RobotBlobModelInterface {
     virtual ~RobotBlobModelInterface() = default;
     virtual bool initialize() = 0;
     virtual ModelResultStamped update(RgbImage image) = 0;
-    // Raw detections from the most recent update() call, in original-image pixels.
-    // Default is empty for models that don't produce boxed detections.
-    virtual DetectionsStamped last_detections() const { return {}; }
+    virtual DetectionsStamped last_detections_original_px() const { return {}; }
 };
 }  // namespace auto_battlebot

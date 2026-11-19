@@ -1,6 +1,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <memory>
 #include <sstream>
@@ -266,10 +267,10 @@ std::filesystem::path write_gru_bundle(const std::string &name) {
     std::vector<float> actions;
     for (int p = 0; p < 2; ++p) {
         runtime.reset();
-        runtime.inputs()[0].data.assign(observations.begin() + p * kObsSize,
-                                        observations.begin() + (p + 1) * kObsSize);
+        std::copy(observations.begin() + p * kObsSize, observations.begin() + (p + 1) * kObsSize,
+                  runtime.inputs()[0].values().begin());
         runtime.run();
-        for (float raw : runtime.outputs()[0].data) actions.push_back(std::tanh(raw));
+        for (float raw : runtime.outputs()[0].values()) actions.push_back(std::tanh(raw));
     }
     rl_test::write_selftest(dir / "selftest.bin", 2, kObsSize, 2, observations, actions);
     rl_test::write_text(dir / "manifest.toml",

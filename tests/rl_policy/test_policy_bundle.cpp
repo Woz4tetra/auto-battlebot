@@ -38,12 +38,12 @@ TEST(PolicyBundleTest, LoadsTheExportedTinyMlp) {
     EXPECT_EQ(bundle.policy_kind, PolicyKind::NETWORK);
     EXPECT_EQ(bundle.obs_spec_version, 0);
     EXPECT_EQ(bundle.execution, PolicyExecution::INLINE);
-    EXPECT_EQ(bundle.policy_period_ticks, 5);
-    ASSERT_TRUE(bundle.decoder.has_value());
-    EXPECT_EQ(bundle.decoder->kind, ActionDecoderKind::SQUASHED);
-    EXPECT_EQ(bundle.decoder->scale, (std::vector<double>{1.0, 1.0}));
-    ASSERT_EQ(bundle.networks.size(), 1u);
-    const NetworkSpec &actor = bundle.networks.front();
+    EXPECT_EQ(bundle.policy_period_control_ticks, 5);
+    const auto &network_bundle = std::get<NetworkBundle>(bundle.policy);
+    EXPECT_EQ(network_bundle.decoder.kind, ActionDecoderKind::SQUASHED);
+    EXPECT_EQ(network_bundle.decoder.scale, (std::vector<double>{1.0, 1.0}));
+    ASSERT_EQ(network_bundle.networks.size(), 1u);
+    const NetworkSpec &actor = network_bundle.actor();
     EXPECT_EQ(actor.name, "actor");
     EXPECT_EQ(actor.runtime, NetworkRuntimeKind::RTNEURAL);
     EXPECT_EQ(actor.file, tiny_mlp_bundle() / "actor.rtneural.json");
@@ -51,20 +51,16 @@ TEST(PolicyBundleTest, LoadsTheExportedTinyMlp) {
     EXPECT_EQ(actor.inputs.front(), (TensorSpec{"obs.vector", {4}}));
     ASSERT_EQ(actor.outputs.size(), 1u);
     EXPECT_EQ(actor.outputs.front(), (TensorSpec{"action", {2}}));
-    ASSERT_TRUE(bundle.selftest.has_value());
-    EXPECT_DOUBLE_EQ(bundle.selftest->tolerance, 1e-4);
-    EXPECT_FALSE(bundle.constant_action.has_value());
+    EXPECT_DOUBLE_EQ(network_bundle.selftest.tolerance, 1e-4);
 }
 
 TEST(PolicyBundleTest, LoadsAConstantBundle) {
     const PolicyBundle bundle = load_policy_bundle(constant_bundle());
     EXPECT_EQ(bundle.policy_kind, PolicyKind::CONSTANT);
     EXPECT_EQ(bundle.obs_spec_version, 1);
-    ASSERT_TRUE(bundle.constant_action.has_value());
-    EXPECT_EQ(*bundle.constant_action, (std::vector<double>{0.3, -0.1}));
-    EXPECT_TRUE(bundle.networks.empty());
-    EXPECT_FALSE(bundle.decoder.has_value());
-    EXPECT_FALSE(bundle.selftest.has_value());
+    const auto &constant = std::get<ConstantBundle>(bundle.policy);
+    EXPECT_DOUBLE_EQ(constant.linear, 0.3);
+    EXPECT_DOUBLE_EQ(constant.angular, -0.1);
 }
 
 TEST(PolicyBundleTest, AWrongFormatVersionNamesBoth) {

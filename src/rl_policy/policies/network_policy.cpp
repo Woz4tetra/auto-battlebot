@@ -6,29 +6,29 @@ namespace auto_battlebot::rl_policy {
 
 void NetworkPolicy::load(const PolicyBundle &bundle) {
     const std::string where = "policy bundle " + bundle.directory.string() + ": ";
-    if (bundle.policy_kind != PolicyKind::NETWORK || !bundle.decoder || !bundle.selftest ||
-        bundle.networks.empty()) {
+    const auto *network_bundle = std::get_if<NetworkBundle>(&bundle.policy);
+    if (network_bundle == nullptr || network_bundle->networks.empty()) {
         throw PolicyBundleError(where +
                                 "NetworkPolicy needs a NETWORK bundle with [decoder], "
                                 "[[networks]] and [selftest]");
     }
-    if (bundle.networks.size() != 1) {
+    if (network_bundle->networks.size() != 1) {
         throw PolicyBundleError(where +
                                 "NetworkPolicy runs one network, the actor; the bundle "
                                 "lists " +
-                                std::to_string(bundle.networks.size()));
+                                std::to_string(network_bundle->networks.size()));
     }
 
-    auto runtime = make_network_runtime(bundle.networks.front().runtime);
-    runtime->load(bundle.networks.front());
-    auto decoder = make_action_decoder(*bundle.decoder);
-    if (decoder->action_size() != runtime->outputs()[0].data.size()) {
+    auto runtime = make_network_runtime(network_bundle->actor().runtime);
+    runtime->load(network_bundle->actor());
+    auto decoder = make_action_decoder(network_bundle->decoder);
+    if (decoder->action_size() != runtime->outputs()[0].values().size()) {
         throw PolicyBundleError(
             where + "the decoder makes " + std::to_string(decoder->action_size()) +
             " action values from the actor's " + runtime->outputs()[0].spec.to_string());
     }
 
-    const SelftestResult result = run_selftest(*runtime, *decoder, *bundle.selftest);
+    const SelftestResult result = run_selftest(*runtime, *decoder, network_bundle->selftest);
     if (!result.passed) {
         throw PolicyBundleError(where + "self-test failed on this box: " + result.summary());
     }
@@ -54,11 +54,12 @@ ActionCommand NetworkPolicy::act(const TensorSet &observation) {
     for (size_t i = 0; i < inputs.size(); ++i) {
         Tensor &input = inputs[i];
         const Tensor *source = observation.find(input.spec.name);
-        if (source == nullptr || source->data.size() != input.data.size()) return ActionCommand{};
-        std::copy(source->data.begin(), source->data.end(), input.data.begin());
+        if (source == nullptr || source->values().size() != input.values().size())
+            return ActionCommand{};
+        std::ranges::copy(source->values(), input.values().begin());
     }
     runtime_->run();
-    decoder_->decode(runtime_->outputs()[0].data, action_);
+    decoder_->decode(runtime_->outputs()[0].values(), action_);
     return ActionCommand{action_[0], action_[1]};
 }
 

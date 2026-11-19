@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -21,14 +22,12 @@ struct SelftestPairs {
 
 inline constexpr uint32_t kSelftestVersion = 1;
 
-/** Throws PolicyBundleError when the file is missing, truncated, or not a version-1 self-test. */
 SelftestPairs read_selftest(const std::filesystem::path &path);
 
 struct SelftestResult {
     int pairs = 0;
-    /** Pair and action index of the largest disagreement; -1 when there were no pairs. */
-    int worst_pair = -1;
-    int worst_index = -1;
+    std::optional<int> worst_pair;
+    std::optional<int> worst_index;
     double worst_error = 0.0;
     double tolerance = 0.0;
     bool passed = false;
@@ -36,13 +35,6 @@ struct SelftestResult {
     std::string summary() const;
 };
 
-/**
- * Run every self-test observation through `runtime` and `decoder` on this box and compare with
- * the PyTorch actions. The runtime is reset before each pair, so a recurrent network sees each
- * observation from a zero state, and again at the end. Throws PolicyBundleError when the file's
- * sizes disagree with the runtime's input or the decoder's action size; a numeric disagreement
- * is reported in the result, not thrown.
- */
 SelftestResult run_selftest(NetworkRuntimeInterface &runtime, const ActionDecoderInterface &decoder,
                             const SelftestSpec &spec);
 

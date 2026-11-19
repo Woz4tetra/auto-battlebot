@@ -27,7 +27,6 @@ class PolicyInterface {
 
     virtual void reset() = 0;
 
-    /** One step. `observation` holds every tensor input_specs() names. Never allocates. */
     virtual ActionCommand act(const TensorSet &observation) = 0;
 
     virtual std::optional<SelftestResult> selftest_result() const { return std::nullopt; }

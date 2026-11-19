@@ -1,10 +1,11 @@
-
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <string>
 #include <vector>
 
+#include "rl_policy/allocation_counter.hpp"
 #include "rl_policy/bundle_writer.hpp"
 #include "rl_policy/policies/constant_policy.hpp"
 #include "rl_policy/policies/network_policy.hpp"
@@ -17,7 +18,7 @@ using rl_test::tiny_mlp_bundle;
 
 TensorSet observation_of(const std::vector<float> &values) {
     TensorSet set({TensorSpec{"obs.vector", {static_cast<int>(values.size())}}});
-    set[0].data = values;
+    std::ranges::copy(values, set[0].values().begin());
     return set;
 }
 
@@ -36,7 +37,7 @@ TEST(NetworkPolicyTest, ActReproducesThePyTorchActions) {
     NetworkPolicy policy;
     const PolicyBundle bundle = load_policy_bundle(tiny_mlp_bundle());
     policy.load(bundle);
-    const SelftestPairs pairs = read_selftest(bundle.selftest->file);
+    const SelftestPairs pairs = read_selftest(std::get<NetworkBundle>(bundle.policy).selftest.file);
     for (uint32_t p = 0; p < pairs.count; ++p) {
         const std::vector<float> obs(pairs.observations.begin() + p * 4,
                                      pairs.observations.begin() + (p + 1) * 4);
@@ -100,13 +101,25 @@ std::filesystem::path write_gru_bundle() {
     std::vector<float> actions;
     for (int p = 0; p < 2; ++p) {
         runtime.reset();
-        runtime.inputs()[0].data = {observations[2 * p], observations[2 * p + 1]};
+        runtime.inputs()[0].values()[0] = observations[2 * p];
+        runtime.inputs()[0].values()[1] = observations[2 * p + 1];
         runtime.run();
-        for (float raw : runtime.outputs()[0].data) actions.push_back(std::tanh(raw));
+        for (float raw : runtime.outputs()[0].values()) actions.push_back(std::tanh(raw));
     }
     rl_test::write_selftest(dir / "selftest.bin", 2, 2, 2, observations, actions);
     rl_test::write_text(dir / "manifest.toml", rl_test::network_manifest(0, 2));
     return dir;
+}
+
+TEST(NetworkPolicyTest, ActDoesNotAllocate) {
+    NetworkPolicy policy;
+    policy.load(load_policy_bundle(tiny_mlp_bundle()));
+    const TensorSet observation = observation_of({0.1f, -0.2f, 0.3f, 0.4f});
+    policy.act(observation);
+    const long allocations = rl_test::allocations_during([&] {
+        for (int i = 0; i < 100; ++i) policy.act(observation);
+    });
+    EXPECT_EQ(allocations, 0);
 }
 
 TEST(NetworkPolicyTest, ResetClearsRecurrentState) {

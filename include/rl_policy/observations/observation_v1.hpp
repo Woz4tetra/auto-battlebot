@@ -9,23 +9,6 @@
 
 namespace auto_battlebot::rl_policy {
 
-/**
- * Observation spec v1, the C++ twin of auto_battlebot/rl/obs_spec.py (`build_v1`). 138 floats in
- * our body frame (x forward, y left) at our axle centre; the field frame's origin is the field
- * centre. Blocks, in order:
- *
- *   our robot         6   forward speed, yaw rate, measurement age, stale flag, mode one-hot
- *   history          32   last 8 policy steps, newest first: actions, then measured speed and
- *                         yaw rate
- *   target opponent  16   position, distance, bearing, relative heading, velocity, yaw rate,
- *                         three sigmas, half-diagonal, measurement age, stale flag
- *   range rays       48   24 rays, solid and hole channel each
- *   nearest hazards  36   4 discs by edge distance
- *
- * obs_spec.py holds the scales and caps. Any change here changes the spec: bump the version
- * there, add a new builder here, and regenerate tests/rl_policy/rl_policy_golden_data.hpp with
- * playground/rl/make_rl_golden_fixture.py.
- */
 namespace obs_v1 {
 inline constexpr int kSpecVersion = 1;
 inline constexpr int kSize = 138;
@@ -44,11 +27,10 @@ inline constexpr double kHazardRadiusScaleM = 0.3;
 inline constexpr const char *kTensorName = "obs.vector";
 }  // namespace obs_v1
 
-/** One hazard disc, field frame. `radius` is the raw object radius, never inflated. */
 struct ObservationHazardV1 {
     double x = 0.0;
     double y = 0.0;
-    double radius = 0.0;
+    double object_radius = 0.0;
     HazardKind kind = HazardKind::HOLE;
     double vx = 0.0;
     double vy = 0.0;
@@ -59,8 +41,7 @@ struct ObservationInputsV1 {
     double our_x = 0.0;
     double our_y = 0.0;
     double our_yaw = 0.0;
-    /** m/s along our heading. */
-    double our_speed = 0.0;
+    double our_forward_speed_mps = 0.0;
     double our_yaw_rate = 0.0;
     double our_age_s = 0.0;
     bool our_stale = false;
@@ -81,14 +62,11 @@ struct ObservationInputsV1 {
     double opp_half_diagonal = 0.0;
     double opp_age_s = 0.0;
     bool opp_stale = false;
-    /** Half the field rectangle's size. */
     double field_half_x = 0.0;
     double field_half_y = 0.0;
     std::span<const ObservationHazardV1> hazards;
 };
 
-/** The spec v1 observation. A pure function of `inputs`, computed in double; it does not
- * allocate. */
 void build_observation_v1(const ObservationInputsV1 &inputs,
                           std::span<double, obs_v1::kSize> observation);
 

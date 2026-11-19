@@ -1,9 +1,9 @@
 #pragma once
 
 #include <filesystem>
-#include <optional>
 #include <stdexcept>
 #include <string>
+#include <variant>
 #include <vector>
 
 #include "enums/action_decoder_kind.hpp"
@@ -14,7 +14,6 @@
 
 namespace auto_battlebot::rl_policy {
 
-/** The manifest format this loader reads. auto_battlebot/rl/export/bundle.py FORMAT_VERSION. */
 inline constexpr int kPolicyBundleFormatVersion = 1;
 
 class PolicyBundleError : public std::runtime_error {
@@ -40,6 +39,19 @@ struct SelftestSpec {
     double tolerance = 1e-4;
 };
 
+struct NetworkBundle {
+    DecoderSpec decoder;
+    std::vector<NetworkSpec> networks;
+    SelftestSpec selftest;
+
+    const NetworkSpec &actor() const { return networks.front(); }
+};
+
+struct ConstantBundle {
+    double linear = 0.0;
+    double angular = 0.0;
+};
+
 struct PolicyBundle {
     std::filesystem::path directory;
     int format_version = 0;
@@ -48,24 +60,10 @@ struct PolicyBundle {
     PolicyKind policy_kind = PolicyKind::NETWORK;
     int obs_spec_version = 0;
     PolicyExecution execution = PolicyExecution::INLINE;
-    /** Control-loop ticks between policy steps. The loop runs at 250 Hz, so 5 is 50 Hz. */
-    int policy_period_ticks = 1;
-    /** NETWORK bundles only. */
-    std::optional<DecoderSpec> decoder;
-    /** NETWORK bundles only; the first is the actor. */
-    std::vector<NetworkSpec> networks;
-    /** NETWORK bundles only. */
-    std::optional<SelftestSpec> selftest;
-    /** CONSTANT bundles only: [linear, angular]. */
-    std::optional<std::vector<double>> constant_action;
+    int policy_period_control_ticks = 1;
+    std::variant<NetworkBundle, ConstantBundle> policy;
 };
 
-/**
- * Parse `<directory>/manifest.toml` and check everything that needs no network library: the
- * format version, every enum field against its known values, required fields and tables, that
- * the files it names exist, and that the decoder scale matches the actor's output size. Throws
- * PolicyBundleError naming the problem.
- */
 PolicyBundle load_policy_bundle(const std::filesystem::path &directory);
 
 }  // namespace auto_battlebot::rl_policy

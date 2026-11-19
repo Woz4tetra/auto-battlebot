@@ -752,7 +752,7 @@ bool Runner::tick() {
         publisher_->publish_field_description(field_description, *initial_field_description_);
         publisher_->publish_hazards(hazard_view);
         publisher_->publish_robots(robots);
-        publisher_->publish_blob_detections(robot_mask_model_->last_detections());
+        publisher_->publish_blob_detections(robot_mask_model_->last_detections_original_px());
         publisher_->publish_keypoint_detections(keypoint_model_->last_detections());
         publisher_->publish_navigation(control_loop_->last_visualization());
     }

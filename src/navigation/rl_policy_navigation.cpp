@@ -123,7 +123,7 @@ void RlPolicyNavigation::load() {
     builder_ = std::move(builder);
     policy_ = std::move(policy);
     run_id_ = bundle.run_id;
-    policy_period_ticks_ = bundle.policy_period_ticks;
+    policy_period_ticks_ = bundle.policy_period_control_ticks;
     const auto selftest = policy_->selftest_result();
     selftest_summary_ = selftest ? "passed: " + selftest->summary() : "none";
     loaded_ = true;

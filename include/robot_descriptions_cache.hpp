@@ -4,20 +4,6 @@
 
 namespace auto_battlebot {
 
-/**
- * @brief Caches the most recent "navigation-critical" robot set (one that contains our robot AND
- * an opposing robot) and substitutes it when the current frame is missing either side.
- *
- * Owned by Runner so that target selection and navigation operate on the same effective robot
- * set within a tick. Both consumers read the resolved view; without this, target selection would
- * flap to the previous selection while navigation operated on a stale cache.
- *
- * The substitute expires max_age_s after its own stamp ([control_loop] robot_cache_max_age_s). Past
- * that the current set goes through as-is, so a navigator sees our robot is gone and runs its own
- * no-robot path. Replaying the frozen snapshot forever kept RlPolicyNavigation feeding the policy
- * one unchanging observation, and it held a full-rate spin that kept the robot invisible to the
- * camera.
- */
 class RobotDescriptionsCache {
    public:
     /**

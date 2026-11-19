@@ -63,7 +63,7 @@ SelftestPairs read_selftest(const std::filesystem::path &path) {
 std::string SelftestResult::summary() const {
     std::ostringstream text;
     text << pairs << " pairs, worst error " << worst_error;
-    if (worst_pair >= 0) text << " at pair " << worst_pair << " action " << worst_index;
+    if (worst_pair) text << " at pair " << *worst_pair << " action " << *worst_index;
     text << " (tolerance " << tolerance << ")";
     return text.str();
 }
@@ -78,7 +78,7 @@ SelftestResult run_selftest(NetworkRuntimeInterface &runtime, const ActionDecode
                                 ": needs a network with one input and one output tensor");
     }
     Tensor &input = inputs[0];
-    if (pairs.observation_size != input.data.size()) {
+    if (pairs.observation_size != input.values().size()) {
         throw PolicyBundleError("self-test " + spec.file.string() + ": observations have " +
                                 std::to_string(pairs.observation_size) +
                                 " values; the network input is " + input.spec.to_string());
@@ -97,16 +97,16 @@ SelftestResult run_selftest(NetworkRuntimeInterface &runtime, const ActionDecode
         runtime.reset();
         const float *observation =
             pairs.observations.data() + size_t{pair} * pairs.observation_size;
-        std::copy(observation, observation + pairs.observation_size, input.data.begin());
+        std::copy(observation, observation + pairs.observation_size, input.values().begin());
         runtime.run();
-        decoder.decode(outputs[0].data, action);
+        decoder.decode(outputs[0].values(), action);
         for (uint32_t i = 0; i < pairs.action_size; ++i) {
             const double expected = pairs.actions[size_t{pair} * pairs.action_size + i];
             const double error = std::abs(action[i] - expected);
             // A NaN is the worst there is and stays the worst once found.
             const bool worse =
-                result.worst_pair < 0 || (!std::isnan(result.worst_error) &&
-                                          (std::isnan(error) || error > result.worst_error));
+                !result.worst_pair || (!std::isnan(result.worst_error) &&
+                                       (std::isnan(error) || error > result.worst_error));
             if (worse) {
                 result.worst_error = error;
                 result.worst_pair = static_cast<int>(pair);

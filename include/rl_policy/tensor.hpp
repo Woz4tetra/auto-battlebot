@@ -18,19 +18,18 @@ struct TensorSpec {
     bool operator==(const TensorSpec &other) const = default;
 };
 
-/** One named float tensor. Its storage is sized once, at construction, and never resized. */
 struct Tensor {
     explicit Tensor(TensorSpec tensor_spec);
 
     TensorSpec spec;
-    std::vector<float> data;
 
-    std::span<float> values() { return data; }
-    std::span<const float> values() const { return data; }
+    std::span<float> values() { return data_; }
+    std::span<const float> values() const { return data_; }
+
+   private:
+    std::vector<float> data_;
 };
 
-/** Named tensors in a fixed order, allocated at load. Lookups by name do not allocate, so the
- * control loop can use them every tick. */
 class TensorSet {
    public:
     TensorSet() = default;
