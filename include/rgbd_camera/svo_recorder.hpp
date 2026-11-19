@@ -18,12 +18,6 @@ class SvoRecorder {
 
     bool desired() const;
 
-    /**
-     * @brief Start recording now. The camera must already be open.
-     *
-     * Creates the holding directory, evicts old files to stay under the cap,
-     * then enables SDK recording. Returns false on SDK failure.
-     */
     bool start();
 
     void stop();
@@ -49,9 +43,8 @@ class SvoRecorder {
    private:
     std::string generate_filename() const;
     void enforce_holding_dir_size();
-    /** Caller holds lifecycle_mutex_. */
-    bool start_locked();
-    void stop_locked();
+    bool start_locked(const std::unique_lock<std::mutex> &lifecycle_lock);
+    void stop_locked(const std::unique_lock<std::mutex> &lifecycle_lock);
 
     sl::Camera &camera_;
     std::filesystem::path holding_dir_;
@@ -62,8 +55,7 @@ class SvoRecorder {
     std::mutex lifecycle_mutex_;
     mutable std::mutex mutex_;
     std::filesystem::path current_path_;
-    /** Capture thread only. */
-    uint64_t frames_since_size_check_ = 0;
+    uint64_t capture_thread_frames_since_size_check_ = 0;
     int64_t frame_index_ = -1;
 };
 

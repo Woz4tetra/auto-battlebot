@@ -10,22 +10,13 @@
 #include "rgbd_camera/video_encoder.hpp"
 
 namespace auto_battlebot {
-/**
- * @brief One H.264 implementation behind VideoEncoder: FFmpeg or GStreamer.
- *
- * VideoEncoder owns the queue, the encode thread, and the pts -> capture time map. A backend only
- * turns frames into Annex-B access units, with SPS/PPS in band ahead of every IDR and no B-frames.
- */
 class H264Backend {
    public:
     using PacketSink =
         std::function<void(const std::byte *data, size_t len, int64_t pts, bool keyframe)>;
 
     virtual ~H264Backend() = default;
-    /** Takes the frame by value so a backend can hand its memory to the encoder without a copy.
-     *  Called from the encode thread only. */
     virtual bool encode(cv::Mat image, int64_t pts, bool force_keyframe) = 0;
-    /** Flushes: every frame encode() accepted reaches the sink before this returns. */
     virtual void finish() = 0;
     virtual const std::string &name() const = 0;
 };

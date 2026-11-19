@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <thread>
 
 #include "rgbd_camera/grab_health_monitor.hpp"
 
@@ -69,6 +70,26 @@ TEST(GrabHealthMonitorTest, ResetClearsState) {
     EXPECT_FALSE(monitor.window_full());
     EXPECT_DOUBLE_EQ(monitor.error_ratio(), 0.0);
     EXPECT_FALSE(monitor.should_shutdown());
+}
+
+TEST(GrabHealthMonitorTest, RecordingFromASecondThreadAssertsInDebug) {
+    GrabHealthMonitor monitor(kWindow, kShutdownRatio);
+    monitor.record(false, kBase);
+    EXPECT_DEBUG_DEATH(
+        {
+            std::thread other([&] { monitor.record(false, kBase + 1s); });
+            other.join();
+        },
+        "");
+}
+
+TEST(GrabHealthMonitorTest, ResetLetsAnotherThreadTakeOverRecording) {
+    GrabHealthMonitor monitor(kWindow, kShutdownRatio);
+    monitor.record(false, kBase);
+    monitor.reset();
+    std::thread other([&] { monitor.record(false, kBase + 1s); });
+    other.join();
+    EXPECT_DOUBLE_EQ(monitor.error_ratio(), 0.0);
 }
 
 }  // namespace auto_battlebot

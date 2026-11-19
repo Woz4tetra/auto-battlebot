@@ -3,19 +3,11 @@
 #include <chrono>
 #include <cstddef>
 #include <deque>
+#include <thread>
 #include <utility>
 
 namespace auto_battlebot {
 
-/**
- * @brief Tracks the camera grab() failure ratio over a sliding time window.
- *
- * Each grab outcome is recorded with its timestamp. Samples older than the
- * window are dropped. Once the window spans its full duration, the monitor can
- * report whether the error ratio has exceeded the shutdown threshold.
- *
- * Not thread-safe: only the capture thread records and queries it.
- */
 class GrabHealthMonitor {
    public:
     GrabHealthMonitor(std::chrono::steady_clock::duration window, double shutdown_ratio);
@@ -36,6 +28,7 @@ class GrabHealthMonitor {
     std::deque<std::pair<std::chrono::steady_clock::time_point, bool>> samples_;
     std::size_t error_count_ = 0;
     std::chrono::steady_clock::time_point last_now_{};
+    std::thread::id recording_thread_{};
 };
 
 }  // namespace auto_battlebot

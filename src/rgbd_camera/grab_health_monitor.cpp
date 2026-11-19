@@ -1,5 +1,7 @@
 #include "rgbd_camera/grab_health_monitor.hpp"
 
+#include <cassert>
+
 namespace auto_battlebot {
 
 GrabHealthMonitor::GrabHealthMonitor(std::chrono::steady_clock::duration window,
@@ -7,6 +9,10 @@ GrabHealthMonitor::GrabHealthMonitor(std::chrono::steady_clock::duration window,
     : window_(window), shutdown_ratio_(shutdown_ratio) {}
 
 void GrabHealthMonitor::record(bool is_error, std::chrono::steady_clock::time_point now) {
+    if (recording_thread_ == std::thread::id{}) {
+        recording_thread_ = std::this_thread::get_id();
+    }
+    assert(recording_thread_ == std::this_thread::get_id());
     last_now_ = now;
     samples_.emplace_back(now, is_error);
     if (is_error) {
@@ -38,6 +44,7 @@ bool GrabHealthMonitor::should_shutdown() const {
 void GrabHealthMonitor::reset() {
     samples_.clear();
     error_count_ = 0;
+    recording_thread_ = std::thread::id{};
 }
 
 }  // namespace auto_battlebot

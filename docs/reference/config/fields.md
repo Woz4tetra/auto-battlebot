@@ -294,6 +294,51 @@ output (`docs/experiments/sysid/2026-08-23_process_noise_fit.md`).
 | `heading_random_walk` | Heading random walk, rad^2/s |
 | `delay_jitter_s` | Command delay jitter in s. Along-track sigma = \|v\| * jitter, flat in h |
 
+## `[rgbd_camera]`
+
+One table per `type`.
+
+### `ZedSvoPlaybackCamera`
+
+Replay of an SVO file. It is a separate type from `ZedRgbdCamera` so recording, reconnection, and the capture thread are not reachable here, and so `svo_recording` cannot be combined with an `svo_file_path`.
+
+| Field | Meaning |
+| --- | --- |
+| `rebase_stamps` | Shift frame stamps to the current wall clock. Turn off to compare recordings between builds, where the offset otherwise makes every payload differ |
+
+### `V4l2RgbCamera`
+
+e-CAM25_CUONX over raw V4L2. There is no pixel-format or codec knob: the sensor emits UYVY and we encode H.264, so both are hard-coded. There is one correct behaviour and one consumer; a second capture format becomes an enum when one turns up. `device` and `calibration_file` are strings because they are paths. `camera_resolution` is an enum because it has a fixed set of valid values, so a misspelling fails at parse with the alternatives listed.
+
+| Field | Meaning |
+| --- | --- |
+| `buffer_count` | V4L2 buffers queued. Four, not the driver default: more buffers means the pipeline reads staler frames when it falls behind, and four costs at most one frame of queueing |
+| `calibration_file` | `config/cameras/<serial>.toml`. Required: the lens is not a pinhole and everything downstream assumes one |
+| `video_bitrate_kbps` | H.264 bitrate. 15000 is about 6.8 GB per hour and 340 MB for a three-minute match |
+| `exposure_us`, `gain`, `white_balance_temperature` | 0 keeps the driver default. Pinning them matters because auto-exposure hunting between a lit arena and a dark robot is a plausible source of frame-to-frame detector instability |
+
+### `ZedOneRgbCamera`
+
+ZED X One S (or any ZED X One) over GMSL2 through `sl::CameraOne`, as on the ZED Box Mini. There is no `calibration_file`: the lens model is the factory's 12-coefficient rational one, which our plumb-bob `CameraCalibration` cannot hold, so the SDK rectifies and we publish its rectified intrinsics. Recording and replay follow the V4L2 camera: H.264 on `/camera/video`.
+
+| Field | Meaning |
+| --- | --- |
+| `camera_resolution` | `RES_1920x1200` is the full sensor, `RES_1920x1080` crops it, `RES_960x600` bins it (up to 120 fps). Anything else fails at open |
+| `video_bitrate_kbps` | Same figures as `V4l2RgbCamera` |
+
+### `VideoPlaybackCamera`
+
+Replay of an MCAP recording carrying `/camera/video`. It is separate from the live camera for the same reason SVO playback is: no recorder, no reconnection, no capture thread, so every frame reaches the pipeline in order and replay stays reproducible.
+
+| Field | Meaning |
+| --- | --- |
+| `rebase_stamps` | Same as `ZedSvoPlaybackCamera` |
+| `calibration_file` | Empty rectifies with whatever the recording itself names. Set it to re-rectify old footage against a revised calibration |
+
+### Replay input reservation
+
+`reserve_camera_input_paths` tells the recorder which files a camera will be replaying, so it cannot pick one of them as its own output. A replay reads file A and records file B, and pointing the output at the input would corrupt the source. Call it before constructing the recorder.
+
 ## `[publisher]`
 
 `FoxglovePublisher` fields. `NoopPublisher` has none.

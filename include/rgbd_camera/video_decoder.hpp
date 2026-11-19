@@ -9,15 +9,6 @@ struct AVPacket;
 struct SwsContext;
 
 namespace auto_battlebot {
-/**
- * @brief H.264 Annex-B decoder for `/camera/video`, one access unit in, one BGR frame out.
- *
- * Stateful where cv::imdecode was not: it holds a codec context for the life of a file and has to
- * be fed in stream order. Seeking means finding the last IDR at or before the target and decoding
- * forward from there, never jumping into the middle of a GOP. `sl::Camera::setSVOPosition` has
- * exactly this problem, landing on non-keyframes so the next grabs return smeared RGB, and it
- * applies to any inter-coded stream.
- */
 class VideoDecoder {
    public:
     VideoDecoder() = default;

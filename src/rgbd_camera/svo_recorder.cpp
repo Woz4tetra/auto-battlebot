@@ -28,16 +28,20 @@ void SvoRecorder::set_desired(bool enabled) { desired_.store(enabled); }
 bool SvoRecorder::desired() const { return desired_.load(); }
 
 bool SvoRecorder::start() {
-    std::lock_guard<std::mutex> lifecycle(lifecycle_mutex_);
-    return start_locked();
+    std::unique_lock<std::mutex> lifecycle(lifecycle_mutex_);
+    return start_locked(lifecycle);
 }
 
 void SvoRecorder::stop() {
-    std::lock_guard<std::mutex> lifecycle(lifecycle_mutex_);
-    stop_locked();
+    std::unique_lock<std::mutex> lifecycle(lifecycle_mutex_);
+    stop_locked(lifecycle);
 }
 
-bool SvoRecorder::start_locked() {
+bool SvoRecorder::start_locked(const std::unique_lock<std::mutex> &) {
+    if (!camera_.isOpened()) {
+        spdlog::error("Cannot start SVO recording: the camera is not open");
+        return false;
+    }
     std::filesystem::create_directories(holding_dir_);
     enforce_holding_dir_size();
 
@@ -60,7 +64,7 @@ bool SvoRecorder::start_locked() {
     return true;
 }
 
-void SvoRecorder::stop_locked() {
+void SvoRecorder::stop_locked(const std::unique_lock<std::mutex> &) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (current_path_.empty()) {
@@ -104,9 +108,9 @@ SvoRecorder::FrameRef SvoRecorder::on_frame_grabbed() {
     }
     if (!desired_.load() || active_path.empty()) return frame;
 
-    frames_since_size_check_++;
-    if (frames_since_size_check_ < kSizeCheckIntervalFrames) return frame;
-    frames_since_size_check_ = 0;
+    capture_thread_frames_since_size_check_++;
+    if (capture_thread_frames_since_size_check_ < kSizeCheckIntervalFrames) return frame;
+    capture_thread_frames_since_size_check_ = 0;
 
     std::error_code ec;
     auto file_size = std::filesystem::file_size(active_path, ec);
@@ -116,8 +120,8 @@ SvoRecorder::FrameRef SvoRecorder::on_frame_grabbed() {
     if (!lifecycle.owns_lock()) return frame;
     // Turned off, or already cut, since the size check: rolling over would restart it.
     if (!desired_.load() || current_path() != active_path.string()) return frame;
-    stop_locked();
-    start_locked();
+    stop_locked(lifecycle);
+    start_locked(lifecycle);
     return frame;
 }
 
