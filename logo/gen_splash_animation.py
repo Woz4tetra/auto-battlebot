@@ -179,20 +179,18 @@ def render_frame(
 def build_keyframes(canvas_half_width_r: float) -> list[Keyframe]:
     """Adapt the measured table to the output canvas."""
     slide_k = max(1.0, (canvas_half_width_r - 0.12) / abs(KEYFRAMES[1][0]))
-    adapted = []
+    adapted: list[Keyframe] = []
     for idx, (left, right, angle, pill) in enumerate(KEYFRAMES):
         if idx <= SLIDE_LAST_FRAME:
-            adapted.append((left * slide_k, right * slide_k, angle, pill))
+            adapted.append(Keyframe(left * slide_k, right * slide_k, angle, pill))
         elif idx >= SPLIT_START_FRAME:
-            adapted.append((left * SPLIT_RESCALE, right * SPLIT_RESCALE, angle, pill))
+            adapted.append(Keyframe(left * SPLIT_RESCALE, right * SPLIT_RESCALE, angle, pill))
         else:
-            adapted.append((left, right, angle, pill))
+            adapted.append(Keyframe(left, right, angle, pill))
     return adapted
 
 
-def interpolate(
-    keyframes: list[tuple[float, float, float, float]], t: float
-) -> tuple[float, float, float, float]:
+def interpolate(keyframes: list[Keyframe], t: float) -> tuple[float, float, float, float]:
     i = min(int(t), len(keyframes) - 1)
     j = min(i + 1, len(keyframes) - 1)
     f = t - i
