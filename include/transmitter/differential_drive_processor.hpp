@@ -13,7 +13,6 @@ class DifferentialDriveProcessor : public DriveProcessorInterface {
     DifferentialDriveProcessor(const Config& config,
                                std::shared_ptr<DiagnosticsModuleLogger> logger);
 
-    /** channel_a is the linear command, channel_b is the angular command. */
     Channels process(VelocityCommand command) const override;
 
     BodyVelocity to_body_velocity(Channels channels) const override;

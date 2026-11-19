@@ -25,8 +25,6 @@ class EspNowTransmitter : public TransmitterInterface {
                       std::shared_ptr<McapRecorder> mcap_recorder);
 
     bool initialize() override;
-    /** Drains telemetry and link stats from the dongle. Feedback is the robot's latest drive
-     *  command, empty once telemetry is older than kTelemetryStale. */
     CommandFeedback update() override;
     TransmitterStatus get_status() const override;
     void send(VelocityCommand command) override;
@@ -41,8 +39,6 @@ class EspNowTransmitter : public TransmitterInterface {
     void log_health();
     bool reconnect_if_needed();
     bool write_frame(uint8_t type, const void *payload, uint8_t length);
-    /** Caps how fast the normalized linear command changes. Passes it through while the limit is
-     *  off or SA is off, holding a standstill baseline, so engaging SA ramps up from zero. */
     double limit_linear_acceleration(double linear_command);
 
     EspNowTransmitterConfiguration config_;
@@ -54,8 +50,7 @@ class EspNowTransmitter : public TransmitterInterface {
     espnow_protocol::SerialFrameParser parser_;
     uint32_t seq_ = 0;
     bool enabled_ = false;
-    /** Normalized units per second: max_motor_rpm_per_s / max_motor_rpm, 0 when that is unset. */
-    double max_linear_rate_per_sec_ = 0.0;
+    double max_normalized_linear_rate_per_s_ = 0.0;
     double prev_linear_command_ = 0.0;
     std::optional<std::chrono::steady_clock::time_point> last_send_time_;
     std::chrono::steady_clock::time_point next_reconnect_attempt_ =
@@ -75,15 +70,12 @@ class EspNowTransmitter : public TransmitterInterface {
 
 constexpr std::chrono::milliseconds kTelemetryStale{100};
 
-/** The drive command a telemetry frame reports, as the two channel values on the wire (what
- *  send() would write, or the handset's ch0/ch1). Undoes the firmware's upside-down flip and its
- *  ch0 negation (crsf_bridge reads a_percent = -ch0). */
 DriveProcessorInterface::Channels espnow_telemetry_channels(
     const espnow_protocol::TelemetryPayload &telemetry);
 
-/** Monotonic microseconds, truncated to 32 bits: the clock the command's jetson_tx_us and the
- *  telemetry echo of it share. */
 uint32_t espnow_monotonic_us();
+
+int64_t espnow_round_trip_us(uint32_t now_us, uint32_t jetson_tx_us);
 
 std::string to_espnow_telemetry_json(const espnow_protocol::TelemetryPayload &telemetry,
                                      uint64_t host_receive_ns,

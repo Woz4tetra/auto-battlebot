@@ -150,6 +150,26 @@ TEST(SafestPointTargetTest, RetargetsWhenCandidateBeatsHeldByThreshold) {
     EXPECT_GT(second->pose.x, 0.0);
 }
 
+TEST(SafestPointTargetTest, HeldTargetCoveredByHazardLoses) {
+    auto selector = make_selector_with_hysteresis(0.15);
+    FieldDescription field = make_field(2.44, 2.44);
+    const auto robots = our_robot_at(0.9, 0.9);
+    const auto first = selector.get_target(robots, field, BehaviorMode::RUN_AWAY);
+    ASSERT_TRUE(first.has_value());
+    EXPECT_NEAR(first->pose.x, 0.0, 1e-9);
+    EXPECT_NEAR(first->pose.y, 0.0, 1e-9);
+
+    FieldHazard hazard;
+    hazard.center.x = 0.0;
+    hazard.center.y = 0.0;
+    hazard.inflated_radius_m = 0.4;
+    field.hazards.push_back(hazard);
+    const auto second = selector.get_target(robots, field, BehaviorMode::RUN_AWAY);
+    ASSERT_TRUE(second.has_value());
+    EXPECT_GT(std::hypot(second->pose.x, second->pose.y), hazard.inflated_radius_m)
+        << "held target stayed inside the hazard";
+}
+
 TEST(SafestPointTargetTest, LeavingRunAwayClearsHeldTarget) {
     auto selector = make_selector();
     const FieldDescription field = make_field(2.44, 2.44);

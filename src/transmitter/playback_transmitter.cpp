@@ -25,7 +25,7 @@ PlaybackTransmitter::PlaybackTransmitter(PlaybackTransmitterConfiguration &confi
           logger_) {}
 
 bool PlaybackTransmitter::initialize() {
-    start_time_seconds_.reset();
+    first_update_time_seconds_.reset();
     initialized_ = true;
     return true;
 }
@@ -44,8 +44,8 @@ CommandFeedback PlaybackTransmitter::update() {
         // Logical time, not wall clock: the delay has to land on the same frame every run or
         // replay is not reproducible.
         const double now = clock_ ? clock_->now() : 0.0;
-        if (!start_time_seconds_) start_time_seconds_ = now;
-        if (now - *start_time_seconds_ >= init_delay_seconds_) {
+        if (!first_update_time_seconds_) first_update_time_seconds_ = now;
+        if (now - *first_update_time_seconds_ >= init_delay_seconds_) {
             init_button_pressed_ = true;
         }
     }

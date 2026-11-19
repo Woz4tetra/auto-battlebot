@@ -35,15 +35,16 @@ CommandFeedback SimTransmitter::update() {
         }
     }
 
-    if (!last_sent_) return CommandFeedback{};
+    if (!last_sent_normalized_command_) return CommandFeedback{};
 
     // The sim plant consumes normalized stick commands directly, so there is no physical
     // scaling to report: only the stick map is filled. Without this stream the robot
     // filter's command-driven prediction is inert in simulation.
     CommandFeedback feedback;
-    feedback.stick_commands[FrameId::OUR_ROBOT_1] = StickCommand{.forward = last_sent_->forward_mps,
-                                                                 .lateral = last_sent_->lateral_mps,
-                                                                 .yaw = last_sent_->yaw_rate_radps};
+    feedback.stick_commands[FrameId::OUR_ROBOT_1] =
+        StickCommand{.forward = last_sent_normalized_command_->forward_mps,
+                     .lateral = last_sent_normalized_command_->lateral_mps,
+                     .yaw = last_sent_normalized_command_->yaw_rate_radps};
     return feedback;
 }
 
@@ -51,7 +52,7 @@ void SimTransmitter::enable() { enabled_ = true; }
 
 void SimTransmitter::disable() {
     enabled_ = false;
-    last_sent_.reset();
+    last_sent_normalized_command_.reset();
 }
 
 void SimTransmitter::send(VelocityCommand command) {
@@ -66,7 +67,7 @@ void SimTransmitter::send(VelocityCommand command) {
     command.forward_mps = saturated.linear;
     command.yaw_rate_radps = saturated.angular;
 
-    last_sent_ = command;
+    last_sent_normalized_command_ = command;
     if (!connection_) return;
 
     if (command_delay_ms_ <= 0.0) {

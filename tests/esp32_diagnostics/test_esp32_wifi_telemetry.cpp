@@ -10,6 +10,8 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <filesystem>
+#include <iterator>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -249,6 +251,28 @@ std::vector<Esp32DiagnosticsEvent> collect(Esp32WifiTelemetry &telemetry, size_t
         },
         std::chrono::seconds(5));
     return events;
+}
+
+size_t thread_count() {
+    return static_cast<size_t>(std::distance(std::filesystem::directory_iterator("/proc/self/task"),
+                                             std::filesystem::directory_iterator()));
+}
+
+TEST(Esp32WifiTelemetryTest, StartingTwiceRunsOneWorker) {
+    FakeRingServer server;
+    server.set(1, 30);
+    Esp32WifiTelemetry telemetry(options_for(server));
+    const size_t before = thread_count();
+    telemetry.start();
+    ASSERT_TRUE(wait_until([&] { return telemetry.stats().connected; }, std::chrono::seconds(5)));
+    const size_t with_one_worker = thread_count();
+    EXPECT_EQ(with_one_worker, before + 1);
+
+    telemetry.start();
+    telemetry.start();
+    EXPECT_EQ(thread_count(), with_one_worker);
+    telemetry.stop();
+    EXPECT_EQ(thread_count(), before);
 }
 
 TEST(Esp32WifiTelemetryTest, StartsAtHeadThenReadsEverythingNew) {

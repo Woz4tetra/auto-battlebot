@@ -40,18 +40,19 @@ TEST(TrtEngineGraphTest, GraphAndDeviceInputMatchPlainExecute) {
     for (float &v : input) v = dist(rng);
 
     std::vector<float> plain(static_cast<size_t>(engine.getOutputNumElements()));
-    ASSERT_TRUE(engine.execute(input.data(), plain.data()));
+    ASSERT_TRUE(engine.execute(input, plain));
     EXPECT_TRUE(engine.uses_cuda_graph());
 
     std::vector<float> graphed(plain.size());
-    ASSERT_TRUE(engine.execute(input.data(), graphed.data()));
+    ASSERT_TRUE(engine.execute(input, graphed));
     for (size_t i = 0; i < plain.size(); ++i) ASSERT_FLOAT_EQ(graphed[i], plain[i]) << "at " << i;
 
     ASSERT_EQ(cudaMemcpyAsync(engine.device_input(), input.data(), engine.getInputSizeBytes(),
-                              cudaMemcpyHostToDevice, static_cast<cudaStream_t>(engine.stream())),
+                              cudaMemcpyHostToDevice, engine.stream()),
               cudaSuccess);
-    const float *device_path = engine.execute_into_pinned_output();
-    ASSERT_NE(device_path, nullptr);
+    const std::span<const float> device_path =
+        engine.execute_borrowing_pinned_output_after_device_input();
+    ASSERT_EQ(device_path.size(), plain.size());
     for (size_t i = 0; i < plain.size(); ++i) {
         ASSERT_FLOAT_EQ(device_path[i], plain[i]) << "at " << i;
     }

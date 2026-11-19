@@ -143,17 +143,17 @@ void VizSink::disconnect() {
         fd_ = -1;
     }
     connected_.store(false);
-    out_.clear();
-    out_sent_ = 0;
-    read_buffer_.clear();
+    sink_thread_state_.out_.clear();
+    sink_thread_state_.out_sent_ = 0;
+    sink_thread_state_.read_buffer_.clear();
     std::lock_guard<std::mutex> lock(mutex_);
     subscribers_.clear();
     clear_queues_locked();
 }
 
 void VizSink::lose_connection(const char* reason, bool closed_by_relay) {
-    if (!lost_warned_) {
-        if (settled_ || !closed_by_relay) {
+    if (!sink_thread_state_.lost_warned_) {
+        if (sink_thread_state_.settled_ || !closed_by_relay) {
             spdlog::warn("[VizSink] Lost connection to viz_relay ({}); reconnecting", reason);
         } else {
             spdlog::warn(
@@ -161,17 +161,17 @@ void VizSink::lose_connection(const char* reason, bool closed_by_relay) {
                 "retrying every {} s",
                 kReconnectInterval.count());
         }
-        lost_warned_ = true;
+        sink_thread_state_.lost_warned_ = true;
     }
     disconnect();
     // Every retry waits, so a relay that accepts and then refuses is not hammered in a loop.
-    retry_at_ = std::chrono::steady_clock::now() + kReconnectInterval;
+    sink_thread_state_.retry_at_ = std::chrono::steady_clock::now() + kReconnectInterval;
 }
 
 bool VizSink::relay_has_read() const {
     int unread = 0;
     if (::ioctl(fd_, SIOCOUTQ, &unread) != 0) return true;
-    return static_cast<size_t>(unread) < bytes_sent_;
+    return static_cast<size_t>(unread) < sink_thread_state_.bytes_sent_;
 }
 
 void VizSink::wait_for_wake(int timeout_ms) {
@@ -186,26 +186,28 @@ bool VizSink::take_next_frame() {
     std::lock_guard<std::mutex> lock(mutex_);
     auto& queue = !priority_queue_.empty() ? priority_queue_ : bulk_queue_;
     if (queue.empty()) return false;
-    out_ = std::move(queue.front());
+    sink_thread_state_.out_ = std::move(queue.front());
     queue.pop_front();
-    (&queue == &priority_queue_ ? priority_bytes_ : bulk_bytes_) -= out_.size();
-    out_sent_ = 0;
-    last_send_progress_ = std::chrono::steady_clock::now();
+    (&queue == &priority_queue_ ? priority_bytes_ : bulk_bytes_) -= sink_thread_state_.out_.size();
+    sink_thread_state_.out_sent_ = 0;
+    sink_thread_state_.last_send_progress_ = std::chrono::steady_clock::now();
     return true;
 }
 
 bool VizSink::send_pending() {
     while (true) {
-        if (out_sent_ == out_.size() && !take_next_frame()) return true;
+        if (sink_thread_state_.out_sent_ == sink_thread_state_.out_.size() && !take_next_frame())
+            return true;
         const ssize_t n =
-            ::send(fd_, out_.data() + out_sent_, out_.size() - out_sent_, MSG_NOSIGNAL);
+            ::send(fd_, sink_thread_state_.out_.data() + sink_thread_state_.out_sent_,
+                   sink_thread_state_.out_.size() - sink_thread_state_.out_sent_, MSG_NOSIGNAL);
         if (n < 0) {
             if (errno == EINTR) continue;
             return errno == EAGAIN || errno == EWOULDBLOCK;
         }
-        out_sent_ += static_cast<size_t>(n);
-        bytes_sent_ += static_cast<size_t>(n);
-        last_send_progress_ = std::chrono::steady_clock::now();
+        sink_thread_state_.out_sent_ += static_cast<size_t>(n);
+        sink_thread_state_.bytes_sent_ += static_cast<size_t>(n);
+        sink_thread_state_.last_send_progress_ = std::chrono::steady_clock::now();
     }
 }
 
@@ -219,19 +221,21 @@ bool VizSink::read_incoming() {
             if (errno == EAGAIN || errno == EWOULDBLOCK) break;
             return false;
         }
-        read_buffer_.insert(read_buffer_.end(), chunk, chunk + n);
+        sink_thread_state_.read_buffer_.insert(sink_thread_state_.read_buffer_.end(), chunk,
+                                               chunk + n);
     }
     size_t off = 0;
-    while (read_buffer_.size() - off >= viz::kFrameHeaderBytes) {
+    while (sink_thread_state_.read_buffer_.size() - off >= viz::kFrameHeaderBytes) {
         uint32_t len = 0;
         size_t tmp = off;
-        viz::detail::get_u32(read_buffer_.data(), read_buffer_.size(), tmp, len);
+        viz::detail::get_u32(sink_thread_state_.read_buffer_.data(),
+                             sink_thread_state_.read_buffer_.size(), tmp, len);
         if (len > viz::kMaxFrameBytes) {
             spdlog::warn("[VizSink] Corrupt frame from relay; reconnecting");
             return false;
         }
-        if (read_buffer_.size() - tmp < len) break;
-        const std::byte* body = read_buffer_.data() + tmp;
+        if (sink_thread_state_.read_buffer_.size() - tmp < len) break;
+        const std::byte* body = sink_thread_state_.read_buffer_.data() + tmp;
         const auto kind = viz::frame_kind(body, len);
         if (kind == viz::FrameKind::SUBSCRIBER_COUNT) {
             viz::SubscriberCountFrame frame;
@@ -244,13 +248,16 @@ bool VizSink::read_incoming() {
             if (viz::decode_client_message(body, len, frame)) {
                 std::lock_guard<std::mutex> lock(handler_mutex_);
                 if (client_message_handler_) {
-                    client_message_handler_(frame.topic, frame.payload, frame.payload_len);
+                    client_message_handler_(frame.topic, frame.payload.data(),
+                                            frame.payload.size());
                 }
             }
         }
         off = tmp + len;
     }
-    read_buffer_.erase(read_buffer_.begin(), read_buffer_.begin() + static_cast<long>(off));
+    sink_thread_state_.read_buffer_.erase(
+        sink_thread_state_.read_buffer_.begin(),
+        sink_thread_state_.read_buffer_.begin() + static_cast<long>(off));
     return true;
 }
 
@@ -258,31 +265,32 @@ void VizSink::run() {
     while (!stop_.load()) {
         if (fd_ < 0) {
             const auto now = std::chrono::steady_clock::now();
-            if (now < retry_at_) {
-                wait_for_wake(static_cast<int>(
-                    std::chrono::duration_cast<std::chrono::milliseconds>(retry_at_ - now)
-                        .count()));
+            if (now < sink_thread_state_.retry_at_) {
+                wait_for_wake(
+                    static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                         sink_thread_state_.retry_at_ - now)
+                                         .count()));
                 continue;
             }
             if (!try_connect()) {
-                if (!unreachable_warned_) {
+                if (!sink_thread_state_.unreachable_warned_) {
                     spdlog::warn(
                         "[VizSink] viz_relay not reachable at {}; live viz off until it is "
                         "(recording and control unaffected)",
                         socket_path_);
-                    unreachable_warned_ = true;
+                    sink_thread_state_.unreachable_warned_ = true;
                 }
                 {
                     std::lock_guard<std::mutex> lock(mutex_);
                     clear_queues_locked();
                 }
-                retry_at_ = now + kReconnectInterval;
+                sink_thread_state_.retry_at_ = now + kReconnectInterval;
                 continue;
             }
-            unreachable_warned_ = false;
-            settled_ = false;
-            bytes_sent_ = 0;
-            connected_at_ = now;
+            sink_thread_state_.unreachable_warned_ = false;
+            sink_thread_state_.settled_ = false;
+            sink_thread_state_.bytes_sent_ = 0;
+            sink_thread_state_.connected_at_ = now;
             {
                 // Whatever was queued for the last connection is stale. The new one starts with
                 // every advertise, so the relay knows each channel before its first message.
@@ -303,17 +311,19 @@ void VizSink::run() {
         }
 
         const auto now = std::chrono::steady_clock::now();
-        if (!settled_ && now - connected_at_ >= kRefusedVsLostSettleTime && relay_has_read()) {
-            settled_ = true;
-            if (lost_warned_) {
+        if (!sink_thread_state_.settled_ &&
+            now - sink_thread_state_.connected_at_ >= kRefusedVsLostSettleTime &&
+            relay_has_read()) {
+            sink_thread_state_.settled_ = true;
+            if (sink_thread_state_.lost_warned_) {
                 spdlog::info("[VizSink] Reconnected to viz_relay at {}", socket_path_);
-                lost_warned_ = false;
+                sink_thread_state_.lost_warned_ = false;
             } else {
                 spdlog::info("[VizSink] Connected to viz_relay at {}", socket_path_);
             }
         }
-        const bool sending = out_sent_ < out_.size();
-        if (sending && now - last_send_progress_ > kSendStallTimeout) {
+        const bool sending = sink_thread_state_.out_sent_ < sink_thread_state_.out_.size();
+        if (sending && now - sink_thread_state_.last_send_progress_ > kSendStallTimeout) {
             lose_connection("relay stopped reading");
             continue;
         }

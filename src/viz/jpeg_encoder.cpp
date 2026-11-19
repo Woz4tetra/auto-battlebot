@@ -11,7 +11,8 @@
 
 namespace auto_battlebot {
 
-bool OpenCvJpegEncoder::encode(const cv::Mat &bgr, int quality, std::vector<std::byte> &out) {
+bool OpenCvJpegEncoder::encode_on_owner_thread(const cv::Mat &bgr, int quality,
+                                               std::vector<std::byte> &out) {
     out.clear();
     if (bgr.empty()) return false;
     if (!cv::imencode(".jpg", bgr, buffer_, {cv::IMWRITE_JPEG_QUALITY, quality})) return false;

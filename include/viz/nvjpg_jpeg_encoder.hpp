@@ -30,8 +30,11 @@ class NvjpgJpegEncoder : public JpegEncoderInterface {
     static std::unique_ptr<NvjpgJpegEncoder> create();
     ~NvjpgJpegEncoder() override;
 
-    bool encode(const cv::Mat &bgr, int quality, std::vector<std::byte> &out) override;
     std::string_view name() const override { return "nvjpg"; }
+
+   protected:
+    bool encode_on_owner_thread(const cv::Mat &bgr, int quality,
+                                std::vector<std::byte> &out) override;
 
    private:
     struct Plugin {

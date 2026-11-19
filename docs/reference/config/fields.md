@@ -54,8 +54,16 @@ carries no arm authority (`firmware/mr_stabs_mk2/README.md`).
 ### `CompositeTransmitter`
 
 Fans one command stream out to several transmitters. The first child is primary and owns everything
-read-side. `[[transmitter.children]]` is an array of tables so the order is guaranteed. Each entry
-may set `transmit_rate_hz`, the most sends per second that child gets; 0 passes every send.
+read-side: status, behavior mode, and command feedback on a key collision. `[[transmitter.children]]`
+is an array of tables so the order is guaranteed. Each entry may set `transmit_rate_hz`, the most
+sends per second that child gets; 0 passes every send.
+
+- `send()`, `enable()` and `disable()` fan out to every child. `update()` polls every child so their receive paths drain.
+- A non-primary child is an accelerator. Its `initialize()` failure is logged and ignored: a dead ESP-NOW dongle costs latency, not control.
+- The composite does no command preprocessing. Each child does its own scaling. The rate limit that makes two transports agree lives in the firmware, after the arbitration that picks between them.
+- The control loop sends at 250 Hz. The OpenTX trainer path feeds a 150 Hz Crossfire link through serial CLI writes and gains nothing past that, while ESP-NOW takes every cycle.
+- A capped child gets the newest command once its period has passed. A command it skips is held and delivered when the period runs out, from `update()` if no newer `send()` comes, and before `disable()`, so the final stop command always lands.
+- Pacing is a hardware rate, so it runs on the steady clock. Only tests inject another time source.
 
 ### `SimTransmitter`
 
@@ -327,9 +335,12 @@ The lockstep sim's keypoint model. Design: `docs/reference/perception/robot_filt
 
 ## `[control_loop]`
 
+An absent `[control_loop]` section selects `SteppedControlLoop` with `rate_hz = 0`.
+
 | Field | Meaning |
 | --- | --- |
 | `rate_hz` | Cycles per second. 0 on `SteppedControlLoop` (its default) means one cycle per perception frame |
+| `max_catchup_cycles` | `SteppedControlLoop` only: most cycles one `advance_to` runs after a stall. Every cycle in the backlog sees the same measurement, so replaying more only burns time |
 | `watchdog_timeout_ms` | `ThreadedControlLoop` only: a cycle older than this marks the loop unhealthy |
 | `robot_cache_max_age_s` | Longest gap `RobotDescriptionsCache` fills with the last robot set that had both our robot and an opponent. Past it navigation sees the robots as they are and runs its no-robot path |
 
@@ -436,6 +447,16 @@ Replay of an MCAP recording carrying `/camera/video`. It is separate from the li
 | Field | Meaning |
 | --- | --- |
 | `retarget_improvement_m` | Radius (m) a new candidate must beat the held target by before retargeting. Suppresses solver jitter as opponents move |
+
+## `[ui]`
+
+Settings the web dashboard reads from `/status/app`.
+
+| Field | Meaning |
+| --- | --- |
+| `rate_fail_threshold` | Fraction of `max_loop_rate_hz` below which the loop rate counts as not met (e.g. 0.99) |
+| `rate_fail_duration_sec` | How long the rate must stay below the threshold before the dashboard shows an error. Prevents strobing |
+| `label_colors` (`[ui.label_colors]`) | Lowercase model label to `"#rrggbb"`: the colors training draws each class in. The dashboard uses them for boxes and tracks. Labels not listed get a generated color |
 
 ## `[profiles]`
 

@@ -88,8 +88,8 @@ CommandFeedback OpenTxTransmitter::update() {
     const double angular_readback_sign = config_.invert_angular_channel_readback ? -1.0 : 1.0;
 
     const auto body = processor_->to_body_velocity({
-        .channel_a = get_channel_value(config_.linear_channel) * kChannelScale,
-        .channel_b =
+        .first_output = get_channel_value(config_.linear_channel) * kChannelScale,
+        .second_output =
             get_channel_value(config_.angular_channel) * kChannelScale * angular_readback_sign,
     });
 
@@ -122,8 +122,8 @@ void OpenTxTransmitter::send(VelocityCommand command) {
     command.forward_mps = limit_linear_acceleration(command.forward_mps);
 
     const auto channels = processor_->process(command);
-    const int channel_a_value = to_trainer_value(channels.channel_a);
-    const int channel_b_value = to_trainer_value(channels.channel_b);
+    const int channel_a_value = to_trainer_value(channels.first_output);
+    const int channel_b_value = to_trainer_value(channels.second_output);
 
     logger_->debug("send", {{"channel_a", config_.linear_channel},
                             {"channel_b", config_.angular_channel},

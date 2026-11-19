@@ -62,7 +62,7 @@ bool DeepLabMaskModel::initialize() {
     spdlog::info("Warming up model with dummy input...");
     std::vector<float> warmup_input(static_cast<size_t>(engine_.getInputNumElements()), 0.0f);
     std::vector<float> warmup_output(static_cast<size_t>(engine_.getOutputNumElements()), 0.0f);
-    if (!engine_.execute(warmup_input.data(), warmup_output.data())) {
+    if (!engine_.execute(warmup_input, warmup_output)) {
         spdlog::error("DeepLab warmup inference failed");
         return false;
     }
@@ -89,7 +89,7 @@ MaskStamped DeepLabMaskModel::update(RgbImage image) {
 
     std::vector<float> output_buffer(static_cast<size_t>(engine_.getOutputNumElements()));
 
-    if (!engine_.execute(input_buffer.data(), output_buffer.data())) {
+    if (!engine_.execute(input_buffer, output_buffer)) {
         diagnostics_logger_->error({}, "DeepLab inference failed");
         return MaskStamped{};
     }

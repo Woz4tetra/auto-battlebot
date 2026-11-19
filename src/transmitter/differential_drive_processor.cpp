@@ -41,12 +41,12 @@ DifferentialDriveProcessor::Channels DifferentialDriveProcessor::process(
                                {"linear_out", out.linear},
                                {"angular_out", out.angular}});
 
-    return {.channel_a = out.linear, .channel_b = out.angular};
+    return {.first_output = out.linear, .second_output = out.angular};
 }
 
 BodyVelocity DifferentialDriveProcessor::to_body_velocity(Channels channels) const {
-    return {.linear = config_.reverse_linear ? -channels.channel_a : channels.channel_a,
-            .angular = config_.reverse_angular ? -channels.channel_b : channels.channel_b};
+    return {.linear = config_.reverse_linear ? -channels.first_output : channels.first_output,
+            .angular = config_.reverse_angular ? -channels.second_output : channels.second_output};
 }
 
 }  // namespace auto_battlebot

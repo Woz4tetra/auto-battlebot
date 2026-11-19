@@ -14,13 +14,6 @@
 
 namespace auto_battlebot {
 
-/**
- * Runs image encoding off the perception loop. Modeled on VideoEncoder.
- *
- * submit() never blocks: the worker keeps one pending frame and a newer frame replaces it, since
- * a preview wants the newest frame, not every frame. The thread starts on the first submit, so a
- * topic nobody subscribes to never costs a thread.
- */
 class ImageEncoderWorker {
    public:
     struct Job {
@@ -42,9 +35,7 @@ class ImageEncoderWorker {
     ImageEncoderWorker(const ImageEncoderWorker &) = delete;
     ImageEncoderWorker &operator=(const ImageEncoderWorker &) = delete;
 
-    /** Takes ownership of the frame; the caller must not reuse its buffer (clone or resize into a
-     *  new Mat first). */
-    void submit(Job job);
+    void submit(Job &&job);
 
     Stats stats() const;
     const std::string &name() const { return name_; }

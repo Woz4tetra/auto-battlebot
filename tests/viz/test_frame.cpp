@@ -46,8 +46,9 @@ TEST(VizFrameTest, MessageRoundTrip) {
     ASSERT_TRUE(viz::decode_message(body, len, out));
     EXPECT_EQ(out.channel_id, 3u);
     EXPECT_EQ(out.log_time_ns, 1234567890123456789ull);
-    ASSERT_EQ(out.payload_len, payload.size());
-    EXPECT_EQ(std::string(reinterpret_cast<const char*>(out.payload), out.payload_len), payload);
+    ASSERT_EQ(out.payload.size(), payload.size());
+    EXPECT_EQ(std::string(reinterpret_cast<const char*>(out.payload.data()), out.payload.size()),
+              payload);
 }
 
 TEST(VizFrameTest, SubscriberCountRoundTrip) {
@@ -71,7 +72,8 @@ TEST(VizFrameTest, ClientMessageRoundTrip) {
     viz::ClientMessageFrame out;
     ASSERT_TRUE(viz::decode_client_message(body, len, out));
     EXPECT_EQ(out.topic, "/reinit_field");
-    EXPECT_EQ(std::string(reinterpret_cast<const char*>(out.payload), out.payload_len), payload);
+    EXPECT_EQ(std::string(reinterpret_cast<const char*>(out.payload.data()), out.payload.size()),
+              payload);
 }
 
 TEST(VizFrameTest, TruncatedFramesAreRejected) {

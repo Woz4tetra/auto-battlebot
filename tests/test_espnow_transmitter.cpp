@@ -426,20 +426,25 @@ TEST_F(EspNowTransmitterPtyTest, SlewLimitsLinearOnlyWhileAutonomyIsOn) {
 }
 
 TEST(EspNowTelemetryChannelsTest, UndoesTheFirmwareNegationAndTheUpsideDownFlip) {
-    // The firmware writes a_percent = -100 * channel_a, then negates it when driving upside down.
+    // The firmware writes a_percent = -100 * first_output, then negates it when driving upside down.
     espnow_protocol::TelemetryPayload upright = {};
     upright.a_percent = -40.0f;
     upright.b_percent = 25.0f;
     auto channels = espnow_telemetry_channels(upright);
-    EXPECT_NEAR(channels.channel_a, 0.4, 1e-6);
-    EXPECT_NEAR(channels.channel_b, 0.25, 1e-6);
+    EXPECT_NEAR(channels.first_output, 0.4, 1e-6);
+    EXPECT_NEAR(channels.second_output, 0.25, 1e-6);
 
     espnow_protocol::TelemetryPayload flipped = upright;
     flipped.a_percent = 40.0f;
     flipped.is_upside_down = 1;
     channels = espnow_telemetry_channels(flipped);
-    EXPECT_NEAR(channels.channel_a, 0.4, 1e-6);
-    EXPECT_NEAR(channels.channel_b, 0.25, 1e-6);
+    EXPECT_NEAR(channels.first_output, 0.4, 1e-6);
+    EXPECT_NEAR(channels.second_output, 0.25, 1e-6);
+}
+
+TEST(EspNowRoundTripTest, RoundTripAcrossClockWrap) {
+    EXPECT_EQ(espnow_round_trip_us(1500, 1000), 500);
+    EXPECT_EQ(espnow_round_trip_us(5, 0xFFFFFFF0u), 21);
 }
 
 TEST_F(EspNowTransmitterPtyTest, NoFeedbackOrSwitchBeforeTelemetry) {

@@ -31,18 +31,18 @@ GpuLetterbox::~GpuLetterbox() {
     if (staging_) cudaFree(staging_);
 }
 
-bool GpuLetterbox::enqueue(const cv::Mat &image, int tensor_width, int tensor_height, float padding,
-                           float *tensor, void *stream) {
+bool GpuLetterbox::enqueue(const cv::Mat &image, DeviceTensorView tensor, float padding,
+                           cudaStream_t stream) {
     if (image.empty() || image.depth() != CV_8U ||
         (image.channels() != 3 && image.channels() != 4)) {
         spdlog::error("GpuLetterbox: needs an 8-bit BGR or BGRA image, got type {}", image.type());
         return false;
     }
     const LetterboxGeometry geometry =
-        compute_letterbox_geometry(image.cols, image.rows, tensor_width, tensor_height, padding);
+        compute_letterbox_geometry(image.cols, image.rows, tensor.width, tensor.height, padding);
     if (!geometry.fills_tensor) {
         spdlog::error("GpuLetterbox: {}x{} does not letterbox to exactly {}x{}", image.cols,
-                      image.rows, tensor_width, tensor_height);
+                      image.rows, tensor.width, tensor.height);
         return false;
     }
 
@@ -66,8 +66,7 @@ bool GpuLetterbox::enqueue(const cv::Mat &image, int tensor_width, int tensor_he
         }
         const cudaError_t err =
             cudaMemcpy2DAsync(staging_, row_bytes, image.data, image.step[0], row_bytes,
-                              static_cast<size_t>(image.rows), cudaMemcpyHostToDevice,
-                              static_cast<cudaStream_t>(stream));
+                              static_cast<size_t>(image.rows), cudaMemcpyHostToDevice, stream);
         if (err != cudaSuccess) {
             spdlog::error("GpuLetterbox: frame upload failed: {}", cudaGetErrorString(err));
             return false;
@@ -77,7 +76,7 @@ bool GpuLetterbox::enqueue(const cv::Mat &image, int tensor_width, int tensor_he
     }
 
     if (!launch_letterbox_kernel(source, image.cols, image.rows, source_step, image.channels(),
-                                 geometry, tensor, stream)) {
+                                 geometry, tensor.data, stream)) {
         spdlog::error("GpuLetterbox: kernel launch failed");
         return false;
     }

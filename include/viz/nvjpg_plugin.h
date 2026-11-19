@@ -8,11 +8,9 @@ extern "C" {
 
 void *auto_battlebot_nvjpg_create(void);
 void auto_battlebot_nvjpg_destroy(void *encoder);
-/** Encodes one 4:2:0 frame in I420 layout: contiguous full-range (JFIF) Y, Cb and Cr planes,
- *  even width and height. Points `*jpeg` at the result, valid until the next call on this
- *  encoder, and returns its size. Returns 0 on failure. */
-size_t auto_battlebot_nvjpg_encode(void *encoder, const unsigned char *i420, int width, int height,
-                                   int quality, const unsigned char **jpeg);
+size_t auto_battlebot_nvjpg_encode(void *encoder, const unsigned char *i420_full_range, int width,
+                                   int height, int quality,
+                                   const unsigned char **jpeg_until_next_call);
 
 typedef void *(*AutoBattlebotNvjpgCreate)(void);
 typedef void (*AutoBattlebotNvjpgDestroy)(void *);

@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstring>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -17,7 +18,6 @@ enum class FrameKind : uint8_t {
 };
 
 constexpr size_t kFrameHeaderBytes = 4;
-// A single /field_points message is a few MB; anything past this is a corrupt stream.
 constexpr uint32_t kMaxFrameBytes = 64u * 1024u * 1024u;
 
 struct AdvertiseFrame {
@@ -33,9 +33,7 @@ struct AdvertiseFrame {
 struct MessageFrame {
     uint32_t channel_id = 0;
     uint64_t log_time_ns = 0;
-    // Points into the buffer the frame was decoded from.
-    const std::byte* payload = nullptr;
-    size_t payload_len = 0;
+    std::span<const std::byte> payload;
 };
 
 struct SubscriberCountFrame {
@@ -45,9 +43,7 @@ struct SubscriberCountFrame {
 
 struct ClientMessageFrame {
     std::string topic;
-    // Points into the buffer the frame was decoded from.
-    const std::byte* payload = nullptr;
-    size_t payload_len = 0;
+    std::span<const std::byte> payload;
 };
 
 namespace detail {
@@ -84,8 +80,7 @@ inline bool get_string(const std::byte* data, size_t len, size_t& off, std::stri
     off += n;
     return true;
 }
-// Writes the [u32 len] prefix once the body is complete.
-inline void finish_frame(std::vector<std::byte>& out) {
+inline void finish_with_length_prefix(std::vector<std::byte>& out) {
     const uint32_t len = static_cast<uint32_t>(out.size() - kFrameHeaderBytes);
     for (int i = 0; i < 4; ++i) out[i] = static_cast<std::byte>((len >> (8 * i)) & 0xff);
 }
@@ -106,7 +101,7 @@ inline std::vector<std::byte> encode_advertise(const AdvertiseFrame& frame) {
     detail::put_bytes(out, frame.schema_name.data(), frame.schema_name.size());
     detail::put_bytes(out, frame.schema_encoding.data(), frame.schema_encoding.size());
     detail::put_bytes(out, frame.schema_data.data(), frame.schema_data.size());
-    detail::finish_frame(out);
+    detail::finish_with_length_prefix(out);
     return out;
 }
 
@@ -118,7 +113,7 @@ inline std::vector<std::byte> encode_message(uint32_t channel_id, uint64_t log_t
     detail::put_u32(out, channel_id);
     detail::put_u64(out, log_time_ns);
     out.insert(out.end(), payload, payload + payload_len);
-    detail::finish_frame(out);
+    detail::finish_with_length_prefix(out);
     return out;
 }
 
@@ -127,7 +122,7 @@ inline std::vector<std::byte> encode_subscriber_count(uint32_t channel_id, uint3
     detail::begin_frame(out, FrameKind::SUBSCRIBER_COUNT);
     detail::put_u32(out, channel_id);
     detail::put_u32(out, count);
-    detail::finish_frame(out);
+    detail::finish_with_length_prefix(out);
     return out;
 }
 
@@ -138,14 +133,13 @@ inline std::vector<std::byte> encode_client_message(const std::string& topic,
     detail::begin_frame(out, FrameKind::CLIENT_MESSAGE);
     detail::put_bytes(out, topic.data(), topic.size());
     out.insert(out.end(), payload, payload + payload_len);
-    detail::finish_frame(out);
+    detail::finish_with_length_prefix(out);
     return out;
 }
 
-// `body` is the frame after the [u32 len] prefix: kind byte followed by the body.
-inline std::optional<FrameKind> frame_kind(const std::byte* body, size_t len) {
+inline std::optional<FrameKind> frame_kind(const std::byte* kind_and_body, size_t len) {
     if (len < 1) return std::nullopt;
-    const auto kind = static_cast<uint8_t>(body[0]);
+    const auto kind = static_cast<uint8_t>(kind_and_body[0]);
     if (kind > static_cast<uint8_t>(FrameKind::CLIENT_MESSAGE)) return std::nullopt;
     return static_cast<FrameKind>(kind);
 }
@@ -166,8 +160,7 @@ inline bool decode_message(const std::byte* body, size_t len, MessageFrame& out)
     size_t off = 1;
     if (!detail::get_u32(body, len, off, out.channel_id)) return false;
     if (!detail::get_u64(body, len, off, out.log_time_ns)) return false;
-    out.payload = body + off;
-    out.payload_len = len - off;
+    out.payload = std::span<const std::byte>(body + off, len - off);
     return true;
 }
 
@@ -180,8 +173,7 @@ inline bool decode_subscriber_count(const std::byte* body, size_t len, Subscribe
 inline bool decode_client_message(const std::byte* body, size_t len, ClientMessageFrame& out) {
     size_t off = 1;
     if (!detail::get_string(body, len, off, out.topic)) return false;
-    out.payload = body + off;
-    out.payload_len = len - off;
+    out.payload = std::span<const std::byte>(body + off, len - off);
     return true;
 }
 

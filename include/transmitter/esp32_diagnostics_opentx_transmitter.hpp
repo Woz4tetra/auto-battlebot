@@ -23,8 +23,6 @@ class Esp32DiagnosticsOpenTxTransmitter : public OpenTxTransmitter {
                                       std::shared_ptr<McapRecorder> mcap_recorder);
     ~Esp32DiagnosticsOpenTxTransmitter() override;
 
-    /** Starts the diagnostics worker, then opens the radio. The base class calls initialize()
-     *  again on every serial reconnect, so starting the worker is idempotent. */
     bool initialize() override;
 
     CommandFeedback update() override;

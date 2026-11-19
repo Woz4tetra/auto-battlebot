@@ -82,11 +82,11 @@ TEST(DriveProcessorTest, ReadbackUndoesTheReversals) {
                      {static_cast<const DriveProcessorInterface*>(&differential),
                       static_cast<const DriveProcessorInterface*>(&tank)}) {
                     const auto body = processor->to_body_velocity(processor->process(cmd));
-                    EXPECT_NEAR(body.linear, expected.channel_a, 1e-12)
+                    EXPECT_NEAR(body.linear, expected.first_output, 1e-12)
                         << "linear=" << cmd.forward_mps << " angular=" << cmd.yaw_rate_radps
                         << " reverse_linear=" << reverse_linear
                         << " reverse_angular=" << reverse_angular;
-                    EXPECT_NEAR(body.angular, expected.channel_b, 1e-12)
+                    EXPECT_NEAR(body.angular, expected.second_output, 1e-12)
                         << "linear=" << cmd.forward_mps << " angular=" << cmd.yaw_rate_radps
                         << " reverse_linear=" << reverse_linear
                         << " reverse_angular=" << reverse_angular;
@@ -96,17 +96,46 @@ TEST(DriveProcessorTest, ReadbackUndoesTheReversals) {
     }
 }
 
+TEST(DriveProcessorTest, OutputsStayInUnitRangeForOversizedCommands) {
+    const std::vector<VelocityCommand> oversized = {command(5.0, 5.0),  command(-5.0, 5.0),
+                                                    command(5.0, -5.0), command(-5.0, -5.0),
+                                                    command(3.0, 0.0),  command(0.0, -3.0)};
+    for (const double saturation_limit : {0.0, 0.5, 1.0, 4.0}) {
+        auto config = make_config(false, true);
+        config.velocity_saturation_limit = saturation_limit;
+        const DifferentialDriveProcessor differential(config, make_logger());
+        const TankDriveProcessor tank(config, make_logger());
+        for (const auto& cmd : oversized) {
+            for (const DriveProcessorInterface* processor :
+                 {static_cast<const DriveProcessorInterface*>(&differential),
+                  static_cast<const DriveProcessorInterface*>(&tank)}) {
+                const auto out = processor->process(cmd);
+                EXPECT_LE(std::abs(out.first_output), 1.0)
+                    << "limit=" << saturation_limit << " cmd=" << cmd.forward_mps << ","
+                    << cmd.yaw_rate_radps;
+                EXPECT_LE(std::abs(out.second_output), 1.0)
+                    << "limit=" << saturation_limit << " cmd=" << cmd.forward_mps << ","
+                    << cmd.yaw_rate_radps;
+            }
+            const BodyVelocity body =
+                saturate_velocity(cmd.forward_mps, cmd.yaw_rate_radps, saturation_limit);
+            EXPECT_LE(std::abs(body.linear), 1.0) << "limit=" << saturation_limit;
+            EXPECT_LE(std::abs(body.angular), 1.0) << "limit=" << saturation_limit;
+        }
+    }
+}
+
 TEST(DriveProcessorTest, TankSplitsCommandIntoWheelChannels) {
     const TankDriveProcessor tank({.velocity_saturation_limit = 1.0, .zero_deadzone_percent = 0.0},
                                   make_logger());
 
     const auto straight = tank.process(command(0.5, 0.0));
-    EXPECT_NEAR(straight.channel_a, 0.5, 1e-12);
-    EXPECT_NEAR(straight.channel_b, 0.5, 1e-12);
+    EXPECT_NEAR(straight.first_output, 0.5, 1e-12);
+    EXPECT_NEAR(straight.second_output, 0.5, 1e-12);
 
     const auto spin = tank.process(command(0.0, 0.4));
-    EXPECT_NEAR(spin.channel_a, 0.4, 1e-12);
-    EXPECT_NEAR(spin.channel_b, -0.4, 1e-12);
+    EXPECT_NEAR(spin.first_output, 0.4, 1e-12);
+    EXPECT_NEAR(spin.second_output, -0.4, 1e-12);
 }
 
 TEST(DriveProcessorTest, TankReverseAngularSwapsWheels) {
@@ -114,8 +143,8 @@ TEST(DriveProcessorTest, TankReverseAngularSwapsWheels) {
                                   make_logger());
 
     const auto spin = tank.process(command(0.0, 0.4));
-    EXPECT_NEAR(spin.channel_a, -0.4, 1e-12);
-    EXPECT_NEAR(spin.channel_b, 0.4, 1e-12);
+    EXPECT_NEAR(spin.first_output, -0.4, 1e-12);
+    EXPECT_NEAR(spin.second_output, 0.4, 1e-12);
 }
 
 TEST(DriveProcessorTest, TankAppliesDeadzonesPerWheel) {
@@ -123,13 +152,13 @@ TEST(DriveProcessorTest, TankAppliesDeadzonesPerWheel) {
 
     // Below the zero deadzone both wheels are silent.
     const auto tiny = tank.process(command(0.01, 0.0));
-    EXPECT_EQ(tiny.channel_a, 0.0);
-    EXPECT_EQ(tiny.channel_b, 0.0);
+    EXPECT_EQ(tiny.first_output, 0.0);
+    EXPECT_EQ(tiny.second_output, 0.0);
 
     // Just above it the wheels jump to the lifted deadzone so they overcome static friction.
     const auto small = tank.process(command(0.021, 0.0));
-    EXPECT_GE(std::abs(small.channel_a), 0.1);
-    EXPECT_GE(std::abs(small.channel_b), 0.1);
+    EXPECT_GE(std::abs(small.first_output), 0.1);
+    EXPECT_GE(std::abs(small.second_output), 0.1);
 }
 
 TEST(DriveProcessorTest, TankSaturationGivesAngularPriority) {
@@ -137,8 +166,8 @@ TEST(DriveProcessorTest, TankSaturationGivesAngularPriority) {
                                   make_logger());
 
     const auto saturated = tank.process(command(1.0, 1.0));
-    EXPECT_NEAR(saturated.channel_a, 1.0, 1e-12);
-    EXPECT_NEAR(saturated.channel_b, -1.0, 1e-12);
+    EXPECT_NEAR(saturated.first_output, 1.0, 1e-12);
+    EXPECT_NEAR(saturated.second_output, -1.0, 1e-12);
 }
 
 TEST(DriveProcessorTest, FactoryBuildsBothProcessorsAndRejectsUnknown) {

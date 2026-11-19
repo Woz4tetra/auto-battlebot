@@ -4,8 +4,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <string>
 #include <vector>
+
+#include "tensorrt_inference/cuda_handles.hpp"
 
 namespace auto_battlebot {
 class TrtEngine {
@@ -47,12 +50,6 @@ class TrtEngine {
     TrtEngine(TrtEngine&&) = delete;
     TrtEngine& operator=(TrtEngine&&) = delete;
 
-    // Load engine from a serialized .engine file. Returns true on success.
-    //
-    // Deserialization streams the file rather than buffering it, so a plan built for
-    // another GPU is rejected after the header instead of after reading the whole file.
-    // That keeps EngineSelector's probing cheap even for the 149 MB DeepLab engine.
-    // Every failure path leaves the object clean, so a caller may try another path.
     bool load(const std::string& engine_path);
 
     bool isLoaded() const { return context_ != nullptr; }
@@ -72,27 +69,16 @@ class TrtEngine {
         return static_cast<size_t>(output_num_elements_) * sizeof(float);
     }
 
-    // Run inference: copy host_input to GPU, execute, copy output to host_output.
-    // Both buffers must be at least getInputSizeBytes() / getOutputSizeBytes().
-    // Returns true on success.
-    bool execute(const float* host_input, float* host_output);
+    bool execute(std::span<const float> host_input, std::span<float> host_output);
 
-    // Run inference and copy each output to the corresponding pointer in host_outputs.
-    // host_outputs.size() must match getOutputTensorInfos().size() and each buffer must be large
-    // enough for the corresponding OutputTensorInfo::num_elements float values.
-    bool execute_multi(const float* host_input, const std::vector<float*>& host_outputs);
+    bool execute_multi(std::span<const float> host_input,
+                       std::span<const std::span<float>> host_outputs);
 
-    // Run inference on input the caller already wrote into device_input() on stream(),
-    // skipping the host input copy. Returns the first output in this engine's pinned host
-    // buffer, valid until the next call, or nullptr on failure.
-    const float* execute_into_pinned_output();
+    std::span<const float> execute_borrowing_pinned_output_after_device_input();
 
     float* device_input() const { return static_cast<float*>(d_input_); }
-    // This engine's CUDA stream, as a cudaStream_t.
-    void* stream() const { return stream_; }
+    cudaStream_t stream() const { return stream_; }
 
-    // True once inference replays from a CUDA graph. The graph is captured after the first
-    // successful run and replaces TensorRT's per-layer kernel launches with one launch.
     bool uses_cuda_graph() const { return graph_exec_ != nullptr; }
 
    private:
@@ -102,14 +88,9 @@ class TrtEngine {
     bool run_and_wait(std::chrono::steady_clock::time_point exec_start, const char* caller);
     void capture_graph();
 
-    // cudaGraphExec_t, kept as void* like the other CUDA handles so this header needs no
-    // CUDA include.
-    void* graph_exec_{nullptr};
+    cudaGraphExec_t graph_exec_{nullptr};
     bool graph_capture_attempted_{false};
-    // Per-engine CUDA stream (created non-blocking) so two engines running on different
-    // threads overlap on the GPU instead of serializing on the default stream. Host IO
-    // goes through pinned staging buffers so the copies are truly async on that stream.
-    void* stream_{nullptr};
+    cudaStream_t stream_{nullptr};
     void* h_input_pinned_{nullptr};
     std::vector<void*> h_outputs_pinned_;
     void* d_input_{nullptr};

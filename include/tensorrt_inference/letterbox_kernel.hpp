@@ -5,6 +5,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "tensorrt_inference/cuda_handles.hpp"
+
 namespace auto_battlebot {
 
 struct LetterboxGeometry {
@@ -17,8 +19,6 @@ struct LetterboxGeometry {
     bool fills_tensor = true;
 };
 
-// The same arithmetic as YOLO's letterbox and as YoloKeypointModel::scale_boxes, which maps
-// detections back: fit the long side, then split the padding with `padding` biasing each side.
 inline LetterboxGeometry compute_letterbox_geometry(int source_width, int source_height,
                                                     int tensor_width, int tensor_height,
                                                     float padding) {
@@ -49,12 +49,8 @@ inline LetterboxGeometry compute_letterbox_geometry(int source_width, int source
 
 constexpr float kYoloPadGrey01 = 114.0f / 255.0f;
 
-// Enqueues one kernel on `stream` (a cudaStream_t) that letterboxes an 8-bit BGR or BGRA image
-// into `tensor`: bilinear resize with cv::resize INTER_LINEAR's sample positions, BGR to RGB,
-// scaled to 0-1, planar CHW. `source` must be readable from the device and `tensor` must hold
-// 3 * tensor_height * tensor_width floats. Returns false if the launch failed.
 bool launch_letterbox_kernel(const uint8_t *source, int source_width, int source_height,
                              size_t source_step, int source_channels,
-                             const LetterboxGeometry &geometry, float *tensor, void *stream);
+                             const LetterboxGeometry &geometry, float *tensor, cudaStream_t stream);
 
 }  // namespace auto_battlebot

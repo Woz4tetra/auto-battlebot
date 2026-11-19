@@ -16,7 +16,7 @@ ImageEncoderWorker::~ImageEncoderWorker() {
     if (thread_.joinable()) thread_.join();
 }
 
-void ImageEncoderWorker::submit(Job job) {
+void ImageEncoderWorker::submit(Job &&job) {
     std::optional<Job> replaced;
     {
         std::lock_guard<std::mutex> lock(mutex_);

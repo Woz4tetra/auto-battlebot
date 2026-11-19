@@ -12,23 +12,16 @@ namespace auto_battlebot {
 class DriveProcessorInterface {
    public:
     struct Config {
-        /** Combined output budget: |linear| + |angular| <= limit.
-         *  Angular takes priority; linear fills remaining headroom.
-         *  0 = disabled (each axis clamped independently to [-1, 1]). */
         double velocity_saturation_limit = 1.0;
-        /** Input magnitude (%) below which output is forced to zero. */
         double zero_deadzone_percent = 0.0;
-        /** Minimum non-zero output magnitude (%) after zero deadzone is exceeded. */
         double lifted_deadzone_percent = 0.0;
         bool reverse_linear = false;
         bool reverse_angular = false;
     };
 
-    /** The two normalized channel values. channel_a is linear (differential) or the left wheel
-     *  (tank); channel_b is angular (differential) or the right wheel (tank). */
     struct Channels {
-        double channel_a;
-        double channel_b;
+        double first_output;
+        double second_output;
     };
 
     virtual ~DriveProcessorInterface() = default;

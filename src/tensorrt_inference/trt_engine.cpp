@@ -548,37 +548,58 @@ bool TrtEngine::upload_input(const float* host_input) {
     return true;
 }
 
-bool TrtEngine::execute(const float* host_input, float* host_output) {
+bool TrtEngine::execute(std::span<const float> host_input, std::span<float> host_output) {
     if (!context_ || !d_input_ || !d_output_ || !stream_) return false;
+    if (host_input.size() < static_cast<size_t>(input_num_elements_) ||
+        host_output.size() < static_cast<size_t>(output_num_elements_)) {
+        spdlog::error("TrtEngine: execute buffers too small input={}/{} output={}/{}",
+                      host_input.size(), input_num_elements_, host_output.size(),
+                      output_num_elements_);
+        return false;
+    }
     const auto exec_start = std::chrono::steady_clock::now();
-    if (!upload_input(host_input)) return false;
+    if (!upload_input(host_input.data())) return false;
     if (!run_and_wait(exec_start, "execute")) return false;
-    std::memcpy(host_output, h_outputs_pinned_[0], getOutputSizeBytes());
+    std::memcpy(host_output.data(), h_outputs_pinned_[0], getOutputSizeBytes());
     return true;
 }
 
-bool TrtEngine::execute_multi(const float* host_input, const std::vector<float*>& host_outputs) {
+bool TrtEngine::execute_multi(std::span<const float> host_input,
+                              std::span<const std::span<float>> host_outputs) {
     if (!context_ || !d_input_ || d_outputs_.empty() || !stream_) return false;
+    if (host_input.size() < static_cast<size_t>(input_num_elements_)) {
+        spdlog::error("TrtEngine: execute_multi input too small host={} engine={}",
+                      host_input.size(), input_num_elements_);
+        return false;
+    }
+    for (size_t i = 0; i < host_outputs.size() && i < output_infos_.size(); ++i) {
+        if (host_outputs[i].size() < static_cast<size_t>(output_infos_[i].num_elements)) {
+            spdlog::error("TrtEngine: execute_multi output {} too small host={} engine={}", i,
+                          host_outputs[i].size(), output_infos_[i].num_elements);
+            return false;
+        }
+    }
     if (host_outputs.size() != d_outputs_.size()) {
         spdlog::error("TrtEngine: execute_multi output count mismatch host={} engine={}",
                       host_outputs.size(), d_outputs_.size());
         return false;
     }
     const auto exec_start = std::chrono::steady_clock::now();
-    if (!upload_input(host_input)) return false;
+    if (!upload_input(host_input.data())) return false;
     if (!run_and_wait(exec_start, "execute_multi")) return false;
     for (size_t i = 0; i < d_outputs_.size(); ++i) {
         const size_t bytes = static_cast<size_t>(output_infos_[i].num_elements) * sizeof(float);
-        std::memcpy(host_outputs[i], h_outputs_pinned_[i], bytes);
+        std::memcpy(host_outputs[i].data(), h_outputs_pinned_[i], bytes);
     }
     return true;
 }
 
-const float* TrtEngine::execute_into_pinned_output() {
-    if (!context_ || !d_input_ || !d_output_ || !stream_) return nullptr;
+std::span<const float> TrtEngine::execute_borrowing_pinned_output_after_device_input() {
+    if (!context_ || !d_input_ || !d_output_ || !stream_) return {};
     const auto exec_start = std::chrono::steady_clock::now();
-    if (!run_and_wait(exec_start, "execute_device_input")) return nullptr;
-    return static_cast<const float*>(h_outputs_pinned_[0]);
+    if (!run_and_wait(exec_start, "execute_device_input")) return {};
+    return {static_cast<const float*>(h_outputs_pinned_[0]),
+            static_cast<size_t>(output_num_elements_)};
 }
 
 }  // namespace auto_battlebot

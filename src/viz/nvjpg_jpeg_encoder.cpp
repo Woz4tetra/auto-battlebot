@@ -55,7 +55,8 @@ std::unique_ptr<NvjpgJpegEncoder> NvjpgJpegEncoder::create() {
 
 NvjpgJpegEncoder::~NvjpgJpegEncoder() { plugin_.destroy(encoder_); }
 
-bool NvjpgJpegEncoder::encode(const cv::Mat &bgr, int quality, std::vector<std::byte> &out) {
+bool NvjpgJpegEncoder::encode_on_owner_thread(const cv::Mat &bgr, int quality,
+                                              std::vector<std::byte> &out) {
     out.clear();
     if (bgr.empty() || bgr.type() != CV_8UC3) return false;
     const int width = bgr.cols & ~1;

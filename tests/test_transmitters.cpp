@@ -39,6 +39,27 @@ TEST(PlaybackTransmitterTest, NoFeedbackBeforeFirstSend) {
     EXPECT_TRUE(feedback.stick_commands.empty());
 }
 
+TEST(PlaybackTransmitterTest, InitPressOnFixedLogicalTime) {
+    PlaybackTransmitterConfiguration config;
+    config.init_delay_seconds = 2.0;
+    auto clock = std::make_shared<ManualClock>();
+    PlaybackTransmitter transmitter(config, clock);
+    ASSERT_TRUE(transmitter.initialize());
+
+    clock->set(100.0);
+    transmitter.update();
+    EXPECT_FALSE(transmitter.did_init_button_press());
+
+    clock->set(101.9);
+    transmitter.update();
+    EXPECT_FALSE(transmitter.did_init_button_press());
+
+    clock->set(102.0);
+    transmitter.update();
+    EXPECT_TRUE(transmitter.did_init_button_press());
+    EXPECT_FALSE(transmitter.did_init_button_press());
+}
+
 TEST(SimTransmitterTest, FeedbackReportsLastSentStickCommand) {
     SimTransmitterConfiguration config;
     config.init_delay_seconds = 0.0;

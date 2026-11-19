@@ -429,9 +429,9 @@ class Relay {
             auto it = app_channels_.find(msg.channel_id);
             if (it == app_channels_.end()) return;
             RelayChannel& ch = it->second->second;
-            ch.channel->log(msg.payload, msg.payload_len, msg.log_time_ns);
+            ch.channel->log(msg.payload.data(), msg.payload.size(), msg.log_time_ns);
             if (ch.latch) {
-                ch.retained.assign(msg.payload, msg.payload + msg.payload_len);
+                ch.retained.assign(msg.payload.begin(), msg.payload.end());
                 ch.retained_log_time = msg.log_time_ns;
             }
         }

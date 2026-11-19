@@ -10,9 +10,9 @@ CompositeTransmitter::CompositeTransmitter(
     std::vector<std::shared_ptr<TransmitterInterface>> children,
     std::vector<double> transmit_rate_hz, TimeSource now)
     : children_(std::move(children)),
-      transmit_period_(children_.size(), std::chrono::steady_clock::duration::zero()),
+      transmit_period_(children_.size()),
       last_send_(children_.size()),
-      pending_(children_.size()),
+      owed_command_(children_.size()),
       now_(std::move(now)),
       logger_(DiagnosticsLogger::get_logger("composite_transmitter")) {
     if (children_.empty()) {
@@ -59,18 +59,21 @@ CommandFeedback CompositeTransmitter::update() {
 void CompositeTransmitter::send(VelocityCommand command) {
     const auto now = now_();
     for (size_t i = 0; i < children_.size(); i++) {
-        pending_[i] = command;
+        owed_command_[i] = command;
         flush_child_if_due(i, now, false);
     }
 }
 
 void CompositeTransmitter::flush_child_if_due(size_t i, std::chrono::steady_clock::time_point now,
                                               bool force) {
-    if (!pending_[i]) return;
-    if (!force && last_send_[i] && now - *last_send_[i] < transmit_period_[i]) return;
+    if (!owed_command_[i]) return;
+    if (!force && last_send_[i] && transmit_period_[i] &&
+        now - *last_send_[i] < *transmit_period_[i]) {
+        return;
+    }
     last_send_[i] = now;
-    children_[i]->send(*pending_[i]);
-    pending_[i].reset();
+    children_[i]->send(*owed_command_[i]);
+    owed_command_[i].reset();
 }
 
 bool CompositeTransmitter::did_init_button_press() {

@@ -2,13 +2,11 @@
 
 namespace auto_battlebot {
 
-/** Normalized body-frame command. Both axes are in [-1, 1]. */
 struct BodyVelocity {
     double linear;
     double angular;
 };
 
-/** Normalized per-wheel commands. Both wheels are in [-1, 1]. */
 struct WheelPair {
     double left;
     double right;

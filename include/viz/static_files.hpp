@@ -34,16 +34,9 @@ inline std::optional<std::string> percent_decode(std::string_view text) {
     return out;
 }
 
-/**
- * Maps a URL path to a regular file under `root`, or nullopt. `/` maps to `index.html`.
- *
- * Rejects `..` and `.` segments (also when percent-encoded), backslashes, empty segments such as
- * `//etc/passwd`, and anything whose real path lands outside the root, which catches symlinks
- * that point out of it. A query string must already be stripped.
- */
-inline std::optional<std::filesystem::path> resolve_static_path(const std::filesystem::path &root,
-                                                                std::string_view url_path) {
-    auto decoded = percent_decode(url_path);
+inline std::optional<std::filesystem::path> resolve_static_path(
+    const std::filesystem::path &root, std::string_view url_path_without_query) {
+    auto decoded = percent_decode(url_path_without_query);
     if (!decoded) return std::nullopt;
     std::string_view rel = *decoded;
     if (!rel.starts_with('/')) return std::nullopt;

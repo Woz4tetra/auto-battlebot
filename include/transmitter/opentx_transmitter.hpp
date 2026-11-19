@@ -17,6 +17,8 @@
 
 namespace auto_battlebot {
 
+using HardwareTimePoint = std::chrono::steady_clock::time_point;
+
 class OpenTxTransmitter : public TransmitterInterface {
    public:
     OpenTxTransmitter(const OpenTxTransmitterConfiguration& config,
@@ -45,9 +47,6 @@ class OpenTxTransmitter : public TransmitterInterface {
     std::shared_ptr<ClockInterface> clock_;
     std::unique_ptr<DriveProcessorInterface> processor_;
 
-    // Linear-command slew limiter. Caps the normalized linear command rate so wheel-surface
-    // acceleration stays below the slip/flip threshold (see config_.max_motor_rpm_per_s).
-    // Normalized units/second: max_motor_rpm_per_s / max_motor_rpm, 0 when that is unset.
     double max_normalized_linear_rate_per_s_ = 0.0;
     double prev_linear_command_ = 0.0;
     std::optional<double> last_send_time_;
@@ -61,10 +60,7 @@ class OpenTxTransmitter : public TransmitterInterface {
     bool enabled_ = false;
     std::chrono::steady_clock::time_point next_reconnect_attempt_ =
         std::chrono::steady_clock::now();
-    /** Time of the last complete channel update. Hardware timeout, so this uses
-     *  std::chrono::steady_clock directly rather than the logical clock_ (see
-     *  time/clock_interface.hpp). */
-    std::chrono::steady_clock::time_point last_channel_time_{};
+    HardwareTimePoint last_channel_time_{};
 
     /** True while complete 32-channel updates keep arriving. Seeded on port open so a fresh
      *  (re)connect gets one timeout window of grace before it reports a stall. Assumes the

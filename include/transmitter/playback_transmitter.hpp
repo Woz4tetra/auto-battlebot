@@ -27,11 +27,7 @@ class PlaybackTransmitter : public TransmitterInterface {
     double init_delay_seconds_;
     bool initialized_;
     std::shared_ptr<ClockInterface> clock_;
-    /** Logical time of the first update(), so the init button fires on a fixed frame rather than
-     *  after a wall-clock delay. Under synchronous playback a wall-clock delay lands on a
-     *  different frame every run, which makes field initialization, and therefore the whole run,
-     *  irreproducible. */
-    std::optional<double> start_time_seconds_;
+    std::optional<double> first_update_time_seconds_;
     bool init_button_pressed_;
     bool init_button_done_pressing_;
     std::shared_ptr<DiagnosticsModuleLogger> logger_;

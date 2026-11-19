@@ -14,18 +14,12 @@
 #include "rgbd_camera/rgbd_camera_interface.hpp"
 
 namespace auto_battlebot {
-/** [ui]: settings the web dashboard reads from /status/app. */
 struct UiConfiguration {
     ~UiConfiguration() = default;
     UiConfiguration() = default;
 
-    /** Fraction of max_loop_rate_hz below which rate is considered "not met" (e.g. 0.99). */
     double rate_fail_threshold = 0.5;
-    /** Seconds the rate must be below threshold before showing error (prevents strobing). */
     double rate_fail_duration_sec = 2.0;
-    /** [ui.label_colors]: lowercase model label -> "#rrggbb", the colors training draws each
-     *  class in. The web dashboard uses them for boxes and tracks; labels not listed get a
-     *  generated color. */
     std::vector<std::pair<std::string, std::string>> label_colors;
 
     void parse_fields(ConfigParser &parser);

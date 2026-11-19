@@ -63,7 +63,8 @@ __global__ void letterbox(const uint8_t *__restrict__ source, int source_width, 
 
 bool launch_letterbox_kernel(const uint8_t *source, int source_width, int source_height,
                              size_t source_step, int source_channels,
-                             const LetterboxGeometry &geometry, float *tensor, void *stream) {
+                             const LetterboxGeometry &geometry, float *tensor,
+                             cudaStream_t stream) {
     if (geometry.resized_width <= 0 || geometry.resized_height <= 0) return false;
     const float scale_x = static_cast<float>(static_cast<double>(source_width) /
                                              static_cast<double>(geometry.resized_width));
@@ -72,9 +73,8 @@ bool launch_letterbox_kernel(const uint8_t *source, int source_width, int source
     const dim3 block(32, 8);
     const dim3 grid((geometry.tensor_width + block.x - 1) / block.x,
                     (geometry.tensor_height + block.y - 1) / block.y);
-    letterbox<<<grid, block, 0, static_cast<cudaStream_t>(stream)>>>(
-        source, source_width, source_height, source_step, source_channels, geometry, scale_x,
-        scale_y, tensor);
+    letterbox<<<grid, block, 0, stream>>>(source, source_width, source_height, source_step,
+                                          source_channels, geometry, scale_x, scale_y, tensor);
     return cudaGetLastError() == cudaSuccess;
 }
 

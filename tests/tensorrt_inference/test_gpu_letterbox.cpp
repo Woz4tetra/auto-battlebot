@@ -7,6 +7,7 @@
 #include <opencv2/imgproc.hpp>
 #include <vector>
 
+#include "keypoint_model/yolo_keypoint_model.hpp"
 #include "tensorrt_inference/gpu_letterbox.hpp"
 #include "tensorrt_inference/letterbox_kernel.hpp"
 #include "tensorrt_inference/pinned_mat_allocator.hpp"
@@ -61,9 +62,10 @@ class GpuLetterboxTest : public ::testing::Test {
         if (stream_) cudaStreamDestroy(stream_);
     }
 
+    DeviceTensorView tensor_view() const { return {tensor_, kTensorHeight, kTensorWidth}; }
+
     std::vector<float> gpu_letterbox(const cv::Mat &image) {
-        EXPECT_TRUE(
-            letterbox_.enqueue(image, kTensorWidth, kTensorHeight, kPadding, tensor_, stream_));
+        EXPECT_TRUE(letterbox_.enqueue(image, tensor_view(), kPadding, stream_));
         EXPECT_EQ(cudaStreamSynchronize(stream_), cudaSuccess);
         std::vector<float> out(kTensorElements);
         EXPECT_EQ(cudaMemcpy(out.data(), tensor_, kTensorBytes, cudaMemcpyDeviceToHost),
@@ -101,6 +103,39 @@ class GpuLetterboxTest : public ::testing::Test {
     cudaStream_t stream_{nullptr};
     float *tensor_{nullptr};
 };
+
+constexpr float kMapBackTolerancePx = 2.0f;
+
+class ScaleBoxesProbe : public YoloKeypointModel {
+   public:
+    ScaleBoxesProbe(YoloKeypointModelConfiguration &config) : YoloKeypointModel(config, nullptr) {}
+    using YoloKeypointModel::scale_boxes;
+};
+
+TEST(LetterboxGeometryTest, ImageExtentsMapBackThroughScaleBoxes) {
+    YoloKeypointModelConfiguration config;
+    config.letterbox_padding = kPadding;
+    ScaleBoxesProbe probe(config);
+    const cv::Size tensor(kTensorWidth, kTensorHeight);
+    for (const cv::Size source :
+         {cv::Size(1920, 1200), cv::Size(1280, 720), cv::Size(2208, 1242), cv::Size(1920, 1080)}) {
+        const LetterboxGeometry g = compute_letterbox_geometry(
+            source.width, source.height, kTensorWidth, kTensorHeight, kPadding);
+        std::vector<DetectionRow> rows = {
+            DetectionRow{static_cast<float>(g.left), static_cast<float>(g.top),
+                         static_cast<float>(g.left + g.resized_width),
+                         static_cast<float>(g.top + g.resized_height)}};
+        probe.scale_boxes(rows, source, tensor);
+        EXPECT_NEAR(rows[0][detection_row::kX1], 0.0f, kMapBackTolerancePx) << source;
+        EXPECT_NEAR(rows[0][detection_row::kY1], 0.0f, kMapBackTolerancePx) << source;
+        EXPECT_NEAR(rows[0][detection_row::kX2], static_cast<float>(source.width),
+                    kMapBackTolerancePx)
+            << source;
+        EXPECT_NEAR(rows[0][detection_row::kY2], static_cast<float>(source.height),
+                    kMapBackTolerancePx)
+            << source;
+    }
+}
 
 TEST(LetterboxGeometryTest, MatchesZedOneFrame) {
     // 1920x1200 fits the height: 0.32 scale, 614x384, 13 px of grey each side.
@@ -163,9 +198,8 @@ TEST_F(GpuLetterboxTest, TensorSizedImageIsExact) {
 
 TEST_F(GpuLetterboxTest, RejectsUnsupportedImages) {
     const cv::Mat gray(1200, 1920, CV_8UC1, cv::Scalar(0));
-    EXPECT_FALSE(letterbox_.enqueue(gray, kTensorWidth, kTensorHeight, kPadding, tensor_, stream_));
-    EXPECT_FALSE(
-        letterbox_.enqueue(cv::Mat(), kTensorWidth, kTensorHeight, kPadding, tensor_, stream_));
+    EXPECT_FALSE(letterbox_.enqueue(gray, tensor_view(), kPadding, stream_));
+    EXPECT_FALSE(letterbox_.enqueue(cv::Mat(), tensor_view(), kPadding, stream_));
 }
 
 TEST_F(GpuLetterboxTest, AllocatorReusesReleasedBuffers) {

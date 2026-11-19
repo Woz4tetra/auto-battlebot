@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <span>
 
 namespace auto_battlebot {
 YoloKeypointModel::YoloKeypointModel(YoloKeypointModelConfiguration &config,
@@ -31,7 +32,7 @@ bool YoloKeypointModel::initialize() {
     std::vector<float> warmup_input(static_cast<size_t>(engine_.getInputNumElements()), 0.0f);
     std::vector<float> warmup_output(static_cast<size_t>(engine_.getOutputNumElements()), 0.0f);
     for (int i = 0; i < 3; i++) {
-        if (!engine_.execute(warmup_input.data(), warmup_output.data())) {
+        if (!engine_.execute(warmup_input, warmup_output)) {
             spdlog::error("YOLO warmup inference failed");
             return false;
         }
@@ -66,25 +67,27 @@ ModelResultStamped YoloKeypointModel::update(RgbImage image,
 
     {
         FunctionTimer stage_timer(diagnostics_logger_, "preprocess");
-        if (!letterbox_.enqueue(image.image, input_image_size.width, input_image_size.height,
-                                letterbox_padding_, engine_.device_input(), engine_.stream())) {
+        if (!letterbox_.enqueue(
+                image.image,
+                {engine_.device_input(), input_image_size.height, input_image_size.width},
+                letterbox_padding_, engine_.stream())) {
             diagnostics_logger_->error({}, "YOLO preprocess failed");
             return ModelResultStamped{};
         }
     }
 
-    const float *output = nullptr;
+    std::span<const float> output;
     {
         FunctionTimer stage_timer(diagnostics_logger_, "inference");
-        output = engine_.execute_into_pinned_output();
-        if (!output) {
+        output = engine_.execute_borrowing_pinned_output_after_device_input();
+        if (output.empty()) {
             diagnostics_logger_->error({}, "YOLO inference failed");
             return ModelResultStamped{};
         }
     }
 
     FunctionTimer stage_timer(diagnostics_logger_, "postprocess");
-    return postprocess_output(output, image.header, original_image_size, input_image_size,
+    return postprocess_output(output.data(), image.header, original_image_size, input_image_size,
                               image.image);
 }
 

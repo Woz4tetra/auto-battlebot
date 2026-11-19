@@ -148,7 +148,7 @@ EspNowTransmitter::EspNowTransmitter(const EspNowTransmitterConfiguration &confi
                                                foxglove_adapters::kEspNowTelemetrySchema),
                          false, std::move(sink), std::move(mcap_recorder)) {
     if (config_.max_motor_rpm_per_s && config_.max_motor_rpm > 0.0) {
-        max_linear_rate_per_sec_ = *config_.max_motor_rpm_per_s / config_.max_motor_rpm;
+        max_normalized_linear_rate_per_s_ = *config_.max_motor_rpm_per_s / config_.max_motor_rpm;
     }
 }
 
@@ -191,7 +191,11 @@ TransmitterStatus EspNowTransmitter::get_status() const {
 DriveProcessorInterface::Channels espnow_telemetry_channels(
     const espnow_protocol::TelemetryPayload &telemetry) {
     const double a_percent = telemetry.is_upside_down ? -telemetry.a_percent : telemetry.a_percent;
-    return {.channel_a = -a_percent / 100.0, .channel_b = telemetry.b_percent / 100.0};
+    return {.first_output = -a_percent / 100.0, .second_output = telemetry.b_percent / 100.0};
+}
+
+int64_t espnow_round_trip_us(uint32_t now_us, uint32_t jetson_tx_us) {
+    return static_cast<int64_t>(static_cast<uint32_t>(now_us - jetson_tx_us));
 }
 
 void EspNowTransmitter::send(VelocityCommand command) {
@@ -203,8 +207,8 @@ void EspNowTransmitter::send(VelocityCommand command) {
     const espnow_protocol::CommandPayload payload{
         ++seq_,
         espnow_monotonic_us(),
-        static_cast<float>(channels.channel_a),
-        static_cast<float>(channels.channel_b),
+        static_cast<float>(channels.first_output),
+        static_cast<float>(channels.second_output),
     };
     if (!write_frame(espnow_protocol::MSG_COMMAND, &payload, sizeof(payload))) {
         logger_->warning("dongle_write_failed", {{"seq", static_cast<int>(payload.seq)}});
@@ -221,7 +225,7 @@ void EspNowTransmitter::disable() {
 }
 
 double EspNowTransmitter::limit_linear_acceleration(double linear_command) {
-    if (max_linear_rate_per_sec_ <= 0.0) return linear_command;
+    if (max_normalized_linear_rate_per_s_ <= 0.0) return linear_command;
 
     const auto now = std::chrono::steady_clock::now();
     if (!get_status().autonomy_switch_on) {
@@ -239,7 +243,7 @@ double EspNowTransmitter::limit_linear_acceleration(double linear_command) {
     last_send_time_ = now;
     if (dt <= 0.0) return linear_command;
 
-    const double max_delta = max_linear_rate_per_sec_ * dt;
+    const double max_delta = max_normalized_linear_rate_per_s_ * dt;
     prev_linear_command_ = std::clamp(linear_command, prev_linear_command_ - max_delta,
                                       prev_linear_command_ + max_delta);
     return prev_linear_command_;
@@ -278,7 +282,7 @@ void EspNowTransmitter::handle_telemetry(const espnow_protocol::TelemetryPayload
     latest_telemetry_time_ = std::chrono::steady_clock::now();
     std::optional<int64_t> round_trip_us;
     if (telemetry.espnow_age_ms != UINT32_MAX && telemetry.espnow_seq != 0) {
-        const int64_t sample = static_cast<int64_t>(espnow_monotonic_us() - telemetry.jetson_tx_us);
+        const int64_t sample = espnow_round_trip_us(espnow_monotonic_us(), telemetry.jetson_tx_us);
         round_trip_us = sample;
         if (!min_round_trip_us_since_health_log_ || sample < *min_round_trip_us_since_health_log_)
             min_round_trip_us_since_health_log_ = sample;

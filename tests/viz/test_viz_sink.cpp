@@ -174,7 +174,8 @@ TEST(VizSinkTest, ReplaysAdvertisesThenStreamsAndReadsSubscriberCounts) {
     ASSERT_TRUE(viz::decode_message(body.data(), body.size(), msg));
     EXPECT_EQ(msg.channel_id, channel);
     EXPECT_EQ(msg.log_time_ns, 42u);
-    EXPECT_EQ(std::string(reinterpret_cast<const char*>(msg.payload), msg.payload_len), payload);
+    EXPECT_EQ(std::string(reinterpret_cast<const char*>(msg.payload.data()), msg.payload.size()),
+              payload);
 
     EXPECT_EQ(sink.num_subscribers(channel), 0u);
     relay.send_subscriber_count(channel, 3);
@@ -269,6 +270,68 @@ TEST(VizSinkTest, ShutsDownWhileTheRelayIsStalled) {
     const auto start = std::chrono::steady_clock::now();
     sink.reset();
     EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::milliseconds(300));
+}
+
+TEST(VizSinkTest, EachChannelKeepsItsOwnMessageOrder) {
+    const auto path = test_socket_path();
+    FakeRelay relay(path);
+    VizSink sink(path);
+    const uint32_t images = sink.advertise("/camera/image", "protobuf", kImageSchema, false);
+    const uint32_t status = sink.advertise("/status/system", "json", kStatusSchema, false);
+    ASSERT_TRUE(relay.accept_client(std::chrono::seconds(3)));
+    ASSERT_TRUE(wait_until([&] { return sink.connected(); }, std::chrono::seconds(1)));
+
+    constexpr int kPerChannel = 6;
+    for (int i = 0; i < kPerChannel; ++i) {
+        publish_bytes(sink, images, 1 << 16, 100 + i);
+        publish_bytes(sink, status, 64, 200 + i);
+    }
+
+    std::vector<uint64_t> image_times;
+    std::vector<uint64_t> status_times;
+    std::vector<std::byte> body;
+    while (image_times.size() + status_times.size() < 2 * kPerChannel &&
+           relay.read_frame(body, std::chrono::seconds(2))) {
+        if (viz::frame_kind(body.data(), body.size()) != viz::FrameKind::MESSAGE) continue;
+        viz::MessageFrame msg;
+        ASSERT_TRUE(viz::decode_message(body.data(), body.size(), msg));
+        (msg.channel_id == images ? image_times : status_times).push_back(msg.log_time_ns);
+    }
+    EXPECT_EQ(image_times, (std::vector<uint64_t>{100, 101, 102, 103, 104, 105}));
+    EXPECT_EQ(status_times, (std::vector<uint64_t>{200, 201, 202, 203, 204, 205}));
+}
+
+TEST(VizSinkTest, AdvertiseIsIdempotentPerTopic) {
+    const auto path = test_socket_path();
+    ::unlink(path.c_str());
+    VizSink sink(path);
+    const uint32_t first = sink.advertise("/status/system", "json", kStatusSchema, false);
+    const uint32_t other = sink.advertise("/status/other", "json", kStatusSchema, false);
+    EXPECT_EQ(sink.advertise("/status/system", "json", kStatusSchema, false), first);
+    EXPECT_NE(other, first);
+    EXPECT_EQ(sink.advertise("/status/other", "json", kStatusSchema, false), other);
+}
+
+TEST(VizSinkTest, ClearingHandlerWaitsForInFlightCall) {
+    const auto path = test_socket_path();
+    FakeRelay relay(path);
+    VizSink sink(path);
+    std::atomic<bool> entered{false};
+    std::atomic<bool> finished{false};
+    sink.set_client_message_handler([&](const std::string&, const std::byte*, size_t) {
+        entered.store(true);
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        finished.store(true);
+    });
+    ASSERT_TRUE(relay.accept_client(std::chrono::seconds(3)));
+    ASSERT_TRUE(wait_until([&] { return sink.connected(); }, std::chrono::seconds(1)));
+    const std::string payload = "{}";
+    relay.send_frame(viz::encode_client_message(
+        "/reinit_field", reinterpret_cast<const std::byte*>(payload.data()), payload.size()));
+    ASSERT_TRUE(wait_until([&] { return entered.load(); }, std::chrono::seconds(2)));
+
+    sink.set_client_message_handler(nullptr);
+    EXPECT_TRUE(finished.load()) << "clear returned while the handler was still running";
 }
 
 TEST(VizSinkTest, StatusIsSentAheadOfQueuedImages) {
