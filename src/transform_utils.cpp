@@ -273,10 +273,12 @@ Eigen::Vector3d transform_point(const Eigen::Matrix4d &tf, const Eigen::Vector3d
     return (tf * point_homogenous).head<3>();
 }
 
-Eigen::Vector2d body_velocity_to_field(double linear_x, double linear_y, double yaw) {
-    const double cos_yaw = std::cos(yaw);
-    const double sin_yaw = std::sin(yaw);
-    return {linear_x * cos_yaw - linear_y * sin_yaw, linear_x * sin_yaw + linear_y * cos_yaw};
+Eigen::Vector2d body_velocity_to_field(double body_linear_x, double body_linear_y,
+                                       double field_yaw) {
+    const double cos_yaw = std::cos(field_yaw);
+    const double sin_yaw = std::sin(field_yaw);
+    return {body_linear_x * cos_yaw - body_linear_y * sin_yaw,
+            body_linear_x * sin_yaw + body_linear_y * cos_yaw};
 }
 
 }  // namespace auto_battlebot

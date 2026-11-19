@@ -3,6 +3,7 @@
 #include <spdlog/spdlog.h>
 
 #include "field_filter/point_cloud_field_filter_debug.hpp"
+#include "field_filter/rectangle_edges.hpp"
 
 namespace auto_battlebot {
 PointCloudFieldFilter::PointCloudFieldFilter(PointCloudFieldFilterConfiguration &config)
@@ -547,30 +548,9 @@ double PointCloudFieldFilter::get_rectangle_angle(
         return 0.0f;
     }
 
-    std::vector<double> angles;
-    std::vector<Eigen::Vector2f> midpoints;
-    angles.reserve(4);
-    midpoints.reserve(4);
-
-    for (size_t i = 0; i < rectangle.size(); ++i) {
-        const Eigen::Vector2f &p0 = rectangle[i];
-        const Eigen::Vector2f &p1 = rectangle[(i + 1) % rectangle.size()];
-        Eigen::Vector2f delta = p1 - p0;
-        double angle = std::atan2(delta.y(), delta.x());
-        angles.push_back(angle);
-        midpoints.push_back((p0 + p1) / 2.0f);
-    }
-
-    size_t min_y_index = 0;
-    float min_y = midpoints[0].y();
-    for (size_t i = 1; i < midpoints.size(); ++i) {
-        if (midpoints[i].y() < min_y) {
-            min_y = midpoints[i].y();
-            min_y_index = i;
-        }
-    }
-
-    double angle = angles[min_y_index];
+    const size_t edge = lowest_midpoint_edge_index(rectangle);
+    const Eigen::Vector2f delta = rectangle[(edge + 1) % rectangle.size()] - rectangle[edge];
+    double angle = std::atan2(delta.y(), delta.x());
     double complementary_angle = normalize_angle(angle + M_PI);
 
     if (std::abs(complementary_angle) < std::abs(angle)) {

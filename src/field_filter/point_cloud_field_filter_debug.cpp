@@ -8,6 +8,8 @@
 #include <string>
 #include <utility>
 
+#include "field_filter/rectangle_edges.hpp"
+
 namespace auto_battlebot {
 namespace {
 
@@ -138,20 +140,6 @@ cv::Mat colorize_mask(const cv::Mat &mask) {
     return colorized;
 }
 
-// Mirrors get_rectangle_angle: the edge with the lowest midpoint Y sets the field yaw.
-size_t nearest_edge_index(const std::vector<Eigen::Vector2f> &corners) {
-    size_t nearest = 0;
-    float lowest_midpoint_y = std::numeric_limits<float>::max();
-    for (size_t i = 0; i < corners.size(); ++i) {
-        float midpoint_y = (corners[i].y() + corners[(i + 1) % corners.size()].y()) / 2.0f;
-        if (midpoint_y < lowest_midpoint_y) {
-            lowest_midpoint_y = midpoint_y;
-            nearest = i;
-        }
-    }
-    return nearest;
-}
-
 void add_mask_panels(const FieldFilterDebugFrame &frame, DebugPanels &panels) {
     panels.emplace_back("Original Mask", colorize_mask(frame.original_mask));
     panels.emplace_back("Largest Contour", colorize_mask(frame.largest_contour_mask));
@@ -217,7 +205,7 @@ void add_rectangle_panels(const FieldFilterDebugFrame &frame, DebugPanels &panel
 
     cv::Mat angle_image = rectangle_image.clone();
     if (!corner_pixels.empty()) {
-        size_t nearest = nearest_edge_index(frame.rectangle_corners);
+        size_t nearest = lowest_midpoint_edge_index(frame.rectangle_corners);
         cv::line(angle_image, corner_pixels[nearest],
                  corner_pixels[(nearest + 1) % corner_pixels.size()], kNearestEdgeColor, 3);
     }

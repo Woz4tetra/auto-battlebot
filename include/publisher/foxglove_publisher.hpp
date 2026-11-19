@@ -37,7 +37,6 @@ class FoxglovePublisher : public PublisherInterface {
 
    private:
     friend struct FoxglovePublisherTestAccess;
-    // Shared impl for /blob_detections and /keypoint_detections plus their annotation topics.
     void publish_detections_on(OutputChannel &json_channel, OutputChannel &annotations_channel,
                                const DetectionsStamped &detections);
     void submit_previews(const RgbImage &rgb, uint64_t log_time);

@@ -8,21 +8,10 @@
 
 namespace auto_battlebot {
 
-/**
- * Emits left and right motor channels for a robot that expects per-wheel commands, with no
- * radio-side mixer between the channels and the motors. Applies:
- *   1. Velocity saturation (angular priority, linear fills remaining headroom)
- *   2. Channel reversal to compensate for physical motor wiring
- *   3. Per-wheel lifted deadzone
- *
- * The stages match DifferentialDriveProcessor up to the mixing: this one stops at wheel space
- * instead of converting back to body axes.
- */
 class TankDriveProcessor : public DriveProcessorInterface {
    public:
     TankDriveProcessor(const Config& config, std::shared_ptr<DiagnosticsModuleLogger> logger);
 
-    /** channel_a is the left wheel command, channel_b is the right wheel command. */
     Channels process(VelocityCommand command) const override;
 
     BodyVelocity to_body_velocity(Channels channels) const override;

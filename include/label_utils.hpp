@@ -20,12 +20,7 @@ struct ColorRGBf {
     inline auto to_rgb_1() const -> std::tuple<float, float, float> { return {r, g, b}; }
 };
 
-inline ColorRGBf get_color_for_index(int index) {
-    float hue = std::fmod(index * 137.5f, 360.0f);
-    float sat = 0.8f;
-    float val = 0.9f;
-
-    // HSV to RGB conversion
+inline ColorRGBf hsv_to_rgb(float hue, float sat, float val) {
     float c = val * sat;
     float x = c * (1.0f - std::fabs(std::fmod(hue / 60.0f, 2.0f) - 1.0f));
     float m = val - c;
@@ -60,6 +55,10 @@ inline ColorRGBf get_color_for_index(int index) {
     return ColorRGBf{r + m, g + m, b + m};
 }
 
+inline ColorRGBf get_color_for_index(int index) {
+    return hsv_to_rgb(std::fmod(index * 137.5f, 360.0f), 0.8f, 0.9f);
+}
+
 inline ColorRGBf get_color_for_index(FrameId frame_id) {
     int index = static_cast<int>(frame_id);
     return get_color_for_index(index);
@@ -75,11 +74,6 @@ inline ColorRGBf get_color_for_index(Group group) {
     return get_color_for_index(index);
 }
 
-/**
- * @brief Extract short name from label enum string (last part after underscore)
- * @param enum_name Full enum name string (e.g., "ROBOT_FRIENDLY_RED")
- * @return Short name (e.g., "RED")
- */
 inline std::string get_short_name(const std::string &enum_name) {
     size_t last_underscore = enum_name.rfind('_');
     if (last_underscore != std::string::npos && last_underscore + 1 < enum_name.size()) {

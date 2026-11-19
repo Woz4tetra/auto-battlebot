@@ -299,6 +299,12 @@ run_prettier() {
 }
 run_prettier
 
+refresh_compile_commands_after_renames() {
+    if ! cmake -S "$PROJECT_ROOT" -B "$BUILD_DIR" >/dev/null; then
+        echo -e "${RED}    ✗ cmake reconfigure of build/ failed${NC}"
+    fi
+}
+
 run_clang_tidy() {
     header "clang-tidy"
     if [ "$QUICK" = true ]; then
@@ -309,13 +315,7 @@ run_clang_tidy() {
         echo -e "${RED}    ✗ clang-tidy (no build/compile_commands.json — run scripts/build.sh)${NC}"
         FAILED+=("clang-tidy")
     else
-        # The source list comes from CONFIGURE_DEPENDS globs, which only re-run on a
-        # build, so a renamed .cpp leaves compile_commands.json pointing at a file
-        # that no longer exists and clang-tidy fails on it. Reconfiguring takes
-        # ~0.6s, keeps the cached options, and rebuilds nothing.
-        if ! cmake -S "$PROJECT_ROOT" -B "$BUILD_DIR" >/dev/null; then
-            echo -e "${RED}    ✗ cmake reconfigure of build/ failed${NC}"
-        fi
+        refresh_compile_commands_after_renames
         "$RUN_CLANG_TIDY" -p "$BUILD_DIR" -clang-tidy-binary "$TIDY_BINARY" \
             -warnings-as-errors='*' "^${PROJECT_ROOT}/src/.*\.cpp$"
         record "clang-tidy" $?

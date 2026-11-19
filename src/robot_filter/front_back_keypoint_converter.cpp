@@ -26,13 +26,11 @@ FrontBackKeypointConverter::convert(const ModelResultStamped &model_results,
         return {};
     }
 
-    // Group model_results by (label, detection_index), each group becomes one FrontBackAssignment
-    // with confidence
-    using GroupKey = std::pair<Label, int>;
-    std::map<GroupKey, FrontBackAssignment> group_assignments;
-    std::map<GroupKey, double> group_confidence;
-    std::map<GroupKey, bool> group_has_front;
-    std::map<GroupKey, bool> group_has_back;
+    using LabelAndDetectionIndex = std::pair<Label, int>;
+    std::map<LabelAndDetectionIndex, FrontBackAssignment> group_assignments;
+    std::map<LabelAndDetectionIndex, double> group_confidence;
+    std::map<LabelAndDetectionIndex, bool> group_has_front;
+    std::map<LabelAndDetectionIndex, bool> group_has_back;
 
     for (const Keypoint &keypoint : model_results.keypoints) {
         Eigen::Vector3d projected_keypoint;
@@ -51,7 +49,7 @@ FrontBackKeypointConverter::convert(const ModelResultStamped &model_results,
                                                         {"y", projected_keypoint[1]},
                                                         {"z", projected_keypoint[2]}});
 
-        GroupKey key(keypoint.label, keypoint.detection_index);
+        LabelAndDetectionIndex key(keypoint.label, keypoint.detection_index);
         if (group_assignments.find(key) == group_assignments.end())
             group_assignments[key] = FrontBackAssignment{};
         group_assignments[key].reference_offset_m = keypoint.reference_offset_m;

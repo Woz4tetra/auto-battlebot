@@ -1,6 +1,7 @@
 #include "rl_policy/observations/observation_v1.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 
@@ -76,6 +77,41 @@ double ray_discs(double ox, double oy, double dx, double dy,
     return nearest;
 }
 
+std::array<size_t, kMaxHazards> nearest_hazards_by_edge_absent_last(const ObservationInputsV1 &in) {
+    const size_t count = in.hazards.size();
+    const auto edge_of = [&](size_t i) {
+        const auto &hazard = in.hazards[i];
+        if (!hazard.present) return kInf;
+        const double dx = hazard.x - in.our_x;
+        const double dy = hazard.y - in.our_y;
+        return std::sqrt(dx * dx + dy * dy) - hazard.radius;
+    };
+    const auto before = [&](size_t i, size_t j) {
+        const double edge_i = edge_of(i);
+        const double edge_j = edge_of(j);
+        const bool nan_i = std::isnan(edge_i);
+        const bool nan_j = std::isnan(edge_j);
+        if (nan_i != nan_j) return nan_j;
+        if (!nan_i && edge_i != edge_j) return edge_i < edge_j;
+        return i < j;
+    };
+
+    std::array<size_t, kMaxHazards> order{};
+    order.fill(count);
+    size_t previous = count;
+    for (size_t &slot : order) {
+        size_t best = count;
+        for (size_t i = 0; i < count; ++i) {
+            if (previous != count && !before(previous, i)) continue;
+            if (best == count || before(i, best)) best = i;
+        }
+        if (best == count) break;
+        slot = best;
+        previous = best;
+    }
+    return order;
+}
+
 }  // namespace
 
 void build_observation_v1(const ObservationInputsV1 &in, std::span<double, obs_v1::kSize> out) {
@@ -136,39 +172,11 @@ void build_observation_v1(const ObservationInputsV1 &in, std::span<double, obs_v
         out[n++] = (std::isnan(hole) ? hole : std::min(hole, kRayRangeM)) / kRayRangeM;
     }
 
-    // The 4 nearest hazards by edge distance, absent ones last. Selection by repeated scan in
-    // the stable sort's order, so no index buffer is needed.
-    const size_t count = in.hazards.size();
-    const auto edge_of = [&](size_t i) {
-        const auto &hazard = in.hazards[i];
-        if (!hazard.present) return kInf;
-        const double dx = hazard.x - in.our_x;
-        const double dy = hazard.y - in.our_y;
-        return std::sqrt(dx * dx + dy * dy) - hazard.radius;
-    };
-    const auto before = [&](size_t i, size_t j) {
-        const double edge_i = edge_of(i);
-        const double edge_j = edge_of(j);
-        const bool nan_i = std::isnan(edge_i);
-        const bool nan_j = std::isnan(edge_j);
-        if (nan_i != nan_j) return nan_j;
-        if (!nan_i && edge_i != edge_j) return edge_i < edge_j;
-        return i < j;
-    };
-
-    const size_t kNoPrevious = count;
-    size_t previous = kNoPrevious;
-    for (int k = 0; k < kMaxHazards; ++k) {
-        size_t best = count;
-        for (size_t i = 0; i < count; ++i) {
-            if (previous != kNoPrevious && !before(previous, i)) continue;
-            if (best == count || before(i, best)) best = i;
-        }
-        if (best == count) {
+    for (const size_t best : nearest_hazards_by_edge_absent_last(in)) {
+        if (best == in.hazards.size()) {
             for (int v = 0; v < 9; ++v) out[n++] = 0.0;
             continue;
         }
-        previous = best;
         const auto &hazard = in.hazards[best];
         const double ok = hazard.present ? 1.0 : 0.0;
         double hx = 0.0;
