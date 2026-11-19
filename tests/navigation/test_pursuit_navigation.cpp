@@ -555,4 +555,44 @@ TEST_F(PursuitNavigationTest, LinearYIsAlwaysZero) {
     EXPECT_DOUBLE_EQ(cmd.lateral_mps, 0.0);
 }
 
+TEST_F(PursuitNavigationTest, TurnCommitHeldNear180Deg) {
+    PursuitNavigationConfiguration config = make_default_config();
+    config.angular_kd = 0.0;
+    config.max_angular_command = std::nullopt;
+    config.enable_hysteresis = true;
+    PursuitNavigation nav(config, std::make_shared<ManualClock>());
+    nav.initialize();
+    FieldDescription field = make_field(4.0, 4.0);
+    RobotDescriptionsStamped robots;
+    robots.descriptions.push_back(make_robot_with_frame(Label::MR_STABS_MK1, FrameId::OUR_ROBOT_1,
+                                                        Group::OURS, 0.0, 0.0, 0.0));
+
+    VelocityCommand first = nav.update(robots, field, make_target(-1.0, 0.01));
+    VelocityCommand second = nav.update(robots, field, make_target(-1.0, -0.01));
+
+    EXPECT_GT(first.yaw_rate_radps, 0.0);
+    EXPECT_GT(second.yaw_rate_radps, 0.0) << "turn direction flipped on a tiny perturbation";
+}
+
+TEST_F(PursuitNavigationTest, SteerBrakeNeverReversesLinear) {
+    PursuitNavigationConfiguration config = make_default_config();
+    config.angular_kp = 10.0;
+    config.angular_kd = 0.0;
+    config.angle_threshold = M_PI;
+    config.max_angular_command = std::nullopt;
+    config.max_linear_command = std::nullopt;
+    config.enable_hysteresis = false;
+    PursuitNavigation nav(config, std::make_shared<ManualClock>());
+    nav.initialize();
+    FieldDescription field = make_field(4.0, 4.0);
+    RobotDescriptionsStamped robots;
+    robots.descriptions.push_back(make_robot_with_frame(Label::MR_STABS_MK1, FrameId::OUR_ROBOT_1,
+                                                        Group::OURS, 0.0, 0.0, 0.0));
+
+    VelocityCommand cmd = nav.update(robots, field, make_target(1.0, 1.0));
+
+    ASSERT_GT(std::abs(cmd.yaw_rate_radps), 2.0);
+    EXPECT_GE(cmd.forward_mps, 0.0);
+}
+
 }  // namespace auto_battlebot

@@ -1,6 +1,7 @@
 #include "plant/jig_plant_model.hpp"
 
 #include <algorithm>
+#include <cassert>
 #include <cmath>
 
 namespace auto_battlebot {
@@ -23,10 +24,15 @@ double wrap_angle(double angle) {
     return wrapped - M_PI;
 }
 
-/** The command in effect at `stamp`: newest entry at or before it, zero before the first.
- * Mirrors Plant.command_at in plant.py. The span is stamped nondecreasing, oldest first. */
-void command_at(std::span<const TimedCommand> commands, double stamp, double &u_lin,
-                double &u_ang) {
+bool stamped_oldest_first(std::span<const TimedCommand> commands) {
+    return std::is_sorted(
+        commands.begin(), commands.end(),
+        [](const TimedCommand &a, const TimedCommand &b) { return a.stamp < b.stamp; });
+}
+
+void newest_command_at_or_before(std::span<const TimedCommand> commands, double stamp,
+                                 double &u_lin, double &u_ang) {
+    assert(stamped_oldest_first(commands));
     u_lin = 0.0;
     u_ang = 0.0;
     for (auto it = commands.rbegin(); it != commands.rend(); ++it) {
@@ -57,12 +63,10 @@ PlantState JigPlantModel::propagate_unwrapped(const PlantState &state,
 
     PlantState out = state;
     for (int step = 0; step < substeps; ++step) {
-        // Re-read the delayed command every substep, so a command edge landing inside a long
-        // propagate span takes effect at its own time rather than at the span boundary.
         const double now = t0 + static_cast<double>(step) * sub_dt;
         double u_lin = 0.0;
         double u_ang = 0.0;
-        command_at(commands, now - params_.delay_s, u_lin, u_ang);
+        newest_command_at_or_before(commands, now - params_.delay_s, u_lin, u_ang);
         double v_target = 0.0;
         double w_target = 0.0;
         plant_steady_state(u_lin, u_ang, params_, v_target, w_target);
@@ -105,19 +109,14 @@ PlantState JigPlantModel::propagate(const PlantState &state, std::span<const Tim
         double *minus_fields[] = {&minus.x, &minus.y, &minus.theta, &minus.v, &minus.w};
         *plus_fields[col] += kEps;
         *minus_fields[col] -= kEps;
-        // Divide by the perturbation as actually realized in doubles, not the nominal
-        // 2*eps: x + eps rounds, and for |x| near 1 the difference is order 1e-10 of slope,
-        // which would otherwise be the Jacobian's noise floor.
-        const double step = *plus_fields[col] - *minus_fields[col];
+        const double realized_step = *plus_fields[col] - *minus_fields[col];
         const PlantState f_plus = propagate_unwrapped(plus, commands, t0, t1);
         const PlantState f_minus = propagate_unwrapped(minus, commands, t0, t1);
-        jacobian(0, col) = (f_plus.x - f_minus.x) / step;
-        jacobian(1, col) = (f_plus.y - f_minus.y) / step;
-        // Unwrapped on purpose: a wrapped difference near +/-pi would put a 2*pi jump into
-        // the derivative.
-        jacobian(2, col) = (f_plus.theta - f_minus.theta) / step;
-        jacobian(3, col) = (f_plus.v - f_minus.v) / step;
-        jacobian(4, col) = (f_plus.w - f_minus.w) / step;
+        jacobian(0, col) = (f_plus.x - f_minus.x) / realized_step;
+        jacobian(1, col) = (f_plus.y - f_minus.y) / realized_step;
+        jacobian(2, col) = (f_plus.theta - f_minus.theta) / realized_step;
+        jacobian(3, col) = (f_plus.v - f_minus.v) / realized_step;
+        jacobian(4, col) = (f_plus.w - f_minus.w) / realized_step;
     }
 
     PlantState out = propagate_unwrapped(state, commands, t0, t1);

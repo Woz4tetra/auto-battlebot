@@ -192,7 +192,6 @@ VelocityCommand RlPolicyNavigation::update(RobotDescriptionsStamped robots, Fiel
         } else {
             logger_->debug("our_robot_unmeasured", {{"unmeasured_s", our_unmeasured_s}});
         }
-        // Step as soon as the robot is back rather than waiting out the period.
         ticks_until_policy_step_ = 0;
         last_visualization_.robots = std::move(robots);
         return VelocityCommand{0.0, 0.0, 0.0};
@@ -253,8 +252,6 @@ void RlPolicyNavigation::log_step(const RobotDescriptionsStamped &robots,
                                   const RobotDescription &our_robot,
                                   const RobotDescription *opponent, const FieldDescription &field,
                                   double inference_us) {
-    // Our state as the observation builder read it, so a sim run can score the estimate
-    // against truth (playground/rl/fit_provisional_ekf_error.py --lockstep).
     const Pose2D our_pose = pose_to_pose2d(our_robot.pose);
     DiagnosticsData values{
         {"linear", action_.linear},

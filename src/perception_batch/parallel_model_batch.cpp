@@ -83,8 +83,6 @@ void ParallelModelBatch::worker_loop(const RunModel &run_model, uint64_t &done_i
             camera_info = shared_camera_info_;
         }
         const auto start = std::chrono::steady_clock::now();
-        // An exception out of a worker thread calls std::terminate and kills the app, autonomy
-        // and recording with it. Losing one model's detections for the frame is the smaller loss.
         ModelResultStamped output;
         try {
             output = run_model(image, camera_info);
@@ -108,7 +106,6 @@ void ParallelModelBatch::worker_loop(const RunModel &run_model, uint64_t &done_i
                 .count();
         {
             std::lock_guard<std::mutex> lock(mutex_);
-            // Drop the result if update() already timed out on this request and moved on.
             if (id == request_id_) {
                 result_slot = std::move(output);
                 elapsed_slot = elapsed_ms;

@@ -184,6 +184,39 @@ TEST(JigPlantModelTest, PropagateWrapsThetaToPlusMinusPi) {
     }
 }
 
+TEST(JigPlantModelTest, CommandEdgeInsideSpanAppliesAtItsStamp) {
+    JigPlantParams params = golden_params();
+    params.delay_s = 0.1;
+    JigPlantModel model(params);
+    const std::vector<TimedCommand> commands = {{0.0, {0.0, 0.0, 0.0}}, {0.5, {1.0, 0.0, 0.0}}};
+    Eigen::Matrix<double, 5, 5> jacobian;
+
+    const PlantState one_span = model.propagate(PlantState{}, commands, 0.0, 1.0, jacobian);
+    PlantState chunked = model.propagate(PlantState{}, commands, 0.0, 0.5, jacobian);
+    chunked = model.propagate(chunked, commands, 0.5, 1.0, jacobian);
+
+    EXPECT_GT(one_span.x, 0.0) << "command edge inside the span was ignored";
+    EXPECT_NEAR(one_span.x, chunked.x, 1e-9);
+}
+
+TEST(JigPlantModelTest, JacobianMatchesAnalyticSlopeNearUnitState) {
+    JigPlantModel model(golden_params());
+    Eigen::Matrix<double, 5, 5> jacobian;
+    PlantState state;
+    state.x = 1.3;
+    model.propagate(state, {}, 0.0, 0.05, jacobian);
+    EXPECT_NEAR(jacobian(0, 0), 1.0, 1e-12);
+}
+
+TEST(JigPlantModelTest, JacobianThetaColumnFiniteNearPi) {
+    JigPlantModel model(golden_params());
+    Eigen::Matrix<double, 5, 5> jacobian;
+    PlantState state;
+    state.theta = M_PI - 1e-7;
+    model.propagate(state, {}, 0.0, 0.05, jacobian);
+    EXPECT_NEAR(jacobian(2, 2), 1.0, 1e-6);
+}
+
 TEST(JigPlantModelTest, ZeroCommandBeforeFirstEntry) {
     JigPlantModel model(golden_params());
     const std::vector<TimedCommand> commands = {{1.0, {1.0, 0.0, 0.0}}};

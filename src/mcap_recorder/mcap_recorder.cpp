@@ -103,7 +103,6 @@ bool McapRecorder::start_file_locked(std::filesystem::path& refused) {
 }
 
 void McapRecorder::push_locked(Op op, size_t bytes) {
-    // After close() the writer thread is draining for the last time; nothing new may land.
     if (stop_) return;
     queue_.push_back(std::move(op));
     queued_bytes_ += bytes;

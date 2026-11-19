@@ -130,6 +130,37 @@ TEST(RlPolicyNavigationTest, AFrozenSnapshotAgesOnTheControlClock) {
     EXPECT_EQ(nav.update(robots, field(), TargetSelection{}).forward_mps, 0.0);
 }
 
+TEST(RlPolicyNavigationTest, PolicyDiagnosticsCarryOurStateForTheLockstepEkfFit) {
+    auto nav = make_nav(config_for(rl_test::constant_bundle()));
+    ASSERT_TRUE(nav->initialize());
+    auto logger = DiagnosticsLogger::get_logger("rl_policy_nav");
+    logger->clear();
+
+    RobotDescription ours = robot_at(FrameId::OUR_ROBOT_1, 0.5, -0.25, 0.0);
+    ours.velocity.vx_mps = 0.4;
+    ours.velocity.omega_radps = 1.5;
+    ours.measurement_age_s = 0.02;
+    nav->update(robots_of({ours}), field(), TargetSelection{});
+
+    const DiagnosticStatusSnapshot *policy = nullptr;
+    const auto snapshots = logger->get_snapshots();
+    for (const auto &snapshot : snapshots) {
+        if (snapshot.subsection == "policy") policy = &snapshot;
+    }
+    ASSERT_NE(policy, nullptr);
+    const auto value = [&](const std::string &key) {
+        const auto it = policy->values.find(key);
+        EXPECT_NE(it, policy->values.end()) << key;
+        return it == policy->values.end() ? 0.0 : std::get<double>(it->second);
+    };
+    EXPECT_DOUBLE_EQ(value("our_x"), 0.5);
+    EXPECT_DOUBLE_EQ(value("our_y"), -0.25);
+    EXPECT_DOUBLE_EQ(value("our_yaw"), 0.0);
+    EXPECT_DOUBLE_EQ(value("our_speed"), 0.4);
+    EXPECT_DOUBLE_EQ(value("our_yaw_rate"), 1.5);
+    EXPECT_DOUBLE_EQ(value("our_measurement_age_s"), 0.02);
+}
+
 TEST(RlPolicyNavigationTest, RefusesHoldOpponentMode) {
     const std::string error = start_error<ConfigValidationError>(
         config_for(rl_test::constant_bundle(), OpponentMode::HOLD));

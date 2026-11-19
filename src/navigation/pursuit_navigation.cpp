@@ -181,12 +181,6 @@ double PursuitNavigation::apply_hysteresis(double angle_error) {
     constexpr double commit_threshold = M_PI * 0.75;
     constexpr double release_threshold = M_PI * 0.5;
 
-    // Commit to a turn direction on a large error, then HOLD it until the error falls below the
-    // release threshold. The previous code re-committed whenever the error's sign changed, which
-    // chattered near 180 deg: there the shortest-turn sign flips on tiny perturbations (and the
-    // actuation latency keeps it flipping), so the robot jittered left-right and never completed
-    // the turn instead of committing to one direction and rotating through. Only commit when not
-    // already committed.
     if (!committed_turn_) {
         if (std::abs(angle_error) > commit_threshold) {
             committed_turn_ = (angle_error > 0) ? TurnDirection::LEFT : TurnDirection::RIGHT;
@@ -201,9 +195,6 @@ double PursuitNavigation::apply_hysteresis(double angle_error) {
 }
 
 double PursuitNavigation::compute_angular_velocity_rad_s(double angle_error) {
-    // Logical time (frame stamp), not wall-clock: the PD derivative dt must track the time between
-    // the frames the controller actually processed, so it stays correct under sim/playback time
-    // scaling.
     const double now_s = clock_->now();
     double d_term = 0.0;
     if (angular_kd_ != 0.0 && prev_timestamp_ > 0.0) {
@@ -236,10 +227,6 @@ double PursuitNavigation::compute_linear_velocity(double angle_error, double dis
     }
 
     const double turn_scale = 1.0 - (std::abs(angle_error) / angle_threshold_) * 0.5;
-    // Reduce speed when commanding a hard turn. Brake on the angular command as a fraction of the
-    // configured limit so the term is dimensionless and bounded; with no limit set, fall back to
-    // the legacy form but clamp it so a large angular command can never flip linear into reverse
-    // thrust.
     double steer_brake;
     if (max_angular_command_) {
         steer_brake = 1.0 - 0.5 * std::min(1.0, std::abs(angular_z) / *max_angular_command_);

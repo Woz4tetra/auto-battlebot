@@ -73,9 +73,6 @@ std::shared_ptr<NavigationInterface> make_navigation(const NavigationConfigurati
     if (config.type == "RlPolicyNavigation") {
         const auto &rl_config = dynamic_cast<const RlPolicyNavigationConfiguration &>(config);
         auto navigation = std::make_shared<RlPolicyNavigation>(rl_config, std::move(clock));
-        // Loads and checks the bundle here, on the main thread at startup, so a bad bundle or a
-        // HOLD opponent filter stops the app before the control loop starts. The control loop's
-        // own initialize() calls then only reset.
         navigation->initialize();
         return navigation;
     }

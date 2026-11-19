@@ -4,11 +4,6 @@
 
 namespace auto_battlebot {
 namespace {
-/**
- * Every plant field is required: these are fitted physical parameters, and a partly defaulted
- * plant would predict with a mix of fit and zero that no experiment produced. A ladder rung
- * disables a term by writing it as zero in the config, same as the fit output files.
- */
 JigPlantParams parse_params(ConfigParser &parser) {
     JigPlantParams params;
     params.dz_lin_fwd = parser.get_required_double("dz_lin_fwd");
@@ -30,7 +25,6 @@ JigPlantParams parse_params(ConfigParser &parser) {
     return params;
 }
 
-/** Optional over the baked-in fit values, unlike the params above. */
 void parse_noise(ConfigParser &plant_parser, JigPlantNoiseParams &noise) {
     const toml::table *table_ptr = plant_parser.get_table("process_noise");
     if (!table_ptr) {

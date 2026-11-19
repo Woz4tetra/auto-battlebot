@@ -356,6 +356,10 @@ The jig-fitted drivetrain, one table for the EKF and `MotionProfileNavigation`
 (`docs/reference/control/plant_backed_control.md`). Absent is not a parse error. A consumer that
 needs it throws. Provenance of the values is in `docs/reference/config/robot_plant_files.md`.
 
+Every field in the table is required. A partly defaulted plant would predict with a mix of fit and
+zero that no experiment produced. A ladder rung disables a term by writing it as zero, as the fit
+output files do.
+
 | Field | Meaning |
 | --- | --- |
 | `k_fwd`, `k_rev` | Forward and reverse speed in m/s at full effective command |

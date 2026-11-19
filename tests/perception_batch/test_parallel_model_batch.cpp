@@ -199,6 +199,22 @@ TEST_F(ParallelModelBatchTest, TimedOutModelYieldsEmptyResultThenRecovers) {
     EXPECT_EQ(recovered.robot_blob_keypoints.keypoints.size(), 1u);
 }
 
+TEST_F(ParallelModelBatchTest, LateResultAfterTimeoutIsDropped) {
+    std::atomic<int> slow_calls{2};
+    blob_model_->on_update = [&slow_calls] {
+        if (slow_calls.fetch_sub(1) > 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1300));
+        }
+    };
+    ParallelModelBatch batch = make_batch();
+
+    batch.update(image_, camera_info_);
+    BatchResult second = batch.update(image_, camera_info_);
+
+    EXPECT_TRUE(second.robot_blob_keypoints.keypoints.empty())
+        << "result of the timed-out first request landed in the second";
+}
+
 TEST_F(ParallelModelBatchTest, ThrowingModelYieldsEmptyResultWithoutWaitingOrDying) {
     std::atomic<bool> throw_once{true};
     keypoint_model_->on_update = [&throw_once] {

@@ -53,6 +53,12 @@ std::string read_build_version() {
     return version;
 }
 
+std::shared_ptr<auto_battlebot::McapRecorder> make_recorder_clear_of_replay_inputs(
+    const auto_battlebot::ClassConfiguration& class_config, const std::string& active_profile) {
+    auto_battlebot::reserve_camera_input_paths(*class_config.camera);
+    return auto_battlebot::make_mcap_recorder(class_config.mcap_recorder, active_profile);
+}
+
 int run_application(const auto_battlebot::ClassConfiguration& class_config,
                     const auto_battlebot::ResolvedConfig& resolved_config,
                     const std::string& active_profile,
@@ -62,10 +68,7 @@ int run_application(const auto_battlebot::ClassConfiguration& class_config,
 
     std::optional<SystemAction> pending_system_action;
 
-    // Before the recorder picks a path: a replay must not be able to record over the file it
-    // is reading.
-    reserve_camera_input_paths(*class_config.camera);
-    auto mcap_recorder = make_mcap_recorder(class_config.mcap_recorder, active_profile);
+    auto mcap_recorder = make_recorder_clear_of_replay_inputs(class_config, active_profile);
     if (mcap_recorder) {
         mcap_recorder->write_metadata(kResolvedConfigMetadataKey,
                                       format_resolved_toml(resolved_config));
@@ -74,7 +77,6 @@ int run_application(const auto_battlebot::ClassConfiguration& class_config,
 
     std::vector<std::shared_ptr<DiagnosticsBackend>> backends;
 
-    // Never blocks: a missing relay just means no live viz until it comes back.
     auto viz_sink = make_viz_sink(*class_config.publisher);
     if (viz_sink) attach_log_viz_sink(viz_sink);
     if (viz_sink || mcap_recorder) {
