@@ -1,6 +1,12 @@
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <regex>
+#include <string>
 #include <utility>
 
 #include "remote/field_projection.hpp"
@@ -91,16 +97,42 @@ TEST(FieldProjectionTest, UnprojectRefusesAFloorBehindTheCamera) {
     EXPECT_FALSE(unproject_image_point(make_field(-1.0), make_camera(), center).has_value());
 }
 
+struct SvelteTriangle {
+    double view = 0.0;
+    std::array<std::array<double, 2>, 3> corners{};
+};
+
+SvelteTriangle read_top_down_triangle() {
+    const auto path = std::filesystem::path(__FILE__).parent_path().parent_path().parent_path() /
+                      "web" / "src" / "components" / "TopDown.svelte";
+    std::ifstream in(path);
+    EXPECT_TRUE(in.good()) << path;
+    const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    SvelteTriangle triangle;
+    std::smatch view;
+    EXPECT_TRUE(std::regex_search(text, view, std::regex(R"(const VIEW = (\d+);)")));
+    triangle.view = std::stod(view[1]);
+    std::smatch cam;
+    const std::regex pattern(R"(class="cam" d="M (\S+) (\S+) L (\S+) (\S+) L (\S+) (\S+) Z")");
+    EXPECT_TRUE(std::regex_search(text, cam, pattern));
+    for (size_t i = 0; i < 3; ++i) {
+        triangle.corners[i] = {std::stod(cam[1 + 2 * i]) - triangle.view / 2.0,
+                               std::stod(cam[2 + 2 * i]) - triangle.view / 2.0};
+    }
+    return triangle;
+}
+
 TEST(FieldProjectionTest, CameraMarkerMatchesTheTopDownTriangle) {
-    // Longest side 2 m over the 192 px box: tip at y = -116 px * 2 / 192 m, base 8 px either side.
+    const SvelteTriangle triangle = read_top_down_triangle();
     const auto marker = project_camera_marker(make_field(4.0), make_camera());
     ASSERT_EQ(marker.size(), 3u);
     const double m_per_px = 2.0 / 192.0;
-    EXPECT_NEAR(marker[0].u, 0.5, 1e-9);
-    EXPECT_NEAR(marker[0].v, (500.0 * -116.0 * m_per_px / 4.0 + 240.0) / 480.0, 1e-9);
-    EXPECT_NEAR(marker[1].u, (500.0 * -8.0 * m_per_px / 4.0 + 320.0) / 640.0, 1e-9);
-    EXPECT_NEAR(marker[2].u, 1.0 - marker[1].u, 1e-9);
-    EXPECT_NEAR(marker[1].v, marker[2].v, 1e-9);
+    for (size_t i = 0; i < 3; ++i) {
+        const double field_x = triangle.corners[i][0] * m_per_px;
+        const double field_y = -triangle.corners[i][1] * m_per_px;
+        EXPECT_NEAR(marker[i].u, (500.0 * field_x / 4.0 + 320.0) / 640.0, 1e-9) << "corner " << i;
+        EXPECT_NEAR(marker[i].v, (500.0 * field_y / 4.0 + 240.0) / 480.0, 1e-9) << "corner " << i;
+    }
     EXPECT_TRUE(project_camera_marker(make_field(-1.0), make_camera()).empty());
 }
 

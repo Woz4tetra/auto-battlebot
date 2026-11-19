@@ -23,6 +23,7 @@
 | `calibration/` | `sysid_modules.md`, `plant_fit_modules.md` |
 | `eval/` | `eval_code.md` |
 | `recording/` | `foxglove_recording_format.md` (the recording contract), `svo_recording.md`, `video_recording.md` |
+| `remote/` | `protocol.md` (topics, commands, field projection) |
 | `robot_link/` | `esp32_wifi_telemetry.md`, `espnow_link.md`, `motor_guard.md`, `yaw_control.md` |
 | `tools/` | `gpu_queue.md`, `logo_splash_animation.md` |
 

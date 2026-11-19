@@ -290,7 +290,7 @@ TEST(CameraCalibrationTest, TomlTextRoundTrips) {
     written.fy = 1005.5;
     written.cx = 961.25;
     written.cy = 599.75;
-    written.distortion = {-0.31, 0.12, 0.0004, -0.0002, -0.021};
+    written.distortion_k1_k2_p1_p2_k3 = {-0.31, 0.12, 0.0004, -0.0002, -0.021};
 
     const CameraCalibration read =
         parse_camera_calibration(camera_calibration_to_toml(written), "round trip");
@@ -301,8 +301,8 @@ TEST(CameraCalibrationTest, TomlTextRoundTrips) {
     EXPECT_NEAR(read.fy, written.fy, 1e-8);
     EXPECT_NEAR(read.cx, written.cx, 1e-8);
     EXPECT_NEAR(read.cy, written.cy, 1e-8);
-    for (size_t i = 0; i < written.distortion.size(); ++i) {
-        EXPECT_NEAR(read.distortion[i], written.distortion[i], 1e-8);
+    for (size_t i = 0; i < written.distortion_k1_k2_p1_p2_k3.size(); ++i) {
+        EXPECT_NEAR(read.distortion_k1_k2_p1_p2_k3[i], written.distortion_k1_k2_p1_p2_k3[i], 1e-8);
     }
 }
 
@@ -331,6 +331,28 @@ TEST_F(VideoPlaybackCameraTest, StartsAtTheRequestedFrame) {
     // Seeking runs forward from the last IDR at or before the target and discards until it, so the
     // first frame out is the one asked for and not the keyframe it decoded from.
     EXPECT_EQ(data.frame_identity.video_frame_index, 20);
+}
+
+TEST_F(VideoPlaybackCameraTest, SeekStartsFromPrecedingKeyframe) {
+    constexpr int kStartFrame = 20;
+    VideoPlaybackCameraConfiguration seeked_config = make_config(*fixture_);
+    seeked_config.start_frame = kStartFrame;
+    VideoPlaybackCamera seeked(seeked_config);
+    ASSERT_TRUE(seeked.initialize());
+    CameraData from_seek;
+    ASSERT_TRUE(seeked.get(from_seek));
+    ASSERT_EQ(from_seek.frame_identity.video_frame_index, kStartFrame);
+
+    VideoPlaybackCamera sequential(make_config(*fixture_));
+    ASSERT_TRUE(sequential.initialize());
+    CameraData from_start;
+    do {
+        ASSERT_TRUE(sequential.get(from_start));
+    } while (from_start.frame_identity.video_frame_index < kStartFrame);
+    ASSERT_EQ(from_start.frame_identity.video_frame_index, kStartFrame);
+
+    EXPECT_EQ(cv::norm(from_seek.rgb.image, from_start.rgb.image, cv::NORM_INF), 0.0)
+        << "a seek into the middle of a GOP decodes smeared frames";
 }
 
 TEST_F(VideoPlaybackCameraTest, RejectsAStartFrameBeyondTheEndOfTheFile) {

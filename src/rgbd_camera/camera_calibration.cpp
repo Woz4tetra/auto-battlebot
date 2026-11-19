@@ -43,7 +43,7 @@ cv::Mat CameraCalibration::camera_matrix() const {
 cv::Mat CameraCalibration::distortion_coefficients() const {
     cv::Mat coefficients(1, 5, CV_64F);
     for (int i = 0; i < 5; ++i) {
-        coefficients.at<double>(0, i) = distortion[static_cast<size_t>(i)];
+        coefficients.at<double>(0, i) = distortion_k1_k2_p1_p2_k3[static_cast<size_t>(i)];
     }
     return coefficients;
 }
@@ -66,7 +66,7 @@ CameraCalibration parse_camera_calibration(const std::string &toml_text,
     calibration.fy = required_double(data, "fy", source);
     calibration.cx = required_double(data, "cx", source);
     calibration.cy = required_double(data, "cy", source);
-    calibration.distortion = {
+    calibration.distortion_k1_k2_p1_p2_k3 = {
         required_double(data, "k1", source), required_double(data, "k2", source),
         required_double(data, "p1", source), required_double(data, "p2", source),
         required_double(data, "k3", source)};
@@ -95,8 +95,8 @@ std::string camera_calibration_to_toml(const CameraCalibration &calibration) {
     out << "cx = " << calibration.cx << "\n";
     out << "cy = " << calibration.cy << "\n";
     static const char *kNames[] = {"k1", "k2", "p1", "p2", "k3"};
-    for (size_t i = 0; i < calibration.distortion.size(); ++i) {
-        out << kNames[i] << " = " << calibration.distortion[i] << "\n";
+    for (size_t i = 0; i < calibration.distortion_k1_k2_p1_p2_k3.size(); ++i) {
+        out << kNames[i] << " = " << calibration.distortion_k1_k2_p1_p2_k3[i] << "\n";
     }
     return out.str();
 }

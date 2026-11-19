@@ -60,8 +60,6 @@ nlohmann::json encode(const T& value) {
 
 [[noreturn]] void throw_type_error(std::string_view expected, const nlohmann::json& got);
 
-/** Stricter than nlohmann's get<T>: a string never becomes a number, 1.5 never becomes 1, and a
- *  number never becomes a bool. A command with a wrong type is refused, not coerced. */
 template <typename T>
 void decode(const nlohmann::json& j, T& out) {
     if constexpr (std::is_same_v<T, bool>) {
@@ -192,11 +190,6 @@ std::string to_json_string(const T& message) {
     ::auto_battlebot::remote::detail::read_field(ab_json_j, #field, ab_json_t.field);
 #define AB_JSON_DETAIL_DESCRIBE(field) ab_json_f.add<decltype(field)>(#field);
 
-/**
- * Declares a remote message's fields once. Expands to the schema name, to_json/from_json, and a
- * describe() that feeds the JSON Schema builder. Missing required fields throw on parse, so a
- * command with no `count` is refused instead of silently using the default.
- */
 #define AB_JSON_MESSAGE(Type, schema_name, ...)                                         \
     static constexpr std::string_view kSchemaName = schema_name;                        \
     friend void to_json(nlohmann::json& ab_json_j, const Type& ab_json_t) {             \

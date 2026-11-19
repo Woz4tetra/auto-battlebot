@@ -362,8 +362,8 @@ CameraSettingLimits ZedOneRgbCamera::read_limits() {
         return r;
     };
     CameraSettingLimits limits;
-    limits.exposure_us = range(sl::VIDEO_SETTINGS::EXPOSURE_TIME);
-    limits.exposure_us.max = std::min(limits.exposure_us.max, 1'000'000 / config_.camera_fps);
+    limits.exposure_us = exposure_range_capped_at_frame_period(
+        range(sl::VIDEO_SETTINGS::EXPOSURE_TIME), config_.camera_fps);
     limits.analog_gain_mdb = range(sl::VIDEO_SETTINGS::ANALOG_GAIN);
     limits.digital_gain = range(sl::VIDEO_SETTINGS::DIGITAL_GAIN);
     limits.white_balance_k = range(sl::VIDEO_SETTINGS::WHITEBALANCE_TEMPERATURE);

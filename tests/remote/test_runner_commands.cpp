@@ -27,6 +27,7 @@
 #include "robot_filter/noop_robot_filter.hpp"
 #include "runner.hpp"
 #include "target_selector/noop_target.hpp"
+#include "time/manual_clock.hpp"
 #include "transmitter/noop_transmitter.hpp"
 
 namespace auto_battlebot {
@@ -111,8 +112,9 @@ class RunnerCommandsTest : public ::testing::Test {
         auto blob_model = std::make_shared<NoopRobotBlobModel>();
         auto loop = std::make_shared<ControlLoop>(
             std::make_shared<NoopRobotFilter>(), std::make_shared<NoopTarget>(),
-            std::make_shared<NoopNavigation>(), std::make_shared<NoopTransmitter>(), nullptr,
-            nullptr, kCacheMaxAgeS);
+            std::make_shared<NoopNavigation>(), std::make_shared<NoopTransmitter>(),
+            std::make_shared<ManualClock>(), nullptr, kCacheMaxAgeS);
+        loop_ = loop;
         RunnerRemote remote;
         commands_ = remote.commands;
         runner_ = std::make_unique<Runner>(
@@ -125,6 +127,14 @@ class RunnerCommandsTest : public ::testing::Test {
             [this](SystemAction action) { system_action_ = action; },
             [this](const std::string &name) { profile_ = name; }, nullptr, nullptr,
             std::move(remote));
+    }
+
+    ControlOutput output_after_cycle() {
+        ControlMeasurement measurement;
+        measurement.field_description = FieldDescription{};
+        loop_->submit_measurement(std::move(measurement));
+        loop_->run_cycle();
+        return loop_->latest_output();
     }
 
     remote::SystemStatusMessage status_after(remote::RemoteCommand command) {
@@ -144,6 +154,7 @@ class RunnerCommandsTest : public ::testing::Test {
         return false;
     }
 
+    std::shared_ptr<ControlLoop> loop_;
     std::shared_ptr<RecordingCamera> camera_;
     std::shared_ptr<remote::CommandQueue> commands_;
     std::unique_ptr<Runner> runner_;
@@ -187,6 +198,41 @@ TEST_F(RunnerCommandsTest, ManualTargetNeverChangesAutoTracking) {
     EXPECT_TRUE(status_after(command).auto_tracking);
     EXPECT_FALSE(status_after(remote::SetAutoTrackingCommand{.enabled = false}).auto_tracking);
     EXPECT_FALSE(status_after(command).auto_tracking);
+}
+
+TEST_F(RunnerCommandsTest, SetAutoTrackingOffHoldsFieldCenter) {
+    status_after(remote::SetAutoTrackingCommand{.enabled = false});
+    const ControlOutput held = output_after_cycle();
+    EXPECT_TRUE(held.manual_target);
+    EXPECT_DOUBLE_EQ(held.target.pose.x, 0.0);
+    EXPECT_DOUBLE_EQ(held.target.pose.y, 0.0);
+    status_after(remote::SetAutoTrackingCommand{.enabled = true});
+    EXPECT_FALSE(output_after_cycle().manual_target);
+}
+
+TEST_F(RunnerCommandsTest, SetManualTargetRefusedWhileAuto) {
+    remote::SetManualTargetCommand command;
+    command.field = remote::FieldPoint{.x = 0.5, .y = -0.25};
+    status_after(command);
+    EXPECT_FALSE(output_after_cycle().manual_target) << "auto tracking on";
+
+    status_after(remote::SetAutoTrackingCommand{.enabled = false});
+    status_after(command);
+    const ControlOutput placed = output_after_cycle();
+    EXPECT_TRUE(placed.manual_target);
+    EXPECT_DOUBLE_EQ(placed.target.pose.x, 0.5);
+    EXPECT_DOUBLE_EQ(placed.target.pose.y, -0.25);
+}
+
+TEST_F(RunnerCommandsTest, SetManualTargetNeedsExactlyOneOfFieldOrImage) {
+    status_after(remote::SetAutoTrackingCommand{.enabled = false});
+    remote::SetManualTargetCommand both;
+    both.field = remote::FieldPoint{.x = 0.5, .y = -0.25};
+    both.image = remote::ImagePoint{.u = 0.5, .v = 0.5};
+    status_after(both);
+    EXPECT_DOUBLE_EQ(output_after_cycle().target.pose.x, 0.0) << "both set";
+    status_after(remote::SetManualTargetCommand{});
+    EXPECT_DOUBLE_EQ(output_after_cycle().target.pose.x, 0.0) << "neither set";
 }
 
 TEST_F(RunnerCommandsTest, SetRecording) {

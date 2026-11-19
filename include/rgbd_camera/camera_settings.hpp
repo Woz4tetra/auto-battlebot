@@ -1,13 +1,13 @@
 #pragma once
 
+#include <algorithm>
+
 #include "enums/anti_banding.hpp"
 #include "remote/json_message.hpp"
 
 namespace auto_battlebot {
 
 struct CameraSettings {
-    /** On: the SDK's AEC/AGC owns exposure and both gains, and the three values below are what
-     *  it last chose. Off: they are applied as given. */
     bool auto_exposure = true;
     int exposure_us = 0;
     int analog_gain_mdb = 0;
@@ -34,7 +34,12 @@ struct CameraSettingRange {
     AB_JSON_MESSAGE(CameraSettingRange, "auto_battlebot.CameraSettingRange", supported, min, max)
 };
 
-/** Ranges for the numeric fields of CameraSettings. Exposure is capped at the frame period. */
+inline CameraSettingRange exposure_range_capped_at_frame_period(CameraSettingRange range,
+                                                                int camera_fps) {
+    range.max = std::min(range.max, 1'000'000 / camera_fps);
+    return range;
+}
+
 struct CameraSettingLimits {
     CameraSettingRange exposure_us;
     CameraSettingRange analog_gain_mdb;

@@ -17,8 +17,6 @@ class StatusBus {
    public:
     StatusBus(std::shared_ptr<VizSink> sink, std::shared_ptr<McapRecorder> recorder);
 
-    /** Serializes and publishes on the topic RemoteTopics maps to Message. Drops the call when
-     *  the topic's max_rate_hz says it is too soon. Returns whether it published. */
     template <typename Message>
     bool publish(const Message& message) {
         constexpr std::size_t index = row_index<Message>();

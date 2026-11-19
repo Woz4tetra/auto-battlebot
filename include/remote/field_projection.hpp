@@ -12,29 +12,14 @@ namespace auto_battlebot::remote {
 std::optional<ImagePoint> project_field_point(const FieldDescription &field,
                                               const CameraInfo &camera_info, double x, double y);
 
-/** A point in the camera image, as fractions of its size, cast onto the field floor (z = 0);
- *  nullopt when its ray points at or above the horizon or the field or intrinsics are missing.
- *  The inverse of project_field_point. The result can land outside the field. */
 std::optional<FieldPoint> unproject_image_point(const FieldDescription &field,
                                                 const CameraInfo &camera_info,
                                                 const ImagePoint &point);
 
-/**
- * The field border projected into the camera image, as fractions of the image size, for the
- * dashboard to draw over any preview size. Pinhole on the rectified image. Each side is sampled so
- * a border that passes behind the camera is cut where it does instead of dropped whole; every
- * returned polyline has at least two points. Empty when the field or the intrinsics are missing.
- */
 std::vector<std::vector<ImagePoint>> project_field_outline(const FieldDescription &field,
                                                            const CameraInfo &camera_info,
                                                            int samples_per_side = 16);
 
-/**
- * The top-down view's camera triangle, below the field's -y edge pointing away from it, projected
- * into the camera image: tip first, then the two base corners. Same field-frame placement as the
- * triangle in web/src/components/TopDown.svelte. Empty when any corner is behind the camera or the
- * field or intrinsics are missing.
- */
 std::vector<ImagePoint> project_camera_marker(const FieldDescription &field,
                                               const CameraInfo &camera_info);
 
