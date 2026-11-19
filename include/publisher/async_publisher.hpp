@@ -14,23 +14,11 @@
 
 namespace auto_battlebot {
 
-/**
- * Runs another publisher's calls on one worker thread, in call order, so publishing stays off the
- * runner's tick. The inner publisher only ever sees the worker thread.
- *
- * Each call copies its arguments into the queue. Camera frames are shallow cv::Mat copies, which
- * is safe because every camera hands out a freshly allocated frame each grab.
- *
- * The queue is bounded, and a full queue blocks the caller instead of dropping calls, so a
- * recording never loses a message. The tick pays for publishing only when the worker has fallen
- * a full queue behind, and the wait is logged as `blocked_ms`.
- */
 class AsyncPublisher : public PublisherInterface {
    public:
     static constexpr size_t kMaxPendingCalls = 64;
 
     explicit AsyncPublisher(std::shared_ptr<PublisherInterface> inner);
-    /** Drains the queue before joining, so queued frames still reach the sinks. */
     ~AsyncPublisher() override;
 
     AsyncPublisher(const AsyncPublisher &) = delete;

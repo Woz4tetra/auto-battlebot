@@ -199,7 +199,7 @@ void FoxglovePublisher::log_encoder_stats() {
 
 void FoxglovePublisher::publish_camera_data(const CameraData &data) {
     FunctionTimer timer(diagnostics_logger_, "publish_camera_data");
-    const uint64_t log_time = wall_time_ns();
+    const uint64_t log_time = mcap_log_time_ns();
 
     if (rgb_image_.has_consumers() && !data.rgb.image.empty()) {
         image_worker_->submit({data.rgb.image.clone(), data.rgb.header, log_time});
@@ -224,7 +224,7 @@ void FoxglovePublisher::publish_camera_data(const CameraData &data) {
 void FoxglovePublisher::publish_field_mask(const MaskStamped &field_mask, const RgbImage &image,
                                            const CameraInfo &camera_info) {
     FunctionTimer timer(diagnostics_logger_, "publish_field_mask");
-    const uint64_t log_time = wall_time_ns();
+    const uint64_t log_time = mcap_log_time_ns();
 
     cv::Mat colorized_mask = colorize_labels(field_mask.mask.mask);
     cv::Mat overlay;
@@ -256,7 +256,7 @@ void FoxglovePublisher::publish_field_mask(const MaskStamped &field_mask, const 
 void FoxglovePublisher::publish_initial_field_description(
     const FieldDescriptionWithInlierPoints &field_description) {
     FunctionTimer timer(diagnostics_logger_, "publish_initial_field_description");
-    const uint64_t log_time = wall_time_ns();
+    const uint64_t log_time = mcap_log_time_ns();
 
     auto border = foxglove_adapters::to_field_scene(field_description);
     field_markers_.log_message(border, log_time);
@@ -295,19 +295,19 @@ void FoxglovePublisher::publish_field_description(
         invert_transform(tfstamped_cameraworld_from_fieldcenter)));
     tf_message.transforms.push_back(
         foxglove_adapters::to_frame_transform(tfstamped_cameraworld_from_camera));
-    tf_.log_message(tf_message, wall_time_ns());
+    tf_.log_message(tf_message, mcap_log_time_ns());
 }
 
 void FoxglovePublisher::publish_hazards(const FieldDescription &field_description) {
     FunctionTimer timer(diagnostics_logger_, "publish_hazards");
     auto scene = foxglove_adapters::to_hazard_scene(field_description);
-    hazard_markers_.log_message(scene, wall_time_ns());
+    hazard_markers_.log_message(scene, mcap_log_time_ns());
 }
 
 void FoxglovePublisher::publish_robots(const RobotDescriptionsStamped &robots) {
     FunctionTimer timer(diagnostics_logger_, "publish_robots");
     auto scene = foxglove_adapters::to_robot_scene(robots);
-    robot_markers_.log_message(scene, wall_time_ns());
+    robot_markers_.log_message(scene, mcap_log_time_ns());
 }
 
 void FoxglovePublisher::publish_blob_detections(const DetectionsStamped &detections) {
@@ -337,7 +337,7 @@ void FoxglovePublisher::publish_detections_on(OutputChannel &json_channel,
 void FoxglovePublisher::publish_navigation(const NavigationVisualization &nav) {
     FunctionTimer timer(diagnostics_logger_, "publish_navigation");
     auto scene = foxglove_adapters::to_navigation_scene(nav);
-    nav_markers_.log_message(scene, wall_time_ns());
+    nav_markers_.log_message(scene, mcap_log_time_ns());
 }
 
 }  // namespace auto_battlebot

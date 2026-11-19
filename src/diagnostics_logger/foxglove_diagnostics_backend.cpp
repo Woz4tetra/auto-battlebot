@@ -32,7 +32,7 @@ void FoxgloveDiagnosticsBackend::receive(const std::vector<DiagnosticStatusSnaps
     std::map<std::string, std::vector<const DiagnosticStatusSnapshot *>> by_module;
     for (const auto &snap : snapshots) by_module[snap.name].push_back(&snap);
 
-    const uint64_t log_time = wall_time_ns();
+    const uint64_t log_time = mcap_log_time_ns();
     for (const auto &[module, module_snapshots] : by_module) {
         channel_for(module).log(diagnostics_module_json(module, module_snapshots), log_time);
     }

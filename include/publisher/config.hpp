@@ -24,20 +24,15 @@ struct PublisherConfiguration {
 struct NoopPublisherConfiguration : public PublisherConfiguration {
     NoopPublisherConfiguration() { type = "NoopPublisher"; }
 
-    PARSE_CONFIG_FIELDS(
-        // No additional fields
-    )
+    PARSE_CONFIG_FIELDS()
 };
 
 struct FoxglovePublisherConfiguration : public PublisherConfiguration {
     FoxglovePublisherConfiguration() { type = "FoxglovePublisher"; }
     bool uses_viz() const override { return true; }
 
-    /** Unix socket the viz_relay listens on. */
     std::string socket_path = viz::default_socket_path();
-    /** /camera/preview and /camera/preview_video width in pixels; height keeps the aspect. */
     int preview_width = 640;
-    /** /camera/preview JPEG rate. */
     double preview_rate_hz = 10.0;
     int preview_jpeg_quality = 70;
     int preview_video_bitrate_kbps = 1500;

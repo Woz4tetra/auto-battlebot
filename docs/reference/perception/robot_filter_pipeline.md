@@ -81,6 +81,13 @@ measured it lived in `playground/control_stage0/`, retired in `9246cc64`; see
 - Once the threaded driver runs, the Runner reaches the transmitter only through the control loop, since the driver owns it on another thread.
 - The keep-out discs published each cycle are assembled by the control loop, already inflated. The Runner cannot rebuild them because the hazard assembler holds the stale-track state.
 
+## Parallel model batch
+
+- `ParallelModelBatch` runs the keypoint model and the robot blob model on one worker thread each. `update()` dispatches the image and blocks until both finish.
+- The wait is bounded at 1 s so a hung model cannot stall the main loop. On timeout the missing model's result fields stay default-constructed (empty keypoints). A late worker drops its result when the request id has moved on.
+- A worker copies the image and camera info together under `mutex_`, so the pair always belongs to the same request. The robot blob model takes only the image. All request, result and done-id fields are guarded by `mutex_`.
+- The image is a shallow `cv::Mat` copy. Each worker takes its own, so the pixel buffer stays alive when `update()` times out and the caller frees its image.
+
 ## Frame and size conventions
 
 - `RobotDescription.size` is the footprint. For labels listed in `[robot_filter.robot_size_meters_per_label]` it is the known dimensions, not the detector's box. The measured box is logged to the `detected_size` diagnostics channel instead.

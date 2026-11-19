@@ -353,7 +353,7 @@ bool V4l2RgbCamera::capture_frame() {
 
     const cv::Mat uyvy(height_, width_, CV_8UC2, buffers_[static_cast<size_t>(index)].start);
 
-    const int64_t video_frame_index = encoder_.submit(uyvy, wall_time_ns());
+    const int64_t video_frame_index = encoder_.submit(uyvy, mcap_log_time_ns());
 
     // Pinned, so the keypoint model's GPU preprocess reads the frame in place. Both Mats take the
     // allocator because an uncalibrated rectifier hands `bgr` through unchanged.

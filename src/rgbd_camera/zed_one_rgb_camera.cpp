@@ -225,7 +225,7 @@ bool ZedOneRgbCamera::capture_frame() {
     bgr.allocator = PinnedMatAllocator::instance();
     cv::cvtColor(bgra, bgr, cv::COLOR_BGRA2BGR);
 
-    const int64_t video_frame_index = encoder_.submit(bgra, wall_time_ns());
+    const int64_t video_frame_index = encoder_.submit(bgra, mcap_log_time_ns());
 
     {
         std::lock_guard<std::mutex> lock(data_mutex_);

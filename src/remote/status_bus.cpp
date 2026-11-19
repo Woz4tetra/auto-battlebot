@@ -28,8 +28,9 @@ CommandLog::CommandLog(std::shared_ptr<McapRecorder> recorder) {
 void CommandLog::record(const RemoteCommand& command) {
     auto& channel = channels_[command.index()];
     if (!channel) return;
-    std::visit([&](const auto& payload) { channel->log(to_json_string(payload), wall_time_ns()); },
-               command);
+    std::visit(
+        [&](const auto& payload) { channel->log(to_json_string(payload), mcap_log_time_ns()); },
+        command);
 }
 
 }  // namespace auto_battlebot::remote

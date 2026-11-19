@@ -170,6 +170,20 @@ TEST(JigPlantModelTest, TransportDelayGatesCommandOnset) {
     EXPECT_GT(state.x, 0.0);
 }
 
+TEST(JigPlantModelTest, PropagateWrapsThetaToPlusMinusPi) {
+    JigPlantModel model(golden_params());
+    const std::vector<TimedCommand> commands = {{0.0, {0.0, 0.0, 1.0}}};
+    Eigen::Matrix<double, 5, 5> jacobian;
+    PlantState state;
+    state.theta = 3.0;
+    for (int step = 0; step < 40; ++step) {
+        const double t0 = 0.05 * step;
+        state = model.propagate(state, commands, t0, t0 + 0.05, jacobian);
+        EXPECT_GT(state.theta, -M_PI);
+        EXPECT_LE(state.theta, M_PI);
+    }
+}
+
 TEST(JigPlantModelTest, ZeroCommandBeforeFirstEntry) {
     JigPlantModel model(golden_params());
     const std::vector<TimedCommand> commands = {{1.0, {1.0, 0.0, 0.0}}};
@@ -186,6 +200,9 @@ TEST(JigPlantModelTest, EffectiveCommandDeadzoneAndRescale) {
     EXPECT_DOUBLE_EQ(
         plant_effective_command(params.dz_lin_fwd * 0.9, params.dz_lin_fwd, params.dz_lin_rev),
         0.0);
+    constexpr double kClippedDeadzone = 0.95;
+    EXPECT_DOUBLE_EQ(plant_effective_command(0.97, 0.99, 0.99),
+                     (0.97 - kClippedDeadzone) / (1.0 - kClippedDeadzone));
     EXPECT_DOUBLE_EQ(plant_effective_command(1.0, params.dz_lin_fwd, params.dz_lin_rev), 1.0);
     EXPECT_DOUBLE_EQ(plant_effective_command(-1.0, params.dz_lin_fwd, params.dz_lin_rev), -1.0);
     const double expected = (0.5 - params.dz_lin_fwd) / (1.0 - params.dz_lin_fwd);

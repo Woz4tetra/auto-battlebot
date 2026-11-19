@@ -4,9 +4,13 @@
 #include <chrono>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <thread>
+#include <utility>
+#include <vector>
 
+#include "../slow_free_allocator.hpp"
 #include "perception_batch/parallel_model_batch.hpp"
 
 namespace auto_battlebot {
@@ -23,9 +27,13 @@ ModelResultStamped make_tagged_result(double tag) {
 class FakeKeypointModel : public KeypointModelInterface {
    public:
     bool initialize() override { return true; }
-    ModelResultStamped update(RgbImage, const CameraInfo &camera_info) override {
+    ModelResultStamped update(RgbImage image, const CameraInfo &camera_info) override {
         ++call_count;
         last_camera_width = camera_info.width;
+        {
+            std::lock_guard<std::mutex> lock(pairs_mutex);
+            seen_pairs.emplace_back(image.header.stamp, camera_info.width);
+        }
         if (on_update) on_update();
         return make_tagged_result(kKeypointTag);
     }
@@ -33,6 +41,8 @@ class FakeKeypointModel : public KeypointModelInterface {
     static constexpr double kKeypointTag = 1.0;
     std::atomic<int> call_count{0};
     std::atomic<int> last_camera_width{0};
+    std::mutex pairs_mutex;
+    std::vector<std::pair<double, int>> seen_pairs;
     std::function<void()> on_update;
 };
 
@@ -82,6 +92,47 @@ TEST_F(ParallelModelBatchTest, PassesCameraInfoToKeypointModel) {
     ParallelModelBatch batch = make_batch();
     batch.update(image_, camera_info_);
     EXPECT_EQ(keypoint_model_->last_camera_width, 1920);
+}
+
+TEST_F(ParallelModelBatchTest, ImageAndCameraInfoStayPaired) {
+    constexpr int kWidthOffset = 1000;
+    std::atomic<bool> slow_once{true};
+    keypoint_model_->on_update = [&slow_once] {
+        if (slow_once.exchange(false)) std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+    };
+    ParallelModelBatch batch = make_batch();
+
+    for (int request = 1; request <= 3; ++request) {
+        image_.header.stamp = request;
+        camera_info_.width = kWidthOffset + request;
+        batch.update(image_, camera_info_);
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    std::lock_guard<std::mutex> lock(keypoint_model_->pairs_mutex);
+    ASSERT_FALSE(keypoint_model_->seen_pairs.empty());
+    for (const auto &[stamp, width] : keypoint_model_->seen_pairs) {
+        EXPECT_EQ(width, kWidthOffset + static_cast<int>(stamp));
+    }
+}
+
+TEST_F(ParallelModelBatchTest, WorkerKeepsImageAliveAfterTimeout) {
+    SlowFreeAllocator allocator(std::chrono::milliseconds(0));
+    std::atomic<bool> freed_while_model_ran{false};
+    blob_model_->on_update = [&] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1300));
+        freed_while_model_ran = allocator.freeing.load();
+    };
+    ParallelModelBatch batch = make_batch();
+    {
+        RgbImage image;
+        image.image = slow_free_mat(allocator);
+        batch.update(image, camera_info_);
+    }
+    EXPECT_FALSE(allocator.freeing.load());
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+    EXPECT_FALSE(freed_while_model_ran.load());
 }
 
 TEST_F(ParallelModelBatchTest, ReusesWorkersAcrossTicks) {

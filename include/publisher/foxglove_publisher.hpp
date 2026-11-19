@@ -73,7 +73,6 @@ class FoxglovePublisher : public PublisherInterface {
     bool preview_video_failed_ = false;
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
 
-    // Declared last so they stop before the channels they log to are destroyed.
     std::unique_ptr<ImageEncoderWorker> image_worker_;
     std::unique_ptr<ImageEncoderWorker> preview_worker_;
     VideoEncoder preview_video_encoder_;

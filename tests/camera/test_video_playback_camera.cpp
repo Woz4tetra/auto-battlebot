@@ -225,6 +225,20 @@ TEST_F(VideoPlaybackCameraTest, DataIndependence) {
     EXPECT_EQ(reference.rgb.image.at<cv::Vec3b>(0, 0), original);
 }
 
+TEST_F(VideoPlaybackCameraTest, SuccessiveGrabsDoNotShareBuffers) {
+    VideoPlaybackCamera camera(make_config(*fixture_));
+    ASSERT_TRUE(camera.initialize());
+
+    CameraData first;
+    ASSERT_TRUE(camera.get(first));
+    const cv::Mat first_snapshot = first.rgb.image.clone();
+    CameraData second;
+    ASSERT_TRUE(camera.get(second));
+
+    EXPECT_NE(first.rgb.image.data, second.rgb.image.data);
+    EXPECT_EQ(cv::norm(first.rgb.image, first_snapshot, cv::NORM_INF), 0.0);
+}
+
 TEST_F(VideoPlaybackCameraTest, ReachesTheEndOfTheRecording) {
     VideoPlaybackCamera camera(make_config(*fixture_));
     ASSERT_TRUE(camera.initialize());

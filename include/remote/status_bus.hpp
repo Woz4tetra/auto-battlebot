@@ -32,7 +32,7 @@ class StatusBus {
         }
         slot.last_publish = now;
         slot.published_once = true;
-        slot.channel->log(to_json_string(message), wall_time_ns());
+        slot.channel->log(to_json_string(message), mcap_log_time_ns());
         return true;
     }
 

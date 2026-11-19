@@ -90,6 +90,17 @@ Commands are recorded when the Runner drains them, one channel per command topic
 the relay already has these topics as client channels. Enums are lowercase strings
 (`{"action": "reboot_host"}`); optional fields are left out when empty.
 
+`decode_command` (`include/remote/command_decode.hpp`) turns a command topic and payload into a
+`RemoteCommand`. It never throws, so a bad payload from the dashboard cannot kill the remote
+thread. An unknown topic logs a warning with the valid topic list. Bad JSON or a missing field logs
+a warning with the schema name and the parse error. An empty payload reads as `{}`.
+
+`CommandQueue` (`include/remote/command_queue.hpp`) carries commands from the viz sink thread to
+the loop thread: the sink posts on its own thread, and the Runner drains the queue at the start of
+each tick, so every command runs on the loop thread. A reboot or power-off command also invokes
+the callback from `set_on_system_action` on the posting thread, so a loop thread blocked in a
+camera re-open does not delay it.
+
 ## Frames
 
 `frame_id` strings are the lower-case `FrameId` enum names: `camera`, `camera_world`,
@@ -754,6 +765,9 @@ The AprilTag keypoint model searches a window around the last detection (the ful
 ### Publisher
 
 - `AsyncPublisher` queue: a tick makes seven publish calls, so the queue holds about nine ticks.
+- `AsyncPublisher` runs another publisher's calls on one worker thread, in call order, so publishing stays off the Runner's tick. The inner publisher only ever sees the worker thread. Destroying it drains the queue before joining, so queued frames still reach the sinks. Each call copies its arguments into the queue. Camera frames are shallow `cv::Mat` copies, which is safe because every camera hands out a freshly allocated frame per grab. The queue holds 64 calls (`kMaxPendingCalls`). A full queue blocks the caller instead of dropping calls, so a recording never loses a message. The tick pays for publishing only when the worker has fallen a full queue behind, and the wait is logged as `blocked_ms`.
+- `PublisherInterface::flush()` returns once every earlier publish call has reached the sinks. Shutdown calls it before closing the recording, so a publisher that defers its work does not lose the last frames.
+- `FoxglovePublisher` declares its async workers last, so they stop before the channels they log to are destroyed.
 - `/camera/preview` is a downscaled JPEG for the web dashboard. Live only, never recorded.
 
 ### Status bus
@@ -801,7 +815,7 @@ The video is pre-rectification, so replay needs this calibration. Embedded, a re
 
 ### `src/rgbd_camera/v4l2_rgb_camera.cpp`
 
-Beside `const int64_t video_frame_index = encoder_.submit(uyvy, wall_time_ns());`:
+Beside `const int64_t video_frame_index = encoder_.submit(uyvy, mcap_log_time_ns());`:
 
 The recording is pre-rectification on purpose: a calibration can be revised later and re-applied to footage already shot. The encoder numbers the frames it takes; frame_meta carries that number, so it matches the video packet in whichever file the frame lands in. -1 when it took none.
 
@@ -819,7 +833,7 @@ Video only from here. The stamps are already indexed, and camera_info is not rea
 
 ### `src/rgbd_camera/zed_one_rgb_camera.cpp`
 
-Beside `const int64_t video_frame_index = encoder_.submit(bgra, wall_time_ns());`:
+Beside `const int64_t video_frame_index = encoder_.submit(bgra, mcap_log_time_ns());`:
 
 The encoder numbers the frames it takes; frame_meta carries that number, so it matches the video packet in whichever file the frame lands in. -1 when it took none. BGRA, not the BGR copy: the Jetson's nvvidconv takes 4-channel input directly.
 

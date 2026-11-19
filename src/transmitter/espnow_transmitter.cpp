@@ -283,7 +283,7 @@ void EspNowTransmitter::handle_telemetry(const espnow_protocol::TelemetryPayload
         if (!min_round_trip_us_since_health_log_ || sample < *min_round_trip_us_since_health_log_)
             min_round_trip_us_since_health_log_ = sample;
     }
-    const uint64_t now_ns = wall_time_ns();
+    const uint64_t now_ns = mcap_log_time_ns();
     telemetry_channel_.log(to_espnow_telemetry_json(telemetry, now_ns, round_trip_us), now_ns);
 }
 

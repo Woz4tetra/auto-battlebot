@@ -135,6 +135,19 @@ TEST_F(AsyncPublisherTest, FlushFromAnotherThreadReturnsWhileCallsKeepArriving) 
     EXPECT_LT(flush_ms, 5.0 * static_cast<double>(AsyncPublisher::kMaxPendingCalls));
 }
 
+TEST_F(AsyncPublisherTest, FlushReturnsOnlyAfterEarlierCallsReachedTheInnerPublisher) {
+    auto inner = std::make_shared<RecordingPublisher>();
+    inner->delay = std::chrono::milliseconds(5);
+    AsyncPublisher publisher(inner);
+    CameraData camera;
+    for (int i = 0; i < 10; ++i) publisher.publish_camera_data(camera);
+
+    publisher.flush();
+
+    std::lock_guard<std::mutex> lock(inner->mutex);
+    EXPECT_EQ(inner->stamps.size(), 10U);
+}
+
 TEST_F(AsyncPublisherTest, DestructorDrainsQueue) {
     auto inner = std::make_shared<RecordingPublisher>();
     inner->delay = std::chrono::milliseconds(1);

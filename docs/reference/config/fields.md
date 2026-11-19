@@ -264,6 +264,46 @@ The lockstep sim's keypoint model. Design: `docs/reference/perception/robot_filt
 | `watchdog_timeout_ms` | `ThreadedControlLoop` only: a cycle older than this marks the loop unhealthy |
 | `robot_cache_max_age_s` | Longest gap `RobotDescriptionsCache` fills with the last robot set that had both our robot and an opponent. Past it navigation sees the robots as they are and runs its no-robot path |
 
+## `[plant]`
+
+The jig-fitted drivetrain, one table for the EKF and `MotionProfileNavigation`
+(`docs/reference/control/plant_backed_control.md`). Absent is not a parse error. A consumer that
+needs it throws. Provenance of the values is in `docs/reference/config/robot_plant_files.md`.
+
+| Field | Meaning |
+| --- | --- |
+| `k_fwd`, `k_rev` | Forward and reverse speed in m/s at full effective command |
+| `k_ang` | Yaw rate in rad/s at full effective command |
+| `c_sb` | Steer-brake: fraction of forward authority lost per unit \|u_ang_eff\| |
+| `c_ad` | Angular droop: fraction of yaw authority lost per unit \|u_lin_eff\| |
+| `c_drift` | Yaw drift in rad/s per unit effective linear command |
+| `c_drift_bias` | Yaw drift in rad/s while moving, signed by the linear command |
+
+### `[plant.process_noise]`
+
+Only the EKF reads these. Every field is optional and defaults to the `fit_process_noise.py`
+output (`docs/experiments/sysid/2026-08-23_process_noise_fit.md`).
+
+| Field | Meaning |
+| --- | --- |
+| `q_along` | White-noise acceleration on v, (m/s^2)^2/Hz |
+| `q_cross` | Cross-track white-noise acceleration, (m/s^2)^2/Hz. There is no state to feed |
+| `q_heading` | White-noise acceleration on w, (rad/s^2)^2/Hz |
+| `scale_factor` | Fractional speed error, sigma = \|v\| h eps |
+| `heading_scale_factor` | Fractional yaw-rate error, sigma = \|w\| h eps |
+| `heading_random_walk` | Heading random walk, rad^2/s |
+| `delay_jitter_s` | Command delay jitter in s. Along-track sigma = \|v\| * jitter, flat in h |
+
+## `[publisher]`
+
+`FoxglovePublisher` fields. `NoopPublisher` has none.
+
+| Field | Meaning |
+| --- | --- |
+| `socket_path` | Unix socket `viz_relay` listens on |
+| `preview_width` | Width of `/camera/preview` and `/camera/preview_video`. Height keeps the aspect |
+| `preview_rate_hz` | `/camera/preview` JPEG rate |
+
 ## `[profiles]`
 
 Read from `config/profiles.toml` by the UI profile switcher.

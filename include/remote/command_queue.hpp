@@ -10,8 +10,6 @@
 
 namespace auto_battlebot::remote {
 
-/** The viz sink posts commands here from its own thread; the Runner drains it at the start of each
- *  tick, so every command runs on the loop thread. */
 class CommandQueue {
    public:
     void post(RemoteCommand command) {
@@ -24,8 +22,6 @@ class CommandQueue {
         if (interrupt) interrupt();
     }
 
-    /** Runs on the posting thread when a reboot or power-off arrives, so it can cut short
-     *  whatever the loop thread is blocked in (a camera re-open) and get to the queue. */
     void set_on_system_action(std::function<void()> callback) {
         std::lock_guard<std::mutex> lock(mutex_);
         on_system_action_ = std::move(callback);

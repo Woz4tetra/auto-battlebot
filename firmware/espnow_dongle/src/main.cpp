@@ -252,8 +252,9 @@ void service_link_stats() {
     const uint32_t now = millis();
     if (now - last_stats_ms < LINK_STATS_PERIOD_MS) return;
     last_stats_ms = now;
-    const LinkStatsPayload stats = {sent_count,  acked_count, failed_count,
-                                    last_unicast_rtt_us, channel,     static_cast<uint8_t>(robot_known)};
+    const LinkStatsPayload stats = {sent_count,   acked_count,
+                                    failed_count, last_unicast_rtt_us,
+                                    channel,      static_cast<uint8_t>(robot_known)};
     write_serial_frame(MSG_LINK_STATS, reinterpret_cast<const uint8_t *>(&stats), sizeof(stats));
 
     update_ack_window();

@@ -29,17 +29,9 @@ class ParallelModelBatch {
     ParallelModelBatch(const ParallelModelBatch &) = delete;
     ParallelModelBatch &operator=(const ParallelModelBatch &) = delete;
 
-    /**
-     * @brief Dispatch the image to both workers and block until both finish.
-     *
-     * The wait is bounded so a hung model cannot stall the main loop forever; on timeout
-     * the missing model's result fields are left default-constructed (empty keypoints).
-     */
     BatchResult update(const RgbImage &image, const CameraInfo &camera_info);
 
    private:
-    /** Each worker receives the image and camera info copied together under the lock, so the
-     *  pair always belongs to the same request. The robot blob model takes only the image. */
     using RunModel = std::function<ModelResultStamped(const RgbImage &, const CameraInfo &)>;
     void worker_loop(const RunModel &run_model, uint64_t &done_id, ModelResultStamped &result_slot,
                      double &elapsed_slot, std::atomic<bool> &exited_flag);
@@ -48,11 +40,8 @@ class ParallelModelBatch {
     std::shared_ptr<RobotBlobModelInterface> robot_blob_model_;
 
     std::mutex mutex_;
-    std::condition_variable dispatch_cv_;  // main -> workers: new request or stop
-    std::condition_variable done_cv_;      // workers -> main: a result landed
-    // All fields below are guarded by mutex_. shared_image_ is a shallow cv::Mat copy;
-    // each worker takes its own shallow copy so the pixel buffer stays alive even if
-    // update() times out and the caller's image goes away.
+    std::condition_variable dispatch_cv_;
+    std::condition_variable done_cv_;
     RgbImage shared_image_;
     CameraInfo shared_camera_info_;
     uint64_t request_id_ = 0;

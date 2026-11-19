@@ -14,8 +14,7 @@
 
 namespace auto_battlebot {
 
-/** Wall clock in nanoseconds since the epoch; the MCAP log time for everything recorded. */
-inline uint64_t wall_time_ns() {
+inline uint64_t mcap_log_time_ns() {
     return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
                                      std::chrono::system_clock::now().time_since_epoch())
                                      .count());
