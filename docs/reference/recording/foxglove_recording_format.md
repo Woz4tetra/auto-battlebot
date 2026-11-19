@@ -6,6 +6,11 @@ recording follows this layout. The C++ publisher (`src/foxglove_adapters/`), the
 (`auto_battlebot/recording/mcap_write.py`) and the legacy converter (`scripts/convert_ros1_mcap.py`) are
 all written against this document. Change it here first.
 
+`McapWriter` opens each file in its own `foxglove.Context`, so one topic can be written to several
+files in one process. Every `log_*` method takes an explicit `log_time_ns`; the writer never reads
+the wall clock. `tests/python/test_mcap_io.py::test_two_writers_same_topic_separate_files` pins the
+first.
+
 ## File level
 
 - MCAP profile string is empty. The C++ recorder writes uncompressed chunks (it records on the
@@ -703,6 +708,10 @@ Every frame is `[u32 len][u8 kind][body]`, little-endian, `len` counting `kind` 
   field or a wrong type. `/command/reinit_field` takes `{}` (or an empty payload) and
   reinitializes the field, same as the UI tile or the init button.
 
+A frame whose `len` exceeds `kMaxFrameBytes` (64 MiB, `include/viz/frame.hpp`) is a corrupt
+stream: the relay drops the app connection and the app's sink reconnects. A single
+`/field_points` message is a few MB, well under the cap.
+
 `channel_id` is assigned by the app and is only meaningful for one socket connection. The app
 re-sends every `ADVERTISE` after a reconnect. The relay keys its Foxglove channels by topic and
 keeps them across app reconnects when the schema is unchanged. It serves one app at a time: a
@@ -794,6 +803,10 @@ No compression: the Jetson writes this at 60 Hz next to the control loop.
 Beside `if (rgb_image_.has_consumers() && !data.rgb.image.empty()) {`:
 
 JPEG compression is ~10 ms of CPU on the Jetson, so it runs on worker threads, and only when a client subscribed or the recorder records the topic. The loop pays one copy of the frame, or one resize for the preview.
+
+`ImageEncoderWorker` (`include/viz/image_encoder_worker.hpp`) runs that encoding off the perception loop, modeled on `VideoEncoder`. `submit()` never blocks: the worker keeps one pending frame and a newer frame replaces it, since a preview wants the newest frame, not every frame. The thread starts on the first submit, so a topic nobody subscribes to never costs a thread.
+
+`auto_battlebot_nvjpg_encode` (`include/viz/nvjpg_plugin.h`) takes one 4:2:0 frame in I420 layout: contiguous full-range (JFIF) Y, Cb and Cr planes, even width and height (it returns 0 for odd ones). It points the `jpeg_until_next_call` out-parameter at the result, valid until the next call on the same encoder, and returns the size, or 0 on failure.
 
 ### `src/rgbd_camera/gst_h264_backend.cpp`
 
@@ -911,6 +924,22 @@ viz_relay: the process that owns the Foxglove WebSocket server. auto_battlebot c
   Usage:
       python training/model_eval/export_camera_transforms.py [--dataset-dir <dir>] [--dry-run]
   ```
+
+- `auto_battlebot/recording/svo2.py`, `iter_left_jpegs`:
+  ffmpeg decodes the concatenated access units and re-encodes the cropped left half to MJPEG. Output
+  frames come out one-for-one with the messages fed in, so the Nth JPEG is SVO frame N
+  (`tests/python/test_svo2.py::test_left_jpegs_one_per_message`).
+  `-r` is passed because a raw elementary stream carries no timing. Without an input rate the mjpeg
+  encoder on the 22.04 ffmpeg (4.4) rejected the second frame with "Invalid pts (0) <= last (0)" and the
+  export stopped after a handful of frames. ffmpeg 6.1 does not reproduce that, so the test does not pin it.
+  ZED records intra-refresh H.264 with no IDR frames, so the first frames of a recording decode
+  partially until the refresh completes. They are emitted anyway to keep frame indices aligned with the
+  SVO. Close the iterator (`contextlib.closing`) if you stop early, so ffmpeg is torn down instead of
+  blocking on a full pipe.
+  `_iter_jpegs` splits the MJPEG stream on the SOI marker (`FFD8FF`). Entropy-coded data byte-stuffs
+  0xFF as `FF00`, so the marker only appears at the start of an image. An image carrying an EXIF
+  thumbnail would break this; ffmpeg's MJPEG output carries none.
+  (`tests/python/test_svo2.py::test_iter_jpegs_splits_on_soi_only`)
 
 - `training/svo_rgb_extract.py`:
 
@@ -1036,6 +1065,17 @@ Usage:
 `viz_relay` owns the Foxglove WebSocket server (`ws://0.0.0.0:8765`) and stays up across app restarts, so Foxglove keeps its connection while `auto_battlebot` restarts. The app never waits on the relay: with no relay it still drives and records, and it reconnects on its own. The relay links only the Foxglove SDK and CLI11, never `auto_battlebot_lib`, so it starts without the ZED SDK.
 
 `scripts/run_viz_relay.sh` starts `viz_relay` in the background if none is serving the default socket. It forwards its arguments to `viz_relay` (for example `--port 8766`). Set `AUTO_BATTLEBOT_BUILD_DIR` to pick a build tree other than `build/`.
+
+### App-side sink (`VizSink`)
+
+`VizSink` (`include/viz/viz_sink.hpp`) is the app's client of the relay socket.
+
+- `publish()` never blocks and the sink never fails startup. It copies the encoded frame into a bounded queue and returns.
+- One background thread owns the socket. It connects (reconnecting on a one second timer), replays every advertise after a reconnect, drains the queues, and reads subscriber counts and client messages coming back from the relay.
+- With no relay, queued messages are dropped and `dropped_messages()` counts them.
+- The socket is non-blocking and the thread polls it for reading and writing together, so a relay that stops reading cannot hold up commands coming the other way, or the destructor. A frame that makes no progress for 2 s (`kSendStallTimeout`) drops the connection and reconnects.
+- Image, video and point cloud channels go in a bulk queue. Everything else (status, logs, scene updates) goes in a priority queue that is sent first, so status never waits behind seconds of camera frames. Each channel stays in one queue, so its own messages keep their order.
+- Client messages a Foxglove client publishes (for example `{}` on `/command/reinit_field`) reach the client message handler on the sink thread.
 
 The relay unit owns the WebSocket server and restarts on its own. The app unit only orders `After=` it and never waits on it.
 

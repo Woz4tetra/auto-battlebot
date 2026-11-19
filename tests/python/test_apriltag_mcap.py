@@ -97,7 +97,7 @@ def test_overlay(tmp_path: Path) -> None:
 
     statics = mcap_io.decode_tf_message(topics[amcap.TOPIC_TF_STATIC][0])
     assert [tf.key for tf in statics] == [("world", "field"), ("field", "camera")]
-    cam = statics[1].matrix
+    cam = statics[1].parent_from_child
     np.testing.assert_allclose(cam[:3, :3], r_fc.T, atol=1e-12)
     np.testing.assert_allclose(cam[:3, 3], -r_fc.T @ t_fc, atol=1e-12)
 

@@ -5,8 +5,9 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Iterator, TypedDict
+from typing import Any, Callable, Iterator, NamedTuple, TypedDict
 
 import cv2
 import numpy as np
@@ -14,6 +15,7 @@ from mcap.reader import make_reader
 from mcap.records import Schema
 from mcap_protobuf.decoder import DecoderFactory as _ProtobufDecoderFactory
 
+_H264_IDR_NAL_TYPE = 5
 DIAGNOSTICS_TOPIC = "/diagnostics"
 DIAGNOSTICS_TOPIC_PREFIX = "/diagnostics/"
 BLOB_DETECTIONS_TOPIC = "/blob_detections"
@@ -251,9 +253,15 @@ def decode_compressed_image_bytes(data: bytes) -> tuple[int, str, str, bytes]:
     return _proto_stamp_ns(msg.timestamp), str(msg.frame_id), str(msg.format), bytes(msg.data)
 
 
-def decode_raw_image_bytes(data: bytes) -> tuple[int, str, np.ndarray, str]:
-    """(stamp_ns, frame_id, HxWxC uint8 array, encoding) of a ``foxglove.RawImage``. Only 8-bit
-    encodings are supported."""
+class RawImageFrame(NamedTuple):
+    stamp_ns: int
+    frame_id: str
+    pixels: np.ndarray
+    encoding: str
+
+
+def decode_raw_image_bytes(data: bytes) -> RawImageFrame:
+    """Decode a ``foxglove.RawImage``."""
     _require_current_format(data)
     msg = _proto(data)
     height, width, step = int(msg.height), int(msg.width), int(msg.step)
@@ -262,7 +270,7 @@ def decode_raw_image_bytes(data: bytes) -> tuple[int, str, np.ndarray, str]:
     frame = np.frombuffer(bytes(msg.data), dtype=np.uint8).reshape(height, step)[
         :, : width * channels
     ]
-    return (
+    return RawImageFrame(
         _proto_stamp_ns(msg.timestamp),
         str(msg.frame_id),
         frame.reshape(height, width, channels),
@@ -294,28 +302,32 @@ def decode_compressed_video_bytes(data: bytes) -> tuple[int, str, str, bytes]:
     return _proto_stamp_ns(msg.timestamp), str(msg.frame_id), str(msg.format), bytes(msg.data)
 
 
+def _contains_idr(access_unit: bytes) -> bool:
+    start = access_unit.find(b"\x00\x00\x01")
+    while 0 <= start < len(access_unit) - 3:
+        if access_unit[start + 3] & 0x1F == _H264_IDR_NAL_TYPE:
+            return True
+        start = access_unit.find(b"\x00\x00\x01", start + 3)
+    return False
+
+
 class VideoStreamDecoder:
-    """Decodes ``/camera/video`` into BGR frames.
-
-    Stateful where ``cv2.imdecode`` was not: H.264 frames reference the ones before them, so the
-    decoder holds one context per file and has to be fed in stream order. Every caller already
-    iterates a whole recording in order. Seeking means starting from a keyframe, never from the
-    middle of a GOP.
-
-    The C++ encoder writes with ``max_b_frames = 0``, so decode order equals capture order and the
-    nth frame out is the nth frame captured. ``export_camera_transforms.py`` matches dataset images
-    by position in the stream and depends on that.
-    """
+    """Decodes ``/camera/video`` into BGR frames, fed in stream order from an IDR."""
 
     def __init__(self) -> None:
         import av
 
         self._codec = av.CodecContext.create("h264", "r")
+        self._started = False
 
     def decode(self, packet_bytes: bytes) -> list[np.ndarray]:
         """BGR frames produced by one access unit. Usually one; empty while the decoder primes."""
         import av
 
+        if not self._started:
+            if not _contains_idr(packet_bytes):
+                raise ValueError("video stream must start on an IDR access unit")
+            self._started = True
         packets = [av.packet.Packet(packet_bytes)]
         frames = []
         for packet in packets:
@@ -367,9 +379,20 @@ class CameraInfo:
     height: int
     distortion_model: str
     distortion: np.ndarray
-    intrinsics: np.ndarray  # 3x3 K
-    projection: np.ndarray  # 3x4 P
-    rectification: np.ndarray = field(default_factory=lambda: np.eye(3))  # 3x3 R
+    intrinsics: np.ndarray
+    projection: np.ndarray
+    rectification: np.ndarray = field(default_factory=lambda: np.eye(3))
+
+    def __post_init__(self) -> None:
+        for name, shape in (
+            ("intrinsics", (3, 3)),
+            ("projection", (3, 4)),
+            ("rectification", (3, 3)),
+        ):
+            if getattr(self, name).shape != shape:
+                raise ValueError(
+                    f"CameraInfo.{name} must be {shape}, got {getattr(self, name).shape}"
+                )
 
 
 def decode_camera_info(data: bytes) -> CameraInfo:
@@ -396,7 +419,7 @@ class Transform:
     stamp_ns: int
     parent_frame_id: str
     child_frame_id: str
-    matrix: np.ndarray  # 4x4 homogeneous, maps points in child into parent
+    parent_from_child: np.ndarray
 
     @property
     def key(self) -> tuple[str, str]:
@@ -431,7 +454,7 @@ def decode_tf_message(data: bytes) -> list[Transform]:
             stamp_ns=_proto_stamp_ns(tf.timestamp),
             parent_frame_id=str(tf.parent_frame_id),
             child_frame_id=str(tf.child_frame_id),
-            matrix=_transform_matrix(
+            parent_from_child=_transform_matrix(
                 tf.translation.x,
                 tf.translation.y,
                 tf.translation.z,
@@ -541,10 +564,35 @@ def decode_point_cloud(data: bytes) -> np.ndarray:
     return np.stack(columns, axis=1)
 
 
+class _NamedEnum(str, Enum):
+    def __str__(self) -> str:
+        return str(self.value)
+
+
+class LineType(_NamedEnum):
+    LINE_STRIP = "LINE_STRIP"
+    LINE_LOOP = "LINE_LOOP"
+    LINE_LIST = "LINE_LIST"
+
+
+class DeletionType(_NamedEnum):
+    MATCHING_ID = "MATCHING_ID"
+    ALL = "ALL"
+
+
+class LogLevel(_NamedEnum):
+    UNKNOWN = "UNKNOWN"
+    DEBUG = "DEBUG"
+    INFO = "INFO"
+    WARN = "WARN"
+    ERROR = "ERROR"
+    FATAL = "FATAL"
+
+
 @dataclass
 class Pose:
     position: tuple[float, float, float] = (0.0, 0.0, 0.0)
-    orientation: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 1.0)  # x, y, z, w
+    orientation_xyzw: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 1.0)
 
 
 @dataclass
@@ -557,7 +605,7 @@ class Color:
 
 @dataclass
 class LinePrimitive:
-    type: str  # LINE_STRIP, LINE_LOOP, LINE_LIST
+    type: LineType
     pose: Pose
     thickness: float
     scale_invariant: bool
@@ -629,7 +677,7 @@ class SceneEntity:
 
 @dataclass
 class SceneEntityDeletion:
-    type: str  # MATCHING_ID or ALL
+    type: DeletionType
     id: str
     stamp_ns: int
 
@@ -640,14 +688,14 @@ class SceneUpdate:
     deletions: list[SceneEntityDeletion] = field(default_factory=list)
 
 
-_LINE_TYPES = {0: "LINE_STRIP", 1: "LINE_LOOP", 2: "LINE_LIST"}
-_DELETION_TYPES = {0: "MATCHING_ID", 1: "ALL"}
+_LINE_TYPES = {0: LineType.LINE_STRIP, 1: LineType.LINE_LOOP, 2: LineType.LINE_LIST}
+_DELETION_TYPES = {0: DeletionType.MATCHING_ID, 1: DeletionType.ALL}
 
 
 def _proto_pose(pose: Any) -> Pose:
     return Pose(
         position=(pose.position.x, pose.position.y, pose.position.z),
-        orientation=(
+        orientation_xyzw=(
             pose.orientation.x,
             pose.orientation.y,
             pose.orientation.z,
@@ -671,7 +719,7 @@ def _proto_entity(e: Any) -> SceneEntity:
     for line in e.lines:
         entity.lines.append(
             LinePrimitive(
-                type=_LINE_TYPES.get(int(line.type), "LINE_STRIP"),
+                type=_LINE_TYPES.get(int(line.type), LineType.LINE_STRIP),
                 pose=_proto_pose(line.pose),
                 thickness=float(line.thickness),
                 scale_invariant=bool(line.scale_invariant),
@@ -730,7 +778,7 @@ def decode_scene_update(data: bytes) -> SceneUpdate:
     for d in msg.deletions:
         update.deletions.append(
             SceneEntityDeletion(
-                type=_DELETION_TYPES.get(int(d.type), "MATCHING_ID"),
+                type=_DELETION_TYPES.get(int(d.type), DeletionType.MATCHING_ID),
                 id=str(d.id),
                 stamp_ns=_proto_stamp_ns(d.timestamp),
             )
@@ -741,14 +789,21 @@ def decode_scene_update(data: bytes) -> SceneUpdate:
 @dataclass
 class LogMessage:
     stamp_ns: int
-    level: str  # DEBUG, INFO, WARN, ERROR, FATAL
+    level: LogLevel
     name: str
     message: str
     file: str
     line: int
 
 
-_FOXGLOVE_LOG_LEVELS = {0: "UNKNOWN", 1: "DEBUG", 2: "INFO", 3: "WARN", 4: "ERROR", 5: "FATAL"}
+_FOXGLOVE_LOG_LEVELS = {
+    0: LogLevel.UNKNOWN,
+    1: LogLevel.DEBUG,
+    2: LogLevel.INFO,
+    3: LogLevel.WARN,
+    4: LogLevel.ERROR,
+    5: LogLevel.FATAL,
+}
 
 
 def decode_log(data: bytes) -> LogMessage:
@@ -757,7 +812,7 @@ def decode_log(data: bytes) -> LogMessage:
     msg = _proto(data)
     return LogMessage(
         stamp_ns=_proto_stamp_ns(msg.timestamp),
-        level=_FOXGLOVE_LOG_LEVELS.get(int(msg.level), "UNKNOWN"),
+        level=_FOXGLOVE_LOG_LEVELS.get(int(msg.level), LogLevel.UNKNOWN),
         name=str(msg.name),
         message=str(msg.message),
         file=str(msg.file),

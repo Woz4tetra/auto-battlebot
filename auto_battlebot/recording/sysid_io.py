@@ -73,27 +73,31 @@ class TagCamera:
 
 @dataclass
 class TagSolution:
-    rvec: np.ndarray  # (3,) Rodrigues, marker -> camera
-    tvec: np.ndarray  # (3,) metres, tag center in the camera frame
+    rvec_camera_from_marker: np.ndarray
+    tvec_camera_m: np.ndarray
     reprojection_error_px: float
 
     @property
     def transform(self) -> np.ndarray:
         """4x4 T_camera_tag (maps marker-frame points into the camera frame)."""
-        return pose_matrix(rodrigues(self.rvec), self.tvec)
+        return pose_matrix(rodrigues(self.rvec_camera_from_marker), self.tvec_camera_m)
 
 
 @dataclass
 class TagDetection:
     tag_id: int
-    corners: np.ndarray  # (4, 2) pixels, OpenCV aruco order
+    corners_aruco_order_px: np.ndarray
     decision_margin: float | None
     solutions: list[TagSolution]
+
+    def __post_init__(self) -> None:
+        if self.corners_aruco_order_px.shape != (4, 2):
+            raise ValueError(f"corners must be (4, 2), got {self.corners_aruco_order_px.shape}")
 
     @property
     def size_px(self) -> float:
         """Mean edge length of the corner quad in pixels."""
-        edges = np.roll(self.corners, -1, axis=0) - self.corners
+        edges = np.roll(self.corners_aruco_order_px, -1, axis=0) - self.corners_aruco_order_px
         return float(np.mean(np.linalg.norm(edges, axis=1)))
 
 
@@ -139,8 +143,8 @@ def parse_robot_tags(payload: dict[str, Any], log_time_ns: int) -> RobotTagsFram
     for det in payload.get("detections", []):
         solutions = [
             TagSolution(
-                rvec=np.asarray(sol["rvec"], dtype=np.float64).reshape(3),
-                tvec=np.asarray(sol["tvec"], dtype=np.float64).reshape(3),
+                rvec_camera_from_marker=np.asarray(sol["rvec"], dtype=np.float64).reshape(3),
+                tvec_camera_m=np.asarray(sol["tvec"], dtype=np.float64).reshape(3),
                 reprojection_error_px=float(sol["reprojection_error_px"]),
             )
             for sol in det.get("solutions", [])
@@ -148,7 +152,7 @@ def parse_robot_tags(payload: dict[str, Any], log_time_ns: int) -> RobotTagsFram
         detections.append(
             TagDetection(
                 tag_id=int(det["id"]),
-                corners=np.asarray(det["corners"], dtype=np.float64).reshape(4, 2),
+                corners_aruco_order_px=np.asarray(det["corners"], dtype=np.float64).reshape(4, 2),
                 decision_margin=_float_or_none(det.get("decision_margin")),
                 solutions=solutions,
             )
@@ -240,8 +244,14 @@ def load_transmitter_channels(path: Path | str) -> pd.DataFrame:
 class FieldFromCamera:
     """Time series of T_field_camera (4x4, maps OpenCV camera points into the field frame)."""
 
-    stamps_ns: np.ndarray  # (N,) int64, ascending
-    matrices: np.ndarray  # (N, 4, 4)
+    stamps_ns: np.ndarray
+    matrices: np.ndarray
+
+    def __post_init__(self) -> None:
+        if self.matrices.shape != (self.stamps_ns.shape[0], 4, 4):
+            raise ValueError(f"matrices must be (N, 4, 4), got {self.matrices.shape}")
+        if np.any(np.diff(self.stamps_ns) < 0):
+            raise ValueError("stamps_ns must be ascending")
 
     def __len__(self) -> int:
         return int(self.stamps_ns.shape[0])
@@ -262,13 +272,13 @@ def load_field_from_camera(path: Path | str) -> FieldFromCamera:
         transforms = decode_tf_message(data)
         for tr in transforms:
             if tr.key == (FIELD_FRAME, CAMERA_WORLD_FRAME):
-                field_from_world = tr.matrix
+                field_from_world = tr.parent_from_child
         if topic != TF_TOPIC or field_from_world is None:
             continue
         for tr in transforms:
             if tr.key == (CAMERA_WORLD_FRAME, CAMERA_FRAME):
                 stamps.append(int(log_time_ns))
-                mats.append(field_from_world @ tr.matrix)
+                mats.append(field_from_world @ tr.parent_from_child)
     if not mats:
         return FieldFromCamera(np.zeros(0, dtype=np.int64), np.zeros((0, 4, 4)))
     order = np.argsort(np.asarray(stamps, dtype=np.int64), kind="stable")

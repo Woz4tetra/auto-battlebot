@@ -83,8 +83,8 @@ class Dispatcher:
         elif topic in (TF_TOPIC, TF_STATIC_TOPIC):
             for tr in decode_tf_message(data):
                 if tr.key == (FIELD_FRAME, CAMERA_WORLD_FRAME):
-                    self._field_from_world = tr.matrix
+                    self._field_from_world = tr.parent_from_child
                 elif tr.key == (CAMERA_WORLD_FRAME, CAMERA_FRAME):
-                    self._world_from_camera = tr.matrix
+                    self._world_from_camera = tr.parent_from_child
             if self._field_from_world is not None and self._world_from_camera is not None:
                 self.session.feed_field(self._field_from_world @ self._world_from_camera)

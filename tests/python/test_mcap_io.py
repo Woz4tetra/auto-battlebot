@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 import cv2
@@ -65,7 +66,7 @@ def recording(tmp_path_factory: pytest.TempPathFactory) -> Path:
             stamp_ns=STAMP_NS,
             lines=[
                 mcap_io.LinePrimitive(
-                    type="LINE_STRIP",
+                    type=mcap_io.LineType.LINE_STRIP,
                     pose=mcap_io.Pose(),
                     thickness=0.01,
                     scale_invariant=False,
@@ -112,7 +113,7 @@ def recording(tmp_path_factory: pytest.TempPathFactory) -> Path:
             ],
         )
         deletion = mcap_io.SceneEntityDeletion(
-            type="MATCHING_ID", id="nav_target/0", stamp_ns=STAMP_NS
+            type=mcap_io.DeletionType.MATCHING_ID, id="nav_target/0", stamp_ns=STAMP_NS
         )
         writer.log(
             "/robot_markers",
@@ -164,7 +165,9 @@ def recording(tmp_path_factory: pytest.TempPathFactory) -> Path:
         writer.log(
             "/log",
             mcap_write.log_message(
-                mcap_io.LogMessage(STAMP_NS, "WARN", "auto_battlebot", "hello", "main.cpp", 7)
+                mcap_io.LogMessage(
+                    STAMP_NS, mcap_io.LogLevel.WARN, "auto_battlebot", "hello", "main.cpp", 7
+                )
             ),
             LOG_TIME,
         )
@@ -226,7 +229,7 @@ def test_tf(recording: Path) -> None:
     expected = np.eye(4)
     expected[:3, :3] = mcap_io.quaternion_to_rotation(0.0, 0.0, np.sin(0.3), np.cos(0.3))
     expected[:3, 3] = (1.0, 2.0, 3.0)
-    np.testing.assert_allclose(tf.matrix, expected, atol=1e-12)
+    np.testing.assert_allclose(tf.parent_from_child, expected, atol=1e-12)
 
 
 def test_field_markers_and_points(recording: Path) -> None:
@@ -312,3 +315,75 @@ def test_untagged_or_legacy_payload_is_refused() -> None:
     legacy = mcap_io.MessageBytes(b"{}", "ros1", "std_msgs/String", "/x")
     with pytest.raises(ValueError, match="convert_ros1_mcap"):
         mcap_io.decode_string(legacy)
+
+
+def test_video_decoder_rejects_out_of_order_frames(tmp_path: Path) -> None:
+    from auto_battlebot.recording import video_import
+
+    clip = tmp_path / "clip.mp4"
+    subprocess.run(
+        ["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=64x48:rate=30"]
+        + ["-frames:v", "10", "-c:v", "libx264", str(clip)],
+        check=True,
+    )
+    units = list(video_import.iter_access_units(clip, 30.0, preset="ultrafast"))
+    with pytest.raises(ValueError, match="IDR"):
+        mcap_io.VideoStreamDecoder().decode(units[3])
+    decoder = mcap_io.VideoStreamDecoder()
+    frames = [f for unit in units for f in decoder.decode(unit)] + decoder.flush()
+    assert len(frames) == len(units)
+
+
+def test_sysid_topics_round_trip_through_writer_and_sysid_io(tmp_path: Path) -> None:
+    from auto_battlebot.recording import sysid_io
+
+    path = tmp_path / "sysid.mcap"
+    tags = {
+        "image_stamp_ns": 5,
+        "frame_id": "camera",
+        "camera": {"fx": 1.0, "fy": 1.0, "cx": 0.0, "cy": 0.0, "width": 4, "height": 4},
+        "tag_size_m": 0.1,
+        "roi": None,
+        "detections": [],
+    }
+    with mcap_write.McapWriter(path) as writer:
+        writer.log_json(sysid_io.ROBOT_TAGS_TOPIC, tags, 10)
+        writer.log_json(sysid_io.ESPNOW_TELEMETRY_TOPIC, {"timestamp_ms": 7}, 20)
+    assert [f.image_stamp_ns for f in sysid_io.load_robot_tags(path)] == [5]
+    telemetry = sysid_io.load_robot_telemetry(path)
+    assert telemetry["timestamp_ms"].tolist() == [7]
+
+    diagnostics_path = tmp_path / "diag.mcap"
+    with mcap_write.McapWriter(diagnostics_path) as writer:
+        writer.log_json(sysid_io.ESP32_DIAGNOSTICS_TOPIC, {"timestamp_ms": 9}, 30)
+    assert sysid_io.load_robot_telemetry(diagnostics_path)["timestamp_ms"].tolist() == [9]
+
+
+def test_two_writers_same_topic_separate_files(tmp_path: Path) -> None:
+    first, second = tmp_path / "a.mcap", tmp_path / "b.mcap"
+    jpeg = _jpeg()
+    with (
+        mcap_write.McapWriter(first) as a,
+        mcap_write.McapWriter(second) as b,
+    ):
+        a.log("/camera/image", mcap_write.compressed_image(1, "camera", jpeg), 1)
+        b.log("/camera/image", mcap_write.compressed_image(2, "camera", jpeg), 2)
+        b.log("/camera/image", mcap_write.compressed_image(3, "camera", jpeg), 3)
+    counts = [len(list(mcap_io.iter_messages(p, ["/camera/image"]))) for p in (first, second)]
+    assert counts == [1, 2]
+
+
+def test_camera_info_rejects_wrong_matrix_shapes() -> None:
+    with pytest.raises(ValueError, match="projection"):
+        mcap_io.CameraInfo(1, "camera", 4, 4, "plumb_bob", np.zeros(5), np.eye(3), np.eye(3))
+
+
+def test_sysid_io_rejects_malformed_arrays() -> None:
+    from auto_battlebot.recording import sysid_io
+
+    with pytest.raises(ValueError, match="corners"):
+        sysid_io.TagDetection(1, np.zeros((3, 2)), None, [])
+    with pytest.raises(ValueError, match="ascending"):
+        sysid_io.FieldFromCamera(np.array([2, 1]), np.zeros((2, 4, 4)))
+    with pytest.raises(ValueError, match="matrices"):
+        sysid_io.FieldFromCamera(np.array([1, 2]), np.zeros((3, 4, 4)))

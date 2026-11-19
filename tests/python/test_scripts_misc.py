@@ -35,7 +35,9 @@ def combine() -> ModuleType:
 def _write_recording(path: Path, log_lines: list[str], frame_meta_paths: list[str]) -> None:
     with mcap_write.McapWriter(path, active_profile="unit_test") as writer:
         for i, line in enumerate(log_lines):
-            entry = mcap_io.LogMessage(1_000 + i, "INFO", "auto_battlebot", line, "main.cpp", 1)
+            entry = mcap_io.LogMessage(
+                1_000 + i, mcap_io.LogLevel.INFO, "auto_battlebot", line, "main.cpp", 1
+            )
             writer.log("/log", mcap_write.log_message(entry), 1_000 + i)
         for i, svo_path in enumerate(frame_meta_paths):
             writer.log_json(
@@ -189,7 +191,9 @@ def test_retimed_originals_overfetch_by_max_offset(combine: ModuleType, tmp_path
     recording = tmp_path / "orig.mcap"
     with mcap_write.McapWriter(recording, active_profile="unit_test") as writer:
         for log_time in (1_000, 1_100, 1_500):
-            entry = mcap_io.LogMessage(log_time, "INFO", "n", f"m{log_time}", "f.cpp", 1)
+            entry = mcap_io.LogMessage(
+                log_time, mcap_io.LogLevel.INFO, "n", f"m{log_time}", "f.cpp", 1
+            )
             writer.log("/log", mcap_write.log_message(entry), log_time)
     retimer = combine.HeaderStampRetimer([(1_000, 900), (1_500, 1_400)])
     buffered = combine._load_retimed_originals(recording, retimer, start_ns=800, end_ns=950)

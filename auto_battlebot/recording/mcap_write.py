@@ -1,19 +1,11 @@
-"""Write ``docs/reference/recording/foxglove_recording_format.md`` recordings from Python.
-
-A thin wrapper over the Foxglove SDK writer. ``McapWriter`` opens one file in its own logging
-context (so the same topic can be written to several files in one process), writes the
-``auto_battlebot`` metadata record, and hands out channels by topic. Every ``log_*`` method takes
-an explicit ``log_time_ns``; nothing here reads the wall clock.
-
-The JSON schemas below are the canonical texts. ``include/foxglove_adapters/json_schemas.hpp``
-holds the same bytes for the C++ writer.
-"""
+"""Write recordings in the layout of ``docs/reference/recording/foxglove_recording_format.md``."""
 
 from __future__ import annotations
 
 import json
 import math
 import struct
+from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
@@ -50,7 +42,6 @@ JSON_TOPIC_SCHEMAS: dict[str, tuple[str, str]] = {
     mcap_io.FRAME_META_TOPIC: (FRAME_META_SCHEMA_NAME, FRAME_META_JSON_SCHEMA),
     mcap_io.BLOB_DETECTIONS_TOPIC: (DETECTIONS_SCHEMA_NAME, DETECTIONS_JSON_SCHEMA),
     mcap_io.KEYPOINT_DETECTIONS_TOPIC: (DETECTIONS_SCHEMA_NAME, DETECTIONS_JSON_SCHEMA),
-    # Topic names match auto_battlebot.recording.sysid_io, which reads them.
     "/robot/esp32_diagnostics": (ESP32_DIAGNOSTICS_SCHEMA_NAME, ESP32_DIAGNOSTICS_JSON_SCHEMA),
     "/robot/espnow_telemetry": (ESPNOW_TELEMETRY_SCHEMA_NAME, ESPNOW_TELEMETRY_JSON_SCHEMA),
     "/apriltag/robot_tags": (APRILTAG_ROBOT_TAGS_SCHEMA_NAME, APRILTAG_ROBOT_TAGS_JSON_SCHEMA),
@@ -69,26 +60,33 @@ LATCHED_TOPICS = frozenset(
 )
 
 
-_COMPRESSION = {"": None, "none": None, "zstd": MCAPCompression.Zstd, "lz4": MCAPCompression.Lz4}
+class Compression(str, Enum):
+    NONE = "none"
+    ZSTD = "zstd"
+    LZ4 = "lz4"
 
 
-def chunk_compression(name: str | None) -> Any:
-    """Writer option for a chunk compression name (``none``, ``zstd``, ``lz4``)."""
-    key = (name or "").lower()
-    if key not in _COMPRESSION:
-        raise ValueError(f"unknown chunk compression {name!r}")
-    return _COMPRESSION[key]
+_COMPRESSION = {
+    Compression.NONE: None,
+    Compression.ZSTD: MCAPCompression.Zstd,
+    Compression.LZ4: MCAPCompression.Lz4,
+}
 
 
-def read_chunk_compression(path: Path | str) -> str:
-    """The chunk compression a file was written with (``""`` for none), from its summary."""
+def chunk_compression(compression: Compression) -> Any:
+    """Writer option for a chunk compression."""
+    return _COMPRESSION[compression]
+
+
+def read_chunk_compression(path: Path | str) -> Compression:
+    """The chunk compression a file was written with from its summary."""
     from mcap.reader import make_reader
 
     with open(path, "rb") as handle:
         summary = make_reader(handle).get_summary()
     if summary is None or not summary.chunk_indexes:
-        return ""
-    return str(summary.chunk_indexes[0].compression or "")
+        return Compression.NONE
+    return Compression(str(summary.chunk_indexes[0].compression or "none"))
 
 
 def timestamp_from_ns(stamp_ns: int) -> fg.Timestamp:
@@ -122,7 +120,7 @@ def quaternion(q: Sequence[float]) -> fg.Quaternion:
 
 
 def pose(p: mcap_io.Pose) -> fg.Pose:
-    return fg.Pose(position=vector3(p.position), orientation=quaternion(p.orientation))
+    return fg.Pose(position=vector3(p.position), orientation=quaternion(p.orientation_xyzw))
 
 
 def identity_pose() -> fg.Pose:
@@ -273,19 +271,18 @@ def point_cloud_xyz(stamp_ns: int, frame_id: str, points: np.ndarray) -> fg.Poin
 
 
 _LINE_TYPES = {
-    "LINE_STRIP": fg.LinePrimitiveLineType.LineStrip,
-    "LINE_LOOP": fg.LinePrimitiveLineType.LineLoop,
-    "LINE_LIST": fg.LinePrimitiveLineType.LineList,
+    mcap_io.LineType.LINE_STRIP: fg.LinePrimitiveLineType.LineStrip,
+    mcap_io.LineType.LINE_LOOP: fg.LinePrimitiveLineType.LineLoop,
+    mcap_io.LineType.LINE_LIST: fg.LinePrimitiveLineType.LineList,
 }
 
 _LOG_LEVELS = {
-    "UNKNOWN": fg.LogLevel.Unknown,
-    "DEBUG": fg.LogLevel.Debug,
-    "INFO": fg.LogLevel.Info,
-    "WARN": fg.LogLevel.Warning,
-    "WARNING": fg.LogLevel.Warning,
-    "ERROR": fg.LogLevel.Error,
-    "FATAL": fg.LogLevel.Fatal,
+    mcap_io.LogLevel.UNKNOWN: fg.LogLevel.Unknown,
+    mcap_io.LogLevel.DEBUG: fg.LogLevel.Debug,
+    mcap_io.LogLevel.INFO: fg.LogLevel.Info,
+    mcap_io.LogLevel.WARN: fg.LogLevel.Warning,
+    mcap_io.LogLevel.ERROR: fg.LogLevel.Error,
+    mcap_io.LogLevel.FATAL: fg.LogLevel.Fatal,
 }
 
 
@@ -345,7 +342,7 @@ def scene_entity_deletion(deletion: mcap_io.SceneEntityDeletion) -> fg.SceneEnti
         timestamp=timestamp_from_ns(deletion.stamp_ns),
         type=(
             fg.SceneEntityDeletionType.All
-            if deletion.type == "ALL"
+            if deletion.type == mcap_io.DeletionType.ALL
             else fg.SceneEntityDeletionType.MatchingId
         ),
         id=deletion.id,
@@ -414,11 +411,9 @@ class McapWriter:
         active_profile: str | None = None,
         *,
         allow_overwrite: bool = False,
-        compression: str | None = None,
+        compression: Compression = Compression.NONE,
         metadata: dict[str, dict[str, str]] | None = None,
     ) -> None:
-        """``compression`` is the chunk compression: ``None``/``"none"``, ``"zstd"`` or ``"lz4"``.
-        The C++ recorder writes none (the contract default); JPEG-heavy derived files use zstd."""
         self.path = Path(path)
         self._context = foxglove.Context()
         options = MCAPWriteOptions(compression=chunk_compression(compression), profile="")

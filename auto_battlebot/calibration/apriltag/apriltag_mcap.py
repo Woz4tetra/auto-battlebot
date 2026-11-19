@@ -97,7 +97,9 @@ class CaptureWriter:
         if image_format not in IMAGE_FORMATS:
             raise ValueError(f"image_format must be one of {IMAGE_FORMATS}, got {image_format!r}")
         self._image_format = image_format
-        compression = "zstd" if image_format == "jpeg" else None
+        compression = (
+            mcap_write.Compression.ZSTD if image_format == "jpeg" else mcap_write.Compression.NONE
+        )
         self._writer = mcap_write.McapWriter(path, allow_overwrite=True, compression=compression)
         self._meta: dict | None = None
         self._meta_written = False
@@ -237,7 +239,7 @@ def _line_entity(
         frame_locked=True,
         lines=[
             mcap_io.LinePrimitive(
-                type="LINE_STRIP",
+                type=mcap_io.LineType.LINE_STRIP,
                 pose=mcap_io.Pose(),
                 thickness=0.01,
                 scale_invariant=False,
@@ -271,7 +273,9 @@ class OverlayWriter:
         self._map1, self._map2 = cv2.initUndistortRectifyMap(
             k3, dv, None, k3, (self._w, self._h), cv2.CV_16SC2
         )
-        self._writer = mcap_write.McapWriter(path, allow_overwrite=True, compression="zstd")
+        self._writer = mcap_write.McapWriter(
+            path, allow_overwrite=True, compression=mcap_write.Compression.ZSTD
+        )
 
     def write_static_tf(self, t: float, r_fc: np.ndarray, t_fc: np.ndarray) -> None:
         """Publish the fixed world->field and field->camera transforms on /tf_static."""
@@ -349,7 +353,7 @@ class OverlayWriter:
         arrow_color: tuple,
     ) -> list[mcap_io.SceneEntity]:
         """Body cube and heading arrow at (x, y, z) with the given yaw."""
-        pose = mcap_io.Pose(position=(x, y, z), orientation=tuple(quat))
+        pose = mcap_io.Pose(position=(x, y, z), orientation_xyzw=tuple(quat))
         length = self._ARROW_LENGTH_M
         shaft_diameter = self._ARROW_SHAFT_DIAMETER_M
         head_diameter = self._ARROW_HEAD_DIAMETER_M
@@ -419,7 +423,7 @@ class OverlayWriter:
             update = mcap_io.SceneUpdate(
                 deletions=[
                     mcap_io.SceneEntityDeletion(
-                        type="MATCHING_ID", id=f"{ns}/{i}", stamp_ns=stamp_ns
+                        type=mcap_io.DeletionType.MATCHING_ID, id=f"{ns}/{i}", stamp_ns=stamp_ns
                     )
                     for ns in ("robot_3d", "robot_floor")
                     for i in (0, 1)

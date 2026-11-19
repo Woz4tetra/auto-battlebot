@@ -374,7 +374,7 @@ def main(argv: list[str] | None = None) -> Path:
     clock_summary: dict[str, Any] | None = None
     if not esp32.empty:
         clock = fit_robot_clock(esp32["timestamp_ms"].to_numpy(), esp32["host_receive_ns"])
-        esp32["stamp_ns"] = clock.stamp_ns
+        esp32["stamp_ns"] = clock.app_clock_stamp_ns
         esp32 = esp32.sort_values("stamp_ns", kind="stable").reset_index(drop=True)
         clock_summary = clock.summary()
     else:

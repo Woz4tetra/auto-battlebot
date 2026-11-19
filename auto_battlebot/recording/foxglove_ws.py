@@ -75,16 +75,16 @@ class FoxgloveSubscriber:
             backoff = min(backoff * 2, 5.0)
 
     def _session(self, ws: Any) -> Iterator[tuple[str, int, MessageBytes]]:
-        subs: dict[int, _Channel] = {}  # subscription id -> channel
+        channel_by_subscription_id: dict[int, _Channel] = {}
         for frame in ws:
             if isinstance(frame, str):
-                self._control(ws, json.loads(frame), subs)
+                self._control(ws, json.loads(frame), channel_by_subscription_id)
                 continue
             data = bytes(frame)
             if not data or data[0] != OP_MESSAGE_DATA or len(data) < _HEADER.size:
                 continue
             _op, sub_id, log_time_ns = _HEADER.unpack_from(data)
-            chan = subs.get(sub_id)
+            chan = channel_by_subscription_id.get(sub_id)
             if chan is None:
                 continue
             payload = MessageBytes(
@@ -92,25 +92,27 @@ class FoxgloveSubscriber:
             )
             yield chan.topic, int(log_time_ns), payload
 
-    def _control(self, ws: Any, msg: dict[str, Any], subs: dict[int, _Channel]) -> None:
+    def _control(
+        self, ws: Any, msg: dict[str, Any], channel_by_subscription_id: dict[int, _Channel]
+    ) -> None:
         """Subscribe to wanted channels as they are advertised; forget withdrawn ones."""
         op = msg.get("op")
         if op == "advertise":
-            have = {c.id for c in subs.values()}
+            have = {c.id for c in channel_by_subscription_id.values()}
             wanted = []
             for ch in msg.get("channels", []):
                 chan = self._advertised(ch)
                 if chan.topic in self.topics and chan.id not in have:
-                    sub_id = max(subs, default=0) + 1
-                    subs[sub_id] = chan
+                    sub_id = max(channel_by_subscription_id, default=0) + 1
+                    channel_by_subscription_id[sub_id] = chan
                     have.add(chan.id)
                     wanted.append({"id": sub_id, "channelId": chan.id})
             if wanted:
                 ws.send(json.dumps({"op": "subscribe", "subscriptions": wanted}))
         elif op == "unadvertise":
             gone = set(msg.get("channelIds", []))
-            for sub_id in [s for s, c in subs.items() if c.id in gone]:
-                del subs[sub_id]
+            for sub_id in [s for s, c in channel_by_subscription_id.items() if c.id in gone]:
+                del channel_by_subscription_id[sub_id]
 
     @staticmethod
     def _advertised(ch: dict[str, Any]) -> _Channel:

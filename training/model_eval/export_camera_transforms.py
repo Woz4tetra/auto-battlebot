@@ -108,9 +108,9 @@ def read_recording(mcap_path: Path) -> dict[str, Any]:
         else:
             for tf in decode_tf_message(data):
                 if tf.parent_frame_id == FIELD_FRAME:
-                    field_from_cameraworld.append((tf.stamp_ns, tf.matrix))
+                    field_from_cameraworld.append((tf.stamp_ns, tf.parent_from_child))
                 elif topic == TF_TOPIC and tf.parent_frame_id == CAMERA_WORLD_FRAME:
-                    dynamic.append((tf.stamp_ns, tf.matrix))
+                    dynamic.append((tf.stamp_ns, tf.parent_from_child))
 
     image_stamps.sort()
     dynamic.sort(key=lambda item: item[0])

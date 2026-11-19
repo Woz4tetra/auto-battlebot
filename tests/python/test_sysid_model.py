@@ -87,7 +87,7 @@ def test_synthetic_tag_pose_matches_stamp() -> None:
         parsed = parse_robot_tags(frame.payload, frame.log_ns)
         row = truth[parsed.image_stamp_ns - synthetic.T0_NS]
         for det in parsed.detections:
-            centre = camera @ np.append(det.solutions[0].tvec, 1.0)
+            centre = camera @ np.append(det.solutions[0].tvec_camera_m, 1.0)
             dx, dy = centre[0] - row.x_m, centre[1] - row.y_m
             c, s = np.cos(row.yaw_rad), np.sin(row.yaw_rad)
             offsets.append((c * dx + s * dy, -s * dx + c * dy))

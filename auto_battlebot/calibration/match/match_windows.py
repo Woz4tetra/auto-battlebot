@@ -115,7 +115,7 @@ def _load_marker_poses(
                 continue
             pose = entity.cubes[0].pose
             if entity.index == OUR_ROBOT_MARKER_ID:
-                yaw = _quat_yaw(*pose.orientation)
+                yaw = _quat_yaw(*pose.orientation_xyzw)
                 ours[tick] = (
                     float(pose.position[0]),
                     float(pose.position[1]),

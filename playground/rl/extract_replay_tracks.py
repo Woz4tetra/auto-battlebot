@@ -35,7 +35,7 @@ def opponent_samples(path: Path) -> dict[str, np.ndarray]:
             if group_of(name) != "THEIRS":
                 continue
             p = e.cubes[0].pose
-            qx, qy, qz, qw = p.orientation
+            qx, qy, qz, qw = p.orientation_xyzw
             yaw = float(np.arctan2(2 * (qw * qz + qx * qy), 1 - 2 * (qy * qy + qz * qz)))
             rows.setdefault(name, []).append(
                 (ts / 1e9, float(p.position[0]), float(p.position[1]), yaw)

@@ -76,9 +76,9 @@ def load_camera_track(replay_path: Path | str) -> CameraTrack:
         tick = int(np.searchsorted(meta_lt, ts)) - 1
         for tr in decode_tf_message(data):
             if tr.key == ("field", "camera_world"):
-                field_from_world[tick] = tr.matrix
+                field_from_world[tick] = tr.parent_from_child
             elif tr.key == ("camera_world", "camera"):
-                world_from_cam[tick] = tr.matrix
+                world_from_cam[tick] = tr.parent_from_child
 
     rows = []
     mats = []

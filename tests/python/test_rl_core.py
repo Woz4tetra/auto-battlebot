@@ -617,3 +617,23 @@ def test_step_response_helpers() -> None:
     assert loosest_slew(sweep, 30.0) == 4.0  # stops at the first failure from the slow end
     assert loosest_slew([(1.0, 50.0)], 30.0) is None
     assert loosest_slew([(1.0, 2.0), (0.0, 3.0)], 30.0) == 0.0
+
+
+def test_step_result_final_obs_is_previous_episode() -> None:
+    from auto_battlebot.rl.envs.toy import ToyConfig, ToyEnv
+
+    cfg = ToyConfig(worlds=8, episode_s=0.1)
+    env = ToyEnv(cfg, "cpu", seed=1)
+    env.reset(seed=1)
+    steps = env.max_steps
+    action = torch.full((cfg.worlds, 2), 0.5)
+    for _ in range(steps - 1):
+        result = env.step(action)
+        assert not bool(result.done.any())
+    result = env.step(action)
+    assert bool(result.truncated.all())
+    assert not torch.equal(result.final_obs, result.obs)
+    assert not torch.equal(result.final_privileged, result.privileged)
+    assert result.obs.shape == result.final_obs.shape
+    assert set(result.episode) >= {"reward"}
+    assert result.episode["reward"].shape == (cfg.worlds,)

@@ -382,7 +382,7 @@ def field_series(session: Session) -> sysid_io.FieldFromCamera:
 def esp32_frame(session: Session) -> pd.DataFrame:
     df = sysid_io.esp32_events_frame(session.esp32)
     clock = esp32_clock.fit_robot_clock(df["timestamp_ms"].to_numpy(), df["host_receive_ns"])
-    df["stamp_ns"] = clock.stamp_ns
+    df["stamp_ns"] = clock.app_clock_stamp_ns
     return df
 
 
@@ -414,11 +414,11 @@ def test_reader_round_trip(session: Session, tmp_path: Path) -> None:
     if got.detections:
         det = got.detections[0]
         assert det.tag_id == TOP_ID
-        np.testing.assert_allclose(det.corners, src["detections"][0]["corners"])
+        np.testing.assert_allclose(det.corners_aruco_order_px, src["detections"][0]["corners"])
         np.testing.assert_allclose(
-            det.solutions[0].rvec, src["detections"][0]["solutions"][0]["rvec"]
+            det.solutions[0].rvec_camera_from_marker, src["detections"][0]["solutions"][0]["rvec"]
         )
-        rot, _ = cv2.Rodrigues(det.solutions[0].rvec)
+        rot, _ = cv2.Rodrigues(det.solutions[0].rvec_camera_from_marker)
         np.testing.assert_allclose(det.solutions[0].transform[:3, :3], rot, atol=1e-12)
     assert sum(1 for f in frames if not f.detections) > 0
 
@@ -710,10 +710,10 @@ def test_clock_fit_recovers_offset_and_drift() -> None:
     # host per robot second is 1 / (1 + drift): +40 ppm.
     assert fit.segments[0].drift_ppm == pytest.approx(-ROBOT_DRIFT * 1e6, abs=3.0)
     # Mapped stamps land on the true instant plus the minimum latency (2 ms).
-    err_ms = (fit.stamp_ns - host_true) / 1e6 - 2.0
+    err_ms = (fit.app_clock_stamp_ns - host_true) / 1e6 - 2.0
     assert abs(float(np.median(err_ms))) < 1.0
     assert float(np.max(np.abs(err_ms))) < 1.5
-    assert np.all(fit.residual_ms > -1e-6)
+    assert np.all(fit.receive_minus_mapped_ms > -1e-6)
     # A least-squares line would sit ~4 ms into the jitter; the envelope does not.
     assert fit.segments[0].residual_ms_percentiles["p1"] < 0.5
 
@@ -725,7 +725,7 @@ def test_clock_fit_splits_reboots() -> None:
     robot_ms[t >= 10.0] = np.round((t[t >= 10.0] - 10.0) * 1e3).astype(np.int64) + 5
     fit = esp32_clock.fit_robot_clock(robot_ms, receive)
     assert len(fit.segments) == 2
-    assert float(np.max(np.abs(fit.stamp_ns - receive))) < 1.1e6
+    assert float(np.max(np.abs(fit.app_clock_stamp_ns - receive))) < 1.1e6
 
 
 def test_radio_delay_from_sticks(session: Session, tmp_path: Path) -> None:
@@ -742,7 +742,7 @@ def test_radio_delay_from_sticks(session: Session, tmp_path: Path) -> None:
     assert lag.sign == 1
     assert lag.correlation > 0.8
     # The stick log's 10 ms hold hides half a tick, so allow for it.
-    assert lag.lag_s == pytest.approx(RADIO_DELAY_S - 0.005 + 0.002, abs=0.006)
+    assert lag.b_lag_behind_a_s == pytest.approx(RADIO_DELAY_S - 0.005 + 0.002, abs=0.006)
 
 
 def _grid(duration: float, dt: float = 0.005) -> pd.DataFrame:

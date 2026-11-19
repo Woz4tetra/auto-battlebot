@@ -23,7 +23,10 @@ from auto_battlebot.recording.mcap_io import (
     CameraInfo,
     Color,
     CubePrimitive,
+    DeletionType,
     LinePrimitive,
+    LineType,
+    LogLevel,
     LogMessage,
     Pose,
     SceneEntity,
@@ -392,7 +395,7 @@ def convert_one(src: Path, dst: Path, *, check: bool, overwrite: bool) -> tuple[
         dst.with_name(dst.name + ".partial").unlink(missing_ok=True)
         return "failed", f"{type(exc).__name__}: {exc}"
     detail = (
-        f"{mcap_write.read_chunk_compression(dst) or 'none'} chunks, "
+        f"{mcap_write.read_chunk_compression(dst).value} chunks, "
         f"{stats.messages_in} msgs -> {stats.messages_out}, "
         f"{_human(src.stat().st_size)} -> {_human(dst.stat().st_size)} "
         f"({100.0 * dst.stat().st_size / max(src.stat().st_size, 1):.0f}%), "
@@ -506,9 +509,11 @@ def marker_to_scene_entity(marker: Marker) -> SceneEntity | SceneEntityDeletion 
     """Marker-to-entity rules from docs/reference/recording/foxglove_recording_format.md."""
     entity_id = f"{marker.ns}/{marker.id}"
     if marker.action == MARKER_ACTION_DELETEALL:
-        return SceneEntityDeletion(type="ALL", id="", stamp_ns=marker.stamp_ns)
+        return SceneEntityDeletion(type=DeletionType.ALL, id="", stamp_ns=marker.stamp_ns)
     if marker.action == MARKER_ACTION_DELETE:
-        return SceneEntityDeletion(type="MATCHING_ID", id=entity_id, stamp_ns=marker.stamp_ns)
+        return SceneEntityDeletion(
+            type=DeletionType.MATCHING_ID, id=entity_id, stamp_ns=marker.stamp_ns
+        )
     if marker.type == MARKER_POINTS:
         return None
 
@@ -523,7 +528,9 @@ def marker_to_scene_entity(marker: Marker) -> SceneEntity | SceneEntityDeletion 
     if marker.type in (MARKER_LINE_STRIP, MARKER_LINE_LIST):
         entity.lines.append(
             LinePrimitive(
-                type="LINE_STRIP" if marker.type == MARKER_LINE_STRIP else "LINE_LIST",
+                type=(
+                    LineType.LINE_STRIP if marker.type == MARKER_LINE_STRIP else LineType.LINE_LIST
+                ),
                 pose=marker.pose,
                 thickness=sx,
                 scale_invariant=False,
@@ -547,7 +554,7 @@ def marker_to_scene_entity(marker: Marker) -> SceneEntity | SceneEntityDeletion 
                 ArrowPrimitive(
                     pose=Pose(
                         position=(float(start[0]), float(start[1]), float(start[2])),
-                        orientation=_rotation_x_onto(end - start),
+                        orientation_xyzw=_rotation_x_onto(end - start),
                     ),
                     shaft_length=max(length - head_length, 0.0),
                     shaft_diameter=sx,
@@ -757,7 +764,7 @@ def _ros1_decode_marker_array(data: bytes) -> list[Marker]:
                 id=marker_id,
                 type=marker_type,
                 action=action,
-                pose=Pose(position=(px, py, pz), orientation=(qx, qy, qz, qw)),
+                pose=Pose(position=(px, py, pz), orientation_xyzw=(qx, qy, qz, qw)),
                 scale=(sx, sy, sz),
                 color=Color(r=cr, g=cg, b=cb, a=ca),
                 lifetime_ns=life_sec * _NS + life_nsec,
@@ -780,7 +787,7 @@ def _ros1_decode_log(data: bytes) -> LogMessage:
     line, off = _ros1_read_uint32(data, off)
     return LogMessage(
         stamp_ns=stamp_ns,
-        level=_ROS1_LOG_LEVELS.get(level & 0xFF, "UNKNOWN"),
+        level=_ROS1_LOG_LEVELS.get(level & 0xFF, LogLevel.UNKNOWN),
         name=name,
         message=message,
         file=file,
@@ -788,7 +795,13 @@ def _ros1_decode_log(data: bytes) -> LogMessage:
     )
 
 
-_ROS1_LOG_LEVELS = {1: "DEBUG", 2: "INFO", 4: "WARN", 8: "ERROR", 16: "FATAL"}
+_ROS1_LOG_LEVELS = {
+    1: LogLevel.DEBUG,
+    2: LogLevel.INFO,
+    4: LogLevel.WARN,
+    8: LogLevel.ERROR,
+    16: LogLevel.FATAL,
+}
 
 
 _INT_PATTERN = re.compile(r"^[+-]?\d+$")

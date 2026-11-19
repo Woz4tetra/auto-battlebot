@@ -33,12 +33,7 @@ class EnvSpec:
 
 @dataclass
 class Step:
-    """One policy step for every world.
-
-    `obs` and `privileged` already belong to the next episode in worlds that finished; the
-    `final_*` tensors hold the last state of the finished episode, which the learner bootstraps
-    from on truncation. `episode` carries per-world totals, valid in rows where `done` is set.
-    """
+    """One policy step; where `done`, `obs` is the next episode and `final_*` the last state."""
 
     obs: torch.Tensor
     privileged: torch.Tensor

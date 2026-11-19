@@ -35,11 +35,11 @@ class ClockSegment:
 @dataclass
 class ClockFit:
     segments: list[ClockSegment]
-    stamp_ns: np.ndarray  # (N,) every event mapped onto the app clock
-    residual_ms: np.ndarray  # (N,) receive time minus mapped time, >= 0 up to rounding
+    app_clock_stamp_ns: np.ndarray
+    receive_minus_mapped_ms: np.ndarray
 
     def summary(self) -> dict[str, object]:
-        pct = _percentiles(self.residual_ms)
+        pct = _percentiles(self.receive_minus_mapped_ms)
         return {
             "segments": len(self.segments),
             "offset_s": [s.offset_s for s in self.segments],
@@ -96,10 +96,7 @@ def _lower_envelope_line(x: np.ndarray, y: np.ndarray) -> tuple[float, float]:
 
 
 def split_reboots(robot_ms: np.ndarray, max_backstep_ms: int = 1000) -> list[tuple[int, int]]:
-    """(first, last) index ranges of increasing robot time; a backward step starts a new one.
-
-    Steps back of up to ``max_backstep_ms`` are reordered deliveries, not reboots.
-    """
+    """(first, last) index ranges of increasing robot time."""
     t = np.asarray(robot_ms, dtype=np.int64)
     if t.size == 0:
         return []
@@ -138,22 +135,22 @@ def fit_robot_clock(timestamp_ms: np.ndarray, host_receive_ns: np.ndarray) -> Cl
         seg.residual_ms_percentiles = _percentiles((h - mapped).astype(np.float64) / 1e6)
         segments.append(seg)
     residual = (host - stamp).astype(np.float64) / 1e6
-    return ClockFit(segments=segments, stamp_ns=stamp, residual_ms=residual)
+    return ClockFit(segments=segments, app_clock_stamp_ns=stamp, receive_minus_mapped_ms=residual)
 
 
 @dataclass
 class LagEstimate:
-    lag_s: float  # b lags a by this much (positive: b happens later)
-    correlation: float  # normalised, signed, at the peak
-    sign: int  # +1 or -1: the sign relating b to a
+    b_lag_behind_a_s: float
+    correlation: float
+    sign: int
     samples: int
     curve_lags_s: np.ndarray
     curve: np.ndarray
 
     def as_dict(self) -> dict[str, float | int]:
         return {
-            "lag_s": self.lag_s,
-            "lag_ms": self.lag_s * 1e3,
+            "lag_s": self.b_lag_behind_a_s,
+            "lag_ms": self.b_lag_behind_a_s * 1e3,
             "correlation": self.correlation,
             "sign": self.sign,
             "samples": self.samples,
@@ -233,7 +230,7 @@ def cross_correlation_delay(
         if denom < 0.0:
             frac = 0.5 * (score[k - 1] - score[k + 1]) / denom
     return LagEstimate(
-        lag_s=float((lags[k] + frac) * grid_dt_s),
+        b_lag_behind_a_s=float((lags[k] + frac) * grid_dt_s),
         correlation=float(curve[k]),
         sign=1 if curve[k] >= 0.0 else -1,
         samples=int(counts[k]),

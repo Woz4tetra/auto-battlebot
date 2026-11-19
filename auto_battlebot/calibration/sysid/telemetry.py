@@ -156,7 +156,7 @@ class LiveClock:
         host = np.fromiter(self._host, dtype=np.int64)
         fit = fit_robot_clock(robot, host)
         self._segment = fit.segments[-1]
-        res = fit.residual_ms
+        res = fit.receive_minus_mapped_ms
         self.status = ClockStatus(
             offset_ms=self._segment.offset_s * 1e3,
             drift_ppm=self._segment.drift_ppm,

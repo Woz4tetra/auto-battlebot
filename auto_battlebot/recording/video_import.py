@@ -94,9 +94,6 @@ def iter_access_units(
         preset,
         "-crf",
         str(crf),
-        # The camera's constraints. No B-frames, because they reorder PTS and everything
-        # downstream reads the nth message as the nth captured frame. Fixed GOP with scene-cut
-        # detection off, so the IDR interval is the seek granularity it claims to be.
         "-bf",
         "0",
         "-g",
@@ -219,9 +216,5 @@ def convert_video(
 
 
 def next_start_stamp_ns(previous: int, frames: int, fps: float) -> int:
-    """Where the next recording's stamps begin, so two clips never overlap in time.
-
-    Ten seconds of slack between them, which is enough that a tool joining on timestamps cannot
-    silently pick up the neighbouring recording's frames.
-    """
+    """Where the next recording's stamps begin, clear of the previous clip."""
     return previous + int((frames * (_NS / fps)) + 10 * _NS)

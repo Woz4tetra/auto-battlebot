@@ -1774,7 +1774,11 @@ def _imu_agreement(
         return None, {"samples": int(np.isfinite(imu_on_grid).sum())}
     lag = cross_correlation_delay(opts.grid_dt_s, tag_rate, imu_on_grid, max_lag_s=0.2)
     lag_dict: dict[str, Any] = lag.as_dict()
-    shift = int(round(lag.lag_s / opts.grid_dt_s)) if math.isfinite(lag.lag_s) else 0
+    shift = (
+        int(round(lag.b_lag_behind_a_s / opts.grid_dt_s))
+        if math.isfinite(lag.b_lag_behind_a_s)
+        else 0
+    )
     aligned = np.full_like(imu_on_grid, np.nan)
     if shift >= 0:
         aligned[: aligned.size - shift] = imu_on_grid[shift:]
@@ -1787,7 +1791,7 @@ def _imu_agreement(
     agreement: dict[str, Any] = {
         "heading_sign_assumed": -1,
         "measured_sign": lag.sign,
-        "lag_s": lag.lag_s,
+        "lag_s": lag.b_lag_behind_a_s,
         "correlation": lag.correlation,
         "spin_samples": int(ok.sum()),
         "still_rate_std": float(np.std(imu_on_grid[still])) if still.any() else None,

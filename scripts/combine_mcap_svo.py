@@ -335,7 +335,10 @@ def merge_mcaps(
             metadata[record.name] = dict(record.metadata)
 
     with mcap_write.McapWriter(
-        output_path, allow_overwrite=True, compression="zstd", metadata=metadata
+        output_path,
+        allow_overwrite=True,
+        compression=mcap_write.Compression.ZSTD,
+        metadata=metadata,
     ) as writer:
         svo_name = svo_path.stem
         frame_index = 0

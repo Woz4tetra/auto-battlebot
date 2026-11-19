@@ -203,7 +203,7 @@ def load_camera_in_field(path: Path) -> pd.DataFrame:
     for _topic, _ts, data in iter_messages(path, [TF_STATIC_TOPIC]):
         for tr in decode_tf_message(data):
             if tr.key == ("field", "camera_world"):
-                field_from_world = tr.matrix
+                field_from_world = tr.parent_from_child
     if field_from_world is None:
         return pd.DataFrame(columns=["timestamp_ns", "cam_x", "cam_y", "cam_z"])
 
@@ -211,7 +211,7 @@ def load_camera_in_field(path: Path) -> pd.DataFrame:
     for _topic, ts, data in iter_messages(path, [TF_TOPIC]):
         for tr in decode_tf_message(data):
             if tr.key == ("camera_world", "camera"):
-                world_from_cam = tr.matrix
+                world_from_cam = tr.parent_from_child
                 cam_in_field = field_from_world @ world_from_cam
                 records.append(
                     {

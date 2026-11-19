@@ -160,12 +160,6 @@ sync_models() {
 }
 sync_models
 
-# ── Profile selection check ──────────────────────────────────────────────────
-# The UI persists the selected profile outside the repo (config/profiles.toml,
-# selection_file). If this deploy renamed or removed that profile, the app would
-# silently fall back to config/default_profile, so ask for a replacement now.
-# Available profiles mirror list_available_profiles(): every config/**/*.toml id
-# that fully matches the profiles.toml pattern.
 toml_string() {
     sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*\"\(.*\)\".*/\1/p" \
         "$PROJECT_ROOT/config/profiles.toml" | head -n 1
@@ -176,8 +170,7 @@ SELECTION_FILE="${SELECTION_FILE:-\$HOME/.local/state/auto_battlebot/selected_pr
 REMOTE_SELECTION_FILE="${SELECTION_FILE/#\~/\$HOME}"
 if [ -n "$PROFILE_PATTERN" ]; then
     mapfile -t AVAILABLE_PROFILES < <(
-        cd "$PROJECT_ROOT/config" && find . -type f -name '*.toml' \
-            | sed -e 's|^\./||' -e 's|\.toml$||' | grep -xE "$PROFILE_PATTERN" | sort -u
+        "$PROJECT_ROOT/scripts/list_deployable_profiles.sh" "$PROJECT_ROOT/config" "$PROFILE_PATTERN"
     )
     SELECTED_PROFILE="$(ssh "${SSH_OPTS[@]}" "$SSH_TARGET" \
         "head -n 1 \"${REMOTE_SELECTION_FILE}\" 2>/dev/null" | tr -d '[:space:]')"

@@ -98,23 +98,7 @@ def iter_left_jpegs(
     quality: int = 2,
     ffmpeg_bin: str = "ffmpeg",
 ) -> Generator[bytes, None, None]:
-    """Yield one JPEG of the left eye per `topic` message, in file order.
-
-    ffmpeg decodes the concatenated access units and re-encodes the cropped
-    left half to MJPEG. Output frames come out one-for-one with the messages
-    fed in, so the Nth JPEG is SVO frame N.
-
-    ``-r`` is required: a raw elementary stream carries no timing, and without
-    an input rate the mjpeg encoder rejects the second frame with "Invalid pts
-    (0) <= last (0)" and the export stops after a handful of frames.
-
-    ZED records intra-refresh H.264 with no IDR frames, so the first frames of
-    a recording decode partially until the refresh completes. They are emitted
-    anyway to keep frame indices aligned with the SVO.
-
-    Close the iterator (``contextlib.closing``) if you stop early, so ffmpeg
-    is torn down instead of blocking on a full pipe.
-    """
+    """Yield one JPEG of the left eye per `topic` message, in file order."""
     command = [
         ffmpeg_bin,
         "-hide_banner",
@@ -191,12 +175,7 @@ def _drain_stderr(stderr: IO[bytes], errors: deque[str]) -> None:
 
 
 def _iter_jpegs(stream: IO[bytes]) -> Iterator[bytes]:
-    """Split a concatenated MJPEG byte stream into individual JPEGs.
-
-    Images are separated on the SOI marker. 0xFF bytes inside entropy-coded
-    data are byte-stuffed as FF00, so FFD8FF only ever appears at the start of
-    an image.
-    """
+    """Split a concatenated MJPEG byte stream into individual JPEGs."""
     buffer = bytearray()
     next_soi_search_start = 0
     header_checked = False
