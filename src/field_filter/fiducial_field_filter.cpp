@@ -49,6 +49,12 @@ Eigen::Matrix3d rotation_x(double radians) {
     rotation(2, 2) = std::cos(radians);
     return rotation;
 }
+
+Eigen::Matrix4d tf_zup_fieldcenter_from_layout() {
+    Eigen::Matrix4d transform = Eigen::Matrix4d::Identity();
+    transform.block<3, 3>(0, 0) = rotation_x(CV_PI);
+    return transform;
+}
 }  // namespace
 
 std::vector<int> floor_board_ids(int cols, int rows, int first_id) {
@@ -56,8 +62,6 @@ std::vector<int> floor_board_ids(int cols, int rows, int first_id) {
     ids.reserve(static_cast<size_t>(cols) * static_cast<size_t>(rows));
     for (int row = 0; row < rows; ++row) {
         for (int col = 0; col < cols; ++col) {
-            // Reverse within the row: the printed board numbers right to left, GridBoard fills
-            // left to right.
             ids.push_back(first_id + row * cols + (cols - 1 - col));
         }
     }
@@ -113,10 +117,6 @@ Eigen::Matrix4d FiducialFieldFilter::tf_fieldcenter_from_board() const {
             : 1.0;
 
     Eigen::Matrix4d transform = Eigen::Matrix4d::Identity();
-    // This is the board layout frame: the printed board's x and y, with z into the floor. A board
-    // lying flat therefore shares its axes outright, and
-    // pitch is negated so that +90 stands the board up with its printed y axis pointing away
-    // from the floor rather than into it.
     transform.block<3, 3>(0, 0) = rotation_z(config_.board_yaw_deg * CV_PI / 180.0) *
                                   rotation_x(-config_.board_pitch_deg * CV_PI / 180.0);
     transform(0, 3) = sign_x * config_.field_size_x / 2.0 + config_.board_offset_x;
@@ -233,15 +233,10 @@ std::shared_ptr<FieldDescriptionWithInlierPoints> FiducialFieldFilter::compute_f
     description->header.stamp = camera_data.rgb.header.stamp;
     description->header.frame_id = FrameId::CAMERA_WORLD;
     description->child_frame_id = FrameId::FIELD;
-    // The layout frame is mirrored seen from above. A half turn about x points z out of the floor,
-    // and the quarter-turn alignment then runs +x left to right in the camera view, the frame
-    // every other field filter publishes.
     const Eigen::Matrix4d tf_camera_from_layout =
         tf_camera_from_board * tf_fieldcenter_from_board().inverse();
-    Eigen::Matrix4d tf_layout_from_fieldcenter = Eigen::Matrix4d::Identity();
-    tf_layout_from_fieldcenter.block<3, 3>(0, 0) = rotation_x(CV_PI);
     description->tf_camera_from_fieldcenter.tf =
-        align_field_x_with_camera_x(tf_camera_from_layout * tf_layout_from_fieldcenter,
+        align_field_x_with_camera_x(tf_camera_from_layout * tf_zup_fieldcenter_from_layout(),
                                     config_.field_size_x, config_.field_size_y);
     description->size.header = camera_data.rgb.header;
     description->size.size = Size{config_.field_size_x, config_.field_size_y, 0.0};

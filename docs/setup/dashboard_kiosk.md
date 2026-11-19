@@ -4,6 +4,7 @@
 
 - WebKitGTK and its GObject bindings ship with the Ubuntu desktop, so it runs on the system python, not the venv. `python3-gi` is built for `/usr/bin/python3` only.
 - `dashboard-kiosk.service` runs it through `with_display.sh`. With no display it exits 0, so the unit stays stopped on a headless box instead of restarting forever.
+- `service/build_and_install_service.sh` installs each unit from `service/<name>.service` when it is missing or differs, expanding `__USER__` and `__UID__` to the invoking user. `dashboard-kiosk` is installed enabled only when the box boots a desktop (`display-manager` enabled, graphical default target). Otherwise it goes in with `--no-enable`. The installer never disables a unit, so one you enabled by hand stays enabled.
 - The dashboard page reconnects when the app or the relay restarts. The kiosk script covers what the page cannot: the relay not being up yet at boot, a failed page load, and a crashed web process.
 
 ## enable_kiosk.sh

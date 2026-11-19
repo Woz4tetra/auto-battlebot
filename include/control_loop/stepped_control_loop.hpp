@@ -3,13 +3,16 @@
 #include <memory>
 #include <optional>
 
+#include "control_loop/config.hpp"
 #include "control_loop/control_loop_interface.hpp"
 
 namespace auto_battlebot {
 
 class SteppedControlLoop : public ControlLoopInterface {
    public:
-    SteppedControlLoop(std::shared_ptr<ControlLoop> loop, double rate_hz);
+    SteppedControlLoop(
+        std::shared_ptr<ControlLoop> loop, double rate_hz,
+        int max_catchup_cycles = SteppedControlLoopConfiguration{}.max_catchup_cycles);
 
     void stop() override {}
 
@@ -22,6 +25,7 @@ class SteppedControlLoop : public ControlLoopInterface {
 
    private:
     std::optional<double> period_s_;
+    int max_catchup_cycles_;
     double last_advance_ = 0.0;
     bool started_ = false;
 };

@@ -42,7 +42,6 @@ void DiagnosticsLogger::publish() {
         throw std::runtime_error("DiagnosticsLogger not initialized");
     }
 
-    // Copied out so the backends, and each logger's own lock, run without loggers_mutex_.
     std::vector<std::shared_ptr<DiagnosticsModuleLogger>> loggers;
     {
         std::lock_guard<std::mutex> lock(loggers_mutex_);

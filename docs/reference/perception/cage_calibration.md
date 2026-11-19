@@ -11,7 +11,7 @@ Calibrate through polycarbonate. The camera sits behind a cage panel, and a flat
 ## Calibration file
 
 `save_cage_calibration` writes `calibration_id`, `field_size_x` / `field_size_y`, `translation`
-(the field centre in camera coordinates) and `rotation` (row-major 3x3). The tool writes it from a
+(the field centre in camera coordinates) and `rotation` (row-major 3x3, so nothing has to agree on a quaternion component order; the file is machine-written). The tool writes it from a
 clean empty-cage frame with the fixture seated; `config/cages/example_cage.toml` is a placeholder
 in that shape. `field_size` is the floor mat measured at that venue, not the nominal cage: 8 ft
 (2.4384 m) runs about 6% long against measured mats of 2.30 to 2.40 m, and the size enters the pose

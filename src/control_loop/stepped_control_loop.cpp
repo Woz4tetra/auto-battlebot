@@ -5,9 +5,11 @@
 
 namespace auto_battlebot {
 
-SteppedControlLoop::SteppedControlLoop(std::shared_ptr<ControlLoop> loop, double rate_hz)
+SteppedControlLoop::SteppedControlLoop(std::shared_ptr<ControlLoop> loop, double rate_hz,
+                                       int max_catchup_cycles)
     : ControlLoopInterface(std::move(loop)),
-      period_s_(rate_hz > 0.0 ? std::optional<double>(1.0 / rate_hz) : std::nullopt) {}
+      period_s_(rate_hz > 0.0 ? std::optional<double>(1.0 / rate_hz) : std::nullopt),
+      max_catchup_cycles_(max_catchup_cycles) {}
 
 void SteppedControlLoop::advance_to(double until) {
     if (!period_s_) {
@@ -25,12 +27,9 @@ void SteppedControlLoop::advance_to(double until) {
     const double dt = until - last_advance_;
     if (dt <= 0.0) return;
 
-    // Cap the catch-up so a long stall (a stopped debugger, a slow frame) cannot spend an
-    // unbounded time replaying cycles that all see the same measurement anyway.
-    constexpr int kMaxCyclesPerAdvance = 64;
     int cycles = static_cast<int>(std::floor(dt / *period_s_));
     if (cycles <= 0) return;
-    if (cycles > kMaxCyclesPerAdvance) cycles = kMaxCyclesPerAdvance;
+    if (cycles > max_catchup_cycles_) cycles = max_catchup_cycles_;
 
     for (int i = 0; i < cycles; i++) loop_->run_cycle();
     last_advance_ += cycles * *period_s_;

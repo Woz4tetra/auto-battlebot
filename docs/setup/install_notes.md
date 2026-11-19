@@ -8,7 +8,7 @@ Facts behind the choices in `install/*.sh` and `CMakeLists.txt`.
 
 - `-E` carries the ERR trap into functions, sourced files, and command substitutions.
 - The ERR trap only records the location. The EXIT trap prints it, since EXIT fires on every exit path.
-- Install functions must not set their own traps or change shell options for the caller. `scripts/lint` rejects both in its "install scripts" step. `install/install_opencv.sh` is exempt because its function body is a subshell.
+- Install functions must not set their own traps or change shell options for the caller. `scripts/lint` rejects both in its "install scripts" step (`scripts/check_install_option_leaks.sh`). Helpers may repeat `set -e`. A `set -o pipefail` that leaked from `install_opencv` once killed the Jetson venv step with no message. `install/install_opencv.sh` is exempt because its function body is a subshell.
 
 ## OpenCV
 

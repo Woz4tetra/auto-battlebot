@@ -3,6 +3,9 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <chrono>
+#include <future>
+#include <memory>
 #include <string>
 #include <thread>
 
@@ -248,6 +251,34 @@ TEST_F(DiagnosticsLoggerTest, GetLoggerWhilePublishingIsSafe) {
     DiagnosticsLogger::publish();
     EXPECT_GT(publishes, 0);
     EXPECT_NE(DiagnosticsLogger::get_logger("new_19999"), nullptr);
+}
+
+class ReentrantBackend : public DiagnosticsBackend {
+   public:
+    void receive(const std::vector<DiagnosticStatusSnapshot> &) override {
+        DiagnosticsLogger::get_logger("created_from_backend");
+        receive_count.fetch_add(1);
+    }
+
+    std::atomic<int> receive_count{0};
+};
+
+TEST_F(DiagnosticsLoggerTest, BackendMayCallGetLoggerDuringPublish) {
+    TestDiagnosticsLogger::reset();
+    auto backend = std::make_shared<ReentrantBackend>();
+    DiagnosticsLogger::initialize({backend});
+    DiagnosticsLogger::get_logger("module")->info("", {{"i", 1}}, "x");
+
+    auto finished = std::make_shared<std::promise<void>>();
+    auto future = finished->get_future();
+    std::thread([finished] {
+        DiagnosticsLogger::publish();
+        finished->set_value();
+    }).detach();
+
+    ASSERT_EQ(future.wait_for(std::chrono::seconds(2)), std::future_status::ready)
+        << "publish deadlocked with a backend that re-enters get_logger";
+    EXPECT_EQ(backend->receive_count.load(), 1);
 }
 
 }  // namespace auto_battlebot

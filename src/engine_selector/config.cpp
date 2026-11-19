@@ -10,15 +10,13 @@ void EngineSelectorConfiguration::parse(ConfigParser &parser, const std::string 
                                     "] section with a 'candidates' array)");
     }
 
-    // A child parser so unknown keys inside the subconfig are rejected the same way the
-    // parent section rejects them.
-    ConfigParser sub_parser(*table, field_name);
-    candidates = sub_parser.get_required_vector<std::string>("candidates");
+    ConfigParser child_parser_rejecting_unknown_keys(*table, field_name);
+    candidates = child_parser_rejecting_unknown_keys.get_required_vector<std::string>("candidates");
     if (candidates.empty()) {
         throw ConfigValidationError("'" + field_name +
                                     ".candidates' must list at least one engine file");
     }
-    sub_parser.validate_no_extra_fields();
+    child_parser_rejecting_unknown_keys.validate_no_extra_fields();
 }
 
 }  // namespace auto_battlebot

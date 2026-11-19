@@ -29,8 +29,6 @@ REGISTER_CONFIG(FieldFilterConfiguration, PointCloudFieldFilterConfiguration,
 #endif
 
 std::unique_ptr<FieldFilterConfiguration> parse_field_filter_config(ConfigParser &parser) {
-    // Hand-rolled rather than create_and_parse, because the hazard fields are shared by every
-    // field filter type and have to be read before validate_no_extra_fields rejects them.
     auto &factory = ConfigFactory<FieldFilterConfiguration>::instance();
     auto config = factory.create(parser.get_required_string("type"));
     config->parse_common_fields(parser);

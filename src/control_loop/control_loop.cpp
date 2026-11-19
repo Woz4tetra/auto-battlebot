@@ -93,12 +93,7 @@ TargetSelection ControlLoop::resolve_target(const RobotDescriptionsStamped &robo
     return previous_selected_target_;
 }
 
-void ControlLoop::run_cycle() {
-    last_cycle_us_.store(std::chrono::duration_cast<std::chrono::microseconds>(
-                             std::chrono::steady_clock::now().time_since_epoch())
-                             .count());
-
-    // Requests from other threads land here, so every component stays single-threaded.
+void ControlLoop::apply_requests_from_other_threads() {
     const int reinit = filter_reinit_request_.exchange(0);
     if (reinit > 0) {
         robot_filter_->initialize(reinit);
@@ -115,6 +110,14 @@ void ControlLoop::run_cycle() {
             transmitter_->disable();
         }
     }
+}
+
+void ControlLoop::run_cycle() {
+    last_cycle_us_.store(std::chrono::duration_cast<std::chrono::microseconds>(
+                             std::chrono::steady_clock::now().time_since_epoch())
+                             .count());
+
+    apply_requests_from_other_threads();
 
     std::optional<ControlMeasurement> measurement;
     std::optional<Pose2D> target_override;

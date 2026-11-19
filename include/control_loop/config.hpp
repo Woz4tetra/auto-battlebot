@@ -30,6 +30,14 @@ struct SteppedControlLoopConfiguration : public ControlLoopConfiguration {
         type = "SteppedControlLoop";
         rate_hz = 0.0;
     }
+
+    int max_catchup_cycles = 64;
+
+    void parse_fields(ConfigParser &parser) override {
+        ControlLoopConfiguration::parse_fields(parser);
+        max_catchup_cycles =
+            static_cast<int>(parser.get_optional_int("max_catchup_cycles", max_catchup_cycles));
+    }
 };
 
 struct ThreadedControlLoopConfiguration : public ControlLoopConfiguration {

@@ -1996,4 +1996,27 @@ TEST_F(ConfigTest, AprilTagKeypointModelRejectsADroppedRotationElement) {
     EXPECT_THROW(load_classes_from_config(temp_config_file.string()), ConfigValidationError);
 }
 
+TEST(FieldFilterConfigTest, FieldFilterAcceptsCommonHazardFields) {
+    for (const std::string type : {"NoopFieldFilter", "FixedFieldFilter"}) {
+        toml::table table = toml::parse("type = \"" + type +
+                                        "\"\nhazards_file = \"hazards.toml\"\n"
+                                        "hazard_static_margin_m = 0.11\n"
+                                        "hazard_tracked_margin_m = 0.12\n"
+                                        "hazard_tracked_hold_s = 0.13\n"
+                                        "hazard_hard_margin_m = 0.14\n");
+        ConfigParser parser(table, "field_filter");
+        std::unique_ptr<FieldFilterConfiguration> config;
+        ASSERT_NO_THROW(config = parse_field_filter_config(parser)) << type;
+        EXPECT_EQ(config->hazards_file, "hazards.toml") << type;
+        EXPECT_DOUBLE_EQ(config->hazard_static_margin_m, 0.11) << type;
+        EXPECT_DOUBLE_EQ(config->hazard_hard_margin_m, 0.14) << type;
+    }
+}
+
+TEST(FieldFilterConfigTest, UnknownFieldFilterKeyStillFails) {
+    toml::table table = toml::parse("type = \"NoopFieldFilter\"\nnot_a_key = 1\n");
+    ConfigParser parser(table, "field_filter");
+    EXPECT_THROW(parse_field_filter_config(parser), ConfigValidationError);
+}
+
 }  // namespace auto_battlebot

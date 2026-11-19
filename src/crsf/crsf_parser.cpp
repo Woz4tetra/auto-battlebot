@@ -60,18 +60,33 @@ static bool is_start_byte(uint8_t b) {
     return false;
 }
 
+namespace {
+
+struct CrsfFrameView {
+    const uint8_t* frame;
+    size_t frame_len;
+
+    uint8_t type() const { return frame[2]; }
+    const uint8_t* payload() const { return frame + 3; }
+    size_t payload_len() const { return frame_len - 4; }
+    uint8_t crc() const { return frame[frame_len - 1]; }
+    uint8_t computed_crc() const { return crsf_crc8(frame + 2, frame_len - 3); }
+};
+
+}  // namespace
+
 CrsfParseResult CrsfParser::parse_single_packet(const uint8_t* frame, size_t frame_len) {
-    // frame: [start][length][type][payload...][crc8]
-    uint8_t received_crc = frame[frame_len - 1];
-    uint8_t calc_crc = crsf_crc8(frame + 2, frame_len - 3);
+    const CrsfFrameView view{frame, frame_len};
+    uint8_t received_crc = view.crc();
+    uint8_t calc_crc = view.computed_crc();
     if (received_crc != calc_crc) {
         return {std::nullopt, CrsfParseError{"CRC mismatch: expected " + std::to_string(calc_crc) +
                                              " got " + std::to_string(received_crc)}};
     }
 
-    uint8_t frame_type = frame[2];
-    const uint8_t* payload = frame + 3;
-    size_t payload_len = frame_len - 4;
+    uint8_t frame_type = view.type();
+    const uint8_t* payload = view.payload();
+    size_t payload_len = view.payload_len();
 
     switch (static_cast<CrsfFrameType>(frame_type)) {
         case CrsfFrameType::BATTERY: {

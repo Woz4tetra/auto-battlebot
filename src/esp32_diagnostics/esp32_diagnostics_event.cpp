@@ -167,7 +167,6 @@ std::optional<Esp32DiagnosticsEvent> parse_esp32_diagnostics_csv(std::string_vie
         parse_number(fields[18], event.pid_setpoint) && parse_number(fields[19], event.pid_output);
     if (!ok) return std::nullopt;
 
-    // The firmware prints `nan` when the INA228 is absent or a read failed.
     if (count >= kEsp32DiagnosticsFieldsWithVbat) {
         double vbat = 0.0;
         if (!parse_number(fields[20], vbat)) return std::nullopt;

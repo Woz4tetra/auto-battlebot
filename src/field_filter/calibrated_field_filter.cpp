@@ -10,15 +10,18 @@
 #include "field_filter/field_pose.hpp"
 
 namespace auto_battlebot {
+CageCalibration load_calibration_in_live_outline_convention(const std::string &path) {
+    CageCalibration calibration = load_cage_calibration(path);
+    calibration.tf_camera_from_fieldcenter = align_field_x_with_camera_x(
+        calibration.tf_camera_from_fieldcenter, calibration.measured_mat_size_x_m,
+        calibration.measured_mat_size_y_m);
+    return calibration;
+}
+
 CalibratedFieldFilter::CalibratedFieldFilter(const CalibratedFieldFilterConfiguration &config)
     : config_(config),
-      calibration_(load_cage_calibration(config.calibration_file)),
+      calibration_(load_calibration_in_live_outline_convention(config.calibration_file)),
       diagnostics_logger_(DiagnosticsLogger::get_logger("calibrated_field_filter")) {
-    // The fit tools save whichever yaw the corner order gave. Turn it to the convention the live
-    // outline fit uses, so the seating check compares corners in the same order.
-    calibration_.tf_camera_from_fieldcenter = align_field_x_with_camera_x(
-        calibration_.tf_camera_from_fieldcenter, calibration_.measured_mat_size_x_m,
-        calibration_.measured_mat_size_y_m);
     spdlog::info("Loaded cage calibration '{}' ({:.3f} x {:.3f} m) from {}",
                  calibration_.calibration_id, calibration_.measured_mat_size_x_m,
                  calibration_.measured_mat_size_y_m, config.calibration_file);

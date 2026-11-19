@@ -184,7 +184,7 @@ Both fit the mask outline, so they share these fields. `CalibratedFieldFilter` r
 
 | Field | Meaning |
 | --- | --- |
-| `calibration_file` | Per-cage calibration, relative to the config directory: `config/cages/<venue>_<cage>.toml` |
+| `calibration_file` | Per-cage calibration, e.g. `config/cages/<venue>_<cage>.toml`. Same rule as `hazards_file`: a plain path, absolute or relative to the project root, with no implied directory and no implied extension, so the string in a config reads as the file it names |
 | `max_seating_error_px` | Above this corner error the start-up seating check warns and keeps publishing the stored calibration. Behavior: `docs/reference/perception/robot_filter_pipeline.md` |
 
 ### `FiducialFieldFilter`
@@ -317,6 +317,12 @@ The lockstep sim's keypoint model. Design: `docs/reference/perception/robot_filt
 | `axle_height_m` | Axle above the floor, the wheel radius. Keypoint heights are measured from here |
 | `rest_pitch_rad` | Nose-down pitch the robot rests at on the floor, positive about body y |
 | `[[keypoint_model.tags]]` | One robot tag's mounting. `rotation` (row-major `R_body_tag`) and `translation_m` map points in the OpenCV marker frame (origin at the tag centre, x right and y up in the printed image, z out of the printed face) into the robot body frame (FLU at the axle midpoint). The parser rejects a rotation that is not orthonormal or is a reflection |
+
+## `[health]`
+
+| Field | Meaning |
+| --- | --- |
+| `disk_used_warn_percent` | Log a disk warning at or above this used percentage. MCAP and SVO recording both stop opening new files once the disk is full, so the default 90 warns well before that |
 
 ## `[mcap]`
 

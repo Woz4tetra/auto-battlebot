@@ -218,7 +218,6 @@ run_ruff_check() {
 }
 run_ruff_check
 
-# ---- 5. install scripts (shell option leaks) ----
 header "install scripts"
 if "$SCRIPT_DIR/check_install_option_leaks.sh" "$PROJECT_ROOT"; then
     record "install scripts" 0

@@ -426,7 +426,7 @@ TEST_F(EspNowTransmitterPtyTest, SlewLimitsLinearOnlyWhileAutonomyIsOn) {
 }
 
 TEST(EspNowTelemetryChannelsTest, UndoesTheFirmwareNegationAndTheUpsideDownFlip) {
-    // The firmware writes a_percent = -100 * first_output, then negates it when driving upside down.
+    // Firmware writes a_percent = -100 * first_output and negates it when upside down.
     espnow_protocol::TelemetryPayload upright = {};
     upright.a_percent = -40.0f;
     upright.b_percent = 25.0f;

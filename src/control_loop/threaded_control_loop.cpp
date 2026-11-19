@@ -59,8 +59,6 @@ void ThreadedControlLoop::thread_main() {
 
         next += period_;
         if (cycle_end > next) {
-            // Overran the period. Count it and resync rather than accumulating debt, which would
-            // otherwise make the loop sprint to catch up after any one slow cycle.
             deadline_misses_.fetch_add(1);
             report_misses++;
             next = cycle_end;

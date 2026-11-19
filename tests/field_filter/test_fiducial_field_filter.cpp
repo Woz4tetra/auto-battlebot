@@ -125,6 +125,21 @@ TEST(FiducialFieldFilterTest, PlacesTheBoardOriginAtTheConfiguredCorner) {
     EXPECT_NEAR(tf_opposite(1, 3), kFieldSize / 2.0 + 0.15, 1e-9);
 }
 
+TEST(FiducialFieldFilterTest, PlusNinetyPitchPointsPrintedYAwayFromTheFloor) {
+    FiducialFieldFilterConfiguration config = make_config();
+    config.board_pitch_deg = 90.0;
+    FiducialFieldFilter filter(config);
+
+    const Eigen::Vector3d printed_y = filter.tf_fieldcenter_from_board().block<3, 1>(0, 1);
+    EXPECT_NEAR(printed_y.z(), -1.0, 1e-9) << "z points into the floor, so away is negative";
+
+    config.board_pitch_deg = 0.0;
+    FiducialFieldFilter flat(config);
+    const Eigen::Matrix3d rotation = flat.tf_fieldcenter_from_board().block<3, 3>(0, 0);
+    EXPECT_LT((rotation - Eigen::Matrix3d::Identity()).norm(), 1e-9)
+        << "a flat board shares the field's axes";
+}
+
 TEST(FiducialFieldFilterTest, RecoversTheFieldPoseFromARenderedBoard) {
     FiducialFieldFilterConfiguration config = make_config();
     config.corner = FieldCorner::NEG_X_NEG_Y;

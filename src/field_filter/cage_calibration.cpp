@@ -12,9 +12,7 @@
 
 namespace auto_battlebot {
 namespace {
-// Same rule as hazards_file: a plain path, absolute or relative to the project root. No implied
-// directory and no implied extension, so the string in a config reads as the file it names.
-std::filesystem::path resolve(const std::string &value) {
+std::filesystem::path resolve_plain_path_from_project_root(const std::string &value) {
     std::filesystem::path path(value);
     if (path.is_absolute()) {
         return path;
@@ -44,7 +42,7 @@ std::vector<double> required_array(const toml::table &table, const std::string &
 }  // namespace
 
 CageCalibration load_cage_calibration(const std::string &path) {
-    const std::filesystem::path resolved = resolve(path);
+    const std::filesystem::path resolved = resolve_plain_path_from_project_root(path);
     if (!std::filesystem::exists(resolved)) {
         throw ConfigValidationError("calibration_file not found: " + resolved.string());
     }
@@ -64,8 +62,6 @@ CageCalibration load_cage_calibration(const std::string &path) {
     }
 
     const std::vector<double> translation = required_array(data, "translation", 3, source);
-    // Row-major 3x3 rather than a quaternion, so nothing has to agree on a component order. The
-    // file is machine-written; readability of the rotation is not what matters about it.
     const std::vector<double> rotation = required_array(data, "rotation", 9, source);
 
     calibration.tf_camera_from_fieldcenter = Eigen::Matrix4d::Identity();
@@ -80,7 +76,7 @@ CageCalibration load_cage_calibration(const std::string &path) {
 }
 
 void save_cage_calibration(const std::string &path, const CageCalibration &calibration) {
-    const std::filesystem::path resolved = resolve(path);
+    const std::filesystem::path resolved = resolve_plain_path_from_project_root(path);
     std::filesystem::create_directories(resolved.parent_path());
     std::ofstream out(resolved);
     if (!out) {

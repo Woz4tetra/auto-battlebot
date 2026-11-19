@@ -72,6 +72,7 @@ class ControlLoop {
     std::chrono::steady_clock::time_point last_cycle_wall_time() const;
 
    private:
+    void apply_requests_from_other_threads();
     std::shared_ptr<RobotFilterInterface> robot_filter_;
     std::shared_ptr<TargetSelectorInterface> target_selector_;
     std::shared_ptr<NavigationInterface> navigation_;

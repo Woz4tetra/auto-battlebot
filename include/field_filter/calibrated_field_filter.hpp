@@ -8,6 +8,8 @@
 #include "field_filter/config.hpp"
 
 namespace auto_battlebot {
+CageCalibration load_calibration_in_live_outline_convention(const std::string &path);
+
 class CalibratedFieldFilter : public CameraWorldFieldFilter {
    public:
     explicit CalibratedFieldFilter(const CalibratedFieldFilterConfiguration &config);

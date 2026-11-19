@@ -21,6 +21,7 @@
 #include "navigation/navigation_interface.hpp"
 #include "robot_descriptions_cache.hpp"
 #include "robot_filter/robot_front_back_filter.hpp"
+#include "time/clock_interface.hpp"
 #include "time/manual_clock.hpp"
 #include "transmitter/transmitter_interface.hpp"
 
@@ -337,6 +338,32 @@ TEST(ControlLoopTest, ZeroRateRunsExactlyOneCyclePerAdvance) {
     EXPECT_EQ(transmitter->sent.size(), measurements.size());
 }
 
+class CountingClock : public ClockInterface {
+   public:
+    double now() const override {
+        ++reads;
+        return 0.0;
+    }
+    mutable int reads = 0;
+};
+
+TEST(ControlLoopTest, NoCycleReadsClockBeforeFirstFrame) {
+    auto config = make_filter_config();
+    auto filter = std::make_shared<RobotFrontBackFilter>(config);
+    ASSERT_TRUE(filter->initialize(1));
+    auto navigation = std::make_shared<RecordingNavigation>();
+    auto transmitter = std::make_shared<RecordingTransmitter>();
+    auto clock = std::make_shared<CountingClock>();
+    auto loop = std::make_shared<ControlLoop>(filter, nullptr, navigation, transmitter, clock,
+                                              nullptr, kCacheMaxAgeS);
+    SteppedControlLoop driver(loop, 0.0);
+
+    for (int i = 0; i < 5; ++i) driver.advance_to(1.0 + i);
+
+    EXPECT_EQ(clock->reads, 0);
+    EXPECT_TRUE(transmitter->sent.empty());
+}
+
 TEST(ControlLoopTest, NonZeroRateRunsMultipleCyclesPerFrame) {
     auto config = make_filter_config();
     auto filter = std::make_shared<RobotFrontBackFilter>(config);
@@ -631,6 +658,53 @@ TEST(ControlLoopTest, SteppedPumpInputLatchesInitButtonWithoutCycling) {
     EXPECT_TRUE(transmitter->sent.empty());
     EXPECT_TRUE(driver.take_init_button_press());
     EXPECT_FALSE(driver.take_init_button_press());
+}
+
+class TimestampingTransmitter : public RecordingTransmitter {
+   public:
+    void send(VelocityCommand command) override {
+        std::lock_guard<std::mutex> lock(mutex);
+        send_times.push_back(std::chrono::steady_clock::now());
+        if (send_times.size() == 1) std::this_thread::sleep_for(std::chrono::milliseconds(40));
+        RecordingTransmitter::send(command);
+    }
+
+    std::mutex mutex;
+    std::vector<std::chrono::steady_clock::time_point> send_times;
+};
+
+TEST(ControlLoopTest, SteppedCatchUpCappedAfterStall) {
+    auto transmitter = std::make_shared<RecordingTransmitter>();
+    auto loop = std::make_shared<ControlLoop>(
+        std::make_shared<OrderRecordingFilter>(), nullptr, std::make_shared<RecordingNavigation>(),
+        transmitter, std::make_shared<ManualClock>(), nullptr, kCacheMaxAgeS);
+    constexpr int kCap = 5;
+    SteppedControlLoop driver(loop, 240.0, kCap);
+
+    loop->submit_measurement(make_measurements(1)[0]);
+    driver.advance_to(0.0);
+    ASSERT_EQ(transmitter->sent.size(), 1u);
+    driver.advance_to(10.0);
+    EXPECT_EQ(transmitter->sent.size(), 1u + kCap) << "a 10 s stall replayed more than the cap";
+}
+
+TEST(ControlLoopTest, ThreadedResyncsAfterOverrun) {
+    auto transmitter = std::make_shared<TimestampingTransmitter>();
+    auto loop = std::make_shared<ControlLoop>(
+        std::make_shared<OrderRecordingFilter>(), nullptr, std::make_shared<RecordingNavigation>(),
+        transmitter, std::make_shared<ManualClock>(), nullptr, kCacheMaxAgeS);
+    ThreadedControlLoop driver(loop, 250.0, 20.0);
+    loop->submit_measurement(make_measurements(1)[0]);
+    ASSERT_TRUE(driver.start());
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    driver.stop();
+
+    std::lock_guard<std::mutex> lock(transmitter->mutex);
+    ASSERT_GE(transmitter->send_times.size(), 6u);
+    for (size_t i = 2; i < 6; ++i) {
+        const auto gap = transmitter->send_times[i] - transmitter->send_times[i - 1];
+        EXPECT_GE(gap, std::chrono::milliseconds(2)) << "cycle " << i << " ran back to back";
+    }
 }
 
 TEST(ControlLoopTest, ThreadedPumpInputLeavesTheTransmitterToTheControlThread) {

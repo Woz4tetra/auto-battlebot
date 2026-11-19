@@ -27,9 +27,6 @@ boots_a_desktop() {
         [ "$(systemctl get-default 2>/dev/null || true)" = "graphical.target" ]
 }
 
-# Install a unit from service/<name>.service if it isn't present or is out of date,
-# expanding the __USER__ placeholder into the invoking user's name. --no-enable installs the
-# file without enabling it, and never disables a unit someone enabled by hand.
 install_unit() {
     local name="$1"
     local enable=true

@@ -12,8 +12,6 @@ std::unique_ptr<ControlLoopConfiguration> load_control_loop_from_toml(
     toml::table const &toml_data, std::vector<std::string> &parsed_sections) {
     auto section = toml_data["control_loop"].as_table();
     if (!section) {
-        // Absent section means one cycle per perception frame with no thread, so configs written
-        // before the control loop existed keep their original behavior.
         return std::make_unique<SteppedControlLoopConfiguration>();
     }
     ConfigParser parser(*section, "control_loop");
@@ -37,7 +35,9 @@ std::shared_ptr<ControlLoopInterface> make_control_loop(const ControlLoopConfigu
                                                         std::shared_ptr<ControlLoop> loop) {
     spdlog::info("Selected {} for ControlLoop at {} Hz", config.type, config.rate_hz);
     if (config.type == "SteppedControlLoop") {
-        return std::make_shared<SteppedControlLoop>(std::move(loop), config.rate_hz);
+        return std::make_shared<SteppedControlLoop>(
+            std::move(loop), config.rate_hz,
+            dynamic_cast<const SteppedControlLoopConfiguration &>(config).max_catchup_cycles);
     } else if (config.type == "ThreadedControlLoop") {
         return std::make_shared<ThreadedControlLoop>(std::move(loop), config.rate_hz,
                                                      config.watchdog_timeout_ms);
