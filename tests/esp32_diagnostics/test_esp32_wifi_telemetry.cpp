@@ -9,6 +9,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <cstring>
 #include <filesystem>
 #include <iterator>
@@ -76,19 +77,23 @@ TEST(Esp32TelemetryBatchTest, DecodesHeaderAndRecords) {
     EXPECT_EQ(batch->records[1].timestamp_ms, 1110u);
 }
 
+constexpr size_t kMagicOffset = offsetof(TelemetryBatchHeader, magic);
+constexpr size_t kVersionOffset = offsetof(TelemetryBatchHeader, version);
+constexpr size_t kRecordSizeOffset = offsetof(TelemetryBatchHeader, record_size);
+
 TEST(Esp32TelemetryBatchTest, RejectsWrongMagicVersionSizeOrLength) {
     std::string body = batch_body(7, 100, 12, 10, 2);
     EXPECT_FALSE(decode_esp32_telemetry_batch(body.substr(0, body.size() - 1)).has_value());
     EXPECT_FALSE(decode_esp32_telemetry_batch(body + "x").has_value());
     EXPECT_FALSE(decode_esp32_telemetry_batch(body.substr(0, 10)).has_value());
     std::string bad = body;
-    bad[0] ^= 1;  // magic
+    bad[kMagicOffset] ^= 1;
     EXPECT_FALSE(decode_esp32_telemetry_batch(bad).has_value());
     bad = body;
-    bad[4] ^= 1;  // version
+    bad[kVersionOffset] ^= 1;
     EXPECT_FALSE(decode_esp32_telemetry_batch(bad).has_value());
     bad = body;
-    bad[6] ^= 1;  // record_size
+    bad[kRecordSizeOffset] ^= 1;
     EXPECT_FALSE(decode_esp32_telemetry_batch(bad).has_value());
 }
 
@@ -119,6 +124,16 @@ TEST(Esp32TelemetryBatchTest, RecordBecomesDiagnosticsEvent) {
     EXPECT_NE(json.find("\"motor_speed_right\":null"), std::string::npos) << json;
     EXPECT_NE(json.find("\"erpm_crc_errors\":517"), std::string::npos) << json;
 }
+
+void send_reply_in_two_halves(int fd, const std::string &reply) {
+    const size_t half = reply.size() / 2;
+    ::send(fd, reply.data(), half, MSG_NOSIGNAL);
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    ::send(fd, reply.data() + half, reply.size() - half, MSG_NOSIGNAL);
+}
+
+constexpr uint32_t kRingCapacity = 50;
+constexpr uint32_t kBatchMax = 20;
 
 /**
  * A stand-in for the firmware's GET /telemetry: a ring of `capacity` records whose head the test
@@ -159,8 +174,8 @@ class FakeRingServer {
         return paths_;
     }
 
-    uint32_t capacity = 50;
-    uint32_t batch_max = 20;
+    uint32_t capacity = kRingCapacity;
+    uint32_t batch_max = kBatchMax;
 
    private:
     void serve() {
@@ -200,15 +215,11 @@ class FakeRingServer {
             count = std::min(head - first, batch_max);
         }
         const std::string body = batch_body(boot_id, capacity, head, first, count);
-        // Split the reply so the client has to reassemble it.
         const std::string reply =
             "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n"
             "Content-Length: " +
             std::to_string(body.size()) + "\r\n\r\n" + body;
-        const size_t half = reply.size() / 2;
-        ::send(fd, reply.data(), half, MSG_NOSIGNAL);
-        std::this_thread::sleep_for(std::chrono::milliseconds(2));
-        ::send(fd, reply.data() + half, reply.size() - half, MSG_NOSIGNAL);
+        send_reply_in_two_halves(fd, reply);
     }
 
     int listen_fd_ = -1;
@@ -241,8 +252,7 @@ Esp32WifiTelemetryOptions options_for(const FakeRingServer &server) {
     return options;
 }
 
-// Collects events until `n` have arrived, checking seqs run without gaps.
-std::vector<Esp32DiagnosticsEvent> collect(Esp32WifiTelemetry &telemetry, size_t n) {
+std::vector<Esp32DiagnosticsEvent> collect_at_least(Esp32WifiTelemetry &telemetry, size_t n) {
     std::vector<Esp32DiagnosticsEvent> events;
     wait_until(
         [&] {
@@ -277,23 +287,26 @@ TEST(Esp32WifiTelemetryTest, StartingTwiceRunsOneWorker) {
 
 TEST(Esp32WifiTelemetryTest, StartsAtHeadThenReadsEverythingNew) {
     FakeRingServer server;
-    server.set(1, 30);  // history the client must not replay
+    constexpr uint32_t kHistoryHeadNotReplayed = 30;
+    constexpr uint32_t kNewRecordsSpanningTwoBatches = 2 * kBatchMax + 5;
+    server.set(1, kHistoryHeadNotReplayed);
     Esp32WifiTelemetry telemetry(options_for(server));
     telemetry.start();
     ASSERT_TRUE(wait_until([&] { return telemetry.stats().connected; }, std::chrono::seconds(5)));
     EXPECT_EQ(server.paths().front(), "/telemetry");
 
-    server.set(1, 75);  // 45 new records, more than one 20-record batch
-    const auto events = collect(telemetry, 45);
-    ASSERT_EQ(events.size(), 45u);
-    for (size_t i = 0; i < events.size(); i++) EXPECT_EQ(events[i].seq, 30 + i);
+    server.set(1, kHistoryHeadNotReplayed + kNewRecordsSpanningTwoBatches);
+    const auto events = collect_at_least(telemetry, kNewRecordsSpanningTwoBatches);
+    ASSERT_EQ(events.size(), kNewRecordsSpanningTwoBatches);
+    for (size_t i = 0; i < events.size(); i++)
+        EXPECT_EQ(events[i].seq, kHistoryHeadNotReplayed + i);
 
     EXPECT_EQ(events.back().backfill, false);
     for (size_t i = 0; i + 1 < events.size(); i++) EXPECT_EQ(events[i].backfill, true) << i;
     const Esp32WifiTelemetryStats stats = telemetry.stats();
     EXPECT_EQ(stats.ring_overwritten_records, 0u);
     EXPECT_EQ(stats.lag_records, 0u);
-    EXPECT_EQ(stats.ring_capacity, 50u);
+    EXPECT_EQ(stats.ring_capacity, kRingCapacity);
     telemetry.stop();
 }
 
@@ -306,11 +319,12 @@ TEST(Esp32WifiTelemetryTest, CatchesUpAfterAnOutageWithoutLoss) {
 
     server.set_offline(true);
     ASSERT_TRUE(wait_until([&] { return !telemetry.stats().connected; }, std::chrono::seconds(5)));
-    server.set(1, 40);  // the robot kept recording while out of range
+    constexpr uint32_t kRecordedDuringOutage = 40;
+    server.set(1, kRecordedDuringOutage);
     server.set_offline(false);
 
-    const auto events = collect(telemetry, 40);
-    ASSERT_EQ(events.size(), 40u);
+    const auto events = collect_at_least(telemetry, kRecordedDuringOutage);
+    ASSERT_EQ(events.size(), kRecordedDuringOutage);
     for (size_t i = 0; i < events.size(); i++) EXPECT_EQ(events[i].seq, i);
     EXPECT_EQ(telemetry.stats().ring_overwritten_records, 0u);
     EXPECT_GE(telemetry.stats().poll_failures, 1u);
@@ -328,7 +342,7 @@ TEST(Esp32WifiTelemetryTest, FullBatchIsFollowedByAnImmediateRequest) {
 
     const auto start = std::chrono::steady_clock::now();
     server.set(1, 50);
-    const auto events = collect(telemetry, 50);
+    const auto events = collect_at_least(telemetry, 50);
     const auto elapsed = std::chrono::steady_clock::now() - start;
     ASSERT_EQ(events.size(), 50u);
     EXPECT_LT(elapsed, std::chrono::milliseconds(1000))
@@ -345,14 +359,16 @@ TEST(Esp32WifiTelemetryTest, CountsRecordsTheRingOverwrote) {
 
     server.set_offline(true);
     ASSERT_TRUE(wait_until([&] { return !telemetry.stats().connected; }, std::chrono::seconds(5)));
-    server.set(1, 80);  // outage outlasted the 50-record ring: seqs 0..29 are gone
+    constexpr uint32_t kOverwrittenRecords = 30;
+    constexpr uint32_t kHeadAfterOutage = kRingCapacity + kOverwrittenRecords;
+    server.set(1, kHeadAfterOutage);
     server.set_offline(false);
 
-    const auto events = collect(telemetry, 50);
-    ASSERT_EQ(events.size(), 50u);
-    EXPECT_EQ(events.front().seq, 30u);
-    EXPECT_EQ(events.back().seq, 79u);
-    EXPECT_EQ(telemetry.stats().ring_overwritten_records, 30u);
+    const auto events = collect_at_least(telemetry, kRingCapacity);
+    ASSERT_EQ(events.size(), kRingCapacity);
+    EXPECT_EQ(events.front().seq, kOverwrittenRecords);
+    EXPECT_EQ(events.back().seq, kHeadAfterOutage - 1);
+    EXPECT_EQ(telemetry.stats().ring_overwritten_records, kOverwrittenRecords);
     telemetry.stop();
 }
 
@@ -363,15 +379,17 @@ TEST(Esp32WifiTelemetryTest, RebootResyncsToTheNewHead) {
     telemetry.start();
     ASSERT_TRUE(wait_until([&] { return telemetry.stats().connected; }, std::chrono::seconds(5)));
     server.set(1, 15);
-    ASSERT_EQ(collect(telemetry, 5).size(), 5u);
+    ASSERT_EQ(collect_at_least(telemetry, 5).size(), 5u);
 
-    server.set(2, 3);  // rebooted: new boot id, seqs restarted
+    constexpr uint32_t kRebootedBootId = 2;
+    constexpr uint32_t kSeqAfterReboot = 3;
+    server.set(kRebootedBootId, kSeqAfterReboot);
     ASSERT_TRUE(wait_until([&] { return telemetry.stats().boot_id_changes == 1; },
                            std::chrono::seconds(5)));
-    server.set(2, 8);
-    const auto events = collect(telemetry, 5);
+    server.set(kRebootedBootId, kSeqAfterReboot + 5);
+    const auto events = collect_at_least(telemetry, 5);
     ASSERT_EQ(events.size(), 5u);
-    EXPECT_EQ(events.front().seq, 3u);
+    EXPECT_EQ(events.front().seq, kSeqAfterReboot);
     EXPECT_EQ(telemetry.stats().ring_overwritten_records, 0u);
     telemetry.stop();
 }
@@ -379,7 +397,8 @@ TEST(Esp32WifiTelemetryTest, RebootResyncsToTheNewHead) {
 TEST(Esp32WifiTelemetryTest, StopIsPromptWithNoRobot) {
     Esp32WifiTelemetryOptions options;
     options.host = "127.0.0.1";
-    options.port = 1;  // nothing listens
+    constexpr int kNoListenerPort = 1;
+    options.port = kNoListenerPort;
     Esp32WifiTelemetry telemetry(options);
     telemetry.start();
     std::this_thread::sleep_for(std::chrono::milliseconds(50));

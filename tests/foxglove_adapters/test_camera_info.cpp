@@ -26,6 +26,15 @@ class CameraCalibrationAdapterTest : public ::testing::Test {
     CameraInfo test_camera_info;
 };
 
+template <typename Matrix3x3>
+void expect_identity_row_major(const Matrix3x3 &matrix) {
+    constexpr int kRowMajorDiagonalStride = 4;
+    for (int i = 0; i < 9; ++i) {
+        EXPECT_DOUBLE_EQ(matrix[i], (i % kRowMajorDiagonalStride == 0) ? 1.0 : 0.0)
+            << "index " << i;
+    }
+}
+
 TEST_F(CameraCalibrationAdapterTest, BasicConversion) {
     auto calibration = foxglove_adapters::to_camera_calibration(test_camera_info);
 
@@ -46,8 +55,7 @@ TEST_F(CameraCalibrationAdapterTest, BasicConversion) {
     EXPECT_DOUBLE_EQ(calibration.d[0], 0.1);
     EXPECT_DOUBLE_EQ(calibration.d[4], 0.05);
 
-    // R identity, P = [K | 0]
-    for (int i = 0; i < 9; ++i) EXPECT_DOUBLE_EQ(calibration.r[i], (i % 4 == 0) ? 1.0 : 0.0);
+    expect_identity_row_major(calibration.r);
     EXPECT_DOUBLE_EQ(calibration.p[0], 500.0);
     EXPECT_DOUBLE_EQ(calibration.p[2], 320.0);
     EXPECT_DOUBLE_EQ(calibration.p[3], 0.0);
@@ -72,8 +80,7 @@ TEST_F(CameraCalibrationAdapterTest, EncodesToProtobuf) {
     EXPECT_GT(encoded, 0u);
 }
 
-// The stamp is a uint64 above 2^53, so it must be a JSON string, never a number.
-TEST(FrameMetaJsonTest, StampIsStringAndPathIsEscaped) {
+TEST(FrameMetaJsonTest, StampAboveTwoPow53IsJsonString) {
     FrameIdentity identity;
     identity.image_stamp_ns = 1788011445339499712ull;
     identity.video_frame_index = 42;

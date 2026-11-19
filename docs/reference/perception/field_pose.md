@@ -39,6 +39,14 @@ That is six constraints for six degrees of freedom, with the missing corners fal
 
 `pixels_to_field_plane` takes `(n, 2)` rectified pixels and returns `(n, 3)` field-frame points on the plane `z = plane_height_m`. It raises `ValueError` for any other pixel or intrinsics shape. A ray that misses the plane in front of the camera (parallel, or pointing at the sky) comes back as NaN.
 
+## Synthetic field renders
+
+`tests/field_filter/synthetic_field.hpp` renders a field mask from a known pose, so the solvers are checked against ground truth.
+
+- `camera_pose(range, tilt_deg, yaw_deg)` looks at the field centre from `range` metres, `tilt_deg` off vertical: 0 is straight overhead, 90 would be level with the mat. Its field frame has z pointing into the floor, so up is -z. The outline fit points z at the camera instead, so compare rotations only after `kHalfTurnAboutFieldX`.
+- `field_outline_points` rounds the corners in the world, not in the image, because the mat's rounding is physical.
+- The outline winds like `FieldOutline::corners`: (-,-), (-,+), (+,+), (+,-). Each corner arc sweeps from the side arriving at the corner to the side leaving it, so points stay in winding order. A reversed outline flips `signed_area` and the solver rejects the candidate, which fails every synthetic test for the wrong reason. `tests/field_filter/test_synthetic_field.cpp` pins both.
+
 ## Fixed field filter
 
 `FixedFieldFilter` reports a configured arena size and is used by the kinematic sim, where the field is known a priori and no perception runs. It gives navigation the wall bounds it needs without a RANSAC field fit. It takes the camera-from-fieldcenter transform straight from the sim, which places its camera in the same frame it reports robot poses in. An identity transform is not harmless: the UI projects robot markers and the field border through it, and identity divides by a robot's roughly 1 cm height instead of its metres of range, throwing every marker far outside the image.

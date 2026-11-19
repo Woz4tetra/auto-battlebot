@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <array>
 #include <opencv2/imgcodecs.hpp>
 
 #include "foxglove_adapters/image.hpp"
@@ -19,9 +20,9 @@ TEST(CompressedImageAdapterTest, EncodesJpegWithHeader) {
     ASSERT_TRUE(image.timestamp.has_value());
     EXPECT_EQ(image.timestamp->sec, 123u);
     ASSERT_GT(image.data.size(), 2u);
-    // JPEG SOI marker
-    EXPECT_EQ(static_cast<uint8_t>(image.data[0]), 0xFF);
-    EXPECT_EQ(static_cast<uint8_t>(image.data[1]), 0xD8);
+    constexpr std::array<uint8_t, 2> kJpegSoi = {0xFF, 0xD8};
+    EXPECT_EQ(static_cast<uint8_t>(image.data[0]), kJpegSoi[0]);
+    EXPECT_EQ(static_cast<uint8_t>(image.data[1]), kJpegSoi[1]);
 
     std::vector<uint8_t> bytes(image.data.size());
     for (size_t i = 0; i < bytes.size(); ++i) bytes[i] = static_cast<uint8_t>(image.data[i]);

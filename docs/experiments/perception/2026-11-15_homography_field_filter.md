@@ -12,3 +12,13 @@ The assumed size enters linearly: a mat that is 4% wrong makes every range 4% wr
 
 - Contour points close to the frame edge are dropped before the edge fit. They sit where the field crosses the image border, not where the field ends, and a line fitted through them is the border rather than the mat edge.
 - Mask area over quad area above about 1.05 means the outline is not the quadrilateral the fit assumes, so at least one side is not a field edge. Reprojection error cannot see this.
+
+## Rounded corners and coverage guard
+
+- `cv::approxPolyDP` returns vertices on the outline, so at the mat's rounded corners it chords across them. The quad came out 19% small in area, 11% linearly, and put the camera 11% too far away. The `RecoversTheFullRectangleThroughRoundedCorners` test renders 0.20 m corner radii to catch it. Details: `field_transform_homography_2026-09-08.md`.
+- Before edge refinement the same chording inscribed the quad inside the mat, and the mask came out 24% larger than its own fit. With refinement the fitted quad circumscribes the mask, so the coverage ratio no longer rises above 1 on its own. `RejectsAnOutlineThatSpillsOutsideTheQuad` therefore drives `max_quad_coverage` below a good fit's coverage (0.5) to exercise the wiring.
+- Coverage is measured against the quad clipped to the image. Unclipped, a field running off the frame has corners off the sensor, its quad is larger than anything the mask could fill, and the ratio reads as a bad outline on exactly the case this filter exists for.
+
+## Synthetic test intrinsics
+
+`test_intrinsics()` models the e-CAM25_CUONX at 1920x1200. The 1006 px focal length is backed out of the quoted vertical field of view, the axis least inflated by barrel distortion.

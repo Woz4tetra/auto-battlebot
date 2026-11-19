@@ -23,3 +23,11 @@ Beside `std::vector<cv::Point2f> reprojected;`:
 ## Board id order
 
 Pairing the printed board's ids with `cv::aruco::GridBoard` in the wrong order (no reversal within each row) gave a mirrored pose with 440 px of reprojection error. The reversed ids give 16 px.
+
+The manufactured board numbers markers right to left within a row, and `GridBoard` fills them left to right. The wrong pairing gives a reflection, and a reflection still decodes, so only the reprojection error shows it. Checked against a photo of the real board: with `first_id` 160 the top-left tag is 162 and the top-right is 160.
+
+## Board placement and render accuracy
+
+- The printed board has a white paper margin. Without one the perimeter markers' black borders sit straight on the grey floor, and the AprilTag quad search finds only the three interior markers. The synthetic render keeps a 0.02 m margin for the same reason.
+- The board goes at a near corner. At the far corner a 65 mm marker is 8 px after foreshortening and does not decode.
+- The test accepts 40 mm of range error at 2.4 m (1.7%). That is the synthetic render's limit, not the solver's: the board is rasterized, then perspective-warped down to markers about 30 px on a side, so their corners carry a fraction of a pixel of resampling bias that subpixel refinement cannot undo. The reprojection residual comes out under 1 px against the 3 px guard.

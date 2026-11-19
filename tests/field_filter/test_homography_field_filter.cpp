@@ -36,16 +36,13 @@ MaskStamped make_mask(const cv::Mat &mask) {
     return stamped;
 }
 
-/**
- * A synthetic truth pose in the outline fit's convention, turned about field z by `quarters`.
- *
- * `camera_pose` points field z into the floor; the fit points it at the camera. A half turn about
- * field x converts one to the other.
- */
 Eigen::Matrix3d fit_frame(const Eigen::Matrix4d &tf_camera_from_fieldcenter, int quarters) {
-    return tf_camera_from_fieldcenter.block<3, 3>(0, 0) *
-           Eigen::Vector3d(1.0, -1.0, -1.0).asDiagonal() *
+    return tf_camera_from_fieldcenter.block<3, 3>(0, 0) * testing_support::kHalfTurnAboutFieldX *
            Eigen::AngleAxisd(quarters * M_PI / 2.0, Eigen::Vector3d::UnitZ()).matrix();
+}
+
+Eigen::Matrix3d fit_frame_at_nearest_quarter_turn(const Eigen::Matrix4d &truth, double yaw_deg) {
+    return fit_frame(truth, static_cast<int>(std::lround(-yaw_deg / 90.0)));
 }
 
 double range_of(const Eigen::Matrix4d &tf_camera_from_fieldcenter) {
@@ -86,9 +83,6 @@ TEST_F(HomographyFieldFilterTest, RecoversATripodPoseWithinTenMillimetres) {
 }
 
 TEST_F(HomographyFieldFilterTest, RecoversTheFullRectangleThroughRoundedCorners) {
-    // The regression test for the corner bug. approxPolyDP returns vertices that lie on the
-    // outline, so where the mat's corners are rounded it chords across them: the quad came out
-    // 19% small in area, which is 11% linearly and put the camera 11% too far away.
     const Eigen::Matrix4d truth = testing_support::camera_pose(3.5, 20.0, 8.0);
     const cv::Mat rounded = testing_support::render_field_mask(
         truth, testing_support::test_intrinsics(), kImageSize, kFieldSize, kFieldSize, 0.20);
@@ -104,12 +98,6 @@ TEST_F(HomographyFieldFilterTest, RecoversTheFullRectangleThroughRoundedCorners)
 }
 
 TEST_F(HomographyFieldFilterTest, RejectsAnOutlineThatSpillsOutsideTheQuad) {
-    // The guard the coverage limit exists for: an outline whose fitted quad chords through the
-    // mask. That was the pre-refinement failure, where approxPolyDP inscribed the quad inside the
-    // mat's rounded corners and the mask came out 24% larger than its own fit. Driving the limit
-    // below a good fit's coverage is the way to exercise the wiring, because with the edge
-    // refinement in place the fitted quad circumscribes the mask and the ratio no longer rises
-    // above 1 on its own.
     const Eigen::Matrix4d truth = testing_support::camera_pose(3.0, 5.0, 12.0);
     const cv::Mat mask = testing_support::render_field_mask(
         truth, testing_support::test_intrinsics(), kImageSize, kFieldSize, kFieldSize);
@@ -122,9 +110,6 @@ TEST_F(HomographyFieldFilterTest, RejectsAnOutlineThatSpillsOutsideTheQuad) {
 }
 
 TEST_F(HomographyFieldFilterTest, ClippedAndWellFramedOutlinesReportComparableCoverage) {
-    // Coverage is measured against the quad clipped to the image. Without that, a field running
-    // off the frame has corners off the sensor, its quad is larger than anything the mask could
-    // fill, and the ratio reads as a bad outline on exactly the case this filter exists for.
     const cv::Mat framed = testing_support::render_field_mask(
         testing_support::camera_pose(3.0, 5.0, 12.0), testing_support::test_intrinsics(),
         kImageSize, kFieldSize, kFieldSize);
@@ -149,9 +134,6 @@ TEST_F(HomographyFieldFilterTest, RejectsAnEmptyMask) {
 }
 
 TEST_F(HomographyFieldFilterTest, SolvesAClippedFieldFromThreeEdges) {
-    // The expected case at a cage mount: at 87 degrees of rectilinear horizontal field the near
-    // mat corners fall outside the frame, so there is no four-corner fit to make. Three edges
-    // still determine the pose exactly.
     const Eigen::Matrix4d truth = testing_support::camera_pose(1.6, 55.0, 0.0);
     const cv::Mat mask = testing_support::render_field_mask(
         truth, testing_support::test_intrinsics(), kImageSize, kFieldSize, kFieldSize);
@@ -197,9 +179,6 @@ TEST_F(HomographyFieldFilterTest, ThreeEdgesAgreeWithFourCornersOnTheSameOutline
     }
 }
 TEST_F(HomographyFieldFilterTest, FieldXRunsLeftToRightAtEveryYaw) {
-    // A square outline fits at every quarter turn, so the corner order alone does not fix yaw.
-    // In the fit's frame the synthetic camera's x axis sits at -yaw from field +x, so the expected
-    // answer is the truth turned by the nearest quarter, whatever the image winding was.
     for (const double yaw : {12.0, -20.0, 100.0, 170.0, -110.0, -160.0}) {
         const Eigen::Matrix4d truth = testing_support::camera_pose(3.5, 30.0, yaw);
         const cv::Mat mask = testing_support::render_field_mask(
@@ -211,8 +190,8 @@ TEST_F(HomographyFieldFilterTest, FieldXRunsLeftToRightAtEveryYaw) {
 
         const Eigen::Matrix3d recovered =
             description->tf_camera_from_fieldcenter.tf.block<3, 3>(0, 0);
-        const int quarters = static_cast<int>(std::lround(-yaw / 90.0));
-        EXPECT_LT((recovered - fit_frame(truth, quarters)).norm(), 0.02) << "yaw " << yaw;
+        EXPECT_LT((recovered - fit_frame_at_nearest_quarter_turn(truth, yaw)).norm(), 0.02)
+            << "yaw " << yaw;
         EXPECT_GT(recovered(0, 0), 0.0) << "field +x points right to left at yaw " << yaw;
     }
 }

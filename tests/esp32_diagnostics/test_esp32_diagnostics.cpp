@@ -14,7 +14,6 @@
 namespace auto_battlebot {
 namespace {
 
-// Lines in the firmware's printf format (firmware/mr_stabs_mk2/src/diagnostics_server.cpp).
 constexpr const char *kLine20 =
     "123456,1,1,-12.5,3.0,0,1,-15.5,-9.5,0.1,-0.2,9.8,0,812,1,359.9,-1.5,2.3,4.0,-0.25";
 constexpr const char *kLine21 =
@@ -25,10 +24,9 @@ constexpr const char *kLine22 =
 constexpr const char *kLine24 =
     "123460,1,1,80.0,0.0,0,0,78.0,82.0,0.5,0.0,9.8,0,910,1,12.0,0.5,-0.5,0.0,0.00,15.201,"
     "-42.37,12.5,nan";
-// kLine24, then the 12 motor guard columns, then seq.
-constexpr const char *kLine37 =
-    "123460,1,1,80.0,0.0,0,0,78.0,82.0,0.5,0.0,9.8,0,910,1,12.0,0.5,-0.5,0.0,0.00,15.201,"
-    "-42.37,12.5,nan,31.5,30.25,410.5,nan,6.5,5.75,0.5,1.04,3,1,2,17,4294967295";
+constexpr const char *kMotorGuardColumns = ",31.5,30.25,410.5,nan,6.5,5.75,0.5,1.04,3,1,2,17";
+constexpr const char *kSeq = ",4294967295";
+const std::string kLine37 = std::string(kLine24) + kMotorGuardColumns + kSeq;
 constexpr const char *kLine21Nan =
     "123458,0,0,0.0,0.0,0,0,0.0,0.0,0.0,0.0,9.8,0,800,1,0.0,0.0,0.0,0.0,0.00,nan";
 
@@ -262,33 +260,30 @@ TEST(Esp32DiagnosticsParseTest, AcceptsTrailingCarriageReturn) {
 TEST(Esp32DiagnosticsParseTest, RejectsMalformedLines) {
     EXPECT_FALSE(parse_esp32_diagnostics_csv("", 0).has_value());
     EXPECT_FALSE(parse_esp32_diagnostics_csv("connected", 0).has_value());
-    // 19 fields
-    EXPECT_FALSE(parse_esp32_diagnostics_csv(
-                     "1,1,1,0.0,0.0,0,1,0.0,0.0,0.0,0.0,9.8,0,800,1,0.0,0.0,0.0,0.0", 0)
-                     .has_value());
-    // 23 fields
-    EXPECT_FALSE(parse_esp32_diagnostics_csv(std::string(kLine22) + ",1.0", 0).has_value());
-    // 25 fields, the layout before the guard columns
-    EXPECT_FALSE(parse_esp32_diagnostics_csv(std::string(kLine24) + ",7", 0).has_value());
-    // 38 fields
-    EXPECT_FALSE(parse_esp32_diagnostics_csv(std::string(kLine37) + ",1", 0).has_value());
-    // A negative or fractional seq
-    const std::string line37(kLine37);
-    const std::string prefix = line37.substr(0, line37.rfind(',') + 1);
-    EXPECT_FALSE(parse_esp32_diagnostics_csv(prefix + "-1", 0).has_value());
-    EXPECT_FALSE(parse_esp32_diagnostics_csv(prefix + "1.5", 0).has_value());
-    // A non-number in a numeric field
-    EXPECT_FALSE(parse_esp32_diagnostics_csv(
-                     "1,1,x,0.0,0.0,0,1,0.0,0.0,0.0,0.0,9.8,0,800,1,0.0,0.0,0.0,0.0,0.00", 0)
-                     .has_value());
-    // An empty field
-    EXPECT_FALSE(parse_esp32_diagnostics_csv(
-                     "1,1,1,,0.0,0,1,0.0,0.0,0.0,0.0,9.8,0,800,1,0.0,0.0,0.0,0.0,0.00", 0)
-                     .has_value());
-    // Trailing junk after a number
-    EXPECT_FALSE(parse_esp32_diagnostics_csv(
-                     "1,1,1,0.0abc,0.0,0,1,0.0,0.0,0.0,0.0,9.8,0,800,1,0.0,0.0,0.0,0.0,0.00", 0)
-                     .has_value());
+    constexpr const char *kLine19Fields =
+        "1,1,1,0.0,0.0,0,1,0.0,0.0,0.0,0.0,9.8,0,800,1,0.0,0.0,0.0,0.0";
+    constexpr const char *kLine25FieldsPreGuardLayout = ",7";
+    constexpr const char *kNonNumberInNumericField =
+        "1,1,x,0.0,0.0,0,1,0.0,0.0,0.0,0.0,9.8,0,800,1,0.0,0.0,0.0,0.0,0.00";
+    constexpr const char *kEmptyField =
+        "1,1,1,,0.0,0,1,0.0,0.0,0.0,0.0,9.8,0,800,1,0.0,0.0,0.0,0.0,0.00";
+    constexpr const char *kTrailingJunkAfterNumber =
+        "1,1,1,0.0abc,0.0,0,1,0.0,0.0,0.0,0.0,9.8,0,800,1,0.0,0.0,0.0,0.0,0.00";
+    EXPECT_FALSE(parse_esp32_diagnostics_csv(kLine19Fields, 0).has_value());
+    EXPECT_FALSE(parse_esp32_diagnostics_csv(std::string(kLine22) + ",1.0", 0).has_value())
+        << "23 fields";
+    EXPECT_FALSE(parse_esp32_diagnostics_csv(std::string(kLine24) + kLine25FieldsPreGuardLayout, 0)
+                     .has_value())
+        << "25 fields";
+    EXPECT_FALSE(parse_esp32_diagnostics_csv(kLine37 + ",1", 0).has_value()) << "38 fields";
+    const std::string seq_field_prefix = kLine37.substr(0, kLine37.rfind(',') + 1);
+    EXPECT_FALSE(parse_esp32_diagnostics_csv(seq_field_prefix + "-1", 0).has_value())
+        << "negative seq";
+    EXPECT_FALSE(parse_esp32_diagnostics_csv(seq_field_prefix + "1.5", 0).has_value())
+        << "fractional seq";
+    EXPECT_FALSE(parse_esp32_diagnostics_csv(kNonNumberInNumericField, 0).has_value());
+    EXPECT_FALSE(parse_esp32_diagnostics_csv(kEmptyField, 0).has_value());
+    EXPECT_FALSE(parse_esp32_diagnostics_csv(kTrailingJunkAfterNumber, 0).has_value());
 }
 
 TEST(Esp32DiagnosticsParseTest, JsonCarriesEveryFieldWithItsType) {

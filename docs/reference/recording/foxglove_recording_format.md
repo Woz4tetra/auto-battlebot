@@ -747,6 +747,7 @@ Subsections are sticky. Each publish window (the span between two `clear()` call
 
 ### ESP32 diagnostics rows
 
+- The CSV line the host parses (`parse_esp32_diagnostics_csv`) is the firmware's printf format in `firmware/mr_stabs_mk2/src/diagnostics_server.cpp`: the parser accepts 20, 21, 22, 24, or 37 fields and rejects every other count. 37 is the current layout: the 24-field layout, 12 motor guard columns, then `seq`. `tests/esp32_diagnostics/test_esp32_diagnostics.cpp` holds one literal per layout; change the firmware format and those literals together.
 - `seq` is the firmware's row counter, +1 per row sent. A gap means rows were dropped between the robot and the host. It is empty on firmware that predates the field.
 - `backfill` is set on rows read from the firmware's telemetry ring (`GET /telemetry`): true when the row arrived later than it would have live, because it waited in the ring for the poll or for the link to come back. Its `host_receive_ns` then overstates the delivery delay, so clock fits skip it. It is empty on rows from the event stream.
 - `OpenTxTransmitter` with diagnostics wraps the radio side untouched. An `Esp32WifiTelemetry` worker polls the firmware's telemetry ring, and `update()` drains what arrived since the last tick into one `/robot/esp32_diagnostics` JSON message per 100 Hz record, logged at the host arrival time. Link health goes to the `esp32_diagnostics` diagnostics module once a second.

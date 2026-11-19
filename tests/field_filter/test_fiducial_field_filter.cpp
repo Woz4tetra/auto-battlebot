@@ -14,14 +14,15 @@ constexpr int kFirstId = 160;
 constexpr double kMarkerSize = 0.065;
 constexpr double kMarkerSeparation = 0.015;
 constexpr double kFieldSize = 2.35;
+constexpr int kSingleSyntheticFrame = 1;
+constexpr double kSyntheticRenderToleranceM = 0.04;
 const cv::Size kImageSize(1920, 1200);
 
 FiducialFieldFilterConfiguration make_config() {
     FiducialFieldFilterConfiguration config;
     config.field_size_x = kFieldSize;
     config.field_size_y = kFieldSize;
-    // One frame, so the test does not have to feed ten copies of a synthetic render.
-    config.accumulate_frames = 1;
+    config.accumulate_frames = kSingleSyntheticFrame;
     return config;
 }
 
@@ -34,10 +35,6 @@ cv::Mat render_board(const Eigen::Matrix4d &tf_camera_from_fieldcenter,
                                      static_cast<float>(kMarkerSeparation), dictionary,
                                      cv::Mat(ids, true));
 
-    // A board image at a known metres-per-pixel, so its four corners have known board coordinates.
-    // The printed board has a white paper margin. Without one the perimeter markers' black
-    // borders sit straight on the grey floor, and the AprilTag quad search finds only the three
-    // interior markers.
     constexpr double kPixelsPerMetre = 4000.0;
     constexpr double kMargin = 0.02;
     const double board_width = kCols * kMarkerSize + (kCols - 1) * kMarkerSeparation;
@@ -86,11 +83,6 @@ cv::Mat render_board(const Eigen::Matrix4d &tf_camera_from_fieldcenter,
 }  // namespace
 
 TEST(FiducialBoardIdsTest, ReversesEachRowToMatchThePrintedBoard) {
-    // The manufactured board numbers markers right to left within a row; GridBoard fills them
-    // left to right. Pairing them the wrong way round gives a reflection rather than a rotation,
-    // and a reflection still decodes: 440 px of reprojection error against 16 px when correct.
-    // Verified against a photo of the real board: with first_id 160 the top-left tag is 162 and
-    // the top-right is 160.
     const std::vector<int> ids = floor_board_ids(3, 5, 160);
     ASSERT_EQ(ids.size(), 15U);
     EXPECT_EQ(ids[0], 162) << "top-left grid cell";
@@ -147,8 +139,6 @@ TEST(FiducialFieldFilterTest, RecoversTheFieldPoseFromARenderedBoard) {
     config.board_offset_y = 0.20;
     FiducialFieldFilter filter(config);
 
-    // A near corner, which is where the board has to go: at the far corner a 65 mm marker is
-    // 8 px after foreshortening and will not decode.
     const Eigen::Matrix4d truth = testing_support::camera_pose(2.4, 35.0, 0.0);
     const cv::Mat frame = render_board(truth, filter.tf_fieldcenter_from_board());
 
@@ -166,19 +156,12 @@ TEST(FiducialFieldFilterTest, RecoversTheFieldPoseFromARenderedBoard) {
 
     const Eigen::Vector3d recovered = description->tf_camera_from_fieldcenter.tf.block<3, 1>(0, 3);
     const Eigen::Vector3d expected = truth.block<3, 1>(0, 3);
-    // 40 mm at 2.4 m is 1.7%, which is the synthetic render's own limit rather than the solver's.
-    // The board is rasterized and then perspective-warped down to markers about 30 px on a side,
-    // so their corners carry a fraction of a pixel of resampling bias that subpixel refinement
-    // cannot undo. The residual is the number that says whether the fit is sound, and it comes
-    // out under 1 px against the 3 px guard.
-    EXPECT_LT((recovered - expected).norm(), 0.04)
+    EXPECT_LT((recovered - expected).norm(), kSyntheticRenderToleranceM)
         << "recovered " << recovered.transpose() << " against " << expected.transpose();
 
-    // The board shares camera_pose's z-into-floor frame; the filter publishes z up with +x along
-    // the camera's x, which at yaw 0 is a half turn about x and no quarter turn.
     const Eigen::Matrix3d rotation = description->tf_camera_from_fieldcenter.tf.block<3, 3>(0, 0);
     const Eigen::Matrix3d expected_rotation =
-        truth.block<3, 3>(0, 0) * Eigen::Vector3d(1.0, -1.0, -1.0).asDiagonal();
+        truth.block<3, 3>(0, 0) * testing_support::kHalfTurnAboutFieldX;
     EXPECT_LT((rotation - expected_rotation).norm(), 0.03);
     EXPECT_LT(rotation(2, 2), 0.0) << "field z should point back toward the camera";
 }

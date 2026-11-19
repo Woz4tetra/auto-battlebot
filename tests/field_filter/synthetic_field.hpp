@@ -7,8 +7,6 @@
 
 namespace auto_battlebot {
 namespace testing_support {
-/** e-CAM25_CUONX at 1920x1200 with the focal length backed out of the quoted vertical field of
- *  view, which is the axis least inflated by barrel distortion. */
 inline Eigen::Matrix3d test_intrinsics() {
     Eigen::Matrix3d intrinsics = Eigen::Matrix3d::Identity();
     intrinsics(0, 0) = 1006.0;
@@ -29,14 +27,8 @@ inline cv::Mat test_intrinsics_cv() {
     return out;
 }
 
-/**
- * @brief Camera looking at the field centre from `range` metres at `tilt_deg` off vertical.
- *
- * Field z points away from the camera, into the floor, so "up" in the field frame is -z. The
- * outline fit points z at the camera instead, so compare rotations only after a half turn about
- * field x. tilt 0 is straight overhead and 90 would be level
- * with the mat.
- */
+inline const Eigen::Matrix3d kHalfTurnAboutFieldX = Eigen::Vector3d(1.0, -1.0, -1.0).asDiagonal();
+
 inline Eigen::Matrix4d camera_pose(double range, double tilt_deg, double yaw_deg) {
     const double tilt = tilt_deg * M_PI / 180.0;
     const double height = range * std::cos(tilt);
@@ -66,15 +58,12 @@ inline Eigen::Matrix4d camera_pose(double range, double tilt_deg, double yaw_deg
     return tf_field_from_camera.inverse();
 }
 
-/** Outline of a rectangle in the field plane, with corners rounded in the world rather than in
- *  the image, because that is where the mat's rounding actually is. */
 inline std::vector<Eigen::Vector3d> field_outline_points(double size_x, double size_y,
                                                          double corner_radius, int arc_steps = 24) {
     const double half_x = size_x / 2.0;
     const double half_y = size_y / 2.0;
     const double radius = std::min(corner_radius, std::min(half_x, half_y) * 0.9);
     std::vector<Eigen::Vector3d> points;
-    // Same winding as the object corners: (-,-) -> (-,+) -> (+,+) -> (+,-).
     const std::vector<std::pair<double, double>> corners = {
         {-half_x, -half_y}, {-half_x, half_y}, {half_x, half_y}, {half_x, -half_y}};
     for (size_t i = 0; i < corners.size(); ++i) {
@@ -85,8 +74,6 @@ inline std::vector<Eigen::Vector3d> field_outline_points(double size_x, double s
         }
         const double centre_x = x - std::copysign(radius, x);
         const double centre_y = y - std::copysign(radius, y);
-        // Quarter arc, swept from the side arriving at this corner to the side leaving it, so the
-        // points stay in winding order.
         const double base = std::atan2(std::copysign(1.0, y), std::copysign(1.0, x));
         for (int step = 0; step <= arc_steps; ++step) {
             const double angle = base + M_PI / 4.0 - M_PI / 2.0 * step / arc_steps;
