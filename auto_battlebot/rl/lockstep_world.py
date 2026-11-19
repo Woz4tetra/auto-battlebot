@@ -122,7 +122,7 @@ class LockstepWorld:
         self.model = build_model(mp, fit, collision, timestep, self.cfg.robot)
         self.data = mujoco.MjData(self.model)
         self.index = ModelIndex.of(self.model)
-        self.motor = MotorConstants(gear_ratio=mp.gear_ratio, kt=mp.motor_kt)
+        self.motor = MotorConstants(gear_ratio=mp.gear_ratio, kt_nm_per_a=mp.motor_kt)
         names = [
             mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, i) or ""
             for i in range(self.model.ngeom)

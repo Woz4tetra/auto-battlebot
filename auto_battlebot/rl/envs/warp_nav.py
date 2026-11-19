@@ -392,7 +392,7 @@ class WarpNavEnv:
         # The fit's rolling friction (7.9e-6) is under MJ_MINMU, which MuJoCo Warp warns can give
         # NaN with condim 6. The difference is far below anything the fit resolved.
         self.fit = self.fit.replace(wheel_mu_roll=max(self.fit.wheel_mu_roll, 1e-5))
-        self.motor = MotorConstants(gear_ratio=self.mp.gear_ratio, kt=self.mp.motor_kt)
+        self.motor = MotorConstants(gear_ratio=self.mp.gear_ratio, kt_nm_per_a=self.mp.motor_kt)
         self.mjm = build_model(self.mp, self.fit, self.collision, cfg.timestep_s, cfg.robot)
         mjd = mujoco.MjData(self.mjm)
         mujoco.mj_forward(self.mjm, mjd)
