@@ -163,17 +163,18 @@ void advance_fixed_rate_schedule(uint32_t &last_ms, uint32_t period_ms, uint32_t
 }
 
 void publish_diag(diag_data_t &diag, bool autonomy_enabled, bool espnow_active, uint32_t now_ms) {
-    diag.motor_rise_left = guard.rise_c(0);
-    diag.motor_rise_right = guard.rise_c(1);
-    diag.motor_speed_left = guard.motor_shaft_speed_signed_rad_s(0);
-    diag.motor_speed_right = guard.motor_shaft_speed_signed_rad_s(1);
-    diag.motor_amps_left = guard.amps_estimate(0);
-    diag.motor_amps_right = guard.amps_estimate(1);
+    diag.motor_rise_left_c = guard.rise_c(0);
+    diag.motor_rise_right_c = guard.rise_c(1);
+    diag.motor_speed_left_rad_s = guard.motor_shaft_speed_signed_rad_s(0);
+    diag.motor_speed_right_rad_s = guard.motor_shaft_speed_signed_rad_s(1);
+    diag.motor_amps_est_left = guard.amps_estimate(0);
+    diag.motor_amps_est_right = guard.amps_estimate(1);
     diag.guard_scale = guard.scale();
-    diag.guard_gain = guard.shunt_gain();
-    diag.guard_state = (uint8_t)guard.state();
-    diag.guard_sensors = (uint8_t)guard.sensors();
-    diag.stall_flags = (guard.stalled(0) ? 1 : 0) | (guard.stalled(1) ? 2 : 0);
+    diag.guard_shunt_gain = guard.shunt_gain();
+    diag.guard_state = guard.state();
+    diag.guard_sensors = guard.sensors();
+    diag.stall_flags =
+        (guard.stalled(0) ? STALL_FLAG_LEFT : 0) | (guard.stalled(1) ? STALL_FLAG_RIGHT : 0);
     diag.erpm_crc_errors = (uint16_t)min<uint32_t>(
         left_esc->reply_decode_errors() + right_esc->reply_decode_errors(), UINT16_MAX);
     diag_server.update(&diag);
@@ -195,10 +196,10 @@ void publish_diag(diag_data_t &diag, bool autonomy_enabled, bool espnow_active, 
     telemetry.orientation_z = diag.orientation_z;
     telemetry.pid_setpoint = diag.pid_setpoint;
     telemetry.pid_output = diag.pid_output;
-    telemetry.vbat = diag.vbat;
-    telemetry.ibat = diag.ibat;
-    telemetry.yaw_rate = diag.yaw_rate;
-    telemetry.yaw_rate_cmd = diag.yaw_rate_cmd;
+    telemetry.vbat = diag.pack_volts;
+    telemetry.ibat = diag.pack_amps_discharge;
+    telemetry.yaw_rate = diag.yaw_rate_cw_dps;
+    telemetry.yaw_rate_cmd = diag.yaw_rate_cmd_cw_dps;
     updown_sensor::vector3_t *linear_accel = accel->get_linear_accel_mps2_chip();
     telemetry.linear_accel_x = linear_accel->x;
     telemetry.linear_accel_y = linear_accel->y;
@@ -214,16 +215,16 @@ void publish_diag(diag_data_t &diag, bool autonomy_enabled, bool espnow_active, 
     telemetry.flip_switch = diag.flip_switch;
     telemetry.is_upside_down = diag.is_upside_down;
     telemetry.espnow_active = espnow_active;
-    telemetry.motor_rise_left = diag.motor_rise_left;
-    telemetry.motor_rise_right = diag.motor_rise_right;
-    telemetry.motor_speed_left = diag.motor_speed_left;
-    telemetry.motor_speed_right = diag.motor_speed_right;
-    telemetry.motor_amps_left = diag.motor_amps_left;
-    telemetry.motor_amps_right = diag.motor_amps_right;
+    telemetry.motor_rise_left = diag.motor_rise_left_c;
+    telemetry.motor_rise_right = diag.motor_rise_right_c;
+    telemetry.motor_speed_left = diag.motor_speed_left_rad_s;
+    telemetry.motor_speed_right = diag.motor_speed_right_rad_s;
+    telemetry.motor_amps_left = diag.motor_amps_est_left;
+    telemetry.motor_amps_right = diag.motor_amps_est_right;
     telemetry.guard_scale = diag.guard_scale;
-    telemetry.guard_gain = diag.guard_gain;
-    telemetry.guard_state = diag.guard_state;
-    telemetry.guard_sensors = diag.guard_sensors;
+    telemetry.guard_gain = diag.guard_shunt_gain;
+    telemetry.guard_state = static_cast<uint8_t>(diag.guard_state);
+    telemetry.guard_sensors = static_cast<uint8_t>(diag.guard_sensors);
     telemetry.stall_flags = diag.stall_flags;
     telemetry.erpm_crc_errors = diag.erpm_crc_errors;
     if (ring_due) {
@@ -491,7 +492,7 @@ void loop() {
     apply_tuning(radio_ok && radio_data->armed);
     if (ESPNOW_ENABLED && diag_server.take_pair_request(pair_request)) {
         const bool armed = radio_ok && radio_data->armed;
-        if (pair_request.op == 1) {
+        if (pair_request.op == PairOp::PAIR) {
             espnow.pair(pair_request.mac, armed);
         } else {
             espnow.unpair(pair_request.mac, armed);
@@ -550,10 +551,10 @@ void loop() {
             .orientation_z = ori ? ori->z : 0,
             .pid_setpoint = yaw_controller->setpoint(),
             .pid_output = steer_differential_pct,
-            .vbat = vbat,
-            .ibat = ibat,
-            .yaw_rate = accel->get_yaw_rate_cw_dps(),
-            .yaw_rate_cmd = yaw_loop_active ? yaw_controller->rate_command() : NAN,
+            .pack_volts = vbat,
+            .pack_amps_discharge = ibat,
+            .yaw_rate_cw_dps = accel->get_yaw_rate_cw_dps(),
+            .yaw_rate_cmd_cw_dps = yaw_loop_active ? yaw_controller->rate_command() : NAN,
         };
         publish_diag(diag, radio_data->autonomy_enabled, false, now_ms);
         return;
@@ -588,10 +589,10 @@ void loop() {
             .orientation_z = ori ? ori->z : 0,
             .pid_setpoint = yaw_controller->setpoint(),
             .pid_output = steer_differential_pct,
-            .vbat = vbat,
-            .ibat = ibat,
-            .yaw_rate = accel->get_yaw_rate_cw_dps(),
-            .yaw_rate_cmd = yaw_loop_active ? yaw_controller->rate_command() : NAN,
+            .pack_volts = vbat,
+            .pack_amps_discharge = ibat,
+            .yaw_rate_cw_dps = accel->get_yaw_rate_cw_dps(),
+            .yaw_rate_cmd_cw_dps = yaw_loop_active ? yaw_controller->rate_command() : NAN,
         };
         publish_diag(diag, radio_data->autonomy_enabled, false, now_ms);
         return;
@@ -665,10 +666,10 @@ void loop() {
         .orientation_z = orientation ? orientation->z : 0,
         .pid_setpoint = yaw_controller->setpoint(),
         .pid_output = steer_differential_pct,
-        .vbat = vbat,
-        .ibat = ibat,
-        .yaw_rate = accel->get_yaw_rate_cw_dps(),
-        .yaw_rate_cmd = yaw_loop_active ? yaw_controller->rate_command() : NAN,
+        .pack_volts = vbat,
+        .pack_amps_discharge = ibat,
+        .yaw_rate_cw_dps = accel->get_yaw_rate_cw_dps(),
+        .yaw_rate_cmd_cw_dps = yaw_loop_active ? yaw_controller->rate_command() : NAN,
     };
     publish_diag(diag, radio_data->autonomy_enabled, espnow_active, now_ms);
 }

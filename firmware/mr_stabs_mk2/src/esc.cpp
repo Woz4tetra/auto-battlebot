@@ -26,12 +26,6 @@ void Esc::deinit() {
     initialized = false;
 }
 
-void Esc::write(float signed_percent) {
-    if (!initialized) return;
-    motor->send(esc_map::percent_to_dshot_3d(signed_percent, stop_threshold));
-    take_erpm();
-}
-
 void Esc::stop() {
     if (!initialized) return;
     motor->send(DSHOT_STOP);

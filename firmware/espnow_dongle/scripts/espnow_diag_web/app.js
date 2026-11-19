@@ -29,7 +29,12 @@ const esc = (s) =>
     (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c],
   );
 
-// Rows: [label, value, tone] where tone is "bad", "warn", "good", or falsy.
+const ROW_TONES = new Set(["bad", "warn", "good"]);
+
+function expectedRobotPercents(channelA, channelB, upsideDown) {
+  return [-100 * channelA * (upsideDown ? -1 : 1), 100 * channelB];
+}
+
 function fillRows(id, rows) {
   const el = $(id);
   if (el.childElementCount !== rows.length) {
@@ -41,6 +46,7 @@ function fillRows(id, rows) {
       .join("");
   }
   rows.forEach(([label, value, tone], i) => {
+    if (tone && !ROW_TONES.has(tone)) throw new Error(`unknown row tone: ${tone}`);
     const row = el.children[i];
     row.children[0].textContent = label;
     const v = row.children[2];
@@ -260,13 +266,9 @@ function renderCommand(s) {
   for (const id of ["sliderA", "sliderB"]) $(id).disabled = !c.sending;
   if (!c.sending && (Number($("sliderA").value) || Number($("sliderB").value))) setNeutral();
   const lag = c.robot_seq !== null && c.sending ? c.seq - c.robot_seq : null;
-  // What the robot should report for what the tool is sending: the firmware writes
-  // a_percent = -100 * channel_a and b_percent = 100 * channel_b, then negates a_percent upside
-  // down. A mismatch while ESP-NOW is driving means a sign or mapping error.
   const t = s.telemetry;
   const driving = t && t.espnow_active;
-  const expA = t ? -100 * c.a * (t.is_upside_down ? -1 : 1) : null;
-  const expB = 100 * c.b;
+  const [expA, expB] = t ? expectedRobotPercents(c.a, c.b, t.is_upside_down) : [null, null];
   const mismatch =
     driving && (Math.abs(t.a_percent - expA) > 1.5 || Math.abs(t.b_percent - expB) > 1.5);
   fillRows("cmdRows", [
@@ -304,7 +306,6 @@ function renderCommand(s) {
 }
 
 const FLIP = ["DOWN", "MIDDLE", "UP"];
-// motor_guard::State and motor_guard::Sensors in firmware/mr_stabs_mk2/lib/motor_guard.
 const GUARD_STATE = ["OFF", "NOMINAL", "HOT", "LIMITING", "TRIPPED"];
 const GUARD_SENSORS = ["FUSED", "SHUNT ONLY", "ERPM ONLY", "NONE"];
 const sensor = (v, unit, digits = 2) => (v === null ? "NO SENSOR" : num(v, digits, unit));

@@ -480,11 +480,11 @@ void EspNowLink::fill_status(espnow_status_t &out, uint32_t now_ms) const {
     out.command_age_ms = tracker_.age_ms(now_ms);
     out.command_a = tracker_.latest().channel_a;
     out.command_b = tracker_.latest().channel_b;
-    out.ota_state = ota_state_;
+    out.ota_state = static_cast<espnow_protocol::OtaState>(ota_state_);
     out.validated = validated_;
     out.allowed_count = allowed_count;
     for (uint8_t i = 0; i < out.allowed_count; i++) memcpy(out.allowed[i], allowed_macs[i], 6);
-    out.pair_result = last_pair_result_;
+    out.pair_result = static_cast<pair_result_t>(last_pair_result_);
 }
 
 void EspNowLink::send_frame(const uint8_t *mac, uint8_t type, const void *payload, size_t length) {

@@ -1,3 +1,4 @@
+#include <command_repeater.h>
 #include <command_tracker.h>
 #include <espnow_protocol.h>
 #include <gtest/gtest.h>
@@ -215,4 +216,40 @@ TEST(OtaSequencer, DropsEverythingWhenIdle) {
 int main(int argc, char **argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
+}
+
+TEST(CommandRepeater, RepeatIsByteIdenticalSoRobotCountsItAsRepeat) {
+    CommandRepeater repeater(100, 4000);
+    const uint8_t payload[3] = {1, 2, 3};
+    repeater.on_command(payload, sizeof(payload), 1000, 1000000);
+    const std::vector<uint8_t> first(repeater.frame(), repeater.frame() + repeater.length());
+
+    ASSERT_TRUE(repeater.repeat_due(1004, 1004000));
+    const std::vector<uint8_t> repeat(repeater.frame(), repeater.frame() + repeater.length());
+    EXPECT_EQ(first, repeat);
+}
+
+TEST(CommandRepeater, WaitsOnePeriodBetweenRepeats) {
+    CommandRepeater repeater(100, 4000);
+    const uint8_t payload[1] = {7};
+    repeater.on_command(payload, sizeof(payload), 1000, 1000000);
+
+    EXPECT_FALSE(repeater.repeat_due(1002, 1002000));
+    EXPECT_TRUE(repeater.repeat_due(1004, 1004000));
+    EXPECT_FALSE(repeater.repeat_due(1006, 1006000));
+}
+
+TEST(CommandRepeater, StopsRepeatingOnceHostIsSilent) {
+    CommandRepeater repeater(100, 4000);
+    const uint8_t payload[1] = {7};
+    repeater.on_command(payload, sizeof(payload), 1000, 1000000);
+
+    EXPECT_TRUE(repeater.repeat_due(1099, 1099000));
+    EXPECT_FALSE(repeater.repeat_due(1100, 1100000));
+    EXPECT_FALSE(repeater.commanding(1100));
+}
+
+TEST(CommandRepeater, NeverRepeatsBeforeFirstCommand) {
+    CommandRepeater repeater(100, 4000);
+    EXPECT_FALSE(repeater.repeat_due(10, 10000));
 }

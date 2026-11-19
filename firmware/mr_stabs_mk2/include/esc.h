@@ -17,6 +17,7 @@ class Esc {
     uint32_t last_erpm_ms = 0;
     bool have_erpm = false;
     void take_erpm();
+    void stop();
     static void send_pair(Esc &left, uint16_t left_value, Esc &right, uint16_t right_value);
 
    public:
@@ -24,10 +25,6 @@ class Esc {
     Esc(gpio_num_t pin, rmt_channel_t channel, rmt_channel_t rx_channel);
     bool begin();
     void deinit();
-    void stop();
-    void write(float signed_percent);
-    // Both ESCs at once: the frames go out together, so neither lands on the other ESC's
-    // eRPM reply. Use these, not write() and stop().
     static void write_pair(Esc &left, float left_percent, Esc &right, float right_percent);
     static void stop_pair(Esc &left, Esc &right);
     float duty(float signed_percent) const;

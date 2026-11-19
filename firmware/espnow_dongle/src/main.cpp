@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <WiFi.h>
+#include <command_repeater.h>
 #include <esp_now.h>
 #include <esp_wifi.h>
 #include <espnow_protocol.h>
@@ -10,8 +11,6 @@ using namespace espnow_protocol;
 namespace {
 
 const uint32_t REPEAT_PERIOD_US = 4000;
-// Stop repeating once the Jetson has been quiet this long. Without it the dongle would re-send a
-// dead process's last command forever, and the robot would treat it as live.
 const uint32_t COMMAND_SILENCE_MS = 100;
 const uint32_t LINK_STATS_PERIOD_MS = 100;
 // A send whose callback never arrives would wedge the queue. ESP-NOW reports every send within
@@ -40,11 +39,8 @@ size_t tx_head = 0;
 size_t tx_count = 0;
 uint32_t tx_dropped = 0;
 
-uint8_t command_frame[AIR_MAX_FRAME];
-size_t command_frame_len = 0;
+CommandRepeater command_repeater(COMMAND_SILENCE_MS, REPEAT_PERIOD_US);
 bool command_pending = false;
-uint32_t last_command_serial_ms = 0;
-uint32_t last_repeat_us = 0;
 
 uint8_t robot_mac[6];
 bool robot_known = false;
@@ -175,10 +171,8 @@ void on_serial_frame(void *context, uint8_t type, const uint8_t *payload, uint8_
     (void)context;
     if (type == MSG_COMMAND) {
         if (length != sizeof(CommandPayload)) return;
-        command_frame_len = encode_air_frame(type, payload, length, command_frame);
+        command_repeater.on_command(payload, length, millis(), micros());
         command_pending = true;
-        last_command_serial_ms = millis();
-        last_repeat_us = micros();
         return;
     }
     queue_frame(type, payload, length);
@@ -194,8 +188,8 @@ void service_radio() {
     const uint8_t *data;
     size_t length;
     if (command_pending) {
-        data = command_frame;
-        length = command_frame_len;
+        data = command_repeater.frame();
+        length = command_repeater.length();
         command_pending = false;
     } else if (tx_count > 0) {
         data = tx_queue[tx_head].data;
@@ -224,13 +218,7 @@ void service_radio() {
 }
 
 void service_repeat() {
-    if (command_frame_len == 0) return;
-    if (millis() - last_command_serial_ms >= COMMAND_SILENCE_MS) return;
-    const uint32_t now_us = micros();
-    if (now_us - last_repeat_us < REPEAT_PERIOD_US) return;
-    last_repeat_us = now_us;
-    // Byte-identical copy, seq included. The robot treats an equal seq as a repeat.
-    command_pending = true;
+    if (command_repeater.repeat_due(millis(), micros())) command_pending = true;
 }
 
 void service_receive() {
@@ -288,8 +276,7 @@ void service_led() {
     const uint32_t now = millis();
     if (now - last_led_ms < LED_PERIOD_MS) return;
     last_led_ms = now;
-    const bool commanding =
-        command_frame_len > 0 && now - last_command_serial_ms < COMMAND_SILENCE_MS;
+    const bool commanding = command_repeater.commanding(now);
     const uint8_t level = commanding ? LED_BRIGHT : LED_DIM;
     if (!robot_known) {
         const bool on = (now / 250) % 2 == 0;
@@ -331,7 +318,6 @@ void setup() {
     add_peer(BROADCAST_MAC);
     esp_wifi_config_espnow_rate(WIFI_IF_STA, WIFI_PHY_RATE_6M);
 
-    // Plain text, once. The Jetson's parser skips anything that is not a framed message.
     Serial.printf("\nespnow_dongle mac=%s channel=%u\n", WiFi.macAddress().c_str(), channel);
 }
 

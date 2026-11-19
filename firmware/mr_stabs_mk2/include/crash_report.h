@@ -1,11 +1,12 @@
 #pragma once
 
 #include <Arduino.h>
+#include <esp_system.h>
 
 namespace crash_report {
 
 struct report_t {
-    uint8_t reset_reason;  // esp_reset_reason_t
+    esp_reset_reason_t reset_reason;
     bool has_dump;
     bool dump_checksum_ok;
     uint32_t dump_size;
@@ -23,7 +24,7 @@ void read(report_t &out);
 
 void print(const report_t &report);
 
-const char *reset_reason_name(uint8_t reason);
+const char *reset_reason_name(esp_reset_reason_t reason);
 
 bool erase_dump();
 

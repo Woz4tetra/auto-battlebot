@@ -77,7 +77,7 @@ static void espnow_json(JsonObject out, const espnow_status_t &e, uint32_t snaps
     out["lq"] = e.lq;
     out["command_fresh"] = e.command_fresh;
     out["command_seq"] = e.command_seq;
-    if (e.command_age_ms == UINT32_MAX) {
+    if (e.command_age_ms == COMMAND_AGE_NONE) {
         out["command_age_ms"] = nullptr;
     } else {
         out["command_age_ms"] = e.command_age_ms;
@@ -463,11 +463,11 @@ void DiagnosticsServer::begin(wifi_manager::WifiManager *wifi, const telemetry_r
         portENTER_CRITICAL(&status_mux);
         s = shared_status;
         portEXIT_CRITICAL(&status_mux);
-        request->send(200, "application/json", status_json(s, _scan_requested));
+        request->send(200, "application/json", status_json(s, _scan_request.pending()));
     });
 
     for (const char *path : {"/espnow/pair", "/espnow/unpair"}) {
-        const uint8_t op = strcmp(path, "/espnow/pair") == 0 ? 1 : 2;
+        const PairOp op = strcmp(path, "/espnow/pair") == 0 ? PairOp::PAIR : PairOp::UNPAIR;
         server.on(path, HTTP_POST, [this, op](AsyncWebServerRequest *request) {
             if (_armed) return request->send(409, "text/plain", "disarm to change dongles");
             pair_request_t req = {};
@@ -484,12 +484,12 @@ void DiagnosticsServer::begin(wifi_manager::WifiManager *wifi, const telemetry_r
 
     server.on("/crash/erase", HTTP_POST, [this](AsyncWebServerRequest *request) {
         if (_armed) return request->send(409, "text/plain", "disarm to erase the dump");
-        _erase_dump_requested = true;
+        _erase_dump_request.post();
         request->send(200, "text/plain", "queued");
     });
 
     server.on("/i2c/scan", HTTP_GET, [this](AsyncWebServerRequest *request) {
-        _scan_requested = true;
+        _scan_request.post();
         request->send(200, "text/plain", "ok");
     });
 
@@ -508,9 +508,9 @@ bool DiagnosticsServer::page_open() { return server_started && events.count() > 
 bool DiagnosticsServer::take_pair_request(pair_request_t &out) {
     portENTER_CRITICAL(&pair_mux);
     out = _pair_request;
-    _pair_request.op = 0;
+    _pair_request.op = PairOp::NONE;
     portEXIT_CRITICAL(&pair_mux);
-    return out.op != 0;
+    return out.op != PairOp::NONE;
 }
 
 void DiagnosticsServer::set_status(const sensor_status_t &status) {
@@ -536,11 +536,12 @@ void DiagnosticsServer::update(const diag_data_t *data) {
              data->right_cmd, data->accel_x, data->accel_y, data->accel_z, data->is_upside_down,
              (unsigned long)data->loop_us, data->wifi_clients, data->orientation_x,
              data->orientation_y, data->orientation_z, data->pid_setpoint, data->pid_output,
-             data->vbat, data->ibat, data->yaw_rate, data->yaw_rate_cmd, data->motor_rise_left,
-             data->motor_rise_right, data->motor_speed_left, data->motor_speed_right,
-             data->motor_amps_left, data->motor_amps_right, data->guard_scale, data->guard_gain,
-             data->guard_state, data->guard_sensors, data->stall_flags, data->erpm_crc_errors,
-             (unsigned long)_seq++);
+             data->pack_volts, data->pack_amps_discharge, data->yaw_rate_cw_dps,
+             data->yaw_rate_cmd_cw_dps, data->motor_rise_left_c, data->motor_rise_right_c,
+             data->motor_speed_left_rad_s, data->motor_speed_right_rad_s, data->motor_amps_est_left,
+             data->motor_amps_est_right, data->guard_scale, data->guard_shunt_gain,
+             static_cast<unsigned>(data->guard_state), static_cast<unsigned>(data->guard_sensors),
+             data->stall_flags, data->erpm_crc_errors, (unsigned long)_seq++);
 
     events.send(buf, NULL, now);
 }

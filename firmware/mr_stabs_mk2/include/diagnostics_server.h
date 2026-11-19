@@ -4,10 +4,16 @@
 #include <esc_config.h>
 #include <espnow_protocol.h>
 #include <i2c_bus.h>
+#include <motor_guard.h>
 #include <telemetry_ring.h>
 #include <updown_sensor.h>
 #include <vbat_sensor.h>
 #include <wifi_manager.h>
+
+#include <atomic>
+
+constexpr uint8_t STALL_FLAG_LEFT = 1;
+constexpr uint8_t STALL_FLAG_RIGHT = 2;
 
 typedef struct {
     uint32_t timestamp_ms;
@@ -30,24 +36,35 @@ typedef struct {
     float orientation_z;
     float pid_setpoint;
     float pid_output;
-    float vbat;          // pack volts from the INA238, NaN when absent
-    float ibat;          // pack amps from the INA238, positive discharging, NaN when absent
-    float yaw_rate;      // deg/s clockwise from the gyro
-    float yaw_rate_cmd;  // deg/s clockwise the yaw loop asks for, NaN when it is not running
-    // Motor stall guard, filled by publish_diag() in main.cpp.
-    float motor_rise_left;  // C above ambient, thermal model
-    float motor_rise_right;
-    float motor_speed_left;  // rad/s at the motor, signed, NaN without eRPM
-    float motor_speed_right;
-    float motor_amps_left;  // estimated winding current I_hat
-    float motor_amps_right;
-    float guard_scale;         // 1 passes commands through
-    float guard_gain;          // shunt correction g
-    uint8_t guard_state;       // motor_guard::State
-    uint8_t guard_sensors;     // motor_guard::Sensors
-    uint8_t stall_flags;       // bit 0 left, bit 1 right
-    uint16_t erpm_crc_errors;  // both ESCs summed, from boot
+    float pack_volts;
+    float pack_amps_discharge;
+    float yaw_rate_cw_dps;
+    float yaw_rate_cmd_cw_dps;
+    float motor_rise_left_c;
+    float motor_rise_right_c;
+    float motor_speed_left_rad_s;
+    float motor_speed_right_rad_s;
+    float motor_amps_est_left;
+    float motor_amps_est_right;
+    float guard_scale;
+    float guard_shunt_gain;
+    motor_guard::State guard_state;
+    motor_guard::Sensors guard_sensors;
+    uint8_t stall_flags;
+    uint16_t erpm_crc_errors;
 } diag_data_t;
+
+enum pair_result_t : uint8_t {
+    PAIR_NONE = 0,
+    PAIR_OK = 1,
+    PAIR_ARMED = 2,
+    PAIR_FULL = 3,
+    PAIR_EXISTS = 4,
+    PAIR_NOT_FOUND = 6,
+    PAIR_BAD_MAC = 7,
+};
+
+constexpr uint32_t COMMAND_AGE_NONE = UINT32_MAX;
 
 struct espnow_status_t {
     bool enabled;
@@ -78,30 +95,20 @@ struct espnow_status_t {
     uint8_t lq;
     bool command_fresh;
     uint32_t command_seq;
-    uint32_t command_age_ms;  // UINT32_MAX before the first command
+    uint32_t command_age_ms;
     float command_a;
     float command_b;
-    uint8_t ota_state;  // espnow_protocol::OtaState of the last status sent
-    bool validated;     // OTA_VALIDATED reported for this boot
-    // Paired dongles, from NVS.
+    espnow_protocol::OtaState ota_state;
+    bool validated;
     uint8_t allowed[12][6];
     uint8_t allowed_count;
-    uint8_t pair_result;  // pair_result_t of the last pair or unpair
+    pair_result_t pair_result;
 };
 
-enum pair_result_t : uint8_t {
-    PAIR_NONE = 0,
-    PAIR_OK = 1,
-    PAIR_ARMED = 2,
-    PAIR_FULL = 3,
-    PAIR_EXISTS = 4,
-    PAIR_NOT_FOUND = 6,
-    PAIR_BAD_MAC = 7,
-};
+enum class PairOp : uint8_t { NONE, PAIR, UNPAIR };
 
-// A pair or unpair from the page, applied by loop(), which owns ESP-NOW and NVS writes.
 struct pair_request_t {
-    uint8_t op;  // 0 none, 1 pair, 2 unpair
+    PairOp op;
     uint8_t mac[6];
 };
 
@@ -120,6 +127,16 @@ struct sensor_status_t {
     crash_report::report_t boot;
 };
 
+class LoopFlag {
+   public:
+    void post() { _flag = true; }
+    bool pending() const { return _flag; }
+    bool take() { return _flag.exchange(false); }
+
+   private:
+    std::atomic<bool> _flag{false};
+};
+
 class TuningStore;
 
 using telemetry_ring_t = telemetry_ring::TelemetryRing<espnow_protocol::TelemetryPayload>;
@@ -130,29 +147,20 @@ class DiagnosticsServer {
                TuningStore *tuning = nullptr, esc_config::EscConfig *esc_tuning = nullptr);
     void update(const diag_data_t *data);
     bool page_open();
-    // Copies the snapshot for the /status handler, which runs on the network task.
     void set_status(const sensor_status_t &status);
-    // Set by the page's Rescan button. The loop runs the scan, since it owns the bus.
-    bool scan_requested() const { return _scan_requested; }
-    void clear_scan_request() { _scan_requested = false; }
-    // Set by the page's ALLOW and REMOVE buttons on the ESP-NOW panel. The loop applies it,
-    // since it owns ESP-NOW and the NVS write. False when nothing is pending.
+    bool scan_requested() const { return _scan_request.pending(); }
+    void clear_scan_request() { _scan_request.take(); }
     bool take_pair_request(pair_request_t &out);
-    // Set by the page's ERASE DUMP button. The loop erases it, since it owns flash writes.
-    bool take_erase_dump_request() {
-        const bool requested = _erase_dump_requested;
-        _erase_dump_requested = false;
-        return requested;
-    }
+    bool take_erase_dump_request() { return _erase_dump_request.take(); }
 
    private:
     bool _recording = false;
     uint32_t _last_send_ms = 0;
     uint32_t _seq = 0;
     TuningStore *_tuning = nullptr;
-    volatile bool _scan_requested = false;
+    LoopFlag _scan_request;
     pair_request_t _pair_request = {};
-    volatile bool _erase_dump_requested = false;
+    LoopFlag _erase_dump_request;
     // From the latest update(). WiFi settings writes go to flash, which stalls the loop, so
     // the page can only change them disarmed.
     volatile bool _armed = false;

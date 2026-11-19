@@ -4,7 +4,7 @@
 
 namespace crash_report {
 
-const char *reset_reason_name(uint8_t reason) {
+const char *reset_reason_name(esp_reset_reason_t reason) {
     switch (reason) {
         case ESP_RST_POWERON:
             return "POWERON";
@@ -33,7 +33,7 @@ const char *reset_reason_name(uint8_t reason) {
 
 void read(report_t &out) {
     out = {};
-    out.reset_reason = static_cast<uint8_t>(esp_reset_reason());
+    out.reset_reason = esp_reset_reason();
 
     size_t addr = 0;
     size_t size = 0;
