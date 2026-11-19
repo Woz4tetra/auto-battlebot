@@ -54,7 +54,7 @@ PursuitNavigation::PursuitNavigation(const PursuitNavigationConfiguration &confi
       clock_(std::move(clock)) {}
 
 bool PursuitNavigation::initialize() {
-    committed_turn_sign_ = 0;
+    committed_turn_.reset();
     prev_angle_error_ = 0.0;
     prev_timestamp_ = 0.0;
     last_known_our_pose_.reset();
@@ -131,7 +131,7 @@ VelocityCommand PursuitNavigation::compute_pursuit_command(const Pose2D &our_pos
     const double angle_error = apply_hysteresis(raw_angle_error);
 
     if (distance < stop_distance_m_) {
-        committed_turn_sign_ = 0;
+        committed_turn_.reset();
         prev_angle_error_ = 0.0;
         logger_->debug("pursuit",
                        {{"distance", distance}, {"angle_error_deg", angle_error * 180.0 / M_PI}},
@@ -161,7 +161,8 @@ VelocityCommand PursuitNavigation::compute_pursuit_command(const Pose2D &our_pos
                        {"angle_error_deg", angle_error * 180.0 / M_PI},
                        {"threshold_deg", angle_threshold_ * 180.0 / M_PI},
                        {"facing_target", std::abs(angle_error) < angle_threshold_ ? 1 : 0},
-                       {"turn_commit", committed_turn_sign_},
+                       {"turn_commit",
+                        committed_turn_ ? (*committed_turn_ == TurnDirection::LEFT ? 1 : -1) : 0},
                        {"hazard_count", static_cast<int>(field.hazards.size())},
                        {"hazard_waypoint", hazards_.last_substituted() ? 1 : 0},
                        {"hazard_side", static_cast<int>(hazards_.committed_side())},
@@ -173,7 +174,7 @@ VelocityCommand PursuitNavigation::compute_pursuit_command(const Pose2D &our_pos
 
 double PursuitNavigation::apply_hysteresis(double angle_error) {
     if (!enable_hysteresis_) {
-        committed_turn_sign_ = 0;
+        committed_turn_.reset();
         return angle_error;
     }
 
@@ -186,16 +187,15 @@ double PursuitNavigation::apply_hysteresis(double angle_error) {
     // actuation latency keeps it flipping), so the robot jittered left-right and never completed
     // the turn instead of committing to one direction and rotating through. Only commit when not
     // already committed.
-    if (committed_turn_sign_ == 0) {
+    if (!committed_turn_) {
         if (std::abs(angle_error) > commit_threshold) {
-            committed_turn_sign_ = (angle_error > 0) ? 1 : -1;
+            committed_turn_ = (angle_error > 0) ? TurnDirection::LEFT : TurnDirection::RIGHT;
         }
     } else if (std::abs(angle_error) < release_threshold) {
-        committed_turn_sign_ = 0;
+        committed_turn_.reset();
     }
-
-    if (committed_turn_sign_ != 0 && std::abs(angle_error) > release_threshold) {
-        return std::abs(angle_error) * committed_turn_sign_;
+    if (committed_turn_ && std::abs(angle_error) > release_threshold) {
+        return std::abs(angle_error) * (*committed_turn_ == TurnDirection::LEFT ? 1.0 : -1.0);
     }
     return angle_error;
 }

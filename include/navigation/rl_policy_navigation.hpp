@@ -79,8 +79,6 @@ class RlPolicyNavigation : public NavigationInterface {
 
     int ticks_until_policy_step_ = 0;
     rl_policy::ActionCommand action_;
-    /** Frame of the opponent the policy last saw as its target; EMPTY for none. A change resets
-     * the policy. */
     FrameId target_frame_id_ = FrameId::EMPTY;
     NavigationVisualization last_visualization_;
 };

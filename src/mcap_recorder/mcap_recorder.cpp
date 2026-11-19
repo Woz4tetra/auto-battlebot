@@ -62,11 +62,15 @@ McapRecorder::McapRecorder(const std::string& active_profile) : active_profile_(
 
 McapRecorder::~McapRecorder() { close(); }
 
-void McapRecorder::set_size_limits(uint64_t max_size_gb, uint64_t holding_dir_max_size_gb) {
+void McapRecorder::set_size_limits(std::optional<uint64_t> max_size_gb,
+                                   std::optional<uint64_t> holding_dir_max_size_gb) {
     constexpr uint64_t kBytesPerGb = 1024ULL * 1024ULL * 1024ULL;
     std::lock_guard<std::mutex> lock(mutex_);
-    max_size_bytes_ = max_size_gb * kBytesPerGb;
-    holding_dir_max_size_bytes_ = holding_dir_max_size_gb * kBytesPerGb;
+    max_size_bytes_ =
+        max_size_gb ? std::optional<uint64_t>(*max_size_gb * kBytesPerGb) : std::nullopt;
+    holding_dir_max_size_bytes_ =
+        holding_dir_max_size_gb ? std::optional<uint64_t>(*holding_dir_max_size_gb * kBytesPerGb)
+                                : std::nullopt;
 }
 
 void McapRecorder::set_ignored_topics(const std::vector<std::string>& topics) {
@@ -155,9 +159,9 @@ bool McapRecorder::past_size_limit() const {
     uint64_t max_size_bytes = 0;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        if (max_size_bytes_ == 0 || !enabled_) return false;
+        if (!max_size_bytes_ || !enabled_) return false;
         path = file_path_;
-        max_size_bytes = max_size_bytes_;
+        max_size_bytes = *max_size_bytes_;
     }
     std::error_code ec;
     const auto size = std::filesystem::file_size(path, ec);
@@ -265,26 +269,27 @@ void McapRecorder::writer_loop() {
         written_cv_.notify_all();
 
         const auto now = std::chrono::steady_clock::now();
-        if (dropped > dropped_reported_ && now - last_drop_report >= kDropReportInterval) {
+        if (dropped > writer_state_.dropped_reported &&
+            now - last_drop_report >= kDropReportInterval) {
             spdlog::warn("[McapRecorder] Write queue full: dropped {} messages ({} total)",
-                         dropped - dropped_reported_, dropped);
-            dropped_reported_ = dropped;
+                         dropped - writer_state_.dropped_reported, dropped);
+            writer_state_.dropped_reported = dropped;
             last_drop_report = now;
         }
     }
-    if (writer_) close_file();
+    if (writer_state_.writer) close_file();
 }
 
 void McapRecorder::handle(OpenOp& op) {
-    if (writer_) close_file();
+    if (writer_state_.writer) close_file();
     enforce_holding_dir_size(op.path.parent_path());
 
     std::error_code ec;
     std::filesystem::create_directories(op.path.parent_path(), ec);
-    context_ = foxglove::Context::create();
+    writer_state_.context = foxglove::Context::create();
     const std::string path_string = op.path.string();
     foxglove::McapWriterOptions opts;
-    opts.context = context_;
+    opts.context = writer_state_.context;
     opts.path = path_string;
     opts.compression = foxglove::McapCompression::None;
     auto writer = foxglove::McapWriter::create(opts);
@@ -300,13 +305,14 @@ void McapRecorder::handle(OpenOp& op) {
                       foxglove::strerror(writer.error()));
         return;
     }
-    writer_.emplace(std::move(writer.value()));
-    open_path_ = op.path;
-    channels_.clear();
-    channel_failed_.clear();
-    write_failures_ = 0;
+    writer_state_.writer.emplace(std::move(writer.value()));
+    writer_state_.open_path = op.path;
+    writer_state_.channels.clear();
+    writer_state_.channel_failed.clear();
+    writer_state_.write_failures = 0;
 
-    auto status = writer_->writeMetadata("auto_battlebot", op.metadata.begin(), op.metadata.end());
+    auto status = writer_state_.writer->writeMetadata("auto_battlebot", op.metadata.begin(),
+                                                      op.metadata.end());
     if (status != foxglove::FoxgloveError::Ok) {
         spdlog::warn("[McapRecorder] Failed to write metadata: {}", foxglove::strerror(status));
     }
@@ -315,27 +321,28 @@ void McapRecorder::handle(OpenOp& op) {
 }
 
 void McapRecorder::handle(CloseOp&) {
-    if (writer_) close_file();
+    if (writer_state_.writer) close_file();
 }
 
 void McapRecorder::handle(WriteOp& op) {
-    if (!writer_) return;
+    if (!writer_state_.writer) return;
     foxglove::RawChannel* channel = channel_for(op.channel);
     if (!channel) return;
     auto status = channel->log(op.data.data(), op.data.size(), op.log_time_ns);
     if (status == foxglove::FoxgloveError::Ok) return;
     // Logged once per file and counted after. A disk error repeats every message, and each log
     // line is itself a /log message headed for the same failing file.
-    if (write_failures_++ == 0) {
+    if (writer_state_.write_failures++ == 0) {
         spdlog::warn("[McapRecorder] Write to {} failed: {}. Counting further failures.",
-                     open_path_.string(), foxglove::strerror(status));
+                     writer_state_.open_path.string(), foxglove::strerror(status));
     }
 }
 
 void McapRecorder::handle(MetadataOp& op) {
-    if (!writer_) return;
+    if (!writer_state_.writer) return;
     std::vector<std::pair<std::string, std::string>> single = {{op.key, op.value}};
-    auto status = writer_->writeMetadata("auto_battlebot", single.begin(), single.end());
+    auto status =
+        writer_state_.writer->writeMetadata("auto_battlebot", single.begin(), single.end());
     if (status != foxglove::FoxgloveError::Ok) {
         spdlog::warn("[McapRecorder] Failed to write {} metadata: {}", op.key,
                      foxglove::strerror(status));
@@ -344,12 +351,12 @@ void McapRecorder::handle(MetadataOp& op) {
 
 foxglove::RawChannel* McapRecorder::channel_for(ChannelId id) {
     if (id == 0) return nullptr;
-    if (channels_.size() < id) {
-        channels_.resize(id);
-        channel_failed_.resize(id, false);
+    if (writer_state_.channels.size() < id) {
+        writer_state_.channels.resize(id);
+        writer_state_.channel_failed.resize(id, false);
     }
-    if (channels_[id - 1]) return channels_[id - 1].get();
-    if (channel_failed_[id - 1]) return nullptr;
+    if (writer_state_.channels[id - 1]) return writer_state_.channels[id - 1].get();
+    if (writer_state_.channel_failed[id - 1]) return nullptr;
 
     ChannelSpec spec;
     {
@@ -359,43 +366,45 @@ foxglove::RawChannel* McapRecorder::channel_for(ChannelId id) {
     }
     std::optional<foxglove::Schema> sdk_schema;
     if (!spec.schema.name.empty()) sdk_schema = spec.schema.to_sdk();
-    auto created =
-        foxglove::RawChannel::create(spec.topic, spec.message_encoding, sdk_schema, context_);
+    auto created = foxglove::RawChannel::create(spec.topic, spec.message_encoding, sdk_schema,
+                                                writer_state_.context);
     if (!created.has_value()) {
-        channel_failed_[id - 1] = true;
+        writer_state_.channel_failed[id - 1] = true;
         spdlog::error("[McapRecorder] Failed to open channel {}: {}", spec.topic,
                       foxglove::strerror(created.error()));
         return nullptr;
     }
-    channels_[id - 1] = std::make_unique<foxglove::RawChannel>(std::move(created.value()));
-    return channels_[id - 1].get();
+    writer_state_.channels[id - 1] =
+        std::make_unique<foxglove::RawChannel>(std::move(created.value()));
+    return writer_state_.channels[id - 1].get();
 }
 
 void McapRecorder::close_file() {
-    for (auto& channel : channels_) {
+    for (auto& channel : writer_state_.channels) {
         if (channel) channel->close();
     }
-    channels_.clear();
-    channel_failed_.clear();
-    auto status = writer_->close();
-    writer_.reset();
+    writer_state_.channels.clear();
+    writer_state_.channel_failed.clear();
+    auto status = writer_state_.writer->close();
+    writer_state_.writer.reset();
     if (status != foxglove::FoxgloveError::Ok) {
-        spdlog::warn("[McapRecorder] Closing {}: {}", open_path_.string(),
+        spdlog::warn("[McapRecorder] Closing {}: {}", writer_state_.open_path.string(),
                      foxglove::strerror(status));
     }
-    if (write_failures_ > 0) {
-        spdlog::warn("[McapRecorder] {} writes to {} failed", write_failures_, open_path_.string());
+    if (writer_state_.write_failures > 0) {
+        spdlog::warn("[McapRecorder] {} writes to {} failed", writer_state_.write_failures,
+                     writer_state_.open_path.string());
     }
-    spdlog::info("[McapRecorder] Closed {}", open_path_.string());
+    spdlog::info("[McapRecorder] Closed {}", writer_state_.open_path.string());
 }
 
 void McapRecorder::enforce_holding_dir_size(const std::filesystem::path& directory) {
-    uint64_t limit = 0;
+    std::optional<uint64_t> limit;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         limit = holding_dir_max_size_bytes_;
     }
-    if (limit == 0) return;
+    if (!limit) return;
     std::error_code ec;
     if (!std::filesystem::exists(directory, ec)) return;
 
@@ -419,7 +428,7 @@ void McapRecorder::enforce_holding_dir_size(const std::filesystem::path& directo
     uintmax_t total = 0;
     for (const auto& file : files) total += file.size;
     for (const auto& file : files) {
-        if (total <= limit) break;
+        if (total <= *limit) break;
         std::error_code remove_ec;
         if (std::filesystem::remove(file.path, remove_ec)) {
             spdlog::info("[McapRecorder] Deleted the oldest recording to free space: {}",
@@ -434,7 +443,11 @@ std::shared_ptr<McapRecorder> make_mcap_recorder(const McapRecorderConfig& confi
     if (!config.enable) return nullptr;
     auto recorder = std::make_shared<McapRecorder>(active_profile);
     recorder->set_ignored_topics(config.ignored_topics);
-    recorder->set_size_limits(config.max_size_gb, config.holding_dir_max_size_gb);
+    const auto limit_or_none = [](uint64_t gb) -> std::optional<uint64_t> {
+        return gb == 0 ? std::nullopt : std::optional<uint64_t>(gb);
+    };
+    recorder->set_size_limits(limit_or_none(config.max_size_gb),
+                              limit_or_none(config.holding_dir_max_size_gb));
     return recorder;
 }
 

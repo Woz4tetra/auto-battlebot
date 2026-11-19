@@ -3,12 +3,15 @@
 
 #include <cmath>
 #include <memory>
+#include <sstream>
 #include <string>
+#include <vector>
 
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "navigation/config.hpp"
 #include "navigation/rl_policy_navigation.hpp"
 #include "rl_policy/bundle_writer.hpp"
+#include "rl_policy/runtimes/rtneural_runtime.hpp"
 #include "robot_filter/config.hpp"
 #include "time/manual_clock.hpp"
 #include "transform_utils.hpp"
@@ -228,6 +231,68 @@ TEST(RlPolicyNavigationConfigTest, TheHazardBarrierNeedsAPlant) {
     RlPolicyNavigationConfiguration config = config_for(rl_test::constant_bundle());
     config.hazard_barrier_enable = true;
     EXPECT_THROW(config.apply_plant(PlantConfiguration{}), ConfigValidationError);
+}
+
+std::filesystem::path write_gru_bundle(const std::string &name) {
+    constexpr int kObsSize = 138;
+    const auto dir = rl_test::fresh_dir(name);
+    std::ostringstream kernel;
+    kernel << "[";
+    for (int i = 0; i < kObsSize; ++i) {
+        kernel << (i > 0 ? ", " : "")
+               << (i == kOurSpeed ? "[0.5, -0.4, 0.3, 0.2, 0.6, -0.7]" : "[0, 0, 0, 0, 0, 0]");
+    }
+    kernel << "]";
+    rl_test::write_text(
+        dir / "actor.rtneural.json",
+        R"({"in_shape": [null, null, 138], "layers": [{"type": "gru", "activation": "", )"
+        R"("shape": [null, null, 2], "weights": [)" +
+            kernel.str() +
+            R"(, [[0.7, 0.2, -0.6, 0.4, -0.3, 0.5], [0.1, -0.9, 0.3, 0.6, 0.2, -0.4]],)"
+            R"([[0.05, -0.05, 0.1, 0.0, 0.02, -0.03], [0.0, 0.04, -0.02, 0.01, 0.0, 0.06]]]},)"
+            R"({"type": "dense", "activation": "", "shape": [null, null, 2], "weights": [)"
+            R"([[1.2, -0.8], [0.6, 1.1]], [0.1, -0.2]]}]})");
+
+    rl_policy::RtNeuralRuntime runtime;
+    rl_policy::NetworkSpec spec;
+    spec.name = "actor";
+    spec.file = dir / "actor.rtneural.json";
+    spec.inputs = {rl_policy::TensorSpec{"obs.vector", {kObsSize}}};
+    spec.outputs = {rl_policy::TensorSpec{"action", {2}}};
+    runtime.load(spec);
+    std::vector<float> observations(2 * kObsSize, 0.0f);
+    observations[kOurSpeed] = 0.8f;
+    observations[kObsSize + kOurSpeed] = -0.5f;
+    std::vector<float> actions;
+    for (int p = 0; p < 2; ++p) {
+        runtime.reset();
+        runtime.inputs()[0].data.assign(observations.begin() + p * kObsSize,
+                                        observations.begin() + (p + 1) * kObsSize);
+        runtime.run();
+        for (float raw : runtime.outputs()[0].data) actions.push_back(std::tanh(raw));
+    }
+    rl_test::write_selftest(dir / "selftest.bin", 2, kObsSize, 2, observations, actions);
+    rl_test::write_text(dir / "manifest.toml",
+                        rl_test::network_manifest(1, kObsSize, "obs.vector", 1));
+    return dir;
+}
+
+TEST(RlPolicyNavigationTest, TargetChangeResetsPolicy) {
+    auto nav = make_nav(config_for(write_gru_bundle("nav_gru")));
+    nav->initialize();
+    const auto tick = [&](FrameId opponent) {
+        RobotDescription our = robot_at(FrameId::OUR_ROBOT_1, 0.0, 0.0);
+        our.velocity = Velocity2D{2.0, 0.0, 0.0};
+        return nav->update(robots_of({our, robot_at(opponent, 1.0, 0.0)}), field(),
+                           TargetSelection{});
+    };
+    const VelocityCommand first = tick(FrameId::THEIR_ROBOT_1);
+    const VelocityCommand second = tick(FrameId::THEIR_ROBOT_1);
+    ASSERT_NE(first.forward_mps, second.forward_mps) << "the policy carries no recurrent state";
+
+    const VelocityCommand switched = tick(FrameId::THEIR_ROBOT_2);
+    EXPECT_DOUBLE_EQ(switched.forward_mps, first.forward_mps)
+        << "the policy kept the previous opponent's hidden state";
 }
 
 TEST(RlPolicyNavigationTest, StepsThePolicyEveryPeriodAndHoldsTheActionBetween) {

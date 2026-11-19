@@ -14,6 +14,7 @@
 #include <map>
 #include <mcap/reader.hpp>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <thread>
@@ -29,6 +30,7 @@ struct FileContents {
     bool has_summary = false;
     std::map<std::string, int> count_by_topic;
     std::map<std::string, std::string> metadata;
+    std::map<std::string, int> metadata_count;
 };
 
 FileContents read_file(const std::filesystem::path &path) {
@@ -45,7 +47,10 @@ FileContents read_file(const std::filesystem::path &path) {
     mcap::FileStreamReader data_source(stream);
     mcap::TypedRecordReader record_reader(data_source, 8);
     record_reader.onMetadata = [&out](const mcap::Metadata &metadata, mcap::ByteOffset) {
-        for (const auto &[key, value] : metadata.metadata) out.metadata[key] = value;
+        for (const auto &[key, value] : metadata.metadata) {
+            out.metadata[key] = value;
+            ++out.metadata_count[key];
+        }
     };
     while (record_reader.next() && record_reader.status().ok()) {
     }
@@ -95,6 +100,9 @@ class ScopedHookLogger {
 }  // namespace
 
 struct McapRecorderTestAccess {
+    static std::filesystem::path make_file_path(const std::string &profile, int segment) {
+        return McapRecorder::make_file_path(profile, segment);
+    }
     static void hold_writer(McapRecorder &recorder, bool hold) {
         {
             std::lock_guard<std::mutex> lock(recorder.mutex_);
@@ -351,7 +359,7 @@ TEST_F(McapRecorderToggleTest, FullQueueDropsVideoAndKeepsStatus) {
 
 TEST_F(McapRecorderToggleTest, PastSizeLimitIsFalseWhileTheNewFileIsNotCreatedYet) {
     McapRecorder recorder("toggle_limit_test");
-    recorder.set_size_limits(1, 0);
+    recorder.set_size_limits(1, std::nullopt);
     recorder.set_enabled(false);
     recorder.flush();
     McapRecorderTestAccess::hold_writer(recorder, true);
@@ -441,12 +449,86 @@ TEST_F(McapRecorderToggleTest, HoldingDirectoryScanSurvivesAnUnreadableEntry) {
     std::filesystem::create_symlink(loop.filename(), loop, ec);
     ASSERT_FALSE(ec);
     paths_.push_back(loop);
-    recorder.set_size_limits(0, 1);
+    recorder.set_size_limits(std::nullopt, 1);
     recorder.set_enabled(false);
     recorder.set_enabled(true);
     paths_.push_back(recorder.file_path());
     recorder.flush();
     EXPECT_TRUE(recorder.is_enabled());
+    recorder.close();
+}
+
+TEST_F(McapRecorderToggleTest, SetEnabledRefusesAPathACameraIsReplaying) {
+    McapRecorder recorder("toggle_replay_test");
+    paths_.push_back(recorder.file_path());
+    ASSERT_TRUE(recorder.set_enabled(false));
+    recorder.flush();
+    bool refused = false;
+    for (int attempt = 0; attempt < 3 && !refused; ++attempt) {
+        for (int part = 0; part < 10; ++part) {
+            McapRecorder::reserve_input_path(
+                McapRecorderTestAccess::make_file_path("toggle_replay_test", part));
+        }
+        refused = !recorder.set_enabled(true);
+        if (!refused) {
+            paths_.push_back(recorder.file_path());
+            ASSERT_TRUE(recorder.set_enabled(false));
+        }
+    }
+    EXPECT_TRUE(refused) << "recording opened a file a camera is replaying from";
+    EXPECT_FALSE(recorder.is_enabled());
+}
+
+TEST_F(McapRecorderToggleTest, PartSuffixSkipsPathsTheWriterHasNotCreatedYet) {
+    McapRecorder recorder("toggle_part_test");
+    paths_.push_back(recorder.file_path());
+    recorder.flush();
+    McapRecorderTestAccess::hold_writer(recorder, true);
+    std::set<std::filesystem::path> unique{recorder.file_path()};
+    for (int i = 0; i < 3; ++i) {
+        ASSERT_TRUE(recorder.set_enabled(false));
+        ASSERT_TRUE(recorder.set_enabled(true));
+        EXPECT_TRUE(unique.insert(recorder.file_path()).second)
+            << "a path was handed out twice before the writer created the first";
+    }
+    McapRecorderTestAccess::hold_writer(recorder, false);
+    recorder.close();
+    paths_.insert(paths_.end(), unique.begin(), unique.end());
+}
+
+TEST_F(McapRecorderToggleTest, MetadataAddedAfterToggleIsWrittenOnce) {
+    McapRecorder recorder("toggle_metadata_test");
+    paths_.push_back(recorder.file_path());
+    recorder.flush();
+    ASSERT_TRUE(recorder.set_enabled(false));
+    recorder.write_metadata("before_toggle", "a");
+    McapRecorderTestAccess::hold_writer(recorder, true);
+    ASSERT_TRUE(recorder.set_enabled(true));
+    const std::filesystem::path second = recorder.file_path();
+    paths_.push_back(second);
+    recorder.write_metadata("after_toggle", "b");
+    McapRecorderTestAccess::hold_writer(recorder, false);
+    recorder.close();
+
+    FileContents contents = read_file(second);
+    EXPECT_EQ(contents.metadata_count["before_toggle"], 1);
+    EXPECT_EQ(contents.metadata_count["after_toggle"], 1);
+}
+
+TEST_F(McapRecorderToggleTest, FailedChannelLogsOncePerFile) {
+    McapRecorder recorder("toggle_bad_channel_test");
+    paths_.push_back(recorder.file_path());
+    const auto bad = recorder.open_channel("/bad\xff", "json", empty_json_schema());
+    recorder.flush();
+    std::atomic<int> logged{0};
+    {
+        ScopedHookLogger hook([&logged](const std::string &message) {
+            if (message.find("Failed to open channel") != std::string::npos) ++logged;
+        });
+        for (uint64_t i = 1; i <= 20; ++i) write_one(recorder, bad, i);
+        recorder.flush();
+    }
+    EXPECT_EQ(logged.load(), 1) << "a channel that cannot be created logged once per message";
     recorder.close();
 }
 

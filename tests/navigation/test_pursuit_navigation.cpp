@@ -332,6 +332,36 @@ TEST_F(PursuitNavigationTest, TurnsWhenTargetBehind) {
     EXPECT_NE(cmd.yaw_rate_radps, 0.0);
 }
 
+TEST_F(PursuitNavigationTest, TurnLatchHoldsBehindTarget) {
+    RobotDescriptionsStamped robots;
+    robots.descriptions.push_back(make_robot_with_frame(Label::MR_STABS_MK1, FrameId::OUR_ROBOT_1,
+                                                        Group::OURS, 0.0, 0.0, 0.0));
+    FieldDescription field = make_field(4.0, 4.0);
+    const double behind_left = 170.0 * M_PI / 180.0;
+    const double behind_right = -170.0 * M_PI / 180.0;
+
+    VelocityCommand first =
+        nav_->update(robots, field, make_target(std::cos(behind_left), std::sin(behind_left)));
+    VelocityCommand second =
+        nav_->update(robots, field, make_target(std::cos(behind_right), std::sin(behind_right)));
+
+    ASSERT_GT(first.yaw_rate_radps, 0.0);
+    EXPECT_GT(second.yaw_rate_radps, 0.0) << "the turn flipped sign while the target sat behind";
+}
+
+TEST_F(PursuitNavigationTest, NoForwardSpeedUnlessFacingTarget) {
+    RobotDescriptionsStamped robots;
+    robots.descriptions.push_back(make_robot_with_frame(Label::MR_STABS_MK1, FrameId::OUR_ROBOT_1,
+                                                        Group::OURS, 0.0, 0.0, 0.0));
+    FieldDescription field = make_field(4.0, 4.0);
+    const double beyond_threshold = config_.angle_threshold + 0.02;
+
+    VelocityCommand cmd = nav_->update(
+        robots, field, make_target(std::cos(beyond_threshold), std::sin(beyond_threshold)));
+
+    EXPECT_DOUBLE_EQ(cmd.forward_mps, 0.0) << "drove forward while not facing the target";
+}
+
 TEST_F(PursuitNavigationTest, StopsAtTarget) {
     RobotDescriptionsStamped robots;
     // Our robot very close to target (within stop_distance_m = 0.1)

@@ -28,7 +28,7 @@ Two aim layers and one speed rule.
 
 - The aim layers (`steer_around`, plus the goal push-out the controllers run in `clamp_to_field`) plan against the fat inflated radius.
 - The speed rule (`limit_command`) is a directional velocity barrier against the thin `hard_radius`. Per hazard, the velocity component toward it may not exceed gap / (tau_decel + delay), which is the stopping envelope the plant can follow.
-- The speed rule applies to the final command against measured speed, so neither the angle gate nor a wall reverse can carry the robot in.
+- The speed rule applies to the final command, after the angle gate and the wall reverse, against the measured forward speed `v_actual` (m/s, signed along the heading). Callers pass the same held value the speed loop uses, so a stale track does not feed the barrier garbage. The placement is the point: the 2026-08-28 AER recording showed a brake on the reference speed never reaches the plant when the angle gate zeroes that channel, so the robot coasted into the hole with the brake logged as active. Neither the angle gate nor a wall reverse can carry the robot in.
 - One rule replaced the old steering speed cap, the stop-at-rim brake, and the fixed hazard reverse, after the 2026-08-28 AER recording showed all three losing to a blocked-push spin-up and an angle-gated coast. It composes across hazards: each hazard only constrains the velocity component toward itself, so backing away from one is automatically speed-limited by the one behind.
 - The only cross-tick state is the latched pass side, so the robot does not re-pick a side every tick and cut back across the hazard it was rounding.
 
@@ -81,3 +81,7 @@ Per hazard, the approach bound is `(gap - max(v_approach, 0) * delay) / horizon`
 - Inside a hazard ahead and one behind, the forward limit demands reverse and the rear limit demands forward. No command satisfies both, so the barrier splits the violation, which comes out as a stop.
 - Pursuit builds the shared settings without a plant fit, so speeds are zero. The barrier is a pass-through there instead of dividing by zero.
 - The barrier has an enable switch so a baseline sweep can measure the failure mode with it off.
+- `horizon` is `tau_lin_d + delay_s`, the same first-order envelope the goal brake schedule inverts, and `delay` is `delay_s`. `MotionProfileNavigation` and `RlPolicyNavigation` fill `k_fwd`, `k_rev`, `horizon` and `delay` from the plant fit.
+- `HazardBarrierResult::approach_speed_bound_mps` is the tightest bound any hazard imposed. Negative means the robot is inside a hard radius and must retreat. Infinity means nothing constrained.
+- Inside a hard radius the bound is negative, which restates the old reverse backstop: an exit command scaled by depth, directed away from the centre, and limited by whatever other hazard lies on the exit path.
+- Recovery sign follows the hazard's bearing, never the robot's forward axis, so a rear-first approach to a hole is answered with forward drive. `HazardBarrierTest.RearFirstApproachDrivesForwardNotFurtherBack` pins it.

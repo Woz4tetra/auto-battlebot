@@ -286,7 +286,7 @@ TEST(HazardBarrierTest, NearHazardTapersThrustWithTheGap) {
     EXPECT_TRUE(result.engaged);
     EXPECT_FALSE(result.braking);
     EXPECT_NEAR(cmd.forward_mps, 0.4, kTol);
-    EXPECT_NEAR(result.bound_mps, 2.0, kTol);
+    EXPECT_NEAR(result.approach_speed_bound_mps, 2.0, kTol);
 }
 
 TEST(HazardBarrierTest, MeasuredExcessCommandsReverseThroughAZeroCommand) {
@@ -310,7 +310,16 @@ TEST(HazardBarrierTest, InsideTheHardRadiusReversesProportionallyToDepth) {
     EXPECT_TRUE(result.engaged);
     EXPECT_TRUE(result.braking);
     EXPECT_NEAR(cmd.forward_mps, -0.75, kTol);
-    EXPECT_LT(result.bound_mps, 0.0);
+    EXPECT_LT(result.approach_speed_bound_mps, 0.0);
+}
+
+TEST(HazardBarrierTest, RearFirstApproachDrivesForwardNotFurtherBack) {
+    HazardAvoidance avoidance(barrier_settings());
+    const FieldDescription field = field_with({hazard(-0.8, 0.0, 0.4)});
+    VelocityCommand cmd{0.0, 0.0, 0.0};
+    const auto result = avoidance.limit_command(pose(0.0, 0.0, 0.0), field, -3.0, cmd);
+    EXPECT_TRUE(result.braking);
+    EXPECT_GT(cmd.forward_mps, 0.0) << "a rear-first approach was answered by backing in further";
 }
 
 TEST(HazardBarrierTest, ReverseTowardAHazardBehindIsLimited) {

@@ -233,11 +233,12 @@ VelocityCommand RlPolicyNavigation::update(RobotDescriptionsStamped robots, Fiel
             hazards_->limit_command(footprint_center(our_pose, our_robot->footprint_center_offset),
                                     field, v_actual, command);
         if (barrier.engaged) {
-            logger_->debug("hazard_barrier", {{"policy_linear", action_.linear},
-                                              {"linear", command.forward_mps},
-                                              {"v_actual", v_actual},
-                                              {"braking", barrier.braking ? 1 : 0},
-                                              {"bound", std::min(barrier.bound_mps, 99.0)}});
+            logger_->debug("hazard_barrier",
+                           {{"policy_linear", action_.linear},
+                            {"linear", command.forward_mps},
+                            {"v_actual", v_actual},
+                            {"braking", barrier.braking ? 1 : 0},
+                            {"bound", std::min(barrier.approach_speed_bound_mps, 99.0)}});
         }
     }
     last_visualization_.path =

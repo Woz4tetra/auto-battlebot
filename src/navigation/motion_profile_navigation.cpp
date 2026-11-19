@@ -264,7 +264,7 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
                        {"hazard_side", static_cast<int>(hazards_.committed_side())},
                        {"hazard_barrier_engaged", barrier.engaged ? 1 : 0},
                        {"hazard_barrier_braking", barrier.braking ? 1 : 0},
-                       {"hazard_barrier_bound", std::min(barrier.bound_mps, 99.0)},
+                       {"hazard_barrier_bound", std::min(barrier.approach_speed_bound_mps, 99.0)},
                        {"target_x_steered", clamped_target.x},
                        {"target_y_steered", clamped_target.y},
                    });

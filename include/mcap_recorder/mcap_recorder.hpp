@@ -39,25 +39,16 @@ class McapRecorder {
     McapRecorder(const McapRecorder&) = delete;
     McapRecorder& operator=(const McapRecorder&) = delete;
 
-    /** Zero for either disables that limit. */
-    void set_size_limits(uint64_t max_size_gb, uint64_t holding_dir_max_size_gb);
+    void set_size_limits(std::optional<uint64_t> max_size_gb,
+                         std::optional<uint64_t> holding_dir_max_size_gb);
     void set_ignored_topics(const std::vector<std::string>& topics);
-    /** Off queues closing the current file, which is then complete and safe to download while
-     *  the app runs; flush() waits for that. On picks a new timestamped file and queues opening
-     *  it with every channel and the metadata re-declared. False after close(), or when the new
-     *  path is one a camera is replaying from. A file that fails to open turns recording off and
-     *  is logged by the writer thread. */
     bool set_enabled(bool enabled);
     bool is_enabled() const;
     bool records_topic(const std::string& topic) const;
-    /** Stops recording, writes out everything queued, and joins the writer thread. Final: a late
-     *  UI toggle after shutdown cannot start a new file. */
     void close();
     void flush();
     bool past_size_limit() const;
 
-    /** Register a topic. Idempotent per topic. The id stays valid across files: a topic
-     *  registered while recording is off gets its channel when the next file opens. */
     ChannelId open_channel(const std::string& topic, const std::string& message_encoding,
                            const VizSchema& schema);
 
@@ -65,15 +56,10 @@ class McapRecorder {
 
     void write_metadata(const std::string& key, const std::string& value);
 
-    /** Refuse to record over a file something is reading. With video in the main MCAP, a replay
-     *  with recording on reads file A and writes file B, and pointing the output at the input
-     *  would corrupt the source. The guard belongs here rather than in config, where it would be
-     *  one merge away from being wrong. */
     static void reserve_input_path(const std::filesystem::path& path);
 
     std::filesystem::path file_path() const;
 
-    /** Messages write() refused because the queue was at its cap. */
     uint64_t dropped_messages() const;
 
     std::optional<double> file_age_s() const;
@@ -83,7 +69,6 @@ class McapRecorder {
 
     struct OpenOp {
         std::filesystem::path path;
-        /** Snapshot at the toggle, so a key added after it arrives once, as its own MetadataOp. */
         std::vector<std::pair<std::string, std::string>> metadata;
     };
     struct CloseOp {};
@@ -106,11 +91,7 @@ class McapRecorder {
 
     static std::filesystem::path make_file_path(const std::string& active_profile, int segment);
     static bool is_reserved(const std::filesystem::path& path);
-    /** Queue opening a new file. False, with the path in `refused`, when a camera is replaying
-     *  from that path. Caller holds mutex_. */
     bool start_file_locked(std::filesystem::path& refused);
-    /** make_file_path() with the current time, suffixed _partNN past any file already there or
-     *  already handed out, since the writer may not have created the last one yet. */
     std::filesystem::path next_file_path_locked();
     void push_locked(Op op, size_t bytes);
 
@@ -125,7 +106,6 @@ class McapRecorder {
 
     std::string active_profile_;
 
-    // Shared, guarded by mutex_.
     mutable std::mutex mutex_;
     std::condition_variable work_cv_;
     std::condition_variable written_cv_;
@@ -146,19 +126,19 @@ class McapRecorder {
     std::unordered_map<std::string, ChannelId> channel_by_topic_;
     std::unordered_set<std::string> ignored_topics_;
     std::vector<std::pair<std::string, std::string>> metadata_;
-    uint64_t max_size_bytes_ = 0;
-    uint64_t holding_dir_max_size_bytes_ = 0;
+    std::optional<uint64_t> max_size_bytes_;
+    std::optional<uint64_t> holding_dir_max_size_bytes_;
 
-    // Writer thread only.
-    foxglove::Context context_;
-    std::optional<foxglove::McapWriter> writer_;
-    std::filesystem::path open_path_;
-    std::vector<std::unique_ptr<foxglove::RawChannel>> channels_;
-    /** Channels that failed to create in this file, so a bad schema is logged once, not per
-     *  message. */
-    std::vector<bool> channel_failed_;
-    uint64_t write_failures_ = 0;
-    uint64_t dropped_reported_ = 0;
+    struct WriterThreadState {
+        foxglove::Context context;
+        std::optional<foxglove::McapWriter> writer;
+        std::filesystem::path open_path;
+        std::vector<std::unique_ptr<foxglove::RawChannel>> channels;
+        std::vector<bool> channel_failed;
+        uint64_t write_failures = 0;
+        uint64_t dropped_reported = 0;
+    };
+    WriterThreadState writer_state_;
 
     std::mutex join_mutex_;
     std::thread writer_thread_;

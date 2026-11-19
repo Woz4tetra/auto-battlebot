@@ -35,12 +35,6 @@ class MotionProfileNavigation : public NavigationInterface {
 
     double terminal_velocity_for(BehaviorMode mode) const;
 
-    /**
-     * @brief Our signed forward speed (m/s): the filter's field-frame velocity projected onto our
-     * heading. Returns nullopt when the estimate carries no measurement, which is the case on a
-     * stale track (the filter is dead-reckoning our own command) or when our robot is missing
-     * entirely.
-     */
     std::optional<double> measure_forward_speed(const RobotDescription &robot,
                                                 const Pose2D &our_pose) const;
 
@@ -119,11 +113,6 @@ class MotionProfileNavigation : public NavigationInterface {
     Position2D our_footprint_center_offset_;
     double last_measured_speed_ = 0.0;
     double prev_w_ref_ = 0.0;
-    /**
-     * Previous tick's commands BEFORE coupling compensation, which is what each channel's coupling
-     * term reads. Using the compensated values instead closes a positive feedback loop between the
-     * two compensations whose measured gain is above 1: both channels saturate within a few ticks.
-     */
     double prev_linear_uncompensated_ = 0.0;
     double prev_angular_uncompensated_ = 0.0;
     BehaviorMode last_tick_mode_ = BehaviorMode::ATTACK;

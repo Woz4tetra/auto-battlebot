@@ -230,6 +230,7 @@ TEST_F(MotionProfileModeTest, ModeFlipResetsTheTrajectory) {
 
 class MotionProfileGateTest : public MotionProfileModeTest {
    protected:
+    static constexpr double kCoastingTowardHazardMps = 3.0;
     VelocityCommand step(MotionProfileNavigation &nav, double time_s, double target_x,
                          double target_y, BehaviorMode mode, double vx = 0.0, bool stale = false,
                          const FieldDescription &field = make_field()) {
@@ -293,6 +294,18 @@ TEST_F(MotionProfileGateTest, BarrierClipsWallReverseTowardHole) {
 
     EXPECT_LT(cmd.forward_mps, 0.0);
     EXPECT_GT(cmd.forward_mps, -0.5);
+}
+
+TEST_F(MotionProfileGateTest, BarrierBrakesEvenWhenTheAngleGateZeroesTheSpeedChannel) {
+    config_.hazard_tangent_enable = false;
+    FieldDescription field = make_field();
+    field.hazards.push_back(make_hazard(0.6, 0.0, 0.1, 0.15));
+    auto nav = make_nav(config_);
+    const VelocityCommand cmd =
+        step(*nav, 1.0, -3.0, 0.0, BehaviorMode::ATTACK, kCoastingTowardHazardMps, false, field);
+    EXPECT_LT(cmd.forward_mps, 0.0)
+        << "the brake was zeroed by the angle gate, so the robot coasts "
+           "into the hazard";
 }
 
 TEST_F(MotionProfileGateTest, StaleTrackGivesNoMeasuredSpeed) {

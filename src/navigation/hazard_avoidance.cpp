@@ -120,7 +120,7 @@ HazardBarrierResult HazardAvoidance::limit_command(const Pose2D &our_pose,
                 result.braking = true;
             }
         }
-        result.bound_mps = std::min(result.bound_mps, bound);
+        result.approach_speed_bound_mps = std::min(result.approach_speed_bound_mps, bound);
     }
 
     double limited;
