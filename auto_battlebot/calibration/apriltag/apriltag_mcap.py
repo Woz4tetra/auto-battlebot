@@ -188,14 +188,7 @@ def read_floor_frames(path: Path) -> list[np.ndarray]:
 
 
 def read_channels(path: Path) -> dict[float, dict]:
-    """Read the per-frame transmitter stick axes, keyed by the frame time they were stamped with.
-
-    apriltag_track.py writes each /transmitter/channels message with the same log_time as the
-    /camera/image frame it accompanies, so the float key here equals the `t` iter_images() yields
-    for that frame exactly (both are log_time / 1e9). Each value is the decoded payload {"sample_t":
-    float, "channels": list[int]}. Returns {} for recordings with no transmitter topic (older
-    captures, or a session run without the radio connected).
-    """
+    """Read the per-frame transmitter stick axes, keyed by their frame time."""
     out: dict[float, dict] = {}
     for _topic, log_time, data in mcap_io.iter_messages(path, [TOPIC_TRANSMITTER]):
         out[log_time / 1e9] = mcap_io.decode_json(data)
@@ -451,16 +444,7 @@ def write_overlay(
     r_fc: np.ndarray,
     t_fc: np.ndarray,
 ) -> None:
-    """Write a Foxglove overlay MCAP next to the solved poses.
-
-    Undistorts the source /camera/image frames and adds, per frame, a CameraCalibration, the
-    field->robot TF, and the robot markers (a true-3d set at the tag height and a floor set at
-    z=0); plus the one-time static TFs (world->field, field->camera) and the trajectory (also 3d +
-    floor). When the rows carry the driver's transmitter stick axes, those are copied onto
-    /transmitter/channels per frame so they can be plotted alongside the video. rows must be in the
-    same order as the source frames (analyze_apriltag_mcap.solve_poses produces exactly that, one
-    per frame).
-    """
+    """Write a Foxglove overlay MCAP of the source frames, solved poses, and TFs."""
     out_path.parent.mkdir(parents=True, exist_ok=True)
     writer = OverlayWriter(
         out_path,
@@ -472,7 +456,7 @@ def write_overlay(
     if rows:
         writer.write_static_tf(rows[0]["t"], r_fc, t_fc)
         writer.write_trajectory(rows[0]["t"], rows)
-    for row, (_t, frame) in zip(rows, iter_images(src_path, TOPIC_CAMERA_IMAGE)):
+    for row, (_t, frame) in zip(rows, iter_images(src_path, TOPIC_CAMERA_IMAGE), strict=True):
         ts = row["t"]
         writer.write_image(ts, frame)
         writer.write_camera_info(ts)

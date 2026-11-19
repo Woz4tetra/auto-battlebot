@@ -16,6 +16,7 @@ from auto_battlebot.calibration.jig.velocity_jig import (
     JigCalibration,
     JigHeader,
     JigLog,
+    PauseWindow,
     WaveformSpec,
     _bridge_blips,
     _moving_average,
@@ -23,6 +24,8 @@ from auto_battlebot.calibration.jig.velocity_jig import (
     _read_command_rows,
     load_run_record,
     load_session_dir,
+    overlaps_pause,
+    pause_mask,
     pause_windows_from_commands,
     read_command_log,
     read_jig_log,
@@ -177,3 +180,11 @@ def test_detached_encoder_is_flagged_not_read_as_a_stationary_run() -> None:
 def test_zoh_is_zero_outside_the_command_log() -> None:
     out = zoh(np.array([1.0, 2.0]), np.array([0.5, 0.7]), np.array([0.0, 1.5, 2.0, 3.0]))
     assert out.tolist() == [0.0, 0.5, 0.7, 0.0]
+
+
+def test_pause_windows_are_excluded_from_gates() -> None:
+    pauses = [PauseWindow(t_start=2.0, t_end=5.0, program_t=1.0)]
+    t_host = np.array([1.9, 2.0, 3.5, 5.0, 5.1])
+    assert pause_mask(t_host, pauses).tolist() == [False, True, True, True, False]
+    assert overlaps_pause(np.array([4.0, 6.0]), pauses)
+    assert not overlaps_pause(np.array([5.5, 6.0]), pauses)

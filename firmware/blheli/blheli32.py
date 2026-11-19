@@ -192,7 +192,7 @@ def cmd_write(args: argparse.Namespace) -> None:
 
 def cmd_fields(_: argparse.Namespace) -> None:
     for f in layout.FIELDS:
-        rng = f"{f.lo}..{f.hi}" if f.kind in ("int", "enum") else f.kind
+        rng = f"{f.lo}..{f.hi}" if f.kind in ("int", "enum") else f.kind.value
         opts = ""
         if f.options and len(f.options) <= 8:
             opts = "  " + ", ".join(f"{k}={v}" for k, v in f.options.items())

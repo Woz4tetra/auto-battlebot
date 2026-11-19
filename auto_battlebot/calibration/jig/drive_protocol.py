@@ -106,8 +106,6 @@ class CommandSample:
     meas_ch_b: float = float("nan")
     meas_linear: float = float("nan")
     meas_angular: float = float("nan")
-    # Weapon throttle and the weapon arm switch, CH3 and CH5 on the radio. Neither drives
-    # the plant, and both explain a run: the arm says whether the bot was live, and the
     meas_weapon_throttle_ch3: float = float("nan")
     meas_weapon_arm_ch5: float = float("nan")
     label: str = ""
@@ -267,17 +265,11 @@ class TrainerLink:
 
 @dataclass
 class PlayResult:
+    mix: MixConfig
     commands: list[CommandSample] = field(default_factory=list)
     completed: bool = False
     aborted_reason: str = ""
-    # Every operator pause, in host seconds. The robot is handled inside these windows, so
-    # every gate and every duration downstream drops them; without them a pause reads as one
-    # very long coast tail.
     pauses: list[PauseWindow] = field(default_factory=list)
-    # The mix the run was played through. Needed to know what the radio could have sent, not
-    # only what it was asked for. Optional so an old caller still builds a usable result,
-    # with the pre-2026-08-23 behaviour of comparing against the raw request.
-    mix: MixConfig | None = None
     manual: bool = False
 
     # Ticks to ignore after the command changes. The radio reports its mixer output on its
@@ -295,7 +287,7 @@ class PlayResult:
         prev: tuple[float, float] | None = None
         for c in self.commands:
             asked = (c.linear, c.angular + c.trim)
-            target = self.mix.deliverable(*asked) if self.mix is not None else asked
+            target = self.mix.deliverable(*asked)
             if prev is not None and target != prev:
                 settle = self.SETTLE_TICKS
             prev = target

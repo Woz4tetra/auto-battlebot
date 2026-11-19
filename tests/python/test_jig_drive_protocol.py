@@ -94,7 +94,7 @@ def test_measured_raw_ignores_the_read_inversions() -> None:
 
 
 def _samples(
-    pairs: list[tuple[tuple[float, float], tuple[float, float]]], mix: MixConfig | None
+    pairs: list[tuple[tuple[float, float], tuple[float, float]]], mix: MixConfig
 ) -> PlayResult:
     result = PlayResult(mix=mix)
     for i, ((lin, ang), (m_lin, m_ang)) in enumerate(pairs):
@@ -134,7 +134,6 @@ def test_contamination_reports_a_high_percentile_not_one_outlier() -> None:
 def test_contamination_compares_against_what_the_mix_could_deliver() -> None:
     pairs = [((1.0, 0.24), (0.76, 0.24))] * 30
     assert _samples(pairs, _mix()).contamination == pytest.approx(0.0)
-    assert _samples(pairs, None).contamination == pytest.approx(0.24)
 
 
 class _Program:

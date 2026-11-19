@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from typing import Iterable
+from typing import Iterable, NamedTuple
 
 import cv2
 import numpy as np
@@ -63,19 +63,15 @@ def detect_markers(
 def make_floor_board(
     cols: int, rows: int, marker_size: float, marker_sep: float, first_id: int
 ) -> cv2.aruco.GridBoard:
-    """AprilTag GridBoard for the floor reference. Its frame is the field frame (z = 0 on the
-    floor).
-
-    The manufactured board numbers its markers right-to-left within each row (verified by detecting
-    the board photo: with first_id=160 the top-left tag is 162, top-right is 160). cv2's GridBoard
-    fills ids left-to-right, so each row is reversed to match the physical layout. Without this,
-    matchImagePoints pairs each id with a horizontally-mirrored object point and solvePnP returns a
-    garbage extrinsic (a reflection is not a rotation: ~440 px reprojection error vs ~16 px when
-    correct).
-    """
+    """AprilTag GridBoard for the floor reference, ids numbered right-to-left per row."""
     dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_APRILTAG_36h11)
     ids = np.arange(first_id, first_id + cols * rows).reshape(rows, cols)[:, ::-1].reshape(-1)
     return cv2.aruco.GridBoard((cols, rows), marker_size, marker_sep, dictionary, ids)
+
+
+class FieldToCamera(NamedTuple):
+    r_fc: np.ndarray
+    t_fc: np.ndarray
 
 
 def solve_floor_extrinsic(
@@ -85,15 +81,8 @@ def solve_floor_extrinsic(
     k: np.ndarray,
     d: np.ndarray,
     min_markers: int = 4,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Lock the camera pose relative to the floor grid by PnP over the frames in which the board is
-    visible.
-
-    Returns (R_fc, t_fc) mapping a floor point X_f to camera coords: X_c = R_fc @ X_f + t_fc. The
-    board is static, so correspondences from several frames are stacked into one solve to average
-    detection noise. Frames are raw camera images (gamma is applied internally), so this works
-    identically on the live lock burst and on the /floor/image frames replayed from a recording.
-    """
+) -> FieldToCamera:
+    """Solve the camera pose against the floor grid from every frame that sees the board."""
     board_ids = set(np.asarray(board.getIds()).flatten().tolist())
     obj_all: list[np.ndarray] = []
     img_all: list[np.ndarray] = []
@@ -126,7 +115,7 @@ def solve_floor_extrinsic(
         )
     r, _ = cv2.Rodrigues(rvec)
     print(f"floor frame locked from {used} frames, {len(np.vstack(obj_all))} marker corners")
-    return r, tvec.reshape(3)
+    return FieldToCamera(r, tvec.reshape(3))
 
 
 def tag_object_points(size: float) -> np.ndarray:

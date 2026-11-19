@@ -4,17 +4,29 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from enum import Enum
 
 LAYOUT_REVISION = 48
 FW_MAIN = 32
+
+
+class FieldKind(str, Enum):
+    INT = "int"
+    ENUM = "enum"
+    TEXT = "text"
+    READONLY = "readonly"
+    MUSIC = "music"
+
+
+EDITABLE_KINDS = (FieldKind.INT, FieldKind.ENUM)
 
 
 @dataclass(frozen=True)
 class Field:
     key: str
     offset: int
-    width: int = 1  # bytes; 2 = little-endian u16
-    kind: str = "int"  # int | enum | text | readonly
+    width: int = 1
+    kind: FieldKind = FieldKind.INT
     lo: int = 0
     hi: int = 255
     options: dict[int, str] = field(default_factory=dict)
@@ -49,13 +61,13 @@ DIRECTION = {
 ON_OFF = {0: "Off", 1: "On"}
 
 FIELDS: list[Field] = [
-    Field("fw_main_revision", 0, kind="readonly", doc="Firmware major (32)"),
-    Field("fw_sub_revision", 1, kind="readonly", doc="Firmware minor (90 = 32.9)"),
-    Field("layout_revision", 2, kind="readonly", doc="Settings layout revision (48)"),
+    Field("fw_main_revision", 0, kind=FieldKind.READONLY, doc="Firmware major (32)"),
+    Field("fw_sub_revision", 1, kind=FieldKind.READONLY, doc="Firmware minor (90 = 32.9)"),
+    Field("layout_revision", 2, kind=FieldKind.READONLY, doc="Settings layout revision (48)"),
     Field(
         "direction",
         3,
-        kind="enum",
+        kind=FieldKind.ENUM,
         lo=1,
         hi=6,
         options=DIRECTION,
@@ -80,7 +92,7 @@ FIELDS: list[Field] = [
     Field(
         "comm_timing",
         6,
-        kind="enum",
+        kind=FieldKind.ENUM,
         lo=0,
         hi=31,
         options={0: "Auto", **_range(1, 31, "{} deg")},
@@ -89,7 +101,7 @@ FIELDS: list[Field] = [
     Field(
         "demag_compensation",
         7,
-        kind="enum",
+        kind=FieldKind.ENUM,
         lo=1,
         hi=4,
         options={1: "Off", 2: "Low", 3: "High", 4: "Very High"},
@@ -125,7 +137,7 @@ FIELDS: list[Field] = [
     Field(
         "throttle_cal_enable",
         14,
-        kind="enum",
+        kind=FieldKind.ENUM,
         lo=0,
         hi=1,
         options=ON_OFF,
@@ -143,7 +155,7 @@ FIELDS: list[Field] = [
     Field(
         "low_voltage_protection",
         16,
-        kind="enum",
+        kind=FieldKind.ENUM,
         lo=0,
         hi=16,
         options={0: "Off", **{n: f"{2.4 + 0.1 * n:.2f} V" for n in range(1, 17)}},
@@ -162,7 +174,7 @@ FIELDS: list[Field] = [
     Field(
         "low_rpm_power_protect",
         18,
-        kind="enum",
+        kind=FieldKind.ENUM,
         lo=0,
         hi=2,
         options={0: "Off", 1: "On", 2: "On Adaptive"},
@@ -193,7 +205,7 @@ FIELDS: list[Field] = [
     Field(
         "led_control",
         24,
-        kind="enum",
+        kind=FieldKind.ENUM,
         lo=0,
         hi=3,
         options={0: "Off", 3: "On"},
@@ -202,7 +214,7 @@ FIELDS: list[Field] = [
     Field(
         "max_acceleration",
         25,
-        kind="enum",
+        kind=FieldKind.ENUM,
         lo=0,
         hi=255,
         options={0: "Maximum", **{n: f"{n / 10:.1f} %/ms" for n in range(1, 256)}},
@@ -211,7 +223,7 @@ FIELDS: list[Field] = [
     Field(
         "nondamped_mode",
         26,
-        kind="enum",
+        kind=FieldKind.ENUM,
         lo=0,
         hi=1,
         options=ON_OFF,
@@ -236,7 +248,7 @@ FIELDS: list[Field] = [
     Field(
         "sine_mode",
         29,
-        kind="enum",
+        kind=FieldKind.ENUM,
         lo=0,
         hi=1,
         options=ON_OFF,
@@ -245,49 +257,56 @@ FIELDS: list[Field] = [
     Field(
         "auto_telemetry",
         30,
-        kind="enum",
+        kind=FieldKind.ENUM,
         lo=0,
         hi=1,
         options=ON_OFF,
         doc="Autonomous telemetry every 32 ms",
     ),
-    Field("stall_protection", 31, kind="enum", lo=0, hi=1, options={0: "Relaxed", 1: "Normal"}),
     Field(
-        "sbus_channel", 32, kind="enum", lo=0, hi=17, options={**_range(0, 16, "CH {}"), 17: "Off"}
+        "stall_protection", 31, kind=FieldKind.ENUM, lo=0, hi=1, options={0: "Relaxed", 1: "Normal"}
+    ),
+    Field(
+        "sbus_channel",
+        32,
+        kind=FieldKind.ENUM,
+        lo=0,
+        hi=17,
+        options={**_range(0, 16, "CH {}"), 17: "Off"},
     ),
     Field("sport_physical_id", 33, lo=0, hi=28, off_value=0),
     Field(
         "pwm_frequency_high",
         34,
-        kind="enum",
+        kind=FieldKind.ENUM,
         lo=16,
         hi=129,
         options={**_range(16, 128, "{} kHz"), 129: "By RPM"},
         doc="Motor PWM frequency at high throttle; 129 = by RPM",
     ),
-    Field("hw_voltage_sense_capable", 48, kind="readonly"),
-    Field("hw_current_sense_capable", 49, kind="readonly", doc="255 = no current sensor"),
-    Field("hw_led_capable_0", 50, kind="readonly"),
-    Field("hw_led_capable_1", 51, kind="readonly"),
-    Field("hw_led_capable_2", 52, kind="readonly"),
-    Field("hw_led_capable_3", 53, kind="readonly"),
-    Field("hw_pwm_freq_min", 54, kind="readonly", unit="kHz"),
-    Field("hw_pwm_freq_max", 55, kind="readonly", unit="kHz"),
-    Field("sport_capable", 62, kind="readonly"),
-    Field("nondamped_capable", 63, kind="readonly"),
-    Field("esc_layout", 64, width=32, kind="text", doc="'#Flycolor_Raptor_5#' padded"),
-    Field("esc_mcu", 96, width=32, kind="text", doc="'#BLHeli_32*STM32G071x6#' padded"),
-    Field("name", 128, width=16, kind="text", doc="User ESC name"),
+    Field("hw_voltage_sense_capable", 48, kind=FieldKind.READONLY),
+    Field("hw_current_sense_capable", 49, kind=FieldKind.READONLY, doc="255 = no current sensor"),
+    Field("hw_led_capable_0", 50, kind=FieldKind.READONLY),
+    Field("hw_led_capable_1", 51, kind=FieldKind.READONLY),
+    Field("hw_led_capable_2", 52, kind=FieldKind.READONLY),
+    Field("hw_led_capable_3", 53, kind=FieldKind.READONLY),
+    Field("hw_pwm_freq_min", 54, kind=FieldKind.READONLY, unit="kHz"),
+    Field("hw_pwm_freq_max", 55, kind=FieldKind.READONLY, unit="kHz"),
+    Field("sport_capable", 62, kind=FieldKind.READONLY),
+    Field("nondamped_capable", 63, kind=FieldKind.READONLY),
+    Field("esc_layout", 64, width=32, kind=FieldKind.TEXT, doc="'#Flycolor_Raptor_5#' padded"),
+    Field("esc_mcu", 96, width=32, kind=FieldKind.TEXT, doc="'#BLHeli_32*STM32G071x6#' padded"),
+    Field("name", 128, width=16, kind=FieldKind.TEXT, doc="User ESC name"),
     Field(
         "music_notes",
         144,
         width=48,
-        kind="music",
+        kind=FieldKind.MUSIC,
         doc="Startup music, one byte per note, 0xFF ends it (see encode_music)",
     ),
 ]
 BY_KEY = {f.key: f for f in FIELDS}
-EDITABLE = [f for f in FIELDS if f.kind in ("int", "enum")]
+EDITABLE = [f for f in FIELDS if f.kind in EDITABLE_KINDS]
 RESERVED = sorted(set(range(192)) - {f.offset + i for f in FIELDS for i in range(f.width)})
 
 
@@ -309,9 +328,9 @@ def decode(payload: bytes) -> dict[str, int | str]:
     out: dict[str, int | str] = {}
     for f in FIELDS:
         raw = payload[f.offset : f.offset + f.width]
-        if f.kind == "text":
+        if f.kind is FieldKind.TEXT:
             out[f.key] = raw.decode("latin-1")
-        elif f.kind == "music":
+        elif f.kind is FieldKind.MUSIC:
             out[f.key] = decode_music(payload)
         else:
             out[f.key] = f.read(payload)
@@ -337,11 +356,11 @@ def encode(payload: bytes, changes: dict[str, int]) -> bytes:
         f = BY_KEY.get(key)
         if f is None:
             raise LayoutError(f"unknown field {key!r}")
-        if f.kind not in ("int", "enum"):
-            raise LayoutError(f"{key} is {f.kind}, not editable")
+        if f.kind not in EDITABLE_KINDS:
+            raise LayoutError(f"{key} is {f.kind.value}, not editable")
         if not f.lo <= value <= f.hi:
             raise LayoutError(f"{key}={value} outside {f.lo}..{f.hi}")
-        if f.kind == "enum" and f.options and value not in f.options:
+        if f.kind is FieldKind.ENUM and f.options and value not in f.options:
             raise LayoutError(f"{key}={value} is not one of {sorted(f.options)}")
         buf[f.offset : f.offset + f.width] = value.to_bytes(f.width, "little")
     values = {k: (BY_KEY[k].read(buf)) for k in ("min_throttle", "center_throttle", "max_throttle")}
@@ -423,7 +442,7 @@ def to_json() -> str:
             "key": f.key,
             "offset": f.offset,
             "width": f.width,
-            "kind": f.kind,
+            "kind": f.kind.value,
             "lo": f.lo,
             "hi": f.hi,
             "options": [[raw, lab] for raw, lab in f.options.items()],

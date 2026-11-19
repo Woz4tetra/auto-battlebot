@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Sequence
+from typing import NamedTuple, Sequence
 
 import numpy as np
 from scipy.optimize import least_squares
@@ -35,6 +35,8 @@ MOTION_EPS_LIN = 0.02  # m/s
 MOTION_EPS_ANG = 0.05  # rad/s
 ONSET_SIGMA = 5.0  # "moving" is 5 sigma above the stationary noise, per the plan
 MIN_HOLD_S = 0.4  # shortest command hold worth fitting a steady state to
+
+MIN_SAMPLES_FOR_TUKEY_FENCE = 8
 
 DEADZONE_KINDS = ("staircase",)
 STEP_KINDS = ("step",)
@@ -164,14 +166,11 @@ class HeldSegment:
 
     run: str
     channel: str
-    level: float  # commanded amplitude, signed
-    u_eff: float  # after deadzone removal (filled once the deadzone is known)
-    v_ss: float  # steady-state |velocity|
-    tau: float  # first-order rise constant, nan when not fittable
-    other: float  # |command| on the other channel, the gate for "is this a pure run"
-    # Signed version of the same. The magnitude alone cannot tell a left turn from a right
-    # one, and turn direction is exactly what separates angular droop from straight-line
-    # drift, so the coupling fit needs the sign kept.
+    level_signed: float
+    u_eff: float
+    v_ss_abs: float
+    tau_rise_s: float
+    other_abs: float
     other_signed: float
     n: int
     t0: float
@@ -217,15 +216,15 @@ def held_segments(run: Run, channel: str, min_level: float = 0.0) -> list[HeldSe
                     HeldSegment(
                         run=run.name,
                         channel=channel,
-                        level=level,
+                        level_signed=level,
                         u_eff=float("nan"),
-                        v_ss=v_ss,
-                        tau=(
+                        v_ss_abs=v_ss,
+                        tau_rise_s=(
                             _rise_tau(mv, v_ss, run.dt, eps)
                             if v_ss > max(3 * eps, 1e-3)
                             else float("nan")
                         ),
-                        other=float(np.median(np.abs(other[start:stop]))),
+                        other_abs=float(np.median(np.abs(other[start:stop]))),
                         other_signed=float(np.median(other[start:stop])),
                         n=n,
                         t0=float(run.t[start]),
@@ -286,8 +285,7 @@ def _pool(values: Sequence[float]) -> Estimate:
     if len(vals) == 0:
         return Estimate(float("nan"), note=f"no usable segments out of {seen}")
     kept, cut = vals, 0
-    # Quartiles need a real sample behind them; below this, one value moves the fence.
-    if len(vals) >= 8:
+    if len(vals) >= MIN_SAMPLES_FOR_TUKEY_FENCE:
         q1, q3 = np.percentile(vals, [25, 75])
         span = q3 - q1
         keep = (vals >= q1 - 1.5 * span) & (vals <= q3 + 1.5 * span)
@@ -309,12 +307,12 @@ def fit_deadzone(runs: Sequence[Run], channel: str, sign: float) -> Estimate:
     for run in runs:
         noise.append(run.v_noise if channel == "lin" else run.w_noise)
         for seg in held_segments(run, channel):
-            if np.sign(seg.level) != sign:
+            if np.sign(seg.level_signed) != sign:
                 continue
-            key = round(abs(seg.level), 4)
+            key = round(abs(seg.level_signed), 4)
             prev = levels.get(key)
             if prev is None or seg.n > prev[1]:
-                levels[key] = (seg.v_ss, seg.n)
+                levels[key] = (seg.v_ss_abs, seg.n)
     if len(levels) < 3:
         return Estimate(float("nan"), note=f"{len(levels)} staircase levels, need 3")
 
@@ -344,49 +342,57 @@ def fit_gain(
     """Max speed from steady state against effective command, through the origin."""
     used: list[HeldSegment] = []
     for seg in segs:
-        if np.sign(seg.level) != sign or seg.other > 0.02:
+        if np.sign(seg.level_signed) != sign or seg.other_abs > 0.02:
             continue
-        u_eff = float(effective_command(np.array(seg.level), dz_pos, dz_neg))
-        if abs(u_eff) < 1e-3 or seg.v_ss <= 1e-3:
+        u_eff = float(effective_command(np.array(seg.level_signed), dz_pos, dz_neg))
+        if abs(u_eff) < 1e-3 or seg.v_ss_abs <= 1e-3:
             continue
         seg.u_eff = u_eff
         used.append(seg)
     if len(used) < 2:
         return Estimate(float("nan"), note=f"{len(used)} held segments"), used
-    ratios = [s.v_ss / abs(s.u_eff) for s in used]
+    ratios = [s.v_ss_abs / abs(s.u_eff) for s in used]
     x = np.array([abs(s.u_eff) for s in used])
-    y = np.array([s.v_ss for s in used])
+    y = np.array([s.v_ss_abs for s in used])
     slope = float(np.sum(x * y) / np.sum(x * x))
     return Estimate(slope, float(np.std(ratios)), len(used)), used
 
 
-def _coupling_cells(
-    runs: Sequence[Run], p: PlantParams
-) -> list[tuple[float, float, float, float, float]]:
-    """One cell per held linear segment of the E13 grid.
+class CouplingCell(NamedTuple):
+    u_lin_eff: float
+    u_ang_eff: float
+    v_ss: float
+    w_ss: float
+    ang_command_issued: float
 
-    Each is (u_lin_eff, u_ang_eff, v_ss, w_ss, angular command as issued). The last one is
-    what mirror matching keys on: the effective command has the per-side deadzone removed,
-    and those two deadzones are not equal, so +0.08 and -0.08 come out at +0.0650 and
-    -0.0573 and never match. The grid is symmetric in what was commanded, never in what is
-    left after deadzone removal.
-    """
-    cells: list[tuple[float, float, float, float, float]] = []
+
+class DriftPoint(NamedTuple):
+    u_lin_eff: float
+    w_ss: float
+
+
+def _coupling_cells(runs: Sequence[Run], p: PlantParams) -> list[CouplingCell]:
+    """One cell per held linear segment of the E13 grid."""
+    cells: list[CouplingCell] = []
     for run in runs:
         for seg in held_segments(run, "lin"):
-            lin_eff = float(effective_command(np.array(seg.level), p.dz_lin_fwd, p.dz_lin_rev))
-            if seg.other <= 0.02:
-                cells.append((lin_eff, 0.0, seg.v_ss, 0.0, 0.0))
+            lin_eff = float(
+                effective_command(np.array(seg.level_signed), p.dz_lin_fwd, p.dz_lin_rev)
+            )
+            if seg.other_abs <= 0.02:
+                cells.append(CouplingCell(lin_eff, 0.0, seg.v_ss_abs, 0.0, 0.0))
                 continue
             ang_eff = float(effective_command(np.array(seg.other_signed), p.dz_ang_l, p.dz_ang_r))
             mask = (run.t >= seg.t0) & (run.t < seg.t0 + seg.n * run.dt)
             w_ss = float(np.median(run.w[mask])) if np.count_nonzero(mask) else 0.0
-            cells.append((lin_eff, ang_eff, seg.v_ss, w_ss, float(seg.other_signed)))
+            cells.append(
+                CouplingCell(lin_eff, ang_eff, seg.v_ss_abs, w_ss, float(seg.other_signed))
+            )
     return cells
 
 
 def _steer_brake_points(
-    cells: Sequence[tuple[float, float, float, float, float]], p: PlantParams
+    cells: Sequence[CouplingCell], p: PlantParams
 ) -> tuple[list[float], list[float]]:
     """(|u_ang_eff|, fractional speed loss) for every cell that turns and drives at once."""
     xs: list[float] = []
@@ -404,7 +410,7 @@ def _steer_brake_points(
 
 def fit_coupling(
     runs: Sequence[Run], p: PlantParams
-) -> tuple[Estimate, Estimate, list[tuple[float, float, float, float, float]]]:
+) -> tuple[Estimate, Estimate, list[CouplingCell]]:
     """Steer-brake and angular droop from the E13 grid."""
     cells = _coupling_cells(runs, p)
     sb_x, sb_y = _steer_brake_points(cells, p)
@@ -416,9 +422,9 @@ def fit_coupling(
         w0 = p.k_ang * ang_mag
         if w0 <= 1e-3:
             continue
-        commanded = 0.5 * (w_pos - w_neg)  # drift cancels
+        w_drift_cancelled = 0.5 * (w_pos - w_neg)
         ad_x.append(abs(lin_eff))
-        ad_y.append(1.0 - commanded / w0)
+        ad_y.append(1.0 - w_drift_cancelled / w0)
 
     def _slope(xs: list[float], ys: list[float]) -> Estimate:
         if len(xs) < 3:
@@ -444,7 +450,7 @@ def fit_coupling(
 
 
 def _mirror_pairs(
-    cells: Sequence[tuple[float, float, float, float, float]],
+    cells: Sequence[CouplingCell],
 ) -> list[tuple[float, float, float, float]]:
     """Match each grid cell to its mirror across the angular axis."""
     index: dict[tuple[int, int], tuple[float, float]] = {}
@@ -468,20 +474,22 @@ def _mirror_pairs(
     return out
 
 
-def fit_drift(runs: Sequence[Run], p: PlantParams) -> tuple[Estimate, Estimate, list]:
+def fit_drift(runs: Sequence[Run], p: PlantParams) -> tuple[Estimate, Estimate, list[DriftPoint]]:
     """Straight-line drift: the yaw a pure forward command produces on its own."""
-    points: list[tuple[float, float]] = []  # (u_lin_eff, w_ss)
+    points: list[DriftPoint] = []
     for run in runs:
         for seg in held_segments(run, "lin"):
-            if seg.other > 0.02:
+            if seg.other_abs > 0.02:
                 continue
-            lin_eff = float(effective_command(np.array(seg.level), p.dz_lin_fwd, p.dz_lin_rev))
+            lin_eff = float(
+                effective_command(np.array(seg.level_signed), p.dz_lin_fwd, p.dz_lin_rev)
+            )
             if abs(lin_eff) < 1e-3:
                 continue
             mask = (run.t >= seg.t0) & (run.t < seg.t0 + seg.n * run.dt)
             if not np.count_nonzero(mask):
                 continue
-            points.append((lin_eff, float(np.median(run.w[mask]))))
+            points.append(DriftPoint(lin_eff, float(np.median(run.w[mask]))))
 
     if len(points) < 4:
         note = f"{len(points)} straight held segments, need 4"
@@ -579,9 +587,8 @@ class StageA:
     lin_segments: list[HeldSegment]
     ang_segments: list[HeldSegment]
     delay: DelayStack
-    coupling_cells: list[tuple[float, float, float, float, float]]
-    # (u_lin_eff, w_ss) over straight held segments, the evidence behind the drift terms.
-    drift_points: list[tuple[float, float]] = field(default_factory=list)
+    coupling_cells: list[CouplingCell]
+    drift_points: list[DriftPoint] = field(default_factory=list)
 
 
 def stage_a(loaded: Loaded, prior: PlantParams) -> StageA:
@@ -631,8 +638,8 @@ def stage_a(loaded: Loaded, prior: PlantParams) -> StageA:
     est["k_ang_left"] = k_ang_l
     est["k_ang_right"] = k_ang_r
 
-    est["tau_lin_a"] = _pool([s.tau for s in used_f + used_r])
-    est["tau_ang_a"] = _pool([s.tau for s in used_l + used_rr])
+    est["tau_lin_a"] = _pool([s.tau_rise_s for s in used_f + used_r])
+    est["tau_ang_a"] = _pool([s.tau_rise_s for s in used_l + used_rr])
 
     lin_coast: list[float] = []
     for run in loaded.select(kinds=COAST_KINDS, channels=("linear",), roles=("fit",)):
@@ -695,8 +702,8 @@ def _value(est: Estimate, fallback: float) -> float:
 class FitWeights:
     """Residual scaling. Position in meters and heading in radians are not commensurate."""
 
-    position: float = 0.05  # m
-    heading: float = 0.05  # rad
+    position_m: float = 0.05
+    heading_rad: float = 0.05
 
 
 def build_windows(
@@ -709,7 +716,7 @@ def build_windows(
 ) -> WindowSet | None:
     """Cut windows out of every run and stack them into one batch."""
     sets = []
-    for index, run in enumerate(runs):
+    for run_index, run in enumerate(runs):
         if require_encoder and not run.encoder_valid:
             continue
         if not require_encoder and run.encoder_valid:
@@ -731,10 +738,7 @@ def build_windows(
             horizons=horizons,
             stride_s=stride_s,
             valid=valid,
-            # Index into `runs` as passed in, so the report can ask which waveform a
-            # residual came from. Without it, concatenating runs makes every per-run
-            # question unanswerable.
-            origin=index,
+            origin=run_index,
         )
         if ws is not None:
             sets.append(ws)
@@ -751,9 +755,9 @@ def window_delay(params: PlantParams, structure: ModelStructure) -> float:
 def residual_vector(err: WindowErrors, weights: FitWeights) -> np.ndarray:
     return np.concatenate(
         [
-            (err.along / weights.position).ravel(),
-            (err.cross / weights.position).ravel(),
-            (err.heading / weights.heading).ravel(),
+            (err.along / weights.position_m).ravel(),
+            (err.cross / weights.position_m).ravel(),
+            (err.heading / weights.heading_rad).ravel(),
         ]
     )
 
@@ -832,15 +836,18 @@ def profile_delay(
     )
 
 
+PerHorizonValues = np.ndarray
+
+
 @dataclass
 class HorizonReport:
     horizons: np.ndarray
-    rows: dict[str, np.ndarray]  # metric name -> per-horizon values
+    rows: dict[str, PerHorizonValues]
 
 
 def score(err: WindowErrors) -> HorizonReport:
     """Bias, RMSE, and percentiles per horizon, decomposed along-track and cross-track."""
-    rows: dict[str, np.ndarray] = {}
+    rows: dict[str, PerHorizonValues] = {}
     for name, data in (
         ("along_bias_mm", err.along * 1e3),
         ("along_rmse_mm", err.along * 1e3),

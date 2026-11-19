@@ -425,7 +425,7 @@ def gain_scatter_panels(sec: Section, stage, params) -> None:
         ),
         (stage.ang_segments, "angular", (("left", params.k_ang, 1), ("right", params.k_ang, -1))),
     ):
-        pts = [(s.u_eff, s.v_ss) for s in segs if np.isfinite(s.u_eff)]
+        pts = [(s.u_eff, s.v_ss_abs) for s in segs if np.isfinite(s.u_eff)]
         if not pts:
             continue
         fig, (ax, axr) = plt.subplots(
@@ -458,7 +458,7 @@ def gain_scatter_panels(sec: Section, stage, params) -> None:
 
 def rise_tau_panel(sec: Section, stage) -> None:
     for segs, label in ((stage.lin_segments, "linear"), (stage.ang_segments, "angular")):
-        pts = [(abs(s.level), s.tau) for s in segs if np.isfinite(s.tau)]
+        pts = [(abs(s.level_signed), s.tau_rise_s) for s in segs if np.isfinite(s.tau_rise_s)]
         if len(pts) < 3:
             continue
         fig, ax = plt.subplots(figsize=(6, 2.8))

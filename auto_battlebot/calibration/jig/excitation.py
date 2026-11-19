@@ -81,8 +81,7 @@ class _Builder:
 
 
 def _piecewise(segments: Sequence[ProtocolSegment]) -> Callable[[float], tuple[float, float]]:
-    """Zero outside the program. Holding the last command past the end would tell the fit
-    the robot was driven at full command while it sat on the floor."""
+    """Piecewise-constant command, exactly zero outside the program span."""
     bounds = [s.t0 for s in segments]
 
     def at(t: float) -> tuple[float, float]:
@@ -111,12 +110,7 @@ def _axes(channel: str, primary: float, secondary: float = 0.0) -> tuple[float, 
 
 
 def cap_amplitudes(amplitudes: Sequence[float], cap: float | None) -> list[float]:
-    """Scale a ladder so its peak lands on `cap`, rather than clamping to it.
-
-    Clamping would collapse the top rungs onto one value and destroy the spacing the fit
-    reads a gain slope from. Scaling keeps the ratios and just makes the whole ladder
-    smaller, which is what the encoder-wheel rate limit actually requires.
-    """
+    """Scale a ladder so its peak lands on `cap`, keeping the rung ratios."""
     values = [float(a) for a in amplitudes]
     if cap is None or not values:
         return values
@@ -200,12 +194,7 @@ def _build_grid(d: WaveformDecl) -> Program:
 
 
 def _build_prbs(d: WaveformDecl) -> Program:
-    """Maximal-length 16-bit LFSR, taps 16/14/13/11.
-
-    Reproduced bit-exactly from the web tool so runs recorded either side of the rewrite
-    stay comparable. A 60 ms bit period covers roughly 0.2 to 8 Hz, which brackets both the
-    58-78 ms plant time constants and the 33 ms frame period.
-    """
+    """Maximal-length 16-bit LFSR, taps 16/14/13/11."""
     p = d.params
     amp = float(p.get("amplitude", 0.6))
     bit_ms = float(p.get("bit_ms", 60.0))
@@ -223,21 +212,18 @@ def _build_prbs(d: WaveformDecl) -> Program:
         return out, s
 
     n = max(1, math.ceil(duration * 1000.0 / bit_ms))
-    seq_a, state = bits(seed, n)
-    # A second, decorrelated sequence for the angular channel of a combined run. Reusing one
-    # sequence on both channels would make them perfectly correlated, and the coupling terms
-    # would be unidentifiable no matter how long the run.
-    seq_b, _ = bits((state * 1103515245 + 12345) & 0xFFFF or 0xBEEF, n)
+    linear_bits, state = bits(seed, n)
+    decorrelated_angular_bits, _ = bits((state * 1103515245 + 12345) & 0xFFFF or 0xBEEF, n)
 
     def at(t: float) -> tuple[float, float]:
         if t < 0.0 or t >= duration:
             return 0.0, 0.0
         i = min(n - 1, int(t * 1000.0 / bit_ms))
         if d.channel == "linear":
-            return amp * seq_a[i], 0.0
+            return amp * linear_bits[i], 0.0
         if d.channel == "angular":
-            return 0.0, ang_amp * seq_a[i]
-        return amp * seq_a[i], ang_amp * seq_b[i]
+            return 0.0, ang_amp * linear_bits[i]
+        return amp * linear_bits[i], ang_amp * decorrelated_angular_bits[i]
 
     return Program(
         name=d.name,
@@ -348,13 +334,7 @@ def _is_rest(seg: ProtocolSegment) -> bool:
 
 
 def pause_points(program: Program) -> list[float]:
-    """Program times where the run can stop so the operator can put the robot back.
-
-    A pause belongs only where a rest is already followed by more driving. There is nothing
-    safe to stop at inside a cell: a coast tail has to follow its entry with no gap, or the
-    decel constant fitted from it is the gap's rather than the robot's. Continuous waveforms
-    have no cells and get an empty list, which is right for a chirp or a PRBS anyway.
-    """
+    """Program times where the run can stop for the operator to reset the robot."""
     segments = program.segments or []
     return [
         seg.t0 for prev, seg in zip(segments, segments[1:]) if _is_rest(prev) and not _is_rest(seg)
@@ -364,13 +344,7 @@ def pause_points(program: Program) -> list[float]:
 def shift_segments(
     segments: Sequence[ProtocolSegment], pauses: Sequence[PauseWindow]
 ) -> list[ProtocolSegment]:
-    """Move segment times onto the timeline the run actually took.
-
-    Segment times are program-relative, and readers anchor them at the first command sample
-    on the assumption that the program ran end to end. A paused run breaks that assumption,
-    so the recorded times carry the pauses and every label after the first one still lands on
-    the samples it describes. `pauses` is in program order.
-    """
+    """Move program-relative segment times onto the timeline of a paused run."""
     pending = list(pauses)
     offset = 0.0
     out: list[ProtocolSegment] = []

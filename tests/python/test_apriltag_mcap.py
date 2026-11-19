@@ -123,3 +123,35 @@ def test_overlay(tmp_path: Path) -> None:
         "robot_floor/1",
     }
     assert updates[3].entities[1].arrows[0].pose.position == (0.15, 0.25, 0.03)
+
+
+def test_transmitter_keys_match_image_times(tmp_path: Path) -> None:
+    path = tmp_path / "keys.mcap"
+    writer = amcap.CaptureWriter(path, image_format="jpeg")
+    writer.set_metadata({"camera_matrix": K, "dist_coeffs": D, "tag_size": 0.1, "tag_id": 0})
+    for i in range(3):
+        t = 1700000000.123456 + i / 30.0
+        writer.write_image(t, _frame(i))
+        writer.write_channels(t, t - 0.004, [i, 0, 0])
+    writer.close()
+
+    image_times = [t for t, _ in amcap.iter_images(path, amcap.TOPIC_CAMERA_IMAGE)]
+    channels = amcap.read_channels(path)
+    assert sorted(channels) == image_times
+    assert [channels[t]["channels"][0] for t in image_times] == [0, 1, 2]
+
+
+def test_write_overlay_rejects_row_frame_count_mismatch(tmp_path: Path) -> None:
+    src = tmp_path / "capture.mcap"
+    writer = amcap.CaptureWriter(src, image_format="jpeg")
+    writer.set_metadata({"camera_matrix": K, "dist_coeffs": D, "tag_size": 0.1, "tag_id": 0})
+    for i in range(3):
+        writer.write_image(5.0 + i * 0.1, _frame(i))
+    writer.close()
+    rows = [{"t": 5.0 + i * 0.1, "visible": False} for i in range(2)]
+    r_fc = np.eye(3)
+    t_fc = np.zeros(3)
+    with pytest.raises(ValueError):
+        amcap.write_overlay(
+            tmp_path / "overlay.mcap", src, amcap.read_metadata(src), rows, r_fc, t_fc
+        )

@@ -118,6 +118,15 @@ corner is the frequency-domain cross-check on a time-constant fitted from steps.
 Constant slew between the peaks, so unlike a sine it excites the rate limit evenly
 rather than concentrating the fastest command changes at the zero crossings.
 
+#### `_build_prbs`
+
+Maximal-length 16-bit LFSR, taps 16/14/13/11. The sequence matches the retired web tool bit for
+bit, so runs recorded before and after the rewrite stay comparable;
+`tests/python/test_excitation.py::test_prbs_matches_web_tool_sequence` pins it. A 60 ms bit
+period covers roughly 0.2 to 8 Hz, which brackets both the 58-78 ms plant time constants and
+the 33 ms frame period. The combined linear/angular program draws a decorrelated second
+sequence for the angular channel.
+
 #### `_build_trim`
 
 Low-amplitude straight drive used to measure the arc, not to fit anything.
