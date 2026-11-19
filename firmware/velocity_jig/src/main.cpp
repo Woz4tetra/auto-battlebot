@@ -6,6 +6,8 @@
 #include <SdFat.h>
 #include <Wire.h>
 
+#include <atomic>
+
 #include "config.h"
 #include "pico/bootrom.h"
 #include "pico/time.h"
@@ -47,7 +49,7 @@ static bool g_recording = false;
 static char g_curName[24] = {0};
 static bool g_showLastRunSummary = false;
 
-static volatile int32_t g_encCount = 0;
+static std::atomic<int32_t> g_encCount{0};
 static volatile uint8_t g_encState = 0;
 
 static repeating_timer_t g_sampleTimer;
@@ -63,7 +65,7 @@ static inline void ringPush(const Sample& s) {
         return;
     }
     g_ring[h] = s;
-    g_ring_write = n;  // publish
+    g_ring_write = n;
     g_captured_samples++;
 }
 
@@ -108,14 +110,16 @@ static const int8_t QDEC[16] = {0, -1, 1, 0, 1, 0, 0, -1, -1, 0, 0, 1, 0, 1, -1,
 
 static void encISR() {
     uint8_t s = (uint8_t)((digitalRead(PIN_ENC_A) << 1) | digitalRead(PIN_ENC_B));
-    g_encCount += QDEC[((g_encState << 2) | s) & 0x0F];
+    g_encCount.store(
+        g_encCount.load(std::memory_order_relaxed) + QDEC[((g_encState << 2) | s) & 0x0F],
+        std::memory_order_relaxed);
     g_encState = s;
 }
 
 static bool sampleTimerCb(repeating_timer_t*) {
     Sample s;
     s.t_us_since_boot = time_us_64();
-    s.encoder_count = g_encCount;
+    s.encoder_count = g_encCount.load(std::memory_order_relaxed);
     imuReadRaw(s.gyro_raw, s.accel_raw);
     ringPush(s);
     return true;
@@ -176,7 +180,7 @@ static inline void emitRow(const Sample& s) {
 }
 
 static void drainToSD() {
-    uint32_t head = g_ring_write;  // snapshot
+    uint32_t head = g_ring_write;
     uint32_t processed = 0;
     while (g_ring_read != head && processed < DRAIN_CAP) {
         emitRow(g_ring[g_ring_read]);
@@ -258,7 +262,7 @@ static void drawRecording(const char* name) {
 static void drawDiagnostics() {
     int16_t g[3], a[3];
     imuReadRaw(g, a);
-    int32_t count = g_encCount;  // aligned 32-bit load, atomic against the ISRs
+    int32_t count = g_encCount.load(std::memory_order_relaxed);
     uint8_t encA = (uint8_t)digitalRead(PIN_ENC_A);
     uint8_t encB = (uint8_t)digitalRead(PIN_ENC_B);
 
@@ -524,7 +528,7 @@ static void cmdStream() {
         }
         Sample s;
         s.t_us_since_boot = time_us_64();
-        s.encoder_count = g_encCount;
+        s.encoder_count = g_encCount.load(std::memory_order_relaxed);
         imuReadRaw(s.gyro_raw, s.accel_raw);
         Serial.print("S ");
         Serial.print(s.t_us_since_boot);

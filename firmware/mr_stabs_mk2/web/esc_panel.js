@@ -7,19 +7,16 @@
   ];
   const SIDE = { 0: "right", 1: "left" };
   const PWM_BY_RPM = 129;
-  // lib/erpm_decode and esc.h assume bidirectional 3D mode.
-  const DIRECTIONS_3D = [3, 4];
 
   let layout = null;
   let lastEscStatus = null;
   let busy = false;
-  let review = null; // {title, items: [{esc, payload, changes, warnings}]}
-  // Per ESC: snap read this tuning session, edit = the form's payload, bad = key -> message.
+  let review = null;
   const escs = {
     0: { snap: null, edit: null, bad: new Map(), note: "" },
     1: { snap: null, edit: null, bad: new Map(), note: "" },
   };
-  const rows = {}; // key -> {row, cells: {esc: {input|span}}}
+  const rows = {};
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const ACRONYMS = {
@@ -40,7 +37,7 @@
       .replace("Sport", "S.Port");
 
   const HISTORY_KEY = "escBackupHistory";
-  let history = []; // [{name, doc}], oldest first, docs in blheli32.py's backup format
+  let history = [];
   let historyError = "";
   try {
     history = JSON.parse(localStorage.getItem(HISTORY_KEY)) || [];
@@ -510,24 +507,8 @@
   }
 
   function warningsFor(esc, payload, changes) {
-    const warnings = [];
-    const dir = layout.byKey.direction;
-    if (changes.includes(dir)) {
-      const v = layout.read(dir, payload);
-      if (!DIRECTIONS_3D.includes(v)) {
-        warnings.push(
-          `Direction ${layout.label(dir, v)}: the robot drives these ESCs in bidirectional 3D ` +
-            "mode (esc.h, lib/erpm_decode), so its throttle mapping breaks.",
-        );
-      }
-      const other = escs[1 - esc].snap;
-      if (other && layout.read(dir, other.payload) === v) {
-        warnings.push(
-          "Direction now matches the other ESC; on this robot they differ, so one wheel will " +
-            "turn the wrong way.",
-        );
-      }
-    }
+    const other = escs[1 - esc].snap;
+    const warnings = Blheli.directionWarnings(layout, payload, changes, other && other.payload);
     for (const f of changes) {
       if (!f.verified) warnings.push(`${humanize(f.key)} is not confirmed on hardware.`);
     }
@@ -589,10 +570,14 @@
     for (const item of items) {
       const e = escs[item.esc];
       const held = e.snap;
-      // Saved before every write, as `blheli32.py write` does.
-      remember(Blheli.backupName(`esc${item.esc}_before_write`), Blheli.backupJson(held, layout));
       try {
-        const snap = await client.writeEsc(item.esc, layout, item.payload, held.payload);
+        const snap = await client.writeEscAfterBackup(
+          item.esc,
+          layout,
+          item.payload,
+          held,
+          remember,
+        );
         e.snap = snap;
         e.edit = Uint8Array.from(snap.payload);
         e.bad.clear();

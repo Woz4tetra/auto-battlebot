@@ -237,8 +237,8 @@ static void handle_telemetry(AsyncWebServerRequest *request, const telemetry_rin
     header.record_size = sizeof(TelemetryPayload);
     header.boot_id = boot_id;
     header.capacity = ring->capacity();
-    header.head = r.next_seq;
-    header.oldest = r.oldest_seq_at_start;
+    header.next_seq = r.next_seq;
+    header.oldest_seq = r.oldest_seq_at_start;
     header.first_seq = r.first_seq;
     header.count = r.copied;
     memcpy(raw, &header, sizeof(header));

@@ -33,7 +33,6 @@ class CommandTracker {
 
 class OtaSequencer {
    public:
-    // Status after this many accepted chunks, so the host's 16-chunk window keeps moving.
     static const uint32_t ACK_EVERY = 8;
 
     void begin(uint32_t size);

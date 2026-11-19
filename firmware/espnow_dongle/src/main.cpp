@@ -50,7 +50,7 @@ volatile bool send_in_flight = false;
 volatile uint32_t sent_count = 0;
 volatile uint32_t acked_count = 0;
 volatile uint32_t failed_count = 0;
-volatile uint32_t last_rtt_us = 0;
+volatile uint32_t last_unicast_rtt_us = 0;
 uint32_t send_started_us = 0;
 uint32_t send_started_ms = 0;
 uint32_t last_send_ms = 0;
@@ -70,7 +70,7 @@ volatile uint8_t scan_channel = 0;
 
 void on_sent(const uint8_t *mac, esp_now_send_status_t status) {
     (void)mac;
-    last_rtt_us = micros() - send_started_us;
+    last_unicast_rtt_us = micros() - send_started_us;
     if (status == ESP_NOW_SEND_SUCCESS) {
         acked_count = acked_count + 1;
     } else {
@@ -197,7 +197,7 @@ void service_radio() {
         tx_head = (tx_head + 1) % TX_QUEUE_LEN;
         tx_count--;
     } else if (millis() - last_send_ms >= PING_PERIOD_MS) {
-        static uint8_t ping[AIR_HEADER_SIZE];
+        static uint8_t ping[AIR_MAX_FRAME];
         length = encode_air_frame(MSG_PING, nullptr, 0, ping);
         data = ping;
     } else {
@@ -253,7 +253,7 @@ void service_link_stats() {
     if (now - last_stats_ms < LINK_STATS_PERIOD_MS) return;
     last_stats_ms = now;
     const LinkStatsPayload stats = {sent_count,  acked_count, failed_count,
-                                    last_rtt_us, channel,     static_cast<uint8_t>(robot_known)};
+                                    last_unicast_rtt_us, channel,     static_cast<uint8_t>(robot_known)};
     write_serial_frame(MSG_LINK_STATS, reinterpret_cast<const uint8_t *>(&stats), sizeof(stats));
 
     update_ack_window();

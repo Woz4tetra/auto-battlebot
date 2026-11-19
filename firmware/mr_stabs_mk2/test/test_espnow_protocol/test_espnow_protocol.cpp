@@ -21,13 +21,13 @@ void collect(void *context, uint8_t type, const uint8_t *payload, uint8_t length
 }
 
 std::vector<uint8_t> serial_frame(uint8_t type, const std::vector<uint8_t> &payload) {
-    std::vector<uint8_t> out(SERIAL_OVERHEAD + payload.size());
-    out.resize(encode_serial_frame(type, payload.data(), static_cast<uint8_t>(payload.size()),
-                                   out.data()));
-    return out;
+    uint8_t buffer[SERIAL_MAX_FRAME];
+    const size_t size =
+        encode_serial_frame(type, payload.data(), static_cast<uint8_t>(payload.size()), buffer);
+    return std::vector<uint8_t>(buffer, buffer + size);
 }
 
-CommandPayload command(uint32_t seq, float channel_a = 0.5f) { return {seq, 0, channel_a, 0.0f}; }
+CommandPayload command(uint32_t seq, float ch0_value = 0.5f) { return {seq, 0, ch0_value, 0.0f}; }
 
 }  // namespace
 
@@ -75,6 +75,17 @@ TEST(SerialFrameParser, SkipsLeadingTextAndStrayMagicBytes) {
     EXPECT_EQ(got[0].type, MSG_LINK_STATS);
 }
 
+TEST(SerialFrameParser, BufferNeverExceedsMaxFrame) {
+    SerialFrameParser parser;
+    std::vector<Received> got;
+    std::vector<uint8_t> stream = {0x7B, 0xB0, MSG_COMMAND, 255};
+    for (size_t i = 0; i < 3 * SERIAL_MAX_FRAME; i++) stream.push_back(i % 2 ? 0x7B : 0xB0);
+    for (const uint8_t byte : stream) {
+        parser.feed(&byte, 1, collect, &got);
+        ASSERT_LE(parser.buffered(), SERIAL_MAX_FRAME);
+    }
+}
+
 TEST(SerialFrameParser, CorruptFrameDoesNotHideTheNextOne) {
     auto bad = serial_frame(MSG_COMMAND, {1, 2, 3, 4});
     bad[5] ^= 0xFF;
@@ -107,7 +118,7 @@ TEST(AirFrame, RoundTripsAndRejectsForeignMagic) {
 
 TEST(AirFrame, RefusesPayloadPastTheEspNowLimit) {
     uint8_t payload[AIR_MAX_PAYLOAD + 1] = {};
-    uint8_t out[AIR_MAX_FRAME + 1];
+    uint8_t out[AIR_MAX_FRAME];
     EXPECT_EQ(encode_air_frame(MSG_OTA_CHUNK, payload, sizeof(payload), out), 0u);
     EXPECT_EQ(encode_air_frame(MSG_OTA_CHUNK, payload, AIR_MAX_PAYLOAD, out), AIR_MAX_FRAME);
 }
@@ -135,7 +146,7 @@ TEST(CommandTracker, RepeatDoesNotChangeValues) {
     CommandTracker tracker;
     tracker.on_command(command(4, 0.25f), 0);
     EXPECT_EQ(tracker.on_command(command(4, 0.9f), 4), CommandTracker::ACCEPTED_REPEAT);
-    EXPECT_FLOAT_EQ(tracker.latest().channel_a, 0.25f);
+    EXPECT_FLOAT_EQ(tracker.latest().ch0_value, 0.25f);
 }
 
 TEST(CommandTracker, DropsOlderSeq) {

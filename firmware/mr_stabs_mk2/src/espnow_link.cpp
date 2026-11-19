@@ -287,13 +287,13 @@ void EspNowLink::ota_end() {
     ESP.restart();
 }
 
-void EspNowLink::ota_abort(uint8_t error) {
+void EspNowLink::ota_abort(OtaError error) {
     Update.abort();
     ota_.reset();
     send_ota_status(OTA_ERROR, error);
 }
 
-void EspNowLink::send_ota_status(uint8_t state, uint8_t error) {
+void EspNowLink::send_ota_status(OtaState state, OtaError error) {
     ota_state_ = state;
     OtaStatusPayload status;
     status.state = state;
@@ -471,9 +471,9 @@ void EspNowLink::fill_status(espnow_status_t &out, uint32_t now_ms) const {
     out.command_fresh = tracker_.fresh(now_ms);
     out.command_seq = tracker_.latest().seq;
     out.command_age_ms = tracker_.age_ms(now_ms);
-    out.command_a = tracker_.latest().channel_a;
-    out.command_b = tracker_.latest().channel_b;
-    out.ota_state = static_cast<espnow_protocol::OtaState>(ota_state_);
+    out.command_a = tracker_.latest().ch0_value;
+    out.command_b = tracker_.latest().ch1_value;
+    out.ota_state = ota_state_;
     out.validated = validated_;
     out.allowed_count = allowed_count.load(std::memory_order_acquire);
     for (uint8_t i = 0; i < out.allowed_count; i++) memcpy(out.allowed[i], allowed_macs[i], 6);

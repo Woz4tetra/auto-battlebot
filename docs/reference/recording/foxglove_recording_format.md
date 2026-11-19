@@ -95,6 +95,8 @@ the relay already has these topics as client channels. Enums are lowercase strin
 `frame_id` strings are the lower-case `FrameId` enum names: `camera`, `camera_world`,
 `visual_odometry`, `field`, `our_robot_1`, `their_robot_1`, and so on. Unchanged from before.
 
+A robot's pose is its reference point. `Keypoint::reference_offset_m` is how far that point sits ahead of the front/back keypoint midpoint, in metres along the heading. The reference point is our robot's axle, the body origin the MuJoCo plant and the RL policy use, and an opponent's footprint centre. The model that knows where its keypoints sit on the robot sets it. It is 0 for models that place the keypoints symmetrically about the reference point.
+
 ## Stamps
 
 `Header.stamp` is a double in seconds. It maps to `Timestamp{sec, nsec}` as
@@ -264,6 +266,9 @@ the robot sends over ESP-NOW (`publish_diag` in `firmware/mr_stabs_mk2/src/main.
 
 - The fields shared with `/robot/esp32_diagnostics` mean the same thing. Every float is `null`
   when the firmware sends NaN.
+- `vbat`, `ibat`: INA238 pack volts and amps, `ibat` positive while discharging. Both are `null`
+  when the INA238 is absent. `yaw_rate`, `yaw_rate_cmd`: deg/s clockwise; `yaw_rate_cmd` is `null`
+  when the yaw loop is not running.
 - `accel_x`..`accel_z` are the BNO055's fused gravity vector, not total acceleration.
   `linear_accel_x`..`linear_accel_z` are the fused acceleration with gravity removed, m/s^2. Both
   are in the chip frame, as are `gyro_x` and `gyro_y`: the gyro rates about the chip's x and y

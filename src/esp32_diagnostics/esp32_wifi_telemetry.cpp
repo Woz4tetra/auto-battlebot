@@ -144,17 +144,17 @@ bool Esp32WifiTelemetry::poll_once(bool &more) {
 
     // New client, or the robot rebooted and its seqs restarted: start from the head, not from
     // history nobody was recording tags for. The records in this reply, if any, are dropped.
-    if (!boot_id_ || *boot_id_ != h.boot_id || h.head < next_seq_) {
+    if (!boot_id_ || *boot_id_ != h.boot_id || h.next_seq < next_seq_) {
         if (boot_id_) stats_.reboots++;
         boot_id_ = h.boot_id;
-        next_seq_ = h.head;
+        next_seq_ = h.next_seq;
         stats_.lag_records = 0;
         more = false;
         return true;
     }
 
     if (h.first_seq > next_seq_) stats_.ring_overwritten_records += h.first_seq - next_seq_;
-    const bool caught_up = h.first_seq + h.count == h.head;
+    const bool caught_up = h.first_seq + h.count == h.next_seq;
     for (uint32_t i = 0; i < h.count; i++) {
         const bool backfill = !(caught_up && i + 1 == h.count);
         if (queue_.size() >= kMaxQueuedEvents) {
@@ -166,7 +166,7 @@ bool Esp32WifiTelemetry::poll_once(bool &more) {
         if (backfill) stats_.backfilled++;
     }
     next_seq_ = h.first_seq + h.count;
-    stats_.lag_records = h.head - next_seq_;
+    stats_.lag_records = h.next_seq - next_seq_;
     more = !caught_up && h.count > 0;
     return true;
 }

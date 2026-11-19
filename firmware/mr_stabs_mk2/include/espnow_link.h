@@ -59,8 +59,8 @@ class EspNowLink {
                    bool armed);
     void ota_chunk(const uint8_t *payload, size_t length, uint32_t now_ms);
     void ota_end();
-    void ota_abort(uint8_t error);
-    void send_ota_status(uint8_t state, uint8_t error);
+    void ota_abort(espnow_protocol::OtaError error);
+    void send_ota_status(espnow_protocol::OtaState state, espnow_protocol::OtaError error);
     void service_sweep(uint32_t now_ms);
     void set_channel(uint8_t channel);
     void service_validation(uint32_t now_ms);
@@ -104,7 +104,7 @@ class EspNowLink {
     uint32_t sweep_dwell_start_ms_ = 0;
 
     uint8_t ota_mac_[6] = {0};
-    uint8_t ota_state_ = espnow_protocol::OTA_IDLE;
+    espnow_protocol::OtaState ota_state_ = espnow_protocol::OTA_IDLE;
     uint32_t last_ota_frame_ms_ = 0;
     uint32_t last_drop_status_ms_ = 0;
     uint8_t running_md5_[16] = {0};

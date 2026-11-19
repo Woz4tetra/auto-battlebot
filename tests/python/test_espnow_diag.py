@@ -108,6 +108,6 @@ def test_guard_labels_follow_motor_guard_enum_order(js_name: str, cpp_name: str)
 
 def test_expected_robot_percents_match_firmware_substitution() -> None:
     source = ROBOT_MAIN.read_text()
-    assert "radio_data->a_percent = -100.0f * cmd.channel_a;" in source
-    assert "radio_data->b_percent = 100.0f * cmd.channel_b;" in source
+    assert "radio_data->a_percent = -100.0f * cmd.ch0_value;" in source
+    assert "radio_data->b_percent = 100.0f * cmd.ch1_value;" in source
     assert "-100 * channelA * (upsideDown ? -1 : 1), 100 * channelB" in DIAG_WEB_APP.read_text()

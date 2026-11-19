@@ -196,33 +196,33 @@ void publish_diag(diag_data_t &diag, bool autonomy_enabled, bool espnow_active, 
     telemetry.orientation_z = diag.orientation_z;
     telemetry.pid_setpoint = diag.pid_setpoint;
     telemetry.pid_output = diag.pid_output;
-    telemetry.vbat = diag.pack_volts;
-    telemetry.ibat = diag.pack_amps_discharge;
-    telemetry.yaw_rate = diag.yaw_rate_cw_dps;
-    telemetry.yaw_rate_cmd = diag.yaw_rate_cmd_cw_dps;
+    telemetry.pack_volts = diag.pack_volts;
+    telemetry.pack_amps_discharge = diag.pack_amps_discharge;
+    telemetry.yaw_rate_cw_dps = diag.yaw_rate_cw_dps;
+    telemetry.yaw_rate_cmd_cw_dps = diag.yaw_rate_cmd_cw_dps;
     updown_sensor::vector3_t *linear_accel = accel->get_linear_accel_mps2_chip();
-    telemetry.linear_accel_x = linear_accel->x;
-    telemetry.linear_accel_y = linear_accel->y;
-    telemetry.linear_accel_z = linear_accel->z;
+    telemetry.linear_accel_x_mps2 = linear_accel->x;
+    telemetry.linear_accel_y_mps2 = linear_accel->y;
+    telemetry.linear_accel_z_mps2 = linear_accel->z;
     updown_sensor::vector3_t *gyro = accel->get_gyro_rad_s_chip();
-    telemetry.gyro_x = gyro->x * RAD_TO_DEG;
-    telemetry.gyro_y = gyro->y * RAD_TO_DEG;
-    telemetry.imu_calibration = accel->get_status().calibration;
+    telemetry.gyro_x_dps = gyro->x * RAD_TO_DEG;
+    telemetry.gyro_y_dps = gyro->y * RAD_TO_DEG;
+    telemetry.imu_calib_stat = accel->get_status().calibration;
     telemetry.radio_connected = diag.radio_connected;
     telemetry.armed = diag.armed;
-    telemetry.autonomy_enabled = autonomy_enabled;
+    telemetry.autonomy_switch_sa = autonomy_enabled;
     telemetry.button_state = diag.button_state;
     telemetry.flip_switch = diag.flip_switch;
     telemetry.is_upside_down = diag.is_upside_down;
-    telemetry.espnow_active = espnow_active;
-    telemetry.motor_rise_left = diag.motor_rise_left_c;
-    telemetry.motor_rise_right = diag.motor_rise_right_c;
-    telemetry.motor_speed_left = diag.motor_speed_left_rad_s;
-    telemetry.motor_speed_right = diag.motor_speed_right_rad_s;
-    telemetry.motor_amps_left = diag.motor_amps_est_left;
-    telemetry.motor_amps_right = diag.motor_amps_est_right;
+    telemetry.espnow_driving = espnow_active;
+    telemetry.motor_rise_left_c = diag.motor_rise_left_c;
+    telemetry.motor_rise_right_c = diag.motor_rise_right_c;
+    telemetry.motor_speed_left_rad_s = diag.motor_speed_left_rad_s;
+    telemetry.motor_speed_right_rad_s = diag.motor_speed_right_rad_s;
+    telemetry.motor_amps_est_left = diag.motor_amps_est_left;
+    telemetry.motor_amps_est_right = diag.motor_amps_est_right;
     telemetry.guard_scale = diag.guard_scale;
-    telemetry.guard_gain = diag.guard_shunt_gain;
+    telemetry.guard_shunt_gain = diag.guard_shunt_gain;
     telemetry.guard_state = static_cast<uint8_t>(diag.guard_state);
     telemetry.guard_sensors = static_cast<uint8_t>(diag.guard_sensors);
     telemetry.stall_flags = diag.stall_flags;
@@ -605,8 +605,8 @@ void loop() {
     if (ESPNOW_ENABLED && ESPNOW_COMMAND_SUBSTITUTION && radio_data->autonomy_enabled &&
         espnow.fresh(now_ms)) {
         const espnow_protocol::CommandPayload &cmd = espnow.latest();
-        radio_data->a_percent = -100.0f * cmd.channel_a;
-        radio_data->b_percent = 100.0f * cmd.channel_b;
+        radio_data->a_percent = -100.0f * cmd.ch0_value;
+        radio_data->b_percent = 100.0f * cmd.ch1_value;
         espnow_active = true;
     }
 

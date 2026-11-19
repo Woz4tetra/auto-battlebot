@@ -112,6 +112,9 @@ def test_encode_changes_only_the_field() -> None:
         {"pwm_frequency_low": 40},  # above pwm_frequency_high (24)
         {"fw_main_revision": 33},
         {"esc_layout": 1},
+        {"center_throttle": 900},
+        {"max_throttle": 1400},
+        {"pwm_frequency_high": 12},
     ],
 )
 def test_encode_rejects_invalid(changes: dict[str, int]) -> None:

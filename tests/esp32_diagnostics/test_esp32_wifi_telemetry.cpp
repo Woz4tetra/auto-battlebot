@@ -31,12 +31,12 @@ TelemetryPayload record(uint32_t seq) {
     r.a_percent = static_cast<float>(seq);
     r.armed = 1;
     r.flip_switch = 0;
-    r.vbat = 15.5f;
-    r.ibat = NAN;
-    r.yaw_rate = 12.0f;
-    r.yaw_rate_cmd = NAN;
-    r.motor_rise_left = 31.5f;
-    r.motor_speed_right = NAN;
+    r.pack_volts = 15.5f;
+    r.pack_amps_discharge = NAN;
+    r.yaw_rate_cw_dps = 12.0f;
+    r.yaw_rate_cmd_cw_dps = NAN;
+    r.motor_rise_left_c = 31.5f;
+    r.motor_speed_right_rad_s = NAN;
     r.guard_scale = 0.5f;
     r.guard_state = 3;
     r.stall_flags = 2;
@@ -52,8 +52,8 @@ std::string batch_body(uint32_t boot_id, uint32_t capacity, uint32_t head, uint3
     h.record_size = sizeof(TelemetryPayload);
     h.boot_id = boot_id;
     h.capacity = capacity;
-    h.head = head;
-    h.oldest = head > capacity ? head - capacity : 0;
+    h.next_seq = head;
+    h.oldest_seq = head > capacity ? head - capacity : 0;
     h.first_seq = first;
     h.count = count;
     std::string body(reinterpret_cast<const char *>(&h), sizeof(h));
@@ -68,7 +68,7 @@ TEST(Esp32TelemetryBatchTest, DecodesHeaderAndRecords) {
     const auto batch = decode_esp32_telemetry_batch(batch_body(7, 100, 12, 10, 2));
     ASSERT_TRUE(batch.has_value());
     EXPECT_EQ(batch->header.boot_id, 7u);
-    EXPECT_EQ(batch->header.head, 12u);
+    EXPECT_EQ(batch->header.next_seq, 12u);
     ASSERT_EQ(batch->records.size(), 2u);
     EXPECT_EQ(batch->records[1].telemetry_seq, 11u);
     EXPECT_EQ(batch->records[1].timestamp_ms, 1110u);
@@ -288,6 +288,25 @@ TEST(Esp32WifiTelemetryTest, CatchesUpAfterAnOutageWithoutLoss) {
     for (size_t i = 0; i < events.size(); i++) EXPECT_EQ(events[i].seq, i);
     EXPECT_EQ(telemetry.stats().ring_overwritten_records, 0u);
     EXPECT_GE(telemetry.stats().poll_failures, 1u);
+    telemetry.stop();
+}
+
+TEST(Esp32WifiTelemetryTest, FullBatchIsFollowedByAnImmediateRequest) {
+    FakeRingServer server;
+    server.set(1, 0);
+    Esp32WifiTelemetryOptions options = options_for(server);
+    options.poll_period = std::chrono::milliseconds(600);
+    Esp32WifiTelemetry telemetry(options);
+    telemetry.start();
+    ASSERT_TRUE(wait_until([&] { return telemetry.stats().connected; }, std::chrono::seconds(5)));
+
+    const auto start = std::chrono::steady_clock::now();
+    server.set(1, 50);
+    const auto events = collect(telemetry, 50);
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+    ASSERT_EQ(events.size(), 50u);
+    EXPECT_LT(elapsed, std::chrono::milliseconds(1000))
+        << "3 batches should arrive within one poll period, not one per period";
     telemetry.stop();
 }
 

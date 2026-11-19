@@ -77,26 +77,26 @@ std::string to_espnow_telemetry_json(const espnow_protocol::TelemetryPayload &t,
     append_number(json, "orientation_z", t.orientation_z);
     append_number(json, "pid_setpoint", t.pid_setpoint);
     append_number(json, "pid_output", t.pid_output);
-    append_number(json, "vbat", t.vbat);
-    append_number(json, "ibat", t.ibat);
-    append_number(json, "yaw_rate", t.yaw_rate);
-    append_number(json, "yaw_rate_cmd", t.yaw_rate_cmd);
-    append_number(json, "linear_accel_x", t.linear_accel_x);
-    append_number(json, "linear_accel_y", t.linear_accel_y);
-    append_number(json, "linear_accel_z", t.linear_accel_z);
-    append_number(json, "gyro_x", t.gyro_x);
-    append_number(json, "gyro_y", t.gyro_y);
-    append_integer(json, "imu_calib_sys", (t.imu_calibration >> 6) & 0x03);
-    append_integer(json, "imu_calib_gyro", (t.imu_calibration >> 4) & 0x03);
-    append_integer(json, "imu_calib_accel", (t.imu_calibration >> 2) & 0x03);
-    append_integer(json, "imu_calib_mag", t.imu_calibration & 0x03);
+    append_number(json, "vbat", t.pack_volts);
+    append_number(json, "ibat", t.pack_amps_discharge);
+    append_number(json, "yaw_rate", t.yaw_rate_cw_dps);
+    append_number(json, "yaw_rate_cmd", t.yaw_rate_cmd_cw_dps);
+    append_number(json, "linear_accel_x", t.linear_accel_x_mps2);
+    append_number(json, "linear_accel_y", t.linear_accel_y_mps2);
+    append_number(json, "linear_accel_z", t.linear_accel_z_mps2);
+    append_number(json, "gyro_x", t.gyro_x_dps);
+    append_number(json, "gyro_y", t.gyro_y_dps);
+    append_integer(json, "imu_calib_sys", (t.imu_calib_stat >> 6) & 0x03);
+    append_integer(json, "imu_calib_gyro", (t.imu_calib_stat >> 4) & 0x03);
+    append_integer(json, "imu_calib_accel", (t.imu_calib_stat >> 2) & 0x03);
+    append_integer(json, "imu_calib_mag", t.imu_calib_stat & 0x03);
     append_bool(json, "radio_connected", t.radio_connected != 0);
     append_bool(json, "armed", t.armed != 0);
-    append_bool(json, "autonomy_enabled", t.autonomy_enabled != 0);
+    append_bool(json, "autonomy_enabled", t.autonomy_switch_sa != 0);
     append_bool(json, "button_state", t.button_state != 0);
     append_integer(json, "flip_switch", t.flip_switch);
     append_bool(json, "is_upside_down", t.is_upside_down != 0);
-    append_bool(json, "espnow_active", t.espnow_active != 0);
+    append_bool(json, "espnow_active", t.espnow_driving != 0);
     append_integer(json, "espnow_channel", t.espnow_channel);
     if (t.espnow_age_ms == UINT32_MAX) {
         append_null(json, "espnow_age_ms");
@@ -107,14 +107,14 @@ std::string to_espnow_telemetry_json(const espnow_protocol::TelemetryPayload &t,
     append_integer(json, "jetson_tx_us", t.jetson_tx_us);
     append_integer(json, "espnow_lq", t.espnow_lq);
     append_integer(json, "telemetry_seq", t.telemetry_seq);
-    append_number(json, "motor_rise_left", t.motor_rise_left);
-    append_number(json, "motor_rise_right", t.motor_rise_right);
-    append_number(json, "motor_speed_left", t.motor_speed_left);
-    append_number(json, "motor_speed_right", t.motor_speed_right);
-    append_number(json, "motor_amps_left", t.motor_amps_left);
-    append_number(json, "motor_amps_right", t.motor_amps_right);
+    append_number(json, "motor_rise_left", t.motor_rise_left_c);
+    append_number(json, "motor_rise_right", t.motor_rise_right_c);
+    append_number(json, "motor_speed_left", t.motor_speed_left_rad_s);
+    append_number(json, "motor_speed_right", t.motor_speed_right_rad_s);
+    append_number(json, "motor_amps_left", t.motor_amps_est_left);
+    append_number(json, "motor_amps_right", t.motor_amps_est_right);
     append_number(json, "guard_scale", t.guard_scale);
-    append_number(json, "guard_gain", t.guard_gain);
+    append_number(json, "guard_gain", t.guard_shunt_gain);
     append_integer(json, "guard_state", t.guard_state);
     append_integer(json, "guard_sensors", t.guard_sensors);
     append_integer(json, "stall_flags", t.stall_flags);
@@ -170,9 +170,9 @@ CommandFeedback EspNowTransmitter::update() {
         processor_->to_body_velocity(espnow_telemetry_channels(*latest_telemetry_));
     CommandFeedback feedback;
     feedback.stick_commands[FrameId::OUR_ROBOT_1] = {
-        .linear_x = body.linear,
-        .linear_y = 0.0,
-        .angular_z = body.angular,
+        .forward = body.linear,
+        .lateral = 0.0,
+        .yaw = body.angular,
     };
     return feedback;
 }
@@ -185,7 +185,7 @@ TransmitterStatus EspNowTransmitter::get_status() const {
     return {.connected = connected,
             .receiving_channels = receiving,
             .has_trainer_autonomy_switch = true,
-            .autonomy_switch_on = receiving && latest_telemetry_->autonomy_enabled != 0};
+            .autonomy_switch_on = receiving && latest_telemetry_->autonomy_switch_sa != 0};
 }
 
 DriveProcessorInterface::Channels espnow_telemetry_channels(
@@ -198,7 +198,7 @@ void EspNowTransmitter::send(VelocityCommand command) {
     reconnect_if_needed();
     if (!dongle_.is_open() || !enabled_) return;
 
-    command.linear_x = limit_linear_acceleration(command.linear_x);
+    command.forward_mps = limit_linear_acceleration(command.forward_mps);
     const auto channels = processor_->process(command);
     const espnow_protocol::CommandPayload payload{
         ++seq_,
@@ -311,7 +311,7 @@ void EspNowTransmitter::log_health() {
         data["robot_known"] = static_cast<int>(link_stats_->robot_known);
         data["sent"] = static_cast<int>(link_stats_->sent);
         data["failed"] = static_cast<int>(link_stats_->failed);
-        data["last_send_us"] = static_cast<int>(link_stats_->last_rtt_us);
+        data["last_send_us"] = static_cast<int>(link_stats_->last_unicast_rtt_us);
         if (link_stats_at_last_log_) {
             const uint32_t sent = link_stats_->sent - link_stats_at_last_log_->sent;
             const uint32_t acked = link_stats_->acked - link_stats_at_last_log_->acked;

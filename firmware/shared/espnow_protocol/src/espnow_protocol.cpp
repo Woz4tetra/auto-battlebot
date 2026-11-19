@@ -16,7 +16,8 @@ uint16_t crc16_ccitt(const uint8_t *data, size_t length) {
     return crc;
 }
 
-size_t encode_serial_frame(uint8_t type, const uint8_t *payload, uint8_t length, uint8_t *out) {
+size_t encode_serial_frame(uint8_t type, const uint8_t *payload, uint8_t length,
+                           uint8_t (&out)[SERIAL_MAX_FRAME]) {
     out[0] = SERIAL_MAGIC & 0xFF;
     out[1] = SERIAL_MAGIC >> 8;
     out[2] = type;
@@ -28,7 +29,8 @@ size_t encode_serial_frame(uint8_t type, const uint8_t *payload, uint8_t length,
     return SERIAL_OVERHEAD + length;
 }
 
-size_t encode_air_frame(uint8_t type, const uint8_t *payload, size_t length, uint8_t *out) {
+size_t encode_air_frame(uint8_t type, const uint8_t *payload, size_t length,
+                        uint8_t (&out)[AIR_MAX_FRAME]) {
     if (length > AIR_MAX_PAYLOAD) return 0;
     memcpy(out, AIR_MAGIC, sizeof(AIR_MAGIC));
     out[sizeof(AIR_MAGIC)] = type;
@@ -45,8 +47,6 @@ void SerialFrameParser::feed(const uint8_t *data, size_t count, Handler handler,
     const uint8_t magic_lo = SERIAL_MAGIC & 0xFF;
     const uint8_t magic_hi = SERIAL_MAGIC >> 8;
     for (size_t i = 0; i < count; i++) {
-        // A frame resolves the moment its last byte arrives, so the buffer never holds more than
-        // one maximum-size frame.
         buffer_[size_++] = data[i];
         while (size_ > 0) {
             if (buffer_[0] != magic_lo) {

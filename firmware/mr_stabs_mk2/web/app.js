@@ -21,19 +21,19 @@ function setValue(span, text, bad) {
   span.classList.toggle("bad", !!bad);
 }
 
-// tone: "" plain, "warn" amber, "bad" red.
+const Tone = Object.freeze({ PLAIN: "", WARN: "warn", BAD: "bad" });
+
 function setTone(span, text, tone) {
-  setValue(span, text, tone === "bad");
-  span.classList.toggle("warn", tone === "warn");
+  setValue(span, text, tone === Tone.BAD);
+  span.classList.toggle("warn", tone === Tone.WARN);
 }
 
-// Rows rebuilt on every status poll: [label, value, bad].
-function fillRows(containerId, rows) {
+function fillRows(containerId, labelValueBadRows) {
   const spans = leaderRows(
     containerId,
-    rows.map((r, i) => [i, r[0]]),
+    labelValueBadRows.map(([label], i) => [i, label]),
   );
-  rows.forEach((r, i) => setValue(spans[i], r[1], r[2]));
+  labelValueBadRows.forEach(([, value, bad], i) => setValue(spans[i], value, bad));
 }
 
 const SUN =
@@ -56,8 +56,6 @@ $("darkBtn").onclick = () => {
 };
 renderTheme();
 
-// Column order of the /events CSV rows. The Jetson's Esp32WifiDiagnostics and
-// scripts/log_drive_twitch.py parse the same order. New columns go just before seq.
 const HEADER =
   "timestamp_ms,radio_connected,armed,a_percent,b_percent,button_state,flip_switch,left_cmd,right_cmd,accel_x,accel_y,accel_z,is_upside_down,loop_us,wifi_clients,orientation_x,orientation_y,orientation_z,pid_setpoint,pid_output,vbat,ibat,yaw_rate,yaw_rate_cmd,motor_rise_left,motor_rise_right,motor_speed_left,motor_speed_right,motor_amps_left,motor_amps_right,guard_scale,guard_gain,guard_state,guard_sensors,stall_flags,erpm_crc_errors,seq";
 const COL = Object.fromEntries(HEADER.split(",").map((name, i) => [name, i]));
@@ -91,7 +89,6 @@ const power = leaderRows("powerRows", [
   ["seq", "Row seq"],
 ]);
 
-// Motor stall guard. Mirrors lib/motor_guard Config: rise_soft_c and rise_max_c.
 const RISE_SOFT_C = 35;
 const RISE_MAX_C = 50;
 const GUARD_STATE = ["OFF", "NOMINAL", "HOT", "LIMITING", "TRIPPED"];
@@ -109,8 +106,8 @@ const heat = leaderRows("heatRows", [
 ]);
 
 function riseTone(rise) {
-  if (!(rise < RISE_MAX_C)) return "bad";
-  return rise > RISE_SOFT_C ? "warn" : "";
+  if (!(rise < RISE_MAX_C)) return Tone.BAD;
+  return rise > RISE_SOFT_C ? Tone.WARN : Tone.PLAIN;
 }
 
 let latest = null;
@@ -148,11 +145,15 @@ function render() {
   setValue(imuLive.accel, [g("accel_x"), g("accel_y"), g("accel_z")].join(" / "));
   const state = GUARD_STATE[+g("guard_state")] || g("guard_state");
   const bad = state === "OFF" || state === "TRIPPED";
-  setTone(heat.state, state, bad ? "bad" : state === "NOMINAL" ? "" : "warn");
+  setTone(heat.state, state, bad ? Tone.BAD : state === "NOMINAL" ? Tone.PLAIN : Tone.WARN);
   const sensors = GUARD_SENSORS[+g("guard_sensors")] || g("guard_sensors");
-  setTone(heat.sensors, sensors, sensors === "NONE" ? "bad" : sensors === "FUSED" ? "" : "warn");
+  setTone(
+    heat.sensors,
+    sensors,
+    sensors === "NONE" ? Tone.BAD : sensors === "FUSED" ? Tone.PLAIN : Tone.WARN,
+  );
   const scale = +g("guard_scale");
-  setTone(heat.scale, (100 * scale).toFixed(0) + " %", scale < 1 ? "warn" : "");
+  setTone(heat.scale, (100 * scale).toFixed(0) + " %", scale < 1 ? Tone.WARN : Tone.PLAIN);
   const riseL = +g("motor_rise_left");
   const riseR = +g("motor_rise_right");
   setTone(
@@ -163,9 +164,13 @@ function render() {
   setValue(heat.amps, g("motor_amps_left") + " / " + g("motor_amps_right") + " A");
   setValue(heat.speed, g("motor_speed_left") + " / " + g("motor_speed_right"));
   const stall = +g("stall_flags");
-  setTone(heat.stall, ["none", "STALL L", "STALL R", "STALL L + R"][stall & 3], stall ? "bad" : "");
+  setTone(
+    heat.stall,
+    ["none", "STALL L", "STALL R", "STALL L + R"][stall & 3],
+    stall ? Tone.BAD : Tone.PLAIN,
+  );
   const gain = +g("guard_gain");
-  setTone(heat.gain, g("guard_gain"), gain < 0.9 || gain > 1.25 ? "warn" : "");
+  setTone(heat.gain, g("guard_gain"), gain < 0.9 || gain > 1.25 ? Tone.WARN : Tone.PLAIN);
   setValue(heat.crc, g("erpm_crc_errors"));
   setValue(imuLive.yr, g("yaw_rate"));
   setValue(imuLive.yrc, g("yaw_rate_cmd") === "nan" ? "LOOP OFF" : g("yaw_rate_cmd"));

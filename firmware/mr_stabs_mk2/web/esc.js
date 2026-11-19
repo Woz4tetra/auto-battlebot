@@ -259,7 +259,6 @@ const Blheli = (() => {
       return null;
     }
 
-    // Rules across fields, the same ones layout.encode enforces.
     function crossErrors(payload) {
       const errors = [];
       const min = read(byKey.min_throttle, payload);
@@ -368,6 +367,28 @@ const Blheli = (() => {
     return `${prefix}_${localStamp(date, "_")}.json`;
   }
 
+  const DIRECTIONS_3D = [3, 4];
+
+  function directionWarnings(layout, payload, changes, otherPayload) {
+    const dir = layout.byKey.direction;
+    const warnings = [];
+    if (!changes.includes(dir)) return warnings;
+    const v = layout.read(dir, payload);
+    if (!DIRECTIONS_3D.includes(v)) {
+      warnings.push(
+        `Direction ${layout.label(dir, v)}: the robot drives these ESCs in bidirectional 3D ` +
+          "mode (esc.h, lib/erpm_decode), so its throttle mapping breaks.",
+      );
+    }
+    if (otherPayload && layout.read(dir, otherPayload) === v) {
+      warnings.push(
+        "Direction now matches the other ESC; on this robot they differ, so one wheel will " +
+          "turn the wrong way.",
+      );
+    }
+    return warnings;
+  }
+
   function parseBackup(doc, layout) {
     if (typeof doc !== "object" || doc === null || typeof doc.payload_hex !== "string") {
       throw new LayoutError("not a blheli32.py backup: no payload_hex");
@@ -466,14 +487,15 @@ const Blheli = (() => {
     return out;
   }
 
-  // transact(frame: Uint8Array) -> Promise<Uint8Array>: one request frame out, its response in.
   class Client {
-    constructor(transact) {
-      this.transact = transact;
+    constructor(requestFrameToResponseFrame) {
+      this.requestFrameToResponseFrame = requestFrameToResponseFrame;
     }
 
     async command(cmd, address = 0, params = [0]) {
-      const resp = parseResponse(await this.transact(buildRequest(cmd, address, params)));
+      const resp = parseResponse(
+        await this.requestFrameToResponseFrame(buildRequest(cmd, address, params)),
+      );
       if (resp.cmd !== cmd) {
         throw new FourWayError(
           `sent 0x${cmd.toString(16)}, got a reply to 0x${resp.cmd.toString(16)}`,
@@ -549,6 +571,11 @@ const Blheli = (() => {
       }
       return this.readEsc(esc);
     }
+
+    async writeEscAfterBackup(esc, layout, payload, held, saveBackup) {
+      saveBackup(backupName(`esc${esc}_before_write`), backupJson(held, layout));
+      return this.writeEsc(esc, layout, payload, held.payload);
+    }
   }
 
   return {
@@ -571,6 +598,7 @@ const Blheli = (() => {
     snapshot,
     backupJson,
     backupName,
+    directionWarnings,
     parseBackup,
     crc32,
     zipStore,

@@ -118,6 +118,56 @@ test("encode rejects what layout.py rejects", () => {
   assert.throws(() => layout.decode(wrong), Blheli.LayoutError);
 });
 
+test("direction warnings flag non-3D values and a match with the other ESC", () => {
+  const a = Blheli.decodePage(capture(1));
+  const b = Blheli.decodePage(capture(2));
+  const dir = layout.byKey.direction;
+  const toNon3d = layout.encode(a, { direction: 1 });
+  assert.equal(layout.read(dir, toNon3d), 1);
+  assert.equal(Blheli.directionWarnings(layout, toNon3d, [dir], b).length, 1);
+  assert.match(Blheli.directionWarnings(layout, toNon3d, [dir], b)[0], /bidirectional 3D/);
+  const matching = layout.encode(a, { direction: layout.read(dir, b) });
+  const warnings = Blheli.directionWarnings(layout, matching, [dir], b);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /matches the other ESC/);
+  assert.deepEqual(Blheli.directionWarnings(layout, toNon3d, [], b), []);
+});
+
+test("a backup is saved before the first write reaches the ESC", async () => {
+  const esc = new FakeEsc();
+  const client = new Blheli.Client((f) => esc.transact(f));
+  const held = await client.readEsc(0);
+  const edited = layout.encode(held.payload, { startup_beep_volume: 200 });
+  const writesWhenSaved = [];
+  await client.writeEscAfterBackup(0, layout, edited, held, (name, doc) =>
+    writesWhenSaved.push([name, doc.esc, esc.writes.length]),
+  );
+  assert.equal(writesWhenSaved.length, 1);
+  assert.match(writesWhenSaved[0][0], /^esc0_before_write/);
+  assert.equal(writesWhenSaved[0][1], 0);
+  assert.equal(writesWhenSaved[0][2], 0);
+  assert.equal(esc.writes.length, 1);
+});
+
+test("cross-field rules reject the throttle and PWM orderings layout.py rejects", () => {
+  const payload = Blheli.decodePage(capture(1));
+  const rejected = [
+    { min_throttle: 1600 },
+    { center_throttle: 900 },
+    { max_throttle: 1400 },
+    { pwm_frequency_low: 40 },
+    { pwm_frequency_high: 12 },
+  ];
+  for (const changes of rejected) {
+    assert.throws(
+      () => layout.encode(payload, changes),
+      Blheli.LayoutError,
+      JSON.stringify(changes),
+    );
+  }
+  assert.deepEqual(layout.crossErrors(payload), []);
+});
+
 test("every editable field round trips at its limits and options", () => {
   const payload = Blheli.decodePage(capture(1));
   for (const f of layout.fields.filter(layout.isEditable)) {
