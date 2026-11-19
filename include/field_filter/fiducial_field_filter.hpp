@@ -10,13 +10,6 @@
 #include "field_filter/config.hpp"
 
 namespace auto_battlebot {
-/** Marker ids for a manufactured grid board, reversed within each row.
- *
- * The physical board numbers markers right to left within a row; cv::aruco::GridBoard fills them
- * left to right. Pairing them the wrong way round gives a reflection rather than a rotation, and
- * a reflection still decodes: the measured cost was 440 px of reprojection error against 16 px
- * when correct. This is the same class of failure as the mirrored robot tag mesh, and the worse
- * version of it, because everything upstream looks like it is working. */
 std::vector<int> floor_board_ids(int cols, int rows, int first_id);
 
 cv::aruco::DetectorParameters small_apriltag_detector_parameters();
@@ -34,7 +27,7 @@ class FiducialFieldFilter : public CameraWorldFieldFilter {
     Eigen::Matrix4d tf_fieldcenter_from_board() const;
 
    protected:
-    const char *name() const override { return "FiducialFieldFilter"; }
+    const char *filter_name_for_log() const override { return "FiducialFieldFilter"; }
 
    private:
     FiducialFieldFilterConfiguration config_;
@@ -43,8 +36,6 @@ class FiducialFieldFilter : public CameraWorldFieldFilter {
     cv::aruco::ArucoDetector detector_;
     std::vector<int> board_ids_;
 
-    /** Correspondences stacked across frames, so detection noise averages out before the pose
-     *  latches. Cleared by reset. */
     std::vector<cv::Point3f> accumulated_object_;
     std::vector<cv::Point2f> accumulated_image_;
     int accumulated_frames_ = 0;

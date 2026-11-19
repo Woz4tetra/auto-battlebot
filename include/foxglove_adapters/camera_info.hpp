@@ -10,8 +10,6 @@ namespace foxglove_adapters {
 
 foxglove::schemas::CameraCalibration to_camera_calibration(const CameraInfo &camera_info);
 
-/** FrameIdentity as the `/camera/frame_meta` JSON payload. `image_stamp_ns` is emitted as a
- *  string: it exceeds 2^53 and a JSON number would be rounded by JavaScript consumers. */
 std::string to_frame_meta_json(const FrameIdentity &identity);
 
 }  // namespace foxglove_adapters

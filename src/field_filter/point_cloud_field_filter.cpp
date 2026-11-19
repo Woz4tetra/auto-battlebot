@@ -110,7 +110,7 @@ std::shared_ptr<FieldDescriptionWithInlierPoints> PointCloudFieldFilter::compute
                                 {"angle_rad", std::to_string(rectangle_angle)}});
 
     if (local_visualize_debug_) {
-        visualize_debug_mosaic(FieldFilterDebugFrame{
+        show_stage_mosaic_blocking(FieldFilterDebugFrame{
             .original_mask = field_mask.mask.mask,
             .largest_contour_mask = largest_contour_mask,
             .masked_depth_image = masked_depth_image,
@@ -121,6 +121,7 @@ std::shared_ptr<FieldDescriptionWithInlierPoints> PointCloudFieldFilter::compute
             .rectangle_corners = rectangle_corners,
             .plane_transform = plane_transform,
             .rectangle_angle = rectangle_angle,
+            .scoped_to_the_call_that_built_it = {},
         });
     }
 

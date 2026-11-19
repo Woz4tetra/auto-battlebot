@@ -19,3 +19,7 @@ The board is close and bright, and its white bleeds into each marker's black bor
 Beside `std::vector<cv::Point2f> reprojected;`:
 
 15 markers give 60 correspondences against 6 unknowns, so this residual measures something, unlike the four-corner homography's. It catches a mis-measured marker_size, a board printed at "fit to page" rather than 100%, a mirrored id mapping, and a board that was not flat.
+
+## Board id order
+
+Pairing the printed board's ids with `cv::aruco::GridBoard` in the wrong order (no reversal within each row) gave a mirrored pose with 440 px of reprojection error. The reversed ids give 16 px.

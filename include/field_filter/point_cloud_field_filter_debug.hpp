@@ -9,9 +9,14 @@
 
 namespace auto_battlebot {
 
-// Every intermediate PointCloudFieldFilter::compute_field produces, in pipeline order.
-// The members are references into compute_field's locals, so a frame is only valid for
-// the duration of the call that built it.
+struct CallScoped {
+    CallScoped() = default;
+    CallScoped(const CallScoped &) = delete;
+    CallScoped(CallScoped &&) = delete;
+    CallScoped &operator=(const CallScoped &) = delete;
+    CallScoped &operator=(CallScoped &&) = delete;
+};
+
 struct FieldFilterDebugFrame {
     const cv::Mat &original_mask;
     const cv::Mat &largest_contour_mask;
@@ -23,10 +28,9 @@ struct FieldFilterDebugFrame {
     const std::vector<Eigen::Vector2f> &rectangle_corners;
     const Eigen::Matrix4d &plane_transform;
     double rectangle_angle;
+    CallScoped scoped_to_the_call_that_built_it;
 };
 
-// Render one labeled panel per pipeline stage, tile them into a mosaic, and show it.
-// Blocks until a key is pressed.
-void visualize_debug_mosaic(const FieldFilterDebugFrame &frame);
+void show_stage_mosaic_blocking(const FieldFilterDebugFrame &frame);
 
 }  // namespace auto_battlebot

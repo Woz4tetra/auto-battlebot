@@ -4,12 +4,20 @@
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <optional>
+#include <string>
 
 #include "diagnostics_logger/function_timer.hpp"
 #include "field_filter/field_outline.hpp"
 #include "field_filter/field_pose.hpp"
 
 namespace auto_battlebot {
+namespace {
+std::string side_rms_text(const std::optional<double> &rms_px) {
+    return rms_px ? fmt::format("{:.1f}", *rms_px) : "unfitted";
+}
+}  // namespace
+
 HomographyFieldFilter::HomographyFieldFilter(const HomographyFieldFilterConfiguration &config)
     : config_(config),
       diagnostics_logger_(DiagnosticsLogger::get_logger("homography_field_filter")) {}
@@ -41,7 +49,7 @@ std::shared_ptr<FieldDescriptionWithInlierPoints> HomographyFieldFilter::compute
     FieldOutlineParams outline_params;
     outline_params.border_margin_px = config_.border_margin_px;
     outline_params.refine_iterations = config_.refine_iterations;
-    outline_params.corner_skip_fraction = config_.corner_skip_fraction;
+    outline_params.corner_skip_fraction_per_side_end = config_.corner_skip_fraction;
     outline_params.min_side_points = config_.min_side_points;
     const FieldOutline outline = extract_field_outline(contour_mask, outline_params);
     if (!outline.ok) {
@@ -69,23 +77,24 @@ std::shared_ptr<FieldDescriptionWithInlierPoints> HomographyFieldFilter::compute
         "compute_field", {{"supported_sides", std::to_string(outline.supported_sides)},
                           {"mask_over_quad_area", std::to_string(outline.mask_over_quad_area)},
                           {"residual_px", std::to_string(pose.residual_px)},
-                          {"side_rms_px", std::to_string(outline.side_rms_px[0]) + " " +
-                                              std::to_string(outline.side_rms_px[1]) + " " +
-                                              std::to_string(outline.side_rms_px[2]) + " " +
-                                              std::to_string(outline.side_rms_px[3])}});
+                          {"side_rms_px", side_rms_text(outline.side_rms_px[0]) + " " +
+                                              side_rms_text(outline.side_rms_px[1]) + " " +
+                                              side_rms_text(outline.side_rms_px[2]) + " " +
+                                              side_rms_text(outline.side_rms_px[3])}});
     consecutive_fit_failures_ = 0;
     spdlog::info(
-        "HomographyFieldFilter: {} sides, {:.1f} px reprojection error, side scatter {:.1f} {:.1f} "
-        "{:.1f} {:.1f} px, mask fills {:.2f} of its quad",
-        outline.supported_sides, pose.residual_px, outline.side_rms_px[0], outline.side_rms_px[1],
-        outline.side_rms_px[2], outline.side_rms_px[3], outline.mask_over_quad_area);
+        "HomographyFieldFilter: {} sides, {:.1f} px reprojection error, side scatter {} {} "
+        "{} {} px, mask fills {:.2f} of its quad",
+        outline.supported_sides, pose.residual_px, side_rms_text(outline.side_rms_px[0]),
+        side_rms_text(outline.side_rms_px[1]), side_rms_text(outline.side_rms_px[2]),
+        side_rms_text(outline.side_rms_px[3]), outline.mask_over_quad_area);
     if (outline.supported_sides == 3) {
         const size_t dropped = static_cast<size_t>(
             std::find(outline.side_supported.begin(), outline.side_supported.end(), false) -
             outline.side_supported.begin());
         spdlog::info(
             "HomographyFieldFilter: pose solved from three edges; side {} was {}", dropped,
-            outline.side_rms_px[dropped] < 0.0 ? "off the frame" : "not straight enough to trust");
+            outline.side_rms_px[dropped] ? "not straight enough to trust" : "off the frame");
     }
 
     auto description = std::make_shared<FieldDescriptionWithInlierPoints>();

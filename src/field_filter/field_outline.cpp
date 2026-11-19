@@ -217,7 +217,7 @@ FieldOutline extract_field_outline(const cv::Mat &contour_mask, const FieldOutli
     std::array<cv::Point2d, 4> quad = order_corners(seed);
     std::array<cv::Vec3d, 4> lines{};
     std::array<bool, 4> supported{};
-    std::array<double, 4> rms_px{-1.0, -1.0, -1.0, -1.0};
+    std::array<std::optional<double>, 4> rms_px{};
     for (size_t i = 0; i < 4; ++i) {
         lines[i] = line_through(quad[i], quad[(i + 1) % 4]);
     }
@@ -252,8 +252,8 @@ FieldOutline extract_field_outline(const cv::Mat &contour_mask, const FieldOutli
                     best_along = (relative.x * units[i].x + relative.y * units[i].y) / lengths[i];
                 }
             }
-            if (best_along <= params.corner_skip_fraction ||
-                best_along >= 1.0 - params.corner_skip_fraction) {
+            if (best_along <= params.corner_skip_fraction_per_side_end ||
+                best_along >= 1.0 - params.corner_skip_fraction_per_side_end) {
                 continue;
             }
             owned[owner].push_back(point);

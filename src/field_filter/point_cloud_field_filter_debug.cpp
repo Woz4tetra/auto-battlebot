@@ -276,7 +276,7 @@ cv::Mat tile_panels(const DebugPanels &panels) {
 
 }  // namespace
 
-void visualize_debug_mosaic(const FieldFilterDebugFrame &frame) {
+void show_stage_mosaic_blocking(const FieldFilterDebugFrame &frame) {
     DebugPanels panels;
     add_mask_panels(frame, panels);
     add_point_cloud_panels(frame, panels);
