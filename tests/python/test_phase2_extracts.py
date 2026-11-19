@@ -44,7 +44,7 @@ def test_hold_commands_on_grid_blanks_outside_the_log_span() -> None:
         t_ns=np.array([1_000, 2_000], dtype=np.int64),
         lin=np.array([0.5, -0.5]),
         ang=np.array([0.1, 0.2]),
-        auto=np.array([True, True]),
+        auto_switch_latched=np.array([True, True]),
     )
     stamps = np.array([500, 1_000, 1_500, 2_000, 2_000 + 10**9, 2_001 + 10**9], dtype=np.int64)
     lin, ang, auto = hold_commands_on_grid(commands, stamps)

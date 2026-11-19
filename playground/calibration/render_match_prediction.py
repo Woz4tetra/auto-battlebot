@@ -17,6 +17,7 @@ from matplotlib.patches import Circle, Polygon, Rectangle
 
 from auto_battlebot.calibration.match.match_windows import (
     MatchRun,
+    RunRole,
     _fill_grid,
     build_match_run,
     load_commands,
@@ -71,8 +72,8 @@ def predict_track(
                 x=float(run.x[k]),
                 y=float(run.y[k]),
                 theta=float(run.theta[k]),
-                v=float(run.v[k]) if np.isfinite(run.v[k]) else 0.0,
-                w=float(run.w[k]) if np.isfinite(run.w[k]) else 0.0,
+                v=float(run.v_body_mps[k]) if np.isfinite(run.v_body_mps[k]) else 0.0,
+                w=float(run.yaw_rate_radps[k]) if np.isfinite(run.yaw_rate_radps[k]) else 0.0,
             )
             seg += 1
             next_reset = k + reset_steps
@@ -313,7 +314,7 @@ def main() -> None:
         commands = load_commands(original)
         if args.cmd_lead_ms:
             commands.t_ns = commands.t_ns - int(args.cmd_lead_ms * 1e6)
-        run = build_match_run(track, commands, name=name, role="video")
+        run = build_match_run(track, commands, name=name, role=RunRole.VIDEO)
         _t, grid, _dt, _t0 = _fill_grid(track)
         opp = np.stack([grid["opp_x"], grid["opp_y"]], axis=1)
 

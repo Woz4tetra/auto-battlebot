@@ -47,9 +47,9 @@ class Turn:
 
 def ramped_bias(post, pre, log):
     span = max(post.t_mid - pre.t_mid, 1e-9)
-    frac = np.clip((log.t - pre.t_mid) / span, 0.0, 1.0)[:, None]
-    bias = pre.bias[None, :] * (1.0 - frac) + post.bias[None, :] * frac
-    drift = float(np.degrees(np.linalg.norm(post.bias - pre.bias)))
+    frac = np.clip((log.t_boot_s - pre.t_mid) / span, 0.0, 1.0)[:, None]
+    bias = pre.bias_radps[None, :] * (1.0 - frac) + post.bias_radps[None, :] * frac
+    drift = float(np.degrees(np.linalg.norm(post.bias_radps - pre.bias_radps)))
     return bias, drift
 
 
@@ -69,19 +69,19 @@ def solve_turn(path: Path, reference_deg: float) -> Turn:
         raise ValueError(f"{path.name}: no still hold found, so no bias and no gravity axis")
 
     pre = still_stats(log, stills[0])
-    up = pre.up
+    up = pre.up_unit
     if len(stills) > 1:
         post = still_stats(log, stills[-1])
         bias, drift = ramped_bias(post, pre, log)
     else:
-        bias = pre.bias[None, :]
+        bias = pre.bias_radps[None, :]
         drift = float("nan")
 
     # JigLog.gyro is rad/s, not deg/s. Everything below is degrees, so convert here and
     # nowhere else: a factor of 57.3 buried mid-pipeline turns ten turns into one sixth of
     # one, which is exactly convincing enough to be believed.
     yaw = np.degrees((log.gyro - bias) @ up)
-    angle = np.concatenate([[0.0], np.cumsum(0.5 * (yaw[1:] + yaw[:-1]) * np.diff(log.t))])
+    angle = np.concatenate([[0.0], np.cumsum(0.5 * (yaw[1:] + yaw[:-1]) * np.diff(log.t_boot_s))])
 
     lo, hi, measured = turn_span(yaw, path, angle)
 
@@ -89,11 +89,11 @@ def solve_turn(path: Path, reference_deg: float) -> Turn:
         path=path,
         reference_deg=reference_deg,
         measured_deg=measured,
-        t=log.t - log.t[0],
+        t=log.t_boot_s - log.t_boot_s[0],
         yaw_dps=yaw,
         angle_deg=angle - angle[lo],
-        t0=float(log.t[lo] - log.t[0]),
-        t1=float(log.t[hi] - log.t[0]),
+        t0=float(log.t_boot_s[lo] - log.t_boot_s[0]),
+        t1=float(log.t_boot_s[hi] - log.t_boot_s[0]),
         stills=len(stills),
         bias_drift_dps=drift,
         up=up,

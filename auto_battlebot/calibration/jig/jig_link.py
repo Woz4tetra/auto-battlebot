@@ -13,16 +13,9 @@ from serial.tools.list_ports import comports
 import serial
 from auto_battlebot.calibration.jig.velocity_jig import ClockProbe
 
-# The jig's USB ids under the arduino-pico core. CONFIRM ON HARDWARE with --list-ports:
-# the core takes these from the board variant, and a wrong guess here silently falls back
-# to the scan below. The important half is TRANSMITTER_USB_IDS: without excluding it, a
-# first-ttyACM scan will happily open the radio and then time out waiting for "TIME".
-JIG_USB_IDS = frozenset(
-    {
-        (0x239A, 0x80F1),  # Adafruit vendor id, Feather RP2040 variant
-        (0x2E8A, 0x000A),  # Raspberry Pi vendor id, generic RP2040 CDC
-    }
-)
+ADAFRUIT_FEATHER_RP2040_USB_ID = (0x239A, 0x80F1)
+RPI_RP2040_CDC_USB_ID = (0x2E8A, 0x000A)
+JIG_USB_IDS = frozenset({ADAFRUIT_FEATHER_RP2040_USB_ID, RPI_RP2040_CDC_USB_ID})
 TRANSMITTER_USB_IDS = frozenset({(0x0483, 0x5740)})
 
 JIG_BAUD = 921600
@@ -206,8 +199,7 @@ class JigLink:
                     out.append((parts[1], int(parts[2])))
 
     def get(self, name: str, timeout: float = 600.0) -> bytes:
-        """Download one log. Consumes the trailing newline and END, which the web tool did
-        not, leaving a stray blank line in front of the next reply."""
+        """Download one log, consuming the trailing newline and END."""
         self._send(f"GET {name}")
         header = self._read_line(10.0)
         if header == "BUSY":
@@ -216,7 +208,6 @@ class JigLink:
             raise OSError(f"GET {name}: expected SIZE, got {header!r}")
         size = int(header.split()[1])
 
-        # Whatever is already buffered is payload, not lines.
         data = bytearray(self._buf)
         self._buf = bytearray()
         deadline = time.monotonic() + timeout
@@ -279,8 +270,6 @@ class JigLink:
         self._send("")
         deadline = time.monotonic() + 1.5
         while time.monotonic() < deadline:
-            # END is not necessarily terminal: pressing A mid-stream prints END and then
-            # starts a recording, so keep pumping until the latches settle.
             if self._read_line(0.3) == "END":
                 return
 
@@ -371,18 +360,7 @@ def probe_clock(link: JigLink, n: int = 200, *, min_kept: int = 8) -> ClockProbe
 
 
 def skew_ppm(pre: ClockProbe, post: ClockProbe) -> float:
-    """Crystal drift across the run, in parts per million.
-
-    The RP2040 crystal runs around 30 ppm, which is about 0.9 ms over a 30 s run: small,
-    but the same order as the residual the run card gates on, so worth removing.
-
-    Returns 0.0 when the span is not positive. The jig counts from its own boot, so a
-    post-probe at or below the pre-probe is a board that restarted, and dividing by that
-    span is arithmetic across two epochs. LOG-119 did exactly this and produced -1048410
-    ppm, which reads as a 105% clock error and would shift a 218 s run by 228 s if anything
-    applied it. `ClockFit.from_probes` already guarded against it; this did not, so the
-    number reached the sidecar where a reader picking `skew_ppm` up directly would trust it.
-    """
+    """Crystal drift across the run in ppm, 0.0 when the board restarted between probes."""
     span_ms = post.at_jig_ms - pre.at_jig_ms
     if span_ms <= 1e-6:
         return 0.0

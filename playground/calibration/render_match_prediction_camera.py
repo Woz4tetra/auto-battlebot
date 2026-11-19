@@ -13,6 +13,7 @@ import cv2
 import numpy as np
 
 from auto_battlebot.calibration.match.match_windows import (
+    RunRole,
     build_match_run,
     load_commands,
     load_replay_track,
@@ -199,7 +200,7 @@ def main() -> None:
         commands = load_commands(original)
         if args.cmd_lead_ms:
             commands.t_ns = commands.t_ns - int(args.cmd_lead_ms * 1e6)
-        run = build_match_run(track, commands, name=name, role="video")
+        run = build_match_run(track, commands, name=name, role=RunRole.VIDEO)
         cam = load_camera_track(replay)
         if str(cam.svo_path) in ("", "."):
             raise SystemExit(

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -34,13 +35,20 @@ ANG_ACCEL_LIMIT = 400.0
 MANEUVER_CLASSES = ("straight", "arc", "spin", "reversal", "stop", "mixed", "idle")
 
 
+class RunRole(str, Enum):
+    FIT = "fit"
+    HOLDOUT = "holdout"
+    VALIDATION = "validation"
+    VIDEO = "video"
+
+
 @dataclass
 class ReplayTrack:
     """Per-SVO-frame pose track from one replay mcap, on the original clock."""
 
     replay_path: Path
-    svo_index: np.ndarray  # (N,) int, strictly increasing, gaps where frames dropped
-    stamp_ns: np.ndarray  # (N,) original-clock image stamp
+    svo_index: np.ndarray
+    stamp_ns: np.ndarray
     x: np.ndarray
     y: np.ndarray
     theta: np.ndarray
@@ -49,6 +57,10 @@ class ReplayTrack:
     opp_y: np.ndarray
     field_size: tuple[float, float] | None
     rebase_offset_std_ns: float
+
+    def __post_init__(self) -> None:
+        if len(self.svo_index) > 1 and not np.all(np.diff(self.svo_index) > 0):
+            raise ValueError(f"{self.replay_path}: svo_index must be strictly increasing")
 
 
 def _quat_yaw(qx: float, qy: float, qz: float, qw: float) -> float:
@@ -127,15 +139,7 @@ def _wider_field(current: tuple[float, float] | None, points: Any) -> tuple[floa
 
 
 def load_replay_track(replay_path: Path | str) -> ReplayTrack:
-    """Extract the our-robot pose per SVO frame from a replay mcap.
-
-    Ticks are associated to `/camera/frame_meta` by log order: within one tick
-    the publisher writes frame_meta first, then markers and diagnostics, and
-    the next frame_meta is a frame interval away. The association is then
-    verified via the stamp rebase: marker header stamp minus the frame's
-    `image_stamp_ns` must be one constant across the run (the replay clock
-    offset). A drifting offset means the association slipped a tick.
-    """
+    """Extract the our-robot pose per SVO frame from a replay mcap."""
     replay_path = Path(replay_path)
     metas = _load_frame_meta(replay_path)
     meta_log = np.array([m[0] for m in metas], dtype=np.int64)
@@ -201,17 +205,11 @@ class CommandLog:
     t_ns: np.ndarray
     lin: np.ndarray
     ang: np.ndarray
-    auto: np.ndarray  # bool, auto switch up (forward-filled; latched physical state)
+    auto_switch_latched: np.ndarray
 
 
 def load_commands(original_path: Path | str) -> CommandLog:
-    """Decode the `opentx_transmitter` channel readback into body commands.
-
-    lin = (ch0 - ch1) / 2048, ang = -(ch0 + ch1) / 2048: the tank inverse mix
-    with channel B inverted and angular negated, exactly
-    `drive_protocol.MixConfig.from_channels` at readback scale 1024. Entries
-    are logged on change; consumers zero-order hold between entries.
-    """
+    """Decode the `opentx_transmitter` channel readback into body commands."""
     t_ns: list[int] = []
     lin: list[float] = []
     ang: list[float] = []
@@ -238,7 +236,7 @@ def load_commands(original_path: Path | str) -> CommandLog:
         t_ns=np.array(t_ns, dtype=np.int64),
         lin=np.array(lin),
         ang=np.array(ang),
-        auto=np.array(auto, dtype=bool),
+        auto_switch_latched=np.array(auto, dtype=bool),
     )
 
 
@@ -248,15 +246,15 @@ class MatchRun:
 
     name: str
     recording: str
-    role: str  # "fit" or "holdout" or "validation"
-    t: np.ndarray  # seconds from grid start, uniform
+    role: RunRole
+    t: np.ndarray
     dt: float
     t0_ns: int
     x: np.ndarray
     y: np.ndarray
     theta: np.ndarray
-    v: np.ndarray  # body forward speed, signed, finite-differenced from pose
-    w: np.ndarray  # yaw rate
+    v_body_mps: np.ndarray
+    yaw_rate_radps: np.ndarray
     cmd_lin: np.ndarray
     cmd_ang: np.ndarray
     valid: np.ndarray
@@ -313,7 +311,7 @@ def hold_commands_on_grid(
     j = np.searchsorted(commands.t_ns, stamps, side="right") - 1
     in_span = (j >= 0) & (stamps <= commands.t_ns[-1] + int(1e9))
     j = np.clip(j, 0, len(commands.t_ns) - 1)
-    return commands.lin[j], commands.ang[j], commands.auto[j] & in_span
+    return commands.lin[j], commands.ang[j], commands.auto_switch_latched[j] & in_span
 
 
 def _wrapped(a: np.ndarray) -> np.ndarray:
@@ -323,11 +321,7 @@ def _wrapped(a: np.ndarray) -> np.ndarray:
 def central_difference_velocity(
     x: np.ndarray, y: np.ndarray, theta: np.ndarray, usable: np.ndarray, dt: float
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Body speed and yaw rate by central difference over live neighbors.
-
-    Edges of a live stretch fall back to one-sided differences and isolated live samples get NaN.
-    The third return is the mask of samples with both neighbors live.
-    """
+    """Body speed and yaw rate by central difference over live neighbors."""
     size = len(x)
     v = np.full(size, np.nan)
     w = np.full(size, np.nan)
@@ -378,7 +372,7 @@ def build_match_run(
     commands: CommandLog,
     *,
     name: str,
-    role: str,
+    role: RunRole,
 ) -> MatchRun:
     """Resample one joined recording onto its frame grid and gate it."""
     t, grid, dt, t0_ns = _fill_grid(track)
@@ -434,8 +428,8 @@ def build_match_run(
         x=x,
         y=y,
         theta=theta,
-        v=v,
-        w=w,
+        v_body_mps=v,
+        yaw_rate_radps=w,
         cmd_lin=cmd_lin,
         cmd_ang=cmd_ang,
         valid=valid,
@@ -448,7 +442,7 @@ def split_run(run: MatchRun, fraction: float) -> tuple[MatchRun, MatchRun]:
     """Split a run at a time fraction into contiguous (head, tail) runs."""
     cut = int(len(run.t) * fraction)
 
-    def _piece(sl: slice, role: str, tag: str) -> MatchRun:
+    def _piece(sl: slice, role: RunRole, tag: str) -> MatchRun:
         start = sl.start or 0
         return MatchRun(
             name=f"{run.name}[{tag}]",
@@ -460,8 +454,8 @@ def split_run(run: MatchRun, fraction: float) -> tuple[MatchRun, MatchRun]:
             x=run.x[sl],
             y=run.y[sl],
             theta=run.theta[sl],
-            v=run.v[sl],
-            w=run.w[sl],
+            v_body_mps=run.v_body_mps[sl],
+            yaw_rate_radps=run.yaw_rate_radps[sl],
             cmd_lin=run.cmd_lin[sl],
             cmd_ang=run.cmd_ang[sl],
             valid=run.valid[sl],
@@ -469,7 +463,9 @@ def split_run(run: MatchRun, fraction: float) -> tuple[MatchRun, MatchRun]:
             auto=run.auto[sl],
         )
 
-    return _piece(slice(0, cut), "fit", "train"), _piece(slice(cut, None), "holdout", "holdout")
+    return _piece(slice(0, cut), RunRole.FIT, "train"), _piece(
+        slice(cut, None), RunRole.HOLDOUT, "holdout"
+    )
 
 
 @dataclass
@@ -541,8 +537,8 @@ def build_match_windows(
             continue
         ws = make_windows(
             run.t,
-            run.v,
-            run.w,
+            run.v_body_mps,
+            run.yaw_rate_radps,
             run.theta,
             run.x,
             run.y,

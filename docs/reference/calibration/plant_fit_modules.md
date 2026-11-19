@@ -114,6 +114,32 @@ Cross-correlating command edges against measured acceleration only ever recovers
 `clock_offset + transport_delay`. Measuring the offset separately is what makes the fitted
 transport delay a real number instead of a number plus however far the clocks are apart.
 
+### `calibration/match/match_windows.py`
+
+#### `ReplayTrack`
+
+`svo_index` is strictly increasing, with gaps where frames dropped (the constructor raises otherwise). `stamp_ns` is the original-clock image stamp.
+
+#### `load_replay_track`
+
+Ticks are associated to `/camera/frame_meta` by log order. Within one tick the publisher writes frame_meta first, then markers and diagnostics, and the next frame_meta is a frame interval away. The association is verified through the stamp rebase: marker header stamp minus the frame's `image_stamp_ns` must be one constant across the run (the replay clock offset). A drifting offset (std above 1 ms) means the association slipped a tick, and the loader raises.
+
+#### `CommandLog`
+
+`auto_switch_latched` is a bool, forward-filled: the auto switch is a latched physical state, not an event.
+
+#### `load_commands`
+
+Decodes the `opentx_transmitter` channel readback into body commands. `lin = (ch0 - ch1) / 2048` and `ang = -(ch0 + ch1) / 2048`: the tank inverse mix with channel B inverted and angular negated, exactly `drive_protocol.MixConfig.from_channels` at readback scale 1024. Entries are logged on change, and consumers zero-order hold between entries.
+
+#### `MatchRun`
+
+`role` is a `RunRole` (`fit`, `holdout`, `validation`, `video`). `t` is seconds from the grid start, uniform. `v_body_mps` is the signed body forward speed finite-differenced from pose, and `yaw_rate_radps` the yaw rate.
+
+#### `central_difference_velocity`
+
+Body speed and yaw rate by central difference over live neighbors. Edges of a live stretch fall back to one-sided differences and isolated live samples get NaN. The third return is the mask of samples with both neighbors live.
+
 ### `control/plant.py`
 
 #### `effective_command`

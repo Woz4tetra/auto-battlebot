@@ -59,12 +59,12 @@ def yaw_rate_dps(log: JigLog) -> np.ndarray:
     if not stills:
         return np.degrees(log.gyro[:, 2])
     st = still_stats(log, stills[0])
-    return np.degrees((log.gyro - st.bias) @ st.up)
+    return np.degrees((log.gyro - st.bias_radps) @ st.up_unit)
 
 
 def forward_speed(log: JigLog, calib: JigCalibration | None) -> tuple[np.ndarray, str]:
-    v = np.gradient(log.count.astype(float), log.t)
-    v = smooth(v, log.t, SMOOTH_S)
+    v = np.gradient(log.count_x4.astype(float), log.t_boot_s)
+    v = smooth(v, log.t_boot_s, SMOOTH_S)
     if calib is not None:
         return v * calib.meters_per_count, "forward speed (m/s)"
     return v, "encoder rate (counts/s)"
@@ -89,7 +89,7 @@ def excluded_regions(
     out: dict[str, list[tuple[float, float]]] = {}
 
     clock = record.clock if record is not None else ClockFit.identity()
-    offset = t[0] - clock.host_seconds(log.t[:1])[0] if len(t) else 0.0
+    offset = t[0] - clock.host_seconds(log.t_boot_s[:1])[0] if len(t) else 0.0
     pauses = record.pauses if record is not None else []
     if pauses:
         out["operator pause"] = [(p.t_start + offset, p.t_end + offset) for p in pauses]
@@ -105,9 +105,9 @@ def excluded_regions(
         ]
 
     if record is not None and record.has_commands:
-        anchor = float(record.cmd_t[0])
+        anchor = float(record.cmd_t_host_s[0])
         lo = 0.0
-        hi = float(record.cmd_t[-1]) + 2.0 - anchor
+        hi = float(record.cmd_t_host_s[-1]) + 2.0 - anchor
         edges = []
         if t[0] < lo:
             edges.append((float(t[0]), lo))
@@ -127,7 +127,7 @@ def plot_radio_panel(axes, record, have_cmd, t0):
     ch_a, ch_b = _radio_channels(record) if have_cmd else (None, None)
     if ch_a is not None:
         names = ("left", "right") if _is_tank(record) else ("channel A", "channel B")
-        ct, ca, cb = from_rest(record.cmd_t - t0, ch_a, ch_b)
+        ct, ca, cb = from_rest(record.cmd_t_host_s - t0, ch_a, ch_b)
         ax.step(ct, ca, where="post", lw=1.2, color="C2", label=names[0])
         ax.step(ct, cb, where="post", lw=1.2, color="C3", label=names[1])
         ax.set_ylim(-1.05, 1.05)
@@ -173,11 +173,11 @@ def plot_accel_panel(axes, log, t):
 def plot_dead_reckoning_panel(axes, calib, log, t, have_cmd):
     ax = axes[5]
     if calib is not None:
-        distance = log.count.astype(float) * calib.meters_per_count
+        distance = log.count_x4.astype(float) * calib.meters_per_count
         ax.plot(t, distance, lw=1.0, color="C4", label="distance")
         ax.set_ylabel("distance (m)", fontsize=9)
     else:
-        ax.plot(t, log.count, lw=1.0, color="C4", label="encoder count")
+        ax.plot(t, log.count_x4, lw=1.0, color="C4", label="encoder count")
         ax.set_ylabel("enc count", fontsize=9)
     ax.axhline(0.0, color="0.55", lw=1.0, zorder=1)
     ax.set_xlabel(
@@ -209,7 +209,7 @@ def plot_requested_panel(axes, record, have_cmd, t0) -> None:
     ax = axes[0]
     if have_cmd:
         req_lin, req_ang = _requested(record)
-        ct, rl, ra = from_rest(record.cmd_t - t0, req_lin, req_ang)
+        ct, rl, ra = from_rest(record.cmd_t_host_s - t0, req_lin, req_ang)
         ax.step(ct, rl, where="post", lw=1.4, color="C0", label="linear")
         ax.step(ct, ra, where="post", lw=1.4, color="C1", label="angular")
         for seg in record.segments:
@@ -241,7 +241,7 @@ def plot_measured_vs_commanded(axes, record, have_cmd, t0, t, speed, speed_label
         ax.axhline(0.0, color="0.55", lw=1.0, zorder=1)
         if have_cmd:
             twin = ax.twinx()
-            ctx, cv = from_rest(record.cmd_t - t0, cmd)
+            ctx, cv = from_rest(record.cmd_t_host_s - t0, cmd)
             twin.step(ctx, cv, where="post", lw=1.1, color=colour, alpha=0.75, label=cmd_label)
             twin.set_ylabel(cmd_label, fontsize=8, color=colour)
             twin.tick_params(axis="y", labelcolor=colour, labelsize=8)
@@ -257,9 +257,9 @@ def plot_run(
 ) -> None:
     log = read_jig_log(log_path)
     clock = record.clock if record is not None else ClockFit.identity()
-    t = clock.host_seconds(log.t)
+    t = clock.host_seconds(log.t_boot_s)
     have_cmd = record is not None and record.has_commands
-    t0 = float(record.cmd_t[0]) if have_cmd else float(t[0])
+    t0 = float(record.cmd_t_host_s[0]) if have_cmd else float(t[0])
     t = t - t0
 
     speed, speed_label = forward_speed(log, calib)
@@ -329,7 +329,7 @@ def plot_run(
         twin.axhline(0.0, color="C5", ls=":", lw=1.0)
 
     if have_cmd:
-        end = int(np.searchsorted(t, float(record.cmd_t[-1] - record.cmd_t[0])))
+        end = int(np.searchsorted(t, float(record.cmd_t_host_s[-1] - record.cmd_t_host_s[0])))
         net = float(heading[min(end, len(heading) - 1)])
         twin.annotate(
             f"net {net:+.1f} deg over the commanded stretch",
@@ -412,14 +412,14 @@ def saturated_mask(
 ) -> tuple[np.ndarray, list[str]]:
     """Samples where an IMU axis is past its limit, and which axes did it."""
     names: list[str] = []
-    mask = np.zeros(len(log.t), dtype=bool)
+    mask = np.zeros(len(log.t_boot_s), dtype=bool)
     clock = clock or ClockFit.identity()
-    keep = ~pause_mask(clock.host_seconds(log.t), pauses)
+    keep = ~pause_mask(clock.host_seconds(log.t_boot_s), pauses)
     limits = [
         (prefix, raw, limit)
         for prefix, raw, limit in (
-            ("g", log.gyro_raw, RAW_SATURATION),
-            ("a", log.accel_raw, log.header.accel_raw_limit),
+            ("g", log.gyro_raw_int16, RAW_SATURATION),
+            ("a", log.accel_raw_int16, log.header.accel_raw_limit),
         )
         if prefix in sensors
     ]

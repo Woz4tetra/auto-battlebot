@@ -12,16 +12,19 @@ from auto_battlebot.calibration.jig.velocity_jig import (
     RAW_SATURATION,
     SIDECAR_SCHEMA,
     ClockFit,
+    EncoderState,
     GroundTruth,
     JigCalibration,
     JigHeader,
     JigLog,
     PauseWindow,
+    RunRecord,
     WaveformSpec,
     _bridge_blips,
     _moving_average,
     _parse_header,
     _read_command_rows,
+    load_run,
     load_run_record,
     load_session_dir,
     overlaps_pause,
@@ -71,7 +74,7 @@ def test_a_log_with_a_bad_last_row_counts_it_as_tail(tmp_path: Path) -> None:
     path.write_text(_log_text([_row(i) for i in range(1, 6)] + ["60000,6,0,0"]))
     log = read_jig_log(path)
     assert (log.malformed_rows, log.malformed_tail) == (1, 1)
-    assert len(log.t) == 5
+    assert len(log.t_boot_s) == 5
 
 
 def test_a_log_with_a_bad_interior_row_is_not_tail(tmp_path: Path) -> None:
@@ -148,8 +151,8 @@ def test_moving_average_does_not_pull_the_ends_toward_zero() -> None:
 
 def test_closure_error_is_whole_displacement_on_a_straight_run() -> None:
     truth = SimpleNamespace(
-        t=np.linspace(0.0, 1.0, 11),
-        v=np.full(11, 1.0),
+        t_s=np.linspace(0.0, 1.0, 11),
+        v_body_mps=np.full(11, 1.0),
         x=np.linspace(0.0, 1.0, 11),
         y=np.zeros(11),
     )
@@ -162,10 +165,10 @@ def _flat_log(n: int, encoder: bool) -> JigLog:
     return JigLog(
         path=Path("x"),
         header=JigHeader(),
-        t=np.arange(n) * 0.001,
-        count=np.arange(n) * 10 if encoder else np.zeros(n, dtype=np.int64),
-        gyro_raw=np.zeros((n, 3), dtype=np.int64),
-        accel_raw=np.zeros((n, 3), dtype=np.int64),
+        t_boot_s=np.arange(n) * 0.001,
+        count_x4=np.arange(n) * 10 if encoder else np.zeros(n, dtype=np.int64),
+        gyro_raw_int16=np.zeros((n, 3), dtype=np.int64),
+        accel_raw_int16=np.zeros((n, 3), dtype=np.int64),
     )
 
 
@@ -188,3 +191,50 @@ def test_pause_windows_are_excluded_from_gates() -> None:
     assert pause_mask(t_host, pauses).tolist() == [False, True, True, True, False]
     assert overlaps_pause(np.array([4.0, 6.0]), pauses)
     assert not overlaps_pause(np.array([5.5, 6.0]), pauses)
+
+
+def test_from_toml_rejects_zero_meters_per_count(tmp_path: Path) -> None:
+    path = tmp_path / "calib.toml"
+    path.write_text("[encoder]\nmeters_per_count = 0.0\n")
+    with pytest.raises(ValueError, match="meters_per_count"):
+        JigCalibration.from_toml(path)
+
+
+def _still_run_record(pauses: list[PauseWindow]) -> RunRecord:
+    return RunRecord(
+        run_id="r",
+        session_id="s",
+        spec=WaveformSpec(name="w", kind="step", channel="linear"),
+        rep=1,
+        encoder=EncoderState.DETACHED,
+        log_file="LOG-1.TXT",
+        command_file=None,
+        verdict=None,
+        gate_note=None,
+        notes="",
+        trim=None,
+        samples=None,
+        dropped=None,
+        clock_pre=None,
+        clock_post=None,
+        skew_ppm=None,
+        hold_pre_host_s=None,
+        hold_post_host_s=None,
+        segments=[],
+        pauses=pauses,
+        cmd_t_host_s=np.array([0.0, 8.0]),
+        cmd_lin=np.zeros(2),
+        cmd_ang=np.zeros(2),
+    )
+
+
+def test_pause_windows_excluded_from_still_holds_and_commanded_time(tmp_path: Path) -> None:
+    (tmp_path / "LOG-1.TXT").write_text(
+        _log_text([f"{i * 1000},0,0,0,0,0,0,4096" for i in range(1, 8001)])
+    )
+    calib = JigCalibration(meters_per_count=1e-4)
+    free = load_run(_still_run_record([]), tmp_path, calib)
+    paused = load_run(_still_run_record([PauseWindow(1.0, 3.0, 0.0)]), tmp_path, calib)
+    assert free.quality.still_holds == 1
+    assert paused.quality.still_holds == 0
+    assert paused.quality.commanded_s == pytest.approx(free.quality.commanded_s - 2.0, abs=0.05)

@@ -22,6 +22,7 @@ from auto_battlebot.calibration.jig.jig_fit import (
 from auto_battlebot.calibration.match.match_windows import (
     MatchRun,
     MatchWindows,
+    RunRole,
     build_match_run,
     build_match_windows,
     load_commands,
@@ -447,7 +448,7 @@ def report_gain_drift(score_sets, final_params, structure, summary):
 
 
 def load_and_join_runs(args: argparse.Namespace) -> tuple[MatchRun, MatchRun, list[MatchRun]]:
-    def load_run(replay: Path, original: Path, role: str) -> MatchRun:
+    def load_run(replay: Path, original: Path, role: RunRole) -> MatchRun:
         name = original.stem.replace("auto_battlebot_main_", "").replace("_repaired", "")
         print(f"\nloading {name} ({role})")
         track = load_replay_track(replay)
@@ -465,10 +466,10 @@ def load_and_join_runs(args: argparse.Namespace) -> tuple[MatchRun, MatchRun, li
         )
         return run
 
-    fit_run = load_run(*args.fit, role="fit")
+    fit_run = load_run(*args.fit, role=RunRole.FIT)
     train_run, holdout_run = split_run(fit_run, 1.0 - args.holdout_fraction)
     validation_runs = [
-        load_run(replay, original, role="validation") for replay, original in args.validate
+        load_run(replay, original, role=RunRole.VALIDATION) for replay, original in args.validate
     ]
     return train_run, holdout_run, validation_runs
 

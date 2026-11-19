@@ -804,8 +804,8 @@ def section_coverage(loaded: Loaded, params: PlantParams) -> Section:
     if not runs:
         return sec
 
-    lin = np.concatenate([r.cmd_lin[r.commanded] for r in runs]) if runs else np.array([])
-    ang = np.concatenate([r.cmd_ang[r.commanded] for r in runs]) if runs else np.array([])
+    lin = np.concatenate([r.cmd_lin[r.command_known] for r in runs]) if runs else np.array([])
+    ang = np.concatenate([r.cmd_ang[r.command_known] for r in runs]) if runs else np.array([])
     dt = float(np.median([r.dt for r in runs]))
 
     if len(lin) > 10:
@@ -1050,7 +1050,7 @@ def run_trace_figure(run: Run, params: PlantParams, structure: ModelStructure, r
     axes[3].set_ylabel(f"|err| at {reinit_s * 1e3:.0f} ms (mm)", fontsize=8)
     axes[3].set_xlabel("time (s)", fontsize=9)
 
-    bad = ~run.commanded
+    bad = ~run.command_known
     if np.any(bad):
         edges = np.flatnonzero(np.diff(bad.astype(int)) != 0) + 1
         bounds = np.concatenate([[0], edges, [len(bad)]])

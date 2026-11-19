@@ -543,7 +543,7 @@ def fit_delay(runs: Sequence[Run]) -> DelayStack:
     clock_measured = all(r.truth.clock.measured for r in runs) if runs else False
 
     for run in runs:
-        for cmd, vel in ((run.cmd_lin, run.v_raw), (run.cmd_ang, run.w)):
+        for cmd, vel in ((run.cmd_lin, run.v_onset), (run.cmd_ang, run.w)):
             accel = np.concatenate([[0.0], np.diff(vel)]) / run.dt
             scale = float(np.std(accel))
             if scale < 1e-9:
@@ -721,7 +721,7 @@ def build_windows(
             continue
         if not require_encoder and run.encoder_valid:
             continue
-        valid = run.commanded
+        valid = run.command_known
         if np.count_nonzero(valid) < 10:
             continue
         ws = make_windows(

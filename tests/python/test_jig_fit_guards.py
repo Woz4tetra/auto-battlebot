@@ -96,7 +96,7 @@ def _delay_run() -> Any:
         cmd_lin=cmd,
         cmd_ang=np.zeros(n),
         v=smooth,
-        v_raw=v,
+        v_onset=v,
         w=np.zeros(n),
         truth=SimpleNamespace(clock=SimpleNamespace(measured=True)),
     )

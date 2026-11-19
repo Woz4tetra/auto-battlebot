@@ -6,6 +6,8 @@ How the sysid code under `auto_battlebot/calibration/` and `playground/calibrati
 
 Design notes for the Python modules behind the sysid workflow, grouped by module.
 
+Nothing under `calibration/sysid/` sends a command: the robot is driven by a person, and the package only watches. `test_sysid_package_never_sends_commands` fails if it imports a serial, socket, jig, MuJoCo or RL module.
+
 ### `calibration/jig/drive_protocol.py`
 
 Trainer link to the OpenTX/EdgeTX radio: writes commands, reads back what was sent.
@@ -204,6 +206,11 @@ Exact USB id match first. Falling back to "any ACM port that is not the radio" k
 tool usable before JIG_USB_IDS has been confirmed, but it warns through the caller so
 the constant gets fixed rather than quietly relied on.
 
+`JIG_USB_IDS` comes from the arduino-pico board variant and is not confirmed on hardware
+(`--list-ports` shows the real ids). A wrong id falls back to the scan silently. The
+`TRANSMITTER_USB_IDS` exclusion matters more: without it a first-ttyACM scan opens the
+radio and times out waiting for `TIME`.
+
 #### `find_port_by_serial`
 
 Re-find a port after a replug.
@@ -231,6 +238,19 @@ rather than a real number plus however far apart the two clocks happen to be.
 Only the fastest decile is kept. USB Full Speed polls in 1 ms frames, so most of the
 spread is host scheduling; the fastest round trips are the ones whose transport was
 most nearly symmetric, which is the assumption the midpoint pairing rests on.
+
+#### `skew_ppm`
+
+Crystal drift across the run, in parts per million. The RP2040 crystal runs around 30 ppm,
+about 0.9 ms over a 30 s run: small, but the same order as the residual the run card gates
+on, so worth removing.
+
+Returns 0.0 when the jig span is not positive. The jig counts from its own boot, so a
+post-probe at or below the pre-probe is a board that restarted, and dividing by that span
+is arithmetic across two epochs. LOG-119 did this and produced -1048410 ppm, which reads
+as a 105% clock error and would shift a 218 s run by 228 s if anything applied it.
+`ClockFit.from_probes` already guarded against it. `skew_ppm` did not, so the number
+reached the sidecar, where a reader taking `skew_ppm` directly would trust it.
 
 ### `calibration/jig/velocity_jig.py`
 
@@ -290,6 +310,8 @@ runs wide of anything commanded, so what matters is the physical number.
 `time_us_64()` wraps after 584,000 years, so a decreasing timestamp means a corrupt row,
 not a rollover. The reader keeps the monotone prefix and counts the rest as malformed.
 
+`JigLog` fields: `t_boot_s` is seconds since RP2040 boot, `count_x4` is the quadrature count (x4, int64), and `gyro_raw_int16` / `accel_raw_int16` are `(N, 3)` int16 values as written.
+
 #### `_bridge_blips`
 
 Fill False runs no longer than `max_run`, leaving longer ones alone.
@@ -326,6 +348,8 @@ and the ISM330DHCX puts gyro and accel on one right-handed triad. That makes pos
 counter-clockwise viewed from above with no further assumption, and it survives a tilted
 remount that no single gyro axis would.
 
+`StillStats` fields: `bias_radps` is the `(3,)` gyro bias in the IMU frame, `up_unit` the `(3,)` unit vector along measured gravity, and `gyro_noise_radps` the `(3,)` standard deviation.
+
 #### `JigCalibration`
 
 Bench calibration from runbook block 0, one set per hardware configuration.
@@ -340,7 +364,7 @@ kept for the report and for E5's own sanity check against a tape measure.
 One `TIME` probe burst, as `velocity_jig_drive.py` records it.
 
 The probe sends `TIME` many times, keeps the fastest decile by round trip, and reports
-the median host-minus-jig offset with the RMS about that median as `residual_ms`. Only
+the median host-minus-jig offset (`offset_ms`, milliseconds) with the RMS about that median as `residual_ms`. Only
 the fastest probes are kept because USB Full Speed polls in 1 ms frames: most of the
 spread is host scheduling, and the fastest round trips are the ones whose transport was
 most nearly symmetric.
@@ -369,6 +393,10 @@ The two drive channels exactly as the radio reported them. This is the measureme
 cmd_lin/cmd_ang are these read through a mix, so a mix set wrong can be corrected from
 these without re-recording.
 
+Units and sets: `hold_pre_host_s`, `hold_post_host_s` and `cmd_t_host_s` are host seconds. `encoder` is an `EncoderState` (`attached`, `detached` or `either`). `gate_note` is why the capture-time gates rejected the run, `None` when they passed.
+
+`command_source` is a `CommandSource`. `measured` is the radio's own mixer output read back over the trainer link, which is what the robot actually received. `commanded` is what the CLI asked for. They differ when the driver's stick was not centered, and for a hand-driven run only the measured stream exists.
+
 #### `_pause_windows`
 
 Pause windows from the sidecar, or reconstructed from the command stream.
@@ -386,12 +414,18 @@ is what the robot actually received and the right default. "requested" is what t
 asked for, and is the escape hatch for a run whose readback was mis-decoded: a wrong mix
 or channel sign corrupts the measured stream while leaving the requested one exact.
 
+#### `read_command_log`
+
+Read a `LOG-N.cmd.csv` written by the drive CLI. Columns are named in a `# columns:` comment so the file can grow without breaking older readers. `t_host_s` shares its origin with the clock probes' `at_host_ms` (both `time.monotonic()` on the host), which is the identity `ClockFit` rests on.
+
 #### `GroundTruth`
 
 Dead-reckoned truth for one run, on the jig's 1 kHz sample grid.
 
 Heading drift dominates position drift, so this is trustworthy over the 500 ms windows the
 plant fit uses and not over a whole 30 s run. Validation is windowed for exactly that reason.
+
+`t_s` is host seconds when a `ClockFit` was supplied, else jig seconds. `v_body_mps` is the body forward speed, `v_onset_mps` the same with only light smoothing for onset timing, `yaw_rate_radps` the yaw rate, and `theta_rad` the unwrapped heading.
 
 #### `solve_ground_truth`
 
@@ -448,6 +482,8 @@ Fits should not depend on the log rate, and the command log is asynchronous, so 
 on one grid here. Everything downstream (per-phase fits, window prediction, residuals) reads
 these arrays and nothing else.
 
+`t` is the uniform grid in host seconds. `v_onset` is lightly smoothed and used for onset timing only. `command_known` is a bool mask of samples where the command is known (see `load_run`). `phase_label` is the per-sample phase label from the protocol segments.
+
 #### `_hold_uncovered_s`
 
 Seconds of a commanded still hold that the log does not show as still.
@@ -467,6 +503,8 @@ Read a run's log, solve ground truth, and resample it with its commands onto one
 
 `fit_hz` of 200 keeps five samples per 10 ms and is far above the 2.7 Hz corner of the plant,
 while cutting the 1 kHz log down to something a windowed simulation fit can iterate over.
+
+Every stretch the operator spent handling the robot (a pause) is dropped before anything is measured. A pause is not a still hold, not commanded time, and not a place where a clipped accelerometer says anything about the plant.
 
 ### `calibration/sysid/coverage.py`
 

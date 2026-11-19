@@ -81,8 +81,8 @@ def read_pass(path: Path, distance_m: float, *, min_s: float, tol: float) -> Pas
     log = read_jig_log(path)
     if not log.encoder_moved:
         raise ValueError(f"{path.name}: the encoder count never changed; check the connector")
-    t = log.t - log.t[0]
-    count = log.count.astype(float)
+    t = log.t_boot_s - log.t_boot_s[0]
+    count = log.count_x4.astype(float)
     dwells = find_dwells(t, count, min_s=min_s, tol_counts=tol)
     if len(dwells) < 2:
         raise ValueError(

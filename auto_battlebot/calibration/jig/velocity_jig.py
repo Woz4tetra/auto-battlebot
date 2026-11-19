@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
@@ -80,43 +81,43 @@ class JigLog:
 
     path: Path
     header: JigHeader
-    t: np.ndarray  # seconds since RP2040 boot
-    count: np.ndarray  # quadrature counts, x4, int64
-    gyro_raw: np.ndarray  # (N, 3) int16 as written
-    accel_raw: np.ndarray  # (N, 3) int16 as written
+    t_boot_s: np.ndarray
+    count_x4: np.ndarray
+    gyro_raw_int16: np.ndarray
+    accel_raw_int16: np.ndarray
     malformed_rows: int = 0
     malformed_tail: int = 0
 
     @property
     def gyro(self) -> np.ndarray:
         """(N, 3) rad/s in the IMU frame."""
-        return self.gyro_raw.astype(float) * self.header.gyro_dps_per_lsb * DEG_TO_RAD
+        return self.gyro_raw_int16.astype(float) * self.header.gyro_dps_per_lsb * DEG_TO_RAD
 
     @property
     def accel(self) -> np.ndarray:
         """(N, 3) m/s^2 specific force in the IMU frame (so +1 g on whichever axis points up)."""
-        return self.accel_raw.astype(float) * self.header.accel_g_per_lsb * G_MPS2
+        return self.accel_raw_int16.astype(float) * self.header.accel_g_per_lsb * G_MPS2
 
     @property
     def duration(self) -> float:
-        return float(self.t[-1] - self.t[0]) if len(self.t) > 1 else 0.0
+        return float(self.t_boot_s[-1] - self.t_boot_s[0]) if len(self.t_boot_s) > 1 else 0.0
 
     @property
     def dt(self) -> float:
         """Median sample interval. Use this, not 1 / sample_rate_hz, since drops shift it."""
-        return float(np.median(np.diff(self.t))) if len(self.t) > 1 else 0.0
+        return float(np.median(np.diff(self.t_boot_s))) if len(self.t_boot_s) > 1 else 0.0
 
     @property
     def encoder_moved(self) -> bool:
         """False for a detached encoder: the inputs are pulled up, so the count freezes."""
-        return bool(len(self.count) and self.count.max() != self.count.min())
+        return bool(len(self.count_x4) and self.count_x4.max() != self.count_x4.min())
 
     def saturation(self, keep: np.ndarray | None = None) -> list[AxisSaturation]:
         """Per-axis saturation report, gyro first then accel."""
         out: list[AxisSaturation] = []
         limits = (
-            ("g", self.gyro_raw, RAW_SATURATION),
-            ("a", self.accel_raw, self.header.accel_raw_limit),
+            ("g", self.gyro_raw_int16, RAW_SATURATION),
+            ("a", self.accel_raw_int16, self.header.accel_raw_limit),
         )
         for prefix, raw, limit in limits:
             for i, axis in enumerate(AXIS_NAMES):
@@ -133,8 +134,8 @@ class JigLog:
 
     def slice_time(self, t0: float, t1: float) -> slice:
         """Index slice covering [t0, t1] in jig seconds."""
-        lo = int(np.searchsorted(self.t, t0, side="left"))
-        hi = int(np.searchsorted(self.t, t1, side="right"))
+        lo = int(np.searchsorted(self.t_boot_s, t0, side="left"))
+        hi = int(np.searchsorted(self.t_boot_s, t1, side="right"))
         return slice(lo, hi)
 
 
@@ -162,12 +163,10 @@ def read_jig_log(path: Path | str) -> JigLog:
     header_lines: list[str] = []
     rows: list[list[int]] = []
     malformed = 0
-    # Line index of the last unparseable row, and of the last row seen at all. When they are
-    # the same, the only bad row was the file's last one.
-    last_bad = -1
-    index = -1
+    last_bad_line_index = -1
+    last_line_index = -1
     with open(path, "r", encoding="utf-8", errors="replace") as handle:
-        for index, raw in enumerate(handle):
+        for last_line_index, raw in enumerate(handle):
             line = raw.strip()
             if not line:
                 continue
@@ -177,13 +176,13 @@ def read_jig_log(path: Path | str) -> JigLog:
             parts = line.split(",")
             if len(parts) != 8:
                 malformed += 1
-                last_bad = index
+                last_bad_line_index = last_line_index
                 continue
             try:
                 rows.append([int(p) for p in parts])
             except ValueError:
                 malformed += 1
-                last_bad = index
+                last_bad_line_index = last_line_index
 
     if not rows:
         raise ValueError(f"{path}: no sample rows")
@@ -195,15 +194,15 @@ def read_jig_log(path: Path | str) -> JigLog:
     malformed += interior_bad
     data = data[good]
 
-    tail_only = malformed == 1 and interior_bad == 0 and last_bad == index
+    tail_only = malformed == 1 and interior_bad == 0 and last_bad_line_index == last_line_index
 
     return JigLog(
         path=path,
         header=header,
-        t=data[:, 0].astype(float) * 1e-6,
-        count=data[:, 1].copy(),
-        gyro_raw=data[:, 2:5].copy(),
-        accel_raw=data[:, 5:8].copy(),
+        t_boot_s=data[:, 0].astype(float) * 1e-6,
+        count_x4=data[:, 1].copy(),
+        gyro_raw_int16=data[:, 2:5].copy(),
+        accel_raw_int16=data[:, 5:8].copy(),
         malformed_rows=malformed,
         malformed_tail=1 if tail_only else 0,
     )
@@ -230,9 +229,9 @@ class StillSegment:
 class StillStats:
     """What a still hold measures: gyro bias, and which way is up."""
 
-    bias: np.ndarray  # (3,) rad/s in the IMU frame
-    up: np.ndarray  # (3,) unit vector along measured gravity
-    gyro_noise: np.ndarray  # (3,) rad/s standard deviation
+    bias_radps: np.ndarray
+    up_unit: np.ndarray
+    gyro_noise_radps: np.ndarray
     t_mid: float
 
 
@@ -270,12 +269,14 @@ def find_still_segments(
     max_blip_s: float = 0.05,
 ) -> list[StillSegment]:
     """Find stationary stretches at least `min_duration` long."""
-    gyro_dps = np.linalg.norm(log.gyro_raw.astype(float), axis=1) * log.header.gyro_dps_per_lsb
-    accel_g = np.linalg.norm(log.accel_raw.astype(float), axis=1) * log.header.accel_g_per_lsb
+    gyro_dps = (
+        np.linalg.norm(log.gyro_raw_int16.astype(float), axis=1) * log.header.gyro_dps_per_lsb
+    )
+    accel_g = np.linalg.norm(log.accel_raw_int16.astype(float), axis=1) * log.header.accel_g_per_lsb
     still = (gyro_dps < gyro_thresh_dps) & (np.abs(accel_g - 1.0) < accel_tol_g)
     if log.encoder_moved:
         half = max(1, int(round(0.025 / max(log.dt, 1e-9))))
-        counts = log.count.astype(float)
+        counts = log.count_x4.astype(float)
         ahead = np.concatenate([counts[half:], np.full(half, counts[-1])])
         behind = np.concatenate([np.full(half, counts[0]), counts[:-half]])
         still &= np.abs(ahead - behind) <= 1.0
@@ -284,7 +285,7 @@ def find_still_segments(
 
     out: list[StillSegment] = []
     for a, b in _runs(still):
-        t0, t1 = float(log.t[a]), float(log.t[b - 1])
+        t0, t1 = float(log.t_boot_s[a]), float(log.t_boot_s[b - 1])
         if t1 - t0 >= min_duration:
             out.append(StillSegment(a, b, t0, t1))
     return out
@@ -300,17 +301,17 @@ def still_stats(log: JigLog, seg: StillSegment) -> StillStats:
     if norm < 1e-6:
         raise ValueError("still segment has no gravity vector")
     return StillStats(
-        bias=gyro.mean(axis=0),
-        up=up / norm,
-        gyro_noise=gyro.std(axis=0),
+        bias_radps=gyro.mean(axis=0),
+        up_unit=up / norm,
+        gyro_noise_radps=gyro.std(axis=0),
         t_mid=0.5 * (seg.t0 + seg.t1),
     )
 
 
 def bias_drift_dps(pre: StillStats, post: StillStats, up: np.ndarray | None = None) -> float:
     """Yaw-axis bias difference between the two holds, in deg/s."""
-    axis = pre.up if up is None else up
-    return float(abs(np.dot(post.bias - pre.bias, axis)) / DEG_TO_RAD)
+    axis = pre.up_unit if up is None else up
+    return float(abs(np.dot(post.bias_radps - pre.bias_radps, axis)) / DEG_TO_RAD)
 
 
 @dataclass(frozen=True)
@@ -335,8 +336,6 @@ class JigCalibration:
         if "meters_per_count" not in enc:
             raise ValueError(f"{path}: [encoder] meters_per_count is required (E4)")
         if float(enc["meters_per_count"]) <= 0.0:
-            # A zero scale makes every speed zero, and a fit over zero speed produces
-            # parameters that look plausible and are entirely wrong. Refuse instead.
             raise ValueError(
                 f"{path}: [encoder] meters_per_count is {enc['meters_per_count']}, which "
                 "would make every measured speed zero. Measure it with runbook E4 and "
@@ -373,7 +372,7 @@ r_imu = 0.0               # E5, lateral accel vs yaw rate squared slope, meters
 class ClockProbe:
     """One `TIME` probe burst, as `velocity_jig_drive.py` records it."""
 
-    offset_ms: float  # host minus jig
+    offset_ms: float
     residual_ms: float
     at_host_ms: float
     at_jig_ms: float
@@ -604,6 +603,17 @@ class WaveformSpec:
         return None
 
 
+class EncoderState(str, Enum):
+    ATTACHED = "attached"
+    DETACHED = "detached"
+    EITHER = "either"
+
+
+class CommandSource(str, Enum):
+    MEASURED = "measured"
+    COMMANDED = "commanded"
+
+
 @dataclass
 class RunRecord:
     """One run's sidecar: what was played, when, and whether it cleared the gates."""
@@ -612,12 +622,11 @@ class RunRecord:
     session_id: str
     spec: WaveformSpec
     rep: int
-    encoder: str  # "attached", "detached", or "either"
+    encoder: EncoderState
     log_file: str | None
     command_file: str | None
     verdict: str | None
-    # Why the capture-time gates rejected it, when they did. Empty on a pass.
-    gate_note: str
+    gate_note: str | None
     notes: str
     trim: float | None
     samples: int | None
@@ -625,18 +634,14 @@ class RunRecord:
     clock_pre: ClockProbe | None
     clock_post: ClockProbe | None
     skew_ppm: float | None
-    hold_pre: tuple[float, float] | None  # host seconds
-    hold_post: tuple[float, float] | None
+    hold_pre_host_s: tuple[float, float] | None
+    hold_post_host_s: tuple[float, float] | None
     segments: list[ProtocolSegment]
     pauses: list[PauseWindow]
-    cmd_t: np.ndarray  # host seconds
+    cmd_t_host_s: np.ndarray
     cmd_lin: np.ndarray
     cmd_ang: np.ndarray
-    # Where the command came from. "measured" is the radio's own mixer output read back
-    # over the trainer link, which is what the robot actually received; "commanded" is what
-    # the CLI asked for. They differ when the driver's stick was not centered, and for a
-    # hand-driven run only the measured stream exists at all.
-    command_source: str = "commanded"
+    command_source: CommandSource = CommandSource.COMMANDED
     cmd_lin_requested: np.ndarray | None = None
     cmd_ang_requested: np.ndarray | None = None
     meas_ch_a: np.ndarray | None = None
@@ -650,7 +655,7 @@ class RunRecord:
 
     @property
     def has_commands(self) -> bool:
-        return len(self.cmd_t) > 1
+        return len(self.cmd_t_host_s) > 1
 
     @property
     def waveform(self) -> str:
@@ -727,12 +732,7 @@ def _read_command_rows(path: Path) -> tuple[list[str], list[list[float]]]:
 
 
 def read_command_log(path: Path | str) -> dict[str, np.ndarray]:
-    """Read a `LOG-N.cmd.csv` written by the drive CLI.
-
-    Columns are named in a `# columns:` comment so the file can grow without breaking
-    older readers. `t_host_s` shares its origin with the clock probes' `at_host_ms`, which
-    is the identity `ClockFit` rests on.
-    """
+    """Read a `LOG-N.cmd.csv` written by the drive CLI."""
     path = Path(path)
     names, rows = _read_command_rows(path)
 
@@ -805,7 +805,7 @@ def load_run_record(
     cmd_ang_req: np.ndarray | None = None
     ch_a: np.ndarray | None = None
     ch_b: np.ndarray | None = None
-    source = "commanded"
+    source = CommandSource.COMMANDED
     command_file = run.get("command_file")
     if command_file:
         cols = read_command_log(toml_path.parent / str(command_file))
@@ -818,7 +818,7 @@ def load_run_record(
             cmd_ang = cols.get("meas_angular", np.zeros_like(cmd_t))
             cmd_lin_req = cols.get("linear")
             cmd_ang_req = cols.get("angular")
-            source = "measured"
+            source = CommandSource.MEASURED
         else:
             cmd_lin = cols.get("linear", np.zeros_like(cmd_t))
             cmd_ang = cols.get("angular", np.zeros_like(cmd_t))
@@ -828,11 +828,11 @@ def load_run_record(
         session_id=str(data.get("session", {}).get("id", session.session_id if session else "")),
         spec=spec,
         rep=int(run.get("rep", 0)),
-        encoder=str(run.get("encoder", "either")),
+        encoder=EncoderState(str(run.get("encoder", "either"))),
         log_file=run.get("log_file"),
         command_file=command_file,
         verdict=run.get("verdict"),
-        gate_note=str(run.get("gates", "")),
+        gate_note=str(run.get("gates", "")) or None,
         notes=str(run.get("notes", "")),
         trim=(None if run.get("trim") is None else float(run["trim"])),
         samples=(None if transfer.get("samples") is None else int(transfer["samples"])),
@@ -840,12 +840,12 @@ def load_run_record(
         clock_pre=ClockProbe.from_toml(clock.get("pre")),
         clock_post=ClockProbe.from_toml(clock.get("post")),
         skew_ppm=(None if clock.get("skew_ppm") is None else float(clock["skew_ppm"])),
-        hold_pre=_hold_window(hold.get("pre")),
-        hold_post=_hold_window(hold.get("post")),
+        hold_pre_host_s=_hold_window(hold.get("pre")),
+        hold_post_host_s=_hold_window(hold.get("post")),
         waive_still_holds=bool(run.get("waive_still_holds", False)),
         segments=[ProtocolSegment.from_toml(seg) for seg in data.get("segment", [])],
         pauses=_pause_windows(data.get("pause", []), cmd_t),
-        cmd_t=cmd_t,
+        cmd_t_host_s=cmd_t,
         cmd_lin=cmd_lin,
         cmd_ang=cmd_ang,
         command_source=source,
@@ -924,11 +924,11 @@ def _moving_average(a: np.ndarray, window: int) -> np.ndarray:
 class GroundTruth:
     """Dead-reckoned truth for one run, on the jig's 1 kHz sample grid."""
 
-    t: np.ndarray  # host seconds if a ClockFit was supplied, else jig seconds
-    v: np.ndarray  # body forward speed, m/s
-    v_raw: np.ndarray  # forward speed with only light smoothing, for onset timing
-    w: np.ndarray  # yaw rate, rad/s
-    theta: np.ndarray  # heading, rad, unwrapped
+    t_s: np.ndarray
+    v_body_mps: np.ndarray
+    v_onset_mps: np.ndarray
+    yaw_rate_radps: np.ndarray
+    theta_rad: np.ndarray
     x: np.ndarray
     y: np.ndarray
     encoder_valid: bool
@@ -938,7 +938,7 @@ class GroundTruth:
 
     def closure_error(self) -> tuple[float, float]:
         """(position error, path length) between the run start and end, both meters."""
-        ds = np.abs(self.v[:-1]) * np.diff(self.t)
+        ds = np.abs(self.v_body_mps[:-1]) * np.diff(self.t_s)
         path_len = float(np.sum(ds))
         err = float(np.hypot(self.x[-1] - self.x[0], self.y[-1] - self.y[0]))
         return err, path_len
@@ -955,30 +955,37 @@ def solve_ground_truth(
     onset_smooth_s: float = 0.005,
 ) -> GroundTruth:
     """Unicycle dead reckoning from encoder arc length and gyro yaw."""
-    n = len(log.t)
-    up = still_pre.up if still_pre is not None else np.array([0.0, 0.0, 1.0])
-    bias = still_pre.bias if still_pre is not None else np.zeros(3)
+    n = len(log.t_boot_s)
+    up = still_pre.up_unit if still_pre is not None else np.array([0.0, 0.0, 1.0])
+    bias = still_pre.bias_radps if still_pre is not None else np.zeros(3)
 
     gyro = log.gyro
     if still_pre is not None and still_post is not None:
         span = still_post.t_mid - still_pre.t_mid
-        frac = np.clip((log.t - still_pre.t_mid) / span, 0.0, 1.0) if span > 1e-6 else np.zeros(n)
-        bias_t = bias[None, :] + frac[:, None] * (still_post.bias - bias)[None, :]
+        frac = (
+            np.clip((log.t_boot_s - still_pre.t_mid) / span, 0.0, 1.0)
+            if span > 1e-6
+            else np.zeros(n)
+        )
+        bias_t = bias[None, :] + frac[:, None] * (still_post.bias_radps - bias)[None, :]
         gyro = gyro - bias_t
     else:
         gyro = gyro - bias[None, :]
 
     w = (gyro @ up) * calib.gyro_scale
 
-    dt = np.diff(log.t, prepend=log.t[0] - log.dt)
-    theta = np.concatenate([[0.0], np.cumsum(0.5 * (w[1:] + w[:-1]) * np.diff(log.t))])
+    dt = np.diff(log.t_boot_s, prepend=log.t_boot_s[0] - log.dt)
+    theta = np.concatenate([[0.0], np.cumsum(0.5 * (w[1:] + w[:-1]) * np.diff(log.t_boot_s))])
 
     encoder_valid = log.encoder_moved
     window = max(1, int(round(smooth_s / max(log.dt, 1e-9))))
     onset_window = max(1, int(round(onset_smooth_s / max(log.dt, 1e-9))))
     v_raw = np.zeros(n)
     if encoder_valid:
-        ds = np.diff(log.count.astype(float), prepend=float(log.count[0])) * calib.meters_per_count
+        ds = (
+            np.diff(log.count_x4.astype(float), prepend=float(log.count_x4[0]))
+            * calib.meters_per_count
+        )
         rate = ds / np.maximum(dt, 1e-9)
         v = _moving_average(rate, window) - w * calib.r_enc_perp
         v_raw = _moving_average(rate, onset_window) - w * calib.r_enc_perp
@@ -995,11 +1002,11 @@ def solve_ground_truth(
     )
     clock = clock or ClockFit.identity()
     return GroundTruth(
-        t=clock.host_seconds(log.t),
-        v=v,
-        v_raw=v_raw,
-        w=w,
-        theta=theta,
+        t_s=clock.host_seconds(log.t_boot_s),
+        v_body_mps=v,
+        v_onset_mps=v_raw,
+        yaw_rate_radps=w,
+        theta_rad=theta,
         x=x,
         y=y,
         encoder_valid=encoder_valid,
@@ -1110,18 +1117,18 @@ class Run:
 
     record: RunRecord
     quality: RunQuality
-    t: np.ndarray  # host seconds, uniform
+    t: np.ndarray
     dt: float
     v: np.ndarray
-    v_raw: np.ndarray  # lightly smoothed, for onset timing only
+    v_onset: np.ndarray
     w: np.ndarray
     theta: np.ndarray
     x: np.ndarray
     y: np.ndarray
     cmd_lin: np.ndarray
     cmd_ang: np.ndarray
-    commanded: np.ndarray  # bool, the command is known here (see load_run)
-    label: np.ndarray  # per-sample phase label from the protocol segments
+    command_known: np.ndarray
+    phase_label: np.ndarray
     v_noise: float
     w_noise: float
     truth: GroundTruth
@@ -1156,7 +1163,7 @@ class Run:
         return self.truth.encoder_valid
 
     def mask(self, prefix: str) -> np.ndarray:
-        return np.array([str(lbl).startswith(prefix) for lbl in self.label])
+        return np.array([str(lbl).startswith(prefix) for lbl in self.phase_label])
 
 
 def zoh(src_t: np.ndarray, src_v: np.ndarray, dst_t: np.ndarray) -> np.ndarray:
@@ -1191,7 +1198,7 @@ def _labels_for(record: RunRecord, t: np.ndarray) -> np.ndarray:
     """Per-sample phase label. Segments are program-relative; the first command anchors them."""
     if not record.has_commands:
         return np.array([record.spec.name] * len(t))
-    t0 = float(record.cmd_t[0])
+    t0 = float(record.cmd_t_host_s[0])
     if not record.segments:
         return np.array([record.spec.name] * len(t))
     rel = t - t0
@@ -1215,10 +1222,7 @@ def load_run(
     log = read_jig_log(Path(log_dir) / record.log_file)
 
     clock = record.clock
-    # Every stretch the operator spent handling the robot is dropped before anything is
-    # measured. A pause is not a still hold, not commanded time, and not a place where a
-    # clipped accelerometer says anything about the plant.
-    log_pause = pause_mask(clock.host_seconds(log.t), record.pauses)
+    log_pause = pause_mask(clock.host_seconds(log.t_boot_s), record.pauses)
     stills = [
         seg
         for seg in find_still_segments(log)
@@ -1231,16 +1235,16 @@ def load_run(
     )
 
     dt = 1.0 / fit_hz
-    grid = np.arange(truth.t[0], truth.t[-1], dt)
-    v = np.interp(grid, truth.t, truth.v)
-    v_raw = np.interp(grid, truth.t, truth.v_raw)
-    w = np.interp(grid, truth.t, truth.w)
-    theta = np.interp(grid, truth.t, truth.theta)
-    x = np.interp(grid, truth.t, truth.x)
-    y = np.interp(grid, truth.t, truth.y)
+    grid = np.arange(truth.t_s[0], truth.t_s[-1], dt)
+    v = np.interp(grid, truth.t_s, truth.v_body_mps)
+    v_raw = np.interp(grid, truth.t_s, truth.v_onset_mps)
+    w = np.interp(grid, truth.t_s, truth.yaw_rate_radps)
+    theta = np.interp(grid, truth.t_s, truth.theta_rad)
+    x = np.interp(grid, truth.t_s, truth.x)
+    y = np.interp(grid, truth.t_s, truth.y)
 
-    cmd_lin = zoh(record.cmd_t, record.cmd_lin, grid)
-    cmd_ang = zoh(record.cmd_t, record.cmd_ang, grid)
+    cmd_lin = zoh(record.cmd_t_host_s, record.cmd_lin, grid)
+    cmd_ang = zoh(record.cmd_t_host_s, record.cmd_ang, grid)
     labels = _labels_for(record, grid)
 
     # Where the command is actually known. The still holds that bracket every run sit outside the
@@ -1248,7 +1252,7 @@ def load_run(
     # for a couple of seconds past the last command is real data (the runner zeroes and disarms
     # on exit), so that much grace is kept and the rest is dropped.
     if record.has_commands:
-        commanded = (grid >= record.cmd_t[0]) & (grid <= record.cmd_t[-1] + 2.0)
+        commanded = (grid >= record.cmd_t_host_s[0]) & (grid <= record.cmd_t_host_s[-1] + 2.0)
         commanded &= ~pause_mask(grid, record.pauses)
     else:
         commanded = np.zeros(len(grid), dtype=bool)
@@ -1261,8 +1265,8 @@ def load_run(
     w_noise = float(np.std(w[idle])) if np.count_nonzero(idle) > 10 else 0.0
 
     commanded_s = float(dt * np.count_nonzero(commanded))
-    hold_pre_gap = _hold_uncovered_s(record.hold_pre, stills, clock)
-    hold_post_gap = _hold_uncovered_s(record.hold_post, stills, clock)
+    hold_pre_gap = _hold_uncovered_s(record.hold_pre_host_s, stills, clock)
+    hold_post_gap = _hold_uncovered_s(record.hold_post_host_s, stills, clock)
 
     sat = log.saturation(keep=~log_pause)
     gyro_sat = [a for a in sat if a.name.startswith("g")]
@@ -1299,7 +1303,7 @@ def load_run(
         commanded_s=commanded_s,
         hold_pre_gap_s=hold_pre_gap,
         hold_post_gap_s=hold_post_gap,
-        command_source=record.command_source,
+        command_source=record.command_source.value,
     )
 
     return Run(
@@ -1308,15 +1312,15 @@ def load_run(
         t=grid,
         dt=dt,
         v=v,
-        v_raw=v_raw,
+        v_onset=v_raw,
         w=w,
         theta=theta,
         x=x,
         y=y,
         cmd_lin=cmd_lin,
         cmd_ang=cmd_ang,
-        commanded=commanded,
-        label=labels,
+        command_known=commanded,
+        phase_label=labels,
         v_noise=v_noise,
         w_noise=w_noise,
         truth=truth,

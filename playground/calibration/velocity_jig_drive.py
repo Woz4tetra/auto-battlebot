@@ -735,16 +735,16 @@ def log_gates(
         return [Gate(f"log unreadable: {err}")]
 
     out: list[Gate] = []
-    step = np.diff(log.t)
+    step = np.diff(log.t_boot_s)
     late = int(np.count_nonzero(step > 5 * log.dt)) if len(step) else 0
     if late:
         out.append(Gate(f"{late} gaps in the log, the 1 kHz stream is not continuous"))
     for kind, window in (holds or {}).items():
-        covered = clock.host_seconds(log.t[[0, -1]])
+        covered = clock.host_seconds(log.t_boot_s[[0, -1]])
         if window[0] < covered[0] - 0.1 or window[1] > covered[1] + 0.1:
             out.append(Gate(f"the log stops short of the {kind} still hold"))
 
-    keep = ~pause_mask(clock.host_seconds(log.t), pauses)
+    keep = ~pause_mask(clock.host_seconds(log.t_boot_s), pauses)
     sat = [a for a in log.saturation(keep=keep) if a.count]
     gyro = [a for a in sat if a.name.startswith("g")]
     accel = [a for a in sat if a.name.startswith("a")]

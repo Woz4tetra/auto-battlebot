@@ -30,9 +30,9 @@ def test_saturation_matches_jiglog() -> None:
     rng = np.random.default_rng(0)
     n = 200
     log = SimpleNamespace(
-        t=np.arange(n) * 0.001,
-        gyro_raw=rng.integers(-40000, 40000, size=(n, 3)),
-        accel_raw=rng.integers(-9000, 9000, size=(n, 3)),
+        t_boot_s=np.arange(n) * 0.001,
+        gyro_raw_int16=rng.integers(-40000, 40000, size=(n, 3)),
+        accel_raw_int16=rng.integers(-9000, 9000, size=(n, 3)),
         header=SimpleNamespace(accel_raw_limit=6000.0),
     )
     report = JigLog.saturation(log)

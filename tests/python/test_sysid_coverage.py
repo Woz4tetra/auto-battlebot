@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import threading
 from pathlib import Path
@@ -317,3 +318,30 @@ def test_from_diagnostics_renames_seq() -> None:
     assert "telemetry_seq" not in telemetry.from_diagnostics({"seq": None, "timestamp_ms": 1})
     row = {"telemetry_seq": 3, "seq": 9}
     assert telemetry.from_diagnostics(row) is row
+
+
+def test_sysid_package_never_sends_commands() -> None:
+    banned = (
+        "serial",
+        "socket",
+        "auto_battlebot.calibration.jig",
+        "auto_battlebot.mujoco_sim",
+        "auto_battlebot.rl",
+    )
+    package = Path(__file__).parents[2] / "auto_battlebot" / "calibration" / "sysid"
+    offenders = []
+    for path in package.glob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text())):
+            names = (
+                [a.name for a in node.names]
+                if isinstance(node, ast.Import)
+                else [node.module or ""]
+                if isinstance(node, ast.ImportFrom)
+                else []
+            )
+            offenders += [
+                f"{path.name}: {n}"
+                for n in names
+                if any(n == b or n.startswith(b + ".") for b in banned)
+            ]
+    assert not offenders

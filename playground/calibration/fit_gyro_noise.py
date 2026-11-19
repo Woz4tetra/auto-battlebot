@@ -190,7 +190,7 @@ def main() -> None:
     gyro_dps = log.gyro * 180.0 / np.pi
 
     print(
-        f"{args.log.name}: {len(log.t):,} samples, {log.duration / 60:.1f} min, "
+        f"{args.log.name}: {len(log.t_boot_s):,} samples, {log.duration / 60:.1f} min, "
         f"dt {log.dt * 1000:.3f} ms"
     )
     print(
@@ -198,7 +198,7 @@ def main() -> None:
         f"accel range {log.header.accel_range_g:.2f} g"
     )
 
-    gaps = int(np.count_nonzero(np.diff(log.t) > 5 * log.dt))
+    gaps = int(np.count_nonzero(np.diff(log.t_boot_s) > 5 * log.dt))
     if gaps:
         print(f"  {gaps} gaps in the 1 kHz stream. The curve past those cluster times is wrong.")
     saturated = [a.name for a in log.saturation() if a.count]
