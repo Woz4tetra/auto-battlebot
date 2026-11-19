@@ -13,7 +13,7 @@
   "auto_battlebot/mujoco_sim/warp_kernels.py": 6,
   "auto_battlebot/perception/sensing_model.py": 1,
   "auto_battlebot/perception/sysid_windows.py": 1,
-  "auto_battlebot/perception/tag_pose_smoother.py": 90,
+  "auto_battlebot/perception/tag_pose_smoother.py": 6,
   "auto_battlebot/perception/texture_fill.py": 1,
   "auto_battlebot/perception/trt_yolo.py": 71,
   "auto_battlebot/perception/yolo_field_fixes.py": 15,

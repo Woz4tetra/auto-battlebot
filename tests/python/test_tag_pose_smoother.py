@@ -13,8 +13,9 @@ from __future__ import annotations
 
 import json
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import cv2
@@ -498,9 +499,13 @@ def test_ippe_selection_on_tilted_tag(upside_down: bool) -> None:
             math.degrees(sysid_io.rotation_angle(truth[:3, :3].T @ cands.t_up_body[i, s, :3, :3]))
             for s in (0, 1)
         ]
-        if not ippe.close_call[i]:
-            assert ippe.choice[i] == int(np.argmin(errs)), (i, errs, cands.tilt[i])
-            assert errs[ippe.choice[i]] < 6.0
+        if not ippe.close_call_decided_by_neighbours[i]:
+            assert ippe.solution_index[i] == int(np.argmin(errs)), (
+                i,
+                errs,
+                cands.tilt_from_rest_rad[i],
+            )
+            assert errs[ippe.solution_index[i]] < 6.0
         wrong_far += max(errs) > 5.0
     assert wrong_far > len(truths) // 2
     assert ippe.close_calls < len(truths) // 4
@@ -528,7 +533,7 @@ def test_ippe_close_call_uses_neighbours() -> None:
         errs = [
             sysid_io.rotation_angle(truth[:3, :3].T @ cands.t_up_body[i, s, :3, :3]) for s in (0, 1)
         ]
-        assert ippe.choice[i] == int(np.argmin(errs))
+        assert ippe.solution_index[i] == int(np.argmin(errs))
 
 
 def _truth_at_measurements(truth: Truth, stamps: np.ndarray) -> dict[str, np.ndarray]:
@@ -538,7 +543,7 @@ def _truth_at_measurements(truth: Truth, stamps: np.ndarray) -> dict[str, np.nda
 def test_rts_recovers_trajectory_better_than_raw(
     session: Session, smoothed: tps.SessionSmoothing
 ) -> None:
-    meas = smoothed.measurements
+    meas = smoothed.detections_df
     assert smoothed.field_flipped
     good = ~meas["rejected"].to_numpy()
     truth = _truth_at_measurements(session.truth, meas["stamp_ns"].to_numpy())
@@ -554,7 +559,7 @@ def test_rts_recovers_trajectory_better_than_raw(
     # the blackout edge and mid-spin sit right at the gate.
     assert int(meas["rejected"].sum()) <= 3
 
-    grid = smoothed.grid
+    grid = smoothed.smoothed_grid_df
     gt = session.truth.at((grid["stamp_ns"].to_numpy() - T0_NS) / 1e9)
     # Yaw on the grid is unwrapped and continuous through both spins.
     assert np.max(np.abs(np.diff(grid["yaw"]))) < 0.2
@@ -587,8 +592,11 @@ def test_noise_calibration_and_checks(smoothed: tps.SessionSmoothing) -> None:
     # everywhere; the cross-validated pick lands slightly over-responsive (negative lag 1).
     assert -0.5 < white["across_innovation"]["lag1"] < 0.1
     for cv, group in ((smoothed.cv_planar, "xy"), (smoothed.cv_planar, "yaw")):
-        k = int(np.nanargmin(cv.score[group]))
-        assert 0 < k < cv.score[group].size - 1, (group, cv.score[group])
+        k = int(np.nanargmin(cv.heldout_score_by_group[group]))
+        assert 0 < k < cv.heldout_score_by_group[group].size - 1, (
+            group,
+            cv.heldout_score_by_group[group],
+        )
 
 
 def test_imu_yaw_rate_agreement(smoothed: tps.SessionSmoothing) -> None:
@@ -610,7 +618,7 @@ def test_imu_fusion_runs(session: Session) -> None:
     )
     fused = result.checks["imu_fused"]
     assert fused and fused["sign"] == 1.0
-    grid = result.grid
+    grid = result.smoothed_grid_df
     t = (grid["stamp_ns"] - T0_NS) / 1e9
     gt = session.truth.at(t.to_numpy())
     blackout = ((t > 5.62) & (t < 5.88)).to_numpy()
@@ -631,26 +639,28 @@ def test_imu_rate_pulls_an_aliased_yaw_rate_back() -> None:
     ti = np.arange(0.005, 3.0, 0.01)
     t = np.r_[tf, ti]
     order = np.argsort(t, kind="stable")
-    kind = np.r_[np.full(tf.size, tps.KIND_POSITION), np.full(ti.size, tps.KIND_RATE)]
+    kind = np.r_[np.full(tf.size, tps.KnotKind.POSITION), np.full(ti.size, tps.KnotKind.RATE)]
     z = np.r_[np.full(tf.size, 1.0), np.where(ti < 0.5, alias, 0.0)]
     r = np.r_[np.full(tf.size, 0.01**2), np.full(ti.size, 0.3**2)]
     knots = tps.Knots(
-        t_s=t[order],
+        t_since_t0_s=t[order],
         t0_ns=0,
         kind=kind.astype(np.int8)[order, None],
         z=z[order, None],
-        r=r[order, None],
+        variance=r[order, None],
     )
     opts = tps.FilterOptions(angular=(True,), prior_std=((math.pi, 1000.0, 1000.0),))
     run = tps.run_smoother(knots, np.array([[1e3]]), opts)
-    assert run.m_filt[0, np.searchsorted(knots.t_s, 0.45), 0, 1] == pytest.approx(alias, rel=0.01)
-    assert np.max(np.abs(run.m_smooth[0, knots.t_s > 2.0, 0, 1])) < 0.1
+    assert run.m_filt[0, np.searchsorted(knots.t_since_t0_s, 0.45), 0, 1] == pytest.approx(
+        alias, rel=0.01
+    )
+    assert np.max(np.abs(run.m_smooth[0, knots.t_since_t0_s > 2.0, 0, 1])) < 0.1
 
 
 def test_gating_rejects_injected_outliers() -> None:
     session = make_session(seed=11, outliers=12)
     result = tps.smooth_session(parsed_frames(session), field_series(session), mounts())
-    meas = result.measurements
+    meas = result.detections_df
     injected = meas["stamp_ns"].isin(session.outlier_stamps).to_numpy()
     assert injected.sum() == 12
     rejected = meas["rejected"].to_numpy()
@@ -667,11 +677,11 @@ def test_smoother_bridges_a_dropout_without_lag() -> None:
     t = t[(t < 1.2) | (t > 1.5)]
     x_true = 0.2 * t**2
     knots = tps.Knots(
-        t_s=t,
+        t_since_t0_s=t,
         t0_ns=0,
-        kind=np.full((t.size, 1), tps.KIND_POSITION, dtype=np.int8),
+        kind=np.full((t.size, 1), tps.KnotKind.POSITION, dtype=np.int8),
         z=(x_true + rng.normal(0.0, 0.002, t.size))[:, None],
-        r=np.full((t.size, 1), 0.002**2),
+        variance=np.full((t.size, 1), 0.002**2),
     )
     opts = tps.FilterOptions(angular=(False,), prior_std=((1.0, 5.0, 50.0),))
     run = tps.run_smoother(knots, np.array([[10.0]]), opts)
@@ -820,7 +830,7 @@ def _write_mass_properties(path: Path) -> Path:
         r = mount.t_body_tag[:3, :3]
         lines += [
             f"[tags.{tag_id}]",
-            f"upside_down = {'true' if mount.upside_down else 'false'}",
+            f"upside_down = {'true' if mount.tag_faces_floor_when_upright else 'false'}",
             f"translation_m = {mount.t_body_tag[:3, 3].tolist()}",
             f"rotation = {r.tolist()}",
             f"size_m = {TAG_SIZE}",
@@ -896,7 +906,222 @@ def test_loads_mass_properties_file() -> None:
     for mount in mounts_.values():
         r = mount.t_body_tag[:3, :3]
         np.testing.assert_allclose(r @ r.T, np.eye(3), atol=1e-4)
-        assert mount.upside_down == (r[2, 2] < 0.0)
+        assert mount.tag_faces_floor_when_upright == (r[2, 2] < 0.0)
         tilt = math.degrees(math.acos(abs(r[2, 2])))
         assert 5.0 < tilt < 15.0
-    assert mounts_[41].upside_down != mounts_[76].upside_down
+    assert mounts_[41].tag_faces_floor_when_upright != mounts_[76].tag_faces_floor_when_upright
+
+
+def test_tag_mount_upside_down_defaults_from_normal() -> None:
+    up = np.eye(3)
+    down = np.diag([1.0, -1.0, -1.0])
+    table = {"translation_m": [0.0, 0.0, 0.0]}
+    assert not tps.tag_mount_from_table(1, {**table, "rotation": up}).tag_faces_floor_when_upright
+    assert tps.tag_mount_from_table(2, {**table, "rotation": down}).tag_faces_floor_when_upright
+    forced = tps.tag_mount_from_table(3, {**table, "rotation": up, "upside_down": True})
+    assert forced.tag_faces_floor_when_upright
+
+
+def test_candidates_reject_mismatched_shapes() -> None:
+    def build(
+        n_solutions: np.ndarray, t_up_body: np.ndarray, size_px: np.ndarray
+    ) -> tps.Candidates:
+        return tps.Candidates(
+            stamp_ns=np.zeros(2, np.int64),
+            frame_index=np.zeros(2, np.int64),
+            tag_id=np.zeros(2, np.int64),
+            upside_down=np.zeros(2, bool),
+            n_solutions=n_solutions,
+            t_up_body=t_up_body,
+            tilt_from_rest_rad=np.zeros((2, 2)),
+            reprojection_error_px=np.zeros((2, 2)),
+            size_px=size_px,
+        )
+
+    poses = np.broadcast_to(np.eye(4), (2, 2, 4, 4)).copy()
+    build(np.array([1, 2]), poses, np.zeros(2))
+    with pytest.raises(ValueError, match="size_px"):
+        build(np.array([1, 2]), poses, np.zeros(3))
+    with pytest.raises(ValueError, match="n_solutions"):
+        build(np.array([1, 3]), poses, np.zeros(2))
+    unequal = poses.copy()
+    unequal[0, 1] = 2.0 * np.eye(4)
+    with pytest.raises(ValueError, match="slot 1"):
+        build(np.array([1, 2]), unequal, np.zeros(2))
+
+
+def test_knots_reject_decreasing_time_and_bad_shapes() -> None:
+    kind = np.full((3, 1), tps.KnotKind.POSITION, dtype=np.int8)
+    good = dict(t0_ns=0, kind=kind, z=np.zeros((3, 1)), variance=np.ones((3, 1)))
+    tps.Knots(t_since_t0_s=np.array([0.0, 1.0, 1.0]), **good)
+    with pytest.raises(ValueError, match="non-decreasing"):
+        tps.Knots(t_since_t0_s=np.array([0.0, 1.0, 0.5]), **good)
+    with pytest.raises(ValueError, match="variance"):
+        tps.Knots(t_since_t0_s=np.arange(3.0), **{**good, "variance": np.ones((3, 2))})
+    with pytest.raises(ValueError, match="int8"):
+        tps.Knots(t_since_t0_s=np.arange(3.0), **{**good, "kind": kind.astype(np.int64)})
+
+
+def test_up_from_field_flags_camera_below_the_field() -> None:
+    above = np.eye(4)
+    above[2, 3] = 1.0
+    below = np.eye(4)
+    below[2, 3] = -1.0
+    stamps = np.zeros(1, np.int64)
+    t_up, flipped = tps.up_from_field(sysid_io.FieldFromCamera(stamps, above[None]))
+    assert not flipped
+    np.testing.assert_allclose(t_up, np.eye(4))
+    frame = tps.up_from_field(sysid_io.FieldFromCamera(stamps, below[None]))
+    assert frame.flipped
+    np.testing.assert_allclose(frame.t_up_field, np.diag([1.0, -1.0, -1.0, 1.0]))
+
+
+def test_angle_branch_after_dropout_mid_spin() -> None:
+    rate = 8.0
+    t = np.arange(0.0, 3.0, 1.0 / 60.0)
+    t = t[(t < 1.5) | (t > 1.8)]
+    rng = np.random.default_rng(0)
+    truth = rate * t
+    knots = tps.Knots(
+        t_since_t0_s=t,
+        t0_ns=0,
+        kind=np.full((t.size, 1), tps.KnotKind.POSITION, dtype=np.int8),
+        z=np.asarray(tps.wrap_angle(truth + rng.normal(0.0, 0.01, t.size)))[:, None],
+        variance=np.full((t.size, 1), 0.01**2),
+    )
+    base = tps.FilterOptions(angular=(True,), prior_std=((math.pi, 40.0, 1000.0),))
+    q = np.array([[1e6]])
+    after = t > 1.9
+
+    def worst_error(options: tps.FilterOptions) -> float:
+        run = tps.run_smoother(knots, q, options)
+        return float(np.max(np.abs(run.m_filt[0, after, 0, 0] - truth[after])))
+
+    assert worst_error(base) < 0.1
+    assert worst_error(replace(base, branch_gap_s=math.inf)) > math.pi
+
+
+def test_recheck_readmits_fix_at_reversal() -> None:
+    t = np.arange(0.0, 2.0, 1.0 / 60.0)
+    speed = np.where(t < 1.0, 1.0, -1.0)
+    x = np.cumsum(speed / 60.0)
+    outlier = 30
+    x[outlier] += 10.0
+    knots = tps.Knots(
+        t_since_t0_s=t,
+        t0_ns=0,
+        kind=np.full((t.size, 1), tps.KnotKind.POSITION, dtype=np.int8),
+        z=x[:, None],
+        variance=np.full((t.size, 1), 0.003**2),
+    )
+    options = tps.FilterOptions(
+        angular=(False,), prior_std=((1.0, 5.0, 50.0),), max_consecutive_rejects=100
+    )
+    q = np.array([[3000.0]])
+    forward = tps.run_smoother(knots, q, options)
+    run, exempt = tps.smooth_with_recheck(knots, q, options)
+    rejected_forward = set(np.flatnonzero(forward.outcome[0] == tps.Outcome.REJECTED))
+    rejected_after = set(np.flatnonzero(run.outcome[0] == tps.Outcome.REJECTED))
+    assert len(rejected_forward - {outlier}) >= 2
+    assert rejected_after == {outlier}
+    assert exempt.sum() >= 2
+
+
+def test_interpolate_smoothed_is_exact_at_knots() -> None:
+    t = np.arange(0.0, 2.0, 0.05)
+    knots = tps.Knots(
+        t_since_t0_s=t,
+        t0_ns=1_000,
+        kind=np.full((t.size, 1), tps.KnotKind.POSITION, dtype=np.int8),
+        z=np.sin(t)[:, None],
+        variance=np.full((t.size, 1), 0.01**2),
+    )
+    options = tps.FilterOptions(angular=(False,), prior_std=((1.0, 5.0, 50.0),))
+    q = np.array([[10.0]])
+    run = tps.run_smoother(knots, q, options)
+    grid_ns = 1_000 + np.round(t * 1e9).astype(np.int64)
+    mean, cov = tps.interpolate_smoothed(run, knots, q, grid_ns)
+    np.testing.assert_allclose(mean, run.m_smooth[0], atol=1e-6)
+    np.testing.assert_allclose(cov, run.p_smooth[0], atol=1e-6)
+    clamped, _ = tps.interpolate_smoothed(run, knots, q, np.array([grid_ns[-1] + 10**9]))
+    np.testing.assert_allclose(clamped[0], run.m_smooth[0, -1], atol=1e-6)
+
+
+def test_tilt_smoother_does_not_alias_to_full_turn_per_frame() -> None:
+    options = tps._filter_options(tps._TILT_OPTIONS, tps.SmootherOptions())
+    assert not any(options.angular)
+    t = np.arange(0.0, 1.0, 1.0 / 60.0)
+    z = np.where(t < 0.5, 0.0, 4.0)
+    knots = tps.Knots(
+        t_since_t0_s=t,
+        t0_ns=0,
+        kind=np.full((t.size, 2), tps.KnotKind.POSITION, dtype=np.int8),
+        z=np.stack([z, z], axis=1),
+        variance=np.full((t.size, 2), 0.01**2),
+    )
+    run = tps.run_smoother(knots, np.full((1, 2), 1e6), replace(options, gate=False))
+    assert run.m_filt[0, -1, 0, 0] == pytest.approx(4.0, abs=0.1)
+
+
+def test_unwrap_onto_keeps_angle_within_half_turn_of_reference() -> None:
+    reference = np.array([0.3, 7.0, -12.5])
+    angle = reference + np.array([0.2, -0.4, 0.1]) + 2.0 * math.pi * np.array([3, -2, 5])
+    out = tps.unwrap_onto(angle, reference)
+    np.testing.assert_allclose(out, reference + np.array([0.2, -0.4, 0.1]))
+
+
+def test_reported_tilt_is_wrapped() -> None:
+    t = np.arange(0.0, 1.0, 0.05)
+
+    def fit(axes: int, value: float) -> tps._AxisFit:
+        knots = tps.Knots(
+            t_since_t0_s=t,
+            t0_ns=0,
+            kind=np.full((t.size, axes), tps.KnotKind.POSITION, dtype=np.int8),
+            z=np.full((t.size, axes), value),
+            variance=np.full((t.size, axes), 0.01**2),
+        )
+        options = tps.FilterOptions(
+            angular=(False,) * axes, prior_std=((10.0, 10.0, 100.0),) * axes
+        )
+        q = np.full((1, axes), 10.0)
+        return tps._AxisFit(
+            knots, np.arange(t.size), tps.run_smoother(knots, q, options), q, np.zeros(t.size, bool)
+        )
+
+    turn_off = 2.0 * math.pi + 0.3
+    grid = tps._grid_frame(
+        fit(3, 0.0), fit(2, turn_off), np.round(t[5:15] * 1e9).astype(np.int64), 0.0
+    )
+    np.testing.assert_allclose(grid["pitch"], 0.3, atol=0.05)
+    np.testing.assert_allclose(grid["roll"], 0.3, atol=0.05)
+
+
+def test_yolo_fix_outcomes_align_with_fix_rows(
+    session: Session, smoothed: tps.SessionSmoothing, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    grid = smoothed.smoothed_grid_df
+    pick = np.array([300, 700, 1200, 1700, 2200])
+    stamps = grid["stamp_ns"].to_numpy(np.int64)[pick]
+    xs = grid["x"].to_numpy()[pick].copy()
+    ys = grid["y"].to_numpy()[pick]
+    outlier = 2
+    xs[outlier] += 8.0
+    fixes = pd.DataFrame({"stamp_ns": stamps, "x": xs, "y": ys, "yaw": np.nan, "conf": 0.9})
+    shuffled = fixes.iloc[[3, 0, 4, 2, 1]].reset_index(drop=True)
+    calibration = SimpleNamespace(
+        sigma_along_m=0.02, sigma_across_m=0.02, sigma_yaw_rad=0.1, as_dict=lambda: {}
+    )
+    monkeypatch.setattr(tps.yolo_field_fixes, "calibrate", lambda *a, **k: calibration)
+    monkeypatch.setattr(tps.yolo_field_fixes, "select_fixes", lambda *a, **k: (shuffled, {}))
+    result = tps.smooth_session(
+        parsed_frames(session),
+        field_series(session),
+        mounts(),
+        yolo=pd.DataFrame({"stamp_ns": stamps}),
+    )
+    table = result.yolo_fixes
+    assert table is not None
+    assert table["stamp_ns"].is_monotonic_increasing
+    rejected = table.loc[table["rejected"], "stamp_ns"].to_numpy()
+    np.testing.assert_array_equal(rejected, [stamps[outlier]])

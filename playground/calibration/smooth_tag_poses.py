@@ -277,8 +277,8 @@ def plot_yolo_projection(plt, out_dir: Path, cal) -> str:
 
 
 def plot_raw_vs_smoothed(plt, out_dir: Path, result: SessionSmoothing) -> str:
-    meas = result.measurements
-    grid = result.grid
+    meas = result.detections_df
+    grid = result.smoothed_grid_df
     i0, i1 = max(result.noise_calibration_segments, key=lambda seg: seg[1] - seg[0])
     t0 = int(meas["stamp_ns"].iloc[i0])
     t1 = int(meas["stamp_ns"].iloc[i1])
@@ -312,8 +312,8 @@ def write_plots(out_dir: Path, result: SessionSmoothing) -> list[str]:
     cal = result.yolo_calibration
     if cal is not None and cal.samples:
         written.append(plot_yolo_projection(plt, out_dir, cal))
-    meas = result.measurements
-    grid = result.grid
+    meas = result.detections_df
+    grid = result.smoothed_grid_df
 
     if result.noise_calibration_segments:
         written.append(plot_raw_vs_smoothed(plt, out_dir, result))
@@ -334,12 +334,12 @@ def write_plots(out_dir: Path, result: SessionSmoothing) -> list[str]:
     plt.close(fig)
     written.append(path.name)
 
-    if result.imu is not None and result.imu.stamp_ns.size:
+    if result.imu is not None and result.imu.app_clock_stamp_ns.size:
         sign = float(result.imu_lag["sign"]) if result.imu_lag else 1.0
         fig, ax = plt.subplots(figsize=(10, 4))
         t_ref = int(grid["stamp_ns"].iloc[0])
-        imu_rate = np.where(result.imu.valid, result.imu.rate * sign, np.nan)
-        ax.plot((result.imu.stamp_ns - t_ref) / 1e9, imu_rate, lw=0.8, label="BNO055")
+        imu_rate = np.where(result.imu.valid, result.imu.ccw_rate_rad_s * sign, np.nan)
+        ax.plot((result.imu.app_clock_stamp_ns - t_ref) / 1e9, imu_rate, lw=0.8, label="BNO055")
         fused = bool(result.checks.get("imu_fused"))
         label = "smoothed (IMU fused)" if fused else "tag smoothed"
         ax.plot((grid["stamp_ns"] - t_ref) / 1e9, grid["yaw_rate"], lw=0.8, label=label)
@@ -401,7 +401,7 @@ def main(argv: list[str] | None = None) -> Path:
         pitch_limit_deg=args.pitch_limit_deg,
         esp32_max_gap_s=args.esp32_max_gap_s,
     )
-    meas = result.measurements.assign(source="tag")
+    meas = result.detections_df.assign(source="tag")
     if result.yolo_fixes is not None:
         fixes = result.yolo_fixes.assign(
             tag_id=-1,
@@ -419,7 +419,7 @@ def main(argv: list[str] | None = None) -> Path:
     if result.yolo_fixes is not None:
         frame_stamps = np.union1d(frame_stamps, result.yolo_fixes["stamp_ns"].to_numpy(np.int64))
     windows, window_report = make_windows(
-        result.grid,
+        result.smoothed_grid_df,
         frame_stamps,
         meas.loc[~meas["rejected"].astype(bool), "stamp_ns"].to_numpy(),
         esp32["stamp_ns"].to_numpy(),
@@ -427,7 +427,7 @@ def main(argv: list[str] | None = None) -> Path:
         window_opts,
     )
 
-    grid = result.grid[SMOOTHED_COLUMNS].copy()
+    grid = result.smoothed_grid_df[SMOOTHED_COLUMNS].copy()
     grid["has_measurement"] = grid["has_measurement"].astype(int)
     grid["upside_down"] = grid["upside_down"].astype(int)
     grid.to_csv(out_dir / "smoothed.csv", index=False)

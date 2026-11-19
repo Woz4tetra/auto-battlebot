@@ -1005,6 +1005,40 @@ The yaw-rate loop replaced heading hold on 2026-10-05 00:00 UTC.
 
 The recordings used by `firmware_closed_loop` predate the 2026-10-05 heading hold rework.
 
+### `perception/tag_pose_smoother.py`
+
+The smoother internals and their tuning are in `docs/experiments/sysid/2026-10-25_sysid_tag_smoother.md`. These are the data contracts and invariants the code relies on.
+
+#### Data layout
+
+- `Candidates` holds N detections, two IPPE solutions each. `t_up_body` is (N, 2, 4, 4); slot 1 repeats slot 0 where `n_solutions` is 1. `tilt_from_rest_rad` is the attitude error from rest. `__post_init__` rejects shape and value mismatches.
+- `IppeChoice.solution_index` is 0 or 1 per detection. `close_call_decided_by_neighbours` marks detections whose two tilts were within the margin and were decided by neighbouring frames. `RawPoses.yaw_wrapped` is in [-pi, pi).
+- `TagMount.tag_faces_floor_when_upright` is the tag that faces the floor when the robot is upright. The `[tags.N]` table key stays `upside_down` and defaults to the sign of the tag normal's body z. A table gives either `translation_m` and `rotation` (R_body_tag) or a 4x4 `t_body_tag`.
+- `up_from_field` returns `UpFrame(t_up_field, flipped)`. `flipped` is true when the camera sits at negative field z, so field z points into the floor.
+- `Knots` is shared by every axis of one smoother. `kind[k, a]` is a `KnotKind` stored as int8 and says what axis `a` measures at knot `k`: nothing, its position, or its rate. `variance` is the measurement variance. `t_since_t0_s` is seconds from `t0_ns` and must be non-decreasing.
+- `SmootherRun` arrays lead with the batch B: `m_pred` is (B, K, A, 3), `p_pred` is (B, K, A, 3, 3), `outcome` is (B, K) holding `Outcome` codes. `nis` is the joint normalised innovation squared, NaN without a measurement. `innovation` is (B, K, A), normalised per axis, NaN if unused. `Outcome.ACCEPTED_AFTER_LOST_TRACK` is a fix that failed the gate while the filter had lost track, taken with inflated covariance.
+- `CrossValidation` keys by group name: `axes_by_group` lists the axes sharing one q, `q_candidates_by_group` the q values tried, `heldout_score_by_group` the mean clipped squared normalised held-out error.
+- `ImuYawRate.app_clock_stamp_ns` is a uniform grid on the app clock. `ccw_rate_rad_s` is counter-clockwise positive under the assumed heading sign.
+- `SessionSmoothing.detections_df` has one row per detection (the measurements.csv columns plus extras). `smoothed_grid_df` has the smoothed.csv columns plus pitch and roll rates. `noise_calibration_segments` are detection index ranges the noise model came from. `yolo_fixes` has the YOLO position fixes on frames the tag missed (stamp, x, y, yaw, sigmas, rejected), or None.
+- `_planar_knots` returns `KnotBuild(knots, source_index)`. `source_index` is the detection index per knot, or `KnotSource.IMU` or `KnotSource.EXTRA`. `_AxisFit.gate_exempt_after_recheck` marks knots the smoothed re-check let through the gate.
+- `FilterOptions.angular` is per axis and wraps the innovation to [-pi, pi). `prior_std` is per axis, (position, rate, acceleration).
+
+#### Gating and branches
+
+- An angle measurement is unwrapped onto the branch nearest a reference: the prediction normally, but after a gap longer than `branch_gap_s` since the axis's last fix, the last fixed angle carried forward at its fixed rate. Across a dropout mid-spin the acceleration state is too noisy to pick the branch. At 8 rad/s a 0.3 s gap already leaves a whole turn to chance. `test_angle_branch_after_dropout_mid_spin` pins it.
+- Rate knots (the IMU) skip the gate. A wrapped angle fix cannot tell a rate from that rate plus a whole turn per frame, so a jolt across a dropout can leave the rate aliased while every fix still passes. Gating the IMU against that state would reject the one measurement that can pull it back. `test_imu_rate_pulls_an_aliased_yaw_rate_back` pins it.
+- `smooth_with_recheck` gives gated position fixes a second look against the smoothed track. The forward gate sees only the past, so a hard reversal or punch that the process noise under-predicts fails it although the fix is good. The smoothed state at a rejected knot already excludes that fix and knows what came next, so a fix within the same chi-square gate of it (smoothed covariance plus measurement noise) is let through on the next pass. An outlier stays far from the smoothed track and stays rejected. It returns the final run and the exempted knots. `test_recheck_readmits_fix_at_reversal` pins it.
+- `interpolate_smoothed` is exact for the model: it predicts from the filtered state at the knot before, then applies the RTS gain against the smoothed and predicted states at the knot after. Times outside the knot span clamp to the end knots. `test_interpolate_smoothed_is_exact_at_knots` pins it.
+
+#### Tilt
+
+- Tilt is fed unwrapped and never wraps its innovations (`_TILT_OPTIONS.angular` is all false). YOLO-derived tilt is moved onto the branch of the unwrapped tag fix before each stamp with `unwrap_onto`, so no innovation sees a whole turn.
+- The unwrapped state can sit a whole turn off, so the reported `pitch` and `roll` are wrapped on output.
+
+#### YOLO fixes
+
+- `_fuse_yolo` sorts the fixes by stamp. The `KnotSource.EXTRA` knots come out of `_planar_knots` in stamp order, so the outcome at each of them lines up with the same row of the fixes table. `test_yolo_fix_outcomes_align_with_fix_rows` pins it.
+
 ### `perception/sysid_windows.py`
 
 Fit windows for the drivetrain sysid: gating and initial state (plan "Data pipeline" 3 and 4).

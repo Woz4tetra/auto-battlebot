@@ -197,7 +197,7 @@ def simulate_session(
 ) -> Session:
     """Drive for ``seconds``. The flip switch is middle (loop off) until ``loop_on_from_s``."""
     rng = np.random.default_rng(seed)
-    upright = [m for m in profile.mounts.values() if not m.upside_down][0]
+    upright = [m for m in profile.mounts.values() if not m.tag_faces_floor_when_upright][0]
     half = profile.half_extent_m
     limit = half - ROBOT_RADIUS_M
     plant = Plant(truth)

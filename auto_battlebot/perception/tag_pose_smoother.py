@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field, replace
+from enum import IntEnum
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, NamedTuple, Sequence
 
 import numpy as np
 import pandas as pd
@@ -19,14 +20,18 @@ from auto_battlebot.recording.sysid_io import FieldFromCamera, RobotTagsFrame, r
 _NS = 1_000_000_000
 _ROT_180_ABOUT_X = np.diag([1.0, -1.0, -1.0, 1.0])
 
-KIND_NONE = 0
-KIND_POSITION = 1
-KIND_RATE = 2
 
-OUTCOME_NONE = 0
-OUTCOME_ACCEPTED = 1
-OUTCOME_REJECTED = 2
-OUTCOME_RESET = 3  # gated, but the filter had lost track, so accepted with inflated covariance
+class KnotKind(IntEnum):
+    NONE = 0
+    POSITION = 1
+    RATE = 2
+
+
+class Outcome(IntEnum):
+    NONE = 0
+    ACCEPTED = 1
+    REJECTED = 2
+    ACCEPTED_AFTER_LOST_TRACK = 3
 
 
 @dataclass
@@ -35,7 +40,7 @@ class TagMount:
 
     tag_id: int
     t_body_tag: np.ndarray
-    upside_down: bool  # True for the tag that faces the floor when the robot is upright
+    tag_faces_floor_when_upright: bool
 
     size_m: float | None = None
 
@@ -59,8 +64,7 @@ def invert_pose(t: np.ndarray) -> np.ndarray:
 
 
 def tag_mount_from_table(tag_id: int, table: dict[str, Any]) -> TagMount:
-    """One ``[tags.N]`` table: ``translation_m`` and ``rotation`` (R_body_tag), or a 4x4
-    ``t_body_tag``; ``upside_down`` defaults to the sign of the tag normal's body z."""
+    """One ``[tags.N]`` table as a TagMount; ``upside_down`` defaults from the normal's body z."""
     if "t_body_tag" in table:
         t = np.asarray(table["t_body_tag"], dtype=np.float64).reshape(4, 4)
     else:
@@ -72,7 +76,7 @@ def tag_mount_from_table(tag_id: int, table: dict[str, Any]) -> TagMount:
     return TagMount(
         tag_id=tag_id,
         t_body_tag=t,
-        upside_down=upside_down,
+        tag_faces_floor_when_upright=upside_down,
         size_m=None if size is None else float(size),
     )
 
@@ -95,15 +99,19 @@ def load_mass_properties(path: Path | str) -> tuple[dict[int, TagMount], RobotGe
     return mounts, geometry
 
 
-def up_from_field(field_from_camera: FieldFromCamera) -> tuple[np.ndarray, bool]:
-    """(t_up_field, flipped). Flipped when the camera sits at negative field z, i.e. field z
-    points into the floor."""
+class UpFrame(NamedTuple):
+    t_up_field: np.ndarray
+    flipped: bool
+
+
+def up_from_field(field_from_camera: FieldFromCamera) -> UpFrame:
+    """The up frame; ``flipped`` when the camera sits at negative field z."""
     if len(field_from_camera) == 0:
         raise ValueError("no camera -> field transform in the recording (run field init)")
     cam_z = float(np.median(field_from_camera.matrices[:, 2, 3]))
     if cam_z < 0.0:
-        return _ROT_180_ABOUT_X.copy(), True
-    return np.eye(4), False
+        return UpFrame(_ROT_180_ABOUT_X.copy(), True)
+    return UpFrame(np.eye(4), False)
 
 
 def rest_rotation(r_up_body: np.ndarray, upside_down: bool) -> np.ndarray:
@@ -129,19 +137,49 @@ def wrap_angle(a: np.ndarray | float) -> Any:
     return (np.asarray(a) + np.pi) % (2.0 * np.pi) - np.pi
 
 
+def unwrap_onto(angle: np.ndarray | float, reference: np.ndarray | float) -> Any:
+    return reference + wrap_angle(angle - reference)
+
+
+def _require_shape(name: str, array: np.ndarray, shape: tuple[int, ...]) -> None:
+    if array.shape != shape:
+        raise ValueError(f"{name} has shape {array.shape}, expected {shape}")
+
+
 @dataclass
 class Candidates:
     """Every robot tag detection with its (up to two) IPPE solutions as body poses."""
 
-    stamp_ns: np.ndarray  # (N,) image stamps
-    frame_index: np.ndarray  # (N,) index into the frame list
-    tag_id: np.ndarray  # (N,)
-    upside_down: np.ndarray  # (N,) bool
-    n_solutions: np.ndarray  # (N,) 1 or 2
-    t_up_body: np.ndarray  # (N, 2, 4, 4); slot 1 repeats slot 0 when there is one solution
-    tilt: np.ndarray  # (N, 2) attitude error from rest, radians
-    reprojection_error_px: np.ndarray  # (N, 2)
-    size_px: np.ndarray  # (N,)
+    stamp_ns: np.ndarray
+    frame_index: np.ndarray
+    tag_id: np.ndarray
+    upside_down: np.ndarray
+    n_solutions: np.ndarray
+    t_up_body: np.ndarray
+    tilt_from_rest_rad: np.ndarray
+    reprojection_error_px: np.ndarray
+    size_px: np.ndarray
+
+    def __post_init__(self) -> None:
+        n = self.stamp_ns.shape[0]
+        per_detection = (
+            "stamp_ns",
+            "frame_index",
+            "tag_id",
+            "upside_down",
+            "n_solutions",
+            "size_px",
+        )
+        for name in per_detection:
+            _require_shape(name, getattr(self, name), (n,))
+        _require_shape("t_up_body", self.t_up_body, (n, 2, 4, 4))
+        _require_shape("tilt_from_rest_rad", self.tilt_from_rest_rad, (n, 2))
+        _require_shape("reprojection_error_px", self.reprojection_error_px, (n, 2))
+        if not np.all((self.n_solutions == 1) | (self.n_solutions == 2)):
+            raise ValueError("n_solutions must be 1 or 2")
+        single = self.n_solutions == 1
+        if not np.array_equal(self.t_up_body[single, 0], self.t_up_body[single, 1]):
+            raise ValueError("t_up_body slot 1 must repeat slot 0 where there is one solution")
 
     def __len__(self) -> int:
         return int(self.stamp_ns.shape[0])
@@ -183,8 +221,10 @@ def build_candidates(
                 pair_tilt.append(
                     attitude_error(
                         t_up_body[:3, :3],
-                        mount.upside_down,
-                        rest_pitch_upside_down_rad if mount.upside_down else rest_pitch_rad,
+                        mount.tag_faces_floor_when_upright,
+                        rest_pitch_upside_down_rad
+                        if mount.tag_faces_floor_when_upright
+                        else rest_pitch_rad,
                     )
                 )
                 pair_err.append(sol.reprojection_error_px)
@@ -195,7 +235,7 @@ def build_candidates(
             stamps.append(frame.image_stamp_ns)
             frame_idx.append(fi)
             ids.append(det.tag_id)
-            inverted.append(mount.upside_down)
+            inverted.append(mount.tag_faces_floor_when_upright)
             n_sol.append(len(sols))
             poses.append(np.stack(pair))
             tilts.append(pair_tilt)
@@ -208,7 +248,7 @@ def build_candidates(
         upside_down=np.asarray(inverted, dtype=bool),
         n_solutions=np.asarray(n_sol, dtype=np.int64),
         t_up_body=np.stack(poses) if poses else np.zeros((0, 2, 4, 4)),
-        tilt=np.asarray(tilts, dtype=np.float64).reshape(-1, 2),
+        tilt_from_rest_rad=np.asarray(tilts, dtype=np.float64).reshape(-1, 2),
         reprojection_error_px=np.asarray(errors, dtype=np.float64).reshape(-1, 2),
         size_px=np.asarray(sizes, dtype=np.float64),
     )
@@ -216,10 +256,18 @@ def build_candidates(
 
 @dataclass
 class IppeChoice:
-    choice: np.ndarray  # (N,) 0 or 1
-    close_call: np.ndarray  # (N,) bool: tilts within the margin, decided by neighbours
+    solution_index: np.ndarray
+    close_call_decided_by_neighbours: np.ndarray
     close_calls: int
     close_calls_left_to_tilt: int
+
+    def __post_init__(self) -> None:
+        n = self.solution_index.shape[0]
+        _require_shape(
+            "close_call_decided_by_neighbours", self.close_call_decided_by_neighbours, (n,)
+        )
+        if not np.all((self.solution_index == 0) | (self.solution_index == 1)):
+            raise ValueError("solution_index must be 0 or 1")
 
 
 def select_ippe(
@@ -227,9 +275,13 @@ def select_ippe(
 ) -> IppeChoice:
     """Pick one IPPE solution per detection."""
     n = len(cands)
-    choice = np.argmin(cands.tilt, axis=1).astype(np.int64) if n else np.zeros(0, np.int64)
+    choice = (
+        np.argmin(cands.tilt_from_rest_rad, axis=1).astype(np.int64) if n else np.zeros(0, np.int64)
+    )
     margin = math.radians(close_margin_deg)
-    close = (cands.n_solutions == 2) & (np.abs(cands.tilt[:, 0] - cands.tilt[:, 1]) < margin)
+    close = (cands.n_solutions == 2) & (
+        np.abs(cands.tilt_from_rest_rad[:, 0] - cands.tilt_from_rest_rad[:, 1]) < margin
+    )
     window_ns = int(neighbour_window_s * _NS)
     clear_idx = np.flatnonzero(~close)
     unresolved = 0
@@ -256,8 +308,8 @@ def select_ippe(
         choice[i] = int(np.argmin(cost))
         last_decided = i
     return IppeChoice(
-        choice=choice,
-        close_call=close,
+        solution_index=choice,
+        close_call_decided_by_neighbours=close,
         close_calls=int(close.sum()),
         close_calls_left_to_tilt=unresolved,
     )
@@ -271,7 +323,7 @@ class RawPoses:
     x: np.ndarray
     y: np.ndarray
     z: np.ndarray
-    yaw: np.ndarray  # wrapped to [-pi, pi)
+    yaw_wrapped: np.ndarray
     pitch: np.ndarray
     roll: np.ndarray
 
@@ -280,7 +332,7 @@ def chosen_poses(cands: Candidates, ippe: IppeChoice) -> RawPoses:
     n = len(cands)
     out = np.zeros((n, 6))
     for i in range(n):
-        t = cands.t_up_body[i, ippe.choice[i]]
+        t = cands.t_up_body[i, ippe.solution_index[i]]
         yaw, pitch, roll = euler_zyx(rest_rotation(t[:3, :3], bool(cands.upside_down[i])))
         out[i] = (t[0, 3], t[1, 3], t[2, 3], yaw, pitch, roll)
     return RawPoses(cands.stamp_ns.copy(), *[out[:, k].copy() for k in range(6)])
@@ -449,7 +501,7 @@ def calibrate_noise(
         for name, values, gain, angular in (
             ("along", along[sl], g_along[sl], False),
             ("across", across[sl], g[sl], False),
-            ("yaw", raw.yaw[sl], g[sl], True),
+            ("yaw", raw.yaw_wrapped[sl], g[sl], True),
             ("tilt", raw.pitch[sl], g[sl], True),
             ("tilt", raw.roll[sl], g[sl], True),
         ):
@@ -470,17 +522,23 @@ def calibrate_noise(
 
 @dataclass
 class Knots:
-    """Measurement instants shared by every axis of one smoother.
+    """Measurement instants shared by every axis of one smoother."""
 
-    ``kind[k, a]`` says what axis ``a`` measures at knot ``k`` (nothing, its position, its rate);
-    ``r`` is the measurement variance.
-    """
-
-    t_s: np.ndarray  # (K,) seconds from t0_ns, non-decreasing
+    t_since_t0_s: np.ndarray
     t0_ns: int
-    kind: np.ndarray  # (K, A) int8
-    z: np.ndarray  # (K, A)
-    r: np.ndarray  # (K, A)
+    kind: np.ndarray
+    z: np.ndarray
+    variance: np.ndarray
+
+    def __post_init__(self) -> None:
+        k = self.t_since_t0_s.shape[0]
+        _require_shape("kind", self.kind, (k, self.kind.shape[-1]))
+        if self.kind.dtype != np.int8:
+            raise ValueError(f"kind must be int8, got {self.kind.dtype}")
+        _require_shape("z", self.z, self.kind.shape)
+        _require_shape("variance", self.variance, self.kind.shape)
+        if np.any(np.diff(self.t_since_t0_s) < 0.0):
+            raise ValueError("t_since_t0_s must be non-decreasing")
 
     @property
     def n_axes(self) -> int:
@@ -491,15 +549,25 @@ class Knots:
 class SmootherRun:
     """Forward filter and RTS pass over a batch of settings. Leading axis is the batch."""
 
-    m_pred: np.ndarray  # (B, K, A, 3)
-    p_pred: np.ndarray  # (B, K, A, 3, 3)
+    m_pred: np.ndarray
+    p_pred: np.ndarray
     m_filt: np.ndarray
     p_filt: np.ndarray
     m_smooth: np.ndarray
     p_smooth: np.ndarray
-    outcome: np.ndarray  # (B, K) OUTCOME_*
-    nis: np.ndarray  # (B, K) joint normalised innovation squared, NaN without measurement
-    innovation: np.ndarray  # (B, K, A) normalised innovation per axis, NaN if unused
+    outcome: np.ndarray
+    nis: np.ndarray
+    innovation: np.ndarray
+
+    def __post_init__(self) -> None:
+        b, k, a = self.m_pred.shape[:3]
+        for name in ("m_pred", "m_filt", "m_smooth"):
+            _require_shape(name, getattr(self, name), (b, k, a, 3))
+        for name in ("p_pred", "p_filt", "p_smooth"):
+            _require_shape(name, getattr(self, name), (b, k, a, 3, 3))
+        _require_shape("outcome", self.outcome, (b, k))
+        _require_shape("nis", self.nis, (b, k))
+        _require_shape("innovation", self.innovation, (b, k, a))
 
 
 def transition(dt: float) -> np.ndarray:
@@ -539,10 +607,10 @@ def run_smoother(
     """Forward Kalman filter with chi-square gating, then the RTS backward pass."""
     q = np.atleast_2d(np.asarray(q, dtype=np.float64))
     b_count, a_count = q.shape
-    k_count = knots.t_s.shape[0]
+    k_count = knots.t_since_t0_s.shape[0]
     if a_count != knots.n_axes:
         raise ValueError("q has a different axis count than the knots")
-    has = knots.kind != KIND_NONE
+    has = knots.kind != KnotKind.NONE
     if active is None:
         use = np.broadcast_to(has, (b_count, k_count, a_count)).copy()
     else:
@@ -575,7 +643,7 @@ class _ForwardState:
 
     def __init__(self, knots: Knots, options: FilterOptions, b_count: int) -> None:
         a_count = knots.n_axes
-        k_count = knots.t_s.shape[0]
+        k_count = knots.t_since_t0_s.shape[0]
         self.knots = knots
         self.options = options
         self.angular = np.asarray(options.angular, dtype=bool)
@@ -585,8 +653,8 @@ class _ForwardState:
             [np.inf] + [float(chi2.ppf(options.gate_probability, d)) for d in range(1, a_count + 1)]
         )
         self.h_rows = np.zeros((3, 3))
-        self.h_rows[KIND_POSITION, 0] = 1.0
-        self.h_rows[KIND_RATE, 1] = 1.0
+        self.h_rows[KnotKind.POSITION, 0] = 1.0
+        self.h_rows[KnotKind.RATE, 1] = 1.0
 
         self.m_pred = np.zeros((b_count, k_count, a_count, 3))
         self.p_pred = np.zeros((b_count, k_count, a_count, 3, 3))
@@ -598,19 +666,19 @@ class _ForwardState:
 
         self.m = np.zeros((b_count, a_count, 3))
         for a in range(a_count):
-            first = np.flatnonzero(knots.kind[:, a] == KIND_POSITION)
+            first = np.flatnonzero(knots.kind[:, a] == KnotKind.POSITION)
             if first.size:
                 self.m[:, a, 0] = knots.z[first[0], a]
         self.cov = np.broadcast_to(self.prior_cov, (b_count, a_count, 3, 3)).copy()
         self.last_fix = np.full(b_count, -np.inf)
         self.rejects_in_row = np.zeros(b_count, dtype=np.int64)
-        self.prev_t = float(knots.t_s[0]) if k_count else 0.0
+        self.prev_t = float(knots.t_since_t0_s[0]) if k_count else 0.0
         self.exempt = np.zeros(k_count, dtype=bool)
         self.fix_state = self.m[:, :, :2].copy()
         self.fix_t = np.full((b_count, a_count), -np.inf)
 
     def predict(self, k: int, q: np.ndarray) -> None:
-        t = float(self.knots.t_s[k])
+        t = float(self.knots.t_since_t0_s[k])
         dt = t - self.prev_t
         self.prev_t = t
         if dt > 0.0:
@@ -627,42 +695,31 @@ class _ForwardState:
         self.p_filt[:, k] = self.cov
 
     def _innovation(self, k: int, h: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Residual, H P and innovation variance.
-
-        An angle measurement is unwrapped onto the branch nearest a reference: the prediction
-        normally, but after a gap of more than ``branch_gap_s`` since the axis's last fix, the
-        last fixed angle carried forward at its fixed rate. Across a dropout mid-spin the
-        acceleration state is too noisy to pick the branch; at 8 rad/s a 0.3 s gap already
-        leaves a whole turn to chance.
-        """
-        t = float(self.knots.t_s[k])
+        """Residual, H P and innovation variance, angles unwrapped onto the branch reference."""
+        t = float(self.knots.t_since_t0_s[k])
         hx = np.einsum("aj,baj->ba", h, self.m)
         z = np.broadcast_to(self.knots.z[k][None, :], hx.shape)
         seen = np.isfinite(self.fix_t)
         gap = np.where(seen, t - np.where(seen, self.fix_t, 0.0), 0.0)
         carried = self.fix_state[:, :, 0] + self.fix_state[:, :, 1] * gap
         ref = np.where(gap > self.options.branch_gap_s, carried, hx)
-        angle = self.angular[None, :] & (self.knots.kind[k] == KIND_POSITION)[None, :]
+        angle = self.angular[None, :] & (self.knots.kind[k] == KnotKind.POSITION)[None, :]
         resid = np.where(angle, ref + wrap_angle(z - ref) - hx, z - hx)
         hp = np.einsum("aj,bajk->bak", h, self.cov)
-        s = np.einsum("bak,ak->ba", hp, h) + self.knots.r[k][None, :]
+        s = np.einsum("bak,ak->ba", hp, h) + self.knots.variance[k][None, :]
         return resid, hp, s
 
     def update(self, k: int, u: np.ndarray) -> None:
         """Gate and apply knot ``k``'s measurements; ``u`` (B, A) says which axes are in use."""
         kind_k = self.knots.kind[k]
         h = self.h_rows[kind_k]
-        t = float(self.knots.t_s[k])
+        t = float(self.knots.t_since_t0_s[k])
         resid, hp, s = self._innovation(k, h)
         nis = np.where(u, resid * resid / s, 0.0).sum(axis=1)
         dof = u.sum(axis=1)
         measured = dof > 0
         passed = (nis <= self.thresholds[dof]) if self.options.gate else measured.copy()
-        is_position = bool(np.any(kind_k == KIND_POSITION))
-        # Rate knots (the IMU) skip the gate. A wrapped angle fix cannot tell a rate from that
-        # rate plus a whole turn per frame, so a jolt across a dropout can leave the rate aliased
-        # while every fix still passes. Gating the IMU against that state would reject the one
-        # measurement that can pull it back.
+        is_position = bool(np.any(kind_k == KnotKind.POSITION))
         if self.exempt[k] or not is_position:
             passed = measured.copy()
         reset = np.zeros_like(measured)
@@ -685,14 +742,14 @@ class _ForwardState:
         )
         self.nis_out[measured, k] = nis[measured]
         self.innov_out[:, k] = np.where(u, resid / np.sqrt(s), np.nan)
-        self.outcome[measured & passed, k] = OUTCOME_ACCEPTED
-        self.outcome[measured & ~passed & ~reset, k] = OUTCOME_REJECTED
-        self.outcome[reset, k] = OUTCOME_RESET
+        self.outcome[measured & passed, k] = Outcome.ACCEPTED
+        self.outcome[measured & ~passed & ~reset, k] = Outcome.REJECTED
+        self.outcome[reset, k] = Outcome.ACCEPTED_AFTER_LOST_TRACK
         if is_position:
             self.last_fix[take] = t
             self.rejects_in_row[take] = 0
             self.rejects_in_row[measured & ~take] += 1
-            fixed = ut & (kind_k == KIND_POSITION)[None, :]
+            fixed = ut & (kind_k == KnotKind.POSITION)[None, :]
             self.fix_state[fixed] = self.m[fixed][:, :2]
             self.fix_t[fixed] = t
 
@@ -706,8 +763,8 @@ def _rts_backward(
 ) -> tuple[np.ndarray, np.ndarray]:
     m_s = m_filt.copy()
     p_s = p_filt.copy()
-    for k in range(knots.t_s.shape[0] - 2, -1, -1):
-        f = transition(float(knots.t_s[k + 1] - knots.t_s[k]))
+    for k in range(knots.t_since_t0_s.shape[0] - 2, -1, -1):
+        f = transition(float(knots.t_since_t0_s[k + 1] - knots.t_since_t0_s[k]))
         gain = p_filt[:, k] @ f.T @ np.linalg.inv(p_pred[:, k + 1])
         m_s[:, k] = m_filt[:, k] + np.einsum(
             "baij,baj->bai", gain, m_s[:, k + 1] - m_pred[:, k + 1]
@@ -721,29 +778,21 @@ def _rts_backward(
 def smooth_with_recheck(
     knots: Knots, q: np.ndarray, options: FilterOptions, max_passes: int = 3
 ) -> tuple[SmootherRun, np.ndarray]:
-    """``run_smoother``, then give gated position fixes a second look against the smoothed track.
-
-    The forward gate sees only the past, so a hard reversal or punch that the process noise
-    under-predicts fails it although the fix is good. The smoothed state at a rejected knot
-    already excludes that fix and knows what came next, so a fix within the same chi-square gate
-    of it (smoothed covariance plus measurement noise) is let through on the next pass. An
-    outlier stays far from the smoothed track and stays rejected. Returns the final run and the
-    exempted knots.
-    """
+    """``run_smoother``, then readmit gated fixes the smoothed track vouches for."""
     q = np.atleast_2d(np.asarray(q, dtype=np.float64))
-    exempt = np.zeros(knots.t_s.shape[0], dtype=bool)
+    exempt = np.zeros(knots.t_since_t0_s.shape[0], dtype=bool)
     angular = np.asarray(options.angular, dtype=bool)
     run = run_smoother(knots, q, options, gate_exempt=exempt)
     for _ in range(max_passes - 1):
-        rejected = run.outcome[0] == OUTCOME_REJECTED
-        rejected &= np.any(knots.kind == KIND_POSITION, axis=1)
+        rejected = run.outcome[0] == Outcome.REJECTED
+        rejected &= np.any(knots.kind == KnotKind.POSITION, axis=1)
         if not rejected.any():
             break
         idx = np.flatnonzero(rejected)
-        pos = knots.kind[idx] == KIND_POSITION
+        pos = knots.kind[idx] == KnotKind.POSITION
         resid = knots.z[idx] - run.m_smooth[0, idx, :, 0]
         resid = np.where(angular[None, :], wrap_angle(resid), resid)
-        var = run.p_smooth[0, idx, :, 0, 0] + knots.r[idx]
+        var = run.p_smooth[0, idx, :, 0, 0] + knots.variance[idx]
         nis = np.where(pos, resid * resid / var, 0.0).sum(axis=1)
         dof = pos.sum(axis=1)
         limit = np.array([float(chi2.ppf(options.gate_probability, d)) for d in dof])
@@ -758,14 +807,9 @@ def smooth_with_recheck(
 def interpolate_smoothed(
     run: SmootherRun, knots: Knots, q: np.ndarray, grid_ns: np.ndarray, batch: int = 0
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Smoothed mean (G, A, 3) and covariance (G, A, 3, 3) at arbitrary times.
-
-    Exact for the model: predict from the filtered state at the knot before, then apply the
-    RTS gain against the smoothed and predicted states at the knot after. Times outside the
-    knot span clamp to the end knots.
-    """
+    """Smoothed mean (G, A, 3) and covariance (G, A, 3, 3) at arbitrary times."""
     t = (np.asarray(grid_ns, dtype=np.int64) - knots.t0_ns).astype(np.float64) / _NS
-    kt = knots.t_s
+    kt = knots.t_since_t0_s
     k_count = kt.shape[0]
     qa = np.asarray(q, dtype=np.float64).reshape(-1)
     idx = np.clip(np.searchsorted(kt, t, side="right") - 1, 0, k_count - 1)
@@ -801,9 +845,9 @@ def interpolate_smoothed(
 
 @dataclass
 class CrossValidation:
-    groups: dict[str, list[int]]  # group name -> axes sharing one q
-    candidates: dict[str, np.ndarray]  # group -> q values tried
-    score: dict[str, np.ndarray]  # group -> mean clipped squared normalised held-out error
+    axes_by_group: dict[str, list[int]]
+    q_candidates_by_group: dict[str, np.ndarray]
+    heldout_score_by_group: dict[str, np.ndarray]
     chosen: dict[str, float]
     held_out: int
 
@@ -812,8 +856,11 @@ class CrossValidation:
             "held_out_detections": self.held_out,
             "chosen_q": self.chosen,
             "curve": {
-                g: {"q": self.candidates[g].tolist(), "score": self.score[g].tolist()}
-                for g in self.groups
+                g: {
+                    "q": self.q_candidates_by_group[g].tolist(),
+                    "score": self.heldout_score_by_group[g].tolist(),
+                }
+                for g in self.axes_by_group
             },
         }
 
@@ -835,9 +882,9 @@ def cross_validate_q(
     for g, axes in groups.items():
         for a in axes:
             q[:, a] = candidates[g]
-    position_knots = np.flatnonzero(np.any(knots.kind == KIND_POSITION, axis=1))
+    position_knots = np.flatnonzero(np.any(knots.kind == KnotKind.POSITION, axis=1))
     held = position_knots[::hold_every]
-    active = np.ones((b_count, knots.t_s.shape[0], knots.n_axes), dtype=bool)
+    active = np.ones((b_count, knots.t_since_t0_s.shape[0], knots.n_axes), dtype=bool)
     active[:, held, :] = False
     run = run_smoother(knots, q, options, active=active)
     score: dict[str, np.ndarray] = {}
@@ -847,12 +894,12 @@ def cross_validate_q(
         for b in range(b_count):
             vals = []
             for a in axes:
-                ok = knots.kind[held, a] == KIND_POSITION
+                ok = knots.kind[held, a] == KnotKind.POSITION
                 kk = held[ok]
                 resid = knots.z[kk, a] - run.m_smooth[b, kk, a, 0]
                 if options.angular[a]:
                     resid = wrap_angle(resid)
-                vals.append(np.minimum(resid * resid / knots.r[kk, a], clip))
+                vals.append(np.minimum(resid * resid / knots.variance[kk, a], clip))
             per[b] = float(np.mean(np.concatenate(vals))) if vals else math.nan
         score[g] = per
         chosen[g] = float(candidates[g][int(np.nanargmin(per))])
@@ -861,8 +908,8 @@ def cross_validate_q(
 
 @dataclass
 class ImuYawRate:
-    stamp_ns: np.ndarray  # uniform grid on the app clock
-    rate: np.ndarray  # rad/s, counter-clockwise positive under the assumed heading sign
+    app_clock_stamp_ns: np.ndarray
+    ccw_rate_rad_s: np.ndarray
     valid: np.ndarray
 
 
@@ -899,14 +946,14 @@ def gyro_yaw_rate(
     stamp_ns: np.ndarray, yaw_rate_deg_s: np.ndarray, heading: ImuYawRate
 ) -> ImuYawRate:
     """Yaw rate from the firmware's gyro ``yaw_rate``, on ``heading``'s grid."""
-    if heading.stamp_ns.size == 0:
+    if heading.app_clock_stamp_ns.size == 0:
         return heading
     t = np.asarray(stamp_ns, dtype=np.int64)
     order = np.argsort(t, kind="stable")
     rate_ccw = -np.radians(np.asarray(yaw_rate_deg_s, dtype=np.float64)[order])
-    rate = resample_linear(t[order], rate_ccw, heading.stamp_ns, max_gap_s=0.1)
-    wrapped = heading.valid & (np.abs(rate - heading.rate) > GYRO_WRAP_TOLERANCE)
-    return ImuYawRate(heading.stamp_ns, rate, np.isfinite(rate) & ~wrapped)
+    rate = resample_linear(t[order], rate_ccw, heading.app_clock_stamp_ns, max_gap_s=0.1)
+    wrapped = heading.valid & (np.abs(rate - heading.ccw_rate_rad_s) > GYRO_WRAP_TOLERANCE)
+    return ImuYawRate(heading.app_clock_stamp_ns, rate, np.isfinite(rate) & ~wrapped)
 
 
 @dataclass
@@ -930,8 +977,8 @@ class SmootherOptions:
 
 @dataclass
 class SessionSmoothing:
-    measurements: pd.DataFrame  # one row per detection (measurements.csv plus extras)
-    grid: pd.DataFrame  # smoothed.csv columns plus pitch/roll rates
+    detections_df: pd.DataFrame
+    smoothed_grid_df: pd.DataFrame
     frame_stamps_ns: np.ndarray
     t_up_field: np.ndarray
     field_flipped: bool
@@ -945,10 +992,7 @@ class SessionSmoothing:
     imu_lag: dict[str, Any] | None
     residual_acf: np.ndarray
     innovation_acf: np.ndarray
-    noise_calibration_segments: list[
-        tuple[int, int]
-    ]  # detection index ranges the noise model came from
-    # YOLO position fixes on frames the tag missed (stamp, x, y, yaw, sigmas, rejected), or None.
+    noise_calibration_segments: list[tuple[int, int]]
     yolo_fixes: pd.DataFrame | None = None
     yolo_calibration: yolo_field_fixes.YoloCalibration | None = None
 
@@ -958,19 +1002,27 @@ class _AxisFit:
     """One smoother's knots, run and chosen process noise."""
 
     knots: Knots
-    src: np.ndarray  # per knot: detection index, IMU_SRC or EXTRA_SRC
+    knot_source: np.ndarray
     run: SmootherRun
-    q: np.ndarray  # (1, A)
-    exempt: np.ndarray  # knots let through the gate by the smoothed re-check
+    q: np.ndarray
+    gate_exempt_after_recheck: np.ndarray
 
     def det_knot(self, n_detections: int) -> np.ndarray:
         out = np.full(n_detections, -1, dtype=np.int64)
-        out[self.src[self.src >= 0]] = np.flatnonzero(self.src >= 0)
+        out[self.knot_source[self.knot_source >= 0]] = np.flatnonzero(self.knot_source >= 0)
         return out
 
 
-IMU_SRC = -1
-EXTRA_SRC = -2
+class KnotSource(IntEnum):
+    IMU = -1
+    EXTRA = -2
+
+
+class KnotBuild(NamedTuple):
+    knots: Knots
+    source_index: np.ndarray
+
+
 IMU_GAIN_MAX_RATE = 25.0
 IMU_MAX_RATE = 30.0
 GYRO_WRAP_TOLERANCE = 10.0
@@ -981,9 +1033,6 @@ _PLANAR_OPTIONS = {
     "angular": (False, False, True),
     "prior_std": ((1.0, 5.0, 50.0), (1.0, 5.0, 50.0), (math.pi, 40.0, 1000.0)),
 }
-# Tilt is fed unwrapped and never wraps its innovations. Wrapped, a pitch rate of one turn per
-# camera frame (377 rad/s at 60 Hz) fits every fix exactly, and on 2026-10-25 the cross-validated
-# q let the filter settle there: right at the knots, a random angle between them.
 _TILT_OPTIONS = {
     "angular": (False, False),
     "prior_std": ((0.5, 10.0, 300.0), (0.5, 10.0, 300.0)),
@@ -1007,29 +1056,23 @@ def _planar_knots(
     imu: ImuYawRate | None = None,
     imu_sigma: float = 0.1,
     extra: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None,
-) -> tuple[Knots, np.ndarray]:
-    """Knots for (along, across, yaw), detections plus optional IMU yaw-rate knots.
-
-    ``z`` and ``sigma`` are (N, 3). ``extra`` is (stamps, z, sigma) of position fixes from a
-    second source; a NaN in its ``z`` leaves that axis unmeasured at that knot. Returns the
-    knots with, per knot, the detection index (``IMU_SRC`` for IMU, ``EXTRA_SRC`` for an extra
-    fix).
-    """
+) -> KnotBuild:
+    """Knots for (along, across, yaw) with optional IMU rate knots and extra position fixes."""
     n = stamp_ns.shape[0]
     stamps = stamp_ns
-    src = np.arange(n)
-    kind = np.full((n, 3), KIND_POSITION, dtype=np.int8)
+    knot_source = np.arange(n)
+    kind = np.full((n, 3), KnotKind.POSITION, dtype=np.int8)
     r = sigma**2
     if imu is not None and np.any(imu.valid):
-        it = imu.stamp_ns[imu.valid]
+        it = imu.app_clock_stamp_ns[imu.valid]
         ik = np.zeros((it.size, 3), dtype=np.int8)
-        ik[:, 2] = KIND_RATE
+        ik[:, 2] = KnotKind.RATE
         iz = np.zeros((it.size, 3))
-        iz[:, 2] = imu.rate[imu.valid]
+        iz[:, 2] = imu.ccw_rate_rad_s[imu.valid]
         ir = np.ones((it.size, 3))
         ir[:, 2] = imu_sigma**2
         stamps = np.concatenate([stamps, it])
-        src = np.concatenate([src, np.full(it.size, IMU_SRC)])
+        knot_source = np.concatenate([knot_source, np.full(it.size, KnotSource.IMU)])
         kind = np.concatenate([kind, ik])
         z = np.concatenate([z, iz])
         r = np.concatenate([r, ir])
@@ -1037,24 +1080,26 @@ def _planar_knots(
         es, ez, esig = extra
         measured = np.isfinite(ez)
         stamps = np.concatenate([stamps, np.asarray(es, dtype=np.int64)])
-        src = np.concatenate([src, np.full(len(es), EXTRA_SRC)])
-        kind = np.concatenate([kind, np.where(measured, KIND_POSITION, KIND_NONE).astype(np.int8)])
+        knot_source = np.concatenate([knot_source, np.full(len(es), KnotSource.EXTRA)])
+        kind = np.concatenate(
+            [kind, np.where(measured, KnotKind.POSITION, KnotKind.NONE).astype(np.int8)]
+        )
         z = np.concatenate([z, np.where(measured, ez, 0.0)])
         r = np.concatenate([r, np.where(measured, np.asarray(esig) ** 2, 1.0)])
     order = np.argsort(stamps, kind="stable")
     knots = Knots(
-        t_s=(stamps[order] - t0_ns).astype(np.float64) / _NS,
+        t_since_t0_s=(stamps[order] - t0_ns).astype(np.float64) / _NS,
         t0_ns=t0_ns,
         kind=kind[order],
         z=z[order],
-        r=r[order],
+        variance=r[order],
     )
-    return knots, src[order]
+    return KnotBuild(knots, knot_source[order])
 
 
 def _fit_axes(
     knots: Knots,
-    src: np.ndarray,
+    knot_source: np.ndarray,
     groups: dict[str, list[int]],
     candidates: dict[str, np.ndarray],
     fopts: FilterOptions,
@@ -1065,7 +1110,7 @@ def _fit_axes(
     for g, axes in groups.items():
         q[0, axes] = cv.chosen[g]
     run, exempt = smooth_with_recheck(knots, q, fopts)
-    return _AxisFit(knots, src, run, q, exempt), cv
+    return _AxisFit(knots, knot_source, run, q, exempt), cv
 
 
 def autocorrelation(x: np.ndarray, max_lag: int) -> np.ndarray:
@@ -1122,7 +1167,7 @@ def smooth_session(
         raise ValueError(f"only {len(cands)} robot tag detections; nothing to smooth")
     ippe = select_ippe(cands, opts.close_margin_deg, opts.neighbour_window_s)
     raw = chosen_poses(cands, ippe)
-    reproj = cands.reprojection_error_px[np.arange(len(cands)), ippe.choice]
+    reproj = cands.reprojection_error_px[np.arange(len(cands)), ippe.solution_index]
     azimuth = view_azimuth(field_from_camera, t_up_field)
     along, across = to_view(raw.x, raw.y, azimuth)
 
@@ -1134,18 +1179,18 @@ def smooth_session(
             esp32["left_cmd"].to_numpy(),
             esp32["right_cmd"].to_numpy(),
         )
-    segments = find_still_segments(raw.stamp_ns, along, across, raw.yaw, idle=idle)
+    segments = find_still_segments(raw.stamp_ns, along, across, raw.yaw_wrapped, idle=idle)
     noise = calibrate_noise(raw, reproj, cands.size_px, segments, azimuth)
     sig = noise.sigmas(reproj, cands.size_px)
 
     t0_ns = int(raw.stamp_ns[0])
-    planar_z = np.stack([along, across, np.unwrap(raw.yaw)], axis=1)
+    planar_z = np.stack([along, across, np.unwrap(raw.yaw_wrapped)], axis=1)
     planar_sigma = np.stack([sig["along"], sig["across"], sig["yaw"]], axis=1)
-    knots, src = _planar_knots(raw.stamp_ns, planar_z, planar_sigma, t0_ns)
+    knots, knot_source = _planar_knots(raw.stamp_ns, planar_z, planar_sigma, t0_ns)
     planar_opts = _filter_options(_PLANAR_OPTIONS, opts)
     planar, cv_planar = _fit_axes(
         knots,
-        src,
+        knot_source,
         {"xy": [0, 1], "yaw": [2]},
         {"xy": np.asarray(opts.q_xy), "yaw": np.asarray(opts.q_yaw)},
         planar_opts,
@@ -1153,11 +1198,11 @@ def smooth_session(
     )
     n = raw.stamp_ns.shape[0]
     tilt_knots = Knots(
-        t_s=(raw.stamp_ns - t0_ns).astype(np.float64) / _NS,
+        t_since_t0_s=(raw.stamp_ns - t0_ns).astype(np.float64) / _NS,
         t0_ns=t0_ns,
-        kind=np.full((n, 2), KIND_POSITION, dtype=np.int8),
+        kind=np.full((n, 2), KnotKind.POSITION, dtype=np.int8),
         z=np.stack([np.unwrap(raw.pitch), np.unwrap(raw.roll)], axis=1),
-        r=np.stack([sig["tilt"] ** 2, sig["tilt"] ** 2], axis=1),
+        variance=np.stack([sig["tilt"] ** 2, sig["tilt"] ** 2], axis=1),
     )
     tilt, cv_tilt = _fit_axes(
         tilt_knots,
@@ -1177,7 +1222,7 @@ def smooth_session(
     imu_lag: dict[str, Any] | None = None
     if esp32 is not None and len(esp32) >= 5:
         imu, source = _telemetry_yaw_rate(esp32)
-        tag_rate = _raw_tag_yaw_rate(raw.stamp_ns, raw.yaw, grid_ns)
+        tag_rate = _raw_tag_yaw_rate(raw.stamp_ns, raw.yaw_wrapped, grid_ns)
         imu_lag, checks["imu_yaw_rate"] = _imu_agreement(grid_ns, tag_rate, imu, opts)
         checks["imu_yaw_rate"]["source"] = source
         fused = _fuse_imu(
@@ -1247,8 +1292,8 @@ def smooth_session(
 
     residual_acf, innovation_acf = _session_checks(meas, segments, ippe, checks)
     return SessionSmoothing(
-        measurements=meas,
-        grid=grid,
+        detections_df=meas,
+        smoothed_grid_df=grid,
         frame_stamps_ns=np.asarray([f.image_stamp_ns for f in frames], dtype=np.int64),
         t_up_field=t_up_field,
         field_flipped=flipped,
@@ -1285,7 +1330,9 @@ def _fuse_imu(
         checks["imu_fused"] = False
         return None
     shifted, imu_sigma = fused
-    knots, src = _planar_knots(raw.stamp_ns, planar_z, planar_sigma, t0_ns, shifted, imu_sigma)
+    knots, knot_source = _planar_knots(
+        raw.stamp_ns, planar_z, planar_sigma, t0_ns, shifted, imu_sigma
+    )
     run, exempt = smooth_with_recheck(knots, planar.q, _with_rate(planar_opts))
     agreement = checks["imu_yaw_rate"]
     checks["imu_fused"] = {
@@ -1293,7 +1340,7 @@ def _fuse_imu(
         "lag_s": float(agreement["lag_s"]),
         "sigma": imu_sigma,
     }
-    return _AxisFit(knots, src, run, planar.q, exempt)
+    return _AxisFit(knots, knot_source, run, planar.q, exempt)
 
 
 def _telemetry_yaw_rate(esp32: pd.DataFrame) -> tuple[ImuYawRate, str]:
@@ -1396,33 +1443,34 @@ def _fuse_imu_tilt(
         resid = tag[up] - np.polyval(coef, x)
         sigma[a] = 1.4826 * float(np.median(np.abs(resid - np.median(resid))))
         z[:, a] = np.polyval(coef, imu_at(yolo_stamps_ns, col))
-        # Onto the branch of the unwrapped tag fix before each stamp, so no innovation sees a turn.
         before = np.clip(np.searchsorted(raw.stamp_ns, yolo_stamps_ns, side="right") - 1, 0, None)
         branch = tilt_knots.z[before, a]
-        z[:, a] = branch + wrap_angle(z[:, a] - branch)
+        z[:, a] = unwrap_onto(z[:, a], branch)
         report[col] = {"gain": float(coef[0]), "offset": float(coef[1]), "sigma": sigma[a]}
-    yolo_kind = np.full((m, 2), KIND_POSITION, dtype=np.int8)
+    yolo_kind = np.full((m, 2), KnotKind.POSITION, dtype=np.int8)
     if len(gyro_stamps):
-        yolo_kind[:, 0] = KIND_NONE
+        yolo_kind[:, 0] = KnotKind.NONE
     g = len(gyro_stamps)
-    gyro_kind = np.tile(np.array([KIND_RATE, KIND_NONE], dtype=np.int8), (g, 1))
+    gyro_kind = np.tile(np.array([KnotKind.RATE, KnotKind.NONE], dtype=np.int8), (g, 1))
     gyro_z = np.stack([gyro_rate, np.zeros(g)], axis=1)
     gyro_r = np.tile([GYRO_PITCH_SIGMA**2, 1.0], (g, 1))
 
-    n = tilt_knots.t_s.shape[0]
+    n = tilt_knots.t_since_t0_s.shape[0]
     stamps = np.concatenate([raw.stamp_ns, yolo_stamps_ns, gyro_stamps])
     order = np.argsort(stamps, kind="stable")
     knots = Knots(
-        t_s=(stamps[order] - tilt_knots.t0_ns).astype(np.float64) / _NS,
+        t_since_t0_s=(stamps[order] - tilt_knots.t0_ns).astype(np.float64) / _NS,
         t0_ns=tilt_knots.t0_ns,
         kind=np.concatenate([tilt_knots.kind, yolo_kind, gyro_kind])[order],
         z=np.concatenate([tilt_knots.z, z, gyro_z])[order],
-        r=np.concatenate([tilt_knots.r, np.tile(sigma**2, (m, 1)), gyro_r])[order],
+        variance=np.concatenate([tilt_knots.variance, np.tile(sigma**2, (m, 1)), gyro_r])[order],
     )
-    src = np.concatenate([np.arange(n), np.full(m, EXTRA_SRC), np.full(g, IMU_SRC)])[order]
+    knot_source = np.concatenate(
+        [np.arange(n), np.full(m, KnotSource.EXTRA), np.full(g, KnotSource.IMU)]
+    )[order]
     run, exempt = smooth_with_recheck(knots, tilt.q, tilt_opts)
     checks["imu_tilt"] = report
-    return _AxisFit(knots, src, run, tilt.q, exempt)
+    return _AxisFit(knots, knot_source, run, tilt.q, exempt)
 
 
 def _with_rate(options: FilterOptions) -> FilterOptions:
@@ -1443,9 +1491,9 @@ def _imu_knot_input(
     gain = float(agreement.get("linear_gain") or 1.0)
     if not 0.5 < gain < 1.5:
         gain = 1.0
-    rate = imu.rate * sign / gain
+    rate = imu.ccw_rate_rad_s * sign / gain
     valid = imu.valid & (np.abs(rate) < IMU_MAX_RATE)
-    shifted = ImuYawRate(imu.stamp_ns - int(round(lag_s * _NS)), rate, valid)
+    shifted = ImuYawRate(imu.app_clock_stamp_ns - int(round(lag_s * _NS)), rate, valid)
     spin = agreement.get("linear_rms_rad_s", agreement.get("spin_rms_rad_s"))
     sigmas = [agreement.get("still_rate_std"), spin, 0.05]
     return shifted, max(float(v) for v in sigmas if v is not None)
@@ -1475,7 +1523,7 @@ def _fuse_yolo(
 
     camera_matrix = frames[0].camera.matrix
     n = len(raw.stamp_ns)
-    good = planar.run.outcome[0, planar.det_knot(n)] != OUTCOME_REJECTED
+    good = planar.run.outcome[0, planar.det_knot(n)] != Outcome.REJECTED
     tag_t, first = np.unique(raw.stamp_ns[good], return_index=True)
     try:
         cal = yolo_field_fixes.calibrate(
@@ -1483,7 +1531,7 @@ def _fuse_yolo(
             tag_t,
             raw.x[good][first],
             raw.y[good][first],
-            np.unwrap(raw.yaw[good][first]),
+            np.unwrap(raw.yaw_wrapped[good][first]),
             camera_matrix,
             up_from_camera_at,
             azimuth,
@@ -1502,12 +1550,13 @@ def _fuse_yolo(
     checks["yolo"] = {"fused": False, "calibration": cal.as_dict(), **report}
     if fixes.empty:
         return None
+    fixes = fixes.sort_values("stamp_ns", kind="stable").reset_index(drop=True)
     along, across = to_view(fixes["x"].to_numpy(), fixes["y"].to_numpy(), azimuth)
     ez = np.stack([along, across, np.full(len(fixes), np.nan)], axis=1)
     esig = np.tile([cal.sigma_along_m, cal.sigma_across_m, 1.0], (len(fixes), 1))
     fused = _imu_knot_input(imu, checks, opts) if imu is not None else None
     shifted, imu_sigma = fused if fused is not None else (None, 0.1)
-    knots, src = _planar_knots(
+    knots, knot_source = _planar_knots(
         raw.stamp_ns,
         planar_z,
         planar_sigma,
@@ -1519,19 +1568,19 @@ def _fuse_yolo(
     run, exempt = smooth_with_recheck(
         knots, planar.q, _with_rate(planar_opts) if shifted is not None else planar_opts
     )
-    at = np.flatnonzero(src == EXTRA_SRC)  # the fixes are sorted by stamp, and so are these
+    at = np.flatnonzero(knot_source == KnotSource.EXTRA)
     outcome = run.outcome[0, at]
     table = fixes.assign(
         yaw=np.nan,
         sigma_xy=math.sqrt(0.5 * (cal.sigma_along_m**2 + cal.sigma_across_m**2)),
         sigma_yaw=np.nan,
-        rejected=outcome == OUTCOME_REJECTED,
+        rejected=outcome == Outcome.REJECTED,
         nis=run.nis[0, at],
     )
     checks["yolo"].update(
         fused=True, accepted=int((~table["rejected"]).sum()), rejected=int(table["rejected"].sum())
     )
-    return _AxisFit(knots, src, run, planar.q, exempt), table, cal
+    return _AxisFit(knots, knot_source, run, planar.q, exempt), table, cal
 
 
 def _measurement_table(
@@ -1559,21 +1608,21 @@ def _measurement_table(
             "x": raw.x,
             "y": raw.y,
             "z": raw.z,
-            "yaw": smoothed_yaw + wrap_angle(raw.yaw - smoothed_yaw),
+            "yaw": smoothed_yaw + wrap_angle(raw.yaw_wrapped - smoothed_yaw),
             "pitch": raw.pitch,
             "roll": raw.roll,
             "reprojection_error_px": reproj,
             "tag_size_px": cands.size_px,
             "sigma_xy": np.sqrt(0.5 * (sig["along"] ** 2 + sig["across"] ** 2)),
             "sigma_yaw": sig["yaw"],
-            "ippe_close_call": ippe.close_call,
-            "rejected": outcome == OUTCOME_REJECTED,
+            "ippe_close_call": ippe.close_call_decided_by_neighbours,
+            "rejected": outcome == Outcome.REJECTED,
             "sigma_along": sig["along"],
             "sigma_across": sig["across"],
             "sigma_tilt": sig["tilt"],
-            "reset": outcome == OUTCOME_RESET,
-            "recheck_accepted": planar.exempt[det_knot],
-            "tilt_rejected": tilt.run.outcome[0, tilt_knot] == OUTCOME_REJECTED,
+            "reset": outcome == Outcome.ACCEPTED_AFTER_LOST_TRACK,
+            "recheck_accepted": planar.gate_exempt_after_recheck[det_knot],
+            "tilt_rejected": tilt.run.outcome[0, tilt_knot] == Outcome.REJECTED,
             "upside_down": cands.upside_down,
             "nis": planar.run.nis[0, det_knot],
             "innovation_along": planar.run.innovation[0, det_knot, 0],
@@ -1643,6 +1692,8 @@ def _grid_frame(
 ) -> pd.DataFrame:
     m, cov = interpolate_smoothed(planar.run, planar.knots, planar.q, grid_ns)
     tm, _ = interpolate_smoothed(tilt.run, tilt.knots, tilt.q, grid_ns)
+    pitch_unwrapped = tm[:, 0, 0]
+    roll_unwrapped = tm[:, 1, 0]
     x, y = from_view(m[:, 0, 0], m[:, 1, 0], azimuth)
     vx, vy = from_view(m[:, 0, 1], m[:, 1, 1], azimuth)
     ax, ay = from_view(m[:, 0, 2], m[:, 1, 2], azimuth)
@@ -1660,9 +1711,8 @@ def _grid_frame(
             "yaw_rate": m[:, 2, 1],
             "ax": ax,
             "ay": ay,
-            # The tilt measurements are unwrapped, so the state can sit a whole turn off.
-            "pitch": wrap_angle(tm[:, 0, 0]),
-            "roll": wrap_angle(tm[:, 1, 0]),
+            "pitch": wrap_angle(pitch_unwrapped),
+            "roll": wrap_angle(roll_unwrapped),
             "sigma_x": np.sqrt(c2 * var_along + s2 * var_across),
             "sigma_y": np.sqrt(s2 * var_along + c2 * var_across),
             "sigma_yaw": np.sqrt(np.maximum(cov[:, 2, 0, 0], 0.0)),
@@ -1718,8 +1768,8 @@ def _imu_agreement(
     grid_ns: np.ndarray, tag_rate: np.ndarray, imu: ImuYawRate, opts: SmootherOptions
 ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     """Lag, sign and fit of BNO055 yaw rate against the raw tag yaw rate on ``grid_ns``."""
-    imu_rate = np.where(imu.valid, imu.rate, np.nan)
-    imu_on_grid = resample_linear(imu.stamp_ns, imu_rate, grid_ns, max_gap_s=0.05)
+    imu_rate = np.where(imu.valid, imu.ccw_rate_rad_s, np.nan)
+    imu_on_grid = resample_linear(imu.app_clock_stamp_ns, imu_rate, grid_ns, max_gap_s=0.05)
     if np.isfinite(imu_on_grid).sum() < 50:
         return None, {"samples": int(np.isfinite(imu_on_grid).sum())}
     lag = cross_correlation_delay(opts.grid_dt_s, tag_rate, imu_on_grid, max_lag_s=0.2)

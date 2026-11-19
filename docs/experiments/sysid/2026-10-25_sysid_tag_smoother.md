@@ -111,3 +111,7 @@ smoother, so it can vet the IMU even when the smoothed yaw rate has aliased.
 
 Scale and residual below the gyro's range only: the BNO055 clips near 35 rad/s
 (2000 deg/s), which drags a gain fitted over full-stick spins down.
+
+## Tilt aliasing, 2026-10-25
+
+With wrapped tilt innovations, a pitch rate of one turn per camera frame (377 rad/s at 60 Hz) fits every fix exactly. On 2026-10-25 the cross-validated q let the filter settle there: right at the knots, a random angle between them. The tilt smoother is now fed unwrapped angles and never wraps its innovations. `test_tilt_smoother_does_not_alias_to_full_turn_per_frame` covers the options.

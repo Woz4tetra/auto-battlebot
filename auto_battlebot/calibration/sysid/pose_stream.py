@@ -58,7 +58,7 @@ def _concat(a: Candidates, b: Candidates) -> Candidates:
         upside_down=np.concatenate([a.upside_down, b.upside_down]),
         n_solutions=np.concatenate([a.n_solutions, b.n_solutions]),
         t_up_body=np.concatenate([a.t_up_body, b.t_up_body]),
-        tilt=np.concatenate([a.tilt, b.tilt]),
+        tilt_from_rest_rad=np.concatenate([a.tilt_from_rest_rad, b.tilt_from_rest_rad]),
         reprojection_error_px=np.concatenate([a.reprojection_error_px, b.reprojection_error_px]),
         size_px=np.concatenate([a.size_px, b.size_px]),
     )
@@ -72,7 +72,7 @@ def _slice(c: Candidates, keep: np.ndarray) -> Candidates:
         upside_down=c.upside_down[keep],
         n_solutions=c.n_solutions[keep],
         t_up_body=c.t_up_body[keep],
-        tilt=c.tilt[keep],
+        tilt_from_rest_rad=c.tilt_from_rest_rad[keep],
         reprojection_error_px=c.reprojection_error_px[keep],
         size_px=c.size_px[keep],
     )
@@ -86,7 +86,7 @@ def _empty_candidates() -> Candidates:
         upside_down=np.zeros(0, bool),
         n_solutions=np.zeros(0, np.int64),
         t_up_body=np.zeros((0, 2, 4, 4)),
-        tilt=np.zeros((0, 2)),
+        tilt_from_rest_rad=np.zeros((0, 2)),
         reprojection_error_px=np.zeros((0, 2)),
         size_px=np.zeros(0),
     )
@@ -144,7 +144,7 @@ class PoseStream:
         choice = select_ippe(self._buf, neighbour_window_s=NEIGHBOUR_WINDOW_S)
         raw = chosen_poses(self._buf, choice)
         sig = self.noise.sigmas(
-            self._buf.reprojection_error_px[np.arange(len(self._buf)), choice.choice],
+            self._buf.reprojection_error_px[np.arange(len(self._buf)), choice.solution_index],
             self._buf.size_px,
         )
         out: list[TagPose] = []
@@ -157,7 +157,7 @@ class PoseStream:
                     stamp_ns=s,
                     x=float(raw.x[i]),
                     y=float(raw.y[i]),
-                    yaw=float(raw.yaw[i]),
+                    yaw=float(raw.yaw_wrapped[i]),
                     pitch_from_rest_rad=float(raw.pitch[i])
                     - (0.0 if self._buf.upside_down[i] else self.rest_pitch_rad),
                     upside_down=bool(self._buf.upside_down[i]),
