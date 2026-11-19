@@ -105,8 +105,7 @@ TEST_F(RobotKeypointTrackerTest, UsesTwoHighestConfidenceKeypointsPerGroup) {
 
     auto detections = tracker.detect(keypoints, field_, camera_info_);
     ASSERT_EQ(detections.size(), 1u);
-    // If the low-confidence point were used, the resulting span would be much larger.
-    EXPECT_NEAR(detections[0].size.x, 0.24, 0.03);
+    EXPECT_NEAR(detections[0].size.x, 0.24, 0.03) << "low-confidence point was used";
 }
 
 TEST_F(RobotKeypointTrackerTest, UsesInjectedRobotConfigForGroupMapping) {

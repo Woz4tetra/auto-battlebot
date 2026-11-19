@@ -69,6 +69,16 @@ Three per-`FrameId` maps survive across frames:
 - `last_timestamp_per_frame_id_`: the last time each robot appeared in the output, used only to compute
   the `dt` for dead-reckoning.
 
+## Blob fallback and our-robot blob suppression
+
+- A blob with a specific THEIRS label (for example `MRS_BUFF_MK1`) that cannot take its own configured `FrameId`, because a keypoint detection took it, falls back to a generic `OPPONENT` slot. The resulting `RobotDescription` is relabeled `Label::OPPONENT` so label, `frame_id`, and group stay consistent. Without the relabel, downstream consumers see a specific-model label in a generic slot, and the label flips back the next tick a proper slot frees up (an ID swap).
+- `Label::OPPONENT` maps to one `FrameId` per opponent, so `initialize(2)` maps it to `{THEIR_ROBOT_1, THEIR_ROBOT_2}`. A specific label with only `{THEIR_ROBOT_1}` can have its slot taken by an `OPPONENT` keypoint while a free `OPPONENT` fallback slot remains. The fallback test relies on this.
+- A fallback blob must sit apart from the keypoint detection in the image, or `is_blob_suppressed_by_keypoint` discards it before it can reach the fallback slot.
+- When blobs compete for a shared slot, the highest confidence wins the global greedy assignment, whichever label the blob has.
+- The blob model has no class for our robot. During a keypoint dropout, a blob on our own held position would get an opponent `FrameId` and be targeted, so the filter discards blobs within `our_keypoint_dropout_blob_radius_meters` of our last position anchor.
+- The suppression is time-bounded by `our_keypoint_dropout_blob_window_s`. Once the window elapses the anchor is no longer trusted, so a genuine opponent parked where we were last seen becomes targetable again.
+- Test geometry: with the fixture field transform, a blob at image row 380 sits about 0.96 m from the held pose at row 220 in the field frame, outside the default radius.
+
 ## Why prediction is load-bearing
 
 The output `velocity` field is unused downstream (target selection and navigation read pose only). The
