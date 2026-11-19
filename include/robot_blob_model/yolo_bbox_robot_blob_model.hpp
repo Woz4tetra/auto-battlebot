@@ -73,5 +73,7 @@ class YoloBboxRobotBlobModel : public RobotBlobModelInterface {
     void append_detection_keypoints(const Detection &det, cv::Size original_size,
                                     cv::Size input_size, int detection_index,
                                     ModelResultStamped &output) const;
+    void append_box_for_every_detection(const Detection &det, cv::Size original_size,
+                                        cv::Size input_size, ModelResultStamped &result) const;
 };
 }  // namespace auto_battlebot

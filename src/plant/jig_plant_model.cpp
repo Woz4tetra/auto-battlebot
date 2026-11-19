@@ -24,7 +24,7 @@ double wrap_angle(double angle) {
     return wrapped - M_PI;
 }
 
-bool stamped_oldest_first(std::span<const TimedCommand> commands) {
+[[maybe_unused]] bool stamped_oldest_first(std::span<const TimedCommand> commands) {
     return std::is_sorted(
         commands.begin(), commands.end(),
         [](const TimedCommand &a, const TimedCommand &b) { return a.stamp < b.stamp; });

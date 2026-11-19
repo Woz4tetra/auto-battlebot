@@ -16,16 +16,6 @@ constexpr bool kSwapRbToRgb = true;
 constexpr bool kCenterCrop = false;
 constexpr int kDetectHeadBoxFeatures = 4;
 
-void append_box_for_every_detection(const Detection &det, cv::Size original_size,
-                                    cv::Size input_size, ModelResultStamped &result) {
-    int x1 = 0;
-    int y1 = 0;
-    int x2 = 0;
-    int y2 = 0;
-    map_detection_box_to_original(det, original_size, input_size, x1, y1, x2, y2);
-    result.boxes.push_back(BoundingBox{static_cast<double>(x1), static_cast<double>(y1),
-                                       static_cast<double>(x2), static_cast<double>(y2)});
-}
 }  // namespace
 
 YoloBboxRobotBlobModel::YoloBboxRobotBlobModel(YoloBboxRobotBlobModelConfiguration &config,
@@ -387,4 +377,17 @@ void YoloBboxRobotBlobModel::append_detection_keypoints(const Detection &det,
     append_midline_keypoints(midline, output_label, a_label, b_label, det.confidence,
                              detection_index, output.keypoints);
 }
+void YoloBboxRobotBlobModel::append_box_for_every_detection(const Detection &det,
+                                                            cv::Size original_size,
+                                                            cv::Size input_size,
+                                                            ModelResultStamped &result) const {
+    int x1 = 0;
+    int y1 = 0;
+    int x2 = 0;
+    int y2 = 0;
+    map_detection_box_to_original(det, original_size, input_size, x1, y1, x2, y2);
+    result.boxes.push_back(BoundingBox{static_cast<double>(x1), static_cast<double>(y1),
+                                       static_cast<double>(x2), static_cast<double>(y2)});
+}
+
 }  // namespace auto_battlebot
