@@ -89,18 +89,13 @@ def esp32_coverage_mask(
 
 def make_windows(
     grid: pd.DataFrame,
-    frame_stamps_ns: np.ndarray,
-    accepted_stamps_ns: np.ndarray,
+    all_frame_stamps_ns: np.ndarray,
+    gated_tag_stamps_ns: np.ndarray,
     esp32_stamps_ns: np.ndarray,
     geometry: RobotGeometry,
     options: WindowOptions | None = None,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
-    """Gate and cut windows. Returns the windows table and a report of what each gate dropped.
-
-    ``grid`` needs the ``smoothed.csv`` columns. ``frame_stamps_ns`` are every camera frame's
-    stamp (frames without a detection included) and ``accepted_stamps_ns`` the stamps of tag
-    detections that passed the innovation gate.
-    """
+    """Gate and cut windows, returning the table and a report of what each gate dropped."""
     opts = options or WindowOptions()
     grid_ns = grid["stamp_ns"].to_numpy().astype(np.int64)
     n = grid_ns.size
@@ -140,8 +135,8 @@ def make_windows(
         },
     }
     usable = ~near_rail & esp32_ok & ~flip
-    frames = np.sort(np.asarray(frame_stamps_ns, dtype=np.int64))
-    accepted = np.unique(np.asarray(accepted_stamps_ns, dtype=np.int64))
+    frames = np.sort(np.asarray(all_frame_stamps_ns, dtype=np.int64))
+    accepted = np.unique(np.asarray(gated_tag_stamps_ns, dtype=np.int64))
     per_window = max(int(round(opts.window_s / dt_s)), 1) if dt_s > 0 else 1
     rows: list[dict[str, Any]] = []
     for first, last in _runs(usable):
