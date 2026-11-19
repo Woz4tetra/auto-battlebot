@@ -83,7 +83,37 @@ Phase 3 except 3b done 2026-11-18. Baseline 8,443 lines.
   (training, playground, simulation, RL dataclasses) are not covered by the resolved view and stay
   open
 
-Next: the remaining C++ CONFIG rows into `fields.md`, priced on the transmitter pilot first.
+Phase 2, 3d (C++) and 4 done 2026-11-19 on `benw/nav-v2-phase0`. Baseline 3,112 lines in 359
+files. `comment-purge-p2` is merged. Every DELETE, RENAME, EXTRACT, DOC and DATASHEET row is closed,
+and all C++ CONFIG rows are in `docs/reference/config/fields.md`. Rows still open:
+
+| Verdict | Open | Total | Why |
+| --- | --- | --- | --- |
+| HACK | 318 | 322 | Phase 5, one ledger row at a time |
+| CONFIG | 527 | 932 | Python, TOML and firmware fields outside the resolved view (training 268, playground 98, simulation 84, auto_battlebot 45, firmware 15, pyproject 15, tests 2) |
+| TEST | 97 | 922 | Need hardware, a live sim or a test seam; listed in the ledger's "Rows that could not be tested" |
+| TYPE | 13 | 352 | Same ledger section |
+
+- Phase 4: `comment_budget.py report` lists message literals over 160 characters in `throw`,
+  `spdlog::`, `logger->`, CLI11 descriptions, `raise`, `logging.` calls and `help=`. It lists 66
+  and never fails. The messages themselves are not trimmed yet
+- Ledger bugs: 8 of the audit's bugs are fixed; the point-cloud normal sign is one of them. Phase 2
+  found seven more (DeepLab normalization mismatch among them), listed open in the ledger
+- Validation: `./scripts/lint` passes in full (clang-tidy, mypy, protocol.ts, comment budget). C++
+  998 tests, Python 1,203, firmware native 142. A 90 s NHRL 14-12-27 playback replay at HEAD
+  matches the session's starting commit (`d9559e24`): 0 errors on both, coast-span warnings
+  13 against 14, runner 30.5 ticks/s on both, no control-loop deadline misses. That compares health
+  and timing, not commands; no deterministic replay tier exists yet
+
+Next:
+
+1. Rewrite the "Notes moved from code comments" sections in 18 docs under
+   `docs/experiments/perception/` and `docs/setup/docker_playback.md` under topic headings, plus the
+   repeated per-file headings in `robot_filter_pipeline.md` and the empty "Beside ..." bullets in
+   `field_pose.md`
+2. Trim the 66 long messages `report` lists
+3. Decide the non-C++ CONFIG rows: Python dataclass fields to docs, or keep them
+4. Phase 5 ledger rows and the open bugs
 
 ### Spot-check record
 
@@ -604,6 +634,9 @@ Rules from here:
 | Date | Batch | Rows | Done | Turns | Tokens | Per row |
 | --- | --- | --- | --- | --- | --- | --- |
 | 2026-11-15 | `src/` TEST, 6 files, one Sonnet agent | 50 | 33 tested, 15 ledgered, 2 rejected | 91 | 12.5M cache read, 0.26M cache write, 79k out; peak context 210k; 21 min | 0.25M cache read, 1.6k out |
+| 2026-11-19 | `include/navigation/config.hpp` CONFIG, one Sonnet agent | 46 | 46 to `fields.md` | 7 | 81k final context; 69 s | about 1.8k context |
+| 2026-11-19 | `tests/` DOC, 5 files, one Sonnet agent | 55 | 55 moved to reference docs | 11 | 98k final context; 80 s | about 1.8k context |
+| 2026-11-19 | 66 file-disjoint batches of up to 45 weighted rows, three agents at a time | about 2,000 | see Status | 30-130 each | 100-210k final context each; 3-25 min each | not measured per row |
 | 2026-11-16 | A: `src/` TEST, 10 files | 46 | 20 tested, 24 ledgered, 2 rejected | 76 | 8.8M cache read, 0.21M cache write, 50k out; peak 166k; 13 min | 0.19M cache read, 1.1k out |
 | 2026-11-16 | B: `auto_battlebot/` TEST, 4 files | 51 | 47 tested, 4 ledgered | 73 | 8.9M cache read, 0.23M cache write, 68k out; peak 174k; 12 min | 0.17M cache read, 1.3k out |
 | 2026-11-16 | C: `training/`, `playground/`, `simulation/` TEST, 25 files | 45 | 19 tested, 26 ledgered | 109 | 12.7M cache read, 0.20M cache write, 52k out; peak 163k; 9 min | 0.28M cache read, 1.2k out |
@@ -646,6 +679,13 @@ the open TEST count below includes about 73 rows already handled.
 
 ## Decision log
 
+- 2026-11-19: Step 3b (checked-in resolved snapshots) dropped. `--print-config` and the MCAP
+  `resolved_config` record already show every value and its source.
+- 2026-11-19: DOC rows that hold design rationale go to `docs/reference/`, not the experiments doc
+  the audit named. A test comment explaining an expected value becomes a named constant, test name
+  or assertion message, not a doc entry.
+- 2026-11-19: Fields read from stored data (fit.json, TOML keys, CSV columns, JSON wire keys, MCAP
+  metadata and logged diagnostic values) keep their names; the unit goes in a doc.
 - 2026-11-18: Open question 1 resolved by `from` section files instead of fragments or
   generated profiles. A section file replaces the inherited section outright.
 - 2026-11-18: Resolved config lands in MCAP file metadata rather than a one-shot topic message,

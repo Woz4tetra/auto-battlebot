@@ -72,28 +72,43 @@ One root-cause fix retires several rows each.
 
 ## Bugs found during the audit
 
-These are defects in code, not workarounds. None were fixed.
+Defects in code, not workarounds.
 
-- `scripts/run_simulation.sh:27-29`: both branches assign the same config path, so the fallback to
-  the shared base config never happens.
-- `firmware/velocity_jig/scripts/console.py:21-22` and `firmware/velocity_jig/README.md:82-83` use
-  0.070 dps and 0.000244 g per LSB. `include/config.h` is now 0.140 and 0.000488 (±4000 dps,
-  ±16 g), so the console live stream reads 2x low.
-- `src/field_filter/point_cloud_field_filter.cpp:296`: the comment says the normal is flipped to
-  -Z, but the code produces z >= 0 while the fallback at `:290` returns (0, 0, -1). The audit
-  marked it `TEST` to pin the intended sign.
-- `include/tensorrt_inference/trt_engine.hpp:23-31`: `ScopedQuietLogging` demotes TensorRT errors
-  through a global counter, so it hides real errors on other threads during engine probing.
-- `training/yolo/convert_to_tensorrt.py:187-195`: `preprocess_frame` defaults `letterbox_padding`
-  to 0.0 while `TrtYoloModel` and the deployed engines use 0.1. INT8 calibration passes it
-  explicitly; any other caller gets the wrong padding.
-- `hardware/cage_pack/camera_boot.py`: dead. It reads `cl.BOOT_WALL` and `enclosure.boot_holes()`,
-  which no longer exist, and nothing imports it.
-- `CMakeLists.txt:441`: the ZED debug-build override also sets `-Wno-extra -Wno-error` on 7 of our
-  own sources, against the "fix warnings, don't suppress them" rule.
-- Docs referenced but missing: `docs/robot_filter_decay_plan.md` (cited at
-  `tests/test_robot_front_back_filter.cpp:302,371`), `docs/velocity_jig_wiring.md` (the file is
-  `firmware/velocity_jig/velocity_jig_wiring.md`), and `docs/hardware/README.md`.
+Fixed 2026-11-19:
+
+- `scripts/run_simulation.sh`: the fallback assigned the same missing per-robot config; it now
+  falls back to `config/simulation/kinematic_sim.toml` (`86c44dab`).
+- `firmware/velocity_jig/scripts/console.py` and `firmware/velocity_jig/README.md`: IMU scale now
+  0.140 dps and 0.000488 g per LSB, matching `include/config.h`; a test pins the console to the
+  header (`86c44dab`).
+- `src/field_filter/point_cloud_field_filter.cpp`: the degenerate-plane fallback now returns
+  (0, 0, 1), the same z >= 0 convention as the flip and `field_pose.cpp`, with tests (`75c48602`).
+- `include/tensorrt_inference/trt_engine.hpp`: `ScopedQuietLogging` nesting is `thread_local`, so
+  probing on one thread no longer demotes errors on others (`86c44dab`).
+- `auto_battlebot/perception/trt_yolo.py`: `preprocess_frame` requires `letterbox_padding`
+  (`86c44dab`).
+- `hardware/cage_pack/camera_boot.py`: deleted (`86c44dab`).
+- `CMakeLists.txt`: the ZED debug override passes `-U_DEBUG` instead of `-Wno-extra -Wno-error`;
+  those sources build under `-Werror` (`86c44dab`).
+- Missing docs: the test citation of `docs/robot_filter_decay_plan.md` was already gone; the stage0
+  report now points at `our_robot_hold_window_s` in `docs/reference/config/profiles.md`. No
+  remaining reference to `docs/velocity_jig_wiring.md` or `docs/hardware/README.md`.
+
+Open, found during phase 2 (2026-11-19):
+
+- `src/mask_model/deeplab_mask_model.cpp`: normalizes with ImageNet mean/std (0.485/0.456/0.406,
+  0.229/0.224/0.225) while training (`training/deeplab/semantic_train.py`) and Python scoring
+  (`training/deeplab/score_masks.py`) use the `common_transforms` defaults
+  (0.4611/0.4359/0.3905, 0.2193/0.2150/0.2109). Fixing it changes the deployed field mask, so it
+  needs a mask eval first.
+- `src/transmitter/espnow_transmitter.cpp` re-enable: the old comment said re-enabling autonomy
+  ramps from standstill, but `disable()` resets `last_send_time_`, so the first SA-on command goes
+  out unlimited. Decide the intended behavior.
+- `include/robot_filter/ekf_math.hpp` `wrap_angle`: claimed range `(-pi, pi]`, but `atan2` returns
+  `-pi` for `-pi`.
+- `playground/opponent_prediction/run_replays.py`: the NHRL 14-12-27 start frame is 1540 in the script but 3000 in `config/playback/svo_start_frames.toml`. Found by batch b49, 2026-11-19.
+- `scripts/nhrl_to_recordings.py`: clips skipped as already converted do not advance `stamp_ns`, so newly converted clips can overlap their stamps. Found by batch b49, 2026-11-19.
+- `scripts/convert_ros1_mcap.py`: the diagnostics count check only flags the output having more messages than the source; it does not catch dropped messages, though the old comment claimed it bounds the count from below. Found by batch b49, 2026-11-19.
 
 ## Ledger
 
@@ -496,3 +511,79 @@ Rows from the `TEST` verdict batches that could not get a test in a headless bui
 | `playground/opponent_prediction/plot_dropout_samples.py:291` | `rel` is offset by 1.0 s to match the `periodic_gaps` phase | Summary bins dropouts at the wrong phase | unverified: needs a dropout recording and the arm traces | extract the phase computation and test it against `periodic_gaps` |
 | `playground/opponent_prediction/render_dropout_videos.py:86` | Measurements are projected onto the plane at `keypoint_height_meters` (0.03 m), not the floor | The overlay misprojects measurements by 3 cm of height | unverified: needs a recording and a rendered video | none known |
 | `training/model_eval/interpret_context_vs_appearance.py:25` | `OPP_CHANNELS` selects which head channels count as the opponent, `(0,)` for a 2-class model | Folding channel 1 (house_bot) into a 2-class model scores "found a house bot" as "found an opponent" | unverified: the channel index is applied to a loaded YOLO head in `Model.score`, which needs an engine | extract the channel reduction into a pure function over a score tensor and test it |
+
+## Rows that could not be tested (phase 2, 2026-11-19)
+
+The comment stays until the seam, hardware or harness named in the last column exists.
+
+| Location | Claim | What blocks a test |
+| --- | --- | --- |
+| `CMakeLists.txt:198-201` | One CUDA runtime per process | Needs a GPU-linked probe of the loaded libcudart; no harness |
+| `CMakeLists.txt:547` | NVJPG plugin installs next to the library | Needs an install tree and the Jetson-only `HAVE_NVJPG` target |
+| `cmake/FindTensorRT.cmake:13` | Search order matches `trt_onnx_builder` | `trt_onnx_builder` no longer exists; claim is stale, check and delete |
+| `include/config/profile_selection.hpp` (`expand_home`) | Throws without HOME | Needs HOME unset and `getpwuid` failing in a test process |
+| `include/control_loop/control_loop_interface.hpp` (forwarders) | Forwarders are thread-safe | No sanitizer build option in CMake for a TSan test |
+| `firmware/mr_stabs_mk2/include/crsf_bridge.h` (NaN to 0) | CRSF encoding maps NaN to 0 | Runs only on the ESP32; no native CRSF test |
+| `firmware/mr_stabs_mk2/include/diagnostics_server.h` (armed refusal) | WiFi writes refused while armed | AsyncWebServer handlers do not run natively |
+| `firmware/mr_stabs_mk2/include/esc_config.h` (update guard) | Guard in `EscConfig::update` | Needs portMUX, ESC objects and the 3 s blocking frame; no native harness |
+| `firmware/mr_stabs_mk2/include/espnow_link.h` (substitution gate) | Gate lives in `main.cpp` | Extract the gate into a pure function first |
+| `firmware/mr_stabs_mk2/include/espnow_link.h` (pairing) | `pair()` uses NVS | NVS does not run natively |
+| `firmware/mr_stabs_mk2/include/tuning_store.h` (load path) | Load rejects out-of-range values | Load path uses `Preferences` (NVS) |
+| `firmware/mr_stabs_mk2/include/vbat_sensor.h` (`begin`) | Sensor init order | Built on `TwoWire`, ESP32 only |
+| `firmware/mr_stabs_mk2/include/wifi_manager.h` (snapshot) | `snapshot_t` carries no password | Add a static_assert or field-list test |
+| `firmware/mr_stabs_mk2/include/wifi_manager.h:103` | Thread ownership | No clang thread-safety annotations on the ESP32 toolchain |
+| `firmware/mr_stabs_mk2/src/esc_config.cpp:327` | Checked after the frame | ESP-only `EscConfig` state machine; needs a fake EscLink |
+| `firmware/mr_stabs_mk2/src/espnow_link.cpp:35-37` | Allow-list rewrite ordering | Now atomics + fences; ordering lives in WiFi-task code |
+| `firmware/mr_stabs_mk2/src/main.cpp` (loop gating: guard while disarmed, substitution arbitration, OTA/tuning/erase/trip gating, SA gate, guard after mixer) | Gates in `loop()` | Extract loop gating into a pure function, then test it natively |
+| `firmware/mr_stabs_mk2/src/main.cpp` (tail-first throttle sign) | Sign chain through `crsf_bridge` and `loop()` | No single pure function guards the chain |
+| `firmware/mr_stabs_mk2/src/main.cpp` (INA238 missing gives NaN) | `begin()` is ESP-only | Needs a `VbatSensor` harness |
+| `firmware/mr_stabs_mk2/src/updown_sensor.cpp:39` | Gyro unwrap resets on reconnect | Reset is in BNO055 `begin()`, needs hardware |
+| `firmware/mr_stabs_mk2/src/usb_bridge.cpp:24-25` | `write_whole` waits for room | `Serial.availableForWrite` has no native stub |
+| `include/enums/system_action.hpp` | Host command runs after loop and UI join | Needs the shutdown sequence in `main.cpp` extracted from `run_application` |
+| `include/publisher/foxglove_publisher.hpp` (destroy while publishing) | Member order makes destroy-while-publishing clean | Needs an ASan build for a `DestroyWhilePublishingIsClean` test |
+| `include/mcap_recorder/mcap_recorder.hpp` (start_file_locked, mutex_) | Lock held / members guarded | No Clang thread-safety annotations or -Wthread-safety in the build |
+| `auto_battlebot/perception/cage_calibration.py` (`yaw_deg`) | Yaw convention 0 along +y, positive toward +x | Name is a stored key read by synthgen tests and fitted-pose files; documented instead |
+| `include/rgbd_camera/rgbd_camera_interface.hpp:13` | ZED open pending behavior | Needs an open ZED camera |
+| `include/rgbd_camera/svo_recorder.hpp` (rollover) | SVO file rollover | Needs a real `sl::Camera` recording to a file |
+| `include/rgbd_camera/v4l2_rgb_camera.hpp` (`dequeue_newest`) | Newest frame wins | V4L2 ioctl loop on a real device |
+| `include/rgbd_camera/video_encoder.hpp`, `zed_rgbd_camera.hpp` (lock discipline) | Members guarded by their mutex | No thread-safety annotations; GCC with unannotated std::mutex |
+| `include/rgbd_camera/zed_one_rgb_camera.hpp` (`capture_thread_done_`) | Shutdown when grab() hangs | Needs a hanging ZED SDK grab (hardware or an SDK fake) |
+| `include/rl_policy/policy_interface.hpp:14` | Policy output is a normalized command | A `NormalizedCommand` type changes every navigation's output type |
+| `include/robot_descriptions_cache.hpp:9` (`Resolved` lifetime) | View must not outlive the cache | GCC ignores `[[clang::lifetimebound]]`; returning by value reworks callers |
+| `include/robot_filter/ground_truth_robot_filter.hpp` (3 rows) | Ground-truth filter frame handling | `correct` reads the `SimConnection` singleton, whose frame is only set by a socket step against the sim server |
+| `include/robot_filter/ekf_math.hpp` (wrap before gate) | Angle innovations are wrapped before gating | No dedicated test yet |
+| `include/robot_filter/command_ring_buffer.hpp` (nondecreasing stamps) | `push` stamps never decrease | No guard exists; add an assert or rejection with a test |
+| `auto_battlebot/perception/trt_yolo.py` (module docstring) | Python path matches the C++ detector | Parity needs a C++ golden output from a TensorRT engine and a frame |
+| `include/runner.hpp` (signal wiring) | Signals reach the runner's stop path | Wiring is in `src/main.cpp`, which has no test harness |
+| `include/runner.hpp` (recording toggle on shutdown) | Recording stops before publisher teardown | Needs a real `McapRecorder` and a controllable frame publisher in the fixtures |
+| `include/transmitter/opentx_transmitter.hpp` (4 rows: init rising edge, reconnect grace, first-frame switch states, trainer engage ramp) | OpenTX transmitter input handling | Device found by USB VID/PID; a test needs a seam to inject a port and channel frames |
+| `service/build_and_install_service.sh:36-38` | install_unit behavior | Runs sudo and systemctl; fact moved to docs/setup/dashboard_kiosk.md |
+| `src/main.cpp:123-124` | Battery monitor starts after `DiagnosticsLogger::initialize` | Ordering is inside `run_application`; no cheap test seam |
+| `src/mcap_recorder/mcap_recorder.cpp:339-340` | Write failure logs once per file | Needs an injectable failing disk write |
+| `src/navigation/hazard_avoidance.cpp:56-57` | Tangent waypoint excluded from its own blocking test | No scenario found where the exclusion changes output; may be dead code |
+| `src/navigation/rl_policy_navigation.cpp:249` | `our_robot`/`opponent` point into `robots` | Needs an `update`/`log_step` restructure |
+| `src/publisher/foxglove_publisher.cpp:96-97` | Annotations are never recorded | `AnnotationsAreLiveOnly` passes even with the recorder swapped in: the channel only logs with subscribers and the test has no sink |
+| `src/rgbd_camera/ffmpeg_h264_backend.cpp:56-57` | Forced keyframe is an IDR | libx264 forces an IDR by default, so a test cannot fail on removing `forced-idr` |
+| `src/rgbd_camera/gst_h264_backend.cpp` (non-blocking appsrc, no get_state wait) | GStreamer pipeline behavior | GStreamer not installed on the dev box; file is not compiled here |
+| `src/rgbd_camera/svo_recorder.cpp:100-101, :120` | Frame index claim and rollover after stop | Needs a live `sl::Camera` |
+| `src/rgbd_camera/v4l2_rgb_camera.cpp` (5 rows: encoder fatal, monotonic stamps, pinned allocator, camera_info header, strictly increasing stamps) | V4L2 capture behavior | No test seam without a real V4L2 device |
+| `auto_battlebot/rl/lockstep_world.py:365-366` | CPU weapon sweep uses the Warp kernel's sample points | No parity test; needs a Mk3 scenario file in tests/python/data |
+| `src/rgbd_camera/video_encoder.cpp:125` | `stopping_` read under lock | A test would be a nondeterministic timing race |
+| `src/rgbd_camera/video_playback_camera.cpp:345` | Playback pacing uses sleep_until | `PacingHoldsTheRecordedRateWhilePipelineWorkRuns` still passes with a fixed sleep_for; the test does not guard pacing |
+| `src/rgbd_camera/zed_device.cpp` (3), `zed_one_rgb_camera.cpp` (7), `zed_rgbd_camera.cpp` (4) | ZED camera behavior | No ZED SDK seam or hardware-free test; needs `sl::Camera` |
+| `src/rgbd_camera/zed_svo_playback_camera.cpp:51, :114` | Leaked open skips close; grab error is terminal | Needs a real ZED open that hangs or an injectable grab error |
+| `src/rl_policy/observations/observation_v1.cpp:23` | wrap matches torch.remainder on negatives | Rejected as TEST: output only feeds sin/cos, so the negative branch is unobservable. Delete the branch and comment together |
+| `src/robot_blob_model/yolo_bbox_robot_blob_model.cpp` (`append_box_for_every_detection`) | A box is recorded for every detection | Model needs a TensorRT engine; no seam |
+| `src/runner.cpp:68-69, :614-615` | 30 s re-open signal safety; static gate reset on field re-init | No Runner test file; Runner needs its whole dependency set |
+| `src/tensorrt_inference/trt_engine.cpp:63-68, 91, 109-110, 150` | Stream reader and engine load details | `FileStreamReader` is in an anonymous namespace and a test needs a GPU and a real engine |
+| `src/transmitter/esp32_diagnostics_opentx_transmitter.cpp:37` | Destruction order | Needs a serial channel |
+| `auto_battlebot/rl/obs_spec.py` (hazard sort ties) | Hazard ties keep input order (stable sort) | CPU sort is stable on small inputs, so `stable=False` cannot fail a test; golden fixture ties are the guard |
+| `src/transmitter/espnow_transmitter.cpp:345-346` | Dongle reopen is rate limited | Removing the rate limit leaves all 18 EspNow/Composite tests passing; needs a test that counts reopen attempts |
+| `src/transmitter/opentx_transmitter.cpp` (5 rows) | OpenTX device handling | Device found by USB VID/PID; no test seam |
+| `src/viz/nvjpg_jpeg_encoder.cpp:66-68` | Full-range YCrCb conversion | Only exercised on the Jetson NVJPG path |
+| `src/viz_relay/main.cpp` (3 rows: whole-frame drops, same-poll reconnect, second app refused) | Relay socket handling | `main.cpp` is a monolithic executable with no test harness |
+| `tests/esp32_diagnostics/test_esp32_wifi_telemetry.cpp:119-123` | Fake server mirrors firmware `handle_telemetry` | A shared fixture both sides test against needs the firmware build |
+| `playground/calibration/velocity_jig_drive.py:801-802` | Sidecar log_file uses the destination name | Built inside the 300-line `run_one`, which needs a live jig |
+| `tests/test_kalman_motion_estimator.cpp` (`make_our_pose_measurement`, `make_opponent_pose_measurement`) | Helpers mark heading as measured | A `heading_measured` field on `RobotDescription` touches the tracker, the estimator and scene adapter |
+| `training/model_eval/score_size_ladder.sh:97-98` | Every label file in an eval recording is a pass frame | Needs the eval recordings, which are not in the repo |
+| `web/src/lib/connection.ts:1-4` | Subscriptions survive reconnects | web/ has no test runner |
