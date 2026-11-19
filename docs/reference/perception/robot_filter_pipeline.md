@@ -148,6 +148,7 @@ Suppresses robot-blob detections that hold the same field position for seconds o
 
 - Known cost: an immobilised opponent that stops for `min_dwell_seconds` looks like scenery and is suppressed. That is what `min_dwell_seconds` trades.
 - A cluster loses its static verdict the moment an observation lands outside `static_radius_meters` of its running mean, so a robot that stops and then moves again is picked straight back up.
+- A robot driving onto an already suppressed graphic widens the cluster past `static_radius_meters` and lifts suppression, so it never stays invisible. When it leaves, the graphic is suppressed again without a restart.
 - Robot blobs only. Our own robot's keypoints come from a separate model and are not gated.
 - The cluster statistic is the running mean distance from the cluster mean, not the maximum. Both statistics stop averaging past `responsiveness_window` and start tracking, so a robot parking on a logo can still move the verdict after thousands of frames.
 

@@ -106,26 +106,33 @@ TEST(HazardGeometryTest, StaticHazardIgnoresItsVelocityField) {
 }
 
 TEST(HazardGeometryTest, TangentPointSitsOnTheCircle) {
-    // Start at the origin, circle of radius 1 centred at (2, 0): half-angle asin(1/2) = 30 deg,
-    // tangent length sqrt(3), so the left tangency point is (1.5, sqrt(3)/2).
+    constexpr double kRadius = 1.0;
+    constexpr double kCentreDistance = 2.0;
+    const double kTangentHalfAngle = std::asin(kRadius / kCentreDistance);
+    const double kTangentLength = kCentreDistance * std::cos(kTangentHalfAngle);
+    const double kExpectedX = kTangentLength * std::cos(kTangentHalfAngle);
+    const double kExpectedY = kTangentLength * std::sin(kTangentHalfAngle);
     const TangentWaypoint waypoint =
-        tangent_waypoint(pose(0.0, 0.0), pose(2.0, 0.0), 1.0, 0.0, PassSide::LEFT);
+        tangent_waypoint(pose(0.0, 0.0), pose(kCentreDistance, 0.0), kRadius, 0.0, PassSide::LEFT);
     EXPECT_FALSE(waypoint.inside);
     EXPECT_EQ(waypoint.side, PassSide::LEFT);
-    EXPECT_NEAR(waypoint.point.x, 1.5, 1e-9);
-    EXPECT_NEAR(waypoint.point.y, std::sqrt(3.0) / 2.0, 1e-9);
+    EXPECT_NEAR(waypoint.point.x, kExpectedX, 1e-9);
+    EXPECT_NEAR(waypoint.point.y, kExpectedY, 1e-9);
     EXPECT_NEAR(std::hypot(waypoint.point.x - 2.0, waypoint.point.y), 1.0, 1e-9);
 }
 
 TEST(HazardGeometryTest, TangentSideFollowsTheCheaperHeadingChange) {
     const Pose2D center = pose(2.0, 0.0);
-    // Pointing 20 deg right of the hazard: the right tangent is 10 deg away, the left 50.
+    const double kTangentHalfAngle = std::asin(0.5);
+    const double kHeadingOffset = 20.0 * M_PI / 180.0;
+    ASSERT_LT(kHeadingOffset, kTangentHalfAngle);
     const TangentWaypoint right =
-        tangent_waypoint(pose(0.0, 0.0), center, 1.0, -20.0 * M_PI / 180.0, PassSide::NONE);
-    EXPECT_EQ(right.side, PassSide::RIGHT);
+        tangent_waypoint(pose(0.0, 0.0), center, 1.0, -kHeadingOffset, PassSide::NONE);
+    EXPECT_EQ(right.side, PassSide::RIGHT)
+        << "heading right of the hazard is nearer the right tangent";
     const TangentWaypoint left =
-        tangent_waypoint(pose(0.0, 0.0), center, 1.0, 20.0 * M_PI / 180.0, PassSide::NONE);
-    EXPECT_EQ(left.side, PassSide::LEFT);
+        tangent_waypoint(pose(0.0, 0.0), center, 1.0, kHeadingOffset, PassSide::NONE);
+    EXPECT_EQ(left.side, PassSide::LEFT) << "heading left of the hazard is nearer the left tangent";
 }
 
 TEST(HazardGeometryTest, CommittedSideOverridesTheCheaperChoice) {
@@ -279,9 +286,13 @@ HazardAvoidanceSettings barrier_settings() {
 }
 
 TEST(HazardBarrierTest, FarHazardLeavesTheCommandAlone) {
-    // Gap 1.6 m: bound 8 m/s, above what full command reaches, so nothing binds.
-    HazardAvoidance avoidance(barrier_settings());
-    const FieldDescription field = field_with({hazard(2.0, 0.0, 0.4)});
+    const HazardAvoidanceSettings settings = barrier_settings();
+    constexpr double kHazardRadius = 0.4;
+    constexpr double kHazardDistance = 2.0;
+    constexpr double kFarGap = kHazardDistance - kHazardRadius;
+    ASSERT_GT(kFarGap / settings.barrier_horizon_s, settings.max_linear_speed_fwd);
+    HazardAvoidance avoidance(settings);
+    const FieldDescription field = field_with({hazard(kHazardDistance, 0.0, kHazardRadius)});
     VelocityCommand cmd{1.0, 0.0, 0.0};
     const auto result = avoidance.limit_command(pose(0.0, 0.0, 0.0), field, 0.0, cmd);
     EXPECT_FALSE(result.engaged);
@@ -310,16 +321,18 @@ TEST(HazardBarrierTest, MeasuredExcessCommandsReverseThroughAZeroCommand) {
 }
 
 TEST(HazardBarrierTest, InsideTheHardRadiusReversesProportionallyToDepth) {
-    // Distance 0.3 to a 0.4 hard radius: gap -0.1, bound -0.5. The excess term (1.5 * 0.5 = 0.75)
-    // is the binding one, so the exit command scales with how deep the robot sits. This replaces
-    // the old fixed -0.35 backstop.
-    HazardAvoidance avoidance(barrier_settings());
-    const FieldDescription field = field_with({hazard(0.3, 0.0, 0.4)});
+    const HazardAvoidanceSettings settings = barrier_settings();
+    constexpr double kExcessGain = 1.5;
+    constexpr double kDistance = 0.3;
+    constexpr double kHardRadius = 0.4;
+    const double kBound = (kDistance - kHardRadius) / settings.barrier_horizon_s;
+    HazardAvoidance avoidance(settings);
+    const FieldDescription field = field_with({hazard(kDistance, 0.0, kHardRadius)});
     VelocityCommand cmd{0.5, 0.0, 0.0};
     const auto result = avoidance.limit_command(pose(0.0, 0.0, 0.0), field, 0.0, cmd);
     EXPECT_TRUE(result.engaged);
     EXPECT_TRUE(result.braking);
-    EXPECT_NEAR(cmd.forward_mps, -0.75, kTol);
+    EXPECT_NEAR(cmd.forward_mps, kExcessGain * kBound, kTol);
     EXPECT_LT(result.approach_speed_bound_mps, 0.0);
 }
 
@@ -333,14 +346,16 @@ TEST(HazardBarrierTest, RearFirstApproachDrivesForwardNotFurtherBack) {
 }
 
 TEST(HazardBarrierTest, ReverseTowardAHazardBehindIsLimited) {
-    // The rear-clearance check the old blind reverses lacked. Hazard 0.3 m behind: bound 1.5,
-    // and with toward = -1 the same rule becomes a floor: u >= 1.5 / (4 * -1) = -0.375.
-    HazardAvoidance avoidance(barrier_settings());
+    const HazardAvoidanceSettings settings = barrier_settings();
+    constexpr double kToward = -1.0;
+    constexpr double kGapBehind = 0.7 - 0.4;
+    const double kBound = kGapBehind / settings.barrier_horizon_s;
+    HazardAvoidance avoidance(settings);
     const FieldDescription field = field_with({hazard(-0.7, 0.0, 0.4)});
     VelocityCommand cmd{-1.0, 0.0, 0.0};
     const auto result = avoidance.limit_command(pose(0.0, 0.0, 0.0), field, 0.0, cmd);
     EXPECT_TRUE(result.engaged);
-    EXPECT_NEAR(cmd.forward_mps, -0.375, kTol);
+    EXPECT_NEAR(cmd.forward_mps, kBound / (settings.max_linear_speed_rev * kToward), kTol);
 }
 
 TEST(HazardBarrierTest, SlidingRearFirstAtAHazardCommandsForwardNotReverse) {
@@ -403,18 +418,15 @@ TEST(HazardDisplayTest, ATrackedRingIsBothRobotCirclesPlusTheMargin) {
     EXPECT_NEAR(drawn_house_bot, 0.2083, 1e-4);
     EXPECT_NEAR(drawn_ours, 0.1686, 1e-4);
     EXPECT_NEAR(ring, 0.4269, 1e-4);
-    // The ring reads as roughly double the hazard's own circle, which is the thing that looked
-    // wrong on screen and is not.
-    EXPECT_NEAR(ring / drawn_house_bot, 2.05, 0.05);
+    constexpr double kTrackedRingToHouseBotCircleRatio = 2.05;
+    EXPECT_NEAR(ring / drawn_house_bot, kTrackedRingToHouseBotCircleRatio, 0.05);
 }
 
 TEST(HazardDisplayTest, AKnownSizeShrinksWhatALooseBoxWouldContribute) {
-    // The house bot's real footprint against a badly loose detection. Every consumer reads `size`,
-    // so overriding it is what keeps the keep-out and the drawn circle honest at once.
-    const Size loose{0.60, 0.60, 0.20};
-    const Size known{0.254, 0.3302, 0.2309};
-    EXPECT_NEAR(half_diagonal(known), 0.2083, 1e-4);
-    EXPECT_GT(half_diagonal(loose), 2.0 * half_diagonal(known));
+    constexpr Size kLooseDetectionBox{0.60, 0.60, 0.20};
+    constexpr Size kHouseBotFootprint{0.254, 0.3302, 0.2309};
+    EXPECT_NEAR(half_diagonal(kHouseBotFootprint), 0.2083, 1e-4);
+    EXPECT_GT(half_diagonal(kLooseDetectionBox), 2.0 * half_diagonal(kHouseBotFootprint));
 }
 
 }  // namespace

@@ -3,6 +3,9 @@
 
 #include <Eigen/Dense>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
+#include <nlohmann/json.hpp>
 #include <string>
 #include <vector>
 
@@ -14,7 +17,6 @@
 namespace auto_battlebot {
 namespace {
 
-/** camera_view_matrix() from simulation/camera_utils.py: camera-from-world, z forward, y down. */
 Eigen::Matrix4d camera_from_field(const Eigen::Vector3d &position, const Eigen::Vector3d &lookat) {
     const Eigen::Vector3d forward = (lookat - position).normalized();
     const Eigen::Vector3d right = forward.cross(Eigen::Vector3d::UnitZ()).normalized();
@@ -55,6 +57,27 @@ class SimKeypointModelTest : public ::testing::Test {
         return f;
     }
 };
+
+TEST(SimKeypointCameraTest, ViewMatrixMatchesTheGoldenFileThePythonSideChecks) {
+    const auto path =
+        std::filesystem::path(__FILE__).parent_path() / "camera_view_matrix_golden.json";
+    std::ifstream stream(path);
+    ASSERT_TRUE(stream.good()) << path;
+    const nlohmann::json cases = nlohmann::json::parse(stream);
+    ASSERT_FALSE(cases.empty());
+    for (const auto &golden : cases) {
+        const Eigen::Vector3d position(golden["position"][0], golden["position"][1],
+                                       golden["position"][2]);
+        const Eigen::Vector3d lookat(golden["lookat"][0], golden["lookat"][1], golden["lookat"][2]);
+        const Eigen::Matrix4d tf = camera_from_field(position, lookat);
+        for (int row = 0; row < 4; ++row) {
+            for (int col = 0; col < 4; ++col) {
+                EXPECT_NEAR(tf(row, col), golden["camera_from_world"][row][col].get<double>(), 1e-9)
+                    << "row " << row << " col " << col;
+            }
+        }
+    }
+}
 
 TEST_F(SimKeypointModelTest, MeasuredRobotsBecomeFrontBackPairsAtCaptureStamp) {
     const ModelResultStamped result =
@@ -116,8 +139,8 @@ TEST_F(SimKeypointModelTest, ConverterRecoversTheMeasuredPose) {
                                         KeypointLabel::OPPONENT_FRONT};
     converter_config.back_keypoints = {KeypointLabel::MR_STABS_MK2_BACK,
                                        KeypointLabel::OPPONENT_BACK};
-    // A configured height the sim keypoints must not use: they carry their own (zero).
-    converter_config.keypoint_heights.default_meters = 0.03;
+    constexpr double kUnusedConfiguredHeight = 0.03;
+    converter_config.keypoint_heights.default_meters = kUnusedConfiguredHeight;
     FrontBackKeypointConverter converter(converter_config);
 
     FieldDescription field;

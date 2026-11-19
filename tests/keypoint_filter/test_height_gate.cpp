@@ -13,6 +13,8 @@ namespace auto_battlebot {
 class KeypointHeightGateTest : public ::testing::Test {
    protected:
     static constexpr double kCameraHeight = 3.0;
+    static constexpr double kRaisedHeightM = 0.08;
+    static constexpr int kInscribedRadiusPx = 35;
 
     KeypointHeightGateConfiguration config_;
     CameraInfo camera_info_;
@@ -98,7 +100,7 @@ TEST_F(KeypointHeightGateTest, RejectsDetectionFlatOnTheField) {
 TEST_F(KeypointHeightGateTest, RejectsAFlatDetectionOnARaisedFloor) {
     KeypointHeightGate gate(config_);
     DepthImage depth = make_floor();
-    depth.image.setTo(kCameraHeight - 0.08);  // everything 80 mm "above" the plane
+    depth.image.setTo(kCameraHeight - kRaisedHeightM);
 
     const auto result =
         gate.filter(make_pair(300.0, 240.0, 340.0, 240.0), depth, camera_info_, field_);
@@ -108,10 +110,9 @@ TEST_F(KeypointHeightGateTest, RejectsAFlatDetectionOnARaisedFloor) {
 }
 
 TEST_F(KeypointHeightGateTest, KeepsRobotStandingProudOfTheField) {
-    // A 50 mm disc that fills the inscribed circle but leaves the floor ring clear.
     KeypointHeightGate gate(config_);
     DepthImage depth = make_floor();
-    raise_disc(depth, 320, 240, 35, 0.05);
+    raise_disc(depth, 320, 240, kInscribedRadiusPx, 0.05);
 
     const auto result =
         gate.filter(make_pair(305.0, 240.0, 335.0, 240.0, 30.0), depth, camera_info_, field_);

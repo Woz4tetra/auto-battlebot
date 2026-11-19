@@ -61,10 +61,12 @@ TEST_F(SceneAdapterTest, FieldBorderIsClosedLineStrip) {
     EXPECT_EQ(line.type, foxglove::schemas::LinePrimitive::LineType::LINE_STRIP);
     EXPECT_DOUBLE_EQ(line.thickness, 0.01);
     ASSERT_EQ(line.points.size(), 5u);
-    // First corner (-1, -1.5, 0) translated by (1, 2, 3)
-    EXPECT_DOUBLE_EQ(line.points[0].x, 0.0);
-    EXPECT_DOUBLE_EQ(line.points[0].y, 0.5);
-    EXPECT_DOUBLE_EQ(line.points[0].z, 3.0);
+    const double kFirstCornerX = -field_desc.size.size.x / 2.0;
+    const double kFirstCornerY = -field_desc.size.size.y / 2.0;
+    const auto &tf = field_desc.tf_camera_from_fieldcenter.tf;
+    EXPECT_DOUBLE_EQ(line.points[0].x, kFirstCornerX + tf(0, 3));
+    EXPECT_DOUBLE_EQ(line.points[0].y, kFirstCornerY + tf(1, 3));
+    EXPECT_DOUBLE_EQ(line.points[0].z, tf(2, 3));
     EXPECT_DOUBLE_EQ(line.points[4].x, line.points[0].x);
     ASSERT_TRUE(line.color.has_value());
     EXPECT_DOUBLE_EQ(line.color->g, 1.0);
@@ -98,8 +100,10 @@ TEST_F(SceneAdapterTest, NoCloudNoPointCloud) {
 TEST_F(SceneAdapterTest, RobotEntitiesUseFrameIndexIds) {
     auto update = foxglove_adapters::to_robot_scene(robots);
 
-    // robot1: cube, arrow, text. robot2: cube, arrow, text, 2 keypoints, keypoint line.
-    ASSERT_EQ(update.entities.size(), 9u);
+    constexpr size_t kEntitiesPerRobot = 3;
+    constexpr size_t kKeypointEntities = 2 + 1;
+    constexpr size_t kRobotCount = 2;
+    ASSERT_EQ(update.entities.size(), kRobotCount * kEntitiesPerRobot + kKeypointEntities);
     EXPECT_EQ(update.entities[0].id, "robot_bounds/4");
     ASSERT_EQ(update.entities[0].cubes.size(), 1u);
     EXPECT_DOUBLE_EQ(update.entities[0].cubes[0].pose->position->x, 1.0);
@@ -191,8 +195,8 @@ TEST_F(SceneAdapterTest, NavigationDrawsPathAndVelocity) {
     ASSERT_EQ(update.entities[2].arrows.size(), 1u);
     ASSERT_TRUE(update.entities[2].lifetime.has_value());
     EXPECT_EQ(update.entities[2].lifetime->nsec, 100000000u);
-    // Velocity arrow points along +x from the robot at (1, 2)
-    EXPECT_NEAR(update.entities[2].arrows[0].pose->orientation->w, 1.0, 1e-9);
+    EXPECT_NEAR(update.entities[2].arrows[0].pose->orientation->w, 1.0, 1e-9)
+        << "velocity arrow points along +x";
     EXPECT_NEAR(
         update.entities[2].arrows[0].shaft_length + update.entities[2].arrows[0].head_length, 0.15,
         1e-9);

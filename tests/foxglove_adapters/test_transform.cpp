@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <Eigen/Geometry>
 #include <cmath>
 
 #include "foxglove_adapters/transform.hpp"
@@ -50,9 +51,10 @@ TEST_F(FrameTransformAdapterTest, RotationAndTranslation) {
     EXPECT_DOUBLE_EQ(tf.translation->x, 5.0);
     EXPECT_DOUBLE_EQ(tf.translation->y, 6.0);
     EXPECT_DOUBLE_EQ(tf.translation->z, 7.0);
-    // 90 degrees about Z
-    EXPECT_NEAR(tf.rotation->w, std::sqrt(0.5), 1e-6);
-    EXPECT_NEAR(std::abs(tf.rotation->z), std::sqrt(0.5), 1e-6);
+    const Eigen::Quaterniond kQuarterTurnAboutZ(
+        Eigen::AngleAxisd(M_PI / 2, Eigen::Vector3d::UnitZ()));
+    EXPECT_NEAR(tf.rotation->w, kQuarterTurnAboutZ.w(), 1e-6);
+    EXPECT_NEAR(std::abs(tf.rotation->z), kQuarterTurnAboutZ.z(), 1e-6);
     EXPECT_NEAR(tf.rotation->x, 0.0, 1e-6);
     EXPECT_NEAR(tf.rotation->y, 0.0, 1e-6);
 }

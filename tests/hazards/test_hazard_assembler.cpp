@@ -13,8 +13,12 @@
 namespace auto_battlebot {
 namespace {
 
-/** Our robot as the filter reports it: a 0.3 x 0.2 m footprint, half-diagonal 0.1803. */
-RobotDescription our_robot(double half_x = 0.15, double half_y = 0.10) {
+constexpr double kOurHalfX = 0.15;
+constexpr double kOurHalfY = 0.10;
+const double kOurHalfDiagonal = std::hypot(kOurHalfX, kOurHalfY);
+constexpr bool kStale = true;
+
+RobotDescription our_robot(double half_x = kOurHalfX, double half_y = kOurHalfY) {
     RobotDescription robot;
     robot.frame_id = FrameId::OUR_ROBOT_1;
     robot.group = Group::OURS;
@@ -67,9 +71,8 @@ TEST(HazardAssemblerTest, StaticHazardIsInflatedOnceByOurSizePlusMargin) {
     EXPECT_EQ(field.hazards[0].source, HazardSource::STATIC);
     EXPECT_NEAR(field.hazards[0].center.x, 0.3, 1e-9);
     EXPECT_NEAR(field.hazards[0].center.y, -0.2, 1e-9);
-    EXPECT_NEAR(field.hazards[0].inflated_radius_m, 0.25 + expected_half_diagonal(0.3, 0.2) + 0.10,
-                1e-9);
-    EXPECT_NEAR(field.hazards[0].hard_radius, 0.25 + expected_half_diagonal(0.3, 0.2) + 0.02, 1e-9);
+    EXPECT_NEAR(field.hazards[0].inflated_radius_m, 0.25 + kOurHalfDiagonal + 0.10, 1e-9);
+    EXPECT_NEAR(field.hazards[0].hard_radius, 0.25 + kOurHalfDiagonal + 0.02, 1e-9);
     EXPECT_LT(field.hazards[0].hard_radius, field.hazards[0].inflated_radius_m);
 }
 
@@ -100,26 +103,31 @@ TEST(HazardAssemblerTest, NeutralTrackBecomesATrackedHazardCarryingItsVelocity) 
     EXPECT_NEAR(field.hazards[0].center.x, 0.4, 1e-9);
     EXPECT_NEAR(field.hazards[0].velocity.vx_mps, 0.5, 1e-9);
     EXPECT_NEAR(field.hazards[0].inflated_radius_m,
-                expected_half_diagonal(0.3, 0.3) + expected_half_diagonal(0.3, 0.2) + 0.05, 1e-9);
+                expected_half_diagonal(0.3, 0.3) + kOurHalfDiagonal + 0.05, 1e-9);
     EXPECT_NEAR(field.hazards[0].hard_radius,
-                expected_half_diagonal(0.3, 0.3) + expected_half_diagonal(0.3, 0.2) + 0.02, 1e-9);
+                expected_half_diagonal(0.3, 0.3) + kOurHalfDiagonal + 0.02, 1e-9);
 }
 
 TEST(HazardAssemblerTest, TrackedHazardSitsOnTheFootprintCentre) {
     Fixture fixture;
     HazardAssembler assembler(fixture.config, {}, fixture.clock);
     RobotDescription bot = house_bot(0.4, 0.1);
-    // Facing +Y: a footprint 0.05 m ahead and 0.02 m to the left lands at (0.38, 0.15).
-    bot.pose.rotation.w = std::cos(M_PI / 4.0);
-    bot.pose.rotation.z = std::sin(M_PI / 4.0);
-    bot.footprint_center_offset = Position2D{0.05, 0.02};
+    constexpr double kFacingPlusY = M_PI / 2.0;
+    const Position2D kOffset{0.05, 0.02};
+    bot.pose.rotation.w = std::cos(kFacingPlusY / 2.0);
+    bot.pose.rotation.z = std::sin(kFacingPlusY / 2.0);
+    bot.footprint_center_offset = kOffset;
+    const double expected_x = bot.pose.position.x + std::cos(kFacingPlusY) * kOffset.x -
+                              std::sin(kFacingPlusY) * kOffset.y;
+    const double expected_y = bot.pose.position.y + std::sin(kFacingPlusY) * kOffset.x +
+                              std::cos(kFacingPlusY) * kOffset.y;
 
     FieldDescription field;
     assembler.assemble(robots_with({our_robot(), bot}), field);
 
     ASSERT_EQ(field.hazards.size(), 1u);
-    EXPECT_NEAR(field.hazards[0].center.x, 0.38, 1e-9);
-    EXPECT_NEAR(field.hazards[0].center.y, 0.15, 1e-9);
+    EXPECT_NEAR(field.hazards[0].center.x, expected_x, 1e-9);
+    EXPECT_NEAR(field.hazards[0].center.y, expected_y, 1e-9);
 }
 
 TEST(HazardAssemblerTest, OpponentsAreNotHazards) {
@@ -148,13 +156,13 @@ TEST(HazardAssemblerTest, StaleNeutralTrackIsHeldThenDropped) {
 
     fixture.clock->set(10.3);
     FieldDescription held;
-    assembler.assemble(robots_with({our_robot(), house_bot(0.4, 0.1, /*stale=*/true)}), held);
+    assembler.assemble(robots_with({our_robot(), house_bot(0.4, 0.1, kStale)}), held);
     ASSERT_EQ(held.hazards.size(), 1u) << "still inside the hold window";
     EXPECT_NEAR(held.hazards[0].center.x, 0.4, 1e-9);
 
     fixture.clock->set(10.8);
     FieldDescription expired;
-    assembler.assemble(robots_with({our_robot(), house_bot(0.4, 0.1, /*stale=*/true)}), expired);
+    assembler.assemble(robots_with({our_robot(), house_bot(0.4, 0.1, kStale)}), expired);
     EXPECT_TRUE(expired.hazards.empty());
 }
 
@@ -249,9 +257,7 @@ TEST(HazardConfigTest, RejectsAnUnexpectedTopLevelKey) {
 
 }  // namespace
 
-TEST(HazardAssemblerTest, CarriesTheGeometryAlongsideTheKeepOut) {
-    // object_radius is display-only, but it has to stay the hazard itself: a ring drawn at the
-    // inflated radius alone reads as the hole being twice its size, the inflation invisible.
+TEST(HazardAssemblerTest, ObjectRadiusStaysTheHazardRadiusNotTheInflatedOne) {
     Fixture fixture;
     fixture.config.static_margin_m = 0.10;
     fixture.config.tracked_margin_m = 0.05;
@@ -268,7 +274,7 @@ TEST(HazardAssemblerTest, CarriesTheGeometryAlongsideTheKeepOut) {
     assembler.assemble(robots_with({our_robot(), house_bot(0.6, 0.6)}), field);
     ASSERT_EQ(field.hazards.size(), 2u);
 
-    const double ours = expected_half_diagonal(0.30, 0.20);
+    const double ours = kOurHalfDiagonal;
     const double their_own = expected_half_diagonal(0.30, 0.30);
     for (const auto &hazard : field.hazards) {
         if (hazard.source == HazardSource::STATIC) {

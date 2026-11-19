@@ -1,9 +1,11 @@
 #include <gtest/gtest.h>
+#include <toml++/toml.h>
 
 #include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
 #include <opencv2/calib3d.hpp>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/objdetect/aruco_detector.hpp>
@@ -18,26 +20,33 @@ namespace {
 constexpr double kTagSize = 0.064;
 constexpr double kAxleHeight = 0.025;
 constexpr double kRestPitch = 0.198025;
+const cv::Vec3d kFrontPointBody{0.05, 0.0, 0.0};
+const cv::Vec3d kBackPointBody{-0.05, 0.0, 0.0};
 constexpr int kWidth = 1920;
 constexpr int kHeight = 1200;
 
-// Mr Stabs Mk2 mountings from simulation/assets/robots/mr_stabs_mk2/mass_properties.toml.
-AprilTagMountConfiguration top_tag() {
+AprilTagMountConfiguration mount_from_mass_properties(int id) {
+    const auto path = std::filesystem::path(__FILE__).parent_path().parent_path().parent_path() /
+                      "simulation" / "assets" / "robots" / "mr_stabs_mk2" / "mass_properties.toml";
+    const toml::table table = toml::parse_file(path.string());
+    const toml::table *entry = table["tags"][std::to_string(id)].as_table();
+    EXPECT_NE(entry, nullptr) << "no [tags." << id << "] in " << path;
     AprilTagMountConfiguration tag;
-    tag.id = 76;
-    tag.translation_m = {0.035553, -1.1e-05, 0.014164};
-    tag.rotation = {0.0, -0.986029, 0.166572, 1.0, -2e-06, -1.1e-05, 1.1e-05, 0.166572, 0.986029};
+    tag.id = id;
+    const toml::array &translation = *(*entry)["translation_m"].as_array();
+    for (size_t i = 0; i < 3; ++i) tag.translation_m[i] = translation[i].value<double>().value();
+    const toml::array &rotation = *(*entry)["rotation"].as_array();
+    for (size_t row = 0; row < 3; ++row) {
+        for (size_t col = 0; col < 3; ++col) {
+            tag.rotation[3 * row + col] = (*rotation[row].as_array())[col].value<double>().value();
+        }
+    }
     return tag;
 }
 
-AprilTagMountConfiguration bottom_tag() {
-    AprilTagMountConfiguration tag;
-    tag.id = 41;
-    tag.translation_m = {0.035391, 1.9e-05, -0.012076};
-    tag.rotation = {0.0,      -0.983904, 0.178696,  -1.0,     -3e-06,
-                    -1.6e-05, 1.6e-05,   -0.178696, -0.983904};
-    return tag;
-}
+AprilTagMountConfiguration top_tag() { return mount_from_mass_properties(76); }
+
+AprilTagMountConfiguration bottom_tag() { return mount_from_mass_properties(41); }
 
 AprilTagKeypointModelConfiguration model_config() {
     AprilTagKeypointModelConfiguration config;
@@ -45,8 +54,8 @@ AprilTagKeypointModelConfiguration model_config() {
     config.robot_tag_ids = {41, 76};
     config.roi_margin_px = 80;
     config.max_reprojection_error_px = 2.0;
-    config.front_keypoint_m = {0.05, 0.0, 0.0};
-    config.back_keypoint_m = {-0.05, 0.0, 0.0};
+    config.front_keypoint_m = {kFrontPointBody[0], kFrontPointBody[1], kFrontPointBody[2]};
+    config.back_keypoint_m = {kBackPointBody[0], kBackPointBody[1], kBackPointBody[2]};
     config.axle_height_m = kAxleHeight;
     config.rest_pitch_rad = kRestPitch;
     config.tags = {bottom_tag(), top_tag()};
@@ -72,13 +81,9 @@ struct Pose {
     cv::Vec3d apply(const cv::Vec3d &point) const { return rotation * point + translation; }
 };
 
-/**
- * A camera `height` above the floor, pitched `tilt` off straight down about its x axis. The floor
- * frame is FLU with z up; with no tilt, floor x is image right and floor y is image up.
- */
-Pose camera_from_floor(double height, double tilt) {
+Pose camera_from_flu_floor(double height, double tilt_off_straight_down_about_camera_x) {
     Pose overhead{cv::Matx33d(1, 0, 0, 0, -1, 0, 0, 0, -1), cv::Vec3d(0, 0, height)};
-    return Pose{rot_x(tilt), cv::Vec3d(0, 0, 0)} * overhead;
+    return Pose{rot_x(tilt_off_straight_down_about_camera_x), cv::Vec3d(0, 0, 0)} * overhead;
 }
 
 Pose floor_from_body(double x, double y, double yaw, bool upside_down) {
@@ -113,8 +118,7 @@ cv::Point2d project(const cv::Vec3d &point_camera) {
             k.at<double>(1, 1) * point_camera[1] / point_camera[2] + k.at<double>(1, 2)};
 }
 
-/** The tag's four corners in aruco order (top-left clockwise), projected. */
-std::array<cv::Point2f, 4> tag_corners(const Pose &camera_from_tag) {
+std::array<cv::Point2f, 4> tag_corners_aruco_order(const Pose &camera_from_tag) {
     const double h = kTagSize / 2.0;
     const std::array<cv::Vec3d, 4> object = {cv::Vec3d(-h, h, 0), cv::Vec3d(h, h, 0),
                                              cv::Vec3d(h, -h, 0), cv::Vec3d(-h, -h, 0)};
@@ -140,7 +144,7 @@ cv::Mat render_tag(int id, const Pose &camera_from_tag) {
                                                      {kPad + kMarkerPx, kPad},
                                                      {kPad + kMarkerPx, kPad + kMarkerPx},
                                                      {kPad, kPad + kMarkerPx}};
-    const auto corners = tag_corners(camera_from_tag);
+    const auto corners = tag_corners_aruco_order(camera_from_tag);
     const cv::Mat homography = cv::getPerspectiveTransform(
         source_corners, std::vector<cv::Point2f>(corners.begin(), corners.end()));
 
@@ -173,7 +177,7 @@ cv::Matx33d rotation_of(const TagPoseSolution &solution) {
 }
 
 TEST(AprilTagKeypointModelTest, DetectsRenderedTagAndRecoversPose) {
-    const Pose camera_floor = camera_from_floor(0.75, 0.0);
+    const Pose camera_floor = camera_from_flu_floor(0.75, 0.0);
     const Pose floor_body = floor_from_body(0.10, -0.05, 0.6, false);
     const Pose camera_body = camera_floor * floor_body;
     const Pose camera_tag = camera_body * body_from_tag(top_tag());
@@ -189,16 +193,15 @@ TEST(AprilTagKeypointModelTest, DetectsRenderedTagAndRecoversPose) {
     EXPECT_NE(json.find("\"frame_id\":\"camera\""), std::string::npos);
     EXPECT_NE(json.find("\"tag_size_m\":0.064"), std::string::npos);
 
-    const auto truth_corners = tag_corners(camera_tag);
+    const auto truth_corners = tag_corners_aruco_order(camera_tag);
     const auto solutions =
         solve_tag_pose(truth_corners, kTagSize, intrinsics(), cv::Mat::zeros(1, 5, CV_64F));
     ASSERT_EQ(solutions.size(), 2u);
     EXPECT_LE(solutions[0].reprojection_error_px, solutions[1].reprojection_error_px);
 
-    // Keypoints: the front and back body points projected through the true pose.
     ASSERT_EQ(result.keypoints.size(), 2u);
-    const cv::Point2d front_truth = project(camera_body.apply({0.05, 0.0, 0.0}));
-    const cv::Point2d back_truth = project(camera_body.apply({-0.05, 0.0, 0.0}));
+    const cv::Point2d front_truth = project(camera_body.apply(kFrontPointBody));
+    const cv::Point2d back_truth = project(camera_body.apply(kBackPointBody));
     EXPECT_EQ(result.keypoints[0].label, Label::MR_STABS_MK2);
     EXPECT_EQ(result.keypoints[0].keypoint_label, KeypointLabel::MR_STABS_MK2_FRONT);
     EXPECT_EQ(result.keypoints[1].keypoint_label, KeypointLabel::MR_STABS_MK2_BACK);
@@ -206,17 +209,24 @@ TEST(AprilTagKeypointModelTest, DetectsRenderedTagAndRecoversPose) {
     EXPECT_NEAR(result.keypoints[0].y, front_truth.y, 1.5);
     EXPECT_NEAR(result.keypoints[1].x, back_truth.x, 1.5);
     EXPECT_NEAR(result.keypoints[1].y, back_truth.y, 1.5);
-    // Nose down: the front point sits lower than the back one.
     EXPECT_NEAR(*result.keypoints[0].height_above_plane_m,
-                kAxleHeight - 0.05 * std::sin(kRestPitch), 1e-9);
+                kAxleHeight - kFrontPointBody[0] * std::sin(kRestPitch), 1e-9)
+        << "nose down: the front point sits lower than the back one";
     EXPECT_NEAR(*result.keypoints[1].height_above_plane_m,
-                kAxleHeight + 0.05 * std::sin(kRestPitch), 1e-9);
+                kAxleHeight - kBackPointBody[0] * std::sin(kRestPitch), 1e-9);
     ASSERT_EQ(result.boxes.size(), 1u);
     EXPECT_EQ(result.keypoints[0].detection_index, 0);
     ASSERT_EQ(model.last_detections().detections.size(), 1u);
     EXPECT_EQ(model.last_detections().detections[0].label, Label::MR_STABS_MK2);
+}
 
-    // The next frame searches around this detection.
+TEST(AprilTagKeypointModelTest, SecondFrameSearchesAroundThePreviousDetection) {
+    const Pose camera_tag = camera_from_flu_floor(0.75, 0.0) *
+                            floor_from_body(0.10, -0.05, 0.6, false) * body_from_tag(top_tag());
+    const cv::Mat frame = render_tag(76, camera_tag);
+
+    AprilTagKeypointModel model(model_config(), nullptr, nullptr);
+    model.update(make_image(frame, 1788011445.25), camera_info());
     ASSERT_TRUE(model.search_roi().has_value());
     const ModelResultStamped second = model.update(make_image(frame, 1788011445.27), camera_info());
     EXPECT_EQ(second.keypoints.size(), 2u);
@@ -234,7 +244,7 @@ TEST(AprilTagKeypointModelTest, EmptyFrameIsRecordedAndClearsTheRoi) {
 }
 
 TEST(AprilTagKeypointModelTest, BottomTagMeansUpsideDown) {
-    const Pose camera_floor = camera_from_floor(0.75, 0.0);
+    const Pose camera_floor = camera_from_flu_floor(0.75, 0.0);
     const Pose floor_body = floor_from_body(-0.05, 0.08, -1.1, true);
     const Pose camera_body = camera_floor * floor_body;
     const Pose camera_tag = camera_body * body_from_tag(bottom_tag());
@@ -243,7 +253,7 @@ TEST(AprilTagKeypointModelTest, BottomTagMeansUpsideDown) {
     const ModelResultStamped result =
         model.update(make_image(render_tag(41, camera_tag), 1.0), camera_info());
     ASSERT_EQ(result.keypoints.size(), 2u);
-    const cv::Point2d front_truth = project(camera_body.apply({0.05, 0.0, 0.0}));
+    const cv::Point2d front_truth = project(camera_body.apply(kFrontPointBody));
     EXPECT_NEAR(result.keypoints[0].x, front_truth.x, 1.5);
     EXPECT_NEAR(result.keypoints[0].y, front_truth.y, 1.5);
     EXPECT_NEAR(*result.keypoints[0].height_above_plane_m, kAxleHeight, 1e-9);
@@ -262,13 +272,14 @@ TEST(AprilTagKeypointModelTest, RestPitchTipsFloorUpTowardMinusX) {
 }
 
 TEST(AprilTagKeypointModelTest, KnownFloorPicksTheTrueIppeSolutionOnATiltedView) {
-    // A tripod tilted 35 degrees off straight down, robots all over the box floor, corners with
-    // 0.3 px of noise. The flip is sometimes the better fit; the floor must still pick the truth.
-    const Pose camera_floor = camera_from_floor(0.75, 35.0 * M_PI / 180.0);
+    constexpr double kTripodTiltRad = 35.0 * M_PI / 180.0;
+    constexpr float kCornerNoisePx = 0.3f;
+    constexpr double kIndistinguishableRad = 2.0 * M_PI / 180.0;
+    const Pose camera_floor = camera_from_flu_floor(0.75, kTripodTiltRad);
     const cv::Vec3d floor_up_camera = camera_floor.rotation * cv::Vec3d(0, 0, 1);
     const TagMount mount = make_tag_mount(top_tag(), kRestPitch);
     std::mt19937 rng(7);
-    std::normal_distribution<float> noise(0.0f, 0.3f);
+    std::normal_distribution<float> noise(0.0f, kCornerNoisePx);
 
     int cases = 0;
     int flip_fits_better = 0;
@@ -278,7 +289,7 @@ TEST(AprilTagKeypointModelTest, KnownFloorPicksTheTrueIppeSolutionOnATiltedView)
             for (double yaw = 0.0; yaw < 2.0 * M_PI; yaw += M_PI / 6.0) {
                 const Pose camera_tag =
                     camera_floor * floor_from_body(x, y, yaw, false) * body_from_tag(top_tag());
-                auto corners = tag_corners(camera_tag);
+                auto corners = tag_corners_aruco_order(camera_tag);
                 for (auto &corner : corners) corner += cv::Point2f(noise(rng), noise(rng));
                 const auto solutions =
                     solve_tag_pose(corners, kTagSize, intrinsics(), cv::Mat::zeros(1, 5, CV_64F));
@@ -293,9 +304,9 @@ TEST(AprilTagKeypointModelTest, KnownFloorPicksTheTrueIppeSolutionOnATiltedView)
                     rotation_angle_between(rotation_of(solutions[chosen]), camera_tag.rotation);
                 const double truth_error = rotation_angle_between(
                     rotation_of(solutions[truth_index]), camera_tag.rotation);
-                // Either the true solution, or one indistinguishable from it.
-                EXPECT_LT(chosen_error, truth_error + 2.0 * M_PI / 180.0)
-                    << "x " << x << " y " << y << " yaw " << yaw;
+                EXPECT_LT(chosen_error, truth_error + kIndistinguishableRad)
+                    << "chosen the true solution or one indistinguishable from it: x " << x << " y "
+                    << y << " yaw " << yaw;
                 ++cases;
                 if (truth_index != 0) ++flip_fits_better;
                 if (truth_index != 0 && chosen == truth_index) ++reprojection_would_fail;
@@ -309,7 +320,7 @@ TEST(AprilTagKeypointModelTest, KnownFloorPicksTheTrueIppeSolutionOnATiltedView)
 TEST(AprilTagKeypointModelTest, RejectsCameraBelowFloor) {
     const TagMount mount = make_tag_mount(top_tag(), kRestPitch);
     const auto solution_from = [&](double camera_height) {
-        const Pose camera_tag = camera_from_floor(camera_height, 0.0) *
+        const Pose camera_tag = camera_from_flu_floor(camera_height, 0.0) *
                                 floor_from_body(0.1, 0.1, 0.3, false) * body_from_tag(top_tag());
         TagPoseSolution solution;
         cv::Rodrigues(camera_tag.rotation, solution.rvec);
@@ -322,15 +333,15 @@ TEST(AprilTagKeypointModelTest, RejectsCameraBelowFloor) {
 }
 
 TEST(AprilTagKeypointModelTest, FloorEstimatorLocksOnlyOnceTheRobotMoves) {
-    const Pose camera_floor = camera_from_floor(0.75, 30.0 * M_PI / 180.0);
+    const Pose camera_floor = camera_from_flu_floor(0.75, 30.0 * M_PI / 180.0);
     const cv::Vec3d floor_up_camera = camera_floor.rotation * cv::Vec3d(0, 0, 1);
     const TagMount mount = make_tag_mount(top_tag(), kRestPitch);
 
     const auto candidates_for = [&](double x, double y, double yaw) {
         const Pose camera_tag =
             camera_floor * floor_from_body(x, y, yaw, false) * body_from_tag(top_tag());
-        const auto solutions = solve_tag_pose(tag_corners(camera_tag), kTagSize, intrinsics(),
-                                              cv::Mat::zeros(1, 5, CV_64F));
+        const auto solutions = solve_tag_pose(tag_corners_aruco_order(camera_tag), kTagSize,
+                                              intrinsics(), cv::Mat::zeros(1, 5, CV_64F));
         std::vector<cv::Vec3d> candidates;
         for (const auto &solution : solutions) {
             if (camera_above_floor(solution, mount)) {
@@ -356,8 +367,8 @@ TEST(AprilTagKeypointModelTest, FloorEstimatorLocksOnlyOnceTheRobotMoves) {
 }
 
 TEST(AprilTagKeypointModelTest, DetectionCostOnAFullFrame) {
-    const Pose camera_tag = camera_from_floor(0.75, 0.0) * floor_from_body(0.3, 0.2, 1.0, false) *
-                            body_from_tag(top_tag());
+    const Pose camera_tag = camera_from_flu_floor(0.75, 0.0) *
+                            floor_from_body(0.3, 0.2, 1.0, false) * body_from_tag(top_tag());
     const cv::Mat frame = render_tag(76, camera_tag);
     constexpr int kRuns = 5;
 
