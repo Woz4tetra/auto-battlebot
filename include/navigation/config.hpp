@@ -33,92 +33,29 @@ struct NoopNavigationConfiguration : public NavigationConfiguration {
 
 struct PursuitNavigationConfiguration : public NavigationConfiguration {
     double stop_distance_m = 0.0;
-
-    /** Distance (m) at which velocity ramp begins. At this distance and beyond, speed is
-     * velocity_ramp_min_scale * max. */
     double velocity_ramp_far_distance = 2.5;
-
-    /** Distance (m) at which velocity reaches maximum. At this distance and below, speed is max. */
     double velocity_ramp_near_distance = 1.0;
-
-    /** Speed scale applied at distances >= velocity_ramp_far_distance (0..1, fraction of max). */
     double velocity_ramp_min_scale = 0.5;
-
-    /** Coast-aware brake: within this distance (m) of the target, the commanded speed ramps
-     * linearly down to zero so the robot decelerates into the goal instead of driving in at full
-     * speed and coasting past it. Should cover the stopping lead (latency travel + coast distance).
-     * 0 disables (ram behavior: full speed into contact). */
     double brake_distance = 0.0;
-
-    /** Distance from any field wall at which linear_x is reversed to back away. Unset turns the
-     *  reverse off. */
     std::optional<double> wall_reverse_distance_m;
-
-    /** Minimum speed (m/s) used when wall reverse engages and no forward drive was commanded.
-     *  Ensures a meaningful reversal even when the robot was stationary or turning in place. */
     double wall_reverse_min_speed = 1.0;
-
-    /** Heading must be within this angle of the nearest wall normal to trigger reversal. */
     double wall_heading_threshold_rad = M_PI / 3.0;
-
-    /** Proportional gain for angular control */
     double angular_kp = 3.0;
-
-    /** Derivative gain for angular control (0 = P-only) */
     double angular_kd = 0.0;
-
-    /** Angle threshold below which robot drives forward (rad) */
     double angle_threshold = 0.5;
-
-    /** Lookahead time for target position prediction in seconds */
     double lookahead_time = 0.1;
-
-    /** Minimum distance to maintain from field boundaries in meters */
     double boundary_margin = 0.1;
-
-    /** Enable hysteresis to prevent dithering when target is behind */
     bool enable_hysteresis = true;
-
-    /** Cap on the magnitude of the normalized forward (linear_x) command (0..1, a fraction of full
-     * drive; the plant/transmitter scales it by max_linear_speed). Unset = no limit. */
     std::optional<double> max_linear_command;
-
-    /** Cap on the magnitude of the normalized turn (angular_z) command (0..1, a fraction of full
-     * turn; the plant/transmitter scales it by max_angular_speed). Unset = no limit. */
     std::optional<double> max_angular_command;
-
-    /** Steer at a tangent point on a blocking hazard's rim instead of at the true goal
-     * (option 4, the primary response). Costs nothing in navigation: both controllers only ever
-     * chase a Pose2D. */
     bool hazard_tangent_enable = true;
-
-    /** How many times to re-test the substituted waypoint against the remaining hazards. A
-     * greedy one-hazard-at-a-time step, not a planner: a field holds a handful of hazards, not a
-     * maze. When it does not converge the speed cap and the reverse backstop cover it. */
     int hazard_tangent_max_iterations = 3;
-
-    /** Clearance (m) the tangent waypoint leaves beyond the keep-out radius. Aiming at the
-     * keep-out rim exactly means arriving with zero clearance and grinding along the edge; a
-     * little extra makes the run from the waypoint to the goal unblocked, so the true goal comes
-     * back on its own instead of the robot orbiting. */
     double hazard_waypoint_clearance_m = 0.06;
-
-    /** Release the latched pass side once the direct run to the goal clears the hazard by this
-     * much (m). Latching is the same pattern as the turn-direction hysteresis: without it the
-     * robot re-picks a side every tick and cuts back across the hazard it was rounding. */
     double hazard_side_release_m = 0.05;
-
-    /** Seconds ahead to advance a TRACKED hazard along its filtered velocity before testing it.
-     * The house bot moving across our path is the case this exists for: reacting to where it is
-     * now aims at where it was. */
     double hazard_prediction_horizon_s = 0.25;
 
     double hazard_reverse_distance = 0.12;
-
-    /** Heading must point within this angle (rad) of the hazard for the reverse to trigger. */
     double hazard_heading_threshold = 1.047;
-
-    /** Reverse speed floor while the hazard backstop is active (normalized command). */
     double hazard_reverse_min_speed = 0.35;
 
     PursuitNavigationConfiguration() { type = "PursuitNavigation"; }
@@ -157,13 +94,8 @@ struct PursuitNavigationConfiguration : public NavigationConfiguration {
 };
 
 struct FixedVelocityNavigationConfiguration : public NavigationConfiguration {
-    /** Fixed linear X command in m/s */
     double linear_x = 0.0;
-
-    /** Fixed linear Y command in m/s */
     double linear_y = 0.0;
-
-    /** Fixed angular Z command in rad/s */
     double angular_z = 0.0;
 
     FixedVelocityNavigationConfiguration() { type = "FixedVelocityNavigation"; }
@@ -179,104 +111,35 @@ struct FixedVelocityNavigationConfiguration : public NavigationConfiguration {
 
 struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
     JigPlantParams plant;
-
-    /** Residual command deadzone (0..1 fraction) the plant still shows. Exact inverse-deadzone is
-     * applied to the final command when > 0. Distinct from the fit's dz_lin_fwd / dz_lin_rev, and
-     * defaults 0 because the transmitter's lifted_deadzone_percent handles the physical deadzone
-     * upstream on the real robot (and the kinematic sim's residual deadzone is 0). */
     double deadzone = 0.0;
-
-    /** Rate limit (m/s^2) on how fast the reference speed may rise, for a clean launch and a
-     * bounded feedforward derivative. Braking (falling reference) is never rate-limited. */
     double accel_limit = 8.5;
 
     double steer_brake_floor = 0.3;
-
-    /** Terminal speed while the driver has ATTACK selected, as a fraction of the plant's k_fwd. */
     double attack_terminal_speed_fraction = 1.0;
-
-    /** Terminal speed while the driver has RUN_AWAY selected, as a fraction of the plant's
-     * k_fwd. */
     double run_away_terminal_speed_fraction = 0.0;
-
-    /** Distance (m) at which a zero-velocity mission is complete and the command is cut. Only used
-     * when the active terminal velocity is 0 (a drive-through mission never stops). */
     double stop_distance_m = 0.15;
-
-    /** Proportional gain mapping speed error (v_ref - v_actual, m/s) to a normalized command. */
     double speed_kp = 0.15;
-
-    /** Integral gain on speed error. 0 = P-only. */
     double speed_ki = 0.0;
 
     bool compensate_angular_droop = false;
 
     double angular_droop_floor = 0.3;
-
-    /** Proportional gain on heading error (rad/s per rad). */
     double angular_kp = 12.7;
-
-    /** Derivative gain on heading error, rad/s per rad/s (0 = P-only). */
     double angular_kd = 0.32;
-
-    /** Heading error (rad) below which the robot drives forward; above it, turn in place. */
     double angle_threshold = 1.7;
-
-    /** Cap on the yaw-rate reference (rad/s). 0 = no limit. Bounds rotation per control tick: at
-     * 30 Hz, 7.9 rad/s is 15 degrees per tick. */
     double max_yaw_rate = 7.93;
-
-    /** Cap on magnitude of the normalized turn (angular_z) command (0..1). Unset = no limit. This
-     * is the output-side safety clamp; max_yaw_rate is the one that shapes behaviour. */
     std::optional<double> max_angular_command = 1.0;
-
-    /** Enable turn-direction hysteresis to prevent dithering when the target is behind. */
     bool enable_hysteresis = true;
-
-    /** Minimum distance maintained from field boundaries (m). */
     double boundary_margin = 0.1;
-
-    /** Cap on magnitude of the normalized forward (linear_x) command (0..1). Unset = no limit. */
     std::optional<double> max_linear_command = 1.0;
-
-    /** Distance to any wall at which linear_x is reversed to back away. Unset turns it off. */
     std::optional<double> wall_reverse_distance_m;
-
-    /** Minimum reverse speed (normalized) used when wall reverse engages. */
     double wall_reverse_min_speed = 0.0;
-
-    /** Only reverse off a wall when heading is within this angle of facing it. */
     double wall_heading_threshold_rad = 0.6;
-
-    /** Steer at a tangent point on a blocking hazard's rim instead of at the true goal
-     * (option 4, the primary response). Costs nothing in navigation: both controllers only ever
-     * chase a Pose2D. */
     bool hazard_tangent_enable = true;
-
-    /** How many times to re-test the substituted waypoint against the remaining hazards. A
-     * greedy one-hazard-at-a-time step, not a planner: a field holds a handful of hazards, not a
-     * maze. When it does not converge the speed cap and the reverse backstop cover it. */
     int hazard_tangent_max_iterations = 3;
-
-    /** Clearance (m) the tangent waypoint leaves beyond the keep-out radius. Aiming at the
-     * keep-out rim exactly means arriving with zero clearance and grinding along the edge; a
-     * little extra makes the run from the waypoint to the goal unblocked, so the true goal comes
-     * back on its own instead of the robot orbiting. */
     double hazard_waypoint_clearance_m = 0.06;
-
-    /** Release the latched pass side once the direct run to the goal clears the hazard by this
-     * much (m). Latching is the same pattern as the turn-direction hysteresis: without it the
-     * robot re-picks a side every tick and cuts back across the hazard it was rounding. */
     double hazard_side_release_m = 0.05;
-
-    /** The velocity barrier. On unless a baseline sweep is measuring the failure mode: the
-     * bound itself is derived entirely from the plant fit (gap to the hard radius over
-     * tau_lin_d + delay_s), so there is nothing else to tune here. */
     bool hazard_barrier_enable = true;
-
-    /** Seconds ahead to advance a TRACKED hazard along its filtered velocity before testing it.
-     * The house bot moving across our path is the case this exists for: reacting to where it is
-     * now aims at where it was. */
     double hazard_prediction_horizon_s = 0.25;
 
     MotionProfileNavigationConfiguration() { type = "MotionProfileNavigation"; }
@@ -329,26 +192,12 @@ struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
 
 struct RlPolicyNavigationConfiguration : public NavigationConfiguration {
     rl_policy::RlPolicyConfiguration policy;
-
-    /**
-     * The configured [robot_filter.motion_estimator] opponent_mode, stamped in by
-     * apply_robot_filter. Absent when the robot filter has no KalmanMotionEstimator. The policy is
-     * trained against the 6-state opponent filter, so RlPolicyNavigation refuses to start unless
-     * this is KALMAN.
-     */
     std::optional<OpponentMode> opponent_mode;
     std::string opponent_mode_source = "no [robot_filter] config was applied";
-
-    /** Seconds without a measurement of our robot before RlPolicyNavigation commands zero. Above
-     * the filter's 0.1 s stale age, so one or two dropped frames do not interrupt the policy. */
     double max_our_unmeasured_s = 0.15;
 
     bool hazard_barrier_enable = false;
-
-    /** Seconds ahead to advance a tracked hazard along its velocity, as in the motion profile. */
     double hazard_prediction_horizon_s = 0.25;
-
-    /** Stamped in by apply_plant; absent when the config has no [plant] table. */
     std::optional<JigPlantParams> plant;
 
     RlPolicyNavigationConfiguration() { type = "RlPolicyNavigation"; }
