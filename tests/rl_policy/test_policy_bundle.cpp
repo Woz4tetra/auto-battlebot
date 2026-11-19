@@ -69,6 +69,13 @@ TEST(PolicyBundleTest, AWrongFormatVersionNamesBoth) {
     EXPECT_NE(error.find("format_version 2, this build reads 1"), std::string::npos) << error;
 }
 
+TEST(PolicyBundleTest, ANewerFormatFailsOnItsVersionNotOnAChangedKey) {
+    const auto dir = broken_tiny_mlp("newer_format", "format_version = 1", "format_version = 2");
+    replace_in_file(dir / "manifest.toml", "policy_period_ticks = 5", "policy_period_tick = 5");
+    const std::string error = load_error(dir);
+    EXPECT_NE(error.find("format_version 2, this build reads 1"), std::string::npos) << error;
+}
+
 TEST(PolicyBundleTest, AnUnknownPolicyKindListsTheValidValues) {
     const auto dir =
         broken_tiny_mlp("policy_kind", R"(policy_kind = "NETWORK")", R"(policy_kind = "PLANNER")");

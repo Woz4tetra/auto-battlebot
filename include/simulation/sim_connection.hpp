@@ -29,6 +29,7 @@ class SimConnection {
 
     const std::vector<Pose2D> &last_ground_truth_poses() const { return last_gt_poses_; }
     const SimMeasurementFrame &last_measurements() const { return last_measurements_; }
+    void set_last_measurements(SimMeasurementFrame frame) { last_measurements_ = std::move(frame); }
     const Eigen::Matrix4d &last_camera_from_fieldcenter() const { return last_camera_from_field_; }
 
    private:

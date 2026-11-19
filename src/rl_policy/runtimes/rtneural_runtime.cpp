@@ -13,8 +13,6 @@
 namespace auto_battlebot::rl_policy {
 namespace {
 
-/** Layer types RTNeural::json_parser::parseJson builds. It skips any other type without a word,
- * which would leave a shorter network than the file describes. */
 constexpr std::array<std::string_view, 10> kLayerTypes = {"dense",       "time-distributed-dense",
                                                           "conv1d",      "conv2d",
                                                           "gru",         "lstm",

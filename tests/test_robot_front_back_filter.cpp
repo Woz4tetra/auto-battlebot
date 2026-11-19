@@ -4,6 +4,7 @@
 #include <cmath>
 #include <opencv2/core.hpp>
 
+#include "diagnostics_logger/test_diagnostics_logger.hpp"
 #include "plant/mrs_buff_mk3_params.hpp"
 #include "robot_filter/robot_front_back_filter.hpp"
 
@@ -634,6 +635,46 @@ TEST(RobotFrontBackFilterTest, CorrectWithStampOlderThanPredict) {
     ASSERT_NE(actual_opponent, nullptr);
     EXPECT_NEAR(actual_opponent->pose.position.x, expected_opponent->pose.position.x, 0.005);
     EXPECT_NEAR(actual_opponent->pose.position.y, expected_opponent->pose.position.y, 0.005);
+}
+
+TEST(RobotFrontBackFilterTest, CoastedStateStampIncludesRenderLead) {
+    const CameraInfo camera_info = make_camera_info();
+    const FieldDescription field = make_field();
+    RobotFrontBackFilterConfiguration config = make_kalman_opponent_config();
+    RobotFrontBackFilter filter(config);
+    ASSERT_TRUE(filter.initialize(1));
+    const double last = drive_opponent_to(filter, camera_info, field, 30);
+
+    filter.predict(last + kFrameDt, CommandFeedback{});
+    EXPECT_NEAR(filter.state().header.stamp, last + kFrameDt + plant_golden::kParam_delay_s, 1e-9);
+}
+
+TEST(RobotFrontBackFilterTest, SizeOverrideReplacesDetectedSize) {
+    const CameraInfo camera_info = make_camera_info();
+    const FieldDescription field = make_field();
+    RobotFrontBackFilterConfiguration config = make_kalman_opponent_config();
+    const Size known{0.61, 0.52, 0.17};
+    config.robot_size_meters_per_label[Label::OPPONENT] = known;
+
+    TestDiagnosticsLogger::reset();
+    auto backend = std::make_shared<RecordingBackend>();
+    DiagnosticsLogger::initialize({backend});
+    RobotFrontBackFilter filter(config);
+    ASSERT_TRUE(filter.initialize(1));
+    drive_opponent_to(filter, camera_info, field, 5);
+    DiagnosticsLogger::publish();
+
+    const RobotDescription *opponent = find_opponent(filter.state());
+    ASSERT_NE(opponent, nullptr);
+    EXPECT_DOUBLE_EQ(opponent->size.x, known.x);
+    EXPECT_DOUBLE_EQ(opponent->size.y, known.y);
+    EXPECT_DOUBLE_EQ(opponent->size.z, known.z);
+    bool logged_detected = false;
+    for (const DiagnosticStatusSnapshot &snapshot : backend->last_snapshots()) {
+        logged_detected = logged_detected || snapshot.subsection == "detected_size";
+    }
+    TestDiagnosticsLogger::reset();
+    EXPECT_TRUE(logged_detected);
 }
 
 }  // namespace auto_battlebot

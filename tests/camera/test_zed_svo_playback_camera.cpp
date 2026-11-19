@@ -68,6 +68,21 @@ TEST_F(ZedSvoPlaybackCameraTest, RejectsAStartFrameBeyondTheEndOfTheFile) {
     EXPECT_THROW(camera.initialize(), ConfigValidationError);
 }
 
+TEST_F(ZedSvoPlaybackCameraTest, FrameIndexMatchesGrabbedFrame) {
+    ASSERT_NE(shared_camera_, nullptr)
+        << "Shared ZED camera not available (SVO missing or init failed)";
+
+    ZedSvoPlaybackCameraConfiguration config = shared_config_;
+    config.svo_start_frame = 0;
+    ZedSvoPlaybackCamera camera(config);
+    ASSERT_TRUE(camera.initialize());
+    CameraData data;
+    ASSERT_TRUE(camera.get(data));
+    EXPECT_EQ(data.frame_identity.video_frame_index, 0);
+    ASSERT_TRUE(camera.get(data));
+    EXPECT_EQ(data.frame_identity.video_frame_index, 1);
+}
+
 TEST_F(ZedSvoPlaybackCameraTest, FullDataPipeline) {
     ASSERT_NE(shared_camera_, nullptr)
         << "Shared ZED camera not available (SVO missing or init failed)";

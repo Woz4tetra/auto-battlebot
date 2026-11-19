@@ -2,6 +2,7 @@
 
 #include <Eigen/Dense>
 #include <opencv2/core.hpp>
+#include <optional>
 
 #include "robot_filter/front_back_keypoint_converter.hpp"
 
@@ -95,6 +96,27 @@ TEST_F(FrontBackKeypointConverterTest, PoseSitsAtReferenceOffsetAlongHeading) {
                                                Eigen::Vector3d::Zero(), 0.25, tf));
     EXPECT_NEAR(tf.tf(0, 3), 0.0, 1e-12);
     EXPECT_NEAR(tf.tf(1, 3), 0.75, 1e-12);
+}
+
+TEST_F(FrontBackKeypointConverterTest, MeasuredHeightOverridesConfig) {
+    const auto front_point = [&](double configured, std::optional<double> measured) {
+        FrontBackKeypointConverterConfig config = config_;
+        config.keypoint_heights.default_meters = configured;
+        FrontBackKeypointConverter converter(config);
+        ModelResultStamped keypoints;
+        keypoints.header.frame_id = FrameId::CAMERA;
+        for (Keypoint keypoint :
+             {make_keypoint(KeypointLabel::OPPONENT_FRONT, 1, 0.9, 300.0, 220.0),
+              make_keypoint(KeypointLabel::OPPONENT_BACK, 1, 0.9, 340.0, 220.0)}) {
+            keypoint.height_above_plane_m = measured;
+            keypoints.keypoints.push_back(keypoint);
+        }
+        const auto mapping = converter.convert(keypoints, field_, camera_info_);
+        return mapping.at(Label::OPPONENT).at(0).first.front;
+    };
+    const Eigen::Vector3d measured = front_point(0.5, 0.2);
+    EXPECT_LT((measured - front_point(0.2, std::nullopt)).norm(), 1e-9);
+    EXPECT_GT((measured - front_point(0.5, std::nullopt)).norm(), 1e-3);
 }
 
 TEST_F(FrontBackKeypointConverterTest, AssignmentCarriesKeypointReferenceOffset) {

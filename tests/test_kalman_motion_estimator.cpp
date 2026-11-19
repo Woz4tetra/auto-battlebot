@@ -5,6 +5,7 @@
 #include <cmath>
 #include <sstream>
 
+#include "diagnostics_logger/test_diagnostics_logger.hpp"
 #include "plant/mrs_buff_mk3_params.hpp"
 #include "robot_filter/dead_reckoning_motion_estimator.hpp"
 #include "robot_filter/kalman_motion_estimator.hpp"
@@ -1049,6 +1050,56 @@ TEST(KalmanMotionEstimatorTest, OurRobotSpeedProjectsOntoTheMidBaselineHeading) 
     const double measured_speed =
         std::hypot(outputs[0].velocity.vx_mps, outputs[0].velocity.vy_mps);
     EXPECT_NEAR(measured_speed, chord / dt, 0.03);
+}
+
+TEST(KalmanMotionEstimatorTest, NoisySpeedDoesNotRejectPosition) {
+    KalmanMotionEstimatorConfiguration config = ekf_config();
+    config.keypoint_heading_sigma_rad = 2.0;
+    config.gate_nis = 1e9;
+    config.speed_gate_nis = 1e-12;
+    KalmanMotionEstimator estimator{config};
+    FrameIdAssigner assigner(10.0, 5);
+    const FieldDescription field = make_field();
+    const MotionEstimatorContext context;
+
+    PlantState start;
+    estimator.predict(kStartTime, CommandFeedback{});
+    estimator.update({make_our_pose_measurement(start)}, kStartTime, assigner, field, context);
+
+    PlantState jumped;
+    jumped.x = 0.3;
+    estimator.predict(kStartTime + 0.1, CommandFeedback{});
+    const auto outputs = estimator.update({make_our_pose_measurement(jumped)}, kStartTime + 0.1,
+                                          assigner, field, context);
+    ASSERT_EQ(outputs.size(), 1u);
+    EXPECT_GT(outputs[0].pose.position.x, 0.05);
+}
+
+TEST(KalmanMotionEstimatorTest, HeadingBlindSigmasOmitted) {
+    TestDiagnosticsLogger::reset();
+    auto backend = std::make_shared<RecordingBackend>();
+    DiagnosticsLogger::initialize({backend});
+    {
+        KalmanMotionEstimator estimator{kalman_opponents_config()};
+        FrameIdAssigner assigner(10.0, 5);
+        const FieldDescription field = make_field();
+        const MotionEstimatorContext context;
+        double x = 1.0;
+        double y = 2.0;
+        const double t =
+            run_constant_velocity(estimator, assigner, field, context, 10, x, y, 0.5, 0.0);
+        estimator.coast(t);
+        DiagnosticsLogger::publish();
+    }
+    bool found = false;
+    for (const DiagnosticStatusSnapshot &snapshot : backend->last_snapshots()) {
+        if (snapshot.subsection != "opponent_THEIR_ROBOT_1") continue;
+        found = true;
+        EXPECT_EQ(snapshot.values.count("heading_sigma_rad"), 0u);
+        EXPECT_EQ(snapshot.values.count("yaw_rate_sigma_rad_s"), 0u);
+    }
+    TestDiagnosticsLogger::reset();
+    EXPECT_TRUE(found);
 }
 
 TEST(KalmanMotionEstimatorTest, RenderLeadEqualsPlantDelay) {

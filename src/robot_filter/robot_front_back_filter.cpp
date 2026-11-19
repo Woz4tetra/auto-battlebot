@@ -129,9 +129,6 @@ void RobotFrontBackFilter::predict(double now, CommandFeedback command_feedback)
     motion_estimator_->predict(now, command_feedback);
     if (auto coasted = motion_estimator_->coast(now)) {
         state_.header.frame_id = FrameId::FIELD;
-        // The stamp names the time the state describes, which is past `now` by the estimator's
-        // render lead. Stamping it `now` would under-report the emitted state's age by the
-        // transport delay to anything that reasons about these stamps.
         state_.header.stamp = now + motion_estimator_->render_lead_s();
         state_.descriptions = std::move(*coasted);
         apply_known_geometry(state_.descriptions);
@@ -192,13 +189,6 @@ void RobotFrontBackFilter::apply_known_geometry(std::vector<RobotDescription> &d
         }
     }
 
-    // Replace the detector's box with the robot's known dimensions, once, here: every consumer
-    // downstream reads `size`, so overriding it is what keeps the keep-out, the drawn circle and
-    // the marker cube from disagreeing about how big a robot is.
-    //
-    // The measured box is logged rather than discarded. It is the only signal that the detector
-    // has started boxing a robot badly, and overwriting it without a trace would hide exactly the
-    // regression these overrides exist to compensate for.
     DiagnosticsData detected;
     for (auto &description : descriptions) {
         const auto found = size_overrides_.find(description.label);
@@ -363,8 +353,6 @@ void RobotFrontBackFilter::merge_blob_detections(
         return;
     }
 
-    // Sort by confidence so higher-confidence blobs get priority on distance ties in the
-    // global greedy assignment. We sort indices to keep `pool_allowed_fids` aligned.
     std::vector<size_t> order(pool.size());
     std::iota(order.begin(), order.end(), 0);
     std::sort(order.begin(), order.end(),

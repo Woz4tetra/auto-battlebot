@@ -115,7 +115,7 @@ measured it lived in `playground/control_stage0/`, retired in `9246cc64`; see
 
 ## Frame and size conventions
 
-- `RobotDescription.size` is the footprint. For labels listed in `[robot_filter.robot_size_meters_per_label]` it is the known dimensions, not the detector's box. The measured box is logged to the `detected_size` diagnostics channel instead.
+- `RobotDescription.size` is the footprint. For labels listed in `[robot_filter.robot_size_meters_per_label]` it is the known dimensions, not the detector's box. The override is applied once, in the filter, so the keep-out, the drawn circle and the marker cube agree on robot size. The measured box is logged to the `detected_size` diagnostics channel instead: it is the only signal that the detector has started boxing a robot badly.
 - `pose` is the point control tracks, our robot's axle. Hazard and clearance checks measure from the footprint centre instead, through `footprint_center()`. The offset is in the body frame (x forward, y left), in metres from `pose`, set per label from `[robot_filter.footprint_center_offset_per_label]`, and zero where the pose is the centre.
 - Fiducial board layout frame: the board origin (the grid's minimum-x, minimum-y printed corner) is composed from the configured corner, offsets and orientation. The layout frame is centred on the field with the printed board's x and y and z into the floor. `compute_field` turns it into the published field frame.
 

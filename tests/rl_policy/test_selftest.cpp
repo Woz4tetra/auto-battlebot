@@ -1,7 +1,9 @@
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -62,6 +64,21 @@ TEST(SelftestTest, ResetsRuntimeBetweenPairs) {
     EXPECT_TRUE(result.passed);
     EXPECT_EQ(runtime.events,
               (std::vector<std::string>{"reset", "run", "reset", "run", "reset", "run", "reset"}));
+}
+
+TEST(SelftestTest, NaNIsReportedAsWorst) {
+    const auto dir = rl_test::fresh_dir("selftest_nan");
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    rl_test::write_selftest(dir / "selftest.bin", 3, 2, 2, std::vector<float>(6, 0.0f),
+                            std::vector<float>{0.1f, 0.1f, nan, 0.0f, 0.5f, 0.5f});
+    RecordingRuntime runtime;
+    const auto decoder = make_action_decoder(DecoderSpec{ActionDecoderKind::SQUASHED, {1.0, 1.0}});
+    const SelftestResult result =
+        run_selftest(runtime, *decoder, SelftestSpec{dir / "selftest.bin", 1e-4});
+    EXPECT_FALSE(result.passed);
+    EXPECT_TRUE(std::isnan(result.worst_error));
+    ASSERT_TRUE(result.worst_pair);
+    EXPECT_EQ(*result.worst_pair, 1);
 }
 
 }  // namespace

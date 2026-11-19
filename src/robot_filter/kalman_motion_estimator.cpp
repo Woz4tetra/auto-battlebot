@@ -468,10 +468,6 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
                                                 config_.covariance_floor);
             }
 
-            // Speed corrects in a second update rather than as another row above. Sharing the
-            // gate would let one noisy finite difference discard the position fix that arrived
-            // with it, and position is the measurement this track cannot do without. Its own
-            // gate can drop the speed row alone.
             if (outcome.accepted && has_speed) {
                 ekf::Mat<1, 5> observation = ekf::Mat<1, 5>::Zero();
                 observation(0, 3) = 1.0;
@@ -686,8 +682,6 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
         outputs.push_back(render_opponent(track, field, track.output_stale));
         outputs.back().measurement_age_s = measurement_age(timestamp, track.last_measured_stamp);
         const PoseUncertainty &uncertainty = outputs.back().uncertainty;
-        // Infinite sigmas (heading never measured, heading-blind label) are left out rather
-        // than written as a non-finite number.
         DiagnosticsData fields{
             {"position_sigma_major_axis_m", uncertainty.position_sigma_major_axis_m.value_or(0.0)},
             {"consecutive_heading_flips", track.consecutive_heading_flips}};

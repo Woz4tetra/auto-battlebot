@@ -34,8 +34,6 @@ FrontBackKeypointConverter::convert(const ModelResultStamped &model_results,
 
     for (const Keypoint &keypoint : model_results.keypoints) {
         Eigen::Vector3d projected_keypoint;
-        // Prefer the height KeypointHeightGate measured from depth; the configured constant is
-        // the fallback for model_results it could not measure.
         const double height = keypoint.height_above_plane_m.value_or(
             config_.keypoint_heights.height_for(keypoint.label));
         if (!project_keypoint_onto_plane(keypoint, plane_center, plane_normal, camera_info, height,
@@ -75,8 +73,6 @@ FrontBackKeypointConverter::convert(const ModelResultStamped &model_results,
                       std::string(magic_enum::enum_name(keypoint.keypoint_label)));
     }
 
-    // Build result: map Label -> vector of (assignment, confidence), only include groups with valid
-    // pose (front and back set)
     std::map<Label, std::vector<std::pair<FrontBackAssignment, double>>> result;
     for (const auto &[group_key, assignment] : group_assignments) {
         if (!group_has_front[group_key] || !group_has_back[group_key]) {

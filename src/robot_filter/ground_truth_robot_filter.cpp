@@ -33,8 +33,6 @@ bool GroundTruthRobotFilter::initialize(int opponent_count) {
     for (int i = 0; i < opponent_count; ++i) {
         opponent_frame_ids_.push_back(opp_ids[i]);
     }
-    // Neutral slots follow the opponents in ground-truth order, so a sim config puts the house
-    // bot last in [[opponents]] and nothing else about the ordering changes.
     const int neutrals = std::clamp(trailing_neutral_slot_count_, 0, 2);
     for (int i = 0; i < neutrals; ++i) {
         neutral_frame_ids_.push_back(neutral_ids[i]);
@@ -65,7 +63,6 @@ void GroundTruthRobotFilter::correct([[maybe_unused]] ModelResultStamped keypoin
     const double now = result.header.stamp;
     const double dt = prev_stamp_ > 0.0 ? now - prev_stamp_ : 0.0;
 
-    // GT order: [0] = our robot, [1:] = opponents (matches sim config order)
     size_t gt_idx = 0;
     for (size_t i = 0; i < our_frame_ids_.size() && gt_idx < gt.size(); ++i, ++gt_idx) {
         auto desc = describe(our_frame_ids_[i], Label::EMPTY, Group::OURS, gt[gt_idx], now, dt);
@@ -97,17 +94,8 @@ std::optional<RobotDescription> GroundTruthRobotFilter::describe(FrameId frame_i
     desc.group = group;
     desc.size = Size{0.15, 0.15, 0.1};
 
-    // A NaN slot is the sim saying this robot was not observed this frame. Dead-reckon the last
-    // pose forward on the last known velocity and flag the track stale, matching what
-    // KalmanMotionEstimator::coast does on the real robot. Freezing the pose instead would be a
-    // worse sim than the real filter: a consumer whose brake schedule is driven by
-    // distance-to-goal would see the distance stop shrinking and release the brake mid-stop.
     if (!std::isfinite(gt_pose.x) || !std::isfinite(gt_pose.y) || !std::isfinite(gt_pose.yaw)) {
         const auto held = prev_poses_.find(frame_id);
-        // Never observed, so there is nothing to hold or coast. Seeding the origin here used to
-        // poison the first real measurement: velocity_from_delta differenced the true pose
-        // against that fabricated (0, 0) over one frame interval, and the coast then integrated
-        // the resulting tens-of-m/s velocity forever.
         if (held == prev_poses_.end()) return std::nullopt;
 
         desc.is_stale = true;
@@ -148,7 +136,6 @@ Velocity2D GroundTruthRobotFilter::velocity_from_delta(FrameId frame_id, const P
     const auto found = measured_poses_.find(frame_id);
     const auto stamped = measured_stamps_.find(frame_id);
     const bool have_previous = found != measured_poses_.end() && stamped != measured_stamps_.end();
-    // Copy before storing: writing through the same key first would make the delta zero.
     const Pose2D previous = have_previous ? found->second : pose;
     const double elapsed = have_previous ? now - stamped->second : 0.0;
 

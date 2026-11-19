@@ -103,7 +103,6 @@ SelftestResult run_selftest(NetworkRuntimeInterface &runtime, const ActionDecode
         for (uint32_t i = 0; i < pairs.action_size; ++i) {
             const double expected = pairs.actions[size_t{pair} * pairs.action_size + i];
             const double error = std::abs(action[i] - expected);
-            // A NaN is the worst there is and stays the worst once found.
             const bool worse =
                 !result.worst_pair || (!std::isnan(result.worst_error) &&
                                        (std::isnan(error) || error > result.worst_error));

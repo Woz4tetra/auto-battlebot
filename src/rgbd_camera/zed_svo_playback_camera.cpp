@@ -78,11 +78,6 @@ bool ZedSvoPlaybackCamera::initialize() {
 
     if (svo_start_frame_ > 0) {
         const int n_frames = device_.svo_frame_count();
-        // Clamping here used to seek to the last frame instead, which grabs once and then reports
-        // END OF SVO FILE REACHED before the first heartbeat. That reads as a corrupt recording or
-        // a broken build, not as a config mismatch, so it is worth an explicit failure. It happens
-        // whenever a config overrides svo_file_path but inherits svo_start_frame from the base it
-        // extends, and the new recording is shorter than the old one.
         if (n_frames > 0 && svo_start_frame_ >= n_frames) {
             throw ConfigValidationError(
                 "rgbd_camera.svo_start_frame is " + std::to_string(svo_start_frame_) + " but " +
@@ -123,9 +118,10 @@ bool ZedSvoPlaybackCamera::get(CameraData &data) {
 
     if (!device_.retrieve(latest_data_)) return false;
 
-    // getSVOPosition() counts frames already read, so the one just grabbed is one behind it.
+    const int grabbed_frame_offset = 1;
     const int svo_position = device_.svo_position();
-    latest_data_.frame_identity.video_frame_index = svo_position > 0 ? svo_position - 1 : -1;
+    latest_data_.frame_identity.video_frame_index =
+        svo_position > 0 ? svo_position - grabbed_frame_offset : -1;
 
     if (rebase_stamps_) {
         const double raw_stamp =

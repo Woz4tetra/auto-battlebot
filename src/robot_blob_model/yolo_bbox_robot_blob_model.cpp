@@ -15,6 +15,17 @@ constexpr float kMinBoxEdge = 1.0f;
 constexpr bool kSwapRbToRgb = true;
 constexpr bool kCenterCrop = false;
 constexpr int kDetectHeadBoxFeatures = 4;
+
+void append_box_for_every_detection(const Detection &det, cv::Size original_size,
+                                    cv::Size input_size, ModelResultStamped &result) {
+    int x1 = 0;
+    int y1 = 0;
+    int x2 = 0;
+    int y2 = 0;
+    map_detection_box_to_original(det, original_size, input_size, x1, y1, x2, y2);
+    result.boxes.push_back(BoundingBox{static_cast<double>(x1), static_cast<double>(y1),
+                                       static_cast<double>(x2), static_cast<double>(y2)});
+}
 }  // namespace
 
 YoloBboxRobotBlobModel::YoloBboxRobotBlobModel(YoloBboxRobotBlobModelConfiguration &config,
@@ -146,21 +157,7 @@ ModelResultStamped YoloBboxRobotBlobModel::update(RgbImage image) {
             render_detection_debug(debug_vis, det, original_size, input_size);
         }
 
-        // Record the box for every detection, whether or not it yielded keypoints, so
-        // result.boxes stays indexed by detection_index. KeypointHeightGate samples depth inside
-        // this box rather than at the midline endpoints, which sit on the floor beside a robot.
-        {
-            int mapped_x1 = 0;
-            int mapped_y1 = 0;
-            int mapped_x2 = 0;
-            int mapped_y2 = 0;
-            map_detection_box_to_original(det, original_size, input_size, mapped_x1, mapped_y1,
-                                          mapped_x2, mapped_y2);
-            result.boxes.push_back(
-                BoundingBox{static_cast<double>(mapped_x1), static_cast<double>(mapped_y1),
-                            static_cast<double>(mapped_x2), static_cast<double>(mapped_y2)});
-        }
-
+        append_box_for_every_detection(det, original_size, input_size, result);
         append_detection_keypoints(det, original_size, input_size, detection_index, result);
         ++detection_index;
     }

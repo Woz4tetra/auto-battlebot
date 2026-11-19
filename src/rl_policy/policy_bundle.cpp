@@ -24,7 +24,6 @@ class ManifestReader {
 
     const fs::path &directory() const { return directory_; }
 
-    /** Rejects keys outside `allowed`, so a misspelled field fails instead of being ignored. */
     void check_keys(const toml::table &table, std::initializer_list<std::string_view> allowed,
                     const std::string &where) const {
         for (const auto &[key, value] : table) {
@@ -233,7 +232,6 @@ PolicyBundle load_policy_bundle(const std::filesystem::path &directory) {
 
     PolicyBundle bundle;
     bundle.directory = directory;
-    // First, so a newer layout fails on its version rather than on whichever key changed.
     bundle.format_version = static_cast<int>(reader.require_int(manifest, "format_version", ""));
     if (bundle.format_version != kPolicyBundleFormatVersion) {
         reader.fail("format_version " + std::to_string(bundle.format_version) +
