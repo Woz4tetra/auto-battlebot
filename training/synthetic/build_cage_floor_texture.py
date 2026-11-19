@@ -9,6 +9,7 @@ import json
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
 import cv2
 import numpy as np
@@ -85,15 +86,14 @@ def pose_statuses(scene_dir: Path) -> dict[str, str]:
         return {row["clip"]: row["status"] for row in csv.DictReader(handle)}
 
 
-def warp_targets(
-    scene_dir: Path, source: str, px_per_m: float, k_1080: np.ndarray
-) -> tuple[dict[str, list[WarpedClip]], tuple[float, float] | None, str | None]:
-    """Warp every target with a good pose onto the mat, grouped by event.
+class WarpedEvents(NamedTuple):
+    clips_by_event: dict[str, list[WarpedClip]]
+    mat_half_extent_m: tuple[float, float] | None
+    cage_name: str | None
 
-    Returns:
-        ``(clips per event, mat half extent, cage name)``; the latter two come from the
-        calibrations and metadata and are None when nothing warped.
-    """
+
+def warp_targets(scene_dir: Path, source: str, px_per_m: float, k_1080: np.ndarray) -> WarpedEvents:
+    """Warp every target with a good pose onto the mat, grouped by event."""
     per_event: dict[str, list[WarpedClip]] = {}
     half_xy: tuple[float, float] | None = None
     cage_name: str | None = None
@@ -126,7 +126,7 @@ def warp_targets(
         event = str(meta.get("event_group") or meta.get("event", "unknown"))
         per_event.setdefault(event, []).append(WarpedClip(target_dir.name, texture, mask))
         print(f"warped {target_dir.name} -> {texture.shape[1]}x{texture.shape[0]}")
-    return per_event, half_xy, cage_name
+    return WarpedEvents(per_event, half_xy, cage_name)
 
 
 def nanmedian_over_seen_frames(stack: np.ndarray) -> np.ndarray:

@@ -7,7 +7,7 @@ import os
 import re
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, TypedDict
 
 import numpy as np
 
@@ -26,9 +26,6 @@ STATUS_DOWNLOADED = "downloaded"
 STATUS_DONE = "done"
 STATUS_FAILED = "failed"
 
-# Human-set veto flag, orthogonal to the status FSM: a rejected bot is never
-# re-downloaded (download_nhrl_bots.py) nor submitted to Meshy
-# (generate_nhrl_meshes.py).  Set by review_nhrl_thumbnails.py.
 STATE_REJECTED_KEY = "rejected"
 
 STATE_FILENAME = ".nhrl_generation_state.json"
@@ -145,6 +142,16 @@ def is_rejected(entry: dict[str, Any]) -> bool:
     return bool(entry.get(STATE_REJECTED_KEY))
 
 
+class TopdownSidecar(TypedDict):
+    image: str
+    image_w: int
+    image_h: int
+    affine: list[list[float]]
+    hull: list[list[float]]
+    y_ground: float
+    default_axis: list[float]
+
+
 def build_sidecar(
     *,
     name: str,
@@ -157,16 +164,9 @@ def build_sidecar(
     generated_at: str,
     source: str,
     reviewed: bool = False,
-    topdown: dict[str, Any] | None = None,
+    topdown: TopdownSidecar | None = None,
 ) -> dict[str, Any]:
-    """Assemble a sidecar JSON payload (see README for the schema).
-
-    ``reviewed`` marks that a human confirmed the front/back direction via
-    ``review_nhrl_keypoints.py``; ``compute_nhrl_keypoints.py`` never overwrites
-    a reviewed sidecar.  ``topdown`` carries the orthographic top-down render plus
-    the model->pixel affine, footprint hull, and default axis the review tool
-    needs to overlay markers without loading the mesh.
-    """
+    """Assemble the sidecar JSON payload."""
     kp_obj: dict[str, Any] | None
     if keypoints is None:
         kp_obj = None
@@ -299,3 +299,19 @@ def convex_hull_2d(points_xz: np.ndarray) -> np.ndarray:
     lower = _half(pts)
     upper = _half(pts[::-1])
     return np.array(lower + upper, dtype=float)
+
+
+SidecarAction = Literal["write", "skip", "keep_reviewed"]
+
+
+def sidecar_action(existing: dict[str, Any] | None, overwrite: bool) -> SidecarAction:
+    if existing is None:
+        return "write"
+    if existing.get("reviewed"):
+        return "keep_reviewed"
+    return "write" if overwrite else "skip"
+
+
+def world_to_model(world: np.ndarray) -> np.ndarray:
+    """Blender world (Z-up) to glTF model frame (Y-up), the inverse of the importer's [x, -z, y]."""
+    return np.column_stack([world[:, 0], world[:, 2], -world[:, 1]])

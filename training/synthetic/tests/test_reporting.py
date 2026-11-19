@@ -1,5 +1,6 @@
 """Tests for run statistics and the end-of-run summary."""
 
+import domain_render_report
 from synthgen.reporting import (
     DistractorSkipReason,
     DropReason,
@@ -86,3 +87,13 @@ def test_drop_reasons_reconcile_totals() -> None:
     lines = stats.summary_lines(requested=len(DropReason) + 1, written=1, scenes=1)
     assert f"{len(DropReason)} frames dropped" in lines[0]
     assert "0 short" not in lines[0]
+
+
+def test_summary_line_matches_domain_render_report_regex() -> None:
+    stats = RunStats()
+    stats.record(_written(0, 0))
+    stats.record(_dropped(DropReason.KP_NO_ANNOTATIONS))
+    headline = stats.summary_lines(requested=3, written=1, scenes=2)[0]
+    match = domain_render_report.SUMMARY_RE.search(headline)
+    assert match is not None
+    assert (match["written"], match["scenes"], match["dropped"]) == ("1", "2", "1")

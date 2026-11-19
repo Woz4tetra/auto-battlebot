@@ -40,11 +40,7 @@ class SizeBinCounts(NamedTuple):
 
 
 def per_frame_counts(frames: list, edges: list[float], iou_threshold: float) -> SizeBinCounts:
-    """Hits and totals of shape (num_frames, num_bins), GT boxes binned by sqrt-area.
-
-    Kept per frame rather than summed so the bootstrap can resample frames and re-sum, which
-    is what makes the resampling paired across candidates.
-    """
+    """Per-frame hits and totals, shape (num_frames, num_bins), GT boxes binned by sqrt-area."""
     num_bins = len(edges) + 1
     hits = np.zeros((len(frames), num_bins))
     totals = np.zeros((len(frames), num_bins))

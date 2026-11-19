@@ -27,8 +27,6 @@ SYNTHETIC_DIR = Path(__file__).resolve().parent
 RUN_SYNTHETIC = SYNTHETIC_DIR / "docker" / "run_synthetic.sh"
 DEFAULT_IMAGE = "auto-battlebot-synthetic"
 DEFAULT_VIEW_ORDER = (View.PINHOLE.value, View.RECTIFIED.value, View.DISTORTED.value)
-# A resumed run reseeds so it does not replay the scenes its first attempt already drew. The
-# stride keeps resumed seeds clear of every run's base seed.
 RESUME_SEED_STRIDE = 100_000
 PROGRESS_SECONDS = 600
 SUMMARY_NAME = "render_shards.json"

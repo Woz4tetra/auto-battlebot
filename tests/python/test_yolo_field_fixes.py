@@ -15,18 +15,21 @@ PLANE_H = -0.023
 AXLE = -0.046
 HALF_SEP = 0.065
 OFFSET_NS = -25_000_000
+DROPOUT_START_NS = 20e9
+DROPOUT_END_NS = 21.5e9
+BOARD_BOX = {"x1": 700.0, "y1": 400.0, "x2": 1000.0, "y2": 640.0}
+BOARD_CONF = 0.95
 FPS = 60.0
 
 
 def _camera() -> np.ndarray:
     """Camera 1.04 m up, looking down and 23 degrees off vertical toward +y (up frame)."""
     tilt = math.radians(23.0)
-    # OpenCV camera axes in the up frame: x right, y down the image, z forward.
-    z = np.array([0.0, math.sin(tilt), -math.cos(tilt)])
-    x = np.array([1.0, 0.0, 0.0])
-    y = np.cross(z, x)
+    cam_forward = np.array([0.0, math.sin(tilt), -math.cos(tilt)])
+    cam_right = np.array([1.0, 0.0, 0.0])
+    cam_down = np.cross(cam_forward, cam_right)
     pose = np.eye(4)
-    pose[:3, :3] = np.stack([x, y, z], axis=1)
+    pose[:3, :3] = np.stack([cam_right, cam_down, cam_forward], axis=1)
     pose[:3, 3] = [0.0, -0.45, 1.04]
     return pose
 
@@ -86,9 +89,8 @@ def scene() -> dict:
     rng = np.random.default_rng(3)
     video = (np.arange(0, 40.0, 1.0 / FPS) * 1e9).astype(np.int64) + 7_000_000
     det = _detections(video, rng)
-    # Tag frames share the camera frames; a 1.5 s dropout at 20 s.
     tag_t = video + OFFSET_NS
-    tag_t = tag_t[(tag_t < 20e9) | (tag_t > 21.5e9)]
+    tag_t = tag_t[(tag_t < DROPOUT_START_NS) | (tag_t > DROPOUT_END_NS)]
     tr = _truth(tag_t / 1e9)
     return {"det": det, "tag_t": tag_t, "truth": tr, "video": video}
 
@@ -128,9 +130,10 @@ def test_fixes_fill_only_the_dropout_and_skip_the_board(scene: dict) -> None:
         scene["det"], scene["tag_t"], tr["x"], tr["y"], tr["yaw"], K, up_from_camera_at, 0.0
     )
     det = scene["det"].copy()
-    # A board-sized detection, more confident than the robot, in every dropout frame.
-    gap = (det["stamp_ns"] + OFFSET_NS > 20e9) & (det["stamp_ns"] + OFFSET_NS < 21.5e9)
-    board = det[gap].assign(x1=700.0, y1=400.0, x2=1000.0, y2=640.0, conf=0.95)
+    gap = (det["stamp_ns"] + OFFSET_NS > DROPOUT_START_NS) & (
+        det["stamp_ns"] + OFFSET_NS < DROPOUT_END_NS
+    )
+    board = det[gap].assign(**BOARD_BOX, conf=BOARD_CONF)
     det = pd.concat([det, board], ignore_index=True)
     fixes, report = yff.select_fixes(det, cal, K, up_from_camera_at, scene["tag_t"], None)
     assert report["dropped_by_size_gate"] == len(board)

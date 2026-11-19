@@ -1,5 +1,7 @@
 """nhrl_common.py: pure-numpy helpers behind the NHRL distractor keypoints and review state."""
 
+import download_nhrl_bots
+import generate_nhrl_meshes
 import nhrl_common
 import numpy as np
 import pytest
@@ -74,3 +76,57 @@ def test_imports_with_numpy_only() -> None:
     }
     heavy = {"scipy", "cv2", "bpy", "blenderproc", "torch", "PIL", "yaml"}
     assert not imported & heavy
+
+
+def _gltf_import_rotation(model: np.ndarray) -> np.ndarray:
+    return np.column_stack([model[:, 0], -model[:, 2], model[:, 1]])
+
+
+def test_world_to_model_inverts_gltf_import() -> None:
+    model = np.array([[1.0, 2.0, 3.0], [-4.0, 0.5, 6.0], [0.0, 0.0, 1.0]])
+    world = _gltf_import_rotation(model)
+    assert np.allclose(nhrl_common.world_to_model(world), model)
+    assert np.allclose(nhrl_common.world_to_model(np.array([[0.0, 0.0, 1.0]])), [[0.0, 1.0, 0.0]])
+
+
+def test_overwrite_keeps_reviewed_sidecar() -> None:
+    assert nhrl_common.sidecar_action({"reviewed": True}, overwrite=True) == "keep_reviewed"
+    assert nhrl_common.sidecar_action({"reviewed": True}, overwrite=False) == "keep_reviewed"
+
+
+def test_sidecar_action_rewrites_unreviewed_only_with_overwrite() -> None:
+    assert nhrl_common.sidecar_action(None, overwrite=False) == "write"
+    assert nhrl_common.sidecar_action({"reviewed": False}, overwrite=False) == "skip"
+    assert nhrl_common.sidecar_action({"reviewed": False}, overwrite=True) == "write"
+
+
+def test_rejected_bot_skipped_by_download_and_meshing() -> None:
+    rejected = {
+        nhrl_common.STATE_REJECTED_KEY: True,
+        "status": nhrl_common.STATUS_DONE,
+        "thumbnail_file": "bot.png",
+    }
+    accepted = {"status": nhrl_common.STATUS_DONE, "thumbnail_file": "bot.png"}
+    assert nhrl_common.is_rejected(rejected)
+    assert not nhrl_common.is_rejected(accepted)
+    assert not generate_nhrl_meshes._usable(rejected)
+    assert generate_nhrl_meshes._usable(accepted)
+
+
+def test_rejected_thumbnail_is_sticky(tmp_path, monkeypatch) -> None:
+    state_dir = tmp_path / "bots"
+    state_dir.mkdir()
+    bot = {"cleanName": "clyde", "name": "Clyde", "totalFights": 9, "weightClasses": [12]}
+    entry = {nhrl_common.STATE_REJECTED_KEY: True, "status": "selected"}
+    nhrl_common.save_state(state_dir / nhrl_common.STATE_FILENAME, {"clyde": entry})
+    (state_dir / nhrl_common.BOT_CACHE_FILENAME).write_text("[]")
+    monkeypatch.setattr(download_nhrl_bots, "load_or_fetch_bots", lambda *a: [bot])
+    monkeypatch.setattr(
+        download_nhrl_bots,
+        "download_thumbnail",
+        lambda *a: pytest.fail("rejected thumbnail was downloaded"),
+    )
+    monkeypatch.setattr("sys.argv", ["download_nhrl_bots.py", str(state_dir)])
+    download_nhrl_bots.main()
+    saved = nhrl_common.load_state(state_dir / nhrl_common.STATE_FILENAME)
+    assert saved["clyde"][nhrl_common.STATE_REJECTED_KEY] is True

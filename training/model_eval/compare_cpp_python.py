@@ -117,13 +117,20 @@ def _matched_pairs(
     return pairs
 
 
+OFFSET_COLUMNS = (
+    "coordinate",
+    "pairs",
+    "slope",
+    "intercept_px",
+    "mean_offset_px",
+    "mean_abs_offset_px",
+)
+
+
 def cross_path_offsets(
     cpp: list[Frame], python: list[Frame], iou_threshold: float
 ) -> pd.DataFrame | None:
-    """Match C++ detections to Python detections directly and fit cpp = a * python + b.
-
-    Returns per-coordinate rows (kp_x, kp_y, box_cx, box_cy) with slope, intercept, mean
-    offset, and pair count, or None when nothing matched or the model has no keypoints."""
+    """Fit cpp = a * python + b over matched detections, None when nothing matched."""
     pairs_kp: list[tuple[np.ndarray, np.ndarray]] = []
     pairs_box: list[tuple[np.ndarray, np.ndarray]] = []
     for cpp_frame, py_frame in zip(cpp, python):
@@ -164,7 +171,7 @@ def cross_path_offsets(
                 "mean_abs_offset_px": float(np.mean(np.abs(cpp_vals - py_vals))),
             }
         )
-    return pd.DataFrame(rows)
+    return pd.DataFrame(rows, columns=list(OFFSET_COLUMNS))
 
 
 def main() -> None:

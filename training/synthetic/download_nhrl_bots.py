@@ -134,7 +134,6 @@ def main() -> None:
 
         entry = state.get(clean_name, {})
         if nc.is_rejected(entry):
-            # Human-rejected thumbnail: never re-download, keep the flag sticky.
             rejected += 1
             state[clean_name] = entry
             print(f"{name[:31]:<32}{'/'.join(wc)[:11]:<12}{fights:>7}  rejected")

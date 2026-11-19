@@ -6,6 +6,7 @@ import os
 import sys
 import tomllib
 from pathlib import Path
+from typing import NamedTuple
 
 import bpy
 import cv2
@@ -204,20 +205,14 @@ def color_distance(c1: tuple[int, int, int], c2: list[int]) -> float:
     return float(np.sqrt(sum((a - b) ** 2 for a, b in zip(c1, c2))))
 
 
-def match_material_type(
-    color: tuple[int, int, int],
-    color_mapping: list[dict],
-) -> tuple[str | None, float, bool]:
-    """Find the best material type for an RGB color.
+class MaterialMatch(NamedTuple):
+    name: str | None
+    distance: float
+    used_fallback: bool
 
-    Matching strategy:
-    1) Use explicit color_mapping entries within their configured tolerance.
-    2) If no explicit entry matches, allow a nearest-color fallback when the
-       closest mapped color is still reasonably close.
 
-    Returns:
-        (material_name, distance, used_fallback)
-    """
+def match_material_type(color: tuple[int, int, int], color_mapping: list[dict]) -> MaterialMatch:
+    """Match an RGB color to a material within tolerance, else the nearest one when close enough."""
     best_match = None
     best_dist = float("inf")
     nearest_match = None
@@ -232,12 +227,12 @@ def match_material_type(
             best_match = entry["material"]
 
     if best_match is not None:
-        return best_match, best_dist, False
+        return MaterialMatch(best_match, best_dist, False)
 
     if nearest_match is not None and nearest_dist <= CAD_COLOR_FALLBACK_MAX_DIST:
-        return nearest_match, nearest_dist, True
+        return MaterialMatch(nearest_match, nearest_dist, True)
 
-    return None, nearest_dist, False
+    return MaterialMatch(None, nearest_dist, False)
 
 
 _PBR_SUFFIXES = [
@@ -556,6 +551,12 @@ def cleanup_meshes(meshes: list[bpy.types.Object]) -> None:
             bpy.data.meshes.remove(mesh_data)
 
 
+class ViewAngle(NamedTuple):
+    azimuth_deg: float
+    elevation_deg: float
+    label: str
+
+
 def render_preview(
     meshes: list[bpy.types.Object],
     output_path: Path,
@@ -579,14 +580,13 @@ def render_preview(
     extent = max(max(xs) - min(xs), max(ys) - min(ys), max(zs) - min(zs), 1e-6)
     radius = extent * 2.0
 
-    # (azimuth_deg, elevation_deg, label) — 6 cardinal directions
     view_angles = [
-        (0, 15, "Front"),
-        (180, 15, "Back"),
-        (90, 15, "Left"),
-        (270, 15, "Right"),
-        (0, 89, "Top"),
-        (0, -89, "Bottom"),
+        ViewAngle(0, 15, "Front"),
+        ViewAngle(180, 15, "Back"),
+        ViewAngle(90, 15, "Left"),
+        ViewAngle(270, 15, "Right"),
+        ViewAngle(0, 89, "Top"),
+        ViewAngle(0, -89, "Bottom"),
     ]
 
     bproc.camera.set_resolution(img_w, img_h)

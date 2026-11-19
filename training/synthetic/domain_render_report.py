@@ -12,7 +12,6 @@ from pathlib import Path
 NAMES = ("mr_stabs_mk2", "mrs_buff_mk3", "nhrl_robot", "house_bot")
 KEYPOINT_START = 1 + 4
 KEYPOINT_STRIDE = 3
-# "Run summary: 100/100 images written across 11 scenes (2 frames dropped, 0 short)"
 SUMMARY_RE = re.compile(
     r"Run summary: (?P<written>\d+)/\d+ images written across (?P<scenes>\d+) scenes"
     r"(?: \((?P<dropped>\d+) frames dropped)?"

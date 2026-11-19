@@ -16,7 +16,7 @@ import time
 from collections.abc import Iterator
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 QUEUE_DIR = REPO_ROOT / "runs" / "queue"
@@ -458,12 +458,13 @@ def script_name(job: dict[str, Any]) -> str:
     return Path(scripts[-1] if scripts else fallback).name
 
 
-def log_progress(job: dict[str, Any]) -> tuple[float, str] | None:
-    """How far a running job has got, read from its Ultralytics epoch counter.
+class LogProgress(NamedTuple):
+    fraction: float
+    label: str
 
-    Returns (fraction done, "46/100"), or None for a job whose log does not carry
-    one -- the caller then falls back to what past jobs took.
-    """
+
+def log_progress(job: dict[str, Any]) -> LogProgress | None:
+    """Progress of a running job read from its Ultralytics epoch counter, None without one."""
     if not job.get("log"):
         return None
     path = Path(job["log"])
@@ -485,7 +486,7 @@ def log_progress(job: dict[str, Any]) -> tuple[float, str] | None:
             batch, batches = int(batch_match.group(1)), int(batch_match.group(2))
             if batches > 0:
                 done += min(batch / batches, 1.0)
-        return done / epochs, f"{epoch}/{epochs}"
+        return LogProgress(done / epochs, f"{epoch}/{epochs}")
     return None
 
 
@@ -681,8 +682,8 @@ def forecast(state: dict[str, Any], ref: datetime) -> dict[int, dict[str, Any]]:
             started = parse_time(job["started_at"]) or ref
             elapsed = max((ref - started).total_seconds(), 0.0)
             reading = log_progress(job)
-            progress = reading[1] if reading else None
-            fraction = reading[0] if reading else 0.0
+            progress = reading.label if reading else None
+            fraction = reading.fraction if reading else 0.0
             if fraction >= LOG_PROGRESS_TRUST_FRACTION or (history is None and fraction > 0.02):
                 seconds, measured, basis = elapsed / fraction, True, ""
             if seconds is not None:

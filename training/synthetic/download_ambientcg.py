@@ -32,7 +32,6 @@ def parse_asset_from_url(url: str) -> str:
     filename = qs.get("file", [""])[0]
     if not filename:
         raise ValueError(f"Could not parse asset name from URL: {url}")
-    # Plastic007_2K-JPG.zip → Plastic007
     return filename.split("_")[0]
 
 

@@ -9,6 +9,7 @@ import tkinter as tk
 from dataclasses import dataclass, field
 from pathlib import Path
 from tkinter import ttk
+from typing import Literal, NamedTuple
 
 import yaml
 from natsort import natsorted
@@ -23,18 +24,28 @@ KP_VISIBLE = 2.0
 KP_OCCLUDED = 1.0
 
 
+class Keypoint(NamedTuple):
+    x_px: float
+    y_px: float
+    visibility: float
+
+
+class Handle(NamedTuple):
+    kind: Literal["body", "corner", "kp"]
+    which: str = ""
+    index: int = 0
+
+
 @dataclass
 class Box:
-    """One editable detect/pose annotation, in image-pixel coordinates.
-
-    keypoints holds [x_px, y_px, visibility] triplets (empty for detect rows)."""
+    """One editable detect/pose annotation, in image-pixel coordinates."""
 
     class_id: int
     x1: float
     y1: float
     x2: float
     y2: float
-    keypoints: list[list[float]] = field(default_factory=list)
+    keypoints: list[Keypoint] = field(default_factory=list)
 
     def normalized_row(self, img_w: int, img_h: int) -> str:
         cx = (self.x1 + self.x2) / 2.0 / img_w
@@ -58,7 +69,8 @@ def _parse_row(parts: list[str], img_w: int, img_h: int) -> Box | None:
         return None
     cx, cy, w, h = values[:4]
     keypoints = [
-        [values[i] * img_w, values[i + 1] * img_h, values[i + 2]] for i in range(4, len(values), 3)
+        Keypoint(values[i] * img_w, values[i + 1] * img_h, values[i + 2])
+        for i in range(4, len(values), 3)
     ]
     return Box(
         class_id=class_id,
@@ -196,10 +208,7 @@ class LabelEditor:
         self.current_class = 0
         self.dirty = False
         self.zoom = 1.0
-        # Click-move-click editing state. active_mode is the currently grabbed
-        # handle ('body' | 'corner:<which>' | 'kp:<k>') or None when nothing is
-        # held. A grab persists across mouse-up until the next click drops it.
-        self.active_mode: str | None = None
+        self.active_mode: Handle | None = None
         self.drag_anchor = (0.0, 0.0)
         self.drawing_new = False
         self.press_xy = (0.0, 0.0)
@@ -436,14 +445,14 @@ class LabelEditor:
         s = self._scale()
         return self.canvas.canvasx(cx) / s, self.canvas.canvasy(cy) / s
 
-    def _hit_test(self, ix: float, iy: float) -> tuple[str, int] | None:
-        """Return ('kp:<k>'|'corner:<which>'|'body', box index) for the hit box, if any."""
+    def _hit_test(self, ix: float, iy: float) -> tuple[Handle, int] | None:
+        """Return the grabbed handle and its box index, if any."""
         handle = HANDLE_PX / self._scale()
-        best: tuple[float, tuple[str, int]] | None = None
+        best: tuple[float, tuple[Handle, int]] | None = None
         for i, box in enumerate(self.boxes):
             for k, (kx, ky, _v) in enumerate(box.keypoints):
                 if abs(ix - kx) <= handle and abs(iy - ky) <= handle:
-                    return (f"kp:{k}", i)
+                    return (Handle("kp", index=k), i)
             corners = {
                 "nw": (box.x1, box.y1),
                 "ne": (box.x2, box.y1),
@@ -452,11 +461,11 @@ class LabelEditor:
             }
             for which, (px, py) in corners.items():
                 if abs(ix - px) <= handle and abs(iy - py) <= handle:
-                    return (f"corner:{which}", i)
+                    return (Handle("corner", which), i)
             if box.x1 <= ix <= box.x2 and box.y1 <= iy <= box.y2:
                 area = (box.x2 - box.x1) * (box.y2 - box.y1)
                 if best is None or area < best[0]:
-                    best = (area, ("body", i))
+                    best = (area, (Handle("body"), i))
         return best[1] if best else None
 
     def _on_press(self, event: tk.Event) -> None:
@@ -473,7 +482,7 @@ class LabelEditor:
         if hit is None:
             self.boxes.append(Box(self.current_class, ix, iy, ix, iy))
             self.selected = len(self.boxes) - 1
-            self.active_mode = "corner:se"
+            self.active_mode = Handle("corner", "se")
             self.drag_anchor = (ix, iy)
             self.drawing_new = True
         else:
@@ -489,11 +498,10 @@ class LabelEditor:
             return
         ix, iy = self._to_image(event.x, event.y)
         box = self.boxes[self.selected]
-        if self.active_mode.startswith("kp:"):
-            kp = box.keypoints[int(self.active_mode.split(":")[1])]
-            kp[0] = ix
-            kp[1] = iy
-        elif self.active_mode == "body":
+        if self.active_mode.kind == "kp":
+            index = self.active_mode.index
+            box.keypoints[index] = box.keypoints[index]._replace(x_px=ix, y_px=iy)
+        elif self.active_mode.kind == "body":
             w = box.x2 - box.x1
             h = box.y2 - box.y1
             dx = ix - self.drag_anchor[0] - box.x1
@@ -502,11 +510,11 @@ class LabelEditor:
             box.y1 += dy
             box.x2 = box.x1 + w
             box.y2 = box.y1 + h
-            for kp in box.keypoints:
-                kp[0] += dx
-                kp[1] += dy
+            box.keypoints = [
+                kp._replace(x_px=kp.x_px + dx, y_px=kp.y_px + dy) for kp in box.keypoints
+            ]
         else:
-            which = self.active_mode.split(":")[1]
+            which = self.active_mode.which
             if "n" in which:
                 box.y1 = iy
             if "s" in which:
@@ -558,7 +566,7 @@ class LabelEditor:
         cx = (box.x1 + box.x2) / 2
         for k in range(count):
             ky = box.y1 + (box.y2 - box.y1) * (k + 1) / (count + 1)
-            box.keypoints.append([cx, ky, KP_VISIBLE])
+            box.keypoints.append(Keypoint(cx, ky, KP_VISIBLE))
 
     def start_keypoint_mode(self) -> None:
         """Place the selected box's keypoints by clicking, starting at index 0."""
@@ -581,8 +589,8 @@ class LabelEditor:
         ix, iy = self._to_image(event.x, event.y)
         visibility = KP_OCCLUDED if event.state & TK_SHIFT_STATE_BIT else KP_VISIBLE
         while len(box.keypoints) <= self.kp_next:
-            box.keypoints.append([ix, iy, visibility])
-        box.keypoints[self.kp_next] = [ix, iy, visibility]
+            box.keypoints.append(Keypoint(ix, iy, visibility))
+        box.keypoints[self.kp_next] = Keypoint(ix, iy, visibility)
         self.kp_next += 1
         if self.kp_next >= self._target_kpt_count(box):
             self.kp_next = None

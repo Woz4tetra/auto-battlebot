@@ -102,7 +102,7 @@ def convert_svo_file(svo_file: str, opt: argparse.Namespace) -> None:
 
     video_writer = cv2.VideoWriter(
         output,
-        cv2.VideoWriter_fourcc("M", "4", "S", "2"),  # type: ignore
+        cv2.VideoWriter_fourcc("M", "4", "S", "2"),  # type: ignore[attr-defined]
         min(fps, 100),
         (width, height),
     )

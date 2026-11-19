@@ -47,3 +47,22 @@ def test_donor_with_robot_under_the_rect_is_skipped(interpret) -> None:
 def test_search_starts_half_the_list_away(interpret) -> None:
     frames = _frames([[[100, 100, 110, 110]]] * 8)
     assert interpret.donor_index(frames, 0, [0, 0, 10, 10]) == 4
+
+
+def test_opp_channels_for_2class_excludes_house_bot(interpret, monkeypatch) -> None:
+    import torch
+
+    house_bot_only = torch.full((1, 5, 8), -10.0)
+    house_bot_only[:, 1, :] = 10.0
+
+    class FakeNet:
+        def __call__(self, batch):
+            return None, {"one2one": {"scores": house_bot_only}}
+
+    model = object.__new__(interpret.Model)
+    model.net = FakeNet()
+    model._pre = lambda imgs: imgs
+    monkeypatch.setattr(interpret, "OPP_CHANNELS", (0,))
+    assert interpret.Model.opp_scores(model, [None]).max() < 0.01
+    monkeypatch.setattr(interpret, "OPP_CHANNELS", (0, 1))
+    assert interpret.Model.opp_scores(model, [None]).min() > 0.99

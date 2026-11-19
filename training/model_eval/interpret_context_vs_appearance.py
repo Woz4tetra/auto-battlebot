@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import cast
+from typing import TypedDict, cast
 
 import cv2
 import matplotlib
@@ -22,9 +22,6 @@ from ultralytics import YOLO
 
 MIN_EXPLAINED_SCORE = 0.15
 IMGSZ = 640
-# Head channels that mean "opponent", set from --opp-channels. Default (0, 1) is the 5-class
-# vocabulary's `object` + `robot`; a 2-class model means just (0,) -- channel 1 is house_bot there,
-# and folding it in would score "found a house bot" as "found an opponent".
 OPP_CHANNELS = (0, 1)
 STRIDES = (8, 16, 32)
 GEN = torch.Generator(device="cpu").manual_seed(0)
@@ -125,8 +122,8 @@ class Model:
         """(B, 8400) max opponent class probability per anchor for a batch of RGB 640 images."""
         with torch.no_grad():
             _, extra = self.net(self._pre(imgs_rgb))
-        s = extra["one2one"]["scores"]  # (B, 5, 8400) raw logits
-        opp = torch.sigmoid(s[:, OPP_CHANNELS, :]).amax(1)
+        raw_logits_b_cls_anchors = extra["one2one"]["scores"]
+        opp = torch.sigmoid(raw_logits_b_cls_anchors[:, OPP_CHANNELS, :]).amax(1)
         return opp.float().cpu().numpy()
 
     def box_score(self, imgs_rgb: list[np.ndarray], box: list[float]) -> np.ndarray:
@@ -143,8 +140,8 @@ class Model:
             batch = [cv2.resize(c, (IMGSZ, IMGSZ)) for c in crops_rgb[i : i + 64]]
             with torch.no_grad():
                 _, extra = self.net(self._pre(batch))
-            feat = extra["one2one"]["feats"][2]  # (B,256,20,20) deepest neck feature
-            out.append(feat.mean((2, 3)).float().cpu().numpy())
+            deepest_neck_feat_b_256_20_20 = extra["one2one"]["feats"][2]
+            out.append(deepest_neck_feat_b_256_20_20.mean((2, 3)).float().cpu().numpy())
         return np.concatenate(out, 0)
 
     def gradcam(self, img_rgb: np.ndarray, box: list[float]) -> np.ndarray:
@@ -195,9 +192,21 @@ class Model:
         return cv2.resize(cam_np, (IMGSZ, IMGSZ))
 
 
-def mass_fractions(sal: np.ndarray, box: list[float]) -> dict[str, float]:
-    """Fraction of saliency mass inside box / in a 2x context ring / in background, and each
-    fraction normalized by that region's area fraction (concentration; >1 = focused there)."""
+MassFractions = TypedDict(
+    "MassFractions",
+    {
+        "inside_frac": float,
+        "inside_concentration": float,
+        "ring_frac": float,
+        "ring_concentration": float,
+        "background_frac": float,
+        "background_concentration": float,
+    },
+)
+
+
+def mass_fractions(sal: np.ndarray, box: list[float]) -> MassFractions:
+    """Saliency mass fraction per region, and that fraction divided by the region's area."""
     h, w = sal.shape
     total = sal.sum() + 1e-8
     x0, y0, x1, y1 = (int(round(v)) for v in box)
@@ -211,18 +220,25 @@ def mass_fractions(sal: np.ndarray, box: list[float]) -> dict[str, float]:
     ring_mask &= ~inside_mask
     bg_mask = ~inside_mask & ~ring_mask
     px = h * w
-    out = {}
+    fracs = {}
+    concentrations = {}
     for name, m in (("inside", inside_mask), ("ring", ring_mask), ("background", bg_mask)):
         area_frac = m.sum() / px + 1e-8
-        frac = sal[m].sum() / total
-        out[f"{name}_frac"] = float(frac)
-        out[f"{name}_concentration"] = float(frac / area_frac)
-    return out
+        fracs[name] = float(sal[m].sum() / total)
+        concentrations[name] = fracs[name] / float(area_frac)
+    return {
+        "inside_frac": fracs["inside"],
+        "inside_concentration": concentrations["inside"],
+        "ring_frac": fracs["ring"],
+        "ring_concentration": concentrations["ring"],
+        "background_frac": fracs["background"],
+        "background_concentration": concentrations["background"],
+    }
 
 
 def rise(model: Model, frames: list[dict], n_masks: int, grid: int) -> dict:
     """RISE saliency; returns mean mass fractions/concentrations over sampled opponent boxes."""
-    accum: list[dict] = []
+    accum: list[MassFractions] = []
     examples: list[tuple] = []
     for fi, fr in enumerate(frames):
         box = fr["boxes"][0]
@@ -326,7 +342,7 @@ def feature_space(
 
 
 def gradcam_probe(model: Model, frames: list[dict], k: int) -> dict:
-    accum: list[dict] = []
+    accum: list[MassFractions] = []
     examples: list[tuple] = []
     for fr in frames[:k]:
         box = fr["boxes"][0]

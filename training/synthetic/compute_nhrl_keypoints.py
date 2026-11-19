@@ -44,15 +44,6 @@ def _world_vertices(meshes: list[bpy.types.Object]) -> np.ndarray | None:
     return np.vstack(chunks)
 
 
-def _world_to_model(world: np.ndarray) -> np.ndarray:
-    """Blender world (Z-up) -> GLTF-native model frame (Y-up), matching trimesh.
-
-    Blender's glTF importer rotates the model by +90 deg about X (Y-up -> Z-up),
-    i.e. ``model_to_blender`` is ``[x, -z, y]``; this applies the exact inverse.
-    """
-    return np.column_stack([world[:, 0], world[:, 2], -world[:, 1]])
-
-
 def _setup_scene(samples: int) -> None:
     bproc.renderer.set_max_amount_of_samples(samples)
     world = bpy.context.scene.world
@@ -184,10 +175,10 @@ def main() -> None:
     for glb_path in glb_files:
         sidecar = nc.sidecar_path_for(glb_path)
         existing = nc.load_json(sidecar) if sidecar.exists() else None
-        if existing is not None and existing.get("reviewed"):
-            kept_reviewed += 1  # human-confirmed; never recompute, even with --overwrite
-            continue
-        if existing is not None and not args.overwrite:
+        action = nc.sidecar_action(existing, args.overwrite)
+        if action == "keep_reviewed":
+            kept_reviewed += 1
+        if action != "write":
             continue
 
         meta = _metadata_for(glb_path, by_glb)
@@ -195,10 +186,10 @@ def main() -> None:
         meshes = _import_glb(glb_path)
         world_verts = _world_vertices(meshes) if meshes else None
         keypoints = None
-        topdown = None
+        topdown: nc.TopdownSidecar | None = None
 
         if world_verts is not None:
-            model_verts = _world_to_model(world_verts)
+            model_verts = nc.world_to_model(world_verts)
             axes = nc.footprint_axes(model_verts, args.slice_fraction)
             if axes is not None:
                 _c, u1, _u2, _slice, y_ground = axes
