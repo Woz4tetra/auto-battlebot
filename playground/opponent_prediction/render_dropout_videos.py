@@ -11,6 +11,7 @@ from contextlib import closing
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
+from typing import NamedTuple
 
 import cv2
 import numpy as np
@@ -39,7 +40,6 @@ INSET_CROP = 280
 INSET_SCALE = 2.0
 RING_CAP_M = 1.5
 
-# BGR
 BLUE = (214, 120, 42)
 ORANGE = (52, 104, 235)
 GREEN = (80, 190, 60)
@@ -47,6 +47,8 @@ WHITE = (245, 245, 245)
 GREY = (160, 160, 160)
 BLACK = (20, 20, 20)
 REPLAYS = OUT / "replays"
+FLOOR_PLANE_Z_M = 0.0
+KEYPOINT_PLANE_Z_M = 0.03
 
 
 class SceneKind(Enum):
@@ -63,9 +65,7 @@ class Scene:
     mcap: Path = field(default_factory=Path)
     svo: Path = field(default_factory=Path)
     half_size_m: float = 0.08
-    # Height of the plane the measurements live on: the estimator projects opponent keypoints
-    # onto keypoint_height_meters (0.03); the sysid fixes are axle centres on the floor.
-    plane_z_m: float = 0.0
+    plane_z_m: float = FLOOR_PLANE_Z_M
 
 
 SCENES = {
@@ -83,7 +83,7 @@ SCENES = {
         mcap=REPLAYS / "2026-05-02T17-26-14_KALMAN.mcap",
         svo=REPO_ROOT / "data/svo/NHRL_2026-05-02/2026-05-02T17-26-14.svo2",
         half_size_m=0.11,
-        plane_z_m=0.03,
+        plane_z_m=KEYPOINT_PLANE_Z_M,
     ),
     "massd": Scene(
         "massd",
@@ -92,16 +92,22 @@ SCENES = {
         mcap=REPLAYS / "2026-08-29T13-20-08_KALMAN.mcap",
         svo=REPO_ROOT / "data/svo/MassD_2026-08-29/2026-08-29T13-20-08.svo2",
         half_size_m=0.11,
-        plane_z_m=0.03,
+        plane_z_m=KEYPOINT_PLANE_Z_M,
     ),
 }
+
+
+class Frame(NamedTuple):
+    stamp_ns: int
+    bgr: np.ndarray
+    cam_from_field: np.ndarray
 
 
 @dataclass
 class FrameSource:
     """Frames on the session clock with the camera_from_field transform for each."""
 
-    frames: Iterator[tuple[int, np.ndarray, np.ndarray]]  # (session-clock ns, BGR, cam_from_field)
+    frames: Iterator[Frame]
     intrinsics: np.ndarray
     fps: float
 
@@ -114,12 +120,12 @@ def sysid_frames(session: str) -> FrameSource:
     field_from_camera = load_field_from_camera(mcap)
     t_up_field, _ = up_from_field(field_from_camera)
 
-    def gen() -> Iterator[tuple[int, np.ndarray, np.ndarray]]:
+    def gen() -> Iterator[Frame]:
         for stamp_ns, image in iter_video_frames(mcap):
             if stamp_ns == 0:
                 continue
             up_from_camera = t_up_field @ field_from_camera.at(np.array([stamp_ns]))[0]
-            yield stamp_ns + offset_ns, image, np.linalg.inv(up_from_camera)
+            yield Frame(stamp_ns + offset_ns, image, np.linalg.inv(up_from_camera))
 
     return FrameSource(gen(), k, 60.0)
 
@@ -146,7 +152,7 @@ def replay_frames(scene: Scene, last_index: int) -> FrameSource:
     topic, _count = svo2.find_side_by_side_topic(scene.svo)
     fps = svo2.sample_fps(scene.svo, topic)
 
-    def gen() -> Iterator[tuple[int, np.ndarray, np.ndarray]]:
+    def gen() -> Iterator[Frame]:
         with closing(svo2.iter_left_jpegs(scene.svo, topic, fps)) as jpegs:
             for svo_index, jpeg in enumerate(jpegs):
                 if svo_index > last_index:
@@ -157,7 +163,7 @@ def replay_frames(scene: Scene, last_index: int) -> FrameSource:
                 img = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
                 if img is None:
                     continue
-                yield int(cam.stamp_ns[row]) + offset_ns, img, cam.cam_from_field[row]
+                yield Frame(int(cam.stamp_ns[row]) + offset_ns, img, cam.cam_from_field[row])
 
     return FrameSource(gen(), cam.intrinsics, fps)
 
@@ -426,7 +432,8 @@ def render_scene(scene: Scene) -> Path:
     current = -1
     written = 0
     show_from = [s.start_ns - int(PRE_S * 1e9) for s in segments]
-    for t_ns, img, cff in source.frames:
+    for frame in source.frames:
+        t_ns, img, cff = frame.stamp_ns, frame.bgr, frame.cam_from_field
         if t_ns > last_ns:
             break
         idx = next((i for i, s in enumerate(segments) if show_from[i] <= t_ns <= s.window[1]), None)

@@ -9,6 +9,7 @@ import math
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum, IntEnum
 from pathlib import Path
 
 import cv2
@@ -35,11 +36,33 @@ CLIP_CROP = 0.5
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 
 
+class TrackColumn(IntEnum):
+    T = 0
+    OUR_X = 1
+    OUR_Y = 2
+    OUR_YAW = 3
+    OPP_X = 4
+    OPP_Y = 5
+    OPP_YAW = 6
+    OUR_U = 7
+    OUR_V = 8
+    OPP_U = 9
+    OPP_V = 10
+
+
+C = TrackColumn
+
+
+class EventKind(str, Enum):
+    STRIKE = "strike"
+    HIT = "hit"
+
+
 @dataclass
 class Event:
-    kind: str  # "strike" or "hit"
-    t0: float
-    t1: float
+    kind: EventKind
+    t0_wall_s: float
+    t1_wall_s: float
     elapsed_from_first_message_s: float
     closest_dist_m: float
     our_bearing_deg: float
@@ -78,10 +101,7 @@ def load_autonomy(path: Path) -> tuple[np.ndarray, np.ndarray]:
 
 
 def load_tracks(path: Path) -> np.ndarray:
-    """Rows of (t, our x, y, yaw, opponent x, y, yaw, our u, v, opponent u, v).
-
-    Poses are NaN when either robot is untracked. u and v are normalized image coordinates.
-    """
+    """Rows indexed by TrackColumn; poses are NaN when either robot is untracked."""
     rows = []
     for _, log_time_ns, data in iter_messages(path, [TRACKS_TOPIC]):
         tracks = json.loads(bytes(data))
@@ -106,18 +126,18 @@ def score(path: Path, a: np.ndarray, contact_m: float, wedge_half_rad: float) ->
     if not auto_on.any():
         print(f"\n{path.name}: autonomy never engaged")
         return []
-    t = a[:, 0]
+    t = a[:, C.T]
     on = auto_on[np.clip(np.searchsorted(auto_t, t) - 1, 0, len(auto_on) - 1)]
-    both = ~np.isnan(a[:, 1])
+    both = ~np.isnan(a[:, C.OUR_X])
 
-    dx, dy = a[:, 4] - a[:, 1], a[:, 5] - a[:, 2]
+    dx, dy = a[:, C.OPP_X] - a[:, C.OUR_X], a[:, C.OPP_Y] - a[:, C.OUR_Y]
     dist = np.hypot(dx, dy)
-    opponent_off_our_heading = np.abs(wrap(np.arctan2(dy, dx) - a[:, 3]))
-    us_off_opponent_heading = np.abs(wrap(np.arctan2(-dy, -dx) - a[:, 6]))
+    opponent_off_our_heading = np.abs(wrap(np.arctan2(dy, dx) - a[:, C.OUR_YAW]))
+    us_off_opponent_heading = np.abs(wrap(np.arctan2(-dy, -dx) - a[:, C.OPP_YAW]))
     in_arc = us_off_opponent_heading < ARC_HALF_RAD
     contact = dist < contact_m
     dt = np.minimum(np.diff(t, append=t[-1]), MAX_SAMPLE_WEIGHT_S)
-    speed = np.hypot(np.gradient(a[:, 1], t), np.gradient(a[:, 2], t))
+    speed = np.hypot(np.gradient(a[:, C.OUR_X], t), np.gradient(a[:, C.OUR_Y], t))
 
     m = on & both
     auto_s = float(np.sum(dt[on]))
@@ -155,7 +175,7 @@ def score(path: Path, a: np.ndarray, contact_m: float, wedge_half_rad: float) ->
         np.degrees(us_off_opponent_heading[m]),
     )
     events = []
-    for kind, spans in (("strike", strikes), ("hit", hits)):
+    for kind, spans in ((EventKind.STRIKE, strikes), (EventKind.HIT, hits)):
         for i0, i1 in spans:
             closest = i0 + int(np.argmin(dist_m[i0 : i1 + 1]))
             events.append(
@@ -169,12 +189,13 @@ def score(path: Path, a: np.ndarray, contact_m: float, wedge_half_rad: float) ->
                     float(opp_deg[closest]),
                 )
             )
-    events.sort(key=lambda e: e.t0)
+    events.sort(key=lambda e: e.t0_wall_s)
     print("\n  event   elapsed s  wall clock     dur s  min dist m  our bearing  their bearing")
     for e in events:
-        wall = datetime.fromtimestamp(e.t0).strftime("%H:%M:%S.%f")[:-3]
+        wall = datetime.fromtimestamp(e.t0_wall_s).strftime("%H:%M:%S.%f")[:-3]
         print(
-            f"  {e.kind:<6}  {e.elapsed_from_first_message_s:9.2f}  {wall}  {e.t1 - e.t0:5.2f}"
+            f"  {e.kind.value:<6}  {e.elapsed_from_first_message_s:9.2f}  {wall}"
+            f"  {e.t1_wall_s - e.t0_wall_s:5.2f}"
             f"  {e.closest_dist_m:10.2f}  {e.our_bearing_deg:10.0f}d  {e.their_bearing_deg:12.0f}d"
         )
     return events
@@ -183,23 +204,25 @@ def score(path: Path, a: np.ndarray, contact_m: float, wedge_half_rad: float) ->
 def render_clips(path: Path, a: np.ndarray, events: list[Event], out_dir: Path) -> None:
     """Write one slowed, cropped clip per event plus review.csv."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    clips = [(e, out_dir / f"{e.kind}_{e.elapsed_from_first_message_s:07.2f}s.mp4") for e in events]
-    last_t = max(e.t1 for e in events) + CLIP_POST_S
+    clips = [
+        (e, out_dir / f"{e.kind.value}_{e.elapsed_from_first_message_s:07.2f}s.mp4") for e in events
+    ]
+    last_t = max(e.t1_wall_s for e in events) + CLIP_POST_S
     encoders: dict[int, subprocess.Popen] = {}
     crops: dict[int, tuple[int, int]] = {}
-    track_t = a[:, 0]
+    track_t = a[:, C.T]
     for stamp_ns, frame in iter_video_frames(path):
         t = stamp_ns / 1e9
         if t > last_t:
             break
         for i, (e, clip_path) in enumerate(clips):
-            if not e.t0 - CLIP_PRE_S <= t <= e.t1 + CLIP_POST_S:
-                if i in encoders and t > e.t1 + CLIP_POST_S:
+            if not e.t0_wall_s - CLIP_PRE_S <= t <= e.t1_wall_s + CLIP_POST_S:
+                if i in encoders and t > e.t1_wall_s + CLIP_POST_S:
                     close(encoders.pop(i))
                 continue
             fh, fw = frame.shape[:2]
             if i not in crops:
-                crops[i] = crop_origin(a, e.t0, fw, fh)
+                crops[i] = crop_origin(a, e.t0_wall_s, fw, fh)
             x0, y0 = crops[i]
             crop = frame[y0 : y0 + int(fh * CLIP_CROP), x0 : x0 + int(fw * CLIP_CROP)]
             scale = CLIP_WIDTH / crop.shape[1]
@@ -207,19 +230,19 @@ def render_clips(path: Path, a: np.ndarray, events: list[Event], out_dir: Path) 
             h, w = img.shape[:2]
             row = a[max(int(np.searchsorted(track_t, t, side="right")) - 1, 0)]
             for (u, v), color, name in (
-                ((row[7], row[8]), (40, 40, 230), "ours"),
-                ((row[9], row[10]), (230, 160, 20), "opp"),
+                ((row[C.OUR_U], row[C.OUR_V]), (40, 40, 230), "ours"),
+                ((row[C.OPP_U], row[C.OPP_V]), (230, 160, 20), "opp"),
             ):
                 if not math.isnan(u):
                     center = (int((u * fw - x0) * scale), int((v * fh - y0) * scale))
                     cv2.circle(img, center, 50, color, 2, cv2.LINE_AA)
                     offset = (center[0] - 20, center[1] + (-58 if name == "ours" else 72))
                     cv2.putText(img, name, offset, FONT, 0.6, color, 2, cv2.LINE_AA)
-            if e.t0 <= t <= e.t1:
+            if e.t0_wall_s <= t <= e.t1_wall_s:
                 cv2.rectangle(img, (0, 0), (w - 1, h - 1), (0, 0, 255), 8)
             label = (
                 f"{e.kind.upper()}  elapsed {e.elapsed_from_first_message_s:.2f}s  "
-                f"t {t - e.t0:+.2f}s  "
+                f"t {t - e.t0_wall_s:+.2f}s  "
                 f"dist {e.closest_dist_m:.2f}m  their bearing {e.their_bearing_deg:.0f}d  "
                 f"{CLIP_SPEED:g}x"
             )
@@ -241,7 +264,7 @@ def render_clips(path: Path, a: np.ndarray, events: list[Event], out_dir: Path) 
             writer.writerow(
                 [
                     clip_path.name,
-                    e.kind,
+                    e.kind.value,
                     f"{e.elapsed_from_first_message_s:.2f}",
                     f"{e.closest_dist_m:.2f}",
                     f"{e.their_bearing_deg:.0f}",
@@ -254,8 +277,8 @@ def render_clips(path: Path, a: np.ndarray, events: list[Event], out_dir: Path) 
 
 def crop_origin(a: np.ndarray, t: float, fw: int, fh: int) -> tuple[int, int]:
     """Top-left pixel of a CLIP_CROP window centered between the robots at time t."""
-    row = a[max(int(np.searchsorted(a[:, 0], t, side="right")) - 1, 0)]
-    u, v = np.nanmean(row[[7, 9]]), np.nanmean(row[[8, 10]])
+    row = a[max(int(np.searchsorted(a[:, C.T], t, side="right")) - 1, 0)]
+    u, v = np.nanmean(row[[C.OUR_U, C.OPP_U]]), np.nanmean(row[[C.OUR_V, C.OPP_V]])
     if math.isnan(u):
         u = v = 0.5
     cw, ch = int(fw * CLIP_CROP), int(fh * CLIP_CROP)
@@ -291,7 +314,7 @@ def main() -> None:
     parser.add_argument(
         "--clips",
         nargs="+",
-        choices=("hit", "strike"),
+        choices=[k.value for k in EventKind],
         help="render a review clip per event of these kinds into --clips-dir/<recording>/",
     )
     parser.add_argument("--clips-dir", type=Path, default=REPO / "playground/rl/out/field_clips")
@@ -299,7 +322,7 @@ def main() -> None:
     for path in args.recordings:
         tracks = load_tracks(path)
         events = score(path, tracks, args.contact_m, math.radians(args.wedge_half_deg))
-        selected = [e for e in events if args.clips and e.kind in args.clips]
+        selected = [e for e in events if args.clips and e.kind.value in args.clips]
         if selected:
             render_clips(path, tracks, selected, args.clips_dir / path.stem)
 

@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import time
 from pathlib import Path
+from typing import NamedTuple
 
 from auto_battlebot.perception.sysid_sessions import OUT, REPO_ROOT
 
@@ -14,17 +15,21 @@ BINARY = REPO_ROOT / "build/auto_battlebot"
 RECORDINGS_DIR = REPO_ROOT / "data/recordings"
 MAX_RUN_S = 300
 
-# (svo path, start frame). NHRL start frames are the ones that land field init on match state
-# (config/playback/svo_start_frames.toml); MassD replays from the top.
+
+class Recording(NamedTuple):
+    svo_path: str
+    start_frame: int
+
+
 RECORDINGS = [
-    ("data/svo/NHRL_2026-05-02/2026-05-02T14-12-27.svo2", 1540),
-    ("data/svo/NHRL_2026-05-02/2026-05-02T11-45-08.svo2", 13000),
-    ("data/svo/NHRL_2026-05-02/2026-05-02T16-18-07.svo2", 3148),
-    ("data/svo/NHRL_2026-05-02/2026-05-02T17-26-14.svo2", 6400),
-    ("data/svo/MassD_2026-08-29/2026-08-29T09-05-14.svo2", 0),
-    ("data/svo/MassD_2026-08-29/2026-08-29T11-17-26.svo2", 0),
-    ("data/svo/MassD_2026-08-29/2026-08-29T13-20-08.svo2", 0),
-    ("data/svo/MassD_2026-08-29/2026-08-29T15-21-23.svo2", 0),
+    Recording("data/svo/NHRL_2026-05-02/2026-05-02T14-12-27.svo2", 1540),
+    Recording("data/svo/NHRL_2026-05-02/2026-05-02T11-45-08.svo2", 13000),
+    Recording("data/svo/NHRL_2026-05-02/2026-05-02T16-18-07.svo2", 3148),
+    Recording("data/svo/NHRL_2026-05-02/2026-05-02T17-26-14.svo2", 6400),
+    Recording("data/svo/MassD_2026-08-29/2026-08-29T09-05-14.svo2", 0),
+    Recording("data/svo/MassD_2026-08-29/2026-08-29T11-17-26.svo2", 0),
+    Recording("data/svo/MassD_2026-08-29/2026-08-29T13-20-08.svo2", 0),
+    Recording("data/svo/MassD_2026-08-29/2026-08-29T15-21-23.svo2", 0),
 ]
 MODES = ("HOLD", "KALMAN")
 

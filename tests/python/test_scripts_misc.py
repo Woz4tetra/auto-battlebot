@@ -306,3 +306,39 @@ def test_sync_models_never_overwrites_existing_files(
     assert (tmp_path / "keep.engine").read_bytes() == b"local"
     assert (tmp_path / "new.engine").read_bytes() == b"remote"
     assert downloads == ["new.engine"]
+
+
+def test_split_diagnostics_flags_a_module_with_more_messages_than_source_arrays(
+    convert: ModuleType,
+) -> None:
+    span = convert.TopicSpan(count=5, first=10, last=90)
+    prefix = convert.mcap_io.DIAGNOSTICS_TOPIC_PREFIX
+    duplicated = {
+        prefix + "a": convert.TopicSpan(count=6, first=10, last=90),
+        prefix + "b": convert.TopicSpan(count=2, first=20, last=80),
+    }
+    problems = convert._split_diagnostics_problems("/diagnostics", span, duplicated)
+    assert problems == ["/diagnostics: 5 arrays in, 6 on one module out"]
+
+
+def test_split_diagnostics_accepts_modules_that_cover_the_source_span(convert: ModuleType) -> None:
+    span = convert.TopicSpan(count=5, first=10, last=90)
+    prefix = convert.mcap_io.DIAGNOSTICS_TOPIC_PREFIX
+    split = {
+        prefix + "a": convert.TopicSpan(count=5, first=10, last=70),
+        prefix + "b": convert.TopicSpan(count=3, first=20, last=90),
+    }
+    assert convert._split_diagnostics_problems("/diagnostics", span, split) == []
+    narrower = {prefix + "a": convert.TopicSpan(count=5, first=10, last=70)}
+    assert len(convert._split_diagnostics_problems("/diagnostics", span, narrower)) == 1
+
+
+def test_nhrl_set_clips_chain_without_overlapping_stamps() -> None:
+    nhrl = _load("nhrl_to_recordings")
+    clips = [(900, 30.0), (1800, 60.0), (450, 25.0)]
+    start = nhrl.SET_EPOCH_STAMP_NS
+    for frames, fps in clips:
+        end = start + int(frames / fps * 1e9)
+        following = nhrl.next_start_stamp_ns(start, frames, fps)
+        assert following > end
+        start = following

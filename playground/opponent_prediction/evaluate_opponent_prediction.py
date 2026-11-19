@@ -107,8 +107,8 @@ class LegacyOpponentFilter(OpponentFilter):
 class Trace:
     """Rendered estimates at every recorded tick, (T, B) each, plus per-update stats."""
 
-    target_ns: np.ndarray  # (T,) render time on the session clock
-    since_arrival_s: np.ndarray  # (T, B) time since the last measurement this row accepted arrived
+    target_stamp_ns: np.ndarray
+    since_arrival_s: np.ndarray
     values: dict[str, np.ndarray]
     update_stats: dict[str, np.ndarray] = field(default_factory=dict)
 
@@ -193,9 +193,9 @@ def simulate_filter(
         since.append(now - last_arrival)
         for k in names:
             rec[k].append(getattr(out, k).numpy().astype(float))
-    target_ns = (t0_ns + np.round((np.asarray(targets) - T0_S) * 1e9)).astype(np.int64)
+    target_stamp_ns = (t0_ns + np.round((np.asarray(targets) - T0_S) * 1e9)).astype(np.int64)
     return Trace(
-        target_ns=target_ns,
+        target_stamp_ns=target_stamp_ns,
         since_arrival_s=np.asarray(since),
         values={k: np.asarray(v) for k, v in rec.items()},
         update_stats={k: np.asarray(v) for k, v in stats.items()},
@@ -236,9 +236,9 @@ def simulate_hold(
     nan = np.full(last.shape, np.nan)
     inf = np.full(last.shape, np.inf)
     since = np.where(ok, ticks[:, None] - deliver[li], np.inf)
-    target_ns = (t0_ns + np.round((ticks + lead - T0_S) * 1e9)).astype(np.int64)
+    target_stamp_ns = (t0_ns + np.round((ticks + lead - T0_S) * 1e9)).astype(np.int64)
     return Trace(
-        target_ns=target_ns,
+        target_stamp_ns=target_stamp_ns,
         since_arrival_s=since,
         values={
             "x": np.where(ok, mx, nan),
@@ -256,8 +256,11 @@ def simulate_hold(
     )
 
 
+PERIODIC_GAPS_PHASE_S = 1.0
+
+
 def periodic_gaps(
-    stamps_ns: np.ndarray, gap_s: float, period_s: float, phase_s: float = 1.0
+    stamps_ns: np.ndarray, gap_s: float, period_s: float, phase_s: float = PERIODIC_GAPS_PHASE_S
 ) -> np.ndarray:
     """True for measurements kept; drops every measurement inside [k*period + phase, + gap)."""
     if gap_s <= 0.0:
@@ -281,7 +284,7 @@ def _pct(x: np.ndarray, q: float) -> float:
 
 def score_trace(data: SessionData, trace: Trace, row: int) -> dict:
     v = trace.values
-    tr = data.truth_at(trace.target_ns)
+    tr = data.truth_at(trace.target_stamp_ns)
     ok = tr["valid"] & (v["active"][:, row] > 0) & np.isfinite(v["x"][:, row])
     pos_err = np.hypot(v["x"][:, row] - tr["x"], v["y"][:, row] - tr["y"])
     yaw_err = np.abs(wrap_np(v["yaw"][:, row] - tr["yaw"]))

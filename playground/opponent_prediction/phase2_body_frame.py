@@ -35,12 +35,13 @@ class BodyFrameFilter(OpponentFilter):
         batch: int,
         config: OpponentFilterConfig,
         lateral_accel_psd: float | torch.Tensor,
-        speed_tau_s: float | torch.Tensor = math.inf,
+        speed_tau_s: float | torch.Tensor | None = None,
     ) -> None:
         super().__init__(batch, config)
         self.lateral_accel_psd = torch.as_tensor(lateral_accel_psd, dtype=self.dtype).expand(batch)
-        # Optional first-order decay of the body velocity while coasting; inf is none.
-        self.speed_tau_s = torch.as_tensor(speed_tau_s, dtype=self.dtype).expand(batch)
+        self.speed_tau_s = torch.as_tensor(
+            math.inf if speed_tau_s is None else speed_tau_s, dtype=self.dtype
+        ).expand(batch)
 
     def _substep(
         self, x: torch.Tensor, p: torch.Tensor, h: torch.Tensor, move: torch.Tensor

@@ -23,6 +23,7 @@ PRE_S = 3.0
 POST_S = 1.5
 MIN_SPEED = 0.3
 SUMMARY_PERIOD_S = 8.0
+TRUTH_GAP_MAX_S = 0.07
 
 COLORS = {
     "truth": "#0b0b0b",
@@ -59,12 +60,11 @@ def replay_session(mcap: Path, frame_id: str = "THEIR_ROBOT_1") -> SessionData:
     truth = pd.DataFrame(
         {"stamp_ns": stamp_ns, "x": x, "y": y, "yaw": yaw, "vx": vx, "vy": vy, "yaw_rate": yaw_rate}
     )
-    # A truth sample is only a measurement; between two more than 70 ms apart nothing is known.
     gap_ok = np.ones(len(t), dtype=bool)
     if len(t) > 1:
         d = np.diff(t)
-        gap_ok[1:] &= d < 0.07
-        gap_ok[:-1] &= d < 0.07
+        gap_ok[1:] &= d < TRUTH_GAP_MAX_S
+        gap_ok[:-1] &= d < TRUTH_GAP_MAX_S
     return SessionData(
         name=mcap.stem,
         role="replay",
@@ -175,11 +175,11 @@ def plot_sample(data: SessionData, start_ns: int, gap_s: float, path: Path) -> d
     summary: dict = {"start_s": (start_ns - data.meas_tag_clock_stamp_ns[0]) / 1e9, "gap_s": gap_s}
     worst = 0.0
     for arm, trace in traces.items():
-        t_rel = (trace.target_ns - start_ns) / 1e9
-        sel = (trace.target_ns >= show[0]) & (trace.target_ns < show[1])
+        t_rel = (trace.target_stamp_ns - start_ns) / 1e9
+        sel = (trace.target_stamp_ns >= show[0]) & (trace.target_stamp_ns < show[1])
         x, y = trace.values["x"][sel, 0], trace.values["y"][sel, 0]
         ax_xy.plot(x, y, color=COLORS[arm], lw=1.4, ls=STYLES[arm], label=LABELS[arm])
-        truth = data.truth_at(trace.target_ns[sel])
+        truth = data.truth_at(trace.target_stamp_ns[sel])
         err = np.hypot(x - truth["x"], y - truth["y"])
         err = np.where(truth["valid"], err, np.nan)
         ax_err.plot(
@@ -278,6 +278,15 @@ def plot_sample(data: SessionData, start_ns: int, gap_s: float, path: Path) -> d
     return summary
 
 
+def seconds_after_gap_phase(target_stamp_ns: np.ndarray, first_stamp_ns: int) -> np.ndarray:
+    return (target_stamp_ns - first_stamp_ns) / 1e9 - ev.PERIODIC_GAPS_PHASE_S
+
+
+def seconds_into_gap_period(seconds_after_phase: np.ndarray) -> np.ndarray:
+    into = seconds_after_phase - np.floor(seconds_after_phase / SUMMARY_PERIOD_S) * SUMMARY_PERIOD_S
+    return np.where(into > SUMMARY_PERIOD_S - 0.3, into - SUMMARY_PERIOD_S, into)
+
+
 def plot_summary(data: SessionData, path: Path) -> dict:
     """Median position and heading error against time into every periodic gap, per arm."""
     cfg, sigma = ev.tuned_config()
@@ -296,12 +305,9 @@ def plot_summary(data: SessionData, path: Path) -> dict:
     for col, gap in enumerate(GAPS_S):
         out[f"{gap:g}"] = {}
         for arm, trace in traces.items():
-            truth = data.truth_at(trace.target_ns)
-            rel = (
-                trace.target_ns - data.meas_tag_clock_stamp_ns[0]
-            ) / 1e9 - 1.0  # periodic_gaps phase
-            into = rel - np.floor(rel / SUMMARY_PERIOD_S) * SUMMARY_PERIOD_S
-            into = np.where(into > SUMMARY_PERIOD_S - 0.3, into - SUMMARY_PERIOD_S, into)
+            truth = data.truth_at(trace.target_stamp_ns)
+            rel = seconds_after_gap_phase(trace.target_stamp_ns, data.meas_tag_clock_stamp_ns[0])
+            into = seconds_into_gap_period(rel)
             ok = truth["valid"] & (trace.values["active"][:, col] > 0) & (rel > 0)
             pe = np.hypot(
                 trace.values["x"][:, col] - truth["x"], trace.values["y"][:, col] - truth["y"]

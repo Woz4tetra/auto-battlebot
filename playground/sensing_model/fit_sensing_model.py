@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -89,7 +90,7 @@ def jitter_noise(tracks: list[Track]) -> tuple[dict[str, Any], dict[str, Any]]:
     """Body-frame position and heading jitter by speed bin, from the opponent measurements."""
     along_all, cross_all, herr_all, speed_all, hspeed_all = [], [], [], [], []
     for tr in tracks:
-        if tr.role != "opponent":
+        if tr.role is not Role.OPPONENT or tr.x is None or tr.y is None:
             continue
         centres, idx = _windows(tr.stamps)
         if centres.size == 0:
@@ -152,18 +153,22 @@ def jitter_noise(tracks: list[Track]) -> tuple[dict[str, Any], dict[str, Any]]:
     return {"position": position, "heading_sigma_rad": sigma_rad}, report
 
 
+class Role(str, Enum):
+    OURS = "ours"
+    OPPONENT = "opponent"
+
+
 @dataclass
 class Track:
     """One robot's measurement stream in one replay."""
 
     run: str
-    role: str  # "ours" or "opponent"
-    track_id: str  # id in /status/tracks
+    role: Role
+    track_id: str
     stamps: np.ndarray
     yaw: np.ndarray
-    # Field-frame position, NaN for our robot: its heading is the only measurement logged.
-    x: np.ndarray
-    y: np.ndarray
+    x: np.ndarray | None
+    y: np.ndarray | None
 
 
 @dataclass
@@ -215,8 +220,8 @@ def load_replay(mcap: Path) -> tuple[list[Track], Scene]:
             opp.setdefault(key[len("opponent_measurement_") :], []).append(
                 tuple(float(values[k]) for k in ("stamp", "yaw", "x", "y"))
             )
-    tracks = [_track(run, "ours", "our_robot_1", ours)]
-    tracks += [_track(run, "opponent", fid.lower(), rows) for fid, rows in sorted(opp.items())]
+    tracks = [_track(run, Role.OURS, "our_robot_1", ours)]
+    tracks += [_track(run, Role.OPPONENT, fid.lower(), rows) for fid, rows in sorted(opp.items())]
 
     stamps, frames, half = [], [], []
     for _topic, log_ns, data in iter_messages(mcap, ["/status/tracks"]):
@@ -236,12 +241,14 @@ def load_replay(mcap: Path) -> tuple[list[Track], Scene]:
     return [t for t in tracks if t.track_id in ids and t.stamps.size > 1], scene
 
 
-def _track(run: str, role: str, track_id: str, rows: list[tuple[float, ...]]) -> Track:
+def _track(run: str, role: Role, track_id: str, rows: list[tuple[float, ...]]) -> Track:
     if not rows:
         return Track(run, role, track_id, *np.zeros((4, 0)))
     a = np.array(sorted(rows))
     # The same measurement can be logged on two consecutive diagnostics messages.
     a = a[np.concatenate([[True], np.diff(a[:, 0]) > 0.010])]
+    if role is Role.OURS:
+        return Track(run, role, track_id, a[:, 0], a[:, 1], None, None)
     return Track(run, role, track_id, a[:, 0], a[:, 1], a[:, 2], a[:, 3])
 
 
@@ -376,7 +383,7 @@ def main() -> None:
         "pooled_onsets_per_s": _r(pooled_onset),
     }
     robots: dict[str, Any] = {}
-    for role in ("ours", "opponent"):
+    for role in Role:
         role_tracks = [t for t in tracks if t.role == role]
         sp = spans(role_tracks, scenes)
         m_rows, m_counts, m_borrow = conditioned_table(sp.measured_s, sp.measured_ctx)
@@ -387,7 +394,7 @@ def main() -> None:
             if flips["jumps"] >= MIN_ROLE_JUMPS
             else pooled_onset
         )
-        robots[role] = {
+        robots[role.value] = {
             "speed_bins_mps": SPEED_BINS,
             "position": noise["position"],
             "heading": {
@@ -404,7 +411,7 @@ def main() -> None:
                 "borrowed": sorted(set(m_borrow) | set(d_borrow)),
             },
         }
-        report["roles"][role] = {
+        report["roles"][role.value] = {
             "tracks": len(role_tracks),
             "measured_runs_per_cell": m_counts,
             "dropped_gaps_per_cell": d_counts,

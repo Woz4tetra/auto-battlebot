@@ -8,6 +8,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
 import numpy as np
 import torch
@@ -95,12 +96,21 @@ def truth_at_frames() -> np.ndarray:
 @dataclass
 class Event:
     kind: int
-    time: float  # coast: control-clock now; update: the measurement's shutter stamp
     deliver: float
+    coast_now_s: float = math.nan
+    shutter_stamp_s: float = math.nan
     x: float = 0.0
     y: float = 0.0
     yaw: float = 0.0
     keypoint: int = 0
+
+    @property
+    def fixture_time_s(self) -> float:
+        return self.coast_now_s if self.kind == KIND_COAST else self.shutter_stamp_s
+
+
+def order_events(events: list[Event]) -> list[Event]:
+    return sorted(events, key=lambda e: (round(e.deliver, 9), 0 if e.kind != KIND_COAST else 1))
 
 
 def scenario() -> list[Event]:
@@ -111,7 +121,7 @@ def scenario() -> list[Event]:
         stamp = T0 + k * FRAME_DT
         latency = LATE_LATENCY_S if k == LATE_FRAME else LATENCY_S
         if k in DROPPED_FRAMES:
-            events.append(Event(KIND_EMPTY, stamp, stamp + latency))
+            events.append(Event(KIND_EMPTY, stamp + latency, shutter_stamp_s=stamp))
             continue
         x, y, heading = truth[k]
         x += rng.normal(0.0, 0.01)
@@ -123,16 +133,36 @@ def scenario() -> list[Event]:
             yaw += math.pi
         yaw = math.atan2(math.sin(yaw), math.cos(yaw))
         if k in BLOB_FRAMES:
-            events.append(Event(KIND_MEASURED, stamp, stamp + latency, x, y, 0.0, 0))
+            events.append(
+                Event(KIND_MEASURED, stamp + latency, shutter_stamp_s=stamp, x=x, y=y, keypoint=0)
+            )
         else:
-            events.append(Event(KIND_MEASURED, stamp, stamp + latency, x, y, yaw, 1))
+            events.append(
+                Event(
+                    KIND_MEASURED,
+                    stamp + latency,
+                    shutter_stamp_s=stamp,
+                    x=x,
+                    y=y,
+                    yaw=yaw,
+                    keypoint=1,
+                )
+            )
     num_ticks = int(round(END_S / TICK_DT))
     for i in range(num_ticks):
         now = T0 + i * TICK_DT
-        events.append(Event(KIND_COAST, now, now))
-    # Updates land before the coast tick that shares their delivery time.
-    events.sort(key=lambda e: (round(e.deliver, 9), 0 if e.kind != KIND_COAST else 1))
-    return events
+        events.append(Event(KIND_COAST, now, coast_now_s=now))
+    return order_events(events)
+
+
+class StateRecord(NamedTuple):
+    state: tuple[float, ...]
+    cov_upper: tuple[float, ...]
+    stamp: float
+    heading_initialized: float
+
+    def flat(self) -> list[float]:
+        return [*self.state, *self.cov_upper, self.stamp, self.heading_initialized]
 
 
 @dataclass
@@ -140,7 +170,7 @@ class Records:
     events: list[Event]
     recorded: list[int]
     render: list[list[float]]
-    state: list[list[float]]  # update events only: 6 state, 21 upper covariance, stamp, heading
+    state: list[StateRecord]
 
 
 def run_mirror(events: list[Event]) -> Records:
@@ -148,11 +178,11 @@ def run_mirror(events: list[Event]) -> Records:
     filt = OpponentFilter(1, config(), field_half_extent=half, margin=MARGIN)
     recorded: list[int] = []
     render: list[list[float]] = []
-    state: list[list[float]] = []
+    state: list[StateRecord] = []
     coast_count = 0
     for ev in events:
         if ev.kind == KIND_COAST:
-            out = filt.coast(ev.time)
+            out = filt.coast(ev.coast_now_s)
             coast_count += 1
             if not bool(out.active[0]) or coast_count % COAST_RECORD_STRIDE != 0:
                 recorded.append(0)
@@ -161,7 +191,7 @@ def run_mirror(events: list[Event]) -> Records:
             measured = torch.tensor([ev.kind == KIND_MEASURED])
             variance = (KEYPOINT_SIGMA if ev.keypoint else BLOB_SIGMA) ** 2
             out, _ = filt.update(
-                ev.time,
+                ev.shutter_stamp_s,
                 measured,
                 torch.tensor([[ev.x, ev.y]], dtype=torch.float64),
                 torch.tensor([ev.yaw], dtype=torch.float64),
@@ -173,9 +203,12 @@ def run_mirror(events: list[Event]) -> Records:
                 continue
             p = filt.p[0]
             state.append(
-                [float(v) for v in filt.x[0]]
-                + [float(p[i, j]) for i, j in UPPER]
-                + [float(filt.stamp[0]), float(filt.heading_initialized[0])]
+                StateRecord(
+                    tuple(float(v) for v in filt.x[0]),
+                    tuple(float(p[i, j]) for i, j in UPPER),
+                    float(filt.stamp[0]),
+                    float(filt.heading_initialized[0]),
+                )
             )
         recorded.append(1)
         render.append([float(getattr(out, name)[0]) for name in RENDER_FIELDS])
@@ -231,7 +264,7 @@ def main() -> None:
         f"inline constexpr int kNumRecorded = {len(records.render)};\n",
         f"inline constexpr int kNumStateRecords = {len(records.state)};\n",
         f"inline constexpr int kRenderWidth = {len(RENDER_FIELDS)};\n",
-        f"inline constexpr int kStateWidth = {len(records.state[0])};\n",
+        f"inline constexpr int kStateWidth = {len(records.state[0].flat())};\n",
         f"inline constexpr int kKindCoast = {KIND_COAST};\n",
         f"inline constexpr int kKindMeasured = {KIND_MEASURED};\n",
         f"inline constexpr int kKindEmpty = {KIND_EMPTY};\n\n",
@@ -240,14 +273,14 @@ def main() -> None:
         "// State rows: 6 state, the covariance upper triangle row by row, stamp,\n",
         "// heading_initialized. One per recorded update event, in event order.\n\n",
         emit_array("int", "kEventKind", [e.kind for e in ev], 24),
-        emit_array("double", "kEventTime", [e.time for e in ev], 4),
+        emit_array("double", "kEventTime", [e.fixture_time_s for e in ev], 4),
         emit_array("double", "kMeasX", [e.x for e in ev], 4),
         emit_array("double", "kMeasY", [e.y for e in ev], 4),
         emit_array("double", "kMeasYaw", [e.yaw for e in ev], 4),
         emit_array("int", "kMeasKeypoint", [e.keypoint for e in ev], 24),
         emit_array("int", "kRecorded", records.recorded, 24),
         emit_array("double", "kRender", [v for row in records.render for v in row], 5),
-        emit_array("double", "kState", [v for row in records.state for v in row], 4),
+        emit_array("double", "kState", [v for row in records.state for v in row.flat()], 4),
         "\n}  // namespace auto_battlebot::opponent_filter_golden\n",
     ]
     OUT_HEADER.parent.mkdir(parents=True, exist_ok=True)

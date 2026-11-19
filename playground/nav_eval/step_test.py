@@ -32,8 +32,8 @@ REST_S = 0.5
 HOLD_MIN = 0.25
 HOLD_S = 0.4
 TURNING = 0.1
-PRE_S = 0.3  # rest pitch is the median over this long before the step
-POST_S = 0.5  # the window runs this long past the hold, to catch a late peak
+REST_PITCH_WINDOW_S = 0.3
+POST_HOLD_WINDOW_S = 0.5
 MAX_WINDOW_S = 2.5
 ARMATURE_GRID = tuple(float(x) for x in np.geomspace(0.3, 2.0, 15))
 MAX_MOTOR_RPM = 1500.0
@@ -43,15 +43,15 @@ SLEW_RATES = (1.0, 1.33, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 10.0, 12.0, 16.0, 24
 @dataclass
 class Step:
     recording: str
-    t_start_s: float  # from the recording's first telemetry sample
+    t_from_first_telemetry_s: float
     size: float
-    rise_s: float  # rest to first reaching 90% of size
+    rise_to_90pct_s: float
     hold_s: float
     mean_abs_angular: float
     turning: bool
     measured_lift_deg: float
     rest_pitch_deg: float
-    sim_lift_fit_deg: float = math.nan  # at the current fit's armature
+    sim_lift_at_fit_armature_deg: float = math.nan
     sim_lift_refit_deg: float = math.nan
 
 
@@ -103,9 +103,11 @@ def find_steps(tel: dict[str, np.ndarray], name: str) -> tuple[list[Step], list[
             rest_since = None
             i += 1
             continue
-        start = i - 1  # the last rest sample
+        last_rest_index = i - 1
         j = i
-        while j < len(t) and ok[j] and lin[j] > REST_TOL and t[j] - t[start] < MAX_WINDOW_S:
+        while (
+            j < len(t) and ok[j] and lin[j] > REST_TOL and t[j] - t[last_rest_index] < MAX_WINDOW_S
+        ):
             j += 1
         held = np.flatnonzero(lin[i:j] >= HOLD_MIN) + i
         rest_since = None
@@ -114,17 +116,17 @@ def find_steps(tel: dict[str, np.ndarray], name: str) -> tuple[list[Step], list[
             continue
         size = float(np.median(lin[held]))
         rise = int(np.argmax(lin[i:j] >= 0.9 * size)) + i
-        end = min(np.searchsorted(t, t[held[-1]] + POST_S), len(t) - 1)
-        pre = (t >= t[start] - PRE_S) & (t <= t[start])
+        end = min(np.searchsorted(t, t[held[-1]] + POST_HOLD_WINDOW_S), len(t) - 1)
+        pre = (t >= t[last_rest_index] - REST_PITCH_WINDOW_S) & (t <= t[last_rest_index])
         rest_pitch = float(np.median(pitch[pre]))
-        lift = float(rest_pitch - np.min(pitch[start : end + 1]))
+        lift = float(rest_pitch - np.min(pitch[last_rest_index : end + 1]))
         mean_ang = float(np.mean(np.abs(ang[held])))
         steps.append(
             Step(
                 recording=name,
-                t_start_s=float(t[start]),
+                t_from_first_telemetry_s=float(t[last_rest_index]),
                 size=size,
-                rise_s=float(t[rise] - t[start]),
+                rise_to_90pct_s=float(t[rise] - t[last_rest_index]),
                 hold_s=float(t[held[-1]] - t[held[0]]),
                 mean_abs_angular=mean_ang,
                 turning=mean_ang > TURNING,
@@ -132,9 +134,11 @@ def find_steps(tel: dict[str, np.ndarray], name: str) -> tuple[list[Step], list[
                 rest_pitch_deg=rest_pitch,
             )
         )
-        rel = t[start : end + 1] - t[start]
+        rel = t[last_rest_index : end + 1] - t[last_rest_index]
         tapes.append(
-            StickTape.resample(rel, lin[start : end + 1], ang[start : end + 1], float(rel[-1]))
+            StickTape.resample(
+                rel, lin[last_rest_index : end + 1], ang[last_rest_index : end + 1], float(rel[-1])
+            )
         )
         i = j
     return steps, tapes
@@ -181,7 +185,7 @@ def main() -> None:
         tapes += found_tapes
     if steps:
         for s, tape in zip(steps, tapes):
-            s.sim_lift_fit_deg = sim_lift_deg(mp, collision, params, tape)
+            s.sim_lift_at_fit_armature_deg = sim_lift_deg(mp, collision, params, tape)
         use = [k for k, s in enumerate(steps) if not s.turning]
         refit = None
         if use:
@@ -205,9 +209,10 @@ def main() -> None:
         print("| --- | --- | --- | --- | --- | --- | --- | --- | --- |")
         for s in steps:
             print(
-                f"| {s.recording} | {s.t_start_s:.1f} | {s.size:.2f} | {s.rise_s:.2f} | "
+                f"| {s.recording} | {s.t_from_first_telemetry_s:.1f} | {s.size:.2f} | "
+                f"{s.rise_to_90pct_s:.2f} | "
                 f"{s.hold_s:.2f} | {'yes' if s.turning else ''} | {s.measured_lift_deg:.1f} | "
-                f"{s.sim_lift_fit_deg:.1f} | {s.sim_lift_refit_deg:.1f} |"
+                f"{s.sim_lift_at_fit_armature_deg:.1f} | {s.sim_lift_refit_deg:.1f} |"
             )
         if refit is not None:
             print(

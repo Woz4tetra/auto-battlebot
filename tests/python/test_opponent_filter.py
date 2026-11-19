@@ -28,15 +28,23 @@ def test_mirror_reproduces_golden_fixture() -> None:
     arrays = _parse_header()
     events = golden.scenario()
     np.testing.assert_array_equal(arrays["kEventKind"], [e.kind for e in events])
-    np.testing.assert_allclose(arrays["kEventTime"], [e.time for e in events], atol=1e-12)
+    np.testing.assert_allclose(arrays["kEventTime"], [e.fixture_time_s for e in events], atol=1e-12)
 
     records = golden.run_mirror(events)
     np.testing.assert_array_equal(arrays["kRecorded"], records.recorded)
     render = np.array(records.render)
     expected = arrays["kRender"].reshape(render.shape)
     np.testing.assert_allclose(render, expected, atol=1e-9)
-    state = np.array(records.state)
+    state = np.array([row.flat() for row in records.state])
     np.testing.assert_allclose(state, arrays["kState"].reshape(state.shape), atol=1e-9)
+
+
+def test_update_sorts_before_coast_at_same_delivery_time() -> None:
+    coast = golden.Event(golden.KIND_COAST, 1.0, coast_now_s=1.0)
+    update = golden.Event(golden.KIND_MEASURED, 1.0, shutter_stamp_s=0.9)
+    earlier = golden.Event(golden.KIND_EMPTY, 0.5, shutter_stamp_s=0.4)
+    ordered = golden.order_events([coast, update, earlier])
+    assert ordered == [earlier, update, coast]
 
 
 def test_fixture_scalars_match_generator() -> None:
@@ -50,7 +58,7 @@ def test_fixture_scalars_match_generator() -> None:
     assert int(scalars["kNumEvents"]) == len(records.events)
     assert int(scalars["kNumRecorded"]) == len(records.render)
     assert int(scalars["kNumStateRecords"]) == len(records.state)
-    assert int(scalars["kStateWidth"]) == len(records.state[0])
+    assert int(scalars["kStateWidth"]) == len(records.state[0].flat())
 
 
 def _bank(**kwargs: torch.Tensor) -> OpponentFilter:
@@ -74,10 +82,10 @@ def _run_rows(filt: OpponentFilter, events: list[golden.Event]) -> list[np.ndarr
     b = filt.batch
     for ev in events:
         if ev.kind == golden.KIND_COAST:
-            out = filt.coast(ev.time)
+            out = filt.coast(ev.coast_now_s)
         else:
             out, _ = filt.update(
-                ev.time,
+                ev.shutter_stamp_s,
                 torch.full((b,), ev.kind == golden.KIND_MEASURED),
                 torch.tensor([[ev.x, ev.y]] * b, dtype=torch.float64),
                 torch.tensor([ev.yaw] * b, dtype=torch.float64),

@@ -13,11 +13,9 @@ import yaml
 
 from playground.depth_cache.cache_gt_depth import gt_frame_indices, resolve_svo
 
-# Fraction of sampled frames whose best-matching SVO index must be the claimed one.
-DEFAULT_ARGMIN_PASS = 0.8
+DEFAULT_ARGMIN_MATCH_PASS_FRACTION = 0.8
 
-# Indices either side of the claimed one to sweep.
-DEFAULT_SWEEP = 3
+DEFAULT_SWEEP_HALF_WIDTH_FRAMES = 3
 
 BOX_PAD_PX = 20
 
@@ -135,8 +133,10 @@ def main() -> int:
     parser.add_argument("gt", type=Path, help="eval dataset root")
     parser.add_argument("--svo-roots", type=Path, nargs="+", default=[Path("data/svo")])
     parser.add_argument("--limit", type=int, default=20, help="frames sampled per sub dataset")
-    parser.add_argument("--argmin-pass", type=float, default=DEFAULT_ARGMIN_PASS)
-    parser.add_argument("--sweep", type=int, default=DEFAULT_SWEEP, help="indices swept each side")
+    parser.add_argument("--argmin-pass", type=float, default=DEFAULT_ARGMIN_MATCH_PASS_FRACTION)
+    parser.add_argument(
+        "--sweep", type=int, default=DEFAULT_SWEEP_HALF_WIDTH_FRAMES, help="indices swept each side"
+    )
     parser.add_argument("-o", "--output", type=Path, required=True)
     args = parser.parse_args()
 

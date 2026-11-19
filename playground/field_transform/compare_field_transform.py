@@ -25,6 +25,7 @@ DEPTH_HINTS = ("depth/depth_registered", "depth/image_raw", "depth_registered")
 INFO_HINTS = ("rgb/camera_info", "left/camera_info")
 CLOUD_HINTS = ("point_cloud/cloud_registered", "cloud_registered")
 SQUARE_TOLERANCE_M = 0.05
+MAX_PAIR_SKEW_NS = 16_000_000
 
 
 def decode_image(msg: Any) -> np.ndarray:
@@ -124,8 +125,7 @@ def load_frames(path: Path, args: argparse.Namespace) -> tuple[list[dict], dict]
     frames = []
     for stamp, image in rgb:
         j = int(np.argmin(np.abs(depth_stamps - stamp)))
-        # A pairing worse than half a frame at 30 Hz is a dropped message, not a match.
-        if abs(depth_stamps[j] - stamp) > 16_000_000:
+        if abs(depth_stamps[j] - stamp) > MAX_PAIR_SKEW_NS:
             continue
         frames.append({"stamp": stamp, "rgb": image, "depth": depth[j][1]})
     return frames, {"intrinsics": intrinsics, "rgb_topic": rgb_topic, "depth_topic": depth_topic}

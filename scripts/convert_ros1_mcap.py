@@ -304,6 +304,34 @@ def _expected_field_points(src: Path) -> int:
     return count
 
 
+def _split_diagnostics_problems(
+    topic: str, span: TopicSpan, dst_spans: dict[str, TopicSpan]
+) -> list[str]:
+    merged = TopicSpan()
+    for out_topic, out_span in dst_spans.items():
+        if out_topic.startswith(mcap_io.DIAGNOSTICS_TOPIC_PREFIX):
+            merged.count = max(merged.count, out_span.count)
+            merged.first = (
+                out_span.first
+                if merged.first is None
+                else min(merged.first, out_span.first or merged.first)
+            )
+            merged.last = (
+                out_span.last
+                if merged.last is None
+                else max(merged.last, out_span.last or merged.last)
+            )
+    problems = []
+    if merged.count > span.count:
+        problems.append(f"{topic}: {span.count} arrays in, {merged.count} on one module out")
+    if (merged.first, merged.last) != (span.first, span.last):
+        problems.append(
+            f"{topic}: log time span {span.first}..{span.last} in, "
+            f"{merged.first}..{merged.last} out"
+        )
+    return problems
+
+
 def check_conversion(src: Path, dst: Path) -> list[str]:  # noqa: C901
     """Compare per-topic counts and first/last log times. Returns a list of problems."""
     problems: list[str] = []
@@ -321,31 +349,7 @@ def check_conversion(src: Path, dst: Path) -> list[str]:  # noqa: C901
 
     for topic, span in src_spans.items():
         if topic == mcap_io.DIAGNOSTICS_TOPIC:
-            merged = TopicSpan()
-            for out_topic, out_span in dst_spans.items():
-                if out_topic.startswith(mcap_io.DIAGNOSTICS_TOPIC_PREFIX):
-                    merged.count = max(merged.count, out_span.count)
-                    merged.first = (
-                        out_span.first
-                        if merged.first is None
-                        else min(merged.first, out_span.first or merged.first)
-                    )
-                    merged.last = (
-                        out_span.last
-                        if merged.last is None
-                        else max(merged.last, out_span.last or merged.last)
-                    )
-            # Per-module channels each carry at most one message per source array, so the
-            # busiest module bounds the count from below and the union of spans must match.
-            if merged.count > span.count:
-                problems.append(
-                    f"{topic}: {span.count} arrays in, {merged.count} on one module out"
-                )
-            if (merged.first, merged.last) != (span.first, span.last):
-                problems.append(
-                    f"{topic}: log time span {span.first}..{span.last} in, "
-                    f"{merged.first}..{merged.last} out"
-                )
+            problems.extend(_split_diagnostics_problems(topic, span, dst_spans))
             continue
         if topic == LEGACY_LOG_TOPIC:
             compare(topic, span, dst_spans.get(mcap_io.LOG_TOPIC, TopicSpan()))

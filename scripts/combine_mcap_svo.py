@@ -308,6 +308,27 @@ def _load_retimed_originals(
     return original_buffer
 
 
+@contextmanager
+def _left_jpegs_closed_on_exit(
+    svo_path: Path, svo_topic: str, ffmpeg_bin: str
+) -> Iterator[Iterator[bytes]]:
+    fps = svo2.sample_fps(svo_path, svo_topic)
+    with closing(svo2.iter_left_jpegs(svo_path, svo_topic, fps, ffmpeg_bin=ffmpeg_bin)) as jpegs:
+        yield jpegs
+
+
+def _next_left_jpeg(
+    jpegs: Iterator[bytes], frame_index: int, frame_count: int, svo_path: Path
+) -> bytes:
+    jpeg = next(jpegs, None)
+    if jpeg is None:
+        raise RuntimeError(
+            f"ffmpeg produced fewer frames than the {frame_count} in "
+            f"{svo_path}: ran out at frame {frame_index}"
+        )
+    return jpeg
+
+
 def merge_mcaps(
     original_path: Path,
     svo_path: Path,
@@ -348,15 +369,8 @@ def merge_mcaps(
         original_iter = iter(original_buffer)
         svo_iter = _iter_with_source(svo_path, 1, topics=[svo_topic])
 
-        # ffmpeg emits one JPEG per message we feed it, in order, so the Nth
-        # image pairs with the Nth side_by_side message. closing() tears the
-        # decoder down if the merge aborts, instead of leaving it blocked on a
-        # full pipe.
-        fps = svo2.sample_fps(svo_path, svo_topic)
-        jpegs = svo2.iter_left_jpegs(svo_path, svo_topic, fps, ffmpeg_bin=ffmpeg_bin)
-
         with (
-            closing(jpegs),
+            _left_jpegs_closed_on_exit(svo_path, svo_topic, ffmpeg_bin) as jpegs,
             tqdm(
                 total=total_messages if total_messages > 0 else None,
                 desc=f"Merge {output_path.name}",
@@ -370,12 +384,7 @@ def merge_mcaps(
                 original_iter, svo_iter, key=lambda x: (x[0], x[1])
             ):
                 if source_idx == 1:
-                    jpeg = next(jpegs, None)
-                    if jpeg is None:
-                        raise RuntimeError(
-                            f"ffmpeg produced fewer frames than the {frame_count} in "
-                            f"{svo_path}: ran out at frame {frame_index}"
-                        )
+                    jpeg = _next_left_jpeg(jpegs, frame_index, frame_count, svo_path)
                     writer.log(
                         TARGET_LEFT_IMAGE_TOPIC,
                         _make_left_image(jpeg, log_time, camera_frame_id),

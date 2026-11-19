@@ -11,6 +11,9 @@ from serial.tools.list_ports import comports
 
 import serial
 
+CRSF_SYNC_BYTE = 0xC8
+CHANNEL_FULL_SCALE = 1024.0
+
 
 def find_transmitter() -> serial.Serial:
     for port in comports():
@@ -155,8 +158,7 @@ class ChannelStreamingParser:
 
     def _check_crsf_data(self, data: bytes):
         """Check for CRSF packets in the data"""
-        # CRSF uses 0xC8 sync byte
-        crsf_count = data.count(0xC8)
+        crsf_count = data.count(CRSF_SYNC_BYTE)
         if crsf_count > 0:
             self.stats["crsf_packets"] += crsf_count
 
@@ -166,8 +168,7 @@ class ChannelStreamingParser:
 
 def format_channel_value(value: int) -> str:
     """Format channel value for display"""
-    # Convert from internal range (-1024 to +1024) to percentage
-    percentage = (value / 1024.0) * 100
+    percentage = (value / CHANNEL_FULL_SCALE) * 100
     return f"{value:5d} ({percentage:+6.1f}%)"
 
 

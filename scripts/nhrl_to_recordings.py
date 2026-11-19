@@ -22,6 +22,7 @@ from auto_battlebot.recording.video_import import (
 )
 
 _NS = 1_000_000_000
+SET_EPOCH_STAMP_NS = int(datetime(2026, 1, 1).timestamp()) * _NS
 DOWNLOADER = Path("playground/bgsub_cage/download_cage_video.py")
 DEFAULT_CALIBRATION_ID = "brettzone_cage_high"
 DEFAULT_FOCAL_PX = 1331.0
@@ -202,9 +203,7 @@ def main() -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
     print(f"{len(videos)} clip(s) from {source_dir} -> {output_dir}")
 
-    # Stamps are synthetic but plausible, laid out back to back from the set's own epoch so two
-    # recordings never share a timestamp.
-    stamp_ns = int(datetime(2026, 1, 1).timestamp()) * _NS
+    stamp_ns = SET_EPOCH_STAMP_NS
     results: list[ConversionResult] = []
     converted = 0
     for video in videos:

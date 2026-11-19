@@ -502,6 +502,8 @@ Replay NHRL May and MassD matches with opponent_mode HOLD and KALMAN (plan step 
 
 Each recording runs twice through the release binary in real-time playback, once per mode, one at a time so the two runs see the same GPU load. The overlays live under `out/replay_configs/` and each run's MCAP is moved to `out/replays/<recording>_<mode>.mcap`. `compare_replays.py` reads them.
 
+The NHRL start frames in `RECORDINGS` are the ones that land field init on match state; MassD replays from frame 0. The NHRL values mirror `config/playback/svo_start_frames.toml`, except 14-12-27 (1540 here, 3000 there).
+
 ```
 Usage:
     source scripts/activate_python.sh
