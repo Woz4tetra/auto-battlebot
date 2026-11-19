@@ -57,6 +57,10 @@ One observation spec version maps robots, field, target and history to named ten
 
 `load_policy_bundle` parses `<directory>/manifest.toml` and checks everything that needs no network library: the format version, every enum field against its known values, required fields and tables, that the files it names exist, and that the decoder scale matches the actor's output size. It throws `PolicyBundleError` naming the problem. `policy_period_ticks` counts control-loop ticks between policy steps (5 gives 50 Hz on the 250 Hz loop). NETWORK bundles hold `[decoder]`, `[[networks]]` (the first is the actor) and `[selftest]`; CONSTANT bundles hold `[constant]`.
 
+## Startup checks
+
+`make_navigation` runs `RlPolicyNavigation::initialize()` before it returns, so a bad bundle throws on the main thread and stops the app before the control loop starts. `RlPolicyNavigationConfigTest.MakeNavigationRunsTheStartupChecks` pins this.
+
 ## Real-time contract
 
 `NetworkRuntimeInterface::run()` never allocates, so it is safe on the control thread; `RtNeuralRuntimeTest.RunDoesNotAllocate` counts malloc calls over 100 runs. Recurrent state lives inside the runtime, and `reset()` zeros it. `ObservationBuilderV1::build()` does not allocate once its hazard scratch has grown to the field's hazard count (`ObservationV1AdapterTest.BuildDoesNotAllocateAfterWarmup`). `ActionHistory` is a fixed ring allocated once, newest first. A slot never written reads as zeros, which is how the training environment starts an episode, so a fresh history feeds the policy nothing it did not see in training (`ActionHistoryTest.UnwrittenSlotsAreZero`). `ActionDecoderInterface::decode()` throws `std::invalid_argument` if either span is not `action_size()` long.

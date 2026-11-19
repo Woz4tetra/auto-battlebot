@@ -5,15 +5,6 @@
 
 namespace auto_battlebot {
 
-/**
- * The Mrs Buff Mk3 jig fit as a JigPlantParams, for tests that need a plant that behaves like
- * the real drivetrain. Sourced from the generated golden constants rather than hand-copied, so
- * a refit moves the tests with it.
- *
- * Production code gets this from the [plant] config table; nothing in C++ defaults to a fit
- * any more, which is why a test that default-constructs a config gets a zero plant and has to
- * ask for this one explicitly.
- */
 inline JigPlantParams mrs_buff_mk3_plant() {
     JigPlantParams params;
     params.dz_lin_fwd = plant_golden::kParam_dz_lin_fwd;

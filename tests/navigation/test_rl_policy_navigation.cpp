@@ -25,6 +25,17 @@ using rl_policy::PolicyBundleError;
 constexpr int kOurSpeed = 0;
 constexpr int kOurYawRate = 1;
 constexpr int kOpponentX = 38;
+constexpr double kHoleCenterXM = 0.25;
+constexpr double kHoleHardRadiusM = 0.2;
+constexpr double kRimGapM = kHoleCenterXM - kHoleHardRadiusM;
+constexpr double kFacingAwayYaw = M_PI;
+constexpr int kPolicyPeriodTicks = 5;
+constexpr double kTheirRobot1X = 1.0;
+constexpr double kTheirRobot2X = -0.5;
+
+double expected_linear_output(double gain, double value, double scale) {
+    return std::tanh(gain * value / scale);
+}
 
 RlPolicyNavigationConfiguration config_for(
     const std::filesystem::path &bundle, std::optional<OpponentMode> mode = OpponentMode::KALMAN) {
@@ -107,8 +118,16 @@ TEST(RlPolicyNavigationTest, AnUnmeasuredRobotCommandsZero) {
                             !snapshot.is_repeat_of_earlier_message);
     }
     EXPECT_TRUE(logged);
+}
 
-    // Measured again: the policy steps on that same tick rather than waiting out its period.
+TEST(RlPolicyNavigationTest, ARemeasuredRobotStepsThePolicyOnTheSameTick) {
+    auto nav = make_nav(config_for(rl_test::constant_bundle()));
+    ASSERT_TRUE(nav->initialize());
+
+    RobotDescription ours = robot_at(FrameId::OUR_ROBOT_1, 0.0, 0.0);
+    ours.measurement_age_s = RlPolicyNavigationConfiguration{}.max_our_unmeasured_s + 0.05;
+    EXPECT_EQ(nav->update(robots_of({ours}), field(), TargetSelection{}).forward_mps, 0.0);
+
     ours.measurement_age_s = 0.0;
     const VelocityCommand resumed = nav->update(robots_of({ours}), field(), TargetSelection{});
     EXPECT_DOUBLE_EQ(resumed.forward_mps, 0.3);
@@ -181,9 +200,8 @@ TEST(RlPolicyNavigationTest, AFailedSelftestRefusesToStart) {
 }
 
 TEST(RlPolicyNavigationTest, RefusesASpecVersionWithNoBuilder) {
-    // tiny_mlp is obs spec 0: a unit-test bundle with no builder, never for navigation.
-    const std::string error =
-        start_error<PolicyBundleError>(config_for(rl_test::tiny_mlp_bundle()));
+    const auto spec0_unit_test_bundle = rl_test::tiny_mlp_bundle();
+    const std::string error = start_error<PolicyBundleError>(config_for(spec0_unit_test_bundle));
     EXPECT_NE(error.find("obs_spec_version 0 has no observation builder"), std::string::npos)
         << error;
 }
@@ -243,19 +261,18 @@ TEST(RlPolicyNavigationTest, TheHazardBarrierClipsDrivingTowardAHole) {
 
     FieldDescription with_hole = field();
     FieldHazard hole;
-    hole.center = Pose2D{0.25, 0.0, 0.0};
-    hole.hard_radius = 0.2;
+    hole.center = Pose2D{kHoleCenterXM, 0.0, 0.0};
+    hole.hard_radius = kHoleHardRadiusM;
     with_hole.hazards.push_back(hole);
 
-    // 5 cm from the hard rim, facing it: 0.3 of 4.9 m/s cannot stop in time.
     const VelocityCommand toward =
         nav->update(robots_of({robot_at(FrameId::OUR_ROBOT_1, 0.0, 0.0)}), with_hole, {});
-    EXPECT_LT(toward.forward_mps, 0.3);
+    EXPECT_LT(toward.forward_mps, 0.3)
+        << kRimGapM << " m rim gap is too short to stop from 0.3 of 4.9 m/s";
     EXPECT_DOUBLE_EQ(toward.yaw_rate_radps, -0.1);
 
-    // Facing away, the policy's forward command leaves the hole behind and passes unedited.
-    const VelocityCommand away =
-        nav->update(robots_of({robot_at(FrameId::OUR_ROBOT_1, 0.0, 0.0, M_PI)}), with_hole, {});
+    const VelocityCommand away = nav->update(
+        robots_of({robot_at(FrameId::OUR_ROBOT_1, 0.0, 0.0, kFacingAwayYaw)}), with_hole, {});
     EXPECT_DOUBLE_EQ(away.forward_mps, 0.3);
 }
 
@@ -328,7 +345,6 @@ TEST(RlPolicyNavigationTest, TargetChangeResetsPolicy) {
 }
 
 TEST(RlPolicyNavigationTest, StepsThePolicyEveryPeriodAndHoldsTheActionBetween) {
-    // linear = tanh(0.5 * our_speed / 2.5), angular = tanh(0.5 * our_yaw_rate / 15).
     const auto bundle = rl_test::write_linear_bundle("nav_schedule", 1, 138, 0.5, 0.0, "obs.vector",
                                                      kOurSpeed, kOurYawRate);
     auto nav = make_nav(config_for(bundle));
@@ -341,42 +357,40 @@ TEST(RlPolicyNavigationTest, StepsThePolicyEveryPeriodAndHoldsTheActionBetween) 
     };
 
     const VelocityCommand first = tick(1.0, 3.0);
-    EXPECT_NEAR(first.forward_mps, std::tanh(0.5 * 1.0 / 2.5), 1e-6);
-    EXPECT_NEAR(first.yaw_rate_radps, std::tanh(0.5 * 3.0 / 15.0), 1e-6);
-    // The bundle's policy_period_ticks is 5: four more ticks repeat the stored action.
-    for (int i = 0; i < 4; ++i) {
+    EXPECT_NEAR(first.forward_mps, expected_linear_output(0.5, 1.0, 2.5), 1e-6);
+    EXPECT_NEAR(first.yaw_rate_radps, expected_linear_output(0.5, 3.0, 15.0), 1e-6);
+    for (int i = 0; i < kPolicyPeriodTicks - 1; ++i) {
         const VelocityCommand held = tick(2.0, -3.0);
         EXPECT_DOUBLE_EQ(held.forward_mps, first.forward_mps) << "tick " << i + 1;
         EXPECT_DOUBLE_EQ(held.yaw_rate_radps, first.yaw_rate_radps) << "tick " << i + 1;
     }
     const VelocityCommand next = tick(2.0, -3.0);
-    EXPECT_NEAR(next.forward_mps, std::tanh(0.5 * 2.0 / 2.5), 1e-6);
-    EXPECT_NEAR(next.yaw_rate_radps, std::tanh(0.5 * -3.0 / 15.0), 1e-6);
+    EXPECT_NEAR(next.forward_mps, expected_linear_output(0.5, 2.0, 2.5), 1e-6);
+    EXPECT_NEAR(next.yaw_rate_radps, expected_linear_output(0.5, -3.0, 15.0), 1e-6);
 }
 
-TEST(RlPolicyNavigationTest, TheTargetOpponentFollowsTheBehaviourMode) {
-    // linear = tanh(0.5 * opponent x in our body frame / 2).
+double forward_for_mode(BehaviorMode mode) {
     const auto bundle = rl_test::write_linear_bundle("nav_target", 1, 138, 0.5, 0.0, "obs.vector",
                                                      kOpponentX, kOurYawRate);
     const auto robots = robots_of({robot_at(FrameId::OUR_ROBOT_1, 0.0, 0.0),
-                                   robot_at(FrameId::THEIR_ROBOT_1, 1.0, 0.0),
-                                   robot_at(FrameId::THEIR_ROBOT_2, -0.5, 0.0)});
+                                   robot_at(FrameId::THEIR_ROBOT_1, kTheirRobot1X, 0.0),
+                                   robot_at(FrameId::THEIR_ROBOT_2, kTheirRobot2X, 0.0)});
     TargetSelection target;
-    target.pose = Pose2D{1.0, 0.1, 0.0};  // the selector picked THEIR_ROBOT_1
+    target.pose = Pose2D{kTheirRobot1X, 0.1, 0.0};
+    target.mode = mode;
+    auto nav = make_nav(config_for(bundle));
+    nav->initialize();
+    return nav->update(robots, field(), target).forward_mps;
+}
 
-    // ATTACK: the opponent nearest the selected target.
-    auto attack = make_nav(config_for(bundle));
-    attack->initialize();
-    target.mode = BehaviorMode::ATTACK;
-    EXPECT_NEAR(attack->update(robots, field(), target).forward_mps, std::tanh(0.5 * 1.0 / 2.0),
-                1e-6);
+TEST(RlPolicyNavigationTest, AttackTargetsTheOpponentNearestTheSelection) {
+    EXPECT_NEAR(forward_for_mode(BehaviorMode::ATTACK),
+                expected_linear_output(0.5, kTheirRobot1X, 2.0), 1e-6);
+}
 
-    // RUN_AWAY: the target pose is a safe point, so the opponent is the one nearest us.
-    auto run_away = make_nav(config_for(bundle));
-    run_away->initialize();
-    target.mode = BehaviorMode::RUN_AWAY;
-    EXPECT_NEAR(run_away->update(robots, field(), target).forward_mps, std::tanh(0.5 * -0.5 / 2.0),
-                1e-6);
+TEST(RlPolicyNavigationTest, RunAwayTargetsTheOpponentNearestUs) {
+    EXPECT_NEAR(forward_for_mode(BehaviorMode::RUN_AWAY),
+                expected_linear_output(0.5, kTheirRobot2X, 2.0), 1e-6);
 }
 
 TEST(RlPolicyNavigationConfigTest, ParsesThePolicyTable) {
@@ -420,7 +434,6 @@ TEST(RlPolicyNavigationConfigTest, ReadsTheOpponentModeFromTheRobotFilter) {
 }
 
 TEST(RlPolicyNavigationConfigTest, MakeNavigationRunsTheStartupChecks) {
-    // A bad bundle has to stop the app on the main thread, before the control loop starts.
     EXPECT_THROW(make_navigation(config_for(rl_test::constant_bundle(), OpponentMode::HOLD),
                                  std::make_shared<ManualClock>()),
                  ConfigValidationError);

@@ -44,6 +44,25 @@ TargetSelection make_target(double x, double y, Label label = Label::OPPONENT) {
 
 PursuitNavigationConfiguration make_default_config() { return PursuitNavigationConfiguration{}; }
 
+RobotDescription make_our_robot_at_origin_facing_x() {
+    return make_robot_with_frame(Label::MR_STABS_MK1, FrameId::OUR_ROBOT_1, Group::OURS, 0.0, 0.0,
+                                 0.0);
+}
+
+void isolate_derivative_term(PursuitNavigationConfiguration& config) {
+    config.angular_kp = 0.0;
+    config.angle_threshold = M_PI;
+    config.max_angular_command = std::nullopt;
+}
+
+constexpr double kFarOpponentX = 2.0;
+constexpr double kCloseOpponentX = 0.5;
+constexpr double kOutsideFieldX = 10.0;
+constexpr double kSmallFieldSize = 2.0;
+constexpr double kWallReverseDistanceM = 0.3;
+constexpr double kNearWallX = kSmallFieldSize / 2.0 - 0.1;
+constexpr double kTargetAheadOfWallX = 0.5;
+
 class PursuitNavigationTest : public ::testing::Test {
    protected:
     void SetUp() override {
@@ -105,10 +124,8 @@ TEST_F(PursuitNavigationTest, NoRobotsReturnsZeroCommand) {
 
 TEST_F(PursuitNavigationTest, DerivativeTermUsesLogicalClockDt) {
     PursuitNavigationConfiguration config = make_default_config();
-    config.angular_kp = 0.0;  // isolate the derivative term
+    isolate_derivative_term(config);
     config.angular_kd = 0.1;
-    config.angle_threshold = M_PI;              // never gate on heading error
-    config.max_angular_command = std::nullopt;  // no output clamp
     config.enable_hysteresis = false;
     auto clock = std::make_shared<ManualClock>();
     PursuitNavigation nav(config, clock);
@@ -119,15 +136,19 @@ TEST_F(PursuitNavigationTest, DerivativeTermUsesLogicalClockDt) {
     robots.descriptions.push_back(make_robot_with_frame(Label::MR_STABS_MK1, FrameId::OUR_ROBOT_1,
                                                         Group::OURS, 0.0, 0.0, 0.0));
 
-    // First tick at t=1.0s: target straight ahead -> angle_error 0; establishes prev timestamp.
-    clock->set(1.0);
-    VelocityCommand c1 = nav.update(robots, field, make_target(1.0, 0.0));
+    constexpr double kFirstTickS = 1.0;
+    constexpr double kDtS = 0.1;
+    constexpr double kAngleErrorAt45DegRad = M_PI / 4.0;
+    const TargetSelection target_ahead = make_target(1.0, 0.0);
+    const TargetSelection target_at_45_deg = make_target(1.0, 1.0);
+
+    clock->set(kFirstTickS);
+    VelocityCommand c1 = nav.update(robots, field, target_ahead);
     EXPECT_NEAR(c1.yaw_rate_radps, 0.0, 1e-9);
 
-    // 0.1s later, target at 45 deg -> angle_error pi/4. d_term = kd * (pi/4) / 0.1.
-    clock->set(1.1);
-    VelocityCommand c2 = nav.update(robots, field, make_target(1.0, 1.0));
-    const double expected = config.angular_kd * (M_PI / 4.0) / 0.1;
+    clock->set(kFirstTickS + kDtS);
+    VelocityCommand c2 = nav.update(robots, field, target_at_45_deg);
+    const double expected = config.angular_kd * kAngleErrorAt45DegRad / kDtS;
     EXPECT_NEAR(c2.yaw_rate_radps, expected, 1e-6);
 }
 
@@ -259,26 +280,19 @@ TEST_F(PursuitNavigationTest, TargetsHouseBot) {
 
 TEST_F(PursuitNavigationTest, TargetsClosestOpponent) {
     RobotDescriptionsStamped robots;
-    // Our robot at origin facing +X
-    robots.descriptions.push_back(make_robot_with_frame(Label::MR_STABS_MK1, FrameId::OUR_ROBOT_1,
-                                                        Group::OURS, 0.0, 0.0, 0.0));
-    // Far opponent
-    robots.descriptions.push_back(make_robot(Label::OPPONENT, 2.0, 0.0, 0.0));
-    // Close opponent
-    robots.descriptions.push_back(make_robot(Label::OPPONENT, 0.5, 0.0, 0.0));
+    robots.descriptions.push_back(make_our_robot_at_origin_facing_x());
+    robots.descriptions.push_back(make_robot(Label::OPPONENT, kFarOpponentX, 0.0, 0.0));
+    robots.descriptions.push_back(make_robot(Label::OPPONENT, kCloseOpponentX, 0.0, 0.0));
     FieldDescription field = make_field(4.0, 4.0);
 
-    VelocityCommand cmd = nav_->update(robots, field, make_target(0.5, 0.0));
+    VelocityCommand cmd = nav_->update(robots, field, make_target(kCloseOpponentX, 0.0));
 
     EXPECT_GT(cmd.forward_mps, 0.0);
 }
 
 TEST_F(PursuitNavigationTest, MovesForwardWhenFacingTarget) {
     RobotDescriptionsStamped robots;
-    // Our robot at origin facing +X (yaw = 0)
-    robots.descriptions.push_back(make_robot_with_frame(Label::MR_STABS_MK1, FrameId::OUR_ROBOT_1,
-                                                        Group::OURS, 0.0, 0.0, 0.0));
-    // Target directly ahead
+    robots.descriptions.push_back(make_our_robot_at_origin_facing_x());
     robots.descriptions.push_back(make_robot(Label::OPPONENT, 1.0, 0.0, 0.0));
     FieldDescription field = make_field(4.0, 4.0);
 
@@ -290,10 +304,7 @@ TEST_F(PursuitNavigationTest, MovesForwardWhenFacingTarget) {
 
 TEST_F(PursuitNavigationTest, TurnsWhenTargetToLeft) {
     RobotDescriptionsStamped robots;
-    // Our robot at origin facing +X (yaw = 0)
-    robots.descriptions.push_back(make_robot_with_frame(Label::MR_STABS_MK1, FrameId::OUR_ROBOT_1,
-                                                        Group::OURS, 0.0, 0.0, 0.0));
-    // Target to the left (+Y direction)
+    robots.descriptions.push_back(make_our_robot_at_origin_facing_x());
     robots.descriptions.push_back(make_robot(Label::OPPONENT, 0.0, 1.0, 0.0));
     FieldDescription field = make_field(4.0, 4.0);
 
@@ -304,10 +315,7 @@ TEST_F(PursuitNavigationTest, TurnsWhenTargetToLeft) {
 
 TEST_F(PursuitNavigationTest, TurnsWhenTargetToRight) {
     RobotDescriptionsStamped robots;
-    // Our robot at origin facing +X (yaw = 0)
-    robots.descriptions.push_back(make_robot_with_frame(Label::MR_STABS_MK1, FrameId::OUR_ROBOT_1,
-                                                        Group::OURS, 0.0, 0.0, 0.0));
-    // Target to the right (-Y direction)
+    robots.descriptions.push_back(make_our_robot_at_origin_facing_x());
     robots.descriptions.push_back(make_robot(Label::OPPONENT, 0.0, -1.0, 0.0));
     FieldDescription field = make_field(4.0, 4.0);
 
@@ -316,19 +324,15 @@ TEST_F(PursuitNavigationTest, TurnsWhenTargetToRight) {
     EXPECT_LT(cmd.yaw_rate_radps, 0.0);
 }
 
-TEST_F(PursuitNavigationTest, TurnsWhenTargetBehind) {
+TEST_F(PursuitNavigationTest, TurnsInPlaceWhenTargetBehind) {
     RobotDescriptionsStamped robots;
-    // Our robot at origin facing +X (yaw = 0)
-    robots.descriptions.push_back(make_robot_with_frame(Label::MR_STABS_MK1, FrameId::OUR_ROBOT_1,
-                                                        Group::OURS, 0.0, 0.0, 0.0));
-    // Target behind (-X direction)
+    robots.descriptions.push_back(make_our_robot_at_origin_facing_x());
     robots.descriptions.push_back(make_robot(Label::OPPONENT, -1.0, 0.0, 0.0));
     FieldDescription field = make_field(4.0, 4.0);
 
     VelocityCommand cmd = nav_->update(robots, field, make_target(-1.0, 0.0));
 
-    // Should turn (large angle error means turn in place)
-    EXPECT_NEAR(cmd.forward_mps, 0.0, 0.01);
+    EXPECT_NEAR(cmd.forward_mps, 0.0, 0.01) << "large angle error turns in place";
     EXPECT_NE(cmd.yaw_rate_radps, 0.0);
 }
 
@@ -364,7 +368,6 @@ TEST_F(PursuitNavigationTest, NoForwardSpeedUnlessFacingTarget) {
 
 TEST_F(PursuitNavigationTest, StopsAtTarget) {
     RobotDescriptionsStamped robots;
-    // Our robot very close to target (within stop_distance_m = 0.1)
     robots.descriptions.push_back(make_robot(Label::MR_STABS_MK1, 0.0, 0.0, 0.0));
     robots.descriptions.push_back(make_robot(Label::OPPONENT, 0.05, 0.0, 0.0));
     FieldDescription field = make_field(4.0, 4.0);
@@ -387,15 +390,14 @@ TEST_F(PursuitNavigationTest, VelocityRampReducesSpeedAtFarDistance) {
     RobotDescriptionsStamped robots;
     robots.descriptions.push_back(make_robot_with_frame(Label::MR_STABS_MK1, FrameId::OUR_ROBOT_1,
                                                         Group::OURS, 0.0, 0.0, 0.0));
-    // Target well beyond far_distance
-    robots.descriptions.push_back(make_robot(Label::OPPONENT, 2.0, 0.0, 0.0));
+    const double target_x = 2.0 * config.velocity_ramp_far_distance;
+    robots.descriptions.push_back(make_robot(Label::OPPONENT, target_x, 0.0, 0.0));
     FieldDescription field = make_field(10.0, 10.0);
 
-    VelocityCommand cmd = nav.update(robots, field, make_target(2.0, 0.0));
+    VelocityCommand cmd = nav.update(robots, field, make_target(target_x, 0.0));
 
-    // Speed must be positive but capped at min_scale (0.5)
     EXPECT_GT(cmd.forward_mps, 0.0);
-    EXPECT_LE(cmd.forward_mps, 0.5);
+    EXPECT_LE(cmd.forward_mps, config.velocity_ramp_min_scale);
 }
 
 TEST_F(PursuitNavigationTest, VelocityRampFullSpeedBelowNearDistance) {
@@ -410,14 +412,13 @@ TEST_F(PursuitNavigationTest, VelocityRampFullSpeedBelowNearDistance) {
     RobotDescriptionsStamped robots;
     robots.descriptions.push_back(make_robot_with_frame(Label::MR_STABS_MK1, FrameId::OUR_ROBOT_1,
                                                         Group::OURS, 0.0, 0.0, 0.0));
-    // Target below near_distance - speed_scale must be 1.0
-    robots.descriptions.push_back(make_robot(Label::OPPONENT, 0.5, 0.0, 0.0));
+    const double inside_near_distance_x = 0.5 * config.velocity_ramp_near_distance;
+    robots.descriptions.push_back(make_robot(Label::OPPONENT, inside_near_distance_x, 0.0, 0.0));
     FieldDescription field = make_field(10.0, 10.0);
 
-    VelocityCommand cmd = nav.update(robots, field, make_target(0.5, 0.0));
+    VelocityCommand cmd = nav.update(robots, field, make_target(inside_near_distance_x, 0.0));
 
-    // Angle error is ~0, so turn/steer scaling is ~1; linear_x should be ~1.0
-    EXPECT_GT(cmd.forward_mps, 0.9);
+    EXPECT_GT(cmd.forward_mps, 0.9) << "angle error ~0, so turn scaling ~1 and speed_scale 1";
 }
 
 TEST_F(PursuitNavigationTest, ForwardVelocityIsBoundedByControllerScaling) {
@@ -444,11 +445,12 @@ TEST_F(PursuitNavigationTest, AngularVelocityUsesRealUnits) {
     RobotDescriptionsStamped robots;
     robots.descriptions.push_back(make_robot_with_frame(Label::MR_STABS_MK1, FrameId::OUR_ROBOT_1,
                                                         Group::OURS, 0.0, 0.0, 0.0));
-    // Target behind to create large angle error
-    robots.descriptions.push_back(make_robot(Label::OPPONENT, -1.0, 0.1, 0.0));
+    constexpr double kBehindX = -1.0;
+    constexpr double kBehindY = 0.1;
+    robots.descriptions.push_back(make_robot(Label::OPPONENT, kBehindX, kBehindY, 0.0));
     FieldDescription field = make_field(4.0, 4.0);
 
-    VelocityCommand cmd = nav.update(robots, field, make_target(-1.0, 0.1));
+    VelocityCommand cmd = nav.update(robots, field, make_target(kBehindX, kBehindY));
 
     EXPECT_GT(std::abs(cmd.yaw_rate_radps), 1.0);
 }
@@ -460,11 +462,8 @@ TEST_F(PursuitNavigationTest, NavigatesWithLookaheadTimeConfigured) {
     nav.initialize();
 
     RobotDescriptionsStamped robots;
-    // Our robot at origin facing +X
-    robots.descriptions.push_back(make_robot_with_frame(Label::MR_STABS_MK1, FrameId::OUR_ROBOT_1,
-                                                        Group::OURS, 0.0, 0.0, 0.0));
+    robots.descriptions.push_back(make_our_robot_at_origin_facing_x());
 
-    // Target directly ahead
     RobotDescription target = make_robot(Label::OPPONENT, 1.0, 0.0, 0.0);
     target.velocity.vy_mps = 1.0;
     robots.descriptions.push_back(target);
@@ -484,24 +483,21 @@ TEST_F(PursuitNavigationTest, ClampsTargetToFieldBoundary) {
 
     RobotDescriptionsStamped robots;
     robots.descriptions.push_back(make_robot(Label::MR_STABS_MK1, 0.0, 0.0, 0.0));
-    // Target outside field boundary
-    robots.descriptions.push_back(make_robot(Label::OPPONENT, 10.0, 0.0, 0.0));
+    robots.descriptions.push_back(make_robot(Label::OPPONENT, kOutsideFieldX, 0.0, 0.0));
 
-    // Small field
-    FieldDescription field = make_field(2.0, 2.0);
+    FieldDescription field = make_field(kSmallFieldSize, kSmallFieldSize);
 
-    VelocityCommand cmd = nav.update(robots, field, make_target(10.0, 0.0));
+    VelocityCommand cmd = nav.update(robots, field, make_target(kOutsideFieldX, 0.0));
 
     EXPECT_TRUE(cmd.forward_mps >= 0.0 || cmd.yaw_rate_radps != 0.0);
 }
 
 TEST_F(PursuitNavigationTest, WallReverseDisabledByDefault) {
     RobotDescriptionsStamped robots;
-    // Robot near the wall (x = 0.9 on a 2m-wide field, wall at x = 1.0)
     robots.descriptions.push_back(make_robot_with_frame(Label::MR_STABS_MK1, FrameId::OUR_ROBOT_1,
-                                                        Group::OURS, 0.9, 0.0, 0.0));
+                                                        Group::OURS, kNearWallX, 0.0, 0.0));
     robots.descriptions.push_back(make_robot(Label::OPPONENT, -0.5, 0.0, M_PI));
-    FieldDescription field = make_field(2.0, 2.0);
+    FieldDescription field = make_field(kSmallFieldSize, kSmallFieldSize);
 
     VelocityCommand cmd = nav_->update(robots, field, make_target(-0.5, 0.0));
     EXPECT_GE(cmd.forward_mps, 0.0);
@@ -509,35 +505,32 @@ TEST_F(PursuitNavigationTest, WallReverseDisabledByDefault) {
 
 TEST_F(PursuitNavigationTest, WallReverseEngagesWhenTooClose) {
     PursuitNavigationConfiguration config;
-    config.wall_reverse_distance_m = 0.3;
+    config.wall_reverse_distance_m = kWallReverseDistanceM;
     PursuitNavigation nav(config, std::make_shared<ManualClock>());
     nav.initialize();
 
     RobotDescriptionsStamped robots;
-    // Robot 0.1 m from the wall (wall at x = 1.0 on a 2m-wide field)
     robots.descriptions.push_back(make_robot_with_frame(Label::MR_STABS_MK1, FrameId::OUR_ROBOT_1,
-                                                        Group::OURS, 0.9, 0.0, 0.0));
-    // Target is ahead - without wall reverse this would give positive linear_x
-    robots.descriptions.push_back(make_robot(Label::OPPONENT, 0.5, 0.0, 0.0));
-    FieldDescription field = make_field(2.0, 2.0);
+                                                        Group::OURS, kNearWallX, 0.0, 0.0));
+    robots.descriptions.push_back(make_robot(Label::OPPONENT, kTargetAheadOfWallX, 0.0, 0.0));
+    FieldDescription field = make_field(kSmallFieldSize, kSmallFieldSize);
 
-    VelocityCommand cmd = nav.update(robots, field, make_target(0.5, 0.0));
+    VelocityCommand cmd = nav.update(robots, field, make_target(kTargetAheadOfWallX, 0.0));
 
-    EXPECT_LT(cmd.forward_mps, 0.0);
+    EXPECT_LT(cmd.forward_mps, 0.0) << "wall reverse overrides a target ahead";
 }
 
 TEST_F(PursuitNavigationTest, WallReverseDoesNotEngageWhenFarFromWall) {
     PursuitNavigationConfiguration config;
-    config.wall_reverse_distance_m = 0.3;
+    config.wall_reverse_distance_m = kWallReverseDistanceM;
     PursuitNavigation nav(config, std::make_shared<ManualClock>());
     nav.initialize();
 
     RobotDescriptionsStamped robots;
-    // Robot at the centre - 1.0 m from wall, threshold = 0.3
     robots.descriptions.push_back(make_robot_with_frame(Label::MR_STABS_MK1, FrameId::OUR_ROBOT_1,
                                                         Group::OURS, 0.0, 0.0, 0.0));
     robots.descriptions.push_back(make_robot(Label::OPPONENT, 0.5, 0.0, 0.0));
-    FieldDescription field = make_field(2.0, 2.0);
+    FieldDescription field = make_field(kSmallFieldSize, kSmallFieldSize);
 
     VelocityCommand cmd = nav.update(robots, field, make_target(0.5, 0.0));
 

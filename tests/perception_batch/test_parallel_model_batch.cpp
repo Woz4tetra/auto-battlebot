@@ -178,12 +178,11 @@ TEST_F(ParallelModelBatchTest, ReportsPerModelElapsedTime) {
 }
 
 TEST_F(ParallelModelBatchTest, TimedOutModelYieldsEmptyResultThenRecovers) {
-    // First blob update overruns the batch wait deadline; that tick must still return the
-    // keypoint result with an empty blob result, and the next tick must work normally.
+    constexpr auto kOverrunsBatchDeadline = std::chrono::milliseconds(1300);
     std::atomic<bool> slow_once{true};
-    blob_model_->on_update = [&slow_once] {
+    blob_model_->on_update = [&slow_once, kOverrunsBatchDeadline] {
         if (slow_once.exchange(false)) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1300));
+            std::this_thread::sleep_for(kOverrunsBatchDeadline);
         }
     };
     ParallelModelBatch batch = make_batch();
@@ -224,8 +223,9 @@ TEST_F(ParallelModelBatchTest, ThrowingModelYieldsEmptyResultWithoutWaitingOrDyi
 
     const auto start = std::chrono::steady_clock::now();
     BatchResult threw = batch.update(image_, camera_info_);
-    // The worker still reports the frame done, so update() does not wait out its timeout.
-    EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::milliseconds(500));
+    constexpr auto kWellUnderBatchTimeout = std::chrono::milliseconds(500);
+    EXPECT_LT(std::chrono::steady_clock::now() - start, kWellUnderBatchTimeout)
+        << "the worker reports the frame done, so update() does not wait out its timeout";
     EXPECT_TRUE(threw.keypoints.keypoints.empty());
     EXPECT_EQ(threw.robot_blob_keypoints.keypoints.size(), 1u);
 

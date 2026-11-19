@@ -168,6 +168,12 @@ for exactly that. The heading loop is closed-loop already and gets there without
 The coefficient is measured; the compensation is a choice, which is why the switch is a
 bool rather than a second copy of the number.
 
+## Test plant
+
+`mrs_buff_mk3_plant()` in `tests/plant/mrs_buff_mk3_params.hpp` returns the Mrs Buff Mk3 jig fit as a `JigPlantParams`, for tests that need a plant that behaves like the real drivetrain. It reads `plant_golden::kParam_*` from the generated golden constants instead of hand-copied numbers, so a refit moves the tests with it.
+
+Nothing in C++ defaults to a fit, so a test that default-constructs a config gets a zero plant and has to ask for this one explicitly. Production code gets its plant from the `[plant]` config table.
+
 ## Where each piece is selected
 
 - `[plant]` in `config/robots/<robot>.toml`, the shared fit both subsystems read. Profiles load
@@ -227,6 +233,15 @@ Fit stages, plant details, and distillation: `docs/reference/calibration/plant_f
 - `plant_steady_state` mirrors `steady_state` in `plant.py`: target body speed and yaw rate for a
   held command, coupling and drift included. It clamps the steer-brake and droop factors at zero. At the fitted `c_sb` of 2.70 the
   factor crosses zero near `|u_ang_eff|` 0.37, so the clamp is load-bearing.
+- `JigPlantModel` applies the same deadzone curve forward that `plant_effective_command` applies in the controller.
+- The rescale by `1/(1 - deadzone)` exists so saturation still means saturation. Without it a deadzone would cap the plant's reachable authority below 1.
+- A command under `dz_ang_l` does not move the robot, so the coupling terms must not be charged for it. Half the deadzone is inside for both signs.
+- `dz_ang_r` is 1.5x `dz_ang_l`, so the same command magnitude yields less effect turning right. The jig measured that asymmetry, and a symmetric deadzone would hide it.
+- The 0.95 deadzone clip guards the `1/(1 - deadzone)` denominator against a bad refit.
+- A turn command below the angular deadzone produces no yaw, so it must not trigger a steer-brake correction. Feeding the raw command instead of the effective one charges forward speed for a turn that never happens: about 4% inflation for a command at half of `dz_ang_l`.
+- The coupling compensation divides by `1 - c_sb * |u_ang_eff|`. The fitted `c_sb` of 2.702 reaches zero authority at `|u_ang_eff|` 0.370. Past that the fit no longer describes the plant, so `steer_brake_floor` has to catch it: without the floor the divisor crosses zero and the command goes infinite, then flips sign.
+- `compensate_angular_droop` defaults off, so a default-constructed config runs the droop coefficient at 0.0. `DisabledCoefficientIsIdentity` tests that shipped path.
+- Tests carry the Mrs Buff Mk3 constants `dz_ang_l` 0.016061, `dz_ang_r` 0.0240734 and `c_sb` 2.70197 from `playground/calibration/out/plant_stageA.toml`.
 
 ## MotionProfileNavigation control law
 
@@ -268,6 +283,7 @@ The droop term reads the linear command and the steer-brake term reads the turn 
 - The brake schedule for a zero terminal velocity binds at 0.3 m (0.3 / 0.176 s = 1.7 m/s). A full-speed terminal velocity stays clamped at `max_linear_speed_fwd` there.
 - With speed feedback disabled the command is a pure function of the reference speed, so a robot arriving at 2 m/s is commanded exactly like a stationary one at the same distance. This is how `BrakeScheduleDoesNotSubtractALatencyLead` observes the estimator's render lead.
 - The fraction is of the fit, so half throttle at the goal means half of whatever `k_fwd` says. Halving `k_fwd` and doubling the fraction gives the same arrival speed.
+- At the Mrs Buff Mk3 fit (`k_fwd` 4.88 m/s), the fractions 0.1, 0.3 and 0.4 ask for about 0.5, 1.5 and 2.0 m/s. `AttackTerminalSpeedFractionIsConfigurable` compares 0.1 against 0.3 at 0.1 m, where neither saturates the command. Past about 0.23 m both ask for more than the drivetrain has and the clamp hides the difference.
 - Fractions outside [0, 1] are clamped: above 1 the drivetrain has nothing left, and below 0 there is no reverse arrival because the controller only drives toward the goal.
 - A mode flip is a new mission, so the turn latch clears with it. The latch holds a committed turn across the 180 degree sign flip within a mission, and must not survive into the next one.
 
