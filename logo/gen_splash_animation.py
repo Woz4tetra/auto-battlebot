@@ -9,6 +9,7 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from typing import NamedTuple
 
 import numpy as np
 from PIL import Image, ImageDraw
@@ -34,38 +35,51 @@ PILL_BODY_ID = "path20"
 PILL_TEXT_ID = "path24"
 PILL_KEEP_IDS = {PILL_BODY_ID, PILL_TEXT_ID}
 
-# fmt: off
-KEYFRAMES: list[tuple[float, float, float, float]] = [
-    # left    right   angle  pill
-    (-2.750,  2.720,    0.0, 0.0),   # 0: fully offscreen (black frame)
-    (-2.550,  2.483,    0.0, 0.0),   # 1
-    (-2.383,  2.283,    0.0, 0.0),   # 2
-    (-2.183,  2.117,    0.0, 0.0),   # 3
-    (-1.650,  1.583,    0.0, 0.0),   # 4
-    (-1.117,  1.083,    0.0, 0.0),   # 5
-    (-0.417,  0.350,    0.0, 0.0),   # 6
-    ( 0.000,  0.000,    0.0, 0.0),   # 7: halves meet
-    ( 0.000,  0.000,   45.0, 0.0),   # 8
-    ( 0.000,  0.000,  120.0, 0.0),   # 9
-    ( 0.000,  0.000,  195.0, 0.0),   # 10
-    ( 0.000,  0.000,  250.0, 0.0),   # 11
-    ( 0.000,  0.000,  296.0, 0.0),   # 12
-    ( 0.000,  0.000,  315.0, 0.0),   # 13
-    ( 0.000,  0.000,  331.0, 0.0),   # 14
-    ( 0.000,  0.000,  345.0, 0.0),   # 15
-    ( 0.000,  0.000,  360.0, 0.0),   # 16: spin complete
-    (-0.083,  0.050,  360.0, 0.096),  # 17: split starts, pill wipe starts
-    (-0.350,  0.283,  360.0, 0.385),  # 18
-    (-0.583,  0.583,  360.0, 0.692),  # 19
-    (-0.883,  0.817,  360.0, 1.0),   # 20: pill fully revealed
-    (-1.017,  0.950,  360.0, 1.0),   # 21
-    (-1.083,  1.017,  360.0, 1.0),   # 22: overshoot peak
-    (-0.583,  0.550,  360.0, 1.0),   # 23
-    (-0.417,  0.383,  360.0, 1.0),   # 24
-    (-0.350,  0.283,  360.0, 1.0),   # 25: settled (= final layout)
-    (-0.350,  0.283,  360.0, 1.0),   # 26
+
+class Keyframe(NamedTuple):
+    left: float
+    right: float
+    angle: float
+    pill: float
+
+
+HALVES_MEET_FRAME = 7
+SPIN_COMPLETE_FRAME = 16
+SPLIT_START_FRAME = 17
+PILL_REVEALED_FRAME = 20
+OVERSHOOT_PEAK_FRAME = 22
+SETTLED_FRAME = 25
+SLIDE_LAST_FRAME = HALVES_MEET_FRAME - 1
+
+KEYFRAMES: list[Keyframe] = [
+    Keyframe(-2.750, 2.720, 0.0, 0.0),
+    Keyframe(-2.550, 2.483, 0.0, 0.0),
+    Keyframe(-2.383, 2.283, 0.0, 0.0),
+    Keyframe(-2.183, 2.117, 0.0, 0.0),
+    Keyframe(-1.650, 1.583, 0.0, 0.0),
+    Keyframe(-1.117, 1.083, 0.0, 0.0),
+    Keyframe(-0.417, 0.350, 0.0, 0.0),
+    Keyframe(0.000, 0.000, 0.0, 0.0),
+    Keyframe(0.000, 0.000, 45.0, 0.0),
+    Keyframe(0.000, 0.000, 120.0, 0.0),
+    Keyframe(0.000, 0.000, 195.0, 0.0),
+    Keyframe(0.000, 0.000, 250.0, 0.0),
+    Keyframe(0.000, 0.000, 296.0, 0.0),
+    Keyframe(0.000, 0.000, 315.0, 0.0),
+    Keyframe(0.000, 0.000, 331.0, 0.0),
+    Keyframe(0.000, 0.000, 345.0, 0.0),
+    Keyframe(0.000, 0.000, 360.0, 0.0),
+    Keyframe(-0.083, 0.050, 360.0, 0.096),
+    Keyframe(-0.350, 0.283, 360.0, 0.385),
+    Keyframe(-0.583, 0.583, 360.0, 0.692),
+    Keyframe(-0.883, 0.817, 360.0, 1.0),
+    Keyframe(-1.017, 0.950, 360.0, 1.0),
+    Keyframe(-1.083, 1.017, 360.0, 1.0),
+    Keyframe(-0.583, 0.550, 360.0, 1.0),
+    Keyframe(-0.417, 0.383, 360.0, 1.0),
+    Keyframe(-0.350, 0.283, 360.0, 1.0),
+    Keyframe(-0.350, 0.283, 360.0, 1.0),
 ]
-# fmt: on
 
 SUPERSAMPLE = 3
 
@@ -162,14 +176,14 @@ def render_frame(
     return frame
 
 
-def build_keyframes(canvas_half_width_r: float) -> list[tuple[float, float, float, float]]:
+def build_keyframes(canvas_half_width_r: float) -> list[Keyframe]:
     """Adapt the measured table to the output canvas."""
     slide_k = max(1.0, (canvas_half_width_r - 0.12) / abs(KEYFRAMES[1][0]))
     adapted = []
     for idx, (left, right, angle, pill) in enumerate(KEYFRAMES):
-        if idx <= 6:
+        if idx <= SLIDE_LAST_FRAME:
             adapted.append((left * slide_k, right * slide_k, angle, pill))
-        elif idx >= 17:
+        elif idx >= SPLIT_START_FRAME:
             adapted.append((left * SPLIT_RESCALE, right * SPLIT_RESCALE, angle, pill))
         else:
             adapted.append((left, right, angle, pill))

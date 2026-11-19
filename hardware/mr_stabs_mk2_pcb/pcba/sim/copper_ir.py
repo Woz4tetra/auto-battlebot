@@ -3,6 +3,7 @@
 import json
 import math
 import os
+from typing import NamedTuple
 
 import matplotlib
 import numpy as np
@@ -34,6 +35,13 @@ def poly_union(polys):
     return shapely.union_all([Polygon(p[0], p[1:]).buffer(0) for p in polys])
 
 
+class ViaLink(NamedTuple):
+    cell_a: int
+    cell_b: int
+    g: float
+    via_index: int
+
+
 class Network:
     """The net's copper as a resistor network: grid cells per layer, vias, terminal nodes."""
 
@@ -56,7 +64,7 @@ class Network:
         self.n = base + len(self.terms)
         self.rows, self.cols, self.vals = [], [], []
         self.diag = np.zeros(self.n)
-        self.via_links = []  # (cell_a, cell_b, g, via_index)
+        self.via_links: list[ViaLink] = []
         self._sheets()
         self._vias(geo["holes"])
         self._terminals(geo["terminals"])
@@ -102,7 +110,7 @@ class Network:
             for (n1, c1), (n2, c2) in zip(cells, cells[1:]):
                 g = barrel_g(drill, max(Z[n2] - Z[n1], 0.1e-3))
                 self.couple(np.array([c1]), np.array([c2]), np.array([g]))
-                self.via_links.append((c1, c2, g, vi))
+                self.via_links.append(ViaLink(c1, c2, g, vi))
 
     def _terminals(self, terminals):
         for t, spec in terminals.items():

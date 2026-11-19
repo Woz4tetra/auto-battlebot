@@ -21,20 +21,26 @@ MATERIAL = "al6061"
 
 @dataclass
 class Params:
-    length: float = 50.0  # datasheet p.11
-    height: float = 30.0  # datasheet p.11
-    thickness: float = 4.0  # datasheet p.11
-    corner_r: float = 4.0  # datasheet p.11, 4X R4
-    slot_x: float = 18.0  # datasheet p.11, 36 mm pitch
-    slot_w: float = 5.4  # datasheet p.11, 2X Ø5.4
-    slot_pitch: float = 20.0  # datasheet p.11, 2X 20
-    cam_hole: float = 2.4  # datasheet p.11, M2 clearance
-    cam_cbore: float = 4.4  # datasheet p.11
-    cam_cbore_depth: float = 2.0  # datasheet p.11
-    cam_pitch: float = 21.0  # datasheet p.11 and camera drawing p.8
-    bore: float = 20.5  # datasheet p.11
-    notch_h: float = 9.0  # drawing scale, not dimensioned
-    notch_d: float = 1.5  # drawing scale, not dimensioned
+    # DATASHEET: ZED X One S datasheet rev 1.8, p. 11: front mount 50 x 30 x 4 mm, 4X R4 corners
+    # DATASHEET: ZED X One S datasheet rev 1.8, p. 11: 2X slot 5.4 wide at x +-18, 20 long
+    # DATASHEET: ZED X One S datasheet rev 1.8, p. 11: 4X 2.4 thru, 4.4 x 2.0 cbore, M2 clearance
+    # DATASHEET: ZED X One S datasheet rev 1.8, p. 11: 20.5 bore on the optical axis
+    # DATASHEET: ZED X One S datasheet rev 1.8, p. 11: camera holes on a 21 mm square
+    # DATASHEET: ZED X One S datasheet rev 1.8, p. 8: camera drawing, holes on a 21 mm square
+    length: float = 50.0
+    height: float = 30.0
+    thickness: float = 4.0
+    corner_r: float = 4.0
+    slot_x: float = 18.0
+    slot_w: float = 5.4
+    slot_pitch: float = 20.0
+    cam_hole: float = 2.4
+    cam_cbore: float = 4.4
+    cam_cbore_depth: float = 2.0
+    cam_pitch: float = 21.0
+    bore: float = 20.5
+    notch_h: float = 9.0
+    notch_d: float = 1.5
 
 
 def build(p: Params) -> Part:

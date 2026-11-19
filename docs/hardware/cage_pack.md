@@ -191,6 +191,13 @@ ESP32-S3-WROOM-1U: KiCad 9.0 has no model, so this is the datasheet outline (18.
 bulkhead in the enclosure's antenna wall.
 ```
 
+### `cage_pack/pcba_cage.py` placement table
+
+- `Placement(model, rot_deg, x, y)`: KiCad frames, mating face toward -Y, top +Z.
+- `BoxEnvelope(w, d, h)` stands in for a KiCad model where there is none, using the datasheet
+  outline: `SOP4` is the Toshiba TLP172A photoMOS and TLP293 optocoupler, SO4.
+- `MATERIAL = "nylon"` is a density stand-in for FR4.
+
 ### `cage_pack/smallrig_4122c.py`
 
 Docstring at line 1:
@@ -263,6 +270,29 @@ panel inner face to the walls' front edge
 inside faces of the -X and +X walls
 inside faces of the bottom and top walls
 ```
+
+## Bosses and cup arm constants
+
+### `cage_pack/cage_layout.py`
+
+- Bosses on the panel take M3 heat-set inserts (McMaster 94180A333, 6.4 mm long). `INSERT_HOLE` is
+  the 94180A333 hole in plastic.
+- `BOSS_H = 8.0` clears the 3/8-16 button head plus washer (6.7 mm) under the ZED.
+  `test_zed_bosses_clear_tripod_screw_head_and_washer` holds it.
+- `BOSS_D = 8.0`: fasteners.md says an M3 insert needs at least 7.0.
+- `PCBA_Y1` leaves 2.2 mm to the ZED Box Mini body; `test_pcba_clears_zed_body` requires 2.0.
+- `CUP_X_NEG_POS` holds the -X and +X cup positions. `CUP_ROT_NEG_POS` rotates the cup model, whose
+  pump is on -X, so the pumps point -X and +X.
+- `ARM_WIDTH_Y` is the arm width along Y.
+- `ARM_PLATE_T` is the plate on the cup's rail, Z = `CUP_H` up. `ARM_TONGUE_T` is the tongue under the
+  panel, Z = `CUP_H` down.
+- `ARM_TONGUE` is the tongue length under the panel from the side wall's outside face.
+- `ARM_SCREW_IN` is where the panel screws go in, from the side wall's outside face. `ARM_SCREW_DY`
+  puts them at `CUP_Y` +- that.
+- `ARM_SPOT = SpotFace(27.0, 3.0)` is the washer spot face, diameter and depth, leaving 5.0 mm of the
+  plate under the washer. `ARM_SEAT_Z` is the cup washer underside.
+- `ARM_CBORE = SpotFace(6.5, 3.5)` is the M3 head counterbore from the tongue's underside.
+- `ARM_BOSS_H = 6.0`: panel bosses over the arm inserts, under the ZED Box Mini's 8 mm bosses.
 
 ## Cup placement
 
@@ -416,6 +446,15 @@ standoffs (Ø5.5) on 41 x 60, 4.0 proud of the PCB. STEP frame: glass front at z
 standoff ends at z = -9.3, connector end toward -y.
 ```
 
+### `cage_pack/cage_layout.py` display constants
+
+- `DISP_STANDOFFS` and `DISP_EARS` are offsets from `DISP_TOUCH_X`, `DISP_TOUCH_Y`. The ears are the
+  bracket screws.
+- `DISP_BRACKET_T = 2.6`: an M2.5 x 6 screw engages 3.4 mm of the brass standoff, over the 1.25 D
+  (3.125 mm) minimum. `test_display_screw_engages_brass_standoff_thread` holds the bracket to it.
+- `DISP_GH = (-29.5, -0.55)`: the module's GH1.25 13-pin connector (SM13B), centre; the mouth faces -X.
+- `DISP_GH_MOUTH_X = -32.42`: its mating face, from `DISP_TOUCH_X`.
+
 ## Camera
 
 ### `cage_pack/cage_layout.py`
@@ -436,6 +475,27 @@ Ball head on the shield's spacer boss outside the +X wall, axis +X; its knob (he
 faces +Z, toward the viewer, and its drop notch the glass. Neck straight out (tilt 0);
 the platform's spin sets the aim.
 ```
+
+### `cage_pack/cage_layout.py` camera, shield and hood
+
+- `CAM_AXIS_Z = 58.0`: the head screw clears the panel, and the aim sweep clears the glass by 12 mm.
+- `CAM_SPIN = 240.0`: platform spin with the knob toward +Z and tilt 0 puts the lens into the glass,
+  30 degrees down.
+- `SHIELD_T = 3.0`: shield flange thickness, between the wall and the head.
+- `CAM_SPACER = 9.0`: boss on the flange; the head clears the wall at 90 degrees into its notch.
+- `HEAD_SEAT_X`: the ball head's base face.
+- `CAM_PAD = (30.0, 4.0, 106.0)`: inside pad on the +X wall, Y width, X depth, top Z.
+- `SHIELD_SCREW_Z = 100.0`: M3 anti-rotation screw through the flange and wall into an insert.
+- `GMSL_HOLE`: (y, z) of the FAKRA plug, which passes straight out through the +X wall.
+- Hood over the camera's back (+Z): its underside sits above the highest point the camera and its
+  FAKRA plug reach anywhere in the head's range (`camera_range.py`). It covers the camera at the
+  default aim. Ribs on its top face stiffen it, out of the camera's way.
+- `SWEEP_Z_MAX = 124.0` is the top of the swept envelope from `camera_range.py`, rounded up. `sweep("aim")` gave an envelope top
+  of 114.9 mm on 2026-11-19. The hood underside is `SWEEP_Z_MAX + 3.0`, 12 mm above that.
+  `test_shield_hood_above_camera_sweep` fails when the sweep rises above the constant.
+- `SHIELD_Y = (-198.0, -108.0)`: hood Y extent, the camera, bracket and front mount plus 10 mm.
+- `SHIELD_REACH = 86.0`: hood beyond the head's seat face, past the bracket's front plus 10 mm.
+- `SHIELD_RIB = 8.0`: rib height on the hood's top face.
 
 ## Cage glass
 
@@ -610,6 +670,14 @@ the camera under the shield's hood, and into the plug on the camera's back, whic
 points up (+Z) and +Y at the default aim. About 90 mm of the 0.3 m cable is slack
 for re-aiming.
 ```
+
+### `cage_pack/cage_pack_assembly.py` cable specs
+
+- `CABLES` rows are `CableSpec(od, min_bend_r, source)`: envelope diameter, minimum bend radius, and
+  where the radius comes from. The radii are static: installed once, not flexed in service.
+- `_run` places every corner at the cable's minimum bend radius. Unlike `cn.tube` it never shrinks the
+  radius to fit: a corner too tight for it raises `ValueError`, so a route that builds meets the bend
+  radius. `tests/python/test_cage_pack_cables.py` covers this.
 
 ## Materials for the thread check
 

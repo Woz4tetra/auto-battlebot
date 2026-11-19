@@ -6,6 +6,7 @@ import json
 import re
 import zipfile
 from pathlib import Path
+from typing import NamedTuple
 
 import numpy as np
 import pyvista as pv
@@ -25,13 +26,21 @@ def _load(name: str):
 scan_patch = _load("scan_patch")
 mount = _load("tx16s_hr10_mount")
 
-# name, camera direction from the focus, focus, distance, zoom target
+
+class View(NamedTuple):
+    name: str
+    label: str
+    direction: tuple[float, float, float]
+    focus: str
+    distance: float
+
+
 VIEWS = [
-    ("context_pilot", "pilot's view, front right", (0.55, -1.0, 0.75), "radio", 560),
-    ("context_back", "back right", (0.85, 1.0, 0.65), "radio", 560),
-    ("context_right", "right side", (1.0, 0.0, 0.1), "radio", 720),
-    ("context_top", "top, pilot at the bottom", (0.0, -0.25, 1.0), "radio", 520),
-    ("context_closeup", "close-up, front right", (0.8, -1.0, 0.6), "block", 150),
+    View("context_pilot", "pilot's view, front right", (0.55, -1.0, 0.75), "radio", 560),
+    View("context_back", "back right", (0.85, 1.0, 0.65), "radio", 560),
+    View("context_right", "right side", (1.0, 0.0, 0.1), "radio", 720),
+    View("context_top", "top, pilot at the bottom", (0.0, -0.25, 1.0), "radio", 520),
+    View("context_closeup", "close-up, front right", (0.8, -1.0, 0.6), "block", 150),
 ]
 
 

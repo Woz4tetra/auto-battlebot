@@ -3,6 +3,7 @@
 import math
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal, NamedTuple
 
 from build123d import (
     Align,
@@ -126,41 +127,49 @@ def build(p: Params) -> Part:
     return board
 
 
-# (name, side, x, y, size_x, size_y, height). Side "top" sits on z = 0 and rises toward the
-# roof; "bottom" hangs from z = -thickness.
+class Keepout(NamedTuple):
+    name: str
+    side: Literal["top", "bottom"]
+    x: float
+    y: float
+    size_x: float
+    size_y: float
+    height: float
+
+
 STEM_COMPONENTS = [
-    ("crossfire_nano_rx", "top", 0.0, 0.0, 18.0, 11.0, 3.0),
-    ("bno055", "top", 0.0, -11.6, 7.0, 7.0, 1.2),
-    ("pad_bat_pos", "top", -9.0, -18.2, 3.0, 3.0, 0.5),
-    ("pad_bat_neg", "top", -3.0, -18.2, 3.0, 3.0, 0.5),
-    ("pad_esc_pos", "top", 3.0, -18.2, 3.0, 3.0, 0.5),
-    ("pad_esc_neg", "top", 9.0, -18.2, 3.0, 3.0, 0.5),
-    ("esp32_s3", "bottom", 0.0, 0.0, 10.0, 10.0, 1.2),
-    ("antenna", "bottom", 0.0, 12.4, 3.2, 1.6, 1.1),
-    ("shunt", "bottom", -6.5, -17.6, 6.4, 3.2, 0.7),
-    ("ina238", "bottom", 0.0, -17.6, 4.0, 4.0, 1.1),
-    ("buck_ldo", "bottom", 7.6, -17.6, 5.5, 5.5, 2.0),
-    ("esc_signal_pads", "bottom", 10.5, 0.0, 2.0, 4.0, 0.5),
-    ("esc_signal_pads_2", "bottom", -10.5, 0.0, 2.0, 4.0, 0.5),
-    ("neopixel", "bottom", -7.3, 2.0, 3.5, 3.5, 1.0),
-    ("prog_pads", "bottom", 7.3, 2.0, 3.5, 3.5, 0.3),
+    Keepout("crossfire_nano_rx", "top", 0.0, 0.0, 18.0, 11.0, 3.0),
+    Keepout("bno055", "top", 0.0, -11.6, 7.0, 7.0, 1.2),
+    Keepout("pad_bat_pos", "top", -9.0, -18.2, 3.0, 3.0, 0.5),
+    Keepout("pad_bat_neg", "top", -3.0, -18.2, 3.0, 3.0, 0.5),
+    Keepout("pad_esc_pos", "top", 3.0, -18.2, 3.0, 3.0, 0.5),
+    Keepout("pad_esc_neg", "top", 9.0, -18.2, 3.0, 3.0, 0.5),
+    Keepout("esp32_s3", "bottom", 0.0, 0.0, 10.0, 10.0, 1.2),
+    Keepout("antenna", "bottom", 0.0, 12.4, 3.2, 1.6, 1.1),
+    Keepout("shunt", "bottom", -6.5, -17.6, 6.4, 3.2, 0.7),
+    Keepout("ina238", "bottom", 0.0, -17.6, 4.0, 4.0, 1.1),
+    Keepout("buck_ldo", "bottom", 7.6, -17.6, 5.5, 5.5, 2.0),
+    Keepout("esc_signal_pads", "bottom", 10.5, 0.0, 2.0, 4.0, 0.5),
+    Keepout("esc_signal_pads_2", "bottom", -10.5, 0.0, 2.0, 4.0, 0.5),
+    Keepout("neopixel", "bottom", -7.3, 2.0, 3.5, 3.5, 1.0),
+    Keepout("prog_pads", "bottom", 7.3, 2.0, 3.5, 3.5, 0.3),
 ]
 
 WING_COMPONENTS = [
-    ("crossfire_nano_rx", "top", 0.0, 0.0, 18.0, 11.0, 3.0),
-    ("bno055", "top", 0.0, -11.6, 7.0, 7.0, 1.2),
-    ("pad_bat_pos", "top", -9.0, -18.3, 3.0, 3.0, 0.5),
-    ("pad_bat_neg", "top", -3.0, -18.3, 3.0, 3.0, 0.5),
-    ("pad_esc_pos", "top", 3.0, -18.3, 3.0, 3.0, 0.5),
-    ("pad_esc_neg", "top", 9.0, -18.3, 3.0, 3.0, 0.5),
-    ("esp32_s3", "top", -27.5, -11.28, 13.0, 11.5, 1.2),
-    ("antenna", "top", -44.5, -13.0, 1.6, 3.2, 1.1),
-    ("power", "top", 24.0, -12.0, 10.0, 8.0, 2.0),
-    ("shunt", "bottom", -6.5, -17.6, 6.4, 3.2, 0.7),
-    ("ina238", "bottom", 0.0, -17.6, 4.0, 4.0, 1.1),
-    ("neopixel", "bottom", 0.0, 2.0, 3.5, 3.5, 1.0),
-    ("esc_connector", "bottom", 24.0, -9.6, 9.0, 5.0, 10.0),
-    ("usb_connector", "bottom", -24.0, -9.6, 9.0, 5.0, 10.0),
+    Keepout("crossfire_nano_rx", "top", 0.0, 0.0, 18.0, 11.0, 3.0),
+    Keepout("bno055", "top", 0.0, -11.6, 7.0, 7.0, 1.2),
+    Keepout("pad_bat_pos", "top", -9.0, -18.3, 3.0, 3.0, 0.5),
+    Keepout("pad_bat_neg", "top", -3.0, -18.3, 3.0, 3.0, 0.5),
+    Keepout("pad_esc_pos", "top", 3.0, -18.3, 3.0, 3.0, 0.5),
+    Keepout("pad_esc_neg", "top", 9.0, -18.3, 3.0, 3.0, 0.5),
+    Keepout("esp32_s3", "top", -27.5, -11.28, 13.0, 11.5, 1.2),
+    Keepout("antenna", "top", -44.5, -13.0, 1.6, 3.2, 1.1),
+    Keepout("power", "top", 24.0, -12.0, 10.0, 8.0, 2.0),
+    Keepout("shunt", "bottom", -6.5, -17.6, 6.4, 3.2, 0.7),
+    Keepout("ina238", "bottom", 0.0, -17.6, 4.0, 4.0, 1.1),
+    Keepout("neopixel", "bottom", 0.0, 2.0, 3.5, 3.5, 1.0),
+    Keepout("esc_connector", "bottom", 24.0, -9.6, 9.0, 5.0, 10.0),
+    Keepout("usb_connector", "bottom", -24.0, -9.6, 9.0, 5.0, 10.0),
 ]
 
 ESC_CENTER_X = 27.0

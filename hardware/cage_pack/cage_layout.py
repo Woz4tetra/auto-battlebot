@@ -1,6 +1,7 @@
 """Shared layout constants for the cage pack."""
 
 from pathlib import Path
+from typing import NamedTuple
 
 HERE = Path(__file__).parent
 VENDOR = HERE / "vendor"
@@ -37,20 +38,26 @@ RIB_H = 6.0
 RIB_T = 2.4
 HR10_PANEL_T = 1.8
 
+
+class SpotFace(NamedTuple):
+    dia: float
+    depth: float
+
+
 CUP_Y = -70.0
 CUP_OUT = 45.0
-CUP_X = (X_OUT[0] - CUP_OUT, X_OUT[1] + CUP_OUT)  # -X cup, +X cup
-CUP_ROT = (0.0, 180.0)  # cup model's pump is on -X; these point it -X and +X
-ARM_W = 40.0  # along Y
-ARM_PLATE_T = 8.0  # on the cup's rail, Z = CUP_H up
-ARM_TONGUE_T = 10.0  # under the panel, Z = CUP_H down
-ARM_TONGUE = 36.0  # under the panel, from the side wall's outside face
-ARM_SCREW_IN = 28.0  # panel screws in from the side wall's outside face
-ARM_SCREW_DY = 12.0  # panel screws at CUP_Y +- this
-ARM_SPOT = (27.0, 3.0)  # washer spot face: Ø, depth; 5.0 left under the washer
-ARM_SEAT_Z = CUP_H + ARM_PLATE_T - ARM_SPOT[1]  # cup washer underside
-ARM_CBORE = (6.5, 3.5)  # M3 head counterbore from the tongue's underside: Ø, depth
-ARM_BOSS_H = 6.0  # panel bosses over the arm inserts; under the ZED Box Mini's 8 mm bosses
+CUP_X_NEG_POS = (X_OUT[0] - CUP_OUT, X_OUT[1] + CUP_OUT)
+CUP_ROT_NEG_POS = (0.0, 180.0)
+ARM_WIDTH_Y = 40.0
+ARM_PLATE_T = 8.0
+ARM_TONGUE_T = 10.0
+ARM_TONGUE = 36.0
+ARM_SCREW_IN = 28.0
+ARM_SCREW_DY = 12.0
+ARM_SPOT = SpotFace(27.0, 3.0)
+ARM_SEAT_Z = CUP_H + ARM_PLATE_T - ARM_SPOT.depth
+ARM_CBORE = SpotFace(6.5, 3.5)
+ARM_BOSS_H = 6.0
 
 
 def arm_screws() -> list[tuple[float, float]]:
@@ -70,10 +77,9 @@ LID_BOSS_SIZE = 9.0
 LID_BOSS_FULL_DEPTH = 10.0
 PORT_Z_MAX = LID_UNDERSIDE_Z - LID_LIP_DEPTH - 1.0
 
-# Printed bosses on the panel with M3 heat-set inserts (McMaster 94180A333, 6.4 long).
-BOSS_H = 8.0  # clears the 3/8-16 button head + washer (6.8) under the ZED
-BOSS_D = 8.0  # fasteners.md: M3 insert needs >= 7.0
-INSERT_HOLE = 4.0  # 94180A333 in plastic
+BOSS_H = 8.0
+BOSS_D = 8.0
+INSERT_HOLE = 4.0
 INSERT_LEN = 6.4
 CUP_RAIL_HALF_LEN = 28.0
 INSERT_BOTTOM_CLEARANCE = 1.0
@@ -148,7 +154,7 @@ def ups(x: float, y: float, z: float) -> tuple[float, float, float]:
 UPS_HOLES = [ups(x, 60.54, z)[:2] for x in (-27.98, 64.02) for z in (79.0, 126.0)]
 
 PCBA_X0, PCBA_X1 = 12.0, 56.0
-PCBA_Y0, PCBA_Y1 = -150.0, -104.0  # +Y edge 2.2 short of the ZED Box Mini's body
+PCBA_Y0, PCBA_Y1 = -150.0, -104.0
 PCBA_Z = PANEL_Z1 + BOSS_H
 PCBA_T = 1.6
 
@@ -160,31 +166,26 @@ DISP_VA = (58.2, 43.8)
 DISP_DEPTH = 10.0
 DISP_FRONT_Z = LID_UNDERSIDE_Z
 DISP_BACK_Z = DISP_FRONT_Z - DISP_DEPTH
-DISP_STANDOFFS = [
-    (x, y) for x in (-32.9, 27.1) for y in (-20.5, 20.5)
-]  # from DISP_TOUCH_X, DISP_TOUCH_Y
-DISP_EARS = [(x, y) for x in (-13.0, 13.0) for y in (-31.5, 31.5)]  # bracket screws, same
-DISP_BRACKET_T = 2.6  # M2.5 x 6 then engages 3.3 of the standoffs (1.25 D brass: 3.12)
-DISP_GH = (-29.5, -0.55)  # the module's GH1.25 13-pin (SM13B), centre; mouth faces -X
-DISP_GH_MOUTH_X = -32.42  # its mating face, from DISP_TOUCH_X
+DISP_STANDOFFS = [(x, y) for x in (-32.9, 27.1) for y in (-20.5, 20.5)]
+DISP_EARS = [(x, y) for x in (-13.0, 13.0) for y in (-31.5, 31.5)]
+DISP_BRACKET_T = 2.6
+DISP_GH = (-29.5, -0.55)
+DISP_GH_MOUTH_X = -32.42
 
 CAM_Y = -150.0
-CAM_AXIS_Z = 58.0  # the head screw clears the panel; the aim sweep clears the glass by 12
-CAM_SPIN = 240.0  # platform spin (knob toward +Z, tilt 0): lens into the glass, 30° down
-SHIELD_T = 3.0  # shield flange, between the wall and the head
-CAM_SPACER = 9.0  # boss on the flange: the head clears the wall at 90° into its notch
-HEAD_SEAT_X = X_OUT[1] + SHIELD_T + CAM_SPACER  # ball head's base face
-CAM_PAD = (30.0, 4.0, 106.0)  # inside pad on the +X wall: Y width, X depth, top Z
-SHIELD_SCREW_Z = 100.0  # M3 anti-rotation screw through flange and wall into an insert
-GMSL_HOLE = ZED_FAKRA_A_TIP[1:]  # (y, z): the FAKRA plug passes straight out through the +X wall
-# Shield hood over the camera's back (+Z): its underside above the highest point the camera
-# and its FAKRA plug reach anywhere in the head's range (camera_range.py). It covers the
-# camera at the default aim; ribs on its top face stiffen it, out of the camera's way.
-SWEEP_Z_MAX = 124.0  # camera_range.py's swept envelope, rounded up
-SHIELD_HOOD_Z0 = SWEEP_Z_MAX + 3.0  # hood underside
-SHIELD_Y = (-198.0, -108.0)  # hood's Y extent: the camera, bracket and front mount + 10
-SHIELD_REACH = 86.0  # hood beyond the head's seat face: past the bracket's front + 10
-SHIELD_RIB = 8.0  # rib height on the hood's top face
+CAM_AXIS_Z = 58.0
+CAM_SPIN = 240.0
+SHIELD_T = 3.0
+CAM_SPACER = 9.0
+HEAD_SEAT_X = X_OUT[1] + SHIELD_T + CAM_SPACER
+CAM_PAD = (30.0, 4.0, 106.0)
+SHIELD_SCREW_Z = 100.0
+GMSL_HOLE = ZED_FAKRA_A_TIP[1:]
+SWEEP_Z_MAX = 124.0
+SHIELD_HOOD_Z0 = SWEEP_Z_MAX + 3.0
+SHIELD_Y = (-198.0, -108.0)
+SHIELD_REACH = 86.0
+SHIELD_RIB = 8.0
 
 GLASS_T = 6.35
 GLASS_GAP = 25.4

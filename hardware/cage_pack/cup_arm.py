@@ -10,7 +10,7 @@ from build123d import Part, Pos, Rot
 PROCESS = "fdm"
 MATERIAL = "petg"
 
-W = cl.ARM_W
+W = cl.ARM_WIDTH_Y
 PRINT_TO_WALL = Pos(0, W / 2, 0) * Rot(90, 0, 0)
 ASSEMBLY_AT = {
     "-x": Pos(cl.X_OUT[0], cl.CUP_Y, cl.CUP_H) * Rot(0, 0, 180) * PRINT_TO_WALL,
@@ -48,7 +48,7 @@ def features(p: Params) -> list[dict]:
     zm = W / 2
     cup = (cl.CUP_OUT, zm)
     screws = [(-cl.ARM_SCREW_IN, zm + s * cl.ARM_SCREW_DY) for s in (-1, 1)]
-    spot_ring = (cl.CUP_OUT + (p.cup_clearance_dia + cl.ARM_SPOT[0]) / 4, zm)
+    spot_ring = (cl.CUP_OUT + (p.cup_clearance_dia + cl.ARM_SPOT.dia) / 4, zm)
     cb_d, cb_t = cl.ARM_CBORE
     cb_ring = [(x + (p.m3_clearance_dia + cb_d) / 4, z) for x, z in screws]
     sides = _bed_edge_midpoints(poly)
@@ -59,11 +59,11 @@ def features(p: Params) -> list[dict]:
         {"op": "chamfer", "name": "Elephant's foot chamfer", "size": p.foot_chamfer,
          "edges": sides},
         {"op": "sketch", "name": "Cup screw", "plane": "Front", "profiles": [
-            {"circle": (*cup, p.cup_clearance_dia)}, {"circle": (*cup, cl.ARM_SPOT[0])}]},
+            {"circle": (*cup, p.cup_clearance_dia)}, {"circle": (*cup, cl.ARM_SPOT.dia)}]},
         {"op": "extrude", "name": "Cup screw hole", "sketch": "Cup screw", "regions": [cup],
          "start": -(tp + 1.0), "depth": tp + 2.0, "mode": "remove"},
         {"op": "extrude", "name": "Washer spot face", "sketch": "Cup screw",
-         "regions": [spot_ring], "start": -tp, "depth": cl.ARM_SPOT[1], "mode": "remove"},
+         "regions": [spot_ring], "start": -tp, "depth": cl.ARM_SPOT.depth, "mode": "remove"},
         {"op": "sketch", "name": "Panel screws", "plane": "Front", "profiles": [
             *[{"circle": (*xz, p.m3_clearance_dia)} for xz in screws],
             *[{"circle": (*xz, cb_d)} for xz in screws]]},
@@ -87,9 +87,9 @@ def expect(p: Params) -> dict:
         "bbox": (cl.ARM_TONGUE + cl.CUP_OUT + p.plate_past, cl.ARM_TONGUE_T + cl.ARM_PLATE_T, W),
         "holes": {
             p.cup_clearance_dia: 1,
-            cl.ARM_SPOT[0]: 1,
+            cl.ARM_SPOT.dia: 1,
             p.m3_clearance_dia: 2,
-            cl.ARM_CBORE[0]: 2,
+            cl.ARM_CBORE.dia: 2,
         },
         "hole_at": {p.cup_clearance_dia: [{"x": cl.CUP_OUT, "z": W / 2}]},
     }

@@ -4,6 +4,7 @@ import argparse
 import importlib.util
 import json
 from pathlib import Path
+from typing import NamedTuple
 
 import numpy as np
 import pyvista as pv
@@ -22,13 +23,21 @@ def _load(name: str, path: Path):
 clamp = _load("tx16s_hr10_handle_clamp", HERE / "tx16s_hr10_handle_clamp.py")
 mount_render = _load("mount_render_context", HERE.parent / "tx16s_hr10_mount" / "render_context.py")
 
-# name, label, camera direction from the focus, focus target, distance
+
+class View(NamedTuple):
+    name: str
+    label: str
+    direction: tuple[float, float, float]
+    focus: str
+    distance: float
+
+
 VIEWS = [
-    ("context_pilot", "pilot's view, front right", (0.55, -1.0, 0.75), "radio", 600),
-    ("context_back", "back right", (0.85, 1.0, 0.65), "radio", 600),
-    ("context_right", "right side", (1.0, 0.0, 0.1), "radio", 760),
-    ("context_top", "top, pilot at the bottom", (0.0, -0.25, 1.0), "radio", 560),
-    ("context_closeup", "close-up, back right", (0.9, 1.0, 0.6), "clamp", 170),
+    View("context_pilot", "pilot's view, front right", (0.55, -1.0, 0.75), "radio", 600),
+    View("context_back", "back right", (0.85, 1.0, 0.65), "radio", 600),
+    View("context_right", "right side", (1.0, 0.0, 0.1), "radio", 760),
+    View("context_top", "top, pilot at the bottom", (0.0, -0.25, 1.0), "radio", 560),
+    View("context_closeup", "close-up, back right", (0.9, 1.0, 0.6), "clamp", 170),
 ]
 
 

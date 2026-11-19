@@ -4,6 +4,7 @@ import importlib.util
 import math
 import sys
 from functools import cache
+from typing import NamedTuple
 
 import bom_data as bd
 import cage_layout as cl
@@ -187,7 +188,7 @@ def _cup_washers():
         [
             Pos(x, cl.CUP_Y, cl.ARM_SEAT_Z)
             * (Cylinder(w / 2, t, align=C_MIN) - Cylinder(5.2, t, align=C_MIN))
-            for x in cl.CUP_X
+            for x in cl.CUP_X_NEG_POS
         ]
     )
 
@@ -410,19 +411,23 @@ def ufl_point() -> tuple[float, float, float]:
     return (x + 6.0, y + 7.5, pcba_cage.TOP + 4.5)
 
 
-# Cables: (envelope diameter, minimum bend radius, where the radius comes from). Radii are
-# static (installed once, not flexed in service).
+class CableSpec(NamedTuple):
+    od: float
+    min_bend_r: float
+    source: str
+
+
 CABLES = {
-    "power": (5.2, 10.4, "2 x 16 AWG silicone, Ø2.6 each, side by side: 4 x the wire OD"),
-    "battery": (5.2, 10.4, "XT30 leads, 2 x 16 AWG silicone: 4 x the wire OD"),
-    "usb": (4.0, 16.0, "USB 2.0 round cable Ø4.0: 4 x OD"),
-    "gmsl": (3.35, 17.0, "GMSL2 coax Ø3.35: 5 x OD, coax static rule"),
-    "lan": (3.8, 16.0, "Slim Cat6 Ø3.8 (28 AWG): TIA-568 4 x OD for UTP"),
-    "esp": (1.13, 6.0, "u.FL pigtail, 1.13 mm coax: 5 x OD"),
-    "wifi": (2.6, 13.0, "RG316 Ø2.6: 5 x OD"),
-    "signal": (2.4, 5.0, "4 to 6 x 28 AWG GH leads, twisted: about 2 x the bundle"),
-    "display": (4.0, 8.0, "13 x 28 AWG GH lead, bundled Ø4: 2 x the bundle"),
-    "dc": (5.5, 22.0, "Mean Well DC cord, 18 AWG pair, Ø5.5: 4 x OD"),
+    "power": CableSpec(5.2, 10.4, "2 x 16 AWG silicone, Ø2.6 each, side by side: 4 x the wire OD"),
+    "battery": CableSpec(5.2, 10.4, "XT30 leads, 2 x 16 AWG silicone: 4 x the wire OD"),
+    "usb": CableSpec(4.0, 16.0, "USB 2.0 round cable Ø4.0: 4 x OD"),
+    "gmsl": CableSpec(3.35, 17.0, "GMSL2 coax Ø3.35: 5 x OD, coax static rule"),
+    "lan": CableSpec(3.8, 16.0, "Slim Cat6 Ø3.8 (28 AWG): TIA-568 4 x OD for UTP"),
+    "esp": CableSpec(1.13, 6.0, "u.FL pigtail, 1.13 mm coax: 5 x OD"),
+    "wifi": CableSpec(2.6, 13.0, "RG316 Ø2.6: 5 x OD"),
+    "signal": CableSpec(2.4, 5.0, "4 to 6 x 28 AWG GH leads, twisted: about 2 x the bundle"),
+    "display": CableSpec(4.0, 8.0, "13 x 28 AWG GH lead, bundled Ø4: 2 x the bundle"),
+    "dc": CableSpec(5.5, 22.0, "Mean Well DC cord, 18 AWG pair, Ø5.5: 4 x OD"),
 }
 
 
@@ -431,9 +436,7 @@ def _fillet_setback(r: float, turn: float) -> float:
 
 
 def _run(kind: str, points: list[tuple[float, float, float]]):
-    """A cable centreline through `points` with every corner at the cable's minimum bend
-    radius. Unlike cn.tube it never shrinks the radius to fit: a corner too tight for it
-    raises, so a route that passes here meets the bend radius."""
+    """A cable centreline through `points`; raises when a corner is tighter than the bend radius."""
     d, r, _ = CABLES[kind]
     pts = [Vector(*q) for q in points]
     segs = [(b - a).length for a, b in zip(pts, pts[1:], strict=False)]
@@ -568,7 +571,7 @@ def _route_charger_cord() -> dict:
     gy, gz = cl.SERVICE_PORTS_YZ["gx12"]
     cx1, cy, cz0 = CHARGER_CORD_END_AT
     tail = cl.X_OUT[0] - GX12_PLUG_WALL_TO_CLAMP
-    drop = cl.CUP_X[0] - cl.CUP_REACH - 25.0
+    drop = cl.CUP_X_NEG_POS[0] - cl.CUP_REACH - 25.0
     return {
         "charger_cord": _run(
             "dc",
@@ -776,7 +779,7 @@ def components():
             "name": "Cage retainer plate (assumed)",
         },
     }
-    for side, x, rot in zip(("left", "right"), cl.CUP_X, cl.CUP_ROT, strict=True):
+    for side, x, rot in zip(("left", "right"), cl.CUP_X_NEG_POS, cl.CUP_ROT_NEG_POS, strict=True):
         comps[f"cup_{side}"] = {
             "shape": Pos(x, cl.CUP_Y, 0) * Rot(0, 0, rot) * cup.build(),
             "color": "#2b2f36",
@@ -1058,7 +1061,7 @@ def fasteners():
         for sz in (-1, 1)
     ]
     w_t = cl.CUP_WASHER[1]
-    arm_head_z = cl.PANEL_Z0 - cl.ARM_TONGUE_T + cl.ARM_CBORE[1]
+    arm_head_z = cl.PANEL_Z0 - cl.ARM_TONGUE_T + cl.ARM_CBORE.depth
     return [
         {
             "name": "cup_screws",
@@ -1066,7 +1069,7 @@ def fasteners():
             "length": 0.625 * INCH,
             "head": "button",
             "dir": "-Z",
-            "at": [(x, cl.CUP_Y, cl.ARM_SEAT_Z + w_t) for x in cl.CUP_X],
+            "at": [(x, cl.CUP_Y, cl.ARM_SEAT_Z + w_t) for x in cl.CUP_X_NEG_POS],
             "material": "al6061",
             "description": '3/8-16 x 5/8" button head, alloy steel, black oxide',
             "note": 'McMaster part not picked yet (the 1/2" was 91255A619)',

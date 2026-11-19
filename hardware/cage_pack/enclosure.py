@@ -63,8 +63,8 @@ def lid_bosses() -> list[tuple[str, float]]:
         ("top", -60.0),
         ("top", 70.0),
         ("bottom", -50.0),
-        ("bottom", -30.0),  # the RJ45 jack takes x = 11 to 49
-        ("-x", -176.0),  # clear of the OpenUPS
+        ("bottom", -30.0),
+        ("-x", -176.0),
         ("+x", -100.0),
     ]
 

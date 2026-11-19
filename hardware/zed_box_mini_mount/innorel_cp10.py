@@ -1,6 +1,8 @@
 """INNOREL CP10 cheese plate reference model."""
 
 from dataclasses import dataclass
+from enum import Enum
+from typing import NamedTuple
 
 from build123d import (
     Align,
@@ -42,13 +44,46 @@ LOCATING_HOLES = [
     (0.0, 7.55), (9.0, 22.45), (16.5, 0.0), (16.5, 15.0), (16.5, 29.95), (16.5, 44.95),
     (24.0, 22.45), (69.3, 25.25), (76.75, 7.55), (76.75, 17.7), (76.75, 32.75), (84.2, 25.2),
 ]  # fmt: skip
-# Edge holes: offset from the edge midpoint, and kind (q = 1/4-20, t = 3/8-16, s = small).
+
+
+class HoleKind(Enum):
+    QUARTER_20 = "1/4-20"
+    THREE_EIGHTHS_16 = "3/8-16"
+    SMALL = "small"
+
+
+class EdgeHole(NamedTuple):
+    offset: float
+    kind: HoleKind
+
+
 LONG_EDGE = [
-    (0.0, "t"), (7.45, "s"), (15.85, "q"), (24.85, "q"), (33.85, "q"), (42.9, "q"),
-    (51.85, "q"), (60.8, "q"), (69.2, "s"), (76.7, "t"), (84.2, "s"), (90.0, "q"),
-]  # fmt: skip
-SHORT_EDGE = [(0.0, "t"), (7.55, "s"), (13.95, "q"), (23.05, "q"), (31.95, "q"), (40.9, "q")]
-EDGE_DIA = {"q": TAP_1_4_20, "t": TAP_3_8_16, "s": EDGE_SMALL}
+    EdgeHole(0.0, HoleKind.THREE_EIGHTHS_16),
+    EdgeHole(7.45, HoleKind.SMALL),
+    EdgeHole(15.85, HoleKind.QUARTER_20),
+    EdgeHole(24.85, HoleKind.QUARTER_20),
+    EdgeHole(33.85, HoleKind.QUARTER_20),
+    EdgeHole(42.9, HoleKind.QUARTER_20),
+    EdgeHole(51.85, HoleKind.QUARTER_20),
+    EdgeHole(60.8, HoleKind.QUARTER_20),
+    EdgeHole(69.2, HoleKind.SMALL),
+    EdgeHole(76.7, HoleKind.THREE_EIGHTHS_16),
+    EdgeHole(84.2, HoleKind.SMALL),
+    EdgeHole(90.0, HoleKind.QUARTER_20),
+]
+SHORT_EDGE = [
+    EdgeHole(0.0, HoleKind.THREE_EIGHTHS_16),
+    EdgeHole(7.55, HoleKind.SMALL),
+    EdgeHole(13.95, HoleKind.QUARTER_20),
+    EdgeHole(23.05, HoleKind.QUARTER_20),
+    EdgeHole(31.95, HoleKind.QUARTER_20),
+    EdgeHole(40.9, HoleKind.QUARTER_20),
+]
+EDGE_DIA = {
+    HoleKind.QUARTER_20: TAP_1_4_20,
+    HoleKind.THREE_EIGHTHS_16: TAP_3_8_16,
+    HoleKind.SMALL: EDGE_SMALL,
+}
 
 
 def mirrored(quadrant: list[tuple[float, float]]) -> list[tuple[float, float]]:
@@ -57,8 +92,8 @@ def mirrored(quadrant: list[tuple[float, float]]) -> list[tuple[float, float]]:
     return sorted((x + 0.0, y + 0.0) for x, y in out)
 
 
-def mirrored_1d(edge: list[tuple[float, str]]) -> list[tuple[float, str]]:
-    return sorted({(s * v + 0.0, k) for v, k in edge for s in (-1, 1)})
+def mirrored_1d(edge: list[EdgeHole]) -> list[EdgeHole]:
+    return sorted({EdgeHole(s * v + 0.0, k) for v, k in edge for s in (-1, 1)}, key=lambda h: h[0])
 
 
 @dataclass

@@ -5,6 +5,7 @@ import json
 import math
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import NamedTuple
 
 import matplotlib
 
@@ -49,12 +50,12 @@ MASS = [
         "Waveshare product page, 0.042 kg; centre of its 10 mm depth",
     ),
     Item("Display bracket, PETG print", 7.5, 53.5, -140.0, 106.9, "print_mass.py"),
-    Item("Suction cup, -X", 264.0, cl.CUP_X[0], cl.CUP_Y, 24.0, "B&H spec, 264 g"),
-    Item("Suction cup, +X", 264.0, cl.CUP_X[1], cl.CUP_Y, 24.0, "B&H spec, 264 g"),
+    Item("Suction cup, -X", 264.0, cl.CUP_X_NEG_POS[0], cl.CUP_Y, 24.0, "B&H spec, 264 g"),
+    Item("Suction cup, +X", 264.0, cl.CUP_X_NEG_POS[1], cl.CUP_Y, 24.0, "B&H spec, 264 g"),
     Item(
         "Cup arms, 2 PETG prints",
         78.0,
-        (cl.CUP_X[0] + cl.CUP_X[1]) / 2,
+        (cl.CUP_X_NEG_POS[0] + cl.CUP_X_NEG_POS[1]) / 2,
         cl.CUP_Y,
         cl.CUP_H,
         "check.py 51.7 g solid each, x 0.75 for 4 perimeters + 25 % infill (estimate)",
@@ -120,7 +121,7 @@ B = 1.219
 D = E_PC * H**3 / (12 * (1 - NU_PC**2))
 RHO_H = RHO_PC * H
 CUP_BELOW_EDGE_M = cl.CUP_BELOW_EDGE / 1000
-CUPS = [(x / 1000, cl.CUP_Y / 1000) for x in cl.CUP_X]
+CUPS = [(x / 1000, cl.CUP_Y / 1000) for x in cl.CUP_X_NEG_POS]
 CUP_NAMES = ("-X", "+X")
 R_CUP_FACE_M = cl.CUP_D / 2 / 1000
 ZETA_PANEL = 0.03
@@ -207,9 +208,21 @@ def _cup_pulls_with_gravity(rec: dict, st: list, ncup: int) -> list:
     return pulls
 
 
+MAX_STEP_RAD = 0.2
+
+
+def check_stable_step(dt: float, w: np.ndarray) -> None:
+    if dt * w.max() >= MAX_STEP_RAD:
+        raise ValueError(
+            f"dt {dt} s is too coarse for the {w.max():.0f} rad/s top mode: "
+            f"dt * omega_max must stay under {MAX_STEP_RAD}"
+        )
+
+
 def simulate(case: Case, pack: dict, t_end: float = 0.25, dt: float = 1e-5) -> dict:
     nm = len(MODES)
     w = omegas()
+    check_stable_step(dt, w)
     modal_mass = RHO_H * A * B / 4
     (x0, y0), rel, (xc, yc) = cup_frame(pack)
     cup_line_y = B - CUP_BELOW_EDGE_M + y0
@@ -265,7 +278,7 @@ def simulate(case: Case, pack: dict, t_end: float = 0.25, dt: float = 1e-5) -> d
             N = nfac * np.sum(kk * u[:nm] ** 2)
             fnl[:nm] = N * kk * (A * B / 4) * u[:nm]
         a = Minv @ (f - C @ v - K @ u - fnl)
-        v = v + dt * a  # semi-implicit Euler: stable for dt << 1 / omega_max
+        v = v + dt * a
         u = u + dt * v
         rec["t"][i] = t
         for j, (ra, rx, ry) in enumerate(rows):
@@ -311,19 +324,28 @@ def free_frequencies(pack: dict, pack_x: float, k_cup: float) -> dict:
     }
 
 
-# name: (robot speed m/s for two_sheet.py, or None; momentum N s if None; pulse s; description).
-# Robot cases take the momentum that two_sheet.py finds reaching the outer sheet.
+class Scenario(NamedTuple):
+    speed_ms: float | None
+    momentum_ns: float | None
+    pulse_s: float
+    desc: str
+
+
 SCENARIOS = {
-    "robot_driven_5ms": (5.0, None, 0.008, "3 lb robot driven into the wall at 5 m/s"),
-    "robot_slam_10ms": (10.0, None, 0.008, "3 lb robot driven or thrown into the wall at 10 m/s"),
-    "robot_thrown_20ms": (20.0, None, 0.006, "3 lb robot launched at 20 m/s by a vertical spinner"),
-    "spinner_bite": (
+    "robot_driven_5ms": Scenario(5.0, None, 0.008, "3 lb robot driven into the wall at 5 m/s"),
+    "robot_slam_10ms": Scenario(
+        10.0, None, 0.008, "3 lb robot driven or thrown into the wall at 10 m/s"
+    ),
+    "robot_thrown_20ms": Scenario(
+        20.0, None, 0.006, "3 lb robot launched at 20 m/s by a vertical spinner"
+    ),
+    "spinner_bite": Scenario(
         None,
         0.35 * 110.0 * 0.5,
         0.002,
         "weapon bar (0.35 kg) at 110 m/s tip speed bites the inner sheet; half transferred (guess)",
     ),
-    "worst_full_transfer": (
+    "worst_full_transfer": Scenario(
         None,
         ROBOT_MASS_KG * 20.0,
         0.004,

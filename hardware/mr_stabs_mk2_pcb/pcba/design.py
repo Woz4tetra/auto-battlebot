@@ -22,7 +22,6 @@ PAD_SIG = "mk2:WirePad_Lap_1.6x3.0mm"
 
 
 def part(lib, name, fp, value=None, lcsc=None, *, tag):
-    # tag gives a stable identity, so footprints keep their placement when the netlist regenerates
     p = Part(lib, name, footprint=fp, tag=tag)
     if value:
         p.value = value

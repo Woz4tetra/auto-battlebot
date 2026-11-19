@@ -95,7 +95,6 @@ def _draft_wire(x: float, loop: np.ndarray, upper: bool, z_cut: float, z_far: fl
     n = len(loop)
     i_back, i_front = int(np.argmax(loop[:, 0])), int(np.argmin(loop[:, 0]))
     y_back, y_front = float(loop[i_back, 0]), float(loop[i_front, 0])
-    # Loops run counter-clockwise in (y, z) from angle -pi: back -> top -> front -> bottom.
     a, b = (i_back, i_front) if upper else (i_front, i_back)
     arc = loop[[(a + k) % n for k in range((b - a) % n + 1)]]
     inside = arc[:, 1] > z_cut if upper else arc[:, 1] < z_cut

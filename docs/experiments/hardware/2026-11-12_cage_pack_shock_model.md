@@ -176,3 +176,11 @@ Line 151, `above wxx = -P @ (kx2 * qo)`:
 ```text
 Outer bending stress at the surface: sigma = 6 M / h^2, plus membrane N / h.
 ```
+
+### `cage_pack/dynamics.py` scenarios
+
+- `Scenario(speed_ms, momentum_ns, pulse_s, desc)`: robot cases set `speed_ms` and leave
+  `momentum_ns` as `None`; they take the momentum that `two_sheet.py` finds reaching the outer sheet.
+  Fixed-momentum cases set `momentum_ns` and leave `speed_ms` as `None`.
+- `simulate` raises when `dt * omega_max` reaches 0.2 rad. The semi-implicit Euler step is stable only
+  for `dt` much smaller than `1 / omega_max`; at the default 1e-5 s the product is 0.037.

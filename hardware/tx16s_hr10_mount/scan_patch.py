@@ -13,6 +13,8 @@ UP_ROLL_DEG = 253.5
 WINDOW_X = (80.0, 116.0)
 WINDOW_Y = (-34.0, 16.0)
 CELL = 0.5
+FOOTPRINT_CENTER = (97.5, -9.0)
+FOOTPRINT_HALF_SIZE = (12.0, 20.0)
 
 VERTEX = re.compile(rb'<vertex x="([^"]+)" y="([^"]+)" z="([^"]+)"')
 
@@ -47,8 +49,6 @@ def height_map(v: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     z = np.full(nx * ny, -np.inf)
     np.maximum.at(z, ix[ok] * ny + iy[ok], v[ok, 2])
     z = z.reshape(nx, ny)
-    # Cells past the shell edge at the window corners have no points. Fill them from the
-    # nearest measured cell; the mount footprint must have none (main() checks).
     empty = ~np.isfinite(z)
     _, (jx, jy) = distance_transform_edt(empty, return_indices=True)
     z = z[jx, jy]
@@ -56,6 +56,13 @@ def height_map(v: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     xs = WINDOW_X[0] + CELL * (np.arange(nx) + 0.5)
     ys = WINDOW_Y[0] + CELL * (np.arange(ny) + 0.5)
     return xs, ys, z, empty
+
+
+def empty_cells_under_footprint(xs: np.ndarray, ys: np.ndarray, empty: np.ndarray) -> int:
+    ex, ey = np.nonzero(empty)
+    inside_x = np.abs(xs[ex] - FOOTPRINT_CENTER[0]) < FOOTPRINT_HALF_SIZE[0]
+    inside_y = np.abs(ys[ey] - FOOTPRINT_CENTER[1]) < FOOTPRINT_HALF_SIZE[1]
+    return int((inside_x & inside_y).sum())
 
 
 def main() -> None:
@@ -72,12 +79,9 @@ def main() -> None:
 
     v = read_vertices(args.scan_zip) @ radio_rotation().T
     xs, ys, z, empty = height_map(v)
-    ex, ey = np.nonzero(empty)
-    in_footprint = (np.abs(xs[ex] - 97.5) < 12) & (np.abs(ys[ey] + 9) < 20)
-    if in_footprint.any():
-        raise SystemExit(
-            f"{in_footprint.sum()} empty cells under the mount; the scan has a hole there"
-        )
+    under_mount = empty_cells_under_footprint(xs, ys, empty)
+    if under_mount:
+        raise SystemExit(f"{under_mount} empty cells under the mount; the scan has a hole there")
     np.savez_compressed(args.out, x=xs, y=ys, z=z)
     print(
         f"{args.out}: {z.shape[0]} x {z.shape[1]} cells, {empty.sum()} filled at the window edge, "

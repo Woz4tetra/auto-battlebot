@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from functools import cache
+from typing import NamedTuple
 
 import b123d_fix  # noqa: F401
 import cage_layout as cl
@@ -46,40 +47,53 @@ def build(p: Params) -> Part:
 
 TOP = cl.PCBA_Z + cl.PCBA_T
 X0, Y0 = cl.PCBA_X0, cl.PCBA_Y0
-# (model, rotation about Z, x, y): KiCad frames, mating face toward -Y, top +Z.
+
+
+class BoxEnvelope(NamedTuple):
+    w: float
+    d: float
+    h: float
+
+
+class Placement(NamedTuple):
+    model: str | BoxEnvelope
+    rot_deg: float
+    x: float
+    y: float
+
+
 GH4V = "JST_GH_BM04B-GHS-TBT_1x04-1MP_P1.25mm_Vertical.step"
 GH2V = "JST_GH_BM02B-GHS-TBT_1x02-1MP_P1.25mm_Vertical.step"
 GH6V = "JST_GH_BM06B-GHS-TBT_1x06-1MP_P1.25mm_Vertical.step"
-GH13V = "box:19.5x4.95x4.2"
-# Datasheet outlines where KiCad has no model: "box:W x D x H".
-SOP4 = "box:4.4x3.8x2.1"  # Toshiba TLP172A photoMOS / TLP293 optocoupler, SO4
-SOT23 = "box:2.9x2.4x1.1"
-SOT363 = "box:2.1x2.0x1.0"
+GH13V = BoxEnvelope(19.5, 4.95, 4.2)
+SOP4 = BoxEnvelope(4.4, 3.8, 2.1)
+SOT23 = BoxEnvelope(2.9, 2.4, 1.1)
+SOT363 = BoxEnvelope(2.1, 2.0, 1.0)
 WROOM_1U = "envelope:wroom1u"
 PLACEMENT = {
-    "U1_esp32s3_wroom1u": (WROOM_1U, 0, X0 + 27.0, Y0 + 22.0),
-    "U2_cp2102n": ("QFN-24-1EP_4x4mm_P0.5mm_EP2.6x2.6mm.step", 0, X0 + 10.0, Y0 + 21.5),
-    "U3_ldo": ("SOT-223.step", 0, X0 + 7.0, Y0 + 27.5),
-    "U4_usb_switch": ("SOT-23-5.step", 0, X0 + 15.5, Y0 + 28.0),
-    "J1_usb_c": (
+    "U1_esp32s3_wroom1u": Placement(WROOM_1U, 0, X0 + 27.0, Y0 + 22.0),
+    "U2_cp2102n": Placement("QFN-24-1EP_4x4mm_P0.5mm_EP2.6x2.6mm.step", 0, X0 + 10.0, Y0 + 21.5),
+    "U3_ldo": Placement("SOT-223.step", 0, X0 + 7.0, Y0 + 27.5),
+    "U4_usb_switch": Placement("SOT-23-5.step", 0, X0 + 15.5, Y0 + 28.0),
+    "J1_usb_c": Placement(
         "USB_C_Receptacle_GCT_USB4105-xx-A_16P_TopMnt_Horizontal.step",
         90,
         cl.PCBA_X1 - 3.2,
         Y0 + 22.0,
     ),
-    "J2_gh4_ups_usb": (GH4V, 0, X0 + 5.0, Y0 + 4.0),
-    "J3_gh4_tx_uart": (GH4V, 0, X0 + 22.0, Y0 + 4.0),
-    "J4_gh2_ntc": (GH2V, 0, X0 + 30.0, Y0 + 4.0),
-    "J5_gh4_button": (GH4V, 0, X0 + 5.5, Y0 + 35.0),
-    "J6_gh6_ups_ctrl": (GH6V, 0, X0 + 23.0, Y0 + 35.0),
-    "J7_gh13_display": (GH13V, 0, X0 + 27.0, Y0 + 42.5),
-    "SW1_boot": ("SW_SPST_TL3342.step", 0, X0 + 6.5, Y0 + 13.0),
-    "SW2_reset": ("SW_SPST_TL3342.step", 0, X0 + 13.0, Y0 + 13.0),
-    "D1_status": ("LED_WS2812B_PLCC4_5.0x5.0mm_P3.2mm.step", 0, X0 + 40.5, Y0 + 12.5),
-    "U5_photomos_j8": (SOP4, 0, X0 + 20.0, Y0 + 30.0),
-    "U6_opto_j10": (SOP4, 0, X0 + 26.0, Y0 + 30.0),
-    "Q1_led_fet": (SOT23, 0, X0 + 32.0, Y0 + 30.0),
-    "Q2_start_oneshot": (SOT363, 0, X0 + 36.0, Y0 + 30.0),
+    "J2_gh4_ups_usb": Placement(GH4V, 0, X0 + 5.0, Y0 + 4.0),
+    "J3_gh4_tx_uart": Placement(GH4V, 0, X0 + 22.0, Y0 + 4.0),
+    "J4_gh2_ntc": Placement(GH2V, 0, X0 + 30.0, Y0 + 4.0),
+    "J5_gh4_button": Placement(GH4V, 0, X0 + 5.5, Y0 + 35.0),
+    "J6_gh6_ups_ctrl": Placement(GH6V, 0, X0 + 23.0, Y0 + 35.0),
+    "J7_gh13_display": Placement(GH13V, 0, X0 + 27.0, Y0 + 42.5),
+    "SW1_boot": Placement("SW_SPST_TL3342.step", 0, X0 + 6.5, Y0 + 13.0),
+    "SW2_reset": Placement("SW_SPST_TL3342.step", 0, X0 + 13.0, Y0 + 13.0),
+    "D1_status": Placement("LED_WS2812B_PLCC4_5.0x5.0mm_P3.2mm.step", 0, X0 + 40.5, Y0 + 12.5),
+    "U5_photomos_j8": Placement(SOP4, 0, X0 + 20.0, Y0 + 30.0),
+    "U6_opto_j10": Placement(SOP4, 0, X0 + 26.0, Y0 + 30.0),
+    "Q1_led_fet": Placement(SOT23, 0, X0 + 32.0, Y0 + 30.0),
+    "Q2_start_oneshot": Placement(SOT363, 0, X0 + 36.0, Y0 + 30.0),
 }
 BOTTOM = {"U5_photomos_j8", "U6_opto_j10", "Q1_led_fet", "Q2_start_oneshot"}
 
@@ -96,12 +110,11 @@ def _wroom_1u() -> Shape:
 
 
 def parts() -> dict[str, Shape]:
-    def model(name: str) -> Shape:
+    def model(name: str | BoxEnvelope) -> Shape:
+        if isinstance(name, BoxEnvelope):
+            return Box(*name, align=C_MIN)
         if name == WROOM_1U:
             return _wroom_1u()
-        if name.startswith("box:"):
-            w, d, h = (float(v) for v in name[4:].split("x"))
-            return Box(w, d, h, align=C_MIN)
         return _model(name)
 
     def at(ref: str, rot: float, x: float, y: float) -> Pos:
