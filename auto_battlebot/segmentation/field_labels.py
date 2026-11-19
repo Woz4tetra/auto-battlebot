@@ -13,7 +13,7 @@ provenance is the filename. Three facts have to come back out of it:
             their original, which is how the leak in the shipped split is found.
 
 Field is inferred, never verified -- see the "Risks" section of
-docs/experiments/perception_performance/deeplab_field_data_plan.md.
+docs/experiments/perception/deeplab_field_data_plan.md.
 """
 
 from __future__ import annotations

@@ -383,7 +383,7 @@ class JigCalibration:
 
 CALIBRATION_TEMPLATE = """\
 # Velocity jig bench calibration. Fill in from runbook block 0 before fitting anything.
-# docs/experiments/kalman_filter/velocity_jig_runbook.md
+# docs/experiments/control/kalman_filter/velocity_jig_runbook.md
 
 [encoder]
 meters_per_count = 0.0    # E4, least squares through the origin over the 3.000 m passes

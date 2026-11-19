@@ -2,7 +2,7 @@
 
 Records a robot's linear or angular motion to microSD for velocity
 characterization. Runs on the Feather RP2040 Adalogger. Wiring and pin map:
-[`docs/velocity_jig_wiring.md`](../../docs/velocity_jig_wiring.md).
+[`velocity_jig_wiring.md`](velocity_jig_wiring.md).
 
 ## Build and flash
 
@@ -122,7 +122,7 @@ This matters because command-to-motion latency is ~60 ms: a constant clock
 offset and the transport delay are indistinguishable to a cross-correlation of
 commands against measured acceleration, so the offset has to be measured
 separately. See
-[`docs/experiments/kalman_filter/kalman_filter_plan.md`](../../docs/experiments/kalman_filter/kalman_filter_plan.md).
+[`docs/experiments/control/kalman_filter/kalman_filter_plan.md`](../../docs/experiments/control/kalman_filter/kalman_filter_plan.md).
 
 ## How gaps are avoided
 
@@ -189,7 +189,7 @@ motion only, unplug the encoder and ignore the (constant) count column.
 
 ### design
 
-- `velocity_jig/src/main.cpp`: auto-battlebot velocity jig firmware Feather RP2040 Adalogger. Logs encoder count and IMU (accel + gyro) together to the microSD card, one row per IMU sample. For an angular-only run, just unplug the encoder: its inputs are pulled up, so the count column stays constant instead of drifting. OLED menu: A = start recording, B = stop, C = live diagnostics readout. Gap-free design: - Every sample is captured in the IMU INT1 data-ready ISR, so SD write latency never delays a capture. Captures land in a RAM ring buffer. - The main loop drains the ring to SD in large blocks. A long SD stall just lets the ring fill; the ISR keeps sampling. An overflow counter flags any loss (it should stay 0). - Files are preallocated contiguous to avoid FAT-growth latency, and the card is on its own SPI peripheral (SPI0), separate from the IMU (SPI1). - The screen is drawn once at record start and left untouched until stop. Wiring and pin map: docs/velocity_jig_wiring.md and include/config.h
+- `velocity_jig/src/main.cpp`: auto-battlebot velocity jig firmware Feather RP2040 Adalogger. Logs encoder count and IMU (accel + gyro) together to the microSD card, one row per IMU sample. For an angular-only run, just unplug the encoder: its inputs are pulled up, so the count column stays constant instead of drifting. OLED menu: A = start recording, B = stop, C = live diagnostics readout. Gap-free design: - Every sample is captured in the IMU INT1 data-ready ISR, so SD write latency never delays a capture. Captures land in a RAM ring buffer. - The main loop drains the ring to SD in large blocks. A long SD stall just lets the ring fill; the ISR keeps sampling. An overflow counter flags any loss (it should stay 0). - Files are preallocated contiguous to avoid FAT-growth latency, and the card is on its own SPI peripheral (SPI0), separate from the IMU (SPI1). - The screen is drawn once at record start and left untouched until stop. Wiring and pin map: velocity_jig_wiring.md and include/config.h
 - `velocity_jig/src/main.cpp`: SPSC ring buffer. Producer = IMU ISR, consumer = loop(). Single core, so the ISR atomically preempts the loop; volatile 32-bit indices are sufficient.
 
 ### console protocol

@@ -72,7 +72,7 @@ pack_voltage = 15.2
 flip_switch = "down"
 
 # Perception latency, dropouts and noise come from a sensing model
-# (docs/plans/sensing_model_plan.md). Empty sends the true poses every tick. Pair a model with
+# (docs/experiments/control/2026-11-15_kinematic_sim_design.md). Empty sends the true poses every tick. Pair a model with
 # config/simulation/kinematic_sim_sensing.toml on the C++ side, so the real keypoint filter and
 # motion estimator see the measurements.
 [perception]

@@ -34,7 +34,7 @@ Nothing in the current setup limits motor current or motor temperature:
 
 | Quantity | Value | Source |
 | --- | --- | --- |
-| Motor | Repeat Compact 1806, 2300 KV | `docs/plans/mujoco_warp_mr_stabs_plan.md` |
+| Motor | Repeat Compact 1806, 2300 KV | `docs/hardware/mr_stabs_mk2.md` |
 | Kt = Ke | 60 / (2 pi KV) = 4.152e-3 N m/A (V s/rad) | same |
 | Gear ratio N | 22.6 | same |
 | Gearbox efficiency eta | 0.8 | `auto_battlebot/mujoco_sim/actuator.py` default |

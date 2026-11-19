@@ -148,7 +148,7 @@ struct Esp32DiagnosticsOpenTxTransmitterConfiguration : public OpenTxTransmitter
 };
 
 /** Autonomous drive commands to Mr Stabs Mk2 over the ESP-NOW USB dongle, plus the robot's
- *  telemetry back. Carries no arm authority; see docs/plans/espnow_link_plan.md. */
+ *  telemetry back. Carries no arm authority; see firmware/mr_stabs_mk2/README.md. */
 struct EspNowTransmitterConfiguration : public TransmitterConfiguration {
     /** Serial device for the dongle. A udev symlink (install/install_udev_rules.sh), not
      *  a raw ttyACM path: the handset also enumerates as ttyACM and the order is not stable. */

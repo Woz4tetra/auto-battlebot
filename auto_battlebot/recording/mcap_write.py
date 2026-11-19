@@ -1,4 +1,4 @@
-"""Write recordings in the layout of ``docs/foxglove_recording_format.md`` from Python.
+"""Write ``docs/reference/recording/foxglove_recording_format.md`` recordings from Python.
 
 A thin wrapper over the Foxglove SDK writer. ``McapWriter`` opens one file in its own logging
 context (so the same topic can be written to several files in one process), writes the

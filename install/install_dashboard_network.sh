@@ -4,7 +4,7 @@ dashboard_network_usage() {
     cat <<'EOF'
 Serve the web dashboard at http://<hostname>.local over the Ethernet cable.
 The box keeps the hostname it already has; this script never renames it.
-See docs/dashboard_network.md for the addressing and firewall design.
+See docs/setup/dashboard_network.md for the addressing and firewall design.
 
 Usage (also sourced by scripts/install_jetson.sh):
   install/install_dashboard_network.sh [--interface <dev>] [--wifi-interface <dev>]

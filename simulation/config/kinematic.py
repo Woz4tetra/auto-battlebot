@@ -135,9 +135,8 @@ class ProjectionBiasConfig:
 
 @dataclass
 class PerceptionConfig:
-    # Sensing model TOML, repo-relative (docs/plans/sensing_model_plan.md): perception latency,
-    # dropouts, position and heading noise, flips. Empty delivers the true poses every tick with
-    # no latency.
+    # Sensing model TOML, repo-relative: perception latency, dropouts, position and heading noise,
+    # flips. Empty delivers the true poses every tick with no latency.
     sensing_model: str = ""
     # Draw the model's per-episode randomization (latency, noise scale, flip rate, ...) from
     # [sim] seed. False runs its nominal values. The frame rate is always the tick rate.

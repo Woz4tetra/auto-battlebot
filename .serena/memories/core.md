@@ -33,7 +33,7 @@ tensorrt_inference, time, transmitter, ui, viz, foxglove_adapters
 
 ## Invariants
 - No ROS at all (removed 2026-09-07). Viz/recording go through the Foxglove SDK; see
-  `docs/foxglove_recording_format.md` and `viz_relay`.
+  `docs/reference/recording/foxglove_recording_format.md` and `viz_relay`.
 - No blocking calls in the perception loop (tight latency budget).
 - Prefer TOML config over compile-time switches.
 - Compiler flags: -Wall -Wextra -Werror. Fix warnings, never suppress.

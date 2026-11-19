@@ -36,7 +36,7 @@ here so they read as tools rather than as dead files.
 | `setup_claude_code.sh` | Only for headless or CI setups. Interactive use needs nothing: `.claude/settings.json` already declares the plugin and the wording hook. |
 | `deploy_to_jetson.sh` | Push a build to the robot. Honors `.deployignore`. |
 | `sync_models.py` | Sync model and engine files. |
-| `docker/` | Container entrypoints for the playback image. See `docs/docker_playback.md`. |
+| `docker/` | Container entrypoints for the playback image. See `docs/setup/docker_playback.md`. |
 
 ## Recordings and diagnostics
 

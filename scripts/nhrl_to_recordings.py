@@ -171,7 +171,7 @@ def main() -> int:
             "  nhrl_to_recordings.py --from-dir dir/ --name BrettZone_2026-06-14\n\n"
             "The intrinsics are backed out of NHRL's stated field of view and the detectors "
             "were trained on ZED frames, so treat ranges and detections as indicative. See "
-            "docs/experiments/perception_performance/brettzone_cage_high_recordings.md."
+            "docs/experiments/perception/brettzone_cage_high_recordings.md."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )

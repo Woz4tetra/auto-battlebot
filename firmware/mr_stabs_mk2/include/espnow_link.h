@@ -2,7 +2,7 @@
 
 // ESP-NOW link to the Jetson's USB dongle: command shortcut, telemetry, and firmware updates.
 // Holds no authority. main.cpp substitutes the drive command only after every CRSF gate passes.
-// See docs/plans/espnow_link_plan.md.
+// See firmware/mr_stabs_mk2/README.md.
 
 #include <Arduino.h>
 #include <command_tracker.h>

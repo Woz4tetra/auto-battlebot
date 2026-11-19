@@ -16,7 +16,7 @@
 namespace auto_battlebot {
 
 /**
- * Drives with a policy from a model bundle (docs/plans/rl_policy_navigation_plan.md section 12).
+ * Drives with a policy from a model bundle (docs/reference/control/rl_policy_bundle.md).
  *
  * This class finds our robot and the target opponent, schedules policy steps and logs. The
  * bundle decides everything else: the policy kind, the network runtime, the decoder and the

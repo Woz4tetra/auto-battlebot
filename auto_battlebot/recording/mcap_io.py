@@ -1,4 +1,4 @@
-"""Shared MCAP reading utilities for the docs/foxglove_recording_format.md layout."""
+"""MCAP readers for the layout in docs/reference/recording/foxglove_recording_format.md."""
 
 from __future__ import annotations
 
@@ -60,8 +60,8 @@ def _require_current_format(data: bytes) -> None:
         return
     raise ValueError(
         f"Message encoding {encoding or 'untagged'!r} is not readable: only the layout in "
-        "docs/foxglove_recording_format.md is supported. A recording from before the Foxglove "
-        "migration must be rewritten with scripts/convert_ros1_mcap.py first."
+        "docs/reference/recording/foxglove_recording_format.md is supported. A recording from "
+        "before the Foxglove migration must be rewritten with scripts/convert_ros1_mcap.py first."
     )
 
 

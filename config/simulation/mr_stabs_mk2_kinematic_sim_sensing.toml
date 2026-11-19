@@ -1,5 +1,5 @@
 # Mr Stabs Mk2 against the lockstep sim with simulated perception: the sim's sensing model
-# (docs/plans/sensing_model_plan.md) delivers keypoint measurements with latency, dropouts, noise
+# (docs/experiments/control/2026-11-15_kinematic_sim_design.md) delivers keypoint measurements with latency, dropouts, noise
 # and heading flips, and the real RobotFrontBackFilter and KalmanMotionEstimator run on them.
 # Pair with simulation/sim_mr_stabs_mk2.toml with [perception] sensing_model set:
 #

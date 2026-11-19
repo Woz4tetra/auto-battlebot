@@ -132,7 +132,7 @@ ESP-NOW is on (`ESPNOW_ENABLED` in `src/main.cpp`). With it off, update over the
 below or USB.
 
 Firmware updates go over ESP-NOW through the dongle (`firmware/espnow_dongle`,
-`docs/plans/espnow_link_plan.md`). `./scripts/ota` builds the image, copies it to the ZED Box, and
+`docs/experiments/firmware/espnow_link/espnow_transport_notes_2026-11-15.md`). `./scripts/ota` builds the image, copies it to the ZED Box, and
 runs `scripts/espnow_ota.py` there, which stops `auto-battlebot` to take the dongle and starts it
 again afterward. A transfer takes about 20 s for an 887 KB image.
 
@@ -162,7 +162,7 @@ Run `./scripts/ota_wifi` on that network. In client mode, pass the robot's route
 
 Both drive ESCs run BLHeli_32 32.90 (layout 48). Their settings are read and written over the
 signal wires, with no USB cable and no BLHeliSuite32. Protocol, field table, and CLI:
-`firmware/blheli/README.md`. Plan and bench checklist: `docs/plans/esc_settings_dashboard_plan.md`.
+`firmware/blheli/README.md`.
 
 Bench only: props off, wheels clear, transmitter disarmed.
 
@@ -411,8 +411,8 @@ The diagnostics server does no work when no browser is connected. There is no im
 
 - `mr_stabs_mk2/include/espnow_link.h`: OTA transfer gives up after this long without a valid OTA frame. The running image is untouched until Update.end() switches the boot slot, so an abort always leaves the old firmware running.
 - `mr_stabs_mk2/include/espnow_link.h`: Every boot reports OTA_VALIDATED, with its MD5, once it has run this long and heard a dongle. The flasher waits for it as proof the new image runs.
-- `mr_stabs_mk2/scripts/espnow_ota.py`: Flash mr_stabs_mk2 over ESP-NOW through the USB dongle. Run it on the machine the dongle is plugged into, normally the ZED Box (scripts/ota does that over ssh). The robot must be disarmed. The transfer is go-back-N over the 0x10-0x14 messages in docs/plans/espnow_link_plan.md, then the script waits for the rebooted robot to report the new image valid and checks its MD5. venv/bin/python firmware/mr_stabs_mk2/scripts/espnow_ota.py firmware.bin --manage-service
-- `mr_stabs_mk2/scripts/ota`: Build mr_stabs_mk2 and flash it over ESP-NOW (docs/plans/espnow_link_plan.md). The robot must be disarmed. The flasher then waits for the new image to report running, ~10 s after boot with a dongle in range. There is no rollback: a bad image is rescued over USB with scripts/upload. Usage: scripts/ota # through the dongle on the ZED Box, over ssh scripts/ota --local [PORT] # through a dongle on this machine (default /dev/espnow_dongle) Env, same as scripts/deploy_to_jetson.sh: JETSON_HOST ZED Box hostname or IP (default: jetson) JETSON_USER SSH user (default: what ~/.ssh/config resolves) JETSON_KEY SSH private key (default: ~/.ssh/<host> if it exists) JETSON_PATH repo on the box (default: ~/auto-battlebot)
+- `mr_stabs_mk2/scripts/espnow_ota.py`: Flash mr_stabs_mk2 over ESP-NOW through the USB dongle. Run it on the machine the dongle is plugged into, normally the ZED Box (scripts/ota does that over ssh). The robot must be disarmed. The transfer is go-back-N over the 0x10-0x14 messages in docs/experiments/firmware/espnow_link/espnow_transport_notes_2026-11-15.md, then the script waits for the rebooted robot to report the new image valid and checks its MD5. venv/bin/python firmware/mr_stabs_mk2/scripts/espnow_ota.py firmware.bin --manage-service
+- `mr_stabs_mk2/scripts/ota`: Build mr_stabs_mk2 and flash it over ESP-NOW (docs/experiments/firmware/espnow_link/espnow_transport_notes_2026-11-15.md). The robot must be disarmed. The flasher then waits for the new image to report running, ~10 s after boot with a dongle in range. There is no rollback: a bad image is rescued over USB with scripts/upload. Usage: scripts/ota # through the dongle on the ZED Box, over ssh scripts/ota --local [PORT] # through a dongle on this machine (default /dev/espnow_dongle) Env, same as scripts/deploy_to_jetson.sh: JETSON_HOST ZED Box hostname or IP (default: jetson) JETSON_USER SSH user (default: what ~/.ssh/config resolves) JETSON_KEY SSH private key (default: ~/.ssh/<host> if it exists) JETSON_PATH repo on the box (default: ~/auto-battlebot)
 - `mr_stabs_mk2/scripts/ota`: -t so sudo can prompt for the service stop and start.
 - `mr_stabs_mk2/src/espnow_link.cpp`: Deep enough to hold the host's 16-chunk OTA window while a 64 KB block erase stalls loop().
 - `mr_stabs_mk2/src/espnow_link.cpp`: Tell the host where to resume right away rather than waiting for its timeout, but at most every 20 ms: a lost chunk drops the rest of the window, one status per chunk.
@@ -549,6 +549,7 @@ The diagnostics server does no work when no browser is connected. There is no im
 ### General
 
 - `mr_stabs_mk2/src/espnow_link.cpp`: WiFi task context: filter, copy, and return. Never touch ESCs or flash here.
+- `mr_stabs_mk2/include/vbat_sensor.h`: `RETRY_INTERVAL_US` is 1 s so an unplugged sensor cable costs one blocked I2C transaction per second rather than one per sample.
 
 ### motor guard
 

@@ -63,7 +63,7 @@ tuning mode, and `GET /esc/status` reports it. The relay answers `InterfaceGetNa
 every `DevicePageErase` and `DeviceEraseAll`.
 
 The relay differs from the passthrough where the robot showed it had to (2026-10-23, details in
-`docs/plans/esc_settings_dashboard_plan.md`, "Bench findings"):
+`docs/plans/esc_settings_dashboard_plan.md` (deleted 2026-11-18, in git history), "Bench findings"):
 
 - Tuning mode stops DShot and holds both lines high, and that alone puts the ESCs in their
   bootloader. `DeviceReset` therefore only selects the ESC. A real restart (the passthrough's
@@ -395,15 +395,15 @@ Write Setup for "C5 1/8 C#5 1/4 D6 1/2 C4 1/2 B5 1/1 A5 1/8" -> 10 51 A2 80 DB 1
    ESC 0 had played its earlier `A5 1/1 A5 1/1 A5 1/1`, so the running firmware does pick up
    written settings; ESC 1's tune has not been heard yet. Startup beep volume is 40 on ESC 0 and
    254 on ESC 1, so the right ESC's half of the chord will be quiet until those match.
-2. Run the WiFi relay's bench checklist in `docs/plans/esc_settings_dashboard_plan.md` (step 2).
+2. Run the WiFi relay's bench checklist in `docs/plans/esc_settings_dashboard_plan.md` (deleted 2026-11-18, in git history) (step 2).
 
 ## Notes moved from code comments
 
 ### tuning mode over WiFi
 
-- `mr_stabs_mk2/include/esc_config.h`: ESC tuning mode (docs/plans/esc_settings_dashboard_plan.md). Stops DShot, hands both ESC signal wires to the BLHeli bootloader link, and relays 4-way frames posted over HTTP. The robot never decodes settings: the diagnostics page and firmware/blheli/blheli32.py --url do. ESC indices follow the passthrough: 0 = A2, the right ESC; 1 = A3, the left ESC.
+- `mr_stabs_mk2/include/esc_config.h`: ESC tuning mode. Stops DShot, hands both ESC signal wires to the BLHeli bootloader link, and relays 4-way frames posted over HTTP. The robot never decodes settings: the diagnostics page and firmware/blheli/blheli32.py --url do. ESC indices follow the passthrough: 0 = A2, the right ESC; 1 = A3, the left ESC.
 - `mr_stabs_mk2/lib/blheli_boot/blheli_boot.cpp`: Tuning mode owns the pins; leaving it is POST /esc/tuning.
-- `mr_stabs_mk2/src/diagnostics_server.cpp`: The 4-way relay for tuning mode (docs/plans/esc_settings_dashboard_plan.md). The loop runs one frame at a time: POST queues it and returns an id, GET reports it pending or done.
+- `mr_stabs_mk2/src/diagnostics_server.cpp`: The 4-way relay for tuning mode. The loop runs one frame at a time: POST queues it and returns an id, GET reports it pending or done.
 - `mr_stabs_mk2/web/esc_panel.js`: backupJson decodes the settings; a page from another layout gets an empty decode instead.
 - `mr_stabs_mk2/web/esc_panel.js`: Show what the ESC holds now; the edits stay in the form.
 

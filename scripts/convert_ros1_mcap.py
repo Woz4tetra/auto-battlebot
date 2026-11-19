@@ -412,7 +412,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Convert a legacy ROS 1 recording into the Foxglove layout of "
-            "docs/foxglove_recording_format.md.\n\n"
+            "docs/reference/recording/foxglove_recording_format.md.\n\n"
             "  convert_ros1_mcap.py <input.mcap> <output.mcap> [--check]\n"
             "  convert_ros1_mcap.py <input_dir> <output_dir> [--check]\n\n"
             "Never writes in place and never deletes anything. With a directory pair every "
@@ -503,7 +503,7 @@ def _rotation_x_onto(direction: np.ndarray) -> tuple[float, float, float, float]
 
 
 def marker_to_scene_entity(marker: Marker) -> SceneEntity | SceneEntityDeletion | None:
-    """Marker-to-entity rules from docs/foxglove_recording_format.md."""
+    """Marker-to-entity rules from docs/reference/recording/foxglove_recording_format.md."""
     entity_id = f"{marker.ns}/{marker.id}"
     if marker.action == MARKER_ACTION_DELETEALL:
         return SceneEntityDeletion(type="ALL", id="", stamp_ns=marker.stamp_ns)

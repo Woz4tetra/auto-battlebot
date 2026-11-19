@@ -1,7 +1,7 @@
 #pragma once
 
 // jsonschema texts for the JSON channels. Must stay byte-identical to the copies in
-// auto_battlebot/mcap_write.py; docs/foxglove_recording_format.md is the reference.
+// auto_battlebot/mcap_write.py. Reference: docs/reference/recording/foxglove_recording_format.md
 
 namespace auto_battlebot {
 namespace foxglove_adapters {

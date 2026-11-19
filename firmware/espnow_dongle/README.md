@@ -1,7 +1,7 @@
 # ESP-NOW dongle
 
 USB serial from the Jetson in, ESP-NOW to mr_stabs_mk2 out. Design and wire format:
-`docs/plans/espnow_link_plan.md` and `firmware/shared/espnow_protocol/`.
+`firmware/shared/espnow_protocol/`.
 
 ## What it does
 
@@ -173,7 +173,7 @@ venv/bin/python firmware/espnow_dongle/scripts/espnow_diag.py --port /tmp/fake_d
 
 ### wire format
 
-- `shared/espnow_protocol/src/espnow_protocol.h`: Wire format for the ESP-NOW link between the Jetson, the USB dongle, and mr_stabs_mk2. See docs/plans/espnow_link_plan.md. Plain C++17 with no Arduino dependency: the robot firmware, the dongle firmware, the native unit tests, and the Jetson app all compile this one header, so the three ends cannot disagree about a field. Two hops: Jetson <--serial frame--> dongle <--air frame--> robot Serial frame: magic:u16 (0xB07B, little endian), type:u8, length:u8, payload, crc16:u16 over type, length, and payload. Air frame: session magic:u8[4], type:u8, payload. Length is the ESP-NOW frame length.
+- `shared/espnow_protocol/src/espnow_protocol.h`: Wire format for the ESP-NOW link between the Jetson, the USB dongle, and mr_stabs_mk2. Plain C++17 with no Arduino dependency: the robot firmware, the dongle firmware, the native unit tests, and the Jetson app all compile this one header, so the three ends cannot disagree about a field. Two hops: Jetson <--serial frame--> dongle <--air frame--> robot Serial frame: magic:u16 (0xB07B, little endian), type:u8, length:u8, payload, crc16:u16 over type, length, and payload. Air frame: session magic:u8[4], type:u8, payload. Length is the ESP-NOW frame length.
 - `shared/espnow_protocol/src/espnow_protocol.h`: Jetson to robot, CommandPayload robot to Jetson, TelemetryPayload Jetson to robot, TunableSetPayload dongle to Jetson, LinkStatsPayload dongle to robot, no payload: keepalive, see PING_PERIOD_MS host to robot, OtaBeginPayload host to robot, OtaChunkHeader then data host to robot, no payload host to robot, no payload robot to host, OtaStatusPayload
 
 ### threading

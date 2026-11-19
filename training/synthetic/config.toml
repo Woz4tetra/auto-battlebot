@@ -105,7 +105,7 @@ yaw_deg = [-23.0, 23.0]
 roll_deg = [-13.0, 13.0]
 
 # The MassDestruction arena (Charles River Museum), fitted from one broadcast clip in
-# docs/experiments/perception_performance/massd_arena_scene_2026-09-11.md. A 2.26 m plywood
+# docs/experiments/perception/massd_arena_scene_2026-09-11.md. A 2.26 m plywood
 # floor with a 0.43 m pit in it, wooden kick rails and a much brighter room than NHRL's cage.
 [[cages]]
 name = "massd_arena"

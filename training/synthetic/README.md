@@ -333,7 +333,7 @@ wall instead of sampled on a shell around the robots. The shipped config ships t
 3 lb cage at 50% and the MassDestruction arena at 25%, leaving 25% HDRI arena; the NHRL
 cage's house bot is labelled as its own `house_bot` class with keypoints. The run summary
 reports the realized split per arena. See
-`docs/experiments/perception_performance/cage_scene_render_match_2026-09-11.md` and
+`docs/experiments/perception/cage_scene_render_match_2026-09-11.md` and
 `massd_arena_scene_2026-09-11.md` for how each was fitted to footage, and `training/data/environments/nhrl_3lb_cage/` for its assets.
 
 A third entry, `meatball_basement`, is the drive-test box in the basement: an open plywood box
@@ -628,7 +628,7 @@ Notes from code comments:
   ```text
   Gate report for a merged domain-mix render: per-view counts, classes, keypoints, drops, damage.
 
-  Step 3 of docs/experiments/perception_performance/synthetic_domain_mix_plan_2026-09-12.md lists the
+  Step 3 of docs/experiments/perception/synthetic_domain_mix_plan_2026-09-12.md lists the
   checks a render passes before it goes to training. `validate_yolo_integrity.py --strict` covers the
   dataset's structure; this covers what that cannot see, all split by view because the distorted and
   rectified views cut objects at the frame edge and at the border where pinhole does not:
@@ -753,7 +753,7 @@ Notes from code comments:
   ```text
   Render one venue's domain-mix dataset across several GPUs, one view per run, then merge it.
 
-  Step 3 of docs/experiments/perception_performance/synthetic_domain_mix_plan_2026-09-12.md. The GPU
+  Step 3 of docs/experiments/perception/synthetic_domain_mix_plan_2026-09-12.md. The GPU
   queue runs one job at a time, so this is that one job: one worker per GPU renders its shard as one
   ``render_scenes.py`` container per view, back to back, and once every run has finished the runs are
   hardlinked into one flat dataset.

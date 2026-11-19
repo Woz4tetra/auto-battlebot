@@ -17,7 +17,7 @@ Either way, `edit_labels.py` is the editor, and only frames you mark reviewed co
 ground truth when scoring.
 
 To add a new fight recording to `nhrl_keypoints_eval_test`, follow
-[docs/adding_eval_recordings.md](../../docs/adding_eval_recordings.md). It covers the full
+[docs/guides/adding_eval_recordings.md](../../docs/guides/adding_eval_recordings.md). It covers the full
 run, from merging the SVO through camera transforms and the push to megamind. The workflow
 below is the shorter version for labeling and scoring an existing dataset.
 
@@ -162,7 +162,7 @@ so only 38 of its 100 images resolve exactly.
   paths' matched detections. Caution: desktop playback frames are affine-warped ~2-3%
   vs live Jetson frames (ZED rectification difference), so playback detections carry a
   systematic offset against live-labeled GT. See
-  `docs/experiments/perception_performance/baseline_2026-07-07.md`.
+  `docs/experiments/perception/baseline_2026-07-07.md`.
 - Related: perception reliability over a full fight uses `perception_reliability.py`.
 - `make_robot_capture_mosaic.py` renders the sharpest GT crops of each robot in an eval
   dataset, one row per robot, with opponents named by recording (`--opponent name=prefix`).
@@ -192,7 +192,7 @@ so only 38 of its 100 images resolve exactly.
            transfers worst. Derived from means, which are additive; medians are not.
     total  `infer`: pre + gpu + post end to end. This is what the C++ `update()` call
            actually costs, and it is the one the frame-period decision rests on --
-           `docs/experiments/parallel_yolo_batch/shared_preprocess_2026-07-24.md` found GPU
+           `docs/experiments/perception/parallel_yolo_batch/shared_preprocess_2026-07-24.md` found GPU
            inference is 1-3 ms while a full per-model update is ~12 ms on the Jetson, so
            quoting GPU time alone understates a bigger model by ~4x.
 
@@ -394,7 +394,7 @@ so only 38 of its 100 images resolve exactly.
   ```text
   Score domain-mix arms on nhrl_keypoints_eval_test: pooled, heading, per venue, per recording.
 
-  Step 5 of docs/experiments/perception_performance/synthetic_domain_mix_plan_2026-09-12.md. Reads
+  Step 5 of docs/experiments/perception/synthetic_domain_mix_plan_2026-09-12.md. Reads
   each arm's square-640 engine at data/models/<model>_<arm>_<date>_<ckpt>_x86_64_<sm>.engine, the
   name run_domain_mix_arm.sh gives it. The first arm is the baseline every other arm is bootstrapped
   against.

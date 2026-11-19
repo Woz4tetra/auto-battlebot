@@ -191,7 +191,7 @@ The `remap_config_*.toml` files are inputs to the remap scripts.
   Built for the synthetic+bbox experiment: turn the synthetic keypoint dataset
   ``all_robot_keypoints`` into box-only labels remapped into the ``nhrl_robots_bbox``
   vocabulary, so it can be pooled with the real bbox set. See
-  ``docs/experiments/perception_performance/synthetic_plus_bbox_plan.md``.
+  ``docs/experiments/perception/synthetic_plus_bbox_plan.md``.
 
   Usage:
     python training/yolo/pose_to_bbox.py training/data/all_robot_keypoints       -o training/data/synth_bbox_from_keypoints       --class-map 2:1,0:3,1:4       --names-from training/data/nhrl_robots_bbox/data.yml
@@ -230,7 +230,7 @@ The `remap_config_*.toml` files are inputs to the remap scripts.
   ```text
   Train one domain-mix arm, keep its checkpoints under the arm's name, and build its engines.
 
-  Step 4 of docs/experiments/perception_performance/synthetic_domain_mix_plan_2026-09-12.md and
+  Step 4 of docs/experiments/perception/synthetic_domain_mix_plan_2026-09-12.md and
   step 2 of pose_only_perception_plan_2026-09-19.md. One queue job per arm, so the queue's
   ordering and time estimates see each arm separately:
 

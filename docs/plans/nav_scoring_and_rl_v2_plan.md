@@ -6,7 +6,7 @@ arc. Every change is decided by a navigation scoring pipeline built the same way
 eval in `auto_battlebot/eval/`: one scorer, hand-validated ground truth, and a paired bootstrap.
 The lessons then carry to Mrs Buff Mk3 and Mk4.
 
-This plan follows `docs/plans/rl_policy_navigation_plan.md`. That plan built the RL stack. This one
+This plan follows `docs/plans/rl_policy_navigation_plan.md` (deleted 2026-11-18, in git history). That plan built the RL stack. This one
 fixes what broke when the stack met the field, and adds the measurement that was missing.
 
 The decisions come from a grilling session on 2026-11-14. The full question and answer log is in
@@ -71,7 +71,7 @@ scorer (`playground/rl/score_field_session.py`) are separate implementations. Th
 docstring calls its thresholds "unvalidated against video". The two `review.csv` files it wrote
 for 00-28 (12 hits) and 00-49 (36 hits) have an empty `confirmed` column. Warp eval is not
 reproducible: the same 128 scenarios gave 3.0-5.2 hits per hit taken across runs
-(`docs/experiments/control_improvement/rl_navigation_report.md:188-191`). No navigation decision
+(`docs/experiments/control/rl_navigation_report.md:188-191`). No navigation decision
 so far used a significance test.
 
 ## Requirements
@@ -125,7 +125,7 @@ say which one caused the reverse freezes. Lockstep can.
 - Pass: the arm with both stages lands near the field number and the arm with neither does not.
   That is attribution, and the first fidelity result. If the freezes do not reproduce, the
   command path is not the whole story and phase 1 needs another look before the session.
-- Write it up in `docs/experiments/nav_eval/`.
+- Write it up in `docs/experiments/control/nav_eval/`.
 
 ### 0.2 Forward step test
 
@@ -305,7 +305,7 @@ A playground web app in `playground/nav_eval/labeler/`. It follows the in-repo e
 For each event type, compute the automatic detector's precision and recall against the hand
 labels, the way the detector GT validated the engines. Tune the weapon arc, contact distance and
 merge window until precision and recall are acceptable on 00-49. Hold out 00-28 to confirm.
-Report the numbers in `docs/experiments/nav_eval/`.
+Report the numbers in `docs/experiments/control/nav_eval/`.
 
 Two more sources, because 10/25 alone is too thin:
 - **Sim contact truth.** In lockstep, MuJoCo knows every wedge contact. Run the pose-only
@@ -420,7 +420,7 @@ marked provisional.
 - **Smoke tier:** a ~5 min lockstep subset (64-128 short episodes) on every navigation,
   firmware-mixer or config commit. A script runs it, manually or from a hook.
 - **Full suite:** on demand for any field candidate, through the GPU queue if it's heavy.
-- **Results record:** `docs/experiments/nav_eval/results.md` is generated from the store. It has
+- **Results record:** `docs/experiments/control/nav_eval/results.md` is generated from the store. It has
   one row per run (git hash, controller, suite version, headline ± CI, guardrails), plus a short
   report with plots for each candidate. Never under `runs/`.
 
@@ -662,7 +662,7 @@ else is assumed.
   `data/`, no `venv/` and no `third_party/foxglove`: symlink them from the main checkout.
 - Stay inside your package's "Owns" paths. If you need a change in another package's paths, say
   so in your hand-back instead of making it.
-- Never modify anything under `data/`. Analysis output goes in `docs/experiments/nav_eval/` or
+- Never modify anything under `data/`. Analysis output goes in `docs/experiments/control/nav_eval/` or
   the scratchpad, never `runs/`.
 - Never send drive commands to a robot. Anything that needs the robot to move, a firmware flash,
   a measurement or a label is a user task (table below): prepare the tool and the instructions,
@@ -691,7 +691,7 @@ else is assumed.
 | WP-10 | Scorer validation | 2.4 | `playground/nav_eval/validate_scorer.py`, report | WP-08, WP-09, WP-14, U3, U4 | Precision and recall per event type on hand labels and on sim contact truth; thresholds frozen in the profile |
 | WP-11 | Field session app and bout splitter | 2.5 | `playground/nav_eval/field_session/` | WP-08, WP-13 | The three 10/25 MCAPs split into bouts and land in the store; pair scheduler and "no verdict" rule work on synthetic bouts |
 | WP-12 | Scenario manifest `nav_suite_v1` | 3.1, 3.4 | `auto_battlebot/eval/nav/suite/`, the manifest file | none | Manifest with tags, content hash, gated bucket list, held-out split marked |
-| WP-13 | Results store, statistics, report generator | 3.2, 3.4, 3.5 | `auto_battlebot/eval/nav/store.py`, `stats.py`, `docs/experiments/nav_eval/results.md` generator | none | Append and query round-trip; pairing refuses mismatched `sim_hash`; bootstrap reuses `auto_battlebot/eval/significance.py` |
+| WP-13 | Results store, statistics, report generator | 3.2, 3.4, 3.5 | `auto_battlebot/eval/nav/store.py`, `stats.py`, `docs/experiments/control/nav_eval/results.md` generator | none | Append and query round-trip; pairing refuses mismatched `sim_hash`; bootstrap reuses `auto_battlebot/eval/significance.py` |
 | WP-14 | Lockstep runner on the manifest, A/A, smoke tier | 3.3, 3.5 | `playground/rl/lockstep_eval.py`, smoke script | WP-08, WP-12, WP-13 | `rl_nav_p4` scored on `nav_suite_v1`; A/A half-width recorded; smoke tier under 5 min |
 | WP-15 | Fidelity checks and rank agreement | phase 4 | `playground/nav_eval/fidelity/`, report | WP-14, WP-11, U5 | Four checks reported for `rl_nav_p4` and both calibration controllers |
 | WP-16 | Residual model: wheel response and perception | phase 4 | `auto_battlebot/rl/` residual module, sensing model TOML | WP-15 | Residual cuts the response-fidelity error on a held-out MCAP; `sim_hash` changes; baseline rerun |

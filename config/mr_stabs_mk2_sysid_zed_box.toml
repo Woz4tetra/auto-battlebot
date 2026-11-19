@@ -1,4 +1,4 @@
-# System identification sessions for Mr Stabs Mk2 (docs/plans/mujoco_warp_mr_stabs_plan.md). The
+# System identification sessions for Mr Stabs Mk2 (docs/guides/sysid_guide.md). The
 # driver drives by hand in the 1.52 m test box under a tripod-mounted ZED X One S; the app records
 # the robot's AprilTag poses and the firmware's ESP-NOW telemetry into the MCAP.
 extends = "mr_stabs_mk2_fid_zed_box"

@@ -32,7 +32,7 @@ class SafestPointTarget : public TargetSelectorInterface {
 
     /** Center of the largest empty circle via the exact constraint-triple solver, the
      *  winner of the experiment in
-     *  docs/experiments/control_improvement/run_away_solver_report.md. Ties on the
+     *  docs/experiments/control/run_away_solver_report.md. Ties on the
      *  no-opponent plateau resolve toward our_pose so we do not cross the field for
      *  nothing; without our pose the search still runs and only the tie-break degrades. */
     std::optional<Pose2D> solve(const FieldDescription &field, const std::vector<Pose2D> &opponents,

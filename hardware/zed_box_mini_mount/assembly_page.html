@@ -403,7 +403,7 @@ function renderInsert() {
       <li><b>Screw engagement is full.</b> An M3 × 8 through the 1 mm ear leaves 7.0 mm of thread past the sheet: all ${A.len} mm of the insert plus 0.6 mm of tip in the open hole.</li>
     </ul>
     <p class="flag"><b>Unverified.</b> I could not find the knurl OD, so ${A.od} mm is an assumption (<code>insert_od</code> in Params). Measure one insert across the knurls. If it is outside 4.9 to 5.6 mm, set the hole to OD − 0.5 to 0.7 mm. Pull-out strength in PLA is also unverified: a 50 g hit on the 600 g ZED is ${Math.round(loadN)} N, or ${Math.round(loadN / 4)} N per insert if all four share it along the screw axis. A pull test on a printed coupon would settle both.</p>
-    <p class="flag"><b>Heat.</b> PLA softens at about 55 to 60 °C. <code>docs/zed_box_mini.md</code> logged 58 to 62 °C on the box at 60 Hz. That is a board reading, not the base sheet, but if the sheet runs close to it the inserts can creep. Measure the sheet after a run, or print in PETG or ASA. The hole sizes carry over.</p>`;
+    <p class="flag"><b>Heat.</b> PLA softens at about 55 to 60 °C. <code>docs/setup/zed_box_mini.md</code> logged 58 to 62 °C on the box at 60 Hz. That is a board reading, not the base sheet, but if the sheet runs close to it the inserts can creep. Measure the sheet after a run, or print in PETG or ASA. The hole sizes carry over.</p>`;
 
   const band = (rad) => (rad < 0.15 ? ["band-low", "loose"] : rad > 0.4 ? ["band-high", "high"] : ["band-ok", "in range"]);
   const rows = A.rows.map((r) => {

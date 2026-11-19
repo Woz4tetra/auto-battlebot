@@ -41,7 +41,7 @@ struct DeadReckoningMotionEstimatorConfiguration : public MotionEstimatorConfigu
                 "type = 'DeadReckoningMotionEstimator' requires the top-level [plant] table: it "
                 "scales the normalized stick command to body velocity with the fitted "
                 "k_fwd/k_rev/k_ang and has no defaults for them. A zero plant would freeze every "
-                "prediction without saying so. See docs/plant_backed_control.md");
+                "prediction without saying so. See docs/reference/control/plant_backed_control.md");
         }
         plant = *plant_config.params;
     }
@@ -194,7 +194,7 @@ struct KalmanMotionEstimatorConfiguration : public MotionEstimatorConfiguration 
                 "type = 'KalmanMotionEstimator' requires the top-level [plant] table: the EKF "
                 "our-robot arm propagates through JigPlantModel and the dead-reckoning arm scales "
                 "stick to body velocity with the fitted gains. Neither has defaults. See "
-                "docs/experiments/kalman_filter/plant_model_poc_plan.md");
+                "docs/experiments/control/kalman_filter/plant_model_poc_plan.md");
         }
     }
 };

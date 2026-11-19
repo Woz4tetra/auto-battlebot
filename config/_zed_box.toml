@@ -7,7 +7,7 @@ extends = "_common"
 # the same trained model: falling back to a different model would silently change
 # detection behavior between machines.
 
-# ZED Box Mini with a ZED X One S on a GMSL2 port (docs/zed_box_mini.md). The X One S is
+# ZED Box Mini with a ZED X One S on a GMSL2 port (docs/setup/zed_box_mini.md). The X One S is
 # monocular: no depth, no visual odometry. Everything that read depth changes with it:
 # - the field filter solves off the fiducial board instead of fitting the point cloud.
 # - the height gate abstains on the empty depth image; the static gate takes over.

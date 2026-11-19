@@ -149,11 +149,11 @@ type = "KalmanMotionEstimator"
 our_robot_mode = "EKF"
 # 6-state opponent filter (heading, yaw rate, sigmas). It beats HOLD on heading and on position
 # up to 0.1 s; past that it overshoots robots that stop during a dropout (0.35 s median 50 against
-# 36 mm on the held-out sysid session). docs/experiments/kalman_filter/opponent_filter_evaluation.md
+# 36 mm on the held-out sysid session). docs/experiments/control/kalman_filter/opponent_filter_evaluation.md
 opponent_mode = "KALMAN"
 max_coast_s = 0.2
 # Opponent heading block, grid-searched on the 2026-10-15 Mr Stabs Mk2 sysid sessions against
-# AprilTag truth (docs/experiments/kalman_filter/opponent_filter_evaluation.md). The heading values
+# AprilTag truth (docs/experiments/control/kalman_filter/opponent_filter_evaluation.md). The heading values
 # are interior optima; opponent_accel_psd was flat across 3 to 1000 and keeps its default. The
 # coast horizon is the best trade between fresh error and overshoot at 0.35 s. The position sigma
 # is from the same sweep (8 to 12 mm tie); NHRL replays gate identically at 12 and 30 mm.
@@ -234,7 +234,7 @@ rate_hz = 250.0              # 0 = one cycle per perception frame
 watchdog_timeout_ms = 20.0   # inert under SteppedControlLoop
 
 # Motion-profiled tracker: a distance-to-go brake schedule and inverse-plant feedforward, both
-# derived from the jig fit. See docs/plant_backed_control.md. The plant terms come from the
+# derived from the jig fit. See docs/reference/control/plant_backed_control.md. The plant terms come from the
 # [plant] table above, not from here, so only the mission and field settings live below.
 #
 # Mr Stabs Mk2 has no fit and stays on PursuitNavigation. Its profiles set `type` themselves,

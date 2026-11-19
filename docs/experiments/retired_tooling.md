@@ -12,7 +12,7 @@ git checkout 1887db41 -- <path>
 ```
 
 `playground/control_stage0/` has its own record in
-[control_improvement/control_stage0_retired.md](control_improvement/control_stage0_retired.md).
+[control_improvement/control_stage0_retired.md](control/control_stage0_retired.md).
 
 ## Figure generators
 
@@ -57,7 +57,7 @@ sibling importers, which is part of what made the library extraction clean.
 
 `YoloSegRobotBlobModel` and `YoloSegMaskModel` were registered in their factories but no
 config selected either. `YoloBboxRobotBlobModel` handles robot blobs, per
-[perception_performance/seg_vs_bbox_2026-07-18.md](perception_performance/seg_vs_bbox_2026-07-18.md),
+[perception_performance/seg_vs_bbox_2026-07-18.md](perception/seg_vs_bbox_2026-07-18.md),
 and `DeepLabMaskModel` handles the field.
 
 ## Vendored Stereolabs sample license

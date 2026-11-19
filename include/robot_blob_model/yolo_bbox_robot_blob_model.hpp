@@ -17,7 +17,7 @@ namespace auto_battlebot {
 // engine on the same images. Downstream consumers only need box centers and the
 // front/back midline, both of which come straight from the box, so dropping the
 // segmentation head costs nothing they read.
-// See docs/experiments/perception_performance/seg_vs_bbox_2026-07-18.md.
+// See docs/experiments/perception/seg_vs_bbox_2026-07-18.md.
 class YoloBboxRobotBlobModel : public RobotBlobModelInterface {
    public:
     YoloBboxRobotBlobModel(YoloBboxRobotBlobModelConfiguration &config,

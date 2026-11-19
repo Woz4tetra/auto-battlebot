@@ -1,9 +1,9 @@
 # Headless sim config for MR STABS MK2 (simulation/kinematic_sim_server.py), on the MuJoCo
-# rigid-body plant (auto_battlebot/mujoco_sim, docs/plans/mujoco_warp_mr_stabs_plan.md).
+# rigid-body plant (auto_battlebot/mujoco_sim, docs/guides/sysid_guide.md).
 # Set [our_robot] plant = "kinematic" for the run-175805 kinematic fit further down.
 #
 # Matches the world the RL policy trains in (auto_battlebot/rl/envs/warp_nav.py,
-# docs/plans/rl_policy_navigation_plan.md): the 2026-10-15 plant fit at 2 ms, 50 Hz ticks, 60 ms
+# docs/experiments/control/rl_navigation_report.md): the 2026-10-15 plant fit at 2 ms, 50 Hz ticks, 60 ms
 # actuation latency, the provisional_rl sensing model, a moving opponent our robot can hit, and
 # the house bot. No static hazards: the training mix draws 0 to 3, and this is the 0 case. To run
 # the policy:
@@ -75,7 +75,7 @@ pack_voltage = 15.2
 flip_switch = "down"
 
 # Perception latency, dropouts and noise come from a sensing model
-# (docs/plans/sensing_model_plan.md). Empty sends the true poses every tick. Pair a model with
+# (docs/experiments/control/2026-11-15_kinematic_sim_design.md). Empty sends the true poses every tick. Pair a model with
 # config/simulation/kinematic_sim_sensing.toml on the C++ side, so the real keypoint filter and
 # motion estimator see the measurements.
 [perception]

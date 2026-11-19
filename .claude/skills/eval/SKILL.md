@@ -49,7 +49,7 @@ python training/model_eval/score.py training/data/nhrl_keypoints_eval_test \
 `edit_labels.py` (one subdataset per recording). To build GT for new recordings, see the
 README workflow (make_eval_dataset.py or export_labels.py pre-labels + edit_labels.py).
 
-Baseline numbers: `docs/experiments/perception_performance/baseline_2026-07-07.md`.
+Baseline numbers: `docs/experiments/perception/baseline_2026-07-07.md`.
 Playback-recorded MCAP scoring was removed 2026-07-07; direct inference scores slightly
 higher than the old playback numbers (the C++ stack context is not measured).
 
@@ -75,7 +75,7 @@ python playground/control_stage0/sim_sweep.py --sweep my_sweep.toml --out sweep_
 - Output: `<out>/results.csv` (default `playground/control_stage0/sweep_out/`).
 - Metrics are sim-time (tick index x `[sim].dt`), not wall-clock, since runs are accelerated.
 - What the harness and its eighteen sweep specs did:
-  `docs/experiments/control_improvement/control_stage0_retired.md`.
+  `docs/experiments/control/control_stage0_retired.md`.
 
 **Gotcha:** only nav implementations in `diag_io.NAV_HW_IDS` (currently PursuitNavigation
 and MotionProfileNavigation) have their diagnostics scored. A brand-new nav impl scores

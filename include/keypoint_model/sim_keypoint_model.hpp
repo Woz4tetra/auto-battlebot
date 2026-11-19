@@ -12,7 +12,7 @@ namespace auto_battlebot {
 
 /**
  * Keypoint model for the lockstep sim. Builds front and back keypoints from the poses the sim's
- * sensing model delivered (simulation/kinematic_sim_server.py, docs/plans/sensing_model_plan.md),
+ * sensing model delivered (simulation/kinematic_sim_server.py),
  * so the real RobotFrontBackFilter and KalmanMotionEstimator run on simulated perception: its
  * latency, dropouts, noise and heading flips. A flipped heading arrives as swapped front and back
  * keypoints, the way a real flip does.

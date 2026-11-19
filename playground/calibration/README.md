@@ -3,7 +3,7 @@
 Tooling to physically characterize the drivetrain so the headless sim
 (`simulation/kinematic_sim_server.py`) becomes a faithful drivetrain testbed, not just a controller
 testbed. Background and the parameter taxonomy are in
-`docs/experiments/control_improvement/` (Stage 1 report) and the control plan.
+`docs/experiments/control/` (Stage 1 report) and the control plan.
 
 There are two ground-truth paths here. **The velocity jig is the current one**; the AprilTag path
 below it came first and its analysis scripts are kept for the recordings already made with it.
@@ -12,7 +12,7 @@ below it came first and its analysis scripts are kept for the recordings already
 
 An RP2040 datalogger rides on the robot and records a wheel encoder plus an IMU at 1 kHz, so the
 ground truth is on-robot rather than from an overhead camera. Firmware and wiring:
-`firmware/velocity_jig`. Procedure: `docs/experiments/kalman_filter/velocity_jig_runbook.md`.
+`firmware/velocity_jig`. Procedure: `docs/experiments/control/kalman_filter/velocity_jig_runbook.md`.
 
 ```bash
 source scripts/activate_python.sh

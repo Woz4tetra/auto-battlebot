@@ -283,7 +283,7 @@ struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
             throw ConfigValidationError(
                 "navigation type = 'MotionProfileNavigation' requires the top-level [plant] "
                 "table: its brake schedule and inverse-plant feedforward are derived from the "
-                "jig fit and have no defaults. See docs/plant_backed_control.md");
+                "jig fit and have no defaults. See docs/reference/control/plant_backed_control.md");
         }
         plant = *plant_config.params;
     }

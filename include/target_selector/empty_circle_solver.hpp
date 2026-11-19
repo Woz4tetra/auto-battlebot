@@ -56,7 +56,7 @@ double empty_circle_radius(const Size &field, double x, double y,
  *  Chosen over a coarse grid and Lipschitz branch and bound by the solver experiment:
  *  matched a 1 mm brute-force reference on every tick of six recorded fights while being
  *  the cheapest of the three (~15 evaluations per tick). See
- *  docs/experiments/control_improvement/run_away_solver_report.md. */
+ *  docs/experiments/control/run_away_solver_report.md. */
 EmptyCircle solve_exact(const Size &field, const std::vector<Pose2D> &opponents,
                         const std::vector<FieldHazard> &hazards,
                         const std::optional<Pose2D> &tie_break_near = std::nullopt);

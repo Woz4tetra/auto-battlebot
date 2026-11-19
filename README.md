@@ -53,7 +53,7 @@ The application uses **Foxglove** for visualization, **MCAP** for replay debuggi
 Live viewing goes through `viz_relay`, a small process that owns the Foxglove WebSocket server
 on port 8765 and stays up across app restarts (`scripts/run_viz_relay.sh`, or the
 `viz-relay.service` unit on the Jetson). Recordings use Foxglove protobuf and JSON schemas;
-the layout is documented in `docs/foxglove_recording_format.md`.
+the layout is documented in `docs/reference/recording/foxglove_recording_format.md`.
 
 The same relay serves a web dashboard (`web/`, Svelte). On the ZED Box
 it is `http://<hostname>.local` over an Ethernet cable to an iPad, using the box's existing
@@ -155,10 +155,10 @@ If there's an error about no engine file found, jump to this section "Creating N
 ## Docker-less install
 
 I don't have a docker file for Jetson platforms.
-For Jetson-specific setup, see [docs/jetson_setup.md](docs/jetson_setup.md).
+For Jetson-specific setup, see [docs/setup/jetson_setup.md](docs/setup/jetson_setup.md).
 
 To run SVO playback in a container instead, with ZED SDK, CUDA, and TensorRT already
-pinned, see [docs/docker_playback.md](docs/docker_playback.md). That path is x86 only
+pinned, see [docs/setup/docker_playback.md](docs/setup/docker_playback.md). That path is x86 only
 and covers playback, not deployment.
 
 To install the core application, run one of:

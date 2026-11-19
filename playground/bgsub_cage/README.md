@@ -5,7 +5,7 @@ subtraction cannot be evaluated on any of it. These two scripts build a stationa
 test set from NHRL's fixed `Cage-N-Overhead-High` camera and run the 2class detectors over
 it with the cage floor masked by DeepLab plus a convex hull.
 
-Background: `docs/experiments/perception_performance/rembg_cage_high_plan.md` (the planned
+Background: `docs/experiments/perception/rembg_cage_high_plan.md` (the planned
 version of this experiment, built on stills) and `rembg_field_2026-09-04.md` (the moving-ZED
 null result it follows up).
 

@@ -147,7 +147,7 @@ All code is in namespace `auto_battlebot`. Interfaces live in `include/<module>/
   paths, ids, and names only: `svo_file_path`, `hazards_file`, `active_profile`, label keys.
   The `type` field selecting a factory implementation is the one exception, since `REGISTER_CONFIG`
   keys on it
-- No ROS. Live viz and recordings use Foxglove schemas over the Foxglove SDK (`docs/foxglove_recording_format.md`); the relay is `viz_relay`. Do not add ROS dependencies
+- No ROS. Live viz and recordings use Foxglove schemas over the Foxglove SDK (`docs/reference/recording/foxglove_recording_format.md`); the relay is `viz_relay`. Do not add ROS dependencies
 - Compiler flags are `-Wall -Wextra -Werror`. Fix warnings, do not suppress them
 - Remote UI status topics and commands are added in `include/remote/protocol.hpp` (one row each,
   structs in `include/remote/messages.hpp`); `./scripts/lint` regenerates the web page's types
@@ -158,7 +158,7 @@ Don't write code comments. That covers `//`, `/* */`, `#`, TOML comments, and Py
 longer than one line. One-line docstrings are allowed and do not count.
 
 - Reason for a change: the commit message
-- Measurement, eval result, fitted-value provenance: a dated doc under `docs/` or `docs/experiments/`
+- Measurement, eval result, fitted-value provenance: a dated doc under `docs/experiments/<topic>/`
 - Invariant: a test, or a type or name that makes the wrong use impossible
 - A block that needs explaining: a named function
 - History ("previously", "no longer") and plan checkpoints: nowhere
@@ -244,6 +244,18 @@ CTCACHE_DISABLE=1 ./scripts/lint  # one uncached run, to check the cache is hone
 ```
 
 Lint still works without it installed, just uncached.
+
+## Docs layout
+
+`docs/README.md` indexes every folder. A new doc goes in the first folder that fits:
+
+- `docs/guides/`: steps you follow start to finish
+- `docs/reference/<subsystem>/`: how the code works now, no results or history
+- `docs/setup/`: how a machine or service is configured
+- `docs/experiments/<topic>/YYYY-MM-DD_<name>.md`: a measurement or result
+- `docs/plans/`: active plans only. When a plan is done, move its lasting facts to `reference/` and delete it
+
+Nothing new goes at the top of `docs/`. Move docs with `git mv` and update every path that cites them.
 
 ## Writing
 
@@ -363,7 +375,7 @@ drafts if they clearly beat commas, periods, or parentheses.
 
 ## Platforms
 
-- Deployment: Jetson Orin NX on JetPack 7.2 / L4T R39.2 (aarch64, Ubuntu 24.04, Python 3.12, CUDA 13.2, TensorRT 10.16) or JetPack 6.2 / L4T R36.4 (Ubuntu 22.04, Python 3.10, CUDA 12.6, TensorRT 10.3). The ZED Box Mini ships on 6.2.1 (`docs/zed_box_mini.md`). The install scripts branch on the L4T major and take the venv's Python version from `/usr/bin/python3`, because apt builds `python3-libnvinfer` for the system python only
+- Deployment: Jetson Orin NX on JetPack 7.2 / L4T R39.2 (aarch64, Ubuntu 24.04, Python 3.12, CUDA 13.2, TensorRT 10.16) or JetPack 6.2 / L4T R36.4 (Ubuntu 22.04, Python 3.10, CUDA 12.6, TensorRT 10.3). The ZED Box Mini ships on 6.2.1 (`docs/setup/zed_box_mini.md`). The install scripts branch on the L4T major and take the venv's Python version from `/usr/bin/python3`, because apt builds `python3-libnvinfer` for the system python only
 - Python floor is 3.10 for JetPack 6. Import it as `from auto_battlebot.compat import tomllib`, and use no 3.11+ stdlib API outside `training/synthetic/` (Blender's 3.11). ruff and mypy target 3.10 and catch most of it
 - `BUILD_WITH_ZED` defaults to whether the ZED SDK is installed: OFF on the e-CAM25 Jetson, ON on the ZED Box Mini and dev machines (SVO playback)
 - TensorRT engines are not portable across TensorRT versions. The `aarch64_sm87` engines must be built on each box's own TensorRT (10.16 on JetPack 7, 10.3 on JetPack 6); the filename is unchanged by a rebuild, so old and new look identical on disk

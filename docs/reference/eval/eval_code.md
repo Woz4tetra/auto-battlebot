@@ -1,0 +1,95 @@
+# Eval code
+
+How `auto_battlebot/eval/` and the eval dataset scripts work. The procedure for adding a recording is `docs/guides/adding_eval_recordings.md`.
+
+## Evaluation code notes
+
+Notes on `auto_battlebot/eval/` that matter when you add a recording or a candidate.
+
+### `eval/dataset.py`
+
+#### `FrameKey`
+
+Which frame this is: the subdataset it came from, and its stamp.
+
+Keying by stamp alone loses frames whenever two subdatasets number a frame the same.
+That is the normal case for a set built from video, where every recording starts at
+stamp 0: cage_high_x50_conf044 loaded 571 of its 636 frames, the nine recordings'
+frame 0 collapsing into one. Sets sampled from SVO recordings carry stamps unique
+across recordings and were never affected.
+
+`dataset` is the subdataset's path relative to the GT root, "." for a single dataset.
+`stamp_ns` stays available for the consumers that have to align GT against something
+else timestamped, such as compare_cpp_python.py against a C++ MCAP.
+
+### `eval/detectors.py`
+
+#### `FieldCropDetector`
+
+Crops each frame to its field box before inference, then maps detections back.
+
+Arm E of `input_geometry_2026-09-05` trains on field-cropped images, so it has to be
+evaluated on field-cropped frames. Cropping here rather than pre-cropping the eval set
+leaves the GT in full-frame coordinates, so every candidate is scored against the same
+boxes and the paired bootstrap stays paired.
+
+Boxes come from a JSON keyed by frame stem, as written by
+`training/deeplab/build_field_crop_dataset.py masks --recursive`. A frame with no field
+detected passes through uncropped, matching what the dataset builder does.
+
+#### `PrecomputedDetector`
+
+Detections read from a JSON file instead of produced by an engine.
+
+Some detectors cannot be handed one image at a time. Background subtraction needs the
+whole recording to build its background, so it is run separately by
+`background_subtraction_predict.py` and its output is replayed here, which keeps every
+metric, threshold and plot identical to an engine's.
+
+Format: {"labels": [...], "frames": {"<stamp_ns>": [{"xyxy": [x1, y1, x2, y2],
+"score": float, "class_id": int, "kps": [[x, y, v], ...]}]}}.
+
+#### `build_detector`
+
+The detector for one candidate, with any preprocessing that candidate was trained on.
+
+Geometry arms differ in how the frame reaches the tensor, and an engine fed the wrong
+preprocessing fails quietly rather than loudly: a stretch-trained engine handed a
+letterboxed frame simply sees the wrong aspect ratio. Both modes are opt-in per
+candidate so a mixed run scores each arm the way it was trained.
+
+### `eval/metrics.py`
+
+Detection and keypoint metrics over matched GT/prediction frames.
+
+Detection metrics are frame-decomposable (recall, precision, F1, localization recall) so
+the paired bootstrap in `significance.py` can resample them. mAP is dataset-level and
+stays a point estimate. Keypoint metrics are level-independent.
+
+#### `keypoint_metrics_from_stats`
+
+Sample sizes behind the ratios above. On an eval set where only a few classes carry
+keypoints these are small enough to decide whether a delta is worth believing, so
+they are reported next to the metric rather than left in the stats dict. Excluded
+from KEYPOINT_METRICS: they are counts, not scores, and are not bootstrapped.
+
+## Eval dataset scripts
+
+### `playground/depth_cache/cache_gt_depth.py`
+
+`cache_gt_depth.py`:
+
+Extract ZED depth for every ground-truth frame in an eval dataset, into a cache.
+
+Depth is not recorded in the MCAP: the ZED SDK computes it on device and the pipeline never publishes it. The stereo pair is in the SVO though, so replaying the SVO through pyzed with the same DEPTH_MODE the runtime uses reproduces what the camera would have measured.
+
+The join is by SVO frame index, never by timestamp. Each GT frame's `camera_transforms/<stamp_ns>.json` carries `image_stream_index`, which is the absolute index into the SVO. SVO image stamps sit about half a frame before the pipeline stamps that name the GT images, so a nearest-timestamp match silently picks the wrong frame.
+
+Frames whose transform method is `ambiguous` or `unavailable` are skipped: the first has two processed frames claiming one index and the second has no pose at all, so neither can be placed in the field frame later.
+
+Output is one `<subdataset>.npz` per sub dataset, keyed by stamp_ns, holding float16 depth in metres at the SVO's native resolution. Non-finite depth (no stereo match) is preserved as NaN, because which pixels the camera failed to measure is the result this experiment turns on.
+
+```
+Usage:
+    python playground/cache_gt_depth.py training/data/nhrl_keypoints_eval_test         --svo-roots data/svo -o <cache dir>
+```

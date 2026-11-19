@@ -431,7 +431,7 @@ Three properties, in priority order:
   This is generated output, so the source annotations are not code comments and the checker
   ignores `config/resolved/`.
 - The app records the same resolved table into each MCAP at startup (one message on a
-  `/config/resolved` topic, schema documented in `docs/foxglove_recording_format.md`). Every
+  `/config/resolved` topic, schema documented in `docs/reference/recording/foxglove_recording_format.md`). Every
   recording then says exactly what it ran with, which also fixes "which plant was this run on"
   questions in replay analysis.
 - The web dashboard gets a read-only resolved-config view for the active profile, fed by the same
@@ -482,7 +482,7 @@ Only after 3a and 3b land. Every `CONFIG` verdict from the audit gets one of:
 
 - deleted, because the snapshot now shows the value and source
 - moved to a doc, for fitted-value provenance (the `[plant]` derivation in
-  `mr_stabs_mk2_fid_zed_box.toml` goes to `docs/plant_backed_control.md` or a sysid report)
+  `mr_stabs_mk2_fid_zed_box.toml` goes to `docs/reference/control/plant_backed_control.md` or a sysid report)
 - turned into a field rename or validation rule
 
 The same applies to field comments in `include/**/config.hpp` and `*_config.hpp`, which is most of

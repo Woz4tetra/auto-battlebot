@@ -5,7 +5,7 @@
 # so re-measure after any change to the mount.
 #
 # Procedures are runbook block 0:
-#   docs/experiments/kalman_filter/velocity_jig_runbook.md
+#   docs/experiments/control/kalman_filter/velocity_jig_runbook.md
 #
 # Read by fit_jig_plant.py, fit_process_noise.py and plot_jig_runs.py, which all default to
 # this path.
