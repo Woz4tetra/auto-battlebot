@@ -115,3 +115,11 @@ Scale and residual below the gyro's range only: the BNO055 clips near 35 rad/s
 ## Tilt aliasing, 2026-10-25
 
 With wrapped tilt innovations, a pitch rate of one turn per camera frame (377 rad/s at 60 Hz) fits every fix exactly. On 2026-10-25 the cross-validated q let the filter settle there: right at the knots, a random angle between them. The tilt smoother is now fed unwrapped angles and never wraps its innovations. `test_tilt_smoother_does_not_alias_to_full_turn_per_frame` covers the options.
+
+## Yaw rate alias on 2026-10-15_00-29-00
+
+Fixes at 60 Hz cannot tell 0 rad/s from a whole turn per frame, so the IMU must decide. A bad rate seeds the alias for 0.5 s and then the IMU reports the truth (still). Gating the rate knots against the aliased state rejected all of them, and the session `data/recordings/auto_battlebot_mr_stabs_mk2_sysid_zed_box_2026-10-15_00-29-00.mcap` spanned hundreds of rad/s for most of its length. The rate knots now skip the gate. `test_imu_rate_pulls_an_aliased_yaw_rate_back` reproduces it.
+
+## Innovation whiteness
+
+One white-jerk q has to cover stills and punches, so the innovations cannot be white everywhere. The cross-validated pick lands slightly over-responsive, with a lag-1 innovation autocorrelation between -0.5 and 0.1. `test_innovations_are_roughly_white` bounds it asymmetrically for that reason.

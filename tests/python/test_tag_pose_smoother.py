@@ -1,13 +1,4 @@
-"""Sysid recording readers, clock fit, IPPE choice, RTS smoother and window gating, all against a
-synthetic session with known truth.
-
-The session is a robot trajectory (stills, straight holds, a reversal, spins both ways, an arc,
-a nose lift) seen by a tilted pinhole camera. Each frame's tag corners get pixel noise and go
-through ``cv2.solvePnPGeneric(..., SOLVEPNP_IPPE_SQUARE)`` for the two IPPE solutions, the same
-way the app does it. ESP32 events run on a drifting robot clock and arrive with WiFi jitter.
-
-Run with ``venv/bin/pytest tests/python/test_tag_pose_smoother.py``.
-"""
+"""Sysid readers, clock fit, IPPE choice, RTS smoother and window gating on a synthetic session."""
 
 from __future__ import annotations
 
@@ -16,7 +7,7 @@ import math
 from dataclasses import dataclass, replace
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, NamedTuple
 
 import cv2
 import numpy as np
@@ -38,9 +29,8 @@ REST_PITCH = 0.198
 K = np.array([[665.0, 0.0, 960.0], [0.0, 716.0, 600.0], [0.0, 0.0, 1.0]])
 WIDTH, HEIGHT = 1920, 1200
 PIXEL_NOISE = 0.3
-FLIP = np.diag([1.0, -1.0, -1.0, 1.0])
+FIELD_Z_INTO_FLOOR_FLIP = np.diag([1.0, -1.0, -1.0, 1.0])
 
-# Tag frames shaped like the CAD export: tag 76 on top, tag 41 underneath, both tilted ~9.6 deg.
 R_TOP = np.array([[0.0, -0.986029, 0.166572], [1.0, 0.0, 0.0], [0.0, 0.166572, 0.986029]])
 R_BOTTOM = np.array([[0.0, -0.983904, 0.178696], [-1.0, 0.0, 0.0], [0.0, -0.178696, -0.983904]])
 TOP_ID, BOTTOM_ID = 76, 41
@@ -93,8 +83,7 @@ def camera_in_up(position: np.ndarray, target: np.ndarray) -> np.ndarray:
 
 
 T_UP_CAMERA = camera_in_up(np.array([0.05, -0.5, 0.8]), np.array([0.0, 0.05, 0.0]))
-# The recorded field frame puts z into the floor, as FiducialFieldFilter does.
-T_FIELD_CAMERA = FLIP @ T_UP_CAMERA
+T_FIELD_CAMERA = FIELD_Z_INTO_FLOOR_FLIP @ T_UP_CAMERA
 
 MARKER_CORNERS = np.array(
     [
@@ -151,7 +140,7 @@ def detect(
 
 @dataclass
 class Truth:
-    t: np.ndarray  # seconds, 1 kHz
+    t_s: np.ndarray
     x: np.ndarray
     y: np.ndarray
     yaw: np.ndarray
@@ -161,7 +150,7 @@ class Truth:
 
     def at(self, t: np.ndarray) -> dict[str, np.ndarray]:
         return {
-            name: np.interp(t, self.t, getattr(self, name))
+            name: np.interp(t, self.t_s, getattr(self, name))
             for name in ("x", "y", "yaw", "pitch", "v", "w")
         }
 
@@ -174,24 +163,36 @@ def _smooth(x: np.ndarray, sigma_samples: float) -> np.ndarray:
     return np.convolve(padded, k, mode="valid")
 
 
+class Segment(NamedTuple):
+    label: str
+    t0: float
+    t1: float
+    v: float
+    w: float
+
+
+SEGMENTS = (
+    Segment("straight hold", 1.5, 2.7, 0.4, 0.0),
+    Segment("reversal", 2.7, 3.9, -0.4, 0.0),
+    Segment("spin left", 5.0, 6.5, 0.0, 8.0),
+    Segment("spin right, a reversal of the spin", 6.5, 8.0, 0.0, -8.0),
+    Segment("arc", 9.0, 10.4, 0.3, 2.0),
+)
+
+
 def make_truth(duration: float = 13.0) -> Truth:
     dt = 0.001
     t = np.arange(0.0, duration, dt)
     v = np.zeros_like(t)
     w = np.zeros_like(t)
     pitch = np.full_like(t, REST_PITCH)
-    for t0, t1, vv, ww in (
-        (1.5, 2.7, 0.4, 0.0),  # straight hold
-        (2.7, 3.9, -0.4, 0.0),  # reversal
-        (5.0, 6.5, 0.0, 8.0),  # spin left
-        (6.5, 8.0, 0.0, -8.0),  # spin right: a reversal of the spin
-        (9.0, 10.4, 0.3, 2.0),  # arc
-    ):
+    for segment in SEGMENTS:
+        t0, t1, vv, ww = segment.t0, segment.t1, segment.v, segment.w
         sel = (t >= t0) & (t < t1)
         v[sel] = vv
         w[sel] = ww
     lift = (t >= 10.6) & (t < 11.4)
-    pitch[lift] = REST_PITCH - 0.35  # nose up about 20 deg from rest
+    pitch[lift] = REST_PITCH - NOSE_LIFT_RAD
     v[(t >= 10.6) & (t < 10.9)] = 0.3
     v = _smooth(v, 30.0)
     w = _smooth(w, 30.0)
@@ -202,20 +203,51 @@ def make_truth(duration: float = 13.0) -> Truth:
     return Truth(t, x, y, yaw, pitch, v, w)
 
 
+class StickSample(NamedTuple):
+    log_ns: int
+    channels: list[int]
+
+
 @dataclass
 class Session:
     truth: Truth
     frames: list[dict[str, Any]]
     frame_log_ns: list[int]
     esp32: list[dict[str, Any]]
-    host_true_ns: np.ndarray  # true app-clock instant of each ESP32 event
-    sticks: list[tuple[int, list[int]]]  # (log time, 16 channels)
+    host_true_app_clock_ns: np.ndarray
+    sticks: list[StickSample]
     outlier_stamps: set[int]
 
 
 RADIO_DELAY_S = 0.015
 IMU_LAG_S = 0.010
-ROBOT_DRIFT = -40e-6  # robot crystal 40 ppm slow
+ROBOT_CLOCK_DRIFT_PPM = -40.0
+ROBOT_DRIFT = ROBOT_CLOCK_DRIFT_PPM * 1e-6
+MIN_LATENCY_MS = 2.0
+ESP32_EVENT_PERIOD_S = 0.004
+DIAG_TICK_S = 0.01
+BLACKOUT_S = (5.6, 5.9)
+NOSE_LIFT_RAD = 0.35
+NOSE_LIFT_WINDOW_RAD = 0.3
+NO_TEMPORAL_HELP_GAP_NS = 10**9
+EVERY_CALL_CLOSE_MARGIN_DEG = 360.0
+MAX_YAW_STEP_RAD = 0.2
+BLACKOUT_START_S = 5.5
+LIFT_WINDOW_S = (10.9, 11.1)
+REST_WINDOW_S = (12.0, 12.8)
+GRID_STEP_NS = 5_000_000
+GRID_HZ = 200.0
+FIX_RATE_HZ = 51.0
+HEADING_CLOCKWISE = 1
+STICK_HOLD_HALF_TICK_S = 0.005
+RAIL_X_M = 0.70
+RAIL_X_LIMIT_M = 0.76
+RAIL_MARGIN_M = 0.15
+RAIL_WINDOW_S = (4.0, 6.0)
+ESP32_GAP_S = (15.0, 15.3)
+HALF_COVERED_S = (8.0, 10.0)
+GAP_WINDOW_S = (1.3, 1.4)
+MEASURED_WINDOW_S = (0.5, 0.9)
 
 
 def stick_channels(v: float, w: float) -> list[int]:
@@ -223,6 +255,10 @@ def stick_channels(v: float, w: float) -> list[int]:
     ch[0] = int(round(992 + 819.5 * v / 1.0))
     ch[1] = int(round(992 + 819.5 * w / 10.0))
     return ch
+
+
+def in_order_delivery(host_true_ns: np.ndarray, latency_ms: np.ndarray) -> np.ndarray:
+    return np.maximum.accumulate(host_true_ns + np.round(latency_ms * 1e6).astype(np.int64))
 
 
 def make_session(
@@ -236,7 +272,7 @@ def make_session(
     outlier_stamps: set[int] = set()
     frame_t = np.arange(0.02, duration - 0.02, 1.0 / 60.0)
     drop = rng.random(frame_t.size) < 0.15
-    drop |= (frame_t > 5.6) & (frame_t < 5.9)  # a blackout mid-spin
+    drop |= (frame_t > BLACKOUT_S[0]) & (frame_t < BLACKOUT_S[1])
     outlier_idx = set(
         rng.choice(np.flatnonzero(~drop & (frame_t > 1.0)), size=outliers, replace=False).tolist()
     )
@@ -272,15 +308,12 @@ def make_session(
         )
         frame_log.append(stamp + 25_000_000)
 
-    # ESP32 events every 4 ms on the robot clock.
-    ev_t = np.arange(0.0, duration, 0.004)
+    ev_t = np.arange(0.0, duration, ESP32_EVENT_PERIOD_S)
     host_true = T0_NS + np.round(ev_t * 1e9).astype(np.int64)
-    latency_ms = 2.0 + rng.exponential(3.0, ev_t.size)
+    latency_ms = MIN_LATENCY_MS + rng.exponential(3.0, ev_t.size)
     burst = rng.random(ev_t.size) < 0.02
     latency_ms[burst] += rng.uniform(20.0, 80.0, burst.sum())
-    # One TCP stream: a late delivery holds up everything behind it, so receive order is event
-    # order.
-    receive = np.maximum.accumulate(host_true + np.round(latency_ms * 1e6).astype(np.int64))
+    receive = in_order_delivery(host_true, latency_ms)
     robot_ms = np.floor(5_000_000.0 + ev_t * 1e3 * (1.0 + ROBOT_DRIFT)).astype(np.int64)
     radio = truth.at(ev_t - RADIO_DELAY_S)
     imu = truth.at(ev_t - IMU_LAG_S)
@@ -316,15 +349,14 @@ def make_session(
                 "vbat": None if (vbat_nulls and i % 50 == 0) else 11.4,
             }
         )
-    # Stick channels, logged at 100 Hz diagnostics ticks when they change.
     sticks = []
     last: list[int] | None = None
-    tick_t = np.arange(0.0, duration, 0.01)
+    tick_t = np.arange(0.0, duration, DIAG_TICK_S)
     st = truth.at(tick_t)
     for i, tt in enumerate(tick_t):
         ch = stick_channels(st["v"][i], st["w"][i])
         if ch != last:
-            sticks.append((T0_NS + int(round(tt * 1e9)), ch))
+            sticks.append(StickSample(T0_NS + int(round(tt * 1e9)), ch))
             last = ch
     return Session(truth, frames, frame_log, events, host_true, sticks, outlier_stamps)
 
@@ -486,7 +518,7 @@ def test_ippe_selection_on_tilted_tag(upside_down: bool) -> None:
                 continue
             frames.append(_single_frame(det, stamp))
             truths.append(pose)
-            stamp += 10**9  # far apart: no temporal help
+            stamp += NO_TEMPORAL_HELP_GAP_NS
     assert len(frames) > 50
     field = sysid_io.FieldFromCamera(np.array([T0_NS]), T_FIELD_CAMERA[None].copy())
     t_up_field, flipped = tps.up_from_field(field)
@@ -525,9 +557,8 @@ def test_ippe_close_call_uses_neighbours() -> None:
         truths.append(pose)
     field = sysid_io.FieldFromCamera(np.array([T0_NS]), T_FIELD_CAMERA[None].copy())
     cands = tps.build_candidates(frames, field, m, tps.up_from_field(field)[0], REST_PITCH)
-    # A huge margin makes every two-solution detection close except where we pin it clear.
     cands.n_solutions[:] = 2
-    ippe = tps.select_ippe(cands, close_margin_deg=360.0)
+    ippe = tps.select_ippe(cands, close_margin_deg=EVERY_CALL_CLOSE_MARGIN_DEG)
     assert ippe.close_calls == len(cands)
     for i, truth in enumerate(truths):
         errs = [
@@ -552,7 +583,7 @@ def test_rts_recovers_trajectory_better_than_raw(
     raw_yaw = tps.wrap_angle(meas["yaw"] - truth["yaw"])[good]
     smooth_yaw = tps.wrap_angle(meas["smoothed_yaw"] - truth["yaw"])[good]
     rms = lambda v: float(np.sqrt(np.mean(np.square(v))))  # noqa: E731
-    assert rms(raw_pos) < 0.01  # body pose is right to begin with
+    assert rms(raw_pos) < 0.01, "raw body pose is right to begin with"
     assert rms(smooth_pos) < 0.75 * rms(raw_pos)
     assert rms(smooth_yaw) < 0.75 * rms(raw_yaw)
     # The fused IMU's sigma is its spin residual (about 0.26 rad/s here), so a few clean fixes at
@@ -561,23 +592,21 @@ def test_rts_recovers_trajectory_better_than_raw(
 
     grid = smoothed.smoothed_grid_df
     gt = session.truth.at((grid["stamp_ns"].to_numpy() - T0_NS) / 1e9)
-    # Yaw on the grid is unwrapped and continuous through both spins.
-    assert np.max(np.abs(np.diff(grid["yaw"]))) < 0.2
+    assert np.max(np.abs(np.diff(grid["yaw"]))) < MAX_YAW_STEP_RAD, (
+        "yaw unwrapped through both spins"
+    )
     assert rms(tps.wrap_angle(grid["yaw"] - gt["yaw"])) < math.radians(2.0)
-    # Rates: forward speed and yaw rate, away from the blackout.
-    sel = ((grid["stamp_ns"] - T0_NS) / 1e9 < 5.5).to_numpy()
+    sel = ((grid["stamp_ns"] - T0_NS) / 1e9 < BLACKOUT_START_S).to_numpy()
     v = grid["vx"] * np.cos(grid["yaw"]) + grid["vy"] * np.sin(grid["yaw"])
     assert rms((v - gt["v"])[sel]) < 0.05
     assert rms((grid["yaw_rate"] - gt["w"])[sel]) < 0.4
-    # Nose lift shows in pitch, rest pitch elsewhere.
     t = (grid["stamp_ns"] - T0_NS) / 1e9
-    lift = ((t > 10.9) & (t < 11.1)).to_numpy()
-    assert np.mean(grid["pitch"][lift]) == pytest.approx(REST_PITCH - 0.35, abs=0.03)
-    rest = ((t > 12.0) & (t < 12.8)).to_numpy()
+    lift = ((t > LIFT_WINDOW_S[0]) & (t < LIFT_WINDOW_S[1])).to_numpy()
+    assert np.mean(grid["pitch"][lift]) == pytest.approx(REST_PITCH - NOSE_LIFT_RAD, abs=0.03)
+    rest = ((t > REST_WINDOW_S[0]) & (t < REST_WINDOW_S[1])).to_numpy()
     assert np.mean(grid["pitch"][rest]) == pytest.approx(REST_PITCH, abs=0.01)
-    # Grid spacing and provenance.
-    assert np.all(np.diff(grid["stamp_ns"]) == 5_000_000)
-    assert 0.15 < grid["has_measurement"].mean() < 0.35  # 51 fixes/s on a 200 Hz grid
+    assert np.all(np.diff(grid["stamp_ns"]) == GRID_STEP_NS)
+    assert grid["has_measurement"].mean() == pytest.approx(FIX_RATE_HZ / GRID_HZ, abs=0.1)
 
 
 def test_noise_calibration_and_checks(smoothed: tps.SessionSmoothing) -> None:
@@ -588,8 +617,6 @@ def test_noise_calibration_and_checks(smoothed: tps.SessionSmoothing) -> None:
     assert 0.0 < floor["sigma_x"] < 0.005
     assert 0.0 < floor["sigma_yaw"] < math.radians(1.0)
     white = smoothed.checks["residual_whiteness"]
-    # One white-jerk q has to cover stills and punches, so the innovations cannot be white
-    # everywhere; the cross-validated pick lands slightly over-responsive (negative lag 1).
     assert -0.5 < white["across_innovation"]["lag1"] < 0.1
     for cv, group in ((smoothed.cv_planar, "xy"), (smoothed.cv_planar, "yaw")):
         k = int(np.nanargmin(cv.heldout_score_by_group[group]))
@@ -601,7 +628,7 @@ def test_noise_calibration_and_checks(smoothed: tps.SessionSmoothing) -> None:
 
 def test_imu_yaw_rate_agreement(smoothed: tps.SessionSmoothing) -> None:
     check = smoothed.checks["imu_yaw_rate"]
-    assert check["measured_sign"] == 1  # heading is clockwise, as assumed
+    assert check["measured_sign"] == HEADING_CLOCKWISE
     assert check["lag_s"] == pytest.approx(IMU_LAG_S, abs=0.006)
     assert check["correlation"] > 0.95
     assert check["spin_rms_rad_s"] < 0.6
@@ -627,13 +654,7 @@ def test_imu_fusion_runs(session: Session) -> None:
 
 
 def test_imu_rate_pulls_an_aliased_yaw_rate_back() -> None:
-    """Fixes at 60 Hz cannot tell 0 rad/s from a whole turn per frame; the IMU must decide.
-
-    A bad rate seeds the alias for 0.5 s, then the IMU reports the truth (still). Gating the
-    rate knots against the aliased state rejected all of them, and the session at
-    data/recordings/auto_battlebot_mr_stabs_mk2_sysid_zed_box_2026-10-15_00-29-00.mcap span
-    hundreds of rad/s for most of its length.
-    """
+    """A rate knot from the IMU pulls yaw rate off a whole turn per frame despite the gate."""
     alias = 2.0 * math.pi * 60.0
     tf = np.arange(180) / 60.0
     ti = np.arange(0.005, 3.0, 0.01)
@@ -691,30 +712,30 @@ def test_smoother_bridges_a_dropout_without_lag() -> None:
     inside = (tg > 0.1) & (tg < 2.9)
     assert np.max(np.abs(m[inside, 0, 0] - 0.2 * tg[inside] ** 2)) < 0.004
     assert np.max(np.abs(m[inside, 0, 1] - 0.4 * tg[inside])) < 0.05
-    # Uncertainty grows inside the gap.
-    gap = (tg > 1.3) & (tg < 1.4)
-    assert np.sqrt(cov[gap, 0, 0, 0]).min() > np.sqrt(cov[(tg > 0.5) & (tg < 0.9), 0, 0, 0]).max()
+    gap = (tg > GAP_WINDOW_S[0]) & (tg < GAP_WINDOW_S[1])
+    measured = (tg > MEASURED_WINDOW_S[0]) & (tg < MEASURED_WINDOW_S[1])
+    assert np.sqrt(cov[gap, 0, 0, 0]).min() > np.sqrt(cov[measured, 0, 0, 0]).max(), (
+        "uncertainty grows inside the gap"
+    )
 
 
 def test_clock_fit_recovers_offset_and_drift() -> None:
     rng = np.random.default_rng(4)
     t = np.arange(0.0, 600.0, 0.01)
     host_true = T0_NS + np.round(t * 1e9).astype(np.int64)
-    latency_ms = 2.0 + rng.exponential(3.0, t.size)
+    latency_ms = MIN_LATENCY_MS + rng.exponential(3.0, t.size)
     burst = rng.random(t.size) < 0.03
     latency_ms[burst] += rng.uniform(20.0, 120.0, burst.sum())
     receive = host_true + np.round(latency_ms * 1e6).astype(np.int64)
     robot_ms = np.floor(123_456.0 + t * 1e3 * (1.0 + ROBOT_DRIFT)).astype(np.int64)
     fit = esp32_clock.fit_robot_clock(robot_ms, receive)
     assert len(fit.segments) == 1
-    # host per robot second is 1 / (1 + drift): +40 ppm.
-    assert fit.segments[0].drift_ppm == pytest.approx(-ROBOT_DRIFT * 1e6, abs=3.0)
-    # Mapped stamps land on the true instant plus the minimum latency (2 ms).
-    err_ms = (fit.app_clock_stamp_ns - host_true) / 1e6 - 2.0
+    host_ppm_per_robot_second = (1.0 / (1.0 + ROBOT_DRIFT) - 1.0) * 1e6
+    assert fit.segments[0].drift_ppm == pytest.approx(host_ppm_per_robot_second, abs=3.0)
+    err_ms = (fit.app_clock_stamp_ns - host_true) / 1e6 - MIN_LATENCY_MS
     assert abs(float(np.median(err_ms))) < 1.0
     assert float(np.max(np.abs(err_ms))) < 1.5
     assert np.all(fit.receive_minus_mapped_ms > -1e-6)
-    # A least-squares line would sit ~4 ms into the jitter; the envelope does not.
     assert fit.segments[0].residual_ms_percentiles["p1"] < 0.5
 
 
@@ -741,8 +762,9 @@ def test_radio_delay_from_sticks(session: Session, tmp_path: Path) -> None:
     )
     assert lag.sign == 1
     assert lag.correlation > 0.8
-    # The stick log's 10 ms hold hides half a tick, so allow for it.
-    assert lag.b_lag_behind_a_s == pytest.approx(RADIO_DELAY_S - 0.005 + 0.002, abs=0.006)
+    assert lag.b_lag_behind_a_s == pytest.approx(
+        RADIO_DELAY_S - STICK_HOLD_HALF_TICK_S + MIN_LATENCY_MS / 1000.0, abs=0.006
+    )
 
 
 def _grid(duration: float, dt: float = 0.005) -> pd.DataFrame:
@@ -766,16 +788,19 @@ def _grid(duration: float, dt: float = 0.005) -> pd.DataFrame:
 def test_window_gating() -> None:
     grid = _grid(20.0)
     t = (grid["stamp_ns"] - T0_NS) / 1e9
-    grid.loc[(t >= 4.0) & (t < 6.0), "x"] = 0.70  # near the rail (0.76 - 0.15 = 0.61)
-    grid.loc[(t >= 12.0) & (t < 13.0), "pitch"] = REST_PITCH - 0.3  # nose lift
+    assert RAIL_X_M > RAIL_X_LIMIT_M - RAIL_MARGIN_M
+    grid.loc[(t >= RAIL_WINDOW_S[0]) & (t < RAIL_WINDOW_S[1]), "x"] = RAIL_X_M
+    grid.loc[(t >= 12.0) & (t < 13.0), "pitch"] = REST_PITCH - NOSE_LIFT_WINDOW_RAD
     grid.loc[t < 1.0, "vx"] = 0.5
     grid.loc[t < 1.0, "yaw_rate"] = 2.0
     frames = T0_NS + np.arange(0, int(20e9), 16_666_667, dtype=np.int64)
     ft = (frames - T0_NS) / 1e9
-    accepted = frames[~((ft >= 8.0) & (ft < 10.0) & (np.arange(frames.size) % 2 == 0))]
+    accepted = frames[
+        ~((ft >= HALF_COVERED_S[0]) & (ft < HALF_COVERED_S[1]) & (np.arange(frames.size) % 2 == 0))
+    ]
     esp = T0_NS + np.arange(0, int(20e9), 4_000_000, dtype=np.int64)
     et = (esp - T0_NS) / 1e9
-    esp = esp[~((et > 15.0) & (et < 15.3))]  # 0.3 s gap in the stream
+    esp = esp[~((et > ESP32_GAP_S[0]) & (et < ESP32_GAP_S[1]))]
     geometry = tps.RobotGeometry()
     windows, report = make_windows(grid, frames, accepted, esp, geometry, WindowOptions())
 
@@ -784,9 +809,8 @@ def test_window_gating() -> None:
     end = (windows["end_ns"] - T0_NS) / 1e9
     length = end - start
     assert (length >= 0.99).all() and (length < 2.0).all()
-    # Nothing overlaps the rail, the ESP32 gap, or the half-covered stretch.
-    for lo, hi in ((4.0, 6.0), (15.0, 15.3), (8.0, 10.0)):
-        assert not ((start < hi) & (end > lo)).any(), (lo, hi)
+    for lo, hi in (RAIL_WINDOW_S, ESP32_GAP_S, HALF_COVERED_S):
+        assert not ((start < hi) & (end > lo)).any(), ("rail, ESP32 gap or half-covered", lo, hi)
     assert report["windows_dropped"]["coverage"] >= 1
     assert report["gate_drop_seconds"]["near_rail"] == pytest.approx(2.0, abs=0.02)
     assert report["gate_drop_seconds"]["esp32_gap"] == pytest.approx(0.3, abs=0.02)
@@ -820,8 +844,7 @@ def test_wheel_speeds_inverted() -> None:
         np.array([True]),
         geometry,
     )
-    # Inverted, a counter-clockwise turn seen from above is clockwise about body z.
-    assert left[0] > 0.0 > right[0]
+    assert left[0] > 0.0 > right[0], "inverted: counter-clockwise from above is clockwise about z"
 
 
 def _write_mass_properties(path: Path) -> Path:
@@ -867,9 +890,10 @@ def test_cli_writes_bundle(session: Session, tmp_path: Path) -> None:
     assert list(commands.columns) == cli.COMMAND_COLUMNS
     assert len(commands) == len(session.esp32)
     assert commands["vbat"].isna().sum() == sum(1 for e in session.esp32 if e["vbat"] is None)
-    # Command stamps come from the clock fit: minimum latency, not the jittered receive time.
-    err_ms = (commands["stamp_ns"].to_numpy() - session.host_true_ns) / 1e6
-    assert float(np.percentile(np.abs(err_ms - 2.0), 95)) < 2.0
+    err_ms = (commands["stamp_ns"].to_numpy() - session.host_true_app_clock_ns) / 1e6
+    assert float(np.percentile(np.abs(err_ms - MIN_LATENCY_MS), 95)) < 2.0, (
+        "command stamps follow the clock fit at minimum latency, not the jittered receive time"
+    )
     windows = pd.read_csv(out / "windows.csv")
     assert list(windows.columns) == [
         "window_id", "start_ns", "end_ns", "kind", "coverage", "x0", "y0", "yaw0",

@@ -28,6 +28,11 @@ from auto_battlebot.recording.foxglove_ws import FoxgloveSubscriber
 from auto_battlebot.recording.mcap_io import decode_json
 from auto_battlebot.recording.sysid_io import parse_robot_tags
 
+THROTTLE_LEVELS = (0.0, -30.0, 40.0, 3.0)
+TURN_LEVELS = (0.0, 0.5, 25.0, -60.0)
+HOLD_M_AT_500MS_LIMIT = 0.03
+NOSE_LIFT_FRAMES = int(0.25 * 60)
+
 
 @pytest.fixture(scope="module")
 def profile() -> Any:
@@ -38,9 +43,8 @@ def profile() -> Any:
 def test_batched_mixer_matches_scalar_mirror(auto: bool) -> None:
     rng = np.random.default_rng(3)
     n = 600
-    # Held stick levels with snaps, idles and releases, plus a heading that turns.
-    a = np.repeat(rng.choice([0.0, -30.0, 40.0, 3.0], n // 20), 20)
-    b = np.repeat(rng.choice([0.0, 0.5, 25.0, -60.0], n // 20), 20)
+    a = np.repeat(rng.choice(THROTTLE_LEVELS, n // 20), 20)
+    b = np.repeat(rng.choice(TURN_LEVELS, n // 20), 20)
     heading = np.cumsum(rng.normal(0.0, 2.0, n)) % 360.0
     rate = rng.normal(0.0, 80.0, n)
     scalar = FirmwareMixer(auto_steer=auto)
@@ -146,13 +150,14 @@ def test_session_gates_and_converges(profile: Any) -> None:
     snap = session.snapshot()
     w = snap["windows"]
     assert w["used"] >= 15 and w["holdout"] >= 3
-    assert w["wall"] > 0  # the box is small and the driver hits it
+    assert w["wall"] > 0, "synthetic box is small and the driver hits it"
     assert w["jetson"] == 0 and not snap["link"]["jetson_seen"]
     assert snap["refits"] >= 3
     assert snap["overall"] > 0.7
     assert any(e["status"] == "ok" for e in snap["events"])
     assert any("yaw loop" in r for r in snap["edge_rows"])
-    assert snap["history"][-1]["hold"] < 0.03  # metres at 500 ms, closed loop
+    hold_m_at_500ms = snap["history"][-1]["hold"]
+    assert hold_m_at_500ms < HOLD_M_AT_500MS_LIMIT
     json.dumps(snap, allow_nan=False)
 
 
@@ -174,11 +179,10 @@ def _poses(pitch_deg: np.ndarray) -> list[TagPose]:
 
 
 def test_pitch_gate_ignores_single_frame_spikes() -> None:
-    # The 2026-10-14 23-11-27 flat spin: 1.7 deg frame noise with lone spikes up to 7.8 deg.
     pitch = np.random.default_rng(0).normal(0.0, 1.5, 90)
     pitch[[20, 50, 51, 70]] = [-5.1, 7.8, 4.8, -5.8]
     assert not _pitched(_poses(pitch))
-    pitch[30:45] = 6.0  # a quarter-second nose lift
+    pitch[30 : 30 + NOSE_LIFT_FRAMES] = 6.0
     assert _pitched(_poses(pitch))
     assert not _pitched([])
 
@@ -301,12 +305,7 @@ def test_subscriber_only_subscribes() -> None:
 def _ring_delivery(
     rows: list[dict[str, Any]], poll_s: float, outage_s: tuple[float, float]
 ) -> list[dict[str, Any]]:
-    """Synthetic telemetry as the Jetson's ring poller publishes it on /robot/esp32_diagnostics.
-
-    Each row lands at the first poll after it was produced, all rows of one poll stamped with that
-    poll's arrival, and every row but a caught-up poll's newest marked backfill. No poll gets
-    through during ``outage_s`` (session seconds), so that stretch arrives in one burst after it.
-    """
+    """Synthetic telemetry as the Jetson ring poller delivers it, bursting after ``outage_s``."""
     t0 = rows[0]["host_receive_ns"]
     poll_ns = int(poll_s * 1e9)
     lo, hi = (t0 + int(s * 1e9) for s in outage_s)
@@ -346,8 +345,6 @@ def test_ring_backfill_matches_live_delivery(profile: Any) -> None:
     assert ring.seq_drops == direct.seq_drops
     assert b["windows"]["link"] == a["windows"]["link"]
     assert abs(b["windows"]["used"] - a["windows"]["used"]) <= 1, (a["windows"], b["windows"])
-    # Only the newest row of each poll reaches the clock, so its fit stays at radio latency
-    # instead of the 100 ms a poll's oldest row waits.
     assert ring.clock.status is not None
     assert ring.clock.status.residual_p50_ms < 15.0, ring.clock.status
 

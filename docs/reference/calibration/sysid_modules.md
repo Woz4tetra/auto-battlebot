@@ -521,6 +521,9 @@ Pipeline per 10 ms grid sample, once the tags around it have arrived:
    the gyro is interpolated. The clock map rests on the fastest deliveries, so the minimum
    radio latency stays in it and every telemetry stamp reads that much late. The fit's delay
    absorbs it for the commands; for the gyro it is a millisecond or two against the tags.
+   The Jetson's ring poller stamps every row of one poll with that poll's arrival and marks all
+   but a caught-up poll's newest row ``backfill``. Only each poll's newest row reaches the
+   clock, so its fit stays at radio latency instead of the 100 ms a poll's oldest row waits.
 2. ``maneuvers.ManeuverSegmenter`` labels the sticks.
 3. Every ``model.WINDOW_S`` the window closes: gates, three sub-windows from the tag poses,
    Fisher information at the current estimate, and a status.
@@ -1062,7 +1065,9 @@ Initial state per window is the smoothed state at its first sample. Wheel speeds
 no-slip relation in the body frame, ``(v -/+ w * track_half_width) / wheel_radius`` for left
 and right, with v the forward speed along body x and w the yaw rate about body z. A wheel
 spinning to roll the robot forward is positive, which is positive rotation about body +y. On an
-inverted robot body z points down, so the body-frame yaw rate is minus the field one.
+inverted robot body z points down, so the body-frame yaw rate is minus the field one: a
+counter-clockwise turn seen from above is clockwise about body z, and the left wheel reads
+positive while the right reads negative.
 
 ### `recording/esp32_clock.py`
 
@@ -1073,8 +1078,9 @@ milliseconds typically and tens of milliseconds when the link retries. The robot
 ``timestamp_ms`` has no jitter but runs on its own crystal. ``fit_robot_clock`` maps one onto
 the other with a line (offset and drift). Receive delay is never negative, so the line is the
 lower envelope of (robot time, receive time): it rests on the fastest deliveries, which a least
-squares line would not. The minimum transport latency stays inside the offset; nothing in the
-data can separate it.
+squares line would not. On the synthetic session in ``test_tag_pose_smoother.py`` a least-squares
+line sits about 4 ms into the jitter and the envelope does not. The minimum transport latency stays
+inside the offset; nothing in the data can separate it.
 
 A reboot resets ``timestamp_ms``, so each run of increasing robot time gets its own line.
 
@@ -1121,6 +1127,21 @@ bumped tripod, and the session needs a look before its poses are used.
 - Rest pitch: the floor-up vector in the body frame while the robot rests with a tag showing. Upright it leans back by the rest pitch (the robot sits nose down on its wedge tip). Upside down it is body -z, since the resting pitch on the top face is unmeasured.
 - IPPE disambiguation: the index of the IPPE solution to trust, from solutions sorted by reprojection error. A solution that puts the camera under the floor is dropped when the other does not. Of the rest, the one whose implied floor up lies closest to the reference wins, because the other IPPE solution is the planar flip, which tilts the robot off the floor. The reference is `floor_up_camera` when known. Without it the reference is camera -z, right for an overhead camera and up to the tripod tilt off otherwise, so it only decides when the two solutions differ by more than 15 degrees against it. Otherwise, or when the two lie within 2 degrees of a known floor, the lowest reprojection error wins.
 - Floor normal learning: the floor's up direction in the fixed camera frame is learned from the tags themselves. Every frame gives two candidates, one per IPPE solution. The right ones all agree, since the robot drives on one floor; the flipped ones move with the robot's position and heading. Until one direction has the support of most frames and no rival cluster does, `estimate()` stays empty and selection falls back to reprojection error. After that it tracks slowly, so a wheelie or a flip does not drag it.
+
+## Synthetic sysid session
+
+``tests/python/test_tag_pose_smoother.py`` builds one session with known truth for the readers,
+clock fit, IPPE choice, smoother and window gating.
+
+- The robot trajectory has stills, straight holds, a reversal, spins both ways, an arc and a nose
+  lift, seen by a tilted pinhole camera.
+- Each frame's tag corners get pixel noise and go through
+  ``cv2.solvePnPGeneric(..., SOLVEPNP_IPPE_SQUARE)`` for the two IPPE solutions, as the app does.
+- ESP32 events run on a drifting robot clock and arrive with WiFi jitter.
+- The tag mounts follow the CAD export: tag 76 on top, tag 41 underneath, both tilted about 9.6
+  degrees.
+- The recorded field frame puts z into the floor, as ``FiducialFieldFilter`` does, so the fixture
+  applies a flip about x to match.
 
 ## Sysid script behavior
 
