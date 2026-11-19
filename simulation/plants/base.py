@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import math
-from typing import Protocol
+from typing import NamedTuple, Protocol
 
 import numpy as np
 from config.kinematic import ObstacleConfig
 
-Pose = tuple[float, float, float]  # x, y, yaw in the field frame
+
+class Pose(NamedTuple):
+    """Robot pose in the field frame."""
+
+    x_m: float
+    y_m: float
+    yaw_rad: float
 
 
 class PlantInterface(Protocol):
@@ -28,9 +34,7 @@ class PlantInterface(Protocol):
 
     @property
     def footprint_center_offset(self) -> tuple[float, float]:
-        """Centre of the robot's footprint in its body frame (x forward, y left), in metres from
-        the pose. Hazard clearance is scored from there, as the C++ side measures it
-        (RobotDescription::footprint_center_offset), and the viewer centres the sprite there."""
+        """Footprint centre in the body frame (x forward, y left), in metres from the pose."""
         ...
 
     @property

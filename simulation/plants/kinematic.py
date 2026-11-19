@@ -14,14 +14,7 @@ STRAIGHT_W = 1e-6
 
 
 class KinematicPlant:
-    """Unicycle with first-order velocity lag (coast) and wall clamping.
-
-    Term for term the same drivetrain model as auto_battlebot/control/plant.py, which is
-    what the
-    velocity jig fits: per-sign deadzone and gain, steer-brake and angular-droop coupling on the
-    steady-state target, asymmetric first-order lag, exact arc integration on 2 ms substeps. The
-    transport delay lives outside this class, in the server's command ring buffer.
-    """
+    """Unicycle with first-order velocity lag (coast) and wall clamping."""
 
     def __init__(
         self,
@@ -183,4 +176,4 @@ class KinematicPlant:
         return hit
 
     def pose(self) -> Pose:
-        return self.x, self.y, self.yaw
+        return Pose(self.x, self.y, self.yaw)

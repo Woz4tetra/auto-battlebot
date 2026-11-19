@@ -15,6 +15,8 @@ settings model, disassembly, and a keyboard sweep of every slider in its UI.
 - Tests: `tests/python/test_blheli32.py`, against pages read from the robot
 - Captured pages the tests read: `firmware/blheli/captures/` (other `.bin` dumps there are
   gitignored)
+- `BLHELISUITE_ESC1` in `tests/python/test_blheli32.py` is what BLHeliSuite32xl showed for ESC 1 after Read Setup on 2026-10-23.
+- `FakePassthrough` in `tests/python/test_blheli32.py` answers 4-way requests from the captured ESC 1 data. It re-encrypts every read with fresh nonces, as the real ESC does. `drop_writes` acknowledges writes without storing them, like the dry-run passthrough build.
 - Backups made with the CLI: `firmware/blheli/backups/` (gitignored, local to each machine)
 
 ## Usage

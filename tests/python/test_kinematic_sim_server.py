@@ -65,3 +65,31 @@ def test_render_camera_keeps_buffer_identity() -> None:
     server._render_camera()
     assert server._rgb is buffer
     assert server._rgb.flags["C_CONTIGUOUS"]
+
+
+def test_plant_moving_blocks_follow_runtime_opponent_order() -> None:
+    from config.kinematic import KinematicSimConfig, OpponentConfig
+
+    cfg = KinematicSimConfig()
+    cfg.opponents = [
+        OpponentConfig(behavior="static", start_pos=[0.5, 0.5], hazard_radius=0.0),
+        OpponentConfig(behavior="static", start_pos=[-0.5, 0.5], hazard_radius=0.2),
+        OpponentConfig(behavior="static", start_pos=[0.5, -0.5], hazard_radius=0.0),
+        OpponentConfig(behavior="static", start_pos=[-0.5, -0.5], hazard_radius=0.3),
+    ]
+    server = kinematic_sim_server.KinematicServer(cfg)
+    captured = []
+    real_make_plant = kinematic_sim_server.make_plant
+
+    def spy(*args):
+        captured.append(args[-1])
+        return real_make_plant(*args)
+
+    kinematic_sim_server.make_plant = spy
+    try:
+        server._reset()
+    finally:
+        kinematic_sim_server.make_plant = real_make_plant
+    runtime = [(o.x, o.y, o.hazard_radius) for o in server._opponents if o.hazard_radius > 0.0]
+    built = [(o.start_pos[0], o.start_pos[1], o.hazard_radius) for o in captured[-1]]
+    assert built == runtime

@@ -185,9 +185,6 @@ class MujocoPlant:
 
     @property
     def footprint_center_offset(self) -> tuple[float, float]:
-        """Measured once from the collision hull, resting nose-down on the skid the way the sprite
-        was rendered: 43 mm ahead for Mr Stabs Mk2, whose pose is the axle and whose wedge reaches
-        110 mm ahead of it. Matches [robot_filter.footprint_center_offset_per_label]."""
         return self._footprint_center_offset
 
     @property
@@ -204,7 +201,7 @@ class MujocoPlant:
 
     def _on_substep(self, x: float, y: float) -> bool:
         yaw = self._sim.pose()[2]
-        self._hazards.record(*footprint_center((x, y, yaw), self._footprint_center_offset))
+        self._hazards.record(*footprint_center(Pose(x, y, yaw), self._footprint_center_offset))
         return self._hazards.fell_in
 
     def step(self, linear_cmd: float, angular_cmd: float, dt: float) -> None:
@@ -215,7 +212,7 @@ class MujocoPlant:
         self.block_hits += int(self._sim.block_contact)
 
     def pose(self) -> Pose:
-        return self._sim.pose()
+        return Pose(*self._sim.pose())
 
     def collision_outlines(self) -> list[np.ndarray]:
         return self._footprints.outlines(self._sim.data)

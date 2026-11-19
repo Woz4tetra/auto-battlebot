@@ -111,6 +111,9 @@ survives.
   logged to the `detected_size` diagnostics channel.
 - `[robot_filter.footprint_center_offset_per_label]`: Mr Stabs's MuJoCo collision hull runs
   0.025 m behind the axle to 0.1105 m ahead, so its footprint centre is 0.043 m ahead of the pose.
+  The hull was measured once, resting nose-down on the skid the way the sprite was rendered.
+  `MujocoPlant.footprint_center_offset` reports it, and `test_mujoco_footprint_offset_matches_config`
+  fails if it drifts from this entry.
 
 ### Target selector
 

@@ -35,3 +35,9 @@ The Python writer `save_cage_calibration` emits exactly the keys `src/field_filt
 ## Pose summary
 
 `pose_summary` returns the camera pose in W as a dict. `tilt_from_down_deg` is the angle between the optical axis and straight down. `yaw_deg` is the heading of the optical axis projected on the floor: 0 along +y (looking away from the near wall), positive toward +x. The key stays `yaw_deg` because fitted-pose JSON files and `training/synthetic/synthgen` read it.
+
+A roll of -150 deg in the true_battlebot files is a camera looking down and toward +y (`prior_from_position_rpy` turns it into a 30 deg tilt from down).
+
+## Tests
+
+`tests/python/test_cage_calibration.py` projects a synthetic camera 1.5 m above a 2.35 m mat, looking across it from the near wall, through a pinhole. It solves the pose back with `pose_from_corners` and pushes it through the frame chain in `cage_calibration`. The sign conventions the render and grading scripts rely on are asserted there, not in a docstring.

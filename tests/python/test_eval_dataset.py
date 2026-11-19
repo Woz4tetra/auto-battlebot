@@ -1,11 +1,4 @@
-"""Frame identity in the eval GT loader.
-
-Run with ``venv/bin/pytest tests/python``.
-
-Frames were keyed by stamp alone until 2026-09-18, which silently dropped 65 of
-cage_high_x50_conf044's 636 frames: every recording sampled from video starts at stamp 0,
-so the nine recordings' frame 0 collapsed into one.
-"""
+"""Frame identity in the eval GT loader."""
 
 from __future__ import annotations
 

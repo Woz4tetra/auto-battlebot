@@ -106,23 +106,23 @@ def test_overlay(tmp_path: Path) -> None:
     assert np.all(info.distortion == 0.0)
 
     updates = [mcap_io.decode_scene_update(d) for d in topics[amcap.TOPIC_MARKERS]]
-    # trajectory, then per frame: visible, deleted, visible
-    assert [e.id for e in updates[0].entities] == ["trajectory_3d/0", "trajectory_floor/0"]
-    assert len(updates[0].entities[0].lines[0].points) == 2
-    assert {e.id for e in updates[1].entities} == {
+    trajectory_update, visible_update, deleted_update, revisible_update = updates[:4]
+    assert [e.id for e in trajectory_update.entities] == ["trajectory_3d/0", "trajectory_floor/0"]
+    assert len(trajectory_update.entities[0].lines[0].points) == 2
+    assert {e.id for e in visible_update.entities} == {
         "robot_3d/0",
         "robot_3d/1",
         "robot_floor/0",
         "robot_floor/1",
     }
-    assert updates[1].entities[0].cubes[0].pose.position == (0.1, 0.2, 0.03)
-    assert {d.id for d in updates[2].deletions} == {
+    assert visible_update.entities[0].cubes[0].pose.position == (0.1, 0.2, 0.03)
+    assert {d.id for d in deleted_update.deletions} == {
         "robot_3d/0",
         "robot_3d/1",
         "robot_floor/0",
         "robot_floor/1",
     }
-    assert updates[3].entities[1].arrows[0].pose.position == (0.15, 0.25, 0.03)
+    assert revisible_update.entities[1].arrows[0].pose.position == (0.15, 0.25, 0.03)
 
 
 def test_transmitter_keys_match_image_times(tmp_path: Path) -> None:

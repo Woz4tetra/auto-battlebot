@@ -13,6 +13,7 @@ import numpy as np
 import torch
 from config.kinematic import KinematicSimConfig, OpponentConfig, PerceptionConfig
 from kinematic_sim_server import KinematicServer
+from plants.base import Pose
 from protocol import REQUEST_SIZE, configure_socket, recv_all, unpack_request
 
 from auto_battlebot.rl.envs.warp_nav import HOUSE_RADIUS_M
@@ -81,10 +82,10 @@ class RlEvalServer(KinematicServer):
                     torch.tensor([[request.linear_x, request.angular_z]], dtype=torch.float64)
                 )[0]
                 world.step(float(cmd[0]), float(cmd[1]), TICK_S)
-                truth = [world.pose(), world.opponent_pose()]
+                truth = [Pose(*world.pose()), Pose(*world.opponent_pose())]
                 house = world.house_pose()
                 if house is not None:
-                    truth.append(house)
+                    truth.append(Pose(*house))
                 self._sim_time += TICK_S
                 ticks += 1
                 self._send_frame(conn, truth, perception.observe(self._sim_time, truth))

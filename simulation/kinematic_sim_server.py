@@ -220,7 +220,7 @@ class Opponent:
             self._replay_idx += 1
 
     def pose(self) -> Pose:
-        return self.x, self.y, self.yaw
+        return Pose(self.x, self.y, self.yaw)
 
 
 def _footprint_half_extent(cfg: OpponentConfig) -> tuple[float, float]:
@@ -239,7 +239,7 @@ def _load_replay_csv(path: Path) -> list[Pose]:
     with open(path, newline="") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            rows.append((float(row["x"]), float(row["y"]), float(row.get("yaw", 0.0))))
+            rows.append(Pose(float(row["x"]), float(row["y"]), float(row.get("yaw", 0.0))))
     return rows
 
 
@@ -286,7 +286,7 @@ class Perception:
             return pose
         dx, dy = x - self._cam_x, y - self._cam_y
         scale = bias.keypoint_height / self._cam_z
-        return (x + scale * dx, y + scale * dy, yaw)
+        return Pose(x + scale * dx, y + scale * dy, yaw)
 
     def observe(self, now: float, poses: list[Pose]) -> Frame:
         if self._model is None:
@@ -313,7 +313,7 @@ class Perception:
             capture_time=float(out.stamp[0]),
             measured=[bool(m) for m in out.measured[0]],
             poses=[
-                self._project_bias((float(xy[r, 0]), float(xy[r, 1]), float(yaw[r])))
+                self._project_bias(Pose(float(xy[r, 0]), float(xy[r, 1]), float(yaw[r])))
                 for r in range(len(poses))
             ],
         )
@@ -398,9 +398,9 @@ class KinematicServer:
     def _observe_for_policy(self, opponent: Opponent, policy: PolicyOpponent) -> None:
         """Our robot at its footprint centre, and every other obstacle opponent, for `policy`."""
         x, y, yaw = self._plant.pose()
-        us = footprint_center((x, y, yaw), self._plant.footprint_center_offset)
+        us = footprint_center(Pose(x, y, yaw), self._plant.footprint_center_offset)
         others = [o.pose() for o in self._opponents if o.hazard_radius > 0.0 and o is not opponent]
-        policy.observe((*us, yaw), self._plant.w_radps, others)
+        policy.observe(Pose(*us, yaw), self._plant.w_radps, others)
 
     def _make_plant(self) -> PlantInterface:
         cfg = self._cfg
@@ -409,7 +409,6 @@ class KinematicServer:
             cfg.arena.width,
             cfg.arena.height,
             self._obstacles,
-            # Same filter and order as the set_moving_blocks call in handle_client.
             [o for o in cfg.opponents if o.hazard_radius > 0.0],
         )
 
@@ -494,7 +493,7 @@ class KinematicServer:
             x, y, yaw = self._plant.pose()
             us_v = (self._plant.v_mps * math.cos(yaw), self._plant.v_mps * math.sin(yaw))
             for opponent in self._opponents:
-                opponent.observe_us((x, y, yaw), us_v)
+                opponent.observe_us(Pose(x, y, yaw), us_v)
                 if opponent.policy is not None:
                     self._observe_for_policy(opponent, opponent.policy)
                 opponent.step(cfg.sim.dt)

@@ -118,13 +118,12 @@ class PolicyOpponent:
     def pose(self) -> Pose:
         """Footprint centre and heading."""
         x, y, yaw = self._plant.pose()
-        cx, cy = footprint_center((x, y, yaw), self._plant.footprint_center_offset)
-        return cx, cy, yaw
+        cx, cy = footprint_center(Pose(x, y, yaw), self._plant.footprint_center_offset)
+        return Pose(cx, cy, yaw)
 
 
 def our_robot_box() -> OpponentConfig:
-    """Our robot as the contact box the policy opponent's plant collides with, centred on its
-    footprint: Mr Stabs Mk2's [robot_sizes] entry in config/_common.toml."""
+    """Our robot as the contact box the policy opponent's plant collides with."""
     return OpponentConfig(
         hazard_radius=MR_STABS_MK2_HALF_DIAGONAL_M, collision_box=list(MR_STABS_MK2_SIZE_M)
     )

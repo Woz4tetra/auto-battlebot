@@ -23,6 +23,9 @@ from auto_battlebot.blheli32.fourway import (
 )
 from auto_battlebot.blheli32.http_port import HttpPort, RelayError
 
+DIRECTION_BIDIR_3D = 3
+DIRECTION_BIDIR_3D_REV = 4
+
 CAPTURES = Path(__file__).resolve().parents[2] / "firmware/blheli/captures"
 
 
@@ -30,7 +33,6 @@ def page(esc: int, addr: str = "f800") -> bytes:
     return (CAPTURES / f"mr_stabs_mk2_esc{esc}_{addr}_2026-10-23.bin").read_bytes()
 
 
-# What BLHeliSuite32xl showed for ESC 1 after Read Setup on 2026-10-23.
 BLHELISUITE_ESC1 = {
     "direction": 3,
     "rampup_power": 100,
@@ -88,7 +90,7 @@ def test_decode_matches_blhelisuite() -> None:
 def test_escs_differ_only_in_direction_and_one_music_byte() -> None:
     a, b = (cipher.decode_page(page(e)) for e in (1, 2))
     assert [i for i in range(len(a)) if a[i] != b[i]] == [3, 144]
-    assert (a[3], b[3]) == (3, 4)  # Bidirectional 3D, Bidirectional 3D Rev.
+    assert (a[3], b[3]) == (DIRECTION_BIDIR_3D, DIRECTION_BIDIR_3D_REV)
 
 
 def test_wrong_page_length_is_rejected() -> None:
@@ -109,7 +111,7 @@ def test_encode_changes_only_the_field() -> None:
         {"rampup_power": 2},
         {"demag_compensation": 0},
         {"min_throttle": 1600},
-        {"pwm_frequency_low": 40},  # above pwm_frequency_high (24)
+        pytest.param({"pwm_frequency_low": 40}, id="above_pwm_frequency_high_24"),
         {"fw_main_revision": 33},
         {"esc_layout": 1},
         {"center_throttle": 900},
@@ -152,11 +154,7 @@ def test_request_framing() -> None:
 
 
 class FakePassthrough:
-    """Answers 4-way requests like the passthrough and an ESC, from the captured ESC 1 data.
-
-    The ESC re-encrypts on every read with fresh nonces, as the real one does. drop_writes
-    acknowledges writes without storing them, like the dry-run passthrough build.
-    """
+    """Answers 4-way requests like the passthrough and an ESC, from the captured ESC 1 data."""
 
     def __init__(self, drop_writes: bool = False) -> None:
         self.rx = bytearray()
@@ -214,7 +212,6 @@ def test_write_is_one_page_and_verifies() -> None:
     edited = layout.encode(before, {"pwm_frequency_low": 16, "pwm_frequency_high": 48})
     after = session.write(0, edited, expect_current=before)
     assert after.decrypted_payload == edited
-    # BLHeliSuite's Write Setup: a single 256-byte DeviceWrite at 0xF800, no page erase.
     assert [(a, len(p)) for a, p in esc.writes] == [(0xF800, 256)]
 
 

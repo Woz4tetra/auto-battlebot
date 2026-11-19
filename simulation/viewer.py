@@ -1,21 +1,4 @@
-"""In-loop OpenCV viewer for the kinematic sim.
-
-Off by default (``[viewer] enable = false``) so sweeps stay headless. Rendering costs wall-clock
-time but cannot corrupt a run: the sim owns logical time and ships ``sim_time`` in the response
-header, which the C++ side adopts through ManualClock. A slow render makes the sim slower in real
-time and changes nothing the controller sees. Keep that property when extending this file.
-
-Layers, cheapest first: pre-scaled arena background, hazard discs (raw geometry plus the inflated
-keep-out ring the controller actually steers on), robot sprites rotated by yaw, the plant's
-collision outlines, then overlays. The outlines are window-only, like the overlays: the camera
-frame is built from `compose_world` and the detector must not see them.
-A plant that reports ``upside_down`` is drawn with its ``<sprite>_flipped`` underside render.
-
-Mouse: press inside an opponent to drag it, release to resume its configured behaviour from the
-drop point. Our own robot is deliberately not draggable -- its pose is the plant's integrated
-state, and moving it out from under the plant desynchronises the EKF in ways that read as control
-bugs.
-"""
+"""In-loop OpenCV viewer for the kinematic sim."""
 
 from __future__ import annotations
 
@@ -26,7 +9,7 @@ from typing import Any
 
 import cv2
 import numpy as np
-from plants.base import footprint_center
+from plants.base import Pose, footprint_center
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -267,7 +250,7 @@ class Viewer:
             ox, oy, oyaw = opponent.pose()
             self._draw_robot(canvas, ox, oy, oyaw, self._opponent_sprite(index), OPP_BGR, 0.11)
         x, y, yaw = plant.pose()
-        cx, cy = footprint_center((x, y, yaw), plant.footprint_center_offset)
+        cx, cy = footprint_center(Pose(x, y, yaw), plant.footprint_center_offset)
         self._draw_robot(
             canvas,
             cx,
