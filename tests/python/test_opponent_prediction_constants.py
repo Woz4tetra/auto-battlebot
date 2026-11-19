@@ -29,6 +29,6 @@ def test_golden_fixture_sigmas_match_cpp_defaults() -> None:
 def test_rewind_history_covers_eval_latency() -> None:
     capacity = int(re.search(r"kSnapshotCapacity = (\d+);", ESTIMATOR_HPP.read_text()).group(1))
     loop_rate_hz = float(
-        re.search(r"max_loop_rate\(([\d.]+)\)", RUNNER_CONFIG_HPP.read_text()).group(1)
+        re.search(r"max_loop_rate_hz\(([\d.]+)\)", RUNNER_CONFIG_HPP.read_text()).group(1)
     )
     assert capacity / loop_rate_hz > evaluate_opponent_prediction.LATENCY_S

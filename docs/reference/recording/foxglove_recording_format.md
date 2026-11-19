@@ -1015,6 +1015,16 @@ Usage:
 - `GT_POSE_SIZE`: Ground truth poses appended after depth buffer: uint32 num_robots, then num_robots * (x, y, yaw) as float64. First entry = our robot, rest = opponents in config order. x, y, yaw per robot (3 x float64 = 24 bytes)
 - `MEAS_HEADER_SIZE`: After the ground truth: what perception delivered this tick, from the sensing model (auto_battlebot/perception/sensing_model.py). One header, then one pose per ground-truth slot in the same order. Flags travel as 0.0 / 1.0 so the block stays all float64 like the rest. delivered, capture_time (sim seconds)
 
+## Python diagnostics loader (`diag_io`)
+
+`auto_battlebot/recording/diag_io.py` turns `/diagnostics` and the marker topics into tick tables.
+
+- Navigation implementations log the same tick schema (`our_x`, `target_x`, `distance`, `angle_error_deg`, `facing_target`, `linear_x`, `angular_z`, ...) under their own `hardware_id`. Only one navigation runs per fight, so any id in `NAV_HW_IDS` is the navigation stage for that recording. A navigation implementation with a different schema (`rl_policy_nav`) stays out of the set.
+- `FRAME_IDS` follows the `FrameId` enum order in `include/enums/frame_id.hpp`. Robot markers set `marker.id` to the enum index of the frame, so the index maps back to the name there.
+- `load_robot_tracks` reads the CUBE body markers (`ns == "robot_bounds"`). It does not carry `is_stale`, because markers do not encode it.
+- Transmitter channels are logged only on change. They are latched physical state, so the loader forward-fills them. Defaulting the gaps would invent auto<->manual transitions and zero-command ticks.
+- `_merge_status` indexes its `defaultdict` only where a status contributes a column. Touching it unconditionally would mint an all-NaN row for every message that carries nothing the loader wants.
+
 ## Tooling notes
 
 ### MCAP reader

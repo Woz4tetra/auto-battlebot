@@ -207,6 +207,11 @@ Board geometry defaults match the manufactured board.
 
 | Field | Meaning |
 | --- | --- |
+| `max_jump_distance` | Measurements that land further than this (m) from the track's last known position are rejected |
+| `max_consecutive_jump_rejects` | After this many consecutive rejected frames the measurement is accepted anyway, which resets the track |
+| `blob_overwrite_min_distance_meters` | Minimum radius (m) around a keypoint detection inside which blobs are suppressed |
+| `blob_overwrite_size_scale` | Scale on the blob and keypoint size estimates that sets the suppression radius |
+| `field_bounds_margin_meters` | Margin (m) added to the field half extents before a measurement is rejected as out of bounds |
 | `our_robot_hold_window_s` | How long an unmeasured our-robot track is held before it is dropped from the output. Without it a stale "ours" detection is predicted forward indefinitely. 0 or below disables the decay and holds forever |
 | `our_keypoint_dropout_blob_radius_meters` | Radius around our robot's last held pose inside which blob detections are discarded while the keypoint model is not detecting our robot. The blob model cannot identify our robot, so without this an undetected own robot is emitted as an opponent at our own position. 0 or below disables the suppression |
 | `our_keypoint_dropout_blob_window_s` | How long after our robot's last keypoint-confirmed frame the suppression radius stays active. It outlives `our_robot_hold_window_s` on purpose: the track decays sooner than a typical keypoint dropout ends. 0 or below disables the suppression |
@@ -414,6 +419,23 @@ Replay of an MCAP recording carrying `/camera/video`. It is separate from the li
 | `socket_path` | Unix socket `viz_relay` listens on |
 | `preview_width` | Width of `/camera/preview` and `/camera/preview_video`. Height keeps the aspect |
 | `preview_rate_hz` | `/camera/preview` JPEG rate |
+
+## `[runner]`
+
+| Field | Meaning |
+| --- | --- |
+| `max_loop_rate_hz` | Loop pacing. 0 free-runs |
+| `default_behavior_mode` | Behavior mode at startup. The dashboard changes it at runtime; headless sim and playback runs pin `RUN_AWAY` here |
+| `auto_tracking_by_default` | Start with the target selector picking the target. false starts with the target held at the field center until the dashboard places it |
+| `parallel_models` | Run the keypoint and robot blob models on parallel worker threads (`ParallelModelBatch`). false calls them sequentially in the tick |
+
+## `[target_selector]`
+
+### `SafestPointTarget`
+
+| Field | Meaning |
+| --- | --- |
+| `retarget_improvement_m` | Radius (m) a new candidate must beat the held target by before retargeting. Suppresses solver jitter as opponents move |
 
 ## `[profiles]`
 

@@ -6,6 +6,7 @@
 #include <cmath>
 #include <magic_enum.hpp>
 #include <set>
+#include <stdexcept>
 
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "transform_utils.hpp"
@@ -51,10 +52,19 @@ double measurement_age(double render_time, double last_measured_stamp) {
 
 namespace auto_battlebot {
 
+namespace {
+JigPlantParams required_plant(const KalmanMotionEstimatorConfiguration &config) {
+    if (!config.plant.has_value()) {
+        throw std::invalid_argument("KalmanMotionEstimator requires the [plant] table");
+    }
+    return *config.plant;
+}
+}  // namespace
+
 KalmanMotionEstimator::KalmanMotionEstimator(const KalmanMotionEstimatorConfiguration &config)
     : config_(config),
       diagnostics_logger_(DiagnosticsLogger::get_logger("kalman_motion_estimator")),
-      our_dr_plant_(config.plant.value_or(JigPlantParams{})) {
+      our_dr_plant_(required_plant(config)) {
     if (config_.our_robot_mode == OurRobotMode::EKF && config_.plant.has_value()) {
         plant_model_ = std::make_unique<JigPlantModel>(*config_.plant, config_.plant_noise);
     }
@@ -79,7 +89,7 @@ std::optional<KalmanMotionEstimator::OpponentFilterState>
 KalmanMotionEstimator::opponent_filter_state(FrameId frame_id) const {
     const auto it = opponent_tracks_.find(frame_id);
     if (it == opponent_tracks_.end()) return std::nullopt;
-    return OpponentFilterState{it->second.state, it->second.covariance, it->second.stamp,
+    return OpponentFilterState{it->second.state, it->second.covariance, it->second.state_stamp,
                                it->second.heading_initialized};
 }
 
@@ -101,7 +111,7 @@ void KalmanMotionEstimator::push_snapshot(OpponentTrack &track) {
         ++track.snapshot_count;
     }
     track.snapshots[index] =
-        Snapshot{track.stamp, track.state, track.covariance, track.heading_initialized};
+        Snapshot{track.state_stamp, track.state, track.covariance, track.heading_initialized};
 }
 
 bool KalmanMotionEstimator::rewind_opponent(OpponentTrack &track, double target_stamp) {
@@ -117,17 +127,17 @@ bool KalmanMotionEstimator::rewind_opponent(OpponentTrack &track, double target_
     track.state = snapshot.state;
     track.covariance = snapshot.covariance;
     track.heading_initialized = snapshot.heading_initialized;
-    track.stamp = snapshot.stamp;
+    track.state_stamp = snapshot.stamp;
     track.snapshot_count = found + 1;
     return true;
 }
 
 void KalmanMotionEstimator::advance_opponent(OpponentTrack &track, double target_stamp) {
-    const double dt_total = target_stamp - track.stamp;
+    const double dt_total = target_stamp - track.state_stamp;
     if (dt_total <= 0.0) return;
     const double dt = std::min(dt_total, kMaxIntegrationStepS);
 
-    const double age = track.stamp - track.last_measured_stamp;
+    const double age = track.state_stamp - track.last_measured_stamp;
     const double move = dt_total > kMaxIntegrationStepS
                             ? 0.0
                             : std::min(dt, std::max(0.0, config_.opponent_max_coast_s - age));
@@ -170,7 +180,7 @@ void KalmanMotionEstimator::advance_opponent(OpponentTrack &track, double target
             track.covariance.col(index) *= scale;
         }
     }
-    track.stamp = target_stamp;
+    track.state_stamp = target_stamp;
     push_snapshot(track);
 }
 
@@ -210,7 +220,7 @@ void KalmanMotionEstimator::init_our_ekf(OurEkfTrack &track, const RobotDescript
     track.last_measured_stamp = stamp;
     track.consecutive_rejects = 0;
     track.output_stale = false;
-    track.description = measurement;
+    track.output_template = measurement;
     track.speed_ref_x = pose.x;
     track.speed_ref_y = pose.y;
     track.speed_ref_yaw = pose.yaw;
@@ -220,7 +230,7 @@ void KalmanMotionEstimator::init_our_ekf(OurEkfTrack &track, const RobotDescript
 
 RobotDescription KalmanMotionEstimator::render_our_ekf(const OurEkfTrack &track,
                                                        const PlantState &state, bool stale) const {
-    RobotDescription description = track.description;
+    RobotDescription description = track.output_template;
     const double z = description.pose.position.z;
     description.pose = pose2d_to_pose(Pose2D{state.x, state.y, state.theta});
     description.pose.position.z = z;
@@ -271,11 +281,11 @@ void KalmanMotionEstimator::init_opponent(OpponentTrack &track, const RobotDescr
         track.heading_initialized = false;
         track.consecutive_heading_flips = 0;
     }
-    track.stamp = stamp;
+    track.state_stamp = stamp;
     track.last_measured_stamp = stamp;
     track.consecutive_rejects = 0;
     track.output_stale = false;
-    track.description = measurement;
+    track.output_template = measurement;
     track.snapshot_start = 0;
     track.snapshot_count = 0;
     push_snapshot(track);
@@ -301,7 +311,7 @@ ekf::Mat<2, 2> KalmanMotionEstimator::measurement_noise_for(
 RobotDescription KalmanMotionEstimator::render_opponent(const OpponentTrack &track,
                                                         const FieldDescription &field,
                                                         bool stale) const {
-    RobotDescription description = track.description;
+    RobotDescription description = track.output_template;
     description.pose.position.x = track.state(kPx);
     description.pose.position.y = track.state(kPy);
     double vx = track.state(kVx);
@@ -358,7 +368,7 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
         if (input.group == Group::OURS) {
             if (!plant_model_) {
                 HeldTrack &track = our_tracks_[input.frame_id];
-                track.description = input;
+                track.output_template = input;
                 track.last_measured_stamp = timestamp;
                 continue;
             }
@@ -482,7 +492,7 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
                 track.last_measured_stamp = timestamp;
                 track.consecutive_rejects = 0;
                 track.output_stale = false;
-                track.description = input;
+                track.output_template = input;
                 if (has_speed || !track.has_speed_ref) {
                     track.speed_ref_x = measured_pose.x;
                     track.speed_ref_y = measured_pose.y;
@@ -513,8 +523,8 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
 
         if (config_.opponent_mode == OpponentMode::HOLD) {
             HeldTrack &track = held_opponent_tracks_[input.frame_id];
-            track.description = input;
-            track.stamp = timestamp;
+            track.output_template = input;
+            track.last_update_stamp = timestamp;
             track.last_measured_stamp = timestamp;
             track.output_stale = false;
             continue;
@@ -528,7 +538,7 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
             continue;
         }
 
-        if (timestamp < track.stamp && !rewind_opponent(track, timestamp)) {
+        if (timestamp < track.state_stamp && !rewind_opponent(track, timestamp)) {
             ++num_rewind_missed;
         }
         advance_opponent(track, timestamp);
@@ -578,7 +588,7 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
             track.last_measured_stamp = timestamp;
             track.consecutive_rejects = 0;
             track.output_stale = false;
-            track.description = input;
+            track.output_template = input;
             push_snapshot(track);
         } else {
             ++num_gated;
@@ -597,23 +607,23 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
         } else {
             track.output_stale = true;
             const auto cmd_it = command_feedback_.stick_commands.find(frame_id);
-            const double dt = timestamp - track.stamp;
+            const double dt = timestamp - track.last_update_stamp;
             if (cmd_it != command_feedback_.stick_commands.end() && dt > 0.0 && dt <= 1.0) {
                 const VelocityCommand cmd =
                     plant_stick_to_body_velocity(cmd_it->second, our_dr_plant_);
-                Pose2D predicted_pose = pose_to_pose2d(track.description.pose);
+                Pose2D predicted_pose = pose_to_pose2d(track.output_template.pose);
                 const Eigen::Vector2d velocity_field =
                     body_velocity_to_field(cmd.forward_mps, cmd.lateral_mps, predicted_pose.yaw);
                 predicted_pose.x += velocity_field.x() * dt;
                 predicted_pose.y += velocity_field.y() * dt;
                 predicted_pose.yaw = ekf::wrap_angle(predicted_pose.yaw + cmd.yaw_rate_radps * dt);
-                track.description.pose = pose2d_to_pose(predicted_pose);
-                clip_to_field_bounds(track.description.pose.position, field,
+                track.output_template.pose = pose2d_to_pose(predicted_pose);
+                clip_to_field_bounds(track.output_template.pose.position, field,
                                      context.field_bounds_margin_meters);
-                frame_id_assigner.set_last_position(frame_id, track.description.pose.position);
+                frame_id_assigner.set_last_position(frame_id, track.output_template.pose.position);
             }
         }
-        track.stamp = timestamp;
+        track.last_update_stamp = timestamp;
     }
 
     for (auto &[frame_id, track] : our_ekf_tracks_) {
@@ -621,7 +631,7 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
         track.output_stale = true;
         advance_our_ekf(track, timestamp);
         Position predicted_position{track.state.x, track.state.y,
-                                    track.description.pose.position.z};
+                                    track.output_template.pose.position.z};
         clip_to_field_bounds(predicted_position, field, context.field_bounds_margin_meters);
         frame_id_assigner.set_last_position(frame_id, predicted_position);
     }
@@ -629,8 +639,8 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
     for (auto &[frame_id, track] : held_opponent_tracks_) {
         if (measured_frame_ids.count(frame_id) != 0) continue;
         track.output_stale = true;
-        track.stamp = timestamp;
-        frame_id_assigner.set_last_position(frame_id, track.description.pose.position);
+        track.last_update_stamp = timestamp;
+        frame_id_assigner.set_last_position(frame_id, track.output_template.pose.position);
     }
 
     for (auto &[frame_id, track] : opponent_tracks_) {
@@ -638,7 +648,7 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
         if (track.output_stale) {
             advance_opponent(track, timestamp);
             Position predicted_position{track.state(kPx), track.state(kPy),
-                                        track.description.pose.position.z};
+                                        track.output_template.pose.position.z};
             clip_to_field_bounds(predicted_position, field, context.field_bounds_margin_meters);
             frame_id_assigner.set_last_position(frame_id, predicted_position);
         }
@@ -663,7 +673,7 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
     outputs.reserve(our_tracks_.size() + our_ekf_tracks_.size() + opponent_tracks_.size() +
                     held_opponent_tracks_.size());
     for (const auto &[frame_id, track] : our_tracks_) {
-        RobotDescription output = track.description;
+        RobotDescription output = track.output_template;
         output.is_stale = track.output_stale;
         output.measurement_age_s = measurement_age(timestamp, track.last_measured_stamp);
         outputs.push_back(std::move(output));
@@ -689,7 +699,7 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
                                    fields);
     }
     for (const auto &[frame_id, track] : held_opponent_tracks_) {
-        RobotDescription output = track.description;
+        RobotDescription output = track.output_template;
         output.is_stale = track.output_stale;
         output.measurement_age_s = measurement_age(timestamp, track.last_measured_stamp);
         outputs.push_back(std::move(output));
@@ -718,7 +728,7 @@ std::optional<std::vector<RobotDescription>> KalmanMotionEstimator::coast(double
     const double target = now + render_lead_s();
     double worst_span = std::numeric_limits<double>::infinity();
     const auto is_stale = [&](double last_measured_stamp) {
-        return (now - last_measured_stamp) > kCoastStaleAgeS;
+        return (now - last_measured_stamp) > config_.coast_stale_age_s;
     };
 
     for (const auto &[frame_id, track] : our_ekf_tracks_) {
@@ -742,9 +752,9 @@ std::optional<std::vector<RobotDescription>> KalmanMotionEstimator::coast(double
     }
 
     for (const auto &[frame_id, track] : our_tracks_) {
-        RobotDescription output = track.description;
+        RobotDescription output = track.output_template;
         const auto cmd_it = command_feedback_.stick_commands.find(frame_id);
-        const double dt = target - track.stamp;
+        const double dt = target - track.last_update_stamp;
         if (cmd_it != command_feedback_.stick_commands.end() && dt > 0.0 &&
             dt <= kMaxIntegrationStepS) {
             const VelocityCommand cmd = plant_stick_to_body_velocity(cmd_it->second, our_dr_plant_);
@@ -763,7 +773,7 @@ std::optional<std::vector<RobotDescription>> KalmanMotionEstimator::coast(double
     }
 
     for (auto &[frame_id, track] : opponent_tracks_) {
-        worst_span = std::min(worst_span, target - track.stamp);
+        worst_span = std::min(worst_span, target - track.state_stamp);
         advance_opponent(track, target);
         const bool stale = track.output_stale || is_stale(track.last_measured_stamp);
         outputs.push_back(render_opponent(track, last_field_, stale));
@@ -771,7 +781,7 @@ std::optional<std::vector<RobotDescription>> KalmanMotionEstimator::coast(double
     }
 
     for (const auto &[frame_id, track] : held_opponent_tracks_) {
-        RobotDescription output = track.description;
+        RobotDescription output = track.output_template;
         output.is_stale = track.output_stale || is_stale(track.last_measured_stamp);
         output.measurement_age_s = measurement_age(now, track.last_measured_stamp);
         outputs.push_back(std::move(output));
@@ -781,7 +791,8 @@ std::optional<std::vector<RobotDescription>> KalmanMotionEstimator::coast(double
         min_coast_span_s_ = worst_span;
         const bool too_far = worst_span > kMaxIntegrationStepS;
         const bool no_span = worst_span <= 0.0;
-        if ((too_far || no_span) && now - last_clock_gap_warning_ > kClockGapWarnPeriodS) {
+        if ((too_far || no_span) &&
+            now - last_clock_gap_warning_ > config_.clock_gap_warn_period_s) {
             last_clock_gap_warning_ = now;
             spdlog::warn(
                 "Coast span is {:.3f}s ({}): no forward propagation is happening, so the emitted "

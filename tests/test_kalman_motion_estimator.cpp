@@ -1,6 +1,9 @@
 #include <gtest/gtest.h>
+#include <spdlog/sinks/ostream_sink.h>
+#include <spdlog/spdlog.h>
 
 #include <cmath>
+#include <sstream>
 
 #include "plant/mrs_buff_mk3_params.hpp"
 #include "robot_filter/dead_reckoning_motion_estimator.hpp"
@@ -241,6 +244,14 @@ TEST(KalmanMotionEstimatorTest, LateMeasurementRetrodictsInsteadOfCorruptingTrac
     auto coasted = estimator.coast(last_t + 0.1);
     ASSERT_TRUE(coasted.has_value());
     EXPECT_NEAR((*coasted)[0].pose.position.x, x + vx * (0.1 + kLead), 0.06);
+}
+
+TEST(KalmanMotionEstimatorTest, DeadReckoningCoastReturnsNullopt) {
+    DeadReckoningMotionEstimator dead_reckoning{dr_estimator_config()};
+    CommandFeedback feedback;
+    feedback.stick_commands[FrameId::OUR_ROBOT_1] = StickCommand{1.0, 0.0, 0.5};
+    dead_reckoning.predict(kStartTime, feedback);
+    EXPECT_FALSE(dead_reckoning.coast(kStartTime + 0.01).has_value());
 }
 
 TEST(KalmanMotionEstimatorTest, OurRobotMatchesDeadReckoningEstimator) {
@@ -1038,6 +1049,119 @@ TEST(KalmanMotionEstimatorTest, OurRobotSpeedProjectsOntoTheMidBaselineHeading) 
     const double measured_speed =
         std::hypot(outputs[0].velocity.vx_mps, outputs[0].velocity.vy_mps);
     EXPECT_NEAR(measured_speed, chord / dt, 0.03);
+}
+
+TEST(KalmanMotionEstimatorTest, RenderLeadEqualsPlantDelay) {
+    KalmanMotionEstimator estimator{kalman_opponents_config()};
+    EXPECT_DOUBLE_EQ(estimator.render_lead_s(), kLead);
+}
+
+TEST(KalmanMotionEstimatorTest, ConstructionWithoutPlantThrows) {
+    KalmanMotionEstimatorConfiguration config;
+    EXPECT_THROW(KalmanMotionEstimator{config}, std::invalid_argument);
+}
+
+TEST(KalmanMotionEstimatorTest, LargeClockGapFreezesPosition) {
+    KalmanMotionEstimatorConfiguration config = kalman_opponents_config();
+    config.opponent_max_coast_s = 100.0;
+    KalmanMotionEstimator estimator{config};
+    FrameIdAssigner assigner(10.0, 5);
+    const FieldDescription field = make_field();
+    const MotionEstimatorContext context;
+
+    const double vx = 1.5;
+    double x = 1.0;
+    double y = 2.0;
+    const double last_t =
+        run_constant_velocity(estimator, assigner, field, context, 60, x, y, vx, 0.0);
+
+    auto coasted = estimator.coast(last_t + 5.0);
+    ASSERT_TRUE(coasted.has_value());
+    ASSERT_EQ(coasted->size(), 1u);
+    EXPECT_NEAR((*coasted)[0].pose.position.x, x, 0.05) << "a 5 s clock gap is not motion";
+}
+
+TEST(KalmanMotionEstimatorTest, TooOldMeasurementFoldsInAtCurrentState) {
+    KalmanMotionEstimator estimator{kalman_opponents_config()};
+    FrameIdAssigner assigner(10.0, 5);
+    const FieldDescription field = make_field();
+    const MotionEstimatorContext context;
+
+    double x = 1.0;
+    double y = 2.0;
+    run_constant_velocity(estimator, assigner, field, context, 60, x, y, 0.0, 0.0);
+    const double before = estimator.opponent_filter_state(FrameId::THEIR_ROBOT_1)->state(0);
+    ASSERT_NEAR(before, x, 1e-3);
+
+    const double older_than_every_snapshot = kStartTime - 10.0;
+    auto outputs = estimator.update({make_opponent_measurement(x + 0.05, y)},
+                                    older_than_every_snapshot, assigner, field, context);
+    ASSERT_EQ(outputs.size(), 1u);
+    const double after = estimator.opponent_filter_state(FrameId::THEIR_ROBOT_1)->state(0);
+    EXPECT_GT(after, before + 0.005) << "the measurement was dropped instead of folded in";
+    EXPECT_LT(after, x + 0.05);
+}
+
+TEST(KalmanMotionEstimatorTest, CoastStaleAgeComesFromConfig) {
+    KalmanMotionEstimatorConfiguration config = kalman_opponents_config();
+    config.coast_stale_age_s = 0.5;
+    KalmanMotionEstimator estimator{config};
+    FrameIdAssigner assigner(10.0, 5);
+    const FieldDescription field = make_field();
+    const MotionEstimatorContext context;
+
+    double x = 1.0;
+    double y = 2.0;
+    const double last_t =
+        run_constant_velocity(estimator, assigner, field, context, 30, x, y, 0.0, 0.0);
+
+    auto fresh = estimator.coast(last_t + 0.3);
+    ASSERT_TRUE(fresh.has_value());
+    EXPECT_FALSE((*fresh)[0].is_stale);
+    auto stale = estimator.coast(last_t + 0.6);
+    ASSERT_TRUE(stale.has_value());
+    EXPECT_TRUE((*stale)[0].is_stale);
+}
+
+size_t count_clock_gap_warnings(KalmanMotionEstimator &estimator, const std::vector<double> &nows) {
+    std::ostringstream captured;
+    auto logger = std::make_shared<spdlog::logger>(
+        "kalman_clock_gap_test", std::make_shared<spdlog::sinks::ostream_sink_mt>(captured));
+    const auto previous = spdlog::default_logger();
+    spdlog::set_default_logger(logger);
+    for (double now : nows) estimator.coast(now);
+    spdlog::set_default_logger(previous);
+    const std::string log = captured.str();
+    size_t count = 0;
+    for (size_t at = log.find("Coast span"); at != std::string::npos;
+         at = log.find("Coast span", at + 1)) {
+        ++count;
+    }
+    return count;
+}
+
+TEST(KalmanMotionEstimatorTest, FirstClockGapWarningFiresAtEpochZero) {
+    KalmanMotionEstimator estimator{kalman_opponents_config()};
+    FrameIdAssigner assigner(10.0, 5);
+    const FieldDescription field = make_field();
+    const MotionEstimatorContext context;
+    estimator.predict(0.0, CommandFeedback{});
+    estimator.update({make_opponent_measurement(1.0, 2.0)}, 0.0, assigner, field, context);
+
+    EXPECT_EQ(count_clock_gap_warnings(estimator, {2.0}), 1u);
+}
+
+TEST(KalmanMotionEstimatorTest, ClockGapWarningIsThrottledByConfiguredPeriod) {
+    KalmanMotionEstimatorConfiguration config = kalman_opponents_config();
+    config.clock_gap_warn_period_s = 3.0;
+    KalmanMotionEstimator estimator{config};
+    FrameIdAssigner assigner(10.0, 5);
+    const FieldDescription field = make_field();
+    const MotionEstimatorContext context;
+    estimator.predict(0.0, CommandFeedback{});
+    estimator.update({make_opponent_measurement(1.0, 2.0)}, 0.0, assigner, field, context);
+
+    EXPECT_EQ(count_clock_gap_warnings(estimator, {2.0, 4.0, 7.0}), 2u);
 }
 
 }  // namespace

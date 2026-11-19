@@ -167,14 +167,14 @@ Playback today differs run to run:
 | SDK skips frames when the pipeline is slow | `svo_real_time_mode = true`, `config/playback/_playback.toml:72` |
 | 250 Hz control loop on wall time; latest-value handoff | `ThreadedControlLoop`; `control_loop.cpp:48-51`, `128-132` |
 | Clock adds wall time since the frame | `CameraFollowingClock`, `camera_following_clock.hpp:29-45`; feeds filter `predict`, staleness, RL observation ages, playback transmitter init delay |
-| Sleep pacing | `max_loop_rate = 60`, `runner.cpp:622-641` |
+| Sleep pacing | `max_loop_rate_hz = 60`, `runner.cpp:622-641` |
 
 TensorRT is not a source: static shapes, one stream per engine, synced before host reads. There is
 no unseeded RNG in `src/`; PCL RANSAC is believed to default to a fixed seed (unverified).
 
 **Lockstep tier.** `config/playback/_lockstep.toml`:
 
-- `svo_real_time_mode = false`, `max_loop_rate = 0`, `SteppedControlLoop`
+- `svo_real_time_mode = false`, `max_loop_rate_hz = 0`, `SteppedControlLoop`
 - A new stepped clock that advances one control period per cycle. Under `ManualClock`,
   `SteppedControlLoop::advance_to` gives every catch-up cycle the same `now`, so the filter never
   coasts between frames.

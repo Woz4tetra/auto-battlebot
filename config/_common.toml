@@ -145,7 +145,7 @@ house_bot = "#f59e0b"
 object = "#a855f7"
 
 [runner]
-max_loop_rate = 60.0
+max_loop_rate_hz = 60.0
 default_opponent_count = 1
 autonomy_enabled_by_default = true
 default_behavior_mode = "ATTACK"

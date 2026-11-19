@@ -17,16 +17,6 @@ class RobotTemporalMotionFilter {
 
     void reset();
 
-    /**
-     * Merges new measurements into tracked state and returns one RobotDescription per tracked
-     * robot. Robots with no new measurement this frame are predicted forward using their last
-     * stick command, scaled to body velocity through the fitted plant gains, and clamped to
-     * field bounds. Predicted robots are flagged is_stale=true.
-     *
-     * An our-robot (Group::OURS) track that has gone unmeasured for longer than
-     * our_robot_hold_window_s (seconds) is dropped from the output and forgotten rather than held
-     * indefinitely -- the stale-identity decay. A window <= 0 disables the decay (hold forever).
-     */
     std::vector<RobotDescription> update_with_prediction(
         std::vector<RobotDescription> inputs, const CommandFeedback &command_feedback,
         double timestamp, FrameIdAssigner &frame_id_assigner, const FieldDescription &field,

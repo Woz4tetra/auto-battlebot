@@ -35,7 +35,7 @@ OpenTxTransmitter::OpenTxTransmitter(const OpenTxTransmitterConfiguration& confi
 }
 
 bool OpenTxTransmitter::initialize() {
-    auto device = find_opentx_device();
+    auto device = find_opentx_stm32_cdc_device();
     if (!device) {
         logger_->warning(
             "device_not_found",

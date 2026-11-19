@@ -57,6 +57,8 @@ Regenerate the SVG after editing `diagrams/robot_filter.dot`:
    tracked robot that was not measured this frame and has command feedback (OUR_ROBOT_1), dead-reckons
    its pose forward along the commanded velocity, clips it to the field, and flags it `is_stale`. It
    emits one `RobotDescription` per tracked robot, measured or predicted.
+   An our-robot (`Group::OURS`) track unmeasured for longer than `our_robot_hold_window_s` is dropped
+   from the output and forgotten instead of held. A window of 0 or below disables the decay.
 
 ## Persistent state
 
@@ -172,6 +174,7 @@ Keypoint heights correct the radial bias of flat-plane projection. Heights are p
 - Our-robot track has two modes. `DEAD_RECKONING` applies the last commanded velocity directly, matching `DeadReckoningMotionEstimator`. `EKF` runs a 5-state EKF [x, y, theta, v, w] propagated through `JigPlantModel` with the issued-command history (normalized stick space, from `CommandFeedback::stick_commands`) read at t - delay, corrected by keypoint poses (position and heading) or blob centroids (position only). A heading innovation past pi/2 falls back to the position rows, because the front/back keypoint converter can flip and folding a flipped heading in would spin the whole state.
 - `coast()` renders every track advanced to the control-loop clock plus `render_lead_s()`, so the emitted state moves between perception frames instead of freezing at the last `correct()`.
 - Rewind history: 64 snapshots. At the 250 Hz control rate that is roughly 240 ms, because `coast()` commits an opponent snapshot every tick and a 30 Hz frame burns about nine slots. It covers the measured 63 ms perception latency with room to spare; `num_rewind_missed` reports when it does not.
+- Clock gaps: a single propagation step longer than `kMaxIntegrationStepS` (1.0 s) freezes position, because a clock gap that large is not motion to integrate. Covariance still grows, capped at that step.
 - Estimator config: `opponent_max_coast_s` and `max_coast_s` defaults. `max_coast_s` sits at the measured p90 to p95 of perception dropout gaps; predicting multi-second gaps with a short-horizon model is fiction.
 - Plant fit status: the plant fit has not passed acceptance (heading misses by 4x at the 400 ms coast horizon), so production configs stay on `DEAD_RECKONING`. Sim and playback experiments opt in through the extends chain.
 

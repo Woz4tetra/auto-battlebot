@@ -32,11 +32,6 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
 
     std::optional<std::vector<RobotDescription>> coast(double now) override;
 
-    /**
-     * The plant's transport delay. A command computed from this render reaches the wheels
-     * `delay_s` later, so the render has to describe the field at that moment. Config validation
-     * guarantees the plant table is present, so this is always the fitted value.
-     */
     double render_lead_s() const override { return config_.plant->delay_s; }
 
     struct OpponentFilterState {
@@ -49,17 +44,7 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
 
    private:
     static constexpr size_t kSnapshotCapacity = 64;
-    /** A single propagation step longer than this freezes position: a clock gap that large is
-     * not motion to integrate. Covariance still grows, capped at this step. */
     static constexpr double kMaxIntegrationStepS = 1.0;
-    /**
-     * coast() flags a track is_stale once it has gone unmeasured this long. Three 30 Hz frame
-     * periods: between-frame coasting in normal operation stays "fresh", a real perception
-     * dropout reads as stale even though correct() never ran to say so.
-     */
-    static constexpr double kCoastStaleAgeS = 0.1;
-    /** Throttle on the clock-gap warning: it fires every tick once tripped. */
-    static constexpr double kClockGapWarnPeriodS = 5.0;
 
     static constexpr int kOpponentStates = 6;
     using OpponentVec = ekf::Vec<kOpponentStates>;
@@ -77,24 +62,19 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
         OpponentMat covariance = OpponentMat::Zero();
         bool heading_initialized = false;
         int consecutive_heading_flips = 0;
-        /** Time the state refers to. */
-        double stamp = 0.0;
+        double state_stamp = 0.0;
         double last_measured_stamp = 0.0;
         int consecutive_rejects = 0;
         bool output_stale = false;
-        /** Non-kinematic fields (label, group, size, rotation, z) of the latest accepted
-         * measurement, used as the output template. */
-        RobotDescription description;
+        RobotDescription output_template;
         std::array<Snapshot, kSnapshotCapacity> snapshots{};
         size_t snapshot_start = 0;
         size_t snapshot_count = 0;
     };
 
     struct HeldTrack {
-        RobotDescription description;
-        /** Time of the last update() that touched this track; dead-reckoning dt spans from
-         * here. */
-        double stamp = 0.0;
+        RobotDescription output_template;
+        double last_update_stamp = 0.0;
         double last_measured_stamp = 0.0;
         bool output_stale = false;
     };
@@ -106,8 +86,7 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
         double last_measured_stamp = 0.0;
         int consecutive_rejects = 0;
         bool output_stale = false;
-        /** Non-kinematic fields of the latest accepted measurement, the output template. */
-        RobotDescription description;
+        RobotDescription output_template;
         double speed_ref_x = 0.0;
         double speed_ref_y = 0.0;
         double speed_ref_yaw = 0.0;
@@ -116,20 +95,12 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
     };
 
     void advance_opponent(OpponentTrack &track, double target_stamp);
-    /** Propagates the our-robot EKF track through the plant model to target_stamp. Pose
-     * integration stops once the unmeasured age crosses max_coast_s; covariance keeps
-     * growing over the whole step either way. */
     void advance_our_ekf(OurEkfTrack &track, double target_stamp);
     void init_our_ekf(OurEkfTrack &track, const RobotDescription &measurement, double stamp,
                       double position_variance);
     RobotDescription render_our_ekf(const OurEkfTrack &track, const PlantState &state,
                                     bool stale) const;
     void push_snapshot(OpponentTrack &track);
-    /**
-     * Restores the newest snapshot at or before target_stamp and drops the ones after it.
-     * Returns false (track untouched) when no snapshot is old enough, in which case the
-     * measurement is folded in at the track's current state instead.
-     */
     bool rewind_opponent(OpponentTrack &track, double target_stamp);
     void init_opponent(OpponentTrack &track, const RobotDescription &measurement, double stamp,
                        double position_variance);
@@ -150,9 +121,6 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
 
     std::unique_ptr<JigPlantModel> plant_model_;
 
-    /** Fitted gains for the DEAD_RECKONING our-robot arm, which scales stick to body velocity
-     * without the plant model. Zero-valued only when a test skipped the plant; config validation
-     * requires the table for both modes. */
     JigPlantParams our_dr_plant_;
 
     CommandFeedback command_feedback_;
@@ -160,8 +128,6 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
     FieldDescription last_field_;
     bool has_field_ = false;
     double last_field_margin_ = 0.0;
-    /** Control-clock time of the last clock-gap warning. -inf so the first one always fires,
-     * whatever epoch the clock is on. */
     double last_clock_gap_warning_ = -std::numeric_limits<double>::infinity();
     double min_coast_span_s_ = 0.0;
 };

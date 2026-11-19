@@ -34,7 +34,7 @@ wall_heading_threshold_rad = 1.047
 init_delay_seconds = 0.0
 
 [runner]
-max_loop_rate = 0.0
+max_loop_rate_hz = 0.0
 
 [mcap]
 enable = false

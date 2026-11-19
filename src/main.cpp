@@ -120,7 +120,7 @@ int run_application(const auto_battlebot::ClassConfiguration& class_config,
     auto battery_monitor = make_battery_monitor(class_config.battery, remote.status);
     remote.app_info.available_profiles = available_profiles;
     remote.app_info.current_profile = active_profile;
-    remote.app_info.max_loop_rate_hz = class_config.runner.max_loop_rate;
+    remote.app_info.max_loop_rate_hz = class_config.runner.max_loop_rate_hz;
     remote.app_info.version = read_build_version();
     remote.resolved_config.profile = active_profile;
     for (const auto& field : resolved_config.fields) {

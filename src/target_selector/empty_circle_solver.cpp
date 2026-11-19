@@ -80,7 +80,7 @@ class Best {
         result_.radius = -std::numeric_limits<double>::infinity();
     }
 
-    void consider(double x, double y, const char *source) {
+    void consider(double x, double y, EmptyCircleConstraint source) {
         ++evaluations_;
         const double r = empty_circle_radius(field_, x, y, opponents_, hazards_);
         bool take = r > result_.radius + kRadiusTieEps;
@@ -97,14 +97,14 @@ class Best {
 
     EmptyCircle finish() {
         result_.evaluations = evaluations_;
-        result_.source = source_;
+        result_.constraint = source_;
         return result_;
     }
 
    private:
     EmptyCircle result_;
     int evaluations_ = 0;
-    const char *source_ = "none";
+    EmptyCircleConstraint source_ = EmptyCircleConstraint::NONE;
     const Size &field_;
     const std::vector<Pose2D> &opponents_;
     const std::vector<FieldHazard> &hazards_;
@@ -112,7 +112,7 @@ class Best {
 };
 
 void add_candidates(Best &best, const Linear &first, const Linear &second, const Site &site,
-                    const char *source) {
+                    EmptyCircleConstraint source) {
     const double dx = first.ay * second.ar - first.ar * second.ay;
     const double dy = first.ar * second.ax - first.ax * second.ar;
     const double dr = first.ax * second.ay - first.ay * second.ax;
@@ -149,19 +149,21 @@ void add_three_wall_candidates(Best &best, double half_x, double half_y) {
         for (const double s : {1.0, -1.0}) {
             const double cb = s * (half_b - half_a);
             if (b_axis == 0) {
-                best.consider(cb, 0.0, "three_wall");
+                best.consider(cb, 0.0, EmptyCircleConstraint::THREE_WALL);
             } else {
-                best.consider(0.0, cb, "three_wall");
+                best.consider(0.0, cb, EmptyCircleConstraint::THREE_WALL);
             }
         }
     }
 }
 
-const char *two_wall_source(const Wall &a, const Wall &b, const Site &site) {
+EmptyCircleConstraint two_wall_source(const Wall &a, const Wall &b, const Site &site) {
     if (a.axis == b.axis) {
-        return site.is_hazard ? "opposite_walls_hazard" : "opposite_walls_point";
+        return site.is_hazard ? EmptyCircleConstraint::OPPOSITE_WALLS_HAZARD
+                              : EmptyCircleConstraint::OPPOSITE_WALLS_POINT;
     }
-    return site.is_hazard ? "perpendicular_walls_hazard" : "perpendicular_walls_point";
+    return site.is_hazard ? EmptyCircleConstraint::PERPENDICULAR_WALLS_HAZARD
+                          : EmptyCircleConstraint::PERPENDICULAR_WALLS_POINT;
 }
 
 }  // namespace
@@ -199,7 +201,7 @@ EmptyCircle solve_exact(const Size &field, const std::vector<Pose2D> &opponents,
 
     Best best(field, opponents, hazards,
               tie_break_near.has_value() ? &tie_break_near.value() : nullptr);
-    best.consider(0.0, 0.0, "field_center");
+    best.consider(0.0, 0.0, EmptyCircleConstraint::FIELD_CENTER);
 
     std::vector<Site> sites;
     sites.reserve(opponents.size() + hazards.size());
@@ -233,8 +235,9 @@ EmptyCircle solve_exact(const Size &field, const std::vector<Pose2D> &opponents,
     for (int w = 0; w < 4; ++w) {
         for (size_t i = 0; i < sites.size(); ++i) {
             for (size_t j = i + 1; j < sites.size(); ++j) {
-                const char *source = (sites[i].is_hazard || sites[j].is_hazard) ? "wall_site_pair"
-                                                                                : "wall_point_pair";
+                EmptyCircleConstraint source = (sites[i].is_hazard || sites[j].is_hazard)
+                                                   ? EmptyCircleConstraint::WALL_SITE_PAIR
+                                                   : EmptyCircleConstraint::WALL_POINT_PAIR;
                 add_candidates(best, wall_linears[w],
                                equal_clearance_constraint(sites[i], sites[j]), sites[i], source);
             }
@@ -244,10 +247,10 @@ EmptyCircle solve_exact(const Size &field, const std::vector<Pose2D> &opponents,
     for (size_t i = 0; i < sites.size(); ++i) {
         for (size_t j = i + 1; j < sites.size(); ++j) {
             for (size_t k = j + 1; k < sites.size(); ++k) {
-                const char *source =
+                EmptyCircleConstraint source =
                     (sites[i].is_hazard || sites[j].is_hazard || sites[k].is_hazard)
-                        ? "site_triple"
-                        : "point_triple";
+                        ? EmptyCircleConstraint::SITE_TRIPLE
+                        : EmptyCircleConstraint::POINT_TRIPLE;
                 add_candidates(best, equal_clearance_constraint(sites[i], sites[j]),
                                equal_clearance_constraint(sites[i], sites[k]), sites[i], source);
             }

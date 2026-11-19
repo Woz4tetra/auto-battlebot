@@ -123,7 +123,7 @@ survives.
 - `ThreadedControlLoop` on hardware. `SteppedControlLoop` is for reproducible playback, sim, and
   rollback; `watchdog_timeout_ms` is inert under it. `rate_hz = 0` runs one cycle per perception
   frame.
-- `runner.max_loop_rate` is double the camera FPS.
+- `runner.max_loop_rate_hz` is double the camera FPS.
 - `ui.label_colors` match the class colors in the training dataset YAMLs; unlisted labels get a
   generated color.
 
@@ -245,7 +245,7 @@ All pair with a sim-side config under `simulation/` and run through `./scripts/r
   bypassed and ground-truth poses come from the sim, so `PursuitNavigation` runs unchanged.
   `GroundTruthRobotFilter` maps poses by order (GT[0] is OUR_ROBOT_1, the rest are theirs). Actuation
   latency is modelled in sim ticks by the server, so `SimTransmitter.command_delay_ms` stays 0 (it
-  is wall-clock based and would not survive accelerated runs). `max_loop_rate = 0` free-runs, paced
+  is wall-clock based and would not survive accelerated runs). `max_loop_rate_hz = 0` free-runs, paced
   by lockstep with the server, and `ManualClock` takes time from the sim frame stamp, so the
   controller's dt is right at any loop speed.
 - `mr_stabs_mk2_kinematic_sim`: the sim's second `[[opponents]]` entry is the house bot, reported as

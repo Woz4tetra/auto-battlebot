@@ -18,7 +18,6 @@ class SerialWorker {
     SerialWorker(const SerialWorker &) = delete;
     SerialWorker &operator=(const SerialWorker &) = delete;
 
-    /** Dropped after stop(). */
     void post(std::function<void()> job) {
         {
             std::lock_guard<std::mutex> lock(mutex_);
@@ -28,7 +27,6 @@ class SerialWorker {
         cv_.notify_one();
     }
 
-    /** Runs every job already posted, then joins. Idempotent. */
     void stop() {
         {
             std::lock_guard<std::mutex> lock(mutex_);
@@ -49,8 +47,6 @@ class SerialWorker {
             jobs_.pop_front();
             lock.unlock();
             job();
-            // Destroyed before relocking, so whatever the job captured is not freed under the
-            // lock post() takes.
             job = nullptr;
             lock.lock();
         }

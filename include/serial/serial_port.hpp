@@ -28,10 +28,6 @@ class SerialPort {
     int fd_ = -1;
 };
 
-/**
- * Scan sysfs to find a USB serial device with VID=0x0483, PID=0x5740 (OpenTX/STM32 CDC).
- * Returns the /dev path (e.g. "/dev/ttyACM0") if found.
- */
-std::optional<std::string> find_opentx_device();
+std::optional<std::string> find_opentx_stm32_cdc_device();
 
 }  // namespace auto_battlebot

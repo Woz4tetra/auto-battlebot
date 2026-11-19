@@ -39,24 +39,15 @@ class RobotFrontBackFilter : public RobotFilterInterface {
     std::unique_ptr<FrontBackKeypointConverter> keypoint_converter_;
     std::map<Label, std::vector<FrameId>> label_to_frame_ids_;
     FrameId default_frame_id_;
-    /** Reject measurements that jump further than this (meters) from last known position. */
     double max_jump_distance_;
-    /** After this many consecutive rejected frames, accept the measurement (tracking reset). */
     int max_consecutive_jump_rejects_;
-    /** Minimum radius (meters) for suppressing blobs near keypoint detections. */
     double blob_overwrite_min_distance_meters_;
-    /** Radius scale for suppression based on blob/keypoint size estimates. */
     double blob_overwrite_size_scale_;
     std::map<Label, Size> size_overrides_;
     std::map<Label, Position2D> footprint_center_offsets_;
-    /** Extra margin added to field half extents before out-of-bounds rejection. */
     double field_bounds_margin_meters_;
-    /** Seconds an unmeasured our-robot track is held before the decay drops it (<= 0 disables). */
     double our_robot_hold_window_s_;
-    /** Radius around the held our-robot pose in which blobs are dropped during a keypoint miss. */
     double our_keypoint_dropout_blob_radius_meters_;
-    /** Seconds the dropout suppression radius stays active after the last keypoint-confirmed
-     * frame. */
     double our_keypoint_dropout_blob_window_s_;
     RobotKeypointTracker robot_keypoint_tracker_;
     FrameIdAssigner frame_id_assigner_;
@@ -65,12 +56,6 @@ class RobotFrontBackFilter : public RobotFilterInterface {
     RobotDescriptionsStamped state_;
 
     bool our_blob_present_no_keypoint_ = false;
-    /**
-     * Last emitted OUR_ROBOT_1 pose (measured or predicted) with the stamp of the frame that
-     * produced it. The anchor deliberately outlives the track: our_robot_hold_window_s_ drops the
-     * track sooner than the suppression window needs the position, so staleness is decided by the
-     * stamp (is_our_anchor_fresh) rather than by the track still existing.
-     */
     bool has_last_our_position_ = false;
     Position last_our_position_{};
     double last_our_size_x_ = 0.0;
@@ -110,21 +95,9 @@ class RobotFrontBackFilter : public RobotFilterInterface {
     void update_our_position_anchor(const std::vector<RobotDescription> &descriptions,
                                     double stamp);
 
-    /**
-     * Returns the free FrameIds available to assign for this label. If the label's own FrameIds
-     * are all taken and it belongs to Group::THEIRS, falls back to free OPPONENT FrameIds.
-     */
     std::vector<FrameId> get_assignment_frame_ids(
         Label label, const std::vector<RobotDescription> &used_measurements) const;
 
-    /**
-     * Runs the full blob detection pipeline: detect, transform to field frame, filter by field
-     * bounds, suppress detections already covered by keypoint measurements, then perform a
-     * single global FrameId assignment over all surviving blobs (regardless of label) using
-     * per-measurement allowed-FrameId constraints. Appends assigned results to
-     * `all_measurements`. The global assignment makes the output independent of `Label` enum
-     * order, which previously decided which label got first claim on shared OPPONENT slots.
-     */
     void merge_blob_detections(const ModelResultStamped &robot_blob_keypoints,
                                const std::vector<RobotDescription> &keypoint_measurements,
                                const FieldDescription &field, const CameraInfo &camera_info,

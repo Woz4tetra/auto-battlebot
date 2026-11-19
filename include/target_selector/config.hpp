@@ -24,8 +24,6 @@ struct NoopTargetConfiguration : public TargetSelectorConfiguration {
 };
 
 struct SafestPointTargetConfiguration : public TargetSelectorConfiguration {
-    /** Radius (m) a new candidate must beat the held target by before retargeting.
-     *  Suppresses solver jitter as opponents move. */
     double retarget_improvement_m = 0.0;
 
     SafestPointTargetConfiguration() { type = "SafestPointTarget"; }

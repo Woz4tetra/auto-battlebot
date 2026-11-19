@@ -244,6 +244,31 @@ TEST_F(RunnerCommandsTest, SetRecording) {
     EXPECT_TRUE(camera_recording_reaches(false));
 }
 
+TEST_F(RunnerCommandsTest, DestroyingTheRunnerFinishesAQueuedRecordingToggle) {
+    camera_->toggle_delay_ms = 200;
+    commands_->post(remote::SetRecordingCommand{.enabled = true});
+    EXPECT_TRUE(runner_->tick());
+    runner_.reset();
+    EXPECT_TRUE(camera_->recording);
+}
+
+TEST_F(RunnerCommandsTest, RunnerRemoteWithoutACommandQueueIsRejected) {
+    auto keypoint_model = std::make_shared<NoopKeypointModel>();
+    auto blob_model = std::make_shared<NoopRobotBlobModel>();
+    RunnerRemote remote;
+    remote.commands = nullptr;
+    EXPECT_THROW(
+        Runner(
+            RunnerConfiguration{}, camera_, std::make_shared<HealthLogger>(HealthConfiguration{}),
+            std::make_shared<NoopMaskModel>(), blob_model, std::make_shared<NoopFieldFilter>(),
+            keypoint_model, std::make_shared<KeypointHeightGate>(KeypointHeightGateConfiguration{}),
+            std::make_shared<StaticDetectionGate>(StaticDetectionGateConfiguration{}),
+            std::make_shared<ParallelModelBatch>(keypoint_model, blob_model),
+            std::make_shared<SteppedControlLoop>(loop_, 0.0), std::make_shared<NoopPublisher>(),
+            [](SystemAction) {}, [](const std::string &) {}, nullptr, nullptr, std::move(remote)),
+        std::invalid_argument);
+}
+
 // Stopping a camera's encoder can take seconds on a stalled pipeline. The tick must not wait.
 TEST_F(RunnerCommandsTest, SlowRecordingToggleDoesNotBlockTheTick) {
     camera_->toggle_delay_ms = 500;

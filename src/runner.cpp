@@ -52,12 +52,16 @@ Runner::Runner(
       health_logger_(std::move(health_logger)),
       prev_tick_start_(std::chrono::steady_clock::now()),
       constructed_at_(prev_tick_start_) {
+    if (!remote_.commands) throw std::invalid_argument("RunnerRemote.commands must not be null");
     remote_.commands->set_on_system_action([camera = std::weak_ptr<RgbdCameraInterface>(camera_)] {
         if (auto locked = camera.lock()) locked->cancel_initialize();
     });
 }
 
-Runner::~Runner() { remote_.commands->set_on_system_action(nullptr); }
+Runner::~Runner() {
+    recording_worker_->stop();
+    remote_.commands->set_on_system_action(nullptr);
+}
 
 static_assert(std::atomic<bool>::is_always_lock_free,
               "quit_from_signal_handler() runs in a signal handler and needs a lock-free store");
@@ -279,10 +283,10 @@ void Runner::wait_for_frames_in_flight() const {
     }
 }
 
-void Runner::apply_recording(bool enabled, bool from_worker) const {
+void Runner::apply_recording(bool enabled, bool wait_for_inflight_ticks) const {
     std::lock_guard<std::mutex> lock(recording_mutex_);
-    const auto set_mcap = [this, enabled, from_worker] {
-        if (!enabled && from_worker) wait_for_frames_in_flight();
+    const auto set_mcap = [this, enabled, wait_for_inflight_ticks] {
+        if (!enabled && wait_for_inflight_ticks) wait_for_frames_in_flight();
         if (!enabled && mcap_recorder_) publisher_->flush();
         if (mcap_recorder_ && !mcap_recorder_->set_enabled(enabled)) {
             spdlog::warn("Failed to set MCAP recording to {}", enabled ? "enabled" : "disabled");
@@ -575,9 +579,9 @@ void Runner::initialize_field(const CameraData &camera_data) {
 }
 
 int Runner::run() {
-    const bool paced = runner_config_.max_loop_rate > 0.0;
+    const bool paced = runner_config_.max_loop_rate_hz > 0.0;
     const auto loop_duration = paced ? std::chrono::microseconds(static_cast<int64_t>(
-                                           1000000.0 / runner_config_.max_loop_rate))
+                                           1000000.0 / runner_config_.max_loop_rate_hz))
                                      : std::chrono::microseconds(0);
     auto prev_time = std::chrono::steady_clock::now();
 
@@ -602,17 +606,17 @@ int Runner::run() {
             return 0;
         }
         if (!control_loop_->is_healthy()) {
-            if (!control_loop_stalled_) {
+            if (!loop_thread_control_loop_stalled_) {
                 spdlog::error("Control loop missed its watchdog deadline; disabling autonomy.");
-                control_loop_stalled_ = true;
-                control_loop_stalled_since_ = tick_start;
+                loop_thread_control_loop_stalled_ = true;
+                loop_thread_control_loop_stalled_since_ = tick_start;
             }
             autonomy_enabled_ = false;
             control_loop_->set_autonomy_enabled(false);
-        } else if (control_loop_stalled_) {
+        } else if (loop_thread_control_loop_stalled_) {
             spdlog::warn("Control loop is cycling again after {:.0f} ms; autonomy stays off.",
-                         ms_since(control_loop_stalled_since_));
-            control_loop_stalled_ = false;
+                         ms_since(loop_thread_control_loop_stalled_since_));
+            loop_thread_control_loop_stalled_ = false;
         }
         health_logger_->record_tick(ms_since(tick_start));
         health_logger_->maybe_log();

@@ -45,7 +45,6 @@
 
 namespace auto_battlebot {
 
-/** What the Runner shares with remote clients. Every member may be null except `commands`. */
 struct RunnerRemote {
     std::shared_ptr<remote::CommandQueue> commands = std::make_shared<remote::CommandQueue>();
     std::shared_ptr<remote::StatusBus> status;
@@ -99,10 +98,10 @@ class Runner : public Quittable {
     void set_auto_tracking(bool enabled);
     std::string set_manual_target(const remote::SetManualTargetCommand &command, bool &accepted);
     void set_recording(bool enabled) const;
-    /** The toggle itself. `from_worker` is false only during shutdown, which runs on the tick's
-     *  own thread once the worker has stopped, so there is no tick in flight to wait for. */
-    void apply_recording(bool enabled, bool from_worker) const;
+    void apply_recording(bool enabled, bool wait_for_inflight_ticks) const;
     void wait_for_frames_in_flight() const;
+    /** Counted at the top of tick(), so the recording worker can tell when frames taken before
+     *  a toggle have been published. */
     /** Counted at the top of tick(), so the recording worker can tell when frames taken before
      *  a toggle have been published. */
     std::atomic<uint64_t> ticks_started_{0};
@@ -171,11 +170,8 @@ class Runner : public Quittable {
 
     mutable std::mutex recording_mutex_;
     std::atomic<bool> rollover_pending_{false};
-    /** The control loop has missed its watchdog, and since when. Loop thread only. */
-    bool control_loop_stalled_ = false;
-    std::chrono::steady_clock::time_point control_loop_stalled_since_{};
-    /** Runs recording toggles and rollovers off the tick. Last member, so it is joined before
-     *  anything its jobs use is destroyed. */
+    bool loop_thread_control_loop_stalled_ = false;
+    std::chrono::steady_clock::time_point loop_thread_control_loop_stalled_since_{};
     std::unique_ptr<SerialWorker> recording_worker_ = std::make_unique<SerialWorker>();
 };
 }  // namespace auto_battlebot

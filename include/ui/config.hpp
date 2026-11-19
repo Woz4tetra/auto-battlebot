@@ -19,7 +19,7 @@ struct UiConfiguration {
     ~UiConfiguration() = default;
     UiConfiguration() = default;
 
-    /** Fraction of max_loop_rate below which rate is considered "not met" (e.g. 0.99). */
+    /** Fraction of max_loop_rate_hz below which rate is considered "not met" (e.g. 0.99). */
     double rate_fail_threshold = 0.5;
     /** Seconds the rate must be below threshold before showing error (prevents strobing). */
     double rate_fail_duration_sec = 2.0;

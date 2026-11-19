@@ -135,9 +135,9 @@ static bool find_usb_ids_in_ancestors(std::string current, uint16_t target_vid,
     return false;
 }
 
-std::optional<std::string> find_opentx_device() {
-    static constexpr uint16_t kTargetVid = 0x0483;
-    static constexpr uint16_t kTargetPid = 0x5740;
+std::optional<std::string> find_opentx_stm32_cdc_device() {
+    static constexpr uint16_t kOpenTxUsbVid = 0x0483;
+    static constexpr uint16_t kOpenTxUsbPid = 0x5740;
 
     for (const char* prefix : {"ttyACM", "ttyUSB"}) {
         for (int i = 0; i < 16; ++i) {
@@ -150,7 +150,7 @@ std::optional<std::string> find_opentx_device() {
             char real_path[PATH_MAX];
             if (realpath(sysfs_link.c_str(), real_path) == nullptr) continue;
 
-            if (find_usb_ids_in_ancestors(real_path, kTargetVid, kTargetPid)) return dev_path;
+            if (find_usb_ids_in_ancestors(real_path, kOpenTxUsbVid, kOpenTxUsbPid)) return dev_path;
         }
     }
     return std::nullopt;

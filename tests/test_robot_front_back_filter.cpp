@@ -4,6 +4,7 @@
 #include <cmath>
 #include <opencv2/core.hpp>
 
+#include "plant/mrs_buff_mk3_params.hpp"
 #include "robot_filter/robot_front_back_filter.hpp"
 
 namespace auto_battlebot {
@@ -278,6 +279,45 @@ TEST(RobotFrontBackFilterTest, GlobalAssignmentDoesNotDropSpecificLabelBlob) {
     EXPECT_EQ(opponent_meas->group, Group::THEIRS);
 }
 
+TEST(RobotFrontBackFilterTest, SharedSlotGoesToHigherConfidenceBlobWhicheverLabelItHas) {
+    const auto winner_x = [](double mk1_confidence, double mk3_confidence) {
+        RobotFrontBackFilterConfiguration config;
+        config.front_keypoints = {KeypointLabel::MRS_BUFF_MK1_FRONT,
+                                  KeypointLabel::MRS_BUFF_MK3_FRONT};
+        config.back_keypoints = {KeypointLabel::MRS_BUFF_MK1_BACK,
+                                 KeypointLabel::MRS_BUFF_MK3_BACK};
+        config.label_to_frame_ids = {{Label::MRS_BUFF_MK1, {FrameId::THEIR_ROBOT_1}},
+                                     {Label::MRS_BUFF_MK3, {FrameId::THEIR_ROBOT_1}}};
+        config.default_frame_id = FrameId::THEIR_ROBOT_1;
+        config.max_jump_distance = 1.0;
+        config.max_consecutive_jump_rejects = 1;
+        config.robot_keypoint_tracker_config.min_length_meters = 0.05;
+        config.robot_keypoint_tracker_config.max_length_meters = 2.0;
+        config.robot_keypoint_tracker_config.min_confidence = 0.2;
+        config.robot_keypoint_tracker_config.max_candidates = 8;
+        RobotFrontBackFilter filter(config);
+        EXPECT_TRUE(filter.initialize(1));
+
+        ModelResultStamped blob_keypoints;
+        blob_keypoints.header.frame_id = FrameId::CAMERA;
+        blob_keypoints.header.stamp = 1.0;
+        append_keypoint_pair(blob_keypoints, Label::MRS_BUFF_MK1, KeypointLabel::MRS_BUFF_MK1_FRONT,
+                             KeypointLabel::MRS_BUFF_MK1_BACK, 1, 200.0, 240.0, 240.0,
+                             mk1_confidence);
+        append_keypoint_pair(blob_keypoints, Label::MRS_BUFF_MK3, KeypointLabel::MRS_BUFF_MK3_FRONT,
+                             KeypointLabel::MRS_BUFF_MK3_BACK, 2, 400.0, 440.0, 240.0,
+                             mk3_confidence);
+
+        const auto result = run_filter(filter, ModelResultStamped{}, make_field(),
+                                       make_camera_info(), blob_keypoints, CommandFeedback{});
+        EXPECT_EQ(result.descriptions.size(), 1u);
+        return result.descriptions.empty() ? 0.0 : result.descriptions.front().pose.position.x;
+    };
+
+    EXPECT_NE(winner_x(0.9, 0.5), winner_x(0.5, 0.9))
+        << "the winner follows confidence, not which label is first in the enum";
+}
+
 TEST(RobotFrontBackFilterTest, FlagsLeakOpportunityOnKeypointMiss) {
     RobotFrontBackFilterConfiguration config = make_our_robot_config();
     RobotFrontBackFilter filter(config);
@@ -425,6 +465,31 @@ TEST(RobotFrontBackFilterTest, SuppressesBlobOnOurHeldPoseDuringKeypointDropout)
     EXPECT_EQ(find_frame_id(result, FrameId::THEIR_ROBOT_1), nullptr);
 }
 
+TEST(RobotFrontBackFilterTest, AnchorOutlivesDroppedOurTrack) {
+    RobotFrontBackFilterConfiguration config = make_our_robot_config();
+    config.our_robot_hold_window_s = 0.15;
+    config.our_keypoint_dropout_blob_window_s = 1.0;
+    RobotFrontBackFilter filter(config);
+    ASSERT_TRUE(filter.initialize(1));
+
+    const CameraInfo camera_info = make_camera_info();
+    const FieldDescription field = make_field();
+    const ModelResultStamped no_blob;
+    const CommandFeedback command_feedback;
+
+    run_filter(filter, make_our_keypoints(1.0, 300.0, 340.0, 220.0), field, camera_info, no_blob,
+               command_feedback);
+    const auto dropped = run_filter(filter, make_empty_keypoints(1.3), field, camera_info,
+                                    make_opponent_blob(1.3, 300.0, 340.0, 220.0), command_feedback);
+
+    EXPECT_EQ(find_frame_id(dropped, FrameId::OUR_ROBOT_1), nullptr);
+
+    const auto later = run_filter(filter, make_empty_keypoints(1.5), field, camera_info,
+                                  make_opponent_blob(1.5, 300.0, 340.0, 220.0), command_feedback);
+    EXPECT_TRUE(filter.last_suppressed_own_blob());
+    EXPECT_EQ(find_frame_id(later, FrameId::THEIR_ROBOT_1), nullptr);
+}
+
 // The suppression is time-bounded: once the window elapses the anchor is no longer trusted, so a
 // genuine opponent parked where we were last seen becomes targetable again.
 TEST(RobotFrontBackFilterTest, EmitsBlobOnOurHeldPoseAfterWindowExpires) {
@@ -490,4 +555,85 @@ TEST(RobotFrontBackFilterTest, ZeroRadiusDisablesDropoutSuppression) {
     EXPECT_FALSE(filter.last_suppressed_own_blob());
     EXPECT_NE(find_frame_id(result, FrameId::THEIR_ROBOT_1), nullptr);
 }
+RobotFrontBackFilterConfiguration make_kalman_opponent_config() {
+    RobotFrontBackFilterConfiguration config;
+    config.front_keypoints = {KeypointLabel::OPPONENT_FRONT};
+    config.back_keypoints = {KeypointLabel::OPPONENT_BACK};
+    config.label_to_frame_ids = {{Label::OPPONENT, {FrameId::THEIR_ROBOT_1}}};
+    config.default_frame_id = FrameId::THEIR_ROBOT_1;
+    config.max_jump_distance = 1.0;
+    config.robot_keypoint_tracker_config.min_length_meters = 0.05;
+    config.robot_keypoint_tracker_config.max_length_meters = 2.0;
+    config.robot_keypoint_tracker_config.min_confidence = 0.2;
+    config.robot_keypoint_tracker_config.max_candidates = 8;
+    auto kalman = std::make_shared<KalmanMotionEstimatorConfiguration>();
+    kalman->opponent_mode = OpponentMode::KALMAN;
+    kalman->opponent_max_coast_s = 1.0;
+    kalman->plant = mrs_buff_mk3_plant();
+    config.motion_estimator = kalman;
+    return config;
+}
+
+constexpr double kOpponentPixelsPerSecond = 80.0;
+constexpr double kFrameDt = 1.0 / 30.0;
+constexpr double kLateMeasurementShiftPixels = 12.0;
+
+ModelResultStamped make_moving_opponent_keypoints(double stamp, double extra_pixels = 0.0) {
+    const double offset = kOpponentPixelsPerSecond * (stamp - 1.0) + extra_pixels;
+    return make_opponent_keypoints(stamp, 280.0 + offset, 320.0 + offset);
+}
+
+double drive_opponent_to(RobotFrontBackFilter &filter, const CameraInfo &camera_info,
+                         const FieldDescription &field, int frames) {
+    double stamp = 1.0;
+    for (int i = 0; i < frames; ++i) {
+        stamp = 1.0 + i * kFrameDt;
+        run_filter(filter, make_moving_opponent_keypoints(stamp), field, camera_info,
+                   ModelResultStamped{}, CommandFeedback{});
+    }
+    return stamp;
+}
+
+const RobotDescription *find_opponent(const RobotDescriptionsStamped &state) {
+    for (const auto &description : state.descriptions) {
+        if (description.frame_id == FrameId::THEIR_ROBOT_1) return &description;
+    }
+    return nullptr;
+}
+
+TEST(RobotFrontBackFilterTest, CorrectWithStampOlderThanPredict) {
+    const CameraInfo camera_info = make_camera_info();
+    const FieldDescription field = make_field();
+    constexpr double kReadAfterCorrectS = 0.3;
+
+    RobotFrontBackFilterConfiguration lockstep_config = make_kalman_opponent_config();
+    RobotFrontBackFilter lockstep(lockstep_config);
+    ASSERT_TRUE(lockstep.initialize(1));
+    const double last = drive_opponent_to(lockstep, camera_info, field, 30);
+    const double late_stamp = last + kFrameDt;
+    lockstep.predict(late_stamp, CommandFeedback{});
+    lockstep.correct(make_moving_opponent_keypoints(late_stamp, kLateMeasurementShiftPixels), field,
+                     camera_info, ModelResultStamped{});
+    lockstep.predict(late_stamp + kReadAfterCorrectS, CommandFeedback{});
+    const RobotDescriptionsStamped expected = lockstep.state();
+
+    RobotFrontBackFilterConfiguration outrun_config = make_kalman_opponent_config();
+    RobotFrontBackFilter outrun(outrun_config);
+    ASSERT_TRUE(outrun.initialize(1));
+    drive_opponent_to(outrun, camera_info, field, 30);
+    outrun.predict(late_stamp + 0.1, CommandFeedback{});
+    outrun.predict(late_stamp + 0.2, CommandFeedback{});
+    outrun.correct(make_moving_opponent_keypoints(late_stamp, kLateMeasurementShiftPixels), field,
+                   camera_info, ModelResultStamped{});
+    outrun.predict(late_stamp + kReadAfterCorrectS, CommandFeedback{});
+    const RobotDescriptionsStamped actual = outrun.state();
+
+    const RobotDescription *expected_opponent = find_opponent(expected);
+    const RobotDescription *actual_opponent = find_opponent(actual);
+    ASSERT_NE(expected_opponent, nullptr);
+    ASSERT_NE(actual_opponent, nullptr);
+    EXPECT_NEAR(actual_opponent->pose.position.x, expected_opponent->pose.position.x, 0.005);
+    EXPECT_NEAR(actual_opponent->pose.position.y, expected_opponent->pose.position.y, 0.005);
+}
+
 }  // namespace auto_battlebot

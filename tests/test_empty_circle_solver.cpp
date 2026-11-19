@@ -187,13 +187,14 @@ TEST(EmptyCircleSolverTest, ReportsWinningConstraintFamily) {
     // No opponents: only the wall constraints can bind, and on a square field the three-wall
     // triples and the field center tie at the middle.
     const EmptyCircle square = solve_exact(make_field(4.0, 4.0), {});
-    EXPECT_TRUE(square.source == "three_wall" || square.source == "field_center") << square.source;
+    EXPECT_TRUE(square.constraint == EmptyCircleConstraint::THREE_WALL ||
+                square.constraint == EmptyCircleConstraint::FIELD_CENTER);
 
     const EmptyCircle pushed = solve_exact(make_field(4.0, 4.0), {make_pose(0.0, 0.0)});
-    EXPECT_EQ(pushed.source, "perpendicular_walls_point");
+    EXPECT_EQ(pushed.constraint, EmptyCircleConstraint::PERPENDICULAR_WALLS_POINT);
 
     const EmptyCircle degenerate = solve_exact(make_field(0.0, 0.0), {});
-    EXPECT_FALSE(degenerate.source.empty());
+    EXPECT_NE(degenerate.constraint, EmptyCircleConstraint::NONE);
 }
 
 TEST(EmptyCircleSolverTest, HazardAtCentreSolvesTheWeightedCornerCase) {
@@ -257,15 +258,24 @@ TEST(EmptyCircleSolverTest, MixedOpponentAndHazardMatchesBruteForce) {
     }
 }
 
+TEST(EmptyCircleRadiusTest, NegativeOutsideAndSubtractsHazardRadius) {
+    const Size field = make_field(4.0, 2.0);
+    EXPECT_DOUBLE_EQ(empty_circle_radius(field, 0.0, 0.0, {}), 1.0);
+    EXPECT_DOUBLE_EQ(empty_circle_radius(field, 1.5, 0.0, {}), 0.5);
+    EXPECT_LT(empty_circle_radius(field, 2.5, 0.0, {}), 0.0);
+    EXPECT_LT(empty_circle_radius(field, 0.0, -1.5, {}), 0.0);
+    EXPECT_DOUBLE_EQ(empty_circle_radius(field, 0.0, 0.0, {}, {make_hazard(0.8, 0.0, 0.3)}), 0.5);
+}
+
 TEST(EmptyCircleSolverTest, HazardFamiliesAreNamedApart) {
     // A recorded fight without hazards has to read exactly as it did before, and one with them
     // has to say so, or the diagnostics cannot tell which geometry pinned a bad goal.
     const Size field = make_field(2.44, 2.44);
     const EmptyCircle no_hazard = solve_exact(field, {make_pose(0.0, 0.0)});
-    EXPECT_EQ(no_hazard.source, "perpendicular_walls_point");
+    EXPECT_EQ(no_hazard.constraint, EmptyCircleConstraint::PERPENDICULAR_WALLS_POINT);
 
     const EmptyCircle with_hazard = solve_exact(field, {}, {make_hazard(0.0, 0.0, 0.3)});
-    EXPECT_EQ(with_hazard.source, "perpendicular_walls_hazard");
+    EXPECT_EQ(with_hazard.constraint, EmptyCircleConstraint::PERPENDICULAR_WALLS_HAZARD);
 }
 
 }  // namespace

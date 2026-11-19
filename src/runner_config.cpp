@@ -15,7 +15,7 @@ void load_runner_from_toml(toml::table const &toml_data, std::vector<std::string
         return;
     }
     ConfigParser parser(*section, "runner");
-    out.max_loop_rate = parser.get_optional_double("max_loop_rate", 300.0);
+    out.max_loop_rate_hz = parser.get_optional_double("max_loop_rate_hz", 300.0);
     out.default_opponent_count = static_cast<int>(
         parser.get_optional_int("default_opponent_count", out.default_opponent_count));
     if (out.default_opponent_count < 1 || out.default_opponent_count > 3) {

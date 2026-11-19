@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <memory>
 #include <mutex>
 #include <thread>
 #include <vector>
@@ -59,6 +60,30 @@ TEST(SerialWorkerTest, StopRunsWhatWasPostedAndDropsLaterPosts) {
     worker.post([&] { runs.fetch_add(1); });
     worker.stop();  // idempotent
     EXPECT_EQ(runs.load(), 5);
+}
+
+struct PostsFromDestructor {
+    SerialWorker *worker;
+    std::atomic<int> *ran;
+    ~PostsFromDestructor() {
+        worker->post([ran = ran] { ran->fetch_add(1); });
+    }
+};
+
+TEST(SerialWorkerTest, JobCapturesAreDestroyedOutsideTheWorkerLock) {
+    auto worker = std::make_unique<SerialWorker>();
+    std::atomic<int> ran{0};
+    std::shared_ptr<PostsFromDestructor> capture(new PostsFromDestructor{worker.get(), &ran});
+    worker->post([owned = std::move(capture)] {});
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (ran.load() == 0 && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    if (ran.load() == 0) {
+        worker.release();
+        FAIL() << "worker deadlocked destroying a job that posts from its destructor";
+    }
+    worker->stop();
 }
 
 }  // namespace

@@ -1,5 +1,8 @@
 #include "target_selector/safest_point_target.hpp"
 
+#include <magic_enum.hpp>
+
+#include "enum_to_string_lower.hpp"
 #include "enums/frame_id.hpp"
 #include "hazards/hazard_geometry.hpp"
 #include "target_selector/empty_circle_solver.hpp"
@@ -71,7 +74,7 @@ std::optional<Pose2D> SafestPointTarget::solve(const FieldDescription &field,
     logger_->debug("solver", {{"x", best.center.x},
                               {"y", best.center.y},
                               {"radius", best.radius},
-                              {"source", best.source},
+                              {"source", enum_to_string_lower(best.constraint)},
                               {"evaluations", best.evaluations},
                               {"n_opponents", static_cast<int>(opponents.size())},
                               {"n_hazards", static_cast<int>(field.hazards.size())},

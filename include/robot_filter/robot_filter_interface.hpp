@@ -3,14 +3,6 @@
 #include "data_structures.hpp"
 
 namespace auto_battlebot {
-/**
- * Two-phase robot filter: predict advances state through time, correct folds in a perception
- * measurement, state reads the current estimate.
- *
- * predict() and state() run at the control rate; correct() runs at the slower perception rate.
- * Implementations must not assume the two are called in lockstep, at the same frequency, or that
- * a correct() always follows a predict().
- */
 class RobotFilterInterface {
    public:
     virtual ~RobotFilterInterface() = default;
@@ -19,10 +11,6 @@ class RobotFilterInterface {
     virtual void predict([[maybe_unused]] double now,
                          [[maybe_unused]] CommandFeedback command_feedback) {}
 
-    /**
-     * Fold in one perception measurement. `keypoints.header.stamp` is the capture time, which is
-     * older than the most recent predict() time, since the control loop outruns perception.
-     */
     virtual void correct(ModelResultStamped keypoints, FieldDescription field,
                          CameraInfo camera_info, ModelResultStamped robot_blob_keypoints) = 0;
 
