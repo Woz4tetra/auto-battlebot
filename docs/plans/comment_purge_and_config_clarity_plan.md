@@ -40,17 +40,17 @@ Phase 1 done the same day:
 
 Phase 2 partly done, 2026-11-15. All eight area branches and a scripted `tests/` DELETE pass are
 merged on `comment-purge-p2`. Build, gtest (752 pass), mypy, the Python tests, and the firmware
-builds pass there. The baseline is 9,157 lines. Rows still open (approximate: a row counts as open
-while any line of its original text is still in the file):
+builds pass there. The baseline is 8,781 lines. Rows still open (a row is open while all of its
+non-trivial original lines sit together in one comment block):
 
 | Verdict | Open | Total |
 | --- | --- | --- |
-| DELETE | 177 | 3,301 |
-| RENAME | 597 | 1,154 |
+| DELETE | 0 | 3,301 |
+| RENAME | 585 | 1,154 |
 | EXTRACT | 13 | 221 |
-| DOC | 456 | 1,834 |
-| TEST | 770 | 922 |
-| TYPE | 297 | 352 |
+| DOC | 184 | 1,834 |
+| TEST | 611 | 922 |
+| TYPE | 287 | 352 |
 | HACK, CONFIG | deferred | 1,254 |
 
 Phase 2 cost far more than planned. See [Agent budget](#agent-budget). The `src/` DOC pass left
@@ -604,6 +604,12 @@ Rules from here:
 | Date | Batch | Rows | Done | Turns | Tokens | Per row |
 | --- | --- | --- | --- | --- | --- | --- |
 | 2026-11-15 | `src/` TEST, 6 files, one Sonnet agent | 50 | 33 tested, 15 ledgered, 2 rejected | 91 | 12.5M cache read, 0.26M cache write, 79k out; peak context 210k; 21 min | 0.25M cache read, 1.6k out |
+| 2026-11-16 | A: `src/` TEST, 10 files | 46 | 20 tested, 24 ledgered, 2 rejected | 76 | 8.8M cache read, 0.21M cache write, 50k out; peak 166k; 13 min | 0.19M cache read, 1.1k out |
+| 2026-11-16 | B: `auto_battlebot/` TEST, 4 files | 51 | 47 tested, 4 ledgered | 73 | 8.9M cache read, 0.23M cache write, 68k out; peak 174k; 12 min | 0.17M cache read, 1.3k out |
+| 2026-11-16 | C: `training/`, `playground/`, `simulation/` TEST, 25 files | 45 | 19 tested, 26 ledgered | 109 | 12.7M cache read, 0.20M cache write, 52k out; peak 163k; 9 min | 0.28M cache read, 1.2k out |
+
+A, B and C ran at once in separate worktrees. Ledgered and rejected rows keep their comments, so
+the open TEST count below includes about 73 rows already handled.
 
 ## Risks
 

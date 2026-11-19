@@ -251,12 +251,7 @@ class FrameSummary(NamedTuple):
 
 
 def fighter_class_index(names: dict[int, str]) -> int:
-    """Index of the class a 1v1 fight always has two of.
-
-    The 2-class cage models call it `robot`. The 4-class ones split our own machines
-    into their own classes and leave the opponent as `nhrl_robot`, so the index moves
-    and a hard-coded 0 would count our robots, which never appear in NHRL footage.
-    """
+    """Index of the class a 1v1 fight always has two of."""
     by_name = {name: index for index, name in names.items()}
     for candidate in ("nhrl_robot", "robot"):
         if candidate in by_name:

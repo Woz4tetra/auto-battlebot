@@ -231,4 +231,12 @@ TEST_F(HomographyFieldFilterTest, ThreeEdgeFitKeepsFieldXLeftToRight) {
     EXPECT_LT((pose.tf_camera_from_fieldcenter.block<3, 3>(0, 0) - fit_frame(truth, 0)).norm(),
               0.03);
 }
+TEST(FieldPoseAlignmentTest, ARectangularMatNeverTakesAQuarterTurn) {
+    Eigen::Matrix4d tf = Eigen::Matrix4d::Identity();
+    tf.block<3, 3>(0, 0) = Eigen::AngleAxisd(M_PI / 2.0, Eigen::Vector3d::UnitZ()).matrix();
+    tf(2, 3) = 2.0;
+    const Eigen::Matrix4d aligned = align_field_x_with_camera_x(tf, 2.35, 1.2);
+    EXPECT_GT(std::abs(aligned.block<3, 1>(0, 0).dot(tf.block<3, 1>(0, 0))), 0.99);
+}
+
 }  // namespace auto_battlebot

@@ -31,7 +31,7 @@ def reclaim_stale_caches(dataset_yaml: str, max_age_days: float) -> None:
 
     try:
         freed, removed = sweep(DATA_ROOT, max_age_days, protect=protect)
-    except Exception as exc:  # noqa: BLE001 - never block training on cache cleanup
+    except Exception as exc:  # noqa: BLE001
         print(f"cache cleanup skipped: {exc}")
         return
     if removed:

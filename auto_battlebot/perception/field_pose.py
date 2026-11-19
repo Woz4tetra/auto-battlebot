@@ -10,11 +10,9 @@ import cv2
 import numpy as np
 from scipy.optimize import least_squares
 
-# Defaults mirror config/_common.toml and include/field_filter/config.hpp.
 DISTANCE_THRESHOLD_M = 0.05
 RANSAC_MAX_ITERATIONS = 1000
 RANSAC_PROBABILITY = 0.999
-# transform_from_plane's default up_vector in the C++ header.
 UP_VECTOR = np.array([0.0, 0.0, -1.0])
 QUAD_COVERAGE_TOLERANCE = 1.05
 
@@ -66,13 +64,7 @@ def rectangle_extents(corners: np.ndarray) -> tuple[float, float]:
 
 
 def rectangle_angle(corners: np.ndarray) -> float:
-    """Port of get_rectangle_angle.
-
-    Takes the edge whose midpoint has the smallest y, then flips to the complementary
-    angle when that is closer to zero. Reproduced exactly because the sign of this angle
-    drives the extents swap in compute_field, and a different convention would rotate the
-    field frame by 90 degrees.
-    """
+    """Port of get_rectangle_angle."""
     if len(corners) != 4:
         return 0.0
     angles, midpoints = [], []
@@ -103,11 +95,7 @@ def transform_from_position_and_euler(position: np.ndarray, yaw: float) -> np.nd
 def transform_from_plane(
     center: np.ndarray, normal: np.ndarray, up: np.ndarray = UP_VECTOR
 ) -> np.ndarray:
-    """Port of transform_from_plane: rotate `up` onto `normal`, translate to `center`.
-
-    Eigen's Quaterniond::FromTwoVectors is the shortest-arc rotation, which is what the
-    cross-product construction below reproduces.
-    """
+    """Port of transform_from_plane: rotate `up` onto `normal`, translate to `center`."""
     a = up / np.linalg.norm(up)
     b = normal / np.linalg.norm(normal)
     out = np.eye(4)
@@ -155,11 +143,7 @@ def fit_plane_ransac(
     probability: float = RANSAC_PROBABILITY,
     rng: np.random.Generator | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """RANSAC plane fit, standing in for pcl::SACSegmentation SACMODEL_PLANE.
-
-    Returns (a, b, c, d) with the normal unit length, and the inlier index array. The
-    adaptive iteration cap follows the same 1 - (1 - w^3)^k rule PCL uses.
-    """
+    """RANSAC plane fit standing in for pcl::SACSegmentation SACMODEL_PLANE."""
     rng = rng or np.random.default_rng(0)
     n = len(points)
     if n < 3:
@@ -255,14 +239,7 @@ def depth_plane_field(
 
 
 def touches_border(mask: np.ndarray, margin: int = 2) -> bool:
-    """True when the mask reaches the image edge, so the field is cut off.
-
-    This matters only for the homography method. It solves for a pose from four corners,
-    and if the cage runs out of frame the outline's corners sit where the field crosses
-    the image border, not where the field actually ends. The fit still looks perfect
-    (reprojection error near zero) while the pose is wrong, so the check has to be
-    structural rather than residual-based.
-    """
+    """True when the mask reaches the image edge, so the field is cut off."""
     binary = mask > 0
     return bool(
         binary[:margin, :].any()
@@ -273,11 +250,7 @@ def touches_border(mask: np.ndarray, margin: int = 2) -> bool:
 
 
 def order_corners(corners: np.ndarray) -> np.ndarray:
-    """Counter-clockwise from the top-left in image coordinates.
-
-    A consistent winding is what makes the homography's rotation reproducible; without it
-    the recovered yaw jumps by multiples of 90 degrees frame to frame.
-    """
+    """Counter-clockwise from the top-left in image coordinates."""
     centre = corners.mean(axis=0)
     angles = np.arctan2(corners[:, 1] - centre[1], corners[:, 0] - centre[0])
     ordered = corners[np.argsort(angles)]
@@ -340,7 +313,6 @@ def _intersect_side_lines(lines: list[tuple[np.ndarray, float]]) -> np.ndarray |
         if abs(np.linalg.det(matrix)) < 1e-9:
             return None
         corners.append(np.linalg.solve(matrix, np.array([d1, d2])))
-    # Intersections land in edge order, so corner i sits between edges i-1 and i.
     return np.roll(np.array(corners), 1, axis=0)
 
 
@@ -389,12 +361,7 @@ def quad_from_mask(contour_mask: np.ndarray) -> np.ndarray | None:
 
 
 def field_object_corners(field_size_xy: tuple[float, float]) -> np.ndarray:
-    """Field corners on the z = 0 plane, wound to match `order_corners`.
-
-    Image y grows downward, so object -y binds to the top of the frame. The same winding
-    as `field_object_corners` in `src/field_filter/field_pose.cpp`, so a pose solved here
-    is the pose the C++ filters would solve from the same corners.
-    """
+    """Field corners on the z = 0 plane, wound to match `order_corners`."""
     half_w, half_h = field_size_xy[0] / 2.0, field_size_xy[1] / 2.0
     return np.array([[-half_w, -half_h], [-half_w, half_h], [half_w, half_h], [half_w, -half_h]])
 
@@ -435,12 +402,7 @@ def pose_from_corners(
 def align_field_x_with_camera_x(
     tf_camera_from_field: np.ndarray, field_size_xy: tuple[float, float]
 ) -> np.ndarray:
-    """Port of align_field_x_with_camera_x: turn the field about its z so +x runs left to right.
-
-    The outline fits equally well at every quarter turn of a square mat, or every half turn of
-    a rectangle. Of those, keep the one whose +x is closest to the camera's x axis tipped onto
-    the field plane by `transform_from_plane`, the choice the depth path makes.
-    """
+    """Port of align_field_x_with_camera_x: turn the field about its z so +x runs left to right."""
     rotation = tf_camera_from_field[:3, :3]
     normal = rotation[:, 2] if rotation[2, 2] >= 0.0 else -rotation[:, 2]
     plane_x = transform_from_plane(np.zeros(3), normal)[:3, 0]

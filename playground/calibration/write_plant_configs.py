@@ -78,8 +78,6 @@ def _format(value: float) -> str:
     if "." not in text or "e" in text:
         return text
     text = text.rstrip("0").rstrip(".")
-    # A ladder-disabled term is exactly 0.0, and the trim above would leave a bare "0". TOML reads
-    # that as an integer, so keep one decimal place to hold every plant field a float.
     return text if "." in text else text + ".0"
 
 

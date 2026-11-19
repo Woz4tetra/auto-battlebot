@@ -56,8 +56,6 @@ ModelResultStamped StaticDetectionGate::filter(const ModelResultStamped &model_r
     const Eigen::Matrix4d tf_field_from_camera =
         field.tf_camera_from_fieldcenter.tf.block<4, 4>(0, 0).inverse();
 
-    // Drop clusters nothing has refreshed recently, so a graphic that leaves the frame does not
-    // keep suppressing whatever later occupies its old spot.
     clusters_.erase(std::remove_if(clusters_.begin(), clusters_.end(),
                                    [&](const Cluster &cluster) {
                                        return (stamp - cluster.last_seen) > config_.forget_seconds;
@@ -77,8 +75,6 @@ ModelResultStamped StaticDetectionGate::filter(const ModelResultStamped &model_r
 
     ModelResultStamped output;
     output.header = model_results.header;
-    // Carry the boxes through. detection_index indexes into them, so dropping them here would
-    // leave the height gate downstream with nothing to sample inside.
     output.boxes = model_results.boxes;
     output.keypoints.reserve(model_results.keypoints.size());
 
@@ -100,7 +96,6 @@ ModelResultStamped StaticDetectionGate::filter(const ModelResultStamped &model_r
             projected++;
         }
         if (projected == 0) {
-            // Cannot place this group on the field, so it cannot be judged. Pass it through.
             stats_.groups_passed++;
             for (size_t index : indices) output.keypoints.push_back(model_results.keypoints[index]);
             continue;
@@ -133,9 +128,6 @@ ModelResultStamped StaticDetectionGate::filter(const ModelResultStamped &model_r
             continue;
         }
 
-        // Decide against the cluster as it stood before this observation, then fold the
-        // observation in. Judging after the update would let a robot's own first frames inside a
-        // static cluster tip the verdict on the same frame they arrive.
         const bool suppress = matched->is_static(config_, stamp);
         matched->observe(position, config_, stamp);
 

@@ -98,17 +98,7 @@ REST_TAIL_S = 1.0
 
 
 def ends_at_rest(program: ex.Program, eps: float = 1e-3, tail_s: float = REST_TAIL_S) -> bool:
-    """Whether the program leaves the robot stopped, judged over a trailing window.
-
-    The last command alone is not enough. A sine ends on a zero crossing and a PRBS can end
-    on a zero bit, but the plant lags the command: at the moment a sine's command reaches
-    zero the robot is near peak speed, because the first-order response is phase shifted. So
-    ask whether the command has been zero for long enough to have stopped it, not whether the
-    final sample happens to be zero.
-
-    Sampled from `at`, not inferred from the kind, so a piecewise program given a nonzero last
-    cell is caught too.
-    """
+    """Whether the program leaves the robot stopped, judged over a trailing window."""
     step = 0.005
     n = max(1, int(round(min(tail_s, program.duration_s) / step)))
     for i in range(n + 1):
@@ -815,8 +805,6 @@ def gates(
         )
     elif abs(skew) > 200.0:
         out.append(Gate(f"clock skew {skew:.0f} ppm"))
-    # The firmware logs on a fixed 1 kHz timer, not at the IMU's 1660 Hz ODR. The old tool
-    # compared against 1660 and so failed every real run while passing against its mock.
     if samples and samples < (2 * hold_s) * 1000.0 * 0.5:
         out.append(Gate(f"only {samples} samples, short for the still holds alone"))
     if contamination > 0.05:

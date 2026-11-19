@@ -73,7 +73,6 @@ bool intrinsics_to_eigen(const cv::Mat &intrinsics, Eigen::Matrix3d &out) {
 std::array<cv::Point2d, 4> field_object_corners(double size_x, double size_y) {
     const double half_x = size_x / 2.0;
     const double half_y = size_y / 2.0;
-    // Same winding as FieldOutline::corners. Image y grows downward, so -y is the top of frame.
     return {cv::Point2d(-half_x, -half_y), cv::Point2d(-half_x, half_y),
             cv::Point2d(half_x, half_y), cv::Point2d(half_x, -half_y)};
 }
@@ -216,10 +215,6 @@ FieldPoseResult pose_from_three_lines(const std::array<cv::Vec3d, 4> &lines,
     const cv::Point2d object_far = object[pair_second];
     const cv::Point2d object_span = object_far - object_near;
 
-    // A rectangle mirrored about either of its own axes is the same rectangle, so a mirrored
-    // field frame reprojects all three lines exactly and the residual cannot tell it from the
-    // right answer. It does reverse the winding of the projected quad, and the outline's winding
-    // is fixed, so that is the discriminator.
     const double observed_winding = signed_area(observed_corners);
 
     double best_residual = std::numeric_limits<double>::max();
@@ -290,7 +285,6 @@ Eigen::Matrix4d align_field_x_with_camera_x(const Eigen::Matrix4d &tf_camera_fro
                                  : Eigen::Vector3d(unit_x * cos_angle + axis.cross(unit_x) +
                                                    axis * axis.dot(unit_x) / (1.0 + cos_angle));
 
-    // A quarter turn swaps which edge carries size_x, so only a square mat can take one.
     const int step = std::abs(size_x - size_y) < 1e-9 ? 1 : 2;
     Eigen::Matrix3d best = rotation;
     double best_dot = -std::numeric_limits<double>::max();

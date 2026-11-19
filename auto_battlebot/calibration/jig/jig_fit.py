@@ -36,8 +36,6 @@ MOTION_EPS_ANG = 0.05  # rad/s
 ONSET_SIGMA = 5.0  # "moving" is 5 sigma above the stationary noise, per the plan
 MIN_HOLD_S = 0.4  # shortest command hold worth fitting a steady state to
 
-# Waveform routing. Each fit reads the kinds designed to excite it. Channel matching is
-# exact, so a combined grid run cannot leak into a pure-linear gain fit.
 DEADZONE_KINDS = ("staircase",)
 STEP_KINDS = ("step",)
 COAST_KINDS = ("step", "coast")
@@ -70,8 +68,6 @@ class Loaded:
 
     sessions: list[Session] = field(default_factory=list)
     runs: list[Run] = field(default_factory=list)
-    # Session id per run, positional. Not a dict keyed by run name: two sessions recorded on
-    # different days both start their log files at LOG-0.
     session_ids: list[str] = field(default_factory=list)
     excluded: list[tuple[str, str]] = field(default_factory=list)
 
@@ -182,12 +178,7 @@ class HeldSegment:
 
 
 def _rise_tau(mv: np.ndarray, v_ss: float, dt: float, eps: float) -> float:
-    """First-order rise constant from the leading contiguous 15-90% band, log-linear.
-
-    Restricting to the first contiguous in-band run is the stage 2 fix that mattered most: one
-    late steady-state sample that dips back into the band flattens the slope and inflates tau by
-    10x, turning a 55 ms rise into a reported 1.1 s.
-    """
+    """First-order rise constant from the leading contiguous 15-90% band, log-linear."""
     inband = (mv > 0.15 * v_ss) & (mv < 0.9 * v_ss) & ((v_ss - mv) > 0.5 * eps)
     runs = _runs_of(inband)
     if not runs:
@@ -455,25 +446,7 @@ def fit_coupling(
 def _mirror_pairs(
     cells: Sequence[tuple[float, float, float, float, float]],
 ) -> list[tuple[float, float, float, float]]:
-    """Match each grid cell to its mirror across the angular axis.
-
-    Returns (u_lin_eff, mean |u_ang_eff| over the pair, w at +u_ang, w at -u_ang). Cells with
-    no mirror are dropped rather than used one-sided: a one-sided cell cannot distinguish
-    droop from drift, and including it would let whichever term the fit reached first absorb
-    the other.
-
-    Matching is on the angular command as issued, not on the effective command. The grid is
-    laid out symmetrically in what it asks for, and `effective_command` then subtracts a
-    different deadzone from each side -- 0.01606 turning left against 0.02407 turning right.
-    That 8 milli-unit gap shifts every positive key away from its mirror, so keying on the
-    effective command produced an empty intersection every time and reported the grid as
-    asymmetric. It never was.
-
-    The returned magnitude is the mean of the two sides, which is what the droop regression
-    needs: with e_p and e_n the two effective commands, the half-difference of the yaw rates
-    is `k_ang * 0.5 * (e_p - e_n) * (1 - c_ad * |u_lin|)`, so the authority behind the pair is
-    their average, not either one alone.
-    """
+    """Match each grid cell to its mirror across the angular axis."""
     index: dict[tuple[int, int], tuple[float, float]] = {}
     for lin_eff, ang_eff, _v, w_ss, ang_cmd in cells:
         if abs(ang_cmd) <= 1e-3:
@@ -562,12 +535,7 @@ def fit_delay(runs: Sequence[Run]) -> DelayStack:
     clock_measured = all(r.truth.clock.measured for r in runs) if runs else False
 
     for run in runs:
-        # Onset timing uses the lightly smoothed velocity. The 20 ms smoothing the rest of the
-        # fit runs on moves the peak of dv/dt about half a window later, which would add 10 ms
-        # to every delay estimate.
         for cmd, vel in ((run.cmd_lin, run.v_raw), (run.cmd_ang, run.w)):
-            # Causal backward difference. A centered difference leaks the response one sample
-            # before the edge, which would bias the delay earlier than physically possible.
             accel = np.concatenate([[0.0], np.diff(vel)]) / run.dt
             scale = float(np.std(accel))
             if scale < 1e-9:
@@ -597,8 +565,6 @@ def fit_delay(runs: Sequence[Run]) -> DelayStack:
         denom = a - 2.0 * b + c
         if abs(denom) > 1e-9:
             delta = float(np.clip(0.5 * (a - c) / denom, -1.0, 1.0))
-    # The causal backward difference estimates acceleration half a grid step before the sample it
-    # is stored at, so the picked peak is half a step late by construction.
     lag_ms = (peak_i + delta - 0.5) * dt * 1000.0
     noise = float(np.std(stack[:pre])) or 1e-9
     return DelayStack(
@@ -778,12 +744,7 @@ def build_windows(
 
 
 def window_delay(params: PlantParams, structure: ModelStructure) -> float:
-    """The delay the window command matrices must be built with.
-
-    The delay is applied when the windows are cut, not inside the model, so a rung of the ladder
-    that has no delay term needs windows built without one. Reading it back through the structure
-    is what keeps M0 from quietly inheriting M1's delay and scoring identically.
-    """
+    """The delay the window command matrices must be built with."""
     return structure.apply(params).delay_s
 
 
@@ -984,16 +945,7 @@ def cross_checks(p: PlantParams, track_width_m: float) -> list[str]:
 def write_params(
     path: Path, p: PlantParams, stage: StageA, note: str, structure: ModelStructure
 ) -> None:
-    """Write the selected model's parameters, with the terms it disables set to zero.
-
-    `structure.apply` is not optional here. The ladder picks a rung by held-out error and the
-    rung decides which terms exist, but the fitted parameter set still carries a value for
-    every term in the full model. Writing it raw shipped `c_drift = -0.854` and
-    `c_drift_bias = -0.333` under a header that said `model M4` -- and M4 sets both to zero
-    precisely because the ladder measured them making held-out prediction worse. Nothing
-    downstream reads the header comment, so the C++ filter and the sim would have applied two
-    terms the model selection had rejected.
-    """
+    """Write the selected model parameters, with the terms it disables set to zero."""
     p = structure.apply(p)
     disabled = sorted(set(FULL_MODEL.free_names()) - set(structure.free_names()))
     lines = [

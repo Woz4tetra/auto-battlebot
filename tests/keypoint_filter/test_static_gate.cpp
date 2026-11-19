@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <Eigen/Dense>
+#include <limits>
 #include <opencv2/core.hpp>
 
 #include "keypoint_filter/static_gate.hpp"
@@ -203,6 +204,41 @@ TEST_F(StaticDetectionGateTest, PassesEverythingWithoutAFieldTransform) {
             gate.filter(make_pair(400.0, 300.0, stamp), camera_info_, empty_field, stamp);
         ASSERT_EQ(result.keypoints.size(), 2u);
     }
+}
+
+TEST_F(StaticDetectionGateTest, CarriesBoxesThroughOnPassedAndSuppressedFrames) {
+    StaticDetectionGate gate(config_);
+    for (int i = 0; i < 11; ++i) {
+        const double stamp = 0.1 * i;
+        const auto result =
+            gate.filter(make_pair(400.0, 300.0, stamp), camera_info_, field_, stamp);
+        ASSERT_EQ(result.boxes.size(), 2u);
+    }
+    EXPECT_EQ(gate.last_stats().suppressed, 1);
+}
+
+TEST_F(StaticDetectionGateTest, PassesAGroupThatCannotBePlacedOnTheField) {
+    StaticDetectionGate gate(config_);
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    for (int i = 0; i < 30; ++i) {
+        const double stamp = 0.1 * i;
+        const auto result = gate.filter(make_pair(nan, 300.0, stamp), camera_info_, field_, stamp);
+        ASSERT_EQ(result.keypoints.size(), 2u);
+    }
+    EXPECT_EQ(gate.last_stats().suppressed, 0);
+}
+
+TEST_F(StaticDetectionGateTest, JudgesAnObservationAgainstTheClusterBeforeFoldingItIn) {
+    config_.responsiveness_window = 1;
+    StaticDetectionGate gate(config_);
+    for (int i = 0; i < 11; ++i) {
+        const double stamp = 0.1 * i;
+        gate.filter(make_pair(400.0, 300.0, stamp), camera_info_, field_, stamp);
+    }
+    const auto arrival = gate.filter(make_pair(425.0, 300.0, 1.1), camera_info_, field_, 1.1);
+    EXPECT_TRUE(arrival.keypoints.empty());
+    const auto next = gate.filter(make_pair(425.0, 300.0, 1.2), camera_info_, field_, 1.2);
+    EXPECT_EQ(next.keypoints.size(), 2u);
 }
 
 }  // namespace auto_battlebot

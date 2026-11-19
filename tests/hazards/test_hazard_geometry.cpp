@@ -219,6 +219,36 @@ TEST(HazardAvoidanceTest, ReverseFiresOnlyWhenCloseAndPointedAtIt) {
     EXPECT_NEAR(far.linear_x, 0.5, kTol);
 }
 
+TEST(HazardAvoidanceTest, LatchedSideDoesNotCarryToADifferentHazard) {
+    const Pose2D goal = pose(1.0, 0.0);
+    const Pose2D start = pose(-0.6, 0.05, -0.6);
+    HazardAvoidance fresh(default_settings());
+    fresh.steer_around(start, goal, field_with({hazard(5.0, 5.0, 0.1), hazard(0.0, 0.0, 0.3)}));
+    const int fresh_side = fresh.committed_side();
+
+    HazardAvoidance avoidance(default_settings());
+    avoidance.steer_around(pose(-1.0, 0.0, 0.0), goal, field_with({hazard(0.0, 0.0, 0.3)}));
+    const int first = avoidance.committed_side();
+    ASSERT_NE(first, 0);
+    ASSERT_NE(fresh_side, first);
+    avoidance.steer_around(start, goal, field_with({hazard(5.0, 5.0, 0.1), hazard(0.0, 0.0, 0.3)}));
+    EXPECT_EQ(avoidance.committed_side(), fresh_side);
+}
+
+TEST(HazardAvoidanceTest, LatchReleasesOnlyPastTheReleaseMargin) {
+    HazardAvoidanceSettings settings = default_settings();
+    settings.side_release_m = 0.05;
+    HazardAvoidance avoidance(settings);
+    const FieldDescription field = field_with({hazard(0.0, 0.0, 0.3)});
+    avoidance.steer_around(pose(-1.0, 0.0, 0.0), pose(1.0, 0.0), field);
+    ASSERT_NE(avoidance.committed_side(), 0);
+    avoidance.steer_around(pose(0.0, 0.33, 0.0), pose(1.0, 0.5), field);
+    EXPECT_FALSE(avoidance.last_substituted());
+    EXPECT_NE(avoidance.committed_side(), 0);
+    avoidance.steer_around(pose(0.0, 0.45, 0.0), pose(1.0, 0.5), field);
+    EXPECT_EQ(avoidance.committed_side(), 0);
+}
+
 TEST(HazardAvoidanceTest, ResetClearsTheLatchedSide) {
     HazardAvoidance avoidance(default_settings());
     const FieldDescription field = field_with({hazard(0.0, 0.0, 0.3)});

@@ -161,6 +161,37 @@ TEST_F(KeypointHeightGateTest, AbstainsWithoutDepth) {
     }
 }
 
+TEST_F(KeypointHeightGateTest, AbstainsOnADepthFrameOfTheWrongType) {
+    KeypointHeightGate gate(config_);
+    DepthImage depth;
+    depth.image =
+        cv::Mat(camera_info_.height, camera_info_.width, CV_64FC1, cv::Scalar(kCameraHeight));
+    const auto result =
+        gate.filter(make_pair(300.0, 220.0, 340.0, 260.0), depth, camera_info_, field_);
+    ASSERT_EQ(result.keypoints.size(), 2u);
+    EXPECT_EQ(gate.last_stats().groups_in, 0);
+    for (const Keypoint &kp : result.keypoints) {
+        EXPECT_FALSE(std::isfinite(kp.height_above_plane));
+    }
+}
+
+TEST_F(KeypointHeightGateTest, AbstainedDetectionKeepsTheKeypointHeightsItMeasured) {
+    KeypointHeightGate gate(config_);
+    DepthImage depth = make_floor();
+    const cv::Rect window(297, 217, 7, 7);
+    cv::Mat valid = depth.image(window).clone();
+    depth.image.setTo(std::numeric_limits<float>::quiet_NaN());
+    valid.copyTo(depth.image(window));
+
+    const auto result =
+        gate.filter(make_pair(300.0, 220.0, 340.0, 260.0), depth, camera_info_, field_);
+
+    ASSERT_EQ(result.keypoints.size(), 2u);
+    EXPECT_EQ(gate.last_stats().abstained, 1);
+    EXPECT_NEAR(result.keypoints[0].height_above_plane, 0.0, 1e-6);
+    EXPECT_FALSE(std::isfinite(result.keypoints[1].height_above_plane));
+}
+
 TEST_F(KeypointHeightGateTest, AbstainsWhenDepthIsAllInvalid) {
     KeypointHeightGate gate(config_);
     DepthImage depth = make_floor();

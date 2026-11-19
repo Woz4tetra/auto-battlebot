@@ -142,8 +142,6 @@ ModelResultStamped KeypointHeightGate::filter(const ModelResultStamped &model_re
     stats_ = Stats{};
     if (model_results.keypoints.empty()) return model_results;
 
-    // Any missing input means the gate has nothing to judge on. Pass everything rather than
-    // blinding the pipeline on a dropped depth frame.
     if (depth.image.empty() || depth.image.type() != CV_32FC1) return model_results;
 
     Plane plane;
@@ -153,9 +151,6 @@ ModelResultStamped KeypointHeightGate::filter(const ModelResultStamped &model_re
                                           plane.normal)) {
         return model_results;
     }
-    // transform_to_plane_center_normal does not fix which side of the plane the normal points to.
-    // The camera sits above the field, so orient the normal to make the camera's own height
-    // positive and every "above the floor" measurement comes out positive too.
     const double signed_plane_offset = plane.normal.dot(plane.center);
     if (std::abs(signed_plane_offset) <= kEpsilon) return model_results;
     plane.orientation = (signed_plane_offset > 0.0) ? -1.0 : 1.0;
@@ -186,8 +181,6 @@ ModelResultStamped KeypointHeightGate::filter(const ModelResultStamped &model_re
         }
 
         if (!relief.valid) {
-            // No usable depth over the detection. Abstain from the decision, but still hand on
-            // whatever per-keypoint heights did measure.
             stats_.abstained++;
             stats_.groups_passed++;
             for (size_t n = 0; n < indices.size(); ++n) {
@@ -215,8 +208,6 @@ ModelResultStamped KeypointHeightGate::filter(const ModelResultStamped &model_re
         stats_.groups_passed++;
         for (size_t n = 0; n < indices.size(); ++n) {
             Keypoint kp = model_results.keypoints[indices[n]];
-            // A keypoint whose own window had no valid depth still belongs to a detection that
-            // measured fine, so it inherits the group height rather than falling back to config.
             kp.height_above_plane =
                 std::isfinite(keypoint_heights[n]) ? keypoint_heights[n] : relief.top;
             output.keypoints.push_back(kp);

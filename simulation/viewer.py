@@ -84,8 +84,6 @@ class Viewer:
         self._window = "auto-battlebot sim"
         self._drag_index: int | None = None
         self._opponents: list[Any] = []
-        # The window is opened on the first render, not here, so the frame composition can be
-        # exercised without a display.
         self._window_open = False
 
     def _to_px(self, x: float, y: float) -> tuple[int, int]:
