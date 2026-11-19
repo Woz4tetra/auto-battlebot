@@ -32,7 +32,7 @@ void ThreadedControlLoop::join_thread() {
 bool ThreadedControlLoop::is_healthy() const {
     if (!running_.load()) return true;
     if (cycles_.load() == 0) return true;
-    const auto age = std::chrono::steady_clock::now() - loop_->last_cycle_time();
+    const auto age = std::chrono::steady_clock::now() - loop_->last_cycle_wall_time();
     return age <= watchdog_timeout_;
 }
 

@@ -11,10 +11,6 @@ class ControlLoopInterface {
    public:
     virtual ~ControlLoopInterface() = default;
 
-    /**
-     * Initializes the transmitter, then starts the driver. Not virtual: the ordering is the point,
-     * since a driver that begins cycling before the transmitter is up would send() into it.
-     */
     bool start() {
         const bool ok = loop_->initialize();
         start_driver();
@@ -25,7 +21,6 @@ class ControlLoopInterface {
 
     virtual void pump_input() {}
 
-    /** Run cycles until logical time reaches until. */
     virtual void advance_to([[maybe_unused]] double until) {}
 
     virtual bool is_healthy() const { return true; }

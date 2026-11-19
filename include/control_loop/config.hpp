@@ -11,13 +11,8 @@ namespace auto_battlebot {
 
 struct ControlLoopConfiguration {
     std::string type;
-    /** Cycles per second. 0 on SteppedControlLoop means one cycle per perception frame. */
     double rate_hz = 250.0;
-    /** Threaded driver only: a cycle older than this marks the loop unhealthy. */
     double watchdog_timeout_ms = 20.0;
-    /** Longest gap (seconds) RobotDescriptionsCache fills with the last set that had both our robot
-     * and an opponent. Past it navigation sees the robots as they are and runs its no-robot
-     * path. */
     double robot_cache_max_age_s = 0.25;
 
     virtual ~ControlLoopConfiguration() = default;
@@ -33,7 +28,7 @@ struct ControlLoopConfiguration {
 struct SteppedControlLoopConfiguration : public ControlLoopConfiguration {
     SteppedControlLoopConfiguration() {
         type = "SteppedControlLoop";
-        rate_hz = 0.0;  // one cycle per perception frame
+        rate_hz = 0.0;
     }
 };
 

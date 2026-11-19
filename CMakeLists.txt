@@ -263,8 +263,6 @@ if(NOT GST_FOUND)
 endif()
 message(STATUS "GStreamer H.264 encoder (nvv4l2h264enc): ${GST_FOUND}")
 
-# The ESP-NOW wire format, compiled by the robot firmware, the dongle firmware, and this library
-# from one source so the three ends cannot drift (firmware/shared/espnow_protocol/).
 set(ESPNOW_PROTOCOL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/firmware/shared/espnow_protocol/src")
 list(APPEND AUTO_BATTLEBOT_SOURCES "${ESPNOW_PROTOCOL_DIR}/espnow_protocol.cpp")
 

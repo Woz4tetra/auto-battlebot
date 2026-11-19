@@ -73,7 +73,7 @@ NavigationVisualization ControlLoop::last_visualization() const {
     return visualization_;
 }
 
-std::chrono::steady_clock::time_point ControlLoop::last_cycle_time() const {
+std::chrono::steady_clock::time_point ControlLoop::last_cycle_wall_time() const {
     return std::chrono::steady_clock::time_point(std::chrono::microseconds(last_cycle_us_.load()));
 }
 

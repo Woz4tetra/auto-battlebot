@@ -6,13 +6,17 @@
 #include <gtest/gtest.h>
 
 #include <Eigen/Dense>
+#include <atomic>
+#include <chrono>
 #include <memory>
 #include <opencv2/core.hpp>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "control_loop/control_loop.hpp"
 #include "control_loop/stepped_control_loop.hpp"
+#include "control_loop/threaded_control_loop.hpp"
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "navigation/navigation_interface.hpp"
 #include "robot_descriptions_cache.hpp"
@@ -79,13 +83,34 @@ class RecordingTransmitter : public TransmitterInterface {
     }
 
     void send(VelocityCommand command) override { sent.push_back(command); }
-    bool did_init_button_press() override { return false; }
+    bool did_init_button_press() override { return init_button_pressed; }
+    void enable() override { enable_calls++; }
+    void disable() override { disable_calls++; }
     TransmitterStatus get_status() const override {
         return {.connected = true, .receiving_channels = true};
     }
 
     std::vector<VelocityCommand> sent;
     int update_calls = 0;
+    int enable_calls = 0;
+    int disable_calls = 0;
+    bool init_button_pressed = false;
+};
+
+class SlowInitTransmitter : public RecordingTransmitter {
+   public:
+    bool initialize() override {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        initialized = true;
+        return true;
+    }
+    void send(VelocityCommand command) override {
+        if (!initialized) sent_before_initialize = true;
+        RecordingTransmitter::send(command);
+    }
+
+    std::atomic<bool> initialized{false};
+    std::atomic<bool> sent_before_initialize{false};
 };
 
 class RecordingTargetSelector : public TargetSelectorInterface {
@@ -104,11 +129,14 @@ class OrderRecordingFilter : public RobotFilterInterface {
    public:
     bool initialize(int) override { return true; }
     void predict(double, CommandFeedback) override { calls.push_back("predict"); }
-    void correct(ModelResultStamped, FieldDescription, CameraInfo, ModelResultStamped) override {
+    void correct(ModelResultStamped keypoints, FieldDescription, CameraInfo,
+                 ModelResultStamped) override {
         calls.push_back("correct");
+        corrected_stamps.push_back(keypoints.header.stamp);
     }
     RobotDescriptionsStamped state() const override { return {}; }
     std::vector<std::string> calls;
+    std::vector<double> corrected_stamps;
 };
 
 CameraInfo make_camera_info() {
@@ -541,10 +569,90 @@ TEST(ControlLoopTest, WatchdogStampAdvancesWhileWaitingForTheField) {
         std::make_shared<RecordingTransmitter>(), clock, nullptr, kCacheMaxAgeS);
     SteppedControlLoop driver(loop, 0.0);
     driver.start();
-    const auto before = loop->last_cycle_time();
+    const auto before = loop->last_cycle_wall_time();
     clock->set(1.0);
     driver.advance_to(1.0);
-    EXPECT_GT(loop->last_cycle_time(), before);
+    EXPECT_GT(loop->last_cycle_wall_time(), before);
+}
+
+TEST(ControlLoopTest, SubmitMeasurementReplacesUnconsumed) {
+    auto filter = std::make_shared<OrderRecordingFilter>();
+    auto clock = std::make_shared<ManualClock>();
+    auto loop = std::make_shared<ControlLoop>(
+        filter, nullptr, std::make_shared<RecordingNavigation>(),
+        std::make_shared<RecordingTransmitter>(), clock, nullptr, kCacheMaxAgeS);
+    SteppedControlLoop driver(loop, 0.0);
+    driver.start();
+    const auto measurements = make_measurements(2);
+    loop->submit_measurement(measurements[0]);
+    loop->submit_measurement(measurements[1]);
+    driver.advance_to(1.0);
+    driver.advance_to(1.0);
+    ASSERT_EQ(filter->corrected_stamps.size(), 1u);
+    EXPECT_EQ(filter->corrected_stamps[0], measurements[1].keypoints.header.stamp);
+}
+
+TEST(ControlLoopTest, InitialAutonomyStateReachesTransmitter) {
+    auto make_loop = [](std::shared_ptr<RecordingTransmitter> transmitter) {
+        return std::make_shared<ControlLoop>(
+            std::make_shared<OrderRecordingFilter>(), nullptr,
+            std::make_shared<RecordingNavigation>(), std::move(transmitter),
+            std::make_shared<ManualClock>(), nullptr, kCacheMaxAgeS);
+    };
+
+    auto enabled_transmitter = std::make_shared<RecordingTransmitter>();
+    auto enabled_loop = make_loop(enabled_transmitter);
+    enabled_loop->run_cycle();
+    EXPECT_EQ(enabled_transmitter->enable_calls, 1);
+    EXPECT_EQ(enabled_transmitter->disable_calls, 0);
+    enabled_loop->run_cycle();
+    EXPECT_EQ(enabled_transmitter->enable_calls, 1);
+
+    auto disabled_transmitter = std::make_shared<RecordingTransmitter>();
+    auto disabled_loop = make_loop(disabled_transmitter);
+    disabled_loop->set_autonomy_enabled(false);
+    disabled_loop->run_cycle();
+    EXPECT_EQ(disabled_transmitter->enable_calls, 0);
+    EXPECT_EQ(disabled_transmitter->disable_calls, 1);
+}
+
+TEST(ControlLoopTest, SteppedPumpInputLatchesInitButtonWithoutCycling) {
+    auto transmitter = std::make_shared<RecordingTransmitter>();
+    auto loop = std::make_shared<ControlLoop>(
+        std::make_shared<OrderRecordingFilter>(), nullptr, std::make_shared<RecordingNavigation>(),
+        transmitter, std::make_shared<ManualClock>(), nullptr, kCacheMaxAgeS);
+    SteppedControlLoop driver(loop, 0.0);
+    transmitter->init_button_pressed = true;
+    driver.pump_input();
+    EXPECT_EQ(transmitter->update_calls, 1);
+    EXPECT_TRUE(transmitter->sent.empty());
+    EXPECT_TRUE(driver.take_init_button_press());
+    EXPECT_FALSE(driver.take_init_button_press());
+}
+
+TEST(ControlLoopTest, ThreadedPumpInputLeavesTheTransmitterToTheControlThread) {
+    auto transmitter = std::make_shared<RecordingTransmitter>();
+    auto loop = std::make_shared<ControlLoop>(
+        std::make_shared<OrderRecordingFilter>(), nullptr, std::make_shared<RecordingNavigation>(),
+        transmitter, std::make_shared<ManualClock>(), nullptr, kCacheMaxAgeS);
+    ThreadedControlLoop driver(loop, 250.0, 20.0);
+    driver.pump_input();
+    EXPECT_EQ(transmitter->update_calls, 0);
+}
+
+TEST(ControlLoopTest, ThreadedStartInitializesTransmitterBeforeFirstCycle) {
+    auto transmitter = std::make_shared<SlowInitTransmitter>();
+    auto loop = std::make_shared<ControlLoop>(
+        std::make_shared<OrderRecordingFilter>(), nullptr, std::make_shared<RecordingNavigation>(),
+        transmitter, std::make_shared<ManualClock>(), nullptr, kCacheMaxAgeS);
+    ThreadedControlLoop driver(loop, 250.0, 20.0);
+    loop->submit_measurement(make_measurements(1)[0]);
+    EXPECT_TRUE(driver.start());
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    driver.stop();
+    EXPECT_TRUE(transmitter->initialized);
+    EXPECT_FALSE(transmitter->sent.empty());
+    EXPECT_FALSE(transmitter->sent_before_initialize);
 }
 
 TEST(ControlLoopTest, FilterCorrectsBeforeItPredicts) {

@@ -137,8 +137,8 @@ std::optional<std::string> read_selection_file(const ProfileSelectorConfig &sele
     return read_first_line(selector.selection_file);
 }
 
-std::string read_default_profile(const std::filesystem::path &config_dir) {
-    return read_first_line(config_dir / kDefaultProfileFileName).value_or("");
+std::optional<std::string> read_default_profile(const std::filesystem::path &config_dir) {
+    return read_first_line(config_dir / kDefaultProfileFileName);
 }
 
 std::string resolve_active_profile(const std::filesystem::path &config_dir,
@@ -156,18 +156,18 @@ std::string resolve_active_profile(const std::filesystem::path &config_dir,
                      *selected);
     }
 
-    const std::string fallback = read_default_profile(config_dir);
-    if (fallback.empty()) {
+    const std::optional<std::string> fallback = read_default_profile(config_dir);
+    if (!fallback) {
         throw ConfigValidationError("No profile selected and no default in " +
                                     (config_dir / kDefaultProfileFileName).string());
     }
-    const std::filesystem::path fallback_path = config_dir / (fallback + ".toml");
+    const std::filesystem::path fallback_path = config_dir / (*fallback + ".toml");
     if (!std::filesystem::exists(fallback_path)) {
-        throw ConfigValidationError("Default profile '" + fallback + "' not found at " +
+        throw ConfigValidationError("Default profile '" + *fallback + "' not found at " +
                                     fallback_path.string());
     }
-    spdlog::info("Using default profile '{}'", fallback);
-    return fallback;
+    spdlog::info("Using default profile '{}'", *fallback);
+    return *fallback;
 }
 
 void write_selection_file(const ProfileSelectorConfig &selector, const std::string &profile_name) {

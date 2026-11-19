@@ -136,3 +136,27 @@ Requires a `[navigation.policy]` table naming the model bundle. Refuses to start
 | --- | --- |
 | `max_our_unmeasured_s` | Seconds without a measurement of our robot before the policy commands zero. Above the filter's 0.1 s stale age, so one or two dropped frames do not interrupt the policy |
 | `hazard_prediction_horizon_s` | Seconds ahead to advance a tracked hazard along its velocity, as in `MotionProfileNavigation` |
+
+## `[battery]`
+
+| Field | Meaning |
+| --- | --- |
+| `ocv_table_file_path` | Open-circuit-voltage table. Empty uses `data/battery_ocv_table.toml` |
+| `state_file_path` | Persisted state of charge. Empty uses `$HOME/.local/state/auto_battlebot/battery_soc_state.txt`. It lives under `$HOME`, not `data/`, because a deploy overwrites the repo tree |
+
+## `[control_loop]`
+
+| Field | Meaning |
+| --- | --- |
+| `rate_hz` | Cycles per second. 0 on `SteppedControlLoop` (its default) means one cycle per perception frame |
+| `watchdog_timeout_ms` | `ThreadedControlLoop` only: a cycle older than this marks the loop unhealthy |
+| `robot_cache_max_age_s` | Longest gap `RobotDescriptionsCache` fills with the last robot set that had both our robot and an opponent. Past it navigation sees the robots as they are and runs its no-robot path |
+
+## `[profiles]`
+
+Read from `config/profiles.toml` by the UI profile switcher.
+
+| Field | Meaning |
+| --- | --- |
+| `pattern` | Regex matched against each config file's path under `config/`, without `.toml`, `/`-separated. Matching profiles are the ones the UI offers. Empty offers none |
+| `selection_file` | Where the current choice is persisted. It lives outside the repo so uploads and installs do not clobber it |

@@ -10,7 +10,6 @@
 
 namespace auto_battlebot {
 
-/** [battery]: `source` plus the estimator settings in BatteryOptions, all in one table. */
 struct BatteryConfiguration {
     BatterySource source = BatterySource::NONE;
     BatteryOptions options;

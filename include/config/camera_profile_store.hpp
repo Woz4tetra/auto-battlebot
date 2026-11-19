@@ -22,9 +22,6 @@ class CameraProfileStore {
 
     explicit CameraProfileStore(std::filesystem::path path);
 
-    /** Read the file. A missing file means no saved profiles. A file that fails to parse is
-     *  logged and left untouched on disk, and save/remove refuse until it is fixed, so a typo
-     *  never costs the profiles in it. */
     void load();
 
     std::vector<std::string> names() const;
