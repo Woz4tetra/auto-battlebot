@@ -191,6 +191,13 @@ into `/usr/local/zed/settings` the first time it opens a given SVO, which needs 
 network access and a writable directory. If the machine is offline, copy the file from a
 working install into the `auto-battlebot-zed-settings` volume.
 
+**Replay exits before the first heartbeat and looks like a corrupt recording.** A scratch
+overlay that sets the recording path (`svo_file_path` or the video playback `file_path`) but
+inherits `svo_start_frame` or `start_frame` from the config it extends can seek past the end.
+The SVO camera seeks to the last frame, grabs once, and reports `END OF SVO FILE REACHED`; the
+video camera seeks past the end and exits. Both reject the config at startup instead. Pin the
+start frame to `0` in the overlay.
+
 ## Notes moved from `src/` comments (2026-11-15)
 
 Each entry names the file and the code it described.

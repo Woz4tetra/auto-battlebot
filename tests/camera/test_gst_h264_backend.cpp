@@ -19,41 +19,42 @@ struct Packet {
 
 class GstH264BackendTest : public ::testing::TestWithParam<VideoInputFormat> {};
 
-// The Jetson's encoder through GStreamer: every frame comes back once, in order, with its pts, the
-// first and a forced frame as IDRs and nothing else, and each IDR carrying SPS ahead of it.
-TEST_P(GstH264BackendTest, EncodesEveryFrameWithItsPtsAndForcedKeyframe) {
+bool has_sps_before_idr(const std::byte *data, size_t len) {
+    for (size_t i = 0; i + 3 < len; ++i) {
+        if (data[i] == std::byte{0} && data[i + 1] == std::byte{0} && data[i + 2] == std::byte{1} &&
+            (std::to_integer<int>(data[i + 3]) & 0x1f) == 7) {
+            return true;
+        }
+    }
+    return false;
+}
+
+constexpr int kKeyframeIntervalLongerThanTest = 1000;
+constexpr auto kMaxOpenLatency = std::chrono::milliseconds(500);
+
+TEST_P(GstH264BackendTest, EncodesEveryFrameWithItsPtsOnlyFirstAndForcedAsIdrWithSps) {
     if (!gst_nvv4l2_h264_installed()) GTEST_SKIP() << "nvv4l2h264enc not installed";
     VideoEncoderOptions options;
     options.width = 640;
     options.height = 480;
     options.fps = 60;
     options.bitrate = 4000000;
-    options.keyframe_interval = 1000;  // Only the first frame and the forced one are keyframes.
+    options.keyframe_interval = kKeyframeIntervalLongerThanTest;
     options.input_format = GetParam();
 
     std::mutex mutex;
     std::map<int64_t, Packet> by_pts;
     std::map<int64_t, bool> has_sps;
     const auto open_start = std::chrono::steady_clock::now();
-    auto backend = open_gst_nvv4l2_h264(options, [&](const std::byte *data, size_t len, int64_t pts,
-                                                     bool keyframe) {
-        std::lock_guard<std::mutex> lock(mutex);
-        by_pts[pts] = Packet{keyframe, len};
-        // Annex-B NAL type 7 (SPS) after a 00 00 01 start code.
-        bool sps = false;
-        for (size_t i = 0; i + 3 < len; ++i) {
-            if (data[i] == std::byte{0} && data[i + 1] == std::byte{0} &&
-                data[i + 2] == std::byte{1} && (std::to_integer<int>(data[i + 3]) & 0x1f) == 7) {
-                sps = true;
-                break;
-            }
-        }
-        has_sps[pts] = sps;
-    });
+    auto backend = open_gst_nvv4l2_h264(
+        options, [&](const std::byte *data, size_t len, int64_t pts, bool keyframe) {
+            std::lock_guard<std::mutex> lock(mutex);
+            by_pts[pts] = Packet{keyframe, len};
+            has_sps[pts] = has_sps_before_idr(data, len);
+        });
     ASSERT_NE(backend, nullptr) << "nvv4l2h264enc is installed but the pipeline did not open";
-    // open() runs on the runner thread (recording toggle) and the publisher thread (preview
-    // subscribe). It once waited out a 2 s preroll timeout there every time.
-    EXPECT_LT(std::chrono::steady_clock::now() - open_start, std::chrono::milliseconds(500));
+    EXPECT_LT(std::chrono::steady_clock::now() - open_start, kMaxOpenLatency)
+        << "open() returns without a preroll wait";
 
     const int type = GetParam() == VideoInputFormat::BGR    ? CV_8UC3
                      : GetParam() == VideoInputFormat::BGRA ? CV_8UC4

@@ -12,10 +12,11 @@
 namespace auto_battlebot {
 namespace {
 
-// Emits one byte per frame, and refuses the frame with pts `refuse_pts`.
-class RefusingBackend : public H264Backend {
+constexpr int kKeyframeIntervalLongerThanTest = 1000;
+
+class OneBytePerFrameBackendRefusingPts : public H264Backend {
    public:
-    RefusingBackend(VideoEncoder::BackendSink sink, int64_t refuse_pts)
+    OneBytePerFrameBackendRefusingPts(VideoEncoder::BackendSink sink, int64_t refuse_pts)
         : sink_(std::move(sink)), refuse_pts_(refuse_pts) {}
     bool encode(cv::Mat, int64_t pts, bool) override {
         // Slow enough that frames queue up behind the refused one.
@@ -159,7 +160,7 @@ TEST(VideoEncoderTest, RequestKeyframeMakesTheNextFrameAKeyframe) {
     options.height = 240;
     options.fps = 30;
     options.bitrate = 500000;
-    options.keyframe_interval = 1000;  // Only the first frame and the requested one are keyframes.
+    options.keyframe_interval = kKeyframeIntervalLongerThanTest;
     options.queue_depth = 64;
     options.input_format = VideoInputFormat::BGR;
 
@@ -199,10 +200,7 @@ TEST(VideoEncoderTest, RequestKeyframeMakesTheNextFrameAKeyframe) {
     }
 }
 
-// frame_meta carries submit()'s return value as video_frame_index, and playback reads it as the
-// position of the packet in the file. So within one session: indices 0, 1, 2... for exactly the
-// frames that become packets, -1 for a refused frame, and nothing from an earlier session.
-TEST(VideoEncoderTest, SubmitIndexIsThePacketPositionInEachSession) {
+TEST(VideoEncoderTest, SubmitIndexIsPacketPositionMinusOneWhenRefusedResetPerSession) {
     VideoEncoderOptions options;
     options.width = 320;
     options.height = 240;
@@ -268,6 +266,12 @@ TEST(VideoEncoderTest, KeyframeRequestAppliesToTheNextSubmittedFrameNotAQueuedOn
     }
 }
 
+auto refuse_at(int64_t pts) {
+    return [pts](const VideoEncoderOptions &, VideoEncoder::BackendSink backend_sink) {
+        return std::make_unique<OneBytePerFrameBackendRefusingPts>(std::move(backend_sink), pts);
+    };
+}
+
 TEST(VideoEncoderTest, RefusedFrameStopsTheSessionInsteadOfShiftingIndices) {
     VideoEncoderOptions options;
     options.width = 32;
@@ -279,12 +283,6 @@ TEST(VideoEncoderTest, RefusedFrameStopsTheSessionInsteadOfShiftingIndices) {
         std::lock_guard<std::mutex> lock(mutex);
         packet_times.push_back(log_time_ns);
     };
-    const auto refuse_at = [](int64_t pts) {
-        return [pts](const VideoEncoderOptions &, VideoEncoder::BackendSink backend_sink) {
-            return std::make_unique<RefusingBackend>(std::move(backend_sink), pts);
-        };
-    };
-
     VideoEncoder encoder;
     ASSERT_TRUE(encoder.start(options, sink, refuse_at(3)));
     std::vector<int64_t> indices;
@@ -299,19 +297,38 @@ TEST(VideoEncoderTest, RefusedFrameStopsTheSessionInsteadOfShiftingIndices) {
     EXPECT_EQ(encoder.submit(cv::Mat(24, 32, CV_8UC3, cv::Scalar::all(0)), 99), -1);
     encoder.stop();
 
-    {
-        std::lock_guard<std::mutex> lock(mutex);
-        ASSERT_EQ(packet_times, (std::vector<uint64_t>{1, 2, 3}));
-        for (size_t i = 0; i < indices.size(); ++i) {
-            const int64_t index = indices[i];
-            if (index < 0 || index >= static_cast<int64_t>(packet_times.size())) continue;
-            EXPECT_EQ(packet_times[static_cast<size_t>(index)], i + 1)
-                << "frame " << i + 1 << " was given index " << index << ", another frame's packet";
-        }
-        packet_times.clear();
+    std::lock_guard<std::mutex> lock(mutex);
+    ASSERT_EQ(packet_times, (std::vector<uint64_t>{1, 2, 3}));
+    for (size_t i = 0; i < indices.size(); ++i) {
+        const int64_t index = indices[i];
+        if (index < 0 || index >= static_cast<int64_t>(packet_times.size())) continue;
+        EXPECT_EQ(packet_times[static_cast<size_t>(index)], i + 1)
+            << "frame " << i + 1 << " was given index " << index << ", another frame's packet";
     }
+}
 
-    // A restart clears it, and numbering starts over.
+TEST(VideoEncoderTest, RestartClearsBrokenAndRenumbersFromZero) {
+    VideoEncoderOptions options;
+    options.width = 32;
+    options.height = 24;
+    options.queue_depth = 64;
+    std::mutex mutex;
+    std::vector<uint64_t> packet_times;
+    const auto sink = [&](const std::byte *, size_t, uint64_t log_time_ns, bool) {
+        std::lock_guard<std::mutex> lock(mutex);
+        packet_times.push_back(log_time_ns);
+    };
+
+    VideoEncoder encoder;
+    ASSERT_TRUE(encoder.start(options, sink, refuse_at(0)));
+    encoder.submit(cv::Mat(24, 32, CV_8UC3, cv::Scalar::all(0)), 1);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (!encoder.broken() && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_TRUE(encoder.broken());
+    encoder.stop();
+
     ASSERT_TRUE(encoder.start(options, sink, refuse_at(-1)));
     EXPECT_FALSE(encoder.broken());
     EXPECT_EQ(encoder.submit(cv::Mat(24, 32, CV_8UC3, cv::Scalar::all(0)), 100), 0);

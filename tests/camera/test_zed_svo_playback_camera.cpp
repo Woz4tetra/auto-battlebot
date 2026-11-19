@@ -55,9 +55,6 @@ std::unique_ptr<ZedSvoPlaybackCamera> ZedSvoPlaybackCameraTest::shared_camera_;
 ZedSvoPlaybackCameraConfiguration ZedSvoPlaybackCameraTest::shared_config_;
 
 TEST_F(ZedSvoPlaybackCameraTest, RejectsAStartFrameBeyondTheEndOfTheFile) {
-    // A config that overrides svo_file_path but inherits svo_start_frame from the config it
-    // extends used to seek to the last frame, grab once, and report END OF SVO FILE REACHED
-    // before the first heartbeat. That looks like a corrupt recording, so it fails loudly instead.
     ASSERT_NE(shared_camera_, nullptr)
         << "Shared ZED camera not available (SVO missing or init failed)";
 
@@ -189,14 +186,14 @@ TEST_F(ZedSvoPlaybackCameraTest, SvoEndOfFile) {
     EXPECT_FALSE(camera.should_close());
 
     CameraData data;
-    int max_frames = 1000;  // Safety limit
+    constexpr int kMaxFramesBeforeGivingUp = 1000;
     int frame_count = 0;
-    while (!camera.should_close() && frame_count < max_frames) {
+    while (!camera.should_close() && frame_count < kMaxFramesBeforeGivingUp) {
         camera.get(data);
         frame_count++;
     }
 
-    EXPECT_TRUE(camera.should_close() || frame_count >= max_frames);
+    EXPECT_TRUE(camera.should_close() || frame_count >= kMaxFramesBeforeGivingUp);
 }
 
 TEST_F(ZedSvoPlaybackCameraTest, ShouldCloseBeforeInitialize) {

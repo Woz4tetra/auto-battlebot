@@ -22,19 +22,17 @@ TEST(GrabHealthMonitorTest, FreshMonitorIsHealthy) {
     EXPECT_FALSE(monitor.should_shutdown());
 }
 
-TEST(GrabHealthMonitorTest, SingleSampleDoesNotFillWindow) {
+TEST(GrabHealthMonitorTest, SingleSampleCannotSpanTheWindowSoNeverShutsDown) {
     GrabHealthMonitor monitor(kWindow, kShutdownRatio);
     monitor.record(true, kBase);
-    // One sample of age 0 cannot span the window, so no shutdown despite a 100% error ratio.
     EXPECT_FALSE(monitor.window_full());
     EXPECT_DOUBLE_EQ(monitor.error_ratio(), 1.0);
     EXPECT_FALSE(monitor.should_shutdown());
 }
 
-TEST(GrabHealthMonitorTest, FullWindowOfErrorsTriggersShutdown) {
+TEST(GrabHealthMonitorTest, SampleAgedExactlyOneWindowIsRetainedAndTriggersShutdown) {
     GrabHealthMonitor monitor(kWindow, kShutdownRatio);
     monitor.record(true, kBase);
-    // Oldest sample is now exactly one window old (age == window is retained, not trimmed).
     monitor.record(true, kBase + kWindow);
     EXPECT_TRUE(monitor.window_full());
     EXPECT_DOUBLE_EQ(monitor.error_ratio(), 1.0);
@@ -46,15 +44,15 @@ TEST(GrabHealthMonitorTest, FullWindowBelowThresholdDoesNotShutdown) {
     monitor.record(false, kBase);
     monitor.record(true, kBase + kWindow);
     EXPECT_TRUE(monitor.window_full());
-    EXPECT_DOUBLE_EQ(monitor.error_ratio(), 0.5);  // 0.5 < 0.70
+    EXPECT_DOUBLE_EQ(monitor.error_ratio(), 0.5);
+    EXPECT_LT(monitor.error_ratio(), kShutdownRatio);
     EXPECT_FALSE(monitor.should_shutdown());
 }
 
 TEST(GrabHealthMonitorTest, AgedOutSamplesAreDropped) {
     GrabHealthMonitor monitor(kWindow, kShutdownRatio);
     monitor.record(true, kBase);
-    // Age of the first sample is 11s > window, so it is trimmed along with its error count.
-    monitor.record(false, kBase + 11s);
+    monitor.record(false, kBase + kWindow + 1s);
     EXPECT_FALSE(monitor.window_full());
     EXPECT_DOUBLE_EQ(monitor.error_ratio(), 0.0);
     EXPECT_FALSE(monitor.should_shutdown());

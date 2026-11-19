@@ -43,9 +43,10 @@ BatteryMonitor::SampleReader fixed_reader(double voltage_v, double current_a,
     };
 }
 
-/** Polls until `done` holds or a second passes. */
+constexpr auto kWaitForTimeout = 1s;
+
 bool wait_for(const std::function<bool()> &done) {
-    const auto deadline = std::chrono::steady_clock::now() + 1s;
+    const auto deadline = std::chrono::steady_clock::now() + kWaitForTimeout;
     while (std::chrono::steady_clock::now() < deadline) {
         if (done()) return true;
         std::this_thread::sleep_for(1ms);
@@ -81,13 +82,13 @@ TEST(BatteryMonitorTest, ChargingFollowsTheConfiguredCurrentSign) {
     EXPECT_TRUE(monitor.latest()->charging);
 }
 
-TEST(BatteryMonitorTest, FailedReadsGoInvalidAfterTheGrace) {
+TEST(BatteryMonitorTest, FailedReadInsideGraceStaysValidWithoutMeasurementsThenGoesInvalid) {
     BatteryOptions options = temp_options("grace");
     options.invalid_read_grace = 2;
+    constexpr int kGoodReadsBeforeBusStops = 1;
     std::atomic<int> reads{0};
     auto reader = [&reads](BatterySample &sample) {
-        // One good read, then the bus stops answering.
-        if (reads.fetch_add(1) > 0) return false;
+        if (reads.fetch_add(1) >= kGoodReadsBeforeBusStops) return false;
         sample.timestamp = std::chrono::steady_clock::now();
         sample.bus_voltage_v = 12.0;
         sample.valid = true;
@@ -96,7 +97,6 @@ TEST(BatteryMonitorTest, FailedReadsGoInvalidAfterTheGrace) {
     BatteryMonitor monitor(options, reader, nullptr, kPeriod);
 
     ASSERT_TRUE(wait_for([&] { return reads.load() >= 2; }));
-    // Inside the grace: still valid, but the failed read carries no measurements.
     ASSERT_TRUE(wait_for([&] {
         const auto m = monitor.latest();
         return m && !m->bus_voltage_v.has_value();

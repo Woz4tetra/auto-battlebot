@@ -20,14 +20,6 @@ class RecordingBackend : public DiagnosticsBackend {
     int receive_count_ = 0;
 };
 
-/**
- * @brief Test-only subclass of DiagnosticsLogger with reset capability
- *
- * This class should ONLY be used in unit tests. It provides a reset()
- * method to clear the singleton state between tests.
- *
- * WARNING: Do not use this class in production code!
- */
 class TestDiagnosticsLogger : public DiagnosticsLogger {
    public:
     static void reset() {

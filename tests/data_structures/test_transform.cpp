@@ -27,9 +27,7 @@ TEST(TransformTest, IdentityMatrix) {
 TEST(TransformTest, TranslationMatrix) {
     Transform tf;
     tf.tf = Eigen::MatrixXd::Identity(4, 4);
-    tf.tf(0, 3) = 1.0;  // x translation
-    tf.tf(1, 3) = 2.0;  // y translation
-    tf.tf(2, 3) = 3.0;  // z translation
+    tf.tf.block<3, 1>(0, 3) = Eigen::Vector3d(1.0, 2.0, 3.0);
 
     EXPECT_DOUBLE_EQ(tf.tf(0, 3), 1.0);
     EXPECT_DOUBLE_EQ(tf.tf(1, 3), 2.0);

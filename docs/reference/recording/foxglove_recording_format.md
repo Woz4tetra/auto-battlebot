@@ -152,7 +152,9 @@ Seeking into the middle of a GOP returns smeared frames; this is the same failur
 `image_stamp_ns` is a **string** holding the decimal `uint64`. It is above 2^53, so a JSON
 number would be rounded by every JavaScript consumer (Foxglove's Raw Messages panel included).
 Python readers convert it with `int()`. `video_frame_index` is an integer, `-1` when video
-recording is off.
+recording is off. It is the return value of `VideoEncoder::submit()`: the position of the frame's
+packet in the file (0, 1, 2... for exactly the frames that become packets), `-1` for a frame the
+encoder refused, and restarted from 0 each session. Playback reads it back as that position.
 
 Join frame_meta to `/camera/video` on `video_frame_index`, never on the timestamp. The two
 channels are written by different threads: the video message's `log_time` is the capture instant
@@ -769,7 +771,9 @@ The AprilTag keypoint model searches a window around the last detection (the ful
 
 ### Video playback camera
 
-`VideoPlaybackCamera` replays `/camera/video` out of a pipeline recording. It is synchronous like the SVO playback camera: `get()` decodes on the caller's thread, so every frame reaches the pipeline in order and none are skipped. Reproducible replay is what regression testing rests on. It reads three channels and ignores the rest: everything else in the file (markers, detections, diagnostics, log) is the previous run's output, which replay exists to regenerate. MCAP indexes channels, so filtering at the reader means those messages are never deserialized. `depth` comes back empty, `tf_visodom_from_camera` is identity, and `pose_tracking_ready` is true.
+`VideoPlaybackCamera` replays `/camera/video` out of a pipeline recording. It is synchronous like the SVO playback camera: `get()` decodes on the caller's thread, so every frame reaches the pipeline in order and none are skipped. Reproducible replay is what regression testing rests on. It reads three channels and ignores the rest: everything else in the file (markers, detections, diagnostics, log) is the previous run's output, which replay exists to regenerate. Reading it would be wrong, not just wasteful. MCAP indexes channels, so filtering at the reader means those messages are never deserialized. `depth` comes back empty, `tf_visodom_from_camera` is identity, and `pose_tracking_ready` is true.
+
+A recording that carries only `/camera/image` opens fine and then produces nothing, which reads as a broken camera. The camera names the missing channel at startup so a wrong recording is not mistaken for a broken one.
 
 ### Publisher
 

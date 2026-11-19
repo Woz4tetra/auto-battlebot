@@ -153,13 +153,15 @@ TEST_F(DiagnosticsModuleLoggerTest, BothEmpty) {
 }
 
 TEST_F(DiagnosticsModuleLoggerTest, ComplexDataWithArrays) {
-    DiagnosticsData data = {{"temperatures", std::vector<int>{95, 94, 90}}, {"voltage", 12.5}};
+    const std::vector<int> temperatures{95, 94, 90};
+    DiagnosticsData data = {{"temperatures", temperatures}, {"voltage", 12.5}};
     logger->error("sub", data, "Multiple issues");
 
     auto statuses = logger->get_snapshots();
     ASSERT_EQ(statuses.size(), 1);
     EXPECT_EQ(statuses[0].level, DiagnosticLevel::ERROR);
-    EXPECT_GE(statuses[0].values.size(), 4);  // 3 temps + 1 voltage
+    const size_t expected_values = temperatures.size() + 1;
+    EXPECT_GE(statuses[0].values.size(), expected_values) << "temperatures plus voltage";
 }
 
 TEST_F(DiagnosticsModuleLoggerTest, MultipleLoggers) {
@@ -290,7 +292,7 @@ TEST_F(StickyDiagnosticsModuleLoggerTest, HeldOnlyHasNoStatus) {
     EXPECT_EQ(logger.get_snapshots().size(), 1U);
 }
 
-TEST_F(StickyDiagnosticsModuleLoggerTest, HeldSubsectionExpires) {
+TEST_F(StickyDiagnosticsModuleLoggerTest, HeldSubsectionExpiresAndIsDroppedAtClear) {
     logger.debug("initialized", {{"ok", 1}});
     logger.clear();
     advance_ms(9999);
@@ -302,7 +304,6 @@ TEST_F(StickyDiagnosticsModuleLoggerTest, HeldSubsectionExpires) {
     logger.debug("process", {{"linear", 0.0}});
     EXPECT_EQ(by_subsection().count("initialized"), 0U);
 
-    // Expired subsections are dropped at clear(), not only hidden.
     logger.clear();
     advance_ms(DiagnosticsModuleLogger::HELD_SECTION_EXPIRY.count() * 1000);
     logger.clear();

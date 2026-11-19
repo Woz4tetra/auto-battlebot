@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <array>
 #include <chrono>
 #include <filesystem>
 #include <foxglove/schemas.hpp>
@@ -25,10 +26,9 @@ constexpr int kFrames = 45;
 constexpr const char *kCalibrationId = "video_playback_test";
 constexpr double kEmbeddedFocal = 200.0;
 constexpr double kFileFocal = 250.0;
+constexpr std::array<double, 5> kZeroDistortion{};
 
-/** A recognisable UYVY frame whose content changes with the index, so a decoded frame can be
- *  matched back to the one that produced it. */
-cv::Mat make_uyvy_frame(int index) {
+cv::Mat make_index_tagged_uyvy_frame(int index) {
     cv::Mat frame(kHeight, kWidth, CV_8UC2);
     for (int row = 0; row < kHeight; ++row) {
         for (int col = 0; col < kWidth; ++col) {
@@ -39,12 +39,22 @@ cv::Mat make_uyvy_frame(int index) {
     return frame;
 }
 
-/** Writes a short recording the way the RGB cameras do: H.264 on /camera/video, FrameMeta
- *  alongside it, and the calibration embedded in the file metadata. A second calibration with a
- *  different focal length goes to a file, so a test can tell which one playback used. */
-class RecordingFixture {
+void submit_waiting_for_encoder(VideoEncoder &encoder, int index, uint64_t log_time_ns) {
+    const uint64_t before = encoder.dropped_frames();
+    encoder.submit(make_index_tagged_uyvy_frame(index), log_time_ns);
+    while (encoder.dropped_frames() != before) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        const uint64_t retry = encoder.dropped_frames();
+        encoder.submit(make_index_tagged_uyvy_frame(index), log_time_ns);
+        if (encoder.dropped_frames() == retry) {
+            break;
+        }
+    }
+}
+
+class RecordingWithEmbeddedAndFileCalibration {
    public:
-    explicit RecordingFixture(uint64_t video_log_offset_ns = 0) {
+    explicit RecordingWithEmbeddedAndFileCalibration(uint64_t video_log_offset_ns = 0) {
         calibration_path_ = (std::filesystem::temp_directory_path() /
                              "auto_battlebot_video_playback_calibration.toml")
                                 .string();
@@ -54,6 +64,7 @@ class RecordingFixture {
         calibration.height = kHeight;
         calibration.fx = kEmbeddedFocal;
         calibration.fy = kEmbeddedFocal;
+        calibration.distortion_k1_k2_p1_p2_k3 = kZeroDistortion;
         calibration.cx = kWidth / 2.0;
         calibration.cy = kHeight / 2.0;
 
@@ -100,25 +111,13 @@ class RecordingFixture {
             identity.image_stamp_ns = stamp_ns;
             identity.video_frame_index = i;
             meta.log(foxglove_adapters::to_frame_meta_json(identity), stamp_ns);
-            // Wait for the encoder to keep up rather than overrunning its bounded queue. A live
-            // camera submits at frame rate; this loop would otherwise submit as fast as memcpy
-            // allows and the fixture would come out with holes in it.
-            const uint64_t before = encoder.dropped_frames();
-            encoder.submit(make_uyvy_frame(i), stamp_ns + video_log_offset_ns);
-            while (encoder.dropped_frames() != before) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(2));
-                const uint64_t retry = encoder.dropped_frames();
-                encoder.submit(make_uyvy_frame(i), stamp_ns + video_log_offset_ns);
-                if (encoder.dropped_frames() == retry) {
-                    break;
-                }
-            }
+            submit_waiting_for_encoder(encoder, i, stamp_ns + video_log_offset_ns);
         }
         encoder.stop();
         recorder_->close();
     }
 
-    ~RecordingFixture() {
+    ~RecordingWithEmbeddedAndFileCalibration() {
         std::error_code ec;
         std::filesystem::remove(path_, ec);
         std::filesystem::remove(calibration_path_, ec);
@@ -138,11 +137,11 @@ class RecordingFixture {
     bool started_ = false;
 };
 
-VideoPlaybackCameraConfiguration make_config(const RecordingFixture &fixture) {
+VideoPlaybackCameraConfiguration make_config(
+    const RecordingWithEmbeddedAndFileCalibration &fixture) {
     VideoPlaybackCameraConfiguration config;
     config.video_file_path = fixture.path().string();
     config.calibration_file = fixture.calibration_path();
-    // Off, so the test does not sleep through the recording's own frame spacing.
     config.real_time_mode = false;
     config.rebase_stamps = false;
     return config;
@@ -151,7 +150,9 @@ VideoPlaybackCameraConfiguration make_config(const RecordingFixture &fixture) {
 
 class VideoPlaybackCameraTest : public ::testing::Test {
    protected:
-    static void SetUpTestSuite() { fixture_ = std::make_unique<RecordingFixture>(); }
+    static void SetUpTestSuite() {
+        fixture_ = std::make_unique<RecordingWithEmbeddedAndFileCalibration>();
+    }
     static void TearDownTestSuite() { fixture_.reset(); }
 
     void SetUp() override {
@@ -160,10 +161,10 @@ class VideoPlaybackCameraTest : public ::testing::Test {
         }
     }
 
-    static std::unique_ptr<RecordingFixture> fixture_;
+    static std::unique_ptr<RecordingWithEmbeddedAndFileCalibration> fixture_;
 };
 
-std::unique_ptr<RecordingFixture> VideoPlaybackCameraTest::fixture_;
+std::unique_ptr<RecordingWithEmbeddedAndFileCalibration> VideoPlaybackCameraTest::fixture_;
 
 TEST_F(VideoPlaybackCameraTest, FullDataPipeline) {
     VideoPlaybackCamera camera(make_config(*fixture_));
@@ -182,18 +183,21 @@ TEST_F(VideoPlaybackCameraTest, FullDataPipeline) {
     EXPECT_EQ(data.rgb.image.cols, data.camera_info.width);
     EXPECT_EQ(data.rgb.image.rows, data.camera_info.height);
 
-    // The depth assertions from the SVO test invert. There is no depth, and playback must not
-    // invent one: KeypointHeightGate abstains on an empty image and to_field_point_cloud returns
-    // nullopt, both of which the pipeline already handles.
-    EXPECT_TRUE(data.depth.image.empty());
-
     EXPECT_GT(data.tf_visodom_from_camera.header.stamp, 0.0);
     EXPECT_EQ(data.tf_visodom_from_camera.header.frame_id, FrameId::VISUAL_ODOMETRY);
     EXPECT_EQ(data.tf_visodom_from_camera.child_frame_id, FrameId::CAMERA);
     EXPECT_EQ(data.tf_visodom_from_camera.transform.tf.rows(), 4);
-    // A clamped camera does not move.
-    EXPECT_TRUE(data.tf_visodom_from_camera.transform.tf.isIdentity(1e-12));
+    EXPECT_TRUE(data.tf_visodom_from_camera.transform.tf.isIdentity(1e-12))
+        << "video playback has no odometry and the camera is fixed";
     EXPECT_TRUE(data.pose_tracking_ready);
+}
+
+TEST_F(VideoPlaybackCameraTest, ProducesNoDepth) {
+    VideoPlaybackCamera camera(make_config(*fixture_));
+    ASSERT_TRUE(camera.initialize());
+    CameraData data;
+    ASSERT_TRUE(camera.get(data));
+    EXPECT_TRUE(data.depth.image.empty());
 }
 
 TEST_F(VideoPlaybackCameraTest, MultipleFrameProcessing) {
@@ -269,8 +273,8 @@ TEST_F(VideoPlaybackCameraTest, RectifiesWithTheEmbeddedCalibration) {
     CameraData data;
     ASSERT_TRUE(camera.get(data));
     EXPECT_EQ(camera.recorded_calibration_id(), kCalibrationId);
-    // Zero distortion, so the rectified matrix keeps the recorded focal length.
-    EXPECT_NEAR(data.camera_info.intrinsics.at<double>(0, 0), kEmbeddedFocal, 1.0);
+    EXPECT_NEAR(data.camera_info.intrinsics.at<double>(0, 0), kEmbeddedFocal, 1.0)
+        << "zero distortion keeps the recorded focal length";
 }
 
 TEST_F(VideoPlaybackCameraTest, ConfiguredCalibrationFileOverridesTheEmbeddedOne) {
@@ -323,7 +327,7 @@ TEST(CameraCalibrationTest, ParseNamesTheSourceOfAMissingField) {
 
 TEST(VideoPlaybackCameraJoinTest, ImageStampJoinsFrameMetaOnOrdinalNotLogTime) {
     constexpr uint64_t kVideoLogOffsetNs = 5000000000ULL;
-    RecordingFixture fixture(kVideoLogOffsetNs);
+    RecordingWithEmbeddedAndFileCalibration fixture(kVideoLogOffsetNs);
     if (!fixture.started()) GTEST_SKIP() << "No H.264 encoder available to build the recording";
     VideoPlaybackCamera camera(make_config(fixture));
     ASSERT_TRUE(camera.initialize());
@@ -333,8 +337,9 @@ TEST(VideoPlaybackCameraJoinTest, ImageStampJoinsFrameMetaOnOrdinalNotLogTime) {
     while (frames < 10 && camera.get(data)) {
         const int64_t ordinal = data.frame_identity.video_frame_index;
         EXPECT_EQ(data.frame_identity.image_stamp_ns,
-                  RecordingFixture::kBaseStampNs +
-                      static_cast<uint64_t>(ordinal) * RecordingFixture::kFrameIntervalNs)
+                  RecordingWithEmbeddedAndFileCalibration::kBaseStampNs +
+                      static_cast<uint64_t>(ordinal) *
+                          RecordingWithEmbeddedAndFileCalibration::kFrameIntervalNs)
             << "frame " << ordinal << " took the video log time instead of its frame_meta stamp";
         ++frames;
     }
@@ -359,13 +364,14 @@ TEST_F(VideoPlaybackCameraTest, PacingHoldsTheRecordedRateWhilePipelineWorkRuns)
     const double elapsed_ms =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count();
     const double recorded_ms =
-        (kPlayed - 1) * static_cast<double>(RecordingFixture::kFrameIntervalNs) * 1e-6;
+        (kPlayed - 1) *
+        static_cast<double>(RecordingWithEmbeddedAndFileCalibration::kFrameIntervalNs) * 1e-6;
     EXPECT_GT(elapsed_ms, recorded_ms * 0.95);
     EXPECT_LT(elapsed_ms, recorded_ms * 1.2)
         << "pipeline work of " << kPipelineWork.count() << " ms per frame stretched the replay";
 }
 
-TEST_F(VideoPlaybackCameraTest, StartsAtTheRequestedFrame) {
+TEST_F(VideoPlaybackCameraTest, StartsAtTheRequestedFrameNotThePrecedingKeyframe) {
     VideoPlaybackCameraConfiguration config = make_config(*fixture_);
     config.start_frame = 20;
     VideoPlaybackCamera camera(config);
@@ -373,8 +379,6 @@ TEST_F(VideoPlaybackCameraTest, StartsAtTheRequestedFrame) {
 
     CameraData data;
     ASSERT_TRUE(camera.get(data));
-    // Seeking runs forward from the last IDR at or before the target and discards until it, so the
-    // first frame out is the one asked for and not the keyframe it decoded from.
     EXPECT_EQ(data.frame_identity.video_frame_index, 20);
 }
 
@@ -401,9 +405,6 @@ TEST_F(VideoPlaybackCameraTest, SeekStartsFromPrecedingKeyframe) {
 }
 
 TEST_F(VideoPlaybackCameraTest, RejectsAStartFrameBeyondTheEndOfTheFile) {
-    // A scratch overlay that sets the file path but inherits start_frame from the config it
-    // extends used to seek past the end and exit before the first heartbeat, which reads as a
-    // corrupt recording rather than a config merge.
     VideoPlaybackCameraConfiguration config = make_config(*fixture_);
     config.start_frame = 1000000;
     VideoPlaybackCamera camera(config);
@@ -411,8 +412,6 @@ TEST_F(VideoPlaybackCameraTest, RejectsAStartFrameBeyondTheEndOfTheFile) {
 }
 
 TEST_F(VideoPlaybackCameraTest, IgnoresThePreviousRunsOutput) {
-    // Everything in the file except the three camera channels is the previous run's output, which
-    // replay exists to regenerate. Reading it would be wrong rather than merely wasteful.
     VideoPlaybackCamera camera(make_config(*fixture_));
     ASSERT_TRUE(camera.initialize());
     CameraData data;
@@ -422,8 +421,6 @@ TEST_F(VideoPlaybackCameraTest, IgnoresThePreviousRunsOutput) {
 }
 
 TEST_F(VideoPlaybackCameraTest, NamesTheMissingVideoChannel) {
-    // A recording that carries only /camera/image starts fine and then produces nothing, which
-    // reads as a broken camera rather than the wrong recording.
     auto recorder = std::make_shared<McapRecorder>("video_playback_no_video");
     const std::filesystem::path path = recorder->file_path();
     {
@@ -434,7 +431,7 @@ TEST_F(VideoPlaybackCameraTest, NamesTheMissingVideoChannel) {
         message.frame_id = "camera";
         message.format = "jpeg";
         message.data.assign(4, std::byte{0});
-        image.log_message(message, RecordingFixture::kBaseStampNs);
+        image.log_message(message, RecordingWithEmbeddedAndFileCalibration::kBaseStampNs);
     }
     recorder->close();
 

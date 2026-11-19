@@ -27,22 +27,20 @@ EngineSelectorConfiguration parse_engine(const std::string &toml_text) {
     return config;
 }
 
-// Writes a file that exists but is not a valid TensorRT plan, so deserialization is
-// guaranteed to reject it the way a wrong-architecture engine would.
-class TempFile {
+class InvalidPlanFile {
    public:
-    explicit TempFile(const std::string &name)
+    explicit InvalidPlanFile(const std::string &name)
         : path_(std::filesystem::temp_directory_path() / name) {
         std::ofstream out(path_, std::ios::binary);
         out << "not a tensorrt plan";
     }
-    ~TempFile() {
+    ~InvalidPlanFile() {
         std::error_code ec;
         std::filesystem::remove(path_, ec);
     }
 
-    TempFile(const TempFile &) = delete;
-    TempFile &operator=(const TempFile &) = delete;
+    InvalidPlanFile(const InvalidPlanFile &) = delete;
+    InvalidPlanFile &operator=(const InvalidPlanFile &) = delete;
 
     std::string path() const { return path_.string(); }
 
@@ -87,6 +85,26 @@ typo_field = 3
                  ConfigValidationError);
 }
 
+size_t count_occurrences(const std::string &text, const std::string &needle) {
+    size_t count = 0;
+    for (size_t at = text.find(needle); at != std::string::npos; at = text.find(needle, at + 1)) {
+        ++count;
+    }
+    return count;
+}
+
+std::string select_capturing_log(EngineSelector &selector) {
+    std::ostringstream captured;
+    auto logger = std::make_shared<spdlog::logger>(
+        "engine_selector_test", std::make_shared<spdlog::sinks::ostream_sink_mt>(captured));
+    const auto previous = spdlog::default_logger();
+    spdlog::set_default_logger(logger);
+    TrtEngine engine;
+    EXPECT_FALSE(selector.select(engine).has_value());
+    spdlog::set_default_logger(previous);
+    return captured.str();
+}
+
 TEST(EngineSelectorTest, ReturnsNulloptWhenNoCandidateExists) {
     EngineSelectorConfiguration config;
     config.candidates = {"/nonexistent/one.engine", "/nonexistent/two.engine"};
@@ -96,10 +114,8 @@ TEST(EngineSelectorTest, ReturnsNulloptWhenNoCandidateExists) {
     EXPECT_FALSE(selector.select(engine).has_value());
 }
 
-// A file that exists but is not a valid plan stands in for an engine built for another
-// GPU: both are rejected by deserialization rather than by the existence check.
-TEST(EngineSelectorTest, ReturnsNulloptWhenCandidateIsNotAValidPlan) {
-    TempFile bogus("auto_battlebot_bogus.engine");
+TEST(EngineSelectorTest, ReturnsNulloptWhenCandidateFailsDeserialization) {
+    InvalidPlanFile bogus("auto_battlebot_bogus.engine");
     EngineSelectorConfiguration config;
     config.candidates = {bogus.path()};
     EngineSelector selector(config, "TestModel");
@@ -108,48 +124,31 @@ TEST(EngineSelectorTest, ReturnsNulloptWhenCandidateIsNotAValidPlan) {
     EXPECT_FALSE(selector.select(engine).has_value());
 }
 
-// Missing files must not abort the search; a later candidate still gets its turn. Both
-// candidates fail here, but reaching the second one is what is being checked.
 TEST(EngineSelectorTest, MissingCandidateDoesNotStopTheSearch) {
-    TempFile bogus("auto_battlebot_bogus_second.engine");
+    InvalidPlanFile bogus("auto_battlebot_bogus_second.engine");
     EngineSelectorConfiguration config;
     config.candidates = {"/nonexistent/first.engine", bogus.path()};
     EngineSelector selector(config, "TestModel");
 
-    TrtEngine engine;
-    EXPECT_FALSE(selector.select(engine).has_value());
-}
-
-size_t count_occurrences(const std::string &text, const std::string &needle) {
-    size_t count = 0;
-    for (size_t at = text.find(needle); at != std::string::npos; at = text.find(needle, at + 1)) {
-        ++count;
-    }
-    return count;
+    const std::string log = select_capturing_log(selector);
+    EXPECT_EQ(count_occurrences(log, bogus.path() + " -> rejected by TensorRT"), 1u) << log;
 }
 
 TEST(EngineSelectorTest, SelectLogsOutcomeOnce) {
-    TempFile bogus("auto_battlebot_bogus_logged.engine");
+    InvalidPlanFile bogus("auto_battlebot_bogus_logged.engine");
     EngineSelectorConfiguration config;
     config.candidates = {"/nonexistent/first.engine", bogus.path()};
     EngineSelector selector(config, "TestModel");
 
-    std::ostringstream captured;
-    auto logger = std::make_shared<spdlog::logger>(
-        "engine_selector_test", std::make_shared<spdlog::sinks::ostream_sink_mt>(captured));
-    const auto previous = spdlog::default_logger();
-    spdlog::set_default_logger(logger);
-    TrtEngine engine;
-    EXPECT_FALSE(selector.select(engine).has_value());
-    spdlog::set_default_logger(previous);
-
-    const std::string log = captured.str();
+    const std::string log = select_capturing_log(selector);
     EXPECT_EQ(count_occurrences(log, "no candidate engine loads"), 1u) << log;
     EXPECT_EQ(count_occurrences(log, "/nonexistent/first.engine -> not present"), 1u) << log;
     EXPECT_EQ(count_occurrences(log, bogus.path() + " -> rejected by TensorRT"), 1u) << log;
 }
 
-TEST(EngineSelectorTest, DescribesTheCudaDevice) { EXPECT_FALSE(describe_cuda_device().empty()); }
+TEST(EngineSelectorTest, DescribeCudaDeviceIsNeverEmpty) {
+    EXPECT_FALSE(describe_cuda_device().empty());
+}
 
 }  // namespace auto_battlebot
 
