@@ -47,7 +47,6 @@ CommandFeedback CompositeTransmitter::update() {
     for (size_t i = 0; i < children_.size(); i++) flush_child_if_due(i, now, false);
 
     CommandFeedback merged;
-    // Reverse order so the primary is applied last and wins on a key collision.
     for (auto it = children_.rbegin(); it != children_.rend(); ++it) {
         for (const auto &[frame_id, command] : (*it)->update().stick_commands) {
             merged.stick_commands[frame_id] = command;
@@ -77,7 +76,6 @@ void CompositeTransmitter::flush_child_if_due(size_t i, std::chrono::steady_cloc
 }
 
 bool CompositeTransmitter::did_init_button_press() {
-    // No short-circuit: every child is polled so its edge latch clears.
     bool pressed = false;
     for (const auto &child : children_) {
         if (child->did_init_button_press()) pressed = true;

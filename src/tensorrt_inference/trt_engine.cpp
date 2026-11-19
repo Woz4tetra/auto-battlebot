@@ -28,8 +28,6 @@ class TrtLogger : public nvinfer1::ILogger {
     void log(Severity severity, nvinfer1::AsciiChar const* msg) noexcept override {
         if (severity > Severity::kWARNING) return;
         if (t_quiet_depth > 0) {
-            // Probing a candidate engine. A rejection here is an expected outcome, not a
-            // fault, so keep it out of the error stream and the mcap /log topic.
             spdlog::debug("[TensorRT] {}", msg);
             return;
         }

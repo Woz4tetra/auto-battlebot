@@ -13,10 +13,6 @@ DifferentialDriveProcessor::Channels DifferentialDriveProcessor::process(
     const auto saturated = saturate_velocity(command.forward_mps, command.yaw_rate_radps,
                                              config_.velocity_saturation_limit);
 
-    // The static-friction barrier exists per wheel, not per body axis, so we apply the lifted
-    // deadzone in wheel space. Side-effect: when the robot is already driving forward, a small
-    // steering input passes through cleanly (both wheels are well past the friction barrier); same
-    // for a small linear nudge while spinning in place.
     const auto wheels_in = mix_to_wheels(saturated);
     const double zero_dz = std::clamp(config_.zero_deadzone_percent, 0.0, 100.0) / 100.0;
     const double lifted_dz = std::clamp(config_.lifted_deadzone_percent, 0.0, 100.0) / 100.0;

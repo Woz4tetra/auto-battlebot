@@ -20,7 +20,6 @@ void interrupt_handler(int) { g_interrupted.store(true, std::memory_order_relaxe
 
 namespace auto_battlebot {
 
-// Wire format - keep in sync with simulation/sim_server.py
 #pragma pack(push, 1)
 struct SimRequest {
     double linear_x;
@@ -195,8 +194,6 @@ bool SimConnection::step_and_receive(CameraData& data) {
     }
     last_gt_poses_ = std::move(gt_poses);
 
-    // What the sim's sensing model delivered: a header, then one slot per ground-truth pose.
-    // Flags travel as 0.0 / 1.0 doubles (simulation/protocol.py MEAS_*_FMT).
     struct {
         double delivered, capture_time;
     } meas_header{};
@@ -223,17 +220,15 @@ bool SimConnection::step_and_receive(CameraData& data) {
     }
     last_measurements_ = measurements;
 
-    // Stamp the frame with the sim's logical time (single dt source), not wall-clock, so the
-    // control loop's clock follows sim time and accelerated runs stay correct and deterministic.
-    Header stamp{hdr.sim_time_s, FrameId::CAMERA};
+    Header sim_time_stamp{hdr.sim_time_s, FrameId::CAMERA};
 
-    data.rgb.header = stamp;
+    data.rgb.header = sim_time_stamp;
     data.rgb.image = require_rgb_layout(rgb);
 
-    data.depth.header = stamp;
+    data.depth.header = sim_time_stamp;
     data.depth.image = require_depth_layout(depth);
 
-    data.camera_info.header = stamp;
+    data.camera_info.header = sim_time_stamp;
     data.camera_info.width = w;
     data.camera_info.height = h;
     data.camera_info.intrinsics =

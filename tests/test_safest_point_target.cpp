@@ -170,6 +170,13 @@ TEST(SafestPointTargetTest, HeldTargetCoveredByHazardLoses) {
         << "held target stayed inside the hazard";
 }
 
+TEST(SafestPointTargetTest, DegenerateFieldReturnsNoTarget) {
+    auto selector = make_selector();
+    const auto target =
+        selector.get_target(our_robot_at(0.0, 0.0), make_field(0.0, 0.0), BehaviorMode::RUN_AWAY);
+    EXPECT_FALSE(target.has_value());
+}
+
 TEST(SafestPointTargetTest, LeavingRunAwayClearsHeldTarget) {
     auto selector = make_selector();
     const FieldDescription field = make_field(2.44, 2.44);

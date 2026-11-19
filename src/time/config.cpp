@@ -21,8 +21,6 @@ std::unique_ptr<ClockConfiguration> load_clock_from_toml(
     toml::table const &toml_data, std::vector<std::string> &parsed_sections) {
     auto section = toml_data["clock"].as_table();
     if (!section) {
-        // Optional section: default to the wall-clock SystemClock (hardware/playback behavior
-        // unchanged).
         return std::make_unique<SystemClockConfiguration>();
     }
     ConfigParser parser(*section, "clock");

@@ -161,6 +161,14 @@ TEST(DriveProcessorTest, TankAppliesDeadzonesPerWheel) {
     EXPECT_GE(std::abs(small.second_output), 0.1);
 }
 
+TEST(DriveProcessorTest, DifferentialSmallSteerWhileDrivingPassesThrough) {
+    const DifferentialDriveProcessor differential(make_config(false, false), make_logger());
+    const auto steering = differential.process(command(0.8, 0.01));
+    EXPECT_NEAR(steering.second_output, 0.01, 2e-3) << "steer lifted to the deadzone floor";
+    const auto nudge = differential.process(command(0.01, 0.8));
+    EXPECT_NEAR(nudge.first_output, 0.01, 2e-3) << "linear nudge lifted to the deadzone floor";
+}
+
 TEST(DriveProcessorTest, TankSaturationGivesAngularPriority) {
     const TankDriveProcessor tank({.velocity_saturation_limit = 1.0, .zero_deadzone_percent = 0.0},
                                   make_logger());

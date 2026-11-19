@@ -5,9 +5,8 @@
 namespace auto_battlebot {
 namespace {
 
-// cv::resize INTER_LINEAR's source position for output index `d`: pixel centres line up, and a
-// position past either edge clamps to that edge with no blend.
-__device__ inline void source_index(int d, float scale, int size, int &i0, int &i1, float &frac) {
+__device__ inline void cv_inter_linear_source_index(int d, float scale, int size, int &i0, int &i1,
+                                                    float &frac) {
     float f = (static_cast<float>(d) + 0.5f) * scale - 0.5f;
     int i = static_cast<int>(floorf(f));
     f -= static_cast<float>(i);
@@ -45,8 +44,8 @@ __global__ void letterbox(const uint8_t *__restrict__ source, int source_width, 
 
     int x0, x1, y0, y1;
     float fx, fy;
-    source_index(rx, scale_x, source_width, x0, x1, fx);
-    source_index(ry, scale_y, source_height, y0, y1, fy);
+    cv_inter_linear_source_index(rx, scale_x, source_width, x0, x1, fx);
+    cv_inter_linear_source_index(ry, scale_y, source_height, y0, y1, fy);
     const uint8_t *row0 = source + static_cast<size_t>(y0) * source_step;
     const uint8_t *row1 = source + static_cast<size_t>(y1) * source_step;
     const int c0 = x0 * source_channels;

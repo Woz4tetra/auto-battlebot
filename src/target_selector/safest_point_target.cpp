@@ -18,8 +18,6 @@ std::optional<TargetSelection> SafestPointTarget::get_target(const RobotDescript
                                                              const FieldDescription &field,
                                                              BehaviorMode mode) {
     if (mode == BehaviorMode::ATTACK) {
-        // Clear on leaving RUN_AWAY, so re-entering starts fresh instead of resuming a stale
-        // point.
         held_target_.reset();
         return attack_selector_.get_target(robots, field, mode);
     }
@@ -79,8 +77,6 @@ std::optional<Pose2D> SafestPointTarget::solve(const FieldDescription &field,
                               {"n_opponents", static_cast<int>(opponents.size())},
                               {"n_hazards", static_cast<int>(field.hazards.size())},
                               {"tie_break", our_pose.has_value() ? 1 : 0}});
-    // Nonpositive radius means the field rectangle itself is degenerate (no measurement
-    // yet); hold the previous target upstream rather than steering at garbage.
     if (best.radius <= 0.0) return std::nullopt;
     return best.center;
 }

@@ -98,7 +98,6 @@ void quaternion_to_euler(const Rotation &quaternion, double &roll, double &pitch
     double cosr_cosp = 1.0 - 2.0 * (x * x + y * y);
     roll = std::atan2(sinr_cosp, cosr_cosp);
 
-    // Pitch (Y) -- clamp to avoid NaN at poles
     double sinp = 2.0 * (w * y - z * x);
     sinp = std::clamp(sinp, -1.0, 1.0);
     pitch = std::asin(sinp);
@@ -262,8 +261,6 @@ Eigen::Vector3d correct_plane_height_offset(const Eigen::Vector3d &plane_point,
         return plane_point;
     }
     const Eigen::Vector3d nadir = signed_plane_offset * plane_normal;
-    // Similar triangles: the physical keypoint at keypoint_height projects onto the plane at
-    // plane_point; the true ground point sits inward by the ratio of heights.
     const double scale = (camera_height - keypoint_height) / camera_height;
     return nadir + (plane_point - nadir) * scale;
 }

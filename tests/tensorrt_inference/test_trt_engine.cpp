@@ -1,7 +1,11 @@
 #include <gtest/gtest.h>
+#include <spdlog/sinks/ringbuffer_sink.h>
+#include <spdlog/spdlog.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -28,6 +32,34 @@ std::filesystem::path find_small_engine() {
         }
     }
     return {};
+}
+
+size_t count_error_lines_during_garbage_load(bool quiet) {
+    const std::filesystem::path garbage = write_garbage_engine();
+    auto sink = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(64);
+    spdlog::default_logger()->sinks().push_back(sink);
+    {
+        TrtEngine engine;
+        if (quiet) {
+            TrtEngine::ScopedQuietLogging guard;
+            engine.load(garbage.string());
+        } else {
+            engine.load(garbage.string());
+        }
+    }
+    auto &sinks = spdlog::default_logger()->sinks();
+    sinks.erase(std::remove(sinks.begin(), sinks.end(), sink), sinks.end());
+    std::filesystem::remove(garbage);
+    size_t errors = 0;
+    for (const auto &message : sink->last_raw()) {
+        if (message.level >= spdlog::level::err) ++errors;
+    }
+    return errors;
+}
+
+TEST(TrtEngineTest, ProbeRejectionIsNotLoggedAsError) {
+    EXPECT_GT(count_error_lines_during_garbage_load(false), 0u) << "unguarded load reports errors";
+    EXPECT_EQ(count_error_lines_during_garbage_load(true), 0u);
 }
 
 TEST(TrtEngineTest, FailedLoadLeavesObjectClean) {

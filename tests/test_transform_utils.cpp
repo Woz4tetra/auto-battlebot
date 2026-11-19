@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <Eigen/Dense>
+#include <cmath>
 #include <opencv2/core.hpp>
 
 #include "transform_utils.hpp"
@@ -104,6 +105,16 @@ TEST_F(PlaneHeightOffsetTest, ProjectionOverloadMatchesBaseThenCorrects) {
     EXPECT_LT((corrected - nadir).norm(), (uncorrected - nadir).norm());
     EXPECT_EQ(corrected,
               correct_plane_height_offset(uncorrected, plane_center_, plane_normal_, 0.06));
+}
+
+TEST(QuaternionToEulerTest, QuaternionToEulerAtPoleIsFinite) {
+    const double half = std::sqrt(0.5);
+    for (const double sign : {1.0, -1.0}) {
+        double roll = 0.0, pitch = 0.0, yaw = 0.0;
+        quaternion_to_euler(Rotation{half, 0.0, sign * half, 0.0}, roll, pitch, yaw);
+        EXPECT_TRUE(std::isfinite(pitch)) << "sign " << sign;
+        EXPECT_NEAR(pitch, sign * M_PI / 2.0, 1e-6);
+    }
 }
 
 }  // namespace auto_battlebot
