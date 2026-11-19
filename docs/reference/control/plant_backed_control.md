@@ -336,6 +336,13 @@ The static-friction barrier exists per wheel, not per body axis, so the lifted d
 - `DriveProcessorTest.TankUnMixesToDifferentialOutput` loops over both reversal flags because the two processors apply the reversals in different stages. Tank stops in wheel space and differential converts back to body axes, but un-mixing the tank output must still land on the differential output with reversals on.
 - `DriveProcessorTest.ReadbackUndoesTheReversals`: the readback reports the command in the frame `process()` took it, so the filter predicts motion in the direction navigation asked for. The reversals only change what goes on the wire.
 
+## Transmitter feedback tests
+
+`tests/test_transmitters.cpp`.
+
+- `PlaybackTransmitterTest.FeedbackReportsStickCommand`: feedback is normalized stick space only. Physical scaling is the consumer's job, through the fitted `[plant]` gains. When the transmitter also published a pre-scaled physical map, the EKF read it and applied those gains a second time.
+- The command `{0.5, 0.0, -0.25}` sits inside the saturation budget and above the (zero) deadzones, so the drive processor round-trips it unchanged.
+
 ## JigPlantModel tests
 
 `tests/test_jig_plant_model.cpp`.

@@ -61,8 +61,8 @@ TEST(SafestPointTargetTest, RunAwayRectangularFieldStaysOnOurSideOfThePlateau) {
     const auto target =
         selector.get_target(our_robot_at(1.4, 0.0), make_field(3.0, 2.0), BehaviorMode::RUN_AWAY);
     ASSERT_TRUE(target.has_value());
-    // Medial segment endpoints and center tie at radius 1.0; nearest to us wins.
-    EXPECT_NEAR(target->pose.x, 0.5, 1e-9);
+    constexpr double kNearestTiedOptimumX = 0.5;
+    EXPECT_NEAR(target->pose.x, kNearestTiedOptimumX, 1e-9);
     EXPECT_NEAR(target->pose.y, 0.0, 1e-9);
 }
 
@@ -74,10 +74,9 @@ TEST(SafestPointTargetTest, RunAwayCornerTiePrefersCornerNearestUs) {
     ASSERT_TRUE(target.has_value());
     EXPECT_GT(target->pose.x, 0.0);
     EXPECT_GT(target->pose.y, 0.0);
-    // Corner optimum radius, solved exactly on the diagonal.
-    const double expected_radius = 1.22 * (2.0 - std::sqrt(2.0));
+    const double corner_optimum_radius = 1.22 * (2.0 - std::sqrt(2.0));
     EXPECT_NEAR(std::hypot(target->pose.x, target->pose.y),
-                std::sqrt(2.0) * (1.22 - expected_radius), 1e-9);
+                std::sqrt(2.0) * (1.22 - corner_optimum_radius), 1e-9);
 }
 
 TEST(SafestPointTargetTest, AttackMatchesNearestTarget) {
@@ -97,18 +96,17 @@ TEST(SafestPointTargetTest, AttackMatchesNearestTarget) {
 }
 
 TEST(SafestPointTargetTest, HeldTargetSurvivesSmallOpponentMove) {
-    // Explicit threshold: the config default is 0.0, which holds only on an exact tie.
-    auto selector = make_selector_with_hysteresis(0.15);
+    constexpr double kHysteresisM = 0.15;
+    constexpr double kSmallShiftM = 0.05;
+    auto selector = make_selector_with_hysteresis(kHysteresisM);
     const FieldDescription field = make_field(2.44, 2.44);
     auto robots = our_robot_at(0.5, 0.5);
     add_opponent(robots, 0.6, 0.0);
     const auto first = selector.get_target(robots, field, BehaviorMode::RUN_AWAY);
     ASSERT_TRUE(first.has_value());
 
-    // A 5 cm opponent shift improves the fresh optimum by well under
-    // retarget_improvement_m, so the held target must not move.
     auto moved = our_robot_at(0.5, 0.5);
-    add_opponent(moved, 0.55, 0.0);
+    add_opponent(moved, 0.6 - kSmallShiftM, 0.0);
     const auto second = selector.get_target(moved, field, BehaviorMode::RUN_AWAY);
     ASSERT_TRUE(second.has_value());
     EXPECT_EQ(second->pose.x, first->pose.x);
@@ -131,20 +129,17 @@ TEST(SafestPointTargetTest, DefaultThresholdRetargetsOnAnyImprovement) {
 }
 
 TEST(SafestPointTargetTest, RetargetsWhenCandidateBeatsHeldByThreshold) {
-    // Pairs with HeldTargetSurvivesSmallOpponentMove: same threshold, improvement large
-    // enough to clear it. At the 0.0 default this case would pass without testing anything.
     auto selector = make_selector_with_hysteresis(0.15);
     const FieldDescription field = make_field(2.44, 2.44);
     auto robots = our_robot_at(0.5, 0.5);
     add_opponent(robots, 0.6, 0.0);
     const auto first = selector.get_target(robots, field, BehaviorMode::RUN_AWAY);
     ASSERT_TRUE(first.has_value());
-    EXPECT_LT(first->pose.x, 0.0);  // safe spot on the far side of the opponent
+    EXPECT_LT(first->pose.x, 0.0) << "safe spot on far side of opponent";
 
-    // Opponent crosses the field: the held far-side spot goes bad and the fresh optimum
-    // beats it by more than retarget_improvement_m, so the target must swap sides.
+    constexpr double kCrossedOpponentX = -0.9;
     auto crossed = our_robot_at(0.5, 0.5);
-    add_opponent(crossed, -0.9, 0.0);
+    add_opponent(crossed, kCrossedOpponentX, 0.0);
     const auto second = selector.get_target(crossed, field, BehaviorMode::RUN_AWAY);
     ASSERT_TRUE(second.has_value());
     EXPECT_GT(second->pose.x, 0.0);
@@ -198,9 +193,6 @@ TEST(SafestPointTargetTest, LeavingRunAwayClearsHeldTarget) {
     ASSERT_TRUE(first.has_value());
     EXPECT_GT(first->pose.x, 0.0);
 
-    // Bounce through ATTACK, then re-enter run-away from the opposite corner. The corners
-    // tie on radius, and a tie never retargets at any threshold, so a stale held target would
-    // stick; getting the near corner proves re-entry started fresh.
     selector.get_target(robots, field, BehaviorMode::ATTACK);
     auto far_side = our_robot_at(-0.9, -0.9);
     add_opponent(far_side, 0.0, 0.0);

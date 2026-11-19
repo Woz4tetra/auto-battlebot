@@ -10,17 +10,12 @@
 namespace auto_battlebot {
 namespace {
 
-/** Feedback is normalized stick space only. Physical scaling is the consumer's job, through the
- * fitted [plant] gains: when the transmitter also published a pre-scaled physical map, the EKF
- * read it and applied those gains a second time. */
 TEST(PlaybackTransmitterTest, FeedbackReportsStickCommand) {
     PlaybackTransmitterConfiguration config;
     auto clock = std::make_shared<ManualClock>();
     PlaybackTransmitter transmitter(config, clock);
     ASSERT_TRUE(transmitter.initialize());
 
-    // Within the saturation budget and above the (zero) deadzones, so the drive processor
-    // round-trips the command unchanged.
     transmitter.send(VelocityCommand{0.5, 0.0, -0.25});
     const CommandFeedback feedback = transmitter.update();
 

@@ -44,3 +44,12 @@ It matched a 1 mm brute-force reference on every tick of six recorded fights and
 - A hazard is a weighted site: the clearance it contributes is distance minus its radius. For a hazard at the origin of a square field of half extent `h`, the answer sits on a diagonal with the center at `(-(h - r), -(h - r))`. The two walls give `r_circle` and the hazard gives `sqrt(2) * (h - r) - R`, so `r_circle = (sqrt(2) * h - R) / (1 + sqrt(2))`. That is not the point answer minus `R`, which is the easy thing to assume and is wrong.
 - A fully covered field returns a negative radius. `SafestPointTarget` declines on `radius <= 0`, and `SafestPointTargetTest.RunAwayDeclinesWhenHazardsCoverTheField` pins that.
 - A recorded fight without hazards reads exactly as it did before the hazard work, and one with hazards says so. Otherwise the diagnostics cannot tell which geometry pinned a bad goal.
+
+## SafestPointTarget tests
+
+`tests/test_safest_point_target.cpp`.
+
+- On a 3 x 2 field with no opponent, the medial segment endpoints and the center tie at radius 1.0. The tie-break picks the one nearest us, so from x = 1.4 the target is x = 0.5.
+- The hysteresis tests pass `retarget_improvement_m = 0.15` explicitly. The config default is 0.0, which holds a target only on an exact tie, so `HeldTargetSurvivesSmallOpponentMove` would not test the hold.
+- `RetargetsWhenCandidateBeatsHeldByThreshold` pairs with it: same threshold, improvement large enough to clear it. At the 0.0 default it would pass without testing anything.
+- `LeavingRunAwayClearsHeldTarget` re-enters run-away from the opposite corner. The two corners tie on radius and a tie never retargets at any threshold, so a stale held target would stick. Getting the near corner proves re-entry started fresh.

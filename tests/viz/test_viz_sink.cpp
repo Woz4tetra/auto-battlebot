@@ -183,9 +183,23 @@ TEST(VizSinkTest, ReplaysAdvertisesThenStreamsAndReadsSubscriberCounts) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     EXPECT_EQ(sink.num_subscribers(channel), 3u);
+}
 
-    // The relay dropping the connection resets the subscriber count, and the sink reconnects on
-    // its own and replays the advertise so the relay can rebuild its channel table.
+TEST(VizSinkTest, ReconnectsAndReplaysAdvertiseAfterRelayDrop) {
+    const auto path = test_socket_path();
+    FakeRelay relay(path);
+    VizSink sink(path);
+    const uint32_t channel =
+        sink.advertise("/topic", "json", VizSchema{"n", "jsonschema", "{}"}, true);
+    ASSERT_TRUE(relay.accept_client(std::chrono::seconds(3)));
+    std::vector<std::byte> body;
+    ASSERT_TRUE(relay.read_frame(body, std::chrono::seconds(2)));
+    ASSERT_TRUE(wait_until([&] { return sink.connected(); }, std::chrono::seconds(1)));
+    relay.send_subscriber_count(channel, 3);
+    ASSERT_TRUE(
+        wait_until([&] { return sink.num_subscribers(channel) == 3; }, std::chrono::seconds(1)));
+
+    const std::string payload = "{}";
     relay.drop_client();
     for (int i = 0; i < 200 && sink.num_subscribers(channel) != 0; ++i) {
         sink.publish(channel, reinterpret_cast<const std::byte*>(payload.data()), payload.size(),
@@ -193,6 +207,7 @@ TEST(VizSinkTest, ReplaysAdvertisesThenStreamsAndReadsSubscriberCounts) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     EXPECT_EQ(sink.num_subscribers(channel), 0u);
+    viz::AdvertiseFrame adv;
     ASSERT_TRUE(relay.accept_client(std::chrono::seconds(3)));
     ASSERT_TRUE(relay.read_frame(body, std::chrono::seconds(2)));
     ASSERT_EQ(viz::frame_kind(body.data(), body.size()), viz::FrameKind::ADVERTISE);
@@ -238,8 +253,9 @@ TEST(VizSinkTest, StalledRelayStillDeliversCommandsAndLetsGo) {
     ASSERT_TRUE(relay.accept_client(std::chrono::seconds(3)));
     ASSERT_TRUE(wait_until([&] { return sink->connected(); }, std::chrono::seconds(1)));
 
-    // Far more than a unix socket buffers. The relay reads none of it.
-    for (int i = 0; i < 20; ++i) publish_bytes(*sink, images, 1 << 20, 1 + i);
+    constexpr int kBytesFarBeyondSocketBuffers = 20 << 20;
+    for (int i = 0; i < kBytesFarBeyondSocketBuffers >> 20; ++i)
+        publish_bytes(*sink, images, 1 << 20, 1 + i);
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
     const std::string payload = "{}";
@@ -359,12 +375,10 @@ TEST(VizSinkTest, StatusIsSentAheadOfQueuedImages) {
     ASSERT_EQ(message_channels.size(), static_cast<size_t>(kImages + 1));
     const auto it = std::find(message_channels.begin(), message_channels.end(), status);
     ASSERT_NE(it, message_channels.end());
-    // Only a frame already on its way out can go first.
-    EXPECT_LE(it - message_channels.begin(), 1);
+    constexpr int kFramesAlreadyInFlight = 1;
+    EXPECT_LE(it - message_channels.begin(), kFramesAlreadyInFlight);
 }
 
-// A frozen relay's listen backlog still completes connect(), and the socket buffers the first
-// sends. That is not a relay, so the sink must not log that it connected until one reads.
 TEST(VizSinkTest, ConnectedIsLoggedOnlyOnceTheRelayReads) {
     const auto previous_logger = spdlog::default_logger();
     auto ring = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(64);

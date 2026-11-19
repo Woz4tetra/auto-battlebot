@@ -1089,6 +1089,7 @@ Usage:
 - With no relay, queued messages are dropped and `dropped_messages()` counts them.
 - The socket is non-blocking and the thread polls it for reading and writing together, so a relay that stops reading cannot hold up commands coming the other way, or the destructor. A frame that makes no progress for 2 s (`kSendStallTimeout`) drops the connection and reconnects.
 - Image, video and point cloud channels go in a bulk queue. Everything else (status, logs, scene updates) goes in a priority queue that is sent first, so status never waits behind seconds of camera frames. Each channel stays in one queue, so its own messages keep their order.
+- A frozen relay's listen backlog still completes `connect()`, and the socket buffers the first sends. That is not a relay, so the sink logs that it connected only once the relay reads (`VizSinkTest.ConnectedIsLoggedOnlyOnceTheRelayReads`).
 - Client messages a Foxglove client publishes (for example `{}` on `/command/reinit_field`) reach the client message handler on the sink thread.
 
 The relay unit owns the WebSocket server and restarts on its own. The app unit only orders `After=` it and never waits on it.

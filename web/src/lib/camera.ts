@@ -1,6 +1,3 @@
-// Camera profile helpers shared by the sidebar tile and the CAMERA tab. Values travel in ZED SDK
-// units (exposure in microseconds, analog gain in milli-dB); these format them for display.
-
 import type { CameraSettings, CameraSettingLimits } from "../generated/protocol";
 import { status } from "./status.svelte";
 

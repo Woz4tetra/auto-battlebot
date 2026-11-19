@@ -9,7 +9,6 @@ interface Subsection {
   level: number;
   message: string;
   age_ms?: number;
-  /** Not logged since the last message: the values are repeated. */
   held?: boolean;
   values: Record<string, Value>;
 }

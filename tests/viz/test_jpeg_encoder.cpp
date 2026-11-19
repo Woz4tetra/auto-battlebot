@@ -36,8 +36,6 @@ TEST(JpegEncoderTest, RoundTripsAtInputSizeWithLowError) {
     EXPECT_LT((mean[0] + mean[1] + mean[2]) / 3.0, 3.0) << encoder->name();
 }
 
-// On the Jetson, libnvjpeg used to sit in the global symbol scope and answer OpenCV's libjpeg
-// calls, so any cv::imencode(".jpg") after linking it crashed. Both must work side by side.
 TEST(JpegEncoderTest, OpenCvJpegStillWorksAlongsideTheChosenEncoder) {
     auto encoder = make_jpeg_encoder();
     const cv::Mat input = gradient(64, 48);

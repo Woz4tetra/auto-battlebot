@@ -146,6 +146,10 @@ The Wi-Fi access state file is `$HOME/.local/state/auto_battlebot/wifi_access`. 
 - The H.264 preview uses NVENC where the box has it and libx264 at ultrafast on one thread where it does not (the Orin Nano). It is created when either can open.
 - The nvv4l2h264enc backend returns nullptr when an element is missing or the pipeline does not reach PLAYING, which is where nvv4l2h264enc opens the encoder device.
 
+## JPEG encoder and OpenCV
+
+`libnvjpeg` used to sit in the global symbol scope on the Jetson and answer OpenCV's libjpeg calls, so any `cv::imencode(".jpg")` after linking it crashed. The NVJPG encoder is now a `dlopen` plugin with `RTLD_DEEPBIND`. `JpegEncoderTest.OpenCvJpegStillWorksAlongsideTheChosenEncoder` runs both side by side.
+
 ## Pinned frame memory
 
 `PinnedMatAllocator` backs a `cv::Mat` with pinned, device-mapped host memory so `GpuLetterbox` reads a frame in place instead of copying it to the GPU. Set it on the destination Mat before the conversion that fills it (`frame.allocator = PinnedMatAllocator::instance();`). Pinning is slow because it locks pages, so released buffers go back to a pool keyed by size and the next frame reuses one. On Orin, pinned memory stays CPU-cached and I/O coherent, so the CPU writes into it at full speed. With no CUDA device, or when a pinned allocation fails, it falls back to OpenCV's standard allocator and the frame takes the copy path. The pool keeps 16 free buffers per size: a frame lives about ten ticks between the pipeline and the publisher queue, so this covers steady state without pinning memory forever.

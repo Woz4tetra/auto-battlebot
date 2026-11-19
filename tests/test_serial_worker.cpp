@@ -58,8 +58,17 @@ TEST(SerialWorkerTest, StopRunsWhatWasPostedAndDropsLaterPosts) {
     worker.stop();
     EXPECT_EQ(runs.load(), 5);
     worker.post([&] { runs.fetch_add(1); });
-    worker.stop();  // idempotent
+    worker.stop();
     EXPECT_EQ(runs.load(), 5);
+}
+
+TEST(SerialWorkerTest, StopTwiceRunsNothingExtra) {
+    std::atomic<int> runs{0};
+    SerialWorker worker;
+    worker.post([&] { runs.fetch_add(1); });
+    worker.stop();
+    worker.stop();
+    EXPECT_EQ(runs.load(), 1);
 }
 
 struct PostsFromDestructor {

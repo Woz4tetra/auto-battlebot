@@ -10,8 +10,8 @@ namespace auto_battlebot {
 
 class PlaneHeightOffsetTest : public ::testing::Test {
    protected:
-    // Camera at origin looking down at a plane 3 m below (camera frame, z forward).
-    Eigen::Vector3d plane_center_{0.0, 0.0, 3.0};
+    static constexpr double kPlaneDepthM = 3.0;
+    Eigen::Vector3d plane_center_{0.0, 0.0, kPlaneDepthM};
     Eigen::Vector3d plane_normal_{0.0, 0.0, -1.0};
 
     CameraInfo camera_info_;
@@ -34,11 +34,11 @@ TEST_F(PlaneHeightOffsetTest, ShiftsInwardTowardNadir) {
     const Eigen::Vector3d corrected =
         correct_plane_height_offset(plane_point, plane_center_, plane_normal_, keypoint_height);
 
-    // Camera height is 3.0, so the point contracts toward the nadir (0, 0, 3) by (3 - 0.06) / 3.
-    const double scale = (3.0 - keypoint_height) / 3.0;
+    const double kCameraHeightM = plane_center_.z();
+    const double scale = (kCameraHeightM - keypoint_height) / kCameraHeightM;
     EXPECT_NEAR(corrected.x(), 1.0 * scale, 1e-12);
     EXPECT_NEAR(corrected.y(), 0.5 * scale, 1e-12);
-    EXPECT_NEAR(corrected.z(), 3.0, 1e-12);
+    EXPECT_NEAR(corrected.z(), kCameraHeightM, 1e-12);
 }
 
 TEST_F(PlaneHeightOffsetTest, ExactlyInvertsForwardProjectionOnTiltedPlane) {

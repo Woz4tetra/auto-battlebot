@@ -53,14 +53,16 @@ TEST(ImageEncoderWorkerTest, BurstEncodesTheNewestAndCountsTheRestReplaced) {
         while (!release.load()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
         last_seen = job.log_time_ns;
     });
-    // The first frame is picked up and blocks the worker; the next five pile into one slot.
-    worker.submit({cv::Mat(4, 4, CV_8UC3), {}, 1});
+    constexpr uint64_t kBlockingFrame = 1;
+    constexpr uint64_t kLastPiledFrame = 6;
+    worker.submit({cv::Mat(4, 4, CV_8UC3), {}, kBlockingFrame});
     const bool picked_up = wait_for([&] { return started.load(); });
-    for (uint64_t t = 2; t <= 6; ++t) worker.submit({cv::Mat(4, 4, CV_8UC3), {}, t});
+    for (uint64_t t = kBlockingFrame + 1; t <= kLastPiledFrame; ++t)
+        worker.submit({cv::Mat(4, 4, CV_8UC3), {}, t});
     release = true;
     ASSERT_TRUE(picked_up);
     ASSERT_TRUE(wait_for([&] { return worker.stats().encoded_frames == 2; }));
-    EXPECT_EQ(last_seen.load(), 6u);
+    EXPECT_EQ(last_seen.load(), kLastPiledFrame);
     EXPECT_EQ(worker.stats().replaced_frames, 4u);
 }
 
