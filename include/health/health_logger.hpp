@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -18,8 +19,7 @@ class HealthLogger {
     void maybe_log();
     void record_tick(double tick_ms);
 
-    /** Most-recently collected Jetson SoC temperature (degrees C). 0 = not yet available. */
-    double get_last_temp_c() const { return last_temp_c_; }
+    std::optional<double> soc_temperature_c() const { return soc_temperature_c_; }
     const std::string& get_last_compute_mode() const { return last_compute_mode_; }
 
    private:
@@ -31,7 +31,7 @@ class HealthLogger {
     bool tegrastats_unavailable_ = false;
     bool compute_mode_initialized_ = false;
 
-    double last_temp_c_ = 0.0;
+    std::optional<double> soc_temperature_c_;
     std::string last_compute_mode_;
 
     std::chrono::steady_clock::time_point heartbeat_window_start_;

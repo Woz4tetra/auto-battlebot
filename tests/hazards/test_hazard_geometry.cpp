@@ -107,9 +107,10 @@ TEST(HazardGeometryTest, StaticHazardIgnoresItsVelocityField) {
 TEST(HazardGeometryTest, TangentPointSitsOnTheCircle) {
     // Start at the origin, circle of radius 1 centred at (2, 0): half-angle asin(1/2) = 30 deg,
     // tangent length sqrt(3), so the left tangency point is (1.5, sqrt(3)/2).
-    const TangentWaypoint waypoint = tangent_waypoint(pose(0.0, 0.0), pose(2.0, 0.0), 1.0, 0.0, 1);
+    const TangentWaypoint waypoint =
+        tangent_waypoint(pose(0.0, 0.0), pose(2.0, 0.0), 1.0, 0.0, PassSide::LEFT);
     EXPECT_FALSE(waypoint.inside);
-    EXPECT_EQ(waypoint.side, 1);
+    EXPECT_EQ(waypoint.side, PassSide::LEFT);
     EXPECT_NEAR(waypoint.point.x, 1.5, 1e-9);
     EXPECT_NEAR(waypoint.point.y, std::sqrt(3.0) / 2.0, 1e-9);
     EXPECT_NEAR(std::hypot(waypoint.point.x - 2.0, waypoint.point.y), 1.0, 1e-9);
@@ -119,22 +120,23 @@ TEST(HazardGeometryTest, TangentSideFollowsTheCheaperHeadingChange) {
     const Pose2D center = pose(2.0, 0.0);
     // Pointing 20 deg right of the hazard: the right tangent is 10 deg away, the left 50.
     const TangentWaypoint right =
-        tangent_waypoint(pose(0.0, 0.0), center, 1.0, -20.0 * M_PI / 180.0, 0);
-    EXPECT_EQ(right.side, -1);
+        tangent_waypoint(pose(0.0, 0.0), center, 1.0, -20.0 * M_PI / 180.0, PassSide::NONE);
+    EXPECT_EQ(right.side, PassSide::RIGHT);
     const TangentWaypoint left =
-        tangent_waypoint(pose(0.0, 0.0), center, 1.0, 20.0 * M_PI / 180.0, 0);
-    EXPECT_EQ(left.side, 1);
+        tangent_waypoint(pose(0.0, 0.0), center, 1.0, 20.0 * M_PI / 180.0, PassSide::NONE);
+    EXPECT_EQ(left.side, PassSide::LEFT);
 }
 
 TEST(HazardGeometryTest, CommittedSideOverridesTheCheaperChoice) {
     const TangentWaypoint latched =
-        tangent_waypoint(pose(0.0, 0.0), pose(2.0, 0.0), 1.0, -20.0 * M_PI / 180.0, 1);
-    EXPECT_EQ(latched.side, 1);
+        tangent_waypoint(pose(0.0, 0.0), pose(2.0, 0.0), 1.0, -20.0 * M_PI / 180.0, PassSide::LEFT);
+    EXPECT_EQ(latched.side, PassSide::LEFT);
     EXPECT_GT(latched.point.y, 0.0);
 }
 
 TEST(HazardGeometryTest, InsideTheCircleTheWaypointPointsStraightOut) {
-    const TangentWaypoint waypoint = tangent_waypoint(pose(0.3, 0.0), pose(0.0, 0.0), 1.0, 0.0, 0);
+    const TangentWaypoint waypoint =
+        tangent_waypoint(pose(0.3, 0.0), pose(0.0, 0.0), 1.0, 0.0, PassSide::NONE);
     EXPECT_TRUE(waypoint.inside);
     EXPECT_NEAR(waypoint.point.x, 1.0, kTol);
     EXPECT_NEAR(waypoint.point.y, 0.0, kTol);
@@ -162,15 +164,15 @@ TEST(HazardAvoidanceTest, BlockedRunSubstitutesAClearWaypoint) {
     const Pose2D steered = avoidance.steer_around(pose(-1.0, 0.0, 0.0), pose(1.0, 0.0), field);
     EXPECT_TRUE(avoidance.last_substituted());
     EXPECT_GT(std::hypot(steered.x, steered.y), 0.3) << "waypoint must be outside the keep-out";
-    EXPECT_NE(avoidance.committed_side(), 0);
+    EXPECT_NE(avoidance.committed_side(), PassSide::NONE);
 }
 
 TEST(HazardAvoidanceTest, SideStaysLatchedWhileRoundingTheSameHazard) {
     HazardAvoidance avoidance(default_settings());
     const FieldDescription field = field_with({hazard(0.0, 0.0, 0.3)});
     avoidance.steer_around(pose(-1.0, 0.0, 0.0), pose(1.0, 0.0), field);
-    const int first = avoidance.committed_side();
-    ASSERT_NE(first, 0);
+    const PassSide first = avoidance.committed_side();
+    ASSERT_NE(first, PassSide::NONE);
     for (int i = 0; i < 5; ++i) {
         avoidance.steer_around(pose(-0.6, 0.05, -0.6), pose(1.0, 0.0), field);
     }
@@ -208,12 +210,12 @@ TEST(HazardAvoidanceTest, LatchedSideDoesNotCarryToADifferentHazard) {
     const Pose2D start = pose(-0.6, 0.05, -0.6);
     HazardAvoidance fresh(default_settings());
     fresh.steer_around(start, goal, field_with({hazard(5.0, 5.0, 0.1), hazard(0.0, 0.0, 0.3)}));
-    const int fresh_side = fresh.committed_side();
+    const PassSide fresh_side = fresh.committed_side();
 
     HazardAvoidance avoidance(default_settings());
     avoidance.steer_around(pose(-1.0, 0.0, 0.0), goal, field_with({hazard(0.0, 0.0, 0.3)}));
-    const int first = avoidance.committed_side();
-    ASSERT_NE(first, 0);
+    const PassSide first = avoidance.committed_side();
+    ASSERT_NE(first, PassSide::NONE);
     ASSERT_NE(fresh_side, first);
     avoidance.steer_around(start, goal, field_with({hazard(5.0, 5.0, 0.1), hazard(0.0, 0.0, 0.3)}));
     EXPECT_EQ(avoidance.committed_side(), fresh_side);
@@ -225,21 +227,21 @@ TEST(HazardAvoidanceTest, LatchReleasesOnlyPastTheReleaseMargin) {
     HazardAvoidance avoidance(settings);
     const FieldDescription field = field_with({hazard(0.0, 0.0, 0.3)});
     avoidance.steer_around(pose(-1.0, 0.0, 0.0), pose(1.0, 0.0), field);
-    ASSERT_NE(avoidance.committed_side(), 0);
+    ASSERT_NE(avoidance.committed_side(), PassSide::NONE);
     avoidance.steer_around(pose(0.0, 0.33, 0.0), pose(1.0, 0.5), field);
     EXPECT_FALSE(avoidance.last_substituted());
-    EXPECT_NE(avoidance.committed_side(), 0);
+    EXPECT_NE(avoidance.committed_side(), PassSide::NONE);
     avoidance.steer_around(pose(0.0, 0.45, 0.0), pose(1.0, 0.5), field);
-    EXPECT_EQ(avoidance.committed_side(), 0);
+    EXPECT_EQ(avoidance.committed_side(), PassSide::NONE);
 }
 
 TEST(HazardAvoidanceTest, ResetClearsTheLatchedSide) {
     HazardAvoidance avoidance(default_settings());
     const FieldDescription field = field_with({hazard(0.0, 0.0, 0.3)});
     avoidance.steer_around(pose(-1.0, 0.0, 0.0), pose(1.0, 0.0), field);
-    ASSERT_NE(avoidance.committed_side(), 0);
+    ASSERT_NE(avoidance.committed_side(), PassSide::NONE);
     avoidance.reset();
-    EXPECT_EQ(avoidance.committed_side(), 0);
+    EXPECT_EQ(avoidance.committed_side(), PassSide::NONE);
 }
 
 TEST(HazardAvoidanceTest, NoHazardsIsAPassThrough) {

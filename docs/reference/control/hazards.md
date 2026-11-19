@@ -57,13 +57,14 @@ The assembler is the one place inflation happens. The two hazard sources decay d
 - A neutral track is held past going stale and then dropped. Forgetting a hazard is worse than holding a slightly wrong one, so the disc outlives the track. The hold is bounded by the configured window: an unbounded hold would fence off a chunk of the field for the rest of the match after a house bot leaves the arena.
 - A file entry cannot claim kind `ROBOT`. That kind is reserved for live tracks, so a file that claims it is a typo or a misunderstanding.
 - Opponents are not hazards. The solver already avoids them as point sites, and keep-out discs for them would double-count them and make the field unreachable.
-- The loss boundary (`hard_radius`) carries only the small hard margin, so steering plans around the fat disc while the velocity barrier gets strict at the thin one.
+- The loss boundary (`hard_radius`) carries only the small hard margin, so steering plans around the fat disc while the velocity barrier gets strict at the thin one. The margin stays small because the hard radius is where a wheel meets the hole lip, and padding it re-creates the over-inflation that made most of a small arena illegal.
+- A live neutral track gets a smaller margin than a static hazard on purpose. The house bot is a hazard we must not hit, but a large keep-out disc around it makes big parts of the field unreachable when it parks near the middle.
 - Our robot's footprint radius has a fallback. Without one, a frame with no our-robot track would briefly shrink every keep-out disc, which errs in the unsafe direction.
 
 ## Goal push-out and tangent waypoint edge cases
 
 - A goal dead centre in a disc has no radial direction. Any push-out direction is acceptable, but it must be the same one every tick or the goal jitters.
-- Push-out clamps to the field. Without the clamp, a hazard hugging a wall would push the goal out of the arena.
+- Push-out clamps to the field. Without the clamp, a hazard hugging a wall would push the goal out of the arena. The caller passes the clamp bounds already reduced by the navigation's boundary margin, so the push-out clamp and the navigation's own clamp agree.
 - Overlapping discs can bounce a point back and forth. The push-out gives up after an iteration cap instead of looping, so the guarantee is that it terminates and stays inside the field.
 - A gap too narrow to thread is blocked by the other hazard whichever side is chosen. The iteration cap ends the search and the returned waypoint is finite.
 - The pass side latches so the robot does not cut back across a hazard it is already rounding. The latch wins over a cheaper side on a later approach.

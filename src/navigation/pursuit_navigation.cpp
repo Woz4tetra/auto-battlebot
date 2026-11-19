@@ -164,7 +164,7 @@ VelocityCommand PursuitNavigation::compute_pursuit_command(const Pose2D &our_pos
                        {"turn_commit", committed_turn_sign_},
                        {"hazard_count", static_cast<int>(field.hazards.size())},
                        {"hazard_waypoint", hazards_.last_substituted() ? 1 : 0},
-                       {"hazard_side", hazards_.committed_side()},
+                       {"hazard_side", static_cast<int>(hazards_.committed_side())},
                        {"hazard_reverse", hazard_reverse ? 1 : 0},
                    });
 

@@ -19,7 +19,7 @@ double normalize_angle(double angle) {
 HazardAvoidance::HazardAvoidance(HazardAvoidanceSettings settings) : settings_(settings) {}
 
 void HazardAvoidance::reset() {
-    committed_side_ = 0;
+    committed_side_ = PassSide::NONE;
     latched_hazard_index_ = 0;
     last_substituted_ = false;
 }
@@ -28,7 +28,7 @@ Pose2D HazardAvoidance::steer_around(const Pose2D &our_pose, const Pose2D &goal,
                                      const FieldDescription &field) {
     last_substituted_ = false;
     if (!settings_.tangent_enable || field.hazards.empty()) {
-        committed_side_ = 0;
+        committed_side_ = PassSide::NONE;
         return goal;
     }
 
@@ -43,8 +43,9 @@ Pose2D HazardAvoidance::steer_around(const Pose2D &our_pose, const Pose2D &goal,
         const FieldHazard &hazard = field.hazards[*blocking];
         const Pose2D center = predicted_center(hazard, settings_.prediction_horizon_s);
 
-        const int side =
-            (last_substituted_ || latched_hazard_index_ != *blocking) ? 0 : committed_side_;
+        const PassSide side = (last_substituted_ || latched_hazard_index_ != *blocking)
+                                  ? PassSide::NONE
+                                  : committed_side_;
         const TangentWaypoint tangent = tangent_waypoint(
             our_pose, center, hazard.inflated_radius_m + settings_.waypoint_clearance_m,
             our_pose.yaw, side);
@@ -60,14 +61,14 @@ Pose2D HazardAvoidance::steer_around(const Pose2D &our_pose, const Pose2D &goal,
         waypoint = tangent.point;
     }
 
-    if (!last_substituted_ && committed_side_ != 0) {
+    if (!last_substituted_ && committed_side_ != PassSide::NONE) {
         double nearest = std::numeric_limits<double>::infinity();
         for (const auto &hazard : field.hazards) {
             const Pose2D center = predicted_center(hazard, settings_.prediction_horizon_s);
             nearest = std::min(nearest, std::hypot(our_pose.x - center.x, our_pose.y - center.y) -
                                             hazard.inflated_radius_m);
         }
-        if (nearest > settings_.side_release_m) committed_side_ = 0;
+        if (nearest > settings_.side_release_m) committed_side_ = PassSide::NONE;
     }
     return waypoint;
 }

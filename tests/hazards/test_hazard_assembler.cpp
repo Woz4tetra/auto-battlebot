@@ -57,7 +57,7 @@ TEST(HazardAssemblerTest, StaticHazardIsInflatedOnceByOurSizePlusMargin) {
     StaticHazardConfig hole;
     hole.center_x = 0.3;
     hole.center_y = -0.2;
-    hole.radius = 0.25;
+    hole.raw_radius_m = 0.25;
     HazardAssembler assembler(fixture.config, {hole}, fixture.clock);
 
     FieldDescription field;
@@ -202,7 +202,7 @@ radius = 0.18
     ASSERT_EQ(hazards.size(), 2u);
     EXPECT_EQ(hazards[0].kind, HazardKind::HOLE);
     EXPECT_NEAR(hazards[0].center_x, 0.3, 1e-9);
-    EXPECT_NEAR(hazards[0].radius, 0.25, 1e-9);
+    EXPECT_NEAR(hazards[0].raw_radius_m, 0.25, 1e-9);
     EXPECT_EQ(hazards[1].kind, HazardKind::WALL_BLOCK);
     EXPECT_NEAR(hazards[1].center_y, 0.1, 1e-9);
 }
@@ -260,7 +260,7 @@ TEST(HazardAssemblerTest, CarriesTheGeometryAlongsideTheKeepOut) {
     hole.kind = HazardKind::HOLE;
     hole.center_x = 0.2;
     hole.center_y = -0.1;
-    hole.radius = 0.2828;
+    hole.raw_radius_m = 0.2828;
     HazardAssembler assembler(fixture.config, {hole}, fixture.clock);
 
     FieldDescription field;

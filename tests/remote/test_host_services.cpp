@@ -110,6 +110,15 @@ TEST_F(HostServicesTest, SavedOffRunsNothingAtStartup) {
     EXPECT_FALSE(host.wifi_access());
 }
 
+TEST(HostServicesSystemctlTest, PassesNoAskPasswordSoAMissingPolkitRuleFailsInsteadOfPrompting) {
+    const auto arguments = HostServices::systemctl_arguments("start", "dashboard-wifi.service");
+    ASSERT_EQ(arguments.size(), 5u);
+    EXPECT_EQ(arguments[0], "systemctl");
+    EXPECT_EQ(arguments[1], "--no-ask-password");
+    EXPECT_EQ(arguments[3], "start");
+    EXPECT_EQ(arguments[4], "dashboard-wifi.service");
+}
+
 TEST(HostServicesNetworkTest, ReadsHostname) {
     EXPECT_FALSE(HostServices::read_network().hostname.empty());
 }

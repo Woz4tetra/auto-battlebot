@@ -47,7 +47,6 @@ foxglove::schemas::Pose pose_at(double x, double y, double z);
 
 std::string json_escape(const std::string &value);
 
-/** Shortest round-trip decimal for a double, or `null` for NaN/inf, which JSON cannot carry. */
 std::string json_number(double value);
 
 }  // namespace foxglove_adapters

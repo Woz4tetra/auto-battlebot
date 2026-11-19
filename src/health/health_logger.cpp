@@ -442,7 +442,7 @@ bool HealthLogger::collect_tegrastats() {
     if (temp_count > 0) {
         data["max_temp_c"] = max_temp_c;
         data["temp_sensor_count"] = temp_count;
-        last_temp_c_ = max_temp_c;
+        soc_temperature_c_ = max_temp_c;
     }
 
     const std::regex rail_regex(

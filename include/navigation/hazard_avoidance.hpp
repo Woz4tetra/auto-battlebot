@@ -5,6 +5,7 @@
 #include "data_structures/field.hpp"
 #include "data_structures/pose.hpp"
 #include "data_structures/velocity.hpp"
+#include "hazards/hazard_geometry.hpp"
 
 namespace auto_battlebot {
 
@@ -77,11 +78,11 @@ class HazardAvoidance {
                        VelocityCommand &command) const;
 
     bool last_substituted() const { return last_substituted_; }
-    int committed_side() const { return committed_side_; }
+    PassSide committed_side() const { return committed_side_; }
 
    private:
     HazardAvoidanceSettings settings_;
-    int committed_side_ = 0;
+    PassSide committed_side_ = PassSide::NONE;
     size_t latched_hazard_index_ = 0;
     bool last_substituted_ = false;
 };

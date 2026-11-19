@@ -86,8 +86,9 @@ std::optional<size_t> first_blocking_hazard(const Pose2D &start, const Pose2D &g
     return nearest;
 }
 
-TangentWaypoint tangent_waypoint(const Pose2D &start, const Pose2D &center, double radius,
-                                 double heading, int committed_side) {
+TangentWaypoint tangent_waypoint(const Pose2D &start, const Pose2D &center,
+                                 double inflated_radius_m, double heading,
+                                 PassSide committed_side) {
     const double dx = center.x - start.x;
     const double dy = center.y - start.y;
     const double distance = std::hypot(dx, dy);
@@ -97,30 +98,31 @@ TangentWaypoint tangent_waypoint(const Pose2D &start, const Pose2D &center, doub
         // Dead centre: no radial direction either. Hold the current heading and let the reverse
         // backstop work; any choice here is arbitrary, so make it deterministic.
         waypoint.inside = true;
-        waypoint.point.x = start.x + radius * std::cos(heading);
-        waypoint.point.y = start.y + radius * std::sin(heading);
+        waypoint.point.x = start.x + inflated_radius_m * std::cos(heading);
+        waypoint.point.y = start.y + inflated_radius_m * std::sin(heading);
         return waypoint;
     }
 
-    if (distance <= radius) {
+    if (distance <= inflated_radius_m) {
         waypoint.inside = true;
-        waypoint.point.x = center.x - dx / distance * radius;
-        waypoint.point.y = center.y - dy / distance * radius;
+        waypoint.point.x = center.x - dx / distance * inflated_radius_m;
+        waypoint.point.y = center.y - dy / distance * inflated_radius_m;
         return waypoint;
     }
 
     const double to_center = std::atan2(dy, dx);
-    const double half_angle = std::asin(std::clamp(radius / distance, -1.0, 1.0));
-    const double tangent_len = std::sqrt(std::max(0.0, distance * distance - radius * radius));
+    const double half_angle = std::asin(std::clamp(inflated_radius_m / distance, -1.0, 1.0));
+    const double tangent_len =
+        std::sqrt(std::max(0.0, distance * distance - inflated_radius_m * inflated_radius_m));
 
-    int side = committed_side;
-    if (side == 0) {
+    PassSide side = committed_side;
+    if (side == PassSide::NONE) {
         const double left = std::abs(normalize_angle(to_center + half_angle - heading));
         const double right = std::abs(normalize_angle(to_center - half_angle - heading));
-        side = (left <= right) ? 1 : -1;
+        side = (left <= right) ? PassSide::LEFT : PassSide::RIGHT;
     }
 
-    const double bearing = to_center + side * half_angle;
+    const double bearing = to_center + static_cast<int>(side) * half_angle;
     waypoint.point.x = start.x + tangent_len * std::cos(bearing);
     waypoint.point.y = start.y + tangent_len * std::sin(bearing);
     waypoint.side = side;

@@ -145,9 +145,9 @@ Requires a `[navigation.policy]` table naming the model bundle. Refuses to start
 | --- | --- |
 | `hazards_file` | Shared arena geometry file, relative to the config directory (`.toml` optional). The kinematic sim reads the same file, so the simulated floor and the keep-out discs the controller steers on cannot drift apart. Empty means no static hazards |
 | `hazard_static_margin_m` | Clearance added to a static hazard on top of our robot's half-diagonal |
-| `hazard_tracked_margin_m` | Clearance added to a hazard derived from a live neutral track |
+| `hazard_tracked_margin_m` | Clearance added to a hazard derived from a live neutral track. Smaller than the static margin on purpose, so a house bot parked mid-field does not make large parts of the field unreachable |
 | `hazard_tracked_hold_s` | How long a stale neutral track keeps producing a hazard |
-| `hazard_hard_margin_m` | Slack on the hard (loss-boundary) radius beyond the geometry plus our half-diagonal |
+| `hazard_hard_margin_m` | Slack on the hard (loss-boundary) radius beyond the geometry plus our half-diagonal. Small on purpose: the hard radius is where a wheel meets the hole lip |
 
 ### `FixedFieldFilter`
 
@@ -188,6 +188,65 @@ Board geometry defaults match the manufactured board.
 | `field_size_x`, `field_size_y` | Field extent (m) measured from that corner |
 | `accumulate_frames` | Correspondences are stacked across this many frames before the pose latches, so detection noise averages out. `reset` clears the stack |
 | `max_reprojection_error_px` | A real guard here, unlike the four-corner homography: 15 markers give 60 correspondences against 6 unknowns, so the residual measures something. It catches a mis-measured `marker_size`, a board printed at "fit to page", a mirrored id mapping, and a board that was not flat |
+
+## `[keypoint_filter.height]`
+
+| Field | Meaning |
+| --- | --- |
+| `max_height_meters` | Ceiling on absolute height above the field plane. Anything higher is not a robot on the floor: walls, the ceiling, people leaning over the arena |
+| `floor_percentile` | Percentile of the surrounding ring taken as the local floor. Low because the ring can still catch part of a robot, and the floor is the low part of that |
+| `ring_inner_scale`, `ring_outer_scale` | Inner and outer radius of the floor reference ring, as multiples of the inscribed circle's radius. The gap exists so a robot spilling past its inscribed circle does not contaminate its own floor reference |
+| `sample_radius_px` | Half-width of the square depth sample window centred on each keypoint. Feeds the per-keypoint height used for projection, not the gating decision |
+| `min_valid_samples` | Minimum valid depth samples, in the circle and in the ring separately, before a reading is trusted. Below this the gate abstains for that detection |
+| `max_circle_samples` | Cap on depth samples per detection. Larger boxes stride to stay under it, which bounds the per-frame cost regardless of how close a robot is |
+
+## `[keypoint_filter.static]`
+
+| Field | Meaning |
+| --- | --- |
+| `min_dwell_seconds` | How long a cluster must hold still before its detections are suppressed |
+| `min_observations` | Observations required over that dwell, so a stale track cannot qualify on two hits |
+| `responsiveness_window` | Observation count at which the running mean and deviation stop averaging and start tracking. Without it the statistics go numb after a few thousand frames and a robot parking on a logo could never move the verdict. 60 is about 2 s at 30 Hz |
+| `forget_seconds` | Clusters unseen for this long are forgotten |
+
+## `[keypoint_model]`
+
+`type` selects the implementation; the rest are per type.
+
+### `YoloKeypointModel`
+
+| Field | Meaning |
+| --- | --- |
+| `reference_offset_m_per_label` | `Keypoint::reference_offset_m` per detected label: how far the robot's reference point sits ahead of where its front and back keypoints were labelled. Labels absent here get 0, the keypoint midpoint |
+
+### `SimKeypointModel`
+
+The lockstep sim's keypoint model. Design: `docs/reference/perception/robot_filter_pipeline.md`.
+
+| Field | Meaning |
+| --- | --- |
+| `labels` | Label of each ground-truth slot in sim order: our robot, then the sim's `[[opponents]]`. Each label needs `<LABEL>_FRONT` and `<LABEL>_BACK` keypoint labels |
+| `keypoint_offset_m` | Front and back keypoint distance from the robot centre along its heading. The filter only reads the pose the pair implies, so this sets their image spacing, nothing else |
+
+### `AprilTagKeypointModel`
+
+| Field | Meaning |
+| --- | --- |
+| `tag_size_m` | Edge of the black square, the object points `solvePnP` sees |
+| `robot_tag_ids` | The robot's tags. Which one faces up comes from its mount rotation, not its position |
+| `roi_margin_px` | Search window around the last detection, grown by this on every side |
+| `max_reprojection_error_px` | A tag pose worse than this emits no keypoints. It is still recorded |
+| `front_keypoint_m`, `back_keypoint_m` | Body-frame points projected as the front and back keypoints |
+| `axle_height_m` | Axle above the floor, the wheel radius. Keypoint heights are measured from here |
+| `rest_pitch_rad` | Nose-down pitch the robot rests at on the floor, positive about body y |
+| `[[keypoint_model.tags]]` | One robot tag's mounting. `rotation` (row-major `R_body_tag`) and `translation_m` map points in the OpenCV marker frame (origin at the tag centre, x right and y up in the printed image, z out of the printed face) into the robot body frame (FLU at the axle midpoint). The parser rejects a rotation that is not orthonormal or is a reflection |
+
+## `[mcap]`
+
+| Field | Meaning |
+| --- | --- |
+| `max_size_gb` | Roll to a new file past this size |
+| `holding_dir_max_size_gb` | Oldest recordings in the output directory are evicted to stay under this |
 
 ## `[battery]`
 

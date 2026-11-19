@@ -60,12 +60,18 @@ std::filesystem::path HostServices::default_state_file() {
     return base / ".local" / "state" / "auto_battlebot" / "wifi_access";
 }
 
+std::vector<std::string> HostServices::systemctl_arguments(const std::string& verb,
+                                                           const std::string& unit) {
+    return {"systemctl", "--no-ask-password", "--no-block", verb, unit};
+}
+
 int HostServices::run_systemctl_command(const std::string& verb, const std::string& unit) {
-    std::string arg0 = "systemctl", arg1 = "--no-ask-password", arg2 = "--no-block", arg3 = verb,
-                arg4 = unit;
-    char* argv[] = {arg0.data(), arg1.data(), arg2.data(), arg3.data(), arg4.data(), nullptr};
+    std::vector<std::string> arguments = systemctl_arguments(verb, unit);
+    std::vector<char*> argv;
+    for (std::string& argument : arguments) argv.push_back(argument.data());
+    argv.push_back(nullptr);
     pid_t pid = 0;
-    if (::posix_spawnp(&pid, "systemctl", nullptr, nullptr, argv, environ) != 0) return -1;
+    if (::posix_spawnp(&pid, "systemctl", nullptr, nullptr, argv.data(), environ) != 0) return -1;
     constexpr auto kSystemctlDbusHangTimeout = std::chrono::seconds(10);
     const auto deadline = std::chrono::steady_clock::now() + kSystemctlDbusHangTimeout;
     int status = 0;

@@ -61,8 +61,8 @@ std::vector<StaticHazardConfig> load_static_hazards(const std::string &path) {
         }
         hazard.center_x = (*center)[0].value_or(0.0);
         hazard.center_y = (*center)[1].value_or(0.0);
-        hazard.radius = (*entry)["radius"].value_or(0.0);
-        if (hazard.radius <= 0.0) {
+        hazard.raw_radius_m = (*entry)["radius"].value_or(0.0);
+        if (hazard.raw_radius_m <= 0.0) {
             throw ConfigValidationError("hazards[" + std::to_string(i) + "].radius in " +
                                         resolved.string() + " must be > 0");
         }

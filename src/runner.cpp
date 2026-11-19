@@ -82,9 +82,7 @@ void Runner::publish_system_status(bool camera_ok, double loop_rate_hz) {
     message.camera_recording = camera_->is_recording_enabled();
     message.mcap_recording = mcap_recorder_ ? mcap_recorder_->is_enabled() : true;
     if (health_logger_) {
-        // 0 means the health logger has no reading on this platform.
-        const double temperature_c = health_logger_->get_last_temp_c();
-        if (temperature_c != 0.0) message.jetson_temperature_c = temperature_c;
+        message.jetson_temperature_c = health_logger_->soc_temperature_c();
         message.compute_mode = health_logger_->get_last_compute_mode();
     }
     message.uptime_s = uptime_s();

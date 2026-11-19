@@ -36,15 +36,15 @@ void HazardAssembler::assemble(const RobotDescriptionsStamped &robots, FieldDesc
     const double ours = our_half_diagonal(robots);
 
     std::vector<FieldHazard> hazards;
-    hazards.reserve(static_hazards_.size() + held_tracks_.size());
+    hazards.reserve(static_hazards_.size() + last_neutral_sightings_.size());
 
     for (const auto &config : static_hazards_) {
         FieldHazard hazard;
         hazard.center.x = config.center_x;
         hazard.center.y = config.center_y;
-        hazard.object_radius = config.radius;
-        hazard.inflated_radius_m = config.radius + ours + config_.static_margin_m;
-        hazard.hard_radius = config.radius + ours + config_.hard_margin_m;
+        hazard.object_radius = config.raw_radius_m;
+        hazard.inflated_radius_m = config.raw_radius_m + ours + config_.static_margin_m;
+        hazard.hard_radius = config.raw_radius_m + ours + config_.hard_margin_m;
         hazard.source = HazardSource::STATIC;
         hazard.kind = config.kind;
         hazards.push_back(hazard);
@@ -52,11 +52,11 @@ void HazardAssembler::assemble(const RobotDescriptionsStamped &robots, FieldDesc
 
     // Live neutral tracks refresh their held entry; stale ones keep the last live geometry until
     // the hold window expires.
-    std::vector<HeldTrack> refreshed;
+    std::vector<LastNeutralSighting> refreshed;
     for (const auto &robot : robots.descriptions) {
         if (robot.group != Group::NEUTRAL) continue;
         if (robot.is_stale) continue;
-        HeldTrack track;
+        LastNeutralSighting track;
         track.hazard.center = footprint_center(robot);
         track.hazard.object_radius = half_diagonal(robot.size);
         track.hazard.inflated_radius_m =
@@ -70,14 +70,14 @@ void HazardAssembler::assemble(const RobotDescriptionsStamped &robots, FieldDesc
     }
 
     if (refreshed.empty()) {
-        for (const auto &held : held_tracks_) {
+        for (const auto &held : last_neutral_sightings_) {
             if (now_s - held.last_live_s <= config_.tracked_hold_s) {
                 refreshed.push_back(held);
             }
         }
     }
-    held_tracks_ = std::move(refreshed);
-    for (const auto &held : held_tracks_) {
+    last_neutral_sightings_ = std::move(refreshed);
+    for (const auto &held : last_neutral_sightings_) {
         hazards.push_back(held.hazard);
     }
 

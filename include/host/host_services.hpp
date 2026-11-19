@@ -9,6 +9,7 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "remote/messages.hpp"
 
@@ -35,7 +36,6 @@ class HostServices {
     HostServices(const HostServices&) = delete;
     HostServices& operator=(const HostServices&) = delete;
 
-    /** Never blocks on the subprocess. */
     void set_wifi_access(bool enabled);
 
     bool wifi_access() const;
@@ -44,8 +44,8 @@ class HostServices {
 
     static std::filesystem::path default_state_file();
 
-    /** `systemctl --no-ask-password <verb> <unit>`, so a missing polkit rule fails instead of
-     *  prompting on a terminal. */
+    static std::vector<std::string> systemctl_arguments(const std::string& verb,
+                                                        const std::string& unit);
     static int run_systemctl_command(const std::string& verb, const std::string& unit);
 
     static remote::NetworkMessage read_network();
