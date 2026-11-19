@@ -177,6 +177,18 @@ TEST(SafestPointTargetTest, DegenerateFieldReturnsNoTarget) {
     EXPECT_FALSE(target.has_value());
 }
 
+TEST(SafestPointTargetTest, RunAwayDeclinesWhenHazardsCoverTheField) {
+    auto selector = make_selector();
+    FieldDescription field = make_field(2.44, 2.44);
+    FieldHazard hazard;
+    hazard.center.x = 0.0;
+    hazard.center.y = 0.0;
+    hazard.inflated_radius_m = 5.0;
+    field.hazards.push_back(hazard);
+    const auto target = selector.get_target(our_robot_at(0.5, 0.5), field, BehaviorMode::RUN_AWAY);
+    EXPECT_FALSE(target.has_value());
+}
+
 TEST(SafestPointTargetTest, LeavingRunAwayClearsHeldTarget) {
     auto selector = make_selector();
     const FieldDescription field = make_field(2.44, 2.44);

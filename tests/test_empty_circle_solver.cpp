@@ -1,9 +1,3 @@
-// Geometric cases with hand-checkable answers for the exact largest-empty-circle solver,
-// plus a brute-force agreement sweep. Assertions are on radius, not just center: a
-// center-only check passes for the wrong reason when the clearance terms are wrong in
-// compensating ways. These mirror the cases the solver experiment validated on recorded
-// fights, so they regression-test code that has been measured.
-
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -42,8 +36,6 @@ FieldHazard make_hazard(double x, double y, double radius) {
     return hazard;
 }
 
-/** Brute-force sweep with hazards, same 1-Lipschitz argument as the opponent-only version:
- *  distance-to-centre minus a constant is still 1-Lipschitz. */
 double brute_force_radius_with_hazards(const Size &field, const std::vector<Pose2D> &opponents,
                                        const std::vector<FieldHazard> &hazards,
                                        double resolution_m) {
@@ -62,10 +54,6 @@ double brute_force_radius_with_hazards(const Size &field, const std::vector<Pose
     return best;
 }
 
-/** Sampled ground truth for the agreement sweep: best radius over a uniform grid. The
- *  radius function is 1-Lipschitz, so the best node trails the true optimum by at most
- *  resolution / sqrt(2). Lives here rather than in the library because only this test
- *  needs it. */
 double brute_force_radius(const Size &field, const std::vector<Pose2D> &opponents,
                           double resolution_m) {
     const int nx = std::max(2, static_cast<int>(std::ceil(field.x / resolution_m)) + 1);
@@ -91,33 +79,30 @@ TEST(EmptyCircleSolverTest, NoOpponentsSquareFieldCentersAtOrigin) {
 }
 
 TEST(EmptyCircleSolverTest, NoOpponentsRectangularFieldLimitedByShortAxis) {
-    // Catches an implementation that assumes a square field: radius is the short half
-    // extent and the center sits on the long-axis medial segment.
-    const EmptyCircle result = solve_exact(make_field(3.0, 2.0), {});
-    EXPECT_NEAR(result.radius, 1.0, kTol);
+    constexpr double kLong = 3.0;
+    constexpr double kShort = 2.0;
+    const EmptyCircle result = solve_exact(make_field(kLong, kShort), {});
+    EXPECT_NEAR(result.radius, kShort / 2.0, kTol);
     EXPECT_NEAR(result.center.y, 0.0, kTol);
-    EXPECT_LE(std::abs(result.center.x), 0.5 + kTol);
+    EXPECT_LE(std::abs(result.center.x), (kLong - kShort) / 2.0 + kTol);
 }
 
 TEST(EmptyCircleSolverTest, RectangularPlateauTieBreaksTowardPreference) {
-    // The no-opponent solution set on 3.0 x 2.0 is the segment y = 0, |x| <= 0.5; the
-    // solver generates its endpoints and the center. The preference point picks among
-    // those ties without changing the radius.
+    constexpr double kPlateauHalfLength = (3.0 - 2.0) / 2.0;
     const Size field = make_field(3.0, 2.0);
     const EmptyCircle toward_pos = solve_exact(field, {}, make_pose(1.4, 0.8));
     EXPECT_NEAR(toward_pos.radius, 1.0, kTol);
-    EXPECT_NEAR(toward_pos.center.x, 0.5, kTol);
+    EXPECT_NEAR(toward_pos.center.x, kPlateauHalfLength, kTol);
     const EmptyCircle toward_neg = solve_exact(field, {}, make_pose(-1.4, -0.8));
     EXPECT_NEAR(toward_neg.radius, 1.0, kTol);
-    EXPECT_NEAR(toward_neg.center.x, -0.5, kTol);
+    EXPECT_NEAR(toward_neg.center.x, -kPlateauHalfLength, kTol);
 }
 
 TEST(EmptyCircleSolverTest, OpponentAtCenterOfSquareFieldPushesToCorners) {
-    // Four corners tie; solved exactly on the diagonal, r = half * (2 - sqrt(2)).
     const std::vector<Pose2D> opponents = {make_pose(0.0, 0.0)};
-    const double expected = 1.22 * (2.0 - std::sqrt(2.0));
+    const double corner_optimum_radius = 1.22 * (2.0 - std::sqrt(2.0));
     const EmptyCircle result = solve_exact(make_field(2.44, 2.44), opponents);
-    EXPECT_NEAR(result.radius, expected, kTol);
+    EXPECT_NEAR(result.radius, corner_optimum_radius, kTol);
     EXPECT_NEAR(std::abs(result.center.x), std::abs(result.center.y), kTol);
 }
 
@@ -138,7 +123,7 @@ TEST(EmptyCircleSolverTest, OffCenterOpponentBeatsEquidistantCase) {
     const std::vector<Pose2D> opponents = {make_pose(0.7, 0.0)};
     const EmptyCircle result = solve_exact(make_field(2.44, 2.44), opponents);
     EXPECT_GT(result.radius, equidistant + 0.05);
-    EXPECT_LT(result.center.x, 0.0);  // far side from the opponent
+    EXPECT_LT(result.center.x, 0.0) << "far side from the opponent";
 }
 
 TEST(EmptyCircleSolverTest, OpponentAgainstWallDoesNotStraddleIt) {
@@ -157,10 +142,10 @@ TEST(EmptyCircleSolverTest, CoincidentTracksMatchSingleOpponentAnswer) {
 }
 
 TEST(EmptyCircleSolverTest, OpponentOutsideFieldIsHarmless) {
-    // The filter can produce sites outside the rectangle; too far away to constrain
-    // anything, the answer matches the empty field.
-    const EmptyCircle result = solve_exact(make_field(2.44, 2.44), {make_pose(5.0, 0.0)});
-    EXPECT_NEAR(result.radius, 1.22, kTol);
+    constexpr double kOutsideFieldX = 5.0;
+    const EmptyCircle result =
+        solve_exact(make_field(2.44, 2.44), {make_pose(kOutsideFieldX, 0.0)});
+    EXPECT_NEAR(result.radius, 2.44 / 2.0, kTol);
 }
 
 TEST(EmptyCircleSolverTest, ExactMatchesBruteForceOnRandomConfigurations) {
@@ -184,8 +169,6 @@ TEST(EmptyCircleSolverTest, ExactMatchesBruteForceOnRandomConfigurations) {
 }
 
 TEST(EmptyCircleSolverTest, ReportsWinningConstraintFamily) {
-    // No opponents: only the wall constraints can bind, and on a square field the three-wall
-    // triples and the field center tie at the middle.
     const EmptyCircle square = solve_exact(make_field(4.0, 4.0), {});
     EXPECT_TRUE(square.constraint == EmptyCircleConstraint::THREE_WALL ||
                 square.constraint == EmptyCircleConstraint::FIELD_CENTER);
@@ -197,17 +180,16 @@ TEST(EmptyCircleSolverTest, ReportsWinningConstraintFamily) {
     EXPECT_NE(degenerate.constraint, EmptyCircleConstraint::NONE);
 }
 
+double weighted_corner_radius(double half_field, double hazard_radius) {
+    return (std::sqrt(2.0) * half_field - hazard_radius) / (1.0 + std::sqrt(2.0));
+}
+
 TEST(EmptyCircleSolverTest, HazardAtCentreSolvesTheWeightedCornerCase) {
-    // A hazard is a weighted site: the clearance it contributes is distance minus its radius.
-    // As with a bare opponent at the origin the answer sits on a diagonal, but the balance
-    // point moves: with the centre at (-(h - r), -(h - r)) the two walls give r and the hazard
-    // gives sqrt(2) (h - r) - R, so r = (sqrt(2) h - R) / (1 + sqrt(2)). Not the point answer
-    // minus R, which is the easy thing to assume and is wrong.
     const double h = 1.22;
     const double hazard_r = 0.3;
     const Size field = make_field(2.0 * h, 2.0 * h);
     const EmptyCircle result = solve_exact(field, {}, {make_hazard(0.0, 0.0, hazard_r)});
-    const double expected = (std::sqrt(2.0) * h - hazard_r) / (1.0 + std::sqrt(2.0));
+    const double expected = weighted_corner_radius(h, hazard_r);
     EXPECT_NEAR(result.radius, expected, 1e-9);
     EXPECT_NEAR(std::abs(result.center.x), std::abs(result.center.y), 1e-9);
     EXPECT_NEAR(std::abs(result.center.x), h - expected, 1e-9);
@@ -223,8 +205,6 @@ TEST(EmptyCircleSolverTest, GoalIsPushedOffAHazardSittingOnTheBestPoint) {
 }
 
 TEST(EmptyCircleSolverTest, HazardCoveringTheFieldReportsNegativeRadius) {
-    // No legal goal exists. The solver must say so with a negative radius rather than inventing
-    // a point, because that is the signal SafestPointTarget uses to decline.
     const Size field = make_field(2.4, 2.4);
     const std::vector<FieldHazard> hazards = {make_hazard(0.0, 0.0, 5.0)};
     const EmptyCircle result = solve_exact(field, {}, hazards);
@@ -268,8 +248,6 @@ TEST(EmptyCircleRadiusTest, NegativeOutsideAndSubtractsHazardRadius) {
 }
 
 TEST(EmptyCircleSolverTest, HazardFamiliesAreNamedApart) {
-    // A recorded fight without hazards has to read exactly as it did before, and one with them
-    // has to say so, or the diagnostics cannot tell which geometry pinned a bad goal.
     const Size field = make_field(2.44, 2.44);
     const EmptyCircle no_hazard = solve_exact(field, {make_pose(0.0, 0.0)});
     EXPECT_EQ(no_hazard.constraint, EmptyCircleConstraint::PERPENDICULAR_WALLS_POINT);

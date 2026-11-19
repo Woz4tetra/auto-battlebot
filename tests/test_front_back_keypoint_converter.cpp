@@ -86,10 +86,11 @@ TEST_F(FrontBackKeypointConverterTest, PoseSitsAtReferenceOffsetAlongHeading) {
     FrontBackKeypointConverter converter(config_);
     Transform tf;
 
-    // Facing +X, keypoints at 0 and 1: the axle 0.3 m behind the midpoint lands at 0.2.
-    ASSERT_TRUE(converter.get_pose_from_points(Eigen::Vector3d(1.0, 0.0, 0.0),
-                                               Eigen::Vector3d::Zero(), -0.3, tf));
-    EXPECT_NEAR(tf.tf(0, 3), 0.2, 1e-12);
+    const Eigen::Vector3d front(1.0, 0.0, 0.0);
+    const Eigen::Vector3d back = Eigen::Vector3d::Zero();
+    constexpr double kReferenceOffset = -0.3;
+    ASSERT_TRUE(converter.get_pose_from_points(front, back, kReferenceOffset, tf));
+    EXPECT_NEAR(tf.tf(0, 3), 0.5 * (front.x() + back.x()) + kReferenceOffset, 1e-12);
     EXPECT_NEAR(tf.tf(1, 3), 0.0, 1e-12);
 
     ASSERT_TRUE(converter.get_pose_from_points(Eigen::Vector3d(0.0, 1.0, 0.0),

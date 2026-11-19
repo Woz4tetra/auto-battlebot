@@ -32,3 +32,15 @@ Candidates tied on radius (the plateau when no opponent constrains the circle) r
 ## Why this solver
 
 It matched a 1 mm brute-force reference on every tick of six recorded fights and was the cheapest of the three methods compared, about 15 evaluations per tick. The comparison against the coarse grid and the Lipschitz branch and bound is in `docs/experiments/control/run_away_solver_report.md`.
+
+## Tests
+
+`tests/test_empty_circle_solver.cpp` holds geometric cases with hand-checkable answers plus a brute-force agreement sweep.
+
+- Assertions are on radius, not just center. A center-only check passes for the wrong reason when the clearance terms are wrong in compensating ways.
+- The cases mirror the ones the solver experiment validated on recorded fights, so they regression-test code that has been measured.
+- The brute-force reference samples a uniform grid and takes the best radius. The radius function is 1-Lipschitz, so the best node trails the true optimum by at most `resolution / sqrt(2)`. That is the tolerance on the exact answer. With hazards the term is distance to the hazard center minus a constant, which is still 1-Lipschitz, so the same bound holds. The reference lives in the test because nothing else needs it.
+- With no opponents on a square field, the three-wall triples and `field_center` tie at the middle, so the constraint-family test accepts either.
+- A hazard is a weighted site: the clearance it contributes is distance minus its radius. For a hazard at the origin of a square field of half extent `h`, the answer sits on a diagonal with the center at `(-(h - r), -(h - r))`. The two walls give `r_circle` and the hazard gives `sqrt(2) * (h - r) - R`, so `r_circle = (sqrt(2) * h - R) / (1 + sqrt(2))`. That is not the point answer minus `R`, which is the easy thing to assume and is wrong.
+- A fully covered field returns a negative radius. `SafestPointTarget` declines on `radius <= 0`, and `SafestPointTargetTest.RunAwayDeclinesWhenHazardsCoverTheField` pins that.
+- A recorded fight without hazards reads exactly as it did before the hazard work, and one with hazards says so. Otherwise the diagnostics cannot tell which geometry pinned a bad goal.

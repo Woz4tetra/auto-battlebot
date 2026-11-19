@@ -16,7 +16,7 @@ processor; `SimTransmitter` applies the same saturation itself.
 | `velocity_saturation_limit` | Combined budget `\|linear\| + \|angular\| <= limit`. Angular takes priority and linear fills the headroom. 0 clamps each channel to [-1, 1] on its own. The sim has no drive processor, so without it the simulated robot keeps forward authority in a turn the real one has lost in the mixer |
 | `zero_deadzone_percent` | Input magnitude below which the output is forced to zero |
 | `lifted_deadzone_percent` | Smallest non-zero output magnitude once the zero deadzone is exceeded |
-| `max_motor_rpm`, `max_motor_rpm_per_s` | Linear slew limit: the normalized linear command changes by at most `max_motor_rpm_per_s / max_motor_rpm` per second. Unset means no limit |
+| `max_motor_rpm`, `max_motor_rpm_per_s` | Linear slew limit: the normalized linear command changes by at most `max_motor_rpm_per_s / max_motor_rpm` per second. The limit applies only while the autonomy switch (SA) is on; with SA off the command passes through, so the robot never lags the sticks. The ramp baseline is the last tick SA was off. Unset means no limit |
 
 Under `CompositeTransmitter`, an ESP-NOW child's drive processor fields (`drive_processor`,
 `velocity_saturation_limit`, both deadzones, both `reverse_*_channel`) must equal the OpenTX

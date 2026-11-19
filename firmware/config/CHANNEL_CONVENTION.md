@@ -24,6 +24,8 @@ shows the same channel as CH(n+1).
 | 9       | CH10      | Button | none yet                | Ignored                             | Momentary button, diagnostics only today      |
 | 10-15   | CH11-16   | free   |                         |                                     |                                               |
 
+The mk2 firmware writes `a_percent = -100 * channel_a`, then negates it when driving upside down. `espnow_telemetry_channels` undoes both on the Jetson.
+
 ## Transmitter controls (expected mixer)
 
 Sticks:

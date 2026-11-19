@@ -109,20 +109,24 @@ TEST(CompositeTransmitterTest, CapsAChildsRateAndDeliversTheCommandItSkipped) {
     auto trainer = std::make_shared<FakeTransmitter>();
     auto espnow = std::make_shared<FakeTransmitter>();
     std::chrono::steady_clock::time_point now{};
-    CompositeTransmitter composite({trainer, espnow}, {100.0, 0.0}, [&] { return now; });
+    constexpr double kTrainerRateHz = 100.0;
+    const auto kTrainerPeriod = std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+        std::chrono::duration<double>(1.0 / kTrainerRateHz));
+    const auto kInsidePeriod = kTrainerPeriod * 4 / 10;
+    CompositeTransmitter composite({trainer, espnow}, {kTrainerRateHz, 0.0}, [&] { return now; });
 
     composite.send({0.1, 0.0, 0.0});
-    now += std::chrono::milliseconds(4);
-    composite.send({0.2, 0.0, 0.0});  // inside the trainer's 10 ms period
+    now += kInsidePeriod;
+    composite.send({0.2, 0.0, 0.0});
     EXPECT_EQ(trainer->sent.size(), 1u);
     EXPECT_EQ(espnow->sent.size(), 2u);
 
-    now += std::chrono::milliseconds(6);
-    composite.update();  // period over, no newer send: the skipped command goes out
+    now += kTrainerPeriod - kInsidePeriod;
+    composite.update();
     ASSERT_EQ(trainer->sent.size(), 2u);
     EXPECT_DOUBLE_EQ(trainer->sent[1].forward_mps, 0.2);
     composite.update();
-    EXPECT_EQ(trainer->sent.size(), 2u);  // delivered once
+    EXPECT_EQ(trainer->sent.size(), 2u) << "skipped command delivered once";
 }
 
 TEST(CompositeTransmitterTest, DisableFlushesTheFinalStopToACappedChild) {
@@ -148,14 +152,15 @@ TEST(CompositeTransmitterTest, PrimaryWinsFeedbackCollisionsAndEveryChildIsPolle
     EXPECT_EQ(other->update_calls, 1);
 }
 
-TEST(CompositeTransmitterTest, ButtonPollsEveryChildAndStatusComesFromPrimary) {
+TEST(CompositeTransmitterTest,
+     ButtonPollsEveryChildSoEachEdgeLatchClearsAndStatusComesFromPrimary) {
     auto primary = std::make_shared<FakeTransmitter>();
     auto other = std::make_shared<FakeTransmitter>();
     primary->button = true;
     primary->status.connected = true;
     CompositeTransmitter composite({primary, other});
     EXPECT_TRUE(composite.did_init_button_press());
-    EXPECT_EQ(other->button_polls, 1);  // no short-circuit, so its edge latch clears
+    EXPECT_EQ(other->button_polls, 1);
     EXPECT_TRUE(composite.get_status().connected);
 }
 
@@ -222,7 +227,9 @@ TEST(EspNowTelemetryJsonTest, NonFiniteFloatsAndMissingCommandBecomeNull) {
     telemetry.espnow_age_ms = UINT32_MAX;
     telemetry.telemetry_seq = 30517;
     telemetry.gyro_y_dps = -2.5f;
-    telemetry.imu_calib_stat = 0b11100100;  // sys 3, gyro 2, accel 1, mag 0
+    constexpr uint8_t kCalibSys = 3, kCalibGyro = 2, kCalibAccel = 1, kCalibMag = 0;
+    telemetry.imu_calib_stat =
+        (kCalibSys << 6) | (kCalibGyro << 4) | (kCalibAccel << 2) | kCalibMag;
     telemetry.motor_amps_est_left = 6.5f;
     telemetry.motor_speed_right_rad_s = NAN;
     telemetry.guard_state = 3;
@@ -320,7 +327,7 @@ TEST_F(EspNowTransmitterPtyTest, SendsProcessedCommandsWithIncreasingSeqOnlyWhil
     std::memcpy(&second, frames[1].payload.data(), sizeof(second));
     EXPECT_EQ(second.seq, first.seq + 1);
     EXPECT_FLOAT_EQ(first.ch0_value, 0.5f);
-    EXPECT_FLOAT_EQ(first.ch1_value, -0.25f);  // reversed, same as the OpenTX child would
+    EXPECT_FLOAT_EQ(first.ch1_value, -0.25f) << "reversed, same as the OpenTX child";
     EXPECT_FLOAT_EQ(second.ch0_value, 0.25f);
 }
 
@@ -386,13 +393,11 @@ std::vector<espnow_protocol::CommandPayload> read_commands(const std::vector<uin
     return commands;
 }
 
-// With SA on, a linear step ramps at max_motor_rpm_per_s / max_motor_rpm; with SA off it passes
-// through so the robot never lags the sticks.
 TEST_F(EspNowTransmitterPtyTest, SlewLimitsLinearOnlyWhileAutonomyIsOn) {
     EspNowTransmitterConfiguration config;
     config.dongle_serial_path = path_;
     config.max_motor_rpm = 1500.0;
-    config.max_motor_rpm_per_s = 1500.0;  // 1.0 normalized per second
+    config.max_motor_rpm_per_s = config.max_motor_rpm;
     EspNowTransmitter transmitter(config, nullptr, nullptr);
     ASSERT_TRUE(transmitter.initialize());
     transmitter.enable();
@@ -404,12 +409,11 @@ TEST_F(EspNowTransmitterPtyTest, SlewLimitsLinearOnlyWhileAutonomyIsOn) {
     write_telemetry(master_, telemetry);
     usleep(5000);
     transmitter.update();
-    // The ramp runs from this send: the baseline's time is the last tick SA was off.
-    const auto start = std::chrono::steady_clock::now();
+    const auto last_sa_off_time = std::chrono::steady_clock::now();
     transmitter.send({1.0, 0.0, 0.5});
     auto commands = read_commands(read_master());
     ASSERT_EQ(commands.size(), 1u);
-    EXPECT_FLOAT_EQ(commands[0].ch0_value, 0.5f);  // SA off: unlimited (saturation splits 1.0)
+    EXPECT_FLOAT_EQ(commands[0].ch0_value, 0.5f) << "SA off: unlimited, saturation splits 1.0";
 
     telemetry.autonomy_switch_sa = 1;
     write_telemetry(master_, telemetry);
@@ -417,16 +421,15 @@ TEST_F(EspNowTransmitterPtyTest, SlewLimitsLinearOnlyWhileAutonomyIsOn) {
     transmitter.update();
     usleep(50000);
     transmitter.send({1.0, 0.0, 0.0});
-    const double elapsed_s =
-        std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+    const double elapsed_since_sa_off_s =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - last_sa_off_time).count();
     commands = read_commands(read_master());
     ASSERT_EQ(commands.size(), 1u);
     EXPECT_GT(commands[0].ch0_value, 0.0f);
-    EXPECT_LE(commands[0].ch0_value, elapsed_s + 1e-3);
+    EXPECT_LE(commands[0].ch0_value, elapsed_since_sa_off_s + 1e-3);
 }
 
 TEST(EspNowTelemetryChannelsTest, UndoesTheFirmwareNegationAndTheUpsideDownFlip) {
-    // Firmware writes a_percent = -100 * first_output and negates it when upside down.
     espnow_protocol::TelemetryPayload upright = {};
     upright.a_percent = -40.0f;
     upright.b_percent = 25.0f;
@@ -488,10 +491,9 @@ TEST_F(EspNowTransmitterPtyTest, FeedbackAndSwitchComeFromTelemetry) {
     ASSERT_EQ(feedback.stick_commands.count(FrameId::OUR_ROBOT_1), 1u);
     EXPECT_NEAR(feedback.stick_commands.at(FrameId::OUR_ROBOT_1).forward, expected.linear, 1e-6);
     EXPECT_NEAR(feedback.stick_commands.at(FrameId::OUR_ROBOT_1).yaw, expected.angular, 1e-6);
-    // Body frame, not wire frame: b_percent 20 is what send() writes for angular -0.2 under
-    // reverse_angular_channel, so the feedback must read -0.2.
     EXPECT_NEAR(feedback.stick_commands.at(FrameId::OUR_ROBOT_1).forward, 0.5, 1e-6);
-    EXPECT_NEAR(feedback.stick_commands.at(FrameId::OUR_ROBOT_1).yaw, -0.2, 1e-6);
+    EXPECT_NEAR(feedback.stick_commands.at(FrameId::OUR_ROBOT_1).yaw,
+                (config.reverse_angular_channel ? -1.0 : 1.0) * 0.2, 1e-6);
     EXPECT_TRUE(transmitter.get_status().receiving_channels);
     EXPECT_TRUE(transmitter.get_status().autonomy_switch_on);
 

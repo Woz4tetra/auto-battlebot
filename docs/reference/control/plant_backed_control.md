@@ -294,6 +294,7 @@ The droop term reads the linear command and the steer-brake term reads the turn 
 - Config loading requires the `[plant]` table in both our-robot modes, so the dead-reckoning arm gets a physical scale for a normalized stick command from the fit.
 - Before `[plant]` was the single source of physical scaling, the factor came from transmitter-local wheel geometry. It disagreed with the fit by 24% forward and 21% in yaw, and every robot inherited Mrs Buff Mk3's numbers.
 - Reverse stick selects `k_rev`, not `k_fwd`. The Mrs Buff Mk3 fit is asymmetric (4.88 forward, 4.36 reverse), so `k_fwd * u` gets every backward coast wrong.
+- The dead-reckoning conversion is the gains and nothing else. It deliberately does not call `plant_steady_state()`: a single-frame hold carries no state, so deadzones and coupling would model a response the caller cannot represent.
 - `KalmanMotionEstimatorTest` uses the Stage A fit (`plant_stageA.toml`, 2026-08-23), the same values the config chain carries, with asymmetric non-unit gains so a unit-gain or `k_fwd`-for-reverse bug fails.
 
 ## Notes moved from `src/` comments (2026-11-15)
@@ -334,3 +335,13 @@ The static-friction barrier exists per wheel, not per body axis, so the lifted d
 
 - `DriveProcessorTest.TankUnMixesToDifferentialOutput` loops over both reversal flags because the two processors apply the reversals in different stages. Tank stops in wheel space and differential converts back to body axes, but un-mixing the tank output must still land on the differential output with reversals on.
 - `DriveProcessorTest.ReadbackUndoesTheReversals`: the readback reports the command in the frame `process()` took it, so the filter predicts motion in the direction navigation asked for. The reversals only change what goes on the wire.
+
+## JigPlantModel tests
+
+`tests/test_jig_plant_model.cpp`.
+
+- The golden compare wraps theta before differencing. The Python fixture stores unwrapped theta while `propagate` wraps. The dynamics only see theta through sin/cos, so the trajectories are identical either way.
+- The chunked golden test propagates 100 ms per call, the frame-gap scale the EKF uses. The command is re-read every substep, so edges landing inside a chunk take effect at their own time and the result matches the tick-by-tick reference.
+- Jacobian entries are exact only over a single substep, because pose integrates the start-of-substep velocity: `dx/dv = dt` at theta 0, `dtheta/dw = dt`, and the pose rows are identity in themselves. This is why those checks use one 2 ms substep.
+- With no command the target is zero, so both perturbations decelerate. `dv'/dv` is therefore the decel lag factor `exp(-dt / tau_lin_d)`, not the accel one.
+- The half-stick turn in the steer-brake test is far past the zero crossing. At the fitted `c_sb` 2.70 the factor crosses zero near `|u_ang_eff|` 0.37, so the forward target must clamp to zero and not go negative.

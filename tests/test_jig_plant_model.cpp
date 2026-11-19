@@ -14,6 +14,7 @@ namespace {
 // Both sides run identical double arithmetic at the same 2 ms substep; the only drift is
 // last-ulp libm differences accumulating over 1200 steps, well under this.
 constexpr double kGoldenTol = 1e-9;
+constexpr double kDesignHorizonS = 0.4;
 
 double wrap_angle(double angle) {
     double wrapped = std::fmod(angle + M_PI, 2.0 * M_PI);
@@ -38,9 +39,6 @@ std::vector<TimedCommand> golden_commands() {
 void expect_matches_record(const PlantState &state, int record, const char *label) {
     EXPECT_NEAR(state.x, plant_golden::kExpectedX[record], kGoldenTol) << label << record;
     EXPECT_NEAR(state.y, plant_golden::kExpectedY[record], kGoldenTol) << label << record;
-    // The fixture's theta is unwrapped while propagate wraps, so compare the wrapped
-    // difference. The dynamics only see theta through sin/cos, making the trajectories
-    // identical either way.
     EXPECT_NEAR(wrap_angle(state.theta - plant_golden::kExpectedTheta[record]), 0.0, kGoldenTol)
         << label << record;
     EXPECT_NEAR(state.v, plant_golden::kExpectedV[record], kGoldenTol) << label << record;
@@ -64,14 +62,12 @@ TEST(JigPlantModelTest, GoldenTickByTickMatchesPythonReference) {
 }
 
 TEST(JigPlantModelTest, GoldenChunkedPropagateMatchesPythonReference) {
-    // 100 ms per propagate call, the frame-gap scale the EKF will use. The command is
-    // re-read every substep, so edges landing inside a chunk take effect at their own time
-    // and the result matches the tick-by-tick reference exactly.
     JigPlantModel model(golden_params());
     const std::vector<TimedCommand> commands = golden_commands();
     Eigen::Matrix<double, 5, 5> jacobian;
     PlantState state;
-    constexpr int kChunkSteps = 50;
+    constexpr double kEkfFrameGapS = 0.1;
+    constexpr int kChunkSteps = static_cast<int>(kEkfFrameGapS / plant_golden::kDt + 0.5);
     for (int step = kChunkSteps; step <= plant_golden::kSteps; step += kChunkSteps) {
         const double t0 = static_cast<double>(step - kChunkSteps) * plant_golden::kDt;
         const double t1 = static_cast<double>(step) * plant_golden::kDt;
@@ -127,17 +123,12 @@ TEST(JigPlantModelTest, JacobianSingleStepStraightLine) {
     const double dt = 0.002;
     model.propagate(state, {}, 0.0, dt, jacobian);
 
-    // Pose integrates the start-of-substep velocity, so over a single substep these are
-    // exact: dx/dv = dt at theta 0, dtheta/dw = dt, and the pose rows are identity in
-    // themselves.
     EXPECT_NEAR(jacobian(0, 3), dt, 1e-6);
     EXPECT_NEAR(jacobian(1, 3), 0.0, 1e-6);
     EXPECT_NEAR(jacobian(2, 4), dt, 1e-6);
     EXPECT_NEAR(jacobian(0, 0), 1.0, 1e-9);
     EXPECT_NEAR(jacobian(1, 1), 1.0, 1e-9);
     EXPECT_NEAR(jacobian(2, 2), 1.0, 1e-9);
-    // No command: the target is zero, both perturbations decelerate, so dv'/dv is the
-    // decel lag factor.
     EXPECT_NEAR(jacobian(3, 3), std::exp(-dt / model.params().tau_lin_d), 1e-6);
 }
 
@@ -151,21 +142,20 @@ TEST(JigPlantModelTest, JacobianHeadingRotatesVelocityIntoCross) {
     model.propagate(state, {}, 0.0, dt, jacobian);
     EXPECT_NEAR(jacobian(1, 3), dt, 1e-6);
     EXPECT_NEAR(jacobian(0, 3), 0.0, 1e-6);
-    // dx/dtheta = -v * dt * sin(theta) = -dt at pi/2.
-    EXPECT_NEAR(jacobian(0, 2), -state.v * dt, 1e-6);
+    EXPECT_NEAR(jacobian(0, 2), -state.v * dt * std::sin(state.theta), 1e-6);
 }
 
 TEST(JigPlantModelTest, TransportDelayGatesCommandOnset) {
     JigPlantModel model(golden_params());
-    ASSERT_GT(model.params().delay_s, 0.05);
+    constexpr double kInsideDelayS = 0.05;
+    ASSERT_GT(model.params().delay_s, kInsideDelayS);
     const std::vector<TimedCommand> commands = {{0.0, {1.0, 0.0, 0.0}}};
     Eigen::Matrix<double, 5, 5> jacobian;
     PlantState state;
-    state = model.propagate(state, commands, 0.0, 0.05, jacobian);
-    // Inside the transport delay the command has not arrived: no motion at all.
+    state = model.propagate(state, commands, 0.0, kInsideDelayS, jacobian);
     EXPECT_DOUBLE_EQ(state.v, 0.0);
     EXPECT_DOUBLE_EQ(state.x, 0.0);
-    state = model.propagate(state, commands, 0.05, 0.15, jacobian);
+    state = model.propagate(state, commands, kInsideDelayS, kInsideDelayS + 0.1, jacobian);
     EXPECT_GT(state.v, 0.5);
     EXPECT_GT(state.x, 0.0);
 }
@@ -240,7 +230,7 @@ TEST(JigPlantModelTest, EffectiveCommandDeadzoneAndRescale) {
     EXPECT_DOUBLE_EQ(plant_effective_command(-1.0, params.dz_lin_fwd, params.dz_lin_rev), -1.0);
     const double expected = (0.5 - params.dz_lin_fwd) / (1.0 - params.dz_lin_fwd);
     EXPECT_DOUBLE_EQ(plant_effective_command(0.5, params.dz_lin_fwd, params.dz_lin_rev), expected);
-    // The reverse side uses its own, larger deadzone.
+    ASSERT_GT(params.dz_lin_rev, params.dz_lin_fwd);
     EXPECT_LT(std::abs(plant_effective_command(-0.5, params.dz_lin_fwd, params.dz_lin_rev)),
               expected);
 }
@@ -250,8 +240,6 @@ TEST(JigPlantModelTest, SteadyStateSteerBrakeClampsToZero) {
     ASSERT_GT(params.c_sb, 2.0);
     double v_target = 0.0;
     double w_target = 0.0;
-    // At c_sb 2.70 the factor crosses zero near |u_ang_eff| 0.37; a half-stick turn is far
-    // past it, so the forward target must clamp to zero, not go negative.
     plant_steady_state(0.5, 0.5, params, v_target, w_target);
     EXPECT_DOUBLE_EQ(v_target, 0.0);
     EXPECT_GT(w_target, 1.0);
@@ -264,7 +252,6 @@ TEST(JigPlantModelTest, ProcessNoiseRotatesPositionBlockWithHeading) {
     JigPlantNoiseParams noise;
     JigPlantModel model(golden_params(), noise);
     const double dt = 0.1;
-    constexpr double kDesignHorizonS = 0.4;
     PlantState state;
     state.v = 1.5;
     state.w = 2.0;
@@ -299,22 +286,20 @@ TEST(JigPlantModelTest, ProcessNoiseMatchesGrowthLawAtDesignHorizon) {
     const JigPlantParams params = golden_params();
     JigPlantModel model(params, JigPlantNoiseParams{});
 
-    // Hold the fit's median operating point (0.47 m/s, 0.83 rad/s): commands whose steady
-    // state lands there, with the state started at that steady state so the window matches
-    // the conditions the growth law was fit under.
     const double u_lin = 0.10983;
     const double u_ang = 0.04294;
     PlantState state;
     plant_steady_state(u_lin, u_ang, params, state.v, state.w);
-    ASSERT_NEAR(state.v, 0.47, 0.02);
-    ASSERT_NEAR(state.w, 0.83, 0.03);
+    constexpr double kMedianSpeedMps = 0.47;
+    constexpr double kMedianYawRateRadps = 0.83;
+    ASSERT_NEAR(state.v, kMedianSpeedMps, 0.02);
+    ASSERT_NEAR(state.w, kMedianYawRateRadps, 0.03);
     const std::vector<TimedCommand> commands{{-1.0, {u_lin, 0.0, u_ang}}};
 
-    // EKF-style accumulation P = F P F^T + Q per frame over the 400 ms design horizon.
     Eigen::Matrix<double, 5, 5> covariance = Eigen::Matrix<double, 5, 5>::Zero();
     Eigen::Matrix<double, 5, 5> jacobian;
     const double dt = 0.025;
-    const int steps = 16;
+    const int steps = static_cast<int>(kDesignHorizonS / dt + 0.5);
     for (int step = 0; step < steps; ++step) {
         const double t0 = static_cast<double>(step) * dt;
         state = model.propagate(state, commands, t0, t0 + dt, jacobian);
@@ -322,26 +307,22 @@ TEST(JigPlantModelTest, ProcessNoiseMatchesGrowthLawAtDesignHorizon) {
             jacobian * covariance * jacobian.transpose() + model.process_noise(state, commands, dt);
     }
 
-    // Targets are the fitted growth law at 400 ms (fit_process_noise.py modelled row):
-    // along 135 mm, cross 86.6 mm, heading 35.1 deg, decomposed at the start heading
-    // (theta0 = 0, so field x is along-track). The band is wide on purpose: the plant's lag
-    // damps the q h^3/3 terms below their undamped mapping, and heading noise reaches
-    // cross-track through the Jacobian on top of the fitted cross budget. The test pins the
-    // wiring (units, rotation, mechanism terms), not the second-order shape.
     const double sigma_along = std::sqrt(covariance(0, 0));
     const double sigma_cross = std::sqrt(covariance(1, 1));
     const double sigma_heading = std::sqrt(covariance(2, 2));
-    EXPECT_GT(sigma_along, 0.6 * 0.135);
-    EXPECT_LT(sigma_along, 1.5 * 0.135);
-    EXPECT_GT(sigma_cross, 0.6 * 0.0866);
-    EXPECT_LT(sigma_cross, 1.5 * 0.0866);
-    EXPECT_GT(sigma_heading, 0.6 * 0.613);
-    EXPECT_LT(sigma_heading, 1.5 * 0.613);
+    constexpr double kFittedAlongM = 0.135;
+    constexpr double kFittedCrossM = 0.0866;
+    constexpr double kFittedHeadingRad = 0.613;
+    constexpr double kBandLow = 0.6;
+    constexpr double kBandHigh = 1.5;
+    EXPECT_GT(sigma_along, kBandLow * kFittedAlongM);
+    EXPECT_LT(sigma_along, kBandHigh * kFittedAlongM);
+    EXPECT_GT(sigma_cross, kBandLow * kFittedCrossM);
+    EXPECT_LT(sigma_cross, kBandHigh * kFittedCrossM);
+    EXPECT_GT(sigma_heading, kBandLow * kFittedHeadingRad);
+    EXPECT_LT(sigma_heading, kBandHigh * kFittedHeadingRad);
 }
 
-/** The dead-reckoning conversion is the gains and nothing else. It is deliberately not
- * plant_steady_state(): a single-frame hold carries no state, so deadzones and coupling would
- * model a response the caller cannot represent. */
 TEST(PlantStickToBodyVelocityTest, AppliesGainsPerDirection) {
     JigPlantParams params;
     params.k_fwd = 4.0;
