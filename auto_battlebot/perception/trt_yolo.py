@@ -89,7 +89,7 @@ def preprocess_frame(
     frame: np.ndarray,
     input_h: int,
     input_w: int,
-    letterbox_padding: float = 0.0,
+    letterbox_padding: float,
     mode: str = "letterbox",
 ) -> tuple[np.ndarray, float, float, float, float]:
     """BGR frame -> NCHW float32 [0,1] RGB, plus per-axis scale and pad for the inverse.

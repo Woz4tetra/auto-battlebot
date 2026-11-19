@@ -13,8 +13,8 @@ from serial.tools import list_ports
 import serial
 
 BAUD = 921600
-GYRO_DPS_PER_LSB = 0.070
-ACCEL_G_PER_LSB = 0.000244
+GYRO_DPS_PER_LSB = 0.140
+ACCEL_G_PER_LSB = 0.000488
 
 
 def find_port(preferred=None):

@@ -6,7 +6,6 @@
 #include <cuda_runtime.h>
 #include <spdlog/spdlog.h>
 
-#include <atomic>
 #include <chrono>
 #include <cstring>
 #include <fstream>
@@ -22,13 +21,13 @@ namespace auto_battlebot {
 namespace {
 constexpr double kExecuteWarnMs = 120.0;
 
-std::atomic<int> g_quiet_depth{0};
+thread_local int t_quiet_depth = 0;
 
 class TrtLogger : public nvinfer1::ILogger {
    public:
     void log(Severity severity, nvinfer1::AsciiChar const* msg) noexcept override {
         if (severity > Severity::kWARNING) return;
-        if (g_quiet_depth.load(std::memory_order_relaxed) > 0) {
+        if (t_quiet_depth > 0) {
             // Probing a candidate engine. A rejection here is an expected outcome, not a
             // fault, so keep it out of the error stream and the mcap /log topic.
             spdlog::debug("[TensorRT] {}", msg);
@@ -41,7 +40,7 @@ class TrtLogger : public nvinfer1::ILogger {
 TrtLogger g_trt_logger;
 
 void log_load_failure(const std::string& message) {
-    if (g_quiet_depth.load(std::memory_order_relaxed) > 0) {
+    if (t_quiet_depth > 0) {
         spdlog::debug("{}", message);
         return;
     }
@@ -183,13 +182,11 @@ TrtEngine::~TrtEngine() {
     }
 }
 
-TrtEngine::ScopedQuietLogging::ScopedQuietLogging() {
-    g_quiet_depth.fetch_add(1, std::memory_order_relaxed);
-}
+bool TrtEngine::ScopedQuietLogging::active_on_this_thread() { return t_quiet_depth > 0; }
 
-TrtEngine::ScopedQuietLogging::~ScopedQuietLogging() {
-    g_quiet_depth.fetch_sub(1, std::memory_order_relaxed);
-}
+TrtEngine::ScopedQuietLogging::ScopedQuietLogging() { ++t_quiet_depth; }
+
+TrtEngine::ScopedQuietLogging::~ScopedQuietLogging() { --t_quiet_depth; }
 
 bool TrtEngine::load(const std::string& engine_path) {
     FileStreamReader reader(engine_path);

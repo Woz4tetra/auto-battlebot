@@ -25,7 +25,7 @@ class TrtEngine {
     // through would put the exact misleading error EngineSelector exists to replace into
     // stdout and the mcap recording.
     //
-    // Nesting is counted, so overlapping guards behave.
+    // Nesting is counted per thread, so overlapping guards behave.
     class ScopedQuietLogging {
        public:
         ScopedQuietLogging();
@@ -35,6 +35,8 @@ class TrtEngine {
         ScopedQuietLogging& operator=(const ScopedQuietLogging&) = delete;
         ScopedQuietLogging(ScopedQuietLogging&&) = delete;
         ScopedQuietLogging& operator=(ScopedQuietLogging&&) = delete;
+
+        static bool active_on_this_thread();
     };
 
     TrtEngine() = default;

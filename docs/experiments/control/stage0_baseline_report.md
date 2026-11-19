@@ -140,7 +140,7 @@ Tunable thresholds: `--keypoint-height` (default 0.06 m), `--wall-contact-margin
     - our-robot validity: % of ticks with a live OUR_ROBOT_1 (our_present_live > 0)
     - opponent dropout gaps: run-lengths of consecutive ticks with no live opponent (frames + ms)
     - our-robot dropout gaps: run-lengths of consecutive ticks with no live OUR_ROBOT_1 (frames + ms).
-      These bound the keypoint-override decay `hold_window` in docs/robot_filter_decay_plan.md:
+      These bound the keypoint-override decay `hold_window` (now `our_robot_hold_window_s`, `docs/reference/config/profiles.md`):
       if our-robot gaps are short, holding the "ours" identity across them is cheap.
     - track churn: jump_reject events per second (the FrameId assigner refusing a far reassignment)
 

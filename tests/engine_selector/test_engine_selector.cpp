@@ -5,10 +5,12 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <thread>
 
 #include "config/config_parser.hpp"
 #include "engine_selector/config.hpp"
 #include "engine_selector/engine_selector.hpp"
+#include "tensorrt_inference/trt_engine.hpp"
 
 namespace auto_battlebot {
 namespace {
@@ -121,3 +123,24 @@ TEST(EngineSelectorTest, DescribesTheCudaDevice) {
 }
 
 }  // namespace auto_battlebot
+
+TEST(ScopedQuietLoggingTest, QuietsOnlyTheThreadHoldingTheGuard) {
+    auto_battlebot::TrtEngine::ScopedQuietLogging quiet;
+    EXPECT_TRUE(auto_battlebot::TrtEngine::ScopedQuietLogging::active_on_this_thread());
+    bool other_thread_quiet = true;
+    std::thread other([&] {
+        other_thread_quiet = auto_battlebot::TrtEngine::ScopedQuietLogging::active_on_this_thread();
+    });
+    other.join();
+    EXPECT_FALSE(other_thread_quiet);
+}
+
+TEST(ScopedQuietLoggingTest, NestedGuardsStayQuietUntilTheOuterOneEnds) {
+    using Quiet = auto_battlebot::TrtEngine::ScopedQuietLogging;
+    {
+        Quiet outer;
+        { Quiet inner; }
+        EXPECT_TRUE(Quiet::active_on_this_thread());
+    }
+    EXPECT_FALSE(Quiet::active_on_this_thread());
+}

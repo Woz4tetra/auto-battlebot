@@ -120,10 +120,9 @@ def _make_calibrator(int8: Int8Config, input_h: int, input_w: int) -> Any:
 
     Preprocessing goes through `preprocess_frame`, the same letterbox `score.py` and the C++
     pipeline use. Calibration is a measurement of activation ranges, so a preprocessing mismatch
-    between calibration and inference poisons every scale factor in the network. Two details:
-    `letterbox_padding` has to be passed explicitly, because `preprocess_frame` defaults it to
-    0.0 while `TrtYoloModel` and the deployed engine use 0.1; and the blob comes back transposed
-    and non-contiguous, so it needs the same `ascontiguousarray` that `TrtYoloModel._run` does.
+    between calibration and inference poisons every scale factor in the network. The blob comes
+    back transposed and non-contiguous, so it needs the same `ascontiguousarray` that
+    `TrtYoloModel._run` does.
     """
     base = trt.IInt8EntropyCalibrator2 if int8.algo == "entropy2" else trt.IInt8MinMaxCalibrator
 

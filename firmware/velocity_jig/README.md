@@ -79,8 +79,8 @@ IMU data is written as raw int16 counts to keep the write path light and
 lossless. The header line records the scale factors. Convert offline:
 
 ```
-gyro_dps  = raw * gyro_dps_per_lsb     # 0.070 dps/LSB at +/-2000 dps
-accel_g   = raw * accel_g_per_lsb      # 0.000244 g/LSB at +/-8 g
+gyro_dps  = raw * gyro_dps_per_lsb     # 0.140 dps/LSB at +/-4000 dps
+accel_g   = raw * accel_g_per_lsb      # 0.000488 g/LSB at +/-16 g
 ```
 
 `t_us` is `time_us_64()`, microseconds since boot (monotonic, 64-bit). `count` is
