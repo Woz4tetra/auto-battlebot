@@ -5,7 +5,8 @@ from __future__ import annotations
 import math
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Any
+from enum import Enum
+from typing import Any, NamedTuple
 
 import numpy as np
 
@@ -41,7 +42,33 @@ REFIT_S = 4.0
 GHOST_EVERY_S = 0.24
 GHOST_KEEP_S = 6.0
 KEEP_S = 12.0
-DROP_REASONS = ("jetson", "link", "tags", "flip", "wall", "disarmed")
+TELEMETRY_PERIOD_MS = 10
+
+
+class WindowStatus(str, Enum):
+    USED = "used"
+    HOLDOUT = "holdout"
+    IDLE = "idle"
+    JETSON = "jetson"
+    LINK = "link"
+    TAGS = "tags"
+    FLIP = "flip"
+    WALL = "wall"
+    DISARMED = "disarmed"
+
+
+FIT_STATUSES = (WindowStatus.USED, WindowStatus.HOLDOUT)
+
+
+class SeqGap(NamedTuple):
+    robot_ms_before: int
+    robot_ms_after: int
+
+
+class RateMark(NamedTuple):
+    host_ns: int
+    telemetry_count: int
+    frame_count: int
 
 
 @dataclass
@@ -55,7 +82,7 @@ class GridRow:
     upside_down: bool
     left: float
     right: float
-    gyro_dps: float  # clockwise
+    gyro_cw_dps: float
     heading_deg: float
     pid_setpoint: float
     pid_output: float
@@ -67,9 +94,9 @@ class GridRow:
 @dataclass
 class WindowRecord:
     id: int
-    t0: float  # session seconds
-    t1: float
-    status: str  # used | holdout | idle | jetson | link | tags | flip | wall | disarmed
+    t0_session_s: float
+    t1_session_s: float
+    status: WindowStatus
     reason: str = ""
     subs: list[model.SubWindow] = field(default_factory=list)
 
@@ -115,7 +142,7 @@ class CoverageSession:
         self._tele: deque[_Telemetry] = deque()
         self._tele_ptr = 0
         self._last_seq: int | None = None
-        self._seq_gaps: deque[tuple[int, int]] = deque()  # (robot_ms before, robot_ms after)
+        self._seq_gaps: deque[SeqGap] = deque()
         self.seq_drops = 0
         self.grid: deque[GridRow] = deque()
         self.t_origin_ns: int | None = None
@@ -152,7 +179,7 @@ class CoverageSession:
         self.jetson_seen = False
         self._frames_seen = 0
         self._tele_seen = 0
-        self._rate_marks: deque[tuple[int, int, int]] = deque()  # (host ns, tele, frames)
+        self._rate_marks: deque[RateMark] = deque()
         self._push_history(0.0, math.nan, {})
 
     def feed_telemetry(self, row: dict[str, Any], log_time_ns: int) -> None:
@@ -160,7 +187,7 @@ class CoverageSession:
         host_ns = int(row.get("host_receive_ns") or log_time_ns)
         if self._tele and robot_ms <= self._tele[-1].robot_ms:
             if robot_ms < self._tele[-1].robot_ms - 1000:
-                self._tele.clear()  # reboot: the clock map starts over
+                self._tele.clear()
                 self._tele_ptr = 0
                 self._last_seq = None
             else:
@@ -169,15 +196,11 @@ class CoverageSession:
         if seq is not None and self._last_seq is not None and int(seq) != self._last_seq + 1:
             lost = max(int(seq) - self._last_seq - 1, 0)
             self.seq_drops += lost
-            # A frame or two held over is harmless; a run of them is a gap.
-            if lost * 10 > GAP_S * 1000:
+            if lost * TELEMETRY_PERIOD_MS > GAP_S * 1000:
                 prev = self._tele[-1].robot_ms if self._tele else robot_ms
-                self._seq_gaps.append((prev, robot_ms))
+                self._seq_gaps.append(SeqGap(prev, robot_ms))
         if seq is not None:
             self._last_seq = int(seq)
-        # A backfilled row waited in the robot's ring for a poll, so its arrival time says when
-        # the poll ran. The newest row of each poll still feeds the clock's lower envelope. The
-        # clock still takes one when it has nothing to map with, or to see a reboot.
         if not row.get("backfill") or self.clock.empty or self.clock.rebooted(robot_ms):
             self.clock.push(robot_ms, host_ns)
         self._tele.append(_Telemetry(robot_ms, host_ns, row))
@@ -248,8 +271,6 @@ class CoverageSession:
         else:
             gap = True
         r = cur.row
-        # Commands hold from the frame that set them. Measurements interpolate between the
-        # frames either side, or a held gyro would read up to one frame late against the tags.
         gyro = _f(r.get("yaw_rate"))
         if not gap and cur_ns <= t_ns:
             nxt = tele[self._tele_ptr + 1]
@@ -266,7 +287,7 @@ class CoverageSession:
             upside_down=bool(r.get("is_upside_down")),
             left=_f(r.get("left_cmd")),
             right=_f(r.get("right_cmd")),
-            gyro_dps=gyro,
+            gyro_cw_dps=gyro,
             heading_deg=_f(r.get("orientation_x")),
             pid_setpoint=_f(r.get("pid_setpoint")),
             pid_output=_f(r.get("pid_output")),
@@ -292,22 +313,24 @@ class CoverageSession:
     def _poses_between(self, t0_ns: int, t1_ns: int) -> list[TagPose]:
         return [p for p in self.poses.poses if t0_ns <= p.stamp_ns <= t1_ns]
 
-    def _gate(self, rows: list[GridRow], poses: list[TagPose], t0_ns: int, t1_ns: int) -> str:
+    def _gate(
+        self, rows: list[GridRow], poses: list[TagPose], t0_ns: int, t1_ns: int
+    ) -> WindowStatus | None:
         if any(r.jetson for r in rows):
-            return "jetson"
+            return WindowStatus.JETSON
         if any(r.gap for r in rows):
-            return "link"
+            return WindowStatus.LINK
         frames = sum(1 for s in self.poses.frame_stamps if t0_ns <= s < t1_ns)
         if frames == 0 or len(poses) / frames < TAG_COVERAGE_MIN:
-            return "tags"
+            return WindowStatus.TAGS
         if any(r.upside_down for r in rows) or any(p.upside_down for p in poses) or _pitched(poses):
-            return "flip"
+            return WindowStatus.FLIP
         limit = self.half_extent - ROBOT_LENGTH_M
         if any(max(abs(p.x), abs(p.y)) > limit for p in poses):
-            return "wall"
+            return WindowStatus.WALL
         if not all(r.armed for r in rows):
-            return "disarmed"
-        return ""
+            return WindowStatus.DISARMED
+        return None
 
     def _subwindow(self, start_ns: int) -> model.SubWindow | None:
         hist0 = start_ns - model.HIST_N * DT_NS
@@ -319,9 +342,9 @@ class CoverageSession:
         if est is None:
             return None
         cur = rows[model.HIST_N]
-        if not math.isfinite(cur.gyro_dps):
+        if not math.isfinite(cur.gyro_cw_dps):
             return None
-        w0 = -math.radians(cur.gyro_dps)
+        w0 = -math.radians(cur.gyro_cw_dps)
         left = np.nan_to_num(np.array([r.left for r in rows]))
         right = np.nan_to_num(np.array([r.right for r in rows]))
         lin, ang = motor_to_plant(left, right)
@@ -336,7 +359,7 @@ class CoverageSession:
         yaw_meas = np.array([p.yaw for p in inside])
         yaw_meas = est.theta + np.unwrap(np.concatenate([[0.0], yaw_meas - est.theta]))[1:]
         body = rows[model.HIST_N :]
-        gyro = np.array([r.gyro_dps for r in body])[
+        gyro = np.array([r.gyro_cw_dps for r in body])[
             model.GYRO_STRIDE_SAMPLES : model.GYRO_STRIDE_SAMPLES
             * (model.GYRO_N + 1) : model.GYRO_STRIDE_SAMPLES
         ]
@@ -362,7 +385,7 @@ class CoverageSession:
                 "pid_setpoint": cur.pid_setpoint,
                 "pid_output": cur.pid_output,
                 "yaw_rate_cmd": cur.yaw_rate_cmd,
-                "yaw_rate": cur.gyro_dps,
+                "yaw_rate": cur.gyro_cw_dps,
             },
             end_xy=None if end is None else np.array([end.x, end.y]),
         )
@@ -372,12 +395,12 @@ class CoverageSession:
         poses = self._poses_between(t0_ns, t1_ns)
         rec = WindowRecord(
             id=len(self.windows),
-            t0=self._session_s(t0_ns),
-            t1=self._session_s(t1_ns),
-            status="",
+            t0_session_s=self._session_s(t0_ns),
+            t1_session_s=self._session_s(t1_ns),
+            status=WindowStatus.IDLE,
         )
-        reason = self._gate(rows, poses, t0_ns, t1_ns)
-        if not reason:
+        dropped = self._gate(rows, poses, t0_ns, t1_ns)
+        if dropped is None:
             subs = [self._subwindow(t0_ns + j * model.SUB_N * DT_NS) for j in range(model.SUBS)]
             rec.subs = [s for s in subs if s is not None]
             cmd = max(
@@ -389,16 +412,20 @@ class CoverageSession:
             )
             speed = max((abs(s.state0[3]) for s in rec.subs), default=0.0)
             if cmd < IDLE_CMD and speed < 0.05:
-                reason = "idle"
+                dropped = WindowStatus.IDLE
             elif len(rec.subs) < 2:
-                reason = "tags"
-        if reason:
-            rec.status = reason
+                dropped = WindowStatus.TAGS
+        if dropped is not None:
+            rec.status = dropped
             rec.subs = []
         else:
             self.usable_count += 1
-            rec.status = "holdout" if self.usable_count % HOLDOUT_EVERY == 0 else "used"
-            if rec.status == "used":
+            rec.status = (
+                WindowStatus.HOLDOUT
+                if self.usable_count % HOLDOUT_EVERY == 0
+                else WindowStatus.USED
+            )
+            if rec.status == WindowStatus.USED:
                 batch = model.stack(
                     rec.subs, [rec.id] * len(rec.subs), self.poses.noise.view_azimuth_rad
                 )
@@ -437,7 +464,7 @@ class CoverageSession:
                 continue
             first = self._window_at(ev.t0)
             statuses = {w.status} | ({first.status} if first is not None else set())
-            clean = statuses <= {"used", "holdout"}
+            clean = statuses <= set(FIT_STATUSES)
             if ev.kind == "plateau":
                 if clean and ev.hold_cell is not None:
                     self.coverage_held[bin_of(ev.hold_cell[0]), bin_of(ev.hold_cell[1])] += (
@@ -446,7 +473,7 @@ class CoverageSession:
                 continue
             if ev.kind == "edge" and clean and ev.edge_cell is not None:
                 self.edges[ev.edge_cell] += 1
-            if w.status in ("idle", "disarmed"):
+            if w.status in (WindowStatus.IDLE, WindowStatus.DISARMED):
                 continue
             entry = ev.as_dict()
             if ev.kind == "slew":
@@ -454,9 +481,9 @@ class CoverageSession:
             elif clean:
                 entry["status"] = "ok"
             else:
-                bad = next(s for s in statuses if s not in ("used", "holdout"))
+                bad = next(s for s in statuses if s not in FIT_STATUSES)
                 entry["status"] = "bad"
-                entry["text"] = f"{ev.text}, dropped: {DROP_TEXT.get(bad, bad)}"
+                entry["text"] = f"{ev.text}, dropped: {DROP_TEXT[bad]}"
                 entry["informs"] = []
             self.events.append(entry)
         self._pending_events = still
@@ -470,9 +497,7 @@ class CoverageSession:
         if self.engine.busy:
             return
         t = self.driving_s
-        new = [
-            w for w in self.windows if w.id > self._sent_upto and w.status in ("used", "holdout")
-        ]
+        new = [w for w in self.windows if w.id > self._sent_upto and w.status in FIT_STATUSES]
         if not new:
             return
         if self.refits and t - self._last_refit_t < REFIT_S:
@@ -503,14 +528,13 @@ class CoverageSession:
         self.refits += 1
         for wid in reply.contact:
             w = self.windows[wid]
-            if w.status == "used":
-                w.status = "wall"
+            if w.status == WindowStatus.USED:
+                w.status = WindowStatus.WALL
                 w.reason = "contact"
         self._last_refit_window_id = reply.upto
         self.fisher_at_last_refit = reply.fisher
-        # Windows that closed while the refit ran, at the new estimate.
         self.fisher_since_refit = np.zeros((model.NP, model.NP))
-        late = [w for w in self.windows if w.id > reply.upto and w.status == "used"]
+        late = [w for w in self.windows if w.id > reply.upto and w.status == WindowStatus.USED]
         if late:
             subs, owners = [], []
             for w in late:
@@ -540,7 +564,7 @@ class CoverageSession:
                 "hold": None if not math.isfinite(hold) else hold,
                 "ladder": ladder,
                 "residual": None if not math.isfinite(self.residual) else self.residual,
-                "used": sum(1 for w in self.windows if w.status == "used"),
+                "used": sum(1 for w in self.windows if w.status == WindowStatus.USED),
             }
         )
 
@@ -589,9 +613,9 @@ class CoverageSession:
         cov = self._covariance()
         std = np.sqrt(np.diag(cov))
         fills = model.fills_of(std)
-        counts = {s: 0 for s in ("used", "holdout", "idle", *DROP_REASONS)}
+        counts = {s.value: 0 for s in WindowStatus}
         for w in self.windows:
-            counts[w.status] = counts.get(w.status, 0) + 1
+            counts[w.status.value] += 1
         now = self.grid[-1].t_ns if self.grid else 0
         tape_rows = [r for r in self.grid if r.t_ns >= now - 8 * _NS][::4]
         tthr, tst = sticks(
@@ -614,9 +638,14 @@ class CoverageSession:
             "floor_limited": self.floor_limited.tolist(),
             "windows": counts,
             "window_spans": [
-                {"t0": w.t0, "t1": w.t1, "status": w.status, "reason": w.reason}
+                {
+                    "t0": w.t0_session_s,
+                    "t1": w.t1_session_s,
+                    "status": w.status.value,
+                    "reason": w.reason,
+                }
                 for w in self.windows
-                if w.t1 >= self._session_s(now) - 8.0
+                if w.t1_session_s >= self._session_s(now) - 8.0
             ],
             "coverage": {
                 "bins": list(BINS),
@@ -655,7 +684,7 @@ class CoverageSession:
 
     def _link(self) -> dict[str, Any]:
         now = self.grid[-1].t_ns if self.grid else 0
-        self._rate_marks.append((now, self._tele_seen, self._frames_seen))
+        self._rate_marks.append(RateMark(now, self._tele_seen, self._frames_seen))
         while self._rate_marks and self._rate_marks[0][0] < now - 3 * _NS:
             self._rate_marks.popleft()
         t0, tele0, frames0 = self._rate_marks[0]
@@ -681,11 +710,11 @@ class CoverageSession:
 
 HIST_NS = model.HIST_N * DT_NS
 DROP_TEXT = {
-    "wall": "wall contact",
-    "flip": "flipped or nose lifted",
-    "tags": "tag coverage",
-    "link": "telemetry gap",
-    "jetson": "Jetson could command",
-    "disarmed": "disarmed",
-    "idle": "idle",
+    WindowStatus.WALL: "wall contact",
+    WindowStatus.FLIP: "flipped or nose lifted",
+    WindowStatus.TAGS: "tag coverage",
+    WindowStatus.LINK: "telemetry gap",
+    WindowStatus.JETSON: "Jetson could command",
+    WindowStatus.DISARMED: "disarmed",
+    WindowStatus.IDLE: "idle",
 }

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Any
+from enum import Enum
+from typing import Any, NamedTuple
 
 import numpy as np
 
@@ -44,24 +45,44 @@ class Plateau:
         return (self.end - self.start) * dt
 
 
+class EventKind(str, Enum):
+    HOLD = "hold"
+    ARC = "arc"
+    SPIN = "spin"
+    EDGE = "edge"
+    SLEW = "slew"
+    CREEP = "creep"
+    PLATEAU = "plateau"
+
+
+class EdgeCell(NamedTuple):
+    row: int
+    col: int
+
+
+class HoldCell(NamedTuple):
+    throttle: float
+    steer: float
+
+
 @dataclass
 class Event:
     """One labeled motion. ``t0``/``t1`` bound the samples it rests on, in grid seconds."""
 
     id: str
-    kind: str  # hold | arc | spin | edge | slew | creep
+    kind: EventKind
     t0: float
     t1: float
     text: str
     informs: list[str] = field(default_factory=list)
-    edge_cell: tuple[int, int] | None = None  # (row, col) in the transition table
-    hold_cell: tuple[float, float] | None = None  # (throttle, steer) mean of a held plateau
+    edge_cell: EdgeCell | None = None
+    hold_cell: HoldCell | None = None
     hold_s: float = 0.0
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
-            "kind": self.kind,
+            "kind": self.kind.value,
             "t0": round(self.t0, 3),
             "t1": round(self.t1, 3),
             "text": self.text,
@@ -187,7 +208,7 @@ class ManeuverSegmenter:
         else:
             what = f"{CHANNELS[c]} {describe(a.mean, c)} to {describe(b.mean, c)}"
         val = b.mean if accel else a.mean
-        cell: tuple[int, int] | None = None
+        cell: EdgeCell | None = None
         loop = b.yaw_loop_on_frac > 0.5 if accel else a.yaw_loop_on_frac > 0.5
         if abs(val) >= 0.15:
             col = (0 if accel else 4) + amp_index(abs(val))
@@ -198,11 +219,11 @@ class ManeuverSegmenter:
                 row = 5 if reversing else 4
             else:
                 row = 2 if val > 0 else 3
-            cell = (row, col)
+            cell = EdgeCell(row, col)
         if not clean:
             return Event(
                 id=f"e{c}-{a.end}",
-                kind="slew",
+                kind=EventKind.SLEW,
                 t0=at,
                 t1=b.start * dt,
                 text=(
@@ -219,7 +240,7 @@ class ManeuverSegmenter:
             informs = ["yaw decel lag" if c else "linear decel lag"]
         return Event(
             id=f"e{c}-{a.end}",
-            kind="edge",
+            kind=EventKind.EDGE,
             t0=max(a.end - 5, a.start) * dt,
             t1=(b.start + 5) * dt,
             text=what,
@@ -238,7 +259,7 @@ class ManeuverSegmenter:
             if hands_off:
                 informs.append("drift")
             kind, text = (
-                "hold",
+                EventKind.HOLD,
                 (
                     f"{'Forward' if p.mean > 0 else 'Reverse'} hold {round(abs(p.mean) * 100)}%, "
                     f"{dur}{loop}"
@@ -246,7 +267,7 @@ class ManeuverSegmenter:
             )
         elif c == 0:
             kind, text = (
-                "arc",
+                EventKind.ARC,
                 (
                     f"Arc {'forward' if p.mean > 0 else 'reverse'}-"
                     f"{'left' if om > 0 else 'right'}, "
@@ -257,7 +278,7 @@ class ManeuverSegmenter:
             informs = ["steer-brake", "angular droop"]
         elif abs(om) < ARC_STEER:
             kind, text = (
-                "spin",
+                EventKind.SPIN,
                 (
                     f"Spin {'left' if p.mean > 0 else 'right'} "
                     f"{round(abs(p.mean) * 100)}%, {dur}{loop}"
@@ -265,7 +286,7 @@ class ManeuverSegmenter:
             )
             informs = ["yaw gain"]
         else:
-            return None  # an arc, reported from the throttle side
+            return None
         return Event(
             id=f"h{c}-{p.end}",
             kind=kind,
@@ -285,11 +306,11 @@ class ManeuverSegmenter:
             out.append(
                 Event(
                     id=f"p-{k}",
-                    kind="plateau",
+                    kind=EventKind.PLATEAU,
                     t0=self._held_start * self.dt,
                     t1=k * self.dt,
                     text="",
-                    hold_cell=ref,
+                    hold_cell=HoldCell(*ref),
                     hold_s=n * self.dt,
                 )
             )
@@ -326,7 +347,7 @@ class ManeuverSegmenter:
             out.append(
                 Event(
                     id=f"c{c}-{k}",
-                    kind="creep",
+                    kind=EventKind.CREEP,
                     t0=(k - (j - i)) * self.dt,
                     t1=k * self.dt,
                     text=(
@@ -347,10 +368,9 @@ def edges_of(
     out: list[Event] = []
     for a, b, lp in zip(throttle, steer, loop_on):
         out += seg.push(float(a), float(b), bool(lp))
-    # Close the trailing plateaus so a final hold still yields its edge.
     for _ in range(seg.hold_n + 1):
         out += seg.push(float(throttle[-1]), float(steer[-1]), bool(loop_on[-1]))
-    return [e for e in out if e.kind == "edge"]
+    return [e for e in out if e.kind == EventKind.EDGE]
 
 
 MOVING_STICK = 0.05

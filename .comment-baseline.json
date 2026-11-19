@@ -4,8 +4,6 @@
   "auto_battlebot/calibration/jig/excitation.py": 2,
   "auto_battlebot/calibration/jig/jig_fit.py": 8,
   "auto_battlebot/calibration/jig/velocity_jig.py": 9,
-  "auto_battlebot/calibration/sysid/coverage.py": 13,
-  "auto_battlebot/calibration/sysid/maneuvers.py": 5,
   "auto_battlebot/calibration/sysid/model.py": 36,
   "auto_battlebot/calibration/sysid/pose_stream.py": 6,
   "auto_battlebot/calibration/sysid/sources.py": 2,

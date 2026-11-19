@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import dataclasses
 import json
 import threading
 from pathlib import Path
@@ -13,8 +14,8 @@ import pytest
 from websockets.sync.server import serve
 
 from auto_battlebot.calibration.sysid import model, synthetic, telemetry
-from auto_battlebot.calibration.sysid.coverage import CoverageSession, _pitched
-from auto_battlebot.calibration.sysid.maneuvers import ManeuverSegmenter
+from auto_battlebot.calibration.sysid.coverage import CoverageSession, WindowStatus, _pitched
+from auto_battlebot.calibration.sysid.maneuvers import EventKind, ManeuverSegmenter, edges_of
 from auto_battlebot.calibration.sysid.pose_stream import TagPose
 from auto_battlebot.calibration.sysid.profile import load_profile
 from auto_battlebot.calibration.sysid.sources import Dispatcher, replay
@@ -91,7 +92,7 @@ def test_segmenter_labels_snap_hold_release_and_creep() -> None:
     events = []
     for thr, steer in trace:
         events += seg.push(thr, steer, False)
-    kinds = [(e.kind, e.text) for e in events if e.kind != "plateau"]
+    kinds = [(e.kind, e.text) for e in events if e.kind != EventKind.PLATEAU]
     assert ("edge", "Throttle snap to 50% forward") in kinds
     assert ("hold", "Forward hold 50%, 0.8 s") in kinds
     assert ("edge", "Throttle snap release from 50% forward") in kinds
@@ -345,3 +346,95 @@ def test_sysid_package_never_sends_commands() -> None:
                 if any(n == b or n.startswith(b + ".") for b in banned)
             ]
     assert not offenders
+
+
+def _plain_row(robot_ms: int, host_ns: int, **extra: Any) -> dict[str, Any]:
+    return {"timestamp_ms": robot_ms, "host_receive_ns": host_ns, **extra}
+
+
+def test_session_survives_robot_reboot(profile: Any) -> None:
+    session = CoverageSession(profile, InlineEngine())
+    host0 = 10_000_000_000
+    for i in range(200):
+        session.feed_telemetry(_plain_row(500_000 + 10 * i, host0 + i * 10_000_000), 0)
+    host1 = host0 + 3_000_000_000
+    for i in range(200):
+        session.feed_telemetry(_plain_row(20 + 10 * i, host1 + i * 10_000_000), 0)
+    robot_ms = [t.robot_ms for t in session._tele]
+    assert robot_ms == sorted(robot_ms)
+    assert len(robot_ms) == 200
+    expected = host1 + 199 * 10_000_000
+    mapped = int(session.clock.to_host_ns(20 + 10 * 199))
+    assert abs(mapped - expected) < 5_000_000
+
+
+def test_backfill_does_not_push_clock(profile: Any) -> None:
+    session = CoverageSession(profile, InlineEngine())
+    pushed: list[int] = []
+    push = session.clock.push
+
+    def spy(robot_ms: int, host_ns: int) -> None:
+        pushed.append(robot_ms)
+        push(robot_ms, host_ns)
+
+    session.clock.push = spy  # type: ignore[method-assign]
+    host0 = 10_000_000_000
+    session.feed_telemetry(_plain_row(1000, host0), 0)
+    for i in range(1, 6):
+        late = host0 + i * 10_000_000 + 400_000_000
+        session.feed_telemetry(_plain_row(1000 + 10 * i, late, backfill=True), 0)
+    session.feed_telemetry(_plain_row(1060, host0 + 60_000_000), 0)
+    assert pushed == [1000, 1060]
+    assert len(session._tele) == 7
+
+
+def test_gyro_interpolated_commands_held(profile: Any) -> None:
+    session = CoverageSession(profile, InlineEngine())
+    host0 = 10_000_000_000
+    session.feed_telemetry(_plain_row(0, host0, yaw_rate=0.0, a_percent=0.0), 0)
+    session.feed_telemetry(_plain_row(20, host0 + 20_000_000, yaw_rate=100.0, a_percent=50.0), 0)
+    row = session._sample(host0 + 10_000_000)
+    assert row is not None
+    assert row.gyro_cw_dps == pytest.approx(50.0, abs=1.0)
+    assert row.a == 0.0
+
+
+def test_windows_closed_during_refit_count_toward_fisher_new(profile: Any) -> None:
+    class Recording(InlineEngine):
+        replies: list[Any] = []
+
+        def poll(self) -> Any:
+            reply = super().poll()
+            if reply is not None:
+                self.replies.append(reply)
+            return reply
+
+    engine = Recording()
+    engine.replies = []
+    session = CoverageSession(profile, engine)
+    _feed(session, synthetic.simulate_session(profile, seconds=40.0, seed=2))
+    assert engine.replies
+    used = [w.id for w in session.windows if w.status == WindowStatus.USED]
+    stale = dataclasses.replace(engine.replies[-1], upto=used[0])
+    session._apply_refit(stale)
+    assert np.trace(session.fisher_since_refit) > 0.0
+    current = dataclasses.replace(engine.replies[-1], upto=used[-1])
+    session._apply_refit(current)
+    assert np.trace(session.fisher_since_refit) == 0.0
+
+
+def test_arc_reported_once_from_throttle_side() -> None:
+    seg = ManeuverSegmenter(0.01)
+    trace = [(0.0, 0.0)] * 60 + [(0.5, 0.5)] * 150 + [(0.0, 0.0)] * 80
+    events = []
+    for thr, steer in trace:
+        events += seg.push(thr, steer, False)
+    motions = [e.kind for e in events if e.kind in (EventKind.HOLD, EventKind.ARC, EventKind.SPIN)]
+    assert motions == [EventKind.ARC]
+
+
+def test_offline_edges_include_final_hold() -> None:
+    throttle = np.array([0.0] * 60 + [0.5] * 20)
+    steer = np.zeros_like(throttle)
+    edges = edges_of(throttle, steer, np.zeros(len(throttle), dtype=bool), 0.01)
+    assert [e.text for e in edges] == ["Throttle snap to 50% forward"]
