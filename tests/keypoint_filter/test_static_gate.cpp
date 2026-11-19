@@ -175,7 +175,6 @@ TEST_F(StaticDetectionGateTest, ResetClearsClustersOnFieldReinit) {
     ASSERT_TRUE(
         gate.filter(make_pair(400.0, 300.0, 1.5), camera_info_, field_, 1.5).keypoints.empty());
 
-    // Field coordinates recorded against the old origin mean nothing after a re-init.
     gate.reset();
     const auto result = gate.filter(make_pair(400.0, 300.0, 1.6), camera_info_, field_, 1.6);
     EXPECT_EQ(result.keypoints.size(), 2u);

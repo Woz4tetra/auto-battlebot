@@ -127,10 +127,10 @@ KeypointHeightGate::Relief KeypointHeightGate::measure_relief(
     if (static_cast<int>(inside.size()) < config_.min_valid_samples) return relief;
     if (static_cast<int>(around.size()) < config_.min_valid_samples) return relief;
 
-    relief.top = percentile_of(inside, config_.top_percentile);
+    relief.top_above_plane_m = percentile_of(inside, config_.top_percentile);
     const double local_floor = percentile_of(around, config_.floor_percentile);
-    if (!std::isfinite(relief.top) || !std::isfinite(local_floor)) return relief;
-    relief.elevation = relief.top - local_floor;
+    if (!std::isfinite(relief.top_above_plane_m) || !std::isfinite(local_floor)) return relief;
+    relief.local_relief_m = relief.top_above_plane_m - local_floor;
     relief.valid = true;
     return relief;
 }
@@ -193,16 +193,16 @@ ModelResultStamped KeypointHeightGate::filter(const ModelResultStamped &model_re
             continue;
         }
 
-        const bool too_low = relief.elevation < config_.min_elevation_meters;
-        const bool too_high = relief.top > config_.max_height_meters;
+        const bool too_low = relief.local_relief_m < config_.min_elevation_meters;
+        const bool too_high = relief.top_above_plane_m > config_.max_height_meters;
         if (config_.reject_enable && (too_low || too_high)) {
             (too_low ? stats_.rejected_low : stats_.rejected_high)++;
 
             DiagnosticsData rejection;
             rejection["label"] = enum_to_string_lower(group_key.first);
             rejection["detection_index"] = group_key.second;
-            rejection["elevation_m"] = relief.elevation;
-            rejection["top_m"] = relief.top;
+            rejection["elevation_m"] = relief.local_relief_m;
+            rejection["top_m"] = relief.top_above_plane_m;
             diagnostics_logger_->debug(too_low ? "rejected_low" : "rejected_high", rejection);
             continue;
         }
@@ -211,7 +211,7 @@ ModelResultStamped KeypointHeightGate::filter(const ModelResultStamped &model_re
         for (size_t n = 0; n < indices.size(); ++n) {
             Keypoint kp = model_results.keypoints[indices[n]];
             kp.height_above_plane_m =
-                std::isfinite(keypoint_heights[n]) ? keypoint_heights[n] : relief.top;
+                std::isfinite(keypoint_heights[n]) ? keypoint_heights[n] : relief.top_above_plane_m;
             output.keypoints.push_back(kp);
         }
     }

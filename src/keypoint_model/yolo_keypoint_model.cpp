@@ -199,7 +199,7 @@ std::vector<DetectionRow> YoloKeypointModel::non_max_suppression(
         det_scores[det_count] = max_conf;
 
         DetectionRow row;
-        row.reserve(static_cast<size_t>(6 + num_keypoint_values));
+        row.reserve(detection_row::kFirstKeypoint + static_cast<size_t>(num_keypoint_values));
         row.push_back(boxes_xyxy[p * 4 + 0]);
         row.push_back(boxes_xyxy[p * 4 + 1]);
         row.push_back(boxes_xyxy[p * 4 + 2]);
@@ -221,14 +221,14 @@ std::vector<DetectionRow> YoloKeypointModel::non_max_suppression(
 
     std::vector<float> nms_boxes(static_cast<size_t>(det_count) * 4);
     for (int64_t i = 0; i < det_count; i++) {
-        const float class_offset = out_rows[i][5] * 7680.f;
-        nms_boxes[i * 4 + 0] = out_rows[i][0] + class_offset;
-        nms_boxes[i * 4 + 1] = out_rows[i][1] + class_offset;
-        nms_boxes[i * 4 + 2] = out_rows[i][2] + class_offset;
-        nms_boxes[i * 4 + 3] = out_rows[i][3] + class_offset;
+        const float class_offset = out_rows[i][detection_row::kClassId] * 7680.f;
+        nms_boxes[i * 4 + 0] = out_rows[i][detection_row::kX1] + class_offset;
+        nms_boxes[i * 4 + 1] = out_rows[i][detection_row::kY1] + class_offset;
+        nms_boxes[i * 4 + 2] = out_rows[i][detection_row::kX2] + class_offset;
+        nms_boxes[i * 4 + 3] = out_rows[i][detection_row::kY2] + class_offset;
     }
     std::vector<float> nms_scores(static_cast<size_t>(det_count));
-    for (int64_t i = 0; i < det_count; i++) nms_scores[i] = out_rows[i][4];
+    for (int64_t i = 0; i < det_count; i++) nms_scores[i] = out_rows[i][detection_row::kConfidence];
 
     std::vector<int64_t> keep = nms(nms_boxes.data(), nms_scores.data(), det_count, iou_thres);
     if (static_cast<int>(keep.size()) > max_det) keep.resize(static_cast<size_t>(max_det));
@@ -268,10 +268,10 @@ void YoloKeypointModel::scale_boxes(std::vector<DetectionRow> &detections,
         (input_image_size.height - original_image_size.height * gain) / 2.0 - letterbox_padding_));
     for (auto &row : detections) {
         if (row.size() < 4) continue;
-        row[0] = (row[0] - pad0) / gain;
-        row[2] = (row[2] - pad0) / gain;
-        row[1] = (row[1] - pad1) / gain;
-        row[3] = (row[3] - pad1) / gain;
+        row[detection_row::kX1] = (row[detection_row::kX1] - pad0) / gain;
+        row[detection_row::kX2] = (row[detection_row::kX2] - pad0) / gain;
+        row[detection_row::kY1] = (row[detection_row::kY1] - pad1) / gain;
+        row[detection_row::kY2] = (row[detection_row::kY2] - pad1) / gain;
     }
 }
 
@@ -282,23 +282,26 @@ void YoloKeypointModel::record_raw_detections(const std::vector<DetectionRow> &k
     scale_boxes(scaled, original_image_size, input_image_size);
     for (const auto &row : scaled) {
         if (row.size() < 6) continue;
-        const int class_id = static_cast<int>(row[5]);
+        const int class_id = static_cast<int>(row[detection_row::kClassId]);
         if (class_id < 0 || class_id >= static_cast<int>(label_indices_.size())) continue;
-        Detection2D detection{static_cast<double>(row[0]),
-                              static_cast<double>(row[1]),
-                              static_cast<double>(row[2]),
-                              static_cast<double>(row[3]),
-                              static_cast<double>(row[4]),
+        Detection2D detection{static_cast<double>(row[detection_row::kX1]),
+                              static_cast<double>(row[detection_row::kY1]),
+                              static_cast<double>(row[detection_row::kX2]),
+                              static_cast<double>(row[detection_row::kY2]),
+                              static_cast<double>(row[detection_row::kConfidence]),
                               class_id,
                               label_indices_[static_cast<size_t>(class_id)],
                               {}};
-        for (size_t kp_idx = 6; kp_idx + 2 < row.size(); kp_idx += 3) {
+        for (size_t kp_idx = detection_row::kFirstKeypoint;
+             kp_idx + detection_row::kKeypointConfidenceOffset < row.size();
+             kp_idx += detection_row::kKeypointStride) {
             const Keypoint scaled_kp = scale_keypoint(
                 Keypoint{Label::EMPTY, KeypointLabel::EMPTY, static_cast<double>(row[kp_idx]),
-                         static_cast<double>(row[kp_idx + 1])},
+                         static_cast<double>(row[kp_idx + detection_row::kKeypointYOffset])},
                 original_image_size, input_image_size);
-            detection.keypoints.push_back(
-                DetectionKeypoint{scaled_kp.x, scaled_kp.y, static_cast<double>(row[kp_idx + 2])});
+            detection.keypoints.push_back(DetectionKeypoint{
+                scaled_kp.x, scaled_kp.y,
+                static_cast<double>(row[kp_idx + detection_row::kKeypointConfidenceOffset])});
         }
         last_detections_.detections.push_back(std::move(detection));
     }
@@ -338,7 +341,7 @@ int YoloKeypointModel::extract_keypoints_from_detections(const std::vector<Detec
                                                          cv::Size input_image_size,
                                                          ModelResultStamped &result) {
     const int num_classes = static_cast<int>(label_indices_.size());
-    const int keypoint_start_idx = 6;
+    const int keypoint_start_idx = static_cast<int>(detection_row::kFirstKeypoint);
     int valid_detections = 0;
 
     // Box per detection, in original-image pixels, indexed the same way detection_index is (by
@@ -353,18 +356,19 @@ int YoloKeypointModel::extract_keypoints_from_detections(const std::vector<Detec
                 result.boxes.push_back(BoundingBox{});
                 continue;
             }
-            result.boxes.push_back(BoundingBox{row[0], row[1], row[2], row[3]});
+            result.boxes.push_back(BoundingBox{row[detection_row::kX1], row[detection_row::kY1],
+                                               row[detection_row::kX2], row[detection_row::kY2]});
         }
     }
 
     for (int i = 0; i < static_cast<int>(keep.size()); i++) {
         const DetectionRow &row = keep[i];
         if (row.size() < 6) continue;
-        const float confidence = row[4];
+        const float confidence = row[detection_row::kConfidence];
         if (confidence < threshold_) continue;
         valid_detections++;
 
-        const int class_id = static_cast<int>(row[5]);
+        const int class_id = static_cast<int>(row[detection_row::kClassId]);
         if (class_id < 0 || class_id >= num_classes) {
             diagnostics_logger_->warning({}, "Invalid class ID: " + std::to_string(class_id));
             continue;
@@ -386,7 +390,8 @@ int YoloKeypointModel::extract_keypoints_from_detections(const std::vector<Detec
             offset_it == reference_offset_m_per_label_.end() ? 0.0 : offset_it->second;
 
         for (int k = 0; k < n_kp; k++) {
-            const int kp_idx = keypoint_start_idx + k * 3;
+            const int kp_idx =
+                keypoint_start_idx + k * static_cast<int>(detection_row::kKeypointStride);
             if (kp_idx + 2 >= static_cast<int>(row.size())) break;
             const float kp_conf = row[static_cast<size_t>(kp_idx + 2)];
             if (kp_conf < threshold_) continue;
@@ -487,12 +492,12 @@ void YoloKeypointModel::visualize_output(const cv::Mat &original_image,
         for (size_t i = 0; i < detections.size(); i++) {
             const DetectionRow &row = detections[i];
             if (row.size() < 6) continue;
-            const float x1 = row[0];
-            const float y1 = row[1];
-            const float x2 = row[2];
-            const float y2 = row[3];
-            const float confidence = row[4];
-            const int class_id = static_cast<int>(row[5]);
+            const float x1 = row[detection_row::kX1];
+            const float y1 = row[detection_row::kY1];
+            const float x2 = row[detection_row::kX2];
+            const float y2 = row[detection_row::kY2];
+            const float confidence = row[detection_row::kConfidence];
+            const int class_id = static_cast<int>(row[detection_row::kClassId]);
             const Label box_label = label_indices_[class_id];
 
             auto [b, g, r] = get_color_for_index(box_label).to_bgr_255();

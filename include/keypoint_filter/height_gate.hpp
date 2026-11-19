@@ -32,17 +32,12 @@ class KeypointHeightGate {
     struct Plane {
         Eigen::Vector3d center;
         Eigen::Vector3d normal;
-        /** transform_to_plane_center_normal does not fix which side the normal points to. This
-         *  flips it so the camera's own height, and everything above the floor, comes out
-         *  positive. */
         double orientation;
     };
 
     struct Relief {
-        /** Top of the detection above the field plane, in metres. NaN when unmeasurable. */
-        double top = 0.0;
-        /** Top minus the floor immediately around the detection. NaN when unmeasurable. */
-        double elevation = 0.0;
+        double top_above_plane_m = 0.0;
+        double local_relief_m = 0.0;
         bool valid = false;
     };
 

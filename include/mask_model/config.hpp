@@ -17,18 +17,10 @@ struct MaskModelConfiguration {
 
 struct NoopMaskModelConfiguration : public MaskModelConfiguration {
     NoopMaskModelConfiguration() { type = "NoopMaskModel"; }
-
-    PARSE_CONFIG_FIELDS(
-        // No additional fields
-    )
 };
 
 struct FixedMaskModelConfiguration : public MaskModelConfiguration {
     FixedMaskModelConfiguration() { type = "FixedMaskModel"; }
-
-    PARSE_CONFIG_FIELDS(
-        // No additional fields
-    )
 };
 
 struct DeepLabMaskModelConfiguration : public MaskModelConfiguration {

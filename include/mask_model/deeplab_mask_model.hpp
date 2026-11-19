@@ -38,10 +38,8 @@ class DeepLabMaskModel : public MaskModelInterface {
 
     bool load_model_config();
 
-    // Helper methods: preprocess writes NCHW float into buffer; postprocess takes host float output
-    // and dimensions.
-    void preprocess_image(const cv::Mat &image, std::vector<float> &buffer);
-    cv::Mat postprocess_output(const float *output, int original_height, int original_width);
+    void preprocess_image_to_nchw_float(const cv::Mat &image, std::vector<float> &buffer);
+    cv::Mat postprocess_host_output(const float *output, int original_height, int original_width);
 };
 
 }  // namespace auto_battlebot

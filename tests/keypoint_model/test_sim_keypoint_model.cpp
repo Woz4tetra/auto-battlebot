@@ -87,6 +87,25 @@ TEST_F(SimKeypointModelTest, OffImageRobotIsDropped) {
     EXPECT_EQ(result.keypoints[0].label, Label::OPPONENT);
 }
 
+TEST_F(SimKeypointModelTest, RobotBehindCameraIsDropped) {
+    const Eigen::Matrix4d tilted_up = camera_from_field({0.0, 0.0, 2.0}, {0.0, 1.0, 3.0});
+    SimMeasurementFrame f = frame();
+    f.robots[0].pose = Pose2D{0.0, -2.0, 0.0};
+    const ModelResultStamped result =
+        sim_measurements_to_keypoints(f, labels, 0.05, tilted_up, info, image_header);
+    for (const Keypoint &keypoint : result.keypoints) {
+        EXPECT_NE(keypoint.label, Label::MR_STABS_MK2);
+    }
+}
+
+TEST_F(SimKeypointModelTest, SlotsPastTheLabelListAreSkipped) {
+    const std::vector<Label> one_label{Label::MR_STABS_MK2};
+    const ModelResultStamped result =
+        sim_measurements_to_keypoints(frame(), one_label, 0.05, tf, info, image_header);
+    ASSERT_EQ(result.keypoints.size(), 2u);
+    EXPECT_EQ(result.keypoints[0].label, Label::MR_STABS_MK2);
+}
+
 TEST_F(SimKeypointModelTest, ConverterRecoversTheMeasuredPose) {
     const SimMeasurementFrame f = frame();
     const ModelResultStamped result =

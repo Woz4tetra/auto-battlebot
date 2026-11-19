@@ -34,8 +34,8 @@ std::unique_ptr<KeypointModelConfiguration> load_keypoint_model_from_toml(
 }
 
 std::shared_ptr<KeypointModelInterface> make_keypoint_model(
-    const KeypointModelConfiguration &config, std::shared_ptr<VizSink> sink,
-    std::shared_ptr<McapRecorder> mcap_recorder) {
+    const KeypointModelConfiguration &config, std::shared_ptr<VizSink> nullable_viz_sink,
+    std::shared_ptr<McapRecorder> nullable_mcap_recorder) {
     spdlog::info("Selected {} for KeypointModel", config.type);
     if (config.type == "NoopKeypointModel") {
         return std::make_shared<NoopKeypointModel>();
@@ -49,8 +49,8 @@ std::shared_ptr<KeypointModelInterface> make_keypoint_model(
             config_cast<SimKeypointModelConfiguration>(config));
     } else if (config.type == "AprilTagKeypointModel") {
         return std::make_shared<AprilTagKeypointModel>(
-            config_cast<AprilTagKeypointModelConfiguration>(config), std::move(sink),
-            std::move(mcap_recorder));
+            config_cast<AprilTagKeypointModelConfiguration>(config), std::move(nullable_viz_sink),
+            std::move(nullable_mcap_recorder));
     }
     throw std::invalid_argument("Failed to load KeypointModel of type " + config.type);
 }

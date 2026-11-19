@@ -25,8 +25,20 @@
 #include "time_utils.hpp"
 
 namespace auto_battlebot {
-// One detection row: [x1, y1, x2, y2, conf, class_id, kp1_x, kp1_y, kp1_conf, ...]
 using DetectionRow = std::vector<float>;
+
+namespace detection_row {
+constexpr size_t kX1 = 0;
+constexpr size_t kY1 = 1;
+constexpr size_t kX2 = 2;
+constexpr size_t kY2 = 3;
+constexpr size_t kConfidence = 4;
+constexpr size_t kClassId = 5;
+constexpr size_t kFirstKeypoint = 6;
+constexpr size_t kKeypointStride = 3;
+constexpr size_t kKeypointYOffset = 1;
+constexpr size_t kKeypointConfidenceOffset = 2;
+}  // namespace detection_row
 
 class YoloKeypointModel : public KeypointModelInterface {
    public:
@@ -70,7 +82,6 @@ class YoloKeypointModel : public KeypointModelInterface {
     void scale_boxes(std::vector<DetectionRow> &detections, cv::Size original_image_size,
                      cv::Size input_image_size);
 
-    /** rename resolve_output_layout */
     bool resolve_output_layout(const float *output, int &num_features, int &num_predictions,
                                std::vector<float> &transposed_buf, const float *&prediction_ptr);
 

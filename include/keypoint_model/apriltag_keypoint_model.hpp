@@ -40,8 +40,6 @@ TagMount make_tag_mount(const AprilTagMountConfiguration &config, double rest_pi
 
 cv::Vec3d floor_up_from_tag_pose(const TagPoseSolution &solution, const TagMount &mount);
 
-/** True when the pose puts the camera above the floor through the robot's axle. The planar flip
- *  of a steeply viewed tag can put it below, which no real frame does. */
 bool camera_above_floor(const TagPoseSolution &solution, const TagMount &mount);
 
 size_t select_ippe_solution(const std::vector<TagPoseSolution> &solutions, const TagMount &mount,

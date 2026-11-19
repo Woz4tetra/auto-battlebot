@@ -1978,10 +1978,19 @@ TEST_F(ConfigTest, AprilTagKeypointModelRejectsATagWithoutAMount) {
 
 TEST_F(ConfigTest, AprilTagKeypointModelRejectsANonRotation) {
     std::string toml(kAprilTagModelToml);
-    // Swap two rows of tag 76's rotation: orthonormal still, but a reflection.
     toml.replace(toml.find("[0.0, -0.986029, 0.166572, 1.0, -2e-06, -1.1e-05"),
                  std::string("[0.0, -0.986029, 0.166572, 1.0, -2e-06, -1.1e-05").size(),
                  "[1.0, -2e-06, -1.1e-05, 0.0, -0.986029, 0.166572");
+    write_config_file(config_with_keypoint_model(toml));
+
+    EXPECT_THROW(load_classes_from_config(temp_config_file.string()), ConfigValidationError);
+}
+
+TEST_F(ConfigTest, AprilTagKeypointModelRejectsADroppedRotationElement) {
+    std::string toml(kAprilTagModelToml);
+    const std::string original = "[0.0, -0.986029, 0.166572, 1.0, -2e-06, -1.1e-05";
+    toml.replace(toml.find(original), original.size(),
+                 "[0.0, -0.986029, 0.0, 1.0, -2e-06, -1.1e-05");
     write_config_file(config_with_keypoint_model(toml));
 
     EXPECT_THROW(load_classes_from_config(temp_config_file.string()), ConfigValidationError);

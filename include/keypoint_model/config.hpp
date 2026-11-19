@@ -43,9 +43,6 @@ struct YoloKeypointModelConfiguration : public KeypointModelConfiguration {
     LabelToKeypointMapConfiguration label_map;
     bool debug_visualization = false;
     std::vector<Label> label_indices;
-    /** Keypoint::reference_offset_m per detected label: how far the robot's reference point sits
-     *  ahead of where its front and back keypoints were labelled, in metres. Labels absent here
-     *  get 0, the keypoint midpoint. */
     std::unordered_map<Label, double> reference_offset_m_per_label;
 
     YoloKeypointModelConfiguration() { type = "YoloKeypointModel"; }
@@ -94,14 +91,8 @@ struct YoloKeypointModelConfiguration : public KeypointModelConfiguration {
     }
 };
 
-/** The lockstep sim's keypoint model (`SimKeypointModel`). */
 struct SimKeypointModelConfiguration : public KeypointModelConfiguration {
-    /** Label of each ground-truth slot in sim order: our robot, then the sim's [[opponents]]. Each
-     *  label needs `<LABEL>_FRONT` and `<LABEL>_BACK` keypoint labels. */
     std::vector<Label> labels;
-    /** Front and back keypoint distance from the robot centre along its heading, in metres. The
-     *  filter only reads the pose the pair implies, so this sets their image spacing, nothing
-     *  else. */
     double keypoint_offset_m = 0.05;
 
     SimKeypointModelConfiguration() { type = "SimKeypointModel"; }
@@ -140,9 +131,6 @@ struct SimKeypointModelConfiguration : public KeypointModelConfiguration {
     }
 };
 
-/** One robot tag's mounting: `rotation` (row-major R_body_tag) and `translation_m` map points in
- *  the OpenCV marker frame (origin at the tag centre, x right and y up in the printed image, z out
- *  of the printed face) into the robot body frame (FLU at the axle midpoint). */
 struct AprilTagMountConfiguration {
     int id = 0;
     std::array<double, 3> translation_m{};
@@ -150,20 +138,13 @@ struct AprilTagMountConfiguration {
 };
 
 struct AprilTagKeypointModelConfiguration : public KeypointModelConfiguration {
-    /** Edge of the black square, metres (the object points solvePnP sees). */
     double tag_size_m = 0.064;
-    /** The robot's tags. Which one faces up comes from its mount rotation, not its position. */
     std::vector<int> robot_tag_ids = {41, 76};
-    /** Search window around the last detection, grown by this on every side. */
     int roi_margin_px = 80;
-    /** A tag pose worse than this emits no keypoints (it is still recorded). */
     double max_reprojection_error_px = 2.0;
-    /** Body-frame points projected as the front and back keypoints. */
     std::array<double, 3> front_keypoint_m{0.06, 0.0, 0.0};
     std::array<double, 3> back_keypoint_m{-0.06, 0.0, 0.0};
-    /** Axle above the floor, the wheel radius. Keypoint heights are measured from here. */
     double axle_height_m = 0.025;
-    /** Nose-down pitch the robot rests at on the floor, radians (positive about body y). */
     double rest_pitch_rad = 0.0;
     std::vector<AprilTagMountConfiguration> tags;
 
@@ -233,8 +214,6 @@ struct AprilTagKeypointModelConfiguration : public KeypointModelConfiguration {
         }
     }
 
-    /** A rotation copied by hand with a transposed or dropped element still parses; this makes
-     *  it fail here instead of as a skewed pose. */
     static void validate_rotation(const AprilTagMountConfiguration &tag) {
         const auto &r = tag.rotation;
         constexpr double kTolerance = 1e-3;
@@ -257,10 +236,9 @@ struct AprilTagKeypointModelConfiguration : public KeypointModelConfiguration {
     }
 };
 
-/** `sink` and `mcap_recorder` may be null; only models that publish their own topics use them. */
 std::shared_ptr<KeypointModelInterface> make_keypoint_model(
-    const KeypointModelConfiguration &config, std::shared_ptr<VizSink> sink,
-    std::shared_ptr<McapRecorder> mcap_recorder);
+    const KeypointModelConfiguration &config, std::shared_ptr<VizSink> nullable_viz_sink,
+    std::shared_ptr<McapRecorder> nullable_mcap_recorder);
 std::unique_ptr<KeypointModelConfiguration> parse_keypoint_model_config(ConfigParser &parser);
 std::unique_ptr<KeypointModelConfiguration> load_keypoint_model_from_toml(
     toml::table const &toml_data, std::vector<std::string> &parsed_sections);

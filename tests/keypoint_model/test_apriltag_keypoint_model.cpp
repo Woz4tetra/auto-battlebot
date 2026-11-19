@@ -299,6 +299,21 @@ TEST(AprilTagKeypointModelTest, KnownFloorPicksTheTrueIppeSolutionOnATiltedView)
                 cases, flip_fits_better, reprojection_would_fail);
 }
 
+TEST(AprilTagKeypointModelTest, RejectsCameraBelowFloor) {
+    const TagMount mount = make_tag_mount(top_tag(), kRestPitch);
+    const auto solution_from = [&](double camera_height) {
+        const Pose camera_tag = camera_from_floor(camera_height, 0.0) *
+                                floor_from_body(0.1, 0.1, 0.3, false) * body_from_tag(top_tag());
+        TagPoseSolution solution;
+        cv::Rodrigues(camera_tag.rotation, solution.rvec);
+        solution.tvec = camera_tag.translation;
+        return solution;
+    };
+
+    EXPECT_TRUE(camera_above_floor(solution_from(0.75), mount));
+    EXPECT_FALSE(camera_above_floor(solution_from(-0.75), mount));
+}
+
 TEST(AprilTagKeypointModelTest, FloorEstimatorLocksOnlyOnceTheRobotMoves) {
     const Pose camera_floor = camera_from_floor(0.75, 30.0 * M_PI / 180.0);
     const cv::Vec3d floor_up_camera = camera_floor.rotation * cv::Vec3d(0, 0, 1);

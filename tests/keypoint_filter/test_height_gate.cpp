@@ -124,6 +124,21 @@ TEST_F(KeypointHeightGateTest, KeepsRobotStandingProudOfTheField) {
     }
 }
 
+TEST_F(KeypointHeightGateTest, HeightPositiveWhenPlaneNormalPointsDown) {
+    KeypointHeightGate gate(config_);
+    field_.tf_camera_from_fieldcenter.tf(1, 1) = -1.0;
+    DepthImage depth = make_floor();
+    raise_disc(depth, 320, 240, 35, 0.05);
+
+    const auto result =
+        gate.filter(make_pair(305.0, 240.0, 335.0, 240.0, 30.0), depth, camera_info_, field_);
+
+    ASSERT_EQ(result.keypoints.size(), 2u);
+    for (const Keypoint &kp : result.keypoints) {
+        EXPECT_NEAR(*kp.height_above_plane_m, 0.05, 1e-6);
+    }
+}
+
 TEST_F(KeypointHeightGateTest, RejectsDetectionAboveTheBand) {
     KeypointHeightGate gate(config_);
     DepthImage depth = make_floor();

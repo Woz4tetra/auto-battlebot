@@ -31,6 +31,13 @@ Regenerate the SVG after editing `diagrams/robot_filter.dot`:
 - `command_feedback`: the velocity command currently driving OUR_ROBOT_1, read back from the transmitter
   (live RC channels on hardware). Only our robot has feedback, so only our robot gets predicted.
 
+## Sim keypoint model
+
+`SimKeypointModel` feeds the filter from the lockstep sim instead of a detector. It builds front and back keypoints from the poses the sim's sensing model delivered (`simulation/kinematic_sim_server.py`), so the real `RobotFrontBackFilter` and `KalmanMotionEstimator` run on simulated perception: its latency, dropouts, noise and heading flips. A flipped heading arrives as swapped front and back keypoints, the way a real flip does.
+
+- Keypoints are projected at floor height (z = 0). The sim's depth image is bare floor, so the height gate abstains on box-less detections and stamps each keypoint with the height it measured there, which is zero. Projecting at z = 0 keeps the converter's round trip exact.
+- The result carries the frame's capture stamp. The tick that delivers it comes later by the sensing model's latency, which is what the filter sees on the robot.
+
 ## Stages
 
 1. **`convert_keypoints_to_measurements`** pairs front/back keypoints per label

@@ -85,7 +85,7 @@ MaskStamped DeepLabMaskModel::update(RgbImage image) {
     const int original_width = image.image.cols;
 
     std::vector<float> input_buffer;
-    preprocess_image(image.image, input_buffer);
+    preprocess_image_to_nchw_float(image.image, input_buffer);
 
     std::vector<float> output_buffer(static_cast<size_t>(engine_.getOutputNumElements()));
 
@@ -94,7 +94,7 @@ MaskStamped DeepLabMaskModel::update(RgbImage image) {
         return MaskStamped{};
     }
 
-    cv::Mat mask = postprocess_output(output_buffer.data(), original_height, original_width);
+    cv::Mat mask = postprocess_host_output(output_buffer.data(), original_height, original_width);
 
     MaskStamped result;
     result.header = image.header;
@@ -104,7 +104,8 @@ MaskStamped DeepLabMaskModel::update(RgbImage image) {
     return result;
 }
 
-void DeepLabMaskModel::preprocess_image(const cv::Mat& image, std::vector<float>& buffer) {
+void DeepLabMaskModel::preprocess_image_to_nchw_float(const cv::Mat& image,
+                                                      std::vector<float>& buffer) {
     const std::vector<int64_t> in_shape = engine_.getInputShape();
     if (in_shape.size() < 4 || in_shape[0] != 1 || in_shape[1] != 3) {
         return;
@@ -158,8 +159,8 @@ void DeepLabMaskModel::preprocess_image(const cv::Mat& image, std::vector<float>
     }
 }
 
-cv::Mat DeepLabMaskModel::postprocess_output(const float* output, int original_height,
-                                             int original_width) {
+cv::Mat DeepLabMaskModel::postprocess_host_output(const float* output, int original_height,
+                                                  int original_width) {
     const std::vector<int64_t> out_shape = engine_.getOutputShape();
     if (out_shape.size() < 4) {
         return cv::Mat();

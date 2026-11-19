@@ -26,8 +26,6 @@ class StaticDetectionGate {
                               const CameraInfo &camera_info, const FieldDescription &field,
                               double stamp);
 
-    /** Forget every tracked cluster. Called when the field is re-initialised, since field
-     *  coordinates recorded against the old origin no longer mean anything. */
     void reset();
 
     const Stats &last_stats() const { return stats_; }
