@@ -1,11 +1,4 @@
-"""Camera intrinsics from `config/cameras/<id>.toml`, and the rectification the C++ side does.
-
-Mirrors `include/rgbd_camera/camera_calibration.hpp`: the same TOML keys, and `rectify_maps`
-reproduces `Rectifier::build` (`getOptimalNewCameraMatrix` with alpha 1.0, then
-`initUndistortRectifyMap`), so a frame rectified here matches what playback hands the
-perception stack. Anything that wants to compare against those frames, a fitted camera pose
-or a rendered image, must use the rectified matrix this returns, not the calibrated one.
-"""
+"""Camera intrinsics from `config/cameras/<id>.toml`, and the rectification the C++ side does."""
 
 from __future__ import annotations
 
@@ -27,7 +20,7 @@ class CameraCalibration:
     fy: float
     cx: float
     cy: float
-    distortion: tuple[float, float, float, float, float]  # k1 k2 p1 p2 k3
+    distortion_k1_k2_p1_p2_k3: tuple[float, float, float, float, float]
 
     @property
     def K(self) -> np.ndarray:  # noqa: N802
@@ -35,7 +28,7 @@ class CameraCalibration:
 
     @property
     def D(self) -> np.ndarray:  # noqa: N802
-        return np.array(self.distortion, dtype=np.float64)
+        return np.array(self.distortion_k1_k2_p1_p2_k3, dtype=np.float64)
 
     def scaled(self, width: int, height: int) -> CameraCalibration:
         """The same lens at another resolution: intrinsics scale, distortion does not."""
@@ -48,7 +41,7 @@ class CameraCalibration:
             self.fy * sy,
             self.cx * sx,
             self.cy * sy,
-            self.distortion,
+            self.distortion_k1_k2_p1_p2_k3,
         )
 
 
@@ -64,18 +57,14 @@ def load_camera_calibration(path: Path) -> CameraCalibration:
         fy=float(data["fy"]),
         cx=float(data["cx"]),
         cy=float(data["cy"]),
-        distortion=tuple(float(data.get(key, 0.0)) for key in keys),  # type: ignore[arg-type]
+        distortion_k1_k2_p1_p2_k3=tuple(float(data.get(key, 0.0)) for key in keys),  # type: ignore[arg-type]
     )
 
 
 def rectify_maps(
     calibration: CameraCalibration, size: tuple[int, int], alpha: float = 1.0
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """(map_x, map_y, K_rect) for `cv2.remap`, exactly as `Rectifier::build` computes them.
-
-    `size` is (width, height). Alpha 1.0 keeps every source pixel, which is what the C++
-    side chooses so the mat edges are never cropped away.
-    """
+    """(map_x, map_y, K_rect) for `cv2.remap`, as `Rectifier::build` computes them, size (w, h)."""
     width, height = size
     cal = calibration.scaled(width, height)
     k_rect, _ = cv2.getOptimalNewCameraMatrix(cal.K, cal.D, size, alpha, size)

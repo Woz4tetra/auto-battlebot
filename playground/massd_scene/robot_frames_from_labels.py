@@ -109,7 +109,7 @@ def main() -> None:
         if box[1] < 0 or box[3] > bottom - top or points[:, 1].min() < 0:
             continue
 
-        floor_h = pixels_to_floor(points, calibration.tf_camera_from_fieldcenter, k)
+        floor_h = pixels_to_floor(points, calibration.tf_cvcamera_from_hfield, k)
         floor_w = (WORLD_FROM_HFIELD[:3, :3] @ floor_h.T).T
         front_w, back_w = floor_w[0], floor_w[1]
         centre = (front_w + back_w) / 2

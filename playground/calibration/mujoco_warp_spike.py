@@ -48,12 +48,12 @@ def throughput(
         x=zeros,
         y=zeros,
         yaw=rng.uniform(-3, 3, nworld),
-        vx=zeros,
-        vy=zeros,
+        vx_field=zeros,
+        vy_field=zeros,
         yaw_rate=zeros,
-        pitch=np.full(nworld, 0.19),
-        wheel_left=zeros,
-        wheel_right=zeros,
+        pitch_nose_down_rad=np.full(nworld, 0.19),
+        wheel_left_rad_s=zeros,
+        wheel_right_rad_s=zeros,
     )
     rollout.run(state)
     start = time.perf_counter()

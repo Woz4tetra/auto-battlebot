@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any
+from datetime import datetime, timezone
+from typing import Any, NamedTuple
 
 import mujoco
 import numpy as np
@@ -63,12 +64,18 @@ def _horizon_table(err: WindowErrors, batch: WindowBatch, mask: np.ndarray) -> d
     return out
 
 
+class ModelComparison(NamedTuple):
+    errors: dict[str, Any]
+    qpos: np.ndarray
+    record_dt: float
+
+
 def compare_models(
     simulate: Simulator,
     batch: WindowBatch,
     params: PlantParams,
     grey: plant.PlantParams,
-) -> dict[str, Any]:
+) -> ModelComparison:
     """Checks 1 and 2 on flat windows, plus the MuJoCo errors on nose-lift windows."""
     qpos, record_dt = simulate(batch, [params] * len(batch))
     mj = window_errors(batch, qpos, record_dt)
@@ -91,9 +98,7 @@ def compare_models(
                 "mujoco_beats_or_matches": m["position_median_m"] <= 1.05 * g["position_median_m"],
             }
     out["check1_vs_greybox"] = verdict
-    out["_qpos"] = qpos  # for the nose-lift check; the CLI drops it before writing JSON
-    out["_record_dt"] = record_dt
-    return out
+    return ModelComparison(out, qpos, record_dt)
 
 
 def nose_lift_agreement(batch: WindowBatch, qpos: np.ndarray, record_dt: float) -> dict[str, Any]:
@@ -103,7 +108,7 @@ def nose_lift_agreement(batch: WindowBatch, qpos: np.ndarray, record_dt: float) 
     for i in range(len(batch)):
         if len(batch.meas_pitch[i]) == 0:
             continue
-        start = batch.state.pitch[i]
+        start = batch.state.pitch_nose_down_rad[i]
         real.append(bool(np.degrees(start - np.min(batch.meas_pitch[i])) > LIFT_DEG))
         sim.append(bool(np.degrees(start - np.min(pose["pitch"][i])) > LIFT_DEG))
     r, s = np.array(real), np.array(sim)
@@ -217,8 +222,7 @@ def identification(results: list[FitResult]) -> dict[str, Any]:
     }
 
 
-# The yaw-rate loop replaced heading hold on this date (2026-10-05 00:00 UTC).
-YAW_LOOP_SINCE_NS = 1_791_158_400_000_000_000
+YAW_LOOP_SINCE_NS = int(datetime(2026, 10, 5, tzinfo=timezone.utc).timestamp()) * 1_000_000_000
 
 
 def closed_loop_replay(

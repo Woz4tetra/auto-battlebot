@@ -269,7 +269,7 @@ def main() -> None:
     if not pose_paths:
         raise SystemExit(f"no poses matching {args.pose_glob} under {args.poses}")
     cam2worlds = [
-        blender_cam2world(load_cage_calibration(p).tf_camera_from_fieldcenter) for p in pose_paths
+        blender_cam2world(load_cage_calibration(p).tf_cvcamera_from_hfield) for p in pose_paths
     ]
 
     bproc.init()

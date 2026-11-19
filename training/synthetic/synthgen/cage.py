@@ -672,7 +672,7 @@ def render_poses(
     positions = []
     for i, pose_path in enumerate(poses):
         calibration = load_cage_calibration(pose_path)
-        cam2world = blender_cam2world(calibration.tf_camera_from_fieldcenter)
+        cam2world = blender_cam2world(calibration.tf_cvcamera_from_hfield)
         positions.append(cam2world[:3, 3])
         set_camera(k_rect, width, height, cam2world, frame=i)
     if spec is not None and objects is not None:

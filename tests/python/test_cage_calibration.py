@@ -126,7 +126,7 @@ def test_cage_calibration_toml_round_trip(tmp_path: Path, near_wall_camera: np.n
     loaded = load_cage_calibration(path)
     assert loaded.calibration_id == "unit_test"
     assert loaded.field_size_xy == (2.35, 2.30)
-    assert np.allclose(loaded.tf_camera_from_fieldcenter, calibration.tf_camera_from_fieldcenter)
+    assert np.allclose(loaded.tf_cvcamera_from_hfield, calibration.tf_cvcamera_from_hfield)
 
 
 def _lines_from_pixels(pixels: np.ndarray) -> list[tuple[np.ndarray, float] | None]:
@@ -201,3 +201,17 @@ def test_pixels_to_field_plane_inverts_projection(near_wall_camera: np.ndarray) 
     # A pixel above the horizon misses the plane.
     sky = pixels_to_field_plane(np.array([[960.0, -5000.0]]), tf, K)
     assert np.isnan(sky).all()
+
+
+def test_saved_toml_keys_match_cpp_reader(tmp_path: Path, near_wall_camera: np.ndarray) -> None:
+    import re
+
+    reader = (Path(__file__).parents[2] / "src/field_filter/cage_calibration.cpp").read_text()
+    cpp_keys = set(re.findall(r'data\["(\w+)"\]', reader))
+    cpp_keys |= set(re.findall(r'required_array\(data, "(\w+)"', reader))
+    path = tmp_path / "cage.toml"
+    save_cage_calibration(
+        path, CageCalibration("k", 2.35, 2.30, camera_from_world(near_wall_camera))
+    )
+    written = {line.split(" = ")[0] for line in path.read_text().splitlines() if " = " in line}
+    assert written == cpp_keys

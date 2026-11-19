@@ -1,30 +1,4 @@
-"""Fixed-camera cage calibration: the `config/cages/<id>.toml` format, and the frames it links.
-
-The C++ reader is `src/field_filter/cage_calibration.cpp`; `save_cage_calibration` writes the
-exact keys it parses (`calibration_id`, `field_size_x`, `field_size_y`, `translation` as a
-3-list, `rotation` as a row-major 9-list), so a pose fitted in Python is what
-`CalibratedFieldFilter` loads at match time.
-
-Frames, written down once here and reused by every fit, render, and grading script:
-
-- **hfield**: the frame `auto_battlebot.perception.field_pose.pose_from_corners` solves in.
-  Origin at the mat centre, z up (r3 . t < 0 for a camera above the mat), and the corner
-  winding of `field_object_corners`: object (-x, -y) binds to the image's top-left corner.
-  For a camera at the near wall looking across the mat that puts hfield +x toward image
-  bottom (the camera) and hfield +y to image right. `tf_camera_from_fieldcenter` in the
-  TOML is `T_cam<-hfield` with the camera in OpenCV convention (z forward, y down).
-- **W** (the Blender world and the true_battlebot map frame): mat centre, z up, +y away
-  from the camera (image top), +x to image right. `WORLD_FROM_HFIELD` is Rz(-90 deg):
-  hfield x -> W -y, hfield y -> W +x.
-- **Blender camera**: looks down its own -z with +y up, so `OPENCV_TO_BLENDER_CAMERA`
-  flips y and z, the same thing BlenderProc's
-  `change_source_coordinate_frame_of_transformation_matrix(T, ["X", "-Y", "-Z"])` does.
-
-The chain from a fitted pose to a BlenderProc camera:
-
-    T_W<-cam_cv       = WORLD_FROM_HFIELD @ inv(T_cam<-hfield)
-    cam2world_blender = T_W<-cam_cv @ OPENCV_TO_BLENDER_CAMERA
-"""
+"""Fixed-camera cage calibration: the `config/cages/<id>.toml` format and its frame chain."""
 
 from __future__ import annotations
 
@@ -49,7 +23,7 @@ class CageCalibration:
     calibration_id: str
     field_size_x: float
     field_size_y: float
-    tf_camera_from_fieldcenter: np.ndarray  # 4x4, T_cam<-hfield, OpenCV camera
+    tf_cvcamera_from_hfield: np.ndarray
 
     @property
     def field_size_xy(self) -> tuple[float, float]:
@@ -70,20 +44,20 @@ def load_cage_calibration(path: Path) -> CageCalibration:
         calibration_id=str(data["calibration_id"]),
         field_size_x=float(data["field_size_x"]),
         field_size_y=float(data["field_size_y"]),
-        tf_camera_from_fieldcenter=tf,
+        tf_cvcamera_from_hfield=tf,
     )
 
 
 def save_cage_calibration(path: Path, calibration: CageCalibration, header: str = "") -> None:
     """Write the TOML `cage_calibration.cpp` reads. `header` lines become leading comments."""
-    tf = calibration.tf_camera_from_fieldcenter
+    tf = calibration.tf_cvcamera_from_hfield
     lines = [f"# {line}" if line else "#" for line in header.splitlines()]
     lines += [
         f'calibration_id = "{calibration.calibration_id}"',
         f"field_size_x = {calibration.field_size_x!r}",
         f"field_size_y = {calibration.field_size_y!r}",
         "",
-        "# tf_camera_from_fieldcenter: the field centre in camera coordinates (OpenCV camera,",
+        "# tf_cvcamera_from_hfield: the field centre in camera coordinates (OpenCV camera,",
         "# z forward, y down; field z up). translation in metres, rotation row-major 3x3.",
         "translation = [" + ", ".join(repr(float(v)) for v in tf[:3, 3]) + "]",
         "rotation = [" + ", ".join(repr(float(v)) for v in tf[:3, :3].reshape(-1)) + "]",
@@ -93,9 +67,9 @@ def save_cage_calibration(path: Path, calibration: CageCalibration, header: str 
     path.write_text("\n".join(lines))
 
 
-def world_from_camera(tf_camera_from_fieldcenter: np.ndarray) -> np.ndarray:
+def world_from_camera(tf_cvcamera_from_hfield: np.ndarray) -> np.ndarray:
     """T_W<-cam_cv: the OpenCV camera pose in the W frame."""
-    return np.asarray(WORLD_FROM_HFIELD @ np.linalg.inv(tf_camera_from_fieldcenter))
+    return np.asarray(WORLD_FROM_HFIELD @ np.linalg.inv(tf_cvcamera_from_hfield))
 
 
 def camera_from_world(tf_world_from_camera: np.ndarray) -> np.ndarray:
@@ -103,9 +77,9 @@ def camera_from_world(tf_world_from_camera: np.ndarray) -> np.ndarray:
     return np.asarray(np.linalg.inv(tf_world_from_camera) @ WORLD_FROM_HFIELD)
 
 
-def blender_cam2world(tf_camera_from_fieldcenter: np.ndarray) -> np.ndarray:
+def blender_cam2world(tf_cvcamera_from_hfield: np.ndarray) -> np.ndarray:
     """The matrix `bproc.camera.add_camera_pose` wants for this calibration."""
-    return np.asarray(world_from_camera(tf_camera_from_fieldcenter) @ OPENCV_TO_BLENDER_CAMERA)
+    return np.asarray(world_from_camera(tf_cvcamera_from_hfield) @ OPENCV_TO_BLENDER_CAMERA)
 
 
 def rotation_rpy_sxyz(roll: float, pitch: float, yaw: float) -> np.ndarray:
@@ -142,12 +116,7 @@ def load_prior_pose(path: Path) -> np.ndarray:
 
 
 def pose_summary(tf_world_from_camera: np.ndarray) -> dict[str, Any]:
-    """Human-readable numbers for a camera pose in W.
-
-    tilt_from_down_deg is the angle between the optical axis and straight down; yaw_deg is
-    the heading of the optical axis projected on the floor, 0 along +y (looking away from
-    the near wall), positive toward +x.
-    """
+    """Human-readable numbers for a camera pose in W."""
     tf = np.asarray(tf_world_from_camera)
     forward = tf[:3, :3] @ np.array([0.0, 0.0, 1.0])
     tilt = math.degrees(math.acos(float(np.clip(-forward[2], -1.0, 1.0))))

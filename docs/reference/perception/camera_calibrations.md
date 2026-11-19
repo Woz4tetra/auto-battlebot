@@ -79,3 +79,15 @@ the optical path refracts more toward the frame edges, which is where the field 
 calibrating in free air folds that error into the field pose where no reprojection residual shows
 it. If plumb_bob will not converge below about half a pixel, `cv::fisheye` is the correct model and
 `camera_calibration.cpp` needs a second code path.
+
+## Python rectification mirror
+
+`auto_battlebot.perception.camera_calibration` mirrors `include/rgbd_camera/camera_calibration.hpp`: the same TOML keys, and `rectify_maps` reproduces `Rectifier::build` (`getOptimalNewCameraMatrix` with alpha 1.0, then `initUndistortRectifyMap`), so a frame rectified in Python matches what playback hands the perception stack. Anything that compares against those frames, a fitted camera pose or a rendered image, must use the rectified matrix `rectify_maps` returns, not the calibrated one. Alpha 1.0 keeps every source pixel, which is what the C++ side chooses so the mat edges are never cropped away. `tests/python/test_ecam25_calibration.py::test_rectify_maps_default_keeps_every_source_pixel` pins the alpha.
+
+## C++ rectifier
+
+`Rectifier::build` takes `alpha` 1.0 by default. A cropping alpha at this field of view cuts exactly the mat edges the field fit needs. `RectifierTest.KeepsEverySourcePixelByDefault` pins it.
+
+`size` may differ from the calibration's. The intrinsics scale to it and the distortion coefficients do not, so a calibration shot at 1920x1200 still rectifies a 1280x720 capture (`RectifierTest.ScalesIntrinsicsToCaptureSize`).
+
+`camera_info()` returns the rectified matrix with D set to five zeros, so `camera_info` keeps emitting a plumb_bob model that happens to be trivial. `CameraCalibration::distortion_k1_k2_p1_p2_k3` holds the plumb-bob coefficients in that order.

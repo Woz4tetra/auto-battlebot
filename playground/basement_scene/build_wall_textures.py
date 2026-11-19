@@ -122,7 +122,7 @@ def main() -> None:
         ]
     )
     calibration = load_cage_calibration(args.scene_dir / "poses" / f"{args.clip}.toml")
-    tf_w_from_cam = world_from_camera(calibration.tf_camera_from_fieldcenter)
+    tf_w_from_cam = world_from_camera(calibration.tf_cvcamera_from_hfield)
     tf_cam_from_w = np.linalg.inv(tf_w_from_cam)
 
     valid = np.isfinite(xyz).all(axis=2)

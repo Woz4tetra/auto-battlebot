@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -19,10 +19,23 @@ from auto_battlebot.mujoco_sim.actuator import (
 )
 from auto_battlebot.mujoco_sim.rollout import InitialState
 
-# Tape history kept before each window start, so the delay shift never runs off the front.
 TAPE_PAD_S = 0.12
 DEFAULT_HORIZONS = (0.2, 0.4, 1.0)
 HORIZON_TOLERANCE_S = 0.02
+WINDOW_KINDS = ("flat", "nose_lift")
+FIRMWARE_COLUMNS = (
+    "a_percent",
+    "b_percent",
+    "pid_output",
+    "left_cmd",
+    "right_cmd",
+    "orientation_x",
+)
+
+
+class Tapes(NamedTuple):
+    volts: np.ndarray
+    zero: np.ndarray
 
 
 @dataclass
@@ -92,17 +105,14 @@ class WindowBatch:
     steps: int
     pad: int
     horizons: tuple[float, ...]
-    session: np.ndarray  # (N,) index into `sessions`
-    window_id: np.ndarray  # (N,)
-    kind: np.ndarray  # (N,) "flat" or "nose_lift"
-    start_ns: np.ndarray  # (N,)
-    u_raw: np.ndarray  # (N, pad + steps, 2) per-motor command in [-1, 1], forward-positive
-    vbat: np.ndarray  # (N, pad + steps)
+    session_index: np.ndarray
+    window_id: np.ndarray
+    kind: np.ndarray
+    start_ns: np.ndarray
+    u_raw: np.ndarray
+    vbat: np.ndarray
     state: InitialState
-    # Logged firmware signals on the same grid, for the closed-loop check: a_percent,
-    # b_percent, pid_output, left_cmd, right_cmd (percent), orientation_x (degrees).
-    firmware: np.ndarray = field(default_factory=lambda: np.zeros((0, 0, 6)))
-    # Per window: +1 if a positive logged motor command drives forward (see motor_polarity).
+    firmware: np.ndarray = field(default_factory=lambda: np.zeros((0, 0, len(FIRMWARE_COLUMNS))))
     polarity: np.ndarray = field(default_factory=lambda: np.zeros(0))
     meas_t: list[np.ndarray] = field(default_factory=list)
     meas_x: list[np.ndarray] = field(default_factory=list)
@@ -112,11 +122,23 @@ class WindowBatch:
     noise_xy: np.ndarray = field(default_factory=lambda: np.zeros(0))
     noise_yaw: np.ndarray = field(default_factory=lambda: np.zeros(0))
     noise_pitch: np.ndarray = field(default_factory=lambda: np.zeros(0))
-    # Per window, one sigma per measurement. Tag fixes carry the session noise floor; a YOLO fix
-    # carries its own, larger one. Empty means every measurement uses the window's noise.
     meas_sigma_xy: list[np.ndarray] = field(default_factory=list)
     meas_sigma_yaw: list[np.ndarray] = field(default_factory=list)
     sessions: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        n = len(self.window_id)
+        expected_u = (n, self.pad + self.steps, 2)
+        if self.u_raw.shape != expected_u:
+            raise ValueError(f"u_raw is {self.u_raw.shape}, expected {expected_u}")
+        if self.vbat.shape != expected_u[:2]:
+            raise ValueError(f"vbat is {self.vbat.shape}, expected {expected_u[:2]}")
+        if self.polarity.size and not np.isin(self.polarity, (-1.0, 1.0)).all():
+            raise ValueError("polarity must be +1 or -1 per window")
+        for name in ("meas_sigma_xy", "meas_sigma_yaw"):
+            sigmas = getattr(self, name)
+            if sigmas and len(sigmas) != n:
+                raise ValueError(f"{name} has {len(sigmas)} entries for {n} windows")
 
     def __len__(self) -> int:
         return len(self.window_id)
@@ -129,7 +151,7 @@ class WindowBatch:
             steps=self.steps,
             pad=self.pad,
             horizons=self.horizons,
-            session=self.session[idx],
+            session_index=self.session_index[idx],
             window_id=self.window_id[idx],
             kind=self.kind[idx],
             start_ns=self.start_ns[idx],
@@ -151,9 +173,7 @@ class WindowBatch:
             sessions=self.sessions,
         )
 
-    def tapes(self, params: PlantParams | list[PlantParams]) -> tuple[np.ndarray, np.ndarray]:
-        """Voltage and zero-command tapes, (N, steps, 2) each, for one parameter set per window
-        (or one shared). Applies delay, deadzone, throttle curve, left/right ratio and vbat."""
+    def tapes(self, params: PlantParams | list[PlantParams]) -> Tapes:
         n = len(self)
         plist = params if isinstance(params, list) else [params] * n
         delay = np.array([p.delay_s for p in plist])
@@ -171,7 +191,7 @@ class WindowBatch:
                 shaped = shape_command(shifted[..., k], dz[rows, k : k + 1], curve[rows])
                 zero[rows, :, k] = shaped == 0.0
                 volts[rows, :, k] = shaped * vb * gain[:, None]
-        return volts, zero
+        return Tapes(volts, zero)
 
 
 MANEUVERS = ("forward", "reverse", "spin", "other")
@@ -188,11 +208,25 @@ def maneuvers(batch: WindowBatch, deadband: float = 0.05) -> np.ndarray:
     return out
 
 
+def rolling_wheel_speeds(
+    vx_field: float,
+    vy_field: float,
+    yaw: float,
+    yaw_rate: float,
+    track_half_width: float,
+    wheel_radius: float,
+) -> tuple[float, float]:
+    """No-slip (left, right) wheel speeds in rad/s, positive rolling forward."""
+    forward = vx_field * np.cos(yaw) + vy_field * np.sin(yaw)
+    spin = yaw_rate * track_half_width
+    return float((forward - spin) / wheel_radius), float((forward + spin) / wheel_radius)
+
+
 def build_batch(
     sessions: list[Session],
     horizon_s: float = max(DEFAULT_HORIZONS),
     dt: float = 1e-3,
-    kinds: tuple[str, ...] = ("flat", "nose_lift"),
+    kinds: tuple[str, ...] = WINDOW_KINDS,
     horizons: tuple[float, ...] = DEFAULT_HORIZONS,
     track_half_width: float = 0.06526,
     wheel_radius: float = 0.025,
@@ -214,9 +248,11 @@ def build_batch(
         left = polarity * cmd["left_cmd"].to_numpy(float) / 100.0
         right = polarity * cmd["right_cmd"].to_numpy(float) / 100.0
         vbat_col = cmd["vbat"].to_numpy(float) if "vbat" in cmd else np.full(len(cmd), np.nan)
-        fw_cols = ["a_percent", "b_percent", "pid_output", "left_cmd", "right_cmd", "orientation_x"]
         firmware = np.stack(
-            [cmd[c].to_numpy(float) if c in cmd else np.full(len(cmd), np.nan) for c in fw_cols],
+            [
+                cmd[c].to_numpy(float) if c in cmd else np.full(len(cmd), np.nan)
+                for c in FIRMWARE_COLUMNS
+            ],
             axis=-1,
         )
         vbat_fill = float(np.nanmedian(vbat_col)) if np.isfinite(vbat_col).any() else NOMINAL_PACK_V
@@ -254,18 +290,20 @@ def build_batch(
             state_cols["x"].append(float(win["x0"]))
             state_cols["y"].append(float(win["y0"]))
             state_cols["yaw"].append(float(win["yaw0"]))
-            state_cols["vx"].append(float(win["vx0"]))
-            state_cols["vy"].append(float(win["vy0"]))
+            state_cols["vx_field"].append(float(win["vx0"]))
+            state_cols["vy_field"].append(float(win["vy0"]))
             state_cols["yaw_rate"].append(float(win["yaw_rate0"]))
-            state_cols["pitch"].append(float(win["pitch0"]))
-            # Wheel speeds from the no-slip relation, recomputed here in the MJCF's convention
-            # (positive rolls forward) rather than read from windows.csv.
-            forward = float(win["vx0"]) * np.cos(float(win["yaw0"])) + float(win["vy0"]) * np.sin(
-                float(win["yaw0"])
+            state_cols["pitch_nose_down_rad"].append(float(win["pitch0"]))
+            wheel_left, wheel_right = rolling_wheel_speeds(
+                float(win["vx0"]),
+                float(win["vy0"]),
+                float(win["yaw0"]),
+                float(win["yaw_rate0"]),
+                track_half_width,
+                wheel_radius,
             )
-            spin = float(win["yaw_rate0"]) * track_half_width
-            state_cols["wheel_left"].append((forward - spin) / wheel_radius)
-            state_cols["wheel_right"].append((forward + spin) / wheel_radius)
+            state_cols["wheel_left_rad_s"].append(wheel_left)
+            state_cols["wheel_right_rad_s"].append(wheel_right)
             lo = np.searchsorted(m_t, start, side="right")
             hi = np.searchsorted(m_t, start + int(horizon_s * 1e9), side="right")
             chunk = meas_df.iloc[lo:hi]
@@ -286,7 +324,7 @@ def build_batch(
         steps=steps,
         pad=pad,
         horizons=horizons,
-        session=np.array(rows["session"]),
+        session_index=np.array(rows["session"]),
         window_id=np.array(rows["wid"]),
         kind=np.array(rows["kind"]),
         start_ns=np.array(rows["start"], dtype=np.int64),

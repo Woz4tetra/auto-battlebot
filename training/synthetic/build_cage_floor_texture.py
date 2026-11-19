@@ -112,7 +112,7 @@ def warp_targets(
             continue
         k = k_1080 if source == "target.png" else np.array(meta["k_rect_4k"])
         calibration = load_cage_calibration(pose_path)
-        tf = calibration.tf_camera_from_fieldcenter
+        tf = calibration.tf_cvcamera_from_hfield
         half_xy = (calibration.field_size_x / 2, calibration.field_size_y / 2)
         cage_name = cage_name or f"cage{meta.get('cage')}"
         image = cv2.imread(str(target))

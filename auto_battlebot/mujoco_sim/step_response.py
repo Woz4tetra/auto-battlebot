@@ -19,11 +19,10 @@ FLIP_LIFT_DEG = 90.0
 
 @dataclass(frozen=True)
 class StickTape:
-    """Body-axis stick fractions on a uniform STICK_TICK_S grid from the step's start, forward
-    positive, counterclockwise angular positive (`ClosedLoopSim.step`)."""
+    """Body-axis stick fractions on a uniform STICK_TICK_S grid from the step's start."""
 
-    linear: np.ndarray
-    angular: np.ndarray
+    linear_frac_fwd: np.ndarray
+    angular_frac_ccw: np.ndarray
 
     @classmethod
     def resample(
@@ -50,8 +49,8 @@ def pitch_response(
     """(rest pitch, pitch after each tick), radians, from rest on open floor."""
     sim = ClosedLoopSim(mp, collision, params, (0.0, 0.0, 0.0))
     rest = sim.pitch
-    out = np.empty(len(tape.linear))
-    for i, (lin, ang) in enumerate(zip(tape.linear, tape.angular)):
+    out = np.empty(len(tape.linear_frac_fwd))
+    for i, (lin, ang) in enumerate(zip(tape.linear_frac_fwd, tape.angular_frac_ccw)):
         sim.step(float(lin), float(ang), STICK_TICK_S)
         out[i] = sim.pitch
     return rest, out
@@ -85,8 +84,7 @@ def fit_armature(
     measured_lift_deg: Sequence[float],
     grid: Sequence[float],
 ) -> ArmatureFit:
-    """The grid armature scale minimizing RMS peak-lift error over the steps. Lifts clamp at
-    FLIP_LIFT_DEG before differencing."""
+    """The grid armature scale minimizing RMS peak-lift error over the steps."""
     measured = np.minimum(np.asarray(measured_lift_deg, dtype=float), FLIP_LIFT_DEG)
     lifts = [
         [sim_lift_deg(mp, collision, params.replace(armature_scale=float(s)), t) for t in tapes]

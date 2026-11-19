@@ -188,12 +188,12 @@ class ClosedLoopSim:
             x=np.array([x]),
             y=np.array([y]),
             yaw=np.array([yaw]),
-            vx=zero,
-            vy=zero,
+            vx_field=zero,
+            vy_field=zero,
             yaw_rate=zero,
-            pitch=np.array([pitch]),
-            wheel_left=zero,
-            wheel_right=zero,
+            pitch_nose_down_rad=np.array([pitch]),
+            wheel_left_rad_s=zero,
+            wheel_right_rad_s=zero,
         )
         qpos, qvel = initial_qpos_qvel(
             self.model,

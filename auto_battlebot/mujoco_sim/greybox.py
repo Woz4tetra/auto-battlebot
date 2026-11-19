@@ -40,7 +40,7 @@ def predict(batch: WindowBatch, p: plant.PlantParams) -> tuple[np.ndarray, float
     ]
     u_lin, u_ang = motor_to_plant(100.0 * shifted[..., 0], 100.0 * shifted[..., 1])
     st = batch.state
-    forward = st.vx * np.cos(st.yaw) + st.vy * np.sin(st.yaw)
+    forward = st.vx_field * np.cos(st.yaw) + st.vy_field * np.sin(st.yaw)
     state0 = plant.PlantState(x=st.x, y=st.y, theta=st.yaw, v=forward, w=st.yaw_rate)
     _, traj = plant.simulate(u_lin, u_ang, PLANT_DT, p, state=state0)
     x = np.concatenate([st.x[:, None], traj["x"]], axis=1)

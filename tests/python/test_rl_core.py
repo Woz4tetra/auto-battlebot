@@ -609,10 +609,10 @@ def test_step_response_helpers() -> None:
     from auto_battlebot.mujoco_sim.step_response import StickTape, ideal_step, loosest_slew
 
     tape = ideal_step(0.6, slew_per_s=2.0, duration_s=0.5)
-    np.testing.assert_allclose(tape.linear[:3], [0.02, 0.04, 0.06])
-    assert tape.linear[-1] == pytest.approx(0.6)
+    np.testing.assert_allclose(tape.linear_frac_fwd[:3], [0.02, 0.04, 0.06])
+    assert tape.linear_frac_fwd[-1] == pytest.approx(0.6)
     held = StickTape.resample(np.array([0.0, 0.025]), np.array([0.1, 0.5]), np.zeros(2), 0.05)
-    np.testing.assert_allclose(held.linear, [0.1, 0.1, 0.1, 0.5, 0.5])
+    np.testing.assert_allclose(held.linear_frac_fwd, [0.1, 0.1, 0.1, 0.5, 0.5])
     sweep = [(0.0, 95.0), (1.0, 2.0), (4.0, 5.0), (8.0, 99.0), (12.0, 3.0)]
     assert loosest_slew(sweep, 30.0) == 4.0  # stops at the first failure from the slow end
     assert loosest_slew([(1.0, 50.0)], 30.0) is None

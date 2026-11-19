@@ -177,7 +177,7 @@ def _synthetic_bundle(
         steps=steps,
         pad=0,
         horizons=(0.2,),
-        session=np.zeros(1, int),
+        session_index=np.zeros(1, int),
         window_id=np.zeros(1, int),
         kind=np.array(["flat"]),
         start_ns=np.zeros(1, np.int64),
@@ -185,7 +185,7 @@ def _synthetic_bundle(
         vbat=np.full((1, steps), vbat),
         state=InitialState(*(np.zeros(1) for _ in range(9))),
     )
-    batch_like.state.pitch[:] = 0.19
+    batch_like.state.pitch_nose_down_rad[:] = 0.19
     volts, zero = batch_like.tapes(truth)
     height = rest_height(mp, collision, DT)
     qpos = cpu_rollout(mp, collision, truth, batch_like.state, volts[0], zero[0], DT, 1, height)
@@ -772,3 +772,148 @@ def test_updown_thresholds_match_firmware_header() -> None:
         gravity_threshold / firmware.STANDARD_GRAVITY_MPS2
     )
     assert firmware.SAMPLE_PERIOD_S == pytest.approx(constant("SAMPLE_INTERVAL") / 1000.0)
+
+
+def test_nconmax_covers_robot_on_side() -> None:
+    from auto_battlebot.mujoco_sim.rollout import (
+        NCONMAX,
+        ROWS_PER_CONTACT,
+        nconmax_for,
+        njmax_for,
+    )
+
+    model, _ = _mk3()
+    assert 2 * model.ngeom > NCONMAX
+    assert nconmax_for(model) >= 2 * model.ngeom
+    assert njmax_for(model) >= ROWS_PER_CONTACT * nconmax_for(model)
+
+
+def test_state_to_qpos_round_trip(
+    mp: mass_properties.MassProperties, collision: CollisionSet
+) -> None:
+    from auto_battlebot.mujoco_sim.mjcf import build_mjcf
+    from auto_battlebot.mujoco_sim.rollout import ModelIndex, initial_qpos_qvel, pose_from_qpos
+
+    model = mujoco.MjModel.from_xml_string(build_mjcf(mp, PlantParams(), collision, DT))
+    yaw, pitch, yaw_rate = 0.7, 0.19, 2.0
+    one = np.ones(1)
+    state = InitialState(
+        x=one * 0.1,
+        y=one * 0.2,
+        yaw=one * yaw,
+        vx_field=one,
+        vy_field=one * 0.5,
+        yaw_rate=one * yaw_rate,
+        pitch_nose_down_rad=one * pitch,
+        wheel_left_rad_s=one,
+        wheel_right_rad_s=one,
+    )
+    qpos, qvel = initial_qpos_qvel(model, ModelIndex.of(model), state, 0.05, mp.gear_ratio)
+    pose = pose_from_qpos(qpos[0, :7])
+    assert pose["yaw"] == pytest.approx(yaw)
+    assert pose["pitch"] == pytest.approx(pitch)
+    assert pose["roll"] == pytest.approx(0.0, abs=1e-9)
+    w, x, y, z = qpos[0, 3:7]
+    rot = np.array(
+        [
+            [1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)],
+            [2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)],
+            [2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)],
+        ]
+    )
+    np.testing.assert_allclose(rot @ qvel[0, 3:6], [0.0, 0.0, yaw_rate], atol=1e-9)
+
+
+def test_param_arrays_reject_wrong_shapes(
+    mp: mass_properties.MassProperties, collision: CollisionSet
+) -> None:
+    from auto_battlebot.mujoco_sim.mjcf import build_mjcf
+    from auto_battlebot.mujoco_sim.rollout import ModelIndex, param_arrays
+
+    model = mujoco.MjModel.from_xml_string(build_mjcf(mp, PlantParams(), collision, DT))
+    arrays = param_arrays(model, ModelIndex.of(model), mp, [PlantParams(), PlantParams()])
+    assert arrays.geom_friction.shape == (2, model.ngeom, 3)
+    from dataclasses import replace
+
+    with pytest.raises(ValueError, match="geom_solref"):
+        replace(arrays, geom_solref=arrays.geom_solref[:1])
+
+
+def test_window_batch_rejects_bad_polarity_and_tape_shapes() -> None:
+    steps = 10
+    common = dict(
+        dt=DT,
+        steps=steps,
+        pad=2,
+        horizons=(0.2,),
+        session_index=np.zeros(1, int),
+        window_id=np.zeros(1, int),
+        kind=np.array(["flat"]),
+        start_ns=np.zeros(1, np.int64),
+        state=InitialState(*(np.zeros(1) for _ in range(9))),
+    )
+    good_u, good_v = np.zeros((1, steps + 2, 2)), np.zeros((1, steps + 2))
+    WindowBatch(u_raw=good_u, vbat=good_v, polarity=np.array([-1.0]), **common)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="u_raw"):
+        WindowBatch(u_raw=good_u[:, :steps], vbat=good_v, **common)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="polarity"):
+        WindowBatch(u_raw=good_u, vbat=good_v, polarity=np.array([0.5]), **common)  # type: ignore[arg-type]
+
+
+def test_tape_pad_covers_delay_bound() -> None:
+    from auto_battlebot.mujoco_sim.fit import PARAM_SPECS
+    from auto_battlebot.mujoco_sim.session import TAPE_PAD_S
+
+    delay_hi = next(s.hi for s in PARAM_SPECS if s.name == "delay_s")
+    assert TAPE_PAD_S > delay_hi
+
+
+def test_window_initial_wheel_speed_rolls_forward() -> None:
+    from auto_battlebot.mujoco_sim.session import rolling_wheel_speeds
+
+    left, right = rolling_wheel_speeds(1.0, 0.0, 0.0, 0.0, 0.065, 0.025)
+    assert left == pytest.approx(40.0) and right == pytest.approx(40.0)
+    left, right = rolling_wheel_speeds(0.0, 1.0, math.pi / 2, 0.0, 0.065, 0.025)
+    assert left == pytest.approx(40.0) and right == pytest.approx(40.0)
+    left, right = rolling_wheel_speeds(0.0, 0.0, 0.0, 1.0, 0.065, 0.025)
+    assert right > 0.0 > left
+
+
+def test_fit_armature_clamps_flipped_lift(monkeypatch: pytest.MonkeyPatch) -> None:
+    from auto_battlebot.mujoco_sim import step_response
+    from auto_battlebot.mujoco_sim.step_response import FLIP_LIFT_DEG, fit_armature, ideal_step
+
+    lifts = {1.0: (FLIP_LIFT_DEG, 40.0), 2.0: (4.0 * FLIP_LIFT_DEG, 60.0)}
+    tapes = [ideal_step(0.5), ideal_step(0.6)]
+
+    def fake_lift(mp, collision, params, tape):  # type: ignore[no-untyped-def]
+        return lifts[params.armature_scale][0 if tape is tapes[0] else 1]
+
+    monkeypatch.setattr(step_response, "sim_lift_deg", fake_lift)
+    fit = fit_armature(None, None, PlantParams(), tapes, [5 * FLIP_LIFT_DEG, 40.0], [2.0, 1.0])  # type: ignore[arg-type]
+    assert fit.armature_scale == 1.0
+    assert fit.rms_by_scale[1] == pytest.approx(0.0)
+
+
+def test_compare_models_keeps_arrays_out_of_the_report(
+    tmp_path: Path, mp: mass_properties.MassProperties, collision: CollisionSet
+) -> None:
+    from auto_battlebot.control import plant
+    from auto_battlebot.mujoco_sim import validate
+
+    bundle = _synthetic_bundle(tmp_path, mp, collision, PlantParams())
+    batch = build_batch([load_session(bundle)], horizon_s=0.4, dt=DT, horizons=(0.2, 0.4))
+    result = validate.compare_models(
+        _cpu_simulator(mp, collision), batch, PlantParams(), plant.PlantParams()
+    )
+    json.dumps(result.errors)
+    assert result.qpos.shape[0] == len(batch)
+    assert result.record_dt == pytest.approx(5 * DT)
+
+
+def test_yaw_loop_cutover_is_2026_10_05_utc() -> None:
+    from datetime import datetime, timezone
+
+    from auto_battlebot.mujoco_sim.validate import YAW_LOOP_SINCE_NS
+
+    assert YAW_LOOP_SINCE_NS == int(datetime(2026, 10, 5, tzinfo=timezone.utc).timestamp() * 1e9)

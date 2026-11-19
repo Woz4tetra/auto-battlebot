@@ -74,7 +74,7 @@ def test_the_16_9_file_is_a_crop_of_the_native_mode(calibration: CameraCalibrati
     assert (calibration.width, calibration.height) == (1920, 1080)
     assert calibration.fx == calibration.fy
     assert (calibration.cx, calibration.cy) == (calibration.width / 2, calibration.height / 2)
-    assert calibration.distortion[2:] == (0.0, 0.0, 0.0)  # p1, p2, k3 all unused
+    assert calibration.distortion_k1_k2_p1_p2_k3[2:] == (0.0, 0.0, 0.0)  # p1, p2, k3 all unused
 
 
 def test_distortion_stays_monotonic_out_to_the_image_corner(
@@ -85,7 +85,7 @@ def test_distortion_stays_monotonic_out_to_the_image_corner(
     This is the assertion that rejects the better-residual k1/k2/k3 fit, which turns over at
     63.3 deg, inside the 64.1 deg corner.
     """
-    k1, k2, _, _, k3 = calibration.distortion
+    k1, k2, _, _, k3 = calibration.distortion_k1_k2_p1_p2_k3
     angles = np.linspace(1e-4, math.radians(FOV_DIAGONAL_DEG / 2), 400)
     radii = np.tan(angles)
     distorted = radii * (1.0 + k1 * radii**2 + k2 * radii**4 + k3 * radii**6)
@@ -108,3 +108,10 @@ def test_rectified_field_and_border_are_what_the_header_claims(
         filled, map_x, map_y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0
     )
     assert float((rectified == 0).mean()) == pytest.approx(0.362, abs=0.01)
+
+
+def test_rectify_maps_default_keeps_every_source_pixel(calibration: CameraCalibration) -> None:
+    size = (calibration.width, calibration.height)
+    default_k = rectify_maps(calibration, size)[2]
+    assert np.allclose(default_k, rectify_maps(calibration, size, 1.0)[2])
+    assert default_k[0, 0] < rectify_maps(calibration, size, 0.0)[2][0, 0]

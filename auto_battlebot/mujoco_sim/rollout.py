@@ -38,12 +38,9 @@ BATCHED_FIELDS = (
     "actuator_biasprm",
     "actuator_forcerange",
 )
-# Contacts and constraint rows per world. The hull pieces, skid and both treads rarely give more
-# than 8 contacts; the headroom covers a robot on its side. The broadphase pairs the floor plane
-# with every robot geom, so a model with more pieces (Mrs Buff Mk3: 30 pieces and four treads)
-# needs room for that many candidate pairs: `nconmax_for` scales it.
 NCONMAX = 24
 NJMAX = 160
+ROWS_PER_CONTACT = 6
 
 
 def nconmax_for(model: mujoco.MjModel) -> int:
@@ -51,9 +48,7 @@ def nconmax_for(model: mujoco.MjModel) -> int:
 
 
 def njmax_for(model: mujoco.MjModel) -> int:
-    """Constraint rows: up to six per contact (condim 6 on the treads), plus equalities and
-    joint friction."""
-    return max(NJMAX, 6 * nconmax_for(model))
+    return max(NJMAX, ROWS_PER_CONTACT * nconmax_for(model))
 
 
 @dataclass
@@ -94,20 +89,41 @@ class ModelIndex:
         )
 
 
+PARAM_ARRAY_SHAPES = {
+    "geom_friction": (3, 3),
+    "geom_solref": (3, 2),
+    "geom_solimp": (3, 5),
+    "dof_damping": (2, None),
+    "dof_frictionloss": (2, None),
+    "body_inertia": (3, 3),
+    "actuator_gainprm": (3, 10),
+    "actuator_biasprm": (3, 10),
+    "actuator_forcerange": (3, 2),
+}
+
+
 @dataclass
 class ParamArrays:
     """Per-world values of the batched Model fields, as host arrays."""
 
-    geom_friction: np.ndarray  # (W, ngeom, 3)
-    geom_solref: np.ndarray  # (W, ngeom, 2)
-    geom_solimp: np.ndarray  # (W, ngeom, 5)
-    dof_damping: np.ndarray  # (W, nv)
-    dof_frictionloss: np.ndarray  # (W, nv)
-    body_inertia: np.ndarray  # (W, nbody, 3)
-    actuator_gainprm: np.ndarray  # (W, nu, 10)
-    actuator_biasprm: np.ndarray  # (W, nu, 10)
-    actuator_forcerange: np.ndarray  # (W, nu, 2)
-    coast: np.ndarray  # (W,) 1.0 where a zero command freewheels
+    geom_friction: np.ndarray
+    geom_solref: np.ndarray
+    geom_solimp: np.ndarray
+    dof_damping: np.ndarray
+    dof_frictionloss: np.ndarray
+    body_inertia: np.ndarray
+    actuator_gainprm: np.ndarray
+    actuator_biasprm: np.ndarray
+    actuator_forcerange: np.ndarray
+    coast: np.ndarray
+
+    def __post_init__(self) -> None:
+        worlds = len(self.coast)
+        for name, (ndim, tail) in PARAM_ARRAY_SHAPES.items():
+            arr = getattr(self, name)
+            tail_ok = tail is None or arr.shape[-1] == tail
+            if arr.ndim != ndim or arr.shape[0] != worlds or not tail_ok:
+                raise ValueError(f"{name} has shape {arr.shape}, expected ({worlds}, ..., {tail})")
 
 
 def param_arrays(
@@ -156,12 +172,12 @@ class InitialState:
     x: np.ndarray
     y: np.ndarray
     yaw: np.ndarray
-    vx: np.ndarray  # field frame
-    vy: np.ndarray
+    vx_field: np.ndarray
+    vy_field: np.ndarray
     yaw_rate: np.ndarray
-    pitch: np.ndarray  # nose-down positive
-    wheel_left: np.ndarray  # rad/s
-    wheel_right: np.ndarray
+    pitch_nose_down_rad: np.ndarray
+    wheel_left_rad_s: np.ndarray
+    wheel_right_rad_s: np.ndarray
 
 
 def initial_qpos_qvel(
@@ -177,19 +193,16 @@ def initial_qpos_qvel(
     qpos[:, 0] = state.x
     qpos[:, 1] = state.y
     qpos[:, 2] = height
-    half_yaw, half_pitch = state.yaw / 2, state.pitch / 2
-    # q = q_yaw * q_pitch (intrinsic z then y)
+    half_yaw, half_pitch = state.yaw / 2, state.pitch_nose_down_rad / 2
     qpos[:, 3] = np.cos(half_yaw) * np.cos(half_pitch)
     qpos[:, 4] = -np.sin(half_yaw) * np.sin(half_pitch)
     qpos[:, 5] = np.cos(half_yaw) * np.sin(half_pitch)
     qpos[:, 6] = np.sin(half_yaw) * np.cos(half_pitch)
-    qvel[:, 0] = state.vx
-    qvel[:, 1] = state.vy
-    # Free-joint angular velocity is in the body frame; for a pitched body a pure field yaw
-    # rate has components on body x and z.
-    qvel[:, 3] = -np.sin(state.pitch) * state.yaw_rate
-    qvel[:, 5] = np.cos(state.pitch) * state.yaw_rate
-    wheels = np.stack([state.wheel_left, state.wheel_right], axis=1)
+    qvel[:, 0] = state.vx_field
+    qvel[:, 1] = state.vy_field
+    qvel[:, 3] = -np.sin(state.pitch_nose_down_rad) * state.yaw_rate
+    qvel[:, 5] = np.cos(state.pitch_nose_down_rad) * state.yaw_rate
+    wheels = np.stack([state.wheel_left_rad_s, state.wheel_right_rad_s], axis=1)
     qvel[:, index.wheel_dofs] = wheels
     if len(index.follower_dofs):
         qvel[:, index.follower_dofs] = wheels
@@ -255,12 +268,7 @@ def cpu_rollout(
 
 
 class WarpRollout:
-    """A fixed-size batch of worlds on the GPU, reused across CMA-ES generations.
-
-    Tapes are (W, T, 2) volts and a (W, T, 2) zero-command mask. `run` resets every world to its
-    initial state, replays the captured step graph T times and returns (W, S, 7) chassis qpos
-    sampled every `record_every` steps (S = ceil(T / record_every)).
-    """
+    """A fixed-size batch of worlds on the GPU, reused across CMA-ES generations."""
 
     def __init__(
         self,
@@ -315,6 +323,9 @@ class WarpRollout:
         self.coast.assign(arrays.coast.astype(np.float32))
 
     def set_tapes(self, volts: np.ndarray, zero: np.ndarray) -> None:
+        expected = (self.nworld, self.steps, 2)
+        if volts.shape != expected or zero.shape != expected:
+            raise ValueError(f"tapes are {volts.shape}, {zero.shape}, expected {expected}")
         self.tape_v.assign(volts.astype(np.float32))
         self.tape_zero.assign(zero.astype(np.float32))
 

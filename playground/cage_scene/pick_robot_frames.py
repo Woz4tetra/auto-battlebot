@@ -114,7 +114,7 @@ def main() -> None:
         )
         hull_inner = cv2.erode(hull, np.ones((2 * HULL_MARGIN_PX + 1,) * 2, np.uint8))
         cage = load_cage_calibration(pose_path)
-        tf = cage.tf_camera_from_fieldcenter
+        tf = cage.tf_cvcamera_from_hfield
         capture = cv2.VideoCapture(str(video))
         total = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
         if args.max_frames:

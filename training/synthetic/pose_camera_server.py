@@ -250,7 +250,7 @@ def write_pose(out_dir: Path, name: str, pose: FreeflyPose, mat_size_m: float) -
         calibration_id=name,
         field_size_x=mat_size_m,
         field_size_y=mat_size_m,
-        tf_camera_from_fieldcenter=camera_from_world(world_from_camera),
+        tf_cvcamera_from_hfield=camera_from_world(world_from_camera),
     )
     path = out_dir / f"{name}.toml"
     save_cage_calibration(
@@ -346,7 +346,7 @@ def main() -> None:
         k_rect_full=k_rect[1.0].tolist(),
         k_rect_cropped=k_rect[0.0].tolist(),
         k_calibrated=scaled.K.tolist(),
-        distortion=[float(v) for v in calibration.distortion],
+        distortion=[float(v) for v in calibration.distortion_k1_k2_p1_p2_k3],
         rectified_fov_full_deg=fov_degrees(k_rect[1.0], *render_size),
         rectified_fov_cropped_deg=fov_degrees(k_rect[0.0], *render_size),
         calibrated_fov_deg=fov_degrees(scaled.K, *render_size),

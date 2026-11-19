@@ -914,6 +914,39 @@ when the CAD face only decodes mirrored.
 The CAD face is rasterized with the lightest faces painted first so the black pattern lands on top
 of any overlapping plate.
 
+### `mujoco_sim/rollout.py`
+
+#### `NCONMAX` and `nconmax_for`
+
+Contacts and constraint rows per world. The hull pieces, skid and both treads rarely give more than
+8 contacts; the 24-contact floor covers a robot on its side. The broadphase pairs the floor plane
+with every robot geom, so a model with more pieces (Mrs Buff Mk3: 30 pieces and four treads) needs
+room for that many candidate pairs: `nconmax_for` returns at least `2 * ngeom`. MuJoCo Warp drops
+contacts on overflow, so an undersized buffer sinks the robot into the floor. `njmax_for` allows
+`ROWS_PER_CONTACT` = 6 rows per contact (condim 6 on the treads), plus equalities and joint
+friction.
+
+#### `ParamArrays`
+
+Shapes, with W worlds: `geom_friction` (W, ngeom, 3), `geom_solref` (W, ngeom, 2), `geom_solimp`
+(W, ngeom, 5), `dof_damping` and `dof_frictionloss` (W, nv), `body_inertia` (W, nbody, 3),
+`actuator_gainprm` and `actuator_biasprm` (W, nu, 10), `actuator_forcerange` (W, nu, 2). `coast`
+is (W,), 1.0 where a zero command freewheels. `__post_init__` rejects any other rank or trailing
+size.
+
+#### `InitialState`
+
+Per-world planar pose and velocity in the field frame. `pitch_nose_down_rad` is positive nose
+down. `initial_qpos_qvel` composes the orientation as q = q_yaw * q_pitch (intrinsic z then y).
+The free-joint angular velocity is in the body frame, so for a pitched body a pure field yaw rate
+has components on body x and z.
+
+#### `WarpRollout`
+
+Tapes are (W, T, 2) volts and a (W, T, 2) zero-command mask; `set_tapes` rejects other shapes.
+`run` resets every world to its initial state, replays the captured step graph T times and returns
+(W, S, 7) chassis qpos sampled every `record_every` steps (S = ceil(T / record_every)).
+
 ### `mujoco_sim/session.py`
 
 Load smooth_tag_poses.py session bundles into rollout windows for the MuJoCo fit.
@@ -926,7 +959,47 @@ session.json (noise floor, clock fit, ...).
 The fit's loss reads the raw measurements, never the smoothed poses; the smoothed state only
 supplies each window's initial conditions.
 
+`TAPE_PAD_S` is the tape history kept before each window start so the delay shift never runs off
+the front; it must exceed the `delay_s` upper bound in `fit.PARAM_SPECS`.
+
+#### `WindowBatch`
+
+`session_index` indexes `sessions`. `kind` is one of `WINDOW_KINDS` ("flat", "nose_lift").
+`u_raw` is (N, pad + steps, 2), the per-motor command in [-1, 1], forward positive; `vbat` is
+(N, pad + steps). `firmware` is the logged signals on the same grid, in `FIRMWARE_COLUMNS` order
+(a_percent, b_percent, pid_output, left_cmd, right_cmd in percent, orientation_x in degrees), for
+the closed-loop check. `polarity` is +1 per window if a positive logged motor command drives
+forward, -1 otherwise (see `motor_polarity`); `__post_init__` rejects other values.
+
+`meas_sigma_xy` and `meas_sigma_yaw` hold one sigma per measurement per window. Tag fixes carry
+the session noise floor; a YOLO fix carries its own, larger one. An empty list means every
+measurement uses the window's `noise_*`.
+
+`tapes` returns `Tapes(volts, zero)`, each (N, steps, 2), for one parameter set per window or one
+shared. It applies delay, deadzone, throttle curve, left/right ratio and vbat.
+
+`build_batch` recomputes each window's initial wheel speeds with `rolling_wheel_speeds`, the
+no-slip relation in the MJCF's convention (positive rolls forward), rather than reading them from
+windows.csv.
+
+### `mujoco_sim/step_response.py`
+
+`StickTape.linear_frac_fwd` and `angular_frac_ccw` are body-axis stick fractions on a uniform
+`STICK_TICK_S` grid from the step's start: forward positive, counterclockwise positive
+(`ClosedLoopSim.step`). `fit_armature` clamps both measured and simulated lifts at
+`FLIP_LIFT_DEG` before differencing, so a flipped run's unbounded measured lift cannot dominate
+the RMS.
+
 ### `mujoco_sim/validate.py`
+
+#### `compare_models`
+
+Returns `ModelComparison(errors, qpos, record_dt)`. `errors` is the JSON-safe report; `qpos` and
+`record_dt` feed the nose-lift check and stay out of it.
+
+#### `YAW_LOOP_SINCE_NS`
+
+The yaw-rate loop replaced heading hold on 2026-10-05 00:00 UTC.
 
 #### `firmware_closed_loop`
 

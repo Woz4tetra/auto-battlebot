@@ -180,8 +180,8 @@ def _validate(
     simulate = _simulator(mp, collision, dt)
     report: dict[str, Any] = {"holdout": [str(p) for p in holdout], "windows": len(batch)}
     compare = validate.compare_models(simulate, batch, best, grey)
-    qpos, record_dt = compare.pop("_qpos"), compare.pop("_record_dt")
-    report["check1_2_errors"] = compare
+    qpos, record_dt = compare.qpos, compare.record_dt
+    report["check1_2_errors"] = compare.errors
     radio = [load_session(p).radio_delay_s for p in holdout]
     radio_vals = [float(v) for v in radio if v is not None]
     report["check3_plausibility"] = validate.plausibility(
