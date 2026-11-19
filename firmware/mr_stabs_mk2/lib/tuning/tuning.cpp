@@ -1,6 +1,7 @@
 #include "tuning.h"
 
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 
 namespace tuning {
@@ -35,5 +36,16 @@ bool set(Settings &settings, const char *key, float value) {
     if (!field || !std::isfinite(value) || value < field->min || value > field->max) return false;
     *field->ref(settings) = value;
     return true;
+}
+
+const char *first_invalid_field(Settings settings, const FormField *fields, size_t count) {
+    for (size_t i = 0; i < count; i++) {
+        char *end = nullptr;
+        const float value = strtof(fields[i].value, &end);
+        if (end == fields[i].value || *end != '\0' || !set(settings, fields[i].name, value)) {
+            return fields[i].name;
+        }
+    }
+    return nullptr;
 }
 }  // namespace tuning

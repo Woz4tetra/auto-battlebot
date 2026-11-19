@@ -141,6 +141,22 @@ TEST(YawController, IntegralHeldWhileSaturated) {
     EXPECT_NEAR(out, config.feedforward * config.max_rate, kTol);
 }
 
+TEST(YawController, IntegralUnwindsWhileSaturatedWhenErrorReverses) {
+    Config config;
+    config.feedforward = 0.0f;
+    config.ki = 10.0f;
+    config.i_max = 200.0f;
+    YawController yaw(config);
+    yaw.reset(0.0f);
+    yaw.update(100.0f, kNoseFirstThrottle, 0.0f, 0.0f, kDt);
+    EXPECT_NEAR(yaw.output(), 100.0f, kTol);
+    float out = 0.0f;
+    for (int i = 0; i < 12; i++) {
+        out = yaw.update(100.0f, kNoseFirstThrottle, 0.0f, config.max_rate + 100.0f, kDt);
+    }
+    EXPECT_LT(out, 99.0f);
+}
+
 TEST(YawController, IntegralClampedToIMax) {
     Config config;
     config.ki = 1000.0f;
@@ -160,6 +176,14 @@ TEST(YawController, ResetClearsState) {
     EXPECT_FALSE(yaw.capturing());
     EXPECT_EQ(yaw.output(), 0.0f);
     EXPECT_NEAR(yaw.update(0.0f, kNoseFirstThrottle, 123.0f, 0.0f, kDt), 0.0f, kTol);
+}
+
+TEST(GyroSignSuspect, NeedsEnoughDisagreementsAndMoreThanAgreements) {
+    EXPECT_FALSE(yaw_control::gyro_sign_suspect(0, 9, 10));
+    EXPECT_TRUE(yaw_control::gyro_sign_suspect(0, 10, 10));
+    EXPECT_FALSE(yaw_control::gyro_sign_suspect(10, 10, 10));
+    EXPECT_FALSE(yaw_control::gyro_sign_suspect(50, 20, 10));
+    EXPECT_TRUE(yaw_control::gyro_sign_suspect(50, 51, 10));
 }
 
 int main(int argc, char **argv) {
@@ -190,4 +214,11 @@ TEST(UnwrapGyroRate, TracksASpinUpPastTheRange) {
         unwrapped = yaw_control::unwrap_gyro_rate(raw * kDegToRad, unwrapped);
         ASSERT_NEAR(unwrapped / kDegToRad, truth, 0.5f);
     }
+}
+
+TEST(UnwrapGyroRate, PicksTheWrongAliasOnceTheStepPassesHalfAWrap) {
+    const float within = yaw_control::unwrap_gyro_rate(-2056.0f * kDegToRad, 0.0f);
+    EXPECT_NEAR(within / kDegToRad, 2040.0f, 0.1f);
+    const float beyond = yaw_control::unwrap_gyro_rate(-2040.0f * kDegToRad, 0.0f);
+    EXPECT_NEAR(beyond / kDegToRad, -2040.0f, 0.1f) << "a 2056 deg/s step aliases to -2040";
 }

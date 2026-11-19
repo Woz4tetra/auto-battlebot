@@ -1,6 +1,7 @@
 #pragma once
 #include <Arduino.h>
 #include <Wire.h>
+#include <i2c_status.h>
 
 namespace vbat_sensor {
 const uint8_t INA238_ADDRESS = 0x45;
@@ -10,13 +11,10 @@ const float SHUNT_OHMS = 0.0005f;
 const uint32_t SAMPLE_INTERVAL_US = 10000;
 const uint32_t RETRY_INTERVAL_US = 1000000;
 
-// INA238 health for the diagnostics page. last_error is a Wire endTransmission() code
-// (0 ok, 2 address NACK, 3 data NACK, 4 bus error, 5 timeout), 6 for a short read, or 255
-// before the first read.
 struct status_t {
     bool present = false;
     uint16_t device_id = 0;
-    uint8_t last_error = 255;
+    I2cStatus last_error = I2C_NOT_TRIED;
     uint32_t reads = 0;
     uint32_t read_failures = 0;
     uint32_t last_ok_ms = 0;

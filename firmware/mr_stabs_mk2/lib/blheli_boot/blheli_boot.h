@@ -57,8 +57,8 @@ uint16_t crc_boot(const uint8_t *data, size_t size, uint16_t crc = 0);
 struct Request {
     uint8_t cmd;
     uint16_t address;
-    const uint8_t *params;  // points into the frame
-    size_t length;          // 1..256
+    const uint8_t *params_in_frame;
+    size_t length;
 };
 
 enum class ParseResult : uint8_t { OK, SHORT, BAD_START, BAD_LENGTH, BAD_CRC };

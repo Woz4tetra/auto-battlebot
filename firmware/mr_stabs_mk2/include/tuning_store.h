@@ -11,8 +11,7 @@ class TuningStore {
     tuning::Settings get();
     bool set(const char *key, float value);
     bool take_change(tuning::Settings &out);
-    // Writes changed values to NVS. Call from loop() while disarmed.
-    void save();
+    bool save(bool armed);
     bool saved();
 
    private:

@@ -59,8 +59,8 @@ float Pid::_calculate_i(float error, float dt) {
         return 0.0;
     }
 
-    if (i_zone < 0.0) {
-        // No i_zone limit (equivalent to Python's None)
+    const bool i_zone_disabled = i_zone < 0.0;
+    if (i_zone_disabled) {
         i_accum_error_s += error * dt;
     } else if (fabs(error) < i_zone) {
         i_accum_error_s += error * dt;

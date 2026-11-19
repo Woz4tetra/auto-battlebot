@@ -10,6 +10,12 @@ const uint16_t PAYLOAD_STOPPED = 0x0FFF;
 const uint8_t GCR_ENCODE[16] = {0x19, 0x1B, 0x12, 0x13, 0x1D, 0x15, 0x16, 0x17,
                                 0x1A, 0x09, 0x0A, 0x0B, 0x1E, 0x0D, 0x0E, 0x0F};
 
+inline uint16_t build_packet(uint16_t throttle, bool telemetry) {
+    const uint16_t value = static_cast<uint16_t>((throttle << 1) | (telemetry ? 1 : 0));
+    const uint16_t crc = static_cast<uint16_t>(~(value ^ (value >> 4) ^ (value >> 8)) & 0x0F);
+    return static_cast<uint16_t>((value << 4) | crc);
+}
+
 inline uint8_t gcr_decode(uint32_t group) {
     for (uint8_t nibble = 0; nibble < 16; nibble++) {
         if (GCR_ENCODE[nibble] == group) return nibble;

@@ -8,6 +8,17 @@
 
 using namespace tuning;
 
+TEST(Tuning, FormWithOneBadFieldNamesItEvenWhenEarlierFieldsAreValid) {
+    const FormField good[] = {{"kp", "0.5"}, {"left_deadzone", "3"}};
+    EXPECT_EQ(first_invalid_field(Settings(), good, 2), nullptr);
+    const FormField bad_last[] = {{"kp", "0.5"}, {"left_deadzone", "999"}};
+    EXPECT_STREQ(first_invalid_field(Settings(), bad_last, 2), "left_deadzone");
+    const FormField unknown[] = {{"kp", "0.5"}, {"nope", "1"}};
+    EXPECT_STREQ(first_invalid_field(Settings(), unknown, 2), "nope");
+    const FormField junk[] = {{"kp", "0.5x"}};
+    EXPECT_STREQ(first_invalid_field(Settings(), junk, 1), "kp");
+}
+
 TEST(Tuning, KeysAreUniqueAndFitNvs) {
     std::set<std::string> keys;
     for (size_t i = 0; i < FIELD_COUNT; i++) {

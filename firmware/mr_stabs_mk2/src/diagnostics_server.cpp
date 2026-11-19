@@ -7,6 +7,7 @@
 #include <web_assets.h>
 
 #include <memory>
+#include <vector>
 
 static AsyncWebServer server(80);
 static AsyncEventSource events("/events");
@@ -436,24 +437,28 @@ void DiagnosticsServer::begin(wifi_manager::WifiManager *wifi, const telemetry_r
         request->send(200, "application/json", tuning_json(_tuning));
     });
 
-    // Form fields key=value, any subset. Checks every field first and applies none on a bad one.
     server.on("/tuning", HTTP_POST, [this](AsyncWebServerRequest *request) {
         if (!_tuning) return request->send(500, "text/plain", "n/a");
-        tuning::Settings check = _tuning->get();
+        std::vector<String> names;
+        std::vector<String> values;
         for (size_t i = 0; i < request->params(); i++) {
             const AsyncWebParameter *param = request->getParam(i);
             if (!param->isPost()) continue;
-            char *end = nullptr;
-            const float value = strtof(param->value().c_str(), &end);
-            if (end == param->value().c_str() || *end != '\0' ||
-                !tuning::set(check, param->name().c_str(), value)) {
-                return request->send(400, "text/plain",
-                                     "bad value or unknown field: " + param->name());
-            }
+            names.push_back(param->name());
+            values.push_back(param->value());
         }
-        for (size_t i = 0; i < request->params(); i++) {
-            const AsyncWebParameter *param = request->getParam(i);
-            if (param->isPost()) _tuning->set(param->name().c_str(), param->value().toFloat());
+        std::vector<tuning::FormField> fields;
+        for (size_t i = 0; i < names.size(); i++) {
+            fields.push_back({names[i].c_str(), values[i].c_str()});
+        }
+        const char *invalid =
+            tuning::first_invalid_field(_tuning->get(), fields.data(), fields.size());
+        if (invalid) {
+            return request->send(400, "text/plain",
+                                 String("bad value or unknown field: ") + invalid);
+        }
+        for (size_t i = 0; i < names.size(); i++) {
+            _tuning->set(names[i].c_str(), values[i].toFloat());
         }
         request->send(200, "application/json", tuning_json(_tuning));
     });

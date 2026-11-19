@@ -50,7 +50,7 @@ ParseResult parse_request(const uint8_t *frame, size_t size, Request &out) {
     if (crc_xmodem(frame, size - 2) != crc) return ParseResult::BAD_CRC;
     out.cmd = frame[1];
     out.address = static_cast<uint16_t>((frame[2] << 8) | frame[3]);
-    out.params = frame + 5;
+    out.params_in_frame = frame + 5;
     out.length = length;
     return ParseResult::OK;
 }
@@ -257,7 +257,7 @@ size_t Server::handle(const uint8_t *frame, size_t size, uint8_t *out) {
         return build_response(frame[1], address, &zero, 1, ACK_INVALID_CRC, out);
     }
 
-    const uint8_t param = req.params[0];
+    const uint8_t param = req.params_in_frame[0];
     switch (req.cmd) {
         case PROTOCOL_GET_VERSION:
             return build_response(req.cmd, req.address, &PROTOCOL_VERSION, 1, ACK_OK, out);
@@ -310,7 +310,7 @@ size_t Server::handle(const uint8_t *frame, size_t size, uint8_t *out) {
                 _guard_refusals++;
                 return build_response(req.cmd, req.address, &zero, 1, ACK_INVALID_PARAM, out);
             }
-            const uint8_t ack = write(req.address, req.params, req.length);
+            const uint8_t ack = write(req.address, req.params_in_frame, req.length);
             return build_response(req.cmd, req.address, &zero, 1, ack, out);
         }
         case DEVICE_PAGE_ERASE:

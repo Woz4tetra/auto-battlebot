@@ -145,13 +145,13 @@ void EscConfig::begin(esc::Esc *esc0_right, esc::Esc *esc1_left, uint8_t esc0_pi
 
 void EscConfig::set_error(const char *error) {
     portENTER_CRITICAL(&_mux);
-    _error = error;
+    _guarded.error = error;
     portEXIT_CRITICAL(&_mux);
 }
 
 void EscConfig::request(bool enter) {
     portENTER_CRITICAL(&_mux);
-    _requested = enter ? 1 : 0;
+    _guarded.requested = enter ? Request::ENTER : Request::EXIT;
     portEXIT_CRITICAL(&_mux);
 }
 
@@ -164,28 +164,28 @@ bool EscConfig::submit(const uint8_t *frame, size_t size, uint32_t &id, const ch
     portENTER_CRITICAL(&_mux);
     if (_state != State::TUNING) {
         reason = "not in tuning mode";
-    } else if (_slot_state == Poll::PENDING) {
+    } else if (_guarded.slot_state == Poll::PENDING) {
         reason = "a frame is already pending";
     } else {
-        memcpy(_request, frame, size);
-        _request_size = size;
-        _id = _next_id++;
-        id = _id;
-        _slot_state = Poll::PENDING;
+        memcpy(_guarded.request, frame, size);
+        _guarded.request_size = size;
+        _guarded.id = _guarded.next_id++;
+        id = _guarded.id;
+        _guarded.slot_state = Poll::PENDING;
         ok = true;
     }
     portEXIT_CRITICAL(&_mux);
     return ok;
 }
 
-Poll EscConfig::poll(uint32_t &id, uint8_t *out, size_t &size) {
+Poll EscConfig::poll(uint32_t &id, uint8_t (&out)[blheli_boot::MAX_RESPONSE], size_t &size) {
     portENTER_CRITICAL(&_mux);
-    const Poll state = _slot_state;
-    id = _id;
+    const Poll state = _guarded.slot_state;
+    id = _guarded.id;
     size = 0;
     if (state == Poll::DONE) {
-        memcpy(out, _response, _response_size);
-        size = _response_size;
+        memcpy(out, _guarded.response, _guarded.response_size);
+        size = _guarded.response_size;
     }
     portEXIT_CRITICAL(&_mux);
     return state;
@@ -198,12 +198,12 @@ status_t EscConfig::status() {
     s.idle_released = _released;
     s.guard_refusals = _server ? _server->guard_refusals_since_boot() : 0;
     portENTER_CRITICAL(&_mux);
-    s.last_error = _error;
-    s.frames_relayed = _frames;
-    s.frame_pending = _slot_state == Poll::PENDING;
-    s.armed_last_update = _armed;
-    s.espnow_driving = _driving;
-    memcpy(s.last_failure, _failure, sizeof(s.last_failure));
+    s.last_error = _guarded.error;
+    s.frames_relayed = _guarded.frames;
+    s.frame_pending = _guarded.slot_state == Poll::PENDING;
+    s.armed_last_update = _guarded.armed;
+    s.espnow_driving = _guarded.driving;
+    memcpy(s.last_failure, _guarded.failure, sizeof(s.last_failure));
     portEXIT_CRITICAL(&_mux);
     return s;
 }
@@ -225,8 +225,8 @@ void EscConfig::start_exit(uint32_t now_ms) {
     _link->release();
     const bool ok = _escs[0]->begin() && _escs[1]->begin();
     portENTER_CRITICAL(&_mux);
-    if (_slot_state == Poll::PENDING) _slot_state = Poll::NONE;
-    _error = ok ? "" : "DShot did not restart: reboot before driving";
+    if (_guarded.slot_state == Poll::PENDING) _guarded.slot_state = Poll::NONE;
+    _guarded.error = ok ? "" : "DShot did not restart: reboot before driving";
     _state = State::EXITING;
     portEXIT_CRITICAL(&_mux);
     _exit_started_ms = now_ms;
@@ -234,20 +234,20 @@ void EscConfig::start_exit(uint32_t now_ms) {
 
 void EscConfig::update(uint32_t now_ms, bool armed, bool driving, bool button_pressed) {
     portENTER_CRITICAL(&_mux);
-    const int8_t requested = _requested;
-    _requested = -1;
-    _armed = armed;
-    _driving = driving;
+    const Request requested = _guarded.requested;
+    _guarded.requested = Request::NONE;
+    _guarded.armed = armed;
+    _guarded.driving = driving;
     portEXIT_CRITICAL(&_mux);
     const bool button_edge = button_pressed && !_prev_button;
     _prev_button = button_pressed;
 
     switch (_state) {
         case State::COMBAT:
-            if (requested != 1) return;
+            if (requested != Request::ENTER) return;
             if (now_ms - _combat_since_ms < REENTRY_MS) {
                 portENTER_CRITICAL(&_mux);
-                if (_requested == -1) _requested = 1;
+                if (_guarded.requested == Request::NONE) _guarded.requested = Request::ENTER;
                 portEXIT_CRITICAL(&_mux);
                 set_error("ESCs still starting up: tuning mode follows in a moment");
                 return;
@@ -266,9 +266,9 @@ void EscConfig::update(uint32_t now_ms, bool armed, bool driving, bool button_pr
             uint8_t frame[blheli_boot::MAX_REQUEST];
             size_t size = 0;
             portENTER_CRITICAL(&_mux);
-            if (_slot_state == Poll::PENDING && now_ms - _entered_ms >= SETTLE_MS) {
-                memcpy(frame, _request, _request_size);
-                size = _request_size;
+            if (_guarded.slot_state == Poll::PENDING && now_ms - _entered_ms >= SETTLE_MS) {
+                memcpy(frame, _guarded.request, _guarded.request_size);
+                size = _guarded.request_size;
                 have_frame = true;
             }
             portEXIT_CRITICAL(&_mux);
@@ -299,17 +299,17 @@ void EscConfig::update(uint32_t now_ms, bool armed, bool driving, bool button_pr
                                   response[5 + (response[4] == 0 ? 256 : response[4])], failure);
                 }
                 portENTER_CRITICAL(&_mux);
-                strncpy(_failure, failure, sizeof(_failure) - 1);
-                memcpy(_response, response, n);
-                _response_size = n;
-                _slot_state = Poll::DONE;
-                _frames++;
+                strncpy(_guarded.failure, failure, sizeof(_guarded.failure) - 1);
+                memcpy(_guarded.response, response, n);
+                _guarded.response_size = n;
+                _guarded.slot_state = Poll::DONE;
+                _guarded.frames++;
                 portEXIT_CRITICAL(&_mux);
                 _last_activity_ms = millis();
                 _released = false;
             }
             // Checked after the frame, so a write always finishes before the pins change hands.
-            if (requested == 0 || button_edge) {
+            if (requested == Request::EXIT || button_edge) {
                 start_exit(now_ms);
             } else if (!_released && millis() - _last_activity_ms >= IDLE_BOOTLOADER_RELEASE_MS) {
                 _server->reset_esc(0);

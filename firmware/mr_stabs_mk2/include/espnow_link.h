@@ -16,6 +16,7 @@ namespace espnow_link {
 const uint8_t CHANNEL_CANDIDATES[] = {1, 6, 11};
 const uint32_t CHANNEL_DWELL_MS = 25;
 
+const uint8_t SWEEP_CHANNEL = 0;
 const uint32_t TELEMETRY_PERIOD_MS = 10;
 
 const uint8_t MAX_PAIRED_DONGLES = 8;
@@ -28,12 +29,8 @@ const uint32_t VALIDATE_AFTER_MS = 10000;
 
 class EspNowLink {
    public:
-    /** Starts ESP-NOW on an interface that is already up. ifidx is WIFI_IF_AP while the SoftAP
-     *  exists and WIFI_IF_STA without it. channel is the pinned channel, or 0 to sweep. */
-    bool begin(wifi_interface_t ifidx, uint8_t channel, TuningStore *tuning);
+    bool begin(wifi_interface_t ifidx, uint8_t pinned_channel, TuningStore *tuning);
 
-    /** Drains received frames and runs the OTA, sweep, and validation state machines. Call once per
-     *  loop(), after crsf->update() so armed is current. Arming aborts an OTA transfer. */
     void update(uint32_t now_ms, bool armed);
 
     bool ota_in_progress() const { return ota_.active(); }

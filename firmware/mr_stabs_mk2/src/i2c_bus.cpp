@@ -3,7 +3,8 @@
 #include <i2c_bus.h>
 
 namespace i2c_bus {
-void scan(TwoWire *wire, scan_t *result) {
+bool scan(TwoWire *wire, scan_t *result, bool armed) {
+    if (armed) return false;
     result->count = 0;
     for (uint8_t address = 0x08; address < 0x78; address++) {
         // A stuck bus times out every address; 112 of them can outlast the loop watchdog.
@@ -15,6 +16,7 @@ void scan(TwoWire *wire, scan_t *result) {
     }
     result->scanned = true;
     result->scanned_at_ms = millis();
+    return true;
 }
 
 lines_t read_lines(uint8_t sda_pin, uint8_t scl_pin) {

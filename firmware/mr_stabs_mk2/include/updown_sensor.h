@@ -3,6 +3,8 @@
 #include <Adafruit_Sensor.h>
 #include <Arduino.h>
 #include <Wire.h>
+#include <i2c_status.h>
+#include <yaw_control.h>
 
 namespace updown_sensor {
 typedef struct {
@@ -17,10 +19,6 @@ const uint32_t RECONNECT_INTERVAL = 1000;
 const uint8_t BNO055_ADDRESS = 0x28;
 const uint8_t BNO055_CHIP_ID_VALUE = 0xA0;
 const uint32_t DETAILS_INTERVAL = 1000;
-// Error codes in status_t are Wire endTransmission() codes: 0 ok, 1 data too long,
-// 2 address NACK, 3 data NACK, 4 other bus error, 5 timeout. These two are added here.
-const uint8_t I2C_SHORT_READ = 6;
-const uint8_t I2C_NOT_TRIED = 255;
 
 const float YAW_RATE_SIGN = -1.0f;
 const float MIN_GRAVITY_FOR_UP_MPS2 = 3.0f;
@@ -32,12 +30,12 @@ typedef struct {
     uint32_t begin_attempts;
     uint32_t begin_failures;
     uint8_t last_chip_id;
-    uint8_t chip_id_read_error;
+    I2cStatus chip_id_read_error;
     uint32_t samples_lost_after_begin;
     uint32_t samples;
     uint32_t last_sample_ms;
     uint32_t details_ms;
-    uint8_t details_error;
+    I2cStatus details_error;
     uint8_t operation_mode;
     uint8_t sys_status;
     uint8_t self_test;
@@ -73,7 +71,7 @@ class UpdownSensor {
     vector3_t *make_unit_vector(float x, float y, float z);
     bool update_sensor(bool allow_blocking_reconnect);
     vector3_t *init_vector3(float x, float y, float z);
-    uint8_t read_registers(uint8_t reg, uint8_t *buffer, uint8_t length);
+    I2cStatus read_registers(uint8_t reg, uint8_t *buffer, uint8_t length);
     bool check_chip_id();
     void check_gyro_sign(float heading, uint32_t now_us);
 
@@ -92,12 +90,9 @@ class UpdownSensor {
     const status_t &get_status() { return status; }
     float get_yaw_rate_cw_dps() { return yaw_rate_cw_dps; }
     float get_heading_rate_cw_dps() { return heading_rate_cw_dps; }
-    // True once the gyro and the heading change have disagreed in sign more often than they
-    // agreed, at least SIGN_CHECK_MIN_DISAGREE times: YAW_RATE_SIGN is wrong for this
-    // mounting, and closing a loop on the gyro would spin the robot.
     bool gyro_sign_suspect() {
-        return status.gyro_disagree >= SIGN_CHECK_MIN_DISAGREE &&
-               status.gyro_disagree > status.gyro_agree;
+        return yaw_control::gyro_sign_suspect(status.gyro_agree, status.gyro_disagree,
+                                              SIGN_CHECK_MIN_DISAGREE);
     }
 };
 }  // namespace updown_sensor

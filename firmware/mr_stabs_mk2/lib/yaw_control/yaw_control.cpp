@@ -62,11 +62,14 @@ float YawController::update(float turn_pct, float throttle_pct_tail_first_positi
     float feedforward = _config.feedforward * (1.0f + (_config.reverse_ff_scale - 1.0f) * reverse);
     float error = _rate_command - rate_cw_dps;
     float unsaturated = feedforward * feedforward_command + kp * error + _integral;
-    // Integrate only while the output has room, or when the error would pull it back in.
     if (fabs(unsaturated) < 100.0f || (unsaturated > 0.0f) != (error > 0.0f)) {
         _integral = clamp(_integral + _config.ki * error * dt_s, -_config.i_max, _config.i_max);
     }
     _output = clamp(feedforward * feedforward_command + kp * error + _integral, -100.0f, 100.0f);
     return _output;
+}
+
+bool gyro_sign_suspect(uint32_t agree, uint32_t disagree, uint32_t min_disagree) {
+    return disagree >= min_disagree && disagree > agree;
 }
 }  // namespace yaw_control

@@ -1,4 +1,5 @@
 #include <crsf_bridge.h>
+#include <crsf_encode.h>
 
 using namespace crsf_bridge;
 
@@ -55,16 +56,8 @@ three_state_switch_t CrsfBridge::get_switch_state(float channel_value) {
 
 bool CrsfBridge::get_button_state(float channel_value) { return channel_value > MID_CYCLE; }
 
-// CRSF sensor frames are big-endian. NaN and out-of-range values are clamped to the field.
-static uint16_t to_be_u16(float value) {
-    if (!(value > 0.0f)) return 0;
-    return htobe16((uint16_t)min(value, 65535.0f));
-}
-
-static int16_t to_be_i16(float value) {
-    if (isnan(value)) return 0;
-    return htobe16((int16_t)min(32767.0f, max(-32768.0f, value)));
-}
+using crsf_encode::to_be_i16;
+using crsf_encode::to_be_u16;
 
 static float wrap_degrees(float degrees) {
     while (degrees > 180.0f) degrees -= 360.0f;

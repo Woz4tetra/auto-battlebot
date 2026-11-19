@@ -36,8 +36,8 @@ bool VbatSensor::begin(TwoWire *wire_bus) {
     wire->write(REG_ADC_CONFIG);
     wire->write((uint8_t)(ADC_CONFIG_VALUE >> 8));
     wire->write((uint8_t)(ADC_CONFIG_VALUE & 0xFF));
-    status.last_error = wire->endTransmission();
-    present = status.last_error == 0;
+    status.last_error = i2c_status_from_wire(wire->endTransmission());
+    present = status.last_error == I2C_OK;
     status.present = present;
     return present;
 }
@@ -45,10 +45,10 @@ bool VbatSensor::begin(TwoWire *wire_bus) {
 bool VbatSensor::read_register(uint8_t reg, uint16_t *value) {
     wire->beginTransmission(INA238_ADDRESS);
     wire->write(reg);
-    status.last_error = wire->endTransmission(false);
-    if (status.last_error != 0) return false;
+    status.last_error = i2c_status_from_wire(wire->endTransmission(false));
+    if (status.last_error != I2C_OK) return false;
     if (wire->requestFrom(INA238_ADDRESS, (uint8_t)2) != 2) {
-        status.last_error = 6;
+        status.last_error = I2C_SHORT_READ;
         return false;
     }
     uint16_t high = (uint16_t)wire->read();

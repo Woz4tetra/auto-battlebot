@@ -44,7 +44,8 @@ bool TuningStore::take_change(tuning::Settings &out) {
     return changed;
 }
 
-void TuningStore::save() {
+bool TuningStore::save(bool armed) {
+    if (armed) return false;
     tuning::Settings now = get();
     Preferences prefs;
     bool open = false;
@@ -53,12 +54,13 @@ void TuningStore::save() {
         float value = tuning::get(now, field);
         if (value == tuning::get(stored_, field)) continue;
         if (!open) open = prefs.begin(PREFS_NAMESPACE, false);
-        if (!open) return;
+        if (!open) return false;
         prefs.putFloat(field.key, value);
         tuning::set(stored_, field.key, value);
         Serial.printf("tuning: saved %s = %g\n", field.key, value);
     }
     if (open) prefs.end();
+    return true;
 }
 
 bool TuningStore::saved() {

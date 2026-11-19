@@ -40,8 +40,7 @@ class EscConfig {
     // HTTP side, safe from the network task.
     void request(bool enter);
     bool submit(const uint8_t *frame, size_t size, uint32_t &id, const char *&reason);
-    // The latest frame's state; out gets the response frame when DONE (MAX_RESPONSE bytes).
-    Poll poll(uint32_t &id, uint8_t *out, size_t &size);
+    Poll poll(uint32_t &id, uint8_t (&out)[blheli_boot::MAX_RESPONSE], size_t &size);
     status_t status();
 
    private:
@@ -59,21 +58,26 @@ class EscConfig {
     bool _released = false;
     bool _prev_button = false;
 
+    enum class Request : uint8_t { NONE, EXIT, ENTER };
+
+    struct Guarded {
+        Request requested = Request::NONE;
+        const char *error = "";
+        char failure[96] = "";
+        uint32_t frames = 0;
+        bool armed = false;
+        bool driving = false;
+        uint32_t next_id = 1;
+        uint32_t id = 0;
+        Poll slot_state = Poll::NONE;
+        uint8_t request[blheli_boot::MAX_REQUEST];
+        size_t request_size = 0;
+        uint8_t response[blheli_boot::MAX_RESPONSE];
+        size_t response_size = 0;
+    };
+
     portMUX_TYPE _mux;
-    // Guarded by _mux.
-    int8_t _requested = -1;  // -1 none, 0 exit, 1 enter
-    const char *_error = "";
-    char _failure[96] = "";
-    uint32_t _frames = 0;
-    bool _armed = false;
-    bool _driving = false;
-    uint32_t _next_id = 1;
-    uint32_t _id = 0;
-    Poll _slot_state = Poll::NONE;
-    uint8_t _request[blheli_boot::MAX_REQUEST];
-    size_t _request_size = 0;
-    uint8_t _response[blheli_boot::MAX_RESPONSE];
-    size_t _response_size = 0;
+    Guarded _guarded;
 
     void enter(uint32_t now_ms);
     void start_exit(uint32_t now_ms);

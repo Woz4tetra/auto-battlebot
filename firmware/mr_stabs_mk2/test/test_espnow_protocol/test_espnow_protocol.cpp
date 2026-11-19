@@ -253,3 +253,13 @@ TEST(CommandRepeater, NeverRepeatsBeforeFirstCommand) {
     CommandRepeater repeater(100, 4000);
     EXPECT_FALSE(repeater.repeat_due(10, 10000));
 }
+
+TEST(OtaShouldAbort, ArmingAbortsAnActiveTransfer) {
+    EXPECT_TRUE(ota_should_abort(true, true, 100, 90, 5000));
+    EXPECT_FALSE(ota_should_abort(false, true, 100, 90, 5000));
+}
+
+TEST(OtaShouldAbort, SilenceAbortsOnlyPastTheLimit) {
+    EXPECT_FALSE(ota_should_abort(true, false, 5090, 90, 5000));
+    EXPECT_TRUE(ota_should_abort(true, false, 5091, 90, 5000));
+}

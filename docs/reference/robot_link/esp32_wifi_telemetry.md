@@ -9,3 +9,12 @@
 - The ring holds two minutes, so `poll_period` only sets how stale the newest row is when it lands, not whether rows are lost.
 
 Tests `StartsAtHeadThenReadsEverythingNew` and `RebootResyncsToTheNewHead` cover the head-only first poll and the reboot resync.
+
+## Firmware ring concurrency
+
+`firmware/mr_stabs_mk2/lib/telemetry_ring` is a fixed-size ring with one writer and any number of readers on other tasks or cores.
+
+- Neither side locks. The control loop pushes without waiting on a reader.
+- A reader throws away any record the writer overwrote while it was copying, the way a seqlock does.
+- `push()` is non-const and `read()` is const, so readers hold a `const` ring and cannot write.
+- Capacity 0 makes every push a no-op. `storage` must hold `capacity` records and outlive the ring.

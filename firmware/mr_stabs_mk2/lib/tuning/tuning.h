@@ -28,4 +28,11 @@ inline float get(const Settings &settings, const Field &field) {
 }
 
 bool set(Settings &settings, const char *key, float value);
+
+struct FormField {
+    const char *name;
+    const char *value;
+};
+
+const char *first_invalid_field(Settings settings, const FormField *fields, size_t count);
 }  // namespace tuning

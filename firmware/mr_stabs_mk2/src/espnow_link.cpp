@@ -4,6 +4,8 @@
 #include <espnow_link.h>
 #include <tuning_store.h>
 
+#include <atomic>
+
 using namespace espnow_protocol;
 
 namespace espnow_link {
@@ -21,25 +23,20 @@ QueueHandle_t rx_queue = nullptr;
 volatile uint32_t send_ack_history_newest_lsb = 0;
 volatile uint8_t send_history_count = 0;
 
-// Diagnostics counters written by the WiFi task callbacks. Single 32-bit writes; the page only
-// needs them roughly current.
-volatile uint32_t tx_ok = 0;
-volatile uint32_t tx_fail = 0;
-volatile uint32_t tx_errors = 0;
-volatile uint32_t rx_rejected = 0;
-volatile uint32_t rx_queue_full = 0;
+std::atomic<uint32_t> tx_ok{0};
+std::atomic<uint32_t> tx_fail{0};
+std::atomic<uint32_t> tx_errors{0};
+std::atomic<uint32_t> rx_rejected{0};
+std::atomic<uint32_t> rx_queue_full{0};
 uint8_t rejected_mac[6] = {0};
 
-// Allowed dongles, read by on_recv on the WiFi task. Rewritten only from loop() while disarmed;
-// allowed_count drops to 0 before a rewrite and rises after it, so a frame racing a change is
-// at worst refused once.
 const size_t MAX_ALLOWED = MAX_PAIRED_DONGLES;
 static_assert(MAX_ALLOWED <= 12, "espnow_status_t::allowed holds 12");
 uint8_t allowed_macs[MAX_ALLOWED][6];
-volatile uint8_t allowed_count = 0;
+std::atomic<uint8_t> allowed_count{0};
 
 bool is_dongle(const uint8_t *mac) {
-    const uint8_t count = allowed_count;
+    const uint8_t count = allowed_count.load(std::memory_order_acquire);
     for (uint8_t i = 0; i < count; i++) {
         if (memcmp(mac, allowed_macs[i], 6) == 0) return true;
     }
@@ -68,7 +65,7 @@ void add_or_update_peer(const uint8_t *mac, wifi_interface_t ifidx, uint8_t chan
 
 }  // namespace
 
-bool EspNowLink::begin(wifi_interface_t ifidx, uint8_t channel, TuningStore *tuning) {
+bool EspNowLink::begin(wifi_interface_t ifidx, uint8_t pinned_channel, TuningStore *tuning) {
     ifidx_ = ifidx;
     tuning_ = tuning;
     rx_queue = xQueueCreate(RX_QUEUE_DEPTH, sizeof(RxFrame));
@@ -86,8 +83,8 @@ bool EspNowLink::begin(wifi_interface_t ifidx, uint8_t channel, TuningStore *tun
     prefs.end();
     load_paired();
 
-    if (channel != 0) {
-        set_channel(channel);
+    if (pinned_channel != SWEEP_CHANNEL) {
+        set_channel(pinned_channel);
     } else {
         sweeping_ = true;
         sweep_index_ = 0;
@@ -101,7 +98,7 @@ void EspNowLink::set_channel(uint8_t channel) {
     esp_wifi_set_channel(channel, WIFI_SECOND_CHAN_NONE);
     channel_ = channel;
     // Peers and the rate do not survive a channel change, so redo both every time.
-    const uint8_t count = allowed_count;
+    const uint8_t count = allowed_count.load(std::memory_order_acquire);
     for (uint8_t i = 0; i < count; i++) add_or_update_peer(allowed_macs[i], ifidx_, channel);
     esp_wifi_config_espnow_rate(ifidx_, WIFI_PHY_RATE_6M);
 }
@@ -110,14 +107,15 @@ void EspNowLink::on_recv(const uint8_t *mac, const uint8_t *data, int length) {
     if (rx_queue == nullptr || !is_air_frame(data, static_cast<size_t>(length))) return;
     if (!is_dongle(mac)) {
         memcpy(rejected_mac, mac, 6);
-        rx_rejected = rx_rejected + 1;
+        rx_rejected.fetch_add(1, std::memory_order_relaxed);
         return;
     }
     RxFrame frame;
     memcpy(frame.mac, mac, 6);
     frame.length = static_cast<uint8_t>(length);
     memcpy(frame.data, data, length);
-    if (xQueueSend(rx_queue, &frame, 0) != pdTRUE) rx_queue_full = rx_queue_full + 1;
+    if (xQueueSend(rx_queue, &frame, 0) != pdTRUE)
+        rx_queue_full.fetch_add(1, std::memory_order_relaxed);
 }
 
 void EspNowLink::on_sent(const uint8_t *mac, esp_now_send_status_t status) {
@@ -126,9 +124,9 @@ void EspNowLink::on_sent(const uint8_t *mac, esp_now_send_status_t status) {
         (send_ack_history_newest_lsb << 1) | (status == ESP_NOW_SEND_SUCCESS ? 1u : 0u);
     if (send_history_count < 32) send_history_count = send_history_count + 1;
     if (status == ESP_NOW_SEND_SUCCESS) {
-        tx_ok = tx_ok + 1;
+        tx_ok.fetch_add(1, std::memory_order_relaxed);
     } else {
-        tx_fail = tx_fail + 1;
+        tx_fail.fetch_add(1, std::memory_order_relaxed);
     }
 }
 
@@ -139,12 +137,8 @@ void EspNowLink::update(uint32_t now_ms, bool armed) {
                      frame.length - AIR_HEADER_SIZE, now_ms, armed);
     }
 
-    if (ota_.active()) {
-        if (armed) {
-            ota_abort(OTA_ERR_ABORTED);
-        } else if (now_ms - last_ota_frame_ms_ > OTA_SILENCE_MS) {
-            ota_abort(OTA_ERR_ABORTED);
-        }
+    if (ota_should_abort(ota_.active(), armed, now_ms, last_ota_frame_ms_, OTA_SILENCE_MS)) {
+        ota_abort(OTA_ERR_ABORTED);
     }
 
     service_sweep(now_ms);
@@ -243,8 +237,6 @@ void EspNowLink::ota_begin(const uint8_t *mac, const uint8_t *payload, size_t le
     }
     Update.setMD5(md5_hex);
     ota_.begin(begin.size);
-    // The loop's timestamp, not millis(): update() compares against now_ms, and a later
-    // millis() makes now_ms - last_ota_frame_ms_ wrap and trips the silence abort at once.
     last_ota_frame_ms_ = now_ms;
     send_ota_status(OTA_RECEIVING, OTA_OK);
 }
@@ -326,7 +318,7 @@ void EspNowLink::service_validation(uint32_t now_ms) {
 }
 
 void EspNowLink::service_sweep(uint32_t now_ms) {
-    if (CHANNEL_OVERRIDE != 0) return;
+    if (CHANNEL_OVERRIDE != SWEEP_CHANNEL) return;
     if (!sweeping_) {
         if (now_ms - last_valid_frame_ms_ > REACQUIRE_SILENCE_MS) {
             sweeping_ = true;
@@ -400,10 +392,11 @@ void EspNowLink::store_paired() {
 }
 
 void EspNowLink::publish_allowed() {
-    allowed_count = 0;
+    allowed_count.store(0, std::memory_order_relaxed);
+    std::atomic_thread_fence(std::memory_order_seq_cst);
     size_t n = 0;
     for (uint8_t i = 0; i < paired_count_; i++) memcpy(allowed_macs[n++], paired_[i], 6);
-    allowed_count = static_cast<uint8_t>(n);
+    allowed_count.store(static_cast<uint8_t>(n), std::memory_order_release);
 }
 
 uint8_t EspNowLink::pair(const uint8_t *mac, bool armed) {
@@ -463,13 +456,13 @@ void EspNowLink::fill_status(espnow_status_t &out, uint32_t now_ms) const {
     out.rx_tunables = rx_tunables_;
     out.rx_ota = rx_ota_;
     out.rx_wrong_length = rx_size_errors_;
-    out.rx_unpaired_mac = rx_rejected;
+    out.rx_unpaired_mac = rx_rejected.load(std::memory_order_relaxed);
     memcpy(out.rejected_mac, rejected_mac, 6);
-    out.rx_queue_full_drops = rx_queue_full;
+    out.rx_queue_full_drops = rx_queue_full.load(std::memory_order_relaxed);
     out.tx_telemetry = tx_telemetry_;
-    out.tx_acked = tx_ok;
-    out.tx_no_ack = tx_fail;
-    out.tx_send_refused = tx_errors;
+    out.tx_acked = tx_ok.load(std::memory_order_relaxed);
+    out.tx_no_ack = tx_fail.load(std::memory_order_relaxed);
+    out.tx_send_refused = tx_errors.load(std::memory_order_relaxed);
     const uint8_t count = send_history_count;
     const uint32_t mask = count >= 32 ? 0xFFFFFFFFu : ((1u << count) - 1u);
     out.lq = count == 0 ? 0
@@ -482,7 +475,7 @@ void EspNowLink::fill_status(espnow_status_t &out, uint32_t now_ms) const {
     out.command_b = tracker_.latest().channel_b;
     out.ota_state = static_cast<espnow_protocol::OtaState>(ota_state_);
     out.validated = validated_;
-    out.allowed_count = allowed_count;
+    out.allowed_count = allowed_count.load(std::memory_order_acquire);
     for (uint8_t i = 0; i < out.allowed_count; i++) memcpy(out.allowed[i], allowed_macs[i], 6);
     out.pair_result = static_cast<pair_result_t>(last_pair_result_);
 }
@@ -492,7 +485,7 @@ void EspNowLink::send_frame(const uint8_t *mac, uint8_t type, const void *payloa
     const size_t size =
         encode_air_frame(type, static_cast<const uint8_t *>(payload), length, frame);
     if (size == 0) return;
-    if (esp_now_send(mac, frame, size) != ESP_OK) tx_errors = tx_errors + 1;
+    if (esp_now_send(mac, frame, size) != ESP_OK) tx_errors.fetch_add(1, std::memory_order_relaxed);
 }
 
 }  // namespace espnow_link

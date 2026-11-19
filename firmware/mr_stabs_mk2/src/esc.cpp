@@ -28,7 +28,8 @@ void Esc::deinit() {
 
 void Esc::stop() {
     if (!initialized) return;
-    motor->send(DSHOT_STOP);
+    motor->start(DSHOT_STOP);
+    motor->finish();
     take_erpm();
 }
 

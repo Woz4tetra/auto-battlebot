@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cstring>
+#include <type_traits>
 
 namespace telemetry_ring {
 
@@ -13,15 +14,13 @@ struct read_result_t {
     uint32_t oldest_seq_at_start;
 };
 
-// Fixed-size ring of records, one writer and any number of readers on other tasks or cores.
-// Neither side locks: the control loop pushes without ever waiting on a reader, and a reader
-// throws away whatever the writer overwrote while it was copying, the way a seqlock does.
-//
-// Record must be trivially copyable and have a uint32_t telemetry_seq field, which push() sets.
 template <typename Record>
 class TelemetryRing {
+    static_assert(std::is_trivially_copyable<Record>::value, "Record must be trivially copyable");
+    static_assert(std::is_same<decltype(Record::telemetry_seq), uint32_t>::value,
+                  "Record needs a uint32_t telemetry_seq");
+
    public:
-    // storage holds capacity records and outlives the ring. Capacity 0 makes every push a no-op.
     void init(Record *storage, uint32_t capacity) {
         storage_ = storage;
         capacity_ = capacity;
@@ -32,7 +31,6 @@ class TelemetryRing {
     uint32_t capacity() const { return capacity_; }
     uint32_t head() const { return head_.load(std::memory_order_acquire); }
 
-    // Stamps record.telemetry_seq and stores it. Writer side only.
     void push(Record record) {
         if (capacity_ == 0) return;
         const uint32_t seq = head_.load(std::memory_order_relaxed);

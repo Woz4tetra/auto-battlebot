@@ -9,11 +9,17 @@
 // Mark our channels so NeoPixel skips them.
 extern bool rmt_reserved_channels[];
 
-static const uint32_t DSHOT_BIT_NS[] = {
-    6670,  // DSHOT150
-    3333,  // DSHOT300
-    1667,  // DSHOT600
-};
+static uint32_t dshot_bit_ns(dshot_mode_t mode) {
+    switch (mode) {
+        case DSHOT150:
+            return 6670;
+        case DSHOT300:
+            return 3333;
+        case DSHOT600:
+            return 1667;
+    }
+    return 3333;
+}
 
 static const uint32_t APB_HZ = 80000000;
 static const uint32_t RMT_CLK_DIV = 2;
@@ -94,7 +100,7 @@ bool DShot::begin() {
                                    false);
     REG_SET_BIT(GPIO_FUNC0_OUT_SEL_CFG_REG + _pin * 4, GPIO_FUNC0_OEN_SEL);
 
-    uint32_t bit_ns = DSHOT_BIT_NS[_mode];
+    uint32_t bit_ns = dshot_bit_ns(_mode);
     uint32_t total_ticks = bit_ns / TICK_NS;
     _t1h_ticks = (total_ticks * 3) / 4;
     _t1l_ticks = total_ticks - _t1h_ticks;
@@ -118,14 +124,6 @@ void DShot::end() {
     _reply_ok = false;
     gpio_reset_pin(_pin);
     _installed = false;
-}
-
-uint16_t DShot::build_packet(uint16_t throttle, bool telemetry) {
-    uint16_t packet = (throttle << 1) | (telemetry ? 1 : 0);
-
-    // CRC: XOR of three nibbles of the 12-bit value, inverted for bidirectional DShot
-    uint16_t crc = (~(packet ^ (packet >> 4) ^ (packet >> 8))) & 0x0F;
-    return (packet << 4) | crc;
 }
 
 void DShot::encode_frame(uint16_t packet) {
@@ -200,17 +198,12 @@ void DShot::collect_reply() {
     if (received && !_reply_ok) _decode_errors++;
 }
 
-void DShot::send(uint16_t throttle, bool telemetry) {
-    start(throttle, telemetry);
-    finish();
-}
-
 void DShot::start(uint16_t throttle, bool telemetry) {
     if (!_installed) return;
 
     collect_reply();
 
-    uint16_t packet = build_packet(throttle, telemetry);
+    uint16_t packet = erpm_decode::build_packet(throttle, telemetry);
     encode_frame(packet);
     rmt_rx_start(_rx_channel, true);
     _rx_armed = true;

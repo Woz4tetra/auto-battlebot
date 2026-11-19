@@ -41,22 +41,19 @@ enum class State : uint8_t { OFF, NOMINAL, HOT, LIMITING, TRIPPED };
 enum class Sensors : uint8_t { FUSED, SHUNT_ONLY, ERPM_ONLY, NONE };
 
 const int NUM_MOTORS = 2;
+const int LEFT_MOTOR = 0;
+const int RIGHT_MOTOR = 1;
 
 class MotorGuard {
    public:
     explicit MotorGuard(const Config &config);
-    // Call once per new INA238 sample, or every 10 ms without one. Duties are what the ESCs ran
-    // during that sample (previous scaled commands, 0 inside the stop threshold), in [-1, 1].
-    // eRPM is the latest reading per motor, negative when invalid. NaN volts or amps means no
-    // INA238 sample. With no sensor for a motor the guard is OFF, passes commands through, and
-    // still cools the model.
     void update(float dt_s, float volts, float amps, float left_duty, float right_duty,
                 float left_erpm, float right_erpm);
     void apply(float &left_percent, float &right_percent) const;
     void clear_trip() { _tripped = false; }
     bool tripped() const { return _tripped; }
     float scale() const { return _scale; }
-    float rise_c(int motor) const { return _rise_c[motor]; }  // 0 left, 1 right
+    float rise_c(int motor) const { return _rise_c[motor]; }
     float amps_estimate(int motor) const { return _amps[motor]; }
     float amps_allowed(int motor) const { return _allowed[motor]; }
     float motor_shaft_speed_signed_rad_s(int motor) const { return _speed[motor]; }

@@ -147,7 +147,7 @@ void apply_tuning(bool armed) {
         right_esc->stop_threshold = t.right_deadzone;
         yaw_controller->set_config(t.yaw);
     }
-    if (!armed) tuning_store.save();
+    tuning_store.save(armed);
 }
 
 void stop_escs() {
@@ -251,7 +251,7 @@ void setup_telemetry_ring() {
 void publish_sensor_status(bool armed) {
     if (!diag_server.page_open()) return;
     if (diag_server.scan_requested() && !armed) {
-        i2c_bus::scan(&Wire1, &bus_scan);
+        i2c_bus::scan(&Wire1, &bus_scan, armed);
         diag_server.clear_scan_request();
         request_status_refresh();
     }
@@ -411,7 +411,7 @@ void setup() {
     for (int count = 0; count < 2; count++) pulse_led();
 
     Wire1.begin();
-    i2c_bus::scan(&Wire1, &bus_scan);
+    i2c_bus::scan(&Wire1, &bus_scan, false);
     accel = new updown_sensor::UpdownSensor();
     if (!accel->begin()) {
         for (int count = 0; count < 10; count++) pulse_led();

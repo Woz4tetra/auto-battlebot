@@ -18,9 +18,6 @@ class DShot {
     ~DShot();
     bool begin();
     void end();
-    void send(uint16_t throttle, bool telemetry = false);
-    // send() in two steps, so several ESCs transmit together. Frames sent one after another put
-    // one ESC's frame on the wire during its neighbour's reply, and the crosstalk corrupts it.
     void start(uint16_t throttle, bool telemetry = false);
     void finish();
     bool read_erpm(uint32_t &erpm) const;
@@ -48,5 +45,4 @@ class DShot {
     void encode_frame(uint16_t packet);
     void collect_reply();
     void set_output(bool enabled);
-    static uint16_t build_packet(uint16_t throttle, bool telemetry);
 };

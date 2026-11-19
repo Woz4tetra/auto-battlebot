@@ -96,7 +96,7 @@ TEST(BlheliBootFrames, MatchesThePythonClient) {
     ASSERT_EQ(parse_request(frame.data(), frame.size(), req), ParseResult::OK);
     EXPECT_EQ(req.cmd, DEVICE_INIT_FLASH);
     EXPECT_EQ(req.length, 1u);
-    EXPECT_EQ(req.params[0], 1);
+    EXPECT_EQ(req.params_in_frame[0], 1);
 }
 
 TEST(BlheliBootFrames, ParseRejectsBadFrames) {

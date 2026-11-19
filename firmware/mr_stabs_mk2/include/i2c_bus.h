@@ -17,9 +17,7 @@ typedef struct {
     bool scl_high;
 } lines_t;
 
-// Probes every 7-bit address with an empty write. Absent addresses NACK in about 0.1 ms at
-// 100 kHz, so a full scan blocks for ~15 ms: only run it with the robot disarmed.
-void scan(TwoWire *wire, scan_t *result);
+bool scan(TwoWire *wire, scan_t *result, bool armed);
 
 lines_t read_lines(uint8_t sda_pin, uint8_t scl_pin);
 }  // namespace i2c_bus

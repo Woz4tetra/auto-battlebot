@@ -1,4 +1,5 @@
 #pragma once
+#include <stdint.h>
 
 namespace yaw_control {
 struct Config {
@@ -48,10 +49,7 @@ float wrap_degrees(float angle);
 
 constexpr float GYRO_WRAP_RAD_S = 4096.0f * 3.14159265358979f / 180.0f;
 
-/** Undo the gyro wrap past its +/-2000 deg/s range. A spin faster than that reads back with the
- *  opposite sign, which turns the yaw-rate loop into positive feedback: it drives the motors
- *  harder to "brake" a spin it sees going the wrong way. Picks the reading's alias nearest the
- *  previous unwrapped rate, which is exact while the rate changes by under half a wrap
- *  (2048 deg/s) between samples. */
 float unwrap_gyro_rate(float raw, float previous);
+
+bool gyro_sign_suspect(uint32_t agree, uint32_t disagree, uint32_t min_disagree);
 }  // namespace yaw_control

@@ -124,6 +124,12 @@ TEST(ErpmDecode, RejectsMalformedTrains) {
     EXPECT_FALSE(decode_runs(short_train, erpm));
 }
 
+TEST(BuildPacket, BidirectionalCrcIsInvertedNibbleXor) {
+    EXPECT_EQ(erpm_decode::build_packet(0, false), 0x000F);
+    EXPECT_EQ(erpm_decode::build_packet(48, false), 0x0609);
+    EXPECT_EQ(erpm_decode::build_packet(48, true), 0x0618);
+}
+
 int main(int argc, char **argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

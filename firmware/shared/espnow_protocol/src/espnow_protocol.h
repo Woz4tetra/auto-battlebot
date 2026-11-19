@@ -195,4 +195,9 @@ class SerialFrameParser {
     uint32_t crc_errors_ = 0;
 };
 
+inline bool ota_should_abort(bool active, bool armed, uint32_t now_ms, uint32_t last_frame_ms,
+                             uint32_t silence_ms) {
+    return active && (armed || now_ms - last_frame_ms > silence_ms);
+}
+
 }  // namespace espnow_protocol

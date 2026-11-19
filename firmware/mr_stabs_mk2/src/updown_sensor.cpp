@@ -46,14 +46,14 @@ bool UpdownSensor::begin() {
     }
 }
 
-uint8_t UpdownSensor::read_registers(uint8_t reg, uint8_t *buffer, uint8_t length) {
+I2cStatus UpdownSensor::read_registers(uint8_t reg, uint8_t *buffer, uint8_t length) {
     wire->beginTransmission(BNO055_ADDRESS);
     wire->write(reg);
-    uint8_t error = wire->endTransmission(false);
-    if (error != 0) return error;
+    I2cStatus error = i2c_status_from_wire(wire->endTransmission(false));
+    if (error != I2C_OK) return error;
     if (wire->requestFrom(BNO055_ADDRESS, length) != length) return I2C_SHORT_READ;
     for (uint8_t index = 0; index < length; index++) buffer[index] = wire->read();
-    return 0;
+    return I2C_OK;
 }
 
 void UpdownSensor::check_gyro_sign(float heading, uint32_t now_us) {
@@ -78,7 +78,7 @@ bool UpdownSensor::check_chip_id() {
     uint8_t chip_id = 0;
     status.chip_id_read_error = read_registers(REG_CHIP_ID, &chip_id, 1);
     status.last_chip_id = chip_id;
-    return status.chip_id_read_error == 0 && chip_id == BNO055_CHIP_ID_VALUE;
+    return status.chip_id_read_error == I2C_OK && chip_id == BNO055_CHIP_ID_VALUE;
 }
 
 void UpdownSensor::refresh_details() {
@@ -89,8 +89,9 @@ void UpdownSensor::refresh_details() {
     uint8_t block[6] = {};
     uint8_t mode = 0;
     status.details_error = read_registers(REG_CALIB_STAT, block, sizeof(block));
-    if (status.details_error == 0) status.details_error = read_registers(REG_OPR_MODE, &mode, 1);
-    if (status.details_error != 0) return;
+    if (status.details_error == I2C_OK)
+        status.details_error = read_registers(REG_OPR_MODE, &mode, 1);
+    if (status.details_error != I2C_OK) return;
     status.calibration = block[0];
     status.self_test = block[1];
     status.sys_status = block[4];
