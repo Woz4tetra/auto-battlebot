@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import numpy as np
 from scipy.spatial.transform import Rotation
@@ -43,7 +43,7 @@ TRUTH = PlantParams(
     tau_lin_d=0.094,
     tau_ang_a=0.052,
     tau_ang_d=0.087,
-    delay_s=0.050,  # a whole number of 10 ms steps, so the plant's held delay is exact
+    delay_s=0.050,
     c_sb=0.24,
     c_ad=0.15,
     c_drift=0.0,
@@ -64,11 +64,26 @@ def camera_pose() -> np.ndarray:
     return t
 
 
+HostStampedTelemetryRow = dict[str, Any]
+
+
+class TagFrame(NamedTuple):
+    log_ns: int
+    payload: dict[str, Any]
+
+
+class TruthRow(NamedTuple):
+    t_s: float
+    x_m: float
+    y_m: float
+    yaw_rad: float
+
+
 @dataclass
 class Session:
-    telemetry: list[dict[str, Any]] = field(default_factory=list)  # with host_receive_ns
-    frames: list[tuple[int, dict[str, Any]]] = field(default_factory=list)  # (log ns, payload)
-    truth: list[tuple[float, float, float, float]] = field(default_factory=list)  # t, x, y, yaw
+    telemetry: list[HostStampedTelemetryRow] = field(default_factory=list)
+    frames: list[TagFrame] = field(default_factory=list)
+    truth: list[TruthRow] = field(default_factory=list)
     contacts: int = 0
 
 
@@ -251,8 +266,6 @@ def simulate_session(
                     "round_trip_us": None,
                 }
             )
-        # The camera runs at 60 Hz; a frame due within this tick is stamped at the tick, so its
-        # pose is the state it carries.
         while next_frame <= t + 1e-9:
             drop = 0.03 + 0.55 * min(1.0, abs(w) / 45.0) ** 2
             if rng.random() > drop:
@@ -263,11 +276,11 @@ def simulate_session(
                 stamp = T0_NS + int(round(t * 1e9))
                 payload = _tag_payload(stamp, body, upright, rng)
                 if payload is not None:
-                    out.frames.append((stamp + 30_000_000, payload))
+                    out.frames.append(TagFrame(stamp + 30_000_000, payload))
             else:
                 stamp = T0_NS + int(round(t * 1e9))
                 out.frames.append(
-                    (
+                    TagFrame(
                         stamp + 30_000_000,
                         {
                             "image_stamp_ns": stamp,
@@ -280,7 +293,7 @@ def simulate_session(
                     )
                 )
             next_frame += FRAME_DT
-        out.truth.append((t, x, y, th))
+        out.truth.append(TruthRow(t, x, y, th))
         plant.step(DT)
         s2 = plant.state
         nx, ny = float(np.asarray(s2.x)), float(np.asarray(s2.y))

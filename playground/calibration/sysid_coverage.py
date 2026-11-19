@@ -170,7 +170,7 @@ def main() -> None:
         if args.live:
             _sub, messages = live(args.live)
         else:
-            messages = replay(args.replay, args.speed)
+            messages = replay(args.replay, args.speed if args.speed > 0 else None)
         run(messages, session, server, paced)
         print(f"replay done: {session.snapshot()['windows']}")
         if server is not None:

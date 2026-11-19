@@ -34,7 +34,7 @@ class TagPose:
     x: float
     y: float
     yaw: float
-    pitch: float  # relative to the rest pose: zero sitting flat
+    pitch_from_rest_rad: float
     upside_down: bool
     sigma_along: float
     sigma_across: float
@@ -158,7 +158,7 @@ class PoseStream:
                     x=float(raw.x[i]),
                     y=float(raw.y[i]),
                     yaw=float(raw.yaw[i]),
-                    pitch=float(raw.pitch[i])
+                    pitch_from_rest_rad=float(raw.pitch[i])
                     - (0.0 if self._buf.upside_down[i] else self.rest_pitch_rad),
                     upside_down=bool(self._buf.upside_down[i]),
                     sigma_along=float(sig["along"][i]),
@@ -185,11 +185,7 @@ class PoseStream:
 
 
 def state_at(poses: list[TagPose], t_ns: int) -> StateEstimate | None:
-    """Position, heading and forward speed at ``t_ns`` from the poses around it.
-
-    Needs ``MIN_STATE_POSES`` poses within ``STATE_HALF_SPAN_S`` and at least two on each side,
-    so the slope is an interpolation and not an extrapolation.
-    """
+    """Position, heading and forward speed at ``t_ns`` from the poses around it."""
     half = int(STATE_HALF_SPAN_S * _NS)
     near = [p for p in poses if abs(p.stamp_ns - t_ns) <= half]
     if len(near) < MIN_STATE_POSES:

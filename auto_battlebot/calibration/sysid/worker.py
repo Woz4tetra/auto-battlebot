@@ -6,7 +6,7 @@ import math
 import multiprocessing as mp
 import queue
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, NamedTuple, Protocol
 
 import numpy as np
 
@@ -27,12 +27,18 @@ CONTACT_AFTER_REFITS = 3
 CONTACT_AFTER_WINDOWS = 10
 
 
+class RefitAdd(NamedTuple):
+    window_id: int
+    role: str
+    subs: list[model.SubWindow]
+
+
 @dataclass
 class RefitJob:
     theta: np.ndarray
     ladder: dict[str, np.ndarray]
     refit_index: int
-    add: list[tuple[int, str, list[model.SubWindow]]]  # (window id, used | holdout, subs)
+    add: list[RefitAdd]
     upto: int
     loop_on: bool
     floor_run_m: float
@@ -61,8 +67,8 @@ class RefitReply:
 
 def _hint_cells(motion: model.Motion) -> list[list[int]]:
     """Coverage-map cells a motion holds for at least HOLD_S, or sweeps through."""
-    thr, st = motion.throttle, motion.steer
-    n_hold = int(round(HOLD_S / model.DT))
+    thr, st = motion.throttle_fwd_pos, motion.steer_left_pos
+    n_hold = int(round(HOLD_S / model.DT_S))
     cells: set[tuple[int, int]] = set()
     start = 0
     for k in range(1, len(thr) + 1):
@@ -184,19 +190,24 @@ class RefitState:
     @staticmethod
     def _candidate(c: model.Candidate, loop_on: bool) -> dict[str, Any]:
         m = c.motion
-        edges = edges_of(m.throttle, m.steer, np.full(len(m.throttle), loop_on), model.DT)
+        edges = edges_of(
+            m.throttle_fwd_pos,
+            m.steer_left_pos,
+            np.full(len(m.throttle_fwd_pos), loop_on),
+            model.DT_S,
+        )
         return {
             "id": m.id,
             "name": m.name,
             "how": m.how,
-            "gains": np.round(c.gains, 4).tolist(),
-            "score": c.score,
+            "gains": np.round(c.ring_fill_gain, 4).tolist(),
+            "score": c.ring_fill_total,
             "per_sec": c.per_sec,
-            "travel": c.travel,
+            "travel": c.travel_m,
             "fits": c.fits,
-            "seconds": len(m.throttle) * model.DT,
-            "thr": np.round(m.throttle[::4], 3).tolist(),
-            "steer": np.round(m.steer[::4], 3).tolist(),
+            "seconds": len(m.throttle_fwd_pos) * model.DT_S,
+            "thr": np.round(m.throttle_fwd_pos[::4], 3).tolist(),
+            "steer": np.round(m.steer_left_pos[::4], 3).tolist(),
             "cells": _hint_cells(m),
             "edge_cells": sorted({e.edge_cell for e in edges if e.edge_cell is not None}),
         }

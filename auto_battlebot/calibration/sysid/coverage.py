@@ -22,13 +22,13 @@ from auto_battlebot.calibration.sysid.maneuvers import (
 from auto_battlebot.calibration.sysid.pose_stream import PoseStream, TagPose, state_at
 from auto_battlebot.calibration.sysid.profile import SysidProfile
 from auto_battlebot.calibration.sysid.telemetry import FLIP_SWITCH_DOWN, LiveClock, sticks
-from auto_battlebot.calibration.sysid.worker import RefitEngine, RefitJob, RefitReply
+from auto_battlebot.calibration.sysid.worker import RefitAdd, RefitEngine, RefitJob, RefitReply
 from auto_battlebot.control.firmware_mixer import motor_to_plant
 from auto_battlebot.control.plant import MODEL_LADDER
 from auto_battlebot.recording.sysid_io import RobotTagsFrame
 
 _NS = 1_000_000_000
-DT_NS = int(round(model.DT * _NS))
+DT_NS = int(round(model.DT_S * _NS))
 LAG_S = 0.5
 GAP_S = 0.05
 TAG_COVERAGE_MIN = 0.7
@@ -114,7 +114,7 @@ def _f(value: Any) -> float:
 
 def _pitched(poses: list[TagPose]) -> bool:
     """Whether the running median of pitch leaves ``PITCH_LIMIT_DEG`` anywhere in ``poses``."""
-    pitch = np.abs([p.pitch for p in poses])
+    pitch = np.abs([p.pitch_from_rest_rad for p in poses])
     if len(pitch) == 0:
         return False
     if len(pitch) < PITCH_MEDIAN_N:
@@ -134,7 +134,7 @@ class CoverageSession:
         self.engine = engine
         self.clock = LiveClock()
         self.poses = PoseStream(profile.mounts, profile.rest_pitch_rad)
-        self.segmenter = ManeuverSegmenter(model.DT)
+        self.segmenter = ManeuverSegmenter(model.DT_S)
         self.half_extent = profile.half_extent_m
         diag = math.hypot(profile.field_size_x_m, profile.field_size_y_m)
         self.floor_run_m = straight_run_room_m(diag)
@@ -148,7 +148,7 @@ class CoverageSession:
         self.t_origin_ns: int | None = None
         self._next_grid_ns: int | None = None
         self._window_start_ns: int | None = None
-        self.window_rows = int(round(model.WINDOW_S / model.DT))
+        self.window_rows = int(round(model.WINDOW_S / model.DT_S))
 
         self.windows: list[WindowRecord] = []
         self.usable_count = 0
@@ -301,7 +301,7 @@ class CoverageSession:
         thr, st = sticks(np.nan_to_num(row.a), np.nan_to_num(row.b))
         moving = row.armed and (abs(float(thr)) > IDLE_CMD or abs(float(st)) > IDLE_CMD)
         if moving:
-            self.driving_s += model.DT
+            self.driving_s += model.DT_S
         if row.jetson:
             self.jetson_seen = True
         for ev in self.segmenter.push(float(thr), float(st), row.auto):
@@ -375,7 +375,7 @@ class CoverageSession:
             tag_sigma_along_m=np.array([p.sigma_along for p in inside]),
             tag_sigma_across_m=np.array([p.sigma_across for p in inside]),
             tag_sigma_yaw_rad=np.array([p.sigma_yaw for p in inside]),
-            gyro=-np.radians(gyro),
+            gyro_ccw_radps=-np.radians(gyro),
             gyro_ok=np.isfinite(gyro),
             a_percent=np.nan_to_num(np.array([r.a for r in body])),
             b_percent=np.nan_to_num(np.array([r.b for r in body])),
@@ -509,7 +509,7 @@ class CoverageSession:
                 theta=self.theta.copy(),
                 ladder={k: v.copy() for k, v in self.ladder.items()},
                 refit_index=self.refits,
-                add=[(w.id, w.status, w.subs) for w in new],
+                add=[RefitAdd(w.id, w.status, w.subs) for w in new],
                 upto=upto,
                 loop_on=bool(self.grid and self.grid[-1].auto),
                 floor_run_m=self.floor_run_m,

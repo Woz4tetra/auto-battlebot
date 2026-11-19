@@ -111,12 +111,12 @@ def test_fit_recovers_truth_within_reported_sigma() -> None:
             sw.tag_x = sw.tag_x + rng.normal(0, 0.005, sw.tag_x.shape)
             sw.tag_y = sw.tag_y + rng.normal(0, 0.005, sw.tag_y.shape)
             sw.tag_yaw = sw.tag_yaw + rng.normal(0, 0.02, sw.tag_yaw.shape)
-            sw.gyro = sw.gyro + rng.normal(0, 0.1, sw.gyro.shape)
+            sw.gyro_ccw_radps = sw.gyro_ccw_radps + rng.normal(0, 0.1, sw.gyro_ccw_radps.shape)
         subs += s
         owners += [i] * len(s)
     batch = model.stack(subs, owners, 0.3)
     result = model.fit(model.PRIOR_VECTOR.copy(), batch, max_nfev=15)
-    sd = np.sqrt(np.diag(model.covariance(result.fisher, result.scale)))
+    sd = np.sqrt(np.diag(model.covariance(result.fisher, result.residual_variance)))
     z = (result.theta - truth) / sd
     assert np.max(np.abs(z)) < 4.0, dict(zip(model.NAMES, np.round(z, 2)))
 
@@ -162,7 +162,7 @@ def _poses(pitch_deg: np.ndarray) -> list[TagPose]:
             x=0.0,
             y=0.0,
             yaw=0.0,
-            pitch=float(np.radians(p)),
+            pitch_from_rest_rad=float(np.radians(p)),
             sigma_along=0.01,
             sigma_across=0.01,
             sigma_yaw=0.01,

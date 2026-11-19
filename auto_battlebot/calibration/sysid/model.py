@@ -24,17 +24,19 @@ from auto_battlebot.control.plant import (
     wrap_angle,
 )
 
-DT = 0.01  # s, the grid everything is resampled onto
+DT_S = 0.01
 WINDOW_S = 1.5
 SUB_S = 0.5
 SUBS = int(round(WINDOW_S / SUB_S))
-SUB_N = int(round(SUB_S / DT))
-HIST_S = 0.25  # command history before each sub-window; covers the 0.2 s delay bound
-HIST_N = int(round(HIST_S / DT))
+SUB_N = int(round(SUB_S / DT_S))
+HIST_S = 0.25
+HIST_N = int(round(HIST_S / DT_S))
 MAX_TAG_FIXES_PER_SUB = 16
 GYRO_STRIDE_SAMPLES = 2
 GYRO_N = (SUB_N - 1) // GYRO_STRIDE_SAMPLES
 FIT_SUBSTEP_S = 0.005
+STATE_DIM = 5
+TAG_ROWS = 3 * MAX_TAG_FIXES_PER_SUB
 
 POS_FLOOR_M = 0.01
 YAW_FLOOR_RAD = 0.03
@@ -100,38 +102,61 @@ def fills_of(std: np.ndarray) -> np.ndarray:
     return out
 
 
+def _require_shape(owner: str, name: str, array: np.ndarray, shape: tuple[int, ...]) -> None:
+    if array.shape != shape:
+        raise ValueError(f"{owner}.{name} has shape {array.shape}, expected {shape}")
+
+
 @dataclass
 class SubWindow:
     """One 0.5 s open-loop stretch: its start state, inputs and measurements."""
 
-    state0: np.ndarray  # (5,) x, y, theta, v, w
-    cmd_lin: np.ndarray  # (HIST_N + SUB_N,) motor command, history first
+    state0: np.ndarray
+    cmd_lin: np.ndarray
     cmd_ang: np.ndarray
-    tag_tau_s: np.ndarray  # (M,) seconds after the start, in (0, SUB_S]
+    tag_tau_s: np.ndarray
     tag_x: np.ndarray
     tag_y: np.ndarray
     tag_yaw: np.ndarray
-    tag_sigma_along_m: np.ndarray  # sigmas, along and across the view, metres
+    tag_sigma_along_m: np.ndarray
     tag_sigma_across_m: np.ndarray
     tag_sigma_yaw_rad: np.ndarray
-    gyro: (
-        np.ndarray
-    )  # (GYRO_N,) rad/s CCW, GYRO_STRIDE_SAMPLES, 2 * GYRO_STRIDE_SAMPLES, ... samples in
-    gyro_ok: np.ndarray  # bool
-    # Closed-loop prediction inputs: sticks and the yaw loop seed.
-    a_percent: np.ndarray  # (SUB_N,)
+    gyro_ccw_radps: np.ndarray
+    gyro_ok: np.ndarray
+    a_percent: np.ndarray
     b_percent: np.ndarray
-    auto_steer: np.ndarray  # bool (SUB_N,)
+    auto_steer: np.ndarray
     loop_seed: dict[str, float] = field(default_factory=dict)
     end_xy: np.ndarray | None = None
+
+    def __post_init__(self) -> None:
+        _require_shape("SubWindow", "state0", self.state0, (STATE_DIM,))
+        for name in ("cmd_lin", "cmd_ang"):
+            _require_shape("SubWindow", name, getattr(self, name), (HIST_N + SUB_N,))
+        for name in ("a_percent", "b_percent", "auto_steer"):
+            _require_shape("SubWindow", name, getattr(self, name), (SUB_N,))
+        for name in ("gyro_ccw_radps", "gyro_ok"):
+            _require_shape("SubWindow", name, getattr(self, name), (GYRO_N,))
+        tag_shape = self.tag_tau_s.shape
+        for name in (
+            "tag_x",
+            "tag_y",
+            "tag_yaw",
+            "tag_sigma_along_m",
+            "tag_sigma_across_m",
+            "tag_sigma_yaw_rad",
+        ):
+            _require_shape("SubWindow", name, getattr(self, name), tag_shape)
+        if self.gyro_ok.dtype != np.bool_ or self.auto_steer.dtype != np.bool_:
+            raise ValueError("SubWindow.gyro_ok and auto_steer must be bool arrays")
 
 
 @dataclass
 class Batch:
     """Sub-windows stacked for one batched simulation. S rows."""
 
-    state0: np.ndarray  # (S, 5)
-    cmd_lin: np.ndarray  # (S, HIST_N + SUB_N)
+    state0: np.ndarray
+    cmd_lin: np.ndarray
     cmd_ang: np.ndarray
     tag_grid_index: np.ndarray
     tag_x: np.ndarray
@@ -145,6 +170,12 @@ class Batch:
     owner_window_index: np.ndarray
     view_c: float
     view_s: float
+
+    def __post_init__(self) -> None:
+        s = self.state0.shape[0]
+        _require_shape("Batch", "state0", self.state0, (s, STATE_DIM))
+        for name in ("cmd_lin", "cmd_ang"):
+            _require_shape("Batch", name, getattr(self, name), (s, HIST_N + SUB_N))
 
     @property
     def rows(self) -> int:
@@ -176,22 +207,21 @@ def stack(subs: Sequence[SubWindow], owners: Sequence[int], view_azimuth: float)
         out.cmd_lin[i] = sub.cmd_lin
         out.cmd_ang[i] = sub.cmd_ang
         m = min(len(sub.tag_tau_s), MAX_TAG_FIXES_PER_SUB)
-        out.tag_grid_index[i, :m] = sub.tag_tau_s[:m] / DT
+        out.tag_grid_index[i, :m] = sub.tag_tau_s[:m] / DT_S
         out.tag_x[i, :m] = sub.tag_x[:m]
         out.tag_y[i, :m] = sub.tag_y[:m]
         out.tag_yaw[i, :m] = sub.tag_yaw[:m]
         out.tag_inv_sigma_along[i, :m] = 1.0 / np.hypot(sub.tag_sigma_along_m[:m], POS_FLOOR_M)
         out.tag_inv_sigma_across[i, :m] = 1.0 / np.hypot(sub.tag_sigma_across_m[:m], POS_FLOOR_M)
         out.tag_inv_sigma_yaw[i, :m] = 1.0 / np.hypot(sub.tag_sigma_yaw_rad[:m], YAW_FLOOR_RAD)
-        out.gyro[i] = np.nan_to_num(sub.gyro)
+        out.gyro[i] = np.nan_to_num(sub.gyro_ccw_radps)
         out.gyro_inv_sigma[i] = np.where(sub.gyro_ok, 1.0 / SIGMA_GYRO_RADPS, 0.0)
     return out
 
 
 def _delayed(cmd: np.ndarray, delay_s: float) -> np.ndarray:
-    """Shift each row back by a fractional delay and drop the history: (S, HIST_N + SUB_N) to
-    (S, SUB_N). Linear between grid samples, zero before the history starts."""
-    shift = delay_s / DT
+    """Delay each (S, HIST_N + SUB_N) command row by ``delay_s`` into (S, SUB_N)."""
+    shift = delay_s / DT_S
     idx = np.arange(HIST_N, HIST_N + SUB_N) - shift
     idx = np.clip(idx, 0.0, HIST_N + SUB_N - 1.0)
     lo = np.floor(idx).astype(int)
@@ -217,6 +247,12 @@ NUISANCE_STEP = np.array([1e-3, 1e-3, 1e-3, 1e-2])
 NUISANCE = len(NUISANCE_SD)
 
 
+def _yaw_rate_at_gyro_samples(w_traj: np.ndarray) -> np.ndarray:
+    first = GYRO_STRIDE_SAMPLES - 1
+    out: np.ndarray = w_traj[:, first : GYRO_STRIDE_SAMPLES * GYRO_N : GYRO_STRIDE_SAMPLES]
+    return out
+
+
 def _raw_residuals(
     theta: np.ndarray, batch: Batch, s0: np.ndarray, structure: ModelStructure
 ) -> np.ndarray:
@@ -224,7 +260,7 @@ def _raw_residuals(
     u_lin = _delayed(batch.cmd_lin, p.delay_s)
     u_ang = _delayed(batch.cmd_ang, p.delay_s)
     state = PlantState(s0[:, 0], s0[:, 1], s0[:, 2], s0[:, 3], s0[:, 4])
-    _final, traj = simulate(u_lin, u_ang, DT, p, state, structure, substep_s=FIT_SUBSTEP_S)
+    _final, traj = simulate(u_lin, u_ang, DT_S, p, state, structure, substep_s=FIT_SUBSTEP_S)
     x = np.concatenate([s0[:, :1], traj["x"]], axis=1)
     y = np.concatenate([s0[:, 1:2], traj["y"]], axis=1)
     th = np.concatenate([s0[:, 2:3], traj["theta"]], axis=1)
@@ -233,9 +269,7 @@ def _raw_residuals(
     along = batch.view_c * dx + batch.view_s * dy
     across = -batch.view_s * dx + batch.view_c * dy
     dyaw = wrap_angle(_interp(th, batch.tag_grid_index) - batch.tag_yaw)
-    # traj[k] is the state one step after sample k, so gyro sample j * GYRO_STRIDE_SAMPLES lines up
-    # with traj[j * GYRO_STRIDE_SAMPLES - 1].
-    w = traj["w"][:, GYRO_STRIDE_SAMPLES - 1 : GYRO_STRIDE_SAMPLES * GYRO_N : GYRO_STRIDE_SAMPLES]
+    w = _yaw_rate_at_gyro_samples(traj["w"])
     return np.concatenate(
         [
             along * batch.tag_inv_sigma_along,
@@ -249,10 +283,17 @@ def _raw_residuals(
 
 @dataclass
 class _Profiled:
-    r: np.ndarray  # (S, R + NUISANCE): data rows, then the start-state prior rows
-    s0: np.ndarray  # refined start states
-    jn: np.ndarray  # (S, R, NUISANCE) data Jacobian in the start state
-    a_inv: np.ndarray  # (S, NUISANCE, NUISANCE) inverse of jn^T jn + prior
+    r: np.ndarray
+    s0: np.ndarray
+    jn: np.ndarray
+    a_inv: np.ndarray
+
+    def __post_init__(self) -> None:
+        s, cols = self.r.shape
+        data_rows = cols - NUISANCE
+        _require_shape("_Profiled", "s0", self.s0, (s, STATE_DIM))
+        _require_shape("_Profiled", "jn", self.jn, (s, data_rows, NUISANCE))
+        _require_shape("_Profiled", "a_inv", self.a_inv, (s, NUISANCE, NUISANCE))
 
 
 def _profile(theta: np.ndarray, batch: Batch, structure: ModelStructure) -> _Profiled:
@@ -277,12 +318,7 @@ def _profile(theta: np.ndarray, batch: Batch, structure: ModelStructure) -> _Pro
 def residuals(
     theta: np.ndarray, batch: Batch, structure: ModelStructure = FULL_MODEL
 ) -> np.ndarray:
-    """Normalized residuals with the start states profiled out.
-
-    (S, R + NUISANCE): ``3 * MAX_TAG_FIXES_PER_SUB`` tag rows (along, across, heading), ``GYRO_N``
-    gyro rows,
-    then the start-state prior rows.
-    """
+    """Normalized residuals with the start states profiled out."""
     return _profile(theta, batch, structure).r
 
 
@@ -343,9 +379,9 @@ def correlation(cov: np.ndarray) -> np.ndarray:
 @dataclass
 class FitResult:
     theta: np.ndarray
-    fisher: np.ndarray  # J^T J of the data rows at theta
-    scale: float  # residual variance per data row, the covariance inflation
-    window_max: dict[int, float]  # owner_window_index -> largest |tag residual| in that window
+    fisher: np.ndarray
+    residual_variance: float
+    window_max_tag_residual: dict[int, float]
     rows: int
 
 
@@ -397,7 +433,7 @@ def fit(
     active = data_mask(batch)
     n = int(active.sum())
     scale = float(np.sum(r[active] ** 2) / max(n, 1))
-    tag_cols = 3 * MAX_TAG_FIXES_PER_SUB
+    tag_cols = TAG_ROWS
     worst: dict[int, float] = {}
     for row, owner_window_index in enumerate(batch.owner_window_index):
         m = float(np.max(np.abs(r[row, :tag_cols]))) if tag_cols else 0.0
@@ -463,8 +499,8 @@ class Motion:
     id: str
     name: str
     how: str
-    throttle: np.ndarray  # stick fractions on the DT grid, forward positive
-    steer: np.ndarray  # left positive
+    throttle_fwd_pos: np.ndarray
+    steer_left_pos: np.ndarray
 
 
 def _build(segments: Sequence[tuple[Any, ...]]) -> tuple[np.ndarray, np.ndarray]:
@@ -473,13 +509,13 @@ def _build(segments: Sequence[tuple[Any, ...]]) -> tuple[np.ndarray, np.ndarray]
     for seg in segments:
         if seg[0] == "ramp":
             _tag, dur, l0, a0, l1, a1 = seg
-            n = int(round(dur / DT))
+            n = int(round(dur / DT_S))
             f = np.linspace(0.0, 1.0, n)
             thr += list(l0 + (l1 - l0) * f)
             st += list(a0 + (a1 - a0) * f)
         else:
             dur, lin, ang = seg
-            n = int(round(dur / DT))
+            n = int(round(dur / DT_S))
             thr += [lin] * n
             st += [ang] * n
     return np.array(thr), np.array(st)
@@ -581,20 +617,26 @@ CATALOG = catalog()
 @dataclass
 class Candidate:
     motion: Motion
-    gains: np.ndarray  # (NP,) ring fill each parameter would gain
-    score: float  # summed gain
+    ring_fill_gain: np.ndarray
+    ring_fill_total: float
     per_sec: float
-    travel: float  # metres from the start at the farthest point
+    travel_m: float
     fits: bool
+
+
+def _grid_aligned_fix_times_s() -> np.ndarray:
+    spacing_s = SUB_S / MAX_TAG_FIXES_PER_SUB
+    out: np.ndarray = np.round(np.arange(1, MAX_TAG_FIXES_PER_SUB + 1) * spacing_s / DT_S) * DT_S
+    return out
 
 
 def expected_subwindows(
     theta: np.ndarray, motion: Motion, loop_on: bool, tag_sigma: tuple[float, float, float]
 ) -> tuple[list[SubWindow], float]:
     """Simulate a motion from rest and cut it into the sub-windows a session would record."""
-    n = len(motion.throttle)
-    a = -motion.throttle * 100.0
-    b = -motion.steer * 100.0
+    n = len(motion.throttle_fwd_pos)
+    a = -motion.throttle_fwd_pos * 100.0
+    b = -motion.steer_left_pos * 100.0
     auto = np.full(n, loop_on)
     zero = PlantState(np.zeros(1), np.zeros(1), np.zeros(1), np.zeros(1), np.zeros(1))
     out = closed_loop_rollout(
@@ -606,15 +648,11 @@ def expected_subwindows(
     subs: list[SubWindow] = []
     pad_lin = np.concatenate([np.zeros(HIST_N), lin])
     pad_ang = np.concatenate([np.zeros(HIST_N), ang])
-    # Fixes land on grid samples, so each one's time is exactly the sample it copies.
-    tag_tau_s = (
-        np.round(np.arange(1, MAX_TAG_FIXES_PER_SUB + 1) * (SUB_S / MAX_TAG_FIXES_PER_SUB) / DT)
-        * DT
-    )
+    tag_tau_s = _grid_aligned_fix_times_s()
     for start in range(0, n - SUB_N + 1, SUB_N):
         k = start - 1
         state0 = np.zeros(5) if k < 0 else np.array([x[k], y[k], th[k], v[k], w[k]])
-        idx = np.clip(start + np.round(tag_tau_s / DT).astype(int) - 1, 0, n - 1)
+        idx = np.clip(start + np.round(tag_tau_s / DT_S).astype(int) - 1, 0, n - 1)
         gidx = start + GYRO_STRIDE_SAMPLES - 1 + GYRO_STRIDE_SAMPLES * np.arange(GYRO_N)
         subs.append(
             SubWindow(
@@ -628,7 +666,7 @@ def expected_subwindows(
                 tag_sigma_along_m=np.full(MAX_TAG_FIXES_PER_SUB, tag_sigma[0]),
                 tag_sigma_across_m=np.full(MAX_TAG_FIXES_PER_SUB, tag_sigma[1]),
                 tag_sigma_yaw_rad=np.full(MAX_TAG_FIXES_PER_SUB, tag_sigma[2]),
-                gyro=w[gidx],
+                gyro_ccw_radps=w[gidx],
                 gyro_ok=np.ones(len(gidx), dtype=bool),
                 a_percent=a[start : start + SUB_N],
                 b_percent=b[start : start + SUB_N],
@@ -669,10 +707,10 @@ def rank_candidates(
         out.append(
             Candidate(
                 motion=motion,
-                gains=gains,
-                score=score,
-                per_sec=score / (len(motion.throttle) * DT),
-                travel=travels[i],
+                ring_fill_gain=gains,
+                ring_fill_total=score,
+                per_sec=score / (len(motion.throttle_fwd_pos) * DT_S),
+                travel_m=travels[i],
                 fits=travels[i] <= floor_run_m,
             )
         )
@@ -686,8 +724,8 @@ def floor_limited(fills: np.ndarray, candidates: Sequence[Candidate]) -> np.ndar
     outside = np.zeros(NP)
     for c in candidates:
         if c.fits:
-            inside = np.maximum(inside, c.gains)
+            inside = np.maximum(inside, c.ring_fill_gain)
         else:
-            outside = np.maximum(outside, c.gains)
+            outside = np.maximum(outside, c.ring_fill_gain)
     out: np.ndarray = (fills < 0.999) & (inside < 0.01) & (outside > 0.03)
     return out

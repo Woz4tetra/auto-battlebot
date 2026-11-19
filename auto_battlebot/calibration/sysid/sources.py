@@ -43,14 +43,15 @@ LIVE_TOPICS = [
 Message = tuple[str, int, MessageBytes]
 
 
-def replay(path: Path | str, speed: float = 0.0) -> Iterator[Message]:
-    """A recording's sysid topics in log order, paced at ``speed`` times real time (0: as fast
-    as the session takes them)."""
+def replay(path: Path | str, speed: float | None = None) -> Iterator[Message]:
+    """A recording's sysid topics in log order, paced at ``speed`` times real time if given."""
+    if speed is not None and speed <= 0:
+        raise ValueError(f"speed must be positive or None, got {speed}")
     topic = telemetry_topic(path) or ESPNOW_TELEMETRY_TOPIC
     start_wall = time.monotonic()
     first: int | None = None
     for msg in iter_messages(path, [topic, ROBOT_TAGS_TOPIC, TF_TOPIC, TF_STATIC_TOPIC]):
-        if speed > 0:
+        if speed is not None:
             first = msg[1] if first is None else first
             due = start_wall + (msg[1] - first) / 1e9 / speed
             wait = due - time.monotonic()

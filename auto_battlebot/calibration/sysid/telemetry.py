@@ -19,7 +19,6 @@ from auto_battlebot.recording.mcap_write import ESPNOW_TELEMETRY_JSON_SCHEMA
 ESPNOW_TELEMETRY_TOPIC = "/robot/espnow_telemetry"
 ESP32_DIAGNOSTICS_TOPIC = "/robot/esp32_diagnostics"
 
-# crsf_bridge::three_state_switch: the flip switch position that turns the yaw loop on.
 FLIP_SWITCH_DOWN = 0
 
 
@@ -111,12 +110,7 @@ class ClockStatus:
 
 
 class LiveClock:
-    """Robot ``timestamp_ms`` to host ns, refit over a sliding window.
-
-    Same lower-envelope line as ``esp32_clock.fit_robot_clock``, over the last ``window_s`` of
-    frames and refit every ``refit_s``. A reboot (robot time stepping back) drops the buffer.
-    Until the first fit, frames map through their receive time minus the smallest delay seen.
-    """
+    """Robot ``timestamp_ms`` to host ns, refit over a sliding window."""
 
     def __init__(self, window_s: float = 60.0, refit_s: float = 5.0) -> None:
         self.window_ms = int(window_s * 1000)
