@@ -27,6 +27,10 @@ BrettZone exports are named `BZ-<tournament>-<p1>-<p2>-<game>-Cage-<n>-Overhead-
 
 `data/` is gitignored, so the manifest written next to the recordings is the only place that says where they came from and what was assumed about the camera. Without it a recording set is anonymous in six months. Frame counts are read from an existing recording's summary instead of assumed, so the manifest says the same thing whether a clip was converted now or last week.
 
+## Training corpus overlap
+
+The 2class models were trained on `nhrl_robots_bbox_2class`, whose train split holds most of the labelled cage-high scenes. The downloader lists the tarball with `tar tf` to learn which tournaments those scenes came from, because extracting it to look would take 12 GB. A missing tarball and a tarball with no BrettZone-style `tournamentID-` names are different answers, and `MANIFEST.md` reports each one separately.
+
 ## Playback config
 
 The generated config points at the first recording. `MANIFEST.md` next to the recordings lists the rest; switching clips is pasting one of those paths into `video_file_path`.

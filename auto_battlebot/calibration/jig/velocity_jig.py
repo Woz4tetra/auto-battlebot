@@ -89,7 +89,7 @@ class JigLog:
     malformed_tail: int = 0
 
     @property
-    def gyro(self) -> np.ndarray:
+    def gyro_rad_s(self) -> np.ndarray:
         """(N, 3) rad/s in the IMU frame."""
         return self.gyro_raw_int16.astype(float) * self.header.gyro_dps_per_lsb * DEG_TO_RAD
 
@@ -294,7 +294,7 @@ def find_still_segments(
 def still_stats(log: JigLog, seg: StillSegment) -> StillStats:
     """Gyro bias and the gravity ("up") unit vector over one still hold."""
     sl = seg.as_slice()
-    gyro = log.gyro[sl]
+    gyro = log.gyro_rad_s[sl]
     accel = log.accel[sl]
     up = accel.mean(axis=0)
     norm = float(np.linalg.norm(up))
@@ -959,7 +959,7 @@ def solve_ground_truth(
     up = still_pre.up_unit if still_pre is not None else np.array([0.0, 0.0, 1.0])
     bias = still_pre.bias_radps if still_pre is not None else np.zeros(3)
 
-    gyro = log.gyro
+    gyro = log.gyro_rad_s
     if still_pre is not None and still_post is not None:
         span = still_post.t_mid - still_pre.t_mid
         frac = (

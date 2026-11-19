@@ -306,7 +306,7 @@ def main() -> None:
                         _poly(img, prj(head), BLUE_BGR, 3, closed=False)
 
                     seg = predicted.segment[k]
-                    if seg >= 0:
+                    if predicted.has_prediction[k]:
                         px, py, pth = predicted.pose[k]
                         _poly(img, prj(_robot_footprint(px, py, pth)), ORANGE_BGR, 3)
                         head = np.array(

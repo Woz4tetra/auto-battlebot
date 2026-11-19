@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, NamedTuple, Sequence
 
 import numpy as np
 
@@ -26,6 +26,8 @@ from auto_battlebot.control.plant import PlantParams, simulate
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CATALOG = Path(__file__).resolve().parent / "waveforms.toml"
+STEPS_AT_REST = 9
+STEPS_UNPLUG_B_PRESS_REPLUG = 3
 
 
 def _repo_relative(path: Path) -> Path:
@@ -439,6 +441,27 @@ class RunOutcome:
     warnings: list[str] = field(default_factory=list)
 
 
+def collision_free_destination(out_dir: Path, log_file: str, stamp: str) -> Path:
+    dest = out_dir / log_file
+    if dest.exists():
+        dest = out_dir / f"{dest.stem}-{stamp}{dest.suffix}"
+    return dest
+
+
+class DownloadedLog(NamedTuple):
+    path: Path
+    bytes_written: int
+
+
+def download_log(link: jl.JigLink, out_dir: Path, log_file: str) -> DownloadedLog:
+    dest = collision_free_destination(out_dir, log_file, f"{datetime.now():%H%M%S}")
+    if dest.name != log_file:
+        say(f"      {log_file} already here from an earlier card; saving as {dest.name}")
+    written = link.download(log_file, dest)
+    say(f"      {written} bytes -> {dest}")
+    return DownloadedLog(dest, written)
+
+
 def reopen_after_replug(link: jl.JigLink, timeout: float = 300.0) -> jl.JigLink:
     """Wait for the jig to come back and reopen it, matching on USB serial number.
 
@@ -483,9 +506,7 @@ def run_one(
     session_meta: dict[str, Any],
     provenance: dict[str, Any],
 ) -> tuple[jl.JigLink, RunOutcome]:
-    # A moving run adds the unplug, the B press, the replug, and the operator's own pauses.
-    # The B press became its own step when it moved ahead of the replug.
-    total = 12 if decl.motion else 9
+    total = STEPS_AT_REST + (STEPS_UNPLUG_B_PRESS_REPLUG if decl.motion else 0)
     if decl.motion and not ends_at_rest(program):
         total += 1
     n = 0
@@ -627,16 +648,7 @@ def run_one(
 
     n += 1
     step(n, total, f"Download {log_file}")
-    dest = out_dir / log_file
-    if dest.exists():
-        # The jig picks the first free name on its own card, so names never repeat within a
-        # card. They do repeat after a card wipe, and appending to an existing session
-        # directory would then overwrite the earlier run's log without saying so.
-        stamp = f"{datetime.now():%H%M%S}"
-        dest = out_dir / f"{dest.stem}-{stamp}{dest.suffix}"
-        say(f"      {log_file} already here from an earlier card; saving as {dest.name}")
-    written = link.download(log_file, dest)
-    say(f"      {written} bytes -> {dest}")
+    dest, written = download_log(link, out_dir, log_file)
 
     n += 1
     step(n, total, "Write metadata")

@@ -357,6 +357,8 @@ Push the fitted plant numbers from plant_stageA.toml into every consumer that ha
 
 The plant numbers have three homes: the fit (`playground/calibration/out/plant_stageA.toml`), the kinematic sim (`simulation/sim_mrs_buff_mk3.toml`), and the C++ config chain's `[plant]` table (`config/robots/mrs_buff_mk3.toml`). Only the first is authored. They drifted apart once already, which is how MotionProfileNavigation ended up running Mr Stabs Mk2's time constants on Mrs Buff Mk3, so this script makes the other two derived.
 
+The sim config models the plant, so `SIM_FIELDS` takes every term, including the ones the controller deliberately ignores. `delay_ms` is derived from `delay_s`: the sim takes the transport delay in milliseconds under `[latency]`, where the controller config takes seconds under `[our_robot]`. Fields are matched by name over the whole file, not per section, so each name must stay unique within a config. `_rewrite` exits if a name appears twice.
+
 The `[plant]` table is read by both the our-robot EKF and MotionProfileNavigation, so there is one C++-side target rather than one per consumer.
 
 It rewrites the numeric literal of each mapped field in place and touches nothing else. The hand-written doc comments around those fields explain what each number does and why, which a block regenerator would flatten, so they are left alone. That also means adding a field to the fit does not automatically give it a home here: add it to the tables below and write the comment by hand.
@@ -382,6 +384,7 @@ Mr Stabs Mk2 has no jig fit. Its table comes from the MuJoCo fit through distill
 ### `simulation/plants/kinematic.py`
 
 - `SUBSTEP_S`: Internal integration substep. Mirrors auto_battlebot/control/plant.py. At the calibrated 31.7 rad/s top yaw rate this is 0.06 rad of rotation per substep; a whole 33 ms tick is 1.05 rad, where straight-line integration of an arc is wrong by tens of degrees of heading.
+- `KinematicPlant`: Term for term the drivetrain model in `auto_battlebot/control/plant.py`, which the velocity jig fits: per-sign deadzone and gain, steer-brake and angular-droop coupling on the steady-state target, asymmetric first-order lag, exact arc integration on 2 ms substeps. The transport delay lives outside the class, in the server's command ring buffer. `test_kinematic_plant_trajectory_matches_control_plant` fails if the two drift apart.
 - `KinematicPlant.footprint_center_offset`: The pose is the centre of the disc. The fits behind this plant tracked the keypoint midpoint, which sits within 2 mm of the footprint centre.
 - `KinematicPlant.step`: Coupling multiplies the steady-state target, not the achieved speed: turning costs a fraction of the forward command's authority and driving costs a fraction of the turn's, but neither brakes a robot that is already coasting.
 - `KinematicPlant._substep`: Pose uses the velocity at the start of the substep, so the arc is exact for the v and w actually held over it.

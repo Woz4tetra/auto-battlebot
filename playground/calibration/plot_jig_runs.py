@@ -46,20 +46,12 @@ def smooth(values: np.ndarray, t: np.ndarray, window_s: float) -> np.ndarray:
 
 
 def yaw_rate_dps(log: JigLog) -> np.ndarray:
-    """Yaw about the measured gravity axis, in deg/s.
-
-    JigLog.gyro is rad/s, so this converts. The panel axis says deg/s and a robot spinning
-    at 700 deg/s plotted as 12 reads as a robot going perfectly straight.
-
-    Taken from gravity rather than from a named axis so a tilted or rotated remount does not
-    silently invalidate the plot. Falls back to the z row when there is no still segment to
-    measure gravity from.
-    """
+    """Yaw about the measured gravity axis, in deg/s."""
     stills = find_still_segments(log)
     if not stills:
-        return np.degrees(log.gyro[:, 2])
+        return np.degrees(log.gyro_rad_s[:, 2])
     st = still_stats(log, stills[0])
-    return np.degrees((log.gyro - st.bias_radps) @ st.up_unit)
+    return np.degrees((log.gyro_rad_s - st.bias_radps) @ st.up_unit)
 
 
 def forward_speed(log: JigLog, calib: JigCalibration | None) -> tuple[np.ndarray, str]:

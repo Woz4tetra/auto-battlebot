@@ -47,11 +47,11 @@ PINNED_DEADZONES = ("dz_lin_fwd", "dz_lin_rev", "dz_ang_l", "dz_ang_r")
 
 HORIZONS = (0.033, 0.066, 0.100, 0.200, 0.300, 0.400, 0.500)
 
-# Radio-dropout gate: commanded hard, moved a fraction of the prediction.
-NONRESP_MIN_CMD = 0.30
-NONRESP_RATIO = 0.25
-NONRESP_MIN_PRED_M = 0.08
-NONRESP_MIN_PRED_RAD = 0.5
+RADIO_DROPOUT_MIN_CMD = 0.30
+RADIO_DROPOUT_MAX_OBSERVED_FRACTION = 0.25
+RADIO_DROPOUT_MIN_PRED_M = 0.08
+RADIO_DROPOUT_MIN_PRED_RAD = 0.5
+CLASS_REGRESSION_MAX = 0.20
 
 
 def load_seed(path: Path, widen: float) -> tuple[PlantParams, dict[str, tuple[float, float]]]:
@@ -222,14 +222,14 @@ def flag_nonresponsive(
     mean_lin = np.mean(np.abs(ws.u_lin), axis=1)
     mean_ang = np.mean(np.abs(ws.u_ang), axis=1)
     lin_dead = (
-        (mean_lin > NONRESP_MIN_CMD)
-        & (pred_disp > NONRESP_MIN_PRED_M)
-        & (obs_disp < NONRESP_RATIO * pred_disp)
+        (mean_lin > RADIO_DROPOUT_MIN_CMD)
+        & (pred_disp > RADIO_DROPOUT_MIN_PRED_M)
+        & (obs_disp < RADIO_DROPOUT_MAX_OBSERVED_FRACTION * pred_disp)
     )
     ang_dead = (
-        (mean_ang > NONRESP_MIN_CMD)
-        & (pred_rot > NONRESP_MIN_PRED_RAD)
-        & (obs_rot < NONRESP_RATIO * pred_rot)
+        (mean_ang > RADIO_DROPOUT_MIN_CMD)
+        & (pred_rot > RADIO_DROPOUT_MIN_PRED_RAD)
+        & (obs_rot < RADIO_DROPOUT_MAX_OBSERVED_FRACTION * pred_rot)
     )
     return lin_dead | ang_dead
 
@@ -290,8 +290,6 @@ def noise_floor(
             & (np.abs(v0[i0:i1, None] - v0[None, :]) < v_tol)
             & (np.abs(w0[i0:i1, None] - w0[None, :]) < w_tol)
         )
-        # Non-overlapping only: overlapping windows share truth samples and
-        # would report a floor of zero.
         sep = (np.abs(starts[i0:i1, None] - starts[None, :]) > span) | (
             runs[i0:i1, None] != runs[None, :]
         )
@@ -606,13 +604,12 @@ def report_gates(all_reports, all_classes, summary):
             "A_head400_deg": ah,
             "B_head400_deg": bh,
         }
-        # Per-class regression check (transfer gate: no class regresses > 20%).
         for label, (n, b_pos, _bh) in all_classes[set_name]["B_match_fit"].items():
             a_entry = all_classes[set_name]["A_jig_seed"].get(label)
             if a_entry is None or n < 10:
                 continue
             _an, a_pos, _ah2 = a_entry
-            if b_pos > 1.2 * a_pos:
+            if b_pos > (1.0 + CLASS_REGRESSION_MAX) * a_pos:
                 print(f"    class {label} regressed: B {b_pos:.1f} mm vs A {a_pos:.1f} mm (n={n})")
 
 

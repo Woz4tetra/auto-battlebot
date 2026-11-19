@@ -16,11 +16,6 @@ SIM_CONFIG = REPO_ROOT / "simulation" / "sim_mrs_buff_mk3.toml"
 PLANT_CONFIG = REPO_ROOT / "config" / "robots" / "mrs_buff_mk3.toml"
 MR_STABS_PLANT_CONFIG = REPO_ROOT / "config" / "robots" / "mr_stabs_mk2.toml"
 
-# Consumer field name -> fit parameter name. The sim models the plant, so it takes every term
-# including the ones the controller deliberately ignores. `delay_ms` is derived below; the sim
-# takes the transport delay in milliseconds under [latency] rather than in seconds under
-# [our_robot]. Matching is by field name over the whole file, not per section, so these names have
-# to stay unique within the config.
 SIM_FIELDS = {
     "command_ms": "delay_ms",
     "max_linear_speed": "k_fwd",  # symmetric fallback, unused once _fwd/_rev are set
@@ -91,7 +86,10 @@ def _rewrite(
             raise SystemExit(f"{path}: fit has no parameter '{fit_name}' (for '{field_name}')")
         new = _format(plant[fit_name])
         field_re = re.compile(pattern.format(field=re.escape(field_name)), re.MULTILINE)
-        match = field_re.search(text)
+        matches = list(field_re.finditer(text))
+        if len(matches) > 1:
+            raise SystemExit(f"{path}: field '{field_name}' appears {len(matches)} times")
+        match = matches[0] if matches else None
         if match is None:
             raise SystemExit(f"{path}: no field '{field_name}' to write (renamed or removed?)")
         old = match.group("value")

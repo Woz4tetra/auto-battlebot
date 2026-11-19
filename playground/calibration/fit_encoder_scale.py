@@ -33,7 +33,7 @@ class Pass:
     origin: float
     far: float
     closure_counts: float
-    drift_counts: float  # spread among candidate far dwells, so wheel creep is visible
+    far_dwell_spread_counts: float
     dwells: list[Dwell]
     t: np.ndarray
     count: np.ndarray
@@ -99,7 +99,7 @@ def read_pass(path: Path, distance_m: float, *, min_s: float, tol: float) -> Pas
         origin=origin,
         far=far_dwell.count,
         closure_counts=dwells[-1].count - origin,
-        drift_counts=float(max(near_far) - min(near_far)) if len(near_far) > 1 else 0.0,
+        far_dwell_spread_counts=float(max(near_far) - min(near_far)) if len(near_far) > 1 else 0.0,
         dwells=dwells,
         t=t,
         count=count,
@@ -110,9 +110,9 @@ def read_pass(path: Path, distance_m: float, *, min_s: float, tol: float) -> Pas
 class Fit:
     """Both fits, and which one to believe."""
 
-    counts_per_m: float  # through the origin
+    counts_per_m_through_origin: float
     stderr: float
-    slope_counts_per_m: float  # allowing an intercept
+    slope_with_intercept_counts_per_m: float
     slope_stderr: float
     intercept_counts: float
     intercept_stderr: float
@@ -130,7 +130,11 @@ class Fit:
 
     @property
     def best_counts_per_m(self) -> float:
-        return self.slope_counts_per_m if self.intercept_real else self.counts_per_m
+        return (
+            self.slope_with_intercept_counts_per_m
+            if self.intercept_real
+            else self.counts_per_m_through_origin
+        )
 
     @property
     def best_stderr(self) -> float:
@@ -230,20 +234,20 @@ def plot_fit(fig, gs, passes, fit, distances):
     xs = np.linspace(0, x.max() * 1.05, 10)
     ax.plot(
         xs,
-        fit.counts_per_m * xs,
+        fit.counts_per_m_through_origin * xs,
         "--",
         lw=1.0,
         color="0.6",
-        label=f"through origin: {fit.counts_per_m:,.0f} counts/m",
+        label=f"through origin: {fit.counts_per_m_through_origin:,.0f} counts/m",
     )
     if fit.distances > 1:
         ax.plot(
             xs,
-            fit.slope_counts_per_m * xs + fit.intercept_counts,
+            fit.slope_with_intercept_counts_per_m * xs + fit.intercept_counts,
             "-",
             lw=1.4,
             color="0.2",
-            label=f"with offset: {fit.slope_counts_per_m:,.0f} counts/m "
+            label=f"with offset: {fit.slope_with_intercept_counts_per_m:,.0f} counts/m "
             f"{fit.intercept_counts:+,.0f}",
         )
     ax.set_xlabel("marked distance (m)", fontsize=9)
@@ -257,9 +261,9 @@ def plot_residuals(fig, gs, passes, fit, distances, mark_error_mm):
     y = np.array([p.span for p in passes])
     ax = fig.add_subplot(gs[1, 1])
     model = (
-        fit.slope_counts_per_m * x + fit.intercept_counts
+        fit.slope_with_intercept_counts_per_m * x + fit.intercept_counts
         if fit.intercept_real
-        else fit.counts_per_m * x
+        else fit.counts_per_m_through_origin * x
     )
     resid_mm = (y - model) * fit.meters_per_count * 1e3
     for i, dist in enumerate(distances):
@@ -358,27 +362,28 @@ def main() -> None:
             f"{p.path.name:<14}{p.distance_m:>8.3f}{p.span:>10.0f}"
             f"{p.span / p.distance_m:>11,.0f}"
             f"{p.closure_counts * fit.meters_per_count * 1e3:>12.1f}"
-            f"{p.drift_counts * fit.meters_per_count * 1e3:>16.1f}"
+            f"{p.far_dwell_spread_counts * fit.meters_per_count * 1e3:>16.1f}"
         )
 
     print(f"\nfit over {fit.n} passes at {fit.distances} distance(s):")
     print(
-        f"  through the origin : {fit.counts_per_m:>10,.1f} +/- {fit.stderr:>6,.1f} counts/m"
-        f"   -> {1.0 / fit.counts_per_m:.6e} m/count"
+        f"  through the origin : {fit.counts_per_m_through_origin:>10,.1f}"
+        f" +/- {fit.stderr:>6,.1f} counts/m"
+        f"   -> {1.0 / fit.counts_per_m_through_origin:.6e} m/count"
     )
     if fit.distances > 1:
         print(
-            f"  allowing an offset : {fit.slope_counts_per_m:>10,.1f} "
+            f"  allowing an offset : {fit.slope_with_intercept_counts_per_m:>10,.1f} "
             f"+/- {fit.slope_stderr:>6,.1f} counts/m"
-            f"   -> {1.0 / fit.slope_counts_per_m:.6e} m/count"
+            f"   -> {1.0 / fit.slope_with_intercept_counts_per_m:.6e} m/count"
         )
-        offset_mm = fit.intercept_counts / fit.slope_counts_per_m * 1e3
+        offset_mm = fit.intercept_counts / fit.slope_with_intercept_counts_per_m * 1e3
         print(
             f"  fixed offset       : {fit.intercept_counts:>+10,.0f} "
             f"+/- {fit.intercept_stderr:>6,.0f} counts   ({offset_mm:+.1f} mm per pass)"
         )
         if fit.intercept_real:
-            gap = fit.counts_per_m / fit.slope_counts_per_m - 1.0
+            gap = fit.counts_per_m_through_origin / fit.slope_with_intercept_counts_per_m - 1.0
             print(
                 f"\n  The offset is real, so the SLOPE is the scale. Every pass covers about"
                 f" {offset_mm:+.0f} mm more than its mark says, most likely coasting past the"

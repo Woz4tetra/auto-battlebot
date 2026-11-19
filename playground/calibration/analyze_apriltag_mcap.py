@@ -156,12 +156,7 @@ HITCH_GAP_FACTOR = 1.5
 
 
 def print_timing(rows: list[dict]) -> None:
-    """Report frame-rate consistency over every recorded frame, to surface recording hitches.
-
-    Uses all frame timestamps (not just solved ones), since hitches are a camera/recording issue
-    independent of whether the tag was detected. A "hitch" is a gap over HITCH_GAP_FACTOR times
-    the median period; dropped frames are estimated by how many nominal periods each gap overran.
-    """
+    """Report frame-rate consistency over every recorded frame, solved or not."""
     ts = np.array([r["t"] for r in rows], dtype=np.float64)
     if len(ts) < 2:
         return

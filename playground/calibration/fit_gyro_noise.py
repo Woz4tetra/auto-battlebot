@@ -13,6 +13,7 @@ from auto_battlebot.calibration.jig.velocity_jig import JigLog, read_jig_log
 MAX_CLUSTER_FRACTION = 0.1
 
 POINTS_PER_DECADE = 12
+DEG_SQRT_HR_PER_DEG_SQRT_S = 60.0
 
 
 @dataclass(frozen=True)
@@ -20,23 +21,23 @@ class AllanCurve:
     """One axis: the deviation curve and the three terms fitted off it."""
 
     name: str
-    tau: np.ndarray  # s
-    sigma: np.ndarray  # deg/s
+    tau_s: np.ndarray
+    sigma_dps: np.ndarray
     bias_dps: float
     arw_deg_sqrt_hr: float
     bias_instability_dps: float
     tau_min_s: float
-    # NaN when the curve never turned up inside this record, which is a statement about the
-    # record's length, not about the gyro.
-    rrw_deg_per_s_sqrt_s: float
+    rrw_deg_per_s_sqrt_s: float | None
 
     @property
     def bias_instability_deg_hr(self) -> float:
         return self.bias_instability_dps * 3600.0
 
     @property
-    def rrw_deg_hr_sqrt_hr(self) -> float:
+    def rrw_deg_hr_sqrt_hr(self) -> float | None:
         """K in the conventional unit. One deg/s^1.5 is 3600^1.5 deg/hr^1.5."""
+        if self.rrw_deg_per_s_sqrt_s is None:
+            return None
         return float(self.rrw_deg_per_s_sqrt_s * 3600.0**1.5)
 
 
@@ -96,17 +97,16 @@ def fit_axis(name: str, rate_dps: np.ndarray, dt: float) -> AllanCurve:
     floor = int(np.argmin(sigma))
     n_at_1s = _read_at(tau, sigma, 1.0, -0.5)
     band = rising_band(tau, sigma)
-    k_at_3s = float("nan") if band is None else _read_at(tau, sigma, 3.0, +0.5, band)
+    k_at_3s = None if band is None else _read_at(tau, sigma, 3.0, +0.5, band)
     return AllanCurve(
         name=name,
-        tau=tau,
-        sigma=sigma,
+        tau_s=tau,
+        sigma_dps=sigma,
         bias_dps=float(np.mean(rate_dps)),
-        # sigma(1 s) is N in deg/sqrt(s); deg/sqrt(hr) is sqrt(3600) = 60 times that.
-        arw_deg_sqrt_hr=n_at_1s * 60.0,
+        arw_deg_sqrt_hr=n_at_1s * DEG_SQRT_HR_PER_DEG_SQRT_S,
         bias_instability_dps=float(sigma[floor]) / 0.664,
         tau_min_s=float(tau[floor]),
-        rrw_deg_per_s_sqrt_s=k_at_3s / np.sqrt(3.0),
+        rrw_deg_per_s_sqrt_s=None if k_at_3s is None else k_at_3s / np.sqrt(3.0),
     )
 
 
@@ -114,15 +114,15 @@ def yaw_rate(log: JigLog) -> np.ndarray:
     """Gyro projected onto measured gravity, in deg/s."""
     up = log.accel.mean(axis=0)
     up = up / np.linalg.norm(up)
-    return np.asarray((log.gyro @ up) * 180.0 / np.pi, dtype=float)
+    return np.asarray((log.gyro_rad_s @ up) * 180.0 / np.pi, dtype=float)
 
 
 def draw_slope_guides(curves, ax):
     ref = curves[0]
-    c = _read_at(ref.tau, ref.sigma, 1.0, -0.5)
-    guide = c * ref.tau**-0.5
-    ax.loglog(ref.tau, guide, "--", color="0.6", lw=0.9)
-    ax.annotate("-1/2  angle random walk", (ref.tau[2], guide[2]), color="0.4", fontsize=8)
+    c = _read_at(ref.tau_s, ref.sigma_dps, 1.0, -0.5)
+    guide = c * ref.tau_s**-0.5
+    ax.loglog(ref.tau_s, guide, "--", color="0.6", lw=0.9)
+    ax.annotate("-1/2  angle random walk", (ref.tau_s[2], guide[2]), color="0.4", fontsize=8)
 
 
 def make_plot(path: Path, curves: list[AllanCurve], duration_s: float) -> None:
@@ -133,10 +133,10 @@ def make_plot(path: Path, curves: list[AllanCurve], duration_s: float) -> None:
 
     fig, ax = plt.subplots(figsize=(9, 6))
     for curve in curves:
-        (line,) = ax.loglog(curve.tau, curve.sigma, lw=1.5, label=curve.name)
+        (line,) = ax.loglog(curve.tau_s, curve.sigma_dps, lw=1.5, label=curve.name)
         ax.plot(
             curve.tau_min_s,
-            curve.sigma.min(),
+            curve.sigma_dps.min(),
             "o",
             color=line.get_color(),
             ms=6,
@@ -145,12 +145,12 @@ def make_plot(path: Path, curves: list[AllanCurve], duration_s: float) -> None:
 
     draw_slope_guides(curves, ax)
 
-    rise = next((c for c in curves if np.isfinite(c.rrw_deg_per_s_sqrt_s)), None)
+    rise = next((c for c in curves if c.rrw_deg_per_s_sqrt_s is not None), None)
     if rise is not None:
-        band = rising_band(rise.tau, rise.sigma)
+        band = rising_band(rise.tau_s, rise.sigma_dps)
         assert band is not None
-        k = _read_at(rise.tau, rise.sigma, 3.0, +0.5, band)
-        span = rise.tau[band]
+        k = _read_at(rise.tau_s, rise.sigma_dps, 3.0, +0.5, band)
+        span = rise.tau_s[band]
         ax.loglog(span, k * (span / 3.0) ** 0.5, "--", color="0.6", lw=0.9)
         ax.annotate(
             f"+1/2  rate random walk ({rise.name})",
@@ -166,7 +166,7 @@ def make_plot(path: Path, curves: list[AllanCurve], duration_s: float) -> None:
     ax.set_title(f"Gyro Allan deviation, {duration_s / 60:.0f} min stationary")
     ax.grid(True, which="both", alpha=0.3)
     ax.legend()
-    ax.set_ylim(bottom=min(c.sigma.min() for c in curves) * 0.6)
+    ax.set_ylim(bottom=min(c.sigma_dps.min() for c in curves) * 0.6)
     fig.tight_layout()
     fig.savefig(path, dpi=140)
     print(f"\nwrote {path}")
@@ -187,7 +187,7 @@ def main() -> None:
     args = parser.parse_args()
 
     log = read_jig_log(args.log)
-    gyro_dps = log.gyro * 180.0 / np.pi
+    gyro_dps = log.gyro_rad_s * 180.0 / np.pi
 
     print(
         f"{args.log.name}: {len(log.t_boot_s):,} samples, {log.duration / 60:.1f} min, "
@@ -217,13 +217,14 @@ def main() -> None:
     print(f"\n{'axis':<6}{'bias dps':>10}{'ARW':>12}{'B':>12}{'tau_min':>10}{'RRW':>14}")
     print(f"{'':6}{'':>10}{'deg/sqrt(hr)':>12}{'dps':>12}{'s':>10}{'deg/hr^1.5':>14}")
     for c in curves:
-        rrw = "n/a" if not np.isfinite(c.rrw_deg_hr_sqrt_hr) else f"{c.rrw_deg_hr_sqrt_hr:.1f}"
+        rrw_hr = c.rrw_deg_hr_sqrt_hr
+        rrw = "n/a" if rrw_hr is None else f"{rrw_hr:.1f}"
         print(
             f"{c.name:<6}{c.bias_dps:>10.4f}{c.arw_deg_sqrt_hr:>12.4f}"
             f"{c.bias_instability_dps:>12.5f}{c.tau_min_s:>10.1f}{rrw:>14}"
         )
-    if any(not np.isfinite(c.rrw_deg_per_s_sqrt_s) for c in curves):
-        flat = ", ".join(c.name for c in curves if not np.isfinite(c.rrw_deg_per_s_sqrt_s))
+    if any(c.rrw_deg_per_s_sqrt_s is None for c in curves):
+        flat = ", ".join(c.name for c in curves if c.rrw_deg_per_s_sqrt_s is None)
         print(
             f"\n  RRW is n/a on {flat}: the curve had not turned up by "
             f"{log_duration_hint:.0f} s, the longest cluster this record supports. That bounds"
@@ -235,7 +236,7 @@ def main() -> None:
     print("averaged over about that long is as good as this gyro gets. Averaging a still hold")
     print("longer than that makes it worse, not better.")
     hold = 10.0
-    at_hold = _read_at(yaw.tau, yaw.sigma, hold, -0.5)
+    at_hold = _read_at(yaw.tau_s, yaw.sigma_dps, hold, -0.5)
     print(f"  A {hold:.0f} s still hold pins the yaw bias to {at_hold:.4f} deg/s.")
     print(f"  Over a 30 s run that is {at_hold * 30.0:.3f} deg of unmodelled heading drift.")
     if yaw.tau_min_s < hold:
@@ -250,7 +251,7 @@ def main() -> None:
     print(f"arw_deg_sqrt_hr = {yaw.arw_deg_sqrt_hr:.4f}")
     print(f"bias_instability_dps = {yaw.bias_instability_dps:.5f}")
     print(f"bias_tau_s = {yaw.tau_min_s:.1f}")
-    if np.isfinite(yaw.rrw_deg_per_s_sqrt_s):
+    if yaw.rrw_deg_per_s_sqrt_s is not None:
         print(f"rrw_deg_per_s_sqrt_s = {yaw.rrw_deg_per_s_sqrt_s:.3e}")
     else:
         print("# rrw_deg_per_s_sqrt_s not measurable: the yaw curve never turned up")

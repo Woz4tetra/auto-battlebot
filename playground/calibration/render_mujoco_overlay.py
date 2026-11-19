@@ -8,7 +8,7 @@ import math
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import cv2
 import numpy as np
@@ -29,11 +29,12 @@ MUJOCO = (122, 175, 27)
 ERR = (52, 52, 220)
 WHITE = (245, 245, 245)
 INK = (12, 12, 12)
-NOSE_M = np.array([0.11, 0.0, 0.0])  # body-frame nose for the heading tick
-LEAD_S = 0.25  # measured-only frames shown before each window
-FIX_NEAR_S = 0.05  # the measured pose counts as observed with a fix this close
-TRAIL_S = 3.0  # trail length behind both robots
-SKIP_STILL_S = 0.5  # reset-on-stop video: frames this far into a stop are left out
+NOSE_TICK_BODY_M = np.array([0.11, 0.0, 0.0])
+LEAD_IN_S = 0.25
+FIX_OBSERVED_WITHIN_S = 0.05
+TRAIL_LENGTH_S = 3.0
+SKIP_INTO_STOP_S = 0.5
+NOT_STOPPED_NS = -1
 
 
 @dataclass
@@ -124,7 +125,7 @@ def draw_robot(
         img[sel] = (img[sel] * (1 - alpha) + tint[sel] * alpha).astype(np.uint8)
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     cv2.drawContours(img, contours, -1, color, outline, cv2.LINE_AA)
-    nose = cam.project(np.stack([pos, NOSE_M @ rot.T + pos]))
+    nose = cam.project(np.stack([pos, NOSE_TICK_BODY_M @ rot.T + pos]))
     if np.isfinite(nose).all():
         p0, p1 = (tuple(int(v) for v in p) for p in nose)
         cv2.line(img, p0, p1, color, outline + 1, cv2.LINE_AA)
@@ -152,7 +153,7 @@ class Track:
     yaw: np.ndarray
     pitch: np.ndarray
     roll: np.ndarray
-    fix_ns: np.ndarray  # every accepted tag or YOLO fix
+    accepted_fix_stamps_ns: np.ndarray
 
     @classmethod
     def load(cls, bundle: Path) -> Track:
@@ -170,11 +171,18 @@ class Track:
             np.sort(meas["stamp_ns"].to_numpy(np.int64)),
         )
 
-    def has_fix(self, t_ns: np.ndarray | int, within_s: float = FIX_NEAR_S) -> np.ndarray:
+    def has_fix(
+        self, t_ns: np.ndarray | int, within_s: float = FIX_OBSERVED_WITHIN_S
+    ) -> np.ndarray:
         """True where a real fix lies within ``within_s``; elsewhere the track is extrapolated."""
         t = np.atleast_1d(np.asarray(t_ns, dtype=np.int64))
-        j = np.clip(np.searchsorted(self.fix_ns, t), 1, len(self.fix_ns) - 1)
-        gap = np.minimum(np.abs(self.fix_ns[j] - t), np.abs(t - self.fix_ns[j - 1]))
+        j = np.clip(
+            np.searchsorted(self.accepted_fix_stamps_ns, t), 1, len(self.accepted_fix_stamps_ns) - 1
+        )
+        gap = np.minimum(
+            np.abs(self.accepted_fix_stamps_ns[j] - t),
+            np.abs(t - self.accepted_fix_stamps_ns[j - 1]),
+        )
         return gap <= within_s * 1e9
 
     def at(self, t_ns: np.ndarray | int) -> np.ndarray:
@@ -216,7 +224,7 @@ class Scene:
         self.params, self.run = best_params(fit_dir)
         session_data = load_session(bundle)
         self.still_since_ns: np.ndarray | None = None
-        self.lead_ns = int(LEAD_S * 1e9)
+        self.lead_ns = int(LEAD_IN_S * 1e9)
         if stop is not None:
             session_data.windows, horizon, self.still_since_ns = stop_segments(
                 session_data.smoothed, stop
@@ -282,7 +290,7 @@ class Scene:
         s = self.track.stamp_ns
         k = int(np.clip(np.searchsorted(s, t_ns, side="right") - 1, 0, len(s) - 1))
         since = self.still_since_ns[k]
-        return 0.0 if since < 0 else (t_ns - since) / 1e9
+        return 0.0 if since == NOT_STOPPED_NS else (t_ns - since) / 1e9
 
     def sim_pose(self, i: int, since_ns: int) -> tuple[np.ndarray, np.ndarray]:
         k = min(int(round(since_ns / 1e9 / self.record_dt)), self.qpos.shape[1] - 1)
@@ -305,18 +313,18 @@ class Scene:
         return np.column_stack([p[:, 0], p[:, 1], np.full(len(p), self.rest_z)])
 
 
-def stop_segments(smoothed: pd.DataFrame, stop: StopRule) -> tuple[pd.DataFrame, float, np.ndarray]:
-    """Rollout segments for the reset-on-stop render, as a windows.csv-shaped table.
+class StopSegments(NamedTuple):
+    windows: pd.DataFrame
+    longest_s: float
+    stop_start_ns: np.ndarray
 
-    A segment starts at the session start and wherever a stop reaches ``stop.hold_s``; the
-    initial state is the smoothed one at that instant. Returns the table, the longest segment in
-    seconds (every rollout runs that long), and per smoothed sample the stamp its current stop
-    began at (-1 while moving).
-    """
+
+def stop_segments(smoothed: pd.DataFrame, stop: StopRule) -> StopSegments:
+    """Windows.csv-shaped rollout segments that restart wherever a stop reaches stop.hold_s."""
     t = smoothed["stamp_ns"].to_numpy(np.int64)
     speed = np.hypot(smoothed["vx"].to_numpy(), smoothed["vy"].to_numpy())
     still = (speed < stop.speed_mps) & (np.abs(smoothed["yaw_rate"].to_numpy()) < stop.yaw_rate)
-    since = np.full(len(t), -1, dtype=np.int64)
+    since = np.full(len(t), NOT_STOPPED_NS, dtype=np.int64)
     resets = [0]
     run_start = -1
     for k in range(len(t)):
@@ -348,13 +356,13 @@ def stop_segments(smoothed: pd.DataFrame, stop: StopRule) -> tuple[pd.DataFrame,
             "pitch0": rows["pitch"].to_numpy(),
         }
     )
-    return windows, longest, since
+    return StopSegments(windows, longest, since)
 
 
 def render_frame(scene: Scene, img: np.ndarray, t_ns: int, i: int, since_ns: int) -> None:
     cam = scene.camera(t_ns)
     start = int(scene.batch.start_ns[i])
-    trail_from = max(start - scene.lead_ns, t_ns - int(TRAIL_S * 1e9))
+    trail_from = max(start - scene.lead_ns, t_ns - int(TRAIL_LENGTH_S * 1e9))
     m_pos, m_rot = scene.meas_pose(t_ns)
     draw_path(img, cam, scene.meas_path(trail_from, t_ns), MEAS, 2)
     draw_robot(img, cam, scene.hulls, m_pos, m_rot, MEAS)
@@ -578,7 +586,7 @@ def main() -> None:
         if hit is None:
             continue
         i, since = hit
-        if stop and scene.still_for_s(t_ns) > SKIP_STILL_S:
+        if stop and scene.still_for_s(t_ns) > SKIP_INTO_STOP_S:
             continue
         if (image.shape[1], image.shape[0]) != scene.size:
             raise SystemExit(f"video is {image.shape[1]}x{image.shape[0]}, camera {scene.size}")

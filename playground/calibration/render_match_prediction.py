@@ -40,8 +40,9 @@ SUBSTEP_S = 0.005
 
 @dataclass
 class PredictedTrack:
-    pose: np.ndarray  # (N, 3) x, y, theta; nan where no prediction runs
-    segment: np.ndarray  # (N,) reset segment id, -1 where none
+    pose: np.ndarray
+    segment: np.ndarray
+    has_prediction: np.ndarray
 
 
 def predict_track(
@@ -84,7 +85,7 @@ def predict_track(
         v_target, w_target = steady_state(np.asarray(u_lin[k]), np.asarray(u_ang[k]), applied)
         for _ in range(substeps):
             state = integrate_step(state, v_target, w_target, sub_dt, applied)
-    return PredictedTrack(pose=pose, segment=segment)
+    return PredictedTrack(pose=pose, segment=segment, has_prediction=segment >= 0)
 
 
 def _robot_corners(x: float, y: float, theta: float) -> np.ndarray:
@@ -206,7 +207,7 @@ def render_video(
         meas_trail.set_data(run.x[lo : k + 1], run.y[lo : k + 1])
 
         seg = predicted.segment[k]
-        pred_ok = seg >= 0
+        pred_ok = bool(predicted.has_prediction[k])
         pred_poly.set_visible(pred_ok)
         pred_head.set_visible(pred_ok)
         err_text = "pred    off (manual)"
@@ -319,7 +320,7 @@ def main() -> None:
         opp = np.stack([grid["opp_x"], grid["opp_y"]], axis=1)
 
         predicted = predict_track(run, params, FULL_MODEL, args.reset_s)
-        n_pred = int(np.count_nonzero(predicted.segment >= 0))
+        n_pred = int(np.count_nonzero(predicted.has_prediction))
         n_seg = int(predicted.segment.max()) + 1
         print(f"  {len(run.t)} frames, {n_pred} predicted, {n_seg} reset segments")
 

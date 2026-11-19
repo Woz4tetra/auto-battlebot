@@ -1297,6 +1297,8 @@ Both fits, and which one to believe.
 
 Through the origin is the model you want to be true: zero distance, zero counts. The two-parameter fit exists to test it. When the intercept is real, the through-origin slope is pulled up by a fixed per-pass error and overstates the scale, while the differential slope is honest because a constant offset cancels out of it.
 
+The per-pass `far_dwell_spread_counts` is the spread among the candidate far dwells. It makes wheel creep visible.
+
 `fit_scale`:
 
 Counts against distance, through the origin, plus an intercept as a diagnostic.
@@ -1366,7 +1368,7 @@ which is the case for rate random walk on any record short enough that the +1/2 
 has not opened up by tau = 3 s.
 ```
 
-- `RRW_RISE_RATIO`: A record only measures rate random walk if its curve has actually turned up. Requiring the far end to sit this far above the floor rejects a curve that merely stopped falling, where fitting a +1/2 line would report the noise floor dressed up as a drift term.
+- `RRW_RISE_RATIO`: A record only measures rate random walk if its curve has actually turned up. Requiring the far end to sit this far above the floor rejects a curve that merely stopped falling, where fitting a +1/2 line would report the noise floor dressed up as a drift term. `AllanCurve.rrw_deg_per_s_sqrt_s` is `None` when the curve never turned up inside the record. That is a statement about the record's length, not about the gyro.
 
 `yaw_rate`:
 
@@ -1566,6 +1568,10 @@ Default: id 0, 130 mm tag, 2 mm white base, 0.6 mm raised black, 16 mm white mar
 Boxes for the black cells, raised on top of the base. origin is the tag's (x0, y0) corner in mm.
 
 Consecutive black cells in a row are merged into one box to keep the mesh small and free of internal coplanar faces.
+
+### `playground/calibration/plot_jig_runs.py`
+
+`yaw_rate_dps(log)`: yaw about the measured gravity axis, in deg/s. `JigLog.gyro_rad_s` is rad/s, so this converts. The panel axis says deg/s, and a robot spinning at 700 deg/s plotted as 12 reads as a robot going perfectly straight. Yaw comes from gravity rather than a named axis so a tilted or rotated remount does not silently invalidate the plot. It falls back to the z row when there is no still segment to measure gravity from.
 
 ### `playground/calibration/plot_sysid_bundle.py`
 

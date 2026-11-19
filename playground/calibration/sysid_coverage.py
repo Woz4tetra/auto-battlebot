@@ -1,23 +1,4 @@
-"""Live drivetrain sysid coverage monitor (docs/plans/sysid_coverage_monitor_plan.md).
-
-Drive Mr Stabs Mk2 by hand under the sysid profile; this shows how much of the grey-box plant
-the driving so far has pinned, labels each motion, and suggests what would help next. It only
-listens: it subscribes to the relay and never sends anything back.
-
-    # on the ZED Box
-    ./scripts/build_and_run.sh -c config/mr_stabs_mk2_sysid_zed_box.toml
-    # on the laptop, then open http://localhost:8790
-    venv/bin/python playground/calibration/sysid_coverage.py --live ws://<zed-box>:8765
-
-    # a recording, at 8x real time
-    venv/bin/python playground/calibration/sysid_coverage.py --replay rec.mcap --speed 8
-
-    # a simulated session to replay, until a real one exists
-    venv/bin/python playground/calibration/sysid_coverage.py --synthetic /tmp/sysid_sim.mcap
-
-On exit the live estimate, the last snapshot and the event log go to
-``data/sysid_sessions/<stamp>/``. The final calibration stays the offline fit on the MCAP.
-"""
+"""Live drivetrain sysid coverage monitor that only listens to the relay or a recording."""
 
 from __future__ import annotations
 

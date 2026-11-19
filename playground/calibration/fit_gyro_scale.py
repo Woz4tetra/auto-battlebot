@@ -27,8 +27,8 @@ class Turn:
     t: np.ndarray
     yaw_dps: np.ndarray
     angle_deg: np.ndarray
-    t0: float  # rotation start, seconds into the log
-    t1: float
+    t_start_s: float
+    t_end_s: float
     stills: int
     bias_drift_dps: float
     up: np.ndarray
@@ -77,10 +77,7 @@ def solve_turn(path: Path, reference_deg: float) -> Turn:
         bias = pre.bias_radps[None, :]
         drift = float("nan")
 
-    # JigLog.gyro is rad/s, not deg/s. Everything below is degrees, so convert here and
-    # nowhere else: a factor of 57.3 buried mid-pipeline turns ten turns into one sixth of
-    # one, which is exactly convincing enough to be believed.
-    yaw = np.degrees((log.gyro - bias) @ up)
+    yaw = np.degrees((log.gyro_rad_s - bias) @ up)
     angle = np.concatenate([[0.0], np.cumsum(0.5 * (yaw[1:] + yaw[:-1]) * np.diff(log.t_boot_s))])
 
     lo, hi, measured = turn_span(yaw, path, angle)
@@ -92,8 +89,8 @@ def solve_turn(path: Path, reference_deg: float) -> Turn:
         t=log.t_boot_s - log.t_boot_s[0],
         yaw_dps=yaw,
         angle_deg=angle - angle[lo],
-        t0=float(log.t_boot_s[lo] - log.t_boot_s[0]),
-        t1=float(log.t_boot_s[hi] - log.t_boot_s[0]),
+        t_start_s=float(log.t_boot_s[lo] - log.t_boot_s[0]),
+        t_end_s=float(log.t_boot_s[hi] - log.t_boot_s[0]),
         stills=len(stills),
         bias_drift_dps=drift,
         up=up,
@@ -147,7 +144,7 @@ def plot_yaw_rate(fig, gs, turns):
     ax = fig.add_subplot(gs[0, 0])
     for i, turn in enumerate(turns):
         ax.plot(turn.t, turn.yaw_dps, lw=0.9, color=f"C{i}", label=turn.path.name)
-        ax.axvspan(turn.t0, turn.t1, color=f"C{i}", alpha=0.12, lw=0)
+        ax.axvspan(turn.t_start_s, turn.t_end_s, color=f"C{i}", alpha=0.12, lw=0)
     ax.axhline(0.0, color="0.5", lw=1.0)
     ax.set_xlabel("time (s)", fontsize=9)
     ax.set_ylabel("yaw rate about gravity (deg/s)", fontsize=9)
@@ -160,7 +157,7 @@ def plot_integral(fig, gs, turns):
     for i, turn in enumerate(turns):
         ax.plot(turn.t, turn.angle_deg, lw=1.2, color=f"C{i}", label=turn.path.name)
         ax.axhline(turn.reference_deg, color=f"C{i}", ls=":", lw=1.2)
-        ax.plot([turn.t1], [turn.measured_deg], "o", ms=7, color=f"C{i}")
+        ax.plot([turn.t_end_s], [turn.measured_deg], "o", ms=7, color=f"C{i}")
     ax.axhline(0.0, color="0.5", lw=1.0)
     ax.set_xlabel("time (s)", fontsize=9)
     ax.set_ylabel("integrated angle (deg)", fontsize=9)

@@ -6,6 +6,7 @@ import ast
 import dataclasses
 import json
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +19,7 @@ from auto_battlebot.calibration.sysid.coverage import CoverageSession, WindowSta
 from auto_battlebot.calibration.sysid.maneuvers import EventKind, ManeuverSegmenter, edges_of
 from auto_battlebot.calibration.sysid.pose_stream import TagPose
 from auto_battlebot.calibration.sysid.profile import load_profile
-from auto_battlebot.calibration.sysid.sources import Dispatcher, replay
+from auto_battlebot.calibration.sysid.sources import Dispatcher, live, replay
 from auto_battlebot.calibration.sysid.worker import InlineEngine
 from auto_battlebot.control.firmware_mixer import BatchedMixer, LoopState
 from auto_battlebot.mujoco_sim.firmware import FirmwareMixer
@@ -204,6 +205,43 @@ def test_replay_from_mcap_matches_direct_feed(profile: Any, tmp_path: Path) -> N
     snap = session.snapshot()
     assert snap["link"]["field"]
     assert snap["windows"]["used"] + snap["windows"]["holdout"] >= 3
+
+
+def test_live_source_subscribes_only_to_telemetry_topics_and_sends_nothing_else() -> None:
+    received: list[Any] = []
+
+    def handler(ws: Any) -> None:
+        channels = [
+            {
+                "id": i,
+                "topic": topic,
+                "encoding": "json",
+                "schemaName": "x",
+                "schema": "{}",
+            }
+            for i, topic in enumerate(
+                ["/control/command", "/robot/espnow_telemetry", "/remote/command"], start=1
+            )
+        ]
+        ws.send(json.dumps({"op": "advertise", "channels": channels}))
+        try:
+            for message in ws:
+                received.append(json.loads(message))
+        except Exception:
+            pass
+
+    with serve(handler, "127.0.0.1", 0) as server:
+        port = server.socket.getsockname()[1]
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        sub, _messages = live(f"ws://127.0.0.1:{port}")
+        threading.Thread(target=lambda: next(_messages, None), daemon=True).start()
+        deadline = time.monotonic() + 3.0
+        while not received and time.monotonic() < deadline:
+            time.sleep(0.02)
+        sub.close()
+        server.shutdown()
+    assert [m["op"] for m in received] == ["subscribe"]
+    assert [s["channelId"] for s in received[0]["subscriptions"]] == [2]
 
 
 def test_subscriber_only_subscribes() -> None:

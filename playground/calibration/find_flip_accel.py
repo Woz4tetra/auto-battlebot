@@ -10,6 +10,8 @@ import time
 
 from auto_battlebot.calibration.jig import drive_protocol as dp
 
+TRIAL_TIMEOUT_MARGIN_S = 3
+
 
 class _TrialTimeoutError(Exception):
     """Raised by the SIGALRM handler to break a trial that overran its time budget."""
@@ -135,7 +137,7 @@ def main() -> None:
             )
             if resp == "q":
                 break
-            signal.alarm(int(ramp_time + args.hold) + 3)  # backstop if a trial wedges
+            signal.alarm(int(ramp_time + args.hold) + TRIAL_TIMEOUT_MARGIN_S)
             completed = run_ramp(link, args.rate, args.target, accel, args.hold)
             signal.alarm(0)
             if not completed:

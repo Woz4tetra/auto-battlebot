@@ -12,7 +12,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import numpy as np
 import tomli_w
@@ -26,8 +26,14 @@ BINARY = REPO_ROOT / "build" / "auto_battlebot"
 SIM_CONFIG = REPO_ROOT / "simulation" / "sim_mr_stabs_mk2.toml"
 CPP_BASE = "simulation/mr_stabs_mk2_motion_profile_sim"
 SIM_PORT = 14882  # hard-coded in src/simulation/sim_connection.cpp
-SETTLED_SPEED = 0.05  # m/s
+SETTLED_SPEED_MPS = 0.05
 FLIP_DEG = 60.0
+
+
+class StartPose(NamedTuple):
+    x_m: float
+    y_m: float
+    yaw_deg: float
 
 
 @dataclass(frozen=True)
@@ -35,17 +41,17 @@ class Case:
     """Start pose and goal, inside the 2.4 m sim arena and clear of the 0.25 m wall reversal."""
 
     name: str
-    start: tuple[float, float, float]  # x, y, yaw deg
+    start: StartPose
     goal: tuple[float, float]
 
 
 CASES = (
-    Case("straight_0.6m", (-0.9, -0.9, 45.0), (-0.476, -0.476)),
-    Case("straight_1.2m", (-0.9, -0.9, 45.0), (-0.051, -0.051)),
-    Case("straight_2.0m", (-0.9, -0.9, 45.0), (0.514, 0.514)),
-    Case("turn_45deg_0.8m", (0.0, -0.4, 0.0), (0.566, 0.166)),
-    Case("turn_90deg_0.8m", (0.0, -0.4, 0.0), (0.0, 0.4)),
-    Case("turn_180deg_0.8m", (0.4, 0.0, 0.0), (-0.4, 0.0)),
+    Case("straight_0.6m", StartPose(-0.9, -0.9, 45.0), (-0.476, -0.476)),
+    Case("straight_1.2m", StartPose(-0.9, -0.9, 45.0), (-0.051, -0.051)),
+    Case("straight_2.0m", StartPose(-0.9, -0.9, 45.0), (0.514, 0.514)),
+    Case("turn_45deg_0.8m", StartPose(0.0, -0.4, 0.0), (0.566, 0.166)),
+    Case("turn_90deg_0.8m", StartPose(0.0, -0.4, 0.0), (0.0, 0.4)),
+    Case("turn_180deg_0.8m", StartPose(0.4, 0.0, 0.0), (-0.4, 0.0)),
 )
 
 
@@ -75,8 +81,8 @@ def write_sim_config(
     cfg["latency"]["command_ms"] = radio_ms
     robot = cfg["our_robot"]
     robot["plant"] = "mujoco"
-    robot["start_pos"] = [case.start[0], case.start[1]]
-    robot["start_yaw_deg"] = case.start[2]
+    robot["start_pos"] = [case.start.x_m, case.start.y_m]
+    robot["start_yaw_deg"] = case.start.yaw_deg
     robot["mujoco"]["fit_file"] = str(fit_file.resolve())
     robot["mujoco"]["timestep"] = 1e-3
     opp = cfg["opponents"][0]
@@ -166,7 +172,7 @@ def score_trace(path: Path, stop_distance: float) -> dict[str, float]:
         out.update(arrive_s=math.nan, settle_s=math.nan, reentries=math.nan)
         return out
     a = int(arrived[0])
-    moving = np.flatnonzero(np.abs(v[a:]) > SETTLED_SPEED)
+    moving = np.flatnonzero(np.abs(v[a:]) > SETTLED_SPEED_MPS)
     settle = t[a + moving[-1]] - t[a] if len(moving) else 0.0
     exits = np.flatnonzero(np.diff(inside[a:].astype(int)) == 1)
     out.update(arrive_s=float(t[a]), settle_s=float(settle), reentries=float(len(exits)))

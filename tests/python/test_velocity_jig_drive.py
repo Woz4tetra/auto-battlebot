@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 from auto_battlebot.calibration.jig import excitation as ex
 from auto_battlebot.calibration.jig.velocity_jig import ClockProbe
@@ -42,3 +43,35 @@ def test_one_khz_log_passes_sample_gate() -> None:
 def test_short_log_fails_sample_gate() -> None:
     out = drive.gates(0, _probe(), _probe(), 0.0, samples=3000, hold_s=5.0, contamination=0.0)
     assert any("samples" in g.reason for g in out)
+
+
+class _FakeLink:
+    def __init__(self, payload: bytes) -> None:
+        self.payload = payload
+
+    def download(self, name: str, dest: Path) -> int:
+        dest.write_bytes(self.payload)
+        return len(self.payload)
+
+
+def test_download_log_keeps_the_jig_name_when_the_session_directory_has_no_such_log(
+    tmp_path: Path,
+) -> None:
+    dest, written = drive.download_log(_FakeLink(b"new"), tmp_path, "LOG-007.csv")  # type: ignore[arg-type]
+
+    assert dest == tmp_path / "LOG-007.csv"
+    assert dest.read_bytes() == b"new"
+    assert written == 3
+
+
+def test_download_log_renames_instead_of_overwriting_a_log_left_by_an_earlier_card(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "LOG-007.csv").write_bytes(b"earlier card")
+
+    dest, written = drive.download_log(_FakeLink(b"new card"), tmp_path, "LOG-007.csv")  # type: ignore[arg-type]
+
+    assert dest != tmp_path / "LOG-007.csv"
+    assert dest.name.startswith("LOG-007-") and dest.suffix == ".csv"
+    assert (tmp_path / "LOG-007.csv").read_bytes() == b"earlier card"
+    assert dest.read_bytes() == b"new card"

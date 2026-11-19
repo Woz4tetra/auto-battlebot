@@ -258,18 +258,10 @@ def build_clip(fight: dict[str, Any], api_key: str | None) -> Clip | None:
     )
 
 
-def corpus_tournaments(tarball: Path) -> list[str] | None:
-    """Tournament IDs baked into the detector's training corpus, for the overlap note.
-
-    The 2class models were trained on nhrl_robots_bbox_2class, whose train split holds
-    most of the labelled cage-high scenes. Listing the tarball is the only way to learn
-    which tournaments those came from without extracting 12 GB.
-
-    Returns None when the tarball is missing, an empty list when it holds no
-    BrettZone-style names. Those are different answers and the manifest says which.
-    """
+def corpus_tournaments(tarball: Path) -> list[str]:
+    """Tournament IDs in the training corpus tarball; raises FileNotFoundError if absent."""
     if not tarball.exists():
-        return None
+        raise FileNotFoundError(tarball)
     listing = subprocess.run(
         # `tar tf` without an explicit -z: GNU tar sniffs the compression, and the
         # shipped nhrl_robots_bbox_2class.tar.gz is in fact an uncompressed tar.
@@ -289,22 +281,24 @@ def write_manifest(output_dir: Path, clips: list[Clip], args: argparse.Namespace
 
     overlap_note = "Not checked (`--skip-corpus-check`)."
     if not args.skip_corpus_check:
-        corpus = corpus_tournaments(Path(args.corpus_tarball))
-        if corpus is None:
+        try:
+            corpus = corpus_tournaments(Path(args.corpus_tarball))
+        except FileNotFoundError:
             overlap_note = f"Tarball not found at `{args.corpus_tarball}`, overlap unknown."
-        elif not corpus:
-            overlap_note = (
-                f"`{args.corpus_tarball}` carries no `tournamentID-` filenames, so the "
-                "overlap could not be read off the corpus."
-            )
         else:
-            downloaded = {clip.tournament_id for clip in clips}
-            shared = sorted(downloaded & set(corpus))
-            overlap_note = f"{len(corpus)} tournaments appear in the training corpus. " + (
-                f"**{len(shared)} of them are in this download: {', '.join(shared)}.**"
-                if shared
-                else "None of them are in this download."
-            )
+            if not corpus:
+                overlap_note = (
+                    f"`{args.corpus_tarball}` carries no `tournamentID-` filenames, so the "
+                    "overlap could not be read off the corpus."
+                )
+            else:
+                downloaded = {clip.tournament_id for clip in clips}
+                shared = sorted(downloaded & set(corpus))
+                overlap_note = f"{len(corpus)} tournaments appear in the training corpus. " + (
+                    f"**{len(shared)} of them are in this download: {', '.join(shared)}.**"
+                    if shared
+                    else "None of them are in this download."
+                )
 
     total_bytes = sum(clip.bytes_written for clip in clips)
     lines = [

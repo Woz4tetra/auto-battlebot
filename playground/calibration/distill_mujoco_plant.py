@@ -9,6 +9,7 @@ import multiprocessing
 import os
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -36,7 +37,7 @@ from auto_battlebot.mujoco_sim.session import build_batch, load_session
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CURRENT_TABLE = REPO_ROOT / "config" / "mr_stabs_mk2_aer_zed_box.toml"
 
-RECORD_DT = 0.005  # stick and state grid, the jig fit's 200 Hz
+RECORD_DT_S = 0.005
 REST_S = 0.3
 HORIZONS = (0.033, 0.066, 0.100, 0.200, 0.300, 0.400, 0.500)
 STRIDE_S = 0.05
@@ -46,19 +47,27 @@ COARSE_DELAYS = np.arange(0.0, 0.1001, 0.01)
 ACCEPT = {"C1_pos_100ms_mm": 15.0, "C2_pos_400ms_mm": 80.0, "C3_head_400ms_deg": 8.0}
 
 
+class TapeKind(str, Enum):
+    STAIRCASE = "staircase"
+    STEP = "step"
+    REVERSAL = "reversal"
+    GRID = "grid"
+    RANDOM = "random"
+
+
 @dataclass
 class Tape:
     name: str
-    kind: str  # staircase | step | reversal | grid | random
-    lin: np.ndarray  # stick held over [k dt, (k + 1) dt)
+    kind: TapeKind
+    lin: np.ndarray
     ang: np.ndarray
 
 
-def _tape(name: str, kind: str, segments: list[tuple[float, float, float]]) -> Tape:
+def _tape(name: str, kind: TapeKind, segments: list[tuple[float, float, float]]) -> Tape:
     """segments: (linear, angular, seconds), with a rest before and after."""
     segments = [(0.0, 0.0, REST_S), *segments, (0.0, 0.0, 0.6)]
-    lin = np.concatenate([np.full(round(s / RECORD_DT), a) for a, _, s in segments])
-    ang = np.concatenate([np.full(round(s / RECORD_DT), b) for _, b, s in segments])
+    lin = np.concatenate([np.full(round(s / RECORD_DT_S), a) for a, _, s in segments])
+    ang = np.concatenate([np.full(round(s / RECORD_DT_S), b) for _, b, s in segments])
     return Tape(name, kind, lin, ang)
 
 
@@ -66,17 +75,21 @@ def train_tapes() -> list[Tape]:
     tapes: list[Tape] = []
     levels = np.round(np.arange(0.01, 0.1201, 0.01), 3)
     for sign, tag in ((1.0, "pos"), (-1.0, "neg")):
-        tapes.append(_tape(f"stair_lin_{tag}", "staircase", [(sign * u, 0.0, 0.4) for u in levels]))
-        tapes.append(_tape(f"stair_ang_{tag}", "staircase", [(0.0, sign * u, 0.4) for u in levels]))
+        tapes.append(
+            _tape(f"stair_lin_{tag}", TapeKind.STAIRCASE, [(sign * u, 0.0, 0.4) for u in levels])
+        )
+        tapes.append(
+            _tape(f"stair_ang_{tag}", TapeKind.STAIRCASE, [(0.0, sign * u, 0.4) for u in levels])
+        )
         for u in (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.85, 1.0):
-            tapes.append(_tape(f"step_lin_{sign * u:+.2f}", "step", [(sign * u, 0.0, 0.8)]))
+            tapes.append(_tape(f"step_lin_{sign * u:+.2f}", TapeKind.STEP, [(sign * u, 0.0, 0.8)]))
         for u in (0.05, 0.1, 0.2, 0.3, 0.5, 0.7, 1.0):
-            tapes.append(_tape(f"step_ang_{sign * u:+.2f}", "step", [(0.0, sign * u, 0.6)]))
+            tapes.append(_tape(f"step_ang_{sign * u:+.2f}", TapeKind.STEP, [(0.0, sign * u, 0.6)]))
     for u in (0.3, 0.5):
-        tapes.append(_tape(f"reversal_{u:.1f}", "reversal", [(u, 0.0, 0.6), (-u, 0.0, 0.6)]))
+        tapes.append(_tape(f"reversal_{u:.1f}", TapeKind.REVERSAL, [(u, 0.0, 0.6), (-u, 0.0, 0.6)]))
     for lin in (0.2, 0.35, 0.5):
         for ang in (0.1, 0.25, 0.5, -0.1, -0.25, -0.5):
-            tapes.append(_tape(f"grid_{lin:.2f}_{ang:+.2f}", "grid", [(lin, ang, 0.8)]))
+            tapes.append(_tape(f"grid_{lin:.2f}_{ang:+.2f}", TapeKind.GRID, [(lin, ang, 0.8)]))
     return tapes
 
 
@@ -93,21 +106,21 @@ def random_tapes(count: int, seed: int, seconds: float = 6.0) -> list[Tape]:
             ang = 0.0 if rng.random() < 0.4 else float(rng.uniform(-0.6, 0.6))
             segments.append((lin, ang, hold))
             total += hold
-        tapes.append(_tape(f"random_{i:02d}", "random", segments))
+        tapes.append(_tape(f"random_{i:02d}", TapeKind.RANDOM, segments))
     return tapes
 
 
 @dataclass
 class Trace:
     name: str
-    kind: str
+    kind: TapeKind
     t: np.ndarray
     x: np.ndarray
     y: np.ndarray
-    yaw: np.ndarray  # unwrapped
+    yaw_unwrapped: np.ndarray
     v: np.ndarray
     w: np.ndarray
-    cmd_lin: np.ndarray  # cmd[k] is the stick held over the step that ends at t[k]
+    cmd_lin: np.ndarray
     cmd_ang: np.ndarray
     valid: np.ndarray
 
@@ -147,14 +160,14 @@ def simulate_tape(
 
     sample(0)
     for k in range(n):
-        sim.step(float(tape.lin[k]), float(tape.ang[k]), RECORD_DT)
+        sim.step(float(tape.lin[k]), float(tape.ang[k]), RECORD_DT_S)
         sample(k + 1)
     tilted = np.abs(state[:, 5] - collision.rest_pitch_rad) > pitch_gate
     valid = np.cumsum(tilted) == 0
     return Trace(
         tape.name,
         tape.kind,
-        np.arange(n + 1) * RECORD_DT,
+        np.arange(n + 1) * RECORD_DT_S,
         state[:, 0],
         state[:, 1],
         np.unwrap(state[:, 2]),
@@ -170,8 +183,8 @@ def build_windows(traces: list[Trace], delay_s: float, limit: int) -> WindowSet 
     sets = []
     for i, tr in enumerate(traces):
         ws = make_windows(
-            tr.t, tr.v, tr.w, tr.yaw, tr.x, tr.y, tr.cmd_lin, tr.cmd_ang,
-            dt=RECORD_DT, delay_s=delay_s, horizons=HORIZONS, stride_s=STRIDE_S,
+            tr.t, tr.v, tr.w, tr.yaw_unwrapped, tr.x, tr.y, tr.cmd_lin, tr.cmd_ang,
+            dt=RECORD_DT_S, delay_s=delay_s, horizons=HORIZONS, stride_s=STRIDE_S,
             valid=tr.valid, origin=i,
         )  # fmt: skip
         if ws is not None:
@@ -253,15 +266,15 @@ def analytic(params: MujocoParams, pack_voltage: float) -> dict[str, float]:
     mp, _ = _model()
     motor = MotorConstants(mp.gear_ratio, mp.motor_kt)
     full = float(shape_command(np.array([1.0]), 0.0, params.curve)[0])
-    b = -motor.bias(params)  # wheel N m per rad/s
+    damping_nm_per_rad_s = -motor.bias(params)
     inertia = (
         mp.total_mass * mp.wheel_radius**2 + 2.0 * params.armature_scale * mp.reflected_inertia
     )
-    stall = motor.force_limit(params)  # wheel N m at the current limit
+    stall_torque_nm = motor.force_limit(params)
     return {
         "free_speed_m_s": motor.free_speed(pack_voltage * full) * mp.wheel_radius,
-        "brake_tau_s": inertia / (2.0 * b),
-        "current_limited_accel_m_s2": 2.0 * stall * mp.wheel_radius / inertia,
+        "brake_tau_s": inertia / (2.0 * damping_nm_per_rad_s),
+        "current_limited_accel_m_s2": 2.0 * stall_torque_nm * mp.wheel_radius / inertia,
     }
 
 
