@@ -17,7 +17,7 @@ class CalibratedFieldFilter : public CameraWorldFieldFilter {
         const CameraData &camera_data, const MaskStamped &field_mask) override;
 
    protected:
-    const char *name() const override { return "CalibratedFieldFilter"; }
+    const char *filter_name_for_log() const override { return "CalibratedFieldFilter"; }
 
    private:
     void run_seating_check(const CameraData &camera_data, const MaskStamped &field_mask);

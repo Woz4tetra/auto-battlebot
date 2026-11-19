@@ -145,7 +145,7 @@ bool Esp32WifiTelemetry::poll_once(bool &more) {
     // New client, or the robot rebooted and its seqs restarted: start from the head, not from
     // history nobody was recording tags for. The records in this reply, if any, are dropped.
     if (!boot_id_ || *boot_id_ != h.boot_id || h.next_seq < next_seq_) {
-        if (boot_id_) stats_.reboots++;
+        if (boot_id_) stats_.boot_id_changes++;
         boot_id_ = h.boot_id;
         next_seq_ = h.next_seq;
         stats_.lag_records = 0;

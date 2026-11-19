@@ -10,8 +10,8 @@ namespace auto_battlebot {
 TEST(CageCalibrationTest, RoundTripsThroughTheFile) {
     CageCalibration written;
     written.calibration_id = "nhrl_cage_north_2026-09-09";
-    written.field_size_x = 2.34;
-    written.field_size_y = 2.37;
+    written.measured_mat_size_x_m = 2.34;
+    written.measured_mat_size_y_m = 2.37;
     written.tf_camera_from_fieldcenter = testing_support::camera_pose(1.9, 48.0, 7.5);
 
     const std::filesystem::path path =
@@ -21,8 +21,8 @@ TEST(CageCalibrationTest, RoundTripsThroughTheFile) {
     std::filesystem::remove(path);
 
     EXPECT_EQ(read.calibration_id, written.calibration_id);
-    EXPECT_NEAR(read.field_size_x, written.field_size_x, 1e-9);
-    EXPECT_NEAR(read.field_size_y, written.field_size_y, 1e-9);
+    EXPECT_NEAR(read.measured_mat_size_x_m, written.measured_mat_size_x_m, 1e-9);
+    EXPECT_NEAR(read.measured_mat_size_y_m, written.measured_mat_size_y_m, 1e-9);
     EXPECT_LT((read.tf_camera_from_fieldcenter - written.tf_camera_from_fieldcenter).norm(), 1e-9);
 }
 

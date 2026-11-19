@@ -271,6 +271,23 @@ TEST(ObservationV1SpecTest, WallRayFromOutsideOrOnTheWallReadsZero) {
     EXPECT_EQ(build(in)[kRays], 0.0);
 }
 
+TEST(ObservationV1SpecTest, HazardKindOneHotOrderMatchesTraining) {
+    constexpr int kTrainedHole = 0;
+    constexpr int kTrainedWallBlock = 1;
+    constexpr int kTrainedRobot = 2;
+    for (int slot : {kTrainedHole, kTrainedWallBlock, kTrainedRobot}) {
+        ObservationInputsV1 in = plain_inputs();
+        const std::vector<ObservationHazardV1> hazards = {
+            ObservationHazardV1{0.5, 0.0, 0.2, static_cast<HazardKind>(slot), 0.0, 0.0, true}};
+        in.hazards = hazards;
+        const Observation out = build(in);
+        for (int i = 0; i < 3; ++i) {
+            EXPECT_EQ(out[kHazards + 3 + i], i == slot ? 1.0 : 0.0)
+                << "enum value " << slot << " one-hot index " << i;
+        }
+    }
+}
+
 TEST(ObservationV1SpecTest, HoleRayFromInsideADiscReadsZero) {
     ObservationInputsV1 in = plain_inputs();
     const std::vector<ObservationHazardV1> hazards = {

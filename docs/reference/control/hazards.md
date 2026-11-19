@@ -10,6 +10,14 @@ Each `FieldHazard` carries three sizes.
 
 Half the diagonal of a footprint is the radius of the smallest disc containing it. Using the diagonal rather than half the length keeps the keep-out conservative for a robot approaching a hazard corner-first. The UI draws this same circle per robot so the inflation in a keep-out ring is visible: a tracked ring is this for the hazard, plus this for our own robot, plus the configured margin.
 
+## Kinds
+
+`HazardKind` is `HOLE`, `WALL_BLOCK`, `ROBOT`, in that order.
+
+- `HOLE` and `WALL_BLOCK` come from the arena geometry file, which writes them in lowercase (`hole`, `wall_block`) because the sim reads the same file.
+- `ROBOT` is a live tracked robot such as the house bot.
+- `RlPolicyNavigation`'s observation one-hot follows this order, so reordering the enum permutes the input to a trained policy. `ObservationV1Test.HazardKindOneHotOrderMatchesTraining` pins it.
+
 ## Discs
 
 A `FieldHazard` is a disc in the field frame regardless of the real shape. Every consumer reduces to a distance-to-centre test, and `EmptyCircleSolver` is already built on point sites plus a radius. Cover an awkward shape with two or three overlapping discs rather than teaching the consumers a second geometry.

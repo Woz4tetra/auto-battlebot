@@ -16,12 +16,12 @@ CalibratedFieldFilter::CalibratedFieldFilter(const CalibratedFieldFilterConfigur
       diagnostics_logger_(DiagnosticsLogger::get_logger("calibrated_field_filter")) {
     // The fit tools save whichever yaw the corner order gave. Turn it to the convention the live
     // outline fit uses, so the seating check compares corners in the same order.
-    calibration_.tf_camera_from_fieldcenter =
-        align_field_x_with_camera_x(calibration_.tf_camera_from_fieldcenter,
-                                    calibration_.field_size_x, calibration_.field_size_y);
+    calibration_.tf_camera_from_fieldcenter = align_field_x_with_camera_x(
+        calibration_.tf_camera_from_fieldcenter, calibration_.measured_mat_size_x_m,
+        calibration_.measured_mat_size_y_m);
     spdlog::info("Loaded cage calibration '{}' ({:.3f} x {:.3f} m) from {}",
-                 calibration_.calibration_id, calibration_.field_size_x, calibration_.field_size_y,
-                 config.calibration_file);
+                 calibration_.calibration_id, calibration_.measured_mat_size_x_m,
+                 calibration_.measured_mat_size_y_m, config.calibration_file);
 }
 
 void CalibratedFieldFilter::run_seating_check(const CameraData &camera_data,
@@ -40,7 +40,7 @@ void CalibratedFieldFilter::run_seating_check(const CameraData &camera_data,
     FieldOutlineParams outline_params;
     outline_params.border_margin_px = config_.border_margin_px;
     outline_params.refine_iterations = config_.refine_iterations;
-    outline_params.corner_skip_fraction = config_.corner_skip_fraction;
+    outline_params.corner_skip_fraction_per_side_end = config_.corner_skip_fraction;
     outline_params.min_side_points = config_.min_side_points;
     const FieldOutline outline = extract_field_outline(contour_mask, outline_params);
     if (!outline.ok) {
@@ -48,18 +48,18 @@ void CalibratedFieldFilter::run_seating_check(const CameraData &camera_data,
         return;
     }
 
-    const auto expected =
-        project_field_corners(calibration_.tf_camera_from_fieldcenter, calibration_.field_size_x,
-                              calibration_.field_size_y, intrinsics);
-    const FieldPoseResult live = pose_from_outline(outline, calibration_.field_size_x,
-                                                   calibration_.field_size_y, intrinsics);
+    const auto expected = project_field_corners(calibration_.tf_camera_from_fieldcenter,
+                                                calibration_.measured_mat_size_x_m,
+                                                calibration_.measured_mat_size_y_m, intrinsics);
+    const FieldPoseResult live = pose_from_outline(outline, calibration_.measured_mat_size_x_m,
+                                                   calibration_.measured_mat_size_y_m, intrinsics);
     if (!live.ok) {
         spdlog::warn("Seating check skipped: {}", live.failure);
         return;
     }
     const auto observed =
-        project_field_corners(live.tf_camera_from_fieldcenter, calibration_.field_size_x,
-                              calibration_.field_size_y, intrinsics);
+        project_field_corners(live.tf_camera_from_fieldcenter, calibration_.measured_mat_size_x_m,
+                              calibration_.measured_mat_size_y_m, intrinsics);
 
     double worst = 0.0;
     for (size_t i = 0; i < expected.size(); ++i) {
@@ -93,7 +93,8 @@ std::shared_ptr<FieldDescriptionWithInlierPoints> CalibratedFieldFilter::compute
     description->child_frame_id = FrameId::FIELD;
     description->tf_camera_from_fieldcenter.tf = calibration_.tf_camera_from_fieldcenter;
     description->size.header = camera_data.rgb.header;
-    description->size.size = Size{calibration_.field_size_x, calibration_.field_size_y, 0.0};
+    description->size.size =
+        Size{calibration_.measured_mat_size_x_m, calibration_.measured_mat_size_y_m, 0.0};
     return description;
 }
 }  // namespace auto_battlebot

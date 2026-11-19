@@ -1,9 +1,13 @@
 #include <gtest/gtest.h>
+#include <spdlog/sinks/ostream_sink.h>
+#include <spdlog/spdlog.h>
 #include <toml++/toml.h>
 
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <memory>
+#include <sstream>
 #include <string>
 #include <thread>
 
@@ -116,11 +120,36 @@ TEST(EngineSelectorTest, MissingCandidateDoesNotStopTheSearch) {
     EXPECT_FALSE(selector.select(engine).has_value());
 }
 
-TEST(EngineSelectorTest, DescribesTheCudaDevice) {
-    // Never empty: reports the failure reason instead of throwing when CUDA is absent,
-    // because the string only ever appears in log lines.
-    EXPECT_FALSE(describe_cuda_device().empty());
+size_t count_occurrences(const std::string &text, const std::string &needle) {
+    size_t count = 0;
+    for (size_t at = text.find(needle); at != std::string::npos; at = text.find(needle, at + 1)) {
+        ++count;
+    }
+    return count;
 }
+
+TEST(EngineSelectorTest, SelectLogsOutcomeOnce) {
+    TempFile bogus("auto_battlebot_bogus_logged.engine");
+    EngineSelectorConfiguration config;
+    config.candidates = {"/nonexistent/first.engine", bogus.path()};
+    EngineSelector selector(config, "TestModel");
+
+    std::ostringstream captured;
+    auto logger = std::make_shared<spdlog::logger>(
+        "engine_selector_test", std::make_shared<spdlog::sinks::ostream_sink_mt>(captured));
+    const auto previous = spdlog::default_logger();
+    spdlog::set_default_logger(logger);
+    TrtEngine engine;
+    EXPECT_FALSE(selector.select(engine).has_value());
+    spdlog::set_default_logger(previous);
+
+    const std::string log = captured.str();
+    EXPECT_EQ(count_occurrences(log, "no candidate engine loads"), 1u) << log;
+    EXPECT_EQ(count_occurrences(log, "/nonexistent/first.engine -> not present"), 1u) << log;
+    EXPECT_EQ(count_occurrences(log, bogus.path() + " -> rejected by TensorRT"), 1u) << log;
+}
+
+TEST(EngineSelectorTest, DescribesTheCudaDevice) { EXPECT_FALSE(describe_cuda_device().empty()); }
 
 }  // namespace auto_battlebot
 

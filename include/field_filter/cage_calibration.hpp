@@ -6,9 +6,8 @@
 namespace auto_battlebot {
 struct CageCalibration {
     std::string calibration_id;
-    /** The floor mat, measured, not the nominal cage size. */
-    double field_size_x = 0.0;
-    double field_size_y = 0.0;
+    double measured_mat_size_x_m = 0.0;
+    double measured_mat_size_y_m = 0.0;
     Eigen::Matrix4d tf_camera_from_fieldcenter = Eigen::Matrix4d::Identity();
 };
 

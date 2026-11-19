@@ -9,7 +9,7 @@
 
 namespace auto_battlebot {
 
-std::string describe_cuda_device() {
+std::string describe_cuda_device() noexcept {
     int device = 0;
     cudaError_t err = cudaGetDevice(&device);
     if (err != cudaSuccess) {

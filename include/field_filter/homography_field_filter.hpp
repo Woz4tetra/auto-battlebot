@@ -17,7 +17,7 @@ class HomographyFieldFilter : public CameraWorldFieldFilter {
         const CameraData &camera_data, const MaskStamped &field_mask) override;
 
    protected:
-    const char *name() const override { return "HomographyFieldFilter"; }
+    const char *filter_name_for_log() const override { return "HomographyFieldFilter"; }
 
    private:
     HomographyFieldFilterConfiguration config_;

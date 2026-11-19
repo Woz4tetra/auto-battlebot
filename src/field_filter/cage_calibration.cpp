@@ -56,9 +56,9 @@ CageCalibration load_cage_calibration(const std::string &path) {
     if (calibration.calibration_id.empty()) {
         throw ConfigValidationError("'calibration_id' missing from " + source);
     }
-    calibration.field_size_x = data["field_size_x"].value_or(0.0);
-    calibration.field_size_y = data["field_size_y"].value_or(0.0);
-    if (calibration.field_size_x <= 0.0 || calibration.field_size_y <= 0.0) {
+    calibration.measured_mat_size_x_m = data["field_size_x"].value_or(0.0);
+    calibration.measured_mat_size_y_m = data["field_size_y"].value_or(0.0);
+    if (calibration.measured_mat_size_x_m <= 0.0 || calibration.measured_mat_size_y_m <= 0.0) {
         throw ConfigValidationError("'field_size_x' and 'field_size_y' in " + source +
                                     " must be > 0");
     }
@@ -88,8 +88,8 @@ void save_cage_calibration(const std::string &path, const CageCalibration &calib
     }
     out << std::setprecision(12);
     out << "calibration_id = \"" << calibration.calibration_id << "\"\n";
-    out << "field_size_x = " << calibration.field_size_x << "\n";
-    out << "field_size_y = " << calibration.field_size_y << "\n";
+    out << "field_size_x = " << calibration.measured_mat_size_x_m << "\n";
+    out << "field_size_y = " << calibration.measured_mat_size_y_m << "\n";
     out << "translation = [" << calibration.tf_camera_from_fieldcenter(0, 3) << ", "
         << calibration.tf_camera_from_fieldcenter(1, 3) << ", "
         << calibration.tf_camera_from_fieldcenter(2, 3) << "]\n";

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <arpa/inet.h>
+
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -109,6 +111,11 @@ struct Esp32DiagnosticsOpenTxTransmitterConfiguration : public OpenTxTransmitter
         esp32_host = parser.get_optional_string("esp32_host", esp32_host);
         esp32_port = static_cast<int>(parser.get_optional_int("esp32_port", esp32_port));
         reconnect_period_s = parser.get_optional_double("reconnect_period_s", reconnect_period_s);
+        in_addr address{};
+        if (inet_pton(AF_INET, esp32_host.c_str(), &address) != 1) {
+            throw ConfigValidationError(
+                "esp32_host must be an IPv4 address literal in section [transmitter]");
+        }
         if (esp32_port <= 0 || esp32_port > 65535) {
             throw ConfigValidationError("esp32_port must be in 1..65535 in section [transmitter]");
         }

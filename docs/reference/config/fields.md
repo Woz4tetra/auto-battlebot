@@ -137,10 +137,63 @@ Requires a `[navigation.policy]` table naming the model bundle. Refuses to start
 | `max_our_unmeasured_s` | Seconds without a measurement of our robot before the policy commands zero. Above the filter's 0.1 s stale age, so one or two dropped frames do not interrupt the policy |
 | `hazard_prediction_horizon_s` | Seconds ahead to advance a tracked hazard along its velocity, as in `MotionProfileNavigation` |
 
+## `[field_filter]`
+
+`type` selects the implementation. Every type takes the hazard fields; the rest are per type.
+
+| Field | Meaning |
+| --- | --- |
+| `hazards_file` | Shared arena geometry file, relative to the config directory (`.toml` optional). The kinematic sim reads the same file, so the simulated floor and the keep-out discs the controller steers on cannot drift apart. Empty means no static hazards |
+| `hazard_static_margin_m` | Clearance added to a static hazard on top of our robot's half-diagonal |
+| `hazard_tracked_margin_m` | Clearance added to a hazard derived from a live neutral track |
+| `hazard_tracked_hold_s` | How long a stale neutral track keeps producing a hazard |
+| `hazard_hard_margin_m` | Slack on the hard (loss-boundary) radius beyond the geometry plus our half-diagonal |
+
+### `FixedFieldFilter`
+
+| Field | Meaning |
+| --- | --- |
+| `size_x`, `size_y` | Arena extent (m) along field x and field y |
+
+### `HomographyFieldFilter` and `CalibratedFieldFilter`
+
+Both fit the mask outline, so they share these fields. `CalibratedFieldFilter` reads its field size from the calibration file, not from `field_size_x` and `field_size_y`.
+
+| Field | Meaning |
+| --- | --- |
+| `field_size_x`, `field_size_y` | The floor mat (m), measured per venue with the depth path, not read off a rulebook. The size enters the pose linearly. Measurements: `docs/experiments/perception/2026-11-15_homography_field_filter.md` |
+| `max_quad_coverage` | Mask area over quad area. Above this the outline is not a quadrilateral, so at least one side is not a field edge. Structural, because the reprojection residual cannot see it |
+| `border_margin_px` | Contour points this close to the frame edge are dropped before the edge fit |
+| `corner_skip_fraction` | Fraction of each side dropped at both ends, as belonging to the mat's rounded corners |
+
+### `CalibratedFieldFilter`
+
+| Field | Meaning |
+| --- | --- |
+| `calibration_file` | Per-cage calibration, relative to the config directory: `config/cages/<venue>_<cage>.toml` |
+| `max_seating_error_px` | Above this corner error the start-up seating check warns and keeps publishing the stored calibration. Behavior: `docs/reference/perception/robot_filter_pipeline.md` |
+
+### `FiducialFieldFilter`
+
+Board geometry defaults match the manufactured board.
+
+| Field | Meaning |
+| --- | --- |
+| `marker_size` | Printed marker edge, metres |
+| `marker_separation` | Gap between markers, metres |
+| `corner` | Which field corner the board marks |
+| `board_offset_x`, `board_offset_y` | Board origin measured from that corner, metres, because the board cannot physically sit in the corner itself. Both run along the printed board's x and y axes, not the published field frame, which is turned afterwards so +x runs left to right in the camera view |
+| `board_offset_z` | Metres. Non-zero for a wall-mounted board |
+| `board_pitch_deg` | 90 for a board hung flat on a wall |
+| `field_size_x`, `field_size_y` | Field extent (m) measured from that corner |
+| `accumulate_frames` | Correspondences are stacked across this many frames before the pose latches, so detection noise averages out. `reset` clears the stack |
+| `max_reprojection_error_px` | A real guard here, unlike the four-corner homography: 15 markers give 60 correspondences against 6 unknowns, so the residual measures something. It catches a mis-measured `marker_size`, a board printed at "fit to page", a mirrored id mapping, and a board that was not flat |
+
 ## `[battery]`
 
 | Field | Meaning |
 | --- | --- |
+| `source` | What the monitor reads: `NONE` or `WAVESHARE_UPS`. `NONE` runs no monitor and never publishes `/status/battery` |
 | `ocv_table_file_path` | Open-circuit-voltage table. Empty uses `data/battery_ocv_table.toml` |
 | `state_file_path` | Persisted state of charge. Empty uses `$HOME/.local/state/auto_battlebot/battery_soc_state.txt`. It lives under `$HOME`, not `data/`, because a deploy overwrites the repo tree |
 

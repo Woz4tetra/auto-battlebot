@@ -17,7 +17,6 @@
 namespace auto_battlebot {
 
 struct Esp32WifiTelemetryOptions {
-    /** The robot's address, an IP literal: no DNS lookup happens here. */
     std::string host = "192.168.4.1";
     int port = 80;
     std::chrono::milliseconds poll_period{100};
@@ -32,8 +31,7 @@ struct Esp32WifiTelemetryStats {
     uint64_t events = 0;
     uint64_t backfilled = 0;
     uint64_t ring_overwritten_records = 0;
-    /** Times the robot's boot id changed, so seqs restarted. */
-    uint64_t reboots = 0;
+    uint64_t boot_id_changes = 0;
     uint64_t dropped_events = 0;
     uint32_t lag_records = 0;
     uint32_t ring_capacity = 0;

@@ -30,6 +30,20 @@ engine build, not a config edit. Candidates only ever list builds of the same tr
 falling back to a different model would change detection behavior between machines. `_desktop`'s
 field model has no sm86 build yet, so it is the one model that fails on an RTX A6000.
 
+Engine candidate tables look like this, and parse as a nested table so any model section can embed one:
+
+```toml
+[keypoint_model.engine]
+candidates = [
+    "data/models/pose_x86_64_sm89.engine",
+    "data/models/pose_aarch64_sm87.engine",
+]
+```
+
+Order is a preference. `EngineSelector` asks TensorRT which candidate deserializes on this GPU and never decodes the `sm` tag in the filename, so listing engines for architectures this machine lacks is expected and cheap.
+
+`EngineSelector::select` logs its outcome once: a success line, or one error block listing every rejected candidate and why. spdlog fans out to stdout and the MCAP `/log` topic (`setup_logging` in `src/logging/logging.cpp`), so one call covers both. `describe_cuda_device` returns a diagnostic string instead of throwing when CUDA is unavailable, because it only feeds log lines.
+
 ## Section files
 
 Loaded with `from` (`config_extends.md`). Each holds one fact used by more than one profile.

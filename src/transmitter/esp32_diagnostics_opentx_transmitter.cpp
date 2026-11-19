@@ -52,15 +52,15 @@ CommandFeedback Esp32DiagnosticsOpenTxTransmitter::update() {
 
 void Esp32DiagnosticsOpenTxTransmitter::publish_events() {
     for (const Esp32DiagnosticsEvent &event : diagnostics_->drain()) {
-        if (last_robot_timestamp_ms_ && event.timestamp_ms > *last_robot_timestamp_ms_) {
+        if (last_robot_timestamp_ms_ && event.robot_millis > *last_robot_timestamp_ms_) {
             max_robot_clock_step_since_health_log_ =
                 std::max(max_robot_clock_step_since_health_log_,
-                         event.timestamp_ms - *last_robot_timestamp_ms_);
+                         event.robot_millis - *last_robot_timestamp_ms_);
         }
-        last_robot_timestamp_ms_ = event.timestamp_ms;
-        newest_arrival_lag_ms_ = static_cast<double>(event.host_receive_ns) * 1e-6 -
-                                 static_cast<double>(event.timestamp_ms);
-        channel_.log(to_esp32_diagnostics_json(event), event.host_receive_ns);
+        last_robot_timestamp_ms_ = event.robot_millis;
+        newest_arrival_lag_ms_ = static_cast<double>(event.host_receive_wall_ns) * 1e-6 -
+                                 static_cast<double>(event.robot_millis);
+        channel_.log(to_esp32_diagnostics_json(event), event.host_receive_wall_ns);
     }
 }
 
@@ -87,7 +87,7 @@ void Esp32DiagnosticsOpenTxTransmitter::log_health() {
     data["ring_overwritten_records"] = static_cast<int>(stats.ring_overwritten_records);
     data["lag_records"] = static_cast<int>(stats.lag_records);
     data["ring_capacity"] = static_cast<int>(stats.ring_capacity);
-    data["reboots"] = static_cast<int>(stats.reboots);
+    data["reboots"] = static_cast<int>(stats.boot_id_changes);
     data["dropped_events"] = static_cast<int>(stats.dropped_events);
     data["max_robot_gap_ms"] = static_cast<int>(max_robot_clock_step_since_health_log_);
     if (newest_arrival_lag_ms_) data["clock_offset_ms"] = *newest_arrival_lag_ms_;

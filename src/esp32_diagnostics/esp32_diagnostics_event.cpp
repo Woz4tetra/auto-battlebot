@@ -82,14 +82,18 @@ void append_null(std::string &json, const char *key) {
     json += "\":null";
 }
 
+int pack_stall_flags(const Esp32MotorGuard &guard) {
+    return (guard.left_stalled ? 1 : 0) | (guard.right_stalled ? 2 : 0);
+}
+
 void append_guard(std::string &json, const std::optional<Esp32MotorGuard> &guard) {
     const std::pair<const char *, double Esp32MotorGuard::*> numbers[] = {
-        {"motor_rise_left", &Esp32MotorGuard::motor_rise_left},
-        {"motor_rise_right", &Esp32MotorGuard::motor_rise_right},
-        {"motor_speed_left", &Esp32MotorGuard::motor_speed_left},
-        {"motor_speed_right", &Esp32MotorGuard::motor_speed_right},
-        {"motor_amps_left", &Esp32MotorGuard::motor_amps_left},
-        {"motor_amps_right", &Esp32MotorGuard::motor_amps_right},
+        {"motor_rise_left", &Esp32MotorGuard::motor_rise_left_c},
+        {"motor_rise_right", &Esp32MotorGuard::motor_rise_right_c},
+        {"motor_speed_left", &Esp32MotorGuard::motor_speed_left_rad_s},
+        {"motor_speed_right", &Esp32MotorGuard::motor_speed_right_rad_s},
+        {"motor_amps_left", &Esp32MotorGuard::motor_current_left_a},
+        {"motor_amps_right", &Esp32MotorGuard::motor_current_right_a},
         {"guard_scale", &Esp32MotorGuard::guard_scale},
         {"guard_gain", &Esp32MotorGuard::guard_gain},
     };
@@ -101,21 +105,21 @@ void append_guard(std::string &json, const std::optional<Esp32MotorGuard> &guard
         }
         json += ',';
     }
-    const std::pair<const char *, int Esp32MotorGuard::*> integers[] = {
-        {"guard_state", &Esp32MotorGuard::guard_state},
-        {"guard_sensors", &Esp32MotorGuard::guard_sensors},
-        {"stall_flags", &Esp32MotorGuard::stall_flags},
+    const std::pair<const char *, int> integers[] = {
+        {"guard_state", guard ? static_cast<int>(guard->guard_state) : 0},
+        {"guard_sensors", guard ? static_cast<int>(guard->guard_sensors) : 0},
+        {"stall_flags", guard ? pack_stall_flags(*guard) : 0},
     };
-    for (const auto &[key, member] : integers) {
+    for (const auto &[key, value] : integers) {
         if (guard) {
-            append_int(json, key, (*guard).*member);
+            append_int(json, key, value);
         } else {
             append_null(json, key);
         }
         json += ',';
     }
     if (guard) {
-        append_uint(json, "erpm_crc_errors", guard->erpm_crc_errors);
+        append_uint(json, "erpm_crc_errors", guard->erpm_crc_errors_since_boot);
     } else {
         append_null(json, "erpm_crc_errors");
     }
@@ -124,7 +128,7 @@ void append_guard(std::string &json, const std::optional<Esp32MotorGuard> &guard
 }  // namespace
 
 std::optional<Esp32DiagnosticsEvent> parse_esp32_diagnostics_csv(std::string_view line,
-                                                                 uint64_t host_receive_ns) {
+                                                                 uint64_t host_receive_wall_ns) {
     line = trim(line);
     std::vector<std::string_view> fields;
     fields.reserve(kEsp32DiagnosticsFieldsWithGuard);
@@ -146,19 +150,20 @@ std::optional<Esp32DiagnosticsEvent> parse_esp32_diagnostics_csv(std::string_vie
     }
 
     Esp32DiagnosticsEvent event;
-    event.host_receive_ns = host_receive_ns;
+    event.host_receive_wall_ns = host_receive_wall_ns;
     const bool ok =
-        parse_number(fields[0], event.timestamp_ms) &&
+        parse_number(fields[0], event.robot_millis) &&
         parse_bool(fields[1], event.radio_connected) && parse_bool(fields[2], event.armed) &&
         parse_number(fields[3], event.a_percent) && parse_number(fields[4], event.b_percent) &&
         parse_bool(fields[5], event.button_state) && parse_int(fields[6], event.flip_switch) &&
-        parse_number(fields[7], event.left_cmd) && parse_number(fields[8], event.right_cmd) &&
+        parse_number(fields[7], event.left_cmd_post_mixer_pct) &&
+        parse_number(fields[8], event.right_cmd_post_mixer_pct) &&
         parse_number(fields[9], event.accel_x) && parse_number(fields[10], event.accel_y) &&
         parse_number(fields[11], event.accel_z) && parse_bool(fields[12], event.is_upside_down) &&
         parse_number(fields[13], event.loop_us) && parse_int(fields[14], event.wifi_clients) &&
-        parse_number(fields[15], event.orientation_x) &&
-        parse_number(fields[16], event.orientation_y) &&
-        parse_number(fields[17], event.orientation_z) &&
+        parse_number(fields[15], event.orientation_x_deg) &&
+        parse_number(fields[16], event.orientation_y_deg) &&
+        parse_number(fields[17], event.orientation_z_deg) &&
         parse_number(fields[18], event.pid_setpoint) && parse_number(fields[19], event.pid_output);
     if (!ok) return std::nullopt;
 
@@ -179,24 +184,31 @@ std::optional<Esp32DiagnosticsEvent> parse_esp32_diagnostics_csv(std::string_vie
         if (!parse_number(fields[22], yaw_rate) || !parse_number(fields[23], yaw_rate_cmd)) {
             return std::nullopt;
         }
-        if (std::isfinite(yaw_rate)) event.yaw_rate = yaw_rate;
-        if (std::isfinite(yaw_rate_cmd)) event.yaw_rate_cmd = yaw_rate_cmd;
+        if (std::isfinite(yaw_rate)) event.yaw_rate_cw_deg_s = yaw_rate;
+        if (std::isfinite(yaw_rate_cmd)) event.yaw_rate_cmd_cw_deg_s = yaw_rate_cmd;
     }
     if (count >= kEsp32DiagnosticsFieldsWithGuard) {
         Esp32MotorGuard g;
         uint32_t seq = 0;
+        int guard_state = 0;
+        int guard_sensors = 0;
+        int stall_flags = 0;
         const bool guard_ok =
-            parse_number(fields[24], g.motor_rise_left) &&
-            parse_number(fields[25], g.motor_rise_right) &&
-            parse_number(fields[26], g.motor_speed_left) &&
-            parse_number(fields[27], g.motor_speed_right) &&
-            parse_number(fields[28], g.motor_amps_left) &&
-            parse_number(fields[29], g.motor_amps_right) &&
+            parse_number(fields[24], g.motor_rise_left_c) &&
+            parse_number(fields[25], g.motor_rise_right_c) &&
+            parse_number(fields[26], g.motor_speed_left_rad_s) &&
+            parse_number(fields[27], g.motor_speed_right_rad_s) &&
+            parse_number(fields[28], g.motor_current_left_a) &&
+            parse_number(fields[29], g.motor_current_right_a) &&
             parse_number(fields[30], g.guard_scale) && parse_number(fields[31], g.guard_gain) &&
-            parse_int(fields[32], g.guard_state) && parse_int(fields[33], g.guard_sensors) &&
-            parse_int(fields[34], g.stall_flags) && parse_number(fields[35], g.erpm_crc_errors) &&
-            parse_number(fields[36], seq);
+            parse_int(fields[32], guard_state) && parse_int(fields[33], guard_sensors) &&
+            parse_int(fields[34], stall_flags) &&
+            parse_number(fields[35], g.erpm_crc_errors_since_boot) && parse_number(fields[36], seq);
         if (!guard_ok) return std::nullopt;
+        g.guard_state = static_cast<MotorGuardState>(guard_state);
+        g.guard_sensors = static_cast<MotorGuardSensors>(guard_sensors);
+        g.left_stalled = (stall_flags & 1) != 0;
+        g.right_stalled = (stall_flags & 2) != 0;
         event.guard = g;
         event.seq = seq;
     }
@@ -207,9 +219,9 @@ std::string to_esp32_diagnostics_json(const Esp32DiagnosticsEvent &event) {
     std::string json;
     json.reserve(1024);
     json += '{';
-    append_uint(json, "host_receive_ns", event.host_receive_ns);
+    append_uint(json, "host_receive_ns", event.host_receive_wall_ns);
     json += ',';
-    append_uint(json, "timestamp_ms", event.timestamp_ms);
+    append_uint(json, "timestamp_ms", event.robot_millis);
     json += ',';
     append_bool(json, "radio_connected", event.radio_connected);
     json += ',';
@@ -223,9 +235,9 @@ std::string to_esp32_diagnostics_json(const Esp32DiagnosticsEvent &event) {
     json += ',';
     append_int(json, "flip_switch", event.flip_switch);
     json += ',';
-    append_double(json, "left_cmd", event.left_cmd);
+    append_double(json, "left_cmd", event.left_cmd_post_mixer_pct);
     json += ',';
-    append_double(json, "right_cmd", event.right_cmd);
+    append_double(json, "right_cmd", event.right_cmd_post_mixer_pct);
     json += ',';
     append_double(json, "accel_x", event.accel_x);
     json += ',';
@@ -239,11 +251,11 @@ std::string to_esp32_diagnostics_json(const Esp32DiagnosticsEvent &event) {
     json += ',';
     append_int(json, "wifi_clients", event.wifi_clients);
     json += ',';
-    append_double(json, "orientation_x", event.orientation_x);
+    append_double(json, "orientation_x", event.orientation_x_deg);
     json += ',';
-    append_double(json, "orientation_y", event.orientation_y);
+    append_double(json, "orientation_y", event.orientation_y_deg);
     json += ',';
-    append_double(json, "orientation_z", event.orientation_z);
+    append_double(json, "orientation_z", event.orientation_z_deg);
     json += ',';
     append_double(json, "pid_setpoint", event.pid_setpoint);
     json += ',';
@@ -261,14 +273,14 @@ std::string to_esp32_diagnostics_json(const Esp32DiagnosticsEvent &event) {
         json += "\"ibat\":null";
     }
     json += ',';
-    if (event.yaw_rate) {
-        append_double(json, "yaw_rate", *event.yaw_rate);
+    if (event.yaw_rate_cw_deg_s) {
+        append_double(json, "yaw_rate", *event.yaw_rate_cw_deg_s);
     } else {
         json += "\"yaw_rate\":null";
     }
     json += ',';
-    if (event.yaw_rate_cmd) {
-        append_double(json, "yaw_rate_cmd", *event.yaw_rate_cmd);
+    if (event.yaw_rate_cmd_cw_deg_s) {
+        append_double(json, "yaw_rate_cmd", *event.yaw_rate_cmd_cw_deg_s);
     } else {
         json += "\"yaw_rate_cmd\":null";
     }

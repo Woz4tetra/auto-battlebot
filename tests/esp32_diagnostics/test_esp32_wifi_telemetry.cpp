@@ -92,22 +92,24 @@ TEST(Esp32TelemetryBatchTest, RejectsWrongMagicVersionSizeOrLength) {
 
 TEST(Esp32TelemetryBatchTest, RecordBecomesDiagnosticsEvent) {
     const Esp32DiagnosticsEvent e = to_esp32_diagnostics_event(record(42), 99, true);
-    EXPECT_EQ(e.host_receive_ns, 99u);
-    EXPECT_EQ(e.timestamp_ms, 1420u);
+    EXPECT_EQ(e.host_receive_wall_ns, 99u);
+    EXPECT_EQ(e.robot_millis, 1420u);
     EXPECT_TRUE(e.armed);
     EXPECT_DOUBLE_EQ(e.a_percent, 42.0);
     ASSERT_TRUE(e.vbat.has_value());
     EXPECT_FALSE(e.ibat.has_value());
-    EXPECT_FALSE(e.yaw_rate_cmd.has_value());
+    EXPECT_FALSE(e.yaw_rate_cmd_cw_deg_s.has_value());
     EXPECT_EQ(e.seq, 42u);
+    EXPECT_EQ(e.wifi_clients, 0);
     EXPECT_EQ(e.backfill, true);
     ASSERT_TRUE(e.guard.has_value());
-    EXPECT_DOUBLE_EQ(e.guard->motor_rise_left, 31.5);
-    EXPECT_TRUE(std::isnan(e.guard->motor_speed_right));
+    EXPECT_DOUBLE_EQ(e.guard->motor_rise_left_c, 31.5);
+    EXPECT_TRUE(std::isnan(e.guard->motor_speed_right_rad_s));
     EXPECT_DOUBLE_EQ(e.guard->guard_scale, 0.5);
-    EXPECT_EQ(e.guard->guard_state, 3);
-    EXPECT_EQ(e.guard->stall_flags, 2);
-    EXPECT_EQ(e.guard->erpm_crc_errors, 517u);
+    EXPECT_EQ(e.guard->guard_state, MotorGuardState::LIMITING);
+    EXPECT_FALSE(e.guard->left_stalled);
+    EXPECT_TRUE(e.guard->right_stalled);
+    EXPECT_EQ(e.guard->erpm_crc_errors_since_boot, 517u);
     const std::string json = to_esp32_diagnostics_json(e);
     EXPECT_NE(json.find("\"seq\":42"), std::string::npos) << json;
     EXPECT_NE(json.find("\"backfill\":true"), std::string::npos) << json;
@@ -340,8 +342,8 @@ TEST(Esp32WifiTelemetryTest, RebootResyncsToTheNewHead) {
     ASSERT_EQ(collect(telemetry, 5).size(), 5u);
 
     server.set(2, 3);  // rebooted: new boot id, seqs restarted
-    ASSERT_TRUE(
-        wait_until([&] { return telemetry.stats().reboots == 1; }, std::chrono::seconds(5)));
+    ASSERT_TRUE(wait_until([&] { return telemetry.stats().boot_id_changes == 1; },
+                           std::chrono::seconds(5)));
     server.set(2, 8);
     const auto events = collect(telemetry, 5);
     ASSERT_EQ(events.size(), 5u);

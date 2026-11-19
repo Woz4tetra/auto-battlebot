@@ -1873,6 +1873,16 @@ type = "Esp32DiagnosticsOpenTxTransmitter"
     EXPECT_DOUBLE_EQ(transmitter_config->reconnect_period_s, 1.0);
 }
 
+TEST_F(ConfigTest, Esp32DiagnosticsTransmitterRejectsHostnameInHostField) {
+    write_config_file(config_with_transmitter(R"(
+[transmitter]
+type = "Esp32DiagnosticsOpenTxTransmitter"
+esp32_host = "robot.local"
+)"));
+
+    EXPECT_THROW(load_classes_from_config(temp_config_file.string()), ConfigValidationError);
+}
+
 TEST_F(ConfigTest, Esp32DiagnosticsTransmitterRejectsUnknownField) {
     write_config_file(config_with_transmitter(R"(
 [transmitter]

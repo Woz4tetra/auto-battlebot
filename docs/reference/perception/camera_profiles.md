@@ -12,6 +12,8 @@ Image controls a camera can change while it streams are in the ZED SDK's own uni
 
 `auto_exposure` on means the SDK's AEC/AGC owns exposure and both gains, and the three values below it are whatever it last chose. Off means the applied values are the given ones.
 
+`anti_banding` is auto-exposure flicker rejection: `OFF`, `AUTO`, `HZ_50`, `HZ_60`. `ZedOneRgbCamera` casts the enum to the SDK's `AE_ANTIBANDING` value (0 to 3 in that order), so reordering the enum sends the wrong flicker mode. `AntiBandingTest.ValuesMatchTheZedSdkAeAntibandingModes` pins it.
+
 ## Save semantics
 
 The Runner keeps what the dashboard last asked the camera for (nullopt while on `DEFAULT`). SAVE stores that request rather than the read-back, which can trail a request by a frame.

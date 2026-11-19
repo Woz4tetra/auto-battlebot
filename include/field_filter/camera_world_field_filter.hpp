@@ -12,7 +12,7 @@ class CameraWorldFieldFilter : public FieldFilterInterface {
    public:
     void reset(TransformStamped tf_visodom_from_camera) override {
         tf_visodom_from_cameraworld_ = tf_visodom_from_camera;
-        spdlog::info("{} reset with transform: {}", name(),
+        spdlog::info("{} reset with transform: {}", filter_name_for_log(),
                      transform_to_string(tf_visodom_from_camera));
     }
 
@@ -37,8 +37,7 @@ class CameraWorldFieldFilter : public FieldFilterInterface {
     }
 
    protected:
-    /** For the log line in reset, so the message names the concrete filter. */
-    virtual const char *name() const = 0;
+    virtual const char *filter_name_for_log() const = 0;
 
     TransformStamped tf_visodom_from_cameraworld_;
 };
