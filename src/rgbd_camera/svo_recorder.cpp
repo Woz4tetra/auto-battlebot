@@ -16,6 +16,17 @@ namespace {
 constexpr uint64_t kSizeCheckIntervalFrames = 100;
 }  // namespace
 
+std::filesystem::path unused_svo_path(const std::filesystem::path &dir, const std::string &stamp) {
+    std::filesystem::path path = dir / (stamp + ".svo2");
+    std::error_code ec;
+    for (int part = 1; std::filesystem::exists(path, ec); ++part) {
+        std::ostringstream name;
+        name << stamp << "_part" << std::setfill('0') << std::setw(2) << part << ".svo2";
+        path = dir / name.str();
+    }
+    return path;
+}
+
 SvoRecorder::SvoRecorder(sl::Camera &camera, std::filesystem::path holding_dir,
                          uint64_t max_size_bytes, uint64_t holding_dir_max_size_bytes)
     : camera_(camera),
@@ -132,16 +143,7 @@ std::string SvoRecorder::generate_filename() const {
     localtime_r(&t, &tm);
     std::ostringstream stamp;
     stamp << std::put_time(&tm, "%Y-%m-%dT%H-%M-%S");
-    // Second resolution, so an off and on within one second named the new file after the old
-    // one, and the SDK overwrote it. A suffix keeps both, as McapRecorder does.
-    std::filesystem::path path = holding_dir_ / (stamp.str() + ".svo2");
-    std::error_code ec;
-    for (int part = 1; std::filesystem::exists(path, ec); ++part) {
-        std::ostringstream name;
-        name << stamp.str() << "_part" << std::setfill('0') << std::setw(2) << part << ".svo2";
-        path = holding_dir_ / name.str();
-    }
-    return path.string();
+    return unused_svo_path(holding_dir_, stamp.str()).string();
 }
 
 void SvoRecorder::enforce_holding_dir_size() {

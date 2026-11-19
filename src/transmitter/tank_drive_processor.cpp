@@ -39,7 +39,8 @@ TankDriveProcessor::Channels TankDriveProcessor::process(VelocityCommand command
 }
 
 BodyVelocity TankDriveProcessor::to_body_velocity(Channels channels) const {
-    auto body = inverse_mix_from_wheels({.left = channels.first_output, .right = channels.second_output});
+    auto body =
+        inverse_mix_from_wheels({.left = channels.first_output, .right = channels.second_output});
     if (config_.reverse_linear) body.linear = -body.linear;
     if (config_.reverse_angular) body.angular = -body.angular;
     return body;

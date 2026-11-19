@@ -114,8 +114,6 @@ void save_camera_calibration(const std::string &path, const CameraCalibration &c
 void Rectifier::build(const CameraCalibration &calibration, cv::Size size, double alpha) {
     size_ = size;
     cv::Mat matrix = calibration.camera_matrix();
-    // A calibration shot at one resolution still rectifies another: the intrinsics scale, the
-    // distortion coefficients are dimensionless and do not.
     if (calibration.width != size.width || calibration.height != size.height) {
         const double scale_x = static_cast<double>(size.width) / calibration.width;
         const double scale_y = static_cast<double>(size.height) / calibration.height;
@@ -143,8 +141,6 @@ CameraInfo Rectifier::camera_info() const {
     info.width = size_.width;
     info.height = size_.height;
     info.intrinsics = rectified_matrix_.clone();
-    // Zeros, not empty: camera_info.cpp keeps emitting a plumb_bob model, which now happens to be
-    // trivial because the frames are already rectified.
     info.distortion = cv::Mat::zeros(1, 5, CV_64F);
     return info;
 }

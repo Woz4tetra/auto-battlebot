@@ -55,9 +55,6 @@ class FfmpegH264Backend : public H264Backend {
         // A forced keyframe is an IDR, not just an I-frame, so a new viewer can decode from it.
         // Encoders without the option ignore it.
         av_opt_set(context_->priv_data, "forced-idr", "1", 0);
-        // No AV_CODEC_FLAG_GLOBAL_HEADER: without it both x264 and nvenc repeat SPS/PPS in band
-        // ahead of every IDR, which is what CompressedVideo requires and what makes a mid-file seek
-        // decode.
         if (avcodec_open2(context_, codec, nullptr) < 0) {
             return false;
         }

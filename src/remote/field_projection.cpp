@@ -93,7 +93,6 @@ std::vector<std::vector<ImagePoint>> project_field_outline(const FieldDescriptio
         }
     }
     flush();
-    // A loop cut behind the camera starts and ends mid-run; join the two ends into one line.
     if (out.size() >= 2 && out.front().front().u == out.back().back().u &&
         out.front().front().v == out.back().back().v) {
         auto &tail = out.back();
@@ -109,8 +108,6 @@ std::vector<ImagePoint> project_camera_marker(const FieldDescription &field,
     if (!inputs_ok(field, camera_info)) return out;
     const double longest = std::max(field.size.size.x, field.size.size.y);
     if (longest <= 0.0) return out;
-    // TopDown.svelte fits the longest side into a 192 px box centered on the field and draws the
-    // triangle in px from the box center: tip 116 below, base 108 below and 8 to either side.
     const double m_per_px = longest / 192.0;
     const std::array<std::array<double, 2>, 3> corners = {
         {{0.0, -116.0}, {-8.0, -108.0}, {8.0, -108.0}}};

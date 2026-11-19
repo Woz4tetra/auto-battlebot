@@ -9,6 +9,8 @@
 
 namespace auto_battlebot {
 
+std::filesystem::path unused_svo_path(const std::filesystem::path &dir, const std::string &stamp);
+
 class SvoRecorder {
    public:
     SvoRecorder(sl::Camera &camera, std::filesystem::path holding_dir, uint64_t max_size_bytes,

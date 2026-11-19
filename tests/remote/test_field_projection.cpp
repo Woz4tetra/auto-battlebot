@@ -57,6 +57,18 @@ TEST(FieldProjectionTest, BorderBehindTheCameraIsCutNotDropped) {
     EXPECT_GE(outline.front().size(), 2u);
 }
 
+TEST(FieldProjectionTest, ClippedLoopJoinsWrappedRun) {
+    FieldDescription field = make_field(0.3);
+    Eigen::Matrix4d tf = Eigen::Matrix4d::Identity();
+    tf(2, 1) = -1.0;
+    tf(2, 2) = 0.0;
+    tf(2, 3) = 0.3;
+    field.tf_camera_from_fieldcenter.tf = tf;
+    const auto outline = project_field_outline(field, make_camera(), 8);
+    ASSERT_EQ(outline.size(), 1u) << "a loop cut behind the camera draws one line";
+    EXPECT_NE(outline.front().front().u, outline.front().back().u);
+}
+
 TEST(FieldProjectionTest, ProjectsASinglePoint) {
     const auto center = project_field_point(make_field(4.0), make_camera(), 0.0, 0.0);
     ASSERT_TRUE(center.has_value());

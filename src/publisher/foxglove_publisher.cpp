@@ -44,16 +44,16 @@ constexpr int kPreviewVideoFps = 30;
 
 std::unique_ptr<ImageEncoderWorker> make_jpeg_worker(std::string name, OutputChannel &channel,
                                                      int quality) {
-    std::shared_ptr<JpegEncoderInterface> encoder;
+    std::shared_ptr<JpegEncoderInterface> worker_thread_encoder;
     return std::make_unique<ImageEncoderWorker>(
-        std::move(name), [&channel, encoder, quality](const ImageEncoderWorker::Job &job) mutable {
-            // Created on the worker thread, which is the only thread that uses it.
-            if (!encoder) encoder = make_jpeg_encoder();
+        std::move(name),
+        [&channel, worker_thread_encoder, quality](const ImageEncoderWorker::Job &job) mutable {
+            if (!worker_thread_encoder) worker_thread_encoder = make_jpeg_encoder();
             CompressedImage image;
             image.timestamp = foxglove_adapters::to_timestamp(job.header.stamp);
             image.frame_id = foxglove_adapters::frame_id_string(job.header.frame_id);
             image.format = "jpeg";
-            if (!encoder->encode(job.bgr, quality, image.data)) return;
+            if (!worker_thread_encoder->encode(job.bgr, quality, image.data)) return;
             channel.log_message(image, job.log_time_ns);
         });
 }

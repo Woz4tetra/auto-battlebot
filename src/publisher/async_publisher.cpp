@@ -39,8 +39,6 @@ void AsyncPublisher::enqueue(std::function<void()> call) {
 
 void AsyncPublisher::flush() {
     std::unique_lock<std::mutex> lock(mutex_);
-    // Waits for the calls queued before this one, not for an empty queue. The recording toggle
-    // flushes from its own thread while the tick keeps publishing, and the queue may never empty.
     const uint64_t target = enqueued_;
     idle_cv_.wait(lock, [this, target] { return completed_ >= target; });
 }
@@ -49,7 +47,6 @@ void AsyncPublisher::run() {
     std::unique_lock<std::mutex> lock(mutex_);
     while (true) {
         work_cv_.wait(lock, [this] { return stop_ || !pending_.empty(); });
-        // Stop only once the queue is empty, so the destructor drains it.
         if (pending_.empty()) return;
         std::function<void()> call = std::move(pending_.front());
         pending_.pop_front();
