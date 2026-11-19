@@ -1,19 +1,4 @@
-"""Batched mirror of the KalmanMotionEstimator opponent arm.
-
-One filter per batch row, vectorized in torch, so the same code serves the grid search over logged
-measurements, the parity test against the C++ golden fixture, and the RL training environment
-(one filter per simulated world). It mirrors `src/robot_filter/kalman_motion_estimator.cpp` for a
-single non-OURS track: the 6-state model `[px, py, vx, vy, theta, omega]`, the snapshot ring and
-rewind, the gated position update, the ungated heading row with its flip test, reinitialization,
-and the render (wall stop, clip, sigmas).
-
-Any change to the C++ opponent arm lands here in the same commit;
-`tests/test_kalman_motion_estimator.cpp` checks the C++ side and
-`tests/python/test_opponent_filter.py` checks this side against the same fixture.
-
-Config fields accept a float or a per-row tensor, so a grid search can run every candidate as its
-own row of one batch.
-"""
+"""Batched torch mirror of the KalmanMotionEstimator opponent arm."""
 
 from __future__ import annotations
 
@@ -88,13 +73,7 @@ def _symmetrize(p: torch.Tensor) -> torch.Tensor:
 
 
 class OpponentFilter:
-    """`batch` independent opponent tracks.
-
-    `field_half_extent` is the field's half size `(B, 2)` or `None` for no field (the C++ skips the
-    clip and the wall stop when the field size is not positive). `margin` is
-    `field_bounds_margin_meters`. `heading_blind` marks rows whose label is in
-    `heading_blind_labels`.
-    """
+    """`batch` independent opponent tracks."""
 
     def __init__(
         self,
@@ -102,7 +81,7 @@ class OpponentFilter:
         config: OpponentFilterConfig,
         field_half_extent: torch.Tensor | None = None,
         margin: float = 0.0,
-        heading_blind: torch.Tensor | None = None,
+        heading_blind_rows: torch.Tensor | None = None,
         device: torch.device | str = "cpu",
         dtype: torch.dtype = torch.float64,
     ) -> None:
@@ -126,15 +105,25 @@ class OpponentFilter:
         self.covariance_floor = float(config.covariance_floor)
         self.render_lead_s = float(config.render_lead_s)
 
+        if field_half_extent is not None and tuple(field_half_extent.shape) != (batch, 2):
+            raise ValueError(
+                f"field_half_extent must have shape ({batch}, 2), got "
+                f"{tuple(field_half_extent.shape)}"
+            )
         self.bounds = (
             None
             if field_half_extent is None
             else field_half_extent.to(device=self.device, dtype=dtype) + margin
         )
-        self.heading_blind = (
+        if heading_blind_rows is not None and tuple(heading_blind_rows.shape) != (batch,):
+            raise ValueError(
+                f"heading_blind_rows must have shape ({batch},), got "
+                f"{tuple(heading_blind_rows.shape)}"
+            )
+        self.heading_blind_rows = (
             torch.zeros(batch, dtype=torch.bool, device=self.device)
-            if heading_blind is None
-            else heading_blind.to(self.device)
+            if heading_blind_rows is None
+            else heading_blind_rows.to(self.device)
         )
 
         b = batch
@@ -347,29 +336,24 @@ class OpponentFilter:
     def update(
         self,
         stamp: float | torch.Tensor,
-        measured: torch.Tensor,
+        has_measurement: torch.Tensor,
         xy: torch.Tensor,
         yaw: torch.Tensor,
         is_keypoint: torch.Tensor,
-        position_variance: torch.Tensor,
+        measurement_position_variance: torch.Tensor,
     ) -> tuple[RenderedEstimate, UpdateStats]:
-        """KalmanMotionEstimator::update for the opponent rows.
-
-        `measured` marks rows with a measurement this frame. `yaw` is the measurement's rotation
-        (0 for a blob, whose rotation is identity), `is_keypoint` marks keypoint poses, and
-        `position_variance` is measurement_noise_for's diagonal.
-        """
+        """KalmanMotionEstimator::update for the opponent rows."""
         t = self._rows(stamp)
         xy = xy.to(device=self.device, dtype=self.dtype)
         yaw = yaw.to(device=self.device, dtype=self.dtype)
-        position_variance = self._rows(position_variance)
-        measured = measured.to(self.device)
-        measures_heading = is_keypoint.to(self.device) & ~self.heading_blind
+        measurement_position_variance = self._rows(measurement_position_variance)
+        has_measurement = has_measurement.to(self.device)
+        measures_heading = is_keypoint.to(self.device) & ~self.heading_blind_rows
         false = torch.zeros(self.batch, dtype=torch.bool, device=self.device)
 
-        new = measured & ~self.active
-        self._init_track(new, xy, yaw, measures_heading, position_variance, t)
-        existing = measured & ~new
+        new = has_measurement & ~self.active
+        self._init_track(new, xy, yaw, measures_heading, measurement_position_variance, t)
+        existing = has_measurement & ~new
 
         late = existing & (t < self.stamp)
         rewound = self._rewind(t, late)
@@ -377,8 +361,8 @@ class OpponentFilter:
         self._advance(t, existing)
 
         r = torch.zeros(self.batch, 2, 2, device=self.device, dtype=self.dtype)
-        r[:, 0, 0] = position_variance
-        r[:, 1, 1] = position_variance
+        r[:, 0, 0] = measurement_position_variance
+        r[:, 1, 1] = measurement_position_variance
         h = torch.zeros(2, N, device=self.device, dtype=self.dtype)
         h[0, PX] = 1.0
         h[1, PY] = 1.0
@@ -423,9 +407,9 @@ class OpponentFilter:
             rejected, self.consecutive_rejects + 1, self.consecutive_rejects
         )
         reinit = rejected & (self.consecutive_rejects >= self.reinit_after_rejects)
-        self._init_track(reinit, xy, yaw, measures_heading, position_variance, t)
+        self._init_track(reinit, xy, yaw, measures_heading, measurement_position_variance, t)
 
-        self.output_stale = self.output_stale | (self.active & ~measured)
+        self.output_stale = self.output_stale | (self.active & ~has_measurement)
         self._advance(t, self.active & self.output_stale)
 
         stats = UpdateStats(
@@ -466,7 +450,7 @@ class OpponentFilter:
         largest = 0.5 * (a + c) + torch.sqrt(0.25 * (a - c) ** 2 + b * b)
         position_sigma = torch.sqrt(torch.clamp(largest, min=0.0))
 
-        known = self.heading_initialized & ~self.heading_blind
+        known = self.heading_initialized & ~self.heading_blind_rows
         inf = torch.full_like(x, math.inf)
         return RenderedEstimate(
             x=x,

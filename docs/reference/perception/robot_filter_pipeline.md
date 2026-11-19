@@ -27,6 +27,10 @@ Regenerate the SVG after editing `diagrams/robot_filter.dot`:
 
 - `keypoints`: front/back keypoints per detected robot, from the keypoint model.
 - `robot_blob_keypoints`: segmentation blob detections, a fallback when keypoints are missing.
+- `YoloBboxRobotBlobModel` produces the blob detections from a plain YOLO detect engine (output
+  `[1, 4 + num_classes, num_predictions]`) with no mask-prototype branch. Consumers only need box
+  centers and the front/back midline, both of which come straight from the box, so dropping the
+  segmentation head costs them nothing. Measurements: `docs/experiments/perception/seg_vs_bbox_2026-07-18.md`.
 - `field + camera_info`: the field transform and intrinsics used to project pixels onto the field plane.
 - `command_feedback`: the velocity command currently driving OUR_ROBOT_1, read back from the transmitter
   (live RC channels on hardware). Only our robot has feedback, so only our robot gets predicted.
@@ -80,6 +84,25 @@ measured it lived in `playground/control_stage0/`, retired in `9246cc64`; see
 - `SteppedControlLoop` and `ThreadedControlLoop` decide when `run_cycle()` fires; the cycle body is identical either way. A stepped driver reads the transmitter inline, so a single-threaded run reads the transmitter before the camera grab.
 - Once the threaded driver runs, the Runner reaches the transmitter only through the control loop, since the driver owns it on another thread.
 - The keep-out discs published each cycle are assembled by the control loop, already inflated. The Runner cannot rebuild them because the hazard assembler holds the stale-track state.
+
+## Python opponent filter mirror
+
+`auto_battlebot/perception/opponent_filter.py` mirrors the `KalmanMotionEstimator` opponent arm (`src/robot_filter/kalman_motion_estimator.cpp`) for a single non-OURS track. It keeps one filter per batch row, vectorized in torch, so the same code serves the grid search over logged measurements, the parity test against the C++ golden fixture, and the RL training environment (one filter per simulated world).
+
+- State: the 6-state model `[px, py, vx, vy, theta, omega]`. It also covers the snapshot ring and rewind, the gated position update, the ungated heading row with its flip test, reinitialization, and the render (wall stop, clip, sigmas).
+- Config fields accept a float or a per-row tensor, so a grid search runs every candidate as its own row of one batch.
+- `field_half_extent` is the field's half size, shape `(batch, 2)`, or `None` for no field. With no field the C++ skips the clip and the wall stop when the field size is not positive, and the mirror does the same. `margin` is `field_bounds_margin_meters`. `heading_blind_rows` is a `(batch,)` bool marking rows whose label is in `heading_blind_labels`. Wrong shapes raise `ValueError`.
+- `update` takes `has_measurement` (a measurement arrived this frame), `yaw` (the measurement's rotation, 0 for a blob whose rotation is identity), `is_keypoint`, and `measurement_position_variance` (the diagonal from `measurement_noise_for`).
+- A change to the C++ opponent arm lands here in the same commit. `tests/test_kalman_motion_estimator.cpp` checks the C++ side and `tests/python/test_opponent_filter.py` checks this side against the same fixture, `tests/robot_filter/opponent_filter_golden_data.hpp`. Regenerate it with `playground/opponent_prediction/make_opponent_filter_golden_fixture.py`.
+
+## Sysid sessions as opponent-filter data
+
+`auto_battlebot/perception/sysid_sessions.py` loads Mr Stabs Mk2 sysid sessions as opponent-filter evaluation data. The robot stands in for an opponent.
+
+- Measurements are what the opponent path would see: the deployed YOLO pose engine's front and back keypoints on every video frame (`detect_robot_yolo.py`), projected onto the floor, decimated to the 30 Hz perception rate. They are stamped on the tag image clock (`meas_tag_clock_stamp_ns`) as an axle-centre pose in the up frame (`meas_axle_up_x`, `_y`, `_yaw`).
+- The projection uses the per-session calibration the `_yolo` bundle fitted against the tag (`yolo_field_fixes.calibrate`): plane height, axle offset, video clock offset, and the size gates that drop the floor marker board.
+- Ground truth is the tag-only smoother bundle (`smooth_tag_poses.py` without `--yolo`) on the smoother's 5 ms grid (`truth_5ms_grid`), same clock and frame. It never contains a YOLO fix, because scoring YOLO against a YOLO-filled bundle scores the model against itself. Loading a truth bundle whose `measurements.csv` has `source == "yolo"` rows raises `ValueError`.
+- The bundle interpolates through tag dropouts, so truth is trusted only within `TRUTH_MAX_GAP_NS` of an accepted tag detection, and only while the robot is upright.
 
 ## Parallel model batch
 
@@ -267,3 +290,17 @@ The smallest span any track is propagated over. Both failure modes below emit an
 Beside `for (const auto &[frame_id, track] : our_ekf_tracks_) {`:
 
 Rendered on a copy, like the dead-reckoning arm: the committed state only advances in update(), so measurements always fold in at or after the track stamp and the our-robot arm needs no snapshot rewind. propagate_unwrapped skips the finite-difference Jacobian (10 extra plant integrations) that a covariance-free render never uses.
+
+## Sensing model timing
+
+`auto_battlebot/perception/sensing_model.py` `MeasurementModel` is the batched stand-in for the
+camera and detector in the sims. Call `reset` for a new episode, then `step` once per simulation
+tick with the current time. A frame is captured on the first step at or after each frame time,
+stamped with that step's time (truth is known only at step times), and delivered on the first step
+at least `latency` later. A step interval longer than the shortest frame period raises, so each
+step captures at most one frame and delivers at most one.
+
+The `frame_rate_hz` argument fixes the frame rate, overriding the sensing file's nominal value and
+its randomization range. The lockstep sim and the kinematic sim server pass their tick rate,
+since they capture one frame per tick.
+

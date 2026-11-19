@@ -262,12 +262,12 @@ def main() -> int:
                 "depth_plane": {
                     k: v
                     for k, v in asdict(a).items()
-                    if k not in ("tf_camera_from_field", "corners_image", "plane_normal")
+                    if k not in ("tf_camera_from_field", "overlay_corners_px", "plane_normal")
                 },
                 "homography": {
                     k: v
                     for k, v in asdict(b).items()
-                    if k not in ("tf_camera_from_field", "corners_image", "plane_normal")
+                    if k not in ("tf_camera_from_field", "overlay_corners_px", "plane_normal")
                 },
                 "comparison": compare(a, b, square),
             }

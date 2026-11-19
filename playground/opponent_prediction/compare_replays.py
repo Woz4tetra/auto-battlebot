@@ -106,7 +106,11 @@ def match_scores(mcap: Path) -> dict:
             "position_nis_median": float(np.median(st["position_nis"][acc, r])),
             "accepted_frac": float(acc[st["measured"][:, r]].mean()),
         }
-    return {"measurements": len(data.meas_stamp_ns), "scores": scores, "nis_by_sigma": nis}
+    return {
+        "measurements": len(data.meas_tag_clock_stamp_ns),
+        "scores": scores,
+        "nis_by_sigma": nis,
+    }
 
 
 def main() -> None:

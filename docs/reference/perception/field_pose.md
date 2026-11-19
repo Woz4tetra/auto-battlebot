@@ -35,6 +35,10 @@ That is six constraints for six degrees of freedom, with the missing corners fal
 
 `align_field_x_with_camera_x` turns the field frame about its own z so +x runs left to right in the camera view. A mat outline fits equally well at every quarter turn of a square, or every half turn of a rectangle, so the corner order alone leaves +x wherever the image winding put it. The function picks the candidate closest to the camera's x axis tipped onto the field plane, the same choice `PointCloudFieldFilter` makes, so the two filters agree on field left and right. Translation is unchanged: every candidate shares the centre.
 
+## Pixel to field-plane projection
+
+`pixels_to_field_plane` takes `(n, 2)` rectified pixels and returns `(n, 3)` field-frame points on the plane `z = plane_height_m`. It raises `ValueError` for any other pixel or intrinsics shape. A ray that misses the plane in front of the camera (parallel, or pointing at the sky) comes back as NaN.
+
 ## Fixed field filter
 
 `FixedFieldFilter` reports a configured arena size and is used by the kinematic sim, where the field is known a priori and no perception runs. It gives navigation the wall bounds it needs without a RANSAC field fit. It takes the camera-from-fieldcenter transform straight from the sim, which places its camera in the same frame it reports robot poses in. An identity transform is not harmless: the UI projects robot markers and the field border through it, and identity divides by a robot's roughly 1 cm height instead of its metres of range, throwing every marker far outside the image.

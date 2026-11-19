@@ -68,11 +68,11 @@ def replay_session(mcap: Path, frame_id: str = "THEIR_ROBOT_1") -> SessionData:
     return SessionData(
         name=mcap.stem,
         role="replay",
-        meas_stamp_ns=stamp_ns,
-        meas_x=x,
-        meas_y=y,
-        meas_yaw=yaw,
-        truth=truth,
+        meas_tag_clock_stamp_ns=stamp_ns,
+        meas_axle_up_x=x,
+        meas_axle_up_y=y,
+        meas_axle_up_yaw=yaw,
+        truth_5ms_grid=truth,
         truth_valid=gap_ok,
     )
 
@@ -90,7 +90,7 @@ def _find(node: object, key: str) -> dict | None:
 
 def pick_samples(data: SessionData, gap_s: float, count: int) -> list[int]:
     """Gap start stamps (ns) spread across the recording where the robot moves and is seen."""
-    stamps = data.meas_stamp_ns
+    stamps = data.meas_tag_clock_stamp_ns
     step_ns = int(0.5e9)
     candidates = []
     for start in range(int(stamps[0] + 4e9), int(stamps[-1] - (gap_s + 2.0) * 1e9), step_ns):
@@ -120,7 +120,10 @@ def run_arms(
 ) -> tuple[dict[str, ev.Trace], tuple[int, int]]:
     cfg, sigma = ev.tuned_config()
     window = (start_ns - int(PRE_S * 1e9), start_ns + int((gap_s + POST_S) * 1e9))
-    keep = ~((data.meas_stamp_ns >= start_ns) & (data.meas_stamp_ns < start_ns + int(gap_s * 1e9)))
+    keep = ~(
+        (data.meas_tag_clock_stamp_ns >= start_ns)
+        & (data.meas_tag_clock_stamp_ns < start_ns + int(gap_s * 1e9))
+    )
     keep = keep[None, :]
     traces = {
         "phase1": ev.simulate_filter(
@@ -138,16 +141,20 @@ def plot_truth_and_measurements(show, data, ax_xy, start_ns, end_ns):
     grid = np.arange(show[0], show[1], int(0.01e9))
     tr = data.truth_at(grid)
     ax_xy.plot(tr["x"], tr["y"], color=COLORS["truth"], lw=1.6, label="truth")
-    ms = data.meas_stamp_ns
+    ms = data.meas_tag_clock_stamp_ns
     shown = (ms >= show[0]) & (ms < show[1])
     held = shown & (ms >= start_ns) & (ms < end_ns)
     seen = shown & ~held
     ax_xy.scatter(
-        data.meas_x[seen], data.meas_y[seen], s=10, color=COLORS["meas"], label="measurement"
+        data.meas_axle_up_x[seen],
+        data.meas_axle_up_y[seen],
+        s=10,
+        color=COLORS["meas"],
+        label="measurement",
     )
     ax_xy.scatter(
-        data.meas_x[held],
-        data.meas_y[held],
+        data.meas_axle_up_x[held],
+        data.meas_axle_up_y[held],
         s=14,
         facecolors="none",
         edgecolors=COLORS["meas"],
@@ -165,7 +172,7 @@ def plot_sample(data: SessionData, start_ns: int, gap_s: float, path: Path) -> d
 
     grid, tr, shown = plot_truth_and_measurements(show, data, ax_xy, start_ns, end_ns)
 
-    summary: dict = {"start_s": (start_ns - data.meas_stamp_ns[0]) / 1e9, "gap_s": gap_s}
+    summary: dict = {"start_s": (start_ns - data.meas_tag_clock_stamp_ns[0]) / 1e9, "gap_s": gap_s}
     worst = 0.0
     for arm, trace in traces.items():
         t_rel = (trace.target_ns - start_ns) / 1e9
@@ -240,8 +247,8 @@ def plot_sample(data: SessionData, start_ns: int, gap_s: float, path: Path) -> d
         ax.set_xlim((show[0] - start_ns) / 1e9, (show[1] - start_ns) / 1e9)
         ax.set_xlabel("time from dropout start (s)")
         ax.grid(alpha=0.3)
-    px = np.concatenate([tr["x"][tr["valid"]], data.meas_x[shown]])
-    py = np.concatenate([tr["y"][tr["valid"]], data.meas_y[shown]])
+    px = np.concatenate([tr["x"][tr["valid"]], data.meas_axle_up_x[shown]])
+    py = np.concatenate([tr["y"][tr["valid"]], data.meas_axle_up_y[shown]])
     cx, cy = 0.5 * (px.min() + px.max()), 0.5 * (py.min() + py.max())
     half = 0.5 * max(px.max() - px.min(), py.max() - py.min()) + 0.15
     ax_xy.set_xlim(cx - half, cx + half)
@@ -274,7 +281,9 @@ def plot_sample(data: SessionData, start_ns: int, gap_s: float, path: Path) -> d
 def plot_summary(data: SessionData, path: Path) -> dict:
     """Median position and heading error against time into every periodic gap, per arm."""
     cfg, sigma = ev.tuned_config()
-    keep = np.stack([ev.periodic_gaps(data.meas_stamp_ns, g, SUMMARY_PERIOD_S) for g in GAPS_S])
+    keep = np.stack(
+        [ev.periodic_gaps(data.meas_tag_clock_stamp_ns, g, SUMMARY_PERIOD_S) for g in GAPS_S]
+    )
     b = keep.shape[0]
     traces = {
         "phase1": ev.simulate_filter(data, ev.OpponentFilter(b, cfg), keep, sigma),
@@ -288,7 +297,9 @@ def plot_summary(data: SessionData, path: Path) -> dict:
         out[f"{gap:g}"] = {}
         for arm, trace in traces.items():
             truth = data.truth_at(trace.target_ns)
-            rel = (trace.target_ns - data.meas_stamp_ns[0]) / 1e9 - 1.0  # periodic_gaps phase
+            rel = (
+                trace.target_ns - data.meas_tag_clock_stamp_ns[0]
+            ) / 1e9 - 1.0  # periodic_gaps phase
             into = rel - np.floor(rel / SUMMARY_PERIOD_S) * SUMMARY_PERIOD_S
             into = np.where(into > SUMMARY_PERIOD_S - 0.3, into - SUMMARY_PERIOD_S, into)
             ok = truth["valid"] & (trace.values["active"][:, col] > 0) & (rel > 0)

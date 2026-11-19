@@ -126,17 +126,19 @@ def simulate_filter(
     window_ns: tuple[int, int] | None = None,
 ) -> Trace:
     """Replays the session through `filt`; `keep` (B, M) withholds measurements per row."""
-    t0_ns = int(data.meas_stamp_ns[0])
-    sel = np.ones(len(data.meas_stamp_ns), dtype=bool)
+    t0_ns = int(data.meas_tag_clock_stamp_ns[0])
+    sel = np.ones(len(data.meas_tag_clock_stamp_ns), dtype=bool)
     if window_ns is not None:
-        sel = (data.meas_stamp_ns >= window_ns[0]) & (data.meas_stamp_ns <= window_ns[1])
+        sel = (data.meas_tag_clock_stamp_ns >= window_ns[0]) & (
+            data.meas_tag_clock_stamp_ns <= window_ns[1]
+        )
     idx = np.nonzero(sel)[0]
-    t_meas = _rel_s(data.meas_stamp_ns[idx], t0_ns)
+    t_meas = _rel_s(data.meas_tag_clock_stamp_ns[idx], t0_ns)
     deliver = t_meas + LATENCY_S
     keep_t = torch.as_tensor(keep[:, idx])
     b = filt.batch
-    xy = torch.as_tensor(np.stack([data.meas_x[idx], data.meas_y[idx]], axis=1))
-    yaw = torch.as_tensor(data.meas_yaw[idx])
+    xy = torch.as_tensor(np.stack([data.meas_axle_up_x[idx], data.meas_axle_up_y[idx]], axis=1))
+    yaw = torch.as_tensor(data.meas_axle_up_yaw[idx])
     is_kp = torch.ones(b, dtype=torch.bool)
     var = torch.as_tensor(position_sigma_m, dtype=torch.float64).expand(b) ** 2
 
@@ -208,12 +210,14 @@ def simulate_hold(
     window_ns: tuple[int, int] | None = None,
 ) -> Trace:
     """The estimate is the last delivered measurement, with no prediction."""
-    t0_ns = int(data.meas_stamp_ns[0])
-    sel = np.ones(len(data.meas_stamp_ns), dtype=bool)
+    t0_ns = int(data.meas_tag_clock_stamp_ns[0])
+    sel = np.ones(len(data.meas_tag_clock_stamp_ns), dtype=bool)
     if window_ns is not None:
-        sel = (data.meas_stamp_ns >= window_ns[0]) & (data.meas_stamp_ns <= window_ns[1])
+        sel = (data.meas_tag_clock_stamp_ns >= window_ns[0]) & (
+            data.meas_tag_clock_stamp_ns <= window_ns[1]
+        )
     idx = np.nonzero(sel)[0]
-    t_meas = _rel_s(data.meas_stamp_ns[idx], t0_ns)
+    t_meas = _rel_s(data.meas_tag_clock_stamp_ns[idx], t0_ns)
     deliver = t_meas + LATENCY_S
     b = keep.shape[0]
     ticks = np.arange(t_meas[0], deliver[-1] + 0.5, TICK_S)[::record_stride]
@@ -224,7 +228,11 @@ def simulate_hold(
         last[:, r] = np.where(pos >= 0, kept[np.clip(pos, 0, None)], -1)
     ok = last >= 0
     li = np.clip(last, 0, None)
-    mx, my, myaw = data.meas_x[idx][li], data.meas_y[idx][li], data.meas_yaw[idx][li]
+    mx, my, myaw = (
+        data.meas_axle_up_x[idx][li],
+        data.meas_axle_up_y[idx][li],
+        data.meas_axle_up_yaw[idx][li],
+    )
     nan = np.full(last.shape, np.nan)
     inf = np.full(last.shape, np.inf)
     since = np.where(ok, ticks[:, None] - deliver[li], np.inf)
@@ -369,7 +377,7 @@ def run_grid(train: SessionData) -> list[dict]:
     position_sigma = columns.pop("opponent_position_sigma_m")
     for key, column in columns.items():
         setattr(cfg, key, column)
-    keep_row = periodic_gaps(train.meas_stamp_ns, TUNE_GAP_S, TUNE_PERIOD_S)
+    keep_row = periodic_gaps(train.meas_tag_clock_stamp_ns, TUNE_GAP_S, TUNE_PERIOD_S)
     keep = np.tile(keep_row, (len(combos), 1))
     filt = OpponentFilter(len(combos), cfg)
     trace = simulate_filter(train, filt, keep, position_sigma, record_stride=2)
@@ -397,7 +405,10 @@ def tuned_config() -> tuple[OpponentFilterConfig, float]:
 
 def scenario_keep(data: SessionData) -> np.ndarray:
     return np.stack(
-        [periodic_gaps(data.meas_stamp_ns, gap, SCENARIO_PERIOD_S) for gap in SCENARIOS.values()]
+        [
+            periodic_gaps(data.meas_tag_clock_stamp_ns, gap, SCENARIO_PERIOD_S)
+            for gap in SCENARIOS.values()
+        ]
     )
 
 

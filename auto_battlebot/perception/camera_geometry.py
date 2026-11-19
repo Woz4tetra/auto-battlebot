@@ -1,20 +1,4 @@
-"""Project eval-dataset pixels onto the arena floor using the exported camera geometry.
-
-`export_camera_transforms.py` writes `camera_info.json` and `camera_transforms/<stamp>.json`
-per sub dataset. This turns those into floor positions: a pixel becomes a camera ray, the ray
-is rotated into the field frame, and it is intersected with the horizontal plane the target
-actually sits on. That is the same ray-plane projection the runtime does in
-`project_keypoint_onto_plane` (src/transform_utils.cpp), so distances computed here are in the
-units navigation consumes.
-
-Heights come from `[robot_filter] keypoint_height_meters*` in `config/_common.toml`: our
-robots' keypoints are labeled on the floor, house bots ride 0.12 m up, everything else takes
-the 0.03 m default. Projecting a robot onto the wrong plane biases its range, so the label
-matters.
-
-Only `exact` and `interpolated` transforms are usable. `unavailable` has no pose at all and
-`ambiguous` has two frames claiming the index, so both are dropped by default.
-"""
+"""Project eval-dataset pixels onto the arena floor using the exported camera geometry."""
 
 from __future__ import annotations
 
@@ -25,13 +9,14 @@ from typing import Protocol
 
 import numpy as np
 
-# Mirrors [robot_filter] in config/_common.toml. GT labels are lowercase.
-KEYPOINT_HEIGHT_M = {
+KEYPOINT_HEIGHT_M_BY_GT_LABEL = {
     "house_bot": 0.12,
     "mr_stabs_mk2": 0.0,
     "mrs_buff_mk3": 0.0,
 }
 DEFAULT_KEYPOINT_HEIGHT_M = 0.03
+
+Transform4 = np.ndarray
 
 USABLE_METHODS = ("exact", "interpolated")
 
@@ -45,7 +30,7 @@ class CameraGeometry(Protocol):
     fy: float
     cx: float
     cy: float
-    tf_field_from_camera: np.ndarray  # 4x4
+    tf_field_from_camera: Transform4
 
     @property
     def camera_position(self) -> np.ndarray: ...
@@ -60,7 +45,7 @@ class FrameGeometry:
     fy: float
     cx: float
     cy: float
-    tf_field_from_camera: np.ndarray  # 4x4
+    tf_field_from_camera: Transform4
     method: str
     field_size_m: tuple[float, float]
 
@@ -75,7 +60,7 @@ class FrameGeometry:
 
 
 def height_for_label(label: str) -> float:
-    return KEYPOINT_HEIGHT_M.get(label, DEFAULT_KEYPOINT_HEIGHT_M)
+    return KEYPOINT_HEIGHT_M_BY_GT_LABEL.get(label, DEFAULT_KEYPOINT_HEIGHT_M)
 
 
 def load_camera_info(subdataset: Path) -> tuple[float, float, float, float] | None:
@@ -153,10 +138,7 @@ def pixels_to_floor(
 
 
 def field_to_pixels(points_field: np.ndarray, geometry: FrameGeometry) -> np.ndarray:
-    """(N, 3) field-frame points to (N, 2) pixels. Points behind the camera come back NaN.
-
-    The inverse of `pixels_to_floor`, so composing the two round-trips a pixel back onto
-    itself. That identity is the cheapest check that a transform is not garbage."""
+    """(N, 3) field-frame points to (N, 2) pixels. Points behind the camera come back NaN."""
     points = np.asarray(points_field, dtype=np.float64).reshape(-1, 3)
     out = np.full((len(points), 2), np.nan)
     if len(points) == 0:

@@ -132,3 +132,11 @@ Output is one `<subdataset>.npz` per sub dataset, keyed by stamp_ns, holding flo
 Usage:
     python playground/cache_gt_depth.py training/data/nhrl_keypoints_eval_test         --svo-roots data/svo -o <cache dir>
 ```
+
+### `perception/camera_geometry.py`
+
+Projects eval-dataset pixels onto the arena floor from the geometry that `export_camera_transforms.py` writes (`camera_info.json` and `camera_transforms/<stamp>.json` per sub dataset). A pixel becomes a camera ray, the ray rotates into the field frame, and it intersects the horizontal plane the target sits on. The runtime does the same ray-plane projection in `project_keypoint_onto_plane` (`src/transform_utils.cpp`), so distances computed here are in the units navigation consumes.
+
+Plane heights come from `[robot_filter] keypoint_height_meters*` in `config/_common.toml`: our robots' keypoints are labeled on the floor, house bots ride 0.12 m up, everything else takes the 0.03 m default. Projecting a robot onto the wrong plane biases its range. `tests/python/test_camera_geometry.py` pins the table against the TOML.
+
+Only `exact` and `interpolated` transforms are usable. `unavailable` has no pose at all and `ambiguous` has two frames claiming the index, so both are dropped by default.

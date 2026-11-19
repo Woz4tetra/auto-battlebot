@@ -12,12 +12,17 @@ import torch
 
 from auto_battlebot.perception.sensing_model import (
     Context,
+    Deliveries,
     DurationTable,
+    EkfErrorSpec,
+    FlipRuns,
     MeasurementModel,
     OurEkfErrorModel,
+    RenderedOurRobot,
     SensingModelFile,
     TruePoses,
     _Durations,
+    keypoint_position_variance,
 )
 
 QUANTILES = [0.0, 0.1, 0.25, 0.5, 0.75, 0.9, 0.99, 1.0]
@@ -210,6 +215,7 @@ def test_context_picks_cell() -> None:
     fractions = []
     for context in (near, _far(64, 1)):
         measured = delivered = 0
+        model.reset(torch.ones(64, dtype=torch.bool), len(fractions) * 100.0)
         for k in range(int(20.0 / 0.004)):
             out = model.step(k * 0.004 + len(fractions) * 100.0, truth, context)
             delivered += int(out.delivered.sum())
@@ -355,3 +361,90 @@ def test_bursty_flips_follow_run_tables() -> None:
         captured += int(capture.sum())
         flipped += int((capture & model.is_flipped[:, 0]).sum())
     assert flipped / captured == pytest.approx(0.1 / 1.1, abs=0.02)
+
+
+def test_keypoint_variance_matches_cpp_measurement_noise_for() -> None:
+    xy = torch.tensor([[3.0, 4.0], [0.0, 0.0]], dtype=torch.float64)
+    base = keypoint_position_variance(xy, 0.02)
+    torch.testing.assert_close(base, torch.full((2,), 0.02**2, dtype=torch.float64))
+    camera = (0.0, 0.0, 12.0)
+    ranged = keypoint_position_variance(xy, 0.02, 0.01, camera_xyz=camera, z_m=0.0)
+    range_m = torch.tensor([13.0, 12.0], dtype=torch.float64)
+    torch.testing.assert_close(ranged, (0.02 + 0.01 * range_m) ** 2)
+    with pytest.raises(ValueError, match="camera position"):
+        keypoint_position_variance(xy, 0.02, 0.01)
+
+
+def test_long_step_rejected() -> None:
+    model = MeasurementModel(_spec(), ["opponent"], worlds=2, seed=1, randomize=False)
+    model.reset(torch.ones(2, dtype=torch.bool), 0.0)
+    truth = _truth(2, 1)
+    model.step(0.0, truth, _far(2, 1))
+    model.step(1.0 / 30.0, truth, _far(2, 1))
+    with pytest.raises(ValueError, match="frame period"):
+        model.step(1.0 / 30.0 + 0.5, truth, _far(2, 1))
+
+
+def test_reset_starts_measured_and_unflipped() -> None:
+    d = _spec_dict()
+    d["robots"]["opponent"]["heading"] = {
+        "sigma_rad": [0.0, 0.0],
+        "flip_model": "bursty",
+        "flip_runs": {"quantiles": [0.0, 1.0], "normal_s": [0.9, 1.1], "flipped_s": [0.09, 0.11]},
+    }
+    model = MeasurementModel(_spec(d), ["opponent"], worlds=4, seed=1, randomize=False)
+    model.reset(torch.ones(4, dtype=torch.bool), 5.0)
+    assert bool(model.is_flipped.all())
+    assert not bool(model.is_measured.any())
+    assert bool((model.measured_until == 5.0).all())
+    assert bool((model.flipped_until == 5.0).all())
+    model.step(5.0, _truth(4, 1), _far(4, 1))
+    assert bool(model.is_measured.all())
+    assert not bool(model.is_flipped.any())
+
+
+def test_flip_runs_fields_are_named() -> None:
+    normal = DurationTable.parse(QUANTILES, MEASURED, 1, "normal")
+    flipped = DurationTable.parse(QUANTILES, DROPPED, 1, "flipped")
+    runs = FlipRuns(normal=normal, flipped=flipped)
+    assert runs[0] is runs.normal
+    assert runs[1] is runs.flipped
+
+
+def test_true_poses_shape_checked() -> None:
+    good = _truth(3, 2)
+    with pytest.raises(ValueError, match="TruePoses.xy"):
+        TruePoses(xy=good.xy[..., :1], yaw=good.yaw, velocity=good.velocity, yaw_rate=good.yaw_rate)
+    with pytest.raises(ValueError, match="TruePoses.yaw"):
+        TruePoses(xy=good.xy, yaw=good.yaw[:, :1], velocity=good.velocity, yaw_rate=good.yaw_rate)
+
+
+def test_deliveries_checks_shape_and_dtype() -> None:
+    w, r = 3, 2
+    ok = {
+        "delivered": torch.ones(w, dtype=torch.bool),
+        "stamp": torch.zeros(w),
+        "measured": torch.ones(w, r, dtype=torch.bool),
+        "xy": torch.zeros(w, r, 2),
+        "yaw": torch.zeros(w, r),
+    }
+    Deliveries(**ok)
+    with pytest.raises(ValueError, match="Deliveries.measured"):
+        Deliveries(**{**ok, "measured": torch.ones(w, r)})
+    with pytest.raises(ValueError, match="Deliveries.stamp"):
+        Deliveries(**{**ok, "stamp": torch.zeros(w + 1)})
+
+
+def test_rendered_our_robot_checks_bool_stale() -> None:
+    w = 3
+    fields = {name: torch.zeros(w) for name in ("yaw", "forward_speed", "yaw_rate")}
+    RenderedOurRobot(xy=torch.zeros(w, 2), stale=torch.zeros(w, dtype=torch.bool), **fields)
+    with pytest.raises(ValueError, match="RenderedOurRobot.stale"):
+        RenderedOurRobot(xy=torch.zeros(w, 2), stale=torch.zeros(w), **fields)
+
+
+def test_ekf_error_spec_shape_checked() -> None:
+    with pytest.raises(ValueError, match="EkfErrorSpec.tau_s"):
+        EkfErrorSpec(sigma=np.zeros((5, 2)), tau_s=np.zeros(4))
+    with pytest.raises(ValueError, match="EkfErrorSpec.sigma"):
+        EkfErrorSpec(sigma=np.zeros((4, 2)), tau_s=np.zeros(5))

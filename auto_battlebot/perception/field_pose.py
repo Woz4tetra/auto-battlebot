@@ -10,6 +10,8 @@ import cv2
 import numpy as np
 from scipy.optimize import least_squares
 
+from auto_battlebot.perception.camera_geometry import Transform4
+
 DISTANCE_THRESHOLD_M = 0.05
 RANSAC_MAX_ITERATIONS = 1000
 RANSAC_PROBABILITY = 0.999
@@ -22,9 +24,9 @@ class FieldResult:
     """One method's answer for one frame."""
 
     method: str
-    tf_camera_from_field: np.ndarray | None  # 4x4
+    tf_camera_from_field: Transform4 | None
     size_xy_m: tuple[float, float] | None
-    corners_image: np.ndarray | None = None  # 4x2, for overlays
+    overlay_corners_px: np.ndarray | None = None
     plane_normal: np.ndarray | None = None
     inlier_count: int = 0
     notes: str = ""
@@ -406,11 +408,11 @@ def align_field_x_with_camera_x(
     rotation = tf_camera_from_field[:3, :3]
     normal = rotation[:, 2] if rotation[2, 2] >= 0.0 else -rotation[:, 2]
     plane_x = transform_from_plane(np.zeros(3), normal)[:3, 0]
-    # A quarter turn swaps which edge carries the x size, so only a square can take one.
-    step = 1 if abs(field_size_xy[0] - field_size_xy[1]) < 1e-9 else 2
+    quarter_turn_allowed = abs(field_size_xy[0] - field_size_xy[1]) < 1e-9
+    quarter_turn_step = 1 if quarter_turn_allowed else 2
     best = rotation
     best_dot = -math.inf
-    for quarter in range(0, 4, step):
+    for quarter in range(0, 4, quarter_turn_step):
         angle = quarter * math.pi / 2.0
         turn = np.array(
             [
@@ -488,7 +490,7 @@ def homography_field(
         "homography",
         tf,
         (float(width), float(height)),
-        corners_image=image_corners,
+        overlay_corners_px=image_corners,
         plane_normal=tf[:3, 2],
         notes="; ".join(notes),
         extra={
@@ -614,14 +616,16 @@ def pixels_to_field_plane(
     intrinsics: np.ndarray,
     plane_height_m: float = 0.0,
 ) -> np.ndarray:
-    """(n, 2) rectified pixels to (n, 3) field-frame points on the plane z = plane_height_m.
-
-    Rays that miss the plane in front of the camera come back as NaN.
-    """
+    """(n, 2) rectified pixels to (n, 3) field-frame points on the plane z = plane_height_m."""
+    pixels = np.asarray(pixels, dtype=np.float64)
+    if pixels.ndim != 2 or pixels.shape[1] != 2:
+        raise ValueError(f"pixels must have shape (n, 2), got {pixels.shape}")
+    if np.shape(intrinsics) != (3, 3):
+        raise ValueError(f"intrinsics must have shape (3, 3), got {np.shape(intrinsics)}")
     tf_field_from_camera = np.linalg.inv(tf_camera_from_field)
     origin = tf_field_from_camera[:3, 3]
     k_inv = np.linalg.inv(intrinsics)
-    homogeneous = np.c_[np.asarray(pixels, dtype=np.float64).reshape(-1, 2), np.ones(len(pixels))]
+    homogeneous = np.c_[pixels, np.ones(len(pixels))]
     directions = (tf_field_from_camera[:3, :3] @ (k_inv @ homogeneous.T)).T
     out = np.full((len(pixels), 3), np.nan)
     for i, direction in enumerate(directions):

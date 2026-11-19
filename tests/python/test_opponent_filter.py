@@ -39,6 +39,36 @@ def test_mirror_reproduces_golden_fixture() -> None:
     np.testing.assert_allclose(state, arrays["kState"].reshape(state.shape), atol=1e-9)
 
 
+def test_fixture_scalars_match_generator() -> None:
+    text = golden.OUT_HEADER.read_text()
+    scalars = dict(re.findall(r"inline constexpr (?:double|int) (k\w+) = ([^;{\[]+?);", text))
+    records = golden.run_mirror(golden.scenario())
+    assert float(scalars["kFieldSize"]) == pytest.approx(golden.FIELD_SIZE)
+    assert float(scalars["kMargin"]) == pytest.approx(golden.MARGIN)
+    assert float(scalars["kMaxCoastS"]) == pytest.approx(golden.MAX_COAST_S)
+    assert float(scalars["kRenderLeadS"]) == pytest.approx(golden.plant_delay_s())
+    assert int(scalars["kNumEvents"]) == len(records.events)
+    assert int(scalars["kNumRecorded"]) == len(records.render)
+    assert int(scalars["kNumStateRecords"]) == len(records.state)
+    assert int(scalars["kStateWidth"]) == len(records.state[0])
+
+
+def _bank(**kwargs: torch.Tensor) -> OpponentFilter:
+    return OpponentFilter(3, OpponentFilterConfig(), **kwargs)
+
+
+def test_field_half_extent_shape_checked() -> None:
+    with pytest.raises(ValueError, match="field_half_extent"):
+        _bank(field_half_extent=torch.ones(2, 2))
+    with pytest.raises(ValueError, match="field_half_extent"):
+        _bank(field_half_extent=torch.ones(3))
+
+
+def test_heading_blind_rows_shape_checked() -> None:
+    with pytest.raises(ValueError, match="heading_blind_rows"):
+        _bank(heading_blind_rows=torch.zeros(2, dtype=torch.bool))
+
+
 def _run_rows(filt: OpponentFilter, events: list[golden.Event]) -> list[np.ndarray]:
     rows = []
     b = filt.batch

@@ -7,7 +7,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import numpy as np
 import torch
@@ -18,6 +18,16 @@ SPEC_VERSION = 1
 EKF_COMPONENTS = ("along", "cross", "theta", "v", "omega")
 GAP_MIN_FRAMES = 2.5
 CLOCK_EPS_S = 1e-6
+
+
+def _require_shape(owner: str, name: str, value: Any, *expected: int) -> None:
+    if tuple(value.shape) != expected:
+        raise ValueError(f"{owner}.{name} must have shape {expected}, got {tuple(value.shape)}")
+
+
+def _require_bool(owner: str, name: str, value: torch.Tensor) -> None:
+    if value.dtype != torch.bool:
+        raise ValueError(f"{owner}.{name} must be bool, got {value.dtype}")
 
 
 class FlipModel(Enum):
@@ -111,8 +121,20 @@ class DropoutSpec:
 class EkfErrorSpec:
     """Our-robot EKF output error: AR(1) std by speed bin and correlation time per component."""
 
-    sigma: np.ndarray  # [len(EKF_COMPONENTS), speed bins]
-    tau_s: np.ndarray  # [len(EKF_COMPONENTS)]
+    sigma: np.ndarray
+    tau_s: np.ndarray
+
+    def __post_init__(self) -> None:
+        components = len(EKF_COMPONENTS)
+        if self.sigma.ndim != 2:
+            raise ValueError(f"EkfErrorSpec.sigma must be 2-D, got shape {self.sigma.shape}")
+        _require_shape("EkfErrorSpec", "sigma", self.sigma, components, self.sigma.shape[1])
+        _require_shape("EkfErrorSpec", "tau_s", self.tau_s, components)
+
+
+class FlipRuns(NamedTuple):
+    normal: DurationTable
+    flipped: DurationTable
 
 
 @dataclass(frozen=True)
@@ -128,7 +150,7 @@ class RobotSpec:
     heading_sigma_rad: np.ndarray
     flip_model: FlipModel
     flip_rate: np.ndarray | None
-    flip_runs: tuple[DurationTable, DurationTable] | None  # (normal, flipped)
+    flip_runs: FlipRuns | None
     flip_scale_by_label: dict[str, float]
     dropout: DropoutSpec
     ekf_error: EkfErrorSpec | None
@@ -214,9 +236,13 @@ def _parse_robot(d: Mapping[str, Any], where: str) -> RobotSpec:
             raise ValueError(f"{where}.heading.flip_rate: probabilities must lie in [0, 1]")
     else:
         runs = head["flip_runs"]
-        flip_runs = (
-            DurationTable.parse(runs["quantiles"], runs["normal_s"], 1, f"{where}.flip_runs"),
-            DurationTable.parse(runs["quantiles"], runs["flipped_s"], 1, f"{where}.flip_runs"),
+        flip_runs = FlipRuns(
+            normal=DurationTable.parse(
+                runs["quantiles"], runs["normal_s"], 1, f"{where}.flip_runs"
+            ),
+            flipped=DurationTable.parse(
+                runs["quantiles"], runs["flipped_s"], 1, f"{where}.flip_runs"
+            ),
         )
     drop = d["dropout"]
     robot_bins = _edges(drop["robot_distance_bins_m"], f"{where}.dropout.robot_distance_bins_m")
@@ -280,10 +306,17 @@ def _parse_robot(d: Mapping[str, Any], where: str) -> RobotSpec:
 class TruePoses:
     """True state of every robot slot, field frame. Shapes [W, R, ...]."""
 
-    xy: torch.Tensor  # [W, R, 2]
-    yaw: torch.Tensor  # [W, R]
-    velocity: torch.Tensor  # [W, R, 2]
-    yaw_rate: torch.Tensor  # [W, R]
+    xy: torch.Tensor
+    yaw: torch.Tensor
+    velocity: torch.Tensor
+    yaw_rate: torch.Tensor
+
+    def __post_init__(self) -> None:
+        w, r = self.xy.shape[:2]
+        _require_shape("TruePoses", "xy", self.xy, w, r, 2)
+        _require_shape("TruePoses", "yaw", self.yaw, w, r)
+        _require_shape("TruePoses", "velocity", self.velocity, w, r, 2)
+        _require_shape("TruePoses", "yaw_rate", self.yaw_rate, w, r)
 
 
 @dataclass
@@ -297,9 +330,12 @@ class Context:
     def from_rect_arena(
         xy: torch.Tensor, radius_m: torch.Tensor | float, half_extent: torch.Tensor
     ) -> Context:
-        """Edge-to-edge distance to the nearest other robot and centre distance to the nearest wall
-        of an axis-aligned arena centred on the origin. `half_extent` is [W, 2] or [2]."""
+        """Edge-to-edge distance to the nearest other robot, centre distance to the nearest wall."""
         w, r, _ = xy.shape
+        if tuple(half_extent.shape) not in ((w, 2), (2,)):
+            raise ValueError(
+                f"half_extent must have shape ({w}, 2) or (2,), got {tuple(half_extent.shape)}"
+            )
         radius = torch.as_tensor(radius_m, dtype=xy.dtype, device=xy.device).expand(w, r)
         if r > 1:
             centre = torch.cdist(xy, xy)
@@ -317,35 +353,65 @@ class Context:
 class Deliveries:
     """At most one frame per world per step. Rows with `delivered` false carry stale values."""
 
-    delivered: torch.Tensor  # [W] bool
-    stamp: torch.Tensor  # [W] capture time of the delivered frame
-    measured: torch.Tensor  # [W, R] bool, the robot was detected in that frame
-    xy: torch.Tensor  # [W, R, 2]
-    yaw: torch.Tensor  # [W, R]
+    delivered: torch.Tensor
+    stamp: torch.Tensor
+    measured: torch.Tensor
+    xy: torch.Tensor
+    yaw: torch.Tensor
+
+    def __post_init__(self) -> None:
+        w, r = self.xy.shape[:2]
+        _require_bool("Deliveries", "delivered", self.delivered)
+        _require_bool("Deliveries", "measured", self.measured)
+        _require_shape("Deliveries", "delivered", self.delivered, w)
+        _require_shape("Deliveries", "stamp", self.stamp, w)
+        _require_shape("Deliveries", "measured", self.measured, w, r)
+        _require_shape("Deliveries", "xy", self.xy, w, r, 2)
+        _require_shape("Deliveries", "yaw", self.yaw, w, r)
 
 
 @dataclass
 class SensingParams:
     """Per-world draws for the current episode. The RL critic reads these; the actor never does."""
 
-    frame_period_s: torch.Tensor  # [W]
-    latency_s: torch.Tensor  # [W]
-    frame_drop_prob: torch.Tensor  # [W]
-    error_scale: torch.Tensor  # [W]
-    offset_m: torch.Tensor  # [W, 2]
-    flip_scale: torch.Tensor  # [W]
-    dropout_stretch: torch.Tensor  # [W]
+    frame_period_s: torch.Tensor
+    latency_s: torch.Tensor
+    frame_drop_prob: torch.Tensor
+    error_scale: torch.Tensor
+    offset_m: torch.Tensor
+    flip_scale: torch.Tensor
+    dropout_stretch: torch.Tensor
+
+    def __post_init__(self) -> None:
+        w = self.frame_period_s.shape[0]
+        for name in (
+            "frame_period_s",
+            "latency_s",
+            "frame_drop_prob",
+            "error_scale",
+            "flip_scale",
+            "dropout_stretch",
+        ):
+            _require_shape("SensingParams", name, getattr(self, name), w)
+        _require_shape("SensingParams", "offset_m", self.offset_m, w, 2)
 
 
 @dataclass
 class RenderedOurRobot:
     """Stand-in for the our-robot EKF output. Shapes [W]."""
 
-    xy: torch.Tensor  # [W, 2]
+    xy: torch.Tensor
     yaw: torch.Tensor
     forward_speed: torch.Tensor
     yaw_rate: torch.Tensor
-    stale: torch.Tensor  # bool
+    stale: torch.Tensor
+
+    def __post_init__(self) -> None:
+        w = self.xy.shape[0]
+        _require_shape("RenderedOurRobot", "xy", self.xy, w, 2)
+        for name in ("yaw", "forward_speed", "yaw_rate", "stale"):
+            _require_shape("RenderedOurRobot", name, getattr(self, name), w)
+        _require_bool("RenderedOurRobot", "stale", self.stale)
 
 
 def keypoint_position_variance(
@@ -355,8 +421,7 @@ def keypoint_position_variance(
     camera_xyz: Sequence[float] | None = None,
     z_m: float = 0.0,
 ) -> torch.Tensor:
-    """`KalmanMotionEstimator::measurement_noise_for` for keypoint poses: the base sigma plus the
-    per-metre range term, squared. `xy` is [..., 2]; returns [...]."""
+    """`KalmanMotionEstimator::measurement_noise_for` for keypoint poses."""
     sigma = torch.full(xy.shape[:-1], sigma_m, dtype=xy.dtype, device=xy.device)
     if sigma_per_meter > 0.0:
         if camera_xyz is None:
@@ -408,8 +473,8 @@ class _RobotSampler:
         self.flip_rate = t(spec.flip_rate) if spec.flip_rate is not None else None
         self.flip_runs = (
             (
-                _Durations(spec.flip_runs[0], device, dtype),
-                _Durations(spec.flip_runs[1], device, dtype),
+                _Durations(spec.flip_runs.normal, device, dtype),
+                _Durations(spec.flip_runs.flipped, device, dtype),
             )
             if spec.flip_runs is not None
             else None
@@ -423,18 +488,7 @@ class _RobotSampler:
 
 
 class MeasurementModel:
-    """Batched measurement stream for `worlds` worlds of `len(roles)` robots each.
-
-    Call `reset` for new episodes, then `step` once per simulation tick with the current time.
-    A frame is captured on the first step at or after each frame time, stamped with that step's
-    time (truth is known only at step times), and delivered on the first step at least `latency`
-    later. Step intervals must not exceed the shortest frame period, so at most one frame is
-    captured and one delivered per step.
-
-    `frame_rate_hz` fixes the frame rate, overriding the file's nominal value and its
-    randomization range. The lockstep sim passes its tick rate, since it captures one frame per
-    tick.
-    """
+    """Batched measurement stream for `worlds` worlds of `len(roles)` robots each."""
 
     def __init__(
         self,
@@ -484,8 +538,7 @@ class MeasurementModel:
         )
         self.label_flip_scale = z(w, r) + 1.0
         self.next_capture = z(w)
-        # Dropout and flip state per robot. Expiry toggles the state, so reset() parks each one
-        # in the opposite of its starting state with an expiry of now.
+        self.last_step_t = z(w) + math.nan
         self.is_measured = torch.zeros(w, r, dtype=torch.bool, device=self.device)
         self.measured_until = z(w, r)
         self.is_flipped = torch.ones(w, r, dtype=torch.bool, device=self.device)
@@ -557,6 +610,7 @@ class MeasurementModel:
                 )
                 self.label_flip_scale[:, r] = torch.where(mask, scale, self.label_flip_scale[:, r])
         self.next_capture = torch.where(mask, t, self.next_capture)
+        self.last_step_t = torch.where(mask, t, self.last_step_t)
         m2 = mask[:, None]
         self.is_measured = torch.where(m2, False, self.is_measured)
         self.measured_until = torch.where(m2, t[:, None], self.measured_until)
@@ -575,8 +629,11 @@ class MeasurementModel:
             self.last_measured_stamp = t[:, None].expand(-1, self.robots).clone()
             return Deliveries(delivered, t.clone(), measured, truth.xy.clone(), truth.yaw.clone())
 
-        capture = t >= self.next_capture - CLOCK_EPS_S
         period = self.params.frame_period_s
+        if bool((t - self.last_step_t > period + CLOCK_EPS_S).any()):
+            raise ValueError("step interval exceeds the frame period, so a frame would be skipped")
+        self.last_step_t = t.clone()
+        capture = t >= self.next_capture - CLOCK_EPS_S
         upcoming = self.next_capture + period
         self.next_capture = torch.where(
             capture, torch.where(upcoming > t, upcoming, t + period), self.next_capture
@@ -778,8 +835,9 @@ class OurEkfErrorModel:
         last_measured_stamp: torch.Tensor,
         frame_period_s: torch.Tensor,
     ) -> RenderedOurRobot:
-        """Our robot's true state ([W, 2] or [W]) and its last delivered measurement stamp in,
-        the rendered EKF output out."""
+        """Render the EKF output from our robot's true state and last delivered stamp."""
+        _require_shape("OurEkfErrorModel.step", "xy", xy, self.worlds, 2)
+        _require_shape("OurEkfErrorModel.step", "yaw", yaw, self.worlds)
         t = torch.as_tensor(now, device=self.device, dtype=self.dtype).expand(self.worlds)
         xy, yaw = xy.to(self.dtype), yaw.to(self.dtype)
         velocity, yaw_rate = velocity.to(self.dtype), yaw_rate.to(self.dtype)

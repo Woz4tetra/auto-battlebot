@@ -52,13 +52,13 @@ def sysid_model() -> dict:
     runs, gaps = [], []
     for name in SESSIONS:
         s = load_session(name)
-        tr = s.truth_at(s.meas_stamp_ns)
+        tr = s.truth_at(s.meas_tag_clock_stamp_ns)
         v = tr["valid"]
-        pos_x.append((s.meas_x - tr["x"])[v])
-        pos_y.append((s.meas_y - tr["y"])[v])
-        yaw_err.append(_wrap(s.meas_yaw - tr["yaw"])[v])
+        pos_x.append((s.meas_axle_up_x - tr["x"])[v])
+        pos_y.append((s.meas_axle_up_y - tr["y"])[v])
+        yaw_err.append(_wrap(s.meas_axle_up_yaw - tr["yaw"])[v])
         speed.append(np.hypot(tr["vx"], tr["vy"])[v])
-        r, g = _runs(s.meas_stamp_ns / 1e9)
+        r, g = _runs(s.meas_tag_clock_stamp_ns / 1e9)
         runs.append(r)
         gaps.append(g)
     ex, ey, ey_aw, sp = (np.concatenate(a) for a in (pos_x, pos_y, yaw_err, speed))

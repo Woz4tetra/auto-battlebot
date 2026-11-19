@@ -1,17 +1,4 @@
-"""Mr Stabs Mk2 sysid sessions as opponent-filter evaluation data.
-
-The robot stands in for an opponent. Measurements are what the opponent path would see: the
-deployed YOLO pose engine's front and back keypoints on every video frame (`detect_robot_yolo.py`),
-projected onto the floor, decimated to the 30 Hz perception rate. Ground truth is the tag-only
-smoother bundle (`smooth_tag_poses.py` without `--yolo`), so it never contains a YOLO fix: scoring
-YOLO against a YOLO-filled bundle would score the model against itself. The bundle interpolates
-through tag dropouts, so truth is only trusted within `TRUTH_MAX_GAP_NS` of an accepted tag
-detection, and only while the robot is upright.
-
-The projection uses the per-session calibration the `_yolo` bundle fitted against the tag
-(`yolo_field_fixes.calibrate`): plane height, axle offset, video clock offset, and the size gates
-that drop the floor marker board.
-"""
+"""Mr Stabs Mk2 sysid sessions as opponent-filter evaluation data."""
 
 from __future__ import annotations
 
@@ -43,25 +30,23 @@ TRUTH_MAX_GAP_NS = 50_000_000
 class SessionData:
     name: str
     role: str
-    # Opponent measurements: stamp on the tag image clock, axle-centre pose in the up frame.
-    meas_stamp_ns: np.ndarray
-    meas_x: np.ndarray
-    meas_y: np.ndarray
-    meas_yaw: np.ndarray
-    # Truth on the smoother's 5 ms grid, same clock and frame.
-    truth: pd.DataFrame
+    meas_tag_clock_stamp_ns: np.ndarray
+    meas_axle_up_x: np.ndarray
+    meas_axle_up_y: np.ndarray
+    meas_axle_up_yaw: np.ndarray
+    truth_5ms_grid: pd.DataFrame
     truth_valid: np.ndarray
 
     def truth_at(self, stamp_ns: np.ndarray) -> dict[str, np.ndarray]:
         """Truth interpolated to `stamp_ns`, with `valid` false where it is not trusted."""
-        t = self.truth["stamp_ns"].to_numpy(np.int64)
+        t = self.truth_5ms_grid["stamp_ns"].to_numpy(np.int64)
         s = np.asarray(stamp_ns, dtype=np.int64)
         out = {
-            k: np.interp(s, t, self.truth[k].to_numpy(float))
+            k: np.interp(s, t, self.truth_5ms_grid[k].to_numpy(float))
             for k in ("x", "y", "vx", "vy", "yaw_rate")
         }
         out["yaw"] = np.angle(
-            np.exp(1j * np.interp(s, t, np.unwrap(self.truth["yaw"].to_numpy(float))))
+            np.exp(1j * np.interp(s, t, np.unwrap(self.truth_5ms_grid["yaw"].to_numpy(float))))
         )
         nearest = np.clip(np.searchsorted(t, s), 0, len(t) - 1)
         out["valid"] = self.truth_valid[nearest] & (s >= t[0]) & (s <= t[-1])
@@ -115,6 +100,8 @@ def _truth(name: str) -> tuple[pd.DataFrame, np.ndarray]:
     bundle = BUNDLES / f"{name}_tag"
     truth = pd.read_csv(bundle / "smoothed.csv")
     meas = pd.read_csv(bundle / "measurements.csv")
+    if (meas["source"] == "yolo").any():
+        raise ValueError(f"{bundle} holds YOLO fixes; truth must come from the tag-only bundle")
     tags = meas[(meas["source"] == "tag") & (meas["rejected"] == 0)]["stamp_ns"].to_numpy(np.int64)
     tags = np.unique(tags)
     t = truth["stamp_ns"].to_numpy(np.int64)
@@ -130,10 +117,10 @@ def load_session(name: str) -> SessionData:
     return SessionData(
         name=name,
         role=SESSIONS.get(name, "other"),
-        meas_stamp_ns=meas["stamp_ns"].to_numpy(np.int64),
-        meas_x=meas["x"].to_numpy(float),
-        meas_y=meas["y"].to_numpy(float),
-        meas_yaw=meas["yaw"].to_numpy(float),
-        truth=truth,
+        meas_tag_clock_stamp_ns=meas["stamp_ns"].to_numpy(np.int64),
+        meas_axle_up_x=meas["x"].to_numpy(float),
+        meas_axle_up_y=meas["y"].to_numpy(float),
+        meas_axle_up_yaw=meas["yaw"].to_numpy(float),
+        truth_5ms_grid=truth,
         truth_valid=valid,
     )

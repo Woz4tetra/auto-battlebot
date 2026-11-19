@@ -19,6 +19,7 @@ from auto_battlebot.perception.field_pose import (
     field_object_corners,
     fit_plane_ransac,
     order_corners,
+    pixels_to_field_plane,
     rectangle_angle,
     touches_border,
     transform_from_plane,
@@ -162,3 +163,14 @@ def test_alignment_of_a_rectangle_only_allows_half_turns() -> None:
     np.testing.assert_allclose(flipped, expected, atol=1e-9)
     quarter = align_field_x_with_camera_x(_camera_from_field(0.1 + math.pi / 2), (3.0, 2.0))
     assert not np.allclose(quarter, expected, atol=1e-6)
+
+
+@pytest.mark.parametrize("pixels", [np.zeros(2), np.zeros((4, 3)), np.zeros((2, 2, 2))])
+def test_pixels_to_field_plane_rejects_bad_pixel_shape(pixels: np.ndarray) -> None:
+    with pytest.raises(ValueError, match="pixels"):
+        pixels_to_field_plane(pixels, np.eye(4), np.eye(3))
+
+
+def test_pixels_to_field_plane_rejects_bad_intrinsics_shape() -> None:
+    with pytest.raises(ValueError, match="intrinsics"):
+        pixels_to_field_plane(np.zeros((1, 2)), np.eye(4), np.eye(4))

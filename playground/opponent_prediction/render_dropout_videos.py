@@ -244,7 +244,7 @@ class Segment:
 
 
 def pick_segments(data) -> list[Segment]:
-    span = (data.meas_stamp_ns[0], data.meas_stamp_ns[-1])
+    span = (data.meas_tag_clock_stamp_ns[0], data.meas_tag_clock_stamp_ns[-1])
     thirds = np.linspace(span[0], span[1], 4)
     cfg, sigma = ev.tuned_config()
     cfg.render_lead_s = 0.0
@@ -263,7 +263,10 @@ def pick_segments(data) -> list[Segment]:
             raise ValueError(f"no free window for a {gap} s dropout in {data.name}")
         window = (start - int((PRE_S + 3.0) * 1e9), start + int((gap + POST_S) * 1e9))
         used.append((start - int(PRE_S * 1e9), window[1]))
-        keep = ~((data.meas_stamp_ns >= start) & (data.meas_stamp_ns < start + int(gap * 1e9)))
+        keep = ~(
+            (data.meas_tag_clock_stamp_ns >= start)
+            & (data.meas_tag_clock_stamp_ns < start + int(gap * 1e9))
+        )
         keep = keep[None, :]
         phase1 = ev.simulate_filter(data, ev.OpponentFilter(1, cfg), keep, sigma, window_ns=window)
         hold = ev.simulate_hold(data, keep, 0.0, window_ns=window)
@@ -328,7 +331,7 @@ def draw_banner(out, scene: Scene, seg: Segment, t_ns: int, scale: float) -> Non
 
 
 def draw_error_readout(out, data, est, hold, t_ns: int, has_truth: bool, scale: float) -> None:
-    ms = data.meas_stamp_ns
+    ms = data.meas_tag_clock_stamp_ns
     j = newest_measurement(ms, t_ns, 5e7)
     if est is not None:
         ref = None
@@ -337,7 +340,7 @@ def draw_error_readout(out, data, est, hold, t_ns: int, has_truth: bool, scale: 
             if tr["valid"][0]:
                 ref = (tr["x"][0], tr["y"][0], "truth")
         elif j >= 0:
-            ref = (data.meas_x[j], data.meas_y[j], "measurement")
+            ref = (data.meas_axle_up_x[j], data.meas_axle_up_y[j], "measurement")
         sig = est["position_sigma_m"]
         line = f"filter 2-sigma {200 * sig:.0f} cm" if np.isfinite(sig) else "filter 2-sigma -"
         if ref is not None:
@@ -363,10 +366,10 @@ def render_frame(img, t_ns, cff, k, data, seg: Segment, scene: Scene, scale: flo
         if tr["valid"][0]:
             draw_robot(out, cff, k, tr["x"][0], tr["y"][0], tr["yaw"][0], half, GREEN, 2)
 
-    ms = data.meas_stamp_ns
+    ms = data.meas_tag_clock_stamp_ns
     j = newest_measurement(ms, t_ns, 1e8)
     if j >= 0:
-        uv = project(cff, k, np.array([[data.meas_x[j], data.meas_y[j]]]))[0]
+        uv = project(cff, k, np.array([[data.meas_axle_up_x[j], data.meas_axle_up_y[j]]]))[0]
         if np.isfinite(uv).all():
             withheld = seg.start_ns <= ms[j] < gap_end
             if withheld:
@@ -480,7 +483,8 @@ def render_scene(scene: Scene) -> Path:
     encoder.stdin.close()
     encoder.wait()
     starts = ", ".join(
-        f"{s.gap_s:g} s at {(s.start_ns - data.meas_stamp_ns[0]) / 1e9:.1f} s" for s in segments
+        f"{s.gap_s:g} s at {(s.start_ns - data.meas_tag_clock_stamp_ns[0]) / 1e9:.1f} s"
+        for s in segments
     )
     print(f"{out_path}: {written} frames; dropouts {starts}")
     return out_path
