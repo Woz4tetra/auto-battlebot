@@ -12,9 +12,6 @@
 namespace auto_battlebot {
 namespace {
 
-// Per-mode terminal velocity: ATTACK drives through the opponent, RUN_AWAY arrives stopped at the
-// safe point. The mode rides on TargetSelection, stamped by ControlLoop::resolve_target.
-
 RobotDescriptionsStamped make_our_robot(double x, double y, double yaw, double vx = 0.0,
                                         bool is_stale = false) {
     RobotDescription robot;
@@ -88,8 +85,6 @@ class MotionProfileModeTest : public ::testing::Test {
 };
 
 TEST_F(MotionProfileModeTest, RunAwayCutsTheCommandInsideStopDistance) {
-    // Zero terminal velocity is a precise stop: at the safe point the robot holds, it does not
-    // creep through and give the ground back.
     auto nav = make_nav(config_);
     const VelocityCommand cmd =
         tick(*nav, config_.stop_distance_m * 0.5, BehaviorMode::RUN_AWAY, 1.0);
@@ -99,8 +94,6 @@ TEST_F(MotionProfileModeTest, RunAwayCutsTheCommandInsideStopDistance) {
 }
 
 TEST_F(MotionProfileModeTest, AttackKeepsDrivingInsideStopDistance) {
-    // Same geometry, opposite mission. Stopping short of the opponent is the failure mode the
-    // drive-through terminal velocity exists to prevent.
     auto nav = make_nav(config_);
     const VelocityCommand cmd =
         tick(*nav, config_.stop_distance_m * 0.5, BehaviorMode::ATTACK, 1.0);
@@ -109,8 +102,6 @@ TEST_F(MotionProfileModeTest, AttackKeepsDrivingInsideStopDistance) {
 }
 
 TEST_F(MotionProfileModeTest, AttackDoesNotBrakeWhereRunAwayDoes) {
-    // 0.3 m is inside the brake schedule for a zero terminal velocity (0.3 / 0.176 s = 1.7 m/s)
-    // but not for a full-speed one, which stays clamped at max_linear_speed_fwd.
     auto attack = make_nav(config_);
     auto run_away = make_nav(config_);
     const double distance = 0.3;
@@ -123,12 +114,6 @@ TEST_F(MotionProfileModeTest, AttackDoesNotBrakeWhereRunAwayDoes) {
 }
 
 TEST_F(MotionProfileModeTest, BrakeScheduleDoesNotSubtractALatencyLead) {
-    // The motion estimator already renders our robot at now + plant.delay_s, so the distance
-    // reaching the brake schedule is measured from where the robot will be when this command
-    // reaches the wheels. Subtracting v*delay_s again here double-counted that travel and braked
-    // early. With the speed feedback disabled the command is a pure function of the reference
-    // speed, so a robot barrelling in at 2 m/s must be commanded exactly like a stationary one at
-    // the same distance.
     config_.speed_kp = 0.0;
     config_.speed_ki = 0.0;
 
@@ -145,9 +130,6 @@ TEST_F(MotionProfileModeTest, BrakeScheduleDoesNotSubtractALatencyLead) {
 }
 
 TEST_F(MotionProfileModeTest, TerminalSpeedFractionScalesWithTheTopSpeed) {
-    // Half throttle at the goal has to mean half of whatever the fit says the drivetrain does, so
-    // a refit rescales the mission instead of leaving a hand-copied m/s stale. Checked by halving
-    // the top speed and asking for twice the fraction: the same arrival speed either way.
     MotionProfileNavigationConfiguration fast = config_;
     fast.attack_terminal_speed_fraction = 0.4;
     MotionProfileNavigationConfiguration slow = config_;
@@ -157,8 +139,6 @@ TEST_F(MotionProfileModeTest, TerminalSpeedFractionScalesWithTheTopSpeed) {
     ASSERT_DOUBLE_EQ(fast.attack_terminal_speed_fraction * fast.plant.k_fwd,
                      slow.attack_terminal_speed_fraction * slow.plant.k_fwd);
 
-    // Read through the command, which the halved top speed rescales by the same factor: the
-    // feedforward divides the reference speed by the plant's k_fwd.
     auto fast_nav = make_nav(fast);
     auto slow_nav = make_nav(slow);
     const double fast_cmd = tick(*fast_nav, 0.1, BehaviorMode::ATTACK, 1.0).linear_x;
@@ -168,9 +148,6 @@ TEST_F(MotionProfileModeTest, TerminalSpeedFractionScalesWithTheTopSpeed) {
 }
 
 TEST_F(MotionProfileModeTest, TerminalSpeedFractionIsClampedToTheUnitInterval) {
-    // Out-of-range fractions are nonsense rather than a request: above 1 the drivetrain has
-    // nothing left to give, and below 0 there is no reverse arrival to ask for, since the
-    // controller only ever drives toward the goal.
     MotionProfileNavigationConfiguration over = config_;
     over.attack_terminal_speed_fraction = 3.0;
     MotionProfileNavigationConfiguration full = config_;
@@ -224,13 +201,6 @@ TEST_F(MotionProfileModeTest, AttackTerminalSpeedFractionIsConfigurable) {
 }
 
 TEST_F(MotionProfileModeTest, ModeFlipResetsTheTrajectory) {
-    // A switch flip is a new mission: the goal jumps from the opponent to the safe point and the
-    // terminal speed changes with it. Observed through the turn latch, which holds a committed
-    // turn direction across the 180 deg sign flip and must not survive into the new mission.
-    //
-    // Both navs see the same two ticks. The robot faces +x with the target behind it, so the
-    // heading error is near 180 deg and the latch commits on tick 1. Tick 2 puts the target a
-    // hair to the other side, flipping the raw error's sign.
     auto held = make_nav(config_);
     auto flipped = make_nav(config_);
 
@@ -253,9 +223,7 @@ TEST_F(MotionProfileModeTest, ModeFlipResetsTheTrajectory) {
         make_our_robot(0.0, 0.0, 0.0), make_field(),
         make_target(std::cos(behind_right), std::sin(behind_right), BehaviorMode::RUN_AWAY));
 
-    // Still in the same mission, so the latch holds the left turn it committed to.
     EXPECT_GT(held_cmd.angular_z, 0.0);
-    // New mission, so the latch is clear and the turn follows the shortest way round again.
     EXPECT_LT(flipped_cmd.angular_z, 0.0);
 }
 

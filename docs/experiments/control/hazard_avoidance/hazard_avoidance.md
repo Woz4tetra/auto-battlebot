@@ -80,6 +80,8 @@ Two aim layers and one speed rule. The aim layers (1 and 4) plan against the fat
 `inflated_radius`; the velocity barrier (3) enforces speed against the thin `hard_radius`. The
 fixed reverse (2) survives only on PursuitNavigation, which has no plant fit for the barrier.
 
+The 2026-08-28 coast case, as reproduced by `HazardGeometryTest`: the angle gate holds linear at zero while the chassis carries 3 m/s toward a hazard. With a 0.4 m gap the bound is (0.4 - 3 * 0.05) / 0.2 = 1.25 m/s, the excess is 1.75, and the barrier commands full reverse through the zeroed channel. A v_ref-side brake cannot do this.
+
 This is the second design. The first shipped four layers -- goal legality, tangent, a steering
 speed cap, a stop-at-rim brake, plus the fixed reverse -- and the 2026-08-28 AER recording
 (auto window 21:03-21:04 EDT) showed the speed side losing anyway: 24.6% of the window inside a

@@ -66,8 +66,6 @@ double run_constant_velocity(KalmanMotionEstimator &estimator, FrameIdAssigner &
     return t;
 }
 
-/** Opponent-KF tests pin KALMAN explicitly: the config default is HOLD (opponent
- * prediction disabled), which would pin every opponent at its last measured pose. */
 KalmanMotionEstimatorConfiguration kalman_opponents_config() {
     KalmanMotionEstimatorConfiguration config;
     config.opponent_mode = OpponentMode::KALMAN;
@@ -77,8 +75,6 @@ KalmanMotionEstimatorConfiguration kalman_opponents_config() {
     return config;
 }
 
-/** Our-robot DEAD_RECKONING config with the plant the estimator now needs to give a normalized
- *  stick command a physical scale. Config loading requires the table in both modes. */
 KalmanMotionEstimatorConfiguration dead_reckoning_config() {
     KalmanMotionEstimatorConfiguration config;
     config.plant = mrs_buff_mk3_plant();
@@ -230,8 +226,6 @@ TEST(KalmanMotionEstimatorTest, LateMeasurementRetrodictsInsteadOfCorruptingTrac
     const double last_t =
         run_constant_velocity(estimator, assigner, field, context, 60, x, y, vx, 0.0);
 
-    // The control loop runs ahead of the camera: the track coasts to last_t + 50 ms, then a
-    // measurement stamped at last_t + 33 ms arrives.
     estimator.predict(last_t + 0.05, CommandFeedback{});
     estimator.coast(last_t + 0.05);
     const double measurement_t = last_t + kDt;
@@ -287,13 +281,9 @@ TEST(KalmanMotionEstimatorTest, OurRobotMatchesDeadReckoningEstimator) {
     }
 }
 
-/** The dead-reckoning arm scales the normalized stick command to body velocity with the fitted
- * gains. Before [plant] became the single source of physical scaling this factor came from
- * transmitter-local wheel geometry, which disagreed with the fit by 24% forward and 21% in yaw,
- * and every robot inherited Mrs Buff Mk3's numbers. */
 TEST(KalmanMotionEstimatorTest, OurRobotDeadReckoningScalesStickByPlantGains) {
     KalmanMotionEstimatorConfiguration config;
-    JigPlantParams plant;  // deliberately asymmetric and non-unit
+    JigPlantParams plant;
     plant.k_fwd = 4.0;
     plant.k_rev = 2.0;
     plant.k_ang = 10.0;
@@ -317,8 +307,6 @@ TEST(KalmanMotionEstimatorTest, OurRobotDeadReckoningScalesStickByPlantGains) {
     EXPECT_NEAR(outputs[0].pose.position.x, 0.5 * 4.0 * kDt, 1e-9);
 }
 
-/** Reverse stick selects k_rev, not k_fwd. A naive `k_fwd * u` gets every backward coast wrong,
- * and the fitted gains are asymmetric (4.88 forward vs 4.36 reverse on Mrs Buff Mk3). */
 TEST(KalmanMotionEstimatorTest, OurRobotDeadReckoningUsesReverseGainBackward) {
     KalmanMotionEstimatorConfiguration config;
     JigPlantParams plant;
@@ -364,7 +352,6 @@ TEST(KalmanMotionEstimatorTest, OurRobotDropsAfterHoldWindow) {
     EXPECT_TRUE(outputs.empty());
 }
 
-/** Stage A fit (plant_stageA.toml, 2026-08-23), same values as the config chain carries. */
 JigPlantParams stage_a_params() {
     JigPlantParams params;
     params.dz_lin_fwd = 0.0109768;
@@ -431,7 +418,6 @@ TEST(KalmanMotionEstimatorTest, OurRobotEkfTracksPlantTruthThroughDropout) {
     const FieldDescription field = make_field();
     const MotionEstimatorContext context;
 
-    // A gentle arc: v about 1.3 m/s, w about 0.95 rad/s under the stage A gains.
     const VelocityCommand command{0.3, 0.0, 0.05};
     PlantState truth;
     std::vector<TimedCommand> truth_history;
@@ -551,8 +537,6 @@ double yaw_of(const RobotDescription &description) { return pose_to_pose2d(descr
 
 double angle_error(double a, double b) { return std::remainder(a - b, 2.0 * M_PI); }
 
-/** Truth for the heading tests: straight-line translation and an independent constant yaw rate,
- * which is exactly the filter's model. */
 struct TurningTruth {
     double x = 1.0;
     double y = 2.0;
@@ -680,8 +664,6 @@ TEST(KalmanMotionEstimatorTest, OpponentHeadingAfterLongDropoutIsNotCalledAFlip)
     truth.omega = 0.0;
     double t = run_turning(estimator, assigner, field, context, 40, truth);
 
-    // A second unseen: the heading prior is wider than the flip test, so a measurement 120
-    // degrees off is a turn the track missed, and the very first one is taken.
     for (double offset = 0.004; offset <= 1.0; offset += 0.004) estimator.coast(t + offset);
     t += 1.0;
     truth.step(1.0);

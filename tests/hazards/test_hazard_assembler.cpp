@@ -1,6 +1,3 @@
-// The assembler is where inflation happens, once, and where the two hazard sources get their
-// deliberately different decay: config geometry never expires, a neutral track is held past
-// going stale and then dropped.
 
 #include <gtest/gtest.h>
 
@@ -72,15 +69,11 @@ TEST(HazardAssemblerTest, StaticHazardIsInflatedOnceByOurSizePlusMargin) {
     EXPECT_NEAR(field.hazards[0].center.y, -0.2, 1e-9);
     EXPECT_NEAR(field.hazards[0].inflated_radius_m, 0.25 + expected_half_diagonal(0.3, 0.2) + 0.10,
                 1e-9);
-    // The loss boundary carries only the small hard margin: steering plans around the fat disc,
-    // the velocity barrier gets strict at the thin one.
     EXPECT_NEAR(field.hazards[0].hard_radius, 0.25 + expected_half_diagonal(0.3, 0.2) + 0.02, 1e-9);
     EXPECT_LT(field.hazards[0].hard_radius, field.hazards[0].inflated_radius_m);
 }
 
 TEST(HazardAssemblerTest, OurSizeFallsBackRatherThanShrinkingOnADropout) {
-    // Without a fallback, a frame with no our-robot track would briefly shrink every keep-out
-    // disc, which is the wrong direction to be wrong in.
     Fixture fixture;
     HazardAssembler assembler(fixture.config, {StaticHazardConfig{HazardKind::HOLE, 0.0, 0.0, 0.2}},
                               fixture.clock);
@@ -130,8 +123,6 @@ TEST(HazardAssemblerTest, TrackedHazardSitsOnTheFootprintCentre) {
 }
 
 TEST(HazardAssemblerTest, OpponentsAreNotHazards) {
-    // Opponents are what the solver already avoids as point sites. Turning them into keep-out
-    // discs here would double-count them and make the field unreachable.
     Fixture fixture;
     HazardAssembler assembler(fixture.config, {}, fixture.clock);
 
@@ -146,9 +137,6 @@ TEST(HazardAssemblerTest, OpponentsAreNotHazards) {
 }
 
 TEST(HazardAssemblerTest, StaleNeutralTrackIsHeldThenDropped) {
-    // Forgetting a hazard is worse than holding a slightly wrong one, so the disc outlives the
-    // track -- but only for the configured window, or a house bot that left the arena would keep
-    // a chunk of the field fenced off for the rest of the match.
     Fixture fixture;
     fixture.config.tracked_hold_s = 0.5;
     HazardAssembler assembler(fixture.config, {}, fixture.clock);
@@ -171,8 +159,6 @@ TEST(HazardAssemblerTest, StaleNeutralTrackIsHeldThenDropped) {
 }
 
 TEST(HazardAssemblerTest, ADetectorOutageDoesNotDeleteTheStaticHole) {
-    // The hole does not move during a match, so config is the source of truth for it. This is
-    // the asymmetry between the two sources, stated as a test.
     Fixture fixture;
     fixture.config.tracked_hold_s = 0.1;
     HazardAssembler assembler(fixture.config, {StaticHazardConfig{HazardKind::HOLE, 0.0, 0.0, 0.2}},
@@ -222,8 +208,6 @@ radius = 0.18
 }
 
 TEST(HazardConfigTest, AMissingFileIsAnErrorNotAnEmptyList) {
-    // A path typo must not silently remove the hole from the controller's model while the sim
-    // still has one in the floor.
     EXPECT_THROW(load_static_hazards("/nonexistent/hazards.toml"), ConfigValidationError);
 }
 
@@ -247,7 +231,6 @@ TEST(HazardConfigTest, AnUnknownKindNamesTheValidValues) {
 }
 
 TEST(HazardConfigTest, RobotIsNotAFileKind) {
-    // ROBOT marks live tracks; a file that claims one is a typo or a misunderstanding.
     const std::string path = write_temp_hazards(
         "[[hazards]]\nkind = \"robot\"\ncenter = [0, 0]\nradius = 0.2\n", "hazards_robot_kind");
     EXPECT_THROW(load_static_hazards(path), ConfigValidationError);

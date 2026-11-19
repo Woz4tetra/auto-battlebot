@@ -36,3 +36,35 @@ Only the last-ditch reverse is wired into `PursuitNavigation`. The velocity barr
 ## Reverse backstop
 
 The wall reverse overrides `linear_x` to reverse within a distance (m) of a hazard edge when the heading also points at it. 0 disables it. It is a stopping response, and the numbers say it fires too late to save a full-speed approach. It is a backstop for what the steering layer cannot solve, mainly a hazard that appears close because the house bot drove into our path or its track initialised late. If a sweep shows it firing often, that is evidence the steering layer and the velocity barrier are mistuned, not evidence the backstop is working.
+
+## Hazard sources and decay
+
+The assembler is the one place inflation happens. The two hazard sources decay differently on purpose.
+
+- Config geometry (the hole) never expires. The hole does not move during a match, so config is the source of truth for it. A path typo in the hazards file throws instead of loading nothing, because a silent miss would drop the hole from the controller's model while the sim still has one in the floor.
+- A neutral track is held past going stale and then dropped. Forgetting a hazard is worse than holding a slightly wrong one, so the disc outlives the track. The hold is bounded by the configured window: an unbounded hold would fence off a chunk of the field for the rest of the match after a house bot leaves the arena.
+- A file entry cannot claim kind `ROBOT`. That kind is reserved for live tracks, so a file that claims it is a typo or a misunderstanding.
+- Opponents are not hazards. The solver already avoids them as point sites, and keep-out discs for them would double-count them and make the field unreachable.
+- The loss boundary (`hard_radius`) carries only the small hard margin, so steering plans around the fat disc while the velocity barrier gets strict at the thin one.
+- Our robot's footprint radius has a fallback. Without one, a frame with no our-robot track would briefly shrink every keep-out disc, which errs in the unsafe direction.
+
+## Goal push-out and tangent waypoint edge cases
+
+- A goal dead centre in a disc has no radial direction. Any push-out direction is acceptable, but it must be the same one every tick or the goal jitters.
+- Push-out clamps to the field. Without the clamp, a hazard hugging a wall would push the goal out of the arena.
+- Overlapping discs can bounce a point back and forth. The push-out gives up after an iteration cap instead of looping, so the guarantee is that it terminates and stays inside the field.
+- A gap too narrow to thread is blocked by the other hazard whichever side is chosen. The iteration cap ends the search and the returned waypoint is finite.
+- The pass side latches so the robot does not cut back across a hazard it is already rounding. The latch wins over a cheaper side on a later approach.
+- Inside the circle the waypoint exits outward from the robot's current position (a robot at +0.3 exits at +1.0), not through the far side of the disc.
+- The waypoint reacts to where a hazard will be over the prediction horizon, not where it is now. A house bot crossing the path is currently clear but moving in, and aiming at its current position aims at where it was.
+
+## Velocity barrier envelope
+
+Per hazard, the approach bound is `(gap - max(v_approach, 0) * delay) / horizon`, and the command constraint is `u * k * toward <= bound`, with `k` the plant gain for the commanded direction. Properties:
+
+- A command near a hazard never asks for a speed the remaining gap cannot absorb, which keeps wheels from spinning up during a blocked push. Example with `k_fwd = 5`, horizon 0.2 s, delay 0.05 s: a stationary robot 0.4 m away has bound 2 m/s, so full thrust clips to 0.4.
+- Excess recovery opposes the approach, not the robot's forward axis. With the rear toward the hazard and the robot sliding into it, recovery lands as full forward drive, away from it. A literal reverse would back the robot into the hole.
+- The projection is on the approach component, so tangent motion has zero approach and rounding a hazard at speed is free. The old brake's on/off across-gate sat on that boundary and chattered. The projection is continuous.
+- Inside a hazard ahead and one behind, the forward limit demands reverse and the rear limit demands forward. No command satisfies both, so the barrier splits the violation, which comes out as a stop.
+- Pursuit builds the shared settings without a plant fit, so speeds are zero. The barrier is a pass-through there instead of dividing by zero.
+- The barrier has an enable switch so a baseline sweep can measure the failure mode with it off.

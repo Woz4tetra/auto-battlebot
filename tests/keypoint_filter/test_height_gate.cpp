@@ -10,12 +10,6 @@
 
 namespace auto_battlebot {
 
-/**
- * The field transform puts the plane 3 m down the optical axis with the field z axis flipped, so
- * the camera sits 3 m above it. The plane normal ends up parallel to the optical axis, which makes
- * a keypoint's height exactly (3.0 - depth) at every pixel and keeps the arithmetic in these tests
- * obvious.
- */
 class KeypointHeightGateTest : public ::testing::Test {
    protected:
     static constexpr double kCameraHeight = 3.0;
@@ -51,9 +45,6 @@ class KeypointHeightGateTest : public ::testing::Test {
         field_.tf_camera_from_fieldcenter.tf = tf;
     }
 
-    /** A front/back pair sharing one detection_index, plus the box they came from, as the blob
-     *  model emits them. The box is the keypoints' bounding rectangle inflated by `pad`, so its
-     *  inscribed circle covers the midline the way a real detection box covers a robot. */
     static ModelResultStamped make_pair(double x_a, double y_a, double x_b, double y_b,
                                         double pad = 20.0) {
         ModelResultStamped keypoints;
@@ -105,8 +96,6 @@ TEST_F(KeypointHeightGateTest, RejectsDetectionFlatOnTheField) {
 }
 
 TEST_F(KeypointHeightGateTest, RejectsAFlatDetectionOnARaisedFloor) {
-    // The point of measuring relief instead of absolute height: if the fitted plane has drifted,
-    // or the whole area sits above it, a flat graphic there is still flat and must still go.
     KeypointHeightGate gate(config_);
     DepthImage depth = make_floor();
     depth.image.setTo(kCameraHeight - 0.08);  // everything 80 mm "above" the plane
@@ -136,8 +125,6 @@ TEST_F(KeypointHeightGateTest, KeepsRobotStandingProudOfTheField) {
 }
 
 TEST_F(KeypointHeightGateTest, RejectsDetectionAboveTheBand) {
-    // A metre off the floor is a wall or a person leaning in, not a robot. Relief alone would
-    // welcome it, so the ceiling is judged on absolute height above the plane.
     KeypointHeightGate gate(config_);
     DepthImage depth = make_floor();
     raise_disc(depth, 320, 240, 35, 1.0);
@@ -150,7 +137,6 @@ TEST_F(KeypointHeightGateTest, RejectsDetectionAboveTheBand) {
 }
 
 TEST_F(KeypointHeightGateTest, AbstainsWithoutDepth) {
-    // A dropped depth frame must never blind the pipeline.
     KeypointHeightGate gate(config_);
     const auto input = make_pair(300.0, 240.0, 340.0, 240.0);
     const auto result = gate.filter(input, DepthImage{}, camera_info_, field_);
@@ -227,16 +213,12 @@ TEST_F(KeypointHeightGateTest, RejectionDisabledPassesEverythingButStillMeasures
 }
 
 TEST_F(KeypointHeightGateTest, MeasuresHeightInsideTheBoxNotAtTheKeypoints) {
-    // The real failure this gate had to solve: blob keypoints sit at the ends of a box midline,
-    // which land on the floor beside a robot. Floor everywhere except a raised disc over the box
-    // centre. Sampling at the keypoints reads 0; sampling the inscribed circle reads the robot.
     config_.reject_enable = true;
     KeypointHeightGate gate(config_);
 
     DepthImage depth = make_floor();
     raise_disc(depth, 320, 240, 10, 0.05);
 
-    // Keypoints at the box's midline ends, both over bare floor.
     const auto result =
         gate.filter(make_pair(280.0, 240.0, 360.0, 240.0, 8.0), depth, camera_info_, field_);
 
@@ -245,7 +227,6 @@ TEST_F(KeypointHeightGateTest, MeasuresHeightInsideTheBoxNotAtTheKeypoints) {
 }
 
 TEST_F(KeypointHeightGateTest, AbstainsWithoutABox) {
-    // A model that produces no boxes cannot be gated, only annotated.
     config_.reject_enable = true;
     KeypointHeightGate gate(config_);
     auto input = make_pair(300.0, 240.0, 340.0, 240.0);
@@ -262,9 +243,6 @@ TEST_F(KeypointHeightGateTest, AbstainsWithoutABox) {
 }
 
 TEST_F(KeypointHeightGateTest, GroupsAreKeptOrDroppedWhole) {
-    // One keypoint of the pair sits over a hole in the depth map. The group still measures fine
-    // from its other member, and both keypoints survive carrying the group height, because a
-    // half-dropped front/back pair is useless downstream.
     KeypointHeightGate gate(config_);
     DepthImage depth = make_floor();
     raise_disc(depth, 320, 240, 35, 0.05);

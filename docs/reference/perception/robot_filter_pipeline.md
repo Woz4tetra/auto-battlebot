@@ -142,6 +142,25 @@ Keypoint heights correct the radial bias of flat-plane projection. Heights are p
 
 The Runner keeps the mask model running for 60 frames (one second at 60 Hz) on a field-filter request. That is long enough for a fiducial board to accumulate and short enough that a request with no board in frame stops running the mask model.
 
+## Height gate
+
+The gate measures relief (the median height of the box's inscribed circle over the median of a surrounding ring), plus a ceiling on absolute height above the fitted plane.
+
+- Relief, not absolute height, decides flatness: if the fitted plane has drifted or the whole area sits above it, a flat graphic there is still flat and goes.
+- The ceiling uses absolute height because relief alone admits walls and people. A metre off the floor is not a robot.
+- Blob keypoints sit at the ends of the box midline, which land on the floor beside a robot. Sampling the inscribed circle reads the robot where sampling at the keypoints reads the floor.
+- A missing depth frame abstains instead of dropping detections, so a dropped frame never blinds the pipeline. A model that produces no boxes cannot be gated, only annotated.
+- A group survives whole. One keypoint over a hole in the depth map still measures from its partner, and both keep the group height, because a half-dropped front/back pair is useless downstream.
+- Test fixture: the field transform puts the plane 3 m down the optical axis with the normal parallel to it, so keypoint height is exactly `3.0 - depth` at every pixel. Fixture boxes are the keypoint bounding rectangle inflated by a pad so the inscribed circle covers the midline like a real detection box.
+
+## Opponent filter test scenarios
+
+- The opponent Kalman arm is pinned explicitly in tests because the config default is HOLD, which pins every opponent at its last measured pose.
+- The control loop runs ahead of the camera: a track coasts to last_t + 50 ms, then a measurement stamped at last_t + 33 ms arrives. This is the rewind case.
+- After a 1 s unseen stretch the heading prior is wider than the flip test, so a measurement 120 degrees off is a turn the track missed, and the first one is taken.
+- Heading tests use straight-line translation with an independent constant yaw rate, which is exactly the filter's model, so tolerances can be tight.
+- The our-robot arc test command (v about 1.3 m/s, w about 0.95 rad/s under the Stage A gains) is a gentle arc.
+
 ## Notes moved from `src/` comments (2026-11-15)
 
 Each entry names the file and the code it described.

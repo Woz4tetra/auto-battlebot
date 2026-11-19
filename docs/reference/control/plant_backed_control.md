@@ -234,6 +234,23 @@ The droop term reads the linear command and the steer-brake term reads the turn 
 
 `max_motor_rpm_per_sec` slew-limits the linear command so wheel surface acceleration stays below the slip and flip threshold. The measured limit is 8.5 m/s^2, which is 8.5 * 60 / (pi * 0.05) = about 3247 RPM/s for the 0.05 m wheel radius. 0 disables it, the default: no profile limits, so the plant is characterized and the RL policy trained without one.
 
+## Per-mode terminal velocity
+
+- The mode rides on `TargetSelection`, stamped by `ControlLoop::resolve_target`.
+- Zero terminal velocity is a precise stop: at the safe point the robot holds instead of creeping through and giving the ground back. Stopping short of the opponent is the failure the ATTACK drive-through terminal velocity prevents.
+- The brake schedule for a zero terminal velocity binds at 0.3 m (0.3 / 0.176 s = 1.7 m/s). A full-speed terminal velocity stays clamped at `max_linear_speed_fwd` there.
+- With speed feedback disabled the command is a pure function of the reference speed, so a robot arriving at 2 m/s is commanded exactly like a stationary one at the same distance. This is how `BrakeScheduleDoesNotSubtractALatencyLead` observes the estimator's render lead.
+- The fraction is of the fit, so half throttle at the goal means half of whatever `k_fwd` says. Halving `k_fwd` and doubling the fraction gives the same arrival speed.
+- Fractions outside [0, 1] are clamped: above 1 the drivetrain has nothing left, and below 0 there is no reverse arrival because the controller only drives toward the goal.
+- A mode flip is a new mission, so the turn latch clears with it. The latch holds a committed turn across the 180 degree sign flip within a mission, and must not survive into the next one.
+
+## Dead-reckoning gains
+
+- Config loading requires the `[plant]` table in both our-robot modes, so the dead-reckoning arm gets a physical scale for a normalized stick command from the fit.
+- Before `[plant]` was the single source of physical scaling, the factor came from transmitter-local wheel geometry. It disagreed with the fit by 24% forward and 21% in yaw, and every robot inherited Mrs Buff Mk3's numbers.
+- Reverse stick selects `k_rev`, not `k_fwd`. The Mrs Buff Mk3 fit is asymmetric (4.88 forward, 4.36 reverse), so `k_fwd * u` gets every backward coast wrong.
+- `KalmanMotionEstimatorTest` uses the Stage A fit (`plant_stageA.toml`, 2026-08-23), the same values the config chain carries, with asymmetric non-unit gains so a unit-gain or `k_fwd`-for-reverse bug fails.
+
 ## Notes moved from `src/` comments (2026-11-15)
 
 Each entry names the file and the code it described.

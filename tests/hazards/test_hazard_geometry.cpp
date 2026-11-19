@@ -26,8 +26,6 @@ FieldHazard hazard(double x, double y, double radius, HazardSource source = Haza
     h.center.x = x;
     h.center.y = y;
     h.inflated_radius_m = radius;
-    // The barrier tests below reason about one radius, so the hard radius matches the keep-out
-    // here; the assembler tests cover the two radii differing.
     h.hard_radius = radius;
     h.source = source;
     h.velocity.vx = vx;
@@ -57,8 +55,6 @@ TEST(HazardGeometryTest, PushOutMovesToTheNearestBoundaryPoint) {
 }
 
 TEST(HazardGeometryTest, PushOutFromDeadCentreIsDeterministic) {
-    // No radial direction exists here. Any answer is as good as any other, but it has to be the
-    // same answer every tick or the goal jitters.
     const std::vector<FieldHazard> hazards = {hazard(0.0, 0.0, 0.3)};
     const Pose2D first = push_out_of_hazards(pose(0.0, 0.0), hazards, 1.2, 1.2);
     const Pose2D second = push_out_of_hazards(pose(0.0, 0.0), hazards, 1.2, 1.2);
@@ -68,7 +64,6 @@ TEST(HazardGeometryTest, PushOutFromDeadCentreIsDeterministic) {
 }
 
 TEST(HazardGeometryTest, PushOutClampsBackInsideTheField) {
-    // A hazard hugging a wall would otherwise push the goal out of the arena entirely.
     const std::vector<FieldHazard> hazards = {hazard(1.15, 0.0, 0.4)};
     const Pose2D result = push_out_of_hazards(pose(1.2, 0.0), hazards, 1.1, 1.1);
     EXPECT_LE(result.x, 1.1 + kTol);
@@ -76,8 +71,6 @@ TEST(HazardGeometryTest, PushOutClampsBackInsideTheField) {
 }
 
 TEST(HazardGeometryTest, PushOutSettlesBetweenOverlappingDiscs) {
-    // Two overlapping discs can bounce a point back and forth. The routine gives up rather than
-    // looping; what matters is that it terminates and stays inside the field.
     const std::vector<FieldHazard> hazards = {hazard(-0.2, 0.0, 0.35), hazard(0.2, 0.0, 0.35)};
     const Pose2D result = push_out_of_hazards(pose(0.0, 0.0), hazards, 1.1, 1.1);
     EXPECT_TRUE(std::isfinite(result.x));
@@ -99,8 +92,6 @@ TEST(HazardGeometryTest, BlockedRunFindsTheNearestBlockerFirst) {
 }
 
 TEST(HazardGeometryTest, TrackedHazardIsTestedWhereItWillBe) {
-    // Currently clear, but moving into the path. Reacting to where it is now aims at where it was:
-    // this is the house-bot-crossing case the prediction horizon exists for.
     const std::vector<FieldHazard> tracked = {
         hazard(0.0, 0.6, 0.2, HazardSource::TRACKED, 0.0, -2.0)};
     EXPECT_FALSE(first_blocking_hazard(pose(-1.0, 0.0), pose(1.0, 0.0), tracked, 0.0).has_value());
@@ -136,7 +127,6 @@ TEST(HazardGeometryTest, TangentSideFollowsTheCheaperHeadingChange) {
 }
 
 TEST(HazardGeometryTest, CommittedSideOverridesTheCheaperChoice) {
-    // The latch is what stops the robot cutting back across a hazard it was already rounding.
     const TangentWaypoint latched =
         tangent_waypoint(pose(0.0, 0.0), pose(2.0, 0.0), 1.0, -20.0 * M_PI / 180.0, 1);
     EXPECT_EQ(latched.side, 1);
@@ -146,8 +136,6 @@ TEST(HazardGeometryTest, CommittedSideOverridesTheCheaperChoice) {
 TEST(HazardGeometryTest, InsideTheCircleTheWaypointPointsStraightOut) {
     const TangentWaypoint waypoint = tangent_waypoint(pose(0.3, 0.0), pose(0.0, 0.0), 1.0, 0.0, 0);
     EXPECT_TRUE(waypoint.inside);
-    // Outward from where the robot already is: it sits at +0.3, so the exit is at +1.0, not the
-    // far side of the disc.
     EXPECT_NEAR(waypoint.point.x, 1.0, kTol);
     EXPECT_NEAR(waypoint.point.y, 0.0, kTol);
 }
@@ -183,8 +171,6 @@ TEST(HazardAvoidanceTest, SideStaysLatchedWhileRoundingTheSameHazard) {
     avoidance.steer_around(pose(-1.0, 0.0, 0.0), pose(1.0, 0.0), field);
     const int first = avoidance.committed_side();
     ASSERT_NE(first, 0);
-    // Approach again from a heading that would now prefer the other side. The latch has to win,
-    // or the robot cuts back across the hazard it was already rounding.
     for (int i = 0; i < 5; ++i) {
         avoidance.steer_around(pose(-0.6, 0.05, -0.6), pose(1.0, 0.0), field);
     }
@@ -192,8 +178,6 @@ TEST(HazardAvoidanceTest, SideStaysLatchedWhileRoundingTheSameHazard) {
 }
 
 TEST(HazardAvoidanceTest, BothSidesBlockedStillTerminatesWithAFiniteWaypoint) {
-    // A gap too narrow to thread: whichever side is chosen, the other hazard blocks it. The
-    // iteration cap has to end the search rather than loop, and the answer has to be usable.
     HazardAvoidance avoidance(default_settings());
     const FieldDescription field = field_with({hazard(0.0, 0.35, 0.4), hazard(0.0, -0.35, 0.4)});
     const Pose2D steered = avoidance.steer_around(pose(-1.0, 0.0, 0.0), pose(1.0, 0.0), field);
@@ -271,12 +255,6 @@ TEST(HazardAvoidanceTest, NoHazardsIsAPassThrough) {
     EXPECT_FALSE(avoidance.apply_reverse(pose(0.0, 0.0, 0.0), field, command));
 }
 
-// --- the velocity barrier --------------------------------------------------------------------
-//
-// Round-number plant so every bound is hand-checkable: k_fwd = 5, k_rev = 4, horizon = 0.2 s,
-// delay = 0.05 s. The envelope is bound = (gap - max(v_approach, 0) * delay) / horizon, and the
-// command constraint is u * k * toward <= bound per hazard.
-
 HazardAvoidanceSettings barrier_settings() {
     HazardAvoidanceSettings settings;
     settings.prediction_horizon_s = 0.0;
@@ -299,9 +277,6 @@ TEST(HazardBarrierTest, FarHazardLeavesTheCommandAlone) {
 }
 
 TEST(HazardBarrierTest, NearHazardTapersThrustWithTheGap) {
-    // Gap 0.4 m, stationary: bound 2 m/s, so full thrust clips to 2/5 = 0.4. This is what keeps
-    // wheels from spinning up during a blocked push: the command near a hazard can never ask for
-    // a speed the remaining gap cannot absorb.
     HazardAvoidance avoidance(barrier_settings());
     const FieldDescription field = field_with({hazard(0.8, 0.0, 0.4)});
     VelocityCommand cmd{1.0, 0.0, 0.0};
@@ -313,9 +288,6 @@ TEST(HazardBarrierTest, NearHazardTapersThrustWithTheGap) {
 }
 
 TEST(HazardBarrierTest, MeasuredExcessCommandsReverseThroughAZeroCommand) {
-    // The 2026-08-28 coast: angle gate holds linear at zero while the chassis carries 3 m/s at a
-    // hazard. Bound (0.4 - 3*0.05)/0.2 = 1.25, excess 1.75, so the barrier commands full reverse
-    // through the zeroed channel. A v_ref-side brake can never do this.
     HazardAvoidance avoidance(barrier_settings());
     const FieldDescription field = field_with({hazard(0.8, 0.0, 0.4)});
     VelocityCommand cmd{0.0, 0.0, 0.0};
@@ -351,10 +323,6 @@ TEST(HazardBarrierTest, ReverseTowardAHazardBehindIsLimited) {
 }
 
 TEST(HazardBarrierTest, SlidingRearFirstAtAHazardCommandsForwardNotReverse) {
-    // The excess recovery opposes the APPROACH, not the robot's forward axis. Rear toward the
-    // hazard (toward = -1) and sliding into it at 3 m/s: v_approach = 3, bound
-    // (0.3 - 3*0.05)/0.2 = 0.75, excess 2.25, and the recovery lands on u_min as full FORWARD
-    // drive, away. A literal reverse here would back the robot into the hole.
     HazardAvoidance avoidance(barrier_settings());
     const FieldDescription field = field_with({hazard(-0.7, 0.0, 0.4)});
     VelocityCommand cmd{0.0, 0.0, 0.0};
@@ -365,9 +333,6 @@ TEST(HazardBarrierTest, SlidingRearFirstAtAHazardCommandsForwardNotReverse) {
 }
 
 TEST(HazardBarrierTest, SqueezedBetweenOverlappingHazardsStops) {
-    // Inside both a hazard ahead and one behind: the forward limit demands reverse and the rear
-    // limit demands forward. No command satisfies both, so the barrier splits the violation,
-    // which here is a stop -- not a dive into either.
     HazardAvoidance avoidance(barrier_settings());
     const FieldDescription field = field_with({hazard(0.2, 0.0, 0.4), hazard(-0.2, 0.0, 0.4)});
     VelocityCommand cmd{1.0, 0.0, 0.0};
@@ -377,9 +342,6 @@ TEST(HazardBarrierTest, SqueezedBetweenOverlappingHazardsStops) {
 }
 
 TEST(HazardBarrierTest, PassingAbeamCostsNothing) {
-    // Tangent motion has zero approach component, so rounding a hazard at speed is free. The old
-    // brake's on/off across-gate sat exactly on this boundary and chattered; the projection makes
-    // it continuous.
     HazardAvoidance avoidance(barrier_settings());
     const FieldDescription field = field_with({hazard(0.0, 0.45, 0.4)});
     VelocityCommand cmd{1.0, 0.0, 0.0};
@@ -389,8 +351,6 @@ TEST(HazardBarrierTest, PassingAbeamCostsNothing) {
 }
 
 TEST(HazardBarrierTest, NoPlantFitMeansNoBarrier) {
-    // Pursuit constructs the shared settings without a fit: speeds stay zero and the barrier
-    // must be a pass-through, not a division by zero.
     HazardAvoidanceSettings settings;
     settings.prediction_horizon_s = 0.0;
     HazardAvoidance avoidance(settings);
@@ -401,8 +361,6 @@ TEST(HazardBarrierTest, NoPlantFitMeansNoBarrier) {
 }
 
 TEST(HazardBarrierTest, DisabledIsAPassThrough) {
-    // The baseline sweep measures the failure mode with the barrier off; the switch has to
-    // actually switch.
     HazardAvoidanceSettings settings = barrier_settings();
     settings.barrier_enable = false;
     HazardAvoidance avoidance(settings);
