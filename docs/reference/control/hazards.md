@@ -63,9 +63,9 @@ The assembler is the one place inflation happens. The two hazard sources decay d
 
 ## Goal push-out and tangent waypoint edge cases
 
-- A goal dead centre in a disc has no radial direction. Any push-out direction is acceptable, but it must be the same one every tick or the goal jitters.
+- A goal dead centre in a disc has no radial direction. Any push-out direction is acceptable, but it must be the same one every tick or the goal jitters. Push-out leaves along +x. The tangent waypoint for a robot dead centre in a disc (no radial direction either) sits one radius ahead along the current heading and leaves the rest to the reverse backstop.
 - Push-out clamps to the field. Without the clamp, a hazard hugging a wall would push the goal out of the arena. The caller passes the clamp bounds already reduced by the navigation's boundary margin, so the push-out clamp and the navigation's own clamp agree.
-- Overlapping discs can bounce a point back and forth. The push-out gives up after an iteration cap instead of looping, so the guarantee is that it terminates and stays inside the field.
+- Overlapping discs can bounce a point back and forth. The push-out gives up after an iteration cap (6 passes, enough to settle two or three overlapping discs; past that the goal is wedged and another pass will not free it) instead of looping, so the guarantee is that it terminates and stays inside the field.
 - A gap too narrow to thread is blocked by the other hazard whichever side is chosen. The iteration cap ends the search and the returned waypoint is finite.
 - The pass side latches so the robot does not cut back across a hazard it is already rounding. The latch wins over a cheaper side on a later approach.
 - Inside the circle the waypoint exits outward from the robot's current position (a robot at +0.3 exits at +1.0), not through the far side of the disc.

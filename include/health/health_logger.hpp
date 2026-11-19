@@ -13,6 +13,8 @@
 
 namespace auto_battlebot {
 
+std::optional<std::string> parse_nvpmodel_mode(const std::string& output);
+
 class HealthLogger {
    public:
     explicit HealthLogger(const HealthConfiguration& config);

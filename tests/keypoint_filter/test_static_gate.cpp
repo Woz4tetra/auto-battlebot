@@ -196,6 +196,7 @@ TEST_F(StaticDetectionGateTest, DisabledGatePassesEverything) {
 TEST_F(StaticDetectionGateTest, PassesEverythingWithoutAFieldTransform) {
     StaticDetectionGate gate(config_);
     FieldDescription empty_field;
+    empty_field.tf_camera_from_fieldcenter.tf = Eigen::Matrix4d::Zero();
 
     for (int i = 0; i < 30; ++i) {
         const double stamp = 0.1 * i;

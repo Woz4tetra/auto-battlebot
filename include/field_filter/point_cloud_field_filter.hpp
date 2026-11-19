@@ -15,6 +15,8 @@
 #include "transform_utils.hpp"
 
 namespace auto_battlebot {
+
+Eigen::Vector3f plane_normal_from_coefficients(const Eigen::Vector4f &coefficients);
 class PointCloudFieldFilter : public FieldFilterInterface {
    public:
     explicit PointCloudFieldFilter(PointCloudFieldFilterConfiguration &config);
@@ -46,8 +48,6 @@ class PointCloudFieldFilter : public FieldFilterInterface {
     Eigen::Vector4f fit_plane_ransac(const pcl::PointCloud<pcl::PointXYZ>::Ptr &cloud,
                                      double distance_threshold = 0.01,
                                      std::vector<int> *inliers = nullptr) const;
-
-    Eigen::Vector3f plane_normal_from_coefficients(const Eigen::Vector4f &coefficients) const;
 
     Eigen::Vector3f plane_center_from_inliers(
         const pcl::PointCloud<pcl::PointXYZ>::Ptr &inlier_cloud) const;

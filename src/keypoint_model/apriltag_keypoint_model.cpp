@@ -124,7 +124,6 @@ TagMount make_tag_mount(const AprilTagMountConfiguration &config, double rest_pi
         cv::Vec3d(config.translation_m[0], config.translation_m[1], config.translation_m[2]);
     const double tag_normal_body_z = mount.rotation_body_tag(2, 2);
     mount.printed_face_up_body_z = tag_normal_body_z > 0.0;
-    // Positive pitch about body y is nose down in FLU, which tips floor up toward body -x.
     mount.floor_up_body = mount.printed_face_up_body_z
                               ? cv::Vec3d(-std::sin(rest_pitch_rad), 0.0, std::cos(rest_pitch_rad))
                               : cv::Vec3d(0.0, 0.0, -1.0);
@@ -204,8 +203,6 @@ void FloorNormalEstimator::try_lock() {
                 std::max(rival_support, support(candidate, kSameFloorDirectionToleranceRad));
         }
     }
-    // A robot holding still repeats both solutions every frame, so both clusters are full and
-    // nothing says which is the floor. Wait for it to move.
     if (static_cast<double>(rival_support) > kMaxRivalSupport * frame_count) return;
 
     cv::Vec3d sum(0.0, 0.0, 0.0);

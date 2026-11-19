@@ -53,10 +53,6 @@ cv::Vec3d line_through(const cv::Point2d &first, const cv::Point2d &second) {
     return line;
 }
 
-/** Counter-clockwise from the corner with the smallest x + y.
- *
- * A consistent winding is what makes the recovered rotation reproducible; without it the yaw
- * jumps by multiples of 90 degrees frame to frame. */
 std::array<cv::Point2d, 4> order_corners(std::array<cv::Point2d, 4> corners) {
     cv::Point2d centre(0.0, 0.0);
     for (const auto &corner : corners) {
@@ -291,9 +287,6 @@ FieldOutline extract_field_outline(const cv::Mat &contour_mask, const FieldOutli
     outline.supported_sides =
         static_cast<int>(std::count(supported.begin(), supported.end(), true));
 
-    // Against the quad clipped to the image, not the whole quad. A clipped field puts corners
-    // off the sensor, so the raw quad is larger than anything the mask could ever fill and the
-    // ratio would read as a bad outline on exactly the case this filter is built to handle.
     std::vector<cv::Point2f> quad_f;
     quad_f.reserve(4);
     for (const auto &corner : quad) {

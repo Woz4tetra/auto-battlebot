@@ -17,10 +17,18 @@
 #include "spdlog/spdlog.h"
 
 namespace auto_battlebot {
+
+std::optional<std::string> parse_nvpmodel_mode(const std::string& output) {
+    const std::regex mode_regex(R"(NV Power Mode:\s*(\S+))");
+    std::smatch match;
+    if (std::regex_search(output, match, mode_regex) && match.size() >= 2) {
+        return match[1].str();
+    }
+    return std::nullopt;
+}
+
 namespace {
 constexpr double kTegrastatsCollectWarnMs = 200.0;
-// MCAPs and SVOs both stop opening new files once the disk is full, so warn well before that.
-constexpr double kDiskUsedWarnPercent = 90.0;
 constexpr double kBytesPerGb = 1024.0 * 1024.0 * 1024.0;
 
 bool is_regular_executable(const std::filesystem::path& path) {
@@ -606,14 +614,8 @@ void HealthLogger::collect_compute_mode() {
     if (!command_exists("nvpmodel")) return;
     std::string output;
     if (!run_command("nvpmodel -q 2>/dev/null", output)) return;
-    // Output is typically:
-    //   NV Power Mode: MAXN
-    //   0: MAXN
-    // Extract the mode name from the first "NV Power Mode: <NAME>" line.
-    const std::regex mode_regex(R"(NV Power Mode:\s*(\S+))");
-    std::smatch match;
-    if (std::regex_search(output, match, mode_regex) && match.size() >= 2) {
-        last_compute_mode_ = match[1].str();
+    if (const auto mode = parse_nvpmodel_mode(output)) {
+        last_compute_mode_ = *mode;
     }
 }
 
@@ -762,7 +764,7 @@ bool HealthLogger::collect_disk_usage() {
     data["used_gb"] = used_gb;
     data["free_gb"] = writable_gb;
     data["used_percent"] = used_percent;
-    if (used_percent >= kDiskUsedWarnPercent) {
+    if (used_percent >= config_.disk_used_warn_percent) {
         logger_->warning("disk", data, fmt::format("disk {:.0f}% full", used_percent));
     } else {
         logger_->debug("disk", data);

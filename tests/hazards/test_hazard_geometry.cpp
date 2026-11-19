@@ -60,7 +60,8 @@ TEST(HazardGeometryTest, PushOutFromDeadCentreIsDeterministic) {
     const Pose2D second = push_out_of_hazards(pose(0.0, 0.0), hazards, 1.2, 1.2);
     EXPECT_NEAR(first.x, second.x, kTol);
     EXPECT_NEAR(first.y, second.y, kTol);
-    EXPECT_NEAR(std::hypot(first.x, first.y), 0.3, kTol);
+    EXPECT_NEAR(first.x, 0.3, kTol) << "dead centre leaves along +x";
+    EXPECT_NEAR(first.y, 0.0, kTol);
 }
 
 TEST(HazardGeometryTest, PushOutClampsBackInsideTheField) {
@@ -140,6 +141,15 @@ TEST(HazardGeometryTest, InsideTheCircleTheWaypointPointsStraightOut) {
     EXPECT_TRUE(waypoint.inside);
     EXPECT_NEAR(waypoint.point.x, 1.0, kTol);
     EXPECT_NEAR(waypoint.point.y, 0.0, kTol);
+}
+
+TEST(HazardGeometryTest, DeadCentreHoldsHeading) {
+    const double heading = M_PI / 2.0;
+    const TangentWaypoint waypoint =
+        tangent_waypoint(pose(0.5, 0.5), pose(0.5, 0.5), 0.4, heading, PassSide::NONE);
+    EXPECT_TRUE(waypoint.inside);
+    EXPECT_NEAR(waypoint.point.x, 0.5, kTol);
+    EXPECT_NEAR(waypoint.point.y, 0.9, kTol) << "one radius ahead along the heading";
 }
 
 HazardAvoidanceSettings default_settings() {

@@ -54,6 +54,16 @@ double line_residual(const std::array<cv::Point2d, 4> &projected,
     }
     return count == 0 ? 0.0 : total / count;
 }
+
+void put_field_in_front_of_camera(Eigen::Vector3d &r1, Eigen::Vector3d &r2,
+                                  Eigen::Vector3d &translation) {
+    if (translation.z() < 0.0) {
+        r1 = -r1;
+        r2 = -r2;
+        translation = -translation;
+    }
+}
+
 }  // namespace
 
 bool intrinsics_to_eigen(const cv::Mat &intrinsics, Eigen::Matrix3d &out) {
@@ -118,11 +128,7 @@ FieldPoseResult pose_from_corners(const std::array<cv::Point2d, 4> &image_corner
     Eigen::Vector3d r1 = h.col(0) * scale;
     Eigen::Vector3d r2 = h.col(1) * scale;
     Eigen::Vector3d translation = h.col(2) * scale;
-    if (translation.z() < 0.0) {  // the field must sit in front of the camera
-        r1 = -r1;
-        r2 = -r2;
-        translation = -translation;
-    }
+    put_field_in_front_of_camera(r1, r2, translation);
 
     Eigen::Matrix3d raw = rotation_from_axes(r1, r2);
     Eigen::JacobiSVD<Eigen::Matrix3d> svd(raw, Eigen::ComputeFullU | Eigen::ComputeFullV);

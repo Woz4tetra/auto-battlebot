@@ -7,9 +7,7 @@
 namespace auto_battlebot {
 namespace {
 constexpr double kEps = 1e-9;
-/** Enough passes to settle two or three overlapping discs; past that the goal is wedged and
- *  another pass will not free it. */
-constexpr int kPushOutPasses = 6;
+constexpr int kMaxPushOutPasses = 6;
 
 double normalize_angle(double angle) {
     while (angle > M_PI) angle -= 2.0 * M_PI;
@@ -42,7 +40,7 @@ Pose2D predicted_center(const FieldHazard &hazard, double seconds) {
 Pose2D push_out_of_hazards(const Pose2D &pose, const std::vector<FieldHazard> &hazards,
                            double half_x, double half_y) {
     Pose2D result = pose;
-    for (int pass = 0; pass < kPushOutPasses; ++pass) {
+    for (int pass = 0; pass < kMaxPushOutPasses; ++pass) {
         bool moved = false;
         for (const auto &hazard : hazards) {
             double dx = result.x - hazard.center.x;
@@ -50,8 +48,6 @@ Pose2D push_out_of_hazards(const Pose2D &pose, const std::vector<FieldHazard> &h
             double distance = std::hypot(dx, dy);
             if (distance >= hazard.inflated_radius_m) continue;
             if (distance < kEps) {
-                // Dead centre: no radial direction to follow, so leave along +x. Any direction
-                // is equally good and picking one keeps the result deterministic.
                 dx = 1.0;
                 dy = 0.0;
                 distance = 1.0;
@@ -95,8 +91,6 @@ TangentWaypoint tangent_waypoint(const Pose2D &start, const Pose2D &center,
 
     TangentWaypoint waypoint;
     if (distance <= kEps) {
-        // Dead centre: no radial direction either. Hold the current heading and let the reverse
-        // backstop work; any choice here is arbitrary, so make it deterministic.
         waypoint.inside = true;
         waypoint.point.x = start.x + inflated_radius_m * std::cos(heading);
         waypoint.point.y = start.y + inflated_radius_m * std::sin(heading);

@@ -15,8 +15,6 @@ std::filesystem::path resolve(const std::string &value) {
     return get_project_root() / path;
 }
 
-// The file spells kinds in lowercase because simulation/hazards.py reads the same file and
-// checks the same words. ROBOT is not a file kind: it marks live tracked robots.
 HazardKind parse_kind(const std::string &text, const std::string &where) {
     const auto kind = magic_enum::enum_cast<HazardKind>(text, magic_enum::case_insensitive);
     if (!kind.has_value() || *kind == HazardKind::ROBOT) {

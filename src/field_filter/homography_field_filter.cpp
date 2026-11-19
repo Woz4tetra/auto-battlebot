@@ -57,8 +57,6 @@ std::shared_ptr<FieldDescriptionWithInlierPoints> HomographyFieldFilter::compute
         return failed;
     }
     if (outline.mask_over_quad_area > config_.max_quad_coverage) {
-        // Fail closed. A silent bad pose is the failure mode this design exists to avoid, and
-        // the residual cannot see this one: the fit matches whatever corners it is handed.
         report_rate_limited_failure(
             fmt::format("mask fills {:.2f} of its own quad (limit {:.2f}); the outline is not the "
                         "quadrilateral this fit assumes",

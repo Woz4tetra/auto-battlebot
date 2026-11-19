@@ -50,8 +50,6 @@ void HazardAssembler::assemble(const RobotDescriptionsStamped &robots, FieldDesc
         hazards.push_back(hazard);
     }
 
-    // Live neutral tracks refresh their held entry; stale ones keep the last live geometry until
-    // the hold window expires.
     std::vector<LastNeutralSighting> refreshed;
     for (const auto &robot : robots.descriptions) {
         if (robot.group != Group::NEUTRAL) continue;

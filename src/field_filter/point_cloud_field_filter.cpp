@@ -264,20 +264,16 @@ Eigen::Vector4f PointCloudFieldFilter::fit_plane_ransac(
     return coefficients;
 }
 
-Eigen::Vector3f PointCloudFieldFilter::plane_normal_from_coefficients(
-    const Eigen::Vector4f &coefficients) const {
+Eigen::Vector3f plane_normal_from_coefficients(const Eigen::Vector4f &coefficients) {
     Eigen::Vector3f normal(coefficients[0], coefficients[1], coefficients[2]);
 
     float magnitude = normal.norm();
     if (magnitude < 1e-6f) {
-        return Eigen::Vector3f(0.0f, 0.0f, -1.0f);
+        return Eigen::Vector3f(0.0f, 0.0f, 1.0f);
     }
 
     normal = normal / magnitude;
 
-    // Ensure normal points toward the camera (negative Z direction)
-    // RANSAC plane normals can point either way, so we flip if needed
-    // Camera looks down the +Z axis, so field normal should point back (-Z)
     if (normal.z() < 0.0f) {
         normal = -normal;
     }

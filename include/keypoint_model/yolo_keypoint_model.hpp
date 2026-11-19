@@ -1,10 +1,12 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <iomanip>
 #include <iostream>
 #include <magic_enum.hpp>
 #include <opencv2/opencv.hpp>
+#include <span>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -26,6 +28,17 @@
 
 namespace auto_battlebot {
 using DetectionRow = std::vector<float>;
+using BoxXyxy = std::array<float, 4>;
+
+struct PredictionMatrix {
+    std::span<const float> values;
+    int num_predictions = 0;
+    int num_features = 0;
+
+    float at(int prediction, int feature) const {
+        return values[static_cast<size_t>(prediction) * num_features + feature];
+    }
+};
 
 namespace detection_row {
 constexpr size_t kX1 = 0;
@@ -39,6 +52,8 @@ constexpr size_t kKeypointStride = 3;
 constexpr size_t kKeypointYOffset = 1;
 constexpr size_t kKeypointConfidenceOffset = 2;
 }  // namespace detection_row
+
+std::vector<BoundingBox> boxes_per_row(const std::vector<DetectionRow> &rows);
 
 class YoloKeypointModel : public KeypointModelInterface {
    public:
@@ -70,11 +85,11 @@ class YoloKeypointModel : public KeypointModelInterface {
     void record_raw_detections(const std::vector<DetectionRow> &keep, cv::Size original_image_size,
                                cv::Size input_image_size);
 
-    std::vector<int64_t> nms(const float *bboxes, const float *scores, int64_t ndets,
+    std::vector<int64_t> nms(std::span<const BoxXyxy> bboxes, std::span<const float> scores,
                              float iou_threshold);
-    std::vector<DetectionRow> non_max_suppression(const float *prediction, int num_features,
-                                                  int num_predictions, int num_keypoints,
-                                                  float conf_thres, float iou_thres, int max_det);
+    std::vector<DetectionRow> non_max_suppression(const PredictionMatrix &prediction,
+                                                  int num_keypoints, float conf_thres,
+                                                  float iou_thres, int max_det);
     void xywh2xyxy(float *boxes, int64_t n);
 
     Keypoint scale_keypoint(Keypoint output_keypoint, cv::Size original_image_size,

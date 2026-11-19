@@ -12,6 +12,7 @@ struct HealthConfiguration {
     bool tegrastats_enable = false;
     bool x86_tools_enable = false;
     int sample_period_ms = 5000;
+    double disk_used_warn_percent = 90.0;
 };
 
 HealthConfiguration load_health_from_toml(const toml::table& toml_data,

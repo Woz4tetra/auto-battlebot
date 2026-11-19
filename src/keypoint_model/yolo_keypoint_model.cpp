@@ -5,8 +5,23 @@
 #include <algorithm>
 #include <cmath>
 #include <span>
+#include <stdexcept>
 
 namespace auto_battlebot {
+std::vector<BoundingBox> boxes_per_row(const std::vector<DetectionRow> &rows) {
+    std::vector<BoundingBox> boxes;
+    boxes.reserve(rows.size());
+    for (const auto &row : rows) {
+        if (row.size() < 4) {
+            boxes.push_back(BoundingBox{});
+            continue;
+        }
+        boxes.push_back(BoundingBox{row[detection_row::kX1], row[detection_row::kY1],
+                                    row[detection_row::kX2], row[detection_row::kY2]});
+    }
+    return boxes;
+}
+
 YoloKeypointModel::YoloKeypointModel(YoloKeypointModelConfiguration &config,
                                      std::shared_ptr<EngineSelector> engine_selector)
     : threshold_(config.threshold),
@@ -91,18 +106,21 @@ ModelResultStamped YoloKeypointModel::update(RgbImage image,
                               image.image);
 }
 
-// NMS: bboxes is ndets x 4 (x1,y1,x2,y2), scores is ndets. Returns indices to keep.
-std::vector<int64_t> YoloKeypointModel::nms(const float *bboxes, const float *scores, int64_t ndets,
-                                            float iou_threshold) {
+std::vector<int64_t> YoloKeypointModel::nms(std::span<const BoxXyxy> bboxes,
+                                            std::span<const float> scores, float iou_threshold) {
+    const int64_t ndets = static_cast<int64_t>(bboxes.size());
+    if (scores.size() != bboxes.size()) {
+        throw std::invalid_argument("nms needs one score per box");
+    }
     std::vector<int64_t> keep;
     if (ndets == 0) return keep;
 
     std::vector<float> areas(static_cast<size_t>(ndets));
     for (int64_t i = 0; i < ndets; i++) {
-        const float x1 = bboxes[i * 4 + 0];
-        const float y1 = bboxes[i * 4 + 1];
-        const float x2 = bboxes[i * 4 + 2];
-        const float y2 = bboxes[i * 4 + 3];
+        const float x1 = bboxes[i][0];
+        const float y1 = bboxes[i][1];
+        const float x2 = bboxes[i][2];
+        const float y2 = bboxes[i][3];
         areas[i] = (x2 - x1) * (y2 - y1);
     }
 
@@ -117,19 +135,19 @@ std::vector<int64_t> YoloKeypointModel::nms(const float *bboxes, const float *sc
         const int64_t i = order[_i];
         if (suppressed[i]) continue;
         keep.push_back(i);
-        const float ix1 = bboxes[i * 4 + 0];
-        const float iy1 = bboxes[i * 4 + 1];
-        const float ix2 = bboxes[i * 4 + 2];
-        const float iy2 = bboxes[i * 4 + 3];
+        const float ix1 = bboxes[i][0];
+        const float iy1 = bboxes[i][1];
+        const float ix2 = bboxes[i][2];
+        const float iy2 = bboxes[i][3];
         const float iarea = areas[i];
 
         for (int64_t _j = _i + 1; _j < ndets; _j++) {
             const int64_t j = order[_j];
             if (suppressed[j]) continue;
-            const float xx1 = std::max(ix1, bboxes[j * 4 + 0]);
-            const float yy1 = std::max(iy1, bboxes[j * 4 + 1]);
-            const float xx2 = std::min(ix2, bboxes[j * 4 + 2]);
-            const float yy2 = std::min(iy2, bboxes[j * 4 + 3]);
+            const float xx1 = std::max(ix1, bboxes[j][0]);
+            const float yy1 = std::max(iy1, bboxes[j][1]);
+            const float xx2 = std::min(ix2, bboxes[j][2]);
+            const float yy2 = std::min(iy2, bboxes[j][3]);
             const float w = std::max(0.f, xx2 - xx1);
             const float h = std::max(0.f, yy2 - yy1);
             const float inter = w * h;
@@ -154,11 +172,12 @@ void YoloKeypointModel::xywh2xyxy(float *boxes, int64_t n) {
     }
 }
 
-// prediction is [num_predictions, num_features] row-major (caller normalizes layout to match
-// Python). Bbox format is (x1, y1, x2, y2) per row.
-std::vector<DetectionRow> YoloKeypointModel::non_max_suppression(
-    const float *prediction, int num_features, int num_predictions, int num_keypoints,
-    float conf_thres, float iou_thres, int max_det) {
+std::vector<DetectionRow> YoloKeypointModel::non_max_suppression(const PredictionMatrix &prediction,
+                                                                 int num_keypoints,
+                                                                 float conf_thres, float iou_thres,
+                                                                 int max_det) {
+    const int num_features = prediction.num_features;
+    const int num_predictions = prediction.num_predictions;
     const int num_keypoint_values = num_keypoints * 3;
     const int num_classes = num_features - 4 - num_keypoint_values;
     const int class_score_end = 4 + num_classes;
@@ -166,9 +185,9 @@ std::vector<DetectionRow> YoloKeypointModel::non_max_suppression(
 
     std::vector<int> class_conf_mask(static_cast<size_t>(num_predictions));
     for (int p = 0; p < num_predictions; p++) {
-        float max_cls = prediction[p * num_features + 4];
+        float max_cls = prediction.at(p, 4);
         for (int c = 1; c < num_classes; c++) {
-            const float v = prediction[p * num_features + 4 + c];
+            const float v = prediction.at(p, 4 + c);
             if (v > max_cls) max_cls = v;
         }
         class_conf_mask[p] = (max_cls > conf_thres) ? 1 : 0;
@@ -176,7 +195,7 @@ std::vector<DetectionRow> YoloKeypointModel::non_max_suppression(
 
     std::vector<float> boxes_xyxy(static_cast<size_t>(num_predictions) * 4);
     for (int p = 0; p < num_predictions; p++) {
-        for (int j = 0; j < 4; j++) boxes_xyxy[p * 4 + j] = prediction[p * num_features + j];
+        for (int j = 0; j < 4; j++) boxes_xyxy[p * 4 + j] = prediction.at(p, j);
     }
     xywh2xyxy(boxes_xyxy.data(), num_predictions);
 
@@ -187,10 +206,10 @@ std::vector<DetectionRow> YoloKeypointModel::non_max_suppression(
     int det_count = 0;
     for (int p = 0; p < num_predictions; p++) {
         if (!class_conf_mask[p]) continue;
-        float max_conf = prediction[p * num_features + 4];
+        float max_conf = prediction.at(p, 4);
         int best_cls = 0;
         for (int c = 1; c < num_classes; c++) {
-            const float v = prediction[p * num_features + 4 + c];
+            const float v = prediction.at(p, 4 + c);
             if (v > max_conf) {
                 max_conf = v;
                 best_cls = c;
@@ -210,7 +229,7 @@ std::vector<DetectionRow> YoloKeypointModel::non_max_suppression(
         row.push_back(max_conf);
         row.push_back(static_cast<float>(best_cls));
         for (int k = 0; k < num_keypoint_values; k++) {
-            float val = prediction[p * num_features + class_score_end + k];
+            float val = prediction.at(p, class_score_end + k);
             row.push_back(val);
         }
         out_rows.push_back(std::move(row));
@@ -222,18 +241,18 @@ std::vector<DetectionRow> YoloKeypointModel::non_max_suppression(
     det_boxes.resize(static_cast<size_t>(det_count) * 4);
     det_scores.resize(static_cast<size_t>(det_count));
 
-    std::vector<float> nms_boxes(static_cast<size_t>(det_count) * 4);
+    std::vector<BoxXyxy> nms_boxes(static_cast<size_t>(det_count));
     for (int64_t i = 0; i < det_count; i++) {
         const float class_offset = out_rows[i][detection_row::kClassId] * 7680.f;
-        nms_boxes[i * 4 + 0] = out_rows[i][detection_row::kX1] + class_offset;
-        nms_boxes[i * 4 + 1] = out_rows[i][detection_row::kY1] + class_offset;
-        nms_boxes[i * 4 + 2] = out_rows[i][detection_row::kX2] + class_offset;
-        nms_boxes[i * 4 + 3] = out_rows[i][detection_row::kY2] + class_offset;
+        nms_boxes[i] = {out_rows[i][detection_row::kX1] + class_offset,
+                        out_rows[i][detection_row::kY1] + class_offset,
+                        out_rows[i][detection_row::kX2] + class_offset,
+                        out_rows[i][detection_row::kY2] + class_offset};
     }
     std::vector<float> nms_scores(static_cast<size_t>(det_count));
     for (int64_t i = 0; i < det_count; i++) nms_scores[i] = out_rows[i][detection_row::kConfidence];
 
-    std::vector<int64_t> keep = nms(nms_boxes.data(), nms_scores.data(), det_count, iou_thres);
+    std::vector<int64_t> keep = nms(nms_boxes, nms_scores, iou_thres);
     if (static_cast<int>(keep.size()) > max_det) keep.resize(static_cast<size_t>(max_det));
 
     std::vector<DetectionRow> result;
@@ -347,21 +366,10 @@ int YoloKeypointModel::extract_keypoints_from_detections(const std::vector<Detec
     const int keypoint_start_idx = static_cast<int>(detection_row::kFirstKeypoint);
     int valid_detections = 0;
 
-    // Box per detection, in original-image pixels, indexed the same way detection_index is (by
-    // position in `keep`). KeypointHeightGate samples depth inside these rather than at the
-    // keypoint pixels. Filled for every row so the index stays aligned.
     {
         std::vector<DetectionRow> scaled = keep;
         scale_boxes(scaled, original_image_size, input_image_size);
-        result.boxes.reserve(scaled.size());
-        for (const auto &row : scaled) {
-            if (row.size() < 4) {
-                result.boxes.push_back(BoundingBox{});
-                continue;
-            }
-            result.boxes.push_back(BoundingBox{row[detection_row::kX1], row[detection_row::kY1],
-                                               row[detection_row::kX2], row[detection_row::kY2]});
-        }
+        result.boxes = boxes_per_row(scaled);
     }
 
     for (int i = 0; i < static_cast<int>(keep.size()); i++) {
@@ -429,14 +437,17 @@ ModelResultStamped YoloKeypointModel::postprocess_output(const float *output, co
         return result;
     }
 
+    const PredictionMatrix prediction{
+        std::span<const float>(prediction_ptr, static_cast<size_t>(num_predictions) * num_features),
+        num_predictions, num_features};
+
     int num_keypoints = 0;
     if (!label_map_.label_to_keypoints.empty()) {
         num_keypoints = static_cast<int>(label_map_.label_to_keypoints.front().second.size());
     }
 
     std::vector<DetectionRow> keep =
-        non_max_suppression(prediction_ptr, num_features, num_predictions, num_keypoints,
-                            threshold_, iou_threshold_, 300);
+        non_max_suppression(prediction, num_keypoints, threshold_, iou_threshold_, 300);
     record_raw_detections(keep, original_image_size, input_image_size);
 
     const int num_detections = static_cast<int>(keep.size());

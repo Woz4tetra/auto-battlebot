@@ -385,7 +385,6 @@ fg::SceneUpdate to_navigation_scene(const NavigationVisualization &nav) {
         }
     }
 
-    // Delete every namespace absent this tick so stale visuals clear.
     const char *all_ns[] = {"nav_pursuit_line", "nav_target", "nav_velocity", "nav_angular",
                             "nav_angular_head"};
     for (const char *ns : all_ns) {

@@ -45,8 +45,6 @@ ModelResultStamped StaticDetectionGate::filter(const ModelResultStamped &model_r
     stats_ = Stats{};
     if (!config_.enable) return model_results;
 
-    // Clusters are held in field coordinates, so a valid field transform is what makes them
-    // comparable across frames. Without one, pass everything.
     Eigen::Vector3d plane_center = Eigen::Vector3d::Zero();
     Eigen::Vector3d plane_normal = Eigen::Vector3d::UnitZ();
     if (!transform_to_plane_center_normal(field.tf_camera_from_fieldcenter, plane_center,

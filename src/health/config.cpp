@@ -23,6 +23,12 @@ HealthConfiguration load_health_from_toml(const toml::table& toml_data,
         throw ConfigValidationError("health.sample_period_ms must be > 0");
     }
 
+    config.disk_used_warn_percent =
+        parser.get_optional_double("disk_used_warn_percent", config.disk_used_warn_percent);
+    if (config.disk_used_warn_percent <= 0.0 || config.disk_used_warn_percent > 100.0) {
+        throw ConfigValidationError("health.disk_used_warn_percent must be in (0, 100]");
+    }
+
     parser.validate_no_extra_fields();
     parsed_sections.push_back("health");
     return config;

@@ -254,6 +254,13 @@ TEST(AprilTagKeypointModelTest, TagMountFacingComesFromRotation) {
     EXPECT_FALSE(make_tag_mount(bottom_tag(), kRestPitch).printed_face_up_body_z);
 }
 
+TEST(AprilTagKeypointModelTest, RestPitchTipsFloorUpTowardMinusX) {
+    const TagMount nose_down = make_tag_mount(top_tag(), 0.2);
+    EXPECT_NEAR(nose_down.floor_up_body[0], -std::sin(0.2), 1e-12);
+    EXPECT_NEAR(nose_down.floor_up_body[1], 0.0, 1e-12);
+    EXPECT_NEAR(nose_down.floor_up_body[2], std::cos(0.2), 1e-12);
+}
+
 TEST(AprilTagKeypointModelTest, KnownFloorPicksTheTrueIppeSolutionOnATiltedView) {
     // A tripod tilted 35 degrees off straight down, robots all over the box floor, corners with
     // 0.3 px of noise. The flip is sometimes the better fit; the floor must still pick the truth.
