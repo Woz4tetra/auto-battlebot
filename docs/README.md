@@ -25,7 +25,7 @@
 | `recording/` | `foxglove_recording_format.md` (the recording contract), `svo_recording.md`, `video_recording.md` |
 | `remote/` | `protocol.md` (topics, commands, field projection) |
 | `robot_link/` | `esp32_wifi_telemetry.md`, `espnow_link.md`, `motor_guard.md`, `yaw_control.md` |
-| `tools/` | `gpu_queue.md`, `logo_splash_animation.md` |
+| `tools/` | `gpu_queue.md`, `logo_splash_animation.md`, `synthgen_render.md`, `synthgen_scene_contracts.md`, `domain_mix_arms.md` |
 
 ## experiments/
 

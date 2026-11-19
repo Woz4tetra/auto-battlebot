@@ -212,8 +212,6 @@ class PreviewRenderer:
         scene = bpy.context.scene
         self._write_mode_settings(scene, preview)
         setup = self._setups.get(key) or self._build_setup(view, preview, key[2])
-        # Intrinsics are written on every transition, never only on the first: restore_render_state
-        # just put the base camera back, and a cached setup would otherwise render at that base.
         bproc.camera.set_intrinsics_from_K_matrix(setup.intrinsics, *setup.intrinsics_size)
         scene.render.resolution_percentage = setup.resolution_percentage
         self._setups[key] = setup
@@ -245,7 +243,7 @@ class PreviewRenderer:
             cycles.transmission_bounces = self._spec.render.transmission_bounces
             cycles.transparent_max_bounces = self._spec.render.transmission_bounces
             cycles.glossy_bounces = self._spec.render.glossy_bounces
-            cycles.use_persistent_data = False  # a stale cache must never reach a saved artifact
+            cycles.use_persistent_data = False
             scene.render.image_settings.file_format = "PNG"
         bproc.renderer.set_denoiser(denoiser if denoiser.lower() != "none" else None)
         # The Intel denoiser runs as a compositor node, so compositing has to stay on for it.

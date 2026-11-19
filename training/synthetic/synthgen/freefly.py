@@ -129,15 +129,17 @@ def mount_from_cam2world(
 
     mount = CageMount(
         wall=wall,
-        along_m=float(np.dot(along, horizontal)),
+        along_from_centre_m=float(np.dot(along, horizontal)),
         height_m=float(position[2]),
-        inset_m=float(wall_half_m + np.dot(normal, horizontal)),
-        tilt_deg=tilt_deg,
-        yaw_deg=yaw_deg,
-        roll_deg=0.0,
+        inset_toward_centre_m=float(wall_half_m + np.dot(normal, horizontal)),
+        tilt_from_down_deg=tilt_deg,
+        yaw_from_square_deg=yaw_deg,
+        roll_about_axis_deg=0.0,
     )
     zero_roll = mount_cam2world(mount, wall_half_m)
-    return replace(mount, roll_deg=_roll_between(zero_roll[:3, 1], matrix[:3, 1], forward))
+    return replace(
+        mount, roll_about_axis_deg=_roll_between(zero_roll[:3, 1], matrix[:3, 1], forward)
+    )
 
 
 def mount_residual(cam2world: np.ndarray, mount: CageMount, wall_half_m: float) -> MountResidual:
@@ -154,12 +156,12 @@ def clamp_mount_to_ranges(mount: CageMount, ranges: CageMountRanges) -> CageMoun
     """The nearest mount the batch sampler could actually draw from *ranges*."""
     return CageMount(
         wall=mount.wall if mount.wall in ranges.walls else ranges.walls[0],
-        along_m=_clamp(mount.along_m, ranges.along_m),
+        along_from_centre_m=_clamp(mount.along_from_centre_m, ranges.along_m),
         height_m=_clamp(mount.height_m, ranges.height_m),
-        inset_m=_clamp(mount.inset_m, ranges.inset_m),
-        tilt_deg=_clamp(mount.tilt_deg, ranges.tilt_deg),
-        yaw_deg=_clamp(mount.yaw_deg, ranges.yaw_deg),
-        roll_deg=_clamp(mount.roll_deg, ranges.roll_deg),
+        inset_toward_centre_m=_clamp(mount.inset_toward_centre_m, ranges.inset_m),
+        tilt_from_down_deg=_clamp(mount.tilt_from_down_deg, ranges.tilt_deg),
+        yaw_from_square_deg=_clamp(mount.yaw_from_square_deg, ranges.yaw_deg),
+        roll_about_axis_deg=_clamp(mount.roll_about_axis_deg, ranges.roll_deg),
     )
 
 
@@ -173,13 +175,13 @@ def ranges_covering(
     return CageMountRanges(
         walls=walls,
         aim=MountAim.FIXED,
-        along_m=_span([m.along_m for m in mounts], pad_m),
+        along_m=_span([m.along_from_centre_m for m in mounts], pad_m),
         height_m=_span([m.height_m for m in mounts], pad_m),
-        inset_m=_span([m.inset_m for m in mounts], pad_m),
-        tilt_deg=_span([m.tilt_deg for m in mounts], pad_deg),
+        inset_m=_span([m.inset_toward_centre_m for m in mounts], pad_m),
+        tilt_deg=_span([m.tilt_from_down_deg for m in mounts], pad_deg),
         tilt_offset_deg=(0.0, 0.0),
-        yaw_deg=_span([m.yaw_deg for m in mounts], pad_deg),
-        roll_deg=_span([m.roll_deg for m in mounts], pad_deg),
+        yaw_deg=_span([m.yaw_from_square_deg for m in mounts], pad_deg),
+        roll_deg=_span([m.roll_about_axis_deg for m in mounts], pad_deg),
     )
 
 

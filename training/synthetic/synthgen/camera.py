@@ -1,13 +1,8 @@
-"""Camera pose sampling (requires Blender).
-
-The sampler guarantees an on-target pose: it never silently returns a pose
-where the look-at target is out of frame. Retry exhaustion escalates from noise
-resampling to geometry resampling (with halved noise) to a deterministic
-zero-noise fallback aimed at the target, which always frames it.
-"""
+"""Camera pose sampling (requires Blender)."""
 
 import math
 import random
+from typing import NamedTuple
 
 import blenderproc as bproc
 import bpy
@@ -24,6 +19,17 @@ from synthgen.logsetup import get_logger
 from synthgen.robots import RobotInstance
 
 logger = get_logger(__name__)
+
+
+class CameraSample(NamedTuple):
+    cam2world: np.ndarray
+    used_zero_noise_fallback: bool
+
+
+class CameraPoses(NamedTuple):
+    poses: list[np.ndarray]
+    cam_count: int
+    zero_noise_fallback_count: int
 
 
 def _sample_camera_position(
@@ -72,29 +78,8 @@ def sample_camera_pose(
     height_range: tuple[float, float],
     noise: float,
     robot_center: list[float] | None = None,
-) -> tuple[np.ndarray, bool]:
-    """Sample a camera pose on a shell looking at a target point.
-
-    When *robot_center* is provided, the look-at noise is resampled (up to
-    ``CAMERA_TARGET_RETRIES`` times) until the robot center projects inside the
-    camera frame. On exhaustion the camera geometry itself is resampled with
-    halved noise (up to ``CAMERA_GEOMETRY_RESAMPLES`` rounds); the final
-    fallback is a deterministic zero-noise pose aimed straight at the target,
-    which is guaranteed to frame it.
-
-    Args:
-        look_at: Center of the camera position shell.
-        min_dist: Minimum camera distance (meters).
-        max_dist: Maximum camera distance (meters).
-        height_range: Camera height range (meters).
-        noise: Gaussian noise (meters) applied to the look-at target.
-        robot_center: Point that must project in frame, or None to skip the
-            acceptance test.
-
-    Returns:
-        ``(cam2world, used_fallback)`` where used_fallback marks the
-        deterministic zero-noise escape hatch.
-    """
+) -> CameraSample:
+    """Sample a camera pose on a shell looking at a target point."""
     cam_pos = _sample_camera_position(look_at, min_dist, max_dist, height_range)
 
     if robot_center is None:
@@ -105,7 +90,7 @@ def sample_camera_pose(
                 look_at[2] + random.gauss(0, noise),
             ]
         )
-        return _pose_toward(cam_pos, target), False
+        return CameraSample(_pose_toward(cam_pos, target), False)
 
     round_noise = noise
     for geometry_round in range(CAMERA_GEOMETRY_RESAMPLES + 1):
@@ -122,10 +107,10 @@ def sample_camera_pose(
             )
             cam2world = _pose_toward(cam_pos, target)
             if move_camera_and_check_point_in_written_view(cam2world, robot_center):
-                return cam2world, False
+                return CameraSample(cam2world, False)
 
     cam2world = _pose_toward(cam_pos, np.array(robot_center, dtype=float))
-    return cam2world, True
+    return CameraSample(cam2world, True)
 
 
 def camera_min_fov() -> float:
@@ -177,13 +162,8 @@ def setup_scene_cameras(
     active_distractors: list[DistractorInstance],
     robot_positions: list[list[float]],
     ignore_obstructions: bool,
-) -> tuple[list[np.ndarray], int, int]:
-    """Sample camera poses looking at the robot centroid and clear blocking distractors.
-
-    Returns:
-        ``(cam_poses, cam_count, fallback_count)`` where fallback_count is the
-        number of poses that needed the deterministic zero-noise fallback.
-    """
+) -> CameraPoses:
+    """Sample camera poses looking at the robot centroid and clear blocking distractors."""
     centroid = robot_centroid(robot_positions)
     cam_count = min(images_per_scene, remaining)
 
@@ -197,7 +177,7 @@ def setup_scene_cameras(
     max_dist = max(max_dist, min_dist)
 
     cam_poses: list[np.ndarray] = []
-    fallback_count = 0
+    zero_noise_fallback_count = 0
     for _ in range(cam_count):
         pose, used_fallback = sample_camera_pose(
             look_at=centroid,
@@ -208,10 +188,10 @@ def setup_scene_cameras(
             robot_center=centroid,
         )
         if used_fallback:
-            fallback_count += 1
+            zero_noise_fallback_count += 1
             logger.warning("Camera target retries exhausted; using deterministic centered pose")
         cam_poses.append(pose)
 
     if not ignore_obstructions:
         clear_poses_blocking_keypoints(cam_poses, scene_robots, active_distractors)
-    return cam_poses, cam_count, fallback_count
+    return CameraPoses(cam_poses, cam_count, zero_noise_fallback_count)

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import math
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import blenderproc as bproc
 import bpy
@@ -35,15 +35,13 @@ from synthgen.cage_spec import (
     venue_floor,
     wall_quads,
 )
-from synthgen.constants import HOUSE_BOT_CATEGORY_ID
+from synthgen.constants import HOUSE_BOT_CATEGORY_ID, MAT_CATEGORY_ID
 from synthgen.logsetup import get_logger
 
 logger = get_logger(__name__)
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
-# Segmentation id for the mat, away from the robot/distractor ids in synthgen.constants.
-MAT_CATEGORY_ID = 7
 LED_SATURATION_THRESHOLD = 0.35
 LED_SATURATION_BOOST = 1.6
 LED_STRENGTH_NODE = "led_strength"
@@ -652,22 +650,19 @@ def set_camera(
     return int(bproc.camera.add_camera_pose(cam2world, frame=frame))
 
 
-def render_poses(
+class GlassPanes(NamedTuple):
+    spec: CageSceneSpec
+    objects: dict[str, bproc.types.MeshObject]
+
+
+def render_pass(
     poses: list[Path],
     k_rect: np.ndarray,
     width: int,
     height: int,
-    category_ids: tuple[int, ...] | None = None,
-    spec: CageSceneSpec | None = None,
-    objects: dict[str, bproc.types.MeshObject] | None = None,
-) -> tuple[list[np.ndarray], list[Any]]:
-    """Render every pose in one BlenderProc pass.
-
-    Returns (RGB frames, masks). With `category_ids` None each mask is the mat mask; otherwise
-    each entry is a list of one mask per requested category id. Pass `spec` and the object dict
-    from `build_cage` to get one-way glass: panes a pose looks through from outside the cage
-    are hidden for that frame.
-    """
+    glass: GlassPanes | None,
+) -> tuple[list[np.ndarray], list[np.ndarray]]:
+    """Render every pose in one BlenderProc pass; returns (RGB frames, category segmaps)."""
     bproc.utility.reset_keyframes()
     positions = []
     for i, pose_path in enumerate(poses):
@@ -675,13 +670,36 @@ def render_poses(
         cam2world = blender_cam2world(calibration.tf_cvcamera_from_hfield)
         positions.append(cam2world[:3, 3])
         set_camera(k_rect, width, height, cam2world, frame=i)
-    if spec is not None and objects is not None:
-        set_one_way_glass(spec, panels_by_wall(objects), positions)
+    if glass is not None:
+        set_one_way_glass(glass.spec, panels_by_wall(glass.objects), positions)
     data = bproc.renderer.render()
     colors = [np.asarray(frame)[:, :, :3] for frame in data["colors"]]
     segmaps = [np.asarray(seg) for seg in data["category_id_segmaps"]]
-    if category_ids is None:
-        return colors, [(seg == MAT_CATEGORY_ID).astype(np.uint8) * 255 for seg in segmaps]
+    return colors, segmaps
+
+
+def render_poses(
+    poses: list[Path],
+    k_rect: np.ndarray,
+    width: int,
+    height: int,
+    glass: GlassPanes | None = None,
+) -> tuple[list[np.ndarray], list[np.ndarray]]:
+    """Render RGB frames and one mat mask per pose; `glass` hides panes a pose looks through."""
+    colors, segmaps = render_pass(poses, k_rect, width, height, glass)
+    return colors, [(seg == MAT_CATEGORY_ID).astype(np.uint8) * 255 for seg in segmaps]
+
+
+def render_category_masks(
+    poses: list[Path],
+    k_rect: np.ndarray,
+    width: int,
+    height: int,
+    category_ids: tuple[int, ...],
+    glass: GlassPanes | None = None,
+) -> tuple[list[np.ndarray], list[list[np.ndarray]]]:
+    """Render RGB frames and, per pose, one mask per entry of `category_ids`."""
+    colors, segmaps = render_pass(poses, k_rect, width, height, glass)
     return colors, [
         [(seg == cid).astype(np.uint8) * 255 for cid in category_ids] for seg in segmaps
     ]

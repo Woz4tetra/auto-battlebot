@@ -26,6 +26,7 @@ def test_cmdline_components_whole_parts(cache) -> None:
     assert {"training", "yolo", "validate_yolo_dataset.py", "x.yml", "y.yml"} <= components
     assert "train" not in components
     assert "val" not in components
+    assert not any("=" in component for component in components)
 
 
 def _fake_proc(root: Path, cmdline: bytes) -> Path:

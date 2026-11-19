@@ -34,11 +34,7 @@ logger = get_logger(__name__)
 
 @dataclass(eq=False)
 class DistractorInstance:
-    """One loaded distractor model grouped under a parent empty.
-
-    ``eq=False``: identity semantics for membership tests on live Blender
-    handles, same as RobotInstance.
-    """
+    """One loaded distractor model grouped under a parent empty."""
 
     parent: bpy.types.Object
     meshes: list[bproc.types.MeshObject]

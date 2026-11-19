@@ -17,7 +17,12 @@ from urllib.parse import parse_qs, urlparse
 import numpy as np
 
 from auto_battlebot.perception.cage_calibration import OPENCV_TO_BLENDER_CAMERA
-from synthgen.cage_mount import CageMount, CageMountRanges
+from synthgen.cage_mount import (
+    MOUNT_FIELD_BY_RANGE_NAME,
+    CageMount,
+    CageMountRanges,
+    mount_by_range_name,
+)
 from synthgen.cage_spec import CageSceneSpec, panels_outside_camera
 from synthgen.constants import ALPHAS, VIEWS
 from synthgen.freefly import (
@@ -261,8 +266,8 @@ def mount_readout(
     clamped = clamp_mount_to_ranges(allowed, ranges)
     residual = mount_residual(cam2world, clamped, scene.wall_half_m)
     return {
-        "mount": asdict(exact),
-        "clamped": asdict(clamped),
+        "mount": mount_by_range_name(exact),
+        "clamped": mount_by_range_name(clamped),
         "in_ranges": _within(exact, ranges),
         "residual_m": residual.position_m,
         "residual_deg": residual.angle_deg,
@@ -503,7 +508,7 @@ class Router:
             "alphas": list(ALPHAS),
             "fps": self._mailbox.fps,
             "status": self._mailbox.status,
-            "marks": [asdict(mount) for mount in self._mailbox.marks],
+            "marks": [mount_by_range_name(mount) for mount in self._mailbox.marks],
         }
         if request is not None:
             state["pose"] = asdict(request.pose)
@@ -656,7 +661,7 @@ def _valid_alpha(alpha: Any) -> float:
 
 def _within(mount: CageMount, ranges: CageMountRanges) -> dict[str, bool]:
     inside = {"wall": mount.wall in ranges.walls}
-    for name in ("along_m", "height_m", "inset_m", "tilt_deg", "yaw_deg", "roll_deg"):
+    for name, mount_field in MOUNT_FIELD_BY_RANGE_NAME.items():
         low, high = getattr(ranges, name)
-        inside[name] = min(low, high) <= getattr(mount, name) <= max(low, high)
+        inside[name] = min(low, high) <= getattr(mount, mount_field) <= max(low, high)
     return inside

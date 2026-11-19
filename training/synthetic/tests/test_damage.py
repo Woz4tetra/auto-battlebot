@@ -2,6 +2,9 @@
 
 import math
 import random
+from types import SimpleNamespace
+from typing import Any
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
@@ -384,3 +387,25 @@ def test_chunk_seed_clear_of_keypoints() -> None:
         draw_chunk_damage(surface[:1], corners, keypoints, (0.01, 0.02), (CUTTER_CUBE,), 0.0)
         is None
     )
+
+
+def test_damage_session_reverts_scene(blender_stubs: Any) -> None:
+    from synthgen import damage_scene
+
+    part = SimpleNamespace(hide_render=False, hide_viewport=True)
+    target = SimpleNamespace(modifiers=MagicMock())
+    cutter = SimpleNamespace(location="in the arena")
+    session = damage_scene.DamageSession()
+    damage_scene._hide(session, part)
+    assert part.hide_render and part.hide_viewport
+    session.modifiers.append((target, "damage_cutter"))
+    session.cutters.append(cutter)
+
+    session.revert()
+
+    assert part.hide_render is False
+    assert part.hide_viewport is True
+    target.modifiers.remove.assert_called_once_with(target.modifiers.get.return_value)
+    assert cutter.location is blender_stubs.mathutils.Vector.return_value
+    blender_stubs.mathutils.Vector.assert_called_with(damage_scene.DISTRACTOR_OFFSCREEN_LOCATION)
+    assert not (session.hidden or session.modifiers or session.cutters)

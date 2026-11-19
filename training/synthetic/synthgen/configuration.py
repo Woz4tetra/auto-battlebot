@@ -256,7 +256,6 @@ class RandomizationConfig:
     """``[randomization]`` section."""
 
     roughness_jitter: float = 0.1
-    hue_jitter_degrees: float = 5.0
     light_count_range: tuple[int, int] = (1, 3)
     light_intensity_range: tuple[float, float] = (100.0, 500.0)
     air_probability: float = 0.15
@@ -733,9 +732,6 @@ def _parse_randomization(section: dict[str, Any]) -> RandomizationConfig:
     return RandomizationConfig(
         roughness_jitter=_as_float(
             section.get("roughness_jitter", 0.1), f"{context}.roughness_jitter"
-        ),
-        hue_jitter_degrees=_as_float(
-            section.get("hue_jitter_degrees", 5), f"{context}.hue_jitter_degrees"
         ),
         light_count_range=_as_int_pair(
             section.get("light_count_range", [1, 3]), f"{context}.light_count_range"

@@ -8,6 +8,7 @@ import random
 import numpy as np
 import pytest
 from synthgen.cage_mount import (
+    MOUNT_FIELD_BY_RANGE_NAME,
     WALLS,
     CageMount,
     CageMountRanges,
@@ -42,12 +43,12 @@ def test_a_mount_pose_survives_the_freefly_round_trip() -> None:
 def test_the_fitted_nhrl_mount_comes_back_as_itself() -> None:
     mount = mount_from_cam2world(mount_cam2world(FITTED, WALL_HALF), WALL_HALF)
     assert mount.wall == FITTED.wall
-    assert mount.along_m == pytest.approx(FITTED.along_m)
+    assert mount.along_from_centre_m == pytest.approx(FITTED.along_from_centre_m)
     assert mount.height_m == pytest.approx(FITTED.height_m)
-    assert mount.inset_m == pytest.approx(FITTED.inset_m)
-    assert mount.tilt_deg == pytest.approx(FITTED.tilt_deg)
-    assert mount.yaw_deg == pytest.approx(FITTED.yaw_deg, abs=1e-9)
-    assert mount.roll_deg == pytest.approx(FITTED.roll_deg, abs=1e-9)
+    assert mount.inset_toward_centre_m == pytest.approx(FITTED.inset_toward_centre_m)
+    assert mount.tilt_from_down_deg == pytest.approx(FITTED.tilt_from_down_deg)
+    assert mount.yaw_from_square_deg == pytest.approx(FITTED.yaw_from_square_deg, abs=1e-9)
+    assert mount.roll_about_axis_deg == pytest.approx(FITTED.roll_about_axis_deg, abs=1e-9)
 
 
 def test_every_sampled_mount_inverts_exactly() -> None:
@@ -59,8 +60,8 @@ def test_every_sampled_mount_inverts_exactly() -> None:
         cam2world = mount_cam2world(mount, WALL_HALF)
         recovered = mount_from_cam2world(cam2world, WALL_HALF)
         assert recovered.wall == mount.wall
-        for name in ("along_m", "height_m", "inset_m", "tilt_deg", "yaw_deg", "roll_deg"):
-            worst = max(worst, abs(getattr(recovered, name) - getattr(mount, name)))
+        for field in MOUNT_FIELD_BY_RANGE_NAME.values():
+            worst = max(worst, abs(getattr(recovered, field) - getattr(mount, field)))
     assert worst < 1e-9
 
 
@@ -86,7 +87,7 @@ def test_any_flown_pose_reads_back_as_an_exact_mount() -> None:
     assert residual.position_m == pytest.approx(0.0, abs=1e-12)
     assert residual.angle_deg == pytest.approx(0.0, abs=1e-9)
     assert mount.wall == "near"
-    assert mount.inset_m == pytest.approx(WALL_HALF - 0.4)
+    assert mount.inset_toward_centre_m == pytest.approx(WALL_HALF - 0.4)
 
 
 def test_clamping_into_ranges_is_what_produces_a_real_residual() -> None:
@@ -97,7 +98,7 @@ def test_clamping_into_ranges_is_what_produces_a_real_residual() -> None:
     clamped = clamp_mount_to_ranges(mount, ranges)
     residual = mount_residual(cam2world, clamped, WALL_HALF)
 
-    assert clamped.inset_m == pytest.approx(ranges.inset_m[1])
+    assert clamped.inset_toward_centre_m == pytest.approx(ranges.inset_m[1])
     assert clamped.height_m == pytest.approx(ranges.height_m[1])
     assert residual.position_m > 0.5
     assert residual.angle_deg == pytest.approx(0.0, abs=1e-9)
@@ -159,9 +160,9 @@ def test_ranges_cover_every_marked_mount_plus_the_pads() -> None:
     assert ranges.height_m == pytest.approx((1.14, 1.34))
     assert ranges.tilt_deg == pytest.approx((30.9, 37.0))
     for mount in mounts:
-        for name in ("along_m", "height_m", "inset_m", "tilt_deg", "yaw_deg", "roll_deg"):
+        for name, field in MOUNT_FIELD_BY_RANGE_NAME.items():
             low, high = getattr(ranges, name)
-            assert low <= getattr(mount, name) <= high
+            assert low <= getattr(mount, field) <= high
 
 
 def test_ranges_need_at_least_one_mount() -> None:

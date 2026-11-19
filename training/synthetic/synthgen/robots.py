@@ -4,6 +4,7 @@ import math
 import random
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import NamedTuple
 
 import blenderproc as bproc
 import bmesh
@@ -27,14 +28,19 @@ from synthgen.materials import apply_pbr_materials
 logger = get_logger(__name__)
 
 
+Piece = list[bpy.types.Object]
+DamagePieces = dict[str, list[Piece]]
+
+
+class ImportedRobot(NamedTuple):
+    meshes: list[bproc.types.MeshObject]
+    parent: bpy.types.Object
+    bbox_corners: list[mathutils.Vector]
+
+
 @dataclass(eq=False)
 class RobotInstance:
-    """All state for one loaded robot model.
-
-    ``eq=False`` keeps identity semantics: instances hold numpy arrays and live
-    Blender handles, and membership tests (``robot in scene_robots``) must mean
-    "the same robot object", not field equality.
-    """
+    """All state for one loaded robot model."""
 
     name: str
     instance_id: int
@@ -47,8 +53,7 @@ class RobotInstance:
     class_id: int
     config: RobotConfig
     weight: float = 1.0
-    # Named damage part -> its pieces, each the objects the load-time split cut for it.
-    damage_pieces: dict[str, list[list[bpy.types.Object]]] = field(default_factory=dict)
+    damage_pieces: DamagePieces = field(default_factory=dict)
 
 
 def hide_robot(robot: RobotInstance) -> None:
@@ -107,13 +112,8 @@ def import_gltf_as_robot(
     resolve: PathResolveFn,
     scale: float = 1.0,
     category_id: int = ROBOT_CATEGORY_ID,
-) -> tuple[list[bproc.types.MeshObject], bpy.types.Object, list[mathutils.Vector]]:
-    """Import GLTF and parent all parts under an empty for group transforms.
-
-    Returns (mesh_objects, parent_empty, bbox_corners) where bbox_corners are
-    the 8 corners of the robot's axis-aligned bounding box in parent-rest-pose
-    world space (used to compute ground clearance for arbitrary orientations).
-    """
+) -> ImportedRobot:
+    """Import GLTF and parent all parts under an empty for group transforms."""
     model_path = resolve(model_path)
     if not model_path.exists():
         raise FileNotFoundError(f"Model file not found: {model_path}")
@@ -171,7 +171,7 @@ def import_gltf_as_robot(
         mesh.set_cp("is_distractor", 0)
         bproc_meshes.append(mesh)
 
-    return bproc_meshes, parent, bbox_corners
+    return ImportedRobot(bproc_meshes, parent, bbox_corners)
 
 
 def _keep_faces(obj: bpy.types.Object, keep: np.ndarray) -> None:
@@ -216,7 +216,7 @@ def _parent_face_centres(obj: bpy.types.Object) -> np.ndarray:
 
 def split_damage_parts(
     meshes: list[bproc.types.MeshObject], parts: tuple[DamagePartConfig, ...]
-) -> tuple[list[bproc.types.MeshObject], dict[str, list[list[bpy.types.Object]]]]:
+) -> tuple[list[bproc.types.MeshObject], DamagePieces]:
     """Cut a robot's meshes into the named pieces its ``damage_parts`` describe."""
     if not parts:
         return meshes, {}

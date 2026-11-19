@@ -46,7 +46,7 @@ def project_keypoint_to_2d(
         return None
 
     x_norm = co_2d.x
-    y_norm = 1.0 - co_2d.y  # Blender is bottom-left origin, YOLO is top-left
+    y_norm = 1.0 - co_2d.y
     return (x_norm, y_norm, co_2d.z)
 
 
@@ -85,23 +85,11 @@ def measure_robot_pixels(
     robot: RobotInstance,
     cat_seg: np.ndarray,
     inst_seg: np.ndarray | None,
-    clean_inst_seg: np.ndarray | None,
+    distractor_free_inst_seg: np.ndarray | None,
     img_w: int,
     img_h: int,
 ) -> tuple[RobotPixelStats, YoloBox | None]:
-    """Measure one robot's pixel statistics for the gate.
-
-    Args:
-        robot: The robot to measure.
-        cat_seg: Category-id segmap (fallback when no instance segmap exists).
-        inst_seg: Instance-id segmap, or None.
-        clean_inst_seg: Distractor-free instance segmap, or None.
-        img_w: Image width in pixels.
-        img_h: Image height in pixels.
-
-    Returns:
-        ``(stats, bbox)`` where bbox is the normalized YOLO box or None.
-    """
+    """Measure one robot's pixel statistics for the gate."""
     if inst_seg is not None:
         seg_for_bbox = inst_seg
         seg_id = robot.instance_id
@@ -117,8 +105,8 @@ def measure_robot_pixels(
     bbox_h_px = int(bbox[3] * img_h) if bbox is not None else 0
 
     unobstructed_px: int | None = None
-    if clean_inst_seg is not None and inst_seg is not None:
-        unobstructed_px = int(np.sum(clean_inst_seg.squeeze() == seg_id))
+    if distractor_free_inst_seg is not None and inst_seg is not None:
+        unobstructed_px = int(np.sum(distractor_free_inst_seg.squeeze() == seg_id))
 
     stats = RobotPixelStats(
         instance_id=robot.instance_id,
@@ -136,7 +124,7 @@ def build_robot_keypoint_annotations(
     scene_robots: list[RobotInstance],
     cat_seg: np.ndarray,
     inst_seg: np.ndarray | None,
-    clean_inst_seg: np.ndarray | None,
+    distractor_free_inst_seg: np.ndarray | None,
     depth_map: np.ndarray,
     img_w: int,
     img_h: int,
@@ -148,7 +136,9 @@ def build_robot_keypoint_annotations(
     annotations: list[YoloAnnotation] = []
     verdicts: list[RobotGateVerdict] = []
     for robot in scene_robots:
-        stats, bbox = measure_robot_pixels(robot, cat_seg, inst_seg, clean_inst_seg, img_w, img_h)
+        stats, bbox = measure_robot_pixels(
+            robot, cat_seg, inst_seg, distractor_free_inst_seg, img_w, img_h
+        )
         verdict = evaluate_robot_gate(stats, min_vis, ignore_obstructions)
         verdicts.append(verdict)
         if not verdict.annotate or bbox is None:
@@ -203,12 +193,7 @@ def build_distractor_keypoint_annotations(
     stats: RunStats,
     lens: LensView | None = None,
 ) -> list[YoloAnnotation]:
-    """Keypoint+bbox annotations for CAD distractors carrying keypoint sidecars.
-
-    Distractors never trigger a frame discard: the clean segmentation pass
-    hides them, so there is no unobstructed reference to gate visibility on.
-    Only the (occluded) instance bbox size and per-keypoint depth checks apply.
-    """
+    """Keypoint+bbox annotations for CAD distractors carrying keypoint sidecars."""
     annotations: list[YoloAnnotation] = []
     if inst_seg is None:
         return annotations

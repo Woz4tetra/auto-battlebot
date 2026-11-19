@@ -109,12 +109,7 @@ GENERIC_SPLIT_NAMES = frozenset({"train", "val", "valid", "test", "images", "lab
 
 
 def cmdline_components(cmdline: str) -> set[str]:
-    """Every path component named in a NUL-separated command line.
-
-    Whole components, not substrings, so ``training/yolo/validate_yolo_dataset.py`` names
-    ``training``, ``yolo`` and ``validate_yolo_dataset.py`` and nothing called ``train`` or
-    ``val``. ``key=value`` and comma lists are split first, for ``data=../data/x.yml`` forms.
-    """
+    """Every whole path component in a NUL-separated command line, split on = and commas."""
     components: set[str] = set()
     for arg in cmdline.split("\0"):
         for piece in re.split(r"[=,]", arg):

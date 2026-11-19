@@ -53,3 +53,27 @@ def test_cagehigh_arms_flagged_for_eval_leak(arms) -> None:
     assert flagged
     assert all(name.endswith("_cagehigh") for name in flagged)
     assert {a.name for a in arms.ARMS if a.name.endswith("_cagehigh")} == flagged
+
+
+def test_arms_default_to_the_cage_venues_and_all_venue_arms_say_so(arms) -> None:
+    by_name = {arm.name: arm for arm in arms.ARMS}
+    assert by_name["d2500"].venues == arms.CAGE_VENUES
+    assert by_name["nhrl_only"].venues == (arms.NHRL,)
+    assert by_name["d50000"].venues == arms.ALL_VENUES
+
+
+def test_real_repeat_multiplies_real_frames_but_extra_real_is_written_once(arms) -> None:
+    domain = _domain(arms, 20)
+    real = [Path(f"/r/{i}.png") for i in range(5)]
+    extra = [Path(f"/e/{i}.png") for i in range(3)]
+    randomized = [Path(f"/s/{i}.png") for i in range(40)]
+    template = next(a for a in arms.ARMS if a.name == "d2500")
+    arm = dataclasses.replace(template, domain=10, real_repeat=3, extra_real=True)
+
+    frames, row = arms.build_arm(arm, real, randomized, domain, 0, extra)
+
+    assert [frames.count(path) for path in real] == [3] * 5
+    assert [frames.count(path) for path in extra] == [1] * 3
+    assert row["real"] == 5 * 3 + 3
+    assert row["extra_real"] == 3
+    assert all(frames.count(path) == 1 for path in randomized if path in frames)

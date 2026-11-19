@@ -1,29 +1,11 @@
-"""Apply one scene's battle damage to the Blender scene, and undo it (requires Blender).
-
-The decisions live in the pure ``synthgen.damage``; this module is the hands.
-
-Nothing here edits mesh data, because it must not. ``load_robots`` and the distractor pool
-load every model once and reuse it for every later scene, so a deleted part would stay
-deleted for the rest of the run and a boolean applied to mesh data would compound. Instead:
-
-* part removal hides the chosen parts from the render, which gives the same silhouette to
-  the colour pass and the segmentation pass as deleting them would. Named part removal
-  hides the pieces ``split_damage_parts`` cut at load, the same way;
-* chunk removal borrows a cutter from a pool built once at startup and attaches a boolean
-  difference modifier to the target mesh.
-
-Both are recorded in a ``DamageSession`` and reverted after the scene's frames are written,
-which is also why the cutter pool is pre-built: objects created mid-run would miss the
-segmentation pass arming that ``_enable_segmentation`` does over the meshes that exist at
-call time. Pool cutters are created before it, never render, and carry the background
-category id, so they are invisible to both passes.
-"""
+"""Apply one scene's battle damage to the Blender scene, and undo it (requires Blender)."""
 
 from __future__ import annotations
 
 import math
 import random
 from dataclasses import dataclass, field
+from typing import NamedTuple
 
 import bpy
 import mathutils
@@ -96,6 +78,13 @@ class DamageSession:
         for cutter in self.cutters:
             cutter.location = mathutils.Vector(DISTRACTOR_OFFSCREEN_LOCATION)
         self.cutters.clear()
+
+
+class SceneDamage(NamedTuple):
+    """The session to revert and one `InstanceDamage` per instance considered, damaged or not."""
+
+    session: DamageSession
+    per_instance: list[InstanceDamage]
 
 
 class CutterPool:
@@ -331,27 +320,12 @@ def apply_scene_damage(
     robots: list[RobotInstance],
     distractors: list[DistractorInstance],
     distractor_class_name: str,
-) -> tuple[DamageSession, list[InstanceDamage]]:
-    """Damage a scene's robots and robot-like distractors; returns the session to revert.
-
-    Args:
-        cfg: The parsed ``[damage]`` block.
-        pool: Pre-built cutters, reset here for this scene.
-        budget: The run's damaged/clean scene tracker, advanced by one scene here.
-        robots: The scene's own robots.
-        distractors: The scene's active distractors; only robot-like ones are damaged,
-            since a cut-up traffic cone teaches the detector nothing about a battlebot.
-        distractor_class_name: The generic class the robot-like distractors annotate as.
-
-    Returns:
-        ``(session, per-instance damage)``, one entry per instance considered, damaged or
-        not, in robots-then-distractors order. Every entry goes in the manifest, so an arm
-        can filter on frames whose instances are all undamaged.
-    """
+) -> SceneDamage:
+    """Damage a scene's robots and robot-like distractors; revert the returned session."""
     session = DamageSession()
     recorded: list[InstanceDamage] = []
     if not cfg.enabled:
-        return session, recorded
+        return SceneDamage(session, recorded)
 
     scene_damaged = budget.take(cfg.scene_probability)
     pool.reset()
@@ -398,4 +372,4 @@ def apply_scene_damage(
             )
             continue
         recorded.append(_damage_instance(cfg, session, pool, class_name, instance))
-    return session, recorded
+    return SceneDamage(session, recorded)

@@ -43,9 +43,10 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from synthgen import logsetup  # noqa: E402
 from synthgen.cage import (  # noqa: E402
-    MAT_CATEGORY_ID,
+    GlassPanes,
     add_lights,
     build_cage,
+    render_category_masks,
     render_poses,
     set_color_management,
     set_led_emission,
@@ -54,7 +55,7 @@ from synthgen.cage import (  # noqa: E402
 )
 from synthgen.cage_spec import CageSceneSpec, load_cage_spec, spec_to_dict  # noqa: E402
 from synthgen.configuration import load_render_config  # noqa: E402
-from synthgen.constants import ROBOT_CATEGORY_ID  # noqa: E402
+from synthgen.constants import MAT_CATEGORY_ID, ROBOT_CATEGORY_ID  # noqa: E402
 from synthgen.materials import load_cc_materials  # noqa: E402
 from synthgen.robots import compute_ground_z, hide_all_robots, load_robots, show_robot  # noqa: E402
 
@@ -191,14 +192,13 @@ def render_robot_frames(
         pose_path = Path(frame["pose_toml"])
         if not pose_path.is_absolute():
             pose_path = REPO_ROOT / pose_path
-        colors, masks = render_poses(
+        colors, masks = render_category_masks(
             [pose_path],
             k_rect,
             width,
             height,
-            category_ids=(MAT_CATEGORY_ID, ROBOT_CATEGORY_ID),
-            spec=spec,
-            objects=cage_objects,
+            (MAT_CATEGORY_ID, ROBOT_CATEGORY_ID),
+            glass=GlassPanes(spec, cage_objects),
         )
         cv2.imwrite(str(args.out / f"{frame['name']}.png"), colors[0][:, :, ::-1])
         cv2.imwrite(str(args.out / f"{frame['name']}_matmask.png"), masks[0][0])
@@ -240,7 +240,9 @@ def main() -> None:
     if args.robot_frames is not None:
         render_robot_frames(args, spec, k_rect, width, height, cage_objects)
     else:
-        colors, masks = render_poses(poses, k_rect, width, height, spec=spec, objects=cage_objects)
+        colors, masks = render_poses(
+            poses, k_rect, width, height, glass=GlassPanes(spec, cage_objects)
+        )
         for pose_path, rgb, mask in zip(poses, colors, masks):
             cv2.imwrite(str(args.out / f"{pose_path.stem}.png"), rgb[:, :, ::-1])
             cv2.imwrite(str(args.out / f"{pose_path.stem}_matmask.png"), mask)

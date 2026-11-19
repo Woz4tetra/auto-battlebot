@@ -42,18 +42,12 @@ class DomainFrame:
 
 @dataclass(frozen=True)
 class Arm:
-    """One arm: how many randomized frames (None for all) and domain frames, and its filters.
-
-    ``real_repeat`` writes the 452 real frames that many times over. Every other count is a draw
-    from a pool, so this is the one place an arm carries a frame twice on purpose. ``venues`` left
-    empty means `CAGE_VENUES`, not every venue loaded. ``extra_real`` adds the ``--extra-real``
-    frames, written once whatever ``real_repeat`` says.
-    """
+    """One arm: randomized frames (None for all), domain frames, and its filters."""
 
     name: str
     randomized: int | None
     domain: int
-    venues: tuple[str, ...] = ()
+    venues: tuple[str, ...] = CAGE_VENUES
     views: tuple[str, ...] = ()
     clean_only: bool = False
     real_repeat: int = 1
@@ -217,7 +211,7 @@ def build_arm(
     count = len(randomized) if arm.randomized is None else arm.randomized
     if count > len(randomized):
         raise SystemExit(f"{arm.name}: wants {count} randomized frames, pool has {len(randomized)}")
-    order = domain_order(domain, seed, arm.venues or CAGE_VENUES, arm.views, arm.clean_only)
+    order = domain_order(domain, seed, arm.venues, arm.views, arm.clean_only)
     if arm.domain > len(order):
         raise SystemExit(f"{arm.name}: wants {arm.domain} domain frames, filter keeps {len(order)}")
     drawn = set(order[: arm.domain])

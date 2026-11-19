@@ -3,6 +3,7 @@
 
 import argparse
 import json
+import math
 import os
 import threading
 import tkinter as tk
@@ -178,11 +179,13 @@ class ClassInfo(TypedDict):
 class YOLODatasetValidator:
     """Contact-sheet validator: page through grid thumbnails, judge from the keyboard."""
 
-    # How many frames a page holds. The thumbnail size follows from the window
-    # size, so this control is really "how many fit on screen".
-    PAGE_STEPS = [1, 2, 4, 6, 9, 12, 16, 20, 30, 42, 56]
-    DEFAULT_PAGE = 4
+    FRAMES_PER_PAGE_STEPS = [1, 2, 4, 6, 9, 12, 16, 20, 30, 42, 56]
+    DEFAULT_FRAMES_PER_PAGE = 4
     MIN_THUMB = 80
+    CELL_PAD_W_PX = 14
+    CELL_CAPTION_PAD_H_PX = 34
+    THUMB_QUANTUM_PX = 8
+    MIN_LABELLED_THUMB_PX = 220
 
     PASS_COLOR = "#2E7D32"
     FAIL_COLOR = "#C62828"
@@ -200,7 +203,7 @@ class YOLODatasetValidator:
         self.class_info: Dict[int, ClassInfo] = {}
         self.show_labels = True
 
-        self.page_step = self.PAGE_STEPS.index(self.DEFAULT_PAGE)
+        self.page_step = self.FRAMES_PER_PAGE_STEPS.index(self.DEFAULT_FRAMES_PER_PAGE)
         self.thumb_px = 400
         self.selected_index = 0
         self.page_start = 0
@@ -229,8 +232,7 @@ class YOLODatasetValidator:
         self.selection_var = tk.StringVar()
         self.show_labels_var = tk.BooleanVar(value=True)
 
-        # Fallback colors for classes with no color in the dataset yaml
-        self.colors = [
+        self.fallback_colors = [
             "#FF0000",
             "#00FF00",
             "#0000FF",
@@ -321,7 +323,7 @@ class YOLODatasetValidator:
                 if class_id < len(colors_data):
                     color_hex = colors_data[class_id]
                 else:
-                    color_hex = self.colors[class_id % len(self.colors)]
+                    color_hex = self.fallback_colors[class_id % len(self.fallback_colors)]
                 self.class_info[class_id] = {
                     "name": class_name,
                     "color": color_hex,
@@ -357,7 +359,7 @@ class YOLODatasetValidator:
 
     @property
     def page_size(self) -> int:
-        return self.PAGE_STEPS[self.page_step]
+        return self.FRAMES_PER_PAGE_STEPS[self.page_step]
 
     def setup_ui(self):
         """Create the user interface."""
@@ -438,7 +440,7 @@ class YOLODatasetValidator:
         self.size_scale = ttk.Scale(
             options_section,
             from_=0,
-            to=len(self.PAGE_STEPS) - 1,
+            to=len(self.FRAMES_PER_PAGE_STEPS) - 1,
             orient=tk.HORIZONTAL,
             value=self.page_step,
             command=self._on_size_change,
@@ -535,26 +537,24 @@ class YOLODatasetValidator:
         avail_w = max(self.grid_frame.winfo_width(), 320)
         avail_h = max(self.grid_frame.winfo_height(), 240)
 
-        # Each cell is a 16:9 thumbnail plus padding and a caption strip.
-        pad_w, pad_h = 14, 34
+        pad_w, pad_h = self.CELL_PAD_W_PX, self.CELL_CAPTION_PAD_H_PX
 
         size, columns, rows = float(self.MIN_THUMB), target, 1
         best_score = (0.0, 0)
         for candidate_columns in range(1, target + 1):
-            candidate_rows = -(-target // candidate_columns)  # ceil
+            candidate_rows = math.ceil(target / candidate_columns)
             width = avail_w / candidate_columns - pad_w
             height = avail_h / candidate_rows - pad_h
             candidate = min(width, height * 16 / 9)
             if candidate <= 0:
                 continue
-            # Prefer the biggest thumbnail; break ties toward fewer empty slots.
-            score = (candidate, -(candidate_columns * candidate_rows - target))
+            empty_slots = candidate_columns * candidate_rows - target
+            score = (candidate, -empty_slots)
             if score > best_score:
                 best_score = score
                 size, columns, rows = candidate, candidate_columns, candidate_rows
 
-        # Quantize so a few pixels of window resize does not churn the whole grid
-        thumb_px = max(self.MIN_THUMB, int(size) // 8 * 8)
+        thumb_px = max(self.MIN_THUMB, int(size) // self.THUMB_QUANTUM_PX * self.THUMB_QUANTUM_PX)
 
         if (columns, rows) != (self.columns, self.rows):
             self.columns, self.rows, self.thumb_px = columns, rows, thumb_px
@@ -735,15 +735,12 @@ class YOLODatasetValidator:
                 self.class_info[class_id]["name"],
                 self.color_name_to_hex(self.class_info[class_id]["color"]),
             )
-        return f"Class {class_id}", self.colors[class_id % len(self.colors)]
+        return f"Class {class_id}", self.fallback_colors[class_id % len(self.fallback_colors)]
 
-    def compose(self, index: int, box: Tuple[int, int], detail: bool) -> Image.Image:
-        """Draw an image's annotations, decoded no larger than `box`.
-
-        Runs on worker threads, so it must not touch tkinter. Line widths, dot
-        radii and text size are derived from the rendered size, so a 200px
-        thumbnail and a full-screen zoom stay equally legible.
-        """
+    def draw_annotations_off_main_thread(
+        self, index: int, box: Tuple[int, int], detail: bool
+    ) -> Image.Image:
+        """Draw an image's annotations, decoded no larger than `box`, at any rendered size."""
         img_path, label_path = self.image_annotation_pairs[index]
 
         image = Image.open(img_path)
@@ -764,8 +761,7 @@ class YOLODatasetValidator:
         radius = max(2, round(short_side * 0.008))
         font_px = max(9, round(short_side / 18))
         font = ImageFont.load_default(size=font_px)
-        # Text is unreadable on a small thumbnail and just obscures the boxes.
-        draw_text = self.show_labels and (detail or short_side >= 220)
+        draw_text = self.show_labels and (detail or short_side >= self.MIN_LABELLED_THUMB_PX)
 
         kp_colors = [
             "#FF4444",
@@ -861,7 +857,7 @@ class YOLODatasetValidator:
                 self.thumb_cache.move_to_end(cache_key)
                 return hit
 
-        fitted = self.compose(index, box, detail=False)
+        fitted = self.draw_annotations_off_main_thread(index, box, detail=False)
         thumb = Image.new("RGB", box, (0, 0, 0))
         thumb.paste(fitted, ((box[0] - fitted.width) // 2, (box[1] - fitted.height) // 2))
 
@@ -1025,7 +1021,7 @@ class YOLODatasetValidator:
         self.set_page_step(self.page_step - delta, sync_scale=True)
 
     def set_page_step(self, step: int, sync_scale: bool = False):
-        step = min(max(step, 0), len(self.PAGE_STEPS) - 1)
+        step = min(max(step, 0), len(self.FRAMES_PER_PAGE_STEPS) - 1)
         if step == self.page_step:
             return
         self.page_step = step
@@ -1117,7 +1113,9 @@ class YOLODatasetValidator:
 
         max_w = int(self.root.winfo_screenwidth() * 0.9)
         max_h = int(self.root.winfo_screenheight() * 0.85)
-        image = self.compose(self.selected_index, (max_w, max_h), detail=True)
+        image = self.draw_annotations_off_main_thread(
+            self.selected_index, (max_w, max_h), detail=True
+        )
 
         self.zoom_photo = ImageTk.PhotoImage(image)
         if self.zoom_label is not None:

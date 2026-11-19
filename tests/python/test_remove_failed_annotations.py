@@ -82,6 +82,8 @@ def test_thumbnails_match_thumb_box(validator) -> None:
     )
     fake.thumb_box = lambda: validator.YOLODatasetValidator.thumb_box(fake)
     fake.thumb_key = lambda index: validator.YOLODatasetValidator.thumb_key(fake, index)
-    fake.compose = lambda index, box, detail: Image.new("RGB", (box[0], 20))
+    fake.draw_annotations_off_main_thread = lambda index, box, detail: Image.new(
+        "RGB", (box[0], 20)
+    )
     thumb = validator.YOLODatasetValidator.render_thumb(fake, 0)
     assert thumb.size == fake.thumb_box()

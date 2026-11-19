@@ -94,12 +94,12 @@ def test_samples_stay_inside_their_ranges() -> None:
         mount = sample_cage_mount(ranges, 1.2192)
         assert mount.wall in ranges.walls
         for value, (lo, hi) in (
-            (mount.along_m, ranges.along_m),
+            (mount.along_from_centre_m, ranges.along_m),
             (mount.height_m, ranges.height_m),
-            (mount.inset_m, ranges.inset_m),
-            (mount.tilt_deg, ranges.tilt_deg),
-            (mount.yaw_deg, ranges.yaw_deg),
-            (mount.roll_deg, ranges.roll_deg),
+            (mount.inset_toward_centre_m, ranges.inset_m),
+            (mount.tilt_from_down_deg, ranges.tilt_deg),
+            (mount.yaw_from_square_deg, ranges.yaw_deg),
+            (mount.roll_about_axis_deg, ranges.roll_deg),
         ):
             assert lo <= value <= hi
 

@@ -26,7 +26,7 @@ import math
 import random
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import blenderproc as bproc
 import bpy
@@ -177,11 +177,16 @@ class SceneState:
     cam_count: int
     house_bot: HouseBot | None = None
     venue: str = ARENA_VENUE
-    # One mount per camera pose, aligned by frame index. Empty for the HDRI half, whose
-    # cameras come off a sampled shell rather than a wall.
     mounts: tuple[CageMount, ...] = ()
     damage: tuple[InstanceDamage, ...] = ()
     lens: LensView | None = None
+
+    def __post_init__(self) -> None:
+        if self.mounts and len(self.mounts) != self.cam_count:
+            raise ValueError(
+                f"scene {self.scene_idx} has {len(self.mounts)} mounts for {self.cam_count} "
+                "cameras; mounts are empty or one per camera"
+            )
 
 
 @dataclass
@@ -256,6 +261,11 @@ def _write_keypoint_data_yml(
     )
 
 
+def _reset_manifest_for_fresh_run(layout: OutputLayout, start_index: int) -> None:
+    if start_index == 0 and layout.manifest_path.exists():
+        layout.manifest_path.unlink()
+
+
 def _append_manifest_row(
     layout: OutputLayout, scene: SceneState, frame_name: str, local_idx: int
 ) -> None:
@@ -303,11 +313,7 @@ def _save_debug_frame(data: dict, layout: OutputLayout) -> None:
 
 
 def _warp_render_data(lens: LensView | None, data: dict) -> dict:
-    """*data* with every per-frame map warped from the render into *lens*'s view.
-
-    Colour warps bilinear; every other map at render resolution (category, instance, depth)
-    warps nearest, so ids and depths are never blended. Unwarped views pass through untouched.
-    """
+    """*data* with every per-frame map warped from the render into *lens*'s view."""
     if lens is None or not lens.warps:
         return data
     render_shape = (lens.render_size[1], lens.render_size[0])
@@ -353,10 +359,15 @@ def _render_clean_inst_seg_maps(
     return clean_inst_seg_maps
 
 
+class BlurCategoryIds(NamedTuple):
+    robot_ids: set[int]
+    distractor_ids: set[int]
+
+
 def _compute_blur_category_ids(
     scene_robots: list[RobotInstance], active_distractors: list[DistractorInstance]
-) -> tuple[set[int], set[int]]:
-    """Collect blur-eligible category ids, split into (robot, distractor)."""
+) -> BlurCategoryIds:
+    """Collect blur-eligible category ids, split into robot and distractor."""
     robot_ids: set[int] = set()
     for robot in scene_robots:
         if robot.meshes:
@@ -368,21 +379,16 @@ def _compute_blur_category_ids(
     robot_ids.discard(-1)
     distractor_ids.discard(-1)
     distractor_ids -= robot_ids
-    return robot_ids, distractor_ids
+    return BlurCategoryIds(robot_ids, distractor_ids)
 
 
 def _apply_frame_motion_blur(
     color_img: np.ndarray,
     cat_seg: np.ndarray,
-    blur_category_ids: tuple[set[int], set[int]],
+    blur_category_ids: BlurCategoryIds,
     cfg: RenderConfig,
 ) -> np.ndarray:
-    """Apply per-category motion blur to a rendered frame and return the result.
-
-    ``blur_category_ids`` is ``(robot_ids, distractor_ids)``; robots use the
-    ``[randomization]`` motion-blur probability and distractors use the
-    ``[distractors]`` one (falling back to the robot probability).
-    """
+    """Blur robot ids and distractor ids, each at its own configured probability."""
     robot_ids, distractor_ids = blur_category_ids
     robot_prob = cfg.randomization.motion_blur_probability
     dist_prob = (
@@ -584,9 +590,6 @@ def _process_scene_frames(
 
 def _arrange_environment(cfg: RenderConfig, assets: SceneAssets, cage: CageStage | None) -> float:
     """Set up the floor, world and lighting for one scene; returns its arena radius."""
-    # Every cage the scene is not using goes away first. Two cages share the world origin, so
-    # leaving one showing puts its mat coplanar with the other's and its light rig on top of
-    # the other's: the floor renders as both textures blended and washed out.
     for stage in assets.cages:
         if stage is not cage:
             stage.deactivate()
@@ -603,6 +606,13 @@ def _arrange_environment(cfg: RenderConfig, assets: SceneAssets, cage: CageStage
     return random.uniform(*cfg.scene.arena_radius_range)
 
 
+class ScenePoses(NamedTuple):
+    poses: list[np.ndarray]
+    cam_count: int
+    fallback_count: int
+    mounts: tuple[CageMount, ...]
+
+
 def _scene_camera_poses(
     cfg: RenderConfig,
     cage: CageStage | None,
@@ -611,12 +621,8 @@ def _scene_camera_poses(
     active_distractors: list[DistractorInstance],
     remaining: int,
     scene_idx: int,
-) -> tuple[list[np.ndarray], int, int, tuple[CageMount, ...]]:
-    """Camera poses for one scene: sampled cage mounts, or the shell around the robots.
-
-    The mounts come back alongside the poses, aligned by frame index, so the manifest can
-    record which placement produced each frame. The HDRI half has none.
-    """
+) -> ScenePoses:
+    """Camera poses for one scene: sampled cage mounts, or the shell around the robots."""
     if cage is None:
         cam_poses, cam_count, fallback_count = setup_scene_cameras(
             scene_robots,
@@ -627,16 +633,15 @@ def _scene_camera_poses(
             robot_positions,
             cfg.output.ignore_obstructions,
         )
-        return cam_poses, cam_count, fallback_count, ()
+        return ScenePoses(cam_poses, cam_count, fallback_count, ())
     cam_count = min(cfg.output.images_per_scene, remaining)
     cam_poses, mounts, fallback_count = cage.sample_camera_poses(
         cam_count, robot_centroid(robot_positions)
     )
     logger.debug("%s: cage mounts %s", fmt_ctx(scene_idx), mounts)
     if not cfg.output.ignore_obstructions:
-        # This moves blocking distractors, never the poses, so mounts stay aligned.
         clear_poses_blocking_keypoints(cam_poses, scene_robots, active_distractors)
-    return cam_poses, cam_count, fallback_count, tuple(mounts)
+    return ScenePoses(cam_poses, cam_count, fallback_count, tuple(mounts))
 
 
 def _stage_cameras(
@@ -694,9 +699,7 @@ def render_scene(
         randomize_lights(assets.lights, cfg.randomization)
 
     for robot in scene_robots:
-        jitter_materials(
-            robot.meshes, cfg.randomization.roughness_jitter, cfg.randomization.hue_jitter_degrees
-        )
+        jitter_materials(robot.meshes, cfg.randomization.roughness_jitter)
 
     damage_session, instance_damage = apply_scene_damage(
         cfg.damage,
@@ -883,10 +886,7 @@ def run(args: argparse.Namespace) -> None:
     if not scheme.is_segmentation:
         _write_keypoint_data_yml(cfg, scheme, layout)
 
-    # A fresh run owns its manifest; a resume (--start-index, or a re-run into a directory
-    # that already holds images) appends to the rows already there.
-    if start_index == 0 and layout.manifest_path.exists():
-        layout.manifest_path.unlink()
+    _reset_manifest_for_fresh_run(layout, start_index)
 
     vram_estimates = load_distractor_vram_audit(
         cfg.distractors.vram_audit_csv, cfg.resolver.resolve

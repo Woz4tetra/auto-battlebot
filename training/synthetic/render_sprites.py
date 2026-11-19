@@ -110,13 +110,7 @@ def upright_yaw(front_local: np.ndarray, upright: mathutils.Matrix) -> float:
 
 
 def upright_matrix(robot_config: RobotConfig, inverted: bool = False) -> mathutils.Matrix:
-    """Stand a CAD-exported robot on its wheels, the way the scene pipeline poses it.
-
-    ``pose_single_robot`` uses a -90 degree pitch for upright and a per-model roll that takes out
-    the tilt left by where the CAD origin sits. Reproducing both here is what keeps the sprite's
-    footprint equal to the robot's real footprint on the floor. *inverted* takes the pipeline's
-    other grounded pose: +90 degrees of pitch and the inverted roll, lying on its back.
-    """
+    """Stand a CAD-exported robot on its wheels, or on its back when *inverted*."""
     pitch_rad = math.pi / 2.0 if inverted else -math.pi / 2.0
     roll_deg = robot_config.ground_roll_inverted if inverted else robot_config.ground_roll_upright
     pitch = mathutils.Matrix.Rotation(pitch_rad, 4, "X")

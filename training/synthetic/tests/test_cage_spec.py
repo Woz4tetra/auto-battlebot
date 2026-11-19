@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from synthgen import constants
 from synthgen.cage_spec import (
     CageSceneSpec,
     MatSpec,
@@ -237,3 +238,14 @@ def test_degenerate_walls_are_rejected() -> None:
         wall_quads(CageSceneSpec(walls=(WallSpec(start=(0.0, 0.0), end=(0.0, 0.0)),)))
     with pytest.raises(ValueError):
         wall_quads(CageSceneSpec(walls=(WallSpec(z_bottom=1.0, z_top=0.5),)))
+
+
+def test_mat_category_id_unique() -> None:
+    ids = [
+        constants.BACKGROUND_CATEGORY_ID,
+        constants.ROBOT_CATEGORY_ID,
+        constants.DISTRACTOR_CATEGORY_ID,
+        constants.HOUSE_BOT_CATEGORY_ID,
+        constants.MAT_CATEGORY_ID,
+    ]
+    assert len(set(ids)) == len(ids)

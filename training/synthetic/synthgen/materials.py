@@ -338,17 +338,8 @@ def apply_pbr_materials(
 def jitter_materials(
     meshes: list[bproc.types.MeshObject],
     roughness_jitter: float,
-    hue_jitter_deg: float,
 ) -> None:
-    """Apply small random perturbations to material properties.
-
-    Args:
-        meshes: Meshes whose materials get jittered.
-        roughness_jitter: Max absolute roughness perturbation.
-        hue_jitter_deg: Accepted for config parity; hue jitter is not
-            currently implemented (matches the original behavior).
-    """
-    del hue_jitter_deg
+    """Perturb each material's roughness by up to *roughness_jitter*."""
     for mesh in meshes:
         for mat in mesh.get_materials():
             try:

@@ -7,6 +7,7 @@ import random
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any
 
 import numpy as np
 
@@ -24,21 +25,33 @@ class MountAim(str, Enum):
 
 @dataclass(frozen=True)
 class CageMount:
-    """One camera mount: a wall, where on it, and where it points.
-
-    `along_m` runs along the wall from its centre, positive toward the wall's own +along axis
-    (see `wall_axes`). `inset_m` is how far inside the wall plane the lens sits, so positive
-    is toward the mat centre. `tilt_deg` is the optical axis off straight down, `yaw_deg` its
-    heading away from square-to-the-wall, and `roll_deg` the camera's roll about that axis.
-    """
+    """One camera mount: a wall, where on it, and where it points."""
 
     wall: str
-    along_m: float
+    along_from_centre_m: float
     height_m: float
-    inset_m: float
-    tilt_deg: float
-    yaw_deg: float
-    roll_deg: float
+    inset_toward_centre_m: float
+    tilt_from_down_deg: float
+    yaw_from_square_deg: float
+    roll_about_axis_deg: float
+
+
+MOUNT_FIELD_BY_RANGE_NAME = {
+    "along_m": "along_from_centre_m",
+    "height_m": "height_m",
+    "inset_m": "inset_toward_centre_m",
+    "tilt_deg": "tilt_from_down_deg",
+    "yaw_deg": "yaw_from_square_deg",
+    "roll_deg": "roll_about_axis_deg",
+}
+
+
+def mount_by_range_name(mount: CageMount) -> dict[str, Any]:
+    """The mount keyed the way `CageMountRanges` and the pose page name its fields."""
+    values: dict[str, Any] = {"wall": mount.wall}
+    for range_name, field in MOUNT_FIELD_BY_RANGE_NAME.items():
+        values[range_name] = getattr(mount, field)
+    return values
 
 
 @dataclass(frozen=True)
@@ -93,19 +106,21 @@ def sample_cage_mount(ranges: CageMountRanges, wall_half_m: float) -> CageMount:
         tilt = random.uniform(*ranges.tilt_deg)
     return CageMount(
         wall=random.choice(list(ranges.walls)),
-        along_m=along,
+        along_from_centre_m=along,
         height_m=height,
-        inset_m=inset,
-        tilt_deg=tilt,
-        yaw_deg=random.uniform(*ranges.yaw_deg),
-        roll_deg=random.uniform(*ranges.roll_deg),
+        inset_toward_centre_m=inset,
+        tilt_from_down_deg=tilt,
+        yaw_from_square_deg=random.uniform(*ranges.yaw_deg),
+        roll_about_axis_deg=random.uniform(*ranges.roll_deg),
     )
 
 
 def mount_position(mount: CageMount, wall_half_m: float) -> np.ndarray:
     """Lens position in the W frame. *wall_half_m* is half the cage interior span."""
     normal, along = wall_axes(mount.wall)
-    horizontal = -normal * (wall_half_m - mount.inset_m) + along * mount.along_m
+    horizontal = (
+        -normal * (wall_half_m - mount.inset_toward_centre_m) + along * mount.along_from_centre_m
+    )
     return np.asarray(horizontal + _UP * mount.height_m)
 
 
@@ -149,13 +164,13 @@ def mounts_behind_walls(
 def mount_heading(mount: CageMount) -> np.ndarray:
     """Unit horizontal direction the mount faces: the wall's inward normal turned by its yaw."""
     normal, along = wall_axes(mount.wall)
-    yaw = math.radians(mount.yaw_deg)
+    yaw = math.radians(mount.yaw_from_square_deg)
     return np.asarray(normal * math.cos(yaw) + along * math.sin(yaw))
 
 
 def mount_forward(mount: CageMount) -> np.ndarray:
     """Unit optical axis in the W frame: tilted off straight down, yawed off the wall normal."""
-    tilt = math.radians(mount.tilt_deg)
+    tilt = math.radians(mount.tilt_from_down_deg)
     return np.asarray(_unit(mount_heading(mount) * math.sin(tilt) + _DOWN * math.cos(tilt)))
 
 
@@ -182,7 +197,7 @@ def mount_cam2world(mount: CageMount, wall_half_m: float) -> np.ndarray:
         mount_position(mount, wall_half_m),
         mount_forward(mount),
         mount_heading(mount),
-        math.radians(mount.roll_deg),
+        math.radians(mount.roll_about_axis_deg),
     )
 
 

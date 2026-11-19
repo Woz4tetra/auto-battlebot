@@ -56,6 +56,21 @@ def resolve_dataset(dataset: str) -> str:
     raise SystemExit(f"No data.yml or data.yaml in dataset directory {path}")
 
 
+def resolve_model_settings(
+    config: dict, epochs: int, batch: int, imgsz: int, cache_override: str | bool | None
+) -> tuple[str | bool, dict]:
+    """Split a model's config into its cache and the rest; --cache beats the config's cache."""
+    settings = dict(config)
+    if epochs > 0:
+        settings["epochs"] = epochs
+    if batch > 0:
+        settings["batch"] = batch
+    if imgsz > 0:
+        settings["imgsz"] = imgsz
+    model_cache = settings.pop("cache", DEFAULT_CACHE)
+    return (model_cache if cache_override is None else cache_override), settings
+
+
 def main() -> None:
     configs = {
         "yolo11n-pose": {
@@ -335,18 +350,9 @@ def main() -> None:
     )
 
     for model_key in models:
-        # Copy: `cache` is popped out below, and a repeated model key must not see it missing.
-        settings = dict(configs[model_key])
-        if epochs > 0:
-            settings["epochs"] = epochs
-        if args.batch > 0:
-            settings["batch"] = args.batch
-        if args.imgsz > 0:
-            settings["imgsz"] = args.imgsz
-        # model.train() already receives `cache=` explicitly below, so it cannot also ride along
-        # in **settings. Precedence: explicit --cache > the model's config > DEFAULT_CACHE.
-        model_cache = settings.pop("cache", DEFAULT_CACHE)
-        cache = model_cache if cache_override is None else cache_override
+        cache, settings = resolve_model_settings(
+            configs[model_key], epochs, args.batch, args.imgsz, cache_override
+        )
 
         model = YOLO(checkpoint_path if checkpoint_path else model_key)
 

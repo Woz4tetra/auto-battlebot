@@ -7,7 +7,7 @@ import random
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import blenderproc as bproc
 import bpy
@@ -49,6 +49,12 @@ logger = get_logger(__name__)
 CAGE_COLLECTION_PREFIX = "cage_"
 MOUNT_FRAMING_RETRIES = 40
 CAGE_LIGHTS_OUTSIDE_COLLECTION_PREFIXES = ("wash_", "house_bot_fill")
+
+
+class MountPoses(NamedTuple):
+    poses: list[np.ndarray]
+    mounts: list[CageMount]
+    unframed_fallback_count: int
 
 
 @dataclass(frozen=True)
@@ -211,8 +217,6 @@ class CageStage:
             self._fill_offset = np.array(self._fill.location) - np.array(
                 [hb.position[0], hb.position[1], 0.12]
             )
-        # This cage's own lights, not every cage's: a run with more than one cage would
-        # otherwise have each stage switch all of them on.
         self._lights = [
             (obj, float(obj.data.energy))
             for obj in collection.objects
@@ -332,25 +336,18 @@ class CageStage:
         for tube, strength in zip(self._tubes, self._tube_strengths):
             _set_tube_strength(tube, strength * random.uniform(1 - fraction, 1 + fraction))
 
-    def sample_camera_poses(
-        self, count: int, look_at: list[float]
-    ) -> tuple[list[np.ndarray], list[CageMount], int]:
-        """Sample *count* mount poses that frame *look_at*.
-
-        Returns:
-            ``(cam2world poses, mounts, fallback_count)`` where fallback_count counts poses
-            that ran out of retries and kept the last sample regardless of framing.
-        """
+    def sample_camera_poses(self, count: int, look_at: list[float]) -> MountPoses:
+        """Sample *count* mount poses that frame *look_at*."""
         poses: list[np.ndarray] = []
         mounts: list[CageMount] = []
-        fallbacks = 0
+        unframed_fallback_count = 0
         for _ in range(count):
             mount, cam2world, framed = self._draw_framed_mount(look_at)
             if not framed:
-                fallbacks += 1
+                unframed_fallback_count += 1
             poses.append(cam2world)
             mounts.append(mount)
-        return poses, mounts, fallbacks
+        return MountPoses(poses, mounts, unframed_fallback_count)
 
     def _draw_framed_mount(self, look_at: list[float]) -> tuple[CageMount, np.ndarray, bool]:
         """Draw mounts until one frames *look_at*; the last draw is kept if none does."""
@@ -452,11 +449,7 @@ def build_cage_stage(
 
 
 def _house_bot(is_segmentation_mode: bool, created: list[bpy.types.Object]) -> HouseBot | None:
-    """The house bot record, or None when it is disabled, absent, or not a detector class.
-
-    Looked up among the objects this build made, not by name across the file: a run with more
-    than one cage has more than one candidate, and only one of them belongs to this stage.
-    """
+    """The house bot record, or None when it is disabled, absent, or not a detector class."""
     parent = next((obj for obj in created if obj.name == "house_bot"), None)
     if parent is None or is_segmentation_mode:
         return None

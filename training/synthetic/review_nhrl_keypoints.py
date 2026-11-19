@@ -6,11 +6,14 @@ import argparse
 import math
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, cast
+from typing import Annotated, Any, cast
 
 import cv2
 import nhrl_common as nc
 import numpy as np
+
+AffineModelXzToPixel = Annotated[np.ndarray, "2x3: [x,z,1]->[px,py]"]
+HullModelXz = Annotated[np.ndarray, "K x 2 model x,z"]
 
 _HUD_H = 96
 _MIN_DRAG_PX = 8
@@ -33,7 +36,7 @@ class Model:
         self.rejected = bool(self.existing.get("rejected"))
         td = self.existing.get("topdown") or {}
         self.image: np.ndarray | None = None
-        self.affine: np.ndarray | None = None
+        self.affine: AffineModelXzToPixel | None = None
 
         img_path = td.get("image")
         hull = td.get("hull")
@@ -43,9 +46,9 @@ class Model:
             if image is not None and len(hull) >= 3:
                 self.image = image
                 self.h, self.w = image.shape[:2]
-                self.affine = np.asarray(affine, dtype=float)  # 2x3: [x,z,1]->[px,py]
+                self.affine = np.asarray(affine, dtype=float)
                 self.lin_inv = np.linalg.inv(self.affine[:, :2])
-                self.hull = np.asarray(hull, dtype=float)  # (K,2) model x,z
+                self.hull: HullModelXz = np.asarray(hull, dtype=float)
                 self.y_ground = float(td.get("y_ground", 0.0))
                 self.hull3 = np.column_stack(
                     [self.hull[:, 0], np.full(len(self.hull), self.y_ground), self.hull[:, 1]]
@@ -101,11 +104,7 @@ class Model:
         return ", ".join(str(w) for w in wc) if wc else "?"
 
     def save(self, reviewed: bool) -> None:
-        """Patch the sidecar's keypoints + reviewed flag; keep topdown/metadata.
-
-        Writing keypoints always clears any prior ``rejected`` mark: keeping a
-        model and rejecting it are mutually exclusive decisions.
-        """
+        """Patch the sidecar's keypoints + reviewed flag; keep topdown/metadata."""
         front, back = self.keypoints()
         data = dict(self.existing)
         data["reviewed"] = bool(reviewed)

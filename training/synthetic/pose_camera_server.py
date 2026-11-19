@@ -198,12 +198,12 @@ def starting_pose(ranges: CageMountRanges, wall_half_m: float) -> FreeflyPose:
     """Start at the middle of the configured ranges, which is a mount worth looking at."""
     middle = CageMount(
         wall=ranges.walls[0],
-        along_m=sum(ranges.along_m) / 2,
+        along_from_centre_m=sum(ranges.along_m) / 2,
         height_m=sum(ranges.height_m) / 2,
-        inset_m=sum(ranges.inset_m) / 2,
-        tilt_deg=sum(ranges.tilt_deg) / 2,
-        yaw_deg=sum(ranges.yaw_deg) / 2,
-        roll_deg=sum(ranges.roll_deg) / 2,
+        inset_toward_centre_m=sum(ranges.inset_m) / 2,
+        tilt_from_down_deg=sum(ranges.tilt_deg) / 2,
+        yaw_from_square_deg=sum(ranges.yaw_deg) / 2,
+        roll_about_axis_deg=sum(ranges.roll_deg) / 2,
     )
     return freefly_from_cam2world(mount_cam2world(middle, wall_half_m))
 
@@ -430,7 +430,7 @@ def handle_command(
         mount = mount_from_cam2world(cam2world, scene.wall_half_m, walls=ranges.walls)
         count = mailbox.add_mark(mount)
         mailbox.set_status(
-            f"marked {count} pose(s): {mount.wall} wall, tilt {mount.tilt_deg:.1f} deg"
+            f"marked {count} pose(s): {mount.wall} wall, tilt {mount.tilt_from_down_deg:.1f} deg"
         )
     elif command.kind == "clear_marks":
         mailbox.clear_marks()
