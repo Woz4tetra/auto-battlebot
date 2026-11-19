@@ -27,12 +27,12 @@ DETECTION_METRICS = ("recall", "precision", "f1", "localization_recall")
 KEYPOINT_METRICS = ("kp_err_px", PCK_KEY, "kp_heading_err_deg", HEADING_ACC_KEY)
 
 
-def _resample_ratio(num: np.ndarray, den: np.ndarray, idx: np.ndarray) -> np.ndarray:
-    """Ratio sum(num)/sum(den) over each resampled frame set; nan where den == 0.
-
-    idx is (B, n_frames); num/den are per-frame arrays. Fully vectorized."""
-    n = num[idx].sum(axis=1)
-    d = den[idx].sum(axis=1)
+def _resample_ratio(
+    per_frame_num: np.ndarray, per_frame_den: np.ndarray, resample_idx: np.ndarray
+) -> np.ndarray:
+    """Ratio sum(num)/sum(den) over each resampled frame set; nan where den == 0."""
+    n = per_frame_num[resample_idx].sum(axis=1)
+    d = per_frame_den[resample_idx].sum(axis=1)
     return np.where(d > 0, n / np.where(d > 0, d, 1.0), np.nan)
 
 

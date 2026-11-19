@@ -1,21 +1,4 @@
-"""Mr Stabs Mk2 on CPU MuJoCo, driven closed loop from body-axis stick commands in an arena.
-
-The command chain is the robot's. Linear and angular stick fractions become the CRSF percents
-the firmware reads: channel 0 carries linear and the firmware negates it (a = -linear), and the
-transmitter reverses the angular channel (b = -angular). The firmware mixer and its heading hold
-turn those into per-motor percents, the drivetrain delay holds them, and the command-tape shaping
-(deadzone, throttle curve, left/right gain, pack voltage) turns them into wheel volts. Motor
-polarity is +1: the sim has no ESC wiring to undo, so a positive per-motor command drives
-forward.
-
-The flip switch decides when the firmware treats the robot as inverted and negates the throttle
-before the mixer (`FlipSwitch`). In the power-on DOWN position that follows the IMU's upside-down
-reading, with its hysteresis, so a flipped robot keeps driving wedge-first and the heading hold
-restarts on the flip.
-
-Arena walls and wall blocks are static geoms, and hazards that move (the house bot) are mocap
-cylinders, so wall contact is rigid-body contact rather than a position clamp.
-"""
+"""Mr Stabs Mk2 on CPU MuJoCo, driven closed loop from body-axis stick commands in an arena."""
 
 from __future__ import annotations
 
@@ -25,6 +8,7 @@ from collections import deque
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
 import mujoco
 import numpy as np
@@ -75,17 +59,18 @@ class Disc:
     radius: float
 
 
+class BoxSize(NamedTuple):
+    length_m: float
+    width_m: float
+    height_m: float
+
+
 @dataclass(frozen=True)
 class MovingBlock:
-    """A robot ours can hit, placed every tick by `ClosedLoopSim.set_moving_blocks`.
-
-    A cylinder of `radius`, or with `box` set, a box of full size (length, width, height) in m with
-    its length along the robot's heading: the shape the RL environment gives the opponent
-    (warp_nav.OPP_SIZE_M).
-    """
+    """A robot ours can hit, placed every tick by `ClosedLoopSim.set_moving_blocks`."""
 
     radius: float
-    box: tuple[float, float, float] | None = None
+    box: BoxSize | None = None
 
 
 def load_fit_params(path: Path) -> PlantParams:
@@ -131,7 +116,7 @@ def _add_static_geoms(
             **common,
         )
     for i, block in enumerate(moving_blocks):
-        height = BLOCK_HEIGHT_M if block.box is None else block.box[2]
+        height = BLOCK_HEIGHT_M if block.box is None else block.box.height_m
         body = spec.worldbody.add_body(
             name=f"{MOVING_BLOCK_PREFIX}{i}",
             mocap=True,
@@ -168,14 +153,14 @@ class ClosedLoopSim:
         self.model = spec.compile()
         self.data = mujoco.MjData(self.model)
         self._index = ModelIndex.of(self.model)
-        self._motor = MotorConstants(gear_ratio=mp.gear_ratio, kt=mp.motor_kt)
+        self._motor = MotorConstants(gear_ratio=mp.gear_ratio, kt_nm_per_a=mp.motor_kt)
         gain_l, gain_r = side_gains(params.lr_gain_ratio)
         self._side_gain = np.array([float(gain_l), float(gain_r)])
         self._deadzone = np.array([params.deadzone_left, params.deadzone_right])
         self._flip_switch = flip_switch
         self._updown = UpdownSensor()
         self._mixer = FirmwareMixer(auto_steer=flip_switch == FlipSwitch.DOWN)
-        self.inverted = False  # the firmware's is_upside_down: the throttle is being negated
+        self.firmware_is_upside_down = False
         delay_steps = max(0, round(params.delay_s / timestep))
         self._queue: deque[tuple[float, float]] = deque([(0.0, 0.0)] * delay_steps)
 
@@ -260,13 +245,15 @@ class ClosedLoopSim:
         self.block_contact = False
         for _ in range(max(1, round(dt / self._timestep))):
             heading = heading_from_yaw(self.pose()[2])
-            self.inverted = drive_inverted(self._flip_switch, self._updown.update(self.up_z))
+            self.firmware_is_upside_down = drive_inverted(
+                self._flip_switch, self._updown.update(self.up_z)
+            )
             left, right = self._mixer.step(
-                -a_percent if self.inverted else a_percent,
+                -a_percent if self.firmware_is_upside_down else a_percent,
                 b_percent,
                 heading,
                 self._timestep,
-                upside_down=self.inverted,
+                upside_down=self.firmware_is_upside_down,
                 yaw_rate_dps=gyro_from_yaw_rate(self.yaw_rate),
             )
             self._queue.append((left, right))

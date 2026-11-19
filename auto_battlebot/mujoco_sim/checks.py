@@ -127,7 +127,7 @@ def simulated_top_speed(
 
 
 def ideal_top_speed(mp: MassProperties, volts: float) -> float:
-    motor = MotorConstants(gear_ratio=mp.gear_ratio, kt=mp.motor_kt)
+    motor = MotorConstants(gear_ratio=mp.gear_ratio, kt_nm_per_a=mp.motor_kt)
     return motor.free_speed(volts) * mp.wheel_radius
 
 
@@ -191,7 +191,7 @@ def run_checks(
     volts: float,
     measured_tau: float = 0.078,
 ) -> CheckReport:
-    motor = MotorConstants(gear_ratio=mp.gear_ratio, kt=mp.motor_kt)
+    motor = MotorConstants(gear_ratio=mp.gear_ratio, kt_nm_per_a=mp.motor_kt)
     model, data = make(mp, params, collision, dt)
     settle(model, data)
     rest = pitch_of(data.qpos[3:7])

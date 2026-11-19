@@ -123,7 +123,7 @@ def plot_params(doc: dict[str, Any], out: Path) -> None:
 
 def _pick_windows(batch: WindowBatch, err: WindowErrors, n: int) -> list[int]:
     """The windows nearest the 10th, 50th and 90th percentile of MuJoCo error, both kinds."""
-    score = np.nanmax(err.position, axis=1)
+    score = np.nanmax(err.position_err_m, axis=1)
     picks: list[int] = []
     for kind in ("flat", "nose_lift"):
         idx = np.flatnonzero((batch.kind == kind) & np.isfinite(score))
@@ -164,23 +164,22 @@ def plot_rollouts(
         km, kg = tm <= horizon, tg <= horizon
         ax.plot(gb["x"][i][kg], gb["y"][i][kg], color=GREY, lw=1.2, label="grey-box")
         ax.plot(mj["x"][i][km], mj["y"][i][km], color=MUJOCO, lw=1.8, label="MuJoCo")
-        # A fix noisier than the session floor came from the second source (YOLO).
-        second = (
+        from_second_source = (
             np.asarray(batch.meas_sigma_xy[i]) > batch.noise_xy[i] * 1.01
             if batch.meas_sigma_xy
             else np.zeros(len(batch.meas_x[i]), dtype=bool)
         )
         ax.scatter(
-            batch.meas_x[i][~second],
-            batch.meas_y[i][~second],
+            batch.meas_x[i][~from_second_source],
+            batch.meas_y[i][~from_second_source],
             s=7,
             color=MEAS,
             zorder=3,
             label="measured, tag",
         )
         ax.scatter(
-            batch.meas_x[i][second],
-            batch.meas_y[i][second],
+            batch.meas_x[i][from_second_source],
+            batch.meas_y[i][from_second_source],
             s=7,
             color=YOLO,
             zorder=3,
@@ -201,7 +200,7 @@ def plot_rollouts(
         ax.set_ylim(cy - span, cy + span)
         ax.set_aspect("equal")
         u = batch.u_raw[i, batch.pad :]
-        e = mj_err.position[i]
+        e = mj_err.position_err_m[i]
         ax.set_title(
             f"{batch.kind[i]} #{batch.window_id[i]}: cmd L {u[:, 0].mean():+.2f} "
             f"R {u[:, 1].mean():+.2f}\nMuJoCo err at "

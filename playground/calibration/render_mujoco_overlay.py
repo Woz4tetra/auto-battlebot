@@ -434,7 +434,7 @@ def contact_sheet(scene: Scene, frames: dict[int, tuple[int, np.ndarray]], out: 
         ax.imshow(cv2.cvtColor(img[y0:y1, x0:x1], cv2.COLOR_BGR2RGB))
         ax.set_xticks([])
         ax.set_yticks([])
-        e = scene.errors.position[i]
+        e = scene.errors.position_err_m[i]
         errs = ", ".join(
             f"{h:.1f} s {1e3 * v:.0f} mm" for h, v in zip(scene.batch.horizons, e) if np.isfinite(v)
         )

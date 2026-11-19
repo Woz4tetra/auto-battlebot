@@ -27,8 +27,8 @@ def test_synthetic_windows_replay_through_greybox() -> None:
     batch = interim.build_windows(m4, 4, 0)
     qpos, record_dt = greybox.predict(batch, m4)
     err = window_errors(batch, qpos, record_dt)
-    assert np.nanmax(np.abs(err.position)) < 2e-3
-    assert np.nanmax(np.abs(err.heading)) < 2e-3
+    assert np.nanmax(np.abs(err.position_err_m)) < 2e-3
+    assert np.nanmax(np.abs(err.heading_err_rad)) < 2e-3
 
 
 @pytest.mark.parametrize("shift_s", [0.005, -0.005])
@@ -38,7 +38,7 @@ def test_window_alignment_is_sensitive_to_one_plant_step(shift_s: float) -> None
     qpos, record_dt = greybox.predict(batch, m4)
     shifted = np.roll(qpos, 1 if shift_s > 0 else -1, axis=1)
     err = window_errors(batch, shifted, record_dt)
-    assert np.nanmax(np.abs(err.position)) > 2e-3
+    assert np.nanmax(np.abs(err.position_err_m)) > 2e-3
 
 
 def test_window_starts_at_preroll_time() -> None:

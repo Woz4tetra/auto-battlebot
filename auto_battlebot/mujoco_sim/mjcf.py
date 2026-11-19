@@ -14,6 +14,8 @@ from auto_battlebot.mujoco_sim.mass_properties import ASSET_DIR, MassProperties
 
 COLLISION_DIR = ASSET_DIR / "collision"
 SKID_RADIUS_M = 0.0015
+SKID_FALLBACK_X_M = 0.07
+CHASSIS_BOX_BOTTOM_Z_M = -0.018
 WHEEL_JOINTS = ("wheel_left", "wheel_right")
 WHEEL_GEOMS = ("wheel_left_tread", "wheel_right_tread")
 FOLLOWER_JOINTS = ("follower_left", "follower_right")
@@ -22,8 +24,8 @@ BELT_EQUALITIES = ("belt_left", "belt_right")
 ROTOR_BODIES = ("rotor_left", "rotor_right")
 GEAR_EQUALITIES = ("gear_left", "gear_right")
 ROTOR_MASS_KG = 1e-4
-# Gear-coupling stiffness: time constant at the 2-step minimum for a 1 ms step.
-GEAR_SOLREF = (0.002, 1.0)
+FIT_TIMESTEP_S = 1e-3
+GEAR_SOLREF = (2 * FIT_TIMESTEP_S, 1.0)
 SKID_GEOM = "nose_skid"
 CHASSIS_GEOM_PREFIX = "chassis_hull_"
 ROBOT_CONTYPE = 2
@@ -83,11 +85,11 @@ def build_mjcf(
     mp: MassProperties,
     params: PlantParams,
     collision: CollisionSet | None = None,
-    timestep: float = 1e-3,
+    timestep: float = FIT_TIMESTEP_S,
     model_name: str = "mr_stabs_mk2",
 ) -> str:
     """The model XML. `collision=None` leaves out the hull (skid sphere only), for tests."""
-    motor = MotorConstants(gear_ratio=mp.gear_ratio, kt=mp.motor_kt)
+    motor = MotorConstants(gear_ratio=mp.gear_ratio, kt_nm_per_a=mp.motor_kt)
     gain = motor.gain(params)
     bias = motor.bias(params)
     force = motor.force_limit(params)
@@ -111,8 +113,7 @@ def build_mjcf(
             else collision.skid_point + np.array([0.0, 0.0, SKID_RADIUS_M])
         )
     else:
-        # No hull: put the skid at the bottom-front of the chassis COM box.
-        skid = np.array([0.07, 0.0, -0.018 + SKID_RADIUS_M])
+        skid = np.array([SKID_FALLBACK_X_M, 0.0, CHASSIS_BOX_BOTTOM_Z_M + SKID_RADIUS_M])
 
     wheels = []
     sides = [

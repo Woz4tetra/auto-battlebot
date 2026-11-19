@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import NamedTuple
+
 import numpy as np
 import torch
 from torchmetrics.detection import MeanAveragePrecision
@@ -76,13 +78,15 @@ def compute_map(frames: list[Frame], taxonomy: Taxonomy, level: str) -> dict[str
     }
 
 
-def match_indices(frame: Frame, iou_threshold: float) -> list[tuple[int | None, int | None]]:
-    """Greedy class-blind IoU matching by descending confidence.
+class MatchPair(NamedTuple):
+    gt: int | None
+    pred: int | None
 
-    Returns (gt_index, pred_index) pairs; unmatched GT as (g, None), unmatched
-    predictions as (None, p)."""
+
+def match_indices(frame: Frame, iou_threshold: float) -> list[MatchPair]:
+    """Greedy class-blind IoU matching by descending confidence."""
     ious = iou_matrix(frame.gt_boxes, frame.pred_boxes)
-    pairs: list[tuple[int | None, int | None]] = []
+    pairs: list[MatchPair] = []
     used_gt: set[int] = set()
     used_pred: set[int] = set()
     order = np.argsort(-frame.pred_scores)
@@ -92,9 +96,9 @@ def match_indices(frame: Frame, iou_threshold: float) -> list[tuple[int | None, 
         if best[0] >= iou_threshold:
             used_gt.add(best[1])
             used_pred.add(int(p))
-            pairs.append((best[1], int(p)))
-    pairs.extend((g, None) for g in range(len(frame.gt_labels)) if g not in used_gt)
-    pairs.extend((None, int(p)) for p in order if int(p) not in used_pred)
+            pairs.append(MatchPair(best[1], int(p)))
+    pairs.extend(MatchPair(g, None) for g in range(len(frame.gt_labels)) if g not in used_gt)
+    pairs.extend(MatchPair(None, int(p)) for p in order if int(p) not in used_pred)
     return pairs
 
 

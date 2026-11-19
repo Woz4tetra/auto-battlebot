@@ -780,7 +780,124 @@ Windows overlap heavily at a 50 ms stride, so thinning costs far less informatio
 the count suggests, and it is the knob that keeps a delay profile search over 60 grid
 points to minutes instead of an hour.
 
+### `mujoco_sim/actuator.py`
+
+#### `PlantParams`
+
+Everything the fit can move. Mass properties are fixed from CAD and are not here. Units are not in
+the field names because fitted `fit.json` files store them by name.
+
+| Field | Meaning |
+| --- | --- |
+| `delay_s` | Firmware command to motion. The radio part is measured separately. |
+| `deadzone_left`, `deadzone_right` | Fraction of full command. |
+| `lr_gain_ratio` | Left gain over right gain. |
+| `joint_frictionloss` | N m at the wheel. |
+| `joint_damping` | N m s / rad at the wheel. |
+
+### `mujoco_sim/closed_loop.py`
+
+`ClosedLoopSim` drives Mr Stabs Mk2 on CPU MuJoCo from body-axis stick commands in an arena. The
+command chain is the robot's:
+
+- Linear and angular stick fractions become the CRSF percents the firmware reads. Channel 0 carries
+  linear and the firmware negates it (`a = -linear`). The transmitter reverses the angular channel
+  (`b = -angular`).
+- The firmware mixer and its heading hold turn those into per-motor percents, and the drivetrain
+  delay holds them.
+- The command-tape shaping (deadzone, throttle curve, left/right gain, pack voltage) turns them into
+  wheel volts.
+- Motor polarity is +1. The sim has no ESC wiring to undo, so a positive per-motor command drives
+  forward.
+
+The flip switch decides when the firmware treats the robot as inverted and negates the throttle
+before the mixer (`FlipSwitch`). In the power-on DOWN position it follows the IMU's upside-down
+reading with its hysteresis, so a flipped robot keeps driving wedge-first and the heading hold
+restarts on the flip. `firmware_is_upside_down` is the firmware's `is_upside_down`.
+
+Arena walls and wall blocks are static geoms, and hazards that move (the house bot) are mocap
+cylinders, so wall contact is rigid-body contact and not a position clamp.
+
+#### `MovingBlock`
+
+A robot ours can hit, placed every tick by `ClosedLoopSim.set_moving_blocks`. It is a cylinder of
+`radius`, or with `box` set, a box of full size `BoxSize(length_m, width_m, height_m)` with its
+length along the robot's heading. That is the shape the RL environment gives the opponent
+(`warp_nav.OPP_SIZE_M`).
+
+### `mujoco_sim/firmware.py`
+
+Mirrors `mix_motor_outputs` (`firmware/mr_stabs_mk2/src/main.cpp`) and
+`yaw_control::YawController` (`firmware/mr_stabs_mk2/lib/yaw_control/`) line for line.
+`test_firmware_yaw_mirror_matches_native_golden_fixture` replays a fixture generated from the native
+`yaw_control.cpp`. The fit never uses this module: it replays the logged per-motor commands, which
+already come out of the mixer.
+
+Two firmware generations are mirrored, because `validate.py` replays recordings made before the
+yaw-rate loop:
+
+- `legacy=True`: heading hold with `PidV1` every control loop, quirks included. The integral
+  accumulates the raw error and multiplies by dt only on output, and the tolerance check returns
+  before the derivative term updates its previous error. The stick passes through while turning
+  and for a 0.25 s coast after.
+- `legacy=False` (default): the current firmware. In auto steer, `YawController` runs once per
+  BNO055 sample (100 Hz): the stick commands a yaw rate, heading hold commands the rate back to the
+  held heading, and an inner loop on the gyro sets the differential. Under 5% throttle with the
+  stick centered it idles. It runs upside down too. Outside auto steer the stick passes through
+  with a 1% deadband.
+
+The BNO055 heading (`orientation_x`) is degrees in [0, 360) and grows clockwise seen from above.
+`heading_from_yaw` converts the sim's counterclockwise yaw into it, and rates are clockwise-positive
+to match. This sign assumption is pinned by a recording (plan validation check 5). The firmware
+checks its own gyro sign at runtime.
+
+`UPDOWN_THRESHOLD_UP_Z` mirrors `RIGHT_SIDE_UP_THRESHOLD` and `UPSIDE_DOWN_THRESHOLD` in
+`updown_sensor.h`: the sensed gravity z must pass -1.0 m/s^2 to read right side up and +1.0 m/s^2 to
+read upside down, and holds in between. As a chassis up-axis z component that is a +-0.102 band.
+`test_updown_thresholds_match_firmware_header` reads the header.
+
+#### `FirmwareMixer.resume`
+
+Seeds the integral with the logged `pid_output` minus its feedforward and proportional terms. Seeding
+it with the whole output double-counts the feedforward in a turn. The measurement is in
+`docs/experiments/sysid/2026-10-15_mujoco_open_loop_heading_hold.md`.
+
+### `mujoco_sim/fit.py`
+
+`WindowErrors` holds position and heading errors shaped (N, H) for N windows and H horizons, NaN
+where no measurement landed near a horizon. `pitch_rms_rad` is (N,) over the whole window and NaN
+for flat windows. `position_sigma_m` and `heading_sigma_rad` are (N, H): the sigma each error was
+scored against, the measurement's own or the window's.
+
+A `Simulator` takes a window batch and one parameter set per world (`len == len(batch)`) and
+returns the recorded chassis qpos (N, S, 7) plus the recording interval.
+
+`run_stage` scores the starting point first, so a stage never hands back parameters worse than the
+ones it got (`test_stage_never_returns_worse_than_its_start`).
+
+### `mujoco_sim/greybox.py`
+
+Fits the grey-box plant (`control/plant.py`) on the same windows as MuJoCo. This is plan validation
+check 1: the MuJoCo model has to beat or match it on held-out sessions. Both models are scored by
+the same `fit.window_errors` against the same raw measurements, so the comparison is like for like.
+The grey-box plant takes linear and angular commands. They come from the per-motor tape through
+`motor_to_plant`, the inverse of the mixer (`u_lin = (l + r) / 2`, `u_ang = (r - l) / 2`).
+`plant.simulate`'s `traj[k]` is the state after step k, so `predict` prepends the start and sample
+k sits at `k * PLANT_DT`.
+
+### `mujoco_sim/mjcf.py`
+
+`GEAR_SOLREF` is the gear-coupling stiffness: a time constant of two timesteps, the minimum MuJoCo
+accepts, at the 1 ms `FIT_TIMESTEP_S`. Without a collision hull the skid sits at the bottom-front
+of the chassis COM box (`SKID_FALLBACK_X_M`, `CHASSIS_BOX_BOTTOM_Z_M`).
+
 ### `mujoco_sim/onshape_export.py`
+
+URDF `rpy` is extrinsic roll-pitch-yaw about fixed x, y, z, which is scipy's lowercase `"xyz"`.
+`LinkInertial.com_link` is (3,) and `inertia_about_com_link` is (3, 3), both in the link frame.
+`onshape_inertia_to_tensor` reads Onshape's "Mass moments of inertia" panel (g mm^2). The panel
+shows the tensor elements themselves, products already carrying the minus sign, so subtracting the
+wheels from it reproduces the chassis product of inertia the URDF parts give, in sign and size.
 
 #### `TagFrame`
 
@@ -789,6 +906,13 @@ A tag's marker frame in the body frame.
 `rotation` and `translation` form T_body_tag, mapping points in the OpenCV marker frame
 (origin at the tag center, x right and y up in the printed image, z out of the face; the
 object points solvePnP IPPE_SQUARE expects) into the body frame.
+
+`black_square_side_m` is the length OpenCV calls the marker length. `tilt_from_body_z_deg` is the
+angle between the tag normal and the body's +z (or -z when underneath). `decodes_mirrored` is set
+when the CAD face only decodes mirrored.
+
+The CAD face is rasterized with the lightest faces painted first so the black pattern lands on top
+of any overlapping plate.
 
 ### `mujoco_sim/session.py`
 

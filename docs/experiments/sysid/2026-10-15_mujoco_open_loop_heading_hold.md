@@ -14,6 +14,12 @@ when a BNO055 sample lands, every `sample_period`, so the yaw loop runs on sampl
 `pid_output` goes through the differential mixer: it adds to the left wheel and takes off the
 right.
 
+#### `FirmwareMixer.resume`
+
+Seeding the yaw loop's integral with the whole logged `pid_output` double-counts the feedforward
+in a turn: a spin on 2026-10-15 then ran 40% faster than the robot did. `resume` seeds only the
+logged output minus its feedforward and proportional terms.
+
 ### `mujoco_sim/validate.py`
 
 #### `firmware_closed_loop`

@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, fields
+from typing import Protocol
 
 import numpy as np
 
@@ -115,13 +116,12 @@ def _wrap(a: np.ndarray) -> np.ndarray:
 class WindowErrors:
     """Errors at each horizon for each window (NaN where no measurement landed near it)."""
 
-    position: np.ndarray  # (N, H) meters
-    heading: np.ndarray  # (N, H) radians
-    pitch_rms: np.ndarray  # (N,) radians over the whole window, NaN for flat windows
-    loss: np.ndarray  # (N,)
-    # The sigma each error was scored against (N, H): the measurement's own, or the window's.
-    position_sigma: np.ndarray
-    heading_sigma: np.ndarray
+    position_err_m: np.ndarray
+    heading_err_rad: np.ndarray
+    pitch_rms_rad: np.ndarray
+    loss: np.ndarray
+    position_sigma_m: np.ndarray
+    heading_sigma_rad: np.ndarray
 
 
 def window_errors(batch: WindowBatch, qpos: np.ndarray, record_dt: float) -> WindowErrors:
@@ -132,7 +132,7 @@ def window_errors(batch: WindowBatch, qpos: np.ndarray, record_dt: float) -> Win
     h = len(batch.horizons)
     pos_err = np.full((n, h), np.nan)
     yaw_err = np.full((n, h), np.nan)
-    pitch_rms = np.full(n, np.nan)
+    pitch_rms_rad = np.full(n, np.nan)
     loss = np.zeros(n)
     pos_sigma = np.full((n, h), np.nan)
     yaw_sigma = np.full((n, h), np.nan)
@@ -160,37 +160,42 @@ def window_errors(batch: WindowBatch, qpos: np.ndarray, record_dt: float) -> Win
         if batch.kind[i] == "nose_lift" and has_pitch.any():
             pp = np.interp(mt[has_pitch], sample_t, pose["pitch"][i])
             diff = pp - batch.meas_pitch[i][has_pitch]
-            pitch_rms[i] = float(np.sqrt(np.mean(diff**2)))
+            pitch_rms_rad[i] = float(np.sqrt(np.mean(diff**2)))
             resid = diff / batch.noise_pitch[i]
             terms.append(float(np.mean(_huber(resid))))
         loss[i] = float(np.mean(terms)) if terms else 0.0
     return WindowErrors(
-        position=pos_err,
-        heading=yaw_err,
-        pitch_rms=pitch_rms,
+        position_err_m=pos_err,
+        heading_err_rad=yaw_err,
+        pitch_rms_rad=pitch_rms_rad,
         loss=loss,
-        position_sigma=pos_sigma,
-        heading_sigma=yaw_sigma,
+        position_sigma_m=pos_sigma,
+        heading_sigma_rad=yaw_sigma,
     )
 
 
-# A simulator takes a window batch and one parameter set per world (len == len(batch)) and
-# returns the recorded chassis qpos (N, S, 7) plus the recording interval.
-Simulator = Callable[[WindowBatch, list[PlantParams]], tuple[np.ndarray, float]]
+class Simulator(Protocol):
+    def __call__(
+        self, batch: WindowBatch, params_per_world: list[PlantParams]
+    ) -> tuple[np.ndarray, float]:
+        """Chassis qpos (N, S, 7) and the recording interval, one parameter set per window."""
+        ...
 
 
 def warp_simulator(rollout_factory: Callable[[int, int], object]) -> Simulator:
     """Adapt WarpRollout to the Simulator shape, rebuilding the batch only when N changes."""
     cache: dict[tuple[int, int], object] = {}
 
-    def simulate(batch: WindowBatch, params: list[PlantParams]) -> tuple[np.ndarray, float]:
+    def simulate(
+        batch: WindowBatch, params_per_world: list[PlantParams]
+    ) -> tuple[np.ndarray, float]:
         key = (len(batch), batch.steps)
         if key not in cache:
             cache.clear()
             cache[key] = rollout_factory(len(batch), batch.steps)
         rollout = cache[key]
-        volts, zero = batch.tapes(params)
-        rollout.set_params(params)  # type: ignore[attr-defined]
+        volts, zero = batch.tapes(params_per_world)
+        rollout.set_params(params_per_world)  # type: ignore[attr-defined]
         rollout.set_tapes(volts, zero)  # type: ignore[attr-defined]
         qpos = rollout.run(batch.state)  # type: ignore[attr-defined]
         return qpos, batch.dt * rollout.record_every  # type: ignore[attr-defined]
@@ -257,7 +262,6 @@ def run_stage(
         sigma0,
         {"bounds": [0.0, 1.0], "popsize": popsize, "seed": seed + 1, "verbose": -9},
     )
-    # Score the starting point first: a stage must never hand back something worse than it got.
     start_loss, _ = score_candidates(simulate, sub, [start])
     best = start
     best_loss = float(start_loss[0]) if np.isfinite(start_loss[0]) else math.inf

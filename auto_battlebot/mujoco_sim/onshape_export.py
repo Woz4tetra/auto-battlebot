@@ -33,7 +33,6 @@ def _origin_matrix(origin: ET.Element | None) -> np.ndarray:
         return out
     xyz = [float(v) for v in origin.get("xyz", "0 0 0").split()]
     rpy = [float(v) for v in origin.get("rpy", "0 0 0").split()]
-    # URDF rpy is extrinsic roll-pitch-yaw about fixed x, y, z.
     out[:3, :3] = Rotation.from_euler("xyz", rpy).as_matrix()
     out[:3, 3] = xyz
     return out
@@ -42,8 +41,8 @@ def _origin_matrix(origin: ET.Element | None) -> np.ndarray:
 @dataclass
 class LinkInertial:
     mass: float
-    com: np.ndarray  # (3,) in the link frame
-    inertia: np.ndarray  # (3, 3) about the COM, link-frame axes
+    com_link: np.ndarray
+    inertia_about_com_link: np.ndarray
 
 
 @dataclass
@@ -131,16 +130,18 @@ class UrdfAssembly:
         ixy, ixz, iyz = (float(attrib[k]) for k in ("ixy", "ixz", "iyz"))
         tensor = np.array([[ixx, ixy, ixz], [ixy, iyy, iyz], [ixz, iyz, izz]])
         rot = origin[:3, :3]
-        return LinkInertial(mass=mass, com=origin[:3, 3], inertia=rot @ tensor @ rot.T)
+        return LinkInertial(
+            mass=mass, com_link=origin[:3, 3], inertia_about_com_link=rot @ tensor @ rot.T
+        )
 
     def mass_body_in_root(self, name: str) -> MassBody | None:
         inertial = self.inertial(name)
         if inertial is None or inertial.mass <= 0.0:
             return None
         pose = self.link_pose(name)
-        return MassBody(inertial.mass, inertial.com, inertial.inertia).transformed(
-            pose[:3, :3], pose[:3, 3]
-        )
+        return MassBody(
+            inertial.mass, inertial.com_link, inertial.inertia_about_com_link
+        ).transformed(pose[:3, :3], pose[:3, 3])
 
     def lumped(self, names: list[str]) -> MassBody:
         bodies = [b for b in (self.mass_body_in_root(n) for n in names) if b is not None]
@@ -202,9 +203,9 @@ class TagFrame:
     tag_id: int
     rotation: np.ndarray
     translation: np.ndarray
-    size_m: float  # black-square side, the length OpenCV calls the marker length
-    tilt_deg: float  # angle between the tag normal and the body's +z (or -z when underneath)
-    mirrored: bool  # the CAD face only decodes when mirrored
+    black_square_side_m: float
+    tilt_from_body_z_deg: float
+    decodes_mirrored: bool
 
 
 def extract_tag_frame(
@@ -248,8 +249,8 @@ def extract_tag_frame(
     extent = np.abs(uv).max() * 1.4
     size_px = int(2 * extent * px_per_m)
     image = np.full((size_px, size_px), 255, np.uint8)
-    # Paint light faces first so the black pattern lands on top of any overlapping plate.
-    for idx in np.argsort(-shade):
+    lightest_first = np.argsort(-shade)
+    for idx in lightest_first:
         pts = ((uv[idx] + extent) * px_per_m).astype(np.int32)
         cv2.fillConvexPoly(image, pts, 0 if shade[idx] < 0.2 else 255)
 
@@ -284,21 +285,16 @@ def extract_tag_frame(
         tag_id=tag_id,
         rotation=rotation,
         translation=tag_center,
-        size_m=float(size),
-        tilt_deg=tilt,
-        mirrored=mirrored,
+        black_square_side_m=float(size),
+        tilt_from_body_z_deg=tilt,
+        decodes_mirrored=mirrored,
     )
 
 
 def onshape_inertia_to_tensor(
     lxx: float, lyy: float, lzz: float, lxy: float, lxz: float, lyz: float
 ) -> np.ndarray:
-    """Onshape's "Mass moments of inertia" panel, in g mm^2, as a kg m^2 tensor.
-
-    The panel shows the tensor elements themselves (products already carry the minus sign):
-    subtracting the wheels from it reproduces the chassis product of inertia the URDF parts
-    give, in sign and size.
-    """
+    """Onshape's "Mass moments of inertia" panel, in g mm^2, as a kg m^2 tensor."""
     tensor = np.array([[lxx, lxy, lxz], [lxy, lyy, lyz], [lxz, lyz, lzz]])
     return tensor * 1e-9
 

@@ -304,12 +304,12 @@ def score_sessions(
     for name, table in tables.items():
         qpos, record_dt = greybox.predict(flat, table)
         err = window_errors(flat, qpos, record_dt)
-        pos = err.position / err.position_sigma
-        yaw = err.heading / err.heading_sigma
+        pos = err.position_err_m / err.position_sigma_m
+        yaw = err.heading_err_rad / err.heading_sigma_rad
         out[name] = {
             "pos_rms_x_noise": np.sqrt(np.nanmean(pos**2, axis=0)).tolist(),
             "head_rms_x_noise": np.sqrt(np.nanmean(yaw**2, axis=0)).tolist(),
-            "pos_rmse_mm": (1e3 * np.sqrt(np.nanmean(err.position**2, axis=0))).tolist(),
+            "pos_rmse_mm": (1e3 * np.sqrt(np.nanmean(err.position_err_m**2, axis=0))).tolist(),
         }
     return out
 

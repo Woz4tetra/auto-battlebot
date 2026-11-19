@@ -117,7 +117,7 @@ def param_arrays(
     params: list[PlantParams],
 ) -> ParamArrays:
     n = len(params)
-    motor = MotorConstants(gear_ratio=mp.gear_ratio, kt=mp.motor_kt)
+    motor = MotorConstants(gear_ratio=mp.gear_ratio, kt_nm_per_a=mp.motor_kt)
     out = ParamArrays(
         geom_friction=np.repeat(model.geom_friction[None], n, axis=0).copy(),
         geom_solref=np.repeat(model.geom_solref[None], n, axis=0).copy(),
@@ -240,7 +240,7 @@ def cpu_rollout(
     qpos, qvel = initial_qpos_qvel(model, index, state, height, mp.gear_ratio)
     data.qpos[:] = qpos[0]
     data.qvel[:] = qvel[0]
-    motor = MotorConstants(gear_ratio=mp.gear_ratio, kt=mp.motor_kt)
+    motor = MotorConstants(gear_ratio=mp.gear_ratio, kt_nm_per_a=mp.motor_kt)
     out = []
     for t in range(volts.shape[0]):
         if t % record_every == 0:

@@ -1,10 +1,4 @@
-"""The grey-box plant (auto_battlebot/control/plant.py) fit on the same windows as MuJoCo.
-
-Plan validation check 1: the MuJoCo model has to beat or match this on held-out sessions. Both
-models are scored by the same `fit.window_errors` against the same raw measurements, so the
-comparison is like for like. The grey-box plant takes linear/angular commands; they come from
-the per-motor tape as u_lin = (l + r) / 2 and u_ang = (r - l) / 2, the inverse of the mixer.
-"""
+"""The grey-box plant (auto_battlebot/control/plant.py) fit on the same windows as MuJoCo."""
 
 from __future__ import annotations
 
@@ -15,6 +9,7 @@ import numpy as np
 from scipy.optimize import least_squares
 
 from auto_battlebot.control import plant
+from auto_battlebot.control.firmware_mixer import motor_to_plant
 from auto_battlebot.mujoco_sim.actuator import delay_tape
 from auto_battlebot.mujoco_sim.fit import window_errors
 from auto_battlebot.mujoco_sim.session import WindowBatch
@@ -43,13 +38,11 @@ def predict(batch: WindowBatch, p: plant.PlantParams) -> tuple[np.ndarray, float
     shifted = np.moveaxis(delay_tape(np.moveaxis(batch.u_raw, 1, 2), batch.dt, p.delay_s), 2, 1)[
         :, batch.pad :: every
     ]
-    u_lin = 0.5 * (shifted[..., 0] + shifted[..., 1])
-    u_ang = 0.5 * (shifted[..., 1] - shifted[..., 0])
+    u_lin, u_ang = motor_to_plant(100.0 * shifted[..., 0], 100.0 * shifted[..., 1])
     st = batch.state
     forward = st.vx * np.cos(st.yaw) + st.vy * np.sin(st.yaw)
     state0 = plant.PlantState(x=st.x, y=st.y, theta=st.yaw, v=forward, w=st.yaw_rate)
     _, traj = plant.simulate(u_lin, u_ang, PLANT_DT, p, state=state0)
-    # traj[k] is the state after step k; prepend the start so sample k sits at k * PLANT_DT.
     x = np.concatenate([st.x[:, None], traj["x"]], axis=1)
     y = np.concatenate([st.y[:, None], traj["y"]], axis=1)
     yaw = np.concatenate([st.yaw[:, None], traj["theta"]], axis=1)
@@ -62,8 +55,8 @@ def predict(batch: WindowBatch, p: plant.PlantParams) -> tuple[np.ndarray, float
 def _residuals(batch: WindowBatch, p: plant.PlantParams) -> np.ndarray:
     qpos, record_dt = predict(batch, p)
     err = window_errors(batch, qpos, record_dt)
-    pos = err.position / err.position_sigma
-    yaw = err.heading / err.heading_sigma
+    pos = err.position_err_m / err.position_sigma_m
+    yaw = err.heading_err_rad / err.heading_sigma_rad
     out = np.concatenate([pos.ravel(), yaw.ravel()])
     return np.asarray(np.nan_to_num(out, nan=0.0))
 

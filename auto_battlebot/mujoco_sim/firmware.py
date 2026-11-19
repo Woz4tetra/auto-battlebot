@@ -1,27 +1,4 @@
-"""Mr Stabs Mk2 firmware layer between the radio and the ESCs, for closed-loop simulation.
-
-Mirrors `mix_motor_outputs` (firmware/mr_stabs_mk2/src/main.cpp) and
-`yaw_control::YawController` (firmware/mr_stabs_mk2/lib/yaw_control/) line for line. The fit
-never uses this: it replays the logged per-motor commands, which already come out of the mixer.
-
-Two firmware generations are mirrored, because validate.py replays recordings made before
-the yaw-rate loop:
-
-- `legacy=True`: heading hold with `PidV1` every control loop, quirks included: the integral
-  accumulates the raw error and multiplies by dt only on output, and the tolerance check
-  returns before the derivative term updates its previous error. The stick passes through
-  while turning and for a 0.25 s coast after.
-- `legacy=False` (default): the current firmware. In auto steer, `YawController` runs once
-  per BNO055 sample (100 Hz): the stick commands a yaw rate, heading hold commands the rate
-  back to the held heading, and an inner loop on the gyro sets the differential. Under 5%
-  throttle with the stick centered it idles. It runs upside down too; outside auto steer the
-  stick passes through with a 1% deadband.
-
-The BNO055 heading (`orientation_x`) is degrees in [0, 360) and grows clockwise seen from above;
-`heading_from_yaw` converts the sim's counterclockwise yaw into it, and rates here are
-clockwise-positive to match. That sign is an assumption until a recording pins it (plan
-validation check 5); the firmware checks its own gyro sign at runtime.
-"""
+"""Mr Stabs Mk2 firmware layer between the radio and the ESCs, for closed-loop simulation."""
 
 from __future__ import annotations
 
@@ -32,13 +9,10 @@ from enum import Enum
 LEGACY_TURNING_COOLDOWN_S = 0.25
 LEGACY_ANGULAR_SCALE = 1.0
 TURN_THRESHOLD_PERCENT = 1.0
-SAMPLE_PERIOD_S = 0.01  # updown_sensor::SAMPLE_INTERVAL
-GYRO_RANGE_DPS = 2000.0  # BNO055 gyro full scale in its fusion modes
-STANDARD_GRAVITY = 9.80665  # m/s^2
-# updown_sensor.h RIGHT_SIDE_UP_THRESHOLD / UPSIDE_DOWN_THRESHOLD: the sensed gravity z, in m/s^2,
-# must pass -1.0 to read right side up and +1.0 to read upside down; in between it holds. As a
-# chassis up-axis z component that is a +-0.102 band.
-UPDOWN_THRESHOLD_UP_Z = 1.0 / STANDARD_GRAVITY
+SAMPLE_PERIOD_S = 0.01
+GYRO_RANGE_DPS = 2000.0
+STANDARD_GRAVITY_MPS2 = 9.80665
+UPDOWN_THRESHOLD_UP_Z = 1.0 / STANDARD_GRAVITY_MPS2
 
 
 class FlipSwitch(str, Enum):
@@ -315,7 +289,6 @@ class FirmwareMixer:
         upside_down: bool,
     ) -> None:
         heading, rate, fresh = self._sample(heading_deg, rate_dps, dt)
-        # a_percent arrives already negated when inverted; stick back drives tail-first either way.
         tail_first_throttle = -a_percent if upside_down else a_percent
         if not self.auto_steer:
             self.pid_output = b_percent if abs(b_percent) > TURN_THRESHOLD_PERCENT else 0.0
@@ -338,10 +311,7 @@ class FirmwareMixer:
         yaw_rate_dps: float,
         pid_output: float,
     ) -> None:
-        """Start the current firmware's yaw loop mid-recording, holding `heading_deg`, with the
-        integral that reproduces the logged `pid_output` (the output minus its feedforward and
-        proportional terms). Seeding the integral with the whole output double-counts the
-        feedforward in a turn: a 2026-10-15 spin then ran 40% faster than the robot did."""
+        """Start the yaw loop mid-recording at `heading_deg`, integral set to give `pid_output`."""
         c = self.yaw.config
         self.yaw.reset(heading_deg)
         self.loop.active = True

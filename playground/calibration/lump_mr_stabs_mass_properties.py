@@ -102,14 +102,14 @@ def main() -> None:
             )
         ]
         frame = extract_tag_frame(meshes, tag_id, outward)
-        if frame.mirrored:
+        if frame.decodes_mirrored:
             raise SystemExit(f"tag {tag_id}: CAD face only decodes mirrored; fix the model first")
         tags[str(tag_id)] = {
             "upside_down": bool(frame.rotation[2, 2] < 0.0),
             "translation_m": [round(float(v), 6) for v in frame.translation],
             "rotation": [[round(float(v), 6) for v in row] for row in frame.rotation],
-            "size_m": round(frame.size_m, 5),
-            "tilt_deg": round(frame.tilt_deg, 2),
+            "size_m": round(frame.black_square_side_m, 5),
+            "tilt_deg": round(frame.tilt_from_body_z_deg, 2),
         }
 
     reflected = GEAR_RATIO**2 * ROTOR_INERTIA_KG_M2

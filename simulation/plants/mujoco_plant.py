@@ -15,6 +15,7 @@ from auto_battlebot.mujoco_sim.actuator import PlantParams
 from auto_battlebot.mujoco_sim.closed_loop import (
     ARENA_WALL_PREFIX,
     BLOCK_PREFIX,
+    BoxSize,
     ClosedLoopSim,
     Disc,
     MovingBlock,
@@ -114,7 +115,7 @@ def _moving_block(opponent: OpponentConfig) -> MovingBlock:
             f"got {opponent.collision_box}"
         )
     length, width, height = opponent.collision_box
-    return MovingBlock(opponent.hazard_radius, box=(length, width, height))
+    return MovingBlock(opponent.hazard_radius, box=BoxSize(length, width, height))
 
 
 class MujocoPlant:

@@ -95,12 +95,22 @@ Detection metrics are frame-decomposable (recall, precision, F1, localization re
 the paired bootstrap in `significance.py` can resample them. mAP is dataset-level and
 stays a point estimate. Keypoint metrics are level-independent.
 
+#### `match_indices`
+
+Greedy class-blind IoU matching by descending confidence. Returns `MatchPair(gt, pred)` rows:
+unmatched GT as `(g, None)`, unmatched predictions as `(None, p)`.
+
 #### `keypoint_metrics_from_stats`
 
 Sample sizes behind the ratios above. On an eval set where only a few classes carry
 keypoints these are small enough to decide whether a delta is worth believing, so
 they are reported next to the metric rather than left in the stats dict. Excluded
 from KEYPOINT_METRICS: they are counts, not scores, and are not bootstrapped.
+
+### `eval/significance.py`
+
+`_resample_ratio` takes per-frame numerator and denominator arrays and a (B, n_frames) index matrix
+of B bootstrap resamples. It is fully vectorized.
 
 ## Eval dataset scripts
 

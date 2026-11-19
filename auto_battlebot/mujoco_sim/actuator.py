@@ -14,15 +14,15 @@ NOMINAL_PACK_V = 15.2
 class PlantParams:
     """Everything the fit can move. Mass properties are not here: they are fixed from CAD."""
 
-    delay_s: float = 0.03  # firmware command to motion; the radio part is measured separately
-    deadzone_left: float = 0.02  # fraction of full command
+    delay_s: float = 0.03
+    deadzone_left: float = 0.02
     deadzone_right: float = 0.02
     curve: float = 0.0
     resistance_ohm: float = 0.2
     efficiency: float = 0.8
-    lr_gain_ratio: float = 1.0  # left gain over right gain
-    joint_frictionloss: float = 2e-3  # N m at the wheel
-    joint_damping: float = 1e-4  # N m s / rad at the wheel
+    lr_gain_ratio: float = 1.0
+    joint_frictionloss: float = 2e-3
+    joint_damping: float = 1e-4
     wheel_mu_slide: float = 1.0
     wheel_mu_torsion: float = 5e-3
     wheel_mu_roll: float = 1e-4
@@ -42,25 +42,25 @@ class PlantParams:
 @dataclass(frozen=True)
 class MotorConstants:
     gear_ratio: float
-    kt: float  # N m / A at the motor
+    kt_nm_per_a: float
 
     def gain(self, params: PlantParams) -> float:
         """gainprm[0]: wheel torque per applied volt."""
-        return params.efficiency * self.gear_ratio * self.kt / params.resistance_ohm
+        return params.efficiency * self.gear_ratio * self.kt_nm_per_a / params.resistance_ohm
 
     def bias(self, params: PlantParams) -> float:
         """biasprm[2]: wheel torque per wheel rad/s (negative, the back-EMF brake)."""
-        return -params.efficiency * self.gear_ratio**2 * self.kt**2 / params.resistance_ohm
+        return -params.efficiency * self.gear_ratio**2 * self.kt_nm_per_a**2 / params.resistance_ohm
 
     def force_limit(self, params: PlantParams) -> float:
-        return params.efficiency * self.gear_ratio * self.kt * params.current_limit_a
+        return params.efficiency * self.gear_ratio * self.kt_nm_per_a * params.current_limit_a
 
     def back_emf_volts(self, qvel: np.ndarray) -> np.ndarray:
-        return np.asarray(self.gear_ratio * self.kt * qvel)
+        return np.asarray(self.gear_ratio * self.kt_nm_per_a * qvel)
 
     def free_speed(self, volts: float) -> float:
         """Wheel rad/s with no load and no friction."""
-        return volts / (self.gear_ratio * self.kt)
+        return volts / (self.gear_ratio * self.kt_nm_per_a)
 
 
 def shape_command(

@@ -44,14 +44,14 @@ PLAUSIBLE = {
 def _horizon_table(err: WindowErrors, batch: WindowBatch, mask: np.ndarray) -> dict[str, Any]:
     out: dict[str, Any] = {}
     for j, h in enumerate(batch.horizons):
-        pos = err.position[mask, j]
-        yaw = err.heading[mask, j]
+        pos = err.position_err_m[mask, j]
+        yaw = err.heading_err_rad[mask, j]
         ok = np.isfinite(pos)
         if not ok.any():
             continue
         yaw_ok = np.isfinite(yaw)
-        pos_floor = pos[ok] / err.position_sigma[mask, j][ok]
-        yaw_floor = np.abs(yaw[yaw_ok]) / err.heading_sigma[mask, j][yaw_ok]
+        pos_floor = pos[ok] / err.position_sigma_m[mask, j][ok]
+        yaw_floor = np.abs(yaw[yaw_ok]) / err.heading_sigma_rad[mask, j][yaw_ok]
         out[f"{h:.1f}s"] = {
             "windows": int(ok.sum()),
             "position_median_m": float(np.median(pos[ok])),
@@ -128,7 +128,7 @@ def plausibility(
     for name, (lo, hi) in PLAUSIBLE.items():
         value = float(getattr(params, name))
         out[name] = {"value": value, "range": [lo, hi], "ok": lo <= value <= hi}
-    motor = MotorConstants(gear_ratio=mp.gear_ratio, kt=mp.motor_kt)
+    motor = MotorConstants(gear_ratio=mp.gear_ratio, kt_nm_per_a=mp.motor_kt)
     tau = simulated_decel_tau(*make(mp, params, collision, timestep), params=params, motor=motor)
     out["coast_tau_s"] = {"value": tau, "measured": MEASURED_COAST_TAU_S}
     total = params.delay_s + (radio_delay_s or 0.0)
@@ -158,7 +158,7 @@ def firmware_closed_loop(
         for i in range(len(batch))
         if np.all(np.abs(fw[i, :, 1]) <= 1.0) and np.isfinite(fw[i]).all()
     ][:max_windows]
-    motor = MotorConstants(gear_ratio=mp.gear_ratio, kt=mp.motor_kt)
+    motor = MotorConstants(gear_ratio=mp.gear_ratio, kt_nm_per_a=mp.motor_kt)
     model = mujoco.MjModel.from_xml_string(build_mjcf(mp, params, collision, batch.dt))
     data = mujoco.MjData(model)
     index = ModelIndex.of(model)
@@ -233,7 +233,7 @@ def closed_loop_replay(
     model = mujoco.MjModel.from_xml_string(build_mjcf(mp, params, collision, batch.dt))
     data = mujoco.MjData(model)
     index = ModelIndex.of(model)
-    motor = MotorConstants(gear_ratio=mp.gear_ratio, kt=mp.motor_kt)
+    motor = MotorConstants(gear_ratio=mp.gear_ratio, kt_nm_per_a=mp.motor_kt)
     gains = np.array(side_gains(params.lr_gain_ratio), dtype=float)
     deadzone = np.array([params.deadzone_left, params.deadzone_right])
     delay = int(round(params.delay_s / batch.dt))
