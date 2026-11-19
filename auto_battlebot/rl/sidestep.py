@@ -43,9 +43,7 @@ def wrap(a: torch.Tensor) -> torch.Tensor:
 
 
 class Sidestep:
-    """The controller for a batch of worlds. It keeps the orbit direction per world, so it does
-    not reverse every time we cross the pursuer's centre line, and its last action, for the
-    slew limit."""
+    """The controller for a batch of worlds."""
 
     def __init__(self, worlds: int, device: torch.device | str, cfg: SidestepConfig) -> None:
         self.cfg = cfg

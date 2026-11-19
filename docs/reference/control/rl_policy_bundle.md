@@ -43,7 +43,14 @@ One observation spec version maps robots, field, target and history to named ten
 | nearest hazards | 36 | 4 discs by edge distance |
 
 - `obs_spec.py` holds the scales and caps. The golden test (`ObservationV1GoldenTest.MatchesObsSpecPyOnEveryCase`) compares all 138 floats against it on every case.
-- A hazard's radius is the raw object radius, never inflated.
+- A hazard's radius is the raw object radius, never inflated. Hazard sorting is stable, so ties keep input order in both implementations.
+- Scales and caps: forward speed /2.5 m/s, yaw rate /15 rad/s, measurement age /0.5 s (capped at 1), position /2 m, velocity /2.5 m/s, position sigma /0.1 m, heading sigma /(pi/2), yaw-rate sigma /15, footprint half-diagonal /0.2 m, hazard radius /0.3 m. The three sigmas are capped at 1, so an infinite (unknown) sigma reads 1.
+- Our robot block: mode one-hot is ATTACK, RUN_AWAY. History holds 8 steps newest first: (linear, angular) actions x 8, then measured (forward speed, yaw rate) x 8.
+- Target opponent block order: position x, y, distance /2, bearing sin, cos, heading relative to ours sin, cos, velocity x, y, yaw rate, the three sigmas, footprint half-diagonal, measurement age, stale flag. With no target opponent the block is all zeros except the three sigmas, the age and the stale flag, which read 1.
+- Range rays: 24 rays from heading 0 counter-clockwise at 15 degrees, two channels each (solid, hole), distance /1.5 m, 1.0 when nothing is within 1.5 m. Solid rays see the field walls, wall blocks and tracked hazards (the house bot); hole rays see holes. A ray that starts inside a disc reads 0, and a ray whose origin is on or outside the field wall reads 0.
+- Nearest hazards: 4 discs by edge distance, each: centre x, y /2, raw radius /0.3, kind one-hot (hole, wall block, tracked), velocity x, y /2.5, present flag.
+- Input units: speeds in m/s, yaw rates in rad/s, `opp_velocity` in the field frame, `field_half` is the half size of the field rectangle, `hist_action` is (linear, angular).
+- Any change to the layout, a scale or a cap bumps `OBS_SPEC_VERSION`, which breaks loading of every bundle trained on the old one.
 - A layout change is a new spec version: bump the version in `obs_spec.py`, add a new builder, and regenerate `tests/rl_policy/rl_policy_golden_data.hpp` with `playground/rl/make_rl_golden_fixture.py`.
 
 ## Manifest checks

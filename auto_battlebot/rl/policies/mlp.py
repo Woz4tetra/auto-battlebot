@@ -42,7 +42,6 @@ class RunningNorm(nn.Module):
 
     @property
     def std(self) -> torch.Tensor:
-        # A constant input (a flag that never fires in a stage) keeps a std of 1, not 0.
         return torch.where(self.var > 1e-8, self.var.sqrt(), torch.ones_like(self.var))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

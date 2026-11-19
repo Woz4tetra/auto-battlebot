@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import cv2
 import numpy as np
@@ -53,26 +53,27 @@ class FieldSegmenter:
         return np.asarray(cv2.resize(mask, (width, height), interpolation=cv2.INTER_NEAREST))
 
 
-def largest_component_hull(mask: np.ndarray) -> tuple[np.ndarray, np.ndarray | None]:
-    """Largest blob in a 0/255 mask, replaced by its convex hull.
+class HullResult(NamedTuple):
+    mask: np.ndarray
+    polygon: np.ndarray | None
 
-    Returns the filled hull mask and its polygon, or (zeros, None) when the mask is
-    empty. The polygon is what gets cached and drawn; the mask is what gates boxes.
-    """
+
+def largest_component_hull(mask: np.ndarray) -> HullResult:
+    """Largest blob in a 0/255 mask, replaced by its convex hull."""
     binary = (mask > 0).astype(np.uint8)
     count, labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
     if count <= 1:
-        return np.zeros_like(mask), None
+        return HullResult(np.zeros_like(mask), None)
 
     largest = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
     points = cv2.findNonZero((labels == largest).astype(np.uint8))
     if points is None:
-        return np.zeros_like(mask), None
+        return HullResult(np.zeros_like(mask), None)
 
     polygon = cv2.convexHull(points)
     hull = np.zeros_like(mask)
     cv2.fillConvexPoly(hull, polygon, 255)
-    return hull, polygon
+    return HullResult(hull, polygon)
 
 
 def median_frame(video_path: Path, samples: int = MEDIAN_SAMPLES) -> np.ndarray:

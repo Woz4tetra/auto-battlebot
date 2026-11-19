@@ -52,3 +52,11 @@ Code: `auto_battlebot/rl/envs/opponents.py`, `policy_opponents.py`, `trained_opp
 - `classify_contacts` with `WEAPON_WEDGE` counts a contact point ahead of `strike_x` and within `strike_half_width` of the centre line as on our wedge. `WEAPON_DISK` counts any opponent contact while the sweep touches its box.
 - Geom roles are `GEOM_ROLE_*`: other, ours, opponent, wall, wall block, house bot.
 - Flag columns are `FLAG_*`: any opponent contact, contact inside the opponent's arc, wedge contact outside the arc, largest `|phi|` of such a contact, wall, wall block, house bot.
+
+## Torch plant
+
+`auto_battlebot/rl/torch_plant.py` ports `auto_battlebot/control/plant.py` (the reference) to torch. It steps one substep for every world at once with per-world parameters, so domain randomization is a tensor draw. `test_torch_plant_matches_numpy` pins it to the reference. The command path in front of it mirrors `DifferentialDriveProcessor::process` without the channel reversal: angular keeps priority inside `|linear| + |angular| <= limit`, then each wheel loses its zero deadzone (`test_saturate_gives_angular_priority_and_wheel_deadzone`).
+
+## Scripted pursuit policy
+
+`auto_battlebot/rl/policies/scripted.py` registers `pursuit`, the toy's scripted baseline. It reads the opponent's body-frame position from the observation and steers at it with the same PD heading loop, angle threshold, distance ramp, turn scale and steer brake as `src/navigation/pursuit_navigation.cpp`. `PursuitConfig` defaults are the Mr Stabs Mk2 profile's (`config/mr_stabs_mk2_desktop.toml`, checked by `test_scripted_pursuit_defaults_match_mk2_profile`), except `max_linear_command`, which the evaluation sets per arm because 0.25 is a bench setting, not a fighting one.

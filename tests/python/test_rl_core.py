@@ -22,7 +22,9 @@ from auto_battlebot.rl.export.bundle_policy import (
 )
 from auto_battlebot.rl.export.rtneural import run_json
 from auto_battlebot.rl.learners.ppo import Ppo, PpoConfig
-from auto_battlebot.rl.policies.mlp import MlpGaussianConfig, MlpGaussianPolicy
+from auto_battlebot.rl.policies.mlp import MlpGaussianConfig, MlpGaussianPolicy, RunningNorm
+from auto_battlebot.rl.policies.scripted import PursuitConfig, PursuitPolicy
+from auto_battlebot.rl.sidestep import Sidestep, SidestepConfig
 from auto_battlebot.rl.torch_plant import TorchPlantParams, integrate, saturate, steady_state
 
 REPO = Path(__file__).resolve().parents[2]
@@ -1024,3 +1026,118 @@ def test_warp_sensing_ekf_leaves_gaps() -> None:
         if k >= 50:
             coasting.append(env.ekf.coasting.float().mean())
     assert float(torch.stack(coasting).mean()) < 0.3
+
+
+def test_ray_box_zero_outside() -> None:
+    origin = torch.tensor([[2.0, 0.0], [0.0, 0.0]], dtype=torch.float64)
+    direction = torch.tensor([[[1.0, 0.0]], [[1.0, 0.0]]], dtype=torch.float64)
+    half = torch.tensor([[1.0, 1.0], [1.0, 1.0]], dtype=torch.float64)
+    out = obs_spec.ray_box(origin, direction, half)
+    assert out[0, 0] == 0.0
+    assert out[1, 0] == pytest.approx(1.0)
+
+
+def test_ray_discs_inside_hits_at_zero() -> None:
+    origin = torch.zeros(1, 2, dtype=torch.float64)
+    direction = torch.tensor([[[1.0, 0.0]]], dtype=torch.float64)
+    centre = torch.zeros(1, 1, 2, dtype=torch.float64)
+    radius = torch.ones(1, 1, dtype=torch.float64)
+    mask = torch.ones(1, 1, dtype=torch.bool)
+    assert obs_spec.ray_discs(origin, direction, centre, radius, mask)[0, 0] == 0.0
+    far = obs_spec.ray_discs(origin, direction, centre + torch.tensor([3.0, 0.0]), radius, mask)
+    assert far[0, 0] == pytest.approx(2.0)
+
+
+def test_hazard_ties_keep_input_order() -> None:
+    names = obs_spec.OBS_NAMES
+    hz = torch.tensor([[[0.5, 0.0], [-0.5, 0.0]]], dtype=torch.float64)
+    o = obs_spec.build_v1(
+        _inputs(
+            hazard_xy=hz,
+            hazard_radius=torch.tensor([[0.1, 0.1]], dtype=torch.float64),
+            hazard_kind=torch.tensor([[obs_spec.HOLE, obs_spec.TRACKED]]),
+            hazard_velocity=torch.zeros(1, 2, 2, dtype=torch.float64),
+            hazard_present=torch.ones(1, 2, dtype=torch.bool),
+        )
+    )[0]
+    assert o[names.index("hazard_0_hole")] == 1.0
+    assert o[names.index("hazard_1_tracked")] == 1.0
+
+
+def test_running_norm_constant_input_has_unit_std() -> None:
+    norm = RunningNorm(2)
+    x = torch.stack([torch.zeros(200_000), torch.linspace(-1.0, 1.0, 200_000)], dim=1)
+    norm.update(x)
+    assert norm.std[0] == 1.0
+    assert torch.isfinite(norm(x)).all()
+
+
+def _pursuit_reference(x: float, y: float, cfg: PursuitConfig) -> tuple[float, float]:
+    error = math.atan2(y, x)
+    distance = math.hypot(x, y)
+    angular = cfg.angular_kp * error
+    near, far = cfg.velocity_ramp_near_distance, cfg.velocity_ramp_far_distance
+    if distance <= near:
+        speed = 1.0
+    elif distance >= far:
+        speed = cfg.velocity_ramp_min_scale
+    else:
+        speed = 1.0 - (distance - near) / (far - near) * (1.0 - cfg.velocity_ramp_min_scale)
+    turn = 1.0 - abs(error) / cfg.angle_threshold * 0.5
+    brake = max(0.0, 1.0 - 0.5 * abs(angular))
+    linear = 0.0 if abs(error) >= cfg.angle_threshold else speed * turn * brake
+    return min(linear, cfg.max_linear_command), angular
+
+
+def test_scripted_pursuit_matches_reference_control_law() -> None:
+    cfg = PursuitConfig(max_linear_command=1.0)
+    spec = EnvSpec(("opp_x", "opp_y", "opp_known"), (), 0, 0.02, 1)
+    policy = PursuitPolicy(spec, cfg)
+    for x, y in [(1.2, 0.3), (0.6, -0.2), (3.0, 1.0), (-1.0, 0.5)]:
+        obs = torch.zeros(1, spec.obs_dim)
+        obs[0, spec.index("opp_x")] = x / 2.0
+        obs[0, spec.index("opp_y")] = y / 2.0
+        obs[0, spec.index("opp_known")] = 1.0
+        action, _ = policy.act(obs)
+        linear, angular = _pursuit_reference(x, y, cfg)
+        assert action[0, 0].item() == pytest.approx(linear, abs=1e-5)
+        assert action[0, 1].item() == pytest.approx(angular, abs=1e-5)
+    assert action[0, 0] == 0.0
+
+
+def test_scripted_pursuit_defaults_match_mk2_profile() -> None:
+    nav = tomllib.loads((REPO / "config/mr_stabs_mk2_desktop.toml").read_text())["navigation"]
+    cfg = PursuitConfig()
+    for key in (
+        "angular_kp",
+        "angular_kd",
+        "max_linear_command",
+        "angle_threshold",
+        "velocity_ramp_far_distance",
+        "velocity_ramp_near_distance",
+        "velocity_ramp_min_scale",
+    ):
+        assert getattr(cfg, key) == nav[key], key
+
+
+def test_sidestep_keeps_orbit_side_across_centre_line() -> None:
+    controller = Sidestep(1, "cpu", SidestepConfig())
+
+    def truth(phi_deg: float) -> dict[str, torch.Tensor]:
+        phi = math.radians(phi_deg)
+        return {
+            "xy": torch.tensor([[math.cos(phi), math.sin(phi)]]),
+            "yaw": torch.zeros(1),
+            "yaw_rate": torch.zeros(1),
+            "opp_xy": torch.zeros(1, 2),
+            "opp_yaw": torch.zeros(1),
+            "reach": torch.zeros(1),
+        }
+
+    controller(truth(40.0))
+    assert controller.side.item() == 1.0
+    for phi_deg in (10.0, -10.0, -25.0):
+        controller(truth(phi_deg))
+        assert controller.side.item() == 1.0
+    controller(truth(-40.0))
+    assert controller.side.item() == -1.0

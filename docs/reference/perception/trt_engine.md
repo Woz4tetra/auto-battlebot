@@ -23,3 +23,7 @@
 ## CUDA handle types
 
 `include/tensorrt_inference/cuda_handles.hpp` forward declares `cudaStream_t`, `cudaGraphExec_t` and `DeviceTensorView{data, height, width}`, so headers name the real CUDA types without including CUDA.
+
+## Engine filename tags
+
+`engine_path_with_platform_tag` in `auto_battlebot/tensorrt_build.py` appends `_<arch>_sm<XX>` to the engine stem, for example `model_x86_64_sm89.engine`. The `sm` tag stops an engine built for a different GPU architecture from loading silently. A precision tag goes ahead of it (`model_int8_x86_64_sm89.engine`) so the trailing `_<arch>_sm<XX>.engine` shape that the config candidate lists match on is unchanged, and FP16 filenames stay byte-identical to what `config/_jetson.toml` already names (`test_engine_name_tags`).

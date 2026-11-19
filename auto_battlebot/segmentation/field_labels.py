@@ -1,20 +1,4 @@
-"""Parse a floor-mask filename into (field type, scene, source frame).
-
-The floor-mask corpus is a flat pile of `.jpg` + `_mask.png` pairs whose only
-provenance is the filename. Three facts have to come back out of it:
-
-    field   the physical arena the frame was shot in -- the unit of diversity for
-            the DeepLab data question. Cage-1..7 are NHRL's cages; MobileCam and
-            SkyCam are NHRL broadcast rigs whose cage is not named in the file;
-            zed2023 / own_recent are our own recordings; mini_bot is the test rig.
-    scene   the recording. Splits are drawn scene-disjoint, so this is what must
-            not cross the train/eval line.
-    source  the labelled frame identity. Offline `_augment-N` copies share it with
-            their original, which is how the leak in the shipped split is found.
-
-Field is inferred, never verified -- see the "Risks" section of
-docs/experiments/perception/deeplab_field_data_plan.md.
-"""
+"""Parse a floor-mask filename into (field type, scene, source frame)."""
 
 from __future__ import annotations
 
@@ -33,10 +17,6 @@ DUPLICATE_PREFIX = "floor_dataset__"
 
 _AUGMENT_RE = re.compile(r"_augment-(\d+)$")
 
-# The camera token appears either as a bare filename prefix (`Cage-6-Red-2024-...`)
-# or inside a BrettZone export (`..._tournamentID-nhrl_oct24_3lb_Cage-6-Overhead-High_...`,
-# `BZ-nhrl_feb26_3lb-cole-anubis-W-53-Cage-2-Overhead-High_...`). Matching anywhere in
-# the stem covers all three without enumerating the export formats.
 _CAGE_RE = re.compile(r"(?:^|[_-])Cage-(\d)(?:[_-]|$)")
 _MOBILECAM_RE = re.compile(r"(?:^|[_-])MobileCam-(\d)(?:[_-]|$)")
 _SKYCAM_RE = re.compile(r"(?:^|[_-])SkyCam-([A-Z])(?:[_-]|$)")
@@ -45,10 +25,7 @@ _ZED_RE = re.compile(r"^zed_(\d{4})-")
 _MINI_BOT_RE = re.compile(r"^mini_bot_")
 _OWN_RECENT_RE = re.compile(r"^(\d{4})-(\d{2})-\d{2}[T_]\d{2}-\d{2}-\d{2}")
 
-# Frame-index tails, in the two conventions the corpus uses. Stripping them collapses
-# every frame of a recording onto one scene key.
 _YOLO_SEG_TAIL_RE = re.compile(r"_yolo_seg__frame_\d+$")
-# Roboflow exports: `<scene>-<frame>_jpg.rf.<hash>` or `<scene>_repaired_<frame>_jpg.rf.<hash>`.
 _ROBOFLOW_TAIL_RE = re.compile(r"(?:_repaired_\d+)?_jpg\.rf\.[0-9a-f]+$")
 _TRAILING_FRAME_RE = re.compile(r"-\d{4,}$")
 
@@ -77,11 +54,7 @@ class FrameLabel:
 
 
 def parse_field(stem: str) -> str:
-    """Field type for a canonical stem.
-
-    Cage tokens win over camera-rig tokens: a BrettZone export names both the
-    tournament and the cage, and the cage is the arena.
-    """
+    """Field type for a canonical stem."""
     cage = _CAGE_RE.search(stem)
     if cage:
         return f"cage{cage.group(1)}"

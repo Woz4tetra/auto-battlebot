@@ -1,11 +1,4 @@
-"""`pursuit`: `PursuitNavigation`'s control law as a policy, the toy's scripted baseline.
-
-It reads the opponent's body-frame position from the observation and steers at it with the same
-PD heading loop, angle threshold, distance ramp, turn scale and steer brake as
-`src/navigation/pursuit_navigation.cpp`. Defaults are the Mr Stabs Mk2 profile's
-(`config/mr_stabs_mk2_desktop.toml`), except `max_linear_command`, which the evaluation sets per
-arm because 0.25 is a bench setting, not a fighting one.
-"""
+"""`pursuit`: `PursuitNavigation`'s control law as a policy."""
 
 from __future__ import annotations
 

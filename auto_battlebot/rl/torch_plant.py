@@ -1,10 +1,4 @@
-"""The grey-box drivetrain plant and the command path, batched in torch for the RL environments.
-
-`auto_battlebot/control/plant.py` is the reference; this port steps one substep for every world
-at once with per-world parameters, so domain randomization is a tensor draw. The command path in
-front of it mirrors `DifferentialDriveProcessor`: saturation with angular priority, then the zero
-deadzone per wheel.
-"""
+"""The grey-box drivetrain plant and command path, batched in torch."""
 
 from __future__ import annotations
 
@@ -52,8 +46,7 @@ class TorchPlantParams:
 
 
 def saturate(action: torch.Tensor, limit: float = 1.0, zero_deadzone: float = 0.02) -> torch.Tensor:
-    """`DifferentialDriveProcessor::process` without the channel reversal: angular keeps priority
-    inside `|linear| + |angular| <= limit`, then each wheel loses its zero deadzone."""
+    """Saturation with angular priority, then the per-wheel zero deadzone."""
     angular = action[:, 1].clamp(-1.0, 1.0)
     headroom = (limit - angular.abs()).clamp(min=0.0)
     linear = torch.maximum(torch.minimum(action[:, 0], headroom), -headroom)

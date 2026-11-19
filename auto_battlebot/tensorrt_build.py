@@ -33,14 +33,7 @@ def get_compute_capability() -> tuple[int, int]:
 
 
 def engine_path_with_platform_tag(path: Path, precision_tag: str | None = None) -> Path:
-    """Append platform + GPU compute capability tag so incompatible engines are distinct.
-
-    Produces filenames like ``model_x86_64_sm89.engine`` — the ``sm`` tag
-    prevents silently loading an engine built for a different GPU architecture.
-    A precision tag goes ahead of it (``model_int8_x86_64_sm89.engine``) so the trailing
-    ``_<arch>_sm<XX>.engine`` shape the config candidate lists match on is unchanged, and
-    so FP16 filenames stay byte-identical to what ``config/_jetson.toml`` already names.
-    """
+    """Append the platform and GPU compute capability tag to an engine filename."""
     arch = platform.machine()
     major, minor = get_compute_capability()
     tag = f"{arch}_sm{major}{minor}"

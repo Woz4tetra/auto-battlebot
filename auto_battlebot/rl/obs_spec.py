@@ -1,36 +1,10 @@
-"""Observation spec v1 for `RlPolicyNavigation`: 138 floats, built twice and checked equal.
-
-This module is the spec. `build_v1` implements it in torch for training; `ObservationBuilderV1`
-(`src/rl_policy/observations/observation_v1.cpp`) implements it in C++ for the robot, and
-`tests/rl_policy/test_observation_v1.cpp` checks the two against a golden fixture written by
-`playground/rl/make_rl_golden_fixture.py`. Any change to the layout, a scale or a cap bumps
-`OBS_SPEC_VERSION`, which breaks loading of every bundle trained on the old one (plan section 3).
-
-Everything is in our body frame (x forward, y left) at our axle centre; the field frame's origin
-is the field centre. Blocks, in order:
-
-- our robot (6): forward speed /2.5, yaw rate /15, measurement age /0.5 (capped at 1), stale
-  flag, mode one-hot ATTACK, RUN_AWAY
-- history (32): last 8 policy steps, newest first: actions (linear, angular) x 8, then measured
-  (forward speed /2.5, yaw rate /15) x 8
-- target opponent (16): position x, y /2, distance /2, bearing sin, cos, heading relative to ours
-  sin, cos, velocity x, y /2.5, yaw rate /15, position sigma /0.1, heading sigma /(pi/2),
-  yaw-rate sigma /15 (each capped at 1, so unknown reads 1), footprint half-diagonal /0.2,
-  measurement age /0.5 (capped at 1), stale flag
-- range rays (48): 24 rays from heading 0 counter-clockwise at 15 degrees, two channels each
-  (solid, hole), distance /1.5, 1.0 when nothing is within 1.5 m
-- nearest hazards (36): 4 discs by edge distance, each: centre x, y /2, raw radius /0.3, kind
-  one-hot (hole, wall block, tracked), velocity x, y /2.5, present flag
-
-Solid rays see the field walls, wall blocks and tracked hazards (the house bot); hole rays see
-holes. A ray that starts inside a disc reads 0. With no target opponent the opponent block is all
-zeros except the three sigmas, the age and the stale flag, which read 1.
-"""
+"""Observation spec v1 for `RlPolicyNavigation`: 138 floats."""
 
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import Annotated
 
 import torch
 
@@ -98,41 +72,48 @@ OBS_DIM = len(OBS_NAMES)
 assert OBS_DIM == 138, OBS_DIM
 
 
+PerWorld = Annotated[torch.Tensor, "[W]"]
+PerWorldFlag = Annotated[torch.Tensor, "[W] bool"]
+PerWorldVec2 = Annotated[torch.Tensor, "[W, 2]"]
+PerWorldHistory = Annotated[torch.Tensor, "[W, 8]"]
+PerWorldHistoryVec2 = Annotated[torch.Tensor, "[W, 8, 2]"]
+PerHazard = Annotated[torch.Tensor, "[W, H]"]
+PerHazardFlag = Annotated[torch.Tensor, "[W, H] bool"]
+PerHazardKind = Annotated[torch.Tensor, "[W, H] long: HOLE, WALL_BLOCK, TRACKED"]
+PerHazardVec2 = Annotated[torch.Tensor, "[W, H, 2]"]
+
+
 @dataclass
 class ObsInputs:
-    """Everything the builder reads, batched over worlds [W, ...], field frame unless noted.
+    """Everything the builder reads, batched over worlds, field frame unless noted."""
 
-    Infinite sigmas mean unknown and are allowed. `hazard_*` hold any number of discs H; the
-    builder picks the 4 nearest by edge distance. History is newest first.
-    """
-
-    our_xy: torch.Tensor  # [W, 2]
-    our_yaw: torch.Tensor  # [W]
-    our_speed: torch.Tensor  # [W] forward, m/s
-    our_yaw_rate: torch.Tensor  # [W] rad/s
-    our_age_s: torch.Tensor  # [W]
-    our_stale: torch.Tensor  # [W] bool
-    run_away: torch.Tensor  # [W] bool
-    hist_action: torch.Tensor  # [W, 8, 2]
-    hist_speed: torch.Tensor  # [W, 8] m/s
-    hist_yaw_rate: torch.Tensor  # [W, 8] rad/s
-    opp_present: torch.Tensor  # [W] bool
-    opp_xy: torch.Tensor  # [W, 2]
-    opp_yaw: torch.Tensor  # [W]
-    opp_velocity: torch.Tensor  # [W, 2] field frame, m/s
-    opp_yaw_rate: torch.Tensor  # [W]
-    opp_position_sigma: torch.Tensor  # [W]
-    opp_heading_sigma: torch.Tensor  # [W]
-    opp_yaw_rate_sigma: torch.Tensor  # [W]
-    opp_half_diagonal: torch.Tensor  # [W] m
-    opp_age_s: torch.Tensor  # [W]
-    opp_stale: torch.Tensor  # [W] bool
-    field_half: torch.Tensor  # [W, 2] half size of the field rectangle
-    hazard_xy: torch.Tensor  # [W, H, 2]
-    hazard_radius: torch.Tensor  # [W, H] object_radius, never inflated
-    hazard_kind: torch.Tensor  # [W, H] long: HOLE, WALL_BLOCK, TRACKED
-    hazard_velocity: torch.Tensor  # [W, H, 2]
-    hazard_present: torch.Tensor  # [W, H] bool
+    our_xy: PerWorldVec2
+    our_yaw: PerWorld
+    our_speed: PerWorld
+    our_yaw_rate: PerWorld
+    our_age_s: PerWorld
+    our_stale: PerWorldFlag
+    run_away: PerWorldFlag
+    hist_action: PerWorldHistoryVec2
+    hist_speed: PerWorldHistory
+    hist_yaw_rate: PerWorldHistory
+    opp_present: PerWorldFlag
+    opp_xy: PerWorldVec2
+    opp_yaw: PerWorld
+    opp_velocity: PerWorldVec2
+    opp_yaw_rate: PerWorld
+    opp_position_sigma: PerWorld
+    opp_heading_sigma: PerWorld
+    opp_yaw_rate_sigma: PerWorld
+    opp_half_diagonal: PerWorld
+    opp_age_s: PerWorld
+    opp_stale: PerWorldFlag
+    field_half: PerWorldVec2
+    hazard_xy: PerHazardVec2
+    hazard_radius: PerHazard
+    hazard_kind: PerHazardKind
+    hazard_velocity: PerHazardVec2
+    hazard_present: PerHazardFlag
 
 
 def wrap(a: torch.Tensor) -> torch.Tensor:
@@ -144,8 +125,7 @@ def ray_angles(dtype: torch.dtype, device: torch.device) -> torch.Tensor:
 
 
 def ray_box(origin: torch.Tensor, direction: torch.Tensor, half: torch.Tensor) -> torch.Tensor:
-    """Distance from `origin` [W, 2] along `direction` [W, R, 2] to the box `half` [W, 2] wall.
-    0 for an origin on or outside the wall."""
+    """Distance from `origin` along `direction` to the wall of the box `half`."""
     big = torch.full_like(direction[..., 0], math.inf)
     t = big
     for axis in range(2):
@@ -164,8 +144,7 @@ def ray_discs(
     radius: torch.Tensor,
     mask: torch.Tensor,
 ) -> torch.Tensor:
-    """Nearest hit [W, R] of each ray on any masked disc ([W, H]); inf when none. A ray whose
-    origin is inside a disc hits it at 0."""
+    """Nearest hit of each ray on any masked disc."""
     m = origin[:, None, :] - centre
     b = (m[:, None, :, :] * direction[:, :, None, :]).sum(-1)
     c = (m * m).sum(-1) - radius * radius
@@ -273,7 +252,6 @@ def build_v1(inp: ObsInputs) -> torch.Tensor:
     h = inp.hazard_xy.shape[1]
     slots = []
     if h > 0:
-        # Stable sort, so ties keep input order in both implementations.
         order = torch.sort(edge, dim=1, stable=True).indices
     for k in range(MAX_HAZARDS):
         if k >= h:

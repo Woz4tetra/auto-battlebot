@@ -1,18 +1,4 @@
-"""Read and write the TOML metadata file that accompanies a DeepLab checkpoint.
-
-Every trained model produces a sibling `<stem>.toml` file next to the `.pth`
-(or `.engine`) that records the parameters needed to load and preprocess:
-
-    [model]
-    backbone    = "mbv3"
-    image_size  = 256
-    pad_size    = 10
-    num_classes = 2
-    decoder     = "v3"
-
-All scripts (training, export, inference) and the C++ runtime read this file
-so the values stay in sync.
-"""
+"""Read and write the TOML metadata file that accompanies a DeepLab checkpoint."""
 
 from __future__ import annotations
 
