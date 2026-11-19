@@ -23,26 +23,11 @@ struct VideoEncoderOptions {
     int fps = 60;
     int64_t bitrate = 15000000;
     int keyframe_interval = 30;
-    /** Frames the encoder may fall behind before it starts dropping. A submit-and-wait to NVENC
-     *  from the perception loop is a blocking call in the latency budget; dropping is the only
-     *  other option, and a silent drop is worse than a counted one. */
     size_t queue_depth = 4;
     VideoInputFormat input_format = VideoInputFormat::UYVY;
     bool software_preview = false;
 };
 
-/**
- * @brief H.264 encoder on its own thread, writing one Annex-B access unit per frame.
- *
- * Encoder selection is FFmpeg's h264_nvenc (desktop), FFmpeg's h264_nvv4l2m2m, GStreamer's
- * nvv4l2h264enc (Jetson hardware encoder), then libx264 (FFmpeg, else GStreamer x264enc). A
- * candidate counts only if it opens: the ZED Box's stock FFmpeg registers h264_nvenc, which cannot
- * open without libnvidia-encode. On aarch64 libx264 is only for `software_preview`: at 1920x1200 it
- * managed 39-43 fps on all eight Orin cores and would starve perception.
- *
- * B-frames are off: they reorder PTS, and both `start_frame` on playback and reading `log_time` as
- * the capture instant depend on the nth message being the nth captured frame.
- */
 class VideoEncoder {
    public:
     using PacketSink =
@@ -60,15 +45,9 @@ class VideoEncoder {
 
     bool start(const VideoEncoderOptions &options, PacketSink sink,
                const BackendFactory &factory = nullptr);
-    /** Flushes the encoder, so the last frames submitted still reach the sink. */
     void stop();
     bool running() const { return running_.load(); }
 
-    /** Non-blocking. Copies the frame into the queue and returns; drops when the queue is full. */
-    /** The frame's index in this encode session, which is the nth /camera/video message of the
-     *  recording it lands in; -1 when the frame was not taken (stopped, or the queue is full).
-     *  Cameras write this into frame_meta: the encoder alone decides which frames become
-     *  packets, so a count kept anywhere else drifts the first time one is dropped. */
     int64_t submit(const cv::Mat &frame, uint64_t log_time_ns);
 
     void request_keyframe() { keyframe_requested_.store(true); }
@@ -79,9 +58,6 @@ class VideoEncoder {
 
     static std::string candidate_names();
 
-    /** The backend refused a frame that was already numbered. From then on submit() takes
-     *  nothing, so every index already handed out either has its packet or points past the
-     *  last one. Only a stop() and start() clears it: the caller restarts the recording. */
     bool broken() const { return broken_.load(); }
 
     uint64_t encoded_frames() const { return encoded_frames_.load(); }

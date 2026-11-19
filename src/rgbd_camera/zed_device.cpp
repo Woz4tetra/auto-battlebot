@@ -105,7 +105,8 @@ bool ZedDevice::enable_tracking() {
     return true;
 }
 
-CameraInfo ZedDevice::read_camera_info() const {
+std::optional<CameraInfo> ZedDevice::read_camera_info() const {
+    if (!zed_.isOpened()) return std::nullopt;
     const sl::CalibrationParameters calibration =
         zed_.getCameraInformation().camera_configuration.calibration_parameters;
     const sl::Resolution image_size = zed_.getCameraInformation().camera_configuration.resolution;

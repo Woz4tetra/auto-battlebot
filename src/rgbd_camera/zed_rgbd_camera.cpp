@@ -156,7 +156,9 @@ bool ZedRgbdCamera::initialize() {
 
     if (!device_.enable_tracking()) return false;
 
-    latest_data_.camera_info = device_.read_camera_info();
+    const std::optional<CameraInfo> camera_info = device_.read_camera_info();
+    if (!camera_info) return false;
+    latest_data_.camera_info = *camera_info;
 
     capture_running_ = true;
 
@@ -278,8 +280,9 @@ bool ZedRgbdCamera::get(CameraData &data) {
     std::unique_lock<std::mutex> lock(data_mutex_);
 
     if (!(frame_counter_ > last_returned_frame_counter_)) {
-        if (!wait_for_new_frame(lock, wait_loops,
-                                [&]() { return frame_counter_ > last_returned_frame_counter_; })) {
+        if (!wait_for_frame_or_disconnect(lock, wait_loops, [&]() {
+                return frame_counter_ > last_returned_frame_counter_;
+            })) {
             return false;
         }
     }
@@ -310,8 +313,9 @@ bool ZedRgbdCamera::get(CameraData &data) {
     return true;
 }
 
-bool ZedRgbdCamera::wait_for_new_frame(std::unique_lock<std::mutex> &lock, int &wait_loops,
-                                       const std::function<bool()> &frame_ready) {
+bool ZedRgbdCamera::wait_for_frame_or_disconnect(std::unique_lock<std::mutex> &lock,
+                                                 int &wait_loops,
+                                                 const std::function<bool()> &frame_ready) {
     const auto deadline = std::chrono::steady_clock::now() + kGetDeadline;
     while (!data_cv_.wait_for(lock, kGetWaitTimeout, [&]() {
         return frame_ready() || shutdown_requested_ || stop_capture_thread_ ||

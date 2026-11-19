@@ -10,37 +10,9 @@
 #include <string>
 #include <vector>
 
+#include "rl_policy/allocation_counter.hpp"
 #include "rl_policy/bundle_writer.hpp"
 #include "rl_policy/runtimes/rtneural_runtime.hpp"
-
-// Counts heap allocations made on the current thread while `t_counting` is set. Defined in the
-// test executable, so it takes the place of libc's malloc for every library in the process,
-// including Eigen's aligned allocations inside RTNeural (they go through malloc too).
-extern "C" {
-void *__libc_malloc(size_t size) noexcept;
-void *__libc_calloc(size_t count, size_t size) noexcept;
-void *__libc_realloc(void *pointer, size_t size) noexcept;
-}
-
-namespace {
-thread_local bool t_counting = false;
-thread_local long t_allocations = 0;
-}  // namespace
-
-extern "C" void *malloc(size_t size) noexcept {
-    if (t_counting) ++t_allocations;
-    return __libc_malloc(size);
-}
-
-extern "C" void *calloc(size_t count, size_t size) noexcept {
-    if (t_counting) ++t_allocations;
-    return __libc_calloc(count, size);
-}
-
-extern "C" void *realloc(void *pointer, size_t size) noexcept {
-    if (t_counting) ++t_allocations;
-    return __libc_realloc(pointer, size);
-}
 
 namespace auto_battlebot::rl_policy {
 namespace {
@@ -72,9 +44,10 @@ std::vector<DenseLayer> tiny_layers(const std::string &output_activation) {
 }
 
 std::vector<float> run_once(RtNeuralRuntime &runtime, const std::vector<float> &input) {
-    runtime.inputs()[0].data = input;
+    std::ranges::copy(input, runtime.inputs()[0].values().begin());
     runtime.run();
-    return runtime.outputs()[0].data;
+    const auto output = runtime.outputs()[0].values();
+    return std::vector<float>(output.begin(), output.end());
 }
 
 // Input [0.3, -0.7, 1.2]. Hidden pre-activations, by hand:
@@ -147,6 +120,15 @@ TEST(RtNeuralRuntimeTest, AnActivationRtNeuralCannotBuildIsNamed) {
     EXPECT_NE(error.find("layers[1] activation 'gelu'"), std::string::npos) << error;
 }
 
+TEST(RtNeuralRuntimeTest, ALayerTypeRtNeuralCannotBuildIsNamed) {
+    const auto dir = rl_test::fresh_dir("rtneural_layer_type");
+    rl_test::write_dense_json(dir / "net.json", 3, tiny_layers("tanh"));
+    rl_test::replace_in_file(dir / "net.json", R"("type": "dense", "activation": "tanh")",
+                             R"("type": "transformer", "activation": "tanh")");
+    const std::string error = load_error(spec_for(dir / "net.json", 3, 2));
+    EXPECT_NE(error.find("layers[1] type 'transformer'"), std::string::npos) << error;
+}
+
 TEST(RtNeuralRuntimeTest, ATransposedKernelIsNamed) {
     auto layers = tiny_layers("tanh");
     // [out][in] instead of [in][out], the mistake the exporter's transpose exists to avoid.
@@ -171,22 +153,19 @@ TEST(RtNeuralRuntimeTest, RunDoesNotAllocate) {
     rl_test::write_dense_json(dir / "net.json", 3, tiny_layers("tanh"));
     RtNeuralRuntime runtime;
     runtime.load(spec_for(dir / "net.json", 3, 2));
-    runtime.inputs()[0].data = {0.3f, -0.7f, 1.2f};
+    const std::vector<float> input = {0.3f, -0.7f, 1.2f};
+    std::ranges::copy(input, runtime.inputs()[0].values().begin());
 
-    // The counter has to see something, or a zero below proves nothing.
-    t_allocations = 0;
-    t_counting = true;
-    std::vector<int> *probe = new std::vector<int>(4);
-    t_counting = false;
+    std::vector<int> *probe = nullptr;
+    ASSERT_GT(rl_test::allocations_during([&] { probe = new std::vector<int>(4); }), 0)
+        << "the counter saw nothing, so a zero below proves nothing";
     delete probe;
-    ASSERT_GT(t_allocations, 0);
 
-    t_allocations = 0;
-    t_counting = true;
-    for (int i = 0; i < 100; ++i) runtime.run();
-    runtime.reset();
-    t_counting = false;
-    EXPECT_EQ(t_allocations, 0);
+    const long allocations = rl_test::allocations_during([&] {
+        for (int i = 0; i < 100; ++i) runtime.run();
+        runtime.reset();
+    });
+    EXPECT_EQ(allocations, 0);
 }
 
 /** The deployed actor's shape (plan section 11): 138 -> 256 -> 256 -> 128 -> 2, ELU, with no
@@ -212,7 +191,7 @@ TEST(RtNeuralRuntimeTest, FullSizeActorInferenceTime) {
     rl_test::write_dense_json(dir / "net.json", 138, layers);
     RtNeuralRuntime runtime;
     runtime.load(spec_for(dir / "net.json", 138, 2));
-    for (auto &value : runtime.inputs()[0].data) value = static_cast<float>(weight(rng) * 5.0);
+    for (auto &value : runtime.inputs()[0].values()) value = static_cast<float>(weight(rng) * 5.0);
 
     constexpr int kWarmup = 200;
     constexpr int kRuns = 5000;
@@ -233,7 +212,7 @@ TEST(RtNeuralRuntimeTest, FullSizeActorInferenceTime) {
               << " us over " << kRuns << " runs\n";
     RecordProperty("median_us", std::to_string(median));
     RecordProperty("p99_us", std::to_string(p99));
-    EXPECT_TRUE(std::isfinite(runtime.outputs()[0].data[0]));
+    EXPECT_TRUE(std::isfinite(runtime.outputs()[0].values()[0]));
     // A loose ceiling so a loaded dev box does not fail it; the printed number is the result.
     EXPECT_LT(median, 2000.0);
 }

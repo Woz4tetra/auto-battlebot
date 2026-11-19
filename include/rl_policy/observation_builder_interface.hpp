@@ -29,8 +29,6 @@ class ObservationBuilderInterface {
 
     virtual size_t history_policy_steps() const = 0;
 
-    /** Writes every tensor output_specs() names into `observation`. Does not allocate once its
-     * scratch space has grown to the field's hazard count. */
     virtual void build(const ObservationContext &context, TensorSet &observation) = 0;
 };
 

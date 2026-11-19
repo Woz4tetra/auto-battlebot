@@ -98,7 +98,9 @@ bool ZedSvoPlaybackCamera::initialize() {
 
     if (!device_.enable_tracking()) return false;
 
-    latest_data_.camera_info = device_.read_camera_info();
+    const std::optional<CameraInfo> camera_info = device_.read_camera_info();
+    if (!camera_info) return false;
+    latest_data_.camera_info = *camera_info;
     is_initialized_ = true;
     return true;
 }

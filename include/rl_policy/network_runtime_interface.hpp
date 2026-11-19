@@ -9,13 +9,6 @@
 
 namespace auto_battlebot::rl_policy {
 
-/**
- * Runs one network of a policy bundle: named float tensors in, named float tensors out.
- *
- * load() reads the network file and allocates every buffer. After that, the caller writes
- * inputs(), calls run() and reads outputs(); run() never allocates, so it is safe on the control
- * thread. Recurrent state, if the network has any, lives inside the runtime and reset() zeros it.
- */
 class NetworkRuntimeInterface {
    public:
     virtual ~NetworkRuntimeInterface() = default;

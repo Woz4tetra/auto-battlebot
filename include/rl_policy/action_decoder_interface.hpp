@@ -13,7 +13,6 @@ class ActionDecoderInterface {
 
     virtual size_t action_size() const = 0;
 
-    /** `raw` and `action` are both action_size() long. Never allocates. */
     virtual void decode(std::span<const float> raw, std::span<double> action) const = 0;
 };
 

@@ -85,8 +85,7 @@ class ZedDevice {
     bool tracking_enabled() const { return tracking_enabled_; }
     bool enable_tracking();
 
-    /** Intrinsics and resolution, valid once open() has succeeded. */
-    CameraInfo read_camera_info() const;
+    std::optional<CameraInfo> read_camera_info() const;
 
     GrabStatus grab();
 

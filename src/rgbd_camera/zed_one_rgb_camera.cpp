@@ -169,8 +169,8 @@ bool ZedOneRgbCamera::initialize() {
     }
     read_calibration();
     const CameraSettingLimits limits = read_limits();
-    opened_settings_ = read_settings(default_manual_settings(limits));
-    settings_state_ = CameraSettingsState{opened_settings_, limits};
+    const CameraSettings opened_settings = read_settings(default_manual_settings(limits));
+    settings_state_ = CameraSettingsState{opened_settings, limits};
     latest_data_.pose_tracking_ready = true;
 
     if (mcap_recorder_) {
@@ -188,7 +188,7 @@ bool ZedOneRgbCamera::initialize() {
 
     is_initialized_.store(true);
     stop_thread_.store(false);
-    capture_thread_ = std::thread(&ZedOneRgbCamera::capture_thread_loop, this);
+    capture_thread_ = std::thread(&ZedOneRgbCamera::capture_thread_loop, this, opened_settings);
     return true;
 }
 
@@ -247,9 +247,9 @@ bool ZedOneRgbCamera::capture_frame() {
     return true;
 }
 
-void ZedOneRgbCamera::capture_thread_loop() {
+void ZedOneRgbCamera::capture_thread_loop(const CameraSettings opened_settings) {
     while (!stop_thread_.load()) {
-        service_settings();
+        service_settings(opened_settings);
         if (capture_frame()) {
             data_cv_.notify_all();
         } else if (should_close_.load()) {
@@ -312,7 +312,11 @@ bool ZedOneRgbCamera::set_recording_enabled(bool enabled) {
 bool ZedOneRgbCamera::is_recording_enabled() const { return encoder_.running(); }
 void ZedOneRgbCamera::request_camera_settings(std::optional<CameraSettings> settings) {
     std::lock_guard<std::mutex> lock(settings_mutex_);
-    pending_settings_ = std::move(settings);
+    if (settings) {
+        pending_settings_ = SettingsRequest{std::move(*settings)};
+    } else {
+        pending_settings_ = SettingsRequest{RestoreOpenedSettings{}};
+    }
 }
 
 std::optional<CameraSettingsState> ZedOneRgbCamera::camera_settings() const {
@@ -423,8 +427,8 @@ void ZedOneRgbCamera::apply_settings(const CameraSettings &settings) {
 #endif
 }
 
-void ZedOneRgbCamera::service_settings() {
-    std::optional<std::optional<CameraSettings>> request;
+void ZedOneRgbCamera::service_settings(const CameraSettings &opened_settings) {
+    std::optional<SettingsRequest> request;
     {
         std::lock_guard<std::mutex> lock(settings_mutex_);
         request.swap(pending_settings_);
@@ -432,7 +436,8 @@ void ZedOneRgbCamera::service_settings() {
     // settings_state_ is written only on this thread after open, so reading it unlocked is safe.
     CameraSettings known = settings_state_->settings;
     if (request) {
-        const CameraSettings target = request->value_or(opened_settings_);
+        const CameraSettings *requested = std::get_if<CameraSettings>(&*request);
+        const CameraSettings target = requested != nullptr ? *requested : opened_settings;
         apply_settings(target);
         const CameraSettingLimits &limits = settings_state_->limits;
         auto clamp = [](int value, const CameraSettingRange &range) {

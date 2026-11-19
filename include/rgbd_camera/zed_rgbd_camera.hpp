@@ -37,10 +37,8 @@ class ZedRgbdCamera : public RgbdCameraInterface {
     bool capture_frame();
     void reset_capture_timing_stats() const;
     void reset_runtime_state();
-    // Block until frame_ready() (or a lifecycle/disconnect event). `lock` must be held on
-    // entry. Returns false if the camera disconnected while waiting.
-    bool wait_for_new_frame(std::unique_lock<std::mutex> &lock, int &wait_loops,
-                            const std::function<bool()> &frame_ready);
+    bool wait_for_frame_or_disconnect(std::unique_lock<std::mutex> &lock, int &wait_loops,
+                                      const std::function<bool()> &frame_ready);
 
     std::atomic<bool> cancel_open_{false};
     std::atomic<bool> capture_thread_done_{false};

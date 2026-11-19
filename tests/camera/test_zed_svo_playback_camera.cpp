@@ -1,8 +1,11 @@
 #ifdef BUILD_WITH_ZED
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <filesystem>
 #include <memory>
+#include <thread>
+#include <vector>
 
 #include "config/config_parser.hpp"
 #include "data_structures.hpp"
@@ -131,6 +134,30 @@ TEST_F(ZedSvoPlaybackCameraTest, DataIndependence) {
         data_copy.rgb.image.at<cv::Vec3b>(0, 0) = cv::Vec3b(255, 255, 255);
         EXPECT_EQ(data_ref.rgb.image.at<cv::Vec3b>(0, 0), original_pixel);
         EXPECT_EQ(data_copy.rgb.image.at<cv::Vec3b>(0, 0), cv::Vec3b(255, 255, 255));
+    }
+}
+
+TEST_F(ZedSvoPlaybackCameraTest, DeliversEveryFrameInOrderWhenThePipelineIsSlow) {
+    ZedSvoPlaybackCameraConfiguration config;
+    config.svo_file_path = svo_file_path;
+    config.camera_fps = 30;
+    config.camera_resolution = Resolution::RES_1280x720;
+    config.depth_mode = DepthMode::ZED_NEURAL;
+    ZedSvoPlaybackCamera camera(config);
+    ASSERT_TRUE(camera.initialize());
+
+    constexpr int kFrames = 6;
+    std::vector<double> stamps;
+    CameraData data;
+    for (int i = 0; i < kFrames; ++i) {
+        ASSERT_TRUE(camera.get(data));
+        stamps.push_back(data.tf_visodom_from_camera.header.stamp);
+        std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    }
+    const double interval = stamps[1] - stamps[0];
+    ASSERT_GT(interval, 0.0);
+    for (size_t i = 1; i < stamps.size(); ++i) {
+        EXPECT_NEAR(stamps[i] - stamps[i - 1], interval, 1e-3) << "frame " << i << " was skipped";
     }
 }
 

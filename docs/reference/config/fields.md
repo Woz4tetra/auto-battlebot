@@ -137,6 +137,12 @@ Requires a `[navigation.policy]` table naming the model bundle. Refuses to start
 | `max_our_unmeasured_s` | Seconds without a measurement of our robot before the policy commands zero. Above the filter's 0.1 s stale age, so one or two dropped frames do not interrupt the policy |
 | `hazard_prediction_horizon_s` | Seconds ahead to advance a tracked hazard along its velocity, as in `MotionProfileNavigation` |
 
+#### `[navigation.policy]`
+
+| Field | Meaning |
+| --- | --- |
+| `bundle` | Bundle directory, required. A relative path resolves against the project root, like `hazards_file`. The bundle's manifest decides the policy kind, runtime, decoder, observation spec and execution, so a bundle cannot be paired with the wrong decoder or observation layout. Example: `bundle = "data/models/nav_policies/rl_nav_<run>"` |
+
 ## `[field_filter]`
 
 `type` selects the implementation. Every type takes the hazard fields; the rest are per type.
@@ -301,6 +307,8 @@ One table per `type`.
 ### `ZedSvoPlaybackCamera`
 
 Replay of an SVO file. It is a separate type from `ZedRgbdCamera` so recording, reconnection, and the capture thread are not reachable here, and so `svo_recording` cannot be combined with an `svo_file_path`.
+
+`get()` grabs on the caller's thread, so every frame reaches the pipeline in order and none are skipped. That makes replay reproducible, which regression testing rests on. A live camera cannot work this way: it must not block the pipeline on camera I/O, and it drops frames to keep up. Recording while replaying is meaningless, and the file ending is a normal shutdown, not a disconnect to recover from, so there is no recorder, reconnection, or grab-health monitor. `ZedSvoPlaybackCameraTest.DeliversEveryFrameInOrderWhenThePipelineIsSlow` pins the in-order delivery.
 
 | Field | Meaning |
 | --- | --- |

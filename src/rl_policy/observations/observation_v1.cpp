@@ -66,7 +66,7 @@ double ray_discs(double ox, double oy, double dx, double dy,
         const double mx = ox - hazard.x;
         const double my = oy - hazard.y;
         const double b = mx * dx + my * dy;
-        const double c = (mx * mx + my * my) - hazard.radius * hazard.radius;
+        const double c = (mx * mx + my * my) - hazard.object_radius * hazard.object_radius;
         const double disc = b * b - c;
         const bool inside = c <= 0.0;
         const double t = -b - std::sqrt(std::max(disc, 0.0));
@@ -84,7 +84,7 @@ std::array<size_t, kMaxHazards> nearest_hazards_by_edge_absent_last(const Observ
         if (!hazard.present) return kInf;
         const double dx = hazard.x - in.our_x;
         const double dy = hazard.y - in.our_y;
-        return std::sqrt(dx * dx + dy * dy) - hazard.radius;
+        return std::sqrt(dx * dx + dy * dy) - hazard.object_radius;
     };
     const auto before = [&](size_t i, size_t j) {
         const double edge_i = edge_of(i);
@@ -118,7 +118,7 @@ void build_observation_v1(const ObservationInputsV1 &in, std::span<double, obs_v
     const Body body{std::cos(in.our_yaw), std::sin(in.our_yaw)};
     size_t n = 0;
 
-    out[n++] = in.our_speed / kSpeedScale;
+    out[n++] = in.our_forward_speed_mps / kSpeedScale;
     out[n++] = in.our_yaw_rate / kYawRateScale;
     out[n++] = cap(in.our_age_s / kAgeScaleS);
     out[n++] = in.our_stale ? 1.0 : 0.0;
@@ -187,7 +187,7 @@ void build_observation_v1(const ObservationInputsV1 &in, std::span<double, obs_v
         body.rotate(hazard.vx, hazard.vy, hvx, hvy);
         out[n++] = ok * hx / kPositionScaleM;
         out[n++] = ok * hy / kPositionScaleM;
-        out[n++] = ok * hazard.radius / kHazardRadiusScaleM;
+        out[n++] = ok * hazard.object_radius / kHazardRadiusScaleM;
         out[n++] = ok * (hazard.kind == HazardKind::HOLE ? 1.0 : 0.0);
         out[n++] = ok * (hazard.kind == HazardKind::WALL_BLOCK ? 1.0 : 0.0);
         out[n++] = ok * (hazard.kind == HazardKind::ROBOT ? 1.0 : 0.0);
@@ -206,7 +206,7 @@ ObservationInputsV1 observation_inputs_v1(const ObservationContext &context,
     in.our_x = our_pose.x;
     in.our_y = our_pose.y;
     in.our_yaw = our_pose.yaw;
-    in.our_speed =
+    in.our_forward_speed_mps =
         our.velocity.vx_mps * std::cos(our_pose.yaw) + our.velocity.vy_mps * std::sin(our_pose.yaw);
     in.our_yaw_rate = our.velocity.omega_radps;
     in.our_age_s = our.measurement_age_s;
@@ -218,7 +218,7 @@ ObservationInputsV1 observation_inputs_v1(const ObservationContext &context,
         const HistoryEntry &entry = context.history.entry(k);
         in.hist_action[2 * k] = entry.action_linear;
         in.hist_action[2 * k + 1] = entry.action_angular;
-        in.hist_speed[k] = entry.measured_speed;
+        in.hist_speed[k] = entry.forward_speed_m_s;
         in.hist_yaw_rate[k] = entry.yaw_rate_rad_s;
     }
 
@@ -261,8 +261,9 @@ void ObservationBuilderV1::build(const ObservationContext &context, TensorSet &o
     const ObservationInputsV1 inputs = observation_inputs_v1(context, hazards_);
     build_observation_v1(inputs, values_);
     Tensor *tensor = observation.find(obs_v1::kTensorName);
-    if (tensor == nullptr || tensor->data.size() != values_.size()) return;
-    for (size_t i = 0; i < values_.size(); ++i) tensor->data[i] = static_cast<float>(values_[i]);
+    if (tensor == nullptr || tensor->values().size() != values_.size()) return;
+    for (size_t i = 0; i < values_.size(); ++i)
+        tensor->values()[i] = static_cast<float>(values_[i]);
 }
 
 }  // namespace auto_battlebot::rl_policy

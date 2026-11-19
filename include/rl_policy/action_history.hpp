@@ -8,16 +8,10 @@ namespace auto_battlebot::rl_policy {
 struct HistoryEntry {
     double action_linear = 0.0;
     double action_angular = 0.0;
-    /** m/s, along our heading. */
-    double measured_speed = 0.0;
+    double forward_speed_m_s = 0.0;
     double yaw_rate_rad_s = 0.0;
 };
 
-/**
- * Fixed-size ring of the last policy steps, newest first. Allocated once; push() and entry() do
- * not allocate. Slots never written read as zeros, which is also how the training environment
- * starts an episode.
- */
 class ActionHistory {
    public:
     explicit ActionHistory(size_t capacity) : entries_(capacity) {}
@@ -30,9 +24,8 @@ class ActionHistory {
         entries_[newest_] = entry;
     }
 
-    /** `age` 0 is the most recent step. */
-    const HistoryEntry &entry(size_t age) const {
-        return entries_[(newest_ + age) % entries_.size()];
+    const HistoryEntry &entry(size_t steps_ago) const {
+        return entries_[(newest_ + steps_ago) % entries_.size()];
     }
 
     void clear() {

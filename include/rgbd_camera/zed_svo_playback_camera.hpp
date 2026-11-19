@@ -10,18 +10,6 @@
 
 namespace auto_battlebot {
 
-/**
- * Replays an SVO file synchronously: get() grabs on the caller's thread and returns that frame.
- *
- * No capture thread, so every frame reaches the pipeline in order and none are skipped. That is
- * what makes replay reproducible, and reproducible replay is what the project's regression testing
- * rests on. A live camera cannot work this way, because it must not block the pipeline on camera
- * I/O and must drop frames to keep up; ZedRgbdCamera keeps that behavior.
- *
- * Consequently there is no recorder, no reconnection, and no grab-health monitor here. Recording
- * while replaying is meaningless, and a file does not disconnect: it ends, which is a normal
- * shutdown rather than a failure to recover from.
- */
 class ZedSvoPlaybackCamera : public RgbdCameraInterface {
    public:
     explicit ZedSvoPlaybackCamera(ZedSvoPlaybackCameraConfiguration &config);
@@ -45,9 +33,6 @@ class ZedSvoPlaybackCamera : public RgbdCameraInterface {
     std::atomic<bool> is_initialized_{false};
     std::atomic<bool> should_close_{false};
 
-    /** Rebases frame stamps onto the current wall clock so a replay recording starts now rather
-     *  than at the original recording time. Off for regression runs that compare recordings
-     *  between builds, where a wall-clock offset makes every payload differ. */
     bool rebase_stamps_ = true;
     bool stamp_offset_initialized_ = false;
     double stamp_offset_s_ = 0.0;

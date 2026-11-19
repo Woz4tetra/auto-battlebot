@@ -44,7 +44,7 @@ cv::Mat make_uyvy_frame(int index) {
  *  different focal length goes to a file, so a test can tell which one playback used. */
 class RecordingFixture {
    public:
-    RecordingFixture() {
+    explicit RecordingFixture(uint64_t video_log_offset_ns = 0) {
         calibration_path_ = (std::filesystem::temp_directory_path() /
                              "auto_battlebot_video_playback_calibration.toml")
                                 .string();
@@ -95,7 +95,7 @@ class RecordingFixture {
             return;
         }
         for (int i = 0; i < kFrames; ++i) {
-            const uint64_t stamp_ns = kBaseStampNs + static_cast<uint64_t>(i) * 33333333ULL;
+            const uint64_t stamp_ns = kBaseStampNs + static_cast<uint64_t>(i) * kFrameIntervalNs;
             FrameIdentity identity;
             identity.image_stamp_ns = stamp_ns;
             identity.video_frame_index = i;
@@ -104,11 +104,11 @@ class RecordingFixture {
             // camera submits at frame rate; this loop would otherwise submit as fast as memcpy
             // allows and the fixture would come out with holes in it.
             const uint64_t before = encoder.dropped_frames();
-            encoder.submit(make_uyvy_frame(i), stamp_ns);
+            encoder.submit(make_uyvy_frame(i), stamp_ns + video_log_offset_ns);
             while (encoder.dropped_frames() != before) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(2));
                 const uint64_t retry = encoder.dropped_frames();
-                encoder.submit(make_uyvy_frame(i), stamp_ns);
+                encoder.submit(make_uyvy_frame(i), stamp_ns + video_log_offset_ns);
                 if (encoder.dropped_frames() == retry) {
                     break;
                 }
@@ -129,6 +129,7 @@ class RecordingFixture {
     const std::string &calibration_path() const { return calibration_path_; }
 
     static constexpr uint64_t kBaseStampNs = 1788011445339499712ULL;
+    static constexpr uint64_t kFrameIntervalNs = 33333333ULL;
 
    private:
     std::shared_ptr<McapRecorder> recorder_;
@@ -318,6 +319,50 @@ TEST(CameraCalibrationTest, ParseNamesTheSourceOfAMissingField) {
             }
         },
         ConfigValidationError);
+}
+
+TEST(VideoPlaybackCameraJoinTest, ImageStampJoinsFrameMetaOnOrdinalNotLogTime) {
+    constexpr uint64_t kVideoLogOffsetNs = 5000000000ULL;
+    RecordingFixture fixture(kVideoLogOffsetNs);
+    if (!fixture.started()) GTEST_SKIP() << "No H.264 encoder available to build the recording";
+    VideoPlaybackCamera camera(make_config(fixture));
+    ASSERT_TRUE(camera.initialize());
+
+    CameraData data;
+    int frames = 0;
+    while (frames < 10 && camera.get(data)) {
+        const int64_t ordinal = data.frame_identity.video_frame_index;
+        EXPECT_EQ(data.frame_identity.image_stamp_ns,
+                  RecordingFixture::kBaseStampNs +
+                      static_cast<uint64_t>(ordinal) * RecordingFixture::kFrameIntervalNs)
+            << "frame " << ordinal << " took the video log time instead of its frame_meta stamp";
+        ++frames;
+    }
+    EXPECT_EQ(frames, 10);
+}
+
+TEST_F(VideoPlaybackCameraTest, PacingHoldsTheRecordedRateWhilePipelineWorkRuns) {
+    constexpr int kPlayed = 15;
+    constexpr auto kPipelineWork = std::chrono::milliseconds(25);
+    VideoPlaybackCameraConfiguration config = make_config(*fixture_);
+    config.real_time_mode = true;
+    VideoPlaybackCamera camera(config);
+    ASSERT_TRUE(camera.initialize());
+
+    CameraData data;
+    ASSERT_TRUE(camera.get(data));
+    const auto begin = std::chrono::steady_clock::now();
+    for (int i = 1; i < kPlayed; ++i) {
+        std::this_thread::sleep_for(kPipelineWork);
+        ASSERT_TRUE(camera.get(data));
+    }
+    const double elapsed_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count();
+    const double recorded_ms =
+        (kPlayed - 1) * static_cast<double>(RecordingFixture::kFrameIntervalNs) * 1e-6;
+    EXPECT_GT(elapsed_ms, recorded_ms * 0.95);
+    EXPECT_LT(elapsed_ms, recorded_ms * 1.2)
+        << "pipeline work of " << kPipelineWork.count() << " ms per frame stretched the replay";
 }
 
 TEST_F(VideoPlaybackCameraTest, StartsAtTheRequestedFrame) {

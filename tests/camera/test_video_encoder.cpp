@@ -34,6 +34,105 @@ class RefusingBackend : public H264Backend {
     std::string name_ = "refusing";
 };
 
+class SlowBackend : public H264Backend {
+   public:
+    SlowBackend(VideoEncoder::BackendSink sink, std::chrono::milliseconds per_frame)
+        : sink_(std::move(sink)), per_frame_(per_frame) {}
+    bool encode(cv::Mat, int64_t pts, bool) override {
+        std::this_thread::sleep_for(per_frame_);
+        const std::byte byte{0};
+        sink_(&byte, 1, pts, pts == 0);
+        return true;
+    }
+    void finish() override {}
+    const std::string &name() const override { return name_; }
+
+   private:
+    VideoEncoder::BackendSink sink_;
+    std::chrono::milliseconds per_frame_;
+    std::string name_ = "slow";
+};
+
+class HoldUntilFinishBackend : public H264Backend {
+   public:
+    explicit HoldUntilFinishBackend(VideoEncoder::BackendSink sink) : sink_(std::move(sink)) {}
+    bool encode(cv::Mat, int64_t pts, bool) override {
+        held_.push_back(pts);
+        return true;
+    }
+    void finish() override {
+        const std::byte byte{0};
+        for (const int64_t pts : held_) sink_(&byte, 1, pts, pts == 0);
+        held_.clear();
+    }
+    const std::string &name() const override { return name_; }
+
+   private:
+    VideoEncoder::BackendSink sink_;
+    std::vector<int64_t> held_;
+    std::string name_ = "hold_until_finish";
+};
+
+TEST(VideoEncoderTest, ASlowBackendDropsAndCountsInsteadOfBlockingSubmit) {
+    VideoEncoderOptions options;
+    options.width = 32;
+    options.height = 24;
+    options.queue_depth = 2;
+    std::mutex mutex;
+    size_t packets = 0;
+    const auto sink = [&](const std::byte *, size_t, uint64_t, bool) {
+        std::lock_guard<std::mutex> lock(mutex);
+        ++packets;
+    };
+    const auto slow = [](const VideoEncoderOptions &, VideoEncoder::BackendSink backend_sink) {
+        return std::make_unique<SlowBackend>(std::move(backend_sink),
+                                             std::chrono::milliseconds(50));
+    };
+
+    VideoEncoder encoder;
+    ASSERT_TRUE(encoder.start(options, sink, slow));
+    constexpr int kSubmitted = 20;
+    int refused = 0;
+    const auto begin = std::chrono::steady_clock::now();
+    for (uint64_t t = 1; t <= kSubmitted; ++t) {
+        if (encoder.submit(cv::Mat(24, 32, CV_8UC3, cv::Scalar::all(0)), t) < 0) ++refused;
+    }
+    const auto submit_time = std::chrono::steady_clock::now() - begin;
+    encoder.stop();
+
+    EXPECT_LT(submit_time, std::chrono::milliseconds(250)) << "submit waited on the encoder";
+    EXPECT_GT(refused, 0);
+    EXPECT_EQ(encoder.dropped_frames(), static_cast<uint64_t>(refused));
+    std::lock_guard<std::mutex> lock(mutex);
+    EXPECT_EQ(packets + static_cast<size_t>(refused), static_cast<size_t>(kSubmitted));
+}
+
+TEST(VideoEncoderTest, StopFlushesTheBackendSoQueuedFramesReachTheSink) {
+    VideoEncoderOptions options;
+    options.width = 32;
+    options.height = 24;
+    options.queue_depth = 64;
+    std::mutex mutex;
+    std::vector<uint64_t> packet_times;
+    const auto sink = [&](const std::byte *, size_t, uint64_t log_time_ns, bool) {
+        std::lock_guard<std::mutex> lock(mutex);
+        packet_times.push_back(log_time_ns);
+    };
+    const auto hold = [](const VideoEncoderOptions &, VideoEncoder::BackendSink backend_sink) {
+        return std::make_unique<HoldUntilFinishBackend>(std::move(backend_sink));
+    };
+
+    VideoEncoder encoder;
+    ASSERT_TRUE(encoder.start(options, sink, hold));
+    for (uint64_t t = 1; t <= 5; ++t) {
+        encoder.submit(cv::Mat(24, 32, CV_8UC3, cv::Scalar::all(0)), t);
+    }
+    encoder.stop();
+
+    std::lock_guard<std::mutex> lock(mutex);
+    EXPECT_EQ(packet_times, (std::vector<uint64_t>{1, 2, 3, 4, 5}));
+}
+
 TEST(VideoEncoderTest, RequestKeyframeMakesTheNextFrameAKeyframe) {
     VideoEncoder encoder;
     VideoEncoderOptions options;

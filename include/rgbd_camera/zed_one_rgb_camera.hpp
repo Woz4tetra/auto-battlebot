@@ -10,6 +10,7 @@
 #include <sl/CameraOne.hpp>
 #include <string>
 #include <thread>
+#include <variant>
 
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "mcap_recorder/mcap_recorder.hpp"
@@ -56,10 +57,10 @@ class ZedOneRgbCamera : public RgbdCameraInterface {
     CameraSettings read_settings(const CameraSettings &known);
     CameraSettingLimits read_limits();
     void apply_settings(const CameraSettings &settings);
-    void service_settings();
+    void service_settings(const CameraSettings &opened_settings);
     void read_calibration();
     bool start_encoder();
-    void capture_thread_loop();
+    void capture_thread_loop(CameraSettings opened_settings);
     bool capture_frame();
 
     ZedOneRgbCameraConfiguration config_;
@@ -92,12 +93,10 @@ class ZedOneRgbCamera : public RgbdCameraInterface {
     std::atomic<bool> recording_desired_{true};
     uint64_t reported_drops_ = 0;
 
-    /** What the camera opened with: the settings DEFAULT restores. Set once, before the capture
-     *  thread starts. */
-    CameraSettings opened_settings_;
     mutable std::mutex settings_mutex_;
-    /** Outer optional: a request is waiting. Inner nullopt: restore opened_settings_. */
-    std::optional<std::optional<CameraSettings>> pending_settings_;
+    struct RestoreOpenedSettings {};
+    using SettingsRequest = std::variant<CameraSettings, RestoreOpenedSettings>;
+    std::optional<SettingsRequest> pending_settings_;
     std::optional<CameraSettingsState> settings_state_;
     int frames_since_settings_read_ = 0;
 

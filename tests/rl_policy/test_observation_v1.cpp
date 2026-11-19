@@ -5,8 +5,10 @@
 #include <cmath>
 #include <limits>
 #include <optional>
+#include <string_view>
 #include <vector>
 
+#include "rl_policy/allocation_counter.hpp"
 #include "rl_policy/observations/observation_v1.hpp"
 #include "rl_policy/rl_policy_golden_data.hpp"
 #include "transform_utils.hpp"
@@ -44,7 +46,7 @@ TEST(ObservationV1GoldenTest, MatchesObsSpecPyOnEveryCase) {
         in.our_x = c.our_x;
         in.our_y = c.our_y;
         in.our_yaw = c.our_yaw;
-        in.our_speed = c.our_speed;
+        in.our_forward_speed_mps = c.our_speed;
         in.our_yaw_rate = c.our_yaw_rate;
         in.our_age_s = c.our_age_s;
         in.our_stale = c.our_stale;
@@ -239,8 +241,23 @@ TEST(ObservationV1AdapterTest, BuilderWritesTheFloatTensor) {
     builder.build(context, observation);
     const Observation expected = world.observe();
     for (int i = 0; i < obs_v1::kSize; ++i) {
-        EXPECT_FLOAT_EQ(observation[0].data[i], static_cast<float>(expected[i])) << i;
+        EXPECT_FLOAT_EQ(observation[0].values()[i], static_cast<float>(expected[i])) << i;
     }
+}
+
+TEST(ObservationV1AdapterTest, BuildDoesNotAllocateAfterWarmup) {
+    World world;
+    world.opponent = robot_at(FrameId::THEIR_ROBOT_1, 0.5, 0.2, 1.0);
+    ObservationBuilderV1 builder;
+    TensorSet observation(builder.output_specs());
+    const ObservationContext context{world.our, &*world.opponent, world.field, world.target,
+                                     world.history};
+    builder.build(context, observation);
+
+    const long allocations = rl_test::allocations_during([&] {
+        for (int i = 0; i < 100; ++i) builder.build(context, observation);
+    });
+    EXPECT_EQ(allocations, 0);
 }
 
 constexpr double kNan = std::numeric_limits<double>::quiet_NaN();
@@ -328,6 +345,15 @@ TEST(ObservationV1SpecTest, HazardSlotsSortAscendingWithNanLastAndTiesInInputOrd
     for (int k = 0; k < 4; ++k) {
         EXPECT_DOUBLE_EQ(out[kHazards + 9 * k + 2], expected_radii[k] / 0.3) << k;
     }
+}
+
+TEST(TensorSetTest, FindDoesNotAllocate) {
+    TensorSet set({TensorSpec{"obs.vector", {138}}, TensorSpec{"action", {2}}});
+    const std::string_view name = "action";
+    const long allocations = rl_test::allocations_during([&] {
+        for (int i = 0; i < 100; ++i) EXPECT_NE(set.find(name), nullptr);
+    });
+    EXPECT_EQ(allocations, 0);
 }
 
 }  // namespace
