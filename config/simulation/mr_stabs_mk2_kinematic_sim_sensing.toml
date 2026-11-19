@@ -57,24 +57,8 @@ wall_reverse_distance = 0.25
 wall_heading_threshold = 1.047
 max_angular_command = 0.0
 
-# Same as mr_stabs_mk2_kinematic_sim.toml: geometry placeholders the our-robot EKF reads.
 [plant]
-dz_lin_fwd = 0.00938353
-dz_lin_rev = 0.0
-dz_ang_l = 0.0
-dz_ang_r = 0.0
-k_fwd = 5.7302
-k_rev = 3.75736
-k_ang = 38.9057
-tau_lin_a = 0.182874
-tau_lin_d = 0.0684365
-tau_ang_a = 0.0588077
-tau_ang_d = 0.0610599
-delay_s = 0.016
-c_sb = 1.36475
-c_ad = 0.195197
-c_drift = 0.0
-c_drift_bias = 0.0
+from = "robots/mr_stabs_mk2"
 
 # Actuation latency is modelled in sim ticks by the server.
 [transmitter]

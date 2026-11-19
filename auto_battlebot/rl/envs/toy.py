@@ -89,7 +89,7 @@ class ToyConfig:
     policy_dt_s: float = 0.02
     substep_s: float = 0.002
     gamma: float = 0.99
-    plant_profile: str = "config/mr_stabs_mk2_desktop.toml"
+    plant_profile: str = "config/robots/mr_stabs_mk2.toml"
     sensing: bool = False
     sensing_model: str = "simulation/sensing_models/provisional_rl.toml"
     measurement_period_s: float = 0.01

@@ -100,7 +100,7 @@ its own session.
 | 5 | `fit_mujoco_plant.py fit` | `fit.json`, `validation.json`, `plots/` | loss, params, rollouts, errors |
 | 6 | `fit_mujoco_plant.py validate` | `validation_<name>.json`, `plots_<name>/` | the same, on other holdouts |
 | 7 | `distill_mujoco_plant.py` | `distilled/plant.toml`, `plant_steps.png` | step responses, ACCEPT limits |
-| 8 | `write_plant_configs.py` | the Mr Stabs profiles' `[plant]` | `--check` |
+| 8 | `write_plant_configs.py` | `config/robots/mr_stabs_mk2.toml` `[plant]` | `--check` |
 | 9 | `sim_stop_test.py` | `stop_test/results.csv` | stops on target |
 
 ### 1. Check the recordings
@@ -420,8 +420,9 @@ python playground/calibration/write_plant_configs.py --robot mr_stabs_mk2 \
 ```
 
 `--check` lists every field that would change (`path: field old -> new`) and writes nothing.
-Without it the script rewrites the numbers in the six Mr Stabs profiles that restate `[plant]`
-and leaves their comments alone. Rebuild afterwards.
+Without it the script rewrites the numbers in `config/robots/mr_stabs_mk2.toml`, which every Mr
+Stabs profile except the ZED Box ones loads with `[plant] from = "robots/mr_stabs_mk2"`. Rebuild
+afterwards.
 
 ### 9. Check the stop in simulation
 

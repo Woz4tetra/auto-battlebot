@@ -25,32 +25,5 @@ max_angular_command = 0.0         # 0 = no limit
 [robot_filter.motion_estimator]
 type = "DeadReckoningMotionEstimator"
 
-# Mr Stabs Mk2 has no jig fit, so this table is derived from drivetrain geometry rather than
-# measured: full stick = max_motor_rpm at the wheel.
-#   k_fwd = k_rev = 1500 RPM * pi * 0.05 m / 60 = 3.92699 m/s
-#   k_ang         = 2 * 3.92699 / 0.131 m track = 59.9541 rad/s
-# Without it this profile would inherit Mrs Buff Mk3's fit from _common.toml and dead-reckon
-# Mr Stabs at the wrong scale. Deadzones and coupling are zero because geometry cannot predict
-# them, and the time constants and delay are placeholders (no lag, no delay) rather than
-# measurements. The table merges key-by-key over the base, so every field is restated rather
-# than half-inherited.
-# [plant.process_noise] is deliberately not overridden: only the EKF reads it, and this profile
-# dead-reckons. Only k_fwd, k_rev, and k_ang are read here; the rest are restated to keep another
-# robot's fit from leaking in through the merge.
 [plant]
-dz_lin_fwd = 0.00938353
-dz_lin_rev = 0.0
-dz_ang_l = 0.0
-dz_ang_r = 0.0
-k_fwd = 5.7302
-k_rev = 3.75736
-k_ang = 38.9057
-tau_lin_a = 0.182874
-tau_lin_d = 0.0684365
-tau_ang_a = 0.0588077
-tau_ang_d = 0.0610599
-delay_s = 0.016
-c_sb = 1.36475
-c_ad = 0.195197
-c_drift = 0.0
-c_drift_bias = 0.0
+from = "robots/mr_stabs_mk2"

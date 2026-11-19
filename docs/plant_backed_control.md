@@ -132,14 +132,15 @@ both channels within a few ticks.
 
 The fitted numbers live in `playground/calibration/out/plant_stageA.toml` (sessions
 2026-08-19 through 2026-08-23, model M4). One C++-side copy carries them: the top-level
-`[plant]` table in `config/_common.toml`, parsed into `PlantConfiguration`
+`[plant]` table in `config/robots/mrs_buff_mk3.toml`, which `config/_common.toml` loads with
+`from = "robots/mrs_buff_mk3"` (`docs/config_extends.md`). It is parsed into `PlantConfiguration`
 (`include/plant/config.hpp`) and handed to both consumers after their own sections parse.
 The estimator builds a `JigPlantModel` from it; the controller inverts the same fields for
 its brake schedule and feedforward. Neither has C++ defaults, so a config with no `[plant]`
 is a load error rather than a subsystem running on zeros.
 
 `playground/calibration/write_plant_configs.py` rewrites the numeric literals in
-`simulation/sim_mrs_buff_mk3.toml` and `config/_common.toml` in place, so the hand-written
+`simulation/sim_mrs_buff_mk3.toml` and `config/robots/mrs_buff_mk3.toml` in place, so the hand-written
 notes next to each number survive. `--check` reports drift without changing anything.
 
 Which term does what on each side:
@@ -169,7 +170,9 @@ bool rather than a second copy of the number.
 
 ## Where each piece is selected
 
-- `[plant]` in `config/_common.toml`, the shared fit both subsystems read.
+- `[plant]` in `config/robots/<robot>.toml`, the shared fit both subsystems read. Profiles load
+  it with `[plant] from = "robots/<robot>"`; `docs/robot_plant_files.md` lists which profile
+  loads which file.
 - `[robot_filter.motion_estimator] type = "KalmanMotionEstimator"`, `our_robot_mode = "EKF"`
   in `config/_common.toml`.
 - `[navigation] type = "MotionProfileNavigation"` in `config/_common.toml`, so every
@@ -518,7 +521,7 @@ Build first (scripts/build.sh). Runs are sequential: the C++ side has the sim po
 
 Push the fitted plant numbers from plant_stageA.toml into every consumer that hard-codes them.
 
-The plant numbers have three homes: the fit (`playground/calibration/out/plant_stageA.toml`), the kinematic sim (`simulation/sim_mrs_buff_mk3.toml`), and the C++ config chain's `[plant]` table (`config/_common.toml`). Only the first is authored. They drifted apart once already, which is how MotionProfileNavigation ended up running Mr Stabs Mk2's time constants on Mrs Buff Mk3, so this script makes the other two derived.
+The plant numbers have three homes: the fit (`playground/calibration/out/plant_stageA.toml`), the kinematic sim (`simulation/sim_mrs_buff_mk3.toml`), and the C++ config chain's `[plant]` table (`config/robots/mrs_buff_mk3.toml`). Only the first is authored. They drifted apart once already, which is how MotionProfileNavigation ended up running Mr Stabs Mk2's time constants on Mrs Buff Mk3, so this script makes the other two derived.
 
 The `[plant]` table is read by both the our-robot EKF and MotionProfileNavigation, so there is one C++-side target rather than one per consumer.
 
@@ -533,13 +536,13 @@ Usage:
     python playground/calibration/write_plant_configs.py --check   # report drift, change nothing
 ```
 
-Mr Stabs Mk2 has no jig fit. Its table comes from the MuJoCo fit through distill_mujoco_plant.py and goes into its own profiles' [plant] tables only; its sim config keeps the MuJoCo plant, so no sim fields are written:
+Mr Stabs Mk2 has no jig fit. Its table comes from the MuJoCo fit through distill_mujoco_plant.py and goes into `config/robots/mr_stabs_mk2.toml` only; its sim config keeps the MuJoCo plant, so no sim fields are written:
 
 ```
     python playground/calibration/write_plant_configs.py --robot mr_stabs_mk2         --fit playground/calibration/out/mujoco_sysid/fit_<ts>/distilled/plant.toml
 ```
 
-- `MR_STABS_PLANT_CONFIGS`: Every Mr Stabs Mk2 profile restates [plant] in full rather than inheriting Mrs Buff's.
+- `MR_STABS_PLANT_CONFIG`: The one Mr Stabs Mk2 plant file. `config/robots/mr_stabs_mk2_geometry.toml` (the ZED Box profiles) is not a fit, so the script never writes it.
 - `PLANT_FIELDS`: The controller inverts the plant, so it takes the same terms under its own names. `angular_droop_coeff` is absent on purpose. The plant does droop (c_ad = 0.463) but compensating for it measured worse: on a 90-degree turning approach it took terminal error from 0.008 m to 0.067 m and time-to-goal from 1.10 s to 2.83 s, because the harder turn it commands is exactly what the steer-brake term then charges forward speed for. The controller default stays 0.0 and is not derived from the fit. `c_drift`/`c_drift_bias` are absent because model M4 disables them. The [plant] table uses the fit's own names, so this mapping is the identity. Listed explicitly so a field added to the fit does not silently skip the table.
 
 ### `simulation/plants/kinematic.py`

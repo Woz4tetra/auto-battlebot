@@ -751,6 +751,204 @@ type = "NoopTransmitter"
     EXPECT_EQ(zed->camera_fps, 45);  // inherited from mid, which overrode base's 60
 }
 
+class ConfigFromTest : public ConfigTest {
+   protected:
+    std::filesystem::path write_robot_file(const std::string &content) {
+        std::filesystem::create_directories(temp_dir / "robots");
+        return write_named_config("robots/robot.toml", content);
+    }
+
+    std::string merge_error(const std::filesystem::path &path) {
+        try {
+            load_merged_config(path, temp_dir);
+        } catch (const ConfigValidationError &e) {
+            return e.what();
+        }
+        return "";
+    }
+};
+
+TEST_F(ConfigFromTest, LoadsSectionWithSubtables) {
+    write_robot_file(R"(
+[plant]
+k_fwd = 5.0
+
+[plant.process_noise]
+q_along = 1.0
+
+[navigation]
+type = "Unrelated"
+)");
+    auto child = write_named_config("child.toml", R"(
+[plant]
+from = "robots/robot"
+)");
+
+    toml::table merged = load_merged_config(child, temp_dir);
+
+    EXPECT_EQ(merged["plant"]["k_fwd"].value<double>(), 5.0);
+    EXPECT_EQ(merged["plant"]["process_noise"]["q_along"].value<double>(), 1.0);
+    EXPECT_FALSE(merged["plant"]["from"]);
+    EXPECT_FALSE(merged["navigation"]);
+}
+
+TEST_F(ConfigFromTest, ReplacesBaseSectionWholesale) {
+    write_robot_file("[plant]\nk_fwd = 5.0\n");
+    write_named_config("base.toml", R"(
+[plant]
+k_fwd = 1.0
+c_sb = 2.0
+
+[plant.process_noise]
+q_along = 3.0
+)");
+    auto child = write_named_config("child.toml", R"(
+extends = "base"
+
+[plant]
+from = "robots/robot.toml"
+)");
+
+    toml::table merged = load_merged_config(child, temp_dir);
+
+    EXPECT_EQ(merged["plant"]["k_fwd"].value<double>(), 5.0);
+    EXPECT_FALSE(merged["plant"]["c_sb"]);
+    EXPECT_FALSE(merged["plant"]["process_noise"]);
+}
+
+TEST_F(ConfigFromTest, ReplacesNestedSectionOnly) {
+    write_robot_file(R"(
+[robot_filter.motion_estimator]
+type = "KalmanMotionEstimator"
+max_coast_s = 0.2
+)");
+    write_named_config("base.toml", R"(
+[robot_filter]
+type = "RobotFrontBackFilter"
+
+[robot_filter.motion_estimator]
+type = "KalmanMotionEstimator"
+opponent_max_coast_s = 0.1
+)");
+    auto child = write_named_config("child.toml", R"(
+extends = "base"
+
+[robot_filter.motion_estimator]
+from = "robots/robot"
+)");
+
+    toml::table merged = load_merged_config(child, temp_dir);
+
+    EXPECT_EQ(merged["robot_filter"]["type"].value<std::string>(), "RobotFrontBackFilter");
+    EXPECT_EQ(merged["robot_filter"]["motion_estimator"]["max_coast_s"].value<double>(), 0.2);
+    EXPECT_FALSE(merged["robot_filter"]["motion_estimator"]["opponent_max_coast_s"]);
+}
+
+TEST_F(ConfigFromTest, InlineOverlayMergesOntoLoadedSection) {
+    write_robot_file("[plant]\nk_fwd = 5.0\nk_ang = 30.0\n");
+    write_named_config("base.toml", "[plant]\nfrom = \"robots/robot\"\n");
+    auto child = write_named_config("child.toml", R"(
+extends = "base"
+
+[plant]
+k_fwd = 9.0
+)");
+
+    toml::table merged = load_merged_config(child, temp_dir);
+
+    EXPECT_EQ(merged["plant"]["k_fwd"].value<double>(), 9.0);
+    EXPECT_EQ(merged["plant"]["k_ang"].value<double>(), 30.0);
+}
+
+TEST_F(ConfigFromTest, ParsesIntoClassConfiguration) {
+    write_robot_file(R"(
+[transmitter]
+type = "NoopTransmitter"
+)");
+    write_named_config("base.toml", kBaseConfig);
+    auto child = write_named_config("child.toml", R"(
+extends = "base"
+
+[transmitter]
+from = "robots/robot"
+)");
+
+    auto config = load_classes_from_config(child.string(), temp_dir);
+
+    ASSERT_NE(config.transmitter, nullptr);
+    EXPECT_EQ(config.transmitter->type, "NoopTransmitter");
+}
+
+TEST_F(ConfigFromTest, OtherKeysBesideFromThrow) {
+    write_robot_file("[plant]\nk_fwd = 5.0\n");
+    auto child = write_named_config("child.toml", R"(
+[plant]
+from = "robots/robot"
+k_ang = 30.0
+)");
+
+    std::string msg = merge_error(child);
+    EXPECT_NE(msg.find("[plant]"), std::string::npos) << msg;
+    EXPECT_NE(msg.find("only key"), std::string::npos) << msg;
+}
+
+TEST_F(ConfigFromTest, SubtableBesideFromThrows) {
+    write_robot_file("[plant]\nk_fwd = 5.0\n");
+    auto child = write_named_config("child.toml", R"(
+[plant]
+from = "robots/robot"
+
+[plant.process_noise]
+q_along = 1.0
+)");
+
+    EXPECT_NE(merge_error(child).find("only key"), std::string::npos);
+}
+
+TEST_F(ConfigFromTest, MissingFileThrows) {
+    auto child = write_named_config("child.toml", "[plant]\nfrom = \"robots/absent\"\n");
+
+    std::string msg = merge_error(child);
+    EXPECT_NE(msg.find("robots/absent"), std::string::npos) << msg;
+    EXPECT_NE(msg.find("no file"), std::string::npos) << msg;
+}
+
+TEST_F(ConfigFromTest, MissingSectionInFileThrows) {
+    write_robot_file("[navigation]\ntype = \"NoopNavigation\"\n");
+    auto child = write_named_config("child.toml", "[plant]\nfrom = \"robots/robot\"\n");
+
+    std::string msg = merge_error(child);
+    EXPECT_NE(msg.find("has no [plant]"), std::string::npos) << msg;
+}
+
+TEST_F(ConfigFromTest, SectionFileWithExtendsThrows) {
+    write_named_config("base.toml", "");
+    write_robot_file("extends = \"base\"\n\n[plant]\nk_fwd = 5.0\n");
+    auto child = write_named_config("child.toml", "[plant]\nfrom = \"robots/robot\"\n");
+
+    EXPECT_NE(merge_error(child).find("`extends`"), std::string::npos);
+}
+
+TEST_F(ConfigFromTest, SectionFileWithFromThrows) {
+    write_named_config("other.toml", "[plant]\nk_fwd = 5.0\n");
+    write_robot_file("[plant]\nfrom = \"other\"\n");
+    auto child = write_named_config("child.toml", "[plant]\nfrom = \"robots/robot\"\n");
+
+    EXPECT_NE(merge_error(child).find("uses `from`"), std::string::npos);
+}
+
+TEST_F(ConfigFromTest, TopLevelFromThrows) {
+    auto child = write_named_config("child.toml", "from = \"robots/robot\"\n");
+
+    EXPECT_NE(merge_error(child).find("only valid inside a table"), std::string::npos);
+}
+
+TEST_F(ConfigFromTest, NonStringFromThrows) {
+    auto child = write_named_config("child.toml", "[plant]\nfrom = 3\n");
+
+    EXPECT_NE(merge_error(child).find("must be a string"), std::string::npos);
+}
+
 TEST(ConfigParserTest, GetRequiredString) {
     toml::table table = toml::parse(R"(
 key = "value"

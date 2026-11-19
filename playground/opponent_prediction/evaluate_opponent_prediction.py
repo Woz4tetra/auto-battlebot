@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import torch
 
-from auto_battlebot.compat import tomllib
+from auto_battlebot.config_profile import load_profile_toml
 from auto_battlebot.perception.opponent_filter import (
     MAX_HEADING_VARIANCE,
     MAX_INTEGRATION_STEP_S,
@@ -26,7 +26,7 @@ from auto_battlebot.perception.opponent_filter import (
     OpponentFilterConfig,
     RenderedEstimate,
 )
-from auto_battlebot.perception.sysid_sessions import OUT, REPO_ROOT, SessionData, load_session
+from auto_battlebot.perception.sysid_sessions import OUT, SessionData, load_session
 
 LATENCY_S = 0.063
 TICK_S = 0.01
@@ -39,8 +39,7 @@ MOTION_CLASSES = ["still", "straight", "arcing", "spinning"]
 
 
 def common_config() -> dict:
-    with open(REPO_ROOT / "config/_common.toml", "rb") as f:
-        return tomllib.load(f)
+    return load_profile_toml("_common")
 
 
 def lead_s() -> float:

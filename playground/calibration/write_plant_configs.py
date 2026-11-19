@@ -13,18 +13,8 @@ from auto_battlebot.compat import tomllib
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_FIT = REPO_ROOT / "playground" / "calibration" / "out" / "plant_stageA.toml"
 SIM_CONFIG = REPO_ROOT / "simulation" / "sim_mrs_buff_mk3.toml"
-PLANT_CONFIG = REPO_ROOT / "config" / "_common.toml"
-MR_STABS_PLANT_CONFIGS = tuple(
-    REPO_ROOT / "config" / rel
-    for rel in (
-        "mr_stabs_mk2_desktop.toml",
-        "mr_stabs_mk2_jetson.toml",
-        "mr_stabs_mk2_aer_zed_box.toml",
-        "mr_stabs_mk2_fid_zed_box.toml",
-        "playback/mr_stabs_mk2_playback.toml",
-        "simulation/mr_stabs_mk2_kinematic_sim.toml",
-    )
-)
+PLANT_CONFIG = REPO_ROOT / "config" / "robots" / "mrs_buff_mk3.toml"
+MR_STABS_PLANT_CONFIG = REPO_ROOT / "config" / "robots" / "mr_stabs_mk2.toml"
 
 # Consumer field name -> fit parameter name. The sim models the plant, so it takes every term
 # including the ones the controller deliberately ignores. `delay_ms` is derived below; the sim
@@ -143,7 +133,7 @@ def main() -> int:
 
     all_changes: list[Change] = []
     if args.robot == "mr_stabs_mk2":
-        targets = [(path, TOML_FIELD, PLANT_FIELDS) for path in MR_STABS_PLANT_CONFIGS]
+        targets = [(MR_STABS_PLANT_CONFIG, TOML_FIELD, PLANT_FIELDS)]
     else:
         targets = [(SIM_CONFIG, TOML_FIELD, SIM_FIELDS), (PLANT_CONFIG, TOML_FIELD, PLANT_FIELDS)]
     for path, pattern, fields in targets:

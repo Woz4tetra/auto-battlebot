@@ -23,28 +23,5 @@ velocity_ramp_far_distance = 1.5
 velocity_ramp_near_distance = 1.0
 velocity_ramp_min_scale = 0.35
 
-# Without this the profile would inherit Mrs Buff Mk3's jig fit from _common.toml and drive
-# Mr Stabs at the wrong scale. Derived from drivetrain geometry, not measured: full stick =
-# max_motor_rpm at the wheel.
-#   k_fwd = k_rev = 1500 RPM * pi * 0.05 m / 60 = 3.92699 m/s
-#   k_ang         = 2 * 3.92699 / 0.131 m track = 59.9541 rad/s
-# Deadzones and coupling are zero because geometry cannot predict them; the time constants and
-# delay are placeholders rather than measurements. Only MotionProfileNavigation reads this, so it
-# matters when a sweep switches the controller, not for the pursuit run above.
 [plant]
-dz_lin_fwd = 0.00938353
-dz_lin_rev = 0.0
-dz_ang_l = 0.0
-dz_ang_r = 0.0
-k_fwd = 5.7302
-k_rev = 3.75736
-k_ang = 38.9057
-tau_lin_a = 0.182874
-tau_lin_d = 0.0684365
-tau_ang_a = 0.0588077
-tau_ang_d = 0.0610599
-delay_s = 0.016
-c_sb = 1.36475
-c_ad = 0.195197
-c_drift = 0.0
-c_drift_bias = 0.0
+from = "robots/mr_stabs_mk2"

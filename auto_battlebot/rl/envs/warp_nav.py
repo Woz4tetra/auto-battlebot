@@ -97,7 +97,7 @@ class RobotProfile:
 MK2_POLICY_DRIVER = PolicyDriver(
     "mr_stabs_mk2_policy",
     "mr_stabs_mk2",
-    "config/mr_stabs_mk2_desktop.toml",
+    "config/robots/mr_stabs_mk2.toml",
     "runs/rl_nav/rl_nav_ppo_p4_s7_2026-10-18_04-04-10/checkpoint.pt",
 )
 ROBOTS = {
@@ -109,7 +109,7 @@ ROBOTS = {
         ("mr_stabs_mk2", "mrs_buff_mk3"),
         drivers=(
             MK2_POLICY_DRIVER,
-            PolicyDriver("self_play", "mrs_buff_mk3", "config/_common.toml", ""),
+            PolicyDriver("self_play", "mrs_buff_mk3", "config/robots/mrs_buff_mk3.toml", ""),
         ),
         arc_rule="front_face",
     ),

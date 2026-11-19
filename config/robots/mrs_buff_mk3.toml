@@ -1,0 +1,26 @@
+[plant]
+dz_lin_fwd = 0.0
+dz_lin_rev = 0.0
+dz_ang_l = 0.0
+dz_ang_r = 0.0
+k_fwd = 4.3546
+k_rev = 4.3546
+k_ang = 31.7062
+tau_lin_a = 0.0
+tau_lin_d = 0.0
+tau_ang_a = 0.0
+tau_ang_d = 0.0
+delay_s = 0.0522094
+c_sb = 0.0
+c_ad = 0.0
+c_drift = 0.0
+c_drift_bias = 0.0
+
+[plant.process_noise]
+q_along = 10.0
+q_cross = 0.351167
+q_heading = 0.0
+scale_factor = 0.541056
+heading_scale_factor = 1.7783
+heading_random_walk = 0.0703417
+delay_jitter_s = 0.0

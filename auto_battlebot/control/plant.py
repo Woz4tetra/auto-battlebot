@@ -9,6 +9,7 @@ from typing import Any, Iterable, Sequence
 import numpy as np
 
 from auto_battlebot.compat import tomllib
+from auto_battlebot.config_profile import expand_section_files
 
 SUBSTEP_S = 0.002
 
@@ -69,6 +70,7 @@ class PlantParams:
     def from_toml(cls, path: Path | str, table: str = "plant") -> PlantParams:
         with open(path, "rb") as handle:
             data = tomllib.load(handle)
+        expand_section_files(data, Path(path))
         return cls.from_dict(data.get(table, data))
 
     def to_toml(self, table: str = "plant") -> str:

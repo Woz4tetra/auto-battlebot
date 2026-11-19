@@ -3,7 +3,9 @@
 #include <spdlog/spdlog.h>
 
 #include <filesystem>
+#include <string_view>
 #include <system_error>
+#include <utility>
 
 namespace auto_battlebot {
 namespace {
@@ -49,6 +51,129 @@ std::filesystem::path resolve_extends(const std::filesystem::path &config_root,
     return resolved;
 }
 
+constexpr std::string_view kFromKey = "from";
+
+using SectionPath = std::vector<std::string>;
+
+std::string section_name(const SectionPath &path) {
+    std::string name;
+    for (const auto &part : path) {
+        if (!name.empty()) {
+            name += ".";
+        }
+        name += part;
+    }
+    return name;
+}
+
+template <typename Table>
+Table *find_table(Table &root, const SectionPath &path) {
+    Table *table = &root;
+    for (const auto &part : path) {
+        auto *node = table->get(part);
+        if (!node) {
+            return nullptr;
+        }
+        table = node->as_table();
+        if (!table) {
+            return nullptr;
+        }
+    }
+    return table;
+}
+
+bool contains_from_key(const toml::table &table) {
+    for (auto &&[key, value] : table) {
+        if (key.str() == kFromKey) {
+            return true;
+        }
+        const toml::table *sub = value.as_table();
+        if (sub && contains_from_key(*sub)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+toml::table load_section_file(const std::filesystem::path &referrer, const SectionPath &path,
+                              const std::string &value, const std::filesystem::path &config_root) {
+    const std::string where =
+        "Config '" + referrer.string() + "' [" + section_name(path) + "] from = \"" + value + "\"";
+    std::filesystem::path file = resolve_extends(config_root, value);
+    if (!std::filesystem::exists(file)) {
+        throw ConfigValidationError(where + ": no file at " + file.string());
+    }
+    toml::table data = toml::parse_file(file.string());
+    if (data.contains("extends")) {
+        throw ConfigValidationError(where + ": " + file.string() +
+                                    " sets `extends`, which a section file may not");
+    }
+    if (contains_from_key(data)) {
+        throw ConfigValidationError(where + ": " + file.string() +
+                                    " uses `from`, which a section file may not");
+    }
+    const toml::table *section = find_table(std::as_const(data), path);
+    if (!section) {
+        throw ConfigValidationError(where + ": " + file.string() + " has no [" +
+                                    section_name(path) + "]");
+    }
+    return *section;
+}
+
+void expand_section_files(toml::table &table, SectionPath &path,
+                          const std::filesystem::path &referrer,
+                          const std::filesystem::path &config_root,
+                          std::vector<SectionPath> &expanded) {
+    for (auto &&[key, value] : table) {
+        toml::table *sub = value.as_table();
+        if (!sub) {
+            continue;
+        }
+        path.emplace_back(key.str());
+        if (const toml::node *from = sub->get(kFromKey)) {
+            const std::string where =
+                "Config '" + referrer.string() + "' [" + section_name(path) + "]";
+            auto file = from->value<std::string>();
+            if (!file) {
+                throw ConfigValidationError(where + ": `from` must be a string");
+            }
+            if (sub->size() != 1) {
+                throw ConfigValidationError(where + ": `from` must be the only key in the table");
+            }
+            *sub = load_section_file(referrer, path, *file, config_root);
+            expanded.push_back(path);
+        } else {
+            expand_section_files(*sub, path, referrer, config_root, expanded);
+        }
+        path.pop_back();
+    }
+}
+
+std::vector<SectionPath> expand_section_files(toml::table &data,
+                                              const std::filesystem::path &referrer,
+                                              const std::filesystem::path &config_root) {
+    if (data.contains(kFromKey)) {
+        throw ConfigValidationError("Config '" + referrer.string() +
+                                    "': `from` is only valid inside a table");
+    }
+    std::vector<SectionPath> expanded;
+    SectionPath path;
+    expand_section_files(data, path, referrer, config_root, expanded);
+    return expanded;
+}
+
+void replace_expanded_sections(toml::table &merged, const toml::table &overlay,
+                               const std::vector<SectionPath> &expanded) {
+    for (const auto &path : expanded) {
+        SectionPath parent_path(path.begin(), path.end() - 1);
+        toml::table *parent = find_table(merged, parent_path);
+        const toml::table *section = find_table(overlay, path);
+        if (parent && section) {
+            parent->insert_or_assign(path.back(), *section);
+        }
+    }
+}
+
 toml::table load_and_merge_config(const std::filesystem::path &path,
                                   const std::filesystem::path &config_root,
                                   std::vector<std::filesystem::path> &chain) {
@@ -71,6 +196,7 @@ toml::table load_and_merge_config(const std::filesystem::path &path,
     chain.push_back(canonical);
 
     toml::table data = toml::parse_file(path.string());
+    const std::vector<SectionPath> expanded = expand_section_files(data, path, config_root);
 
     if (auto extends = data["extends"].value<std::string>()) {
         std::filesystem::path base_path = resolve_extends(config_root, *extends);
@@ -81,6 +207,7 @@ toml::table load_and_merge_config(const std::filesystem::path &path,
         }
         toml::table merged = load_and_merge_config(base_path, config_root, chain);
         merge_into(merged, data);
+        replace_expanded_sections(merged, data, expanded);
         merged.erase("extends");
         chain.pop_back();
         return merged;

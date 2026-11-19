@@ -29,6 +29,7 @@ from auto_battlebot.calibration.match.match_windows import (
     split_run,
 )
 from auto_battlebot.compat import tomllib
+from auto_battlebot.config_profile import expand_section_files
 from auto_battlebot.control.plant import (
     MODEL_LADDER,
     PARAM_BOUNDS,
@@ -56,6 +57,7 @@ def load_seed(path: Path, widen: float) -> tuple[PlantParams, dict[str, tuple[fl
     """Stage A parameters plus per-parameter fit bounds."""
     with open(path, "rb") as handle:
         data = tomllib.load(handle)
+    expand_section_files(data, path)
     params = PlantParams.from_dict(data["plant"])
     provenance = data.get("plant", {}).get("provenance", {})
 
