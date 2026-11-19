@@ -182,10 +182,6 @@ bool VideoPlaybackCamera::scan_file() {
         return false;
     }
 
-    // Index the video channel once so a start_frame can seek to the last IDR at or before it.
-    // Seeking within a GOP is what leaves sl::Camera::setSVOPosition returning smeared RGB, and
-    // it applies to any inter-coded stream. The frame stamps are indexed in the same pass, keyed
-    // on the ordinal both channels agree about.
     mcap::ReadMessageOptions index_options;
     index_options.topicFilter = [](std::string_view topic) {
         return topic == kVideoTopic || topic == kFrameMetaTopic;
@@ -234,15 +230,11 @@ bool VideoPlaybackCamera::initialize() {
     }
 
     if (config_.start_frame >= static_cast<int>(frame_index_.size())) {
-        // Same failure the SVO path has: a scratch overlay that sets the file path but inherits
-        // start_frame from the config it extends used to seek past the end and exit before the
-        // first heartbeat, which reads as a corrupt recording rather than a config merge.
         throw ConfigValidationError(
             video_file_path_ + " has only " + std::to_string(frame_index_.size()) +
             " video frames, cannot start at frame " + std::to_string(config_.start_frame));
     }
 
-    // A configured file wins, so old footage can be re-rectified against a revised calibration.
     if (!config_.calibration_file.empty()) {
         calibration_ = load_camera_calibration(config_.calibration_file);
     } else if (!recorded_calibration_toml_.empty()) {

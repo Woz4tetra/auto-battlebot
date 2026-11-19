@@ -23,6 +23,8 @@ Candidate order is FFmpeg `h264_nvenc` (desktop), FFmpeg `h264_nvv4l2m2m`, GStre
 
 `VideoPlaybackCamera` joins `image_stamp_ns` from `/camera/frame_meta` to a video packet on the frame ordinal (`video_frame_index`), never on the timestamp: the two channels are logged by different threads on different clocks (see `foxglove_recording_format.md`). `VideoPlaybackCameraJoinTest.ImageStampJoinsFrameMetaOnOrdinalNotLogTime` logs the video five seconds off from frame_meta and checks the stamp still comes from frame_meta.
 
+The camera indexes the video channel once at `initialize()` so a `start_frame` can find its IDR. The `/camera/frame_meta` stamps are indexed in the same pass, keyed on the frame ordinal that both channels agree about.
+
 Real-time pacing sleeps until a deadline, not for one interval per frame. The first frame anchors a wall-clock instant to its stamp, and every later frame is due at the anchor plus its offset in the recording's timeline. Sleeping an interval per frame made the period `interval + pipeline_work`, so 59.94 fps cage footage played at 40 fps. A lag over 500 ms re-anchors. `VideoPlaybackCameraTest.PacingHoldsTheRecordedRateWhilePipelineWorkRuns` checks 25 ms of work per 33 ms frame does not stretch the replay.
 
 ## Playback seek

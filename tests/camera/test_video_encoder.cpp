@@ -53,6 +53,25 @@ class SlowBackend : public H264Backend {
     std::string name_ = "slow";
 };
 
+class KeyframeRecordingBackend : public H264Backend {
+   public:
+    KeyframeRecordingBackend(std::mutex &mutex, std::map<int64_t, bool> &forced)
+        : mutex_(mutex), forced_(forced) {}
+    bool encode(cv::Mat, int64_t pts, bool force_keyframe) override {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        std::lock_guard<std::mutex> lock(mutex_);
+        forced_[pts] = force_keyframe;
+        return true;
+    }
+    void finish() override {}
+    const std::string &name() const override { return name_; }
+
+   private:
+    std::mutex &mutex_;
+    std::map<int64_t, bool> &forced_;
+    std::string name_ = "keyframe_recording";
+};
+
 class HoldUntilFinishBackend : public H264Backend {
    public:
     explicit HoldUntilFinishBackend(VideoEncoder::BackendSink sink) : sink_(std::move(sink)) {}
@@ -221,6 +240,31 @@ TEST(VideoEncoderTest, SubmitIndexIsThePacketPositionInEachSession) {
             EXPECT_EQ(packet_times[static_cast<size_t>(i)], base + static_cast<uint64_t>(i))
                 << "session " << session << ": packet " << i << " is not the frame numbered " << i;
         }
+    }
+}
+
+TEST(VideoEncoderTest, KeyframeRequestAppliesToTheNextSubmittedFrameNotAQueuedOne) {
+    VideoEncoderOptions options;
+    options.width = 32;
+    options.height = 24;
+    options.queue_depth = 64;
+    std::mutex mutex;
+    std::map<int64_t, bool> forced;
+    const auto backend = [&](const VideoEncoderOptions &, VideoEncoder::BackendSink) {
+        return std::make_unique<KeyframeRecordingBackend>(mutex, forced);
+    };
+    VideoEncoder encoder;
+    ASSERT_TRUE(encoder.start(options, [](const std::byte *, size_t, uint64_t, bool) {}, backend));
+    const cv::Mat frame(24, 32, CV_8UC3, cv::Scalar::all(0));
+    for (uint64_t t = 1; t <= 4; ++t) encoder.submit(frame, t);
+    encoder.request_keyframe();
+    for (uint64_t t = 5; t <= 6; ++t) encoder.submit(frame, t);
+    encoder.stop();
+
+    std::lock_guard<std::mutex> lock(mutex);
+    ASSERT_EQ(forced.size(), 6u);
+    for (int64_t pts = 0; pts < 6; ++pts) {
+        EXPECT_EQ(forced[pts], pts == 4) << "frame " << pts;
     }
 }
 

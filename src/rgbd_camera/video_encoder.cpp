@@ -153,8 +153,6 @@ int64_t VideoEncoder::submit(const cv::Mat &frame, uint64_t log_time_ns) {
             dropped_frames_.fetch_add(1);
             return -1;
         }
-        // The request rides with the frame: the encoder thread may still be working through
-        // older frames when it arrives.
         queue_.push_back(
             QueuedFrame{frame.clone(), log_time_ns, keyframe_requested_.exchange(false)});
         index = next_submit_index_++;
@@ -185,10 +183,6 @@ void VideoEncoder::encode_loop() {
                 std::lock_guard<std::mutex> lock(pts_mutex_);
                 log_time_by_frame_ordinal_.erase(pts);
             }
-            // This frame already has its index in frame_meta, and encoding the frames behind it
-            // would put each one packet before its index. Take nothing more, so every index
-            // handed out has its packet or points past the end of the file, and let the runner
-            // restart the recording. Only a pipeline stalled for kStallTimeout gets here.
             size_t discarded = 0;
             {
                 std::lock_guard<std::mutex> lock(mutex_);

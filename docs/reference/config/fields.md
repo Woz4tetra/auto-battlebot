@@ -425,6 +425,7 @@ Replay of an MCAP recording carrying `/camera/video`. It is separate from the li
 | Field | Meaning |
 | --- | --- |
 | `rebase_stamps` | Same as `ZedSvoPlaybackCamera` |
+| `start_frame` | Video frame ordinal to start at, seeking from the last IDR at or before it. A value at or past the frame count throws `ConfigValidationError`: a scratch overlay that sets `video_file_path` but inherits `start_frame` from the config it extends otherwise seeks past the end and exits before the first heartbeat, which reads as a corrupt recording instead of a config merge |
 | `calibration_file` | Empty rectifies with whatever the recording itself names. Set it to re-rectify old footage against a revised calibration |
 
 ### Replay input reservation
