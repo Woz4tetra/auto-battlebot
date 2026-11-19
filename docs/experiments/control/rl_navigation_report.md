@@ -40,7 +40,9 @@ Notes:
 - FastTD3 is our own implementation (`auto_battlebot/rl/learners/fasttd3.py`): distributional
   clipped double Q, n-step 3, per-world noise in [0.001, 0.4], no LayerNorm (RTNeural cannot run
   it). The laptop arm used batch 8,192, not the paper's 32,768, which costs 100 ms per update here.
-  It converges on a smooth two-state toy (`tests/python/test_rl_core.py`), so the failure on the
+  It converges on a smooth two-state toy (`tests/python/test_rl_core.py`: reward 1 - |linear - target|
+  with target +0.6 or -0.6 by state; the one-hot sign-reward toy is flat, which a deterministic policy
+  gradient cannot climb), so the failure on the
   navigation toy is exploration: a deterministic actor with small noise never finds the sparse
   strike reward that PPO's stochastic policy finds in two minutes. Seed 0 ran before a uniform
   random warm-up was added; seeds 1 and 2 had it. All three stayed at zero.
@@ -514,7 +516,7 @@ The field names are stored keys in evaluation JSON and CSV files, so they keep t
 | --- | --- |
 | `success_rate` | Fraction of episodes with at least one strike. |
 | `clean_success_rate` | Fraction of episodes whose first strike came before any hit taken. |
-| `still_s_per_episode` | Seconds per episode spent out of contact under `WarpNavConfig.still_speed_mps`. |
+| `still_s_per_episode` | Seconds per episode spent out of contact under `WarpNavConfig.still_speed_mps`. A world driving from rest spends about its first 0.2 s still. |
 
 `median_time_to_first_strike_s` counts an episode with no strike as the episode length.
 

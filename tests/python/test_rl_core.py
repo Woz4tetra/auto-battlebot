@@ -27,12 +27,18 @@ from auto_battlebot.rl.policies.scripted import PursuitConfig, PursuitPolicy
 from auto_battlebot.rl.sidestep import Sidestep, SidestepConfig
 from auto_battlebot.rl.torch_plant import TorchPlantParams, integrate, saturate, steady_state
 
+DEADZONE = 0.02
+BEHIND_PURSUER_XY = (-2.0, 0.01)
+NOSE_CONTACT_M = 0.059
+PARKED_S = 1.0
+STILL_S = 1.0
+RAY_RANGE_M = 1.5
+UNKNOWN_HEADING_SIGMA = 1.0
 REPO = Path(__file__).resolve().parents[2]
 
 
 class TwoStateEnv:
-    """Each step shows state 0 or 1 (one-hot); the reward is +1 when the action's linear sign is
-    + in state 0 and - in state 1, else -1. One-step episodes."""
+    """One-hot state 0 or 1; reward +1 when the linear sign is + in state 0 and - in state 1."""
 
     def __init__(self, worlds: int = 512) -> None:
         self.num_worlds = worlds
@@ -142,13 +148,14 @@ def test_torch_plant_matches_numpy() -> None:
 
 def test_saturate_gives_angular_priority_and_wheel_deadzone() -> None:
     out = saturate(torch.tensor([[1.0, 0.6], [0.01, 0.0], [-0.5, 0.0]]))
-    # Linear is cut to the 0.4 left after angular, then each wheel loses the deadzone:
-    # left 1.0 stays 1.0, right -0.2 becomes -(0.2 - 0.02) / 0.98.
-    right = -(0.2 - 0.02) / 0.98
+    angular = 0.6
+    linear_left = 1.0 - angular
+    right_cmd = linear_left - angular
+    right = -(abs(right_cmd) - DEADZONE) / (1.0 - DEADZONE)
     assert out[0, 0] == pytest.approx(0.5 * (1.0 + right), abs=1e-6)
     assert out[0, 1] == pytest.approx(0.5 * (1.0 - right), abs=1e-6)
-    assert out[1].abs().max() == 0.0  # both wheels inside the 2% zero deadzone
-    assert out[2, 0] == pytest.approx(-(0.5 - 0.02) / 0.98, abs=1e-6)
+    assert out[1].abs().max() == 0.0
+    assert out[2, 0] == pytest.approx(-(0.5 - DEADZONE) / (1.0 - DEADZONE), abs=1e-6)
 
 
 def test_firmware_kernel_matches_scalar_mixer() -> None:
@@ -220,8 +227,9 @@ def test_obs_spec_layout_and_values() -> None:
     assert o.shape == (138,)
     assert o[names.index("opp_x")] == pytest.approx(0.5)
     assert o[names.index("opp_heading_cos")] == pytest.approx(-1.0)
-    assert o[names.index("opp_heading_sigma")] == 1.0  # unknown heading reads 1
-    assert o[names.index("ray_solid_0")] == pytest.approx(1.0 / 1.5)  # wall 1 m ahead
+    assert o[names.index("opp_heading_sigma")] == UNKNOWN_HEADING_SIGMA
+    wall_ahead_m = 1.0
+    assert o[names.index("ray_solid_0")] == pytest.approx(wall_ahead_m / RAY_RANGE_M)
     assert o[names.index("ray_hole_0")] == 1.0
     assert o[names.index("hazard_0_present")] == 0.0
     absent = obs_spec.build_v1(_inputs(opp_present=torch.tensor([False])))[0]
@@ -230,28 +238,27 @@ def test_obs_spec_layout_and_values() -> None:
 
 def test_obs_spec_hazards_sorted_by_edge_distance() -> None:
     names = obs_spec.OBS_NAMES
-    hz = torch.tensor([[[0.8, 0.0], [0.0, 0.3], [-0.5, 0.0]]], dtype=torch.float64)
+    hole_ahead_m, hole_radius = 0.8, 0.1
+    hz = torch.tensor([[[hole_ahead_m, 0.0], [0.0, 0.3], [-0.5, 0.0]]], dtype=torch.float64)
     o = obs_spec.build_v1(
         _inputs(
             hazard_xy=hz,
-            hazard_radius=torch.tensor([[0.1, 0.1, 0.3]], dtype=torch.float64),
+            hazard_radius=torch.tensor([[hole_radius, 0.1, 0.3]], dtype=torch.float64),
             hazard_kind=torch.tensor([[obs_spec.HOLE, obs_spec.WALL_BLOCK, obs_spec.TRACKED]]),
             hazard_velocity=torch.zeros(1, 3, 2, dtype=torch.float64),
             hazard_present=torch.ones(1, 3, dtype=torch.bool),
         )
     )[0]
-    # Edge distances: 0.7, 0.2, 0.2 -> wall block (input order wins the tie), tracked, hole.
-    assert o[names.index("hazard_0_wall_block")] == 1.0
+    assert o[names.index("hazard_0_wall_block")] == 1.0, "equal edge distances keep input order"
     assert o[names.index("hazard_1_tracked")] == 1.0
     assert o[names.index("hazard_2_hole")] == 1.0
     assert o[names.index("hazard_3_present")] == 0.0
-    # The hole at 0.8 m ahead: the forward hole ray hits its near edge at 0.7 m.
-    assert o[names.index("ray_hole_0")] == pytest.approx(0.7 / 1.5)
+    hole_near_edge = hole_ahead_m - hole_radius
+    assert o[names.index("ray_hole_0")] == pytest.approx(hole_near_edge / RAY_RANGE_M)
 
 
 class SmoothTwoStateEnv(TwoStateEnv):
-    """Reward 1 - |linear - target|, target +0.6 in state 0 and -0.6 in state 1: a smooth
-    reward, which a deterministic policy gradient can climb (the sign reward above is flat)."""
+    """Reward 1 - |linear - target|, target +0.6 in state 0 and -0.6 in state 1."""
 
     def step(self, action: torch.Tensor) -> Step:
         want = torch.where(self.state == 0, 0.6, -0.6)
@@ -281,8 +288,7 @@ def test_fasttd3_learns_smooth_two_state_toy() -> None:
 
 
 def test_toy_sensing_ekf_leaves_gaps() -> None:
-    """The our-robot EKF error model must see fresh measurements as fresh. Fed the capture stamp,
-    which always lags by the latency, it stayed in a gap forever and froze the rendered pose."""
+    """The our-robot EKF error model is fed delivery time, so fresh measurements read as fresh."""
     from auto_battlebot.rl.envs.toy import ToyConfig, ToyEnv
 
     env = ToyEnv(ToyConfig(worlds=256, sensing=True), "cpu", seed=4)
@@ -296,20 +302,26 @@ def test_toy_sensing_ekf_leaves_gaps() -> None:
 
 
 def test_opponent_does_not_push_through_us() -> None:
-    """A kinematic opponent driving straight at us may close only as far as contact (it would
-    otherwise pry our chassis over), and keeps its speed when far away. Contact is the two
-    footprint boxes along the line between centres."""
-    from auto_battlebot.rl.envs.opponents import CONTACT_PRESS_M, STRAIGHT, Opponents
+    """A kinematic opponent driving straight at us closes only to contact, and keeps its speed."""
+    from auto_battlebot.rl.envs.opponents import (
+        CONTACT_PRESS_M,
+        OUR_HALF_EXTENT_M,
+        STRAIGHT,
+        Opponents,
+    )
+
+    our_tail_m = OUR_HALF_EXTENT_M[0]
+    opp_nose_m = 0.111
+    near_start_m = 0.19
+    far_start_m = 1.0
 
     opp = Opponents(2, torch.device("cpu"), torch.float64, torch.Generator().manual_seed(0))
     opp.p.behaviour = torch.full((2,), STRAIGHT, dtype=torch.long)
     opp.p.speed = torch.full((2,), 1.0, dtype=torch.float64)
-    # Us at the origin facing +x; opponents 0.19 m and 1.0 m away on -x, heading +x. Our tail is
-    # 0.0685 m behind our centre and the opponent's nose 0.111 m ahead of its centre.
     zero2 = torch.zeros(2, 2, dtype=torch.float64)
     opp.record_us(zero2, zero2, torch.zeros(2, dtype=torch.float64))
-    xy = torch.tensor([[-0.19, 0.0], [-1.0, 0.0]], dtype=torch.float64)
-    half = torch.tensor([[0.111, 0.127]], dtype=torch.float64).expand(2, 2)
+    xy = torch.tensor([[-near_start_m, 0.0], [-far_start_m, 0.0]], dtype=torch.float64)
+    half = torch.tensor([[opp_nose_m, 0.127]], dtype=torch.float64).expand(2, 2)
     v = opp.command(
         xy,
         torch.zeros(2, dtype=torch.float64),
@@ -318,17 +330,14 @@ def test_opponent_does_not_push_through_us() -> None:
         0.02,
         opp_half_length_width=half,
     )
-    gap = 0.19 - 0.111 - 0.0685
+    gap = near_start_m - opp_nose_m - our_tail_m
     assert v[0, 0] == pytest.approx((gap + CONTACT_PRESS_M) / 0.02, abs=1e-9)
     assert v[1, 0] == pytest.approx(1.0, abs=1e-9)
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="WarpNavEnv runs on CUDA")
 def test_warp_env_broadphase_bounds_follow_resized_geoms() -> None:
-    """The environment resizes arena walls, wall blocks and the opponent per world. MuJoCo Warp
-    culls contact pairs with geom_rbound and geom_aabb, so those must match what MuJoCo compiles
-    for the new sizes, or the outer part of a block larger than the MJCF placeholder is passable.
-    """
+    """geom_rbound and geom_aabb match what MuJoCo compiles for the resized geoms."""
     import mujoco
 
     from auto_battlebot.rl.envs.warp_nav import WarpNavConfig, WarpNavEnv
@@ -359,17 +368,18 @@ def test_standing_still_costs_reward_and_driving_does_not() -> None:
     env = WarpNavEnv(WarpNavConfig(worlds=worlds, stage="A"), "cuda", seed=4)
     env.reset(4)
     parked = torch.zeros(worlds, 2, device="cuda")
-    for _ in range(50):
+    for _ in range(int(PARKED_S / env.cfg.policy_dt_s)):
         env.step(parked)
     still_parked = env.stats["still_s"].clone()
-    assert float(still_parked.median()) > 0.9  # about 1 s of the first 1 s
+    assert float(still_parked.median()) > 0.9 * PARKED_S
 
     env.reset(4)
     spin_and_drive = torch.tensor([[0.4, 0.3]], device="cuda").expand(worlds, 2).contiguous()
     for _ in range(50):
         env.step(spin_and_drive)
-    # The first 0.2 s or so is spent getting up to speed from rest.
-    assert float(env.stats["still_s"].median()) < 0.5 * float(still_parked.median())
+    assert float(env.stats["still_s"].median()) < 0.5 * float(still_parked.median()), (
+        "only the start-up from rest counts as still"
+    )
 
 
 def test_trained_opponent_draws_and_drives_each_behaviour() -> None:
@@ -414,9 +424,10 @@ def test_trained_opponent_does_not_push_through_us() -> None:
     pose = (0.6, 0.0, math.pi)
     for _ in range(200):
         pose = opp.step(pose, 0.02)
-    # Nose to nose: its half-length plus our nose distance. The old two-circle rule stopped it
-    # at 0.33 m, out of contact.
-    assert math.hypot(pose[0], pose[1]) == pytest.approx(0.111 + 0.0685, abs=0.01)
+    opp_half_length_m = 0.111
+    our_nose_distance_m = 0.0685
+    nose_to_nose_m = opp_half_length_m + our_nose_distance_m
+    assert math.hypot(pose[0], pose[1]) == pytest.approx(nose_to_nose_m, abs=0.01)
 
 
 def test_pursuit_turns_proportionally_without_chatter() -> None:
@@ -441,15 +452,14 @@ def test_pinned_in_the_arc_keeps_costing_hits() -> None:
     from auto_battlebot.rl.envs.warp_nav import OPP_MOCAP, WarpNavConfig, WarpNavEnv
 
     worlds = 16
-    env = WarpNavEnv(WarpNavConfig(worlds=worlds, stage="A"), "cuda", seed=6)
+    cfg = WarpNavConfig(worlds=worlds, stage="A")
+    env = WarpNavEnv(cfg, "cuda", seed=6)
     env.reset(6)
 
     def park_on_nose() -> None:
-        # Glued against our nose and facing us, as a pursuer holds contact: its half-length plus
-        # our nose (0.069 m from centre) less 1 cm.
         tr = env.truth()
         heading = torch.stack([torch.cos(tr["yaw"]), torch.sin(tr["yaw"])], 1)
-        gap = env.opp_half[:, 0] + 0.059
+        gap = env.opp_half[:, 0] + NOSE_CONTACT_M
         env.mocap_pos[:, OPP_MOCAP, :2] = tr["xy"] + heading * gap[:, None]
         yaw = tr["yaw"] + math.pi
         zero = torch.zeros_like(yaw)
@@ -457,13 +467,18 @@ def test_pinned_in_the_arc_keeps_costing_hits() -> None:
             [torch.cos(yaw / 2), zero, zero, torch.sin(yaw / 2)], 1
         )
 
-    for _ in range(100):  # 2 s
+    pinned_s = 2.0
+    for _ in range(int(pinned_s / cfg.policy_dt_s)):
         park_on_nose()
         env.step(torch.zeros(worlds, 2, device="cuda"))
     touching = env.stats["hits_taken"] > 0
     assert int(touching.sum()) >= worlds // 2
-    # 2 s pinned at one hit per 0.5 s; the first touch lands a step or two in.
-    assert float(env.stats["hits_taken"][touching].median()) >= 3
+    expected_hits = int(pinned_s / cfg.arc_rehit_s) - 1
+    assert float(env.stats["hits_taken"][touching].median()) >= expected_hits
+
+
+def _contact_flags(contact: bool, in_arc: bool, wedge_on: bool, angle: float) -> np.ndarray:
+    return np.array([contact, in_arc, wedge_on, angle, 0, 0, 0], dtype=float)
 
 
 def test_still_penalty_exempts_only_wedge_pushing() -> None:
@@ -474,20 +489,20 @@ def test_still_penalty_exempts_only_wedge_pushing() -> None:
     scenario = json.loads((REPO / "tests/python/data/rl_scenario_static.json").read_text())
     dt = 0.02
     cases = {
-        "pushing": np.array([1, 0, 1, 2.5, 0, 0, 0], dtype=float),  # wedge on it, behind
-        "pinned": np.array([1, 1, 0, 0.1, 0, 0, 0], dtype=float),  # in its arc
+        "pushing": _contact_flags(contact=True, in_arc=False, wedge_on=True, angle=2.5),
+        "pinned": _contact_flags(contact=True, in_arc=True, wedge_on=False, angle=0.1),
         "apart": np.zeros(7),
     }
     out = {}
     for name, flags in cases.items():
         world = LockstepWorld(scenario, timestep=2e-3)
-        for _ in range(50):  # 1 s
+        for _ in range(int(STILL_S / dt)):
             world._score_contacts(flags, dt)
             world.t += dt
         out[name] = (world.score.still_s, world.score.hits_taken)
     assert out["pushing"][0] == 0.0
     assert out["pinned"][0] == pytest.approx(1.0, abs=0.03)
-    assert out["pinned"][1] == 2  # the first touch, then 0.5 s later
+    assert out["pinned"][1] == int(STILL_S / world.cfg.arc_rehit_s)
     assert out["apart"][0] == pytest.approx(1.0, abs=0.03)
 
 
@@ -540,8 +555,7 @@ def test_flank_potential_rewards_side_and_rear_up_close() -> None:
 
 
 def test_anchor_loss_counts_only_masked_samples_in_std_units() -> None:
-    """Zero where the student matches the anchor, half the squared gap in std units elsewhere,
-    and unmasked samples left out of both the sum and the count."""
+    """Zero where the student matches the anchor, half the squared std-unit gap elsewhere."""
     from auto_battlebot.rl.learners.ppo import Ppo
 
     mean = torch.tensor([[0.0, 0.0], [0.2, 0.0], [5.0, 5.0]])
@@ -551,7 +565,8 @@ def test_anchor_loss_counts_only_masked_samples_in_std_units() -> None:
         "anchor_w": torch.tensor([1.0, 1.0, 0.0]),
     }
     loss = Ppo._anchor_loss(mean, std, flat, torch.arange(3))
-    assert float(loss) == pytest.approx(0.5 * (0.2 / 0.1) ** 2 / 2)
+    masked_count = int(flat["anchor_w"].sum())
+    assert float(loss) == pytest.approx(0.5 * (0.2 / 0.1) ** 2 / masked_count)
 
 
 def test_pursuer_grip_limits_braking_and_turn_rate_at_speed() -> None:
@@ -570,9 +585,8 @@ def test_pursuer_grip_limits_braking_and_turn_rate_at_speed() -> None:
     opp.p.lead[:] = 0.0
     opp.p.grip = torch.tensor([10.0, 10.0], dtype=torch.float64)
     opp.commanded_forward_mps[:] = 2.5
-    # Our robot directly behind the pursuer: the target is 180 degrees off its heading.
-    opp.history[:, :DELAY_SLOTS, 0] = -2.0
-    opp.history[:, :DELAY_SLOTS, 1] = 0.01
+    opp.history[:, :DELAY_SLOTS, 0] = BEHIND_PURSUER_XY[0]
+    opp.history[:, :DELAY_SLOTS, 1] = BEHIND_PURSUER_XY[1]
     v = opp.command(xy, yaw, half, foot, dt)
     assert float(opp.commanded_forward_mps[0]) == pytest.approx(2.5 - 10.0 * dt)
     assert float(v[0, 2].abs()) == pytest.approx(10.0 / (2.5 - 10.0 * dt))
@@ -605,12 +619,15 @@ def test_lockstep_slew_and_guard_stages() -> None:
     np.testing.assert_allclose(slew[1:6, 1], [-0.02, -0.04, -0.06, -0.08, -0.10], atol=1e-9)
     guard = run(guard_scale=0.5)
     np.testing.assert_allclose(guard[:, 1], neither[:, 1])
-    # Same sent command, half the wheel command, on the tick the mixer first sees the step.
-    k = int(np.argmax(np.abs(neither[:, 2]) > 1.0))
+    k = _first_step_tick(neither[:, 2])
     assert guard[k, 2] == pytest.approx(0.5 * neither[k, 2], rel=0.05)
     # Reverse reads negative, as the firmware's left_cmd does. Checked early: held -0.9 reverse
     # tips the fitted robot over its nose within about 0.6 s, and the firmware then inverts it.
     assert neither[10, 2] < -50.0
+
+
+def _first_step_tick(wheel_command: np.ndarray) -> int:
+    return int(np.argmax(np.abs(wheel_command) > 1.0))
 
 
 def test_step_response_helpers() -> None:
@@ -621,10 +638,15 @@ def test_step_response_helpers() -> None:
     assert tape.linear_frac_fwd[-1] == pytest.approx(0.6)
     held = StickTape.resample(np.array([0.0, 0.025]), np.array([0.1, 0.5]), np.zeros(2), 0.05)
     np.testing.assert_allclose(held.linear_frac_fwd, [0.1, 0.1, 0.1, 0.5, 0.5])
-    sweep = [(0.0, 95.0), (1.0, 2.0), (4.0, 5.0), (8.0, 99.0), (12.0, 3.0)]
-    assert loosest_slew(sweep, 30.0) == 4.0  # stops at the first failure from the slow end
     assert loosest_slew([(1.0, 50.0)], 30.0) is None
     assert loosest_slew([(1.0, 2.0), (0.0, 3.0)], 30.0) == 0.0
+
+
+def test_loosest_slew_stops_at_first_failure_from_slow_end() -> None:
+    from auto_battlebot.mujoco_sim.step_response import loosest_slew
+
+    sweep = [(0.0, 95.0), (1.0, 2.0), (4.0, 5.0), (8.0, 99.0), (12.0, 3.0)]
+    assert loosest_slew(sweep, 30.0) == 4.0
 
 
 def test_step_result_final_obs_is_previous_episode() -> None:

@@ -1,8 +1,4 @@
-"""Tests for auto_battlebot.mujoco_sim: lumping, the MJCF, the firmware mirror and the fit.
-
-The end-to-end test builds a synthetic session bundle from a CPU MuJoCo run with known
-parameters, then checks the fit's loss prefers the truth over a perturbed model.
-"""
+"""Tests for auto_battlebot.mujoco_sim: lumping, the MJCF, the firmware mirror and the fit."""
 
 from __future__ import annotations
 
@@ -62,6 +58,14 @@ from auto_battlebot.mujoco_sim.session import WindowBatch, build_batch, load_ses
 
 EXPORT = mass_properties.ASSET_DIR / "onshape_export"
 DT = 1e-3
+HALF_PACK_V = 8.0
+GPU_REPRODUCIBLE_RESISTANCES_OHM = (0.2, 0.3, 0.5, 0.8)
+NOISE_SIGMA_XY = 0.002
+TOP_TAG_ID = 76
+BOTTOM_TAG_ID = 41
+TAG_SIZE_M = 0.064
+HELD_HEADING_DEG = 90.0
+DRIFT_DEG = 10.0
 
 
 @pytest.fixture(scope="module")
@@ -104,10 +108,9 @@ def test_subtract_inverts_combine() -> None:
 def test_mass_properties_table(mp: mass_properties.MassProperties) -> None:
     assert mp.total_mass == pytest.approx(0.4959, abs=1e-6)
     assert mp.chassis.com[0] == pytest.approx(0.03194, abs=5e-5)
-    # Tags decode from the CAD faces: 76 faces up, 41 faces the floor, both 64 mm.
-    assert not mp.tags[76].upside_down and mp.tags[41].upside_down
+    assert not mp.tags[TOP_TAG_ID].upside_down and mp.tags[BOTTOM_TAG_ID].upside_down
     for tag in mp.tags.values():
-        assert tag.size_m == pytest.approx(0.064, abs=2e-4)
+        assert tag.size_m == pytest.approx(TAG_SIZE_M, abs=2e-4)
         np.testing.assert_allclose(tag.rotation @ tag.rotation.T, np.eye(3), atol=1e-5)
         assert np.linalg.det(tag.rotation) == pytest.approx(1.0, abs=1e-5)
 
@@ -134,9 +137,10 @@ def test_nose_lift_matches_momentum_analysis(
 
 def test_pid_v1_mirrors_old_firmware_quirks() -> None:
     pid = PidV1()
-    assert pid.update(10.0, 9.0, 0.01) == 0.0  # inside the 2 degree tolerance
-    out = pid.update(10.0, 0.0, 0.01)  # first call past tolerance: no derivative yet
-    assert out == pytest.approx(0.08 * 10 + 0.01 * 10 * 0.01)
+    inside_tolerance = 10.0 - pid.tolerance / 2
+    assert pid.update(10.0, inside_tolerance, 0.01) == 0.0
+    first_call_past_tolerance = pid.update(10.0, 0.0, 0.01)
+    assert first_call_past_tolerance == pytest.approx(0.08 * 10 + 0.01 * 10 * 0.01)
     assert pid._wrap(350.0) == pytest.approx(-10.0)
 
 
@@ -145,8 +149,8 @@ def test_mixer_normalizes_and_holds_heading() -> None:
     left, right = mixer.step(-100.0, 50.0, 0.0, 0.01)
     assert max(abs(left), abs(right)) == pytest.approx(100.0)
     mixer = FirmwareMixer()
-    mixer.step(-50.0, 0.0, 90.0, 0.01)
-    mixer.step(-50.0, 0.0, 80.0, 0.01)  # drifted 10 degrees: heading hold acts
+    mixer.step(-50.0, 0.0, HELD_HEADING_DEG, 0.01)
+    mixer.step(-50.0, 0.0, HELD_HEADING_DEG - DRIFT_DEG, 0.01)
     assert mixer.pid_output > 0.0
 
 
@@ -259,7 +263,9 @@ def _synthetic_bundle(
         )
     pd.DataFrame(rows).to_csv(tmp / "windows.csv", index=False)
     (tmp / "session.json").write_text(
-        json.dumps({"noise_floor": {"sigma_xy": 0.002, "sigma_yaw": 0.01, "sigma_pitch": 0.01}})
+        json.dumps(
+            {"noise_floor": {"sigma_xy": NOISE_SIGMA_XY, "sigma_yaw": 0.01, "sigma_pitch": 0.01}}
+        )
     )
     return tmp
 
@@ -293,8 +299,7 @@ def test_fit_loss_prefers_truth(
         [truth, truth.replace(resistance_ohm=0.15), truth.replace(delay_s=0.05)],
     )
     assert losses[0] < losses[1] and losses[0] < losses[2]
-    # The truth reproduces the run it came from to within a few noise floors at 0.2 s.
-    assert np.nanmedian(errors[0].position_err_m[:, 0]) < 0.01
+    assert np.nanmedian(errors[0].position_err_m[:, 0]) < 5 * NOISE_SIGMA_XY
 
 
 def test_greybox_runs_on_the_same_windows(
@@ -325,9 +330,7 @@ def test_warp_rollout_matches_cpu_on_a_straight_drive(
 
     steps = 600
     rollout = WarpRollout(mp, collision, 4, steps)
-    # Below about 0.2 ohm the launch hops the chassis on its skid, and that contact chatter makes
-    # the float32 GPU rollout differ run to run: 0.15 ohm landed anywhere in -45..+24 mm of the CPU.
-    params = [PlantParams(resistance_ohm=r) for r in (0.2, 0.3, 0.5, 0.8)]
+    params = [PlantParams(resistance_ohm=r) for r in GPU_REPRODUCIBLE_RESISTANCES_OHM]
     rollout.set_params(params)
     volts = np.zeros((4, steps, 2))
     volts[:, :400] = 4.0
@@ -361,9 +364,13 @@ def test_closed_loop_signs_match_the_app(mp: mass_properties.MassProperties) -> 
     assert sim.yaw_rate > 0.5 and sim.pose()[2] > 0.0
 
 
+def _settle_onto_skid(sim: ClosedLoopSim) -> None:
+    _drive(sim, 0.0, 0.0, 0.5)
+
+
 def test_closed_loop_delay_holds_the_command(mp: mass_properties.MassProperties) -> None:
     sim = ClosedLoopSim(mp, None, PlantParams(delay_s=0.1), start=(0.0, 0.0, 0.0))
-    _drive(sim, 0.0, 0.0, 0.5)  # the hull-less test model starts level and rocks onto its skid
+    _settle_onto_skid(sim)
     sim.step(1.0, 0.0, 0.09)
     assert abs(sim.forward_speed) < 1e-3
     sim.step(1.0, 0.0, 0.05)
@@ -391,21 +398,28 @@ def test_closed_loop_walls_and_blocks_stop_the_robot(mp: mass_properties.MassPro
     assert sim.pose()[0] < 0.3 and sim.block_contact
 
 
-def test_closed_loop_box_block_turns_with_yaw(mp: mass_properties.MassProperties) -> None:
-    """A 0.04 x 0.6 m wall at x = 0.5, centred 0.25 m to the side. Square on, it spans the robot's
-    path; turned 90 deg, it is a thin bar along x that the robot drives past."""
-    for yaw, blocked in ((0.0, True), (math.pi / 2.0, False)):
-        sim = ClosedLoopSim(
-            mp,
-            None,
-            PlantParams(),
-            start=(0.0, 0.0, 0.0),
-            moving_blocks=[MovingBlock(0.3, box=BoxSize(0.04, 0.6, 0.1))],
-        )
-        sim.set_moving_blocks([(0.5, 0.25, yaw)])
-        _drive(sim, 0.5, 0.0, 1.0)
-        assert sim.block_contact == blocked
-        assert (sim.pose()[0] < 0.5) == blocked
+@pytest.mark.parametrize(
+    ("yaw", "blocked"),
+    [
+        pytest.param(0.0, True, id="square_on_blocks"),
+        pytest.param(math.pi / 2.0, False, id="edge_on_drives_past"),
+    ],
+)
+def test_closed_loop_box_block_turns_with_yaw(
+    mp: mass_properties.MassProperties, yaw: float, blocked: bool
+) -> None:
+    """A 0.04 x 0.6 m wall at x = 0.5, centred 0.25 m to the side."""
+    sim = ClosedLoopSim(
+        mp,
+        None,
+        PlantParams(),
+        start=(0.0, 0.0, 0.0),
+        moving_blocks=[MovingBlock(0.3, box=BoxSize(0.04, 0.6, 0.1))],
+    )
+    sim.set_moving_blocks([(0.5, 0.25, yaw)])
+    _drive(sim, 0.5, 0.0, 1.0)
+    assert sim.block_contact == blocked
+    assert (sim.pose()[0] < 0.5) == blocked
 
 
 def test_closed_loop_reports_upside_down(mp: mass_properties.MassProperties) -> None:
@@ -447,8 +461,6 @@ def test_updown_sensor_holds_inside_the_firmware_band() -> None:
 def test_flip_switch_down_keeps_a_flipped_robot_driving_wedge_first(
     mp: mass_properties.MassProperties,
 ) -> None:
-    """The firmware negates the throttle while the IMU reads upside down, so the stick drives
-    wedge-first either side up; in MIDDLE nothing changes and a flipped robot drives tail-first."""
     travel = {}
     for switch in (FlipSwitch.DOWN, FlipSwitch.MIDDLE):
         sim = ClosedLoopSim(mp, None, PlantParams(), start=(0.0, 0.0, 0.0), flip_switch=switch)
@@ -528,7 +540,7 @@ def test_yaw_loop_recovers_from_a_reverse_turn(
                 late.append(abs(math.degrees(sim.yaw_rate)))
         late_rate[auto_steer] = max(late)
         if auto_steer:
-            assert sim.forward_speed < -1.0  # back to driving tail-first, still speeding up
+            assert sim.forward_speed < -1.0, "back to driving tail-first, still speeding up"
     assert late_rate[False] > 2000.0
     assert late_rate[True] < 600.0
 
@@ -559,13 +571,12 @@ def test_mixer_resume_reproduces_the_logged_output() -> None:
 def test_closed_loop_replay_falls_back_to_open_loop_before_the_yaw_loop(
     tmp_path: Path, mp: mass_properties.MassProperties, collision: CollisionSet
 ) -> None:
-    """The synthetic bundle is stamped in 1970, before the yaw loop: the replay must drive the
-    logged motor commands exactly as the open-loop rollout does."""
     from auto_battlebot.mujoco_sim import validate
 
     truth = PlantParams(delay_s=0.02)
     bundle = _synthetic_bundle(tmp_path, mp, collision, truth)
     batch = build_batch([load_session(bundle)], horizon_s=0.4, dt=DT, horizons=(0.2, 0.4))
+    assert int(batch.start_ns.max()) < validate.YAW_LOOP_SINCE_NS
     height = rest_height(mp, collision, DT)
     closed, closed_dt = validate.closed_loop_replay(mp, collision, truth, batch, height)
     open_, open_dt = _cpu_simulator(mp, collision)(batch, [truth] * len(batch))
@@ -644,14 +655,13 @@ def test_mk3_belts_turn_the_front_wheels_with_the_back() -> None:
     model, mp3 = _mk3()
     data = mujoco.MjData(model)
     for _ in range(int(1.0 / DT)):
-        data.ctrl[:] = [8.0, 8.0]
+        data.ctrl[:] = [HALF_PACK_V, HALF_PACK_V]
         mujoco.mj_step(model, data)
     back = [data.qvel[model.joint(n).dofadr[0]] for n in ("wheel_left", "wheel_right")]
     front = [data.qvel[model.joint(n).dofadr[0]] for n in ("follower_left", "follower_right")]
     assert front == pytest.approx(back, rel=1e-2)
-    # Half the pack drives at about half the free speed.
     speed = float(back[0]) * mp3.wheel_radius
-    free = 8.0 / (mp3.gear_ratio * mp3.motor_kt) * mp3.wheel_radius
+    free = HALF_PACK_V / (mp3.gear_ratio * mp3.motor_kt) * mp3.wheel_radius
     assert 0.8 * free < speed < free
 
 

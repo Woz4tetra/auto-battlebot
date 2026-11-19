@@ -13,7 +13,7 @@ from auto_battlebot.recording import diag_io, mcap_io, mcap_write
 STAMP = 1788011445.339499712
 STAMP_NS = mcap_io.stamp_to_ns(STAMP)
 LOG_TIME = 1_788_011_445_400_000_000
-IMAGE_STAMP_NS = 1788011445339499712  # above 2^53 on purpose
+IMAGE_STAMP_NS_ABOVE_2_POW_53 = 1788011445339499712
 
 
 def _jpeg() -> bytes:
@@ -39,7 +39,7 @@ def recording(tmp_path_factory: pytest.TempPathFactory) -> Path:
         )
         writer.log_json(
             "/camera/frame_meta",
-            {"image_stamp_ns": str(IMAGE_STAMP_NS), "video_frame_index": 42},
+            {"image_stamp_ns": str(IMAGE_STAMP_NS_ABOVE_2_POW_53), "video_frame_index": 42},
             LOG_TIME,
         )
         matrix = np.eye(4)
@@ -211,13 +211,14 @@ def test_camera_info(recording: Path) -> None:
 def test_frame_meta(recording: Path) -> None:
     data = _one(recording, "/camera/frame_meta")
     meta = mcap_io.decode_frame_meta(data)
-    assert meta.image_stamp_ns == IMAGE_STAMP_NS
+    assert meta.image_stamp_ns == IMAGE_STAMP_NS_ABOVE_2_POW_53
     assert meta.video_frame_index == 42
-    # The wire form is a string; a JSON number would have lost precision in JavaScript.
-    assert json.loads(mcap_io.decode_string(data))["image_stamp_ns"] == str(IMAGE_STAMP_NS)
-    bare = json.dumps({"image_stamp_ns": IMAGE_STAMP_NS, "video_frame_index": -1})
+    assert json.loads(mcap_io.decode_string(data))["image_stamp_ns"] == str(
+        IMAGE_STAMP_NS_ABOVE_2_POW_53
+    )
+    bare = json.dumps({"image_stamp_ns": IMAGE_STAMP_NS_ABOVE_2_POW_53, "video_frame_index": -1})
     tagged = mcap_io.MessageBytes(bare.encode(), "json", "", "/camera/frame_meta")
-    assert mcap_io.decode_frame_meta(tagged).image_stamp_ns == IMAGE_STAMP_NS
+    assert mcap_io.decode_frame_meta(tagged).image_stamp_ns == IMAGE_STAMP_NS_ABOVE_2_POW_53
 
 
 def test_tf(recording: Path) -> None:
@@ -289,14 +290,15 @@ def test_diagnostics(recording: Path) -> None:
     assert isinstance(values["facing_target"], int)
     assert statuses[2][1]["level"] == 1 and statuses[2][1]["message"] == "slow"
 
-    # The legacy single-topic name still selects the per-module channels.
-    topics = {t for t, _ts, _d in mcap_io.iter_messages(recording, ["/diagnostics"])}
-    assert topics == {"/diagnostics/pursuit_nav", "/diagnostics/runner"}
-
     df = diag_io.load_diagnostics(recording)
     assert list(df["distance"]) == [0.75, None] or df["distance"].iloc[0] == 0.75
     assert df["nav/using_previous_robots"].iloc[1] == 0
     assert df["stage/tick/elapsed_ms"].iloc[1] == 12.5
+
+
+def test_legacy_diagnostics_topic_selects_per_module_channels(recording: Path) -> None:
+    topics = {t for t, _ts, _d in mcap_io.iter_messages(recording, ["/diagnostics"])}
+    assert topics == {"/diagnostics/pursuit_nav", "/diagnostics/runner"}
 
 
 def test_log(recording: Path) -> None:

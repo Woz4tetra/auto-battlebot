@@ -112,6 +112,9 @@ dumping the rotor's energy. The fit's nose-lift stage will show which.
   diverge after about 150 ms on a spin in place where the skid stick-slips (float32 against
   float64 on a chaotic contact), so spin windows carry more loss noise.
 - `njmax` and `nconmax` are per world in this version (24 contacts, 160 rows).
+- Below about 0.2 ohm the launch hops the chassis on its skid. That contact chatter makes the
+  float32 GPU rollout differ run to run: a 0.15 ohm candidate landed anywhere in -45..+24 mm of
+  the CPU. `test_warp_rollout_matches_cpu_on_a_straight_drive` compares 0.2 to 0.8 ohm only.
 
 ## Implementation notes
 
@@ -330,6 +333,19 @@ Assumes lift grows with rate, so it stops at the first rate (from slowest) that 
 
 `WarpNavEnv` sizes `nconmax` and `njmax` from the geom count. A robot with many collision pieces (Mrs Buff Mk3's 30) pairs each with the floor, walls
 and opponent in broadphase, so the buffers grow with the model.
+
+The environment resizes arena walls, wall blocks and the opponent per world. MuJoCo Warp culls contact
+pairs with `geom_rbound` and `geom_aabb`, so those must match what MuJoCo compiles for the new
+sizes, or the outer part of a block larger than the MJCF placeholder is passable.
+`test_warp_env_broadphase_bounds_follow_resized_geoms` pins it.
+
+### `tests/python/test_mujoco_sim.py` fixtures
+
+- The end-to-end fit test builds a synthetic session bundle from a CPU MuJoCo run with known
+  parameters, then checks that the fit's loss prefers the truth over a perturbed model.
+- The firmware negates the throttle while the IMU reads upside down. With the flip switch DOWN
+  the stick drives wedge-first either side up. In MIDDLE nothing changes, so a flipped robot
+  drives tail-first.
 
 ## Next steps
 

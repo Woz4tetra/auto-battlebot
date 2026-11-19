@@ -28,6 +28,13 @@ from auto_battlebot.perception.sensing_model import (
 QUANTILES = [0.0, 0.1, 0.25, 0.5, 0.75, 0.9, 0.99, 1.0]
 MEASURED = [0.03, 0.05, 0.1, 0.3, 0.8, 2.0, 6.0, 12.0]
 DROPPED = [0.03, 0.06, 0.08, 0.15, 0.3, 0.7, 3.0, 6.0]
+ONE_FRAME_S = 0.03
+LONG_GAP_S = 1.0
+TRUTH_SPEED_AFTER_SLOW_M_S = 0.5
+COAST_SPEED_M_S = 1.0
+TICK_S = 0.01
+FIRST_COAST_K = 9
+COAST_END_K = 20
 
 
 def _robot(**overrides: Any) -> dict[str, Any]:
@@ -202,9 +209,8 @@ def test_context_picks_cell() -> None:
     d = _spec_dict()
     drop = d["robots"]["opponent"]["dropout"]
     drop["robot_distance_bins_m"] = [0.0, 0.1]
-    # Near another robot: measured runs are one frame and gaps are long.
-    drop["measured_s"] = [[0.03] * 7 + [0.031], MEASURED]
-    drop["dropped_s"] = [[1.0] * 7 + [1.01], DROPPED]
+    drop["measured_s"] = [[ONE_FRAME_S] * 7 + [ONE_FRAME_S + 0.001], MEASURED]
+    drop["dropped_s"] = [[LONG_GAP_S] * 7 + [LONG_GAP_S + 0.01], DROPPED]
     model = MeasurementModel(_spec(d), ["opponent"], worlds=64, seed=5, randomize=False)
     model.reset(torch.ones(64, dtype=torch.bool), 0.0)
     truth = _truth(64, 1)
@@ -235,9 +241,12 @@ def test_position_noise_is_body_frame() -> None:
     truth = _truth(2000, 1, yaw=math.pi / 2)
     err = model._noisy_pose(model._samplers[0], truth, 0, torch.zeros(2000, dtype=torch.bool))[0]
     err = err - truth.xy[:, 0]
-    # Heading +y: along-track noise lands on y, the cross bias on -x.
-    assert float(err[:, 1].std()) == pytest.approx(0.05, rel=0.05)
-    torch.testing.assert_close(err[:, 0], torch.full((2000,), -0.01, dtype=torch.float64))
+    assert float(err[:, 1].std()) == pytest.approx(0.05, rel=0.05), "heading +y: along noise on y"
+    torch.testing.assert_close(
+        err[:, 0],
+        torch.full((2000,), -0.01, dtype=torch.float64),
+        msg=lambda m: f"heading +y: cross bias on -x. {m}",
+    )
 
 
 def test_reverse_uses_its_own_along_bias() -> None:
@@ -285,20 +294,22 @@ def test_ekf_coasts_then_holds_stale() -> None:
     model.reset(torch.ones(1, dtype=torch.bool), 0.0, torch.zeros(1, dtype=torch.float64))
     period = torch.full((1,), 1.0 / 30.0, dtype=torch.float64)
     yaw = torch.zeros(1, dtype=torch.float64)
-    vel = torch.tensor([[1.0, 0.0]], dtype=torch.float64)
+    vel = torch.tensor([[COAST_SPEED_M_S, 0.0]], dtype=torch.float64)
     w = torch.zeros(1, dtype=torch.float64)
     last = torch.zeros(1, dtype=torch.float64)
     xs = {}
     for k in range(0, 41):
-        t = k * 0.01
-        true_xy = torch.tensor([[t * 0.5, 0.0]], dtype=torch.float64)  # truth slows to 0.5 m/s
+        t = k * TICK_S
+        true_xy = torch.tensor([[t * TRUTH_SPEED_AFTER_SLOW_M_S, 0.0]], dtype=torch.float64)
         out = model.step(t, true_xy, yaw, vel, w, last, period)
         xs[k] = (float(out.xy[0, 0]), bool(out.stale[0]))
-    # The gap starts past 2.5 frames (~0.083 s); from there the pose coasts at 1 m/s until 0.2 s.
-    origin = xs[9][0]
-    assert xs[15][0] == pytest.approx(origin + 0.06, abs=1e-9)
-    assert xs[20][0] == pytest.approx(origin + 0.11, abs=1e-9)
-    assert xs[30][0] == xs[20][0] and xs[30][1] and not xs[19][1]
+    origin = xs[FIRST_COAST_K][0]
+    coasted_m = COAST_SPEED_M_S * TICK_S
+    assert xs[15][0] == pytest.approx(origin + coasted_m * (15 - FIRST_COAST_K), abs=1e-9)
+    assert xs[COAST_END_K][0] == pytest.approx(
+        origin + coasted_m * (COAST_END_K - FIRST_COAST_K), abs=1e-9
+    )
+    assert xs[30][0] == xs[COAST_END_K][0] and xs[30][1] and not xs[COAST_END_K - 1][1]
 
 
 def test_seed_reproduces_stream() -> None:
