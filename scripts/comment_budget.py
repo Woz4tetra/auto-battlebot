@@ -51,6 +51,13 @@ SUFFIX_LANGUAGES = {
     ".cmake": "cmake",
 }
 REPORT_LIST_LIMIT = 180
+LONG_MESSAGE_CHARS = 160
+CXX_MESSAGE_START_RE = re.compile(
+    r"\bthrow\b|\bspdlog::\w+\s*\(|\blogger_?->\w+\s*\(|\badd_(?:option|flag|subcommand)\s*\("
+)
+CXX_STRING_RE = re.compile(r'"(?:[^"\\\n]|\\.)*"')
+PY_LOGGER_NAMES = frozenset({"logging", "logger", "log", "LOGGER", "LOG", "_log", "_logger"})
+PY_LOG_METHODS = frozenset({"debug", "info", "warning", "warn", "error", "exception", "critical"})
 SHOWN_LINES_LIMIT = 30
 
 DATASHEET_RE = re.compile(
@@ -635,6 +642,93 @@ CHECK_HINT = (
 )
 
 
+@dataclass
+class LongMessage:
+    """A message literal in a throw, raise, log call, or CLI help that runs past the limit."""
+
+    path: str
+    line: int
+    chars: int
+
+
+def _cxx_statement_end(text: str, start: int) -> int:
+    """Index of the semicolon ending the statement at start, skipping string literals."""
+    i = start
+    while i < len(text):
+        ch = text[i]
+        if ch == '"':
+            match = CXX_STRING_RE.match(text, i)
+            i = match.end() if match else i + 1
+            continue
+        if ch == ";":
+            return i
+        i += 1
+    return len(text)
+
+
+def cxx_long_messages(path: str, text: str) -> list[LongMessage]:
+    """C and C++ throw and log statements whose string literals total past the limit."""
+    found = []
+    for match in CXX_MESSAGE_START_RE.finditer(text):
+        end = _cxx_statement_end(text, match.start())
+        chars = sum(len(m.group(0)) - 2 for m in CXX_STRING_RE.finditer(text, match.start(), end))
+        if chars > LONG_MESSAGE_CHARS:
+            found.append(LongMessage(path, text.count("\n", 0, match.start()) + 1, chars))
+    return found
+
+
+def _literal_chars(node: ast.AST) -> int:
+    """Characters of every string constant under a node, f-string pieces included."""
+    return sum(
+        len(sub.value)
+        for sub in ast.walk(node)
+        if isinstance(sub, ast.Constant) and isinstance(sub.value, str)
+    )
+
+
+def _is_log_call(node: ast.Call) -> bool:
+    """Whether a call is logging.<level>(...) or logger.<level>(...)."""
+    func = node.func
+    return (
+        isinstance(func, ast.Attribute)
+        and func.attr in PY_LOG_METHODS
+        and isinstance(func.value, ast.Name)
+        and func.value.id in PY_LOGGER_NAMES
+    )
+
+
+def python_long_messages(path: str, text: str) -> list[LongMessage]:
+    """Python raise, log, and help= literals past the limit."""
+    try:
+        tree = ast.parse(text)
+    except (SyntaxError, ValueError):
+        return []
+    found = []
+    for node in ast.walk(tree):
+        targets: list[ast.AST] = []
+        if isinstance(node, ast.Raise) and node.exc is not None:
+            targets.append(node.exc)
+        elif isinstance(node, ast.Call):
+            if _is_log_call(node):
+                targets.extend(node.args)
+            targets.extend(k.value for k in node.keywords if k.arg == "help")
+        for target in targets:
+            chars = _literal_chars(target)
+            if chars > LONG_MESSAGE_CHARS:
+                found.append(LongMessage(path, getattr(target, "lineno", 1), chars))
+    return found
+
+
+def long_messages(path: str, text: str) -> list[LongMessage]:
+    """Long message literals of one file, by its language."""
+    language = language_of(path, text.split("\n", 1)[0])
+    if language == "python":
+        return python_long_messages(path, text)
+    if language == "cxx":
+        return cxx_long_messages(path, text)
+    return []
+
+
 def scan_all(repo: Repo) -> list[FileResult]:
     """Results for every tracked, scanned file."""
     results = []
@@ -716,7 +810,8 @@ def cmd_init(repo: Repo, _args: argparse.Namespace) -> int:
 
 def cmd_report(repo: Repo, _args: argparse.Namespace) -> int:
     """Print totals by directory and language and the densest files."""
-    results = [r for r in scan_all(repo) if r.count]
+    scanned = scan_all(repo)
+    results = [r for r in scanned if r.count]
     by_dir: Counter[str] = Counter()
     by_language: Counter[str] = Counter()
     for r in results:
@@ -737,6 +832,12 @@ def cmd_report(repo: Repo, _args: argparse.Namespace) -> int:
         for r in results:
             for line, _ in r.counted:
                 print(f"  {r.path}:{line}: {r.text(line)}")
+    messages = [m for r in scanned for m in long_messages(r.path, "\n".join(r.lines))]
+    print(
+        f"\nmessages over {LONG_MESSAGE_CHARS} characters (review, not enforced): {len(messages)}"
+    )
+    for m in sorted(messages, key=lambda m: -m.chars):
+        print(f"  {m.chars:6d}  {m.path}:{m.line}")
     return 0
 
 
