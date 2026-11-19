@@ -17,11 +17,7 @@ STRAIGHT_W = 1e-6
 
 
 def toml_float(value: float) -> str:
-    """Format a float so TOML reads it back as a float.
-
-    `0` and `5` are integers in TOML, and a reader that asks for a double gets a type error on a
-    parameter that happened to land on a round number. Every emitted value keeps a decimal point.
-    """
+    """Format a float so TOML reads it back as a float."""
     text = f"{value:.6g}"
     if "." not in text and "e" not in text and "n" not in text:
         text += ".0"
@@ -136,9 +132,8 @@ class ModelStructure:
             out = out.replace(c_drift_bias=0.0)
         return out
 
-    def free_names(self) -> list[str]:
-        """Parameters this structure lets the fit move. Delay is handled by profile search, so it
-        is not in this list even when the structure uses it."""
+    def gradient_free_names(self) -> list[str]:
+        """Parameters this structure lets the fit move, excluding delay."""
         names = ["dz_lin_fwd", "dz_ang_l", "k_fwd", "k_ang"]
         if self.asymmetric_gain:
             names += ["dz_lin_rev", "dz_ang_r", "k_rev"]
@@ -235,17 +230,7 @@ def integrate_step(
     dt: float,
     p: PlantParams,
 ) -> PlantState:
-    """Advance one substep: pose along the arc, then the first-order velocity update.
-
-    Pose uses the velocity at the start of the substep and the velocity update follows it, which
-    is the ordering the C++ mirror must match. At a 2 ms substep the difference against using the
-    end-of-substep velocity is dt times the acceleration, under a millimeter at any speed this
-    drivetrain reaches.
-
-        theta' = theta + w*dt
-        x'     = x + (v/w) * (sin(theta') - sin(theta))
-        y'     = y - (v/w) * (cos(theta') - cos(theta))
-    """
+    """Advance one substep: pose along the arc, then the first-order velocity update."""
     v = np.asarray(state.v, dtype=float)
     w = np.asarray(state.w, dtype=float)
     theta = np.asarray(state.theta, dtype=float)
@@ -322,17 +307,7 @@ def simulate(
 
 
 class Plant:
-    """Stateful wrapper with a command ring buffer, mirroring the runtime C++ shape.
-
-    The fit uses `simulate`, which shifts the command timeline instead. This class exists so the
-    sim and any Python-side runtime experiment step the same model the filter will, and so a
-    golden-vector test can compare both against the C++ implementation.
-
-    One deliberate difference from `simulate`: the buffer holds each command until the next one
-    arrives, while `delayed_commands` interpolates between command samples. The two agree exactly
-    when the delay is a whole number of steps and differ by less than one step's worth of command
-    otherwise. Runtime is the zero-order-hold case, because that is what the transmitter does.
-    """
+    """Stateful wrapper with a zero-order-hold command ring buffer, mirroring the C++ shape."""
 
     def __init__(
         self,
@@ -413,7 +388,6 @@ def delayed_commands(
     frac = idx - lo
     out_lin = cmd_lin[lo] * (1.0 - frac) + cmd_lin[hi] * frac
     out_ang = cmd_ang[lo] * (1.0 - frac) + cmd_ang[hi] * frac
-    # Before the delay has elapsed there was no command, not the first command held early.
     pre = np.arange(len(t)) < shift
     out_lin = np.where(pre, 0.0, out_lin)
     out_ang = np.where(pre, 0.0, out_ang)
@@ -424,22 +398,29 @@ def delayed_commands(
 class WindowSet:
     """Open-loop windows cut out of one run."""
 
-    starts: np.ndarray  # sample index of each window start
-    horizons: np.ndarray  # seconds, snapped to the grid (steps * dt), not as requested
-    steps: np.ndarray  # horizon in grid samples
+    start_indices: np.ndarray
+    horizons_s: np.ndarray
+    horizon_steps: np.ndarray
     dt: float
-    u_lin: np.ndarray  # (W, H) delayed command over the longest horizon
+    u_lin: np.ndarray
     u_ang: np.ndarray
-    truth: dict[str, np.ndarray]  # (W, H) ground truth per sample
+    truth: dict[str, np.ndarray]
     state0: PlantState
-    # Which run each window came from, as an index into whatever run list the caller
-    # built the set from. Without it, concatenating runs makes every per-run question
-    # unanswerable: which waveform has the worst residuals, which single run a parameter
-    # rests on. The caller assigns the numbering; concat_windows preserves it.
-    origin: np.ndarray | None = None
+    origin_run_index: np.ndarray | None = None
+
+    def __post_init__(self) -> None:
+        windows = len(self.start_indices)
+        span = int(np.max(self.horizon_steps))
+        if self.horizons_s.shape != self.horizon_steps.shape:
+            raise ValueError("horizons_s and horizon_steps must have the same shape")
+        for name, array in (("u_lin", self.u_lin), ("u_ang", self.u_ang), *self.truth.items()):
+            if array.shape != (windows, span):
+                raise ValueError(f"{name} has shape {array.shape}, expected {(windows, span)}")
+        if self.origin_run_index is not None and self.origin_run_index.shape != (windows,):
+            raise ValueError("origin_run_index must have one entry per window")
 
     def count(self) -> int:
-        return len(self.starts)
+        return len(self.start_indices)
 
     def subsample(self, limit: int) -> WindowSet:
         """Thin the window set to at most `limit` windows, evenly across the run."""
@@ -447,9 +428,9 @@ class WindowSet:
             return self
         pick = np.linspace(0, self.count() - 1, limit).astype(int)
         return WindowSet(
-            starts=self.starts[pick],
-            horizons=self.horizons,
-            steps=self.steps,
+            start_indices=self.start_indices[pick],
+            horizons_s=self.horizons_s,
+            horizon_steps=self.horizon_steps,
             dt=self.dt,
             u_lin=self.u_lin[pick],
             u_ang=self.u_ang[pick],
@@ -461,7 +442,7 @@ class WindowSet:
                 v=np.asarray(self.state0.v)[pick],
                 w=np.asarray(self.state0.w)[pick],
             ),
-            origin=None if self.origin is None else self.origin[pick],
+            origin_run_index=None if self.origin_run_index is None else self.origin_run_index[pick],
         )
 
 
@@ -471,12 +452,12 @@ def concat_windows(sets: Sequence[WindowSet]) -> WindowSet:
         raise ValueError("no window sets to concatenate")
     first = sets[0]
     for other in sets[1:]:
-        if other.dt != first.dt or not np.array_equal(other.steps, first.steps):
+        if other.dt != first.dt or not np.array_equal(other.horizon_steps, first.horizon_steps):
             raise ValueError("window sets must share dt and horizons")
     return WindowSet(
-        starts=np.concatenate([s.starts for s in sets]),
-        horizons=first.horizons,
-        steps=first.steps,
+        start_indices=np.concatenate([s.start_indices for s in sets]),
+        horizons_s=first.horizons_s,
+        horizon_steps=first.horizon_steps,
         dt=first.dt,
         u_lin=np.concatenate([s.u_lin for s in sets]),
         u_ang=np.concatenate([s.u_ang for s in sets]),
@@ -488,12 +469,10 @@ def concat_windows(sets: Sequence[WindowSet]) -> WindowSet:
             v=np.concatenate([np.asarray(s.state0.v) for s in sets]),
             w=np.concatenate([np.asarray(s.state0.w) for s in sets]),
         ),
-        # All or nothing: a partially attributed batch would silently mis-assign windows
-        # to the wrong run, which is worse than having no attribution at all.
-        origin=(
+        origin_run_index=(
             None
-            if any(s.origin is None for s in sets)
-            else np.concatenate([s.origin for s in sets])
+            if any(s.origin_run_index is None for s in sets)
+            else np.concatenate([s.origin_run_index for s in sets])
         ),
     )
 
@@ -518,12 +497,7 @@ def make_windows(
     valid: np.ndarray | None = None,
     origin: int | None = None,
 ) -> WindowSet | None:
-    """Cut strided windows out of a run, dropping any that overlap invalid samples.
-
-    `valid` is the per-sample mask of usable ground truth (encoder slip excluded, for instance).
-    A window is kept only if every sample it spans is valid, so one slipped wheel cannot steer
-    the fit through a window that mostly looks fine.
-    """
+    """Cut strided windows out of a run, dropping any that overlap invalid samples."""
     horizons_arr = np.asarray(horizons, dtype=float)
     steps = np.maximum(1, np.round(horizons_arr / dt).astype(int))
     span = int(steps.max())
@@ -543,17 +517,15 @@ def make_windows(
     idx = starts[:, None] + offsets[None, :]
 
     return WindowSet(
-        starts=starts,
-        # Report the horizons actually evaluated. A requested 33 ms on a 5 ms grid is 35 ms, and
-        # a table that says 33 while measuring 35 is a table that lies about its own axis.
-        horizons=steps * dt,
-        steps=steps,
+        start_indices=starts,
+        horizons_s=steps * dt,
+        horizon_steps=steps,
         dt=dt,
         u_lin=u_lin_d[idx],
         u_ang=u_ang_d[idx],
         truth={"x": x[idx], "y": y[idx], "theta": theta[idx], "v": v[idx], "w": w[idx]},
         state0=PlantState(x=x[starts], y=y[starts], theta=theta[starts], v=v[starts], w=w[starts]),
-        origin=None if origin is None else np.full(len(starts), origin, dtype=int),
+        origin_run_index=None if origin is None else np.full(len(starts), origin, dtype=int),
     )
 
 
@@ -561,34 +533,48 @@ def make_windows(
 class WindowErrors:
     """Open-loop error at each horizon, decomposed in the body frame at the window start."""
 
-    along: np.ndarray  # (W, H) meters
-    cross: np.ndarray  # (W, H) meters
-    heading: np.ndarray  # (W, H) radians, wrapped
-    speed: np.ndarray  # (W,) truth speed at window start, a conditioning variable
-    yaw_rate: np.ndarray  # (W,) truth yaw rate at window start
-    horizons: np.ndarray  # (H,)
-    starts: np.ndarray  # (W,)
-    # Signed commands at the window start. Kept separately from speed/yaw_rate, which are
-    # absolute values: the drift diagnostic needs the sign, because what separates drift
-    # from angular droop is whether the effect flips with the turn direction.
-    u_lin0: np.ndarray | None = None  # (W,)
-    u_ang0: np.ndarray | None = None  # (W,)
-    origin: np.ndarray | None = None  # (W,) run index, see WindowSet.origin
+    along_m: np.ndarray
+    cross_m: np.ndarray
+    heading_rad: np.ndarray
+    speed_at_start: np.ndarray
+    yaw_rate_at_start: np.ndarray
+    horizons_s: np.ndarray
+    start_indices: np.ndarray
+    u_lin0: np.ndarray | None = None
+    u_ang0: np.ndarray | None = None
+    origin_run_index: np.ndarray | None = None
+
+    def __post_init__(self) -> None:
+        windows = len(self.start_indices)
+        horizons = len(self.horizons_s)
+        for name, array in (
+            ("along_m", self.along_m),
+            ("cross_m", self.cross_m),
+            ("heading_rad", self.heading_rad),
+        ):
+            if array.shape != (windows, horizons):
+                raise ValueError(f"{name} has shape {array.shape}, expected {(windows, horizons)}")
+        for name, array in (
+            ("speed_at_start", self.speed_at_start),
+            ("yaw_rate_at_start", self.yaw_rate_at_start),
+        ):
+            if array.shape != (windows,):
+                raise ValueError(f"{name} has shape {array.shape}, expected {(windows,)}")
 
     @property
     def position(self) -> np.ndarray:
-        out: np.ndarray = np.hypot(self.along, self.cross)
+        out: np.ndarray = np.hypot(self.along_m, self.cross_m)
         return out
 
     def concat(self, other: WindowErrors) -> WindowErrors:
         return WindowErrors(
-            along=np.concatenate([self.along, other.along]),
-            cross=np.concatenate([self.cross, other.cross]),
-            heading=np.concatenate([self.heading, other.heading]),
-            speed=np.concatenate([self.speed, other.speed]),
-            yaw_rate=np.concatenate([self.yaw_rate, other.yaw_rate]),
-            horizons=self.horizons,
-            starts=np.concatenate([self.starts, other.starts]),
+            along_m=np.concatenate([self.along_m, other.along_m]),
+            cross_m=np.concatenate([self.cross_m, other.cross_m]),
+            heading_rad=np.concatenate([self.heading_rad, other.heading_rad]),
+            speed_at_start=np.concatenate([self.speed_at_start, other.speed_at_start]),
+            yaw_rate_at_start=np.concatenate([self.yaw_rate_at_start, other.yaw_rate_at_start]),
+            horizons_s=self.horizons_s,
+            start_indices=np.concatenate([self.start_indices, other.start_indices]),
         )
 
 
@@ -615,24 +601,26 @@ def predict_windows(
     )
     del final
 
-    cols = windows.steps - 1  # step h lands at index h-1 in the trajectory
-    dx = traj["x"][:, cols] - windows.truth["x"][:, cols]
-    dy = traj["y"][:, cols] - windows.truth["y"][:, cols]
-    dtheta = wrap_angle(traj["theta"][:, cols] - windows.truth["theta"][:, cols])
+    horizon_columns = windows.horizon_steps - 1
+    dx = traj["x"][:, horizon_columns] - windows.truth["x"][:, horizon_columns]
+    dy = traj["y"][:, horizon_columns] - windows.truth["y"][:, horizon_columns]
+    dtheta = wrap_angle(
+        traj["theta"][:, horizon_columns] - windows.truth["theta"][:, horizon_columns]
+    )
 
     theta0 = np.asarray(windows.state0.theta, dtype=float)[:, None]
     along = dx * np.cos(theta0) + dy * np.sin(theta0)
     cross = -dx * np.sin(theta0) + dy * np.cos(theta0)
 
     return WindowErrors(
-        along=along,
-        cross=cross,
-        heading=dtheta,
-        speed=np.abs(np.asarray(windows.state0.v, dtype=float)),
-        yaw_rate=np.abs(np.asarray(windows.state0.w, dtype=float)),
-        horizons=windows.horizons,
-        starts=windows.starts,
+        along_m=along,
+        cross_m=cross,
+        heading_rad=dtheta,
+        speed_at_start=np.abs(np.asarray(windows.state0.v, dtype=float)),
+        yaw_rate_at_start=np.abs(np.asarray(windows.state0.w, dtype=float)),
+        horizons_s=windows.horizons_s,
+        start_indices=windows.start_indices,
         u_lin0=windows.u_lin[:, 0],
         u_ang0=windows.u_ang[:, 0],
-        origin=windows.origin,
+        origin_run_index=windows.origin_run_index,
     )

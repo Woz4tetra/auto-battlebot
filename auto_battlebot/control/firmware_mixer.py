@@ -1,20 +1,4 @@
-"""Batched mirror of the Mr Stabs Mk2 firmware mixer, and the plant closed around it.
-
-`mix_motor_outputs` (firmware/mr_stabs_mk2/src/main.cpp) turns the arbitrated sticks into motor
-commands. With the flip switch down it runs `yaw_control::YawController` on every BNO055 sample
-and its output replaces the steer stick; otherwise the steer stick passes through a 1% deadband.
-`auto_battlebot/mujoco_sim/firmware.py` mirrors both line for line as scalar Python stepping one
-robot. This module is the same logic over a batch dimension, so the sysid fit can roll out
-hundreds of windows at once, plus `closed_loop_rollout`, which runs `plant.integrate_step`
-behind the mixer with the heading and gyro read back from the simulated state.
-
-Conventions follow the firmware: percents in [-100, 100], `a_percent` positive drives tail-first
-(stick back), a positive steer output speeds up the left wheel and turns the robot clockwise,
-headings in degrees growing clockwise, rates in degrees per second clockwise-positive. The plant
-is counter-clockwise-positive in radians; `heading_from_theta` and `gyro_from_w` convert.
-
-Upside-down driving is not mirrored: the sysid gates drop inverted windows before they get here.
-"""
+"""Batched mirror of the Mr Stabs Mk2 firmware mixer, and the plant closed around it."""
 
 from __future__ import annotations
 
@@ -62,11 +46,7 @@ def wrap_degrees(angle: Any) -> np.ndarray:
 
 
 def motor_to_plant(left_cmd: Any, right_cmd: Any) -> tuple[np.ndarray, np.ndarray]:
-    """Motor percents to the plant's normalized (linear, angular) command.
-
-    The mixer writes left = -a + steer and right = -a - steer. Forward is positive linear, and a
-    counter-clockwise turn (right wheel faster) is positive angular, as in `plant.py`.
-    """
+    """Motor percents to the plant's normalized (linear, angular) command."""
     left = np.asarray(left_cmd, dtype=float)
     right = np.asarray(right_cmd, dtype=float)
     return (left + right) / 200.0, (right - left) / 200.0
@@ -250,23 +230,27 @@ def closed_loop_rollout(
     dt: float = SAMPLE_PERIOD_S,
     substep_s: float = SUBSTEP_S,
 ) -> dict[str, np.ndarray]:
-    """Sticks through the mixer into the plant, closed around the simulated heading and gyro.
-
-    `a_percent`, `b_percent` and `auto_steer` are (B, N) on a `dt` grid starting at the window
-    start. `history` is the plant command (linear, angular) on the same grid for the samples
-    before the start, (B, M), most recent last, so the transport delay reads real commands for
-    its first `delay_s`. Returns per-sample x, y, theta, v, w and the motor commands.
-    """
+    """Sticks through the mixer into the plant, closed around the simulated heading and gyro."""
     p = structure.apply(p)
     a = np.asarray(a_percent, dtype=float)
     b = np.asarray(b_percent, dtype=float)
     auto = np.asarray(auto_steer, dtype=bool)
+    if a.ndim != 2 or b.shape != a.shape or auto.shape != a.shape:
+        raise ValueError(
+            f"a_percent, b_percent and auto_steer must share one (B, N) shape, "
+            f"got {a.shape}, {b.shape}, {auto.shape}"
+        )
     batch, n = a.shape
     if history is None:
         hist_lin = np.zeros((batch, 0))
         hist_ang = np.zeros((batch, 0))
     else:
         hist_lin, hist_ang = (np.asarray(h, dtype=float) for h in history)
+    if hist_lin.ndim != 2 or hist_lin.shape != hist_ang.shape or hist_lin.shape[0] != batch:
+        raise ValueError(
+            f"history must be two (B, M) arrays with B={batch}, "
+            f"got {hist_lin.shape}, {hist_ang.shape}"
+        )
     m = hist_lin.shape[1]
     cmd_lin = np.concatenate([hist_lin, np.zeros((batch, n))], axis=1)
     cmd_ang = np.concatenate([hist_ang, np.zeros((batch, n))], axis=1)
@@ -285,9 +269,6 @@ def closed_loop_rollout(
         cmd_lin[:, m + k], cmd_ang[:, m + k] = motor_to_plant(left, right)
         out["left"][:, k] = left
         out["right"][:, k] = right
-        # The command in effect `delay_s` before this step, linear between grid samples and held
-        # for the step, the same sampling as `plant.delayed_commands` and `plant.simulate`; zero
-        # before the history starts.
         pos = m + k - shift
         if pos < 0.0:
             u_lin = np.zeros(batch)

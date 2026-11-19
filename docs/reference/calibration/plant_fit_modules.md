@@ -152,6 +152,78 @@ Deadzone removal and rescale, per sign.
 The rescale keeps full command mapping to full effect, so the gain stays the max speed rather
 than becoming max speed divided by (1 - dz).
 
+#### `toml_float`
+
+`0` and `5` are integers in TOML, and a reader that asks for a double gets a type error on a
+parameter that happened to land on a round number. Every emitted value keeps a decimal point.
+
+#### `ModelStructure`
+
+`pinned` lists parameters the joint fit may not move, held at whatever stage A measured. A
+parameter with its own dedicated excitation and a tight spread is evidence. Leaving it free lets
+an objective that cannot see it directly trade it away against something it can.
+
+`gradient_free_names` leaves out `delay_s` even when the structure uses delay, because profile
+search owns it.
+
+#### `integrate_step`
+
+Pose uses the velocity at the start of the substep, then the first-order velocity update
+follows. The C++ mirror must keep that order; the golden vectors in `tests/plant/` pin it. At a
+2 ms substep, using the end-of-substep velocity instead shifts the pose by dt times the
+acceleration, under a millimeter at any speed this drivetrain reaches.
+
+    theta' = theta + w*dt
+    x'     = x + (v/w) * (sin(theta') - sin(theta))
+    y'     = y - (v/w) * (cos(theta') - cos(theta))
+
+#### `Plant`
+
+The fit uses `simulate`, which shifts the command timeline instead of buffering it. `Plant`
+exists so the sim and any Python-side runtime experiment step the same model the filter will,
+and so a golden-vector test can compare both against the C++ implementation.
+
+One deliberate difference from `simulate`: the buffer holds each command until the next one
+arrives, while `delayed_commands` interpolates between command samples. The two agree exactly
+when the delay is a whole number of steps and differ by less than one step's worth of command
+otherwise. Runtime is the zero-order-hold case, because that is what the transmitter does.
+
+#### `delayed_commands`
+
+Before the delay has elapsed there was no command, so the output is zero rather than the first
+command held early.
+
+#### `make_windows`
+
+`valid` is the per-sample mask of usable ground truth (encoder slip excluded, for instance). A
+window is kept only if every sample it spans is valid, so one slipped wheel cannot steer the fit
+through a window that mostly looks fine.
+
+`horizons_s` reports the horizons actually evaluated. A requested 33 ms on a 5 ms grid is 35
+ms, and a table that says 33 while measuring 35 mislabels its own axis.
+
+#### `concat_windows`
+
+`origin_run_index` says which run each window came from, as an index into whatever run list the
+caller built the set from. Without it, concatenating runs makes every per-run question
+unanswerable: which waveform has the worst residuals, which single run a parameter rests on. The
+caller assigns the numbering and `concat_windows` preserves it. It is all or nothing: a
+partially attributed batch would silently mis-assign windows to the wrong run, which is worse
+than having no attribution at all.
+
+#### `WindowErrors`
+
+`along_m` and `cross_m` are meters in the body frame at the window start, `heading_rad` is
+radians wrapped to (-pi, pi], all shaped (windows, horizons). `speed_at_start` and
+`yaw_rate_at_start` are absolute truth values shaped (windows,), used as conditioning variables.
+`u_lin0` and `u_ang0` are the signed commands at the window start, kept separately because the
+drift diagnostic needs the sign: what separates drift from angular droop is whether the effect
+flips with the turn direction.
+
+#### `predict_windows`
+
+`simulate` records no initial-state column, so step h lands at trajectory index h - 1.
+
 #### `WindowSet`
 
 Open-loop windows cut out of one run.

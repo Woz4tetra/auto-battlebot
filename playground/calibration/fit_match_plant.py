@@ -164,16 +164,16 @@ def profile_delay_match(
 
 def subset_errors(err: WindowErrors, mask: np.ndarray) -> WindowErrors:
     return WindowErrors(
-        along=err.along[mask],
-        cross=err.cross[mask],
-        heading=err.heading[mask],
-        speed=err.speed[mask],
-        yaw_rate=err.yaw_rate[mask],
-        horizons=err.horizons,
-        starts=err.starts[mask],
+        along_m=err.along_m[mask],
+        cross_m=err.cross_m[mask],
+        heading_rad=err.heading_rad[mask],
+        speed_at_start=err.speed_at_start[mask],
+        yaw_rate_at_start=err.yaw_rate_at_start[mask],
+        horizons_s=err.horizons_s,
+        start_indices=err.start_indices[mask],
         u_lin0=None if err.u_lin0 is None else err.u_lin0[mask],
         u_ang0=None if err.u_ang0 is None else err.u_ang0[mask],
-        origin=None if err.origin is None else err.origin[mask],
+        origin_run_index=None if err.origin_run_index is None else err.origin_run_index[mask],
     )
 
 
@@ -183,7 +183,7 @@ def observed_and_predicted(
     """Per-window observed and predicted body-frame motion at each horizon."""
     ws = mw.windows
     _final, traj = simulate(ws.u_lin, ws.u_ang, ws.dt, params, state=ws.state0, structure=structure)
-    cols = ws.steps - 1
+    cols = ws.horizon_steps - 1
     th0 = np.asarray(ws.state0.theta, dtype=float)[:, None]
     x0 = np.asarray(ws.state0.x, dtype=float)[:, None]
     y0 = np.asarray(ws.state0.y, dtype=float)[:, None]
@@ -214,7 +214,7 @@ def flag_nonresponsive(
     """Windows where the command was large but the robot barely answered."""
     motion = observed_and_predicted(mw, params, structure)
     ws = mw.windows
-    h = int(np.argmin(np.abs(ws.horizons - 0.400)))
+    h = int(np.argmin(np.abs(ws.horizons_s - 0.400)))
     obs_disp = np.hypot(motion["obs_along"][:, h], motion["obs_cross"][:, h])
     pred_disp = np.hypot(motion["pred_along"][:, h], motion["pred_cross"][:, h])
     obs_rot = np.abs(motion["obs_dtheta"][:, h])
@@ -265,10 +265,10 @@ def noise_floor(
     u = np.concatenate([ws.u_lin[pick], ws.u_ang[pick]], axis=1)
     v0 = np.asarray(ws.state0.v, dtype=float)[pick]
     w0 = np.asarray(ws.state0.w, dtype=float)[pick]
-    starts = ws.starts[pick]
+    starts = ws.start_indices[pick]
     runs = mw.run_index[pick]
 
-    cols = ws.steps - 1
+    cols = ws.horizon_steps - 1
     th0 = np.asarray(ws.state0.theta, dtype=float)[pick, None]
     dx = ws.truth["x"][pick][:, cols] - np.asarray(ws.state0.x, dtype=float)[pick, None]
     dy = ws.truth["y"][pick][:, cols] - np.asarray(ws.state0.y, dtype=float)[pick, None]
@@ -276,7 +276,7 @@ def noise_floor(
     cross = -dx * np.sin(th0) + dy * np.cos(th0)
     dth = wrap_angle(ws.truth["theta"][pick][:, cols] - th0)
 
-    span = int(ws.steps.max())
+    span = int(ws.horizon_steps.max())
     pos_sq: list[np.ndarray] = []
     head_sq: list[np.ndarray] = []
     count = 0
@@ -312,7 +312,7 @@ def noise_floor(
         "pairs": np.array([count]),
         "pos_rmse_mm": np.sqrt(np.mean(pos, axis=0) / 2.0) * 1e3,
         "head_rmse_deg": np.degrees(np.sqrt(np.mean(head, axis=0) / 2.0)),
-        "horizons": ws.horizons,
+        "horizons": ws.horizons_s,
     }
 
 
@@ -325,14 +325,14 @@ def class_table(
     err: WindowErrors, classes: np.ndarray, horizon: float
 ) -> dict[str, tuple[int, float, float]]:
     """Per-maneuver-class (count, pos RMSE mm, heading RMSE deg) at one horizon."""
-    h = int(np.argmin(np.abs(err.horizons - horizon)))
+    h = int(np.argmin(np.abs(err.horizons_s - horizon)))
     out: dict[str, tuple[int, float, float]] = {}
     for label in sorted(set(classes.tolist())):
         mask = classes == label
         if not mask.any():
             continue
         pos = err.position[mask, h] * 1e3
-        head = np.degrees(err.heading[mask, h])
+        head = np.degrees(err.heading_rad[mask, h])
         out[label] = (
             int(mask.sum()),
             float(np.sqrt(np.mean(pos**2))),
@@ -345,13 +345,13 @@ def gain_drift(mw: MatchWindows, params: PlantParams, structure: ModelStructure)
     """Observed-over-predicted displacement ratio against time into the recording."""
     motion = observed_and_predicted(mw, params, structure)
     ws = mw.windows
-    h = int(np.argmin(np.abs(ws.horizons - 0.400)))
+    h = int(np.argmin(np.abs(ws.horizons_s - 0.400)))
     pred = np.hypot(motion["pred_along"][:, h], motion["pred_cross"][:, h])
     obs = np.hypot(motion["obs_along"][:, h], motion["obs_cross"][:, h])
     keep = pred > 0.05
     if keep.sum() < 20:
         return {}
-    t = np.array([mw.runs[r].t[int(s)] for r, s in zip(mw.run_index[keep], ws.starts[keep])])
+    t = np.array([mw.runs[r].t[int(s)] for r, s in zip(mw.run_index[keep], ws.start_indices[keep])])
     ratio = obs[keep] / pred[keep]
     slope = float(np.polyfit(t, ratio, 1)[0])
     order = np.argsort(t)
@@ -375,7 +375,7 @@ def write_match_params(
     params = structure.apply(params)
     from auto_battlebot.control.plant import FULL_MODEL
 
-    disabled = sorted(set(FULL_MODEL.free_names()) - set(structure.free_names()))
+    disabled = sorted(set(FULL_MODEL.gradient_free_names()) - set(structure.gradient_free_names()))
     lines = [
         "# Drivetrain plant parameters fit from NHRL match driving.",
         f"# {note}",
@@ -547,12 +547,12 @@ def radio_dropout_gate(
         flagged = flag_nonresponsive(group_w, fitted, structure)
         total_flagged += int(flagged.sum())
         stamps = group_w.start_stamps_ns()
-        span_ns = int(float(group_w.windows.horizons.max()) * 1e9)
+        span_ns = int(float(group_w.windows.horizons_s.max()) * 1e9)
         spans += merge_spans(stamps[flagged], span_ns)
         classes_all = group_w.maneuver_classes()
         for i in np.flatnonzero(flagged):
             run = group_w.runs[group_w.run_index[i]]
-            start = int(group_w.windows.starts[i])
+            start = int(group_w.windows.start_indices[i])
             csv_rows.append(
                 [
                     run.name,

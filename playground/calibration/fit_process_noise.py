@@ -155,12 +155,12 @@ class CoverageRow:
 def coverage(err: WindowErrors, along: GrowthFit, cross: GrowthFit) -> list[CoverageRow]:
     """Empirical coverage and mean NEES per horizon bin, for the 2D position error."""
     rows: list[CoverageRow] = []
-    for i, h in enumerate(err.horizons):
+    for i, h in enumerate(err.horizons_s):
         s_along = float(along.sigma(h))
         s_cross = float(cross.sigma(h))
         if s_along <= 0 or s_cross <= 0:
             continue
-        d2 = (err.along[:, i] / s_along) ** 2 + (err.cross[:, i] / s_cross) ** 2
+        d2 = (err.along_m[:, i] / s_along) ** 2 + (err.cross_m[:, i] / s_cross) ** 2
         n = len(d2)
         rows.append(
             CoverageRow(
@@ -180,7 +180,7 @@ def coverage(err: WindowErrors, along: GrowthFit, cross: GrowthFit) -> list[Cove
 def tail_report(err: WindowErrors) -> list[tuple[float, float, float]]:
     """p99 and p99.9 position error per horizon."""
     out = []
-    for i, h in enumerate(err.horizons):
+    for i, h in enumerate(err.horizons_s):
         pos = err.position[:, i] * 1e3
         out.append((float(h), float(np.percentile(pos, 99)), float(np.percentile(pos, 99.9))))
     return out
@@ -298,33 +298,39 @@ def main() -> None:
         print("no usable windows")
         return
     err = predict_windows(windows, params, structure)
-    print(f"{windows.count()} windows, {len(err.horizons)} horizons")
+    print(f"{windows.count()} windows, {len(err.horizons_s)} horizons")
 
     print("\n=== Error growth law: sigma^2(h) = const + a h + b h^2 + c h^3 ===")
     fits = {
-        "along": fit_growth("along", err.horizons, err.along),
-        "cross": fit_growth("cross", err.horizons, err.cross),
-        "heading": fit_growth("heading", err.horizons, err.heading),
+        "along": fit_growth("along", err.horizons_s, err.along_m),
+        "cross": fit_growth("cross", err.horizons_s, err.cross_m),
+        "heading": fit_growth("heading", err.horizons_s, err.heading_rad),
     }
     for fit in fits.values():
         print_growth(fit)
 
     print("\n=== Growth law by speed bin ===")
     for lo, hi in zip(SPEED_BINS[:-1], SPEED_BINS[1:]):
-        sel = (err.speed >= lo) & (err.speed < hi)
+        sel = (err.speed_at_start >= lo) & (err.speed_at_start < hi)
         n = int(np.count_nonzero(sel))
         if n < 50:
             print(f"  {lo:.1f}-{hi:.1f} m/s: {n} windows, too few to fit")
             continue
-        binned = fit_growth("along", err.horizons, err.along[sel])
+        binned = fit_growth("along", err.horizons_s, err.along_m[sel])
         print(
             f"  {lo:.1f}-{hi:.1f} m/s: n={n}, b {binned.b_per_s2:.3e}, c {binned.c_per_s3:.3e},"
             f" dominant {binned.dominant()}"
         )
 
-    median_speed = float(np.median(err.speed[err.speed > 0.1])) if np.any(err.speed > 0.1) else 1.0
+    median_speed = (
+        float(np.median(err.speed_at_start[err.speed_at_start > 0.1]))
+        if np.any(err.speed_at_start > 0.1)
+        else 1.0
+    )
     median_yaw_rate = (
-        float(np.median(err.yaw_rate[err.yaw_rate > 0.1])) if np.any(err.yaw_rate > 0.1) else 1.0
+        float(np.median(err.yaw_rate_at_start[err.yaw_rate_at_start > 0.1]))
+        if np.any(err.yaw_rate_at_start > 0.1)
+        else 1.0
     )
     noise = build_q(fits, median_speed, median_yaw_rate)
     print("\n=== Process noise ===")

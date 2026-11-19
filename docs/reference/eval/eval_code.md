@@ -22,6 +22,31 @@ across recordings and were never affected.
 `stamp_ns` stays available for the consumers that have to align GT against something
 else timestamped, such as compare_cpp_python.py against a C++ MCAP.
 
+#### `Frame`
+
+GT boxes and candidate predictions as (N, 4) xyxy arrays. `gt_keypoints` and `pred_keypoints`
+hold one (K, 3) array per box: x, y in pixels plus visibility (GT) or confidence (prediction).
+Box-only rows use empty arrays.
+
+#### `reviewed_frames`
+
+`validation_state.json` is the authority: it maps each image path, relative to the root, to a
+validation verdict, and only `pass` frames are scored. `.edit_state.json` is the older
+`edit_labels.py` state and is consulted only when no validation state exists. Preferring the
+older file silently drops whole recordings: on `nhrl_keypoints_eval_test` the edit state lists
+429 frames and names none of the 98 MassD ones, all of which validate as `pass`.
+
+The subdataset travels with the stem for the same reason `FrameKey` carries it: two recordings
+can name a frame the same, and a verdict on one must not select or reject the other. Both files
+live at the dir that was pointed at, so a symlink root with neither scores every label file
+present.
+
+#### `load_gt`
+
+Returns a `LoadedGt` of `frames` ({FrameKey: (boxes, labels, keypoints)}), `names`, and
+`images` ({FrameKey: image path}). Subdatasets may trail off early (a recording without some
+class), but class indices must agree.
+
 ### `eval/detectors.py`
 
 #### `FieldCropDetector`
@@ -48,6 +73,10 @@ metric, threshold and plot identical to an engine's.
 
 Format: {"labels": [...], "frames": {"<stamp_ns>": [{"xyxy": [x1, y1, x2, y2],
 "score": float, "class_id": int, "kps": [[x, y, v], ...]}]}}.
+
+The replay file is keyed by stamp alone, so a set whose recordings share stamps cannot be
+replayed against. Only single-recording runs write these, and `detect` raises for a key from a
+subdataset.
 
 #### `build_detector`
 

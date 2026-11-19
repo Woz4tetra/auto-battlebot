@@ -41,7 +41,7 @@ def weight_sensitivity(windows, params, structure):
     alt, _ = joint_fit(windows, params, structure, FitWeights(0.05, 0.025))
     moved = {
         n: abs(getattr(alt, n) - getattr(params, n)) / max(abs(getattr(params, n)), 1e-9)
-        for n in structure.free_names()
+        for n in structure.gradient_free_names()
     }
     worst = max(moved.items(), key=lambda kv: kv[1])
     print(f"  weight check (heading weight 2x): largest move {worst[0]} {worst[1]:.1%}")
@@ -199,7 +199,7 @@ def main() -> None:
     if args.pin_deadzones:
         pin += ["dz_lin_fwd", "dz_lin_rev", "dz_ang_l", "dz_ang_r"]
     if pin:
-        known = set(FULL_MODEL.free_names())
+        known = set(FULL_MODEL.gradient_free_names())
         unknown = [n for n in pin if n not in known]
         if unknown:
             raise SystemExit(f"--pin: not fittable parameters: {', '.join(unknown)}")
@@ -243,7 +243,8 @@ def main() -> None:
         if windows is None:
             print("  no usable windows; keeping stage A parameters")
         else:
-            print(f"  fitting {windows.count()} windows on {len(structure.free_names())} params")
+            free_count = len(structure.gradient_free_names())
+            print(f"  fitting {windows.count()} windows on {free_count} params")
             params, cost = joint_fit(windows, params, structure, weights)
             print(f"  final cost {cost:.4f}")
             reports["train"] = score(predict_windows(windows, params, structure))
@@ -315,7 +316,7 @@ def main() -> None:
             )
             print(
                 f"    {rung.name:5} | {train_rmse:20.1f} | {hold_rmse:22.1f} |"
-                f" {len(rung.free_names())}{gain}"
+                f" {len(rung.gradient_free_names())}{gain}"
             )
             if np.isfinite(hold_rmse):
                 prev_holdout = hold_rmse

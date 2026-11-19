@@ -15,7 +15,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from auto_battlebot.eval import FrameKey, load_gt, reviewed_frames
+from auto_battlebot.eval import Frame, FrameKey, load_gt, reviewed_frames
 
 NAMES = ["mr_stabs_mk2", "mrs_buff_mk3", "opponent"]
 
@@ -92,3 +92,41 @@ def test_edit_state_used_only_without_validation_state(two_recordings: Path) -> 
         '{"rec_b/images/0000000000000000000.png": "pass"}'
     )
     assert set(load_gt(two_recordings)[0]) == {FrameKey("rec_b", 0)}
+
+
+def test_validation_state_wins_over_edit_state(two_recordings: Path) -> None:
+    (two_recordings / ".edit_state.json").write_text(
+        '{"reviewed": ["rec_a/images/0000000000000000000.png"]}'
+    )
+    (two_recordings / "validation_state.json").write_text(
+        '{"rec_b/images/0000000007500000000.png": "pass",'
+        ' "rec_a/images/0000000007500000000.png": "pass"}'
+    )
+    assert reviewed_frames(two_recordings) == {
+        ("rec_b", "0000000007500000000"),
+        ("rec_a", "0000000007500000000"),
+    }
+
+
+def test_edit_state_used_without_validation_state(two_recordings: Path) -> None:
+    (two_recordings / ".edit_state.json").write_text(
+        '{"reviewed": ["rec_a/images/0000000000000000000.png"]}'
+    )
+    assert reviewed_frames(two_recordings) == {("rec_a", "0000000000000000000")}
+
+
+def test_conflicting_class_names_raise(two_recordings: Path) -> None:
+    (two_recordings / "rec_b" / "data.yaml").write_text("names:\n- opponent\n- mrs_buff_mk3\n")
+    with pytest.raises(SystemExit, match="conflict"):
+        load_gt(two_recordings)
+
+
+def test_class_names_may_trail_off(two_recordings: Path) -> None:
+    (two_recordings / "rec_b" / "data.yaml").write_text("names:\n- mr_stabs_mk2\n")
+    _, names, _ = load_gt(two_recordings)
+    assert names == NAMES
+
+
+def test_frame_rejects_misshapen_boxes() -> None:
+    with pytest.raises(ValueError, match="expected"):
+        Frame(np.zeros((0, 4)), [], [], np.zeros((1, 3)), ["a"], np.ones(1), [np.zeros((0, 3))])

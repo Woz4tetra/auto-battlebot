@@ -587,7 +587,7 @@ def jackknife(
     max_windows: int,
 ) -> tuple[list[str], dict[str, np.ndarray]]:
     """Refit with each run dropped in turn."""
-    names = structure.free_names()
+    names = structure.gradient_free_names()
     shifts = {n: [] for n in names}
     labels: list[str] = []
     base = start.to_dict()
@@ -622,7 +622,7 @@ def learning_curve(
     seed: int = 12345,
 ) -> tuple[np.ndarray, dict[str, np.ndarray]]:
     """Parameter spread against the number of runs included, by bootstrap over runs."""
-    names = structure.free_names()
+    names = structure.gradient_free_names()
     rng = np.random.default_rng(seed)
     counts = [c for c in (2, 3, 5, 8, 12, 20) if c <= len(runs)]
     if not counts:
@@ -897,7 +897,7 @@ def drift_by_turn_direction_panel(sec: Section, err) -> None:
             if np.count_nonzero(sel) < 20:
                 continue
             x = err.u_lin0[sel]
-            y = err.heading[sel, -1] * 180 / np.pi
+            y = err.heading_rad[sel, -1] * 180 / np.pi
             order = np.argsort(x)
             ax.plot(x[order], y[order], ".", ms=2, alpha=0.3, color=colour)
             if len(x) > 5:
@@ -920,10 +920,10 @@ def drift_by_turn_direction_panel(sec: Section, err) -> None:
 
 
 def residual_by_waveform_panel(sec: Section, err, runs) -> None:
-    if err.origin is not None and len(runs):
+    if err.origin_run_index is not None and len(runs):
         labels, values = [], []
         for i, run in enumerate(runs):
-            sel = err.origin == i
+            sel = err.origin_run_index == i
             if np.count_nonzero(sel) < 5:
                 continue
             labels.append(f"{run.waveform}#{run.record.rep}")
@@ -958,7 +958,7 @@ def section_residuals(err: WindowErrors | None, runs: Sequence[Run]) -> Section:
     acf = residual_acf(err)
     fig, ax = plt.subplots(figsize=(6.8, 2.8))
     ax.bar(range(len(acf)), acf, width=0.8)
-    band = 2.0 / np.sqrt(max(len(err.starts), 1))
+    band = 2.0 / np.sqrt(max(len(err.start_indices), 1))
     ax.axhline(band, color="C3", ls="--", lw=1)
     ax.axhline(-band, color="C3", ls="--", lw=1)
     ax.set_xlabel("lag (windows)", fontsize=9)
@@ -972,10 +972,10 @@ def section_residuals(err: WindowErrors | None, runs: Sequence[Run]) -> Section:
     )
 
     panels = [
-        ("speed at window start (m/s)", err.speed, "along", "gain error or missing drag"),
+        ("speed at window start (m/s)", err.speed_at_start, "along", "gain error or missing drag"),
         ("|angular command|", np.abs(err.u_ang0), "along", "steer-brake coupling"),
         ("|linear command|", np.abs(err.u_lin0), "heading", "angular droop"),
-        ("yaw rate at window start (rad/s)", err.yaw_rate, "cross", "angular lag"),
+        ("yaw rate at window start (rad/s)", err.yaw_rate_at_start, "cross", "angular lag"),
     ]
     findings = []
     fig, axes = plt.subplots(2, 2, figsize=(10, 5.6))
@@ -1025,7 +1025,7 @@ def run_trace_figure(run: Run, params: PlantParams, structure: ModelStructure, r
     if ws is None:
         return None
     err = predict_windows(ws, params, structure)
-    starts = ws.starts
+    starts = ws.start_indices
     t = run.t - run.t[0]
 
     fig, axes = plt.subplots(

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from typing import Protocol
 
 import cv2
 import numpy as np
@@ -114,14 +115,18 @@ class PrecomputedDetector:
         )
 
     def detect(self, _image: np.ndarray, key: FrameKey) -> list:
-        # The replay file is keyed by stamp alone, so a set whose recordings share stamps
-        # cannot be replayed against; only single-recording runs write these.
+        if key.dataset != ".":
+            raise ValueError(
+                f"precomputed detections are keyed by stamp alone, so {key.dataset} cannot be "
+                "replayed against a multi-recording root"
+            )
         return self._by_stamp.get(key.stamp_ns, [])
 
 
-# Every detector is duck-typed on detect() and describe(); this keeps the two signatures
-# that pass one around from drifting apart as variants are added.
-Detector = EngineDetector | PrecomputedDetector | FieldCropDetector
+class Detector(Protocol):
+    def describe(self) -> str: ...
+
+    def detect(self, image: np.ndarray, key: FrameKey, /) -> list: ...
 
 
 def infer_frames(

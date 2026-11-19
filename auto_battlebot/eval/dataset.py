@@ -26,10 +26,7 @@ class FrameKey(NamedTuple):
 
 @dataclass
 class Frame:
-    """One aligned frame: GT boxes and candidate predictions, as (N, 4) xyxy arrays.
-
-    gt_keypoints / pred_keypoints hold one (K, 3) array per box: x, y in pixels plus
-    visibility (GT) or confidence (prediction). Empty arrays for box-only rows."""
+    """One aligned frame: GT boxes and candidate predictions."""
 
     gt_boxes: np.ndarray
     gt_labels: list[str]
@@ -38,6 +35,23 @@ class Frame:
     pred_labels: list[str]
     pred_scores: np.ndarray
     pred_keypoints: list[np.ndarray]
+
+    def __post_init__(self) -> None:
+        for name, boxes, labels, keypoints in (
+            ("gt", self.gt_boxes, self.gt_labels, self.gt_keypoints),
+            ("pred", self.pred_boxes, self.pred_labels, self.pred_keypoints),
+        ):
+            if boxes.ndim != 2 or boxes.shape[1] != 4:
+                raise ValueError(f"{name}_boxes has shape {boxes.shape}, expected (N, 4)")
+            if len(labels) != len(boxes) or len(keypoints) != len(boxes):
+                raise ValueError(f"{name} labels and keypoints need one entry per box")
+            for row in keypoints:
+                if row.size and (row.ndim != 2 or row.shape[1] != 3):
+                    raise ValueError(
+                        f"{name}_keypoints entry has shape {row.shape}, expected (K, 3)"
+                    )
+        if len(self.pred_scores) != len(self.pred_boxes):
+            raise ValueError("pred_scores needs one entry per predicted box")
 
 
 class Taxonomy:
@@ -76,21 +90,7 @@ VALIDATION_PASS = "pass"
 
 
 def reviewed_frames(root: Path) -> set[tuple[str, str]] | None:
-    """Frames that count as ground truth as (subdataset, stem) pairs, or None when the
-    dataset tracks no review state.
-
-    `validation_state.json` is the authority: it maps each image path, relative to the root, to a
-    validation verdict, and only `pass` frames are scored. `.edit_state.json` is the older
-    edit_labels.py state and is consulted only when no validation state exists. Preferring the
-    older file silently drops whole recordings: on `nhrl_keypoints_eval_test` the edit state lists
-    429 frames and names none of the 98 MassD ones, all of which validate as `pass`.
-
-    The subdataset is carried alongside the stem for the same reason FrameKey carries it: two
-    recordings can name a frame the same, and a verdict on one must not select or reject the
-    other.
-
-    Both files live at the dir that was pointed at, so a symlink root with neither scores every
-    label file present."""
+    """Frames that count as ground truth, as (subdataset, stem) pairs, or None."""
 
     def identity(rel: str) -> tuple[str, str]:
         path = Path(rel)
@@ -108,12 +108,14 @@ def reviewed_frames(root: Path) -> set[tuple[str, str]] | None:
     return {identity(rel) for rel in reviewed}
 
 
-def load_gt(root: Path) -> tuple[dict[FrameKey, GtFrame], list[str], dict[FrameKey, Path]]:
-    """Read YOLO labels from a dataset dir or a root of subdatasets.
+class LoadedGt(NamedTuple):
+    frames: dict[FrameKey, GtFrame]
+    names: list[str]
+    images: dict[FrameKey, Path]
 
-    When a review-state file exists, only the frames it accepts count as ground truth; see
-    reviewed_frames for which file wins.
-    Returns ({FrameKey: (boxes, labels, keypoints)}, names, {FrameKey: image path})."""
+
+def load_gt(root: Path) -> LoadedGt:
+    """Read YOLO labels from a dataset dir or a root of subdatasets, keeping reviewed frames."""
     reviewed = reviewed_frames(root)
     names: list[str] = []
     frames: dict[FrameKey, GtFrame] = {}
@@ -121,8 +123,6 @@ def load_gt(root: Path) -> tuple[dict[FrameKey, GtFrame], list[str], dict[FrameK
     for dataset in _dataset_dirs(root):
         data = yaml.safe_load((dataset / "data.yaml").read_text())
         dataset_names = list(data["names"])
-        # Subdatasets may trail off early (a recording without some class), but class
-        # indices must agree.
         if dataset_names[: len(names)] != names[: len(dataset_names)]:
             raise SystemExit(f"Class names in {dataset} conflict with sibling datasets")
         if len(dataset_names) > len(names):
@@ -140,7 +140,7 @@ def load_gt(root: Path) -> tuple[dict[FrameKey, GtFrame], list[str], dict[FrameK
             images[key] = image_path
     if not frames:
         raise SystemExit(f"No scoreable labels found under {root}")
-    return frames, names, images
+    return LoadedGt(frames, names, images)
 
 
 def _find_image(images_dir: Path, stem: str) -> Path | None:

@@ -755,9 +755,9 @@ def window_delay(params: PlantParams, structure: ModelStructure) -> float:
 def residual_vector(err: WindowErrors, weights: FitWeights) -> np.ndarray:
     return np.concatenate(
         [
-            (err.along / weights.position_m).ravel(),
-            (err.cross / weights.position_m).ravel(),
-            (err.heading / weights.heading_rad).ravel(),
+            (err.along_m / weights.position_m).ravel(),
+            (err.cross_m / weights.position_m).ravel(),
+            (err.heading_rad / weights.heading_rad).ravel(),
         ]
     )
 
@@ -771,7 +771,7 @@ def joint_fit(
     bounds: dict[str, tuple[float, float]] | None = None,
 ) -> tuple[PlantParams, float]:
     """Minimize windowed open-loop error over the structure's free parameters."""
-    names = structure.free_names()
+    names = structure.gradient_free_names()
     x0 = start.to_vector(names)
     table = {**PARAM_BOUNDS, **(bounds or {})}
     lo = np.array([table[n][0] for n in names])
@@ -849,15 +849,15 @@ def score(err: WindowErrors) -> HorizonReport:
     """Bias, RMSE, and percentiles per horizon, decomposed along-track and cross-track."""
     rows: dict[str, PerHorizonValues] = {}
     for name, data in (
-        ("along_bias_mm", err.along * 1e3),
-        ("along_rmse_mm", err.along * 1e3),
-        ("cross_bias_mm", err.cross * 1e3),
-        ("cross_rmse_mm", err.cross * 1e3),
+        ("along_bias_mm", err.along_m * 1e3),
+        ("along_rmse_mm", err.along_m * 1e3),
+        ("cross_bias_mm", err.cross_m * 1e3),
+        ("cross_rmse_mm", err.cross_m * 1e3),
         ("pos_rmse_mm", err.position * 1e3),
         ("pos_p95_mm", err.position * 1e3),
         ("pos_p99_mm", err.position * 1e3),
-        ("head_rmse_deg", np.degrees(err.heading)),
-        ("head_p95_deg", np.degrees(np.abs(err.heading))),
+        ("head_rmse_deg", np.degrees(err.heading_rad)),
+        ("head_p95_deg", np.degrees(np.abs(err.heading_rad))),
     ):
         if name.endswith("bias_mm"):
             rows[name] = np.mean(data, axis=0)
@@ -867,7 +867,7 @@ def score(err: WindowErrors) -> HorizonReport:
             rows[name] = np.percentile(np.abs(data), 99, axis=0)
         else:
             rows[name] = np.sqrt(np.mean(data**2, axis=0))
-    return HorizonReport(err.horizons, rows)
+    return HorizonReport(err.horizons_s, rows)
 
 
 def print_horizon_table(title: str, report: HorizonReport) -> None:
@@ -954,7 +954,7 @@ def write_params(
 ) -> None:
     """Write the selected model parameters, with the terms it disables set to zero."""
     p = structure.apply(p)
-    disabled = sorted(set(FULL_MODEL.free_names()) - set(structure.free_names()))
+    disabled = sorted(set(FULL_MODEL.gradient_free_names()) - set(structure.gradient_free_names()))
     lines = [
         "# Drivetrain plant parameters fit from velocity jig data.",
         f"# {note}",

@@ -338,7 +338,8 @@ def main() -> None:
             str(h): float(np.nanmedian(err.position[:, j])) for j, h in enumerate(HORIZONS)
         },
         "holdout_heading_error_rad_median_by_horizon": {
-            str(h): float(np.nanmedian(np.abs(err.heading[:, j]))) for j, h in enumerate(HORIZONS)
+            str(h): float(np.nanmedian(np.abs(err.heading_rad[:, j])))
+            for j, h in enumerate(HORIZONS)
         },
         "responses": response_checks(simulate, m4, params),
     }

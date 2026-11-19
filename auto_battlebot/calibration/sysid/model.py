@@ -89,7 +89,7 @@ LO = np.array([PARAM_BOUNDS[n][0] for n in NAMES])
 HI = np.array([PARAM_BOUNDS[n][1] for n in NAMES])
 
 RUNG_FREE: dict[str, list[str]] = {
-    s.name: s.free_names() + (["delay_s"] if s.use_delay else []) for s in MODEL_LADDER
+    s.name: s.gradient_free_names() + (["delay_s"] if s.use_delay else []) for s in MODEL_LADDER
 }
 
 

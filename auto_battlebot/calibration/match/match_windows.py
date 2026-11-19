@@ -478,8 +478,8 @@ class MatchWindows:
 
     def start_stamps_ns(self) -> np.ndarray:
         """Original-clock stamp of each window start."""
-        out = np.empty(len(self.windows.starts), dtype=np.int64)
-        for i, (run_i, start) in enumerate(zip(self.run_index, self.windows.starts)):
+        out = np.empty(len(self.windows.start_indices), dtype=np.int64)
+        for i, (run_i, start) in enumerate(zip(self.run_index, self.windows.start_indices)):
             out[i] = self.runs[run_i].stamp_of(int(start))
         return out
 
@@ -559,5 +559,5 @@ def build_match_windows(
     combined = concat_windows(sets)
     if max_windows > 0 and combined.count() > max_windows:
         combined = combined.subsample(max_windows)
-    assert combined.origin is not None
-    return MatchWindows(windows=combined, run_index=combined.origin, runs=list(runs))
+    assert combined.origin_run_index is not None
+    return MatchWindows(windows=combined, run_index=combined.origin_run_index, runs=list(runs))
