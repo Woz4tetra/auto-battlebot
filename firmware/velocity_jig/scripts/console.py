@@ -15,6 +15,7 @@ import serial
 BAUD = 921600
 GYRO_DPS_PER_LSB = 0.140
 ACCEL_G_PER_LSB = 0.000488
+STOP_STREAM = b"\n"
 
 
 def find_port(preferred=None):
@@ -66,6 +67,11 @@ def do_list(ser):
     return files
 
 
+def consume_download_trailer(ser):
+    read_line(ser, 1.0)
+    read_line(ser, 1.0)
+
+
 def do_get(ser, name, outdir):
     send(ser, "GET " + name)
     line = read_line(ser, 3.0)
@@ -86,8 +92,7 @@ def do_get(ser, name, outdir):
         if chunk:
             data += chunk
             t0 = time.time()
-    read_line(ser, 1.0)  # trailing blank
-    read_line(ser, 1.0)  # END
+    consume_download_trailer(ser)
     os.makedirs(outdir, exist_ok=True)
     path = os.path.join(outdir, name)
     with open(path, "wb") as f:
@@ -147,14 +152,14 @@ def do_stream(ser):
             r, _, _ = select.select([ser.fileno(), sys.stdin], [], [], 0.5)
             if sys.stdin in r:
                 sys.stdin.readline()
-                ser.write(b"\n")  # tell the firmware to stop
+                ser.write(STOP_STREAM)
                 break
             if ser.fileno() in r:
                 out = format_sample(read_line(ser, 0.5))
                 if out is not None:
                     print(out)
     except KeyboardInterrupt:
-        ser.write(b"\n")
+        ser.write(STOP_STREAM)
     drain_until_end(ser)
 
 

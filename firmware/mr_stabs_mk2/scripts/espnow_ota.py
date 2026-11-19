@@ -33,9 +33,10 @@ ERROR_NAMES = {
     6: "robot has no transfer in progress",
 }
 
-CHUNK = 240  # espnow_protocol::OTA_CHUNK_DATA
-WINDOW = 16  # chunks in flight past the last acknowledged offset
-PROGRESS_TIMEOUT_S = 0.5  # above a ~150 ms block erase, which stalls acknowledgements
+CHUNK = 240
+WINDOW_CHUNKS = 16
+PROGRESS_TIMEOUT_S = 0.5
+GOBACK_DEDUPE_S = 0.1
 MAX_TIMEOUTS = 10
 ROBOT_VALIDATION_HOLD_S = 10.0
 REBOOT_MARGIN_S = 20.0
@@ -132,7 +133,7 @@ def begin_transfer(port: serial.Serial, reader: FrameReader, image: bytes, md5: 
 
 
 class Transfer:
-    """Go-back-N sender: at most WINDOW chunks past the robot's acknowledged offset."""
+    """Go-back-N sender: at most WINDOW_CHUNKS chunks past the robot's acknowledged offset."""
 
     def __init__(self, port: serial.Serial, reader: FrameReader, image: bytes) -> None:
         self.port = port
@@ -145,7 +146,7 @@ class Transfer:
         self.last_goback: tuple[int, float] = (-1, 0.0)
 
     def fill_window(self) -> None:
-        end = min(len(self.image), self.acked + WINDOW * CHUNK)
+        end = min(len(self.image), self.acked + WINDOW_CHUNKS * CHUNK)
         while self.send_offset < end:
             data = self.image[self.send_offset : self.send_offset + CHUNK]
             frame = encode_frame(MSG_OTA_CHUNK, struct.pack("<I", self.send_offset) + data)
@@ -160,11 +161,9 @@ class Transfer:
             self.last_progress = time.monotonic()
             self.timeouts = 0
         if status.next_offset < self.send_offset:
-            # The robot dropped a chunk. Every chunk behind it in flight draws the same answer, so
-            # only go back once per offset in a short window.
             now = time.monotonic()
             offset, when = self.last_goback
-            if offset != status.next_offset or now - when > 0.1:
+            if offset != status.next_offset or now - when > GOBACK_DEDUPE_S:
                 self.send_offset = status.next_offset
                 self.last_goback = (status.next_offset, now)
 

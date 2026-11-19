@@ -10,6 +10,7 @@ import shutil
 import sys
 import zipfile
 from dataclasses import dataclass
+from enum import IntEnum
 
 FOURCC = b"otx3"
 EEPROM_VER = 219
@@ -20,34 +21,39 @@ MIX_STRUCT_OFF, MIX_SZ, MIX_N = 76, 20, 64
 LIM_STRUCT_OFF, LIM_SZ, LIM_N = 1356, 13, 32
 EXP_STRUCT_OFF, EXP_SZ, EXP_N = 1772, 17, 64
 
-# CurveRef.type
-CURVE_REF_DIFF, CURVE_REF_EXPO, CURVE_REF_FUNC, CURVE_REF_CUSTOM = 0, 1, 2, 3
-# MixData.mltpx
-MLTPX_ADD, MLTPX_MUL, MLTPX_REP = 0, 1, 2
-MLTPX_NAMES = {MLTPX_ADD: "+=", MLTPX_MUL: "*=", MLTPX_REP: ":="}
-MLTPX_FROM_STR = {
-    "add": MLTPX_ADD,
-    "mul": MLTPX_MUL,
-    "rep": MLTPX_REP,
-    "replace": MLTPX_REP,
-    "+=": MLTPX_ADD,
-    "*=": MLTPX_MUL,
-    ":=": MLTPX_REP,
-}
-# MixData.carry_trim: 0 == trim applied (TRIM_ON), 1 == trim off (TRIM_OFF)
-TRIM_ON, TRIM_OFF = 0, 1
 
-# --- MIXSRC source numbering (X9D+ 2019), used only for human-readable names -
-# IMPORTANT: this is the Taranis X9D+ 2019 (BOARD_NAME=x9d+2019), which has 9
-# switches SA..SI (SI is a second momentary switch). The plain X9D has only 8
-# (SA..SH). Both share the 'otx3' fourcc, so the file alone does NOT tell you
-# which: the firmware build does. The 9th switch shifts every source AFTER the
-# switch block up by one vs a plain X9D, so on this board:
-#     SI = 100, FIRST_LOGICAL_SWITCH = 101, FIRST_TRAINER (TR1) = 165
-# (On a plain X9D those would be: no SI, 100, 164.) Values verified against a
-# real SD model where CH7 was mapped to SI and decoded as raw 100.
-MIXSRC_FIRST_INPUT = 1  # I1..I32
-MIXSRC_FIRST_STICK = 75  # Rud,Ele,Thr,Ail
+class CurveRefType(IntEnum):
+    DIFF = 0
+    EXPO = 1
+    FUNC = 2
+    CUSTOM = 3
+
+
+class Mltpx(IntEnum):
+    ADD = 0
+    MUL = 1
+    REP = 2
+
+
+MLTPX_NAMES = {Mltpx.ADD: "+=", Mltpx.MUL: "*=", Mltpx.REP: ":="}
+MLTPX_FROM_STR = {
+    "add": Mltpx.ADD,
+    "mul": Mltpx.MUL,
+    "rep": Mltpx.REP,
+    "replace": Mltpx.REP,
+    "+=": Mltpx.ADD,
+    "*=": Mltpx.MUL,
+    ":=": Mltpx.REP,
+}
+
+
+class CarryTrim(IntEnum):
+    ON = 0
+    OFF = 1
+
+
+MIXSRC_FIRST_INPUT = 1
+MIXSRC_FIRST_STICK = 75
 MIXSRC_FIRST_POT = 79
 NUM_SWITCHES = 9
 MIXSRC_FIRST_SWITCH = 92
@@ -204,7 +210,7 @@ def rlc_compress(data: bytes) -> bytes:
             while i < end and data[i] == 0 and z < 0x3F:
                 z += 1
                 i += 1
-            if z < 8 and i < end:  # small run before a literal: defer
+            if z < 8 and i < end:
                 pend = z
             else:
                 out.append(z | 0x40)
@@ -281,7 +287,7 @@ class Mix:
             if self.curve_type or self.curve_value
             else ""
         )
-        trim = "" if self.carry_trim == TRIM_ON else " trimOFF"
+        trim = "" if self.carry_trim == CarryTrim.ON else " trimOFF"
         return (
             f"CH{self.dest_ch + 1} {MLTPX_NAMES.get(self.mltpx, '?')} "
             f"{src_name(self.src_raw)} w={self.weight}{sw} off={self.offset}{cv}{trim}"
@@ -328,9 +334,9 @@ class Expo:
 
     def describe(self) -> str:
         sw = f" sw={self.swtch}" if self.swtch else ""
-        if self.curve_type == CURVE_REF_EXPO:
+        if self.curve_type == CurveRefType.EXPO:
             cv = f" expo={self.curve_value}%"
-        elif self.curve_type == CURVE_REF_DIFF and self.curve_value:
+        elif self.curve_type == CurveRefType.DIFF and self.curve_value:
             cv = f" diff={self.curve_value}%"
         elif self.curve_type or self.curve_value:
             cv = f" curve({self.curve_type},{self.curve_value})"
@@ -390,7 +396,7 @@ class Model:
         n = 0
         for e in self.expos:
             if e.src_raw != 0 and e.chn == chn:
-                e.curve_type = CURVE_REF_EXPO
+                e.curve_type = CurveRefType.EXPO
                 e.curve_value = value
                 n += 1
         if n == 0:
@@ -420,7 +426,7 @@ class Model:
         ch: int,
         src: int,
         weight: int = 100,
-        mltpx: int = MLTPX_ADD,
+        mltpx: int = Mltpx.ADD,
         switch: int = 0,
         trim_off: bool = True,
     ) -> int:
@@ -438,7 +444,7 @@ class Model:
             src_raw=src,
             mltpx=mltpx,
             swtch=switch,
-            carry_trim=(TRIM_OFF if trim_off else TRIM_ON),
+            carry_trim=(CarryTrim.OFF if trim_off else CarryTrim.ON),
         )
         self.mixes.insert(idx, m)
         self.mixes = self.mixes[:MIX_N]
@@ -532,14 +538,6 @@ def open_container(path: str):
     if zipfile.is_zipfile(path):
         return Otx(path)
     return SdBin(path)
-
-
-def _pick(otx: Otx, idx):
-    if idx is None:
-        if len(otx.models) == 1:
-            return otx.models[0]
-        return otx.models  # caller handles list
-    return otx.models[idx]
 
 
 def _print_model(m: Model, label: str):

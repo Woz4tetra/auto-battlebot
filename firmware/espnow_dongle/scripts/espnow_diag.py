@@ -15,7 +15,7 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from flask import Flask, Response, abort, jsonify, request, send_from_directory
 
@@ -43,18 +43,39 @@ MSG_OTA_END = 0x12
 MSG_OTA_ABORT = 0x13
 MSG_OTA_STATUS = 0x14
 
-# (name, who sends it, expected payload size or None for variable)
-MESSAGE_TYPES: dict[int, tuple[str, str, int | None]] = {
-    MSG_COMMAND: ("COMMAND", "host", 16),
-    MSG_TELEMETRY: ("TELEMETRY", "robot", 155),
-    MSG_TUNABLE_SET: ("TUNABLE_SET", "host", 5),
-    MSG_LINK_STATS: ("LINK_STATS", "dongle", 18),
-    MSG_PING: ("PING", "dongle", 0),
-    MSG_OTA_BEGIN: ("OTA_BEGIN", "host", 20),
-    MSG_OTA_CHUNK: ("OTA_CHUNK", "host", None),
-    MSG_OTA_END: ("OTA_END", "host", 0),
-    MSG_OTA_ABORT: ("OTA_ABORT", "host", 0),
-    MSG_OTA_STATUS: ("OTA_STATUS", "robot", 22),
+
+class MessageType(NamedTuple):
+    name: str
+    sender: str
+    payload_size: int | None
+
+
+class LinkCounters(NamedTuple):
+    sent: int
+    acked: int
+
+
+class TelemetryLoss(NamedTuple):
+    t_s: float
+    frames_lost: int
+
+
+class Gap(NamedTuple):
+    t_s: float
+    gap_ms: float
+
+
+MESSAGE_TYPES: dict[int, MessageType] = {
+    MSG_COMMAND: MessageType("COMMAND", "host", 16),
+    MSG_TELEMETRY: MessageType("TELEMETRY", "robot", 155),
+    MSG_TUNABLE_SET: MessageType("TUNABLE_SET", "host", 5),
+    MSG_LINK_STATS: MessageType("LINK_STATS", "dongle", 18),
+    MSG_PING: MessageType("PING", "dongle", 0),
+    MSG_OTA_BEGIN: MessageType("OTA_BEGIN", "host", 20),
+    MSG_OTA_CHUNK: MessageType("OTA_CHUNK", "host", None),
+    MSG_OTA_END: MessageType("OTA_END", "host", 0),
+    MSG_OTA_ABORT: MessageType("OTA_ABORT", "host", 0),
+    MSG_OTA_STATUS: MessageType("OTA_STATUS", "robot", 22),
 }
 ROBOT_TYPES = {MSG_TELEMETRY, MSG_OTA_STATUS}
 
@@ -201,8 +222,7 @@ def expand(record: dict[str, Any]) -> dict[str, Any]:
 
 
 class FrameParser:
-    """Python twin of espnow_protocol::SerialFrameParser, plus capture of the bytes between
-    frames, which is where the dongle's plain-text boot banner lands."""
+    """Python twin of espnow_protocol::SerialFrameParser that also keeps inter-frame text."""
 
     def __init__(self) -> None:
         self.buffer = bytearray()
@@ -313,7 +333,7 @@ class Diagnostics:
         self.link: dict[str, Any] | None = None
         self.link_s = 0.0
         self.link_history: deque[tuple[float, int, int, int]] = deque()
-        self.link_session: tuple[int, int] | None = None  # (sent, acked) when robot_known went 1
+        self.link_session_start: LinkCounters | None = None
         self.link_gap_max_ms = 0.0
         self.dongle_reboots = 0
 
@@ -321,10 +341,10 @@ class Diagnostics:
         self.telemetry_s = 0.0
         self.tlm_received = 0
         self.tlm_dropped = 0
-        self.tlm_window: deque[tuple[float, int]] = deque()  # (time, frames lost before it)
+        self.tlm_window: deque[TelemetryLoss] = deque()
         self.robot_reboots = 0
-        self.host_gaps: deque[tuple[float, float]] = deque()  # (time, ms since previous)
-        self.robot_gaps: deque[tuple[float, float]] = deque()  # robot clock ms between frames
+        self.host_gaps: deque[Gap] = deque()
+        self.robot_clock_gaps_ms: deque[Gap] = deque()
         self.big_gaps = 0
         self.robot_clock_offset_ms: float | None = None
         self.robot_clock_drift_ms = 0.0
@@ -465,7 +485,7 @@ class Diagnostics:
             if s["sent"] < prev["sent"]:
                 self.dongle_reboots += 1
                 self.link_history.clear()
-                self.link_session = None
+                self.link_session_start = None
                 self.event("warn", "dongle counters went backwards: dongle rebooted")
             if s["robot_known"] != prev["robot_known"]:
                 if s["robot_known"]:
@@ -477,10 +497,10 @@ class Diagnostics:
         else:
             mode = "unicast" if s["robot_known"] else "broadcasting, robot not heard yet"
             self.event("info", f"first link stats: channel {s['channel']}, {mode}")
-        if s["robot_known"] and self.link_session is None:
-            self.link_session = (s["sent"], s["acked"])
+        if s["robot_known"] and self.link_session_start is None:
+            self.link_session_start = LinkCounters(s["sent"], s["acked"])
         if not s["robot_known"]:
-            self.link_session = None
+            self.link_session_start = None
         self.link = s
         self.link_s = now
         self.link_history.append((now, s["sent"], s["acked"], s["failed"]))
@@ -492,7 +512,7 @@ class Diagnostics:
         lost = 0
         if prev is not None:
             gap_ms = (now - self.telemetry_s) * 1000
-            self.host_gaps.append((now, gap_ms))
+            self.host_gaps.append(Gap(now, gap_ms))
             self.interval_gap_ms = max(self.interval_gap_ms, gap_ms)
             if gap_ms > GAP_EVENT_MS:
                 self.big_gaps += 1
@@ -508,8 +528,8 @@ class Diagnostics:
                 )
             else:
                 lost = delta - 1
-                self.robot_gaps.append(
-                    (now, ((t["timestamp_ms"] - prev["timestamp_ms"]) & UINT32_MAX) / delta)
+                self.robot_clock_gaps_ms.append(
+                    Gap(now, ((t["timestamp_ms"] - prev["timestamp_ms"]) & UINT32_MAX) / delta)
                 )
             if prev["espnow_channel"] != t["espnow_channel"]:
                 ch = t["espnow_channel"] or "sweeping"
@@ -526,7 +546,7 @@ class Diagnostics:
             self.event("good", f"first robot telemetry, telemetry_seq {t['telemetry_seq']}")
         self.tlm_received += 1
         self.tlm_dropped += lost
-        self.tlm_window.append((now, lost))
+        self.tlm_window.append(TelemetryLoss(now, lost))
 
         self._update_robot_clock_drift(now * 1000 - t["timestamp_ms"])
 
@@ -581,7 +601,7 @@ class Diagnostics:
             (self.rx_log, 1.0),
             (self.tlm_window, 5.0),
             (self.host_gaps, 10.0),
-            (self.robot_gaps, 10.0),
+            (self.robot_clock_gaps_ms, 10.0),
             (self.rtt, 10.0),
         ):
             while log and log[0][0] < now - horizon:
@@ -629,15 +649,13 @@ class Diagnostics:
             if span > 0:
                 sent_hz, acked_hz, failed_hz = (s1 - s0) / span, (a1 - a0) / span, (f1 - f0) / span
             if s1 > s0:
-                # An ACK can land in a later stats frame than its send, so a window can hold
-                # more ACKs than sends.
                 ack_1s = min(100.0, 100.0 * (a1 - a0) / (s1 - s0))
         m.update(sent_hz=sent_hz, acked_hz=acked_hz, failed_hz=failed_hz, ack_pct_1s=ack_1s)
         ack_session = None
-        if self.link and self.link_session:
-            ds = self.link["sent"] - self.link_session[0]
+        if self.link and self.link_session_start:
+            ds = self.link["sent"] - self.link_session_start.sent
             if ds > 0:
-                ack_session = 100.0 * (self.link["acked"] - self.link_session[1]) / ds
+                ack_session = 100.0 * (self.link["acked"] - self.link_session_start.acked) / ds
         m["ack_pct_session"] = ack_session
         m["link_age_s"] = now - self.link_s if self.link else None
 
@@ -650,7 +668,7 @@ class Diagnostics:
         m["telemetry_age_s"] = now - self.telemetry_s if self.telemetry else None
 
         host = sorted(g for _, g in self.host_gaps)
-        robot = sorted(g for _, g in self.robot_gaps)
+        robot = sorted(g for _, g in self.robot_clock_gaps_ms)
         m["host_gap_ms"] = {
             "p50": percentile(host, 0.5),
             "p90": percentile(host, 0.9),

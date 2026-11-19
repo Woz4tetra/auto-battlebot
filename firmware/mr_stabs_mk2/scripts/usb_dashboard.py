@@ -30,7 +30,12 @@ class DamagedFrameError(Exception):
     """A frame of this stream failed its CRC or did not parse."""
 
 
-Item = bytes | DamagedFrameError | None  # response bytes, damage, or the end of the stream
+class StreamEnd:
+    """Marks the end of a stream."""
+
+
+STREAM_END = StreamEnd()
+Item = bytes | DamagedFrameError | StreamEnd
 
 
 class Bridge:
@@ -86,17 +91,15 @@ class Bridge:
         try:
             kind, stream_id = parts[0], int(parts[1])
         except (IndexError, ValueError):
-            # Which stream lost the frame is unknown, so all of them are suspect.
             self._print_log(b"usb_dashboard: unreadable frame: " + line[:80])
-            for other in self._all_streams():
-                other.put(DamagedFrameError())
+            self._damage_every_stream()
             return
         with self._streams_lock:
             stream = self._streams.get(stream_id)
         if stream is None:
             return
         if kind == b"E":
-            stream.put(None)
+            stream.put(STREAM_END)
             return
         try:
             data = base64.b64decode(parts[2], validate=True)
@@ -107,6 +110,10 @@ class Bridge:
             stream.put(DamagedFrameError())
             return
         stream.put(data)
+
+    def _damage_every_stream(self) -> None:
+        for stream in self._all_streams():
+            stream.put(DamagedFrameError())
 
     def note(self, text: str) -> None:
         self._print_log(b"usb_dashboard: " + text.encode())
@@ -167,7 +174,7 @@ def fetch(bridge: Bridge, request: bytes, what: str, timeout_s: float) -> bytes 
             item = stream.get(timeout=max(0.0, started + timeout_s - time.monotonic()))
             if isinstance(item, DamagedFrameError):
                 return None
-            if item is None:
+            if isinstance(item, StreamEnd):
                 break
             response += item
             if expected is None:
@@ -195,7 +202,7 @@ def stream_events(bridge: Bridge, handler: BaseHTTPRequestHandler, request: byte
     try:
         while True:
             item = stream.get()
-            if item is None or isinstance(item, DamagedFrameError):
+            if isinstance(item, (StreamEnd, DamagedFrameError)):
                 return
             handler.wfile.write(item)
             handler.wfile.flush()
@@ -206,11 +213,7 @@ def stream_events(bridge: Bridge, handler: BaseHTTPRequestHandler, request: byte
 
 
 def relay(bridge: Bridge, handler: BaseHTTPRequestHandler) -> None:
-    """Sends one browser request to the robot and writes back its response.
-
-    A GET is retried when its response is damaged in transit. A POST is not, since the robot may
-    already have acted on it; it gets a 502 instead.
-    """
+    """Sends one browser request to the robot and writes back its response."""
     request = build_request(handler)
     if handler.path == "/events":
         stream_events(bridge, handler, request)

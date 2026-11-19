@@ -54,8 +54,8 @@ GUARD_COLUMNS = [
 COLUMNS = COLUMNS + GUARD_COLUMNS + ["seq"]
 OPTIONAL_COLUMNS = {"yaw_rate", "yaw_rate_cmd", "seq", *GUARD_COLUMNS}
 
-FLIP_SWITCH_DOWN = 0  # crsf_bridge::DOWN, the auto upside-down and heading-hold position
-UPSIDE_DOWN_BELOW = -1.0  # updown_sensor.h thresholds on the gravity z the diag reports
+FLIP_SWITCH_DOWN = 0
+UPSIDE_DOWN_BELOW = -1.0
 RIGHT_SIDE_UP_ABOVE = 1.0
 MANUAL_TURN_THRESHOLD_PCT = 1.0
 

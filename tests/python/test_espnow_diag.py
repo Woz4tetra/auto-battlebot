@@ -111,3 +111,36 @@ def test_expected_robot_percents_match_firmware_substitution() -> None:
     assert "radio_data->a_percent = -100.0f * cmd.ch0_value;" in source
     assert "radio_data->b_percent = 100.0f * cmd.ch1_value;" in source
     assert "-100 * channelA * (upsideDown ? -1 : 1), 100 * channelB" in DIAG_WEB_APP.read_text()
+
+
+def link_stats(sent: int, acked: int) -> dict[str, int]:
+    return {
+        "sent": sent,
+        "acked": acked,
+        "failed": 0,
+        "robot_known": 1,
+        "channel": 1,
+    }
+
+
+def test_ack_pct_clamped_when_acks_lag_sends(diag: ModuleType, tmp_path: Path) -> None:
+    diagnostics = diag.Diagnostics("unused", tmp_path, 50.0)
+    diagnostics.on_link_stats(link_stats(100, 100), 0.0)
+    diagnostics.on_link_stats(link_stats(110, 125), 0.5)
+    metrics = diagnostics.metrics(0.5)
+    assert metrics["ack_pct_1s"] == 100.0
+
+
+def test_frame_parser_returns_text_between_frames(diag: ModuleType) -> None:
+    frame = diag.encode_frame(diag.MSG_PING, b"")
+    parser = diag.FrameParser()
+    frames, lines = parser.feed(b"boot banner\n" + frame)
+    assert frames == [(diag.MSG_PING, b"")]
+    assert lines == ["boot banner"]
+
+
+def test_frame_parser_resyncs_after_lone_magic_byte(diag: ModuleType) -> None:
+    frame = diag.encode_frame(diag.MSG_PING, b"")
+    parser = diag.FrameParser()
+    frames, _ = parser.feed(diag.SERIAL_MAGIC[:1] + frame)
+    assert frames == [(diag.MSG_PING, b"")]
