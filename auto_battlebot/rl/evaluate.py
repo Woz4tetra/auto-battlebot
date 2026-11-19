@@ -1,10 +1,4 @@
-"""Batched evaluation of any `Policy` on a fixed, seeded scenario set.
-
-Each world plays exactly one episode: the environment is reset with the scenario seed, the policy
-acts deterministically, and each world's totals are taken the step it first finishes. A world that
-finishes keeps stepping (the environment auto-resets it) but its later episodes are ignored, so
-every policy is scored on the same starting states.
-"""
+"""Batched evaluation of any `Policy` on a fixed, seeded scenario set."""
 
 from __future__ import annotations
 

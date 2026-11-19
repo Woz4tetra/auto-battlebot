@@ -10,8 +10,8 @@ import torch
 @dataclass
 class EpisodeMetrics:
     episodes: int
-    success_rate: float  # episodes with at least one strike
-    clean_success_rate: float  # first strike before any hit taken
+    success_rate: float
+    clean_success_rate: float
     strikes_per_episode: float
     rear_strikes_per_episode: float
     hits_taken_per_episode: float
@@ -22,7 +22,7 @@ class EpisodeMetrics:
     holes_per_episode: float = 0.0
     flips_per_episode: float = 0.0
     block_contacts_per_episode: float = 0.0
-    still_s_per_episode: float = 0.0  # seconds out of contact under WarpNavConfig.still_speed_mps
+    still_s_per_episode: float = 0.0
 
     def as_dict(self) -> dict[str, float]:
         return {k: float(v) for k, v in asdict(self).items()}

@@ -45,7 +45,10 @@ from auto_battlebot.rl.envs.warp_nav import (
     WALL_HEIGHT_M,
     WALL_MOCAPS,
     WALL_T_M,
+    ArcRule,
+    CommandPath,
     WarpNavConfig,
+    Weapon,
     build_model,
     resolved_fit_file,
     smoothstep,
@@ -198,7 +201,7 @@ class LockstepWorld:
         self.side_gain = np.array([float(gain_l), float(gain_r)])
         self.deadzone = np.array([fit.deadzone_left, fit.deadzone_right])
         self.mixer = FirmwareMixer(auto_steer=True)
-        self.direct = self.profile.command == "direct"
+        self.direct = self.profile.command == CommandPath.OPEN_LOOP_ESC
         latency = float(scenario.get("latency", 0.06))
         transport = max(0, round((latency - fit.delay_s) / timestep))
         drive = max(0, round(fit.delay_s / timestep))
@@ -331,8 +334,7 @@ class LockstepWorld:
         return np.asarray(volts)
 
     def _sweep_hits(self, rot: np.ndarray) -> bool:
-        """`warp_kernels.weapon_sweep_hit`: the weapon's sweep cylinder within the margin of the
-        opponent's box, at the same sample points."""
+        """CPU mirror of `warp_kernels.weapon_sweep_hit`."""
         from auto_battlebot.rl.envs.warp_kernels import SWEEP_ANGLES, WEAPON_SWEEP_MARGIN_M
 
         sweep = self.mp.weapon
@@ -362,14 +364,14 @@ class LockstepWorld:
 
         if abs(phi) >= self.arc:
             return False
-        if self.profile.arc_rule == "front_face":
+        if self.profile.arc_rule == ArcRule.FRONT_FACE_IN_ARC:
             along = math.cos(oyaw) * (p[0] - ox) + math.sin(oyaw) * (p[1] - oy)
             return bool(along > self.opp_half[0] - FRONT_FACE_MARGIN_M)
         return True
 
     def _on_weapon(self, rot: np.ndarray, p: np.ndarray) -> bool:
         """A contact with the opponent lands on our weapon: Mk3's disk sweep, Mk2's wedge."""
-        if self.profile.weapon == "disk":
+        if self.profile.weapon == Weapon.DISK_SWEEP_CYLINDER:
             return self._sweep_hits(rot)
         b = rot.T @ (p - self.data.qpos[:3])
         return bool(b[0] > self.cfg.strike_x_m and abs(b[1]) < self.cfg.strike_half_width_m)

@@ -63,8 +63,7 @@ def to_json(layers: list[tuple[np.ndarray, np.ndarray, str]]) -> dict[str, Any]:
 
 
 def run_json(model: dict[str, Any], x: np.ndarray) -> np.ndarray:
-    """Evaluate an RTNeural JSON model in numpy, the way RTNeural reads it. The exporter's
-    self-check: a transposed kernel or a missed activation fails here, before C++ sees it."""
+    """Evaluate an RTNeural JSON model in numpy, the way RTNeural reads it."""
     out = np.asarray(x, dtype=np.float64)
     for layer in model["layers"]:
         kernel = np.asarray(layer["weights"][0], dtype=np.float64)

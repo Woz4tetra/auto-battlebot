@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -73,25 +74,31 @@ HOUSE_RADIUS_M = 0.2083
 OUR_HALF_DIAGONAL_M = 0.5 * math.hypot(0.137, 0.16)
 
 
+class CommandPath(Enum):
+    ONBOARD_MIXER = "onboard_mixer"
+    OPEN_LOOP_ESC = "open_loop_esc"
+
+
+class Weapon(Enum):
+    WEDGE_NOSE_BOX = "wedge_nose_box"
+    DISK_SWEEP_CYLINDER = "disk_sweep_cylinder"
+
+
+class ArcRule(Enum):
+    ANY_CONTACT_IN_ARC = "any_contact_in_arc"
+    FRONT_FACE_IN_ARC = "front_face_in_arc"
+
+
 @dataclass(frozen=True)
 class RobotProfile:
-    """What the environment needs to know about the robot it trains.
-
-    `command`: "firmware" runs Mr Stabs Mk2's onboard mixer and gyro yaw loop; "direct" is a
-    radio mix straight to open-loop ESCs (Mrs Buff Mk3, no eRPM feedback, no IMU). `weapon`:
-    "wedge" scores contact on a box at the nose (`strike_x_m`, `strike_half_width_m`); "disk"
-    scores the weapon's sweep cylinder from mass_properties.toml. `opponents`: the robots whose
-    footprints the opponent box is drawn from, one per episode.
-    """
+    """What the environment needs to know about the robot it trains."""
 
     fit_file: str
-    command: str
-    weapon: str
-    opponents: tuple[str, ...]
+    command: CommandPath
+    weapon: Weapon
+    opponent_footprints: tuple[str, ...]
     drivers: tuple[PolicyDriver, ...] = ()
-    # Which contacts are hits taken (`warp_kernels.in_opponent_arc`): "angle", anywhere in the
-    # opponent's front arc, or "front_face", only its front face inside the arc.
-    arc_rule: str = "angle"
+    arc_rule: ArcRule = ArcRule.ANY_CONTACT_IN_ARC
     sensing_model: str = PROVISIONAL_RL_SENSING
 
 
@@ -102,17 +109,19 @@ MK2_POLICY_DRIVER = PolicyDriver(
     "runs/rl_nav/rl_nav_ppo_p4_s7_2026-10-18_04-04-10/checkpoint.pt",
 )
 ROBOTS = {
-    "mr_stabs_mk2": RobotProfile(DEFAULT_FIT, "firmware", "wedge", ("mrs_buff_mk3",)),
+    "mr_stabs_mk2": RobotProfile(
+        DEFAULT_FIT, CommandPath.ONBOARD_MIXER, Weapon.WEDGE_NOSE_BOX, ("mrs_buff_mk3",)
+    ),
     "mrs_buff_mk3": RobotProfile(
         MK3_INTERIM_FIT,
-        "direct",
-        "disk",
+        CommandPath.OPEN_LOOP_ESC,
+        Weapon.DISK_SWEEP_CYLINDER,
         ("mr_stabs_mk2", "mrs_buff_mk3"),
         drivers=(
             MK2_POLICY_DRIVER,
             PolicyDriver("self_play", "mrs_buff_mk3", "config/robots/mrs_buff_mk3.toml", ""),
         ),
-        arc_rule="front_face",
+        arc_rule=ArcRule.FRONT_FACE_IN_ARC,
     ),
 }
 
@@ -360,8 +369,6 @@ class WarpNavEnv:
         self.max_steps = int(round(cfg.episode_s / cfg.policy_dt_s))
         self.profile = ROBOTS[cfg.robot]
         drivers = ("scripted", *(d.name for d in self.profile.drivers))
-        # The opponent's driver joins the critic's inputs only for a robot that has drivers, so
-        # Mr Stabs Mk2's privileged vector, and the checkpoints trained on it, stay as they were.
         self.privileged_names = (
             *PRIVILEGED_NAMES,
             *((f"driver_{d}" for d in drivers) if self.profile.drivers else ()),
@@ -385,9 +392,11 @@ class WarpNavEnv:
         self.our_half = (size[0] / 2, size[1] / 2)
         self.our_half_diag = math.hypot(*self.our_half)
         self.opp_sizes = torch.tensor(
-            [ROBOT_SIZE_M[r] for r in self.profile.opponents], device=self.device, dtype=self.dtype
+            [ROBOT_SIZE_M[r] for r in self.profile.opponent_footprints],
+            device=self.device,
+            dtype=self.dtype,
         )
-        if self.profile.weapon == "disk" and self.mp.weapon is None:
+        if self.profile.weapon == Weapon.DISK_SWEEP_CYLINDER and self.mp.weapon is None:
             raise ValueError(f"{cfg.robot} scores a disk weapon but has no [weapon] sweep")
         self.fit = load_fit_params(REPO / resolved_fit_file(cfg))
         # The fit's rolling friction (7.9e-6) is under MJ_MINMU, which MuJoCo Warp warns can give
@@ -510,14 +519,16 @@ class WarpNavEnv:
         self.flags_wp = wp.zeros((w, 7), dtype=float)
         self.wheel_dofs: Any = wp.array(self.index.wheel_dofs.astype(np.int32), dtype=int)
         self.emf = float(self.mp.gear_ratio * self.mp.motor_kt)
-        self.direct = 1 if self.profile.command == "direct" else 0
+        self.direct = 1 if self.profile.command == CommandPath.OPEN_LOOP_ESC else 0
         self.arc_rule = (
             warp_kernels.ARC_FRONT_FACE
-            if self.profile.arc_rule == "front_face"
+            if self.profile.arc_rule == ArcRule.FRONT_FACE_IN_ARC
             else warp_kernels.ARC_ANGLE
         )
         self.weapon_kind = (
-            warp_kernels.WEAPON_DISK if self.profile.weapon == "disk" else warp_kernels.WEAPON_WEDGE
+            warp_kernels.WEAPON_DISK
+            if self.profile.weapon == Weapon.DISK_SWEEP_CYLINDER
+            else warp_kernels.WEAPON_WEDGE
         )
         sweep = self.mp.weapon
         self.sweep = wp.vec4(
@@ -626,7 +637,6 @@ class WarpNavEnv:
         was_sensing = getattr(self, "sensing", False)
         self.sensing = bool(self.stage_cfg.sensing)
         if self.sensing and not was_sensing and hasattr(self, "qpos"):
-            # Worlds mid-episode start their sensing state now rather than at their next reset.
             self._reset_sensing(torch.ones(self.num_worlds, dtype=torch.bool, device=self.device))
         allowed = self.stage_cfg.opponents
         if "replay" in allowed and self.opponents.replay is None:
@@ -634,8 +644,6 @@ class WarpNavEnv:
         self.allowed = tuple(BEHAVIOURS.index(b) for b in allowed)
 
     def record_success(self, episode: dict[str, torch.Tensor], done: torch.Tensor) -> None:
-        # Only episodes that started in the current stage count: with desynchronized episodes,
-        # the first ones to end after an advance began in the easier stage and would pass it.
         done = done & (self.episode_stage == self.stage_index)
         if not bool(done.any()):
             return
@@ -648,9 +656,6 @@ class WarpNavEnv:
         ok = torch.where(episode["run_away"][done] > 0.5, run_ok, attack_ok)
         self.success_window.extend(ok.float().tolist())
         self.success_window = self.success_window[-2000:]
-        # Likewise only pursuers drawn at the current level: the window refills within an
-        # iteration, and episodes from the easier level raised job 43 from 0.4 to 0.7 in 7
-        # iterations.
         level = self.episode_pursuit_level[done] == self.opponents.pursuit_level
         scripted = episode["driver"][done] == 0
         chased = (
@@ -748,7 +753,9 @@ class WarpNavEnv:
         m1 = mask[:, None]
         model = torch.randint(0, len(self.opp_sizes), (n,), generator=self.gen, device=self.device)
         self.policy_opp.draw(mask, self.stage_cfg.policy, self.gen)
-        model = self.policy_opp.robot_of(self.policy_opp.driver, model, self.profile.opponents)
+        model = self.policy_opp.robot_of(
+            self.policy_opp.driver, model, self.profile.opponent_footprints
+        )
         self.opp_model = torch.where(mask, model, self.opp_model)
         osize = self.opp_sizes[model] * self._uniform(*_scaled((0.8, 1.2), s))[:, None]
         self.opp_half = torch.where(m1, osize[:, :2] / 2, self.opp_half)
@@ -758,8 +765,6 @@ class WarpNavEnv:
         reach = self.arena_half - opp_foot[:, None] - 0.05
         oxy = (self._rand(n, 2) * 2 - 1) * reach
         oyaw = self._uniform(-math.pi, math.pi)
-        # Behaviour first, so a replay opponent starts on its track and the rest of the scene is
-        # placed around where it really is.
         speed_scale = self._uniform(*_scaled((0.8, 1.2), s))
         self.opponents.reset(mask, self.allowed, speed_scale, self.cfg.holdout)
         replaying = mask & (self.opponents.p.behaviour == REPLAY)
@@ -1023,8 +1028,9 @@ class WarpNavEnv:
         f.last_measured = torch.where(mask, now - 1.0, f.last_measured)
 
     def export_scenarios(self) -> list[dict[str, Any]]:
-        """Each world's current episode as a plain dict `LockstepWorld` can replay. Call right
-        after `reset(seed)`."""
+        """Each world's current episode as a plain dict `LockstepWorld` can replay."""
+        if bool((self.steps != 0).any()):
+            raise RuntimeError("export_scenarios needs the state straight after reset(seed)")
         out = []
         p = self.opponents.p
         osize = self.geom_size[:, self.opp_geom] * 2
@@ -1059,7 +1065,7 @@ class WarpNavEnv:
                 {
                     "seed": i,
                     "robot": self.cfg.robot,
-                    "opp_model": self.profile.opponents[int(self.opp_model[i])],
+                    "opp_model": self.profile.opponent_footprints[int(self.opp_model[i])],
                     "driver": int(self.policy_opp.driver[i]),
                     "holdout": self.cfg.holdout,
                     "arena_half": to(self.arena_half[i]),
@@ -1327,8 +1333,6 @@ class WarpNavEnv:
         reward += torch.where(lift, rw["nose_lift_per_s"] * dt, 0.0)
         self.stats["nose_lift_s"] += lift.float() * dt
 
-        # A world whose solver diverged (rare: a hard wheelie at the iteration limit) ends with no
-        # reward for the step, so a physics artifact never becomes a training signal.
         diverged = ~torch.isfinite(self.qpos).all(1) | (self.qvel.abs().amax(1) > 1e4)
         self.stats["sim_failures"] += diverged.float()
         terminated = in_hole | flipped | diverged
@@ -1455,9 +1459,7 @@ class WarpNavEnv:
         return torch.where(self.run_away, flee, attack)
 
     def _our_last_delivery(self) -> torch.Tensor:
-        """When our robot's last measurement reached the filter: its capture stamp plus the
-        latency. `OurEkfErrorModel` starts a gap from this, as the real EKF does from its last
-        update; the capture stamp alone is always a latency old and never leaves the gap."""
+        """Delivery stamp of our robot's last measurement: capture stamp plus latency."""
         stamp: torch.Tensor = self.measure.last_measured_stamp[:, 0] + self.measure.params.latency_s
         return stamp
 

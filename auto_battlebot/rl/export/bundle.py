@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+import numpy.typing as npt
 import torch
 
 from auto_battlebot.rl.export.rtneural import dense_layers, fold_normalization, run_json, to_json
@@ -18,6 +19,8 @@ FORMAT_VERSION = 1
 SELFTEST_MAGIC = b"RLST"
 SELFTEST_VERSION = 1
 
+Float32Matrix = npt.NDArray[np.float32]
+
 
 @dataclass
 class BundleSpec:
@@ -26,11 +29,21 @@ class BundleSpec:
     obs_dim: int
     action_dim: int
     model: dict[str, object]
-    selftest_obs: np.ndarray  # [N, D] float32
-    selftest_actions: np.ndarray  # [N, A] float32
+    selftest_obs: Float32Matrix
+    selftest_actions: Float32Matrix
     decoder_scale: tuple[float, ...] = (1.0, 1.0)
     policy_period_ticks: int = 5
     tolerance: float = 1e-4
+
+    def __post_init__(self) -> None:
+        for name, array, width in (
+            ("selftest_obs", self.selftest_obs, self.obs_dim),
+            ("selftest_actions", self.selftest_actions, self.action_dim),
+        ):
+            if array.dtype != np.float32 or array.ndim != 2 or array.shape[1] != width:
+                raise ValueError(
+                    f"{name} must be float32 [N, {width}], got {array.dtype} {array.shape}"
+                )
 
 
 def git_hash(repo: Path) -> str:

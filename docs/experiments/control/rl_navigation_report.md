@@ -465,6 +465,11 @@ the angle alone counts as a hit.
 - `DIAG_SENSE` and `DIAG_OPP` diagnose a stalled stage C. `DIAG_SENSE` is stage B's opponents and
   hazards with sensing on. `DIAG_OPP` is stage C's opponents and hazards with sensing off.
 
+`WarpNavEnv.record_success` feeds the stage advance gate and the pursuit level gate. The stage
+gate counts only episodes that started in the current stage, and the pursuit window counts only
+pursuers drawn at the current level. The pursuit window refills within one iteration, and
+episodes from the easier level raised job 43 from 0.4 to 0.7 in 7 iterations before the filter.
+
 ### `rl/export/bundle_policy.py`
 
 Run an exported policy bundle in Python, the way `RlPolicyNavigation` runs it on the robot.
@@ -502,6 +507,14 @@ the scenario set, not a mean of per-episode ratios, so an episode with no contac
 nothing instead of dividing by zero.
 
 #### `EpisodeMetrics`
+
+The field names are stored keys in evaluation JSON and CSV files, so they keep their original names.
+
+| Field | Meaning |
+| --- | --- |
+| `success_rate` | Fraction of episodes with at least one strike. |
+| `clean_success_rate` | Fraction of episodes whose first strike came before any hit taken. |
+| `still_s_per_episode` | Seconds per episode spent out of contact under `WarpNavConfig.still_speed_mps`. |
 
 `median_time_to_first_strike_s` counts an episode with no strike as the episode length.
 

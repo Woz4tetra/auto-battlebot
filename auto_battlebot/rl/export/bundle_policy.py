@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from enum import IntEnum
 from pathlib import Path
+from typing import NamedTuple
 
 import numpy as np
 import torch
@@ -14,7 +16,17 @@ from auto_battlebot.rl import obs_spec
 from auto_battlebot.rl.export.bundle import read_selftest
 from auto_battlebot.rl.export.rtneural import run_json
 
-Pose = tuple[float, float, float]  # x, y, yaw in the field frame
+
+class Pose(NamedTuple):
+    x: float
+    y: float
+    yaw: float
+
+
+class HazardKind(IntEnum):
+    HOLE = obs_spec.HOLE
+    WALL_BLOCK = obs_spec.WALL_BLOCK
+    TRACKED = obs_spec.TRACKED
 
 
 @dataclass
@@ -24,7 +36,7 @@ class Hazard:
     x: float
     y: float
     radius: float
-    kind: int  # obs_spec.HOLE, WALL_BLOCK or TRACKED
+    kind: HazardKind
     vx: float = 0.0
     vy: float = 0.0
 
@@ -34,13 +46,13 @@ class PolicyView:
     """Everything one policy step reads, field frame. `our_*` is the robot the policy drives."""
 
     our_pose: Pose
-    our_speed: float  # forward, m/s
-    our_yaw_rate: float  # rad/s
+    our_speed_mps: float
+    our_yaw_rate_rad_s: float
     target_pose: Pose
-    target_velocity: tuple[float, float]  # m/s
-    target_yaw_rate: float  # rad/s
-    target_half_diagonal: float  # m
-    field_half: tuple[float, float]  # m
+    target_velocity_mps: tuple[float, float]
+    target_yaw_rate_rad_s: float
+    target_half_diagonal_m: float
+    field_half_m: tuple[float, float]
     hazards: list[Hazard]
 
 
@@ -80,8 +92,8 @@ class BundlePolicy:
         self._hist_speed = np.roll(self._hist_speed, 1)
         self._hist_yaw_rate = np.roll(self._hist_yaw_rate, 1)
         self._hist_action[0] = action
-        self._hist_speed[0] = view.our_speed
-        self._hist_yaw_rate[0] = view.our_yaw_rate
+        self._hist_speed[0] = view.our_speed_mps
+        self._hist_yaw_rate[0] = view.our_yaw_rate_rad_s
         return float(action[0]), float(action[1])
 
     def observe(self, view: PolicyView) -> np.ndarray:
@@ -96,8 +108,8 @@ class BundlePolicy:
         inp = obs_spec.ObsInputs(
             our_xy=t(view.our_pose[:2]),
             our_yaw=t(view.our_pose[2]),
-            our_speed=t(view.our_speed),
-            our_yaw_rate=t(view.our_yaw_rate),
+            our_speed=t(view.our_speed_mps),
+            our_yaw_rate=t(view.our_yaw_rate_rad_s),
             our_age_s=zero,
             our_stale=false,
             run_away=false,
@@ -107,15 +119,15 @@ class BundlePolicy:
             opp_present=t(True, torch.bool),
             opp_xy=t(view.target_pose[:2]),
             opp_yaw=t(view.target_pose[2]),
-            opp_velocity=t(view.target_velocity),
-            opp_yaw_rate=t(view.target_yaw_rate),
+            opp_velocity=t(view.target_velocity_mps),
+            opp_yaw_rate=t(view.target_yaw_rate_rad_s),
             opp_position_sigma=zero,
             opp_heading_sigma=zero,
             opp_yaw_rate_sigma=zero,
-            opp_half_diagonal=t(view.target_half_diagonal),
+            opp_half_diagonal=t(view.target_half_diagonal_m),
             opp_age_s=zero,
             opp_stale=false,
-            field_half=t(view.field_half),
+            field_half=t(view.field_half_m),
             hazard_xy=t([(h.x, h.y) for h in hazards]).reshape(1, -1, 2),
             hazard_radius=t([h.radius for h in hazards]).reshape(1, -1),
             hazard_kind=t([h.kind for h in hazards], torch.long).reshape(1, -1),

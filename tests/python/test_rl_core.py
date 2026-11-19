@@ -13,7 +13,13 @@ from auto_battlebot.control.plant import steady_state as np_steady_state
 from auto_battlebot.rl import obs_spec
 from auto_battlebot.rl.env import EnvSpec, Step
 from auto_battlebot.rl.export.bundle import read_selftest, spec_from_policy, write_bundle
-from auto_battlebot.rl.export.bundle_policy import BundlePolicy, Hazard, PolicyView
+from auto_battlebot.rl.export.bundle_policy import (
+    BundlePolicy,
+    Hazard,
+    HazardKind,
+    PolicyView,
+    Pose,
+)
 from auto_battlebot.rl.export.rtneural import run_json
 from auto_battlebot.rl.learners.ppo import Ppo, PpoConfig
 from auto_battlebot.rl.policies.mlp import MlpGaussianConfig, MlpGaussianPolicy
@@ -94,15 +100,15 @@ def test_bundle_policy_matches_torch_and_pushes_history(tmp_path: Path) -> None:
     out = write_bundle(spec_from_policy(policy, "p", 1, sample), tmp_path / "bundle", REPO)
     runner = BundlePolicy(out)
     view = PolicyView(
-        our_pose=(-0.5, 0.2, 0.3),
-        our_speed=1.2,
-        our_yaw_rate=-2.0,
-        target_pose=(0.4, -0.1, 2.0),
-        target_velocity=(0.5, 0.0),
-        target_yaw_rate=1.0,
-        target_half_diagonal=0.106,
-        field_half=(1.2, 1.2),
-        hazards=[Hazard(0.0, 0.85, 0.2083, obs_spec.TRACKED)],
+        our_pose=Pose(-0.5, 0.2, 0.3),
+        our_speed_mps=1.2,
+        our_yaw_rate_rad_s=-2.0,
+        target_pose=Pose(0.4, -0.1, 2.0),
+        target_velocity_mps=(0.5, 0.0),
+        target_yaw_rate_rad_s=1.0,
+        target_half_diagonal_m=0.106,
+        field_half_m=(1.2, 1.2),
+        hazards=[Hazard(0.0, 0.85, 0.2083, HazardKind.TRACKED)],
     )
     obs = runner.observe(view)
     assert obs.shape == (1, obs_spec.OBS_DIM)
@@ -798,3 +804,223 @@ def test_warp_command_chain_signs_match_the_app() -> None:
     assert float(along.median()) > 0.05
     _, turned = drive(0.0, 0.4, 5)
     assert float(turned.median()) > 0.05
+
+
+class FinishEveryStepEnv:
+    def __init__(self) -> None:
+        self.num_worlds = 3
+        self.device = torch.device("cpu")
+        self.spec = EnvSpec(("o",), (), 0, 0.02, 2)
+        self.calls = 0
+
+    def reset(self, seed: int) -> tuple[torch.Tensor, torch.Tensor]:
+        return torch.zeros(3, 1), torch.zeros(3, 0)
+
+    def step(self, action: torch.Tensor) -> Step:
+        self.calls += 1
+        done = torch.tensor([True, self.calls >= 2, True])
+        episode = {
+            "strikes": torch.full((3,), float(self.calls)),
+            "hits_taken": torch.zeros(3),
+            "first_strike_s": torch.full((3,), 0.1),
+            "first_hit_s": torch.full((3,), float("inf")),
+        }
+        zeros = torch.zeros(3, 1)
+        return Step(
+            zeros,
+            torch.zeros(3, 0),
+            torch.zeros(3),
+            done,
+            torch.zeros_like(done),
+            zeros,
+            torch.zeros(3, 0),
+            episode,
+        )
+
+
+class ZeroPolicy:
+    def act(
+        self, obs: torch.Tensor, state: object, deterministic: bool
+    ) -> tuple[torch.Tensor, None]:
+        return torch.zeros(obs.shape[0], 2), None
+
+    def reset_state(self, state: object, done: torch.Tensor) -> None:
+        return None
+
+
+def test_evaluate_scores_first_episode_per_world_only() -> None:
+    from auto_battlebot.rl.evaluate import evaluate
+
+    env = FinishEveryStepEnv()
+    metrics = evaluate(ZeroPolicy(), env, seed=0)  # type: ignore[arg-type]
+    assert env.calls == 2
+    assert metrics.strikes_per_episode == pytest.approx(4 / 3)
+
+
+def test_run_json_applies_kernel_orientation_and_every_activation() -> None:
+    kernel = [[1.0, 2.0, -1.0], [0.5, -1.0, 3.0]]
+    bias = [0.1, -0.2, 0.0]
+    x = np.array([[2.0, -1.0]])
+    pre = x @ np.array(kernel) + np.array(bias)
+    expected = {
+        "": pre,
+        "relu": np.maximum(pre, 0.0),
+        "tanh": np.tanh(pre),
+        "sigmoid": 1.0 / (1.0 + np.exp(-pre)),
+        "elu": np.where(pre > 0, pre, np.expm1(pre)),
+    }
+    for name, want in expected.items():
+        model = {"layers": [{"weights": [kernel, bias], "activation": name}]}
+        np.testing.assert_allclose(run_json(model, x), want, atol=1e-12, err_msg=name)
+    with pytest.raises(ValueError, match="unknown activation"):
+        run_json({"layers": [{"weights": [kernel, bias], "activation": "swish"}]}, x)
+
+
+def test_ppo_normalizer_updates_after_epochs() -> None:
+    torch.manual_seed(0)
+    env = TwoStateEnv()
+    policy = MlpGaussianPolicy(env.spec, MlpGaussianConfig(hidden=(8, 8)))
+    learner = Ppo(policy, env, PpoConfig(steps_per_update=4, critic_hidden=(8, 8)), seed=0)  # type: ignore[arg-type]
+    seen = []
+    distribution = policy.distribution
+
+    def spy(obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        seen.append(float(policy.norm.count))
+        return distribution(obs)
+
+    policy.distribution = spy  # type: ignore[method-assign]
+    before = float(policy.norm.count)
+    learner.iterate()
+    assert set(seen) == {before}
+    assert float(policy.norm.count) > before
+
+
+def test_hazard_and_pose_types_name_their_fields() -> None:
+    from auto_battlebot.rl.envs.warp_nav import ROBOTS, ArcRule, CommandPath, Weapon
+
+    assert Pose(1.0, 2.0, 3.0).yaw == 3.0
+    assert int(HazardKind.TRACKED) == obs_spec.TRACKED
+    assert ROBOTS["mr_stabs_mk2"].command is CommandPath.ONBOARD_MIXER
+    assert ROBOTS["mrs_buff_mk3"].weapon is Weapon.DISK_SWEEP_CYLINDER
+    assert ROBOTS["mrs_buff_mk3"].arc_rule is ArcRule.FRONT_FACE_IN_ARC
+
+
+def test_bundle_spec_rejects_mismatched_selftest_arrays() -> None:
+    from auto_battlebot.rl.export.bundle import BundleSpec
+
+    good = np.zeros((2, 3), dtype=np.float32)
+    BundleSpec("r", 1, 3, 3, {}, good, good)
+    with pytest.raises(ValueError, match="selftest_obs"):
+        BundleSpec("r", 1, 4, 3, {}, good, good)
+    with pytest.raises(ValueError, match="selftest_actions"):
+        BundleSpec("r", 1, 3, 3, {}, good, good.astype(np.float64))
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="WarpNavEnv runs on CUDA")
+def test_privileged_layout_stable_for_mr_stabs() -> None:
+    from auto_battlebot.rl.envs.warp_nav import PRIVILEGED_NAMES, WarpNavConfig, WarpNavEnv
+
+    stabs = WarpNavEnv(WarpNavConfig(worlds=2, stage="A"), "cuda", seed=1)
+    assert stabs.privileged_names == PRIVILEGED_NAMES
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="WarpNavEnv runs on CUDA")
+def test_set_stage_enabling_sensing_initializes_all_worlds() -> None:
+    from auto_battlebot.rl.envs.warp_nav import WarpNavConfig, WarpNavEnv
+
+    env = WarpNavEnv(WarpNavConfig(worlds=4, stage="A"), "cuda", seed=2)
+    env.reset(2)
+    assert not env.sensing
+    env.opp_filter.last_measured.fill_(123.0)
+    env.set_stage("C")
+    assert env.sensing
+    assert bool((env.opp_filter.last_measured == env.t - 1.0).all())
+
+
+def _episode(done: int, **cols: float) -> dict[str, torch.Tensor]:
+    keys = ("strikes", "hits_taken", "holes", "flips", "run_away", "behaviour", "driver")
+    return {k: torch.full((done,), cols.get(k, 0.0), device="cuda") for k in keys}
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="WarpNavEnv runs on CUDA")
+def test_curriculum_counts_only_current_stage_episodes() -> None:
+    from auto_battlebot.rl.envs.warp_nav import WarpNavConfig, WarpNavEnv
+
+    env = WarpNavEnv(WarpNavConfig(worlds=4, stage="B"), "cuda", seed=3)
+    env.episode_stage = torch.tensor([env.stage_index, env.stage_index - 1] * 2, device="cuda")
+    done = torch.ones(4, dtype=torch.bool, device="cuda")
+    env.record_success(_episode(4, strikes=1.0), done)
+    assert env.success_window == [1.0, 1.0]
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="WarpNavEnv runs on CUDA")
+def test_pursuit_window_counts_only_current_level() -> None:
+    from auto_battlebot.rl.envs.opponents import PURSUIT
+    from auto_battlebot.rl.envs.warp_nav import WarpNavConfig, WarpNavEnv
+
+    env = WarpNavEnv(WarpNavConfig(worlds=4, stage="P"), "cuda", seed=3)
+    level = env.opponents.pursuit_level
+    env.episode_stage = torch.full((4,), env.stage_index, device="cuda")
+    env.episode_pursuit_level = torch.tensor([level, level + 0.5] * 2, device="cuda")
+    done = torch.ones(4, dtype=torch.bool, device="cuda")
+    env.record_success(_episode(4, strikes=1.0, behaviour=float(PURSUIT)), done)
+    assert env.pursuit_attack_success_window == [1.0, 1.0]
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="WarpNavEnv runs on CUDA")
+def test_replay_episode_scene_clears_track_start() -> None:
+    from auto_battlebot.rl.envs.opponents import BEHAVIOURS, REPLAY
+    from auto_battlebot.rl.envs.warp_nav import OPP_MOCAP, WarpNavConfig, WarpNavEnv
+
+    assert BEHAVIOURS[REPLAY] == "replay"
+    env = WarpNavEnv(WarpNavConfig(worlds=64, stage="D"), "cuda", seed=5)
+    assert env.opponents.replay is not None
+    for seed in (5, 6):
+        env.reset(seed)
+        replaying = env.opponents.p.behaviour == REPLAY
+        assert bool(replaying.any())
+        reach = env.arena_half - env.opp_half.norm(dim=1)[:, None] - 0.05
+        xy, _ = env.opponents.replay.sample(
+            env.opponents.replay_index, env.opponents.replay_t, reach
+        )
+        placed = env.mocap_pos[:, OPP_MOCAP, :2]
+        assert torch.allclose(placed[replaying], xy[replaying], atol=1e-5)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="WarpNavEnv runs on CUDA")
+def test_export_scenarios_after_steps_refused() -> None:
+    from auto_battlebot.rl.envs.warp_nav import WarpNavConfig, WarpNavEnv
+
+    env = WarpNavEnv(WarpNavConfig(worlds=2, stage="A"), "cuda", seed=7)
+    env.reset(7)
+    assert len(env.export_scenarios()) == 2
+    env.step(torch.zeros(2, 2, device="cuda"))
+    with pytest.raises(RuntimeError, match="straight after reset"):
+        env.export_scenarios()
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="WarpNavEnv runs on CUDA")
+def test_diverged_world_ends_without_reward() -> None:
+    from auto_battlebot.rl.envs.warp_nav import WarpNavConfig, WarpNavEnv
+
+    env = WarpNavEnv(WarpNavConfig(worlds=4, stage="A"), "cuda", seed=8)
+    env.reset(8)
+    env.qpos[1, 0] = float("nan")
+    step = env.step(torch.zeros(4, 2, device="cuda"))
+    assert bool(step.terminated[1])
+    assert float(step.reward[1]) == 0.0
+    assert bool(torch.isfinite(step.reward).all())
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="WarpNavEnv runs on CUDA")
+def test_warp_sensing_ekf_leaves_gaps() -> None:
+    from auto_battlebot.rl.envs.warp_nav import WarpNavConfig, WarpNavEnv
+
+    env = WarpNavEnv(WarpNavConfig(worlds=64, stage="C"), "cuda", seed=4)
+    env.reset(4)
+    coasting = []
+    for k in range(150):
+        env.step(torch.tensor([[0.3, 0.2]], device="cuda").expand(64, 2))
+        if k >= 50:
+            coasting.append(env.ekf.coasting.float().mean())
+    assert float(torch.stack(coasting).mean()) < 0.3

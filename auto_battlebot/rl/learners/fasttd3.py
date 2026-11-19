@@ -13,6 +13,8 @@ from auto_battlebot.rl.env import VecEnv
 from auto_battlebot.rl.learners.base import LEARNERS, EpisodeLog
 from auto_battlebot.rl.policies.mlp import MlpGaussianPolicy, RunningNorm, mlp
 
+STEPS_PER_ITERATION = 16
+
 
 @dataclass
 class FastTd3Config:
@@ -241,11 +243,10 @@ class FastTd3:
         return stats
 
     def iterate(self) -> dict[str, float]:
-        """Sixteen environment steps for every world, each followed by `updates_per_step` updates
-        once the buffer holds `learning_starts` steps."""
+        """One iteration: `updates_per_step` updates after each step once the buffer is warm."""
         totals: dict[str, float] = {}
         count = 0
-        for _ in range(16):
+        for _ in range(STEPS_PER_ITERATION):
             stats = self._collect()
             if self.filled >= max(self.cfg.learning_starts, self.cfg.n_step + 1):
                 for _ in range(self.cfg.updates_per_step):

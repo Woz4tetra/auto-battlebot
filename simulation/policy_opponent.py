@@ -11,15 +11,15 @@ from config.kinematic import ObstacleConfig, OpponentConfig, PlantConfig, PlantT
 from plants.base import Pose, footprint_center
 from plants.mujoco_plant import MujocoPlant
 
-from auto_battlebot.rl import obs_spec
-from auto_battlebot.rl.export.bundle_policy import BundlePolicy, Hazard, PolicyView
+from auto_battlebot.rl.export.bundle_policy import BundlePolicy, Hazard, HazardKind, PolicyView
+from auto_battlebot.rl.export.bundle_policy import Pose as ViewPose
 from auto_battlebot.rl.torch_plant import saturate
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 POLICY_PERIOD_S = 0.02
 
-HAZARD_KINDS = {"hole": obs_spec.HOLE, "wall_block": obs_spec.WALL_BLOCK}
+HAZARD_KINDS = {"hole": HazardKind.HOLE, "wall_block": HazardKind.WALL_BLOCK}
 
 MR_STABS_MK2_SIZE_M = (0.137, 0.16, 0.0703)
 MR_STABS_MK2_HALF_DIAGONAL_M = 0.5 * math.hypot(MR_STABS_MK2_SIZE_M[0], MR_STABS_MK2_SIZE_M[1])
@@ -100,18 +100,18 @@ class PolicyOpponent:
     def _view(self) -> PolicyView:
         assert self._target is not None
         tracked = [
-            Hazard(p[0], p[1], r, obs_spec.TRACKED, v[0], v[1])
+            Hazard(p[0], p[1], r, HazardKind.TRACKED, v[0], v[1])
             for p, r, v in zip(self._others, self._other_radius, self._others_velocity)
         ]
         return PolicyView(
-            our_pose=self._plant.pose(),
-            our_speed=self._plant.v_mps,
-            our_yaw_rate=self._plant.w_radps,
-            target_pose=self._target,
-            target_velocity=self._target_velocity,
-            target_yaw_rate=self._target_yaw_rate,
-            target_half_diagonal=self._us_half_diagonal,
-            field_half=self._field_half,
+            our_pose=ViewPose(*self._plant.pose()),
+            our_speed_mps=self._plant.v_mps,
+            our_yaw_rate_rad_s=self._plant.w_radps,
+            target_pose=ViewPose(*self._target),
+            target_velocity_mps=self._target_velocity,
+            target_yaw_rate_rad_s=self._target_yaw_rate,
+            target_half_diagonal_m=self._us_half_diagonal,
+            field_half_m=self._field_half,
             hazards=self._static + tracked,
         )
 

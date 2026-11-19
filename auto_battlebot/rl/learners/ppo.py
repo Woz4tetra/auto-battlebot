@@ -14,6 +14,8 @@ from auto_battlebot.rl.env import VecEnv
 from auto_battlebot.rl.learners.base import LEARNERS, EpisodeLog
 from auto_battlebot.rl.policies.mlp import MlpGaussianPolicy, RunningNorm, mlp
 
+WorldMask = Callable[[], torch.Tensor]
+
 
 @dataclass
 class PpoConfig:
@@ -63,7 +65,7 @@ class Ppo:
         self.env_steps = 0
         self.episodes = EpisodeLog()
         self.anchor: MlpGaussianPolicy | None = None
-        self.anchor_mask: Callable[[], torch.Tensor] | None = None  # [W] bool, this step's worlds
+        self.anchor_mask: WorldMask | None = None
 
     def _value(self, obs: torch.Tensor, priv: torch.Tensor) -> torch.Tensor:
         x = torch.cat([self.policy.norm(obs), self.priv_norm(priv)], dim=-1)
@@ -179,7 +181,6 @@ class Ppo:
         stats = {k: v / count for k, v in stats.items()}
         if "anchor_w" in flat:
             stats["anchor_share"] = float(flat["anchor_w"].mean())
-        # After the update, so the epochs see the normalization the rollout was collected with.
         self.policy.norm.update(buf["obs"])
         self.priv_norm.update(buf["priv"])
         stats["lr"] = self.lr
