@@ -105,8 +105,8 @@ TEST(KalmanMotionEstimatorTest, ConvergesToConstantVelocityAndPredictsAhead) {
     ASSERT_TRUE(coasted.has_value());
     ASSERT_EQ(coasted->size(), 1u);
     EXPECT_FALSE((*coasted)[0].is_stale);
-    EXPECT_NEAR((*coasted)[0].velocity.vx, vx, 0.2);
-    EXPECT_NEAR((*coasted)[0].velocity.vy, vy, 0.2);
+    EXPECT_NEAR((*coasted)[0].velocity.vx_mps, vx, 0.2);
+    EXPECT_NEAR((*coasted)[0].velocity.vy_mps, vy, 0.2);
     EXPECT_NEAR((*coasted)[0].pose.position.x, x + vx * kLead, 0.05);
     EXPECT_NEAR((*coasted)[0].pose.position.y, y + vy * kLead, 0.05);
 
@@ -253,7 +253,7 @@ TEST(KalmanMotionEstimatorTest, OurRobotMatchesDeadReckoningEstimator) {
     context.our_robot_hold_window_s = 10.0;
 
     CommandFeedback feedback;
-    feedback.stick_commands[FrameId::OUR_ROBOT_1] = VelocityCommand{1.0, 0.0, 0.5};
+    feedback.stick_commands[FrameId::OUR_ROBOT_1] = StickCommand{1.0, 0.0, 0.5};
 
     const double t0 = kStartTime;
     kalman.predict(t0, feedback);
@@ -296,7 +296,7 @@ TEST(KalmanMotionEstimatorTest, OurRobotDeadReckoningScalesStickByPlantGains) {
 
     // Half stick forward, no yaw: one unmeasured frame advances x by 0.5 * k_fwd * dt.
     CommandFeedback feedback;
-    feedback.stick_commands[FrameId::OUR_ROBOT_1] = VelocityCommand{0.5, 0.0, 0.0};
+    feedback.stick_commands[FrameId::OUR_ROBOT_1] = StickCommand{0.5, 0.0, 0.0};
     const double t0 = kStartTime;
     estimator.predict(t0, feedback);
     estimator.update({make_our_measurement(0.0, 0.0)}, t0, assigner, field, context);
@@ -321,7 +321,7 @@ TEST(KalmanMotionEstimatorTest, OurRobotDeadReckoningUsesReverseGainBackward) {
     context.our_robot_hold_window_s = 10.0;
 
     CommandFeedback feedback;
-    feedback.stick_commands[FrameId::OUR_ROBOT_1] = VelocityCommand{-0.5, 0.0, 0.0};
+    feedback.stick_commands[FrameId::OUR_ROBOT_1] = StickCommand{-0.5, 0.0, 0.0};
     const double t0 = kStartTime;
     estimator.predict(t0, feedback);
     estimator.update({make_our_measurement(0.0, 0.0)}, t0, assigner, field, context);
@@ -393,7 +393,7 @@ RobotDescription make_our_pose_measurement(const PlantState &truth) {
 
 double run_ekf_measured_phase(KalmanMotionEstimator &estimator, JigPlantModel &truth_model,
                               PlantState &truth, std::vector<TimedCommand> &truth_history,
-                              const VelocityCommand &command, FrameIdAssigner &assigner,
+                              const StickCommand &command, FrameIdAssigner &assigner,
                               const FieldDescription &field, const MotionEstimatorContext &context,
                               int steps) {
     CommandFeedback feedback;
@@ -418,7 +418,7 @@ TEST(KalmanMotionEstimatorTest, OurRobotEkfTracksPlantTruthThroughDropout) {
     const FieldDescription field = make_field();
     const MotionEstimatorContext context;
 
-    const VelocityCommand command{0.3, 0.0, 0.05};
+    const StickCommand command{0.3, 0.0, 0.05};
     PlantState truth;
     std::vector<TimedCommand> truth_history;
     double t = run_ekf_measured_phase(estimator, truth_model, truth, truth_history, command,
@@ -468,7 +468,7 @@ TEST(KalmanMotionEstimatorTest, OurRobotEkfHeadingFlipCorrectsPositionOnly) {
     const FieldDescription field = make_field();
     const MotionEstimatorContext context;
 
-    const VelocityCommand command{0.3, 0.0, 0.0};
+    const StickCommand command{0.3, 0.0, 0.0};
     PlantState truth;
     std::vector<TimedCommand> truth_history;
     double t = run_ekf_measured_phase(estimator, truth_model, truth, truth_history, command,
@@ -582,12 +582,12 @@ TEST(KalmanMotionEstimatorTest, OpponentHeadingAndYawRateConvergeOnConstantTurn)
     ASSERT_TRUE(coasted.has_value());
     ASSERT_EQ(coasted->size(), 1u);
     const RobotDescription &out = (*coasted)[0];
-    EXPECT_NEAR(out.velocity.omega, truth.omega, 0.1);
+    EXPECT_NEAR(out.velocity.omega_radps, truth.omega, 0.1);
     EXPECT_NEAR(angle_error(yaw_of(out), truth.yaw + truth.omega * kLead), 0.0, 0.03);
     const KalmanMotionEstimatorConfiguration config = kalman_opponents_config();
-    EXPECT_TRUE(std::isfinite(out.uncertainty.heading_sigma_rad));
-    EXPECT_LT(out.uncertainty.heading_sigma_rad, 2.0 * config.opponent_heading_sigma_rad);
-    EXPECT_LT(out.uncertainty.yaw_rate_sigma_rad_s, 0.25 * config.initial_yaw_rate_sigma);
+    EXPECT_TRUE(out.uncertainty.heading_sigma_rad.has_value());
+    EXPECT_LT(*out.uncertainty.heading_sigma_rad, 2.0 * config.opponent_heading_sigma_rad);
+    EXPECT_LT(*out.uncertainty.yaw_rate_sigma_rad_s, 0.25 * config.initial_yaw_rate_sigma);
 }
 
 TEST(KalmanMotionEstimatorTest, OpponentSingleHeadingFlipCorrectsPositionOnly) {
@@ -649,9 +649,9 @@ TEST(KalmanMotionEstimatorTest, OpponentConsecutiveFlipsReinitializeHeadingOnly)
         }
     }
     EXPECT_NEAR(angle_error(yaw_of(outputs[0]), truth.yaw + M_PI), 0.0, 1e-9);
-    EXPECT_NEAR(outputs[0].velocity.omega, 0.0, 1e-9);
-    EXPECT_NEAR(outputs[0].uncertainty.heading_sigma_rad, config.opponent_heading_sigma_rad, 1e-9);
-    EXPECT_NEAR(outputs[0].velocity.vx, truth.vx, 0.2);
+    EXPECT_NEAR(outputs[0].velocity.omega_radps, 0.0, 1e-9);
+    EXPECT_NEAR(*outputs[0].uncertainty.heading_sigma_rad, config.opponent_heading_sigma_rad, 1e-9);
+    EXPECT_NEAR(outputs[0].velocity.vx_mps, truth.vx, 0.2);
 }
 
 TEST(KalmanMotionEstimatorTest, OpponentHeadingAfterLongDropoutIsNotCalledAFlip) {
@@ -687,10 +687,10 @@ TEST(KalmanMotionEstimatorTest, OpponentBlobBornTrackHasUnknownHeadingUntilKeypo
     auto coasted = estimator.coast(t);
     ASSERT_TRUE(coasted.has_value());
     ASSERT_EQ(coasted->size(), 1u);
-    EXPECT_TRUE(std::isinf((*coasted)[0].uncertainty.heading_sigma_rad));
-    EXPECT_TRUE(std::isinf((*coasted)[0].uncertainty.yaw_rate_sigma_rad_s));
-    EXPECT_EQ((*coasted)[0].velocity.omega, 0.0);
-    EXPECT_TRUE(std::isfinite((*coasted)[0].uncertainty.position_sigma_major_axis_m));
+    EXPECT_FALSE((*coasted)[0].uncertainty.heading_sigma_rad.has_value());
+    EXPECT_FALSE((*coasted)[0].uncertainty.yaw_rate_sigma_rad_s.has_value());
+    EXPECT_EQ((*coasted)[0].velocity.omega_radps, 0.0);
+    EXPECT_TRUE((*coasted)[0].uncertainty.position_sigma_major_axis_m.has_value());
 
     t += kDt;
     x += 0.5 * kDt;
@@ -699,7 +699,7 @@ TEST(KalmanMotionEstimatorTest, OpponentBlobBornTrackHasUnknownHeadingUntilKeypo
         estimator.update({make_opponent_pose_measurement(x, y, 2.5)}, t, assigner, field, context);
     ASSERT_EQ(outputs.size(), 1u);
     EXPECT_NEAR(angle_error(yaw_of(outputs[0]), 2.5), 0.0, 1e-9);
-    EXPECT_TRUE(std::isfinite(outputs[0].uncertainty.heading_sigma_rad));
+    EXPECT_TRUE(outputs[0].uncertainty.heading_sigma_rad.has_value());
 }
 
 TEST(KalmanMotionEstimatorTest, OpponentHeadingBlindLabelNeverCorrectsHeading) {
@@ -715,9 +715,9 @@ TEST(KalmanMotionEstimatorTest, OpponentHeadingBlindLabelNeverCorrectsHeading) {
     auto coasted = estimator.coast(t);
     ASSERT_TRUE(coasted.has_value());
     ASSERT_EQ(coasted->size(), 1u);
-    EXPECT_TRUE(std::isinf((*coasted)[0].uncertainty.heading_sigma_rad));
-    EXPECT_TRUE(std::isinf((*coasted)[0].uncertainty.yaw_rate_sigma_rad_s));
-    EXPECT_EQ((*coasted)[0].velocity.omega, 0.0);
+    EXPECT_FALSE((*coasted)[0].uncertainty.heading_sigma_rad.has_value());
+    EXPECT_FALSE((*coasted)[0].uncertainty.yaw_rate_sigma_rad_s.has_value());
+    EXPECT_EQ((*coasted)[0].velocity.omega_radps, 0.0);
     EXPECT_NEAR((*coasted)[0].pose.position.x, truth.x + truth.vx * kLead, 0.05);
 }
 
@@ -739,7 +739,7 @@ TEST(KalmanMotionEstimatorTest, OpponentLateMeasurementRewindRestoresHeading) {
                                     last_t + kDt, assigner, field, context);
     ASSERT_EQ(outputs.size(), 1u);
     EXPECT_NEAR(angle_error(yaw_of(outputs[0]), late.yaw), 0.0, 0.03);
-    EXPECT_NEAR(outputs[0].velocity.omega, truth.omega, 0.1);
+    EXPECT_NEAR(outputs[0].velocity.omega_radps, truth.omega, 0.1);
     EXPECT_NEAR(outputs[0].pose.position.x, late.x, 0.02);
 
     auto coasted = estimator.coast(last_t + 0.1);
@@ -792,14 +792,14 @@ TEST(KalmanMotionEstimatorTest, OpponentSigmasShrinkWhenMeasuredAndGrowWhileCoas
                          field, context);
     }
     const PoseUncertainty converged = (*estimator.coast(t))[0].uncertainty;
-    EXPECT_LT(converged.position_sigma_major_axis_m, early.position_sigma_major_axis_m);
-    EXPECT_LT(converged.heading_sigma_rad, early.heading_sigma_rad);
-    EXPECT_LT(converged.yaw_rate_sigma_rad_s, early.yaw_rate_sigma_rad_s);
+    EXPECT_LT(*converged.position_sigma_major_axis_m, *early.position_sigma_major_axis_m);
+    EXPECT_LT(*converged.heading_sigma_rad, *early.heading_sigma_rad);
+    EXPECT_LT(*converged.yaw_rate_sigma_rad_s, *early.yaw_rate_sigma_rad_s);
 
     const PoseUncertainty coasting = (*estimator.coast(t + 0.15))[0].uncertainty;
-    EXPECT_GT(coasting.position_sigma_major_axis_m, converged.position_sigma_major_axis_m);
-    EXPECT_GT(coasting.heading_sigma_rad, converged.heading_sigma_rad);
-    EXPECT_GT(coasting.yaw_rate_sigma_rad_s, converged.yaw_rate_sigma_rad_s);
+    EXPECT_GT(*coasting.position_sigma_major_axis_m, *converged.position_sigma_major_axis_m);
+    EXPECT_GT(*coasting.heading_sigma_rad, *converged.heading_sigma_rad);
+    EXPECT_GT(*coasting.yaw_rate_sigma_rad_s, *converged.yaw_rate_sigma_rad_s);
 }
 
 TEST(KalmanMotionEstimatorTest, OpponentCoastingIntoWallRendersStopped) {
@@ -818,8 +818,8 @@ TEST(KalmanMotionEstimatorTest, OpponentCoastingIntoWallRendersStopped) {
     ASSERT_TRUE(coasted.has_value());
     ASSERT_EQ(coasted->size(), 1u);
     EXPECT_DOUBLE_EQ((*coasted)[0].pose.position.x, 1.0);
-    EXPECT_EQ((*coasted)[0].velocity.vx, 0.0) << "no velocity into the wall";
-    EXPECT_NEAR((*coasted)[0].velocity.vy, 0.3, 0.1) << "velocity along the wall survives";
+    EXPECT_EQ((*coasted)[0].velocity.vx_mps, 0.0) << "no velocity into the wall";
+    EXPECT_NEAR((*coasted)[0].velocity.vy_mps, 0.3, 0.1) << "velocity along the wall survives";
 }
 
 TEST(KalmanMotionEstimatorTest, OpponentArmMatchesPythonMirrorGoldenFixture) {
@@ -872,13 +872,18 @@ TEST(KalmanMotionEstimatorTest, OpponentArmMatchesPythonMirrorGoldenFixture) {
         expect_value(out.pose.position.x, row[0], at + "x");
         expect_value(out.pose.position.y, row[1], at + "y");
         EXPECT_NEAR(angle_error(yaw_of(out), row[2]), 0.0, kTol) << at << "yaw";
-        expect_value(out.velocity.vx, row[3], at + "vx");
-        expect_value(out.velocity.vy, row[4], at + "vy");
-        expect_value(out.velocity.omega, row[5], at + "omega");
-        expect_value(out.uncertainty.position_sigma_major_axis_m, row[6],
-                     at + "position_sigma_major_axis_m");
-        expect_value(out.uncertainty.heading_sigma_rad, row[7], at + "heading_sigma_rad");
-        expect_value(out.uncertainty.yaw_rate_sigma_rad_s, row[8], at + "yaw_rate_sigma_rad_s");
+        expect_value(out.velocity.vx_mps, row[3], at + "vx");
+        expect_value(out.velocity.vy_mps, row[4], at + "vy");
+        expect_value(out.velocity.omega_radps, row[5], at + "omega");
+        expect_value(out.uncertainty.position_sigma_major_axis_m.value_or(
+                         std::numeric_limits<double>::infinity()),
+                     row[6], at + "position_sigma_major_axis_m");
+        expect_value(
+            out.uncertainty.heading_sigma_rad.value_or(std::numeric_limits<double>::infinity()),
+            row[7], at + "heading_sigma_rad");
+        expect_value(
+            out.uncertainty.yaw_rate_sigma_rad_s.value_or(std::numeric_limits<double>::infinity()),
+            row[8], at + "yaw_rate_sigma_rad_s");
         EXPECT_EQ(out.is_stale ? 1.0 : 0.0, row[9]) << at << "is_stale";
         ++record;
 
@@ -943,7 +948,7 @@ TEST(KalmanMotionEstimatorTest, RendersSecondsSinceTheLastMeasurement) {
 double position_sigma_after_coasting(KalmanMotionEstimator &estimator, double now) {
     const auto coasted = estimator.coast(now);
     EXPECT_TRUE(coasted.has_value());
-    return (*coasted)[0].uncertainty.position_sigma_major_axis_m;
+    return *(*coasted)[0].uncertainty.position_sigma_major_axis_m;
 }
 
 TEST(KalmanMotionEstimatorTest, OpponentPositionSigmaKeepsGrowingPastTheCoastHorizon) {
@@ -1030,7 +1035,8 @@ TEST(KalmanMotionEstimatorTest, OurRobotSpeedProjectsOntoTheMidBaselineHeading) 
     const auto outputs = estimator.update({make_our_pose_measurement(end)}, kStartTime + dt,
                                           assigner, field, context);
     ASSERT_EQ(outputs.size(), 1u);
-    const double measured_speed = std::hypot(outputs[0].velocity.vx, outputs[0].velocity.vy);
+    const double measured_speed =
+        std::hypot(outputs[0].velocity.vx_mps, outputs[0].velocity.vy_mps);
     EXPECT_NEAR(measured_speed, chord / dt, 0.03);
 }
 

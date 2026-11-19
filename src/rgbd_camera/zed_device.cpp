@@ -242,14 +242,14 @@ bool ZedDevice::retrieve(CameraData &out) {
                         zed_rgb_.getPtr<sl::uchar1>(), zed_rgb_.getStepBytes(sl::MEM::CPU));
     cv::Mat rgb_frame;
     cv::cvtColor(zed_rgb_mat, rgb_frame, cv::COLOR_BGRA2BGR);
-    out.rgb.image = rgb_frame;
+    out.rgb.image = require_rgb_layout(rgb_frame);
 
     log_buffer_geometry(zed_depth_, "depth", 4, depth_geometry_);
     cv::Mat zed_depth_mat(zed_depth_.getHeight(), zed_depth_.getWidth(), CV_32FC1,
                           zed_depth_.getPtr<sl::uchar1>(), zed_depth_.getStepBytes(sl::MEM::CPU));
     cv::Mat depth_frame;
     zed_depth_mat.copyTo(depth_frame);
-    out.depth.image = depth_frame;
+    out.depth.image = require_depth_layout(depth_frame);
 
     Header header;
     header.stamp = stamp;

@@ -28,8 +28,8 @@ FieldHazard hazard(double x, double y, double radius, HazardSource source = Haza
     h.inflated_radius_m = radius;
     h.hard_radius = radius;
     h.source = source;
-    h.velocity.vx = vx;
-    h.velocity.vy = vy;
+    h.velocity.vx_mps = vx;
+    h.velocity.vy_mps = vy;
     return h;
 }
 
@@ -192,15 +192,15 @@ TEST(HazardAvoidanceTest, ReverseFiresOnlyWhenCloseAndPointedAtIt) {
 
     VelocityCommand pointed{0.5, 0.0, 0.0};
     EXPECT_TRUE(avoidance.apply_reverse(pose(0.0, 0.0, 0.0), field, pointed));
-    EXPECT_LT(pointed.linear_x, 0.0);
+    EXPECT_LT(pointed.forward_mps, 0.0);
 
     VelocityCommand turned_away{0.5, 0.0, 0.0};
     EXPECT_FALSE(avoidance.apply_reverse(pose(0.0, 0.0, M_PI), field, turned_away));
-    EXPECT_NEAR(turned_away.linear_x, 0.5, kTol);
+    EXPECT_NEAR(turned_away.forward_mps, 0.5, kTol);
 
     VelocityCommand far{0.5, 0.0, 0.0};
     EXPECT_FALSE(avoidance.apply_reverse(pose(-1.0, 0.0, 0.0), field, far));
-    EXPECT_NEAR(far.linear_x, 0.5, kTol);
+    EXPECT_NEAR(far.forward_mps, 0.5, kTol);
 }
 
 TEST(HazardAvoidanceTest, LatchedSideDoesNotCarryToADifferentHazard) {
@@ -251,7 +251,7 @@ TEST(HazardAvoidanceTest, NoHazardsIsAPassThrough) {
     EXPECT_NEAR(steered.y, goal.y, kTol);
     VelocityCommand command{0.5, 0.0, 0.0};
     EXPECT_FALSE(avoidance.limit_command(pose(0.0, 0.0, 0.0), field, 2.0, command).engaged);
-    EXPECT_NEAR(command.linear_x, 0.5, kTol);
+    EXPECT_NEAR(command.forward_mps, 0.5, kTol);
     EXPECT_FALSE(avoidance.apply_reverse(pose(0.0, 0.0, 0.0), field, command));
 }
 
@@ -273,7 +273,7 @@ TEST(HazardBarrierTest, FarHazardLeavesTheCommandAlone) {
     VelocityCommand cmd{1.0, 0.0, 0.0};
     const auto result = avoidance.limit_command(pose(0.0, 0.0, 0.0), field, 0.0, cmd);
     EXPECT_FALSE(result.engaged);
-    EXPECT_NEAR(cmd.linear_x, 1.0, kTol);
+    EXPECT_NEAR(cmd.forward_mps, 1.0, kTol);
 }
 
 TEST(HazardBarrierTest, NearHazardTapersThrustWithTheGap) {
@@ -283,7 +283,7 @@ TEST(HazardBarrierTest, NearHazardTapersThrustWithTheGap) {
     const auto result = avoidance.limit_command(pose(0.0, 0.0, 0.0), field, 0.0, cmd);
     EXPECT_TRUE(result.engaged);
     EXPECT_FALSE(result.braking);
-    EXPECT_NEAR(cmd.linear_x, 0.4, kTol);
+    EXPECT_NEAR(cmd.forward_mps, 0.4, kTol);
     EXPECT_NEAR(result.bound_mps, 2.0, kTol);
 }
 
@@ -294,7 +294,7 @@ TEST(HazardBarrierTest, MeasuredExcessCommandsReverseThroughAZeroCommand) {
     const auto result = avoidance.limit_command(pose(0.0, 0.0, 0.0), field, 3.0, cmd);
     EXPECT_TRUE(result.engaged);
     EXPECT_TRUE(result.braking);
-    EXPECT_NEAR(cmd.linear_x, -1.0, kTol);
+    EXPECT_NEAR(cmd.forward_mps, -1.0, kTol);
 }
 
 TEST(HazardBarrierTest, InsideTheHardRadiusReversesProportionallyToDepth) {
@@ -307,7 +307,7 @@ TEST(HazardBarrierTest, InsideTheHardRadiusReversesProportionallyToDepth) {
     const auto result = avoidance.limit_command(pose(0.0, 0.0, 0.0), field, 0.0, cmd);
     EXPECT_TRUE(result.engaged);
     EXPECT_TRUE(result.braking);
-    EXPECT_NEAR(cmd.linear_x, -0.75, kTol);
+    EXPECT_NEAR(cmd.forward_mps, -0.75, kTol);
     EXPECT_LT(result.bound_mps, 0.0);
 }
 
@@ -319,7 +319,7 @@ TEST(HazardBarrierTest, ReverseTowardAHazardBehindIsLimited) {
     VelocityCommand cmd{-1.0, 0.0, 0.0};
     const auto result = avoidance.limit_command(pose(0.0, 0.0, 0.0), field, 0.0, cmd);
     EXPECT_TRUE(result.engaged);
-    EXPECT_NEAR(cmd.linear_x, -0.375, kTol);
+    EXPECT_NEAR(cmd.forward_mps, -0.375, kTol);
 }
 
 TEST(HazardBarrierTest, SlidingRearFirstAtAHazardCommandsForwardNotReverse) {
@@ -329,7 +329,7 @@ TEST(HazardBarrierTest, SlidingRearFirstAtAHazardCommandsForwardNotReverse) {
     const auto result = avoidance.limit_command(pose(0.0, 0.0, 0.0), field, -3.0, cmd);
     EXPECT_TRUE(result.engaged);
     EXPECT_TRUE(result.braking);
-    EXPECT_NEAR(cmd.linear_x, 1.0, kTol);
+    EXPECT_NEAR(cmd.forward_mps, 1.0, kTol);
 }
 
 TEST(HazardBarrierTest, SqueezedBetweenOverlappingHazardsStops) {
@@ -338,7 +338,7 @@ TEST(HazardBarrierTest, SqueezedBetweenOverlappingHazardsStops) {
     VelocityCommand cmd{1.0, 0.0, 0.0};
     const auto result = avoidance.limit_command(pose(0.0, 0.0, 0.0), field, 0.0, cmd);
     EXPECT_TRUE(result.engaged);
-    EXPECT_NEAR(cmd.linear_x, 0.0, kTol);
+    EXPECT_NEAR(cmd.forward_mps, 0.0, kTol);
 }
 
 TEST(HazardBarrierTest, PassingAbeamCostsNothing) {
@@ -347,7 +347,7 @@ TEST(HazardBarrierTest, PassingAbeamCostsNothing) {
     VelocityCommand cmd{1.0, 0.0, 0.0};
     const auto result = avoidance.limit_command(pose(0.0, 0.0, 0.0), field, 3.0, cmd);
     EXPECT_FALSE(result.engaged);
-    EXPECT_NEAR(cmd.linear_x, 1.0, kTol);
+    EXPECT_NEAR(cmd.forward_mps, 1.0, kTol);
 }
 
 TEST(HazardBarrierTest, NoPlantFitMeansNoBarrier) {
@@ -357,7 +357,7 @@ TEST(HazardBarrierTest, NoPlantFitMeansNoBarrier) {
     const FieldDescription field = field_with({hazard(0.5, 0.0, 0.4)});
     VelocityCommand cmd{1.0, 0.0, 0.0};
     EXPECT_FALSE(avoidance.limit_command(pose(0.0, 0.0, 0.0), field, 3.0, cmd).engaged);
-    EXPECT_NEAR(cmd.linear_x, 1.0, kTol);
+    EXPECT_NEAR(cmd.forward_mps, 1.0, kTol);
 }
 
 TEST(HazardBarrierTest, DisabledIsAPassThrough) {
@@ -367,7 +367,7 @@ TEST(HazardBarrierTest, DisabledIsAPassThrough) {
     const FieldDescription field = field_with({hazard(0.5, 0.0, 0.4)});
     VelocityCommand cmd{1.0, 0.0, 0.0};
     EXPECT_FALSE(avoidance.limit_command(pose(0.0, 0.0, 0.0), field, 3.0, cmd).engaged);
-    EXPECT_NEAR(cmd.linear_x, 1.0, kTol);
+    EXPECT_NEAR(cmd.forward_mps, 1.0, kTol);
 }
 
 TEST(HazardDisplayTest, ATrackedRingIsBothRobotCirclesPlusTheMargin) {

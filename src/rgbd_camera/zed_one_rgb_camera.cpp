@@ -229,7 +229,7 @@ bool ZedOneRgbCamera::capture_frame() {
 
     {
         std::lock_guard<std::mutex> lock(data_mutex_);
-        latest_data_.rgb.image = bgr;
+        latest_data_.rgb.image = require_rgb_layout(bgr);
         latest_data_.rgb.header.stamp = static_cast<double>(capture_time_ns) * 1e-9;
         latest_data_.rgb.header.frame_id = FrameId::CAMERA;
         // Foxglove image panels reject a calibration whose frame differs from the image's.
@@ -283,7 +283,8 @@ bool ZedOneRgbCamera::get(CameraData &data) {
     if (drops != reported_drops_) {
         spdlog::warn("[ZedOneRgbCamera] Encoder has dropped {} frame(s); it is behind the capture",
                      drops);
-        diagnostics_logger_->log(1, "video_encoder", {{"dropped_frames", std::to_string(drops)}});
+        diagnostics_logger_->log(DiagnosticLevel::WARN, "video_encoder",
+                                 {{"dropped_frames", std::to_string(drops)}});
         reported_drops_ = drops;
     }
     return true;

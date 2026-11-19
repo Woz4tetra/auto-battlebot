@@ -767,8 +767,8 @@ bool Runner::tick() {
     if (remote_.status) {
         const auto &sticks = control_output.command_feedback.stick_commands;
         if (auto it = sticks.find(FrameId::OUR_ROBOT_1); it != sticks.end()) {
-            remote_.status->publish(remote::SticksMessage{.linear = it->second.linear_x,
-                                                          .angular = it->second.angular_z});
+            remote_.status->publish(
+                remote::SticksMessage{.linear = it->second.forward, .angular = it->second.yaw});
         }
     }
 

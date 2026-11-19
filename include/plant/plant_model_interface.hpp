@@ -17,7 +17,7 @@ struct PlantState {
 
 struct TimedCommand {
     double stamp = 0.0;
-    VelocityCommand command{0.0, 0.0, 0.0};
+    StickCommand command{0.0, 0.0, 0.0};
 };
 
 class PlantModelInterface {

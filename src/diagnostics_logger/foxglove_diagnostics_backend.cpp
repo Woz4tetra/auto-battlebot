@@ -48,10 +48,12 @@ std::string diagnostics_module_json(
         if (!first_section) json += ',';
         first_section = false;
         const std::string &section = snap->subsection.empty() ? module : snap->subsection;
-        json += '"' + json_escape(section) + "\":{\"level\":" + std::to_string(snap->level) +
+        json += '"' + json_escape(section) +
+                "\":{\"level\":" + std::to_string(static_cast<int>(snap->level)) +
                 ",\"message\":\"" + json_escape(snap->message) +
-                "\",\"age_ms\":" + json_number(snap->age_ms) +
-                ",\"held\":" + (snap->held ? "true" : "false") + ",\"values\":{";
+                "\",\"age_ms\":" + json_number(snap->ms_since_last_logged) +
+                ",\"held\":" + (snap->is_repeat_of_earlier_message ? "true" : "false") +
+                ",\"values\":{";
         bool first_value = true;
         for (const auto &[key, value] : snap->values) {
             if (!first_value) json += ',';

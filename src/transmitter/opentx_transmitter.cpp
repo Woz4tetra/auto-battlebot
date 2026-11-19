@@ -95,9 +95,9 @@ CommandFeedback OpenTxTransmitter::update() {
 
     CommandFeedback feedback;
     feedback.stick_commands[FrameId::OUR_ROBOT_1] = {
-        .linear_x = body.linear,
-        .linear_y = 0.0,
-        .angular_z = body.angular,
+        .forward = body.linear,
+        .lateral = 0.0,
+        .yaw = body.angular,
     };
     return feedback;
 }
@@ -119,7 +119,7 @@ void OpenTxTransmitter::send(VelocityCommand command) {
     reconnect_if_needed();
     if (!serial_.is_open() || !enabled_) return;
 
-    command.linear_x = limit_linear_acceleration(command.linear_x);
+    command.forward_mps = limit_linear_acceleration(command.forward_mps);
 
     const auto channels = processor_->process(command);
     const int channel_a_value = to_trainer_value(channels.channel_a);
@@ -233,18 +233,19 @@ int OpenTxTransmitter::to_trainer_value(double normalized) {
 }
 
 void OpenTxTransmitter::handle_packet(const CrsfLinkStatistics& pkt) {
-    logger_->debug("link_statistics", {{"up_lq", pkt.up_link_quality},
-                                       {"up_rssi", -static_cast<int>(pkt.up_rssi_ant1)},
-                                       {"down_lq", pkt.down_link_quality},
-                                       {"down_rssi", -static_cast<int>(pkt.down_rssi)}});
+    logger_->debug("link_statistics", {{"up_lq", pkt.up_link_quality_pct},
+                                       {"up_rssi", -static_cast<int>(pkt.up_rssi_ant1_neg_dbm)},
+                                       {"down_lq", pkt.down_link_quality_pct},
+                                       {"down_rssi", -static_cast<int>(pkt.down_rssi_neg_dbm)}});
 }
 
 void OpenTxTransmitter::handle_packet(const CrsfBattery& pkt) {
-    logger_->debug("battery", {{"voltage", pkt.voltage}, {"current", pkt.current}});
+    logger_->debug("battery", {{"voltage", pkt.voltage_v}, {"current", pkt.current_a}});
 }
 
 void OpenTxTransmitter::handle_packet(const CrsfAttitude& pkt) {
-    logger_->debug("attitude", {{"roll", pkt.roll}, {"pitch", pkt.pitch}, {"yaw", pkt.yaw}});
+    logger_->debug("attitude",
+                   {{"roll", pkt.roll_rad}, {"pitch", pkt.pitch_rad}, {"yaw", pkt.yaw_rad}});
 }
 
 void OpenTxTransmitter::handle_packet(const CrsfFlightMode& pkt) {

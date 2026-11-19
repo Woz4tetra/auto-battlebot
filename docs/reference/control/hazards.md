@@ -10,6 +10,10 @@ Each `FieldHazard` carries three sizes.
 
 Half the diagonal of a footprint is the radius of the smallest disc containing it. Using the diagonal rather than half the length keeps the keep-out conservative for a robot approaching a hazard corner-first. The UI draws this same circle per robot so the inflation in a keep-out ring is visible: a tracked ring is this for the hazard, plus this for our own robot, plus the configured margin.
 
+## Discs
+
+A `FieldHazard` is a disc in the field frame regardless of the real shape. Every consumer reduces to a distance-to-centre test, and `EmptyCircleSolver` is already built on point sites plus a radius. Cover an awkward shape with two or three overlapping discs rather than teaching the consumers a second geometry.
+
 ## Layers shared by PursuitNavigation and MotionProfileNavigation
 
 Two aim layers and one speed rule.

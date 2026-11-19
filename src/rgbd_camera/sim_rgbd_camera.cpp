@@ -20,17 +20,17 @@ bool SimRgbdCamera::get(CameraData &data) {
     if (!connection_->is_connected()) return false;
     if (!connection_->step_and_receive(data)) return false;
 
-    if (!data.ground_truth_poses.empty()) {
+    if (data.ground_truth) {
         DiagnosticsData gt_data;
-        const auto &gt = data.ground_truth_poses;
-        gt_data["our_x"] = gt[0].x;
-        gt_data["our_y"] = gt[0].y;
-        gt_data["our_yaw_deg"] = gt[0].yaw * 180.0 / M_PI;
-        for (size_t i = 1; i < gt.size(); ++i) {
-            std::string prefix = "opp" + std::to_string(i) + "_";
-            gt_data[prefix + "x"] = gt[i].x;
-            gt_data[prefix + "y"] = gt[i].y;
-            gt_data[prefix + "yaw_deg"] = gt[i].yaw * 180.0 / M_PI;
+        const auto &gt = *data.ground_truth;
+        gt_data["our_x"] = gt.our_robot.x;
+        gt_data["our_y"] = gt.our_robot.y;
+        gt_data["our_yaw_deg"] = gt.our_robot.yaw * 180.0 / M_PI;
+        for (size_t i = 0; i < gt.opponents.size(); ++i) {
+            std::string prefix = "opp" + std::to_string(i + 1) + "_";
+            gt_data[prefix + "x"] = gt.opponents[i].x;
+            gt_data[prefix + "y"] = gt.opponents[i].y;
+            gt_data[prefix + "yaw_deg"] = gt.opponents[i].yaw * 180.0 / M_PI;
         }
         logger_->debug("ground_truth", gt_data);
     }

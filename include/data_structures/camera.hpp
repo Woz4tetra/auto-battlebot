@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <opencv2/opencv.hpp>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -35,6 +36,11 @@ struct SimMeasurementFrame {
     std::vector<SimRobotMeasurement> robots;
 };
 
+struct SimGroundTruth {
+    Pose2D our_robot;
+    std::vector<Pose2D> opponents;
+};
+
 struct CameraData {
     TransformStamped tf_visodom_from_camera;
     FrameIdentity frame_identity;
@@ -42,9 +48,7 @@ struct CameraData {
     CameraInfo camera_info;
     RgbImage rgb;
     DepthImage depth;
-    /** Ground truth poses from simulation (index 0 = our robot, rest = opponents). Empty outside
-     * sim. */
-    std::vector<Pose2D> ground_truth_poses;
+    std::optional<SimGroundTruth> ground_truth = std::nullopt;
     SimMeasurementFrame sim_measurements;
 };
 

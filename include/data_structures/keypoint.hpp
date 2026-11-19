@@ -1,6 +1,6 @@
 #pragma once
 
-#include <limits>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -16,16 +16,7 @@ struct Keypoint {
     double y = 0.0f;
     double confidence = 1.0;
     int detection_index = 0;
-    /** Height above the field plane in metres, measured from depth by KeypointHeightGate. NaN
-     *  when nothing measured it, in which case consumers fall back to the configured per-label
-     *  constant. Projecting with the measured value removes the assumption that every robot
-     *  stands exactly `keypoint_height_meters` tall. */
-    double height_above_plane = std::numeric_limits<double>::quiet_NaN();
-    /** How far the robot's reference point sits ahead of its front/back keypoint midpoint, in
-     *  metres along its heading. The reference point is our robot's axle, the body origin the
-     *  MuJoCo plant and the RL policy use, and an opponent's footprint centre. Set by the model
-     *  that knows where its keypoints sit on the robot; 0 for models that place them symmetrically
-     *  about the reference point. */
+    std::optional<double> height_above_plane_m = std::nullopt;
     double reference_offset_m = 0.0;
 };
 
@@ -44,9 +35,6 @@ struct BoundingBox {
 struct ModelResultStamped {
     Header header;
     std::vector<Keypoint> keypoints;
-    /** Box per detection, indexed by Keypoint::detection_index. Empty for models that do not
-     *  produce boxes, and entries exist for detections that yielded no keypoints, so the index
-     *  stays aligned with what the detector emitted. */
     std::vector<BoundingBox> boxes;
 
     const BoundingBox *box_for(int detection_index) const {

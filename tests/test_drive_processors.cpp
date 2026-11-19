@@ -28,7 +28,7 @@ DriveProcessorInterface::Config make_config(bool reverse_linear, bool reverse_an
 }
 
 VelocityCommand command(double linear, double angular) {
-    return {.linear_x = linear, .linear_y = 0.0, .angular_z = angular};
+    return {.forward_mps = linear, .lateral_mps = 0.0, .yaw_rate_radps = angular};
 }
 
 const std::vector<VelocityCommand> kCommands = {
@@ -53,11 +53,11 @@ TEST(DriveProcessorTest, TankUnMixesToDifferentialOutput) {
                 const auto differential_body =
                     differential.to_body_velocity(differential.process(cmd));
                 EXPECT_NEAR(body.linear, differential_body.linear, 1e-12)
-                    << "linear=" << cmd.linear_x << " angular=" << cmd.angular_z
+                    << "linear=" << cmd.forward_mps << " angular=" << cmd.yaw_rate_radps
                     << " reverse_linear=" << reverse_linear
                     << " reverse_angular=" << reverse_angular;
                 EXPECT_NEAR(body.angular, differential_body.angular, 1e-12)
-                    << "linear=" << cmd.linear_x << " angular=" << cmd.angular_z
+                    << "linear=" << cmd.forward_mps << " angular=" << cmd.yaw_rate_radps
                     << " reverse_linear=" << reverse_linear
                     << " reverse_angular=" << reverse_angular;
             }
@@ -83,11 +83,11 @@ TEST(DriveProcessorTest, ReadbackUndoesTheReversals) {
                       static_cast<const DriveProcessorInterface*>(&tank)}) {
                     const auto body = processor->to_body_velocity(processor->process(cmd));
                     EXPECT_NEAR(body.linear, expected.channel_a, 1e-12)
-                        << "linear=" << cmd.linear_x << " angular=" << cmd.angular_z
+                        << "linear=" << cmd.forward_mps << " angular=" << cmd.yaw_rate_radps
                         << " reverse_linear=" << reverse_linear
                         << " reverse_angular=" << reverse_angular;
                     EXPECT_NEAR(body.angular, expected.channel_b, 1e-12)
-                        << "linear=" << cmd.linear_x << " angular=" << cmd.angular_z
+                        << "linear=" << cmd.forward_mps << " angular=" << cmd.yaw_rate_radps
                         << " reverse_linear=" << reverse_linear
                         << " reverse_angular=" << reverse_angular;
                 }
@@ -169,10 +169,10 @@ TEST(DriveProcessorTest, InverseRoundTripsWithReversals) {
                   static_cast<const DriveProcessorInterface*>(&tank)}) {
                 for (const auto& cmd : in_range) {
                     const auto body = processor->to_body_velocity(processor->process(cmd));
-                    EXPECT_NEAR(body.linear, cmd.linear_x, 1e-12)
+                    EXPECT_NEAR(body.linear, cmd.forward_mps, 1e-12)
                         << "reverse_linear=" << reverse_linear
                         << " reverse_angular=" << reverse_angular;
-                    EXPECT_NEAR(body.angular, cmd.angular_z, 1e-12)
+                    EXPECT_NEAR(body.angular, cmd.yaw_rate_radps, 1e-12)
                         << "reverse_linear=" << reverse_linear
                         << " reverse_angular=" << reverse_angular;
                 }

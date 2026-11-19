@@ -11,26 +11,6 @@
 #include "diagnostics_logger/diagnostics_module_logger.hpp"
 
 namespace auto_battlebot {
-/**
- * @brief A singleton class that manages diagnostics loggers and forwards to backends.
- *
- * Example usage:
- *     // Initialize once at startup with one or more backends (e.g. UI, Foxglove)
- *     DiagnosticsLogger::initialize({ ui_backend, foxglove_backend });
- *
- *     // Get a logger for a module
- *     auto logger = DiagnosticsLogger::get_logger("module_name");
- *     logger->info({}, "This is an info message");
- *     logger->debug({{"sensor_name", "sensor_value"}});
- *
- *     // Call periodically from a single place
- *     DiagnosticsLogger::publish();
- *
- * If a single logger sets multiple messages before being published, they are concatenated
- * together in the final output.
- *
- * Nested dictionaries and arrays are flattened with keys joined by slashes.
- */
 class DiagnosticsLogger {
    public:
     static void initialize(std::vector<std::shared_ptr<DiagnosticsBackend>> backends);

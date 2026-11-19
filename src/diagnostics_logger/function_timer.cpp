@@ -2,7 +2,8 @@
 
 namespace auto_battlebot {
 FunctionTimer::FunctionTimer(std::shared_ptr<DiagnosticsModuleLogger> logger,
-                             const std::string &function_name, double warn_threshold_ms)
+                             const std::string &function_name,
+                             std::optional<double> warn_threshold_ms)
     : logger_(logger),
       timer_name_(function_name),
       warn_threshold_ms_(warn_threshold_ms),
@@ -36,8 +37,8 @@ void FunctionTimer::log_elapsed_time() {
     DiagnosticsData data;
     data["elapsed_ms"] = elapsed;
 
-    if (warn_threshold_ms_ > 0 && elapsed > warn_threshold_ms_) {
-        data["threshold_ms"] = warn_threshold_ms_;
+    if (warn_threshold_ms_ && elapsed > *warn_threshold_ms_) {
+        data["threshold_ms"] = *warn_threshold_ms_;
         logger_->warning(timer_name_, data, "");
     } else {
         logger_->info(timer_name_, data, "");

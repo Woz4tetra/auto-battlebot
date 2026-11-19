@@ -382,7 +382,7 @@ bool VideoPlaybackCamera::get(CameraData &data) {
     data.camera_info = camera_info_;
     data.camera_info.header.stamp = stamp;
     data.camera_info.header.frame_id = FrameId::CAMERA;
-    data.rgb.image = rectified;
+    data.rgb.image = require_rgb_layout(rectified);
     data.rgb.header.stamp = stamp;
     data.rgb.header.frame_id = FrameId::CAMERA;
     data.pose_tracking_ready = true;

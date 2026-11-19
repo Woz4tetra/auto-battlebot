@@ -98,9 +98,9 @@ TEST_F(PursuitNavigationTest, NoRobotsReturnsZeroCommand) {
 
     VelocityCommand cmd = nav_->update(robots, field, make_target(0.0, 0.0, Label::EMPTY));
 
-    EXPECT_DOUBLE_EQ(cmd.linear_x, 0.0);
-    EXPECT_DOUBLE_EQ(cmd.linear_y, 0.0);
-    EXPECT_DOUBLE_EQ(cmd.angular_z, 0.0);
+    EXPECT_DOUBLE_EQ(cmd.forward_mps, 0.0);
+    EXPECT_DOUBLE_EQ(cmd.lateral_mps, 0.0);
+    EXPECT_DOUBLE_EQ(cmd.yaw_rate_radps, 0.0);
 }
 
 TEST_F(PursuitNavigationTest, DerivativeTermUsesLogicalClockDt) {
@@ -122,13 +122,13 @@ TEST_F(PursuitNavigationTest, DerivativeTermUsesLogicalClockDt) {
     // First tick at t=1.0s: target straight ahead -> angle_error 0; establishes prev timestamp.
     clock->set(1.0);
     VelocityCommand c1 = nav.update(robots, field, make_target(1.0, 0.0));
-    EXPECT_NEAR(c1.angular_z, 0.0, 1e-9);
+    EXPECT_NEAR(c1.yaw_rate_radps, 0.0, 1e-9);
 
     // 0.1s later, target at 45 deg -> angle_error pi/4. d_term = kd * (pi/4) / 0.1.
     clock->set(1.1);
     VelocityCommand c2 = nav.update(robots, field, make_target(1.0, 1.0));
     const double expected = config.angular_kd * (M_PI / 4.0) / 0.1;
-    EXPECT_NEAR(c2.angular_z, expected, 1e-6);
+    EXPECT_NEAR(c2.yaw_rate_radps, expected, 1e-6);
 }
 
 TEST_F(PursuitNavigationTest, NoOurRobotReturnsZeroCommand) {
@@ -138,9 +138,9 @@ TEST_F(PursuitNavigationTest, NoOurRobotReturnsZeroCommand) {
 
     VelocityCommand cmd = nav_->update(robots, field, make_target(1.0, 0.0));
 
-    EXPECT_DOUBLE_EQ(cmd.linear_x, 0.0);
-    EXPECT_DOUBLE_EQ(cmd.linear_y, 0.0);
-    EXPECT_DOUBLE_EQ(cmd.angular_z, 0.0);
+    EXPECT_DOUBLE_EQ(cmd.forward_mps, 0.0);
+    EXPECT_DOUBLE_EQ(cmd.lateral_mps, 0.0);
+    EXPECT_DOUBLE_EQ(cmd.yaw_rate_radps, 0.0);
 }
 
 TEST_F(PursuitNavigationTest, UsesCachedOurRobotPoseWhenTemporarilyMissing) {
@@ -154,14 +154,14 @@ TEST_F(PursuitNavigationTest, UsesCachedOurRobotPoseWhenTemporarilyMissing) {
         Label::OPPONENT, FrameId::THEIR_ROBOT_1, Group::THEIRS, 1.0, 0.0, 0.0));
 
     VelocityCommand first_cmd = nav_->update(first_tick_robots, field, target);
-    EXPECT_GT(first_cmd.linear_x, 0.0);
+    EXPECT_GT(first_cmd.forward_mps, 0.0);
 
     RobotDescriptionsStamped second_tick_robots;
     second_tick_robots.descriptions.push_back(make_robot_with_frame(
         Label::OPPONENT, FrameId::THEIR_ROBOT_1, Group::THEIRS, 1.0, 0.0, 0.0));
 
     VelocityCommand second_cmd = nav_->update(second_tick_robots, field, target);
-    EXPECT_GT(second_cmd.linear_x, 0.0);
+    EXPECT_GT(second_cmd.forward_mps, 0.0);
 }
 
 TEST_F(PursuitNavigationTest, MissingOurRobotWithoutCacheStillReturnsZeroCommand) {
@@ -173,9 +173,9 @@ TEST_F(PursuitNavigationTest, MissingOurRobotWithoutCacheStillReturnsZeroCommand
                                                         Group::THEIRS, 1.0, 0.0, 0.0));
 
     VelocityCommand cmd = nav_->update(robots, field, target);
-    EXPECT_DOUBLE_EQ(cmd.linear_x, 0.0);
-    EXPECT_DOUBLE_EQ(cmd.linear_y, 0.0);
-    EXPECT_DOUBLE_EQ(cmd.angular_z, 0.0);
+    EXPECT_DOUBLE_EQ(cmd.forward_mps, 0.0);
+    EXPECT_DOUBLE_EQ(cmd.lateral_mps, 0.0);
+    EXPECT_DOUBLE_EQ(cmd.yaw_rate_radps, 0.0);
 }
 
 TEST_F(PursuitNavigationTest, NoTargetReturnsZeroCommand) {
@@ -185,9 +185,9 @@ TEST_F(PursuitNavigationTest, NoTargetReturnsZeroCommand) {
 
     VelocityCommand cmd = nav_->update(robots, field, make_target(0.0, 0.0, Label::EMPTY));
 
-    EXPECT_DOUBLE_EQ(cmd.linear_x, 0.0);
-    EXPECT_DOUBLE_EQ(cmd.linear_y, 0.0);
-    EXPECT_DOUBLE_EQ(cmd.angular_z, 0.0);
+    EXPECT_DOUBLE_EQ(cmd.forward_mps, 0.0);
+    EXPECT_DOUBLE_EQ(cmd.lateral_mps, 0.0);
+    EXPECT_DOUBLE_EQ(cmd.yaw_rate_radps, 0.0);
 }
 
 TEST_F(PursuitNavigationTest, FindsOurRobotMrStabsMk1) {
@@ -199,7 +199,7 @@ TEST_F(PursuitNavigationTest, FindsOurRobotMrStabsMk1) {
 
     VelocityCommand cmd = nav_->update(robots, field, make_target(1.0, 0.0));
 
-    EXPECT_TRUE(cmd.linear_x != 0.0 || cmd.angular_z != 0.0);
+    EXPECT_TRUE(cmd.forward_mps != 0.0 || cmd.yaw_rate_radps != 0.0);
 }
 
 TEST_F(PursuitNavigationTest, FindsOurRobotMrStabsMk2) {
@@ -210,7 +210,7 @@ TEST_F(PursuitNavigationTest, FindsOurRobotMrStabsMk2) {
     FieldDescription field = make_field(2.0, 2.0);
 
     VelocityCommand cmd = nav_->update(robots, field, make_target(1.0, 0.0));
-    EXPECT_TRUE(cmd.linear_x != 0.0 || cmd.angular_z != 0.0);
+    EXPECT_TRUE(cmd.forward_mps != 0.0 || cmd.yaw_rate_radps != 0.0);
 }
 
 TEST_F(PursuitNavigationTest, FindsOurRobotMrsBuffMk1) {
@@ -221,7 +221,7 @@ TEST_F(PursuitNavigationTest, FindsOurRobotMrsBuffMk1) {
     FieldDescription field = make_field(2.0, 2.0);
 
     VelocityCommand cmd = nav_->update(robots, field, make_target(1.0, 0.0));
-    EXPECT_TRUE(cmd.linear_x != 0.0 || cmd.angular_z != 0.0);
+    EXPECT_TRUE(cmd.forward_mps != 0.0 || cmd.yaw_rate_radps != 0.0);
 }
 
 TEST_F(PursuitNavigationTest, FindsOurRobotMrsBuffMk2) {
@@ -232,7 +232,7 @@ TEST_F(PursuitNavigationTest, FindsOurRobotMrsBuffMk2) {
     FieldDescription field = make_field(2.0, 2.0);
 
     VelocityCommand cmd = nav_->update(robots, field, make_target(1.0, 0.0));
-    EXPECT_TRUE(cmd.linear_x != 0.0 || cmd.angular_z != 0.0);
+    EXPECT_TRUE(cmd.forward_mps != 0.0 || cmd.yaw_rate_radps != 0.0);
 }
 
 TEST_F(PursuitNavigationTest, TargetsOpponent) {
@@ -243,7 +243,7 @@ TEST_F(PursuitNavigationTest, TargetsOpponent) {
     FieldDescription field = make_field(4.0, 4.0);
 
     VelocityCommand cmd = nav_->update(robots, field, make_target(1.0, 0.0));
-    EXPECT_TRUE(cmd.linear_x != 0.0 || cmd.angular_z != 0.0);
+    EXPECT_TRUE(cmd.forward_mps != 0.0 || cmd.yaw_rate_radps != 0.0);
 }
 
 TEST_F(PursuitNavigationTest, TargetsHouseBot) {
@@ -254,7 +254,7 @@ TEST_F(PursuitNavigationTest, TargetsHouseBot) {
     FieldDescription field = make_field(4.0, 4.0);
 
     VelocityCommand cmd = nav_->update(robots, field, make_target(1.0, 0.0, Label::HOUSE_BOT));
-    EXPECT_TRUE(cmd.linear_x != 0.0 || cmd.angular_z != 0.0);
+    EXPECT_TRUE(cmd.forward_mps != 0.0 || cmd.yaw_rate_radps != 0.0);
 }
 
 TEST_F(PursuitNavigationTest, TargetsClosestOpponent) {
@@ -270,7 +270,7 @@ TEST_F(PursuitNavigationTest, TargetsClosestOpponent) {
 
     VelocityCommand cmd = nav_->update(robots, field, make_target(0.5, 0.0));
 
-    EXPECT_GT(cmd.linear_x, 0.0);
+    EXPECT_GT(cmd.forward_mps, 0.0);
 }
 
 TEST_F(PursuitNavigationTest, MovesForwardWhenFacingTarget) {
@@ -284,8 +284,8 @@ TEST_F(PursuitNavigationTest, MovesForwardWhenFacingTarget) {
 
     VelocityCommand cmd = nav_->update(robots, field, make_target(1.0, 0.0));
 
-    EXPECT_GT(cmd.linear_x, 0.0);
-    EXPECT_NEAR(cmd.angular_z, 0.0, 0.1);
+    EXPECT_GT(cmd.forward_mps, 0.0);
+    EXPECT_NEAR(cmd.yaw_rate_radps, 0.0, 0.1);
 }
 
 TEST_F(PursuitNavigationTest, TurnsWhenTargetToLeft) {
@@ -299,7 +299,7 @@ TEST_F(PursuitNavigationTest, TurnsWhenTargetToLeft) {
 
     VelocityCommand cmd = nav_->update(robots, field, make_target(0.0, 1.0));
 
-    EXPECT_GT(cmd.angular_z, 0.0);
+    EXPECT_GT(cmd.yaw_rate_radps, 0.0);
 }
 
 TEST_F(PursuitNavigationTest, TurnsWhenTargetToRight) {
@@ -313,7 +313,7 @@ TEST_F(PursuitNavigationTest, TurnsWhenTargetToRight) {
 
     VelocityCommand cmd = nav_->update(robots, field, make_target(0.0, -1.0));
 
-    EXPECT_LT(cmd.angular_z, 0.0);
+    EXPECT_LT(cmd.yaw_rate_radps, 0.0);
 }
 
 TEST_F(PursuitNavigationTest, TurnsWhenTargetBehind) {
@@ -328,8 +328,8 @@ TEST_F(PursuitNavigationTest, TurnsWhenTargetBehind) {
     VelocityCommand cmd = nav_->update(robots, field, make_target(-1.0, 0.0));
 
     // Should turn (large angle error means turn in place)
-    EXPECT_NEAR(cmd.linear_x, 0.0, 0.01);
-    EXPECT_NE(cmd.angular_z, 0.0);
+    EXPECT_NEAR(cmd.forward_mps, 0.0, 0.01);
+    EXPECT_NE(cmd.yaw_rate_radps, 0.0);
 }
 
 TEST_F(PursuitNavigationTest, StopsAtTarget) {
@@ -341,8 +341,8 @@ TEST_F(PursuitNavigationTest, StopsAtTarget) {
 
     VelocityCommand cmd = nav_->update(robots, field, make_target(0.05, 0.0));
 
-    EXPECT_DOUBLE_EQ(cmd.linear_x, 0.0);
-    EXPECT_DOUBLE_EQ(cmd.angular_z, 0.0);
+    EXPECT_DOUBLE_EQ(cmd.forward_mps, 0.0);
+    EXPECT_DOUBLE_EQ(cmd.yaw_rate_radps, 0.0);
 }
 
 TEST_F(PursuitNavigationTest, VelocityRampReducesSpeedAtFarDistance) {
@@ -364,8 +364,8 @@ TEST_F(PursuitNavigationTest, VelocityRampReducesSpeedAtFarDistance) {
     VelocityCommand cmd = nav.update(robots, field, make_target(2.0, 0.0));
 
     // Speed must be positive but capped at min_scale (0.5)
-    EXPECT_GT(cmd.linear_x, 0.0);
-    EXPECT_LE(cmd.linear_x, 0.5);
+    EXPECT_GT(cmd.forward_mps, 0.0);
+    EXPECT_LE(cmd.forward_mps, 0.5);
 }
 
 TEST_F(PursuitNavigationTest, VelocityRampFullSpeedBelowNearDistance) {
@@ -387,7 +387,7 @@ TEST_F(PursuitNavigationTest, VelocityRampFullSpeedBelowNearDistance) {
     VelocityCommand cmd = nav.update(robots, field, make_target(0.5, 0.0));
 
     // Angle error is ~0, so turn/steer scaling is ~1; linear_x should be ~1.0
-    EXPECT_GT(cmd.linear_x, 0.9);
+    EXPECT_GT(cmd.forward_mps, 0.9);
 }
 
 TEST_F(PursuitNavigationTest, ForwardVelocityIsBoundedByControllerScaling) {
@@ -402,7 +402,7 @@ TEST_F(PursuitNavigationTest, ForwardVelocityIsBoundedByControllerScaling) {
 
     VelocityCommand cmd = nav.update(robots, field, make_target(10.0, 0.0));
 
-    EXPECT_LE(cmd.linear_x, 1.0);
+    EXPECT_LE(cmd.forward_mps, 1.0);
 }
 
 TEST_F(PursuitNavigationTest, AngularVelocityUsesRealUnits) {
@@ -420,7 +420,7 @@ TEST_F(PursuitNavigationTest, AngularVelocityUsesRealUnits) {
 
     VelocityCommand cmd = nav.update(robots, field, make_target(-1.0, 0.1));
 
-    EXPECT_GT(std::abs(cmd.angular_z), 1.0);
+    EXPECT_GT(std::abs(cmd.yaw_rate_radps), 1.0);
 }
 
 TEST_F(PursuitNavigationTest, NavigatesWithLookaheadTimeConfigured) {
@@ -436,14 +436,14 @@ TEST_F(PursuitNavigationTest, NavigatesWithLookaheadTimeConfigured) {
 
     // Target directly ahead
     RobotDescription target = make_robot(Label::OPPONENT, 1.0, 0.0, 0.0);
-    target.velocity.vy = 1.0;
+    target.velocity.vy_mps = 1.0;
     robots.descriptions.push_back(target);
 
     FieldDescription field = make_field(4.0, 4.0);
 
     VelocityCommand cmd = nav.update(robots, field, make_target(1.0, 0.0));
 
-    EXPECT_GT(cmd.linear_x, 0.0);
+    EXPECT_GT(cmd.forward_mps, 0.0);
 }
 
 TEST_F(PursuitNavigationTest, ClampsTargetToFieldBoundary) {
@@ -462,7 +462,7 @@ TEST_F(PursuitNavigationTest, ClampsTargetToFieldBoundary) {
 
     VelocityCommand cmd = nav.update(robots, field, make_target(10.0, 0.0));
 
-    EXPECT_TRUE(cmd.linear_x >= 0.0 || cmd.angular_z != 0.0);
+    EXPECT_TRUE(cmd.forward_mps >= 0.0 || cmd.yaw_rate_radps != 0.0);
 }
 
 TEST_F(PursuitNavigationTest, WallReverseDisabledByDefault) {
@@ -474,7 +474,7 @@ TEST_F(PursuitNavigationTest, WallReverseDisabledByDefault) {
     FieldDescription field = make_field(2.0, 2.0);
 
     VelocityCommand cmd = nav_->update(robots, field, make_target(-0.5, 0.0));
-    EXPECT_GE(cmd.linear_x, 0.0);
+    EXPECT_GE(cmd.forward_mps, 0.0);
 }
 
 TEST_F(PursuitNavigationTest, WallReverseEngagesWhenTooClose) {
@@ -493,7 +493,7 @@ TEST_F(PursuitNavigationTest, WallReverseEngagesWhenTooClose) {
 
     VelocityCommand cmd = nav.update(robots, field, make_target(0.5, 0.0));
 
-    EXPECT_LT(cmd.linear_x, 0.0);
+    EXPECT_LT(cmd.forward_mps, 0.0);
 }
 
 TEST_F(PursuitNavigationTest, WallReverseDoesNotEngageWhenFarFromWall) {
@@ -511,7 +511,7 @@ TEST_F(PursuitNavigationTest, WallReverseDoesNotEngageWhenFarFromWall) {
 
     VelocityCommand cmd = nav.update(robots, field, make_target(0.5, 0.0));
 
-    EXPECT_GT(cmd.linear_x, 0.0);
+    EXPECT_GT(cmd.forward_mps, 0.0);
 }
 
 TEST_F(PursuitNavigationTest, LinearYIsAlwaysZero) {
@@ -522,7 +522,7 @@ TEST_F(PursuitNavigationTest, LinearYIsAlwaysZero) {
 
     VelocityCommand cmd = nav_->update(robots, field, make_target(1.0, 1.0));
 
-    EXPECT_DOUBLE_EQ(cmd.linear_y, 0.0);
+    EXPECT_DOUBLE_EQ(cmd.lateral_mps, 0.0);
 }
 
 }  // namespace auto_battlebot

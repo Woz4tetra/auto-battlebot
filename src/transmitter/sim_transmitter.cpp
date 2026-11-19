@@ -41,7 +41,9 @@ CommandFeedback SimTransmitter::update() {
     // scaling to report: only the stick map is filled. Without this stream the robot
     // filter's command-driven prediction is inert in simulation.
     CommandFeedback feedback;
-    feedback.stick_commands[FrameId::OUR_ROBOT_1] = *last_sent_;
+    feedback.stick_commands[FrameId::OUR_ROBOT_1] = StickCommand{.forward = last_sent_->forward_mps,
+                                                                 .lateral = last_sent_->lateral_mps,
+                                                                 .yaw = last_sent_->yaw_rate_radps};
     return feedback;
 }
 
@@ -60,9 +62,9 @@ void SimTransmitter::send(VelocityCommand command) {
     // path, so apply the same clip here or the simulated robot drives through turns that the real
     // one cannot.
     const auto saturated =
-        saturate_velocity(command.linear_x, command.angular_z, velocity_saturation_limit_);
-    command.linear_x = saturated.linear;
-    command.angular_z = saturated.angular;
+        saturate_velocity(command.forward_mps, command.yaw_rate_radps, velocity_saturation_limit_);
+    command.forward_mps = saturated.linear;
+    command.yaw_rate_radps = saturated.angular;
 
     last_sent_ = command;
     if (!connection_) return;

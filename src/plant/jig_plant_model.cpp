@@ -31,8 +31,8 @@ void command_at(std::span<const TimedCommand> commands, double stamp, double &u_
     u_ang = 0.0;
     for (auto it = commands.rbegin(); it != commands.rend(); ++it) {
         if (it->stamp <= stamp) {
-            u_lin = it->command.linear_x;
-            u_ang = it->command.angular_z;
+            u_lin = it->command.forward;
+            u_ang = it->command.yaw;
             return;
         }
     }

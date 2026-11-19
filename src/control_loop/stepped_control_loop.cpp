@@ -6,10 +6,11 @@
 namespace auto_battlebot {
 
 SteppedControlLoop::SteppedControlLoop(std::shared_ptr<ControlLoop> loop, double rate_hz)
-    : ControlLoopInterface(std::move(loop)), period_(rate_hz > 0.0 ? 1.0 / rate_hz : 0.0) {}
+    : ControlLoopInterface(std::move(loop)),
+      period_s_(rate_hz > 0.0 ? std::optional<double>(1.0 / rate_hz) : std::nullopt) {}
 
 void SteppedControlLoop::advance_to(double until) {
-    if (period_ <= 0.0) {
+    if (!period_s_) {
         loop_->run_cycle();
         return;
     }
@@ -27,12 +28,12 @@ void SteppedControlLoop::advance_to(double until) {
     // Cap the catch-up so a long stall (a stopped debugger, a slow frame) cannot spend an
     // unbounded time replaying cycles that all see the same measurement anyway.
     constexpr int kMaxCyclesPerAdvance = 64;
-    int cycles = static_cast<int>(std::floor(dt / period_));
+    int cycles = static_cast<int>(std::floor(dt / *period_s_));
     if (cycles <= 0) return;
     if (cycles > kMaxCyclesPerAdvance) cycles = kMaxCyclesPerAdvance;
 
     for (int i = 0; i < cycles; i++) loop_->run_cycle();
-    last_advance_ += cycles * period_;
+    last_advance_ += cycles * *period_s_;
 }
 
 }  // namespace auto_battlebot

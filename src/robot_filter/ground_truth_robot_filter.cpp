@@ -115,9 +115,9 @@ std::optional<RobotDescription> GroundTruthRobotFilter::describe(FrameId frame_i
         Pose2D coasted = held->second;
         if (velocity != prev_velocities_.end() && interval_usable(dt)) {
             desc.velocity = velocity->second;
-            coasted.x += desc.velocity.vx * dt;
-            coasted.y += desc.velocity.vy * dt;
-            coasted.yaw = normalize_angle(coasted.yaw + desc.velocity.omega * dt);
+            coasted.x += desc.velocity.vx_mps * dt;
+            coasted.y += desc.velocity.vy_mps * dt;
+            coasted.yaw = normalize_angle(coasted.yaw + desc.velocity.omega_radps * dt);
         } else if (velocity != prev_velocities_.end()) {
             desc.velocity = velocity->second;
         }

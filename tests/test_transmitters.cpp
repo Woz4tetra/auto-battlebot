@@ -24,9 +24,9 @@ TEST(PlaybackTransmitterTest, FeedbackReportsStickCommand) {
     const CommandFeedback feedback = transmitter.update();
 
     ASSERT_EQ(feedback.stick_commands.count(FrameId::OUR_ROBOT_1), 1u);
-    const VelocityCommand &stick = feedback.stick_commands.at(FrameId::OUR_ROBOT_1);
-    EXPECT_NEAR(stick.linear_x, 0.5, 1e-9);
-    EXPECT_NEAR(stick.angular_z, -0.25, 1e-9);
+    const StickCommand &stick = feedback.stick_commands.at(FrameId::OUR_ROBOT_1);
+    EXPECT_NEAR(stick.forward, 0.5, 1e-9);
+    EXPECT_NEAR(stick.yaw, -0.25, 1e-9);
 }
 
 TEST(PlaybackTransmitterTest, NoFeedbackBeforeFirstSend) {
@@ -52,8 +52,8 @@ TEST(SimTransmitterTest, FeedbackReportsLastSentStickCommand) {
     transmitter.send(VelocityCommand{0.4, 0.0, 0.2});
     const CommandFeedback feedback = transmitter.update();
     ASSERT_EQ(feedback.stick_commands.count(FrameId::OUR_ROBOT_1), 1u);
-    EXPECT_NEAR(feedback.stick_commands.at(FrameId::OUR_ROBOT_1).linear_x, 0.4, 1e-9);
-    EXPECT_NEAR(feedback.stick_commands.at(FrameId::OUR_ROBOT_1).angular_z, 0.2, 1e-9);
+    EXPECT_NEAR(feedback.stick_commands.at(FrameId::OUR_ROBOT_1).forward, 0.4, 1e-9);
+    EXPECT_NEAR(feedback.stick_commands.at(FrameId::OUR_ROBOT_1).yaw, 0.2, 1e-9);
 }
 
 TEST(SimTransmitterTest, DisableClearsFeedback) {

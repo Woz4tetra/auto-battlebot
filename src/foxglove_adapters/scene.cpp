@@ -230,18 +230,18 @@ fg::SceneUpdate to_robot_scene(const RobotDescriptionsStamped &robots) {
             text.color = solid_color;
             text.text = enum_to_string_lower(robot.frame_id) + " (" +
                         enum_to_string_lower(robot.label) + ")";
-            if (std::isfinite(robot.uncertainty.heading_sigma_rad)) {
+            if (robot.uncertainty.heading_sigma_rad) {
                 const long degrees =
-                    std::lround(robot.uncertainty.heading_sigma_rad * 180.0 / M_PI);
+                    std::lround(*robot.uncertainty.heading_sigma_rad * 180.0 / M_PI);
                 text.text += " ±" + std::to_string(degrees) + "°";
             }
             entity.texts.push_back(std::move(text));
             update.entities.push_back(std::move(entity));
         }
 
-        if (std::isfinite(robot.uncertainty.position_sigma_major_axis_m)) {
+        if (robot.uncertainty.position_sigma_major_axis_m) {
             constexpr int kRingSegments = 32;
-            const double radius = 2.0 * robot.uncertainty.position_sigma_major_axis_m;
+            const double radius = 2.0 * *robot.uncertainty.position_sigma_major_axis_m;
             fg::SceneEntity entity = make_entity(robots.header, "robot_uncertainty", robot_id);
             fg::LinePrimitive ring =
                 make_line(fg::LinePrimitive::LineType::LINE_STRIP, 0.006, solid_color);
@@ -325,8 +325,10 @@ fg::SceneUpdate to_navigation_scene(const NavigationVisualization &nav) {
         const double sin_yaw = std::sin(pose.yaw);
 
         {
-            const double vx_field = nav.command.linear_x * cos_yaw - nav.command.linear_y * sin_yaw;
-            const double vy_field = nav.command.linear_x * sin_yaw + nav.command.linear_y * cos_yaw;
+            const double vx_field =
+                nav.command.forward_mps * cos_yaw - nav.command.lateral_mps * sin_yaw;
+            const double vy_field =
+                nav.command.forward_mps * sin_yaw + nav.command.lateral_mps * cos_yaw;
             const double v_mag = std::sqrt(vx_field * vx_field + vy_field * vy_field);
             constexpr double arrow_scale = 0.15;
             if (v_mag > 0.01) {
@@ -341,7 +343,7 @@ fg::SceneUpdate to_navigation_scene(const NavigationVisualization &nav) {
         }
 
         {
-            const double omega = nav.command.angular_z;
+            const double omega = nav.command.yaw_rate_radps;
             if (std::abs(omega) > 0.05) {
                 const fg::Color arc_color = to_color(0.4f, 0.6f, 1.0f, 0.9f);
                 constexpr double arc_radius = 0.06;

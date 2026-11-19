@@ -79,10 +79,10 @@ CrsfParseResult CrsfParser::parse_single_packet(const uint8_t* frame, size_t fra
                 return {std::nullopt, CrsfParseError{"Battery payload too short"}};
             }
             CrsfBattery pkt;
-            pkt.voltage = static_cast<float>((uint16_t(payload[0]) << 8) | payload[1]) / 10.0f;
-            pkt.current = static_cast<float>((uint16_t(payload[2]) << 8) | payload[3]) / 10.0f;
-            pkt.consumption = static_cast<float>((uint32_t(payload[4]) << 16) |
-                                                 (uint32_t(payload[5]) << 8) | payload[6]);
+            pkt.voltage_v = static_cast<float>((uint16_t(payload[0]) << 8) | payload[1]) / 10.0f;
+            pkt.current_a = static_cast<float>((uint16_t(payload[2]) << 8) | payload[3]) / 10.0f;
+            pkt.consumption_mah = static_cast<float>((uint32_t(payload[4]) << 16) |
+                                                     (uint32_t(payload[5]) << 8) | payload[6]);
             return {pkt, std::nullopt};
         }
         case CrsfFrameType::LINK_STATISTICS: {
@@ -90,16 +90,16 @@ CrsfParseResult CrsfParser::parse_single_packet(const uint8_t* frame, size_t fra
                 return {std::nullopt, CrsfParseError{"LinkStatistics payload too short"}};
             }
             CrsfLinkStatistics pkt;
-            pkt.up_rssi_ant1 = payload[0];
-            pkt.up_rssi_ant2 = payload[1];
-            pkt.up_link_quality = payload[2];
-            pkt.up_snr = static_cast<int8_t>(payload[3]);
+            pkt.up_rssi_ant1_neg_dbm = payload[0];
+            pkt.up_rssi_ant2_neg_dbm = payload[1];
+            pkt.up_link_quality_pct = payload[2];
+            pkt.up_snr_db = static_cast<int8_t>(payload[3]);
             pkt.active_antenna = payload[4];
-            pkt.rf_profile = payload[5];
-            pkt.up_rf_power = payload[6];
-            pkt.down_rssi = payload[7];
-            pkt.down_link_quality = payload[8];
-            pkt.down_snr = static_cast<int8_t>(payload[9]);
+            pkt.rf_profile = static_cast<CrsfRfProfile>(payload[5]);
+            pkt.up_rf_power = static_cast<CrsfRfPower>(payload[6]);
+            pkt.down_rssi_neg_dbm = payload[7];
+            pkt.down_link_quality_pct = payload[8];
+            pkt.down_snr_db = static_cast<int8_t>(payload[9]);
             return {pkt, std::nullopt};
         }
         case CrsfFrameType::ATTITUDE: {
@@ -107,13 +107,13 @@ CrsfParseResult CrsfParser::parse_single_packet(const uint8_t* frame, size_t fra
                 return {std::nullopt, CrsfParseError{"Attitude payload too short"}};
             }
             CrsfAttitude pkt;
-            pkt.roll =
+            pkt.roll_rad =
                 static_cast<float>(static_cast<int16_t>((uint16_t(payload[0]) << 8) | payload[1])) /
                 10000.0f;
-            pkt.pitch =
+            pkt.pitch_rad =
                 static_cast<float>(static_cast<int16_t>((uint16_t(payload[2]) << 8) | payload[3])) /
                 10000.0f;
-            pkt.yaw =
+            pkt.yaw_rad =
                 static_cast<float>(static_cast<int16_t>((uint16_t(payload[4]) << 8) | payload[5])) /
                 10000.0f;
             return {pkt, std::nullopt};

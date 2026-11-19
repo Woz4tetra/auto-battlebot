@@ -1,6 +1,6 @@
 #pragma once
 
-#include <limits>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -11,15 +11,10 @@
 #include "velocity.hpp"
 
 namespace auto_battlebot {
-/**
- * One-sigma uncertainty of a rendered robot estimate. Infinity means the estimator has no
- * information on that quantity: a held or dead-reckoned track, an opponent whose heading has never
- * been measured, or a label listed as heading-blind.
- */
 struct PoseUncertainty {
-    double position_sigma_major_axis_m = std::numeric_limits<double>::infinity();
-    double heading_sigma_rad = std::numeric_limits<double>::infinity();
-    double yaw_rate_sigma_rad_s = std::numeric_limits<double>::infinity();
+    std::optional<double> position_sigma_major_axis_m = std::nullopt;
+    std::optional<double> heading_sigma_rad = std::nullopt;
+    std::optional<double> yaw_rate_sigma_rad_s = std::nullopt;
 };
 
 struct RobotDescription {

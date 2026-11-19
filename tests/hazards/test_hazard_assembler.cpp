@@ -31,7 +31,7 @@ RobotDescription house_bot(double x, double y, bool stale = false) {
     robot.pose.position.y = y;
     robot.pose.rotation.w = 1.0;
     robot.size = Size{0.3, 0.3, 0.1};
-    robot.velocity.vx = 0.5;
+    robot.velocity.vx_mps = 0.5;
     robot.is_stale = stale;
     return robot;
 }
@@ -98,7 +98,7 @@ TEST(HazardAssemblerTest, NeutralTrackBecomesATrackedHazardCarryingItsVelocity) 
     ASSERT_EQ(field.hazards.size(), 1u);
     EXPECT_EQ(field.hazards[0].source, HazardSource::TRACKED);
     EXPECT_NEAR(field.hazards[0].center.x, 0.4, 1e-9);
-    EXPECT_NEAR(field.hazards[0].velocity.vx, 0.5, 1e-9);
+    EXPECT_NEAR(field.hazards[0].velocity.vx_mps, 0.5, 1e-9);
     EXPECT_NEAR(field.hazards[0].inflated_radius_m,
                 expected_half_diagonal(0.3, 0.3) + expected_half_diagonal(0.3, 0.2) + 0.05, 1e-9);
     EXPECT_NEAR(field.hazards[0].hard_radius,

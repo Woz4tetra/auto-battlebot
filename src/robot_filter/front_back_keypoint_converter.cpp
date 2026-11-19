@@ -36,9 +36,8 @@ FrontBackKeypointConverter::convert(const ModelResultStamped &model_results,
         Eigen::Vector3d projected_keypoint;
         // Prefer the height KeypointHeightGate measured from depth; the configured constant is
         // the fallback for model_results it could not measure.
-        const double height = std::isfinite(keypoint.height_above_plane)
-                                  ? keypoint.height_above_plane
-                                  : config_.keypoint_heights.height_for(keypoint.label);
+        const double height = keypoint.height_above_plane_m.value_or(
+            config_.keypoint_heights.height_for(keypoint.label));
         if (!project_keypoint_onto_plane(keypoint, plane_center, plane_normal, camera_info, height,
                                          projected_keypoint)) {
             continue;

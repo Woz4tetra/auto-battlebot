@@ -102,8 +102,8 @@ VelocityCommand PursuitNavigation::update(RobotDescriptionsStamped robots, Field
     auto cmd = compute_pursuit_command(our_pose, target.pose, field);
 
     logger_->debug("command", {
-                                  {"linear_x", cmd.linear_x},
-                                  {"angular_z", cmd.angular_z},
+                                  {"linear_x", cmd.forward_mps},
+                                  {"angular_z", cmd.yaw_rate_radps},
                               });
 
     last_visualization_.command = cmd;
@@ -140,17 +140,18 @@ VelocityCommand PursuitNavigation::compute_pursuit_command(const Pose2D &our_pos
     }
 
     VelocityCommand cmd{0.0, 0.0, 0.0};
-    cmd.angular_z = compute_angular_velocity_rad_s(angle_error);
-    cmd.linear_x = compute_linear_velocity(angle_error, distance, cmd.angular_z);
+    cmd.yaw_rate_radps = compute_angular_velocity_rad_s(angle_error);
+    cmd.forward_mps = compute_linear_velocity(angle_error, distance, cmd.yaw_rate_radps);
     const Pose2D our_body = footprint_center(our_pose, our_footprint_offset_from_pose_);
     override_linear_with_wall_reverse(our_body, field, cmd);
     const bool hazard_reverse = hazards_.apply_reverse(our_body, field, cmd);
 
     if (max_linear_command_) {
-        cmd.linear_x = std::clamp(cmd.linear_x, -*max_linear_command_, *max_linear_command_);
+        cmd.forward_mps = std::clamp(cmd.forward_mps, -*max_linear_command_, *max_linear_command_);
     }
     if (max_angular_command_) {
-        cmd.angular_z = std::clamp(cmd.angular_z, -*max_angular_command_, *max_angular_command_);
+        cmd.yaw_rate_radps =
+            std::clamp(cmd.yaw_rate_radps, -*max_angular_command_, *max_angular_command_);
     }
 
     logger_->debug("pursuit",
@@ -261,7 +262,7 @@ void PursuitNavigation::override_linear_with_wall_reverse(const Pose2D &our_pose
     const double heading_err = std::abs(normalize_angle(angle_to_wall - our_pose.yaw));
     if (heading_err >= wall_heading_threshold_rad_) return;
 
-    cmd.linear_x = -std::max(std::abs(cmd.linear_x), wall_reverse_min_speed_);
+    cmd.forward_mps = -std::max(std::abs(cmd.forward_mps), wall_reverse_min_speed_);
     logger_->debug("wall_reverse", {{"wall_dist", wall_dist},
                                     {"angle_to_wall_deg", angle_to_wall * 180.0 / M_PI},
                                     {"heading_err_deg", heading_err * 180.0 / M_PI}});

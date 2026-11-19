@@ -299,16 +299,16 @@ TEST(PlantStickToBodyVelocityTest, AppliesGainsPerDirection) {
     params.k_ang = 10.0;
 
     const VelocityCommand forward = plant_stick_to_body_velocity({0.5, 0.0, 0.0}, params);
-    EXPECT_NEAR(forward.linear_x, 2.0, 1e-12);
-    EXPECT_NEAR(forward.angular_z, 0.0, 1e-12);
+    EXPECT_NEAR(forward.forward_mps, 2.0, 1e-12);
+    EXPECT_NEAR(forward.yaw_rate_radps, 0.0, 1e-12);
 
     const VelocityCommand reverse = plant_stick_to_body_velocity({-0.5, 0.0, 0.0}, params);
-    EXPECT_NEAR(reverse.linear_x, -1.0, 1e-12);
+    EXPECT_NEAR(reverse.forward_mps, -1.0, 1e-12);
 
     const VelocityCommand yaw = plant_stick_to_body_velocity({0.0, 0.0, -0.25}, params);
-    EXPECT_NEAR(yaw.angular_z, -2.5, 1e-12);
+    EXPECT_NEAR(yaw.yaw_rate_radps, -2.5, 1e-12);
 
-    EXPECT_NEAR(plant_stick_to_body_velocity({0.5, 0.7, 0.0}, params).linear_y, 0.0, 1e-12);
+    EXPECT_NEAR(plant_stick_to_body_velocity({0.5, 0.7, 0.0}, params).lateral_mps, 0.0, 1e-12);
 }
 
 TEST(PlantStickToBodyVelocityTest, IgnoresDeadzones) {
@@ -318,7 +318,7 @@ TEST(PlantStickToBodyVelocityTest, IgnoresDeadzones) {
 
     const VelocityCommand converted =
         plant_stick_to_body_velocity({inside_deadzone, 0.0, 0.0}, params);
-    EXPECT_NEAR(converted.linear_x, params.k_fwd * inside_deadzone, 1e-12);
+    EXPECT_NEAR(converted.forward_mps, params.k_fwd * inside_deadzone, 1e-12);
 
     double v_target = 0.0;
     double w_target = 0.0;

@@ -54,9 +54,9 @@ CommandFeedback PlaybackTransmitter::update() {
 
     CommandFeedback feedback;
     feedback.stick_commands[FrameId::OUR_ROBOT_1] = {
-        .linear_x = last_processed_->linear,
-        .linear_y = 0.0,
-        .angular_z = last_processed_->angular,
+        .forward = last_processed_->linear,
+        .lateral = 0.0,
+        .yaw = last_processed_->angular,
     };
     return feedback;
 }

@@ -7,28 +7,28 @@ namespace auto_battlebot {
 DiagnosticsModuleLogger::DiagnosticsModuleLogger(const std::string &logger_name, TimeSource now)
     : logger_name_(logger_name), now_(std::move(now)) {}
 
-void DiagnosticsModuleLogger::log(int8_t level, const std::string &subsection_name,
+void DiagnosticsModuleLogger::log(DiagnosticLevel level, const std::string &subsection_name,
                                   const DiagnosticsData &data) {
     log(level, subsection_name, data, "");
 }
-void DiagnosticsModuleLogger::log(int8_t level, const std::string &subsection_name,
+void DiagnosticsModuleLogger::log(DiagnosticLevel level, const std::string &subsection_name,
                                   const std::string &message) {
     log(level, subsection_name, {}, message);
 }
-void DiagnosticsModuleLogger::log(int8_t level, const DiagnosticsData &data) {
+void DiagnosticsModuleLogger::log(DiagnosticLevel level, const DiagnosticsData &data) {
     log(level, "", data, "");
 }
-void DiagnosticsModuleLogger::log(int8_t level, const std::string &message) {
+void DiagnosticsModuleLogger::log(DiagnosticLevel level, const std::string &message) {
     log(level, "", {}, message);
 }
-void DiagnosticsModuleLogger::log(int8_t level, const std::string &subsection_name,
+void DiagnosticsModuleLogger::log(DiagnosticLevel level, const std::string &subsection_name,
                                   const DiagnosticsData &data, const std::string &message) {
     const auto now = now_();
     std::lock_guard<std::mutex> lock(mutex_);
     Section &section = sections_[subsection_name];
-    if (!section.fresh) {
+    if (!section.logged_this_window) {
         section = Section{};
-        section.fresh = true;
+        section.logged_this_window = true;
     }
     section.level = std::max(level, section.level);
     section.last_logged = now;
@@ -102,7 +102,7 @@ void DiagnosticsModuleLogger::clear() {
         if (now - it->second.last_logged >= HELD_SECTION_EXPIRY) {
             it = sections_.erase(it);
         } else {
-            it->second.fresh = false;
+            it->second.logged_this_window = false;
             ++it;
         }
     }
@@ -111,7 +111,7 @@ void DiagnosticsModuleLogger::clear() {
 bool DiagnosticsModuleLogger::has_status() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return std::any_of(sections_.begin(), sections_.end(),
-                       [](const auto &entry) { return entry.second.fresh; });
+                       [](const auto &entry) { return entry.second.logged_this_window; });
 }
 
 std::vector<DiagnosticStatusSnapshot> DiagnosticsModuleLogger::get_snapshots() const {
@@ -120,7 +120,7 @@ std::vector<DiagnosticStatusSnapshot> DiagnosticsModuleLogger::get_snapshots() c
     std::vector<DiagnosticStatusSnapshot> snapshots;
     for (const auto &[subsection_name, section] : sections_) {
         const auto age = now - section.last_logged;
-        if (!section.fresh && age >= HELD_SECTION_EXPIRY) continue;
+        if (!section.logged_this_window && age >= HELD_SECTION_EXPIRY) continue;
         std::string combined_message;
         for (size_t i = 0; i < section.messages.size(); ++i) {
             if (i > 0) combined_message += " | ";
@@ -132,8 +132,8 @@ std::vector<DiagnosticStatusSnapshot> DiagnosticsModuleLogger::get_snapshots() c
         snap.level = section.level;
         snap.values = flatten_diagnostics_data(section.data);
         snap.message = combined_message;
-        snap.age_ms = std::chrono::duration<double, std::milli>(age).count();
-        snap.held = !section.fresh;
+        snap.ms_since_last_logged = std::chrono::duration<double, std::milli>(age).count();
+        snap.is_repeat_of_earlier_message = !section.logged_this_window;
         snapshots.push_back(std::move(snap));
     }
     return snapshots;

@@ -73,12 +73,13 @@ TEST(RlPolicyNavigationTest, NoRobotCommandsZeroAndLogsIt) {
     logger->clear();
 
     const VelocityCommand command = nav->update(robots_of({}), field(), TargetSelection{});
-    EXPECT_EQ(command.linear_x, 0.0);
-    EXPECT_EQ(command.linear_y, 0.0);
-    EXPECT_EQ(command.angular_z, 0.0);
+    EXPECT_EQ(command.forward_mps, 0.0);
+    EXPECT_EQ(command.lateral_mps, 0.0);
+    EXPECT_EQ(command.yaw_rate_radps, 0.0);
     bool logged = false;
     for (const auto &snapshot : logger->get_snapshots()) {
-        logged = logged || (snapshot.subsection == "no_robot" && !snapshot.held);
+        logged =
+            logged || (snapshot.subsection == "no_robot" && !snapshot.is_repeat_of_earlier_message);
     }
     EXPECT_TRUE(logged);
     EXPECT_FALSE(nav->get_last_visualization().path.has_value());
@@ -91,22 +92,23 @@ TEST(RlPolicyNavigationTest, AnUnmeasuredRobotCommandsZero) {
     logger->clear();
 
     RobotDescription ours = robot_at(FrameId::OUR_ROBOT_1, 0.0, 0.0);
-    ours.velocity.omega = 15.0;
+    ours.velocity.omega_radps = 15.0;
     ours.measurement_age_s = RlPolicyNavigationConfiguration{}.max_our_unmeasured_s + 0.05;
     const VelocityCommand command = nav->update(robots_of({ours}), field(), TargetSelection{});
-    EXPECT_EQ(command.linear_x, 0.0);
-    EXPECT_EQ(command.angular_z, 0.0);
+    EXPECT_EQ(command.forward_mps, 0.0);
+    EXPECT_EQ(command.yaw_rate_radps, 0.0);
     bool logged = false;
     for (const auto &snapshot : logger->get_snapshots()) {
-        logged = logged || (snapshot.subsection == "our_robot_unmeasured" && !snapshot.held);
+        logged = logged || (snapshot.subsection == "our_robot_unmeasured" &&
+                            !snapshot.is_repeat_of_earlier_message);
     }
     EXPECT_TRUE(logged);
 
     // Measured again: the policy steps on that same tick rather than waiting out its period.
     ours.measurement_age_s = 0.0;
     const VelocityCommand resumed = nav->update(robots_of({ours}), field(), TargetSelection{});
-    EXPECT_DOUBLE_EQ(resumed.linear_x, 0.3);
-    EXPECT_DOUBLE_EQ(resumed.angular_z, -0.1);
+    EXPECT_DOUBLE_EQ(resumed.forward_mps, 0.3);
+    EXPECT_DOUBLE_EQ(resumed.yaw_rate_radps, -0.1);
 }
 
 TEST(RlPolicyNavigationTest, AFrozenSnapshotAgesOnTheControlClock) {
@@ -118,10 +120,10 @@ TEST(RlPolicyNavigationTest, AFrozenSnapshotAgesOnTheControlClock) {
     robots.header.stamp = 10.0;
     robots.descriptions[0].measurement_age_s = 0.05;
     clock->set(10.05);
-    EXPECT_DOUBLE_EQ(nav.update(robots, field(), TargetSelection{}).linear_x, 0.3);
+    EXPECT_DOUBLE_EQ(nav.update(robots, field(), TargetSelection{}).forward_mps, 0.3);
 
     clock->set(10.0 + RlPolicyNavigationConfiguration{}.max_our_unmeasured_s);
-    EXPECT_EQ(nav.update(robots, field(), TargetSelection{}).linear_x, 0.0);
+    EXPECT_EQ(nav.update(robots, field(), TargetSelection{}).forward_mps, 0.0);
 }
 
 TEST(RlPolicyNavigationTest, RefusesHoldOpponentMode) {
@@ -179,9 +181,9 @@ TEST(RlPolicyNavigationTest, ConstantPolicyDrivesItsActionUnedited) {
     target.pose = Pose2D{1.0, 0.5, 0.0};
     const VelocityCommand command =
         nav->update(robots_of({robot_at(FrameId::OUR_ROBOT_1, -0.2, 0.1)}), field(), target);
-    EXPECT_DOUBLE_EQ(command.linear_x, 0.3);
-    EXPECT_DOUBLE_EQ(command.linear_y, 0.0);
-    EXPECT_DOUBLE_EQ(command.angular_z, -0.1);
+    EXPECT_DOUBLE_EQ(command.forward_mps, 0.3);
+    EXPECT_DOUBLE_EQ(command.lateral_mps, 0.0);
+    EXPECT_DOUBLE_EQ(command.yaw_rate_radps, -0.1);
 
     const auto &viz = nav->get_last_visualization();
     ASSERT_TRUE(viz.path.has_value());
@@ -189,7 +191,7 @@ TEST(RlPolicyNavigationTest, ConstantPolicyDrivesItsActionUnedited) {
     EXPECT_DOUBLE_EQ(viz.path->our_y, 0.1);
     EXPECT_DOUBLE_EQ(viz.path->target_x, 1.0);
     EXPECT_DOUBLE_EQ(viz.path->target_y, 0.5);
-    EXPECT_DOUBLE_EQ(viz.command.linear_x, 0.3);
+    EXPECT_DOUBLE_EQ(viz.command.forward_mps, 0.3);
 }
 
 TEST(RlPolicyNavigationTest, TheHazardBarrierClipsDrivingTowardAHole) {
@@ -213,13 +215,13 @@ TEST(RlPolicyNavigationTest, TheHazardBarrierClipsDrivingTowardAHole) {
     // 5 cm from the hard rim, facing it: 0.3 of 4.9 m/s cannot stop in time.
     const VelocityCommand toward =
         nav->update(robots_of({robot_at(FrameId::OUR_ROBOT_1, 0.0, 0.0)}), with_hole, {});
-    EXPECT_LT(toward.linear_x, 0.3);
-    EXPECT_DOUBLE_EQ(toward.angular_z, -0.1);
+    EXPECT_LT(toward.forward_mps, 0.3);
+    EXPECT_DOUBLE_EQ(toward.yaw_rate_radps, -0.1);
 
     // Facing away, the policy's forward command leaves the hole behind and passes unedited.
     const VelocityCommand away =
         nav->update(robots_of({robot_at(FrameId::OUR_ROBOT_1, 0.0, 0.0, M_PI)}), with_hole, {});
-    EXPECT_DOUBLE_EQ(away.linear_x, 0.3);
+    EXPECT_DOUBLE_EQ(away.forward_mps, 0.3);
 }
 
 TEST(RlPolicyNavigationConfigTest, TheHazardBarrierNeedsAPlant) {
@@ -242,17 +244,17 @@ TEST(RlPolicyNavigationTest, StepsThePolicyEveryPeriodAndHoldsTheActionBetween) 
     };
 
     const VelocityCommand first = tick(1.0, 3.0);
-    EXPECT_NEAR(first.linear_x, std::tanh(0.5 * 1.0 / 2.5), 1e-6);
-    EXPECT_NEAR(first.angular_z, std::tanh(0.5 * 3.0 / 15.0), 1e-6);
+    EXPECT_NEAR(first.forward_mps, std::tanh(0.5 * 1.0 / 2.5), 1e-6);
+    EXPECT_NEAR(first.yaw_rate_radps, std::tanh(0.5 * 3.0 / 15.0), 1e-6);
     // The bundle's policy_period_ticks is 5: four more ticks repeat the stored action.
     for (int i = 0; i < 4; ++i) {
         const VelocityCommand held = tick(2.0, -3.0);
-        EXPECT_DOUBLE_EQ(held.linear_x, first.linear_x) << "tick " << i + 1;
-        EXPECT_DOUBLE_EQ(held.angular_z, first.angular_z) << "tick " << i + 1;
+        EXPECT_DOUBLE_EQ(held.forward_mps, first.forward_mps) << "tick " << i + 1;
+        EXPECT_DOUBLE_EQ(held.yaw_rate_radps, first.yaw_rate_radps) << "tick " << i + 1;
     }
     const VelocityCommand next = tick(2.0, -3.0);
-    EXPECT_NEAR(next.linear_x, std::tanh(0.5 * 2.0 / 2.5), 1e-6);
-    EXPECT_NEAR(next.angular_z, std::tanh(0.5 * -3.0 / 15.0), 1e-6);
+    EXPECT_NEAR(next.forward_mps, std::tanh(0.5 * 2.0 / 2.5), 1e-6);
+    EXPECT_NEAR(next.yaw_rate_radps, std::tanh(0.5 * -3.0 / 15.0), 1e-6);
 }
 
 TEST(RlPolicyNavigationTest, TheTargetOpponentFollowsTheBehaviourMode) {
@@ -269,13 +271,14 @@ TEST(RlPolicyNavigationTest, TheTargetOpponentFollowsTheBehaviourMode) {
     auto attack = make_nav(config_for(bundle));
     attack->initialize();
     target.mode = BehaviorMode::ATTACK;
-    EXPECT_NEAR(attack->update(robots, field(), target).linear_x, std::tanh(0.5 * 1.0 / 2.0), 1e-6);
+    EXPECT_NEAR(attack->update(robots, field(), target).forward_mps, std::tanh(0.5 * 1.0 / 2.0),
+                1e-6);
 
     // RUN_AWAY: the target pose is a safe point, so the opponent is the one nearest us.
     auto run_away = make_nav(config_for(bundle));
     run_away->initialize();
     target.mode = BehaviorMode::RUN_AWAY;
-    EXPECT_NEAR(run_away->update(robots, field(), target).linear_x, std::tanh(0.5 * -0.5 / 2.0),
+    EXPECT_NEAR(run_away->update(robots, field(), target).forward_mps, std::tanh(0.5 * -0.5 / 2.0),
                 1e-6);
 }
 

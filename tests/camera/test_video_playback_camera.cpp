@@ -336,7 +336,7 @@ TEST_F(VideoPlaybackCameraTest, IgnoresThePreviousRunsOutput) {
     ASSERT_TRUE(camera.initialize());
     CameraData data;
     ASSERT_TRUE(camera.get(data));
-    EXPECT_TRUE(data.ground_truth_poses.empty());
+    EXPECT_FALSE(data.ground_truth.has_value());
     EXPECT_EQ(data.rgb.header.frame_id, FrameId::CAMERA);
 }
 

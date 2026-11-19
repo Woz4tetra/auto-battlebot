@@ -137,9 +137,9 @@ bool SimConnection::step_and_receive(CameraData& data) {
     if (!is_connected()) return false;
 
     SimRequest req{};
-    req.linear_x = pending_command_.linear_x;
-    req.linear_y = pending_command_.linear_y;
-    req.angular_z = pending_command_.angular_z;
+    req.linear_x = pending_command_.forward_mps;
+    req.linear_y = pending_command_.lateral_mps;
+    req.angular_z = pending_command_.yaw_rate_radps;
     if (!send_all(&req, sizeof(req))) {
         spdlog::error("SimConnection: failed to send command");
         disconnect();
@@ -177,7 +177,7 @@ bool SimConnection::step_and_receive(CameraData& data) {
         return false;
     }
 
-    data.ground_truth_poses.resize(gt_count);
+    std::vector<Pose2D> gt_poses(gt_count);
     for (uint32_t i = 0; i < gt_count; ++i) {
         struct {
             double x, y, yaw;
@@ -187,9 +187,13 @@ bool SimConnection::step_and_receive(CameraData& data) {
             disconnect();
             return false;
         }
-        data.ground_truth_poses[i] = Pose2D{gt.x, gt.y, gt.yaw};
+        gt_poses[i] = Pose2D{gt.x, gt.y, gt.yaw};
     }
-    last_gt_poses_ = data.ground_truth_poses;
+    if (!gt_poses.empty()) {
+        data.ground_truth = SimGroundTruth{
+            gt_poses.front(), std::vector<Pose2D>(gt_poses.begin() + 1, gt_poses.end())};
+    }
+    last_gt_poses_ = std::move(gt_poses);
 
     // What the sim's sensing model delivered: a header, then one slot per ground-truth pose.
     // Flags travel as 0.0 / 1.0 doubles (simulation/protocol.py MEAS_*_FMT).
@@ -224,10 +228,10 @@ bool SimConnection::step_and_receive(CameraData& data) {
     Header stamp{hdr.sim_time_s, FrameId::CAMERA};
 
     data.rgb.header = stamp;
-    data.rgb.image = rgb;
+    data.rgb.image = require_rgb_layout(rgb);
 
     data.depth.header = stamp;
-    data.depth.image = depth;
+    data.depth.image = require_depth_layout(depth);
 
     data.camera_info.header = stamp;
     data.camera_info.width = w;

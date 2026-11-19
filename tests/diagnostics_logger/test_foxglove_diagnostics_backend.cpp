@@ -19,8 +19,8 @@ TEST(FoxgloveDiagnosticsBackendTest, ModuleJsonKeepsTypesAndKeysBySubsection) {
     tick.level = DiagnosticLevel::WARN;
     tick.message = "slow \"tick\"";
     tick.values = {{"elapsed_ms", 12.5}, {"nan_value", std::nan("")}};
-    tick.age_ms = 40.5;
-    tick.held = true;
+    tick.ms_since_last_logged = 40.5;
+    tick.is_repeat_of_earlier_message = true;
 
     const auto json = diagnostics_module_json("runner", {&top, &tick});
     EXPECT_EQ(json,

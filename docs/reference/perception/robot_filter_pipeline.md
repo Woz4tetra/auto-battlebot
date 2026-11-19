@@ -114,6 +114,8 @@ Suppresses robot-blob detections that hold the same field position for seconds o
 
 Keypoint heights correct the radial bias of flat-plane projection. Heights are per robot label with a shared default for labels without an entry. A height of 0.0 disables the correction.
 
+`Keypoint::height_above_plane_m` is the height `KeypointHeightGate` measured from depth. It is empty when nothing measured it, and consumers then fall back to the configured per-label height. Projecting with the measured value removes the assumption that every robot stands exactly the configured height tall.
+
 ## Motion estimator seam
 
 - `MotionEstimatorInterface` is the propagation seam inside `RobotFrontBackFilter`. It owns per-track motion state between the association front-end (keypoint conversion, blob merging, FrameId assignment) and the emitted `RobotDescriptions`. Implementations swap the state estimation strategy (dead reckoning vs Kalman) without touching association.
@@ -151,6 +153,7 @@ The gate measures relief (the median height of the box's inscribed circle over t
 - Blob keypoints sit at the ends of the box midline, which land on the floor beside a robot. Sampling the inscribed circle reads the robot where sampling at the keypoints reads the floor.
 - A missing depth frame abstains instead of dropping detections, so a dropped frame never blinds the pipeline. A model that produces no boxes cannot be gated, only annotated.
 - A group survives whole. One keypoint over a hole in the depth map still measures from its partner, and both keep the group height, because a half-dropped front/back pair is useless downstream.
+- `ModelResultStamped::boxes` is indexed by `Keypoint::detection_index`. It is empty for models that produce no boxes. It has an entry for every detection, including ones that yielded no keypoints, so the index stays aligned with what the detector emitted and `box_for` returns the right detection's box.
 - Test fixture: the field transform puts the plane 3 m down the optical axis with the normal parallel to it, so keypoint height is exactly `3.0 - depth` at every pixel. Fixture boxes are the keypoint bounding rectangle inflated by a pad so the inscribed circle covers the midline like a real detection box.
 
 ## Opponent filter test scenarios

@@ -207,8 +207,8 @@ ObservationInputsV1 observation_inputs_v1(const ObservationContext &context,
     in.our_y = our_pose.y;
     in.our_yaw = our_pose.yaw;
     in.our_speed =
-        our.velocity.vx * std::cos(our_pose.yaw) + our.velocity.vy * std::sin(our_pose.yaw);
-    in.our_yaw_rate = our.velocity.omega;
+        our.velocity.vx_mps * std::cos(our_pose.yaw) + our.velocity.vy_mps * std::sin(our_pose.yaw);
+    in.our_yaw_rate = our.velocity.omega_radps;
     in.our_age_s = our.measurement_age_s;
     in.our_stale = our.is_stale;
     in.run_away = context.target.mode == BehaviorMode::RUN_AWAY;
@@ -229,12 +229,12 @@ ObservationInputsV1 observation_inputs_v1(const ObservationContext &context,
         in.opp_x = pose.x;
         in.opp_y = pose.y;
         in.opp_yaw = pose.yaw;
-        in.opp_vx = opponent.velocity.vx;
-        in.opp_vy = opponent.velocity.vy;
-        in.opp_yaw_rate = opponent.velocity.omega;
-        in.opp_position_sigma = opponent.uncertainty.position_sigma_major_axis_m;
-        in.opp_heading_sigma = opponent.uncertainty.heading_sigma_rad;
-        in.opp_yaw_rate_sigma = opponent.uncertainty.yaw_rate_sigma_rad_s;
+        in.opp_vx = opponent.velocity.vx_mps;
+        in.opp_vy = opponent.velocity.vy_mps;
+        in.opp_yaw_rate = opponent.velocity.omega_radps;
+        in.opp_position_sigma = opponent.uncertainty.position_sigma_major_axis_m.value_or(kInf);
+        in.opp_heading_sigma = opponent.uncertainty.heading_sigma_rad.value_or(kInf);
+        in.opp_yaw_rate_sigma = opponent.uncertainty.yaw_rate_sigma_rad_s.value_or(kInf);
         in.opp_half_diagonal = 0.5 * std::hypot(opponent.size.x, opponent.size.y);
         in.opp_age_s = opponent.measurement_age_s;
         in.opp_stale = opponent.is_stale;
@@ -245,9 +245,9 @@ ObservationInputsV1 observation_inputs_v1(const ObservationContext &context,
 
     hazard_storage.clear();
     for (const FieldHazard &hazard : context.field.hazards) {
-        hazard_storage.push_back(ObservationHazardV1{hazard.center.x, hazard.center.y,
-                                                     hazard.object_radius, hazard.kind,
-                                                     hazard.velocity.vx, hazard.velocity.vy, true});
+        hazard_storage.push_back(
+            ObservationHazardV1{hazard.center.x, hazard.center.y, hazard.object_radius, hazard.kind,
+                                hazard.velocity.vx_mps, hazard.velocity.vy_mps, true});
     }
     in.hazards = hazard_storage;
     return in;

@@ -603,10 +603,10 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
                     plant_stick_to_body_velocity(cmd_it->second, our_dr_plant_);
                 Pose2D predicted_pose = pose_to_pose2d(track.description.pose);
                 const Eigen::Vector2d velocity_field =
-                    body_velocity_to_field(cmd.linear_x, cmd.linear_y, predicted_pose.yaw);
+                    body_velocity_to_field(cmd.forward_mps, cmd.lateral_mps, predicted_pose.yaw);
                 predicted_pose.x += velocity_field.x() * dt;
                 predicted_pose.y += velocity_field.y() * dt;
-                predicted_pose.yaw = ekf::wrap_angle(predicted_pose.yaw + cmd.angular_z * dt);
+                predicted_pose.yaw = ekf::wrap_angle(predicted_pose.yaw + cmd.yaw_rate_radps * dt);
                 track.description.pose = pose2d_to_pose(predicted_pose);
                 clip_to_field_bounds(track.description.pose.position, field,
                                      context.field_bounds_margin_meters);
@@ -679,11 +679,11 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
         // Infinite sigmas (heading never measured, heading-blind label) are left out rather
         // than written as a non-finite number.
         DiagnosticsData fields{
-            {"position_sigma_major_axis_m", uncertainty.position_sigma_major_axis_m},
+            {"position_sigma_major_axis_m", uncertainty.position_sigma_major_axis_m.value_or(0.0)},
             {"consecutive_heading_flips", track.consecutive_heading_flips}};
-        if (std::isfinite(uncertainty.heading_sigma_rad)) {
-            fields["heading_sigma_rad"] = uncertainty.heading_sigma_rad;
-            fields["yaw_rate_sigma_rad_s"] = uncertainty.yaw_rate_sigma_rad_s;
+        if (uncertainty.heading_sigma_rad) {
+            fields["heading_sigma_rad"] = *uncertainty.heading_sigma_rad;
+            fields["yaw_rate_sigma_rad_s"] = uncertainty.yaw_rate_sigma_rad_s.value_or(0.0);
         }
         diagnostics_logger_->debug("opponent_" + std::string(magic_enum::enum_name(frame_id)),
                                    fields);
@@ -750,10 +750,10 @@ std::optional<std::vector<RobotDescription>> KalmanMotionEstimator::coast(double
             const VelocityCommand cmd = plant_stick_to_body_velocity(cmd_it->second, our_dr_plant_);
             Pose2D predicted_pose = pose_to_pose2d(output.pose);
             const Eigen::Vector2d velocity_field =
-                body_velocity_to_field(cmd.linear_x, cmd.linear_y, predicted_pose.yaw);
+                body_velocity_to_field(cmd.forward_mps, cmd.lateral_mps, predicted_pose.yaw);
             predicted_pose.x += velocity_field.x() * dt;
             predicted_pose.y += velocity_field.y() * dt;
-            predicted_pose.yaw = ekf::wrap_angle(predicted_pose.yaw + cmd.angular_z * dt);
+            predicted_pose.yaw = ekf::wrap_angle(predicted_pose.yaw + cmd.yaw_rate_radps * dt);
             output.pose = pose2d_to_pose(predicted_pose);
             clip_to_field_bounds(output.pose.position, last_field_, last_field_margin_);
         }

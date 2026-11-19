@@ -34,12 +34,12 @@ void plant_steady_state(double u_lin, double u_ang, const JigPlantParams &params
     }
 }
 
-VelocityCommand plant_stick_to_body_velocity(const VelocityCommand &stick,
+VelocityCommand plant_stick_to_body_velocity(const StickCommand &stick,
                                              const JigPlantParams &params) {
     return VelocityCommand{
-        .linear_x = (stick.linear_x >= 0.0 ? params.k_fwd : params.k_rev) * stick.linear_x,
-        .linear_y = 0.0,
-        .angular_z = params.k_ang * stick.angular_z,
+        .forward_mps = (stick.forward >= 0.0 ? params.k_fwd : params.k_rev) * stick.forward,
+        .lateral_mps = 0.0,
+        .yaw_rate_radps = params.k_ang * stick.yaw,
     };
 }
 

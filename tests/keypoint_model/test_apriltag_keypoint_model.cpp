@@ -207,10 +207,10 @@ TEST(AprilTagKeypointModelTest, DetectsRenderedTagAndRecoversPose) {
     EXPECT_NEAR(result.keypoints[1].x, back_truth.x, 1.5);
     EXPECT_NEAR(result.keypoints[1].y, back_truth.y, 1.5);
     // Nose down: the front point sits lower than the back one.
-    EXPECT_NEAR(result.keypoints[0].height_above_plane, kAxleHeight - 0.05 * std::sin(kRestPitch),
-                1e-9);
-    EXPECT_NEAR(result.keypoints[1].height_above_plane, kAxleHeight + 0.05 * std::sin(kRestPitch),
-                1e-9);
+    EXPECT_NEAR(*result.keypoints[0].height_above_plane_m,
+                kAxleHeight - 0.05 * std::sin(kRestPitch), 1e-9);
+    EXPECT_NEAR(*result.keypoints[1].height_above_plane_m,
+                kAxleHeight + 0.05 * std::sin(kRestPitch), 1e-9);
     ASSERT_EQ(result.boxes.size(), 1u);
     EXPECT_EQ(result.keypoints[0].detection_index, 0);
     ASSERT_EQ(model.last_detections().detections.size(), 1u);
@@ -246,7 +246,7 @@ TEST(AprilTagKeypointModelTest, BottomTagMeansUpsideDown) {
     const cv::Point2d front_truth = project(camera_body.apply({0.05, 0.0, 0.0}));
     EXPECT_NEAR(result.keypoints[0].x, front_truth.x, 1.5);
     EXPECT_NEAR(result.keypoints[0].y, front_truth.y, 1.5);
-    EXPECT_NEAR(result.keypoints[0].height_above_plane, kAxleHeight, 1e-9);
+    EXPECT_NEAR(*result.keypoints[0].height_above_plane_m, kAxleHeight, 1e-9);
 }
 
 TEST(AprilTagKeypointModelTest, TagMountFacingComesFromRotation) {

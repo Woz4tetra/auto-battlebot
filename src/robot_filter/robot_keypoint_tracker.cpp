@@ -70,10 +70,8 @@ std::vector<RobotKeypointCandidate> RobotKeypointTracker::extract_candidates(
         Eigen::Vector3d point_a;
         Eigen::Vector3d point_b;
         const double configured_height = config_.keypoint_heights.height_for(group_key.first);
-        const double height_a =
-            std::isfinite(kp_a.height_above_plane) ? kp_a.height_above_plane : configured_height;
-        const double height_b =
-            std::isfinite(kp_b.height_above_plane) ? kp_b.height_above_plane : configured_height;
+        const double height_a = kp_a.height_above_plane_m.value_or(configured_height);
+        const double height_b = kp_b.height_above_plane_m.value_or(configured_height);
         if (!project_keypoint_onto_plane(kp_a, plane_center, plane_normal, camera_info, height_a,
                                          point_a) ||
             !project_keypoint_onto_plane(kp_b, plane_center, plane_normal, camera_info, height_b,

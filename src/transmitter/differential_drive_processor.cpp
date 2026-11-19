@@ -10,8 +10,8 @@ DifferentialDriveProcessor::DifferentialDriveProcessor(
 
 DifferentialDriveProcessor::Channels DifferentialDriveProcessor::process(
     VelocityCommand command) const {
-    const auto saturated =
-        saturate_velocity(command.linear_x, command.angular_z, config_.velocity_saturation_limit);
+    const auto saturated = saturate_velocity(command.forward_mps, command.yaw_rate_radps,
+                                             config_.velocity_saturation_limit);
 
     // The static-friction barrier exists per wheel, not per body axis, so we apply the lifted
     // deadzone in wheel space. Side-effect: when the robot is already driving forward, a small
@@ -30,8 +30,8 @@ DifferentialDriveProcessor::Channels DifferentialDriveProcessor::process(
     if (config_.reverse_linear) out.linear = -out.linear;
     if (config_.reverse_angular) out.angular = -out.angular;
 
-    logger_->debug("process", {{"linear_x_in", command.linear_x},
-                               {"angular_z_in", command.angular_z},
+    logger_->debug("process", {{"linear_x_in", command.forward_mps},
+                               {"angular_z_in", command.yaw_rate_radps},
                                {"linear_saturated", saturated.linear},
                                {"angular_saturated", saturated.angular},
                                {"wheel_left_pre", wheels_in.left},

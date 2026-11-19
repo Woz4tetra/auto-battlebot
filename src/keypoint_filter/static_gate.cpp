@@ -85,8 +85,7 @@ ModelResultStamped StaticDetectionGate::filter(const ModelResultStamped &model_r
         int projected = 0;
         for (size_t index : indices) {
             const Keypoint &kp = model_results.keypoints[index];
-            const double height =
-                std::isfinite(kp.height_above_plane) ? kp.height_above_plane : 0.0;
+            const double height = kp.height_above_plane_m.value_or(0.0);
             Eigen::Vector3d point;
             if (!project_keypoint_onto_plane(kp, plane_center, plane_normal, camera_info, height,
                                              point)) {

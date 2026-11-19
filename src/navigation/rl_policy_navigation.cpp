@@ -43,8 +43,8 @@ struct SpeedAndYawRate {
 SpeedAndYawRate measured_speed_and_yaw_rate(const RobotDescription &our_robot) {
     const double yaw = pose_to_pose2d(our_robot.pose).yaw;
     const double speed =
-        our_robot.velocity.vx * std::cos(yaw) + our_robot.velocity.vy * std::sin(yaw);
-    return {speed, our_robot.velocity.omega};
+        our_robot.velocity.vx_mps * std::cos(yaw) + our_robot.velocity.vy_mps * std::sin(yaw);
+    return {speed, our_robot.velocity.omega_radps};
 }
 
 }  // namespace
@@ -234,7 +234,7 @@ VelocityCommand RlPolicyNavigation::update(RobotDescriptionsStamped robots, Fiel
                                     field, v_actual, command);
         if (barrier.engaged) {
             logger_->debug("hazard_barrier", {{"policy_linear", action_.linear},
-                                              {"linear", command.linear_x},
+                                              {"linear", command.forward_mps},
                                               {"v_actual", v_actual},
                                               {"braking", barrier.braking ? 1 : 0},
                                               {"bound", std::min(barrier.bound_mps, 99.0)}});
@@ -264,9 +264,9 @@ void RlPolicyNavigation::log_step(const RobotDescriptionsStamped &robots,
         {"our_x", our_pose.x},
         {"our_y", our_pose.y},
         {"our_yaw", our_pose.yaw},
-        {"our_speed", our_robot.velocity.vx * std::cos(our_pose.yaw) +
-                          our_robot.velocity.vy * std::sin(our_pose.yaw)},
-        {"our_yaw_rate", our_robot.velocity.omega},
+        {"our_speed", our_robot.velocity.vx_mps * std::cos(our_pose.yaw) +
+                          our_robot.velocity.vy_mps * std::sin(our_pose.yaw)},
+        {"our_yaw_rate", our_robot.velocity.omega_radps},
         {"target_present", opponent != nullptr ? 1 : 0},
         {"target_stale", opponent == nullptr || opponent->is_stale ? 1 : 0},
         {"run_id", run_id_},

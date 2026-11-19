@@ -427,7 +427,7 @@ void AprilTagKeypointModel::emit_keypoints(const Detection &detection, const Tag
         keypoint.confidence = 1.0;
         keypoint.detection_index = detection_index;
         const cv::Vec3d body_point(body_points[i].x, body_points[i].y, body_points[i].z);
-        keypoint.height_above_plane = config_.axle_height_m + mount.floor_up_body.dot(body_point);
+        keypoint.height_above_plane_m = config_.axle_height_m + mount.floor_up_body.dot(body_point);
         result.keypoints.push_back(keypoint);
         detection_2d.keypoints.push_back({keypoint.x, keypoint.y, 1.0});
         box.x1 = std::min(box.x1, keypoint.x);

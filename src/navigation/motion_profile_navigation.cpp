@@ -164,8 +164,8 @@ VelocityCommand MotionProfileNavigation::update(RobotDescriptionsStamped robots,
     auto cmd = compute_command(our_pose, target.pose, field, measured_speed, target.mode);
 
     logger_->debug("command", {
-                                  {"linear_x", cmd.linear_x},
-                                  {"angular_z", cmd.angular_z},
+                                  {"linear_x", cmd.forward_mps},
+                                  {"angular_z", cmd.yaw_rate_radps},
                               });
 
     last_visualization_.command = cmd;
@@ -226,14 +226,15 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
 
     VelocityCommand cmd{0.0, 0.0, 0.0};
     const double w_ref = compute_yaw_reference(angle_error, now_s);
-    cmd.angular_z = compute_angular_command(w_ref, dt);
+    cmd.yaw_rate_radps = compute_angular_command(w_ref, dt);
     if (max_angular_command_) {
-        cmd.angular_z = std::clamp(cmd.angular_z, -*max_angular_command_, *max_angular_command_);
+        cmd.yaw_rate_radps =
+            std::clamp(cmd.yaw_rate_radps, -*max_angular_command_, *max_angular_command_);
     }
     prev_w_ref_ = w_ref;
 
     if (std::abs(angle_error) < angle_threshold_) {
-        cmd.linear_x = compute_linear_command(v_ref, dvdt, v_actual, dt, speed_is_measured);
+        cmd.forward_mps = compute_linear_command(v_ref, dvdt, v_actual, dt, speed_is_measured);
         prev_v_ref_ = v_ref;
     } else {
         prev_v_ref_ = 0.0;
@@ -244,7 +245,7 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
     const auto barrier = hazards_.limit_command(our_body, field, v_actual, cmd);
 
     if (max_linear_command_) {
-        cmd.linear_x = std::clamp(cmd.linear_x, -*max_linear_command_, *max_linear_command_);
+        cmd.forward_mps = std::clamp(cmd.forward_mps, -*max_linear_command_, *max_linear_command_);
     }
 
     logger_->debug("profile",
@@ -273,7 +274,8 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
 std::optional<double> MotionProfileNavigation::measure_forward_speed(const RobotDescription &robot,
                                                                      const Pose2D &our_pose) const {
     if (robot.is_stale) return std::nullopt;
-    return robot.velocity.vx * std::cos(our_pose.yaw) + robot.velocity.vy * std::sin(our_pose.yaw);
+    return robot.velocity.vx_mps * std::cos(our_pose.yaw) +
+           robot.velocity.vy_mps * std::sin(our_pose.yaw);
 }
 
 double MotionProfileNavigation::compensate_coupling(double command, double effect, double coeff,
@@ -397,7 +399,7 @@ void MotionProfileNavigation::override_linear_with_wall_reverse(const Pose2D &ou
     const double heading_err = std::abs(normalize_angle(angle_to_wall - our_pose.yaw));
     if (heading_err >= wall_heading_threshold_rad_) return;
 
-    cmd.linear_x = -std::max(std::abs(cmd.linear_x), wall_reverse_min_speed_);
+    cmd.forward_mps = -std::max(std::abs(cmd.forward_mps), wall_reverse_min_speed_);
     logger_->debug("wall_reverse", {{"wall_dist", wall_dist},
                                     {"angle_to_wall_deg", angle_to_wall * 180.0 / M_PI},
                                     {"heading_err_deg", heading_err * 180.0 / M_PI}});

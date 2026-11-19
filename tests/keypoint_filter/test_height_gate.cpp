@@ -120,7 +120,7 @@ TEST_F(KeypointHeightGateTest, KeepsRobotStandingProudOfTheField) {
     EXPECT_EQ(gate.last_stats().groups_passed, 1);
     EXPECT_EQ(gate.last_stats().rejected_low, 0);
     for (const Keypoint &kp : result.keypoints) {
-        EXPECT_NEAR(kp.height_above_plane, 0.05, 1e-6);
+        EXPECT_NEAR(*kp.height_above_plane_m, 0.05, 1e-6);
     }
 }
 
@@ -143,7 +143,7 @@ TEST_F(KeypointHeightGateTest, AbstainsWithoutDepth) {
 
     ASSERT_EQ(result.keypoints.size(), 2u);
     for (const Keypoint &kp : result.keypoints) {
-        EXPECT_FALSE(std::isfinite(kp.height_above_plane));
+        EXPECT_FALSE(kp.height_above_plane_m.has_value());
     }
 }
 
@@ -157,7 +157,7 @@ TEST_F(KeypointHeightGateTest, AbstainsOnADepthFrameOfTheWrongType) {
     ASSERT_EQ(result.keypoints.size(), 2u);
     EXPECT_EQ(gate.last_stats().groups_in, 0);
     for (const Keypoint &kp : result.keypoints) {
-        EXPECT_FALSE(std::isfinite(kp.height_above_plane));
+        EXPECT_FALSE(kp.height_above_plane_m.has_value());
     }
 }
 
@@ -174,8 +174,8 @@ TEST_F(KeypointHeightGateTest, AbstainedDetectionKeepsTheKeypointHeightsItMeasur
 
     ASSERT_EQ(result.keypoints.size(), 2u);
     EXPECT_EQ(gate.last_stats().abstained, 1);
-    EXPECT_NEAR(result.keypoints[0].height_above_plane, 0.0, 1e-6);
-    EXPECT_FALSE(std::isfinite(result.keypoints[1].height_above_plane));
+    EXPECT_NEAR(*result.keypoints[0].height_above_plane_m, 0.0, 1e-6);
+    EXPECT_FALSE(result.keypoints[1].height_above_plane_m.has_value());
 }
 
 TEST_F(KeypointHeightGateTest, AbstainsWhenDepthIsAllInvalid) {
@@ -208,7 +208,7 @@ TEST_F(KeypointHeightGateTest, RejectionDisabledPassesEverythingButStillMeasures
 
     ASSERT_EQ(result.keypoints.size(), 2u);
     for (const Keypoint &kp : result.keypoints) {
-        EXPECT_NEAR(kp.height_above_plane, 0.0, 1e-6);
+        EXPECT_NEAR(*kp.height_above_plane_m, 0.0, 1e-6);
     }
 }
 
@@ -238,7 +238,7 @@ TEST_F(KeypointHeightGateTest, AbstainsWithoutABox) {
     EXPECT_EQ(gate.last_stats().abstained, 1);
     EXPECT_EQ(gate.last_stats().rejected_low, 0);
     for (const Keypoint &kp : result.keypoints) {
-        EXPECT_NEAR(kp.height_above_plane, 0.0, 1e-6);
+        EXPECT_NEAR(*kp.height_above_plane_m, 0.0, 1e-6);
     }
 }
 
@@ -254,7 +254,7 @@ TEST_F(KeypointHeightGateTest, GroupsAreKeptOrDroppedWhole) {
 
     ASSERT_EQ(result.keypoints.size(), 2u);
     for (const Keypoint &kp : result.keypoints) {
-        EXPECT_NEAR(kp.height_above_plane, 0.05, 1e-6);
+        EXPECT_NEAR(*kp.height_above_plane_m, 0.05, 1e-6);
     }
 }
 

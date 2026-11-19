@@ -179,8 +179,8 @@ TEST_F(SceneAdapterTest, NavigationDrawsPathAndVelocity) {
     nav.path->our_y = 0.0;
     nav.path->target_x = 1.0;
     nav.path->target_y = 0.0;
-    nav.command.linear_x = 1.0;
-    nav.command.angular_z = 1.0;
+    nav.command.forward_mps = 1.0;
+    nav.command.yaw_rate_radps = 1.0;
     nav.robots = robots;
 
     auto update = foxglove_adapters::to_navigation_scene(nav);

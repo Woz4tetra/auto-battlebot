@@ -9,8 +9,8 @@ TankDriveProcessor::TankDriveProcessor(const Config& config,
     : config_(config), logger_(std::move(logger)) {}
 
 TankDriveProcessor::Channels TankDriveProcessor::process(VelocityCommand command) const {
-    auto saturated =
-        saturate_velocity(command.linear_x, command.angular_z, config_.velocity_saturation_limit);
+    auto saturated = saturate_velocity(command.forward_mps, command.yaw_rate_radps,
+                                       config_.velocity_saturation_limit);
 
     // Compensate for the physical motor wiring on the robot. Applied on the body axes before
     // mixing; the lifted deadzone is odd-symmetric, so the sign flips commute with it and the
@@ -26,8 +26,8 @@ TankDriveProcessor::Channels TankDriveProcessor::process(VelocityCommand command
         apply_lifted_deadzone(wheels_in.right, zero_dz, lifted_dz),
     };
 
-    logger_->debug("process", {{"linear_x_in", command.linear_x},
-                               {"angular_z_in", command.angular_z},
+    logger_->debug("process", {{"linear_x_in", command.forward_mps},
+                               {"angular_z_in", command.yaw_rate_radps},
                                {"linear_saturated", saturated.linear},
                                {"angular_saturated", saturated.angular},
                                {"wheel_left_pre", wheels_in.left},

@@ -302,13 +302,16 @@ TEST(ControlLoopTest, SteppedZeroRateMatchesInlineSequence) {
     for (size_t i = 0; i < reference_commands.size(); ++i) {
         const int index = static_cast<int>(i);
         ASSERT_NO_FATAL_FAILURE(expect_robots_equal(reference_robots[i], loop_robots[i], index));
-        EXPECT_EQ(reference_commands[i].linear_x, loop_commands[i].linear_x) << "frame " << index;
-        EXPECT_EQ(reference_commands[i].angular_z, loop_commands[i].angular_z) << "frame " << index;
+        EXPECT_EQ(reference_commands[i].forward_mps, loop_commands[i].forward_mps)
+            << "frame " << index;
+        EXPECT_EQ(reference_commands[i].yaw_rate_radps, loop_commands[i].yaw_rate_radps)
+            << "frame " << index;
     }
 
     // Guard against a scenario that passes by producing nothing.
-    const bool any_motion = std::any_of(loop_commands.begin(), loop_commands.end(),
-                                        [](const VelocityCommand &c) { return c.linear_x != 0.0; });
+    const bool any_motion =
+        std::any_of(loop_commands.begin(), loop_commands.end(),
+                    [](const VelocityCommand &c) { return c.forward_mps != 0.0; });
     EXPECT_TRUE(any_motion);
 }
 

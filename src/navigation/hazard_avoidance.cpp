@@ -126,10 +126,10 @@ HazardBarrierResult HazardAvoidance::limit_command(const Pose2D &our_pose,
     if (u_min > u_max) {
         limited = 0.5 * (u_min + u_max);
     } else {
-        limited = std::clamp(command.linear_x, u_min, u_max);
+        limited = std::clamp(command.forward_mps, u_min, u_max);
     }
-    if (limited != command.linear_x) {
-        command.linear_x = limited;
+    if (limited != command.forward_mps) {
+        command.forward_mps = limited;
         result.engaged = true;
     }
     return result;
@@ -149,8 +149,8 @@ bool HazardAvoidance::apply_reverse(const Pose2D &our_pose, const FieldDescripti
         const double heading_err = std::abs(normalize_angle(std::atan2(dy, dx) - our_pose.yaw));
         if (heading_err >= settings_.heading_threshold) continue;
 
-        command.linear_x =
-            -std::max(std::abs(command.linear_x), std::abs(settings_.reverse_min_speed));
+        command.forward_mps =
+            -std::max(std::abs(command.forward_mps), std::abs(settings_.reverse_min_speed));
         return true;
     }
     return false;

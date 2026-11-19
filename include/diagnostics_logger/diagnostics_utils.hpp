@@ -18,15 +18,6 @@ struct DiagnosticsValue
     using variant::variant;
 };
 
-/**
- * @brief Flatten a nested map structure with '/' as separator, keeping values typed.
- *
- * Converts nested structures like:
- *   {"motor": {"temperature": [95, 94, 90], "voltage": 12.5}}
- * Into:
- *   {"motor/temperature/0": 95, "motor/temperature/1": 94, "motor/temperature/2": 90,
- *    "motor/voltage": 12.5}
- */
 std::map<std::string, DiagnosticScalar> flatten_diagnostics_data(
     const DiagnosticsData &data, const std::string &parent_key = "",
     const std::string &separator = "/");

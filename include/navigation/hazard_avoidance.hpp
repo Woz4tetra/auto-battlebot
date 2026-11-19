@@ -48,7 +48,7 @@ class HazardAvoidance {
 
     Pose2D steer_around(const Pose2D &our_pose, const Pose2D &goal, const FieldDescription &field);
 
-    /** The velocity barrier: clamp `command.linear_x` so the commanded and measured approach
+    /** The velocity barrier: clamp `command.forward_mps` so the commanded and measured approach
      * speed toward every hazard stays inside the stopping envelope to its hard radius.
      *
      * Applied to the FINAL command, after the angle gate and the wall reverse, against the

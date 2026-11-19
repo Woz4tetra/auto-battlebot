@@ -59,7 +59,7 @@ ModelResultStamped sim_measurements_to_keypoints(const SimMeasurementFrame &fram
             keypoint.y = pixel.y();
             keypoint.confidence = 1.0;
             keypoint.detection_index = static_cast<int>(i);
-            keypoint.height_above_plane = 0.0;
+            keypoint.height_above_plane_m = 0.0;
             result.keypoints.push_back(keypoint);
         }
     }

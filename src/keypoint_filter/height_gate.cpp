@@ -185,7 +185,9 @@ ModelResultStamped KeypointHeightGate::filter(const ModelResultStamped &model_re
             stats_.groups_passed++;
             for (size_t n = 0; n < indices.size(); ++n) {
                 Keypoint kp = model_results.keypoints[indices[n]];
-                kp.height_above_plane = keypoint_heights[n];
+                kp.height_above_plane_m = std::isfinite(keypoint_heights[n])
+                                              ? std::optional<double>(keypoint_heights[n])
+                                              : std::nullopt;
                 output.keypoints.push_back(kp);
             }
             continue;
@@ -208,7 +210,7 @@ ModelResultStamped KeypointHeightGate::filter(const ModelResultStamped &model_re
         stats_.groups_passed++;
         for (size_t n = 0; n < indices.size(); ++n) {
             Keypoint kp = model_results.keypoints[indices[n]];
-            kp.height_above_plane =
+            kp.height_above_plane_m =
                 std::isfinite(keypoint_heights[n]) ? keypoint_heights[n] : relief.top;
             output.keypoints.push_back(kp);
         }

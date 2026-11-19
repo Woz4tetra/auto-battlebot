@@ -20,12 +20,13 @@ class DiagnosticsModuleLogger {
     explicit DiagnosticsModuleLogger(const std::string &logger_name,
                                      TimeSource now = std::chrono::steady_clock::now);
 
-    void log(int8_t level, const std::string &subsection_name, const DiagnosticsData &data);
-    void log(int8_t level, const std::string &subsection_name, const DiagnosticsData &data,
+    void log(DiagnosticLevel level, const std::string &subsection_name,
+             const DiagnosticsData &data);
+    void log(DiagnosticLevel level, const std::string &subsection_name, const DiagnosticsData &data,
              const std::string &message);
-    void log(int8_t level, const std::string &subsection_name, const std::string &message);
-    void log(int8_t level, const DiagnosticsData &data);
-    void log(int8_t level, const std::string &message);
+    void log(DiagnosticLevel level, const std::string &subsection_name, const std::string &message);
+    void log(DiagnosticLevel level, const DiagnosticsData &data);
+    void log(DiagnosticLevel level, const std::string &message);
 
     void debug(const DiagnosticsData &data);
     void debug(const std::string &message);
@@ -67,10 +68,9 @@ class DiagnosticsModuleLogger {
     struct Section {
         DiagnosticsData data;
         std::vector<std::string> messages;
-        int8_t level = DiagnosticLevel::OK;
+        DiagnosticLevel level = DiagnosticLevel::OK;
         std::chrono::steady_clock::time_point last_logged;
-        /** Logged in the current publish window. */
-        bool fresh = false;
+        bool logged_this_window = false;
     };
 
     std::string logger_name_;

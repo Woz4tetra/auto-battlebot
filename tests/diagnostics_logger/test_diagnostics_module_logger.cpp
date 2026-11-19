@@ -242,8 +242,8 @@ TEST_F(StickyDiagnosticsModuleLoggerTest, UnloggedSubsectionIsHeldWithItsAge) {
     logger.debug("channels", {{"ch0", 992}});
     logger.debug("process", {{"linear", 0.5}});
     auto snaps = by_subsection();
-    EXPECT_FALSE(snaps["channels"].held);
-    EXPECT_DOUBLE_EQ(snaps["channels"].age_ms, 0.0);
+    EXPECT_FALSE(snaps["channels"].is_repeat_of_earlier_message);
+    EXPECT_DOUBLE_EQ(snaps["channels"].ms_since_last_logged, 0.0);
 
     logger.clear();
     advance_ms(17);
@@ -253,11 +253,11 @@ TEST_F(StickyDiagnosticsModuleLoggerTest, UnloggedSubsectionIsHeldWithItsAge) {
     EXPECT_TRUE(logger.has_status());
     snaps = by_subsection();
     ASSERT_EQ(snaps.size(), 2U);
-    EXPECT_TRUE(snaps["channels"].held);
-    EXPECT_DOUBLE_EQ(snaps["channels"].age_ms, 20.0);
+    EXPECT_TRUE(snaps["channels"].is_repeat_of_earlier_message);
+    EXPECT_DOUBLE_EQ(snaps["channels"].ms_since_last_logged, 20.0);
     EXPECT_EQ(std::get<int>(snaps["channels"].values.at("ch0")), 992);
-    EXPECT_FALSE(snaps["process"].held);
-    EXPECT_DOUBLE_EQ(snaps["process"].age_ms, 3.0);
+    EXPECT_FALSE(snaps["process"].is_repeat_of_earlier_message);
+    EXPECT_DOUBLE_EQ(snaps["process"].ms_since_last_logged, 3.0);
     EXPECT_DOUBLE_EQ(std::get<double>(snaps["process"].values.at("linear")), 0.25);
 }
 

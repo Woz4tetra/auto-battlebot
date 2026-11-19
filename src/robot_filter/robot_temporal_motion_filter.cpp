@@ -56,12 +56,12 @@ std::vector<RobotDescription> RobotTemporalMotionFilter::update_with_prediction(
         const VelocityCommand cmd = plant_stick_to_body_velocity(cmd_it->second, plant_);
         Pose2D predicted_pose = pose_to_pose2d(desc.pose);
         const Eigen::Vector2d velocity_field =
-            body_velocity_to_field(cmd.linear_x, cmd.linear_y, predicted_pose.yaw);
+            body_velocity_to_field(cmd.forward_mps, cmd.lateral_mps, predicted_pose.yaw);
 
         predicted_pose.x += velocity_field.x() * dt;
         predicted_pose.y += velocity_field.y() * dt;
-        predicted_pose.yaw = std::atan2(std::sin(predicted_pose.yaw + cmd.angular_z * dt),
-                                        std::cos(predicted_pose.yaw + cmd.angular_z * dt));
+        predicted_pose.yaw = std::atan2(std::sin(predicted_pose.yaw + cmd.yaw_rate_radps * dt),
+                                        std::cos(predicted_pose.yaw + cmd.yaw_rate_radps * dt));
         desc.pose = pose2d_to_pose(predicted_pose);
         clip_to_field_bounds(desc.pose.position, field, field_bounds_margin_meters);
         frame_id_assigner.set_last_position(frame_id, desc.pose.position);

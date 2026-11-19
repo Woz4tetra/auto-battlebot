@@ -6,7 +6,7 @@ namespace auto_battlebot {
 namespace {
 
 TimedCommand make_command(double stamp, double linear_x) {
-    return TimedCommand{stamp, VelocityCommand{linear_x, 0.0, 0.0}};
+    return TimedCommand{stamp, StickCommand{linear_x, 0.0, 0.0}};
 }
 
 TEST(CommandRingBufferTest, EmptyBufferReturnsNull) {
@@ -23,9 +23,9 @@ TEST(CommandRingBufferTest, LatestAtPicksNewestAtOrBefore) {
 
     EXPECT_EQ(buffer.latest_at(0.5), nullptr);
     ASSERT_NE(buffer.latest_at(2.0), nullptr);
-    EXPECT_DOUBLE_EQ(buffer.latest_at(2.0)->command.linear_x, 0.2);
-    EXPECT_DOUBLE_EQ(buffer.latest_at(2.5)->command.linear_x, 0.2);
-    EXPECT_DOUBLE_EQ(buffer.latest_at(10.0)->command.linear_x, 0.3);
+    EXPECT_DOUBLE_EQ(buffer.latest_at(2.0)->command.forward, 0.2);
+    EXPECT_DOUBLE_EQ(buffer.latest_at(2.5)->command.forward, 0.2);
+    EXPECT_DOUBLE_EQ(buffer.latest_at(10.0)->command.forward, 0.3);
 }
 
 TEST(CommandRingBufferTest, WrapAroundDropsOldestKeepsOrder) {
@@ -39,8 +39,8 @@ TEST(CommandRingBufferTest, WrapAroundDropsOldestKeepsOrder) {
     const double oldest = static_cast<double>(total - CommandRingBuffer::kCapacity);
     EXPECT_EQ(buffer.latest_at(oldest - 0.5), nullptr);
     ASSERT_NE(buffer.latest_at(oldest), nullptr);
-    EXPECT_DOUBLE_EQ(buffer.latest_at(oldest)->command.linear_x, oldest);
-    EXPECT_DOUBLE_EQ(buffer.latest_at(1e9)->command.linear_x, static_cast<double>(total - 1));
+    EXPECT_DOUBLE_EQ(buffer.latest_at(oldest)->command.forward, oldest);
+    EXPECT_DOUBLE_EQ(buffer.latest_at(1e9)->command.forward, static_cast<double>(total - 1));
 }
 
 TEST(CommandRingBufferTest, GatherIncludesCommandActiveAtWindowStart) {
@@ -56,8 +56,8 @@ TEST(CommandRingBufferTest, GatherIncludesCommandActiveAtWindowStart) {
     // The command issued at 2.0 is still active when the window opens at 2.5, then the 3.0
     // entry lands inside the window; 4.0 is past the end.
     ASSERT_EQ(history.size(), 2u);
-    EXPECT_DOUBLE_EQ(history[0].command.linear_x, 0.2);
-    EXPECT_DOUBLE_EQ(history[1].command.linear_x, 0.3);
+    EXPECT_DOUBLE_EQ(history[0].command.forward, 0.2);
+    EXPECT_DOUBLE_EQ(history[1].command.forward, 0.3);
 }
 
 TEST(CommandRingBufferTest, ClearEmptiesBuffer) {

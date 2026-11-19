@@ -34,8 +34,8 @@ double segment_distance(const Pose2D &a, const Pose2D &b, const Pose2D &point, d
 Pose2D predicted_center(const FieldHazard &hazard, double seconds) {
     if (hazard.source == HazardSource::STATIC || seconds <= 0.0) return hazard.center;
     Pose2D center = hazard.center;
-    center.x += hazard.velocity.vx * seconds;
-    center.y += hazard.velocity.vy * seconds;
+    center.x += hazard.velocity.vx_mps * seconds;
+    center.y += hazard.velocity.vy_mps * seconds;
     return center;
 }
 
