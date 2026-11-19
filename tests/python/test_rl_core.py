@@ -308,7 +308,7 @@ def test_opponent_does_not_push_through_us() -> None:
         torch.full((2, 2), 2.0, dtype=torch.float64),
         half.norm(dim=1),
         0.02,
-        opp_half=half,
+        opp_half_length_width=half,
     )
     gap = 0.19 - 0.111 - 0.0685
     assert v[0, 0] == pytest.approx((gap + CONTACT_PRESS_M) / 0.02, abs=1e-9)
@@ -561,18 +561,18 @@ def test_pursuer_grip_limits_braking_and_turn_rate_at_speed() -> None:
     opp.p.turn_rate[:] = 10.0
     opp.p.lead[:] = 0.0
     opp.p.grip = torch.tensor([10.0, 10.0], dtype=torch.float64)
-    opp.forward[:] = 2.5
+    opp.commanded_forward_mps[:] = 2.5
     # Our robot directly behind the pursuer: the target is 180 degrees off its heading.
     opp.history[:, :DELAY_SLOTS, 0] = -2.0
     opp.history[:, :DELAY_SLOTS, 1] = 0.01
     v = opp.command(xy, yaw, half, foot, dt)
-    assert float(opp.forward[0]) == pytest.approx(2.5 - 10.0 * dt)
+    assert float(opp.commanded_forward_mps[0]) == pytest.approx(2.5 - 10.0 * dt)
     assert float(v[0, 2].abs()) == pytest.approx(10.0 / (2.5 - 10.0 * dt))
 
     opp.p.grip = None
-    opp.forward[:] = 2.5
+    opp.commanded_forward_mps[:] = 2.5
     v = opp.command(xy, yaw, half, foot, dt)
-    assert float(opp.forward[0]) == 0.0
+    assert float(opp.commanded_forward_mps[0]) == 0.0
     assert float(v[0, 2].abs()) == pytest.approx(10.0)
 
 
@@ -637,3 +637,164 @@ def test_step_result_final_obs_is_previous_episode() -> None:
     assert result.obs.shape == result.final_obs.shape
     assert set(result.episode) >= {"reward"}
     assert result.episode["reward"].shape == (cfg.worlds,)
+
+
+def test_pursuit_level_one_matches_uncurriculum_draw() -> None:
+    from auto_battlebot.rl.envs.opponents import (
+        PURSUIT_COL_DELAY,
+        PURSUIT_COL_TOP_SPEED,
+        PURSUIT_COL_TURN_RATE,
+        Opponents,
+    )
+
+    opp = Opponents(1, torch.device("cpu"), torch.float64, torch.Generator())
+    u = torch.linspace(0.0, 1.0, 11, dtype=torch.float64)
+    bounds = {
+        PURSUIT_COL_TOP_SPEED: (0.8, 2.5),
+        PURSUIT_COL_TURN_RATE: (4.0, 10.0),
+        PURSUIT_COL_DELAY: (0.05, 0.25),
+    }
+    opp.pursuit_level = 1.0
+    for column, (lo, hi) in bounds.items():
+        expected = lo + (hi - lo) * u
+        torch.testing.assert_close(opp._pursuit_draw(u, column), expected)
+    opp.pursuit_level = 0.0
+    for column, (lo, hi) in bounds.items():
+        easy = hi if column == PURSUIT_COL_DELAY else lo
+        torch.testing.assert_close(opp._pursuit_draw(u, column), torch.full_like(u, easy))
+
+
+def _pursuit_corner_draws(holdout: bool) -> tuple[torch.Tensor, torch.Tensor]:
+    from auto_battlebot.rl.envs.opponents import PURSUIT, Opponents
+
+    worlds = 8192
+    opp = Opponents(worlds, torch.device("cpu"), torch.float64, torch.Generator().manual_seed(5))
+    opp.pursuit_level = 1.0
+    mask = torch.ones(worlds, dtype=torch.bool)
+    opp.reset(mask, (PURSUIT,), torch.ones(worlds, dtype=torch.float64), holdout=holdout)
+    return opp.p.speed, opp.p.delay_steps
+
+
+def test_training_pursuit_never_draws_holdout_corner() -> None:
+    from auto_battlebot.rl.envs.opponents import PURSUIT_HOLDOUT_DELAY, PURSUIT_HOLDOUT_SPEED
+
+    last_corner_step = int(PURSUIT_HOLDOUT_DELAY / 0.02)
+    speed, steps = _pursuit_corner_draws(holdout=False)
+    in_corner = (speed > PURSUIT_HOLDOUT_SPEED) & (steps <= last_corner_step)
+    assert not bool(in_corner.any())
+    assert bool((speed > PURSUIT_HOLDOUT_SPEED).any())
+    speed, steps = _pursuit_corner_draws(holdout=True)
+    assert bool(((speed >= PURSUIT_HOLDOUT_SPEED) & (steps <= last_corner_step)).all())
+
+
+def test_opponent_draws_stable_for_seed() -> None:
+    from auto_battlebot.rl.envs.opponents import Opponents
+
+    opp = Opponents(6, torch.device("cpu"), torch.float64, torch.Generator().manual_seed(11))
+    opp.reset(torch.ones(6, dtype=torch.bool), tuple(range(6)), torch.ones(6), holdout=False)
+    p = opp.p
+    assert p.behaviour.tolist() == [3, 3, 0, 5, 5, 3]
+    assert p.delay_steps.tolist() == [11, 10, 11, 9, 12, 9]
+    assert p.corner.tolist() == [1, 1, 1, 0, 2, 1]
+    expected_speed = [0.62834, 1.16723, 0.48564, 0.51012, 0.46446, 0.29739]
+    expected_turn_rate = [4.49459, 5.81029, 9.90659, 7.59701, 7.53208, 9.23573]
+    assert p.speed.tolist() == pytest.approx(expected_speed, abs=1e-5)
+    assert p.turn_rate.tolist() == pytest.approx(expected_turn_rate, abs=1e-5)
+
+
+def test_opponent_params_reject_bad_columns() -> None:
+    from auto_battlebot.rl.envs.opponents import OpponentParams
+
+    def build(**overrides: torch.Tensor) -> OpponentParams:
+        z = torch.zeros(2)
+        zl = torch.zeros(2, dtype=torch.long)
+        fields = dict(
+            behaviour=zl,
+            speed=z,
+            radius=z,
+            direction=torch.ones(2),
+            noise=z,
+            lead=z,
+            delay_steps=zl,
+            turn_rate=z,
+            corner=zl,
+        )
+        return OpponentParams(**{**fields, **overrides})
+
+    build()
+    with pytest.raises(TypeError, match="behaviour"):
+        build(behaviour=torch.zeros(2))
+    with pytest.raises(ValueError, match="direction"):
+        build(direction=torch.tensor([1.0, 0.0]))
+    with pytest.raises(ValueError, match="corner"):
+        build(corner=torch.tensor([0, 4]))
+
+
+def test_policy_opponent_input_is_perspective_swapped() -> None:
+    from auto_battlebot.rl.envs.warp_nav import WarpNavConfig, WarpNavEnv
+
+    if not torch.cuda.is_available():
+        pytest.skip("WarpNavEnv runs on CUDA")
+    env = WarpNavEnv(WarpNavConfig(worlds=4, stage="A"), "cuda", seed=3)
+    env.reset(3)
+    seen = {}
+
+    def capture(inp: object, yaw: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        seen["inp"] = inp
+        return torch.zeros(4, 3, device="cuda"), torch.zeros(4, dtype=torch.bool, device="cuda")
+
+    env.policy_opp.command = capture  # type: ignore[method-assign]
+    tr = env.truth()
+    env._policy_opponent_command(tr)
+    inp = seen["inp"]
+    assert torch.equal(inp.our_xy, tr["opp_xy"])
+    assert torch.equal(inp.opp_xy, tr["xy"])
+    assert torch.equal(inp.our_yaw, tr["opp_yaw"])
+    assert torch.equal(inp.opp_yaw, tr["yaw"])
+
+
+def test_toy_sensing_output_stays_stale_without_a_frame() -> None:
+    import dataclasses
+
+    from auto_battlebot.rl.envs.toy import ToyConfig, ToyEnv
+
+    env = ToyEnv(ToyConfig(worlds=64, sensing=True), "cpu", seed=4)
+    env.reset(4)
+    for _ in range(40):
+        env.step(torch.tensor([[0.3, 0.2]]).expand(64, 2))
+    step = env.measure.step
+
+    def never_delivered(*args: object, **kwargs: object) -> object:
+        out = step(*args, **kwargs)
+        return dataclasses.replace(out, delivered=torch.zeros_like(out.delivered))
+
+    env.measure.step = never_delivered  # type: ignore[method-assign]
+    for stale in (True, False):
+        env.opp_filter.output_stale = torch.full_like(env.opp_filter.output_stale, stale)
+        env._measure()
+        assert bool((env.opp_filter.output_stale == stale).all())
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="WarpNavEnv runs on CUDA")
+def test_warp_command_chain_signs_match_the_app() -> None:
+    from auto_battlebot.rl.envs.warp_nav import WarpNavConfig, WarpNavEnv
+
+    worlds = 8
+    env = WarpNavEnv(WarpNavConfig(worlds=worlds, stage="A"), "cuda", seed=4)
+
+    def drive(linear: float, angular: float, steps: int) -> tuple[torch.Tensor, torch.Tensor]:
+        env.reset(4)
+        before = env.truth()
+        action = torch.tensor([[linear, angular]], device="cuda").expand(worlds, 2).contiguous()
+        for _ in range(steps):
+            env.step(action)
+        after = env.truth()
+        heading = torch.stack([torch.cos(before["yaw"]), torch.sin(before["yaw"])], 1)
+        along = ((after["xy"] - before["xy"]) * heading).sum(1)
+        turned = torch.remainder(after["yaw"] - before["yaw"] + math.pi, 2 * math.pi) - math.pi
+        return along, turned
+
+    along, _ = drive(0.4, 0.0, 25)
+    assert float(along.median()) > 0.05
+    _, turned = drive(0.0, 0.4, 5)
+    assert float(turned.median()) > 0.05

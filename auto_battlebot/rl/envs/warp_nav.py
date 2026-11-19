@@ -41,6 +41,7 @@ from auto_battlebot.rl import obs_spec
 from auto_battlebot.rl.env import SOURCES, EnvSpec, Step
 from auto_battlebot.rl.envs.opponents import (
     BEHAVIOURS,
+    HIST_XY,
     PURSUIT,
     REPLAY,
     Opponents,
@@ -908,7 +909,7 @@ class WarpNavEnv:
         self.drive_ring_t[mask] = 0.0
         self.upside[mask] = 0
         self.opponents.history[mask] = 0.0
-        self.opponents.history[mask, :, 0:2] = xy[mask, None, :]
+        self.opponents.history[mask, :, HIST_XY] = xy[mask, None, :]
         if self.sensing:
             self._reset_sensing(mask)
 
@@ -1233,8 +1234,10 @@ class WarpNavEnv:
             self.arena_half,
             self.opp_half.norm(dim=1),
             dt,
-            opp_half=self.opp_half,
-            override=self._policy_opponent_command(tr0) if self.policy_opp.available else None,
+            opp_half_length_width=self.opp_half,
+            external_drive=self._policy_opponent_command(tr0)
+            if self.policy_opp.available
+            else None,
         )
         self._house_command()
         self.flags.zero_()

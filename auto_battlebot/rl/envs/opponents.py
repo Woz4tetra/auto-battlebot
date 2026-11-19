@@ -5,7 +5,7 @@ from __future__ import annotations
 import itertools
 import math
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import torch
 
@@ -16,26 +16,43 @@ BEHAVIOURS = ("static", "straight", "circle", "random_walk", "pursuit", "corner"
 STATIC, STRAIGHT, CIRCLE, RANDOM_WALK, PURSUIT, CORNER, REPLAY = range(len(BEHAVIOURS))
 PURSUIT_HOLDOUT_SPEED = 2.3
 PURSUIT_HOLDOUT_DELAY = 0.07
-PURSUIT_EASY = (0.8, 4.0, 0.25)  # top speed m/s, turn rate rad/s, reaction delay s
-PURSUIT_HARD = (2.5, 10.0, 0.05)
+
+
+class PursuitParams(NamedTuple):
+    top_speed_mps: float
+    turn_rate_rad_s: float
+    delay_s: float
+
+
+PURSUIT_COL_TOP_SPEED, PURSUIT_COL_TURN_RATE, PURSUIT_COL_DELAY = range(3)
+PURSUIT_EASY = PursuitParams(0.8, 4.0, 0.25)
+PURSUIT_HARD = PursuitParams(2.5, 10.0, 0.05)
 PURSUIT_GRIP_MPS2 = (8.0, 16.0)
-# The pursuit evaluation grid: top speed m/s x turn rate rad/s x reaction delay s, 80 cells.
+PURSUIT_GRID_SPEEDS_MPS = (0.8, 1.2, 1.6, 2.0, 2.5)
+PURSUIT_GRID_TURN_RATES_RAD_S = (4.0, 6.0, 8.0, 10.0)
+PURSUIT_GRID_DELAYS_S = (0.05, 0.1, 0.15, 0.25)
 PURSUIT_GRID = list(
-    itertools.product((0.8, 1.2, 1.6, 2.0, 2.5), (4.0, 6.0, 8.0, 10.0), (0.05, 0.1, 0.15, 0.25))
+    itertools.product(PURSUIT_GRID_SPEEDS_MPS, PURSUIT_GRID_TURN_RATES_RAD_S, PURSUIT_GRID_DELAYS_S)
 )
+HIST_X, HIST_Y, HIST_VX, HIST_VY, HIST_YAW = range(5)
+HIST_XY = slice(HIST_X, HIST_Y + 1)
+HIST_V = slice(HIST_VX, HIST_VY + 1)
 DELAY_SLOTS = 16
+MAX_CORNER = 3
 OUR_HALF_DIAGONAL_M = 0.106
 OUR_HALF_EXTENT_M = (0.0685, 0.08)
 CONTACT_PRESS_M = 0.0
 
 
-def box_support(n: torch.Tensor, yaw: torch.Tensor, half: torch.Tensor) -> torch.Tensor:
-    """Extent along unit direction `n` [W, 2] of a box with half sizes `half` [W, 2] (length
-    along its heading, width across) turned by `yaw` [W]."""
+def box_support(
+    unit_direction: torch.Tensor, yaw: torch.Tensor, half_length_width: torch.Tensor
+) -> torch.Tensor:
+    """Box extent [W] along unit_direction [W, 2]; half_length_width [W, 2], yaw [W]."""
+    n = unit_direction
     c, s = torch.cos(yaw), torch.sin(yaw)
     along = (n[:, 0] * c + n[:, 1] * s).abs()
     across = (-n[:, 0] * s + n[:, 1] * c).abs()
-    return along * half[:, 0] + across * half[:, 1]
+    return along * half_length_width[:, 0] + across * half_length_width[:, 1]
 
 
 def wrap(a: torch.Tensor) -> torch.Tensor:
@@ -46,16 +63,25 @@ def wrap(a: torch.Tensor) -> torch.Tensor:
 class OpponentParams:
     """Per-world episode draws, [W] each."""
 
-    behaviour: torch.Tensor  # long
+    behaviour: torch.Tensor
     speed: torch.Tensor
     radius: torch.Tensor
-    direction: torch.Tensor  # +1 / -1
+    direction: torch.Tensor
     noise: torch.Tensor
     lead: torch.Tensor
-    delay_steps: torch.Tensor  # long
+    delay_steps: torch.Tensor
     turn_rate: torch.Tensor
-    corner: torch.Tensor  # long 0..3
-    grip: torch.Tensor | None = None  # pursuit traction, m/s^2; None: unlimited (old scenarios)
+    corner: torch.Tensor
+    grip: torch.Tensor | None = None
+
+    def __post_init__(self) -> None:
+        for name in ("behaviour", "delay_steps", "corner"):
+            if getattr(self, name).dtype != torch.long:
+                raise TypeError(f"OpponentParams.{name} must be a long tensor")
+        if not bool((self.direction.abs() == 1).all()):
+            raise ValueError("OpponentParams.direction must be +1 or -1")
+        if not bool(((self.corner >= 0) & (self.corner <= MAX_CORNER)).all()):
+            raise ValueError(f"OpponentParams.corner must be in 0..{MAX_CORNER}")
 
 
 class Opponents:
@@ -86,24 +112,19 @@ class Opponents:
             zl.clone(),
             z.clone(),
         )
-        self.turn = z.clone()  # random-walk yaw rate state
-        self.forward = z.clone()  # commanded forward speed this step
-        self.history = torch.zeros(
-            worlds, DELAY_SLOTS, 5, device=device, dtype=dtype
-        )  # our x, y, vx, vy, yaw
+        self.walk_yaw_rate = z.clone()
+        self.commanded_forward_mps = z.clone()
+        self.history = torch.zeros(worlds, DELAY_SLOTS, HIST_YAW + 1, device=device, dtype=dtype)
         self.head = 0
         self.replay: ReplayTracks | None = None
         self.replay_index = zl.clone()
         self.replay_t = z.clone()
         self.pursuit_level = 1.0
-        self.pursuit_hard = PURSUIT_HARD
-        self.pursuit_fixed: torch.Tensor | None = None  # [W, 3]: top speed, turn rate, delay
+        self.pursuit_hard: PursuitParams = PURSUIT_HARD
+        self.pursuit_fixed: torch.Tensor | None = None
         self.our_half = torch.tensor(our_half, device=device, dtype=dtype)
 
     def _pursuit_draw(self, u: torch.Tensor, column: int) -> torch.Tensor:
-        """A pursuit parameter from uniform `u`: the easy end at level 0, up to the hard end at
-        level 1. The delay shrinks as it gets harder, so it takes 1 - u, which at level 1 keeps
-        the draw a pre-curriculum seed made."""
         easy, hard = PURSUIT_EASY[column], self.pursuit_hard[column]
         if hard < easy:
             u = 1.0 - u
@@ -122,8 +143,6 @@ class Opponents:
         speed_scale: torch.Tensor,
         holdout: bool,
     ) -> None:
-        """Draw behaviours and parameters for the `mask` worlds. `holdout` draws only the held-out
-        pursuit corner (evaluation); otherwise pursuit never lands in it."""
         n = self.w
         choice = torch.tensor(allowed, device=self.device)[
             torch.randint(len(allowed), (n,), generator=self.gen, device=self.device)
@@ -132,8 +151,8 @@ class Opponents:
         p.behaviour = torch.where(mask, choice, p.behaviour)
         speed = self._uniform(0.3, 1.5)
         speed = torch.where(choice == RANDOM_WALK, self._uniform(0.2, 1.2), speed)
-        top = self._pursuit_draw(self._rand(n), 0)
-        delay = self._pursuit_draw(self._rand(n), 2)
+        top = self._pursuit_draw(self._rand(n), PURSUIT_COL_TOP_SPEED)
+        delay = self._pursuit_draw(self._rand(n), PURSUIT_COL_DELAY)
         if holdout:
             top = self._uniform(PURSUIT_HOLDOUT_SPEED, 2.5)
             delay = self._uniform(0.05, PURSUIT_HOLDOUT_DELAY)
@@ -141,7 +160,8 @@ class Opponents:
             corner = (top > PURSUIT_HOLDOUT_SPEED) & (delay < PURSUIT_HOLDOUT_DELAY)
             delay = torch.where(corner, self._uniform(PURSUIT_HOLDOUT_DELAY, 0.25), delay)
         if self.pursuit_fixed is not None:
-            top, delay = self.pursuit_fixed[:, 0], self.pursuit_fixed[:, 2]
+            top = self.pursuit_fixed[:, PURSUIT_COL_TOP_SPEED]
+            delay = self.pursuit_fixed[:, PURSUIT_COL_DELAY]
         speed = torch.where(choice == PURSUIT, top, speed) * speed_scale
         p.speed = torch.where(mask, speed, p.speed)
         p.radius = torch.where(mask, self._uniform(0.2, 0.6), p.radius)
@@ -153,55 +173,52 @@ class Opponents:
         p.delay_steps = torch.where(
             mask, torch.round(delay / 0.02).long().clamp(1, DELAY_SLOTS - 1), p.delay_steps
         )
-        turn = self._pursuit_draw(self._rand(n), 1)
+        turn = self._pursuit_draw(self._rand(n), PURSUIT_COL_TURN_RATE)
         if self.pursuit_fixed is not None:
-            turn = self.pursuit_fixed[:, 1]
+            turn = self.pursuit_fixed[:, PURSUIT_COL_TURN_RATE]
         p.turn_rate = torch.where(mask, turn, p.turn_rate)
         p.corner = torch.where(
             mask, torch.randint(4, (n,), generator=self.gen, device=self.device), p.corner
         )
-        self.turn = torch.where(mask, torch.zeros_like(self.turn), self.turn)
+        self.walk_yaw_rate = torch.where(
+            mask, torch.zeros_like(self.walk_yaw_rate), self.walk_yaw_rate
+        )
         if self.replay is not None:
             pick = torch.randint(self.replay.count, (n,), generator=self.gen, device=self.device)
             start = self._rand(n) * self.replay.start_span(pick)
             self.replay_index = torch.where(mask, pick, self.replay_index)
             self.replay_t = torch.where(mask, start, self.replay_t)
-        # Drawn last, so the draws above match what a seed gave before grip existed.
         lo, hi = PURSUIT_GRIP_MPS2
         grip = self._uniform(lo, hi)
         p.grip = torch.where(mask, grip, grip if p.grip is None else p.grip)
-        self.forward = torch.where(mask, torch.zeros_like(self.forward), self.forward)
+        self.commanded_forward_mps = torch.where(
+            mask, torch.zeros_like(self.commanded_forward_mps), self.commanded_forward_mps
+        )
 
     def record_us(
         self, our_xy: torch.Tensor, our_v: torch.Tensor, our_yaw: torch.Tensor | None = None
     ) -> None:
         self.head = (self.head + 1) % DELAY_SLOTS
-        self.history[:, self.head, :2] = our_xy
-        self.history[:, self.head, 2:4] = our_v
-        self.history[:, self.head, 4] = 0.0 if our_yaw is None else our_yaw
+        self.history[:, self.head, HIST_XY] = our_xy
+        self.history[:, self.head, HIST_V] = our_v
+        self.history[:, self.head, HIST_YAW] = 0.0 if our_yaw is None else our_yaw
 
     def command(
         self,
         xy: torch.Tensor,
         yaw: torch.Tensor,
         arena_half: torch.Tensor,
-        footprint: torch.Tensor,
+        footprint_half_diagonal: torch.Tensor,
         dt: float,
-        opp_half: torch.Tensor | None = None,
-        override: tuple[torch.Tensor, torch.Tensor] | None = None,
+        opp_half_length_width: torch.Tensor | None = None,
+        external_drive: tuple[torch.Tensor, torch.Tensor] | None = None,
     ) -> torch.Tensor:
-        """World-frame (vx, vy, yaw rate) for every world's opponent this step, [W, 3].
-
-        `footprint` is the opponent's half-diagonal, which keeps it off the walls; `opp_half`
-        [W, 2] is its half length and half width, which stops it at contact with us. Without it
-        the opponent is taken as a square with that half-diagonal. `override` is (mask [W],
-        velocity [W, 3]): worlds whose opponent something else drives (`policy_opponents.py`),
-        held to the same wall and contact rules."""
+        """World-frame (vx, vy, yaw rate) [W, 3] for every world's opponent this step."""
         p = self.p
         b = p.behaviour
         forward = torch.zeros_like(yaw)
         omega = torch.zeros_like(yaw)
-        lim = arena_half - footprint[:, None]
+        lim = arena_half - footprint_half_diagonal[:, None]
 
         heading = torch.stack([torch.cos(yaw), torch.sin(yaw)], 1)
         ahead = xy + heading * (p.speed[:, None] * dt * 5.0)
@@ -221,24 +238,30 @@ class Opponents:
 
         walk = b == RANDOM_WALK
         noise = torch.randn(self.w, generator=self.gen, device=self.device, dtype=self.dtype)
-        self.turn = torch.where(
-            walk, 0.9 * self.turn + p.noise * math.sqrt(1 - 0.81) * noise, self.turn
+        self.walk_yaw_rate = torch.where(
+            walk,
+            0.9 * self.walk_yaw_rate + p.noise * math.sqrt(1 - 0.81) * noise,
+            self.walk_yaw_rate,
         )
         centre_pull = wrap(torch.atan2(-xy[:, 1], -xy[:, 0]) - yaw)
         near_wall = (xy.abs() > lim - 0.2).any(1)
-        omega = torch.where(walk, torch.where(near_wall, 3.0 * centre_pull, self.turn), omega)
+        omega = torch.where(
+            walk, torch.where(near_wall, 3.0 * centre_pull, self.walk_yaw_rate), omega
+        )
         forward = torch.where(walk, p.speed, forward)
 
         pursuit = b == PURSUIT
         slot = (self.head - p.delay_steps) % DELAY_SLOTS
         seen = self.history[torch.arange(self.w, device=self.device), slot]
-        aim = seen[:, :2] + seen[:, 2:4] * p.lead[:, None]
+        aim = seen[:, HIST_XY] + seen[:, HIST_V] * p.lead[:, None]
         err = wrap(torch.atan2(aim[:, 1] - xy[:, 1], aim[:, 0] - xy[:, 0]) - yaw)
         cap = p.turn_rate
         chase = p.speed * torch.cos(err).clamp(min=0.0)
         if p.grip is not None:
             step = p.grip * dt
-            chase = self.forward + (chase - self.forward).clamp(min=-step, max=step)
+            chase = self.commanded_forward_mps + (chase - self.commanded_forward_mps).clamp(
+                min=-step, max=step
+            )
             cap = torch.minimum(cap, p.grip / chase.abs().clamp(min=1e-3))
         omega = torch.where(pursuit, torch.maximum(torch.minimum(err / dt, cap), -cap), omega)
         forward = torch.where(pursuit, chase, forward)
@@ -252,7 +275,8 @@ class Opponents:
         away = torch.atan2(-to_spot[:, 1], -to_spot[:, 0])
         backing = dist > 0.08
         face_us = torch.atan2(
-            self.history[:, self.head, 1] - xy[:, 1], self.history[:, self.head, 0] - xy[:, 0]
+            self.history[:, self.head, HIST_Y] - xy[:, 1],
+            self.history[:, self.head, HIST_X] - xy[:, 0],
         )
         target = torch.where(backing, away, face_us)
         cerr = wrap(target - yaw)
@@ -263,7 +287,7 @@ class Opponents:
             rep = b == REPLAY
             self.replay_t = torch.where(rep, self.replay_t + dt, self.replay_t)
             target_xy, target_yaw = self.replay.sample(
-                self.replay_index, self.replay_t, arena_half - footprint[:, None]
+                self.replay_index, self.replay_t, arena_half - footprint_half_diagonal[:, None]
             )
             vel = (target_xy - xy) / dt
             vel = vel.clamp(-3.0, 3.0)
@@ -273,11 +297,11 @@ class Opponents:
             rep = torch.zeros_like(straight)
             world = torch.zeros(self.w, 3, device=self.device, dtype=self.dtype)
 
-        self.forward = forward
+        self.commanded_forward_mps = forward
         v = torch.stack([forward * torch.cos(yaw), forward * torch.sin(yaw), omega], 1)
         v = torch.where(rep[:, None], world, v)
-        if override is not None:
-            v = torch.where(override[0][:, None], override[1], v)
+        if external_drive is not None:
+            v = torch.where(external_drive[0][:, None], external_drive[1], v)
         stop_x = ((xy[:, 0] >= lim[:, 0]) & (v[:, 0] > 0)) | (
             (xy[:, 0] <= -lim[:, 0]) & (v[:, 0] < 0)
         )
@@ -286,22 +310,19 @@ class Opponents:
         )
         v[:, 0] = torch.where(stop_x, 0.0, v[:, 0])
         v[:, 1] = torch.where(stop_y, 0.0, v[:, 1])
-        # No pushing through us. The opponent is a mocap body with infinite mass: driven into our
-        # wedge it cannot ride up it the way a real robot would, so it pries our chassis over
-        # instead (an idle robot flipped in 66 of 80 early-ending stage C episodes). Its closing
-        # speed is capped so it arrives at contact (CONTACT_PRESS_M) and goes no further; it
-        # still turns and slides along us. Contact is the two footprint boxes' extents along the
-        # line between centres, so a pursuer reaches our nose and its arc touches. The earlier
-        # two-circle rule stopped it 15 cm off a nose-on robot, out of contact for good.
-        if opp_half is None:
-            opp_half = (footprint / math.sqrt(2.0))[:, None].expand(-1, 2)
-        ours = self.history[:, self.head, :2]
-        our_yaw = self.history[:, self.head, 4]
+        if opp_half_length_width is None:
+            opp_half_length_width = (footprint_half_diagonal / math.sqrt(2.0))[:, None].expand(
+                -1, 2
+            )
+        ours = self.history[:, self.head, HIST_XY]
+        our_yaw = self.history[:, self.head, HIST_YAW]
         away = ours - xy
         dist = away.norm(dim=1).clamp(min=1e-6)
         normal = away / dist[:, None]
         us_half = self.our_half.expand(self.w, 2)
-        reach = box_support(normal, yaw, opp_half) + box_support(normal, our_yaw, us_half)
+        reach = box_support(normal, yaw, opp_half_length_width) + box_support(
+            normal, our_yaw, us_half
+        )
         allowed = ((dist - reach + CONTACT_PRESS_M) / dt).clamp(min=0.0)
         closing = (v[:, :2] * normal).sum(1)
         excess = (closing - allowed).clamp(min=0.0)

@@ -20,7 +20,6 @@ No `from __future__ import annotations`: warp reads the annotations as live type
 
 import warp as wp
 
-# yaw_control::Config and the mixer constants, as in firmware.py.
 MAX_RATE = 2000.0
 FEEDFORWARD = 1.0 / 27.0
 KP = 0.02
@@ -42,9 +41,33 @@ WEAPON_DISK = 1
 ARC_ANGLE = 0
 ARC_FRONT_FACE = 1
 FRONT_FACE_MARGIN_M = 0.01
-# A disk-sweep point this close to the opponent's box counts as the weapon touching it.
-SWEEP_MARGIN_M = 0.005
+WEAPON_SWEEP_MARGIN_M = 0.005
 SWEEP_ANGLES = 16
+SWEEP_CENTRE_X, SWEEP_CENTRE_Z, SWEEP_RADIUS, SWEEP_HALF_WIDTH = range(4)
+SHAPE_DEADZONE_LEFT = 0
+SHAPE_DEADZONE_RIGHT = 1
+SHAPE_CURVE = 2
+SHAPE_GAIN_LEFT = 3
+SHAPE_GAIN_RIGHT = 4
+SHAPE_PACK_VOLTS = 5
+SHAPE_REVERSE_GAIN_LEFT = 6
+SHAPE_REVERSE_GAIN_RIGHT = 7
+SHAPE_COAST = 8
+SHAPE_COLUMNS = 9
+GEOM_ROLE_OTHER = 0
+GEOM_ROLE_OURS = 1
+GEOM_ROLE_OPPONENT = 2
+GEOM_ROLE_WALL = 3
+GEOM_ROLE_WALL_BLOCK = 4
+GEOM_ROLE_HOUSE_BOT = 5
+FLAG_OPPONENT_CONTACT = 0
+FLAG_ARC_CONTACT = 1
+FLAG_WEDGE_OUTSIDE_ARC = 2
+FLAG_WEDGE_MAX_PHI = 3
+FLAG_WALL = 4
+FLAG_WALL_BLOCK = 5
+FLAG_HOUSE_BOT = 6
+FLAG_COLUMNS = 7
 
 FW_SETPOINT = 0
 FW_CAPTURING = 1
@@ -221,14 +244,7 @@ def command_path(
     direct: int,
     ctrl: wp.array2d(dtype=float),
 ):
-    """Jetson command -> transport delay -> firmware -> drivetrain delay -> shaped wheel volts.
-
-    `direct` = 1 skips the firmware: left = linear - angular, right = linear + angular, in
-    percent, the radio's mix (positive angular turns counterclockwise, as the firmware's does).
-
-    `shaping` columns: deadzone left, deadzone right, curve, left gain, right gain, pack volts,
-    left reverse gain, right reverse gain, coast flag.
-    """
+    """Jetson command through transport delay, firmware or direct mix, and drivetrain delay."""
     w = wp.tid()
     cap = transport_ring.shape[1]
     h = head[0] % cap
@@ -237,8 +253,6 @@ def command_path(
     th = (h - transport_lag[w] + cap) % cap
     linear = transport_ring[w, th, 0]
     angular = transport_ring[w, th, 1]
-    # CRSF percents: the firmware negates channel 0 into a_percent, the transmitter reverses
-    # the angular channel (closed_loop.py).
     a_percent = -100.0 * wp.clamp(linear, -1.0, 1.0)
     b_percent = -100.0 * wp.clamp(angular, -1.0, 1.0)
 
@@ -266,17 +280,17 @@ def command_path(
     dh = (h - drive_lag[w] + cap) % cap
     for k in range(2):
         u = wp.clamp(drive_ring[w, dh, k] / 100.0, -1.0, 1.0)
-        dz = shaping[w, k]
+        dz = shaping[w, SHAPE_DEADZONE_LEFT + k]
         mag = wp.clamp((wp.abs(u) - dz) / (1.0 - dz), 0.0, 1.0)
-        bent = mag * (1.0 + shaping[w, 2] * (1.0 - mag))
+        bent = mag * (1.0 + shaping[w, SHAPE_CURVE] * (1.0 - mag))
         shaped = wp.sign(u) * bent
         if mag <= 0.0:
             shaped = 0.0
-        gain = shaping[w, 3 + k]
+        gain = shaping[w, SHAPE_GAIN_LEFT + k]
         if shaped < 0.0:
-            gain = gain * shaping[w, 6 + k]
-        volts = shaped * shaping[w, 5] * gain
-        if shaped == 0.0 and shaping[w, 8] > 0.5:
+            gain = gain * shaping[w, SHAPE_REVERSE_GAIN_LEFT + k]
+        volts = shaped * shaping[w, SHAPE_PACK_VOLTS] * gain
+        if shaped == 0.0 and shaping[w, SHAPE_COAST] > 0.5:
             volts = emf_per_radps * qvel[w, wheel_dofs[k]]
         ctrl[w, k] = volts
 
@@ -325,23 +339,22 @@ def weapon_sweep_hit(
     box_yaw: float,
     box_half: wp.vec3,
 ) -> int:
-    """1 if the weapon's sweep cylinder (axis along body y) comes within SWEEP_MARGIN_M of the
-    box. `sweep` is (centre x, centre z, radius, half width) in the body frame, `sweep_y` the
-    centre's body y. Samples the rim and half radius at both faces and the mid-plane, and the
-    axis."""
+    """1 if sample points on the weapon's sweep cylinder come within the margin of the box."""
     q = mj_quat(qpos, w)
     origin = wp.vec3(qpos[w, 0], qpos[w, 1], qpos[w, 2])
     for k in range(SWEEP_ANGLES):
         a = 2.0 * PI * float(k) / float(SWEEP_ANGLES)
         for ring in range(3):
-            r = sweep[2] * (1.0 - 0.5 * float(ring))
+            r = sweep[SWEEP_RADIUS] * (1.0 - 0.5 * float(ring))
             if ring == 2:
                 r = 0.0
             for face in range(3):
-                y = sweep_y + sweep[3] * float(face - 1)
-                local = wp.vec3(sweep[0] + r * wp.cos(a), y, sweep[1] + r * wp.sin(a))
+                y = sweep_y + sweep[SWEEP_HALF_WIDTH] * float(face - 1)
+                local = wp.vec3(
+                    sweep[SWEEP_CENTRE_X] + r * wp.cos(a), y, sweep[SWEEP_CENTRE_Z] + r * wp.sin(a)
+                )
                 p = origin + wp.quat_rotate(q, local)
-                if box_distance(p, box_centre, box_yaw, box_half) < SWEEP_MARGIN_M:
+                if box_distance(p, box_centre, box_yaw, box_half) < WEAPON_SWEEP_MARGIN_M:
                     return 1
     return 0
 
@@ -418,17 +431,7 @@ def classify_contacts(
     arc_rule: int,
     flags: wp.array2d(dtype=float),
 ):
-    """OR this substep's contacts into per-world flags.
-
-    `weapon` WEAPON_WEDGE: a contact point ahead of `strike_x` within `strike_half_width` of the
-    centre line is on our wedge. WEAPON_DISK: any contact with the opponent while our weapon's
-    sweep touches its box (`weapon_sweep_hit`).
-
-    `geom_role`: 0 other, 1 our robot, 2 opponent, 3 arena wall, 4 wall block, 5 house bot.
-    Flag columns: 0 any opponent contact, 1 contact inside the opponent's arc, 2 contact on our
-    wedge outside the arc, 3 largest |phi| of such a wedge contact, 4 wall, 5 wall block,
-    6 house bot.
-    """
+    """OR this substep's contacts into per-world flag columns (`FLAG_*`)."""
     c = wp.tid()
     if c >= nacon[0]:
         return
@@ -436,23 +439,23 @@ def classify_contacts(
     r0 = geom_role[g[0]]
     r1 = geom_role[g[1]]
     other = int(0)
-    if r0 == 1:
+    if r0 == GEOM_ROLE_OURS:
         other = r1
-    elif r1 == 1:
+    elif r1 == GEOM_ROLE_OURS:
         other = r0
     else:
         return
     w = contact_world[c]
-    if other == 3:
-        wp.atomic_max(flags, w, 4, 1.0)
+    if other == GEOM_ROLE_WALL:
+        wp.atomic_max(flags, w, FLAG_WALL, 1.0)
         return
-    if other == 4:
-        wp.atomic_max(flags, w, 5, 1.0)
+    if other == GEOM_ROLE_WALL_BLOCK:
+        wp.atomic_max(flags, w, FLAG_WALL_BLOCK, 1.0)
         return
-    if other == 5:
-        wp.atomic_max(flags, w, 6, 1.0)
+    if other == GEOM_ROLE_HOUSE_BOT:
+        wp.atomic_max(flags, w, FLAG_HOUSE_BOT, 1.0)
         return
-    if other != 2:
+    if other != GEOM_ROLE_OPPONENT:
         return
     p = contact_pos[c]
     op = mocap_pos[w, opponent_mocap]
@@ -462,16 +465,16 @@ def classify_contacts(
     )
     ang = wp.atan2(p[1] - op[1], p[0] - op[0]) - oyaw
     phi = ang - 2.0 * PI * wp.floor((ang + PI) / (2.0 * PI))
-    wp.atomic_max(flags, w, 0, 1.0)
+    wp.atomic_max(flags, w, FLAG_OPPONENT_CONTACT, 1.0)
     box_half = geom_size[w, opponent_geom]
     if in_opponent_arc(p, op, oyaw, box_half, phi, arc_half_angle, arc_rule):
-        wp.atomic_max(flags, w, 1, 1.0)
+        wp.atomic_max(flags, w, FLAG_ARC_CONTACT, 1.0)
         return
     if on_weapon(
         qpos, w, p, weapon, strike_x, strike_half_width, sweep, sweep_y, op, oyaw, box_half
     ):
-        wp.atomic_max(flags, w, 2, 1.0)
-        wp.atomic_max(flags, w, 3, wp.abs(phi))
+        wp.atomic_max(flags, w, FLAG_WEDGE_OUTSIDE_ARC, 1.0)
+        wp.atomic_max(flags, w, FLAG_WEDGE_MAX_PHI, wp.abs(phi))
 
 
 @wp.kernel

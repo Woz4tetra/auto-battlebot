@@ -36,7 +36,7 @@ def restore(
 def configure_pursuit(env: WarpNavEnv, args: argparse.Namespace, resume: dict | None) -> None:
     if args.pursuit_max_speed is not None:
         hard = env.opponents.pursuit_hard
-        env.opponents.pursuit_hard = (args.pursuit_max_speed, hard[1], hard[2])
+        env.opponents.pursuit_hard = hard._replace(top_speed_mps=args.pursuit_max_speed)
     level = args.pursuit_level
     if level is None:
         level = resume.get("pursuit_level", 1.0) if resume is not None else 1.0

@@ -6,7 +6,15 @@ import math
 
 import torch
 
-from auto_battlebot.rl.envs.opponents import BEHAVIOURS, OUR_HALF_DIAGONAL_M, REPLAY, Opponents
+from auto_battlebot.rl.envs.opponents import (
+    BEHAVIOURS,
+    HIST_VX,
+    HIST_X,
+    HIST_Y,
+    OUR_HALF_DIAGONAL_M,
+    REPLAY,
+    Opponents,
+)
 from auto_battlebot.rl.envs.replay_tracks import ReplayTracks
 
 ANY = "any"
@@ -21,11 +29,9 @@ class TrainedOpponent:
         holdout: bool,
         arena_w: float,
         arena_h: float,
-        opp_half: tuple[float, float],
+        opp_half_length_width: tuple[float, float],
         seed: int,
     ) -> None:
-        """`opp_half` is the opponent's footprint as half length (along its heading) and half
-        width: it keeps the opponent off the walls and stops it at contact with us."""
         if behaviour not in TRAINED_BEHAVIOURS:
             raise ValueError(
                 f"unknown trained_behaviour {behaviour!r}; valid: {', '.join(TRAINED_BEHAVIOURS)}"
@@ -35,7 +41,7 @@ class TrainedOpponent:
         )
         self._holdout = holdout
         self._half = torch.tensor([[arena_w / 2.0, arena_h / 2.0]], dtype=torch.float64)
-        self._opp_half = torch.tensor([opp_half], dtype=torch.float64)
+        self._opp_half = torch.tensor([opp_half_length_width], dtype=torch.float64)
         self._foot = self._opp_half.norm(dim=1)
         gen = torch.Generator().manual_seed(seed)
         self._opp = Opponents(1, torch.device("cpu"), torch.float64, gen)
@@ -50,9 +56,9 @@ class TrainedOpponent:
 
     def reset(self, us_xy: tuple[float, float]) -> tuple[float, float, float] | None:
         """Draw a behaviour and its parameters."""
-        self._opp.history[:, :, 0] = us_xy[0]
-        self._opp.history[:, :, 1] = us_xy[1]
-        self._opp.history[:, :, 2:] = 0.0
+        self._opp.history[:, :, HIST_X] = us_xy[0]
+        self._opp.history[:, :, HIST_Y] = us_xy[1]
+        self._opp.history[:, :, HIST_VX:] = 0.0
         clear = float(self._foot[0]) + OUR_HALF_DIAGONAL_M + START_CLEARANCE_M
         start: tuple[float, float, float] | None = None
         for _ in range(50):
@@ -90,7 +96,7 @@ class TrainedOpponent:
             self._half,
             self._foot,
             dt,
-            opp_half=self._opp_half,
+            opp_half_length_width=self._opp_half,
         )[0]
         lim_x = float(self._half[0, 0] - self._foot[0])
         lim_y = float(self._half[0, 1] - self._foot[0])

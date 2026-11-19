@@ -30,7 +30,7 @@ from auto_battlebot.mujoco_sim.mjcf import (
 from auto_battlebot.mujoco_sim.rollout import ModelIndex, pose_from_qpos, rest_height
 from auto_battlebot.rl import obs_spec
 from auto_battlebot.rl.env import EnvSpec
-from auto_battlebot.rl.envs.opponents import OpponentParams, Opponents
+from auto_battlebot.rl.envs.opponents import HIST_X, HIST_Y, OpponentParams, Opponents
 from auto_battlebot.rl.envs.policy_opponents import PolicyOpponents
 from auto_battlebot.rl.envs.replay_tracks import ReplayTracks
 from auto_battlebot.rl.envs.warp_nav import (
@@ -280,8 +280,8 @@ class LockstepWorld:
             self.opponents.replay_index = torch.tensor([int(scenario["replay_index"])])
             self.opponents.replay_t = torch.tensor([float(scenario["replay_t"])])
         x, y, _ = scenario["our_pose"]
-        self.opponents.history[:, :, 0] = x
-        self.opponents.history[:, :, 1] = y
+        self.opponents.history[:, :, HIST_X] = x
+        self.opponents.history[:, :, HIST_Y] = y
         self.opp_vel = np.zeros(3)
 
     def pose(self) -> tuple[float, float, float]:
@@ -333,7 +333,7 @@ class LockstepWorld:
     def _sweep_hits(self, rot: np.ndarray) -> bool:
         """`warp_kernels.weapon_sweep_hit`: the weapon's sweep cylinder within the margin of the
         opponent's box, at the same sample points."""
-        from auto_battlebot.rl.envs.warp_kernels import SWEEP_ANGLES, SWEEP_MARGIN_M
+        from auto_battlebot.rl.envs.warp_kernels import SWEEP_ANGLES, WEAPON_SWEEP_MARGIN_M
 
         sweep = self.mp.weapon
         if sweep is None:
@@ -352,7 +352,7 @@ class LockstepWorld:
                     d = self.data.qpos[:3] + rot @ local - centre
                     lx, ly = c * d[0] + s_ * d[1], -s_ * d[0] + c * d[1]
                     q = np.maximum(np.abs([lx, ly, d[2]]) - half, 0.0)
-                    if float(np.linalg.norm(q)) < SWEEP_MARGIN_M:
+                    if float(np.linalg.norm(q)) < WEAPON_SWEEP_MARGIN_M:
                         return True
         return False
 
@@ -426,8 +426,10 @@ class LockstepWorld:
             half,
             foot,
             dt,
-            opp_half=torch.as_tensor(np.asarray(self.opp_half)[None], dtype=torch.float64),
-            override=self._policy_override(x0, y0, yaw0, v0, ox, oy, oyaw),
+            opp_half_length_width=torch.as_tensor(
+                np.asarray(self.opp_half)[None], dtype=torch.float64
+            ),
+            external_drive=self._policy_override(x0, y0, yaw0, v0, ox, oy, oyaw),
         )
         self.opp_vel = cmd[0].numpy()
         self._house_command()

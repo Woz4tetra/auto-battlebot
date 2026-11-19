@@ -294,7 +294,6 @@ class ToyEnv:
         var = torch.full((n,), 0.012**2, device=self.device, dtype=self.dtype)
         keypoint = torch.ones(n, dtype=torch.bool, device=self.device)
         f.update(out.stamp, out.measured[:, 1], out.xy[:, 1], out.yaw[:, 1], keypoint, var)
-        # A world with no frame this tick has had no update in the C++ either.
         f.output_stale = torch.where(out.delivered, f.output_stale, before)
 
     def step(self, action: torch.Tensor) -> Step:
@@ -402,9 +401,6 @@ class ToyEnv:
         return potential
 
     def _our_last_delivery(self) -> torch.Tensor:
-        """When our robot's last measurement reached the filter: its capture stamp plus the
-        latency. `OurEkfErrorModel` starts a gap from this, as the real EKF does from its last
-        update; the capture stamp alone is always a latency old and never leaves the gap."""
         stamp: torch.Tensor = self.measure.last_measured_stamp[:, 0] + self.measure.params.latency_s
         return stamp
 

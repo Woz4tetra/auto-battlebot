@@ -19,7 +19,7 @@
 | --- | --- |
 | `config/` | `config_extends.md` (extends chains, `from` section files), `robot_plant_files.md` |
 | `perception/` | `robot_filter_pipeline.md`, `field_pose.md`, `cage_calibration.md`, `camera_profiles.md`, `gpu_letterbox_memory.md`, `trt_engine.md`, `trt_yolo.md` |
-| `control/` | `plant_backed_control.md`, `hazards.md`, `rl_policy_bundle.md`, `control_loop.md`, `empty_circle_solver.md` |
+| `control/` | `plant_backed_control.md`, `hazards.md`, `rl_policy_bundle.md`, `control_loop.md`, `empty_circle_solver.md`, `rl_opponents.md` |
 | `calibration/` | `sysid_modules.md`, `plant_fit_modules.md` |
 | `eval/` | `eval_code.md` |
 | `recording/` | `foxglove_recording_format.md` (the recording contract), `svo_recording.md`, `video_recording.md` |

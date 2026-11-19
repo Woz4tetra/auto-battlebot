@@ -110,10 +110,7 @@ class PolicyOpponents:
     def command(
         self, inp: obs_spec.ObsInputs, yaw: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """World-frame (vx, vy, yaw rate) [W, 3] for policy-driven worlds, and their mask.
-
-        `inp` is the observation input from the opponent's side: its pose as ours, ours as the
-        opponent's. `hist_*` fields are filled in here."""
+        """World-frame (vx, vy, yaw rate) [W, 3] for policy-driven worlds, and their mask."""
         active = self.driver > 0
         out = torch.zeros(self.w, 3, device=self.device, dtype=self.dtype)
         if not bool(active.any()):
