@@ -65,6 +65,23 @@ One observation spec version maps robots, field, target and history to named ten
 
 `NetworkRuntimeInterface::run()` never allocates, so it is safe on the control thread; `RtNeuralRuntimeTest.RunDoesNotAllocate` counts malloc calls over 100 runs. Recurrent state lives inside the runtime, and `reset()` zeros it. `ObservationBuilderV1::build()` does not allocate once its hazard scratch has grown to the field's hazard count (`ObservationV1AdapterTest.BuildDoesNotAllocateAfterWarmup`). `ActionHistory` is a fixed ring allocated once, newest first. A slot never written reads as zeros, which is how the training environment starts an episode, so a fresh history feeds the policy nothing it did not see in training (`ActionHistoryTest.UnwrittenSlotsAreZero`). `ActionDecoderInterface::decode()` throws `std::invalid_argument` if either span is not `action_size()` long.
 
+## RTNeural runtime
+
+The exporter writes `""` as the activation of the actor's last layer because the decoder applies `tanh`, not the network. `RtNeuralRuntimeTest.AnEmptyActivationMeansNone` pins that `""` means no activation.
+
+The deployed actor is 138 -> 256 -> 256 -> 128 -> 2 with ELU and no output activation (plan section 11). Plan requirement 6 is under 50 us on the Orin NX CPU. `RtNeuralRuntimeTest.FullSizeActorInferenceTime` prints the median and p99 on whatever box runs it.
+
+The tiny test network is Dense(3, 4, ELU) then Dense(4, 2, `output_activation`). Its weights make the ELU see both signs. The hand computation behind `DenseEluTanhMatchesHandComputedValues` for input [0.3, -0.7, 1.2]:
+
+| Unit | Pre-activation | After ELU |
+| --- | --- | --- |
+| Hidden 0 | 0.3*0.5 - 0.7*1.0 + 1.2*-0.25 + 0.1 = -0.75 | e^-0.75 - 1 = -0.5276334472589853 |
+| Hidden 1 | 0.3*-1.0 - 0.7*0.5 + 1.2*0.75 - 0.2 = 0.05 | 0.05 |
+| Hidden 2 | 0.3*0.25 - 0.7*-0.5 + 1.2*1.0 + 0.0 = 1.625 | 1.625 |
+| Hidden 3 | 0.3*0.0 - 0.7*2.0 + 1.2*-1.0 + 0.3 = -2.3 | e^-2.3 - 1 = -0.8997411562771962 |
+
+Output pre-activations: -0.52763*1.0 + 0.05*0.5 + 1.625*-1.0 + -0.89974*0.2 + 0.05 = -2.2575816785144247, and -0.52763*-0.5 + 0.05*0.25 + 1.625*1.0 + -0.89974*-0.3 - 0.1 = 2.0712390705126515.
+
 ## selftest.bin
 
 Little-endian: the bytes `RLST`, uint32 version (1), uint32 pair count N, uint32 observation size D, uint32 action size A, then N x D float32 observations, then N x A float32 decoded actions (`scale * tanh(network output)`), both row-major.

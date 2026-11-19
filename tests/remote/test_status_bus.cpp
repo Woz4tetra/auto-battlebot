@@ -1,5 +1,9 @@
 #include <gtest/gtest.h>
 
+#include <chrono>
+#include <thread>
+#include <tuple>
+
 #include "remote/status_bus.hpp"
 
 namespace auto_battlebot::remote {
@@ -9,9 +13,10 @@ TEST(StatusBusTest, ThrottlesInsideTheRateWindow) {
     StatusBus bus(nullptr, nullptr);
     SystemStatusMessage message;
     EXPECT_TRUE(bus.publish(message));
-    // /status/system is 10 Hz, so a second call within 100 ms is dropped.
     EXPECT_FALSE(bus.publish(message));
-    std::this_thread::sleep_for(std::chrono::milliseconds(110));
+    const auto system_status_period = std::chrono::duration<double>(
+        1.0 / std::get<StatusTopic<SystemStatusMessage>>(RemoteTopics::status).max_rate_hz);
+    std::this_thread::sleep_for(system_status_period + std::chrono::milliseconds(10));
     EXPECT_TRUE(bus.publish(message));
 }
 

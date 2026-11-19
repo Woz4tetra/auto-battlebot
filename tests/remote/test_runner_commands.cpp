@@ -12,8 +12,10 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <type_traits>
 #include <vector>
 
+#include "control_loop/config.hpp"
 #include "control_loop/stepped_control_loop.hpp"
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "field_filter/noop_field_filter.hpp"
@@ -33,10 +35,16 @@
 namespace auto_battlebot {
 namespace {
 
-// [control_loop] robot_cache_max_age_s default.
-constexpr double kCacheMaxAgeS = 0.25;
+const double kCacheMaxAgeS = ControlLoopConfiguration{}.robot_cache_max_age_s;
+constexpr auto kRecordingToggleTimeout = std::chrono::seconds(2);
+constexpr auto kReopenBlockLimit = std::chrono::seconds(10);
+constexpr int kOutOfRangeOpponentCount = 7;
 
-// Toggled on the runner's recording worker and read by the tick, hence the atomics.
+template <typename T>
+struct IsAtomic : std::false_type {};
+template <typename T>
+struct IsAtomic<std::atomic<T>> : std::true_type {};
+
 class RecordingCamera : public NoopRgbdCamera {
    public:
     bool set_recording_enabled(bool enabled) override {
@@ -44,11 +52,13 @@ class RecordingCamera : public NoopRgbdCamera {
         if (opening.load()) overlapped_open = true;
         if (on_toggle) on_toggle(enabled);
         recording = enabled;
-        // Like VideoEncoder: a restart clears a stopped encoder.
-        if (enabled) needs_restart = false;
+        restart_clears_stall(enabled);
         std::lock_guard<std::mutex> lock(mutex);
         history.push_back(enabled);
         return true;
+    }
+    void restart_clears_stall(bool enabled) {
+        if (enabled) needs_restart = false;
     }
     std::vector<bool> toggles() {
         std::lock_guard<std::mutex> lock(mutex);
@@ -60,15 +70,15 @@ class RecordingCamera : public NoopRgbdCamera {
     std::atomic<bool> overlapped_open{false};
     std::function<void(bool)> on_toggle;
 
-    // With lost_ set, get() fails and a re-open blocks like a ZED that is not there, until
-    // cancel_initialize() or 10 s.
-    bool get(CameraData &data) override { return !lost_.load() && NoopRgbdCamera::get(data); }
+    bool get(CameraData &data) override {
+        return !lost_blocking_reopen_.load() && NoopRgbdCamera::get(data);
+    }
     bool initialize() override {
-        if (!lost_.load()) return true;
+        if (!lost_blocking_reopen_.load()) return true;
         if (open_fails_.load()) return false;
         cancel_.store(false);
         opening.store(true);
-        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        const auto deadline = std::chrono::steady_clock::now() + kReopenBlockLimit;
         while (!cancel_.load() && std::chrono::steady_clock::now() < deadline) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
@@ -76,7 +86,7 @@ class RecordingCamera : public NoopRgbdCamera {
         return false;
     }
     void cancel_initialize() override { cancel_.store(true); }
-    std::atomic<bool> lost_{false};
+    std::atomic<bool> lost_blocking_reopen_{false};
     std::atomic<bool> open_fails_{false};
     std::atomic<bool> opening{false};
     std::atomic<bool> cancel_{false};
@@ -87,9 +97,12 @@ class RecordingCamera : public NoopRgbdCamera {
     std::vector<bool> history;
 };
 
-// Records what the runner queues, and echoes it back as the read-back the way the capture thread
-// does a frame later. DEFAULT (nullopt) restores `opened`.
-class SettingsCamera : public NoopRgbdCamera {
+static_assert(IsAtomic<decltype(RecordingCamera::needs_restart)>::value);
+static_assert(IsAtomic<decltype(RecordingCamera::overlapped_open)>::value);
+static_assert(IsAtomic<decltype(RecordingCamera::recording)>::value);
+static_assert(IsAtomic<decltype(RecordingCamera::toggle_delay_ms)>::value);
+
+class EchoingSettingsCamera : public NoopRgbdCamera {
    public:
     bool supports_camera_settings() const override { return true; }
     void request_camera_settings(std::optional<CameraSettings> settings) override {
@@ -143,9 +156,8 @@ class RunnerCommandsTest : public ::testing::Test {
         return runner_->system_status();
     }
 
-    /** Recording toggles run on a worker; tick until the status shows `enabled` or 2 s pass. */
     bool camera_recording_reaches(bool enabled) {
-        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        const auto deadline = std::chrono::steady_clock::now() + kRecordingToggleTimeout;
         while (std::chrono::steady_clock::now() < deadline) {
             EXPECT_TRUE(runner_->tick());
             if (runner_->system_status().camera_recording == enabled) return true;
@@ -164,15 +176,19 @@ class RunnerCommandsTest : public ::testing::Test {
 
 TEST_F(RunnerCommandsTest, SetOpponentCount) {
     EXPECT_EQ(status_after(remote::SetOpponentCountCommand{.count = 3}).selected_opponent_count, 3);
-    // Out of range is refused, the same as the old atomic path.
-    EXPECT_EQ(status_after(remote::SetOpponentCountCommand{.count = 7}).selected_opponent_count, 3);
+    EXPECT_EQ(status_after(remote::SetOpponentCountCommand{.count = kOutOfRangeOpponentCount})
+                  .selected_opponent_count,
+              3);
 }
 
 TEST_F(RunnerCommandsTest, SetAutonomyIsAnExplicitSet) {
     EXPECT_FALSE(status_after(remote::SetAutonomyCommand{.enabled = false}).autonomy_enabled);
-    // Resending the same value after a reconnect must not flip it back.
-    EXPECT_FALSE(status_after(remote::SetAutonomyCommand{.enabled = false}).autonomy_enabled);
     EXPECT_TRUE(status_after(remote::SetAutonomyCommand{.enabled = true}).autonomy_enabled);
+}
+
+TEST_F(RunnerCommandsTest, ResendingTheSameAutonomyValueDoesNotToggle) {
+    EXPECT_FALSE(status_after(remote::SetAutonomyCommand{.enabled = false}).autonomy_enabled);
+    EXPECT_FALSE(status_after(remote::SetAutonomyCommand{.enabled = false}).autonomy_enabled);
 }
 
 TEST_F(RunnerCommandsTest, SetBehaviorMode) {
@@ -192,7 +208,6 @@ TEST_F(RunnerCommandsTest, SetAutoTracking) {
 }
 
 TEST_F(RunnerCommandsTest, ManualTargetNeverChangesAutoTracking) {
-    // Only the switch does. A tap while auto tracking is on is refused, not a takeover.
     remote::SetManualTargetCommand command;
     command.field = remote::FieldPoint{.x = 0.5, .y = -0.25};
     EXPECT_TRUE(status_after(command).auto_tracking);
@@ -269,7 +284,6 @@ TEST_F(RunnerCommandsTest, RunnerRemoteWithoutACommandQueueIsRejected) {
         std::invalid_argument);
 }
 
-// Stopping a camera's encoder can take seconds on a stalled pipeline. The tick must not wait.
 TEST_F(RunnerCommandsTest, SlowRecordingToggleDoesNotBlockTheTick) {
     camera_->toggle_delay_ms = 500;
     commands_->post(remote::SetRecordingCommand{.enabled = true});
@@ -312,18 +326,22 @@ TEST_F(RunnerCommandsTest, SelectProfilePersists) {
 }
 
 TEST_F(RunnerCommandsTest, SystemActionStopsTheLoop) {
-    camera_->recording = true;
     commands_->post(remote::SystemActionCommand{.action = SystemAction::POWEROFF_HOST});
     EXPECT_FALSE(runner_->tick());
     EXPECT_EQ(system_action_, SystemAction::POWEROFF_HOST);
-    // Recordings close before the host goes down.
+}
+
+TEST_F(RunnerCommandsTest, SystemActionClosesRecordingsBeforeTheHostGoesDown) {
+    camera_->recording = true;
+    commands_->post(remote::SystemActionCommand{.action = SystemAction::POWEROFF_HOST});
+    EXPECT_FALSE(runner_->tick());
     EXPECT_FALSE(camera_->recording);
 }
 
 class LostCameraTick {
    public:
     LostCameraTick(Runner &runner, RecordingCamera &camera) {
-        camera.lost_ = true;
+        camera.lost_blocking_reopen_ = true;
         thread_ = std::thread([&] { result_ = runner.tick(); });
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
         while (!camera.opening.load() && std::chrono::steady_clock::now() < deadline) {
@@ -332,8 +350,7 @@ class LostCameraTick {
         EXPECT_TRUE(camera.opening.load()) << "the tick never started re-opening the camera";
         start_ = std::chrono::steady_clock::now();
     }
-    /** Milliseconds from the re-open starting to the tick returning. */
-    double join() {
+    double reopen_to_return_ms() {
         thread_.join();
         return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start_)
             .count();
@@ -349,7 +366,7 @@ class LostCameraTick {
 TEST_F(RunnerCommandsTest, QuitCancelsACameraReopen) {
     LostCameraTick tick(*runner_, *camera_);
     runner_->quit_from_signal_handler();
-    EXPECT_LT(tick.join(), 500.0);
+    EXPECT_LT(tick.reopen_to_return_ms(), 500.0);
     EXPECT_FALSE(tick.result());
 }
 
@@ -357,17 +374,15 @@ TEST_F(RunnerCommandsTest, RebootCancelsACameraReopenAndStillRuns) {
     camera_->recording = true;
     LostCameraTick tick(*runner_, *camera_);
     commands_->post(remote::SystemActionCommand{.action = SystemAction::REBOOT_HOST});
-    EXPECT_LT(tick.join(), 500.0);
+    EXPECT_LT(tick.reopen_to_return_ms(), 500.0);
     EXPECT_FALSE(tick.result());
     EXPECT_EQ(system_action_, SystemAction::REBOOT_HOST);
     EXPECT_FALSE(camera_->recording);
 }
 
-// A camera that cannot be re-opened ends the run. The recordings must be closed by then, since
-// the camera's destructor may have to exit the process.
 TEST_F(RunnerCommandsTest, CameraFailureExitClosesRecordings) {
     camera_->recording = true;
-    camera_->lost_ = true;
+    camera_->lost_blocking_reopen_ = true;
     camera_->open_fails_ = true;
     EXPECT_EQ(runner_->run(), 0);
     EXPECT_FALSE(camera_->recording);
@@ -390,7 +405,7 @@ class CameraSettingsCommandsTest : public ::testing::Test {
     void SetUp() override {
         dir_ = std::filesystem::temp_directory_path() / "auto_battlebot_runner_camera_test";
         std::filesystem::remove_all(dir_);
-        camera_ = std::make_shared<SettingsCamera>();
+        camera_ = std::make_shared<EchoingSettingsCamera>();
         camera_->opened.exposure_us = 8000;
         camera_->current = camera_->opened;
         auto keypoint_model = std::make_shared<NoopKeypointModel>();
@@ -429,7 +444,7 @@ class CameraSettingsCommandsTest : public ::testing::Test {
     }
 
     std::filesystem::path dir_;
-    std::shared_ptr<SettingsCamera> camera_;
+    std::shared_ptr<EchoingSettingsCamera> camera_;
     std::shared_ptr<CameraProfileStore> store_;
     std::shared_ptr<remote::CommandQueue> commands_;
     std::unique_ptr<Runner> runner_;
@@ -490,8 +505,8 @@ TEST_F(CameraSettingsCommandsTest, DeletingTheActiveProfileFallsBackToDefaultLab
     const auto status =
         after(remote::CameraProfileCommand{.action = CameraProfileAction::DELETE, .name = "cage"});
     EXPECT_EQ(status.active_profile, "DEFAULT");
-    // The camera still runs cage's values, which differ from DEFAULT's.
-    EXPECT_TRUE(status.modified);
+    EXPECT_TRUE(status.modified)
+        << "the camera still runs cage's values, which differ from DEFAULT's";
     EXPECT_EQ(status.profiles, std::vector<std::string>{"DEFAULT"});
 }
 
@@ -620,7 +635,7 @@ TEST_F(RunnerRecordingOrderTest, RecordingToggleWaitsOutACameraReopen) {
     camera_->toggle_delay_ms = 400;
     commands_->post(remote::SetRecordingCommand{.enabled = true});
     EXPECT_TRUE(runner_->tick());
-    camera_->lost_ = true;
+    camera_->lost_blocking_reopen_ = true;
     std::atomic<bool> result{true};
     std::thread tick([&] { result = runner_->tick(); });
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);

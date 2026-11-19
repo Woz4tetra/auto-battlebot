@@ -24,7 +24,9 @@ TEST(CommandDecodeTest, ValidPayloadDecodes) {
 TEST(CommandDecodeTest, EmptyObjectAndEmptyPayloadReinitField) {
     EXPECT_TRUE(decode("/command/reinit_field", "{}").has_value());
     EXPECT_TRUE(decode("/command/reinit_field", "").has_value());
-    // Foxglove publish panels sometimes carry extra keys; an empty message ignores them.
+}
+
+TEST(CommandDecodeTest, ExtraKeysInAnEmptyCommandAreIgnored) {
     EXPECT_TRUE(decode("/command/reinit_field", R"({"data": 1})").has_value());
 }
 

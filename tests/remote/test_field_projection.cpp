@@ -14,19 +14,28 @@
 namespace auto_battlebot::remote {
 namespace {
 
+constexpr int kImageWidth = 640;
+constexpr int kImageHeight = 480;
+constexpr double kFocalPx = 500.0;
+constexpr double kCenterU = 320.0;
+constexpr double kCenterV = 240.0;
+constexpr double kFieldSizeX = 2.0;
+constexpr double kFieldSizeY = 1.0;
+constexpr double kFieldDepthM = 4.0;
+
 CameraInfo make_camera() {
     CameraInfo info;
-    info.width = 640;
-    info.height = 480;
-    info.intrinsics = (cv::Mat_<double>(3, 3) << 500, 0, 320, 0, 500, 240, 0, 0, 1);
+    info.width = kImageWidth;
+    info.height = kImageHeight;
+    info.intrinsics =
+        (cv::Mat_<double>(3, 3) << kFocalPx, 0, kCenterU, 0, kFocalPx, kCenterV, 0, 0, 1);
     return info;
 }
 
-/** A 2 x 1 m field `depth` meters straight ahead, facing the camera. */
 FieldDescription make_field(double depth) {
     FieldDescription field;
-    field.size.size.x = 2.0;
-    field.size.size.y = 1.0;
+    field.size.size.x = kFieldSizeX;
+    field.size.size.y = kFieldSizeY;
     Eigen::Matrix4d tf = Eigen::Matrix4d::Identity();
     tf(2, 3) = depth;
     field.tf_camera_from_fieldcenter.tf = tf;
@@ -34,24 +43,36 @@ FieldDescription make_field(double depth) {
 }
 
 TEST(FieldProjectionTest, WholeFieldIsOneClosedLoop) {
-    const auto outline = project_field_outline(make_field(4.0), make_camera(), 4);
+    constexpr size_t kSides = 4;
+    constexpr size_t kSamplesPerSide = 4;
+    const auto outline =
+        project_field_outline(make_field(kFieldDepthM), make_camera(), kSamplesPerSide);
     ASSERT_EQ(outline.size(), 1u);
     const auto &loop = outline.front();
-    ASSERT_EQ(loop.size(), 17u);  // 4 sides x 4 samples, plus the first corner again.
+    ASSERT_EQ(loop.size(), kSides * kSamplesPerSide + 1) << "the first corner closes the loop";
     EXPECT_DOUBLE_EQ(loop.front().u, loop.back().u);
     EXPECT_DOUBLE_EQ(loop.front().v, loop.back().v);
-    // Corner (-1, -0.5) at 4 m: u = (500 * -0.25 + 320) / 640.
-    EXPECT_NEAR(loop.front().u, 195.0 / 640.0, 1e-9);
-    EXPECT_NEAR(loop.front().v, 177.5 / 480.0, 1e-9);
+    const double corner_x = -kFieldSizeX / 2.0;
+    const double corner_y = -kFieldSizeY / 2.0;
+    EXPECT_NEAR(loop.front().u, (kFocalPx * corner_x / kFieldDepthM + kCenterU) / kImageWidth,
+                1e-9);
+    EXPECT_NEAR(loop.front().v, (kFocalPx * corner_y / kFieldDepthM + kCenterV) / kImageHeight,
+                1e-9);
+}
+
+FieldDescription field_tilted_behind_camera() {
+    constexpr double kDepthPerFieldX = 1.0;
+    constexpr double kDepthPerFieldZ = 0.0;
+    FieldDescription field = make_field(0.0);
+    Eigen::Matrix4d tf = Eigen::Matrix4d::Identity();
+    tf(2, 0) = kDepthPerFieldX;
+    tf(2, 2) = kDepthPerFieldZ;
+    field.tf_camera_from_fieldcenter.tf = tf;
+    return field;
 }
 
 TEST(FieldProjectionTest, BorderBehindTheCameraIsCutNotDropped) {
-    // Tilt the field so its far half is behind the camera plane.
-    FieldDescription field = make_field(0.0);
-    Eigen::Matrix4d tf = Eigen::Matrix4d::Identity();
-    tf(2, 0) = 1.0;  // depth grows with field x, so x < 0.05 m is behind or too close
-    tf(2, 2) = 0.0;
-    field.tf_camera_from_fieldcenter.tf = tf;
+    const FieldDescription field = field_tilted_behind_camera();
     const auto outline = project_field_outline(field, make_camera(), 8);
     ASSERT_EQ(outline.size(), 1u);
     EXPECT_GE(outline.front().size(), 2u);
@@ -70,7 +91,7 @@ TEST(FieldProjectionTest, ClippedLoopJoinsWrappedRun) {
 }
 
 TEST(FieldProjectionTest, ProjectsASinglePoint) {
-    const auto center = project_field_point(make_field(4.0), make_camera(), 0.0, 0.0);
+    const auto center = project_field_point(make_field(kFieldDepthM), make_camera(), 0.0, 0.0);
     ASSERT_TRUE(center.has_value());
     EXPECT_NEAR(center->u, 0.5, 1e-9);
     EXPECT_NEAR(center->v, 0.5, 1e-9);
@@ -78,14 +99,15 @@ TEST(FieldProjectionTest, ProjectsASinglePoint) {
 }
 
 TEST(FieldProjectionTest, UnprojectInvertsProject) {
-    // A camera 1.2 m up, pitched 35 degrees down at the floor, shifted off center.
+    constexpr double kCameraHeightM = 1.2;
+    constexpr double kPitchDownDeg = 35.0;
+    constexpr double kForwardToYDeg = 90.0;
     FieldDescription field = make_field(0.0);
     Eigen::Matrix4d camera_from_field = Eigen::Matrix4d::Identity();
-    // Rotation about field x that turns the camera's +z (forward) to +y, then 35 degrees down.
-    const double pitch = -(90.0 + 35.0) * M_PI / 180.0;
+    const double pitch = -(kForwardToYDeg + kPitchDownDeg) * M_PI / 180.0;
     camera_from_field.topLeftCorner<3, 3>() =
         Eigen::AngleAxisd(pitch, Eigen::Vector3d::UnitX()).toRotationMatrix().transpose();
-    const Eigen::Vector3d camera_in_field(0.3, -2.0, 1.2);
+    const Eigen::Vector3d camera_in_field(0.3, -2.0, kCameraHeightM);
     camera_from_field.topRightCorner<3, 1>() =
         -camera_from_field.topLeftCorner<3, 3>() * camera_in_field;
     field.tf_camera_from_fieldcenter.tf = camera_from_field;
@@ -102,7 +124,7 @@ TEST(FieldProjectionTest, UnprojectInvertsProject) {
 
 TEST(FieldProjectionTest, UnprojectRefusesAFloorBehindTheCamera) {
     const ImagePoint center{.u = 0.5, .v = 0.5};
-    const auto ahead = unproject_image_point(make_field(4.0), make_camera(), center);
+    const auto ahead = unproject_image_point(make_field(kFieldDepthM), make_camera(), center);
     ASSERT_TRUE(ahead.has_value());
     EXPECT_NEAR(ahead->x, 0.0, 1e-9);
     EXPECT_NEAR(ahead->y, 0.0, 1e-9);
@@ -136,20 +158,25 @@ SvelteTriangle read_top_down_triangle() {
 
 TEST(FieldProjectionTest, CameraMarkerMatchesTheTopDownTriangle) {
     const SvelteTriangle triangle = read_top_down_triangle();
-    const auto marker = project_camera_marker(make_field(4.0), make_camera());
+    const auto marker = project_camera_marker(make_field(kFieldDepthM), make_camera());
     ASSERT_EQ(marker.size(), 3u);
-    const double m_per_px = 2.0 / 192.0;
+    constexpr double kLongestSideM = kFieldSizeX;
+    constexpr double kBoxPx = 192.0;
+    const double m_per_px = kLongestSideM / kBoxPx;
     for (size_t i = 0; i < 3; ++i) {
         const double field_x = triangle.corners[i][0] * m_per_px;
         const double field_y = -triangle.corners[i][1] * m_per_px;
-        EXPECT_NEAR(marker[i].u, (500.0 * field_x / 4.0 + 320.0) / 640.0, 1e-9) << "corner " << i;
-        EXPECT_NEAR(marker[i].v, (500.0 * field_y / 4.0 + 240.0) / 480.0, 1e-9) << "corner " << i;
+        EXPECT_NEAR(marker[i].u, (kFocalPx * field_x / kFieldDepthM + kCenterU) / kImageWidth, 1e-9)
+            << "corner " << i;
+        EXPECT_NEAR(marker[i].v, (kFocalPx * field_y / kFieldDepthM + kCenterV) / kImageHeight,
+                    1e-9)
+            << "corner " << i;
     }
     EXPECT_TRUE(project_camera_marker(make_field(-1.0), make_camera()).empty());
 }
 
 TEST(FieldProjectionTest, MissingInputsGiveNoOutline) {
-    EXPECT_TRUE(project_field_outline(make_field(4.0), CameraInfo{}).empty());
+    EXPECT_TRUE(project_field_outline(make_field(kFieldDepthM), CameraInfo{}).empty());
     FieldDescription empty;
     EXPECT_TRUE(project_field_outline(empty, make_camera()).empty());
 }

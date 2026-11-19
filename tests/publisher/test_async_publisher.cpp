@@ -42,6 +42,12 @@ class RecordingPublisher : public PublisherInterface {
     std::vector<std::thread::id> threads;
 };
 
+void publish_and_release_local_frame(AsyncPublisher &publisher, SlowFreeAllocator &allocator) {
+    CameraData camera;
+    camera.rgb.image = slow_free_mat(allocator);
+    publisher.publish_camera_data(camera);
+}
+
 class AsyncPublisherTest : public ::testing::Test {
    protected:
     void SetUp() override {
@@ -49,17 +55,11 @@ class AsyncPublisherTest : public ::testing::Test {
     }
 };
 
-// The worker frees each call's frame when it is done with it. A pinned frame's free can be slow,
-// and the tick's next enqueue must not wait behind it.
 TEST_F(AsyncPublisherTest, EnqueueDoesNotWaitForAFrameBeingFreed) {
     SlowFreeAllocator allocator(std::chrono::milliseconds(300));
     auto inner = std::make_shared<RecordingPublisher>();
     AsyncPublisher publisher(inner);
-    {
-        CameraData camera;
-        camera.rgb.image = slow_free_mat(allocator);
-        publisher.publish_camera_data(camera);
-    }  // The queued call now holds the frame's only reference.
+    publish_and_release_local_frame(publisher, allocator);
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
     while (!allocator.freeing.load() && std::chrono::steady_clock::now() < deadline) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -94,7 +94,6 @@ TEST_F(AsyncPublisherTest, RunsCallsInOrderOnAnotherThread) {
     }
 }
 
-// A full queue waits for the worker instead of dropping calls, so recordings stay complete.
 TEST_F(AsyncPublisherTest, FullQueueBlocksInsteadOfDropping) {
     auto inner = std::make_shared<RecordingPublisher>();
     inner->delay = std::chrono::milliseconds(1);
@@ -112,8 +111,6 @@ TEST_F(AsyncPublisherTest, FullQueueBlocksInsteadOfDropping) {
     EXPECT_EQ(inner->stamps.size(), static_cast<size_t>(kCalls));
 }
 
-// The recording toggle flushes from its own thread while the tick keeps publishing. A flush
-// that waited for an empty queue could wait as long as the tick kept up.
 TEST_F(AsyncPublisherTest, FlushFromAnotherThreadReturnsWhileCallsKeepArriving) {
     auto inner = std::make_shared<RecordingPublisher>();
     inner->delay = std::chrono::milliseconds(1);

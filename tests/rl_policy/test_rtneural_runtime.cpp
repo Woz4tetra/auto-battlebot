@@ -29,15 +29,14 @@ NetworkSpec spec_for(const std::filesystem::path &file, int inputs, int outputs)
     return spec;
 }
 
-/** Dense(3, 4, ELU) -> Dense(4, 2, `output_activation`). Weights chosen so the ELU sees both
- * signs. */
 std::vector<DenseLayer> tiny_layers(const std::string &output_activation) {
     DenseLayer hidden;
-    hidden.kernel = {{0.5, -1.0, 0.25, 0.0}, {1.0, 0.5, -0.5, 2.0}, {-0.25, 0.75, 1.0, -1.0}};
+    hidden.kernel_in_out = {
+        {0.5, -1.0, 0.25, 0.0}, {1.0, 0.5, -0.5, 2.0}, {-0.25, 0.75, 1.0, -1.0}};
     hidden.bias = {0.1, -0.2, 0.0, 0.3};
     hidden.activation = "elu";
     DenseLayer output;
-    output.kernel = {{1.0, -0.5}, {0.5, 0.25}, {-1.0, 1.0}, {0.2, -0.3}};
+    output.kernel_in_out = {{1.0, -0.5}, {0.5, 0.25}, {-1.0, 1.0}, {0.2, -0.3}};
     output.bias = {0.05, -0.1};
     output.activation = output_activation;
     return {hidden, output};
@@ -50,14 +49,9 @@ std::vector<float> run_once(RtNeuralRuntime &runtime, const std::vector<float> &
     return std::vector<float>(output.begin(), output.end());
 }
 
-// Input [0.3, -0.7, 1.2]. Hidden pre-activations, by hand:
-//   0.3*0.5   - 0.7*1.0  + 1.2*-0.25 + 0.1  = -0.75 -> elu: e^-0.75 - 1 = -0.5276334472589853
-//   0.3*-1.0  - 0.7*0.5  + 1.2*0.75  - 0.2  =  0.05 -> 0.05
-//   0.3*0.25  - 0.7*-0.5 + 1.2*1.0   + 0.0  =  1.625 -> 1.625
-//   0.3*0.0   - 0.7*2.0  + 1.2*-1.0  + 0.3  = -2.3  -> elu: e^-2.3 - 1 = -0.8997411562771962
-// Output pre-activations:
-//   -0.52763*1.0 + 0.05*0.5  + 1.625*-1.0 + -0.89974*0.2  + 0.05 = -2.2575816785144247
-//   -0.52763*-0.5 + 0.05*0.25 + 1.625*1.0  + -0.89974*-0.3 - 0.1 =  2.0712390705126515
+constexpr double kOutputPreActivation0 = -2.2575816785144247;
+constexpr double kOutputPreActivation1 = 2.0712390705126515;
+
 TEST(RtNeuralRuntimeTest, DenseEluTanhMatchesHandComputedValues) {
     const auto dir = rl_test::fresh_dir("rtneural_tanh");
     rl_test::write_dense_json(dir / "net.json", 3, tiny_layers("tanh"));
@@ -66,12 +60,11 @@ TEST(RtNeuralRuntimeTest, DenseEluTanhMatchesHandComputedValues) {
 
     const auto out = run_once(runtime, {0.3f, -0.7f, 1.2f});
     ASSERT_EQ(out.size(), 2u);
-    EXPECT_NEAR(out[0], -0.9783532200014169, 1e-5);  // tanh(-2.2575816785144247)
-    EXPECT_NEAR(out[1], 0.968729795880767, 1e-5);    // tanh(2.0712390705126515)
+    EXPECT_NEAR(out[0], std::tanh(kOutputPreActivation0), 1e-5);
+    EXPECT_NEAR(out[1], std::tanh(kOutputPreActivation1), 1e-5);
 }
 
 TEST(RtNeuralRuntimeTest, AnEmptyActivationMeansNone) {
-    // The exporter writes "" for the actor's last layer: the decoder applies tanh, not the net.
     const auto dir = rl_test::fresh_dir("rtneural_linear");
     rl_test::write_dense_json(dir / "net.json", 3, tiny_layers(""));
     RtNeuralRuntime runtime;
@@ -131,8 +124,9 @@ TEST(RtNeuralRuntimeTest, ALayerTypeRtNeuralCannotBuildIsNamed) {
 
 TEST(RtNeuralRuntimeTest, ATransposedKernelIsNamed) {
     auto layers = tiny_layers("tanh");
-    // [out][in] instead of [in][out], the mistake the exporter's transpose exists to avoid.
-    layers[1].kernel = {{1.0, 0.5, -1.0, 0.2}, {-0.5, 0.25, 1.0, -0.3}};
+    const std::vector<std::vector<double>> kOutInKernel = {{1.0, 0.5, -1.0, 0.2},
+                                                           {-0.5, 0.25, 1.0, -0.3}};
+    layers[1].kernel_in_out = kOutInKernel;
     const auto dir = rl_test::fresh_dir("rtneural_transposed");
     rl_test::write_dense_json(dir / "net.json", 3, layers);
     const std::string error = load_error(spec_for(dir / "net.json", 3, 2));
@@ -168,9 +162,6 @@ TEST(RtNeuralRuntimeTest, RunDoesNotAllocate) {
     EXPECT_EQ(allocations, 0);
 }
 
-/** The deployed actor's shape (plan section 11): 138 -> 256 -> 256 -> 128 -> 2, ELU, with no
- * activation on the output (the decoder's tanh). Plan requirement 6 is under 50 us on the Orin
- * NX CPU; this prints the time on whatever box runs the test. */
 TEST(RtNeuralRuntimeTest, FullSizeActorInferenceTime) {
     std::mt19937 rng(7);
     std::normal_distribution<double> weight(0.0, 0.08);
@@ -178,9 +169,9 @@ TEST(RtNeuralRuntimeTest, FullSizeActorInferenceTime) {
     std::vector<DenseLayer> layers;
     for (size_t l = 0; l + 1 < sizes.size(); ++l) {
         DenseLayer layer;
-        layer.kernel.assign(static_cast<size_t>(sizes[l]),
-                            std::vector<double>(static_cast<size_t>(sizes[l + 1])));
-        for (auto &row : layer.kernel) {
+        layer.kernel_in_out.assign(static_cast<size_t>(sizes[l]),
+                                   std::vector<double>(static_cast<size_t>(sizes[l + 1])));
+        for (auto &row : layer.kernel_in_out) {
             for (auto &w : row) w = weight(rng);
         }
         layer.bias.assign(static_cast<size_t>(sizes[l + 1]), 0.01);

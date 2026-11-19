@@ -24,6 +24,42 @@ constexpr int kOpponent = 38;
 constexpr int kRays = 54;
 constexpr int kHazards = 102;
 
+constexpr int kOurModeAttack = kOur + 4;
+constexpr int kOurModeRunAway = kOur + 5;
+
+constexpr int kHistoryNewestLinear = kHistory + 0;
+constexpr int kHistoryNewestAngular = kHistory + 1;
+constexpr int kHistoryNewestSpeed = kHistory + 16;
+constexpr int kHistoryNewestYawRate = kHistory + 17;
+constexpr int kHistoryNeverWrittenSlot = kHistory + 31;
+
+constexpr int kOpponentX = kOpponent + 0;
+constexpr int kOpponentDistance = kOpponent + 2;
+constexpr int kOpponentBearingCos = kOpponent + 4;
+constexpr int kOpponentFacing = kOpponent + 6;
+constexpr int kOpponentPositionSigma = kOpponent + 10;
+constexpr int kOpponentHeadingSigma = kOpponent + 11;
+constexpr int kOpponentYawRateSigma = kOpponent + 12;
+constexpr int kOpponentAge = kOpponent + 14;
+constexpr int kOpponentStale = kOpponent + 15;
+
+constexpr int kRayDeadAhead = kRays + 0;
+constexpr int kRayLeft = kRays + 2 * 6;
+constexpr int kRayBehind = kRays + 2 * 12;
+constexpr int kHoleRayBehind = kRays + 2 * 12 + 1;
+
+constexpr int kHouseBotSlot = kHazards;
+constexpr int kHoleSlot = kHazards + 9;
+constexpr int kHazardTrackedFlag = kHouseBotSlot + 5;
+constexpr int kHazardKindHole = kHoleSlot + 3;
+
+constexpr double kFieldHalfLength = 1.2;
+constexpr double kFieldHalfWidth = 1.0;
+constexpr double kRayRange = 1.5;
+constexpr double kOnPlusXWall = kFieldHalfLength;
+constexpr double kHouseBotEdgeM = 0.3;
+constexpr double kHoleEdgeM = 0.7;
+
 using Observation = std::array<double, obs_v1::kSize>;
 
 Observation build(const ObservationInputsV1 &inputs) {
@@ -109,7 +145,8 @@ struct World {
 TEST(ObservationV1AdapterTest, OurSpeedIsTheFieldVelocityAlongOurHeading) {
     World world;
     world.our = robot_at(FrameId::OUR_ROBOT_1, 0.1, -0.2, M_PI / 2.0);
-    world.our.velocity = Velocity2D{0.3, 1.5, 4.0};  // mostly along +y, which is our heading
+    const Velocity2D kAlongHeadingVelocity{0.3, 1.5, 4.0};
+    world.our.velocity = kAlongHeadingVelocity;
     world.our.measurement_age_s = 0.1;
     world.our.is_stale = true;
     world.target.mode = BehaviorMode::RUN_AWAY;
@@ -119,8 +156,8 @@ TEST(ObservationV1AdapterTest, OurSpeedIsTheFieldVelocityAlongOurHeading) {
     EXPECT_NEAR(out[kOur + 1], 4.0 / 15.0, 1e-12);
     EXPECT_NEAR(out[kOur + 2], 0.1 / 0.5, 1e-12);
     EXPECT_EQ(out[kOur + 3], 1.0);
-    EXPECT_EQ(out[kOur + 4], 0.0);  // ATTACK
-    EXPECT_EQ(out[kOur + 5], 1.0);  // RUN_AWAY
+    EXPECT_EQ(out[kOurModeAttack], 0.0);
+    EXPECT_EQ(out[kOurModeRunAway], 1.0);
 }
 
 TEST(ObservationV1AdapterTest, HistoryIsNewestFirst) {
@@ -129,14 +166,14 @@ TEST(ObservationV1AdapterTest, HistoryIsNewestFirst) {
     world.history.push(HistoryEntry{0.5, -0.6, 2.0, -6.0});
 
     const Observation out = world.observe();
-    EXPECT_DOUBLE_EQ(out[kHistory + 0], 0.5);   // newest action, linear
-    EXPECT_DOUBLE_EQ(out[kHistory + 1], -0.6);  // newest action, angular
+    EXPECT_DOUBLE_EQ(out[kHistoryNewestLinear], 0.5);
+    EXPECT_DOUBLE_EQ(out[kHistoryNewestAngular], -0.6);
     EXPECT_DOUBLE_EQ(out[kHistory + 2], 0.1);
     EXPECT_DOUBLE_EQ(out[kHistory + 3], 0.2);
-    EXPECT_DOUBLE_EQ(out[kHistory + 16], 2.0 / 2.5);  // newest speed
-    EXPECT_DOUBLE_EQ(out[kHistory + 17], -6.0 / 15);  // newest yaw rate
+    EXPECT_DOUBLE_EQ(out[kHistoryNewestSpeed], 2.0 / 2.5);
+    EXPECT_DOUBLE_EQ(out[kHistoryNewestYawRate], -6.0 / 15);
     EXPECT_DOUBLE_EQ(out[kHistory + 18], 1.0 / 2.5);
-    EXPECT_DOUBLE_EQ(out[kHistory + 31], 0.0);  // never written
+    EXPECT_DOUBLE_EQ(out[kHistoryNeverWrittenSlot], 0.0);
 }
 
 TEST(ObservationV1AdapterTest, AStaleTargetWithUnknownHeadingReadsTheCaps) {
@@ -150,18 +187,18 @@ TEST(ObservationV1AdapterTest, AStaleTargetWithUnknownHeadingReadsTheCaps) {
     world.opponent = opponent;
 
     const Observation out = world.observe();
-    EXPECT_NEAR(out[kOpponent + 0], 0.5, 1e-12);   // 1 m ahead, /2
-    EXPECT_NEAR(out[kOpponent + 2], 0.5, 1e-12);   // distance /2
-    EXPECT_NEAR(out[kOpponent + 4], 1.0, 1e-12);   // bearing cos: dead ahead
-    EXPECT_NEAR(out[kOpponent + 6], -1.0, 1e-12);  // facing us
+    EXPECT_NEAR(out[kOpponentX], 0.5, 1e-12);
+    EXPECT_NEAR(out[kOpponentDistance], 0.5, 1e-12);
+    EXPECT_NEAR(out[kOpponentBearingCos], 1.0, 1e-12);
+    EXPECT_NEAR(out[kOpponentFacing], -1.0, 1e-12);
     EXPECT_NEAR(out[kOpponent + 7], -0.5 / 2.5, 1e-12);
     EXPECT_NEAR(out[kOpponent + 8], 0.25 / 2.5, 1e-12);
-    EXPECT_NEAR(out[kOpponent + 10], 0.3, 1e-12);  // position sigma /0.1
-    EXPECT_EQ(out[kOpponent + 11], 1.0);           // heading sigma: infinite reads the cap
-    EXPECT_EQ(out[kOpponent + 12], 1.0);           // yaw-rate sigma: same
+    EXPECT_NEAR(out[kOpponentPositionSigma], 0.3, 1e-12);
+    EXPECT_EQ(out[kOpponentHeadingSigma], 1.0);
+    EXPECT_EQ(out[kOpponentYawRateSigma], 1.0);
     EXPECT_NEAR(out[kOpponent + 13], 0.5 * std::hypot(0.3, 0.4) / 0.2, 1e-12);
-    EXPECT_EQ(out[kOpponent + 14], 1.0);  // age 0.9 s caps at 1
-    EXPECT_EQ(out[kOpponent + 15], 1.0);  // stale
+    EXPECT_EQ(out[kOpponentAge], 1.0);
+    EXPECT_EQ(out[kOpponentStale], 1.0);
 }
 
 TEST(ObservationV1AdapterTest, NoTargetReadsZerosAndUnknowns) {
@@ -183,19 +220,16 @@ TEST(ObservationV1AdapterTest, NoHazardsLeavesEmptySlotsAndClearHoleRays) {
         EXPECT_EQ(out[kRays + 2 * r + 1], 1.0) << "hole ray " << r;
     }
     for (int i = kHazards; i < obs_v1::kSize; ++i) EXPECT_EQ(out[i], 0.0) << i;
-    // The field walls are still solid: 1.2 m ahead in a 2.4 m field, within the 1.5 m range.
-    EXPECT_NEAR(out[kRays + 0], 1.2 / 1.5, 1e-12);
+    EXPECT_NEAR(out[kRayDeadAhead], kFieldHalfLength / kRayRange, 1e-12);
 }
 
 TEST(ObservationV1AdapterTest, OurRobotAgainstAWall) {
     World world;
-    world.our = robot_at(FrameId::OUR_ROBOT_1, 1.2, 0.1, 0.0);  // on the +x wall, facing it
+    world.our = robot_at(FrameId::OUR_ROBOT_1, kOnPlusXWall, 0.1, 0.0);
     const Observation out = world.observe();
-    EXPECT_EQ(out[kRays + 0], 0.0);  // ray 0, dead ahead: touching
-    // Ray 12 points back across the 2.4 m field, past the 1.5 m range.
-    EXPECT_EQ(out[kRays + 2 * 12], 1.0);
-    // Ray 6 points left (+y) to the wall 0.9 m away.
-    EXPECT_NEAR(out[kRays + 2 * 6], 0.9 / 1.5, 1e-9);
+    EXPECT_EQ(out[kRayDeadAhead], 0.0);
+    EXPECT_EQ(out[kRayBehind], 1.0);
+    EXPECT_NEAR(out[kRayLeft], (kFieldHalfWidth - 0.1) / kRayRange, 1e-9);
 }
 
 TEST(ObservationV1AdapterTest, HazardsUseTheObjectRadiusAndTheirKind) {
@@ -203,7 +237,8 @@ TEST(ObservationV1AdapterTest, HazardsUseTheObjectRadiusAndTheirKind) {
     FieldHazard house_bot;
     house_bot.center = Pose2D{0.5, 0.0, 0.0};
     house_bot.object_radius = 0.2;
-    house_bot.inflated_radius_m = 0.5;  // never read
+    constexpr double kUnreadInflatedRadius = 0.5;
+    house_bot.inflated_radius_m = kUnreadInflatedRadius;
     house_bot.velocity = Velocity2D{0.25, 0.0, 0.0};
     house_bot.source = HazardSource::TRACKED;
     house_bot.kind = HazardKind::ROBOT;
@@ -214,21 +249,17 @@ TEST(ObservationV1AdapterTest, HazardsUseTheObjectRadiusAndTheirKind) {
     world.field.hazards = {hole, house_bot};
 
     const Observation out = world.observe();
-    // Slot 0 is the house bot: edge 0.3 m against the hole's 0.7 m.
-    EXPECT_NEAR(out[kHazards + 0], 0.5 / 2.0, 1e-12);
-    EXPECT_NEAR(out[kHazards + 2], 0.2 / 0.3, 1e-12);
-    EXPECT_EQ(out[kHazards + 3], 0.0);
-    EXPECT_EQ(out[kHazards + 4], 0.0);
-    EXPECT_EQ(out[kHazards + 5], 1.0);  // tracked
-    EXPECT_NEAR(out[kHazards + 6], 0.25 / 2.5, 1e-12);
-    EXPECT_EQ(out[kHazards + 8], 1.0);
-    // Slot 1 is the hole.
-    EXPECT_NEAR(out[kHazards + 9], -0.8 / 2.0, 1e-12);
-    EXPECT_EQ(out[kHazards + 12], 1.0);  // hole
-    // The solid ray dead ahead stops on the house bot's raw edge, 0.3 m out.
-    EXPECT_NEAR(out[kRays + 0], 0.3 / 1.5, 1e-9);
-    // The hole ray straight back stops on the hole's edge, 0.7 m out.
-    EXPECT_NEAR(out[kRays + 2 * 12 + 1], 0.7 / 1.5, 1e-9);
+    EXPECT_NEAR(out[kHouseBotSlot + 0], 0.5 / 2.0, 1e-12);
+    EXPECT_NEAR(out[kHouseBotSlot + 2], 0.2 / 0.3, 1e-12);
+    EXPECT_EQ(out[kHouseBotSlot + 3], 0.0);
+    EXPECT_EQ(out[kHouseBotSlot + 4], 0.0);
+    EXPECT_EQ(out[kHazardTrackedFlag], 1.0);
+    EXPECT_NEAR(out[kHouseBotSlot + 6], 0.25 / 2.5, 1e-12);
+    EXPECT_EQ(out[kHouseBotSlot + 8], 1.0);
+    EXPECT_NEAR(out[kHoleSlot], -0.8 / 2.0, 1e-12);
+    EXPECT_EQ(out[kHazardKindHole], 1.0);
+    EXPECT_NEAR(out[kRayDeadAhead], kHouseBotEdgeM / kRayRange, 1e-9);
+    EXPECT_NEAR(out[kHoleRayBehind], kHoleEdgeM / kRayRange, 1e-9);
 }
 
 TEST(ObservationV1AdapterTest, BuilderWritesTheFloatTensor) {

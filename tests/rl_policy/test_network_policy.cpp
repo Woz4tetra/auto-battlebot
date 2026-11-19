@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -48,8 +49,10 @@ TEST(NetworkPolicyTest, ActReproducesThePyTorchActions) {
 }
 
 TEST(NetworkPolicyTest, AFailedSelftestRefusesToLoadAndNamesTheWorstPair) {
-    // The linear test bundle's last pair has its angular action off by 0.01.
-    const auto dir = rl_test::write_linear_bundle("selftest_fail", 0, 4, 0.5, 0.01);
+    constexpr double kGain = 0.5;
+    constexpr double kLastAngularSelftestError = 0.01;
+    const auto dir =
+        rl_test::write_linear_bundle("selftest_fail", 0, 4, kGain, kLastAngularSelftestError);
     NetworkPolicy policy;
     try {
         policy.load(load_policy_bundle(dir));
@@ -77,6 +80,26 @@ TEST(NetworkPolicyTest, ASelftestOfTheWrongSizeIsNamed) {
     }
 }
 
+std::vector<float> rtneural_actions_from_zero_state(const std::filesystem::path &bundle_dir,
+                                                    const std::vector<float> &observations) {
+    RtNeuralRuntime runtime;
+    NetworkSpec spec;
+    spec.name = "actor";
+    spec.file = bundle_dir / "actor.rtneural.json";
+    spec.inputs = {TensorSpec{"obs.vector", {2}}};
+    spec.outputs = {TensorSpec{"action", {2}}};
+    runtime.load(spec);
+    std::vector<float> actions;
+    for (size_t p = 0; p < observations.size() / 2; ++p) {
+        runtime.reset();
+        runtime.inputs()[0].values()[0] = observations[2 * p];
+        runtime.inputs()[0].values()[1] = observations[2 * p + 1];
+        runtime.run();
+        for (float raw : runtime.outputs()[0].values()) actions.push_back(std::tanh(raw));
+    }
+    return actions;
+}
+
 std::filesystem::path write_gru_bundle() {
     const auto dir = rl_test::fresh_dir("gru_bundle");
     rl_test::write_text(
@@ -89,28 +112,12 @@ std::filesystem::path write_gru_bundle() {
         R"({"type": "dense", "activation": "", "shape": [null, null, 2], "weights": [)"
         R"([[1.2, -0.8], [0.6, 1.1]], [0.1, -0.2]]}]})");
 
-    // Expected actions from RTNeural itself, from a zero state, as the self-test runs them.
-    RtNeuralRuntime runtime;
-    NetworkSpec spec;
-    spec.name = "actor";
-    spec.file = dir / "actor.rtneural.json";
-    spec.inputs = {TensorSpec{"obs.vector", {2}}};
-    spec.outputs = {TensorSpec{"action", {2}}};
-    runtime.load(spec);
     const std::vector<float> observations = {0.8f, -0.3f, -0.5f, 0.9f};
-    std::vector<float> actions;
-    for (int p = 0; p < 2; ++p) {
-        runtime.reset();
-        runtime.inputs()[0].values()[0] = observations[2 * p];
-        runtime.inputs()[0].values()[1] = observations[2 * p + 1];
-        runtime.run();
-        for (float raw : runtime.outputs()[0].values()) actions.push_back(std::tanh(raw));
-    }
+    const std::vector<float> actions = rtneural_actions_from_zero_state(dir, observations);
     rl_test::write_selftest(dir / "selftest.bin", 2, 2, 2, observations, actions);
     rl_test::write_text(dir / "manifest.toml", rl_test::network_manifest(0, 2));
     return dir;
 }
-
 TEST(NetworkPolicyTest, ActDoesNotAllocate) {
     NetworkPolicy policy;
     policy.load(load_policy_bundle(tiny_mlp_bundle()));

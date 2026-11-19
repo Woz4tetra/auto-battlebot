@@ -22,9 +22,10 @@ int admitted(FrameRateGate &gate, double source_hz, double seconds, Clock::time_
 }
 
 TEST(FrameRateGateTest, SourceJustFasterThanTheCapGetsTheCap) {
-    // The handheld: a 31 Hz camera under the 30 Hz preview cap. The old rule sent about 20 fps.
-    FrameRateGate gate(30.0);
-    const int count = admitted(gate, 31.0, 10.0);
+    constexpr double kHandheldCameraHz = 31.0;
+    constexpr double kPreviewCapHz = 30.0;
+    FrameRateGate gate(kPreviewCapHz);
+    const int count = admitted(gate, kHandheldCameraHz, 10.0);
     EXPECT_GE(count, 298);
     EXPECT_LE(count, 301);
 }
@@ -42,17 +43,19 @@ TEST(FrameRateGateTest, SlowSourcePassesEveryFrame) {
 }
 
 TEST(FrameRateGateTest, JitteredSourceJustFasterThanTheCapGetsTheCap) {
-    // 32 ms on average, alternating 27 and 37 ms.
+    constexpr auto kShortGap = std::chrono::milliseconds(27);
+    constexpr auto kLongGap = std::chrono::milliseconds(37);
+    constexpr int kFrames = 312;
+    constexpr int kSteady30FpsFrames = 299;
     FrameRateGate gate(30.0);
     int count = 0;
     Clock::time_point t{};
-    for (int i = 0; i < 312; ++i) {
+    for (int i = 0; i < kFrames; ++i) {
         if (gate.admit(t)) ++count;
-        t += std::chrono::milliseconds(i % 2 == 0 ? 27 : 37);
+        t += i % 2 == 0 ? kShortGap : kLongGap;
     }
-    // 312 frames over 9.98 s: 299 at a steady 30 fps.
-    EXPECT_GE(count, 296);
-    EXPECT_LE(count, 301);
+    EXPECT_GE(count, kSteady30FpsFrames - 3);
+    EXPECT_LE(count, kSteady30FpsFrames + 2);
 }
 
 TEST(FrameRateGateTest, NoBurstAfterAStall) {
@@ -61,8 +64,8 @@ TEST(FrameRateGateTest, NoBurstAfterAStall) {
     EXPECT_TRUE(gate.admit(t));
     t += std::chrono::seconds(2);
     EXPECT_TRUE(gate.admit(t));
-    // The cadence restarted at the stall's end, so a frame 10 ms later waits.
-    EXPECT_FALSE(gate.admit(t + std::chrono::milliseconds(10)));
+    constexpr auto kInsideRestartedPeriod = std::chrono::milliseconds(10);
+    EXPECT_FALSE(gate.admit(t + kInsideRestartedPeriod)) << "cadence restarts at the stall's end";
     EXPECT_TRUE(gate.admit(t + std::chrono::milliseconds(34)));
 }
 

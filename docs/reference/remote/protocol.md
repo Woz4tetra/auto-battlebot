@@ -44,6 +44,7 @@ Payload structs live in `include/remote/messages.hpp`. A field name is the JSON 
 | --- | --- |
 | `SetAutoTracking` | On hands targeting back to the target selector. Off holds the target at the field center until a `SetManualTarget` moves it. `RunnerCommandsTest.SetAutoTrackingOffHoldsFieldCenter` pins it |
 | `SetManualTarget` | Moves the held target while auto tracking is off. Refused while it is on, so a stray touch on a view never takes targeting away from the selector. Exactly one of `field` (a tap on the top-down view) or `image` (a tap on the camera view, projected onto the floor) is set |
+| `SetRecording` | Runs on a worker thread. Stopping a camera's encoder can take seconds on a stalled pipeline, so the tick must not wait for it. `RunnerCommandsTest.SlowRecordingToggleDoesNotBlockTheTick` uses a 500 ms toggle delay and a 250 ms tick bound |
 | `CameraProfile` | `APPLY` a saved profile or `DEFAULT`, `SAVE` the live values under `name`, or `DELETE` `name` |
 
 ## Field projection

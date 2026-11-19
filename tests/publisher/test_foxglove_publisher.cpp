@@ -68,8 +68,6 @@ FieldDescriptionWithInlierPoints square_field() {
 
 }  // namespace
 
-// FoxglovePublisher with neither sink nor recorder must still accept every publish: the app
-// runs this way when the relay is down and recording is off.
 TEST(FoxglovePublisherTest, PublishesWithoutSinks) {
     if (!DiagnosticsLogger::is_initialized()) DiagnosticsLogger::initialize({});
     FoxglovePublisher publisher(nullptr, nullptr);
@@ -92,10 +90,11 @@ TEST(FoxglovePublisherTest, PublishesWithoutSinks) {
     robots.header.frame_id = FrameId::FIELD;
     EXPECT_NO_THROW(publisher.publish_robots(robots));
 
-    DetectionsStamped detections;  // EMPTY frame id: skipped, never throws
-    EXPECT_NO_THROW(publisher.publish_blob_detections(detections));
-    detections.header.frame_id = FrameId::CAMERA;
-    EXPECT_NO_THROW(publisher.publish_keypoint_detections(detections));
+    const DetectionsStamped unframed_detections;
+    EXPECT_NO_THROW(publisher.publish_blob_detections(unframed_detections));
+    DetectionsStamped framed_detections;
+    framed_detections.header.frame_id = FrameId::CAMERA;
+    EXPECT_NO_THROW(publisher.publish_keypoint_detections(framed_detections));
 
     NavigationVisualization nav;
     nav.header.frame_id = FrameId::FIELD;

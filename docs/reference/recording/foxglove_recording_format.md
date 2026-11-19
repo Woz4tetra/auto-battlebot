@@ -771,6 +771,7 @@ The AprilTag keypoint model searches a window around the last detection (the ful
 - File names: two toggles inside one second both pick a file name before the writer thread creates either, so the second cannot rely on the first existing on disk to pick a new name. `QuickTogglesEachGetTheirOwnFile` covers it.
 - The queue cap counts every queued byte, status messages included, so one 1 MiB frame fewer than `kMaxQueuedLargeBytes / 1 MiB` fits. Video over `kLargeMessageBytes` stops at the lower cap and is dropped. Status and log messages fit under the higher cap and all arrive.
 - File age counts from the current file's start and restarts with each file, because the web page's recording timer shows it.
+- A camera that cannot be re-opened ends the run. The runner closes the recordings before that, because the camera's destructor may have to exit the process (`CameraFailureExitClosesRecordings`).
 - File-level metadata sits alongside `active_profile`. `calibration_id` says which calibration rectified a recording's frames so a revised one can be applied later.
 - MCAP metadata key (under the `auto_battlebot` record) holds the calibration a recording's `/camera/video` needs, as the same TOML text a `config/cameras/` file holds. With it the recording replays without a sidecar file.
 
