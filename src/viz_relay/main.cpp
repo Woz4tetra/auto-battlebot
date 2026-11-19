@@ -29,6 +29,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "host/dashboard_network.hpp"
@@ -124,10 +125,6 @@ std::filesystem::path default_web_root() {
     return (exe_dir / ".." / "web" / "dist").lexically_normal();
 }
 
-/**
- * The dashboard's HTTP side: static files from `web_root` and /healthz. Crow runs its own
- * threads; everything here is read-only apart from the atomic app flag.
- */
 class DashboardHttp {
    public:
     DashboardHttp(std::filesystem::path web_root, const std::atomic<bool>& app_connected)
@@ -185,11 +182,7 @@ class DashboardHttp {
         crow::response res(200);
         res.body.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
         res.set_header("Content-Type", std::string(auto_battlebot::viz::content_type_for(*path)));
-        // Vite hashes every asset name, so assets never change under the same URL. index.html
-        // and the manifest must be revalidated so a rebuilt page reaches the tablet.
-        res.set_header("Cache-Control", url.starts_with("/assets/")
-                                            ? "public, max-age=31536000, immutable"
-                                            : "no-cache");
+        res.set_header("Cache-Control", std::string(auto_battlebot::viz::cache_control_for(url)));
         return res;
     }
 
@@ -203,6 +196,48 @@ class DashboardHttp {
 uint64_t client_channel_key(uint32_t client_id, uint32_t channel_id) {
     return (static_cast<uint64_t>(client_id) << 32) | channel_id;
 }
+
+class SdkEventQueue {
+   public:
+    void subscribe(uint64_t channel_id, int delta) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        events_.push_back({channel_id, delta});
+    }
+
+    void client_advertise(uint32_t client_id, uint32_t channel_id, std::string topic) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        client_topics_[client_channel_key(client_id, channel_id)] = std::move(topic);
+    }
+
+    void client_unadvertise(uint32_t client_id, uint32_t channel_id) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        client_topics_.erase(client_channel_key(client_id, channel_id));
+    }
+
+    void client_message(uint32_t client_id, uint32_t channel_id, const std::byte* data,
+                        size_t len) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = client_topics_.find(client_channel_key(client_id, channel_id));
+        if (it == client_topics_.end()) return;
+        client_messages_.push_back({it->second, std::vector<std::byte>(data, data + len)});
+    }
+
+    std::deque<SubscriptionEvent> take_subscription_events() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return std::exchange(events_, {});
+    }
+
+    std::deque<ClientMessage> take_client_messages() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return std::exchange(client_messages_, {});
+    }
+
+   private:
+    std::mutex mutex_;
+    std::deque<SubscriptionEvent> events_;
+    std::unordered_map<uint64_t, std::string> client_topics_;
+    std::deque<ClientMessage> client_messages_;
+};
 
 class Relay {
    public:
@@ -222,35 +257,27 @@ class Relay {
         options.name = "auto_battlebot";
         options.host = host_;
         options.port = port_;
-        options.callbacks.onSubscribe = [this](uint64_t channel_id,
-                                               const foxglove::ClientMetadata&) {
-            std::lock_guard<std::mutex> lock(events_mutex_);
-            events_.push_back({channel_id, +1});
+        SdkEventQueue* queue = &sdk_events_;
+        options.callbacks.onSubscribe = [queue](uint64_t channel_id,
+                                                const foxglove::ClientMetadata&) {
+            queue->subscribe(channel_id, +1);
         };
-        options.callbacks.onUnsubscribe = [this](uint64_t channel_id,
-                                                 const foxglove::ClientMetadata&) {
-            std::lock_guard<std::mutex> lock(events_mutex_);
-            events_.push_back({channel_id, -1});
+        options.callbacks.onUnsubscribe = [queue](uint64_t channel_id,
+                                                  const foxglove::ClientMetadata&) {
+            queue->subscribe(channel_id, -1);
         };
-        // Clients publish commands back to the app (e.g. /reinit_field). The server callbacks run
-        // on SDK threads, so they only queue; the main loop forwards over the app socket.
         options.capabilities = foxglove::WebSocketServerCapabilities::ClientPublish;
         options.supported_encodings = {"json"};
-        options.callbacks.onClientAdvertise = [this](uint32_t client_id,
-                                                     const foxglove::ClientChannel& channel) {
-            std::lock_guard<std::mutex> lock(events_mutex_);
-            client_topics_[client_channel_key(client_id, channel.id)] = std::string(channel.topic);
+        options.callbacks.onClientAdvertise = [queue](uint32_t client_id,
+                                                      const foxglove::ClientChannel& channel) {
+            queue->client_advertise(client_id, channel.id, std::string(channel.topic));
         };
-        options.callbacks.onClientUnadvertise = [this](uint32_t client_id, uint32_t channel_id) {
-            std::lock_guard<std::mutex> lock(events_mutex_);
-            client_topics_.erase(client_channel_key(client_id, channel_id));
+        options.callbacks.onClientUnadvertise = [queue](uint32_t client_id, uint32_t channel_id) {
+            queue->client_unadvertise(client_id, channel_id);
         };
-        options.callbacks.onMessageData = [this](uint32_t client_id, uint32_t channel_id,
-                                                 const std::byte* data, size_t len) {
-            std::lock_guard<std::mutex> lock(events_mutex_);
-            auto it = client_topics_.find(client_channel_key(client_id, channel_id));
-            if (it == client_topics_.end()) return;
-            client_messages_.push_back({it->second, std::vector<std::byte>(data, data + len)});
+        options.callbacks.onMessageData = [queue](uint32_t client_id, uint32_t channel_id,
+                                                  const std::byte* data, size_t len) {
+            queue->client_message(client_id, channel_id, data, len);
         };
         auto server = foxglove::WebSocketServer::create(std::move(options));
         if (!server.has_value()) {
@@ -483,11 +510,7 @@ class Relay {
     }
 
     void process_subscription_events() {
-        std::deque<SubscriptionEvent> events;
-        {
-            std::lock_guard<std::mutex> lock(events_mutex_);
-            events.swap(events_);
-        }
+        const std::deque<SubscriptionEvent> events = sdk_events_.take_subscription_events();
         for (const auto& event : events) {
             auto id_it = channel_by_id_.find(event.channel_id);
             if (id_it == channel_by_id_.end()) continue;
@@ -507,11 +530,7 @@ class Relay {
     }
 
     void forward_client_messages() {
-        std::deque<ClientMessage> messages;
-        {
-            std::lock_guard<std::mutex> lock(events_mutex_);
-            messages.swap(client_messages_);
-        }
+        const std::deque<ClientMessage> messages = sdk_events_.take_client_messages();
         for (const auto& msg : messages) {
             if (app_fd_ < 0) {
                 spdlog::warn("Dropping client message on {}: no app connected", msg.topic);
@@ -584,10 +603,7 @@ class Relay {
     std::unordered_map<uint64_t, std::string> channel_by_id_;
     std::unordered_map<uint32_t, std::map<std::string, RelayChannel>::iterator> app_channels_;
 
-    std::mutex events_mutex_;
-    std::deque<SubscriptionEvent> events_;
-    std::unordered_map<uint64_t, std::string> client_topics_;
-    std::deque<ClientMessage> client_messages_;
+    SdkEventQueue sdk_events_;
 };
 
 }  // namespace

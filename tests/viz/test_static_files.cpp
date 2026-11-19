@@ -66,5 +66,12 @@ TEST_F(StaticFilesTest, MissingFilesAndDirectoriesAreNotFound) {
     EXPECT_FALSE(resolve_static_path(root_, "/assets"));
 }
 
+TEST(CacheControlByPath, HashedAssetsAreImmutableAndEverythingElseRevalidates) {
+    EXPECT_EQ(cache_control_for("/assets/index-3f9a.js"), "public, max-age=31536000, immutable");
+    EXPECT_EQ(cache_control_for("/"), "no-cache");
+    EXPECT_EQ(cache_control_for("/index.html"), "no-cache");
+    EXPECT_EQ(cache_control_for("/manifest.webmanifest"), "no-cache");
+}
+
 }  // namespace
 }  // namespace auto_battlebot::viz

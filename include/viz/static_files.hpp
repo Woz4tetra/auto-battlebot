@@ -87,4 +87,8 @@ inline std::string_view content_type_for(const std::filesystem::path &path) {
     return "application/octet-stream";
 }
 
+inline std::string_view cache_control_for(std::string_view url) {
+    return url.starts_with("/assets/") ? "public, max-age=31536000, immutable" : "no-cache";
+}
+
 }  // namespace auto_battlebot::viz

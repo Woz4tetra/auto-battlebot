@@ -393,6 +393,54 @@ TEST(VizSinkTest, ConnectedIsLoggedOnlyOnceTheRelayReads) {
     spdlog::set_default_logger(previous_logger);
 }
 
+TEST(VizSinkTest, AdvertiseReachesRelayBeforeMessages) {
+    const auto path = test_socket_path();
+    FakeRelay relay(path);
+    VizSink sink(path);
+    sink.advertise("/status/system", "json", kStatusSchema, false);
+    ASSERT_TRUE(relay.accept_client(std::chrono::seconds(3)));
+    std::vector<std::byte> body;
+    ASSERT_TRUE(relay.read_frame(body, std::chrono::seconds(2)));
+    ASSERT_TRUE(wait_until([&] { return sink.connected(); }, std::chrono::seconds(2)));
+
+    const uint32_t image = sink.advertise("/image", "protobuf", kImageSchema, false);
+    publish_bytes(sink, image, 64, 7);
+
+    ASSERT_TRUE(relay.read_frame(body, std::chrono::seconds(2)));
+    ASSERT_EQ(viz::frame_kind(body.data(), body.size()), viz::FrameKind::ADVERTISE);
+    viz::AdvertiseFrame adv;
+    ASSERT_TRUE(viz::decode_advertise(body.data(), body.size(), adv));
+    EXPECT_EQ(adv.channel_id, image);
+    ASSERT_TRUE(relay.read_frame(body, std::chrono::seconds(2)));
+    EXPECT_EQ(viz::frame_kind(body.data(), body.size()), viz::FrameKind::MESSAGE);
+}
+
+TEST(VizSinkTest, ReconnectReadvertisesAllChannels) {
+    const auto path = test_socket_path();
+    FakeRelay relay(path);
+    VizSink sink(path);
+    const uint32_t status = sink.advertise("/status/system", "json", kStatusSchema, false);
+    const uint32_t image = sink.advertise("/image", "protobuf", kImageSchema, false);
+    ASSERT_TRUE(relay.accept_client(std::chrono::seconds(3)));
+    std::vector<std::byte> body;
+    ASSERT_TRUE(relay.read_frame(body, std::chrono::seconds(2)));
+    ASSERT_TRUE(relay.read_frame(body, std::chrono::seconds(2)));
+    ASSERT_TRUE(wait_until([&] { return sink.connected(); }, std::chrono::seconds(2)));
+    publish_bytes(sink, image, 64, 1);
+    relay.drop_client();
+
+    ASSERT_TRUE(relay.accept_client(std::chrono::seconds(4)));
+    std::vector<uint32_t> advertised;
+    for (int i = 0; i < 2; ++i) {
+        ASSERT_TRUE(relay.read_frame(body, std::chrono::seconds(2)));
+        ASSERT_EQ(viz::frame_kind(body.data(), body.size()), viz::FrameKind::ADVERTISE);
+        viz::AdvertiseFrame adv;
+        ASSERT_TRUE(viz::decode_advertise(body.data(), body.size(), adv));
+        advertised.push_back(adv.channel_id);
+    }
+    EXPECT_EQ(advertised, (std::vector<uint32_t>{status, image}));
+}
+
 TEST(VizSinkTest, RefusingRelayIsRetriedOncePerSecond) {
     const auto path = test_socket_path();
     FakeRelay relay(path);

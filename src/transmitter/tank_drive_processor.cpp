@@ -12,9 +12,6 @@ TankDriveProcessor::Channels TankDriveProcessor::process(VelocityCommand command
     auto saturated = saturate_velocity(command.forward_mps, command.yaw_rate_radps,
                                        config_.velocity_saturation_limit);
 
-    // Compensate for the physical motor wiring on the robot. Applied on the body axes before
-    // mixing; the lifted deadzone is odd-symmetric, so the sign flips commute with it and the
-    // result matches DifferentialDriveProcessor reversing after the deadzone.
     if (config_.reverse_linear) saturated.linear = -saturated.linear;
     if (config_.reverse_angular) saturated.angular = -saturated.angular;
 

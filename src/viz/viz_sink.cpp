@@ -68,7 +68,6 @@ uint32_t VizSink::advertise(const std::string& topic, const std::string& message
         channel_by_topic_[topic] = frame.channel_id;
         if (is_bulk_schema(schema.name)) bulk_channels_.insert(frame.channel_id);
         advertises_.push_back(frame);
-        // Priority, so it reaches the relay before any message on the channel, bulk or not.
         auto encoded = viz::encode_advertise(frame);
         priority_bytes_ += encoded.size();
         priority_queue_.push_back(std::move(encoded));
@@ -164,7 +163,6 @@ void VizSink::lose_connection(const char* reason, bool closed_by_relay) {
         sink_thread_state_.lost_warned_ = true;
     }
     disconnect();
-    // Every retry waits, so a relay that accepts and then refuses is not hammered in a loop.
     sink_thread_state_.retry_at_ = std::chrono::steady_clock::now() + kReconnectInterval;
 }
 
@@ -292,8 +290,6 @@ void VizSink::run() {
             sink_thread_state_.bytes_sent_ = 0;
             sink_thread_state_.connected_at_ = now;
             {
-                // Whatever was queued for the last connection is stale. The new one starts with
-                // every advertise, so the relay knows each channel before its first message.
                 std::lock_guard<std::mutex> lock(mutex_);
                 clear_queues_locked();
                 for (const auto& adv : advertises_) {

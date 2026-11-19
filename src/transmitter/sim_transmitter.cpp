@@ -37,9 +37,6 @@ CommandFeedback SimTransmitter::update() {
 
     if (!last_sent_normalized_command_) return CommandFeedback{};
 
-    // The sim plant consumes normalized stick commands directly, so there is no physical
-    // scaling to report: only the stick map is filled. Without this stream the robot
-    // filter's command-driven prediction is inert in simulation.
     CommandFeedback feedback;
     feedback.stick_commands[FrameId::OUR_ROBOT_1] =
         StickCommand{.forward = last_sent_normalized_command_->forward_mps,
@@ -58,10 +55,6 @@ void SimTransmitter::disable() {
 void SimTransmitter::send(VelocityCommand command) {
     if (!enabled_) return;
 
-    // The real transmitter's drive processor saturates before mixing to wheels, giving angular
-    // priority and leaving linear whatever authority is left. There is no processor in the sim
-    // path, so apply the same clip here or the simulated robot drives through turns that the real
-    // one cannot.
     const auto saturated =
         saturate_velocity(command.forward_mps, command.yaw_rate_radps, velocity_saturation_limit_);
     command.forward_mps = saturated.linear;
