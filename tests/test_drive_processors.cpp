@@ -38,9 +38,6 @@ const std::vector<VelocityCommand> kCommands = {
 
 }  // namespace
 
-// The two processors run the same saturation and deadzone stages; tank stops in wheel space while
-// differential converts back to body axes. Un-mixing the tank output must land on the differential
-// output, including when the reversals are on (each applies them in a different stage).
 TEST(DriveProcessorTest, TankUnMixesToDifferentialOutput) {
     for (const bool reverse_linear : {false, true}) {
         for (const bool reverse_angular : {false, true}) {
@@ -65,8 +62,6 @@ TEST(DriveProcessorTest, TankUnMixesToDifferentialOutput) {
     }
 }
 
-// The readback reports the command in the frame process() took it, so the filter predicts motion
-// in the direction the navigator asked for. The reversals only change what goes on the wire.
 TEST(DriveProcessorTest, ReadbackUndoesTheReversals) {
     for (const bool reverse_linear : {false, true}) {
         for (const bool reverse_angular : {false, true}) {
@@ -148,17 +143,19 @@ TEST(DriveProcessorTest, TankReverseAngularSwapsWheels) {
 }
 
 TEST(DriveProcessorTest, TankAppliesDeadzonesPerWheel) {
-    const TankDriveProcessor tank(make_config(false, false), make_logger());
+    const auto config = make_config(false, false);
+    const TankDriveProcessor tank(config, make_logger());
 
-    // Below the zero deadzone both wheels are silent.
-    const auto tiny = tank.process(command(0.01, 0.0));
+    const double zero_deadzone = config.zero_deadzone_percent / 100.0;
+    const double lifted_deadzone = config.lifted_deadzone_percent / 100.0;
+
+    const auto tiny = tank.process(command(0.5 * zero_deadzone, 0.0));
     EXPECT_EQ(tiny.first_output, 0.0);
     EXPECT_EQ(tiny.second_output, 0.0);
 
-    // Just above it the wheels jump to the lifted deadzone so they overcome static friction.
-    const auto small = tank.process(command(0.021, 0.0));
-    EXPECT_GE(std::abs(small.first_output), 0.1);
-    EXPECT_GE(std::abs(small.second_output), 0.1);
+    const auto small = tank.process(command(1.05 * zero_deadzone, 0.0));
+    EXPECT_GE(std::abs(small.first_output), lifted_deadzone);
+    EXPECT_GE(std::abs(small.second_output), lifted_deadzone);
 }
 
 TEST(DriveProcessorTest, DifferentialSmallSteerWhileDrivingPassesThrough) {

@@ -9,6 +9,13 @@
 - `ThreadedControlLoop` runs cycles on its own thread, paced against the wall clock at `rate_hz`. The command tracks the filter's evolving estimate between perception frames instead of freezing.
 - The control thread owns the transmitter and reads input itself. `ThreadedControlLoop::pump_input` is a no-op, and the Runner reaches the transmitter only through `ControlLoop`'s request setters.
 
+## Test strategy
+
+`ControlLoopTest.SteppedZeroRateMatchesInlineSequence` proves the one-cycle-per-frame property of `SteppedControlLoop` with `rate_hz = 0` against an inline reference sequence written independently of the `ControlLoop` body. SVO replay cannot prove it while playback frame selection is nondeterministic.
+
+- The test navigation derives its command from the robots it is handed, so a filter difference also shows in the command stream.
+- `ControlLoopTest.ZeroRateRunsExactlyOneCyclePerAdvance` advances to deliberately uneven times (1.5x the frame stamp). At `rate_hz = 0` the cycle count must not depend on them, which is why 0 exists instead of setting `rate_hz` to the camera rate.
+
 ## ControlOutput
 
 - `command_feedback`: what the transmitter read back this cycle, in normalized stick units. On OpenTX it is the decoded position of the drive channels, so it reflects the mixed stick plus trainer output rather than what navigation asked for.

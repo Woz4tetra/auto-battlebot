@@ -36,14 +36,18 @@ TEST(EkfMathTest, PropagateCovarianceGrowsAndStaysSymmetric) {
 }
 
 TEST(EkfMathTest, UpdateReducesVarianceAndKeepsSymmetry) {
+    constexpr double kPriorMean = 1.0;
+    constexpr double kMeasured = 1.2;
+    constexpr double kPriorVariance = 0.5;
+    constexpr double kNoiseVariance = 0.01;
     ekf::Vec<2> state;
-    state << 1.0, 0.5;
-    ekf::Mat<2, 2> covariance = ekf::Mat<2, 2>::Identity() * 0.5;
+    state << kPriorMean, 0.5;
+    ekf::Mat<2, 2> covariance = ekf::Mat<2, 2>::Identity() * kPriorVariance;
     ekf::Mat<1, 2> observation;
     observation << 1.0, 0.0;
-    const ekf::Vec<1> measurement(1.2);
+    const ekf::Vec<1> measurement(kMeasured);
     const ekf::Vec<1> predicted(state(0));
-    const ekf::Mat<1, 1> measurement_noise = ekf::Mat<1, 1>::Identity() * 0.01;
+    const ekf::Mat<1, 1> measurement_noise = ekf::Mat<1, 1>::Identity() * kNoiseVariance;
 
     const auto outcome =
         ekf::ekf_update<2, 1>(state, covariance, measurement, predicted, observation,
@@ -52,9 +56,8 @@ TEST(EkfMathTest, UpdateReducesVarianceAndKeepsSymmetry) {
     EXPECT_TRUE(outcome.accepted);
     EXPECT_LT(covariance(0, 0), 0.5);
     EXPECT_DOUBLE_EQ(covariance(0, 1), covariance(1, 0));
-    // The posterior mean moves toward the measurement, most of the way given R << P.
-    EXPECT_GT(state(0), 1.19);
-    EXPECT_LT(state(0), 1.2 + 1e-9);
+    const double gain = kPriorVariance / (kPriorVariance + kNoiseVariance);
+    EXPECT_NEAR(state(0), kPriorMean + gain * (kMeasured - kPriorMean), 1e-9);
 }
 
 TEST(EkfMathTest, GateRejectsFarMeasurementAndLeavesStateUntouched) {
@@ -94,12 +97,12 @@ TEST(EkfMathTest, DisabledGateAcceptsFarMeasurement) {
 }
 
 TEST(EkfMathTest, AngleInnovationWrapsAcrossPi) {
-    // Heading estimate just below +pi, measurement just above -pi: the true error is 0.06 rad,
-    // not 2*pi - 0.06. An unwrapped update would drag the state through zero.
-    ekf::Vec<1> state(M_PI - 0.03);
+    constexpr double kHalfGapRad = 0.03;
+    constexpr double kTrueErrorRad = 2.0 * kHalfGapRad;
+    ekf::Vec<1> state(M_PI - kHalfGapRad);
     ekf::Mat<1, 1> covariance = ekf::Mat<1, 1>::Identity() * 0.1;
     const ekf::Mat<1, 1> observation = ekf::Mat<1, 1>::Identity();
-    const ekf::Vec<1> measurement(-M_PI + 0.03);
+    const ekf::Vec<1> measurement(-M_PI + kHalfGapRad);
     const ekf::Vec<1> predicted = state;
     const ekf::Mat<1, 1> measurement_noise = ekf::Mat<1, 1>::Identity() * 0.001;
 
@@ -108,11 +111,9 @@ TEST(EkfMathTest, AngleInnovationWrapsAcrossPi) {
                               measurement_noise, 11.83, {true}, {true}, 1e-12);
 
     EXPECT_TRUE(outcome.accepted);
-    // Posterior sits between the two, on the pi side, wrapped into (-pi, pi].
-    EXPECT_GT(std::abs(state(0)), M_PI - 0.06);
-    EXPECT_LE(std::abs(state(0)), M_PI);
-    // NIS reflects the wrapped 0.06 rad innovation, not a 2-pi one.
-    EXPECT_LT(outcome.nis, 1.0);
+    EXPECT_GT(std::abs(state(0)), M_PI - kTrueErrorRad) << "posterior on the pi side";
+    EXPECT_LE(std::abs(state(0)), M_PI) << "posterior wrapped into (-pi, pi]";
+    EXPECT_LT(outcome.nis, 1.0) << "NIS of the wrapped kTrueErrorRad innovation, not a 2-pi one";
 }
 
 TEST(EkfMathTest, FloorDiagonalStopsCollapse) {
@@ -122,12 +123,6 @@ TEST(EkfMathTest, FloorDiagonalStopsCollapse) {
     EXPECT_DOUBLE_EQ(covariance(1, 1), 1e-6);
 }
 
-/**
- * The synthetic consistency test from the Kalman filter plan (2.6): simulate a
- * constant-velocity system with known Q and R over Monte Carlo runs and check that the mean
- * NEES lands inside the chi-square band for the state dimension. A filter whose covariance is
- * wrong fails this regardless of how small its error looks.
- */
 TEST(EkfMathTest, NeesConsistencyMonteCarloConstantVelocity) {
     constexpr int kRuns = 100;
     constexpr int kSteps = 60;
@@ -195,8 +190,6 @@ TEST(EkfMathTest, NeesConsistencyMonteCarloConstantVelocity) {
         }
     }
 
-    // Mean of kRuns * kSteps NEES samples, each chi-square with 4 DOF. The samples within a
-    // run are correlated step to step, so the band is wider than the iid chi-square interval.
     const double mean_nees = nees_sum / nees_count;
     EXPECT_GT(mean_nees, 3.5);
     EXPECT_LT(mean_nees, 4.5);

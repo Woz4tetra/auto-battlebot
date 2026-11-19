@@ -50,6 +50,13 @@ Section files live in `config/robots/`, `config/transmitters/`, `config/navigati
 `config/field_filters/` and `config/keypoint_models/`. `docs/reference/config/profiles.md` lists
 which profile loads which, and `docs/reference/config/robot_plant_files.md` covers the plant files.
 
+## Type swaps
+
+A variant that changes a section's `type` replaces the whole section instead of merging key by key.
+Base-only fields (for example `camera_fps` under `ZedRgbdCamera`) would otherwise reach the new
+implementation and trip its unknown-fields check. `ConfigTest.ExtendsTypeChangeReplacesSection`
+pins this.
+
 ## Label to keypoint mapping format
 
 The label-to-keypoints config is an array of tables, which guarantees order:

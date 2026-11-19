@@ -18,6 +18,17 @@
 
 namespace auto_battlebot {
 
+namespace {
+void expect_config_error_mentioning(const std::string &path, const std::string &needle) {
+    try {
+        load_classes_from_config(path);
+        FAIL() << "expected ConfigValidationError";
+    } catch (const ConfigValidationError &e) {
+        EXPECT_NE(std::string(e.what()).find(needle), std::string::npos) << e.what();
+    }
+}
+}  // namespace
+
 class ConfigTest : public ::testing::Test {
    protected:
     std::filesystem::path temp_dir;
@@ -255,11 +266,11 @@ type = "NoopPublisher"
     ASSERT_NE(zed_config, nullptr);
 
     EXPECT_EQ(zed_config->camera_fps, 90);
-    EXPECT_EQ(zed_config->camera_resolution, Resolution::RES_1280x720);  // default
-    EXPECT_EQ(zed_config->depth_mode, DepthMode::ZED_NEURAL_LIGHT);      // default
+    const ZedRgbdCameraConfiguration defaults;
+    EXPECT_EQ(zed_config->camera_resolution, defaults.camera_resolution);
+    EXPECT_EQ(zed_config->depth_mode, defaults.depth_mode);
 }
 
-// The ZED X One S on the ZED Box Mini: monocular, so no depth_mode to parse
 TEST_F(ConfigTest, ZedOneRgbCameraConfiguration) {
     write_config_file(R"(
 [rgbd_camera]
@@ -302,7 +313,45 @@ type = "NoopPublisher"
     EXPECT_EQ(zed_one_config->camera_resolution, Resolution::RES_960x600);
     EXPECT_EQ(zed_one_config->camera_fps, 120);
     EXPECT_FALSE(zed_one_config->video_recording);
-    EXPECT_EQ(zed_one_config->video_bitrate_kbps, 15000);  // default
+    EXPECT_EQ(zed_one_config->video_bitrate_kbps,
+              ZedOneRgbCameraConfiguration{}.video_bitrate_kbps);
+}
+
+TEST_F(ConfigTest, ZedOneRgbCameraRejectsDepthMode) {
+    write_config_file(R"(
+[rgbd_camera]
+type = "ZedOneRgbCamera"
+depth_mode = "ZED_ULTRA"
+
+[field_model]
+type = "NoopMaskModel"
+
+[robot_mask_model]
+type = "NoopRobotBlobModel"
+
+[field_filter]
+type = "NoopFieldFilter"
+
+[keypoint_model]
+type = "NoopKeypointModel"
+
+[robot_filter]
+type = "NoopRobotFilter"
+
+[target_selector]
+type = "NoopTarget"
+
+[navigation]
+type = "NoopNavigation"
+
+[transmitter]
+type = "NoopTransmitter"
+
+[publisher]
+type = "NoopPublisher"
+)");
+
+    expect_config_error_mentioning(temp_config_file.string(), "depth_mode");
 }
 
 TEST_F(ConfigTest, UnknownCameraType) {
@@ -514,12 +563,7 @@ type = "NoopPublisher"
     EXPECT_DOUBLE_EQ(selector_config.retarget_improvement_m, 0.3);
 }
 
-TEST_F(ConfigTest, OpenTxTransmitterRejectsUnknownFields) {
-    // Regression test: when channel-control fields were renamed
-    // (left_channel/right_channel -> linear_channel/angular_channel,
-    // reverse_left_channel/reverse_right_channel -> reverse_linear_channel/reverse_angular_channel)
-    // an old config that still uses the legacy keys must fail loudly rather than silently fall back
-    // to the defaults.
+TEST_F(ConfigTest, OpenTxTransmitterRejectsLegacyLeftRightChannelKeys) {
     write_config_file(R"(
 [rgbd_camera]
 type = "NoopRgbdCamera"
@@ -652,9 +696,6 @@ sample_period_ms = 1200
     EXPECT_EQ(config.health.sample_period_ms, 1200);
 }
 
-// A variant that `extends` a base inherits the base's sections and overrides only its own fields.
-// This also proves the synthetic `extends` key is stripped before validate_no_extra_sections runs
-// (otherwise loading would throw on an unknown [extends] section).
 TEST_F(ConfigTest, ExtendsMergesBaseAndOverrides) {
     write_named_config("base.toml", kBaseConfig);
     auto child = write_named_config("child.toml", R"(
@@ -676,8 +717,13 @@ camera_fps = 90
     EXPECT_EQ(config.publisher->type, "NoopPublisher");
 }
 
-// When a variant changes a section's `type`, the whole section is replaced: stale base-only fields
-// (here camera_fps) are dropped, so the new implementation loads without an "unknown fields" error.
+TEST_F(ConfigTest, ExtendsKeyIsStrippedBeforeSectionValidation) {
+    write_named_config("base.toml", kBaseConfig);
+    auto child = write_named_config("child.toml", "extends = \"base\"\n");
+
+    EXPECT_NO_THROW(load_classes_from_config(child.string(), temp_dir));
+}
+
 TEST_F(ConfigTest, ExtendsTypeChangeReplacesSection) {
     write_named_config("base.toml", kBaseConfig);
     auto child = write_named_config("child.toml", R"(
@@ -731,12 +777,13 @@ TEST_F(ConfigTest, ExtendsCycleThrows) {
 
 TEST_F(ConfigTest, ExtendsMultiLevelChain) {
     write_named_config("base.toml", kBaseConfig);
+    constexpr int kMidFps = 45;
     write_named_config("mid.toml", R"(
 extends = "base"
 
 [rgbd_camera]
-camera_fps = 45
-)");
+camera_fps = )" + std::to_string(kMidFps) +
+                                       "\n");
     auto leaf = write_named_config("leaf.toml", R"(
 extends = "mid"
 
@@ -748,7 +795,7 @@ type = "NoopTransmitter"
 
     auto *zed = dynamic_cast<ZedRgbdCameraConfiguration *>(config.camera.get());
     ASSERT_NE(zed, nullptr);
-    EXPECT_EQ(zed->camera_fps, 45);  // inherited from mid, which overrode base's 60
+    EXPECT_EQ(zed->camera_fps, kMidFps);
 }
 
 class ConfigFromTest : public ConfigTest {
@@ -1291,8 +1338,8 @@ class ProfileSelectionTest : public ::testing::Test {
 
 TEST_F(ProfileSelectionTest, ListAvailableProfilesFiltersByRegex) {
     write_profiles();
-    // The leading [^_] excludes the _jetson base, which ".*_jetson$" would otherwise match.
-    auto profiles = list_available_profiles(config_dir, "[^_].*_jetson$");
+    const std::string kJetsonProfilesExcludingBasePattern = "[^_].*_jetson$";
+    auto profiles = list_available_profiles(config_dir, kJetsonProfilesExcludingBasePattern);
     ASSERT_EQ(profiles.size(), 2u);
     EXPECT_EQ(profiles[0], "mr_stab_mk2_jetson");
     EXPECT_EQ(profiles[1], "mrs_buff_mk3_jetson");
@@ -1337,7 +1384,8 @@ TEST_F(ProfileSelectionTest, ResolveFallsBackWhenNoSelection) {
     write_file("default_profile", "mr_stab_mk2_jetson\n");
     ProfileSelectorConfig selector;
     selector.pattern = ".*_jetson$";
-    selector.selection_file = config_dir / "state" / "selected_profile";  // never written
+    const auto kNeverWrittenSelectionFile = config_dir / "state" / "selected_profile";
+    selector.selection_file = kNeverWrittenSelectionFile;
 
     EXPECT_EQ(resolve_active_profile(config_dir, selector), "mr_stab_mk2_jetson");
 }
@@ -1382,8 +1430,6 @@ TEST_F(ProfileSelectionTest, LoadSelectorMissingFileDegradesGracefully) {
 }
 
 namespace {
-/** The jig-fitted plant table, stage A values (plant_stageA.toml, 2026-08-23). Every motion
- *  estimator requires it, so configs that build one have to include it. */
 constexpr const char *kPlantTableToml = R"(
 [plant]
 dz_lin_fwd = 0.0109768
@@ -1470,12 +1516,8 @@ type = "NoopPublisher"
 }
 
 namespace {
-/**
- * Minimal full config with a parameterizable [robot_filter.motion_estimator] block. Every motion
- * estimator needs the [plant] table to scale stick commands, so one is appended by default; pass
- * "" for plant_toml when the test supplies its own table or is checking that a missing one is
- * rejected.
- */
+constexpr const char *kNoPlantTable = "";
+
 std::string config_with_motion_estimator(const std::string &motion_estimator_toml,
                                          const std::string &plant_toml = kPlantTableToml) {
     return R"(
@@ -1550,8 +1592,8 @@ gate_nis = 9.21
     EXPECT_DOUBLE_EQ(kalman_config->opponent_accel_psd, 12.5);
     EXPECT_DOUBLE_EQ(kalman_config->max_coast_s, 0.3);
     EXPECT_DOUBLE_EQ(kalman_config->gate_nis, 9.21);
-    // Unset fields keep their defaults.
-    EXPECT_DOUBLE_EQ(kalman_config->blob_position_sigma_m, 0.10);
+    EXPECT_DOUBLE_EQ(kalman_config->blob_position_sigma_m,
+                     KalmanMotionEstimatorConfiguration{}.blob_position_sigma_m);
 }
 
 TEST_F(ConfigTest, RobotFilterMotionEstimatorEkfModeRejectedUntilPlantModelExists) {
@@ -1560,32 +1602,28 @@ TEST_F(ConfigTest, RobotFilterMotionEstimatorEkfModeRejectedUntilPlantModelExist
 type = "KalmanMotionEstimator"
 our_robot_mode = "EKF"
 )",
-                                                   ""));
+                                                   kNoPlantTable));
 
     EXPECT_THROW(load_classes_from_config(temp_config_file.string()), ConfigValidationError);
 }
 
 TEST_F(ConfigTest, DeadReckoningMotionEstimatorWithoutPlantTableThrows) {
-    // The stick-to-velocity scaling is the fit. A missing table has to be an error rather than a
-    // zero plant that freezes every prediction without saying so.
     write_config_file(config_with_motion_estimator(R"(
 [robot_filter.motion_estimator]
 type = "DeadReckoningMotionEstimator"
 )",
-                                                   ""));
+                                                   kNoPlantTable));
 
     EXPECT_THROW(load_classes_from_config(temp_config_file.string()), ConfigValidationError);
 }
 
 TEST_F(ConfigTest, KalmanMotionEstimatorDeadReckoningModeRequiresPlantTable) {
-    // DEAD_RECKONING used to run without a plant because only the EKF arm needed the fit. Both
-    // arms now scale stick through it, so the table is required in either mode.
     write_config_file(config_with_motion_estimator(R"(
 [robot_filter.motion_estimator]
 type = "KalmanMotionEstimator"
 our_robot_mode = "DEAD_RECKONING"
 )",
-                                                   ""));
+                                                   kNoPlantTable));
 
     EXPECT_THROW(load_classes_from_config(temp_config_file.string()), ConfigValidationError);
 }
@@ -1599,7 +1637,7 @@ type = "KalmanMotionEstimator"
 [plant.process_noise]
 heading_random_walk = 0.5
 )",
-                                                   ""));
+                                                   kNoPlantTable));
 
     auto config = load_classes_from_config(temp_config_file.string());
     auto *filter_config =
@@ -1624,7 +1662,7 @@ TEST_F(ConfigTest, RobotFilterMotionEstimatorEkfModeAcceptedWithPlantTable) {
 type = "KalmanMotionEstimator"
 our_robot_mode = "EKF"
 )") + kPlantTableToml,
-                                                   ""));
+                                                   kNoPlantTable));
 
     auto config = load_classes_from_config(temp_config_file.string());
     auto *filter_config =
@@ -1638,8 +1676,6 @@ our_robot_mode = "EKF"
 }
 
 TEST_F(ConfigTest, RobotFilterMotionEstimatorPlantMissingFieldThrows) {
-    // Every plant field is required; drop delay_s and the parse must refuse rather than
-    // default a fitted physical parameter to zero.
     std::string table(kPlantTableToml);
     const auto at = table.find("delay_s");
     ASSERT_NE(at, std::string::npos);
@@ -1648,7 +1684,7 @@ TEST_F(ConfigTest, RobotFilterMotionEstimatorPlantMissingFieldThrows) {
 [robot_filter.motion_estimator]
 type = "KalmanMotionEstimator"
 )") + table,
-                                                   ""));
+                                                   kNoPlantTable));
 
     EXPECT_THROW(load_classes_from_config(temp_config_file.string()), ConfigValidationError);
 }
@@ -1658,23 +1694,13 @@ TEST_F(ConfigTest, RobotFilterMotionEstimatorPlantUnknownFieldThrows) {
 [robot_filter.motion_estimator]
 type = "KalmanMotionEstimator"
 )") + kPlantTableToml + "not_a_plant_field = 1.0\n",
-                                                   ""));
+                                                   kNoPlantTable));
 
     EXPECT_THROW(load_classes_from_config(temp_config_file.string()), ConfigValidationError);
 }
 
-// The same [plant] table feeds the controller. These two tests are what keeps the navigation
-// half from drifting back to its own copy of the fit.
-
 namespace {
-/**
- * Minimal config with the motion-profile controller selected and [plant] supplied by the caller.
- * It uses NoopRobotFilter rather than the motion-estimator helper on purpose: the motion
- * estimators also require the plant table, and [robot_filter] is parsed before [navigation], so
- * sharing that helper would make the without-plant test pass on the estimator's error instead of
- * the controller's.
- */
-std::string config_with_motion_profile_nav(const std::string &plant_toml) {
+std::string config_with_noop_filter_and_motion_profile_nav(const std::string &plant_toml) {
     return R"(
 [rgbd_camera]
 type = "NoopRgbdCamera"
@@ -1710,7 +1736,7 @@ type = "NoopPublisher"
 }  // namespace
 
 TEST_F(ConfigTest, MotionProfileNavigationReadsTheSharedPlantTable) {
-    write_config_file(config_with_motion_profile_nav(kPlantTableToml));
+    write_config_file(config_with_noop_filter_and_motion_profile_nav(kPlantTableToml));
 
     auto config = load_classes_from_config(temp_config_file.string());
     auto *nav = dynamic_cast<MotionProfileNavigationConfiguration *>(config.navigation.get());
@@ -1723,19 +1749,9 @@ TEST_F(ConfigTest, MotionProfileNavigationReadsTheSharedPlantTable) {
 }
 
 TEST_F(ConfigTest, MotionProfileNavigationWithoutPlantTableThrows) {
-    // No fallback: the brake schedule and feedforward are the fit, so a missing table has to be
-    // an error rather than a controller quietly inverting a zero drivetrain.
-    write_config_file(config_with_motion_profile_nav(""));
+    write_config_file(config_with_noop_filter_and_motion_profile_nav(kNoPlantTable));
 
-    // Assert on the message: the motion estimators demand the same table and are parsed first, so
-    // a bare EXPECT_THROW would pass on their error even if the controller stopped checking.
-    try {
-        load_classes_from_config(temp_config_file.string());
-        FAIL() << "expected ConfigValidationError";
-    } catch (const ConfigValidationError &e) {
-        EXPECT_NE(std::string(e.what()).find("MotionProfileNavigation"), std::string::npos)
-            << e.what();
-    }
+    expect_config_error_mentioning(temp_config_file.string(), "MotionProfileNavigation");
 }
 
 namespace {

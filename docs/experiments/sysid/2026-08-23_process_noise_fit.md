@@ -2,6 +2,8 @@
 
 The process noise defaults in `plant_params.hpp` come from `fit_process_noise.py` against `plant_stageA.toml`, sessions 2026-08-19 through 2026-08-23. The `[plant]` table overrides them field by field.
 
+`kPlantTableToml` in `tests/test_config.cpp` carries the Stage A plant values from `plant_stageA.toml` (fit dated 2026-08-23).
+
 Growth-law mechanisms the fit mirrors:
 
 - White-noise acceleration: variance grows as h^3.

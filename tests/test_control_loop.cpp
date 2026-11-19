@@ -1,8 +1,3 @@
-// SteppedControlLoop with rate_hz = 0 must run exactly one filter/target/navigation/transmit pass
-// per perception frame, matching what a single-threaded pipeline does. SVO replay cannot prove
-// that while playback frame selection stays nondeterministic, so prove it here against an inline
-// reference sequence written independently of the ControlLoop body.
-
 #include <gtest/gtest.h>
 
 #include <Eigen/Dense>
@@ -14,6 +9,7 @@
 #include <thread>
 #include <vector>
 
+#include "control_loop/config.hpp"
 #include "control_loop/control_loop.hpp"
 #include "control_loop/stepped_control_loop.hpp"
 #include "control_loop/threaded_control_loop.hpp"
@@ -28,11 +24,16 @@
 namespace auto_battlebot {
 namespace {
 
-// [control_loop] robot_cache_max_age_s default.
-constexpr double kCacheMaxAgeS = 0.25;
+const double kCacheMaxAgeS = ControlLoopConfiguration{}.robot_cache_max_age_s;
+constexpr StickCommand kNormalizedStickFeedback{0.3, 0.0, 0.15};
+constexpr int kOurPeriod = 40;
+constexpr int kOurSeenFrames = 35;
+constexpr int kOpponentPeriod = 25;
+constexpr int kOpponentSeenFrames = 22;
+constexpr double kLoopHz = 240.0;
+constexpr double kFrameHz = 30.0;
+constexpr size_t kCyclesPerFrame = static_cast<size_t>(kLoopHz / kFrameHz);
 
-/** Records every robot set navigation is asked to steer by, and derives a command from it so a
- *  filter difference shows up in the command stream too. */
 class RecordingNavigation : public NavigationInterface {
    public:
     bool initialize() override {
@@ -70,8 +71,6 @@ class RecordingNavigation : public NavigationInterface {
     NavigationVisualization last_visualization_;
 };
 
-/** Records commands and reports a fixed stick feedback, so the filter's dead reckoning has an
- *  input. The values are normalized [-1, 1]; consumers scale them by the plant gains. */
 class RecordingTransmitter : public TransmitterInterface {
    public:
     bool initialize() override { return true; }
@@ -79,7 +78,7 @@ class RecordingTransmitter : public TransmitterInterface {
     CommandFeedback update() override {
         update_calls++;
         CommandFeedback feedback;
-        feedback.stick_commands[FrameId::OUR_ROBOT_1] = {0.3, 0.0, 0.15};
+        feedback.stick_commands[FrameId::OUR_ROBOT_1] = kNormalizedStickFeedback;
         return feedback;
     }
 
@@ -202,7 +201,6 @@ RobotFrontBackFilterConfiguration make_filter_config() {
     return config;
 }
 
-/** Frames covering measured tracks, our-robot dropouts, and opponent dropouts. */
 std::vector<ControlMeasurement> make_measurements(int count) {
     const CameraInfo camera_info = make_camera_info();
     const FieldDescription field = make_field();
@@ -216,12 +214,12 @@ std::vector<ControlMeasurement> make_measurements(int count) {
         m.robot_blob_keypoints.header.frame_id = FrameId::CAMERA;
         m.robot_blob_keypoints.header.stamp = m.keypoints.header.stamp;
 
-        if ((i % 40) < 35) {
+        if ((i % kOurPeriod) < kOurSeenFrames) {
             const double x = 260.0 + 40.0 * std::sin(i * 0.05);
             append_pair(m.keypoints, Label::MRS_BUFF_MK3, KeypointLabel::MRS_BUFF_MK3_FRONT,
                         KeypointLabel::MRS_BUFF_MK3_BACK, 1, x, x + 40.0, 220.0, 0.9);
         }
-        if ((i % 25) < 22) {
+        if ((i % kOpponentPeriod) < kOpponentSeenFrames) {
             const double x = 400.0 - 30.0 * std::cos(i * 0.07);
             append_pair(m.keypoints, Label::OPPONENT, KeypointLabel::OPPONENT_FRONT,
                         KeypointLabel::OPPONENT_BACK, 2, x, x + 35.0, 300.0, 0.85);
@@ -309,11 +307,10 @@ TEST(ControlLoopTest, SteppedZeroRateMatchesInlineSequence) {
             << "frame " << index;
     }
 
-    // Guard against a scenario that passes by producing nothing.
     const bool any_motion =
         std::any_of(loop_commands.begin(), loop_commands.end(),
                     [](const VelocityCommand &c) { return c.forward_mps != 0.0; });
-    EXPECT_TRUE(any_motion);
+    ASSERT_TRUE(any_motion) << "scenario produced no motion; equality above would prove nothing";
 }
 
 TEST(ControlLoopTest, ZeroRateRunsExactlyOneCyclePerAdvance) {
@@ -331,8 +328,6 @@ TEST(ControlLoopTest, ZeroRateRunsExactlyOneCyclePerAdvance) {
     for (const auto &m : measurements) {
         clock->set(m.keypoints.header.stamp);
         loop->submit_measurement(m);
-        // Deliberately uneven advance times: at rate_hz = 0 the cycle count must not depend on
-        // them, which is why 0 exists rather than setting rate_hz to the camera rate.
         driver.advance_to(m.keypoints.header.stamp * 1.5);
     }
     EXPECT_EQ(transmitter->sent.size(), measurements.size());
@@ -373,8 +368,7 @@ TEST(ControlLoopTest, NonZeroRateRunsMultipleCyclesPerFrame) {
     auto clock = std::make_shared<ManualClock>();
     auto loop = std::make_shared<ControlLoop>(filter, nullptr, navigation, transmitter, clock,
                                               nullptr, kCacheMaxAgeS);
-    // 240 Hz against 30 Hz frames: 8 cycles per frame after the first.
-    SteppedControlLoop driver(loop, 240.0);
+    SteppedControlLoop driver(loop, kLoopHz);
 
     const auto measurements = make_measurements(10);
     for (const auto &m : measurements) {
@@ -388,7 +382,7 @@ TEST(ControlLoopTest, NonZeroRateRunsMultipleCyclesPerFrame) {
     const size_t cycles = transmitter->sent.size();
     const size_t frames_after_first = measurements.size() - 1;
     EXPECT_GE(cycles, 1u + 7u * frames_after_first);
-    EXPECT_LE(cycles, 1u + 8u * frames_after_first);
+    EXPECT_LE(cycles, 1u + kCyclesPerFrame * frames_after_first);
 }
 
 TEST(ControlLoopTest, MeasurementIsCorrectedExactlyOnce) {
@@ -414,8 +408,6 @@ TEST(ControlLoopTest, MeasurementIsCorrectedExactlyOnce) {
 
     ASSERT_EQ(after_first.descriptions.size(), after_extra_cycles.descriptions.size());
     for (size_t i = 0; i < after_first.descriptions.size(); ++i) {
-        // Every track is stale now, so a cycle without a measurement must leave poses untouched:
-        // this filter only propagates inside correct().
         EXPECT_EQ(after_first.descriptions[i].pose.position.x,
                   after_extra_cycles.descriptions[i].pose.position.x);
     }

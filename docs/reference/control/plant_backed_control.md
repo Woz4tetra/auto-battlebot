@@ -174,6 +174,8 @@ bool rather than a second copy of the number.
 
 Nothing in C++ defaults to a fit, so a test that default-constructs a config gets a zero plant and has to ask for this one explicitly. Production code gets its plant from the `[plant]` config table.
 
+`ConfigTest.MotionProfileNavigationReadsTheSharedPlantTable` and `ConfigTest.MotionProfileNavigationWithoutPlantTableThrows` pin that one `[plant]` table feeds both the filter and the controller, so navigation cannot drift back to its own copy of the fit. `MotionProfileNavigation` has no fallback: the brake schedule and feedforward are the fit, so a missing table is a config error instead of a controller quietly inverting a zero drivetrain. The missing-table test uses `NoopRobotFilter` and checks the message, because the motion estimators demand the same table and are parsed before `[navigation]`. A bare throw check would pass on their error even if the controller stopped checking.
+
 ## Where each piece is selected
 
 - `[plant]` in `config/robots/<robot>.toml`, the shared fit both subsystems read. Profiles load
@@ -327,3 +329,8 @@ Same inverse-plant shape as the linear channel. The yaw spin-up constant is abou
 Beside `const auto wheels_in = mix_to_wheels(saturated);`:
 
 The static-friction barrier exists per wheel, not per body axis, so the lifted deadzone is applied in wheel space, which is also the space these channels are sent in.
+
+### Drive processor tests
+
+- `DriveProcessorTest.TankUnMixesToDifferentialOutput` loops over both reversal flags because the two processors apply the reversals in different stages. Tank stops in wheel space and differential converts back to body axes, but un-mixing the tank output must still land on the differential output with reversals on.
+- `DriveProcessorTest.ReadbackUndoesTheReversals`: the readback reports the command in the frame `process()` took it, so the filter predicts motion in the direction navigation asked for. The reversals only change what goes on the wire.
