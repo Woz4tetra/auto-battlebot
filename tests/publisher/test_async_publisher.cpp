@@ -113,7 +113,9 @@ TEST_F(AsyncPublisherTest, FullQueueBlocksInsteadOfDropping) {
 
 TEST_F(AsyncPublisherTest, FlushFromAnotherThreadReturnsWhileCallsKeepArriving) {
     auto inner = std::make_shared<RecordingPublisher>();
-    inner->delay = std::chrono::milliseconds(1);
+    constexpr double kInnerDelayMs = 1.0;
+    constexpr double kLoadedBoxHeadroom = 5.0;
+    inner->delay = std::chrono::milliseconds(static_cast<int>(kInnerDelayMs));
     AsyncPublisher publisher(inner);
 
     std::atomic<bool> stop{false};
@@ -128,7 +130,8 @@ TEST_F(AsyncPublisherTest, FlushFromAnotherThreadReturnsWhileCallsKeepArriving) 
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
     stop.store(true);
     producer.join();
-    EXPECT_LT(flush_ms, 5.0 * static_cast<double>(AsyncPublisher::kMaxPendingCalls));
+    EXPECT_LT(flush_ms, kLoadedBoxHeadroom * kInnerDelayMs *
+                            static_cast<double>(AsyncPublisher::kMaxPendingCalls));
 }
 
 TEST_F(AsyncPublisherTest, FlushReturnsOnlyAfterEarlierCallsReachedTheInnerPublisher) {

@@ -1088,7 +1088,4 @@ The ROS 1 wire format is little-endian. A header is `uint32 seq`, `uint32 stamp_
   - The app's logger copies every log line into the MCAP. Toggling recording logs from inside the recorder lock, which came straight back into `write()` on the same thread and deadlocked the app on the ZED Box. The test runs the toggles on a detached thread so a regression fails instead of hanging the suite.
   - `abort_because_stuck_thread_holds_recorder` exists because returning would run fixture teardown against a recorder the stuck thread still holds.
   - `flush_async_logger` is needed because the logger is asynchronous. Without it `close()` can run before `after reopen` is delivered.
-  - `wait_for_logger_loop_to_exit` sleeps 20 ms so the detached logging loop stops before the default logger is restored. Unverified: the 20 ms is a guess, nothing joins the thread.
   - `kWriteMustNotWaitOnCloseMs` is 50 ms. A 1 MB memcpy is well under 1 ms, and a write that waited on a close is not. Tighter bounds flake on a loaded box.
-- `tests/viz/test_viz_sink.cpp` polls `sink.connected()` for up to 1 s before publishing. Publishing right after accept races the connect handshake. Unverified: the connect state machine was not read.
-- `tests/publisher/test_async_publisher.cpp` bounds flush by 5 ms x `kMaxPendingCalls`. At most a full queue of 1 ms calls is ahead of the flush.

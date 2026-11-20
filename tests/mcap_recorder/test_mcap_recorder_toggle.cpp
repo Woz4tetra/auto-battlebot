@@ -131,8 +131,6 @@ void wait_for_file_open(McapRecorder &recorder) { recorder.flush(); }
 
 void flush_async_logger() { spdlog::default_logger()->flush(); }
 
-void wait_for_logger_loop_to_exit() { std::this_thread::sleep_for(std::chrono::milliseconds(20)); }
-
 class McapRecorderToggleTest : public ::testing::Test {
    protected:
     void SetUp() override { dir_ = make_scratch_recordings_dir("toggle_test"); }
@@ -226,9 +224,9 @@ TEST_F(McapRecorderToggleTest, LoggingFromAnotherThreadWhileTogglingDoesNotDeadl
     spdlog::default_logger()->sinks().front()->set_level(spdlog::level::off);
 
     auto stop = std::make_shared<std::atomic<bool>>(false);
-    std::thread([stop] {
+    std::thread logger_thread([stop] {
         while (!stop->load()) spdlog::info("control loop log line");
-    }).detach();
+    });
 
     auto done = std::make_shared<std::promise<std::vector<std::filesystem::path>>>();
     auto finished = done->get_future();
@@ -247,7 +245,7 @@ TEST_F(McapRecorderToggleTest, LoggingFromAnotherThreadWhileTogglingDoesNotDeadl
     }
     paths_ = finished.get();
     stop->store(true);
-    wait_for_logger_loop_to_exit();
+    logger_thread.join();
     spdlog::set_default_logger(previous_logger);
     recorder->close();
     EXPECT_GT(paths_.size(), 1u);

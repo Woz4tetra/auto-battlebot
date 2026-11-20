@@ -160,9 +160,6 @@ TEST(VizSinkTest, ReplaysAdvertisesThenStreamsAndReadsSubscriberCounts) {
     EXPECT_EQ(adv.channel_id, channel);
     EXPECT_TRUE(adv.latch);
 
-    for (int i = 0; i < 100 && !sink.connected(); ++i) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
     ASSERT_TRUE(sink.connected());
 
     const std::string payload = "{\"a\":1}";

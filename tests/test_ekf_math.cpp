@@ -9,6 +9,7 @@ namespace auto_battlebot {
 namespace {
 
 constexpr double kFramePeriod = 1.0 / 30.0;
+constexpr double kOddMultipleOfPiRoundingRad = 1e-12;
 
 TEST(EkfMathTest, WrapAngleStaysInHalfOpenPiRange) {
     EXPECT_EQ(ekf::wrap_angle(-M_PI), M_PI);
@@ -16,7 +17,7 @@ TEST(EkfMathTest, WrapAngleStaysInHalfOpenPiRange) {
         const double wrapped = ekf::wrap_angle(angle);
         EXPECT_GT(wrapped, -M_PI) << angle;
         EXPECT_LE(wrapped, M_PI) << angle;
-        EXPECT_NEAR(std::abs(wrapped), M_PI, 1e-12) << angle;
+        EXPECT_NEAR(std::abs(wrapped), M_PI, kOddMultipleOfPiRoundingRad) << angle;
     }
     EXPECT_NEAR(ekf::wrap_angle(0.25), 0.25, 1e-12);
     EXPECT_NEAR(ekf::wrap_angle(M_PI + 0.1), -M_PI + 0.1, 1e-12);

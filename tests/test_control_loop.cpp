@@ -33,6 +33,7 @@ constexpr int kOpponentSeenFrames = 22;
 constexpr double kLoopHz = 240.0;
 constexpr double kFrameHz = 30.0;
 constexpr size_t kCyclesPerFrame = static_cast<size_t>(kLoopHz / kFrameHz);
+constexpr size_t kFloorRoundingLossPerFrame = 1;
 
 class RecordingNavigation : public NavigationInterface {
    public:
@@ -378,7 +379,7 @@ TEST(ControlLoopTest, NonZeroRateRunsMultipleCyclesPerFrame) {
     }
     const size_t cycles = transmitter->sent.size();
     const size_t frames_after_first = measurements.size() - 1;
-    EXPECT_GE(cycles, 1u + 7u * frames_after_first);
+    EXPECT_GE(cycles, 1u + (kCyclesPerFrame - kFloorRoundingLossPerFrame) * frames_after_first);
     EXPECT_LE(cycles, 1u + kCyclesPerFrame * frames_after_first);
 }
 

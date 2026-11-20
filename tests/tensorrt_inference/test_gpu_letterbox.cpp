@@ -17,6 +17,9 @@ namespace {
 
 constexpr int kTensorWidth = 640;
 constexpr int kTensorHeight = 384;
+constexpr double kGreyLevel = 1.0 / 255.0;
+constexpr double kMaxDiffOneGreyLevel = 1.01 * kGreyLevel;
+constexpr double kMeanDiffBound = 0.3 * kGreyLevel;
 const float kPadding = YoloKeypointModelConfiguration{}.letterbox_padding;
 
 bool has_cuda_device() {
@@ -82,14 +85,13 @@ class GpuLetterboxTest : public ::testing::Test {
             max_diff = std::max(max_diff, diff);
             sum_diff += diff;
         }
-        EXPECT_LE(max_diff, 1.01 / 255.0);
-        EXPECT_LE(sum_diff / static_cast<double>(gpu.size()), 0.3 / 255.0);
+        EXPECT_LE(max_diff, kMaxDiffOneGreyLevel);
+        EXPECT_LE(sum_diff / static_cast<double>(gpu.size()), kMeanDiffBound);
     }
 
-    static cv::Mat random_blurred_image(int width, int height, int type) {
+    static cv::Mat random_image(int width, int height, int type) {
         cv::Mat image(height, width, type);
         cv::randu(image, cv::Scalar::all(0), cv::Scalar::all(256));
-        cv::GaussianBlur(image, image, cv::Size(5, 5), 1.5);
         return image;
     }
 
@@ -147,14 +149,14 @@ TEST(LetterboxGeometryTest, MatchesZedOneFrame) {
 }
 
 TEST_F(GpuLetterboxTest, PageableBgrMatchesCpuLetterbox) {
-    const cv::Mat image = random_blurred_image(1920, 1200, CV_8UC3);
+    const cv::Mat image = random_image(1920, 1200, CV_8UC3);
     const std::vector<float> gpu = gpu_letterbox(image);
     EXPECT_FALSE(letterbox_.last_was_zero_copy());
     expect_close(gpu, legacy_yolo_cpu_preprocess(image));
 }
 
 TEST_F(GpuLetterboxTest, PinnedFrameIsReadInPlace) {
-    const cv::Mat source = random_blurred_image(1920, 1200, CV_8UC3);
+    const cv::Mat source = random_image(1920, 1200, CV_8UC3);
     cv::Mat pinned;
     pinned.allocator = PinnedMatAllocator::instance();
     source.copyTo(pinned);
@@ -165,14 +167,14 @@ TEST_F(GpuLetterboxTest, PinnedFrameIsReadInPlace) {
 }
 
 TEST_F(GpuLetterboxTest, BgraMatchesBgr) {
-    const cv::Mat bgr = random_blurred_image(1280, 720, CV_8UC3);
+    const cv::Mat bgr = random_image(1280, 720, CV_8UC3);
     cv::Mat bgra;
     cv::cvtColor(bgr, bgra, cv::COLOR_BGR2BGRA);
     expect_close(gpu_letterbox(bgra), legacy_yolo_cpu_preprocess(bgr));
 }
 
 TEST_F(GpuLetterboxTest, RoiUsesRowStep) {
-    const cv::Mat full = random_blurred_image(2000, 1300, CV_8UC3);
+    const cv::Mat full = random_image(2000, 1300, CV_8UC3);
     const cv::Rect roi(40, 50, 1920, 1200);
     const cv::Mat pageable_roi = full(roi);
     ASSERT_FALSE(pageable_roi.isContinuous());
@@ -188,7 +190,7 @@ TEST_F(GpuLetterboxTest, RoiUsesRowStep) {
 }
 
 TEST_F(GpuLetterboxTest, TensorSizedImageIsExact) {
-    const cv::Mat image = random_blurred_image(kTensorWidth, kTensorHeight, CV_8UC3);
+    const cv::Mat image = random_image(kTensorWidth, kTensorHeight, CV_8UC3);
     const std::vector<float> gpu = gpu_letterbox(image);
     const std::vector<float> cpu = legacy_yolo_cpu_preprocess(image);
     ASSERT_EQ(gpu.size(), cpu.size());
@@ -202,23 +204,23 @@ TEST_F(GpuLetterboxTest, RejectsUnsupportedImages) {
 }
 
 TEST_F(GpuLetterboxTest, AllocatorReusesReleasedBuffers) {
-    PinnedMatAllocator *allocator = PinnedMatAllocator::instance();
+    PinnedMatAllocator pool;
+    PinnedMatAllocator *allocator = &pool;
     void *first_data = nullptr;
-    size_t pooled_while_held = 0;
     {
         cv::Mat frame;
         frame.allocator = allocator;
         frame.create(1200, 1920, CV_8UC3);
         first_data = frame.data;
-        pooled_while_held = allocator->pooled_buffers();
+        EXPECT_EQ(allocator->pooled_buffers(), 0u);
     }
-    EXPECT_EQ(allocator->pooled_buffers(), pooled_while_held + 1);
+    EXPECT_EQ(allocator->pooled_buffers(), 1u);
 
     cv::Mat frame;
     frame.allocator = allocator;
     frame.create(1200, 1920, CV_8UC3);
     EXPECT_EQ(frame.data, first_data);
-    EXPECT_EQ(allocator->pooled_buffers(), pooled_while_held);
+    EXPECT_EQ(allocator->pooled_buffers(), 0u);
 }
 
 }  // namespace

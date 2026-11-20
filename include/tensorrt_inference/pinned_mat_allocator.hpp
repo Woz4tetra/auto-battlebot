@@ -10,6 +10,7 @@ namespace auto_battlebot {
 
 class PinnedMatAllocator : public cv::MatAllocator {
    public:
+    PinnedMatAllocator() = default;
     static PinnedMatAllocator *instance();
 
     cv::UMatData *allocate(int dims, const int *sizes, int type, void *data, size_t *step,
@@ -21,8 +22,6 @@ class PinnedMatAllocator : public cv::MatAllocator {
     size_t pooled_buffers() const;
 
    private:
-    PinnedMatAllocator() = default;
-
     static constexpr size_t kMaxPooledPerSize = 16;
 
     mutable std::mutex mutex_;

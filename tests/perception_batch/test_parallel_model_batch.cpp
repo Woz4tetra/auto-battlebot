@@ -191,8 +191,6 @@ TEST_F(ParallelModelBatchTest, TimedOutModelYieldsEmptyResultThenRecovers) {
     EXPECT_EQ(timed_out.keypoints.keypoints.size(), 1u);
     EXPECT_TRUE(timed_out.robot_blob_keypoints.keypoints.empty());
 
-    constexpr auto kStragglerDrain = std::chrono::milliseconds(500);
-    std::this_thread::sleep_for(kStragglerDrain);
     BatchResult recovered = batch.update(image_, camera_info_);
     EXPECT_EQ(recovered.keypoints.keypoints.size(), 1u);
     EXPECT_EQ(recovered.robot_blob_keypoints.keypoints.size(), 1u);
