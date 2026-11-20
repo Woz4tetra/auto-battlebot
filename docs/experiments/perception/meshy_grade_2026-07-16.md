@@ -80,6 +80,20 @@ Meshy models work when the source image matches the robot's fight configuration 
 - **clyde sample is small.** 22 opponent boxes vs ~80-99 for the others. clyde's near-zero is directionally clear (the model detects almost no opponent in that video) but its exact AP is noisy.
 - **Three recordings unmapped.** `05-01_17-42`, `05-02_16-18`, `05-02_17-26` were not mapped to opponents and are excluded from the per-opponent grade; they still drag the pooled aggregate.
 
+## Old synthetic set measurements behind the config
+
+`config_meshy_grade.toml` reproduces the old synthetic keypoint set (the `synthetic_keypoints__` images in `training/data/our_robot_keypoints` that the deployed `yolo26n-pose_our_robots` baseline trained on). The old `training/generator/` was post-processing only and had no render params, so the values come from the measured old dataset, not ported code. Old to new deltas the config corrects:
+
+| Measure | Old | New synthgen | Config change |
+| --- | --- | --- | --- |
+| robots per image | 1.3 (max 2) | 3.5 (max 7) | `max_robots_per_scene` 2 |
+| keypoints | 63% visible | 58% occluded | `min_robot_visibility` 0.35, fewer distractors |
+| bbox area | median 0.0086 | median 0.0048 | camera `max_distance` 4.0, `arena_radius_range` upper bound 2.0 |
+| distractors | non-robot props (bottle, etc.) | opponent robots | objaverse on, cad off |
+| ground | always present | 10% none | `ground_visibility` 1.0 |
+
+`num_images` 35000 matches the old synthetic count.
+
 ## Artifacts
 
 - Model: `data/models/yolo26n-pose_meshy_grade_2026-07-16.{pt,onnx,engine}`
