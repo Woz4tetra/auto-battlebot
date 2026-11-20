@@ -15,7 +15,7 @@
 - The ESP32-S3 USB-Serial/JTAG unit resets the chip when DTR goes low while RTS is high. Two resets within about 500 ms drop an Adafruit board into its TinyUF2 bootloader.
 - Linux raises DTR and RTS together when the device node opens. pyserial 3.5 (`serialposix.Serial.open`) then applies its stored DTR state and RTS state with one ioctl each, DTR first. Both default to high.
 - The helper sets `dtr = True` and `rts = True` before `open()`, so the lines never leave the kernel's high/high state. Setting either low before `open()` makes pyserial clear it after the kernel raised both.
-- `usb_dashboard.py` used to set `rts = False` before the open. That left DTR high and RTS low, which does not pass through DTR low with RTS high, so it was not needed to avoid the reset. Its comment blamed pyserial dropping DTR first, which `Serial.open` does not do. It now uses the same high/high state. Not tested on hardware.
+- `usb_dashboard.py` opens the robot port the same way, with `exclusive=False`. That path has not been checked on hardware.
 - `reset_dongle()` in `espnow_diag.py` is the one deliberate reset: DTR low, then RTS low, then both high again.
 - The scripts import `auto_battlebot`, so they need the repo venv.
 
