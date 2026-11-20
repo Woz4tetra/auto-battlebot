@@ -20,12 +20,15 @@
 #include "rgbd_camera/grab_health_monitor.hpp"
 #include "rgbd_camera/rgbd_camera_interface.hpp"
 #include "rgbd_camera/video_encoder.hpp"
+#include "rgbd_camera/zed_one_device.hpp"
 
 namespace auto_battlebot {
 class ZedOneRgbCamera : public RgbdCameraInterface {
    public:
     ZedOneRgbCamera(const ZedOneRgbCameraConfiguration &config,
-                    std::shared_ptr<McapRecorder> mcap_recorder);
+                    std::shared_ptr<McapRecorder> mcap_recorder,
+                    std::unique_ptr<ZedOneDevice> device = std::make_unique<ZedOneDevice>(),
+                    VideoEncoder::BackendFactory encoder_factory = nullptr);
     ~ZedOneRgbCamera() override;
 
     bool initialize() override;
@@ -51,9 +54,8 @@ class ZedOneRgbCamera : public RgbdCameraInterface {
     bool capture_frame();
 
     ZedOneRgbCameraConfiguration config_;
-    sl::CameraOne zed_;
-    sl::Mat zed_bgra_;
-    std::future<sl::ERROR_CODE> pending_open_;
+    std::unique_ptr<ZedOneDevice> device_;
+    VideoEncoder::BackendFactory encoder_factory_;
     std::atomic<bool> cancel_open_{false};
     int width_ = 0;
     int height_ = 0;

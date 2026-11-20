@@ -13,6 +13,7 @@
 #include "foxglove_adapters/common.hpp"
 #include "rgbd_camera/camera_calibration.hpp"
 #include "rgbd_camera/zed_device.hpp"
+#include "rgbd_camera/zed_one_device.hpp"
 #include "tensorrt_inference/pinned_mat_allocator.hpp"
 
 namespace auto_battlebot {
@@ -36,8 +37,12 @@ constexpr const char *kVideoTopic = "/camera/video";
     (ZED_SDK_MAJOR_VERSION > 5 || (ZED_SDK_MAJOR_VERSION == 5 && ZED_SDK_MINOR_VERSION >= 5))
 
 ZedOneRgbCamera::ZedOneRgbCamera(const ZedOneRgbCameraConfiguration &config,
-                                 std::shared_ptr<McapRecorder> mcap_recorder)
+                                 std::shared_ptr<McapRecorder> mcap_recorder,
+                                 std::unique_ptr<ZedOneDevice> device,
+                                 VideoEncoder::BackendFactory encoder_factory)
     : config_(config),
+      device_(std::move(device)),
+      encoder_factory_(std::move(encoder_factory)),
       grab_health_(kGrabErrorWindow, kGrabErrorExitThreshold),
       mcap_recorder_(std::move(mcap_recorder)),
       diagnostics_logger_(DiagnosticsLogger::get_logger("zed_one_rgb_camera")) {
@@ -63,10 +68,7 @@ ZedOneRgbCamera::~ZedOneRgbCamera() {
         capture_thread_.join();
     }
     encoder_.stop();
-    if (pending_open_.valid()) {
-        pending_open_.wait();
-    }
-    zed_.close();
+    device_->close();
 }
 
 bool ZedOneRgbCamera::open_camera() {
@@ -75,16 +77,17 @@ bool ZedOneRgbCamera::open_camera() {
     params.camera_fps = config_.camera_fps;
     params.sdk_verbose = 0;
 
-    pending_open_ = std::async(std::launch::async, [this, params]() { return zed_.open(params); });
-    while (pending_open_.wait_for(std::chrono::milliseconds(50)) != std::future_status::ready) {
+    std::future<sl::ERROR_CODE> pending_open =
+        std::async(std::launch::async, [this, params]() { return device_->open(params); });
+    while (pending_open.wait_for(std::chrono::milliseconds(50)) != std::future_status::ready) {
         if (cancel_open_.load()) {
-            pending_open_.wait();
-            pending_open_.get();
-            zed_.close();
+            pending_open.wait();
+            pending_open.get();
+            device_->close();
             return false;
         }
     }
-    const sl::ERROR_CODE result = pending_open_.get();
+    const sl::ERROR_CODE result = pending_open.get();
     if (result != sl::ERROR_CODE::SUCCESS) {
         spdlog::error("[ZedOneRgbCamera] Failed to open ZED X One: {}",
                       sl::toString(result).c_str());
@@ -94,7 +97,7 @@ bool ZedOneRgbCamera::open_camera() {
 }
 
 void ZedOneRgbCamera::read_calibration() {
-    const sl::CameraOneInformation information = zed_.getCameraInformation();
+    const sl::CameraOneInformation information = device_->information();
     const sl::CameraParameters &rectified = information.camera_configuration.calibration_parameters;
     width_ = static_cast<int>(information.camera_configuration.resolution.width);
     height_ = static_cast<int>(information.camera_configuration.resolution.height);
@@ -135,7 +138,8 @@ bool ZedOneRgbCamera::start_encoder() {
     encoder_options.bitrate = config_.video_bitrate_kbps * 1000;
     encoder_options.input_format = VideoInputFormat::BGRA;
     if (!encoder_.start(
-            encoder_options, [this](const std::byte *data, size_t len, uint64_t log_time_ns, bool) {
+            encoder_options,
+            [this](const std::byte *data, size_t len, uint64_t log_time_ns, bool) {
                 foxglove::schemas::CompressedVideo message;
                 message.timestamp =
                     foxglove_adapters::to_timestamp(static_cast<double>(log_time_ns) * 1e-9);
@@ -143,7 +147,8 @@ bool ZedOneRgbCamera::start_encoder() {
                 message.format = "h264";
                 message.data.assign(data, data + len);
                 video_channel_->log_message(message, log_time_ns);
-            })) {
+            },
+            encoder_factory_)) {
         video_channel_.reset();
         return false;
     }
@@ -181,7 +186,7 @@ bool ZedOneRgbCamera::initialize() {
 }
 
 bool ZedOneRgbCamera::capture_frame() {
-    const sl::ERROR_CODE grab_result = zed_.grab();
+    const sl::ERROR_CODE grab_result = device_->grab();
     if (grab_result == sl::ERROR_CODE::SUCCESS) {
         grab_health_.record(false, std::chrono::steady_clock::now());
     } else {
@@ -197,14 +202,12 @@ bool ZedOneRgbCamera::capture_frame() {
         }
         return false;
     }
-    const uint64_t capture_time_ns = zed_.getTimestamp(sl::TIME_REFERENCE::IMAGE).getNanoseconds();
-
-    if (zed_.retrieveImage(zed_bgra_, sl::VIEW::LEFT, sl::MEM::CPU) != sl::ERROR_CODE::SUCCESS) {
+    const uint64_t capture_time_ns = device_->image_timestamp_ns();
+    const std::optional<cv::Mat> retrieved = device_->retrieve_bgra();
+    if (!retrieved) {
         return false;
     }
-    const cv::Mat bgra(static_cast<int>(zed_bgra_.getHeight()),
-                       static_cast<int>(zed_bgra_.getWidth()), CV_8UC4,
-                       zed_bgra_.getPtr<sl::uchar1>(sl::MEM::CPU), zed_bgra_.getStepBytes());
+    const cv::Mat &bgra = *retrieved;
     cv::Mat bgr;
     bgr.allocator = PinnedMatAllocator::instance();
     cv::cvtColor(bgra, bgr, cv::COLOR_BGRA2BGR);
@@ -310,8 +313,8 @@ std::optional<CameraSettingsState> ZedOneRgbCamera::camera_settings() const {
 CameraSettings ZedOneRgbCamera::read_settings(const CameraSettings &known) {
     auto get = [this](sl::VIDEO_SETTINGS setting, int fallback) {
         int value = fallback;
-        if (!zed_.isCameraSettingSupported(setting) ||
-            zed_.getCameraSettings(setting, value) != sl::ERROR_CODE::SUCCESS) {
+        if (!device_->is_setting_supported(setting) ||
+            device_->get_setting(setting, value) != sl::ERROR_CODE::SUCCESS) {
             return fallback;
         }
         return value;
@@ -340,8 +343,8 @@ CameraSettings ZedOneRgbCamera::read_settings(const CameraSettings &known) {
 CameraSettingLimits ZedOneRgbCamera::read_limits() {
     auto range = [this](sl::VIDEO_SETTINGS setting) {
         CameraSettingRange r;
-        r.supported = zed_.isCameraSettingSupported(setting) &&
-                      zed_.getCameraSettingsRange(setting, r.min, r.max) == sl::ERROR_CODE::SUCCESS;
+        r.supported = device_->is_setting_supported(setting) &&
+                      device_->get_range(setting, r.min, r.max) == sl::ERROR_CODE::SUCCESS;
         return r;
     };
     CameraSettingLimits limits;
@@ -370,9 +373,9 @@ void ZedOneRgbCamera::apply_settings(const CameraSettings &settings) {
         if (!range.supported) return;
         const int clamped = std::clamp(value, range.min, range.max);
         if (nudge && range.max > range.min) {
-            zed_.setCameraSettings(setting, clamped == range.max ? clamped - 1 : clamped + 1);
+            device_->set_setting(setting, clamped == range.max ? clamped - 1 : clamped + 1);
         }
-        const sl::ERROR_CODE result = zed_.setCameraSettings(setting, clamped);
+        const sl::ERROR_CODE result = device_->set_setting(setting, clamped);
         if (result != sl::ERROR_CODE::SUCCESS) {
             spdlog::warn("[ZedOneRgbCamera] setCameraSettings({}, {}) failed: {}",
                          sl::toString(setting).c_str(), clamped, sl::toString(result).c_str());

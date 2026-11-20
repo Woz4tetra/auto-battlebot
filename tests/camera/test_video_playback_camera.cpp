@@ -348,6 +348,56 @@ TEST(VideoPlaybackCameraJoinTest, ImageStampJoinsFrameMetaOnOrdinalNotLogTime) {
     EXPECT_EQ(frames, 10);
 }
 
+TEST_F(VideoPlaybackCameraTest, PacingReturnsEachFrameOnTheRecordedScheduleNotAPeriodAfterTheWork) {
+    constexpr int kPlayed = 15;
+    constexpr double kPeriodMs = 33.333333;
+    VideoPlaybackCameraConfiguration config = make_config(*fixture_);
+    config.real_time_mode = true;
+    VideoPlaybackCamera camera(config);
+    ASSERT_TRUE(camera.initialize());
+
+    CameraData data;
+    ASSERT_TRUE(camera.get(data));
+    const auto begin = std::chrono::steady_clock::now();
+    for (int i = 1; i < kPlayed; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(i % 2 == 0 ? 5 : 20));
+        ASSERT_TRUE(camera.get(data));
+        const double returned_ms =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin)
+                .count();
+        EXPECT_NEAR(returned_ms, i * kPeriodMs, 6.0) << "frame " << i;
+    }
+}
+
+TEST_F(VideoPlaybackCameraTest,
+       PacingKeepsTheAverageRateWhenPipelineWorkVariesAndSometimesOverruns) {
+    constexpr int kPlayed = 15;
+    constexpr double kPeriodMs = 33.333333;
+    VideoPlaybackCameraConfiguration config = make_config(*fixture_);
+    config.real_time_mode = true;
+    VideoPlaybackCamera camera(config);
+    ASSERT_TRUE(camera.initialize());
+
+    CameraData data;
+    ASSERT_TRUE(camera.get(data));
+    const auto begin = std::chrono::steady_clock::now();
+    double halfway_ms = 0.0;
+    for (int i = 1; i < kPlayed; ++i) {
+        const bool overrun = i % 4 == 1;
+        std::this_thread::sleep_for(std::chrono::milliseconds(overrun ? 45 : 5));
+        ASSERT_TRUE(camera.get(data));
+        if (i == 7) {
+            halfway_ms =
+                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin)
+                    .count();
+        }
+    }
+    const double elapsed_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count();
+    EXPECT_NEAR(elapsed_ms, (kPlayed - 1) * kPeriodMs, 70.0);
+    EXPECT_NEAR(halfway_ms, 7 * kPeriodMs, 70.0);
+}
+
 TEST_F(VideoPlaybackCameraTest, PacingHoldsTheRecordedRateWhilePipelineWorkRuns) {
     constexpr int kPlayed = 15;
     constexpr auto kPipelineWork = std::chrono::milliseconds(25);
