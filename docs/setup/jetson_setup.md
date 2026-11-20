@@ -233,4 +233,3 @@ The venv `activate` script gets a `LD_LIBRARY_PATH` block because the host sets 
 ### Deploy and download script notes
 
 - `scripts/deploy_to_jetson.sh` orders the `--include` for `.build_version` before the gitignore merge, so the stamped version file transfers even though it is gitignored (first match wins).
-- `scripts/download_recordings.sh` skips search directories that do not exist on the remote host, so a missing one does not make `find` exit non-zero and abort the remote script under `pipefail`.

@@ -132,11 +132,7 @@ root=$1; shift
 max_age=$1; shift
 cd "$root" || { echo "ERROR: remote path '$root' not found" >&2; exit 3; }
 command -v lsof >/dev/null || { echo "ERROR: lsof not installed on remote" >&2; exit 4; }
-dirs=
-for d in "$@"; do
-    [ -d "$d" ] && dirs="$dirs $d"
-done
-[ -n "$dirs" ] || exit 0
+dirs="$*"
 window=
 [ "$max_age" -gt 0 ] && window="-mmin -$max_age"
 
@@ -164,7 +160,7 @@ fi
 
 select_missing_remote_paths() {
     awk -v svo_out="$SVO_LIST" -v mcap_out="$MCAP_LIST" '
-        NR == FNR { have[$0] = 1; next }
+        FILENAME == ARGV[1] { have[$0] = 1; next }
         { name = $0; sub(/.*\//, "", name) }
         name in have || name in seen { next }
         {

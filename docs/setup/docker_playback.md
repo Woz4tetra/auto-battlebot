@@ -226,9 +226,3 @@ Each choice in `docker/docker-compose.playback.yml`:
 
 The usual cause of an old version is a stale manually installed plugin shadowing the apt one. Docker searches `/usr/local/lib/docker/cli-plugins` before `/usr/libexec/docker/cli-plugins`, so a leftover binary in the former wins even after `docker-compose-plugin` is upgraded. That happened on megamind, which reported 2.11.2 while the apt package on disk was current.
 
-## Workarounds
-
-- `scripts/docker/docker_common.sh` exports `UID` and `GID` because compose has no `$(id -u)` equivalent. bash sets `UID` without exporting it, and `GID` is not set at all under some shells.
-- Compose cannot express a conditional mount, so `XAUTHORITY` must always resolve to a real path or the `"${XAUTHORITY}:${XAUTHORITY}:ro"` volume becomes `:` and compose rejects the file. The script falls back to the conventional location and creates it if absent.
-- The `--no-display` flag of `run_playback.sh` and `shell.sh` blanks `DISPLAY`, which is what stops the container reaching an X server. The socket and cookie stay mounted because compose has no conditional mounts, and they are inert without `DISPLAY`.
-- `run_playback.sh` re-supplies `-c` when the caller names no config, because overriding the command drops the compose file's default. Compose builds the playback image if it is missing, so a fresh machine needs no separate install step, and the Foxglove relay starts inside the container (`container_entrypoint.sh`). `run_playback.sh` and `shell.sh` do not `exec` compose because it is a shell function from `docker_common.sh`, and `exec` needs a binary. `shell.sh` passes `--no-deps` to skip the Foxglove bridge.
