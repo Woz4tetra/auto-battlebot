@@ -127,3 +127,4 @@ Workarounds whose last check needs hardware. Delete a row once the check passes.
 | `/camera/video` log times strictly increase | `acbf7ba1` | Any recording: play `/camera/video` in Foxglove; no "timestamp not after previous" rejection |
 | `McapRecorder` constructor waits for the first file; `set_enabled` completion future; `close()` flushes the async log sink | `72d44588` | Jetson: start the app, toggle recording from the dashboard several times, stop the app; every MCAP opens in Foxglove and the startup time is unchanged |
 | Telemetry batch encoded by the shared `telemetry_batch.h` | `72d44588` | Robot: GET `/telemetry?from=0`; the batch decodes with `decode_esp32_telemetry_batch` and the dashboard telemetry panel fills |
+| `FileStreamReader::read` no longer syncs the stream per chunk; `~TrtEngine` has no stream sync | `ca60b054` | Jetson: load the production engines (`TrtEngine::load`) and replay one recording; detections match the previous build |
