@@ -13,6 +13,7 @@
 #include "battery/battery_monitor.hpp"
 #include "battery/config.hpp"
 #include "config/config_parser.hpp"
+#include "diagnostics_logger/test_diagnostics_logger.hpp"
 
 namespace auto_battlebot {
 namespace {
@@ -52,6 +53,31 @@ bool wait_for(const std::function<bool()> &done) {
         std::this_thread::sleep_for(1ms);
     }
     return done();
+}
+
+TEST(BatteryMonitorTest, DiagnosticsLoggedBeforeInitializeReachBackendsAfterIt) {
+    TestDiagnosticsLogger::reset();
+    std::atomic<int> reads{0};
+    {
+        BatteryMonitor monitor(temp_options("early_diagnostics"), fixed_reader(12.0, 0.5, &reads),
+                               nullptr, kPeriod);
+        ASSERT_TRUE(wait_for([&] { return reads.load() >= 2; }));
+        ASSERT_TRUE(wait_for([&] { return monitor.latest().has_value(); }));
+        ASSERT_FALSE(DiagnosticsLogger::is_initialized());
+        EXPECT_TRUE(DiagnosticsLogger::get_logger("battery_ina219")->has_status())
+            << "diagnostics logged before initialize were dropped";
+
+        auto backend = std::make_shared<RecordingBackend>();
+        DiagnosticsLogger::initialize({backend});
+        ASSERT_TRUE(wait_for([&] {
+            DiagnosticsLogger::publish();
+            for (const auto &snapshot : backend->last_snapshots()) {
+                if (snapshot.name == "battery_ina219") return true;
+            }
+            return false;
+        }));
+    }
+    TestDiagnosticsLogger::reset();
 }
 
 TEST(BatteryMonitorTest, PublishesTheFirstReading) {

@@ -1079,7 +1079,6 @@ The ROS 1 wire format is little-endian. A header is `uint32 seq`, `uint32 stamp_
 
 ## Workarounds in the recorder and relay
 
-- `McapRecorder::handle(WriteOp&)` logs only the first write failure per file and counts the rest. A disk error repeats on every message, and each log line is itself a `/log` message headed for the same failing file. Unverified: nothing makes `RawChannel::log` fail on demand.
 - `FoxglovePublisher` gives the annotation channels a `nullptr` recorder. Annotations render the JSON channel and are live only, so they never land in a file. `AnnotationsAreLiveOnly` passes even with the recorder swapped in, because the channel logs only with subscribers and the test has no sink.
 - `OutputChannel::log` returns early on a zero-length payload. The Foxglove SDK refuses zero-length messages (project memory, SDK source not read).
 - `Runner::wait_for_frames_in_flight` waits for three more tick starts, bounded by 500 ms, before the MCAP gate closes on a recording-off. The tick keeps running while the toggle thread works. A tick that took a frame before the encoder stopped still holds that frame's video index and would publish its `frame_meta` into the next file, pointing at the wrong packet. Frames captured after the stop carry no index. Three starts cover the tick in flight and the tick that may have taken the last frame the camera buffered before the stop. The bound covers a tick stuck in camera recovery.

@@ -256,10 +256,8 @@ void BatterySocEstimator::log_diagnostics(const BatterySample &sample,
                                           const BatteryReading &reading,
                                           const BatteryOptions &source_options,
                                           bool read_ok) const {
-    if (!DiagnosticsLogger::is_initialized()) return;
-    static std::shared_ptr<DiagnosticsModuleLogger> logger =
+    const std::shared_ptr<DiagnosticsModuleLogger> logger =
         DiagnosticsLogger::get_logger("battery_ina219");
-    if (!logger) return;
 
     DiagnosticsData measurement_data;
     measurement_data["read_ok"] = read_ok ? 1 : 0;

@@ -2,7 +2,6 @@
 #include <toml++/toml.h>
 
 #include <CLI/CLI.hpp>
-#include <csignal>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -32,17 +31,9 @@
 #include "remote/command_decode.hpp"
 #include "remote/status_bus.hpp"
 #include "runner.hpp"
+#include "signal_quit.hpp"
 
 namespace {
-constexpr std::size_t kMaxQuittables = 8;
-auto_battlebot::Quittable* g_quittables[kMaxQuittables] = {};
-std::size_t g_quittables_count = 0;
-
-void signal_quit(int) {
-    for (std::size_t i = 0; i < g_quittables_count; ++i)
-        g_quittables[i]->quit_from_signal_handler();
-}
-
 std::string read_build_version() {
     std::error_code ec;
     const std::filesystem::path exe = std::filesystem::read_symlink("/proc/self/exe", ec);
@@ -156,10 +147,8 @@ int run_application(const auto_battlebot::ClassConfiguration& class_config,
 
     runner.initialize();
 
-    g_quittables[g_quittables_count++] = &runner;
-
-    std::signal(SIGINT, signal_quit);
-    std::signal(SIGTERM, signal_quit);
+    std::optional<ScopedSignalQuit> signal_quit;
+    signal_quit.emplace(runner);
 
     if (viz_sink) {
         viz_sink->set_client_message_handler(
@@ -174,9 +163,7 @@ int run_application(const auto_battlebot::ClassConfiguration& class_config,
     spdlog::warn("Runner returned with code {}", result);
     if (viz_sink) viz_sink->set_client_message_handler(nullptr);
 
-    std::signal(SIGINT, SIG_DFL);
-    std::signal(SIGTERM, SIG_DFL);
-    g_quittables_count = 0;
+    signal_quit.reset();
 
     run_host_command_before_teardown(pending_system_action);
     return result;

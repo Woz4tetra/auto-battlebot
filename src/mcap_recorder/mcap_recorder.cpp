@@ -104,7 +104,6 @@ bool McapRecorder::start_file_locked(std::filesystem::path& refused) {
 }
 
 void McapRecorder::push_locked(Op op, size_t bytes) {
-    if (stop_) return;
     queue_.push_back(std::move(op));
     queued_bytes_ += bytes;
     ++queued_seq_;
@@ -324,11 +323,16 @@ void McapRecorder::handle(CloseOp&) {
     if (writer_state_.writer) close_file();
 }
 
+foxglove::FoxgloveError McapRecorder::log_to_channel(foxglove::RawChannel& channel,
+                                                     const WriteOp& op) {
+    return channel.log(op.data.data(), op.data.size(), op.log_time_ns);
+}
+
 void McapRecorder::handle(WriteOp& op) {
     if (!writer_state_.writer) return;
     foxglove::RawChannel* channel = channel_for(op.channel);
     if (!channel) return;
-    auto status = channel->log(op.data.data(), op.data.size(), op.log_time_ns);
+    const auto status = channel_log_(*channel, op);
     if (status == foxglove::FoxgloveError::Ok) return;
     const bool first_failure_in_file = writer_state_.write_failures++ == 0;
     if (first_failure_in_file) {

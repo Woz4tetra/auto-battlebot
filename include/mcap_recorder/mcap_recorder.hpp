@@ -10,6 +10,7 @@
 #include <foxglove/channel.hpp>
 #include <foxglove/context.hpp>
 #include <foxglove/mcap.hpp>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -82,6 +83,10 @@ class McapRecorder {
         std::string value;
     };
     using Op = std::variant<OpenOp, CloseOp, WriteOp, MetadataOp>;
+    using ChannelLogFn =
+        std::function<foxglove::FoxgloveError(foxglove::RawChannel&, const WriteOp&)>;
+
+    static foxglove::FoxgloveError log_to_channel(foxglove::RawChannel& channel, const WriteOp& op);
 
     struct ChannelSpec {
         std::string topic;
@@ -121,6 +126,7 @@ class McapRecorder {
     std::atomic<bool> enabled_hint_{false};
     bool closed_for_good_ = false;
     bool paused_for_test_ = false;
+    ChannelLogFn channel_log_ = &McapRecorder::log_to_channel;
     std::filesystem::path file_path_;
     std::chrono::steady_clock::time_point file_started_{};
     std::unordered_set<std::string> issued_paths_;

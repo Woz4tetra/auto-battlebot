@@ -15,7 +15,8 @@ constexpr int kOpenTxTrainerOutputMax = 500;
 }  // namespace
 
 OpenTxTransmitter::OpenTxTransmitter(const OpenTxTransmitterConfiguration& config,
-                                     std::shared_ptr<ClockInterface> clock)
+                                     std::shared_ptr<ClockInterface> clock,
+                                     DeviceFinder find_device)
     : config_(config),
       logger_(DiagnosticsLogger::get_logger("opentx_transmitter")),
       clock_(std::move(clock)),
@@ -28,14 +29,15 @@ OpenTxTransmitter::OpenTxTransmitter(const OpenTxTransmitterConfiguration& confi
                                    .reverse_linear = config.reverse_linear_channel,
                                    .reverse_angular = config.reverse_angular_channel,
                                },
-                               logger_)) {
+                               logger_)),
+      find_device_(std::move(find_device)) {
     if (config_.max_motor_rpm_per_s && config_.max_motor_rpm > 0.0) {
         max_normalized_linear_rate_per_s_ = *config_.max_motor_rpm_per_s / config_.max_motor_rpm;
     }
 }
 
 bool OpenTxTransmitter::initialize() {
-    auto device = find_opentx_stm32_cdc_device();
+    auto device = find_device_();
     if (!device) {
         logger_->warning(
             "device_not_found",

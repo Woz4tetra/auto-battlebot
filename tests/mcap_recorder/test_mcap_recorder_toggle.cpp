@@ -112,6 +112,11 @@ struct McapRecorderTestAccess {
         }
         recorder.work_cv_.notify_all();
     }
+    static void fail_channel_writes(McapRecorder &recorder, foxglove::FoxgloveError error) {
+        recorder.channel_log_ = [error](foxglove::RawChannel &, const McapRecorder::WriteOp &) {
+            return error;
+        };
+    }
 };
 
 namespace {
@@ -565,6 +570,30 @@ TEST_F(McapRecorderToggleTest, FailedChannelLogsOncePerFile) {
         recorder.flush();
     }
     EXPECT_EQ(logged.load(), 1) << "a channel that cannot be created logged once per message";
+    recorder.close();
+}
+
+TEST_F(McapRecorderToggleTest, WriteFailureLogsOncePerFile) {
+    McapRecorder recorder("toggle_write_failure_test", dir_);
+    paths_.push_back(recorder.file_path());
+    const auto channel = recorder.open_channel("/failing", "json", empty_json_schema());
+    recorder.flush();
+    McapRecorderTestAccess::fail_channel_writes(recorder, foxglove::FoxgloveError::IoError);
+    std::atomic<int> logged{0};
+    ScopedHookLogger hook([&logged](const std::string &message) {
+        if (message.find("Write to") != std::string::npos) ++logged;
+    });
+
+    for (uint64_t i = 1; i <= 20; ++i) write_one(recorder, channel, i);
+    recorder.flush();
+    EXPECT_EQ(logged.load(), 1) << "a disk error logged once per message";
+
+    ASSERT_TRUE(recorder.set_enabled(false));
+    ASSERT_TRUE(recorder.set_enabled(true));
+    paths_.push_back(recorder.file_path());
+    for (uint64_t i = 21; i <= 40; ++i) write_one(recorder, channel, i);
+    recorder.flush();
+    EXPECT_EQ(logged.load(), 2) << "the second file did not log its own first failure";
     recorder.close();
 }
 

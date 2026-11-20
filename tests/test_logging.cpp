@@ -3,10 +3,14 @@
 
 #include <chrono>
 #include <condition_variable>
+#include <filesystem>
 #include <future>
+#include <memory>
 #include <mutex>
 
 #include "logging/logging.hpp"
+#include "mcap_recorder/mcap_recorder.hpp"
+#include "scratch_recordings.hpp"
 
 namespace auto_battlebot {
 namespace {
@@ -49,6 +53,27 @@ TEST(LoggingTest, FullQueueDropsOldestWithoutBlocking) {
     const auto status = producer.wait_for(std::chrono::seconds(2));
     sink->open();
     EXPECT_EQ(status, std::future_status::ready) << "a stalled sink blocked the caller";
+}
+
+TEST(LoggingTest, ShutdownReleasesTheRecorderAndLeavesASynchronousLogger) {
+    const auto previous = spdlog::default_logger();
+    const auto dir = make_scratch_recordings_dir("logging_shutdown_test");
+    auto recorder = std::make_shared<McapRecorder>("logging_shutdown_test", dir);
+    std::weak_ptr<McapRecorder> watcher = recorder;
+
+    setup_logging(recorder);
+    recorder.reset();
+    EXPECT_FALSE(watcher.expired()) << "the async logger should hold the recorder";
+    EXPECT_NE(std::dynamic_pointer_cast<spdlog::async_logger>(spdlog::default_logger()), nullptr);
+
+    shutdown_logging();
+    EXPECT_TRUE(watcher.expired()) << "the recorder outlived shutdown_logging";
+    EXPECT_EQ(std::dynamic_pointer_cast<spdlog::async_logger>(spdlog::default_logger()), nullptr);
+    spdlog::info("logged after shutdown");
+
+    spdlog::set_default_logger(previous);
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
 }
 
 }  // namespace auto_battlebot

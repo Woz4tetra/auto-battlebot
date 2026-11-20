@@ -624,6 +624,13 @@ TEST_F(RunnerRecordingOrderTest, SystemActionFlushesThePublisherBeforeClosingMca
     EXPECT_FALSE(recorder_->is_enabled());
 }
 
+TEST_F(RunnerRecordingOrderTest, QuitStopsTheEncoderThenDrainsThePublisherThenClosesMcap) {
+    runner_->quit_from_signal_handler();
+    EXPECT_FALSE(runner_->tick());
+    EXPECT_EQ(events(), (std::vector<std::string>{"svo_off_mcap_on", "flush_mcap_on"}));
+    EXPECT_FALSE(recorder_->is_enabled());
+}
+
 TEST_F(RunnerRecordingOrderTest, ShutdownWaitsForAToggleAlreadyPosted) {
     camera_->toggle_delay_ms = 200;
     commands_->post(remote::SetRecordingCommand{.enabled = true});

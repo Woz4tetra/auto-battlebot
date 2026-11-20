@@ -92,6 +92,21 @@ TEST_F(SimKeypointModelTest, MeasuredRobotsBecomeFrontBackPairsAtCaptureStamp) {
     EXPECT_TRUE(result.boxes.empty());
 }
 
+TEST_F(SimKeypointModelTest, ReadsTheConnectionConfiguredAfterConstruction) {
+    SimKeypointModelConfiguration config;
+    config.labels = labels;
+    SimKeypointModel model(config);
+
+    SimConnection::configure("127.0.0.1", 14999);
+    SimConnection::instance()->set_last_measurements(frame());
+    RgbImage image;
+    image.header = image_header;
+    const ModelResultStamped result = model.update(image, info);
+
+    EXPECT_DOUBLE_EQ(result.header.stamp, 1.9)
+        << "the model held a connection made before configure";
+}
+
 TEST_F(SimKeypointModelTest, UndeliveredFrameIsEmptyAtImageStamp) {
     SimMeasurementFrame f = frame();
     f.delivered = false;

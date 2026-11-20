@@ -2,8 +2,10 @@
 
 #include <array>
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <optional>
+#include <string>
 #include <tuple>
 
 #include "channels/channels_parser.hpp"
@@ -21,8 +23,11 @@ using HardwareTimePoint = std::chrono::steady_clock::time_point;
 
 class OpenTxTransmitter : public TransmitterInterface {
    public:
+    using DeviceFinder = std::function<std::optional<std::string>()>;
+
     OpenTxTransmitter(const OpenTxTransmitterConfiguration& config,
-                      std::shared_ptr<ClockInterface> clock);
+                      std::shared_ptr<ClockInterface> clock,
+                      DeviceFinder find_device = find_opentx_stm32_cdc_device);
 
     bool initialize() override;
 
@@ -42,6 +47,7 @@ class OpenTxTransmitter : public TransmitterInterface {
     std::shared_ptr<DiagnosticsModuleLogger> logger_;
     std::shared_ptr<ClockInterface> clock_;
     std::unique_ptr<DriveProcessorInterface> processor_;
+    DeviceFinder find_device_;
 
     double max_normalized_linear_rate_per_s_ = 0.0;
     double prev_linear_command_ = 0.0;
