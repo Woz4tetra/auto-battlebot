@@ -74,3 +74,10 @@ upright (+90 for inverted) and the per-model `ground_roll_upright` / `ground_rol
 that takes out the tilt left by where the CAD origin sits. Matching both keeps the sprite footprint
 equal to the robot's real footprint on the floor, so the sim viewer draws the same outline the
 detector saw.
+
+- The camera looks straight down, with +X right and +Y up in the image.
+- `render_sprite` returns the rendered image's span in metres. That is the true scale of the file on disk, not the requested one, which pixel rounding perturbs.
+- `add_sky_lighting` lights the scene from an outdoor sky HDRI. The sun gives the silhouette an edge and the sky fills the flat top surfaces, which is most of what a top-down sprite shows. Its rotation aims the sun, so it decides which side catches the highlight.
+- `upright_yaw` returns the yaw that turns `front_local` onto +X once the model stands upright. The front and back keypoints are authored in the model's own frame. Standing the model up moves them, and the ground roll tilts them out of the horizontal plane, so the function takes the heading of the projection rather than the raw vector.
+
+- The sprite manifest's `source` is repo-relative, so it names the same file whatever directory the render ran from.

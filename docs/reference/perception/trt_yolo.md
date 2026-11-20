@@ -15,8 +15,14 @@ Detections are `(xyxy, confidence, class_id, keypoints (K, 3))` tuples in origin
 
 For a raw head, a positive `num_classes` is trusted. A remainder after `4 + num_classes` that is not a multiple of 3 is extra columns, not keypoints. Without a class count the head is guessed as single-class pose. `num_keypoints >= 0` overrides the inferred count.
 
+Auto-inferring `num_classes` (0) only works for single-class engines. A 4-class 2-keypoint pose head has the same 14 feature columns as a 1-class 3-keypoint one, and the guess picks the latter, so pass `num_classes` for multi-class pose engines and check the printed layout line. The same holds in `training/model_eval/score.py`: `--candidate-labels` sets the label count per candidate, and the label count sets `num_classes`, which splits the raw tensor into scores and keypoints. A 2-class engine read with three labels parses to `num_keypoints=0`, so a grid mixing 2-class and 3-class engines needs it.
+
 ## Preprocessing
 
 - `PreprocessMode.LETTERBOX` pads with value 114. The C++ models nudge the pad split by 0.1 px: top gets `round(pad - 0.1)` and bottom gets `round(pad + 0.1)`, which biases odd padding to the bottom and right. `CPP_LETTERBOX_PADDING` holds the 0.1.
 - `PreprocessMode.STRETCH` resizes ignoring aspect ratio, so its x and y scales differ.
 - The mode must match how the engine's weights were trained. A stretch-trained engine fed a letterboxed frame sees the wrong aspect ratio.
+
+## Rectangular input size
+
+A 16:9 source letterboxed into a square 640x640 tensor wastes 44% of it on grey padding. `training/yolo/convert_to_onnx.py --imgsz 384 640` cuts that to 6% at the same detection scale. Both sides must be multiples of 32. The C++ model reads the shape from the engine, so a rectangular engine is a drop-in swap.

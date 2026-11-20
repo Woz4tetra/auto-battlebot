@@ -176,6 +176,15 @@ Nothing in C++ defaults to a fit, so a test that default-constructs a config get
 
 `ConfigTest.MotionProfileNavigationReadsTheSharedPlantTable` and `ConfigTest.MotionProfileNavigationWithoutPlantTableThrows` pin that one `[plant]` table feeds both the filter and the controller, so navigation cannot drift back to its own copy of the fit. `MotionProfileNavigation` has no fallback: the brake schedule and feedforward are the fit, so a missing table is a config error instead of a controller quietly inverting a zero drivetrain. The missing-table test uses `NoopRobotFilter` and checks the message, because the motion estimators demand the same table and are parsed before `[navigation]`. A bare throw check would pass on their error even if the controller stopped checking.
 
+## Components that require `[plant]`
+
+Each of these throws `ConfigValidationError` at config load when the extends chain has no `[plant]` table. None has defaults, because a zero plant would silently freeze or mis-scale the output.
+
+- `MotionProfileNavigation`: the brake schedule and inverse-plant feedforward come from the jig fit.
+- `RlPolicyNavigation` with `hazard_barrier_enable = true`: the barrier's stopping envelope is `tau_lin_d + delay_s` from the fit.
+- `DeadReckoningMotionEstimator`: it scales the normalized stick command to body velocity with `k_fwd`, `k_rev`, and `k_ang`. A zero plant would freeze every prediction without saying so.
+- `KalmanMotionEstimator`: the EKF our-robot arm propagates through `JigPlantModel`, and the dead-reckoning arm scales stick to body velocity with the fitted gains. Background: `docs/experiments/control/kalman_filter/plant_model_poc_plan.md`.
+
 ## Where each piece is selected
 
 - `[plant]` in `config/robots/<robot>.toml`, the shared fit both subsystems read. Profiles load

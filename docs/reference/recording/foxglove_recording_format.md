@@ -1098,6 +1098,10 @@ The relay unit owns the WebSocket server and restarts on its own. The app unit o
 
 The diagnostics backend sets `name = hardware_id` when a message has no subsection. `scripts/mcap_latency_report.py` builds stage names as `hw_id` in that case, and `hw_id.name` otherwise, to avoid `x.x` stages.
 
+### Latency report startup trim
+
+`scripts/mcap_latency_report.py` trims the startup ticks up to and including the first field initialization sample by default. The one-shot field computation costs hundreds of ms and skews every summary stat. `--include-field-init` reports the whole recording.
+
 ### Browser decode of `/camera/video` and images
 
 `web/src/lib/image.ts` decodes `foxglove.CompressedImage` and `foxglove.CompressedVideo`. The relay advertises protobuf channels with a base64 `FileDescriptorSet` as the schema. The page builds the message type from that at runtime, the same way Foxglove Studio does, so it never ships its own copy of the `.proto` files.

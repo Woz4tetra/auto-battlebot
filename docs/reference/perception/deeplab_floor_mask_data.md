@@ -28,3 +28,11 @@ decoder = "v3"
 ```
 
 `test_sidecar_round_trips_and_matches_cpp_keys` checks that the keys the C++ loader reads are the keys Python writes.
+
+## Hull mask blob filter
+
+`training/deeplab/convex_hull_masks.py --min-blob-image-fraction` (default 0.01) keeps a blob that covers at least that fraction of the whole image even when it fails the relative size test. It preserves the smaller side of a field that an occluder split unevenly.
+
+## Training seed
+
+`training/deeplab/semantic_train.py --seed` does not make a run reproducible. `seed_everything` leaves `cudnn.benchmark` on, so kernel selection varies run to run and two runs at the same seed diverge. A seed pair therefore measures seed variation plus that nondeterminism, which together are the real run-to-run noise floor.

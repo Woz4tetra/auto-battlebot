@@ -16,6 +16,7 @@ Design facts for `training/synthetic/synthgen/` (`pipeline.py`, `robots.py`, `pr
 ## Warped views
 
 - Colour warps bilinear. Every other map at render resolution (category, instance, depth) warps nearest, so ids and depths are never blended. An unwarped view passes through untouched.
+- `render_scenes.py --view` picks the frame every cage scene writes: `pinhole` at the rectified matrix, `distorted` as the sensor sees it, or `rectified` through the C++ Rectifier's maps. It overrides each `[[cages]]` view, and the HDRI arena half stays pinhole. When cages warp and the arena share is above zero, the pipeline logs a warning; pin the run to a cage (`--venue` or `only_cage`) to keep one view.
 
 ## Motion blur
 

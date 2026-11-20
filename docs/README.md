@@ -19,13 +19,13 @@
 | --- | --- |
 | `config/` | `config_extends.md` (extends chains, `from` section files), `robot_plant_files.md` |
 | `perception/` | `deeplab_floor_mask_data.md`, `robot_filter_pipeline.md`, `field_pose.md`, `cage_calibration.md`, `camera_profiles.md`, `gpu_letterbox_memory.md`, `trt_engine.md`, `trt_yolo.md` |
-| `control/` | `plant_backed_control.md`, `hazards.md`, `rl_policy_bundle.md`, `control_loop.md`, `empty_circle_solver.md`, `rl_opponents.md` |
+| `control/` | `plant_backed_control.md`, `hazards.md`, `rl_policy_bundle.md`, `control_loop.md`, `empty_circle_solver.md`, `rl_opponents.md`, `rl_training.md` |
 | `calibration/` | `sysid_modules.md`, `plant_fit_modules.md` |
 | `eval/` | `eval_code.md` |
 | `recording/` | `foxglove_recording_format.md` (the recording contract), `svo_recording.md`, `video_recording.md` |
 | `remote/` | `protocol.md` (topics, commands, field projection) |
-| `robot_link/` | `esp32_wifi_telemetry.md`, `espnow_link.md`, `motor_guard.md`, `yaw_control.md` |
-| `tools/` | `gpu_queue.md`, `logo_splash_animation.md`, `synthgen_config.md`, `synthgen_render.md`, `synthgen_scene_contracts.md`, `domain_mix_arms.md` |
+| `robot_link/` | `esp32_wifi_telemetry.md`, `esc_drive.md`, `espnow_link.md`, `motor_guard.md`, `yaw_control.md` |
+| `tools/` | `gpu_queue.md`, `logo_splash_animation.md`, `perception_reliability.md`, `synthgen_cage_specs.md`, `synthgen_config.md`, `synthgen_render.md`, `synthgen_scene_contracts.md`, `domain_mix_arms.md` |
 
 ## experiments/
 

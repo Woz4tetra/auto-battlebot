@@ -157,7 +157,7 @@ Requires a `[navigation.policy]` table naming the model bundle. Refuses to start
 
 | Field | Meaning |
 | --- | --- |
-| `hazards_file` | Shared arena geometry file, relative to the config directory (`.toml` optional). The kinematic sim reads the same file, so the simulated floor and the keep-out discs the controller steers on cannot drift apart. Empty means no static hazards |
+| `hazards_file` | Shared arena geometry file: a plain path, absolute or relative to the project root (for example `config/hazards/one_hole.toml`), with no implied directory and no implied extension. The C++ config and the sim each resolve it against the project root. The kinematic sim reads the same file, so the simulated floor and the keep-out discs the controller steers on cannot drift apart. Empty means no static hazards |
 | `hazard_static_margin_m` | Clearance added to a static hazard on top of our robot's half-diagonal |
 | `hazard_tracked_margin_m` | Clearance added to a hazard derived from a live neutral track. Smaller than the static margin on purpose, so a house bot parked mid-field does not make large parts of the field unreachable |
 | `hazard_tracked_hold_s` | How long a stale neutral track keeps producing a hazard |
@@ -396,7 +396,9 @@ Replay of an SVO file. It is a separate type from `ZedRgbdCamera` so recording, 
 
 | Field | Meaning |
 | --- | --- |
-| `rebase_stamps` | Shift frame stamps to the current wall clock. Turn off to compare recordings between builds, where the offset otherwise makes every payload differ |
+| `rebase_stamps` | Shift frame stamps to the current wall clock. Turn off to compare recordings between builds, where the offset otherwise makes every payload differ. Off leaves stamps on the recording's clock, which does not match the control clock, so latency compensation and stamp-difference diagnostics are invalid |
+| `svo_real_time_mode` | `false` decodes frames as fast as the pipeline allows, so the wall-clock gap between shutter and control tick belongs to the machine, not the robot. Field timing, including latency compensation, is not reproduced |
+| `svo_start_frame` | Must lie inside the recording. A config that overrides `svo_file_path` must set it too, or it inherits the value from the config it extends |
 
 ### `V4l2RgbCamera`
 

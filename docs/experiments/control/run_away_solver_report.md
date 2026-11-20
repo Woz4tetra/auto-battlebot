@@ -297,37 +297,3 @@ locked by `tests/test_empty_circle_solver.cpp` and
    CH6 carries the switch.
 3. Field test run-away against a static opponent stand-in, watching the
    `run_away_target` radius log entry, before running against a real robot.
-
-## Notes moved from `src/` comments (2026-11-15)
-
-Each entry names the file and the code it described.
-
-### `src/target_selector/empty_circle_solver.cpp`
-
-Beside `struct Linear {`:
-
-One linear equation in the unknowns (cx, cy, r): a_x cx + a_y cy + a_r r = b. Every constraint family reduces to two of these plus one site's quadratic. A wall being active is already linear; two sites being equally clear is linear too, because subtracting their squared forms cancels cx^2 + cy^2 and r^2. That is what lets one routine solve the wall/point/hazard mixtures the plan's families spell out separately.
-
-### `src/target_selector/empty_circle_solver.cpp`
-
-Beside `Linear equal_clearance_constraint(const Site &a, const Site &b) {`:
-
-Two sites equally clear. Squaring both |c - s_i| = r + R_i and subtracting cancels the quadratic terms, leaving one linear equation.
-
-### `src/target_selector/empty_circle_solver.cpp`
-
-Beside `void add_candidates(Best &best, const Linear &first, const Linear &second, const Site &site,`:
-
-Solve two linear constraints plus one site's quadratic and hand the resulting centers to `best`. In (cx, cy, r) space the two linear constraints meet on a line, found as the cross product of their normals with the usual two-plane particular point. Substituting that line into |c - s| = r + R leaves a quadratic in the line parameter. Parallel constraints (which is what a degenerate triple looks like here: coincident sites, collinear sites, the same wall twice) give a zero direction and are skipped.
-
-### `src/target_selector/empty_circle_solver.cpp`
-
-Beside `const double n2d_x = second.ay * dr - second.ar * dy;`:
-
-P = (b1 (n2 x D) + b2 (D x n1)) / |D|^2 satisfies both planes.
-
-### `src/target_selector/empty_circle_solver.cpp`
-
-Beside `void add_three_wall_candidates(Best &best, double half_x, double half_y) {`:
-
-Three walls: a triple of the four walls contains exactly one opposite pair (axis a) plus one wall on the other axis (axis b, sign s). Equidistance from the pair pins c[a] = 0 and r = half_a; matching the third wall puts c[b] at s * (half_b - half_a).

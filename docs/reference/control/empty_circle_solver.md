@@ -21,6 +21,14 @@ Degenerate triples (collinear or coincident sites) produce no candidate and are 
 
 Hazards join the site set as weighted points. The constraint families are the same, but the closed-form solves carry each site's radius, so a triple that mixes an opponent and a hazard goes through the same routine. Cost grows as the cube of (opponents + hazards). That is fine because a field holds a handful of hazards, not a hundred.
 
+## Closed-form solve
+
+- Every constraint family reduces to linear equations in the unknowns (cx, cy, r): `a_x cx + a_y cy + a_r r = b`. A wall being active is linear. Two sites being equally clear is linear too: squaring both `|c - s_i| = r + R_i` and subtracting cancels cx^2 + cy^2 and r^2. One routine therefore solves every wall/point/hazard mixture.
+- A triple with one site is two linear constraints plus that site's quadratic. In (cx, cy, r) space the two linear constraints meet on a line. Its direction D is the cross product of their normals n1, n2. Its particular point is `P = (b1 (n2 x D) + b2 (D x n1)) / |D|^2`, which satisfies both planes.
+- Substituting the line into `|c - s| = r + R` leaves a quadratic in the line parameter. Its roots give the candidate centers.
+- Parallel constraints give a zero D and are skipped. That is what a degenerate triple looks like here: coincident sites, collinear sites, the same wall twice.
+- Three walls: a triple of the four walls contains exactly one opposite pair (axis a) plus one wall on the other axis (axis b, sign s). Equidistance from the pair pins `c[a] = 0` and `r = half_a`. Matching the third wall puts `c[b]` at `s * (half_b - half_a)`.
+
 ## Tie-break
 
 Candidates tied on radius (the plateau when no opponent constrains the circle) resolve toward `tie_break_near` when given. The caller passes its own position so the goal is the plateau point closest to the robot instead of one across the field. Without `tie_break_near`, ties keep the first candidate in generation order.
