@@ -186,6 +186,17 @@ TEST_F(ZedSvoPlaybackCameraTest, ShouldCloseBeforeInitialize) {
     EXPECT_FALSE(camera.should_close());
 }
 
+TEST_F(ZedSvoPlaybackCameraTest, CancelRequestedBeforeInitializeReturnsCancelled) {
+    ASSERT_NE(camera_, nullptr) << "ZED camera failed open test SVO";
+    ZedSvoPlaybackCamera camera(config_);
+    camera.cancel_initialize();
+    const auto start = std::chrono::steady_clock::now();
+    EXPECT_FALSE(camera.initialize());
+    const double elapsed_s =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+    EXPECT_LT(elapsed_s, 10.0);
+}
+
 TEST_F(ZedSvoPlaybackCameraTest, InvalidSvoFile) {
     ZedSvoPlaybackCameraConfiguration config;
     config.svo_file_path = "/nonexistent/path/to/file.svo2";

@@ -491,18 +491,6 @@ bool Runner::recover_camera_after_failure() {
     };
     while (is_running()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        // Commands and the quit check come after the sleep, right before the open: initialize()
-        // clears the cancel flag, so a reboot posted during the sleep would otherwise be lost
-        // and wait out the whole open.
-        bool unused_reinit = false;
-        if (!handle_commands(unused_reinit)) {
-            camera_->cancel_initialize();
-            return false;
-        }
-        if (!is_running()) {
-            camera_->cancel_initialize();
-            break;
-        }
         bool reinitialized = false;
         {
             std::lock_guard<std::mutex> lock(recording_mutex_);
@@ -510,6 +498,7 @@ bool Runner::recover_camera_after_failure() {
         }
         if (reinitialized) break;
 
+        bool unused_reinit = false;
         handle_commands(unused_reinit);
         spdlog::warn("Camera reinitialize attempt failed. Exiting.");
         return false;

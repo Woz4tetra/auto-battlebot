@@ -66,7 +66,6 @@ bool ZedSvoPlaybackCamera::initialize() {
     stamp_offset_initialized_ = false;
     device_.reset_runtime_state();
 
-    cancel_open_ = false;
     const ZedDevice::OpenResult open_result = device_.open(cancel_open_);
     if (open_result == ZedDevice::OpenResult::Leaked) {
         should_close_ = true;

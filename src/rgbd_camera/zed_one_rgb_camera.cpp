@@ -81,7 +81,6 @@ bool ZedOneRgbCamera::open_camera() {
     params.camera_fps = config_.camera_fps;
     params.sdk_verbose = 0;
 
-    cancel_open_.store(false);
     pending_open_ = std::async(std::launch::async, [this, params]() { return zed_.open(params); });
     while (pending_open_.wait_for(std::chrono::milliseconds(50)) != std::future_status::ready) {
         if (cancel_open_.load()) {

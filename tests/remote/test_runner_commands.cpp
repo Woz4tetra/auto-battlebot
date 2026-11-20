@@ -77,7 +77,6 @@ class RecordingCamera : public NoopRgbdCamera {
     bool initialize() override {
         if (!lost_blocking_reopen_.load()) return true;
         if (open_fails_.load()) return false;
-        cancel_.store(false);
         opening.store(true);
         const auto deadline = std::chrono::steady_clock::now() + kReopenBlockLimit;
         while (!cancel_.load() && std::chrono::steady_clock::now() < deadline) {

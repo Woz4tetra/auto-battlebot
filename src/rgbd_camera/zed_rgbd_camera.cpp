@@ -146,7 +146,6 @@ bool ZedRgbdCamera::initialize() {
 
     reset_runtime_state();
 
-    cancel_open_ = false;
     const ZedDevice::OpenResult open_result = device_.open(cancel_open_);
     if (open_result == ZedDevice::OpenResult::Leaked) {
         shutdown_requested_ = true;
