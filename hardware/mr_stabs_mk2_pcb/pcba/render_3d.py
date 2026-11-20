@@ -2,11 +2,13 @@
 
 import os
 import subprocess
+import tempfile
 
 import pcbnew
 
 board = pcbnew.LoadBoard("mk2_routed.kicad_pcb")
-SHAPES = "${KIPRJMOD}/lib/mk2.3dshapes/"
+HERE = os.path.dirname(os.path.abspath(__file__))
+SHAPES = os.path.join(HERE, "lib", "mk2.3dshapes") + "/"
 
 
 def add_model(fp, name, offset=(0, 0, 0), rotate=(0, 0, 0)):
@@ -34,7 +36,19 @@ for fp in board.GetFootprints():
         add_model(fp, "ufl_plug.step", UFL_SOCKET_OFFSET)
 
 board.GetDesignSettings().SetAuxOrigin(pcbnew.VECTOR2I(pcbnew.FromMM(100), pcbnew.FromMM(100)))
-out = "mk2_render.kicad_pcb"
+for fp in board.GetFootprints():
+    old_models = list(fp.Models())
+    fp.Models().clear()
+    for old in old_models:
+        m = pcbnew.FP_3DMODEL()
+        m.m_Filename = old.m_Filename.replace("${KIPRJMOD}", HERE)
+        m.m_Offset = old.m_Offset
+        m.m_Rotation = old.m_Rotation
+        m.m_Scale = old.m_Scale
+        m.m_Opacity = old.m_Opacity
+        m.m_Show = old.m_Show
+        fp.Models().push_back(m)
+out = os.path.join(tempfile.mkdtemp(), "mk2_render.kicad_pcb")
 board.Save(out)
 views = {
     "top": ["--side", "top"],

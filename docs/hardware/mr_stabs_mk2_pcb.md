@@ -712,22 +712,9 @@ Routed board to JLCPCB upload files. Run from this directory after SKILL/scripts
 
 All unverified: SKiDL and the routing flow were not run for this purge.
 
-- `mr_stabs_mk2_pcb/pcba/design.py:NC`: SKiDL 2.3 injects its no-connect net into `builtins`
-  instead of exporting it, so `from skidl import NC` fails.
 - `mr_stabs_mk2_pcb/pcba/design.py:GND_STITCH`: two GND stitching vias in the stem's sides. The
   tracks to the stem's USB-C and bulk cap box the bottom GND pour into fragments the flow's
   stitching found no via spot in.
-- `mr_stabs_mk2_pcb/pcba/gen_placement.py:lay.size` for the LED and USB-C: the EasyEDA courtyards
-  miss their own pads (`footprint_audit.py`), so hand-measured boxes replace them before
-  legalizing.
-- `mr_stabs_mk2_pcb/pcba/gen_placement.py:lay.size` for NANO_RX: the box runs feet to pin tips and
-  covers the RX's 11 mm width. `legalize.py` does not mirror bottom-side courtyards and KiCad does,
-  so this one is given mirrored (local y -12.35 to 1.85, not -1.85 to 12.35).
-- `mr_stabs_mk2_pcb/pcba/gen_placement.py:holes`: the screw head sits on the B side inside the
-  printed washer (in the B keep-out). On the F side the hole needs only its own 3.7 mm plus 0.15 mm.
-- `mr_stabs_mk2_pcb/pcba/gen_placement.py:assert lay.rect(MCU...)`: the MCU module overhangs
-  nothing but sits 0.47 mm from the roof keep-out. It is fixed, so legalizing checks it against the
-  board edge only, and the assert checks the keep-out margin.
 - `mr_stabs_mk2_pcb/pcba/gen_placement.py` B.Cu keep-out at (16.6..19.4, -8.8..-5.6): keeps signals
   out of the B VBATT pour's neck, shunt VBATT end to ESC_L+. Two routing tries cut the neck with
   tracks and left the 20 A ESC current on a track. It clears the INA238's +3V3 pins (vias go
@@ -736,11 +723,3 @@ All unverified: SKiDL and the routing flow were not run for this purge.
   signals out of the strip between R3's VBATT pad and ESC_L+, so the pour always joins the Kelvin
   tap. SENSE_N and SENSE_P tracks had boxed that pad in. With R3 turned to face the pad, it no
   longer fit between the shunt and ESC_L+.
-- `mr_stabs_mk2_pcb/pcba/render_3d.py`: `mk2_render.kicad_pcb` is written beside the project so
-  `${KIPRJMOD}` resolves in the 3D model paths.
-- `mr_stabs_mk2_pcb/pcba/silk.py`: the EasyEDA LED footprint puts its polarity circle on its own
-  pad 1, so the F.SilkS circle is deleted from every XL-2020RGBC-WS2812B on the routed board. The
-  chamfer marks pad 1 as well.
-- `mr_stabs_mk2_pcb/pcba/silk.py`: paste is added to the USB-C's shell-leg slots (pad `EP`) so
-  reflow solders them. The EasyEDA pads had none. The routed board carries the footprint as
-  kinet2pcb built it, so the paste is set there as well.

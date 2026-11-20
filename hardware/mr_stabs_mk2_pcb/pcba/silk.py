@@ -160,10 +160,6 @@ for fp in board.GetFootprints():
 
 for fp in board.GetFootprints():
     fp.Reference().SetVisible(False)
-    if fp.GetValue() == "XL-2020RGBC-WS2812B":
-        for item in list(fp.GraphicalItems()):
-            if item.GetLayer() == pcbnew.F_SilkS and item.GetShape() == pcbnew.SHAPE_T_CIRCLE:
-                fp.Remove(item)
 
 ART = os.path.join(os.path.dirname(os.path.abspath(__file__)), "art")
 
@@ -189,14 +185,6 @@ def draw_json(name, cx, cy, side="B"):
 draw_json("robot_silk.json", *ROBOT_BOTTOM_ART_XY)
 draw_json("robot_top_silk.json", *ROBOT_TOP_ART_XY, "F")
 draw_json("logo_silk.json", *LOGO_ART_XY)
-
-for fp in board.GetFootprints():
-    if fp.GetValue() == "TYPE-C-31-D-06":
-        for pad in fp.Pads():
-            if pad.GetNumber() == "EP":
-                ls = pad.GetLayerSet()
-                ls.AddLayer(pcbnew.B_Paste if fp.IsFlipped() else pcbnew.F_Paste)
-                pad.SetLayerSet(ls)
 
 board.Save(OUT)
 print(f"silk: labels and icon written to {OUT}")

@@ -4,6 +4,7 @@ import json
 import sys
 
 from legalize import Board, Layout
+from shapely import affinity
 from shapely.geometry import shape
 
 b = Board("info.jsonl")
@@ -36,6 +37,12 @@ class SidedLayout(Layout):
 
     def fix_bottom(self, ref, x, y, rot=0, through=False):
         self.fixed_b[ref] = (x, y, rot, through)
+
+    def rect(self, ref, x, y, rot):
+        shape = super().rect(ref, x, y, rot)
+        if ref not in self.fixed_b:
+            return shape
+        return affinity.scale(shape, yfact=-1, origin=(x, y))
 
     def _b_shapes(self, side):
         return [
@@ -87,23 +94,14 @@ under_low_keepout = shape(keep["B_low"]).buffer(0.3)
 
 lay = SidedLayout("info.jsonl", outline_b, bottom_keepout=under_tall_keepout, edge=0.25)
 lay.keepout = roof_keepout
-lay.size(LED, (-1.25, 1.25), (-1.2, 1.2))
-lay.size(USB, (-4.6, 4.6), (-2.95, 2.95))
-lay.size(find("NANO_RX"), (-5.8, 5.8), (-12.35, 1.85))
+lay.size(find("NANO_RX"), (-5.8, 5.8), (-1.85, 12.35))
 lay.size(find("BOOT/RST"), (-3.81, 3.81), (-3.4, 3.4))
-for h in holes:
-    lay.size(h, (-1.85, 1.85), (-1.85, 1.85))
-    lay.accept(
-        h,
-        MCU,
-        "round 3.7 mm hole, box courtyard: the real hole edge is 1.05 mm from the module corner",
-    )
-
-assert lay.rect(MCU, 0, 0, 0).distance(shape(keep["F"])) > 0.3
+MCU_XY = (0.0, 0.0)
+assert lay.rect(MCU, *MCU_XY, 0).distance(shape(keep["F"])) > 0.3
 
 LAP_PAD_Y = -17.3
 fixed = {
-    MCU: (0.0, 0.0, 0),
+    MCU: (*MCU_XY, 0),
     **{h: (x, y, 0) for h, (x, y) in zip(holes, HOLE_XY)},
     find("GND_STITCH", nth=0): (11.6, -2.6, 0),
     find("GND_STITCH", nth=1): (-11.6, -2.6, 0),
@@ -157,7 +155,6 @@ B_FIXED = {
 }
 for ref, (x, y, rot) in B_FIXED.items():
     lay.fix_bottom(ref, x, y, rot, through=values[ref] in THROUGH_BOARD_VALUES)
-from shapely import affinity
 from shapely.geometry import Point
 from shapely.ops import unary_union
 
