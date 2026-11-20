@@ -20,6 +20,7 @@
 #include <thread>
 #include <vector>
 
+#include "../scratch_recordings.hpp"
 #include "logging/logging.hpp"
 #include "mcap_recorder/mcap_recorder.hpp"
 
@@ -100,8 +101,9 @@ class ScopedHookLogger {
 }  // namespace
 
 struct McapRecorderTestAccess {
-    static std::filesystem::path make_file_path(const std::string &profile, int segment) {
-        return McapRecorder::make_file_path(profile, segment);
+    static std::filesystem::path make_file_path(const std::filesystem::path &dir,
+                                                const std::string &profile, int segment) {
+        return McapRecorder::make_file_path(dir, profile, segment);
     }
     static void hold_writer(McapRecorder &recorder, bool hold) {
         {
@@ -116,15 +118,18 @@ namespace {
 
 class McapRecorderToggleTest : public ::testing::Test {
    protected:
+    void SetUp() override { dir_ = make_scratch_recordings_dir("toggle_test"); }
     void TearDown() override {
         std::error_code ec;
         for (const auto &path : paths_) std::filesystem::remove(path, ec);
+        std::filesystem::remove_all(dir_, ec);
     }
+    std::filesystem::path dir_;
     std::vector<std::filesystem::path> paths_;
 };
 
 TEST_F(McapRecorderToggleTest, OffClosesTheFileAndOnStartsANewOne) {
-    McapRecorder recorder("toggle_test");
+    McapRecorder recorder("toggle_test", dir_);
     recorder.write_metadata("camera_calibration", "calibration");
     const auto early = recorder.open_channel("/early", "json", empty_json_schema());
     write_one(recorder, early, 1);
@@ -156,7 +161,7 @@ TEST_F(McapRecorderToggleTest, OffClosesTheFileAndOnStartsANewOne) {
 }
 
 TEST_F(McapRecorderToggleTest, ChannelOpenedWhileOffRecordsInTheNextFile) {
-    McapRecorder recorder("toggle_late_test");
+    McapRecorder recorder("toggle_late_test", dir_);
     ASSERT_TRUE(recorder.set_enabled(false));
     paths_.push_back(recorder.file_path());
     const auto late = recorder.open_channel("/late", "json", empty_json_schema());
@@ -175,7 +180,7 @@ TEST_F(McapRecorderToggleTest, ChannelOpenedWhileOffRecordsInTheNextFile) {
 // hanging the suite.
 TEST_F(McapRecorderToggleTest, TogglingWithTheMcapLogSinkDoesNotDeadlock) {
     const auto previous_logger = spdlog::default_logger();
-    auto recorder = std::make_shared<McapRecorder>("toggle_log_test");
+    auto recorder = std::make_shared<McapRecorder>("toggle_log_test", dir_);
     setup_logging(recorder);
     paths_.push_back(recorder->file_path());
 
@@ -203,7 +208,7 @@ TEST_F(McapRecorderToggleTest, TogglingWithTheMcapLogSinkDoesNotDeadlock) {
 
 TEST_F(McapRecorderToggleTest, LoggingFromAnotherThreadWhileTogglingDoesNotDeadlock) {
     const auto previous_logger = spdlog::default_logger();
-    auto recorder = std::make_shared<McapRecorder>("toggle_abba_test");
+    auto recorder = std::make_shared<McapRecorder>("toggle_abba_test", dir_);
     setup_logging(recorder);
     spdlog::default_logger()->sinks().front()->set_level(spdlog::level::off);
 
@@ -236,7 +241,7 @@ TEST_F(McapRecorderToggleTest, LoggingFromAnotherThreadWhileTogglingDoesNotDeadl
 }
 
 TEST_F(McapRecorderToggleTest, QuickTogglesEachGetTheirOwnFile) {
-    McapRecorder recorder("toggle_quick_test");
+    McapRecorder recorder("toggle_quick_test", dir_);
     const auto id = recorder.open_channel("/topic", "json", empty_json_schema());
     std::vector<std::filesystem::path> paths{recorder.file_path()};
     write_one(recorder, id, 1);
@@ -259,7 +264,7 @@ TEST_F(McapRecorderToggleTest, QuickTogglesEachGetTheirOwnFile) {
 }
 
 TEST_F(McapRecorderToggleTest, WritesDoNotWaitForTogglesToFinish) {
-    McapRecorder recorder("toggle_nowait_test");
+    McapRecorder recorder("toggle_nowait_test", dir_);
     const auto id = recorder.open_channel("/topic", "json", empty_json_schema());
     std::vector<std::filesystem::path> paths{recorder.file_path()};
     constexpr size_t kCloseLoadBytes = 1 << 20;
@@ -284,7 +289,7 @@ TEST_F(McapRecorderToggleTest, WritesDoNotWaitForTogglesToFinish) {
 }
 
 TEST_F(McapRecorderToggleTest, FlushWaitsForQueuedWrites) {
-    McapRecorder recorder("toggle_flush_test");
+    McapRecorder recorder("toggle_flush_test", dir_);
     const auto id = recorder.open_channel("/topic", "json", empty_json_schema());
     const std::filesystem::path path = recorder.file_path();
     paths_.push_back(path);
@@ -298,7 +303,7 @@ TEST_F(McapRecorderToggleTest, FlushWaitsForQueuedWrites) {
 }
 
 TEST_F(McapRecorderToggleTest, FileAgeRestartsWithEachFile) {
-    McapRecorder recorder("toggle_test");
+    McapRecorder recorder("toggle_test", dir_);
     paths_.push_back(recorder.file_path());
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
     ASSERT_TRUE(recorder.file_age_s().has_value());
@@ -314,7 +319,7 @@ TEST_F(McapRecorderToggleTest, FileAgeRestartsWithEachFile) {
 }
 
 TEST_F(McapRecorderToggleTest, CloseIsFinal) {
-    McapRecorder recorder("toggle_test");
+    McapRecorder recorder("toggle_test", dir_);
     paths_.push_back(recorder.file_path());
     recorder.close();
     EXPECT_FALSE(recorder.set_enabled(true));
@@ -322,7 +327,7 @@ TEST_F(McapRecorderToggleTest, CloseIsFinal) {
 }
 
 TEST_F(McapRecorderToggleTest, FullQueueDropsVideoAndKeepsStatus) {
-    McapRecorder recorder("toggle_cap_test");
+    McapRecorder recorder("toggle_cap_test", dir_);
     const auto video = recorder.open_channel("/camera/video", "json", empty_json_schema());
     const auto status = recorder.open_channel("/status/system", "json", empty_json_schema());
     const std::filesystem::path path = recorder.file_path();
@@ -356,7 +361,7 @@ TEST_F(McapRecorderToggleTest, FullQueueDropsVideoAndKeepsStatus) {
 }
 
 TEST_F(McapRecorderToggleTest, PastSizeLimitIsFalseWhileTheNewFileIsNotCreatedYet) {
-    McapRecorder recorder("toggle_limit_test");
+    McapRecorder recorder("toggle_limit_test", dir_);
     recorder.set_size_limits(1, std::nullopt);
     recorder.set_enabled(false);
     recorder.flush();
@@ -370,7 +375,7 @@ TEST_F(McapRecorderToggleTest, PastSizeLimitIsFalseWhileTheNewFileIsNotCreatedYe
 }
 
 TEST_F(McapRecorderToggleTest, DroppingAMessageNeverLogs) {
-    McapRecorder recorder("toggle_drop_log_test");
+    McapRecorder recorder("toggle_drop_log_test", dir_);
     const auto video = recorder.open_channel("/camera/video", "json", empty_json_schema());
     paths_.push_back(recorder.file_path());
     recorder.flush();
@@ -388,7 +393,7 @@ TEST_F(McapRecorderToggleTest, DroppingAMessageNeverLogs) {
 }
 
 TEST_F(McapRecorderToggleTest, QueueCapCountsBytesUntilTheBatchIsWritten) {
-    McapRecorder recorder("toggle_inflight_test");
+    McapRecorder recorder("toggle_inflight_test", dir_);
     const auto video = recorder.open_channel("/camera/video", "json", empty_json_schema());
     recorder.set_enabled(false);
     recorder.flush();
@@ -422,7 +427,7 @@ TEST_F(McapRecorderToggleTest, QueueCapCountsBytesUntilTheBatchIsWritten) {
 }
 
 TEST_F(McapRecorderToggleTest, AFailedOpenOfAnOlderFileLeavesTheNewerRecordingOn) {
-    McapRecorder recorder("toggle_late_failure_test");
+    McapRecorder recorder("toggle_late_failure_test", dir_);
     recorder.set_enabled(false);
     recorder.flush();
     McapRecorderTestAccess::hold_writer(recorder, true);
@@ -440,8 +445,34 @@ TEST_F(McapRecorderToggleTest, AFailedOpenOfAnOlderFileLeavesTheNewerRecordingOn
     recorder.close();
 }
 
+TEST_F(McapRecorderToggleTest, EvictsOnlyFromItsOwnDirectoryAndNeverFromAnother) {
+    const std::filesystem::path other = make_scratch_recordings_dir("toggle_other");
+    const std::filesystem::path sentinel = other / "sentinel.mcap";
+    const std::filesystem::path stale = dir_ / "stale.mcap";
+    constexpr uintmax_t kOverOneGb = 1100ULL * 1024 * 1024;
+    for (const auto &path : {sentinel, stale}) {
+        std::ofstream(path).close();
+        std::filesystem::resize_file(path, kOverOneGb);
+        std::filesystem::last_write_time(
+            path, std::filesystem::file_time_type::clock::now() - std::chrono::hours(24 * 365));
+    }
+    McapRecorder recorder("toggle_evict_test", dir_);
+    EXPECT_EQ(recorder.file_path().parent_path(), dir_);
+    paths_.push_back(recorder.file_path());
+    recorder.set_size_limits(std::nullopt, 1);
+    recorder.set_enabled(false);
+    recorder.set_enabled(true);
+    paths_.push_back(recorder.file_path());
+    recorder.flush();
+    recorder.close();
+    EXPECT_FALSE(std::filesystem::exists(stale)) << "the oldest file in the recorder's directory";
+    EXPECT_TRUE(std::filesystem::exists(sentinel)) << "a file outside the recorder's directory";
+    std::error_code ec;
+    std::filesystem::remove_all(other, ec);
+}
+
 TEST_F(McapRecorderToggleTest, HoldingDirectoryScanSurvivesAnUnreadableEntry) {
-    McapRecorder recorder("toggle_scan_test");
+    McapRecorder recorder("toggle_scan_test", dir_);
     const std::filesystem::path loop = recorder.file_path().parent_path() / "zz_symlink_loop.mcap";
     std::error_code ec;
     std::filesystem::create_symlink(loop.filename(), loop, ec);
@@ -457,7 +488,7 @@ TEST_F(McapRecorderToggleTest, HoldingDirectoryScanSurvivesAnUnreadableEntry) {
 }
 
 TEST_F(McapRecorderToggleTest, SetEnabledRefusesAPathACameraIsReplaying) {
-    McapRecorder recorder("toggle_replay_test");
+    McapRecorder recorder("toggle_replay_test", dir_);
     paths_.push_back(recorder.file_path());
     ASSERT_TRUE(recorder.set_enabled(false));
     recorder.flush();
@@ -465,7 +496,7 @@ TEST_F(McapRecorderToggleTest, SetEnabledRefusesAPathACameraIsReplaying) {
     for (int attempt = 0; attempt < 3 && !refused; ++attempt) {
         for (int part = 0; part < 10; ++part) {
             McapRecorder::reserve_input_path(
-                McapRecorderTestAccess::make_file_path("toggle_replay_test", part));
+                McapRecorderTestAccess::make_file_path(dir_, "toggle_replay_test", part));
         }
         refused = !recorder.set_enabled(true);
         if (!refused) {
@@ -478,7 +509,7 @@ TEST_F(McapRecorderToggleTest, SetEnabledRefusesAPathACameraIsReplaying) {
 }
 
 TEST_F(McapRecorderToggleTest, PartSuffixSkipsPathsTheWriterHasNotCreatedYet) {
-    McapRecorder recorder("toggle_part_test");
+    McapRecorder recorder("toggle_part_test", dir_);
     paths_.push_back(recorder.file_path());
     recorder.flush();
     McapRecorderTestAccess::hold_writer(recorder, true);
@@ -495,7 +526,7 @@ TEST_F(McapRecorderToggleTest, PartSuffixSkipsPathsTheWriterHasNotCreatedYet) {
 }
 
 TEST_F(McapRecorderToggleTest, MetadataAddedAfterToggleIsWrittenOnce) {
-    McapRecorder recorder("toggle_metadata_test");
+    McapRecorder recorder("toggle_metadata_test", dir_);
     paths_.push_back(recorder.file_path());
     recorder.flush();
     ASSERT_TRUE(recorder.set_enabled(false));
@@ -514,7 +545,7 @@ TEST_F(McapRecorderToggleTest, MetadataAddedAfterToggleIsWrittenOnce) {
 }
 
 TEST_F(McapRecorderToggleTest, FailedChannelLogsOncePerFile) {
-    McapRecorder recorder("toggle_bad_channel_test");
+    McapRecorder recorder("toggle_bad_channel_test", dir_);
     paths_.push_back(recorder.file_path());
     const auto bad = recorder.open_channel("/bad\xff", "json", empty_json_schema());
     recorder.flush();

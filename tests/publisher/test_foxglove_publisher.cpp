@@ -34,7 +34,7 @@ Recording record(const std::function<void(FoxglovePublisher &)> &publish) {
     const auto scratch = std::filesystem::temp_directory_path() / "auto_battlebot_pub_record_test";
     std::filesystem::create_directories(scratch);
     std::filesystem::current_path(scratch);
-    auto recorder = std::make_shared<McapRecorder>("test_profile");
+    auto recorder = std::make_shared<McapRecorder>("test_profile", scratch);
     const auto file = recorder->file_path();
     {
         FoxglovePublisher publisher(nullptr, recorder);
@@ -107,7 +107,7 @@ TEST(FoxglovePublisherTest, AnnotationsAreLiveOnly) {
     const auto scratch = std::filesystem::temp_directory_path() / "auto_battlebot_pub_test";
     std::filesystem::create_directories(scratch);
     std::filesystem::current_path(scratch);
-    auto recorder = std::make_shared<McapRecorder>("test_profile");
+    auto recorder = std::make_shared<McapRecorder>("test_profile", scratch);
     const auto file = recorder->file_path();
     {
         FoxglovePublisher publisher(nullptr, recorder);

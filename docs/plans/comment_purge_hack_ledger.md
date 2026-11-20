@@ -113,16 +113,12 @@ Fixed 2026-11-19, found during phase 2:
 - `scripts/convert_ros1_mcap.py`: `--check` now flags a `/diagnostics` array whose log time
   reaches no per-module topic, so a dropped array fails the check; before, only a module with more
   messages than the source failed it.
-
-Open, found 2026-11-19:
-
-- `tests/mcap_recorder/test_mcap_recorder_toggle.cpp`
-  `HoldingDirectoryScanSurvivesAnUnreadableEntry` runs a recorder on the real `data/recordings`
-  with a 1 GB holding limit, so a test run deletes the oldest real `.mcap` files whenever that
-  directory is over 1 GB. It deleted about 283 test MCAPs and 10 replay MCAPs on the dev box on
-  2026-11-19. The toggle tests and `test_runner_commands.cpp` also leave `toggle_*_test` MCAPs
-  there. The recorder needs a directory seam so tests write to a temp dir.
-
+- `src/mcap_recorder/mcap_recorder.cpp`: the recorder takes its output directory from
+  `McapRecorderConfig::recordings_dir` (default `data/recordings`), and every recorder test writes
+  to a per-test temp dir. Before, `HoldingDirectoryScanSurvivesAnUnreadableEntry` evicted real
+  recordings (about 283 test MCAPs and 10 replay MCAPs on 2026-11-19) and the toggle tests left
+  `toggle_*_test` files there. Test `McapRecorderToggleTest.EvictsOnlyFromItsOwnDirectoryAndNeverFromAnother`
+  keeps a 1.1 GB sentinel outside the recorder's directory.
 
 | Location | What the code does | What the comment claims would break | Verified? | Root-cause fix |
 | --- | --- | --- | --- | --- |

@@ -15,6 +15,7 @@
 #include <type_traits>
 #include <vector>
 
+#include "../scratch_recordings.hpp"
 #include "control_loop/config.hpp"
 #include "control_loop/stepped_control_loop.hpp"
 #include "diagnostics_logger/diagnostics_logger.hpp"
@@ -529,7 +530,8 @@ class RunnerRecordingOrderTest : public ::testing::Test {
     void SetUp() override {
         camera_ = std::make_shared<RecordingCamera>();
         publisher_ = std::make_shared<FlushRecordingPublisher>();
-        recorder_ = std::make_shared<McapRecorder>("runner_order_test");
+        dir_ = make_scratch_recordings_dir("runner_order_test");
+        recorder_ = std::make_shared<McapRecorder>("runner_order_test", dir_);
         paths_.push_back(recorder_->file_path());
         camera_->on_toggle = [this](bool enabled) {
             note(std::string(enabled ? "svo_on" : "svo_off") +
@@ -560,6 +562,7 @@ class RunnerRecordingOrderTest : public ::testing::Test {
         recorder_->close();
         std::error_code ec;
         for (const auto &path : paths_) std::filesystem::remove(path, ec);
+        std::filesystem::remove_all(dir_, ec);
     }
 
     void note(const std::string &event) {
@@ -587,6 +590,7 @@ class RunnerRecordingOrderTest : public ::testing::Test {
     std::shared_ptr<McapRecorder> recorder_;
     std::shared_ptr<remote::CommandQueue> commands_;
     std::unique_ptr<Runner> runner_;
+    std::filesystem::path dir_;
     std::vector<std::filesystem::path> paths_;
     std::mutex events_mutex_;
     std::vector<std::string> events_;

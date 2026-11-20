@@ -46,7 +46,8 @@ bool McapRecorder::is_reserved(const std::filesystem::path& path) {
     return reserved_paths().count(key) != 0;
 }
 
-McapRecorder::McapRecorder(const std::string& active_profile) : active_profile_(active_profile) {
+McapRecorder::McapRecorder(const std::string& active_profile, std::filesystem::path recordings_dir)
+    : active_profile_(active_profile), recordings_dir_(std::move(recordings_dir)) {
     std::filesystem::path refused;
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -79,10 +80,10 @@ void McapRecorder::set_ignored_topics(const std::vector<std::string>& topics) {
 }
 
 std::filesystem::path McapRecorder::next_file_path_locked() {
-    std::filesystem::path path = make_file_path(active_profile_, 0);
+    std::filesystem::path path = make_file_path(recordings_dir_, active_profile_, 0);
     for (int part = 1; std::filesystem::exists(path) || issued_paths_.count(path.string()) != 0;
          ++part) {
-        path = make_file_path(active_profile_, part);
+        path = make_file_path(recordings_dir_, active_profile_, part);
     }
     issued_paths_.insert(path.string());
     return path;
@@ -440,7 +441,8 @@ void McapRecorder::enforce_holding_dir_size(const std::filesystem::path& directo
 std::shared_ptr<McapRecorder> make_mcap_recorder(const McapRecorderConfig& config,
                                                  const std::string& active_profile) {
     if (!config.enable) return nullptr;
-    auto recorder = std::make_shared<McapRecorder>(active_profile);
+    auto recorder = std::make_shared<McapRecorder>(
+        active_profile, std::filesystem::absolute(config.recordings_dir));
     recorder->set_ignored_topics(config.ignored_topics);
     const auto limit_or_none = [](uint64_t gb) -> std::optional<uint64_t> {
         return gb == 0 ? std::nullopt : std::optional<uint64_t>(gb);
@@ -450,7 +452,8 @@ std::shared_ptr<McapRecorder> make_mcap_recorder(const McapRecorderConfig& confi
     return recorder;
 }
 
-std::filesystem::path McapRecorder::make_file_path(const std::string& active_profile, int segment) {
+std::filesystem::path McapRecorder::make_file_path(const std::filesystem::path& recordings_dir,
+                                                   const std::string& active_profile, int segment) {
     std::time_t now = std::time(nullptr);
     std::tm tm_buf{};
     localtime_r(&now, &tm_buf);
@@ -468,7 +471,7 @@ std::filesystem::path McapRecorder::make_file_path(const std::string& active_pro
     }
     oss << ".mcap";
 
-    return std::filesystem::current_path() / "data" / "recordings" / oss.str();
+    return recordings_dir / oss.str();
 }
 
 }  // namespace auto_battlebot

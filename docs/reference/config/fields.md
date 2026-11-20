@@ -330,6 +330,7 @@ The lockstep sim's keypoint model. Design: `docs/reference/perception/robot_filt
 | --- | --- |
 | `max_size_gb` | Roll to a new file past this size. 0 disables the limit |
 | `holding_dir_max_size_gb` | Oldest recordings in the output directory are evicted to stay under this. 0 disables the limit |
+| `recordings_dir` | Directory MCAP recordings are written to and evicted from. Relative paths resolve against the working directory. Tests set it to a temp directory |
 
 ## `[battery]`
 

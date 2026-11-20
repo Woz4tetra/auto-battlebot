@@ -33,7 +33,7 @@ class McapRecorder {
     static constexpr size_t kMaxQueuedLargeBytes = 128ULL * 1024 * 1024;
     static constexpr size_t kMaxQueuedBytes = 192ULL * 1024 * 1024;
 
-    explicit McapRecorder(const std::string& active_profile);
+    McapRecorder(const std::string& active_profile, std::filesystem::path recordings_dir);
     ~McapRecorder();
 
     McapRecorder(const McapRecorder&) = delete;
@@ -89,7 +89,8 @@ class McapRecorder {
         VizSchema schema;
     };
 
-    static std::filesystem::path make_file_path(const std::string& active_profile, int segment);
+    static std::filesystem::path make_file_path(const std::filesystem::path& recordings_dir,
+                                                const std::string& active_profile, int segment);
     static bool is_reserved(const std::filesystem::path& path);
     bool start_file_locked(std::filesystem::path& refused);
     std::filesystem::path next_file_path_locked();
@@ -105,6 +106,7 @@ class McapRecorder {
     void enforce_holding_dir_size(const std::filesystem::path& directory);
 
     std::string active_profile_;
+    std::filesystem::path recordings_dir_;
 
     mutable std::mutex mutex_;
     std::condition_variable work_cv_;

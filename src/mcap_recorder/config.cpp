@@ -19,6 +19,7 @@ McapRecorderConfig load_mcap_config_from_toml(const toml::table& toml_data,
         parser.get_optional_int("max_size_gb", static_cast<int64_t>(config.max_size_gb)));
     config.holding_dir_max_size_gb = static_cast<uint64_t>(parser.get_optional_int(
         "holding_dir_max_size_gb", static_cast<int64_t>(config.holding_dir_max_size_gb)));
+    config.recordings_dir = parser.get_optional_string("recordings_dir", config.recordings_dir);
     parser.validate_no_extra_fields();
 
     parsed_sections.push_back("mcap");

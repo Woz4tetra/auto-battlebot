@@ -7,6 +7,7 @@
 #include <memory>
 #include <thread>
 
+#include "../scratch_recordings.hpp"
 #include "config/config_parser.hpp"
 #include "data_structures.hpp"
 #include "foxglove_adapters/camera_info.hpp"
@@ -68,7 +69,8 @@ class RecordingWithEmbeddedAndFileCalibration {
         calibration.cx = kWidth / 2.0;
         calibration.cy = kHeight / 2.0;
 
-        recorder_ = std::make_shared<McapRecorder>("video_playback_test");
+        dir_ = make_scratch_recordings_dir("video_playback");
+        recorder_ = std::make_shared<McapRecorder>("video_playback_test", dir_);
         recorder_->write_metadata(kCameraCalibrationMetadataKey,
                                   camera_calibration_to_toml(calibration));
 
@@ -121,6 +123,7 @@ class RecordingWithEmbeddedAndFileCalibration {
         std::error_code ec;
         std::filesystem::remove(path_, ec);
         std::filesystem::remove(calibration_path_, ec);
+        std::filesystem::remove_all(dir_, ec);
     }
 
     bool started() const { return started_; }
@@ -134,6 +137,7 @@ class RecordingWithEmbeddedAndFileCalibration {
     std::shared_ptr<McapRecorder> recorder_;
     std::filesystem::path path_;
     std::string calibration_path_;
+    std::filesystem::path dir_;
     bool started_ = false;
 };
 
@@ -421,7 +425,8 @@ TEST_F(VideoPlaybackCameraTest, IgnoresThePreviousRunsOutput) {
 }
 
 TEST_F(VideoPlaybackCameraTest, NamesTheMissingVideoChannel) {
-    auto recorder = std::make_shared<McapRecorder>("video_playback_no_video");
+    const std::filesystem::path dir = make_scratch_recordings_dir("video_playback_no_video");
+    auto recorder = std::make_shared<McapRecorder>("video_playback_no_video", dir);
     const std::filesystem::path path = recorder->file_path();
     {
         OutputChannel image("/camera/image", "protobuf",
@@ -441,6 +446,6 @@ TEST_F(VideoPlaybackCameraTest, NamesTheMissingVideoChannel) {
     EXPECT_FALSE(camera.initialize());
 
     std::error_code ec;
-    std::filesystem::remove(path, ec);
+    std::filesystem::remove_all(dir, ec);
 }
 }  // namespace auto_battlebot
