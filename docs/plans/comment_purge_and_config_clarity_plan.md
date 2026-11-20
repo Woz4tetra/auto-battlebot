@@ -735,7 +735,6 @@ None of these were flashed. Verified by native PlatformIO tests or compile only.
 
 | Change | Commit | Check |
 | --- | --- | --- |
-| Segmentation pass indices set as each synthgen mesh is created; pool refresh no longer re-arms segmentation | `da413ee2` | Render one shard with distractor refreshes before and after (same seed); segmentation maps match |
 | Synthgen retyped (`SceneState`, `ScenePoses`, `MountPoses`, `CameraSample`, enums); `hue_jitter_degrees` removed | `e3ee9c45`, `c17b6616`, `d81ad494`, `867875c2`, `0afa0a93` | Same render: images, labels and manifests byte-identical or the differences explained |
 | `semantic_train.py` drops `seed_worker` | `764e5e8b` | Two short seeded training runs reproduce |
 | GPU queue moved to `auto_battlebot/gpu_queue.py`, `training/gpu_queue.py` is an entry point | `be3a4302` | On megamind, after the next pull: restart the queue worker, `status` and one `submit` work |
