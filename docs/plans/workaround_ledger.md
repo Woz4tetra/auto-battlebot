@@ -15,7 +15,6 @@ Batches retired every row that could be settled on the dev box: deleted, fixed, 
 
 - "Blocked on a decision or hardware": rows waiting on a decision, a missing asset, or a tool
 - `espressif32@6.13.0` platform pins: deferred to Mk4
-- `web/src/lib/connection.ts` and `firmware/mr_stabs_mk2/include/espnow_link.h` rows: those files had uncommitted edits
 
 ## How to read it
 
@@ -131,10 +130,6 @@ Fixed 2026-11-19, found during phase 2:
 | --- | --- | --- | --- | --- |
 | `firmware/espnow_dongle/platformio.ini:8` | Pins platform = espressif32@6.13.0 (Arduino core on IDF 4.4). | An unpinned espressif32 resolves to the globally installed pioarduino 55.x (IDF 5), which changes ESP-NOW frame limits the wire format assumes. | unverified: matches project memory note pioarduino-shadows-espressif32; did not build unpinned. | Port to IDF 5 (ESP-NOW v2 frames, rmt_tx DShot on mr_stabs_mk2) and pin to that platform explicitly. |
 | `firmware/mr_stabs_mk2/platformio.ini:15` | Pins platform = espressif32@6.13.0 (Arduino core 2.x, IDF 4.4). | pioarduino 55.x (IDF 5) removes NeoPixel's rmt_reserved_channels and deprecates the legacy RMT driver DShot.cpp uses. | yes: DShot.cpp:10,62 use rmt_reserved_channels from .pio/libdeps/local/Adafruit NeoPixel/esp.c:154 and the legacy rmt_config/rmt_write_items API; did not build on IDF 5. | Port DShot to IDF 5 rmt_tx/rmt_rx with its channel allocator. |
-| `web/src/lib/connection.ts:110` | Silence watchdog: after SILENCE_MS with no status, probes /healthz and drops the socket if the app is connected | Safari hands back dead sockets after unlock or link loss with no close event for minutes; the dashboard freezes | unverified: relies on /status/system at 10 Hz, consistent with download_recordings.sh's 10 Hz assumption | Relay-level WebSocket ping/pong with a client timeout, if the Foxglove SDK exposes it |
-| `web/src/lib/connection.ts:257` | casts WebSocket as unknown as IWebSocket | DOM send() type is narrower than IWebSocket's | unverified: tsc not run | upstream @foxglove/ws-protocol typing fix |
-| `web/src/lib/connection.ts:38` | Offers foxglove.sdk.v1 alongside the client library subprotocol | The SDK server returns 400 without foxglove.sdk.v1 | unverified: did not check the SDK server handshake code in third_party/foxglove | Upgrade @foxglove/ws-protocol to a version that offers foxglove.sdk.v1 itself, or none known |
-| `web/src/lib/connection.ts:42` | Abandons a WebSocket handshake that has not opened after a timeout | iOS takes over a minute to fail an unanswered SYN after cable unplug, and nothing retries | unverified: iOS behaviour not reproduced | none known (browser TCP behaviour) |
 
 ## TEST rows deferred
 
@@ -151,8 +146,6 @@ harness named in the last column exists.
 
 | Location | Claim | What blocks a test |
 | --- | --- | --- |
-| `firmware/mr_stabs_mk2/include/espnow_link.h` (pairing) | `pair()` uses NVS | NVS does not run natively |
-| `web/src/lib/connection.ts:1-4` | Subscriptions survive reconnects | web/ has no test runner |
 
 ## Blocked on a decision or hardware
 
