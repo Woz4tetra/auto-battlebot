@@ -1,5 +1,3 @@
-# Fast headless kinematic sim config for MRS BUFF MK3 (simulation/kinematic_sim_server.py).
-# Keep [arena] in sync with config/simulation/headless_sim.toml [field_filter].
 obstacles_file = "config/hazards/massd_arena_north_south.toml"
 
 [server]
@@ -7,25 +5,19 @@ host = "127.0.0.1"
 port = 14882
 
 [sim]
-dt = 0.0333 # ~30 Hz sim time (matches the real controller rate)
+dt = 0.0333
 seed = 0
 
 [arena]
 width = 2.4
 height = 2.4
 
-# Measured actuation latency (command issue to wheel response), in ms of sim time. From the jig
-# onset stack: 52.2 ms over 3486 edges at SNR 22.4, clock measured. The server quantizes this to
-# whole sim ticks, so at dt = 0.0333 it is applied as 2 ticks (66.6 ms).
 [latency]
 command_ms = 52.2094
 
 [camera]
 res_width = 640
 res_height = 360
-# Overhead and slightly back, the way the ZED actually mounts over the cage. The old low side
-# view was arbitrary: nothing rendered, so the pose only fed the projection-bias model. Now the UI
-# draws its overlay on this frame, so the pose decides whether the arena is even in shot.
 fov = 52.0
 pos = [0.0, -0.5, 2.6]
 lookat = [0.0, 0.0, 0.0]
@@ -35,38 +27,25 @@ start_pos = [-0.9, -0.9]
 start_yaw_deg = 45.0
 sprite = "mrs_buff_mk3"
 radius = 0.11
-# MRS BUFF MK3 plant, transcribed from playground/calibration/out/plant_stageA.toml (model M4,
-# velocity jig sessions 2026-08-19 through 2026-08-23). Edit the fit, not this file.
-# Mapping from the fit's parameter names:
-#   k_fwd/k_rev -> max_linear_speed_fwd/_rev      tau_lin_a/_d -> tau_linear_accel/_decel
-#   k_ang       -> max_angular_speed              tau_ang_a/_d -> tau_angular_accel/_decel
-#   c_sb        -> steer_brake_coeff              c_ad         -> angular_droop_coeff
-#   dz_lin_fwd/_rev, dz_ang_l/_r -> deadzone_linear/_rev, deadzone_angular/_right
-# Measured with guard plates on; their ground friction is part of the fitted plant.
-max_linear_speed = 4.88002         # symmetric fallback (unused once _fwd/_rev are set)
+max_linear_speed = 4.88002
 max_angular_speed = 31.7062
-tau_linear = 0.14921               # fallback
-tau_angular = 0.173867             # fallback
+tau_linear = 0.14921
+tau_angular = 0.173867
 max_linear_speed_fwd = 4.88002
 max_linear_speed_rev = 4.3546
-tau_linear_accel = 0.14921         # +/- 0.0738 (n=13): the weakest number in the set
-tau_linear_decel = 0.123461        # coast: the term that drives stopping overrun
+tau_linear_accel = 0.14921
+tau_linear_decel = 0.123461
 tau_angular_accel = 0.173867
 tau_angular_decel = 0.0878998
-steer_brake_coeff = 2.70197        # forward authority is gone at |u_ang_eff| = 0.370
+steer_brake_coeff = 2.70197
 angular_droop_coeff = 0.463423
 deadzone_linear = 0.0109768
 deadzone_linear_rev = 0.0253396
 deadzone_angular = 0.016061
 deadzone_angular_right = 0.0240734
 
-# Perception latency, dropouts and noise come from a sensing model
-# (docs/experiments/control/2026-11-15_kinematic_sim_design.md). Empty sends the true poses every tick. Pair a model with
-# config/simulation/kinematic_sim_sensing.toml on the C++ side, so the real keypoint filter and
-# motion estimator see the measurements.
 [perception]
 sensing_model = ""
-# sensing_model = "simulation/sensing_models/provisional.toml"
 randomize = false
 
 [perception.projection_bias]

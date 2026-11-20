@@ -10,7 +10,7 @@ actor.rtneural.json   the network (NETWORK bundles)
 selftest.bin          observation and decoded-action pairs from PyTorch (NETWORK bundles)
 ```
 
-NETWORK bundles are written by `auto_battlebot/rl/export/bundle.py`. A CONSTANT bundle is written by hand for the bench and the lockstep sim before a trained bundle exists. It has no networks, decoder or self-test, only the action every tick:
+NETWORK bundles are written by `auto_battlebot/rl/export/bundle.py`. A CONSTANT bundle is written by hand for the bench and the lockstep sim before a trained bundle exists, and for the navigation tests (`tests/rl_policy/bundles/constant_forward/manifest.toml`). `RlPolicyNavigation` drives the action every tick with no network. It has no networks, decoder or self-test, only the action every tick:
 
 ```toml
 format_version = 1

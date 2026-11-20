@@ -1,5 +1,3 @@
-# A CONSTANT bundle: RlPolicyNavigation drives this action every tick, with no network. For the
-# bench and the lockstep sim before a trained bundle exists, and for the navigation tests.
 format_version = 1
 run_id = "constant_forward"
 policy_kind = "CONSTANT"
@@ -8,4 +6,4 @@ execution = "INLINE"
 policy_period_ticks = 5
 
 [constant]
-action = [0.3, -0.1] # linear, angular, normalized [-1, 1]
+action = [0.3, -0.1]

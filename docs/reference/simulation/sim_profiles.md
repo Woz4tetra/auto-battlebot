@@ -1,6 +1,6 @@
 # Sim profiles
 
-`simulation/kinematic_sim_server.py` reads these two TOML files. Field meanings are in `kinematic_sim_config.md`. This page holds why each profile sets what it sets.
+`simulation/kinematic_sim_server.py` reads these TOML files. Field meanings are in `kinematic_sim_config.md`. This page holds why each profile sets what it sets.
 
 Run either profile with the C++ side:
 
