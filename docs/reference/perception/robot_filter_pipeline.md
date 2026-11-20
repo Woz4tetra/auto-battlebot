@@ -266,9 +266,3 @@ The sensing file's `dropout.enabled` is true by default. False delivers every ca
 ## Robot descriptions cache view
 
 The resolved robot set is a non-owning view. `robots` references either the `current` argument passed to `resolve()` or the cache's internal `previous_` snapshot. It stays valid until the next `resolve()` or `reset()`, and for the `current` branch also for the lifetime of the caller's argument.
-
-## Workarounds
-
-- **`fit_sensing_model.py` repeated measurements.** `drop_repeated_measurements` keeps a row only when its stamp is more than 10 ms after the previous one. The same measurement can be logged on two consecutive diagnostics messages.
-- `tests/test_kalman_motion_estimator.cpp` builds keypoint measurements with `make_our_pose_measurement` and `make_opponent_pose_measurement`. Non-empty keypoints mark the heading as measured, matching what the front/back converter emits for our robot. A `heading_measured` field on `RobotDescription` would replace the convention but touches the tracker, the estimator and the scene adapter.
-- `tests/perception_batch/test_parallel_model_batch.cpp` sleeps `kStragglerDrain` (500 ms) after a timed-out update so the 1300 ms straggler finishes its stale request. Without it the next `update()` races the straggler still in the blob model and the recovery assertion flakes.

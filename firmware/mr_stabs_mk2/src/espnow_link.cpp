@@ -2,6 +2,7 @@
 #include <Update.h>
 #include <esp_now.h>
 #include <espnow_link.h>
+#include <pair_decision.h>
 #include <tuning_store.h>
 
 #include <atomic>
@@ -403,19 +404,26 @@ void EspNowLink::publish_allowed() {
 
 uint8_t EspNowLink::pair(const uint8_t *mac, bool armed) {
     uint8_t result = PAIR_OK;
-    if (armed) {
-        result = PAIR_ARMED;
-    } else if ((mac[0] & 0x01) != 0) {
-        result = PAIR_BAD_MAC;
-    } else if (is_dongle(mac)) {
-        result = PAIR_EXISTS;
-    } else if (paired_count_ >= MAX_PAIRED_DONGLES) {
-        result = PAIR_FULL;
-    } else {
-        memcpy(paired_[paired_count_++], mac, 6);
-        store_paired();
-        publish_allowed();
-        if (begin_ok_) add_or_update_peer(mac, ifidx_, channel_);
+    switch (
+        pair_decision::decide(armed, mac[0], is_dongle(mac), paired_count_, MAX_PAIRED_DONGLES)) {
+        case pair_decision::Decision::REFUSE_ARMED:
+            result = PAIR_ARMED;
+            break;
+        case pair_decision::Decision::REFUSE_BAD_MAC:
+            result = PAIR_BAD_MAC;
+            break;
+        case pair_decision::Decision::REFUSE_EXISTS:
+            result = PAIR_EXISTS;
+            break;
+        case pair_decision::Decision::REFUSE_FULL:
+            result = PAIR_FULL;
+            break;
+        case pair_decision::Decision::ADD:
+            memcpy(paired_[paired_count_++], mac, 6);
+            store_paired();
+            publish_allowed();
+            if (begin_ok_) add_or_update_peer(mac, ifidx_, channel_);
+            break;
     }
     last_pair_result_ = result;
     return result;

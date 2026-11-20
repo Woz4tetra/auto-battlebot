@@ -27,10 +27,14 @@ const ACK_TOPIC = "/status/command_ack";
 const ACK_TIMEOUT_MS = 1000;
 const BACKOFF_MIN_MS = 500;
 const BACKOFF_MAX_MS = 5000;
-const SILENCE_MS = 3000;
+export const SILENCE_MS = 3000;
 const PROBE_TIMEOUT_MS = 1500;
-const CONNECT_TIMEOUT_MS = 2000;
-const SUBPROTOCOLS = ["foxglove.sdk.v1", FoxgloveClient.SUPPORTED_SUBPROTOCOL];
+export const CONNECT_TIMEOUT_MS = 2000;
+export const SUBPROTOCOLS = ["foxglove.sdk.v1", FoxgloveClient.SUPPORTED_SUBPROTOCOL];
+
+export function asFoxgloveSocket(ws: WebSocket): IWebSocket {
+  return ws as unknown as IWebSocket;
+}
 
 export function relayUrl(): string {
   const fromEnv = import.meta.env.VITE_WS_URL as string | undefined;
@@ -46,7 +50,7 @@ interface PendingAck {
   timer: ReturnType<typeof setTimeout>;
 }
 
-class Connection {
+export class Connection {
   #url = relayUrl();
   #client: FoxgloveClient | null = null;
   #state: ConnectionState = "closed";
@@ -231,7 +235,7 @@ class Connection {
       this.#scheduleReconnect();
       return;
     }
-    const client = new FoxgloveClient({ ws: ws as unknown as IWebSocket });
+    const client = new FoxgloveClient({ ws: asFoxgloveSocket(ws) });
     this.#client = client;
     this.#connectTimer = setTimeout(() => {
       this.#connectTimer = null;
