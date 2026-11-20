@@ -58,10 +58,11 @@ TEST(LoggingTest, FullQueueDropsOldestWithoutBlocking) {
 TEST(LoggingTest, ShutdownReleasesTheRecorderAndLeavesASynchronousLogger) {
     const auto previous = spdlog::default_logger();
     const auto dir = make_scratch_recordings_dir("logging_shutdown_test");
+    setup_logging();
     auto recorder = std::make_shared<McapRecorder>("logging_shutdown_test", dir);
     std::weak_ptr<McapRecorder> watcher = recorder;
 
-    setup_logging(recorder);
+    attach_log_recorder(recorder);
     recorder.reset();
     EXPECT_FALSE(watcher.expired()) << "the async logger should hold the recorder";
     EXPECT_NE(std::dynamic_pointer_cast<spdlog::async_logger>(spdlog::default_logger()), nullptr);

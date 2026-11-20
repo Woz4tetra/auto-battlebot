@@ -512,6 +512,16 @@ TEST_F(CameraSettingsCommandsTest, DeletingTheActiveProfileFallsBackToDefaultLab
 
 class FlushRecordingPublisher : public NoopPublisher {
    public:
+    void publish_camera_data(const CameraData &data) override {
+        std::lock_guard<std::mutex> lock(generations_mutex);
+        generations.push_back(data.frame_identity.recording_generation);
+    }
+    std::vector<uint64_t> published_generations() {
+        std::lock_guard<std::mutex> lock(generations_mutex);
+        return generations;
+    }
+    std::mutex generations_mutex;
+    std::vector<uint64_t> generations;
     void flush() override {
         if (on_flush) on_flush();
     }
@@ -601,6 +611,24 @@ TEST_F(RunnerRecordingOrderTest, RecordingOnOpensMcapBeforeTheEncoderStarts) {
     ASSERT_TRUE(tick_until_events(1));
     EXPECT_EQ(events(), (std::vector<std::string>{"svo_on_mcap_on"}));
     paths_.push_back(recorder_->file_path());
+}
+
+TEST_F(RunnerRecordingOrderTest, FramesAreStampedWithTheGenerationOfTheFileOpenWhenTheyWereTaken) {
+    ASSERT_TRUE(runner_->tick());
+    const uint64_t first_file = recorder_->generation();
+    ASSERT_FALSE(publisher_->published_generations().empty());
+    EXPECT_EQ(publisher_->published_generations().back(), first_file);
+
+    commands_->post(remote::SetRecordingCommand{.enabled = false});
+    ASSERT_TRUE(tick_until_events(2));
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (recorder_->is_enabled() && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    ASSERT_FALSE(recorder_->is_enabled());
+    ASSERT_TRUE(runner_->tick());
+    EXPECT_NE(recorder_->generation(), first_file);
+    EXPECT_EQ(publisher_->published_generations().back(), recorder_->generation());
 }
 
 TEST_F(RunnerRecordingOrderTest, RecordingOffStopsTheEncoderThenDrainsThePublisherThenClosesMcap) {

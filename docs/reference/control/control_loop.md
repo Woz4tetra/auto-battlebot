@@ -54,10 +54,9 @@ The control loop interface forwards the rest of the loop's calls so callers deal
 
 The UI can ask for a host action (`SystemAction`). Every action stops the runner loop. `main.cpp` runs the host command once the loop and the UI are down.
 
-## Runner signals and recording ticks
+## Runner signals
 
 - `Runner` is `Quittable` so SIGINT and SIGTERM can stop the run. The UI manager used to be the only quittable. With `ui.enable = false` nothing was registered, both signals were no-ops, and only SIGKILL could end the process.
-- `ticks_started_` is incremented at the top of `tick()`. The recording worker uses it to tell when frames taken before a recording toggle have been published.
 
 ## OpenTX transmitter behaviour
 

@@ -207,6 +207,27 @@ TEST(FoxglovePublisherTest, DestroyWhilePublishingIsClean) {
     });
 }
 
+TEST(FoxglovePublisherTest, FrameMetaFromAnEarlierRecordingGenerationIsDropped) {
+    CameraData camera;
+    camera.rgb.header.frame_id = FrameId::CAMERA;
+    camera.rgb.image = cv::Mat(8, 8, CV_8UC3, cv::Scalar(1, 2, 3));
+    camera.camera_info.intrinsics = cv::Mat::eye(3, 3, CV_64F);
+    const Recording recording = record_to([&](const std::shared_ptr<McapRecorder> &recorder) {
+        FoxglovePublisher publisher(nullptr, recorder);
+        camera.frame_identity.video_frame_index = 7;
+        camera.frame_identity.recording_generation = recorder->generation() - 1;
+        publisher.publish_camera_data(camera);
+        camera.frame_identity.video_frame_index = 8;
+        camera.frame_identity.recording_generation = recorder->generation();
+        publisher.publish_camera_data(camera);
+    });
+    const auto found = recording.find("/camera/frame_meta");
+    ASSERT_NE(found, recording.end());
+    ASSERT_EQ(found->second.size(), 1u);
+    EXPECT_NE(found->second.front().data.find("8"), std::string::npos);
+    EXPECT_EQ(found->second.front().data.find("7"), std::string::npos);
+}
+
 TEST(FoxglovePublisherTest, AnnotationsAreLiveOnly) {
     if (!DiagnosticsLogger::is_initialized()) DiagnosticsLogger::initialize({});
     const auto cwd = std::filesystem::current_path();

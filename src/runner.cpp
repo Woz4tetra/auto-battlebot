@@ -202,8 +202,8 @@ void Runner::roll_over_recording_if_full() {
     }
     rollover_pending_.store(true);
     recording_worker_->post([this] {
-        apply_recording(false, true);
-        apply_recording(true, true);
+        apply_recording(false);
+        apply_recording(true);
         rollover_pending_.store(false);
     });
 }
@@ -262,23 +262,12 @@ std::string Runner::set_manual_target(const remote::SetManualTargetCommand &comm
 }
 
 void Runner::set_recording(bool enabled) const {
-    recording_worker_->post([this, enabled] { apply_recording(enabled, true); });
+    recording_worker_->post([this, enabled] { apply_recording(enabled); });
 }
 
-void Runner::wait_for_frames_in_flight() const {
-    constexpr uint64_t kTickStartsToDrainInFlightFrames = 3;
-    constexpr auto kTimeout = std::chrono::milliseconds(500);
-    const uint64_t target = ticks_started_.load() + kTickStartsToDrainInFlightFrames;
-    const auto deadline = std::chrono::steady_clock::now() + kTimeout;
-    while (ticks_started_.load() < target && std::chrono::steady_clock::now() < deadline) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(2));
-    }
-}
-
-void Runner::apply_recording(bool enabled, bool wait_for_inflight_ticks) const {
+void Runner::apply_recording(bool enabled) const {
     std::lock_guard<std::mutex> lock(recording_mutex_);
-    const auto set_mcap = [this, enabled, wait_for_inflight_ticks] {
-        if (!enabled && wait_for_inflight_ticks) wait_for_frames_in_flight();
+    const auto set_mcap = [this, enabled] {
         if (!enabled && mcap_recorder_) publisher_->flush();
         if (mcap_recorder_ && !mcap_recorder_->set_enabled(enabled)) {
             spdlog::warn("Failed to set MCAP recording to {}", enabled ? "enabled" : "disabled");
@@ -605,7 +594,6 @@ int Runner::run() {
 }
 
 bool Runner::tick() {
-    ticks_started_.fetch_add(1);
     FunctionTimer timer(diagnostics_logger_, "tick");
     diagnostics_logger_->debug({}, "Tick");
 
@@ -634,7 +622,9 @@ bool Runner::tick() {
     bool is_camera_ok;
     {
         FunctionTimer timer(diagnostics_logger_, "camera.get");
+        const uint64_t recording_generation = mcap_recorder_ ? mcap_recorder_->generation() : 0;
         is_camera_ok = camera_->get(camera_data);
+        camera_data.frame_identity.recording_generation = recording_generation;
     }
 
     if (!is_camera_ok) {

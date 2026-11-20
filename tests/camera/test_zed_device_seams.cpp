@@ -183,7 +183,7 @@ TEST(ZedDeviceOpenTimeoutTest, AWedgedOpenIsLeakedAndDestroyingTheDeviceDoesNotB
         {
             ZedDevice::Options options;
             options.open_hard_timeout = std::chrono::milliseconds(100);
-            options.open_call = [gate] {
+            options.open_call = [gate](sl::Camera &, const sl::InitParameters &) {
                 gate.wait();
                 return sl::ERROR_CODE::SUCCESS;
             };
@@ -201,6 +201,37 @@ TEST(ZedDeviceOpenTimeoutTest, AWedgedOpenIsLeakedAndDestroyingTheDeviceDoesNotB
     lifecycle.join();
     ASSERT_TRUE(destroyed_in_time);
     EXPECT_EQ(result_future.get(), ZedDevice::OpenResult::Leaked);
+}
+
+void keep_log_for_leaked_threads(const std::shared_ptr<DeviceLog> &log) {
+    static std::vector<std::shared_ptr<DeviceLog>> kept;
+    kept.push_back(log);
+}
+
+TEST(ZedDeviceOpenTimeoutTest, ALeakedOpenKeepsTheCameraAndParamsAliveAfterTheDeviceIsDestroyed) {
+    std::promise<void> release_open;
+    std::shared_future<void> gate = release_open.get_future().share();
+    std::promise<bool> finished;
+    std::future<bool> finished_future = finished.get_future();
+    const sl::RESOLUTION requested = sl::RESOLUTION::HD720;
+
+    {
+        ZedDevice::Options options;
+        options.open_hard_timeout = std::chrono::milliseconds(50);
+        options.open_call = [gate, &finished, requested](sl::Camera &camera,
+                                                         const sl::InitParameters &params) {
+            gate.wait();
+            finished.set_value(!camera.isOpened() && params.camera_resolution == requested);
+            return sl::ERROR_CODE::SUCCESS;
+        };
+        ZedDevice device(std::move(options));
+        device.params().camera_resolution = requested;
+        std::atomic<bool> cancel{true};
+        EXPECT_EQ(device.open(cancel), ZedDevice::OpenResult::Leaked);
+    }
+    release_open.set_value();
+    ASSERT_EQ(finished_future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+    EXPECT_TRUE(finished_future.get());
 }
 
 ZedRgbdCameraConfiguration stuck_grab_config() {
@@ -221,7 +252,7 @@ TEST(ZedRgbdFakeDeviceTest, DestructorLeavesTheHandleOpenWhenTheCaptureThreadIsS
         while (log->grabs.load() == 0) std::this_thread::yield();
     }
     EXPECT_EQ(log->closes.load(), 0);
-    new std::shared_ptr<DeviceLog>(log);
+    keep_log_for_leaked_threads(log);
 }
 
 TEST(ZedRgbdFakeDeviceTest, InitializeFailsWithoutReopeningWhenTheOldCaptureThreadIsStuck) {
@@ -239,7 +270,7 @@ TEST(ZedRgbdFakeDeviceTest, InitializeFailsWithoutReopeningWhenTheOldCaptureThre
         EXPECT_EQ(log->opens.load(), 1);
     }
     EXPECT_EQ(log->closes.load(), 0);
-    new std::shared_ptr<DeviceLog>(log);
+    keep_log_for_leaked_threads(log);
 }
 
 }  // namespace

@@ -66,7 +66,10 @@ class ZedDevice {
 
     struct Options {
         std::chrono::milliseconds open_hard_timeout{30000};
-        std::function<sl::ERROR_CODE()> open_call;
+        std::function<sl::ERROR_CODE(sl::Camera &, const sl::InitParameters &)> open_call =
+            [](sl::Camera &camera, const sl::InitParameters &params) {
+                return camera.open(params);
+            };
     };
 
     ZedDevice() = default;
@@ -107,7 +110,8 @@ class ZedDevice {
 
    private:
     Options options_;
-    sl::Camera zed_;
+    std::shared_ptr<sl::Camera> camera_ = std::make_shared<sl::Camera>();
+    sl::Camera &zed_ = *camera_;
     sl::InitParameters params_;
     sl::Mat zed_rgb_;
     sl::Mat zed_depth_;

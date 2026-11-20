@@ -199,8 +199,9 @@ TEST_F(McapRecorderToggleTest, ChannelOpenedWhileOffRecordsInTheNextFile) {
 
 TEST_F(McapRecorderToggleTest, TogglingWithTheMcapLogSinkDoesNotDeadlock) {
     const auto previous_logger = spdlog::default_logger();
+    setup_logging();
     auto recorder = std::make_shared<McapRecorder>("toggle_log_test", dir_);
-    setup_logging(recorder);
+    attach_log_recorder(recorder);
     paths_.push_back(recorder->file_path());
 
     recorder->set_enabled(false);
@@ -217,8 +218,9 @@ TEST_F(McapRecorderToggleTest, TogglingWithTheMcapLogSinkDoesNotDeadlock) {
 
 TEST_F(McapRecorderToggleTest, LoggingFromAnotherThreadWhileTogglingDoesNotDeadlock) {
     const auto previous_logger = spdlog::default_logger();
+    setup_logging();
     auto recorder = std::make_shared<McapRecorder>("toggle_abba_test", dir_);
-    setup_logging(recorder);
+    attach_log_recorder(recorder);
     spdlog::default_logger()->sinks().front()->set_level(spdlog::level::off);
 
     auto stop = std::make_shared<std::atomic<bool>>(false);
@@ -235,8 +237,8 @@ TEST_F(McapRecorderToggleTest, LoggingFromAnotherThreadWhileTogglingDoesNotDeadl
     paths_ = paths;
     stop->store(true);
     logger_thread.join();
-    spdlog::set_default_logger(previous_logger);
     recorder->close();
+    spdlog::set_default_logger(previous_logger);
     EXPECT_GT(paths_.size(), 1u);
 }
 

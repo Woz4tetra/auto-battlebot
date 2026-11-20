@@ -66,12 +66,13 @@ int run_application(const auto_battlebot::ClassConfiguration& class_config,
 
     std::optional<SystemAction> pending_system_action;
 
+    setup_logging();
     auto mcap_recorder = make_recorder_clear_of_replay_inputs(class_config, active_profile);
     if (mcap_recorder) {
         mcap_recorder->write_metadata(kResolvedConfigMetadataKey,
                                       format_resolved_toml(resolved_config));
     }
-    setup_logging(mcap_recorder);
+    attach_log_recorder(mcap_recorder);
 
     std::vector<std::shared_ptr<DiagnosticsBackend>> backends;
 

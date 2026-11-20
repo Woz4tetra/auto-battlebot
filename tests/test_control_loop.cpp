@@ -770,4 +770,55 @@ TEST(ControlLoopTest, FilterCorrectsBeforeItPredicts) {
     EXPECT_EQ(filter->calls[1], "predict");
 }
 
+TEST(ControlLoopInterfaceTest, ForwardersAreSafeToCallFromSeveralThreadsWhileTheLoopCycles) {
+    auto config = make_filter_config();
+    auto filter = std::make_shared<RobotFrontBackFilter>(config);
+    ASSERT_TRUE(filter->initialize(1));
+    auto navigation = std::make_shared<RecordingNavigation>();
+    auto transmitter = std::make_shared<RecordingTransmitter>();
+    auto clock = std::make_shared<ManualClock>();
+    auto loop = std::make_shared<ControlLoop>(filter, nullptr, navigation, transmitter, clock,
+                                              nullptr, kCacheMaxAgeS);
+    SteppedControlLoop driver(loop, 0.0);
+    ControlLoopInterface &forwarders = driver;
+    forwarders.start();
+
+    const auto measurements = make_measurements(60);
+    std::atomic<bool> done{false};
+    std::thread submitter([&] {
+        for (int round = 0; round < 20; ++round) {
+            for (const auto &m : measurements) {
+                forwarders.submit_measurement(m);
+                forwarders.set_target_override(Pose2D{});
+                forwarders.set_target_override(std::nullopt);
+            }
+        }
+    });
+    std::thread setter([&] {
+        while (!done.load()) {
+            forwarders.set_autonomy_enabled(true);
+            forwarders.set_behavior_mode(BehaviorMode::ATTACK);
+            forwarders.request_filter_reinit(1);
+            forwarders.take_init_button_press();
+        }
+    });
+    std::thread reader([&] {
+        while (!done.load()) {
+            forwarders.latest_output();
+            forwarders.last_visualization();
+            forwarders.transmitter_status();
+        }
+    });
+    for (int cycle = 0; cycle < 400; ++cycle) {
+        forwarders.pump_input();
+        clock->set(1.0 + 0.0333 * cycle);
+        forwarders.advance_to(1.0 + 0.0333 * cycle);
+    }
+    submitter.join();
+    done.store(true);
+    setter.join();
+    reader.join();
+    EXPECT_FALSE(transmitter->sent.empty());
+}
+
 }  // namespace auto_battlebot

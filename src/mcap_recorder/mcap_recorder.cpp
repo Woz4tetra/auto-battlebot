@@ -108,6 +108,7 @@ bool McapRecorder::start_file_locked(std::filesystem::path& refused, std::future
     push_locked(std::move(op), 0);
     enabled_ = true;
     enabled_hint_.store(true);
+    generation_.fetch_add(1);
     return true;
 }
 
@@ -130,6 +131,7 @@ bool McapRecorder::set_enabled(bool enabled, std::future<void>* completed) {
             if (enabled_) {
                 enabled_ = false;
                 enabled_hint_.store(false);
+                generation_.fetch_add(1);
                 CloseOp op;
                 if (completed) {
                     op.done = std::make_shared<std::promise<void>>();

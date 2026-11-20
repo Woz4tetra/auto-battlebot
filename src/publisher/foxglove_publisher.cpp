@@ -206,7 +206,10 @@ void FoxglovePublisher::publish_camera_data(const CameraData &data) {
     auto calibration = foxglove_adapters::to_camera_calibration(data.camera_info);
     camera_info_.log_message(calibration, log_time);
 
-    frame_meta_.log(foxglove_adapters::to_frame_meta_json(data.frame_identity), log_time);
+    if (!mcap_recorder_ ||
+        data.frame_identity.recording_generation == mcap_recorder_->generation()) {
+        frame_meta_.log(foxglove_adapters::to_frame_meta_json(data.frame_identity), log_time);
+    }
 
     auto tf = foxglove_adapters::to_frame_transforms(data.tf_visodom_from_camera);
     tf_.log_message(tf, log_time);

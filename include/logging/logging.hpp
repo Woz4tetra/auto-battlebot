@@ -15,7 +15,9 @@ class VizSink;
 std::shared_ptr<spdlog::logger> make_async_logger(
     const std::vector<spdlog::sink_ptr>& sinks, std::shared_ptr<spdlog::details::thread_pool> pool);
 
-void setup_logging(std::shared_ptr<McapRecorder> recorder);
+void setup_logging();
+
+void attach_log_recorder(std::shared_ptr<McapRecorder> recorder);
 
 void shutdown_logging();
 

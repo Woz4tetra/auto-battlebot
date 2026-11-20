@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <map>
@@ -116,6 +117,14 @@ class HoldUntilFinishBackend : public H264Backend {
     std::string name_ = "hold_until_finish";
 };
 
+bool real_encoder_crashes_under_this_build() {
+#ifdef AUTO_BATTLEBOT_THREAD_SANITIZED
+    return true;
+#else
+    return false;
+#endif
+}
+
 TEST(VideoEncoderTest, ASlowBackendDropsAndCountsInsteadOfBlockingSubmit) {
     VideoEncoderOptions options;
     options.width = 32;
@@ -150,6 +159,42 @@ TEST(VideoEncoderTest, ASlowBackendDropsAndCountsInsteadOfBlockingSubmit) {
     EXPECT_EQ(packets + static_cast<size_t>(refused), static_cast<size_t>(kSubmitted));
 }
 
+TEST(VideoEncoderTest, StopWhileSeveralThreadsSubmitRefusesLateFramesWithoutRacing) {
+    VideoEncoderOptions options;
+    options.width = 32;
+    options.height = 24;
+    options.queue_depth = 4;
+    const auto sink = [](const std::byte *, size_t, uint64_t, bool) {};
+    const auto slow = [](const VideoEncoderOptions &, VideoEncoder::BackendSink backend_sink) {
+        return std::make_unique<SlowBackend>(std::move(backend_sink), std::chrono::milliseconds(1));
+    };
+
+    VideoEncoder encoder;
+    ASSERT_TRUE(encoder.start(options, sink, slow));
+    std::atomic<bool> stopped{false};
+    std::atomic<int> accepted_after_stop{0};
+    std::atomic<uint64_t> accepted{0};
+    std::vector<std::thread> submitters;
+    for (int i = 0; i < 3; ++i) {
+        submitters.emplace_back([&] {
+            const cv::Mat frame(24, 32, CV_8UC3, cv::Scalar::all(0));
+            for (uint64_t t = 1; t <= 200; ++t) {
+                const bool was_stopped = stopped.load();
+                if (encoder.submit(frame, t) >= 0) {
+                    ++accepted;
+                    if (was_stopped) ++accepted_after_stop;
+                }
+            }
+        });
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    encoder.stop();
+    stopped.store(true);
+    for (auto &thread : submitters) thread.join();
+    EXPECT_EQ(accepted_after_stop.load(), 0);
+    EXPECT_EQ(encoder.encoded_frames(), accepted.load()) << "an accepted frame was left queued";
+}
+
 TEST(VideoEncoderTest, StopFlushesTheBackendSoQueuedFramesReachTheSink) {
     VideoEncoderOptions options;
     options.width = 32;
@@ -177,6 +222,9 @@ TEST(VideoEncoderTest, StopFlushesTheBackendSoQueuedFramesReachTheSink) {
 }
 
 TEST(VideoEncoderTest, RequestKeyframeMakesTheNextFrameAKeyframe) {
+    if (real_encoder_crashes_under_this_build()) {
+        GTEST_SKIP() << "libnvcuvid threads crash ThreadSanitizer inside calloc";
+    }
     VideoEncoder encoder;
     VideoEncoderOptions options;
     options.width = 320;
@@ -221,6 +269,9 @@ TEST(VideoEncoderTest, RequestKeyframeMakesTheNextFrameAKeyframe) {
 }
 
 TEST(VideoEncoderTest, SubmitIndexIsPacketPositionMinusOneWhenRefusedResetPerSession) {
+    if (real_encoder_crashes_under_this_build()) {
+        GTEST_SKIP() << "libnvcuvid threads crash ThreadSanitizer inside calloc";
+    }
     VideoEncoderOptions options;
     options.width = 320;
     options.height = 240;

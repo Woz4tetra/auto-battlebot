@@ -23,6 +23,7 @@ struct CameraInfo {
 struct FrameIdentity {
     uint64_t image_stamp_ns = 0;
     int64_t video_frame_index = -1;
+    uint64_t recording_generation = 0;
 };
 
 struct SimRobotMeasurement {

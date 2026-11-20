@@ -41,13 +41,18 @@ foxglove::schemas::Log::LogLevel to_log_level(spdlog::level::level_enum level) {
 
 class McapLogSink : public spdlog::sinks::base_sink<std::mutex> {
    public:
-    explicit McapLogSink(std::shared_ptr<McapRecorder> recorder) : recorder_(std::move(recorder)) {
-        rebuild_channel(nullptr);
+    McapLogSink() = default;
+
+    void set_recorder(std::shared_ptr<McapRecorder> recorder) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        recorder_ = std::move(recorder);
+        rebuild_channel(viz_sink_);
     }
 
     void set_viz_sink(std::shared_ptr<VizSink> sink) {
         std::lock_guard<std::mutex> lock(mutex_);
-        rebuild_channel(std::move(sink));
+        viz_sink_ = std::move(sink);
+        rebuild_channel(viz_sink_);
     }
 
     bool flush_logger_and_wait(spdlog::logger& logger, std::chrono::milliseconds timeout) {
@@ -90,17 +95,18 @@ class McapLogSink : public spdlog::sinks::base_sink<std::mutex> {
     }
 
    private:
-    void rebuild_channel(std::shared_ptr<VizSink> sink) {
+    void rebuild_channel(const std::shared_ptr<VizSink>& sink) {
         if (!recorder_ && !sink) {
             channel_.reset();
             return;
         }
         channel_ = std::make_unique<OutputChannel>(
-            "/log", "protobuf", VizSchema::from_sdk(foxglove::schemas::Log::schema()), false,
-            std::move(sink), recorder_);
+            "/log", "protobuf", VizSchema::from_sdk(foxglove::schemas::Log::schema()), false, sink,
+            recorder_);
     }
 
     std::shared_ptr<McapRecorder> recorder_;
+    std::shared_ptr<VizSink> viz_sink_;
     std::unique_ptr<OutputChannel> channel_;
     std::mutex flush_mutex_;
     uint64_t flushes_ = 0;
@@ -127,10 +133,10 @@ std::shared_ptr<spdlog::logger> make_async_logger(
                                                   spdlog::async_overflow_policy::overrun_oldest);
 }
 
-void setup_logging(std::shared_ptr<McapRecorder> recorder) {
+void setup_logging() {
     std::vector<spdlog::sink_ptr> sinks;
     sinks.push_back(std::make_shared<spdlog::sinks::stdout_color_sink_mt>());
-    auto mcap_sink = std::make_shared<McapLogSink>(std::move(recorder));
+    auto mcap_sink = std::make_shared<McapLogSink>();
     {
         std::lock_guard<std::mutex> lock(g_mcap_log_sink_mutex);
         g_mcap_log_sink = mcap_sink;
@@ -147,6 +153,16 @@ void setup_logging(std::shared_ptr<McapRecorder> recorder) {
         g_mcap_logger = logger;
     }
     spdlog::set_default_logger(logger);
+}
+
+void attach_log_recorder(std::shared_ptr<McapRecorder> recorder) {
+    std::shared_ptr<McapLogSink> mcap_sink;
+    {
+        std::lock_guard<std::mutex> lock(g_mcap_log_sink_mutex);
+        mcap_sink = g_mcap_log_sink.lock();
+    }
+    if (!mcap_sink) return;
+    mcap_sink->set_recorder(std::move(recorder));
 }
 
 void shutdown_logging() {

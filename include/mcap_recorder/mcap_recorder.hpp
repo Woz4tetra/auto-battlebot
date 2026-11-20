@@ -61,6 +61,7 @@ class McapRecorder {
     static void reserve_input_path(const std::filesystem::path& path);
 
     std::filesystem::path file_path() const;
+    uint64_t generation() const { return generation_.load(); }
 
     uint64_t dropped_messages() const;
 
@@ -128,6 +129,7 @@ class McapRecorder {
     bool stop_ = false;
     bool enabled_ = false;
     std::atomic<bool> enabled_hint_{false};
+    std::atomic<uint64_t> generation_{0};
     bool closed_for_good_ = false;
     bool paused_for_test_ = false;
     ChannelLogFn channel_log_ = &McapRecorder::log_to_channel;

@@ -62,9 +62,10 @@ bool ZedDevice::await_or_leak_open(const char *context, const char *validation_l
 }
 
 ZedDevice::OpenResult ZedDevice::open(const std::atomic<bool> &cancel) {
-    pending_open_ = std::async(std::launch::async, [this, open_call = options_.open_call]() {
-        return open_call ? open_call() : zed_.open(params_);
-    });
+    pending_open_ = std::async(
+        std::launch::async, [camera = camera_, params = params_, open_call = options_.open_call]() {
+            return open_call(*camera, params);
+        });
 
     while (pending_open_.wait_for(std::chrono::milliseconds(50)) != std::future_status::ready) {
         if (cancel) {

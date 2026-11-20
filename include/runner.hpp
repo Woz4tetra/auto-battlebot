@@ -95,9 +95,7 @@ class Runner : public Quittable {
     void set_auto_tracking(bool enabled);
     std::string set_manual_target(const remote::SetManualTargetCommand &command, bool &accepted);
     void set_recording(bool enabled) const;
-    void apply_recording(bool enabled, bool wait_for_inflight_ticks) const;
-    void wait_for_frames_in_flight() const;
-    std::atomic<uint64_t> ticks_started_{0};
+    void apply_recording(bool enabled) const;
     std::string select_profile(const std::string &name);
     void run_system_action(SystemAction action);
     std::string set_camera_settings(const CameraSettings &settings, bool &accepted);

@@ -161,6 +161,11 @@ channels are written by different threads: the video message's `log_time` is the
 the encoder carried through, while frame_meta is logged when the publisher reaches it, so
 pairing them by iteration order runs ahead by however far the encoder is behind.
 
+`McapRecorder::generation()` increments on every file open and close. `Runner::tick` stamps each
+frame with the generation it read before `camera->get`, and `FoxglovePublisher` drops the
+frame_meta of a frame whose generation differs from the recorder's, so a frame taken before a
+toggle never lands in the next file with an index from the old encoder session.
+
 Recordings written before 2026-09-09 carry `svo_frame_index` and `svo_path` instead, from when
 the video lived in a separate `.svo2` file. `auto_battlebot.recording.mcap_io` reads the old
 names and reports the index as `video_frame_index`, which is what it always was.
@@ -1081,6 +1086,5 @@ The ROS 1 wire format is little-endian. A header is `uint32 seq`, `uint32 stamp_
 
 - `FoxglovePublisher` gives the annotation channels a `nullptr` recorder. Annotations render the JSON channel and are live only, so they never land in a file. `AnnotationsAreLiveOnly` passes even with the recorder swapped in, because the channel logs only with subscribers and the test has no sink.
 - `OutputChannel::log` returns early on a zero-length payload. The Foxglove SDK refuses zero-length messages (project memory, SDK source not read).
-- `Runner::wait_for_frames_in_flight` waits for three more tick starts, bounded by 500 ms, before the MCAP gate closes on a recording-off. The tick keeps running while the toggle thread works. A tick that took a frame before the encoder stopped still holds that frame's video index and would publish its `frame_meta` into the next file, pointing at the wrong packet. Frames captured after the stop carry no index. Three starts cover the tick in flight and the tick that may have taken the last frame the camera buffered before the stop. The bound covers a tick stuck in camera recovery.
 - `tests/mcap_recorder/test_mcap_recorder_toggle.cpp`:
   - The app's logger copies every log line into the MCAP. Toggling recording logs from inside the recorder lock, which came straight back into `write()` on the same thread and deadlocked the app on the ZED Box. The test runs the toggles on the test thread, and the ctest timeout fails a regression that hangs.

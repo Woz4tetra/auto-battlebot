@@ -33,6 +33,9 @@ if(NOT AUTO_BATTLEBOT_SANITIZER STREQUAL "none")
         "$<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=-fno-omit-frame-pointer>"
     )
     add_compile_definitions(AUTO_BATTLEBOT_SANITIZED)
+    if(AUTO_BATTLEBOT_SANITIZER STREQUAL "thread")
+        add_compile_definitions(AUTO_BATTLEBOT_THREAD_SANITIZED)
+    endif()
     add_link_options(-fsanitize=${AUTO_BATTLEBOT_SANITIZER} -fno-omit-frame-pointer)
 endif()
 
@@ -507,7 +510,11 @@ if(BUILD_TESTING)
     )
 
     include(GoogleTest)
-    gtest_discover_tests(auto_battlebot_test PROPERTIES TIMEOUT 300)
+    if(AUTO_BATTLEBOT_SANITIZER STREQUAL "thread")
+        gtest_discover_tests(auto_battlebot_test DISCOVERY_MODE PRE_TEST PROPERTIES TIMEOUT 300)
+    else()
+        gtest_discover_tests(auto_battlebot_test PROPERTIES TIMEOUT 300)
+    endif()
 
     add_test(NAME ZedForcedWithoutSdkFailsAtConfigure
         COMMAND ${CMAKE_COMMAND}
