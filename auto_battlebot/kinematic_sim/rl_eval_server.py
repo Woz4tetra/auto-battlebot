@@ -64,7 +64,7 @@ class RlEvalServer(KinematicServer):
         super().__init__(sim_config(scenario, port))
 
     def _render_camera(self) -> None:
-        # The C++ sim profile reads measurements off the socket, not pixels; skip the compositor.
+        """Skip the compositor: the C++ sim profile reads measurements off the socket."""
         return
 
     def run_one(self, results: Path, label: str) -> None:

@@ -348,7 +348,6 @@ class KinematicServer:
         self._mujoco_window: MujocoWindow | None = None
         if cfg.viewer.enable and cfg.viewer.mujoco:
             if cfg.our_robot.plant == PlantType.MUJOCO:
-                # Imported here: MuJoCo is an x86-only dependency, like the plant itself.
                 from auto_battlebot.kinematic_sim.mujoco_window import MujocoWindow
 
                 self._mujoco_window = MujocoWindow(cfg.arena.width, cfg.arena.height)

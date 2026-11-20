@@ -120,3 +120,8 @@ Rendering costs wall-clock time but cannot corrupt a run. The sim owns logical t
 ## Fixed mask model
 
 `FixedMaskModel` returns a constant non-empty FIELD mask for the headless kinematic sim. The Runner's field-init gate requires a non-empty mask. The field size comes from `FixedFieldFilter`, not from perception, so the constant mask satisfies the gate without running a segmentation model.
+
+## Workarounds
+
+- **Lazy MuJoCo imports.** `kinematic_sim_server.py` imports `MujocoWindow` and `plants/__init__.py` imports `MujocoPlant` inside the branch that needs them. MuJoCo is an x86-only dependency (`pyproject.toml` pins it per platform), so on aarch64 a top-level import would fail with `ModuleNotFoundError: mujoco` and break the kinematic plant.
+- **`RlEvalServer._render_camera` is a no-op.** The C++ sim profile reads measurements off the socket, not pixels. The compositor cost lockstep tick time for a render nobody reads.

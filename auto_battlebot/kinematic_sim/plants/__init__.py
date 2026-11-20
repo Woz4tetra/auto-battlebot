@@ -23,7 +23,6 @@ def make_plant(
 ) -> PlantInterface:
     """`moving_blocks`: the opponents with a hazard_radius, in opponent order."""
     if cfg.plant == PlantType.MUJOCO:
-        # Imported here: MuJoCo is an x86-only dependency, and the kinematic plant must not need it.
         from auto_battlebot.kinematic_sim.plants.mujoco_plant import MujocoPlant
 
         return MujocoPlant(cfg, arena_w, arena_h, obstacles, moving_blocks)

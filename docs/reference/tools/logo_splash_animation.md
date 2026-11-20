@@ -65,3 +65,7 @@ Adapt the measured table to the output canvas.
 Slide-in offsets (frames 0-6) are scaled so the halves enter from the actual canvas edge (the reference table assumed a 5:4 canvas, 2.667 radii wide). The first visible frame keeps the reference's look: the flat edge 0.12 r inside the screen edge. Split offsets (frames 17+) are scaled to settle at the SVG layout.
 
 - `main`: Expected: MAE 2-5 on spin frames, up to ~22 on split frames (intentional SVG-true pill artwork / gap vs the hand-made GIF) and elevated on slide frames when the canvas is wider than 5:4 (longer slide-in runway).
+
+## Workarounds
+
+- **Dropped `clip-path` attributes.** `gen_splash_animation` deletes `clip-path` from elements that are not pill paths. The attribute points at an empty `<defs>`, so the renderer would clip the pill to nothing. Unverified: the claim about the empty `<defs>` was not rechecked against the SVG.

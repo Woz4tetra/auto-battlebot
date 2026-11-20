@@ -32,6 +32,7 @@ HOOK_TIMEOUT = 300
 YIELD_RESUME_IDLE_SECONDS = 600
 LEGACY_JOB_DEVICES = (0, 1, 2)
 TERMINAL_STATES = ("done", "failed", "cancelled")
+NCCL_P2P_DISABLED_ENV = {"NCCL_P2P_DISABLE": "1"}
 ACTIVE_STATES = ("running", "claimed")
 EPOCH_RE = re.compile(r"\s(\d+)/(\d+)\s+[\d.]+G\s")
 BATCH_RE = re.compile(r"(\d+)/(\d+)\s+[\d.]+it/s")
@@ -151,8 +152,7 @@ def cmd_submit(args: argparse.Namespace) -> int:
     devices = list(args.devices)
     env: dict[str, str] = {}
     if len(devices) > 1:
-        # NCCL peer-to-peer is broken on this box; DDP hangs silently without this.
-        env["NCCL_P2P_DISABLE"] = "1"
+        env.update(NCCL_P2P_DISABLED_ENV)
     with locked_state() as state:
         job = {
             "id": state["next_id"],

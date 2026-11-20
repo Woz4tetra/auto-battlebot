@@ -92,7 +92,7 @@ def render_pill_layer(svg_path: Path, radius_px: float) -> Image.Image:
         if elem.tag.endswith("}path") and elem_id not in PILL_KEEP_IDS:
             parents[elem].remove(elem)
         elif "clip-path" in elem.attrib:
-            del elem.attrib["clip-path"]  # references an empty <defs>, drop it
+            del elem.attrib["clip-path"]
 
     disc_diameter_vb = SVG_DISC_DIAMETER * SVG_GROUP_SCALE
     export_w = int(round(SVG_VIEWBOX_W * 2.0 * radius_px / disc_diameter_vb))

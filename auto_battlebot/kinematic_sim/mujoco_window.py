@@ -31,12 +31,8 @@ class MujocoWindow:
         self._handle = mujoco.viewer.launch_passive(
             model, data, show_left_ui=False, show_right_ui=False
         )
-        # launch_passive does not return its render thread, and Handle.close() only asks it to
-        # stop. Exiting while it still renders races the glfw.terminate atexit hook and segfaults.
         self._thread = next((t for t in threading.enumerate() if t not in before), None)
-        # Registered after launch_passive registers glfw.terminate, so it runs first (LIFO).
-        atexit.unregister(self.close)
-        atexit.register(self.close)
+        self._close_before_glfw_terminate()
         self._model = model
         with self._handle.lock():
             self._handle.opt.geomgroup[HULL_GEOM_GROUP] = 1
@@ -51,6 +47,10 @@ class MujocoWindow:
             cam.distance = 1.4 * max(self._arena)
             cam.elevation = -90.0
             cam.azimuth = 90.0
+
+    def _close_before_glfw_terminate(self) -> None:
+        atexit.unregister(self.close)
+        atexit.register(self.close)
 
     def sync(self, plant: PlantInterface) -> None:
         """Call once per tick. A respawn builds a new plant, so a new model reopens the window."""
