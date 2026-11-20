@@ -26,7 +26,7 @@ The Wi-Fi access unit is installed but not enabled. The app starts it at boot wh
 
 ## HostServices
 
-`HostServices` runs the jobs the loop must never wait on: opening the dashboard to Wi-Fi and reading the network addresses the System tab shows. It has one worker thread. `set_wifi_access()` queues the request and returns; the worker runs `systemctl start|stop dashboard-wifi.service`. The setting persists in the state file and is applied again at startup, so a phone reaches the box after a reboot without the iPad. The worker publishes `/status/network` after each change and every `refresh_period`.
+`HostServices` runs the jobs the loop must never wait on: opening the dashboard to Wi-Fi and reading the network addresses the System tab shows. It has one worker thread. `set_wifi_access()` queues the request and returns; the worker runs `systemctl start|stop dashboard-wifi.service` through `posix_spawnp` with `--no-ask-password --no-block`. Spawning avoids a shell and avoids forking a process that holds CUDA and camera threads. `--no-block` queues the job and returns: a plain start waits for the unit to finish starting, the destructor joins this thread, and a slow unit would hold up app exit for up to systemd's 90 s. Errors that matter here (no such unit, polkit refusal) still come back as a nonzero exit. The setting persists in the state file and is applied again at startup, so a phone reaches the box after a reboot without the iPad. The worker publishes `/status/network` after each change and every `refresh_period`.
 
 ## polkit
 

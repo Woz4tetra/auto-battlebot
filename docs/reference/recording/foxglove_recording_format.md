@@ -802,201 +802,121 @@ A recording that carries only `/camera/image` opens fine and then produces nothi
 - Client channels are per-connection on the relay side, so a frame from a Foxglove client carries the topic rather than a channel id.
 - The default socket path is a fixed `/tmp` path rather than `$XDG_RUNTIME_DIR`, so the systemd unit for the relay and the one for the app agree without sharing environment, and so the docker playback container (which runs both) needs no extra mount.
 
-## Notes moved from `src/` comments (2026-11-15)
+### Recording compression
 
-Each entry names the file and the code it described.
+The MCAP recorder writes with no compression. The Jetson writes this at 60 Hz next to the control loop, so the CPU goes to the loop.
 
-### `src/mcap_recorder/mcap_recorder.cpp`
+### JPEG preview encoding
 
-Beside `opts.compression = foxglove::McapCompression::None;`:
+JPEG compression costs about 10 ms of CPU on the Jetson. It runs on worker threads, and only when a client subscribed or the recorder records the topic. The loop pays one copy of the frame, or one resize for the preview.
 
-No compression: the Jetson writes this at 60 Hz next to the control loop.
+`ImageEncoderWorker` (`include/viz/image_encoder_worker.hpp`) runs the encoding off the perception loop, modeled on `VideoEncoder`. `submit()` never blocks: the worker keeps one pending frame and a newer frame replaces it, since a preview wants the newest frame, not every frame. The thread starts on the first submit, so a topic nobody subscribes to never costs a thread.
 
-### `src/publisher/foxglove_publisher.cpp`
+`auto_battlebot_nvjpg_encode` (`include/viz/nvjpg_plugin.h`) takes one 4:2:0 frame in I420 layout: contiguous full-range (JFIF) Y, Cb and Cr planes, with even width and height (it returns 0 for odd ones). It points the `jpeg_until_next_call` out-parameter at the result, valid until the next call on the same encoder, and returns the size, or 0 on failure.
 
-Beside `if (rgb_image_.has_consumers() && !data.rgb.image.empty()) {`:
+### H.264 parameter sets
 
-JPEG compression is ~10 ms of CPU on the Jetson, so it runs on worker threads, and only when a client subscribed or the recorder records the topic. The loop pays one copy of the frame, or one resize for the preview.
+`gst_h264_backend.cpp` sets `insert-sps-pps` on the hardware encoder so SPS and PPS arrive in band ahead of every IDR. `foxglove.CompressedVideo` needs them, and they make a mid-file seek decode. `x264enc` writes SPS/PPS once, so `h264parse` runs with `config-interval = -1` to repeat them ahead of every IDR.
 
-`ImageEncoderWorker` (`include/viz/image_encoder_worker.hpp`) runs that encoding off the perception loop, modeled on `VideoEncoder`. `submit()` never blocks: the worker keeps one pending frame and a newer frame replaces it, since a preview wants the newest frame, not every frame. The thread starts on the first submit, so a topic nobody subscribes to never costs a thread.
+### RGB camera recording
 
-`auto_battlebot_nvjpg_encode` (`include/viz/nvjpg_plugin.h`) takes one 4:2:0 frame in I420 layout: contiguous full-range (JFIF) Y, Cb and Cr planes, even width and height (it returns 0 for odd ones). It points the `jpeg_until_next_call` out-parameter at the result, valid until the next call on the same encoder, and returns the size, or 0 on failure.
+- The video is recorded pre-rectification on purpose: a calibration can be revised later and re-applied to footage already shot. Replay needs the calibration, so `v4l2_rgb_camera.cpp` embeds it as MCAP metadata (`kCameraCalibrationMetadataKey`). A recording then replays without the calibration file, and a revised file can still override it through config.
+- The encoder numbers the frames it takes. `frame_meta` carries that number, so it matches the video packet in whichever file the frame lands in. It is -1 when the encoder took none.
+- `ZedOneRgbCamera` submits the BGRA frame, not the BGR copy, because the Jetson's `nvvidconv` takes 4-channel input directly.
+- A recording started from the remote UI after launch goes through `start_encoder()`, not `initialize()`. A failure there is not fatal: the UI reports the failed toggle, and killing a running match over it is worse.
 
-### `src/rgbd_camera/gst_h264_backend.cpp`
+### Video playback parsing
 
-Beside `"insert-sps-pps", TRUE, "num-B-Frames", 0u, "maxperf-enable", TRUE,`:
+`video_playback_camera.cpp` reads the `data` field of a `foxglove.CompressedVideo` without linking protobuf. The message has four fields: timestamp (1), frame_id (2), data (3), format (4). Pulling one length-delimited field out of a wire-format message is a dozen lines, and a protobuf dependency would be the larger thing to maintain.
 
-SPS/PPS in band ahead of every IDR: CompressedVideo needs it, and it is what makes a mid-file seek decode.
+Playback reads the video channel only. The stamps are already indexed, and `camera_info` is not read at all: the recording is pre-rectification, so its `camera_info` describes a rectified stream that playback regenerates from the calibration file. Everything else in the file is the previous run's output, which replay exists to regenerate.
 
-### `src/rgbd_camera/gst_h264_backend.cpp`
+### SVO rollover
 
-Beside `g_object_set(parse, "config-interval", -1, nullptr);`:
+`ZedRgbdCamera` calls `SvoRecorder::on_frame_grabbed()` for each frame. It rolls the SVO file over when it passes the size cap. The returned `FrameRef` says where the frame landed, which lets a recording be joined back to its SVO frames.
 
-x264enc writes SPS/PPS once; h264parse repeats them ahead of every IDR.
+### Opponent measurement logging
 
-### `src/rgbd_camera/v4l2_rgb_camera.cpp`
+`KalmanMotionEstimator` logs every opponent measurement as the estimator received it, in either mode. A replay recording can then run back through the Python mirror offline.
 
-Beside `mcap_recorder_->write_metadata(kCameraCalibrationMetadataKey,`:
+### viz_relay process
 
-The video is pre-rectification, so replay needs this calibration. Embedded, a recording replays without the file, and a revised one can still override it through config.
+`viz_relay` owns the Foxglove WebSocket server. `auto_battlebot` connects over a unix socket and streams already-encoded messages. The relay re-publishes them on `ws://<host>:8765` with `foxglove::WebSocketServer`.
 
-### `src/rgbd_camera/v4l2_rgb_camera.cpp`
+- Foxglove stays connected across app restarts. Channels are keyed by topic and reused when the app reconnects with the same schema, so panels never blink.
+- The relay latches. The last message on a topic advertised with `latch=1` is re-sent whenever a new client subscribes. That lets Foxglove attach mid-run and still see the field border and inlier cloud, which are published once at startup.
+- The relay serves the web dashboard (`web/dist`) over HTTP with Crow. Both servers live in this process because it outlives app restarts: when the app crashes, the page still loads and shows the app as down.
+- Framing is in `include/viz/frame.hpp`, and the layout is under Relay socket framing above.
 
-Beside `const int64_t video_frame_index = encoder_.submit(uyvy, mcap_log_time_ns());`:
+## Exporting camera transforms and video
 
-The recording is pre-rectification on purpose: a calibration can be revised later and re-applied to footage already shot. The encoder numbers the frames it takes; frame_meta carries that number, so it matches the video packet in whichever file the frame lands in. -1 when it took none.
+### Camera transforms for the eval dataset
 
-### `src/rgbd_camera/video_playback_camera.cpp`
+`training/model_eval/export_camera_transforms.py` reads each sub dataset's `data.yaml` for its `source_mcap`. It writes next to the existing `images/` and `labels/`, which it does not modify:
 
-Beside `bool compressed_video_payload(const std::byte *message, size_t len, const std::byte *&out,`:
+```text
+<sub-dataset>/camera_info.json                     intrinsics, constant over the recording
+<sub-dataset>/camera_transforms/<stamp_ns>.json    one per image
+```
 
-The `data` field of a foxglove.CompressedVideo, without linking protobuf. The message is four fields: timestamp(1), frame_id(2), data(3), format(4). Pulling one length-delimited field out of a wire-format message is a dozen lines; a protobuf dependency for it would be the larger thing to maintain.
+```bash
+python training/model_eval/export_camera_transforms.py [--dataset-dir <dir>] [--dry-run]
+```
 
-### `src/rgbd_camera/video_playback_camera.cpp`
+The transform is `tf_field_from_camera`: multiply a point in the camera frame by it to get that point in the field frame. It composes two recorded transforms:
 
-Beside `mcap::ReadMessageOptions options;`:
+```text
+tf_field_from_camera = tf_field_from_cameraworld @ tf_cameraworld_from_camera
+```
 
-Video only from here. The stamps are already indexed, and camera_info is not read at all: the recording is pre-rectification, so its camera_info describes a rectified stream that playback regenerates from the calibration file rather than replays. Everything else in the file is the previous run's output, which replay exists to regenerate.
+Both edges come from `/tf`, published once per frame the perception loop processed. `field -> camera_world` only changes on a field re-init but is restamped every cycle, so the applicable one is the latest at or before the image. Recordings made before that edge moved carry it once on `/tf_static`. The exporter reads both.
 
-### `src/rgbd_camera/zed_one_rgb_camera.cpp`
+Frame association:
 
-Beside `const int64_t video_frame_index = encoder_.submit(bgra, mcap_log_time_ns());`:
+- Dataset images are named by the `/camera/image` header stamp, which the SVO recorder wrote. `/tf` and `/camera/camera_info` carry the perception pipeline's own stamps.
+- A pipeline stamp lands about 0.4 to 0.9 of the way through the SVO frame interval it belongs to. This is a stable sub-frame capture lag, not clock skew. It never crosses an interval boundary, so "the pipeline stamp inside [svo_stamp, next_svo_stamp)" identifies the frame exactly.
+- Each image and each `/tf` sample resolves to a position in the `/camera/image` stream that way, and the two are matched on that position. It is a position within this MCAP, not a `.svo2` frame index. `ZED_SVO_Editor` drops a few frames per file, so the two differ by a small offset. The offset is the same on both sides, so it cancels.
+- The pipeline ran at about 25 fps against the camera's 30 fps, so it skipped frames. For a skipped frame no live transform was computed, and the result is interpolated from the neighbouring processed frames.
 
-The encoder numbers the frames it takes; frame_meta carries that number, so it matches the video packet in whichever file the frame lands in. -1 when it took none. BGRA, not the BGR copy: the Jetson's nvvidconv takes 4-channel input directly.
+Every image gets a file. Its `method` field says which case applies, so a consumer can filter on it:
 
-### `src/rgbd_camera/zed_one_rgb_camera.cpp`
+| `method` | Meaning |
+| --- | --- |
+| `exact` | One processed frame owns this image's frame index |
+| `interpolated` | The frame was skipped; slerp/lerp between the nearest processed frames |
+| `ambiguous` | Two processed frames claim this index (only the 05-01 recording) |
+| `unavailable` | No field frame yet, or no processed frame to interpolate from |
 
-Beside `if (!mcap_recorder_ || !start_encoder()) {`:
+### Left-eye JPEGs from an SVO2
 
-A recording started from the remote UI after launch lands here, not in initialize(). Not fatal here: the UI reports the failed toggle, and killing a running match over it is worse.
+`iter_left_jpegs()` in `auto_battlebot/recording/svo2.py` decodes the concatenated access units with ffmpeg and re-encodes the cropped left half to MJPEG. Output frames come out one for one with the messages fed in, so the Nth JPEG is SVO frame N (`test_left_jpegs_one_per_message`).
 
-### `src/rgbd_camera/zed_rgbd_camera.cpp`
+- `-r` is passed because a raw elementary stream carries no timing. Without an input rate, the mjpeg encoder in the 22.04 ffmpeg (4.4) rejected the second frame with "Invalid pts (0) <= last (0)" and the export stopped after a handful of frames. ffmpeg 6.1 does not reproduce that, so the test does not pin it.
+- ZED records intra-refresh H.264 with no IDR frames, so the first frames of a recording decode partially until the refresh completes. They are emitted anyway to keep frame indices aligned with the SVO.
+- Close the iterator (`contextlib.closing`) if you stop early, so ffmpeg is torn down instead of blocking on a full pipe.
+- `_iter_jpegs` splits the MJPEG stream on the SOI marker (`FFD8FF`). Entropy-coded data byte-stuffs 0xFF as `FF00`, so the marker only appears at the start of an image. An image carrying an EXIF thumbnail would break this, and ffmpeg's MJPEG output carries none (`test_iter_jpegs_splits_on_soi_only`).
 
-Beside `const SvoRecorder::FrameRef svo_frame = svo_recorder_->on_frame_grabbed();`:
+### Extracting video without the ZED SDK
 
-Roll the SVO file over if it has grown past the size cap. The return value says where this frame landed, which is what lets a recording be joined back to its SVO frames.
+`training/svo_rgb_extract.py` extracts left or right RGB video from a `.svo2` recording with no `pyzed` or CUDA. A `.svo2` is an MCAP container holding H.264 side-by-side stereo frames on the `<camera>/side_by_side` topic. Each message is one access unit: an 8-byte length prefix followed by an Annex-B H.264 stream. The script reads the frames with the `mcap` library, crops the requested eye, and pipes the raw H.264 into ffmpeg to write an MP4.
 
-### `src/robot_filter/kalman_motion_estimator.cpp`
+Depth is not available through this path. The ZED SDK computes depth from the stereo pair on the device and does not store it in the recording. Use the SDK (`svo_export.py`) for the depth channel.
 
-Beside `diagnostics_logger_->debug(`:
-
-Every opponent measurement as the estimator received it, in either mode, so a replay recording can be run back through the Python mirror offline.
-
-### `src/viz_relay/main.cpp`
-
-Beside `#include <arpa/inet.h>`:
-
-viz_relay: the process that owns the Foxglove WebSocket server. auto_battlebot connects over a unix socket and streams already-encoded messages; this process re-publishes them on ws://<host>:8765 with foxglove::WebSocketServer. Because the server lives here and not in the app, Foxglove stays connected across app restarts: channels are keyed by topic and reused when the app reconnects with the same schema, so panels never blink. It also latches: the last message on a topic advertised with latch=1 is re-sent whenever a new client subscribes, which is what lets Foxglove attach mid-run and still see the field border and inlier cloud that were published once at startup. It also serves the web dashboard (web/dist) over HTTP with Crow. Both servers live here because this process outlives app restarts: when the app crashes the page still loads and shows the app as down. Framing is in include/viz/frame.hpp; the layout is documented in docs/reference/recording/foxglove_recording_format.md.
-
-## Notes moved from code comments (2026-11-15)
-
-- `training/model_eval/export_camera_transforms.py`, `read_recording` (`above field_from_cameraworld.append((tf.stamp_ns, tf.matrix))`):
-  Recordings made before the edge moved carry it once on /tf_static; newer ones repeat it on /tf every cycle. Both land here.
-- `training/model_eval/export_camera_transforms.py`:
-
-  ```text
-  Export camera intrinsics and per-image camera->field transforms for the eval dataset.
-
-  Reads each sub dataset's `data.yaml` for its `source_mcap`, then writes alongside the
-  existing `images/` and `labels/` (neither is modified):
-
-      <sub-dataset>/camera_info.json                  intrinsics, constant over the recording
-      <sub-dataset>/camera_transforms/<stamp_ns>.json  one per image
-
-  The transform is `tf_field_from_camera`: multiply a point in the camera frame by it to get
-  that point in the field frame. It is the composition of two recorded transforms:
-
-      tf_field_from_camera = tf_field_from_cameraworld @ tf_cameraworld_from_camera
-
-  Both edges come from `/tf`, published once per frame the perception loop actually processed.
-  `field -> camera_world` only changes on a field re-init but is restamped every cycle, so the
-  applicable one is the latest at or before the image. Recordings made before that edge moved
-  carry it once on `/tf_static`; those are read the same way.
-
-  Frame association
-  -----------------
-  Dataset images are named by `/camera/image` header stamp, which the SVO recorder wrote.
-  `/tf` and `/camera/camera_info` carry the perception pipeline's own stamps, and the two
-  differ: a pipeline stamp lands roughly 0.4 to 0.9 of the way through the SVO frame interval
-  it belongs to, a stable sub-frame capture lag rather than clock skew. It never crosses an
-  interval boundary, so "the pipeline stamp inside [svo_stamp, next_svo_stamp)" identifies the
-  frame exactly. Each image and each `/tf` sample is resolved to a position in the
-  `/camera/image` stream that way, and the two are matched on that position. It is a position
-  within this mcap, not a .svo2 frame index; ZED_SVO_Editor drops a few frames per file, so the
-  two differ by a small offset. That offset is the same for both sides here, so it cancels.
-
-  The pipeline ran slower than the camera (~25 fps against 30 fps), so it skipped frames. For a
-  skipped frame no live transform was ever computed and the result is interpolated from the
-  neighbouring processed frames. Every image gets a file; the `method` field says which case it
-  was, so a consumer can filter on it:
-
-      exact         one processed frame owns this image's frame index
-      interpolated  frame was skipped; slerp/lerp between the nearest processed frames
-      ambiguous     two processed frames claim this index (only the 05-01 recording)
-      unavailable   no field frame yet, or no processed frame to interpolate from
-
-  Usage:
-      python training/model_eval/export_camera_transforms.py [--dataset-dir <dir>] [--dry-run]
-  ```
-
-- `auto_battlebot/recording/svo2.py`, `iter_left_jpegs`:
-  ffmpeg decodes the concatenated access units and re-encodes the cropped left half to MJPEG. Output
-  frames come out one-for-one with the messages fed in, so the Nth JPEG is SVO frame N
-  (`tests/python/test_svo2.py::test_left_jpegs_one_per_message`).
-  `-r` is passed because a raw elementary stream carries no timing. Without an input rate the mjpeg
-  encoder on the 22.04 ffmpeg (4.4) rejected the second frame with "Invalid pts (0) <= last (0)" and the
-  export stopped after a handful of frames. ffmpeg 6.1 does not reproduce that, so the test does not pin it.
-  ZED records intra-refresh H.264 with no IDR frames, so the first frames of a recording decode
-  partially until the refresh completes. They are emitted anyway to keep frame indices aligned with the
-  SVO. Close the iterator (`contextlib.closing`) if you stop early, so ffmpeg is torn down instead of
-  blocking on a full pipe.
-  `_iter_jpegs` splits the MJPEG stream on the SOI marker (`FFD8FF`). Entropy-coded data byte-stuffs
-  0xFF as `FF00`, so the marker only appears at the start of an image. An image carrying an EXIF
-  thumbnail would break this; ffmpeg's MJPEG output carries none.
-  (`tests/python/test_svo2.py::test_iter_jpegs_splits_on_soi_only`)
-
-- `training/svo_rgb_extract.py`:
-
-  ```text
-  Extract left/right RGB video from a ZED ``.svo2`` recording without the ZED SDK.
-
-  A ``.svo2`` file is an MCAP container holding H.264-encoded side-by-side stereo
-  frames on the ``<camera>/side_by_side`` topic. Each message is one access unit:
-  an 8-byte length prefix followed by an Annex-B H.264 stream. This script reads
-  those frames with the ``mcap`` library, crops the requested eye, and pipes the
-  raw H.264 straight into ffmpeg to write an MP4. No ``pyzed`` / CUDA required.
-
-  Depth is NOT available through this path. The ZED SDK computes depth from the
-  stereo pair on the device and it is not stored in the recording; use the SDK
-  (``svo_export.py``) if you need the depth channel.
-
-  Usage:
-      python training/svo_rgb_extract.py recording.svo2                 # left eye
-      python training/svo_rgb_extract.py recording.svo2 --channel 1     # right eye
-      python training/svo_rgb_extract.py a.svo2 b.svo2 --output out.mp4
-  ```
-
-- `training/video_mcap_extract.py`, `to_frames` (`above cv2.imwrite(str(out_dir / f"{index:06d}_{stamp_ns}.png"), image)`):
-  Index first so the filenames sort in capture order; the stamp is there so a frame can be tied back to the pipeline messages around it.
-- `training/video_mcap_extract.py`:
-
-  ```text
-  Extract the camera video from a pipeline recording, as MP4 or as still frames.
-
-  The video-MCAP counterpart to ``svo_rgb_extract.py``. A recording made with the RGB camera carries
-  one Annex-B H.264 access unit per frame on ``/camera/video``, in the same file as the pipeline
-  output, so there is no second file to find and no join to do. Frames come out pre-rectification,
-  which is what makes a revised lens calibration applicable to footage already shot.
-
-  The MP4 path pipes the raw access units straight into ffmpeg without decoding, which is fast and
-  lossless. The frames path decodes and writes PNGs, for labelling.
-
-  Usage:
-      venv/bin/python training/video_mcap_extract.py recording.mcap
-      venv/bin/python training/video_mcap_extract.py recording.mcap --frames out_dir/
-      venv/bin/python training/video_mcap_extract.py recording.mcap --frames out_dir/ --stride 10
-  ```
-
+```bash
+python training/svo_rgb_extract.py recording.svo2                  # left eye
+python training/svo_rgb_extract.py recording.svo2 --channel 1      # right eye
+python training/svo_rgb_extract.py a.svo2 b.svo2 --output out.mp4
+```
+
+`training/video_mcap_extract.py` is the counterpart for a pipeline recording made with the RGB camera. That recording carries one Annex-B H.264 access unit per frame on `/camera/video`, in the same file as the pipeline output, so there is no second file to find and no join to do. Frames come out pre-rectification, which is what lets a revised lens calibration apply to footage already shot.
+
+The MP4 path pipes the raw access units into ffmpeg without decoding, which is fast and lossless. The frames path decodes and writes PNGs for labelling. `to_frames()` names each file `<index>_<stamp_ns>.png`: the index first so filenames sort in capture order, and the stamp so a frame can be tied back to the pipeline messages around it.
+
+```bash
+venv/bin/python training/video_mcap_extract.py recording.mcap
+venv/bin/python training/video_mcap_extract.py recording.mcap --frames out_dir/
+venv/bin/python training/video_mcap_extract.py recording.mcap --frames out_dir/ --stride 10
+```
 
 ## Recording readers and exporters
 

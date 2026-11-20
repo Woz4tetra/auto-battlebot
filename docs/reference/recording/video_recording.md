@@ -11,6 +11,8 @@ Encoder settings for the H.264 recording written into the MCAP `/camera/video` c
 
 `VideoEncoder` owns the queue, the encode thread, and the pts to capture time map. Each `H264Backend` (FFmpeg or GStreamer) only turns frames into Annex-B access units. Every backend must put SPS/PPS in band ahead of every IDR and emit no B-frames, so a decoder can start at any IDR and the nth packet is the nth captured frame. `encode()` takes the frame by value so a backend can hand its memory to the encoder without a copy. `finish()` flushes: every frame `encode()` accepted reaches the sink before it returns. `tests/camera/test_h264_backend.cpp` pins these per backend.
 
+The GStreamer backend lets its `appsrc` hold 2 frames. Past that, `encode()` waits up to 1000 ms for the pipeline, then drops the frame. `VideoEncoder`'s own queue absorbs bursts, and a push into a stalled pipeline must not hang `stop()`. The pipeline carries 1920x1200 at 60 fps on the ZED Box, so this is a stall guard.
+
 `VideoEncoderOptions::queue_depth` (4) is how many frames the encoder may fall behind. At that depth `submit()` drops the frame and counts it in `dropped_frames()` instead of waiting on the encoder, because a wait from the perception loop would be a blocking call inside the latency budget. A counted drop is visible; a silent one is not.
 
 `submit()` returns the frame's index in the encode session, which is the position of its packet in `/camera/video` for that recording, or -1 when the frame was not taken (stopped, queue full, or broken). Cameras write that index into `frame_meta`. Only the encoder knows which frames became packets, so a counter kept anywhere else drifts at the first drop.

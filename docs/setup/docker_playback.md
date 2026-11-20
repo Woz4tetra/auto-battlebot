@@ -198,15 +198,6 @@ The SVO camera seeks to the last frame, grabs once, and reports `END OF SVO FILE
 video camera seeks past the end and exits. Both reject the config at startup instead. Pin the
 start frame to `0` in the overlay.
 
-## Notes moved from `src/` comments (2026-11-15)
-
-Each entry names the file and the code it described.
-
-### `src/rgbd_camera/zed_svo_playback_camera.cpp`
-
-Beside `if (!rebase_stamps_) {`:
-
-Both of these change what the replay measures, and neither shows up as an error. Say so at startup so a replay run is not read as if it reproduced field timing. Without rebasing, frame stamps stay on the recording's clock while the control loop reads the wall clock, so everything that compares the two degrades quietly: the filter's latency compensation holds every prediction instead of leading, and the pipeline latency diagnostic reports the age of the recording rather than the age of the frame.
 ## Compose file reference
 
 Each choice in `docker/docker-compose.playback.yml`:

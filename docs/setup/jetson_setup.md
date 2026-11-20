@@ -137,6 +137,10 @@ A TensorRT engine is compiled ahead of time against one GPU architecture and one
 
 Jetson power telemetry reads the INA3221 VDD_IN rail and the soctherm over-current event counters. Paths are discovered once by hwmon name because indices shift across boots; empty means unavailable.
 
+The INA3221 channel labeled VDD_IN is the module input rail. Its channel number is board-specific, so the logger scans channels 1 to 7 for the label.
+
+The soctherm counters are OC1 (under-voltage), OC2 (VDD_IN average power over limit) and OC3 (VDD_IN instant power over peak). Each event throttles clocks, so a nonzero delta means the supply hit a hardware limit since the last sample. The INA3221 samples too slowly to see these transients, so the latched counters are the only reliable signal.
+
 ## Runtime state location
 
 The Wi-Fi access state file is `$HOME/.local/state/auto_battlebot/wifi_access`. It lives under `$HOME`, not `config/`, because a deploy overwrites the repo tree.
@@ -155,34 +159,6 @@ The Wi-Fi access state file is `$HOME/.local/state/auto_battlebot/wifi_access`. 
 `PinnedMatAllocator` backs a `cv::Mat` with pinned, device-mapped host memory so `GpuLetterbox` reads a frame in place instead of copying it to the GPU. Set it on the destination Mat before the conversion that fills it (`frame.allocator = PinnedMatAllocator::instance();`). Pinning is slow because it locks pages, so released buffers go back to a pool keyed by size and the next frame reuses one. On Orin, pinned memory stays CPU-cached and I/O coherent, so the CPU writes into it at full speed. With no CUDA device, or when a pinned allocation fails, it falls back to OpenCV's standard allocator and the frame takes the copy path. The pool keeps 16 free buffers per size: a frame lives about ten ticks between the pipeline and the publisher queue, so this covers steady state without pinning memory forever.
 
 GPU letterbox: a frame in pinned host memory is read in place. The Orin's GPU and CPU share DRAM, so the kernel fetches only the source pixels it samples. Anything else (a playback frame, a camera without the pinned allocator) is copied to a device staging buffer first.
-
-## Notes moved from `src/` comments (2026-11-15)
-
-Each entry names the file and the code it described.
-
-### `src/health/health_logger.cpp`
-
-Beside `for (int channel = 1; channel <= 7; ++channel) {`:
-
-Find the channel labeled VDD_IN (module input rail); the channel number is board-specific.
-
-### `src/health/health_logger.cpp`
-
-Beside `bool have_all_counts = true;`:
-
-OC1 = under-voltage, OC2 = VDD_IN average power over limit, OC3 = VDD_IN instant power over peak. Each event throttles clocks, so a nonzero delta means the supply hit a hardware limit since the last sample. The INA3221 samples too slowly to see these transients; the latched counters are the only reliable signal.
-
-### `src/main.cpp`
-
-Beside `std::string read_build_version() {`:
-
-The build version stamped next to the executable by the generate_git_version target (see cmake/git_version.cmake). Kept out of the binary so a new commit only rewrites the text file instead of forcing a recompile and relink.
-
-### `src/rgbd_camera/gst_h264_backend.cpp`
-
-Beside `#include <gst/app/gstappsink.h>`:
-
-H.264 through GStreamer. nvv4l2h264enc is the Jetson's hardware encoder, which FFmpeg cannot reach on stock L4T. x264enc is the software encoder for the dashboard preview on a Jetson with no NVENC (the Orin Nano), where NVIDIA's FFmpeg build has no libx264. Built only when pkg-config finds gstreamer-app-1.0 (AUTO_BATTLEBOT_HAVE_GSTREAMER).
 
 ## Deploying with deploy_to_jetson.sh
 
@@ -221,7 +197,7 @@ The service keeps UI state (`selected_profile`, `wifi_access`) in `~/.local/stat
 
 ### GStreamer
 
-`CMakeLists.txt` finds GStreamer because it reaches the Jetson's hardware encoder (`nvv4l2h264enc`), which stock L4T FFmpeg cannot: its `h264_nvenc` needs `libnvidia-encode`, which no Jetson has. It is optional, so the desktop builds without the dev packages. A Jetson recording video needs it (`install/jetson_packages.txt`).
+`CMakeLists.txt` finds GStreamer because it reaches the Jetson's hardware encoder (`nvv4l2h264enc`), which stock L4T FFmpeg cannot: its `h264_nvenc` needs `libnvidia-encode`, which no Jetson has. It is optional, so the desktop builds without the dev packages. A Jetson recording video needs it (`install/jetson_packages.txt`). `x264enc` is the software encoder for the dashboard preview on a Jetson with no NVENC (the Orin Nano), where NVIDIA's FFmpeg build has no libx264. The backend builds only when pkg-config finds `gstreamer-app-1.0` (`AUTO_BATTLEBOT_HAVE_GSTREAMER`).
 
 ### CUDA architectures
 
