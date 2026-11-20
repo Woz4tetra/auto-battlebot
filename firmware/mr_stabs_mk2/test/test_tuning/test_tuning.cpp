@@ -58,6 +58,16 @@ TEST(Tuning, SetValidates) {
     EXPECT_FALSE(set(s, "left_deadzone", 51.0f));
 }
 
+TEST(Tuning, StoredOutOfRangeValueIsRejectedAndTheDefaultSurvives) {
+    Settings loaded;
+    const float default_kp = loaded.yaw.kp;
+    EXPECT_FALSE(set(loaded, "kp", 1e9f));
+    EXPECT_FALSE(set(loaded, "left_deadzone", -3.0f));
+    EXPECT_FALSE(set(loaded, "kp", NAN));
+    EXPECT_EQ(loaded.yaw.kp, default_kp);
+    EXPECT_EQ(loaded.left_deadzone, Settings().left_deadzone);
+}
+
 int main(int argc, char **argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

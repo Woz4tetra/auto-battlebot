@@ -130,6 +130,35 @@ TEST(BuildPacket, BidirectionalCrcIsInvertedNibbleXor) {
     EXPECT_EQ(erpm_decode::build_packet(48, true), 0x0618);
 }
 
+namespace {
+const uint32_t kGapTicks = 480;
+const size_t kStartTries = 3;
+
+std::vector<uint32_t> capture(const std::vector<uint32_t> &prefix) {
+    std::vector<uint32_t> runs = prefix;
+    const std::vector<uint32_t> reply =
+        runs_for(reply_bits(payload_for_period(kFullSpeedPeriodUs)), 500);
+    runs.insert(runs.end(), reply.begin(), reply.end());
+    return runs;
+}
+
+bool decode_prefixed(const std::vector<uint32_t> &prefix, size_t start_tries) {
+    const std::vector<uint32_t> runs = capture(prefix);
+    uint32_t erpm = 0;
+    return erpm_decode::decode_capture(runs.data(), runs.size(), true, kGapTicks, start_tries,
+                                       kReplyBitTicksDshot300, erpm);
+}
+}  // namespace
+
+TEST(DecodeCapture, SkipsTheNeighbouringFrameBeforeTheGap) {
+    EXPECT_TRUE(decode_prefixed({60, 70, 80, 90, 100, 2 * kGapTicks}, kStartTries));
+}
+
+TEST(DecodeCapture, TriesSeveralLowRunsAfterTheGapForTheReplyStart) {
+    EXPECT_TRUE(decode_prefixed({60, 2 * kGapTicks, 30, 40}, kStartTries));
+    EXPECT_FALSE(decode_prefixed({60, 2 * kGapTicks, 30, 40}, 1));
+}
+
 int main(int argc, char **argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

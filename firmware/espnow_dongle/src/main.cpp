@@ -5,6 +5,7 @@
 #include <esp_wifi.h>
 #include <espnow_protocol.h>
 #include <hal/usb_serial_jtag_ll.h>
+#include <send_gate.h>
 
 using namespace espnow_protocol;
 
@@ -44,13 +45,12 @@ uint8_t robot_mac[6];
 bool robot_known = false;
 uint8_t channel = 0;
 
-volatile bool send_in_flight = false;
+SendGate send_gate(SEND_CALLBACK_TIMEOUT_MS);
 volatile uint32_t sent_count = 0;
 volatile uint32_t acked_count = 0;
 volatile uint32_t failed_count = 0;
 volatile uint32_t last_unicast_rtt_us = 0;
 uint32_t send_started_us = 0;
-uint32_t send_started_ms = 0;
 uint32_t last_send_ms = 0;
 uint32_t last_stats_ms = 0;
 
@@ -74,7 +74,7 @@ void on_sent(const uint8_t *mac, esp_now_send_status_t status) {
     } else {
         failed_count = failed_count + 1;
     }
-    send_in_flight = false;
+    send_gate.complete();
 }
 
 void on_recv(const uint8_t *mac, const uint8_t *data, int length) {
@@ -142,7 +142,7 @@ void add_peer(const uint8_t *mac) {
 void write_serial_frame(uint8_t type, const uint8_t *payload, uint8_t length) {
     uint8_t out[SERIAL_MAX_FRAME];
     const size_t size = encode_serial_frame(type, payload, length, out);
-    if (Serial.availableForWrite() >= static_cast<int>(size)) {
+    if (usb_tx_action(Serial.availableForWrite(), size) == UsbTxAction::WRITE) {
         Serial.write(out, size);
         return;
     }
@@ -173,11 +173,9 @@ void on_serial_frame(void *context, uint8_t type, const uint8_t *payload, uint8_
 }
 
 void service_radio() {
-    if (send_in_flight) {
-        if (millis() - send_started_ms < SEND_CALLBACK_TIMEOUT_MS) return;
-        send_in_flight = false;
-        failed_count = failed_count + 1;
-    }
+    const SendPoll poll = send_gate.poll(millis());
+    if (poll == SendPoll::BUSY) return;
+    if (poll == SendPoll::CALLBACK_LOST) failed_count = failed_count + 1;
 
     const uint8_t *data;
     size_t length;
@@ -201,12 +199,11 @@ void service_radio() {
 
     const uint8_t *dest = robot_known ? robot_mac : BROADCAST_MAC;
     send_started_us = micros();
-    send_started_ms = millis();
-    send_in_flight = true;
+    send_gate.start(millis());
     if (esp_now_send(dest, data, length) == ESP_OK) {
         sent_count = sent_count + 1;
     } else {
-        send_in_flight = false;
+        send_gate.complete();
         failed_count = failed_count + 1;
     }
 }

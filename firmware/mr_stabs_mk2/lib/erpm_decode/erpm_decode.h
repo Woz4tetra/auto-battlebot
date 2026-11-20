@@ -93,4 +93,21 @@ inline bool decode_measured(const uint32_t *runs, size_t count, float nominal_ti
     return decode(runs, count, measured_bit_ticks(runs, count, nominal_ticks), erpm);
 }
 
+inline bool decode_capture(const uint32_t *runs, size_t count, bool starts_low, uint32_t gap_ticks,
+                           size_t start_tries, float nominal_ticks, uint32_t &erpm) {
+    size_t from = 0;
+    for (size_t i = starts_low ? 1 : 0; i < count; i += 2) {
+        if (runs[i] >= gap_ticks && i + 1 < count) {
+            from = i + 1;
+            break;
+        }
+    }
+    if (from == 0 && !starts_low) from = 1;
+    for (size_t first = from, tries = 0; first < count && tries < start_tries;
+         first += 2, tries++) {
+        if (decode_measured(runs + first, count - first, nominal_ticks, erpm)) return true;
+    }
+    return false;
+}
+
 }  // namespace erpm_decode

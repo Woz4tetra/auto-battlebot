@@ -35,7 +35,6 @@
 
 ## Workarounds
 
-- Dongle send timeout: `service_radio()` in `firmware/espnow_dongle/src/main.cpp` clears the in-flight send and counts a failure after `SEND_CALLBACK_TIMEOUT_MS` (50 ms) without `on_sent`. A send callback that never arrives would wedge the queue. ESP-NOW reports every send within a few ms, so this only covers a driver hiccup. That the driver drops callbacks is unverified.
 - Dongle USB re-arm: HWCDC's ISR disables the `IN_EMPTY` interrupt each time it fires, and only `Serial.write()` turns it back on. Skipping `write()` while the buffer is full leaves it off for good once the host stops reading, and after a USB reset nothing drains the buffer again, so the dongle goes silent until power cycled. The dongle re-arms the interrupt the way `write()` does. `HWCDC.cpp:129` disables it in the ISR and `write()` re-enables it at 437 and 456. The silence was not reproduced.
 - Diagnostics web page (`firmware/espnow_dongle/scripts/espnow_diag_web/app.js`): Space sets neutral wherever focus is. The handlers run in the capture phase on both key events, so a focused button or slider never also acts on Space. A hidden tab may stop running timers, so the page drops to neutral on `visibilitychange` instead of relying on the server deadman (`COMMAND_DEADMAN_S` in `espnow_diag.py`).
 - Channel change: after every channel change `espnow_link.cpp` re-adds the paired peers and resets the ESP-NOW rate to 6 Mbps, because peers and the rate do not survive `esp_wifi_set_channel`. Unverified.

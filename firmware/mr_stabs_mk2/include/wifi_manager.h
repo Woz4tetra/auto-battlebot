@@ -3,23 +3,12 @@
 #include <Arduino.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
+#include <wifi_types.h>
 
 namespace wifi_manager {
 
-const size_t MAX_NETWORKS = 8;
-const size_t SSID_LEN = 32;
 const size_t PASSWORD_LEN = 63;
 const uint32_t CONNECT_TIMEOUT_MS = 30000;
-
-enum class link_mode_t : uint8_t { AP = 0, CLIENT = 1 };
-
-enum class link_state_t : uint8_t {
-    AP,
-    CONNECTING,
-    CONNECTED,
-    RECONNECTING,
-    FALLBACK_AP,
-};
 
 struct network_t {
     char ssid[SSID_LEN + 1];
@@ -31,20 +20,6 @@ struct settings_t {
     char selected[SSID_LEN + 1];
     uint8_t count;
     network_t networks[MAX_NETWORKS];
-};
-
-struct snapshot_t {
-    link_mode_t mode;
-    link_state_t state;
-    bool forced_ap;
-    char selected[SSID_LEN + 1];
-    uint8_t count;
-    char networks[MAX_NETWORKS][SSID_LEN + 1];
-    char joining_ssid[SSID_LEN + 1];
-    char ip[16];
-    int8_t rssi;
-    uint32_t connect_ms_left;
-    uint8_t stations;
 };
 
 class WifiManager {

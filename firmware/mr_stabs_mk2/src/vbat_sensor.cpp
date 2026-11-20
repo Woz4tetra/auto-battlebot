@@ -23,17 +23,18 @@ bool VbatSensor::begin(TwoWire *wire_bus) {
     sample_timer_us = micros() - SAMPLE_INTERVAL_US;
 
     uint16_t device_id = 0;
-    present = read_register(REG_DEVICE_ID, &device_id) && ina238_id::is_ina238(device_id);
+    present = ina238_id::begin_sequence(
+        [this](uint16_t *id) { return read_register(REG_DEVICE_ID, id); },
+        [this]() {
+            wire->beginTransmission(INA238_ADDRESS);
+            wire->write(REG_ADC_CONFIG);
+            wire->write((uint8_t)(ADC_CONFIG_VALUE >> 8));
+            wire->write((uint8_t)(ADC_CONFIG_VALUE & 0xFF));
+            status.last_error = i2c_status_from_wire(wire->endTransmission());
+            return status.last_error == I2C_OK;
+        },
+        device_id);
     status.device_id = device_id;
-    status.present = present;
-    if (!present) return false;
-
-    wire->beginTransmission(INA238_ADDRESS);
-    wire->write(REG_ADC_CONFIG);
-    wire->write((uint8_t)(ADC_CONFIG_VALUE >> 8));
-    wire->write((uint8_t)(ADC_CONFIG_VALUE & 0xFF));
-    status.last_error = i2c_status_from_wire(wire->endTransmission());
-    present = status.last_error == I2C_OK;
     status.present = present;
     return present;
 }

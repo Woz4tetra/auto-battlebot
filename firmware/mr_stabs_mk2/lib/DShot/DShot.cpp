@@ -172,18 +172,10 @@ void DShot::collect_reply() {
         }
         if (last_level == 0 && count < MAX_RUNS) runs[count++] = 0;
         vRingbufferReturnItem(_rx_ring, items);
-        size_t from = 0;
-        for (size_t i = starts_low ? 1 : 0; i < count; i += 2) {
-            if (runs[i] >= GAP_TICKS && i + 1 < count) {
-                from = i + 1;
-                break;
-            }
-        }
-        if (from == 0 && !starts_low) from = 1;
-        for (size_t first = from, tries = 0; !_reply_ok && first < count && tries < START_TRIES;
-             first += 2, tries++) {
+        if (!_reply_ok) {
             uint32_t erpm = 0;
-            if (erpm_decode::decode_measured(runs + first, count - first, _reply_bit_ticks, erpm)) {
+            if (erpm_decode::decode_capture(runs, count, starts_low, GAP_TICKS, START_TRIES,
+                                            _reply_bit_ticks, erpm)) {
                 _erpm = erpm;
                 _reply_ok = true;
             }

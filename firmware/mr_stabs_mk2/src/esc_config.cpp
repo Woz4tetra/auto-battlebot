@@ -1,3 +1,4 @@
+#include <armed_guard.h>
 #include <driver/gpio.h>
 #include <driver/uart.h>
 #include <esc_config.h>
@@ -240,19 +241,23 @@ void EscConfig::update(uint32_t now_ms, bool armed, bool driving, bool button_pr
     switch (_state) {
         case State::COMBAT:
             if (requested != Request::ENTER) return;
-            if (now_ms - _combat_since_ms < REENTRY_MS) {
-                portENTER_CRITICAL(&_mux);
-                if (_guarded.requested == Request::NONE) _guarded.requested = Request::ENTER;
-                portEXIT_CRITICAL(&_mux);
-                set_error("ESCs still starting up: tuning mode follows in a moment");
-                return;
-            }
-            if (armed) {
-                set_error("armed: disarm to enter tuning mode");
-            } else if (driving) {
-                set_error("ESP-NOW is driving: stop it to enter tuning mode");
-            } else {
-                enter(now_ms);
+            switch (
+                armed_guard::enter_decision(now_ms, _combat_since_ms, REENTRY_MS, armed, driving)) {
+                case armed_guard::EnterDecision::WAIT_STARTUP:
+                    portENTER_CRITICAL(&_mux);
+                    if (_guarded.requested == Request::NONE) _guarded.requested = Request::ENTER;
+                    portEXIT_CRITICAL(&_mux);
+                    set_error("ESCs still starting up: tuning mode follows in a moment");
+                    break;
+                case armed_guard::EnterDecision::REFUSE_ARMED:
+                    set_error("armed: disarm to enter tuning mode");
+                    break;
+                case armed_guard::EnterDecision::REFUSE_DRIVING:
+                    set_error("ESP-NOW is driving: stop it to enter tuning mode");
+                    break;
+                case armed_guard::EnterDecision::ENTER:
+                    enter(now_ms);
+                    break;
             }
             return;
 

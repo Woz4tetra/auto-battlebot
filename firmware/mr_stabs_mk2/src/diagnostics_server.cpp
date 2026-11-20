@@ -3,6 +3,7 @@
 #include <ArduinoJson.h>
 #include <ESPAsyncWebServer.h>
 #include <WiFi.h>
+#include <armed_guard.h>
 #include <tuning_store.h>
 #include <web_assets.h>
 
@@ -308,8 +309,11 @@ static void setup_esc_routes(AsyncWebServer &server, esc_config::EscConfig *esc,
         if (enter != "0" && enter != "1") {
             return request->send(400, "text/plain", "enter must be 0 or 1");
         }
-        if (enter == "1" && *armed) {
-            return request->send(409, "text/plain", "disarm to enter tuning mode");
+        if (enter == "1") {
+            if (const char *refused =
+                    armed_guard::refusal(armed_guard::Write::ESC_TUNING, *armed)) {
+                return request->send(409, "text/plain", refused);
+            }
         }
         esc->request(enter == "1");
         request->send(200, "text/plain", "queued");
@@ -387,7 +391,9 @@ void DiagnosticsServer::begin(wifi_manager::WifiManager *wifi, const telemetry_r
     });
 
     server.on("/wifi/network", HTTP_POST, [this](AsyncWebServerRequest *request) {
-        if (_armed) return request->send(409, "text/plain", "disarm to change WiFi settings");
+        if (const char *refused = armed_guard::refusal(armed_guard::Write::WIFI_SETTINGS, _armed)) {
+            return request->send(409, "text/plain", refused);
+        }
         String error;
         if (!_wifi->save_network(body_param(request, "ssid").c_str(),
                                  body_param(request, "password").c_str(), error)) {
@@ -397,7 +403,9 @@ void DiagnosticsServer::begin(wifi_manager::WifiManager *wifi, const telemetry_r
     });
 
     server.on("/wifi/network/delete", HTTP_POST, [this](AsyncWebServerRequest *request) {
-        if (_armed) return request->send(409, "text/plain", "disarm to change WiFi settings");
+        if (const char *refused = armed_guard::refusal(armed_guard::Write::WIFI_SETTINGS, _armed)) {
+            return request->send(409, "text/plain", refused);
+        }
         String error;
         if (!_wifi->delete_network(body_param(request, "ssid").c_str(), error)) {
             return request->send(400, "text/plain", error);
@@ -406,7 +414,9 @@ void DiagnosticsServer::begin(wifi_manager::WifiManager *wifi, const telemetry_r
     });
 
     server.on("/wifi/config", HTTP_POST, [this](AsyncWebServerRequest *request) {
-        if (_armed) return request->send(409, "text/plain", "disarm to change WiFi settings");
+        if (const char *refused = armed_guard::refusal(armed_guard::Write::WIFI_SETTINGS, _armed)) {
+            return request->send(409, "text/plain", refused);
+        }
         const String mode = body_param(request, "mode");
         if (mode != "ap" && mode != "client") {
             return request->send(400, "text/plain", "mode must be ap or client");
@@ -472,7 +482,9 @@ void DiagnosticsServer::begin(wifi_manager::WifiManager *wifi, const telemetry_r
     for (const char *path : {"/espnow/pair", "/espnow/unpair"}) {
         const PairOp op = strcmp(path, "/espnow/pair") == 0 ? PairOp::PAIR : PairOp::UNPAIR;
         server.on(path, HTTP_POST, [this, op](AsyncWebServerRequest *request) {
-            if (_armed) return request->send(409, "text/plain", "disarm to change dongles");
+            if (const char *refused = armed_guard::refusal(armed_guard::Write::DONGLES, _armed)) {
+                return request->send(409, "text/plain", refused);
+            }
             pair_request_t req = {};
             req.op = op;
             if (!parse_mac(body_param(request, "mac"), req.mac)) {
@@ -486,7 +498,9 @@ void DiagnosticsServer::begin(wifi_manager::WifiManager *wifi, const telemetry_r
     }
 
     server.on("/crash/erase", HTTP_POST, [this](AsyncWebServerRequest *request) {
-        if (_armed) return request->send(409, "text/plain", "disarm to erase the dump");
+        if (const char *refused = armed_guard::refusal(armed_guard::Write::CRASH_DUMP, _armed)) {
+            return request->send(409, "text/plain", refused);
+        }
         _erase_dump_request.post();
         request->send(200, "text/plain", "queued");
     });
