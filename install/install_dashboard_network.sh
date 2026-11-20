@@ -6,7 +6,7 @@ Serve the web dashboard at http://<hostname>.local over the Ethernet cable.
 The box keeps the hostname it already has; this script never renames it.
 See docs/setup/dashboard_network.md for the addressing and firewall design.
 
-Usage (also sourced by scripts/install_jetson.sh):
+Usage (also sourced by scripts/install_handheld_autonomy.sh and scripts/install_zed_box.sh):
   install/install_dashboard_network.sh [--interface <dev>] [--wifi-interface <dev>]
                                        [--tailscale-interface <dev>] [--allow-all-interfaces]
 

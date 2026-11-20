@@ -162,7 +162,9 @@ pinned, see [docs/setup/docker_playback.md](docs/setup/docker_playback.md). That
 and covers playback, not deployment.
 
 To install the core application, run one of:
-- `scripts/install_jetson.sh`
+- `scripts/install_handheld_autonomy.sh`
+- `scripts/install_zed_box.sh`
+- `scripts/install_jetson_ci.sh`
 - `scripts/install_ubuntu_22.sh`
 - `scripts/install_ubuntu_24.sh`
 

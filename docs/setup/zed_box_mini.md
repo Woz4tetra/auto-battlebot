@@ -74,7 +74,7 @@ The install scripts branch on the L4T major (`/etc/nv_tegra_release`):
 Use wired Ethernet for the install.
 
 ```bash
-./scripts/install_jetson.sh
+./scripts/install_zed_box.sh
 ./scripts/build.sh
 sudo nvpmodel -m 0                     # MAXN
 ```

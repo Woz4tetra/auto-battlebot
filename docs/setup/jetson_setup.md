@@ -217,7 +217,7 @@ The service keeps UI state (`selected_profile`, `wifi_access`) in `~/.local/stat
 
 ### Python environment
 
-A venv built against a different Python minor cannot be reused. Its `lib/pythonX.Y/` tree, the TensorRT `.pth`, and the CUDA block appended to `bin/activate` all encode the old version, and the append is guarded by a grep that will not rewrite it. A JetPack 6 to 7 upgrade in place hits this, where `install_jetson.sh` passes `--no-recreate`, so `install/install_python_environment.sh` recreates the venv when the minor differs.
+A venv built against a different Python minor cannot be reused. Its `lib/pythonX.Y/` tree, the TensorRT `.pth`, and the CUDA block appended to `bin/activate` all encode the old version, and the append is guarded by a grep that will not rewrite it. A JetPack 6 to 7 upgrade in place hits this, where `install_handheld_autonomy.sh` passes `--no-recreate`, so `install/install_python_environment.sh` recreates the venv when the minor differs.
 
 The venv `activate` script gets a `LD_LIBRARY_PATH` block because the host sets the CUDA and cuDNN paths in `LD_LIBRARY_PATH` and the venv does not. Without it, `torch.cuda.is_available()` is false in the venv.
 
