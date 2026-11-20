@@ -270,5 +270,63 @@ TEST_F(OpenTxTransmitterTest, ReEnablingStartsFromStandstill) {
     EXPECT_EQ(*resumed, 0) << "re-enabling slewed down from the command sent before disable";
 }
 
+TEST_F(OpenTxTransmitterTest, StreamingFramesKeepThePortOpenWithoutReprime) {
+    build(button_config());
+    ASSERT_TRUE(transmitter_->initialize());
+    read_master();
+
+    for (int i = 0; i < 3; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(400));
+        feed(kReleased, kReleased);
+    }
+    const std::string text = read_master();
+    EXPECT_EQ(text.find("telemetry on"), std::string::npos) << "a live stream was reopened";
+}
+
+TEST_F(OpenTxTransmitterTest, DisabledTransmitterStillReceivesAndWritesNoTrainerCommands) {
+    build(button_config());
+    ASSERT_TRUE(transmitter_->initialize());
+    read_master();
+
+    feed(kPressed, kPressed);
+    EXPECT_TRUE(transmitter_->get_status().receiving_channels);
+    EXPECT_TRUE(transmitter_->get_status().autonomy_switch_on);
+    EXPECT_TRUE(transmitter_->did_init_button_press());
+
+    transmitter_->send({1.0, 0.0, 0.0});
+    EXPECT_EQ(read_master().find("trainer"), std::string::npos) << "wrote while disabled";
+
+    transmitter_->enable();
+    transmitter_->send({1.0, 0.0, 0.0});
+    EXPECT_NE(read_master().find("trainer"), std::string::npos);
+
+    transmitter_->disable();
+    transmitter_->send({1.0, 0.0, 0.0});
+    EXPECT_EQ(read_master().find("trainer"), std::string::npos) << "wrote after disable";
+    feed(kReleased, kPressed);
+    EXPECT_TRUE(transmitter_->get_status().receiving_channels);
+}
+
+TEST_F(OpenTxTransmitterTest, UnchangedSwitchStatesAreNotRestamped) {
+    build(button_config());
+    ASSERT_TRUE(transmitter_->initialize());
+
+    const auto age_ms = []() {
+        const auto snapshots = DiagnosticsLogger::get_logger("opentx_transmitter")->get_snapshots();
+        const auto found = std::find_if(snapshots.begin(), snapshots.end(), [](const auto &s) {
+            return s.subsection == "switch_states";
+        });
+        return found == snapshots.end() ? -1.0 : found->ms_since_last_logged;
+    };
+
+    feed(kReleased, kReleased);
+    std::this_thread::sleep_for(std::chrono::milliseconds(80));
+    feed(kReleased, kReleased);
+    EXPECT_GE(age_ms(), 60.0) << "an unchanged frame restamped the section";
+
+    feed(kReleased, kPressed);
+    EXPECT_LT(age_ms(), 40.0) << "a changed switch did not restamp the section";
+}
+
 }  // namespace
 }  // namespace auto_battlebot

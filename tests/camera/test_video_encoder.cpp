@@ -1,7 +1,9 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <condition_variable>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <thread>
 #include <vector>
@@ -14,12 +16,33 @@ namespace {
 
 constexpr int kKeyframeIntervalLongerThanTest = 1000;
 
+class EncodeGate {
+   public:
+    void open() {
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            open_ = true;
+        }
+        cv_.notify_all();
+    }
+    void wait() {
+        std::unique_lock<std::mutex> lock(mutex_);
+        cv_.wait(lock, [this] { return open_; });
+    }
+
+   private:
+    std::mutex mutex_;
+    std::condition_variable cv_;
+    bool open_ = false;
+};
+
 class OneBytePerFrameBackendRefusingPts : public H264Backend {
    public:
-    OneBytePerFrameBackendRefusingPts(VideoEncoder::BackendSink sink, int64_t refuse_pts)
-        : sink_(std::move(sink)), refuse_pts_(refuse_pts) {}
+    OneBytePerFrameBackendRefusingPts(VideoEncoder::BackendSink sink, int64_t refuse_pts,
+                                      std::shared_ptr<EncodeGate> gate)
+        : sink_(std::move(sink)), refuse_pts_(refuse_pts), gate_(std::move(gate)) {}
     bool encode(cv::Mat, int64_t pts, bool) override {
-        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        if (gate_) gate_->wait();
         if (pts == refuse_pts_) return false;
         const std::byte byte{0};
         sink_(&byte, 1, pts, pts == 0);
@@ -31,6 +54,7 @@ class OneBytePerFrameBackendRefusingPts : public H264Backend {
    private:
     VideoEncoder::BackendSink sink_;
     int64_t refuse_pts_;
+    std::shared_ptr<EncodeGate> gate_;
     std::string name_ = "refusing";
 };
 
@@ -262,9 +286,10 @@ TEST(VideoEncoderTest, KeyframeRequestAppliesToTheNextSubmittedFrameNotAQueuedOn
     }
 }
 
-auto refuse_at(int64_t pts) {
-    return [pts](const VideoEncoderOptions &, VideoEncoder::BackendSink backend_sink) {
-        return std::make_unique<OneBytePerFrameBackendRefusingPts>(std::move(backend_sink), pts);
+auto refuse_at(int64_t pts, std::shared_ptr<EncodeGate> gate = nullptr) {
+    return [pts, gate](const VideoEncoderOptions &, VideoEncoder::BackendSink backend_sink) {
+        return std::make_unique<OneBytePerFrameBackendRefusingPts>(std::move(backend_sink), pts,
+                                                                   gate);
     };
 }
 
@@ -280,11 +305,14 @@ TEST(VideoEncoderTest, RefusedFrameStopsTheSessionInsteadOfShiftingIndices) {
         packet_times.push_back(log_time_ns);
     };
     VideoEncoder encoder;
-    ASSERT_TRUE(encoder.start(options, sink, refuse_at(3)));
+    const auto gate = std::make_shared<EncodeGate>();
+    ASSERT_TRUE(encoder.start(options, sink, refuse_at(3, gate)));
     std::vector<int64_t> indices;
     for (uint64_t t = 1; t <= 20; ++t) {
         indices.push_back(encoder.submit(cv::Mat(24, 32, CV_8UC3, cv::Scalar::all(0)), t));
     }
+    EXPECT_FALSE(encoder.broken()) << "the encoder finished before the frames were queued";
+    gate->open();
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
     while (!encoder.broken() && std::chrono::steady_clock::now() < deadline) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));

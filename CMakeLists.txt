@@ -376,6 +376,7 @@ add_dependencies(auto_battlebot generate_git_version)
 
 add_executable(viz_relay
     src/viz_relay/main.cpp
+    src/viz/relay_app_link.cpp
 )
 target_include_directories(viz_relay PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_include_directories(viz_relay SYSTEM PRIVATE

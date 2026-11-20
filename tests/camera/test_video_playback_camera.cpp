@@ -262,8 +262,7 @@ TEST_F(VideoPlaybackCameraTest, ReachesTheEndOfTheRecording) {
         ++frames;
     }
     EXPECT_TRUE(camera.should_close());
-    EXPECT_GE(frames, kFrames - 2);
-    EXPECT_LE(frames, kFrames);
+    EXPECT_EQ(frames, kFrames);
     EXPECT_EQ(camera.recorded_calibration_id(), kCalibrationId);
 }
 

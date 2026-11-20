@@ -4,6 +4,7 @@
 #include <opencv2/core.hpp>
 #include <vector>
 
+#include "viz/full_range_i420.hpp"
 #include "viz/jpeg_encoder.hpp"
 #include "viz/nvjpg_plugin.h"
 
@@ -32,9 +33,7 @@ class NvjpgJpegEncoder : public JpegEncoderInterface {
 
     const Plugin &plugin_;
     void *encoder_;
-    cv::Mat ycrcb_;
-    std::vector<cv::Mat> planes_;
-    cv::Mat i420_;
+    FullRangeI420Converter converter_;
 };
 
 }  // namespace auto_battlebot

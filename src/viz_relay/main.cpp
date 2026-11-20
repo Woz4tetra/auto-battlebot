@@ -34,13 +34,12 @@
 
 #include "host/dashboard_network.hpp"
 #include "viz/frame.hpp"
+#include "viz/relay_app_link.hpp"
 #include "viz/static_files.hpp"
 
 namespace {
 
 std::atomic<bool> g_stop{false};
-constexpr std::chrono::seconds kShutdownDeadline{2};
-constexpr size_t kMaxAppOutBytes = 1u << 20;
 void handle_signal(int) { g_stop.store(true); }
 
 struct RelayChannel {
@@ -240,12 +239,20 @@ class SdkEventQueue {
 class Relay {
    public:
     Relay(std::string socket_path, std::string host, uint16_t port, uint16_t http_port,
-          std::filesystem::path web_root)
+          std::filesystem::path web_root, std::chrono::seconds shutdown_deadline)
         : socket_path_(std::move(socket_path)),
           host_(std::move(host)),
           port_(port),
           http_port_(http_port),
-          web_root_(std::move(web_root)) {}
+          web_root_(std::move(web_root)),
+          shutdown_deadline_(shutdown_deadline),
+          link_(socket_path_, {},
+                {
+                    .on_frame = [this](const std::byte* body,
+                                       size_t len) { handle_frame(body, len); },
+                    .on_connected = [this] { app_connected_.store(true); },
+                    .on_disconnected = [this] { on_app_disconnected(); },
+                }) {}
 
     int run() {
         context_ = foxglove::Context::create();
@@ -291,27 +298,26 @@ class Relay {
             if (!http_->start(host_, http_port_)) http_.reset();
         }
 
-        if (!open_listener()) return 1;
+        if (!link_.open_listener()) return 1;
         spdlog::info("Waiting for auto_battlebot on {}", socket_path_);
 
         while (!g_stop.load()) {
-            poll_once();
+            link_.poll_once(20);
             process_subscription_events();
             forward_client_messages();
         }
 
         spdlog::info("Shutting down");
-        std::thread([] {
-            std::this_thread::sleep_for(kShutdownDeadline);
-            spdlog::warn("Shutdown still waiting on a client after {} s; exiting anyway",
-                         kShutdownDeadline.count());
-            spdlog::default_logger()->flush();
-            std::_Exit(0);
-        }).detach();
+        auto_battlebot::viz::ShutdownWatchdog::arm(
+            std::chrono::duration_cast<std::chrono::milliseconds>(shutdown_deadline_), [this] {
+                spdlog::warn("Shutdown still waiting on a client after {} s; exiting anyway",
+                             shutdown_deadline_.count());
+                spdlog::default_logger()->flush();
+                std::_Exit(0);
+            });
         if (http_) http_->stop();
-        close_app();
-        if (listen_fd_ >= 0) ::close(listen_fd_);
-        ::unlink(socket_path_.c_str());
+        link_.close_app();
+        link_.close_listener();
         for (auto& [topic, ch] : channels_) {
             if (ch.channel) ch.channel->close();
         }
@@ -320,111 +326,10 @@ class Relay {
     }
 
    private:
-    bool open_listener() {
-        listen_fd_ = ::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
-        if (listen_fd_ < 0) {
-            spdlog::error("socket(): {}", std::strerror(errno));
-            return false;
-        }
-        sockaddr_un addr{};
-        addr.sun_family = AF_UNIX;
-        if (socket_path_.size() >= sizeof(addr.sun_path)) {
-            spdlog::error("Socket path too long: {}", socket_path_);
-            return false;
-        }
-        std::strncpy(addr.sun_path, socket_path_.c_str(), sizeof(addr.sun_path) - 1);
-        ::unlink(socket_path_.c_str());
-        if (::bind(listen_fd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
-            spdlog::error("bind({}): {}", socket_path_, std::strerror(errno));
-            return false;
-        }
-        ::chmod(socket_path_.c_str(), 0666);
-        if (::listen(listen_fd_, 2) != 0) {
-            spdlog::error("listen(): {}", std::strerror(errno));
-            return false;
-        }
-        return true;
-    }
-
-    void poll_once() {
-        pollfd fds[2];
-        fds[0] = {listen_fd_, POLLIN, 0};
-        const bool sending = app_out_sent_ < app_out_.size();
-        fds[1] = {app_fd_, static_cast<short>(POLLIN | (sending ? POLLOUT : 0)), 0};
-        const nfds_t count = app_fd_ >= 0 ? 2 : 1;
-        int ready = ::poll(fds, count, 20);
-        if (ready <= 0) return;
-        if (count == 2 && (fds[1].revents & (POLLIN | POLLHUP | POLLERR))) read_app();
-        if (count == 2 && app_fd_ >= 0 && (fds[1].revents & POLLOUT)) flush_to_app();
-        if (fds[0].revents & POLLIN) accept_app();
-    }
-
-    void accept_app() {
-        int fd = ::accept4(listen_fd_, nullptr, nullptr, SOCK_CLOEXEC | SOCK_NONBLOCK);
-        if (fd < 0) return;
-        if (app_fd_ >= 0) {
-            if (!warned_second_connection_) {
-                spdlog::warn("Second app connection refused; one app at a time");
-                warned_second_connection_ = true;
-            }
-            ::close(fd);
-            return;
-        }
-        warned_second_connection_ = false;
-        app_fd_ = fd;
-        app_connected_.store(true);
-        read_buffer_.clear();
-        spdlog::info("auto_battlebot connected");
-    }
-
-    void close_app() {
-        if (app_fd_ < 0) return;
-        ::close(app_fd_);
-        app_fd_ = -1;
+    void on_app_disconnected() {
         app_connected_.store(false);
-        read_buffer_.clear();
-        app_out_.clear();
-        app_out_sent_ = 0;
-        warned_app_out_full_ = false;
         app_channels_.clear();
         for (auto& [topic, ch] : channels_) ch.app_channel_id.reset();
-        spdlog::info("auto_battlebot disconnected; channels stay advertised");
-    }
-
-    void read_app() {
-        std::byte chunk[1 << 16];
-        while (true) {
-            ssize_t n = ::recv(app_fd_, chunk, sizeof(chunk), 0);
-            if (n == 0) {
-                close_app();
-                return;
-            }
-            if (n < 0) {
-                if (errno == EAGAIN || errno == EWOULDBLOCK) break;
-                if (errno == EINTR) continue;
-                spdlog::warn("recv(): {}", std::strerror(errno));
-                close_app();
-                return;
-            }
-            read_buffer_.insert(read_buffer_.end(), chunk, chunk + n);
-            if (static_cast<size_t>(n) < sizeof(chunk)) break;
-        }
-        size_t off = 0;
-        while (read_buffer_.size() - off >= auto_battlebot::viz::kFrameHeaderBytes) {
-            uint32_t len = 0;
-            size_t body_off = off;
-            auto_battlebot::viz::detail::get_u32(read_buffer_.data(), read_buffer_.size(), body_off,
-                                                 len);
-            if (len > auto_battlebot::viz::kMaxFrameBytes) {
-                spdlog::error("Corrupt frame ({} bytes); dropping app connection", len);
-                close_app();
-                return;
-            }
-            if (read_buffer_.size() - body_off < len) break;
-            handle_frame(read_buffer_.data() + body_off, len);
-            off = body_off + len;
-        }
-        read_buffer_.erase(read_buffer_.begin(), read_buffer_.begin() + static_cast<long>(off));
     }
 
     void handle_frame(const std::byte* body, size_t len) {
@@ -520,52 +425,21 @@ class Relay {
     void forward_client_messages() {
         const std::deque<ClientMessage> messages = sdk_events_.take_client_messages();
         for (const auto& msg : messages) {
-            if (app_fd_ < 0) {
+            if (!link_.connected()) {
                 spdlog::warn("Dropping client message on {}: no app connected", msg.topic);
                 continue;
             }
             spdlog::info("Forwarding client message on {} ({} bytes)", msg.topic,
                          msg.payload.size());
-            send_to_app(auto_battlebot::viz::encode_client_message(msg.topic, msg.payload.data(),
-                                                                   msg.payload.size()));
+            link_.send(auto_battlebot::viz::encode_client_message(msg.topic, msg.payload.data(),
+                                                                  msg.payload.size()));
         }
     }
 
     void send_subscriber_count(const RelayChannel& ch) {
-        if (app_fd_ < 0 || !ch.app_channel_id) return;
-        send_to_app(
+        if (!link_.connected() || !ch.app_channel_id) return;
+        link_.send(
             auto_battlebot::viz::encode_subscriber_count(*ch.app_channel_id, ch.subscribers));
-    }
-
-    void send_to_app(const std::vector<std::byte>& frame) {
-        if (app_out_.size() - app_out_sent_ + frame.size() > kMaxAppOutBytes) {
-            if (!warned_app_out_full_) {
-                spdlog::warn("auto_battlebot is not reading; dropping frames to it");
-                warned_app_out_full_ = true;
-            }
-            return;
-        }
-        if (app_out_sent_ == app_out_.size()) {
-            app_out_.clear();
-            app_out_sent_ = 0;
-        }
-        app_out_.insert(app_out_.end(), frame.begin(), frame.end());
-        flush_to_app();
-    }
-
-    void flush_to_app() {
-        while (app_out_sent_ < app_out_.size()) {
-            ssize_t n = ::send(app_fd_, app_out_.data() + app_out_sent_,
-                               app_out_.size() - app_out_sent_, MSG_NOSIGNAL);
-            if (n < 0) {
-                if (errno == EINTR) continue;
-                return;
-            }
-            app_out_sent_ += static_cast<size_t>(n);
-        }
-        app_out_.clear();
-        app_out_sent_ = 0;
-        warned_app_out_full_ = false;
     }
 
     std::string socket_path_;
@@ -573,25 +447,19 @@ class Relay {
     uint16_t port_;
     uint16_t http_port_;
     std::filesystem::path web_root_;
+    std::chrono::seconds shutdown_deadline_;
     std::atomic<bool> app_connected_{false};
     std::unique_ptr<DashboardHttp> http_;
 
     foxglove::Context context_;
     std::optional<foxglove::WebSocketServer> server_;
 
-    int listen_fd_ = -1;
-    int app_fd_ = -1;
-    bool warned_second_connection_ = false;
-    std::vector<std::byte> read_buffer_;
-    std::vector<std::byte> app_out_;
-    size_t app_out_sent_ = 0;
-    bool warned_app_out_full_ = false;
-
     std::map<std::string, RelayChannel> channels_;
     std::unordered_map<uint64_t, std::string> channel_by_id_;
     std::unordered_map<uint32_t, std::map<std::string, RelayChannel>::iterator> app_channels_;
 
     SdkEventQueue sdk_events_;
+    auto_battlebot::viz::RelayAppLink link_;
 };
 
 }  // namespace
@@ -603,6 +471,7 @@ int main(int argc, char** argv) {
     uint16_t port = 8765;
     uint16_t http_port = 8080;
     std::string web_root;
+    int shutdown_deadline_s = 2;
     app.add_option("--socket", socket_path, "Unix socket path the app connects to");
     app.add_option("--host", host, "WebSocket and HTTP bind address");
     app.add_option("--port", port, "WebSocket port");
@@ -610,6 +479,8 @@ int main(int argc, char** argv) {
     app.add_option(
         "--web-root", web_root,
         "Built dashboard directory (default: <exe_dir>/web, then <exe_dir>/../web/dist)");
+    app.add_option("--shutdown-deadline-s", shutdown_deadline_s,
+                   "Seconds to wait for clients to close before exiting anyway");
     try {
         app.parse(argc, argv);
     } catch (const CLI::ParseError& e) {
@@ -621,6 +492,7 @@ int main(int argc, char** argv) {
     std::signal(SIGTERM, handle_signal);
 
     Relay relay(socket_path, host, port, http_port,
-                web_root.empty() ? default_web_root() : std::filesystem::path(web_root));
+                web_root.empty() ? default_web_root() : std::filesystem::path(web_root),
+                std::chrono::seconds(shutdown_deadline_s));
     return relay.run();
 }

@@ -4,7 +4,6 @@
 #include <spdlog/spdlog.h>
 
 #include <filesystem>
-#include <opencv2/imgproc.hpp>
 #include <optional>
 #include <string>
 
@@ -58,25 +57,11 @@ NvjpgJpegEncoder::~NvjpgJpegEncoder() { plugin_.destroy(encoder_); }
 bool NvjpgJpegEncoder::encode_on_owner_thread(const cv::Mat &bgr, int quality,
                                               std::vector<std::byte> &out) {
     out.clear();
-    if (bgr.empty() || bgr.type() != CV_8UC3) return false;
-    const int width = bgr.cols & ~1;
-    const int height = bgr.rows & ~1;
-    if (width == 0 || height == 0) return false;
-
-    cv::cvtColor(bgr(cv::Rect(0, 0, width, height)), ycrcb_, cv::COLOR_BGR2YCrCb);
-    cv::split(ycrcb_, planes_);
-    i420_.create(height * 3 / 2, width, CV_8UC1);
-    unsigned char *dst = i420_.ptr<unsigned char>();
-    const size_t luma = static_cast<size_t>(width) * static_cast<size_t>(height);
-    cv::Mat y(height, width, CV_8UC1, dst);
-    cv::Mat cb(height / 2, width / 2, CV_8UC1, dst + luma);
-    cv::Mat cr(height / 2, width / 2, CV_8UC1, dst + luma + luma / 4);
-    planes_[0].copyTo(y);
-    cv::resize(planes_[2], cb, cb.size(), 0, 0, cv::INTER_AREA);
-    cv::resize(planes_[1], cr, cr.size(), 0, 0, cv::INTER_AREA);
+    const cv::Mat *i420 = converter_.convert(bgr);
+    if (i420 == nullptr) return false;
     const unsigned char *jpeg = nullptr;
-    const size_t size =
-        plugin_.encode(encoder_, i420_.ptr<unsigned char>(), width, height, quality, &jpeg);
+    const size_t size = plugin_.encode(encoder_, i420->ptr<unsigned char>(), converter_.width(),
+                                       converter_.height(), quality, &jpeg);
     if (size == 0) return false;
     const auto *begin = reinterpret_cast<const std::byte *>(jpeg);
     out.assign(begin, begin + size);
