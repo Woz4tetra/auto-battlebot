@@ -49,19 +49,6 @@ def get_default_device() -> torch.device:
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def seed_worker(_worker_id: int) -> None:
-    """Give every dataloader worker its own augmentation stream.
-
-    SegDataset._augment draws from Python's global `random`, which PyTorch does not
-    reseed per worker -- forked workers would otherwise share one sequence and apply
-    correlated augmentation. That understates run-to-run variance, and Phase A's whole
-    job is to measure run-to-run variance.
-    """
-    seed = torch.initial_seed() % (2**32)
-    pyrandom.seed(seed)
-    np.random.seed(seed)
-
-
 class SegDataset(Dataset):
     def __init__(
         self,
@@ -227,7 +214,6 @@ def get_dataset(
         num_workers=num_workers,
         shuffle=True,
         pin_memory=True,
-        worker_init_fn=seed_worker,
     )
     valid_loader = DataLoader(
         valid_ds,

@@ -26,20 +26,19 @@ into a real data table first.
 
 ## Claims that failed verification
 
-These are the cheapest rows: the auditor found evidence that the workaround is not needed, or is
-wrong. Each needs one confirming run before deletion.
+Phase 5 pilot, 2026-11-19. Each row got one confirming run.
 
-| Location | Finding |
+| Location | Outcome |
 | --- | --- |
-| `training/deeplab/semantic_train.py:51` | `seed_worker` is redundant: the installed torch `worker.py:259` already reseeds `random`, torch, and numpy per worker |
-| `tests/camera/test_zed_svo_playback_camera.cpp:19` | The shared camera "avoids a ZED segfault on a second open", but `SvoEndOfFile` in the same file opens a second camera on the same SVO |
-| `training/synthetic/pose_camera_server.py:50` (and 3 more Blender entry scripts) | Says Blender ignores PYTHONPATH and writes `sys.path`; `docker/run_synthetic.sh:97-100` exports PYTHONPATH and says that replaces those writes. One side is stale, and CLAUDE.md sides with "ignores" |
-| `auto_battlebot/mujoco_sim/mjcf.py:73` | Inflated rotor inertia for the triangle-inequality check; a minimal thin-disc MJCF compiled fine |
-| `web/src/lib/image.ts:75` | `slice()` "so the Blob never aliases the receive buffer"; the Blob constructor copies, so it only satisfies TS typing |
-| `mypy.ini:71` | Ignore section for `nhrl_common`, which `mypy_path` already resolves |
-| `hardware/cage_pack/connectors.py:210` | `except IndexError` after `_collinear()` already drops the points that raise it |
-| `firmware/espnow_dongle/scripts/upload:2` | Defaults to `/dev/mr_stabs`, the robot, in the dongle's own upload script: copied and wrong |
-| `firmware/espnow_dongle/platformio.ini:31`, `firmware/mr_stabs_mk2/platformio.ini:51` | USB-mode workarounds that `-DARDUINO_USB_MODE=1` already covers |
+| `training/deeplab/semantic_train.py:51` | Fixed: `seed_worker` deleted. torch 2.10 seeds Python `random` per worker; a 2-worker DataLoader drew 8 distinct values |
+| `tests/camera/test_zed_svo_playback_camera.cpp:19` | Fixed: each test opens its own camera. Two tests already opened a second camera on the SVO with the shared one open; all 9 pass, 10 s to 16 s |
+| `training/synthetic/pose_camera_server.py:47` (and `render_scenes.py`, `render_sprites.py`, `render_cage_view.py`) | Comments deleted, `sys.path` writes kept. `docker/run_synthetic.sh` no longer exists; CLAUDE.md records the Blender exception |
+| `auto_battlebot/mujoco_sim/mjcf.py:54` | Claim confirmed, value kept: a 0.5 thin disc compiles in MuJoCo 3.14, but at 0.5 `test_yaw_loop_stops_the_full_reverse_spin[1.02]` spins to 88° against 60°. `docs/reference/calibration/sysid_modules.md` now gives that reason |
+| `web/src/lib/image.ts:65` | Fixed: `CompressedMessage.data` is typed `Uint8Array<ArrayBuffer>`, so the Blob takes it without the `slice()` copy; `npm run check` passes |
+| `mypy.ini:63` | Fixed: `[mypy-nhrl_common]` and `[mypy-nhrl_audit]` deleted; `mypy_path` resolves both and mypy passes |
+| `hardware/cage_pack/connectors.py:172` | Open: needs a build123d environment to count `IndexError`s over `cables()`; none on the dev box |
+| `firmware/espnow_dongle/scripts/upload:2` | Fixed: defaults to `/dev/espnow_dongle`. Before, with both plugged in, it flashed the robot |
+| `firmware/espnow_dongle/platformio.ini:25`, `firmware/mr_stabs_mk2/platformio.ini:30` | Claim wrong, overrides kept: the board file sets `use_1200bps_touch` and `wait_for_upload_port` true and `build_flags` never reach upload settings. Reasons in `docs/reference/robot_link/firmware_build.md` |
 
 ## Repeated workarounds
 

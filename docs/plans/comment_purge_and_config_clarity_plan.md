@@ -134,7 +134,7 @@ Phase 2 doc rewrite, phase 4 and the remaining CONFIG rows done 2026-11-19, same
 
 Rows still open: HACK 313, TEST 97, TYPE 13.
 
-Next: phase 5 ledger rows and the open bugs.
+Next: phase 5 ledger rows past the pilot (see Pilot record) and the open bugs. Baseline 1,378 after the pilot.
 
 ### Spot-check record
 
@@ -658,6 +658,7 @@ Rules from here:
 | 2026-11-19 | `include/navigation/config.hpp` CONFIG, one Sonnet agent | 46 | 46 to `fields.md` | 7 | 81k final context; 69 s | about 1.8k context |
 | 2026-11-19 | `tests/` DOC, 5 files, one Sonnet agent | 55 | 55 moved to reference docs | 11 | 98k final context; 80 s | about 1.8k context |
 | 2026-11-19 | 66 file-disjoint batches of up to 45 weighted rows, three agents at a time | about 2,000 | see Status | 30-130 each | 100-210k final context each; 3-25 min each | not measured per row |
+| 2026-11-19 | Phase 5 HACK pilot: the 10 "Claims that failed verification" ledger rows, main session, no agent | 10 | 5 fixed, 3 kept with the reason moved to docs, 1 kept with its comments gone, 1 open (no build123d) | about 40 tool calls | not measured; 40 min | about 4 tool calls; 30 counted lines removed |
 | 2026-11-16 | A: `src/` TEST, 10 files | 46 | 20 tested, 24 ledgered, 2 rejected | 76 | 8.8M cache read, 0.21M cache write, 50k out; peak 166k; 13 min | 0.19M cache read, 1.1k out |
 | 2026-11-16 | B: `auto_battlebot/` TEST, 4 files | 51 | 47 tested, 4 ledgered | 73 | 8.9M cache read, 0.23M cache write, 68k out; peak 174k; 12 min | 0.17M cache read, 1.3k out |
 | 2026-11-16 | C: `training/`, `playground/`, `simulation/` TEST, 25 files | 45 | 19 tested, 26 ledgered | 109 | 12.7M cache read, 0.20M cache write, 52k out; peak 163k; 9 min | 0.28M cache read, 1.2k out |

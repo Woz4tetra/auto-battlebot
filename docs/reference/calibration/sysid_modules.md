@@ -1014,7 +1014,7 @@ Loaded from `collision.toml`.
 
 #### `rotor_diaginertia`
 
-Only the axial inertia matters, so the radial ones are set to 0.6 of it. They sit clear of the triangle-inequality limit: a thin disc's J/2 lands exactly on it and fails to compile.
+Radial inertias are 0.6 of the axial. A thin disc's 0.5 compiles (MuJoCo 3.14, checked 2026-11-19), so the triangle-inequality limit is not why. The radial value reaches chassis yaw: at 0.5, `test_yaw_loop_stops_the_full_reverse_spin[1.02]` in `tests/python/test_mujoco_sim.py` spins to 88° of reverse yaw against its 60° bound, so the fitted plants and the yaw-loop gains assume 0.6.
 
 #### `NCONMAX` and `nconmax_for`
 

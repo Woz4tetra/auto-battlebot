@@ -12,6 +12,16 @@ PlatformIO reads `platformio.ini` in each firmware project. This page explains t
 | `[env:local] board_upload.wait_for_upload_port = no` | Same reason as above. |
 | `[env:local] board_upload.before_reset = usb_reset` | With the USB-Serial/JTAG port, esptool's `usb_reset` enters the bootloader directly. No BOOT press is needed, even with the firmware hung. |
 
+## `firmware/espnow_dongle/platformio.ini`
+
+| Option | Meaning |
+| --- | --- |
+| `board_upload.use_1200bps_touch = no` | `adafruit_qtpy_esp32s3_nopsram.json` sets it true, for TinyUSB: a 1200 bps touch to enter the bootloader. `-DARDUINO_USB_MODE=1` selects the USB-Serial/JTAG port in the firmware only; upload settings come from the board file, so the override is still needed. |
+| `board_upload.wait_for_upload_port = no` | The board file sets it true, to wait for the TinyUSB port to come back. Same reason as above. |
+| `board_upload.before_reset = usb_reset` | With the USB-Serial/JTAG port, esptool's `usb_reset` enters the bootloader directly, with no BOOT press. |
+
+`scripts/upload` defaults to `/dev/espnow_dongle` (`install/install_udev_rules.sh`). The dongle and the Mk2 both report `303a:1001`, so PlatformIO's auto-detect can pick either one.
+
 ## `firmware/velocity_jig/platformio.ini`
 
 | Option | Meaning |

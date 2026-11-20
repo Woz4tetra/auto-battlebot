@@ -17,10 +17,8 @@ class ZedSvoPlaybackCameraTest : public ::testing::Test {
    protected:
     std::string svo_file_path;
 
-    // Shared camera opened once for the suite to avoid ZED SDK segfault when
-    // opening the same SVO twice in one process.
-    static std::unique_ptr<ZedSvoPlaybackCamera> shared_camera_;
-    static ZedSvoPlaybackCameraConfiguration shared_config_;
+    std::unique_ptr<ZedSvoPlaybackCamera> camera_;
+    ZedSvoPlaybackCameraConfiguration config_;
 
     void SetUp() override {
         std::filesystem::path test_dir = std::filesystem::path(__FILE__).parent_path();
@@ -29,36 +27,21 @@ class ZedSvoPlaybackCameraTest : public ::testing::Test {
         if (!std::filesystem::exists(svo_file_path)) {
             GTEST_SKIP() << "Test SVO file not found at: " << svo_file_path;
         }
-    }
-
-    static void SetUpTestSuite() {
-        std::filesystem::path test_dir = std::filesystem::path(__FILE__).parent_path();
-        std::string path = (test_dir / "test.svo2").string();
-        if (!std::filesystem::exists(path)) {
-            shared_camera_.reset();
-            return;
-        }
-        shared_config_.svo_file_path = path;
-        shared_config_.camera_fps = 30;
-        shared_config_.camera_resolution = Resolution::RES_1280x720;
-        shared_config_.depth_mode = DepthMode::ZED_NEURAL;
-        shared_camera_ = std::make_unique<ZedSvoPlaybackCamera>(shared_config_);
-        if (!shared_camera_->initialize()) {
-            shared_camera_.reset();
+        config_.svo_file_path = svo_file_path;
+        config_.camera_fps = 30;
+        config_.camera_resolution = Resolution::RES_1280x720;
+        config_.depth_mode = DepthMode::ZED_NEURAL;
+        camera_ = std::make_unique<ZedSvoPlaybackCamera>(config_);
+        if (!camera_->initialize()) {
+            camera_.reset();
         }
     }
-
-    static void TearDownTestSuite() { shared_camera_.reset(); }
 };
 
-std::unique_ptr<ZedSvoPlaybackCamera> ZedSvoPlaybackCameraTest::shared_camera_;
-ZedSvoPlaybackCameraConfiguration ZedSvoPlaybackCameraTest::shared_config_;
-
 TEST_F(ZedSvoPlaybackCameraTest, RejectsAStartFrameBeyondTheEndOfTheFile) {
-    ASSERT_NE(shared_camera_, nullptr)
-        << "Shared ZED camera not available (SVO missing or init failed)";
+    ASSERT_NE(camera_, nullptr) << "ZED camera failed to open the test SVO";
 
-    ZedSvoPlaybackCameraConfiguration config = shared_config_;
+    ZedSvoPlaybackCameraConfiguration config = config_;
     config.svo_start_frame = 1000000;
     ZedSvoPlaybackCamera camera(config);
 
@@ -66,10 +49,9 @@ TEST_F(ZedSvoPlaybackCameraTest, RejectsAStartFrameBeyondTheEndOfTheFile) {
 }
 
 TEST_F(ZedSvoPlaybackCameraTest, FrameIndexMatchesGrabbedFrame) {
-    ASSERT_NE(shared_camera_, nullptr)
-        << "Shared ZED camera not available (SVO missing or init failed)";
+    ASSERT_NE(camera_, nullptr) << "ZED camera failed to open the test SVO";
 
-    ZedSvoPlaybackCameraConfiguration config = shared_config_;
+    ZedSvoPlaybackCameraConfiguration config = config_;
     config.svo_start_frame = 0;
     ZedSvoPlaybackCamera camera(config);
     ASSERT_TRUE(camera.initialize());
@@ -81,11 +63,10 @@ TEST_F(ZedSvoPlaybackCameraTest, FrameIndexMatchesGrabbedFrame) {
 }
 
 TEST_F(ZedSvoPlaybackCameraTest, FullDataPipeline) {
-    ASSERT_NE(shared_camera_, nullptr)
-        << "Shared ZED camera not available (SVO missing or init failed)";
+    ASSERT_NE(camera_, nullptr) << "ZED camera failed to open the test SVO";
 
     CameraData data;
-    ASSERT_TRUE(shared_camera_->get(data));
+    ASSERT_TRUE(camera_->get(data));
 
     EXPECT_GT(data.camera_info.width, 0);
     EXPECT_GT(data.camera_info.height, 0);
@@ -110,15 +91,14 @@ TEST_F(ZedSvoPlaybackCameraTest, FullDataPipeline) {
 }
 
 TEST_F(ZedSvoPlaybackCameraTest, MultipleFrameProcessing) {
-    ASSERT_NE(shared_camera_, nullptr)
-        << "Shared ZED camera not available (SVO missing or init failed)";
+    ASSERT_NE(camera_, nullptr) << "ZED camera failed to open the test SVO";
 
     CameraData data1;
-    ASSERT_TRUE(shared_camera_->get(data1));
+    ASSERT_TRUE(camera_->get(data1));
     double timestamp1 = data1.tf_visodom_from_camera.header.stamp;
 
     CameraData data2;
-    ASSERT_TRUE(shared_camera_->get(data2));
+    ASSERT_TRUE(camera_->get(data2));
     double timestamp2 = data2.tf_visodom_from_camera.header.stamp;
 
     EXPECT_EQ(data1.camera_info.width, data2.camera_info.width);
@@ -130,14 +110,13 @@ TEST_F(ZedSvoPlaybackCameraTest, MultipleFrameProcessing) {
 }
 
 TEST_F(ZedSvoPlaybackCameraTest, DataIndependence) {
-    ASSERT_NE(shared_camera_, nullptr)
-        << "Shared ZED camera not available (SVO missing or init failed)";
+    ASSERT_NE(camera_, nullptr) << "ZED camera failed to open the test SVO";
 
     CameraData data_ref;
-    ASSERT_TRUE(shared_camera_->get(data_ref));
+    ASSERT_TRUE(camera_->get(data_ref));
 
     CameraData data_copy;
-    ASSERT_TRUE(shared_camera_->get(data_copy));
+    ASSERT_TRUE(camera_->get(data_copy));
     data_copy.rgb.image = data_ref.rgb.image.clone();
     data_copy.depth.image = data_ref.depth.image.clone();
 

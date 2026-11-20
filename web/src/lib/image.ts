@@ -5,7 +5,7 @@ import type { Channel } from "@foxglove/ws-protocol";
 export interface CompressedMessage {
   captureTimeS: number;
   frame_id: string;
-  data: Uint8Array;
+  data: Uint8Array<ArrayBuffer>;
   format: string;
 }
 
@@ -37,7 +37,7 @@ export function protobufType(channel: Channel): protobuf.Type {
 interface RawCompressed {
   timestamp?: { seconds?: number | { toNumber(): number }; nanos?: number };
   frame_id?: string;
-  data?: Uint8Array;
+  data?: Uint8Array<ArrayBuffer>;
   format?: string;
 }
 
@@ -61,7 +61,6 @@ export async function decodeImage(channel: Channel, bytes: Uint8Array): Promise<
   const msg = decodeCompressed(channel, bytes);
   const format = msg.format.toLowerCase();
   const mime = format.includes("png") ? "image/png" : "image/jpeg";
-  // Copy into a fresh ArrayBuffer so the Blob never aliases the socket's receive buffer.
-  const blob = new Blob([msg.data.slice()], { type: mime });
+  const blob = new Blob([msg.data], { type: mime });
   return createImageBitmap(blob);
 }

@@ -30,10 +30,6 @@ from pathlib import Path
 
 import numpy as np
 
-# Blender's embedded Python ignores PYTHONPATH (BlenderProc clears it before launching
-# Blender), so the two first-party roots this script imports from go on sys.path here, the
-# way render_cage_samples.py does it: training/synthetic for `synthgen`, and the repo root for
-# `auto_battlebot.perception`, which the cage half reads the camera calibration through.
 _SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(_SCRIPT_DIR))
 sys.path.insert(0, str(_SCRIPT_DIR.parents[1]))

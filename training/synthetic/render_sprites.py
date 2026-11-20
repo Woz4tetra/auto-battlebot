@@ -45,8 +45,6 @@ import bpy
 import mathutils
 import numpy as np
 
-# Blender's embedded Python ignores PYTHONPATH, so the env var the docker wrapper sets does not
-# reach an import here. Add this script's own directory so a bare host can run it too.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from synthgen import logsetup

@@ -44,8 +44,6 @@ from typing import Any
 import bpy
 import numpy as np
 
-# Blender's embedded Python ignores PYTHONPATH, so put the script's own directory and the repo
-# root on sys.path here: synthgen for the cage, auto_battlebot.perception for the frame chain.
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parents[1]
 sys.path.insert(0, str(SCRIPT_DIR))
