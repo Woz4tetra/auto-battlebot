@@ -160,7 +160,6 @@ TEST(VizSinkTest, ReplaysAdvertisesThenStreamsAndReadsSubscriberCounts) {
     EXPECT_EQ(adv.channel_id, channel);
     EXPECT_TRUE(adv.latch);
 
-    // Wait for the sink to consider itself connected before publishing.
     for (int i = 0; i < 100 && !sink.connected(); ++i) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }

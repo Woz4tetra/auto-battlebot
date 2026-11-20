@@ -11,9 +11,6 @@
 #include <fstream>
 #include <new>
 
-// IStreamReaderV2 arrived in TensorRT 10.7 and deprecated IStreamReader. The dev machines
-// are on 10.14; the Jetson's JetPack TensorRT predates 10.7 and only has the older
-// interface. Pick whichever the installed headers provide.
 #define AB_TRT_HAS_STREAM_READER_V2 \
     (NV_TENSORRT_MAJOR > 10 || (NV_TENSORRT_MAJOR == 10 && NV_TENSORRT_MINOR >= 7))
 
@@ -51,12 +48,6 @@ using TrtStreamReaderBase = nvinfer1::IStreamReaderV2;
 using TrtStreamReaderBase = nvinfer1::IStreamReader;
 #endif
 
-// Feeds a file to TensorRT incrementally so deserialization can abort early.
-//
-// The V2 interface may hand us a device pointer as the destination, so every read is
-// staged through a host buffer and routed with cudaMemcpyDefault. Unified addressing
-// makes that correct whether the target is host or device memory. V1 destinations are
-// always host memory, and V1 has no seek.
 class FileStreamReader final : public TrtStreamReaderBase {
    public:
     explicit FileStreamReader(const std::string& path) : file_(path, std::ios::binary) {}
@@ -79,7 +70,6 @@ class FileStreamReader final : public TrtStreamReaderBase {
                             cudaMemcpyDefault, stream) != cudaSuccess) {
             return -1;
         }
-        // staging_ is reused by the next call, so the copy has to land before returning.
         if (cudaStreamSynchronize(stream) != cudaSuccess) return -1;
         return bytes_read;
     }
@@ -97,8 +87,6 @@ class FileStreamReader final : public TrtStreamReaderBase {
                 direction = std::ios_base::end;
                 break;
         }
-        // Clear first: a prior read that hit EOF leaves failbit set, which would make
-        // seekg a no-op.
         file_.clear();
         file_.seekg(static_cast<std::streamoff>(offset), direction);
         return file_.good();
@@ -137,7 +125,6 @@ std::vector<int64_t> dimsToVector(const nvinfer1::Dims& dims) {
 }  // namespace
 
 TrtEngine::~TrtEngine() {
-    // execute() synchronizes the stream before returning, so no work is in flight here.
     if (graph_exec_) {
         cudaGraphExecDestroy(static_cast<cudaGraphExec_t>(graph_exec_));
         graph_exec_ = nullptr;

@@ -68,8 +68,6 @@ static_assert(std::atomic<bool>::is_always_lock_free,
 
 void Runner::quit_from_signal_handler() {
     quit_requested_.store(true);
-    // A camera re-open can take 30 s. cancel_initialize() only stores an atomic, so this is
-    // still safe from the signal handler.
     camera_->cancel_initialize();
 }
 
@@ -268,15 +266,9 @@ void Runner::set_recording(bool enabled) const {
 }
 
 void Runner::wait_for_frames_in_flight() const {
-    // The tick keeps running while this thread toggles. A tick that took a frame before the
-    // encoder stopped still holds that frame's video index, and would publish its frame_meta into
-    // the next file, pointing at the wrong packet. Frames captured after the stop carry no index.
-    // Three tick starts: the tick in flight finishes, and so does the one that may have taken
-    // the last frame the camera buffered before the stop. Bounded, for a tick stuck in camera
-    // recovery.
-    constexpr uint64_t kTicks = 3;
+    constexpr uint64_t kTickStartsToDrainInFlightFrames = 3;
     constexpr auto kTimeout = std::chrono::milliseconds(500);
-    const uint64_t target = ticks_started_.load() + kTicks;
+    const uint64_t target = ticks_started_.load() + kTickStartsToDrainInFlightFrames;
     const auto deadline = std::chrono::steady_clock::now() + kTimeout;
     while (ticks_started_.load() < target && std::chrono::steady_clock::now() < deadline) {
         std::this_thread::sleep_for(std::chrono::milliseconds(2));
@@ -559,8 +551,6 @@ void Runner::initialize_field(const CameraData &camera_data) {
     publisher_->publish_initial_field_description(*initial_field_description_);
 
     control_loop_->request_filter_reinit(runtime_opponent_count_);
-    // Static-gate clusters are stored in field coordinates. A re-init moves the field origin, so
-    // every stored position now refers to somewhere else. Start over.
     static_gate_->reset();
     initialized_ = true;
     field_init_attempts_remaining_ = 0;

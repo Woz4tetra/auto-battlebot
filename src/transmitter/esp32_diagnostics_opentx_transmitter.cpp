@@ -33,10 +33,7 @@ Esp32DiagnosticsOpenTxTransmitter::Esp32DiagnosticsOpenTxTransmitter(
                false, std::move(sink), std::move(mcap_recorder)),
       health_logger_(DiagnosticsLogger::get_logger("esp32_diagnostics")) {}
 
-Esp32DiagnosticsOpenTxTransmitter::~Esp32DiagnosticsOpenTxTransmitter() {
-    // Stop first, so the worker is gone before the channel it feeds.
-    diagnostics_->stop();
-}
+Esp32DiagnosticsOpenTxTransmitter::~Esp32DiagnosticsOpenTxTransmitter() { diagnostics_->stop(); }
 
 bool Esp32DiagnosticsOpenTxTransmitter::initialize() {
     diagnostics_->start();

@@ -20,9 +20,7 @@ double cap(double x) {
     return std::clamp(x, 0.0, 1.0);
 }
 
-/** obs_spec.wrap: torch.remainder(a + pi, 2 pi) - pi. torch.remainder takes the divisor's sign,
- * so a negative input wraps up into [0, 2 pi) the way std::fmod alone would not. */
-double wrap(double a) {
+double wrap_like_torch_remainder(double a) {
     const double divisor = 2.0 * M_PI;
     double r = std::fmod(a + M_PI, divisor);
     if (r < 0.0) r += divisor;
@@ -136,7 +134,7 @@ void build_observation_v1(const ObservationInputsV1 &in, std::span<double, obs_v
     body.rotate(in.opp_x - in.our_x, in.opp_y - in.our_y, rx, ry);
     const double distance = std::hypot(rx, ry);
     const double bearing = std::atan2(ry, rx);
-    const double heading = wrap(in.opp_yaw - in.our_yaw);
+    const double heading = wrap_like_torch_remainder(in.opp_yaw - in.our_yaw);
     double vx = 0.0;
     double vy = 0.0;
     body.rotate(in.opp_vx, in.opp_vy, vx, vy);

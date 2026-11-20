@@ -25,7 +25,7 @@
 | `eval/` | `eval_code.md`, `taxonomies.md` |
 | `recording/` | `foxglove_recording_format.md` (the recording contract), `svo_recording.md`, `video_recording.md` |
 | `remote/` | `protocol.md` (topics, commands, field projection) |
-| `robot_link/` | `esp32_wifi_telemetry.md`, `esc_drive.md`, `espnow_link.md`, `firmware_build.md`, `motor_guard.md`, `pid.md`, `tuning.md`, `yaw_control.md` |
+| `robot_link/` | `esp32_wifi_telemetry.md`, `esc_drive.md`, `espnow_link.md`, `firmware_build.md`, `motor_guard.md`, `opentx_transmitter.md`, `pid.md`, `tuning.md`, `yaw_control.md` |
 | `tools/` | `gpu_queue.md`, `logo_splash_animation.md`, `perception_reliability.md`, `synthgen_cage_specs.md`, `synthgen_config.md`, `synthgen_render.md`, `synthgen_scene_contracts.md`, `domain_mix_arms.md`, `yolo_training.md`, `python_packaging.md` |
 
 ## experiments/

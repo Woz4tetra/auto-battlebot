@@ -59,6 +59,13 @@ std::shared_ptr<auto_battlebot::McapRecorder> make_recorder_clear_of_replay_inpu
     return auto_battlebot::make_mcap_recorder(class_config.mcap_recorder, active_profile);
 }
 
+void run_host_command_before_teardown(
+    const std::optional<auto_battlebot::SystemAction>& pending_system_action) {
+    if (!pending_system_action) return;
+    spdlog::default_logger()->flush();
+    auto_battlebot::handle_system_action(*pending_system_action);
+}
+
 int run_application(const auto_battlebot::ClassConfiguration& class_config,
                     const auto_battlebot::ResolvedConfig& resolved_config,
                     const std::string& active_profile,
@@ -117,8 +124,6 @@ int run_application(const auto_battlebot::ClassConfiguration& class_config,
     remote.camera_profiles =
         std::make_shared<CameraProfileStore>(expand_home(CameraProfileStore::kDefaultPath));
     remote.camera_profiles->load();
-    // Created after DiagnosticsLogger::initialize, so its battery_ina219 diagnostics have a
-    // backend.
     auto battery_monitor = make_battery_monitor(class_config.battery, remote.status);
     remote.app_info.available_profiles = available_profiles;
     remote.app_info.current_profile = active_profile;
@@ -151,7 +156,6 @@ int run_application(const auto_battlebot::ClassConfiguration& class_config,
 
     runner.initialize();
 
-    // Runner::quit_from_signal_handler() only stores atomics, so it is signal-safe.
     g_quittables[g_quittables_count++] = &runner;
 
     std::signal(SIGINT, signal_quit);
@@ -174,15 +178,7 @@ int run_application(const auto_battlebot::ClassConfiguration& class_config,
     std::signal(SIGTERM, SIG_DFL);
     g_quittables_count = 0;
 
-    // Run the host command here rather than after this function returns. The camera and
-    // model destructors run on the way out, and a ZED close or a TensorRT teardown that
-    // blocks or faults would swallow the reboot entirely. The loop is stopped and both
-    // recordings are closed by now, so there is nothing left to lose if systemd tears the
-    // process down in the middle of those destructors.
-    if (pending_system_action) {
-        spdlog::default_logger()->flush();
-        handle_system_action(*pending_system_action);
-    }
+    run_host_command_before_teardown(pending_system_action);
     return result;
 }
 }  // namespace

@@ -53,14 +53,8 @@ bool OpenTxTransmitter::initialize() {
     logger_->info("initialized", {{"device", *device}});
     next_reconnect_attempt_ = std::chrono::steady_clock::now() + kReconnectInterval;
 
-    // Re-prime the OpenTX-side streams every time the port (re)opens. Without this, a
-    // reconnect after the device was unplugged or not yet present at startup leaves the
-    // radio silent on the receive side until enable() happens to be called while the port
-    // is open.
     serial_.write("telemetry on\r\n");
     serial_.write("channels on\r\n");
-    // Give the radio a grace window to start streaming before the channel stream reads as
-    // stalled, so a healthy open does not flash a trainer-mode fault on the UI.
     last_channel_time_ = std::chrono::steady_clock::now();
     return true;
 }
@@ -102,15 +96,10 @@ CommandFeedback OpenTxTransmitter::update() {
     return feedback;
 }
 
-// enable()/disable() only gate trainer command output. Telemetry and channel streams stay on
-// whenever the serial port is open so that link statistics and the init button on the radio
-// remain functional even when autonomy is disabled.
 void OpenTxTransmitter::enable() { enabled_ = true; }
 
 void OpenTxTransmitter::disable() {
     enabled_ = false;
-    // Drop slew-limiter state so re-enabling ramps up from a standstill rather than resuming from
-    // whatever command was last sent before autonomy was cut.
     prev_linear_command_ = 0.0;
     last_send_time_.reset();
 }
@@ -259,7 +248,6 @@ void OpenTxTransmitter::process_channel_updates(const std::vector<uint8_t>& byte
     latest_channels_ = channel_updates.back();
     last_channel_time_ = std::chrono::steady_clock::now();
 
-    // Every frame, not only on change, so the section's age is the age of the last frame read.
     std::vector<int> channel_values(latest_channels_->begin(), latest_channels_->end());
     logger_->debug("channels", {{"values", channel_values}});
 }
@@ -284,11 +272,6 @@ bool OpenTxTransmitter::reconnect_if_needed() {
 
     if (serial_.is_open()) {
         if (channels_fresh()) return true;
-        // Port still open but the radio has gone quiet: trainer mode dropped out, or the
-        // `channels on` stream never started. Re-priming it needs a fresh open, so drop the
-        // port and fall through to the reconnect path below. Rate-limited by
-        // next_reconnect_attempt_ so a radio that never streams retries once per interval
-        // instead of thrashing the port every tick.
         if (now < next_reconnect_attempt_) return true;
         const auto stalled_ms =
             std::chrono::duration_cast<std::chrono::milliseconds>(now - last_channel_time_).count();

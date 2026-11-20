@@ -86,3 +86,7 @@ Per hazard, the approach bound is `(gap - max(v_approach, 0) * delay) / horizon`
 - `HazardBarrierResult::approach_speed_bound_mps` is the tightest bound any hazard imposed. Negative means the robot is inside a hard radius and must retreat. Infinity means nothing constrained.
 - Inside a hard radius the bound is negative, which restates the old reverse backstop: an exit command scaled by depth, directed away from the centre, and limited by whatever other hazard lies on the exit path.
 - Recovery sign follows the hazard's bearing, never the robot's forward axis, so a rear-first approach to a hole is answered with forward drive. `HazardBarrierTest.RearFirstApproachDrivesForwardNotFurtherBack` pins it.
+
+## Workarounds
+
+- `HazardAvoidance` pushes a hazard it has routed around onto `handled`, which excludes it from the next pass. The new segment runs tangent to the hazard by construction, so re-testing it only produces a substitution loop. The ledger records that removing the push changed no waypoint in a test with zero clearance, so the loop may need a larger clearance to appear.

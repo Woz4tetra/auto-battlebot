@@ -330,9 +330,8 @@ void McapRecorder::handle(WriteOp& op) {
     if (!channel) return;
     auto status = channel->log(op.data.data(), op.data.size(), op.log_time_ns);
     if (status == foxglove::FoxgloveError::Ok) return;
-    // Logged once per file and counted after. A disk error repeats every message, and each log
-    // line is itself a /log message headed for the same failing file.
-    if (writer_state_.write_failures++ == 0) {
+    const bool first_failure_in_file = writer_state_.write_failures++ == 0;
+    if (first_failure_in_file) {
         spdlog::warn("[McapRecorder] Write to {} failed: {}. Counting further failures.",
                      writer_state_.open_path.string(), foxglove::strerror(status));
     }

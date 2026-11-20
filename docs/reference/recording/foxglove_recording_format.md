@@ -1080,3 +1080,27 @@ The ROS 1 wire format is little-endian. A header is `uint32 seq`, `uint32 stamp_
 ## Workarounds
 
 - **`_decoder_from_fresh_factory`.** `mcap_io` builds a new protobuf `DecoderFactory` per schema and caches the decoder by schema name. A shared factory caches decoders by the file-local schema id, which collides across files: id 1 is `CompressedImage` in one recording and `RawImage` in another.
+
+## Workarounds in the recorder and relay
+
+- `McapRecorder::handle(WriteOp&)` logs only the first write failure per file and counts the rest. A disk error repeats on every message, and each log line is itself a `/log` message headed for the same failing file. Unverified: nothing makes `RawChannel::log` fail on demand.
+- `FoxglovePublisher` gives the annotation channels a `nullptr` recorder. Annotations render the JSON channel and are live only, so they never land in a file. `AnnotationsAreLiveOnly` passes even with the recorder swapped in, because the channel logs only with subscribers and the test has no sink.
+- `OutputChannel::log` returns early on a zero-length payload. The Foxglove SDK refuses zero-length messages (project memory, SDK source not read).
+- `Runner::wait_for_frames_in_flight` waits for three more tick starts, bounded by 500 ms, before the MCAP gate closes on a recording-off. The tick keeps running while the toggle thread works. A tick that took a frame before the encoder stopped still holds that frame's video index and would publish its `frame_meta` into the next file, pointing at the wrong packet. Frames captured after the stop carry no index. Three starts cover the tick in flight and the tick that may have taken the last frame the camera buffered before the stop. The bound covers a tick stuck in camera recovery.
+- `tests/mcap_recorder/test_mcap_recorder_toggle.cpp`:
+  - `wait_for_queued_close` flushes because `set_enabled(false)` only queues the close. Writes made while recording is off are dropped.
+  - `wait_for_file_open` flushes before `hold_writer` so the file exists before the writer is frozen.
+  - The app's logger copies every log line into the MCAP. Toggling recording logs from inside the recorder lock, which came straight back into `write()` on the same thread and deadlocked the app on the ZED Box. The test runs the toggles on a detached thread so a regression fails instead of hanging the suite.
+  - `abort_because_stuck_thread_holds_recorder` exists because returning would run fixture teardown against a recorder the stuck thread still holds.
+  - `flush_async_logger` is needed because the logger is asynchronous. Without it `close()` can run before `after reopen` is delivered.
+  - `wait_for_logger_loop_to_exit` sleeps 20 ms so the detached logging loop stops before the default logger is restored. Unverified: the 20 ms is a guess, nothing joins the thread.
+  - `kWriteMustNotWaitOnCloseMs` is 50 ms. A 1 MB memcpy is well under 1 ms, and a write that waited on a close is not. Tighter bounds flake on a loaded box.
+- `tests/viz/test_viz_sink.cpp` polls `sink.connected()` for up to 1 s before publishing. Publishing right after accept races the connect handshake. Unverified: the connect state machine was not read.
+- `tests/publisher/test_async_publisher.cpp` bounds flush by 5 ms x `kMaxPendingCalls`. At most a full queue of 1 ms calls is ahead of the flush.
+
+## viz_relay
+
+- Shutdown starts a detached thread that calls `std::_Exit(0)` after `kShutdownDeadline` (2 s). `foxglove::WebSocketServer::stop()` closes each client and waits for the close to finish. A client whose network vanished (the iPad's Ethernet link dropping) never answers, so `stop()` waited until TCP gave up and systemd killed the relay after 90 s. Nothing needs flushing to disk. Unverified: the SDK `stop()` source was not read.
+- `kMaxAppOutBytes` (1 MiB) caps bytes queued for an app that is not reading. Subscriber counts and client messages are small, so reaching it means the app is stuck. Past it whole frames are dropped, never half ones.
+- The accept path reads the existing app socket before accepting, so a restarted app that connects in the same poll as the old one's EOF frees the slot first instead of being refused.
+- A second app connection is refused while one is attached. Dropping the old one in favour of the newcomer made two apps (a dev replay and the service instance, say) ping-pong forever, since each reconnects the moment it loses its socket. A dead app is noticed by EOF on read, so the slot frees itself.

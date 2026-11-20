@@ -30,8 +30,6 @@ bool contains(std::span<const std::string_view> names, std::string_view name) {
     throw PolicyBundleError("network " + spec.name + " (" + spec.file.string() + "): " + message);
 }
 
-/** What parseJson would accept silently but build wrong. Shape errors it would only catch as an
- * out-of-range exception, or not at all for a short kernel (zero-padded), are named here. */
 void check_layers(const NetworkSpec &spec, const nlohmann::json &model) {
     if (!model.contains("in_shape") || !model.at("in_shape").is_array() ||
         model.at("in_shape").empty()) {

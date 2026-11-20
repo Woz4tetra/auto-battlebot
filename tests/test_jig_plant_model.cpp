@@ -11,8 +11,6 @@
 namespace auto_battlebot {
 namespace {
 
-// Both sides run identical double arithmetic at the same 2 ms substep; the only drift is
-// last-ulp libm differences accumulating over 1200 steps, well under this.
 constexpr double kGoldenTol = 1e-9;
 constexpr double kDesignHorizonS = 0.4;
 

@@ -46,3 +46,12 @@
 
 - `ScopedQuietLogging` logs TensorRT's own diagnostics at debug instead of error while an instance is alive. `EngineSelector` holds one while probing candidates. An engine built for a different GPU is expected to be rejected there, and TensorRT reports it as "the engine plan file is not compatible with this version of TensorRT". That blames the version even when the real mismatch is compute capability, and letting it through would put the misleading error `EngineSelector` exists to replace into stdout and the mcap recording. Nesting is counted per thread, so overlapping guards behave.
 - The process-wide `PinnedMatAllocator` instance is never destroyed, because `cv::Mat`s can outlive static destruction order.
+
+## Workarounds
+
+- `src/tensorrt_inference/trt_engine.cpp` defines `AB_TRT_HAS_STREAM_READER_V2` from `NV_TENSORRT_MAJOR` and `NV_TENSORRT_MINOR` and compiles whichever reader the installed headers provide. `IStreamReaderV2` arrived in TensorRT 10.7 and deprecated `IStreamReader`. Dev machines are on 10.14, JetPack 6.2 ships 10.3 and has only the older interface.
+- `FileStreamReader` feeds the engine file to TensorRT in pieces so deserialization can abort early. A V2 caller may hand over a device pointer as the destination, so every read is staged through a host buffer and copied with `cudaMemcpyDefault`. Unified addressing makes that correct for host and device targets. V1 destinations are always host memory and V1 has no seek.
+- The reader calls `cudaStreamSynchronize` before it returns, because the next `read` reuses `staging_`. Unverified: the reader sits in an anonymous namespace and needs a CUDA device and a V2 caller to test.
+- `seek` calls `file_.clear()` before `seekg`. A prior read that hit EOF leaves failbit set, which turns `seekg` into a no-op.
+- `~TrtEngine` destroys the stream and graph without a sync. `execute()` synchronizes the stream before it returns, so no work is in flight. An `execute()` that returns early would break this.
+- `tests/tensorrt_inference/test_trt_engine_graph.cpp` uses the shipped keypoint engine for the machine and `GTEST_SKIP`s when there is none. Engines are per GPU architecture and TensorRT version, so a missing file must not fail the suite on other boxes.

@@ -77,9 +77,6 @@ class ScatterCanvas {
     cv::Point2f range_;
 };
 
-// Writes the bounds through out-params rather than returning a pair. cv::Point2f is not
-// trivially copyable, so an aggregate holding two of them lands on the aarch64 calling
-// convention that changed between C++14 and C++17 and every caller draws a -Wpsabi note.
 void compute_extents(const std::vector<cv::Point2f> &points, cv::Point2f &min_corner,
                      cv::Point2f &max_corner) {
     if (points.empty()) {

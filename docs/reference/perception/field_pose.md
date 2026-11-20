@@ -51,3 +51,7 @@ That is six constraints for six degrees of freedom, with the missing corners fal
 
 `FixedFieldFilter` reports a configured arena size and is used by the kinematic sim, where the field is known a priori and no perception runs. It gives navigation the wall bounds it needs without a RANSAC field fit. It takes the camera-from-fieldcenter transform straight from the sim, which places its camera in the same frame it reports robot poses in. An identity transform is not harmless: the UI projects robot markers and the field border through it, and identity divides by a robot's roughly 1 cm height instead of its metres of range, throwing every marker far outside the image.
 
+
+## Workarounds
+
+- `compute_extents` in `point_cloud_field_filter_debug.cpp` writes the bounds through out-params instead of returning a pair. `cv::Point2f` is not trivially copyable, so an aggregate of two lands on the aarch64 calling convention that changed between C++14 and C++17, and every caller draws a `-Wpsabi` note. Unverified: no `-Wno-psabi` exists in the build and it was not built on aarch64. GCC psabi notes are notes, not errors.

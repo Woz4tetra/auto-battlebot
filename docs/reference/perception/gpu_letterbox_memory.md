@@ -7,3 +7,9 @@ These facts were source comments in `src/` and moved here on 2026-11-15 so the c
 Beside `const cudaError_t err =`:
 
 From pageable memory the copy has finished reading `image` by the time it returns.
+
+## Test tolerances
+
+- `expect_close` in `tests/tensorrt_inference/test_gpu_letterbox.cpp` allows one grey level per sample and a tighter bound on the mean. `cv::resize` rounds each 8-bit output and quantizes its weights to 11 bits. The kernel does neither. Unverified: the 11-bit figure comes from the old comment.
+- `random_blurred_image` blurs the noise with a 5x5 Gaussian (sigma 1.5). Bilinear error on white noise is the worst case and not what a camera sends. Unverified: the test was not run without the blur.
+- `AllocatorReusesReleasedBuffers` measures pool counts around the release. Earlier tests can leave buffers in the process-wide pool, so absolute counts depend on test order.

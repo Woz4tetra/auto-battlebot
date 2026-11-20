@@ -28,6 +28,7 @@ from auto_battlebot.recording.foxglove_ws import FoxgloveSubscriber
 from auto_battlebot.recording.mcap_io import decode_json
 from auto_battlebot.recording.sysid_io import parse_robot_tags
 
+HEADING_QUANTIZATION_TOL = 1.0
 THROTTLE_LEVELS = (0.0, -30.0, 40.0, 3.0)
 TURN_LEVELS = (0.0, 0.5, 25.0, -60.0)
 HOLD_M_AT_500MS_LIMIT = 0.03
@@ -72,8 +73,7 @@ def test_mirror_reproduces_recorded_pid_output(profile: Any) -> None:
             yaw_rate_dps=row["yaw_rate"],
         )
         worst = max(worst, abs(mixer.pid_output - row["pid_output"]))
-    # The reported heading is quantized to 1/16 degree; the heading hold sees that.
-    assert worst < 1.0
+    assert worst < HEADING_QUANTIZATION_TOL
 
 
 def test_telemetry_columns_follow_the_schema(tmp_path: Path) -> None:

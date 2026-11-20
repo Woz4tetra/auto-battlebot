@@ -50,8 +50,6 @@ Pose2D HazardAvoidance::steer_around(const Pose2D &our_pose, const Pose2D &goal,
             our_pose, center, hazard.inflated_radius_m + settings_.waypoint_clearance_m,
             our_pose.yaw, side);
 
-        // A hazard already routed around is excluded from the next pass. The new segment runs
-        // tangent to it by construction, so re-testing it only produces a substitution loop.
         handled.push_back(*blocking);
         if (!tangent.inside) {
             latched_hazard_index_ = *blocking;

@@ -13,8 +13,8 @@
 namespace auto_battlebot {
 namespace {
 
-// DATASHEET: INA219 SBOS448G rev G, 8.6: register pointers CONFIG 0x00, BUS 0x02, POWER 0x03,
-// CURRENT 0x04, CALIBRATION 0x05
+// DATASHEET: INA219 SBOS448G rev G, 8.6: register pointers CONFIG 0x00, BUS 0x02, POWER 0x03
+// DATASHEET: INA219 SBOS448G rev G, 8.6: register pointers CURRENT 0x04, CALIBRATION 0x05
 constexpr uint8_t INA219_REG_CONFIG = 0x00;
 constexpr uint8_t INA219_REG_BUSVOLTAGE = 0x02;
 constexpr uint8_t INA219_REG_POWER = 0x03;

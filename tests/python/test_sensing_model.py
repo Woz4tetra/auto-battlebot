@@ -157,8 +157,6 @@ def test_delivery_delay_and_order() -> None:
         assert stamps[w] == sorted(stamps[w])
         spacing = np.diff(stamps[w])
         period = float(model.params.frame_period_s[w])
-        # Captures land on the first 1 ms step at or after each frame time, so the spacing
-        # jitters by up to one step while the clock itself keeps the frame period.
         assert np.abs(spacing - period).max() < dt + 1e-9
         assert spacing.mean() == pytest.approx(period, abs=dt / len(spacing) + 1e-9)
 

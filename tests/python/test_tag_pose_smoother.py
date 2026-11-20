@@ -25,6 +25,7 @@ MASS_PROPERTIES = (
 
 T0_NS = 1_790_000_000_000_000_000
 TAG_SIZE = 0.064
+MAX_CLEAN_FIXES_AT_GATE = 3
 REST_PITCH = 0.198
 K = np.array([[665.0, 0.0, 960.0], [0.0, 716.0, 600.0], [0.0, 0.0, 1.0]])
 WIDTH, HEIGHT = 1920, 1200
@@ -586,9 +587,7 @@ def test_rts_recovers_trajectory_better_than_raw(
     assert rms(raw_pos) < 0.01, "raw body pose is right to begin with"
     assert rms(smooth_pos) < 0.75 * rms(raw_pos)
     assert rms(smooth_yaw) < 0.75 * rms(raw_yaw)
-    # The fused IMU's sigma is its spin residual (about 0.26 rad/s here), so a few clean fixes at
-    # the blackout edge and mid-spin sit right at the gate.
-    assert int(meas["rejected"].sum()) <= 3
+    assert int(meas["rejected"].sum()) <= MAX_CLEAN_FIXES_AT_GATE
 
     grid = smoothed.smoothed_grid_df
     gt = session.truth.at((grid["stamp_ns"].to_numpy() - T0_NS) / 1e9)

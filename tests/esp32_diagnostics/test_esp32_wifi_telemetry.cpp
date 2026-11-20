@@ -135,11 +135,6 @@ void send_reply_in_two_halves(int fd, const std::string &reply) {
 constexpr uint32_t kRingCapacity = 50;
 constexpr uint32_t kBatchMax = 20;
 
-/**
- * A stand-in for the firmware's GET /telemetry: a ring of `capacity` records whose head the test
- * moves, answering the way handle_telemetry in diagnostics_server.cpp does. While `offline` is
- * set it accepts and closes without replying, like a robot out of WiFi range.
- */
 class FakeRingServer {
    public:
     FakeRingServer() {

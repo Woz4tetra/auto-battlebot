@@ -287,3 +287,7 @@ All pair with a sim-side config under `simulation/` and run through `./scripts/r
 ## Home path expansion
 
 `expand_home` in `include/config/profile_selection.hpp` expands a leading `$HOME` or `~` against the current user's home directory and leaves other paths as they are. It throws when a home-relative path cannot be resolved. Returning the unexpanded literal would write it as a relative path under the working directory. Under a systemd service with a stripped environment that is inside the repo, and the next deploy wipes it.
+
+## Workarounds in tests
+
+- `RobotFilterKeypointHeightsParsePerLabelWithDefault` writes a `[plant]` table although keypoint heights do not use it. The filter's default dead-reckoning estimator requires `[plant]`, and the config load throws on the motion estimator before the keypoint heights are parsed.

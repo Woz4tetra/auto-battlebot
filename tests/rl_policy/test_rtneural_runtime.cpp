@@ -106,7 +106,6 @@ TEST(RtNeuralRuntimeTest, ModelSizesMustMatchTheManifest) {
 }
 
 TEST(RtNeuralRuntimeTest, AnActivationRtNeuralCannotBuildIsNamed) {
-    // RTNeural's parser would add a null layer for it and crash on the first forward pass.
     const auto dir = rl_test::fresh_dir("rtneural_gelu");
     rl_test::write_dense_json(dir / "net.json", 3, tiny_layers("gelu"));
     const std::string error = load_error(spec_for(dir / "net.json", 3, 2));
@@ -204,8 +203,8 @@ TEST(RtNeuralRuntimeTest, FullSizeActorInferenceTime) {
     RecordProperty("median_us", std::to_string(median));
     RecordProperty("p99_us", std::to_string(p99));
     EXPECT_TRUE(std::isfinite(runtime.outputs()[0].values()[0]));
-    // A loose ceiling so a loaded dev box does not fail it; the printed number is the result.
-    EXPECT_LT(median, 2000.0);
+    constexpr double kLoadedBoxMedianCeilingUs = 2000.0;
+    EXPECT_LT(median, kLoadedBoxMedianCeilingUs);
 }
 
 }  // namespace

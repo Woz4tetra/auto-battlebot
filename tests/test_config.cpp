@@ -1452,8 +1452,6 @@ c_drift_bias = 0.0
 }  // namespace
 
 TEST_F(ConfigTest, RobotFilterKeypointHeightsParsePerLabelWithDefault) {
-    // [plant] is here because the filter's default dead-reckoning estimator requires it, not
-    // because keypoint heights care about it.
     write_config_file(std::string(R"(
 [rgbd_camera]
 type = "NoopRgbdCamera"

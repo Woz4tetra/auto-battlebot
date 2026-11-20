@@ -12,7 +12,6 @@ OutputChannel::OutputChannel(std::string topic, std::string message_encoding, Vi
 }
 
 void OutputChannel::log(const std::byte* data, size_t len, uint64_t log_time_ns) {
-    // The SDK refuses zero-length messages, and an empty payload carries nothing anyway.
     if (len == 0) return;
     if (recorder_ && recorder_channel_ != 0) {
         recorder_->write(recorder_channel_, data, len, log_time_ns);

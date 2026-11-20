@@ -177,12 +177,9 @@ VelocityCommand RlPolicyNavigation::update(RobotDescriptionsStamped robots, Fiel
     for (const auto &robot : robots.descriptions) {
         if (robot.frame_id == FrameId::OUR_ROBOT_1) our_robot = &robot;
     }
-    // Measured on the control clock as well as the track's own age, because a snapshot the
-    // RobotDescriptionsCache substitutes carries the age frozen at the moment it was cached.
+    const double cached_snapshot_age_s = std::max(0.0, clock_->now() - robots.header.stamp);
     const double our_unmeasured_s =
-        our_robot == nullptr
-            ? 0.0
-            : std::max(0.0, clock_->now() - robots.header.stamp) + our_robot->measurement_age_s;
+        our_robot == nullptr ? 0.0 : cached_snapshot_age_s + our_robot->measurement_age_s;
     const bool our_robot_lost = our_unmeasured_s > config_.max_our_unmeasured_s;
     if (!loaded_ || our_robot == nullptr || our_robot_lost) {
         if (!loaded_) {
@@ -243,7 +240,6 @@ VelocityCommand RlPolicyNavigation::update(RobotDescriptionsStamped robots, Fiel
     last_visualization_.path =
         NavigationPathSegment{our_pose.x, our_pose.y, target.pose.x, target.pose.y};
     last_visualization_.command = command;
-    // Last use of our_robot and opponent, which point into robots.
     last_visualization_.robots = std::move(robots);
     return command;
 }

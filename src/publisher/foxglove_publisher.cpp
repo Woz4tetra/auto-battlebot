@@ -91,8 +91,6 @@ FoxglovePublisher::FoxglovePublisher(std::shared_ptr<VizSink> sink,
                        json_schema(foxglove_adapters::kDetectionsSchemaName,
                                    foxglove_adapters::kDetectionsSchema),
                        kUnlatched, sink_, mcap_recorder_),
-      // Annotations are a rendering of the JSON channel and are live only: the recorder is
-      // handed nullptr so they can never land in a file.
       blob_annotations_("/blob_detections/annotations", "protobuf", sdk_schema<ImageAnnotations>(),
                         kUnlatched, sink_, nullptr),
       keypoint_detections_("/keypoint_detections", "json",

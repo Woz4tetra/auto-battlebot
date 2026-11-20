@@ -69,8 +69,6 @@ ModelResultStamped sim_measurements_to_keypoints(const SimMeasurementFrame &fram
 SimKeypointModel::SimKeypointModel(const SimKeypointModelConfiguration &config) : config_(config) {}
 
 ModelResultStamped SimKeypointModel::update(RgbImage image, const CameraInfo &camera_info) {
-    // Looked up here rather than in the constructor: SimRgbdCamera configures the connection, and
-    // the factories do not promise which of the two is built first.
     if (!connection_) connection_ = SimConnection::instance();
     return sim_measurements_to_keypoints(
         connection_->last_measurements(), config_.labels, config_.keypoint_offset_m,

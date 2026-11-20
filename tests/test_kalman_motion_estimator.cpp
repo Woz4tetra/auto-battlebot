@@ -383,8 +383,6 @@ KalmanMotionEstimatorConfiguration ekf_config() {
     return config;
 }
 
-/** A keypoint-derived our-robot pose measurement: keypoints non-empty marks it as carrying a
- * trustworthy heading, matching what the front/back converter emits. */
 RobotDescription make_our_pose_measurement(const PlantState &truth) {
     RobotDescription description;
     description.frame_id = FrameId::OUR_ROBOT_1;
@@ -525,7 +523,6 @@ TEST(KalmanMotionEstimatorTest, HoldModePinsOpponentAtLastMeasurement) {
     EXPECT_TRUE((*coasted)[0].is_stale);
 }
 
-/** A keypoint opponent pose: non-empty keypoints mark the heading as measured. */
 RobotDescription make_opponent_pose_measurement(double x, double y, double yaw,
                                                 Label label = Label::OPPONENT) {
     RobotDescription description = make_opponent_measurement(x, y);

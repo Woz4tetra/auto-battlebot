@@ -10,8 +10,6 @@
 namespace auto_battlebot {
 namespace {
 
-// The shipped keypoint engine for this machine, if the dev box has it. Engines are per GPU
-// architecture and TensorRT version, so the test skips rather than fails without one.
 std::filesystem::path find_engine() {
     const std::filesystem::path models =
         std::filesystem::path(__FILE__).parent_path().parent_path().parent_path() / "data" /

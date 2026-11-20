@@ -116,6 +116,18 @@ struct McapRecorderTestAccess {
 
 namespace {
 
+constexpr double kWriteMustNotWaitOnCloseMs = 50.0;
+
+void wait_for_queued_close(McapRecorder &recorder) { recorder.flush(); }
+
+void wait_for_file_open(McapRecorder &recorder) { recorder.flush(); }
+
+[[noreturn]] void abort_because_stuck_thread_holds_recorder() { std::abort(); }
+
+void flush_async_logger() { spdlog::default_logger()->flush(); }
+
+void wait_for_logger_loop_to_exit() { std::this_thread::sleep_for(std::chrono::milliseconds(20)); }
+
 class McapRecorderToggleTest : public ::testing::Test {
    protected:
     void SetUp() override { dir_ = make_scratch_recordings_dir("toggle_test"); }
@@ -138,8 +150,8 @@ TEST_F(McapRecorderToggleTest, OffClosesTheFileAndOnStartsANewOne) {
 
     ASSERT_TRUE(recorder.set_enabled(false));
     EXPECT_FALSE(recorder.is_enabled());
-    write_one(recorder, early, 2);  // dropped, recording is off
-    recorder.flush();               // off only queues the close
+    write_one(recorder, early, 2);
+    wait_for_queued_close(recorder);
 
     FileContents closed = read_file(first);
     EXPECT_TRUE(closed.has_summary) << "the file recording-off closed is not finalized";
@@ -174,10 +186,6 @@ TEST_F(McapRecorderToggleTest, ChannelOpenedWhileOffRecordsInTheNextFile) {
     EXPECT_EQ(read_file(paths_.back()).count_by_topic["/late"], 1);
 }
 
-// The app's logger copies every line into the MCAP. Toggling recording logs from inside the
-// recorder's lock, which came straight back into write() on the same thread and deadlocked the
-// app on the ZED Box. Run the toggles on a detached thread so a regression fails instead of
-// hanging the suite.
 TEST_F(McapRecorderToggleTest, TogglingWithTheMcapLogSinkDoesNotDeadlock) {
     const auto previous_logger = spdlog::default_logger();
     auto recorder = std::make_shared<McapRecorder>("toggle_log_test", dir_);
@@ -194,11 +202,11 @@ TEST_F(McapRecorderToggleTest, TogglingWithTheMcapLogSinkDoesNotDeadlock) {
     }).detach();
     if (finished.wait_for(std::chrono::seconds(5)) != std::future_status::ready) {
         ADD_FAILURE() << "set_enabled deadlocked against the MCAP log sink";
-        std::abort();  // the stuck thread holds the recorder; nothing can clean up after it
+        abort_because_stuck_thread_holds_recorder();
     }
     const std::filesystem::path second = finished.get();
     paths_.push_back(second);
-    spdlog::default_logger()->flush();  // the logger is asynchronous
+    flush_async_logger();
     recorder->close();
     spdlog::set_default_logger(previous_logger);
 
@@ -230,11 +238,11 @@ TEST_F(McapRecorderToggleTest, LoggingFromAnotherThreadWhileTogglingDoesNotDeadl
     }).detach();
     if (finished.wait_for(std::chrono::seconds(20)) != std::future_status::ready) {
         ADD_FAILURE() << "toggling deadlocked against a thread that was logging";
-        std::abort();
+        abort_because_stuck_thread_holds_recorder();
     }
     paths_ = finished.get();
     stop->store(true);
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));  // let the logger loop exit
+    wait_for_logger_loop_to_exit();
     spdlog::set_default_logger(previous_logger);
     recorder->close();
     EXPECT_GT(paths_.size(), 1u);
@@ -284,8 +292,7 @@ TEST_F(McapRecorderToggleTest, WritesDoNotWaitForTogglesToFinish) {
     }
     recorder.close();
     paths_ = paths;
-    // A memcpy of 1 MB is well under a millisecond; a write that waited on a close is not.
-    EXPECT_LT(worst_ms, 50.0);
+    EXPECT_LT(worst_ms, kWriteMustNotWaitOnCloseMs);
 }
 
 TEST_F(McapRecorderToggleTest, FlushWaitsForQueuedWrites) {
@@ -332,7 +339,7 @@ TEST_F(McapRecorderToggleTest, FullQueueDropsVideoAndKeepsStatus) {
     const auto status = recorder.open_channel("/status/system", "json", empty_json_schema());
     const std::filesystem::path path = recorder.file_path();
     paths_.push_back(path);
-    recorder.flush();  // The file is open before the writer is held.
+    wait_for_file_open(recorder);
 
     McapRecorderTestAccess::hold_writer(recorder, true);
     const std::vector<std::byte> frame(1 << 20, std::byte{0x11});

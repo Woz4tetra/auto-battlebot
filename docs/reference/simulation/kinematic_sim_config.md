@@ -125,3 +125,8 @@ Rendering costs wall-clock time but cannot corrupt a run. The sim owns logical t
 
 - **Lazy MuJoCo imports.** `kinematic_sim_server.py` imports `MujocoWindow` and `plants/__init__.py` imports `MujocoPlant` inside the branch that needs them. MuJoCo is an x86-only dependency (`pyproject.toml` pins it per platform), so on aarch64 a top-level import would fail with `ModuleNotFoundError: mujoco` and break the kinematic plant.
 - **`RlEvalServer._render_camera` is a no-op.** The C++ sim profile reads measurements off the socket, not pixels. The compositor cost lockstep tick time for a render nobody reads.
+
+## Workarounds
+
+- `SimKeypointModel::update` fetches `SimConnection::instance()` on its first call, not in the constructor. `SimRgbdCamera` configures the connection, and factories do not promise which of the two is built first. `instance()` silently creates a default `127.0.0.1:14882` connection when unconfigured, so a constructor lookup could pick the wrong one.
+- `tests/python/test_sensing_model.py` compares capture spacing to the frame period with a one-step tolerance. Captures land on the first 1 ms step at or after each frame time, so spacing jitters by up to one step while the clock keeps the frame period.

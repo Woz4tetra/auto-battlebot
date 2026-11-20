@@ -336,8 +336,6 @@ bool EspNowTransmitter::reconnect_if_needed() {
 
     if (dongle_.is_open()) {
         if (now - last_dongle_frame_time_ < kDongleSilence) return true;
-        // Open but quiet. A port whose device went away reads empty forever, so only a fresh open
-        // recovers it. Rate-limited like the open itself so an absent dongle is not thrashed.
         if (now < next_reconnect_attempt_) return true;
         const auto silent_ms =
             std::chrono::duration_cast<std::chrono::milliseconds>(now - last_dongle_frame_time_)

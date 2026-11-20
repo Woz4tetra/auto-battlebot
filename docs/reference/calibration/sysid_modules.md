@@ -1760,3 +1760,8 @@ Reads a bundle written by ``smooth_tag_poses.py`` and writes, under ``<bundle>/p
 - **`check_sysid_recordings.py` catches `Exception` on read.** The mcap reader raises a mix of exception types on a torn file, so the check reports any of them as an unreadable file.
 - **`plot_jig_runs.py` drive channels.** The two drive channels the radio reported are logged directly since the format change. Older runs stored only the mixed body units, so the plot reconstructs the channels by inverting the tank un-mix that produced them.
 - **`render_match_prediction_camera.py` video source and tail.** Only recordings before 2026-09 name a separate SVO in `svo_path`; video now lives on `/camera/video` inside the recording, so there is no path to follow. A JPEG stream tail can yield one truncated frame, and the renderer skips it rather than hand ffmpeg a short packet.
+
+## Workarounds in tests
+
+- `test_sysid_coverage.py` compares the mirror's steer output to the reported one within `HEADING_QUANTIZATION_TOL` (1.0). The reported heading is quantized to 1/16 degree and the heading hold sees that. Unverified: the telemetry encoder was not traced.
+- `test_tag_pose_smoother.py` allows `MAX_CLEAN_FIXES_AT_GATE` (3) rejected clean fixes. The fused IMU's sigma is its spin residual (about 0.26 rad/s in the scenario), so a few clean fixes at the blackout edge and mid-spin sit right at the innovation gate.

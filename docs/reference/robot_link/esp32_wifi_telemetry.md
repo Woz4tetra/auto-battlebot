@@ -60,3 +60,7 @@ Every `GET /telemetry` reply starts with a `TelemetryBatchHeader` (`firmware/sha
 - `usb_dashboard.py` waits before sending a GET again. The robot replays requests over loopback TCP, which now and then stalls a response for 10 s (a dropped segment waiting out its retransmit timer). Answers are held for at most about 3 s while an ESC exchange runs. Unverified.
 - The robot closes each connection after the response, but its side notices the close late, so `usb_dashboard.py` computes the total response size from `Content-Length` and closes the bridged connection as soon as the body is complete.
 - `log_drive_twitch.py` pads rows from older firmware that lack the yaw, guard, or seq columns so every row matches the header. The firmware just before the guard ends in seq, so the padding goes in front of seq.
+
+## Test fake server
+
+`FakeRingServer` in `tests/esp32_diagnostics/test_esp32_wifi_telemetry.cpp` stands in for the firmware's `GET /telemetry`. It keeps a ring of `capacity` records behind the head the test moves and answers the way `handle_telemetry` in `diagnostics_server.cpp` does. While `offline` is set it accepts and closes without replying, like a robot out of WiFi range. A shared fixture that both sides test against would need the firmware build.

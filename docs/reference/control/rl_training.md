@@ -58,3 +58,7 @@ python training/rl/pretrain_sidestep.py runs/rl_nav/<run>/checkpoint.pt \
 - **`lockstep_eval.py` thread caps.** Each server process runs with `OMP_NUM_THREADS`, `MKL_NUM_THREADS` and `OPENBLAS_NUM_THREADS` set to 1. Torch and BLAS pools otherwise spin about 7 cores per episode. Unverified: not benchmarked.
 - **`fit_provisional_ekf_error.py` TOML append order.** The script appends the `ekf_error` keys to the source TOML text. Tables after `[randomization]` would swallow them, but `[randomization]` is the last table there and `ekf_error` is a fresh table header, so ordering is safe.
 - **`roboflow_coco_to_yolo_keypoints.py` split names.** YOLO expects a `val` key in `data.yaml`, so the script maps Roboflow's `valid` split to it.
+
+## Workarounds in tests
+
+- `test_rl_core.py` reads the reverse wheel command at `EARLY_REVERSE_STEP` (10). A held -0.9 reverse tips the fitted robot over its nose within about 0.6 s and the firmware then inverts the command, so a later read fails the reverse-is-negative check. The tip-over timing comes from the fitted plant and was not rerun.

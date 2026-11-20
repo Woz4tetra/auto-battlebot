@@ -376,9 +376,6 @@ TEST(ControlLoopTest, NonZeroRateRunsMultipleCyclesPerFrame) {
         loop->submit_measurement(m);
         driver.advance_to(m.keypoints.header.stamp);
     }
-    // 240 Hz over a 33.3 ms frame is 7.99 periods, so floor() gives 7 or 8 depending on
-    // accumulated rounding. Assert the rate is tracked, not an exact count that would make the
-    // test a hostage to floating point.
     const size_t cycles = transmitter->sent.size();
     const size_t frames_after_first = measurements.size() - 1;
     EXPECT_GE(cycles, 1u + 7u * frames_after_first);

@@ -40,8 +40,6 @@ namespace {
 
 std::atomic<bool> g_stop{false};
 constexpr std::chrono::seconds kShutdownDeadline{2};
-/** Bytes queued for an app that is not reading. Subscriber counts and client messages are small,
- *  so reaching this means the app is stuck; past it whole frames are dropped, never half ones. */
 constexpr size_t kMaxAppOutBytes = 1u << 20;
 void handle_signal(int) { g_stop.store(true); }
 
@@ -303,10 +301,6 @@ class Relay {
         }
 
         spdlog::info("Shutting down");
-        // The SDK's stop() is graceful: it closes each client and waits for the close to finish.
-        // A client whose network vanished (the iPad's Ethernet link dropping, say) never answers,
-        // so stop() waited until TCP gave up on it, and systemd killed the relay after 90 s.
-        // Nothing here needs flushing to disk, so past the deadline the relay just exits.
         std::thread([] {
             std::this_thread::sleep_for(kShutdownDeadline);
             spdlog::warn("Shutdown still waiting on a client after {} s; exiting anyway",
@@ -360,8 +354,6 @@ class Relay {
         const nfds_t count = app_fd_ >= 0 ? 2 : 1;
         int ready = ::poll(fds, count, 20);
         if (ready <= 0) return;
-        // The app first: when a restarted app connects in the same poll as the old one's EOF,
-        // reading frees the slot before the accept, instead of refusing the new app.
         if (count == 2 && (fds[1].revents & (POLLIN | POLLHUP | POLLERR))) read_app();
         if (count == 2 && app_fd_ >= 0 && (fds[1].revents & POLLOUT)) flush_to_app();
         if (fds[0].revents & POLLIN) accept_app();
@@ -371,10 +363,6 @@ class Relay {
         int fd = ::accept4(listen_fd_, nullptr, nullptr, SOCK_CLOEXEC | SOCK_NONBLOCK);
         if (fd < 0) return;
         if (app_fd_ >= 0) {
-            // Keep the app that is already attached. Dropping it in favour of the newcomer
-            // made two apps (a dev replay next to a service instance, say) ping-pong forever,
-            // since each reconnects the moment it loses the socket. A dead app is noticed by
-            // EOF on read, so the slot frees itself.
             if (!warned_second_connection_) {
                 spdlog::warn("Second app connection refused; one app at a time");
                 warned_second_connection_ = true;

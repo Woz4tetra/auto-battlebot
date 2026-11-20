@@ -128,7 +128,6 @@ TEST_F(AsyncPublisherTest, FlushFromAnotherThreadReturnsWhileCallsKeepArriving) 
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
     stop.store(true);
     producer.join();
-    // At most a full queue of 1 ms calls ahead of it.
     EXPECT_LT(flush_ms, 5.0 * static_cast<double>(AsyncPublisher::kMaxPendingCalls));
 }
 

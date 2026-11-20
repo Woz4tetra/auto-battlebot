@@ -63,9 +63,6 @@ bool NvjpgJpegEncoder::encode_on_owner_thread(const cv::Mat &bgr, int quality,
     const int height = bgr.rows & ~1;
     if (width == 0 || height == 0) return false;
 
-    // JPEG decoders read YCbCr as full range (JFIF). COLOR_BGR2YUV_I420 is limited range (Y in
-    // 16-235), which decoded washed out: 6.2 mean error per channel on a gradient. So convert
-    // to full-range YCrCb and subsample the chroma to 4:2:0 here.
     cv::cvtColor(bgr(cv::Rect(0, 0, width, height)), ycrcb_, cv::COLOR_BGR2YCrCb);
     cv::split(ycrcb_, planes_);
     i420_.create(height * 3 / 2, width, CV_8UC1);

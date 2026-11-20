@@ -621,9 +621,10 @@ def test_lockstep_slew_and_guard_stages() -> None:
     np.testing.assert_allclose(guard[:, 1], neither[:, 1])
     k = _first_step_tick(neither[:, 2])
     assert guard[k, 2] == pytest.approx(0.5 * neither[k, 2], rel=0.05)
-    # Reverse reads negative, as the firmware's left_cmd does. Checked early: held -0.9 reverse
-    # tips the fitted robot over its nose within about 0.6 s, and the firmware then inverts it.
-    assert neither[10, 2] < -50.0
+    assert neither[EARLY_REVERSE_STEP, 2] < -50.0
+
+
+EARLY_REVERSE_STEP = 10
 
 
 def _first_step_tick(wheel_command: np.ndarray) -> int:
