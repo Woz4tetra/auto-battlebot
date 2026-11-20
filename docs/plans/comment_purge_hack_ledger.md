@@ -94,6 +94,14 @@ Fixed 2026-11-19:
   report now points at `our_robot_hold_window_s` in `docs/reference/config/profiles.md`. No
   remaining reference to `docs/velocity_jig_wiring.md` or `docs/hardware/README.md`.
 
+Fixed 2026-11-19, found during phase 2:
+
+- `src/transmitter/espnow_transmitter.cpp`: enabling autonomy while SA is already on now ramps
+  from standstill; the first command after `enable()` used to skip the slew limit. Test
+  `EspNowTransmitterPtyTest.ReEnablingWithSaOnRampsFromStandstill`.
+- `include/robot_filter/ekf_math.hpp` `wrap_angle`: returns `(-pi, pi]` as documented; `-pi` maps
+  to `pi`.
+
 Open, found during phase 2 (2026-11-19):
 
 - `src/mask_model/deeplab_mask_model.cpp`: normalizes with ImageNet mean/std (0.485/0.456/0.406,
@@ -101,11 +109,6 @@ Open, found during phase 2 (2026-11-19):
   (`training/deeplab/score_masks.py`) use the `common_transforms` defaults
   (0.4611/0.4359/0.3905, 0.2193/0.2150/0.2109). Fixing it changes the deployed field mask, so it
   needs a mask eval first.
-- `src/transmitter/espnow_transmitter.cpp` re-enable: the old comment said re-enabling autonomy
-  ramps from standstill, but `disable()` resets `last_send_time_`, so the first SA-on command goes
-  out unlimited. Decide the intended behavior.
-- `include/robot_filter/ekf_math.hpp` `wrap_angle`: claimed range `(-pi, pi]`, but `atan2` returns
-  `-pi` for `-pi`.
 - `playground/opponent_prediction/run_replays.py`: the NHRL 14-12-27 start frame is 1540 in the script but 3000 in `config/playback/svo_start_frames.toml`. Found by batch b49, 2026-11-19.
 - `scripts/nhrl_to_recordings.py`: clips skipped as already converted do not advance `stamp_ns`, so newly converted clips can overlap their stamps. Found by batch b49, 2026-11-19.
 - `scripts/convert_ros1_mcap.py`: the diagnostics count check only flags the output having more messages than the source; it does not catch dropped messages, though the old comment claimed it bounds the count from below. Found by batch b49, 2026-11-19.

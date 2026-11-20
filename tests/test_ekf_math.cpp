@@ -10,11 +10,14 @@ namespace {
 
 constexpr double kFramePeriod = 1.0 / 30.0;
 
-TEST(EkfMathTest, WrapAngleStaysInPiRange) {
-    // +pi and -pi are the same heading; atan2 picks the sign from the residual sine, so odd
-    // multiples of pi land on either boundary. Magnitude is what matters.
-    EXPECT_NEAR(std::abs(ekf::wrap_angle(3.0 * M_PI)), M_PI, 1e-12);
-    EXPECT_NEAR(std::abs(ekf::wrap_angle(-3.0 * M_PI)), M_PI, 1e-12);
+TEST(EkfMathTest, WrapAngleStaysInHalfOpenPiRange) {
+    EXPECT_EQ(ekf::wrap_angle(-M_PI), M_PI);
+    for (const double angle : {3.0 * M_PI, -3.0 * M_PI, 5.0 * M_PI, -5.0 * M_PI}) {
+        const double wrapped = ekf::wrap_angle(angle);
+        EXPECT_GT(wrapped, -M_PI) << angle;
+        EXPECT_LE(wrapped, M_PI) << angle;
+        EXPECT_NEAR(std::abs(wrapped), M_PI, 1e-12) << angle;
+    }
     EXPECT_NEAR(ekf::wrap_angle(0.25), 0.25, 1e-12);
     EXPECT_NEAR(ekf::wrap_angle(M_PI + 0.1), -M_PI + 0.1, 1e-12);
     EXPECT_NEAR(ekf::wrap_angle(-M_PI - 0.1), M_PI - 0.1, 1e-12);

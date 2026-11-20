@@ -12,7 +12,10 @@ template <int Rows, int Cols>
 using Mat = Eigen::Matrix<double, Rows, Cols>;
 
 /** Wraps an angle into (-pi, pi]. */
-inline double wrap_angle(double angle) { return std::atan2(std::sin(angle), std::cos(angle)); }
+inline double wrap_angle(double angle) {
+    const double wrapped = std::atan2(std::sin(angle), std::cos(angle));
+    return wrapped <= -M_PI ? M_PI : wrapped;
+}
 
 template <int N>
 void symmetrize(Mat<N, N> &covariance) {

@@ -219,7 +219,6 @@ void EspNowTransmitter::send(VelocityCommand command) {
 
 void EspNowTransmitter::disable() {
     enabled_ = false;
-    // Re-enabling ramps up from a standstill rather than resuming from the last command.
     prev_linear_command_ = 0.0;
     last_send_time_.reset();
 }
@@ -235,8 +234,7 @@ double EspNowTransmitter::limit_linear_acceleration(double linear_command) {
     }
     if (!last_send_time_) {
         last_send_time_ = now;
-        prev_linear_command_ = linear_command;
-        return linear_command;
+        return prev_linear_command_;
     }
 
     const double dt = std::chrono::duration<double>(now - *last_send_time_).count();

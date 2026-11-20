@@ -429,6 +429,42 @@ TEST_F(EspNowTransmitterPtyTest, SlewLimitsLinearOnlyWhileAutonomyIsOn) {
     EXPECT_LE(commands[0].ch0_value, elapsed_since_sa_off_s + 1e-3);
 }
 
+TEST_F(EspNowTransmitterPtyTest, ReEnablingWithSaOnRampsFromStandstill) {
+    EspNowTransmitterConfiguration config;
+    config.dongle_serial_path = path_;
+    config.max_motor_rpm = 1500.0;
+    config.max_motor_rpm_per_s = config.max_motor_rpm;
+    EspNowTransmitter transmitter(config, nullptr, nullptr);
+    ASSERT_TRUE(transmitter.initialize());
+
+    espnow_protocol::TelemetryPayload telemetry = {};
+    telemetry.espnow_age_ms = UINT32_MAX;
+    telemetry.radio_connected = 1;
+    telemetry.autonomy_switch_sa = 1;
+    write_telemetry(master_, telemetry);
+    usleep(5000);
+    transmitter.update();
+
+    transmitter.enable();
+    transmitter.send({1.0, 0.0, 0.0});
+    usleep(50000);
+    transmitter.disable();
+    transmitter.enable();
+    const auto enabled_at = std::chrono::steady_clock::now();
+    usleep(50000);
+    write_telemetry(master_, telemetry);
+    usleep(5000);
+    transmitter.update();
+    ASSERT_TRUE(transmitter.get_status().autonomy_switch_on);
+    transmitter.send({1.0, 0.0, 0.0});
+    const double since_enable_s =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - enabled_at).count();
+    const auto commands = read_commands(read_master());
+    ASSERT_FALSE(commands.empty());
+    EXPECT_LE(commands.back().ch0_value, since_enable_s + 1e-3)
+        << "the first command after enable must not skip the slew limit";
+}
+
 TEST(EspNowTelemetryChannelsTest, UndoesTheFirmwareNegationAndTheUpsideDownFlip) {
     espnow_protocol::TelemetryPayload upright = {};
     upright.a_percent = -40.0f;
