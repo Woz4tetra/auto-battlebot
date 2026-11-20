@@ -305,35 +305,47 @@ class FakeRobot:
                 self.wfile.write(data)
 
             def do_GET(self) -> None:  # noqa: N802
-                if self.path == "/esc/status":
-                    self.reply(200, json.dumps({"state": robot.state, "error": ""}))
-                elif self.path == "/esc/4way":
-                    if robot.response is None:
-                        self.reply(200, json.dumps({"id": robot.frame_id, "state": "none"}))
-                    else:
-                        done = {"id": robot.frame_id, "state": "done"}
-                        self.reply(200, json.dumps({**done, "frame": robot.response.hex()}))
+                reply = robot.get(self.path)
+                if reply is not None:
+                    self.reply(*reply)
 
             def do_POST(self) -> None:  # noqa: N802
                 body = self.rfile.read(int(self.headers["Content-Length"])).decode()
-                fields = dict(urllib.parse.parse_qsl(body))
-                if self.path == "/esc/tuning":
-                    if fields["enter"] == "1" and robot.armed:
-                        return self.reply(409, "disarm to enter tuning mode")
-                    robot.state = "tuning" if fields["enter"] == "1" else "combat"
-                    self.reply(200, "queued")
-                elif self.path == "/esc/4way":
-                    if robot.state != "tuning":
-                        return self.reply(409, "not in tuning mode")
-                    robot.frame_id += 1
-                    robot.esc.write(bytes.fromhex(fields["frame"]))
-                    robot.response = bytes(robot.esc.rx)
-                    robot.esc.rx.clear()
-                    self.reply(200, json.dumps({"id": robot.frame_id}))
+                reply = robot.post(self.path, dict(urllib.parse.parse_qsl(body)))
+                if reply is not None:
+                    self.reply(*reply)
 
         self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def get(self, path: str) -> tuple[int, str] | None:
+        """Reply to a GET on one of the /esc/ routes."""
+        if path == "/esc/status":
+            return 200, json.dumps({"state": self.state, "error": ""})
+        if path == "/esc/4way":
+            if self.response is None:
+                return 200, json.dumps({"id": self.frame_id, "state": "none"})
+            done = {"id": self.frame_id, "state": "done"}
+            return 200, json.dumps({**done, "frame": self.response.hex()})
+        return None
+
+    def post(self, path: str, fields: dict[str, str]) -> tuple[int, str] | None:
+        """Reply to a POST on one of the /esc/ routes."""
+        if path == "/esc/tuning":
+            if fields["enter"] == "1" and self.armed:
+                return 409, "disarm to enter tuning mode"
+            self.state = "tuning" if fields["enter"] == "1" else "combat"
+            return 200, "queued"
+        if path == "/esc/4way":
+            if self.state != "tuning":
+                return 409, "not in tuning mode"
+            self.frame_id += 1
+            self.esc.write(bytes.fromhex(fields["frame"]))
+            self.response = bytes(self.esc.rx)
+            self.esc.rx.clear()
+            return 200, json.dumps({"id": self.frame_id})
+        return None
 
     def close(self) -> None:
         self.server.shutdown()

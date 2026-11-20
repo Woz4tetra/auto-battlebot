@@ -242,7 +242,8 @@ def validate(args: argparse.Namespace) -> bool:
     use_atime = bool(args.time_source == "atime")
     if use_atime and not relatime_enabled():
         raise SystemExit(
-            "root filesystem is mounted noatime, so atime is frozen; re-run with --time-source mtime"
+            "root filesystem is mounted noatime, so atime is frozen; "
+            "re-run with --time-source mtime"
         )
     return use_atime
 
