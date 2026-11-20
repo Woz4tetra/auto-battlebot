@@ -130,15 +130,19 @@ def load_cc_materials(
 
     loaded = bproc.loader.load_ccmaterials(str(cc_path), used_assets=list(needed))
     cc_materials = {mat.get_name(): mat for mat in loaded}
+    add_materials_loaded_by_earlier_calls(cc_materials, needed)
+    return cc_materials
 
-    # BlenderProc may return only newly loaded assets on subsequent calls.
+
+def add_materials_loaded_by_earlier_calls(
+    cc_materials: dict[str, bproc.types.Material], needed: set[str]
+) -> None:
     for name in needed:
         if name in cc_materials:
             continue
         existing = bpy.data.materials.get(name)
         if existing is not None:
             cc_materials[name] = bproc.types.Material(existing)
-    return cc_materials
 
 
 def _disconnect_base_color(bpy_mat: bpy.types.Material) -> None:

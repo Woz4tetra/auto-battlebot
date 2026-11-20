@@ -1,20 +1,4 @@
-"""Run orchestration: scene loop, rendering, frame processing, and summary.
-
-Order-of-operations invariants (do not reorder casually):
-
-1. ``bproc.init()`` -> devices and denoiser -> resolution -> samples ->
-   ``enable_depth_output`` before anything renders. Cycles keeps its persistent data
-   across the frames of one pass (BlenderProc's init turns it on), so the scene syncs once
-   per pass rather than once per frame.
-2. Per scene: reset keyframes -> ground scale -> environment -> select/pose
-   robots -> pool refresh check -> place distractors -> lights -> material
-   jitter -> cameras -> render.
-3. The clean (distractor-free) second render runs after the main render, only
-   when obstructions are not ignored and distractors are active, and at one sample:
-   only its segmap is read.
-4. ``frame_set(local_idx)`` before per-frame keypoint projection: Blender's
-   ``world_to_camera_view`` reads the camera pose animated at that frame.
-"""
+"""Run orchestration: scene loop, rendering, frame processing, summary."""
 
 import blenderproc as bproc
 
@@ -529,12 +513,7 @@ def _process_scene_frames(
 
         color_img = colors[local_idx]
         cat_seg = cat_seg_maps[local_idx]
-        # An absent instance pass may surface as None or an empty list.
-        inst_seg = (
-            inst_seg_maps[local_idx]
-            if inst_seg_maps is not None and len(inst_seg_maps) > 0
-            else None
-        )
+        inst_seg = _map_or_none_when_pass_absent(inst_seg_maps, local_idx)
         clean_inst_seg = clean_inst_seg_maps[local_idx] if clean_inst_seg_maps is not None else None
         depth_map = depth_maps[local_idx]
 
@@ -781,14 +760,19 @@ def render_scene(
         damage_session.revert()
 
 
+def _map_or_none_when_pass_absent(maps: list | None, local_idx: int):
+    return maps[local_idx] if maps is not None and len(maps) > 0 else None
+
+
 def _periodic_memory_cleanup(completed_scenes: int, memory_cleanup_interval: int) -> None:
     """Free transient render buffers/images at the configured scene interval."""
     if not (memory_cleanup_interval > 0 and completed_scenes % memory_cleanup_interval == 0):
         return
     gc.collect()
-    # Free transient render buffers/images without touching materials.
-    # Avoid orphans_purge here: it can delete cached cc_textures that are
-    # intentionally kept for future scenes but temporarily have 0 users.
+    _free_render_buffers_keeping_cached_textures()
+
+
+def _free_render_buffers_keeping_cached_textures() -> None:
     for img in list(bpy.data.images):
         if img.name.startswith(("Render Result", "Viewer Node")):
             try:

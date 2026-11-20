@@ -1,25 +1,4 @@
-"""Preview and full-quality rendering for `pose_camera_server.py` (requires Blender).
-
-Owns three things the HTTP half must never touch: the render settings for each mode, the camera
-pose, and the three views a frame can be shown in.
-
-**Views.** `pinhole`, `distorted` and `rectified` come from `synthgen.lens`, the same module the
-batch pipeline writes its frames through, so a pose flown here in one view renders in the batch
-exactly as it looked. `pinhole` scales with `resolution_percentage` like any render; the warped
-views build their lens at the preview size, because their maps index pixels.
-
-**Mode switching writes a complete set of properties, never deltas.** `restore_render_state` from
-`cage_scene` puts back the drift-prone half (color management, bounces, K, resolution); this
-module writes the rest on top (engine, samples, denoising, persistent data, image format,
-resolution percentage). Preview and full mode each go through the same transition, so neither can
-inherit a leftover from the other.
-
-**The camera is posed by assigning `matrix_world`, never with `add_camera_pose`.** Keyframes would
-accumulate on every WASD frame and a later render would walk the whole animation range. Nothing
-here inserts a keyframe, so `animation_data` stays `None` for the life of the process, which
-`_assert_no_keyframes` checks on every frame: if it ever appears, direct pose assignment starts
-being silently overwritten and WASD mysteriously stops responding.
-"""
+"""Preview and full-quality rendering for `pose_camera_server.py` (requires Blender)."""
 
 from __future__ import annotations
 
@@ -66,19 +45,16 @@ class ViewSetup:
     resolution_percentage: int
 
 
+def _preview_denoiser(denoiser: str) -> str:
+    return denoiser if denoiser.lower() != "none" else "OPTIX"
+
+
+def _denoiser_runs_in_compositor(denoiser: str) -> bool:
+    return denoiser.upper() == "INTEL"
+
+
 class OneWayGlass:
-    """Hide the pane the camera stands outside of, the way the batch render does.
-
-    BlenderProc's segmentation stops at the polycarbonate, so a pose shooting through a pane from
-    outside the cage loses every label behind it. `render_poses` solves that by hiding those panes,
-    and the preview has to do the same or a mount flown outside the wall plane looks nothing like
-    what it will render as.
-
-    Unlike `cage.set_one_way_glass`, this writes `hide_render` directly instead of keyframing it:
-    the batch path animates visibility because one pass covers several poses, where the preview
-    only ever shows one. The hidden set is only rewritten when it changes, because toggling
-    visibility re-syncs geometry and throws away Cycles' persistent-data cache.
-    """
+    """Hide the pane the camera stands outside of, the way the batch render does."""
 
     def __init__(self, spec: CageSceneSpec, objects: dict[str, bproc.types.MeshObject]) -> None:
         self._spec = spec
@@ -141,11 +117,7 @@ class PreviewRenderer:
         return self._render_size
 
     def capture_scene_state(self) -> None:
-        """Remember the cage's own render settings. Call once, after the cage is active.
-
-        The intrinsics go in first, so the snapshot `restore_render_state` puts back on every mode
-        transition is this camera at full resolution rather than BlenderProc's 512x512 default.
-        """
+        """Remember the cage's own render settings. Call once, after the cage is active."""
         bproc.camera.set_intrinsics_from_K_matrix(
             self._k_rect[1.0], self._render_size[0], self._render_size[1]
         )
@@ -234,9 +206,7 @@ class PreviewRenderer:
             cycles.use_persistent_data = True
             scene.render.image_settings.file_format = "JPEG"
             scene.render.image_settings.quality = PREVIEW_QUALITY
-            # Denoising is not optional at 8 spp; it is what makes the frame legible. Go through
-            # BlenderProc so the view-layer flag OPTIX also needs gets set.
-            denoiser = denoiser if denoiser.lower() != "none" else "OPTIX"
+            denoiser = _preview_denoiser(denoiser)
         else:
             cycles.samples = self._spec.render.samples
             cycles.use_adaptive_sampling = True
@@ -247,8 +217,7 @@ class PreviewRenderer:
             cycles.use_persistent_data = False
             scene.render.image_settings.file_format = "PNG"
         bproc.renderer.set_denoiser(denoiser if denoiser.lower() != "none" else None)
-        # The Intel denoiser runs as a compositor node, so compositing has to stay on for it.
-        scene.render.use_compositing = denoiser.upper() == "INTEL"
+        scene.render.use_compositing = _denoiser_runs_in_compositor(denoiser)
         scene.render.image_settings.color_mode = "RGB"
         scene.render.film_transparent = False
         scene.render.use_sequencer = False

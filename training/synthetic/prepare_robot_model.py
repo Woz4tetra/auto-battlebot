@@ -13,7 +13,6 @@ import cv2
 import mathutils
 import numpy as np
 
-# BlenderProc changes CWD to a temp directory, so capture it now.
 _LAUNCH_CWD = Path(os.environ.get("BLENDERPROC_CWD", os.getcwd()))
 
 
@@ -367,16 +366,19 @@ def _load_cc_materials(
 
     loaded = bproc.loader.load_ccmaterials(str(cc_path), used_assets=list(needed))
     cc_materials = {mat.get_name(): mat for mat in loaded}
+    add_materials_loaded_by_earlier_calls(cc_materials, needed)
+    return cc_materials
 
-    # BlenderProc may return only newly loaded assets; include already-loaded
-    # materials from bpy as a fallback so multi-robot runs can reuse them.
+
+def add_materials_loaded_by_earlier_calls(
+    cc_materials: dict[str, bproc.types.Material], needed: set[str]
+) -> None:
     for name in needed:
         if name in cc_materials:
             continue
         existing = bpy.data.materials.get(name)
         if existing is not None:
             cc_materials[name] = bproc.types.Material(existing)
-    return cc_materials
 
 
 def _find_cc_material(
@@ -441,10 +443,12 @@ def _apply_cc_material_to_slot(
         print(f"  {bpy_mat.name} -> CC texture '{cc_name}'")
         return
 
-    # Some loaded CC entries can still be effectively flat in
-    # specific Blender/asset combinations. Fall back to wiring
-    # maps directly from the texture directory on the current
-    # slot material.
+    _wire_maps_from_texture_directory(bpy_mat, cc_name, cc_textures_dir)
+
+
+def _wire_maps_from_texture_directory(
+    bpy_mat: bpy.types.Material, cc_name: str, cc_textures_dir: str | None
+) -> None:
     cc_dir = resolve_path(Path(cc_textures_dir)) / cc_name if cc_textures_dir else None
     if cc_dir and cc_dir.is_dir():
         _apply_pbr_textures(bpy_mat, cc_dir)

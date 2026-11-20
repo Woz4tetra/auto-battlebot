@@ -57,13 +57,7 @@ class DistractorInstance:
 
 
 def _wire_vertex_colors(obj: bpy.types.Object) -> None:
-    """Connect vertex color attributes to Principled BSDF Base Color.
-
-    GLB models with vertex colors (e.g. from Poisson reconstruction) import
-    with the color data in a mesh attribute but the shader's Base Color
-    defaults to white.  This wires a Color Attribute node into the BSDF so
-    the vertex colors actually render.
-    """
+    """Connect vertex color attributes to Principled BSDF Base Color."""
     mesh_data = obj.data
     attr_name = None
     if mesh_data.color_attributes:

@@ -36,14 +36,7 @@ def use_gpu_only() -> None:
 
 
 def set_denoiser(name: str) -> None:
-    """Denoise inside Cycles on the render device instead of in the compositor.
-
-    ``name`` is a cage spec value: "OPTIX", "INTEL" or "none". OptiX needs an OptiX device,
-    so a CUDA or CPU run gets OpenImageDenoise, which Blender 4.2 also runs on the GPU when
-    one renders. "INTEL" maps to the same OpenImageDenoise, minus BlenderProc's compositor
-    node and its CPU round trip. Going through BlenderProc first clears whatever denoiser was
-    active, compositor node included.
-    """
+    """Denoise inside Cycles on the render device instead of in the compositor."""
     bproc.renderer.set_denoiser(None)
     if name.lower() == "none":
         return

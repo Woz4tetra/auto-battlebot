@@ -24,6 +24,10 @@ def _build_category_mapping(data: dict, keep_categories: list[str]) -> dict[int,
     return old_id_to_new
 
 
+def swap_first_two_keypoints(kps: list[float]) -> list[float]:
+    return [*kps[3:6], *kps[0:3], *kps[6:]]
+
+
 def _annotation_to_label_line(
     ann: dict,
     img_w: float,
@@ -49,9 +53,8 @@ def _annotation_to_label_line(
         else:
             kps = kps[:expected_kp_values]
 
-        # Swap keypoint 0 and keypoint 1 for mr_stabs_mk2 only
         if num_keypoints >= 2 and keep_categories[new_class_id] == "mr_stabs_mk2":
-            kps[0:3], kps[3:6] = list(kps[3:6]), list(kps[0:3])
+            kps = swap_first_two_keypoints(kps)
 
         for i in range(0, expected_kp_values, 3):
             kx = float(kps[i]) / img_w

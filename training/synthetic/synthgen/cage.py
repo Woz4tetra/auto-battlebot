@@ -124,13 +124,14 @@ def make_mat_material(
     return mat
 
 
-def _set_mat_uvs(obj: bproc.types.MeshObject, box: Box, mat_size: float) -> None:
-    """UVs so the albedo (hfield layout) lands on the mat in the W frame.
+def drop_nodes_added_by_previous_hdri_loads(tree: bpy.types.NodeTree) -> None:
+    for node in list(tree.nodes):
+        if node.type not in ("BACKGROUND", "OUTPUT_WORLD"):
+            tree.nodes.remove(node)
 
-    The world position comes from the box, not from `matrix_world`: a primitive created on
-    this tick still carries the identity matrix until the depsgraph catches up, and a stale
-    matrix silently rescales the texture, or repeats it once the mat is cut around a pit.
-    """
+
+def _set_mat_uvs(obj: bproc.types.MeshObject, box: Box, mat_size: float) -> None:
+    """UVs so the albedo (hfield layout) lands on the mat in the W frame, from the box."""
     mesh = obj.blender_obj.data
     if not mesh.uv_layers:
         mesh.uv_layers.new(name="UVMap")
@@ -498,9 +499,6 @@ def add_house_bot_model(
             ]
         )
 
-    # The GLB ships lying on its side: roll about its x axis (the LED-face normal) stands it
-    # up, then the footprint is measured on the standing box. size[0] <= 0 keeps the model's
-    # own dimensions.
     parent.rotation_euler = mathutils.Euler((math.radians(hb.roll_deg), 0.0, 0.0), "XYZ")
     extent = world_corners().max(axis=0) - world_corners().min(axis=0)
     scale = hb.size[0] / max(float(extent[0]), float(extent[1]), 1e-6) if hb.size[0] > 0 else 1.0
@@ -599,12 +597,8 @@ def set_world(
     path = repo_root / spec.world.hdri
     if not path.exists():
         raise FileNotFoundError(f"world.hdri {path} is missing")
-    # The loader adds a texture, mapping and coordinate node on every call, and a scene mix
-    # activates this venue once per scene: drop the previous call's nodes first.
     tree = bpy.context.scene.world.node_tree
-    for node in list(tree.nodes):
-        if node.type not in ("BACKGROUND", "OUTPUT_WORLD"):
-            tree.nodes.remove(node)
+    drop_nodes_added_by_previous_hdri_loads(tree)
     bproc.world.set_world_background_hdr_img(
         str(path),
         strength=float(spec.world.ambient_strength),

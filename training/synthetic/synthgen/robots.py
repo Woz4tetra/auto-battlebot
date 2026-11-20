@@ -124,8 +124,6 @@ def import_gltf_as_robot(
     if not bpy_meshes:
         raise RuntimeError(f"No meshes found in {model_path}")
 
-    # Capture world transforms before re-parenting (the GLTF hierarchy uses
-    # intermediate empties for positioning; re-parenting directly would lose them).
     bpy.context.view_layer.update()
     saved_world = {obj.name: obj.matrix_world.copy() for obj in bpy_meshes}
 
@@ -139,9 +137,6 @@ def import_gltf_as_robot(
         mat = saved_world[obj.name]
         obj.parent = parent
         obj.matrix_parent_inverse = mathutils.Matrix.Identity(4)
-        # Set the mesh pose RELATIVE to the (possibly scaled) parent, not as an absolute
-        # world matrix. Assigning matrix_world here would re-pin the mesh to its unscaled
-        # world pose and silently cancel parent.scale, so `scale` had no effect.
         obj.matrix_local = mat
 
     bpy.context.view_layer.update()

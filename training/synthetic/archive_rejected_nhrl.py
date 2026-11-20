@@ -1,22 +1,4 @@
-"""Move rejected NHRL robot models out of the distractor pool into an archive.
-
-Step 3.6 of the NHRL robot distractor pipeline, run on the HOST after
-``review_nhrl_keypoints.py`` marks bad meshes with ``rejected: true`` in their
-sidecar.  ``render_scenes.py`` discovers distractors by globbing model files in
-the source directory, so the only reliable way to keep a rejected robot out of
-the render pool is to move its files elsewhere.  This tool does exactly that:
-for every sidecar flagged ``rejected``, it relocates the model file, the sidecar
-JSON, and the top-down preview PNG into an archive directory, preserving the
-``topdown/`` layout so the move is reversible.
-
-Run in a root project venv (only needs the stdlib + ``nhrl_common``):
-
-    venv/bin/python training/synthetic/archive_rejected_nhrl.py \
-        training/data/distractor_models/robots
-
-By default the archive lands in ``<models_dir>/../rejected_robots``.  Pass
-``--dry-run`` first to see exactly what would move without touching anything.
-"""
+"""Move rejected NHRL robot models out of the distractor pool into an archive directory."""
 
 from __future__ import annotations
 

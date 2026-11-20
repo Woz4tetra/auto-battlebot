@@ -53,7 +53,6 @@ from synthgen.geometry import model_to_blender_local
 from synthgen.materials import apply_pbr_materials, load_cc_materials
 from synthgen.robots import import_gltf_as_robot
 
-# BlenderProc re-executes this script from a temp directory, so capture the real one now.
 LAUNCH_CWD = Path(os.environ.get("BLENDERPROC_CWD", os.getcwd()))
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -114,6 +113,10 @@ def upright_matrix(robot_config: RobotConfig, inverted: bool = False) -> mathuti
     pitch = mathutils.Matrix.Rotation(pitch_rad, 4, "X")
     roll = mathutils.Matrix.Rotation(math.radians(roll_deg), 4, "Y")
     return pitch @ roll
+
+
+def propagate_parent_transform_to_children() -> None:
+    bpy.context.view_layer.update()
 
 
 def world_bounds(meshes: list[bproc.types.MeshObject]) -> tuple[mathutils.Vector, mathutils.Vector]:
@@ -183,10 +186,7 @@ def render_sprite(
     print(f"  front {front_rounded} -> yaw {math.degrees(yaw_rad):+.1f} deg")
     yaw = mathutils.Matrix.Rotation(yaw_rad, 4, "Z")
     parent.matrix_world = yaw @ upright @ parent.matrix_world
-    # The GLTF hierarchy hangs every mesh off the parent empty. Moving the empty only reaches the
-    # children once the dependency graph re-evaluates, and world_bounds reads matrix_world right
-    # afterwards; without this the transform silently does nothing.
-    bpy.context.view_layer.update()
+    propagate_parent_transform_to_children()
 
     lo, hi = world_bounds(meshes)
     center = (lo + hi) / 2.0

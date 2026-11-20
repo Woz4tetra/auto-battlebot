@@ -543,16 +543,7 @@ PANEL_WALLS: tuple[str, ...] = ("near", "far", "left", "right")
 
 
 def panels_outside_camera(spec: CageSceneSpec, camera_xy: tuple[float, float]) -> tuple[str, ...]:
-    """Which walls the camera stands outside of, so their glass is between it and the mat.
-
-    One-way glass: a pane the camera looks through from outside the cage is hidden, because
-    BlenderProc's segmentation stops at glass and everything behind it loses its label. Panes
-    the camera sees from inside, across the arena, are untouched: they are what the real
-    picture shows on the far side.
-
-    The test is the wall plane, not the line of sight. A camera outside a wall but aimed away
-    from it does not see that pane, and hiding it changes nothing.
-    """
+    """Which walls the camera stands outside of, so their glass is between it and the mat."""
     half = spec.cage.interior / 2
     x, y = camera_xy
     outside = []

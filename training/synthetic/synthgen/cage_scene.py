@@ -135,6 +135,12 @@ def snapshot_render_state() -> RenderState:
     )
 
 
+def write_denoiser_without_availability_check(scene: bpy.types.Scene, state: RenderState) -> None:
+    scene.cycles.use_denoising = state.use_denoising
+    bpy.context.view_layer.cycles.use_denoising = state.use_denoising
+    scene.cycles.denoiser = state.denoiser
+
+
 def restore_render_state(state: RenderState) -> None:
     """Put back what `snapshot_render_state` captured."""
     scene = bpy.context.scene
@@ -145,18 +151,13 @@ def restore_render_state(state: RenderState) -> None:
     scene.view_settings.gamma = state.gamma
     scene.display_settings.display_device = state.display_device
     bproc.renderer.set_max_amount_of_samples(state.samples)
-    # The snapshot was taken after the pipeline chose a denoiser, so its value is one this
-    # device accepts; going through set_denoiser again would re-run the availability check.
-    scene.cycles.use_denoising = state.use_denoising
-    bpy.context.view_layer.cycles.use_denoising = state.use_denoising
-    scene.cycles.denoiser = state.denoiser
+    write_denoiser_without_availability_check(scene, state)
     bproc.renderer.set_light_bounces(
         glossy_bounces=state.glossy_bounces,
         transmission_bounces=state.transmission_bounces,
         transparent_max_bounces=state.transparent_max_bounces,
     )
     bproc.renderer.set_world_background(list(state.world_color), state.world_strength)
-    # lens_unit first: it decides whether `lens` or `angle` is the live value.
     cam.lens_unit = state.lens_unit
     cam.lens = state.lens
     cam.angle = state.angle

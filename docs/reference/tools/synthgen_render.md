@@ -103,3 +103,61 @@ Design facts for `training/synthetic/synthgen/` (`pipeline.py`, `robots.py`, `pr
 ### House bot keypoints
 
 `house_bot_keypoints()` returns the front and back keypoints of the placed house bot in its parent's local frame, in metres, or `None` when the model has no geometry. The convention matches every other robot in the set, the one `nhrl_common.keypoints_along_axis` applies to the CAD distractors: both points sit on the model's centerline at ground height, at the front and back extremes of its footprint. The axis is known, not fitted. The house bot's LED face is its own +x, so +x is the front, the way `HouseBotBoxSpec.roll_deg` and `yaw_deg` already treat it.
+
+## Workarounds
+
+Each entry names the function that carries the workaround. Entries marked unverified restate the claim the removed comment made; the source was not read or the failure not reproduced.
+
+### Blender and BlenderProc
+
+- Launch directory: BlenderProc changes the working directory to a temp directory and re-executes the script from there. `prepare_robot_model.py` and `render_sprites.py` read `BLENDERPROC_CWD` (falling back to `os.getcwd()`) at import and resolve relative CLI paths against it. Unverified: BlenderProc internals not read.
+- `propagate_parent_transform_to_children()` (`render_sprites.py`): the GLTF hierarchy hangs every mesh off a parent empty. Moving the empty reaches the children only once the dependency graph re-evaluates, and `world_bounds` reads `matrix_world` right afterwards. Without `view_layer.update()` the transform silently does nothing.
+- `import_gltf_as_robot` (`synthgen/robots.py`): world transforms are captured before re-parenting because the GLTF hierarchy positions meshes through intermediate empties. The mesh pose is then written to `matrix_local`, relative to the possibly scaled parent. Assigning `matrix_world` re-pins the mesh to its unscaled world pose and cancels `parent.scale`.
+- `_set_mat_uvs` (`synthgen/cage.py`): UVs come from the box, not from `matrix_world`. A primitive created on the current tick carries the identity matrix until the depsgraph catches up, and a stale matrix rescales the texture or repeats it once the mat is cut around a pit.
+- `add_house_bot_model` (`synthgen/cage.py`): the GLB ships lying on its side. A roll about its x axis (the LED-face normal) stands it up, and the footprint is measured on the standing box. `size[0] <= 0` keeps the model's own dimensions. Unverified: asset not inspected.
+- `drop_nodes_added_by_previous_hdri_loads` (`synthgen/cage.py`): `set_world_background_hdr_img` adds texture, mapping and coordinate nodes on every call, and a scene mix activates a venue once per scene. The previous call's nodes are dropped first. Unverified: BlenderProc source not read.
+- `add_materials_loaded_by_earlier_calls` (`synthgen/materials.py`, `prepare_robot_model.py`): `load_ccmaterials` may return only newly loaded assets on later calls, so already-loaded materials are looked up in `bpy.data.materials`. Unverified: BlenderProc source not read.
+- `_wire_maps_from_texture_directory` (`prepare_robot_model.py`): a loaded CC material can still be effectively flat in some Blender and asset combinations. The maps are then wired directly from the texture directory onto the slot material.
+- `_wire_vertex_colors` (`synthgen/distractors.py`): GLB models with vertex colors (for example from Poisson reconstruction) import the color in a mesh attribute while Base Color stays white. A Color Attribute node is wired into the BSDF. Unverified against the pinned Blender.
+- `_map_or_none_when_pass_absent` (`synthgen/pipeline.py`): an absent instance pass may come back as `None` or an empty list. Unverified: `render()` return shape not checked.
+- `_free_render_buffers_keeping_cached_textures` (`synthgen/pipeline.py`): `bpy.ops.outliner.orphans_purge` would delete cached `cc_textures` that sit at 0 users between scenes but are kept for reuse, so only `Render Result` and `Viewer Node` images are freed.
+- Boolean cuts (`synthgen/damage_scene.py`): the EXACT solver copes with the non-manifold Meshy meshes. FAST silently returns the input on them.
+
+### Render state and denoising
+
+- `write_denoiser_without_availability_check` (`synthgen/cage_scene.py`): `restore_render_state` writes the Cycles fields directly. The snapshot was taken after the pipeline chose a denoiser, so its value is one the device accepts, and `set_denoiser` would re-run the availability check. Unverified: BlenderProc `set_denoiser` not read in the container image.
+- `restore_render_state` writes `lens_unit` before `lens` and `angle`, because `lens_unit` decides which of the two is the live value.
+- `set_denoiser` (`synthgen/render_settings.py`): `name` is a cage spec value, "OPTIX", "INTEL" or "none". OptiX needs an OptiX device, so a CUDA or CPU run gets OpenImageDenoise, which Blender 4.2 also runs on the GPU when one renders. "INTEL" maps to the same OpenImageDenoise, minus BlenderProc's compositor node and its CPU round trip. Going through BlenderProc first clears whatever denoiser was active, compositor node included.
+- `_preview_denoiser` and `_denoiser_runs_in_compositor` (`synthgen/preview_render.py`): denoising is not optional at 8 spp, since it is what makes the frame legible, so preview upgrades "none" to OPTIX through BlenderProc, which also sets the view-layer flag OPTIX needs. The Intel denoiser runs as a compositor node, so compositing stays on only for it.
+- `PreviewRenderer.capture_scene_state` (`synthgen/preview_render.py`): intrinsics go in before the snapshot, so the state `restore_render_state` puts back on every mode transition is the cage camera at full resolution, not BlenderProc's 512x512 default. Unverified: BlenderProc default not checked.
+- `OneWayGlass` (`synthgen/preview_render.py`): hides the pane the camera stands outside of, as the batch render does. Unlike `cage.set_one_way_glass` it writes `hide_render` directly instead of keyframing, because batch animates visibility across several poses per pass and preview shows one. The hidden set is rewritten only when it changes, because toggling visibility re-syncs geometry and discards Cycles' persistent-data cache. Unverified: cache behavior not measured.
+- `panels_outside_camera` (`synthgen/cage_spec.py`): BlenderProc's segmentation stops at glass, so everything behind a pane the camera shoots through from outside the cage loses its label. Those panes are hidden. Panes seen from inside, across the arena, stay. The test is the wall plane, not the line of sight: a camera outside a wall but aimed away does not see that pane.
+
+### Pipeline order (`synthgen/pipeline.py`)
+
+1. `bproc.init()`, then devices and denoiser, resolution, samples, `enable_depth_output`, all before anything renders. Cycles keeps persistent data across the frames of one pass (BlenderProc's init turns it on), so the scene syncs once per pass rather than once per frame.
+2. Per scene: reset keyframes, ground scale, environment, select and pose robots, pool refresh check, place distractors, lights, material jitter, cameras, render.
+3. The clean (distractor-free) second render runs after the main render, only when obstructions are not ignored and distractors are active, at one sample. Only its segmap is read.
+4. `frame_set(local_idx)` runs before per-frame keypoint projection, because `world_to_camera_view` reads the camera pose animated at that frame.
+
+### Preview renderer (`synthgen/preview_render.py`)
+
+- Views `pinhole`, `distorted` and `rectified` come from `synthgen.lens`, the module the batch pipeline writes its frames through, so a pose flown in one view renders in batch as it looked. `pinhole` scales `resolution_percentage`. Warped views build the lens at preview size and its maps index pixels.
+- Mode switching writes a complete set of properties, never deltas. `restore_render_state` puts back the drift-prone half (color management, bounces, K, resolution) and the module writes the rest on top (engine, samples, denoising, persistent data, image format, resolution percentage). Preview and full mode go through the same transition, so neither inherits leftovers from the other.
+- The camera is posed by assigning `matrix_world`, never `add_camera_pose`. Keyframes would accumulate on every WASD frame and a later render would walk the whole animation range. `animation_data` stays `None` for the life of the process, which `_assert_no_keyframes` checks on every frame. If it ever appears, direct pose assignment is silently overwritten and WASD stops responding.
+
+### Docker image (`training/synthetic/docker/`)
+
+- `entrypoint.sh` `link_baked_blender_into_home`: BlenderProc resolves Blender at `$HOME/blender`, and the image bakes it under `/root` (mode 0700). `/root` is made traversable and the install linked into the new home so the dropped user does not re-download Blender. Unverified: BlenderProc default path from its docs, not run.
+- `entrypoint.sh` `hand_hf_cache_to_host_user`: `HF_HOME` is a baked, root-owned directory unless a host cache is mounted over it. The top level is chowned to the host user (a no-op for a host-owned mount) so the cache is writable after the privilege drop.
+- `run_synthetic.sh`: Docker does not forward the host's `CUDA_VISIBLE_DEVICES`, and the driver inside numbers passed-through GPUs from 0. The variable is translated into the `--gpus` device list. Without that a render silently shared whichever GPU vLLM or a training job was on. Pinned by `tests/python/test_run_synthetic_sh.py`.
+- `run_synthetic.sh` `--shm-size`: BlenderProc writes render passes to `/dev/shm` and reads them back after the render. Docker's 64 MB default holds ten 1280x720 pinhole frames but not ten 2560x1442 warped frames; rectified runs on 2026-09-13 died reading `depth_0004.exr`. Default is 8g, `SYNTH_SHM_SIZE` overrides. Pinned by the same test file.
+- `warmup.py`: `blenderproc pip install <pkg>` records only the named package (`install_default_packages=False`), so the installed-packages cache never lists BlenderProc's default runtime packages (pyyaml, imageio, gitpython, ...), and every runtime `blenderproc run` re-runs pip to check them ("Requirement already satisfied" spam). Running `blenderproc run` once at build goes through `setup_pip` with `install_default_packages=True` and records them in `<blender>/custom-python-packages/installed_packages_cache_v2.json`. The build step deletes any stale cache first. Unverified: `setup_pip` internals not read.
+
+### Tools
+
+- `archive_rejected_nhrl.py` (step 3.6 of the NHRL distractor pipeline, run on the host after `review_nhrl_keypoints.py` flags meshes `rejected: true`): `render_scenes.py` discovers distractors by globbing model files, so the only reliable way to keep a rejected robot out of the pool is to move its model, sidecar JSON and top-down preview PNG into the archive, keeping the `topdown/` layout so the move is reversible. Needs only the stdlib and `nhrl_common`. Default archive is `<models_dir>/../rejected_robots`. Run with `--dry-run` first.
+  ```bash
+  venv/bin/python training/synthetic/archive_rejected_nhrl.py training/data/distractor_models/robots
+  ```
+- `coco_to_yolo.swap_first_two_keypoints`: applied for `mr_stabs_mk2` only. Unverified: the source COCO export is outside the repo; the removed comment stated only what the code does. Pinned by `training/synthetic/tests/test_coco_to_yolo.py`.

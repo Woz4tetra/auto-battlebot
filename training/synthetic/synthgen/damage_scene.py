@@ -240,7 +240,6 @@ def _apply_chunk_draw(
     name = f"damage_{cutter.name}"
     modifier = target.modifiers.new(name=name, type="BOOLEAN")
     modifier.operation = "DIFFERENCE"
-    # EXACT copes with the non-manifold Meshy meshes; FAST silently returns the input on them.
     modifier.solver = "EXACT"
     modifier.material_mode = "TRANSFER"
     modifier.object = cutter
