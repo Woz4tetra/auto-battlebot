@@ -6,16 +6,15 @@ import argparse
 import json
 from pathlib import Path
 
-import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402  (backend must be chosen first)
-import numpy as np  # noqa: E402
-import pandas as pd  # noqa: E402
+from auto_battlebot.perception.sysid_sessions import OUT, SessionData, load_session
+from auto_battlebot.recording.mcap_io import decode_json, iter_messages
+from playground.opponent_prediction import evaluate_opponent_prediction as ev
 
-from auto_battlebot.perception.sysid_sessions import OUT, SessionData, load_session  # noqa: E402
-from auto_battlebot.recording.mcap_io import decode_json, iter_messages  # noqa: E402
-from playground.opponent_prediction import evaluate_opponent_prediction as ev  # noqa: E402
+plt.switch_backend("Agg")
 
 GAPS_S = (0.2, 1.0, 3.0)
 SAMPLES_PER_GAP = 3

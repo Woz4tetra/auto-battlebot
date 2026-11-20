@@ -251,8 +251,6 @@ def main() -> None:
         + ", ".join(f"{k} = {tau[k]:.4g}" for k in ("along", "cross", "theta", "v", "omega"))
         + " }\n"
     )
-    # Tables after [randomization] in the source would swallow the appended keys; it is the
-    # last table there, and ekf_error is a fresh table header, so ordering is safe.
     args.out.write_text(text)
     print(json.dumps(report, indent=2))
     print(f"wrote {args.out}")

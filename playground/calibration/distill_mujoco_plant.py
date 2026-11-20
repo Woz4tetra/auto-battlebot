@@ -419,6 +419,11 @@ def plot_plant_steps(tables: dict[str, plant.PlantParams], out: Path) -> None:
     plt.close(fig)
 
 
+def pin_one_blas_thread_per_worker() -> None:
+    for var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
+        os.environ[var] = "1"
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -481,10 +486,7 @@ def main() -> None:
         }
         for i, r in enumerate(keep)
     ]
-    # One BLAS thread per worker. Spawned rather than forked, so the workers load BLAS after
-    # this is set; least_squares otherwise runs every worker's SVD on all cores at once.
-    for var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
-        os.environ[var] = "1"
+    pin_one_blas_thread_per_worker()
     with ProcessPoolExecutor(
         max_workers=max(1, min(args.jobs, len(jobs))),
         mp_context=multiprocessing.get_context("spawn"),

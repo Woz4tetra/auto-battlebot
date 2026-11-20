@@ -362,11 +362,7 @@ def plot_run(
 
 
 def _radio_channels(record: RunRecord) -> tuple[np.ndarray | None, np.ndarray | None]:
-    """The two drive channels the radio reported.
-
-    Logged directly since the format change. Older runs stored only the mixed body units, so
-    reconstruct the channels by inverting the tank un-mix, which is what produced them.
-    """
+    """The two drive channels the radio reported."""
     a = getattr(record, "meas_ch_a", None)
     b = getattr(record, "meas_ch_b", None)
     if a is not None and b is not None:

@@ -84,3 +84,16 @@ Usage:
 Midpoint of the densest 5 mm bin in each half: the two opposite rail tops.
 
 Percentiles of the extent would not do: the stone wall stands at rail-top height just outside two of the rails and drags them outward.
+
+### `playground/basement_scene/export_svo_depth.py`
+
+Writes the left image, metric XYZ and intrinsics for one frame of a ZED SVO, for the basement scene fit. It runs wherever the ZED SDK is installed (pyzed), which is not the training box: the basement recordings live on pathfinder under `data/svo/tests/`.
+
+- Frames are decoded in order from the start. Seeking with `set_svo_position` lands between keyframes and hands back smeared, half-decoded pictures, so do not "optimise" this into a seek.
+- Depth is NEURAL (falls back to ULTRA), taken as the per-pixel median over the last `--depth-frames` frames up to the requested one. The camera sits still on its stand between bumps, so this only averages sensor noise. Check the printed spread if the camera moved.
+- `--out` receives `left.png` (rectified left image, BGR), `xyz.npy` (float32 HxWx3, camera frame in metres, OpenCV axes, NaN where the SDK had no depth) and `camera_rect.json` (fx, fy, cx, cy, width, height of the left camera, the K every downstream step uses).
+
+```bash
+venv/bin/python playground/basement_scene/export_svo_depth.py \
+    data/svo/tests/2026-04-19T17-01-18.svo2 --frame 4560 --out /tmp/basement_depth
+```

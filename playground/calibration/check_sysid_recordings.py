@@ -103,7 +103,7 @@ def check_file(path: Path, rep: Report) -> dict[str, int] | None:
     try:
         with open(path, "rb") as handle:
             summary = make_reader(handle).get_summary()
-    except Exception as exc:  # the mcap reader raises a mix of types on a torn file
+    except Exception as exc:
         rep.add("file", Level.FAIL, f"unreadable ({str(exc)[:60]}); re-download or drop it")
         return None
     if summary is None or summary.statistics is None:

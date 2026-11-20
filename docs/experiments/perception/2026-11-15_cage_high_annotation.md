@@ -77,3 +77,9 @@ Usage:
 - `REQUEST_GAP_S`: The docs ask for no more than one request every 5 s against live endpoints. The archive endpoints used here carry no such limit, but a small gap keeps us polite.
 - `PRE_ROLL_S`: Pre-roll before the fight starts and post-roll after it ends, in seconds. The pre-roll catches the countdown with both robots parked, which is the cleanest background frame a clip contains.
 - `main`: Oversample so fights whose overhead recording is missing can be replaced without a second pass over the API.
+
+Notes moved from code comments in `download_cage_video.py`:
+
+- `list_fights` keys a game `gameID` on the bot endpoint where the tournament endpoint uses `id`; `build_clip` accepts either.
+- `list_fights` does not filter on `cams`. The bot's own fights are the point of the run, so a thin camera list is reported as dropped instead.
+- The tournament-ID listing runs `tar tf` without `-z`. GNU tar sniffs the compression, and the shipped `nhrl_robots_bbox_2class.tar.gz` is in fact an uncompressed tar.

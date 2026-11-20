@@ -56,8 +56,6 @@ def load_camera_track(replay_path: Path | str) -> CameraTrack:
                 ts,
                 int(payload["image_stamp_ns"]),
                 int(payload.get("video_frame_index", payload.get("svo_frame_index", -1))),
-                # Only pre-2026-09 recordings name a separate SVO. Video now lives on
-                # /camera/video inside the recording itself, so there is no path to follow.
                 payload.get("svo_path", ""),
             )
         )
@@ -271,8 +269,6 @@ def main() -> None:
                     continue
                 img = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
                 if img is None or img.shape != (cam.height, cam.width, 3):
-                    # The stream tail can yield one truncated JPEG; skip it
-                    # rather than hand ffmpeg a short packet.
                     continue
                 k = int(slots[tick])
                 cam_from_field = cam.cam_from_field[tick]

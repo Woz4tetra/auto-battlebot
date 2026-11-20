@@ -177,7 +177,6 @@ def convert_split(
 def write_data_yaml(
     output_dir: Path, class_names: list[str], num_keypoints: int, split_map: dict[str, str]
 ) -> None:
-    # YOLO expects "val" key in yaml; map Roboflow's "valid" split to it.
     yaml_lines = [f"path: {output_dir.resolve()}"]
     if "train" in split_map:
         yaml_lines.append(f"train: {split_map['train']}")

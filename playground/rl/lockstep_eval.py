@@ -138,7 +138,6 @@ def run_one(args: Job) -> str:
             cfg.write_text(cfg.read_text() + RECORD)
         if extra:
             cfg.write_text(cfg.read_text() + "\n" + extra)
-        # One thread per server: torch and BLAS pools otherwise spin about 7 cores per episode.
         threads = {k: "1" for k in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS")}
         env = {**os.environ, "PYTHONUNBUFFERED": "1", **threads}
         server = subprocess.Popen(

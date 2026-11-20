@@ -369,6 +369,13 @@ def parabolic_peak_offset(values: np.ndarray, peak_i: int) -> float:
     return 0.0
 
 
+def _tag_frame_polarity(cmd: np.ndarray, vel: np.ndarray, moving: np.ndarray) -> float:
+    if moving.sum() <= 5:
+        return 1.0
+    corr = float(np.corrcoef(cmd[moving], vel[moving])[0, 1])
+    return -1.0 if corr < 0 else 1.0
+
+
 def _latency_stack(s: Session) -> LatencyDiag:
     """Pool clean command edges and stack the acceleration after each to time the transport lag."""
     pre = PRE_EDGE_SAMPLES
@@ -382,14 +389,7 @@ def _latency_stack(s: Session) -> LatencyDiag:
         scale = float(np.std(accel))
         if scale < 1e-9:
             continue
-        # The AprilTag pose frame can be inverted relative to the command frame (a mirrored tag or a
-        # 180-deg mount), so a positive command reads as negative measured velocity. Recover the
-        # sign from the data so both channels stack in the same direction instead of cancelling.
-        moving = (~s.in_truth_gap) & (np.abs(cmd) > 0.1)
-        pol = 1.0
-        if moving.sum() > 5:
-            corr = float(np.corrcoef(cmd[moving], vel[moving])[0, 1])
-            pol = -1.0 if corr < 0 else 1.0
+        pol = _tag_frame_polarity(cmd, vel, (~s.in_truth_gap) & (np.abs(cmd) > 0.1))
         dcmd = np.diff(cmd)
         for i in np.flatnonzero(np.abs(dcmd) > 0.15):
             e = i + 1

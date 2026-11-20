@@ -25,7 +25,7 @@ SERVER = REPO_ROOT / "simulation" / "kinematic_sim_server.py"
 BINARY = REPO_ROOT / "build" / "auto_battlebot"
 SIM_CONFIG = REPO_ROOT / "simulation" / "sim_mr_stabs_mk2.toml"
 CPP_BASE = "simulation/mr_stabs_mk2_motion_profile_sim"
-SIM_PORT = 14882  # hard-coded in src/simulation/sim_connection.cpp
+CPP_SIM_CONNECTION_PORT = 14882
 SETTLED_SPEED_MPS = 0.05
 FLIP_DEG = 60.0
 
@@ -118,7 +118,7 @@ def run_once(sim_cfg: Path, cpp_cfg: Path, log: Path, timeout_s: float) -> bool:
             stderr=subprocess.STDOUT,
         )
         try:
-            if not _wait_for_port(SIM_PORT, 30.0):
+            if not _wait_for_port(CPP_SIM_CONNECTION_PORT, 30.0):
                 raise RuntimeError(f"sim server did not start, see {log}")
             result = subprocess.run(
                 [str(BINARY), "-c", str(cpp_cfg)],
@@ -202,8 +202,8 @@ def main() -> None:
 
     if not BINARY.exists():
         raise SystemExit(f"{BINARY} not built; run scripts/build.sh")
-    if _port_open(SIM_PORT):
-        raise SystemExit(f"port {SIM_PORT} is in use: stop the running sim first")
+    if _port_open(CPP_SIM_CONNECTION_PORT):
+        raise SystemExit(f"port {CPP_SIM_CONNECTION_PORT} is in use: stop the running sim first")
     arms: dict[str, PlantParams] = {}
     for spec in args.arm:
         name, _, path = spec.partition("=")

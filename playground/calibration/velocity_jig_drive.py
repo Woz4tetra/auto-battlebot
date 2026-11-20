@@ -51,23 +51,12 @@ def step(n: int, total: int, msg: str) -> None:
     say(f"\n[{n}/{total}] {msg}")
 
 
-# How long to keep discarding keystrokes before a prompt will accept one. A double-tapped
-# Enter lands 50-200 ms after the first, so a single flush at prompt time is too early to
-# catch it: the stray press arrives afterwards and satisfies the prompt that just appeared.
 SETTLE_S = 0.35
+CDC_ENDPOINT_SETTLE_S = 0.5
 
 
 def drain_stdin(settle_s: float = SETTLE_S) -> None:
-    """Throw away anything typed before a prompt is ready to accept it.
-
-    Without this, a double-tapped Enter at one pause silently answers the next prompt, so
-    the robot arms and drives while someone still has a hand on it. The whole point of the
-    pause is that nothing moves until the operator says so, and a buffered keystroke is not
-    the operator saying so.
-
-    Only meaningful on a terminal. A piped or redirected stdin has no driver queue to flush
-    and termios would raise on it, so `--no-prompt` and any scripted run are unaffected.
-    """
+    """Discard keystrokes typed before the prompt was ready."""
     if not sys.stdin.isatty():
         return
     try:
@@ -167,14 +156,7 @@ def pause_prompt(index: int, count: int, program: ex.Program, pause_at: Sequence
 
 
 def confirm_stopped(link: jl.JigLink, grace: float = 1.0) -> tuple[int, int]:
-    """Stop the recording on an Enter press, not on the jig's `stopped` line.
-
-    Waiting on the line alone hangs the run whenever the press is mistimed: a press that
-    lands before the cable is back in never puts a summary on the wire, and the step then
-    sits there until the 300 s timeout. Gating on Enter costs only the counts, which are a
-    reporting nicety. gates() already reads samples=0 as unknown, and the log on the card
-    is complete either way.
-    """
+    """Stop the recording on the operator's Enter, not on the jig's `stopped` line."""
     prompt("Press B on the jig to stop recording, then press Enter:")
     for attempt in (1, 2):
         try:
@@ -464,18 +446,14 @@ def download_log(link: jl.JigLink, out_dir: Path, log_file: str) -> DownloadedLo
 
 
 def reopen_after_replug(link: jl.JigLink, timeout: float = 300.0) -> jl.JigLink:
-    """Wait for the jig to come back and reopen it, matching on USB serial number.
-
-    Not on the device path: /dev/ttyACM0 can come back as ttyACM1 if anything else
-    enumerated while the cable was out.
-    """
+    """Wait for the jig to come back and reopen it by USB serial number."""
     serial_number = link.serial_number
     link.close()
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         info = jl.find_port_by_serial(serial_number) if serial_number else jl.find_jig_port()
         if info is not None:
-            time.sleep(0.5)  # let the CDC endpoint settle before opening it
+            time.sleep(CDC_ENDPOINT_SETTLE_S)
             try:
                 return jl.JigLink(info.device, serial_number=info.serial_number)
             except OSError:
@@ -593,15 +571,6 @@ def run_one(
     else:
         countdown(program.duration_s, "run the maneuver")
 
-    # A piecewise program ends on a rest cell, so the robot is already stopped by the time
-    # the excitation returns. A continuous one does not: a PRBS, chirp or sine ends on
-    # whatever value its last tick lands on, and `play` sends a single zero and returns with
-    # the robot at speed. The post-hold countdown then measures a coasting robot, the
-    # stillness test rejects it, and the run is thrown out for having one still hold.
-    #
-    # LOG-134, LOG-135, LOG-137 and LOG-145 were all lost this way, each with 0.02 s between
-    # the last live command and the start of the hold. The piecewise runs beside them had 3
-    # to 4 s of trailing coast and passed.
     if not ends_at_rest(program):
         n += 1
         step(n, total, "Let the robot coast to a stop")
@@ -611,15 +580,6 @@ def run_one(
     step(n, total, f"Hold still {args.hold_s:.0f} s (bias drift bound)")
     hold_post = countdown(args.hold_s, "hold still")
 
-    # B first, cable second. Plugging in resets this board, and a reset lands wherever the
-    # firmware happens to be: on LOG-119 it landed mid-write and left a truncated final row
-    # and a post-probe on a fresh boot epoch. Pressing B while unplugged closes the file on
-    # the card before USB can do anything, so the reset has nothing left to interrupt.
-    #
-    # The cost is the stop summary, which goes to the wire unbuffered and so is lost with
-    # the cable out. That is n and dropped, both reporting niceties: gates() reads samples=0
-    # as unknown, and the log's own timestamps show the drops anyway. A truncated recording
-    # is not recoverable, and a lost counter is.
     samples, dropped = 0, 0
     if decl.motion:
         n += 1
@@ -687,8 +647,6 @@ def run_one(
         out_dir / f"{stem}.toml",
         run={
             "id": f"{datetime.now(timezone.utc):%Y-%m-%dT%H:%M:%SZ}-{program.name}-{rep}",
-            # dest.name, not the jig's name: a collision after a card wipe renames the file
-            # on disk, and a sidecar pointing at the original name would load the wrong log.
             "log_file": dest.name,
             "command_file": cmd_name if commands else None,
             "rep": rep,
@@ -856,9 +814,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--read-angular", type=int, default=1)
     parser.add_argument("--read-arm", type=int, default=4)
     parser.add_argument("--read-invert-a", action="store_true")
-    # The radio has servo-reverse set on drive channel B, so it reports that channel negated
-    # while the ESC on that side compensates. Reading it straight un-mixes every straight-line
-    # command into a pure turn, which is what discarded LOG-57 and LOG-62 on 2026-08-20.
     parser.add_argument("--no-read-invert-b", action="store_true")
     parser.add_argument("--channel-scale", type=float, default=1024.0)
     parser.add_argument(

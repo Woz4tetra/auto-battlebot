@@ -157,12 +157,7 @@ def weapon_sweep(assembly: UrdfAssembly) -> dict[str, list[float] | float]:
 
 
 def trim_to_cad_floor(assembly: UrdfAssembly) -> float:
-    """Cut every piece off at the structure's lowest CAD point.
-
-    CoACD hulls run up to a millimetre outside the mesh. The fork tips sit 0.35 mm above the
-    floor in CAD, so an untrimmed hull reaches under it and the robot rests on its forks with the
-    front wheels in the air. Idempotent.
-    """
+    """Cut every piece off at the structure's lowest CAD point. Idempotent."""
     floor = float(to_body(assembly, STRUCTURAL_LINKS).bounds[0, 2])
     for path in COLLISION_DIR.glob("*.obj"):
         piece = trimesh.load(path, force="mesh")

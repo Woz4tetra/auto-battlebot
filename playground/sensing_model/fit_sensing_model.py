@@ -241,12 +241,15 @@ def load_replay(mcap: Path) -> tuple[list[Track], Scene]:
     return [t for t in tracks if t.track_id in ids and t.stamps.size > 1], scene
 
 
+def drop_repeated_measurements(a: np.ndarray) -> np.ndarray:
+    return a[np.concatenate([[True], np.diff(a[:, 0]) > 0.010])]
+
+
 def _track(run: str, role: Role, track_id: str, rows: list[tuple[float, ...]]) -> Track:
     if not rows:
         return Track(run, role, track_id, *np.zeros((4, 0)))
     a = np.array(sorted(rows))
-    # The same measurement can be logged on two consecutive diagnostics messages.
-    a = a[np.concatenate([[True], np.diff(a[:, 0]) > 0.010])]
+    a = drop_repeated_measurements(a)
     if role is Role.OURS:
         return Track(run, role, track_id, a[:, 0], a[:, 1], None, None)
     return Track(run, role, track_id, a[:, 0], a[:, 1], a[:, 2], a[:, 3])

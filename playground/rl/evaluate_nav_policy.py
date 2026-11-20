@@ -14,7 +14,7 @@ from auto_battlebot.rl.envs.opponents import BEHAVIOURS
 from auto_battlebot.rl.metrics import summarize
 
 REPO = Path(__file__).resolve().parents[2]
-EPISODE_S = 20.0  # for result files written before rows recorded their episode_s
+LEGACY_ROW_EPISODE_S = 20.0
 
 
 def warp(checkpoint: Path, count: int, seed: int, out: Path, episode_s: float) -> None:
@@ -80,7 +80,7 @@ def table(rows: list[dict[str, Any]]) -> dict[str, float]:
         "still_s",
     )
     episode = {k: torch.tensor([float(r.get(k, 0.0)) for r in rows]) for k in keys}
-    episode_s = max(float(r.get("episode_s", EPISODE_S)) for r in rows)
+    episode_s = max(float(r.get("episode_s", LEGACY_ROW_EPISODE_S)) for r in rows)
     result = summarize(episode, episode_s).as_dict()
     alive = sum(float(r.get("seconds", episode_s)) for r in rows)
     result["danger_share"] = sum(float(r["danger_s"]) for r in rows) / max(alive, 1e-9)

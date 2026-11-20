@@ -119,12 +119,7 @@ def bot_fights(
     tournament_prefix: str | None,
     min_length_s: int,
 ) -> list[dict[str, Any]]:
-    """Every public fight for one bot, newest first, optionally one event.
-
-    The bot endpoint keys the game as `gameID` where the tournament endpoint uses `id`;
-    `build_clip` accepts either. `cams` is not filtered here: a bot's own fights are the
-    whole point of the run, so a thin camera list is reported rather than dropped.
-    """
+    """Every public fight for one bot, newest first, optionally one event."""
     payload = api_get(f"/bots/{bot}/fights", api_key)
     fights = payload.get("fights", []) if isinstance(payload, dict) else payload
     kept = []
@@ -263,8 +258,6 @@ def corpus_tournaments(tarball: Path) -> list[str]:
     if not tarball.exists():
         raise FileNotFoundError(tarball)
     listing = subprocess.run(
-        # `tar tf` without an explicit -z: GNU tar sniffs the compression, and the
-        # shipped nhrl_robots_bbox_2class.tar.gz is in fact an uncompressed tar.
         f"tar tf {tarball} | grep -oE 'tournamentID-[a-z0-9_]+' | sort -u",
         shell=True,
         capture_output=True,

@@ -1,26 +1,5 @@
 #!/usr/bin/env python3
-"""Left image, metric XYZ and intrinsics for one frame of a ZED SVO, for the basement scene fit.
-
-Runs wherever the ZED SDK is installed (pyzed), which is not the training box: the basement
-recordings live on pathfinder under data/svo/tests/. Frames are decoded in order from the
-start. Seeking with set_svo_position lands between keyframes and hands back smeared,
-half-decoded pictures, so do not "optimise" this into a seek.
-
-Depth is NEURAL (falls back to ULTRA) and taken as the per-pixel median over the last
-`--depth-frames` frames up to the requested one. The camera sits still on its stand between
-bumps, so this only averages sensor noise; check the printed spread if the camera moved.
-
-Writes into --out:
-    left.png          the rectified left image of the frame (BGR)
-    xyz.npy           float32 HxWx3, camera frame metres (OpenCV: x right, y down, z forward),
-                      NaN where the SDK had no depth
-    camera_rect.json  fx, fy, cx, cy, width, height of the left camera, the K every
-                      downstream step uses
-
-Usage (on pathfinder, whose venv has pyzed):
-    venv/bin/python playground/basement_scene/export_svo_depth.py \\
-        data/svo/tests/2026-04-19T17-01-18.svo2 --frame 4560 --out /tmp/basement_depth
-"""
+"""Left image, metric XYZ and intrinsics for one frame of a ZED SVO, for the basement scene fit."""
 
 from __future__ import annotations
 
@@ -48,9 +27,7 @@ def open_svo(path: Path) -> tuple[sl.Camera, str]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("svo", type=Path)
     parser.add_argument("--frame", type=int, required=True)
     parser.add_argument("--depth-frames", type=int, default=15)
