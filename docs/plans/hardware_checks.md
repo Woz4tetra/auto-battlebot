@@ -80,3 +80,11 @@ Workarounds whose last check needs hardware. Delete a row once the check passes.
 | NVJPG plugin installs next to `libauto_battlebot_lib.so` (CMakeLists.txt) | `8ad8c7a4` | Jetson, Release build with `HAVE_NVJPG` ON: plugin sits beside `libauto_battlebot_lib.so`, `scripts/check_no_nvjpeg_link.sh` passes, JPEG encoder loads the plugin |
 | nlohmann `DOWNLOAD_EXTRACT_TIMESTAMP` gated on CMake >= 3.24 | `8ad8c7a4` | compute-1 (JetPack 6, CMake 3.22): clean `cmake` configure succeeds |
 | ZED sources build with `-U_DEBUG` only, no forced `-O2 -DNDEBUG`, in debug builds | `8ad8c7a4` | ZED box, debug build: camera opens and streams at full rate |
+| Host reboot and power-off run after Runner and UI teardown (`system_action.hpp`) | existing | Jetson: send REBOOT_HOST from the UI; log shows "Runner returned" then "Running host reboot now", no SEGV, host reboots. Repeat with POWEROFF_HOST |
+| FFmpeg on JetPack 7 lacks libx264, so `h264_backend` keeps x264enc | existing | Jetson JP7: `ffmpeg -encoders | grep libx264`. If present, drop the x264enc backend |
+| Pending-open cancel in `rgbd_camera_interface` | existing | ZED 2i or ZED X One: cancel during open returns cleanly and the next open succeeds |
+| SVO recorder rollover | existing | ZED: record past the rollover size; a new SVO starts and both files play back |
+| `ZedDevice` open hard timeout leaks a wedged open | existing | ZED with a wedged SDK open: open returns Leaked at the hard timeout and shutdown does not hang |
+| ZED X One `capture_thread_done_` shutdown | existing | ZED X One: make grab() hang, then shut down; shutdown completes |
+| ZED X One lens model left as pinhole (`zed_one_rgb_camera.hpp:24`) | existing | ZED X One: once `CameraCalibration` supports the rational plus thin-prism model, record raw frames and compare |
+| ZED X One settings read-back keeps the last value when a control reads -1 | existing | ZED X One: dashboard shows the last known value, never -1 |
