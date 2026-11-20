@@ -73,14 +73,13 @@ Repeat the baseline from step 3 of "Before the upgrade" and compare.
 | Close and reopen the camera from the dashboard | Profile settings apply after the reopen (5.6.0 fixed `sl::CameraOne` keeping old settings across `close()`/`open()`) |
 | Replay of the new MCAP on the dev box | Decodes and replays like the baseline |
 
-Also run the ZED rows of "Hardware checks" in `docs/plans/comment_purge_and_config_clarity_plan.md`
-in the same session (camera cancel during a failing open, ZED X open and settings, SVO recorder),
-and delete each row that passes.
+Also run the ZED rows of `docs/plans/hardware_checks.md` in the same session (camera cancel during
+a failing open, ZED X open and settings, SVO recorder), and delete each row that passes.
 
 ## Clean up
 
 For each workaround that the checks show is fixed, delete it in its own commit, quoting the check
-result in the message, and drop its row from `docs/plans/comment_purge_hack_ledger.md`. The
+result in the message, and drop its row from `docs/plans/workaround_ledger.md`. The
 `AB_ZED_HAS_ANTIBANDING` guard goes only once every box that builds the ZED code runs SDK 5.3 or
 newer (the dev box has 5.5.0).
 

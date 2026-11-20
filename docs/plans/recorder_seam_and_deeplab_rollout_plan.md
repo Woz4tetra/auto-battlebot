@@ -17,7 +17,7 @@ protects the recordings that steps 2 and 3 produce.
   dir.
 - Done when: a full C++ run leaves `data/recordings` byte-identical (compare `ls -l` before and
   after with a 1 GB+ dummy file in place), and the ledger entry under "Open, found 2026-11-19" in
-  `docs/plans/comment_purge_hack_ledger.md` moves to Fixed.
+  `docs/plans/workaround_ledger.md` moves to Fixed.
 - Until then: never run the C++ suite on a Jetson, and copy replay MCAPs out of
   `data/recordings` before a full run on the dev box.
 
@@ -58,6 +58,6 @@ call a regression or a gain.
 
 ## 4. Comment purge phase 5
 
-Fix `HACK` ledger rows one at a time, per `docs/plans/comment_purge_and_config_clarity_plan.md`
-(Lock-down). Pilot one batch first and record its cost in the plan's Pilot record before fanning
-out. The cheapest rows are "Claims that failed verification" in the ledger.
+Done 2026-11-20: 0 counted comment lines, baseline `{}`. Workarounds that still need a root-cause
+fix are in `docs/plans/workaround_ledger.md`; fix them one at a time. The cheapest rows are "Claims
+that failed verification".

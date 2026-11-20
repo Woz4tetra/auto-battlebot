@@ -191,14 +191,15 @@ budget. Bench measurements and anything learned by trial are not datasheet facts
 ```
 
 `scripts/comment_budget.py` enforces this against `.comment-baseline.json` (`{path: count}`; a
-file not listed has a budget of 0). The existing comments are grandfathered there and are being
-removed (`docs/plans/comment_purge_and_config_clarity_plan.md`).
+file not listed has a budget of 0). The baseline is `{}`: every file's budget is 0. A workaround
+that used to carry a comment is listed in `docs/plans/workaround_ledger.md` with its root-cause fix,
+and its reason is in that subsystem's doc. Checker details: `docs/reference/tools/comment_budget.md`.
 
 ```bash
 python3 scripts/comment_budget.py check            # fail on any file over budget
 python3 scripts/comment_budget.py check --files f  # one file (the PostToolUse hook runs this)
 python3 scripts/comment_budget.py report           # totals by dir and language, top 30 files
-python3 scripts/comment_budget.py blocks --json    # every counted block, for the audit
+python3 scripts/comment_budget.py blocks --json    # every counted block
 ```
 
 - `./scripts/lint` runs `check`, then `ratchet` (lowers budgets to current counts, never raises)

@@ -1,10 +1,13 @@
-# Comment purge hack ledger
+# Workaround ledger
 
-Every workaround that a code comment defends, from the phase 1 audit
-(`docs/plans/comment_purge_and_config_clarity_plan.md`). Phase 2 leaves these comments in place.
-Each row is fixed on its own: the root cause goes, and the workaround and its comment go with it.
+Every workaround the phase 1 comment audit found, with its root-cause fix where one is known. Fix
+rows one at a time: the root cause goes, the workaround goes with it, and the row is deleted.
 
-Built 2026-11-15 from `docs/plans/comment_purge_audit.csv`, where these are the 322 `HACK` rows.
+As of 2026-11-20 no comment defends any of these in code. Each reason now sits in a "Workarounds"
+section of the subsystem's reference or setup doc. Where a batch extracted the workaround, the
+function or constant name says what it guards. File line numbers below are from the 2026-11-15
+audit and have moved since; search for the symbol. Built from the 322 `HACK` rows of the audit CSV,
+deleted 2026-11-20 and still in git history at `docs/plans/comment_purge_audit.csv`.
 
 ## How to read it
 
@@ -16,13 +19,6 @@ Built 2026-11-15 from `docs/plans/comment_purge_audit.csv`, where these are the 
 - By area: `training/` 76, `firmware/` 39, `src/` 31, `tests/` 30, `hardware/` 27, `scripts/` +
   `install/` + `service/` + `web/` + `CMakeLists.txt` + `mypy.ini` + `docker/` 59, `playground/` +
   `simulation/` + `logo/` 31, `auto_battlebot/` 16, `include/` 13.
-
-## Fix before phase 3
-
-`training/model_eval/make_eval_dataset.py:101-104` (`parse_start_frames`) reads `svo_file_path` and
-`svo_start_frame` pairs out of commented-out lines in `config/playback/_playback.toml`. Deleting the
-TOML comments in phase 3d would silently reset every eval start frame to 0. Move the start frames
-into a real data table first.
 
 ## Claims that failed verification
 
@@ -436,7 +432,8 @@ Fixed 2026-11-19, found during phase 2:
 
 ## TEST rows deferred
 
-Rows from the `TEST` verdict batches that could not get a test in a headless build. The comment stays.
+Rows from the `TEST` verdict batches that could not get a test in a headless build. The comment is
+gone and the claim is in a reference doc; the test is still owed.
 
 | Location | What the code does | What the comment claims would break | Verified? | Root-cause fix |
 | --- | --- | --- | --- | --- |
@@ -498,7 +495,8 @@ Rows from the `TEST` verdict batches that could not get a test in a headless bui
 
 ## Rows that could not be tested (phase 2, 2026-11-19)
 
-The comment stays until the seam, hardware or harness named in the last column exists.
+The comment is gone and the claim is in a reference doc. The test is owed once the seam, hardware or
+harness named in the last column exists.
 
 | Location | Claim | What blocks a test |
 | --- | --- | --- |
