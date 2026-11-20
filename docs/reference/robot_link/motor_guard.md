@@ -71,3 +71,9 @@ Step 0 of `docs/plans/motor_stall_protection_plan.md` (the bench measurements) w
 ## Hard trip
 
 `trip_rise_c`: a motor whose estimated rise reaches this value has its drive cut until disarm. It protects the motors while the scaling limits are loosened for test-box sessions. The value is a placeholder. Set it from a motor can temperature measured after a 3 minute driven session, against the logged `motor_rise_left` and `motor_rise_right` (`docs/plans/nav_scoring_and_rl_v2_plan.md`, section 0.3).
+
+## Loop wiring
+
+- The guard scales both drive commands down when a motor's estimated heat says it is cooking. It updates once per INA238 sample, or every `GUARD_PERIOD_US` without one, armed or not, so disarming does not hand back a cold budget.
+- The guard runs after the mixer, so it covers both the trainer and the ESP-NOW command sources.
+- Disarm is the only way out of a thermal trip. A link loss keeps it latched.
