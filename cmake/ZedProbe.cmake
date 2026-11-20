@@ -1,0 +1,5 @@
+find_package(ZED 5 QUIET)
+option(BUILD_WITH_ZED "Build the ZED camera and SVO playback backends" ${ZED_FOUND})
+if(BUILD_WITH_ZED AND NOT ZED_FOUND)
+    find_package(ZED 5 REQUIRED)
+endif()

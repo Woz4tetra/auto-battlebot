@@ -4,10 +4,13 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <memory>
 #include <random>
+#include <thread>
 #include <vector>
 
 #include "tensorrt_inference/trt_engine.hpp"
@@ -86,6 +89,41 @@ TEST(TrtEngineGraphTest, GraphAndDeviceInputMatchPlainExecute) {
     for (size_t i = 0; i < plain.size(); ++i) {
         ASSERT_FLOAT_EQ(device_path[i], plain[i]) << "at " << i;
     }
+}
+
+struct SlowStreamWork {
+    std::atomic<bool> finished{false};
+};
+
+void CUDART_CB slow_stream_work(void *user) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    static_cast<SlowStreamWork *>(user)->finished.store(true);
+}
+
+TEST(TrtEngineGraphTest, DestroyingTheEngineWaitsForWorkStillQueuedOnItsStream) {
+    const std::filesystem::path engine_path =
+        std::filesystem::temp_directory_path() /
+        ("trt_engine_destroy_test_" + std::to_string(::getpid()) + ".engine");
+    ASSERT_TRUE(build_tiny_relu_engine(engine_path));
+    struct Cleanup {
+        std::filesystem::path path;
+        ~Cleanup() {
+            std::error_code ec;
+            std::filesystem::remove(path, ec);
+        }
+    } cleanup{engine_path};
+
+    SlowStreamWork work;
+    {
+        TrtEngine engine;
+        ASSERT_TRUE(engine.load(engine_path.string()));
+        std::vector<float> input(static_cast<size_t>(engine.getInputNumElements()), 1.0f);
+        std::vector<float> output(static_cast<size_t>(engine.getOutputNumElements()));
+        ASSERT_TRUE(engine.execute(input, output));
+        ASSERT_EQ(cudaLaunchHostFunc(engine.stream(), slow_stream_work, &work), cudaSuccess);
+        EXPECT_FALSE(work.finished.load());
+    }
+    EXPECT_TRUE(work.finished.load());
 }
 
 }  // namespace

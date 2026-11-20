@@ -12,7 +12,6 @@ namespace auto_battlebot {
 namespace {
 constexpr double kOpenWaitWarnMs = 2000.0;
 constexpr double kGrabWarnMs = 250.0;
-constexpr auto kOpenHardTimeout = std::chrono::seconds(30);
 
 double elapsed_ms(const std::chrono::steady_clock::time_point &start) {
     return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start)
@@ -49,11 +48,11 @@ bool is_transient_grab_error(sl::ERROR_CODE error_code) {
 
 bool ZedDevice::await_or_leak_open(const char *context, const char *validation_label) {
     const auto wait_start = std::chrono::steady_clock::now();
-    if (pending_open_.wait_for(kOpenHardTimeout) == std::future_status::timeout) {
+    if (pending_open_.wait_for(options_.open_hard_timeout) == std::future_status::timeout) {
         spdlog::critical(
-            "{}: zed_.open() stuck after {}s; leaking the open future for soft shutdown "
+            "{}: zed_.open() stuck after {}ms; leaking the open future for soft shutdown "
             "(the ZED SDK call completes in the background and is reaped at process exit)",
-            context, kOpenHardTimeout.count());
+            context, options_.open_hard_timeout.count());
         spdlog::default_logger()->flush();
         leak_open_future(std::move(pending_open_));
         return false;
@@ -63,8 +62,9 @@ bool ZedDevice::await_or_leak_open(const char *context, const char *validation_l
 }
 
 ZedDevice::OpenResult ZedDevice::open(const std::atomic<bool> &cancel) {
-    pending_open_ =
-        std::async(std::launch::async, [this]() -> sl::ERROR_CODE { return zed_.open(params_); });
+    pending_open_ = std::async(std::launch::async, [this]() -> sl::ERROR_CODE {
+        return options_.open_call ? options_.open_call() : zed_.open(params_);
+    });
 
     while (pending_open_.wait_for(std::chrono::milliseconds(50)) != std::future_status::ready) {
         if (cancel) {

@@ -44,7 +44,6 @@ class FileStreamReader final : public TrtStreamReaderBase {
                             cudaMemcpyDefault, stream) != cudaSuccess) {
             return -1;
         }
-        if (cudaStreamSynchronize(stream) != cudaSuccess) return -1;
         return bytes_read;
     }
 

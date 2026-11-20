@@ -3,6 +3,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <functional>
 #include <future>
 #include <memory>
 #include <sl/Camera.hpp>
@@ -63,7 +64,13 @@ class ZedDevice {
 
     enum class OpenResult { Opened, Cancelled, Failed, Leaked };
 
+    struct Options {
+        std::chrono::milliseconds open_hard_timeout{30000};
+        std::function<sl::ERROR_CODE()> open_call;
+    };
+
     ZedDevice() = default;
+    explicit ZedDevice(Options options) : options_(std::move(options)) {}
     virtual ~ZedDevice() = default;
     ZedDevice(const ZedDevice &) = delete;
     ZedDevice &operator=(const ZedDevice &) = delete;
@@ -99,6 +106,7 @@ class ZedDevice {
     }
 
    private:
+    Options options_;
     sl::Camera zed_;
     sl::InitParameters params_;
     sl::Mat zed_rgb_;

@@ -141,11 +141,7 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET libavcodec libavutil libswscale)
 pkg_check_modules(GST IMPORTED_TARGET gstreamer-1.0 gstreamer-app-1.0)
 
-find_package(ZED 5 QUIET)
-option(BUILD_WITH_ZED "Build the ZED camera and SVO playback backends" ${ZED_FOUND})
-if(BUILD_WITH_ZED AND NOT ZED_FOUND)
-    find_package(ZED 5 REQUIRED)
-endif()
+include(cmake/ZedProbe.cmake)
 message(STATUS "BUILD_WITH_ZED: ${BUILD_WITH_ZED}")
 find_package(CUDA REQUIRED)
 find_package(TensorRT REQUIRED)
@@ -475,6 +471,17 @@ if(BUILD_TESTING)
         auto_battlebot_lib
     )
 
+    string(REPLACE "." ";" EIGEN3_VERSION_PARTS "${Eigen3_VERSION}")
+    list(GET EIGEN3_VERSION_PARTS 0 EIGEN3_WORLD)
+    list(GET EIGEN3_VERSION_PARTS 1 EIGEN3_MAJOR)
+    list(GET EIGEN3_VERSION_PARTS 2 EIGEN3_MINOR)
+    target_link_libraries(auto_battlebot_test rtneural)
+    target_compile_definitions(auto_battlebot_test PRIVATE
+        SYSTEM_EIGEN_WORLD_VERSION=${EIGEN3_WORLD}
+        SYSTEM_EIGEN_MAJOR_VERSION=${EIGEN3_MAJOR}
+        SYSTEM_EIGEN_MINOR_VERSION=${EIGEN3_MINOR}
+    )
+
     target_include_directories(auto_battlebot_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/tests
         ${CMAKE_CURRENT_SOURCE_DIR}/firmware/mr_stabs_mk2/lib/telemetry_ring
@@ -482,6 +489,26 @@ if(BUILD_TESTING)
 
     include(GoogleTest)
     gtest_discover_tests(auto_battlebot_test PROPERTIES TIMEOUT 300)
+
+    add_test(NAME ZedForcedWithoutSdkFailsAtConfigure
+        COMMAND ${CMAKE_COMMAND}
+            -S ${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake_fixtures/zed_forced_without_sdk
+            -B ${CMAKE_CURRENT_BINARY_DIR}/zed_forced_without_sdk
+            -DBUILD_WITH_ZED=ON
+            -DCMAKE_IGNORE_PATH=/usr/local/zed
+            -DCMAKE_IGNORE_PREFIX_PATH=/usr/local/zed
+            -DCMAKE_FIND_USE_PACKAGE_REGISTRY=OFF
+            -DCMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY=OFF)
+    set_tests_properties(ZedForcedWithoutSdkFailsAtConfigure PROPERTIES
+        PASS_REGULAR_EXPRESSION "Could not find a package configuration file provided by \"ZED\""
+        FAIL_REGULAR_EXPRESSION "Configuring done")
+
+    add_test(NAME CudaCompileFlagsAcceptedByNvcc
+        COMMAND ${CMAKE_CUDA_COMPILER} ${CUDA_COMPILE_FLAGS} -O3 -c
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake_fixtures/cuda_flags/k.cu
+            -o ${CMAKE_CURRENT_BINARY_DIR}/cuda_flags_k.o)
+    set_tests_properties(CudaCompileFlagsAcceptedByNvcc PROPERTIES
+        FAIL_REGULAR_EXPRESSION "nvcc fatal;nvcc warning")
 
     add_test(NAME NoNvjpegLink
         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_no_nvjpeg_link.sh

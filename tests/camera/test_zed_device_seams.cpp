@@ -2,10 +2,13 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
+#include <future>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "rgbd_camera/zed_rgbd_camera.hpp"
@@ -166,6 +169,38 @@ TEST(ZedSvoPlaybackFakeDeviceTest, CloseWaitsForAPendingOpenAndSkipsCloseWhenItL
         const std::vector<std::string> expected = {"await"};
         EXPECT_EQ(log.snapshot(), expected);
     }
+}
+
+TEST(ZedDeviceOpenTimeoutTest, AWedgedOpenIsLeakedAndDestroyingTheDeviceDoesNotBlock) {
+    std::promise<void> release_open;
+    std::shared_future<void> gate = release_open.get_future().share();
+    std::promise<ZedDevice::OpenResult> result;
+    std::future<ZedDevice::OpenResult> result_future = result.get_future();
+    std::promise<void> destroyed;
+    std::future<void> destroyed_future = destroyed.get_future();
+
+    std::thread lifecycle([&] {
+        {
+            ZedDevice::Options options;
+            options.open_hard_timeout = std::chrono::milliseconds(100);
+            options.open_call = [gate] {
+                gate.wait();
+                return sl::ERROR_CODE::SUCCESS;
+            };
+            ZedDevice device(std::move(options));
+            std::atomic<bool> cancel{true};
+            result.set_value(device.open(cancel));
+            EXPECT_FALSE(device.has_pending_open());
+        }
+        destroyed.set_value();
+    });
+
+    const bool destroyed_in_time =
+        destroyed_future.wait_for(std::chrono::seconds(5)) == std::future_status::ready;
+    release_open.set_value();
+    lifecycle.join();
+    ASSERT_TRUE(destroyed_in_time);
+    EXPECT_EQ(result_future.get(), ZedDevice::OpenResult::Leaked);
 }
 
 ZedRgbdCameraConfiguration stuck_grab_config() {

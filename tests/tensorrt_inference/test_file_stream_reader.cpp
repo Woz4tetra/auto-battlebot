@@ -78,6 +78,25 @@ TEST_F(FileStreamReaderTest, ConsecutiveReadsDoNotOverwriteEarlierBytes) {
     EXPECT_EQ(assembled, expected_);
 }
 
+TEST_F(FileStreamReaderTest, BackToBackReadsOnANonBlockingStreamKeepEveryChunk) {
+    cudaStream_t stream = nullptr;
+    ASSERT_EQ(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking), cudaSuccess);
+    FileStreamReader reader(path_.string());
+    void* device = nullptr;
+    ASSERT_EQ(cudaMalloc(&device, kFileBytes), cudaSuccess);
+    constexpr int64_t kChunk = 512;
+    for (int64_t offset = 0; offset < static_cast<int64_t>(kFileBytes); offset += kChunk) {
+        ASSERT_EQ(reader.read(static_cast<char*>(device) + offset, kChunk, stream), kChunk);
+    }
+    std::vector<char> host(kFileBytes);
+    ASSERT_EQ(cudaMemcpyAsync(host.data(), device, kFileBytes, cudaMemcpyDeviceToHost, stream),
+              cudaSuccess);
+    ASSERT_EQ(cudaStreamSynchronize(stream), cudaSuccess);
+    EXPECT_EQ(host, expected_);
+    cudaFree(device);
+    cudaStreamDestroy(stream);
+}
+
 TEST_F(FileStreamReaderTest, SeekAfterReadingToEofRewinds) {
     FileStreamReader reader(path_.string());
     void* device = nullptr;

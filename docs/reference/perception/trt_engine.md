@@ -50,5 +50,3 @@
 ## Workarounds
 
 - `src/tensorrt_inference/trt_engine.cpp` defines `AB_TRT_HAS_STREAM_READER_V2` from `NV_TENSORRT_MAJOR` and `NV_TENSORRT_MINOR` and compiles whichever reader the installed headers provide. `IStreamReaderV2` arrived in TensorRT 10.7 and deprecated `IStreamReader`. Dev machines are on 10.14, JetPack 6.2 ships 10.3 and has only the older interface.
-- The reader calls `cudaStreamSynchronize` before it returns, because the next `read` reuses `staging_`. Unverified: the reader sits in an anonymous namespace and needs a CUDA device and a V2 caller to test.
-- `~TrtEngine` destroys the stream and graph without a sync. `execute()` synchronizes the stream before it returns, so no work is in flight. An `execute()` that returns early would break this.
