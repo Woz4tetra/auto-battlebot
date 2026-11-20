@@ -4,12 +4,12 @@ Provenance for the values in `training/synthetic/config.toml` under `[[cages]]`,
 
 ## Camera and lens
 
-- The cage camera is our own e-CAM25, rectified at alpha 1.0 the way the C++ `Rectifier` does it, and scaled to `[output].image_width`/`image_height`. The mount ranges were judged through the e-CAM25 lens in `pose_camera_server.py`, so the domain frames render through it.
+- The cage camera is the synthetic cage lens (118 degrees rectified), rectified at alpha 1.0 the way the C++ `Rectifier` does it, and scaled to `[output].image_width`/`image_height`. The mount ranges were judged through this lens in `pose_camera_server.py`, so the domain frames render through it.
 - NHRL's own broadcast phone (`brettzone_cage_high.toml`, 95.2 deg horizontal) belongs only on footage actually shot from the broadcast mount.
 - The deployed ZED is in `config/cameras/zed2i_720p.toml`, measured at 101.0 deg horizontal. Swap it in for a ZED-matched set.
 - Alpha 1.0 keeps every sensor pixel and leaves 36 percent of the frame black for this lens.
 - Warped views (`distorted`, `rectified`) render a frame wide enough to hold every sensor ray: 2560x1442 for a 1280x720 frame with this lens, four times the pixels. Before 2026-09-13 every render was `pinhole`.
-- The MassD and meatball halves use the same e-CAM25 lens as the NHRL half. The MassD scene was fitted from a 62 degree broadcast camera, which lives in `training/data/environments/massd_arena/camera/` and is what `render_cage_view.py` grades. The meatball scene was fitted through the ZED.
+- The MassD and meatball halves use the same synthetic cage lens as the NHRL half. The MassD scene was fitted from a 62 degree broadcast camera, which lives in `training/data/environments/massd_arena/camera/` and is what `render_cage_view.py` grades. The meatball scene was fitted through the ZED.
 
 ## Render samples
 
@@ -25,7 +25,7 @@ Provenance for the values in `training/synthetic/config.toml` under `[[cages]]`,
 
 ## NHRL cage mount
 
-Source: 12 poses flown by hand in `pose_camera_server.py` on 2026-09-12 through the e-CAM25 lens.
+Source: 12 poses flown by hand in `pose_camera_server.py` on 2026-09-12 through the synthetic cage lens.
 
 - Eight poses sit within 0.17 m of the glass. Four sit 0.35 to 0.70 m back. The ranges cover the near eight only.
 - The far four frame worst of all twelve: 12 to 33 percent of the picture is mat, against 24 to 44 for the near ones.
@@ -47,7 +47,7 @@ Source: 12 poses flown by hand in `pose_camera_server.py` on 2026-09-12 through 
 ## MassD mount
 
 - The 2026-09-12 coverage sweeps put the mount 0.32 to 0.76 m outside the wall, because a camera on the MassD wall could not contain the 2.26 m floor at any height. That held for the lens the sweeps ran, NHRL's 95.2 degree phone.
-- It does not hold for the e-CAM25, 118 degrees rectified. Sampled over the block in the file, the phone holds a median 91.2 percent of the floor and never the whole of it. The e-CAM25 holds 99.0 percent and fits the whole floor in 27 percent of frames. So the camera comes in.
+- It does not hold for the synthetic cage lens, 118 degrees rectified. Sampled over the block in the file, the phone holds a median 91.2 percent of the floor and never the whole of it. The synthetic cage lens holds 99.0 percent and fits the whole floor in 27 percent of frames. So the camera comes in.
 - The old setback made the arena a third of the picture.
 - The wall plane is at 1.168 m. The glass was raised from 0.66 m to 1.41 m on 2026-09-13, above the whole height range, so every mount looks through a pane rather than over it. The pane on the camera's side is hidden whenever the camera stands outside it, so the labels behind it survive.
 - `aim = "centre"` derives tilt from where the mount landed instead of drawing it independently: the sweep varied tilt with distance and height, and the frames judged good all sit on that curve. The offset is negative for the same reason as on the NHRL half.

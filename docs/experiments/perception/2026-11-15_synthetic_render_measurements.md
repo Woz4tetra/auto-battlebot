@@ -26,7 +26,7 @@ One NHRL cage scene, 10 frames at 1280x720, one A6000:
 
 A camera within 0.055 m of the wall put an adjacent pane across a 118 degree frame edge-on. The rough refraction cost 402 s per render pass at 32 samples, where a healthy scene takes 4 to 23 s at 128. Both shipped mounts stay clear of the glass.
 
-Both mounts stand outside the wall, close to it, with tilt derived from where they land and aimed short of the field centre. NHRL's come from the 12 poses flown in `pose_camera_server.py` on 2026-09-12. MassD's come from the coverage sweeps, pulled in once the half moved to the wider e-CAM25 lens. See `2026-11-19_synthgen_cage_mount_ranges.md`.
+Both mounts stand outside the wall, close to it, with tilt derived from where they land and aimed short of the field centre. NHRL's come from the 12 poses flown in `pose_camera_server.py` on 2026-09-12. MassD's come from the coverage sweeps, pulled in once the half moved to the wider synthetic cage lens. See `2026-11-19_synthgen_cage_mount_ranges.md`.
 
 ## Damage
 

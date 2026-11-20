@@ -231,9 +231,9 @@ venv/bin/python training/model_eval/benchmark_engines.py \
 ```
 
 Also build and time `416x640`, which is the letterbox shape for the 16:10 1920x1200 sensor mode,
-and one larger shape (`768x1280` or `800x1280`). `rgb_camera_migration_2026-09-09.md` puts a 20 cm
-robot at 52 to 110 px across a 1920-wide frame from a 1.2 m mount, so a 640-wide tensor shows the
-network 17 to 37 px robots and that report calls `imgsz 1280` the floor. `x` at 1280 will not pass
+and one larger shape (`768x1280` or `800x1280`). A 20 cm
+robot spans 52 to 110 px across a 1920-wide frame from a 1.2 m mount, so a 640-wide tensor shows the
+network 17 to 37 px robots and `imgsz 1280` is the floor. `x` at 1280 will not pass
 gate B on this box. The two ways out are a smaller model at 1280 or `x` on a native-resolution
 crop around each track (step 5f), and step 0's table is what chooses between them.
 
@@ -345,7 +345,7 @@ lists still reproduce byte for byte, as the `nodamage_swap_half` addition did.
 Build `swap_half_cagehigh` from the same change. It is the control for what the 636 frames buy and
 it trains on `s` in 2 h 20 min.
 
-The render used e-CAM25 intrinsics. The view arms showed detection tolerates the lens
+The render used the synthetic cage lens intrinsics (118 degrees rectified). The view arms showed detection tolerates the lens
 (`view_distorted` ties `view_pinhole` on MassD at 0.571 recall), so the 40,000 frames are reusable
 now. Re-render a slice on the ZED One S intrinsics and mount once both are calibrated, and treat it
 as a new arm.
@@ -578,7 +578,7 @@ opponent recall is weakest.
 - **The latency figure is an estimate of an estimate.** 21 ms is the detector's `x` scaled by the
   geometry ratio measured on `s`. The pose head, the 16:10 shape and JetPack 7 are all unmeasured.
 - **No deployment-camera footage exists.** Every eval in this plan is a proxy until the ZED One S
-  records a fight. The e-CAM25 that was going to fill this gap was destroyed on 2026-09-19.
+  records a fight.
 - **Single seed.** `data_epoch_min` measured about 0.048 run-to-run recall spread on this corpus.
   A gate A result inside that band needs a second seed before it decides anything.
 

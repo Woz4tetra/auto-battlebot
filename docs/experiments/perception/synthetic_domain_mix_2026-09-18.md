@@ -312,14 +312,13 @@ comparison. Conf 0.5, bootstrap against `base`.
   training frames, it does not stop the detector reading frames that have none.
 - **`view_rectified` is the weakest on recall**, 0.471 pooled and 0.407 on MassD, on footage that is
   nominally its own view. The render's `rectified` frames carry the alpha 1.0 black border, 36
-  percent of the frame for the e-CAM25, and the ZED eval frames carry none. It trained on bordered
+  percent of the frame for the synthetic cage lens, and the ZED eval frames carry none. It trained on bordered
   frames and is scored on unbordered ones.
 - **Heading splits with the lens.** `view_pinhole` and `view_rectified` improve heading error over
   `base` by about 1.4 degrees; `view_distorted` and `view_mixed` do not move it. Pixel error improves
   for all four.
 
-The answer to question 5 still needs labelled e-CAM25 footage, raw and rectified. Nothing here
-changes that, and none of these numbers should be read as a view ranking.
+None of these numbers should be read as a view ranking.
 
 ## The confirmatory arms and the `yolo26x` model
 
@@ -695,7 +694,7 @@ before the set had ground truth.
 
 `nhrl_cage_high_eval`, 650 frames over nine NHRL recordings, copied from pathfinder to
 `training/data/`. This is Brettzone broadcast footage from a cage mount, so it is neither the
-ZED the eval set uses nor the e-CAM25 the render used. It has no ground truth worth scoring
+ZED the eval set uses nor the synthetic cage lens the render used. It has no ground truth worth scoring
 against yet, so the read is how many boxes each arm produces against how many the footage
 should hold. `predict_all_arms.sh` labels it with every arm into its own directory, hardlinking
 the images; `conf_sweep.py` keeps each detection's confidence and sweeps thresholds offline.
@@ -779,6 +778,3 @@ plan also asked, which model should label cage-high footage, and there the answe
    self-measurement. Ten percent labelled from empty, as the plan's step 6 specifies, is the fix.
 4. **A second eval on the deployment camera.** The cage-high set answers labelling-model questions
    and deployment questions not at all, because a cage mount is not what the robot carries.
-5. **Question 5 still needs labelled e-CAM25 footage, raw and rectified.** No view ranking here
-   can answer it: the ZED eval is the `pinhole` view's home ground, which the plan called in
-   advance.

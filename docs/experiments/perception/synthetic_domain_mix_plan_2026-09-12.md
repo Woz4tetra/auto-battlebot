@@ -169,8 +169,8 @@ across 17 saved MCAPs from MassD_2026-08-29 and NHRL_2026-05-02. That is in
 a 10 percent difference in normalized focal length, so the two lenses are not interchangeable
 and the question was worth asking.
 
-Both venues render through `config/cameras/ecam25_h01r1_estimated.toml` anyway, because the
-e-CAM25 is the camera the mounts are for and the lens they were judged through.
+Both venues render through the synthetic cage lens (118 degrees rectified) anyway, because it is
+the lens the mounts were judged through.
 `zed2i_720p.toml` stands as the measured record for a ZED-matched set later.
 
 HD720 is not a scaled HD1080. The one 1080p recording in the corpus reports fx/width 0.554
@@ -312,7 +312,7 @@ front of the detector. So each venue's 20,000 frames split three ways:
 | View | Frames per venue | What it is |
 | --- | --- | --- |
 | `pinhole` | 6,667 NHRL, 6,666 MassD | Rendered at the rectified matrix. What every render before 2026-09-13 was |
-| `rectified` | 6,667 | The sensor frame through the C++ `Rectifier`'s maps at alpha 1.0, black border included (36 percent of the frame for the e-CAM25) |
+| `rectified` | 6,667 | The sensor frame through the C++ `Rectifier`'s maps at alpha 1.0, black border included (36 percent of the frame for the synthetic cage lens) |
 | `distorted` | 6,666 NHRL, 6,667 MassD | The raw sensor frame, through the calibration's OpenCV distortion model |
 
 `synthgen/lens.py` does all three, and `pose_camera_server.py` shows its views through the same
@@ -337,7 +337,7 @@ Two gaps this opens:
   instances. The three views are separate runs merged into one dataset, so the view arms in step
   4 cannot be filtered until each row carries `"view"`.
 - **The eval set has no distorted frames.** `nhrl_keypoints_eval_test` is ZED footage, rectified
-  by the ZED with zero distortion at 101 degrees, and the e-CAM25 has not recorded a fight yet.
+  by the ZED with zero distortion at 101 degrees.
   See step 5.
 
 The HDRI randomized pool `R` has no lens model and stays pinhole, so any arm mixing `R` with `D`
@@ -419,7 +419,7 @@ so `convert_ros1_mcap.py` skips them with `profile '' is not ros1`; read them st
 `auto_battlebot.recording.mcap_io.iter_messages`, which yields `(topic, log_time, payload)`
 and tags the payload so `decode_camera_info` accepts it. And the camera runs HD720, not 1080p,
 so the file is `config/cameras/zed2i_720p.toml`. See the status section for what it says and
-why the renders use the e-CAM25 regardless.
+why the renders use the synthetic cage lens regardless.
 
 ### 0b. Timing probe
 
@@ -681,7 +681,7 @@ cost scenes, not frames: the run keeps drawing scenes until it has written its c
 | Lighting | LED tube strength +-25 percent | per scene | |
 | Materials | roughness jitter 0.5, hue +-10 degrees | per scene | |
 | Motion blur | 30 percent of frames, 5 to 15 px kernel | per frame | |
-| Fixed | e-CAM25 calibration, 1280x720 output, 64 samples, rectify alpha 1.0 | | |
+| Fixed | synthetic cage lens calibration, 1280x720 output, 64 samples, rectify alpha 1.0 | | |
 
 Frames per shard and view. Each cell is one `render_scenes.py` run. Each venue is short one frame
 of a third; NHRL takes it on `distorted` and MassD on `pinhole`, so every view reaches the 13,333
@@ -920,9 +920,6 @@ meant for.
 
 - Score all four view arms on it anyway and report it as a check that no view broke the
   detector, not as the answer.
-- The answer needs e-CAM25 footage: raw frames for the distorted arm, and the same frames through
-  `rectify_maps` for the rectified arm, labelled once in the distorted frame and mapped with
-  `undistort_points`. Record and label that before scoring question 5 for real.
 
 ### Pre-registered criteria
 
@@ -1008,7 +1005,7 @@ not actually save time, say so and drop it.
   measurement. 37 wall-clock hours becomes about 65. The same cut applies: at 10,000 per venue the
   split is 3,333 per view per venue, still 6,666 per view across both.
 - **Question 5 has no fair eval yet.** The eval set is ZED footage, which matches none of the
-  three views exactly and favours pinhole. Without labelled e-CAM25 frames, any view result is a
+  three views exactly and favours pinhole. Without labelled distorted-view eval frames, any view result is a
   sanity check, not a decision.
 - **The render blocks the queue.** Rendering on the training box is the whole point of step 1,
   and the cost is that other agents' arms wait. Announce the submission, and do not start the
@@ -1070,4 +1067,3 @@ What is left:
    work. The pre-label pass wrote 2,160 frames with 1,731 boxes and held out 240. Boxes per
    recording run from 1 (`08-48-31`) and 4 (`09-50-45__09-52-23`) to 376 (`09-20-17__09-27-24`),
    so a few clips are mostly empty arena or pre-match footage and review fast.
-4. Record and label e-CAM25 footage for question 5, raw and rectified. Needs the robot.

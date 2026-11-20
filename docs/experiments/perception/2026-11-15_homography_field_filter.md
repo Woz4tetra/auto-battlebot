@@ -21,4 +21,4 @@ The assumed size enters linearly: a mat that is 4% wrong makes every range 4% wr
 
 ## Synthetic test intrinsics
 
-`test_intrinsics()` models the e-CAM25_CUONX at 1920x1200. The 1006 px focal length is backed out of the quoted vertical field of view, the axis least inflated by barrel distortion.
+`test_intrinsics()` is a 1920x1200 camera with a 1006 px focal length.

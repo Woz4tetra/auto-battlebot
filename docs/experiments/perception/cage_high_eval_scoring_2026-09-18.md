@@ -24,7 +24,7 @@ Ground truth holds 1,750 boxes: 629 `mrs_buff_mk3`, 609 `opponent`, 512 `house_b
 are near-complete: 3,440 visible, 57 occluded, 3 out-of-frame.
 
 Both venues are broadcast footage, so neither is the ZED the existing eval set uses nor the
-e-CAM25 the render targeted. The MassD frames were cropped to 1920x895 on 2026-09-18 to cut the
+synthetic cage lens the render targeted. The MassD frames were cropped to 1920x895 on 2026-09-18 to cut the
 scoreboard and ticker banners; the NHRL frames stay 1920x1080.
 
 ## How it was labelled, and what that costs

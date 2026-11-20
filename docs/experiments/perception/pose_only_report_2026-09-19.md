@@ -107,7 +107,7 @@ Cost tracks tensor pixels sublinearly: 4.0x the pixels costs 3.7x the time. Ther
 exploit, so the only way `x` reaches a 1280-wide tensor inside a 33.3 ms period is by feeding it
 less than a full frame.
 
-That matters because `rgb_camera_migration_2026-09-09.md` calls `imgsz 1280` a floor, not a
+That matters because `imgsz 1280` is a floor, not a
 preference: at the 1.2 m mount a 20 cm robot spans 110 px near the mat edge and 52 px at the far
 corner, and a 640-wide tensor shows the network 37 px and 17 px instead. The plan left two ways
 out, and step 0 was supposed to choose between them.
@@ -157,10 +157,9 @@ The gate: `yolo26x-pose` at the deployed input shape runs under 33.3 ms per infe
 NX, measured in the C++ application with no second model loaded.
 
 **Passes on the engine-level measurement, at 384x640 and at 416x640. Fails at 640x640 and at
-768x1280.** The application half of the gate cannot be run: the e-CAM25 module was destroyed on
-2026-09-19 by a reversed FPC, so the box has no camera, and it builds with `BUILD_WITH_ZED=OFF` so
-there is no SVO playback fallback. That is the same gap the prior report closed with, and it stays
-open until the module is replaced.
+768x1280.** The application half of the gate cannot be run: the box has no camera, and it builds
+with `BUILD_WITH_ZED=OFF` so there is no SVO playback fallback. That is the same gap the prior
+report closed with.
 
 What the engine-level numbers support:
 

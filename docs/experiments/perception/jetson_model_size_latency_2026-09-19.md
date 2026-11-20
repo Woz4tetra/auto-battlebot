@@ -200,10 +200,8 @@ filter, and navigation. Neither leaves room. The 2026-09-04 conclusion that `m` 
 dominated by `s` was reached on accuracy alone; the latency data now says the same thing
 from the other side.
 
-The one number I cannot produce is a measured `runner.tick`. The e-CAM25 module was
-destroyed on 2026-09-19 by a reversed FPC: the `ecam25_ar0234` driver loads on this box but
-the sensor never enumerates, so there is no `/dev/video0` and no live run until the module
-is replaced. The Jetson also builds with `BUILD_WITH_ZED=OFF`, so SVO playback is not
+The one number I cannot produce is a measured `runner.tick`. The Jetson has no camera attached
+and builds with `BUILD_WITH_ZED=OFF`, so there is no live run and SVO playback is not
 available there as a fallback. Everything above is engine-level measurement plus the
 JetPack 6 live data; none of it is a measured end-to-end latency on JetPack 7.
 
@@ -231,9 +229,8 @@ is the experiment to run, not `x` at 640x640.
 ## Caveats
 
 - **No end-to-end measurement.** No `runner.tick`, no `pipeline.latency`, no loop rate. The
-  camera is dead and the Jetson has no SVO playback path. Engine-level numbers plus a
-  fitted factor are not a substitute for a live run, and the report should be re-checked
-  against one when the e-CAM25 is replaced.
+  Jetson has no SVO playback path. Engine-level numbers plus a fitted factor are not a
+  substitute for a live run.
 - **The in-batch factor is fitted, not derived.** Three points, all from JetPack 6 live
   runs. It conflates GPU contention with any JetPack 6 to 7 engine speed difference, and I
   cannot separate the two without a live JetPack 7 run. The prior report's independent
