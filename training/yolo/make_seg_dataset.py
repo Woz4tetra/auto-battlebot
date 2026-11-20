@@ -339,7 +339,6 @@ def robust_difference(floor_geom: object, obstacle_geom: object) -> object:
     try:
         return fixed_floor.difference(fixed_obstacles)
     except GEOSException:
-        # Last-resort: subtract obstacle polygons one-by-one from each floor polygon.
         obstacle_polys = explode_to_polygons(fixed_obstacles)
         result_pieces: list[Polygon] = []
         for floor_poly in explode_to_polygons(fixed_floor):

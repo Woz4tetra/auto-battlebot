@@ -17,8 +17,6 @@ RUNS=${RUNS:-all}
 REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 cd "$REPO"
 EVAL=training/data/nhrl_keypoints_eval_test
-# Symlink roots over the eval set's recordings, each with the eval set's validation_state.json,
-# because the loader only reads review state in the directory it is pointed at.
 VENUES=training/data/nhrl_keypoints_eval_test_by_venue
 OUT=${OUT:-$EVAL/scores_domain_mix_${MODEL}}
 LABELS="mr_stabs_mk2,mrs_buff_mk3,opponent,house_bot"

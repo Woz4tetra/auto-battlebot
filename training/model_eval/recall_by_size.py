@@ -130,7 +130,6 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=0, help="bootstrap RNG seed")
     parser.add_argument("--alpha", type=float, default=0.05, help="1 - CI coverage")
     parser.add_argument("--output", type=Path, required=True, help="csv/plot output dir")
-    # build_detector reads these; every arm here is letterbox, but the attributes must exist.
     parser.set_defaults(stretch=None, field_boxes=None, crop_margin=0.0)
     args = parser.parse_args()
 

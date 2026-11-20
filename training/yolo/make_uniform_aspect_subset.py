@@ -1,24 +1,4 @@
-"""Build a uniform-aspect-ratio view of a YOLO dataset, for rectangular training.
-
-Rectangular training (`rect=True`) sorts images by aspect ratio and gives each batch its
-own tensor shape. Ultralytics then refuses to shuffle when those shapes are not all equal
-(`ultralytics/models/yolo/detect/train.py:95`), and a silent `shuffle=False` feeds the
-optimizer aspect-sorted -- in practice recording-ordered -- batches for the whole run.
-
-`nhrl_robots_bbox_2class` is 99.85% 1920x1080, but 39 train frames from one pre-letterboxed
-YouTube segment come in at 1920x886. Measured on 2026-09-05 those 39 frames gave one batch
-of 810 a different shape and would have killed shuffle for the whole run. Dropping them
-makes every batch 384x640 at `imgsz=640` and 576x1024 at `imgsz=1024`.
-
-Only the train split is filtered by default. Validation runs with `rect=True` and
-`shuffle=False` regardless, so odd-aspect val frames are harmless, and leaving val
-byte-identical keeps val metrics comparable with a square-trained baseline.
-
-Images and labels are symlinked, so the view costs no disk and cannot drift from the source.
-
-    python training/yolo/make_uniform_aspect_subset.py \
-        training/data/nhrl_robots_bbox_2class training/data/nhrl_robots_bbox_2class_16x9
-"""
+"""Build a uniform-aspect-ratio view of a YOLO dataset, for rectangular training."""
 
 import argparse
 from pathlib import Path

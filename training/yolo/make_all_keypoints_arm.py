@@ -1,23 +1,4 @@
-"""Build the all-keypoints arm: a domain-mix arm list plus both hand-reviewed eval sets.
-
-Trains a deployment model on every reviewed keypoint frame there is, so neither eval set can score
-it afterwards. Each eval set contributes only the frames its ``validation_state.json`` marks
-``pass``. Two things in the eval labels would cost frames, and both are fixed in a rewritten copy
-under ``<out>/eval_labels/`` beside symlinked images, because ultralytics finds a label by
-swapping ``images`` for ``labels`` in the image path:
-
-* Rows in a class the model does not have (``object``, index 4) are dropped.
-* Keypoints outside [0, 1] become ``0 0 0``, unlabelled. They mark a robot partly out of frame
-  (up to 1.17 on the ZED set), and ultralytics drops the whole frame for one of them. Clamping to
-  the edge would move the point; the box stays as labelled.
-
-Usage:
-  venv/bin/python training/yolo/make_all_keypoints_arm.py \\
-      --arm training/data/domain_mix_arms_2026-09-19/d50000.txt \\
-      --val training/data/domain_mix_arms_2026-09-19/val.txt \\
-      --eval training/data/cage_high_x50_conf044 training/data/nhrl_keypoints_eval_test \\
-      --out training/data/all_keypoints_2026-09-25 --name all_keypoints
-"""
+"""Build the all-keypoints arm: a domain-mix arm list plus both hand-reviewed eval sets."""
 
 from __future__ import annotations
 

@@ -66,7 +66,6 @@ def build_tensorrt_engine(
     parser = trt.OnnxParser(network, logger)
 
     onnx_path = Path(onnx_path)
-    # parse_from_file so TensorRT can resolve external .onnx.data in the same directory
     if not parser.parse_from_file(str(onnx_path)):
         for i in range(parser.num_errors):
             print(parser.get_error(i))

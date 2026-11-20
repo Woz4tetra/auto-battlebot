@@ -785,7 +785,7 @@ class SegmaskDatasetValidator:
         """Push `index` into `cell`, touching only the widget options that changed."""
         key, photo = self.photo_for(index)
         if cell["photo_key"] != key:
-            cell["photo"] = photo  # keep a strong reference; tk does not
+            cell["photo"] = photo
             cell["photo_key"] = key
             cell["image"].config(image=photo)
 

@@ -285,3 +285,80 @@ python training/deeplab/field_fraction_gate.py --model data/models/field_deeplab
   --train-images training/data/nhrl_robots_bbox_2class/train/images \
   --eval-root training/data/nhrl_keypoints_eval_test --sample 300 --device cpu
 ```
+
+## Dataset builders
+
+### `make_uniform_aspect_subset.py`
+
+Builds a uniform-aspect-ratio view of a YOLO dataset for rectangular training.
+
+- `rect=True` sorts images by aspect ratio and gives each batch its own tensor shape. Ultralytics then refuses to shuffle when the shapes are not all equal (`ultralytics/models/yolo/detect/train.py:95`), and the silent `shuffle=False` feeds the optimizer aspect-sorted (in practice recording-ordered) batches for the whole run.
+- `nhrl_robots_bbox_2class` is 99.85% 1920x1080, but 39 train frames from one pre-letterboxed YouTube segment are 1920x886. Measured on 2026-09-05, those 39 frames gave one batch of 810 a different shape and would have killed shuffle for the whole run. Dropping them makes every batch 384x640 at `imgsz=640` and 576x1024 at `imgsz=1024`.
+- Only the train split is filtered by default. Validation runs with `rect=True` and `shuffle=False` regardless, so odd-aspect val frames are harmless, and leaving val byte-identical keeps val metrics comparable with a square-trained baseline.
+- Images and labels are symlinked, so the view costs no disk and cannot drift from the source.
+
+```bash
+python training/yolo/make_uniform_aspect_subset.py \
+    training/data/nhrl_robots_bbox_2class training/data/nhrl_robots_bbox_2class_16x9
+```
+
+### `make_all_keypoints_arm.py`
+
+Builds the all-keypoints arm: a domain-mix arm list plus both hand-reviewed eval sets. It trains a deployment model on every reviewed keypoint frame, so neither eval set can score that model afterwards.
+
+- Each eval set contributes only the frames its `validation_state.json` marks `pass`.
+- Two things in the eval labels would cost frames. Both are fixed in a rewritten copy under `<out>/eval_labels/` beside symlinked images, because ultralytics finds a label by swapping `images` for `labels` in the image path.
+- Rows in a class the model does not have (`object`, index 4) are dropped.
+- Keypoints outside [0, 1] become `0 0 0`, unlabelled. They mark a robot partly out of frame (up to 1.17 on the ZED set), and ultralytics drops the whole frame for one of them. Clamping to the edge would move the point. The box stays as labelled.
+
+```bash
+venv/bin/python training/yolo/make_all_keypoints_arm.py \
+    --arm training/data/domain_mix_arms_2026-09-19/d50000.txt \
+    --val training/data/domain_mix_arms_2026-09-19/val.txt \
+    --eval training/data/cage_high_x50_conf044 training/data/nhrl_keypoints_eval_test \
+    --out training/data/all_keypoints_2026-09-25 --name all_keypoints
+```
+
+### `seg_to_boxonly_pose.py`
+
+Builds an opponent-only YOLO pose dataset from a segmentation-polygon dataset (for example `training/data/nhrl_seg/nhrl_robots`). Used for Exp 2: mix real opponent boxes (single class, box-only) into a keypoint dataset.
+
+- A frame containing any `--exclude-frame-classes` label (for example our own robots) is skipped whole, so those robots never appear unlabelled in the opponent data. Our robots come only from the keypoint dataset, with real keypoints.
+- Each `--keep-class` polygon becomes its bounding box, written as a pose row `<out-class> cx cy w h 0 0 0 ...` with `--num-keypoints` visibility-0 (masked) keypoints. Ultralytics ignores vis-0 keypoints in the location loss, so these rows are box-only supervision and stay schema-compatible with real keypoint rows.
+- Frames with no kept opponent boxes are skipped. Paired images are copied (hardlinked when possible).
+
+```bash
+python training/yolo/seg_to_boxonly_pose.py training/data/nhrl_seg/nhrl_robots \
+    -o training/data/opponent_pose \
+    --keep-class 1 --exclude-frame-classes 3 4 --out-class 2 --num-keypoints 2
+```
+
+## Workarounds
+
+Facts that used to live in comments beside the code.
+
+### Export and engine build
+
+- `convert_to_onnx.py` sets `end2end=False` on every head. End2end bakes NMS and score processing into the ONNX graph, which can break multi-class outputs in TensorRT. The C++ pipeline does its own NMS and needs the raw `[1, num_features, num_predictions]` output.
+- `convert_to_onnx.py` always writes the default `<stem>_last.onnx` and only then moves it to `-o`. `run_domain_mix_arm.sh` therefore exports rectangular first: running square first leaves no square `.onnx`, which is the file a Jetson needs to rebuild the engine for its own TensorRT version. Unverified: the ordering claim was not re-tested.
+- `deeplab/convert_to_tensorrt.py` uses `parser.parse_from_file` so TensorRT can resolve an external `.onnx.data` in the model's directory. An in-memory parse cannot.
+- INT8 calibration in `yolo/convert_to_tensorrt.py` goes through `preprocess_frame`, the same letterbox `score.py` and the C++ pipeline use. Calibration measures activation ranges, so a preprocessing mismatch poisons every scale factor. The blob comes back transposed and non-contiguous and needs the same `ascontiguousarray` as `TrtYoloModel._run`.
+- The calibrator holds its CUDA buffer on the instance. TensorRT receives a raw device address and does not keep the allocation alive. torch already owns the CUDA context, so pycuda would be a second dependency for the same pointer.
+- `_check_calibration_ran` fails a build whose calibrator consumed fewer frames than given. TensorRT catches and swallows every exception raised inside `get_batch` and finishes with whatever batches it had, so one corrupt JPEG would otherwise give a quietly miscalibrated engine. Unverified: the swallowing was not reproduced here.
+- The calibration frames manifest is written with `encoding="utf-8"`. 86 corpus filenames carry non-ASCII characters (a fullwidth question mark from YouTube titles). Building on the Orin, the second model of a multi-model run wrote a 0-byte manifest and died on `UnicodeEncodeError` where the first had succeeded in the same process, because the process locale had changed.
+
+### Dataset and plotting
+
+- `plot_results.py` strips whitespace from `results.csv` column names because ultralytics sometimes writes space-padded headers. Unverified against the current ultralytics version.
+- `make_seg_dataset.py` falls back to subtracting obstacle polygons one at a time when the batched floor-minus-obstacles difference raises `GEOSException`. Unverified: the comment did not say which inputs trigger it.
+
+### Tk validators (`validate_yolo_dataset.py`, `deeplab/validate_segmask_dataset.py`)
+
+- Each cell stores its `PhotoImage` in `cell["photo"]`. Tk does not hold a reference, so without it the image is garbage-collected and the thumbnail goes blank.
+- Thumbnail labels have a fixed pixel width and height. A label without one resizes around the image it is handed, so cells reflow while a page loads.
+- The caption label has `width=1` character so a long filename cannot widen its cell.
+- `paint_cell` compares the cached photo key and calls `config()` only on options that changed. Every `config()` call repaints, so rewriting every cell on each keystroke flickered. Unverified: the flicker was not re-measured.
+
+### Other
+
+- `svo_rgb_extract.py` runs ffmpeg with `-err_detect ignore_err`, `-r` and `-vsync cfr`. The ZED records intra-refresh (GDR) H.264 with periodic SPS/PPS and no IDR frames, so ffmpeg logs benign `pps_id out of range` and `Overread VUI` warnings on a few parameter sets. `-err_detect ignore_err` conceals them and keeps decoding, `-r` supplies the timing the raw elementary stream lacks, and `-vsync cfr` keeps every input frame at a constant rate.

@@ -145,12 +145,7 @@ class Model:
         return np.concatenate(out, 0)
 
     def gradcam(self, img_rgb: np.ndarray, box: list[float]) -> np.ndarray:
-        """Grad-CAM (640,640) for the opponent score at `box`, at the P3 neck layer.
-
-        The end2end head detaches its postprocessed dict, so the target is rebuilt from the
-        grad-carrying class-branch conv outputs (Detect.cv3), flattened+concatenated into the
-        8400-anchor order to match anchor_centers, then the max opponent prob inside the box.
-        """
+        """Grad-CAM (640,640) for the opponent score at `box`, at the P3 neck layer."""
         acts: dict[str, torch.Tensor] = {}
         grads: dict[str, torch.Tensor] = {}
         cls_maps: dict[int, torch.Tensor] = {}

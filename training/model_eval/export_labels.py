@@ -114,7 +114,7 @@ def link_images(link: Path) -> None:
     if link.is_symlink() or link.is_file():
         link.unlink()
     elif link.is_dir():
-        shutil.rmtree(link)  # replace a real images/ dir left by an earlier layout
+        shutil.rmtree(link)
     link.symlink_to(Path("..") / "images", target_is_directory=True)
 
 

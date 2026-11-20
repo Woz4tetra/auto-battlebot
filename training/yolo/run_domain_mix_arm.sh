@@ -83,9 +83,6 @@ for ckpt in "${ckpts[@]}"; do
     fi
 done
 
-# Rectangular first, then square. convert_to_onnx.py always writes the default <stem>_last.onnx
-# and only then moves it to -o, so running square first leaves no square .onnx behind -- which is
-# the file a Jetson needs to rebuild the engine for its own TensorRT version.
 echo "=== export rectangular ${EXPORT_H}x${EXPORT_W}"
 rect="${stem}_last_rect${EXPORT_H}x${EXPORT_W}"
 $PY training/yolo/convert_to_onnx.py "${stem}_last.pt" --imgsz "$EXPORT_H" "$EXPORT_W" -o "${rect}.onnx"

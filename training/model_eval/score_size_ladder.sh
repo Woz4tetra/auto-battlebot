@@ -19,8 +19,6 @@ REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 cd "$REPO"
 SET=training/data/cage_high_x50_conf044
 EVAL=${EVAL:-$SET/d40000}
-# Symlink roots over the set's recordings, each with its own slice of validation_state.json,
-# because the loader only reads review state in the directory it is pointed at.
 VENUES=${VENUES:-${SET}_by_venue}
 suffix=""
 [ "$CONF" = 0.5 ] || suffix="_conf${CONF}"
@@ -60,8 +58,6 @@ if want venues; then
     score "$VENUES/massd" "$OPPONENT" "$OUT/venue_massd"
 fi
 if want recordings; then
-    # Every label file in a recording is a `pass` frame, so a bare recording scores the same
-    # frames the gated root does.
     for recording in "$EVAL"/*/; do
         [ -f "$recording/data.yaml" ] || continue
         score "$recording" "$OPPONENT" "$OUT/rec_$(basename "$recording")"

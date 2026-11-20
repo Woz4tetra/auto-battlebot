@@ -5,12 +5,7 @@ from ultralytics import YOLO
 
 
 def disable_end2end(model: YOLO) -> None:
-    """Disable end2end post-processing in the detection head.
-
-    End2end bakes NMS/score-processing into the ONNX graph, which can break
-    multi-class outputs in TensorRT. The C++ pipeline does its own NMS, so
-    the raw [1, num_features, num_predictions] output is what we need.
-    """
+    """Disable end2end post-processing in the detection head."""
     for m in model.model.modules():
         if hasattr(m, "end2end"):
             m.end2end = False

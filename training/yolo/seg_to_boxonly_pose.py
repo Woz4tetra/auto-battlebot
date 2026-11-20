@@ -1,25 +1,4 @@
-"""Convert opponent segmentation labels into box-only, masked-keypoint pose labels.
-
-Builds an opponent-only YOLO *pose* dataset from a segmentation-polygon dataset (e.g.
-``training/data/nhrl_seg/nhrl_robots``). For every frame:
-
-  * If it contains ANY ``--exclude-frame-classes`` label (e.g. our own robots), the whole
-    frame is skipped -- so those robots never appear unlabeled in the opponent data. Our
-    robots are meant to come only from the keypoint dataset, with real keypoints.
-  * Each ``--keep-class`` polygon is converted to its bounding box and written as a pose row
-    ``<out-class> cx cy w h  0 0 0 ...`` with ``--num-keypoints`` visibility-0 (masked)
-    keypoints. Ultralytics ignores vis-0 keypoints in the location loss, so these rows are
-    box-only supervision while staying schema-compatible with real keypoint rows.
-
-Frames with no kept opponent boxes are skipped. Paired images are copied (hardlinked when possible).
-
-Used for Exp 2: mix real opponent boxes (single class, box-only) into a keypoint dataset.
-
-Usage:
-  python training/yolo/seg_to_boxonly_pose.py training/data/nhrl_seg/nhrl_robots \
-      -o training/data/opponent_pose \
-      --keep-class 1 --exclude-frame-classes 3 4 --out-class 2 --num-keypoints 2
-"""
+"""Convert opponent segmentation labels into box-only, masked-keypoint pose labels."""
 
 from __future__ import annotations
 

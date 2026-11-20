@@ -116,14 +116,7 @@ class Int8Config:
 
 
 def _make_calibrator(int8: Int8Config, input_h: int, input_w: int) -> Any:
-    """Feed preprocessed corpus frames to the builder, one at a time.
-
-    Preprocessing goes through `preprocess_frame`, the same letterbox `score.py` and the C++
-    pipeline use. Calibration is a measurement of activation ranges, so a preprocessing mismatch
-    between calibration and inference poisons every scale factor in the network. The blob comes
-    back transposed and non-contiguous, so it needs the same `ascontiguousarray` that
-    `TrtYoloModel._run` does.
-    """
+    """Feed preprocessed corpus frames to the builder, one at a time."""
     base = trt.IInt8EntropyCalibrator2 if int8.algo == "entropy2" else trt.IInt8MinMaxCalibrator
 
     class _FrameCalibrator(base):  # type: ignore[misc, valid-type]
@@ -132,9 +125,6 @@ def _make_calibrator(int8: Int8Config, input_h: int, input_w: int) -> Any:
             self.index = 0
             self.batches_served = 0
             self.cache_hit = False
-            # TensorRT receives a raw device address and does nothing to keep the allocation
-            # alive, so the buffer is held on the instance. torch already owns a CUDA context
-            # here; pycuda would be a second dependency for the same pointer.
             self._buffer = torch.empty((1, 3, input_h, input_w), dtype=torch.float32, device="cuda")
 
         def get_batch_size(self) -> int:
@@ -189,12 +179,7 @@ def _configure_int8(
 
 
 def _check_calibration_ran(calibrator: Any, int8: Int8Config | None) -> None:
-    """Fail a build whose calibrator did not consume every frame it was given.
-
-    TensorRT catches and swallows every exception raised inside `get_batch`, then finishes the
-    build with whatever batches it already had. Without this check one corrupt JPEG becomes a
-    quietly miscalibrated engine that loads and runs normally.
-    """
+    """Fail a build whose calibrator did not consume every frame it was given."""
     if calibrator is None or int8 is None or calibrator.cache_hit:
         return
     if calibrator.batches_served != len(int8.frames):
@@ -279,11 +264,6 @@ def resolve_int8_config(model_path: Path, args: argparse.Namespace) -> Int8Confi
         frames = select_calibration_frames(Path(args.calib_dir), args.calib_count, partition)
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         manifest = cache_path.with_suffix(".frames.txt")
-        # Explicit utf-8: 86 of the corpus filenames carry non-ASCII characters (a fullwidth
-        # question mark, from the YouTube titles the scenes are named after), and write_text
-        # otherwise encodes with whatever locale the process has by then. Building on the Orin,
-        # the second model of a multi-model run wrote a 0-byte manifest and died on
-        # UnicodeEncodeError where the first had succeeded in the same process.
         manifest.write_text("".join(f"{path}\n" for path in frames), encoding="utf-8")
     elif not cache_path.is_file():
         raise SystemExit(

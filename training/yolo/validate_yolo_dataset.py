@@ -595,11 +595,8 @@ class YOLODatasetValidator:
                 highlightcolor=self.IDLE_COLOR,
             )
             frame.grid(row=row, column=col, padx=2, pady=2)
-            # Fixed pixel size: the label must not resize itself around whatever
-            # image it is handed, or every cell reflows as a page loads.
             image_label = tk.Label(frame, bd=0, bg="#000000", width=width, height=height)
             image_label.pack(padx=3, pady=(3, 0))
-            # width=1 char keeps a long filename from widening the cell
             caption = tk.Label(
                 frame,
                 text="",
@@ -939,14 +936,10 @@ class YOLODatasetValidator:
         self.refresh_zoom()
 
     def paint_cell(self, cell: Dict, index: int):
-        """Push `index` into `cell`, touching only the widget options that changed.
-
-        Every config() call repaints, so a blind rewrite of every cell on every
-        keystroke is what the flicker was.
-        """
+        """Push `index` into `cell`, touching only the widget options that changed."""
         key, photo = self.photo_for(index)
         if cell["photo_key"] != key:
-            cell["photo"] = photo  # keep a strong reference; tk does not
+            cell["photo"] = photo
             cell["photo_key"] = key
             cell["image"].config(image=photo)
 

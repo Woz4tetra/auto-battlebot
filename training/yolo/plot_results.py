@@ -102,7 +102,6 @@ LINE_COLORS = [
 
 def load_csv(path: Path) -> pd.DataFrame:
     df = pd.read_csv(path)
-    # Strip surrounding whitespace from column names (YOLO sometimes adds spaces)
     df.columns = [c.strip() for c in df.columns]
     return df
 
