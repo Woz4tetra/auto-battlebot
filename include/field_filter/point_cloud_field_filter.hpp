@@ -19,7 +19,7 @@ namespace auto_battlebot {
 Eigen::Vector3f plane_normal_from_coefficients(const Eigen::Vector4f &coefficients);
 class PointCloudFieldFilter : public FieldFilterInterface {
    public:
-    explicit PointCloudFieldFilter(PointCloudFieldFilterConfiguration &config);
+    explicit PointCloudFieldFilter(const PointCloudFieldFilterConfiguration &config);
     ~PointCloudFieldFilter() override = default;
 
     void reset(TransformStamped tf_visodom_from_camera) override;

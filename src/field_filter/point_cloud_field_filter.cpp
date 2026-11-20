@@ -7,7 +7,7 @@
 #include "transform_utils.hpp"
 
 namespace auto_battlebot {
-PointCloudFieldFilter::PointCloudFieldFilter(PointCloudFieldFilterConfiguration &config)
+PointCloudFieldFilter::PointCloudFieldFilter(const PointCloudFieldFilterConfiguration &config)
     : distance_threshold_(config.distance_threshold),
       local_visualize_debug_(config.local_visualize_debug),
       depth_units_per_meter_(config.depth_units_per_meter),

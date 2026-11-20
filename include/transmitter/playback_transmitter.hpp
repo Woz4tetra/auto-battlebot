@@ -12,7 +12,7 @@
 namespace auto_battlebot {
 class PlaybackTransmitter : public TransmitterInterface {
    public:
-    PlaybackTransmitter(PlaybackTransmitterConfiguration &config,
+    PlaybackTransmitter(const PlaybackTransmitterConfiguration &config,
                         std::shared_ptr<ClockInterface> clock);
 
     bool initialize() override;

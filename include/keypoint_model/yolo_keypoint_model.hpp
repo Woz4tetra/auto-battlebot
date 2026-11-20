@@ -57,7 +57,7 @@ std::vector<BoundingBox> boxes_per_row(const std::vector<DetectionRow> &rows);
 
 class YoloKeypointModel : public KeypointModelInterface {
    public:
-    YoloKeypointModel(YoloKeypointModelConfiguration &config,
+    YoloKeypointModel(const YoloKeypointModelConfiguration &config,
                       std::shared_ptr<EngineSelector> engine_selector);
 
     bool initialize() override;

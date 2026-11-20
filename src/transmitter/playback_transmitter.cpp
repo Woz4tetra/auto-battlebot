@@ -6,7 +6,7 @@
 
 namespace auto_battlebot {
 
-PlaybackTransmitter::PlaybackTransmitter(PlaybackTransmitterConfiguration &config,
+PlaybackTransmitter::PlaybackTransmitter(const PlaybackTransmitterConfiguration &config,
                                          std::shared_ptr<ClockInterface> clock)
     : init_delay_seconds_(config.init_delay_seconds),
       initialized_(false),

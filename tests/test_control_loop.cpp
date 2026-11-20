@@ -721,6 +721,37 @@ TEST(ControlLoopTest, ThreadedStartInitializesTransmitterBeforeFirstCycle) {
     EXPECT_FALSE(transmitter->sent_before_initialize);
 }
 
+TEST(ControlLoopTest, ThreadedForwardersSurviveConcurrentCallers) {
+    auto transmitter = std::make_shared<RecordingTransmitter>();
+    auto loop = std::make_shared<ControlLoop>(
+        std::make_shared<OrderRecordingFilter>(), nullptr, std::make_shared<RecordingNavigation>(),
+        transmitter, std::make_shared<ManualClock>(), nullptr, kCacheMaxAgeS);
+    ThreadedControlLoop driver(loop, 250.0, 20.0);
+    loop->submit_measurement(make_measurements(1)[0]);
+    ASSERT_TRUE(driver.start());
+
+    std::atomic<bool> done{false};
+    std::vector<std::thread> callers;
+    for (int t = 0; t < 4; ++t) {
+        callers.emplace_back([&driver, &done, t] {
+            while (!done) {
+                driver.set_autonomy_enabled(t % 2 == 0);
+                driver.set_target_override(std::nullopt);
+                driver.request_filter_reinit(t);
+                (void)driver.latest_output();
+                (void)driver.transmitter_status();
+                (void)driver.last_visualization();
+                (void)driver.take_init_button_press();
+            }
+        });
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    done = true;
+    for (auto &caller : callers) caller.join();
+    driver.stop();
+    EXPECT_FALSE(transmitter->sent.empty());
+}
+
 TEST(ControlLoopTest, FilterCorrectsBeforeItPredicts) {
     auto filter = std::make_shared<OrderRecordingFilter>();
     auto clock = std::make_shared<ManualClock>();

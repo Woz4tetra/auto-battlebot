@@ -18,7 +18,7 @@ constexpr int kDetectHeadBoxFeatures = 4;
 
 }  // namespace
 
-YoloBboxRobotBlobModel::YoloBboxRobotBlobModel(YoloBboxRobotBlobModelConfiguration &config,
+YoloBboxRobotBlobModel::YoloBboxRobotBlobModel(const YoloBboxRobotBlobModelConfiguration &config,
                                                std::shared_ptr<EngineSelector> engine_selector)
     : confidence_threshold_(config.confidence_threshold),
       iou_threshold_(config.iou_threshold),

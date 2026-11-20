@@ -72,7 +72,7 @@ auto_battlebot::Group infer_group_from_frame_ids(
 }  // namespace
 
 namespace auto_battlebot {
-RobotFrontBackFilter::RobotFrontBackFilter(RobotFrontBackFilterConfiguration &config)
+RobotFrontBackFilter::RobotFrontBackFilter(const RobotFrontBackFilterConfiguration &config)
     : diagnostics_logger_(DiagnosticsLogger::get_logger("robot_front_back_filter")),
       label_to_frame_ids_(config.label_to_frame_ids),
       default_frame_id_(config.default_frame_id),

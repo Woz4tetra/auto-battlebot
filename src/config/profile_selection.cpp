@@ -34,12 +34,15 @@ std::filesystem::path resolve_home() {
 }  // namespace
 
 std::filesystem::path expand_home(const std::string &raw) {
+    return expand_home(raw, resolve_home());
+}
+
+std::filesystem::path expand_home(const std::string &raw, const std::filesystem::path &home) {
     const bool tilde = !raw.empty() && raw.front() == '~';
     const bool home_var = raw.rfind("$HOME", 0) == 0;
     if (!tilde && !home_var) {
         return std::filesystem::path(raw);
     }
-    const std::filesystem::path home = resolve_home();
     if (home.empty()) {
         throw ConfigValidationError("Cannot expand '" + raw +
                                     "': HOME is unset and the current user has no passwd home dir");

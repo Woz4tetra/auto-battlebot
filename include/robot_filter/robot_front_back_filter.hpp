@@ -20,7 +20,7 @@
 namespace auto_battlebot {
 class RobotFrontBackFilter : public RobotFilterInterface {
    public:
-    explicit RobotFrontBackFilter(RobotFrontBackFilterConfiguration &config);
+    explicit RobotFrontBackFilter(const RobotFrontBackFilterConfiguration &config);
 
     bool initialize(int opponent_count) override;
 

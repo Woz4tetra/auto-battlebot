@@ -9,7 +9,7 @@ namespace auto_battlebot {
 namespace {
 constexpr double kUpdateWarnMs = 1000.0;
 }  // namespace
-DeepLabMaskModel::DeepLabMaskModel(DeepLabMaskModelConfiguration& config,
+DeepLabMaskModel::DeepLabMaskModel(const DeepLabMaskModelConfiguration& config,
                                    std::shared_ptr<EngineSelector> engine_selector)
     : model_type_(config.model_type),
       output_label_(config.output_label),

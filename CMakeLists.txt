@@ -351,7 +351,7 @@ else()
 endif()
 
 if(BUILD_DEBUG AND BUILD_WITH_ZED)
-    set_source_files_properties(
+    set(ZED_SOURCES_COMPILED_WITHOUT_DEBUG_MACRO
         src/rgbd_camera/zed_rgbd_camera.hpp
         src/rgbd_camera/zed_rgbd_camera.cpp
         src/rgbd_camera/zed_device.cpp
@@ -359,8 +359,9 @@ if(BUILD_DEBUG AND BUILD_WITH_ZED)
         src/rgbd_camera/zed_one_rgb_camera.cpp
         src/rgbd_camera/svo_recorder.cpp
         src/rgbd_camera/config.cpp
-        PROPERTIES COMPILE_FLAGS "-O2 -DNDEBUG -U_DEBUG"
     )
+    set_source_files_properties(${ZED_SOURCES_COMPILED_WITHOUT_DEBUG_MACRO}
+        PROPERTIES COMPILE_FLAGS "-U_DEBUG")
 endif()
 
 add_executable(auto_battlebot
@@ -415,14 +416,14 @@ else()
     )
 endif()
 
-add_custom_target(copy_config_files ALL
+add_custom_target(link_config_files ALL
     COMMAND ${CMAKE_COMMAND} -E rm -rf ${CMAKE_BINARY_DIR}/config
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    COMMAND ${CMAKE_COMMAND} -E create_symlink
     ${CMAKE_SOURCE_DIR}/config
     ${CMAKE_BINARY_DIR}/config
-    COMMENT "Copying config directory to build directory"
+    COMMENT "Linking config directory into build directory"
 )
-add_dependencies(auto_battlebot copy_config_files)
+add_dependencies(auto_battlebot link_config_files)
 foreach(nvjpeg_checked_target auto_battlebot viz_relay)
     add_custom_command(TARGET ${nvjpeg_checked_target} POST_BUILD
         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_no_nvjpeg_link.sh

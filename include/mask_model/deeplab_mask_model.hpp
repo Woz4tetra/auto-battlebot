@@ -27,7 +27,7 @@ void deeplab_input_nchw(const cv::Mat &bgr_image, int model_height, int model_wi
 
 class DeepLabMaskModel : public MaskModelInterface {
    public:
-    DeepLabMaskModel(DeepLabMaskModelConfiguration &config,
+    DeepLabMaskModel(const DeepLabMaskModelConfiguration &config,
                      std::shared_ptr<EngineSelector> engine_selector);
 
     bool initialize() override;

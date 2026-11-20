@@ -1,10 +1,12 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <filesystem>
 #include <string>
 #include <vector>
 
 #include "config/config.hpp"
+#include "config/config_parser.hpp"
 #include "config/profile_selection.hpp"
 #include "directories.hpp"
 
@@ -39,5 +41,17 @@ TEST(ProfilePattern, EveryOfferedProfileLoads) {
             << profile;
     }
 }
+
+TEST(ExpandHomeTest, ExpandsTildeAndHomeVariableAgainstTheGivenHome) {
+    EXPECT_EQ(expand_home("~/a/b", "/home/x"), std::filesystem::path("/home/x/a/b"));
+    EXPECT_EQ(expand_home("$HOME/a", "/home/x"), std::filesystem::path("/home/x/a"));
+    EXPECT_EQ(expand_home("/abs/path", ""), std::filesystem::path("/abs/path"));
+}
+
+TEST(ExpandHomeTest, ThrowsWhenHomeIsUnresolvable) {
+    EXPECT_THROW(expand_home("~/a", ""), ConfigValidationError);
+    EXPECT_THROW(expand_home("$HOME/a", ""), ConfigValidationError);
+}
+
 }  // namespace
 }  // namespace auto_battlebot

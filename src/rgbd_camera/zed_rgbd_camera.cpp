@@ -58,7 +58,7 @@ bool join_with_timeout(std::thread &thread, const std::atomic<bool> &done_flag,
 }
 }  // namespace
 
-ZedRgbdCamera::ZedRgbdCamera(ZedRgbdCameraConfiguration &config)
+ZedRgbdCamera::ZedRgbdCamera(const ZedRgbdCameraConfiguration &config)
     : capture_running_(false),
       shutdown_requested_(false),
       stop_capture_thread_(false),

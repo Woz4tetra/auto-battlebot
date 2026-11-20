@@ -14,7 +14,7 @@
 namespace auto_battlebot {
 class YoloBboxRobotBlobModel : public RobotBlobModelInterface {
    public:
-    YoloBboxRobotBlobModel(YoloBboxRobotBlobModelConfiguration &config,
+    YoloBboxRobotBlobModel(const YoloBboxRobotBlobModelConfiguration &config,
                            std::shared_ptr<EngineSelector> engine_selector);
 
     bool initialize() override;

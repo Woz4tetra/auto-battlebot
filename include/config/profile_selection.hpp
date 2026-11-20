@@ -26,6 +26,8 @@ std::string resolve_active_profile(const std::filesystem::path &config_dir,
 
 std::filesystem::path expand_home(const std::string &raw);
 
+std::filesystem::path expand_home(const std::string &raw, const std::filesystem::path &home);
+
 void write_selection_file(const ProfileSelectorConfig &selector, const std::string &profile_name);
 
 }  // namespace auto_battlebot

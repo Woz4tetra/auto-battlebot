@@ -22,7 +22,7 @@
 namespace auto_battlebot {
 class ZedRgbdCamera : public RgbdCameraInterface {
    public:
-    explicit ZedRgbdCamera(ZedRgbdCameraConfiguration &config);
+    explicit ZedRgbdCamera(const ZedRgbdCameraConfiguration &config);
     ~ZedRgbdCamera();
     bool initialize() override;
     void cancel_initialize() override;

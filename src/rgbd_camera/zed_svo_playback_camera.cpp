@@ -10,7 +10,7 @@
 
 namespace auto_battlebot {
 
-ZedSvoPlaybackCamera::ZedSvoPlaybackCamera(ZedSvoPlaybackCameraConfiguration &config)
+ZedSvoPlaybackCamera::ZedSvoPlaybackCamera(const ZedSvoPlaybackCameraConfiguration &config)
     : svo_start_frame_(config.svo_start_frame),
       rebase_stamps_(config.rebase_stamps),
       diagnostics_logger_(DiagnosticsLogger::get_logger("zed_svo_playback_camera")) {

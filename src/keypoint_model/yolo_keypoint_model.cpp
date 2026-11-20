@@ -22,7 +22,7 @@ std::vector<BoundingBox> boxes_per_row(const std::vector<DetectionRow> &rows) {
     return boxes;
 }
 
-YoloKeypointModel::YoloKeypointModel(YoloKeypointModelConfiguration &config,
+YoloKeypointModel::YoloKeypointModel(const YoloKeypointModelConfiguration &config,
                                      std::shared_ptr<EngineSelector> engine_selector)
     : threshold_(config.threshold),
       iou_threshold_(config.iou_threshold),

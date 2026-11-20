@@ -12,7 +12,7 @@ namespace auto_battlebot {
 
 class ZedSvoPlaybackCamera : public RgbdCameraInterface {
    public:
-    explicit ZedSvoPlaybackCamera(ZedSvoPlaybackCameraConfiguration &config);
+    explicit ZedSvoPlaybackCamera(const ZedSvoPlaybackCameraConfiguration &config);
     ~ZedSvoPlaybackCamera() override;
 
     bool initialize() override;

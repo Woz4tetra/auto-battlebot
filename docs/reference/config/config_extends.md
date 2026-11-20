@@ -71,4 +71,4 @@ Storage is ordered so indices match the model's class order.
 
 ## Config casts
 
-Factory functions receive a `const BaseConfig&`. Constructors such as the YOLO detector store a non-const `DerivedConfig&`. `config_cast<DerivedConfig>` in `include/config/config_cast.hpp` does the `static_cast` to the derived type and then casts away const.
+Factory functions receive a `const BaseConfig&`. Component constructors take `const DerivedConfig&`. `config_cast<DerivedConfig>` in `include/config/config_cast.hpp` is a `static_cast` to the derived type.
