@@ -238,10 +238,6 @@ if(NOT BUILD_WITH_ZED)
     list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*/field_filter/point_cloud_.*\\.cpp$")
 endif()
 
-# NVJPG, the Jetson's JPEG engine, through NvJPEGEncoder in the Jetson Multimedia API. Compiled
-# in when the API headers and L4T's libnvjpeg are both present, the way BUILD_WITH_ZED follows the
-# SDK. That libnvjpeg is NVIDIA's libjpeg with the NVJPG extensions, not the CUDA toolkit's nvJPEG,
-# so it is linked by full path and the toolkit one never reaches the link line.
 set(JETSON_MMAPI_DIR "/usr/src/jetson_multimedia_api" CACHE PATH "Jetson Multimedia API root")
 find_path(JETSON_MMAPI_INCLUDE_DIR NvJpegEncoder.h
     PATHS "${JETSON_MMAPI_DIR}/include" NO_DEFAULT_PATH)
@@ -275,10 +271,6 @@ if(GST_FOUND)
 endif()
 
 if(HAVE_NVJPG)
-    # libnvjpeg exports libjpeg's API unversioned, and anything that links it puts those symbols
-    # in the global scope, where they take over OpenCV's libjpeg calls. So NvJPEGEncoder and
-    # libnvjpeg live in a plugin that only NvjpgJpegEncoder loads (see its header), and
-    # auto_battlebot_lib never links libnvjpeg.
     set(JETSON_MMAPI_CLASSES "${JETSON_MMAPI_DIR}/samples/common/classes")
     add_library(auto_battlebot_nvjpg MODULE
         src/viz/nvjpg_plugin/nvjpg_plugin.cpp
@@ -466,6 +458,12 @@ add_custom_target(copy_config_files ALL
     COMMENT "Copying config directory to build directory"
 )
 add_dependencies(auto_battlebot copy_config_files)
+foreach(nvjpeg_checked_target auto_battlebot viz_relay)
+    add_custom_command(TARGET ${nvjpeg_checked_target} POST_BUILD
+        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_no_nvjpeg_link.sh
+            $<TARGET_FILE:${nvjpeg_checked_target}>
+        COMMENT "Checking ${nvjpeg_checked_target} does not link libnvjpeg")
+endforeach()
 
 add_custom_command(TARGET auto_battlebot POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E create_symlink
@@ -517,5 +515,9 @@ if(BUILD_TESTING)
 
     include(GoogleTest)
     gtest_discover_tests(auto_battlebot_test)
+
+    add_test(NAME NoNvjpegLink
+        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_no_nvjpeg_link.sh
+            $<TARGET_FILE:auto_battlebot_lib> $<TARGET_FILE:auto_battlebot_test>)
 endif()
 

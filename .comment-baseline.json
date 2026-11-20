@@ -1,5 +1,5 @@
 {
-  "CMakeLists.txt": 44,
+  "CMakeLists.txt": 36,
   "auto_battlebot/mujoco_sim/onshape_export.py": 10,
   "auto_battlebot/mujoco_sim/rollout.py": 1,
   "auto_battlebot/mujoco_sim/warp_kernels.py": 6,
@@ -89,7 +89,6 @@
   "include/tensorrt_inference/trt_engine.hpp": 9,
   "include/time/system_clock.hpp": 1,
   "include/transmitter/opentx_transmitter.hpp": 16,
-  "include/viz/nvjpg_jpeg_encoder.hpp": 16,
   "include/viz/viz_sink.hpp": 3,
   "install/check_jetson_orin.sh": 2,
   "install/install_dashboard_network.sh": 3,
@@ -162,7 +161,6 @@
   "src/transmitter/espnow_transmitter.cpp": 2,
   "src/transmitter/opentx_transmitter.cpp": 17,
   "src/viz/nvjpg_jpeg_encoder.cpp": 3,
-  "src/viz/nvjpg_plugin/nvjpg_plugin.cpp": 1,
   "src/viz_relay/main.cpp": 12,
   "tests/camera/test_gst_h264_backend.cpp": 1,
   "tests/camera/test_video_encoder.cpp": 4,

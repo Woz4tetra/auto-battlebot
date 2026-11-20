@@ -1,5 +1,3 @@
-// Built as its own library, never into auto_battlebot_lib: see NvjpgJpegEncoder.
-
 #include "viz/nvjpg_plugin.h"
 
 #include <NvBuffer.h>

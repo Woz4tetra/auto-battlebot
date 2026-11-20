@@ -814,6 +814,15 @@ JPEG compression costs about 10 ms of CPU on the Jetson. It runs on worker threa
 
 `auto_battlebot_nvjpg_encode` (`include/viz/nvjpg_plugin.h`) takes one 4:2:0 frame in I420 layout: contiguous full-range (JFIF) Y, Cb and Cr planes, with even width and height (it returns 0 for odd ones). It points the `jpeg_until_next_call` out-parameter at the result, valid until the next call on the same encoder, and returns the size, or 0 on failure.
 
+### NVJPG plugin
+
+`NvjpgJpegEncoder` encodes JPEG on the Jetson's NVJPG engine through `NvJPEGEncoder` from the Jetson Multimedia API. It is compiled only when CMake finds the Multimedia API headers and L4T's `libnvjpeg` (`HAVE_NVJPG`, `AUTO_BATTLEBOT_HAVE_NVJPG`). That `libnvjpeg` is NVIDIA's libjpeg-compatible library with the NVJPG extensions, not the CUDA toolkit's GPU nvJPEG. NVJPG takes YCbCr 4:2:0, so each frame is converted from BGR on the CPU first, and odd widths and heights lose their last column or row.
+
+- L4T's `libnvjpeg` exports the whole libjpeg API without symbol versions. Once it is in the global symbol scope it answers OpenCV's, libtiff's and gdk-pixbuf's `jpeg_*` calls with its own, larger structs, and `cv::imencode(".jpg")` and `cv::imdecode` crash (SIGBUS/SEGV).
+- `NvJPEGEncoder` and `libnvjpeg` therefore live in `libauto_battlebot_nvjpg.so`, a CMake MODULE next to `libauto_battlebot.so`. `NvjpgJpegEncoder` loads it with `RTLD_LOCAL` so its symbols stay out of the global scope, and `RTLD_DEEPBIND` so its own `jpeg_*` calls reach `libnvjpeg` instead of OpenCV's libjpeg.
+- `auto_battlebot_lib`, `auto_battlebot`, `viz_relay` and `auto_battlebot_test` never link `libnvjpeg` or the plugin. CTest `NoNvjpegLink` (`scripts/check_no_nvjpeg_link.sh`) reads their direct `NEEDED` entries with `readelf -d` and fails on either name.
+- The ZED SDK's `libsl_zed` pulls `libnvjpeg` in transitively after `libjpeg.so.8`. That is not a direct `NEEDED` entry of our binaries and the check does not cover it.
+
 ### H.264 parameter sets
 
 `gst_h264_backend.cpp` sets `insert-sps-pps` on the hardware encoder so SPS and PPS arrive in band ahead of every IDR. `foxglove.CompressedVideo` needs them, and they make a mid-file seek decode. `x264enc` writes SPS/PPS once, so `h264parse` runs with `config-interval = -1` to repeat them ahead of every IDR.
