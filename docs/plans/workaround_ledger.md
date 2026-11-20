@@ -9,6 +9,14 @@ function or constant name says what it guards. File line numbers below are from 
 audit and have moved since; search for the symbol. Built from the 322 `HACK` rows of the audit CSV,
 deleted 2026-11-20 and still in git history at `docs/plans/comment_purge_audit.csv`.
 
+## Status 2026-11-20
+
+Batches retired every row that could be settled on the dev box: deleted, fixed, or pinned by a test that fails with the workaround removed. Checks that need a device moved to `docs/plans/hardware_checks.md` (section "Ledger rows that need a device"). What is left:
+
+- "Blocked on a decision or hardware": rows waiting on a decision, a missing asset, or a tool
+- `espressif32@6.13.0` platform pins: deferred to Mk4
+- `web/src/lib/connection.ts` and `firmware/mr_stabs_mk2/include/espnow_link.h` rows: those files had uncommitted edits
+
 ## How to read it
 
 - **Verified?** starts with `yes:`, `no:`, or `unverified:`. Auditors read code paths and installed
@@ -143,7 +151,6 @@ harness named in the last column exists.
 
 | Location | Claim | What blocks a test |
 | --- | --- | --- |
-| `firmware/mr_stabs_mk2/include/espnow_link.h` (substitution gate) | Gate lives in `main.cpp` | Extract the gate into a pure function first |
 | `firmware/mr_stabs_mk2/include/espnow_link.h` (pairing) | `pair()` uses NVS | NVS does not run natively |
 | `web/src/lib/connection.ts:1-4` | Subscriptions survive reconnects | web/ has no test runner |
 

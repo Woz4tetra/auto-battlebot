@@ -73,7 +73,7 @@ None of these were flashed. Verified by native PlatformIO tests or compile only.
 
 ## Ledger rows that need a device
 
-Workarounds whose last check needs hardware. Delete a row once the check passes.
+Workarounds from `docs/plans/workaround_ledger.md` whose last check needs hardware, added 2026-11-20 as each batch landed. "existing" in the Commit column means the code was unchanged and only the device check remains. Delete a row once the check passes.
 
 | Change | Commit | Check (device, steps, pass) |
 | --- | --- | --- |
