@@ -4,6 +4,7 @@
 
 #include "field_filter/point_cloud_field_filter_debug.hpp"
 #include "field_filter/rectangle_edges.hpp"
+#include "transform_utils.hpp"
 
 namespace auto_battlebot {
 PointCloudFieldFilter::PointCloudFieldFilter(PointCloudFieldFilterConfiguration &config)
@@ -305,19 +306,7 @@ Eigen::Matrix4d PointCloudFieldFilter::transform_from_plane(
     Eigen::Vector3d up = up_vector.cast<double>().normalized();
     Eigen::Vector3d normal = plane_normal.cast<double>().normalized();
 
-    // Suppress false positive warning from GCC about uninitialized memory in Eigen's FromTwoVectors
-    // The warning occurs in Eigen's internal SVD computation but the memory is actually properly
-    // initialized. -Wmaybe-uninitialized is a GCC-only warning group; guard the pragma so clang
-    // (and clang-tidy) does not report it as an unknown warning option.
-#if defined(__GNUC__) && !defined(__clang__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
-#endif
-    Eigen::Quaterniond rotation = Eigen::Quaterniond::FromTwoVectors(up, normal);
-#if defined(__GNUC__) && !defined(__clang__)
-#pragma GCC diagnostic pop
-#endif
-
+    Eigen::Quaterniond rotation = rotation_between(up, normal);
     transform.block<3, 3>(0, 0) = rotation.toRotationMatrix();
 
     transform.block<3, 1>(0, 3) = plane_center.cast<double>();

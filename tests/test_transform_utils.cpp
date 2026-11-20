@@ -117,4 +117,61 @@ TEST(QuaternionToEulerTest, QuaternionToEulerAtPoleIsFinite) {
     }
 }
 
+TEST(RotationBetweenTest, MapsFromOntoToForGenericVectors) {
+    const Eigen::Vector3d from(1.0, 2.0, -0.5);
+    const Eigen::Vector3d to(-0.3, 0.8, 2.0);
+    const Eigen::Vector3d rotated = rotation_between(from, to) * from.normalized();
+    EXPECT_NEAR((rotated - to.normalized()).norm(), 0.0, 1e-12);
+}
+
+TEST(RotationBetweenTest, ParallelVectorsGiveIdentity) {
+    const Eigen::Vector3d from(0.0, 0.0, -1.0);
+    const Eigen::Quaterniond q = rotation_between(from, 3.0 * from);
+    EXPECT_NEAR(q.angularDistance(Eigen::Quaterniond::Identity()), 0.0, 1e-12);
+}
+
+TEST(RotationBetweenTest, AntiparallelVectorsGiveHalfTurn) {
+    const Eigen::Vector3d from = Eigen::Vector3d::UnitX();
+    const Eigen::Quaterniond q = rotation_between(from, -from);
+    EXPECT_NEAR((q * from + from).norm(), 0.0, 1e-12);
+    EXPECT_NEAR(q.norm(), 1.0, 1e-12);
+    EXPECT_NEAR(std::abs(q.w()), 0.0, 1e-12);
+    const Eigen::Quaterniond about_z(0.0, 0.0, 0.0, 1.0);
+    EXPECT_NEAR(q.angularDistance(about_z), 0.0, 1e-12);
+}
+
+TEST(RotationBetweenTest, AntiparallelAlongZRotatesAboutX) {
+    const Eigen::Vector3d from(0.0, 0.0, -1.0);
+    const Eigen::Quaterniond q = rotation_between(from, -from);
+    EXPECT_NEAR((q * from + from).norm(), 0.0, 1e-12);
+    EXPECT_NEAR((q * Eigen::Vector3d::UnitX() - Eigen::Vector3d::UnitX()).norm(), 0.0, 1e-12);
+}
+
+TEST(RotationBetweenTest, MatchesEigenFromTwoVectorsAwayFromAntiparallel) {
+    const Eigen::Vector3d from(0.3, -1.2, 0.7);
+    const Eigen::Vector3d to(-0.9, 0.1, 0.4);
+    const Eigen::Quaterniond expected = Eigen::Quaterniond::FromTwoVectors(from, to);
+    EXPECT_NEAR(rotation_between(from, to).angularDistance(expected), 0.0, 1e-12);
+}
+
+TEST(RotationBetweenTest, MatchesHandWrittenRodriguesForArrowDirections) {
+    const Eigen::Vector3d dir = Eigen::Vector3d(0.2, -0.7, 0.4).normalized();
+    const Eigen::Vector3d axis = Eigen::Vector3d::UnitX().cross(dir);
+    const Eigen::Quaterniond expected =
+        Eigen::Quaterniond(1.0 + dir.x(), axis.x(), axis.y(), axis.z()).normalized();
+    const Eigen::Quaterniond actual = rotation_between(Eigen::Vector3d::UnitX(), dir);
+    EXPECT_NEAR(actual.angularDistance(expected), 0.0, 1e-12);
+}
+
+TEST(RotationBetweenTest, MatchesHandWrittenRodriguesForPlaneTipping) {
+    const Eigen::Vector3d normal = Eigen::Vector3d(0.1, -0.2, 0.9).normalized();
+    const Eigen::Vector3d from(0.0, 0.0, -1.0);
+    const Eigen::Vector3d axis = from.cross(normal);
+    const double cos_angle = from.dot(normal);
+    const Eigen::Vector3d unit_x = Eigen::Vector3d::UnitX();
+    const Eigen::Vector3d expected =
+        unit_x * cos_angle + axis.cross(unit_x) + axis * axis.dot(unit_x) / (1.0 + cos_angle);
+    EXPECT_NEAR((rotation_between(from, normal) * unit_x - expected).norm(), 0.0, 1e-12);
+}
+
 }  // namespace auto_battlebot

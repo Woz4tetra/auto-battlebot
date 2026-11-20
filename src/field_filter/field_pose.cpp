@@ -5,6 +5,8 @@
 #include <limits>
 #include <vector>
 
+#include "transform_utils.hpp"
+
 namespace auto_battlebot {
 namespace {
 Eigen::Vector3d to_eigen(const cv::Vec3d &vector) {
@@ -277,19 +279,8 @@ Eigen::Matrix4d align_field_x_with_camera_x(const Eigen::Matrix4d &tf_camera_fro
     if (normal.z() < 0.0) {
         normal = -normal;
     }
-    // The camera's axes tipped onto the field plane by the smallest rotation, as
-    // PointCloudFieldFilter::transform_from_plane builds them. Rodrigues written out by hand:
-    // Eigen's FromTwoVectors trips GCC 13's -Werror=maybe-uninitialized through its SVD fallback
-    // (same as foxglove_adapters/scene.cpp). That fallback only runs when the normal is exactly
-    // antiparallel to -z, where it leaves +x where it is.
-    const Eigen::Vector3d from(0.0, 0.0, -1.0);
-    const Eigen::Vector3d axis = from.cross(normal);
-    const double cos_angle = from.dot(normal);
-    const Eigen::Vector3d unit_x = Eigen::Vector3d::UnitX();
     const Eigen::Vector3d plane_x =
-        cos_angle < -1.0 + 1e-12 ? unit_x
-                                 : Eigen::Vector3d(unit_x * cos_angle + axis.cross(unit_x) +
-                                                   axis * axis.dot(unit_x) / (1.0 + cos_angle));
+        rotation_between(Eigen::Vector3d(0.0, 0.0, -1.0), normal) * Eigen::Vector3d::UnitX();
 
     const int step = std::abs(size_x - size_y) < 1e-9 ? 1 : 2;
     Eigen::Matrix3d best = rotation;

@@ -10,6 +10,8 @@
 #include "data_structures/transform.hpp"
 
 namespace auto_battlebot {
+Eigen::Quaterniond rotation_between(const Eigen::Vector3d &from, const Eigen::Vector3d &to);
+
 void matrix_to_position_quaternion(const Eigen::Matrix4d &transform, Position &position,
                                    Rotation &quaternion);
 

@@ -7,6 +7,20 @@
 #include "enum_to_string_lower.hpp"
 
 namespace auto_battlebot {
+Eigen::Quaterniond rotation_between(const Eigen::Vector3d &from, const Eigen::Vector3d &to) {
+    const Eigen::Vector3d u = from.normalized();
+    const Eigen::Vector3d v = to.normalized();
+    const double cos_angle = u.dot(v);
+    if (cos_angle < -1.0 + 1e-12) {
+        const Eigen::Vector3d basis =
+            std::abs(u.z()) < 0.9 ? Eigen::Vector3d::UnitZ() : Eigen::Vector3d::UnitX();
+        const Eigen::Vector3d axis = (basis - u * u.dot(basis)).normalized();
+        return Eigen::Quaterniond(0.0, axis.x(), axis.y(), axis.z());
+    }
+    const Eigen::Vector3d axis = u.cross(v);
+    return Eigen::Quaterniond(1.0 + cos_angle, axis.x(), axis.y(), axis.z()).normalized();
+}
+
 void matrix_to_position_quaternion(const Eigen::Matrix4d &transform, Position &position,
                                    Rotation &quaternion) {
     position.x = transform(0, 3);

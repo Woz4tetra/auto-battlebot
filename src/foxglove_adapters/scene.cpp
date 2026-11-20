@@ -76,19 +76,11 @@ fg::ArrowPrimitive make_segment_arrow(const Eigen::Vector3d &start, const Eigen:
                                       double head_length, const fg::Color &color) {
     const Eigen::Vector3d delta = end - start;
     const double length = delta.norm();
-    // Rotation taking +x onto the direction. Written out by hand: Eigen's FromTwoVectors trips
-    // -Werror=maybe-uninitialized through its SVD fallback.
     Eigen::Quaterniond rotation = Eigen::Quaterniond::Identity();
     if (length > 1e-9) {
-        const Eigen::Vector3d dir = delta / length;
-        const double dot = dir.x();
-        if (dot < -1.0 + 1e-9) {
-            rotation = Eigen::Quaterniond(0.0, 0.0, 0.0, 1.0);
-        } else {
-            const Eigen::Vector3d axis = Eigen::Vector3d::UnitX().cross(dir);
-            rotation = Eigen::Quaterniond(1.0 + dot, axis.x(), axis.y(), axis.z()).normalized();
-        }
+        rotation = rotation_between(Eigen::Vector3d::UnitX(), delta / length);
     }
+
     fg::ArrowPrimitive arrow;
     fg::Pose pose;
     pose.position = to_vector3(start.x(), start.y(), start.z());
