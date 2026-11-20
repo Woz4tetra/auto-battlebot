@@ -11,7 +11,7 @@ lock-down batches changed comments, names and docs only and added no rows.
 
 | Change | Commit | Check (device, steps, pass) |
 | --- | --- | --- |
-| DeepLab feeds RGB with the training mean/std | `89bd2ada` | Jetson SVO playback passed 2026-11-20 (0.9949 IoU on `rgb, dataset, deployed`, `docs/experiments/perception/2026-11-19_deeplab_preprocessing_fix.md`). Still open: a live e-CAM25 session with field inits, scored with `playground/deeplab_preprocess/recorded_mask_agreement.py`; recorded masks match the `rgb, *` arms better than `bgr, *` |
+| DeepLab feeds RGB with the training mean/std | `89bd2ada` | Jetson SVO playback passed 2026-11-20 (0.9949 IoU on `rgb, dataset, deployed`, `docs/experiments/perception/2026-11-19_deeplab_preprocessing_fix.md`). Still open: a live ZED session with field inits, scored with `playground/deeplab_preprocess/recorded_mask_agreement.py`; recorded masks match the `rgb, *` arms better than `bgr, *` |
 | Camera cancel flag survives `initialize()`; runner retry no longer drains commands before the open | `2a1bd029` | ZED X and ZED X One: hold the open failing, post Reboot during the retry sleep; the open is cut short and the host reboots. A normal first open still succeeds |
 | libnvjpeg link guard (`scripts/check_no_nvjpeg_link.sh`, CTest `NoNvjpegLink`, POST_BUILD) | `1a494090` | Jetson build with `HAVE_NVJPG` ON: build prints `ok:` for `auto_battlebot` and `viz_relay`, `ctest -R NoNvjpegLink` passes |
 | ZED debug override is `-O2 -DNDEBUG -U_DEBUG`, ZED sources build under `-Werror` | `86c44dab` | Jetson Debug build with `BUILD_WITH_ZED` ON compiles; ZED capture runs |
@@ -23,7 +23,6 @@ lock-down batches changed comments, names and docs only and added no rows.
 | Health logger `nvpmodel` parsing; `disk_used_warn_percent` | `75c48602` | Jetson health log shows the right power mode |
 | ZED X open: `read_camera_info()` optional, frame layout checks that can throw, exposure cap helper; ZED One settings passed by value | `df9df7ab`, `daf406d4`, `599dd447`, `f5174db3` | ZED X and ZED X One: open, change exposure and gain, restore; full frame rate, no layout throw, exposure capped at 1e6/fps |
 | SVO recorder refuses to start with the camera closed; `unused_svo_path` | `c07d29bb`, `f3b1ded5` | ZED: toggle SVO recording, trigger a size roll, reopen the camera; files created with `_partNN` on collision |
-| V4L2 camera `requeue_buffer`, exposure units, layout check | `f5174db3`, `daf406d4` | V4L2 camera, if still in use: stream a minute, exposure applies |
 | JPEG encoder owner-thread wrapper; NVJPG plugin signature | `58c2780c` | Jetson with NVJPG and viz: preview works, no assert in Debug |
 | Viz sink state in `SinkThreadState` | `58c2780c`, `be30120f` | Dashboard and viz relay: connect, reconnect, stall behave as before |
 | Config reshape: `from` section files, `[plant]` in `config/robots/`, renamed keys rejected, `init_button_channel` unset, `esp32_host` IPv4 only | `61a04cb1`, `52a5faf5`, `91f3b071` | Jetson: start each deployed profile (mr_stabs_mk2 ESP-NOW and OpenTX); no "renamed to" error, init button off, control feels unchanged |

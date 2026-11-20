@@ -29,7 +29,6 @@ Phase 5 pilot, 2026-11-19. Each row got one confirming run.
 | `training/deeplab/semantic_train.py:51` | Fixed: `seed_worker` deleted. torch 2.10 seeds Python `random` per worker; a 2-worker DataLoader drew 8 distinct values |
 | `tests/camera/test_zed_svo_playback_camera.cpp:19` | Fixed: each test opens its own camera. Two tests already opened a second camera on the SVO with the shared one open; all 9 pass, 10 s to 16 s |
 | `training/synthetic/pose_camera_server.py:47` (and `render_scenes.py`, `render_sprites.py`, `render_cage_view.py`) | Comments deleted, `sys.path` writes kept. `docker/run_synthetic.sh` no longer exists; CLAUDE.md records the Blender exception |
-| `auto_battlebot/mujoco_sim/mjcf.py:54` | Claim confirmed, value kept: a 0.5 thin disc compiles in MuJoCo 3.14, but at 0.5 `test_yaw_loop_stops_the_full_reverse_spin[1.02]` spins to 88° against 60°. `docs/reference/calibration/sysid_modules.md` now gives that reason |
 | `web/src/lib/image.ts:65` | Fixed: `CompressedMessage.data` is typed `Uint8Array<ArrayBuffer>`, so the Blob takes it without the `slice()` copy; `npm run check` passes |
 | `mypy.ini:63` | Fixed: `[mypy-nhrl_common]` and `[mypy-nhrl_audit]` deleted; mypy passes (`mypy_path` itself was removed later) |
 | `install/install_python_environment.sh:229`, `mypy.ini:17`, `mypy.ini:108`, `mypy.ini:112`, `tests/python/test_gpu_queue.py:18` | Fixed: the shared modules moved into `auto_battlebot/`; the `.pth` writer, `mypy_path` and both `ignore_missing_imports` sections are gone, and the test imports `auto_battlebot.gpu_queue` normally |
@@ -135,22 +134,7 @@ Fixed 2026-11-19, found during phase 2:
 | `CMakeLists.txt:519` | copy_config always rm -rf and re-copies config/ to build/ | A glob DEPENDS captured at configure time leaves stale paths after a rename and make fails with No rule to make target | yes: CMake globs without CONFIGURE_DEPENDS are configure-time; read the target | Use file(GLOB_RECURSE ... CONFIGURE_DEPENDS) for the DEPENDS list, or symlink build/config to the source tree |
 | `CMakeLists.txt:55` | Populates Crow and Asio with SOURCE_SUBDIR pointing at no CMakeLists so add_subdirectory never runs; viz_relay sets include paths | Crow's CMake calls find_package(Asio) which fails without a system Asio package | unverified: did not read Crow's CMakeLists | Install asio as a package (libasio-dev) on every platform and use Crow's CMake target |
 | `CMakeLists.txt:86` | Leaves DOWNLOAD_EXTRACT_TIMESTAMP off the nlohmann_json FetchContent | CMake 3.22 (JetPack 6) treats the keyword as URL entries and configure fails | unverified: did not run CMake 3.22 | Drop JetPack 6 or require CMake >= 3.24 via pip/kitware apt on every box |
-| `auto_battlebot/mujoco_sim/mjcf.py:73` | Returns rotor principal inertias (0.6 J, J, 0.6 J) instead of a thin disc's (J/2, J, J/2). | A thin disc's J/2 radial inertia lands on MuJoCo's triangle-inequality limit and the model fails to compile. | no: a minimal MJCF with a 1e-4 kg body and diaginertia 0.5e-6 1e-6 0.5e-6 compiled in the venv MuJoCo; the failure may need fullinertia rounding, not reproduced | Set radial inertia to J/2 plus a stated epsilon, or verify the compile failure with the real rotor values and drop the inflation if it compiles |
-| `auto_battlebot/mujoco_sim/onshape_export.py:1` | Lumps only wheels from the URDF export and builds the chassis as the Onshape assembly total minus wheels, topped up to the scale mass. | Onshape mass overrides do not survive the URDF export, so link masses miss motors, ESCs, flight controller, batteries and switch. | unverified: external Onshape exporter behavior, not checked | Give every purchased part a real material or mass in the Onshape part studio so the export carries it, or export via the Onshape mass-properties API per part |
-| `auto_battlebot/mujoco_sim/rollout.py:341` | Calls self._one_step() once before wp.ScopedCapture to compile kernels. | Kernel compilation or module load inside CUDA graph capture fails or is not capturable. | unverified: matches warp's documented requirement that modules be loaded before capture; not run | wp.load_module / mujoco_warp kernel precompile API before capture, so no throwaway step is needed |
-| `auto_battlebot/mujoco_sim/warp_kernels.py:1` | Keeps warp kernels in a module without from __future__ import annotations, imported lazily. | Postponed annotations turn kernel argument types into strings warp cannot resolve, so kernels fail to build; eager import would make all of mujoco_sim require warp. | unverified: consistent with warp resolving annotations at decoration time; not run | none known; a ruff per-file ignore for FA/isort required-imports plus an import test would enforce it |
-| `auto_battlebot/perception/trt_yolo.py:382` | Sets engine_host_code_allowed (or calls set_engine_host_code_allowed, whichever this TensorRT version exposes) on the runtime before deserializing. | Engines built lean or with embedded host code fail to deserialize in the Python scorer while the C++ app loads them. | unverified: confirmed the C++ side does the same (src/tensorrt_inference/trt_engine.cpp:216 setEngineHostCodeAllowed(true)); did not build a lean engine to reproduce the load failure | Pin one TensorRT Python API version per platform so a single attribute is set, and add a test that loads a lean-built engine in both runtimes |
 | `auto_battlebot/recording/mcap_io.py:96` | Builds a new mcap_protobuf DecoderFactory for every schema instead of reusing one, then caches the decoder by schema name. | A shared factory caches decoders by file-local schema id, so id 1 decodes as CompressedImage in one recording and RawImage in another. | yes: mcap_protobuf/decoder.py caches generated types in self._types keyed by schema.id (lines 27-84 of the installed package). | Key the cache by (file, schema id) or by schema name upstream in mcap_protobuf; none known locally beyond the per-schema factory. |
-| `auto_battlebot/recording/svo2.py:166` | Passes the deprecated ffmpeg flag -vsync passthrough instead of -fps_mode passthrough. | Ubuntu 22.04 ships ffmpeg 4.4, which predates -fps_mode, so the newer flag would fail there. | unverified: did not check the ffmpeg version on a 22.04 box; ffmpeg 5.1 added -fps_mode, which is consistent with the claim. | Drop 22.04 dev support or require ffmpeg >= 5.1, then switch to -fps_mode. |
-| `auto_battlebot/rl/envs/warp_kernels.py:1` | Keeps warp kernels in a module without from __future__ import annotations. | Postponed annotations make warp read kernel argument types as strings and kernel build fails. | unverified: consistent with warp resolving annotations at decoration time; same rule as mujoco_sim/warp_kernels.py | none known; a ruff per-file setting plus an import test would enforce it |
-| `auto_battlebot/rl/envs/warp_kernels.py:202` | Reads yaw from quaternion slots assuming MuJoCo (w, x, y, z) order stored in a warp quat type. | Reading in warp's native (x, y, z, w) order gives a wrong yaw. | unverified: mujoco_warp stores qpos/mocap_quat in MuJoCo order; not run | Store mocap quats as wp.vec4 (not wp.quat) or wrap access in a named mj_quat helper used by both sites (lines 202 and 303) |
-| `auto_battlebot/rl/envs/warp_nav.py:1164` | Clones qpos and mocap tensors before returning truth(). | They are live views of warp arrays that the next physics launch overwrites. | unverified: wp.to_torch shares memory, so plausible; not run | none known; a test that truth() is unchanged after step() would pin it |
-| `auto_battlebot/rl/envs/warp_nav.py:1254` | Runs the substeps once before CUDA graph capture. | Kernel compilation inside graph capture fails. | unverified: matches warp's requirement that modules load before capture; same pattern as mujoco_sim/rollout.py:341 | wp.load_module or mujoco_warp precompile before capture |
-| `auto_battlebot/rl/envs/warp_nav.py:338` | Sets floor and wall friction to MJ_MINMU instead of zero. | Zero friction coefficient can produce NaN in MuJoCo Warp contacts. | yes, partly: mujoco_warp/_src/io.py:337-339 warns 'friction < MJ_MINMU with condim may cause NaN' at put_model, but collision_core.py:405-409 already floors every contact's mixed friction at MJ_MINMU, so in the installed version the floor mostly silences the warning | Drop the floor once the warning is filtered or the mujoco_warp version pin guarantees the in-kernel clamp; keep a test that zero friction gives no NaN |
-| `auto_battlebot/rl/envs/warp_nav.py:437` | Floors the fit's rolling friction (7.9e-6) at MJ_MINMU. | Rolling friction under MJ_MINMU gives NaN with condim 6. | yes, partly: mujoco_warp/_src/io.py:337-339 warns 'friction < MJ_MINMU with condim may cause NaN' at put_model, but collision_core.py:405-409 already floors every contact's mixed friction at MJ_MINMU, so in the installed version the floor mostly silences the warning | Same as warp_nav.py:338; or fit rolling friction with a lower bound of MJ_MINMU in PARAM_SPECS |
-| `auto_battlebot/rl/envs/warp_nav.py:446` | Recomputes per-world geom_rbound and geom_aabb from current geom_size in _sync_bounds. | Bounds compiled once from MJCF placeholder sizes cull contacts on the outer part of larger walls, blocks and opponents. | yes: mujoco_warp collision_driver.py:282-308 broadphase filters on geom_aabb and geom_rbound per world, and nothing in mujoco_warp updates them when geom_size changes | Upstream mujoco_warp helper to refresh bounds after geom_size edits, or build each size class into the MJCF at its maximum size |
-| `auto_battlebot/rl/envs/warp_nav.py:977` | Floors the fit's rolling friction at MJ_MINMU when writing randomized friction. | Rolling friction under MJ_MINMU gives NaN with condim 6. | yes, partly: mujoco_warp/_src/io.py:337-339 warns 'friction < MJ_MINMU with condim may cause NaN' at put_model, but collision_core.py:405-409 already floors every contact's mixed friction at MJ_MINMU, so in the installed version the floor mostly silences the warning | Same as warp_nav.py:437; one helper for both sites |
-| `auto_battlebot/rl/lockstep_world.py:130` | Defaults a scenario's episode_s to 20.0 when the key is missing. | Scenarios exported before export_scenarios wrote episode_s ran 20 s episodes; without the default they would replay at a different length. | yes: warp_nav.export_scenarios writes episode_s (warp_nav.py:1140), so only older files lack it | Re-export or migrate old scenario files to carry episode_s, then make the key required |
 | `docker/docker-compose.playback.yml:88` | init: true runs tini as PID 1 | PID 1 bash gets no default signal actions, so Ctrl-C during the in-container build is dropped | yes: Linux PID-1 signal semantics are documented kernel behaviour; entrypoint runs scripts/build.sh before exec | exec the binary as PID 1 and build in a separate docker compose run step, or keep tini (none known simpler) |
 | `docker/docker-compose.playback.yml:96` | explicit volume names | compose would prefix names per project and warn_first_run inspects the literal name | yes: docker_common.sh:111 inspects auto-battlebot-zed-resources | none known |
 | `firmware/espnow_dongle/platformio.ini:31` | Disables 1200 bps touch and wait-for-port, uses esptool usb_reset. | Board file assumes TinyUSB; upload with defaults stalls on USB-Serial/JTAG. | no: did not upload; consistent with ARDUINO_USB_MODE=1 in build_flags. | Custom board JSON for QT Py S3 in hardware CDC mode with these upload defaults. |
@@ -569,3 +553,174 @@ harness named in the last column exists.
 | `tests/test_kalman_motion_estimator.cpp` (`make_our_pose_measurement`, `make_opponent_pose_measurement`) | Helpers mark heading as measured | A `heading_measured` field on `RobotDescription` touches the tracker, the estimator and scene adapter |
 | `training/model_eval/score_size_ladder.sh:97-98` | Every label file in an eval recording is a pass frame | Needs the eval recordings, which are not in the repo |
 | `web/src/lib/connection.ts:1-4` | Subscriptions survive reconnects | web/ has no test runner |
+
+## Blocked on a decision or hardware
+
+Rows a batch could not settle. Each needs the action in the last column first.
+
+| Location | Needs |
+| --- | --- |
+| `auto_battlebot/mujoco_sim/onshape_export.py:1` | Decide whether purchased parts get real mass in the Onshape part studio, or export mass per part through the Onshape API; needs the Onshape exporter |
+| `auto_battlebot/rl/lockstep_world.py:130` | Add `episode_s: 20.0` to the gitignored `playground/rl/out/scenarios.json`, `scenarios_fit.json` and `old_opponents/scenarios_pre_house_radius.json`, then make the key required and drop `LEGACY_SCENARIO_EPISODE_S` and `LEGACY_ROW_EPISODE_S` (`playground/rl/evaluate_nav_policy.py`) |
+
+## Follow-up: purge the relocated comments from docs
+
+Do this after the hacks above are fixed or pinned by tests. Until then the docs below are the only
+record of why each workaround exists, and the ledger rows point at them.
+
+The purge moved comments into docs instead of deleting them. A 2026-11-20 sweep classified the 145
+docs the purge commits created or appended to:
+
+| Kind | Docs | Action |
+| --- | --- | --- |
+| Measurement | 25 | Keep |
+| Reference | 18 | Keep |
+| Path or link edits only | 13 | Nothing |
+| Relocated comments, whole doc | 14 | Delete the doc, after writing any test it names |
+| Relocated comments in sections | 75 | Delete those sections, keep the rest |
+
+Relocated comments go stale faster than the comments did, because nothing next to the code
+reminds an editor they exist. Five days after the move:
+
+- Every "Line N, above X" anchor in `docs/hardware/` is wrong (`CP10_PITCH` moved from 38 to 20)
+- `kinematic_sim_design.md` and `shared_hazards_file.md` cite `simulation/*.py`, now
+  `auto_battlebot/kinematic_sim/`
+- `opentx_transmitter.md` cites `kChannelTimeout`, now `kChannelStreamStallTimeout`
+- `2026-09-22_zed_frame_rotation.md` defends the "buffer moved" log in `ZedDevice::retrieve`
+  after the root cause was fixed
+- The basement scene doc warns against a seek in `export_svo_depth.py`, which has none
+- `zed_box_mini_mount.md` lost its field names in the move and is unreadable
+
+### What to remove
+
+- `## Workarounds` and `## Workarounds in tests` sections: 34 docs, 37 with "Unverified", "Not
+  verified" or "not reproduced" entries. Each entry goes once its ledger row is closed
+- Sections keyed to a symbol, file, or line: `### <file>.py`, `<function>:`, "Line N, above X",
+  "Beside `...`". The largest are `docs/reference/calibration/sysid_modules.md` (about 960 lines,
+  130 headings) and `docs/reference/recording/foxglove_recording_format.md` (about 368 lines)
+- Bullets that restate a test: `docs/reference/control/hazards.md` repeats about 14 invariants
+  already pinned by `tests/hazards/*` and `HazardBarrierTest.*`
+- History ("the old brake", "previously", "when the comment was written") and plan checkpoints
+- Implementation notes appended to dated experiments: `opponent_filter_evaluation.md`,
+  `mujoco_mr_stabs_model_spike.md`, `rl_navigation_report.md`. Keep their results
+
+### What to keep or move
+
+- Measurements stay in `docs/experiments/`. Rows missing a date, box, or recording get one or
+  lose the number. Several carry the purge date (2026-11-15) instead of the measurement date
+- How-it-works prose that sits in `docs/experiments/` moves to `docs/reference/` (16 docs, mostly
+  the `*_scene_pipeline`, sysid smoother, and apriltag docs)
+- Fitted-value provenance in reference docs moves to a dated experiment doc:
+  `camera_calibrations.md`, `robot_plant_files.md`, the sweep numbers in `synthgen_cage_specs.md`
+
+### Tunables defended in prose
+
+These are justified in docs instead of living in a config struct. Move each to a defaulted config
+field, then delete the prose:
+
+- `kExcessGain = 1.5` in `src/navigation/hazard_avoidance.cpp`, duplicated in
+  `tests/hazards/test_hazard_geometry.cpp`
+- `kMaxPushOutPasses = 6` in `src/hazards/hazard_geometry.cpp`
+- `kChannelStreamStallTimeout` in `src/transmitter/opentx_transmitter.cpp`
+- `GATE_MARGIN` and `TAG_DROPOUT_MIN_GAP_NS` in the sysid tag smoother path
+
+### Docs that are relocated comments start to finish
+
+- `docs/experiments/control/2026-11-15_kinematic_sim_design.md`
+- `docs/experiments/control/2026-11-15_rl_policy_bundle.md`
+- `docs/experiments/control/hazard_avoidance/2026-11-15_shared_hazards_file.md`
+- `docs/experiments/control/nav_eval/2026-10-25_reverse_freeze_repro.md`
+- `docs/experiments/perception/2026-11-15_field_corner_naming.md`
+- `docs/experiments/perception/2026-11-15_free_roam_field_mask.md`
+- `docs/experiments/perception/2026-11-15_parallel_model_batch.md`
+- `docs/experiments/perception/rgb_homography/2026-11-15_field_transform_comparison.md`
+- `docs/experiments/platform/2026-09-22_zed_frame_rotation.md`
+- `docs/experiments/platform/2026-11-15_battery_monitor_threading.md`
+- `docs/experiments/platform/2026-11-15_jpeg_encoder_selection.md`
+- `docs/hardware/README.md`
+- `docs/reference/perception/gpu_letterbox_memory.md`
+- `docs/reference/robot_link/opentx_transmitter.md`
+
+### Docs with relocated-comment sections
+
+- `docs/experiments/control/2026-11-15_control_loop_threading.md`
+- `docs/experiments/control/2026-11-15_rl_policy_hazard_barrier.md`
+- `docs/experiments/control/kalman_filter/jig_calibration_provenance_2026-08-20.md`
+- `docs/experiments/control/kalman_filter/opponent_filter_evaluation.md`
+- `docs/experiments/control/mujoco_mr_stabs_model_spike.md`
+- `docs/experiments/control/nav_eval/2026-11-15_forward_step_test.md`
+- `docs/experiments/control/nav_eval/2026-11-15_rl_nav_metrics.md`
+- `docs/experiments/control/rl_navigation_report.md`
+- `docs/experiments/hardware/2026-09-25_mr_stabs_mk2_mass_properties.md`
+- `docs/experiments/hardware/2026-11-08_cage_pack_bom_prices.md`
+- `docs/experiments/hardware/2026-11-12_cage_pack_shock_model.md`
+- `docs/experiments/hardware/2026-11-15_drivetrain_bldc_conversions.md`
+- `docs/experiments/perception/2026-09-04_depth_mode_coverage.md`
+- `docs/experiments/perception/2026-11-15_basement_scene_pipeline.md`
+- `docs/experiments/perception/2026-11-15_cage_high_annotation.md`
+- `docs/experiments/perception/2026-11-15_cage_high_scene_pipeline.md`
+- `docs/experiments/perception/2026-11-15_homography_field_filter.md`
+- `docs/experiments/perception/2026-11-15_massd_scene_pipeline.md`
+- `docs/experiments/perception/brettzone_cage_high_recordings.md`
+- `docs/experiments/platform/2026-09_camera_following_clock.md`
+- `docs/experiments/sysid/2026-08-23_process_noise_fit.md`
+- `docs/experiments/sysid/2026-10-15_mujoco_open_loop_heading_hold.md`
+- `docs/experiments/sysid/2026-10-15_mujoco_reverse_window_stratification.md`
+- `docs/experiments/sysid/2026-10-15_sysid_yolo_dropout_fill.md`
+- `docs/experiments/sysid/2026-10-25_mrs_buff_mk3_model.md`
+- `docs/experiments/sysid/2026-10-25_sysid_tag_smoother.md`
+- `docs/experiments/sysid/2026-11-15_apriltag_ground_truth.md`
+- `docs/hardware/cage_pack.md`
+- `docs/hardware/mr_stabs_mk2.md`
+- `docs/hardware/mr_stabs_mk2_pcb.md`
+- `docs/hardware/tx16s_hr10.md`
+- `docs/hardware/zed_box_mini_mount.md`
+- `docs/reference/calibration/plant_fit_modules.md`
+- `docs/reference/calibration/sysid_modules.md`
+- `docs/reference/calibration/velocity_jig_config.md`
+- `docs/reference/config/profiles.md`
+- `docs/reference/config/robot_plant_files.md`
+- `docs/reference/control/control_loop.md`
+- `docs/reference/control/hazards.md`
+- `docs/reference/control/plant_backed_control.md`
+- `docs/reference/control/rl_opponents.md`
+- `docs/reference/control/rl_policy_bundle.md`
+- `docs/reference/control/rl_training.md`
+- `docs/reference/eval/eval_code.md`
+- `docs/reference/perception/camera_calibrations.md`
+- `docs/reference/perception/field_pose.md`
+- `docs/reference/perception/robot_filter_pipeline.md`
+- `docs/reference/perception/trt_engine.md`
+- `docs/reference/perception/trt_yolo.md`
+- `docs/reference/recording/foxglove_recording_format.md`
+- `docs/reference/recording/svo_recording.md`
+- `docs/reference/recording/video_recording.md`
+- `docs/reference/remote/protocol.md`
+- `docs/reference/robot_link/esc_drive.md`
+- `docs/reference/robot_link/esp32_wifi_telemetry.md`
+- `docs/reference/robot_link/espnow_link.md`
+- `docs/reference/robot_link/firmware_build.md`
+- `docs/reference/robot_link/motor_guard.md`
+- `docs/reference/robot_link/tuning.md`
+- `docs/reference/simulation/kinematic_sim_config.md`
+- `docs/reference/tools/gpu_queue.md`
+- `docs/reference/tools/kinematic_sim_viewer.md`
+- `docs/reference/tools/logo_splash_animation.md`
+- `docs/reference/tools/python_packaging.md`
+- `docs/reference/tools/synthgen_cage_specs.md`
+- `docs/reference/tools/synthgen_render.md`
+- `docs/reference/tools/synthgen_scene_contracts.md`
+- `docs/reference/tools/yolo_training.md`
+- `docs/setup/build_notes.md`
+- `docs/setup/claude_code_setup.md`
+- `docs/setup/dashboard_kiosk.md`
+- `docs/setup/docker_playback.md`
+- `docs/setup/install_notes.md`
+- `docs/setup/jetson_setup.md`
+- `docs/setup/zed_box_mini.md`
+
+### Rule for next time
+
+Add to the Comments section of `CLAUDE.md`: a comment moved into a doc is still a comment. Docs
+hold measurements and how the code works now, never a defense of a specific line. No
+`Workarounds` sections.
