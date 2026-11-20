@@ -32,13 +32,14 @@ fi
 if found="$(first_x_display)"; then
     export DISPLAY="$found"
 elif boots_a_desktop; then
-    deadline=$((SECONDS + X_WAIT_SECONDS))
+    polls_left=$((X_WAIT_SECONDS * 2))
     while ! found="$(first_x_display)"; do
-        if [ "$SECONDS" -ge "$deadline" ]; then
+        if [ "$polls_left" -le 0 ]; then
             echo "with_display: no X server after ${X_WAIT_SECONDS}s; running without DISPLAY." >&2
             break
         fi
         sleep 0.5
+        polls_left=$((polls_left - 1))
     done
     if [ -n "$found" ]; then export DISPLAY="$found"; fi
 else

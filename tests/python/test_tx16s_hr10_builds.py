@@ -50,11 +50,11 @@ def test_mount_leaves_a_knife_edge_with_a_uniform_corner_radius() -> None:
 
 
 def test_rod_cylinder_faces_all_report_a_radius(monkeypatch: pytest.MonkeyPatch) -> None:
-    from build123d import GeomType
+    build123d = pytest.importorskip("build123d")
 
     clamp = _load(monkeypatch, "tx16s_hr10_rod_clamp")
     rod = clamp.rod(clamp.Params())
-    radii = [f.radius for f in rod.faces() if f.geom_type == GeomType.CYLINDER]
+    radii = [f.radius for f in rod.faces() if f.geom_type == build123d.GeomType.CYLINDER]
     assert radii
     assert None not in radii
 
