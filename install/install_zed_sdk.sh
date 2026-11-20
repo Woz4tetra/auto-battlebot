@@ -2,6 +2,7 @@
 
 ZED_SDK_VERSION="5.2.3"
 ZED_SDK_L4T="36.4"
+ZED_SDK_HOST_L4T="36.5"
 ZED_SDK_SHA256="d8fc4c74d4d33b764892517387f7b704fd43eed19d2d3e8006b8058fb6b8bbe1"
 
 installed_zed_sdk_version() {
@@ -16,7 +17,7 @@ installed_zed_sdk_version() {
 
 jetson_l4t_major_minor() {
     local line
-    line=$(head -n 1 /etc/nv_tegra_release 2>/dev/null || true)
+    line=$(head -n 1 "${NV_TEGRA_RELEASE_FILE:-/etc/nv_tegra_release}" 2>/dev/null || true)
     if [[ "$line" =~ R([0-9]+).*REVISION:\ ([0-9]+)\. ]]; then
         echo "${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
     fi
@@ -32,8 +33,8 @@ install_zed_sdk() {
 
     local l4t
     l4t=$(jetson_l4t_major_minor)
-    if [ "$l4t" != "$ZED_SDK_L4T" ]; then
-        echo "Error: ZED SDK ${ZED_SDK_VERSION} is pinned to L4T ${ZED_SDK_L4T}; this box is L4T ${l4t:-unknown}."
+    if [ "$l4t" != "$ZED_SDK_HOST_L4T" ]; then
+        echo "Error: ZED SDK ${ZED_SDK_VERSION} installs on L4T ${ZED_SDK_HOST_L4T} (JetPack 6.2.3); this box is L4T ${l4t:-unknown}."
         return 1
     fi
 

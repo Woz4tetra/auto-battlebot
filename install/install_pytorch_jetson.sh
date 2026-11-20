@@ -21,7 +21,7 @@ get_cuda_version() {
 
 get_l4t_major() {
     local first_line
-    first_line=$(head -n 1 /etc/nv_tegra_release 2>/dev/null || true)
+    first_line=$(head -n 1 "${NV_TEGRA_RELEASE_FILE:-/etc/nv_tegra_release}" 2>/dev/null || true)
     if [[ "$first_line" =~ R([0-9]+) ]]; then
         echo "${BASH_REMATCH[1]}"
     else
@@ -38,7 +38,7 @@ get_jetson_torch_install_url() {
         return 0
     fi
     local first_line
-    first_line=$(head -n 1 /etc/nv_tegra_release 2>/dev/null || true)
+    first_line=$(head -n 1 "${NV_TEGRA_RELEASE_FILE:-/etc/nv_tegra_release}" 2>/dev/null || true)
     local JP_VERSION
     if [[ "$first_line" =~ R([0-9]+)\.([0-9]+) ]]; then
         local l4t_major="${BASH_REMATCH[1]}"
@@ -54,16 +54,14 @@ get_jetson_torch_install_url() {
     fi
     local WHEEL_NAME JP_PREFIX
     case "$JP_VERSION" in
-        60)  JP_PREFIX="v60dp"; WHEEL_NAME="torch-2.3.0a0+40ec155e58.nv24.03.13384722-cp310-cp310-linux_aarch64.whl" ;;
-        61)  JP_PREFIX="v61";  WHEEL_NAME="torch-2.5.0a0+872d972e41.nv24.08.17622132-cp310-cp310-linux_aarch64.whl" ;;
-        62)  JP_PREFIX="v62";  WHEEL_NAME="torch-2.6.0a0+ecf3bae40a.nv25.01-cp310-cp310-linux_aarch64.whl" ;;
-        *)   JP_PREFIX="v61";  WHEEL_NAME="torch-2.5.0a0+872d972e41.nv24.08.17622132-cp310-cp310-linux_aarch64.whl" ;;
+        6[1-9]) JP_PREFIX="v61"; WHEEL_NAME="torch-2.5.0a0+872d972e41.nv24.08.17622132-cp310-cp310-linux_aarch64.whl" ;;
+        *) echo "Error: no PyTorch wheel for JP_VERSION ${JP_VERSION}; JetPack 6.2.3 (R36.5) is the oldest supported" >&2; return 1 ;;
     esac
     TORCH_INSTALL="https://developer.download.nvidia.com/compute/redist/jp/${JP_PREFIX}/pytorch/${WHEEL_NAME}"
 }
 
 ensure_jetson_torch_in_venv() {
-    if [ ! -f /etc/nv_tegra_release ]; then
+    if [ ! -f "${NV_TEGRA_RELEASE_FILE:-/etc/nv_tegra_release}" ]; then
         return 0
     fi
     if python -c "import torch" 2>/dev/null; then

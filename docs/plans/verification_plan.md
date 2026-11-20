@@ -239,7 +239,7 @@ unrelated and left alone.
 
 **Runner.** The spare e-CAM25 Orin NX:
 
-- Reflashed to JetPack 6.2.1 / L4T R36.4 with the ZED SDK, matching the ZED Box Mini
+- Reflashed to JetPack 6.2.3 / L4T R36.5 with the ZED SDK, matching the ZED Box Mini
 - No cameras attached; the ZED SDK decodes SVOs without one
 - `forgejo-runner` in host mode as a dedicated unprivileged `ci` user: fresh checkout per job, no
   sudo, no secrets, no route to the dashboard cable network (10.42.42.0/24)
@@ -318,7 +318,7 @@ The script never sends autonomous drive commands; the user drives. HIL runs on d
 | Q16 | Stop hook runs a ~90 s fast tier |
 | Q18 | `verify_mcap` grades any recording |
 | Q19 | HIL is a guided session the user drives |
-| Q23, Q30 | CI runner on the spare e-CAM25 Jetson, reflashed to JetPack 6.2.1 |
+| Q23, Q30 | CI runner on the spare e-CAM25 Jetson, reflashed to JetPack 6.2.3 |
 | Q24 | Verifier verdict enforced by a Stop hook |
 | Q26 | `crsf` and `health` tests first |
 | Q27 | This plan plus a nav plan 1.4 amendment |

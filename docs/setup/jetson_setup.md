@@ -205,7 +205,7 @@ The service keeps UI state (`selected_profile`, `wifi_access`) in `~/.local/stat
 
 ### L4T floor
 
-`install/check_jetson_orin.sh` checks the L4T major. The install path branches on it for the PyTorch wheel source and expects the Python version JetPack ships. Without the check, a JetPack older than 6 is accepted and fails much later, at wheel install or engine load.
+`install/check_jetson_orin.sh` checks the L4T version and accepts R36.5 (JetPack 6.2.3) and R39 (JetPack 7.2). It rejects R36.4 and older with an error that names JetPack 6.2.3. The install path branches on the L4T major for the PyTorch wheel source and expects the Python version JetPack ships. Without the check, an unsupported JetPack is accepted and fails much later, at wheel install or engine load. Tests set `NV_TEGRA_RELEASE_FILE` and `DEVICE_TREE_MODEL_FILE` to fake the release and model files.
 
 ### jetson_clocks
 

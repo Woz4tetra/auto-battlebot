@@ -368,3 +368,56 @@ def test_build_web_reinstalls_only_when_the_lockfile_changes(sandbox: Sandbox) -
     (tree / "web/package-lock.json").write_text('{"changed": true}')
     assert sandbox.run(script).returncode == 0
     assert sandbox.calls().count("npm ci --no-audit --no-fund") == 2
+
+
+def tegra_release(sandbox: Sandbox, major: int, revision: str) -> str:
+    path = sandbox.root / "nv_tegra_release"
+    path.write_text(
+        f"# R{major} (release), REVISION: {revision}, GCID: 1, BOARD: t186ref, EABI: aarch64\n"
+    )
+    return str(path)
+
+
+@pytest.mark.parametrize(
+    ("major", "revision", "accepted"),
+    [(36, "4.4", False), (36, "5.2", True), (39, "2.0", True)],
+)
+def test_check_jetson_orin_gates_on_jetpack_6_2_3(
+    sandbox: Sandbox, major: int, revision: str, accepted: bool
+) -> None:
+    model = sandbox.root / "model"
+    model.write_bytes(b"NVIDIA Jetson Orin NX\0")
+    result = sandbox.run(
+        source("install/check_jetson_orin.sh") + "check_jetson_orin\n",
+        NV_TEGRA_RELEASE_FILE=tegra_release(sandbox, major, revision),
+        DEVICE_TREE_MODEL_FILE=str(model),
+    )
+    assert (result.returncode == 0) is accepted
+    if not accepted:
+        assert "JetPack 6.2.3" in result.stdout
+
+
+def torch_url(sandbox: Sandbox, major: int, revision: str) -> subprocess.CompletedProcess[str]:
+    return sandbox.run(
+        source("install/install_pytorch_jetson.sh")
+        + "get_jetson_torch_install_url\necho \"$TORCH_INSTALL\"\n",
+        NV_TEGRA_RELEASE_FILE=tegra_release(sandbox, major, revision),
+    )
+
+
+def test_pytorch_wheel_for_r36_5_is_the_jetpack_6_wheel(sandbox: Sandbox) -> None:
+    result = torch_url(sandbox, 36, "5.2")
+    assert result.returncode == 0
+    assert "/jp/v61/pytorch/torch-2.5.0a0" in result.stdout
+
+
+def test_r39_skips_the_nvidia_wheel_and_uses_the_pytorch_index(sandbox: Sandbox) -> None:
+    sandbox.fake("python", "exit 1")
+    sandbox.fake("pip")
+    sandbox.fake("nvcc", 'echo "Cuda compilation tools, release 13.2, V13.2.1"')
+    result = sandbox.run(
+        source("install/install_pytorch_jetson.sh") + "ensure_jetson_torch_in_venv\n",
+        NV_TEGRA_RELEASE_FILE=tegra_release(sandbox, 39, "2.0"),
+    )
+    assert result.returncode == 0
+    assert any("download.pytorch.org/whl/cu132" in call for call in sandbox.calls())
