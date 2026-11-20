@@ -83,3 +83,31 @@ Deliberately not corrected:
 - Three NHRL broadcast scenes still under `unclassified` (`12lb-3-smeezus...`, `30lb-1-waddles...`, `3lb-48-silentspring...`). They are plainly NHRL cages, but nothing identifies which cage, and guessing one would fold them into a cage's score under false pretenses. They stay unclassified and, by `score_masks.py`'s default `--exclude-field`, out of the macro-average.
 - `mini_bot` spans at least three distinct rigs: a home floor in 2024-02, an event cage in 2024-03 and 2024-10-26, and the workshop table in 2024-10-06 and 2024-10-20. Splitting it would change what the corpus's second-largest non-cage bucket means, and it is not a probe field, so it is left intact and flagged.
 - `cage6` has 13 scenes spanning jun24 to dec25 across four camera mounts, all visibly the same floor. No repaint, so no split.
+
+## `training/deeplab/remap_robots.toml`
+
+The label remap for a multi-class segmask dataset rendered by `render_scenes.py`, collapsed into binary floor segmentation. Any source label not listed in `[label_map]` maps to `default_label`.
+
+| Label | Meaning |
+| --- | --- |
+| Source `0` | Background (ground plane and floor). Maps to target `0`. |
+| Source `1`, `2` | Robot 1 and robot 2. Map to target `1`. `render_scenes.py` labels `2` a distractor, but the map treats it as a robot. |
+| Source `24`, `25`, `26` | House bot. Map to target `0`, so the house bot counts as not floor. |
+| Source `3` to `23`, `27` to `99` | Other robots. Map to target `1`. |
+| Target `0` | Background, not floor. |
+| Target `1` | Field, the floor surface. |
+
+## `training/deeplab/remap_segmask_floor.toml`
+
+The label remap for a SegmentFlow per-robot segmask export, collapsed into binary floor segmentation. Source labels are 1-based indices into the export's `classes.txt`.
+
+| Label | Meaning |
+| --- | --- |
+| Source `0` | Unlabelled. Maps to target `0`. |
+| Source `46` | `Floor`. Falls through to `default_label = 1`. |
+| Source `47` | `Floor letter word`. Falls through to `default_label = 1`. |
+| Every other source label | An individual robot (competitor, house bot or exhibition bot), 151 classes in all. |
+| Target `0` | Background, not field. |
+| Target `1` | Floor, the field surface. |
+
+Robots sit on the field, so their pixels are field pixels that happen to be occluded. Mapping them to floor gives the unbroken field region the model should predict, and matches what `convex_hull_masks.py` assumes downstream. `default_label = 1` collapses every robot class to floor without listing all 151.

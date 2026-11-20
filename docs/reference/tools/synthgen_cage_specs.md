@@ -109,3 +109,41 @@ A rows x cols array of identical LED tubes, the ceiling rig as one knob. Shadow 
 | Field | Meaning |
 | --- | --- |
 | `enabled` | The cylinder and its light strip. Off when the world panorama is the backdrop. |
+
+## `training/synthetic/cage/cage2_overhead_high.toml`
+
+The NHRL 3 lb cage (Cage 2) as seen by the fixed Cage-2-Overhead-High iPhone. Units are metres in the W frame: mat centre at the origin, z up, +y away from the camera, +x to the camera's right. Unknown dimensions started as guesses and are tuned by `playground/cage_scene/grade_render.py` sweeps. The values are the current best, not measurements.
+
+| Key | Meaning |
+| --- | --- |
+| `[mat] albedo` | Built by `training/synthetic/build_cage_floor_texture.py`, in the hfield frame. The `.json` beside the PNG holds the frame. |
+| `[mat] albedo_gain` | Linear multiplier on the albedo photo. Below 1 the lights carry more of the mat brightness and the robots come out brighter for the same mat match (see the robot-frame sweep). |
+| `[panel] tint`, `roughness` | Below clear glass: the real panels are scratched and dusty, and what the camera sees through them is darker than the venue lighting alone would make it. |
+| `[venue] floor_cc_texture` | `"none"` keeps the flat `floor_color`. A cc_textures set name swaps in its PBR maps. |
+| `[house_bot_box]` position | The May 2026 framing shows the house bot parked on the far-right rail. The June framing has it near-left. |
+| `[house_bot_box] size` | The textured GLB is scaled so its footprint's longer side is `size[0]`. `size[0] = 0` keeps the model's own 0.25 x 0.23 x 0.33 m. `color` and `roughness` are the fallback flat box when the GLB is missing. |
+| `[house_bot_box] roll_deg`, `yaw_deg` | The model ships on its side. Roll -90 about its x axis (the LED-face normal) stands it up. The face is the +x side. Yaw -90 turns it toward the camera and -80 matches the real angle. |
+| `[house_bot_box] front_fill` | Camera-side area light on the box so its vertical face is lit like the real one. |
+| `[lights.grid]` | Overhead LED tubes, the key light: a rows x cols rig of identical tubes running along x. The rig footprint (`spacing_x`, `spacing_y`, `height`) sets where the cage casts its shadows. The tube size (`length`, `radius`) sets how crisp the robot shadows are: shorter, thinner tubes give sharper edges. Extra explicit tubes can be added as `[[lights.tubes]]` entries. |
+| `[[lights.wash]]` | Coloured wash behind the panels: magenta on the camera's left, cyan on its right. |
+| `[exposure]` | Solved by `render_cage_view.py --auto-exposure` against the May 2026 targets (mat-region means). It is the whole exposure, not a base: `--auto-exposure` multiplies it by what it solves, so a run without it renders the graded look. Anything that applies the spec as-is (`render_cage_samples.py`, the `[cage]` half of `render_scenes.py`) depends on that. The LED emission is divided by this gain so the house bot lands at the same output brightness. |
+
+## `training/synthetic/cage/massd_resurgence6.toml`
+
+The MassDestruction arena (Charles River Museum, Resurgence Six) as seen by the Omega broadcast camera. Units are metres in the W frame: floor centre at the origin, z up, +y away from the camera.
+
+Two dimensions are measured: the 2.26 m plywood floor (an 8 ft wall interior less a 2x4 rail each side, confirmed against our own metric ZED recording of the same arena), and the two 0.43 m hazard squares at (0, +-0.88), read straight off the rectified floor texture. Everything else started as a guess and was moved by the grade sweeps.
+
+| Key | Meaning |
+| --- | --- |
+| `[mat] albedo` | Built by `training/synthetic/build_cage_floor_texture.py` from the empty frame 8140 of `r1_beeroll_vs_mrsbuff`, in the hfield frame (see the `.json` beside it). 89% of the floor is observed and the near corner is filled with the floor mean. |
+| `[mat] albedo_gain` | The albedo is a photo of the lit plywood, so as a reflectance it is far too bright. Below 1 the lights carry the floor brightness and the robots come out lit to match. Fitted against the real robot's brightness; see [the Resurgence 6 cage fit](../../experiments/perception/2026-09-13_massd_resurgence6_cage_fit.md). |
+| `[cage] wall_height` | Raised 0.75 m on 2026-09-13, from the 0.66 m fitted against the r1 footage, for taller glass walls than Resurgence 6 had. Sets the corner posts and the top edge of every pane. |
+| `[cage] post_size` | Small: the riser under the arena is drawn `post_size` wider than the wall, and anything wider than the kick rail shows up as a lit ledge the real arena does not have. |
+| `[frame] height_above_mat` | The rail is a wooden kick board standing on edge at the floor line, not a ledge: the far side of the picture shows its inner face and the near side only its top edge. Its height is solved from the footage; see [the Resurgence 6 cage fit](../../experiments/perception/2026-09-13_massd_resurgence6_cage_fit.md). Carriage bolts sit every 16 in through the face. |
+| `[[pits]]` | The near pit is the one the camera looks into. The far square reads flat in this footage (dark grey with a red chevron painted on it), so it stays part of the floor texture. Its depth is solved from the footage; see [the Resurgence 6 cage fit](../../experiments/perception/2026-09-13_massd_resurgence6_cage_fit.md). |
+| `[panel]` | Scratched polycarbonate: the crowd behind it reads darker and greyer than the room. All four walls are glazed. A pane the camera looks through from outside the cage is hidden for that frame (see `panels_outside_camera`), because BlenderProc's segmentation stops at glass and a pane in front of the mat would cost every label behind it. Panes seen from inside, across the arena, render normally. |
+| `[world]` | Almost no flat ambient. The grade wants the light to come from above and nowhere else: raising the ambient lights the outward-facing faces of the near rail, which the real picture shows almost black, and costs 10 points of outside L1 for nothing inside. |
+| `[lights.grid]` | Overhead hall fixtures. The rig was picked by a sweep against the target; see [the Resurgence 6 cage fit](../../experiments/perception/2026-09-13_massd_resurgence6_cage_fit.md). |
+| `[backdrop]` | The standing crowd and the rest of the hall, close in behind the glass on every side. |
+| `[exposure]` | Solved by `render_cage_view.py --auto-exposure` against the r1 target (floor-region means). It is the whole exposure, not a base. |

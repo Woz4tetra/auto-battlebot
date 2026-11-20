@@ -1,22 +1,9 @@
-# Remap a multi-class segmask dataset into a binary floor segmentation dataset.
-#
-# Source labels (from render_scenes.py):
-#   0 = background (ground plane / floor)
-#   1 = robot
-#   2 = distractor
-#
-# Target labels (for floor model training):
-#   0 = background (not floor)
-#   1 = field (floor surface)
-#
-# Any source label not listed here maps to default_label.
 default_label = 0
 
-
 [label_map]
-0 = 0  # background
-1 = 1  # robot 1 -> robot
-2 = 1  # robot 2 -> robot
+0 = 0
+1 = 1
+2 = 1
 3 = 1
 4 = 1
 5 = 1
@@ -38,9 +25,9 @@ default_label = 0
 21 = 1
 22 = 1
 23 = 1
-24 = 0 # house bot -> background
-25 = 0 # house bot -> background
-26 = 0 # house bot -> background
+24 = 0
+25 = 0
+26 = 0
 27 = 1
 28 = 1
 29 = 1

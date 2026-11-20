@@ -22,7 +22,7 @@
 | `simulation/` | `kinematic_sim_config.md`, `sim_profiles.md` (why each sim profile sets its values) |
 | `control/` | `plant_backed_control.md`, `hazards.md`, `rl_policy_bundle.md`, `control_loop.md`, `empty_circle_solver.md`, `rl_opponents.md`, `rl_training.md`, `rl_training_config.md`, `rl_toy_configs.md` |
 | `calibration/` | `sysid_modules.md`, `plant_fit_modules.md`, `velocity_jig_config.md` |
-| `eval/` | `eval_code.md` |
+| `eval/` | `eval_code.md`, `taxonomies.md` |
 | `recording/` | `foxglove_recording_format.md` (the recording contract), `svo_recording.md`, `video_recording.md` |
 | `remote/` | `protocol.md` (topics, commands, field projection) |
 | `robot_link/` | `esp32_wifi_telemetry.md`, `esc_drive.md`, `espnow_link.md`, `firmware_build.md`, `motor_guard.md`, `pid.md`, `tuning.md`, `yaw_control.md` |

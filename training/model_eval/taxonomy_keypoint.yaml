@@ -1,5 +1,3 @@
-# Taxonomy for scoring the keypoint (YOLO-pose) model, which only detects our robots.
-
 archetypes: {}
 
 exclude:
