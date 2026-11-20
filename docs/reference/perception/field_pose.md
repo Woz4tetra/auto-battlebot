@@ -27,7 +27,7 @@ At a cage mount the near mat corners fall outside the frame, so there is no four
 - The third side's backprojected plane is perpendicular to the second column, which fixes that column.
 - The two finite corners, a known distance apart, fix the translation and the scale.
 
-That is six constraints for six degrees of freedom, with the missing corners falling out as intersections outside the image.
+That is six constraints for six degrees of freedom, with the missing corners falling out as intersections outside the image. Each axis direction is known only up to sign, so the solver tries all four sign pairs. It drops a candidate with a non-positive depth along either corner ray, a non-positive camera-frame translation z, or a projected winding opposite to `observed_corners`, and keeps the lowest line residual among the rest.
 
 `side_supported` must have exactly three entries true. `observed_corners` is read only for its winding: a rectangle mirrored about one of its own axes is the same rectangle, so a mirrored field frame satisfies all three lines exactly and only the winding separates it from the right answer.
 
@@ -51,9 +51,3 @@ That is six constraints for six degrees of freedom, with the missing corners fal
 
 `FixedFieldFilter` reports a configured arena size and is used by the kinematic sim, where the field is known a priori and no perception runs. It gives navigation the wall bounds it needs without a RANSAC field fit. It takes the camera-from-fieldcenter transform straight from the sim, which places its camera in the same frame it reports robot poses in. An identity transform is not harmless: the UI projects robot markers and the field border through it, and identity divides by a robot's roughly 1 cm height instead of its metres of range, throwing every marker far outside the image.
 
-## Three-line solve (`src/field_filter/field_pose.cpp`)
-
-- Beside `const Eigen::Vector3d vanishing =`:
-- Beside `const Eigen::Vector3d between_plane = intrinsics.transpose() * to_eigen(lines[between]);`:
-- Beside `const Eigen::Vector3d field_x =`:
-- Beside `const Eigen::Vector3d span = object_span.x * field_x + object_span.y * field_y;`:

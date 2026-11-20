@@ -263,7 +263,7 @@ The terminal velocity is per behavior mode: ATTACK drives through the opponent a
 1. Distance-to-go velocity profile. The residual travel after commanding v_term on a first-order plant is about v * (tau_decel + latency), so the reference speed is capped at v_term + d / (tau_decel + latency): a coast-aware brake schedule derived from the measured plant, not a hand-tuned brake distance. Ramp-up is rate-limited for a clean launch.
 2. Inverse-plant feedforward. Maps the reference speed (m/s) back to a normalized command by dividing by max speed, adds tau_accel * dv/dt to overcome spin-up lag, divides out the steer-brake authority the turn is costing, and applies exact inverse-deadzone.
 3. Speed PID feedback. Corrects plant-model error using our filtered speed, so open-loop feedforward accuracy and disturbance rejection stay separated. The feedback is dropped while our track is stale, because a dead-reckoned speed is a function of our own command and closing a loop on it is not feedback. The last measured speed is held through stale stretches so the latency lead keeps working while the speed feedback is off.
-4. Angular control in the same shape: turn-lock hysteresis, a PD on heading producing a yaw-rate reference in rad/s, then an inverse-plant feedforward through `max_angular_speed` with the regime-appropriate yaw time constant and the angular droop divided out.
+4. Angular control in the same shape: turn-lock hysteresis, a PD on heading producing a yaw-rate reference in rad/s, then an inverse-plant feedforward through `max_angular_speed` with the regime-appropriate yaw time constant and the angular droop divided out. The yaw spin-up constant is about twice the coast constant, so the feedforward needs the sign of the reference's rate of change: a turn winding up needs extra command, and a turn stopping needs the command pulled back early or the heading sails past.
 
 A mission reset clears the trajectory and integrator state that only makes sense within one mission: turn commitment, reference speeds, the speed integral, and the coupling history. It runs when a zero-velocity goal is reached and when the behavior mode flips. It leaves the pose and speed memory alone, since those describe the robot rather than the mission.
 
@@ -306,41 +306,9 @@ The droop term reads the linear command and the steer-brake term reads the turn 
 - The dead-reckoning conversion is the gains and nothing else. It deliberately does not call `plant_steady_state()`: a single-frame hold carries no state, so deadzones and coupling would model a response the caller cannot represent.
 - `KalmanMotionEstimatorTest` uses the Stage A fit (`plant_stageA.toml`, 2026-08-23), the same values the config chain carries, with asymmetric non-unit gains so a unit-gain or `k_fwd`-for-reverse bug fails.
 
-## Notes moved from `src/` comments (2026-11-15)
+## Drive processor wheel space
 
-Each entry names the file and the code it described.
-
-### `src/navigation/motion_profile_navigation.cpp`
-
-Beside `settings.barrier_enable = config.hazard_barrier_enable;`:
-
-The barrier's envelope is the plant fit itself: the same tau_lin_d + delay_s horizon the goal brake schedule inverts, so one refit moves both.
-
-### `src/navigation/motion_profile_navigation.cpp`
-
-Beside `const double authority = std::max(floor, 1.0 - coeff * std::abs(effect));`:
-
-The plant scales the channel by (1 - coeff*|effect|). Below the floor it delivers so little that dividing by the modelled multiplier is extrapolation, not compensation: for the steer-brake term the floor sits just under 1/c_sb, where the fitted linear loss reaches zero and the fit stops describing the plant. Saturating there keeps the command finite and stops the controller from believing it has authority it does not have.
-
-### `src/navigation/motion_profile_navigation.cpp`
-
-Beside `const double tau = (dvdt >= 0.0) ? tau_accel_ : tau_decel_;`:
-
-Inverse-plant feedforward: steady-state fraction plus the lag term tau * dv/dt, using BOTH signs of dv/dt and the regime-appropriate time constant. A rising reference (dv/dt > 0) adds thrust to overcome spin-up lag; a falling reference (dv/dt < 0) reduces throttle or commands reverse, which is what a first-order plant needs to actually track a deceleration instead of coasting past the goal.
-
-### `src/navigation/motion_profile_navigation.cpp`
-
-Beside `const double dwdt = (dt > 0.0) ? (w_ref - prev_w_ref_) / dt : 0.0;`:
-
-Same inverse-plant shape as the linear channel. The yaw spin-up constant is about twice the coast constant, so the feedforward has to know which way the reference is moving: a turn that is winding up needs extra command, a turn that is stopping needs the command pulled back early or the heading sails past.
-
-### `src/transmitter/tank_drive_processor.cpp`
-
-Beside `const auto wheels_in = mix_to_wheels(saturated);`:
-
-The static-friction barrier exists per wheel, not per body axis, so the lifted deadzone is applied in wheel space, which is also the space these channels are sent in.
-
-### Drive processor tests
+The static-friction barrier exists per wheel, not per body axis. The tank processor applies the lifted deadzone in wheel space, which is also the space those channels go out in.
 
 - `DriveProcessorTest.TankUnMixesToDifferentialOutput` loops over both reversal flags because the two processors apply the reversals in different stages. Tank stops in wheel space and differential converts back to body axes, but un-mixing the tank output must still land on the differential output with reversals on.
 - `DriveProcessorTest.ReadbackUndoesTheReversals`: the readback reports the command in the frame `process()` took it, so the filter predicts motion in the direction navigation asked for. The reversals only change what goes on the wire.

@@ -161,12 +161,15 @@ Suppresses robot-blob detections that hold the same field position for seconds o
 - A robot driving onto an already suppressed graphic widens the cluster past `static_radius_meters` and lifts suppression, so it never stays invisible. When it leaves, the graphic is suppressed again without a restart.
 - Robot blobs only. Our own robot's keypoints come from a separate model and are not gated.
 - The cluster statistic is the running mean distance from the cluster mean, not the maximum. Both statistics stop averaging past `responsiveness_window` and start tracking, so a robot parking on a logo can still move the verdict after thousands of frames.
+- The averaging weight is capped so both statistics keep tracking instead of going numb. Below `responsiveness_window` the statistic is an exact running mean, above it an exponential one with that time constant.
+- A group's field position is the centroid of its `model_results` projected onto the plane. Where the height gate supplied a measured height, the projection uses it, so a tall robot's footprint is not pushed outward by the flat-plane assumption.
 
 ## Keypoint heights
 
 Keypoint heights correct the radial bias of flat-plane projection. Heights are per robot label with a shared default for labels without an entry. A height of 0.0 disables the correction.
 
 `Keypoint::height_above_plane_m` is the height `KeypointHeightGate` measured from depth. It is empty when nothing measured it, and consumers then fall back to the configured per-label height. Projecting with the measured value removes the assumption that every robot stands exactly the configured height tall.
+- The control loop owns the filter, target, navigation and transmit half. A threaded driver runs it on its own thread, so nothing else may touch those components after `Runner::initialize()`.
 
 ## Motion estimator seam
 
@@ -192,6 +195,16 @@ Keypoint heights correct the radial bias of flat-plane projection. Heights are p
 - Covariance consistency: `EkfMathTest.NeesConsistencyMonteCarloConstantVelocity` simulates a constant-velocity system with known Q and R over 100 Monte Carlo runs of 60 steps and checks that the mean NEES lands inside the chi-square band for the state dimension (4 DOF, asserted band 3.5 to 4.5). NEES is the check instead of RMSE because a filter with a wrong covariance fails it regardless of how small its error looks. The band is wider than the iid chi-square interval because samples within a run are correlated step to step.
 - Plant table required: every motion estimator needs the top-level `[plant]` table, because the stick-to-velocity scaling is the fit. `DEAD_RECKONING` needs it as much as `EKF`, since both arms scale sticks through the plant. A missing table is a config error, not a zero plant that freezes every prediction without saying so.
 - Every plant field is required. Dropping `delay_s` makes the parse refuse instead of defaulting a fitted physical parameter to zero. Pinned by `ConfigTest.RobotFilterMotionEstimatorPlantMissingFieldThrows`, `ConfigTest.DeadReckoningMotionEstimatorWithoutPlantTableThrows` and `ConfigTest.KalmanMotionEstimatorDeadReckoningModeRequiresPlantTable`.
+
+- Heading flip test: it only means something while the heading's own 2-sigma is inside pi/2, so it runs only while the theta variance is below `kFlipTestMaxVariance` (pi/4 squared). Past that, a measurement more than pi/2 away is as likely a turn the track did not see as a flip.
+- Process noise covers the whole step, held or not. Time passing without measurements is uncertainty whether or not the pose may move.
+- The initial yaw-rate sigma is `k_ang`, the full-stick yaw rate. The fitted gain is the scale of what the drivetrain can be doing while unobserved.
+- Our-robot heading diagnostics record the state and the innovation of a rejected keypoint yaw. The motion profile brakes on heading, and a rejected yaw leaves theta running on the plant model alone, so without both sides a diverged theta looks like a bad measurement.
+- Our-robot speed measurement: forward speed differenced against an earlier accepted pose, because the state's v row is otherwise unobserved and tracks the plant model rather than the robot. It is attempted only alongside an accepted heading, since the difference has to be projected onto a direction. Its noise is independent position noise at both ends, propagated through the divide and held above a floor for the common-mode part.
+- The speed reference pose moves only once its baseline has been spent, or when there is none. Advancing it every frame would pin the baseline at one frame and put the speed row back in the noise it was widened to escape.
+- Render target: `now + render_lead_s()`. `now` is already past the frame stamp by the perception latency, and a command computed from this render bites another `plant.delay_s` later. Rendering at `now + delay_s` puts every track where it will be when the command lands, which is the state target selection and navigation must steer by. The extra span is not extrapolation into unknown commands: `JigPlantModel` reads each substep's command at `t - delay_s`, so integrating to `now + delay_s` consumes exactly the commands already issued up to `now`.
+- `min_coast_span_s` diagnostic: the smallest span any track is propagated over, sent out in `update()`'s diagnostics. A span past `kMaxIntegrationStepS` short-circuits to hold position, and a non-positive span propagates nothing. Both emit an estimate frozen at the shutter that looks like a healthy filter that is not moving, and both mean the control clock and frame stamps are on different timelines, which SVO playback does under `SystemClock`. It is not the render lead: opponent tracks commit every control tick and report one tick, while the our-robot track commits only in `update()` and reports a whole frame period plus the lead.
+- `coast()` renders our-robot tracks on a copy, like the dead-reckoning arm. The committed state advances only in `update()`, so measurements always fold in at or after the track stamp and the our-robot arm needs no snapshot rewind. `propagate_unwrapped` skips the finite-difference Jacobian (10 extra plant integrations) that a covariance-free render never uses.
 
 ## Time
 
@@ -221,93 +234,9 @@ The gate measures relief (the median height of the box's inscribed circle over t
 - Heading tests use straight-line translation with an independent constant yaw rate, which is exactly the filter's model, so tolerances can be tight.
 - The our-robot arc test command (v about 1.3 m/s, w about 0.95 rad/s under the Stage A gains) is a gentle arc.
 
-## Notes moved from `src/` comments (2026-11-15)
+## Ground-truth filter velocity
 
-Each entry names the file and the code it described.
-
-### `src/keypoint_filter/static_gate.cpp`
-
-Beside `const double weight =`:
-
-Cap the averaging weight so both statistics keep tracking instead of going numb. Below the window this is an exact running mean; above it, an exponential one with that time constant.
-
-### `src/keypoint_filter/static_gate.cpp`
-
-Beside `Eigen::Vector3d sum = Eigen::Vector3d::Zero();`:
-
-The group's field position is the centroid of its model_results projected onto the plane. Using the measured height where the height gate supplied one keeps a tall robot's footprint from being pushed outward by the flat-plane assumption.
-
-### `src/main.cpp`
-
-Beside `auto hazard_assembler = make_hazard_assembler(*class_config.field_filter, clock);`:
-
-The control loop owns the filter/target/navigation/transmit half. A threaded driver runs it on its own thread, so nothing else may touch those components after Runner::initialize().
-
-### `src/robot_filter/ground_truth_robot_filter.cpp`
-
-Beside `const double now = result.header.stamp;`:
-
-Field-frame velocity from the pose delta since the last frame. Consumers that close a loop on speed (MotionProfileNavigation) read velocity rather than differencing poses themselves, because only the filter knows whether a pose is a fresh measurement or a propagated one.
-
-### `src/robot_filter/kalman_motion_estimator.cpp`
-
-Beside `constexpr double kFlipTestMaxVariance = (M_PI / 4.0) * (M_PI / 4.0);`:
-
-The flip test only means something while the heading's own 2-sigma is inside its pi/2: past that, a measurement more than pi/2 away is as likely a turn the track did not see as a flip.
-
-### `src/robot_filter/kalman_motion_estimator.cpp`
-
-Beside `ekf::propagate_covariance<5>(track.covariance, jacobian,`:
-
-Process noise covers the whole step, held or not: time passing without measurements is uncertainty regardless of whether the pose is allowed to move.
-
-### `src/robot_filter/kalman_motion_estimator.cpp`
-
-Beside `track.covariance(4, 4) = config_.plant->k_ang * config_.plant->k_ang;`:
-
-Full-stick yaw rate as the initial yaw-rate sigma: the fitted gain is the scale of what the drivetrain can be doing while unobserved.
-
-### `src/robot_filter/kalman_motion_estimator.cpp`
-
-Beside `if (!input.keypoints.empty()) {`:
-
-Heading is the input the motion profile brakes on: a rejected keypoint yaw leaves theta running on the plant model alone, so record the state and the innovation that was thrown away. Without both sides here a diverged theta is indistinguishable from a bad measurement.
-
-### `src/robot_filter/kalman_motion_estimator.cpp`
-
-Beside `double speed_measurement = 0.0;`:
-
-Forward speed differenced against an earlier accepted pose. The state's v row is otherwise unobserved, so it tracks the plant model rather than the robot, and the motion profile brakes on that number. Only attempted alongside an accepted heading: the difference has to be projected onto a direction, and a rejected yaw is not one.
-
-### `src/robot_filter/kalman_motion_estimator.cpp`
-
-Beside `const double floor_var =`:
-
-Independent position noise at both ends, propagated through the divide, held above a floor for the part that is common-mode.
-
-### `src/robot_filter/kalman_motion_estimator.cpp`
-
-Beside `if (has_speed || !track.has_speed_ref) {`:
-
-Only move the reference once its baseline has been spent, or when there is none to spend. Advancing every frame would pin the baseline at one frame and put the speed row back in the noise it was widened to escape.
-
-### `src/robot_filter/kalman_motion_estimator.cpp`
-
-Beside `const double target = now + render_lead_s();`:
-
-Two lags separate the shutter from the wheels, and the render has to cover both. `now` is already past the frame stamp by the perception latency, and a command computed from this render bites another plant.delay_s later. Rendering at `now + delay_s` puts every track where it will be when the command lands, which is the only state target selection and navigation can steer by without aiming at the past. The extra span is not extrapolation into unknown commands: JigPlantModel reads each substep's command at t - delay_s, so integrating to now + delay_s consumes exactly the commands already issued up to `now`, the ones in flight.
-
-### `src/robot_filter/kalman_motion_estimator.cpp`
-
-Beside `double worst_span = std::numeric_limits<double>::infinity();`:
-
-The smallest span any track is propagated over. Both failure modes below emit an estimate frozen at the shutter while looking exactly like a healthy filter that is not moving, so this is worth naming rather than inferring: a span past kMaxIntegrationStepS short-circuits to "hold position", and a non-positive span propagates nothing at all. Both mean the control clock and the frame stamps are not on the same timeline, which is what SVO playback does under SystemClock. The minimum is the right reducer for that question, and it goes out in update()'s diagnostics so a recording answers "did anything propagate, and by how much" without needing a rebuild. It is not the render lead: opponent tracks commit every control tick and so report one tick, while the our-robot track only commits in update() and so reports a whole frame period plus the lead.
-
-### `src/robot_filter/kalman_motion_estimator.cpp`
-
-Beside `for (const auto &[frame_id, track] : our_ekf_tracks_) {`:
-
-Rendered on a copy, like the dead-reckoning arm: the committed state only advances in update(), so measurements always fold in at or after the track stamp and the our-robot arm needs no snapshot rewind. propagate_unwrapped skips the finite-difference Jacobian (10 extra plant integrations) that a covariance-free render never uses.
+`GroundTruthRobotFilter` derives field-frame velocity from the pose delta since the last frame. Consumers that close a loop on speed (`MotionProfileNavigation`) read velocity instead of differencing poses, because only the filter knows whether a pose is a fresh measurement or a propagated one.
 
 ## Sensing model timing
 
