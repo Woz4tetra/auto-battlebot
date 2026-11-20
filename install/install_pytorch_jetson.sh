@@ -82,10 +82,28 @@ ensure_jetson_torch_in_venv() {
         return 0
     fi
 
+    install_jetson_torch_wheel
+}
+
+install_jetson_torch_wheel() {
     get_jetson_torch_install_url
     echo "Jetson: installing PyTorch wheel so dependencies use it instead of PyPI..."
     pip install "numpy==1.26.1"
     pip install --no-cache-dir "$TORCH_INSTALL"
+}
+
+install_cusparselt_linux_aarch64() {
+    local CUSPARSELT_NAME="libcusparse_lt-linux-aarch64-0.6.3.2-archive"
+    local CUSPARSELT_TMP
+    CUSPARSELT_TMP=$(mktemp -d)
+    echo "Installing cuSPARSELt ($CUSPARSELT_NAME)..."
+    curl --retry 3 -fLs -o "$CUSPARSELT_TMP/$CUSPARSELT_NAME.tar.xz" \
+        "https://developer.download.nvidia.com/compute/cusparselt/redist/libcusparse_lt/linux-aarch64/$CUSPARSELT_NAME.tar.xz"
+    tar -xf "$CUSPARSELT_TMP/$CUSPARSELT_NAME.tar.xz" -C "$CUSPARSELT_TMP"
+    sudo cp -a "$CUSPARSELT_TMP/$CUSPARSELT_NAME/include/"* /usr/local/cuda/include/
+    sudo cp -a "$CUSPARSELT_TMP/$CUSPARSELT_NAME/lib/"* /usr/local/cuda/lib64/
+    sudo ldconfig
+    rm -rf "$CUSPARSELT_TMP"
 }
 
 install_pytorch_jetson() {
@@ -125,17 +143,7 @@ install_pytorch_jetson() {
     echo "Detected CUDA version: $CUDA_VER"
     if { [ -z "$L4T_MAJOR" ] || [ "$L4T_MAJOR" -lt 39 ]; } \
         && ! ldconfig -p | grep -q 'libcusparseLt\.so\.0'; then
-        local CUSPARSELT_NAME="libcusparse_lt-linux-aarch64-0.6.3.2-archive"
-        local CUSPARSELT_TMP
-        CUSPARSELT_TMP=$(mktemp -d)
-        echo "Installing cuSPARSELt ($CUSPARSELT_NAME)..."
-        curl --retry 3 -fLs -o "$CUSPARSELT_TMP/$CUSPARSELT_NAME.tar.xz" \
-            "https://developer.download.nvidia.com/compute/cusparselt/redist/libcusparse_lt/linux-aarch64/$CUSPARSELT_NAME.tar.xz"
-        tar -xf "$CUSPARSELT_TMP/$CUSPARSELT_NAME.tar.xz" -C "$CUSPARSELT_TMP"
-        sudo cp -a "$CUSPARSELT_TMP/$CUSPARSELT_NAME/include/"* /usr/local/cuda/include/
-        sudo cp -a "$CUSPARSELT_TMP/$CUSPARSELT_NAME/lib/"* /usr/local/cuda/lib64/
-        sudo ldconfig
-        rm -rf "$CUSPARSELT_TMP"
+        install_cusparselt_linux_aarch64
     fi
 
     if [ ! -d "$VENV_DIR" ]; then

@@ -22,6 +22,26 @@ opencv_version_at_least() {
     [[ "$(printf '%s\n%s\n' "${want}" "${have}" | sort -V | head -1)" == "${want}" ]]
 }
 
+opencv_register_python_path() {
+    local prefix="$1" python_ver="$2" bashrc="$3"
+    local py_packages=""
+    local candidate
+    for candidate in "${prefix}/lib/python${python_ver}/dist-packages" \
+        "${prefix}/lib/python${python_ver}/site-packages"; do
+        if [[ -d "${candidate}/cv2" ]]; then
+            py_packages="${candidate}"
+            break
+        fi
+    done
+    if [[ -z "${py_packages}" ]]; then
+        echo "Warning: no cv2 package found under ${prefix}/lib/python${python_ver};"
+        echo "         leaving PYTHONPATH alone."
+        return 0
+    fi
+    sed -i "\#^export PYTHONPATH=${prefix}/lib/python[0-9.]*/\(dist\|site\)-packages:#d" "${bashrc}"
+    echo "export PYTHONPATH=${py_packages}:\$PYTHONPATH" >> "${bashrc}"
+}
+
 install_opencv() (
     local version="4.14.0"
     local build_folder="${HOME}/opencv_build"
@@ -162,22 +182,7 @@ install_opencv() (
         echo 'export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH' >> ~/.bashrc
     fi
     if [[ "${build_python}" == "ON" ]]; then
-        local py_packages=""
-        local candidate
-        for candidate in "${install_prefix}/lib/python${python_ver}/dist-packages" \
-            "${install_prefix}/lib/python${python_ver}/site-packages"; do
-            if [[ -d "${candidate}/cv2" ]]; then
-                py_packages="${candidate}"
-                break
-            fi
-        done
-        if [[ -z "${py_packages}" ]]; then
-            echo "Warning: no cv2 package found under ${install_prefix}/lib/python${python_ver};"
-            echo "         leaving PYTHONPATH alone."
-        else
-            sed -i "\#^export PYTHONPATH=${install_prefix}/lib/python[0-9.]*/\(dist\|site\)-packages:#d" ~/.bashrc
-            echo "export PYTHONPATH=${py_packages}:\$PYTHONPATH" >> ~/.bashrc
-        fi
+        opencv_register_python_path "${install_prefix}" "${python_ver}" ~/.bashrc
     fi
 
     popd >/dev/null

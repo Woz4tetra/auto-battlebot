@@ -7,7 +7,7 @@ install_jetson_stability() {
 }
 
 install_cgroup_disable_memory() {
-    local extlinux_conf="/boot/extlinux/extlinux.conf"
+    local extlinux_conf="${1:-/boot/extlinux/extlinux.conf}"
     local arg="cgroup_disable=memory"
     local backup
 

@@ -12,9 +12,10 @@ if ! command -v node >/dev/null 2>&1; then
 fi
 
 cd "$WEB_DIR"
-if [ ! -d node_modules ] || [ package-lock.json -nt node_modules ]; then
+lock_hash=$(sha256sum package-lock.json | cut -d' ' -f1)
+if [ ! -d node_modules ] || [ "$(cat node_modules/.lock-hash 2>/dev/null)" != "$lock_hash" ]; then
     npm ci --no-audit --no-fund
-    touch node_modules
+    echo "$lock_hash" >node_modules/.lock-hash
 fi
 npm run build
 echo "Dashboard built: $WEB_DIR/dist"

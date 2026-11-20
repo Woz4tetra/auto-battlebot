@@ -1,5 +1,9 @@
 #!/bin/bash
 
+read_device_tree_model() {
+    tr -d '\0' <"${1:-/proc/device-tree/model}"
+}
+
 check_jetson_orin() {
     if [ ! -f /etc/nv_tegra_release ]; then
         echo "Error: This is not a NVIDIA Jetson device"
@@ -12,7 +16,7 @@ check_jetson_orin() {
     fi
 
     local model
-    model=$(tr -d '\0' < /proc/device-tree/model)
+    model=$(read_device_tree_model)
     if [[ ! "$model" =~ "Orin" ]]; then
         echo "Error: This script requires a Jetson Orin (Nano or NX)"
         echo "Detected device: $model"

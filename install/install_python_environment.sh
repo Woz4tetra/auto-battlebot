@@ -24,6 +24,36 @@ check_python_version() {
     return 1
 }
 
+find_system_tensorrt_dist_packages() {
+    local major="$1" minor="$2" root="${3:-}"
+    local candidate
+    for candidate in "${root}/usr/lib/python${major}/dist-packages" \
+        "${root}/usr/lib/python${major}.${minor}/dist-packages"; do
+        if [ -d "$candidate" ] && compgen -G "$candidate/tensorrt*" >/dev/null; then
+            echo "${candidate#"$root"}"
+            return 0
+        fi
+    done
+    return 0
+}
+
+pip_install_project_keeping_torch() {
+    local project_root="$1"
+    local torch_ver torch_constraint=""
+    torch_ver=$(pip show torch 2>/dev/null | sed -n 's/^Version: *//p')
+    if [ -n "$torch_ver" ]; then
+        torch_constraint=$(mktemp)
+        echo "torch==$torch_ver" >"$torch_constraint"
+        export PIP_CONSTRAINT="$torch_constraint"
+        echo "Pinning torch to $torch_ver for this install (Jetson wheel)."
+    fi
+    pip install -e "$project_root"
+    if [ -n "$torch_constraint" ]; then
+        unset PIP_CONSTRAINT
+        rm -f "$torch_constraint"
+    fi
+}
+
 install_python_environment() {
     set -e
 
@@ -106,15 +136,8 @@ install_python_environment() {
 
     if [ -f /etc/nv_tegra_release ]; then
         local SITE_PACKAGES="$VENV_DIR/lib/python$REQUIRED_MAJOR.$REQUIRED_MINOR/site-packages"
-        local SYS_PYTHON_PATH=""
-        local CANDIDATE
-        for CANDIDATE in "/usr/lib/python$REQUIRED_MAJOR/dist-packages" \
-            "/usr/lib/python$REQUIRED_MAJOR.$REQUIRED_MINOR/dist-packages"; do
-            if [ -d "$CANDIDATE" ] && compgen -G "$CANDIDATE/tensorrt*" >/dev/null; then
-                SYS_PYTHON_PATH="$CANDIDATE"
-                break
-            fi
-        done
+        local SYS_PYTHON_PATH
+        SYS_PYTHON_PATH=$(find_system_tensorrt_dist_packages "$REQUIRED_MAJOR" "$REQUIRED_MINOR")
         if [ -z "$SYS_PYTHON_PATH" ]; then
             echo "Error: no dist-packages directory contains the TensorRT bindings."
             echo "Continuing would leave every 'import tensorrt' in the venv broken, which shows up later as a model-load failure."
@@ -163,20 +186,7 @@ JETSON_ACTIVATE_EOF
 
     echo "Installing project dependencies from pyproject.toml..."
     if [ -f /etc/nv_tegra_release ]; then
-        local TORCH_VER
-        TORCH_VER=$(pip show torch 2>/dev/null | sed -n 's/^Version: *//p')
-        if [ -n "$TORCH_VER" ]; then
-            local TORCH_CONSTRAINT
-            TORCH_CONSTRAINT=$(mktemp)
-            echo "torch==$TORCH_VER" > "$TORCH_CONSTRAINT"
-            export PIP_CONSTRAINT="$TORCH_CONSTRAINT"
-            echo "Pinning torch to $TORCH_VER for this install (Jetson wheel)."
-        fi
-        pip install -e "$PROJECT_ROOT"
-        if [ -n "${TORCH_CONSTRAINT:-}" ]; then
-            unset PIP_CONSTRAINT
-            rm -f "$TORCH_CONSTRAINT"
-        fi
+        pip_install_project_keeping_torch "$PROJECT_ROOT"
     else
         pip install -e "$PROJECT_ROOT"
     fi

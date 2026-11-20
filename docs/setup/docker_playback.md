@@ -228,8 +228,6 @@ The usual cause of an old version is a stale manually installed plugin shadowing
 
 ## Workarounds
 
-- `docker/docker-compose.playback.yml` runs tini as PID 1. Without it PID 1 is `container_entrypoint.sh`, and a container's PID 1 gets no default signal actions: a process that installs no handler ignores the signal. The entrypoint runs `scripts/build.sh` before exec'ing the binary, and bash installs no SIGINT handler, so Ctrl-C during the build was silently dropped. The window is invisible with a warm `build-docker/` and minutes long on a scratch build. tini forwards signals to its child, so bash takes the default action and the binary's own SIGINT handler (`src/main.cpp`) still runs.
-- The compose volumes have explicit names so they stay stable and are not prefixed per project.
 - `scripts/docker/docker_common.sh` exports `UID` and `GID` because compose has no `$(id -u)` equivalent. bash sets `UID` without exporting it, and `GID` is not set at all under some shells.
 - Compose cannot express a conditional mount, so `XAUTHORITY` must always resolve to a real path or the `"${XAUTHORITY}:${XAUTHORITY}:ro"` volume becomes `:` and compose rejects the file. The script falls back to the conventional location and creates it if absent.
 - The `--no-display` flag of `run_playback.sh` and `shell.sh` blanks `DISPLAY`, which is what stops the container reaching an X server. The socket and cookie stay mounted because compose has no conditional mounts, and they are inert without `DISPLAY`.
