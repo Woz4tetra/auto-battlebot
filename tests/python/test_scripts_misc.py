@@ -7,7 +7,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
@@ -342,3 +342,45 @@ def test_nhrl_set_clips_chain_without_overlapping_stamps() -> None:
         following = nhrl.next_start_stamp_ns(start, frames, fps)
         assert following > end
         start = following
+
+
+def test_nhrl_rerun_gives_new_clips_the_stamps_a_full_run_would(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    nhrl = _load("nhrl_to_recordings")
+    frames = {"a": 900, "b": 1800, "c": 450}
+    videos = [tmp_path / f"{name}.mp4" for name in frames]
+    starts: dict[str, int] = {}
+
+    def fake_convert(video: Path, output: Path, *, start_stamp_ns: int, **_: object) -> object:
+        starts[video.stem] = start_stamp_ns
+        output.write_bytes(b"x")
+        return nhrl.ConversionResult(
+            source=video,
+            output=output,
+            frames=frames[video.stem],
+            width=0,
+            height=0,
+            fps=30.0,
+            bytes_written=1,
+        )
+
+    monkeypatch.setattr(nhrl, "convert_video", fake_convert)
+    monkeypatch.setattr(nhrl, "probe", lambda video: SimpleNamespace(fps=30.0))
+    monkeypatch.setattr(
+        nhrl, "message_counts", lambda output: {nhrl.VIDEO_TOPIC: frames[output.stem]}
+    )
+    args = SimpleNamespace(force=False, calibration_id="c", focal_px=1.0, crf=1, preset="p")
+
+    full_dir = tmp_path / "full"
+    full_dir.mkdir()
+    nhrl.convert_clips(videos, full_dir, args)
+    full = dict(starts)
+
+    rerun_dir = tmp_path / "rerun"
+    rerun_dir.mkdir()
+    (rerun_dir / "a.mcap").write_bytes(b"x")
+    starts.clear()
+    _, converted = nhrl.convert_clips(videos, rerun_dir, args)
+    assert converted == 2
+    assert starts == {"b": full["b"], "c": full["c"]}

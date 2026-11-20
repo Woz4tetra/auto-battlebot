@@ -104,6 +104,9 @@ Fixed 2026-11-19, found during phase 2:
 - `playground/opponent_prediction/run_replays.py`: start frames come from
   `config/playback/svo_start_frames.toml` through `auto_battlebot.recording.svo_start_frames`, so
   14-12-27 replays from 3000, not the script's own 1540. `make_eval_dataset.py` uses the same loader.
+- `scripts/nhrl_to_recordings.py`: a clip skipped as already converted now advances the start
+  stamp, so a re-run gives new clips the stamps a full run would. The one converted set on disk,
+  `BrettZone_2026-05` (6 clips), had no overlapping stamps.
 
 Open, found during phase 2 (2026-11-19):
 
@@ -112,7 +115,6 @@ Open, found during phase 2 (2026-11-19):
   (`training/deeplab/score_masks.py`) use the `common_transforms` defaults
   (0.4611/0.4359/0.3905, 0.2193/0.2150/0.2109). Fixing it changes the deployed field mask, so it
   needs a mask eval first.
-- `scripts/nhrl_to_recordings.py`: clips skipped as already converted do not advance `stamp_ns`, so newly converted clips can overlap their stamps. Found by batch b49, 2026-11-19.
 - `scripts/convert_ros1_mcap.py`: the diagnostics count check only flags the output having more messages than the source; it does not catch dropped messages, though the old comment claimed it bounds the count from below. Found by batch b49, 2026-11-19.
 
 ## Ledger

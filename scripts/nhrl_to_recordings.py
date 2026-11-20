@@ -140,6 +140,43 @@ field_size_y = 2.35
     return path
 
 
+def convert_clips(
+    videos: list[Path], output_dir: Path, args: argparse.Namespace
+) -> tuple[list[ConversionResult], int]:
+    """Convert each clip in order; a skipped clip still advances the stamp, as a full run would."""
+    stamp_ns = SET_EPOCH_STAMP_NS
+    results: list[ConversionResult] = []
+    converted = 0
+    for video in videos:
+        output = output_dir / f"{video.stem}.mcap"
+        if output.exists() and not args.force:
+            existing = message_counts(output).get(VIDEO_TOPIC, 0)
+            print(f"{output.name}: already converted ({existing} frames), skipping")
+            result = ConversionResult(
+                source=video,
+                output=output,
+                frames=existing,
+                width=0,
+                height=0,
+                fps=probe(video).fps,
+                bytes_written=output.stat().st_size,
+            )
+        else:
+            result = convert_video(
+                video,
+                output,
+                calibration_id=args.calibration_id,
+                focal_px=args.focal_px,
+                start_stamp_ns=stamp_ns,
+                crf=args.crf,
+                preset=args.preset,
+            )
+            converted += 1
+        stamp_ns = next_start_stamp_ns(stamp_ns, result.frames, result.fps)
+        results.append(result)
+    return results, converted
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
@@ -203,38 +240,7 @@ def main() -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
     print(f"{len(videos)} clip(s) from {source_dir} -> {output_dir}")
 
-    stamp_ns = SET_EPOCH_STAMP_NS
-    results: list[ConversionResult] = []
-    converted = 0
-    for video in videos:
-        output = output_dir / f"{video.stem}.mcap"
-        if output.exists() and not args.force:
-            existing = message_counts(output).get(VIDEO_TOPIC, 0)
-            print(f"{output.name}: already converted ({existing} frames), skipping")
-            results.append(
-                ConversionResult(
-                    source=video,
-                    output=output,
-                    frames=existing,
-                    width=0,
-                    height=0,
-                    fps=probe(video).fps,
-                    bytes_written=output.stat().st_size,
-                )
-            )
-            continue
-        result = convert_video(
-            video,
-            output,
-            calibration_id=args.calibration_id,
-            focal_px=args.focal_px,
-            start_stamp_ns=stamp_ns,
-            crf=args.crf,
-            preset=args.preset,
-        )
-        stamp_ns = next_start_stamp_ns(stamp_ns, result.frames, result.fps)
-        results.append(result)
-        converted += 1
+    results, converted = convert_clips(videos, output_dir, args)
 
     write_manifest(output_dir, source_dir, results, args)
     print(f"\n{converted} converted, {len(results) - converted} already present")
