@@ -1,4 +1,4 @@
-FROM nvidia/cuda:13.0.0-cudnn-devel-ubuntu22.04
+FROM nvidia/cuda:13.0.0-cudnn-devel-ubuntu24.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
@@ -8,13 +8,13 @@ ENV DEBIAN_FRONTEND=noninteractive \
     HF_HOME=/opt/hf
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3.10 python3.10-venv python3-pip \
+    python3.12 python3.12-venv python3-pip \
     ca-certificates curl git git-lfs \
     libgl1 libegl1 libglib2.0-0 libsm6 libxext6 libxrender1 libxi6 \
-    libxrandr2 libxinerama1 libxxf86vm1 libxkbcommon0 libgomp1 \
+    libxrandr2 libxinerama1 libxxf86vm1 libxkbcommon0 libgomp1 libxfixes3 libx11-6 \
     && rm -rf /var/lib/apt/lists/*
 
-RUN python3.10 -m venv /opt/venv
+RUN python3.12 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
 
 RUN pip install --upgrade pip setuptools wheel
@@ -26,6 +26,8 @@ RUN pip install --default-timeout=120 --retries=20 --no-build-isolation -e /work
 RUN pip install --default-timeout=120 --retries=20 gitpython scikit-learn pyyaml scikit-image trimesh
 
 # Download Blender into the image (this first `blenderproc` call fetches it).
+RUN mkdir -p /root/blender && curl -fsSL https://mirrors.ocf.berkeley.edu/blender/release/Blender4.2/blender-4.2.1-linux-x64.tar.xz | tar -xJ -C /root/blender
+
 RUN blenderproc pip install --default-timeout=120 --retries=20 opencv-contrib-python==4.10.0.82
 
 # Preinstall Blender runtime packages that BlenderProc otherwise installs on first run.
